@@ -1,0 +1,12 @@
+/* Ms. Protocolli */
+.lg-bar .lg-source{max-width:min(100%, 360px)}
+.lg-bar .search{flex:1 1 180px; min-width:140px}
+pre.lg-out{max-height:none; height:min(68vh, 900px); white-space:pre; overflow:auto; font-size:12px; line-height:1.5}
+pre.lg-out.wrap{white-space:pre-wrap; word-break:break-word}
+.lg-line.error{color:var(--danger)}
+.lg-line.warn{color:var(--warn)}
+.lg-line mark{background:var(--accent-soft); color:inherit; border-radius:2px}
+.lg-empty{color:var(--muted); font-family:inherit}
+.lg-status{margin:4px 2px 0; overflow-wrap:anywhere}
+.lg-sample.error{color:var(--danger); font-family:var(--mono); font-size:12px}
+@media (max-width:600px){ pre.lg-out{height:60vh} .lg-bar .lg-source{max-width:100%; flex:1 1 100%} }

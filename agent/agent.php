@@ -31,7 +31,7 @@ declare(strict_types=1);
  *   OFFICE_WEB_UID             uid of the web server in its container (default 33)
  */
 
-const AGENT_VERSION = '1.10.0';
+const AGENT_VERSION = '1.11.0';
 const RUN_DIR       = '/var/run/unraid-secretary-office';
 const PID_FILE      = RUN_DIR . '/agent.pid';
 const TICK_US       = 150000;

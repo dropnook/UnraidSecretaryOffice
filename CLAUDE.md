@@ -54,9 +54,10 @@ This file holds the conventions and the checklist for changes.
 | id | name (en / de) | does |
 |---|---|---|
 | `snapshot` | Ms. Snapshotini / Frau Snapshotini | ZFS, btrfs and VM snapshots: create, delete with an estimate, rename, hold, unmount; schedules with retention (lib/snapshotplans.php: snapshots `auto-<plan>-YYYYMMDD-HHMM`, retention touches only those; one User Scripts entry `unraid-secretary-office_snapshots` runs `php agent.php job snapshot-plans` every 5 min) |
-| `whereabouts` | Ms. Whereabouts / Frau WasIstWo | what is where and going on; "where things are" (config files, boot medium, VM files) with their backup protection. Read only |
+| `whereabouts` | Ms. Whereabouts / Frau Wasistwo | what is where and going on; "where things are" (config files, boot medium, VM files) with their backup protection. Read only |
 | `backup` | Mr. Backupsy / Herr Backupsi | runs the engine in `backup/`: status, history, protection, restore help, setup assistant (`#/backup/setup`) |
 | `emby` | Jack Emby (the intern) | EmbyCache (github.com/helmi1987/embycache-for-unraid): git clone into data/embycache/app, ff-only updates, never changed here; data apart via EMBYCACHE_DIR; settings written via its own save_config(); API key never leaves the server |
+| `logs` | Ms. Protocolli / Frau Protokolli | reads logs out loud (fixed source list in agent/desks/logs.php, ids only, never paths); tail/follow by file offset, docker logs and dmesg re-read; lines go into the page as text only. Read only |
 | `caretaker` | The Caretaker / Der Hauswart | collects every desk's `checks` and what the office needs; tells the user what is left to do |
 
 **User Scripts entries** of the office are always named `unraid-secretary-office_<what>` (US_PREFIX); renamed ones are moved once by `userScriptsMigrate()` (lib/house.php: folder, schedule, cron line, User Scripts Enhanced category). Descriptions in English: "Unraid Secretary Office - …".
@@ -75,8 +76,9 @@ Unhired desks get no write actions (`not_hired`) and their checks don't count.
 After hiring, the tip jar (core.js `tipJar`, link `OFFICE_TIP_URL`) says hello.
 
 **Characters:** Frau Snapshotini (Italian), Herr Backupsi (scatterbrained,
-anxious, checks everything three times), Frau WasIstWo (nosy gossip), Jack
-Emby (the intern), the caretaker (plain and friendly). Greetings are lang keys
+anxious, checks everything three times), Frau Wasistwo (nosy gossip), Jack
+Emby (the intern), Frau Protokolli (reads everything out, understands nothing),
+the caretaker (plain and friendly). Greetings are lang keys
 `greet.1…n` (`Office.greet` / `Office.withGreeting`); chatty bubbles may carry
 character, warnings and errors stay plain and clear.
 

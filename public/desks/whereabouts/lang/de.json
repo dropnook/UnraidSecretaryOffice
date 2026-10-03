@@ -1,5 +1,5 @@
 {
-  "name": "Frau WasIstWo",
+  "name": "Frau Wasistwo",
   "role": "Weiss, wo alles ist und was gerade los ist — und meistens noch ein bisschen mehr",
   "bubble.no_tour": "Ich war noch gar nicht unterwegs! Ein Rundgang dauert ein paar Sekunden — dann weiss ich alles.",
   "bubble.no_data": "Ich komme nicht an den Server heran und habe noch nichts zu zeigen.",
@@ -539,7 +539,7 @@
   "help.tour": "Rundgang",
   "help.tour_text": "Liest sofort alles neu ein; sonst schaut sie wieder nach, wenn die Seite geöffnet wird und ihr letzter Blick älter als 10 Minuten ist.",
   "help.asleep": "Schlafende Disks",
-  "help.asleep_text": "Frau WasIstWo weckt nie von sich aus eine schlafende Disk. Was nur eine Array-Disk wissen kann, bleibt unbekannt, bis sie wach ist; Grössen von Array-Shares misst sie nur auf Wunsch. «Schlafende Disks wecken» neben dem Rundgang weckt alle auf einmal für einen Rundgang.",
+  "help.asleep_text": "Frau Wasistwo weckt nie von sich aus eine schlafende Disk. Was nur eine Array-Disk wissen kann, bleibt unbekannt, bis sie wach ist; Grössen von Array-Shares misst sie nur auf Wunsch. «Schlafende Disks wecken» neben dem Rundgang weckt alle auf einmal für einen Rundgang.",
   "help.labels": "Backup-Labels",
   "help.labels_text": "Wie Herr Backupsi einen Pfad schützt, nach den Regeln seiner Einstellungen:",
   "wake": "Schlafende Disks wecken",
@@ -611,6 +611,6 @@
   "greet.3": "Also, ganz unter uns…",
   "greet.4": "Ich will ja nichts sagen, aber…",
   "greet.5": "Ich hab da was gesehen…",
-  "fit.yes": "Frau WasIstWo kommt sofort — sie hat schon angefangen, herumzuschnüffeln.",
+  "fit.yes": "Frau Wasistwo kommt sofort — sie hat schon angefangen, herumzuschnüffeln.",
   "wake_failed": "Nicht aufgewacht: {disks} — was dort liegt, zeige ich mit dem Stand von vorher."
 }

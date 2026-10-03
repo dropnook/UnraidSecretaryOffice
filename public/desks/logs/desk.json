@@ -1,0 +1,8 @@
+{
+  "order": 60,
+  "icon": "📝",
+  "refresh_after": 60,
+  "open_actions": [
+    "read"
+  ]
+}
