@@ -148,7 +148,7 @@ function doneSection(items) {
   const s = el('section', 'section');
   const toggle = el('button', 'btn small plain', showDone ? T('hide') : T('show'));
   toggle.type = 'button';
-  toggle.onclick = () => { showDone = !showDone; render(); };
+  toggle.onclick = () => { showDone = !showDone; Office.keepInPlace(null, render); };
   s.appendChild(Office.sectionHead(T('done', { n: items.length }), T('done_sub'), toggle));
   if (showDone) {
     const box = el('div', 'box');

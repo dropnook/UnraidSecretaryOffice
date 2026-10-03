@@ -78,6 +78,15 @@ Desks know each other only through shared libraries (`backupProtection()`,
   clickable (`.row.unfolds`), except its own buttons, links, fields and
   elements with `data-own`. The "details" tooltip sits on the name only; every
   chip carries its own `title`. Lists that unfold offer "Unfold all".
+* **Chip explanations:** a chip's `title` (or `data-tip` on anything) becomes
+  a bubble (core.js `initTips`): on hover with a mouse, on click or tap
+  everywhere. That click belongs to the chip and never folds the row under it.
+  Chips that do something themselves (own `onclick`, `data-own`, inside a
+  button/link/label) keep their click and explain on hover only.
+* **Folding never makes the page jump:** wrap every fold/unfold (rows, groups,
+  tiles that open or close a section, "Unfold all", re-renders after a toggle)
+  in `Office.keepInPlace(anchor, change)` — the clicked element stays where it
+  is on screen; space that vanished below is given back as the user scrolls up.
   Exception: selection lists (snapshots) — selecting means deleting, so only
   the checkbox selects.
 * **Backup protection** is always shown with `Office.backupChip(level)`

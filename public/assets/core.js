@@ -524,6 +524,8 @@ function route() {
   tabs();
   const root = $('#desk');
   root.innerHTML = '';
+  root.style.minHeight = '';
+  hideTip();
   window.scrollTo(0, 0);
   if (next) {
     document.title = `${t(next.id + '.name')} · ${CONFIG.host}`;
@@ -589,6 +591,108 @@ Office.backupChip = function backupChip(level) {
   c.title = t('protect.' + level + '_text');
   return c;
 };
+
+/**
+ * Explanations on chips (and anything with data-tip). A chip's title becomes
+ * a small bubble: shown on hover with a mouse, and on click or tap everywhere —
+ * the click stays with the chip, so a row under it doesn't fold. Chips that do
+ * something themselves (own onclick, data-own, inside a button or link) keep
+ * their click and only show the bubble on hover.
+ */
+let tipBox = null, tipFor = null, tipPinned = false, tipTimer = 0;
+const TIP_SEL = '.chip[title], .chip[data-tip], [data-tip]';
+const fineHover = window.matchMedia ? window.matchMedia('(hover: hover) and (pointer: fine)') : { matches: true };
+
+function tipText(node) {
+  if (node.hasAttribute('title')) {       // no native tooltip on top of ours
+    node.dataset.tip = node.getAttribute('title');
+    node.removeAttribute('title');
+  }
+  return node.dataset.tip || '';
+}
+function ownClick(node) {
+  return !!(node.onclick || node.dataset.own || node.parentElement && node.parentElement.closest('button, a, label'));
+}
+function showTip(node, pinned) {
+  const text = tipText(node);
+  if (!text) return;
+  if (!tipBox) {
+    tipBox = el('div', 'tip');
+    tipBox.setAttribute('role', 'tooltip');
+    document.body.appendChild(tipBox);
+  }
+  tipBox.textContent = text;
+  tipBox.hidden = false;
+  tipFor = node;
+  tipPinned = pinned;
+  const r = node.getBoundingClientRect();
+  const w = tipBox.offsetWidth, h = tipBox.offsetHeight;
+  const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+  const below = r.bottom + 6 + h <= window.innerHeight - 8;
+  tipBox.style.left = left + 'px';
+  tipBox.style.top = (below ? r.bottom + 6 : Math.max(8, r.top - 6 - h)) + 'px';
+}
+function hideTip() {
+  clearTimeout(tipTimer);
+  if (tipBox) tipBox.hidden = true;
+  tipFor = null;
+  tipPinned = false;
+}
+Office.hideTip = hideTip;
+
+function initTips() {
+  document.addEventListener('click', (e) => {
+    const node = e.target.closest && e.target.closest(TIP_SEL);
+    if (!node || ownClick(node)) { if (tipPinned && !(tipBox && tipBox.contains(e.target))) hideTip(); return; }
+    e.stopPropagation();               // capture phase: the row under the chip never hears of it
+    e.preventDefault();
+    if (tipFor === node && tipPinned) hideTip(); else showTip(node, true);
+  }, true);
+  document.addEventListener('mouseover', (e) => {
+    if (!fineHover.matches || tipPinned) return;
+    const node = e.target.closest && e.target.closest(TIP_SEL);
+    if (!node) return;
+    tipText(node);
+    clearTimeout(tipTimer);
+    tipTimer = setTimeout(() => showTip(node, false), 250);
+  });
+  document.addEventListener('mouseout', (e) => {
+    if (tipPinned) return;
+    const node = e.target.closest && e.target.closest(TIP_SEL);
+    if (node && !node.contains(e.relatedTarget)) hideTip();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTip(); });
+  window.addEventListener('scroll', hideTip, { passive: true });
+  window.addEventListener('resize', hideTip);
+}
+
+/**
+ * Fold or unfold something without the page jumping: the anchor (the row or
+ * heading that was clicked) stays where it is on screen. Content that
+ * disappears below keeps its space until the user scrolls up, so the browser
+ * doesn't have to pull the page down at the bottom.
+ */
+Office.keepInPlace = function keepInPlace(anchor, change) {
+  const desk = $('#desk');
+  const before = anchor && anchor.isConnected ? anchor.getBoundingClientRect().top : null;
+  desk.style.minHeight = Math.max(desk.offsetHeight, parseFloat(desk.style.minHeight) || 0) + 'px';
+  change();
+  if (before !== null && anchor.isConnected) {
+    const diff = anchor.getBoundingClientRect().top - before;
+    if (Math.abs(diff) > 1) window.scrollBy(0, diff);
+  }
+  relaxDesk();
+};
+/** give back the kept space as far as it is below the visible part */
+function relaxDesk() {
+  const desk = $('#desk');
+  const min = parseFloat(desk.style.minHeight);
+  if (!min) return;
+  const slack = document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
+  const next = min - Math.max(0, slack);
+  desk.style.minHeight = next > 0 ? next + 'px' : '';
+  if (next > 0 && desk.offsetHeight > next + 1) desk.style.minHeight = '';    // the content is taller anyway
+}
 
 /** The desk head every secretary uses: avatar, name, role, speech bubble, actions */
 Office.deskHead = function deskHead(desk, { bubble, actions }) {
@@ -730,6 +834,8 @@ async function start() {
   $('#btn-lock').onclick = () => (Office.auth.unlocked ? lockNow() : Office.unlock());
   Office.api.get({ a: 'auth' }).then((j) => Office.setAuth(j.auth)).catch(() => {});
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenu(); });
+  initTips();
+  window.addEventListener('scroll', relaxDesk, { passive: true });
   window.addEventListener('hashchange', route);
   route();
   setInterval(() => {

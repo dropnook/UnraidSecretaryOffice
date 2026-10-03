@@ -170,7 +170,7 @@ function row({ key, name, mono, meta, figures, detail, menu, cls }) {
     r.onclick = (e) => {
       if (e.target.closest('button, a, input, select, textarea, .row-detail, [data-own]')) return;
       if (String(window.getSelection && window.getSelection()).length) return;     // selecting text
-      set(!box);
+      Office.keepInPlace(r, () => set(!box));
     };
     shown.push({ open: () => !!box, set });
     if (expanded.has(key)) set(true);
@@ -193,8 +193,9 @@ function group(title, meta, rows, opts = {}) {
   if (opts.button) head.appendChild(opts.button);
   const body = el('div', 'group-rows');
   rows.forEach((x) => body.appendChild(x));
-  head.onclick = (e) => { if (e.target.closest('button')) return; box.classList.toggle('closed'); if (e.detail > 0) head.blur(); };
-  head.onkeydown = (e) => { if (e.target === head && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); box.classList.toggle('closed'); } };
+  const toggle = () => Office.keepInPlace(head, () => box.classList.toggle('closed'));
+  head.onclick = (e) => { if (e.target.closest('button')) return; toggle(); if (e.detail > 0) head.blur(); };
+  head.onkeydown = (e) => { if (e.target === head && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle(); } };
   box.append(head, body);
   return box;
 }
@@ -271,7 +272,7 @@ function pick(id, search) {
 function closeSection() {
   section = '';
   Office.store('whereabouts.section', null);
-  if (view) { renderTabs(); renderSection(); }
+  if (view) Office.keepInPlace(view.tabs, () => { renderTabs(); renderSection(); });
 }
 
 function bubble() {
@@ -561,7 +562,7 @@ function renderPlaces() {
     card.onclick = () => {
       place = place === g.id ? '' : g.id;
       Office.store('whereabouts.place', place);
-      renderPlaces();
+      Office.keepInPlace(view.placeTiles, renderPlaces);
     };
     tiles.appendChild(card);
   }
@@ -717,8 +718,10 @@ function unfoldBar(body) {
   const label = () => { b.textContent = shown.some((x) => !x.open()) ? T('unfold_all') : T('fold_all'); };
   b.onclick = () => {
     const open = shown.some((x) => !x.open());
-    body.querySelectorAll('.group').forEach((g) => g.classList.toggle('closed', !open));
-    shown.forEach((x) => x.set(open));
+    Office.keepInPlace(bar, () => {
+      body.querySelectorAll('.group').forEach((g) => g.classList.toggle('closed', !open));
+      shown.forEach((x) => x.set(open));
+    });
     label();
   };
   body.addEventListener('click', () => setTimeout(label, 0));

@@ -558,7 +558,7 @@ function foldAll() {
   const fold = view.foldBtn.dataset.fold === '1';
   for (const r of groupRefs) folded[r.key] = fold;
   Office.storeJson('snapshot.folded', folded);
-  renderList();
+  Office.keepInPlace(view.foldBtn, renderList);
 }
 
 function buildGroup(g) {
@@ -632,8 +632,8 @@ function buildGroup(g) {
     foldButton();
     if (!closed && !rows.firstChild) fill();
   };
-  head.onclick = (e) => { toggle(); if (e.detail > 0) head.blur(); };
-  head.onkeydown = (e) => { if (e.target === head && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle(); } };
+  head.onclick = (e) => { Office.keepInPlace(head, toggle); if (e.detail > 0) head.blur(); };
+  head.onkeydown = (e) => { if (e.target === head && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); Office.keepInPlace(head, toggle); } };
 
   box.append(head, rows);
   groupRefs.push({ key: g.key, cb, removable });
