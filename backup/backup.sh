@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.10 - 3.10.2026
+# unraid-backup - backup.sh                       Version 2.11 - 3.10.2026
+#   2.11 User-Scripts-Eintrag heisst unraid-secretary-office_backup (Beschreibung englisch)
 #   2.10 VM-Konfiguration aus libvirt.img (XML, NVRAM, TPM-Zustand) als
 #        Archiv zu den Dumps - [libvirt] mode = tar (Vorgabe) | off
 #   2.9  (nur setup.sh: unbekannte Groesse -> nur lokal vorgeschlagen)

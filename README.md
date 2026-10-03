@@ -64,7 +64,7 @@ Requirements: Unraid 6.12 or newer (7.x recommended), the
    ```
 4. Open `http://<OFFICE_IP>/`.
 5. For backups: Mr. Backupsy → *Set up…* (or `backup/setup.sh` in a terminal),
-   then give the User Scripts entry `unraid-backup` a schedule. The Caretaker
+   then give the User Scripts entry `unraid-secretary-office_backup` a schedule. The Caretaker
    lists what is still missing.
 
 The green dot top left means the agent checked in within the last 70 seconds.

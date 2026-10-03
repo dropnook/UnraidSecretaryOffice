@@ -97,7 +97,7 @@ function render() {
     [el('span', 'chip warn', T('not_yet')), T('help.not_yet')],
     [el('span', 'chip warn', T('unknown')), T('help.unknown')],
     [T('team'), T('help.team')],
-    [T('help.desk'), T('help.desk_text')],
+    [deskChip(Office.desks.has('backup') ? 'backup' : ID), T('help.desk_text')],      // a real one, e.g. «💾 Herr Backupsi»
     [T('help.open'), T('help.open_text')],
     [T('check_again'), T('help.again')],
   ]));

@@ -25,7 +25,7 @@ const BACKUP_LOG_NAME    = '/^(?:(run|check|dryrun|setup)-(\d{8})-(\d{4})\.log|u
 const BACKUP_LOG_BYTES   = 512 * 1024;
 const BACKUP_HISTORY     = 60;           // runs shown
 const BACKUP_SCHEDULE    = '/boot/config/plugins/user.scripts/schedule.json';
-const BACKUP_USER_SCRIPT = 'unraid-backup';
+const BACKUP_USER_SCRIPT = 'unraid-secretary-office_backup';   // was unraid-backup (userScriptsMigrate)
 
 $GLOBALS['backup'] = null;
 $GLOBALS['backupLogCache'] = [];         // legacy log file => [mtime, parsed]
@@ -65,6 +65,8 @@ desk('backup', [
 
 function backupScan(): array
 {
+    userScriptsMigrate();              // waits while a run uses the old entry; cheap otherwise
+    backupUserScriptDescribe();
     $dir = BACKUP_SCRIPT_DIR;
     $data = BACKUP_DATA_DIR;
     $state = ['time' => time(), 'found' => false, 'dir' => $dir, 'data' => $data, 'asleep' => false];
@@ -526,6 +528,25 @@ function backupSchedule(): array
         }
     }
     return $result;
+}
+
+/**
+ * The entry's description as the office writes it today (setup.sh writes the
+ * same for new entries) — only the #description line, nothing else.
+ */
+function backupUserScriptDescribe(): void
+{
+    $file = US_DIR . '/scripts/' . BACKUP_USER_SCRIPT . '/script';
+    $text = (string) @file_get_contents($file);
+    if (!preg_match('#^exec "([^"]+)/backup\.sh"#m', $text, $m)) {
+        return;
+    }
+    $line = "#description=Unraid Secretary Office - Mr. Backupsy's nightly backup: snapshots, database dumps, Kopia offsite. "
+          . "Set up and scheduled in the office. Code: {$m[1]}, data: " . dirname($m[1]) . '/data/unraid-backup';
+    $new = preg_replace('/^#description=.*$/m', $line, $text, 1);
+    if ($new !== null && $new !== $text) {
+        writeAtomic($file, $new, 0755, 0, 0);
+    }
 }
 
 /** Sets the nightly run in User Scripts (cron) or switches it off (null / '') */

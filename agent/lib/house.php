@@ -298,3 +298,79 @@ function userSharePath(string $path): string
     }
     return $path;
 }
+
+// ===================================================================== User Scripts names
+
+/** Every User Scripts entry of the office starts like this */
+const US_PREFIX = 'unraid-secretary-office_';
+
+/** Entries that had another name before (old => new) */
+const US_RENAMED = [
+    'unraid-backup'           => 'unraid-secretary-office_backup',
+    'unraid-office-snapshots' => 'unraid-secretary-office_snapshots',
+];
+
+/**
+ * Moves the office's User Scripts entries to their current names, once:
+ * the folder, its schedule (schedule.json, also the plugin's copy in /tmp),
+ * its cron line, and its place in a User Scripts Enhanced category. Waits
+ * while an entry is running.
+ */
+function userScriptsMigrate(): void
+{
+    $base = US_DIR . '/scripts';
+    foreach (US_RENAMED as $old => $new) {
+        if (!is_dir("$base/$old") || file_exists("$base/$new")) {
+            continue;
+        }
+        if (file_exists("/tmp/user.scripts/running/$old") || ($old === 'unraid-backup' && (backupScriptState()['running'] ?? false))) {
+            continue;                              // next time
+        }
+        if (!@rename("$base/$old", "$base/$new")) {
+            logLine("User Scripts: could not rename $old to $new");
+            continue;
+        }
+        @file_put_contents("$base/$new/name", $new);
+        $oldPath = "$base/$old/script";
+        $newPath = "$base/$new/script";
+
+        foreach (array_filter([US_SCHEDULE, is_file(US_RUNTIME) ? US_RUNTIME : null]) as $file) {
+            $all = json_decode((string) @file_get_contents($file), true);
+            if (!is_array($all) || !isset($all[$oldPath])) {
+                continue;
+            }
+            $out = [];
+            foreach ($all as $key => $entry) {
+                if ($key === $oldPath) {
+                    $entry['script'] = $newPath;
+                    $entry['id'] = 'schedule' . str_replace(' ', '', $new);
+                    $key = $newPath;
+                }
+                $out[$key] = $entry;
+            }
+            writeAtomic($file, json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), 0600, 0, 0);
+        }
+        $cron = (string) @file_get_contents(US_CRON);
+        if (str_contains($cron, " $oldPath ")) {
+            writeAtomic(US_CRON, str_replace(" $oldPath ", " $newPath ", $cron), 0600, 0, 0);
+            run(['/bin/bash', '/usr/local/sbin/update_cron'], 30);
+        }
+        // User Scripts Enhanced keeps its categories by "name<folder>"
+        $cats = '/boot/config/plugins/user.scripts.enhanced/categories.json';
+        $json = (string) @file_get_contents($cats);
+        if ($json !== '' && str_contains($json, '"name' . $old . '"')) {
+            $data = json_decode($json, true);
+            if (is_array($data)) {
+                $fix = function (array $list) use (&$fix, $old, $new): array {
+                    foreach ($list as &$c) {
+                        $c['scripts'] = array_map(fn ($s) => $s === "name$old" ? "name$new" : $s, (array) ($c['scripts'] ?? []));
+                        $c['subcategories'] = $fix((array) ($c['subcategories'] ?? []));
+                    }
+                    return $list;
+                };
+                writeAtomic($cats, json_encode($fix($data), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 0644, 0, 0);
+            }
+        }
+        logLine("User Scripts: $old is now $new");
+    }
+}

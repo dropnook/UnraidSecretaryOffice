@@ -99,7 +99,7 @@ function caretakerChecks(): array
     }
     foreach (glob('/boot/config/plugins/user.scripts/scripts/*', GLOB_ONLYDIR) ?: [] as $dir) {
         $name = basename($dir);
-        if ($name !== 'unraid-backup' && preg_match('/backup|sicherung/i', $name)) {
+        if (!str_starts_with($name, US_PREFIX) && !isset(US_RENAMED[$name]) && preg_match('/backup|sicherung/i', $name)) {
             $out[] = finding('other_backup_script', 'hint', null, ['name' => $name], 'userscripts');
         }
     }

@@ -31,7 +31,7 @@ declare(strict_types=1);
  *   OFFICE_WEB_UID             uid of the web server in its container (default 33)
  */
 
-const AGENT_VERSION = '1.9.0';
+const AGENT_VERSION = '1.9.1';
 const RUN_DIR       = '/var/run/unraid-secretary-office';
 const PID_FILE      = RUN_DIR . '/agent.pid';
 const TICK_US       = 150000;
@@ -202,6 +202,11 @@ function setUp(): void
     @chgrp(OFFICE_PRIVATE, WEB_UID);
     @chmod(OFFICE_PRIVATE, 0700);
     writeInfo(true);
+    try {
+        userScriptsMigrate();          // the office's User Scripts entries under their current names
+    } catch (Throwable $e) {
+        logLine('User Scripts migration: ' . $e->getMessage());
+    }
     logLine('Agent started (v' . AGENT_VERSION . ', PID ' . getmypid() . ', desks: ' . implode(', ', array_keys(desks())) . ')');
     foreach (desks() as $id => $desk) {
         if ($desk['start']) {

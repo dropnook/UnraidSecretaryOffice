@@ -16,8 +16,9 @@
 
 # shellcheck disable=SC2034   # viele Variablen werden erst in den Scripten benutzt
 
-UB_VERSION="2.10"
+UB_VERSION="2.11"
 UB_NAME="unraid-backup"
+UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry (was unraid-backup; the office moves it)
 
 ##############################################################################
 # 1. Grundlagen

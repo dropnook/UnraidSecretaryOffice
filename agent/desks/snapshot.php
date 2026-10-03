@@ -38,6 +38,13 @@ desk('snapshot', [
             $GLOBALS['dockerParent'] = $old['zfs']['docker_parent'] ?? null;
         }
         snapshotScan(true);
+        try {
+            if (snapPlans()) {
+                snapPlanRunner();      // the User Scripts entry as this version writes it
+            }
+        } catch (Throwable $e) {
+            logLine('Snapshot schedules: ' . $e->getMessage());
+        }
     },
     'actions' => [
         'refresh'  => fn (array $r) => ['ok' => true, 'state' => snapshotScan(false)],

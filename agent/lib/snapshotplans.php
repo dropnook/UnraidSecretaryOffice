@@ -23,7 +23,7 @@ declare(strict_types=1);
  * data/snapshot-plans-state.json  {"<plan>": {last_run, result, …}}
  */
 
-const SNAPPLAN_SCRIPT  = 'unraid-office-snapshots';
+const SNAPPLAN_SCRIPT  = 'unraid-secretary-office_snapshots';
 const SNAPPLAN_CRON    = '*/5 * * * *';
 const SNAPPLAN_MAX     = 20;
 const SNAPPLAN_KEEP    = 1000;
@@ -341,7 +341,7 @@ function snapPlanRunner(): void
     }
     $agent = userSharePath(OFFICE_DIR . '/agent/agent.php');
     $script = "#!/bin/bash\n"
-        . "#description=Ms. Snapshotini's schedules (Unraid Secretary Office): takes the snapshots that are due and removes the plan's old ones. Plans are managed in the office, not here.\n"
+        . "#description=Unraid Secretary Office - Ms. Snapshotini's snapshot schedules: takes the snapshots that are due and clears away the schedule's old ones. Managed in the office, not here.\n"
         . "#arrayStarted=true\n"
         . 'exec ' . escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($agent) . " job snapshot-plans\n";
     if ((string) @file_get_contents("$dir/script") !== $script) {

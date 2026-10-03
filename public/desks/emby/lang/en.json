@@ -78,7 +78,7 @@
   "schedule": "Schedule",
   "not_scheduled": "none",
   "no_script": "no User Scripts entry yet",
-  "schedule_hint": "To run EmbyCache regularly: in Settings → User Scripts, add a script with this content and pick a schedule, e.g. hourly.",
+  "schedule_hint": "To run EmbyCache regularly: in Settings → User Scripts add a script named \"unraid-secretary-office_embycache\" with this content and pick a schedule, e.g. hourly.",
   "show_log": "Log",
   "show_output": "Output ({mode})",
   "on_pool": "Ready on the pool",

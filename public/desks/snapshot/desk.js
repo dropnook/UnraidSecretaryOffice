@@ -1260,7 +1260,7 @@ function planDialog(p) {
   const asleep = check(T('plan.skip_asleep'), T('plan.skip_asleep_hint'));
   asleep.input.checked = p ? !!p.skip_asleep : true;
   box.append(recursive.label, asleep.label);
-  box.appendChild(el('p', 'callout', T('plan.note', { name: state?.plans?.runner?.name || 'unraid-office-snapshots' })));
+  box.appendChild(el('p', 'callout', T('plan.note', { name: state?.plans?.runner?.name || 'unraid-secretary-office_snapshots' })));
 
   const cronOf = () => {
     const [h, m] = (kind.value === 'weekly' ? weeklyTime.value : time.value).split(':').map(Number);

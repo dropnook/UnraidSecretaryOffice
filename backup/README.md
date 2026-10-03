@@ -6,7 +6,7 @@ Teil des [Unraid Secretary Office](../README.md): Herr Backup zeigt und steuert 
 
 Nächtliches Backup für Unraid-Server. Es macht konsistente **ZFS-/btrfs-Snapshots** und **Datenbank-Dumps**, setzt Nextcloud dafür in den **Wartungsmodus** und schickt auf Wunsch alles mit **Kopia** verschlüsselt offsite. Alles Serverspezifische steht in `settings.ini`. Diese Datei erzeugt `setup.sh` nach Rückfrage. Der nächtliche Lauf `backup.sh` meldet jede Abweichung zwischen System und `settings.ini`, ändert sie aber nie selbst.
 
-Version **2.10** (3.10.2026). Die Version steht im Kopf von `setup.sh` und `backup.sh`, in `lib/common.sh` (`UB_VERSION`) und in jedem Protokoll.
+Version **2.11** (3.10.2026). Die Version steht im Kopf von `setup.sh` und `backup.sh`, in `lib/common.sh` (`UB_VERSION`) und in jedem Protokoll.
 
 ---
 
@@ -23,7 +23,7 @@ Version **2.10** (3.10.2026). Die Version steht im Kopf von `setup.sh` und `back
 1. Das Sekretariat installieren (siehe [README](../README.md)); der Motor liegt dann in `/mnt/user/appdata/UnraidSecretaryOffice/backup/`.
 2. Mit Kopia: Container einrichten und **einmal in der KopiaUI mit dem Repository verbinden** (siehe [Kopia – optional](#kopia--optional)), dazu das [Mapping](#kopia-container-das-eine-mapping) und PUID/PGID 0.
 3. Im Terminal (SSH oder Unraid-Web-Terminal): `/mnt/user/appdata/UnraidSecretaryOffice/backup/setup.sh`. Es prüft alles, erklärt jeden Schritt und schreibt `settings.ini`. Auf Wunsch legt es auch den Eintrag in User Scripts an.
-4. In Settings › User Scripts beim Eintrag `unraid-backup` den Zeitplan setzen, z. B. Custom `0 3 * * *`.
+4. In Settings › User Scripts beim Eintrag `unraid-secretary-office_backup` den Zeitplan setzen (oder bei Herrn Backupsi unter «Zeitplan…»), z. B. Custom `0 3 * * *`.
 5. Trockenlauf: bei Herrn Backup „Jetzt sichern… › Trockenlauf“, oder im Terminal `UB_DRY_RUN=1 /mnt/user/appdata/UnraidSecretaryOffice/backup/backup.sh`
 6. Erster echter Lauf: bei Herrn Backup „Jetzt sichern…“, in User Scripts „Run in Background“ oder bis zum Zeitplan warten.
 
@@ -348,6 +348,7 @@ Darum auf jedem neuen Server zuerst `setup.sh --check` und einen Trockenlauf.
 
 ## Versionen
 
+- **2.11** – Der User-Scripts-Eintrag heisst `unraid-secretary-office_backup` wie alle Einträge des Sekretariats; der alte Eintrag `unraid-backup` zieht samt Zeitplan um.
 - **2.10** – Die VM-Konfiguration aus libvirt.img (XML, NVRAM, TPM-Zustand) kommt jede Nacht als Archiv zu den Dumps und damit offsite, ohne den ganzen Share `system` zu sichern. Vorgabe auch ohne Eintrag in settings.ini.
 - **2.9** – Neue Shares, deren Grösse unbekannt ist (kein ZFS, nicht gemessen – im Assistenten ohne „Grössen messen“), werden nur lokal vorgeschlagen statt für Kopia. Vorgabe für den Snapshot-Präfix ist `unraidbackup-`. Medienserver (Emby, Jellyfin, Plex) werden zum Weiterlaufen vorgeschlagen.
 - **2.8** – Apps werden vor den Datenbank-Dumps angehalten, nicht erst danach: Dumps und Dateien im Snapshot passen so zusammen, auch bei Apps ohne Wartungsmodus (Immich & Co.).

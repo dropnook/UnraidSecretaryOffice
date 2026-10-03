@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.10 - 3.10.2026
+# unraid-backup - setup.sh                        Version 2.11 - 3.10.2026
+#   2.11 User-Scripts-Eintrag unraid-secretary-office_backup (der alte Name wird umgezogen)
 #   2.10 VM-Konfiguration (libvirt.img) wird als Archiv vorgeschlagen
 #   2.9  Neue Shares mit unbekannter Groesse (nicht gemessen, kein ZFS) werden
 #        nur lokal vorgeschlagen, nicht mehr ungefragt fuer Kopia; Snapshot-
@@ -1620,20 +1621,26 @@ User Scripts braucht sein Script unter /boot/config/plugins/user.scripts/scripts
 liegt nur ein Aufruf von backup.sh im Script-Ordner (#arrayStarted=true: laeuft nur bei
 gestartetem Array). Den Zeitplan setzt du in der Oberflaeche (Custom, z.B. 0 3 * * *).
 TXT
-    local us_dir="$UB_BOOT/config/plugins/user.scripts/scripts/$UB_NAME" upath
+    local us_root="$UB_BOOT/config/plugins/user.scripts/scripts"
+    local us_dir="$us_root/$UB_USER_SCRIPT" upath
     upath="$(ub_user_path)"
-    if [[ -d "$UB_BOOT/config/plugins/user.scripts/scripts" ]]; then
+    if [[ -d "$us_root" ]]; then
+        # the old name: normally the office has moved it already (with its schedule)
+        if [[ -d "$us_root/$UB_NAME" && ! -e "$us_dir" ]]; then
+            mv "$us_root/$UB_NAME" "$us_dir" && echo "$UB_USER_SCRIPT" >"$us_dir/name" \
+                && hint "User Script '$UB_NAME' heisst jetzt '$UB_USER_SCRIPT' - den Zeitplan dort pruefen"
+        fi
         if [[ -f "$us_dir/script" ]] && grep -q "$upath/backup.sh" "$us_dir/script"; then
-            ok "User Script '$UB_NAME' vorhanden"
-        elif ask_yn "  User Script '$UB_NAME' anlegen? (nur ein 3-Zeilen-Aufruf auf dem Flash, alles andere bleibt in $upath)" j; then
+            ok "User Script '$UB_USER_SCRIPT' vorhanden"
+        elif ask_yn "  User Script '$UB_USER_SCRIPT' anlegen? (nur ein 3-Zeilen-Aufruf auf dem Flash, alles andere bleibt in $upath)" j; then
             mkdir -p "$us_dir"
             cat >"$us_dir/script" <<EOF
 #!/bin/bash
-#description=Naechtliches Backup (Unraid Secretary Office, Herr Backupsi) - Code in $upath, Daten in $(dirname "$upath")/data/$UB_NAME
+#description=Unraid Secretary Office - Mr. Backupsy's nightly backup: snapshots, database dumps, Kopia offsite. Set up and scheduled in the office. Code: $upath, data: $(dirname "$upath")/data/$UB_NAME
 #arrayStarted=true
 exec "$upath/backup.sh" "\$@"
 EOF
-            echo "$UB_NAME" >"$us_dir/name"
+            echo "$UB_USER_SCRIPT" >"$us_dir/name"
             ok "Angelegt: $us_dir/script"
         fi
         hint "Zeitplan in Settings > User Scripts setzen: Custom, z.B. 0 3 * * *"

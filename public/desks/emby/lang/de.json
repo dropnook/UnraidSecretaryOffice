@@ -78,7 +78,7 @@
   "schedule": "Zeitplan",
   "not_scheduled": "keiner",
   "no_script": "noch kein User-Scripts-Eintrag",
-  "schedule_hint": "Damit EmbyCache regelmässig läuft: in Settings → User Scripts ein Script mit diesem Inhalt anlegen und einen Zeitplan wählen, z. B. stündlich.",
+  "schedule_hint": "Damit EmbyCache regelmässig läuft: in Settings → User Scripts ein Script namens «unraid-secretary-office_embycache» mit diesem Inhalt anlegen und einen Zeitplan wählen, z. B. stündlich.",
   "show_log": "Protokoll",
   "show_output": "Ausgabe ({mode})",
   "on_pool": "Liegt bereit",
