@@ -8,11 +8,13 @@ declare(strict_types=1);
  * GET  ?a=part&desk=<id>&part=<name>  an extra state file data/<id>-<name>.json
  * GET  ?a=strings&lang=<code>         all UI strings of a language
  * GET  ?a=log                         tail of the agent log
+ * GET  ?a=auth                        PIN set? this browser unlocked?
  * POST {"a": "<desk>.<action>", ...}  a request for the agent; it checks everything
+ * POST {"a": "office.unlock|lock|pin"} handled here (see auth.php)
  *
  * POSTs need JSON and the header X-Office: 1. Another web page in the same
  * browser can't send that without a CORS preflight, which never succeeds
- * here. There is no login on purpose (LAN only).
+ * here. Reading is open (LAN); changing things can be protected by a PIN.
  */
 
 function api_main(): void
@@ -29,6 +31,7 @@ function api_main(): void
                 'part'    => answer(apiPart((string) ($_GET['desk'] ?? ''), (string) ($_GET['part'] ?? ''))),
                 'strings' => apiStrings((string) ($_GET['lang'] ?? 'en')),
                 'log'     => answer(['ok' => true, 'lines' => apiLogTail(400)]),
+                'auth'    => answer(['ok' => true, 'auth' => officeAuthStatus()]),
                 default   => answer(['ok' => false, 'error' => ['key' => 'bad_request']], 404),
             };
         }
@@ -39,16 +42,22 @@ function api_main(): void
         checkOrigin();
         $data = json_decode((string) file_get_contents('php://input', false, null, 0, 1 << 20), true, 16);
         $action = is_array($data) ? (string) ($data['a'] ?? '') : '';
+        if (str_starts_with($action, 'office.')) {
+            answer(officeAuthAction($action, $data));
+        }
         if (!preg_match('/^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_]*$/', $action) || !isset(officeDesks()[explode('.', $action)[0]])) {
             answer(['ok' => false, 'error' => ['key' => 'unknown_action', 'params' => ['action' => $action]]], 400);
         }
         unset($data['a']);
+        officeMayWrite($action);
         set_time_limit(660);
         ignore_user_abort(true);   // a deletion runs to the end even if the tab closes
 
         $response = askAgent($action, $data, 600);
         $response['agent'] = agentInfo();
         answer($response);
+    } catch (AuthProblem $e) {
+        answer(['ok' => false, 'error' => ['key' => $e->key, 'params' => $e->params], 'auth' => officeAuthStatus()], $e->status);
     } catch (AgentAway $e) {
         answer(['ok' => false, 'error' => ['key' => 'agent_away'], 'agent' => agentInfo()], 503);
     } catch (AgentBusy $e) {

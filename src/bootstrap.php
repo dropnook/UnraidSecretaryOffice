@@ -14,7 +14,7 @@ declare(strict_types=1);
  *   TZ                time zone for the few dates the server formats
  */
 
-const OFFICE_VERSION = '1.0.0';
+const OFFICE_VERSION = '1.1.0';
 
 // public/ is the DocumentRoot: /var/www/html in the container, ../public in the repository
 define('OFFICE_PUBLIC', rtrim(getenv('OFFICE_PUBLIC_DIR') ?: (is_dir(dirname(__DIR__) . '/html') ? dirname(__DIR__) . '/html' : dirname(__DIR__) . '/public'), '/'));
@@ -30,6 +30,7 @@ if (PHP_SAPI !== 'cli') {
 
 require __DIR__ . '/mailbox.php';
 require __DIR__ . '/desks.php';
+require __DIR__ . '/auth.php';
 
 function readJsonFile(string $file): ?array
 {

@@ -1,6 +1,6 @@
 # Working on Unraid Secretary Office
 
-Read README.md first — it explains the architecture and how a secretary (desk) is built.
+Read README.md first — it explains the architecture and how a desk (secretary) is built.
 This file holds the conventions and the checklist for changes.
 
 ## Conventions
@@ -26,6 +26,15 @@ This file holds the conventions and the checklist for changes.
 * **Keep `tick` functions cheap** — they run every ~150 ms. Long work (like `du`)
   runs as a background process polled from `tick` (see whereabouts sizes).
 * Desk lang keys `name` and `role` are the desk's title and subtitle — don't reuse them.
+* **PIN:** every POST except `refresh` and the desk's `open_actions` (desk.json)
+  needs an unlocked browser when a PIN is set. Only list actions there that
+  read or measure. Who may write is decided in `src/auth.php` only.
+* **Jobs that must outlive the agent** (backup runs) go through the host's
+  `atd` (`backupLaunch()` in agent/desks/backup.php), never as a child of the
+  agent: Docker kills the agent container's whole cgroup when it stops.
+* **unraid-backup** is a separate project; Mr. Backup only uses its stable
+  interface (`backup.sh --about`, `state/status.json` & co., interface 1).
+  Never parse its German log lines for anything new — extend the interface there.
 
 ## Checklist for a change
 
@@ -44,10 +53,10 @@ This file holds the conventions and the checklist for changes.
 agent/agent.php          loop, mailbox, desk loading, self-restart
 agent/lib/*.php          shared helpers (util: run, writeAtomic, readCfg, Problem;
                          mounts; backupscript)
-agent/desks/<id>.php     one secretary each: desk('<id>', [...])
-src/*.php                web side: bootstrap, mailbox client, desk/lang discovery, API, page
+agent/desks/<id>.php     one desk each: desk('<id>', [...])
+src/*.php                web side: bootstrap, mailbox client, desk/lang discovery, auth (PIN), API, page
 public/assets/core.js    Office: i18n, routing, reception, API, dialog, menu, toast, fmt
 public/desks/<id>/       desk.json, desk.js, lang/*.json (and desk.css)
-data/                    runtime only (state per desk, mailbox, agent log) — not in git
+data/                    runtime only (state per desk, mailbox, agent log, office/auth.json) — not in git
 compose.yaml             office + agent services; settings in .env
 ```

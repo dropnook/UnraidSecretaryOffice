@@ -1,0 +1,26 @@
+/* Mr. Backup */
+.bk-steps{display:flex; gap:4px; margin:2px 0 0; padding:0; list-style:none; flex-wrap:wrap; counter-reset:bk}
+.bk-steps li{
+  flex:1 1 0; min-width:92px; font-size:12px; color:var(--muted); padding:5px 8px 5px 8px;
+  border-top:3px solid var(--line); counter-increment:bk; white-space:nowrap;
+}
+.bk-steps li::before{content:counter(bk) " · "; color:var(--line2)}
+.bk-steps li.done{border-top-color:var(--accent); color:var(--ink2)}
+.bk-steps li.current{border-top-color:var(--accent); color:var(--accent-ink); font-weight:650; background:var(--accent-soft)}
+.bk-steps li.skipped{text-decoration:line-through}
+
+.bk-sources{display:flex; flex-direction:column; gap:2px; border-top:1px solid var(--line); padding-top:6px}
+.bk-source{display:grid; grid-template-columns:18px minmax(0,1fr) auto; align-items:center; gap:8px; font-size:13px; padding:2px 0; color:var(--muted)}
+.bk-source.ok, .bk-source.current, .bk-source.failed{color:var(--ink2)}
+.bk-source.current{font-weight:650; color:var(--accent-ink)}
+.bk-source.ok .bk-mark{color:var(--good)}
+.bk-source.failed .bk-mark{color:var(--danger)}
+.bk-mark{text-align:center; display:inline-flex; justify-content:center}
+.bk-source-name{font-family:var(--mono); font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.bk-source-info{font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap}
+
+.bk-hbar{width:160px}
+@media (max-width:640px){.bk-hbar{width:70px}}
+
+.bk-restore{grid-template-columns:max-content 1fr; font-size:13px}
+.bk-restore dd{line-height:1.7}

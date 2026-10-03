@@ -31,7 +31,7 @@ declare(strict_types=1);
  *   OFFICE_BACKUP_SCRIPT_DIR   where the unraid-backup script lives
  */
 
-const AGENT_VERSION = '1.0.0';
+const AGENT_VERSION = '1.1.0';
 const RUN_DIR       = '/var/run/unraid-secretary-office';
 const PID_FILE      = RUN_DIR . '/agent.pid';
 const TICK_US       = 150000;
@@ -42,6 +42,7 @@ const FILE_GID      = 100;
 define('OFFICE_DIR', dirname(__DIR__));
 define('DATA_DIR', rtrim(getenv('OFFICE_DATA_DIR') ?: OFFICE_DIR . '/data', '/'));
 define('MAILBOX', DATA_DIR . '/mailbox');
+define('OFFICE_PRIVATE', DATA_DIR . '/office');
 define('AGENT_INFO', DATA_DIR . '/agent.json');
 define('AGENT_LOG', DATA_DIR . '/agent.log');
 define('WEB_UID', (int) (getenv('OFFICE_WEB_UID') ?: 33));   // www-data in php:apache
@@ -184,6 +185,13 @@ function setUp(): void
     foreach (glob(MAILBOX . '/*') ?: [] as $old) {
         @unlink($old);
     }
+    // the office's own files (PIN): only the web server may read them
+    if (!is_dir(OFFICE_PRIVATE)) {
+        @mkdir(OFFICE_PRIVATE, 0700);
+    }
+    @chown(OFFICE_PRIVATE, WEB_UID);
+    @chgrp(OFFICE_PRIVATE, WEB_UID);
+    @chmod(OFFICE_PRIVATE, 0700);
     writeInfo(true);
     logLine('Agent started (v' . AGENT_VERSION . ', PID ' . getmypid() . ', desks: ' . implode(', ', array_keys(desks())) . ')');
     foreach (desks() as $id => $desk) {

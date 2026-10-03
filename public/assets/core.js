@@ -21,6 +21,7 @@ const POLL   = 60000;
 const Office = window.Office = {
   config: CONFIG,
   agent: { running: false },
+  auth: { mode: 'none', unlocked: true },
   desks: new Map(),
   current: null,
   lang: 'en',
@@ -191,24 +192,32 @@ Office.api = {
     if (j.agent) Office.setAgent(j.agent);
     return j;
   },
-  /** post('snapshot.delete', {ids}) — the agent answers {ok, …} or {ok:false, error:{key, params}} */
+  /** post('snapshot.delete', {ids}) — the agent answers {ok, …} or {ok:false, error:{key, params}}.
+      With a PIN set and this browser locked, it asks for the PIN first and then tries again. */
   async post(action, data) {
-    let j;
-    try {
-      const r = await fetch('api.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Office': '1' },
-        body: JSON.stringify({ a: action, ...data }),
-      });
-      try { j = await r.json(); } catch (e) { j = { ok: false, error: { key: 'bad_answer', params: { status: r.status } } }; }
-    } catch (e) {
-      j = { ok: false, error: { key: 'offline' } };
-    }
-    if (j.agent) Office.setAgent(j.agent);
-    j.desk = action.split('.')[0];
+    let j = await postOnce(action, data);
+    if (!j.ok && j.error && j.error.key === 'pin_required' && await Office.unlock()) j = await postOnce(action, data);
     return j;
   },
 };
+
+async function postOnce(action, data) {
+  let j;
+  try {
+    const r = await fetch('api.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Office': '1' },
+      body: JSON.stringify({ a: action, ...data }),
+    });
+    try { j = await r.json(); } catch (e) { j = { ok: false, error: { key: 'bad_answer', params: { status: r.status } } }; }
+  } catch (e) {
+    j = { ok: false, error: { key: 'offline' } };
+  }
+  if (j.agent) Office.setAgent(j.agent);
+  if (j.auth) Office.setAuth(j.auth);
+  j.desk = action.split('.')[0];
+  return j;
+}
 
 /** Text for an error {key, params} — desk-specific first, then the office's */
 Office.errorText = function errorText(error, desk) {
@@ -268,12 +277,107 @@ Office.copy = function copy(text) {
   Office.toast(ok ? t('common.copied') : t('common.copy_failed'), !ok);
 };
 
+// ------------------------------------------------------------------ PIN
+// Reading is open. With a PIN set, changing things needs an unlocked browser
+// (a cookie the server signs, valid for some hours). See src/auth.php.
+
+Office.setAuth = function setAuth(auth) {
+  if (!auth) return;
+  Office.auth = auth;
+  const b = $('#btn-lock');
+  b.hidden = auth.mode !== 'pin';
+  b.textContent = auth.unlocked ? '🔓' : '🔒';
+  b.title = auth.unlocked
+    ? t('auth.unlocked_until', { time: auth.until ? Office.fmt.time(auth.until) : '–' })
+    : t('auth.locked');
+};
+
+/** Asks for the PIN. Resolves true once this browser is unlocked. */
+Office.unlock = function unlock() {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (value) => { if (!done) { done = true; resolve(value); } };
+    const box = el('div');
+    box.appendChild(el('p', '', t('auth.unlock_text')));
+    const input = pinInput('current-password');
+    const msg = el('p', 'callout warn');
+    msg.hidden = true;
+    box.append(input, msg);
+    Office.dialog({
+      title: t('auth.unlock_title'),
+      body: box,
+      onClose: () => finish(false),
+      buttons: [
+        { text: t('common.cancel') },
+        { text: t('auth.unlock'), kind: '', act: async () => {
+          const j = await postOnce('office.unlock', { pin: input.value });
+          if (j.ok) { finish(true); return true; }
+          msg.textContent = Office.errorText(j.error);
+          msg.hidden = false;
+          input.select();
+          return false;
+        } },
+      ],
+    });
+  });
+};
+
+function pinInput(autocomplete) {
+  const input = el('input', 'input');
+  input.type = 'password';
+  input.autocomplete = autocomplete;
+  input.maxLength = 64;
+  return input;
+}
+
+async function lockNow() {
+  const j = await postOnce('office.lock', {});
+  if (j.ok) Office.toast(t('auth.locked_now'));
+}
+
+/** Set, change or remove the PIN */
+function pinSettings() {
+  const a = Office.auth;
+  const box = el('div');
+  box.appendChild(el('p', '', t(a.mode === 'pin' ? 'auth.settings_text_on' : 'auth.settings_text_off')));
+  if (!a.writable) box.appendChild(el('p', 'callout warn', t('auth.not_writable')));
+  const field = (label, input) => {
+    const f = el('div', 'field');
+    const l = el('label', '', label);
+    f.append(l, input);
+    box.appendChild(f);
+    return input;
+  };
+  const current = a.mode === 'pin' ? field(t('auth.current'), pinInput('current-password')) : null;
+  const pin = field(t('auth.new'), pinInput('new-password'));
+  const again = field(t('auth.again'), pinInput('new-password'));
+  box.appendChild(el('p', 'role', t('auth.forgot')));
+  const msg = el('p', 'callout warn');
+  msg.hidden = true;
+  box.appendChild(msg);
+  const fail = (text) => { msg.textContent = text; msg.hidden = false; return false; };
+
+  const save = async (remove) => {
+    if (!remove && pin.value !== again.value) return fail(t('auth.mismatch'));
+    if (!remove && !pin.value) return fail(t('auth.empty'));
+    const j = await postOnce('office.pin', { pin: remove ? '' : pin.value, current: current ? current.value : '' });
+    if (!j.ok) return fail(Office.errorText(j.error));
+    Office.toast(t(remove ? 'auth.removed' : 'auth.saved'));
+    return true;
+  };
+  const buttons = [{ text: t('common.cancel') }];
+  if (a.mode === 'pin') buttons.push({ text: t('auth.remove'), kind: 'danger plain', act: () => save(true) });
+  buttons.push({ text: t(a.mode === 'pin' ? 'auth.change' : 'auth.set'), kind: '', act: () => save(false) });
+  Office.dialog({ title: t('auth.settings_title'), body: box, buttons });
+}
+
 // ------------------------------------------------------------------ dialog
 let closeDialog = null;
 Office.dialogOpen = () => !!closeDialog;
 
-/** buttons: [{text, kind, act}] — when act() returns false the dialog stays open */
-Office.dialog = function dialog({ title, body, buttons, wide }) {
+/** buttons: [{text, kind, act}] — when act() returns false the dialog stays open.
+    onClose() runs however the dialog ends (button, Escape, click outside, another dialog). */
+Office.dialog = function dialog({ title, body, buttons, wide, onClose }) {
   if (closeDialog) closeDialog();
   const backdrop = $('#dialog-backdrop');
   $('#dialog').classList.toggle('wide', !!wide);
@@ -307,10 +411,14 @@ Office.dialog = function dialog({ title, body, buttons, wide }) {
   const field = box.querySelector('input.input:not([type=search])');
   if (field) { field.focus(); field.select(); } else if (made[0]) made[0].focus();
 
+  let closed = false;
   function close() {
+    if (closed) return;
+    closed = true;
     backdrop.hidden = true;
     closeDialog = null;
     document.removeEventListener('keydown', onKey);
+    if (onClose) onClose();
   }
   function onKey(e) {
     if (e.key === 'Escape') close();
@@ -537,8 +645,10 @@ function officeMenu(e) {
     { text: t('office.refresh'), act: () => route() },
     { text: t('office.log'), act: showLog },
     { separator: true },
-    { text: t('help.title'), act: Office.help },
+    { text: t(Office.auth.mode === 'pin' ? 'auth.menu_change' : 'auth.menu_set'), act: pinSettings },
   ];
+  if (Office.auth.mode === 'pin' && Office.auth.unlocked) items.push({ text: t('auth.lock_now'), act: lockNow });
+  items.push({ separator: true }, { text: t('help.title'), act: Office.help });
   if (Office.current && Office.current.menu) items.unshift(...Office.current.menu(), { separator: true });
   Office.menu(e, items);
 }
@@ -577,6 +687,8 @@ async function start() {
   languagePicker();
   footer();
   $('#btn-more').onclick = officeMenu;
+  $('#btn-lock').onclick = () => (Office.auth.unlocked ? lockNow() : Office.unlock());
+  Office.api.get({ a: 'auth' }).then((j) => Office.setAuth(j.auth)).catch(() => {});
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenu(); });
   window.addEventListener('hashchange', route);
   route();

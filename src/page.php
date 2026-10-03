@@ -53,6 +53,7 @@ function render_page(): void
   <nav class="tabs" id="tabs" aria-label="Desks"></nav>
   <div class="topbar-right">
     <select class="lang" id="lang" aria-label="Language"></select>
+    <button class="more" id="btn-lock" type="button" aria-label="PIN" hidden></button>
     <button class="more" id="btn-more" type="button" aria-label="More">⋯</button>
   </div>
 </header>
