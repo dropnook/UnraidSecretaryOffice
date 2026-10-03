@@ -89,7 +89,7 @@ function embyContainers(): array
 {
     $found = [];
     foreach (houseContainers() as $c) {
-        if (!preg_match('#(^|/)emby(server)?(:|$)|embyserver#i', $c['image'])) {
+        if (!embyIsServerImage($c['image'])) {
             continue;
         }
         $inspect = houseInspect($c['name']) ?? [];
@@ -115,6 +115,19 @@ function embyContainers(): array
                     'url' => 'http://' . ($ip ?? embyHostIp()) . ':' . $port, 'mounts' => $mounts];
     }
     return $found;
+}
+
+/**
+ * Is this the image of an Emby server? Only the last part of the image name
+ * counts, without registry and tag: emby/embyserver, linuxserver/emby,
+ * lscr.io/linuxserver/emby, binhex/arch-emby, embyserver_arm64v8 … — but not
+ * tools around Emby such as EmbyCache or EmbyStat. Container names never
+ * matter: they are the user's own.
+ */
+function embyIsServerImage(string $image): bool
+{
+    $name = strtolower(preg_replace('#[:@].*$#', '', basename(preg_replace('#@.*$#', '', $image))));
+    return (bool) preg_match('/(^|[-_.])emby(server)?($|[-_.])/', $name);
 }
 
 function embyHostIp(): string
