@@ -2,6 +2,7 @@
 ###############################################################################
 # unraid-backup - setup.sh                        Version 2.11 - 3.10.2026
 #   2.11 User-Scripts-Eintrag unraid-secretary-office_backup (der alte Name wird umgezogen)
+#        Die Container des Sekretariats laufen beim Backup immer weiter (wie Kopia)
 #   2.10 VM-Konfiguration (libvirt.img) wird als Archiv vorgeschlagen
 #   2.9  Neue Shares mit unbekannter Groesse (nicht gemessen, kein ZFS) werden
 #        nur lokal vorgeschlagen, nicht mehr ungefragt fuer Kopia; Snapshot-
@@ -829,6 +830,20 @@ container_needs_stop() { # setzt CT_WHY; 0 = anhalten
     ctwhy "$n" no_data "" "keine gesicherten Daten"; return 1
 }
 
+# Gehoert der Container zum Unraid Secretary Office (bindet dessen Ordner ein)? Das Office
+# schreibt nur kleine Dateien atomar (tmp + rename) und zeigt den Lauf an - es laeuft immer weiter.
+is_office_container() { # is_office_container <name>
+    local src office rel
+    office="$(cd "$UB_DIR/.." && pwd -P)"
+    office="${office#/mnt/*/}"
+    while IFS='|' read -r src _ _; do
+        [[ -z "$src" ]] && continue
+        rel="${src#/mnt/*/}"
+        [[ "$rel" == "$office" || "$rel" == "$office/"* ]] && return 0
+    done <<<"${CT_BINDS[$1]:-}"
+    return 1
+}
+
 step_containers() {
     hdr "Container"
     explain <<'TXT'
@@ -859,6 +874,9 @@ TXT
     P[docker|no_stop]=""
     for n in "${CT_NAMES[@]}"; do
         [[ "$n" == "$KOPIA_CONTAINER" ]] && { CT_STOP[$n]="no"; ctwhy "$n" kopia "" "Kopia - laeuft immer weiter"; continue; }
+        if is_office_container "$n"; then
+            CT_STOP[$n]="no"; ctwhy "$n" office "" "Unraid Secretary Office - laeuft immer weiter"; continue
+        fi
         if [[ "$had_cfg" == "yes" ]] && in_list "$n" "${known[@]}"; then
             if in_list "$n" "${nostop[@]}"; then CT_STOP[$n]="no"; else CT_STOP[$n]="yes"; fi
             CT_PREV[$n]=1
@@ -1362,8 +1380,10 @@ w_kv()   { printf '%s = %s\n' "$1" "$2"; }
 w_list() { local k="$1" v; while IFS= read -r v; do [[ -n "$v" ]] && printf '%s = %s\n' "$k" "$v"; done < <(plist "$2"); }
 w_c()    { printf '# %s\n' "$@"; }
 
-write_settings() {
-    local tmp="$UB_SETTINGS.tmp.$$" s n
+# settings.ini as it would be written now (to stdout) - write_settings stores it,
+# settings_pending compares it with the file on disk
+settings_render() {
+    local s n
     {
         echo "###############################################################################"
         echo "# $UB_NAME - settings.ini fuer $(pget "general|server")"
@@ -1492,7 +1512,27 @@ write_settings() {
                 w_kv locations "$(inv_locnames "$s")"
             }
         done
-    } >"$tmp" || { bad "Kann $tmp nicht schreiben"; return 1; }
+    }
+}
+
+# What Apply would really change in settings.ini: key lines only in the file
+# today (-) or only in the new one (+), each with its section. JSON list.
+settings_pending() {
+    [[ -f "$UB_SETTINGS" ]] || { echo '[]'; return 0; }
+    local new="$UB_STATE/.settings.pending.$$"
+    settings_render >"$new" 2>/dev/null || { rm -f "$new"; echo '[]'; return 0; }
+    local keyed='/^[[:space:]]*([#;]|$)/ {next}
+                 /^\[/ {sec=$0; next}
+                 {gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print sec "\t" $0}'
+    comm -3 <(awk "$keyed" "$UB_SETTINGS" | LC_ALL=C sort -u) <(awk "$keyed" "$new" | LC_ALL=C sort -u) \
+        | awk -F'\t' '{ if ($1 == "") print "+\t" $2 "\t" $3; else print "-\t" $1 "\t" $2 }' \
+        | jq -Rn '[inputs | split("\t") | {op: .[0], section: (.[1] | ltrimstr("[") | rtrimstr("]")), line: .[2]}]'
+    rm -f "$new"
+}
+
+write_settings() {
+    local tmp="$UB_SETTINGS.tmp.$$"
+    settings_render >"$tmp" || { bad "Kann $tmp nicht schreiben"; return 1; }
 
     # Gegenprobe: neue Datei muss sich fehlerfrei laden lassen
     local keep_cfg; keep_cfg="$(declare -p CFG)"; keep_cfg="${keep_cfg/declare -A/declare -gA}"
@@ -1745,14 +1785,23 @@ decisions_load() {
     ok "$n Entscheidungen aus dem Sekretariat uebernommen"
 }
 
+# key<US>value lines -> JSON object; lists (ignore, no_stop, ...) as arrays
+plan_kv() {
+    jq -Rn '[inputs | select(length > 0) | index("\u001f") as $i | {key: .[0:$i], value: .[$i + 1:]}]
+            | map(if (.key | test("\\|(ignore|no_stop|known|kopia_ignore|exclude_dataset|tar_exclude)$"))
+                  then .value |= (split("\u001e") | map(select(length > 0))) else . end) | from_entries'
+}
+
 # Alles, was eine Oberflaeche zum Entscheiden braucht -> state/setup-plan.json
 plan_write() {
     local k s n b tmp="$UB_STATE/.setup-plan.json.$$"
     local p shares cts dbs miss ncs bases srcs maps
-    p="$(for k in "${!P[@]}"; do printf '%s\x1f%s\n' "$k" "${P[$k]//$'\n'/$'\x1e'}"; done \
-        | jq -Rn '[inputs | index("\u001f") as $i | {key: .[0:$i], value: .[$i + 1:]}]
-                  | map(if (.key | test("\\|(ignore|no_stop|known|kopia_ignore|exclude_dataset|tar_exclude)$"))
-                        then .value |= (split("\u001e") | map(select(length > 0))) else . end) | from_entries')"
+    p="$(for k in "${!P[@]}"; do printf '%s\x1f%s\n' "$k" "${P[$k]//$'\n'/$'\x1e'}"; done | plan_kv)"
+    # what settings.ini says today, in the same form - so a page can show what Apply really changes
+    local o="{}"
+    [[ "$HAVE_SETTINGS" == "yes" ]] && o="$(for k in "${!OLD[@]}"; do printf '%s\x1f%s\n' "$k" "${OLD[$k]//$'\n'/$'\x1e'}"; done | plan_kv)"
+    local pending="[]"
+    [[ "$HAVE_SETTINGS" == "yes" ]] && pending="$(settings_pending)"
     shares="$(for s in "${SH[@]}"; do
         local kids="" sug=""
         while IFS='|' read -r b n _; do [[ -n "$n" ]] && kids+="$n"$'\x1e'; done <<<"${INV_CHILDREN[$s]:-}"
@@ -1788,7 +1837,7 @@ plan_write() {
     for n in "${CT_NAMES[@]}"; do is_kopia_image "${CT_IMAGE[$n]}" && cands+="$n"$'\x1e'; done
     printf '%s\n' "${MSGS[@]}" | us_json level step text | jq -c \
         --argjson interface "$UB_INTERFACE" --arg version "$UB_VERSION" --argjson time "$(date +%s)" \
-        --arg have "$HAVE_SETTINGS" --argjson P "$p" --argjson shares "$shares" --argjson containers "$cts" \
+        --arg have "$HAVE_SETTINGS" --argjson P "$p" --argjson O "$o" --argjson pending "$pending" --argjson shares "$shares" --argjson containers "$cts" \
         --argjson databases "$dbs" --argjson missing "$miss" --argjson nextcloud "$ncs" --argjson bases "$bases" \
         --arg flash_ds "${FLASH_DATASET:-}" --arg flash_fs "${FLASH_FS:-}" --arg size_timeout "$SIZE_TIMEOUT" \
         --arg k_enabled "$(pget "kopia|enabled" no)" --arg k_container "$kc" --arg k_cands "$cands" \
@@ -1798,7 +1847,7 @@ plan_write() {
         --arg k_storage "${KOPIA_STORAGE:-}" --arg k_host "${KOPIA_HOST:-}" --arg k_uid "${KOPIA_SERVER_UID:-}" \
         --argjson k_sources "$srcs" --arg mount_root "$MOUNT_ROOT" \
         '{interface: $interface, version: $version, time: $time, have_settings: ($have == "yes"),
-          sizes_measured: ($size_timeout != "0"), P: $P, shares: $shares, containers: $containers,
+          sizes_measured: ($size_timeout != "0"), P: $P, O: $O, pending: $pending, shares: $shares, containers: $containers,
           databases: $databases, missing_databases: $missing, nextcloud: $nextcloud,
           bases: $bases, flash: {dataset: $flash_ds, fs: $flash_fs}, mount_root: $mount_root,
           kopia: {enabled: ($k_enabled == "yes"), container: $k_container,

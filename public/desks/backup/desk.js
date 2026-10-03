@@ -758,9 +758,22 @@ async function setupPlan(measure, quiet) {
 
 function setupApply() {
   const changes = setupChanges();
+  const pending = setup.plan.pending || [];
   const box = el('div');
-  box.appendChild(el('p', '', changes.length ? T('setup.apply_text', { n: changes.length }) : T('setup.apply_none')));
+  box.appendChild(el('p', '', changes.length + pending.length ? T('setup.apply_text', { n: changes.length + pending.length }) : T('setup.apply_none')));
+  if (pending.length) {
+    // what my proposal changes against the saved settings.ini, line by line
+    box.appendChild(el('div', 'field-title', T('setup.pending_title')));
+    const ul = el('ul', 'shortlist');
+    pending.forEach((x) => {
+      const li = el('li', '', `${x.op === '+' ? '+' : '−'} ${x.line}`);
+      li.appendChild(el('span', '', `[${x.section}]`));
+      ul.appendChild(li);
+    });
+    box.appendChild(ul);
+  }
   if (changes.length) {
+    if (pending.length) box.appendChild(el('div', 'field-title', T('setup.edits_title')));
     const ul = el('ul', 'shortlist');
     changes.slice(0, 60).forEach((k) => {
       const li = el('li', '', changeLabel(k));
@@ -805,13 +818,15 @@ function valueText(v) {
 /** The bar at the bottom: how many changes, apply */
 function setupBar() {
   if (page !== 'setup' || !setup.plan || !setup.draft) { Office.selbar(null); return; }
-  const n = setupChanges().length;
+  const edits = setupChanges().length;
+  const n = edits + (setup.plan.pending || []).length;   // your edits + what Apply changes in settings.ini anyway
   const busy = setup.status && setup.status.running;
+  if (!n) { Office.selbar(null); return; }      // nothing to apply: no bar that keeps offering it
   Office.selbar({
-    title: n ? T('setup.bar_changes', { n }) : T('setup.bar_none'),
+    title: T('setup.bar_changes', { n }),
     sub: T('setup.bar_sub', { when: fmt.relative(setup.plan.time) }),
     buttons: [
-      { text: T('setup.discard'), kind: 'plain', disabled: !n || busy, act: () => { setup.draft = clone(setup.plan.P); renderSetup(); } },
+      { text: T('setup.discard'), kind: 'plain', disabled: !edits || busy, act: () => { setup.draft = clone(setup.plan.P); renderSetup(); } },
       { text: T('setup.apply'), disabled: busy || !Office.agent.running, act: setupApply },
     ],
   });
@@ -1096,6 +1111,8 @@ function setupContainers(plan) {
     row.appendChild(main);
     if (c.kopia) {
       row.appendChild(chip(T('setup.ct_kopia'), 'quiet'));
+    } else if (c.why === 'office') {
+      row.appendChild(chip(T('setup.ct_office'), 'quiet'));     // the office never stops itself
     } else {
       const keep = nostop().includes(c.name);
       const sel = el('select', 'picker');
@@ -1349,6 +1366,11 @@ Office.desk({
   poll() { if (page === 'main') load(false); },
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
   menu() {
+    if (page === 'setup') {
+      // writes the same settings again and aligns Kopia's policies — rarely needed, so not in the bar
+      const ok = setup.plan && setup.draft && !(setup.status && setup.status.running) && Office.agent.running;
+      return [{ text: T('setup.apply_again'), act: ok ? setupApply : null }];
+    }
     const items = [{ text: T('menu.refresh'), act: () => load(true) }];
     if (state && state.found) {
       const ready = canAct() && !live();

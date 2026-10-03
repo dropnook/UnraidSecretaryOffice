@@ -504,5 +504,10 @@
   "fit.yes": "Mr. Backupsy is coming — he only asked three times whether Kopia (\"{kopia}\") is really there.",
   "fit.no_kopia": "Mr. Backupsy would come, but he's nervous: without Kopia he can't save anything offsite. You can install Kopia later — I'll tell you how.",
   "fit.no_cow": "Mr. Backupsy declined: without ZFS or btrfs he can't take snapshots. \"That makes me dizzy\", he said.",
-  "fire_note": "The nightly backup keeps running as long as it is scheduled. If it should stop, switch it off first under his \"Schedule…\"."
+  "fire_note": "The nightly backup keeps running as long as it is scheduled. If it should stop, switch it off first under his \"Schedule…\".",
+  "setup.apply_again": "Apply again",
+  "setup.ct_office": "Office — always keeps running",
+  "setup.ctwhy.office": "Unraid Secretary Office — only writes small files, never half of one",
+  "setup.pending_title": "New compared with the saved settings",
+  "setup.edits_title": "Changed by you"
 }

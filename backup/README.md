@@ -348,7 +348,7 @@ Darum auf jedem neuen Server zuerst `setup.sh --check` und einen Trockenlauf.
 
 ## Versionen
 
-- **2.11** – Der User-Scripts-Eintrag heisst `unraid-secretary-office_backup` wie alle Einträge des Sekretariats; der alte Eintrag `unraid-backup` zieht samt Zeitplan um.
+- **2.11** – Der User-Scripts-Eintrag heisst `unraid-secretary-office_backup` wie alle Einträge des Sekretariats; der alte Eintrag `unraid-backup` zieht samt Zeitplan um. Die Container des Sekretariats laufen während des Backups immer weiter, wie Kopia.
 - **2.10** – Die VM-Konfiguration aus libvirt.img (XML, NVRAM, TPM-Zustand) kommt jede Nacht als Archiv zu den Dumps und damit offsite, ohne den ganzen Share `system` zu sichern. Vorgabe auch ohne Eintrag in settings.ini.
 - **2.9** – Neue Shares, deren Grösse unbekannt ist (kein ZFS, nicht gemessen – im Assistenten ohne „Grössen messen“), werden nur lokal vorgeschlagen statt für Kopia. Vorgabe für den Snapshot-Präfix ist `unraidbackup-`. Medienserver (Emby, Jellyfin, Plex) werden zum Weiterlaufen vorgeschlagen.
 - **2.8** – Apps werden vor den Datenbank-Dumps angehalten, nicht erst danach: Dumps und Dateien im Snapshot passen so zusammen, auch bei Apps ohne Wartungsmodus (Immich & Co.).

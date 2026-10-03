@@ -42,12 +42,15 @@ desk('whereabouts', [
     'actions' => [
         'refresh' => fn (array $r) => ['ok' => true, 'state' => whereaboutsScan()],
         'scan'    => function (array $r): array {
-            $woken = !empty($r['wake']) ? waWakeDisks() : null;
-            $state = whereaboutsScan($woken !== null);
+            $wake = !empty($r['wake']) ? waWakeDisks() : null;
+            $woken = $wake['woken'] ?? null;
+            $state = whereaboutsScan($wake !== null);
             logLine(sprintf('Whereabouts tour: %d shares, %d containers, %d scripts, %d ms%s',
                 count($state['shares']), count($state['containers']), count($state['scripts']), $state['duration_ms'],
-                $woken !== null ? sprintf(' (woke %d disks first)', count($woken)) : ''));
+                $wake !== null ? sprintf(' (woke %d disks first%s)', count($woken),
+                    $wake['failed'] ? ', did not answer: ' . implode(', ', $wake['failed']) : '') : ''));
             $state['woken'] = $woken;
+            $state['wake_failed'] = $wake['failed'] ?? [];
             return ['ok' => true, 'state' => $state];
         },
         'measure' => fn (array $r) => whereaboutsMeasure(idList($r, 'paths')),
@@ -152,7 +155,9 @@ function whereaboutsScan(bool $awake = false): array
  * it takes as long as the slowest disk instead of the sum. Read only; Unraid
  * spins them down again after its own delay.
  *
- * @return list<string> the disks that were asleep
+ * The tour only starts when every disk has answered (or after 90 s).
+ *
+ * @return array{woken: list<string>, failed: list<string>}  disks that answered / didn't
  */
 function waWakeDisks(): array
 {
@@ -163,10 +168,11 @@ function waWakeDisks(): array
             $commands[(string) ($d['name'] ?? $section)] = ['dd', "if=/dev/$dev", 'of=/dev/null', 'bs=4096', 'count=1', 'iflag=direct'];
         }
     }
-    if ($commands) {
-        runAll($commands, 90);
+    $out = ['woken' => [], 'failed' => []];
+    foreach ($commands ? runAll($commands, 90) : [] as $name => [$exit]) {
+        $out[$exit === 0 ? 'woken' : 'failed'][] = (string) $name;
     }
-    return array_keys($commands);
+    return $out;
 }
 
 // --------------------------------------------------------------------- storage

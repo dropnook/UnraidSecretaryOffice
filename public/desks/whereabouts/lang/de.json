@@ -611,5 +611,6 @@
   "greet.3": "Also, ganz unter uns…",
   "greet.4": "Ich will ja nichts sagen, aber…",
   "greet.5": "Ich hab da was gesehen…",
-  "fit.yes": "Frau WasIstWo kommt sofort — sie hat schon angefangen, herumzuschnüffeln."
+  "fit.yes": "Frau WasIstWo kommt sofort — sie hat schon angefangen, herumzuschnüffeln.",
+  "wake_failed": "Nicht aufgewacht: {disks} — was dort liegt, zeige ich mit dem Stand von vorher."
 }

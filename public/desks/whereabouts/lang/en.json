@@ -611,5 +611,6 @@
   "greet.3": "Just between you and me…",
   "greet.4": "I don't want to gossip, but…",
   "greet.5": "I saw something…",
-  "fit.yes": "Ms. Whereabouts is coming right away — she has already started snooping around."
+  "fit.yes": "Ms. Whereabouts is coming right away — she has already started snooping around.",
+  "wake_failed": "Didn't wake up: {disks} — what lies there is shown as it was before."
 }

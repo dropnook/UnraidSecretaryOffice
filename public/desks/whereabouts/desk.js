@@ -408,6 +408,7 @@ async function tour() {
   state = j.state;
   if (view) render();
   Office.toast(wake && state.woken ? T('tour_done_woken', { ms: state.duration_ms, n: state.woken.length }) : T('tour_done', { ms: state.duration_ms }));
+  if (wake && (state.wake_failed || []).length) Office.toast(T('wake_failed', { disks: state.wake_failed.join(', ') }), true);
 }
 
 // ------------------------------------------------------------------ what's going on

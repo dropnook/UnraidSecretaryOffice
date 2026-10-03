@@ -504,5 +504,10 @@
   "fit.yes": "Herr Backupsi kommt — er hat nur dreimal gefragt, ob Kopia («{kopia}») auch wirklich da ist.",
   "fit.no_kopia": "Herr Backupsi würde kommen, ist aber nervös: Ohne Kopia kann er nichts ausser Haus sichern. Kopia kannst du später installieren — ich sage dir dann, wie.",
   "fit.no_cow": "Herr Backupsi hat abgesagt: Ohne ZFS oder btrfs kann er keine Snapshots machen. «Da wird mir schwindlig», hat er gesagt.",
-  "fire_note": "Das nächtliche Backup läuft trotzdem weiter, solange es geplant ist. Soll es aufhören, schalte es vorher bei ihm unter «Zeitplan…» aus."
+  "fire_note": "Das nächtliche Backup läuft trotzdem weiter, solange es geplant ist. Soll es aufhören, schalte es vorher bei ihm unter «Zeitplan…» aus.",
+  "setup.apply_again": "Nochmals übernehmen",
+  "setup.ct_office": "Sekretariat — läuft immer weiter",
+  "setup.ctwhy.office": "Unraid Secretary Office — schreibt nur kleine Dateien, nie eine halbe",
+  "setup.pending_title": "Neu gegenüber den gespeicherten Einstellungen",
+  "setup.edits_title": "Von dir geändert"
 }
