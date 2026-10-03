@@ -129,5 +129,13 @@
   "office.fire_text": "{name} verschwindet vom Empfang und aus den Reitern. Die Daten und Einstellungen bleiben — wer wieder eingestellt wird, macht dort weiter, wo er aufgehört hat. Wieder einstellen kannst du beim Hauswart.",
   "office.fired": "{name} ist entlassen.",
   "office.tip_title_team": "Trinkgeld & Lohnerhöhung",
-  "office.tip_text_team": "Gefällt dir, wie das Team arbeitet? Über ein Trinkgeld oder eine kleine Lohnerhöhung freuen sich alle — vor allem Jack Emby, der holt ja den Kaffee."
+  "office.tip_text_team": "Gefällt dir, wie das Team arbeitet? Über ein Trinkgeld oder eine kleine Lohnerhöhung freuen sich alle — vor allem Jack Emby, der holt ja den Kaffee.",
+  "auth.read": "Auch zum Ansehen nötig",
+  "auth.read_hint": "Ohne PIN zeigt das Sekretariat dann gar nichts — keine Shares, Pfade, Container, Protokolle. Gut, wenn andere in deinem Netz nicht mitlesen sollen.",
+  "auth.read_on": "Jetzt braucht auch das Ansehen die PIN.",
+  "auth.read_off": "Ansehen geht wieder ohne PIN.",
+  "auth.locked_title": "Das Sekretariat ist gesperrt",
+  "auth.locked_text": "Zum Ansehen braucht es die PIN. Dieser Browser bleibt danach 12 Stunden entsperrt.",
+  "auth.unlock_text_read": "Dieses Sekretariat ist geschützt — auch zum Ansehen. Gib die PIN ein; dieser Browser bleibt dann 12 Stunden entsperrt.",
+  "errors.pin_needed_first": "Zuerst eine PIN setzen."
 }

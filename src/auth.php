@@ -129,8 +129,24 @@ function officeAuthStatus(?int $until = null): array
         'mode'     => $mode,
         'unlocked' => $mode === 'none' || $until !== null,
         'until'    => $mode === 'pin' ? $until : null,
+        'read'     => officeReadProtected(),
         'writable' => is_dir(dirname(officeAuthFile())) && is_writable(dirname(officeAuthFile())),
     ];
+}
+
+/** Does looking at the office need the PIN too? (Only with a PIN, and only when switched on.) */
+function officeReadProtected(): bool
+{
+    $auth = officeAuthRead();
+    return !empty($auth['pin_hash']) && !empty($auth['read']);
+}
+
+/** May this request read states, logs and outputs? Throws if not. */
+function officeMayRead(): void
+{
+    if (officeReadProtected() && officeUnlocked() === null) {
+        throw new AuthProblem('pin_required', 401);
+    }
 }
 
 /** May this request run $action ("<desk>.<name>")? Throws if not. */
@@ -138,6 +154,7 @@ function officeMayWrite(string $action): void
 {
     [$desk, $name] = explode('.', $action, 2);
     if ($name === 'refresh' || in_array($name, officeDesks()[$desk]['open_actions'] ?? [], true)) {
+        officeMayRead();                 // reading actions: open, unless reading needs the PIN too
         return;
     }
     if (officeUnlocked() === null) {
@@ -153,8 +170,25 @@ function officeAuthAction(string $action, array $data): array
         'office.unlock' => officeUnlock((string) ($data['pin'] ?? '')),
         'office.lock'   => officeLock(),
         'office.pin'    => officeSetPin((string) ($data['pin'] ?? ''), (string) ($data['current'] ?? '')),
+        'office.read'   => officeSetReadProtection(!empty($data['on'])),
         default         => throw new AuthProblem('unknown_action', 400, ['action' => $action]),
     };
+}
+
+/** office.read {on}: reading needs the PIN too — only from an unlocked browser, only with a PIN */
+function officeSetReadProtection(bool $on): array
+{
+    if (officeAuthMode() !== 'pin') {
+        throw new AuthProblem('pin_needed_first', 400);
+    }
+    if (officeUnlocked() === null) {
+        throw new AuthProblem('pin_required', 401);
+    }
+    officeAuthUpdate(function (array $auth) use ($on): array {
+        $auth['read'] = $on;
+        return $auth;
+    });
+    return ['ok' => true, 'auth' => officeAuthStatus()];
 }
 
 function officeLock(): array
@@ -219,7 +253,8 @@ function officeSetPin(string $pin, string $current): array
         if ($pin === '') {
             return [];
         }
-        return ['pin_hash' => password_hash($pin, PASSWORD_DEFAULT), 'secret' => bin2hex(random_bytes(32)), 'failures' => 0, 'wait_until' => 0];
+        return ['pin_hash' => password_hash($pin, PASSWORD_DEFAULT), 'secret' => bin2hex(random_bytes(32)), 'failures' => 0, 'wait_until' => 0,
+                'read' => !empty($auth['read'])];      // a new PIN keeps "reading needs the PIN too"
     });
     if (empty($auth['pin_hash'])) {
         officeClearUnlockCookie();

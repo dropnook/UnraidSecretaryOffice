@@ -27,6 +27,9 @@ function api_main(): void
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
         if ($method === 'GET') {
             $a = (string) ($_GET['a'] ?? '');
+            if (in_array($a, ['state', 'part', 'log'], true)) {
+                officeMayRead();         // with "reading needs the PIN too"
+            }
             match ($a) {
                 'state'   => answer(apiState((string) ($_GET['desk'] ?? ''), !empty($_GET['fresh']))),
                 'part'    => answer(apiPart((string) ($_GET['desk'] ?? ''), (string) ($_GET['part'] ?? ''))),

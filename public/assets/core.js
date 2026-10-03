@@ -187,9 +187,16 @@ Office.fmt = {
 // ------------------------------------------------------------------ API
 Office.api = {
   async get(params) {
-    const r = await fetch('api.php?' + new URLSearchParams(params), { cache: 'no-store' });
-    const j = await r.json();
-    if (j.agent) Office.setAgent(j.agent);
+    const once = async () => {
+      const r = await fetch('api.php?' + new URLSearchParams(params), { cache: 'no-store' });
+      const j = await r.json();
+      if (j.agent) Office.setAgent(j.agent);
+      if (j.auth) Office.setAuth(j.auth);
+      return j;
+    };
+    let j = await once();
+    // "reading needs the PIN too" and this browser is locked: ask once, then try again
+    if (!j.ok && j.error && j.error.key === 'pin_required' && !Office.dialogOpen() && await Office.unlock()) j = await once();
     return j;
   },
   /** post('snapshot.delete', {ids}) — the agent answers {ok, …} or {ok:false, error:{key, params}}.
@@ -298,7 +305,7 @@ Office.unlock = function unlock() {
     let done = false;
     const finish = (value) => { if (!done) { done = true; resolve(value); } };
     const box = el('div');
-    box.appendChild(el('p', '', t('auth.unlock_text')));
+    box.appendChild(el('p', '', t(Office.auth.read ? 'auth.unlock_text_read' : 'auth.unlock_text')));
     const input = pinInput('current-password');
     const msg = el('p', 'callout warn');
     msg.hidden = true;
@@ -311,7 +318,11 @@ Office.unlock = function unlock() {
         { text: t('common.cancel') },
         { text: t('auth.unlock'), kind: '', act: async () => {
           const j = await postOnce('office.unlock', { pin: input.value });
-          if (j.ok) { finish(true); return true; }
+          if (j.ok) {
+            finish(true);
+            if (lockedView) route();          // the office was hidden behind the PIN
+            return true;
+          }
           msg.textContent = Office.errorText(j.error);
           msg.hidden = false;
           input.select();
@@ -333,6 +344,7 @@ function pinInput(autocomplete) {
 async function lockNow() {
   const j = await postOnce('office.lock', {});
   if (j.ok) Office.toast(t('auth.locked_now'));
+  if (j.ok && Office.auth.read) route();     // reading needs the PIN too: hide the office again
 }
 
 /** Set, change or remove the PIN */
@@ -348,6 +360,23 @@ function pinSettings() {
     box.appendChild(f);
     return input;
   };
+  if (a.mode === 'pin') {
+    // reading needs the PIN too — switched right here, from an unlocked browser
+    const label = el('label', 'check');
+    const cb = el('input');
+    cb.type = 'checkbox';
+    cb.checked = !!a.read;
+    cb.disabled = !a.unlocked;
+    const span = el('span', '', t('auth.read'));
+    span.appendChild(el('small', '', t('auth.read_hint')));
+    label.append(cb, span);
+    cb.onchange = async () => {
+      const j = await postOnce('office.read', { on: cb.checked });
+      if (!j.ok) { cb.checked = !cb.checked; Office.toast(Office.errorText(j.error), true); return; }
+      Office.toast(t(cb.checked ? 'auth.read_on' : 'auth.read_off'));
+    };
+    box.appendChild(label);
+  }
   const current = a.mode === 'pin' ? field(t('auth.current'), pinInput('current-password')) : null;
   const pin = field(t('auth.new'), pinInput('new-password'));
   const again = field(t('auth.again'), pinInput('new-password'));
@@ -512,6 +541,7 @@ Office.desk = function registerDesk(desk) {
   Office.desks.set(desk.id, { ...meta, ...desk });
 };
 
+let lockedView = false;
 function route() {
   const parts = (location.hash.replace(/^#\/?/, '') || '').split('/');
   const id = parts[0] || '';
@@ -533,6 +563,18 @@ function route() {
   root.style.minHeight = '';
   hideTip();
   window.scrollTo(0, 0);
+  lockedView = Office.auth.mode === 'pin' && Office.auth.read && !Office.auth.unlocked;
+  if (lockedView) {               // reading needs the PIN too: nothing to see before it
+    document.title = `${t('office.name')} · ${CONFIG.host}`;
+    const box = el('div', 'box locked-view');
+    box.append(el('div', 'avatar big', '🔒'), el('h1', '', t('auth.locked_title')), el('p', 'role', t('auth.locked_text')));
+    const b = el('button', 'btn', t('auth.unlock'));
+    b.type = 'button';
+    b.onclick = () => Office.unlock();
+    box.appendChild(b);
+    root.appendChild(box);
+    return;
+  }
   if (next) {
     document.title = `${t(next.id + '.name')} · ${CONFIG.host}`;
     next.mount(root, sub);
@@ -944,7 +986,7 @@ async function start() {
   footer();
   $('#btn-more').onclick = officeMenu;
   $('#btn-lock').onclick = () => (Office.auth.unlocked ? lockNow() : Office.unlock());
-  Office.api.get({ a: 'auth' }).then((j) => Office.setAuth(j.auth)).catch(() => {});
+  try { Office.setAuth((await Office.api.get({ a: 'auth' })).auth); } catch (e) { /* the page still works */ }
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenu(); });
   initTips();
   window.addEventListener('scroll', relaxDesk, { passive: true });

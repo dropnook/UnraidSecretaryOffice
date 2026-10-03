@@ -74,10 +74,12 @@ The green dot top left means the agent checked in within the last 70 seconds.
 
 ## Security
 
-Keep the office in your LAN. Reading is open to everyone who can reach it.
+Keep the office in your LAN. By default, reading is open to everyone who can reach it.
 Changing things (deleting snapshots, starting a backup …) can be protected
 with a **PIN**: ⋯ → *Protect with a PIN*. A browser that entered it stays
-unlocked for 12 hours; changing the PIN locks every browser again. Forgot it?
+unlocked for 12 hours; changing the PIN locks every browser again. In the
+same dialog, *Needed to look, too* hides everything — shares, paths,
+containers, logs — from browsers without the PIN. Forgot it?
 Delete `data/office/auth.json` on the server. All of this lives in
 `src/auth.php`, which is also where a login at a reverse proxy (e.g. Authentik)
 would plug in later.

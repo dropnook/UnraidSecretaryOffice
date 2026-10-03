@@ -129,5 +129,13 @@
   "office.fire_text": "{name} leaves the reception and the tabs. Data and settings stay — hired again, they pick up where they left off. The caretaker can hire them again.",
   "office.fired": "{name} has been let go.",
   "office.tip_title_team": "Tips & pay rise",
-  "office.tip_text_team": "Happy with how the team works? Everyone is glad of a tip or a small pay rise — Jack Emby most of all, he fetches the coffee after all."
+  "office.tip_text_team": "Happy with how the team works? Everyone is glad of a tip or a small pay rise — Jack Emby most of all, he fetches the coffee after all.",
+  "auth.read": "Needed to look, too",
+  "auth.read_hint": "Without the PIN the office then shows nothing at all — no shares, paths, containers, logs. Good when others in your network shouldn't read along.",
+  "auth.read_on": "Looking needs the PIN now, too.",
+  "auth.read_off": "Looking works without the PIN again.",
+  "auth.locked_title": "The office is locked",
+  "auth.locked_text": "Looking needs the PIN. This browser then stays unlocked for 12 hours.",
+  "auth.unlock_text_read": "This office is protected — for looking too. Enter the PIN; this browser then stays unlocked for 12 hours.",
+  "errors.pin_needed_first": "Set a PIN first."
 }
