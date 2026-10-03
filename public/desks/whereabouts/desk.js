@@ -387,7 +387,8 @@ function render() {
   if (greeting) view.bubble.append(greeting, ' ');
   view.bubble.appendChild(bubble());
   view.tourBtn.disabled = !Office.agent.running || busy;
-  const sleeping = state && state.health ? state.health.devices.filter((d) => d.asleep).length : 0;
+  // only what the tour wakes: array and pool disks (an unassigned one, e.g. a spare parity disk, stays out)
+  const sleeping = state && state.health ? state.health.devices.filter((d) => d.asleep && d.origin !== 'unassigned').length : 0;
   view.wakeText.textContent = sleeping ? T('wake_n', { n: sleeping }) : T('wake');
   view.wakeLabel.hidden = !sleeping && !view.wake.checked;
   renderStats();
