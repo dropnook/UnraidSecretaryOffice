@@ -129,7 +129,12 @@ function row(f) {
   const how = text(f, '_how');
   if (how) main.appendChild(el('div', 'row-detail', how));
   r.appendChild(main);
-  if (f.link && state.gui && LINKS[f.link]) {
+  if (f.link && f.link.startsWith('#/')) {
+    // a page of the office itself, e.g. Mr. Backup's setup
+    const a = el('a', 'btn small plain', T('open.office'));
+    a.href = f.link;
+    r.appendChild(a);
+  } else if (f.link && state.gui && LINKS[f.link]) {
     const a = el('a', 'btn small plain', T('open.' + f.link));
     a.href = state.gui + LINKS[f.link];
     a.target = '_blank';

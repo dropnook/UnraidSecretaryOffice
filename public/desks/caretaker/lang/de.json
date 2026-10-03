@@ -31,6 +31,7 @@
   "level.recommended": "empfohlen",
   "level.hint": "Hinweis",
 
+  "open.office": "Öffnen",
   "open.plugins": "Plugins",
   "open.apps": "Apps",
   "open.docker": "Docker",
@@ -74,6 +75,6 @@
   "help.desk": "Schreibtisch-Chip",
   "help.desk_text": "Wer es braucht: Jeder Schreibtisch sagt mir, was er vom Server braucht, ich sammle es.",
   "help.open": "Knöpfe rechts",
-  "help.open_text": "Öffnen die passende Seite von Unraids Oberfläche (Plugins, Apps, Docker, User Scripts, Mitteilungen) in einem neuen Tab.",
+  "help.open_text": "Führt dorthin, wo du es erledigst: zur passenden Seite von Unraids Oberfläche (Plugins, Apps, Docker, User Scripts, Mitteilungen) in einem neuen Tab — oder direkt zum richtigen Schreibtisch hier im Büro, z. B. «Einrichten…» bei Herr Backup.",
   "help.again": "Schaut sofort alles neu an; sonst tue ich das, wenn die Seite geöffnet wird und mein letzter Blick älter als 5 Minuten ist."
 }

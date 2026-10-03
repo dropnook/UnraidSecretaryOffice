@@ -70,6 +70,7 @@
   "errors.offline": "No connection to the server.",
   "errors.bad_answer": "The server answered strangely (HTTP {status}).",
   "errors.rejected": "Request rejected.",
+  "errors.host_launch_failed": "The job could not be handed to the server's at service: {detail}",
   "errors.pin_required": "Changing things needs the PIN.",
   "errors.pin_wrong": "Wrong PIN.",
   "errors.pin_wait": "Too many wrong tries. Wait {seconds} s.",

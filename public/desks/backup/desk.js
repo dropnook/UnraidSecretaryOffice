@@ -464,7 +464,7 @@ function driftSection() {
   });
   box.appendChild(list);
   const hint = el('p', 'role', T('drift_hint') + ' ');
-  hint.appendChild(el('code', '', `${state.dir}/setup.sh`));
+  hint.appendChild(button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
   box.appendChild(hint);
   return box;
 }

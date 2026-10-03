@@ -1,0 +1,10 @@
+/* Jack Emby */
+.jo-bar{width:120px}
+.jo-results{min-height:0; padding:9px 12px; font-size:12.5px; color:var(--ink2); display:flex; flex-direction:column; gap:3px}
+.jo-results .mono{font-family:var(--mono); overflow-wrap:anywhere}
+.jo-form{display:grid; gap:0 18px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 280px), 1fr)); align-items:start}
+.jo-form > .check{grid-column:1 / -1}
+.jo-users{display:grid; gap:0 18px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 200px), 1fr))}
+.jo-lib{display:block; padding:10px 14px}
+.jo-lib .field{margin:6px 0 4px 25px}
+@media (max-width:600px){ .jo-bar{width:60px} .jo-lib .field{margin-left:0} }

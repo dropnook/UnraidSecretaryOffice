@@ -70,6 +70,7 @@
   "errors.offline": "Keine Verbindung zum Server.",
   "errors.bad_answer": "Der Server antwortet seltsam (HTTP {status}).",
   "errors.rejected": "Anfrage abgelehnt.",
+  "errors.host_launch_failed": "Der Auftrag liess sich nicht an den at-Dienst des Servers übergeben: {detail}",
   "errors.pin_required": "Zum Ändern braucht es die PIN.",
   "errors.pin_wrong": "Falsche PIN.",
   "errors.pin_wait": "Zu viele falsche Versuche. Warte {seconds} s.",

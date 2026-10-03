@@ -548,30 +548,10 @@ function backupCheckReady(): string
     return $dir;
 }
 
-/**
- * Hands a command to the host's atd, so it lives on without the agent. The
- * scripts run through bash rather than being executed directly: right after
- * an edit over SMB, Samba may still hold the file open ("Text file busy").
- */
+/** Hands a backup engine command to the host's atd (see hostLaunch()) */
 function backupLaunch(array $args, array $env = []): void
 {
-    $job = RUN_DIR . '/backup-job.sh';
-    $line = implode(' ', array_map('escapeshellarg', array_merge(['/bin/bash'], $args)));
-    $exports = '';
-    foreach ($env as $k => $v) {
-        $exports .= $k . '=' . escapeshellarg((string) $v) . "\nexport $k\n";
-    }
-    $script = "#!/bin/sh\n# written by the Unraid Secretary Office agent\n"
-            . "PATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin\nexport PATH\n$exports" . "cd /\n"
-            . "exec $line </dev/null >/dev/null 2>&1\n";
-    @mkdir(RUN_DIR, 0700, true);
-    if (@file_put_contents($job, $script) === false) {
-        throw new Problem('command_failed', ['detail' => "cannot write $job"]);
-    }
-    [$exit, , $err] = run(['at', '-M', '-f', $job, 'now'], 20);
-    if ($exit !== 0) {
-        throw new Problem('backup_at_failed', ['detail' => trim($err)]);
-    }
+    hostLaunch('backup-job', array_merge(['/bin/bash'], $args), $env);
 }
 
 function backupStart(string $mode): array
@@ -701,9 +681,9 @@ function backupChecks(): array
     $kopiaOn = $summary['kopia_enabled'];
 
     $out[] = finding('user_scripts', 'required', housePlugin('user.scripts'), [], 'apps');
-    $out[] = finding('setup', 'required', is_file("$data/settings.ini"), ['path' => BACKUP_SCRIPT_DIR . '/setup.sh']);
+    $out[] = finding('setup', 'required', is_file("$data/settings.ini"), ['path' => BACKUP_SCRIPT_DIR . '/setup.sh'], '#/backup/setup');
     $schedule = backupSchedule();
-    $out[] = finding('user_script', 'required', $schedule['script'], ['path' => BACKUP_SCRIPT_DIR . '/setup.sh'], 'userscripts');
+    $out[] = finding('user_script', 'required', $schedule['script'], ['path' => BACKUP_SCRIPT_DIR . '/setup.sh'], '#/backup/setup');
     if ($schedule['script']) {
         $out[] = finding('schedule', 'required', $schedule['enabled'], [], 'userscripts');
     }
@@ -756,13 +736,13 @@ function backupChecks(): array
 
     if (is_file("$data/settings.ini")) {
         $drift = array_filter(backupDrift()['items'], fn ($d) => in_array($d['level'] ?? '', ['warn', 'error'], true));
-        $out[] = finding('drift', 'recommended', !$drift, ['n' => count($drift), 'path' => BACKUP_SCRIPT_DIR . '/setup.sh']);
+        $out[] = finding('drift', 'recommended', !$drift, ['n' => count($drift)], '#/backup/setup');
 
         // the backup stops running containers for its snapshots — the office too, unless told otherwise
         $office = array_values(array_filter(array_keys($containers), fn ($n) => str_starts_with($n, 'UnraidSecretaryOffice')));
         if ($office && $summary['docker_stop'] !== 'none') {
             $stopped = array_values(array_diff($office, $summary['no_stop']));
-            $out[] = finding('office_keeps_running', 'recommended', !$stopped, ['names' => implode(', ', $stopped), 'path' => BACKUP_SCRIPT_DIR . '/setup.sh']);
+            $out[] = finding('office_keeps_running', 'recommended', !$stopped, ['names' => implode(', ', $stopped)], '#/backup/setup');
         }
     }
 

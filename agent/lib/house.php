@@ -16,8 +16,9 @@ const HOUSE_CACHE   = 20;          // seconds — the agent runs for weeks, one 
  *           recommended  helps, but not a must
  *           hint         worth knowing, nothing to fix
  *   ok      true / false / null (could not tell)
- *   link    where in Unraid's web UI to fix it: plugins, apps, docker,
- *           userscripts, notifications, settings (the caretaker builds the URL)
+ *   link    where to fix it: in Unraid's web UI (plugins, apps, docker,
+ *           userscripts, notifications, settings — the caretaker builds the
+ *           URL) or a page of the office itself ("#/backup/setup")
  * The text comes from the desk's language file: check.<id> (what should be
  * so) and check.<id>_how (what to do when it isn't), both with $params.
  */
@@ -95,4 +96,45 @@ function houseGuiUrl(): ?string
     $port = $ssl ? ($ident['PORTSSL'] ?? '443') : ($ident['PORT'] ?? '80');
     $default = $ssl ? '443' : '80';
     return ($ssl ? 'https://' : 'http://') . $ip . ($port !== $default ? ":$port" : '');
+}
+
+/**
+ * Hands a command to the host's atd, so it lives on without the agent: a
+ * process started by the agent itself would be killed with the agent
+ * container's cgroup. It also gets the host's network (the agent has none).
+ * Scripts should be run through their interpreter (bash, python3): right
+ * after an edit over SMB, Samba may still hold the file open ("Text file busy").
+ *
+ * @param string      $job     name of the job file in the run directory
+ * @param list<string> $args   the command, no shell
+ * @param array<string,string> $env  extra environment
+ * @param string|null $output  file for stdout and stderr (default: discarded)
+ */
+function hostLaunch(string $job, array $args, array $env = [], ?string $output = null, string $cwd = '/'): void
+{
+    $file = RUN_DIR . "/$job.sh";
+    $line = implode(' ', array_map('escapeshellarg', $args));
+    $exports = '';
+    foreach ($env as $k => $v) {
+        $exports .= $k . '=' . escapeshellarg((string) $v) . "\nexport $k\n";
+    }
+    $out = $output !== null ? escapeshellarg($output) : '/dev/null';
+    $script = "#!/bin/sh\n# written by the Unraid Secretary Office agent\n"
+            . "PATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin\nexport PATH\n$exports"
+            . 'cd ' . escapeshellarg($cwd) . "\n"
+            . "exec $line </dev/null >$out 2>&1\n";
+    @mkdir(RUN_DIR, 0700, true);
+    if (@file_put_contents($file, $script) === false) {
+        throw new Problem('command_failed', ['detail' => "cannot write $file"]);
+    }
+    [$exit, , $err] = run(['at', '-M', '-f', $file, 'now'], 20);
+    if ($exit !== 0) {
+        throw new Problem('host_launch_failed', ['detail' => trim($err)]);
+    }
+}
+
+/** Runs a command right away in the host's network (the agent itself has none) */
+function hostNet(array $command, int $timeout = 60): array
+{
+    return run(array_merge(['nsenter', '--target', '1', '--net', '--'], $command), $timeout);
 }

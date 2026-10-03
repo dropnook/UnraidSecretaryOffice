@@ -56,7 +56,7 @@ This file holds the conventions and the checklist for changes.
 | `snapshot` | Ms. Snapshot / Frau Snapshot | ZFS, btrfs and VM snapshots: create, delete with an estimate, rename, hold, unmount |
 | `whereabouts` | Ms. Whereabouts / Frau WasIstWo | what is where and going on; "where things are" (config files, boot medium, VM files) with their backup protection. Read only |
 | `backup` | Mr. Backup / Herr Backup | runs the engine in `backup/`: status, history, protection, restore help, setup assistant (`#/backup/setup`) |
-| `emby` | John (the intern) | coming: EmbyCache (github.com/helmi1987/embycache-for-unraid) — fetched from its public repo, never changed here; for now a shell |
+| `emby` | Jack Emby (the intern) | EmbyCache (github.com/helmi1987/embycache-for-unraid): git clone into data/embycache/app, ff-only updates, never changed here; data apart via EMBYCACHE_DIR; settings written via its own save_config(); API key never leaves the server |
 | `caretaker` | The Caretaker / Der Hauswart | collects every desk's `checks` and what the office needs; tells the user what is left to do |
 
 Desks know each other only through shared libraries (`backupProtection()`,

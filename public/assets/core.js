@@ -617,7 +617,8 @@ async function reception(root) {
 
   const grid = el('div', 'reception');
   root.appendChild(grid);
-  for (const desk of Office.desks.values()) {
+  const order = [...Office.desks.values()].sort((a, b) => (a.reception_order ?? a.order ?? 0) - (b.reception_order ?? b.order ?? 0));
+  for (const desk of order) {
     const card = el('div', 'desk-card');
     const top = el('div', 'desk-card-head');
     const name = el('div');

@@ -1,5 +1,6 @@
 {
   "order": 90,
   "icon": "🧰",
-  "refresh_after": 300
+  "refresh_after": 300,
+  "reception_order": 1
 }

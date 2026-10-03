@@ -7,7 +7,7 @@ declare(strict_types=1);
  * a language. Adding a secretary or a language means adding files.
  */
 
-/** @return array<string, array{id:string, order:int, icon:string, refresh_after:int, open_actions:list<string>, css:bool}> */
+/** @return array<string, array{id:string, order:int, reception_order:int, icon:string, refresh_after:int, open_actions:list<string>, css:bool}> */
 function officeDesks(): array
 {
     static $desks = null;
@@ -24,6 +24,7 @@ function officeDesks(): array
         $desks[$id] = [
             'id'            => $id,
             'order'         => (int) ($meta['order'] ?? 100),
+            'reception_order' => (int) ($meta['reception_order'] ?? $meta['order'] ?? 100),   // place at the reception, if different
             'icon'          => (string) ($meta['icon'] ?? '•'),
             'refresh_after' => (int) ($meta['refresh_after'] ?? 300),
             'open_actions'  => array_values(array_filter((array) ($meta['open_actions'] ?? []), 'is_string')),

@@ -1,5 +1,9 @@
 {
   "order": 40,
   "icon": "🍿",
-  "refresh_after": 300
+  "refresh_after": 300,
+  "open_actions": [
+    "log",
+    "output"
+  ]
 }
