@@ -1,0 +1,23 @@
+{
+  "name": "John",
+  "role": "Praktikant und Emby-Fan — holt Kaffee, unterhält alle und legt bereit, was ihr als Nächstes schaut",
+  "visit": "Zu John",
+  "bubble.hello": "Hoi, ich bin John und nur Praktikant im Sekretariat. Ich muss hier vor allem immer den Kaffee holen und die Leute entertainen — naja. Dafür kenne ich Emby in- und auswendig: Bald kümmere ich mich um EmbyCache. Was ihr als Nächstes schaut, kommt auf den schnellen Pool, damit die Array-Disks schlafen können und die Wiedergabe ohne Anlaufen startet. Gerade richte ich noch meinen Schreibtisch ein.",
+  "bubble.hello_short": "Hoi, ich bin John und nur Praktikant im Sekretariat. Ich muss hier vor allem immer den Kaffee holen und die Leute entertainen — naja.",
+  "soon": "Was ich machen werde",
+  "soon_sub": "Sobald EmbyCache hier eingerichtet ist.",
+  "soon.cache": "Zeigen, was gerade auf dem schnellen Pool liegt — pro Person, Serie und Film — und wie viel vom Budget das belegt.",
+  "soon.deck": "Zeigen, was für wen als Nächstes dran ist (Weiterschauen, Als Nächstes, Favoriten) und was gerade läuft.",
+  "soon.sleep": "Sagen, wie viel die Array-Disks schlafen dürfen und welcher Lauf was verschoben hat.",
+  "soon.setup": "EmbyCache von hier aus einrichten, so wie Herr Backup seinen Motor — ohne an EmbyCache selbst etwas zu ändern.",
+  "soon.updates": "Neue Versionen direkt aus dem öffentlichen Repository holen, wenn es welche gibt.",
+  "seen": "Was ich schon sehe",
+  "seen_sub": "Nur ein kurzer Blick — nichts wird verändert.",
+  "none": "keins",
+  "running": "läuft",
+  "not_running": "läuft nicht",
+  "no_emby": "kein Emby-Container gefunden",
+  "python_ok": "mehr braucht EmbyCache nicht",
+  "python_missing": "EmbyCache braucht Python 3 (z. B. Plugin «Python 3 for UNRAID»)",
+  "fact.soon": "Startet bald: EmbyCache"
+}

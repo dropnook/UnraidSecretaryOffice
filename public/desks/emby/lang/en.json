@@ -1,0 +1,23 @@
+{
+  "name": "John",
+  "role": "Intern and Emby fan — fetches coffee, entertains everyone, and keeps what you'll watch next on the fast pool",
+  "visit": "Visit John",
+  "bubble.hello": "Hi, I'm John — just the intern around here. Mostly I fetch the coffee and keep everyone entertained — oh well. But I know Emby inside out: soon I'll look after EmbyCache. Whatever you are about to watch goes onto the fast pool, so the array disks can sleep and playback starts without a spin-up. Right now I'm still setting up my desk.",
+  "bubble.hello_short": "Hi, I'm John — just the intern around here. Mostly I fetch the coffee and keep everyone entertained — oh well.",
+  "soon": "What I'll do",
+  "soon_sub": "As soon as EmbyCache is set up here.",
+  "soon.cache": "Show what is on the fast pool right now — per person, series and film — and how much of the budget it takes.",
+  "soon.deck": "Show what's up next for whom (Continue watching, Next up, favourites) and what is playing right now.",
+  "soon.sleep": "Tell how much the array disks get to sleep, and which runs moved what.",
+  "soon.setup": "Set EmbyCache up from here, like Mr. Backup does with his engine — without changing EmbyCache itself.",
+  "soon.updates": "Fetch new versions straight from its public repository when there are any.",
+  "seen": "What I already see",
+  "seen_sub": "Only a quick look — nothing is changed.",
+  "none": "none",
+  "running": "running",
+  "not_running": "not running",
+  "no_emby": "no Emby container found",
+  "python_ok": "EmbyCache needs nothing else",
+  "python_missing": "EmbyCache needs Python 3 (e.g. the plugin «Python 3 for UNRAID»)",
+  "fact.soon": "Starts soon: EmbyCache"
+}
