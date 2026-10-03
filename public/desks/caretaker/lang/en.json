@@ -2,16 +2,19 @@
   "name": "The Caretaker",
   "role": "Looks after the house — what the office needs from your server, and what's left for you to do",
   "visit": "Visit the caretaker",
-
   "bubble.loading": "One moment, I'm walking through the house…",
   "bubble.all_good": "Everything's in place — nothing for you to do.",
-  "bubble.todo": { "one": "There's one thing you still need to do yourself.", "other": "There are {n} things you still need to do yourself." },
-  "bubble.advice": { "one": "And I have one recommendation.", "other": "And I have {n} recommendations." },
-
+  "bubble.todo": {
+    "one": "There's one thing you still need to do yourself.",
+    "other": "There are {n} things you still need to do yourself."
+  },
+  "bubble.advice": {
+    "one": "And I have one recommendation.",
+    "other": "And I have {n} recommendations."
+  },
   "check_again": "Check again",
   "checked": "Checked",
   "checked_at": "Checked {when}",
-
   "todo": "Still to do",
   "todo_text": "Without these, a desk can't do (part of) its job. Only you can do them — in Unraid itself.",
   "advice": "Recommended",
@@ -26,11 +29,9 @@
   "unknown": "couldn't check",
   "all_good_title": "Nothing left to do",
   "all_good_text": "Every desk has what it needs.",
-
   "level.required": "needed",
   "level.recommended": "recommended",
   "level.hint": "note",
-
   "open.office": "Open",
   "open.plugins": "Plugins",
   "open.apps": "Apps",
@@ -38,10 +39,8 @@
   "open.userscripts": "User Scripts",
   "open.notifications": "Notifications",
   "open.settings": "Settings",
-
   "fact.more": "… and {n} more",
   "fact.done": "{n} checks in place",
-
   "check.unraid": "Unraid {min} or newer (this is {version})",
   "check.unraid_how": "Update Unraid under Tools → Update OS.",
   "check.community_apps": "Community Apps",
@@ -51,7 +50,7 @@
   "check.fix_common_problems": "Fix Common Problems",
   "check.fix_common_problems_how": "Checks the server for common mistakes and warns early. Install it from Apps.",
   "check.files_viewer": "Files Viewer (by Lazaros Chalkidis)",
-  "check.files_viewer_how": "Look at files and logs — Mr. Backup's too — right in Unraid's web UI. Install it from Apps.",
+  "check.files_viewer_how": "Look at files and logs — Mr. Backupsy's too — right in Unraid's web UI. Install it from Apps.",
   "check.notifications": "Unraid's alerts reach you by mail or push",
   "check.notifications_how": "Switch on mail or an agent (Pushover, Telegram, …) for alerts under Settings → Notifications — otherwise nobody hears about a failed backup or a dying disk.",
   "check.mail_subject": "The mail subject «{subject}» doesn't mention {host}",
@@ -59,11 +58,11 @@
   "check.pin": "Changing things in the office needs a PIN",
   "check.pin_how": "⋯ → Protect with a PIN. Reading stays open for everyone in your LAN.",
   "check.other_backup_plugin": "Another backup tool: plugin {name}",
-  "check.other_backup_plugin_how": "Make sure it doesn't back up the same things as Mr. Backup at the same time — or that this is on purpose.",
+  "check.other_backup_plugin_how": "Make sure it doesn't back up the same things as Mr. Backupsy at the same time — or that this is on purpose.",
   "check.other_backup_container": "Another backup tool: container {name}",
-  "check.other_backup_container_how": "Make sure it doesn't back up the same things as Mr. Backup at the same time — or that this is on purpose.",
+  "check.other_backup_container_how": "Make sure it doesn't back up the same things as Mr. Backupsy at the same time — or that this is on purpose.",
   "check.other_backup_script": "Another backup tool: user script {name}",
-  "check.other_backup_script_how": "Make sure it doesn't back up the same things as Mr. Backup at the same time — or that this is on purpose.",
+  "check.other_backup_script_how": "Make sure it doesn't back up the same things as Mr. Backupsy at the same time — or that this is on purpose.",
   "check.checks_failed": "The checks failed: {detail}",
   "done_sub": "Everything that is already in place.",
   "help.todo": "Needed by a desk to do (part of) its job — only you can do it, in Unraid itself.",
@@ -75,6 +74,27 @@
   "help.desk": "Desk chip",
   "help.desk_text": "Who needs it: every desk tells me what it needs from the server, I collect it.",
   "help.open": "Buttons on the right",
-  "help.open_text": "Takes you where you sort it out: the matching page of Unraid's web UI (Plugins, Apps, Docker, User Scripts, Notifications) in a new tab — or straight to the right desk here in the office, e.g. Mr. Backup's \"Set up…\".",
-  "help.again": "Looks at everything again right now; otherwise I do when the page is opened and my last look is older than 5 minutes."
+  "help.open_text": "Takes you where you sort it out: the matching page of Unraid's web UI (Plugins, Apps, Docker, User Scripts, Notifications) in a new tab — or straight to the right desk here in the office, e.g. Mr. Backupsy's \"Set up…\".",
+  "help.again": "Looks at everything again right now; otherwise I do when the page is opened and my last look is older than 5 minutes.",
+  "bubble.alone": "Hi, I'm the caretaker. Nobody else is here yet — but I've already asked around who would suit your server. Have a look at the team below and hire whoever you can use.",
+  "bubble.alone_short": "Nobody else is here yet. Come by — I'll introduce who would suit your server.",
+  "fact.could_come": "Could come: {names}",
+  "team": "The team",
+  "team_sub": "Who works here and who could still come. Firing hides someone — data and settings stay.",
+  "team_sub_alone": "I asked who would suit your server. Hire whoever you can use — you can always let them go again.",
+  "in_team": "in the team",
+  "could_come": "could come",
+  "declined": "declined",
+  "hire": "Hire",
+  "hire_all": {
+    "one": "Hire",
+    "other": "Hire all {n}"
+  },
+  "fire": "Let go",
+  "hired": "Welcome: {names}",
+  "fit.yes": "{name} would like to come.",
+  "fit.no": "{name} doesn't suit this server.",
+  "help.team": "Who works in the office. I ask everyone whether they suit your server — those who don't, decline. Hiring shows the desk at the reception and in the tabs; letting go hides it again without deleting anything.",
+  "tip_button": "☕ Tips & pay rise",
+  "tip_button_title": "The team is glad of a tip (PayPal)"
 }

@@ -1,38 +1,58 @@
 {
-  "name": "Frau Snapshot",
-  "role": "Behält jeden Snapshot im Blick — ZFS, btrfs und VMs",
+  "name": "Frau Snapshotini",
+  "role": "Gebürtige Italienerin — behält jeden Snapshot im Blick: ZFS, btrfs und VMs. Con amore.",
   "default_prefix": "manuell-",
   "keep_prefix": "behalten-",
-
-  "bubble.no_scan": "Ich habe mich noch nicht umgesehen. Ein Scan dauert meist nur Sekunden.",
+  "bubble.no_scan": "Mamma mia, ich habe mich noch gar nicht umgesehen! Ein Scan dauert nur ein paar Sekunden.",
   "bubble.no_data": "Ich komme nicht an den Server heran und habe noch nichts zu zeigen.",
-  "bubble.count": { "one": "Ich behalte {n} Snapshot im Blick, er belegt {size}.", "other": "Ich behalte {n} Snapshots im Blick, sie belegen {size}." },
+  "bubble.count": {
+    "one": "Ich behalte {n} Snapshot im Blick, er belegt {size}. Tutto a posto.",
+    "other": "Ich behalte {n} Snapshots im Blick, sie belegen {size}. Tutto a posto."
+  },
   "bubble.backup": "Das Backup-Script läuft seit {since} ({step}).",
-  "bubble.mounted": { "one": "{n} Snapshot ist eingehängt.", "other": "{n} Snapshots sind eingehängt." },
-  "bubble.asleep": { "one": "{n} Disk schläft — ich lasse sie schlafen.", "other": "{n} Disks schlafen — ich lasse sie schlafen." },
+  "bubble.mounted": {
+    "one": "{n} Snapshot ist eingehängt.",
+    "other": "{n} Snapshots sind eingehängt."
+  },
+  "bubble.asleep": {
+    "one": "{n} Disk schläft — piano, piano, ich lasse sie schlafen.",
+    "other": "{n} Disks schlafen — piano, piano, ich lasse sie schlafen."
+  },
   "bubble.offline": "Ich erreiche den Server gerade nicht; das ist mein Stand vom {when}.",
-
   "fact.pools": "{n} ZFS-Pools, {d} btrfs-Disks",
-  "fact.vm": { "one": "{n} VM-Snapshot", "other": "{n} VM-Snapshots" },
-
+  "fact.vm": {
+    "one": "{n} VM-Snapshot",
+    "other": "{n} VM-Snapshots"
+  },
   "scan": "Scan",
   "scan_title": "Alle Pools, Disks und VMs neu nach Snapshots durchsuchen",
-  "scan_wake": { "one": "Scan mit Aufwecken ({n} Disk)", "other": "Scan mit Aufwecken ({n} Disks)" },
+  "scan_wake": {
+    "one": "Scan mit Aufwecken ({n} Disk)",
+    "other": "Scan mit Aufwecken ({n} Disks)"
+  },
   "scan_now": "Jetzt scannen",
   "new": "Neuer Snapshot",
   "new_from_here": "Neuer Snapshot hiervon",
-
   "storage": "Speicher",
-  "storage.hint": {"one": "{n} Pool/Disk", "other": "{n} Pools/Disks"},
+  "storage.hint": {
+    "one": "{n} Pool/Disk",
+    "other": "{n} Pools/Disks"
+  },
   "storage.filtered": "Liste zeigt nur {name} — nochmals antippen für alle",
   "online": "online",
   "used_of": "{used} von {total}",
-  "count": { "one": "{n} Snapshot", "other": "{n} Snapshots" },
+  "count": {
+    "one": "{n} Snapshot",
+    "other": "{n} Snapshots"
+  },
   "none": "keine Snapshots",
   "docker_count": "{n} Docker",
   "bar_title": "Daten {data} · Snapshots {snaps} · frei {free}",
   "array": "Array",
-  "asleep_count": { "one": "{n} schläft", "other": "{n} schlafen" },
+  "asleep_count": {
+    "one": "{n} schläft",
+    "other": "{n} schlafen"
+  },
   "all_awake": "alle wach",
   "never_read": "nie gelesen",
   "error": "Fehler",
@@ -42,12 +62,14 @@
   "asleep_hint": "Schläft — ein normaler Scan lässt sie schlafen",
   "wake_scan": "Aufwecken & scannen",
   "wake_scan_title": "Weckt {disks} auf und liest sie mit",
-  "vm_count": { "one": "{n} VM", "other": "{n} VMs" },
+  "vm_count": {
+    "one": "{n} VM",
+    "other": "{n} VMs"
+  },
   "vm_gone_short": "weg",
   "no_vms": "keine VMs",
   "managed_in_unraid": "verwalten in Unraid",
   "no_vm_snapshots": "keine VM-Snapshots",
-
   "snapshots": "Snapshots",
   "group.dataset": "Dataset",
   "group.run": "Lauf",
@@ -68,7 +90,6 @@
   "docker_layers": "Docker-Image-Ebenen",
   "docker_title": "Docker legt jede Image-Ebene als eigenes Dataset unter {parent}/… an, mit Snapshot. Die gehören Docker und bleiben unangetastet. Der system-Share selbst (mit libvirt) steht immer in der Liste.",
   "docker_meta": "liegen unter {parent}/…, gehören Docker · den system-Share selbst (mit libvirt) findest du unter {parent}",
-
   "empty.no_scan": "Noch kein Scan",
   "empty.no_scan_text": "Der Agent läuft — ein Scan dauert meist nur Sekunden.",
   "empty.no_data": "Keine Daten",
@@ -77,7 +98,6 @@
   "empty.filtered_text": "Filter, Quelle oder Pool-Auswahl lockern.",
   "empty.none": "Keine Snapshots",
   "empty.none_text": "Auf diesem Server gibt es (ausser Docker-Image-Ebenen) keine Snapshots.",
-
   "select": "Auswählen",
   "deselect": "Abwählen",
   "select_one": "{name} auswählen",
@@ -85,8 +105,14 @@
   "nothing_deletable": "Hier ist nichts löschbar",
   "read_only": "nur lesen",
   "asleep": "schläft",
-  "dataset_count": { "one": "{n} Dataset", "other": "{n} Datasets" },
-  "mounted_count": { "one": "{n} eingehängt", "other": "{n} eingehängt" },
+  "dataset_count": {
+    "one": "{n} Dataset",
+    "other": "{n} Datasets"
+  },
+  "mounted_count": {
+    "one": "{n} eingehängt",
+    "other": "{n} eingehängt"
+  },
   "timeline_title": "Zeitachse: letzte {n} Tage, rechts ist jetzt",
   "time_unknown": "Zeit unbekannt",
   "held": "geschützt",
@@ -112,7 +138,6 @@
   "figures_title": "belegt: nur dieser Snapshot hält diesen Platz fest\nDaten: so gross war das Dataset damals",
   "overlay_title": "Overlay: so viel Platz belegt, was die VM nach diesem Snapshot geschrieben hat (bis zum nächsten)",
   "actions": "Aktionen",
-
   "hold": "Schützen",
   "release": "Schutz aufheben",
   "rename": "Umbenennen",
@@ -120,23 +145,29 @@
   "unmount": "Aushängen",
   "unmount_locked": "Aushängen (Backup läuft)",
   "delete": "Löschen",
-
   "selected": "{n} ausgewählt",
-  "selected_title": { "one": "{n} Snapshot ausgewählt", "other": "{n} Snapshots ausgewählt" },
+  "selected_title": {
+    "one": "{n} Snapshot ausgewählt",
+    "other": "{n} Snapshots ausgewählt"
+  },
   "estimating": "rechne aus, wie viel frei würde…",
   "clear": "Aufheben",
   "frees": "gibt ca. {size} frei",
   "frees_unknown": "(+ {n} btrfs ohne Schätzung)",
-
   "waking": "Wecke schlafende Disks auf — das dauert einen Moment…",
-  "scan_done": { "one": "Scan fertig: {n} Snapshot", "other": "Scan fertig: {n} Snapshots" },
+  "scan_done": {
+    "one": "Scan fertig: {n} Snapshot",
+    "other": "Scan fertig: {n} Snapshots"
+  },
   "scan_new": "{n} neu",
   "scan_gone": "{n} verschwunden",
   "scan_same": "nichts verändert",
-  "scan_skipped": { "one": "{n} schlafende Disk übersprungen", "other": "{n} schlafende Disks übersprungen" },
+  "scan_skipped": {
+    "one": "{n} schlafende Disk übersprungen",
+    "other": "{n} schlafende Disks übersprungen"
+  },
   "held_done": "{name} ist jetzt geschützt",
   "released_done": "Schutz von {name} aufgehoben",
-
   "keep.title": "Backup-Snapshot behalten",
   "keep.text1": "Dieser Snapshot gehört dem Backup-Script. Es räumt ihn nach seinen Aufbewahrungsregeln irgendwann auf.",
   "keep.text2": "Geschützt kann es ihn nicht mehr löschen, versucht es aber jede Nacht wieder und schreibt jedes Mal einen Fehler in sein Protokoll.",
@@ -145,31 +176,49 @@
   "keep.after_backup": "Umbenennen geht erst nach dem laufenden Backup — solange ist er eingehängt.",
   "keep.after_unmount": "Umbenennen geht erst, wenn er nicht mehr eingehängt ist.",
   "keep.hold_anyway": "Trotzdem schützen",
-
   "rename.title": "Snapshot umbenennen",
   "rename.new_name": "Neuer Name",
   "rename.hint": "{ds} @ … — erlaubt: Buchstaben, Ziffern und _ . : + -",
   "rename.backup_note": "Das Backup-Script räumt nur Snapshots mit seinem eigenen Namensmuster auf. Mit einem anderen Namen bleibt dieser stehen, bis du ihn selbst löschst.",
   "rename.done": "Umbenannt in {name}",
-
-  "delete.title": { "one": "Snapshot löschen", "other": "{n} Snapshots löschen" },
-  "delete.intro": { "one": "Dieser Snapshot wird endgültig gelöscht:", "other": "Diese {n} Snapshots werden endgültig gelöscht:" },
+  "delete.title": {
+    "one": "Snapshot löschen",
+    "other": "{n} Snapshots löschen"
+  },
+  "delete.intro": {
+    "one": "Dieser Snapshot wird endgültig gelöscht:",
+    "other": "Diese {n} Snapshots werden endgültig gelöscht:"
+  },
   "delete.more": "… und {n} weitere",
   "delete.estimating": "Rechne aus, wie viel Platz frei wird…",
   "delete.no_estimate": "Wie viel frei wird, liess sich nicht ausrechnen.",
   "delete.frees_before": "Gibt ca.",
   "delete.frees_after": "frei",
   "delete.btrfs_unknown": "dazu {n} btrfs-Snapshot(s), dort zeigt btrfs das nicht an",
-  "delete.mounted": { "one": "Ist eingehängt", "other": "{n} sind eingehängt" },
+  "delete.mounted": {
+    "one": "Ist eingehängt",
+    "other": "{n} sind eingehängt"
+  },
   "delete.mounted_text": "— wird vor dem Löschen ausgehängt, samt allem, was darauf aufbaut:",
   "delete.note": "Die Dateien im laufenden System bleiben, wie sie sind. Weg ist nur der eingefrorene Stand — wiederherstellen lässt er sich danach nicht mehr.",
-  "delete.confirm": { "one": "Löschen", "other": "{n} löschen" },
-  "delete.unmount_and_delete": { "one": "Aushängen & löschen", "other": "Aushängen & {n} löschen" },
+  "delete.confirm": {
+    "one": "Löschen",
+    "other": "{n} löschen"
+  },
+  "delete.unmount_and_delete": {
+    "one": "Aushängen & löschen",
+    "other": "Aushängen & {n} löschen"
+  },
   "delete.partly": "Nicht alles liess sich löschen",
   "delete.failed": "Löschen hat nicht geklappt",
-  "deleting": { "one": "Lösche…", "other": "Lösche {n} Snapshots…" },
-  "deleted": { "one": "Snapshot gelöscht", "other": "{n} Snapshots gelöscht" },
-
+  "deleting": {
+    "one": "Lösche…",
+    "other": "Lösche {n} Snapshots…"
+  },
+  "deleted": {
+    "one": "Snapshot gelöscht",
+    "other": "{n} Snapshots gelöscht"
+  },
   "unmount.intro": "{name} ist hier eingehängt:",
   "unmount.note": "Ausgehängt wird auch alles, was darauf aufbaut (Overlays, darunter eingehängte Snapshots). Der Snapshot selbst bleibt.",
   "unmount.remount": "Das Backup-Script hängt beim nächsten Lauf ohnehin neu ein.",
@@ -178,7 +227,6 @@
   "mount.overlay": "Overlay darauf",
   "mount.auto": "automatisch",
   "mount.by_backup": "vom Backup-Script",
-
   "create.title": "Neuer Snapshot",
   "create.name": "Name",
   "create.name_hint": "Erlaubt: Buchstaben, Ziffern und _ . : + -",
@@ -194,25 +242,28 @@
   "create.hold_hint": "Lässt sich erst nach «Schutz aufheben» löschen — auch vom Backup-Script nicht.",
   "create.note": "Alle ZFS-Snapshots eines Pools entstehen im selben Augenblick. Das Backup-Script räumt nur seine eigenen auf — dieser bleibt, bis du ihn löschst.",
   "create.create": "Erstellen",
-  "create.confirm": { "one": "{n} Snapshot erstellen", "other": "{n} Snapshots erstellen" },
+  "create.confirm": {
+    "one": "{n} Snapshot erstellen",
+    "other": "{n} Snapshots erstellen"
+  },
   "create.waking": "{disks} wird dafür aufgeweckt",
   "create.partly": "Nicht alles hat geklappt",
   "create.failed": "Erstellen hat nicht geklappt",
-  "created": { "one": "Snapshot erstellt", "other": "{n} Snapshots erstellt" },
-
+  "created": {
+    "one": "Snapshot erstellt",
+    "other": "{n} Snapshots erstellt"
+  },
   "kind.zfs": "ZFS-Snapshot",
   "kind.btrfs": "btrfs-Snapshot",
   "kind.btrfs_ro": "btrfs-Snapshot, nur lesbar",
   "kind.btrfs_rw": "btrfs-Snapshot, beschreibbar",
   "kind.vm": "VM-Snapshot",
   "kind.docker": "Docker-Image-Ebene (ZFS, intern)",
-
   "why.docker": "Gehört Docker — bleibt unangetastet",
   "why.vm": "VM-Snapshots verwaltet Unraid in der VM-Ansicht",
   "why.backup": "Das Backup-Script läuft und liest gerade daraus",
   "why.held": "Geschützt — erst den Schutz aufheben",
   "why.clones": "Hat Klone: {clones}",
-
   "p.title": "Snapshot",
   "p.name": "Name",
   "p.dataset": "Dataset",
@@ -246,7 +297,6 @@
   "p.path": "Pfad",
   "p.path_hint": "Nur lesbar — mit einem Dateibrowser durchstöbern.",
   "p.not_possible": "nicht möglich",
-
   "errors.invalid_name": "Name: nur Buchstaben, Ziffern und _ . : + - (höchstens 80, nicht mit einem Zeichen beginnen).",
   "errors.snapshot_gone": "{name}: gibt es nicht mehr",
   "errors.docker_layer": "{name}: gehört Docker, bleibt",
@@ -282,11 +332,19 @@
   "help.menu_text": "Eigenschaften, auswählen, umbenennen, halten oder freigeben, aushängen, Pfad kopieren, löschen.",
   "help.held": "Gehalten (ZFS-Hold): lässt sich nicht löschen — weder hier noch von einem Werkzeug — bis der Hold aufgehoben ist.",
   "help.mounted": "Irgendwo eingehängt: Beim Löschen wird er auf Wunsch vorher ausgehängt.",
-  "help.backup": "Der Lauf von Herrn Backup benutzt ihn gerade (Kopia liest daraus) — Finger weg, bis der Lauf fertig ist.",
+  "help.backup": "Der Lauf von Herrn Backupsi benutzt ihn gerade (Kopia liest daraus) — Finger weg, bis der Lauf fertig ist.",
   "help.asleep": "In der Mount-Tabelle gesehen, während seine Disk schläft — die Disk wird dafür nicht geweckt.",
   "help.sources": "Quellen-Chips",
-  "help.sources_text": "Wer ihn gemacht hat: das Backup-Script (Herr Backup), Docker, eine VM, von Hand oder ein anderes Werkzeug.",
+  "help.sources_text": "Wer ihn gemacht hat: das Backup-Script (Herr Backupsi), Docker, eine VM, von Hand oder ein anderes Werkzeug.",
   "help.docker": "Dockers eigene Image-Ebenen (ZFS) — Hunderte davon, von Docker verwaltet. Ausgeblendet, ausser eingeschaltet; hier nie löschbar.",
   "help.scan": "Scan · Aufwecken & scannen",
-  "help.scan_text": "Scan liest alle Pools, Disks und VMs neu — schlafende Array-Disks bleiben in Ruhe. «Aufwecken & scannen» weckt sie absichtlich."
+  "help.scan_text": "Scan liest alle Pools, Disks und VMs neu — schlafende Array-Disks bleiben in Ruhe. «Aufwecken & scannen» weckt sie absichtlich.",
+  "visit": "Zu Frau Snapshotini",
+  "greet.1": "Buongiorno!",
+  "greet.2": "Ciao, bello!",
+  "greet.3": "Ecco, da bist du ja!",
+  "greet.4": "Allora…",
+  "greet.5": "Mamma mia, was für ein Tag!",
+  "fit.yes": "Frau Snapshotini hat sofort zugesagt: «ZFS und btrfs? Che bello — da fühle ich mich wie zu Hause!»",
+  "fit.no_cow": "Ich habe Frau Snapshotini gefragt, aber ohne ZFS oder btrfs gibt es hier nichts zu snapshotten. «Peccato!», hat sie gesagt."
 }

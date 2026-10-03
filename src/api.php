@@ -11,6 +11,7 @@ declare(strict_types=1);
  * GET  ?a=auth                        PIN set? this browser unlocked?
  * POST {"a": "<desk>.<action>", ...}  a request for the agent; it checks everything
  * POST {"a": "office.unlock|lock|pin"} handled here (see auth.php)
+ * POST {"a": "office.hire|fire"}       who works here (see staff.php)
  *
  * POSTs need JSON and the header X-Office: 1. Another web page in the same
  * browser can't send that without a CORS preflight, which never succeeds
@@ -42,6 +43,9 @@ function api_main(): void
         checkOrigin();
         $data = json_decode((string) file_get_contents('php://input', false, null, 0, 1 << 20), true, 16);
         $action = is_array($data) ? (string) ($data['a'] ?? '') : '';
+        if ($action === 'office.hire' || $action === 'office.fire') {
+            answer(officeStaffAction($action, $data));
+        }
         if (str_starts_with($action, 'office.')) {
             answer(officeAuthAction($action, $data));
         }
@@ -49,6 +53,10 @@ function api_main(): void
             answer(['ok' => false, 'error' => ['key' => 'unknown_action', 'params' => ['action' => $action]]], 400);
         }
         unset($data['a']);
+        $desk = explode('.', $action)[0];
+        if (!officeIsHired($desk) && explode('.', $action)[1] !== 'refresh') {
+            answer(['ok' => false, 'error' => ['key' => 'not_hired', 'params' => ['desk' => $desk]]], 403);
+        }
         officeMayWrite($action);
         set_time_limit(660);
         ignore_user_abort(true);   // a deletion runs to the end even if the tab closes

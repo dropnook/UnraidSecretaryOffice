@@ -25,6 +25,11 @@ $GLOBALS['snapshot'] = null;          // last scan
 $GLOBALS['dockerParent'] = null;      // dataset under which Docker keeps its layers
 
 desk('snapshot', [
+    'fit'     => function (): array {
+        $fs = houseSnapshotFilesystems();
+        $n = count($fs['zfs']) + count($fs['btrfs']);
+        return $n ? fit(true, 'yes', ['places' => implode(', ', array_merge($fs['zfs'], $fs['btrfs']))]) : fit(false, 'no_cow');
+    },
     'start' => function (): void {
         $old = readJson(deskFile('snapshot'));
         if ($old) {

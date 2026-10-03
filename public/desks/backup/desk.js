@@ -1,4 +1,4 @@
-/* Mr. Backup — runs the unraid-backup script: what it is doing right now and
+/* Mr. Backupsy — runs the unraid-backup script: what it is doing right now and
    when it will be done, how the last nights went, which shares are protected
    how, what changed since the setup, and how to get things back.
    The agent part lives in agent/desks/backup.php, the engine in backup/. */
@@ -158,7 +158,7 @@ function bubbleText() {
     const ok = k.filter((x) => x.ok).length;
     const when = fmt.relative(last.finished || last.started);
     if (last.result === 'ok') out.push(k.length ? T('bubble.last_ok_kopia', { when, ok, total: k.length }) : T('bubble.last_ok', { when }));
-    else out.push(T('bubble.last_' + last.result, { when, errors: last.errors, warnings: last.warnings }));
+    else out.push(T('bubble.last_' + last.result, { when, errors: last.errors, warnings: last.warnings, n: last.result === 'errors' ? last.errors : last.warnings }));
     const age = Date.now() / 1000 - (last.finished || last.started);
     if (age > 36 * 3600) out.push(T('bubble.old', { days: Math.floor(age / 86400) }));
   }
@@ -183,7 +183,7 @@ function render() {
     }
     actions.forEach((b) => { b.disabled = !canAct() || !!(state.setup && state.setup.running); });
   }
-  const { head } = Office.deskHead(Office.desks.get(ID), { bubble: bubbleText().join(' '), actions });
+  const { head } = Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText().join(' ')), actions });
   root.appendChild(head);
   root.appendChild(Office.pageHelp(ID, [
     [T('help.run'), T('help.run_text')],
@@ -232,7 +232,7 @@ function notices() {
   if (!state.settings_found) callout(T('notice.no_settings'), true, button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
   const sc = state.schedule || {};
   if (!sc.script) callout(T('notice.no_user_script'), true);
-  else if (!sc.enabled) callout(T('notice.schedule_off'), true);
+  else if (!sc.enabled) callout(T('notice.schedule_off'), true, button(T('schedule.open'), 'small', scheduleDialog));
   const errors = (state.drift && state.drift.items || []).filter((d) => d.level === 'error').length;
   if (errors) callout(T('notice.drift_errors', { n: errors }), true);
   const last = lastRun();
@@ -334,7 +334,15 @@ function summary() {
   }
   const sc = state.schedule || {};
   const when = sc.enabled ? (sc.frequency === 'custom' ? fmt.cron(sc.custom) : T('freq.' + sc.frequency)) : T('stat.not_scheduled');
-  stats.appendChild(stat(T('stat.schedule'), when, sc.enabled ? T('stat.user_scripts') : T('stat.schedule_hint'), !sc.enabled));
+  const sst = stat(T('stat.schedule'), when, sc.enabled ? T('stat.user_scripts') : T('stat.schedule_hint'), !sc.enabled);
+  if (sc.script) {
+    sst.classList.add('bk-clickable');
+    sst.tabIndex = 0;
+    sst.setAttribute('role', 'button');
+    sst.onclick = scheduleDialog;
+    sst.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); scheduleDialog(); } };
+  }
+  stats.appendChild(sst);
   if (s && s.mode !== 'backup' && s.finished) {
     stats.appendChild(stat(T('stat.last_' + s.mode), T('result.' + s.result), fmt.relative(s.finished), s.result !== 'ok'));
   }
@@ -907,6 +915,9 @@ function appliedCard(run) {
   const ok = run.result === 'ok' && run.written;
   const box = el('div', 'callout' + (ok ? '' : ' warn'));
   box.appendChild(el('strong', '', ok ? T('setup.applied_ok') : T('setup.applied_failed')));
+  if (ok && state && state.schedule && state.schedule.script && !state.schedule.enabled) {
+    box.append(' ', T('schedule.after_setup'), ' ', button(T('schedule.open'), 'small', scheduleDialog));
+  }
   const bad = (run.messages || []).filter((m) => m.level === 'error' || m.level === 'warn');
   if (bad.length) {
     const ul = el('ul', 'bk-msgs');
@@ -1225,6 +1236,94 @@ function setupMessages(msgs) {
 }
 
 // ------------------------------------------------------------------ desk
+// ------------------------------------------------------------------ schedule
+/** How long a run took lately (median of the last good runs), in seconds */
+function typicalDuration() {
+  const d = (state && state.history || []).filter((r) => r.finished && ['ok', 'warnings'].includes(r.result))
+    .slice(0, 7).map((r) => r.finished - r.started).sort((a, b) => a - b);
+  return d.length ? d[Math.floor(d.length / 2)] : 0;
+}
+
+/** When the nightly run starts: every night at a time, a cron expression of your own, or not at all */
+function scheduleDialog() {
+  const sc = (state && state.schedule) || {};
+  if (!sc.script) {
+    Office.dialog({
+      title: T('schedule.title'),
+      body: T('schedule.no_script'),
+      buttons: [{ text: Office.t('common.close') }, { text: T('setup_open'), kind: '', act: () => { Office.go(`#/${ID}/setup`); } }],
+    });
+    return;
+  }
+  const daily = /^(\d{1,2}) (\d{1,2}) \* \* \*$/.exec((sc.custom || '').trim());
+  let mode = sc.enabled ? (daily ? 'daily' : 'custom') : 'daily';
+  const pad = (n) => String(n).padStart(2, '0');
+  const time = el('input', 'input');
+  time.type = 'time';
+  time.value = daily ? `${pad(daily[2])}:${pad(daily[1])}` : '03:00';
+  const cron = el('input', 'input mono');
+  cron.value = sc.custom || '0 3 * * *';
+  cron.spellcheck = false;
+  const ends = el('small');
+  const box = el('div', 'bk-schedule');
+  box.appendChild(el('p', '', T('schedule.intro')));
+  const option = (id, text, hint, extra) => {
+    const label = el('label', 'check');
+    const input = el('input');
+    input.type = 'radio';
+    input.name = 'bk-schedule';
+    input.checked = mode === id;
+    input.onchange = () => { mode = id; update(); };
+    const span = el('span', '', text);
+    if (hint) span.appendChild(el('small', '', hint));
+    label.append(input, span);
+    box.appendChild(label);
+    if (extra) { extra.classList.add('bk-schedule-field'); box.appendChild(extra); }
+  };
+  const took = typicalDuration();
+  const dailyField = el('div');
+  dailyField.append(time, ends);
+  option('daily', T('schedule.daily'), null, dailyField);
+  option('custom', T('schedule.custom'), T('schedule.custom_hint'), cron);
+  option('off', T('schedule.off'), T('schedule.off_hint'));
+  const update = () => {
+    time.disabled = mode !== 'daily';
+    cron.disabled = mode !== 'custom';
+    ends.textContent = '';
+    if (took && mode === 'daily' && /^\d\d:\d\d$/.test(time.value)) {
+      const [h, m] = time.value.split(':').map(Number);
+      const end = new Date(2000, 0, 1, h, m).getTime() / 1000 + took;
+      ends.textContent = T('schedule.duration', { duration: fmt.duration(took), end: fmt.time(end) });
+    }
+  };
+  time.oninput = update;
+  update();
+  Office.dialog({
+    title: T('schedule.title'),
+    body: box,
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('schedule.save'), kind: '', act: async () => {
+        let expr = '';
+        if (mode === 'daily') {
+          if (!/^\d\d:\d\d$/.test(time.value)) { Office.toast(T('schedule.need_time'), true); return false; }
+          const [h, m] = time.value.split(':').map(Number);
+          expr = `${m} ${h} * * *`;
+        } else if (mode === 'custom') {
+          expr = cron.value.trim();
+        }
+        const j = await Office.api.post(`${ID}.schedule`, { cron: expr });
+        if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
+        if (j.state) state = j.state;
+        if (!j.live) Office.toast(T('schedule.not_live'), true);
+        else Office.toast(expr ? T('schedule.saved_on', { when: fmt.cron(expr) }) : T('schedule.saved_off'));
+        if (view && page === 'main') render();
+        return true;
+      } },
+    ],
+  });
+}
+
 Office.desk({
   id: ID,
   async mount(root, sub) {
@@ -1239,6 +1338,7 @@ Office.desk({
       Office.selbar(null);
       render();
       await load(false);
+      if (sub === 'schedule') { Office.subroute(''); scheduleDialog(); }    // the caretaker's "Open"
     }
   },
   unmount() {
@@ -1252,6 +1352,7 @@ Office.desk({
     const items = [{ text: T('menu.refresh'), act: () => load(true) }];
     if (state && state.found) {
       const ready = canAct() && !live();
+      items.push({ text: T('schedule.open'), act: state.schedule && state.schedule.script && Office.agent.running ? scheduleDialog : null });
       items.push({ text: T('mode.check'), act: ready ? () => startRun('check') : null });
       items.push({ text: T('mode.dryrun'), act: ready ? () => startRun('dryrun') : null });
       if ((state.mounted || []).length) items.push({ text: T('unmount'), act: ready ? unmount : null });

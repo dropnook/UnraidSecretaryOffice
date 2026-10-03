@@ -1,12 +1,11 @@
 {
-  "name": "Mr. Backup",
-  "role": "Runs the nightly backup — snapshots, database dumps, Kopia offsite",
-  "visit": "Visit Mr. Backup",
-
+  "name": "Mr. Backupsy",
+  "role": "Looks after the nightly backup — a bit scatterbrained and anxious, so he checks everything three times",
+  "visit": "Visit Mr. Backupsy",
   "bubble.loading": "One moment, I'm looking at the backup…",
   "bubble.missing": "I can't find the unraid-backup script, so there's nothing for me to do yet.",
-  "bubble.asleep": "The script folder is on a sleeping disk — I'm showing what I knew and won't wake it.",
-  "bubble.no_runs": "There hasn't been a backup run yet.",
+  "bubble.asleep": "The script folder is on a sleeping disk — I don't dare wake it. Here's what I knew.",
+  "bubble.no_runs": "There hasn't been a backup run yet. That makes me quite nervous.",
   "bubble.running_kopia": "I'm sending {share} offsite right now ({n} of {total}).",
   "bubble.running_phase": "A backup is running: {step}.",
   "bubble.running_check": "I'm checking whether settings.ini still matches the server.",
@@ -14,16 +13,27 @@
   "bubble.running_old": "A backup is running: {step}",
   "bubble.eta": "Done at about {time}.",
   "bubble.eta_late": "It takes longer than usual — I expected it around {time}.",
-  "bubble.last_ok": "The last backup {when} went through without a hitch.",
-  "bubble.last_ok_kopia": "The last backup {when} went through: {ok} of {total} sent offsite.",
-  "bubble.last_warnings": "The last backup {when} finished with {warnings} warning(s).",
-  "bubble.last_errors": "The last backup {when} had {errors} error(s) — have a look at the log.",
-  "bubble.last_failed": "The last backup {when} did not finish.",
+  "bubble.last_ok": "Phew! The last backup {when} went through without problems.",
+  "bubble.last_ok_kopia": "Phew! The last backup {when} went through: {ok} of {total} saved offsite.",
+  "bubble.last_warnings": {
+    "one": "The last backup {when} ended with one warning.",
+    "other": "The last backup {when} ended with {warnings} warnings."
+  },
+  "bubble.last_errors": {
+    "one": "Oh no — the last backup {when} had one error. Please have a look at the log.",
+    "other": "Oh no — the last backup {when} had {errors} errors. Please have a look at the log."
+  },
+  "bubble.last_failed": "Oh no — the last backup {when} didn't finish.",
   "bubble.last_aborted": "The last backup {when} was stopped.",
-  "bubble.old": { "one": "That's more than a day ago.", "other": "That's {days} days ago." },
-  "bubble.no_schedule": "Careful: no nightly run is scheduled.",
-  "bubble.drift": { "one": "One thing on the server changed since the setup.", "other": "{n} things on the server changed since the setup." },
-
+  "bubble.old": {
+    "one": "That's more than a day ago.",
+    "other": "That's {days} days ago."
+  },
+  "bubble.no_schedule": "Oh dear: no nightly run is scheduled! That makes me feel quite faint.",
+  "bubble.drift": {
+    "one": "One thing on the server changed since the setup.",
+    "other": "{n} things on the server changed since the setup."
+  },
   "check": "Check",
   "start": "Back up now…",
   "abort": "Stop the run",
@@ -32,27 +42,23 @@
   "failed": "failed",
   "never": "not yet",
   "flash": "Flash (USB stick)",
-
   "now": "Right now",
   "overview": "Overview",
   "protection": "Is everything protected?",
   "history": "Last runs",
   "drift": "Changed since the setup",
   "restore": "Getting things back",
-
   "step.prepare": "Look around",
   "step.dumps": "Database dumps",
   "step.snapshots": "Snapshots",
   "step.kopia": "Kopia offsite",
   "step.finish": "Tidy up",
-
   "result.running": "running",
   "result.ok": "OK",
   "result.warnings": "warnings",
   "result.errors": "errors",
   "result.failed": "not finished",
   "result.aborted": "stopped",
-
   "mode.backup": "Full backup",
   "mode.nokopia": "Backup without Kopia",
   "mode.dryrun": "Dry run",
@@ -61,7 +67,6 @@
   "mode_hint.nokopia": "Dumps and local snapshots only, nothing goes offsite. Containers stop for a few minutes.",
   "mode_hint.dryrun": "Shows the plan in the log. Nothing gets stopped or changed.",
   "mode_hint.check": "Compares the server with settings.ini and lists what changed. Takes seconds.",
-
   "start_title": "Start a run",
   "start_go": "Start",
   "start_hint": "A full run took about {duration} lately. It keeps running when you close this page.",
@@ -70,14 +75,12 @@
   "started.dryrun": "Dry run started",
   "started.check": "Check started",
   "started_pending": "Handed over — it should start any moment",
-
   "abort_title": "Stop the run?",
   "abort_text": "The script stops cleanly: it starts any stopped containers, switches Nextcloud's maintenance mode off and unmounts its snapshots. What has been sent offsite so far stays there.",
   "abort_kopia": "Kopia is sending a share right now; it is told to stop and saves what it has.",
   "abort_downtime": "The containers are stopped for the snapshots right now — they will be started again before it ends.",
   "aborting": "Stopping — the script is tidying up",
   "unmounted": "Unmounted",
-
   "since": "since {time} ({duration})",
   "eta": "Done at about {time} (another {left})",
   "eta_late": "Longer than usual — expected at {time}",
@@ -87,20 +90,21 @@
   "counts": "{errors} errors, {warnings} warnings",
   "kopia_count": "Kopia {ok}/{total}",
   "old_step": "Current step: {step}",
-
   "stat.last": "Last backup",
   "stat.duration": "Took",
   "stat.downtime": "containers stopped {duration}",
   "stat.kopia": "Offsite",
   "stat.kopia_all": "all shares sent",
-  "stat.kopia_missing": { "one": "1 share missing", "other": "{n} shares missing" },
+  "stat.kopia_missing": {
+    "one": "1 share missing",
+    "other": "{n} shares missing"
+  },
   "stat.schedule": "Schedule",
   "stat.not_scheduled": "not scheduled",
   "stat.user_scripts": "in User Scripts",
-  "stat.schedule_hint": "Settings → User Scripts → unraid-backup",
+  "stat.schedule_hint": "click to set it",
   "stat.last_check": "Last check",
   "stat.last_dryrun": "Last dry run",
-
   "freq.hourly": "hourly",
   "freq.daily": "daily",
   "freq.weekly": "weekly",
@@ -109,7 +113,6 @@
   "freq.stop": "when the array stops",
   "freq.boot": "at first array start",
   "freq.disabled": "off",
-
   "protection_sum": "{kopia} offsite · {snapshot} only local · {off} not backed up",
   "no_shares": "settings.ini lists no shares — use «Set up…» first.",
   "col.share": "Share",
@@ -121,10 +124,15 @@
   "live": "live",
   "live_hint": "No snapshot possible here (e.g. XFS) — Kopia reads the share while it is in use.",
   "good_before": "last good {when}",
-  "ignores": { "one": "1 folder left out", "other": "{n} folders left out" },
-  "excluded": { "one": "1 dataset excluded", "other": "{n} datasets excluded" },
+  "ignores": {
+    "one": "1 folder left out",
+    "other": "{n} folders left out"
+  },
+  "excluded": {
+    "one": "1 dataset excluded",
+    "other": "{n} datasets excluded"
+  },
   "retention_own": "keeps {r}",
-
   "fact.zfs": "Local ZFS snapshots kept: {r} (daily weekly monthly)",
   "fact.btrfs": "btrfs: {n} days",
   "fact.kopia": "Kopia keeps {d} daily, {w} weekly, {m} monthly, {y} yearly",
@@ -132,61 +140,65 @@
   "fact.last": "Last run: {when} — {result}",
   "fact.shares": "{kopia} shares offsite, {local} local only, {off} not backed up",
   "fact.version": "unraid-backup {version}",
-
   "drift_checked": "checked {when}",
   "drift_hint": "The script never changes settings.ini itself. Take them over here:",
   "level.error": "error",
   "level.warn": "warning",
   "level.info": "note",
-
   "message.interrupted": "ended unexpectedly (server restart or killed)",
   "message.signal": "stopped by hand",
   "message.exit": "ended with {detail}",
-
   "restore.local": "Yesterday's files",
   "restore.local_zfs": "ZFS shares keep their snapshots in",
   "restore.local_btrfs": "btrfs disks in",
-  "restore.snapshot_link": "Ms. Snapshot shows them all.",
+  "restore.snapshot_link": "Ms. Snapshotini shows them all.",
   "restore.kopia": "From Kopia",
   "restore.kopia_text": "In the KopiaUI (container {container}): source {root}/<share> → snapshot → Restore or Download. For a restore straight onto the server, map a writable folder into the container for a moment.",
-  "restore.dumps": { "one": "Database dumps of the last run, in {path}:", "other": "Database dumps of the last run ({n} runs kept), in {path}:" },
+  "restore.dumps": {
+    "one": "Database dumps of the last run, in {path}:",
+    "other": "Database dumps of the last run ({n} runs kept), in {path}:"
+  },
   "restore.dumps_hint": "The command restores the dump into the running database container — that overwrites its current content. Run it in a terminal on the server.",
   "restore.copy_command": "Copy restore command",
-
   "missing.title": "The backup engine is missing",
-  "missing.text": "Mr. Backup's engine belongs in {dir} (backup.sh, setup.sh, lib/) but isn't there. Get the office files again from its repository.",
-
+  "missing.text": "Mr. Backupsy's engine belongs in {dir} (backup.sh, setup.sh, lib/) but isn't there. Get the office files again from its repository.",
   "notice.asleep": "The script folder is on a sleeping disk. You see the last known state; nothing is read until the disk is awake.",
-  "notice.too_old": "unraid-backup {version} is too old for Mr. Backup to start or stop runs (2.5 or newer needed). What it does is still shown.",
+  "notice.too_old": "unraid-backup {version} is too old for Mr. Backupsy to start or stop runs (2.5 or newer needed). What it does is still shown.",
   "notice.no_settings": "Nothing is set up yet. Once «Set up…» — I'll propose everything:",
   "notice.no_user_script": "There is no User Scripts entry for unraid-backup, so nothing runs at night. «Set up…» → Apply creates it.",
-  "notice.schedule_off": "The User Scripts entry unraid-backup has no schedule — no backup runs at night. Set one in Settings → User Scripts (e.g. Custom 0 3 * * *).",
-  "notice.drift_errors": {"one": "One error in the settings — part of the backup is skipped until you take it over in «Set up…».", "other": "{n} errors in the settings — part of the backup is skipped until you take them over in «Set up…»."},
+  "notice.schedule_off": "No nightly run is scheduled — no backup runs at night.",
+  "notice.drift_errors": {
+    "one": "One error in the settings — part of the backup is skipped until you take it over in «Set up…».",
+    "other": "{n} errors in the settings — part of the backup is skipped until you take them over in «Set up…»."
+  },
   "notice.interrupted": "The last run ended unexpectedly. The next run starts any containers it left stopped and puts Nextcloud back into normal mode.",
-  "notice.mounted": { "one": "One snapshot is still mounted from a run.", "other": "{n} snapshots are still mounted from a run." },
-
+  "notice.mounted": {
+    "one": "One snapshot is still mounted from a run.",
+    "other": "{n} snapshots are still mounted from a run."
+  },
   "log_cut": "… (only the end of the log)",
   "menu.refresh": "Look again",
   "menu.latest_log": "Latest log",
-
   "errors.backup_missing": "The backup script is not in {dir}.",
   "errors.backup_too_old": "unraid-backup {version} can't be controlled from here — update to 2.5 or newer.",
   "errors.backup_running": "A run (or the setup) is already going on.",
   "errors.backup_no_settings": "Nothing is set up yet — use «Set up…» first.",
   "errors.backup_not_running": "No run is going on.",
   "errors.backup_no_process": "The running script can't be found.",
-  "errors.backup_unmount_left": { "one": "{path} is still mounted.", "other": "{n} mounts are left, e.g. {path}." },
-
+  "errors.backup_unmount_left": {
+    "one": "{path} is still mounted.",
+    "other": "{n} mounts are left, e.g. {path}."
+  },
   "check.user_scripts": "User Scripts (runs the backup at night)",
   "check.user_scripts_how": "Install «User Scripts» from Apps.",
   "check.setup": "The backup is set up (settings.ini)",
-  "check.setup_how": "Mr. Backup → «Set up…»: he reads the server and proposes everything. (In a terminal: {path})",
+  "check.setup_how": "Mr. Backupsy → «Set up…»: he reads the server and proposes everything. (In a terminal: {path})",
   "check.user_script": "User Scripts entry «unraid-backup»",
-  "check.user_script_how": "Mr. Backup → «Set up…» → Apply creates it.",
+  "check.user_script_how": "Mr. Backupsy → «Set up…» → Apply creates it.",
   "check.schedule": "A nightly backup is scheduled",
-  "check.schedule_how": "Settings → User Scripts → unraid-backup → schedule, e.g. Custom «0 3 * * *».",
+  "check.schedule_how": "Mr. Backupsy → Schedule: pick a time, he enters it in User Scripts.",
   "check.kopia": "Kopia container for offsite copies",
-  "check.kopia_how": "Install Kopia from Apps (e.g. imagegenius/kopia), connect it to your repository once in the KopiaUI, then read the server again in Mr. Backup's «Set up…».",
+  "check.kopia_how": "Install Kopia from Apps (e.g. imagegenius/kopia), connect it to your repository once in the KopiaUI, then read the server again in Mr. Backupsy's «Set up…».",
   "check.kopia_running": "Kopia container «{name}» is running",
   "check.kopia_running_how": "Start it on the Docker page.",
   "check.kopia_root": "Kopia runs as root (PUID 0)",
@@ -194,12 +206,11 @@
   "check.kopia_mapping": "«{name}» sees {path} read-only with «Slave»",
   "check.kopia_mapping_how": "In the template map {path} → {path} with Access Mode «Read Only - Slave» (now: {now}). Without «Slave» Kopia sees empty folders.",
   "check.kopia_repo": "Kopia is connected to its repository",
-  "check.kopia_repo_how": "Connect the repository in the KopiaUI of «{name}», then start a check at Mr. Backup.",
+  "check.kopia_repo_how": "Connect the repository in the KopiaUI of «{name}», then start a check at Mr. Backupsy.",
   "check.drift": "settings.ini matches the server",
-  "check.drift_how": "{n} change(s) since the setup — take them over in Mr. Backup's «Set up…».",
+  "check.drift_how": "{n} change(s) since the setup — take them over in Mr. Backupsy's «Set up…».",
   "check.office_keeps_running": "The office keeps running during the backup",
-  "check.office_keeps_running_how": "The backup stops {names} for its snapshots, so the office is gone for a few minutes. In Mr. Backup's «Set up…» set them to «keep running».",
-
+  "check.office_keeps_running_how": "The backup stops {names} for its snapshots, so the office is gone for a few minutes. In Mr. Backupsy's «Set up…» set them to «keep running».",
   "setup_open": "Set up…",
   "notice.setup_running": "The setup is looking at the server right now.",
   "errors.setup_running": "The setup is busy right now — try again in a moment.",
@@ -223,10 +234,16 @@
   "setup.apply": "Apply",
   "setup.apply_go": "Apply",
   "setup.apply_title": "Apply the settings?",
-  "setup.apply_text": {"one": "One change:", "other": "{n} changes:"},
+  "setup.apply_text": {
+    "one": "One change:",
+    "other": "{n} changes:"
+  },
   "setup.apply_none": "Nothing changed — applying writes the same settings again and lines up Kopia's policies.",
-  "setup.apply_hint": "Mr. Backup checks everything again, keeps the previous settings.ini, writes the new one, lines up Kopia's policies and creates the User Scripts entry if it is missing.",
-  "setup.bar_changes": {"one": "1 change", "other": "{n} changes"},
+  "setup.apply_hint": "Mr. Backupsy checks everything again, keeps the previous settings.ini, writes the new one, lines up Kopia's policies and creates the User Scripts entry if it is missing.",
+  "setup.bar_changes": {
+    "one": "1 change",
+    "other": "{n} changes"
+  },
   "setup.bar_none": "No changes",
   "setup.bar_sub": "server read {when}",
   "setup.discard": "Discard",
@@ -462,5 +479,30 @@
   "help.reasons": "Why",
   "help.reasons_text": "Every proposal says why: as before, new, too big, Time Machine target, Kopia's own folder …",
   "help.details": "Per share: local and Kopia retention, folders Kopia leaves out (container folders one click away), method, child datasets.",
-  "help.apply": "Lists every change first; then Mr. Backup checks again, keeps the previous settings.ini, writes the new one and lines up Kopia."
+  "help.apply": "Lists every change first; then Mr. Backupsy checks again, keeps the previous settings.ini, writes the new one and lines up Kopia.",
+  "schedule.title": "Schedule",
+  "schedule.open": "Schedule…",
+  "schedule.intro": "I enter the schedule in the User Scripts entry \"unraid-backup\" — just as if you had set it there. Best pick a time nobody needs the server: containers pause briefly for the snapshots.",
+  "schedule.daily": "Every night at",
+  "schedule.custom": "Schedule of your own",
+  "schedule.custom_hint": "Five fields as in User Scripts \"Custom\", e.g. 0 3 * * 1-6 (Monday to Saturday at 3 am).",
+  "schedule.off": "No automatic run",
+  "schedule.off_hint": "The backup then only runs when you start it here.",
+  "schedule.duration": "A run took about {duration} lately — done around {end}.",
+  "schedule.need_time": "Please pick a time.",
+  "schedule.save": "Save",
+  "schedule.saved_on": "Scheduled: {when}",
+  "schedule.saved_off": "No nightly run scheduled any more",
+  "schedule.not_live": "Saved, but Unraid didn't take over the crontab — press \"Apply\" once in Settings → User Scripts.",
+  "schedule.no_script": "This needs the User Scripts entry \"unraid-backup\" first. \"Set up…\" → Apply creates it.",
+  "schedule.after_setup": "Only the schedule is missing now.",
+  "greet.1": "Oh! You startled me.",
+  "greet.2": "Wait, where did I put … ah, there.",
+  "greet.3": "I do hope the power stays on today…",
+  "greet.4": "I checked three times. Better safe than sorry.",
+  "greet.5": "Is the array still there? … Phew.",
+  "fit.yes": "Mr. Backupsy is coming — he only asked three times whether Kopia (\"{kopia}\") is really there.",
+  "fit.no_kopia": "Mr. Backupsy would come, but he's nervous: without Kopia he can't save anything offsite. You can install Kopia later — I'll tell you how.",
+  "fit.no_cow": "Mr. Backupsy declined: without ZFS or btrfs he can't take snapshots. \"That makes me dizzy\", he said.",
+  "fire_note": "The nightly backup keeps running as long as it is scheduled. If it should stop, switch it off first under his \"Schedule…\"."
 }

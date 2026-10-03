@@ -1,11 +1,11 @@
 {
   "name": "Ms. Whereabouts",
-  "role": "Knows where everything is — and what's going on",
-  "bubble.no_tour": "I haven't been round yet. A tour takes a few seconds.",
+  "role": "Knows where everything is and what's going on — and usually a little more",
+  "bubble.no_tour": "I haven't been around yet! A tour takes a few seconds — then I'll know everything.",
   "bubble.no_data": "I can't reach the server and have nothing to show yet.",
-  "bubble.summary": "I know {shares} shares, {containers} containers and {scripts} user scripts.",
-  "bubble.tidy": "Everything looks tidy.",
-  "bubble.noticed": "I noticed:",
+  "bubble.summary": "I know {shares} shares, {containers} containers and {scripts} user scripts — and their little secrets.",
+  "bubble.tidy": "Everything tidy. Almost boring.",
+  "bubble.noticed": "And, just between us:",
   "bubble.findings": {
     "one": "{n} thing caught my eye.",
     "other": "{n} things caught my eye."
@@ -249,12 +249,12 @@
   "backup.script": "user script",
   "backup.share": "share",
   "backup.snapshots": "snapshots",
-  "backup.snapshots_title": "Snapshots (Ms. Snapshot)",
+  "backup.snapshots_title": "Snapshots (Ms. Snapshotini)",
   "backup.snapshots_count": {
     "one": "{n} snapshot",
     "other": "{n} snapshots"
   },
-  "to_snapshot": "Go to Ms. Snapshot",
+  "to_snapshot": "Go to Ms. Snapshotini",
   "backups_note": "Configured backups and educated guesses from names — check before you rely on it.",
   "detail.running": "Running",
   "detail.since": "Since",
@@ -394,7 +394,6 @@
   "importance.normal": "info",
   "notices_note": "Unread notices from Unraid's bell. Mark them as read in the Unraid web GUI.",
   "disk_role": "Role",
-
   "unfold_all": "Unfold all",
   "fold_all": "Fold all",
   "places": "Where things are",
@@ -402,22 +401,37 @@
   "place.unraid": "Unraid configuration",
   "place.unraid_intro": "Everything Unraid knows about itself lives in /boot/config.",
   "place.docker": "Docker",
-  "place.docker_sub": {"one": "1 template (XML)", "other": "{n} templates (XML)"},
+  "place.docker_sub": {
+    "one": "1 template (XML)",
+    "other": "{n} templates (XML)"
+  },
   "place.docker_intro": "Containers from Unraid's Docker page are described by an XML template on the flash — add the container again from it (Apps → Previous Apps) and it is back with all its settings. Their data lives in appdata.",
   "place.compose": "Compose stacks",
-  "place.compose_sub": {"one": "1 stack", "other": "{n} stacks"},
+  "place.compose_sub": {
+    "one": "1 stack",
+    "other": "{n} stacks"
+  },
   "place.compose_intro": "The Compose Manager keeps each stack in its own folder on the flash: the compose file, an override and the .env with the variables. «Indirect» stacks point to a folder elsewhere.",
   "place.vms": "VMs (libvirt)",
-  "place.vms_sub": {"one": "1 VM", "other": "{n} VMs"},
+  "place.vms_sub": {
+    "one": "1 VM",
+    "other": "{n} VMs"
+  },
   "place.vms_intro": "Everything that makes a VM — its XML, the UEFI variables (NVRAM) and the TPM state — lives inside libvirt.img, which is mounted at /etc/libvirt while the VM service runs. The virtual disks live in the domains share.",
   "place.vms_more": "Details per VM — what you need to move each one →",
   "place.scripts": "User Scripts",
-  "place.scripts_sub": {"one": "1 script", "other": "{n} scripts"},
+  "place.scripts_sub": {
+    "one": "1 script",
+    "other": "{n} scripts"
+  },
   "place.scripts_intro": "Every user script is a folder on the flash with its script; the schedules of all of them are in one file.",
   "place.office": "This office",
   "place.office_sub": "code, state, backup data",
   "place.office_intro": "The office itself, its runtime data (state, PIN) and the backup engine's settings, logs and database dumps.",
-  "loc_count": {"one": "1 entry", "other": "{n} entries"},
+  "loc_count": {
+    "one": "1 entry",
+    "other": "{n} entries"
+  },
   "loc.flash_config": "Unraid configuration (/boot/config)",
   "loc.flash_config_note": "The whole configuration — this is what Unraid's flash backup saves.",
   "loc.super_dat": "Disk assignment (super.dat)",
@@ -434,7 +448,10 @@
   "loc.syslog": "System log",
   "loc.ram": "Lives in RAM — gone after a restart unless a syslog server or the mirror to flash is set up.",
   "loc.docker_templates": "Container templates (my-*.xml)",
-  "loc.show_files": {"one": "Show 1 file", "other": "Show {n} files"},
+  "loc.show_files": {
+    "one": "Show 1 file",
+    "other": "Show {n} files"
+  },
   "loc.docker_cfg": "Docker settings",
   "loc.docker_image": "Docker's own data (images, layers)",
   "loc.docker_folder": "A folder (not docker.img) — rebuilt by pulling the images again.",
@@ -466,13 +483,19 @@
   "vm.cpu_mem": "CPU and memory",
   "vm.networks": "Network",
   "vm.passthrough": "Passed through",
-  "vm.passthrough_n": {"one": "1 device passed through", "other": "{n} devices passed through"},
+  "vm.passthrough_n": {
+    "one": "1 device passed through",
+    "other": "{n} devices passed through"
+  },
   "vm.graphics": "Console",
   "vm.description": "Description",
   "vm.files": "Files of this VM",
   "vm.xml": "Definition (XML)",
   "vm.nvram": "UEFI variables (NVRAM)",
-  "vm.nvram_copies": {"one": "plus 1 copy from a VM snapshot", "other": "plus {n} copies from VM snapshots"},
+  "vm.nvram_copies": {
+    "one": "plus 1 copy from a VM snapshot",
+    "other": "plus {n} copies from VM snapshots"
+  },
   "vm.tpm_state": "TPM state",
   "vm.tpm_none": "no TPM state folder yet (the VM never ran?)",
   "vm.iso": "ISO {target}",
@@ -481,8 +504,8 @@
   "vm.base": "Base {n}",
   "vm.move_hint": "To move this VM to another server you need all of these files.",
   "vm.tpm_hint": "Without the TPM state Windows still starts, but BitLocker asks for its recovery key and Windows Hello PINs are gone.",
-  "vm.config_local": "XML, NVRAM and TPM state are only backed up locally, not offsite. Mr. Backup can archive them with the dumps (Set up… → VM configuration).",
-  "vm.config_none": "XML, NVRAM and TPM state aren't backed up at all. Mr. Backup can archive them with the dumps (Set up… → VM configuration).",
+  "vm.config_local": "XML, NVRAM and TPM state are only backed up locally, not offsite. Mr. Backupsy can archive them with the dumps (Set up… → VM configuration).",
+  "vm.config_none": "XML, NVRAM and TPM state aren't backed up at all. Mr. Backupsy can archive them with the dumps (Set up… → VM configuration).",
   "boot.layout.mirror": "mirror",
   "boot.layout.single": "single disk",
   "boot.layout.stripe": "stripe",
@@ -518,15 +541,24 @@
   "help.asleep": "Sleeping disks",
   "help.asleep_text": "Ms. Whereabouts never wakes a sleeping disk on her own. What only an array disk could tell her stays unknown until it is awake; sizes of array shares are measured only when you ask. «Wake sleeping disks» next to Tour wakes them all at once for one tour.",
   "help.labels": "Backup labels",
-  "help.labels_text": "How Mr. Backup protects a path, after the rules of his settings:",
+  "help.labels_text": "How Mr. Backupsy protects a path, after the rules of his settings:",
   "wake": "Wake sleeping disks",
-  "wake_n": {"one": "Wake 1 sleeping disk", "other": "Wake {n} sleeping disks"},
+  "wake_n": {
+    "one": "Wake 1 sleeping disk",
+    "other": "Wake {n} sleeping disks"
+  },
   "wake_title": "For this tour only: wakes every sleeping disk at once and reads everything — where shares really are, whether paths on the array exist, VM disks there. Unraid spins them down again after its delay.",
-  "tour_done_woken": {"one": "Tour done in {ms} ms — 1 disk woken", "other": "Tour done in {ms} ms — {n} disks woken"},
+  "tour_done_woken": {
+    "one": "Tour done in {ms} ms — 1 disk woken",
+    "other": "Tour done in {ms} ms — {n} disks woken"
+  },
   "details_title": "Everything in detail",
   "details_hint": "pick a tile — independent of «Where things are»",
   "place.cron": "Cron jobs",
-  "place.cron_sub": {"one": "1 job", "other": "{n} jobs"},
+  "place.cron_sub": {
+    "one": "1 job",
+    "other": "{n} jobs"
+  },
   "place.cron_intro": "Unraid builds the root crontab in RAM at every start (update_cron) from the *.cron files of dynamix and of the installed plugins on the flash. Anything typed into crontab -e is gone after a reboot — for your own scheduled jobs use User Scripts with a schedule.",
   "loc.cron_files": "Schedules of Unraid and the plugins (*.cron)",
   "loc.cron_files_note": "Only the files of dynamix and of installed plugins count.",
@@ -535,24 +567,49 @@
   "loc.crontab": "root's own crontab (crontab -e)",
   "loc.crontab_note": "Gone after a reboot.",
   "look": "look",
-  "sum.shares": {"one": "1 share", "other": "{n} shares"},
+  "sum.shares": {
+    "one": "1 share",
+    "other": "{n} shares"
+  },
   "sum.shares_backup": "{offsite} offsite · {local} only local · {none} not backed up",
   "sum.folders": "first level of the pool shares",
-  "sum.folders_unused": {"one": "1 folder in {share} nobody uses", "other": "{n} folders in {share} nobody uses"},
+  "sum.folders_unused": {
+    "one": "1 folder in {share} nobody uses",
+    "other": "{n} folders in {share} nobody uses"
+  },
   "sum.docker": "{run} of {total} running · {stacks} stacks",
   "sum.vms": "{run} of {total} running",
-  "sum.disks": {"zero": "temperature, SMART, fill level", "one": "1 asleep · temperature, SMART, fill level", "other": "{n} asleep · temperature, SMART, fill level"},
-  "sum.access": {"one": "1 user and their share access", "other": "{n} users and their share access"},
+  "sum.disks": {
+    "zero": "temperature, SMART, fill level",
+    "one": "1 asleep · temperature, SMART, fill level",
+    "other": "{n} asleep · temperature, SMART, fill level"
+  },
+  "sum.access": {
+    "one": "1 user and their share access",
+    "other": "{n} users and their share access"
+  },
   "sum.network": "SMB sessions {smb} · NFS exports {nfs}",
   "sum.scripts": "{scripts} user scripts · {cron} cron jobs · {running} running",
-  "sum.backups": {"one": "1 place that looks like a backup", "other": "{n} places that look like backups"},
+  "sum.backups": {
+    "one": "1 place that looks like a backup",
+    "other": "{n} places that look like backups"
+  },
   "sum.notices": "{n} unread · {alerts} alerts",
-  "sum.plugins": {"one": "1 plugin", "other": "{n} plugins"},
+  "sum.plugins": {
+    "one": "1 plugin",
+    "other": "{n} plugins"
+  },
   "tip.os": "Created from Unraid's template «{os}».",
   "tip.uefi": "Starts with UEFI (OVMF). Its UEFI variables (boot order, Secure Boot keys) are in {nvram}.",
   "tip.tpm": "Virtual TPM {version} (swtpm). Windows 11 needs it; BitLocker and Windows Hello depend on it. Its state lives in {state}.",
   "tip.passthrough": "Devices of the host (e.g. a GPU or USB controller) passed straight into the VM — on another server they may not exist.",
   "tip.autostart_vm": "Starts when the VM service starts.",
-  "tip.vm_snapshot": "VM snapshots — open Ms. Snapshot",
-  "now_sub": "Live from the server — a tap jumps to the details."
+  "tip.vm_snapshot": "VM snapshots — open Ms. Snapshotini",
+  "now_sub": "Live from the server — a tap jumps to the details.",
+  "greet.1": "Psst, come here…",
+  "greet.2": "Have you heard?",
+  "greet.3": "Just between you and me…",
+  "greet.4": "I don't want to gossip, but…",
+  "greet.5": "I saw something…",
+  "fit.yes": "Ms. Whereabouts is coming right away — she has already started snooping around."
 }

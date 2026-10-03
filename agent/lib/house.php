@@ -138,3 +138,145 @@ function hostNet(array $command, int $timeout = 60): array
 {
     return run(array_merge(['nsenter', '--target', '1', '--net', '--'], $command), $timeout);
 }
+
+// ===================================================================== User Scripts schedule
+
+const US_DIR      = '/boot/config/plugins/user.scripts';
+const US_SCHEDULE = US_DIR . '/schedule.json';
+const US_CRON     = US_DIR . '/customSchedule.cron';
+const US_RUNTIME  = '/tmp/user.scripts/schedule.json';
+const US_START    = '/usr/local/emhttp/plugins/user.scripts/startCustom.php';
+
+/** A cron expression as User Scripts' "Custom" takes it: five plain fields */
+function cronValid(string $cron): bool
+{
+    $f = preg_split('/\s+/', trim($cron));
+    if (count($f) !== 5) {
+        return false;
+    }
+    // minute, hour, day of month, month, day of week (0 and 7 = Sunday)
+    foreach ([[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]] as $i => [$lo, $hi]) {
+        foreach (explode(',', $f[$i]) as $part) {
+            if (!preg_match('#^(\*|(\d+)(-(\d+))?)(/(\d+))?$#', $part, $m)) {
+                return false;
+            }
+            foreach ([$m[2] ?? '', $m[4] ?? ''] as $n) {
+                if ($n !== '' && ((int) $n < $lo || (int) $n > $hi)) {
+                    return false;
+                }
+            }
+            if (isset($m[6]) && $m[6] !== '' && ((int) $m[6] < 1 || (int) $m[6] > $hi)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+/**
+ * Sets (cron) or switches off (null) the schedule of one User Scripts entry —
+ * the way the plugin's own "Apply" does it: its entry in schedule.json (also
+ * the plugin's copy in /tmp), its line in customSchedule.cron, update_cron.
+ * Every other entry and line stays exactly as it is.
+ * The paths are parameters so a test can run against copies; $apply = false
+ * skips update_cron.
+ *
+ * @return bool  whether the line is in the live crontab afterwards (null cron: whether it is gone)
+ */
+function userScriptSchedule(string $name, ?string $cron, string $schedule = US_SCHEDULE, string $cronFile = US_CRON,
+                            ?string $runtime = US_RUNTIME, bool $apply = true): bool
+{
+    $script = dirname($schedule) . "/scripts/$name/script";
+    if (!preg_match('/^[A-Za-z0-9._-]{1,64}$/', $name) || !is_file($script)) {
+        throw new Problem('no_user_script', ['name' => $name]);
+    }
+    if ($cron !== null) {
+        $cron = preg_replace('/\s+/', ' ', trim($cron));
+        if (!cronValid($cron)) {
+            throw new Problem('bad_cron', ['cron' => $cron]);
+        }
+    }
+    $all = json_decode((string) @file_get_contents($schedule), true);
+    if (!is_array($all)) {
+        $all = [];
+    }
+    $old = is_array($all[$script] ?? null) ? $all[$script] : [];
+    $all[$script] = [
+        'script'    => $script,
+        'frequency' => $cron !== null ? 'custom' : 'disabled',
+        'id'        => $old['id'] ?? 'schedule' . $name,
+        'custom'    => $cron ?? (string) ($old['custom'] ?? ''),     // keeps the last time, as the plugin does
+    ];
+    $json = json_encode($all, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    writeAtomic($schedule, $json, 0600, 0, 0);
+    if ($runtime !== null && is_dir(dirname($runtime))) {
+        writeAtomic($runtime, $json, 0600, 0, 0);
+    }
+
+    $start = US_START;
+    $mine = " $start $script ";
+    $lines = [];
+    foreach (explode("\n", (string) @file_get_contents($cronFile)) as $line) {
+        if (trim($line) !== '' && !str_starts_with($line, '#') && !str_contains($line, $mine)) {
+            $lines[] = $line;
+        }
+    }
+    if ($cron !== null) {
+        $lines[] = "$cron $start $script > /dev/null 2>&1";
+    }
+    if ($lines) {
+        writeAtomic($cronFile, "# Generated cron schedule for user.scripts\n" . implode("\n", $lines) . "\n\n", 0600, 0, 0);
+    } else {
+        @unlink($cronFile);
+    }
+    if (!$apply) {
+        return true;
+    }
+    [$exit, , $err] = run(['/usr/local/sbin/update_cron'], 30);
+    if ($exit !== 0) {
+        throw new Problem('command_failed', ['detail' => 'update_cron: ' . trim($err)]);
+    }
+    $live = (string) @file_get_contents('/etc/cron.d/root');
+    return ($cron !== null) === str_contains($live, $mine);
+}
+
+// ===================================================================== staff
+
+/**
+ * The desks that work in the office: data/office/staff.json (written by the
+ * web part, see src/staff.php) plus those that are always there.
+ *
+ * @return list<string>
+ */
+function staffHired(): array
+{
+    $hired = array_keys((array) ((readJson(DATA_DIR . '/office/staff.json') ?? [])['hired'] ?? []));
+    foreach (array_keys(desks()) as $id) {
+        if (!empty(readJson(OFFICE_DIR . "/public/desks/$id/desk.json")['always'])) {
+            $hired[] = $id;
+        }
+    }
+    return array_values(array_unique(array_filter($hired, fn ($id) => is_string($id) && isset(desks()[$id]))));
+}
+
+/**
+ * Would a desk fit this server? A desk's 'fit' says so:
+ * ['ok' => bool, 'why' => code, 'params' => [...]] — the texts are the desk's
+ * own (fit.<why>), told by the caretaker when he suggests whom to hire.
+ */
+function fit(bool $ok, string $why, array $params = []): array
+{
+    return ['ok' => $ok, 'why' => $why, 'params' => $params];
+}
+
+/** Pools and disks that can take snapshots (ZFS datasets mounted under /mnt, btrfs under /mnt) */
+function houseSnapshotFilesystems(): array
+{
+    $found = ['zfs' => [], 'btrfs' => []];
+    foreach (mountTable() as $m) {
+        if (isset($found[$m['fs']]) && preg_match('#^/mnt/([^/]+)$#', $m['mount'], $x) && !preg_match('/^(user0?|disks|remotes|addons|rootshare)$/', $x[1])) {
+            $found[$m['fs']][$x[1]] = true;
+        }
+    }
+    return ['zfs' => array_keys($found['zfs']), 'btrfs' => array_keys($found['btrfs'])];
+}

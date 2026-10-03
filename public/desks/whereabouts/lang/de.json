@@ -1,11 +1,11 @@
 {
   "name": "Frau WasIstWo",
-  "role": "Weiss, wo alles ist — und was gerade los ist",
-  "bubble.no_tour": "Ich war noch nicht unterwegs. Ein Rundgang dauert ein paar Sekunden.",
+  "role": "Weiss, wo alles ist und was gerade los ist — und meistens noch ein bisschen mehr",
+  "bubble.no_tour": "Ich war noch gar nicht unterwegs! Ein Rundgang dauert ein paar Sekunden — dann weiss ich alles.",
   "bubble.no_data": "Ich komme nicht an den Server heran und habe noch nichts zu zeigen.",
-  "bubble.summary": "Ich kenne {shares} Shares, {containers} Container und {scripts} User Scripts.",
-  "bubble.tidy": "Alles sieht ordentlich aus.",
-  "bubble.noticed": "Mir ist aufgefallen:",
+  "bubble.summary": "Ich kenne {shares} Shares, {containers} Container und {scripts} User Scripts — und ihre kleinen Geheimnisse.",
+  "bubble.tidy": "Alles ordentlich. Fast schon langweilig.",
+  "bubble.noticed": "Und, ganz unter uns:",
   "bubble.findings": {
     "one": "{n} Sache ist mir aufgefallen.",
     "other": "{n} Sachen sind mir aufgefallen."
@@ -249,12 +249,12 @@
   "backup.script": "User Script",
   "backup.share": "Share",
   "backup.snapshots": "Snapshots",
-  "backup.snapshots_title": "Snapshots (Frau Snapshot)",
+  "backup.snapshots_title": "Snapshots (Frau Snapshotini)",
   "backup.snapshots_count": {
     "one": "{n} Snapshot",
     "other": "{n} Snapshots"
   },
-  "to_snapshot": "Zu Frau Snapshot",
+  "to_snapshot": "Zu Frau Snapshotini",
   "backups_note": "Eingerichtete Sicherungen und Vermutungen anhand der Namen — prüfen, bevor man sich darauf verlässt.",
   "detail.running": "Läuft",
   "detail.since": "Seit",
@@ -394,7 +394,6 @@
   "importance.normal": "Info",
   "notices_note": "Ungelesene Meldungen aus Unraids Glocke. Als gelesen markieren in der Unraid-Weboberfläche.",
   "disk_role": "Rolle",
-
   "unfold_all": "Alle aufklappen",
   "fold_all": "Alle zuklappen",
   "places": "Wo liegt was",
@@ -402,22 +401,37 @@
   "place.unraid": "Unraid-Konfiguration",
   "place.unraid_intro": "Alles, was Unraid über sich weiss, liegt in /boot/config.",
   "place.docker": "Docker",
-  "place.docker_sub": {"one": "1 Vorlage (XML)", "other": "{n} Vorlagen (XML)"},
+  "place.docker_sub": {
+    "one": "1 Vorlage (XML)",
+    "other": "{n} Vorlagen (XML)"
+  },
   "place.docker_intro": "Container von Unraids Docker-Seite sind durch eine XML-Vorlage auf dem Flash beschrieben — daraus wieder anlegen (Apps → Previous Apps), und er ist mit allen Einstellungen zurück. Ihre Daten liegen in appdata.",
   "place.compose": "Compose-Stacks",
-  "place.compose_sub": {"one": "1 Stack", "other": "{n} Stacks"},
+  "place.compose_sub": {
+    "one": "1 Stack",
+    "other": "{n} Stacks"
+  },
   "place.compose_intro": "Der Compose Manager hat für jeden Stack einen Ordner auf dem Flash: Compose-Datei, Override und die .env mit den Variablen. «Indirekte» Stacks zeigen auf einen Ordner woanders.",
   "place.vms": "VMs (libvirt)",
-  "place.vms_sub": {"one": "1 VM", "other": "{n} VMs"},
+  "place.vms_sub": {
+    "one": "1 VM",
+    "other": "{n} VMs"
+  },
   "place.vms_intro": "Alles, was eine VM ausmacht — ihr XML, die UEFI-Variablen (NVRAM) und der TPM-Zustand — liegt in libvirt.img, das bei laufendem VM-Dienst unter /etc/libvirt eingehängt ist. Die virtuellen Disks liegen im Share domains.",
   "place.vms_more": "Details pro VM — was du für einen Umzug brauchst →",
   "place.scripts": "User Scripts",
-  "place.scripts_sub": {"one": "1 Script", "other": "{n} Scripts"},
+  "place.scripts_sub": {
+    "one": "1 Script",
+    "other": "{n} Scripts"
+  },
   "place.scripts_intro": "Jedes User Script ist ein Ordner auf dem Flash mit seinem Script; die Zeitpläne aller Scripts stehen in einer Datei.",
   "place.office": "Dieses Sekretariat",
   "place.office_sub": "Code, Zustand, Backup-Daten",
   "place.office_intro": "Das Sekretariat selbst, seine Laufzeitdaten (Zustand, PIN) und Einstellungen, Protokolle und Datenbank-Dumps des Backup-Motors.",
-  "loc_count": {"one": "1 Eintrag", "other": "{n} Einträge"},
+  "loc_count": {
+    "one": "1 Eintrag",
+    "other": "{n} Einträge"
+  },
   "loc.flash_config": "Unraid-Konfiguration (/boot/config)",
   "loc.flash_config_note": "Die ganze Konfiguration — das sichert auch Unraids Flash-Backup.",
   "loc.super_dat": "Disk-Zuordnung (super.dat)",
@@ -434,7 +448,10 @@
   "loc.syslog": "Systemprotokoll",
   "loc.ram": "Liegt im RAM — nach einem Neustart weg, ausser ein Syslog-Server oder die Spiegelung auf den Flash ist eingerichtet.",
   "loc.docker_templates": "Container-Vorlagen (my-*.xml)",
-  "loc.show_files": {"one": "1 Datei zeigen", "other": "{n} Dateien zeigen"},
+  "loc.show_files": {
+    "one": "1 Datei zeigen",
+    "other": "{n} Dateien zeigen"
+  },
   "loc.docker_cfg": "Docker-Einstellungen",
   "loc.docker_folder": "Ein Ordner (kein docker.img) — entsteht neu, indem die Images wieder geladen werden.",
   "loc.docker_image": "Dockers eigene Daten (Images, Ebenen)",
@@ -466,13 +483,19 @@
   "vm.cpu_mem": "CPU und Speicher",
   "vm.networks": "Netzwerk",
   "vm.passthrough": "Durchgereicht",
-  "vm.passthrough_n": {"one": "1 Gerät durchgereicht", "other": "{n} Geräte durchgereicht"},
+  "vm.passthrough_n": {
+    "one": "1 Gerät durchgereicht",
+    "other": "{n} Geräte durchgereicht"
+  },
   "vm.graphics": "Konsole",
   "vm.description": "Beschreibung",
   "vm.files": "Dateien dieser VM",
   "vm.xml": "Definition (XML)",
   "vm.nvram": "UEFI-Variablen (NVRAM)",
-  "vm.nvram_copies": {"one": "dazu 1 Kopie aus einem VM-Snapshot", "other": "dazu {n} Kopien aus VM-Snapshots"},
+  "vm.nvram_copies": {
+    "one": "dazu 1 Kopie aus einem VM-Snapshot",
+    "other": "dazu {n} Kopien aus VM-Snapshots"
+  },
   "vm.tpm_state": "TPM-Zustand",
   "vm.tpm_none": "noch kein TPM-Ordner (die VM lief noch nie?)",
   "vm.iso": "ISO {target}",
@@ -481,8 +504,8 @@
   "vm.base": "Basis {n}",
   "vm.move_hint": "Für einen Umzug dieser VM auf einen anderen Server brauchst du alle diese Dateien.",
   "vm.tpm_hint": "Ohne den TPM-Zustand startet Windows zwar, aber BitLocker verlangt den Wiederherstellungsschlüssel und Windows-Hello-PINs sind weg.",
-  "vm.config_local": "XML, NVRAM und TPM-Zustand werden nur lokal gesichert, nicht offsite. Herr Backup kann sie mit den Dumps archivieren (Einrichten… → VM-Konfiguration).",
-  "vm.config_none": "XML, NVRAM und TPM-Zustand werden gar nicht gesichert. Herr Backup kann sie mit den Dumps archivieren (Einrichten… → VM-Konfiguration).",
+  "vm.config_local": "XML, NVRAM und TPM-Zustand werden nur lokal gesichert, nicht offsite. Herr Backupsi kann sie mit den Dumps archivieren (Einrichten… → VM-Konfiguration).",
+  "vm.config_none": "XML, NVRAM und TPM-Zustand werden gar nicht gesichert. Herr Backupsi kann sie mit den Dumps archivieren (Einrichten… → VM-Konfiguration).",
   "boot.layout.mirror": "Mirror",
   "boot.layout.single": "eine Disk",
   "boot.layout.stripe": "Stripe",
@@ -518,15 +541,24 @@
   "help.asleep": "Schlafende Disks",
   "help.asleep_text": "Frau WasIstWo weckt nie von sich aus eine schlafende Disk. Was nur eine Array-Disk wissen kann, bleibt unbekannt, bis sie wach ist; Grössen von Array-Shares misst sie nur auf Wunsch. «Schlafende Disks wecken» neben dem Rundgang weckt alle auf einmal für einen Rundgang.",
   "help.labels": "Backup-Labels",
-  "help.labels_text": "Wie Herr Backup einen Pfad schützt, nach den Regeln seiner Einstellungen:",
+  "help.labels_text": "Wie Herr Backupsi einen Pfad schützt, nach den Regeln seiner Einstellungen:",
   "wake": "Schlafende Disks wecken",
-  "wake_n": {"one": "1 schlafende Disk wecken", "other": "{n} schlafende Disks wecken"},
+  "wake_n": {
+    "one": "1 schlafende Disk wecken",
+    "other": "{n} schlafende Disks wecken"
+  },
   "wake_title": "Nur für diesen Rundgang: weckt alle schlafenden Disks gleichzeitig und liest alles — wo Shares wirklich liegen, ob Pfade auf dem Array existieren, VM-Disks dort. Unraid legt sie nach seiner Wartezeit wieder schlafen.",
-  "tour_done_woken": {"one": "Rundgang in {ms} ms — 1 Disk geweckt", "other": "Rundgang in {ms} ms — {n} Disks geweckt"},
+  "tour_done_woken": {
+    "one": "Rundgang in {ms} ms — 1 Disk geweckt",
+    "other": "Rundgang in {ms} ms — {n} Disks geweckt"
+  },
   "details_title": "Alles im Detail",
   "details_hint": "Kachel wählen — unabhängig von «Wo liegt was»",
   "place.cron": "Cronjobs",
-  "place.cron_sub": {"one": "1 Job", "other": "{n} Jobs"},
+  "place.cron_sub": {
+    "one": "1 Job",
+    "other": "{n} Jobs"
+  },
   "place.cron_intro": "Unraid baut die Crontab von root bei jedem Start im RAM neu (update_cron) — aus den *.cron-Dateien von dynamix und der installierten Plugins auf dem Flash. Was du mit crontab -e einträgst, ist nach einem Neustart weg — eigene geplante Jobs gehören in User Scripts mit Zeitplan.",
   "loc.cron_files": "Zeitpläne von Unraid und den Plugins (*.cron)",
   "loc.cron_files_note": "Es zählen nur die Dateien von dynamix und von installierten Plugins.",
@@ -535,24 +567,49 @@
   "loc.crontab": "Eigene Crontab von root (crontab -e)",
   "loc.crontab_note": "Nach einem Neustart weg.",
   "look": "ansehen",
-  "sum.shares": {"one": "1 Share", "other": "{n} Shares"},
+  "sum.shares": {
+    "one": "1 Share",
+    "other": "{n} Shares"
+  },
   "sum.shares_backup": "{offsite} offsite · {local} nur lokal · {none} nicht gesichert",
   "sum.folders": "erste Ebene der Pool-Shares",
-  "sum.folders_unused": {"one": "1 Ordner in {share}, den niemand benutzt", "other": "{n} Ordner in {share}, die niemand benutzt"},
+  "sum.folders_unused": {
+    "one": "1 Ordner in {share}, den niemand benutzt",
+    "other": "{n} Ordner in {share}, die niemand benutzt"
+  },
   "sum.docker": "{run} von {total} laufen · {stacks} Stacks",
   "sum.vms": "{run} von {total} laufen",
-  "sum.disks": {"zero": "Temperatur, SMART, Füllstand", "one": "1 schläft · Temperatur, SMART, Füllstand", "other": "{n} schlafen · Temperatur, SMART, Füllstand"},
-  "sum.access": {"one": "1 Benutzer und sein Share-Zugriff", "other": "{n} Benutzer und ihr Share-Zugriff"},
+  "sum.disks": {
+    "zero": "Temperatur, SMART, Füllstand",
+    "one": "1 schläft · Temperatur, SMART, Füllstand",
+    "other": "{n} schlafen · Temperatur, SMART, Füllstand"
+  },
+  "sum.access": {
+    "one": "1 Benutzer und sein Share-Zugriff",
+    "other": "{n} Benutzer und ihr Share-Zugriff"
+  },
   "sum.network": "SMB-Sitzungen {smb} · NFS-Freigaben {nfs}",
   "sum.scripts": "{scripts} User Scripts · {cron} Cronjobs · {running} laufen",
-  "sum.backups": {"one": "1 Ort, der nach Backup aussieht", "other": "{n} Orte, die nach Backup aussehen"},
+  "sum.backups": {
+    "one": "1 Ort, der nach Backup aussieht",
+    "other": "{n} Orte, die nach Backup aussehen"
+  },
   "sum.notices": "{n} ungelesen · {alerts} Alarme",
-  "sum.plugins": {"one": "1 Plugin", "other": "{n} Plugins"},
+  "sum.plugins": {
+    "one": "1 Plugin",
+    "other": "{n} Plugins"
+  },
   "tip.os": "Angelegt aus Unraids Vorlage «{os}».",
   "tip.uefi": "Startet mit UEFI (OVMF). Ihre UEFI-Variablen (Bootreihenfolge, Secure-Boot-Schlüssel) liegen in {nvram}.",
   "tip.tpm": "Virtuelles TPM {version} (swtpm). Windows 11 braucht es; BitLocker und Windows Hello hängen daran. Sein Zustand liegt in {state}.",
   "tip.passthrough": "Geräte des Hosts (z. B. eine Grafikkarte oder ein USB-Controller), direkt in die VM durchgereicht — auf einem anderen Server gibt es sie vielleicht nicht.",
   "tip.autostart_vm": "Startet mit dem VM-Dienst.",
-  "tip.vm_snapshot": "VM-Snapshots — Frau Snapshot öffnen",
-  "now_sub": "Live vom Server — antippen springt zu den Details."
+  "tip.vm_snapshot": "VM-Snapshots — Frau Snapshotini öffnen",
+  "now_sub": "Live vom Server — antippen springt zu den Details.",
+  "greet.1": "Psst, komm mal her…",
+  "greet.2": "Hast du schon gehört?",
+  "greet.3": "Also, ganz unter uns…",
+  "greet.4": "Ich will ja nichts sagen, aber…",
+  "greet.5": "Ich hab da was gesehen…",
+  "fit.yes": "Frau WasIstWo kommt sofort — sie hat schon angefangen, herumzuschnüffeln."
 }

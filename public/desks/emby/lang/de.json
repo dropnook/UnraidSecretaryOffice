@@ -202,5 +202,8 @@
   "errors.emby_unreachable": "{url} antwortet nicht: {detail}",
   "errors.emby_bad_pool": "{path} ist kein Pool auf diesem Server.",
   "errors.emby_config": "EmbyCache nimmt die Einstellungen nicht an: {detail}",
-  "errors.emby_not_configured": "EmbyCache ist noch nicht eingerichtet."
+  "errors.emby_not_configured": "EmbyCache ist noch nicht eingerichtet.",
+  "fit.yes": "Jack Emby kommt gern — er hat «{name}» entdeckt und war nicht mehr zu halten.",
+  "fit.no_emby": "Ich habe Jack Emby angefragt, aber da es auf dem Server kein Emby gibt, wollte er nicht kommen.",
+  "fire_note": "Ist EmbyCache in User Scripts geplant, läuft es weiter, bis du es dort ausschaltest."
 }

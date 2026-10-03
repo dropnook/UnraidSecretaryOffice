@@ -2,16 +2,19 @@
   "name": "Der Hauswart",
   "role": "Schaut zum Haus — was das Sekretariat von deinem Server braucht und was du noch selbst tun musst",
   "visit": "Zum Hauswart",
-
   "bubble.loading": "Einen Moment, ich mache meinen Rundgang…",
   "bubble.all_good": "Alles an seinem Platz — für dich gibt es nichts zu tun.",
-  "bubble.todo": { "one": "Eine Sache musst du noch selbst erledigen.", "other": "{n} Dinge musst du noch selbst erledigen." },
-  "bubble.advice": { "one": "Und ich habe eine Empfehlung.", "other": "Und ich habe {n} Empfehlungen." },
-
+  "bubble.todo": {
+    "one": "Eine Sache musst du noch selbst erledigen.",
+    "other": "{n} Dinge musst du noch selbst erledigen."
+  },
+  "bubble.advice": {
+    "one": "Und ich habe eine Empfehlung.",
+    "other": "Und ich habe {n} Empfehlungen."
+  },
   "check_again": "Nochmals prüfen",
   "checked": "Geprüft",
   "checked_at": "Geprüft {when}",
-
   "todo": "Noch zu tun",
   "todo_text": "Ohne das kann ein Schreibtisch seine Arbeit (teilweise) nicht machen. Das kannst nur du erledigen — in Unraid selbst.",
   "advice": "Empfohlen",
@@ -26,11 +29,9 @@
   "unknown": "konnte ich nicht prüfen",
   "all_good_title": "Nichts mehr zu tun",
   "all_good_text": "Jeder Schreibtisch hat, was er braucht.",
-
   "level.required": "nötig",
   "level.recommended": "empfohlen",
   "level.hint": "Hinweis",
-
   "open.office": "Öffnen",
   "open.plugins": "Plugins",
   "open.apps": "Apps",
@@ -38,10 +39,8 @@
   "open.userscripts": "User Scripts",
   "open.notifications": "Mitteilungen",
   "open.settings": "Einstellungen",
-
   "fact.more": "… und {n} weitere",
   "fact.done": "{n} Prüfungen in Ordnung",
-
   "check.unraid": "Unraid {min} oder neuer (hier: {version})",
   "check.unraid_how": "Unraid unter Tools → Update OS aktualisieren.",
   "check.community_apps": "Community Apps",
@@ -51,7 +50,7 @@
   "check.fix_common_problems": "Fix Common Problems",
   "check.fix_common_problems_how": "Prüft den Server auf häufige Fehler und warnt früh. Aus den Apps installieren.",
   "check.files_viewer": "Files Viewer (von Lazaros Chalkidis)",
-  "check.files_viewer_how": "Dateien und Protokolle — auch die von Herrn Backup — direkt in Unraids Oberfläche ansehen. Aus den Apps installieren.",
+  "check.files_viewer_how": "Dateien und Protokolle — auch die von Herrn Backupsi — direkt in Unraids Oberfläche ansehen. Aus den Apps installieren.",
   "check.notifications": "Unraids Warnungen erreichen dich per Mail oder Push",
   "check.notifications_how": "Unter Settings → Notifications für Warnungen Mail oder einen Agent (Pushover, Telegram, …) einschalten — sonst erfährt niemand von einem fehlgeschlagenen Backup oder einer sterbenden Disk.",
   "check.mail_subject": "Der Mail-Betreff «{subject}» nennt {host} nicht",
@@ -59,11 +58,11 @@
   "check.pin": "Ändern im Sekretariat braucht eine PIN",
   "check.pin_how": "⋯ → Mit PIN schützen. Lesen bleibt für alle in deinem LAN offen.",
   "check.other_backup_plugin": "Weiteres Backup-Werkzeug: Plugin {name}",
-  "check.other_backup_plugin_how": "Prüfe, dass es nicht dasselbe zur selben Zeit sichert wie Herr Backup — oder dass das so gewollt ist.",
+  "check.other_backup_plugin_how": "Prüfe, dass es nicht dasselbe zur selben Zeit sichert wie Herr Backupsi — oder dass das so gewollt ist.",
   "check.other_backup_container": "Weiteres Backup-Werkzeug: Container {name}",
-  "check.other_backup_container_how": "Prüfe, dass es nicht dasselbe zur selben Zeit sichert wie Herr Backup — oder dass das so gewollt ist.",
+  "check.other_backup_container_how": "Prüfe, dass es nicht dasselbe zur selben Zeit sichert wie Herr Backupsi — oder dass das so gewollt ist.",
   "check.other_backup_script": "Weiteres Backup-Werkzeug: User Script {name}",
-  "check.other_backup_script_how": "Prüfe, dass es nicht dasselbe zur selben Zeit sichert wie Herr Backup — oder dass das so gewollt ist.",
+  "check.other_backup_script_how": "Prüfe, dass es nicht dasselbe zur selben Zeit sichert wie Herr Backupsi — oder dass das so gewollt ist.",
   "check.checks_failed": "Die Prüfungen sind fehlgeschlagen: {detail}",
   "done_sub": "Alles, was schon in Ordnung ist.",
   "help.todo": "Braucht ein Schreibtisch für (einen Teil) seiner Arbeit — erledigen kannst nur du, in Unraid selbst.",
@@ -75,6 +74,27 @@
   "help.desk": "Schreibtisch-Chip",
   "help.desk_text": "Wer es braucht: Jeder Schreibtisch sagt mir, was er vom Server braucht, ich sammle es.",
   "help.open": "Knöpfe rechts",
-  "help.open_text": "Führt dorthin, wo du es erledigst: zur passenden Seite von Unraids Oberfläche (Plugins, Apps, Docker, User Scripts, Mitteilungen) in einem neuen Tab — oder direkt zum richtigen Schreibtisch hier im Büro, z. B. «Einrichten…» bei Herr Backup.",
-  "help.again": "Schaut sofort alles neu an; sonst tue ich das, wenn die Seite geöffnet wird und mein letzter Blick älter als 5 Minuten ist."
+  "help.open_text": "Führt dorthin, wo du es erledigst: zur passenden Seite von Unraids Oberfläche (Plugins, Apps, Docker, User Scripts, Mitteilungen) in einem neuen Tab — oder direkt zum richtigen Schreibtisch hier im Büro, z. B. «Einrichten…» bei Herr Backupsi.",
+  "help.again": "Schaut sofort alles neu an; sonst tue ich das, wenn die Seite geöffnet wird und mein letzter Blick älter als 5 Minuten ist.",
+  "bubble.alone": "Hoi, ich bin der Hauswart. Ausser mir ist noch niemand da — aber ich habe mich schon umgehört, wer zu deinem Server passen würde. Schau dir das Team unten an und stell ein, wen du brauchen kannst.",
+  "bubble.alone_short": "Ausser mir ist noch niemand da. Komm vorbei — ich stelle dir vor, wer zu deinem Server passen würde.",
+  "fact.could_come": "Könnten kommen: {names}",
+  "team": "Das Team",
+  "team_sub": "Wer hier arbeitet und wer noch kommen könnte. Entlassen blendet jemanden aus — Daten und Einstellungen bleiben.",
+  "team_sub_alone": "Ich habe nachgefragt, wer zu deinem Server passt. Einstellen, wen du brauchen kannst — entlassen geht jederzeit wieder.",
+  "in_team": "im Team",
+  "could_come": "könnte kommen",
+  "declined": "sagt ab",
+  "hire": "Einstellen",
+  "hire_all": {
+    "one": "Einstellen",
+    "other": "Alle {n} einstellen"
+  },
+  "fire": "Entlassen",
+  "hired": "Willkommen: {names}",
+  "fit.yes": "{name} würde gern kommen.",
+  "fit.no": "{name} passt nicht zu diesem Server.",
+  "help.team": "Wer im Sekretariat arbeitet. Ich frage bei allen nach, ob sie zu deinem Server passen — wer nicht passt, sagt ab. Einstellen zeigt den Schreibtisch am Empfang und in den Reitern; entlassen blendet ihn wieder aus, ohne etwas zu löschen.",
+  "tip_button": "☕ Trinkgeld & Lohnerhöhung",
+  "tip_button_title": "Das Team freut sich über ein Trinkgeld (PayPal)"
 }

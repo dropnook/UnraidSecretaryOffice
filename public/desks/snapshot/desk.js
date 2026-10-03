@@ -1,4 +1,4 @@
-/* Ms. Snapshot — keeps track of every snapshot on the server: ZFS, btrfs and
+/* Ms. Snapshotini — keeps track of every snapshot on the server: ZFS, btrfs and
    VMs. Create, delete (with a space estimate), rename, hold, unmount.
    The agent part lives in agent/desks/snapshot.php. */
 (() => {
@@ -299,7 +299,7 @@ function render() {
 
 function renderHead() {
   view.bubble.innerHTML = '';
-  view.bubble.append(bubbleText().join(' '));
+  view.bubble.append(Office.withGreeting(ID, bubbleText().join(' ')));
 }
 
 function buttons() {

@@ -24,8 +24,20 @@ function caretakerScan(): array
 {
     $t0 = microtime(true);
     $checks = [];
+    $staff = [];
+    $hired = staffHired();
     foreach (desks() as $id => $desk) {
-        if (!$desk['checks']) {
+        // whom to hire: every desk that isn't working here yet says whether it would fit
+        if ($desk['fit']) {
+            try {
+                $staff[$id] = ['hired' => in_array($id, $hired, true)] + ($desk['fit'])();
+            } catch (Throwable $e) {
+                logLine("$id: fit failed: " . $e->getMessage());
+                $staff[$id] = ['hired' => in_array($id, $hired, true)] + fit(false, 'unknown', ['detail' => $e->getMessage()]);
+            }
+        }
+        // what the office needs: only from those who work here
+        if (!$desk['checks'] || !in_array($id, $hired, true)) {
             continue;
         }
         try {
@@ -40,6 +52,8 @@ function caretakerScan(): array
         'duration_ms' => (int) round((microtime(true) - $t0) * 1000),
         'gui'         => houseGuiUrl(),
         'checks'      => $checks,
+        'staff'       => $staff,
+        'hired'       => $hired,
     ];
     writeAtomic(deskFile('caretaker'), jsonEncode($state));
     return $state;

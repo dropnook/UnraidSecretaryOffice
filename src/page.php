@@ -17,12 +17,18 @@ function render_page(): void
     $info = agentInfo();
     $host = (string) ($info['host'] ?? 'Unraid');
     $desks = officeDesks();
+    $hired = officeHired();
+    foreach ($desks as $id => &$desk) {
+        $desk['hired'] = isset($hired[$id]);
+    }
+    unset($desk);
     $config = [
         'version'   => OFFICE_VERSION,
         'host'      => $host,
         'desks'     => array_values($desks),
         'languages' => officeLanguages(),
         'stamp'     => officeStringsStamp(),
+        'tip_url'   => OFFICE_TIP_URL,
     ];
     $v = static fn (string $file): string => (string) @filemtime(OFFICE_PUBLIC . '/' . $file);
     $h = static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES);

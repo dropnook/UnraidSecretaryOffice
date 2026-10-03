@@ -33,6 +33,7 @@ $GLOBALS['whereabouts'] = null;
 $GLOBALS['waJobs'] = ['queue' => [], 'running' => []];
 
 desk('whereabouts', [
+    'fit'     => fn (): array => fit(true, 'yes'),
     'start' => function (): void {
         $GLOBALS['whereabouts'] = readJson(deskFile('whereabouts'));
         whereaboutsScan();

@@ -31,6 +31,10 @@ define('EMBY_APP', EMBY_DATA . '/app');
 define('EMBY_UPDATE', DATA_DIR . '/emby-update.json');
 
 desk('emby', [
+    'fit'     => function (): array {
+        $emby = embyContainers();
+        return $emby ? fit(true, 'yes', ['name' => $emby[0]['name']]) : fit(false, 'no_emby');
+    },
     'start'   => fn () => embyScan(),
     'actions' => [
         'refresh'       => fn (array $r) => ['ok' => true, 'state' => embyScan()],

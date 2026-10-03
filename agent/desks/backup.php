@@ -31,6 +31,18 @@ $GLOBALS['backup'] = null;
 $GLOBALS['backupLogCache'] = [];         // legacy log file => [mtime, parsed]
 
 desk('backup', [
+    'fit'     => function (): array {
+        $fs = houseSnapshotFilesystems();
+        if (!$fs['zfs'] && !$fs['btrfs']) {
+            return fit(false, 'no_cow');
+        }
+        foreach (houseContainers() as $c) {
+            if (preg_match('/kopia/i', $c['image'] . ' ' . $c['name'])) {
+                return fit(true, 'yes', ['kopia' => $c['name']]);
+            }
+        }
+        return fit(true, 'no_kopia');
+    },
     'start' => function (): void {
         $GLOBALS['backup'] = readJson(deskFile('backup'));
         backupScan();
@@ -44,6 +56,7 @@ desk('backup', [
         'setup_plan'  => fn (array $r) => backupSetupPlan(!empty($r['measure'])),
         'setup_get'   => fn (array $r) => backupSetupGet(),
         'setup_apply' => fn (array $r) => backupSetupApply($r['decisions'] ?? null),
+        'schedule'    => fn (array $r) => backupSetSchedule($r['cron'] ?? null),
     ],
     'checks' => fn () => backupChecks(),
 ]);
@@ -515,6 +528,15 @@ function backupSchedule(): array
     return $result;
 }
 
+/** Sets the nightly run in User Scripts (cron) or switches it off (null / '') */
+function backupSetSchedule(mixed $cron): array
+{
+    $cron = is_string($cron) && trim($cron) !== '' ? trim($cron) : null;
+    $live = userScriptSchedule(BACKUP_USER_SCRIPT, $cron);
+    logLine('Mr. Backup: schedule ' . ($cron !== null ? "set to $cron" : 'switched off') . ($live ? '' : ' (not in the crontab yet)'));
+    return ['ok' => true, 'live' => $live, 'state' => backupScan()];
+}
+
 /** Mounts the script left under its mount root (keep_mounts, or a run that died) */
 function backupMounted(?string $root): array
 {
@@ -685,7 +707,7 @@ function backupChecks(): array
     $schedule = backupSchedule();
     $out[] = finding('user_script', 'required', $schedule['script'], ['path' => BACKUP_SCRIPT_DIR . '/setup.sh'], '#/backup/setup');
     if ($schedule['script']) {
-        $out[] = finding('schedule', 'required', $schedule['enabled'], [], 'userscripts');
+        $out[] = finding('schedule', 'required', $schedule['enabled'], [], '#/backup/schedule');
     }
 
     // Kopia: a must for offsite copies, otherwise a recommendation

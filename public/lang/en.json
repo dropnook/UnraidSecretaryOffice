@@ -1,6 +1,8 @@
 {
-  "_meta": { "name": "English", "locale": "en-GB" },
-
+  "_meta": {
+    "name": "English",
+    "locale": "en-GB"
+  },
   "office.name": "Secretary Office",
   "office.reception": "Reception",
   "office.welcome": "Welcome to the office of {host}",
@@ -11,14 +13,12 @@
   "office.log_empty": "Empty so far.",
   "office.log_failed": "Could not load the log.",
   "office.refresh": "Reload this page",
-
   "agent.running": "Agent is running (v{version})",
   "agent.away": "Agent is not running",
   "agent.away_title": "The agent on the server is not running.",
   "agent.away_text": "You see the last known state; nothing can be changed until it is back.",
   "agent.how_to_start": "How to start it",
   "agent.version": "Agent v{version}",
-
   "common.close": "Close",
   "common.cancel": "Cancel",
   "common.loading": "Loading…",
@@ -34,7 +34,6 @@
   "common.none": "none",
   "common.unknown": "unknown",
   "common.scanned_ago": "scanned {when}",
-
   "common.page_help": "How to read this page",
   "protect.offsite": "offsite",
   "protect.offsite_text": "local snapshot + Kopia, encrypted off the server",
@@ -42,19 +41,19 @@
   "protect.local_text": "only a snapshot or dump on this server — gone with the server",
   "protect.none": "not backed up",
   "protect.none_text": "not backed up",
-
   "time.just_now": "just now",
   "time.days_hours": "{d} d {h} h",
   "time.hours_minutes": "{h} h {m} min",
   "time.minutes": "{m} min",
-
-  "cron.every_minutes": { "one": "every minute", "other": "every {n} minutes" },
+  "cron.every_minutes": {
+    "one": "every minute",
+    "other": "every {n} minutes"
+  },
   "cron.hourly_at": "hourly at minute {m}",
   "cron.every_hours": "every {n} hours at minute {m}",
   "cron.daily_at": "daily at {time}",
   "cron.weekly_at": "every {day} at {time}",
   "cron.monthly_at": "monthly on day {day} at {time}",
-
   "errors.bad_request": "The request could not be read.",
   "errors.unknown_action": "Unknown action: {action}",
   "errors.unknown_desk": "Unknown desk: {desk}",
@@ -76,7 +75,6 @@
   "errors.pin_wait": "Too many wrong tries. Wait {seconds} s.",
   "errors.pin_length": "The PIN needs {min} to {max} characters.",
   "errors.auth_storage": "The office can't store the PIN — the folder data/office is missing or not writable. Is the agent running?",
-
   "auth.locked": "Locked — reading only. Click to unlock.",
   "auth.unlocked_until": "Unlocked until {time}. Click to lock.",
   "auth.unlock_title": "Enter the PIN",
@@ -101,7 +99,6 @@
   "auth.remove": "Remove PIN",
   "auth.saved": "PIN saved — other browsers are locked now",
   "auth.removed": "PIN removed",
-
   "help.title": "How the office works",
   "help.office_title": "The office",
   "help.office_text": "Every member of staff looks after one part of your Unraid server. The reception shows what each of them has to report; the tabs at the top lead to their desks.",
@@ -114,5 +111,23 @@
   "help.languages_title": "Languages",
   "help.languages_text": "The office speaks your device's language if a translation exists, otherwise English. Adding a language means adding JSON files:",
   "help.security_title": "Security",
-  "help.security_text": "Keep the office in your LAN. Reading is open; changing things can be protected with a PIN (⋯ → PIN). The agent can do what root can do on the host, but it only accepts the actions the desks define and checks every request."
+  "help.security_text": "Keep the office in your LAN. Reading is open; changing things can be protected with a PIN (⋯ → PIN). The agent can do what root can do on the host, but it only accepts the actions the desks define and checks every request.",
+  "errors.no_user_script": "There is no User Scripts entry \"{name}\".",
+  "errors.bad_cron": "\"{cron}\" isn't a valid schedule (five fields, e.g. 0 3 * * *).",
+  "office.not_hired": "{name} doesn't work here (yet) — the caretaker knows who could come.",
+  "office.tip_title": "Welcome to the team!",
+  "office.tip_text": "{names} is on board. If the jobs are done well, the team would be glad of a tip!",
+  "office.tip_text_many": "{names} are on board. If the jobs are done well, the team would be glad of a tip!",
+  "office.tip_never": "Don't ask again",
+  "office.tip_later": "Maybe later",
+  "office.tip_give": "Leave a tip (PayPal)",
+  "errors.not_hired": "This person doesn't work here (yet). The caretaker can hire them.",
+  "errors.always_there": "The caretaker comes with the house — he is neither hired nor fired.",
+  "office.fire": "Let go",
+  "office.fire_menu": "Let {name} go…",
+  "office.fire_title": "Let {name} go?",
+  "office.fire_text": "{name} leaves the reception and the tabs. Data and settings stay — hired again, they pick up where they left off. The caretaker can hire them again.",
+  "office.fired": "{name} has been let go.",
+  "office.tip_title_team": "Tips & pay rise",
+  "office.tip_text_team": "Happy with how the team works? Everyone is glad of a tip or a small pay rise — Jack Emby most of all, he fetches the coffee after all."
 }

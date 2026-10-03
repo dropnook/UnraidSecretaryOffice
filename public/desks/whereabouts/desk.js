@@ -383,6 +383,8 @@ function build(root) {
 function render() {
   if (!view) return;
   view.bubble.innerHTML = '';
+  const greeting = Office.greet(ID);
+  if (greeting) view.bubble.append(greeting, ' ');
   view.bubble.appendChild(bubble());
   view.tourBtn.disabled = !Office.agent.running || busy;
   const sleeping = state && state.health ? state.health.devices.filter((d) => d.asleep).length : 0;

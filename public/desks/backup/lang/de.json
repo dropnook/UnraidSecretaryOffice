@@ -1,12 +1,11 @@
 {
-  "name": "Herr Backup",
-  "role": "Kümmert sich um das nächtliche Backup — Snapshots, Datenbank-Dumps, Kopia offsite",
-  "visit": "Zu Herrn Backup",
-
+  "name": "Herr Backupsi",
+  "role": "Kümmert sich um das nächtliche Backup — etwas schusselig und ängstlich, dafür prüft er alles dreimal",
+  "visit": "Zu Herrn Backupsi",
   "bubble.loading": "Einen Moment, ich schaue mir das Backup an…",
   "bubble.missing": "Ich finde das unraid-backup-Script nicht, darum gibt es für mich noch nichts zu tun.",
-  "bubble.asleep": "Der Script-Ordner liegt auf einer schlafenden Disk — ich zeige, was ich wusste, und wecke sie nicht.",
-  "bubble.no_runs": "Es gab noch keinen Backup-Lauf.",
+  "bubble.asleep": "Der Script-Ordner liegt auf einer schlafenden Disk — wecken trau ich mich nicht. Ich zeige, was ich wusste.",
+  "bubble.no_runs": "Es gab noch keinen Backup-Lauf. Das macht mich ganz nervös.",
   "bubble.running_kopia": "Ich schicke gerade {share} offsite ({n} von {total}).",
   "bubble.running_phase": "Ein Backup läuft: {step}.",
   "bubble.running_check": "Ich prüfe, ob settings.ini noch zum Server passt.",
@@ -14,16 +13,27 @@
   "bubble.running_old": "Ein Backup läuft: {step}",
   "bubble.eta": "Fertig etwa um {time}.",
   "bubble.eta_late": "Es dauert länger als sonst — ich hatte mit etwa {time} gerechnet.",
-  "bubble.last_ok": "Das letzte Backup {when} ist ohne Probleme durchgelaufen.",
-  "bubble.last_ok_kopia": "Das letzte Backup {when} ist durchgelaufen: {ok} von {total} offsite gesichert.",
-  "bubble.last_warnings": "Das letzte Backup {when} endete mit {warnings} Warnung(en).",
-  "bubble.last_errors": "Das letzte Backup {when} hatte {errors} Fehler — schau ins Protokoll.",
-  "bubble.last_failed": "Das letzte Backup {when} ist nicht fertig geworden.",
+  "bubble.last_ok": "Puh! Das letzte Backup {when} ist ohne Probleme durchgelaufen.",
+  "bubble.last_ok_kopia": "Puh! Das letzte Backup {when} ist durchgelaufen: {ok} von {total} offsite gesichert.",
+  "bubble.last_warnings": {
+    "one": "Das letzte Backup {when} endete mit einer Warnung.",
+    "other": "Das letzte Backup {when} endete mit {warnings} Warnungen."
+  },
+  "bubble.last_errors": {
+    "one": "Oh nein — das letzte Backup {when} hatte einen Fehler. Schau bitte ins Protokoll.",
+    "other": "Oh nein — das letzte Backup {when} hatte {errors} Fehler. Schau bitte ins Protokoll."
+  },
+  "bubble.last_failed": "Oh nein — das letzte Backup {when} ist nicht fertig geworden.",
   "bubble.last_aborted": "Das letzte Backup {when} wurde abgebrochen.",
-  "bubble.old": { "one": "Das ist mehr als einen Tag her.", "other": "Das ist {days} Tage her." },
-  "bubble.no_schedule": "Achtung: Es ist kein nächtlicher Lauf geplant.",
-  "bubble.drift": { "one": "Seit dem Setup hat sich auf dem Server eine Sache geändert.", "other": "Seit dem Setup haben sich auf dem Server {n} Dinge geändert." },
-
+  "bubble.old": {
+    "one": "Das ist mehr als einen Tag her.",
+    "other": "Das ist {days} Tage her."
+  },
+  "bubble.no_schedule": "Oje: Es ist kein nächtlicher Lauf geplant! Mir wird ganz anders.",
+  "bubble.drift": {
+    "one": "Seit dem Setup hat sich auf dem Server eine Sache geändert.",
+    "other": "Seit dem Setup haben sich auf dem Server {n} Dinge geändert."
+  },
   "check": "Prüfen",
   "start": "Jetzt sichern…",
   "abort": "Lauf abbrechen",
@@ -32,27 +42,23 @@
   "failed": "fehlgeschlagen",
   "never": "noch nie",
   "flash": "Flash (USB-Stick)",
-
   "now": "Gerade jetzt",
   "overview": "Überblick",
   "protection": "Ist alles geschützt?",
   "history": "Letzte Läufe",
   "drift": "Geändert seit dem Setup",
   "restore": "Etwas zurückholen",
-
   "step.prepare": "Umschauen",
   "step.dumps": "Datenbank-Dumps",
   "step.snapshots": "Snapshots",
   "step.kopia": "Kopia offsite",
   "step.finish": "Aufräumen",
-
   "result.running": "läuft",
   "result.ok": "OK",
   "result.warnings": "Warnungen",
   "result.errors": "Fehler",
   "result.failed": "nicht fertig",
   "result.aborted": "abgebrochen",
-
   "mode.backup": "Volles Backup",
   "mode.nokopia": "Backup ohne Kopia",
   "mode.dryrun": "Trockenlauf",
@@ -61,7 +67,6 @@
   "mode_hint.nokopia": "Nur Dumps und lokale Snapshots, nichts geht offsite. Die Container stehen ein paar Minuten still.",
   "mode_hint.dryrun": "Zeigt den Plan im Protokoll. Nichts wird angehalten oder verändert.",
   "mode_hint.check": "Vergleicht den Server mit settings.ini und listet auf, was sich geändert hat. Dauert Sekunden.",
-
   "start_title": "Lauf starten",
   "start_go": "Starten",
   "start_hint": "Ein voller Lauf dauerte zuletzt etwa {duration}. Er läuft weiter, auch wenn du diese Seite schliesst.",
@@ -70,14 +75,12 @@
   "started.dryrun": "Trockenlauf gestartet",
   "started.check": "Prüfung gestartet",
   "started_pending": "Übergeben — er sollte gleich starten",
-
   "abort_title": "Lauf abbrechen?",
   "abort_text": "Das Script hört sauber auf: Es startet angehaltene Container, schaltet den Wartungsmodus von Nextcloud aus und hängt seine Snapshots aus. Was schon offsite ist, bleibt dort.",
   "abort_kopia": "Kopia sichert gerade einen Share; es wird gebeten aufzuhören und speichert, was es hat.",
   "abort_downtime": "Die Container sind gerade für die Snapshots angehalten — sie werden vor dem Ende wieder gestartet.",
   "aborting": "Wird abgebrochen — das Script räumt auf",
   "unmounted": "Ausgehängt",
-
   "since": "seit {time} ({duration})",
   "eta": "Fertig etwa um {time} (noch {left})",
   "eta_late": "Länger als sonst — erwartet um {time}",
@@ -87,20 +90,21 @@
   "counts": "{errors} Fehler, {warnings} Warnungen",
   "kopia_count": "Kopia {ok}/{total}",
   "old_step": "Aktueller Schritt: {step}",
-
   "stat.last": "Letztes Backup",
   "stat.duration": "Dauer",
   "stat.downtime": "Container standen {duration} still",
   "stat.kopia": "Offsite",
   "stat.kopia_all": "alle Shares gesichert",
-  "stat.kopia_missing": { "one": "1 Share fehlt", "other": "{n} Shares fehlen" },
+  "stat.kopia_missing": {
+    "one": "1 Share fehlt",
+    "other": "{n} Shares fehlen"
+  },
   "stat.schedule": "Zeitplan",
   "stat.not_scheduled": "nicht geplant",
   "stat.user_scripts": "in User Scripts",
-  "stat.schedule_hint": "Settings → User Scripts → unraid-backup",
+  "stat.schedule_hint": "Klick, um ihn zu setzen",
   "stat.last_check": "Letzte Prüfung",
   "stat.last_dryrun": "Letzter Trockenlauf",
-
   "freq.hourly": "stündlich",
   "freq.daily": "täglich",
   "freq.weekly": "wöchentlich",
@@ -109,7 +113,6 @@
   "freq.stop": "beim Stoppen des Arrays",
   "freq.boot": "beim ersten Array-Start",
   "freq.disabled": "aus",
-
   "protection_sum": "{kopia} offsite · {snapshot} nur lokal · {off} nicht gesichert",
   "no_shares": "settings.ini nennt keine Shares — zuerst «Einrichten…».",
   "col.share": "Share",
@@ -121,10 +124,15 @@
   "live": "live",
   "live_hint": "Hier ist kein Snapshot möglich (z. B. XFS) — Kopia liest den Share während er benutzt wird.",
   "good_before": "zuletzt gut {when}",
-  "ignores": { "one": "1 Ordner ausgenommen", "other": "{n} Ordner ausgenommen" },
-  "excluded": { "one": "1 Dataset ausgeschlossen", "other": "{n} Datasets ausgeschlossen" },
+  "ignores": {
+    "one": "1 Ordner ausgenommen",
+    "other": "{n} Ordner ausgenommen"
+  },
+  "excluded": {
+    "one": "1 Dataset ausgeschlossen",
+    "other": "{n} Datasets ausgeschlossen"
+  },
   "retention_own": "behält {r}",
-
   "fact.zfs": "Lokale ZFS-Snapshots behalten: {r} (täglich wöchentlich monatlich)",
   "fact.btrfs": "btrfs: {n} Tage",
   "fact.kopia": "Kopia behält {d} tägliche, {w} wöchentliche, {m} monatliche, {y} jährliche",
@@ -132,61 +140,65 @@
   "fact.last": "Letzter Lauf: {when} — {result}",
   "fact.shares": "{kopia} Shares offsite, {local} nur lokal, {off} nicht gesichert",
   "fact.version": "unraid-backup {version}",
-
   "drift_checked": "geprüft {when}",
   "drift_hint": "Das Script ändert settings.ini nie selbst. Übernehmen geht hier:",
   "level.error": "Fehler",
   "level.warn": "Warnung",
   "level.info": "Hinweis",
-
   "message.interrupted": "unerwartet beendet (Neustart oder abgeschossen)",
   "message.signal": "von Hand abgebrochen",
   "message.exit": "beendet mit {detail}",
-
   "restore.local": "Dateien von gestern",
   "restore.local_zfs": "ZFS-Shares haben ihre Snapshots in",
   "restore.local_btrfs": "btrfs-Disks in",
-  "restore.snapshot_link": "Frau Snapshot zeigt sie alle.",
+  "restore.snapshot_link": "Frau Snapshotini zeigt sie alle.",
   "restore.kopia": "Aus Kopia",
   "restore.kopia_text": "In der KopiaUI (Container {container}): Quelle {root}/<share> → Snapshot → Restore oder Download. Für eine Rücksicherung direkt auf den Server vorübergehend einen beschreibbaren Ordner in den Container mappen.",
-  "restore.dumps": { "one": "Datenbank-Dumps des letzten Laufs, in {path}:", "other": "Datenbank-Dumps des letzten Laufs ({n} Läufe aufbewahrt), in {path}:" },
+  "restore.dumps": {
+    "one": "Datenbank-Dumps des letzten Laufs, in {path}:",
+    "other": "Datenbank-Dumps des letzten Laufs ({n} Läufe aufbewahrt), in {path}:"
+  },
   "restore.dumps_hint": "Der Befehl spielt den Dump in den laufenden Datenbank-Container zurück — das überschreibt dessen aktuellen Inhalt. Im Terminal auf dem Server ausführen.",
   "restore.copy_command": "Befehl zum Zurückspielen kopieren",
-
   "missing.title": "Der Backup-Motor fehlt",
-  "missing.text": "Der Motor von Herrn Backup gehört nach {dir} (backup.sh, setup.sh, lib/), ist dort aber nicht. Die Dateien des Sekretariats nochmals aus dem Repository holen.",
-
+  "missing.text": "Der Motor von Herrn Backupsi gehört nach {dir} (backup.sh, setup.sh, lib/), ist dort aber nicht. Die Dateien des Sekretariats nochmals aus dem Repository holen.",
   "notice.asleep": "Der Script-Ordner liegt auf einer schlafenden Disk. Du siehst den letzten Stand; gelesen wird erst, wenn die Disk wach ist.",
-  "notice.too_old": "Mit unraid-backup {version} kann Herr Backup keine Läufe starten oder abbrechen (2.5 oder neuer nötig). Was es tut, zeigt er trotzdem.",
+  "notice.too_old": "Mit unraid-backup {version} kann Herr Backupsi keine Läufe starten oder abbrechen (2.5 oder neuer nötig). Was es tut, zeigt er trotzdem.",
   "notice.no_settings": "Noch ist nichts eingerichtet. Einmal «Einrichten…» — ich schlage alles vor:",
   "notice.no_user_script": "Es gibt keinen User-Scripts-Eintrag für unraid-backup, nachts läuft also nichts. «Einrichten…» → Übernehmen legt ihn an.",
-  "notice.schedule_off": "Der User-Scripts-Eintrag unraid-backup hat keinen Zeitplan — nachts läuft kein Backup. In Settings → User Scripts einen setzen (z. B. Custom 0 3 * * *).",
-  "notice.drift_errors": {"one": "Ein Fehler in den Einstellungen — ein Teil des Backups wird übersprungen, bis du ihn unter «Einrichten…» übernimmst.", "other": "{n} Fehler in den Einstellungen — ein Teil des Backups wird übersprungen, bis du sie unter «Einrichten…» übernimmst."},
+  "notice.schedule_off": "Es ist kein nächtlicher Lauf geplant — nachts läuft kein Backup.",
+  "notice.drift_errors": {
+    "one": "Ein Fehler in den Einstellungen — ein Teil des Backups wird übersprungen, bis du ihn unter «Einrichten…» übernimmst.",
+    "other": "{n} Fehler in den Einstellungen — ein Teil des Backups wird übersprungen, bis du sie unter «Einrichten…» übernimmst."
+  },
   "notice.interrupted": "Der letzte Lauf endete unerwartet. Der nächste Lauf startet Container, die er angehalten zurückgelassen hat, und holt Nextcloud aus dem Wartungsmodus.",
-  "notice.mounted": { "one": "Ein Snapshot ist von einem Lauf noch eingehängt.", "other": "{n} Snapshots sind von einem Lauf noch eingehängt." },
-
+  "notice.mounted": {
+    "one": "Ein Snapshot ist von einem Lauf noch eingehängt.",
+    "other": "{n} Snapshots sind von einem Lauf noch eingehängt."
+  },
   "log_cut": "… (nur das Ende des Protokolls)",
   "menu.refresh": "Neu nachsehen",
   "menu.latest_log": "Neuestes Protokoll",
-
   "errors.backup_missing": "Das Backup-Script liegt nicht in {dir}.",
   "errors.backup_too_old": "unraid-backup {version} lässt sich von hier nicht steuern — auf 2.5 oder neuer aktualisieren.",
   "errors.backup_running": "Es läuft schon ein Lauf (oder das Einrichten).",
   "errors.backup_no_settings": "Noch ist nichts eingerichtet — zuerst «Einrichten…».",
   "errors.backup_not_running": "Es läuft gerade kein Lauf.",
   "errors.backup_no_process": "Das laufende Script ist nicht zu finden.",
-  "errors.backup_unmount_left": { "one": "{path} ist noch eingehängt.", "other": "{n} Mounts sind noch da, z. B. {path}." },
-
+  "errors.backup_unmount_left": {
+    "one": "{path} ist noch eingehängt.",
+    "other": "{n} Mounts sind noch da, z. B. {path}."
+  },
   "check.user_scripts": "User Scripts (startet das Backup nachts)",
   "check.user_scripts_how": "«User Scripts» aus den Apps installieren.",
   "check.setup": "Das Backup ist eingerichtet (settings.ini)",
-  "check.setup_how": "Herr Backup → «Einrichten…»: er liest den Server ein und schlägt alles vor. (Im Terminal ginge auch: {path})",
+  "check.setup_how": "Herr Backupsi → «Einrichten…»: er liest den Server ein und schlägt alles vor. (Im Terminal ginge auch: {path})",
   "check.user_script": "User-Scripts-Eintrag «unraid-backup»",
-  "check.user_script_how": "Herr Backup → «Einrichten…» → Übernehmen legt ihn an.",
+  "check.user_script_how": "Herr Backupsi → «Einrichten…» → Übernehmen legt ihn an.",
   "check.schedule": "Ein nächtliches Backup ist geplant",
-  "check.schedule_how": "Settings → User Scripts → unraid-backup → Zeitplan, z. B. Custom «0 3 * * *».",
+  "check.schedule_how": "Herr Backupsi → Zeitplan: eine Uhrzeit wählen, er trägt sie in User Scripts ein.",
   "check.kopia": "Kopia-Container für Offsite-Kopien",
-  "check.kopia_how": "Kopia aus den Apps installieren (z. B. imagegenius/kopia), einmal in der KopiaUI mit dem Repository verbinden, dann bei Herrn Backup unter «Einrichten…» neu einlesen.",
+  "check.kopia_how": "Kopia aus den Apps installieren (z. B. imagegenius/kopia), einmal in der KopiaUI mit dem Repository verbinden, dann bei Herrn Backupsi unter «Einrichten…» neu einlesen.",
   "check.kopia_running": "Kopia-Container «{name}» läuft",
   "check.kopia_running_how": "Auf der Docker-Seite starten.",
   "check.kopia_root": "Kopia läuft als root (PUID 0)",
@@ -194,12 +206,11 @@
   "check.kopia_mapping": "«{name}» sieht {path} nur lesend mit «Slave»",
   "check.kopia_mapping_how": "Im Template {path} → {path} mit Access Mode «Read Only - Slave» mappen (jetzt: {now}). Ohne «Slave» sieht Kopia leere Ordner.",
   "check.kopia_repo": "Kopia ist mit seinem Repository verbunden",
-  "check.kopia_repo_how": "In der KopiaUI von «{name}» das Repository verbinden, dann bei Herrn Backup eine Prüfung starten.",
+  "check.kopia_repo_how": "In der KopiaUI von «{name}» das Repository verbinden, dann bei Herrn Backupsi eine Prüfung starten.",
   "check.drift": "settings.ini passt zum Server",
-  "check.drift_how": "{n} Änderung(en) seit dem Setup — bei Herrn Backup unter «Einrichten…» übernehmen.",
+  "check.drift_how": "{n} Änderung(en) seit dem Setup — bei Herrn Backupsi unter «Einrichten…» übernehmen.",
   "check.office_keeps_running": "Das Sekretariat läuft während des Backups weiter",
-  "check.office_keeps_running_how": "Das Backup hält für seine Snapshots {names} an, das Sekretariat ist dann ein paar Minuten weg. Bei Herrn Backup unter «Einrichten…» → Container auf «weiterlaufen lassen» stellen.",
-
+  "check.office_keeps_running_how": "Das Backup hält für seine Snapshots {names} an, das Sekretariat ist dann ein paar Minuten weg. Bei Herrn Backupsi unter «Einrichten…» → Container auf «weiterlaufen lassen» stellen.",
   "setup_open": "Einrichten…",
   "notice.setup_running": "Das Setup schaut sich gerade den Server an.",
   "errors.setup_running": "Das Setup ist gerade beschäftigt — gleich nochmals versuchen.",
@@ -223,10 +234,16 @@
   "setup.apply": "Übernehmen",
   "setup.apply_go": "Übernehmen",
   "setup.apply_title": "Einstellungen übernehmen?",
-  "setup.apply_text": {"one": "Eine Änderung:", "other": "{n} Änderungen:"},
+  "setup.apply_text": {
+    "one": "Eine Änderung:",
+    "other": "{n} Änderungen:"
+  },
   "setup.apply_none": "Nichts geändert — Übernehmen schreibt dieselben Einstellungen nochmals und gleicht Kopias Policies an.",
-  "setup.apply_hint": "Herr Backup prüft alles nochmals, behält die bisherige settings.ini, schreibt die neue, gleicht Kopias Policies an und legt den User-Scripts-Eintrag an, falls er fehlt.",
-  "setup.bar_changes": {"one": "1 Änderung", "other": "{n} Änderungen"},
+  "setup.apply_hint": "Herr Backupsi prüft alles nochmals, behält die bisherige settings.ini, schreibt die neue, gleicht Kopias Policies an und legt den User-Scripts-Eintrag an, falls er fehlt.",
+  "setup.bar_changes": {
+    "one": "1 Änderung",
+    "other": "{n} Änderungen"
+  },
   "setup.bar_none": "Keine Änderungen",
   "setup.bar_sub": "Server eingelesen {when}",
   "setup.discard": "Verwerfen",
@@ -462,5 +479,30 @@
   "help.reasons": "Warum",
   "help.reasons_text": "Jeder Vorschlag sagt, warum: wie bisher, neu, zu gross, Time-Machine-Ziel, Kopias eigener Ordner …",
   "help.details": "Pro Share: lokale und Kopia-Aufbewahrung, Ordner, die Kopia auslässt (Container-Ordner mit einem Klick), Methode, Kind-Datasets.",
-  "help.apply": "Listet zuerst jede Änderung; dann prüft Herr Backup nochmals, behält die bisherige settings.ini, schreibt die neue und gleicht Kopia an."
+  "help.apply": "Listet zuerst jede Änderung; dann prüft Herr Backupsi nochmals, behält die bisherige settings.ini, schreibt die neue und gleicht Kopia an.",
+  "schedule.title": "Zeitplan",
+  "schedule.open": "Zeitplan…",
+  "schedule.intro": "Ich trage den Zeitplan im User-Scripts-Eintrag «unraid-backup» ein — genau so, als hättest du ihn dort gesetzt. Am besten eine Zeit, in der niemand den Server braucht: Für die Snapshots halten Container kurz an.",
+  "schedule.daily": "Jede Nacht um",
+  "schedule.custom": "Eigener Zeitplan",
+  "schedule.custom_hint": "Fünf Felder wie bei User Scripts «Custom», z. B. 0 3 * * 1-6 (Montag bis Samstag um 3 Uhr).",
+  "schedule.off": "Kein automatischer Lauf",
+  "schedule.off_hint": "Dann läuft das Backup nur, wenn du es hier startest.",
+  "schedule.duration": "Ein Lauf dauerte zuletzt etwa {duration} — fertig gegen {end}.",
+  "schedule.need_time": "Bitte eine Uhrzeit wählen.",
+  "schedule.save": "Speichern",
+  "schedule.saved_on": "Geplant: {when}",
+  "schedule.saved_off": "Kein nächtlicher Lauf mehr geplant",
+  "schedule.not_live": "Gespeichert, aber Unraid hat die Crontab nicht übernommen — in Settings → User Scripts einmal «Apply» drücken.",
+  "schedule.no_script": "Dafür braucht es zuerst den User-Scripts-Eintrag «unraid-backup». Den legt «Einrichten…» → Übernehmen an.",
+  "schedule.after_setup": "Jetzt fehlt nur noch der Zeitplan.",
+  "greet.1": "Oh! Hast du mich erschreckt.",
+  "greet.2": "Moment, wo hab ich nur … ah, da.",
+  "greet.3": "Hoffentlich bleibt heute der Strom an…",
+  "greet.4": "Ich habe dreimal nachgeschaut. Sicher ist sicher.",
+  "greet.5": "Ist das Array noch da? … Puh.",
+  "fit.yes": "Herr Backupsi kommt — er hat nur dreimal gefragt, ob Kopia («{kopia}») auch wirklich da ist.",
+  "fit.no_kopia": "Herr Backupsi würde kommen, ist aber nervös: Ohne Kopia kann er nichts ausser Haus sichern. Kopia kannst du später installieren — ich sage dir dann, wie.",
+  "fit.no_cow": "Herr Backupsi hat abgesagt: Ohne ZFS oder btrfs kann er keine Snapshots machen. «Da wird mir schwindlig», hat er gesagt.",
+  "fire_note": "Das nächtliche Backup läuft trotzdem weiter, solange es geplant ist. Soll es aufhören, schalte es vorher bei ihm unter «Zeitplan…» aus."
 }

@@ -516,7 +516,13 @@ function route() {
   const parts = (location.hash.replace(/^#\/?/, '') || '').split('/');
   const id = parts[0] || '';
   const sub = parts.slice(1).join('/');
-  const next = Office.desks.get(id) || null;
+  let next = Office.desks.get(id) || null;
+  if (next && !next.hired) {               // not working here (yet): the caretaker knows who could come
+    Office.toast(t('office.not_hired', { name: t(`${next.id}.name`) }));
+    history.replaceState(null, '', '#/caretaker');
+    next = Office.desks.get('caretaker') || null;
+  }
+  greetings.clear();
   if (Office.current && Office.current !== next && Office.current.unmount) Office.current.unmount();
   if (Office.current !== next) Office.selbar(null);
   Office.current = next;
@@ -551,7 +557,7 @@ function tabs() {
     nav.appendChild(a);
   };
   add('#/', '🛎️', t('office.reception'), !Office.current);
-  for (const d of Office.desks.values()) add(`#/${d.id}`, d.icon, t(`${d.id}.name`), Office.current === d);
+  for (const d of Office.desks.values()) if (d.hired) add(`#/${d.id}`, d.icon, t(`${d.id}.name`), Office.current === d);
 }
 
 /**
@@ -694,6 +700,99 @@ function relaxDesk() {
   if (next > 0 && desk.offsetHeight > next + 1) desk.style.minHeight = '';    // the content is taller anyway
 }
 
+// ------------------------------------------------------------------ staff
+/** Hire one or more desks (the caretaker suggests whom); afterwards the tip jar says hello */
+Office.hire = async function hire(ids) {
+  const j = await Office.api.post('office.hire', { desks: ids });
+  if (!j.ok) { Office.toast(Office.errorText(j.error), true); return false; }
+  staffChanged(j.hired);
+  tipJar(ids);
+  return true;
+};
+/** Fire a desk: it leaves the tabs and the reception, its data stays */
+Office.fire = async function fire(id) {
+  const j = await Office.api.post('office.fire', { desk: id });
+  if (!j.ok) { Office.toast(Office.errorText(j.error), true); return false; }
+  staffChanged(j.hired);
+  return true;
+};
+/** "Let X go?" — with what keeps running (the desk's fire_note); used by the caretaker and every desk's ⋯ menu */
+Office.fireDialog = function fireDialog(id, after) {
+  const name = t(`${id}.name`);
+  const box = el('div');
+  box.appendChild(el('p', '', t('office.fire_text', { name })));
+  if (Office.has(`${id}.fire_note`)) box.appendChild(el('p', 'callout', t(`${id}.fire_note`)));
+  Office.dialog({
+    title: t('office.fire_title', { name }),
+    body: box,
+    buttons: [
+      { text: t('common.cancel') },
+      { text: t('office.fire'), kind: 'danger', act: async () => {
+        if (!await Office.fire(id)) return false;
+        Office.toast(t('office.fired', { name }));
+        if (after) after();
+        else if (Office.current && Office.current.id === id) Office.go('#/');
+        return true;
+      } },
+    ],
+  });
+};
+function staffChanged(hired) {
+  for (const d of CONFIG.desks) d.hired = hired.includes(d.id);
+  for (const d of Office.desks.values()) d.hired = hired.includes(d.id);
+  tabs();
+}
+
+/** "If they do their jobs well, they'd be glad of a tip!" — after hiring, unless switched off */
+function tipJar(ids) {
+  if (Office.store('tip.never') === '1') return;
+  Office.tipJar(ids);
+}
+/** The tip jar itself — after hiring (ids), or asked for (no ids: the button at the caretaker's team) */
+Office.tipJar = function openTipJar(ids) {
+  const names = (ids || []).map((id) => t(`${id}.name`));
+  const box = el('div', 'tip-jar');
+  box.appendChild(el('div', 'tip-jar-icon', '☕'));
+  const text = el('div');
+  const key = !ids ? 'office.tip_text_team' : ids.length > 1 ? 'office.tip_text_many' : 'office.tip_text';
+  text.appendChild(el('p', '', t(key, { names: names.join(', ') })));
+  const cb = el('input');
+  cb.type = 'checkbox';
+  if (ids) {                         // after hiring it may stop asking; asked for, it never nags
+    const never = el('label', 'check');
+    never.append(cb, el('span', '', t('office.tip_never')));
+    text.appendChild(never);
+  }
+  box.appendChild(text);
+  const buttons = [{ text: t('office.tip_later'), act: () => { if (cb.checked) Office.store('tip.never', '1'); } }];
+  if (CONFIG.tip_url) {
+    buttons.push({ text: t('office.tip_give'), kind: '', act: () => {
+      if (cb.checked) Office.store('tip.never', '1');
+      window.open(CONFIG.tip_url, '_blank', 'noopener,noreferrer');
+    } });
+  }
+  Office.dialog({ title: t(ids ? 'office.tip_title' : 'office.tip_title_team'), body: box, buttons });
+};
+
+/**
+ * A desk's greeting: one of its lang keys greet.1, greet.2, … picked at random,
+ * the same one until the page changes. '' if the desk has none.
+ */
+const greetings = new Map();
+Office.greet = function greet(id) {
+  if (!greetings.has(id)) {
+    const all = [];
+    for (let i = 1; Office.has(`${id}.greet.${i}`); i++) all.push(t(`${id}.greet.${i}`));
+    greetings.set(id, all.length ? all[Math.floor(Math.random() * all.length)] : '');
+  }
+  return greetings.get(id);
+};
+/** "Greeting. Text" — for bubbles */
+Office.withGreeting = (id, text) => {
+  const g = Office.greet(id);
+  return g ? `${g} ${text}` : text;
+};
+
 /** The desk head every secretary uses: avatar, name, role, speech bubble, actions */
 Office.deskHead = function deskHead(desk, { bubble, actions }) {
   const head = el('div', 'deskhead');
@@ -721,7 +820,7 @@ async function reception(root) {
 
   const grid = el('div', 'reception');
   root.appendChild(grid);
-  const order = [...Office.desks.values()].sort((a, b) => (a.reception_order ?? a.order ?? 0) - (b.reception_order ?? b.order ?? 0));
+  const order = [...Office.desks.values()].filter((d) => d.hired).sort((a, b) => (a.reception_order ?? a.order ?? 0) - (b.reception_order ?? b.order ?? 0));
   for (const desk of order) {
     const card = el('div', 'desk-card');
     const top = el('div', 'desk-card-head');
@@ -734,11 +833,21 @@ async function reception(root) {
     const go = el('button', 'btn', Office.has(`${desk.id}.visit`) ? t(`${desk.id}.visit`) : t('office.visit', { name: t(`${desk.id}.name`) }));
     go.type = 'button';
     go.onclick = () => Office.go(`#/${desk.id}`);
-    card.append(top, bubble, facts, go);
+    const foot = el('div', 'desk-card-foot');
+    foot.appendChild(go);
+    if (!desk.always) {          // the caretaker comes with the house; everyone else can be let go
+      const fire = el('button', 'btn small plain', t('office.fire'));
+      fire.type = 'button';
+      fire.onclick = () => Office.fireDialog(desk.id, () => route());
+      foot.appendChild(fire);
+    }
+    card.append(top, bubble, facts, foot);
     grid.appendChild(card);
     if (desk.reception) {
       desk.reception().then((r) => {
         bubble.innerHTML = '';
+        const greeting = Office.greet(desk.id);
+        if (greeting && r && r.bubble) bubble.append(greeting, ' ');
         if (r && r.bubble) bubble.append(r.bubble);
         else bubble.textContent = t('office.no_news');
         (r && r.facts || []).forEach((f) => facts.appendChild(el('li', '', f)));
@@ -793,6 +902,9 @@ function officeMenu(e) {
   ];
   if (Office.auth.mode === 'pin' && Office.auth.unlocked) items.push({ text: t('auth.lock_now'), act: lockNow });
   items.push({ separator: true }, { text: t('help.title'), act: Office.help });
+  if (Office.current && !Office.current.always) {
+    items.push({ separator: true }, { text: t('office.fire_menu', { name: t(`${Office.current.id}.name`) }), act: () => Office.fireDialog(Office.current.id) });
+  }
   if (Office.current && Office.current.menu) items.unshift(...Office.current.menu(), { separator: true });
   Office.menu(e, items);
 }

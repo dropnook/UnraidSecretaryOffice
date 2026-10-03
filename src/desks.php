@@ -7,7 +7,7 @@ declare(strict_types=1);
  * a language. Adding a secretary or a language means adding files.
  */
 
-/** @return array<string, array{id:string, order:int, reception_order:int, icon:string, refresh_after:int, open_actions:list<string>, css:bool}> */
+/** @return array<string, array{id:string, order:int, reception_order:int, icon:string, refresh_after:int, open_actions:list<string>, css:bool, always:bool}> */
 function officeDesks(): array
 {
     static $desks = null;
@@ -29,6 +29,7 @@ function officeDesks(): array
             'refresh_after' => (int) ($meta['refresh_after'] ?? 300),
             'open_actions'  => array_values(array_filter((array) ($meta['open_actions'] ?? []), 'is_string')),
             'css'           => is_file(dirname($file) . '/desk.css'),
+            'always'        => !empty($meta['always']),       // always in the office (the caretaker), never hired or fired
         ];
     }
     uasort($desks, fn ($a, $b) => [$a['order'], $a['id']] <=> [$b['order'], $b['id']]);

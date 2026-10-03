@@ -38,7 +38,7 @@ This file holds the conventions and the checklist for changes.
   `atd` (`backupLaunch()` in agent/desks/backup.php), never as a child of the
   agent: Docker kills the agent container's whole cgroup when it stops.
 * **The backup engine** (`backup/`, bash, still German — to be translated
-  before going public) runs on its own via User Scripts. Mr. Backup only uses
+  before going public) runs on its own via User Scripts. Mr. Backupsy only uses
   its interface (`backup.sh --about`, `data/unraid-backup/state/status.json` &
   co., interface 1; the setup assistant uses `setup.sh --plan` / `--apply`
   with `state/setup-plan.json` / `setup-status.json`). Never parse its log
@@ -53,14 +53,30 @@ This file holds the conventions and the checklist for changes.
 
 | id | name (en / de) | does |
 |---|---|---|
-| `snapshot` | Ms. Snapshot / Frau Snapshot | ZFS, btrfs and VM snapshots: create, delete with an estimate, rename, hold, unmount |
+| `snapshot` | Ms. Snapshotini / Frau Snapshotini | ZFS, btrfs and VM snapshots: create, delete with an estimate, rename, hold, unmount |
 | `whereabouts` | Ms. Whereabouts / Frau WasIstWo | what is where and going on; "where things are" (config files, boot medium, VM files) with their backup protection. Read only |
-| `backup` | Mr. Backup / Herr Backup | runs the engine in `backup/`: status, history, protection, restore help, setup assistant (`#/backup/setup`) |
+| `backup` | Mr. Backupsy / Herr Backupsi | runs the engine in `backup/`: status, history, protection, restore help, setup assistant (`#/backup/setup`) |
 | `emby` | Jack Emby (the intern) | EmbyCache (github.com/helmi1987/embycache-for-unraid): git clone into data/embycache/app, ff-only updates, never changed here; data apart via EMBYCACHE_DIR; settings written via its own save_config(); API key never leaves the server |
 | `caretaker` | The Caretaker / Der Hauswart | collects every desk's `checks` and what the office needs; tells the user what is left to do |
 
 Desks know each other only through shared libraries (`backupProtection()`,
 `finding()`) and links (`#/<desk>`) — each one must work on its own.
+
+**Staff:** a fresh office has only the caretaker (desk.json `"always": true`).
+Every other desk declares in the agent whether it suits the server
+(`'fit' => fn () => fit(bool, why, params)`, texts `fit.<why>` in its own lang
+file, told by the caretaker). The caretaker suggests whom to hire; hiring
+(`office.hire`, src/staff.php → data/office/staff.json, PIN-protected) shows
+the desk in the tabs and at the reception, firing hides it again — data and
+whatever it set up on the server stay (`fire_note` says what keeps running).
+Unhired desks get no write actions (`not_hired`) and their checks don't count.
+After hiring, the tip jar (core.js `tipJar`, link `OFFICE_TIP_URL`) says hello.
+
+**Characters:** Frau Snapshotini (Italian), Herr Backupsi (scatterbrained,
+anxious, checks everything three times), Frau WasIstWo (nosy gossip), Jack
+Emby (the intern), the caretaker (plain and friendly). Greetings are lang keys
+`greet.1…n` (`Office.greet` / `Office.withGreeting`); chatty bubbles may carry
+character, warnings and errors stay plain and clear.
 
 ## UI conventions (every desk looks and behaves the same)
 
@@ -92,7 +108,7 @@ Desks know each other only through shared libraries (`backupProtection()`,
 * **Backup protection** is always shown with `Office.backupChip(level)`
   (offsite / only local / not backed up), the level coming from
   `backupProtection()` in agent/lib/backupscript.php.
-* **Names in German** read naturally (Frau Snapshot, Herr Backup, Der
+* **Names in German** read naturally (Frau Snapshotini, Herr Backupsi, Der
   Hauswart); a desk can set its reception button with the lang key `visit`
   ("Zum Hauswart"), otherwise the office's "Visit {name}" is used.
 * **Say what is really there:** detect it (boot from a USB stick or a boot

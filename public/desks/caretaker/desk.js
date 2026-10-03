@@ -28,7 +28,7 @@ function findings() {
   const out = [];
   if (!state || !state.checks) return out;
   for (const [desk, list] of Object.entries(state.checks)) {
-    if (!Office.desks.has(desk)) continue;
+    if (!Office.desks.has(desk) || !Office.desks.get(desk).hired) continue;
     list.forEach((f) => out.push({ ...f, desk }));
   }
   return out;
@@ -49,8 +49,24 @@ function groups() {
   };
 }
 
+/** The desks that could work here, with what the caretaker found out about them */
+function staff() {
+  const out = [];
+  for (const [id, s] of Object.entries((state && state.staff) || {})) {
+    const d = Office.desks.get(id);
+    if (d) out.push({ ...s, id, desk: d, hired: !!d.hired });
+  }
+  return out.sort((a, b) => (a.desk.order ?? 0) - (b.desk.order ?? 0));
+}
+const alone = () => !staff().some((s) => s.hired);
+const fitText = (s) => {
+  const key = `${s.id}.fit.${s.why}`;
+  return Office.has(key) ? Office.t(key, s.params || {}) : T('fit.' + (s.ok ? 'yes' : 'no'), { name: Office.t(`${s.id}.name`) });
+};
+
 function bubbleText() {
   if (!state) return T('bubble.loading');
+  if (alone()) return T('bubble.alone');
   const g = groups();
   if (!g.todo.length && !g.advice.length) return T('bubble.all_good');
   const parts = [];
@@ -80,6 +96,7 @@ function render() {
     [el('span', 'chip danger', T('missing')), T('help.missing')],
     [el('span', 'chip warn', T('not_yet')), T('help.not_yet')],
     [el('span', 'chip warn', T('unknown')), T('help.unknown')],
+    [T('team'), T('help.team')],
     [T('help.desk'), T('help.desk_text')],
     [T('help.open'), T('help.open_text')],
     [T('check_again'), T('help.again')],
@@ -87,6 +104,7 @@ function render() {
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
 
   const g = groups();
+  root.appendChild(teamSection());                  // who works here comes first
   if (g.todo.length) root.appendChild(list(T('todo'), T('todo_text'), g.todo));
   if (g.advice.length) root.appendChild(list(T('advice'), T('advice_text'), g.advice));
   if (!g.todo.length && !g.advice.length) {
@@ -130,7 +148,7 @@ function row(f) {
   if (how) main.appendChild(el('div', 'row-detail', how));
   r.appendChild(main);
   if (f.link && f.link.startsWith('#/')) {
-    // a page of the office itself, e.g. Mr. Backup's setup
+    // a page of the office itself, e.g. Mr. Backupsy's setup
     const a = el('a', 'btn small plain', T('open.office'));
     a.href = f.link;
     r.appendChild(a);
@@ -142,6 +160,70 @@ function row(f) {
     r.appendChild(a);
   }
   return r;
+}
+
+// ------------------------------------------------------------------ the team
+function teamSection() {
+  const all = staff();
+  const open = all.filter((s) => !s.hired && s.ok);
+  const extra = [];
+  const tip = el('button', 'btn small plain', T('tip_button'));
+  tip.type = 'button';
+  tip.title = T('tip_button_title');
+  tip.onclick = () => Office.tipJar();
+  extra.push(tip);
+  if (open.length > 1) {
+    const b = el('button', 'btn small', T('hire_all', { n: open.length }));
+    b.type = 'button';
+    b.disabled = !Office.agent.running;
+    b.onclick = () => hire(open.map((s) => s.id));
+    extra.push(b);
+  }
+  const s = el('section', 'section');
+  s.appendChild(Office.sectionHead(T('team'), T(alone() ? 'team_sub_alone' : 'team_sub'), ...extra));
+  const box = el('div', 'box');
+  all.forEach((x) => box.appendChild(teamRow(x)));
+  s.appendChild(box);
+  return s;
+}
+
+function teamRow(x) {
+  const r = el('div', 'row nocheck ct-person' + (x.hired ? '' : ' ct-candidate'));
+  r.appendChild(el('div', 'avatar ct-avatar', x.desk.icon));
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', Office.t(`${x.id}.name`)));
+  const meta = el('div', 'row-meta');
+  meta.appendChild(el('span', 'chip ' + (x.hired ? 'ok' : x.ok ? 'accent' : 'quiet'), T(x.hired ? 'in_team' : x.ok ? 'could_come' : 'declined')));
+  meta.appendChild(el('span', '', Office.t(`${x.id}.role`)));
+  main.appendChild(meta);
+  if (!x.hired || x.why !== 'yes') main.appendChild(el('div', 'row-detail', fitText(x)));     // once hired, "would like to come" is old news
+  r.appendChild(main);
+  let b = null;
+  if (x.hired) {
+    b = el('button', 'btn small plain', T('fire'));
+    b.onclick = () => fire(x.id);
+  } else if (x.ok) {
+    b = el('button', 'btn small', T('hire'));
+    b.onclick = () => hire([x.id]);
+  }
+  if (b) {
+    b.type = 'button';
+    b.disabled = !Office.agent.running;
+    r.appendChild(b);
+  } else {
+    r.appendChild(el('span'));
+  }
+  return r;
+}
+
+async function hire(ids) {
+  if (!await Office.hire(ids)) return;
+  Office.toast(T('hired', { names: ids.map((id) => Office.t(`${id}.name`)).join(', ') }));
+  await load(true);
+}
+
+function fire(id) {
+  Office.fireDialog(id, () => load(true));
 }
 
 function doneSection(items) {
@@ -180,6 +262,10 @@ Office.desk({
   agentChanged() { if (view) render(); },
   async reception() {
     if (!state) await load(false);
+    if (alone()) {
+      const could = staff().filter((x) => x.ok).map((x) => Office.t(`${x.id}.name`));
+      return { bubble: T('bubble.alone_short'), facts: could.length ? [T('fact.could_come', { names: could.join(', ') })] : [] };
+    }
     const g = groups();
     const facts = [];
     g.todo.slice(0, 3).forEach((f) => facts.push(text(f)));

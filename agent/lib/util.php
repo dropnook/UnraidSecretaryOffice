@@ -36,7 +36,7 @@ final class Problem extends RuntimeException
  */
 function desk(string $id, array $definition): void
 {
-    $GLOBALS['desks'][$id] = $definition + ['actions' => [], 'start' => null, 'tick' => null, 'checks' => null];
+    $GLOBALS['desks'][$id] = $definition + ['actions' => [], 'start' => null, 'tick' => null, 'checks' => null, 'fit' => null];
 }
 
 function desks(): array
