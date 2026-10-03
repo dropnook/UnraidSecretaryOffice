@@ -1,0 +1,326 @@
+#!/usr/bin/php
+<?php
+declare(strict_types=1);
+
+/*
+ * Unraid Secretary Office — agent
+ *
+ * The web UI runs in an unprivileged php:apache container and can't touch zfs,
+ * btrfs, docker or Unraid's configuration. This agent does that work on the
+ * host. The "agent" service in compose.yaml starts it: a privileged container
+ * in the host's PID namespace that nsenter's into the host's mount namespace
+ * and runs the PHP that ships with Unraid. Nothing gets installed on the host.
+ *
+ * Every secretary ("desk") is one file in agent/desks/. It registers the
+ * actions it handles (see desk() in lib/util.php); the agent loads them all.
+ *
+ * Connection: a mailbox folder in the data directory. The web UI drops
+ * <id>.request there, the agent picks it up within ~150 ms and writes
+ * <id>.response next to it. Deliberately no unix socket: a bound socket keeps
+ * the pool busy and Unraid could not stop the array any more.
+ *
+ *   php agent.php run       run in the foreground (what the container does)
+ *   php agent.php status    is an agent running?
+ *
+ * When one of its files changes, the running agent lints the new code and
+ * restarts itself in place.
+ *
+ * Environment:
+ *   OFFICE_DATA_DIR            data folder shared with the web UI (default: ../data)
+ *   OFFICE_WEB_UID             uid of the web server in its container (default 33)
+ *   OFFICE_BACKUP_SCRIPT_DIR   where the unraid-backup script lives
+ */
+
+const AGENT_VERSION = '1.0.0';
+const RUN_DIR       = '/var/run/unraid-secretary-office';
+const PID_FILE      = RUN_DIR . '/agent.pid';
+const TICK_US       = 150000;
+const LOG_MAX       = 512 * 1024;
+const FILE_UID      = 99;    // nobody:users, like everything else in appdata
+const FILE_GID      = 100;
+
+define('OFFICE_DIR', dirname(__DIR__));
+define('DATA_DIR', rtrim(getenv('OFFICE_DATA_DIR') ?: OFFICE_DIR . '/data', '/'));
+define('MAILBOX', DATA_DIR . '/mailbox');
+define('AGENT_INFO', DATA_DIR . '/agent.json');
+define('AGENT_LOG', DATA_DIR . '/agent.log');
+define('WEB_UID', (int) (getenv('OFFICE_WEB_UID') ?: 33));   // www-data in php:apache
+
+require __DIR__ . '/lib/util.php';
+require __DIR__ . '/lib/mounts.php';
+require __DIR__ . '/lib/backupscript.php';
+foreach (glob(__DIR__ . '/desks/*.php') ?: [] as $deskFile) {
+    require $deskFile;
+}
+
+$GLOBALS['started'] = time();
+
+// ===================================================================== commands
+
+function main(array $argv): int
+{
+    switch ($argv[1] ?? 'run') {
+        case 'run':
+            return serve();
+        case 'status':
+            $pid = runningAgent();
+            echo $pid ? "Agent is running (PID $pid).\n" : "Agent is not running.\n";
+            return $pid ? 0 : 3;
+    }
+    fwrite(STDERR, "Usage: php agent.php run|status\n");
+    return 2;
+}
+
+function runningAgent(): ?int
+{
+    $pid = (int) @file_get_contents(PID_FILE);
+    if ($pid <= 1 || !posix_kill($pid, 0)) {
+        return null;
+    }
+    return str_contains((string) @file_get_contents("/proc/$pid/cmdline"), 'agent.php') ? $pid : null;
+}
+
+// ===================================================================== service
+
+function serve(): int
+{
+    chdir('/');     // keep nothing in the pool busy
+    umask(0022);
+
+    @mkdir(RUN_DIR, 0700, true);
+    $lock = fopen(PID_FILE, 'c+');
+    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
+        fwrite(STDERR, "Another agent is already running.\n");
+        sleep(30);      // don't let a restart policy spin
+        return 1;
+    }
+    ftruncate($lock, 0);
+    fwrite($lock, (string) getmypid());
+    fflush($lock);
+
+    $stop = false;
+    pcntl_async_signals(true);
+    foreach ([SIGTERM, SIGINT, SIGHUP] as $signal) {
+        pcntl_signal($signal, function () use (&$stop) { $stop = true; });
+    }
+    set_error_handler(function (int $no, string $text, string $file, int $line): bool {
+        if (error_reporting() & $no) {      // things silenced with @ stay out of the log
+            logLine("PHP: $text (" . basename($file) . ":$line)");
+        }
+        return true;
+    });
+
+    $code = codeStamp();
+    $ready = false;
+    $lastPulse = $lastLook = $lastCleanup = 0;
+
+    while (!$stop) {
+        clearstatcache();
+        if (!is_dir(DATA_DIR)) {       // array stopped: wait until it is back
+            $ready = false;
+            sleep(5);
+            continue;
+        }
+        if (!$ready) {
+            setUp();
+            $ready = true;
+        }
+
+        processMailbox();
+        foreach (desks() as $id => $desk) {
+            if ($desk['tick']) {
+                try {
+                    ($desk['tick'])();
+                } catch (Throwable $e) {
+                    logLine("$id: " . $e->getMessage());
+                }
+            }
+        }
+
+        $now = time();
+        if ($now - $lastPulse >= 20) {
+            @touch(AGENT_INFO);
+            $lastPulse = $now;
+        }
+        if ($now - $lastCleanup >= 60) {
+            cleanUpMailbox();
+            $lastCleanup = $now;
+        }
+        if ($now - $lastLook >= 3) {
+            $lastLook = $now;
+            $new = codeStamp();
+            if ($new !== $code) {
+                $code = $new;
+                if (codeIsValid()) {
+                    logLine('Agent code changed — restarting');
+                    flock($lock, LOCK_UN);
+                    fclose($lock);
+                    pcntl_exec('/bin/sh', ['-c', 'exec "$@"' . closeInheritedFds(), 'sh', PHP_BINARY, __FILE__, 'run']);
+                    exit(1);
+                }
+            }
+        }
+        usleep(TICK_US);
+    }
+
+    logLine('Agent stopped');
+    if (is_dir(DATA_DIR)) {
+        writeInfo(false);
+    }
+    flock($lock, LOCK_UN);
+    fclose($lock);
+    @unlink(PID_FILE);
+    return 0;
+}
+
+function setUp(): void
+{
+    if (!is_dir(MAILBOX)) {
+        @mkdir(MAILBOX, 0770);
+    }
+    @chown(MAILBOX, WEB_UID);
+    @chgrp(MAILBOX, WEB_UID);
+    @chmod(MAILBOX, 0770);
+    foreach (glob(MAILBOX . '/*') ?: [] as $old) {
+        @unlink($old);
+    }
+    writeInfo(true);
+    logLine('Agent started (v' . AGENT_VERSION . ', PID ' . getmypid() . ', desks: ' . implode(', ', array_keys(desks())) . ')');
+    foreach (desks() as $id => $desk) {
+        if ($desk['start']) {
+            try {
+                ($desk['start'])();
+            } catch (Throwable $e) {
+                logLine("$id: start failed: " . $e->getMessage());
+            }
+        }
+    }
+}
+
+function writeInfo(bool $running): void
+{
+    writeAtomic(AGENT_INFO, jsonEncode([
+        'running' => $running,
+        'version' => AGENT_VERSION,
+        'pid'     => getmypid(),
+        'started' => $GLOBALS['started'],
+        'host'    => hostname(),
+        'desks'   => array_keys(desks()),
+    ]));
+}
+
+/** All agent files, so any change triggers a restart */
+function codeFiles(): array
+{
+    $files = array_merge(glob(__DIR__ . '/*.php') ?: [], glob(__DIR__ . '/lib/*.php') ?: [], glob(__DIR__ . '/desks/*.php') ?: []);
+    sort($files);
+    return $files;
+}
+
+function codeStamp(): string
+{
+    $stamp = '';
+    foreach (codeFiles() as $file) {
+        clearstatcache(true, $file);
+        $stamp .= $file . ':' . @filemtime($file) . ':' . @filesize($file) . ';';
+    }
+    return $stamp;
+}
+
+function codeIsValid(): bool
+{
+    foreach (codeFiles() as $file) {
+        [$exit, , $err] = run([PHP_BINARY, '-l', $file], 30);
+        if ($exit !== 0) {
+            logLine('New agent code has errors, keeping the old one: ' . trim($err));
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * PHP opens its script without close-on-exec, so a new image would inherit it.
+ * Close everything from fd 3 on when restarting.
+ */
+function closeInheritedFds(): string
+{
+    $s = '';
+    for ($fd = 3; $fd < 64; $fd++) {
+        $s .= " $fd>&-";
+    }
+    return $s;
+}
+
+// ===================================================================== mailbox
+
+function processMailbox(): void
+{
+    $names = @scandir(MAILBOX);
+    if (!$names) {
+        return;
+    }
+    $requests = [];
+    foreach ($names as $name) {
+        if (preg_match('/^([a-f0-9]{32})\.request$/', $name, $m)) {
+            $requests[$m[1]] = (int) @filemtime(MAILBOX . "/$name");
+        }
+    }
+    asort($requests);
+    foreach (array_keys($requests) as $id) {
+        $path = MAILBOX . "/$id.request";
+        $raw = @file_get_contents($path, false, null, 0, 1 << 20);
+        @unlink($path);
+        if ($raw === false) {
+            continue;
+        }
+        $response = handle($raw);
+        try {
+            writeAtomic(MAILBOX . "/$id.response", jsonEncode($response), 0640, WEB_UID, WEB_UID);
+        } catch (Throwable $e) {
+            logLine('Could not deliver a response: ' . $e->getMessage());
+        }
+    }
+}
+
+function handle(string $raw): array
+{
+    try {
+        $request = json_decode($raw, true, 16);
+        if (!is_array($request) || !is_string($request['action'] ?? null)) {
+            throw new Problem('bad_request');
+        }
+        [$deskId, $action] = explode('.', $request['action'], 2) + [1 => ''];
+        if ($deskId === 'office' && $action === 'ping') {
+            return ['ok' => true, 'version' => AGENT_VERSION, 'host' => hostname()];
+        }
+        $handler = desks()[$deskId]['actions'][$action] ?? null;
+        if (!$handler) {
+            throw new Problem('unknown_action', ['action' => $request['action']]);
+        }
+        return $handler($request);
+    } catch (Problem $p) {
+        return ['ok' => false, 'error' => $p->toArray()];
+    } catch (Throwable $e) {
+        logLine('Error: ' . $e->getMessage() . ' (' . basename($e->getFile()) . ':' . $e->getLine() . ')');
+        return ['ok' => false, 'error' => ['key' => 'internal', 'params' => ['detail' => $e->getMessage()]]];
+    }
+}
+
+function cleanUpMailbox(): void
+{
+    $limit = time() - 600;
+    foreach (glob(MAILBOX . '/{*,.*.tmp}', GLOB_BRACE) ?: [] as $file) {
+        if (is_file($file) && @filemtime($file) < $limit) {
+            @unlink($file);
+        }
+    }
+}
+
+// =====================================================================
+
+if (PHP_SAPI === 'cli' && !defined('AGENT_LIBRARY_ONLY')) {
+    $zone = preg_replace('#^.*/zoneinfo/#', '', (string) @readlink('/etc/localtime'));
+    date_default_timezone_set(in_array($zone, timezone_identifiers_list(), true) ? $zone : 'UTC');
+    exit(main($argv));
+}

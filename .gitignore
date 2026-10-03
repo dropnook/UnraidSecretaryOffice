@@ -1,0 +1,13 @@
+# Runtime data: agent state, mailbox, log — never in the repository
+data/*
+!data/.gitkeep
+
+# Local settings
+.env
+
+# SMB / macOS leftovers
+.smbdelete*
+.schreibtest
+._*
+.DS_Store
+_*/
