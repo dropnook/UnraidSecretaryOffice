@@ -7,7 +7,8 @@ declare(strict_types=1);
  * Every desk can tell what it needs from the server (desk(..., ['checks' =>
  * …]), see finding() in lib/house.php). The caretaker collects all of that,
  * adds what the office as a whole needs or benefits from, and tells the user
- * what is missing and what is left to do by hand. He only reads.
+ * what is missing and what is left to do by hand. He only reads — except
+ * updating the office itself when asked (lib/officeupdate.php).
  */
 
 const CARETAKER_UNRAID_MIN = '6.12';
@@ -15,13 +16,16 @@ const CARETAKER_UNRAID_MIN = '6.12';
 desk('caretaker', [
     'start'   => fn () => caretakerScan(),
     'actions' => [
-        'refresh' => fn (array $r) => ['ok' => true, 'state' => caretakerScan()],
+        'refresh'       => fn (array $r) => ['ok' => true, 'state' => caretakerScan()],
+        'office_check'  => fn (array $r) => ['ok' => true, 'state' => caretakerScan(true)],
+        'office_update' => fn (array $r) => officeUpdate(),
     ],
     'checks'  => fn () => caretakerChecks(),
 ]);
 
-function caretakerScan(): array
+function caretakerScan(bool $checkUpdate = false): array
 {
+    $office = officeUpdateInfo($checkUpdate);
     $t0 = microtime(true);
     $checks = [];
     $staff = [];
@@ -53,6 +57,7 @@ function caretakerScan(): array
         'gui'         => houseGuiUrl(),
         'checks'      => $checks,
         'staff'       => $staff,
+        'office'      => $office,
         'hired'       => $hired,
     ];
     writeAtomic(deskFile('caretaker'), jsonEncode($state));
@@ -66,6 +71,11 @@ function caretakerChecks(): array
     $version = preg_match('/version="([^"]+)"/', (string) @file_get_contents('/etc/unraid-version'), $m) ? $m[1] : null;
     $out[] = finding('unraid', 'required', $version === null ? null : version_compare($version, CARETAKER_UNRAID_MIN, '>='),
         ['version' => $version ?? '?', 'min' => CARETAKER_UNRAID_MIN]);
+
+    // the office itself: a newer release?
+    $office = officeUpdateInfo();
+    $out[] = finding('office_update', 'recommended', $office['newer'] ? false : true,
+        ['version' => AGENT_VERSION, 'latest' => (string) ($office['latest'] ?? '')], '#/caretaker');
 
     $out[] = finding('community_apps', 'recommended', housePlugin('community.applications'), [], 'plugins');
     $out[] = finding('compose_manager', 'recommended', housePlugin('compose.manager'), [], 'apps');

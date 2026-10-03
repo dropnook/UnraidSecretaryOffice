@@ -63,9 +63,12 @@ Requirements: Unraid 6.12 or newer (7.x recommended), the
    docker compose -p unraidsecretaryoffice up -d
    ```
 4. Open `http://<OFFICE_IP>/`.
-5. For backups: Mr. Backupsy → *Set up…* (or `backup/setup.sh` in a terminal),
-   then give the User Scripts entry `unraid-secretary-office_backup` a schedule. The Caretaker
-   lists what is still missing.
+5. The Caretaker welcomes you and suggests whom to hire. For backups:
+   Mr. Backupsy → *Set up…*, then *Schedule…*. The Caretaker lists what is
+   still missing.
+
+**Updating:** the Caretaker checks GitHub once a day and offers *Update*
+(a `git pull`, refused if the code was changed locally). Your `data/` stays.
 
 The green dot top left means the agent checked in within the last 70 seconds.
 

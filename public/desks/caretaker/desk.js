@@ -105,6 +105,7 @@ function render() {
 
   const g = groups();
   root.appendChild(teamSection());                  // who works here comes first
+  root.appendChild(officeSection());
   if (g.todo.length) root.appendChild(list(T('todo'), T('todo_text'), g.todo));
   if (g.advice.length) root.appendChild(list(T('advice'), T('advice_text'), g.advice));
   if (!g.todo.length && !g.advice.length) {
@@ -160,6 +161,76 @@ function row(f) {
     r.appendChild(a);
   }
   return r;
+}
+
+// ------------------------------------------------------------------ the office itself
+function officeSection() {
+  const o = state.office || {};
+  const s = el('section', 'section');
+  const again = el('button', 'btn small plain', T('office_check'));
+  again.type = 'button';
+  again.disabled = !Office.agent.running;
+  again.onclick = async () => {
+    again.disabled = true;
+    const j = await Office.api.post(`${ID}.office_check`, {});
+    if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); again.disabled = false; return; }
+    state = j.state;
+    render();
+    Office.toast(T('office_checked'));
+  };
+  s.appendChild(Office.sectionHead(T('office'), T('office_sub'), again));
+  const box = el('div', 'box');
+  const row = el('div', 'row nocheck');
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', `🗂️ Unraid Secretary Office ${o.version || ''}`));
+  const meta = el('div', 'row-meta');
+  if (o.newer) meta.appendChild(el('span', 'chip warn', T('office_newer', { version: o.latest })));
+  else if (o.latest) meta.appendChild(el('span', 'chip ok', T('office_current')));
+  else if (o.error) meta.appendChild(el('span', 'chip quiet', T('office_error.' + o.error)));
+  if (o.checked) meta.appendChild(el('span', '', T('office_checked_at', { when: fmt.relative(o.checked) })));
+  main.appendChild(meta);
+  let note = '';
+  if (o.newer && !o.git) note = T('office_how_manual');
+  else if (o.newer && o.changed) note = T('office_how_changed');
+  if (note) main.appendChild(el('div', 'row-detail', note));
+  row.appendChild(main);
+  const right = el('div', 'ct-office-actions');
+  if (o.newer && o.url) {
+    const a = el('a', 'btn small plain', T('office_whats_new'));
+    a.href = o.url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    right.appendChild(a);
+  }
+  if (o.newer && o.git && !o.changed) {
+    const b = el('button', 'btn small', T('office_update'));
+    b.type = 'button';
+    b.disabled = !Office.agent.running;
+    b.onclick = () => officeUpdate(o);
+    right.appendChild(b);
+  }
+  row.appendChild(right);
+  box.appendChild(row);
+  s.appendChild(box);
+  return s;
+}
+
+function officeUpdate(o) {
+  Office.dialog({
+    title: T('office_update_title', { version: o.latest }),
+    body: el('p', '', T('office_update_text')),
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('office_update'), kind: '', act: async () => {
+        const j = await Office.api.post(`${ID}.office_update`, {});
+        if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
+        if (j.compose) Office.dialog({ title: T('office_compose_title'), body: el('p', '', T('office_compose_text')) });
+        else Office.toast(T('office_updated'));
+        setTimeout(() => location.reload(), j.compose ? 15000 : 2500);      // the new page code
+        return true;
+      } },
+    ],
+  });
 }
 
 // ------------------------------------------------------------------ the team

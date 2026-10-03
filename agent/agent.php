@@ -52,6 +52,7 @@ require __DIR__ . '/lib/mounts.php';
 require __DIR__ . '/lib/backupscript.php';
 require __DIR__ . '/lib/house.php';
 require __DIR__ . '/lib/snapshotplans.php';
+require __DIR__ . '/lib/officeupdate.php';
 foreach (glob(__DIR__ . '/desks/*.php') ?: [] as $deskFile) {
     require $deskFile;
 }

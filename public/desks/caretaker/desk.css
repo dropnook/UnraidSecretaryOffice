@@ -3,3 +3,4 @@
 .ct-avatar{width:42px; height:42px; font-size:23px}
 .ct-candidate .row-name{color:var(--ink2)}
 @media (max-width:600px){ .row.ct-person{grid-template-columns:auto minmax(0,1fr)} .row.ct-person > .btn{grid-column:2; justify-self:start} }
+.ct-office-actions{display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end}
