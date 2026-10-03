@@ -1,5 +1,4 @@
 /* Ms. Whereabouts */
-.row.unfolds{cursor:pointer}
 .row.unfolds .row-detail{cursor:auto}
 .row.open{background:color-mix(in srgb, var(--surface2) 45%, var(--surface))}
 .wa-unfold{justify-content:flex-end; padding:0}
@@ -13,15 +12,6 @@
 .wa-col-fig{text-align:right; font-size:12.5px; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap}
 .wa-col-bk{text-align:center}
 .wa-path .wa-copy{justify-self:end}
-.wa-section-title{display:flex; flex-direction:column; gap:2px}
-.wa-section-title h2{font-size:14px; text-transform:uppercase; letter-spacing:.09em; color:var(--muted)}
-.wa-help{margin:-12px 0 0 74px; max-width:980px; font-size:13px; color:var(--ink2)}
-@media (max-width:640px){.wa-help{margin-left:0}}
-.wa-help summary{cursor:pointer; color:var(--accent); font-size:13px; width:max-content}
-.wa-help-list{display:grid; grid-template-columns:max-content 1fr; gap:8px 14px; margin:10px 0 2px; padding:12px 14px; background:var(--surface); border:1px solid var(--line); border-radius:8px}
-.wa-help-list dt{font-weight:600; color:var(--ink)}
-.wa-help-list dd{margin:0; color:var(--ink2)}
-@media (max-width:640px){.wa-help-list{grid-template-columns:1fr; gap:2px}.wa-help-list dd{margin-bottom:8px}}
 .wa-paths .wa-path:first-child{border-top:0}
 .wa-paths{border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); margin:4px 0 10px}
 .wa-path.missing .mono{color:var(--muted); text-decoration:line-through}

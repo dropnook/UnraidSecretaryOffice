@@ -357,24 +357,21 @@ function build(root) {
   root.appendChild(helpBlock());          // under the bubble, but across the whole width
 
   const now = el('section', 'section');
-  const nh = el('div', 'section-head');
   v.nowHint = el('span', 'hint');
-  nh.append(el('h2', '', T('now')), v.nowHint);
+  const nh = Office.sectionHead(T('now'), T('now_sub'), v.nowHint);
   v.stats = el('div', 'stats');
   now.append(nh, v.stats);
   root.appendChild(now);
 
   v.places = el('section', 'section');
-  const ph = el('div', 'wa-section-title');
-  ph.append(el('h2', '', T('places')), el('div', 'role', T('places_hint')));
+  const ph = Office.sectionHead(T('places'), T('places_hint'));
   v.placeTiles = el('div', 'cards wa-places');
   v.placeDetail = el('div');
   v.places.append(ph, v.placeTiles, v.placeDetail);
   root.appendChild(v.places);
 
   v.sectionBox = el('section', 'section');
-  const dh = el('div', 'wa-section-title');
-  dh.append(el('h2', '', T('details_title')), el('div', 'role', T('details_hint')));
+  const dh = Office.sectionHead(T('details_title'), T('details_hint'));
   v.tabs = el('div', 'cards wa-sections');
   v.sectionBody = el('div', 'section');
   v.sectionBox.append(dh, v.tabs, v.sectionBody);
@@ -462,13 +459,7 @@ function renderStats() {
 
 // ------------------------------------------------------------------ where things are
 const PLACE_ICONS = { unraid: '⚙️', docker: '🐳', compose: '🧩', vms: '🖥️', cron: '⏰', scripts: '📜', office: '🗂️' };
-const BACKUP_CHIP = { offsite: 'ok', local: 'warn', none: 'danger' };
-
-/** How Mr. Backup's engine protects a path: offsite / only local / not at all */
-function backupChip(level) {
-  if (!level) return null;
-  return chip(T('bk.' + level), BACKUP_CHIP[level], T('bk.' + level + '_title'));
-}
+const backupChip = Office.backupChip;     // offsite / only local / not backed up — same on every desk
 
 function copyButton(text) {
   const b = el('button', 'btn small plain wa-copy', Office.t('common.copy'));
@@ -492,28 +483,18 @@ function pathLine(label, path, opts = {}) {
   return li;
 }
 
-/** "How to read this page" under the speech bubble — folded unless the user opened it */
+/** "How to read this page" under the speech bubble */
 function helpBlock() {
-  const det = el('details', 'wa-help');
-  det.open = Office.store('whereabouts.help') === '1';
-  det.ontoggle = () => Office.store('whereabouts.help', det.open ? '1' : null);
-  det.appendChild(el('summary', '', T('help.title')));
-  const dl = el('dl', 'wa-help-list');
-  const item = (term, text) => {
-    const dt = el('dt');
-    if (term instanceof Node) dt.appendChild(term); else dt.textContent = term;
-    dl.append(dt, el('dd', '', text));
-  };
-  item(T('help.labels'), T('help.labels_text'));
-  ['offsite', 'local', 'none'].forEach((l) => item(backupChip(l), T('legend.' + l)));
-  item(T('help.tiles'), T('help.tiles_text'));
-  item(T('help.copy'), T('help.copy_text'));
-  item(T('help.rows'), T('help.rows_text'));
-  item(T('help.search'), T('help.search_text'));
-  item(T('help.tour'), T('help.tour_text'));
-  item(T('help.asleep'), T('help.asleep_text'));
-  det.appendChild(dl);
-  return det;
+  return Office.pageHelp(ID, [
+    [T('help.labels'), T('help.labels_text')],
+    ...['offsite', 'local', 'none'].map((l) => [Office.backupChip(l), Office.t('protect.' + l + '_text')]),
+    [T('help.tiles'), T('help.tiles_text')],
+    [T('help.copy'), T('help.copy_text')],
+    [T('help.rows'), T('help.rows_text')],
+    [T('help.search'), T('help.search_text')],
+    [T('help.tour'), T('help.tour_text')],
+    [T('help.asleep'), T('help.asleep_text')],
+  ]);
 }
 
 function placeSummary(g) {

@@ -1,4 +1,4 @@
-/* Mr. Caretaker — looks after the house: collects what every desk needs from
+/* The Caretaker — looks after the house: collects what every desk needs from
    the server (plugins, containers, settings), adds what the office as a whole
    benefits from, and says what is missing and what is left to do by hand.
    Every desk delivers its own checks (agent: desk(..., ['checks' => …]));
@@ -73,6 +73,17 @@ function render() {
   };
   const { head } = Office.deskHead(Office.desks.get(ID), { bubble: bubbleText(), actions: [again] });
   root.appendChild(head);
+  root.appendChild(Office.pageHelp(ID, [
+    [T('todo'), T('help.todo')],
+    [T('advice'), T('help.advice')],
+    [T('hints'), T('help.hints')],
+    [el('span', 'chip danger', T('missing')), T('help.missing')],
+    [el('span', 'chip warn', T('not_yet')), T('help.not_yet')],
+    [el('span', 'chip warn', T('unknown')), T('help.unknown')],
+    [T('help.desk'), T('help.desk_text')],
+    [T('help.open'), T('help.open_text')],
+    [T('check_again'), T('help.again')],
+  ]));
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
 
   const g = groups();
@@ -92,9 +103,7 @@ function render() {
 
 function list(title, sub, items) {
   const s = el('section', 'section');
-  const head = el('div', 'section-head');
-  head.appendChild(el('h2', '', title));
-  s.append(head, el('p', 'role', sub));
+  s.appendChild(Office.sectionHead(title, sub));
   const box = el('div', 'box');
   items.forEach((f) => box.appendChild(row(f)));
   s.appendChild(box);
@@ -132,13 +141,10 @@ function row(f) {
 
 function doneSection(items) {
   const s = el('section', 'section');
-  const head = el('div', 'section-head');
-  head.appendChild(el('h2', '', T('done', { n: items.length })));
   const toggle = el('button', 'btn small plain', showDone ? T('hide') : T('show'));
   toggle.type = 'button';
   toggle.onclick = () => { showDone = !showDone; render(); };
-  head.appendChild(toggle);
-  s.appendChild(head);
+  s.appendChild(Office.sectionHead(T('done', { n: items.length }), T('done_sub'), toggle));
   if (showDone) {
     const box = el('div', 'box');
     items.forEach((f) => {

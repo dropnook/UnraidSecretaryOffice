@@ -46,6 +46,60 @@ This file holds the conventions and the checklist for changes.
   (why/ctwhy) so the office can translate them. Version lives in backup.sh, setup.sh, lib/common.sh and
   backup/README.md. A run reads backup.sh piecewise while it runs (hours!):
   never change it in place during a run — write a new file and `mv` it.
+* **Versions:** `OFFICE_VERSION` (src/bootstrap.php) and `AGENT_VERSION`
+  (agent/agent.php) move together.
+
+## The desks
+
+| id | name (en / de) | does |
+|---|---|---|
+| `snapshot` | Ms. Snapshot / Frau Snapshot | ZFS, btrfs and VM snapshots: create, delete with an estimate, rename, hold, unmount |
+| `whereabouts` | Ms. Whereabouts / Frau WasIstWo | what is where and going on; "where things are" (config files, boot medium, VM files) with their backup protection. Read only |
+| `backup` | Mr. Backup / Herr Backup | runs the engine in `backup/`: status, history, protection, restore help, setup assistant (`#/backup/setup`) |
+| `caretaker` | The Caretaker / Der Hauswart | collects every desk's `checks` and what the office needs; tells the user what is left to do |
+
+Desks know each other only through shared libraries (`backupProtection()`,
+`finding()`) and links (`#/<desk>`) — each one must work on its own.
+
+## UI conventions (every desk looks and behaves the same)
+
+* **Head:** `Office.deskHead(...)`, then right after it
+  `Office.pageHelp(ID, [[term, text], …])` — "How to read this page", folded
+  by default, remembered per desk. Explanations of labels, buttons and tiles go
+  there, not into repeated legends on every list.
+* **Sections:** `Office.sectionHead(title, explanation, ...extras)` — the
+  explanation sits right under the heading; counts, status and buttons go to
+  the right. No explanatory text floating on the right.
+* **Tiles** (`button.card`): a click opens or filters; a click on the active
+  tile closes it again — nothing open is a valid state. Remember the choice in
+  `Office.store`.
+* **Rows** with one main action (unfold details, open a log): the whole row is
+  clickable (`.row.unfolds`), except its own buttons, links, fields and
+  elements with `data-own`. The "details" tooltip sits on the name only; every
+  chip carries its own `title`. Lists that unfold offer "Unfold all".
+  Exception: selection lists (snapshots) — selecting means deleting, so only
+  the checkbox selects.
+* **Backup protection** is always shown with `Office.backupChip(level)`
+  (offsite / only local / not backed up), the level coming from
+  `backupProtection()` in agent/lib/backupscript.php.
+* **Names in German** read naturally (Frau Snapshot, Herr Backup, Der
+  Hauswart); a desk can set its reception button with the lang key `visit`
+  ("Zum Hauswart"), otherwise the office's "Visit {name}" is used.
+* **Say what is really there:** detect it (boot from a USB stick or a boot
+  pool, license bound to the stick or the TPM, a VM disk sitting on a snapshot
+  overlay) instead of describing the common case. Restore texts must be
+  complete and honest.
+
+## Server facts that bite
+
+* The agent container has **no network** (`network_mode: none`): read
+  addresses from Unraid's config (`/var/local/emhttp/network.ini`), not `ip`.
+* Scripts edited over SMB may stay open in Samba for a moment ("Text file
+  busy"): start them through `bash <script>`, never by executing them directly.
+* VM configuration (XML, NVRAM, TPM state) lives inside `libvirt.img`, mounted
+  at `/etc/libvirt` while the VM service runs.
+* Unraid rebuilds root's crontab in RAM from `*.cron` files (`update_cron`);
+  anything typed into `crontab -e` is gone after a reboot.
 
 ## Checklist for a change
 
@@ -56,7 +110,10 @@ This file holds the conventions and the checklist for changes.
 4. The agent restarts itself when its files change — watch `data/agent.log`
    ("Agent code changed — restarting"); a syntax error keeps the old code running.
 5. Reload the page for real (changing only the `#` part of the URL doesn't reload).
-6. Test destructive actions only on throwaway objects, then clean up.
+6. Check the page at phone width (375 px): no horizontal scrolling.
+7. Test destructive actions only on throwaway objects, then clean up. Never
+   wake sleeping disks, start backup runs or apply settings on a real server
+   just to test.
 
 ## Layout
 
@@ -66,7 +123,8 @@ agent/lib/*.php          shared helpers (util: run, writeAtomic, readCfg, Proble
                          mounts; backupscript; house: plugins, containers, finding)
 agent/desks/<id>.php     one desk each: desk('<id>', [...])
 src/*.php                web side: bootstrap, mailbox client, desk/lang discovery, auth (PIN), API, page
-public/assets/core.js    Office: i18n, routing, reception, API, dialog, menu, toast, fmt
+public/assets/core.js    Office: i18n, routing, reception, API, PIN, dialog, menu, toast, fmt,
+                         deskHead, pageHelp, sectionHead, backupChip
 public/desks/<id>/       desk.json, desk.js, lang/*.json (and desk.css)
 data/                    runtime only (state per desk, mailbox, agent log, office/auth.json) — not in git
 backup/                  the backup engine: backup.sh, setup.sh, lib/common.sh (data in data/unraid-backup)

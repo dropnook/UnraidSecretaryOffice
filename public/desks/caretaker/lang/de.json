@@ -1,6 +1,7 @@
 {
-  "name": "Herr Hauswart",
+  "name": "Der Hauswart",
   "role": "Schaut zum Haus — was das Sekretariat von deinem Server braucht und was du noch selbst tun musst",
+  "visit": "Zum Hauswart",
 
   "bubble.loading": "Einen Moment, ich mache meinen Rundgang…",
   "bubble.all_good": "Alles an seinem Platz — für dich gibt es nichts zu tun.",
@@ -62,5 +63,17 @@
   "check.other_backup_container_how": "Prüfe, dass es nicht dasselbe zur selben Zeit sichert wie Herr Backup — oder dass das so gewollt ist.",
   "check.other_backup_script": "Weiteres Backup-Werkzeug: User Script {name}",
   "check.other_backup_script_how": "Prüfe, dass es nicht dasselbe zur selben Zeit sichert wie Herr Backup — oder dass das so gewollt ist.",
-  "check.checks_failed": "Die Prüfungen sind fehlgeschlagen: {detail}"
+  "check.checks_failed": "Die Prüfungen sind fehlgeschlagen: {detail}",
+  "done_sub": "Alles, was schon in Ordnung ist.",
+  "help.todo": "Braucht ein Schreibtisch für (einen Teil) seiner Arbeit — erledigen kannst nur du, in Unraid selbst.",
+  "help.advice": "Kein Muss, aber es macht das Leben einfacher oder sicherer.",
+  "help.hints": "Nichts zu reparieren — nur damit du es weisst (z. B. weitere Backup-Werkzeuge auf dem Server).",
+  "help.missing": "Etwas Nötiges fehlt oder ist nicht eingerichtet.",
+  "help.not_yet": "Eine Empfehlung, die noch nicht umgesetzt ist.",
+  "help.unknown": "Konnte ich nicht herausfinden — z. B. ist Kopia noch nicht geprüft.",
+  "help.desk": "Schreibtisch-Chip",
+  "help.desk_text": "Wer es braucht: Jeder Schreibtisch sagt mir, was er vom Server braucht, ich sammle es.",
+  "help.open": "Knöpfe rechts",
+  "help.open_text": "Öffnen die passende Seite von Unraids Oberfläche (Plugins, Apps, Docker, User Scripts, Mitteilungen) in einem neuen Tab.",
+  "help.again": "Schaut sofort alles neu an; sonst tue ich das, wenn die Seite geöffnet wird und mein letzter Blick älter als 5 Minuten ist."
 }

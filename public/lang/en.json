@@ -35,6 +35,14 @@
   "common.unknown": "unknown",
   "common.scanned_ago": "scanned {when}",
 
+  "common.page_help": "How to read this page",
+  "protect.offsite": "offsite",
+  "protect.offsite_text": "local snapshot + Kopia, encrypted off the server",
+  "protect.local": "only local",
+  "protect.local_text": "only a snapshot or dump on this server — gone with the server",
+  "protect.none": "not backed up",
+  "protect.none_text": "not backed up",
+
   "time.just_now": "just now",
   "time.days_hours": "{d} d {h} h",
   "time.hours_minutes": "{h} h {m} min",

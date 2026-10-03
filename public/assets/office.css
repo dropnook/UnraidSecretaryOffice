@@ -146,6 +146,15 @@ select.lang{
   transform:rotate(45deg);
 }
 .bubble b{color:var(--ink); font-weight:650}
+
+/* "how to read this page" under the desk head */
+.page-help{margin:-12px 0 0 74px; max-width:980px; font-size:13px; color:var(--ink2)}
+.page-help summary{cursor:pointer; color:var(--accent); font-size:13px; width:max-content}
+.page-help-list{display:grid; grid-template-columns:max-content 1fr; gap:8px 14px; margin:10px 0 2px; padding:12px 14px; background:var(--surface); border:1px solid var(--line); border-radius:8px}
+.page-help-list dt{font-weight:600; color:var(--ink)}
+.page-help-list dd{margin:0; color:var(--ink2)}
+.section-title{display:flex; flex-direction:column; gap:2px; min-width:0}
+.section-sub{font-size:13px; color:var(--muted)}
 .deskhead-actions{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-left:auto; padding-top:4px}
 
 /* ---------------------------------------------------------------- cards */
@@ -425,6 +434,9 @@ body.with-selbar .toasts{bottom:calc(96px + env(safe-area-inset-bottom))}
   .narrow-only{display:inline}
   .group-head{padding:9px 8px 9px 10px; gap:8px}
   .deskhead-actions{margin-left:0; width:100%}
+  .page-help{margin-left:0}
+  .page-help-list{grid-template-columns:1fr; gap:2px}
+  .page-help-list dd{margin-bottom:8px}
   .dialog-backdrop{padding:10px}
   .dialog h3{padding:15px 16px 0}
   .dialog-body{padding:10px 16px 4px}
@@ -439,3 +451,4 @@ body.with-selbar .toasts{bottom:calc(96px + env(safe-area-inset-bottom))}
   .seg button{padding:4px 9px}
   .tabs a{padding:6px 8px}
 }
+.row.unfolds{cursor:pointer}

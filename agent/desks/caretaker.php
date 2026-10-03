@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /*
- * Mr. Caretaker — looks after the house itself.
+ * The Caretaker — looks after the house itself.
  *
  * Every desk can tell what it needs from the server (desk(..., ['checks' =>
  * …]), see finding() in lib/house.php). The caretaker collects all of that,

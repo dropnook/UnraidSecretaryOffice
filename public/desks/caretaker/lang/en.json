@@ -1,6 +1,7 @@
 {
-  "name": "Mr. Caretaker",
+  "name": "The Caretaker",
   "role": "Looks after the house — what the office needs from your server, and what's left for you to do",
+  "visit": "Visit the caretaker",
 
   "bubble.loading": "One moment, I'm walking through the house…",
   "bubble.all_good": "Everything's in place — nothing for you to do.",
@@ -62,5 +63,17 @@
   "check.other_backup_container_how": "Make sure it doesn't back up the same things as Mr. Backup at the same time — or that this is on purpose.",
   "check.other_backup_script": "Another backup tool: user script {name}",
   "check.other_backup_script_how": "Make sure it doesn't back up the same things as Mr. Backup at the same time — or that this is on purpose.",
-  "check.checks_failed": "The checks failed: {detail}"
+  "check.checks_failed": "The checks failed: {detail}",
+  "done_sub": "Everything that is already in place.",
+  "help.todo": "Needed by a desk to do (part of) its job — only you can do it, in Unraid itself.",
+  "help.advice": "Not a must, but it makes life easier or safer.",
+  "help.hints": "Nothing to fix — just so you know (e.g. other backup tools on the server).",
+  "help.missing": "Something needed isn't there or isn't set up.",
+  "help.not_yet": "A recommendation that isn't followed yet.",
+  "help.unknown": "I couldn't find out — e.g. Kopia hasn't been checked yet.",
+  "help.desk": "Desk chip",
+  "help.desk_text": "Who needs it: every desk tells me what it needs from the server, I collect it.",
+  "help.open": "Buttons on the right",
+  "help.open_text": "Open the matching page of Unraid's web UI (Plugins, Apps, Docker, User Scripts, Notifications) in a new tab.",
+  "help.again": "Looks at everything again right now; otherwise I do when the page is opened and my last look is older than 5 minutes."
 }

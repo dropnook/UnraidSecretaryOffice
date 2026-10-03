@@ -399,12 +399,6 @@
   "fold_all": "Alle zuklappen",
   "places": "Wo liegt was",
   "places_hint": "die Dateien, auf die es ankommt, wenn etwas kaputtgeht oder auf einen anderen Server umzieht",
-  "bk.offsite": "offsite",
-  "bk.offsite_title": "Herr Backup: lokaler Snapshot und Kopia offsite",
-  "bk.local": "nur lokal",
-  "bk.local_title": "Herr Backup: nur ein lokaler Snapshot oder Dump auf diesem Server — weg, wenn der Server weg ist",
-  "bk.none": "nicht gesichert",
-  "bk.none_title": "Herr Backup sichert das nicht",
   "place.unraid": "Unraid-Konfiguration",
   "place.unraid_intro": "Alles, was Unraid über sich weiss, liegt in /boot/config.",
   "place.docker": "Docker",
@@ -510,9 +504,6 @@
   "boot.license_tpm": "Die Lizenz ({file}) hängt am TPM dieses Mainboards: Mit demselben Mainboard musst du nichts übertragen. Erst ein neues Mainboard braucht eine Lizenzübertragung (Tools → Registration).",
   "boot.license_flash": "Die Lizenz ({file}) hängt an der GUID des Boot-Sticks ({guid}): Bei einem neuen Stick auf dessen GUID übertragen (Tools → Registration).",
   "boot.license_other": "Die Lizenz ({file}) gehört zu einer GUID, die weder die dieses Sticks noch die dieses TPM ist — unter Tools → Registration prüfen.",
-  "legend.offsite": "lokaler Snapshot + Kopia, verschlüsselt ausser Haus",
-  "legend.local": "nur Snapshot oder Dump auf diesem Server — mit dem Server weg",
-  "legend.none": "nicht gesichert",
   "help.title": "So liest du diese Seite",
   "help.tiles": "Kacheln unter «Wo liegt was»",
   "help.tiles_text": "Jede Kachel ist ein Ort mit Dateien, auf die es ankommt. Ihr Label zeigt den schwächsten Schutz darin (das Systemprotokoll im RAM und Dockers Image-Daten zählen nicht — die entstehen ohnehin neu). Ein Klick öffnet die Pfade mit Umfang und Schutz.",
@@ -562,5 +553,6 @@
   "tip.tpm": "Virtuelles TPM {version} (swtpm). Windows 11 braucht es; BitLocker und Windows Hello hängen daran. Sein Zustand liegt in {state}.",
   "tip.passthrough": "Geräte des Hosts (z. B. eine Grafikkarte oder ein USB-Controller), direkt in die VM durchgereicht — auf einem anderen Server gibt es sie vielleicht nicht.",
   "tip.autostart_vm": "Startet mit dem VM-Dienst.",
-  "tip.vm_snapshot": "VM-Snapshots — Frau Snapshot öffnen"
+  "tip.vm_snapshot": "VM-Snapshots — Frau Snapshot öffnen",
+  "now_sub": "Live vom Server — antippen springt zu den Details."
 }

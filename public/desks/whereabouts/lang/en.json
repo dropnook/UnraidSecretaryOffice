@@ -399,12 +399,6 @@
   "fold_all": "Fold all",
   "places": "Where things are",
   "places_hint": "the files that matter when something breaks or moves to another server",
-  "bk.offsite": "offsite",
-  "bk.offsite_title": "Mr. Backup: local snapshot and Kopia offsite",
-  "bk.local": "only local",
-  "bk.local_title": "Mr. Backup: only a local snapshot or dump on this server — gone if the server is gone",
-  "bk.none": "not backed up",
-  "bk.none_title": "Mr. Backup doesn't back this up",
   "place.unraid": "Unraid configuration",
   "place.unraid_intro": "Everything Unraid knows about itself lives in /boot/config.",
   "place.docker": "Docker",
@@ -510,9 +504,6 @@
   "boot.license_tpm": "The license ({file}) is bound to the TPM of this mainboard: on the same mainboard there is nothing to transfer. Only a new mainboard needs a license transfer (Tools → Registration).",
   "boot.license_flash": "The license ({file}) is bound to the boot stick's GUID ({guid}): with a new stick, transfer it to the new GUID (Tools → Registration).",
   "boot.license_other": "The license ({file}) belongs to a GUID that is neither this stick's nor this TPM's — check it under Tools → Registration.",
-  "legend.offsite": "local snapshot + Kopia, encrypted off the server",
-  "legend.local": "only a snapshot or dump on this server — gone with the server",
-  "legend.none": "not backed up",
   "help.title": "How to read this page",
   "help.tiles": "Tiles under «Where things are»",
   "help.tiles_text": "Each tile is a place with files that matter. Its label shows the weakest protection among them (the system log in RAM and Docker's image data don't count — they are rebuilt anyway). A click opens the paths with their size and protection.",
@@ -562,5 +553,6 @@
   "tip.tpm": "Virtual TPM {version} (swtpm). Windows 11 needs it; BitLocker and Windows Hello depend on it. Its state lives in {state}.",
   "tip.passthrough": "Devices of the host (e.g. a GPU or USB controller) passed straight into the VM — on another server they may not exist.",
   "tip.autostart_vm": "Starts when the VM service starts.",
-  "tip.vm_snapshot": "VM snapshots — open Ms. Snapshot"
+  "tip.vm_snapshot": "VM snapshots — open Ms. Snapshot",
+  "now_sub": "Live from the server — a tap jumps to the details."
 }

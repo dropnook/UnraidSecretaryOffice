@@ -552,6 +552,44 @@ function tabs() {
   for (const d of Office.desks.values()) add(`#/${d.id}`, d.icon, t(`${d.id}.name`), Office.current === d);
 }
 
+/**
+ * "How to read this page", folded out under a desk's head — closed unless the
+ * user opened it (remembered per desk). items: [[term (text or node), text], …]
+ */
+Office.pageHelp = function pageHelp(desk, items) {
+  const det = el('details', 'page-help');
+  det.open = Office.store(desk + '.help') === '1';
+  det.ontoggle = () => Office.store(desk + '.help', det.open ? '1' : null);
+  det.appendChild(el('summary', '', t('common.page_help')));
+  const dl = el('dl', 'page-help-list');
+  items.forEach(([term, text]) => {
+    const dt = el('dt');
+    if (term instanceof Node) dt.appendChild(term); else dt.textContent = term;
+    dl.append(dt, el('dd', '', text));
+  });
+  det.appendChild(dl);
+  return det;
+};
+
+/** A section heading with its explanation right underneath; extras (counts, buttons) go to the right */
+Office.sectionHead = function sectionHead(title, sub, ...right) {
+  const head = el('div', 'section-head');
+  const left = el('div', 'section-title');
+  left.appendChild(el('h2', '', title));
+  if (sub) left.appendChild(el('div', 'section-sub', sub));
+  head.appendChild(left);
+  right.filter(Boolean).forEach((x) => head.appendChild(x));
+  return head;
+};
+
+/** How the backup protects something — the same label on every desk: offsite / local / none */
+Office.backupChip = function backupChip(level) {
+  if (!level) return null;
+  const c = el('span', 'chip ' + ({ offsite: 'ok', local: 'warn', none: 'danger' }[level] || ''), t('protect.' + level));
+  c.title = t('protect.' + level + '_text');
+  return c;
+};
+
 /** The desk head every secretary uses: avatar, name, role, speech bubble, actions */
 Office.deskHead = function deskHead(desk, { bubble, actions }) {
   const head = el('div', 'deskhead');
@@ -587,7 +625,8 @@ async function reception(root) {
     top.append(el('div', 'avatar big', desk.icon), name);
     const bubble = el('div', 'bubble', '…');
     const facts = el('ul', 'facts');
-    const go = el('button', 'btn', t('office.visit', { name: t(`${desk.id}.name`) }));
+    // a desk may say how to go there ("Zum Hauswart"), else the office's "Visit {name}"
+    const go = el('button', 'btn', Office.has(`${desk.id}.visit`) ? t(`${desk.id}.visit`) : t('office.visit', { name: t(`${desk.id}.name`) }));
     go.type = 'button';
     go.onclick = () => Office.go(`#/${desk.id}`);
     card.append(top, bubble, facts, go);

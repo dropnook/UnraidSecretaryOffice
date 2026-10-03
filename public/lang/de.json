@@ -35,6 +35,14 @@
   "common.unknown": "unbekannt",
   "common.scanned_ago": "gelesen {when}",
 
+  "common.page_help": "So liest du diese Seite",
+  "protect.offsite": "offsite",
+  "protect.offsite_text": "lokaler Snapshot + Kopia, verschlüsselt ausser Haus",
+  "protect.local": "nur lokal",
+  "protect.local_text": "nur Snapshot oder Dump auf diesem Server — mit dem Server weg",
+  "protect.none": "nicht gesichert",
+  "protect.none_text": "nicht gesichert",
+
   "time.just_now": "gerade eben",
   "time.days_hours": "{d} T {h} Std.",
   "time.hours_minutes": "{h} Std. {m} Min.",

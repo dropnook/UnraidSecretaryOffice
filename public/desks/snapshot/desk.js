@@ -207,20 +207,32 @@ function build(root) {
   newBtn.onclick = () => createDialog([]);
   const head = Office.deskHead({ id: ID, icon: Office.desks.get(ID).icon }, { actions: [scanBtn, newBtn] });
   root.appendChild(head.head);
+  root.appendChild(Office.pageHelp(ID, [
+    [T('help.tiles'), T('help.tiles_text')],
+    [T('help.group'), T('help.group_text')],
+    [T('help.select'), T('help.select_text')],
+    [T('help.name'), T('help.name_text')],
+    [T('help.menu'), T('help.menu_text')],
+    [el('span', 'chip solid', '🔒 ' + T('held')), T('help.held')],
+    [el('span', 'chip outline', '📌 ' + T('mounted')), T('help.mounted')],
+    [el('span', 'chip outline', '📌 ' + T('used_by_backup')), T('help.backup')],
+    [el('span', 'chip quiet', '💤 ' + T('disk_asleep')), T('help.asleep')],
+    [T('help.sources'), T('help.sources_text')],
+    [T('docker_layers'), T('help.docker')],
+    [T('help.scan'), T('help.scan_text')],
+  ]));
   Object.assign(v, { scanBtn, newBtn, bubble: head.bubble });
 
   // storage
   const storage = el('section', 'section');
-  const sh = el('div', 'section-head');
   v.storageHint = el('span', 'hint');
-  sh.append(el('h2', '', T('storage')), v.storageHint);
+  const sh = Office.sectionHead(T('storage'), T('storage.sub'), v.storageHint);
   v.pools = el('div', 'cards');
   storage.append(sh, v.pools);
   root.appendChild(storage);
 
   // list
   const list = el('section', 'section');
-  const lh = el('div', 'section-head');
   v.seg = el('div', 'seg');
   v.seg.setAttribute('role', 'group');
   for (const g of ['dataset', 'run', 'time']) {
@@ -231,7 +243,7 @@ function build(root) {
     b.onclick = () => { grouping = g; Office.store('snapshot.grouping', g); renderList(); };
     v.seg.appendChild(b);
   }
-  lh.append(el('h2', '', T('snapshots')), v.seg);
+  const lh = Office.sectionHead(T('snapshots'), T('snapshots_sub'), v.seg);
 
   const bar = el('div', 'toolbar');
   const all = el('label', 'check-all');

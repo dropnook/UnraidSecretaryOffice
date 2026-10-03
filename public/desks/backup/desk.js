@@ -59,12 +59,10 @@ function resultChip(result) {
   return chip(T('result.' + result), RESULT_CHIP[result] || '');
 }
 
-function section(title, ...extra) {
+/** A section with its heading, the explanation under it, and extras on the right */
+function section(title, sub, ...extra) {
   const s = el('section', 'section');
-  const head = el('div', 'section-head');
-  head.appendChild(el('h2', '', title));
-  extra.filter(Boolean).forEach((x) => head.appendChild(x));
-  s.appendChild(head);
+  s.appendChild(Office.sectionHead(title, sub, ...extra));
   return s;
 }
 
@@ -187,6 +185,17 @@ function render() {
   }
   const { head } = Office.deskHead(Office.desks.get(ID), { bubble: bubbleText().join(' '), actions });
   root.appendChild(head);
+  root.appendChild(Office.pageHelp(ID, [
+    [T('help.run'), T('help.run_text')],
+    [T('help.results'), T('help.results_text')],
+    [T('help.protection'), T('help.protection_text')],
+    ...['offsite', 'local', 'none'].map((l) => [Office.backupChip(l), Office.t('protect.' + l + '_text')]),
+    [T('help.buttons'), T('help.buttons_text')],
+    [T('setup_open'), T('help.setup')],
+    [T('history'), T('help.history')],
+    [T('drift'), T('help.drift')],
+    [T('restore'), T('help.restore')],
+  ]));
 
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
   if (!state.found) { root.appendChild(missing()); return; }
@@ -240,7 +249,7 @@ function notices() {
 function runningCard() {
   const s = status();
   const p = progress();
-  const box = section(T('now'));
+  const box = section(T('now'), T('now_sub'));
   const card = el('div', 'card bk-run');
 
   const top = el('div', 'card-head');
@@ -308,7 +317,7 @@ function runningCard() {
 
 /** No run going on: how the last one went, and what comes next */
 function summary() {
-  const box = section(T('overview'));
+  const box = section(T('overview'), T('overview_sub'));
   const stats = el('div', 'stats');
   const last = lastRun();
   const s = status();
@@ -339,8 +348,8 @@ function protection() {
   const counts = { kopia: 0, snapshot: 0, off: 0 };
   shares.forEach((s) => { counts[s.mode] = (counts[s.mode] || 0) + 1; });
   const kopiaOn = state.settings && state.settings.kopia_enabled;
-  const box = section(T('protection'));
-  box.appendChild(el('p', 'role', T('protection_sum', { kopia: counts.kopia, snapshot: counts.snapshot, off: counts.off })));
+  const local = counts.snapshot + (kopiaOn ? 0 : counts.kopia);
+  const box = section(T('protection'), T('protection_sum', { kopia: kopiaOn ? counts.kopia : 0, snapshot: local, off: counts.off }));
   if (!shares.length) { box.appendChild(el('p', 'empty', T('no_shares'))); return box; }
 
   const wrap = el('div', 'box table-wrap');
@@ -356,9 +365,10 @@ function protection() {
     const tr = el('tr');
     tr.appendChild(el('th', '', s.flash ? T('flash') : s.name));
     const modeCell = el('td');
-    if (s.mode === 'kopia') modeCell.appendChild(chip(kopiaOn ? T('mode_kopia') : T('mode_kopia_off'), kopiaOn ? 'solid' : 'warn'));
-    else if (s.mode === 'snapshot') modeCell.appendChild(chip(T('mode_snapshot'), 'outline'));
-    else modeCell.appendChild(chip(T('mode_off'), 'quiet'));
+    // the same labels as everywhere in the office: offsite / only local / not backed up
+    const level = s.mode === 'kopia' ? (kopiaOn ? 'offsite' : 'local') : s.mode === 'snapshot' ? 'local' : 'none';
+    modeCell.appendChild(Office.backupChip(level));
+    if (s.mode === 'kopia' && !kopiaOn) modeCell.append(' ', chip(T('mode_kopia_off'), 'warn'));
     if (s.method === 'live') modeCell.append(' ', chip(T('live'), 'warn', T('live_hint')));
     tr.appendChild(modeCell);
     const lastCell = el('td');
@@ -403,15 +413,16 @@ function protection() {
 
 function historySection() {
   const runs = state.history || [];
-  const box = section(T('history'));
+  const box = section(T('history'), T('history_sub'));
   if (!runs.length) { box.appendChild(el('p', 'empty', T('bubble.no_runs'))); return box; }
   const list = el('div', 'box');
   const longest = Math.max(...runs.map((r) => (r.finished || r.started) - r.started), 1);
   runs.slice(0, 20).forEach((r) => {
-    const row = el('div', 'row nocheck');
+    const row = el('div', 'row nocheck unfolds');
+    row.onclick = () => showLog(r.log);           // the whole row opens the run's log
     const main = el('div', 'row-main');
     const name = el('div', 'row-name text link', fmt.date(r.started, true));
-    name.onclick = () => showLog(r.log);
+    name.title = T('show_log');
     main.appendChild(name);
     const meta = el('div', 'row-meta');
     meta.appendChild(resultChip(r.result));
@@ -439,7 +450,7 @@ function historySection() {
 
 function driftSection() {
   const items = state.drift.items;
-  const box = section(T('drift'), el('span', 'role', state.drift.time ? T('drift_checked', { when: fmt.relative(state.drift.time) }) : ''));
+  const box = section(T('drift'), T('drift_sub'), el('span', 'hint', state.drift.time ? T('drift_checked', { when: fmt.relative(state.drift.time) }) : ''));
   const list = el('div', 'box');
   const order = { error: 0, warn: 1, info: 2 };
   [...items].sort((a, b) => order[a.level] - order[b.level]).forEach((d) => {
@@ -460,7 +471,7 @@ function driftSection() {
 
 /** How to get things back: local snapshots, Kopia, database dumps */
 function restoreSection() {
-  const box = section(T('restore'));
+  const box = section(T('restore'), T('restore_sub'));
   const set = state.settings || {};
   const prefix = set.snap_prefix || 'unraidbackup-';
   const dl = el('dl', 'kv bk-restore');
@@ -843,11 +854,7 @@ function checkbox(text, checked, onchange, small) {
   label.append(input, span);
   return label;
 }
-function setupSection(title, sub) {
-  const s = section(title);
-  if (sub) s.appendChild(el('p', 'role', sub));
-  return s;
-}
+const setupSection = (title, sub) => section(title, sub);
 
 // ---- rendering
 function renderSetup() {
@@ -866,6 +873,14 @@ function renderSetup() {
   else if (state && state.running) bubble = T('setup.bubble_backup_runs');
   const { head } = Office.deskHead(Office.desks.get(ID), { bubble, actions: [back, again, measure] });
   root.appendChild(head);
+  root.appendChild(Office.pageHelp(ID + '-setup', [
+    [T('help.draft'), T('help.draft_text')],
+    [T('setup.replan'), T('help.replan')],
+    [T('setup.measure'), T('setup.measure_hint')],
+    [T('help.reasons'), T('help.reasons_text')],
+    [T('setup.more'), T('help.details')],
+    [T('setup.apply'), T('help.apply')],
+  ]));
 
   if (setup.applied) root.appendChild(appliedCard(setup.applied));
   if (busy) {
@@ -1192,7 +1207,7 @@ function setupSources(old) {
 }
 
 function setupMessages(msgs) {
-  const s = section(T('setup.messages'));
+  const s = section(T('setup.messages'), T('setup.messages_sub'));
   const det = el('details', 'bk-log');
   const counts = { error: 0, warn: 0 };
   (msgs || []).forEach((m) => { if (counts[m.level] !== undefined) counts[m.level]++; });
