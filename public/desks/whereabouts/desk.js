@@ -253,6 +253,8 @@ function findings() {
     const full = h.devices.filter((d) => fillLevel(d) === 'danger');
     if (full.length) f.push({ text: T('find.full', { n: full.length, names: full.map((d) => `${d.name} ${fmt.number(d.fill)} %`).join(', ') }), go: () => pick('disks') });
     if (h.parity.slots && !h.parity.present) f.push({ text: T('find.no_parity'), go: () => pick('disks') });
+  const bare = (h.pools || []).filter((p) => p.tolerates === 0);
+  if (bare.length) f.push({ text: T('find.pool_unprotected', { n: bare.length, names: bare.map((p) => p.name).join(', ') }), go: () => pick('disks') });
   }
   const alerts = (state.notices || []).filter((n) => n.importance === 'alert');
   if (alerts.length) f.push({ text: T('find.alerts', { n: alerts.length }), go: () => pick('notices') });
@@ -1259,8 +1261,9 @@ function disks(body) {
   const d = el('div', 'row-detail');
   d.style.padding = '8px 12px';
   d.appendChild(kv([
-    [T('parity'), h.parity.slots ? (h.parity.present ? T('parity_present', { n: h.parity.present, slots: h.parity.slots }) : T('parity_none')) : null],
+    [T('parity'), h.parity.slots ? (h.parity.present ? T('parity_present', { n: h.parity.present, slots: h.parity.slots }) : el('span', 'wa-bad', T('parity_none'))) : null],
     [T('parity_checked'), h.parity.checked ? `${fmt.date(h.parity.checked)} · ${T('parity_errors', { n: h.parity.errors })}` : (h.parity.present ? T('parity_never') : null)],
+    ...(h.pools || []).map((p) => [T('pool_label', { name: p.name }), poolProtection(p)]),
     [T('license'), lic.type ? `${lic.type}${lic.to ? ' · ' + lic.to : ''}` : null],
     [T('license_since'), lic.since ? fmt.date(lic.since) : null],
     [T('license_expires'), lic.expires ? `${fmt.date(lic.expires)} · ${fmt.relative(lic.expires)}` : (lic.type ? T('license_forever') : null)],
@@ -1272,6 +1275,13 @@ function disks(body) {
   info.appendChild(group(T('array_license'), T('array_license_meta'), [d]));
   body.appendChild(info);
   body.appendChild(el('p', 'hint', T('disks_note')));
+}
+
+/** "mirror · 2 devices — 1 may fail", or red: no redundancy */
+function poolProtection(p) {
+  const what = `${p.fs === 'btrfs' ? 'btrfs ' : ''}${p.layout} · ${T('devices_n', { n: p.devices })}`;
+  if (p.tolerates > 0) return `${what} — ${T('pool_tolerates', { n: p.tolerates })}`;
+  return el('span', 'wa-bad', `${what} — ${T('pool_unprotected')}`);
 }
 
 // --------------------------------------------------------------- Unraid notifications

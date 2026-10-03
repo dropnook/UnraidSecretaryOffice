@@ -385,8 +385,8 @@
   "license_check": "License check",
   "limits": "Thresholds",
   "limits_text": "HDD warm {hh} / critical {hm} °C · SSD {sh} / {sm} °C · fill {w} / {c} % (per disk where set)",
-  "array_license": "🛡️ Parity & license",
-  "array_license_meta": "how the array is protected, what Unraid is licensed for",
+  "array_license": "Protection & license",
+  "array_license_meta": "how the array and the pools survive a failing device, what Unraid is licensed for",
   "disks_note": "Values as cached by Unraid — a sleeping disk isn't woken up for them.",
   "no_notices": "No unread notices.",
   "importance.alert": "alert",
@@ -612,5 +612,19 @@
   "greet.4": "I don't want to gossip, but…",
   "greet.5": "I saw something…",
   "fit.yes": "Ms. Whereabouts is coming right away — she has already started snooping around.",
-  "wake_failed": "Didn't wake up: {disks} — what lies there is shown as it was before."
+  "wake_failed": "Didn't wake up: {disks} — what lies there is shown as it was before.",
+  "pool_label": "Pool {name}",
+  "devices_n": {
+    "one": "1 device",
+    "other": "{n} devices"
+  },
+  "pool_tolerates": {
+    "one": "one may fail",
+    "other": "{n} may fail"
+  },
+  "pool_unprotected": "no redundancy: if a device fails, the data is gone",
+  "find.pool_unprotected": {
+    "one": "1 pool without redundancy ({names})",
+    "other": "{n} pools without redundancy ({names})"
+  }
 }

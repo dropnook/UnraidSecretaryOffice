@@ -1,7 +1,6 @@
 {
-  "order": 90,
+  "order": 10,
   "icon": "🧰",
   "refresh_after": 300,
-  "reception_order": 1,
   "always": true
 }

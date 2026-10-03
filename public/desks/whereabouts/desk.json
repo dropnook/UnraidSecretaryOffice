@@ -2,5 +2,9 @@
   "order": 20,
   "icon": "🧭",
   "refresh_after": 600,
-  "open_actions": ["scan", "measure", "sizes"]
+  "open_actions": [
+    "scan",
+    "measure",
+    "sizes"
+  ]
 }

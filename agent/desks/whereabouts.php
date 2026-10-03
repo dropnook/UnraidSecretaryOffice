@@ -1222,7 +1222,103 @@ function waHealth(): array
             'checked' => num($var['sbSynced'] ?? '0') ?: null,
             'errors'  => num($var['sbSyncErrs'] ?? '0'),
         ],
+        'pools'   => waPoolRedundancy(),
     ];
+}
+
+/**
+ * How each pool survives a failing device: ZFS from its vdevs (mirror,
+ * raidzN, draid; a plain disk at the top level means striped, no redundancy),
+ * btrfs pools from their data profile. Array disks are covered by parity.
+ *
+ * @return list<array{name:string, fs:string, layout:string, devices:int, tolerates:int}>
+ */
+function waPoolRedundancy(): array
+{
+    $pools = [];
+    $zpool = bin('zpool');
+    $vdevType = fn (string $name, string $type) => $type === 'disk' || $type === 'file' ? 'disk'
+        : (preg_match('/^(mirror|raidz[123]|draid[123])/', $name, $m) ? $m[1] : ($type === 'raidz' ? 'raidz1' : $type));
+    if ($zpool) {
+        // ZFS ≥ 2.3: JSON
+        [$exit, $json] = run([$zpool, 'status', '-j'], 30);
+        $data = $exit === 0 ? json_decode($json, true) : null;
+        foreach ((array) ($data['pools'] ?? []) as $name => $p) {
+            $root = $p['vdevs'][$name] ?? null;
+            if (!is_array($root)) {
+                continue;
+            }
+            $pools[$name] = ['name' => $name, 'fs' => 'zfs', 'vdevs' => [], 'devices' => 0];
+            foreach ((array) ($root['vdevs'] ?? []) as $vname => $v) {
+                if (!empty($v['class']) && !in_array($v['class'], ['normal', ''], true)) {
+                    continue;                              // log, cache, special …: not where the data lives
+                }
+                $type = $vdevType((string) $vname, (string) ($v['vdev_type'] ?? ''));
+                $pools[$name]['vdevs'][] = $type;
+                $pools[$name]['devices'] += $type === 'disk' ? 1 : count((array) ($v['vdevs'] ?? []));
+            }
+        }
+        // older ZFS: the indented list (two spaces per level)
+        if (!$pools) {
+            [$exit, $out] = run([$zpool, 'list', '-v', '-o', 'name'], 30);
+            $cur = null;
+            $section = 'data';
+            foreach ($exit === 0 ? array_slice(explode("\n", $out), 1) : [] as $line) {
+                if (trim($line) === '') {
+                    continue;
+                }
+                $depth = intdiv(strlen($line) - strlen(ltrim($line, ' ')), 2);
+                $name = trim($line);
+                if ($depth === 0) {
+                    if (in_array($name, ['logs', 'cache', 'spares', 'special', 'dedup'], true)) {
+                        $section = $name;
+                        continue;
+                    }
+                    $cur = $name;
+                    $section = 'data';
+                    $pools[$cur] = ['name' => $cur, 'fs' => 'zfs', 'vdevs' => [], 'devices' => 0];
+                } elseif ($cur !== null && $section === 'data' && $depth === 1) {
+                    $type = $vdevType($name, preg_match('/^(mirror|raidz|draid)/', $name) ? '' : 'disk');
+                    $pools[$cur]['vdevs'][] = $type;
+                    $pools[$cur]['devices'] += $type === 'disk' ? 1 : 0;
+                } elseif ($cur !== null && $section === 'data' && $depth === 2) {
+                    $pools[$cur]['devices']++;
+                }
+            }
+        }
+    }
+    $out = [];
+    foreach ($pools as $p) {
+        $types = array_count_values($p['vdevs']);
+        if (!$p['vdevs']) {
+            continue;
+        }
+        if (isset($types['disk'])) {
+            $layout = count($p['vdevs']) === 1 ? 'single' : 'stripe';
+            $tolerates = 0;
+        } else {
+            $tol = array_map(fn ($t) => $t === 'mirror' ? 1 : (int) substr($t, -1), $p['vdevs']);
+            $tolerates = min($tol);
+            $layout = implode(' + ', array_map(fn ($t, $n) => $n > 1 ? "{$n}× $t" : $t, array_keys($types), $types));
+        }
+        $out[] = ['name' => $p['name'], 'fs' => 'zfs', 'layout' => $layout, 'devices' => $p['devices'], 'tolerates' => $tolerates];
+    }
+    // btrfs pools: the data profile says it
+    foreach (mountTable() as $m) {
+        if ($m['fs'] !== 'btrfs' || !preg_match('#^/mnt/([^/]+)$#', $m['mount'], $x) || preg_match('/^(disk\d+|user0?|disks|remotes|addons|rootshare)$/', $x[1])) {
+            continue;
+        }
+        [$exit, $df] = run([bin('btrfs') ?: 'btrfs', 'filesystem', 'df', $m['mount']], 20);
+        if ($exit !== 0 || !preg_match('/^Data,\s*([A-Za-z0-9]+):/m', $df, $d)) {
+            continue;
+        }
+        $profile = strtolower($d[1]);
+        [, $show] = run([bin('btrfs') ?: 'btrfs', 'filesystem', 'show', $m['mount']], 20);
+        $tolerates = ['raid1' => 1, 'raid10' => 1, 'raid5' => 1, 'raid6' => 2, 'raid1c3' => 2, 'raid1c4' => 3][$profile] ?? 0;
+        $out[] = ['name' => $x[1], 'fs' => 'btrfs', 'layout' => $profile, 'devices' => preg_match_all('/^\s*devid\s/m', (string) $show), 'tolerates' => $tolerates];
+    }
+    usort($out, fn ($a, $b) => strnatcasecmp($a['name'], $b['name']));
+    return $out;
 }
 
 /** "5|187|188" → [5, 187, 188] */

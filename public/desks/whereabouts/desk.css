@@ -45,3 +45,4 @@
 .wa-look + .wa-count{margin-left:6px}
 .wa-section .card-name{white-space:normal; overflow:visible; line-height:1.25}
 .wa-stack + .wa-path{border-top:0}
+.wa-bad{color:var(--danger); font-weight:600}
