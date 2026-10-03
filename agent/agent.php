@@ -28,10 +28,9 @@ declare(strict_types=1);
  * Environment:
  *   OFFICE_DATA_DIR            data folder shared with the web UI (default: ../data)
  *   OFFICE_WEB_UID             uid of the web server in its container (default 33)
- *   OFFICE_BACKUP_SCRIPT_DIR   where the unraid-backup script lives
  */
 
-const AGENT_VERSION = '1.1.0';
+const AGENT_VERSION = '1.2.0';
 const RUN_DIR       = '/var/run/unraid-secretary-office';
 const PID_FILE      = RUN_DIR . '/agent.pid';
 const TICK_US       = 150000;
@@ -50,6 +49,7 @@ define('WEB_UID', (int) (getenv('OFFICE_WEB_UID') ?: 33));   // www-data in php:
 require __DIR__ . '/lib/util.php';
 require __DIR__ . '/lib/mounts.php';
 require __DIR__ . '/lib/backupscript.php';
+require __DIR__ . '/lib/house.php';
 foreach (glob(__DIR__ . '/desks/*.php') ?: [] as $deskFile) {
     require $deskFile;
 }

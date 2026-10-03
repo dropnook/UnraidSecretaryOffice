@@ -1,15 +1,13 @@
 /* Mr. Backup — runs the unraid-backup script: what it is doing right now and
    when it will be done, how the last nights went, which shares are protected
    how, what changed since the setup, and how to get things back.
-   The agent part lives in agent/desks/backup.php; the script itself is
-   github.com/vipermark2/Unraid-Backup-Script. */
+   The agent part lives in agent/desks/backup.php, the engine in backup/. */
 (() => {
 'use strict';
 
 const ID = 'backup';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
-const REPO = 'https://github.com/vipermark2/Unraid-Backup-Script';
 const LIVE_POLL = 5000;
 
 // phases of a run (status.json "phase") grouped into the steps the desk shows
@@ -203,10 +201,7 @@ function missing() {
   const box = el('div', 'box');
   const p = el('div', 'empty');
   p.appendChild(el('strong', '', T('missing.title')));
-  p.append(T('missing.text', { dir: state.dir }), ' ');
-  const a = el('a', '', 'Unraid-Backup-Script');
-  a.href = REPO; a.target = '_blank'; a.rel = 'noopener noreferrer';
-  p.append(a, el('br'), T('missing.env'), ' ', el('code', '', 'OFFICE_BACKUP_SCRIPT_DIR'));
+  p.append(T('missing.text', { dir: state.dir }));
   box.appendChild(p);
   return box;
 }

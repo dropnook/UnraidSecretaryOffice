@@ -2,13 +2,13 @@
 declare(strict_types=1);
 
 /*
- * Mr. Backup — runs the unraid-backup script (github.com/vipermark2/Unraid-Backup-Script).
+ * Mr. Backup — runs the backup engine in backup/ (unraid-backup).
  *
- * The script is the engine and works without the office: User Scripts starts
- * it at night, it keeps its settings in settings.ini and writes its state to
- * state/ (status.json, last-run.json, history.jsonl, drift.json — see
- * "Status fuer andere Programme" in its README). Mr. Backup reads that, shows
- * it, and starts, checks or stops runs.
+ * The engine works on its own: User Scripts starts it at night, it keeps its
+ * settings in data/unraid-backup/settings.ini and writes its state to
+ * data/unraid-backup/state/ (status.json, last-run.json, history.jsonl,
+ * drift.json — see "Status fuer andere Programme" in backup/README.md).
+ * Mr. Backup reads that, shows it, and starts, checks or stops runs.
  *
  * Runs are handed to the host's atd ("at now"). A process started by the
  * agent itself would live in the agent container's cgroup, and Docker kills
@@ -42,6 +42,7 @@ desk('backup', [
         'unmount' => fn (array $r) => backupUnmount(),
         'log'     => fn (array $r) => backupLog(textField($r, 'log')),
     ],
+    'checks' => fn () => backupChecks(),
 ]);
 
 // ===================================================================== state
@@ -49,9 +50,10 @@ desk('backup', [
 function backupScan(): array
 {
     $dir = BACKUP_SCRIPT_DIR;
-    $state = ['time' => time(), 'found' => false, 'dir' => $dir, 'asleep' => false];
+    $data = BACKUP_DATA_DIR;
+    $state = ['time' => time(), 'found' => false, 'dir' => $dir, 'data' => $data, 'asleep' => false];
 
-    if (backupHomeAsleep($dir)) {
+    if (backupHomeAsleep($data)) {
         // the script folder sits on a sleeping disk: keep what we knew
         $old = $GLOBALS['backup'] ?? [];
         $state = ['time' => time(), 'asleep' => true] + $old + $state;
@@ -66,9 +68,9 @@ function backupScan(): array
     }
 
     $about = backupAbout($dir);
-    $settings = backupReadSettings("$dir/settings.ini");
-    $running = flockHeld("$dir/state/lock");
-    $status = readJson("$dir/state/status.json");
+    $settings = backupReadSettings("$data/settings.ini");
+    $running = flockHeld("$data/state/lock");
+    $status = readJson("$data/state/status.json");
     if ($status && ($status['interface'] ?? 0) < BACKUP_INTERFACE) {
         $status = null;
     }
@@ -79,24 +81,24 @@ function backupScan(): array
         $status['interrupted'] = true;
     }
 
-    $logs = backupLogs($dir);
-    $history = backupHistory($dir, $logs, $running ? ($status['run'] ?? null) : null);
+    $logs = backupLogs();
+    $history = backupHistory($logs, $running ? ($status['run'] ?? null) : null);
 
     $state += [
         'version'    => $about['version'] ?? null,
         'interface'  => $about['interface'] ?? 0,
         'compatible' => ($about['interface'] ?? 0) >= BACKUP_INTERFACE,
-        'settings_found' => is_file("$dir/settings.ini"),
+        'settings_found' => is_file("$data/settings.ini"),
         'running'    => $running,
         'status'     => $status,
-        'step'       => $running && !$status ? lastLogStep("$dir/logs/latest.log") : null,
-        'since'      => $running ? (@filemtime("$dir/state/lock") ?: null) : null,
+        'step'       => $running && !$status ? lastLogStep("$data/logs/latest.log") : null,
+        'since'      => $running ? (@filemtime("$data/state/lock") ?: null) : null,
         'history'    => $history,
         'estimates'  => backupEstimates($history),
-        'drift'      => backupDrift($dir),
+        'drift'      => backupDrift(),
         'settings'   => backupSettingsSummary($settings),
         'shares'     => backupShares($settings, $history),
-        'dumps'      => backupDumps($dir, $settings),
+        'dumps'      => backupDumps(),
         'schedule'   => backupSchedule(),
         'logs'       => array_values(array_map(fn ($l) => ['name' => $l['name'], 'kind' => $l['kind'], 'time' => $l['time'], 'size' => $l['size']], $logs)),
         'mounted'    => backupMounted(backupSetting($settings, 'general', 'mount_root')),
@@ -254,14 +256,15 @@ function backupShares(array $s, array $history): array
 // ===================================================================== history
 
 /** @return array<string, array{name:string, kind:string, time:int, size:int, path:string}> newest first */
-function backupLogs(string $dir): array
+function backupLogs(): array
 {
+    $data = BACKUP_DATA_DIR;
     $logs = [];
-    foreach (@scandir("$dir/logs") ?: [] as $name) {
+    foreach (@scandir("$data/logs") ?: [] as $name) {
         if (!preg_match(BACKUP_LOG_NAME, $name, $m)) {
             continue;
         }
-        $path = "$dir/logs/$name";
+        $path = "$data/logs/$name";
         $time = isset($m[2]) && $m[2] !== ''
             ? (int) (DateTime::createFromFormat('Ymd-Hi', "$m[2]-$m[3]")?->getTimestamp() ?: 0)
             : (int) @filemtime($path);
@@ -275,10 +278,11 @@ function backupLogs(string $dir): array
  * Finished backup runs, newest first: from history.jsonl, and for runs of
  * older versions (or before 2.5) read from their logs.
  */
-function backupHistory(string $dir, array $logs, ?string $runningRun): array
+function backupHistory(array $logs, ?string $runningRun): array
 {
+    $data = BACKUP_DATA_DIR;
     $runs = [];
-    foreach (@file("$dir/state/history.jsonl", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+    foreach (@file("$data/state/history.jsonl", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
         $j = json_decode($line, true);
         if (is_array($j) && !empty($j['run'])) {
             $runs[$j['run']] = backupRunFromStatus($j);
@@ -427,48 +431,50 @@ function backupEstimates(array $history): array
 
 // ===================================================================== more state
 
-function backupDrift(string $dir): array
+function backupDrift(): array
 {
-    $j = readJson("$dir/state/drift.json");
+    $data = BACKUP_DATA_DIR;
+    $j = readJson("$data/state/drift.json");
     if ($j) {
         return ['time' => (int) ($j['time'] ?? 0), 'items' => array_values(array_filter($j['items'] ?? [], 'is_array'))];
     }
     // before 2.5: drift.txt with German level words
     $items = [];
-    foreach (@file("$dir/state/drift.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+    foreach (@file("$data/state/drift.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
         if (preg_match('/^(FEHLER|WARNUNG|INFO)\s+(.*)$/', $line, $m)) {
             $items[] = ['level' => ['FEHLER' => 'error', 'WARNUNG' => 'warn', 'INFO' => 'info'][$m[1]], 'text' => $m[2]];
         }
     }
-    return ['time' => (int) @filemtime("$dir/state/drift.txt"), 'items' => $items];
+    return ['time' => (int) @filemtime("$data/state/drift.txt"), 'items' => $items];
 }
 
 /** dumps/<run>/: database dumps (+ manifest, flash archive) of the last runs */
-function backupDumps(string $dir, array $settings): array
+function backupDumps(): array
 {
+    $data = BACKUP_DATA_DIR;
     $dumps = [];
-    foreach (@scandir("$dir/dumps", SCANDIR_SORT_DESCENDING) ?: [] as $run) {
+    foreach (@scandir("$data/dumps", SCANDIR_SORT_DESCENDING) ?: [] as $run) {
         if (!preg_match('/^\d{8}-\d{4}$/', $run)) {
             continue;
         }
         $files = [];
         $bytes = 0;
-        foreach (@scandir("$dir/dumps/$run/db") ?: [] as $f) {
-            if ($f[0] === '.' || !is_file("$dir/dumps/$run/db/$f")) {
+        foreach (@scandir("$data/dumps/$run/db") ?: [] as $f) {
+            if ($f[0] === '.' || !is_file("$data/dumps/$run/db/$f")) {
                 continue;
             }
-            $size = (int) @filesize("$dir/dumps/$run/db/$f");
+            $size = (int) @filesize("$data/dumps/$run/db/$f");
             $bytes += $size;
             $files[] = ['name' => $f, 'bytes' => $size];
         }
-        $flash = glob("$dir/dumps/$run/flash*.tar*") ?: [];
+        $flash = glob("$data/dumps/$run/flash*.tar*") ?: [];
         $dumps[] = [
             'run'      => $run,
             'time'     => (int) (DateTime::createFromFormat('Ymd-Hi', $run)?->getTimestamp() ?: 0),
-            'path'     => "$dir/dumps/$run",
+            'path'     => "$data/dumps/$run",
             'files'    => $files,
             'bytes'    => $bytes,
-            'manifest' => is_dir("$dir/dumps/$run/manifest"),
+            'manifest' => is_dir("$data/dumps/$run/manifest"),
             'flash'    => $flash ? basename($flash[0]) : null,
         ];
     }
@@ -510,13 +516,14 @@ function backupMounted(?string $root): array
 function backupCheckReady(): string
 {
     $dir = BACKUP_SCRIPT_DIR;
+    $data = BACKUP_DATA_DIR;
     if (!is_file("$dir/backup.sh")) {
         throw new Problem('backup_missing', ['dir' => $dir]);
     }
     if ((backupAbout($dir)['interface'] ?? 0) < BACKUP_INTERFACE) {
         throw new Problem('backup_too_old', ['version' => backupAbout($dir)['version'] ?? '?']);
     }
-    if (flockHeld("$dir/state/lock")) {
+    if (flockHeld("$data/state/lock")) {
         throw new Problem('backup_running');
     }
     return $dir;
@@ -546,10 +553,11 @@ function backupStart(string $mode): array
         throw new Problem('unknown_target', ['target' => $mode]);
     }
     $dir = backupCheckReady();
-    if (!is_file("$dir/settings.ini")) {
+    $data = BACKUP_DATA_DIR;
+    if (!is_file("$data/settings.ini")) {
         throw new Problem('backup_no_settings');
     }
-    $before = (int) (readJson("$dir/state/status.json")['started'] ?? 0);
+    $before = (int) (readJson("$data/state/status.json")['started'] ?? 0);
     backupLaunch(array_merge([$dir . '/backup.sh'], BACKUP_MODES[$mode]));
     logLine("Backup: started backup.sh ($mode) via at");
 
@@ -558,7 +566,7 @@ function backupStart(string $mode): array
     for ($i = 0; $i < 40 && !$seen; $i++) {
         usleep(250000);
         clearstatcache();
-        $status = readJson("$dir/state/status.json");
+        $status = readJson("$data/state/status.json");
         $seen = (int) ($status['started'] ?? 0) > $before;
     }
     return ['ok' => true, 'started' => $seen, 'state' => backupScan()];
@@ -568,10 +576,11 @@ function backupStart(string $mode): array
 function backupAbort(): array
 {
     $dir = BACKUP_SCRIPT_DIR;
-    if (!flockHeld("$dir/state/lock")) {
+    $data = BACKUP_DATA_DIR;
+    if (!flockHeld("$data/state/lock")) {
         throw new Problem('backup_not_running');
     }
-    $pid = (int) (readJson("$dir/state/status.json")['pid'] ?? 0);
+    $pid = (int) (readJson("$data/state/status.json")['pid'] ?? 0);
     if (!backupIsScript($pid, $dir)) {
         $pid = 0;
         foreach (glob('/proc/[0-9]*', GLOB_ONLYDIR) ?: [] as $proc) {
@@ -616,7 +625,7 @@ function backupParent(int $pid): int
 function backupUnmount(): array
 {
     $dir = backupCheckReady();
-    $root = backupSetting(backupReadSettings("$dir/settings.ini"), 'general', 'mount_root');
+    $root = backupSetting(backupReadSettings(BACKUP_DATA_DIR . '/settings.ini'), 'general', 'mount_root');
     if (!backupMounted($root)) {
         return ['ok' => true, 'state' => backupScan()];
     }
@@ -634,7 +643,7 @@ function backupUnmount(): array
 
 function backupLog(string $name): array
 {
-    $logs = backupLogs(BACKUP_SCRIPT_DIR);
+    $logs = backupLogs();
     if (!isset($logs[$name])) {
         throw new Problem('unknown_target', ['target' => $name]);
     }
@@ -651,4 +660,84 @@ function backupLog(string $name): array
     $text = (string) stream_get_contents($h);
     fclose($h);
     return ['ok' => true, 'name' => $name, 'size' => $size, 'cut' => $size > BACKUP_LOG_BYTES, 'text' => $text];
+}
+
+// ===================================================================== checks (for the caretaker)
+
+/** What Mr. Backup needs from the server, and what the user still has to do */
+function backupChecks(): array
+{
+    $data = BACKUP_DATA_DIR;
+    $out = [];
+    $settings = backupReadSettings("$data/settings.ini");
+    $summary = backupSettingsSummary($settings);
+    $kopiaOn = $summary['kopia_enabled'];
+
+    $out[] = finding('user_scripts', 'required', housePlugin('user.scripts'), [], 'apps');
+    $out[] = finding('setup', 'required', is_file("$data/settings.ini"), ['path' => BACKUP_SCRIPT_DIR . '/setup.sh']);
+    $schedule = backupSchedule();
+    $out[] = finding('user_script', 'required', $schedule['script'], ['path' => BACKUP_SCRIPT_DIR . '/setup.sh'], 'userscripts');
+    if ($schedule['script']) {
+        $out[] = finding('schedule', 'required', $schedule['enabled'], [], 'userscripts');
+    }
+
+    // Kopia: a must for offsite copies, otherwise a recommendation
+    $level = $kopiaOn ? 'required' : 'recommended';
+    $containers = houseContainers();
+    $name = $summary['kopia_container'];
+    if (!$name || !isset($containers[$name])) {
+        $name = null;
+        foreach ($containers as $c) {
+            if (stripos($c['image'], 'kopia') !== false) {
+                $name = $c['name'];
+                break;
+            }
+        }
+    }
+    $out[] = finding('kopia', $level, $name !== null, ['name' => $name ?? 'kopia'], 'apps');
+    if ($name !== null) {
+        $c = $containers[$name];
+        $out[] = finding('kopia_running', $level, $c['running'], ['name' => $name], 'docker');
+        $inspect = houseInspect($name);
+        if ($inspect) {
+            $env = [];
+            foreach ($inspect['Config']['Env'] ?? [] as $e) {
+                [$k, $v] = explode('=', $e, 2) + [1 => ''];
+                $env[$k] = $v;
+            }
+            // linuxserver-style images run the server as PUID; without PUID the image decides (often root)
+            $asRoot = !isset($env['PUID']) || $env['PUID'] === '0';
+            $out[] = finding('kopia_root', $level, $asRoot, ['name' => $name, 'puid' => $env['PUID'] ?? '–'], 'docker');
+            $root = rtrim($summary['mount_root'] ?: '/mnt/backup-snapshots', '/');
+            $mapping = null;
+            foreach ($inspect['Mounts'] ?? [] as $m) {
+                if (rtrim((string) ($m['Source'] ?? ''), '/') === $root) {
+                    $mapping = $m;
+                }
+            }
+            $ok = $mapping && empty($mapping['RW']) && in_array($mapping['Propagation'] ?? '', ['slave', 'rslave'], true);
+            $out[] = finding('kopia_mapping', $level, $ok, ['name' => $name, 'path' => $root,
+                'now' => $mapping ? (($mapping['RW'] ? 'rw' : 'ro') . ',' . ($mapping['Propagation'] ?: 'private')) : '–'], 'docker');
+        }
+        if ($kopiaOn) {
+            // the engine finds out whether the repository answers; we read its last word
+            $status = readJson("$data/state/status.json");
+            $state = $status['kopia']['state'] ?? null;
+            $out[] = finding('kopia_repo', 'required', $state === null ? null : $state === 'yes', ['name' => $name]);
+        }
+    }
+
+    if (is_file("$data/settings.ini")) {
+        $drift = array_filter(backupDrift()['items'], fn ($d) => in_array($d['level'] ?? '', ['warn', 'error'], true));
+        $out[] = finding('drift', 'recommended', !$drift, ['n' => count($drift), 'path' => BACKUP_SCRIPT_DIR . '/setup.sh']);
+
+        // the backup stops running containers for its snapshots — the office too, unless told otherwise
+        $office = array_values(array_filter(array_keys($containers), fn ($n) => str_starts_with($n, 'UnraidSecretaryOffice')));
+        if ($office && $summary['docker_stop'] !== 'none') {
+            $stopped = array_values(array_diff($office, $summary['no_stop']));
+            $out[] = finding('office_keeps_running', 'recommended', !$stopped, ['names' => implode(', ', $stopped), 'path' => BACKUP_SCRIPT_DIR . '/setup.sh']);
+        }
+    }
+
+    return $out;
 }

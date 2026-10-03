@@ -5,10 +5,12 @@ server, tells you what they noticed and — where it makes sense — lets you ac
 
 | Desk | What they do |
 |---|---|
-| 📸 **Ms. Snapshot** | Every snapshot on the server: ZFS (all pools), btrfs (array disks and pools) and VM snapshots (Unraid's own list and libvirt). Create, delete with an estimate of the space freed, rename, hold/release, unmount. Knows Docker's image layers and leaves them alone, never wakes sleeping disks on her own, and detects a running [unraid-backup](https://github.com/vipermark2/Unraid-Backup-Script) run so its mounted snapshots stay untouched. |
+| 📸 **Ms. Snapshot** | Every snapshot on the server: ZFS (all pools), btrfs (array disks and pools) and VM snapshots (Unraid's own list and libvirt). Create, delete with an estimate of the space freed, rename, hold/release, unmount. Knows Docker's image layers and leaves them alone, never wakes sleeping disks on her own, and detects a running backup so its mounted snapshots stay untouched. |
 | 🧭 **Ms. Whereabouts** | Knows where everything is and what is going on: shares and where they live, the first folder level of pool shares (and which folders nobody uses), containers (template or compose), compose projects, VMs, users and their share access, SMB/NFS and active sessions, user scripts and cron jobs (with dead paths), places that look like backups, disks with temperature, SMART findings and fill level, Unraid's unread notifications, the license, plugins. Read only. |
 
-| 💾 **Mr. Backup** | Runs the [unraid-backup](https://github.com/vipermark2/Unraid-Backup-Script) script (2.5 or newer): what a run is doing right now and when it will be done (estimated from earlier runs), how the last nights went, which share is protected how (Kopia offsite, local snapshot, not at all) and when it was last copied offsite, what changed on the server since the setup, whether a nightly run is scheduled, and how to get things back (snapshot paths, Kopia, database dumps with ready-made restore commands). Starts a full run, a run without Kopia, a dry run or a check, and stops a run cleanly. |
+| 💾 **Mr. Backup** | Runs the office's backup engine ([backup/](backup/README.md): consistent ZFS/btrfs snapshots, database dumps, Nextcloud maintenance mode, Kopia offsite): what a run is doing right now and when it will be done (estimated from earlier runs), how the last nights went, which share is protected how (Kopia offsite, local snapshot, not at all) and when it was last copied offsite, what changed on the server since the setup, whether a nightly run is scheduled, and how to get things back (snapshot paths, Kopia, database dumps with ready-made restore commands). Starts a full run, a run without Kopia, a dry run or a check, and stops a run cleanly. |
+
+| 🧰 **Mr. Caretaker** | Looks after the house. Every desk tells him what it needs from the server; he adds what the office as a whole benefits from and lists what is missing — *still to do* (only you can do it, in Unraid), *recommended* (e.g. Fix Common Problems, Files Viewer, notifications by mail or push, a PIN) and *good to know* (other backup tools, so nothing runs twice by accident) — each with a link into Unraid's web UI. Especially helpful on a fresh server. Read only. |
 
 More desks can join: each one is a module (see below).
 
@@ -58,6 +60,9 @@ Requirements: Unraid 6.12 or newer (7.x recommended), the
    docker compose -p unraidsecretaryoffice up -d
    ```
 4. Open `http://<OFFICE_IP>/`.
+5. For backups: set up the engine once in a terminal,
+   `/mnt/user/appdata/UnraidSecretaryOffice/backup/setup.sh`, and give its
+   User Scripts entry a schedule. Mr. Backup takes it from there.
 
 The green dot top left means the agent checked in within the last 70 seconds.
 
@@ -104,6 +109,10 @@ office serves it at `api.php?a=state&desk=cleaner` and asks for `cleaner.refresh
 when it is older than `refresh_after`. Errors are thrown as
 `new Problem('key', [...])` and translated in the UI (`errors.<key>`).
 
+A desk can also tell the caretaker what it needs (`'checks' => fn () => [...]`,
+built with `finding()` from `agent/lib/house.php`, texts as `check.<id>` and
+`check.<id>_how` in its language files).
+
 `open_actions` lists the actions anybody may call even when a PIN is set
 (only reading or measuring); `refresh` always is. Everything else needs an
 unlocked browser.
@@ -129,7 +138,9 @@ one of its files changes.
 * Agent log: `data/agent.log` (also under ⋯ → Agent log)
 * Run the agent by hand for debugging: stop the agent container, then on the host
   `php agent/agent.php run`
-* `data/` holds runtime state only and is not part of the repository.
+* `data/` holds runtime state only and is not part of the repository —
+  including `data/unraid-backup/` (the backup engine's settings, state, logs
+  and database dumps; root only).
 
 ## License
 

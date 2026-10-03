@@ -87,7 +87,7 @@ select.lang{
   padding:7px 13px; border-radius:var(--radius); cursor:pointer;
   border:1px solid var(--accent); background:var(--accent); color:var(--on-fill);
   transition:filter .12s, background .12s;
-  display:inline-flex; align-items:center; justify-content:center; gap:7px;
+  display:inline-flex; align-items:center; justify-content:center; gap:7px; text-decoration:none;
 }
 .btn:hover:not(:disabled){filter:brightness(1.08)}
 .btn:disabled{cursor:default; background:transparent; color:var(--muted); border-color:var(--line); filter:none}

@@ -47,7 +47,6 @@ services:
     command: ["php", "${OFFICE_DIR:-/mnt/user/appdata/UnraidSecretaryOffice}/agent/agent.php", "run"]
     environment:
       - OFFICE_DATA_DIR=${OFFICE_DIR:-/mnt/user/appdata/UnraidSecretaryOffice}/data
-      - OFFICE_BACKUP_SCRIPT_DIR=${OFFICE_BACKUP_SCRIPT_DIR:-/mnt/user/scripts/unraid-backup}
     stop_grace_period: 20s
 
 networks:

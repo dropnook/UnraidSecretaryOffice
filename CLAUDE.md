@@ -29,12 +29,21 @@ This file holds the conventions and the checklist for changes.
 * **PIN:** every POST except `refresh` and the desk's `open_actions` (desk.json)
   needs an unlocked browser when a PIN is set. Only list actions there that
   read or measure. Who may write is decided in `src/auth.php` only.
+* **Checks for the caretaker:** a desk that needs plugins, containers or
+  settings registers `'checks'` returning `finding()`s (agent/lib/house.php):
+  `required` only when the desk really can't work without it, otherwise
+  `recommended`; `hint` for things to know. Texts: `check.<id>` states how it
+  should be, `check.<id>_how` what the user does in Unraid to get there.
 * **Jobs that must outlive the agent** (backup runs) go through the host's
   `atd` (`backupLaunch()` in agent/desks/backup.php), never as a child of the
   agent: Docker kills the agent container's whole cgroup when it stops.
-* **unraid-backup** is a separate project; Mr. Backup only uses its stable
-  interface (`backup.sh --about`, `state/status.json` & co., interface 1).
-  Never parse its German log lines for anything new — extend the interface there.
+* **The backup engine** (`backup/`, bash, still German — to be translated
+  before going public) runs on its own via User Scripts. Mr. Backup only uses
+  its interface (`backup.sh --about`, `data/unraid-backup/state/status.json` &
+  co., interface 1). Never parse its log lines for anything new — extend the
+  interface. Version lives in backup.sh, setup.sh, lib/common.sh and
+  backup/README.md. A run reads backup.sh piecewise while it runs (hours!):
+  never change it in place during a run — write a new file and `mv` it.
 
 ## Checklist for a change
 
@@ -52,11 +61,12 @@ This file holds the conventions and the checklist for changes.
 ```
 agent/agent.php          loop, mailbox, desk loading, self-restart
 agent/lib/*.php          shared helpers (util: run, writeAtomic, readCfg, Problem;
-                         mounts; backupscript)
+                         mounts; backupscript; house: plugins, containers, finding)
 agent/desks/<id>.php     one desk each: desk('<id>', [...])
 src/*.php                web side: bootstrap, mailbox client, desk/lang discovery, auth (PIN), API, page
 public/assets/core.js    Office: i18n, routing, reception, API, dialog, menu, toast, fmt
 public/desks/<id>/       desk.json, desk.js, lang/*.json (and desk.css)
 data/                    runtime only (state per desk, mailbox, agent log, office/auth.json) — not in git
+backup/                  the backup engine: backup.sh, setup.sh, lib/common.sh (data in data/unraid-backup)
 compose.yaml             office + agent services; settings in .env
 ```

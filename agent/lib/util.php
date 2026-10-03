@@ -26,14 +26,17 @@ final class Problem extends RuntimeException
 // ===================================================================== desks
 
 /**
- * A desk (secretary) registers what it can do:
+ * A desk registers what it can do:
  *   actions  name => fn(array $request): array   reachable as "<desk>.<name>"
  *   start    fn(): void                           once, when the agent is ready
  *   tick     fn(): void                           every loop (~150 ms), keep it cheap
+ *   checks   fn(): list<array>                    what it needs from the server, see
+ *                                                 finding() in lib/house.php — the
+ *                                                 caretaker collects them
  */
 function desk(string $id, array $definition): void
 {
-    $GLOBALS['desks'][$id] = $definition + ['actions' => [], 'start' => null, 'tick' => null];
+    $GLOBALS['desks'][$id] = $definition + ['actions' => [], 'start' => null, 'tick' => null, 'checks' => null];
 }
 
 function desks(): array

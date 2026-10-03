@@ -2,15 +2,16 @@
 declare(strict_types=1);
 
 /*
- * The "unraid-backup" script (github.com/vipermark2/Unraid-Backup-Script).
+ * The backup engine (unraid-backup), part of the office: code in backup/,
+ * settings, state, logs and dumps in data/unraid-backup — the same rule as
+ * UB_DATA in backup/lib/common.sh. Mr. Backup runs it (agent/desks/backup.php).
  *
  * While it runs it mounts its snapshots under <mount_root> so Kopia can read
  * them. Those must not be unmounted, deleted or renamed in the meantime.
- * Its location is fixed on purpose: either the path is right or the script
- * simply isn't there — no guessing.
  */
 
-define('BACKUP_SCRIPT_DIR', getenv('OFFICE_BACKUP_SCRIPT_DIR') ?: '/mnt/user/scripts/unraid-backup');
+define('BACKUP_SCRIPT_DIR', OFFICE_DIR . '/backup');
+define('BACKUP_DATA_DIR', OFFICE_DIR . '/data/unraid-backup');
 const BACKUP_STAGE_DIR = '/run/unraid-backup-stage';   // its private staging area
 
 /**
@@ -22,21 +23,22 @@ function backupScriptState(): array
 {
     $state = ['found' => false, 'running' => false, 'since' => null, 'step' => null,
               'prefix' => null, 'mount_root' => null, 'keep_mounts' => false, 'dir' => null, 'settings' => []];
-    $dir = @realpath(BACKUP_SCRIPT_DIR);
-    if (!$dir || !is_file("$dir/backup.sh")) {
+    $dir = BACKUP_SCRIPT_DIR;
+    $data = BACKUP_DATA_DIR;
+    if (!is_file("$dir/backup.sh")) {
         return $state;
     }
-    $general = readCfg("$dir/settings.ini", true)['general'] ?? [];
+    $general = readCfg("$data/settings.ini", true)['general'] ?? [];
     $state['found'] = true;
     $state['dir'] = BACKUP_SCRIPT_DIR;
     $state['prefix'] = $general['snap_prefix'] ?? null;
     $state['mount_root'] = $general['mount_root'] ?? null;
     $state['keep_mounts'] = ($general['keep_mounts'] ?? 'no') === 'yes';
     $state['settings'] = $general;
-    if (flockHeld("$dir/state/lock")) {
+    if (flockHeld("$data/state/lock")) {
         $state['running'] = true;
-        $state['since'] = @filemtime("$dir/state/lock") ?: null;   // "exec 9>" truncates it on every start
-        $state['step'] = lastLogStep("$dir/logs/latest.log");
+        $state['since'] = @filemtime("$data/state/lock") ?: null;   // "exec 9>" truncates it on every start
+        $state['step'] = lastLogStep("$data/logs/latest.log");
     }
     return $state;
 }

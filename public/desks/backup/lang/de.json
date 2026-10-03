@@ -155,9 +155,8 @@
   "restore.dumps_hint": "Der Befehl spielt den Dump in den laufenden Datenbank-Container zurück — das überschreibt dessen aktuellen Inhalt. Im Terminal auf dem Server ausführen.",
   "restore.copy_command": "Befehl zum Zurückspielen kopieren",
 
-  "missing.title": "Das Backup-Script ist nicht da",
-  "missing.text": "Herr Backup arbeitet mit dem unraid-backup-Script und sucht es in {dir}. Es gibt es hier:",
-  "missing.env": "Liegt es woanders? Den Pfad in .env setzen:",
+  "missing.title": "Der Backup-Motor fehlt",
+  "missing.text": "Der Motor von Herrn Backup gehört nach {dir} (backup.sh, setup.sh, lib/), ist dort aber nicht. Die Dateien des Sekretariats nochmals aus dem Repository holen.",
 
   "notice.asleep": "Der Script-Ordner liegt auf einer schlafenden Disk. Du siehst den letzten Stand; gelesen wird erst, wenn die Disk wach ist.",
   "notice.too_old": "Mit unraid-backup {version} kann Herr Backup keine Läufe starten oder abbrechen (2.5 oder neuer nötig). Was es tut, zeigt er trotzdem.",
@@ -179,5 +178,28 @@
   "errors.backup_at_failed": "Der Lauf liess sich nicht an den at-Dienst des Servers übergeben: {detail}",
   "errors.backup_not_running": "Es läuft gerade kein Lauf.",
   "errors.backup_no_process": "Das laufende Script ist nicht zu finden.",
-  "errors.backup_unmount_left": { "one": "{path} ist noch eingehängt.", "other": "{n} Mounts sind noch da, z. B. {path}." }
+  "errors.backup_unmount_left": { "one": "{path} ist noch eingehängt.", "other": "{n} Mounts sind noch da, z. B. {path}." },
+
+  "check.user_scripts": "User Scripts (startet das Backup nachts)",
+  "check.user_scripts_how": "«User Scripts» aus den Apps installieren.",
+  "check.setup": "Das Backup ist eingerichtet (settings.ini)",
+  "check.setup_how": "Einmal im Terminal ausführen (SSH oder Unraids Web-Terminal): {path}",
+  "check.user_script": "User-Scripts-Eintrag «unraid-backup»",
+  "check.user_script_how": "setup.sh legt ihn am Schluss an: {path}",
+  "check.schedule": "Ein nächtliches Backup ist geplant",
+  "check.schedule_how": "Settings → User Scripts → unraid-backup → Zeitplan, z. B. Custom «0 3 * * *».",
+  "check.kopia": "Kopia-Container für Offsite-Kopien",
+  "check.kopia_how": "Kopia aus den Apps installieren (z. B. imagegenius/kopia), einmal in der KopiaUI mit dem Repository verbinden, dann setup.sh nochmals ausführen.",
+  "check.kopia_running": "Kopia-Container «{name}» läuft",
+  "check.kopia_running_how": "Auf der Docker-Seite starten.",
+  "check.kopia_root": "Kopia läuft als root (PUID 0)",
+  "check.kopia_root_how": "Im Template von «{name}» PUID und PGID auf 0 setzen (jetzt {puid}) — sonst fehlt im Backup alles, was nur sein Besitzer lesen darf.",
+  "check.kopia_mapping": "«{name}» sieht {path} nur lesend mit «Slave»",
+  "check.kopia_mapping_how": "Im Template {path} → {path} mit Access Mode «Read Only - Slave» mappen (jetzt: {now}). Ohne «Slave» sieht Kopia leere Ordner.",
+  "check.kopia_repo": "Kopia ist mit seinem Repository verbunden",
+  "check.kopia_repo_how": "In der KopiaUI von «{name}» das Repository verbinden, dann bei Herrn Backup eine Prüfung starten.",
+  "check.drift": "settings.ini passt zum Server",
+  "check.drift_how": "{n} Änderung(en) seit dem Setup — um sie zu übernehmen, {path} im Terminal ausführen.",
+  "check.office_keeps_running": "Das Sekretariat läuft während des Backups weiter",
+  "check.office_keeps_running_how": "Das Backup hält für seine Snapshots {names} an, das Sekretariat ist dann ein paar Minuten weg. In setup.sh auf «weiterlaufen» stellen: {path}"
 }
