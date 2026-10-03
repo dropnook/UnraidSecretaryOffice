@@ -232,7 +232,8 @@ function userScriptSchedule(string $name, ?string $cron, string $schedule = US_S
     if (!$apply) {
         return true;
     }
-    [$exit, , $err] = run(['/usr/local/sbin/update_cron'], 30);
+    // through bash, as the plugin does (via a shell): update_cron's first line is "#/bin/bash", not a shebang
+    [$exit, , $err] = run(['/bin/bash', '/usr/local/sbin/update_cron'], 30);
     if ($exit !== 0) {
         throw new Problem('command_failed', ['detail' => 'update_cron: ' . trim($err)]);
     }
@@ -279,4 +280,21 @@ function houseSnapshotFilesystems(): array
         }
     }
     return ['zfs' => array_keys($found['zfs']), 'btrfs' => array_keys($found['btrfs'])];
+}
+
+/**
+ * A path in appdata as /mnt/user/… when that is the same file: scripts that
+ * point there keep working when the share moves to another pool.
+ */
+function userSharePath(string $path): string
+{
+    if (preg_match('#^/mnt/(?!user/)[^/]+/(.+)$#', $path, $m)) {
+        $user = "/mnt/user/{$m[1]}";
+        $a = @stat($path);
+        $b = @stat($user);
+        if ($a && $b && $a['ino'] === $b['ino'] && $a['size'] === $b['size']) {
+            return $user;
+        }
+    }
+    return $path;
 }

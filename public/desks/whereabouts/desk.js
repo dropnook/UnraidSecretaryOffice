@@ -598,7 +598,11 @@ function placeDetail(g) {
       head.append(el('strong', '', `🧩 ${st.name}`), el('span', 'role', st.indirect ? T('loc.indirect', { path: st.indirect }) : ''));
       box.appendChild(head);
       if (!st.files.length) box.appendChild(el('p', 'role wa-indent', T('loc.no_compose_files')));
-      st.files.forEach((f) => box.appendChild(pathLine(f.path.split('/').pop(), f.path, { backup: f.backup })));
+      st.files.forEach((f) => {
+        const line = pathLine(f.path.split('/').pop(), f.path, { backup: f.backup });
+        line.classList.add('wa-in-stack');          // under its stack's title bar
+        box.appendChild(line);
+      });
     }
   }
   if (g.id === 'vms' && (state.vms || []).length) {

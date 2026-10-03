@@ -53,7 +53,7 @@ This file holds the conventions and the checklist for changes.
 
 | id | name (en / de) | does |
 |---|---|---|
-| `snapshot` | Ms. Snapshotini / Frau Snapshotini | ZFS, btrfs and VM snapshots: create, delete with an estimate, rename, hold, unmount |
+| `snapshot` | Ms. Snapshotini / Frau Snapshotini | ZFS, btrfs and VM snapshots: create, delete with an estimate, rename, hold, unmount; schedules with retention (lib/snapshotplans.php: snapshots `auto-<plan>-YYYYMMDD-HHMM`, retention touches only those; one User Scripts entry `unraid-office-snapshots` runs `php agent.php job snapshot-plans` every 5 min) |
 | `whereabouts` | Ms. Whereabouts / Frau WasIstWo | what is where and going on; "where things are" (config files, boot medium, VM files) with their backup protection. Read only |
 | `backup` | Mr. Backupsy / Herr Backupsi | runs the engine in `backup/`: status, history, protection, restore help, setup assistant (`#/backup/setup`) |
 | `emby` | Jack Emby (the intern) | EmbyCache (github.com/helmi1987/embycache-for-unraid): git clone into data/embycache/app, ff-only updates, never changed here; data apart via EMBYCACHE_DIR; settings written via its own save_config(); API key never leaves the server |
@@ -105,6 +105,9 @@ character, warnings and errors stay plain and clear.
   is on screen; space that vanished below is given back as the user scrolls up.
   Exception: selection lists (snapshots) — selecting means deleting, so only
   the checkbox selects.
+* **Subheadings inside a list** (a compose stack, a group) are a tinted title
+  bar (`var(--surface2)`, like `.group-head`), the rows under it slightly
+  indented — never just bold text between rows.
 * **Backup protection** is always shown with `Office.backupChip(level)`
   (offsite / only local / not backed up), the level coming from
   `backupProtection()` in agent/lib/backupscript.php.

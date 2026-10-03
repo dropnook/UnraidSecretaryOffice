@@ -1629,7 +1629,7 @@ TXT
             mkdir -p "$us_dir"
             cat >"$us_dir/script" <<EOF
 #!/bin/bash
-#description=Naechtliches Backup (Unraid Secretary Office, Herr Backup) - Code in $upath, Daten in $(dirname "$upath")/data/$UB_NAME
+#description=Naechtliches Backup (Unraid Secretary Office, Herr Backupsi) - Code in $upath, Daten in $(dirname "$upath")/data/$UB_NAME
 #arrayStarted=true
 exec "$upath/backup.sh" "\$@"
 EOF

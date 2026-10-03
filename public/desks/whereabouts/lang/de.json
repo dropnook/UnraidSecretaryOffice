@@ -405,13 +405,13 @@
     "one": "1 Vorlage (XML)",
     "other": "{n} Vorlagen (XML)"
   },
-  "place.docker_intro": "Container von Unraids Docker-Seite sind durch eine XML-Vorlage auf dem Flash beschrieben — daraus wieder anlegen (Apps → Previous Apps), und er ist mit allen Einstellungen zurück. Ihre Daten liegen in appdata.",
+  "place.docker_intro": "Container von Unraids Docker-Seite sind durch eine XML-Vorlage auf dem Flash beschrieben — eine Textdatei mit Image, Ordnern, Ports und Variablen. Daraus wieder anlegen (Apps → Previous Apps), und der Container ist mit allen Einstellungen zurück. Seine Daten liegen in appdata.",
   "place.compose": "Compose-Stacks",
   "place.compose_sub": {
     "one": "1 Stack",
     "other": "{n} Stacks"
   },
-  "place.compose_intro": "Der Compose Manager hat für jeden Stack einen Ordner auf dem Flash: Compose-Datei, Override und die .env mit den Variablen. «Indirekte» Stacks zeigen auf einen Ordner woanders.",
+  "place.compose_intro": "Ein Compose-Stack ist in einer Textdatei beschrieben (compose.yaml — .yml ist dasselbe, nur kürzer geschrieben): welche Container dazugehören, mit welchem Image, welchen Ordnern und Ports. Die Override-Datei ergänzt oder ändert das, ohne das Original anzufassen; die .env hält Werte wie Passwörter oder Pfade, die die Compose-Datei einsetzt — darum ist sie besonders schützenswert. Der Compose Manager legt pro Stack einen Ordner auf dem Flash an; «indirekte» Stacks zeigen auf einen Ordner woanders.",
   "place.vms": "VMs (libvirt)",
   "place.vms_sub": {
     "one": "1 VM",

@@ -189,7 +189,7 @@
     "one": "{path} is still mounted.",
     "other": "{n} mounts are left, e.g. {path}."
   },
-  "check.user_scripts": "User Scripts (runs the backup at night)",
+  "check.user_scripts": "The \"User Scripts\" plugin is installed (the nightly backup runs through it)",
   "check.user_scripts_how": "Install «User Scripts» from Apps.",
   "check.setup": "The backup is set up (settings.ini)",
   "check.setup_how": "Mr. Backupsy → «Set up…»: he reads the server and proposes everything. (In a terminal: {path})",

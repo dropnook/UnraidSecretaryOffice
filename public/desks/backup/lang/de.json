@@ -189,7 +189,7 @@
     "one": "{path} ist noch eingehängt.",
     "other": "{n} Mounts sind noch da, z. B. {path}."
   },
-  "check.user_scripts": "User Scripts (startet das Backup nachts)",
+  "check.user_scripts": "Das Plugin «User Scripts» ist installiert (darüber läuft das nächtliche Backup)",
   "check.user_scripts_how": "«User Scripts» aus den Apps installieren.",
   "check.setup": "Das Backup ist eingerichtet (settings.ini)",
   "check.setup_how": "Herr Backupsi → «Einrichten…»: er liest den Server ein und schlägt alles vor. (Im Terminal ginge auch: {path})",

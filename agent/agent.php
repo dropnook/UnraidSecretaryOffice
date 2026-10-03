@@ -21,6 +21,7 @@ declare(strict_types=1);
  *
  *   php agent.php run       run in the foreground (what the container does)
  *   php agent.php status    is an agent running?
+ *   php agent.php job snapshot-plans   run the snapshot schedules that are due (User Scripts calls this)
  *
  * When one of its files changes, the running agent lints the new code and
  * restarts itself in place.
@@ -30,7 +31,7 @@ declare(strict_types=1);
  *   OFFICE_WEB_UID             uid of the web server in its container (default 33)
  */
 
-const AGENT_VERSION = '1.8.1';
+const AGENT_VERSION = '1.9.0';
 const RUN_DIR       = '/var/run/unraid-secretary-office';
 const PID_FILE      = RUN_DIR . '/agent.pid';
 const TICK_US       = 150000;
@@ -50,6 +51,7 @@ require __DIR__ . '/lib/util.php';
 require __DIR__ . '/lib/mounts.php';
 require __DIR__ . '/lib/backupscript.php';
 require __DIR__ . '/lib/house.php';
+require __DIR__ . '/lib/snapshotplans.php';
 foreach (glob(__DIR__ . '/desks/*.php') ?: [] as $deskFile) {
     require $deskFile;
 }
@@ -63,12 +65,19 @@ function main(array $argv): int
     switch ($argv[1] ?? 'run') {
         case 'run':
             return serve();
+        case 'job':
+            // jobs the host runs on its own (User Scripts), e.g. Ms. Snapshotini's schedules
+            if (($argv[2] ?? '') === 'snapshot-plans' && is_dir(DATA_DIR)) {
+                return snapPlansRunDue();
+            }
+            fwrite(STDERR, "Usage: php agent.php job snapshot-plans\n");
+            return 2;
         case 'status':
             $pid = runningAgent();
             echo $pid ? "Agent is running (PID $pid).\n" : "Agent is not running.\n";
             return $pid ? 0 : 3;
     }
-    fwrite(STDERR, "Usage: php agent.php run|status\n");
+    fwrite(STDERR, "Usage: php agent.php run|status|job <name>\n");
     return 2;
 }
 

@@ -10,7 +10,8 @@ declare(strict_types=1);
  *   VMs     Unraid's own snapshot list (snapshotdb) plus libvirt — read only
  *
  * She can create, delete (unmounting first if asked), rename, hold/release
- * and estimate how much space a deletion frees. Every request is checked
+ * and estimate how much space a deletion frees, and take snapshots on a
+ * schedule with a simple retention (lib/snapshotplans.php). Every request is checked
  * against a fresh scan; commands run without a shell.
  */
 
@@ -48,7 +49,12 @@ desk('snapshot', [
         'hold'     => fn (array $r) => snapshotHold(textField($r, 'id'), true),
         'release'  => fn (array $r) => snapshotHold(textField($r, 'id'), false),
         'unmount'  => fn (array $r) => snapshotUnmountRequest(textField($r, 'id')),
+        'plan_save'   => fn (array $r) => snapPlanSave($r['plan'] ?? null),
+        'plan_toggle' => fn (array $r) => snapPlanToggle(textField($r, 'id'), !empty($r['enabled'])),
+        'plan_delete' => fn (array $r) => snapPlanDelete(textField($r, 'id')),
+        'plan_run'    => fn (array $r) => snapPlanRunNow(textField($r, 'id')),
     ],
+    'checks'  => fn () => snapPlanChecks(),
 ]);
 
 // ===================================================================== scanning
@@ -87,6 +93,7 @@ function snapshotScan(bool $readBtrfs, bool $wake = false, array $btrfsOnly = []
         'vm'          => $vm,
         'backup'      => $backup,
     ];
+    $state['plans'] = snapPlansPublic($state);
     $GLOBALS['snapshot'] = $state;
     writeAtomic(deskFile('snapshot'), jsonEncode($state));
     return $state;

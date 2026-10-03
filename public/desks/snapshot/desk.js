@@ -58,6 +58,8 @@ function filterPools() {
 function source(s) {
   if (s.docker) return { key: 'docker', label: T('source.docker') };
   if (s.fs === 'vm') return { key: 'vm', label: T('source.vm') };
+  const plan = planOf(s);
+  if (plan) return { key: 'plan:' + plan.id, label: '⏱ ' + plan.label, plan };
   const bp = state?.backup?.prefix;
   if ((bp && s.name.startsWith(bp)) || (s.fs === 'btrfs' && /^\d{8}-\d{4}$/.test(s.name))) return { key: 'backup', label: T('source.backup') };
   if (/^(manual|manuell)-/i.test(s.name) || s.name.startsWith(T('default_prefix'))) return { key: 'manual', label: T('source.manual') };
@@ -70,7 +72,13 @@ function source(s) {
 }
 
 function sourceChip(src) {
-  return src.key === 'backup' ? 'chip accent' : src.key === 'manual' ? 'chip warn' : 'chip';
+  return src.key === 'backup' ? 'chip accent' : src.key === 'manual' ? 'chip warn' : src.plan ? 'chip ok' : 'chip';
+}
+
+/** The schedule a snapshot belongs to: auto-<plan>-YYYYMMDD-HHMM */
+function planOf(s) {
+  const m = /^auto-([a-z0-9][a-z0-9-]*)-\d{8}-\d{4}$/.exec(s.name || '');
+  return m ? (state?.plans?.plans || []).find((p) => p.id === m[1]) || null : null;
 }
 
 /** Mounts that must go before deleting (zfs handles .zfs/snapshot automounts itself) */
@@ -201,11 +209,18 @@ function build(root) {
   scanBtn.type = 'button';
   scanBtn.append(el('span', 'spin'), T('scan'));
   scanBtn.title = T('scan_title');
-  scanBtn.onclick = () => scan(false);
+  scanBtn.onclick = () => scan(!!(view && view.wake.checked));
+  // wake the sleeping disks for this scan — off unless switched on, never remembered (like Ms. Whereabouts' tour)
+  const wakeLabel = el('label', 'switch');
+  const wake = el('input');
+  wake.type = 'checkbox';
+  const wakeText = el('span', '', T('wake'));
+  wakeLabel.append(wake, wakeText);
+  wakeLabel.title = T('wake_title');
   const newBtn = el('button', 'btn', T('new'));
   newBtn.type = 'button';
   newBtn.onclick = () => createDialog([]);
-  const head = Office.deskHead({ id: ID, icon: Office.desks.get(ID).icon }, { actions: [scanBtn, newBtn] });
+  const head = Office.deskHead({ id: ID, icon: Office.desks.get(ID).icon }, { actions: [wakeLabel, scanBtn, newBtn] });
   root.appendChild(head.head);
   root.appendChild(Office.pageHelp(ID, [
     [T('help.tiles'), T('help.tiles_text')],
@@ -217,11 +232,12 @@ function build(root) {
     [el('span', 'chip outline', '📌 ' + T('mounted')), T('help.mounted')],
     [el('span', 'chip outline', '📌 ' + T('used_by_backup')), T('help.backup')],
     [el('span', 'chip quiet', '💤 ' + T('disk_asleep')), T('help.asleep')],
+    [T('plans'), T('help.plans')],
     [T('help.sources'), T('help.sources_text')],
     [T('docker_layers'), T('help.docker')],
     [T('help.scan'), T('help.scan_text')],
   ]));
-  Object.assign(v, { scanBtn, newBtn, bubble: head.bubble });
+  Object.assign(v, { scanBtn, newBtn, wakeLabel, wake, wakeText, bubble: head.bubble });
 
   // storage
   const storage = el('section', 'section');
@@ -230,6 +246,10 @@ function build(root) {
   v.pools = el('div', 'cards');
   storage.append(sh, v.pools);
   root.appendChild(storage);
+
+  // schedules
+  v.plans = el('section', 'section');
+  root.appendChild(v.plans);
 
   // list
   const list = el('section', 'section');
@@ -291,6 +311,7 @@ function render() {
   if (!view) return;
   renderHead();
   renderPools();
+  renderPlans();
   dockerSwitch();
   fillSources();
   renderList();
@@ -298,6 +319,9 @@ function render() {
 }
 
 function renderHead() {
+  const sleeping = (state?.btrfs?.devices || []).filter((d) => d.asleep).length;
+  view.wakeText.textContent = sleeping ? T('wake_n', { n: sleeping }) : T('wake');
+  view.wakeLabel.hidden = !sleeping && !view.wake.checked;
   view.bubble.innerHTML = '';
   view.bubble.append(Office.withGreeting(ID, bubbleText().join(' ')));
 }
@@ -858,6 +882,7 @@ async function scan(wake) {
   if (wake) Office.toast(T('waking'));
   const j = await Office.api.post(`${ID}.scan`, { wake: !!wake });
   setBusy(false, view && view.scanBtn);
+  if (view) view.wake.checked = false;
   if (!j.ok) { if (view) renderPools(); failed(j); return; }
   fresh = new Set(j.new || []);
   setState(j.state);
@@ -1046,25 +1071,238 @@ function askUnmount(s) {
 }
 
 // ------------------------------------------------------------------ new snapshot
-function createDialog(preselected) {
+// ------------------------------------------------------------------ schedules
+const WEEKDAYS = [1, 2, 3, 4, 5, 6, 0];
+
+/** cron → what the dialog shows: hourly at :MM, daily at HH:MM, weekly on D at HH:MM, or the expression itself */
+function planEvery(cron) {
+  const p = (cron || '').trim().split(/\s+/);
+  const num = (x) => /^\d+$/.test(x);
+  if (p.length === 5 && num(p[0]) && p[1] === '*' && p[2] === '*' && p[3] === '*' && p[4] === '*') return { kind: 'hourly', minute: +p[0] };
+  if (p.length === 5 && num(p[0]) && num(p[1]) && p[2] === '*' && p[3] === '*' && p[4] === '*') return { kind: 'daily', h: +p[1], m: +p[0] };
+  if (p.length === 5 && num(p[0]) && num(p[1]) && p[2] === '*' && p[3] === '*' && /^[0-7]$/.test(p[4])) return { kind: 'weekly', h: +p[1], m: +p[0], dow: +p[4] % 7 };
+  return { kind: 'custom', cron: cron || '' };
+}
+
+function renderPlans() {
+  const box = view.plans;
+  box.innerHTML = '';
+  const info = state?.plans || { plans: [] };
+  const add = el('button', 'btn small', T('plan.new'));
+  add.type = 'button';
+  add.disabled = !Office.agent.running || !info.user_scripts;
+  add.onclick = () => planDialog(null);
+  box.appendChild(Office.sectionHead(T('plans'), T('plans_sub'), add));
+  if (!info.user_scripts) box.appendChild(el('p', 'callout warn', T('plan.no_user_scripts')));
+  const plans = info.plans || [];
+  if (!plans.length) {
+    box.appendChild(el('p', 'empty sp-plans-empty', T('plan.none')));
+    return;
+  }
+  const list = el('div', 'box');
+  plans.forEach((p) => list.appendChild(planRow(p)));
+  box.appendChild(list);
+  const r = info.runner || {};
+  if (plans.some((p) => p.enabled) && !(r.script && r.enabled)) box.appendChild(el('p', 'callout warn', T('plan.runner_off', { name: r.name })));
+}
+
+function planRow(p) {
+  const row = el('div', 'row nocheck unfolds sp-plan' + (p.enabled ? '' : ' paused'));
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', '⏱ ' + p.label));
+  const meta = el('div', 'row-meta');
+  if (!p.enabled) meta.appendChild(el('span', 'chip quiet', T('plan.paused')));
+  meta.appendChild(el('span', '', fmt.cron(p.cron)));
+  meta.appendChild(el('span', '', T('plan.keeps', { n: p.keep }) + (p.max_days ? ' · ' + T('plan.max_days', { n: p.max_days }) : '')));
+  meta.appendChild(el('span', '', p.targets.map((t) => t.replace(/^(zfs|btrfs):/, '')).join(', ') + (p.recursive ? ' ' + T('plan.with_children') : '')));
+  main.appendChild(meta);
+  const when = el('div', 'row-meta');
+  if (p.enabled && p.next) when.appendChild(el('span', '', T('plan.next', { when: fmt.relative(p.next) })));
+  if (p.result) {
+    const chip = el('span', 'chip ' + ({ ok: 'ok', skipped: 'quiet', partly: 'warn', failed: 'danger' }[p.result] || ''), T('plan.result.' + p.result));
+    const lines = [T('plan.last', { when: fmt.date(p.last_run) }), T('plan.made', { created: p.created, deleted: p.deleted })];
+    if ((p.skipped || []).length) lines.push(T('plan.skipped', { targets: p.skipped.map((t) => t.replace(/^(zfs|btrfs):/, '')).join(', ') }));
+    (p.detail || []).forEach((f) => lines.push(Office.errorText(f, ID)));
+    chip.title = lines.join('\n');
+    when.append(chip, el('span', '', T('plan.last', { when: fmt.relative(p.last_run) })));
+  }
+  main.appendChild(when);
+  row.appendChild(main);
+  const fig = el('div', 'figures');
+  fig.append(el('b', '', String(p.count)), el('span', '', T('plan.snapshots')), el('b', '', p.bytes ? fmt.size(p.bytes) : '–'), el('span', '', ''));
+  row.appendChild(fig);
+  const more = el('button', 'more', '⋯');
+  more.type = 'button';
+  more.setAttribute('aria-label', T('actions'));
+  more.onclick = (e) => { e.stopPropagation(); Office.menu(e, planMenu(p)); };
+  row.appendChild(more);
+  row.onclick = (e) => { if (!e.target.closest('button, a, [data-own]')) planDialog(p); };
+  row.oncontextmenu = (e) => { e.preventDefault(); Office.menu(e, planMenu(p)); };
+  return row;
+}
+
+function planMenu(p) {
+  const ok = Office.agent.running;
+  return [
+    { text: T('plan.edit'), act: ok ? () => planDialog(p) : null },
+    { text: T('plan.run_now'), act: ok ? () => planRunNow(p) : null },
+    { text: p.enabled ? T('plan.pause') : T('plan.resume'), act: ok ? () => planToggle(p) : null },
+    { separator: true },
+    { text: T('plan.delete'), act: ok ? () => planDelete(p) : null, kind: 'danger' },
+  ];
+}
+
+async function planRunNow(p) {
+  Office.toast(T('plan.running', { name: p.label }));
+  const j = await Office.api.post(`${ID}.plan_run`, { id: p.id });
+  if (!j.ok) { failed(j); return; }
+  setState(j.state);
+  const r = j.result || {};
+  if ((r.detail || []).length) Office.showErrors(T('plan.result.' + r.result), r.detail, ID);
+  else Office.toast(T('plan.made', { created: r.created || 0, deleted: r.deleted || 0 }));
+}
+
+async function planToggle(p) {
+  const j = await Office.api.post(`${ID}.plan_toggle`, { id: p.id, enabled: !p.enabled });
+  if (!j.ok) { failed(j); return; }
+  setState(j.state);
+  Office.toast(p.enabled ? T('plan.paused_now', { name: p.label }) : T('plan.resumed', { name: p.label }));
+}
+
+function planDelete(p) {
+  Office.dialog({
+    title: T('plan.delete_title', { name: p.label }),
+    body: el('p', '', T('plan.delete_text', { n: p.count })),
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('plan.delete'), kind: 'danger', act: async () => {
+        const j = await Office.api.post(`${ID}.plan_delete`, { id: p.id });
+        if (!j.ok) { failed(j); return false; }
+        setState(j.state);
+        return true;
+      } },
+    ],
+  });
+}
+
+/** New or changed schedule: what, when, how many to keep */
+function planDialog(p) {
   if (!state) return;
-  const chosen = new Set(preselected || []);
+  const chosen = new Set(p ? p.targets : []);
+  const box = el('div', 'sp-plan-form');
+  const field = (label, input, hint) => {
+    const f = el('div', 'field');
+    f.append(el('label', '', label), input);
+    if (hint) f.appendChild(el('small', '', hint));
+    return f;
+  };
+  const input = (value, type) => {
+    const i = el('input', 'input');
+    if (type) i.type = type;
+    i.value = value;
+    return i;
+  };
+
+  const label = input(p ? p.label : T('plan.default_label'));
+  label.maxLength = 40;
+  box.appendChild(field(T('plan.label'), label, T('plan.label_hint')));
+
+  // when
+  const every = planEvery(p ? p.cron : '0 * * * *');
+  const kind = el('select', 'picker');
+  ['hourly', 'daily', 'weekly', 'custom'].forEach((k) => kind.appendChild(new Option(T('plan.every.' + k), k)));
+  kind.value = every.kind;
+  const pad = (n) => String(n).padStart(2, '0');
+  const minute = input(String(every.minute ?? 0), 'number');
+  minute.min = 0;
+  minute.max = 59;
+  const time = input(every.h !== undefined ? `${pad(every.h)}:${pad(every.m)}` : '03:00', 'time');
+  const dow = el('select', 'picker');
+  WEEKDAYS.forEach((d) => dow.appendChild(new Option(T('plan.dow.' + d), String(d))));
+  dow.value = String(every.dow ?? 0);
+  const cron = input(every.cron || (p ? p.cron : '0 */6 * * *'));
+  cron.classList.add('mono');
+  cron.spellcheck = false;
+  const whenRow = el('div', 'sp-when');
+  const whenFields = {
+    hourly: field(T('plan.at_minute'), minute),
+    daily: field(T('plan.at_time'), time),
+    weekly: el('div', 'sp-when'),
+    custom: field(T('plan.cron'), cron, T('plan.cron_hint')),
+  };
+  whenFields.weekly.append(field(T('plan.on_day'), dow), field(T('plan.at_time'), time.cloneNode()));
+  const weeklyTime = whenFields.weekly.querySelector('input');
+  weeklyTime.value = time.value;
+  const showWhen = () => {
+    whenRow.innerHTML = '';
+    whenRow.append(field(T('plan.every_label'), kind), whenFields[kind.value]);
+  };
+  kind.onchange = showWhen;
+  showWhen();
+  box.appendChild(whenRow);
+
+  // keep
+  const keepRow = el('div', 'sp-when');
+  const keep = input(String(p ? p.keep : 24), 'number');
+  keep.min = 1;
+  keep.max = 1000;
+  const days = input(String(p ? p.max_days : 0), 'number');
+  days.min = 0;
+  days.max = 3650;
+  keepRow.append(field(T('plan.keep'), keep, T('plan.keep_hint')), field(T('plan.days'), days, T('plan.days_hint')));
+  box.appendChild(keepRow);
+
+  // what
+  const recursive = check(T('create.recursive'), T('plan.recursive_hint'));
+  recursive.input.checked = p ? !!p.recursive : true;
+  const picker = targetPicker(chosen, recursive.input, () => {});
+  box.appendChild(picker.field);
+  const asleep = check(T('plan.skip_asleep'), T('plan.skip_asleep_hint'));
+  asleep.input.checked = p ? !!p.skip_asleep : true;
+  box.append(recursive.label, asleep.label);
+  box.appendChild(el('p', 'callout', T('plan.note', { name: state?.plans?.runner?.name || 'unraid-office-snapshots' })));
+
+  const cronOf = () => {
+    const [h, m] = (kind.value === 'weekly' ? weeklyTime.value : time.value).split(':').map(Number);
+    if (kind.value === 'hourly') return `${Math.min(59, Math.max(0, +minute.value || 0))} * * * *`;
+    if (kind.value === 'daily') return `${m} ${h} * * *`;
+    if (kind.value === 'weekly') return `${m} ${h} * * ${dow.value}`;
+    return cron.value.trim();
+  };
+
+  Office.dialog({
+    title: p ? T('plan.edit_title', { name: p.label }) : T('plan.new_title'),
+    body: box,
+    wide: true,
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('plan.save'), kind: '', act: async () => {
+        if (!chosen.size) { Office.toast(T('plan.need_targets'), true); return false; }
+        if (!label.value.trim()) { Office.toast(T('plan.need_label'), true); label.focus(); return false; }
+        const plan = {
+          id: p ? p.id : '', label: label.value.trim(), targets: [...chosen], recursive: recursive.input.checked,
+          cron: cronOf(), keep: +keep.value, max_days: +days.value || 0, skip_asleep: asleep.input.checked,
+        };
+        const j = await Office.api.post(`${ID}.plan_save`, { plan });
+        if (!j.ok) { failed(j); return false; }
+        setState(j.state);
+        Office.toast(T('plan.saved', { when: fmt.cron(plan.cron) }));
+        return true;
+      } },
+    ],
+  });
+  picker.draw();
+  label.focus();
+}
+
+/**
+ * Where snapshots go: pools and their datasets, btrfs disks — with a filter,
+ * whole pools at once, and what comes along when "recursive" is ticked.
+ * Used by "New snapshot" and by the schedules.
+ */
+function targetPicker(chosen, recursive, onCount) {
   const all = targets();
   const byId = new Map(all.map((v) => [v.id, v]));
-  const box = el('div');
-
-  const nameField = el('div', 'field');
-  const nameLabel = el('label', '', T('create.name'));
-  const name = el('input', 'input mono');
-  name.id = 'snapshot-new-name';
-  nameLabel.htmlFor = name.id;
-  name.value = T('default_prefix') + stamp();
-  name.autocomplete = 'off';
-  name.spellcheck = false;
-  const nameHint = el('small', '', T('create.name_hint'));
-  nameField.append(nameLabel, name, nameHint);
-  box.appendChild(nameField);
-
   const targetField = el('div', 'field');
   const fhead = el('div', 'field-title');
   const filter = el('input', 'input small');
@@ -1074,21 +1312,15 @@ function createDialog(preselected) {
   fhead.append(el('span', '', T('create.from')), filter);
   const list = el('div', 'targets');
   targetField.append(fhead, list);
-  box.appendChild(targetField);
 
-  const recursive = check(T('create.recursive'), T('create.recursive_hint'));
-  const keep = check(T('create.hold'), T('create.hold_hint'));
-  box.append(recursive.label, keep.label);
-  box.appendChild(el('p', 'callout', T('create.note')));
 
   const below = (v) => all.filter((w) => w.fs === 'zfs' && w.name.startsWith(v.name + '/'));
-  let d = null;
 
   function draw() {
     list.innerHTML = '';
     const q = filter.value.trim().toLowerCase();
     const along = new Set();
-    if (recursive.input.checked) {
+    if (recursive.checked) {
       for (const id of chosen) {
         const v = byId.get(id);
         if (v && v.fs === 'zfs') below(v).forEach((w) => along.add(w.id));
@@ -1134,15 +1366,47 @@ function createDialog(preselected) {
       }
     }
     if (!pools.size) list.appendChild(el('p', 'empty', T('create.nothing_found')));
-    const n = chosen.size + [...along].filter((id) => !chosen.has(id)).length;
+    onCount(chosen.size + [...along].filter((id) => !chosen.has(id)).length);
+  }
+
+
+  filter.oninput = draw;
+  recursive.addEventListener('change', draw);
+  return { field: targetField, draw, byId };
+}
+
+function createDialog(preselected) {
+  if (!state) return;
+  const chosen = new Set(preselected || []);
+  const box = el('div');
+
+  const nameField = el('div', 'field');
+  const nameLabel = el('label', '', T('create.name'));
+  const name = el('input', 'input mono');
+  name.id = 'snapshot-new-name';
+  nameLabel.htmlFor = name.id;
+  name.value = T('default_prefix') + stamp();
+  name.autocomplete = 'off';
+  name.spellcheck = false;
+  const nameHint = el('small', '', T('create.name_hint'));
+  nameField.append(nameLabel, name, nameHint);
+  box.appendChild(nameField);
+
+  const recursive = check(T('create.recursive'), T('create.recursive_hint'));
+  const picker = targetPicker(chosen, recursive.input, (n) => {
     if (d) {
       d.buttons[1].textContent = n ? T('create.confirm', { n }) : T('create.create');
       d.buttons[1].disabled = n === 0;
     }
-  }
+  });
+  box.appendChild(picker.field);
+  const keep = check(T('create.hold'), T('create.hold_hint'));
+  box.append(recursive.label, keep.label);
+  box.appendChild(el('p', 'callout', T('create.note')));
+  let d = null;
+  const draw = picker.draw;
+  const byId = picker.byId;
 
-  filter.oninput = draw;
-  recursive.input.onchange = draw;
 
   d = Office.dialog({
     title: T('create.title'),

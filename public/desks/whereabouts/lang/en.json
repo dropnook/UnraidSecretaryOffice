@@ -405,13 +405,13 @@
     "one": "1 template (XML)",
     "other": "{n} templates (XML)"
   },
-  "place.docker_intro": "Containers from Unraid's Docker page are described by an XML template on the flash — add the container again from it (Apps → Previous Apps) and it is back with all its settings. Their data lives in appdata.",
+  "place.docker_intro": "Containers from Unraid's Docker page are described by an XML template on the flash — a text file with image, folders, ports and variables. Add the container again from it (Apps → Previous Apps) and it is back with all its settings. Its data lives in appdata.",
   "place.compose": "Compose stacks",
   "place.compose_sub": {
     "one": "1 stack",
     "other": "{n} stacks"
   },
-  "place.compose_intro": "The Compose Manager keeps each stack in its own folder on the flash: the compose file, an override and the .env with the variables. «Indirect» stacks point to a folder elsewhere.",
+  "place.compose_intro": "A compose stack is described in a text file (compose.yaml — .yml is the same, just spelled shorter): which containers belong to it, with which image, folders and ports. The override file adds to or changes that without touching the original; the .env holds values such as passwords or paths that the compose file fills in — which is why it deserves extra care. The Compose Manager keeps a folder per stack on the flash; \"indirect\" stacks point to a folder elsewhere.",
   "place.vms": "VMs (libvirt)",
   "place.vms_sub": {
     "one": "1 VM",
