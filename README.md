@@ -1,4 +1,9 @@
-# Unraid Secretary Office
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/title-dark.svg">
+    <img src=".github/title-light.svg" alt="Unraid Secretary Office" height="44">
+  </picture>
+</h1>
 
 A small office for your Unraid server. Everyone in it looks after one part of the
 server, tells you what they noticed and — where it makes sense — lets you act on it.
@@ -49,28 +54,85 @@ Adding a language means adding JSON files.
 ## Installation
 
 Requirements: Unraid 6.12 or newer (7.x recommended), the
-**Compose Manager** plugin, a free IP on `br0` (or use a host port instead).
+**Compose Manager** plugin (or Compose Manager Plus), a free IP on `br0`
+(or use a host port instead).
 
-1. Put this repository somewhere on the server, e.g.
+1. Put this repository on the server, in a terminal on Unraid:
    ```bash
    git clone https://github.com/vipermark2/UnraidSecretaryOffice /mnt/user/appdata/UnraidSecretaryOffice
    ```
-2. Create `.env` from `.env.example` and set at least `OFFICE_IP`.
-3. In the Compose Manager, add a stack and point it at the folder instead of
-   copying the file (the stack's `indirect` setting), or from a shell:
-   ```bash
-   cd /mnt/user/appdata/UnraidSecretaryOffice
-   docker compose -p unraidsecretaryoffice up -d
+2. Add the stack in the Compose Manager — one of two ways:
+
+   **A — point the stack at the folder (recommended).** Copy `.env.example`
+   to `.env` and set at least `OFFICE_IP`. In the Compose Manager:
+   *Add New Stack* → name it `UnraidSecretaryOffice` → open its settings
+   (gear) and set *indirect* to `/mnt/user/appdata/UnraidSecretaryOffice`.
+   The stack then uses the `compose.yaml` and `.env` of the folder, so an
+   update by the Caretaker brings a changed `compose.yaml` along.
+
+   **B — paste the stack.** *Add New Stack* → name it `UnraidSecretaryOffice`
+   → *Edit Stack* → paste this and change the IP (and the path, if you
+   cloned somewhere else). No `.env` needed:
+
+   <details>
+   <summary>compose.yaml to paste</summary>
+
+   ```yaml
+   # Unraid Secretary Office — https://github.com/vipermark2/UnraidSecretaryOffice
+   # Change the IP below to a free one in your LAN (twice), and the path if
+   # you cloned the repository somewhere else (four times).
+   services:
+     office:
+       image: php:apache
+       container_name: UnraidSecretaryOffice
+       restart: unless-stopped
+       environment:
+         - TZ=Europe/Zurich
+         - OFFICE_DATA_DIR=/var/www/data
+       volumes:
+         - /mnt/user/appdata/UnraidSecretaryOffice/public:/var/www/html:ro
+         - /mnt/user/appdata/UnraidSecretaryOffice/src:/var/www/src:ro
+         - /mnt/user/appdata/UnraidSecretaryOffice/data:/var/www/data
+       networks:
+         br0:
+           ipv4_address: 192.168.1.59        # <- a free IP in your LAN
+       labels:
+         net.unraid.docker.webui: "http://192.168.1.59/"   # <- the same IP
+
+     agent:
+       image: php:apache            # only used for nsenter; the agent runs on Unraid's own PHP
+       container_name: UnraidSecretaryOffice-Agent
+       restart: unless-stopped
+       privileged: true             # needed for nsenter into the host
+       pid: host
+       network_mode: none
+       entrypoint: ["nsenter", "--target", "1", "--mount", "--uts", "--"]
+       command: ["php", "/mnt/user/appdata/UnraidSecretaryOffice/agent/agent.php", "run"]
+       environment:
+         - OFFICE_DATA_DIR=/mnt/user/appdata/UnraidSecretaryOffice/data
+       stop_grace_period: 20s
+
+   networks:
+     br0:
+       external: true
    ```
-4. Open `http://<OFFICE_IP>/`.
-5. The Caretaker welcomes you and suggests whom to hire. For backups:
-   Mr. Backupsy → *Set up…*, then *Schedule…*. The Caretaker lists what is
-   still missing.
+
+   No own IP? Remove the `networks:` part of `office` and the last three
+   lines, and give it a port instead: `ports: ["8090:80"]`.
+   </details>
+
+   Then *Compose Up*. (Without the Compose Manager: `cd` into the folder and
+   `docker compose -p unraidsecretaryoffice up -d`, with the `.env` from A.)
+3. Open `http://<the IP>/`. The Caretaker welcomes you and suggests whom to
+   hire. For backups: Mr. Backupsy → *Set up…*, then *Schedule…*. The
+   Caretaker lists what is still missing.
+
+The green dot top left means the agent checked in within the last 70 seconds.
 
 **Updating:** the Caretaker checks GitHub once a day and offers *Update*
 (a `git pull`, refused if the code was changed locally). Your `data/` stays.
-
-The green dot top left means the agent checked in within the last 70 seconds.
+When an update changes `compose.yaml`, he says so: way A picks it up with a
+*Compose Up*, with way B paste the new stack.
 
 ## Security
 
