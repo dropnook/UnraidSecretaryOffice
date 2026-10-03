@@ -204,7 +204,7 @@ function backupSettingsSummary(array $s): array
         'server'        => $one('general', 'server'),
         'mount_root'    => $one('general', 'mount_root'),
         'view_root'     => $one('general', 'view_root'),
-        'snap_prefix'   => $one('general', 'snap_prefix', 'ub-'),
+        'snap_prefix'   => $one('general', 'snap_prefix', 'unraidbackup-'),
         'btrfs_dir'     => $one('general', 'btrfs_snap_dir', '.btrfs-snap'),
         'keep_runs'     => (int) $one('general', 'keep_runs', '7'),
         'keep_mounts'   => $one('general', 'keep_mounts', 'no') === 'yes',

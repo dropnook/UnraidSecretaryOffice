@@ -16,7 +16,7 @@
 
 # shellcheck disable=SC2034   # viele Variablen werden erst in den Scripten benutzt
 
-UB_VERSION="2.8"
+UB_VERSION="2.9"
 UB_NAME="unraid-backup"
 
 ##############################################################################
@@ -250,7 +250,7 @@ apply_settings() {
     SERVER_NAME="$(cfg "general|server" "$(hostname -s 2>/dev/null || echo unraid)")"
     MOUNT_ROOT="$(cfg "general|mount_root" "$UB_MNT/backup-snapshots")"
     VIEW_ROOT="$(cfg "general|view_root" "$UB_MNT/btrfs-snap")"
-    SNAP_PREFIX="$(cfg "general|snap_prefix" "ub-")"
+    SNAP_PREFIX="$(cfg "general|snap_prefix" "unraidbackup-")"
     BTRFS_SNAP_DIR="$(cfg "general|btrfs_snap_dir" ".btrfs-snap")"
     KEEP_RUNS="$(cfg "general|keep_runs" 14)"
     KEEP_LOGS="$(cfg "general|keep_logs" 60)"
@@ -721,6 +721,7 @@ compose_container() { # compose_container <stack> <dienst> <container_name>
     return 1
 }
 
+is_media_server() { [[ "${1,,}" =~ (emby|jellyfin|plex) ]]; }
 is_kopia_image() { [[ "${1,,}" == *kopia* ]]; }
 
 ##############################################################################

@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.8 - 3.10.2026
+# unraid-backup - setup.sh                        Version 2.9 - 3.10.2026
+#   2.9  Neue Shares mit unbekannter Groesse (nicht gemessen, kein ZFS) werden
+#        nur lokal vorgeschlagen, nicht mehr ungefragt fuer Kopia; Snapshot-
+#        Praefix-Vorgabe "unraidbackup-"; Medienserver (Emby, Jellyfin, Plex)
+#        werden zum Weiterlaufen vorgeschlagen
 #   2.8  (nur backup.sh: Apps vor den Dumps anhalten)
 #   2.7  --plan / --apply fuer den Setup-Assistenten von Herrn Backup: Vorschlaege
 #        mit Begruendungs-Codes als JSON, Entscheidungen als JSON zurueck,
@@ -367,13 +371,13 @@ TXT
     pinit "kopia|compression"      "inherit"
     pinit "kopia|ignore"           "$(printf '%s\n' .DS_Store '._*' '.Trash-*' '.Recycle.Bin/' '*@eaDir*' '*@__thumb*' '*SynoResource*')"
 
-    # Snapshot-Praefix: eigener Praefix "ub-". Snapshots anderer Werkzeuge
-    # (andere Praefixe) fasst backup.sh nie an - auch nicht beim Aufraeumen.
-    pinit "general|snap_prefix" "ub-"
+    # Snapshot-Praefix: eigener Praefix "unraidbackup-". Snapshots anderer
+    # Werkzeuge (andere Praefixe) fasst backup.sh nie an - auch nicht beim Aufraeumen.
+    pinit "general|snap_prefix" "unraidbackup-"
     if command -v zfs >/dev/null 2>&1 && [[ -z "${OLD[general|snap_prefix]+x}" ]]; then
         local others
         others="$(zfs list -H -t snapshot -o name 2>/dev/null | sed -n 's/.*@\([a-zA-Z0-9_]*[-_]\).*/\1/p' \
-                  | grep -vx 'ub-' | sort -u | head -5 | paste -sd' ' -)"
+                  | grep -vx "$(pget "general|snap_prefix")" | sort -u | head -5 | paste -sd' ' -)"
         [[ -n "$others" ]] && hint "Vorhandene ZFS-Snapshots anderer Werkzeuge (Praefix $others) - bleiben unangetastet"
     fi
     pinit "kopia|container" ""
@@ -505,6 +509,10 @@ share_propose() {
         why "$s" big "$gb" "gross ($(gb_fmt "$gb")) - bewusst entscheiden"; PROP_MODE=off; return
     fi
     [[ "${INV_METHOD[$s]}" == "none" ]] && { why "$s" empty "" "noch leer"; PROP_MODE=kopia; return; }
+    # Groesse unbekannt (kein ZFS, nicht gemessen): nichts ungefragt offsite schicken
+    if [[ -z "$gb" ]] && ! is_container_share "$s"; then
+        why "$s" size_unknown "" "Groesse unbekannt - messen oder bewusst entscheiden"; PROP_MODE=snapshot; return
+    fi
     why "$s" new "" "neu"; PROP_MODE=kopia
 }
 
@@ -861,6 +869,12 @@ TXT
             continue
         fi
         if container_needs_stop "$n"; then CT_STOP[$n]="yes"; else CT_STOP[$n]="no"; fi
+        # Medienserver laufen weiter: Anhalten braeche laufende Streams ab. Ihre
+        # SQLite-Datenbank ist im Snapshot dann nur absturzkonsistent (meist genuegt das).
+        if [[ "${CT_STOP[$n]}" == "yes" ]] && is_media_server "${CT_IMAGE[$n]}"; then
+            CT_STOP[$n]="no"; CT_RISK[$n]=1
+            ctwhy "$n" media_server "${CT_ARG[$n]:-}" "Medienserver - laeuft weiter (Streams); Datenbank im Snapshot nur absturzkonsistent"
+        fi
     done
 
     while :; do

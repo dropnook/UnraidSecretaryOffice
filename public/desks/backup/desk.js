@@ -462,7 +462,7 @@ function driftSection() {
 function restoreSection() {
   const box = section(T('restore'));
   const set = state.settings || {};
-  const prefix = set.snap_prefix || 'ub-';
+  const prefix = set.snap_prefix || 'unraidbackup-';
   const dl = el('dl', 'kv bk-restore');
   const item = (title, ...parts) => {
     dl.appendChild(el('dt', '', title));
@@ -1005,10 +1005,10 @@ function setupContainers(plan) {
         const now = nostop().filter((x) => x !== c.name);
         if (sel.value === 'keep') now.push(c.name);
         dset('docker|no_stop', now);
-        warn.hidden = !(sel.value === 'keep' && /^(writes|volumes|binds_root)$/.test(c.why));
+        warn.hidden = !(sel.value === 'keep' && /^(writes|volumes|binds_root|media_server)$/.test(c.why));
       };
       const warn = chip(T('setup.ct_risk'), 'warn', T('setup.ct_risk_hint'));
-      warn.hidden = !(keep && /^(writes|volumes|binds_root)$/.test(c.why));
+      warn.hidden = !(keep && /^(writes|volumes|binds_root|media_server)$/.test(c.why));
       const right = el('div', 'bk-right');
       right.append(warn, sel);
       row.appendChild(right);

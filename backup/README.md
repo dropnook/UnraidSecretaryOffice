@@ -6,7 +6,7 @@ Teil des [Unraid Secretary Office](../README.md): Herr Backup zeigt und steuert 
 
 Nächtliches Backup für Unraid-Server. Es macht konsistente **ZFS-/btrfs-Snapshots** und **Datenbank-Dumps**, setzt Nextcloud dafür in den **Wartungsmodus** und schickt auf Wunsch alles mit **Kopia** verschlüsselt offsite. Alles Serverspezifische steht in `settings.ini`. Diese Datei erzeugt `setup.sh` nach Rückfrage. Der nächtliche Lauf `backup.sh` meldet jede Abweichung zwischen System und `settings.ini`, ändert sie aber nie selbst.
 
-Version **2.8** (3.10.2026). Die Version steht im Kopf von `setup.sh` und `backup.sh`, in `lib/common.sh` (`UB_VERSION`) und in jedem Protokoll.
+Version **2.9** (3.10.2026). Die Version steht im Kopf von `setup.sh` und `backup.sh`, in `lib/common.sh` (`UB_VERSION`) und in jedem Protokoll.
 
 ---
 
@@ -148,6 +148,7 @@ Vorschläge von `setup.sh` für neue Shares:
 | Arbeitsverzeichnis des Kopia-Containers | off | Cache/tmp |
 | Container-Daten (`appdata` oder ein Share mit Ordnern von mindestens drei Containern), auch über 500 GB | kopia | wird nicht wegen der Grösse abgeschaltet. Gross sind dort meist einzelne Ordner (Caches, Blockchains, Mediadaten); die nimmst du gleich danach aus |
 | andere Shares über 500 GB (oder Messung dauert zu lange) | off | bewusst entscheiden |
+| Grösse unbekannt (kein ZFS und nicht gemessen) | snapshot | nichts Grosses ungefragt offsite – messen oder bewusst entscheiden |
 | Share ohne Daten (nur in der Unraid-Config) | kopia | „noch leer“; sobald Daten da sind, kommen sie mit |
 | alles andere | kopia (bzw. snapshot ohne Kopia) | |
 
@@ -178,7 +179,7 @@ Für die Sekunden der Snapshots werden alle laufenden Container angehalten, die 
 
 Reihenfolge: erst Apps, dann die Datenbank-Dumps, dann Datenbanken, zuletzt Netzwerk-Container (z. B. ein VPN, dessen Netz andere mitbenutzen). Weil die Apps schon stehen, schreibt während des Dumps niemand mehr: Dump und Dateien im Snapshot passen zusammen – auch bei Apps ohne Wartungsmodus wie Immich. Die Apps stehen dafür so viel länger, wie die Dumps dauern (meist Sekunden). Gestartet wird umgekehrt, Datenbanken erst, wenn sie „healthy“ sind.
 
-Apps mit eigener SQLite-Datenbank (Emby, Jellyfin, Plex, *arr …) haben keinen Dump; sauber sind sie nur, wenn sie für die Snapshots angehalten werden. Läuft so eine App weiter, ist ihre Datenbank im Snapshot nur absturzkonsistent.
+Apps mit eigener SQLite-Datenbank (Emby, Jellyfin, Plex, *arr …) haben keinen Dump; sauber sind sie nur, wenn sie für die Snapshots angehalten werden. Medienserver (Emby, Jellyfin, Plex) schlägt `setup.sh` trotzdem zum Weiterlaufen vor, weil Anhalten laufende Streams abbräche; ihre Datenbank ist im Snapshot dann nur absturzkonsistent, was bei SQLite meist genügt.
 
 ## Datenbanken
 
@@ -287,7 +288,7 @@ Dieselbe Meldung kommt nicht jede Nacht. Erneut gemeldet wird sie, wenn sich etw
 |---|---|
 | `[general] mount_root` | Snapshot-Ordner für Kopia (`/mnt/backup-snapshots`) |
 | `view_root` | btrfs-Snapshots durchstöbern: `<view_root>/<disk>` (Symlinks) |
-| `snap_prefix` | ZFS-Snapshot-Präfix (Vorgabe `ub-`); aufgeräumt wird nur dieser, Snapshots anderer Werkzeuge bleiben unangetastet |
+| `snap_prefix` | ZFS-Snapshot-Präfix (Vorgabe `unraidbackup-`); aufgeräumt wird nur dieser, Snapshots anderer Werkzeuge bleiben unangetastet |
 | `keep_runs`, `keep_logs` | Dump-Ordner bzw. Protokolle behalten |
 | `keep_mounts` | `yes` = Snapshots bleiben bis zum nächsten Lauf eingehängt (dann zusätzlich User Script „At Stopping of Array“ mit `backup.sh --unmount`) |
 | `[zfs] retention` | `t w m`: täglich, wöchentlich, monatlich |
@@ -312,7 +313,7 @@ Dieselbe Meldung kommt nicht jede Nacht. Erneut gemeldet wird sie, wenn sich etw
 
 ## Wiederherstellen
 
-- **Einzelne Dateien von gestern:** ZFS unter `/mnt/<pool>/<share>/.zfs/snapshot/ub-…/`, btrfs unter `/mnt/btrfs-snap/<disk>/<zeit>/<share>/`.
+- **Einzelne Dateien von gestern:** ZFS unter `/mnt/<pool>/<share>/.zfs/snapshot/unraidbackup-…/`, btrfs unter `/mnt/btrfs-snap/<disk>/<zeit>/<share>/`.
 - **Aus Kopia:** KopiaUI › Quelle `/mnt/backup-snapshots/<share>` › Snapshot › Restore/Download. Der Container sieht nur read-only-Pfade. Für eine Rücksicherung direkt auf den Server vorübergehend ein beschreibbares Ziel mappen (z. B. `/mnt/user/restore`).
 - **MariaDB/MySQL:**
   `zcat dumps/<zeit>/db/mariadb_<container>_<db>.sql.gz | docker exec -i <container> sh -c 'mariadb -uroot -p"$MARIADB_ROOT_PASSWORD"'`
@@ -346,6 +347,7 @@ Darum auf jedem neuen Server zuerst `setup.sh --check` und einen Trockenlauf.
 
 ## Versionen
 
+- **2.9** – Neue Shares, deren Grösse unbekannt ist (kein ZFS, nicht gemessen – im Assistenten ohne „Grössen messen“), werden nur lokal vorgeschlagen statt für Kopia. Vorgabe für den Snapshot-Präfix ist `unraidbackup-`. Medienserver (Emby, Jellyfin, Plex) werden zum Weiterlaufen vorgeschlagen.
 - **2.8** – Apps werden vor den Datenbank-Dumps angehalten, nicht erst danach: Dumps und Dateien im Snapshot passen so zusammen, auch bei Apps ohne Wartungsmodus (Immich & Co.).
 - **2.7** – `setup.sh --plan` und `--apply=<datei>`: Der Setup-Assistent von Herrn Backup fragt nicht im Terminal, sondern bekommt alle Vorschläge mit Begründungs-Codes als JSON und gibt die Entscheidungen als JSON zurück. Dieselbe Prüf- und Schreiblogik wie im Terminal.
 - **2.6** – Teil des Unraid Secretary Office: Code in `backup/`, Einstellungen, Zustand, Protokolle und Dumps in `data/unraid-backup/` (0700, `UB_DATA`). `--about` nennt beide Ordner.

@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.8 - 3.10.2026
+# unraid-backup - backup.sh                       Version 2.9 - 3.10.2026
+#   2.9  (nur setup.sh: unbekannte Groesse -> nur lokal vorgeschlagen)
 #   2.8  Apps vor den Dumps anhalten: Dumps passen so zu den Dateien im
 #        Snapshot, auch bei Apps ohne Wartungsmodus (Immich & Co.)
 #   2.7  (nur setup.sh: --plan / --apply)
