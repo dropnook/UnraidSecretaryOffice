@@ -338,9 +338,17 @@ function build(root) {
   v.search.value = query;
   v.search.style.minWidth = '220px';
   v.search.oninput = () => { query = v.search.value; renderTabs(); renderSection(); };
-  const head = Office.deskHead({ id: ID, icon: Office.desks.get(ID).icon }, { actions: [v.search, v.tourBtn] });
+  // wake the sleeping disks for this tour — off unless switched on, never remembered
+  v.wakeLabel = el('label', 'switch wa-wake');
+  v.wake = el('input');
+  v.wake.type = 'checkbox';
+  v.wakeText = el('span', '', T('wake'));
+  v.wakeLabel.append(v.wake, v.wakeText);
+  v.wakeLabel.title = T('wake_title');
+  const head = Office.deskHead({ id: ID, icon: Office.desks.get(ID).icon }, { actions: [v.search, v.wakeLabel, v.tourBtn] });
   v.bubble = head.bubble;
   root.appendChild(head.head);
+  root.appendChild(helpBlock());          // under the bubble, but across the whole width
 
   const now = el('section', 'section');
   const nh = el('div', 'section-head');
@@ -351,8 +359,8 @@ function build(root) {
   root.appendChild(now);
 
   v.places = el('section', 'section');
-  const ph = el('div', 'section-head');
-  ph.append(el('h2', '', T('places')), el('span', 'hint', T('places_hint')));
+  const ph = el('div', 'wa-section-title');
+  ph.append(el('h2', '', T('places')), el('div', 'role', T('places_hint')));
   v.placeTiles = el('div', 'cards wa-places');
   v.placeDetail = el('div');
   v.places.append(ph, v.placeTiles, v.placeDetail);
@@ -371,6 +379,9 @@ function render() {
   view.bubble.innerHTML = '';
   view.bubble.appendChild(bubble());
   view.tourBtn.disabled = !Office.agent.running || busy;
+  const sleeping = state && state.health ? state.health.devices.filter((d) => d.asleep).length : 0;
+  view.wakeText.textContent = sleeping ? T('wake_n', { n: sleeping }) : T('wake');
+  view.wakeLabel.hidden = !sleeping && !view.wake.checked;
   renderStats();
   renderPlaces();
   renderTabs();
@@ -381,13 +392,14 @@ async function tour() {
   if (busy) return;
   busy = true;
   if (view) { view.tourBtn.classList.add('running'); view.tourBtn.disabled = true; }
-  const j = await Office.api.post(`${ID}.scan`, {});
+  const wake = !!(view && view.wake.checked);
+  const j = await Office.api.post(`${ID}.scan`, wake ? { wake: true } : {});
   busy = false;
-  if (view) view.tourBtn.classList.remove('running');
+  if (view) { view.tourBtn.classList.remove('running'); view.wake.checked = false; }
   if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); if (view) render(); return; }
   state = j.state;
   if (view) render();
-  Office.toast(T('tour_done', { ms: state.duration_ms }));
+  Office.toast(wake && state.woken ? T('tour_done_woken', { ms: state.duration_ms, n: state.woken.length }) : T('tour_done', { ms: state.duration_ms }));
 }
 
 // ------------------------------------------------------------------ what's going on
@@ -458,7 +470,7 @@ function copyButton(text) {
   return b;
 }
 
-/** One path: label, path, figures, protection, copy — used in tiles and VM details (columns: see pathHead) */
+/** One path: label, path, figures, protection, copy — used in tiles and VM details */
 function pathLine(label, path, opts = {}) {
   const li = el('div', 'wa-path' + (opts.missing ? ' missing' : ''));
   const text = el('div', 'wa-path-text');
@@ -472,21 +484,28 @@ function pathLine(label, path, opts = {}) {
   return li;
 }
 
-/** Column heads for a list of paths, and what the backup labels mean */
-function pathHead() {
-  const box = el('div', 'wa-path-head-box');
-  const h = el('div', 'wa-path wa-path-head');
-  h.append(el('div', '', T('col.what')), el('div', 'wa-col-fig', T('col.size')), el('div', 'wa-col-bk', T('col.backup')), el('div', 'wa-col-copy', ''));
-  box.appendChild(h);
-  const legend = el('div', 'wa-legend');
-  legend.append(el('span', '', T('legend.title')));
-  ['offsite', 'local', 'none'].forEach((l) => {
-    const item = el('span', 'wa-legend-item');
-    item.append(backupChip(l), ' ', T('legend.' + l));
-    legend.appendChild(item);
-  });
-  box.appendChild(legend);
-  return box;
+/** "How to read this page" under the speech bubble — folded unless the user opened it */
+function helpBlock() {
+  const det = el('details', 'wa-help');
+  det.open = Office.store('whereabouts.help') === '1';
+  det.ontoggle = () => Office.store('whereabouts.help', det.open ? '1' : null);
+  det.appendChild(el('summary', '', T('help.title')));
+  const dl = el('dl', 'wa-help-list');
+  const item = (term, text) => {
+    const dt = el('dt');
+    if (term instanceof Node) dt.appendChild(term); else dt.textContent = term;
+    dl.append(dt, el('dd', '', text));
+  };
+  item(T('help.labels'), T('help.labels_text'));
+  ['offsite', 'local', 'none'].forEach((l) => item(backupChip(l), T('legend.' + l)));
+  item(T('help.tiles'), T('help.tiles_text'));
+  item(T('help.copy'), T('help.copy_text'));
+  item(T('help.rows'), T('help.rows_text'));
+  item(T('help.search'), T('help.search_text'));
+  item(T('help.tour'), T('help.tour_text'));
+  item(T('help.asleep'), T('help.asleep_text'));
+  det.appendChild(dl);
+  return det;
 }
 
 function placeSummary(g) {
@@ -564,7 +583,6 @@ function placeDetail(g) {
   const box = el('div', 'box wa-place');
   if (g.id === 'unraid') box.appendChild(bootIntro(g.boot));
   else box.appendChild(el('p', 'wa-place-intro', T('place.' + g.id + '_intro')));
-  box.appendChild(pathHead());
   for (const it of g.items) {
     let figure = '';
     if (it.count !== null && it.count !== undefined) figure = T('loc_count', { n: it.count });
@@ -916,7 +934,6 @@ function vmDetail(v) {
   ]));
   box.appendChild(el('div', 'wa-sub', T('vm.files')));
   const files = el('div', 'wa-paths');
-  files.appendChild(pathHead());
   if (v.xml) files.appendChild(pathLine(T('vm.xml'), v.xml, { backup: v.config_backup }));
   if (v.nvram) files.appendChild(pathLine(T('vm.nvram'), v.nvram, { backup: v.config_backup, note: v.nvram_copies ? T('vm.nvram_copies', { n: v.nvram_copies }) : '' }));
   if (v.tpm) files.appendChild(pathLine(T('vm.tpm_state'), v.tpm.state || T('vm.tpm_none'), { backup: v.tpm.state ? v.config_backup : null, missing: !v.tpm.state }));

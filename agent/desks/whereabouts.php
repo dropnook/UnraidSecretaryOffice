@@ -41,9 +41,12 @@ desk('whereabouts', [
     'actions' => [
         'refresh' => fn (array $r) => ['ok' => true, 'state' => whereaboutsScan()],
         'scan'    => function (array $r): array {
-            $state = whereaboutsScan();
-            logLine(sprintf('Whereabouts tour: %d shares, %d containers, %d scripts, %d ms',
-                count($state['shares']), count($state['containers']), count($state['scripts']), $state['duration_ms']));
+            $woken = !empty($r['wake']) ? waWakeDisks() : null;
+            $state = whereaboutsScan($woken !== null);
+            logLine(sprintf('Whereabouts tour: %d shares, %d containers, %d scripts, %d ms%s',
+                count($state['shares']), count($state['containers']), count($state['scripts']), $state['duration_ms'],
+                $woken !== null ? sprintf(' (woke %d disks first)', count($woken)) : ''));
+            $state['woken'] = $woken;
             return ['ok' => true, 'state' => $state];
         },
         'measure' => fn (array $r) => whereaboutsMeasure(idList($r, 'paths')),
@@ -53,11 +56,12 @@ desk('whereabouts', [
 
 // ===================================================================== tour
 
-function whereaboutsScan(): array
+/** @param bool $awake the disks were just woken up: read everything, Unraid's spin state lags behind */
+function whereaboutsScan(bool $awake = false): array
 {
     $t0 = microtime(true);
     $roots = waStorageRoots();
-    $asleep = sleepingDisks();
+    $asleep = $awake ? [] : sleepingDisks();
     $datasets = waZfsDatasets();
 
     $containers = waContainers();
@@ -138,6 +142,29 @@ function whereaboutsScan(): array
     $GLOBALS['whereabouts'] = $state;
     writeAtomic(deskFile('whereabouts'), jsonEncode($state));
     return $state;
+}
+
+/**
+ * Wakes every sleeping disk — only when asked ("wake the disks" with the
+ * tour). All at once: one block is read straight from each, in parallel, so
+ * it takes as long as the slowest disk instead of the sum. Read only; Unraid
+ * spins them down again after its own delay.
+ *
+ * @return list<string> the disks that were asleep
+ */
+function waWakeDisks(): array
+{
+    $commands = [];
+    foreach (readCfg('/var/local/emhttp/disks.ini', true) as $section => $d) {
+        $dev = $d['device'] ?? '';
+        if (($d['spundown'] ?? '0') === '1' && preg_match('/^[a-z0-9]+$/', $dev) && file_exists("/dev/$dev")) {
+            $commands[(string) ($d['name'] ?? $section)] = ['dd', "if=/dev/$dev", 'of=/dev/null', 'bs=4096', 'count=1', 'iflag=direct'];
+        }
+    }
+    if ($commands) {
+        runAll($commands, 90);
+    }
+    return array_keys($commands);
 }
 
 // --------------------------------------------------------------------- storage
