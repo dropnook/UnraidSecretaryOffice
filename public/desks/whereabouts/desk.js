@@ -458,20 +458,35 @@ function copyButton(text) {
   return b;
 }
 
-/** One path: label, path, figures, protection, copy — used in tiles and VM details */
+/** One path: label, path, figures, protection, copy — used in tiles and VM details (columns: see pathHead) */
 function pathLine(label, path, opts = {}) {
   const li = el('div', 'wa-path' + (opts.missing ? ' missing' : ''));
   const text = el('div', 'wa-path-text');
   text.append(el('div', 'wa-path-label', label), el('div', 'mono', path));
   if (opts.note) text.appendChild(el('div', 'wa-path-note', opts.note));
-  li.appendChild(text);
-  const right = el('div', 'wa-path-right');
-  if (opts.figure) right.appendChild(el('span', 'role', opts.figure));
+  const fig = el('div', 'wa-col-fig', opts.figure || '');
+  const bk = el('div', 'wa-col-bk');
   const c = backupChip(opts.backup);
-  if (c) right.appendChild(c);
-  right.appendChild(copyButton(path));
-  li.appendChild(right);
+  if (c) bk.appendChild(c);
+  li.append(text, fig, bk, copyButton(path));
   return li;
+}
+
+/** Column heads for a list of paths, and what the backup labels mean */
+function pathHead() {
+  const box = el('div', 'wa-path-head-box');
+  const h = el('div', 'wa-path wa-path-head');
+  h.append(el('div', '', T('col.what')), el('div', 'wa-col-fig', T('col.size')), el('div', 'wa-col-bk', T('col.backup')), el('div', 'wa-col-copy', ''));
+  box.appendChild(h);
+  const legend = el('div', 'wa-legend');
+  legend.append(el('span', '', T('legend.title')));
+  ['offsite', 'local', 'none'].forEach((l) => {
+    const item = el('span', 'wa-legend-item');
+    item.append(backupChip(l), ' ', T('legend.' + l));
+    legend.appendChild(item);
+  });
+  box.appendChild(legend);
+  return box;
 }
 
 function placeSummary(g) {
@@ -509,7 +524,8 @@ function bootIntro(b) {
   else if (b.kind === 'internal') text = T('boot.internal', { devices: devs });
   else text = T('boot.other', { fs: b.fs || '?' });
   box.appendChild(el('p', '', text));
-  box.appendChild(el('p', '', T(b.kind === 'usb' ? 'boot.restore_usb' : 'boot.restore')));
+  box.appendChild(el('p', '', T('boot.restore')));
+  if (b.license) box.appendChild(el('p', '', T('boot.license_' + b.license, { file: b.license_file || 'config/*.key', guid: b.guid || '?' })));
   if (b.kind === 'pool' && b.state && b.state !== 'ONLINE') box.appendChild(el('p', 'callout warn', T('boot.degraded', { pool: b.pool, state: b.state })));
   if (b.kind === 'pool' && b.layout === 'single') box.appendChild(el('p', 'callout', T('boot.single')));
   return box;
@@ -548,6 +564,7 @@ function placeDetail(g) {
   const box = el('div', 'box wa-place');
   if (g.id === 'unraid') box.appendChild(bootIntro(g.boot));
   else box.appendChild(el('p', 'wa-place-intro', T('place.' + g.id + '_intro')));
+  box.appendChild(pathHead());
   for (const it of g.items) {
     let figure = '';
     if (it.count !== null && it.count !== undefined) figure = T('loc_count', { n: it.count });
@@ -899,6 +916,7 @@ function vmDetail(v) {
   ]));
   box.appendChild(el('div', 'wa-sub', T('vm.files')));
   const files = el('div', 'wa-paths');
+  files.appendChild(pathHead());
   if (v.xml) files.appendChild(pathLine(T('vm.xml'), v.xml, { backup: v.config_backup }));
   if (v.nvram) files.appendChild(pathLine(T('vm.nvram'), v.nvram, { backup: v.config_backup, note: v.nvram_copies ? T('vm.nvram_copies', { n: v.nvram_copies }) : '' }));
   if (v.tpm) files.appendChild(pathLine(T('vm.tpm_state'), v.tpm.state || T('vm.tpm_none'), { backup: v.tpm.state ? v.config_backup : null, missing: !v.tpm.state }));

@@ -660,6 +660,11 @@ function waBoot(): array
     $boot = ['fs' => $mount['fs'] ?? null, 'source' => $mount['source'] ?? null, 'kind' => 'other', 'pool' => null,
              'layout' => null, 'state' => null, 'devices' => [], 'efi' => [],
              'guid' => $var['flashGUID'] ?? null, 'vendor' => trim(($var['flashVendor'] ?? '') . ' ' . ($var['flashProduct'] ?? '')) ?: null];
+    // what the license is bound to: the TPM of this mainboard (Unraid 7) or the boot stick's GUID
+    $reg = $var['regGUID'] ?? '';
+    $boot['license'] = $reg === '' ? null
+        : ($reg === ($var['tpmGUID'] ?? '') ? 'tpm' : ($reg === ($var['flashGUID'] ?? '') ? 'flash' : 'other'));
+    $boot['license_file'] = $var['regFILE'] ?? null;
     $disk = function (string $dev): array {
         $part = basename($dev);
         $base = preg_replace('/(?<=[a-z])\d+$|(?<=\d)p\d+$/', '', $part);

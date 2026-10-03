@@ -183,6 +183,7 @@ function backupSettingsSummary(array $s): array
         'no_stop'       => $s['docker']['no_stop'] ?? [],
         'flash'         => $one('flash', 'mode', 'off'),
         'libvirt'       => $one('libvirt', 'mode', 'tar'),
+        'libvirt_img'   => readCfg('/boot/config/domain.cfg')['IMAGE_FILE'] ?? '/mnt/user/system/libvirt/libvirt.img',
         'kopia_enabled' => in_array(strtolower((string) $one('kopia', 'enabled', 'no')), ['yes', 'ja', '1', 'true'], true),
         'kopia_container' => $one('kopia', 'container'),
         'kopia_keep'    => $kopia,
@@ -455,9 +456,48 @@ function backupDumps(): array
             'flash'    => $flash ? basename($flash[0]) : null,
             'libvirt'  => $libvirt,
             'libvirt_bytes' => $libvirt ? (int) @filesize($libvirt) : null,
+            'libvirt_vms' => $libvirt ? backupLibvirtArchive($libvirt) : [],
         ];
     }
     return $dumps;
+}
+
+/**
+ * The VMs in a libvirt archive (libvirt.tar.gz from the dumps): name, UUID,
+ * and which of their files are in it — for ready-made restore commands.
+ * Read once per archive (a few hundred KB).
+ */
+function backupLibvirtArchive(string $file): array
+{
+    static $cache = [];
+    $stamp = $file . ':' . (int) @filemtime($file);
+    if (isset($cache[$stamp])) {
+        return $cache[$stamp];
+    }
+    [$exit, $list] = run(['tar', '-tzf', $file], 30);
+    if ($exit !== 0) {
+        return $cache[$stamp] = [];
+    }
+    $names = array_flip(array_map(fn ($l) => rtrim($l, '/'), explode("\n", trim($list))));
+    $vms = [];
+    foreach (array_keys($names) as $entry) {
+        if (!preg_match('#^libvirt/qemu/([^/]+)\.xml$#', $entry, $m)) {
+            continue;
+        }
+        [$e, $xml] = run(['tar', '-xzOf', $file, $entry], 20);
+        $uuid = $e === 0 && preg_match('#<uuid>([0-9a-f-]{36})</uuid>#', $xml, $u) ? $u[1] : null;
+        $nvram = $uuid ? array_values(array_filter(array_keys($names), fn ($n) => preg_match('#^libvirt/qemu/nvram/' . preg_quote($uuid, '#') . '_VARS[^/]*\.fd$#', $n))) : [];
+        $vms[] = [
+            'name'      => $m[1],
+            'uuid'      => $uuid,
+            'nvram'     => array_map('basename', $nvram),
+            'tpm'       => $uuid && isset($names["libvirt/qemu/swtpm/tpm-states/$uuid"]),
+            'autostart' => isset($names["libvirt/qemu/autostart/{$m[1]}.xml"]),
+        ];
+    }
+    usort($vms, fn ($a, $b) => strnatcasecmp($a['name'], $b['name']));
+    $cache = [$stamp => $vms];
+    return $vms;
 }
 
 /** The User Scripts entry setup.sh creates, and its schedule */

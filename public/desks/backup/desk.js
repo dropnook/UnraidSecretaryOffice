@@ -475,14 +475,12 @@ function restoreSection() {
   item(T('restore.local'), T('restore.local_zfs'), ' ', el('code', '', `/mnt/<pool>/<share>/.zfs/snapshot/${prefix}…/`),
     ' ', T('restore.local_btrfs'), ' ', el('code', '', `${set.view_root || '/mnt/btrfs-snap'}/<disk>/<…>/<share>/`),
     '. ', Office.desks.has('snapshot') ? snapLink : '');
-  const vmArchive = (state.dumps || []).find((d) => d.libvirt);
-  if (vmArchive) {
-    item(T('restore.vms'), T('restore.vms_text', { file: vmArchive.libvirt, size: fmt.size(vmArchive.libvirt_bytes || 0) }), ' ', copyCode(`tar -xzf '${vmArchive.libvirt}' -C /tmp/libvirt-restore`));
-  }
   if (set.kopia_enabled) {
     item(T('restore.kopia'), T('restore.kopia_text', { container: set.kopia_container || 'kopia', root: set.mount_root || '/mnt/backup-snapshots' }));
   }
   box.appendChild(dl);
+  const vmArchive = (state.dumps || []).find((d) => d.libvirt);
+  if (vmArchive) box.appendChild(vmRestore(vmArchive));
 
   const dumps = state.dumps || [];
   const latest = dumps.find((d) => d.files.length);
@@ -507,6 +505,71 @@ function restoreSection() {
     box.append(head, list, el('p', 'role', T('restore.dumps_hint')));
   }
   return box;
+}
+
+/**
+ * Getting VMs back from libvirt.tar.gz: everything at once into libvirt.img
+ * (lost image, new server), or a single VM next to the others.
+ */
+function vmRestore(d) {
+  const box = el('div', 'bk-vm-restore');
+  const img = (state.settings && state.settings.libvirt_img) || '/mnt/user/system/libvirt/libvirt.img';
+  const a = d.libvirt;
+  box.appendChild(el('h3', '', T('restore.vms')));
+  box.appendChild(el('p', 'role', T('restore.vms_text', { when: fmt.date(d.time), size: fmt.size(d.libvirt_bytes || 0), n: d.libvirt_vms.length, file: a })));
+
+  const step = (title, text, cmd) => {
+    const s = el('div', 'bk-rstep');
+    s.appendChild(el('div', 'bk-rstep-title', title));
+    if (text) s.appendChild(el('div', 'role', text));
+    if (cmd) s.appendChild(codeBlock(cmd));
+    return s;
+  };
+  const all = el('details', 'bk-how');
+  all.appendChild(el('summary', '', T('restore.vm_all')));
+  all.append(
+    step(T('restore.vm_all_1'), T('restore.vm_all_1_text')),
+    step(T('restore.vm_all_2'), null, `mkdir -p /tmp/libvirt-img && mount -o loop '${img}' /tmp/libvirt-img && tar -xzf '${a}' -C /tmp/libvirt-img --strip-components=1 && umount /tmp/libvirt-img`),
+    step(T('restore.vm_all_3'), T('restore.vm_all_3_text')),
+  );
+  box.appendChild(all);
+
+  if (d.libvirt_vms.length) {
+    const one = el('details', 'bk-how');
+    one.appendChild(el('summary', '', T('restore.vm_one')));
+    const sel = el('select', 'picker');
+    d.libvirt_vms.forEach((v) => sel.appendChild(new Option(v.name, v.name)));
+    const out = el('div');
+    const show = () => {
+      const v = d.libvirt_vms.find((x) => x.name === sel.value);
+      out.innerHTML = '';
+      const t = '/tmp/libvirt-restore/libvirt/qemu';
+      const cmds = [`mkdir -p /tmp/libvirt-restore && tar -xzf '${a}' -C /tmp/libvirt-restore`];
+      v.nvram.filter((n) => !/S\d{14}_VARS/.test(n)).forEach((n) => cmds.push(`cp -a '${t}/nvram/${n}' /etc/libvirt/qemu/nvram/`));
+      if (v.tpm) cmds.push(`mkdir -p /etc/libvirt/qemu/swtpm/tpm-states && cp -a '${t}/swtpm/tpm-states/${v.uuid}' /etc/libvirt/qemu/swtpm/tpm-states/`);
+      cmds.push(`virsh define '${t}/${v.name}.xml'`);
+      if (v.autostart) cmds.push(`virsh autostart '${v.name}'`);
+      out.append(
+        el('p', 'role', T('restore.vm_one_text', { name: v.name })),
+        codeBlock(cmds.join('\n')),
+        el('p', 'role', [T('restore.vm_one_after'), v.tpm ? T('restore.vm_one_tpm') : ''].filter(Boolean).join(' ')),
+      );
+    };
+    sel.onchange = show;
+    one.append(field(T('restore.vm_pick'), sel), out);
+    show();
+    box.appendChild(one);
+  }
+  return box;
+}
+
+/** A block of commands with a copy button */
+function codeBlock(text) {
+  const wrap = el('div', 'bk-code');
+  wrap.appendChild(el('pre', 'code', text));
+  const b = button(Office.t('common.copy'), 'small plain', () => Office.copy(text));
+  wrap.appendChild(b);
+  return wrap;
 }
 
 function copyCode(text) {

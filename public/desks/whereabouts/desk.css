@@ -9,7 +9,15 @@
 .wa-ellipsis{font-size:12px; color:var(--ink2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .wa-place{padding:4px 0}
 .wa-place-intro{margin:10px 14px 6px; font-size:13px; color:var(--ink2)}
-.wa-path{display:flex; align-items:center; gap:12px; padding:8px 14px; border-top:1px solid var(--line)}
+.wa-path{display:grid; grid-template-columns:minmax(0,1fr) 92px 118px 86px; align-items:center; gap:12px; padding:8px 14px; border-top:1px solid var(--line)}
+.wa-col-fig{text-align:right; font-size:12.5px; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap}
+.wa-col-bk{text-align:center}
+.wa-path .wa-copy{justify-self:end}
+.wa-path-head{padding-top:6px; padding-bottom:6px; font-size:11px; font-weight:650; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); background:var(--surface2)}
+.wa-path-head .wa-col-fig{font-size:11px}
+.wa-paths .wa-path-head-box .wa-path{border-top:0}
+.wa-legend{display:flex; flex-wrap:wrap; gap:4px 16px; align-items:center; padding:6px 14px 8px; font-size:12px; color:var(--muted); background:var(--surface2); border-bottom:1px solid var(--line)}
+.wa-legend-item{display:inline-flex; align-items:center; gap:4px}
 .wa-paths .wa-path:first-child{border-top:0}
 .wa-paths{border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); margin:4px 0 10px}
 .wa-path.missing .mono{color:var(--muted); text-decoration:line-through}
@@ -17,7 +25,6 @@
 .wa-path-label{font-size:12.5px; font-weight:600; color:var(--ink)}
 .wa-path-text .mono{font-size:12px; color:var(--ink2); overflow-wrap:anywhere}
 .wa-path-note{font-size:12px; color:var(--muted); margin-top:2px}
-.wa-path-right{display:flex; align-items:center; gap:8px; flex:none}
 .wa-files{margin:0 14px 8px}
 .wa-files summary{cursor:pointer; font-size:12.5px; color:var(--accent)}
 .wa-file-list{white-space:pre-line; font-size:12px; color:var(--ink2); padding:6px 0 2px}
@@ -25,6 +32,8 @@
 .wa-indent{margin:4px 14px 10px}
 .wa-sub{font-size:11.5px; font-weight:650; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:12px 0 4px}
 @media (max-width:640px){
-  .wa-path{flex-wrap:wrap}
-  .wa-path-right{width:100%; justify-content:flex-end}
+  .wa-path{grid-template-columns:minmax(0,1fr) auto auto; row-gap:6px}
+  .wa-path .wa-path-text{grid-column:1 / -1}
+  .wa-path-head{display:none}
+  .wa-col-fig{text-align:left}
 }

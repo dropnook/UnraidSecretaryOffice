@@ -429,5 +429,16 @@
   "setup.libvirt.off": "aus",
   "setup.key.libvirt_mode": "VM-Konfiguration",
   "restore.vms": "VM-Konfiguration",
-  "restore.vms_text": "XML, NVRAM und TPM-Zustand des letzten Laufs in {file} ({size}). Irgendwo auspacken und bei gestopptem VM-Dienst nach /etc/libvirt/qemu/ kopieren, was du brauchst:"
+  "restore.vms_text": "Letztes Archiv vom {when} ({size}, {n} VMs): {file}",
+  "restore.vm_all": "Alles zurück in libvirt.img (Image verloren oder kaputt, neuer Server)",
+  "restore.vm_all_1": "1. VM-Dienst stoppen",
+  "restore.vm_all_1_text": "Settings → VM Manager → Enable VMs: No. Das hängt libvirt.img aus. Fehlt das Image? Einmal auf Yes stellen — Unraid legt ein neues, leeres an — und wieder auf No.",
+  "restore.vm_all_2": "2. Archiv ins Image auspacken (im Terminal auf dem Server)",
+  "restore.vm_all_3": "3. VM-Dienst wieder starten",
+  "restore.vm_all_3_text": "Settings → VM Manager → Enable VMs: Yes. Alle VMs sind mit UEFI-Variablen und TPM-Zustand zurück. Ihre Disks müssen dort liegen, wo das XML sagt (Share domains) — auf einem neuen Server zuerst diese zurückholen.",
+  "restore.vm_one": "Eine einzelne VM (die anderen laufen weiter)",
+  "restore.vm_pick": "VM",
+  "restore.vm_one_text": "Bei laufendem VM-Dienst im Terminal auf dem Server — das holt UEFI-Variablen und TPM-Zustand von {name} zurück und meldet sie wieder an:",
+  "restore.vm_one_after": "Gibt es die VM noch, sie zuerst im Reiter VMs löschen (Disks behalten!) — sonst ändert virsh define die bestehende.",
+  "restore.vm_one_tpm": "Der TPM-Zustand kommt mit zurück, damit funktionieren BitLocker und Windows Hello weiter."
 }

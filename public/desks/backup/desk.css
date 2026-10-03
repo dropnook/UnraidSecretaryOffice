@@ -54,3 +54,13 @@
 .bk-msgs li.hint{color:var(--muted)}
 .bk-step{flex:none; width:96px; color:var(--muted); font-size:11.5px; padding-top:1px}
 .callout .bk-msgs{margin-top:8px}
+
+.bk-vm-restore{margin-top:14px; border-top:1px solid var(--line); padding-top:12px}
+.bk-vm-restore h3{font-size:14px; margin:0 0 4px}
+.bk-how{margin:8px 0}
+.bk-how summary{cursor:pointer; font-size:13.5px; font-weight:600; color:var(--accent)}
+.bk-how > *:not(summary){margin-left:16px}
+.bk-rstep{margin:10px 0}
+.bk-rstep-title{font-size:13px; font-weight:650; color:var(--ink)}
+.bk-code{display:flex; gap:8px; align-items:flex-start; margin-top:6px}
+.bk-code pre{flex:1; min-width:0; margin:0; font-size:11.5px}
