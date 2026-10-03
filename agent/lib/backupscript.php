@@ -98,3 +98,93 @@ function lastLogStep(string $log): ?string
     }
     return $step;
 }
+
+/**
+ * settings.ini: [section] or [type "name"] (key "type|name"), key = value,
+ * keys may repeat (lists). Values are lists only where that makes sense.
+ */
+function backupReadSettings(string $file): array
+{
+    $result = [];
+    $section = null;
+    foreach (@file($file, FILE_IGNORE_NEW_LINES) ?: [] as $line) {
+        $line = trim($line);
+        if ($line === '' || $line[0] === '#' || $line[0] === ';') {
+            continue;
+        }
+        if (preg_match('/^\[\s*([A-Za-z0-9_-]+)(?:\s+"(.*)")?\s*\]$/', $line, $m)) {
+            $section = isset($m[2]) ? "$m[1]|$m[2]" : $m[1];
+            $result[$section] ??= [];
+            continue;
+        }
+        if ($section !== null && preg_match('/^([A-Za-z0-9_.-]+)\s*=\s*(.*)$/', $line, $m)) {
+            $result[$section][$m[1]][] = $m[2];
+        }
+    }
+    return $result;
+}
+
+function backupSetting(array $settings, string $section, string $key, ?string $default = null): ?string
+{
+    $values = $settings[$section][$key] ?? [];
+    return $values ? end($values) : $default;
+}
+
+/**
+ * How is a path protected by the backup? For any desk that shows paths.
+ *   offsite  local snapshot + Kopia      local  local snapshot (or dump) only
+ *   none     not backed up               null   no backup set up (or can't tell)
+ * Follows the same rules as the engine: share mode, Kopia ignore rules,
+ * flash mode for /boot, and /etc/libvirt lives in libvirt.img.
+ */
+function backupProtection(string $path, int $depth = 0): ?string
+{
+    static $cache = [];
+    $file = BACKUP_DATA_DIR . '/settings.ini';
+    $stamp = (int) @filemtime($file);
+    if (($cache['stamp'] ?? null) !== $stamp) {
+        $cache = ['stamp' => $stamp, 'settings' => $stamp ? backupReadSettings($file) : []];
+    }
+    $s = $cache['settings'];
+    if (!$s || $depth > 3) {
+        return null;
+    }
+    $kopia = in_array(strtolower((string) backupSetting($s, 'kopia', 'enabled', 'no')), ['yes', 'ja', '1', 'true'], true);
+    $path = rtrim($path, '/');
+
+    if ($path === '/boot' || str_starts_with($path, '/boot/')) {
+        return match (backupSetting($s, 'flash', 'mode', 'off')) {
+            'snapshot' => $kopia ? 'offsite' : 'local',
+            'tar'      => backupProtection(BACKUP_DATA_DIR . '/dumps', $depth + 1),
+            default    => 'none',
+        };
+    }
+    if ($path === '/etc/libvirt' || str_starts_with($path, '/etc/libvirt/')) {
+        // the engine archives the content of libvirt.img with the dumps (default), else only the image's share counts
+        if (backupSetting($s, 'libvirt', 'mode', 'tar') === 'tar') {
+            return backupProtection(BACKUP_DATA_DIR . '/dumps', $depth + 1);
+        }
+        $img = readCfg('/boot/config/domain.cfg')['IMAGE_FILE'] ?? null;
+        return $img ? backupProtection($img, $depth + 1) : null;
+    }
+    // /mnt/user/<share>/…, /mnt/<pool or disk>/<share>/…, or a resolved exclusive share
+    if (!preg_match('#^/mnt/([^/]+)/([^/]+)(?:/(.*))?$#', $path, $m) || in_array($m[1], ['disks', 'remotes', 'addons'], true)) {
+        return str_starts_with($path, '/mnt/') ? null : 'none';
+    }
+    $share = $m[2];
+    $rel = $m[3] ?? '';
+    $mode = backupSetting($s, "share|$share", 'mode');
+    if ($mode === null || $mode === 'off') {
+        return 'none';
+    }
+    if ($mode === 'snapshot' || !$kopia) {
+        return 'local';
+    }
+    foreach ($s["share|$share"]['kopia_ignore'] ?? [] as $rule) {
+        $r = trim($rule, '/');
+        if (str_starts_with($rule, '/') && $r !== '' && !preg_match('/[*?\[]/', $r) && ($rel === $r || str_starts_with($rel, "$r/"))) {
+            return 'local';
+        }
+    }
+    return 'offsite';
+}

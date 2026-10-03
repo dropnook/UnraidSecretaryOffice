@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.9 - 3.10.2026
+# unraid-backup - backup.sh                       Version 2.10 - 3.10.2026
+#   2.10 VM-Konfiguration aus libvirt.img (XML, NVRAM, TPM-Zustand) als
+#        Archiv zu den Dumps - [libvirt] mode = tar (Vorgabe) | off
 #   2.9  (nur setup.sh: unbekannte Groesse -> nur lokal vorgeschlagen)
 #   2.8  Apps vor den Dumps anhalten: Dumps passen so zu den Dateien im
 #        Snapshot, auch bei Apps ohne Wartungsmodus (Immich & Co.)
@@ -673,6 +675,25 @@ write_manifest() {
     done
 }
 
+# Inhalt von libvirt.img (unter /etc/libvirt eingehaengt): XML, NVRAM,
+# TPM-Zustaende, Snapshot-Liste, Netzwerke - als Archiv zu den Dumps. Nicht das
+# Image selbst: das ist ein eingehaengtes btrfs-Dateisystem, eine Kopie
+# waehrend laufender VMs koennte inkonsistent sein. Laufen VMs, ist ihr
+# TPM-/NVRAM-Stand im Archiv nur absturzkonsistent (wie beim Ausschalten).
+libvirt_tar() {
+    local out="$RUN_DIR/libvirt.tar.gz"
+    if ! mountpoint -q /etc/libvirt; then
+        log "VM-Dienst aus - kein libvirt-Archiv"
+        return 0
+    fi
+    log "Sichere die VM-Konfiguration (/etc/libvirt) als Archiv ..."
+    if tar -C /etc -czf "$out" libvirt 2>>"$LOG_FILE" && gzip -t "$out" 2>/dev/null; then
+        log "  OK: $(human "$(stat -c %s "$out")")"
+    else
+        err "libvirt-Archiv fehlgeschlagen"
+    fi
+}
+
 flash_tar() {
     local out="$RUN_DIR/flash.tar.gz" ex=() e
     for e in "${FLASH_TAR_EXCLUDE[@]}"; do ex+=( "--exclude=$e" ); done
@@ -944,6 +965,7 @@ log "Plan:"
 log "  ZFS-Snapshots:    ${PLAN_ZFS[*]:-keine}"
 log "  btrfs-Snapshots:  ${PLAN_BTRFS[*]:-keine}"
 log "  Flash:            $PLAN_FLASH${FLASH_DATASET:+ ($FLASH_DATASET)}"
+log "  VM-Konfiguration: $LIBVIRT_MODE$(mountpoint -q /etc/libvirt || echo ' (VM-Dienst aus)')"
 log "  Dumps:            $(cfg_names dump | paste -sd' ' -)"
 log "  Nextcloud:        $(cfg_names nextcloud | paste -sd' ' -)"
 log "  Anhalten:         ${T_APP[*]:-} | DB: ${T_DB[*]:-} | Netz: ${T_NET[*]:-}"
@@ -997,6 +1019,7 @@ status_phase "dumps"
 log "Datenbank-Dumps ..."
 run_dumps
 [[ "$PLAN_FLASH" == "tar" ]] && flash_tar
+[[ "$LIBVIRT_MODE" == "tar" ]] && libvirt_tar
 status_phase "stopping"
 log "Halte an: ${#T_DB[@]} Datenbanken, ${#T_NET[@]} Netzwerk"
 stop_tier "${T_DB[@]}"

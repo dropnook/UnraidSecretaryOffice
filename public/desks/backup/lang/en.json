@@ -422,5 +422,12 @@
   "setup.step.write": "Write",
   "setup.step.policies": "Policies",
   "setup.step.finish": "Finish",
-  "setup.step.other": "–"
+  "setup.step.other": "–",
+  "setup.g_libvirt": "VM configuration (libvirt.img)",
+  "setup.g_libvirt_hint": "XML, UEFI variables and TPM state of all VMs — as a small archive with the dumps every night, so it goes offsite with them. Without it, moving a VM to another server is hard.",
+  "setup.libvirt.tar": "archive with the dumps",
+  "setup.libvirt.off": "off",
+  "setup.key.libvirt_mode": "VM configuration",
+  "restore.vms": "VM configuration",
+  "restore.vms_text": "XML, NVRAM and TPM state of the last run in {file} ({size}). Unpack it somewhere and copy what you need to /etc/libvirt/qemu/ with the VM service stopped:"
 }

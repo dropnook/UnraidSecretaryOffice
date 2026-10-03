@@ -6,7 +6,7 @@ Teil des [Unraid Secretary Office](../README.md): Herr Backup zeigt und steuert 
 
 Nächtliches Backup für Unraid-Server. Es macht konsistente **ZFS-/btrfs-Snapshots** und **Datenbank-Dumps**, setzt Nextcloud dafür in den **Wartungsmodus** und schickt auf Wunsch alles mit **Kopia** verschlüsselt offsite. Alles Serverspezifische steht in `settings.ini`. Diese Datei erzeugt `setup.sh` nach Rückfrage. Der nächtliche Lauf `backup.sh` meldet jede Abweichung zwischen System und `settings.ini`, ändert sie aber nie selbst.
 
-Version **2.9** (3.10.2026). Die Version steht im Kopf von `setup.sh` und `backup.sh`, in `lib/common.sh` (`UB_VERSION`) und in jedem Protokoll.
+Version **2.10** (3.10.2026). Die Version steht im Kopf von `setup.sh` und `backup.sh`, in `lib/common.sh` (`UB_VERSION`) und in jedem Protokoll.
 
 ---
 
@@ -296,6 +296,7 @@ Dieselbe Meldung kommt nicht jede Nacht. Erneut gemeldet wird sie, wenn sich etw
 | `[drift] ignore`, `remind_days` | nicht gemeldete Share-Muster, Erinnerungsabstand |
 | `[docker] stop`, `no_stop`, `known` | `all`/`none`, Ausnahmen, bekannte Container |
 | `[flash] mode` | `snapshot` (nur /boot auf ZFS) / `tar` / `off` |
+| `[libvirt] mode` | `tar` (Vorgabe) = Inhalt von libvirt.img (XML, NVRAM, TPM-Zustand aller VMs) als Archiv `libvirt.tar.gz` zu den Dumps / `off` |
 | `[kopia] enabled` | `yes` = Kopia an, `no` = nur lokale Snapshots und Dumps |
 | `[kopia] keep_*`, `compression`, `ignore` | Policy auf `mount_root`, alle Shares erben sie |
 | `[nextcloud "<container>"] preexisting_maintenance` | `abort` / `continue` |
@@ -347,6 +348,7 @@ Darum auf jedem neuen Server zuerst `setup.sh --check` und einen Trockenlauf.
 
 ## Versionen
 
+- **2.10** – Die VM-Konfiguration aus libvirt.img (XML, NVRAM, TPM-Zustand) kommt jede Nacht als Archiv zu den Dumps und damit offsite, ohne den ganzen Share `system` zu sichern. Vorgabe auch ohne Eintrag in settings.ini.
 - **2.9** – Neue Shares, deren Grösse unbekannt ist (kein ZFS, nicht gemessen – im Assistenten ohne „Grössen messen“), werden nur lokal vorgeschlagen statt für Kopia. Vorgabe für den Snapshot-Präfix ist `unraidbackup-`. Medienserver (Emby, Jellyfin, Plex) werden zum Weiterlaufen vorgeschlagen.
 - **2.8** – Apps werden vor den Datenbank-Dumps angehalten, nicht erst danach: Dumps und Dateien im Snapshot passen so zusammen, auch bei Apps ohne Wartungsmodus (Immich & Co.).
 - **2.7** – `setup.sh --plan` und `--apply=<datei>`: Der Setup-Assistent von Herrn Backup fragt nicht im Terminal, sondern bekommt alle Vorschläge mit Begründungs-Codes als JSON und gibt die Entscheidungen als JSON zurück. Dieselbe Prüf- und Schreiblogik wie im Terminal.

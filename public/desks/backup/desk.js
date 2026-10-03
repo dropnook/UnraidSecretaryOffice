@@ -475,6 +475,10 @@ function restoreSection() {
   item(T('restore.local'), T('restore.local_zfs'), ' ', el('code', '', `/mnt/<pool>/<share>/.zfs/snapshot/${prefix}…/`),
     ' ', T('restore.local_btrfs'), ' ', el('code', '', `${set.view_root || '/mnt/btrfs-snap'}/<disk>/<…>/<share>/`),
     '. ', Office.desks.has('snapshot') ? snapLink : '');
+  const vmArchive = (state.dumps || []).find((d) => d.libvirt);
+  if (vmArchive) {
+    item(T('restore.vms'), T('restore.vms_text', { file: vmArchive.libvirt, size: fmt.size(vmArchive.libvirt_bytes || 0) }), ' ', copyCode(`tar -xzf '${vmArchive.libvirt}' -C /tmp/libvirt-restore`));
+  }
   if (set.kopia_enabled) {
     item(T('restore.kopia'), T('restore.kopia_text', { container: set.kopia_container || 'kopia', root: set.mount_root || '/mnt/backup-snapshots' }));
   }
@@ -503,6 +507,13 @@ function restoreSection() {
     box.append(head, list, el('p', 'role', T('restore.dumps_hint')));
   }
   return box;
+}
+
+function copyCode(text) {
+  const c = el('code', 'bk-copy', text);
+  c.title = Office.t('common.copy');
+  c.onclick = () => Office.copy(text);
+  return c;
 }
 
 function restoreCommand(dir, file) {
@@ -1083,6 +1094,9 @@ function setupGeneral(plan) {
     box.appendChild(checkbox(T('setup.g_btrfs_all'), dget('btrfs|snapshot_all') === 'yes', (v) => dset('btrfs|snapshot_all', v ? 'yes' : 'no')));
   }
   box.appendChild(field(T('setup.g_keep_runs'), textInput('general|keep_runs', /^\d+$/), T('setup.g_keep_runs_hint')));
+  if (plan.P['libvirt|mode'] !== undefined) {
+    box.appendChild(field(T('setup.g_libvirt'), selectInput('libvirt|mode', ['tar', 'off'], (o) => T('setup.libvirt.' + o)), T('setup.g_libvirt_hint')));
+  }
   const flashOpts = plan.flash.dataset ? ['snapshot', 'tar', 'off'] : ['tar', 'off'];
   box.appendChild(field(T('setup.g_flash'), selectInput('flash|mode', flashOpts, (o) => T('setup.flash.' + o)),
     plan.flash.dataset ? T('setup.g_flash_zfs', { ds: plan.flash.dataset }) : T('setup.g_flash_other', { fs: plan.flash.fs || '?' })));

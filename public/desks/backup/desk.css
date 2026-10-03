@@ -24,6 +24,7 @@
 
 .bk-restore{grid-template-columns:max-content 1fr; font-size:13px}
 .bk-restore dd{line-height:1.7}
+.bk-copy{cursor:copy}
 
 /* setup assistant */
 .bk-shares td.num{text-align:right; font-variant-numeric:tabular-nums}

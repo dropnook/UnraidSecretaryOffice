@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.9 - 3.10.2026
+# unraid-backup - setup.sh                        Version 2.10 - 3.10.2026
+#   2.10 VM-Konfiguration (libvirt.img) wird als Archiv vorgeschlagen
 #   2.9  Neue Shares mit unbekannter Groesse (nicht gemessen, kein ZFS) werden
 #        nur lokal vorgeschlagen, nicht mehr ungefragt fuer Kopia; Snapshot-
 #        Praefix-Vorgabe "unraidbackup-"; Medienserver (Emby, Jellyfin, Plex)
@@ -1155,6 +1156,18 @@ TXT
     pset "flash|mode" "$fm"
     pinit "flash|kopia_ignore" "$(printf '%s\n' '/bz*' '/EFI*/' '/previous/' '/config/plugins/nvidia-driver/')"
     pinit "flash|tar_exclude"  "$(printf '%s\n' './bz*' './previous' './config/plugins/*/packages')"
+
+    sub "VM-Konfiguration (libvirt.img)"
+    if mountpoint -q /etc/libvirt; then
+        say "  libvirt.img ist unter /etc/libvirt eingehaengt: XML, NVRAM und TPM-Zustand aller VMs"
+        hint "tar = Inhalt jede Nacht als Archiv zu den Dumps (klein; ohne das ist ein Umzug der VMs muehsam)"
+        pinit "libvirt|mode" tar
+    else
+        say "  VM-Dienst aus - nichts zu sichern"
+        pinit "libvirt|mode" off
+    fi
+    ask "  VM-Konfiguration sichern: tar | off" "$(pget "libvirt|mode")"
+    case "$REPLY" in tar|off) pset "libvirt|mode" "$REPLY" ;; esac
     _apply_P
 }
 
@@ -1415,6 +1428,10 @@ write_settings() {
         w_kv mode "$(pget flash\|mode)"
         w_list kopia_ignore "flash|kopia_ignore"
         w_list tar_exclude "flash|tar_exclude"
+        echo
+        echo "[libvirt]"
+        w_c "VM-Konfiguration aus libvirt.img (XML, NVRAM, TPM-Zustand): tar = Archiv in dumps/<zeit>/, off = nichts"
+        w_kv mode "$(pget libvirt\|mode tar)"
         echo
         echo "[kopia]"
         w_c "yes = Shares mit mode=kopia gehen offsite; no = nur lokale Snapshots und Dumps"

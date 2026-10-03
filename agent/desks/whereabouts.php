@@ -24,6 +24,7 @@ const WA_SCRIPTS      = '/boot/config/plugins/user.scripts/scripts';
 const WA_SCRIPTS_JSON = '/boot/config/plugins/user.scripts/schedule.json';
 const WA_SCRIPTS_TMP  = '/tmp/user.scripts';
 const WA_PLUGINS      = '/boot/config/plugins';
+const WA_LIBVIRT      = '/etc/libvirt';          // libvirt.img is mounted here while the VM service runs
 const WA_FOLDER_LIMIT = 500;     // first-level entries per share
 const WA_SCRIPT_BYTES = 8192;    // how much of each user script to show
 const WA_DU_PARALLEL  = 2;
@@ -62,7 +63,7 @@ function whereaboutsScan(): array
     $containers = waContainers();
     $compose = waComposeProjects($containers);
     $templates = waTemplates($containers);
-    $vms = waVms();
+    $vms = waVms($roots, $asleep);
     $scripts = waUserScripts($roots, $asleep);
     $backupScript = backupScriptState();
 
@@ -86,8 +87,8 @@ function whereaboutsScan(): array
         }
     }
     foreach ($vms as $vm) {
-        foreach ($vm['disks'] as $path) {
-            $consumers[] = ['kind' => 'vm', 'name' => $vm['name'], 'path' => $path, 'detail' => null];
+        foreach ($vm['disks'] as $disk) {
+            $consumers[] = ['kind' => 'vm', 'name' => $vm['name'], 'path' => $disk['source'], 'detail' => null];
         }
     }
     foreach ($scripts as $s) {
@@ -131,6 +132,7 @@ function whereaboutsScan(): array
         'health'      => waHealth(),
         'license'     => waLicense(),
         'notices'     => waNotices(),
+        'locations'   => waLocations($vms),
     ];
     $state['duration_ms'] = (int) round((microtime(true) - $t0) * 1000);
     $GLOBALS['whereabouts'] = $state;
@@ -498,7 +500,7 @@ function waTemplates(array $containers): array
 
 // --------------------------------------------------------------------- VMs
 
-function waVms(): array
+function waVms(array $roots, array $asleep): array
 {
     $virsh = bin('virsh');
     if (!$virsh || !file_exists('/var/run/libvirt/libvirt-sock')) {
@@ -509,31 +511,288 @@ function waVms(): array
         return [];
     }
     $snapCounts = [];
-    foreach (glob('/etc/libvirt/qemu/snapshotdb/*/snapshots.db') ?: [] as $db) {
+    foreach (glob(WA_LIBVIRT . '/qemu/snapshotdb/*/snapshots.db') ?: [] as $db) {
         $snapCounts[basename(dirname($db))] = count((array) json_decode((string) @file_get_contents($db), true));
     }
     $vms = [];
     foreach (explode("\n", $out) as $line) {
-        if (!preg_match('/^\s*(\d+|-)\s+(\S+)\s+(.+?)\s*$/', $line, $m)) {
-            continue;
+        if (preg_match('/^\s*(\d+|-)\s+(\S+)\s+(.+?)\s*$/', $line, $m) && $m[2] !== 'Name') {
+            $vms[] = waVm($m[2], $m[3], $snapCounts[$m[2]] ?? 0, $roots, $asleep);
         }
-        $name = $m[2];
-        $xml = (string) @file_get_contents("/etc/libvirt/qemu/$name.xml");
-        preg_match_all("#<source (?:file|dev)=['\"]([^'\"]+)['\"]#", $xml, $disks);
-        $memory = preg_match("#<memory unit='KiB'>(\d+)</memory>#", $xml, $mm) ? (int) $mm[1] * 1024 : null;
-        $cpus = preg_match('#<vcpu[^>]*>(\d+)</vcpu>#', $xml, $mc) ? (int) $mc[1] : null;
-        $vms[] = [
-            'name'      => $name,
-            'state'     => $m[3],
-            'running'   => $m[3] === 'running',
-            'autostart' => is_link("/etc/libvirt/qemu/autostart/$name.xml") || is_file("/etc/libvirt/qemu/autostart/$name.xml"),
-            'disks'     => array_values(array_unique($disks[1])),
-            'memory'    => $memory,
-            'cpus'      => $cpus,
-            'snapshots' => $snapCounts[$name] ?? 0,
-        ];
     }
     return $vms;
+}
+
+/** Everything about one VM that matters for running it — and for moving it to another server */
+function waVm(string $name, string $state, int $snapshots, array $roots, array $asleep): array
+{
+    $xmlFile = WA_LIBVIRT . "/qemu/$name.xml";
+    $xml = (string) @file_get_contents($xmlFile);
+    $dom = $xml !== '' ? @simplexml_load_string($xml) : false;
+    $attr = fn ($node, string $a) => $node ? ((string) ($node[$a] ?? '')) ?: null : null;
+
+    $uuid = $dom ? (string) $dom->uuid : null;
+    $os = $dom ? $dom->os : null;
+    $loader = $os && $os->loader ? (string) $os->loader : null;
+    $nvram = $os && $os->nvram ? (string) $os->nvram : null;
+    $template = null;
+    if ($dom) {
+        foreach ($dom->xpath('//*[local-name()="vmtemplate"]') ?: [] as $t) {
+            $template = ['name' => $attr($t, 'name'), 'os' => $attr($t, 'os')];
+        }
+    }
+    $osName = strtolower(($template['os'] ?? '') . ' ' . ($template['name'] ?? ''));
+    $tpm = null;
+    if ($dom && $dom->devices->tpm) {
+        $t = $dom->devices->tpm;
+        $dir = $uuid ? WA_LIBVIRT . "/qemu/swtpm/tpm-states/$uuid" : null;
+        $tpm = ['model' => $attr($t, 'model'), 'version' => $attr($t->backend, 'version'),
+                'state' => $dir && is_dir($dir) ? $dir : null];
+    }
+    $disks = [];
+    if ($dom) {
+        foreach ($dom->devices->disk as $d) {
+            $src = $attr($d->source, 'file') ?? $attr($d->source, 'dev');
+            if (!$src) {
+                continue;
+            }
+            $readable = waPathExists($src, $roots, $asleep) === true;      // never wake a sleeping disk for this
+            $disks[] = ['device' => $attr($d, 'device') ?? 'disk', 'source' => $src, 'target' => $attr($d->target, 'dev'),
+                        'bus' => $attr($d->target, 'bus'), 'format' => $attr($d->driver, 'type'),
+                        'bytes' => $readable ? (int) @filesize($src) : null, 'backup' => backupProtection($src),
+                        'chain' => $readable && $attr($d->driver, 'type') === 'qcow2' ? waBackingChain($src) : []];
+        }
+    }
+    $nets = [];
+    if ($dom) {
+        foreach ($dom->devices->interface as $i) {
+            $nets[] = ['mac' => $attr($i->mac, 'address'), 'source' => $attr($i->source, 'bridge') ?? $attr($i->source, 'network') ?? $attr($i->source, 'dev'),
+                       'model' => $attr($i->model, 'type')];
+        }
+    }
+    $passthrough = $dom ? count($dom->devices->hostdev) : 0;
+    $vnc = null;
+    if ($dom) {
+        foreach ($dom->devices->graphics as $g) {
+            $vnc = ($attr($g, 'type') ?? 'vnc') . (($attr($g, 'port') ?? '-1') !== '-1' ? ':' . $attr($g, 'port') : '');
+        }
+    }
+    // NVRAM copies the VM snapshots left behind: <uuid>S<time>_VARS…
+    $nvramCopies = $uuid ? count(glob(WA_LIBVIRT . "/qemu/nvram/{$uuid}S*") ?: []) : 0;
+    $memory = $dom && (string) $dom->memory !== '' ? (int) $dom->memory * (strtolower($attr($dom->memory, 'unit') ?? 'kib') === 'kib' ? 1024 : 1) : null;
+    return [
+        'name'        => $name,
+        'state'       => $state,
+        'running'     => $state === 'running',
+        'autostart'   => is_link(WA_LIBVIRT . "/qemu/autostart/$name.xml") || is_file(WA_LIBVIRT . "/qemu/autostart/$name.xml"),
+        'uuid'        => $uuid ?: null,
+        'description' => $dom ? trim((string) $dom->description) ?: null : null,
+        'os'          => str_contains($osName, 'windows') ? 'windows' : (preg_match('/linux|debian|ubuntu|fedora|arch|centos|alma|rocky|mint|nix/', $osName) ? 'linux' : ($template['os'] ?? null)),
+        'template'    => $template['name'] ?? null,
+        'machine'     => $os ? $attr($os->type, 'machine') : null,
+        'firmware'    => $loader ? (str_contains($loader, 'OVMF') || str_contains($loader, 'ovmf') ? 'uefi' : 'other') : 'bios',
+        'secure_boot' => $loader !== null && str_contains($loader, 'secboot'),
+        'loader'      => $loader,
+        'nvram'       => $nvram,
+        'nvram_copies' => $nvramCopies,
+        'tpm'         => $tpm,
+        'xml'         => is_file($xmlFile) ? $xmlFile : null,
+        'cpus'        => $dom && (string) $dom->vcpu !== '' ? (int) $dom->vcpu : null,
+        'memory'      => $memory,
+        'disks'       => $disks,
+        'networks'    => $nets,
+        'passthrough' => $passthrough,
+        'graphics'    => $vnc,
+        'snapshots'   => $snapshots,
+        'config_backup' => backupProtection(WA_LIBVIRT),
+    ];
+}
+
+/**
+ * The files a qcow2 disk is built on (an overlay from a VM snapshot sits on
+ * its base). Only the header is read; at most a few levels.
+ */
+function waBackingChain(string $file): array
+{
+    $chain = [];
+    for ($i = 0; $i < 8; $i++) {
+        $h = @fopen($file, 'rb');
+        $head = $h ? (string) fread($h, 32) : '';
+        if (strlen($head) < 20 || substr($head, 0, 4) !== "QFI\xfb") {
+            $h && fclose($h);
+            break;
+        }
+        $offset = unpack('J', substr($head, 8, 8))[1];
+        $size = unpack('N', substr($head, 16, 4))[1];
+        $name = null;
+        if ($offset > 0 && $size > 0 && $size < 4096 && fseek($h, $offset) === 0) {
+            $name = (string) fread($h, $size);
+        }
+        fclose($h);
+        if (!$name) {
+            break;
+        }
+        $next = $name[0] === '/' ? $name : dirname($file) . '/' . $name;
+        $chain[] = ['path' => $next, 'exists' => file_exists($next), 'bytes' => is_file($next) ? (int) @filesize($next) : null,
+                    'backup' => backupProtection($next)];
+        $file = $next;
+        if (!is_file($file)) {
+            break;
+        }
+    }
+    return $chain;
+}
+
+/**
+ * What /boot really is: the classic USB stick (vfat), or — since Unraid 7 —
+ * a boot pool on internal disks, e.g. a ZFS mirror over partitions of two
+ * SSDs, started from their EFI partitions.
+ */
+function waBoot(): array
+{
+    $mount = null;
+    foreach (mountTable() as $m) {
+        if ($m['mount'] === '/boot') {
+            $mount = $m;
+        }
+    }
+    $var = readCfg(WA_VAR_INI);
+    $boot = ['fs' => $mount['fs'] ?? null, 'source' => $mount['source'] ?? null, 'kind' => 'other', 'pool' => null,
+             'layout' => null, 'state' => null, 'devices' => [], 'efi' => [],
+             'guid' => $var['flashGUID'] ?? null, 'vendor' => trim(($var['flashVendor'] ?? '') . ' ' . ($var['flashProduct'] ?? '')) ?: null];
+    $disk = function (string $dev): array {
+        $part = basename($dev);
+        $base = preg_replace('/(?<=[a-z])\d+$|(?<=\d)p\d+$/', '', $part);
+        $sys = "/sys/block/$base";
+        return ['dev' => $part, 'disk' => $base,
+                'model' => trim((string) @file_get_contents("$sys/device/model")) ?: null,
+                'bytes' => (int) @file_get_contents("$sys/size") * 512 ?: null,
+                'usb' => str_contains((string) @realpath($sys), '/usb')];
+    };
+    if (($mount['fs'] ?? '') === 'zfs') {
+        $boot['kind'] = 'pool';
+        $boot['pool'] = strtok((string) $mount['source'], '/');
+        [$exit, $out] = run(['zpool', 'status', '-P', $boot['pool']], 20);
+        if ($exit === 0) {
+            if (preg_match('/^\s*state:\s*(\S+)/m', $out, $x)) {
+                $boot['state'] = $x[1];
+            }
+            if (preg_match('/^\s+(mirror|raidz\d?)-\d+\s/m', $out, $x)) {
+                $boot['layout'] = $x[1];
+            }
+            preg_match_all('#^\s+(/dev/\S+)\s+(\S+)#m', $out, $x, PREG_SET_ORDER);
+            foreach ($x as $d) {
+                $boot['devices'][] = $disk($d[1]) + ['state' => $d[2]];
+            }
+            $boot['layout'] ??= count($boot['devices']) > 1 ? 'stripe' : 'single';
+        }
+        // the EFI partitions next to the pool members start the server
+        foreach ($boot['devices'] as $d) {
+            foreach (glob("/sys/block/{$d['disk']}/{$d['disk']}*") ?: [] as $p) {
+                $dev = '/dev/' . basename($p);
+                [$e, $label] = run(['blkid', '-s', 'LABEL', '-o', 'value', $dev], 5);
+                if ($e === 0 && trim($label) === 'EFI') {
+                    $boot['efi'][] = basename($p);
+                }
+            }
+        }
+    } elseif (($mount['fs'] ?? '') === 'vfat' && $mount['source']) {
+        $d = $disk($mount['source']);
+        $boot['kind'] = $d['usb'] ? 'usb' : 'internal';
+        $boot['devices'][] = $d;
+    }
+    return $boot;
+}
+
+// --------------------------------------------------------------------- where things are
+
+/**
+ * The places that matter when something breaks or moves to another server:
+ * Unraid's own configuration, Docker templates and compose stacks, the VM
+ * configuration in libvirt.img, user scripts, this office. Each with its
+ * backup protection (as Mr. Backup's engine would treat it).
+ */
+function waLocations(array $vms): array
+{
+    $item = function (string $id, string $path, array $extra = []): array {
+        $exists = file_exists($path);
+        $count = null;
+        if ($exists && is_dir($path) && isset($extra['glob'])) {
+            $count = count(glob("$path/{$extra['glob']}") ?: []);
+        }
+        unset($extra['glob']);
+        return ['id' => $id, 'path' => $path, 'exists' => $exists, 'dir' => $exists && is_dir($path),
+                'bytes' => $exists && is_file($path) ? (int) @filesize($path) : null, 'count' => $count,
+                'backup' => backupProtection($path)] + $extra;
+    };
+    $docker = readCfg('/boot/config/docker.cfg');
+    $domain = readCfg('/boot/config/domain.cfg');
+    $groups = [];
+
+    $groups[] = ['id' => 'unraid', 'boot' => waBoot(), 'items' => array_values(array_filter([
+        $item('flash_config', '/boot/config'),
+        $item('super_dat', '/boot/config/super.dat'),
+        $item('disk_cfg', '/boot/config/disk.cfg'),
+        $item('network_cfg', '/boot/config/network.cfg'),
+        $item('ident_cfg', '/boot/config/ident.cfg'),
+        $item('share_cfgs', WA_SHARES_DIR, ['glob' => '*.cfg']),
+        $item('users', '/boot/config/passwd'),
+        $item('smb_users', '/boot/config/smbpasswd'),
+        is_dir('/boot/config/ssh') ? $item('ssh', '/boot/config/ssh') : null,
+        is_dir('/boot/config/wireguard') ? $item('wireguard', '/boot/config/wireguard', ['glob' => '*.conf']) : null,
+        $item('plugins', WA_PLUGINS, ['glob' => '*.plg']),
+        $item('syslog', '/var/log/syslog', ['ram' => true]),
+    ]))];
+
+    $templates = $item('docker_templates', WA_TEMPLATES, ['glob' => 'my-*.xml']);
+    $templates['files'] = array_map('basename', glob(WA_TEMPLATES . '/my-*.xml') ?: []);
+    $groups[] = ['id' => 'docker', 'items' => array_values(array_filter([
+        $templates,
+        $item('docker_cfg', '/boot/config/docker.cfg'),
+        !empty($docker['DOCKER_IMAGE_FILE']) ? $item('docker_image', rtrim($docker['DOCKER_IMAGE_FILE'], '/'),
+            ['note' => ($docker['DOCKER_IMAGE_TYPE'] ?? '') === 'folder' ? 'folder' : 'image']) : null,
+        !empty($docker['DOCKER_APP_CONFIG_PATH']) ? $item('appdata', rtrim($docker['DOCKER_APP_CONFIG_PATH'], '/')) : null,
+    ]))];
+
+    $stacks = [];
+    foreach (glob(WA_COMPOSE . '/*', GLOB_ONLYDIR) ?: [] as $dir) {
+        $indirect = trim((string) @file_get_contents("$dir/indirect"));
+        $where = $indirect !== '' && is_dir($indirect) ? $indirect : $dir;
+        $files = [];
+        foreach (['compose.yaml', 'compose.yml', 'docker-compose.yml', 'docker-compose.yaml', 'compose.override.yaml',
+                  'compose.override.yml', 'docker-compose.override.yml', 'docker-compose.override.yaml', '.env'] as $f) {
+            if (is_file("$where/$f")) {
+                $files[] = ['path' => "$where/$f", 'backup' => backupProtection("$where/$f")];
+            }
+        }
+        $stacks[] = ['name' => trim((string) @file_get_contents("$dir/name")) ?: basename($dir), 'dir' => $dir,
+                     'indirect' => $indirect !== '' ? $indirect : null, 'files' => $files, 'backup' => backupProtection($dir)];
+    }
+    $groups[] = ['id' => 'compose', 'items' => [$item('compose_projects', WA_COMPOSE, ['glob' => '*'])], 'stacks' => $stacks];
+
+    $groups[] = ['id' => 'vms', 'items' => array_values(array_filter([
+        $item('domain_cfg', '/boot/config/domain.cfg'),
+        !empty($domain['IMAGE_FILE']) ? $item('libvirt_img', $domain['IMAGE_FILE'], ['mounted' => WA_LIBVIRT]) : null,
+        $item('vm_xml', WA_LIBVIRT . '/qemu', ['glob' => '*.xml']),
+        $item('vm_nvram', WA_LIBVIRT . '/qemu/nvram', ['glob' => '*_VARS*.fd']),
+        $item('vm_tpm', WA_LIBVIRT . '/qemu/swtpm/tpm-states', ['glob' => '*']),
+        $item('vm_snapshotdb', WA_LIBVIRT . '/qemu/snapshotdb', ['glob' => '*']),
+        !empty($domain['DOMAINDIR']) ? $item('vm_domains', rtrim($domain['DOMAINDIR'], '/')) : null,
+        !empty($domain['MEDIADIR']) ? $item('vm_isos', rtrim($domain['MEDIADIR'], '/')) : null,
+    ])), 'vms' => count($vms)];
+
+    $groups[] = ['id' => 'scripts', 'items' => [
+        $item('user_scripts', WA_SCRIPTS, ['glob' => '*']),
+        $item('user_scripts_schedule', WA_SCRIPTS_JSON),
+    ]];
+
+    $groups[] = ['id' => 'office', 'items' => array_values(array_filter([
+        $item('office_dir', OFFICE_DIR),
+        $item('office_data', DATA_DIR),
+        is_dir(BACKUP_DATA_DIR) ? $item('backup_data', BACKUP_DATA_DIR) : null,
+        is_dir(BACKUP_DATA_DIR . '/dumps') ? $item('backup_dumps', BACKUP_DATA_DIR . '/dumps', ['glob' => '[0-9]*']) : null,
+    ]))];
+    return $groups;
 }
 
 // --------------------------------------------------------------------- users & network shares
@@ -659,7 +918,7 @@ function waUserScripts(array $roots, array $asleep): array
         }
         preg_match_all('#(?<![\w$}])(/(?:mnt|boot)/[^\s"\'`;|&<>(){}$]+)#', $text, $m);
         $refs = [];
-        foreach (array_unique(array_map(fn ($p) => rtrim($p, '/.'), $m[1])) as $path) {
+        foreach (array_unique(array_map(fn ($p) => rtrim($p, '/.,;:'), $m[1])) as $path) {
             $refs[] = ['path' => $path, 'exists' => waPathExists($path, $roots, $asleep)];
         }
 

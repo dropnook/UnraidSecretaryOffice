@@ -160,37 +160,6 @@ function backupHomeAsleep(string $dir): bool
     return true;
 }
 
-/**
- * settings.ini: [section] or [type "name"] (key "type|name"), key = value,
- * keys may repeat (lists). Values are lists only where that makes sense.
- */
-function backupReadSettings(string $file): array
-{
-    $result = [];
-    $section = null;
-    foreach (@file($file, FILE_IGNORE_NEW_LINES) ?: [] as $line) {
-        $line = trim($line);
-        if ($line === '' || $line[0] === '#' || $line[0] === ';') {
-            continue;
-        }
-        if (preg_match('/^\[\s*([A-Za-z0-9_-]+)(?:\s+"(.*)")?\s*\]$/', $line, $m)) {
-            $section = isset($m[2]) ? "$m[1]|$m[2]" : $m[1];
-            $result[$section] ??= [];
-            continue;
-        }
-        if ($section !== null && preg_match('/^([A-Za-z0-9_.-]+)\s*=\s*(.*)$/', $line, $m)) {
-            $result[$section][$m[1]][] = $m[2];
-        }
-    }
-    return $result;
-}
-
-function backupSetting(array $settings, string $section, string $key, ?string $default = null): ?string
-{
-    $values = $settings[$section][$key] ?? [];
-    return $values ? end($values) : $default;
-}
-
 function backupSettingsSummary(array $s): array
 {
     $one = fn (string $section, string $key, ?string $default = null) => backupSetting($s, $section, $key, $default);
@@ -213,6 +182,7 @@ function backupSettingsSummary(array $s): array
         'docker_stop'   => $one('docker', 'stop', 'all'),
         'no_stop'       => $s['docker']['no_stop'] ?? [],
         'flash'         => $one('flash', 'mode', 'off'),
+        'libvirt'       => $one('libvirt', 'mode', 'tar'),
         'kopia_enabled' => in_array(strtolower((string) $one('kopia', 'enabled', 'no')), ['yes', 'ja', '1', 'true'], true),
         'kopia_container' => $one('kopia', 'container'),
         'kopia_keep'    => $kopia,
@@ -474,6 +444,7 @@ function backupDumps(): array
             $files[] = ['name' => $f, 'bytes' => $size];
         }
         $flash = glob("$data/dumps/$run/flash*.tar*") ?: [];
+        $libvirt = is_file("$data/dumps/$run/libvirt.tar.gz") ? "$data/dumps/$run/libvirt.tar.gz" : null;
         $dumps[] = [
             'run'      => $run,
             'time'     => (int) (DateTime::createFromFormat('Ymd-Hi', $run)?->getTimestamp() ?: 0),
@@ -482,6 +453,8 @@ function backupDumps(): array
             'bytes'    => $bytes,
             'manifest' => is_dir("$data/dumps/$run/manifest"),
             'flash'    => $flash ? basename($flash[0]) : null,
+            'libvirt'  => $libvirt,
+            'libvirt_bytes' => $libvirt ? (int) @filesize($libvirt) : null,
         ];
     }
     return $dumps;

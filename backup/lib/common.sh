@@ -16,7 +16,7 @@
 
 # shellcheck disable=SC2034   # viele Variablen werden erst in den Scripten benutzt
 
-UB_VERSION="2.9"
+UB_VERSION="2.10"
 UB_NAME="unraid-backup"
 
 ##############################################################################
@@ -172,6 +172,7 @@ declare -gA UB_SCHEMA=(
     [drift]="ignore remind_days"
     [docker]="stop no_stop stop_timeout known"
     [flash]="mode tar_exclude kopia_ignore"
+    [libvirt]="mode"
     [kopia]="enabled container identity keep_latest keep_hourly keep_daily keep_weekly keep_monthly keep_annual compression ignore"
     [nextcloud]="preexisting_maintenance"
     [dump]="type"
@@ -211,6 +212,7 @@ cfg_validate() {
     _val "docker|stop"           '^(all|none)$'             "all/none"
     _val "docker|stop_timeout"   '^[0-9]+$'                 "Zahl"
     _val "flash|mode"            '^(snapshot|tar|off)$'     "snapshot/tar/off"
+    _val "libvirt|mode"          '^(tar|off)$'              "tar/off"
     _val "kopia|enabled"         '^(yes|no)$'               "yes/no"
     for key in keep_latest keep_hourly keep_daily keep_weekly keep_monthly keep_annual; do
         _val "kopia|$key" '^([0-9]+|inherit)$' "Zahl oder inherit"
@@ -272,6 +274,10 @@ apply_settings() {
     mapfile -t DOCKER_KNOWN   < <(cfg_list "docker|known")
 
     FLASH_MODE="$(cfg "flash|mode" tar)"
+    # VM-Konfiguration (XML, NVRAM, TPM-Zustand) aus libvirt.img: Vorgabe tar,
+    # auch ohne Eintrag in settings.ini - sie ist klein und ohne sie ist ein
+    # Umzug der VMs muehsam
+    LIBVIRT_MODE="$(cfg "libvirt|mode" tar)"
     mapfile -t FLASH_TAR_EXCLUDE  < <(cfg_list "flash|tar_exclude")
     mapfile -t FLASH_KOPIA_IGNORE < <(cfg_list "flash|kopia_ignore")
 

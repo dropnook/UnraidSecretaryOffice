@@ -20,6 +20,8 @@ let folderSort = Office.store('whereabouts.folder_sort') || 'name';
 let onlyUnused = false;
 let sizeTimer = null;
 let busy = false;
+let place = Office.store('whereabouts.place') || '';      // open tile in "where things are"
+let shown = [];          // rows of the current section that can unfold: { open(), set(bool) }
 
 // ------------------------------------------------------------------ loading
 async function load(refresh) {
@@ -151,17 +153,27 @@ function row({ key, name, mono, meta, figures, detail, menu, cls }) {
   }
   r.appendChild(more);
   let box = null;
-  const toggle = () => {
-    if (box) { box.remove(); box = null; expanded.delete(key); return; }
-    box = el('div', 'row-detail');
-    box.appendChild(detail());
-    r.appendChild(box);
-    expanded.add(key);
+  const set = (open) => {
+    if (!open && box) { box.remove(); box = null; expanded.delete(key); r.classList.remove('open'); }
+    if (open && !box) {
+      box = el('div', 'row-detail');
+      box.appendChild(detail());
+      r.appendChild(box);
+      expanded.add(key);
+      r.classList.add('open');
+    }
   };
   if (detail) {
-    n.onclick = toggle;
-    n.title = T('details');
-    if (expanded.has(key)) toggle();
+    // the whole row unfolds — except clicks on its own buttons, links and fields, or inside the details
+    r.classList.add('unfolds');
+    r.title = T('details');
+    r.onclick = (e) => {
+      if (e.target.closest('button, a, input, select, textarea, .row-detail, [data-own]')) return;
+      if (String(window.getSelection && window.getSelection()).length) return;     // selecting text
+      set(!box);
+    };
+    shown.push({ open: () => !!box, set });
+    if (expanded.has(key)) set(true);
   } else {
     n.classList.remove('link');
   }
@@ -338,6 +350,14 @@ function build(root) {
   now.append(nh, v.stats);
   root.appendChild(now);
 
+  v.places = el('section', 'section');
+  const ph = el('div', 'section-head');
+  ph.append(el('h2', '', T('places')), el('span', 'hint', T('places_hint')));
+  v.placeTiles = el('div', 'cards wa-places');
+  v.placeDetail = el('div');
+  v.places.append(ph, v.placeTiles, v.placeDetail);
+  root.appendChild(v.places);
+
   v.sectionBox = el('section', 'section');
   v.tabs = el('div', 'seg');
   v.sectionBody = el('div', 'section');
@@ -352,6 +372,7 @@ function render() {
   view.bubble.appendChild(bubble());
   view.tourBtn.disabled = !Office.agent.running || busy;
   renderStats();
+  renderPlaces();
   renderTabs();
   renderSection();
 }
@@ -419,6 +440,150 @@ function renderStats() {
   if (sys.load) tile(T('stat.load'), sys.load.map((x) => fmt.number(x, 1)).join(' · '), T('stat.load_sub'));
 }
 
+// ------------------------------------------------------------------ where things are
+const PLACE_ICONS = { unraid: '⚙️', docker: '🐳', compose: '🧩', vms: '🖥️', scripts: '📜', office: '🗂️' };
+const BACKUP_CHIP = { offsite: 'ok', local: 'warn', none: 'danger' };
+
+/** How Mr. Backup's engine protects a path: offsite / only local / not at all */
+function backupChip(level) {
+  if (!level) return null;
+  return chip(T('bk.' + level), BACKUP_CHIP[level], T('bk.' + level + '_title'));
+}
+
+function copyButton(text) {
+  const b = el('button', 'btn small plain wa-copy', Office.t('common.copy'));
+  b.type = 'button';
+  b.title = text;
+  b.onclick = (e) => { e.stopPropagation(); Office.copy(text); };
+  return b;
+}
+
+/** One path: label, path, figures, protection, copy — used in tiles and VM details */
+function pathLine(label, path, opts = {}) {
+  const li = el('div', 'wa-path' + (opts.missing ? ' missing' : ''));
+  const text = el('div', 'wa-path-text');
+  text.append(el('div', 'wa-path-label', label), el('div', 'mono', path));
+  if (opts.note) text.appendChild(el('div', 'wa-path-note', opts.note));
+  li.appendChild(text);
+  const right = el('div', 'wa-path-right');
+  if (opts.figure) right.appendChild(el('span', 'role', opts.figure));
+  const c = backupChip(opts.backup);
+  if (c) right.appendChild(c);
+  right.appendChild(copyButton(path));
+  li.appendChild(right);
+  return li;
+}
+
+function placeSummary(g) {
+  const items = g.items || [];
+  const main = items[0];
+  // the system log (RAM) and Docker's image data (rebuilt by pulling) don't count for the tile
+  const levels = items.filter((i) => !['syslog', 'docker_image'].includes(i.id)).map((i) => i.backup).filter(Boolean);
+  const worst = levels.includes('none') ? 'none' : levels.includes('local') ? 'local' : levels.length ? 'offsite' : null;
+  let sub = '';
+  if (g.id === 'docker') sub = T('place.docker_sub', { n: (items.find((i) => i.id === 'docker_templates') || {}).count || 0 });
+  else if (g.id === 'compose') sub = T('place.compose_sub', { n: (g.stacks || []).length });
+  else if (g.id === 'vms') sub = T('place.vms_sub', { n: g.vms || 0 });
+  else if (g.id === 'scripts') sub = T('place.scripts_sub', { n: (items[0] || {}).count || 0 });
+  else if (g.id === 'unraid') sub = bootShort(g.boot);
+  else if (g.id === 'office') sub = T('place.office_sub');
+  return { main, worst, sub };
+}
+
+/** What /boot is on this server: USB stick, internal disk or a boot pool */
+function bootShort(b) {
+  if (!b) return '';
+  if (b.kind === 'pool') return T('boot.pool_short', { pool: b.pool, layout: T('boot.layout.' + (b.layout || 'single')), n: b.devices.length });
+  if (b.kind === 'usb') return T('boot.usb_short', { name: b.vendor || (b.devices[0] || {}).model || 'USB' });
+  if (b.kind === 'internal') return T('boot.internal_short', { dev: (b.devices[0] || {}).dev || '?' });
+  return T('boot.other_short', { fs: b.fs || '?' });
+}
+
+function bootIntro(b) {
+  const box = el('div', 'wa-place-intro');
+  if (!b) { box.textContent = T('place.unraid_intro'); return box; }
+  const devs = b.devices.map((d) => `${d.dev}${d.model ? ' (' + d.model.replace(/\s+/g, ' ') + ')' : ''}`).join(', ');
+  let text;
+  if (b.kind === 'pool') text = T('boot.pool', { pool: b.pool, layout: T('boot.layout.' + (b.layout || 'single')), devices: devs, efi: b.efi.join(', ') || '–' });
+  else if (b.kind === 'usb') text = T('boot.usb', { name: b.vendor || devs || 'USB', guid: b.guid || '?' });
+  else if (b.kind === 'internal') text = T('boot.internal', { devices: devs });
+  else text = T('boot.other', { fs: b.fs || '?' });
+  box.appendChild(el('p', '', text));
+  box.appendChild(el('p', '', T(b.kind === 'usb' ? 'boot.restore_usb' : 'boot.restore')));
+  if (b.kind === 'pool' && b.state && b.state !== 'ONLINE') box.appendChild(el('p', 'callout warn', T('boot.degraded', { pool: b.pool, state: b.state })));
+  if (b.kind === 'pool' && b.layout === 'single') box.appendChild(el('p', 'callout', T('boot.single')));
+  return box;
+}
+
+function renderPlaces() {
+  const tiles = view.placeTiles;
+  const detail = view.placeDetail;
+  tiles.innerHTML = '';
+  detail.innerHTML = '';
+  view.places.hidden = !state || !state.locations;
+  if (!state || !state.locations) return;
+  for (const g of state.locations) {
+    const { main, worst, sub } = placeSummary(g);
+    const card = el('button', 'card' + (place === g.id ? ' active' : ''));
+    card.type = 'button';
+    const head = el('div', 'card-head');
+    head.append(el('span', 'wa-place-icon', PLACE_ICONS[g.id] || '•'), el('span', 'card-name', T('place.' + g.id)));
+    const c = backupChip(worst);
+    if (c) { c.classList.add('status'); head.appendChild(c); }
+    card.appendChild(head);
+    if (main) card.appendChild(el('div', 'card-line mono wa-ellipsis', main.mounted ? `${main.path}` : main.path));
+    card.appendChild(el('div', 'card-figures', sub));
+    card.onclick = () => {
+      place = place === g.id ? '' : g.id;
+      Office.store('whereabouts.place', place);
+      renderPlaces();
+    };
+    tiles.appendChild(card);
+  }
+  const g = state.locations.find((x) => x.id === place);
+  if (g) detail.appendChild(placeDetail(g));
+}
+
+function placeDetail(g) {
+  const box = el('div', 'box wa-place');
+  if (g.id === 'unraid') box.appendChild(bootIntro(g.boot));
+  else box.appendChild(el('p', 'wa-place-intro', T('place.' + g.id + '_intro')));
+  for (const it of g.items) {
+    let figure = '';
+    if (it.count !== null && it.count !== undefined) figure = T('loc_count', { n: it.count });
+    else if (it.bytes) figure = fmt.size(it.bytes);
+    const note = [Office.has(`${ID}.loc.${it.id}_note`) ? T('loc.' + it.id + '_note', { mounted: it.mounted || '' }) : '',
+      it.note ? T('loc.docker_' + it.note) : '', it.ram ? T('loc.ram') : '', !it.exists ? T('loc.missing') : ''].filter(Boolean).join(' ');
+    box.appendChild(pathLine(T('loc.' + it.id), it.path, { figure, backup: it.backup, note, missing: !it.exists }));
+    if (it.files && it.files.length) {
+      const det = el('details', 'wa-files');
+      det.appendChild(el('summary', '', T('loc.show_files', { n: it.files.length })));
+      const ul = el('div', 'mono wa-file-list');
+      ul.textContent = it.files.join('\n');
+      det.appendChild(ul);
+      box.appendChild(det);
+    }
+  }
+  if (g.id === 'compose') {
+    for (const st of g.stacks || []) {
+      const head = el('div', 'wa-stack');
+      head.append(el('strong', '', `🧩 ${st.name}`), el('span', 'role', st.indirect ? T('loc.indirect', { path: st.indirect }) : ''));
+      box.appendChild(head);
+      if (!st.files.length) box.appendChild(el('p', 'role wa-indent', T('loc.no_compose_files')));
+      st.files.forEach((f) => box.appendChild(pathLine(f.path.split('/').pop(), f.path, { backup: f.backup })));
+    }
+  }
+  if (g.id === 'vms' && (state.vms || []).length) {
+    const a = el('a', '', T('place.vms_more'));
+    a.href = '#';
+    a.onclick = (e) => { e.preventDefault(); pick('vms'); };
+    const p = el('p', 'role wa-indent');
+    p.appendChild(a);
+    box.appendChild(p);
+  }
+  return box;
+}
+
 // ------------------------------------------------------------------ sections
 function sectionCounts() {
   if (!state) return {};
@@ -427,7 +592,7 @@ function sectionCounts() {
     shares: state.shares.filter(shareMatches).length,
     folders: state.folders.reduce((a, f) => a + f.folders.filter((x) => folderMatches(f, x)).length, 0),
     docker: state.containers.filter(containerMatches).length,
-    vms: state.vms.filter((v) => matches(join(v.name, v.state, v.disks))).length,
+    vms: state.vms.filter(vmMatches).length,
     access: state.users.filter((u) => matches(join(u.name, u.description))).length,
     network: state.smb.sessions.filter((s) => matches(join(s.user, s.machine, s.shares.map((x) => x.share)))).length,
     scripts: state.scripts.filter(scriptMatches).length + state.cron.filter((c) => matches(join(c.title, c.schedule, c.command, c.source))).length,
@@ -457,8 +622,28 @@ function renderSection() {
   if (!view) return;
   const body = view.sectionBody;
   body.innerHTML = '';
+  shown = [];
   if (!state) { body.appendChild(emptyNote(Office.agent.running ? T('bubble.no_tour') : T('bubble.no_data'))); return; }
   ({ shares, folders, docker, vms, disks, access, network, scripts, backups, notices, plugins })[section](body);
+  if (shown.length > 1) body.prepend(unfoldBar(body));
+}
+
+/** "Unfold all" / "Fold all" for the rows (and groups) of the current section */
+function unfoldBar(body) {
+  const bar = el('div', 'toolbar wa-unfold');
+  const b = el('button', 'btn small plain');
+  b.type = 'button';
+  const label = () => { b.textContent = shown.some((x) => !x.open()) ? T('unfold_all') : T('fold_all'); };
+  b.onclick = () => {
+    const open = shown.some((x) => !x.open());
+    body.querySelectorAll('.group').forEach((g) => g.classList.toggle('closed', !open));
+    shown.forEach((x) => x.set(open));
+    label();
+  };
+  body.addEventListener('click', () => setTimeout(label, 0));
+  label();
+  bar.appendChild(b);
+  return bar;
 }
 
 // --------------------------------------------------------------- shares
@@ -667,27 +852,69 @@ function docker(body) {
 }
 
 // --------------------------------------------------------------- VMs
+const vmMatches = (v) => matches(join(v.name, v.state, v.os, v.template, v.uuid, (v.disks || []).map((d) => d.source)));
+
 function vms(body) {
   const box = el('div', 'box');
-  const list = state.vms.filter((v) => matches(join(v.name, v.state, v.disks)));
+  const list = state.vms.filter(vmMatches);
   if (!list.length) box.appendChild(emptyNote(state.vms.length ? T('nothing_found') : T('no_vms')));
   for (const v of list) {
     const snapChip = v.snapshots ? chip(`📸 ${T('vm_snapshots', { n: v.snapshots })}`, 'accent') : null;
-    if (snapChip) { snapChip.style.cursor = 'pointer'; snapChip.onclick = () => Office.go('#/snapshot'); }
+    if (snapChip) { snapChip.style.cursor = 'pointer'; snapChip.dataset.own = '1'; snapChip.onclick = () => Office.go('#/snapshot'); }
+    const os = v.os === 'windows' ? '🪟 Windows' : v.os === 'linux' ? '🐧 Linux' : null;
     box.appendChild(row({
       key: 'vm:' + v.name,
       name: v.name,
       meta: [
         chip(v.running ? T('state.running') : v.state, v.running ? 'ok' : 'quiet'),
+        os ? chip(v.template || os, 'quiet') : null,
+        v.firmware === 'uefi' ? chip('UEFI', 'quiet') : null,
+        v.tpm ? chip('TPM ' + (v.tpm.version || ''), 'quiet') : null,
+        v.passthrough ? chip(T('vm.passthrough_n', { n: v.passthrough }), 'quiet') : null,
         v.autostart ? chip(T('autostart'), 'quiet') : null,
         v.cpus ? el('span', '', T('vm_cpus', { n: v.cpus })) : null,
         v.memory ? el('span', '', fmt.size(v.memory)) : null,
         snapChip,
       ],
-      detail: () => kv([[T('disks'), lines(v.disks)]]),
+      detail: () => vmDetail(v),
     }));
   }
   body.appendChild(box);
+}
+
+function vmDetail(v) {
+  const box = el('div');
+  const fw = v.firmware === 'uefi' ? `UEFI (OVMF)${v.secure_boot ? ' · Secure Boot' : ''}` : v.firmware === 'bios' ? 'BIOS (SeaBIOS)' : v.loader;
+  box.appendChild(kv([
+    [T('vm.os'), v.template || (v.os === 'windows' ? 'Windows' : v.os === 'linux' ? 'Linux' : v.os)],
+    [T('vm.firmware'), fw],
+    [T('vm.tpm'), v.tpm ? `${v.tpm.model || 'TPM'} ${v.tpm.version || ''}` : T('vm.no_tpm')],
+    [T('vm.machine'), v.machine, true],
+    ['UUID', v.uuid, true],
+    [T('vm.cpu_mem'), [v.cpus ? T('vm_cpus', { n: v.cpus }) : null, v.memory ? fmt.size(v.memory) : null].filter(Boolean).join(' · ')],
+    [T('vm.networks'), (v.networks || []).length ? lines(v.networks.map((n) => `${n.source || '?'} · ${n.model || ''} · ${n.mac || ''}`)) : null],
+    [T('vm.passthrough'), v.passthrough ? T('vm.passthrough_n', { n: v.passthrough }) : null],
+    [T('vm.graphics'), v.graphics],
+    [T('vm.description'), v.description],
+  ]));
+  box.appendChild(el('div', 'wa-sub', T('vm.files')));
+  const files = el('div', 'wa-paths');
+  if (v.xml) files.appendChild(pathLine(T('vm.xml'), v.xml, { backup: v.config_backup }));
+  if (v.nvram) files.appendChild(pathLine(T('vm.nvram'), v.nvram, { backup: v.config_backup, note: v.nvram_copies ? T('vm.nvram_copies', { n: v.nvram_copies }) : '' }));
+  if (v.tpm) files.appendChild(pathLine(T('vm.tpm_state'), v.tpm.state || T('vm.tpm_none'), { backup: v.tpm.state ? v.config_backup : null, missing: !v.tpm.state }));
+  (v.disks || []).forEach((d) => {
+    const chain = d.chain || [];
+    files.appendChild(pathLine(d.device === 'cdrom' ? T('vm.iso', { target: d.target || '' }) : T('vm.disk', { target: d.target || '', bus: d.bus || '', format: d.format || '' }),
+      d.source, { backup: d.backup, figure: d.bytes ? fmt.size(d.bytes) : '', note: chain.length ? T('vm.overlay', { n: chain.length }) : '' }));
+    chain.forEach((c, i) => files.appendChild(pathLine(T('vm.base', { n: i + 1 }), c.path,
+      { backup: c.backup, figure: c.bytes ? fmt.size(c.bytes) : '', missing: !c.exists })));
+  });
+  box.appendChild(files);
+  const advice = [T('vm.move_hint')];
+  if (v.tpm) advice.push(T('vm.tpm_hint'));
+  if (v.config_backup && v.config_backup !== 'offsite') advice.push(T('vm.config_' + v.config_backup));
+  box.appendChild(el('p', 'callout' + (v.config_backup && v.config_backup !== 'offsite' ? ' warn' : ''), advice.join(' ')));
+  return box;
 }
 
 // --------------------------------------------------------------- users & access
