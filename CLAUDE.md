@@ -137,7 +137,9 @@ character, warnings and errors stay plain and clear.
 1. PHP syntax: on the host `php -l` for every file in `agent/`; in the office
    container `docker exec UnraidSecretaryOffice php -l /var/www/src/<file>`.
 2. JS syntax (no Node on the dev Mac): `osascript -l JavaScript` with `new Function(src)`.
-3. JSON valid and `en`/`de` keys identical (a short python check is enough).
+3. Tests on the host: `php tests/run.php` (logic: cron, snapshot retention,
+   Emby detection, User Scripts schedules — on copies; strings: `en`/`de` keys
+   identical, every T('…'), check and error text exists). Must end with 0 failed.
 4. The agent restarts itself when its files change — watch `data/agent.log`
    ("Agent code changed — restarting"); a syntax error keeps the old code running.
 5. Reload the page for real (changing only the `#` part of the URL doesn't reload).

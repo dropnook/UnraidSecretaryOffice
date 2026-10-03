@@ -142,6 +142,9 @@ one of its files changes.
 * Agent log: `data/agent.log` (also under ⋯ → Agent log)
 * Run the agent by hand for debugging: stop the agent container, then on the host
   `php agent/agent.php run`
+* Tests: on the Unraid host `php tests/run.php` — the tricky logic (cron,
+  snapshot retention, Emby detection, User Scripts schedules, on copies only)
+  and every text in both languages. It changes nothing on the server.
 * `data/` holds runtime state only and is not part of the repository —
   including `data/unraid-backup/` (the backup engine's settings, state, logs
   and database dumps; root only).
