@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.6 - 3.10.2026
+# unraid-backup - backup.sh                       Version 2.8 - 3.10.2026
+#   2.8  Apps vor den Dumps anhalten: Dumps passen so zu den Dateien im
+#        Snapshot, auch bei Apps ohne Wartungsmodus (Immich & Co.)
+#   2.7  (nur setup.sh: --plan / --apply)
 #   2.6  Teil des Unraid Secretary Office: Code in <office>/backup, Daten in
 #        <office>/data/unraid-backup (UB_DATA); --about nennt beide Ordner
 #   2.5  Status fuer andere Programme: state/status.json (laufend), last-run.json,
@@ -28,9 +31,11 @@
 #       neue Container, Kopia-Mapping und -Policies. Nichts davon wird selbst
 #       "repariert" - neue Shares werden erst gesichert, wenn setup.sh lief.
 #    3. Nextcloud in den Wartungsmodus (bricht ab, wenn er schon an war)
-#    4. Datenbank-Dumps (MariaDB/MySQL, Postgres, MongoDB), sofort geprueft
-#    5. Manifest: Versionen, Images, Templates, Share-Configs, settings.ini
-#    6. Container anhalten (Apps, dann Datenbanken, dann Netzwerk-Container)
+#    4. Manifest: Versionen, Images, Templates, Share-Configs, settings.ini
+#    5. Apps anhalten, dann Datenbank-Dumps (MariaDB/MySQL, Postgres, MongoDB),
+#       sofort geprueft - so passen Dumps und Dateien zusammen, auch bei Apps
+#       ohne Wartungsmodus (z.B. Immich)
+#    6. Datenbanken und Netzwerk-Container anhalten
 #    7. ZFS-Snapshots (je Pool atomar) und btrfs-Snapshots
 #    8. Container starten, Wartungsmodus aus  -> Unterbrechung endet hier
 #    9. Snapshots je Share unter <mount_root>/<share> einhaengen (read-only)
@@ -971,23 +976,28 @@ mkdir -p "$RUN_DIR/db" || die "Kann $RUN_DIR nicht anlegen"
 # Reste eines frueheren Laufs loesen
 unmount_all || die "Alte Mounts unter $MOUNT_ROOT lassen sich nicht loesen"
 
-# --- Wartungsmodus, Dumps, Manifest ---------------------------------------
+# --- Wartungsmodus, Manifest ----------------------------------------------
 status_phase "maintenance"
 log "Nextcloud ..."
 nextcloud_maintenance_on
+status_phase "manifest"
+log "Manifest ..."
+write_manifest                       # noch mit allen Containern im laufenden Zustand
+
+# --- Anhalten, Dumps, Snapshots, Starten ----------------------------------
+# Erst die Apps anhalten, dann dumpen: Apps ohne Wartungsmodus (Immich & Co.)
+# schreiben sonst zwischen Dump und Snapshot weiter - der Dump passte dann
+# nicht mehr ganz zu den Dateien. Die Datenbanken laufen fuer den Dump noch.
+STOP_AT="$(date +%s)"
+status_phase "stopping_apps"
+log "Halte Apps an: ${#T_APP[@]} (vor den Dumps, damit Dumps und Dateien zusammenpassen)"
+stop_tier "${T_APP[@]}"
 status_phase "dumps"
 log "Datenbank-Dumps ..."
 run_dumps
 [[ "$PLAN_FLASH" == "tar" ]] && flash_tar
-status_phase "manifest"
-log "Manifest ..."
-write_manifest
-
-# --- Anhalten, Snapshots, Starten -----------------------------------------
-STOP_AT="$(date +%s)"
 status_phase "stopping"
-log "Halte Container an: ${#T_APP[@]} Apps, ${#T_DB[@]} Datenbanken, ${#T_NET[@]} Netzwerk"
-stop_tier "${T_APP[@]}"
+log "Halte an: ${#T_DB[@]} Datenbanken, ${#T_NET[@]} Netzwerk"
 stop_tier "${T_DB[@]}"
 stop_tier "${T_NET[@]}"
 

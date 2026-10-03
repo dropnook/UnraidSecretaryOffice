@@ -13,7 +13,7 @@ const LIVE_POLL = 5000;
 // phases of a run (status.json "phase") grouped into the steps the desk shows
 const STEPS = [
   ['prepare', ['start', 'inventory']],
-  ['dumps', ['maintenance', 'dumps', 'manifest']],
+  ['dumps', ['maintenance', 'manifest', 'stopping_apps', 'dumps']],
   ['snapshots', ['stopping', 'snapshots', 'starting']],
   ['kopia', ['mounting', 'kopia']],
   ['finish', ['unmounting', 'cleanup', 'aborting', 'done']],
@@ -21,13 +21,14 @@ const STEPS = [
 
 let state = null;
 let view = null;
+let page = 'main';             // 'main' or 'setup' (#/backup/setup)
 let liveTimer = null;
 
 // ------------------------------------------------------------------ loading
 async function load(fresh) {
   const j = await Office.api.get({ a: 'state', desk: ID, ...(fresh ? { fresh: 1 } : {}) });
   if (j.ok && j.state) state = j.state;
-  if (view) render();
+  if (view && page === 'main') render();
   schedule();
   return j;
 }
@@ -35,7 +36,7 @@ async function load(fresh) {
 /** While a run is going on, look every few seconds */
 function schedule() {
   clearTimeout(liveTimer);
-  if (view && state && state.running) {
+  if (view && page === 'main' && state && (state.running || (state.setup && state.setup.running))) {
     liveTimer = setTimeout(() => {
       if (!document.hidden && !Office.dialogOpen() && !Office.menuOpen()) load(true);
       else schedule();
@@ -178,10 +179,11 @@ function render() {
     if (live()) {
       actions.push(button(T('abort'), 'danger plain', abortRun));
     } else {
+      actions.push(button(T('setup_open'), 'plain', () => Office.go(`#/${ID}/setup`)));
       actions.push(button(T('check'), 'plain', () => startRun('check')));
       actions.push(button(T('start'), '', chooseRun));
     }
-    actions.forEach((b) => { b.disabled = !canAct(); });
+    actions.forEach((b) => { b.disabled = !canAct() || !!(state.setup && state.setup.running); });
   }
   const { head } = Office.deskHead(Office.desks.get(ID), { bubble: bubbleText().join(' '), actions });
   root.appendChild(head);
@@ -215,7 +217,10 @@ function notices() {
   };
   if (state.asleep) callout(T('notice.asleep'), false);
   if (!state.compatible) callout(T('notice.too_old', { version: state.version || '?' }), true);
-  if (!state.settings_found) callout(T('notice.no_settings'), true, el('code', '', `${state.dir}/setup.sh`));
+  if (state.setup && state.setup.running) {
+    callout(T('notice.setup_running'), false, button(T('setup_open'), 'small plain', () => Office.go(`#/${ID}/setup`)));
+  }
+  if (!state.settings_found) callout(T('notice.no_settings'), true, button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
   const sc = state.schedule || {};
   if (!sc.script) callout(T('notice.no_user_script'), true);
   else if (!sc.enabled) callout(T('notice.schedule_off'), true);
@@ -597,20 +602,560 @@ async function showLog(name, follow) {
   fetchLog(true);
 }
 
+// ------------------------------------------------------------------ setup assistant (#/backup/setup)
+// setup.sh --plan looks at the server and writes its proposals (P = the
+// settings.ini keys) with reasons; the user changes what he wants here, and
+// setup.sh --apply checks and writes it — the same engine as in a terminal.
+const SETUP_POLL = 2000;
+const LIST_KEY = /\|(ignore|no_stop|known|kopia_ignore|exclude_dataset|tar_exclude)$/;
+let setup = { plan: null, draft: null, status: null, run: null, applied: null, open: new Set(), retire: true, asked: false };
+let setupTimer = null;
+
+const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+const clone = (o) => JSON.parse(JSON.stringify(o || {}));
+const dget = (k, d) => (setup.draft[k] !== undefined ? setup.draft[k] : d);
+function dset(k, v) {
+  if (v === undefined || v === null) delete setup.draft[k];
+  else setup.draft[k] = v;
+  setupBar();
+}
+
+/** Every key that differs between the plan and the draft */
+function setupChanges() {
+  const out = [];
+  const keys = new Set([...Object.keys(setup.plan.P), ...Object.keys(setup.draft)]);
+  keys.forEach((k) => { if (!same(setup.plan.P[k], setup.draft[k])) out.push(k); });
+  return out.sort();
+}
+
+async function setupLoad() {
+  const j = await Office.api.post(`${ID}.setup_get`, {});
+  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return; }
+  const was = setup.status;
+  setup.status = j.status;
+  setup.run = j.run;
+  if (j.plan && (!setup.plan || j.plan.time !== setup.plan.time)) {
+    setup.plan = j.plan;
+    setup.draft = clone(j.plan.P);
+  }
+  const finishedApply = was && was.running && was.mode === 'apply' && !j.status.running;
+  if (finishedApply) {
+    setup.applied = j.run;
+    if (j.run && j.run.result === 'ok') {
+      Office.toast(T('setup.applied'));
+      load(true);
+      await setupPlan(false, true);          // look again: the plan should now show no changes
+      return;
+    }
+  }
+  if (page === 'setup') renderSetup();
+  clearTimeout(setupTimer);
+  if (j.status.running) setupTimer = setTimeout(setupLoad, SETUP_POLL);
+  else if (!setup.plan && !setup.asked && canPlan()) setupPlan(false);
+}
+
+const canPlan = () => !!(state && state.found && state.compatible && Office.agent.running && !state.running);
+
+async function setupPlan(measure, quiet) {
+  setup.asked = true;
+  const j = await Office.api.post(`${ID}.setup_plan`, { measure: !!measure });
+  if (!j.ok) { if (!quiet) Office.toast(Office.errorText(j.error, ID), true); return; }
+  setTimeout(setupLoad, 500);
+}
+
+function setupApply() {
+  const changes = setupChanges();
+  const box = el('div');
+  box.appendChild(el('p', '', changes.length ? T('setup.apply_text', { n: changes.length }) : T('setup.apply_none')));
+  if (changes.length) {
+    const ul = el('ul', 'shortlist');
+    changes.slice(0, 60).forEach((k) => {
+      const li = el('li', '', changeLabel(k));
+      li.appendChild(el('span', '', `${valueText(setup.plan.P[k])} → ${valueText(setup.draft[k])}`));
+      ul.appendChild(li);
+    });
+    box.appendChild(ul);
+  }
+  box.appendChild(el('p', 'role', T('setup.apply_hint')));
+  Office.dialog({
+    title: T('setup.apply_title'),
+    body: box,
+    wide: true,
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('setup.apply_go'), kind: '', act: async () => {
+        const decisions = { ...setup.draft, _retire_sources: setup.retire ? 'yes' : 'no' };
+        const j = await Office.api.post(`${ID}.setup_apply`, { decisions });
+        if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
+        setup.applied = null;
+        Office.toast(T('setup.applying'));
+        setupLoad();
+        return true;
+      } },
+    ],
+  });
+}
+
+function changeLabel(k) {
+  const p = k.split('|');
+  if (p[0] === 'share') return T('setup.ch_share', { share: p[1], key: T('setup.key.' + p[2]) });
+  if (p[0] === 'dump') return T('setup.ch_dump', { name: p[1] });
+  if (p[0] === 'nextcloud') return T('setup.ch_nextcloud', { name: p[1] });
+  return Office.has(`${ID}.setup.key.${p.join('_')}`) ? T('setup.key.' + p.join('_')) : k;
+}
+function valueText(v) {
+  if (v === undefined || v === null) return '–';
+  if (Array.isArray(v)) return v.length ? v.join(', ') : '–';
+  return v === '' ? '–' : v;
+}
+
+/** The bar at the bottom: how many changes, apply */
+function setupBar() {
+  if (page !== 'setup' || !setup.plan || !setup.draft) { Office.selbar(null); return; }
+  const n = setupChanges().length;
+  const busy = setup.status && setup.status.running;
+  Office.selbar({
+    title: n ? T('setup.bar_changes', { n }) : T('setup.bar_none'),
+    sub: T('setup.bar_sub', { when: fmt.relative(setup.plan.time) }),
+    buttons: [
+      { text: T('setup.discard'), kind: 'plain', disabled: !n || busy, act: () => { setup.draft = clone(setup.plan.P); renderSetup(); } },
+      { text: T('setup.apply'), disabled: busy || !Office.agent.running, act: setupApply },
+    ],
+  });
+}
+
+// ---- small form helpers
+function field(label, input, hint) {
+  const f = el('div', 'field');
+  const l = el('label', '', label);
+  f.append(l, input);
+  if (hint) f.appendChild(el('small', '', hint));
+  return f;
+}
+function textInput(key, pattern, placeholder) {
+  const i = el('input', 'input small');
+  i.value = dget(key, '') ?? '';
+  if (placeholder) i.placeholder = placeholder;
+  i.oninput = () => {
+    const v = i.value.trim();
+    const ok = !pattern || v === '' || pattern.test(v);
+    i.classList.toggle('bad', !ok);
+    if (ok) dset(key, v === '' && setup.plan.P[key] === undefined ? undefined : v);
+  };
+  return i;
+}
+function selectInput(key, options, labels) {
+  const sel = el('select', 'picker');
+  options.forEach((o) => sel.appendChild(new Option(labels ? labels(o) : o, o)));
+  sel.value = dget(key, options[0]);
+  sel.onchange = () => dset(key, sel.value);
+  return sel;
+}
+function listInput(key, rows) {
+  const ta = el('textarea', 'input mono');
+  ta.rows = rows || 4;
+  ta.value = (dget(key, []) || []).join('\n');
+  ta.oninput = () => dset(key, ta.value.split('\n').map((x) => x.trim()).filter(Boolean));
+  return ta;
+}
+function checkbox(text, checked, onchange, small) {
+  const label = el('label', 'check');
+  const input = el('input');
+  input.type = 'checkbox';
+  input.checked = !!checked;
+  input.onchange = () => onchange(input.checked);
+  const span = el('span', '', text);
+  if (small) span.appendChild(el('small', '', small));
+  label.append(input, span);
+  return label;
+}
+function setupSection(title, sub) {
+  const s = section(title);
+  if (sub) s.appendChild(el('p', 'role', sub));
+  return s;
+}
+
+// ---- rendering
+function renderSetup() {
+  const root = view;
+  if (!root) return;
+  root.innerHTML = '';
+  const back = button(T('setup.back'), 'plain', () => Office.go(`#/${ID}`));
+  const again = button(T('setup.replan'), 'plain', () => setupPlan(false));
+  const measure = button(T('setup.measure'), 'plain', () => setupPlan(true));
+  const busy = setup.status && setup.status.running;
+  [again, measure].forEach((b) => { b.disabled = busy || !canPlan(); });
+  measure.title = T('setup.measure_hint');
+  let bubble = T('setup.bubble_loading');
+  if (busy) bubble = T(setup.status.mode === 'apply' ? 'setup.bubble_applying' : 'setup.bubble_planning');
+  else if (setup.plan) bubble = T(setup.plan.have_settings ? 'setup.bubble_have' : 'setup.bubble_new');
+  else if (state && state.running) bubble = T('setup.bubble_backup_runs');
+  const { head } = Office.deskHead(Office.desks.get(ID), { bubble, actions: [back, again, measure] });
+  root.appendChild(head);
+
+  if (setup.applied) root.appendChild(appliedCard(setup.applied));
+  if (busy) {
+    const p = el('p', 'callout running');
+    p.append(el('span', 'spin'), ' ', T(setup.status.mode === 'apply' ? 'setup.applying_long' : 'setup.planning_long'));
+    root.appendChild(p);
+  }
+  if (!setup.plan) { setupBar(); return; }
+
+  const plan = setup.plan;
+  root.appendChild(setupKopia(plan));
+  root.appendChild(setupShares(plan));
+  root.appendChild(setupContainers(plan));
+  root.appendChild(setupDatabases(plan));
+  root.appendChild(setupGeneral(plan));
+  if (dget('kopia|enabled') === 'yes') root.appendChild(setupPolicies());
+  const old = (plan.kopia.sources || []).filter((s) => s.state === 'orphan' || s.state === 'gone');
+  if (old.length) root.appendChild(setupSources(old));
+  root.appendChild(setupMessages(plan.messages));
+  setupBar();
+}
+
+function appliedCard(run) {
+  const ok = run.result === 'ok' && run.written;
+  const box = el('div', 'callout' + (ok ? '' : ' warn'));
+  box.appendChild(el('strong', '', ok ? T('setup.applied_ok') : T('setup.applied_failed')));
+  const bad = (run.messages || []).filter((m) => m.level === 'error' || m.level === 'warn');
+  if (bad.length) {
+    const ul = el('ul', 'bk-msgs');
+    bad.forEach((m) => ul.appendChild(el('li', m.level, m.text)));
+    box.appendChild(ul);
+  }
+  return box;
+}
+
+function setupKopia(plan) {
+  const k = plan.kopia;
+  const s = setupSection(T('setup.kopia'), T('setup.kopia_sub'));
+  const on = dget('kopia|enabled') === 'yes';
+  s.appendChild(checkbox(T('setup.kopia_on'), on, (v) => {
+    dset('kopia|enabled', v ? 'yes' : 'no');
+    if (!v) Object.keys(setup.draft).forEach((key) => { if (/^share\|.+\|mode$/.test(key) && setup.draft[key] === 'kopia') setup.draft[key] = 'snapshot'; });
+    renderSetup();
+  }, T('setup.kopia_on_hint')));
+  if (!on) return s;
+  if (!plan.P['kopia|enabled'] || plan.P['kopia|enabled'] !== 'yes') {
+    s.appendChild(el('p', 'callout', T('setup.kopia_recheck')));
+    return s;
+  }
+  const facts = el('dl', 'kv');
+  const fact = (label, value, bad) => {
+    facts.appendChild(el('dt', '', label));
+    facts.appendChild(el('dd', bad ? 'bk-bad' : '', value));
+  };
+  if (k.candidates.length > 1) {
+    const sel = selectInput('kopia|container', k.candidates);
+    facts.appendChild(el('dt', '', T('setup.k_container')));
+    const dd = el('dd'); dd.appendChild(sel); facts.appendChild(dd);
+  } else {
+    fact(T('setup.k_container'), k.container ? `${k.container} (${k.image || '?'}) — ${T(k.running ? 'setup.k_running' : 'setup.k_stopped')}` : T('setup.k_none'), !k.container || !k.running);
+  }
+  const main = (k.mappings || []).find((m) => m.main);
+  if (main) fact(T('setup.k_mapping'), `${main.source} → ${main.target} (${main.rw ? 'rw' : 'ro'}, ${main.propagation || 'private'})`, main.rw || !/slave|shared/.test(main.propagation));
+  if (k.probe !== null) fact(T('setup.k_probe'), T('setup.k_probe_' + k.probe), k.probe !== 0);
+  if (k.connected) fact(T('setup.k_repo'), `${k.identity} · ${k.storage || '?'}${k.version ? ' · Kopia ' + k.version : ''}`);
+  if (k.server_uid !== '') fact(T('setup.k_uid'), k.server_uid === '0' ? 'root' : `UID ${k.server_uid}`, k.server_uid !== '0');
+  s.appendChild(facts);
+  if (k.problem && k.problem !== 'off') {
+    const p = el('p', 'callout warn', T('setup.k_problem.' + k.problem, { name: k.container || 'kopia', root: plan.mount_root }));
+    if (Office.desks.has('caretaker')) {
+      const a = el('a', '', T('setup.k_caretaker'));
+      a.href = '#/caretaker';
+      p.append(' ', a);
+    }
+    s.appendChild(p);
+  }
+  if (k.host_is_container_id) s.appendChild(el('p', 'callout warn', T('setup.k_hostid', { name: k.container })));
+  return s;
+}
+
+function shareWhy(sh) {
+  const code = sh.why || '';
+  if (!code) return sh.why_text || '';
+  const arg = sh.why_arg;
+  const gb = Number(arg);
+  return T('setup.why.' + code, { arg, size: isNaN(gb) || arg === '' ? arg : gb < 0 ? '> ?' : fmt.size(gb * 1073741824) });
+}
+
+function setupShares(plan) {
+  const s = setupSection(T('setup.shares'), T('setup.shares_sub'));
+  const kopiaOn = dget('kopia|enabled') === 'yes';
+  const wrap = el('div', 'box table-wrap');
+  const table = el('table', 'grid bk-shares');
+  const hr = el('tr');
+  ['share', 'where', 'size', 'mode', 'why', ''].forEach((c) => hr.appendChild(el('th', '', c ? T('setup.col.' + c) : '')));
+  const thead = el('thead'); thead.appendChild(hr); table.appendChild(thead);
+  const body = el('tbody');
+  plan.shares.forEach((sh) => {
+    const tr = el('tr');
+    tr.appendChild(el('th', '', sh.name));
+    tr.appendChild(el('td', '', sh.where === '-' ? '' : sh.where));
+    tr.appendChild(el('td', 'num', sh.gb === null ? '' : sh.gb < 0 ? '> ?' : fmt.size(sh.gb * 1073741824)));
+    const modeCell = el('td');
+    if (sh.exists) {
+      const opts = kopiaOn ? ['kopia', 'snapshot', 'off'] : ['snapshot', 'off'];
+      const sel = selectInput(`share|${sh.name}|mode`, opts, (o) => T('setup.mode.' + o));
+      if (!opts.includes(sel.value)) sel.value = 'snapshot';
+      sel.onchange = () => { dset(`share|${sh.name}|mode`, sel.value); };
+      modeCell.appendChild(sel);
+    } else {
+      modeCell.appendChild(chip(T('setup.gone'), 'warn'));
+    }
+    tr.appendChild(modeCell);
+    const why = el('td', 'bk-why', shareWhy(sh));
+    if (sh.notes.length) why.title = sh.notes.join('\n');
+    tr.appendChild(why);
+    const more = el('td');
+    if (sh.exists) {
+      const b = button(setup.open.has(sh.name) ? T('setup.less') : T('setup.more'), 'small plain', () => {
+        if (setup.open.has(sh.name)) setup.open.delete(sh.name); else setup.open.add(sh.name);
+        renderSetup();
+      });
+      more.appendChild(b);
+    }
+    tr.appendChild(more);
+    body.appendChild(tr);
+    if (setup.open.has(sh.name)) {
+      const dtr = el('tr', 'bk-detail');
+      const td = el('td');
+      td.colSpan = 6;
+      td.appendChild(shareDetails(sh, plan));
+      dtr.appendChild(td);
+      body.appendChild(dtr);
+    }
+  });
+  table.appendChild(body);
+  wrap.appendChild(table);
+  s.appendChild(wrap);
+  return s;
+}
+
+function shareDetails(sh, plan) {
+  const k = (x) => `share|${sh.name}|${x}`;
+  const box = el('div', 'bk-form');
+  if (sh.notes.length) box.appendChild(el('p', 'callout', sh.notes.join(' · ')));
+  box.appendChild(field(T('setup.f_retention'), textInput(k('retention'), /^\d+ \d+ \d+$/, dget('zfs|retention', '')), T('setup.f_retention_hint')));
+  if (dget('kopia|enabled') === 'yes') {
+    box.appendChild(field(T('setup.f_kopia_retention'), textInput(k('kopia_retention'), /^(\d+|inherit)( (\d+|inherit)){5}$/, T('setup.f_like_all')), T('setup.f_kopia_retention_hint')));
+    const ign = listInput(k('kopia_ignore'), 3);
+    box.appendChild(field(T('setup.f_ignore'), ign, T('setup.f_ignore_hint')));
+    if (sh.folders.length) {
+      const sug = el('div', 'bk-chips');
+      sug.appendChild(el('small', 'role', T('setup.f_folders')));
+      const seen = new Set();
+      sh.folders.forEach((f) => {
+        if (seen.has(f.dir)) return;
+        seen.add(f.dir);
+        const rule = `/${f.dir}/`;
+        const have = (dget(k('kopia_ignore'), []) || []).includes(rule);
+        const c = button(`${rule} · ${f.container}`, 'small ' + (have ? '' : 'plain'), () => {
+          const list = [...(dget(k('kopia_ignore'), []) || [])];
+          const i = list.indexOf(rule);
+          if (i >= 0) list.splice(i, 1); else list.push(rule);
+          dset(k('kopia_ignore'), list);
+          renderSetup();
+        });
+        c.title = T(have ? 'setup.f_folder_on' : 'setup.f_folder_off');
+        sug.appendChild(c);
+      });
+      box.appendChild(sug);
+    }
+  }
+  box.appendChild(field(T('setup.f_method'), selectInput(k('method'), ['auto', 'live'], (o) => T('setup.method.' + o)), T('setup.f_method_hint')));
+  if (sh.children.length) {
+    const kids = el('div');
+    sh.children.forEach((ds) => {
+      const list = dget(k('exclude_dataset'), []) || [];
+      kids.appendChild(checkbox(ds, !list.includes(ds), (v) => {
+        const now = [...(dget(k('exclude_dataset'), []) || [])].filter((x) => x !== ds);
+        if (!v) now.push(ds);
+        dset(k('exclude_dataset'), now);
+      }));
+    });
+    box.appendChild(field(T('setup.f_children'), kids, T('setup.f_children_hint')));
+  }
+  return box;
+}
+
+function setupContainers(plan) {
+  const s = setupSection(T('setup.containers'), T('setup.containers_sub'));
+  const list = el('div', 'box');
+  const nostop = () => dget('docker|no_stop', []) || [];
+  plan.containers.forEach((c) => {
+    const row = el('div', 'row nocheck');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name', c.name));
+    const meta = el('div', 'row-meta');
+    meta.appendChild(el('span', '', c.running ? T('setup.ct_running') : T('setup.ct_stopped')));
+    meta.appendChild(el('span', '', T('setup.ctwhy.' + (c.why || 'no_data'), { arg: c.why_arg })));
+    if (c.volumes.length && !c.kopia) meta.appendChild(chip(T('setup.ct_volumes', { list: c.volumes.join(', ') }), 'danger', T('setup.ct_volumes_hint')));
+    main.appendChild(meta);
+    row.appendChild(main);
+    if (c.kopia) {
+      row.appendChild(chip(T('setup.ct_kopia'), 'quiet'));
+    } else {
+      const keep = nostop().includes(c.name);
+      const sel = el('select', 'picker');
+      sel.append(new Option(T('setup.ct_stop'), 'stop'), new Option(T('setup.ct_keep'), 'keep'));
+      sel.value = keep ? 'keep' : 'stop';
+      sel.onchange = () => {
+        const now = nostop().filter((x) => x !== c.name);
+        if (sel.value === 'keep') now.push(c.name);
+        dset('docker|no_stop', now);
+        warn.hidden = !(sel.value === 'keep' && /^(writes|volumes|binds_root)$/.test(c.why));
+      };
+      const warn = chip(T('setup.ct_risk'), 'warn', T('setup.ct_risk_hint'));
+      warn.hidden = !(keep && /^(writes|volumes|binds_root)$/.test(c.why));
+      const right = el('div', 'bk-right');
+      right.append(warn, sel);
+      row.appendChild(right);
+    }
+    list.appendChild(row);
+  });
+  s.appendChild(list);
+  return s;
+}
+
+function setupDatabases(plan) {
+  const s = setupSection(T('setup.databases'), T('setup.databases_sub'));
+  if (!plan.databases.length && !plan.nextcloud.length && !plan.missing_databases.length) {
+    s.appendChild(el('p', 'role', T('setup.no_databases')));
+    return s;
+  }
+  const list = el('div', 'box');
+  plan.databases.forEach((d) => {
+    const row = el('div', 'row nocheck');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name', d.container));
+    const meta = el('div', 'row-meta');
+    meta.appendChild(chip(T('setup.dbtype.' + d.type), d.type === 'cache' ? 'quiet' : ''));
+    if (d.stack !== '-') meta.appendChild(el('span', '', d.stack));
+    meta.appendChild(el('span', d.where.includes('!') ? 'bk-bad' : '', T('setup.db_where', { where: d.where.replace('im Container!', T('setup.db_inside')) })));
+    main.appendChild(meta);
+    row.appendChild(main);
+    if (d.dumpable) {
+      const key = `dump|${d.container}|type`;
+      row.appendChild(checkbox(T('setup.db_dump'), dget(key) !== undefined, (v) => dset(key, v ? d.type : undefined)));
+    } else {
+      row.appendChild(el('span', 'role', T(d.type === 'cache' ? 'setup.db_cache' : 'setup.db_snapshot')));
+    }
+    list.appendChild(row);
+  });
+  plan.nextcloud.forEach((n) => {
+    const row = el('div', 'row nocheck');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name', `Nextcloud: ${n.members.join(' + ')}`));
+    main.appendChild(el('div', 'row-meta', T('setup.nc_text')));
+    row.appendChild(main);
+    const keys = n.members.map((m) => `nextcloud|${m}|preexisting_maintenance`);
+    const on = keys.some((k) => dget(k) !== undefined);
+    const right = el('div', 'bk-right');
+    const pre = el('select', 'picker');
+    pre.append(new Option(T('setup.nc_abort'), 'abort'), new Option(T('setup.nc_continue'), 'continue'));
+    pre.value = keys.map((k) => dget(k)).find((v) => v) || n.preexisting || 'abort';
+    pre.disabled = !on;
+    pre.title = T('setup.nc_pre_hint');
+    pre.onchange = () => keys.forEach((k) => dset(k, pre.value));
+    right.append(checkbox(T('setup.nc_on'), on, (v) => { keys.forEach((k) => dset(k, v ? pre.value : undefined)); pre.disabled = !v; }), pre);
+    row.appendChild(right);
+    list.appendChild(row);
+  });
+  s.appendChild(list);
+  plan.missing_databases.forEach((m) => s.appendChild(el('p', 'callout warn', T('setup.db_missing', { stack: m.stack, service: m.service, type: m.type }))));
+  return s;
+}
+
+function setupGeneral(plan) {
+  const s = setupSection(T('setup.general'), T('setup.general_sub'));
+  const box = el('div', 'bk-form');
+  const zfs = plan.bases.some((b) => b.fs === 'zfs');
+  const btrfs = plan.bases.some((b) => b.fs === 'btrfs');
+  if (zfs) {
+    box.appendChild(field(T('setup.g_zfs'), textInput('zfs|retention', /^\d+ \d+ \d+$/), T('setup.g_zfs_hint')));
+    box.appendChild(field(T('setup.g_prefix'), textInput('general|snap_prefix', /^[a-z0-9_]+-$/), T('setup.g_prefix_hint')));
+  }
+  if (btrfs) {
+    box.appendChild(field(T('setup.g_btrfs_days'), textInput('btrfs|keep_days', /^\d+$/)));
+    box.appendChild(field(T('setup.g_btrfs_free'), textInput('btrfs|min_free_gb', /^\d+$/), T('setup.g_btrfs_free_hint')));
+    box.appendChild(checkbox(T('setup.g_btrfs_all'), dget('btrfs|snapshot_all') === 'yes', (v) => dset('btrfs|snapshot_all', v ? 'yes' : 'no')));
+  }
+  box.appendChild(field(T('setup.g_keep_runs'), textInput('general|keep_runs', /^\d+$/), T('setup.g_keep_runs_hint')));
+  const flashOpts = plan.flash.dataset ? ['snapshot', 'tar', 'off'] : ['tar', 'off'];
+  box.appendChild(field(T('setup.g_flash'), selectInput('flash|mode', flashOpts, (o) => T('setup.flash.' + o)),
+    plan.flash.dataset ? T('setup.g_flash_zfs', { ds: plan.flash.dataset }) : T('setup.g_flash_other', { fs: plan.flash.fs || '?' })));
+  box.appendChild(checkbox(T('setup.g_notify'), dget('general|notify_success') === 'yes', (v) => dset('general|notify_success', v ? 'yes' : 'no')));
+  s.appendChild(box);
+  return s;
+}
+
+function setupPolicies() {
+  const s = setupSection(T('setup.policies'), T('setup.policies_sub'));
+  const box = el('div', 'bk-form');
+  const keep = el('div', 'bk-keep');
+  ['latest', 'hourly', 'daily', 'weekly', 'monthly', 'annual'].forEach((x) => {
+    keep.appendChild(field(T('setup.p_' + x), textInput(`kopia|keep_${x}`, /^(\d+|inherit)$/)));
+  });
+  box.appendChild(keep);
+  box.appendChild(field(T('setup.p_compression'), textInput('kopia|compression', /^[a-z0-9-]+$/), T('setup.p_compression_hint')));
+  box.appendChild(field(T('setup.p_ignore'), listInput('kopia|ignore', 4), T('setup.p_ignore_hint')));
+  s.appendChild(box);
+  return s;
+}
+
+function setupSources(old) {
+  const s = setupSection(T('setup.sources'), T('setup.sources_sub'));
+  const ul = el('ul', 'shortlist');
+  old.forEach((o) => ul.appendChild(el('li', '', o.source)));
+  s.appendChild(ul);
+  s.appendChild(checkbox(T('setup.sources_manual'), setup.retire, (v) => { setup.retire = v; }, T('setup.sources_manual_hint')));
+  return s;
+}
+
+function setupMessages(msgs) {
+  const s = section(T('setup.messages'));
+  const det = el('details', 'bk-log');
+  const counts = { error: 0, warn: 0 };
+  (msgs || []).forEach((m) => { if (counts[m.level] !== undefined) counts[m.level]++; });
+  det.appendChild(el('summary', '', T('setup.messages_sum', { n: (msgs || []).length, errors: counts.error, warnings: counts.warn })));
+  const ul = el('ul', 'bk-msgs');
+  (msgs || []).forEach((m) => {
+    const li = el('li', m.level);
+    li.append(el('span', 'bk-step', T('setup.step.' + (m.step || 'other'))), m.text);
+    ul.appendChild(li);
+  });
+  det.appendChild(ul);
+  if (counts.error || counts.warn) det.open = true;
+  s.appendChild(det);
+  return s;
+}
+
 // ------------------------------------------------------------------ desk
 Office.desk({
   id: ID,
-  async mount(root) {
+  async mount(root, sub) {
     view = root;
-    render();
-    await load(false);
+    clearTimeout(setupTimer);
+    page = sub === 'setup' ? 'setup' : 'main';
+    if (page === 'setup') {
+      renderSetup();
+      if (!state) await load(false);
+      await setupLoad();
+    } else {
+      Office.selbar(null);
+      render();
+      await load(false);
+    }
   },
   unmount() {
     view = null;
     clearTimeout(liveTimer);
+    clearTimeout(setupTimer);
   },
-  poll() { load(false); },
-  agentChanged() { if (view) render(); },
+  poll() { if (page === 'main') load(false); },
+  agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
   menu() {
     const items = [{ text: T('menu.refresh'), act: () => load(true) }];
     if (state && state.found) {

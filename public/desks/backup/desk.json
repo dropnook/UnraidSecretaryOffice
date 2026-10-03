@@ -2,5 +2,9 @@
   "order": 30,
   "icon": "💾",
   "refresh_after": 30,
-  "open_actions": ["log"]
+  "open_actions": [
+    "log",
+    "setup_get",
+    "setup_plan"
+  ]
 }

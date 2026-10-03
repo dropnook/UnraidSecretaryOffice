@@ -8,7 +8,7 @@ server, tells you what they noticed and — where it makes sense — lets you ac
 | 📸 **Ms. Snapshot** | Every snapshot on the server: ZFS (all pools), btrfs (array disks and pools) and VM snapshots (Unraid's own list and libvirt). Create, delete with an estimate of the space freed, rename, hold/release, unmount. Knows Docker's image layers and leaves them alone, never wakes sleeping disks on her own, and detects a running backup so its mounted snapshots stay untouched. |
 | 🧭 **Ms. Whereabouts** | Knows where everything is and what is going on: shares and where they live, the first folder level of pool shares (and which folders nobody uses), containers (template or compose), compose projects, VMs, users and their share access, SMB/NFS and active sessions, user scripts and cron jobs (with dead paths), places that look like backups, disks with temperature, SMART findings and fill level, Unraid's unread notifications, the license, plugins. Read only. |
 
-| 💾 **Mr. Backup** | Runs the office's backup engine ([backup/](backup/README.md): consistent ZFS/btrfs snapshots, database dumps, Nextcloud maintenance mode, Kopia offsite): what a run is doing right now and when it will be done (estimated from earlier runs), how the last nights went, which share is protected how (Kopia offsite, local snapshot, not at all) and when it was last copied offsite, what changed on the server since the setup, whether a nightly run is scheduled, and how to get things back (snapshot paths, Kopia, database dumps with ready-made restore commands). Starts a full run, a run without Kopia, a dry run or a check, and stops a run cleanly. |
+| 💾 **Mr. Backup** | Runs the office's backup engine ([backup/](backup/README.md): consistent ZFS/btrfs snapshots, database dumps, Nextcloud maintenance mode, Kopia offsite): what a run is doing right now and when it will be done (estimated from earlier runs), how the last nights went, which share is protected how (Kopia offsite, local snapshot, not at all) and when it was last copied offsite, what changed on the server since the setup, whether a nightly run is scheduled, and how to get things back (snapshot paths, Kopia, database dumps with ready-made restore commands). Starts a full run, a run without Kopia, a dry run or a check, and stops a run cleanly. **Set up in the browser** (*Set up…*): he reads the server and shows his proposals with reasons — Kopia offsite, every share, which containers stop for the snapshots, database dumps and Nextcloud maintenance mode, retention, Kopia policies — you change what you like and apply; the same engine as `setup.sh` in a terminal checks and writes it. |
 
 | 🧰 **Mr. Caretaker** | Looks after the house. Every desk tells him what it needs from the server; he adds what the office as a whole benefits from and lists what is missing — *still to do* (only you can do it, in Unraid), *recommended* (e.g. Fix Common Problems, Files Viewer, notifications by mail or push, a PIN) and *good to know* (other backup tools, so nothing runs twice by accident) — each with a link into Unraid's web UI. Especially helpful on a fresh server. Read only. |
 
@@ -60,9 +60,9 @@ Requirements: Unraid 6.12 or newer (7.x recommended), the
    docker compose -p unraidsecretaryoffice up -d
    ```
 4. Open `http://<OFFICE_IP>/`.
-5. For backups: set up the engine once in a terminal,
-   `/mnt/user/appdata/UnraidSecretaryOffice/backup/setup.sh`, and give its
-   User Scripts entry a schedule. Mr. Backup takes it from there.
+5. For backups: Mr. Backup → *Set up…* (or `backup/setup.sh` in a terminal),
+   then give the User Scripts entry `unraid-backup` a schedule. Mr. Caretaker
+   lists what is still missing.
 
 The green dot top left means the agent checked in within the last 70 seconds.
 

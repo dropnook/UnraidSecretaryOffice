@@ -41,6 +41,9 @@ desk('backup', [
         'abort'   => fn (array $r) => backupAbort(),
         'unmount' => fn (array $r) => backupUnmount(),
         'log'     => fn (array $r) => backupLog(textField($r, 'log')),
+        'setup_plan'  => fn (array $r) => backupSetupPlan(!empty($r['measure'])),
+        'setup_get'   => fn (array $r) => backupSetupGet(),
+        'setup_apply' => fn (array $r) => backupSetupApply($r['decisions'] ?? null),
     ],
     'checks' => fn () => backupChecks(),
 ]);
@@ -69,7 +72,9 @@ function backupScan(): array
 
     $about = backupAbout($dir);
     $settings = backupReadSettings("$data/settings.ini");
-    $running = flockHeld("$data/state/lock");
+    $setup = backupSetupStatus();
+    // the lock is shared with setup.sh: while it plans or applies, no backup is running
+    $running = flockHeld("$data/state/lock") && !$setup['running'];
     $status = readJson("$data/state/status.json");
     if ($status && ($status['interface'] ?? 0) < BACKUP_INTERFACE) {
         $status = null;
@@ -102,6 +107,7 @@ function backupScan(): array
         'schedule'   => backupSchedule(),
         'logs'       => array_values(array_map(fn ($l) => ['name' => $l['name'], 'kind' => $l['kind'], 'time' => $l['time'], 'size' => $l['size']], $logs)),
         'mounted'    => backupMounted(backupSetting($settings, 'general', 'mount_root')),
+        'setup'      => $setup,
     ];
     $state['found'] = true;
     $GLOBALS['backup'] = $state;
@@ -524,18 +530,26 @@ function backupCheckReady(): string
         throw new Problem('backup_too_old', ['version' => backupAbout($dir)['version'] ?? '?']);
     }
     if (flockHeld("$data/state/lock")) {
-        throw new Problem('backup_running');
+        throw new Problem(backupSetupStatus()['running'] ? 'setup_running' : 'backup_running');
     }
     return $dir;
 }
 
-/** Hands a command to the host's atd, so it lives on without the agent */
-function backupLaunch(array $args): void
+/**
+ * Hands a command to the host's atd, so it lives on without the agent. The
+ * scripts run through bash rather than being executed directly: right after
+ * an edit over SMB, Samba may still hold the file open ("Text file busy").
+ */
+function backupLaunch(array $args, array $env = []): void
 {
     $job = RUN_DIR . '/backup-job.sh';
-    $line = implode(' ', array_map('escapeshellarg', $args));
+    $line = implode(' ', array_map('escapeshellarg', array_merge(['/bin/bash'], $args)));
+    $exports = '';
+    foreach ($env as $k => $v) {
+        $exports .= $k . '=' . escapeshellarg((string) $v) . "\nexport $k\n";
+    }
     $script = "#!/bin/sh\n# written by the Unraid Secretary Office agent\n"
-            . "PATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin\nexport PATH\ncd /\n"
+            . "PATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin\nexport PATH\n$exports" . "cd /\n"
             . "exec $line </dev/null >/dev/null 2>&1\n";
     @mkdir(RUN_DIR, 0700, true);
     if (@file_put_contents($job, $script) === false) {
@@ -740,4 +754,105 @@ function backupChecks(): array
     }
 
     return $out;
+}
+
+// ===================================================================== setup (setup.sh --plan / --apply)
+
+const BACKUP_SETUP_KEYS = ['mode', 'retention', 'kopia_retention', 'method', 'kopia_ignore', 'exclude_dataset'];
+
+/** setup.sh's progress (state/setup-status.json), without the messages */
+function backupSetupStatus(): array
+{
+    $data = BACKUP_DATA_DIR;
+    $s = readJson("$data/state/setup-status.json");
+    $running = $s && ($s['result'] ?? '') === 'running' && posix_kill((int) ($s['pid'] ?? 0), 0)
+        && flockHeld("$data/state/lock");
+    if ($s && ($s['result'] ?? '') === 'running' && !$running) {
+        $s['result'] = 'failed';               // killed hard
+    }
+    return [
+        'running' => $running,
+        'mode'    => $s['mode'] ?? null,
+        'result'  => $s['result'] ?? null,
+        'started' => $s['started'] ?? null,
+        'finished' => $s['finished'] ?? null,
+        'written' => $s['written'] ?? false,
+        'errors'  => $s['errors'] ?? 0,
+        'warnings' => $s['warnings'] ?? 0,
+        'plan_time' => @filemtime("$data/state/setup-plan.json") ?: null,
+    ];
+}
+
+/** Looks at the server and makes proposals — writes nothing but state/setup-plan.json */
+function backupSetupPlan(bool $measure): array
+{
+    $dir = backupCheckReady();
+    backupLaunch(["$dir/setup.sh", '--plan'], ['UB_SIZE_TIMEOUT' => $measure ? 120 : 0]);
+    logLine('Backup: setup.sh --plan started via at' . ($measure ? ' (measuring sizes)' : ''));
+    return ['ok' => true, 'started' => backupSetupWait(), 'state' => backupScan()];
+}
+
+/** The last plan plus progress and messages of the last plan/apply */
+function backupSetupGet(): array
+{
+    $data = BACKUP_DATA_DIR;
+    return [
+        'ok'     => true,
+        'status' => backupSetupStatus(),
+        'run'    => readJson("$data/state/setup-status.json"),
+        'plan'   => readJson("$data/state/setup-plan.json"),
+    ];
+}
+
+/**
+ * Applies the user's decisions: settings.ini keys as in the plan's P. Only
+ * keys the plan knows (or per-share/-database keys of things it listed) get
+ * through; setup.sh validates the values again before it writes.
+ */
+function backupSetupApply(mixed $decisions): array
+{
+    $dir = backupCheckReady();
+    $data = BACKUP_DATA_DIR;
+    $plan = readJson("$data/state/setup-plan.json");
+    if (!$plan || !is_array($decisions) || !$decisions || array_is_list($decisions) || count($decisions) > 5000) {
+        throw new Problem('setup_bad_decisions', ['detail' => $plan ? 'decisions' : 'no plan']);
+    }
+    $shares = array_column($plan['shares'] ?? [], 'name');
+    $dbs = array_column(array_filter($plan['databases'] ?? [], fn ($d) => !empty($d['dumpable'])), 'container');
+    $ncs = array_merge(...array_map(fn ($n) => $n['members'] ?? [], $plan['nextcloud'] ?? []) ?: [[]]);
+    $clean = [];
+    foreach ($decisions as $key => $value) {
+        $key = (string) $key;
+        $ok = $key === '_retire_sources' || array_key_exists($key, $plan['P'] ?? [])
+            || (preg_match('/^share\|(.+)\|([a-z_]+)$/', $key, $m) && in_array($m[1], $shares, true) && in_array($m[2], BACKUP_SETUP_KEYS, true))
+            || (preg_match('/^dump\|(.+)\|type$/', $key, $m) && in_array($m[1], $dbs, true))
+            || (preg_match('/^nextcloud\|(.+)\|preexisting_maintenance$/', $key, $m) && in_array($m[1], $ncs, true));
+        $plain = fn ($v) => is_string($v) && strlen($v) <= 500 && !preg_match('/[\x00-\x1f]/', $v);
+        $valid = $plain($value) || (is_array($value) && array_is_list($value) && count($value) <= 1000 && !in_array(false, array_map($plain, $value), true));
+        if (!$ok || !$valid) {
+            throw new Problem('setup_bad_decisions', ['detail' => $key]);
+        }
+        $clean[$key] = $value;
+    }
+    $file = "$data/state/setup-decisions.json";
+    writeAtomic($file, jsonEncode($clean), 0600, 0, 0);
+    backupLaunch(["$dir/setup.sh", "--apply=$file"], ['UB_SIZE_TIMEOUT' => 0]);
+    logLine('Backup: setup.sh --apply started via at (' . count($clean) . ' decisions)');
+    return ['ok' => true, 'started' => backupSetupWait(), 'state' => backupScan()];
+}
+
+/** Until setup.sh reports that it runs (a moment), or gives up */
+function backupSetupWait(): bool
+{
+    $data = BACKUP_DATA_DIR;
+    $before = time() - 1;
+    for ($i = 0; $i < 40; $i++) {
+        usleep(250000);
+        clearstatcache();
+        $s = readJson("$data/state/setup-status.json");
+        if ((int) ($s['started'] ?? 0) >= $before) {
+            return true;
+        }
+    }
+    return false;
 }

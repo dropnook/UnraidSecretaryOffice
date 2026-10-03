@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.6 - 3.10.2026
+# unraid-backup - setup.sh                        Version 2.8 - 3.10.2026
+#   2.8  (nur backup.sh: Apps vor den Dumps anhalten)
+#   2.7  --plan / --apply fuer den Setup-Assistenten von Herrn Backup: Vorschlaege
+#        mit Begruendungs-Codes als JSON, Entscheidungen als JSON zurueck,
+#        Fortschritt in state/setup-status.json
 #   2.6  Teil des Unraid Secretary Office: Daten in <office>/data/unraid-backup
 #   2.5  (nur backup.sh: Status-Dateien fuer andere Programme)
 #   2.4  Lesbarere Ausgabe: Schritte als farbiger Balken, Tabellen mit
@@ -35,6 +39,14 @@
 #   UB_SETUP=check     --check    nur pruefen und berichten, nichts schreiben
 #   UB_SETUP=kopia     --kopia    nur den Kopia-Teil mit der bestehenden
 #                                 settings.ini (Policies angleichen)
+#   UB_SETUP=plan      --plan     wie --yes, schreibt aber nichts: alle Vorschlaege,
+#                                 Begruendungen und Pruefergebnisse nach
+#                                 state/setup-plan.json (fuer Herrn Backup)
+#   UB_SETUP=apply     --apply=<datei>  Entscheidungen (JSON: settings.ini-Schluessel
+#                                 wie in setup-plan.json -> Wert) ueber die bisherigen
+#                                 Werte legen, dann wie --yes pruefen und schreiben
+#                                 Beide schreiben ihren Fortschritt nach
+#                                 state/setup-status.json
 #   UB_YES=1           --yes      alle Vorschlaege ohne Rueckfrage uebernehmen
 #                                 (auch zusammen mit --kopia; loescht nie Kopia-Quellen)
 #   UB_EXPLAIN=0                  Erklaerungen zu jedem Schritt weglassen
@@ -64,6 +76,8 @@ for a in "$@"; do
     case "$a" in
         --check) UB_SETUP="check" ;;
         --kopia) UB_SETUP="kopia" ;;
+        --plan)  UB_SETUP="plan" ;;
+        --apply=*) UB_SETUP="apply"; UB_DECISIONS="${a#--apply=}" ;;
         --yes)   UB_YES=1 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unbekannte Option: $a  (siehe --help)"; exit 2 ;;
@@ -71,9 +85,9 @@ for a in "$@"; do
 done
 MODE="${UB_SETUP:-interactive}"
 YES="${UB_YES:-0}"
-[[ "$MODE" == "auto" ]] && YES=1
+[[ "$MODE" == "auto" || "$MODE" == "plan" || "$MODE" == "apply" ]] && YES=1
 [[ "$MODE" == "interactive" && "$YES" == "1" ]] && MODE="auto"
-case "$MODE" in interactive|check|kopia|auto) ;; *) echo "UB_SETUP=$MODE ist unbekannt"; exit 2 ;; esac
+case "$MODE" in interactive|check|kopia|auto|plan|apply) ;; *) echo "UB_SETUP=$MODE ist unbekannt"; exit 2 ;; esac
 SIZE_TIMEOUT="${UB_SIZE_TIMEOUT:-120}"
 EXPLAIN="${UB_EXPLAIN:-1}"
 
@@ -129,10 +143,19 @@ fi
 say()  { printf '%s\n' "$*"; printf '%s\n' "$*" | sed 's/\x1b\[[0-9;]*[mK]//g' >>"$LOG_FILE"; }
 # say2 <bildschirm> <protokoll> - wo beide verschieden aussehen sollen
 say2() { printf '%s\n' "$1"; printf '%s\n' "$2" >>"$LOG_FILE"; }
-ok()   { say "  ${C_G}OK${C_0}     $*"; }
-hint() { say "  ${C_D}..${C_0}     $*"; }
-wrn()  { WARNINGS=$((WARNINGS+1)); say "  ${C_Y}WARNUNG${C_0} $*"; }
-bad()  { ERRORS=$((ERRORS+1));     say "  ${C_R}FEHLER${C_0}  $*"; }
+ok()   { say "  ${C_G}OK${C_0}     $*"; msg ok "$*"; }
+hint() { say "  ${C_D}..${C_0}     $*"; msg hint "$*"; }
+wrn()  { WARNINGS=$((WARNINGS+1)); say "  ${C_Y}WARNUNG${C_0} $*"; msg warn "$*"; }
+bad()  { ERRORS=$((ERRORS+1));     say "  ${C_R}FEHLER${C_0}  $*"; msg error "$*"; }
+# Meldungen fuer --plan/--apply sammeln: "stufe<US>schritt<US>text" (ohne Farben)
+declare -a MSGS=()
+STEP_ID=""
+msg() {
+    [[ "$MODE" == "plan" || "$MODE" == "apply" ]] || return 0
+    local t
+    t="$(sed 's/\x1b\[[0-9;]*[mK]//g' <<<"$2")"
+    MSGS+=( "$1"$'\x1f'"$STEP_ID"$'\x1f'"$t" )
+}
 # explain <<'TXT' ... TXT  - Hintergrund zu einem Schritt (UB_EXPLAIN=0 schaltet ab)
 explain() {
     local l
@@ -186,6 +209,8 @@ ask_yn() { # ask_yn <frage> <j|n>  -> 0 = ja
 ##############################################################################
 declare -A P=()
 declare -A WHY=()          # Begruendung je Share
+declare -A WHY_CODE=() WHY_ARG=()   # dieselbe als Code + Wert (fuer Oberflaechen)
+why() { WHY[$1]="$4"; WHY_CODE[$1]="$2"; WHY_ARG[$1]="$3"; }   # why <share> <code> <wert> <text>
 
 declare -A OLD=()          # settings.ini, wie sie beim Start war
 declare -a OLD_SECTIONS=()
@@ -313,6 +338,7 @@ TXT
         hint "Noch keine settings.ini - Vorschlaege kommen aus dem System"
     fi
     old_keep
+    [[ "$MODE" == "apply" ]] && decisions_load
 
     # Allgemeine Vorgaben
     pinit "general|server"         "$(hostname -s 2>/dev/null)"
@@ -446,18 +472,18 @@ declare -A SH_GB=()
 PROP_MODE=""
 share_propose() {
     local s="$1" gb n img b src r
-    if ! share_name_ok "$s"; then WHY[$s]="Name mit @ : \" oder | wird nicht unterstuetzt"; PROP_MODE=off; return; fi
+    if ! share_name_ok "$s"; then why "$s" name_bad "" "Name mit @ : \" oder | wird nicht unterstuetzt"; PROP_MODE=off; return; fi
     case "$s" in
-        system)  WHY[$s]="Docker-Image/libvirt - wird neu erzeugt"; PROP_MODE=off; return ;;
-        domains) WHY[$s]="VM-vDisks - laufende VMs sind nicht konsistent, VM-Backup separat"; PROP_MODE=off; return ;;
+        system)  why "$s" system "" "Docker-Image/libvirt - wird neu erzeugt"; PROP_MODE=off; return ;;
+        domains) why "$s" domains "" "VM-vDisks - laufende VMs sind nicht konsistent, VM-Backup separat"; PROP_MODE=off; return ;;
     esac
     # Time-Machine-Ziel: enthaelt schon Sicherungen anderer Rechner und aendert
     # sich staendig in grossen Bloecken
     local tm
     if tm="$(timemachine_reason "$s")"; then
-        WHY[$s]="Time Machine ($tm) - Sicherungen anderer Rechner"; PROP_MODE=off; return
+        why "$s" timemachine "$tm" "Time Machine ($tm) - Sicherungen anderer Rechner"; PROP_MODE=off; return
     fi
-    if matches_any "$s" "${DRIFT_IGNORE[@]}"; then WHY[$s]="passt auf drift.ignore"; PROP_MODE=off; return; fi
+    if matches_any "$s" "${DRIFT_IGNORE[@]}"; then why "$s" drift_ignore "" "passt auf drift.ignore"; PROP_MODE=off; return; fi
     # Config, Cache, Logs oder lokales Repository des Kopia-Containers nie sichern
     # (Daten-Mappings fuer eigene Kopia-Quellen zaehlen nicht dazu)
     if [[ -n "$KOPIA_CONTAINER" ]]; then
@@ -466,7 +492,7 @@ share_propose() {
             [[ -z "$src" ]] && continue
             kopia_workdir "$dst" || continue
             r="$(path_share "$src")" || continue
-            [[ "${r%%|*}" == "$s" && -z "${r#*|}" ]] && { WHY[$s]="Config/Cache/Repository von Kopia"; PROP_MODE=off; return; }
+            [[ "${r%%|*}" == "$s" && -z "${r#*|}" ]] && { why "$s" kopia_workdir "" "Config/Cache/Repository von Kopia"; PROP_MODE=off; return; }
         done <<<"${CT_BINDS[$KOPIA_CONTAINER]:-}"
     fi
     gb="${SH_GB[$s]:-}"
@@ -474,12 +500,12 @@ share_propose() {
         # Container-Daten (appdata & Co.) nie wegen der Groesse abschalten - dort
         # sind die grossen Ordner (Caches, Blockchains ...) auszunehmen, nicht der Share
         if is_container_share "$s"; then
-            WHY[$s]="Container-Daten, gross ($(gb_fmt "$gb")) - grosse Ordner gleich danach ausnehmen"; PROP_MODE=kopia; return
+            why "$s" big_container "$gb" "Container-Daten, gross ($(gb_fmt "$gb")) - grosse Ordner gleich danach ausnehmen"; PROP_MODE=kopia; return
         fi
-        WHY[$s]="gross ($(gb_fmt "$gb")) - bewusst entscheiden"; PROP_MODE=off; return
+        why "$s" big "$gb" "gross ($(gb_fmt "$gb")) - bewusst entscheiden"; PROP_MODE=off; return
     fi
-    [[ "${INV_METHOD[$s]}" == "none" ]] && { WHY[$s]="noch leer"; PROP_MODE=kopia; return; }
-    WHY[$s]="neu"; PROP_MODE=kopia
+    [[ "${INV_METHOD[$s]}" == "none" ]] && { why "$s" empty "" "noch leer"; PROP_MODE=kopia; return; }
+    why "$s" new "" "neu"; PROP_MODE=kopia
 }
 
 share_table() {
@@ -646,14 +672,14 @@ TXT
             for k in mode retention kopia_retention method kopia_ignore exclude_dataset; do
                 [[ -n "${OLD[share|$o|$k]+x}" ]] && P[share|$s|$k]="${OLD[share|$o|$k]}"
             done
-            WHY[$s]="umbenannt aus '$o' - Einstellungen uebernommen"
-            WHY[$o]="existiert nicht mehr (umbenannt in '$s')"
+            why "$s" renamed_from "$o" "umbenannt aus '$o' - Einstellungen uebernommen"
+            why "$o" renamed_to "$s" "existiert nicht mehr (umbenannt in '$s')"
         elif old_has "share|$s"; then
-            [[ -z "${WHY[$s]:-}" ]] && WHY[$s]="bisher"
+            [[ -z "${WHY[$s]:-}" ]] && why "$s" previous "" "bisher"
             pinit "share|$s|mode" off
             # Kopia wurde gerade eingeschaltet: was bisher nur lokal lief, kommt mit
             if is_yes "$KOPIA_ENABLED" && [[ "$(old "kopia|enabled" yes)" == "no" && "$(pget "share|$s|mode")" == "snapshot" ]]; then
-                pset "share|$s|mode" kopia; WHY[$s]="Kopia neu eingeschaltet"
+                pset "share|$s|mode" kopia; why "$s" kopia_on "" "Kopia neu eingeschaltet"
             fi
         else
             share_propose "$s"
@@ -661,10 +687,10 @@ TXT
         fi
         # Ohne Kopia gibt es nur lokal oder gar nicht
         if ! is_yes "$KOPIA_ENABLED" && [[ "$(pget "share|$s|mode")" == "kopia" ]]; then
-            pset "share|$s|mode" snapshot; WHY[$s]="${WHY[$s]:+${WHY[$s]}; }Kopia aus -> lokal"
+            pset "share|$s|mode" snapshot; why "$s" kopia_off_local "" "${WHY[$s]:+${WHY[$s]}; }Kopia aus -> lokal"
         fi
         if ! inv_has_share "$s"; then
-            [[ "${WHY[$s]:-}" == "existiert nicht mehr"* ]] || WHY[$s]="existiert nicht mehr - Eintrag wird entfernt"
+            [[ "${WHY[$s]:-}" == "existiert nicht mehr"* ]] || why "$s" gone "" "existiert nicht mehr - Eintrag wird entfernt"
         fi
         [[ -n "${P[share|$s|retention]+x}" ]] || pinit "share|$s|retention" ""
         [[ -z "$(pget "share|$s|retention")" ]] && unset "P[share|$s|retention]"
@@ -706,10 +732,10 @@ TXT
         for i in $(expand_nums "$rest"); do
             s="${SH[$((i-1))]:-}"; [[ -z "$s" ]] && continue
             case "$cmd" in
-                k) if is_yes "$KOPIA_ENABLED"; then pset "share|$s|mode" kopia; WHY[$s]="von dir gesetzt"
+                k) if is_yes "$KOPIA_ENABLED"; then pset "share|$s|mode" kopia; why "$s" user "" "von dir gesetzt"
                    else say "  Kopia ist aus - '$s' bleibt lokal (Kopia einschalten: setup.sh erneut, Schritt 3)"; fi ;;
-                s) pset "share|$s|mode" snapshot; WHY[$s]="von dir gesetzt" ;;
-                o) pset "share|$s|mode" off;      WHY[$s]="von dir gesetzt" ;;
+                s) pset "share|$s|mode" snapshot; why "$s" user "" "von dir gesetzt" ;;
+                o) pset "share|$s|mode" off;      why "$s" user "" "von dir gesetzt" ;;
                 d) share_details "$s" ;;
             esac
         done
@@ -772,23 +798,25 @@ declare -A NC_GROUP=()     # Nextcloud-Container -> die anderen Container dersel
 # Schritt 4: Container
 ##############################################################################
 declare -A CT_STOP=() CT_WHY=()
+declare -A CT_CODE=() CT_ARG=() CT_PREV=() CT_RISK=()   # Begruendung als Code (fuer Oberflaechen)
+ctwhy() { CT_WHY[$1]="$4"; CT_CODE[$1]="$2"; CT_ARG[$1]="$3"; }   # ctwhy <container> <code> <wert> <text>
 
 container_needs_stop() { # setzt CT_WHY; 0 = anhalten
     local n="$1" src r s rel touched="" ign=""
-    if [[ -n "${CT_VOLUMES[$n]}" ]]; then CT_WHY[$n]="hat Docker-Volumes"; return 0; fi
+    if [[ -n "${CT_VOLUMES[$n]}" ]]; then ctwhy "$n" volumes "" "hat Docker-Volumes"; return 0; fi
     while IFS='|' read -r src _ _; do
         [[ -z "$src" ]] && continue
         [[ "$src" == "$UB_MNT"* ]] || continue
         r="$(path_share "$src")" || continue
         s="${r%%|*}"; rel="${r#*|}"
-        if [[ "$s" == "*" ]]; then CT_WHY[$n]="bindet $src ganz ein"; return 0; fi
+        if [[ "$s" == "*" ]]; then ctwhy "$n" binds_root "$src" "bindet $src ganz ein"; return 0; fi
         [[ "$(pget "share|$s|mode" off)" == "off" ]] && continue
         if ignored_rel "$s" "$rel"; then ign+="$s/$rel "; continue; fi
         touched+="$s${rel:+/$rel} "
     done <<<"${CT_BINDS[$n]:-}"
-    if [[ -n "$touched" ]]; then CT_WHY[$n]="schreibt in ${touched% }"; return 0; fi
-    if [[ -n "$ign" ]]; then CT_WHY[$n]="Daten nur in ignorierten Pfaden (${ign% })"; return 1; fi
-    CT_WHY[$n]="keine gesicherten Daten"; return 1
+    if [[ -n "$touched" ]]; then ctwhy "$n" writes "${touched% }" "schreibt in ${touched% }"; return 0; fi
+    if [[ -n "$ign" ]]; then ctwhy "$n" ignored "${ign% }" "Daten nur in ignorierten Pfaden (${ign% })"; return 1; fi
+    ctwhy "$n" no_data "" "keine gesicherten Daten"; return 1
 }
 
 step_containers() {
@@ -813,15 +841,19 @@ TXT
 
     # --- Anhalten
     local had_cfg="no"; old_has "docker" && [[ "$HAVE_SETTINGS" == "yes" ]] && had_cfg="yes"
+    # --apply: die Entscheidungen nennen alle Container (known) - auch beim ersten Setup
+    [[ "$MODE" == "apply" && -n "${OLD[docker|known]+x}" ]] && had_cfg="yes"
     local -a nostop=() known=()
     mapfile -t nostop < <(old_list "docker|no_stop")
     mapfile -t known  < <(old_list "docker|known")
     P[docker|no_stop]=""
     for n in "${CT_NAMES[@]}"; do
-        [[ "$n" == "$KOPIA_CONTAINER" ]] && { CT_STOP[$n]="no"; CT_WHY[$n]="Kopia - laeuft immer weiter"; continue; }
+        [[ "$n" == "$KOPIA_CONTAINER" ]] && { CT_STOP[$n]="no"; ctwhy "$n" kopia "" "Kopia - laeuft immer weiter"; continue; }
         if [[ "$had_cfg" == "yes" ]] && in_list "$n" "${known[@]}"; then
             if in_list "$n" "${nostop[@]}"; then CT_STOP[$n]="no"; else CT_STOP[$n]="yes"; fi
+            CT_PREV[$n]=1
             if container_needs_stop "$n" && [[ "${CT_STOP[$n]}" == "no" ]]; then
+                CT_RISK[$n]=1
                 CT_WHY[$n]="bisher; ${C_Y}ACHTUNG${C_0} ${CT_WHY[$n]} - Snapshot davon nur absturzkonsistent"
             else
                 CT_WHY[$n]="bisher; ${CT_WHY[$n]}"
@@ -846,7 +878,7 @@ TXT
         local cmd="${REPLY%% *}" rest="${REPLY#"${REPLY%% *}"}"
         for i in $(expand_nums "$rest"); do
             n="${CT_NAMES[$((i-1))]:-}"; [[ -z "$n" || "$n" == "$KOPIA_CONTAINER" ]] && continue
-            case "$cmd" in a) CT_STOP[$n]="yes"; CT_WHY[$n]="von dir gesetzt" ;; w) CT_STOP[$n]="no"; CT_WHY[$n]="von dir gesetzt" ;; esac
+            case "$cmd" in a) CT_STOP[$n]="yes"; ctwhy "$n" user "" "von dir gesetzt" ;; w) CT_STOP[$n]="no"; ctwhy "$n" user "" "von dir gesetzt" ;; esac
         done
     done
     for n in "${CT_NAMES[@]}"; do
@@ -890,6 +922,7 @@ ct_data_where() {
     printf '%s' "${out% }"
 }
 
+declare -a DB_ROWS=() DB_MISSING=() NC_ROWS=()   # fuer --plan
 step_databases() {
     hdr "Datenbanken und Nextcloud"
     explain <<'TXT'
@@ -929,6 +962,7 @@ TXT
         in_list "$n" "${DOCKER_NO_STOP[@]}" && proposal+=", ${C_Y}laeuft beim Snapshot weiter${C_0}"
         stack="-"; [[ -n "${CT_PROJECT[$n]}" ]] && stack="${CT_PROJECT[$n]}/${CT_SERVICE[$n]}"
         rows+=( "$n|$stack|$t|$why|$where|$proposal" )
+        DB_ROWS+=( "$n"$'\x1f'"$stack"$'\x1f'"$t"$'\x1f'"$why"$'\x1f'"$where" )
     done
 
     # Compose-Stacks: Datenbank-Dienste ohne Container
@@ -938,6 +972,7 @@ TXT
         IFS='|' read -r stack svc img t why cname <<<"$r"
         compose_container "$stack" "$svc" "$cname" >/dev/null && continue
         missing+=( "$stack|$svc|$img|$t" )
+        DB_MISSING+=( "$stack"$'\x1f'"$svc"$'\x1f'"$img"$'\x1f'"$t" )
     done
 
     if [[ ${#rows[@]} -eq 0 && ${#missing[@]} -eq 0 ]]; then
@@ -965,6 +1000,7 @@ TXT
     for n in "${dump_cands[@]}"; do
         local dflt="j"
         [[ "$HAVE_SETTINGS" == "yes" ]] && ! old_has "dump|$n" && in_list "$n" "${known[@]}" && dflt="n"
+        if [[ "$MODE" == "apply" ]]; then old_has "dump|$n" && dflt="j" || dflt="n"; fi
         if ask_yn "  Dump von '$n' (${dtype[$n]})?" "$dflt"; then
             P[dump|$n|type]="${dtype[$n]}"
             ok "'$n': ${dtype[$n]}-Dump vor jedem Snapshot"
@@ -1011,6 +1047,10 @@ TXT
             { old_has "nextcloud|$n" || ! in_list "$n" "${known[@]}"; } && ndf="j"
             [[ "$(old "nextcloud|$n|preexisting_maintenance" abort)" == "continue" ]] || val="abort"
         done
+        if [[ "$MODE" == "apply" ]]; then
+            ndf="n"; for n in "${m[@]}"; do old_has "nextcloud|$n" && ndf="j"; done
+        fi
+        NC_ROWS+=( "${m[*]}"$'\x1f'"${occ_of[${m[0]}]}"$'\x1f'"$val" )
         if ask_yn "  Nextcloud $names (occ ${occ_of[${m[0]}]}) waehrend Dump und Snapshot in den Wartungsmodus?" "$ndf"; then
             for n in "${m[@]}"; do
                 P[nextcloud|$n|preexisting_maintenance]="$val"
@@ -1109,10 +1149,13 @@ TXT
 ##############################################################################
 KOPIA_MAIN=-1          # Index des Mappings, das mount_root abdeckt
 KOPIA_POLICY_READY="no"
+KOPIA_FAIL=""          # warum der Kopia-Teil nicht durchkam (Code, fuer --plan)
+KOPIA_PROBE=""         # Live-Test: 0 = ok, 1 = Container sieht nichts, 2 = nicht moeglich
 
 step_kopia() {
     hdr "Kopia einrichten"
     if ! is_yes "$KOPIA_ENABLED"; then
+        KOPIA_FAIL="off"
         hint "Kopia ist aus - uebersprungen. Einschalten: setup.sh erneut, Schritt 3."
         return 0
     fi
@@ -1137,7 +1180,7 @@ die Ordner leer. one-file-system=false, damit Kind-Datasets mitkommen.
 TXT
     plan_build
     if [[ ${#PLAN_KOPIA[@]} -eq 0 && "$PLAN_FLASH" != "snapshot" ]]; then
-        hint "Kein Share geht an Kopia - Kopia-Teil uebersprungen"; return 0
+        KOPIA_FAIL="no_shares"; hint "Kein Share geht an Kopia - Kopia-Teil uebersprungen"; return 0
     fi
 
     # --- Container
@@ -1146,16 +1189,16 @@ TXT
     if [[ -z "$c" ]] || ! in_list "$c" "${CT_NAMES[@]}"; then
         for n in "${CT_NAMES[@]}"; do is_kopia_image "${CT_IMAGE[$n]}" && cands+=( "$n" ); done
         if [[ ${#cands[@]} -eq 0 ]]; then
-            bad "Kein Kopia-Container gefunden (Image mit 'kopia' im Namen)"; return 1
+            KOPIA_FAIL="no_container"; bad "Kein Kopia-Container gefunden (Image mit 'kopia' im Namen)"; return 1
         elif [[ ${#cands[@]} -gt 1 ]]; then
             say "  Mehrere Kopia-Container: ${cands[*]}"
             ask "  Welcher sichert dieses Backup" "${cands[0]}"; c="$REPLY"
         else c="${cands[0]}"; fi
     fi
     pset "kopia|container" "$c"; _apply_P
-    in_list "$c" "${CT_NAMES[@]}" || { bad "Container '$c' gibt es nicht"; return 1; }
+    in_list "$c" "${CT_NAMES[@]}" || { KOPIA_FAIL="no_container"; bad "Container '$c' gibt es nicht"; return 1; }
     ok "Container '$c' (${CT_IMAGE[$c]})"
-    [[ "${CT_RUNNING[$c]}" == "true" ]] || { bad "'$c' laeuft nicht - bitte starten und 'setup.sh --kopia' erneut ausfuehren"; return 1; }
+    [[ "${CT_RUNNING[$c]}" == "true" ]] || { KOPIA_FAIL="not_running"; bad "'$c' laeuft nicht - bitte starten und 'setup.sh --kopia' erneut ausfuehren"; return 1; }
 
     # --- Mapping
     sub "Pfad-Mapping"
@@ -1166,7 +1209,7 @@ TXT
         trow "$(printf '    %-28s -> %-22s %-3s %s' "${KM_SRC[$i]}" "${KM_DST[$i]}" "$([[ ${KM_RW[$i]} == true ]] && echo rw || echo ro)" "${KM_PROP[$i]:-rprivate}")"
     done
     if ! k_map "$MOUNT_ROOT"; then
-        bad "Kein Mapping deckt $MOUNT_ROOT ab"
+        KOPIA_FAIL="no_mapping"; bad "Kein Mapping deckt $MOUNT_ROOT ab"
         mapping_help; return 1
     fi
     KOPIA_MAIN=$KMAP_IDX
@@ -1177,7 +1220,7 @@ TXT
     case "${KM_PROP[$KOPIA_MAIN]}" in
         slave|rslave) ok "Propagation ${KM_PROP[$KOPIA_MAIN]}" ;;
         shared|rshared) ok "Propagation ${KM_PROP[$KOPIA_MAIN]} (slave genuegt)" ;;
-        *) bad "Propagation '${KM_PROP[$KOPIA_MAIN]:-rprivate}' - neue Snapshot-Mounts bleiben fuer Kopia unsichtbar"
+        *) KOPIA_FAIL="propagation"; bad "Propagation '${KM_PROP[$KOPIA_MAIN]:-rprivate}' - neue Snapshot-Mounts bleiben fuer Kopia unsichtbar"
            mapping_help; return 1 ;;
     esac
     [[ "${KM_RW[$KOPIA_MAIN]}" == "true" ]] && wrn "Mapping ist beschreibbar - Access Mode 'Read Only - Slave' empfohlen" \
@@ -1189,10 +1232,10 @@ TXT
     done
 
     # --- Live-Probe der Mount-Weitergabe
-    kopia_probe_propagation; local pr=$?
+    kopia_probe_propagation; local pr=$?; KOPIA_PROBE=$pr
     case $pr in
         0) ok "Live-Test: ein neuer Mount unter $MOUNT_ROOT erscheint sofort im Container" ;;
-        1) bad "Live-Test: der Container sieht neue Mounts unter $MOUNT_ROOT NICHT - Container nach der Template-Aenderung neu erstellen?"; return 1 ;;
+        1) KOPIA_FAIL="probe"; bad "Live-Test: der Container sieht neue Mounts unter $MOUNT_ROOT NICHT - Container nach der Template-Aenderung neu erstellen?"; return 1 ;;
         *) wrn "Live-Test nicht moeglich (tmpfs-Mount unter $MOUNT_ROOT scheiterte)" ;;
     esac
 
@@ -1213,7 +1256,7 @@ TXT
     # --- Repository
     sub "Repository"
     if ! kopia_status_load; then
-        bad "Kopia ist mit keinem Repository verbunden (oder 'kopia' antwortet nicht im Container)"
+        KOPIA_FAIL="no_repo"; bad "Kopia ist mit keinem Repository verbunden (oder 'kopia' antwortet nicht im Container)"
         hint "In der KopiaUI verbinden, dann 'setup.sh --kopia'. setup.sh legt bewusst keine Verbindung an."
         return 1
     fi
@@ -1229,7 +1272,7 @@ TXT
     if [[ "$KOPIA_SERVER_UID" == "0" ]]; then
         ok "Kopia-Server laeuft als root - Script und Server teilen Cache und Logs ohne Rechteprobleme"
     else
-        bad "Kopia-Server laeuft als UID $KOPIA_SERVER_UID - backup.sh startet Kopia so NICHT"
+        KOPIA_FAIL="not_root"; bad "Kopia-Server laeuft als UID $KOPIA_SERVER_UID - backup.sh startet Kopia so NICHT"
         explain <<'TXT'
 Snapshots muessen als root laufen, sonst fehlen alle Dateien, die nur ihren Besitzern
 gehoeren (Nextcloud-Daten, Datenbank-Ordner, ...). Kopia schreibt bei jedem Aufruf in
@@ -1430,6 +1473,7 @@ write_settings() {
         ls -1t "$UB_STATE"/settings.ini.[0-9]* 2>/dev/null | tail -n +11 | xargs -r rm -f
     fi
     mv "$tmp" "$UB_SETTINGS"
+    WRITTEN="yes"
     ok "settings.ini geschrieben ($UB_SETTINGS)"
     [[ -f "$UB_STATE/settings.ini.$TS" ]] && hint "Vorherige Fassung: state/settings.ini.$TS"
     return 0
@@ -1465,6 +1509,8 @@ apply_kopia_policies() {
     done
 }
 declare -A KPA=()
+declare -a KOPIA_SOURCES=()   # "zustand<US>quelle" - active foreign orphan own gone
+DECIDE_RETIRE="no"
 
 # Alte und verwaiste Quellen
 step_kopia_sources() {
@@ -1477,17 +1523,20 @@ step_kopia_sources() {
     done < <(kopia_targets)
     local croot; croot="$(k_path "$MOUNT_ROOT")"
     local -a retire=()
+    KOPIA_SOURCES=()
     while IFS= read -r src; do
         [[ -z "$src" ]] && continue
         u="${src%%@*}"; h="${src#*@}"; h="${h%%:*}"; p="${src#*:}"
-        if [[ "$u@$h" != "$KOPIA_ID" ]]; then hint "fremd     $src (andere Identitaet)"; continue; fi
-        if grep -Fxq -- "$p" <<<"$want_paths"; then ok "aktiv     $p"; continue; fi
+        if [[ "$u@$h" != "$KOPIA_ID" ]]; then hint "fremd     $src (andere Identitaet)"; KOPIA_SOURCES+=( "foreign"$'\x1f'"$src" ); continue; fi
+        if grep -Fxq -- "$p" <<<"$want_paths"; then ok "aktiv     $p"; KOPIA_SOURCES+=( "active"$'\x1f'"$src" ); continue; fi
         if [[ "$p" == "$croot" || "$p" == "$croot/"* ]]; then
-            wrn "verwaist  $p (unter $croot, aber kein Share mehr)"; retire+=( "$src" ); continue
+            wrn "verwaist  $p (unter $croot, aber kein Share mehr)"; retire+=( "$src" ); KOPIA_SOURCES+=( "orphan"$'\x1f'"$src" ); continue
         fi
         if docker exec "$KOPIA_CONTAINER" test -e "$p" 2>/dev/null; then
             hint "eigene    $p (nicht von $UB_NAME verwaltet - braucht ihr eigenes Mapping)"
+            KOPIA_SOURCES+=( "own"$'\x1f'"$src" )
         else
+            KOPIA_SOURCES+=( "gone"$'\x1f'"$src" )
             wrn "ohne Pfad $p - existiert im Container nicht mehr (z.B. von einem frueheren Backup-Script)."
             hint "          War das eine eigene Sicherung mit Zeitplan in der KopiaUI, fehlt ihr Mapping -"
             hint "          wieder eintragen oder den Share hier mit mode=kopia aufnehmen."
@@ -1495,8 +1544,10 @@ step_kopia_sources() {
         fi
     done < <(kopia_sources)
 
-    [[ "$MODE" == "check" ]] && return 0
+    [[ "$MODE" == "check" || "$MODE" == "plan" ]] && return 0
     [[ ${#retire[@]} -eq 0 ]] && return 0
+    # --apply: nur auf ausdruecklichen Wunsch (_retire_sources = yes)
+    [[ "$MODE" == "apply" && "$DECIDE_RETIRE" != "yes" ]] && return 0
     local -a tomanual=()
     for src in "${retire[@]}"; do
         u="${src%%@*}"; h="${src#*@}"; h="${h%%:*}"; p="${src#*:}"
@@ -1604,13 +1655,139 @@ run_check() {
 }
 
 ##############################################################################
+# Fuer Oberflaechen: Plan, Entscheidungen, Status (--plan / --apply)
+##############################################################################
+# Alles mit festen, englischen Schluesseln (Schnittstelle UB_INTERFACE wie
+# bei backup.sh). Texte in "text"/"why_text" sind nur fuer Menschen; wer
+# uebersetzt, nimmt die Codes.
+SETUP_STARTED=0
+WRITTEN="no"
+
+# Zeilen "a<US>b<US>c" -> JSON-Array von Objekten mit den Feldnamen $*
+us_json() { jq -Rn --arg f "$*" '($f | split(" ")) as $k
+    | [inputs | split("\u001f") as $v | [range(0; $k | length) | {key: $k[.], value: ($v[.] // "")}] | from_entries]'; }
+
+setup_status_write() { # setup_status_write <ergebnis>
+    local tmp="$UB_STATE/.setup-status.json.$$"
+    if printf '%s\n' "${MSGS[@]}" | us_json level step text | jq -c \
+        --arg mode "$MODE" --arg result "$1" --arg version "$UB_VERSION" --argjson interface "$UB_INTERFACE" \
+        --argjson pid "$$" --argjson started "$SETUP_STARTED" --argjson now "$(date +%s)" \
+        --arg written "$WRITTEN" --argjson errors "$ERRORS" --argjson warnings "$WARNINGS" --arg log "$(basename "$LOG_FILE")" \
+        '{interface: $interface, version: $version, mode: $mode, pid: $pid, started: $started, updated: $now,
+          finished: (if $result == "running" then 0 else $now end), result: $result, written: ($written == "yes"),
+          errors: $errors, warnings: $warnings, log: $log, messages: map(select(.text != ""))}' >"$tmp" 2>/dev/null; then
+        mv -f "$tmp" "$UB_STATE/setup-status.json"
+    else
+        rm -f "$tmp"
+    fi
+}
+
+setup_end() {
+    local rc=$?
+    if (( rc == 0 )); then setup_status_write ok; else setup_status_write failed; fi
+}
+
+# Entscheidungen (JSON-Objekt Schluessel -> Wert oder Liste) ueber die
+# bisherigen Werte legen: sie werden zu den Vorgaben, der Rest laeuft wie --yes.
+# Dumps und Nextclouds gelten nur, wenn sie in den Entscheidungen stehen.
+decisions_load() {
+    local f="${UB_DECISIONS:-}" k v sec n=0
+    [[ -n "$f" && -r "$f" ]] || { bad "Entscheidungen fehlen: ${f:-?}"; exit 1; }
+    jq -e 'type == "object"' "$f" >/dev/null 2>&1 || { bad "Entscheidungen sind kein JSON-Objekt: $f"; exit 1; }
+    for k in "${!OLD[@]}"; do [[ "$k" == dump\|* || "$k" == nextcloud\|* ]] && unset "OLD[$k]"; done
+    local -a keep=(); for sec in "${OLD_SECTIONS[@]}"; do [[ "$sec" == dump\|* || "$sec" == nextcloud\|* ]] || keep+=( "$sec" ); done
+    OLD_SECTIONS=( "${keep[@]}" )
+    while IFS= read -r -d '' k && IFS= read -r -d '' v; do
+        if [[ "$k" == "_retire_sources" ]]; then DECIDE_RETIRE="$v"; continue; fi
+        if [[ ! "$k" =~ ^[a-z_]+(\|[^|]+)?\|[a-z_]+$ || "$v" == *$'\n'* ]]; then wrn "Entscheidung '$k' ignoriert (ungueltig)"; continue; fi
+        OLD[$k]="${v//$'\x1f'/$'\n'}"
+        sec="${k%|*}"; old_has "$sec" || OLD_SECTIONS+=( "$sec" )
+        n=$((n+1))
+    done < <(jq --raw-output0 'to_entries[] | .key, (if (.value | type) == "array" then (.value | map(tostring) | join("\u001f")) else (.value | tostring) end)' "$f")
+    ok "$n Entscheidungen aus dem Sekretariat uebernommen"
+}
+
+# Alles, was eine Oberflaeche zum Entscheiden braucht -> state/setup-plan.json
+plan_write() {
+    local k s n b tmp="$UB_STATE/.setup-plan.json.$$"
+    local p shares cts dbs miss ncs bases srcs maps
+    p="$(for k in "${!P[@]}"; do printf '%s\x1f%s\n' "$k" "${P[$k]//$'\n'/$'\x1e'}"; done \
+        | jq -Rn '[inputs | index("\u001f") as $i | {key: .[0:$i], value: .[$i + 1:]}]
+                  | map(if (.key | test("\\|(ignore|no_stop|known|kopia_ignore|exclude_dataset|tar_exclude)$"))
+                        then .value |= (split("\u001e") | map(select(length > 0))) else . end) | from_entries')"
+    shares="$(for s in "${SH[@]}"; do
+        local kids="" sug=""
+        while IFS='|' read -r b n _; do [[ -n "$n" ]] && kids+="$n"$'\x1e'; done <<<"${INV_CHILDREN[$s]:-}"
+        sug="$(appdata_suggestions "$s" | tr '\n' $'\x1e')"
+        printf '%s\x1f' "$s" "$(pget "share|$s|mode")" "${WHY_CODE[$s]:-}" "${WHY_ARG[$s]:-}" "${WHY[$s]:-}" \
+            "$(inv_locnames "$s" 2>/dev/null)" "$(inv_locnames_short "$s" 2>/dev/null)" "${INV_METHOD[$s]:-}" "${INV_LAYOUT[$s]:-}" \
+            "${SH_GB[$s]:-}" "$(printf '%s' "${INV_NOTE[$s]:-}" | tr '\n' $'\x1e')" "$(inv_has_share "$s" && echo 1)" "$kids" "$sug"
+        echo
+    done | us_json name mode why why_arg why_text locations where method layout gb notes exists children folders \
+         | jq 'map(.exists = (.exists == "1") | .gb = (if .gb == "" then null else (.gb | tonumber) end)
+                   | .notes = (.notes | split("\u001e") | map(select(length > 0)))
+                   | .children = (.children | split("\u001e") | map(select(length > 0)))
+                   | .folders = (.folders | split("\u001e") | map(select(length > 0) | split("|") | {dir: .[0], container: .[1]})))')"
+    cts="$(for n in "${CT_NAMES[@]}"; do
+        printf '%s\x1f' "$n" "${CT_IMAGE[$n]}" "${CT_RUNNING[$n]}" "${CT_STOP[$n]:-}" "${CT_CODE[$n]:-}" "${CT_ARG[$n]:-}" \
+            "${CT_PREV[$n]:-}" "${CT_RISK[$n]:-}" "$(printf '%s' "${CT_VOLUMES[$n]:-}" | cut -d'|' -f2 | tr '\n' $'\x1e')" \
+            "${CT_PROJECT[$n]:-}" "${CT_SERVICE[$n]:-}" "$([[ "$n" == "$KOPIA_CONTAINER" ]] && echo 1)"
+        echo
+    done | us_json name image running stop why why_arg previous risk volumes project service kopia \
+         | jq 'map(.running = (.running == "true") | .stop = (.stop == "yes") | .previous = (.previous == "1")
+                   | .risk = (.risk == "1") | .kopia = (.kopia == "1")
+                   | .volumes = (.volumes | split("\u001e") | map(select(length > 0))))')"
+    dbs="$(printf '%s\n' "${DB_ROWS[@]}" | us_json container stack type detected where \
+         | jq 'map(select(.container != "") | .dumpable = (.type | test("^(mariadb|postgres|mongodb)$")))')"
+    miss="$(printf '%s\n' "${DB_MISSING[@]}" | us_json stack service image type | jq 'map(select(.stack != ""))')"
+    ncs="$(printf '%s\n' "${NC_ROWS[@]}" | us_json members occ preexisting \
+         | jq 'map(select(.members != "") | .members = (.members | split(" ")))')"
+    bases="$(for b in "${INV_BASES[@]}"; do printf '%s\x1f%s\x1f%s\n' "$b" "${INV_BASE_FS[$b]:-}" "${INV_BASE_KIND[$b]:-}"; done | us_json name fs kind)"
+    srcs="$(printf '%s\n' "${KOPIA_SOURCES[@]}" | us_json state source | jq 'map(select(.source != ""))')"
+    maps="$(for k in "${!KM_SRC[@]}"; do printf '%s\x1f' "${KM_SRC[$k]}" "${KM_DST[$k]}" "${KM_RW[$k]}" "${KM_PROP[$k]:-}" "$([[ $k -eq $KOPIA_MAIN ]] && echo 1)"; echo; done \
+         | us_json source target rw propagation main | jq 'map(select(.source != "") | .rw = (.rw == "true") | .main = (.main == "1"))')"
+    local kc="${KOPIA_CONTAINER:-}" cands=""
+    for n in "${CT_NAMES[@]}"; do is_kopia_image "${CT_IMAGE[$n]}" && cands+="$n"$'\x1e'; done
+    printf '%s\n' "${MSGS[@]}" | us_json level step text | jq -c \
+        --argjson interface "$UB_INTERFACE" --arg version "$UB_VERSION" --argjson time "$(date +%s)" \
+        --arg have "$HAVE_SETTINGS" --argjson P "$p" --argjson shares "$shares" --argjson containers "$cts" \
+        --argjson databases "$dbs" --argjson missing "$miss" --argjson nextcloud "$ncs" --argjson bases "$bases" \
+        --arg flash_ds "${FLASH_DATASET:-}" --arg flash_fs "${FLASH_FS:-}" --arg size_timeout "$SIZE_TIMEOUT" \
+        --arg k_enabled "$(pget "kopia|enabled" no)" --arg k_container "$kc" --arg k_cands "$cands" \
+        --arg k_running "${CT_RUNNING[$kc]:-}" --arg k_image "${CT_IMAGE[$kc]:-}" --arg k_ready "$KOPIA_POLICY_READY" \
+        --arg k_fail "$KOPIA_FAIL" --arg k_probe "$KOPIA_PROBE" --argjson k_maps "$maps" \
+        --arg k_connected "${KOPIA_CONNECTED:-no}" --arg k_id "${KOPIA_ID:-}" --arg k_version "${KOPIA_VERSION:-}" \
+        --arg k_storage "${KOPIA_STORAGE:-}" --arg k_host "${KOPIA_HOST:-}" --arg k_uid "${KOPIA_SERVER_UID:-}" \
+        --argjson k_sources "$srcs" --arg mount_root "$MOUNT_ROOT" \
+        '{interface: $interface, version: $version, time: $time, have_settings: ($have == "yes"),
+          sizes_measured: ($size_timeout != "0"), P: $P, shares: $shares, containers: $containers,
+          databases: $databases, missing_databases: $missing, nextcloud: $nextcloud,
+          bases: $bases, flash: {dataset: $flash_ds, fs: $flash_fs}, mount_root: $mount_root,
+          kopia: {enabled: ($k_enabled == "yes"), container: $k_container,
+                  candidates: ($k_cands | split("\u001e") | map(select(length > 0))),
+                  running: ($k_running == "true"), image: $k_image, ready: ($k_ready == "yes"),
+                  problem: (if $k_fail == "" then null else $k_fail end),
+                  probe: (if $k_probe == "" then null else ($k_probe | tonumber) end), mappings: $k_maps,
+                  connected: ($k_connected == "yes"), identity: $k_id, version: $k_version, storage: $k_storage,
+                  host_is_container_id: ($k_host | test("^[0-9a-f]{12}$")), server_uid: $k_uid, sources: $k_sources},
+          messages: map(select(.text != ""))}' >"$tmp" \
+        && mv -f "$tmp" "$UB_STATE/setup-plan.json" && ok "Plan geschrieben: $UB_STATE/setup-plan.json" \
+        || { rm -f "$tmp"; bad "Plan liess sich nicht schreiben"; return 1; }
+}
+
+##############################################################################
 # Ablauf
 ##############################################################################
 exec 9>"$UB_STATE/lock"
 flock -n 9 || { echo "backup.sh laeuft gerade - setup.sh spaeter starten."; exit 1; }
+if [[ "$MODE" == "plan" || "$MODE" == "apply" ]]; then
+    SETUP_STARTED="$(date +%s)"
+    setup_status_write running
+    trap setup_end EXIT
+fi
 
 say "${C_B}$UB_NAME $UB_VERSION - setup ($MODE) auf $(hostname -s)${C_0}"
-[[ "$MODE" != "check" ]] && recover_interrupted_run
+[[ "$MODE" != "check" && "$MODE" != "plan" ]] && recover_interrupted_run
 case "$MODE" in
     check)
         STEPS=1; run_check ;;
@@ -1624,15 +1801,27 @@ case "$MODE" in
         mapfile -t SH < <(cfg_names share)
         inv_scan; docker_load
         step_kopia && { write_settings; apply_kopia_policies; step_kopia_sources; } ;;
-    interactive|auto)
-        step_environment
-        step_basis
-        step_offsite
-        step_shares
-        step_containers
-        step_databases
-        step_general
-        step_kopia || true
+    plan)
+        STEP_ID=environment; step_environment
+        STEP_ID=basis;       step_basis
+        STEP_ID=offsite;     step_offsite
+        STEP_ID=shares;      step_shares
+        STEP_ID=containers;  step_containers
+        STEP_ID=databases;   step_databases
+        STEP_ID=general;     step_general
+        STEP_ID=kopia;       step_kopia || true
+        STEP_ID=sources;     step_kopia_sources
+        STEP_ID=plan;        plan_write ;;
+    interactive|auto|apply)
+        STEP_ID=environment; step_environment
+        STEP_ID=basis;       step_basis
+        STEP_ID=offsite;     step_offsite
+        STEP_ID=shares;      step_shares
+        STEP_ID=containers;  step_containers
+        STEP_ID=databases;   step_databases
+        STEP_ID=general;     step_general
+        STEP_ID=kopia;       step_kopia || true
+        STEP_ID=write
         hdr "Schreiben"
         explain <<'TXT'
 settings.ini wird erst in eine Temp-Datei geschrieben, neu geladen und geprueft; nur wenn
@@ -1646,8 +1835,9 @@ TXT
         if ! write_settings; then
             say "settings.ini wurde NICHT geschrieben - Abbruch."; exit 1
         fi
-        apply_kopia_policies; step_kopia_sources
-        step_finish
+        STEP_ID=policies; apply_kopia_policies
+        STEP_ID=sources;  step_kopia_sources
+        STEP_ID=finish;   step_finish
         summary ;;
 esac
 exit 0

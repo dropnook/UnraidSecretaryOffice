@@ -6,7 +6,7 @@ Teil des [Unraid Secretary Office](../README.md): Herr Backup zeigt und steuert 
 
 Nächtliches Backup für Unraid-Server. Es macht konsistente **ZFS-/btrfs-Snapshots** und **Datenbank-Dumps**, setzt Nextcloud dafür in den **Wartungsmodus** und schickt auf Wunsch alles mit **Kopia** verschlüsselt offsite. Alles Serverspezifische steht in `settings.ini`. Diese Datei erzeugt `setup.sh` nach Rückfrage. Der nächtliche Lauf `backup.sh` meldet jede Abweichung zwischen System und `settings.ini`, ändert sie aber nie selbst.
 
-Version **2.6** (3.10.2026). Die Version steht im Kopf von `setup.sh` und `backup.sh`, in `lib/common.sh` (`UB_VERSION`) und in jedem Protokoll.
+Version **2.8** (3.10.2026). Die Version steht im Kopf von `setup.sh` und `backup.sh`, in `lib/common.sh` (`UB_VERSION`) und in jedem Protokoll.
 
 ---
 
@@ -37,11 +37,11 @@ Ein bestehendes Backup-Script ablösen: `setup.sh` warnt, wenn andere User Scrip
  1  settings.ini laden, Inventar aufnehmen (Pools, Disks, Shares, Datasets, Container)
  2  Abweichungen prüfen und melden (neu / umbenannt / gelöscht / Policies / Mapping)
  3  Nextcloud → Wartungsmodus
- 4  Datenbank-Dumps (MariaDB/MySQL, Postgres, MongoDB), sofort geprüft
- 5  Manifest (Images, Templates, Share-Configs, settings.ini, Abweichungen)
- 6  Container anhalten: Apps → Datenbanken → Netzwerk-Container     ┐
- 7  ZFS-Snapshots (je Pool atomar), btrfs-Snapshots (je Disk/Pool)   │ Unterbrechung
- 8  Container starten (DBs erst "healthy"), Wartungsmodus aus        ┘
+ 4  Manifest (Images, Templates, Share-Configs, settings.ini, Abweichungen)
+ 5  Apps anhalten, dann Datenbank-Dumps (sofort geprüft)              ┐
+ 6  Datenbanken → Netzwerk-Container anhalten                         │
+ 7  ZFS-Snapshots (je Pool atomar), btrfs-Snapshots (je Disk/Pool)    │ Unterbrechung
+ 8  Container starten (DBs erst "healthy"), Wartungsmodus aus         ┘
  9  Snapshots read-only einhängen: /mnt/backup-snapshots/<share>       ┐ nur mit
 10  Kopia sichert jeden Share aus seinem Snapshot (Kopia läuft durch)  ┘ Kopia
 11  Aushängen, aufräumen (ZFS t/w/m, btrfs Tage + Notbremse, Dumps, Logs), Mitteilung
@@ -176,7 +176,9 @@ Für die Sekunden der Snapshots werden alle laufenden Container angehalten, die 
 - Container, deren Pfade nur in `off`-Shares oder in Kopia-ignorierten Ordnern liegen (Anhalten brächte dort nichts),
 - Container, die du ausdrücklich auf „weiterlaufen“ stellst. Schreibt so ein Container in gesicherte Daten, markiert `setup.sh` das mit ACHTUNG: Der Snapshot davon ist nur absturzkonsistent.
 
-Reihenfolge: erst Apps, dann Datenbanken, zuletzt Netzwerk-Container (z. B. ein VPN, dessen Netz andere mitbenutzen). Gestartet wird umgekehrt, Datenbanken erst, wenn sie „healthy“ sind.
+Reihenfolge: erst Apps, dann die Datenbank-Dumps, dann Datenbanken, zuletzt Netzwerk-Container (z. B. ein VPN, dessen Netz andere mitbenutzen). Weil die Apps schon stehen, schreibt während des Dumps niemand mehr: Dump und Dateien im Snapshot passen zusammen – auch bei Apps ohne Wartungsmodus wie Immich. Die Apps stehen dafür so viel länger, wie die Dumps dauern (meist Sekunden). Gestartet wird umgekehrt, Datenbanken erst, wenn sie „healthy“ sind.
+
+Apps mit eigener SQLite-Datenbank (Emby, Jellyfin, Plex, *arr …) haben keinen Dump; sauber sind sie nur, wenn sie für die Snapshots angehalten werden. Läuft so eine App weiter, ist ihre Datenbank im Snapshot nur absturzkonsistent.
 
 ## Datenbanken
 
@@ -217,6 +219,10 @@ Läuft im Terminal (SSH oder Unraid-Web-Terminal), nicht in User Scripts, weil e
 | `setup.sh --check` | nur prüfen und berichten (inkl. Live-Test des Mappings) |
 | `setup.sh --kopia` | nur Kopia-Teil mit bestehender settings.ini (Policies angleichen) |
 | `setup.sh --yes` | alle Vorschläge übernehmen, ohne zu fragen (auch mit `--kopia`) |
+| `setup.sh --plan` | wie `--yes`, schreibt aber nichts: Vorschläge, Begründungen (als Codes) und Prüfergebnisse nach `state/setup-plan.json` |
+| `setup.sh --apply=<datei>` | Entscheidungen (JSON: settings.ini-Schlüssel wie im Plan → Wert oder Liste) über die bisherigen Werte legen, dann wie `--yes` prüfen, schreiben, Policies angleichen |
+
+`--plan` und `--apply` sind die Schnittstelle des Setup-Assistenten von Herrn Backup („Einrichten…“). Beide melden ihren Fortschritt in `state/setup-status.json` (`mode`, `result`, `written`, Meldungen mit Schritt und Stufe). Dumps und Nextclouds gelten bei `--apply` nur, wenn sie in den Entscheidungen stehen; alte Kopia-Quellen werden nur mit `_retire_sources = yes` auf „manuell“ gestellt, gelöscht wird nie.
 
 Umgebungsvariablen: `UB_SETUP`, `UB_YES`, `UB_EXPLAIN`, `UB_SIZE_TIMEOUT` (Sekunden je Share für `du`, 0 = nicht messen), `UB_SETTINGS`, `UB_STRIPES`.
 
@@ -249,6 +255,8 @@ Für Herrn Backup im Sekretariat (und jede andere Oberfläche) schreibt `backup.
 | `last-run.json` | dasselbe für den letzten echten Backup-Lauf |
 | `history.jsonl` | eine Zeile je echtem Backup-Lauf, die letzten 200 |
 | `drift.json` | Abweichungen der letzten Prüfung (`level`, `text`) |
+| `setup-plan.json` | letzter Plan von `setup.sh --plan` |
+| `setup-status.json` | Fortschritt und Meldungen von `setup.sh --plan` / `--apply` |
 
 Abbrechen: `SIGTERM` an die `pid` aus `status.json`. Der `trap` beendet einen laufenden Kopia-Snapshot im Container sauber (SIGINT), startet angehaltene Container, schaltet den Wartungsmodus aus, hängt aus und setzt `result` auf `aborted`.
 
@@ -338,6 +346,8 @@ Darum auf jedem neuen Server zuerst `setup.sh --check` und einen Trockenlauf.
 
 ## Versionen
 
+- **2.8** – Apps werden vor den Datenbank-Dumps angehalten, nicht erst danach: Dumps und Dateien im Snapshot passen so zusammen, auch bei Apps ohne Wartungsmodus (Immich & Co.).
+- **2.7** – `setup.sh --plan` und `--apply=<datei>`: Der Setup-Assistent von Herrn Backup fragt nicht im Terminal, sondern bekommt alle Vorschläge mit Begründungs-Codes als JSON und gibt die Entscheidungen als JSON zurück. Dieselbe Prüf- und Schreiblogik wie im Terminal.
 - **2.6** – Teil des Unraid Secretary Office: Code in `backup/`, Einstellungen, Zustand, Protokolle und Dumps in `data/unraid-backup/` (0700, `UB_DATA`). `--about` nennt beide Ordner.
 - **2.5** – `backup.sh` schreibt seinen Zustand für andere Programme nach `state/` (`status.json`, `last-run.json`, `history.jsonl`, `drift.json`), dazu `--about`. Kopia läuft im Hintergrund, damit Abbrechen sofort greift; der Snapshot im Container wird dabei sauber beendet.
 - **2.4** – Fix: Bedienen zwei Container dieselbe Nextcloud (App + Cron, gemeinsame `config.php`), fand der zweite den eben eingeschalteten Wartungsmodus vor, hielt ihn für „schon an“ und brach den Lauf ab. Beide werden jetzt an der `instanceid` als eine Instanz erkannt. Wartungsmodus mit bis zu drei Versuchen, Meldungen von `occ` landen im Protokoll. `setup.sh` ist besser lesbar: Schritte als Balken, Tabellen mit Kopfzeile und Streifen, Fragen hervorgehoben.

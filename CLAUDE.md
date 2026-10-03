@@ -40,8 +40,10 @@ This file holds the conventions and the checklist for changes.
 * **The backup engine** (`backup/`, bash, still German — to be translated
   before going public) runs on its own via User Scripts. Mr. Backup only uses
   its interface (`backup.sh --about`, `data/unraid-backup/state/status.json` &
-  co., interface 1). Never parse its log lines for anything new — extend the
-  interface. Version lives in backup.sh, setup.sh, lib/common.sh and
+  co., interface 1; the setup assistant uses `setup.sh --plan` / `--apply`
+  with `state/setup-plan.json` / `setup-status.json`). Never parse its log
+  lines for anything new — extend the interface; reasons go out as codes
+  (why/ctwhy) so the office can translate them. Version lives in backup.sh, setup.sh, lib/common.sh and
   backup/README.md. A run reads backup.sh piecewise while it runs (hours!):
   never change it in place during a run — write a new file and `mv` it.
 

@@ -16,7 +16,7 @@
 
 # shellcheck disable=SC2034   # viele Variablen werden erst in den Scripten benutzt
 
-UB_VERSION="2.6"
+UB_VERSION="2.8"
 UB_NAME="unraid-backup"
 
 ##############################################################################
