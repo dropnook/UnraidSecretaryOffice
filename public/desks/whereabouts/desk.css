@@ -42,3 +42,13 @@
 }
 
 .wa-wake{font-size:12.5px}
+
+.wa-sections{grid-template-columns:repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap:10px}
+.wa-section{padding:10px 12px 9px; gap:5px}
+.wa-section .card-name{font-size:14px}
+.wa-count{margin-left:auto; font-size:13px; font-weight:650; color:var(--muted); font-variant-numeric:tabular-nums}
+.wa-section.active .wa-count{color:var(--accent-ink)}
+.wa-section .card-figures{font-size:11.5px; line-height:1.4; justify-content:flex-start}
+.wa-look{margin-left:auto}
+.wa-look + .wa-count{margin-left:6px}
+.wa-section .card-name{white-space:normal; overflow:visible; line-height:1.25}

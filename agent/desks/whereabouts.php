@@ -107,6 +107,7 @@ function whereaboutsScan(bool $awake = false): array
         }
     }
 
+    $cron = waCron();
     $shares = waShares($roots, $asleep, $datasets, $consumers);
     $appdata = waAppdataShare();
     $folders = waFolders($shares, $roots, $asleep, $datasets, $consumers, $appdata);
@@ -130,13 +131,13 @@ function whereaboutsScan(bool $awake = false): array
         'smb'         => waSmb(),
         'nfs'         => waNfs(),
         'scripts'     => $scripts,
-        'cron'        => waCron(),
+        'cron'        => $cron,
         'backups'     => $backups,
         'plugins'     => waPlugins(),
         'health'      => waHealth(),
         'license'     => waLicense(),
         'notices'     => waNotices(),
-        'locations'   => waLocations($vms),
+        'locations'   => waLocations($vms, $cron),
     ];
     $state['duration_ms'] = (int) round((microtime(true) - $t0) * 1000);
     $GLOBALS['whereabouts'] = $state;
@@ -306,6 +307,7 @@ function waShares(array $roots, array $asleep, array $datasets, array $consumers
             ],
             'has_cfg'  => is_file(WA_SHARES_DIR . "/$name.cfg"),
             'used_by'  => $usedBy,
+            'backup'   => backupProtection("/mnt/user/$name"),
         ];
     }
     return $shares;
@@ -744,7 +746,7 @@ function waBoot(): array
  * configuration in libvirt.img, user scripts, this office. Each with its
  * backup protection (as Mr. Backup's engine would treat it).
  */
-function waLocations(array $vms): array
+function waLocations(array $vms, array $cron): array
 {
     $item = function (string $id, string $path, array $extra = []): array {
         $exists = file_exists($path);
@@ -754,7 +756,7 @@ function waLocations(array $vms): array
         }
         unset($extra['glob']);
         return ['id' => $id, 'path' => $path, 'exists' => $exists, 'dir' => $exists && is_dir($path),
-                'bytes' => $exists && is_file($path) ? (int) @filesize($path) : null, 'count' => $count,
+                'bytes' => $exists && is_file($path) ? (int) @filesize($path) : null, 'count' => $extra['count'] ?? $count,
                 'backup' => backupProtection($path)] + $extra;
     };
     $docker = readCfg('/boot/config/docker.cfg');
@@ -812,6 +814,17 @@ function waLocations(array $vms): array
         !empty($domain['DOMAINDIR']) ? $item('vm_domains', rtrim($domain['DOMAINDIR'], '/')) : null,
         !empty($domain['MEDIADIR']) ? $item('vm_isos', rtrim($domain['MEDIADIR'], '/')) : null,
     ])), 'vms' => count($vms)];
+
+    // Unraid builds the root crontab in RAM (update_cron) from the *.cron files of
+    // dynamix and of installed plugins — anything typed into crontab -e is gone after a reboot
+    $cronFiles = array_map(fn ($f) => basename(dirname($f)) . '/' . basename($f), glob(WA_PLUGINS . '/*/*.cron') ?: []);
+    $cronDef = $item('cron_files', WA_PLUGINS, ['count' => count($cronFiles)]);
+    $cronDef['files'] = $cronFiles;
+    $groups[] = ['id' => 'cron', 'jobs' => count($cron), 'items' => [
+        $cronDef,
+        $item('cron_d', '/etc/cron.d', ['glob' => '*', 'ram' => true]),
+        $item('crontab', '/var/spool/cron/crontabs/root', ['ram' => true]),
+    ]];
 
     $groups[] = ['id' => 'scripts', 'items' => [
         $item('user_scripts', WA_SCRIPTS, ['glob' => '*']),

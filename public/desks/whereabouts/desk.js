@@ -12,7 +12,7 @@ const SECTIONS = ['shares', 'folders', 'docker', 'vms', 'disks', 'access', 'netw
 
 let state = null;
 let sizes = { sizes: {}, queue: [], running: [] };
-let section = SECTIONS.includes(Office.store('whereabouts.section')) ? Office.store('whereabouts.section') : 'shares';
+let section = SECTIONS.includes(Office.store('whereabouts.section')) ? Office.store('whereabouts.section') : '';   // '' = none open
 let query = '';
 let view = null;
 let expanded = new Set();
@@ -166,7 +166,7 @@ function row({ key, name, mono, meta, figures, detail, menu, cls }) {
   if (detail) {
     // the whole row unfolds — except clicks on its own buttons, links and fields, or inside the details
     r.classList.add('unfolds');
-    r.title = T('details');
+    n.title = T('details');            // only the name: chips explain themselves
     r.onclick = (e) => {
       if (e.target.closest('button, a, input, select, textarea, .row-detail, [data-own]')) return;
       if (String(window.getSelection && window.getSelection()).length) return;     // selecting text
@@ -268,6 +268,12 @@ function pick(id, search) {
   if (view) { renderTabs(); renderSection(); view.sectionBox.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 }
 
+function closeSection() {
+  section = '';
+  Office.store('whereabouts.section', null);
+  if (view) { renderTabs(); renderSection(); }
+}
+
 function bubble() {
   const box = el('span');
   if (!state) { box.append(Office.agent.running ? T('bubble.no_tour') : T('bubble.no_data')); return box; }
@@ -367,9 +373,11 @@ function build(root) {
   root.appendChild(v.places);
 
   v.sectionBox = el('section', 'section');
-  v.tabs = el('div', 'seg');
+  const dh = el('div', 'wa-section-title');
+  dh.append(el('h2', '', T('details_title')), el('div', 'role', T('details_hint')));
+  v.tabs = el('div', 'cards wa-sections');
   v.sectionBody = el('div', 'section');
-  v.sectionBox.append(v.tabs, v.sectionBody);
+  v.sectionBox.append(dh, v.tabs, v.sectionBody);
   root.appendChild(v.sectionBox);
   return v;
 }
@@ -453,7 +461,7 @@ function renderStats() {
 }
 
 // ------------------------------------------------------------------ where things are
-const PLACE_ICONS = { unraid: '⚙️', docker: '🐳', compose: '🧩', vms: '🖥️', scripts: '📜', office: '🗂️' };
+const PLACE_ICONS = { unraid: '⚙️', docker: '🐳', compose: '🧩', vms: '🖥️', cron: '⏰', scripts: '📜', office: '🗂️' };
 const BACKUP_CHIP = { offsite: 'ok', local: 'warn', none: 'danger' };
 
 /** How Mr. Backup's engine protects a path: offsite / only local / not at all */
@@ -511,14 +519,15 @@ function helpBlock() {
 function placeSummary(g) {
   const items = g.items || [];
   const main = items[0];
-  // the system log (RAM) and Docker's image data (rebuilt by pulling) don't count for the tile
-  const levels = items.filter((i) => !['syslog', 'docker_image'].includes(i.id)).map((i) => i.backup).filter(Boolean);
+  // what lives in RAM (system log, generated crontabs) and Docker's image data (rebuilt by pulling) don't count for the tile
+  const levels = items.filter((i) => !i.ram && i.id !== 'docker_image').map((i) => i.backup).filter(Boolean);
   const worst = levels.includes('none') ? 'none' : levels.includes('local') ? 'local' : levels.length ? 'offsite' : null;
   let sub = '';
   if (g.id === 'docker') sub = T('place.docker_sub', { n: (items.find((i) => i.id === 'docker_templates') || {}).count || 0 });
   else if (g.id === 'compose') sub = T('place.compose_sub', { n: (g.stacks || []).length });
   else if (g.id === 'vms') sub = T('place.vms_sub', { n: g.vms || 0 });
   else if (g.id === 'scripts') sub = T('place.scripts_sub', { n: (items[0] || {}).count || 0 });
+  else if (g.id === 'cron') sub = T('place.cron_sub', { n: g.jobs || 0, files: (items[0] || {}).count || 0 });
   else if (g.id === 'unraid') sub = bootShort(g.boot);
   else if (g.id === 'office') sub = T('place.office_sub');
   return { main, worst, sub };
@@ -639,17 +648,72 @@ function sectionCounts() {
   };
 }
 
+const SECTION_ICONS = { shares: '📁', folders: '🗃️', docker: '🐳', vms: '🖥️', disks: '💽', access: '👥', network: '🔌', scripts: '📜', backups: '🛟', notices: '🔔', plugins: '🧩' };
+
+/** One line per section for its tile, and whether something needs a look */
+function sectionSummary(id) {
+  const s = state;
+  const n = (x) => fmt.number(x);
+  switch (id) {
+    case 'shares': {
+      const b = { offsite: 0, local: 0, none: 0 };
+      s.shares.forEach((x) => { if (b[x.backup] !== undefined) b[x.backup]++; });
+      const known = b.offsite + b.local + b.none;
+      return { sub: known ? T('sum.shares_backup', b) : T('sum.shares', { n: s.shares.length }), alert: s.shares.some((x) => x.storage.missing) };
+    }
+    case 'folders': {
+      const appdata = s.folders.find((x) => x.appdata);
+      const unused = appdata ? appdata.folders.filter((x) => !x.used_by.length).length : 0;
+      return { sub: unused ? T('sum.folders_unused', { n: unused, share: appdata.share }) : T('sum.folders') };
+    }
+    case 'docker': {
+      const run = s.containers.filter((c) => c.state === 'running').length;
+      const stopped = s.containers.filter((c) => c.autostart && c.state !== 'running').length;
+      return { sub: T('sum.docker', { run: n(run), total: n(s.containers.length), stacks: s.compose.length }), alert: stopped > 0 };
+    }
+    case 'vms': return { sub: T('sum.vms', { run: n(s.vms.filter((v) => v.running).length), total: n(s.vms.length) }) };
+    case 'disks': {
+      const h = s.health;
+      if (!h) return { sub: '' };
+      const hot = h.devices.filter((d) => tempLevel(d) !== '').length;
+      const bad = h.devices.filter((d) => smartBad(d).length || d.errors).length;
+      const asleep = h.devices.filter((d) => d.asleep).length;
+      return { sub: T('sum.disks', { n: asleep }), alert: hot > 0 || bad > 0 || h.devices.some((d) => fillLevel(d) === 'danger') };
+    }
+    case 'access': return { sub: T('sum.access', { n: s.users.length }) };
+    case 'network': return { sub: T('sum.network', { smb: s.smb.sessions.length, nfs: (s.nfs.exports || []).length }) };
+    case 'scripts': {
+      const running = s.scripts.filter((x) => x.running).length;
+      return { sub: T('sum.scripts', { scripts: s.scripts.length, cron: s.cron.length, running }), alert: s.scripts.some((x) => x.missing || x.stale) };
+    }
+    case 'backups': return { sub: T('sum.backups', { n: s.backups.length }) };
+    case 'notices': {
+      const alerts = (s.notices || []).filter((x) => x.importance === 'alert').length;
+      return { sub: T('sum.notices', { n: (s.notices || []).length, alerts }), alert: alerts > 0 };
+    }
+    case 'plugins': return { sub: T('sum.plugins', { n: s.plugins.length }) };
+  }
+  return { sub: '' };
+}
+
 function renderTabs() {
-  const seg = view.tabs;
-  seg.innerHTML = '';
+  const box = view.tabs;
+  box.innerHTML = '';
+  if (!state) return;
   const counts = sectionCounts();
   for (const id of SECTIONS) {
-    const b = el('button', '', T('section.' + id));
-    b.type = 'button';
-    b.setAttribute('aria-pressed', String(section === id));
-    if (counts[id] !== undefined) b.append(el('span', 'count', fmt.number(counts[id])));
-    b.onclick = () => pick(id);
-    seg.appendChild(b);
+    const card = el('button', 'card wa-section' + (section === id ? ' active' : ''));
+    card.type = 'button';
+    card.setAttribute('aria-pressed', String(section === id));
+    const head = el('div', 'card-head');
+    head.append(el('span', 'wa-place-icon', SECTION_ICONS[id] || '•'), el('span', 'card-name', T('section.' + id)));
+    const { sub, alert } = sectionSummary(id);
+    if (alert) head.appendChild(chip(T('look'), 'warn wa-look'));
+    if (counts[id] !== undefined) head.appendChild(el('span', 'wa-count', fmt.number(counts[id])));
+    card.appendChild(head);
+    card.appendChild(el('div', 'card-figures', sub));
+    card.onclick = () => (section === id ? closeSection() : pick(id));     // the open tile closes again
+    box.appendChild(card);
   }
 }
 
@@ -659,6 +723,7 @@ function renderSection() {
   body.innerHTML = '';
   shown = [];
   if (!state) { body.appendChild(emptyNote(Office.agent.running ? T('bubble.no_tour') : T('bubble.no_data'))); return; }
+  if (!section) return;                          // no tile open
   ({ shares, folders, docker, vms, disks, access, network, scripts, backups, notices, plugins })[section](body);
   if (shown.length > 1) body.prepend(unfoldBar(body));
 }
@@ -895,18 +960,18 @@ function vms(body) {
   if (!list.length) box.appendChild(emptyNote(state.vms.length ? T('nothing_found') : T('no_vms')));
   for (const v of list) {
     const snapChip = v.snapshots ? chip(`📸 ${T('vm_snapshots', { n: v.snapshots })}`, 'accent') : null;
-    if (snapChip) { snapChip.style.cursor = 'pointer'; snapChip.dataset.own = '1'; snapChip.onclick = () => Office.go('#/snapshot'); }
+    if (snapChip) { snapChip.style.cursor = 'pointer'; snapChip.dataset.own = '1'; snapChip.title = T('tip.vm_snapshot'); snapChip.onclick = () => Office.go('#/snapshot'); }
     const os = v.os === 'windows' ? '🪟 Windows' : v.os === 'linux' ? '🐧 Linux' : null;
     box.appendChild(row({
       key: 'vm:' + v.name,
       name: v.name,
       meta: [
         chip(v.running ? T('state.running') : v.state, v.running ? 'ok' : 'quiet'),
-        os ? chip(v.template || os, 'quiet') : null,
-        v.firmware === 'uefi' ? chip('UEFI', 'quiet') : null,
-        v.tpm ? chip('TPM ' + (v.tpm.version || ''), 'quiet') : null,
-        v.passthrough ? chip(T('vm.passthrough_n', { n: v.passthrough }), 'quiet') : null,
-        v.autostart ? chip(T('autostart'), 'quiet') : null,
+        os ? chip(v.template || os, 'quiet', T('tip.os', { os: v.template || os })) : null,
+        v.firmware === 'uefi' ? chip('UEFI', 'quiet', T('tip.uefi', { nvram: v.nvram || '?' })) : null,
+        v.tpm ? chip('TPM ' + (v.tpm.version || ''), 'quiet', T('tip.tpm', { version: v.tpm.version || '', state: v.tpm.state || T('vm.tpm_none') })) : null,
+        v.passthrough ? chip(T('vm.passthrough_n', { n: v.passthrough }), 'quiet', T('tip.passthrough')) : null,
+        v.autostart ? chip(T('autostart'), 'quiet', T('tip.autostart_vm')) : null,
         v.cpus ? el('span', '', T('vm_cpus', { n: v.cpus })) : null,
         v.memory ? el('span', '', fmt.size(v.memory)) : null,
         snapChip,
