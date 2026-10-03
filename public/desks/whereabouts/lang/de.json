@@ -381,7 +381,6 @@
   "license_devices": "Geräte",
   "devices_of": "{n} von {limit} angeschlossen",
   "devices_unlimited": "{n} angeschlossen, ohne Limit",
-  "license_guid": "Flash-GUID",
   "license_check": "Lizenzprüfung",
   "limits": "Grenzwerte",
   "limits_text": "HDD warm {hh} / kritisch {hm} °C · SSD {sh} / {sm} °C · Füllstand {w} / {c} % (je Disk, wo eingestellt)",
@@ -626,5 +625,8 @@
   "find.pool_unprotected": {
     "one": "1 Pool ohne Redundanz ({names})",
     "other": "{n} Pools ohne Redundanz ({names})"
-  }
+  },
+  "license_guid.tpm": "TPM-GUID",
+  "license_guid.flash": "Flash-GUID",
+  "license_guid.other": "Lizenz-GUID"
 }

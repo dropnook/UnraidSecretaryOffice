@@ -1412,7 +1412,10 @@ function waNotices(): array
 function waLicense(): array
 {
     $v = readCfg(WA_VAR_INI);
-    $guid = $v['flashGUID'] ?? '';
+    // the GUID the license is registered to: the TPM's (Unraid 7) or the boot flash's
+    $reg = $v['regGUID'] ?? '';
+    $bound = $reg === '' ? 'flash' : ($reg === ($v['tpmGUID'] ?? '') ? 'tpm' : ($reg === ($v['flashGUID'] ?? '') ? 'flash' : 'other'));
+    $guid = $reg !== '' ? $reg : ($v['flashGUID'] ?? '');
     $used = 0;
     foreach (['/var/local/emhttp/disks.ini', '/var/local/emhttp/devs.ini'] as $file) {
         foreach (readCfg($file, true) as $d) {
@@ -1429,6 +1432,7 @@ function waLicense(): array
         'limit'   => ($v['regDevs'] ?? '') !== '' ? (int) $v['regDevs'] : null,
         'devices' => $used,
         'guid'    => strlen($guid) > 8 ? substr($guid, 0, 4) . '…' . substr($guid, -4) : ($guid ?: null),
+        'bound'   => $bound,
         'check'   => trim(($v['regCheck'] ?? '') . ' ' . ($v['regFlashCheck'] ?? '')) ?: null,
     ];
 }

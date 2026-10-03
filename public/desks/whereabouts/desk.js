@@ -1268,7 +1268,7 @@ function disks(body) {
     [T('license_since'), lic.since ? fmt.date(lic.since) : null],
     [T('license_expires'), lic.expires ? `${fmt.date(lic.expires)} · ${fmt.relative(lic.expires)}` : (lic.type ? T('license_forever') : null)],
     [T('license_devices'), lic.limit ? T('devices_of', { n: lic.devices, limit: lic.limit }) : T('devices_unlimited', { n: lic.devices })],
-    [T('license_guid'), lic.guid, true],
+    [T('license_guid.' + (lic.bound || 'flash')), lic.guid, true],
     [T('license_check'), lic.check],
     [T('limits'), T('limits_text', { hh: h.limits.hdd_hot, hm: h.limits.hdd_max, sh: h.limits.ssd_hot, sm: h.limits.ssd_max, w: h.limits.warning, c: h.limits.critical })],
   ]));
