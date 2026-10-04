@@ -1,0 +1,58 @@
+# Builds the Unraid plugin when a release is published (tag v<office version>)
+# and attaches unraid-secretary-office.plg and the .txz to it. Unraid's plugin
+# manager finds updates through releases/latest/download/unraid-secretary-office.plg.
+name: Plugin
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build for (e.g. v1.14.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      # Unraid compares plugin versions as strings: YYYY.MM.DD, a letter for a
+      # second release on the same day (taken from the latest published .plg)
+      - name: Plugin version
+        id: version
+        run: |
+          today=$(date -u +%Y.%m.%d)
+          last=$(curl -fsL "https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/unraid-secretary-office.plg" 2>/dev/null \
+                 | sed -n 's/.*ENTITY version *"\([^"]*\)".*/\1/p' | head -n 1 || true)
+          version=$today
+          if [[ "$last" == "$today"* ]]; then
+            suffix=${last#"$today"}
+            if [[ -z "$suffix" ]]; then version=${today}a
+            else version=${today}$(echo "$suffix" | tr 'a-y' 'b-z'); fi
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Plugin version $version (last: ${last:-none})"
+
+      - name: Changes from the release notes
+        run: gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/changes.md"
+
+      - name: Build
+        run: bash plugin/build.sh "$TAG" "${{ steps.version.outputs.version }}" "$RUNNER_TEMP/changes.md"
+
+      - name: Check the plugin file
+        run: |
+          sudo apt-get install -y -qq libxml2-utils >/dev/null
+          xmllint --noout dist/unraid-secretary-office.plg
+
+      - name: Attach to the release
+        run: gh release upload "$TAG" dist/unraid-secretary-office.plg dist/unraid-secretary-office-*.txz --clobber
