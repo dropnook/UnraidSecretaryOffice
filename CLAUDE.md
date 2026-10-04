@@ -132,6 +132,7 @@ differ get a `_plugin` key or come from state (`schedule.via`).
 | `emby` | Jack Emby (the intern) | EmbyCache (`embycache/`, from github.com/helmi1987/embycache-for-unraid, extended: back to the origin disk via embycache_origin.json, the emptied folder stays on the disk as a signpost, separate limits for started films and series, deliberately skipped folders = empty mapping) and the gather "Consolidate folders" (`gather/`: one disk per film folder, keeps empty folders whose content is on the pool). Settings via EmbyCache's own save_config() (trial file first); the gather's ini written by Jack; API key never leaves the server; schedules: jobs `embycache` and `gather` (job.sh) |
 | `logs` | Ms. Protocolli / Frau Protokolli | reads logs out loud (fixed source list in agent/desks/logs.php, ids only, never paths; `backup:latest` = the engine's latest.log); tail/follow by file offset, docker logs and dmesg re-read; lines go into the page as text only. A picker with a search field instead of a select; favourites in `Office.store` (defaults until the user stars/unstars one, "out of the box" brings them back); nothing is read until a log is chosen. Read only |
 | `cleanup` | Ms. Dustdevil / Frau Putzteufel | clears away what nobody uses: Docker templates, Compose stacks, appdata folders, stray my-*.xml elsewhere, what deleted VMs left behind (domains folders, NVRAM, TPM, snapshot lists, unused disk images; VMs without disks are only pointed out), switched-off User Scripts that lie around, Docker's leftovers. Never deletes right away: renames into `_UnraidSecretaryOffice-trash` on the same filesystem (ZFS datasets with `zfs rename` next to it), `manifest.json` per run, put back or empty; Docker leftovers can only be removed. Only rename, never copy; nothing while a backup runs |
+| `advisor` | The Consultant / Der Berater | an external: whether the tools the office relies on are there (Fix Common Problems, a Kopia container, Stream Viewer where Emby/Jellyfin/Plex runs), what they are good for, who needs them, how to install them by hand (ADVISOR_EXTERNALS in agent/desks/advisor.php, EXTERNALS in his desk.js). Never installs, never scans. Read only |
 | `caretaker` | The Caretaker / Der Hauswart | collects every desk's `checks` and what the office needs; tells the user what is left to do |
 
 **User Scripts entries** (only in the stack) of the office are always named `unraid-secretary-office_<what>` (US_PREFIX); renamed ones are moved once by `userScriptsMigrate()` (lib/house.php: folder, schedule, cron line, User Scripts Enhanced category). Descriptions in English: "Unraid Secretary Office - …". As a plugin, `officeJobsFromUserScripts()` hands their schedule over to the plugin's cron file once and removes them.
@@ -153,7 +154,8 @@ After hiring, the tip jar (core.js `tipJar`, link `OFFICE_TIP_URL`) says hello.
 anxious, checks everything three times), Frau Wasistwo (nosy gossip), Jack
 Emby (the intern), Frau Protokolli (reads everything out, understands nothing),
 Frau Putzteufel (sees dust everywhere, but never throws anything away at once —
-"man weiss ja nie"), the caretaker (plain and friendly). Greetings are lang keys
+"man weiss ja nie"), the caretaker (plain and friendly), the consultant (an external,
+consultant speak: "quick win", "best practice", the hour runs anyway). Greetings are lang keys
 `greet.1…n` (`Office.greet` / `Office.withGreeting`); chatty bubbles may carry
 character, warnings and errors stay plain and clear.
 
