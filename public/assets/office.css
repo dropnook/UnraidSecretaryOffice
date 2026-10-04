@@ -166,10 +166,11 @@ body.sso-page{margin:0; background:#F2F5F6; -webkit-text-size-adjust:100%}
 .btn.small{padding:3px 9px; font-size:12.5px}
 :focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:3px}
 
-/* inside Unraid: Unraid's buttons — capitals, its theme's frame and hover
-   (black/white: the orange gradient). The main action is the filled one. */
+/* inside Unraid: Unraid's buttons — its theme's frame and hover (black/white:
+   the orange gradient), but in plain letters, not Unraid's shouting capitals.
+   The main action is the filled one. */
 &.in-unraid .btn{
-  font-size:11.5px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase;
+  font-size:13px; font-weight:600;
   padding:7px 12px; border:var(--button-border, none); border-radius:4px;
   color:var(--button-text-color); background:var(--button-background); background-size:var(--button-background-size, auto);
   transition:none;
@@ -181,7 +182,12 @@ body.sso-page{margin:0; background:#F2F5F6; -webkit-text-size-adjust:100%}
 &.in-unraid .btn.danger, &.in-unraid .btn.danger.plain{background:transparent; border:1px solid var(--danger); color:var(--danger)}
 &.in-unraid .btn.danger:hover:not(:disabled){background:var(--danger); color:var(--on-fill)}
 &.in-unraid .btn:disabled{opacity:.45; cursor:default; color:var(--button-text-color); background:var(--button-background); background-size:var(--button-background-size, auto)}
-&.in-unraid .btn.small{font-size:10.5px; padding:4px 9px; letter-spacing:1px}
+&.in-unraid .btn.small{font-size:12px; padding:3px 9px}
+/* Unraid's sidebar themes (azure, gray): a thin frame in the theme's colour
+   (there --button-border is a colour, not a border), blue on hover like Unraid's */
+.Theme--sidebar &.in-unraid .btn:not(.danger){border:1px solid var(--button-border)}
+.Theme--sidebar &.in-unraid .btn:not(.danger):hover:not(:disabled){border-color:var(--hover-button-border)}
+.Theme--sidebar &.in-unraid .btn:not(.plain):not(.danger){font-weight:700; border-color:var(--hover-button-text-color)}
 
 .spin{
   display:none; width:12px; height:12px; flex:none;
