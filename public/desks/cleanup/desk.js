@@ -14,14 +14,14 @@ const { el, fmt } = Office;
 const SECTIONS = ['templates', 'stacks', 'appdata', 'vms', 'docker', 'trash'];
 const ICONS = { templates: '📄', stacks: '🧩', appdata: '🗃️', vms: '🖥️', docker: '🐳', trash: '🗑️' };
 const GROUPS = {
-  templates: ['leftover', 'unused', 'duplicate', 'noname', 'unknown', 'in_use'],
+  templates: ['leftover', 'unused', 'duplicate', 'noname', 'stray_only_here', 'stray_newer', 'stray_name_exists', 'stray_older', 'stray_copy', 'unknown', 'in_use'],
   stacks: ['leftover', 'broken', 'unused', 'unknown', 'in_use'],
   appdata: ['unused', 'check', 'unknown', 'used'],
   vms: ['orphan', 'unused', 'check', 'media', 'unknown', 'used'],
   docker: ['dangling', 'volume', 'unused', 'cache', 'used'],
 };
 const CANDIDATES = {
-  templates: ['leftover', 'unused', 'duplicate', 'noname'],
+  templates: ['leftover', 'unused', 'duplicate', 'noname', 'stray_only_here', 'stray_newer', 'stray_name_exists', 'stray_older', 'stray_copy'],
   stacks: ['leftover', 'broken', 'unused'],
   appdata: ['unused', 'check'],
   vms: ['orphan', 'unused', 'check', 'media'],
@@ -29,7 +29,7 @@ const CANDIDATES = {
 };
 const CLOSED = ['in_use', 'used', 'unknown'];        // folded until opened
 const KIND_ICONS = { container: '🐳', template: '📄', stack: '🧩', compose: '🧩', flash: '💾', vm: '🖥️' };
-const ITEM_ICONS = { template: '📄', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐' };
+const ITEM_ICONS = { template: '📄', stray: '📄', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐' };
 const POLL_MS = 3000;
 
 let state = null;
@@ -81,14 +81,14 @@ const candidates = (sec) => entries(sec).filter((e) => CANDIDATES[sec].includes(
 const removable = (e) => ['image', 'volume', 'cache'].includes(e.kind);
 /** Docker's leftovers in use can't be chosen at all; everything else in use only with a warning */
 const selectable = (e) => !!state && e.why === null && !state.backup_running && !(removable(e) && e.category === 'used');
-const label = (e) => (e.kind === 'template' ? e.file : e.kind === 'stack' ? e.folder : e.kind === 'cache' ? T('cache.name') : e.name);
+const label = (e) => (e.kind === 'template' || e.kind === 'stray' ? e.file : e.kind === 'stack' ? e.folder : e.kind === 'cache' ? T('cache.name') : e.name);
 const sum = (list) => list.reduce((a, e) => a + (e.bytes || 0), 0);
 const words = () => query.trim().toLowerCase().split(/\s+/).filter(Boolean);
 /** Does an entry match the filter? Its name and what it is connected to (image, containers, stack, paths) */
 function matches(e) {
   const w = words();
   if (!w.length) return true;
-  const hay = [label(e), e.name, e.file, e.folder, e.image, e.project, e.uuid, e.from, ...(e.refs || []),
+  const hay = [label(e), e.name, e.file, e.folder, e.image, e.project, e.uuid, e.from, e.path, ...(e.refs || []),
     ...(e.used_by || []).map((u) => u.name), ...(e.containers || []).map((c) => c.name), ...(e.parts || []).map((p) => p.path)]
     .filter(Boolean).join(' ').toLowerCase();
   return w.every((x) => hay.includes(x));
@@ -324,6 +324,11 @@ function renderSection() {
   if (!state) { body.appendChild(emptyNote(Office.agent.running ? T('bubble.loading') : T('bubble.no_data'))); return; }
   if (!section || !visible(section)) return;
   const right = [];
+  const csv = el('button', 'btn small plain', T('csv'));
+  csv.type = 'button';
+  csv.title = T('csv_title');
+  csv.onclick = () => exportCsv(section);
+  right.push(csv);
   if (section === 'trash') {
     const all = state.trash.runs.filter((r) => !r.purging);
     if (all.length > 1) {
@@ -335,6 +340,7 @@ function renderSection() {
     }
   }
   body.appendChild(Office.sectionHead(T('section.' + section), T('section.' + section + '_sub'), ...right));
+  if (section === 'templates') body.appendChild(templatesInfo());
   if (section === 'appdata') body.appendChild(appdataInfo());
   if (section === 'vms') body.appendChild(vmsInfo());
   if (section === 'docker') body.appendChild(dockerInfo());
@@ -373,6 +379,20 @@ function asleepCallout(disks) {
   b.onclick = () => scan(true);
   p.appendChild(b);
   return p;
+}
+
+function templatesInfo() {
+  const t = state.templates;
+  const box = el('div', 'cl-info');
+  box.appendChild(el('p', 'role', T('strays.where', { dir: t.dir })));
+  if (t.strays_searching) box.appendChild(el('p', 'role', '⏳ ' + T('strays.searching')));
+  else if (t.strays_at) box.appendChild(el('p', 'role', T('strays.searched', { when: fmt.relative(t.strays_at) })));
+  if (t.strays_skipped) {
+    const p = el('p', 'role', T('strays.skipped', { n: t.strays_skipped }));
+    p.title = t.strays_skipped_dirs.join('\n');
+    box.appendChild(p);
+  }
+  return box;
 }
 
 function appdataInfo() {
@@ -484,6 +504,7 @@ function group(sec, cat, items) {
 
 const VIEWS = {
   template: () => [templateMeta, templateDetail],
+  stray: () => [strayMeta, strayDetail],
   stack: () => [stackMeta, stackDetail],
   appdata: () => [folderMeta, folderDetail],
   domain: () => [folderMeta, folderDetail],
@@ -553,12 +574,13 @@ function row(e, groupSync) {
 
 function menuItems(e) {
   const items = [];
-  if (e.kind === 'template') items.push({ text: T('show_xml'), act: () => showFile(e) });
+  if (e.kind === 'template' || e.kind === 'stray') items.push({ text: T('show_xml'), act: () => showFile(e) });
+  if (e.kind === 'stray' && ['only_here', 'newer'].includes(e.loc)) items.push({ text: T('install.button'), act: () => installDialog(e), disabled: !Office.agent.running || state.backup_running });
   if (e.kind === 'stack' && e.file) items.push({ text: T('show_compose'), act: () => showFile(e) });
   if (e.parts && !e.parts.every((p) => p.file) || (e.kind === 'volume' && e.path)) {
     items.push({ text: T('measure_again'), act: () => measure([e.id]), disabled: !Office.agent.running || e.measuring });
   }
-  const path = e.kind === 'template' ? e.path : e.kind === 'stack' ? e.dir : e.parts ? (e.parts[0] || {}).path : e.path;
+  const path = e.kind === 'template' || e.kind === 'stray' ? e.path : e.kind === 'stack' ? e.dir : e.parts ? (e.parts[0] || {}).path : e.path;
   if (path) items.push({ text: Office.t('common.copy_path'), act: () => Office.copy(path) });
   return items;
 }
@@ -606,6 +628,92 @@ function templateDetail(t) {
     [T('d.newer'), t.newer, true],
   ]));
   return box;
+}
+
+// ------------------------------------------------------------------ stray templates
+function strayMeta(t, meta) {
+  meta.appendChild(el('span', 'mono', t.dir));
+  if (t.name && `my-${t.name}.xml` !== t.file) meta.appendChild(el('span', '', t.name));
+  if (t.container) meta.appendChild(chip(T('stray.container'), 'accent', T('stray.container_text', { name: t.name })));
+  meta.appendChild(el('span', '', T('changed', { when: fmt.relative(t.mtime) })));
+}
+
+function strayDetail(t) {
+  const box = el('div');
+  box.appendChild(kv([
+    [T('d.file'), t.path, true],
+    [T('d.name'), t.name || T('d.no_name')],
+    [T('d.image'), t.image, true],
+    [T('d.changed'), when(t.mtime)],
+    [T('d.canonical'), t.canonical || T('d.none'), !!t.canonical],
+  ]));
+  box.appendChild(el('p', 'role', T('stray.' + t.loc + '_text')));
+  if (['only_here', 'newer'].includes(t.loc)) {
+    const b = el('button', 'btn small plain', T('install.button'));
+    b.type = 'button';
+    b.disabled = !Office.agent.running || state.backup_running;
+    b.onclick = () => installDialog(t);
+    box.appendChild(b);
+  }
+  return box;
+}
+
+function installDialog(t) {
+  const box = el('div');
+  box.appendChild(el('p', '', T('install.text', { file: t.file, dir: state.templates.dir })));
+  if (t.canonical && t.loc === 'newer') box.appendChild(el('p', 'callout', T('install.replace', { path: t.canonical })));
+  box.appendChild(el('p', 'role', T('install.after', { path: t.path })));
+  Office.dialog({
+    title: T('install.title', { file: t.file }),
+    body: box,
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('install.go'), kind: '', act: async () => {
+        busy = true;
+        const j = await Office.api.post(`${ID}.install`, { id: t.id });
+        busy = false;
+        if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return true; }
+        selection.delete(t.id);
+        setState(j.state);
+        Office.toast(T(j.replaced ? 'install.done_replaced' : 'install.done', { file: t.file }));
+        return true;
+      } },
+    ],
+  });
+}
+
+// ------------------------------------------------------------------ CSV
+function csvDate(t) {
+  if (!t) return '';
+  const d = new Date(t * 1000);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** What the open room shows (with the filter) as a CSV file — made in the browser */
+function exportCsv(sec) {
+  const rows = [[T('csv.group'), T('csv.kind'), T('csv.name'), T('csv.bytes'), T('csv.changed'), T('csv.used_by'), T('csv.notes'), T('csv.path')]];
+  if (sec === 'trash') {
+    for (const run of state.trash.runs) {
+      for (const it of run.items.filter(matches)) {
+        rows.push([T('where.' + run.where), T('item.' + it.kind), it.name, '', csvDate(run.time), '', it.zfs || '', it.from || run.path]);
+      }
+    }
+  } else {
+    for (const e of entries(sec).filter(matches)) {
+      const path = e.kind === 'stack' ? e.dir : e.path || (e.parts || []).map((p) => p.path).join(' ');
+      rows.push([T(`cat.${sec}.${e.category}`), T('item.' + e.kind), label(e), e.bytes ?? '', csvDate(e.mtime || e.newest || e.created),
+        (e.used_by || []).map((u) => u.name).concat((e.containers || []).map((c) => c.name), e.container && e.container.name ? [e.container.name] : []).join(', '),
+        (e.notes || []).map(noteText).join(' '), path || '']);
+    }
+  }
+  const text = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  const a = el('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + text], { type: 'text/csv;charset=utf-8' }));      // BOM: spreadsheets read the umlauts right
+  a.download = `${Office.config.host || 'unraid'}-${sec}-${csvDate(Date.now() / 1000).slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 
 // ------------------------------------------------------------------ stacks

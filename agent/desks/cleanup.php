@@ -5,7 +5,9 @@ declare(strict_types=1);
  * Ms. Dustdevil — clears away what nobody uses any more.
  *
  * What she looks at, best tidied in this order:
- *   templates  my-*.xml in dockerMan's templates-user without a container
+ *   templates  my-*.xml in dockerMan's templates-user without a container;
+ *              and stray my-*.xml elsewhere on the flash or the pools, which
+ *              Unraid never reads (copies, older versions, or ones to take over)
  *   stacks     Compose Manager stacks without containers, or broken ones
  *   appdata    first-level folders of the appdata share that nothing names:
  *              container mounts, templates, stacks, compose files, VMs,
@@ -42,7 +44,8 @@ const CL_TRASH        = '_UnraidSecretaryOffice-trash';
 const CL_LEGACY       = '_zumloeschen';            // trash of the old unraid-cleanup.sh
 // folder in a trash run => kind of what is in it
 const CL_KINDS        = ['templates' => 'template', 'compose' => 'stack', 'appdata' => 'appdata', 'vms' => 'domain', 'isos' => 'iso',
-                         'nvram' => 'nvram', 'tpm' => 'tpm', 'snapshotdb' => 'snapshotdb'];
+                         'nvram' => 'nvram', 'tpm' => 'tpm', 'snapshotdb' => 'snapshotdb', 'strays' => 'stray'];
+const CL_STRAY_TTL    = 6 * 3600;                  // look for stray templates again after this (or when asked)
 const CL_MEDIA        = '/\.(iso|img|qcow2|raw|vhdx?|vmdk|vdi|pat|dmg)$/i';   // what counts as a VM's disk image in the isos share
 const CL_UUID         = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const CL_CACHE_TTL    = 1800;                      // ask Docker for its build cache again after this
@@ -73,7 +76,8 @@ desk('cleanup', [
     'checks'  => fn (): array => clChecks(),
     'actions' => [
         'refresh' => fn (array $r) => ['ok' => true, 'state' => clScan()],
-        'scan'    => fn (array $r) => ['ok' => true, 'state' => clScan(!empty($r['wake']))],
+        'scan'    => fn (array $r) => ['ok' => true, 'state' => clScan(!empty($r['wake']), true, true)],
+        'install' => fn (array $r) => clInstall(textField($r, 'id')),
         'measure' => fn (array $r) => clMeasure(idList($r, 'ids')),
         'detail'  => fn (array $r) => clDetail(textField($r, 'id')),
         'park'    => fn (array $r) => clPark(idList($r, 'ids'), !empty($r['force'])),
@@ -90,7 +94,7 @@ desk('cleanup', [
  * $jobs = false: only look (before changing something — no new search may
  * hold up the change that is about to happen).
  */
-function clScan(bool $wake = false, bool $jobs = true): array
+function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): array
 {
     $t0 = microtime(true);
     $roots = clRoots();
@@ -120,6 +124,7 @@ function clScan(bool $wake = false, bool $jobs = true): array
         'docker'    => $docker,
         'templates' => clTemplates($docker),
         'stacks'    => clStacks($docker, $cache),
+        'strays'    => clStrays($cache, $docker),
         'appdata'   => $places['appdata'] + ['folders' => clShareFolders($places['appdata'])],
         'domains'   => $places['domains'] + ['folders' => $vms['enabled'] ? clShareFolders($places['domains']) : ['list' => [], 'files' => 0]],
         'isos'      => $places['isos'] + ['files' => $vms['enabled'] ? clMediaFiles($places['isos']) : []],
@@ -135,6 +140,25 @@ function clScan(bool $wake = false, bool $jobs = true): array
     if ($hired && time() - (int) ($cache['flash']['at'] ?? 0) > CL_FLASH_TTL) {
         clJobAdd('flash', 'flash', [['grep', '-roI', '--exclude-dir=' . CL_TRASH, '--exclude-dir=' . CL_LEGACY,
                                      '-e', '/mnt/[^"<>[:space:]]*', CL_FLASH]], 300, true);
+    }
+    if ($hired && ($deep || time() - (int) ($cache['strays']['at'] ?? 0) > CL_STRAY_TTL)) {
+        // stray templates: the flash, and the pools only three levels deep (<share>/<folder>/my-*.xml — deeper
+        // a media pool lists every episode); never the array, never a pool with a sleeping disk
+        $pools = [];
+        foreach ($roots as $name => $r) {
+            if ($r['kind'] === 'pool' && !clPoolAsleep($name, $asleep)) {
+                $pools[] = "/mnt/$name";
+            }
+        }
+        $find = fn (array $where, int $depth) => [array_merge(['nice', '-n', '10', 'find'], $where, ['-maxdepth', (string) $depth,
+            '(', '-name', '.*', '-o', '-name', CL_TRASH . '*', '-o', '-name', CL_LEGACY, '-o', '-name', '*.sparsebundle', ')', '-prune',
+            '-o', '-type', 'f', '-name', 'my-*.xml', '-print'])];
+        clJobAdd('strays:flash', 'strays', $find(['/boot'], 6), 300);
+        if ($pools) {
+            clJobAdd('strays:pools', 'strays', $find($pools, 3), 600);
+        } else {
+            $cache['strays']['found']['pools'] = ['paths' => [], 'skipped' => []];
+        }
     }
     if ($hired && $docker['ok'] && time() - (int) ($cache['build']['at'] ?? 0) > CL_CACHE_TTL) {
         clJobAdd('cache', 'cache', [['docker', 'system', 'df', '--format', "{{.Type}}\t{{.Size}}\t{{.Reclaimable}}"]], 120);
@@ -198,6 +222,20 @@ function clShareCfg(string $share): array
     return $cache[$share] ??= readCfg("/boot/config/shares/$share.cfg");
 }
 
+/** A pool sleeps when any of its disks does (hive, hive2, hive3 …) */
+function clPoolAsleep(string $pool, array $asleep): bool
+{
+    if (preg_match('/^disk\d+$/', $pool)) {
+        return $asleep[$pool] ?? false;              // an array disk is just itself (disk1 is not disk10)
+    }
+    foreach ($asleep as $disk => $sleeping) {
+        if ($sleeping && preg_match('/^' . preg_quote($pool, '/') . '\d*$/', (string) $disk)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /** May this path be looked at without waking a disk? */
 function clSafe(string $path): bool
 {
@@ -214,9 +252,9 @@ function clSafe(string $path): bool
         }
         $cfg = clShareCfg($m[2]);
         $pool = $cfg['shareCachePool'] ?? '';
-        return ($cfg['shareUseCache'] ?? 'no') === 'only' && isset($ctx['roots'][$pool]) && !($ctx['asleep'][$pool] ?? false);
+        return ($cfg['shareUseCache'] ?? 'no') === 'only' && isset($ctx['roots'][$pool]) && !clPoolAsleep($pool, $ctx['asleep']);
     }
-    return isset($ctx['roots'][$m[1]]) && !($ctx['asleep'][$m[1]] ?? false);
+    return isset($ctx['roots'][$m[1]]) && !clPoolAsleep($m[1], $ctx['asleep']);
 }
 
 /** true / false, or null when looking would wake a disk */
@@ -461,6 +499,69 @@ function clTemplates(array $docker): array
         ] + $t;
     }
     return $out;
+}
+
+/** One field of a template's XML */
+function clXmlField(string $file, string $tag): string
+{
+    $xml = (string) @file_get_contents($file, false, null, 0, 1 << 20);
+    return preg_match('#<' . $tag . '>([^<]*)</' . $tag . '>#', $xml, $m) ? trim(html_entity_decode($m[1], ENT_QUOTES | ENT_XML1)) : '';
+}
+
+/**
+ * Stray templates found by the background search, judged against Unraid's
+ * own folder (like the cleanup script did):
+ *   only_here    Unraid doesn't have it — take it over, or put it away
+ *   copy         the same file is in Unraid's folder
+ *   older        Unraid's folder has a newer version
+ *   name_exists  Unraid's folder has a template with this <Name>
+ *   newer        this one is newer than Unraid's — look yourself
+ */
+function clStrays(array $cache, array $docker): array
+{
+    $files = [];
+    $names = [];
+    foreach (glob(CL_TEMPLATES . '/my-*.xml') ?: [] as $f) {
+        $files[basename($f)] = $f;
+        $n = clXmlField($f, 'Name');
+        if ($n !== '') {
+            $names[$n] = $f;
+        }
+    }
+    $out = [];
+    foreach ($cache['strays']['paths'] ?? [] as $path) {
+        if (!clSafe($path) || !is_file($path) || is_link($path)) {
+            continue;
+        }
+        $base = basename($path);
+        $name = clXmlField($path, 'Name');
+        $canon = $files[$base] ?? null;
+        if ($canon) {
+            $loc = md5_file($canon) === md5_file($path) ? 'copy' : (filemtime($path) > filemtime($canon) ? 'newer' : 'older');
+        } else {
+            $loc = $name !== '' && isset($names[$name]) ? 'name_exists' : 'only_here';
+        }
+        $out[] = [
+            'id' => "stray:$path", 'kind' => 'stray', 'file' => $base, 'name' => $name, 'path' => $path, 'dir' => dirname($path),
+            'category' => "stray_$loc", 'loc' => $loc, 'canonical' => $canon ?? ($names[$name] ?? null),
+            'image' => clXmlField($path, 'Repository'), 'container' => $name !== '' && isset($docker['containers'][$name]),
+            'mtime' => (int) @filemtime($path), 'bytes' => (int) @filesize($path), 'why' => null, 'force' => false,
+        ];
+    }
+    usort($out, fn ($a, $b) => strnatcasecmp($a['path'], $b['path']));
+    return $out;
+}
+
+/** The storeroom for a stray template: on the flash, or in the share it lies in */
+function clStrayTrash(string $path): string
+{
+    if (under($path, '/boot')) {
+        return CL_FLASH . '/' . CL_TRASH;
+    }
+    if (preg_match('#^(/mnt/[^/]+/[^/]+)/#', $path, $m) && !preg_match('#^/mnt/(user0?|disks|remotes|addons|rootshare)/#', $path)) {
+        return $m[1] . '/' . CL_TRASH;
+    }
+    throw new Problem('cleanup_move_failed', ['path' => $path, 'detail' => '']);
 }
 
 // --------------------------------------------------------------------- compose stacks
@@ -1005,7 +1106,9 @@ function clBuild(): array
             'list'       => clDockerEntries($raw, $cache, $pending),
         ],
         'backup_running' => backupScriptState()['running'],
-        'templates' => ['dir' => CL_TEMPLATES, 'list' => $templates],
+        'templates' => ['dir' => CL_TEMPLATES, 'list' => array_merge($templates, $raw['strays']),
+                        'strays_at' => $cache['strays']['at'] ?? null, 'strays_searching' => $pending('strays:flash') || $pending('strays:pools'),
+                        'strays_skipped' => $cache['strays']['skipped'] ?? 0, 'strays_skipped_dirs' => $cache['strays']['skipped_dirs'] ?? []],
         'stacks'    => ['root' => $raw['stacks']['root'], 'exists' => $raw['stacks']['exists'], 'list' => $stacks],
         'appdata'   => [
             'share'    => $ad['share'],
@@ -1308,6 +1411,15 @@ function clTrashRoots(array $places, array $vms): array
     if ($vms['ok']) {
         $roots[CL_LIBVIRT . '/' . CL_TRASH] = 'libvirt';
     }
+    // stray templates go into the storeroom of whatever share they lie in
+    $ctx = $GLOBALS['clCtx'];
+    foreach ($ctx['roots'] as $name => $r) {
+        if ($r['kind'] === 'pool' && !clPoolAsleep($name, $ctx['asleep'])) {
+            foreach (glob("/mnt/$name/*/" . CL_TRASH, GLOB_ONLYDIR) ?: [] as $d) {
+                $roots[$d] ??= 'share';
+            }
+        }
+    }
     return $roots;
 }
 
@@ -1361,6 +1473,7 @@ function clTrashRuns(array $places, array $vms): array
                     continue;
                 }
                 $known[$it['as']] = true;
+                $known[dirname($it['as'])] = true;            // strays/<folder hash>/
                 $zfs = str_starts_with($it['as'], '@') ? substr($it['as'], 1) : null;
                 $items[] = [
                     'id'      => "$path|{$it['as']}",
@@ -1461,6 +1574,9 @@ function clManifestWrite(array $run): void
 /** Removes a run folder that holds nothing any more (and its trash root, if empty) */
 function clRunTidy(string $path, string $root): void
 {
+    foreach (glob("$path/strays/*", GLOB_ONLYDIR) ?: [] as $d) {
+        @rmdir($d);
+    }
     foreach (array_keys(CL_KINDS) as $dir) {
         @rmdir("$path/$dir");
     }
@@ -1551,6 +1667,11 @@ function clPark(array $ids, bool $force): array
                 $runs[$r]['items'][] = ['kind' => 'stack', 'name' => $e['folder'], 'label' => $e['name'], 'from' => $e['dir'], 'as' => $as,
                                         'project' => $e['project'], 'indirect' => $e['indirect'], 'was_running' => count($e['containers']),
                                         'volumes' => $e['volumes'], 'images' => array_column($e['images'], 'ref')];
+            } elseif ($e['kind'] === 'stray') {
+                $r = $run(clStrayTrash($e['path']));
+                $as = clStrayAs($e['path']);
+                clMove($e['path'], $runs[$r]['path'] . "/$as");
+                $runs[$r]['items'][] = ['kind' => 'stray', 'name' => $e['file'], 'label' => $e['name'], 'from' => $e['path'], 'as' => $as];
             } elseif (in_array($e['kind'], ['nvram', 'tpm', 'snapshotdb'], true)) {
                 $r = $run(CL_LIBVIRT . '/' . CL_TRASH);
                 $as = $e['kind'] . '/' . $e['name'];
@@ -1596,11 +1717,68 @@ function clPark(array $ids, bool $force): array
     return ['ok' => true, 'results' => $results, 'state' => clScan()];
 }
 
+/** Where a stray template goes in a run: strays from different folders may have the same name */
+function clStrayAs(string $path): string
+{
+    return 'strays/' . substr(md5(dirname($path)), 0, 8) . '/' . basename($path);
+}
+
+/**
+ * Takes a stray template over into Unraid's folder: a version already there
+ * goes into the storeroom first, the stray is copied in (a few KB — across
+ * filesystems), then the stray itself goes into the storeroom where it lies.
+ * All of it can be put back.
+ */
+function clInstall(string $id): array
+{
+    $state = clScan(false, false);
+    clGuard($state);
+    $e = clIndex($state)[$id] ?? throw new Problem('unknown_target', ['target' => $id]);
+    if ($e['kind'] !== 'stray' || !in_array($e['loc'], ['only_here', 'newer'], true)) {
+        throw new Problem('cleanup_not_needed', ['name' => $e['file'] ?? $id]);
+    }
+    $target = CL_TEMPLATES . '/' . $e['file'];
+    $runs = [];
+    $replaced = false;
+    try {
+        if (file_exists($target)) {
+            $runs['flash'] = clRunCreate(CL_FLASH . '/' . CL_TRASH);
+            clMove($target, $runs['flash']['path'] . '/templates/' . $e['file']);
+            $replaced = true;
+            $runs['flash']['items'][] = ['kind' => 'template', 'name' => $e['file'], 'label' => $e['name'], 'from' => $target, 'as' => 'templates/' . $e['file']];
+            clManifestWrite($runs['flash']);
+        }
+        $tmp = CL_TEMPLATES . '/.' . $e['file'] . '.' . getmypid() . '.tmp';
+        if (!@copy($e['path'], $tmp) || !@rename($tmp, $target)) {
+            @unlink($tmp);
+            if ($replaced && @rename($runs['flash']['path'] . '/templates/' . $e['file'], $target)) {
+                $runs['flash']['items'] = [];        // put back as it was
+            }
+            throw new Problem('cleanup_copy_failed', ['path' => $e['path']]);
+        }
+        $root = clStrayTrash($e['path']);
+        $key = $root === CL_FLASH . '/' . CL_TRASH ? 'flash' : 'share';
+        $runs[$key] ??= clRunCreate($root);
+        $as = clStrayAs($e['path']);
+        clMove($e['path'], $runs[$key]['path'] . "/$as");
+        $runs[$key]['items'][] = ['kind' => 'stray', 'name' => $e['file'], 'label' => $e['name'], 'from' => $e['path'], 'as' => $as];
+        clManifestWrite($runs[$key]);
+        logLine("Dustdevil took over {$e['path']} into Unraid's templates" . ($replaced ? ' (the older one is in the storeroom)' : ''));
+    } finally {
+        foreach ($runs as $x) {
+            if (!$x['items']) {
+                clRunTidy($x['path'], $x['root']);
+            }
+        }
+    }
+    return ['ok' => true, 'replaced' => $replaced, 'state' => clScan()];
+}
+
 /** What the user calls it: the template's file, the stack's folder, the name */
 function clLabel(array $e): string
 {
     return match ($e['kind']) {
-        'template' => $e['file'],
+        'template', 'stray' => $e['file'],
         'stack'    => $e['folder'],
         default    => $e['name'],
     };
@@ -1625,8 +1803,14 @@ function clMove(string $from, string $to): void
         throw new Problem('cleanup_target_exists', ['path' => $to]);
     }
     $dir = dirname($to);
-    if (!is_dir($dir) && !@mkdir($dir, 0775, true)) {
-        throw new Problem('cleanup_trash_failed', ['path' => $dir]);
+    if (!is_dir($dir)) {
+        if (!@mkdir($dir, 0775, true)) {
+            throw new Problem('cleanup_trash_failed', ['path' => $dir]);
+        }
+        foreach ([$dir, dirname($dir)] as $d) {           // like the run folder: nobody:users
+            @chown($d, FILE_UID);
+            @chgrp($d, FILE_GID);
+        }
     }
     if (!@rename($from, $to)) {
         @rmdir($dir);
@@ -1661,6 +1845,8 @@ function clRestore(array $ids): array
             'nvram'      => CL_LIBVIRT . '/qemu/nvram',
             'tpm'        => CL_LIBVIRT . '/qemu/swtpm/tpm-states',
             'snapshotdb' => CL_LIBVIRT . '/qemu/snapshotdb',
+            'stray'      => preg_match('#/my-[^/]+\.xml$#', $it['from'])
+                            && under($it['from'], under($run['root'], '/boot') ? '/boot' : dirname($run['root'])) ? dirname($it['from']) : '',
             default      => dirname($run['root']),          // appdata, domains, isos: the share on that pool
         };
         $zfs = $it['zfs'];
@@ -1694,6 +1880,11 @@ function clRestore(array $ids): array
                 clRunTidy($run['path'], $run['root']);
             }
             clForgetSize($run['path']);
+            if ($it['kind'] === 'stray') {             // back in the list right away, not only after the next search
+                $cache = clCache();
+                $cache['strays']['paths'] = array_values(array_unique(array_merge($cache['strays']['paths'] ?? [], [$it['from']])));
+                clSaveCache($cache);
+            }
             $results[] = ['id' => $id, 'ok' => true, 'kind' => $it['kind']];
             logLine("Dustdevil put back {$it['from']}");
         } catch (Problem $p) {
@@ -1845,7 +2036,7 @@ function clDetail(string $id): array
     $all = clIndex($GLOBALS['clState'] ?? clScan());
     $e = $all[$id] ?? throw new Problem('unknown_target', ['target' => $id]);
     $files = match ($e['kind']) {
-        'template' => [$e['path']],
+        'template', 'stray' => [$e['path']],
         'stack'    => array_values(array_filter([$e['file'], $e['override']])),
         default    => [],
     };
@@ -2023,7 +2214,7 @@ function clJobsTick(): void
 function clJobStart(array $job): ?array
 {
     @mkdir(RUN_DIR, 0700, true);
-    $out = RUN_DIR . '/cleanup-' . md5($job['key']) . '.out';
+    $out = RUN_DIR . '/cleanup-' . getmypid() . '-' . md5($job['key']) . '.out';
     $env = ['PATH' => '/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin', 'LC_ALL' => 'C', 'HOME' => '/root'];
     $procs = [];
     $in = ['file', '/dev/null', 'r'];
@@ -2083,6 +2274,30 @@ function clJobDone(array $job, bool $killed): void
         } else {
             $cache['sizes'][$path] = ['at' => time(), 'error' => true];
         }
+    } elseif ($job['type'] === 'strays') {
+        // backups (the office's own, anything called backup) hold copies on purpose: never strays
+        $paths = [];
+        $skipped = [];
+        foreach (explode("\n", trim($text)) as $p) {
+            if ($p === '' || under($p, CL_TEMPLATES) || under($p, CL_FLASH . '/plugins/dockerMan/templates')) {
+                continue;
+            }
+            if (preg_match('#^/mnt/[^/]+/' . preg_quote(BACKUP_OFFICE_SHARE, '#') . '/#', $p) || preg_match('#/[^/]*backup[^/]*/#i', $p)) {
+                $skipped[dirname($p)] = ($skipped[dirname($p)] ?? 0) + 1;
+                continue;
+            }
+            $paths[] = $p;
+        }
+        // two searches (flash, pools): each keeps its own findings, together they are the list
+        $which = substr($key, 7);
+        $cache['strays']['found'][$which] = ['paths' => $paths, 'skipped' => $skipped];
+        $all = array_values($cache['strays']['found']);
+        $skippedAll = array_merge(...array_column($all, 'skipped'));
+        $cache['strays']['at'] = time();
+        $cache['strays']['paths'] = array_values(array_unique(array_merge(...array_column($all, 'paths'))));
+        $cache['strays']['skipped'] = array_sum($skippedAll);
+        $cache['strays']['skipped_dirs'] = array_slice(array_keys($skippedAll), 0, 10);
+        logLine(sprintf('Dustdevil looked for stray templates (%s): %d found, %d in backups left out (%d s)', $which, count($paths), array_sum($skipped), $took));
     } elseif ($job['type'] === 'cache') {
         // "Build Cache  237.2MB  95.67MB" — Docker counts in powers of 1000
         $bytes = function (string $s): int {
