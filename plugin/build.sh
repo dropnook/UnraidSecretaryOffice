@@ -38,7 +38,7 @@ mkdir -p "$pkg" dist
 
 cp -R public/. "$pkg/"
 cp -R src agent backup "$pkg/"
-cp -R plugin/scripts plugin/event "$pkg/"
+cp -R plugin/scripts plugin/event plugin/images "$pkg/"
 cp plugin/*.page LICENSE README.md "$pkg/"
 rm -f "$pkg/robots.txt"                       # Unraid serves its own
 find "$pkg" \( -name '.DS_Store' -o -name '._*' -o -name '.smbdelete*' -o -name '.gitkeep' \) -exec rm -rf {} +

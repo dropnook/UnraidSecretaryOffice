@@ -53,7 +53,7 @@ function render_page(): void
 <meta name="color-scheme" content="light dark">
 <meta name="robots" content="noindex">
 <title>Secretary Office · <?= $h($host) ?></title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🗂️</text></svg>">
+<link rel="icon" type="image/svg+xml" href="assets/icon.svg?v=<?= $v('assets/icon.svg') ?>">
 <link rel="stylesheet" href="assets/office.css?v=<?= $v('assets/office.css') ?>">
 <?php foreach ($desks as $id => $d): if ($d['css']): ?>
 <link rel="stylesheet" href="desks/<?= $id ?>/desk.css?v=<?= $v("desks/$id/desk.css") ?>">
