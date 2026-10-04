@@ -1,0 +1,9 @@
+/* Ms. Dustdevil */
+.cl-tile-icon{font-size:17px; line-height:1}
+.cl-count{margin-left:auto; font-size:13px; font-weight:650; color:var(--accent-ink); background:var(--accent-soft); border-radius:999px; padding:1px 8px; font-variant-numeric:tabular-nums}
+.cl-unfold{justify-content:flex-end; padding:0}
+.cl-info{display:flex; flex-direction:column; gap:4px; margin:0 2px}
+.cl-info p{margin:0}
+.cl-info .callout{margin:4px 0 0; display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+.cl-lines{white-space:pre-line; overflow-wrap:anywhere}
+.cl-trash-row .row-meta .mono{overflow-wrap:anywhere}
