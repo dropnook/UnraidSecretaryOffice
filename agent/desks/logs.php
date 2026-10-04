@@ -47,6 +47,7 @@ function logsSources(): array
     }
     $file('embycache', 'office', 'embycache', DATA_DIR . '/embycache/logs/embycache.log');
     $file('embycache-run', 'office', 'embycache_run', DATA_DIR . '/embycache/office-output.txt');
+    $file('gather', 'office', 'gather', DATA_DIR . '/gather/consolidate.log');
     foreach (['UnraidSecretaryOffice', 'UnraidSecretaryOffice-Agent'] as $c) {
         $s["container:$c"] = ['group' => 'office', 'label' => 'container', 'kind' => 'docker', 'target' => $c, 'param' => $c];
     }
