@@ -518,5 +518,21 @@
     "other": "Gerade angehalten ({n}):"
   },
   "paused.maintenance": "Im Wartungsmodus:",
-  "paused.note": "Nur für die Dumps und Snapshots — danach starte ich alles wieder, ganz bestimmt. Auch nach einem Absturz: Das steht hier notiert."
+  "paused.note": "Nur für die Dumps und Snapshots — danach starte ich alles wieder, ganz bestimmt. Auch nach einem Absturz: Das steht hier notiert.",
+  "message.nc_datadir_readable": "Nextcloud verweigerte den Wartungsmodus: Das Datenverzeichnis ist für andere lesbar. Unraid setzt die Wurzel eines Shares beim Speichern der Share-Einstellungen auf 0777 zurück. Abhilfe: chown 33:33 und chmod 0770 auf das Datenverzeichnis, dann den Lauf neu starten.",
+  "setup.ds_label": "Backup-Ablage (Dumps, Archive, Manifest)",
+  "setup.ds_choose": "— Share wählen —",
+  "setup.ds_missing": "Pflicht: Ohne eigenen Backup-Share sichere ich nichts. In appdata gehören keine Backups.",
+  "setup.ds_off": "«{share}» wird selbst nicht gesichert (nicht gesichert) — die Dumps wären nirgends sicher. Den Share oben auf Snapshot oder Kopia stellen.",
+  "setup.ds_local": "«{share}» geht nicht an Kopia — Dumps und Archive blieben nur auf diesem Server. Besser den Share oben auf «Kopia + Snapshot» stellen.",
+  "setup.ds_ok": "Ablage: {path} (nur root)",
+  "setup.ds_why": "Die Dumps schützen die Datenbanken in appdata. Lägen sie daneben, nähme ein Ausfall dieses Pools beides mit — darum ein eigener Share, am besten auf einem anderen Pool.",
+  "check.dumps_share": "Eine eigene Backup-Ablage ist gesetzt",
+  "check.dumps_share_how": "Herr Backupsi → «Einrichten…» → Allgemein → Backup-Ablage: einen eigenen Share wählen (z. B. «Backups»). Ohne verweigert er jeden Lauf — in appdata gehören keine Backups.",
+  "check.dumps_offsite": "Die Backup-Ablage «{share}» geht offsite",
+  "check.dumps_offsite_how": "«{share}» steht auf «{mode}» — Dumps und Archive bleiben nur auf diesem Server. Bei Herrn Backupsi unter «Einrichten…» den Share auf «Kopia + Snapshot» stellen.",
+  "message.dumps_missing": "Keine Backup-Ablage gesetzt — Dumps und Archive brauchen einen eigenen Backup-Share, in appdata gehört so etwas nicht. Bei «Einrichten…» einen wählen.",
+  "message.dumps_unknown": "Die Backup-Ablage gibt es nicht (mehr) als Share. Bei «Einrichten…» eine andere wählen.",
+  "message.dumps_forbidden": "Die Backup-Ablage liegt in appdata, system oder domains — dort gehören keine Backups hin. Bei «Einrichten…» einen eigenen Share wählen.",
+  "message.dumps_off": "Die Backup-Ablage wird selbst nicht gesichert — die Dumps wären nirgends sicher. Bei «Einrichten…» den Share sichern lassen."
 }

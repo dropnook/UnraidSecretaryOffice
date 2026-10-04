@@ -192,6 +192,7 @@ function backupSettingsSummary(array $s): array
         'snap_prefix'   => $one('general', 'snap_prefix', 'unraidbackup-'),
         'btrfs_dir'     => $one('general', 'btrfs_snap_dir', '.btrfs-snap'),
         'keep_runs'     => (int) $one('general', 'keep_runs', '7'),
+        'dumps_share'   => $one('general', 'dumps_share'),
         'keep_mounts'   => $one('general', 'keep_mounts', 'no') === 'yes',
         'zfs_retention' => $one('zfs', 'retention'),
         'btrfs_days'    => $one('btrfs', 'keep_days'),
@@ -441,34 +442,48 @@ function backupDrift(): array
     return ['time' => (int) @filemtime("$data/state/drift.txt"), 'items' => $items];
 }
 
+/** Where the engine keeps dumps and archives: <dumps_share>/unraid-backup; the old folder in appdata until the first run moved them */
+function backupDumpsDir(): string
+{
+    $settings = backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');
+    $share = backupSettingsSummary($settings)['dumps_share'] ?? null;
+    $new = $share ? "/mnt/user/$share/unraid-backup" : null;
+    $old = BACKUP_DATA_DIR . '/dumps';
+    if ($new && is_dir($new)) {
+        return $new;
+    }
+    return is_dir($old) ? $old : ($new ?? $old);
+}
+
 /** dumps/<run>/: database dumps (+ manifest, flash archive) of the last runs */
 function backupDumps(): array
 {
     $data = BACKUP_DATA_DIR;
     $dumps = [];
-    foreach (@scandir("$data/dumps", SCANDIR_SORT_DESCENDING) ?: [] as $run) {
+    $dir = backupDumpsDir();
+    foreach (@scandir($dir, SCANDIR_SORT_DESCENDING) ?: [] as $run) {
         if (!preg_match('/^\d{8}-\d{4}$/', $run)) {
             continue;
         }
         $files = [];
         $bytes = 0;
-        foreach (@scandir("$data/dumps/$run/db") ?: [] as $f) {
-            if ($f[0] === '.' || !is_file("$data/dumps/$run/db/$f")) {
+        foreach (@scandir("$dir/$run/db") ?: [] as $f) {
+            if ($f[0] === '.' || !is_file("$dir/$run/db/$f")) {
                 continue;
             }
-            $size = (int) @filesize("$data/dumps/$run/db/$f");
+            $size = (int) @filesize("$dir/$run/db/$f");
             $bytes += $size;
             $files[] = ['name' => $f, 'bytes' => $size];
         }
-        $flash = glob("$data/dumps/$run/flash*.tar*") ?: [];
-        $libvirt = is_file("$data/dumps/$run/libvirt.tar.gz") ? "$data/dumps/$run/libvirt.tar.gz" : null;
+        $flash = glob("$dir/$run/flash*.tar*") ?: [];
+        $libvirt = is_file("$dir/$run/libvirt.tar.gz") ? "$dir/$run/libvirt.tar.gz" : null;
         $dumps[] = [
             'run'      => $run,
             'time'     => (int) (DateTime::createFromFormat('Ymd-Hi', $run)?->getTimestamp() ?: 0),
-            'path'     => "$data/dumps/$run",
+            'path'     => "$dir/$run",
             'files'    => $files,
             'bytes'    => $bytes,
-            'manifest' => is_dir("$data/dumps/$run/manifest"),
+            'manifest' => is_dir("$dir/$run/manifest"),
             'flash'    => $flash ? basename($flash[0]) : null,
             'libvirt'  => $libvirt,
             'libvirt_bytes' => $libvirt ? (int) @filesize($libvirt) : null,
@@ -835,6 +850,15 @@ function backupChecks(): array
     if (is_file("$data/settings.ini")) {
         $drift = array_filter(backupDrift()['items'], fn ($d) => in_array($d['level'] ?? '', ['warn', 'error'], true));
         $out[] = finding('drift', 'recommended', !$drift, ['n' => count($drift)], '#/backup/setup');
+
+        // dumps and archives in their own backup share, never in appdata — without one the engine refuses to run
+        $ds = (string) ($summary['dumps_share'] ?? '');
+        $dsBad = $ds === '' || in_array(strtolower($ds), ['appdata', 'system', 'domains'], true) || !is_dir("/mnt/user/$ds");
+        $out[] = finding('dumps_share', 'required', !$dsBad, ['share' => $ds], '#/backup/setup');
+        if (!$dsBad && $kopiaOn) {
+            $mode = backupSetting($settings, "share|$ds", 'mode', 'off');
+            $out[] = finding('dumps_offsite', 'recommended', $mode === 'kopia', ['share' => $ds, 'mode' => $mode], '#/backup/setup');
+        }
 
         // Nextcloud refuses to work (and so its maintenance mode) when others can read its data folder —
         // and Unraid resets a share's root to 0777 whenever share settings are saved

@@ -518,5 +518,21 @@
     "other": "Stopped right now ({n}):"
   },
   "paused.maintenance": "In maintenance mode:",
-  "paused.note": "Only for the dumps and snapshots — then I start everything again, I promise. Even after a crash: it's noted down here."
+  "paused.note": "Only for the dumps and snapshots — then I start everything again, I promise. Even after a crash: it's noted down here.",
+  "message.nc_datadir_readable": "Nextcloud refused maintenance mode: its data folder is readable by others. Unraid resets a share's root to 0777 whenever share settings are saved. Fix: chown 33:33 and chmod 0770 on the data folder, then start the run again.",
+  "setup.ds_label": "Backup place (dumps, archives, manifest)",
+  "setup.ds_choose": "— choose a share —",
+  "setup.ds_missing": "Required: without a backup share of its own I back up nothing. Backups don't belong in appdata.",
+  "setup.ds_off": "\"{share}\" isn't backed up itself (not backed up) — the dumps would be safe nowhere. Set the share above to snapshot or Kopia.",
+  "setup.ds_local": "\"{share}\" doesn't go to Kopia — dumps and archives would stay on this server only. Better set the share above to \"Kopia + snapshot\".",
+  "setup.ds_ok": "Place: {path} (root only)",
+  "setup.ds_why": "The dumps protect the databases in appdata. Next to them, a failing pool would take both — so a share of its own, ideally on another pool.",
+  "check.dumps_share": "A backup place of its own is set",
+  "check.dumps_share_how": "Mr. Backupsy → \"Set up…\" → General → Backup place: choose a share of its own (e.g. \"Backups\"). Without it he refuses every run — backups don't belong in appdata.",
+  "check.dumps_offsite": "The backup place \"{share}\" goes offsite",
+  "check.dumps_offsite_how": "\"{share}\" is set to \"{mode}\" — dumps and archives stay on this server only. At Mr. Backupsy, \"Set up…\", set the share to \"Kopia + snapshot\".",
+  "message.dumps_missing": "No backup place set — dumps and archives need a backup share of their own; they don't belong in appdata. Choose one in \"Set up…\".",
+  "message.dumps_unknown": "The backup place doesn't exist as a share (any more). Choose another one in \"Set up…\".",
+  "message.dumps_forbidden": "The backup place is in appdata, system or domains — backups don't belong there. Choose a share of its own in \"Set up…\".",
+  "message.dumps_off": "The backup place isn't backed up itself — the dumps would be safe nowhere. Let the share be backed up in \"Set up…\"."
 }

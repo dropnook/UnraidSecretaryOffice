@@ -778,6 +778,9 @@ async function setupPlan(measure, quiet) {
 }
 
 function setupApply() {
+  const ds = dget('general|dumps_share', '');
+  if (!ds) { Office.toast(T('setup.ds_missing'), true); return; }
+  if (dget(`share|${ds}|mode`, 'off') === 'off') { Office.toast(T('setup.ds_off', { share: ds }), true); return; }
   const changes = setupChanges();
   const pending = setup.plan.pending || [];
   const box = el('div');
@@ -1207,6 +1210,33 @@ function setupDatabases(plan) {
   return s;
 }
 
+/** The backup place: its own share for dumps, archives and the manifest — never appdata; required */
+function dumpsShareField(plan) {
+  const banned = ['appdata', 'system', 'domains'];
+  const shares = plan.shares.map((x) => x.name).filter((n) => !banned.includes(n.toLowerCase()));
+  const sel = el('select', 'picker');
+  sel.appendChild(new Option(T('setup.ds_choose'), ''));
+  shares.forEach((n) => sel.appendChild(new Option(n, n)));
+  sel.value = dget('general|dumps_share', '') || '';
+  const hint = el('small');
+  const update = () => {
+    const share = sel.value;
+    hint.className = '';
+    if (!share) { hint.textContent = T('setup.ds_missing'); hint.className = 'missing'; return; }
+    const mode = dget(`share|${share}|mode`, 'off');
+    if (mode === 'off') { hint.textContent = T('setup.ds_off', { share }); hint.className = 'missing'; return; }
+    const kopia = dget('kopia|enabled') === 'yes';
+    hint.textContent = kopia && mode !== 'kopia' ? T('setup.ds_local', { share }) : T('setup.ds_ok', { path: `/mnt/user/${share}/unraid-backup` });
+    if (kopia && mode !== 'kopia') hint.className = 'missing';
+  };
+  sel.onchange = () => { dset('general|dumps_share', sel.value || undefined); update(); };
+  update();
+  const f = field(T('setup.ds_label'), sel);
+  f.appendChild(hint);
+  f.appendChild(el('small', '', T('setup.ds_why')));
+  return f;
+}
+
 function setupGeneral(plan) {
   const s = setupSection(T('setup.general'), T('setup.general_sub'));
   const box = el('div', 'bk-form');
@@ -1221,6 +1251,7 @@ function setupGeneral(plan) {
     box.appendChild(field(T('setup.g_btrfs_free'), textInput('btrfs|min_free_gb', /^\d+$/), T('setup.g_btrfs_free_hint')));
     box.appendChild(checkbox(T('setup.g_btrfs_all'), dget('btrfs|snapshot_all') === 'yes', (v) => dset('btrfs|snapshot_all', v ? 'yes' : 'no')));
   }
+  box.appendChild(dumpsShareField(plan));
   box.appendChild(field(T('setup.g_keep_runs'), textInput('general|keep_runs', /^\d+$/), T('setup.g_keep_runs_hint')));
   if (plan.P['libvirt|mode'] !== undefined) {
     box.appendChild(field(T('setup.g_libvirt'), selectInput('libvirt|mode', ['tar', 'off'], (o) => T('setup.libvirt.' + o)), T('setup.g_libvirt_hint')));

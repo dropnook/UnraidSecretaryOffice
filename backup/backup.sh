@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.11 - 3.10.2026
+# unraid-backup - backup.sh                       Version 2.12 - 4.10.2026
+#   2.12 Dumps und Archive in einem eigenen Backup-Share (general|dumps_share), nie in appdata -
+#        ohne gueltige Ablage kein Lauf; bisherige Dumps ziehen beim ersten Lauf um.
+#   2.12 Nextcloud-Rechtefehler klar benannt (Code nc_datadir_readable); Manifest liest btrfs nur
+#        aus dem Kernel (--mounted, Zeitlimit) statt jedes Geraet roh
 #   2.11 User-Scripts-Eintrag heisst unraid-secretary-office_backup (Beschreibung englisch)
 #   2.10 VM-Konfiguration aus libvirt.img (XML, NVRAM, TPM-Zustand) als
 #        Archiv zu den Dumps - [libvirt] mode = tar (Vorgabe) | off
@@ -143,6 +147,14 @@ KOPIA_CP=""
 die() {
     err "$*"
     status_finish failed "$*"
+    ub_notify "Backup FEHLGESCHLAGEN" "$*" "alert" "Protokoll: $LOG_FILE"
+    exit 1
+}
+# die_code <code> <text>: like die, but status.json carries the code - the office translates it
+die_code() {
+    local code="$1"; shift
+    err "$*"
+    status_finish failed "$code"
     ub_notify "Backup FEHLGESCHLAGEN" "$*" "alert" "Protokoll: $LOG_FILE"
     exit 1
 }
@@ -495,6 +507,10 @@ nextcloud_maintenance_on() {
             # Abbruch einen haengenden Wartungsmodus, den es nicht gibt.
             [[ "$(nc_occ "$c" config:system:get maintenance 2>/dev/null | tr -d '\r')" == "true" ]] \
                 || { unset "NC_ON[$c]"; save_restore_state; }
+            # the most common cause: Unraid reset the data folder (a share root) to 0777 when share settings were saved
+            if grep -q "readable by other people" <<<"$out"; then
+                die_code nc_datadir_readable "Nextcloud '$c': das Datenverzeichnis ist fuer andere lesbar, occ verweigert den Dienst. Unraid setzt die Wurzel eines Shares beim Speichern der Share-Einstellungen auf 0777. Abhilfe: chown 33:33 und chmod 0770 auf das Datenverzeichnis, dann neu starten."
+            fi
             die "Nextcloud '$c': Wartungsmodus liess sich nicht einschalten (occ-Meldung im Protokoll)"
         fi
     done < <(cfg_names nextcloud)
@@ -659,7 +675,8 @@ write_manifest() {
     fi
     docker ps -a --format '{{.Names}}\t{{.Image}}\t{{.Status}}'      >"$M/docker-ps.txt" 2>&1
     command -v zfs   >/dev/null && { zfs list -o name,used,refer,mountpoint >"$M/zfs-list.txt" 2>&1; zpool status >"$M/zpool-status.txt" 2>&1; }
-    command -v btrfs >/dev/null && btrfs filesystem show >"$M/btrfs-show.txt" 2>&1
+    # --mounted: what the kernel knows - no raw reads of every device (a busy or sleeping disk held this up for minutes)
+    command -v btrfs >/dev/null && timeout 30 btrfs filesystem show --mounted >"$M/btrfs-show.txt" 2>&1
     cp -a "$UB_SETTINGS" "$M/settings.ini" 2>/dev/null
     drift_text >"$M/abweichungen.txt"
     cp -a "$UB_BOOT"/config/plugins/dockerMan/templates-user/*.xml "$M/docker-templates/" 2>/dev/null
@@ -787,6 +804,7 @@ refresh_view() { # Durchstoeber-Ansicht: Symlinks statt Bind-Mounts (halten kein
 
 prune_files() {
     local d
+    [[ -n "$UB_DUMPS" && "$UB_DUMPS" == "$UB_MNT"/user/?*/"$UB_NAME" ]] || return 0     # never with an empty or odd path
     ls -1d "$UB_DUMPS"/[0-9]*-[0-9]* 2>/dev/null | sort | head -n -"$KEEP_RUNS" \
         | while read -r d; do rm -rf "$d" && log "  entfernt: $d"; done
     ls -1 "$UB_LOGS"/run-*.log "$UB_LOGS"/check-*.log "$UB_LOGS"/dryrun-*.log 2>/dev/null | sort -t- -k2 | head -n -"$KEEP_LOGS" \
@@ -930,18 +948,28 @@ drift_check_shares
 drift_check_containers
 if [[ "$SKIPK" != "1" ]]; then drift_check_kopia; else KOPIA_OK="skip"; fi
 
-# Liegen die Dumps in einem Share, der gesichert wird?
-DUMP_SHARE=""
-for b in "${INV_BASES[@]}" user; do
-    p="$UB_MNT/$b/"
-    if [[ "$UB_DUMPS/" == "$p"* ]]; then DUMP_SHARE="${UB_DUMPS#"$p"}"; DUMP_SHARE="${DUMP_SHARE%%/*}"; break; fi
-done
-if [[ -z "$DUMP_SHARE" ]]; then
-    drift_add warn "Datenordner $UB_DATA liegt in keinem Share - Dumps gehen nicht ins Backup"
-elif is_yes "$KOPIA_ENABLED" && [[ "$(share_mode "$DUMP_SHARE")" != "kopia" ]]; then
-    drift_add warn "Dumps liegen im Share '$DUMP_SHARE', der nicht an Kopia geht (mode=$(share_mode "$DUMP_SHARE"))"
-elif [[ "$(share_mode "$DUMP_SHARE")" == "off" ]]; then
-    drift_add warn "Dumps liegen im Share '$DUMP_SHARE', der weder gesnapshottet noch gesichert wird (mode=off)"
+# Die Backup-Ablage: ein eigener Share, gesichert - sonst kein Lauf (nichts ist bis hier angehalten)
+DUMPS_PROBLEM="$(dumps_share_problem "$DUMPS_SHARE")"
+if [[ -n "$DUMPS_PROBLEM" ]]; then
+    if [[ "$UB_MODE" == "check" ]]; then
+        drift_add error "$(dumps_share_text "$DUMPS_PROBLEM" "$DUMPS_SHARE")"
+    else
+        die_code "dumps_$DUMPS_PROBLEM" "$(dumps_share_text "$DUMPS_PROBLEM" "$DUMPS_SHARE") - Ablage bei Herrn Backupsi unter Einrichten waehlen"
+    fi
+elif is_yes "$KOPIA_ENABLED" && [[ "$(share_mode "$DUMPS_SHARE")" != "kopia" ]]; then
+    drift_add warn "Die Backup-Ablage '$DUMPS_SHARE' geht nicht an Kopia (mode=$(share_mode "$DUMPS_SHARE")) - Dumps und Archive bleiben nur lokal"
+fi
+if [[ -z "$DUMPS_PROBLEM" && "$DRY" != "1" && "$UB_MODE" != "check" ]]; then
+    # nur root: Dumps enthalten Datenbankinhalte
+    mkdir -p "$UB_DUMPS" && chmod 700 "$UB_DUMPS" || die "Backup-Ablage $UB_DUMPS laesst sich nicht anlegen"
+    # bisherige Dumps aus dem Datenordner (appdata) einmal mitnehmen
+    if [[ -d "$UB_DATA/dumps" ]]; then
+        for d in "$UB_DATA"/dumps/[0-9]*-[0-9]*; do
+            [[ -d "$d" && ! -e "$UB_DUMPS/$(basename "$d")" ]] || continue
+            mv "$d" "$UB_DUMPS/" 2>>"$LOG_FILE" && log "  Dumps $(basename "$d") nach $UB_DUMPS verschoben"
+        done
+        rmdir "$UB_DATA/dumps" 2>/dev/null && log "  Alter Dump-Ordner in appdata entfernt"
+    fi
 fi
 
 report_drift
@@ -993,7 +1021,7 @@ if [[ "$DRY" == "1" ]]; then
     exit 0
 fi
 
-FREE_MB=$(df -Pm "$UB_DUMPS" | awk 'NR==2{print $4}')
+FREE_MB=$(df -Pm "$UB_DUMPS" 2>/dev/null | awk 'NR==2{print $4}')
 (( ${FREE_MB:-0} >= MIN_FREE_GB * 1024 )) || die "Zu wenig Platz fuer Dumps in $UB_DUMPS (${FREE_MB} MB frei)"
 mkdir -p "$RUN_DIR/db" || die "Kann $RUN_DIR nicht anlegen"
 

@@ -16,7 +16,7 @@
 
 # shellcheck disable=SC2034   # viele Variablen werden erst in den Scripten benutzt
 
-UB_VERSION="2.11"
+UB_VERSION="2.12"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry (was unraid-backup; the office moves it)
 
@@ -62,7 +62,7 @@ err()  { ERRORS=$((ERRORS+1));     _log_line "$(_ts)  FEHLER: $*"; }
 # Datenordner anlegen und abschliessen (0700: das Office liest ihn ueber seinen
 # Agent als root, der Web-Container kommt nicht heran)
 ub_data_dirs() {
-    mkdir -p "$UB_STATE" "$UB_LOGS" "$UB_DUMPS" || return 1
+    mkdir -p "$UB_STATE" "$UB_LOGS" || return 1      # dumps: in their own backup share (dumps_share), never here
     chmod 700 "$UB_DATA" 2>/dev/null
     return 0
 }
@@ -167,7 +167,7 @@ cfg_has() { local s; for s in "${CFG_SECTIONS[@]}"; do [[ "$s" == "$1" ]] && ret
 sec_display() { if [[ "$1" == *"|"* ]]; then printf '[%s "%s"]' "${1%%|*}" "${1#*|}"; else printf '[%s]' "$1"; fi; }
 
 declare -gA UB_SCHEMA=(
-    [general]="server mount_root view_root snap_prefix btrfs_snap_dir keep_runs keep_logs min_free_gb keep_mounts notify_success"
+    [general]="server mount_root view_root snap_prefix btrfs_snap_dir keep_runs keep_logs min_free_gb keep_mounts notify_success dumps_share"
     [zfs]="retention"
     [btrfs]="keep_days min_free_gb snapshot_all"
     [drift]="ignore remind_days"
@@ -197,6 +197,7 @@ cfg_validate() {
         local v; v="$(cfg "$1")"
         [[ -z "$v" || "$v" =~ $2 ]] || CFG_ERRORS+=( "$1 = '$v' ist ungueltig ($3)" )
     }
+    _val "general|dumps_share"   '^[A-Za-z0-9._ -]+$'       "Name eines Shares"
     _val "general|keep_runs"     '^[0-9]+$'                 "Zahl"
     _val "general|keep_logs"     '^[0-9]+$'                 "Zahl"
     _val "general|min_free_gb"   '^[0-9]+$'                 "Zahl"
@@ -260,6 +261,10 @@ apply_settings() {
     MIN_FREE_GB="$(cfg "general|min_free_gb" 8)"
     KEEP_MOUNTS="$(cfg "general|keep_mounts" no)"
     NOTIFY_SUCCESS="$(cfg "general|notify_success" yes)"
+    # Dumps, archives and manifests live in their own backup share, never in appdata:
+    # <share>/unraid-backup/<run>/ (dumps_share_problem says whether the share will do)
+    DUMPS_SHARE="$(cfg "general|dumps_share")"
+    if [[ -n "$DUMPS_SHARE" ]]; then UB_DUMPS="$UB_MNT/user/$DUMPS_SHARE/$UB_NAME"; else UB_DUMPS=""; fi
 
     ZFS_RETENTION="$(cfg "zfs|retention" "7 4 6")"
     BTRFS_KEEP_DAYS="$(cfg "btrfs|keep_days" 7)"
@@ -752,6 +757,28 @@ _ret_max() { # _ret_max "a b c" "x y z"
 }
 
 share_mode()      { cfg "share|$1|mode" "off"; }
+
+# Will this share do for dumps and archives? Prints a code, nothing when it will:
+#   missing (none set)  unknown (no such share)  forbidden (appdata/system/domains:
+#   backups don't belong there)  off (the share itself isn't backed up)
+# $2: the share's mode, if not the one in settings.ini (setup passes its draft)
+dumps_share_problem() {
+    local share="$1" mode="${2-}"
+    [[ -z "$share" ]] && { echo missing; return; }
+    case "${share,,}" in appdata|system|domains) echo forbidden; return ;; esac
+    [[ -d "$UB_MNT/user/$share" || -f "$UB_BOOT/config/shares/$share.cfg" ]] || { echo unknown; return; }
+    [[ -z "$mode" ]] && mode="$(share_mode "$share")"
+    [[ "$mode" == "off" ]] && { echo off; return; }
+    return 0
+}
+dumps_share_text() { # dumps_share_text <code> <share>
+    case "$1" in
+        missing)   echo "Keine Backup-Ablage gesetzt (general|dumps_share): Dumps und Archive brauchen einen eigenen Backup-Share - in appdata gehoert so etwas nicht" ;;
+        unknown)   echo "Backup-Ablage '$2' gibt es nicht als Share" ;;
+        forbidden) echo "Backup-Ablage '$2' geht nicht: in appdata, system oder domains gehoeren keine Backups" ;;
+        off)       echo "Backup-Ablage '$2' wird selbst nicht gesichert (mode=off) - die Dumps waeren nirgends gesichert" ;;
+    esac
+}
 share_retention() { cfg "share|$1|retention" "$ZFS_RETENTION"; }
 share_method()    { # effektive Methode
     local s="$1"

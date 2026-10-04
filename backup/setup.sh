@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.11 - 3.10.2026
+# unraid-backup - setup.sh                        Version 2.12 - 4.10.2026
+#   2.12 Backup-Ablage (general|dumps_share): eigener Share vorgeschlagen und geprueft,
+#        ohne gueltige Ablage wird settings.ini nicht geschrieben
 #   2.11 User-Scripts-Eintrag unraid-secretary-office_backup (der alte Name wird umgezogen)
 #        Die Container des Sekretariats laufen beim Backup immer weiter (wie Kopia)
 #   2.10 VM-Konfiguration (libvirt.img) wird als Archiv vorgeschlagen
@@ -1155,6 +1157,40 @@ TXT
     fi
     ask "  Dump-/Manifest-Ordner behalten (Laeufe)" "$(pget "general|keep_runs")"; is_uint "$REPLY" && pset "general|keep_runs" "$REPLY"
 
+    sub "Backup-Ablage (Dumps, Archive, Manifest)"
+    explain <<'TXT'
+Datenbank-Dumps, das Archiv der VM-Konfiguration und das Manifest brauchen einen eigenen
+Backup-Share - nie appdata: Die Dumps schuetzen die Datenbanken in appdata, lagen sie daneben,
+naehme ein Ausfall dieses Pools beides mit. Abgelegt wird unter <share>/unraid-backup (nur root).
+Der Share sollte an Kopia gehen, damit Dumps und Archive auch offsite sind.
+TXT
+    local ds sugg cand
+    ds="$(pget "general|dumps_share")"
+    if [[ -z "$ds" ]]; then
+        # a share made for backups: "Backups"/"Backup" first, then anything with "backup" in its name
+        for cand in "${SH[@]}"; do [[ "${cand,,}" =~ ^backups?$ ]] && { sugg="$cand"; break; }; done
+        if [[ -z "${sugg:-}" ]]; then
+            for cand in "${SH[@]}"; do
+                [[ "${cand,,}" == *backup* && "${cand,,}" != *timemachine* && "${cand,,}" != *time_machine* ]] && { sugg="$cand"; break; }
+            done
+        fi
+        ds="${sugg:-}"
+    fi
+    while :; do
+        ask "  Share fuer die Backup-Ablage" "$ds"
+        ds="$REPLY"
+        local prob; prob="$(dumps_share_problem "$ds" "$(pget "share|$ds|mode" off)")"
+        [[ -z "$prob" ]] && break
+        bad "$(dumps_share_text "$prob" "$ds")"
+        interactive || break
+    done
+    pset "general|dumps_share" "$ds"
+    if [[ -z "${prob:-}" ]]; then
+        ok "Backup-Ablage: $UB_MNT/user/$ds/$UB_NAME"
+        is_yes "$KOPIA_ENABLED" && [[ "$(pget "share|$ds|mode")" != "kopia" ]] \
+            && wrn "Backup-Ablage '$ds' geht nicht an Kopia (mode=$(pget "share|$ds|mode")) - Dumps und Archive blieben nur lokal; Share auf kopia stellen"
+    fi
+
     sub "Flash ($UB_BOOT)"
     local fm
     if [[ -n "$FLASH_DATASET" ]]; then
@@ -1410,6 +1446,8 @@ settings_render() {
         w_c "Aufbewahrung der Dump-/Manifest-Ordner und der Protokolle (Anzahl Laeufe)"
         w_kv keep_runs "$(pget "general|keep_runs")"
         w_kv keep_logs "$(pget "general|keep_logs")"
+        w_c "Eigener Backup-Share fuer Dumps, Archive und Manifest: <share>/unraid-backup (nie appdata)"
+        w_kv dumps_share "$(pget "general|dumps_share")"
         w_c "So viel Platz (GB) muss fuer die Dumps mindestens frei sein"
         w_kv min_free_gb "$(pget "general|min_free_gb")"
         w_c "yes = Snapshots bleiben bis zum naechsten Lauf eingehaengt. Dann zusaetzlich ein"
@@ -1531,7 +1569,12 @@ settings_pending() {
 }
 
 write_settings() {
-    local tmp="$UB_SETTINGS.tmp.$$"
+    local tmp="$UB_SETTINGS.tmp.$$" prob
+    prob="$(dumps_share_problem "$(pget "general|dumps_share")" "$(pget "share|$(pget "general|dumps_share")|mode" off)")"
+    if [[ -n "$prob" ]]; then
+        bad "$(dumps_share_text "$prob" "$(pget "general|dumps_share")") - settings.ini wird nicht geschrieben"
+        return 1
+    fi
     settings_render >"$tmp" || { bad "Kann $tmp nicht schreiben"; return 1; }
 
     # Gegenprobe: neue Datei muss sich fehlerfrei laden lassen
