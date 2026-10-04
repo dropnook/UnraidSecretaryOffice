@@ -17,7 +17,7 @@ declare(strict_types=1);
  *   TZ                time zone for the few dates the server formats
  */
 
-const OFFICE_VERSION = '1.18.1';
+const OFFICE_VERSION = '1.19.0';
 // where the tip jar leads after hiring someone ('' = no button, only the thank-you)
 const OFFICE_TIP_URL = 'https://paypal.me/vipermark2';
 
