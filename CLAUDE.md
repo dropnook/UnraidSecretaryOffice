@@ -46,6 +46,16 @@ This file holds the conventions and the checklist for changes.
   (why/ctwhy) so the office can translate them. Version lives in backup.sh, setup.sh, lib/common.sh and
   backup/README.md. A run reads backup.sh piecewise while it runs (hours!):
   never change it in place during a run — write a new file and `mv` it.
+* **Backups never live in appdata.** Dumps, archives and manifests go to a
+  backup share of their own (`[general] dumps_share` → `<share>/unraid-backup`,
+  root only); without a valid one the engine refuses to run (stops before
+  pausing anything), setup.sh won't write settings.ini, the caretaker lists it
+  as a must. appdata only holds the office's own settings, state and logs.
+  Failures the office should explain go out as codes (`die_code <code>`,
+  translated as `backup.message.<code>`).
+* **While a backup runs** the office may read the engine's crash notes
+  (`state/stopped`, `state/maintenance`) to show what is paused — but nobody
+  edits `backup/` then (see above).
 * **Versions:** `OFFICE_VERSION` (src/bootstrap.php) and `AGENT_VERSION`
   (agent/agent.php) move together.
 
@@ -133,6 +143,18 @@ character, warnings and errors stay plain and clear.
   at `/etc/libvirt` while the VM service runs.
 * Unraid rebuilds root's crontab in RAM from `*.cron` files (`update_cron`);
   anything typed into `crontab -e` is gone after a reboot.
+  `/usr/local/sbin/update_cron`'s first line is `#/bin/bash` (no shebang):
+  start it through `bash`.
+* **Unraid resets a share's root to `0777 nobody:users`** whenever share
+  settings are saved (emhttpd "Restarting services"). Nextcloud then refuses
+  `occ` (data folder readable by others) — the caretaker checks it.
+* `btrfs filesystem show` without arguments reads every device raw (a busy or
+  sleeping disk holds it up for minutes): use `--mounted` or a mount point.
+* A btrfs snapshot of a disk busy with a large copy can take minutes; bash
+  runs a trap (abort) only after the current command — that is the pause then.
+* User Scripts may be extended by **User Scripts Enhanced** (categories in
+  `/boot/config/plugins/user.scripts.enhanced/categories.json`, by
+  `name<folder>`); the office's entries are `unraid-secretary-office_<what>`.
 
 ## Checklist for a change
 
