@@ -51,7 +51,8 @@ txz="dist/$name-$version.txz"
 if tar --version 2>/dev/null | grep -q GNU; then
     tar --owner=0 --group=0 --sort=name -cJf "$txz" -C "$stage" "$name"
 else
-    tar --uid 0 --gid 0 -cJf "$txz" -C "$stage" "$name"      # bsdtar (macOS)
+    # bsdtar (macOS): without Apple's metadata, which GNU tar on Unraid warns about
+    COPYFILE_DISABLE=1 tar --uid 0 --gid 0 --no-xattrs --no-mac-metadata -cJf "$txz" -C "$stage" "$name"
 fi
 sha256=$( (sha256sum "$txz" 2>/dev/null || shasum -a 256 "$txz") | cut -d' ' -f1)
 
