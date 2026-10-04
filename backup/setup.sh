@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.14 - 2026-10-04
+# unraid-backup - setup.sh                        Version 2.15 - 2026-10-04
+#   2.15 Also part of the office's Unraid plugin: code in RAM, data from the plugin's DATA_DIR,
+#        the nightly run scheduled by the plugin's cron file instead of User Scripts.
 #   2.14 The whole script is one { ... } block: bash reads it completely before it
 #        starts, so replacing the file while it runs no longer breaks the run
 #   2.14 Nothing of ours directly in /mnt: mount_root and view_root under

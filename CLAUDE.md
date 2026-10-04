@@ -245,7 +245,9 @@ character, warnings and errors stay plain and clear.
 3. Tests on the host: `php tests/run.php` (logic: cron, snapshot retention,
    Emby detection, User Scripts schedules, the plugin's cron file — on copies; strings: `en`/`de` keys
    identical, every T('…'), check and error text exists). Must end with 0 failed.
-4. The agent restarts itself when its files change — watch `data/agent.log`
+4. On a server that runs the plugin, `bash plugin/dev-sync.sh` on the host puts
+   the working copy into the plugin (RAM, until reboot/update; leaves backup/
+   alone while a run is active). The agent restarts itself when its files change — watch `data/agent.log`
    ("Agent code changed — restarting"); a syntax error keeps the old code running.
 5. Reload the page for real (changing only the `#` part of the URL doesn't reload).
 6. Check the page at phone width (375 px): no horizontal scrolling.

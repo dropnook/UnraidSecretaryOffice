@@ -4,7 +4,7 @@ Part of the [Unraid Secretary Office](../README.md): Mr. Backupsy shows and cont
 
 A nightly backup for Unraid servers. It takes consistent **ZFS/btrfs snapshots** and **database dumps**, puts Nextcloud into **maintenance mode** for that, and — if you want — sends everything encrypted offsite with **Kopia**. Everything specific to your server lives in `settings.ini`, which `setup.sh` writes after asking you. The nightly run `backup.sh` reports every difference between the server and `settings.ini`, but never changes it on its own.
 
-Version **2.14** (4 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
+Version **2.15** (4 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
 
 ---
 
@@ -362,6 +362,7 @@ So on every new server: *Set up…*, then a check and a dry run first.
 
 ## Versions
 
+- **2.15** – Part of the office's Unraid plugin too: the engine then lies in RAM (`/usr/local/emhttp/plugins/unraid-secretary-office/backup`) and finds its data through the plugin's `DATA_DIR` (by default still `appdata/UnraidSecretaryOffice/data/unraid-backup`); the plugin's cron file starts the nightly run, so `setup.sh` creates no User Scripts entry there and no longer asks for the User Scripts plugin. In the Compose stack nothing changes.
 - **2.14** – `backup.sh` and `setup.sh` are one block that bash reads completely before it starts: updating the engine while a run takes hours no longer breaks that run. `state/drift.json` also says per Kopia target whether its policy matches settings.ini (`policies`, differences as codes); Mr. Backupsy shows it per share together with the rules. Nothing of the engine directly in `/mnt` any more: the snapshots are mounted under `/mnt/addons/UnraidSecretaryOffice/snapshots`, the btrfs view lives in `…/btrfs-snap`; the office's share `UnraidSecretaryOffice` is proposed as the backup place (folder `backup/`), and a changed backup place is moved by the next run. The setup keeps the chosen backup place instead of guessing it again, and adds the global Kopia rule `_UnraidSecretaryOffice-trash*/`: Ms. Dustdevil's storeroom never goes offsite (its contents were backed up under their old path; the local snapshots keep them).
 - **2.13** – The engine speaks English: terminal, logs, notifications, settings.ini comments and the code's comments. Log lines are marked `WARNING:` / `ERROR:`; questions in `setup.sh` take `y`/`n` (`j` still counts as yes). Nothing the office reads changed (interface 1).
 - **2.12** – When Nextcloud refuses its maintenance mode because others can read its data folder (Unraid resets a share root to 0777 whenever share settings are saved), the run says so and how to fix it; the caretaker checks it during the day. The manifest reads btrfs from the kernel only (`--mounted`, time limit) instead of every device — a busy disk held it up for minutes.

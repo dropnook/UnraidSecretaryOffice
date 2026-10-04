@@ -218,6 +218,10 @@ Stop the plugin's agent first (`bash /usr/local/emhttp/plugins/unraid-secretary-
   snapshot retention, Emby detection, User Scripts schedules, the plugin's
   cron file; on copies only) and every text in both languages. It changes
   nothing on the server.
+* The server runs the plugin? `bash plugin/dev-sync.sh` (on the host) copies
+  the working copy into the installed plugin in RAM — live until the next
+  reboot or plugin update; the agent restarts itself. Never start the stack
+  next to the plugin.
 * The plugin package: `bash plugin/build.sh <version>` builds
   `dist/unraid-secretary-office-<date>.txz` and `dist/unraid-secretary-office.plg`.
   Publishing a release (tag `v<version>`) does the same on GitHub and

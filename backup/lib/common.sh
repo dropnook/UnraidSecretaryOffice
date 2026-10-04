@@ -16,7 +16,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.14"
+UB_VERSION="2.15"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry (was unraid-backup; the office moves it)
 # The office's own places. Nothing of ours directly in /mnt (Fix Common Problems rightly
