@@ -47,4 +47,10 @@
 .wa-section .card-name{white-space:normal; overflow:visible; line-height:1.25}
 .wa-stack + .wa-path{border-top:0}
 .wa-bad{color:var(--danger); font-weight:600}
+/* "If I were you …" */
+.row.wa-advice{grid-template-columns:minmax(0,1fr) auto; align-items:start}
+.wa-advice-acts{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; padding-top:2px}
+.wa-advice-known .row-name, .wa-advice-known .row-detail{color:var(--muted)}
+.wa-advice-none{margin:0 2px}
+@media (max-width:640px){ .row.wa-advice{grid-template-columns:minmax(0,1fr)} .wa-advice-acts{justify-content:flex-start} }
 }

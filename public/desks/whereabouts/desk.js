@@ -264,6 +264,146 @@ function findings() {
   return f;
 }
 
+// ------------------------------------------------------------------ advice ("If I were you …")
+const ADVICE_HIDDEN = 'whereabouts.advice_hidden';     // {id: signature} — "I know, thanks" per browser
+const DAY = 86400;
+const VULN = {
+  spectre_v1: 'Spectre v1', spectre_v2: 'Spectre v2', spec_store_bypass: 'Speculative Store Bypass', vmscape: 'VMScape',
+  spec_rstack_overflow: 'SRSO (Inception)', retbleed: 'Retbleed', mds: 'MDS', meltdown: 'Meltdown', l1tf: 'L1TF',
+  tsa: 'TSA', gather_data_sampling: 'Downfall (GDS)', mmio_stale_data: 'MMIO Stale Data', reg_file_data_sampling: 'RFDS',
+  srbds: 'SRBDS', tsx_async_abort: 'TAA', itlb_multihit: 'iTLB Multihit', indirect_target_selection: 'ITS',
+  ghostwrite: 'GhostWrite', old_microcode: 'old microcode',
+};
+let showHiddenAdvice = false;
+
+const listNames = (names, max) => names.length > (max || 5) ? `${names.slice(0, max || 5).join(', ')} +${names.length - (max || 5)}` : names.join(', ');
+const shareLink = (name) => `/Shares/Share?name=${encodeURIComponent(name)}`;
+
+/**
+ * Her tips: what she would do differently — each with why, where in Unraid
+ * to change it, and a signature (what it is about), so a tip she was thanked
+ * for comes back once the situation changes. Things Fix Common Problems
+ * checks are left to the consultant.
+ */
+function advice() {
+  const a = state && state.advice;
+  if (!a) return [];
+  const out = [];
+  const add = (id, level, params, link, sig) => out.push({ id, level, params, link, sig: `${id}|${sig ?? ''}` });
+  const shares = state.shares || [];
+
+  const onArray = shares.filter((s) => (a.system_shares || []).includes(s.name) && (s.storage.primary === 'array' || s.storage.secondary === 'array'));
+  if (onArray.length) add('system_array', 'advice', { names: listNames(onArray.map((s) => s.name)) }, { path: shareLink(onArray[0].name), text: T('adv.to_share', { name: onArray[0].name }) }, onArray.map((s) => s.name).join(','));
+
+  const moved = shares.filter((s) => ['yes', 'prefer'].includes(s.storage.use_cache));
+  if (moved.length && !a.mover_schedule) add('mover', 'advice', { names: listNames(moved.map((s) => s.name)), n: moved.length }, { path: '/Settings/Scheduler', text: T('adv.to_scheduler') }, moved.map((s) => s.name).join(','));
+
+  const open = [
+    ...shares.filter((s) => s.smb.export !== '-' && s.smb.security === 'public').map((s) => `${s.name} (SMB)`),
+    ...shares.filter((s) => s.nfs.export !== '-' && s.nfs.security === 'public').map((s) => `${s.name} (NFS)`),
+  ];
+  if (open.length) {
+    const first = open[0].replace(/ \((SMB|NFS)\)$/, '');
+    add('public', 'advice', { names: listNames(open), n: open.length }, { path: shareLink(first), text: T('adv.to_share', { name: first }) }, open.join(','));
+  }
+
+  if (a.telnet) add('telnet', 'advice', {}, { path: '/Settings/ManagementAccess', text: T('adv.to_access') });
+  if (a.ftp) add('ftp', 'advice', {}, { path: '/Settings/FTP', text: T('adv.to_ftp') });
+
+  const privileged = (state.containers || []).filter((c) => c.privileged).map((c) => c.name);
+  if (privileged.length) add('privileged', 'info', { names: listNames(privileged), n: privileged.length }, { path: '/Docker', text: T('adv.to_docker') }, privileged.join(','));
+
+  const sp = a.spindown || {};
+  if (sp.default === '0') add('spindown_default', 'advice', {}, { path: '/Settings/DiskSettings', text: T('adv.to_disks') });
+  else if (sp.never) add('spindown_some', 'info', { n: sp.never }, { path: '/Settings/DiskSettings', text: T('adv.to_disks') }, sp.never);
+
+  const h = state.health;
+  if (h) {
+    const old = h.devices.filter((d) => d.smart && d.smart.hours > 50000);
+    if (old.length) add('old_disks', 'info', { names: listNames(old.map((d) => `${d.name} (${fmt.number(d.smart.hours / 8760, 1)} ${T('adv.years')})`)), n: old.length }, { path: '/Main', text: T('adv.to_main') }, old.map((d) => d.name).join(','));
+    const p = h.parity || {};
+    if (p.present && (!p.checked || Date.now() / 1000 - p.checked > 90 * DAY)) {
+      add('parity', 'advice', { when: p.checked ? fmt.relative(p.checked) : T('adv.never') }, { path: '/Settings/Scheduler', text: T('adv.to_scheduler') }, p.checked ? fmt.dayKey(p.checked) : 'never');
+    }
+  }
+  if (!a.ups) add('ups', 'info', {}, { path: '/Settings/UPSsettings', text: T('adv.to_ups') });
+  if (!a.syslog_kept) add('syslog', 'advice', {}, { path: '/Settings/SyslogSettings', text: T('adv.to_syslog') });
+
+  const cpu = a.cpu;
+  if (cpu && cpu.off) {
+    add('mitigations_off', 'advice', { cpu: cpu.model || cpu.vendor || 'CPU', open: cpu.open.map((x) => VULN[x] || x).join(', ') || '–', boot: T('adv.boot_' + cpu.boot) },
+      { path: '/Main', text: T('adv.to_main') }, cpu.open.join(','));
+    if (cpu.open.includes('vmscape') && (state.vms || []).length) add('vmscape', 'advice', { n: state.vms.length }, { path: '/Main', text: T('adv.to_main') }, 'vmscape');
+  } else if (cpu && cpu.covered.length) {
+    add('mitigations_on', 'info', { cpu: cpu.model || cpu.vendor || 'CPU', vendor: cpu.vendor || '', boot: T('adv.boot_' + cpu.boot) },
+      { path: '/Main', text: T('adv.to_main') }, cpu.covered.join(','));
+  }
+  return out;
+}
+
+function adviceHidden() {
+  const hidden = Office.storeJson(ADVICE_HIDDEN);
+  return hidden && typeof hidden === 'object' ? hidden : {};
+}
+
+function renderAdvice() {
+  const box = view.advice;
+  box.innerHTML = '';
+  if (!state) return;
+  const all = advice();
+  const hidden = adviceHidden();
+  const isHidden = (x) => hidden[x.id] === x.sig;
+  const shown = all.filter((x) => !isHidden(x));
+  const gone = all.filter(isHidden);
+  const extra = [];
+  if (gone.length) {
+    const b = el('button', 'btn small plain', T(showHiddenAdvice ? 'adv.hide_known' : 'adv.show_known', { n: gone.length }));
+    b.type = 'button';
+    b.onclick = () => { showHiddenAdvice = !showHiddenAdvice; Office.keepInPlace(b, renderAdvice); };
+    extra.push(b);
+  }
+  box.appendChild(Office.sectionHead(T('adv.title'), T('adv.sub'), ...extra));
+  const list = [...shown, ...(showHiddenAdvice ? gone : [])];
+  if (!list.length) {
+    box.appendChild(el('p', 'role wa-advice-none', T(all.length ? 'adv.all_known' : 'adv.none')));
+    return;
+  }
+  const rows = el('div', 'box');
+  list.forEach((x) => rows.appendChild(adviceRow(x, isHidden(x))));
+  box.appendChild(rows);
+}
+
+function adviceRow(x, known) {
+  const r = el('div', 'row nocheck wa-advice' + (known ? ' wa-advice-known' : ''));
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', T(`adv.${x.id}.title`, x.params)));
+  const meta = el('div', 'row-meta');
+  const chip = el('span', 'chip ' + (x.level === 'advice' ? 'accent' : 'quiet'), T(`adv.level_${x.level}`));
+  chip.title = T(`adv.level_${x.level}_text`);
+  meta.appendChild(chip);
+  main.appendChild(meta);
+  main.appendChild(el('div', 'row-detail', T(`adv.${x.id}.why`, x.params)));
+  r.appendChild(main);
+  const acts = el('div', 'wa-advice-acts');
+  if (x.link) {
+    const a = el('a', 'btn small plain', x.link.text);
+    if (Office.config.in_unraid) a.href = x.link.path;
+    else { a.href = (state.gui || '') + x.link.path; a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+    acts.appendChild(a);
+  }
+  const b = el('button', 'btn small plain', T(known ? 'adv.show_again' : 'adv.known'));
+  b.type = 'button';
+  b.onclick = () => {
+    const hidden = adviceHidden();
+    if (known) delete hidden[x.id]; else hidden[x.id] = x.sig;
+    Office.storeJson(ADVICE_HIDDEN, hidden);
+    Office.keepInPlace(view.advice, () => { renderAdvice(); view.bubble.innerHTML = ''; view.bubble.appendChild(bubble()); });
+  };
+  acts.appendChild(b);
+  r.appendChild(acts);
+  return r;
+}
+
 function pick(id, search) {
   section = id;
   Office.store('whereabouts.section', id);
@@ -282,14 +422,24 @@ function bubble() {
   if (!state) { box.append(Office.agent.running ? T('bubble.no_tour') : T('bubble.no_data')); return box; }
   box.append(T('bubble.summary', { shares: state.shares.length, containers: state.containers.length, scripts: state.scripts.length }), ' ');
   const f = findings();
-  if (!f.length) { box.append(T('bubble.tidy')); return box; }
-  box.append(T('bubble.noticed'), ' ');
-  f.forEach((x, i) => {
-    const a = el('a', '', x.text);
+  const hidden = adviceHidden();
+  const tips = advice().filter((x) => hidden[x.id] !== x.sig).length;
+  if (!f.length && !tips) { box.append(T('bubble.tidy')); return box; }
+  if (f.length) {
+    box.append(T('bubble.noticed'), ' ');
+    f.forEach((x, i) => {
+      const a = el('a', '', x.text);
+      a.href = '#';
+      a.onclick = (e) => { e.preventDefault(); x.go(); };
+      box.append(a, i < f.length - 1 ? ' · ' : '.');
+    });
+  }
+  if (tips) {
+    const a = el('a', '', T('bubble.advice', { n: tips }));
     a.href = '#';
-    a.onclick = (e) => { e.preventDefault(); x.go(); };
-    box.append(a, i < f.length - 1 ? ' · ' : '.');
-  });
+    a.onclick = (e) => { e.preventDefault(); if (view) view.advice.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+    box.append(' ', a);
+  }
   return box;
 }
 
@@ -366,6 +516,9 @@ function build(root) {
   now.append(nh, v.stats);
   root.appendChild(now);
 
+  v.advice = el('section', 'section');         // "If I were you …" — renderAdvice()
+  root.appendChild(v.advice);
+
   v.places = el('section', 'section');
   const ph = Office.sectionHead(T('places'), T('places_hint'));
   v.placeTiles = el('div', 'cards wa-places');
@@ -394,6 +547,7 @@ function render() {
   view.wakeText.textContent = sleeping ? T('wake_n', { n: sleeping }) : T('wake');
   view.wakeLabel.hidden = !sleeping && !view.wake.checked;
   renderStats();
+  renderAdvice();
   renderPlaces();
   renderTabs();
   renderSection();

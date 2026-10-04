@@ -628,5 +628,85 @@
   },
   "license_guid.tpm": "TPM-GUID",
   "license_guid.flash": "Flash-GUID",
-  "license_guid.other": "Lizenz-GUID"
+  "license_guid.other": "Lizenz-GUID",
+  "bubble.advice": {
+    "one": "Und einen Ratschlag hätte ich auch noch.",
+    "other": "Und {n} Ratschläge hätte ich auch noch."
+  },
+  "adv.title": "Ich an deiner Stelle …",
+  "adv.sub": "Was ich anders machen würde — Ratschläge, keine Fehler. «Weiss ich, danke» blendet einen Tipp in diesem Browser aus; er kommt wieder, wenn sich etwas ändert.",
+  "adv.none": "Nichts hinzuzufügen. Selten, aber kommt vor.",
+  "adv.all_known": "Du weisst schon alles, was ich gesagt hätte. Selten, aber kommt vor.",
+  "adv.show_known": {
+    "one": "Den bekannten zeigen",
+    "other": "Die {n} bekannten zeigen"
+  },
+  "adv.hide_known": "Bekannte ausblenden",
+  "adv.known": "Weiss ich, danke",
+  "adv.show_again": "Wieder zeigen",
+  "adv.level_advice": "Ratschlag",
+  "adv.level_advice_text": "Das würde ich ändern.",
+  "adv.level_info": "gut zu wissen",
+  "adv.level_info_text": "Kann genau richtig so sein — solange du es weisst.",
+  "adv.years": "Jahre",
+  "adv.never": "noch nie",
+  "adv.to_share": "Share {name}",
+  "adv.to_scheduler": "Scheduler",
+  "adv.to_access": "Management Access",
+  "adv.to_ftp": "FTP Server",
+  "adv.to_docker": "Docker",
+  "adv.to_disks": "Disk Settings",
+  "adv.to_main": "Main",
+  "adv.to_ups": "UPS Settings",
+  "adv.to_syslog": "Syslog Server",
+  "adv.boot_grub": "Main → Boot-Pool → GRUB-Konfiguration",
+  "adv.boot_syslinux": "Main → Flash → Syslinux Configuration",
+  "adv.system_array.title": "Auf dem Array: {names}",
+  "adv.system_array.why": "Was Docker und die VMs selbst brauchen, gehört auf einen Pool (SSD/NVMe): Auf dem Array wird jeder Container und jede VM langsam, und die Disks kommen nie zur Ruhe. In den Einstellungen des Shares den primären Speicher auf einen Pool und den sekundären auf keinen setzen, dann den Mover die Dateien holen lassen (Docker und VMs gestoppt).",
+  "adv.mover.title": {
+    "one": "Der Mover hat keinen Zeitplan — {names} verlässt sich auf ihn",
+    "other": "Der Mover hat keinen Zeitplan — {n} Shares verlassen sich auf ihn: {names}"
+  },
+  "adv.mover.why": "Diese Shares schreiben zuerst auf einen Pool, und der Mover soll die Dateien aufs Array bringen (oder zurück). Ohne Zeitplan läuft er nur, wenn man ihn von Hand startet — der Pool läuft voll. Settings → Scheduler → Mover Settings. (Startet etwas anderes den Mover für dich: «Weiss ich, danke».)",
+  "adv.public.title": {
+    "one": "Offen für alle im Netz: {names}",
+    "other": "{n} Shares offen für alle im Netz: {names}"
+  },
+  "adv.public.why": "«Public» heisst: Jeder in deinem Netz darf lesen, schreiben und löschen — jedes Gerät, jeder Gast, jeder verseuchte Laptop. Sicherheit auf «Secure» (alle lesen, ausgewählte schreiben) oder «Private» stellen und deinen Benutzern Zugriff geben.",
+  "adv.telnet.title": "Telnet ist an",
+  "adv.telnet.why": "Telnet schickt alles unverschlüsselt, auch das root-Passwort. SSH kann dasselbe, verschlüsselt. Telnet unter Management Access ausschalten.",
+  "adv.ftp.title": "Der FTP-Server ist an",
+  "adv.ftp.why": "FTP schickt Passwörter und Dateien unverschlüsselt. Brauchst du ihn nicht, ausschalten; für Dateien übers Netz sind SMB oder SFTP (kommt mit SSH) die bessere Wahl.",
+  "adv.privileged.title": {
+    "one": "{names} läuft privilegiert",
+    "other": "{n} Container laufen privilegiert: {names}"
+  },
+  "adv.privileged.why": "Ein privilegierter Container darf auf dem Server fast alles — in Ordnung für Werkzeuge, die es brauchen (Hardware, VPN, das Backup), einen zweiten Blick wert für alles andere. Auf der Docker-Seite: Edit → Privileged aus, und schauen, ob er noch läuft.",
+  "adv.spindown_default.title": "Die Disks schlafen nie",
+  "adv.spindown_default.why": "Die Standard-Wartezeit bis zum Abschalten steht auf «Never»: Jede Array-Disk dreht rund um die Uhr — Strom, Wärme und Verschleiss. 30 bis 60 Minuten sind ein guter Anfang; mit Pools für appdata und VMs ruhen die meisten Disks dann wirklich.",
+  "adv.spindown_some.title": {
+    "one": "Eine Disk schläft nie",
+    "other": "{n} Disks schlafen nie"
+  },
+  "adv.spindown_some.why": "Einzeln auf «Never» gestellt. In Ordnung für eine Disk, die ohnehin ständig arbeitet — sonst kostet es nur Strom und Verschleiss. Einstellung: die Disk auf Main anklicken.",
+  "adv.old_disks.title": {
+    "one": "Eine alte Dame: {names}",
+    "other": "{n} alte Damen: {names}"
+  },
+  "adv.old_disks.why": "Mehr als etwa 5 Jahre Betriebsstunden. Kein Fehler — aber Zeit, SMART im Auge zu behalten, eine Ersatzdisk bereitzuhaben und sicher zu sein, dass gesichert ist, was darauf liegt.",
+  "adv.parity.title": "Letzte Paritätsprüfung: {when}",
+  "adv.parity.why": "Eine regelmässige Prüfung (monatlich oder vierteljährlich) findet schlechte Sektoren, bevor eine Disk ausfällt und du die Parität brauchst. Settings → Scheduler → Parity Check, zu einer Zeit, in der niemand den Server braucht.",
+  "adv.ups.title": "Keine USV",
+  "adv.ups.why": "Fällt der Strom aus, ist der Server einfach weg: Offene Dateien können kaputtgehen, danach läuft eine lange Paritätsprüfung. Eine kleine USV gibt ihm Zeit, sauber herunterzufahren (Settings → UPS Settings; für einen NUT-Server das NUT-Plugin).",
+  "adv.syslog.title": "Nach einem Absturz ist das Protokoll weg",
+  "adv.syslog.why": "Unraid hält sein Syslog im RAM — nach einem Absturz oder harten Reset weiss niemand mehr, was passiert ist, auch Frau Protokolli nicht. «Mirror syslog to flash» (für eine Weile, es nutzt den Stick ab) oder ein Syslog-Server (dieser hier: ein Share als lokaler Syslog-Ordner) bewahrt es auf.",
+  "adv.mitigations_off.title": "CPU-Schutz ausgeschaltet (mitigations=off)",
+  "adv.mitigations_off.why": "Dein {cpu} startet ohne die Schutzmassnahmen gegen Spectre-ähnliche Lücken; offen sind gerade: {open}. Das bringt ein paar Prozent Tempo (bei älteren Intel deutlich mehr, bei neueren CPUs und AMD weniger). Aus ist in Ordnung, wenn hier nur du und Programme laufen, denen du vertraust. An ist besser, sobald VMs oder Container Code ausführen, den du nicht kontrollierst, andere den Server nutzen oder Dienste aus dem Internet erreichbar sind. AMD ist auch betroffen — von eigenen Lücken (z. B. SRSO, Retbleed, TSA). Einschalten: «mitigations=off» aus der Boot-Konfiguration entfernen ({boot}), dann neu starten.",
+  "adv.vmscape.title": {
+    "one": "VMScape: eine VM könnte den Host auslesen",
+    "other": "VMScape: {n} VMs könnten den Host auslesen"
+  },
+  "adv.vmscape.why": "Diese Lücke von 2025 lässt einen Gast Speicher des VM-Prozesses auf dem Host (QEMU) lesen — genau das, wovor der ausgeschaltete Schutz bewahren würde. Bei VMs, die nur du nutzt, ist das wenig wichtig; bei VMs, die andere nutzen oder die fremde Software ausführen, den Schutz wieder einschalten.",
+  "adv.mitigations_on.title": "CPU-Schutz ist an",
+  "adv.mitigations_on.why": "Dein {cpu} läuft mit den Schutzmassnahmen gegen Spectre-ähnliche Lücken — die sichere Voreinstellung. Sie kostet ein paar Prozent Tempo, bei älteren Intel-CPUs mehr (viel I/O, viele VMs). Ausschalten («mitigations=off» in der Boot-Konfiguration: {boot}) lohnt sich nur, wenn auf dem Server nichts läuft, dem du nicht traust, und nichts aus dem Internet erreichbar ist. AMD braucht ihn auch: Es hat eigene Lücken (SRSO, Retbleed, TSA)."
 }

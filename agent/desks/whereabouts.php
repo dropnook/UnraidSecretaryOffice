@@ -142,6 +142,7 @@ function whereaboutsScan(bool $awake = false): array
         'license'     => waLicense(),
         'notices'     => waNotices(),
         'locations'   => waLocations($vms, $cron),
+        'advice'      => waAdvice(),
     ];
     $state['duration_ms'] = (int) round((microtime(true) - $t0) * 1000);
     $GLOBALS['whereabouts'] = $state;
@@ -1126,6 +1127,80 @@ function waBackups(array $containers, array $scripts, array $backupScript): arra
         $found[] = ['kind' => 'snapshots', 'title' => 'Ms. Snapshot', 'paths' => [], 'detail' => ['count' => $n]];
     }
     return $found;
+}
+
+// --------------------------------------------------------------------- advice ("If I were you …")
+
+/**
+ * What Ms. Whereabouts needs for her advice beyond what the tour knows
+ * anyway: a few of Unraid's settings, read from its own files only (no disk
+ * wakes up). The page turns these and the rest of the state into tips.
+ */
+function waAdvice(): array
+{
+    $ident = readCfg('/boot/config/ident.cfg');
+    $share = readCfg('/boot/config/share.cfg');
+    $disk = readCfg('/boot/config/disk.cfg');
+    $docker = readCfg('/boot/config/docker.cfg');
+    $domain = readCfg('/boot/config/domain.cfg');
+    $syslog = readCfg('/boot/config/rsyslog.cfg');
+    $ups = readCfg('/boot/config/plugins/dynamix.apcupsd/dynamix.apcupsd.cfg');
+    $shareOf = fn (string $path): ?string => preg_match('~^/mnt/user0?/([^/]+)~', $path, $m) ? $m[1] : null;
+    // disks set to never spin down on their own ("-1": the default below applies)
+    $never = 0;
+    foreach ($disk as $key => $value) {
+        if (str_starts_with($key, 'diskSpindownDelay.') && $value === '0') {
+            $never++;
+        }
+    }
+    return [
+        'mover_schedule' => trim((string) ($share['shareMoverSchedule'] ?? '')) ?: null,
+        // where Docker and the VMs keep their things: best on a pool, not the array
+        'system_shares'  => array_values(array_unique(array_filter([
+            $shareOf((string) ($docker['DOCKER_APP_CONFIG_PATH'] ?? '/mnt/user/appdata')),
+            $shareOf((string) ($docker['DOCKER_IMAGE_FILE'] ?? '')),
+            $shareOf((string) ($domain['IMAGE_FILE'] ?? '')),
+            $shareOf((string) ($domain['DOMAINDIR'] ?? '')),
+        ]))),
+        'telnet'         => ($ident['USE_TELNET'] ?? 'no') === 'yes',
+        'ftp'            => preg_match('/^\s*ftp\s/m', (string) @file_get_contents('/etc/inetd.conf')) === 1,
+        'spindown'       => ['default' => (string) ($disk['spindownDelay'] ?? '0'), 'never' => $never],
+        'ups'            => ($ups['SERVICE'] ?? 'disable') === 'enable'
+            || (bool) array_filter(array_keys(housePlugins()), fn ($n) => str_contains(strtolower($n), 'nut')),
+        // kept after a crash: mirrored to the flash or sent to a syslog server (this one's own share too)
+        'syslog_kept'    => ($syslog['syslog_flash'] ?? '') !== '' || trim((string) ($syslog['remote_server'] ?? '')) !== '',
+        'cpu'            => waCpuMitigations(),
+    ];
+}
+
+/**
+ * The CPU's protection against speculative-execution flaws (Spectre & co.):
+ * switched off at boot (mitigations=off) or not, and what the kernel says
+ * per flaw — still open ("Vulnerable") or covered ("Mitigation: …"); the
+ * ones the CPU isn't affected by are left out.
+ */
+function waCpuMitigations(): array
+{
+    $cmdline = (string) @file_get_contents('/proc/cmdline');
+    $info = (string) @file_get_contents('/proc/cpuinfo');
+    $vendor = preg_match('/^vendor_id\s*:\s*(\S+)/m', $info, $m) ? $m[1] : '';
+    $open = $covered = [];
+    foreach (glob('/sys/devices/system/cpu/vulnerabilities/*') ?: [] as $file) {
+        $state = trim((string) @file_get_contents($file));
+        if (str_starts_with($state, 'Vulnerable')) {
+            $open[] = basename($file);
+        } elseif (str_starts_with($state, 'Mitigation')) {
+            $covered[] = basename($file);
+        }
+    }
+    return [
+        'vendor'  => match ($vendor) { 'GenuineIntel' => 'Intel', 'AuthenticAMD' => 'AMD', default => $vendor ?: null },
+        'model'   => preg_match('/^model name\s*:\s*(.+)$/m', $info, $m) ? trim($m[1]) : null,
+        'off'     => preg_match('/(^|\s)mitigations=off(\s|$)/', $cmdline) === 1,
+        'open'    => $open,
+        'covered' => $covered,
+        'boot'    => is_file('/boot/grub/grub.cfg') ? 'grub' : 'syslinux',
+    ];
 }
 
 // --------------------------------------------------------------------- health: temperatures, SMART, fill level
