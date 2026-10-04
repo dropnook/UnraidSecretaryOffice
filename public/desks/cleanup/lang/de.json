@@ -563,5 +563,20 @@
   "csv.path": "Pfad",
   "errors.cleanup_not_needed": "{name} muss nicht übernommen werden — Unraids Ordner hat es schon.",
   "errors.cleanup_copy_failed": "Konnte {path} nicht in Unraids Ordner kopieren.",
-  "where.share": "in einer Share"
+  "where.share": "in einer Share",
+  "cat.vms.broken": "VMs ohne ihre Platten",
+  "cat.vms.broken_text": "In Unraid noch eingerichtet, aber ihre Platten-Dateien sind weg",
+  "vmdef.missing": {
+    "one": "{missing} von 1 Platte fehlt",
+    "other": "{missing} von {n} Platten fehlen"
+  },
+  "vmdef.missing_text": "Die Platten-Dateien, auf die diese VM zeigt, gibt es nicht (mehr).",
+  "vmdef.text": "Diese VM ist in Unraid noch eingerichtet, aber ihre Platten-Dateien sind weg — sie kann nicht starten. Brauchst du sie nicht mehr, entferne sie auf Unraids VM-Seite (Remove VM): Das nimmt auch NVRAM und TPM-Zustand mit. VM-Definitionen fasse ich selbst nicht an.",
+  "vmdef.open": "Unraids VM-Seite öffnen",
+  "d.disks": "Platten",
+  "d.cdroms": "CD / ISO",
+  "why.in_unraid": "in Unraid entfernen",
+  "why.in_unraid_text": "VMs werden auf Unraids VM-Seite entfernt — ihre Definitionen fasse ich nicht an.",
+  "item.vmdef": "VM-Definition",
+  "errors.cleanup_in_unraid": "{name} ist eine VM — entferne sie auf Unraids VM-Seite."
 }

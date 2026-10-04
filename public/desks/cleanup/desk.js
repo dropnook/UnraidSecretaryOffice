@@ -17,19 +17,19 @@ const GROUPS = {
   templates: ['leftover', 'unused', 'duplicate', 'noname', 'stray_only_here', 'stray_newer', 'stray_name_exists', 'stray_older', 'stray_copy', 'unknown', 'in_use'],
   stacks: ['leftover', 'broken', 'unused', 'unknown', 'in_use'],
   appdata: ['unused', 'check', 'unknown', 'used'],
-  vms: ['orphan', 'unused', 'check', 'media', 'unknown', 'used'],
+  vms: ['broken', 'orphan', 'unused', 'check', 'media', 'unknown', 'used'],
   docker: ['dangling', 'volume', 'unused', 'cache', 'used'],
 };
 const CANDIDATES = {
   templates: ['leftover', 'unused', 'duplicate', 'noname', 'stray_only_here', 'stray_newer', 'stray_name_exists', 'stray_older', 'stray_copy'],
   stacks: ['leftover', 'broken', 'unused'],
   appdata: ['unused', 'check'],
-  vms: ['orphan', 'unused', 'check', 'media'],
+  vms: ['broken', 'orphan', 'unused', 'check', 'media'],
   docker: ['dangling', 'volume', 'unused', 'cache'],
 };
 const CLOSED = ['in_use', 'used', 'unknown'];        // folded until opened
 const KIND_ICONS = { container: '🐳', template: '📄', stack: '🧩', compose: '🧩', flash: '💾', vm: '🖥️' };
-const ITEM_ICONS = { template: '📄', stray: '📄', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐' };
+const ITEM_ICONS = { template: '📄', stray: '📄', vmdef: '🖥️', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐' };
 const POLL_MS = 3000;
 
 let state = null;
@@ -509,6 +509,7 @@ const VIEWS = {
   appdata: () => [folderMeta, folderDetail],
   domain: () => [folderMeta, folderDetail],
   iso: () => [folderMeta, folderDetail],
+  vmdef: () => [vmdefMeta, vmdefDetail],
   nvram: () => [libvirtMeta, libvirtDetail],
   tpm: () => [libvirtMeta, libvirtDetail],
   snapshotdb: () => [libvirtMeta, libvirtDetail],
@@ -787,6 +788,33 @@ function folderDetail(f) {
   ]));
   (f.notes || []).forEach((n) => box.appendChild(el('p', 'role', noteText(n))));
   if (f.parts.some((p) => p.dataset)) box.appendChild(el('p', 'role', T('zfs_note')));
+  return box;
+}
+
+// ------------------------------------------------------------------ VMs whose disks are gone
+function vmdefMeta(v, meta) {
+  meta.appendChild(chip(T('vmdef.missing', { missing: v.missing, n: v.total }), 'danger', T('vmdef.missing_text')));
+  if (v.state) meta.appendChild(el('span', '', v.state));
+}
+
+function vmdefDetail(v) {
+  const box = el('div');
+  const mark = (d) => `${d.path}  ${d.exists === true ? '✓' : d.exists === false ? '✗ ' + T('path.missing') : '? ' + T('path.unknown')}`;
+  const disks = v.disks.filter((d) => d.device === 'disk').map(mark);
+  const cds = v.disks.filter((d) => d.device === 'cdrom').map(mark);
+  box.appendChild(kv([
+    [T('d.disks'), disks.length ? lines(disks) : null],
+    [T('d.cdroms'), cds.length ? lines(cds) : null],
+    [T('d.uuid'), v.uuid, true],
+  ]));
+  box.appendChild(el('p', 'role', T('vmdef.text')));
+  if (state.vms.gui) {
+    const a = el('a', 'btn small plain', T('vmdef.open'));
+    a.href = state.vms.gui + '/VMs';
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    box.appendChild(a);
+  }
   return box;
 }
 

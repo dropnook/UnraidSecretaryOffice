@@ -835,14 +835,33 @@ function clVmFacts(): array
         $mounted = $mounted || $m['mount'] === CL_LIBVIRT;
     }
     $out = ['enabled' => $enabled, 'ok' => $enabled && $mounted && is_dir(CL_LIBVIRT . '/qemu'), 'vms' => []];
+    $states = [];
+    if ($out['ok'] && bin('virsh')) {
+        [$exit, $list] = run(['virsh', 'list', '--all'], 20);
+        foreach ($exit === 0 ? explode("\n", $list) : [] as $line) {
+            if (preg_match('/^\s*(\d+|-)\s+(.+?)\s{2,}(\S.*?)\s*$/', $line, $m)) {
+                $states[$m[2]] = $m[3];
+            }
+        }
+    }
     foreach ($out['ok'] ? (glob(CL_LIBVIRT . '/qemu/*.xml') ?: []) : [] as $f) {
         $xml = (string) @file_get_contents($f, false, null, 0, 1 << 20);
+        // its disk and CD files: <disk type='file' device='disk|cdrom'> … <source file='…'/>
+        $files = [];
+        preg_match_all('#<disk\b[^>]*\btype=[\'"]file[\'"][^>]*\bdevice=[\'"](disk|cdrom)[\'"][^>]*>(.*?)</disk>#s', $xml, $dm, PREG_SET_ORDER);
+        foreach ($dm as $d) {
+            if (preg_match('#<source\b[^>]*\bfile=[\'"]([^\'"]+)[\'"]#', $d[2], $src)) {
+                $files[] = ['device' => $d[1], 'path' => html_entity_decode($src[1], ENT_QUOTES | ENT_XML1)];
+            }
+        }
         $name = preg_match('#<name>([^<]+)</name>#', $xml, $m) ? html_entity_decode(trim($m[1]), ENT_QUOTES | ENT_XML1) : basename($f, '.xml');
         $out['vms'][$name] = [
             'name'  => $name,
             'uuid'  => preg_match('#<uuid>\s*(' . CL_UUID . ')\s*</uuid>#i', $xml, $m) ? strtolower($m[1]) : null,
             'nvram' => preg_match('#<nvram[^>]*>([^<]+)</nvram>#', $xml, $m) ? trim(html_entity_decode($m[1], ENT_QUOTES | ENT_XML1)) : null,
             'mnt'   => clMntPaths(html_entity_decode($xml, ENT_QUOTES | ENT_XML1)),
+            'files' => $files,
+            'state' => $states[$name] ?? null,
         ];
     }
     return $out;
@@ -1044,6 +1063,20 @@ function clBuild(): array
     $vmItems = [];
     $vmComplete = $searched && $vmf['ok'] && ($docker['ok'] || !$docker['enabled']);
     if ($vmf['enabled']) {
+        // VMs that are still set up, but whose disk files are gone: removed in Unraid (that takes NVRAM and TPM along)
+        foreach ($vmf['vms'] as $v) {
+            $disks = [];
+            foreach ($v['files'] as $file) {
+                $disks[] = $file + ['exists' => clExists($file['path'])];
+            }
+            $missing = array_filter($disks, fn ($d) => $d['device'] === 'disk' && $d['exists'] === false);
+            if ($missing) {
+                $vmItems[] = ['id' => 'vmdef:' . $v['name'], 'kind' => 'vmdef', 'name' => $v['name'], 'category' => 'broken',
+                              'state' => $v['state'], 'uuid' => $v['uuid'], 'disks' => $disks,
+                              'missing' => count($missing), 'total' => count(array_filter($disks, fn ($d) => $d['device'] === 'disk')),
+                              'bytes' => null, 'used_by' => [], 'notes' => [], 'why' => 'in_unraid', 'force' => false];
+            }
+        }
         foreach ($raw['libvirt'] as $o) {
             $vmItems[] = $o + ['id' => "{$o['kind']}:{$o['name']}", 'category' => 'orphan', 'used_by' => [], 'notes' => [],
                                'why' => $vmf['ok'] ? null : 'vm_off', 'force' => false];
@@ -1126,6 +1159,7 @@ function clBuild(): array
             'domains'  => ['share' => $raw['domains']['share'], 'places' => array_values($raw['domains']['places']), 'asleep' => $raw['domains']['asleep']],
             'isos'     => ['share' => $raw['isos']['share'], 'places' => array_values($raw['isos']['places']), 'asleep' => $raw['isos']['asleep']],
             'complete' => $vmComplete,
+            'gui'      => houseGuiUrl(),
             'list'     => $vmItems,
         ],
         'trash'     => ['runs' => $runs, 'bytes' => $trashBytes],
@@ -1629,6 +1663,7 @@ function clPark(array $ids, bool $force): array
                 'dataset'       => new Problem('cleanup_dataset', $p),
                 'checking'      => new Problem('cleanup_checking', $p),
                 'vm_off'        => new Problem('cleanup_vm_off', $p),
+                'in_unraid'     => new Problem('cleanup_in_unraid', $p),
                 'measuring'     => new Problem('cleanup_measuring', $p),
                 default         => new Problem('cleanup_measure_first', $p),
             };

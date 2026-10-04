@@ -563,5 +563,20 @@
   "csv.path": "Path",
   "errors.cleanup_not_needed": "{name} doesn't need taking over — Unraid's folder has it already.",
   "errors.cleanup_copy_failed": "Could not copy {path} into Unraid's folder.",
-  "where.share": "in a share"
+  "where.share": "in a share",
+  "cat.vms.broken": "VMs without their disks",
+  "cat.vms.broken_text": "Still set up in Unraid, but their disk files are gone",
+  "vmdef.missing": {
+    "one": "{missing} of 1 disk missing",
+    "other": "{missing} of {n} disks missing"
+  },
+  "vmdef.missing_text": "The disk files this VM points to don't exist (any more).",
+  "vmdef.text": "This VM is still set up in Unraid, but its disk files are gone — it can't start. If you don't need it any more, remove it on Unraid's VM page (Remove VM): that takes its NVRAM and TPM state along. I don't touch VM definitions myself.",
+  "vmdef.open": "Open Unraid's VM page",
+  "d.disks": "Disks",
+  "d.cdroms": "CD / ISO",
+  "why.in_unraid": "remove in Unraid",
+  "why.in_unraid_text": "VMs are removed on Unraid's VM page — I don't touch their definitions.",
+  "item.vmdef": "VM definition",
+  "errors.cleanup_in_unraid": "{name} is a VM — remove it on Unraid's VM page."
 }
