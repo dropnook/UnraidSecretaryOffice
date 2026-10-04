@@ -33,7 +33,8 @@ copy "$src/plugin/images/" "$dir/images/"
 rsync -lt --chmod=F644 "$src"/plugin/*.page "$dir/"
 chmod 755 "$dir"/scripts/* "$dir"/event/* "$dir/agent/agent.php"
 
-if pgrep -f "$dir/backup/(backup|setup)\.sh" >/dev/null 2>&1; then
+# a run is "bash <dir>/backup/backup.sh" (atd, the cron file) - only the start of the command line counts
+if pgrep -f "^(/usr)?(/bin/)?bash $dir/backup/(backup|setup)\.sh" >/dev/null 2>&1; then
     echo "A backup run is active - backup/ was left as it is."
 else
     copy "$src/backup/" "$dir/backup/"
