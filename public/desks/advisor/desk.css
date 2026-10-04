@@ -10,6 +10,7 @@
 .ad-copies{display:flex; flex-direction:column; gap:6px; margin:4px 0 2px}
 .ad-copy{display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12.5px}
 .ad-copy-label{color:var(--muted); min-width:120px}
+.row-detail.ad-careful{color:var(--warn)}
 @media (max-width:600px){
   .row.ad-row{grid-template-columns:auto minmax(0,1fr)}
   .row.ad-row > .ad-acts{grid-column:2; justify-content:flex-start}

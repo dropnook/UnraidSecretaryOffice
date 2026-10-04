@@ -1,6 +1,6 @@
 /* The Consultant — from outside the office. He knows the externals the office
    relies on but doesn't make itself (Fix Common Problems, Files Viewer, Kopia,
-   Stream Viewer): whether
+   Stream Viewer; unbalanced only for whoever wants it): whether
    they are there, what they are good for, who in the office needs them, and
    how to install them by hand. Read only. The agent part lives in
    agent/desks/advisor.php. */
@@ -31,6 +31,11 @@ const EXTERNALS = {
     icon: '🎬', open: '/Settings/StreamViewerSettings', install: '/Apps', desk: 'emby',
     copy: { url: 'https://github.com/Lazaros-Chalkidis/unraid-streamviewer/raw/main/streamviewer.plg' },
   },
+  // optional (the agent says so): never counted as missing — and the desks it can get in the way of
+  unbalanced: {
+    icon: '⚖️', open: '/Settings/unbalanced', install: '/Apps', desk: null, clash: ['backup', 'emby'],
+    copy: { url: 'https://github.com/jbrodriguez/unbalance/releases/latest/download/unbalanced.plg' },
+  },
 };
 
 let state = null;
@@ -44,7 +49,7 @@ async function load(fresh) {
 }
 
 const externals = () => Object.entries((state && state.externals) || {}).filter(([id]) => EXTERNALS[id]);
-const missing = () => externals().filter(([, x]) => !x.there);
+const missing = () => externals().filter(([, x]) => !x.there && !x.optional);
 const names = (list) => list.map(([id]) => T(`ext.${id}.name`)).join(', ');
 
 function bubbleText() {
@@ -84,6 +89,7 @@ function render() {
   root.appendChild(Office.pageHelp(ID, [
     [el('span', 'chip ok', T('there')), T('help.there')],
     [el('span', 'chip danger', T('missing')), T('help.missing')],
+    [el('span', 'chip quiet', T('absent')), T('help.absent')],
     [el('span', 'chip warn', T('stopped')), T('help.stopped')],
     [T('howto'), T('help.howto')],
     [T('look_again'), T('help.again')],
@@ -105,7 +111,8 @@ function external(id, x) {
   const main = el('div', 'row-main');
   main.appendChild(el('div', 'row-name text', T(`ext.${id}.name`)));
   const meta = el('div', 'row-meta');
-  if (!x.there) meta.appendChild(el('span', 'chip danger', T('missing')));
+  if (!x.there && x.optional) meta.appendChild(el('span', 'chip quiet', T('absent')));
+  else if (!x.there) meta.appendChild(el('span', 'chip danger', T('missing')));
   else if (x.kind === 'container' && !x.running) meta.appendChild(el('span', 'chip warn', T('stopped')));
   else meta.appendChild(el('span', 'chip ok', T('there')));
   if (x.version) meta.appendChild(el('span', '', 'v' + x.version));
@@ -116,8 +123,14 @@ function external(id, x) {
     chip.title = T(`ext.${id}.for`, { media: state.media || 'Emby' });
     meta.appendChild(chip);
   }
+  (e.clash || []).filter((d) => Office.desks.has(d)).forEach((d) => {
+    const chip = el('span', 'chip warn', `${Office.desks.get(d).icon} ${Office.t(d + '.name')}`);
+    chip.title = T(`ext.${id}.clash`, { name: Office.t(d + '.name') });
+    meta.appendChild(chip);
+  });
   main.appendChild(meta);
   main.appendChild(el('div', 'row-detail', T(`ext.${id}.what`, { media: state.media || 'Emby' })));
+  if (Office.has(`${ID}.ext.${id}.careful`)) main.appendChild(el('div', 'row-detail ad-careful', T(`ext.${id}.careful`)));
   row.appendChild(main);
 
   const acts = el('div', 'ad-acts');
@@ -138,7 +151,7 @@ function external(id, x) {
 function howto(id, x) {
   const e = EXTERNALS[id];
   const det = el('details', 'ad-howto');
-  det.open = !x.there;               // missing: the steps right away
+  det.open = !x.there && !x.optional;      // missing: the steps right away
   det.appendChild(el('summary', '', T('howto')));
   const ol = el('ol', 'ad-steps');
   for (let i = 1; Office.has(`${ID}.install.${id}.${i}`); i++) ol.appendChild(el('li', '', T(`install.${id}.${i}`, { ...e.copy, media: state.media || 'Emby' })));
@@ -171,8 +184,9 @@ Office.desk({
   async reception() {
     if (!state) await load(false);
     if (!state) return null;
-    const facts = externals().map(([id, x]) => T(x.there ? (x.kind === 'container' && !x.running ? 'fact.stopped' : 'fact.there') : 'fact.missing',
-      { name: T(`ext.${id}.name`) }));
+    const facts = externals().filter(([, x]) => x.there || !x.optional)
+      .map(([id, x]) => T(x.there ? (x.kind === 'container' && !x.running ? 'fact.stopped' : 'fact.there') : 'fact.missing',
+        { name: T(`ext.${id}.name`) }));
     return { bubble: bubbleText(), facts };
   },
 });

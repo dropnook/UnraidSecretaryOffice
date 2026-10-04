@@ -14,6 +14,9 @@ declare(strict_types=1);
  *           how it must be set up he checks himself)
  *   streamviewer  Stream Viewer, a plugin (who watches what on Emby,
  *           Jellyfin or Plex) — only suggested where one of them runs
+ *   unbalanced  a plugin that moves files between array disks — optional:
+ *           never suggested (it can get in the way of backups, EmbyCache
+ *           and the gather), but there for whoever needs it
  *
  * Read only: whether a plugin is installed, whether a container exists and
  * runs. Nothing is installed or changed from here.
@@ -24,6 +27,7 @@ const ADVISOR_EXTERNALS = [
     'filesviewer'  => ['plugin' => 'filesviewer'],
     'kopia'        => ['container' => 'kopia'],         // image or name contains it
     'streamviewer' => ['plugin' => 'streamviewer', 'media' => true],
+    'unbalanced'   => ['plugin' => 'unbalanced', 'optional' => true],
 ];
 const ADVISOR_MEDIA = ['emby' => 'Emby', 'jellyfin' => 'Jellyfin', 'plex' => 'Plex'];
 
@@ -66,7 +70,8 @@ function advisorScan(): array
         }
         if (isset($how['plugin'])) {
             $p = $plugins[$how['plugin']] ?? null;
-            $externals[$id] = ['kind' => 'plugin', 'there' => $p !== null, 'version' => $p['version'] ?? null];
+            $externals[$id] = ['kind' => 'plugin', 'there' => $p !== null, 'version' => $p['version'] ?? null,
+                'optional' => !empty($how['optional'])];
             continue;
         }
         $found = null;
