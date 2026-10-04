@@ -285,6 +285,12 @@ character, warnings and errors stay plain and clear.
   unless the root belongs to the group `users`. Nextcloud then refuses `occ`
   (data folder readable by others). Lasting fix: the root `33:100` (www-data:users)
   with `0750` — the caretaker checks that others can't read it.
+* **Unraid 7.3.2: the Dashboard and the Docker page flood `/var/log`** when a
+  container has no icon: their fallback `onerror=this.src='/plugins/dynamix.docker.manager/images/question.png'`
+  points to a file 7.3.2 doesn't ship and never stops (≈1'000 requests/s,
+  nginx error.log + syslog, the 128 MB tmpfs full in minutes). Keep the
+  Dashboard open only briefly in tests and watch `df /var/log`. Workaround
+  (RAM, gone after a reboot): copy compose.manager's `images/question.png` there.
 * `btrfs filesystem show` without arguments reads every device raw (a busy or
   sleeping disk holds it up for minutes): use `--mounted` or a mount point.
 * A btrfs snapshot of a disk busy with a large copy can take minutes; bash
