@@ -167,6 +167,7 @@ public/desks/<id>/desk.json     {"order": 40, "icon": "🧹", "refresh_after": 3
                                 ("reception_order" places it differently at the reception)
 public/desks/<id>/desk.js       her desk in the web UI
 public/desks/<id>/desk.css      optional, its rules nested in #sso{ … } like office.css
+public/desks/<id>/avatar.svg    optional, her picture (64×64, readable on dark and light; else the emoji)
 public/desks/<id>/lang/en.json  her strings ("name", "role", …), plus other languages
 ```
 

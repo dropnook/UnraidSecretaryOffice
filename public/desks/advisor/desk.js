@@ -119,12 +119,14 @@ function external(id, x) {
   if (x.name) meta.appendChild(el('span', 'mono', x.name));
   if (e.desk && Office.desks.has(e.desk)) {
     const d = Office.desks.get(e.desk);
-    const chip = el('span', 'chip', `${d.icon} ${Office.t(e.desk + '.name')}`);
+    const chip = el('span', 'chip');
+    chip.append(Office.deskIcon(e.desk), Office.t(e.desk + '.name'));
     chip.title = T(`ext.${id}.for`, { media: state.media || 'Emby' });
     meta.appendChild(chip);
   }
   (e.clash || []).filter((d) => Office.desks.has(d)).forEach((d) => {
-    const chip = el('span', 'chip warn', `${Office.desks.get(d).icon} ${Office.t(d + '.name')}`);
+    const chip = el('span', 'chip warn');
+    chip.append(Office.deskIcon(d), Office.t(d + '.name'));
     chip.title = T(`ext.${id}.clash`, { name: Office.t(d + '.name') });
     meta.appendChild(chip);
   });

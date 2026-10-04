@@ -227,6 +227,11 @@ body.sso-page{margin:0; background:#F2F5F6; -webkit-text-size-adjust:100%}
   background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow);
 }
 .avatar.big{width:72px; height:72px; font-size:38px}
+/* a desk's own drawing (core.js deskIcon): fills most of its circle, sits small in tabs and chips */
+& img.desk-icon{display:block; object-fit:contain; flex:none}
+.avatar img.desk-icon{width:78%; height:78%}
+.tab-icon img.desk-icon{width:18px; height:18px}
+.chip img.desk-icon{display:inline-block; width:13px; height:13px; vertical-align:-2px; margin-right:4px}
 .deskhead-text{flex:1; min-width:220px; display:flex; flex-direction:column; gap:3px}
 .deskhead-text h1{font-size:22px}
 .role{font-size:13px; color:var(--muted)}

@@ -629,15 +629,17 @@ function tabs() {
   const nav = $('#sso-tabs');
   nav.innerHTML = '';
   let current = null;
-  const add = (href, icon, text, active) => {
+  const add = (href, id, text, active) => {
     const a = el('a', active ? 'active' : '');
     a.href = href;
     if (active) { a.setAttribute('aria-current', 'page'); current = a; }
-    a.append(el('span', 'tab-icon', icon), el('span', '', text));
+    const icon = el('span', 'tab-icon');
+    icon.appendChild(Office.deskIcon(id));
+    a.append(icon, el('span', '', text));
     nav.appendChild(a);
   };
-  add('#/', '🛎️', t('office.reception'), !Office.current);
-  for (const d of Office.desks.values()) if (d.hired) add(`#/${d.id}`, d.icon, t(`${d.id}.name`), Office.current === d);
+  add('#/', '', t('office.reception'), !Office.current);
+  for (const d of Office.desks.values()) if (d.hired) add(`#/${d.id}`, d.id, t(`${d.id}.name`), Office.current === d);
   // on a phone the tabs scroll sideways in their row: the current one in view (only the row moves, not the page)
   if (current && nav.scrollWidth > nav.clientWidth) {
     nav.scrollLeft = Math.max(0, current.offsetLeft - nav.offsetLeft - (nav.clientWidth - current.offsetWidth) / 2);
@@ -880,10 +882,31 @@ Office.withGreeting = (id, text) => {
   return g ? `${g} ${text}` : text;
 };
 
+/**
+ * A desk's picture: its own drawing (desks/<id>/avatar.svg), else its emoji.
+ * '' is the reception. For avatars, tabs and chips alike.
+ */
+Office.deskIcon = function deskIcon(id) {
+  const d = id ? (Office.desks.get(id) || CONFIG.desks.find((x) => x.id === id) || {}) : null;
+  const src = id ? d.avatar : CONFIG.reception_icon;
+  if (!src) return el('span', 'desk-emoji', id ? d.icon || '•' : '🛎️');
+  const img = el('img', 'desk-icon');
+  img.src = src;
+  img.alt = '';
+  img.decoding = 'async';
+  return img;
+};
+/** A round avatar with a desk's picture ('' = the reception); big at the reception */
+Office.avatar = function avatar(id, big) {
+  const box = el('div', 'avatar' + (big ? ' big' : ''));
+  box.appendChild(Office.deskIcon(id));
+  return box;
+};
+
 /** The desk head every secretary uses: avatar, name, role, speech bubble, actions */
 Office.deskHead = function deskHead(desk, { bubble, actions }) {
   const head = el('div', 'deskhead');
-  head.appendChild(el('div', 'avatar', desk.icon));
+  head.appendChild(Office.avatar(desk.id));
   const text = el('div', 'deskhead-text');
   text.append(el('h1', '', t(`${desk.id}.name`)), el('div', 'role', t(`${desk.id}.role`)));
   const b = el('div', 'bubble');
@@ -899,7 +922,7 @@ Office.deskHead = function deskHead(desk, { bubble, actions }) {
 // ------------------------------------------------------------------ reception
 async function reception(root) {
   const head = el('div', 'deskhead');
-  head.appendChild(el('div', 'avatar', '🛎️'));
+  head.appendChild(Office.avatar(''));
   const text = el('div', 'deskhead-text');
   text.append(el('h1', '', t('office.welcome', { host: CONFIG.host })), el('div', 'role', t('office.reception_role')));
   head.appendChild(text);
@@ -913,7 +936,7 @@ async function reception(root) {
     const top = el('div', 'desk-card-head');
     const name = el('div');
     name.append(el('h2', '', t(`${desk.id}.name`)), el('div', 'role', t(`${desk.id}.role`)));
-    top.append(el('div', 'avatar big', desk.icon), name);
+    top.append(Office.avatar(desk.id, true), name);
     const bubble = el('div', 'bubble', '…');
     const facts = el('ul', 'facts');
     // a desk may say how to go there ("Zum Hauswart"), else the office's "Visit {name}"

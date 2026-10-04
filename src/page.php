@@ -30,6 +30,8 @@ function officePageConfig(): array
     $hired = officeHired();
     foreach ($desks as $id => &$desk) {
         $desk['hired'] = isset($hired[$id]);
+        // its own drawing (desks/<id>/avatar.svg), the emoji only where there is none
+        $desk['avatar'] = is_file(OFFICE_PUBLIC . "/desks/$id/avatar.svg") ? officeAsset("desks/$id/avatar.svg") : null;
     }
     unset($desk);
     $config = [
@@ -42,6 +44,7 @@ function officePageConfig(): array
         'plugin'    => OFFICE_AS_PLUGIN,
         'base'      => officeWebBase(),
         'in_unraid' => OFFICE_IN_UNRAID,
+        'reception_icon' => officeAsset('assets/reception.svg'),
     ];
     if (OFFICE_AS_PLUGIN) {
         $var = @parse_ini_file('/var/local/emhttp/var.ini') ?: [];

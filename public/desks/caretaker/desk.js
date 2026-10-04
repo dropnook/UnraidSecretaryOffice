@@ -131,7 +131,9 @@ function list(title, sub, items) {
 
 function deskChip(desk) {
   const d = Office.desks.get(desk);
-  return el('span', 'chip', `${d.icon} ${Office.t(desk + '.name')}`);
+  const chip = el('span', 'chip');
+  chip.append(Office.deskIcon(d.id), Office.t(desk + '.name'));
+  return chip;
 }
 
 function row(f) {
@@ -266,7 +268,9 @@ function teamSection() {
 
 function teamRow(x) {
   const r = el('div', 'row nocheck ct-person' + (x.hired ? '' : ' ct-candidate'));
-  r.appendChild(el('div', 'avatar ct-avatar', x.desk.icon));
+  const av = Office.avatar(x.id);
+  av.classList.add('ct-avatar');
+  r.appendChild(av);
   const main = el('div', 'row-main');
   main.appendChild(el('div', 'row-name text', Office.t(`${x.id}.name`)));
   const meta = el('div', 'row-meta');

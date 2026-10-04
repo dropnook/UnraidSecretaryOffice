@@ -158,6 +158,13 @@ whatever it set up on the server stay (`fire_note` says what keeps running).
 Unhired desks get no write actions (`not_hired`) and their checks don't count.
 After hiring, the tip jar (core.js `tipJar`, link `OFFICE_TIP_URL`) says hello.
 
+**Pictures:** every desk has its own drawing, `public/desks/<id>/avatar.svg`
+(64×64, flat, thick shapes, outlined where a light part meets a light theme;
+the reception's is `assets/reception.svg`). `Office.deskIcon(id)` /
+`Office.avatar(id)` show it in avatars, tabs and chips; desk.json's `icon`
+emoji is only the fallback. Never use an emoji for a desk where a drawing
+exists.
+
 **Characters:** Frau Snapshotini (Italian), Herr Backupsi (scatterbrained,
 anxious, checks everything three times), Frau Wasistwo (nosy gossip), Jack
 Emby (the intern), Frau Protokolli (reads everything out, understands nothing),
@@ -334,7 +341,7 @@ agent/desks/<id>.php     one desk each: desk('<id>', [...])
 src/*.php                web side: bootstrap, mailbox client, desk/lang discovery, auth (PIN), API, page
 public/assets/core.js    Office: i18n, routing, reception, API, PIN, dialog, menu, toast, fmt,
                          deskHead, pageHelp, sectionHead, backupChip
-public/desks/<id>/       desk.json, desk.js, lang/*.json (and desk.css)
+public/desks/<id>/       desk.json, desk.js, lang/*.json (and desk.css, avatar.svg)
 data/                    runtime only (state per desk, mailbox, agent log, office/auth.json) — not in git
 backup/                  the backup engine: backup.sh, setup.sh, lib/common.sh (data in data/unraid-backup)
 embycache/               Jack Emby's EmbyCache (Python; data in data/embycache)
