@@ -150,6 +150,30 @@ function testUserScripts(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+function testEstimates(): void
+{
+    // newest first, like backupHistory()
+    $run = fn (string $id, string $result, int $total, array $kopia) => ['run' => $id, 'started' => 1000, 'finished' => 1000 + $total,
+        'result' => $result, 'kopia_first' => null,
+        'kopia' => array_map(fn ($n, $s) => ['name' => $n, 'ok' => true, 'seconds' => $s, 'finished' => 1000 + $total], array_keys($kopia), $kopia)];
+    $first = $run('first', 'warnings', 37632, ['appdata' => 21850]);
+    $small = fn (string $id, int $t, int $a) => $run($id, 'ok', $t, ['appdata' => $a]);
+
+    $e = backupEstimates([$small('b', 547, 86), $first]);
+    same('estimate: after the first run the newest counts', 547, $e['total']);
+    same('estimate: newest Kopia source', 86, $e['sources']['appdata'] ?? null);
+
+    $e = backupEstimates([$run('x', 'failed', 17, []), $run('y', 'aborted', 464, []), $small('b', 547, 86), $first]);
+    same('estimate: failed and aborted runs skipped', 547, $e['total']);
+
+    $e = backupEstimates([$small('d', 600, 90), $small('c', 30000, 20000), $small('b', 547, 86), $first]);
+    same('estimate: one slow run among three does not count', 600, $e['total']);
+    same('estimate: median Kopia of the last three', 90, $e['sources']['appdata'] ?? null);
+
+    $e = backupEstimates([]);
+    same('estimate: nothing known', null, $e['total']);
+}
+
 // ===================================================================== strings
 
 function langFile(string $file): array
@@ -234,7 +258,7 @@ function testStrings(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts'], 'strings' => ['testStrings']];
+$parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testEstimates'], 'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
     if ($only === '' || $only === $name) {

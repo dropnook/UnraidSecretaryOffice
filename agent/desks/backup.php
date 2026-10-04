@@ -381,7 +381,10 @@ function backupRunFromLog(string $path, string $run, int $started): array
 
 /**
  * Typical durations from the last good runs, for "ready at about …":
- * per Kopia source and for the part before Kopia starts.
+ * per Kopia source and for the part before Kopia starts. The newest runs
+ * count: a first run uploads everything to Kopia and takes hours, the
+ * incremental ones after it minutes — so the median of the last three, and
+ * with fewer than three simply the newest.
  */
 function backupEstimates(array $history): array
 {
@@ -393,7 +396,7 @@ function backupEstimates(array $history): array
             continue;
         }
         foreach ($run['kopia'] as $k) {
-            if ($k['ok'] && count($sources[$k['name']] ?? []) < 5) {
+            if ($k['ok'] && count($sources[$k['name']] ?? []) < 3) {
                 $sources[$k['name']][] = $k['seconds'];
             }
         }
@@ -402,19 +405,20 @@ function backupEstimates(array $history): array
             $k0 = $run['kopia'][0];
             $first = $k0['finished'] - $k0['seconds'];
         }
-        if ($first && count($before) < 5) {
+        if ($first && count($before) < 3) {
             $before[] = max(0, $first - $run['started']);
         }
-        if ($run['finished'] && count($total) < 5) {
+        if ($run['finished'] && count($total) < 3) {
             $total[] = $run['finished'] - $run['started'];
         }
     }
+    // $v is newest first (the history is sorted that way)
     $median = function (array $v): ?int {
-        if (!$v) {
-            return null;
+        if (count($v) < 3) {
+            return $v ? (int) $v[0] : null;
         }
         sort($v);
-        return (int) $v[intdiv(count($v), 2)];
+        return (int) $v[1];
     };
     return [
         'sources' => array_map($median, $sources),
