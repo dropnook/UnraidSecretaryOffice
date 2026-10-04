@@ -9,6 +9,7 @@
      unmount()          optional, when another desk is shown
      reception()        optional, async: { bubble, facts[] } for the reception
      poll()             optional, called every minute while the desk is shown
+     started()          optional, once after the page started (any desk shown)
    Its strings live in public/desks/<id>/lang/<code>.json and are reached as
    t('<id>.<key>'), or with Office.scope('<id>') as a shortcut. */
 (() => {
@@ -884,17 +885,27 @@ Office.withGreeting = (id, text) => {
 
 /**
  * A desk's picture: its own drawing (desks/<id>/avatar.svg), else its emoji.
- * '' is the reception. For avatars, tabs and chips alike.
+ * '' is the reception. For avatars, tabs and chips alike. A desk in a mood
+ * (Office.setDeskMood) shows desks/<id>/avatar-<mood>.svg instead.
  */
+const deskSrc = (d) => (d.mood ? d.avatar.replace('/avatar.svg', `/avatar-${d.mood}.svg`) : d.avatar);
 Office.deskIcon = function deskIcon(id) {
   const d = id ? (Office.desks.get(id) || CONFIG.desks.find((x) => x.id === id) || {}) : null;
-  const src = id ? d.avatar : CONFIG.reception_icon;
+  const src = id ? d.avatar && deskSrc(d) : CONFIG.reception_icon;
   if (!src) return el('span', 'desk-emoji', id ? d.icon || '•' : '🛎️');
   const img = el('img', 'desk-icon');
   img.src = src;
   img.alt = '';
   img.decoding = 'async';
+  if (id) img.dataset.desk = id;
   return img;
+};
+/** Change a desk's picture everywhere it is shown, e.g. the caretaker's badge ('' = its plain one) */
+Office.setDeskMood = function setDeskMood(id, mood) {
+  const d = Office.desks.get(id);
+  if (!d || !d.avatar || (d.mood || '') === (mood || '')) return;
+  d.mood = mood || '';
+  document.querySelectorAll(`#sso img.desk-icon[data-desk="${id}"]`).forEach((img) => { img.src = deskSrc(d); });
 };
 /** A round avatar with a desk's picture ('' = the reception); big at the reception */
 Office.avatar = function avatar(id, big) {
@@ -1174,6 +1185,8 @@ async function start() {
   window.addEventListener('scroll', relaxDesk, { passive: true });
   window.addEventListener('hashchange', route);
   route();
+  // desks that want to know something on every page (the caretaker's badge), unless the office is locked
+  if (!lockedView) for (const d of Office.desks.values()) if (d.started) d.started();
   setInterval(() => {
     if (document.hidden || Office.dialogOpen() || Office.menuOpen()) return;
     if (Office.current && Office.current.poll) Office.current.poll();

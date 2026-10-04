@@ -20,7 +20,15 @@ async function load(fresh) {
   const j = await Office.api.get({ a: 'state', desk: ID, ...(fresh ? { fresh: 1 } : {}) });
   if (j.ok && j.state) state = j.state;
   if (view) render();
+  mood();
   return j;
+}
+
+/** His picture says how the house is: a green check, a yellow (advice) or a red (to do) exclamation mark */
+function mood() {
+  if (!state) return;
+  const g = groups();
+  Office.setDeskMood(ID, g.todo.length ? 'todo' : g.advice.length ? 'advice' : '');
 }
 
 /** All findings, each with its desk */
@@ -340,6 +348,7 @@ Office.desk({
   },
   unmount() { view = null; },
   poll() { load(false); },
+  started() { if (!state) load(false); },     // his badge shows on every page
   agentChanged() { if (view) render(); },
   async reception() {
     if (!state) await load(false);

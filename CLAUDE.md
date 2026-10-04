@@ -162,7 +162,10 @@ After hiring, the tip jar (core.js `tipJar`, link `OFFICE_TIP_URL`) says hello.
 (64×64, flat, thick shapes, outlined where a light part meets a light theme;
 the reception's is `assets/reception.svg`). `Office.deskIcon(id)` /
 `Office.avatar(id)` show it in avatars, tabs and chips; desk.json's `icon`
-emoji is only the fallback. Never use an emoji for a desk where a drawing
+emoji is only the fallback. A desk may change it with its state:
+`Office.setDeskMood(id, mood)` shows `avatar-<mood>.svg` (the caretaker:
+`advice` yellow, `todo` red, otherwise the green check — set from his
+findings, loaded on every page through the desk hook `started()`). Never use an emoji for a desk where a drawing
 exists.
 
 **Characters:** Frau Snapshotini (Italian), Herr Backupsi (scatterbrained,
