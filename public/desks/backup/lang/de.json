@@ -41,7 +41,7 @@
   "show_log": "Protokoll",
   "failed": "fehlgeschlagen",
   "never": "noch nie",
-  "flash": "Flash (USB-Stick)",
+  "flash": "Flash (/boot)",
   "now": "Gerade jetzt",
   "overview": "Überblick",
   "protection": "Ist alles geschützt?",
@@ -204,7 +204,7 @@
   "check.kopia_root": "Kopia läuft als root (PUID 0)",
   "check.kopia_root_how": "Im Template von «{name}» PUID und PGID auf 0 setzen (jetzt {puid}) — sonst fehlt im Backup alles, was nur sein Besitzer lesen darf.",
   "check.kopia_mapping": "«{name}» sieht {path} nur lesend mit «Slave»",
-  "check.kopia_mapping_how": "Im Template {path} → {path} mit Access Mode «Read Only - Slave» mappen (jetzt: {now}). Ohne «Slave» sieht Kopia leere Ordner.",
+  "check.kopia_mapping_how": "Im Template einen Pfad anlegen: Host Path {path}, Container Path z. B. /backup-snapshots, Access Mode «Read Only - Slave» (jetzt: {now}). Ohne «Slave» sieht Kopia leere Ordner. Den Container Path danach nicht mehr ändern: Kopia benennt seine Quellen danach.",
   "check.kopia_repo": "Kopia ist mit seinem Repository verbunden",
   "check.kopia_repo_how": "In der KopiaUI von «{name}» das Repository verbinden, dann bei Herrn Backupsi eine Prüfung starten.",
   "check.drift": "settings.ini passt zum Server",
@@ -528,11 +528,88 @@
   "setup.ds_ok": "Ablage: {path} (nur root)",
   "setup.ds_why": "Die Dumps schützen die Datenbanken in appdata. Lägen sie daneben, nähme ein Ausfall dieses Pools beides mit — darum ein eigener Share, am besten auf einem anderen Pool.",
   "check.dumps_share": "Eine eigene Backup-Ablage ist gesetzt",
-  "check.dumps_share_how": "Herr Backupsi → «Einrichten…» → Allgemein → Backup-Ablage: einen eigenen Share wählen (z. B. «Backups»). Ohne verweigert er jeden Lauf — in appdata gehören keine Backups.",
+  "check.dumps_share_how": "Den Share «UnraidSecretaryOffice» anlegen (nicht auf dem Pool von appdata, SMB-Export aus), dann Herr Backupsi → «Einrichten…» → Allgemein → Backup-Ablage. Ein anderer eigener Share geht auch. Ohne verweigert er jeden Lauf — in appdata gehören keine Backups.",
   "check.dumps_offsite": "Die Backup-Ablage «{share}» geht offsite",
   "check.dumps_offsite_how": "«{share}» steht auf «{mode}» — Dumps und Archive bleiben nur auf diesem Server. Bei Herrn Backupsi unter «Einrichten…» den Share auf «Kopia + Snapshot» stellen.",
   "message.dumps_missing": "Keine Backup-Ablage gesetzt — Dumps und Archive brauchen einen eigenen Backup-Share, in appdata gehört so etwas nicht. Bei «Einrichten…» einen wählen.",
   "message.dumps_unknown": "Die Backup-Ablage gibt es nicht (mehr) als Share. Bei «Einrichten…» eine andere wählen.",
   "message.dumps_forbidden": "Die Backup-Ablage liegt in appdata, system oder domains — dort gehören keine Backups hin. Bei «Einrichten…» einen eigenen Share wählen.",
-  "message.dumps_off": "Die Backup-Ablage wird selbst nicht gesichert — die Dumps wären nirgends sicher. Bei «Einrichten…» den Share sichern lassen."
+  "message.dumps_off": "Die Backup-Ablage wird selbst nicht gesichert — die Dumps wären nirgends sicher. Bei «Einrichten…» den Share sichern lassen.",
+  "details": "Details zeigen",
+  "unfold_all": "Alle aufklappen",
+  "fold_all": "Alle zuklappen",
+  "help.rules": "Regeln je Share",
+  "help.rules_text": "Ein Klick auf einen Share zeigt, was Kopia auslässt und wie lange es Versionen behält — die eigenen Regeln des Shares und die, die alle Shares erben —, was auf diesem Server bleibt und ob Kopia wirklich so eingestellt ist (Stand der letzten Prüfung). Ändern nur hier, mit «Ändern…» oder «Einrichten…», nicht in der KopiaUI: Herr Backupsi schreibt diese Regeln selbst in Kopia; was dort von Hand geändert wird, meldet er als Abweichung, und beim nächsten Anwenden wird es zurückgesetzt. Alte Versionen dünnt Kopia selbst aus, nach genau diesen Regeln.",
+  "policy.ok_short": "stimmt",
+  "policy.ok": "Kopia ist genau so eingestellt.",
+  "policy.differs_short": "weicht in Kopia ab",
+  "policy.differs": "Die Einstellungen in Kopia weichen für diesen Share von denen hier ab — Anwenden unter «Einrichten…» gleicht sie wieder an.",
+  "policy.skipped_short": "ausgelassen",
+  "policy.skipped": "In Kopia fehlt eine der eigenen Regeln dieses Shares, darum lässt der Lauf den Share aus (Kopia würde mehr hochladen als gewollt) — Anwenden unter «Einrichten…» behebt es.",
+  "policy.unknown": "Noch nicht verglichen — das macht die nächste Prüfung oder der nächste Lauf (Kopia muss laufen, unraid-backup ab 2.14).",
+  "policy.root_differs": "Auch die Einstellungen, die alle Shares erben, weichen in Kopia ab:",
+  "pd.skips": "Kopia lässt aus",
+  "pd.no_own_rules": "nichts Eigenes",
+  "pd.no_flash_rules": "nichts",
+  "pd.inherited": "… und wie bei allen Shares",
+  "pd.keeps": "Kopia behält",
+  "pd.keeps_kopia": "wie in Kopia eingestellt",
+  "pd.keeps_own": "(eigene Regel dieses Shares)",
+  "pd.keeps_all": "(wie alle Shares)",
+  "pd.compression": "Kompression",
+  "pd.local": "Auf diesem Server",
+  "pd.excluded": "Nicht im Snapshot",
+  "pd.state": "In Kopia",
+  "pd.where_to_change": "Regeln und Aufbewahrung werden hier eingestellt, nicht in der KopiaUI.",
+  "pd.change": "Ändern…",
+  "keep.latest": {
+    "one": "den neuesten",
+    "other": "die {n} neuesten"
+  },
+  "keep.hourly": {
+    "one": "1 stündlichen",
+    "other": "{n} stündliche"
+  },
+  "keep.daily": {
+    "one": "1 täglichen",
+    "other": "{n} tägliche"
+  },
+  "keep.weekly": {
+    "one": "1 wöchentlichen",
+    "other": "{n} wöchentliche"
+  },
+  "keep.monthly": {
+    "one": "1 monatlichen",
+    "other": "{n} monatliche"
+  },
+  "keep.annual": {
+    "one": "1 jährlichen",
+    "other": "{n} jährliche"
+  },
+  "local.zfs": "ZFS-Snapshots: {list}",
+  "local.zfs_d": {
+    "one": "der neueste",
+    "other": "die {n} neuesten"
+  },
+  "local.zfs_w": {
+    "one": "einer der letzten Woche",
+    "other": "je einer pro Woche für {n} Wochen"
+  },
+  "local.zfs_m": {
+    "one": "einer des letzten Monats",
+    "other": "je einer pro Monat für {n} Monate"
+  },
+  "local.btrfs": {
+    "one": "btrfs-Snapshots: 1 Tag",
+    "other": "btrfs-Snapshots: {n} Tage"
+  },
+  "local.none": "kein lokaler Snapshot (das Dateisystem kann es nicht)",
+  "diff.ignore_missing": "In Kopia fehlt die Regel {item}",
+  "diff.ignore_extra": "Kopia hat zusätzlich die Regel {item}",
+  "diff.retention": "{item}: in Kopia {have}, hier {want}",
+  "diff.schedule": "Kopia darf diese Quellen nach eigenem Zeitplan starten (hier: nur während des Laufs)",
+  "diff.one_file_system": "one-file-system steht in Kopia auf {have} (nötig: false, damit Kind-Datasets mitkommen)",
+  "diff.compression": "Kompression: in Kopia {have}, hier {want}",
+  "check.mnt_folders": "Nichts vom Büro direkt in /mnt",
+  "check.mnt_folders_how": "Fix Common Problems meldet zu Recht {folders}. Die Snapshots gehören unter /mnt/addons (Unraids Ort dafür, im RAM, ohne eigene Daten): im Template von «{name}» beim Snapshot-Mapping nur den Host Path auf {path} ändern (Container Path und «Read Only - Slave» bleiben), dann Herr Backupsi → «Einrichten…» → Anwenden. Der nächste Lauf räumt die alten Ordner weg."
 }

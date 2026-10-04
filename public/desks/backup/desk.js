@@ -191,6 +191,7 @@ function render() {
     [T('help.results'), T('help.results_text')],
     [T('help.protection'), T('help.protection_text')],
     ...['offsite', 'local', 'none'].map((l) => [Office.backupChip(l), Office.t('protect.' + l + '_text')]),
+    [T('help.rules'), T('help.rules_text')],
     [T('help.buttons'), T('help.buttons_text')],
     [T('setup_open'), T('help.setup')],
     [T('history'), T('help.history')],
@@ -371,34 +372,50 @@ function summary() {
   return box;
 }
 
-/** Is everything protected? Every share with its mode and last offsite copy */
+/** Is everything protected? Every share with its mode and last offsite copy; a row unfolds to its rules */
+const protOpen = new Set();      // unfolded rows (share names), kept across re-renders
 function protection() {
   const shares = state.shares || [];
   const counts = { kopia: 0, snapshot: 0, off: 0 };
   shares.forEach((s) => { counts[s.mode] = (counts[s.mode] || 0) + 1; });
   const kopiaOn = state.settings && state.settings.kopia_enabled;
   const local = counts.snapshot + (kopiaOn ? 0 : counts.kopia);
-  const box = section(T('protection'), T('protection_sum', { kopia: kopiaOn ? counts.kopia : 0, snapshot: local, off: counts.off }));
+  const order = { kopia: 0, snapshot: 1, off: 2 };
+  const rows = [...shares].sort((a, b) => (order[a.mode] - order[b.mode]) || a.name.localeCompare(b.name));
+  const key = (s) => (s.flash ? '\u0000flash' : s.name);
+  const foldable = rows.filter((s) => s.mode !== 'off');
+  const shown = [];                                        // {open(), set(open)} per unfoldable row
+  const all = button('', 'small plain', () => {
+    const open = shown.some((x) => !x.open());
+    Office.keepInPlace(all, () => shown.forEach((x) => x.set(open)));
+    label();
+  });
+  const label = () => { all.textContent = shown.some((x) => !x.open()) ? T('unfold_all') : T('fold_all'); };
+  const box = section(T('protection'), T('protection_sum', { kopia: kopiaOn ? counts.kopia : 0, snapshot: local, off: counts.off }),
+    ...(foldable.length ? [all] : []));
   if (!shares.length) { box.appendChild(el('p', 'empty', T('no_shares'))); return box; }
 
   const wrap = el('div', 'box table-wrap');
-  const table = el('table', 'grid');
+  const table = el('table', 'grid bk-protect');
   const thead = el('thead');
   const hr = el('tr');
   ['share', 'mode', 'last_copy', 'took', 'details'].forEach((k) => hr.appendChild(el('th', '', T('col.' + k))));
   thead.appendChild(hr);
   table.appendChild(thead);
   const body = el('tbody');
-  const order = { kopia: 0, snapshot: 1, off: 2 };
-  [...shares].sort((a, b) => (order[a.mode] - order[b.mode]) || a.name.localeCompare(b.name)).forEach((s) => {
+  rows.forEach((s) => {
     const tr = el('tr');
-    tr.appendChild(el('th', '', s.flash ? T('flash') : s.name));
+    const name = el('th', '', s.flash ? T('flash') : s.name);
+    tr.appendChild(name);
     const modeCell = el('td');
     // the same labels as everywhere in the office: offsite / only local / not backed up
     const level = s.mode === 'kopia' ? (kopiaOn ? 'offsite' : 'local') : s.mode === 'snapshot' ? 'local' : 'none';
     modeCell.appendChild(Office.backupChip(level));
     if (s.mode === 'kopia' && !kopiaOn) modeCell.append(' ', chip(T('mode_kopia_off'), 'warn'));
     if (s.method === 'live') modeCell.append(' ', chip(T('live'), 'warn', T('live_hint')));
+    const pol = s.mode === 'kopia' && kopiaOn ? policyOf(s) : null;
+    if (pol && pol.skipped) modeCell.append(' ', chip(T('policy.skipped_short'), 'danger', T('policy.skipped')));
+    else if (pol && !pol.ok) modeCell.append(' ', chip(T('policy.differs_short'), 'warn', T('policy.differs')));
     tr.appendChild(modeCell);
     const lastCell = el('td');
     const took = el('td');
@@ -419,11 +436,37 @@ function protection() {
     if (s.excluded.length) details.push(T('excluded', { n: s.excluded.length }));
     if (s.retention) details.push(T('retention_own', { r: s.retention }));
     if (s.locations.length) details.push(s.locations.join(', '));
-    const d = el('td', '', details.join(' · '));
-    if (s.ignores.length) d.title = s.ignores.join('\n');
-    tr.appendChild(d);
+    tr.appendChild(el('td', '', details.join(' · ')));
     body.appendChild(tr);
+    if (s.mode === 'off') return;
+    // the whole row unfolds (chips explain themselves on a click, see initTips)
+    tr.classList.add('unfolds');
+    name.classList.add('link');
+    name.title = T('details');
+    let dtr = null;
+    const set = (open) => {
+      if (!open && dtr) { dtr.remove(); dtr = null; protOpen.delete(key(s)); tr.classList.remove('open'); }
+      if (open && !dtr) {
+        dtr = el('tr', 'bk-detail');
+        const td = el('td');
+        td.colSpan = 5;
+        td.appendChild(protectionDetail(s, kopiaOn));
+        dtr.appendChild(td);
+        tr.after(dtr);
+        protOpen.add(key(s));
+        tr.classList.add('open');
+      }
+    };
+    tr.onclick = (e) => {
+      if (e.target.closest('button, a, input, select, [data-own], .chip')) return;
+      if (String(window.getSelection && window.getSelection()).length) return;
+      Office.keepInPlace(tr, () => set(!dtr));
+      label();
+    };
+    shown.push({ open: () => !!dtr, set });
+    if (protOpen.has(key(s))) set(true);
   });
+  label();
   table.appendChild(body);
   wrap.appendChild(table);
   box.appendChild(wrap);
@@ -437,6 +480,102 @@ function protection() {
     facts.push(T('fact.kopia', { d: k.daily ?? '–', w: k.weekly ?? '–', m: k.monthly ?? '–', y: k.annual ?? '–' }));
   } else facts.push(T('fact.kopia_off'));
   box.appendChild(el('p', 'role', facts.join(' · ')));
+  return box;
+}
+
+/** What the last check found for a share's Kopia policy: undefined = not compared */
+function policyOf(s) {
+  const list = state.drift && state.drift.policies;
+  if (!Array.isArray(list)) return undefined;
+  return list.find((p) => (s.flash ? p.kind === 'flash' : p.kind === 'share' && p.share === s.name));
+}
+
+const KEEP_FIELDS = ['latest', 'hourly', 'daily', 'weekly', 'monthly', 'annual'];
+
+/** An unfolded row: what Kopia leaves out and keeps, what stays local, and whether Kopia is really set like that */
+function protectionDetail(s, kopiaOn) {
+  const set = state.settings || {};
+  const box = el('div', 'bk-pdetail');
+  const dl = el('dl', 'kv');
+  const add = (term, ...content) => {
+    const dd = el('dd');
+    content.forEach((c) => dd.append(c));
+    dl.append(el('dt', '', term), dd);
+  };
+  const rules = (list) => {
+    const span = el('span', 'bk-rules');
+    list.forEach((r) => span.append(el('code', '', r), ' '));
+    return span;
+  };
+
+  if (s.mode === 'kopia' && kopiaOn) {
+    // left out: the share's own rules, then the ones every share inherits
+    add(T('pd.skips'), s.ignores.length ? rules(s.ignores) : el('span', 'role', T(s.flash ? 'pd.no_flash_rules' : 'pd.no_own_rules')));
+    const inherited = set.kopia_ignore || [];
+    if (inherited.length) add(T('pd.inherited'), rules(inherited));
+    // kept: the share's own retention where it has one, the shared one otherwise
+    const own = (s.kopia_retention || '').trim().split(/\s+/);
+    const keep = set.kopia_keep || {};
+    const parts = [];
+    KEEP_FIELDS.forEach((f, i) => {
+      const v = own[i] && own[i] !== 'inherit' ? own[i] : keep[f];
+      if (v && v !== 'inherit' && Number(v) > 0) parts.push(T('keep.' + f, { n: Number(v) }));
+    });
+    add(T('pd.keeps'), parts.join(' · ') || T('pd.keeps_kopia'), ' ', el('span', 'role', s.kopia_retention ? T('pd.keeps_own') : T('pd.keeps_all')));
+    if (set.kopia_compression && set.kopia_compression !== 'inherit') add(T('pd.compression'), set.kopia_compression);
+  }
+
+  // local snapshots, by the file systems the share lies on
+  const fs = s.fs || [];
+  const localParts = [];
+  if (s.method !== 'live' && fs.includes('zfs')) {
+    const [d, w, m] = (s.retention || set.zfs_retention || '').split(/\s+/).map(Number);
+    if (!isNaN(d)) {
+      const z = [T('local.zfs_d', { n: d })];
+      if (w > 0) z.push(T('local.zfs_w', { n: w }));
+      if (m > 0) z.push(T('local.zfs_m', { n: m }));
+      localParts.push(T('local.zfs', { list: z.join(', ') }));
+    }
+  }
+  if (s.method !== 'live' && fs.includes('btrfs') && set.btrfs_days) localParts.push(T('local.btrfs', { n: Number(set.btrfs_days) }));
+  add(T('pd.local'), localParts.length ? localParts.join(' · ') : el('span', 'role', T('local.none')));
+  if (s.excluded.length) add(T('pd.excluded'), rules(s.excluded));
+
+  if (s.mode === 'kopia' && kopiaOn) {
+    const pol = policyOf(s);
+    const root = Array.isArray(state.drift && state.drift.policies) ? state.drift.policies.find((p) => p.kind === 'root') : undefined;
+    const st = el('div', 'bk-polstate');
+    if (pol === undefined) st.appendChild(el('span', 'role', T('policy.unknown')));
+    else {
+      st.appendChild(pol.skipped ? chip(T('policy.skipped_short'), 'danger') : pol.ok ? chip(T('policy.ok_short'), 'ok') : chip(T('policy.differs_short'), 'warn'));
+      st.append(' ', pol.skipped ? T('policy.skipped') : pol.ok ? T('policy.ok') : T('policy.differs'));
+      if (state.drift.time) st.append(' ', el('span', 'role', T('drift_checked', { when: fmt.relative(state.drift.time) })));
+      const diffs = [...pol.differences];
+      if (diffs.length) {
+        const ul = el('ul', 'bk-diffs');
+        diffs.forEach((d) => ul.appendChild(el('li', '', T('diff.' + d.what, d))));
+        st.appendChild(ul);
+      }
+      if (root && !root.ok) {
+        st.appendChild(el('p', 'role', T('policy.root_differs')));
+        const ul = el('ul', 'bk-diffs');
+        root.differences.forEach((d) => ul.appendChild(el('li', '', T('diff.' + d.what, d))));
+        st.appendChild(ul);
+      }
+    }
+    add(T('pd.state'), st);
+  }
+  box.appendChild(dl);
+
+  const foot = el('p', 'role bk-pfoot', T('pd.where_to_change') + ' ');
+  const canSetup = state.found && Office.agent.running;
+  const b = button(T('pd.change'), 'small', () => {
+    if (!s.flash) { setup.open.add(s.name); setup.focus = s.name; }
+    Office.go(`#/${ID}/setup`);
+  });
+  b.disabled = !canSetup;
+  foot.appendChild(b);
+  box.appendChild(foot);
   return box;
 }
 
@@ -513,10 +652,10 @@ function restoreSection() {
   const snapLink = el('a', '', T('restore.snapshot_link'));
   snapLink.href = '#/snapshot';
   item(T('restore.local'), T('restore.local_zfs'), ' ', el('code', '', `/mnt/<pool>/<share>/.zfs/snapshot/${prefix}…/`),
-    ' ', T('restore.local_btrfs'), ' ', el('code', '', `${set.view_root || '/mnt/btrfs-snap'}/<disk>/<…>/<share>/`),
+    ' ', T('restore.local_btrfs'), ' ', el('code', '', `${set.view_root || '/mnt/addons/UnraidSecretaryOffice/btrfs-snap'}/<disk>/<…>/<share>/`),
     '. ', Office.desks.has('snapshot') ? snapLink : '');
   if (set.kopia_enabled) {
-    item(T('restore.kopia'), T('restore.kopia_text', { container: set.kopia_container || 'kopia', root: set.mount_root || '/mnt/backup-snapshots' }));
+    item(T('restore.kopia'), T('restore.kopia_text', { container: set.kopia_container || 'kopia', root: ((state.drift && Array.isArray(state.drift.policies) && state.drift.policies.find((p) => p.kind === 'root')) || {}).path || set.mount_root || '/mnt/addons/UnraidSecretaryOffice/snapshots' }));
   }
   box.appendChild(dl);
   const vmArchive = (state.dumps || []).find((d) => d.libvirt);
@@ -722,7 +861,7 @@ async function showLog(name, follow) {
 // setup.sh --apply checks and writes it — the same engine as in a terminal.
 const SETUP_POLL = 2000;
 const LIST_KEY = /\|(ignore|no_stop|known|kopia_ignore|exclude_dataset|tar_exclude)$/;
-let setup = { plan: null, draft: null, status: null, run: null, applied: null, open: new Set(), retire: true, asked: false };
+let setup = { plan: null, draft: null, status: null, run: null, applied: null, open: new Set(), retire: true, asked: false, focus: null };
 let setupTimer = null;
 
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -951,6 +1090,12 @@ function renderSetup() {
   if (old.length) root.appendChild(setupSources(old));
   root.appendChild(setupMessages(plan.messages));
   setupBar();
+  // came from "Change…" on the main page: show that share
+  if (setup.focus) {
+    const row = [...root.querySelectorAll('tr[data-share]')].find((r) => r.dataset.share === setup.focus);
+    setup.focus = null;
+    if (row) requestAnimationFrame(() => row.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+  }
 }
 
 function appliedCard(run) {
@@ -1033,6 +1178,7 @@ function setupShares(plan) {
   const body = el('tbody');
   plan.shares.forEach((sh) => {
     const tr = el('tr');
+    tr.dataset.share = sh.name;
     tr.appendChild(el('th', '', sh.name));
     tr.appendChild(el('td', '', sh.where === '-' ? '' : sh.where));
     tr.appendChild(el('td', 'num', sh.gb === null ? '' : sh.gb < 0 ? '> ?' : fmt.size(sh.gb * 1073741824)));
@@ -1212,6 +1358,10 @@ function setupDatabases(plan) {
   return s;
 }
 
+/** The folder for dumps in a share — the engine's rule: the office's share has one folder per desk */
+const OFFICE_SHARE = 'UnraidSecretaryOffice';
+const dumpsPath = (share) => (share === OFFICE_SHARE ? `/mnt/user/${share}/backup` : `/mnt/user/${share}/unraid-backup`);
+
 /** The backup place: its own share for dumps, archives and the manifest — never appdata; required */
 function dumpsShareField(plan) {
   const banned = ['appdata', 'system', 'domains'];
@@ -1228,7 +1378,7 @@ function dumpsShareField(plan) {
     const mode = dget(`share|${share}|mode`, 'off');
     if (mode === 'off') { hint.textContent = T('setup.ds_off', { share }); hint.className = 'missing'; return; }
     const kopia = dget('kopia|enabled') === 'yes';
-    hint.textContent = kopia && mode !== 'kopia' ? T('setup.ds_local', { share }) : T('setup.ds_ok', { path: `/mnt/user/${share}/unraid-backup` });
+    hint.textContent = kopia && mode !== 'kopia' ? T('setup.ds_local', { share }) : T('setup.ds_ok', { path: dumpsPath(share) });
     if (kopia && mode !== 'kopia') hint.className = 'missing';
   };
   sel.onchange = () => { dset('general|dumps_share', sel.value || undefined); update(); };

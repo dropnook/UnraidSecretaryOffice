@@ -1,6 +1,13 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.13 - 2026-10-04
+# unraid-backup - backup.sh                       Version 2.14 - 2026-10-04
+#   2.14 The whole script is one { ... } block: bash reads it completely before it
+#        starts, so replacing the file while it runs no longer breaks the run
+#   2.14 Nothing of ours directly in /mnt: mount_root and view_root under
+#        /mnt/addons/UnraidSecretaryOffice; in the office's share UnraidSecretaryOffice the
+#        dumps go to backup/; a changed backup place is moved by the next run
+#   2.14 drift.json says per Kopia target whether its policy matches settings.ini ("policies",
+#        differences as codes) - Mr. Backupsy shows it per share
 #   2.13 Messages, logs and comments in English (WARNING:/ERROR: in the log, manifest/drift.txt,
 #        state/last-run with English keys); the office reads interface 1 as before
 #   2.12 Dumps and archives in a backup share of their own (general|dumps_share), never in appdata -
@@ -55,7 +62,8 @@
 #   11. Unmount, clean up (ZFS, btrfs, dumps, logs), notification
 #
 # KOPIA CONTAINER (once) - only this one data mapping is needed:
-#   Host /mnt/backup-snapshots -> Container /mnt/backup-snapshots
+#   Host <mount_root> (/mnt/addons/UnraidSecretaryOffice/snapshots) -> Container e.g. /backup-snapshots
+#   (keep the container path once chosen: Kopia names its sources after it)
 #   Access Mode: Read Only - Slave
 #   "Slave" is what matters: only then does the running container see the
 #   mounts this script creates after it started. Kopia is therefore never
@@ -91,6 +99,11 @@
 #   state/              lock file, last run, reported drift,
 #                       status.json & co. for other programs (lib/common.sh, 7.)
 ###############################################################################
+
+# One block up to the end: bash parses all of it before running any of it. A run
+# takes hours - without the block bash would read on from a file replaced meanwhile.
+# (lib/common.sh is safe anyway: "source" reads a file completely.)
+{
 
 set -uo pipefail
 
@@ -301,6 +314,22 @@ unmount_all() {
     fi
     MOUNTED="no"; LAYER_MNT=(); SHARE_MOUNTED=()
     return $rc
+}
+
+# Before 2.14 mount_root and view_root were folders directly in /mnt (backup-snapshots,
+# btrfs-snap) - Fix Common Problems rightly complains. Once settings.ini points elsewhere
+# and nothing is mounted there any more, they go.
+legacy_dirs_remove() {
+    local d
+    for d in "$UB_MNT/backup-snapshots" "$UB_MNT/btrfs-snap"; do
+        [[ -d "$d" && ! -L "$d" && "$d" != "$MOUNT_ROOT" && "$d" != "$VIEW_ROOT" ]] || continue
+        mountpoint -q "$d" && continue
+        [[ -z "$(mounts_below "$d")" ]] || continue
+        find "$d" -mindepth 1 -maxdepth 1 -type l -delete 2>/dev/null          # btrfs-snap: only symlinks
+        find "$d" -xdev -mindepth 1 -depth -type d -empty -delete 2>/dev/null  # backup-snapshots: empty mount points
+        rmdir "$d" 2>/dev/null && log "  Old folder $d removed (now under $UB_MNT/addons)"
+    done
+    return 0
 }
 
 # Private staging area (created once per boot, stays).
@@ -806,7 +835,8 @@ refresh_view() { # browsing view: symlinks instead of bind mounts (they hold no 
 
 prune_files() {
     local d
-    [[ -n "$UB_DUMPS" && "$UB_DUMPS" == "$UB_MNT"/user/?*/"$UB_NAME" ]] || return 0     # never with an empty or odd path
+    # never with an empty or odd path
+    [[ -n "$UB_DUMPS" && ( "$UB_DUMPS" == "$UB_MNT"/user/?*/"$UB_NAME" || "$UB_DUMPS" == "$UB_MNT/user/$UB_OFFICE_SHARE/$UB_DESK_DIR" ) ]] || return 0
     ls -1d "$UB_DUMPS"/[0-9]*-[0-9]* 2>/dev/null | sort | head -n -"$KEEP_RUNS" \
         | while read -r d; do rm -rf "$d" && log "  removed: $d"; done
     ls -1 "$UB_LOGS"/run-*.log "$UB_LOGS"/check-*.log "$UB_LOGS"/dryrun-*.log 2>/dev/null | sort -t- -k2 | head -n -"$KEEP_LOGS" \
@@ -966,14 +996,18 @@ fi
 if [[ -z "$DUMPS_PROBLEM" && "$DRY" != "1" && "$UB_MODE" != "check" ]]; then
     # root only: dumps hold database contents
     mkdir -p "$UB_DUMPS" && chmod 700 "$UB_DUMPS" || die "Backup place $UB_DUMPS cannot be created"
-    # take the dumps so far from the data folder (appdata) along once
-    if [[ -d "$UB_DATA/dumps" ]]; then
-        for d in "$UB_DATA"/dumps/[0-9]*-[0-9]*; do
+    # take the dumps so far along once: from the data folder (appdata, before 2.12) and from
+    # the place before the last setup (setup.sh notes it in state/dumps-previous)
+    prev=""; [[ -s "$UB_STATE/dumps-previous" ]] && prev="$(head -1 "$UB_STATE/dumps-previous")"
+    for old in "$UB_DATA/dumps" "$prev"; do
+        [[ -n "$old" && "$old" != "$UB_DUMPS" && -d "$old" ]] || continue
+        for d in "$old"/[0-9]*-[0-9]*; do
             [[ -d "$d" && ! -e "$UB_DUMPS/$(basename "$d")" ]] || continue
             mv "$d" "$UB_DUMPS/" 2>>"$LOG_FILE" && log "  Dumps $(basename "$d") moved to $UB_DUMPS"
         done
-        rmdir "$UB_DATA/dumps" 2>/dev/null && log "  Old dump folder in appdata removed"
-    fi
+        rmdir "$old" 2>/dev/null && log "  Old dump folder $old removed"
+    done
+    [[ -n "$prev" && ! -d "$prev" ]] && rm -f "$UB_STATE/dumps-previous"
 fi
 
 report_drift
@@ -1031,6 +1065,7 @@ mkdir -p "$RUN_DIR/db" || die "Cannot create $RUN_DIR"
 
 # Release what an earlier run left behind
 unmount_all || die "Old mounts under $MOUNT_ROOT cannot be released"
+legacy_dirs_remove
 
 # --- Maintenance mode, manifest ---------------------------------------------
 status_phase "maintenance"
@@ -1223,3 +1258,4 @@ else
     is_yes "$NOTIFY_SUCCESS" && ub_notify "Backup successful" "$SUMMARY" "normal"
 fi
 exit 0
+}

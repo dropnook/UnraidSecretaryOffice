@@ -21,6 +21,9 @@ This file holds the conventions and the checklist for changes.
   (desk-specific keys in the desk's lang file).
 * **Never wake sleeping disks on your own.** Check `sleepingDisks()` before
   reading array disks; offer an explicit "wake" option instead.
+* **Nothing directly in /mnt** (Fix Common Problems): mounts go to
+  `/mnt/addons/UnraidSecretaryOffice/…` (Unraid's place for add-on mounts, RAM),
+  data the desks keep to the share `UnraidSecretaryOffice/<desk>/`.
 * **Never block the array stop:** no sockets or open files in the pool; the agent
   keeps nothing open there.
 * **Keep `tick` functions cheap** — they run every ~150 ms. Long work (like `du`)
@@ -43,10 +46,14 @@ This file holds the conventions and the checklist for changes.
   with `state/setup-plan.json` / `setup-status.json`). Never parse its log
   lines for anything new — extend the interface; reasons go out as codes
   (why/ctwhy) so the office can translate them. Version lives in backup.sh, setup.sh, lib/common.sh and
-  backup/README.md. A run reads backup.sh piecewise while it runs (hours!):
-  never change it in place during a run — write a new file and `mv` it.
+  backup/README.md. backup.sh and setup.sh are one `{ … }` block (since 2.14),
+  so bash has read all of it before a run starts; keep it that way (code goes
+  inside the block) and still replace files with a new file + `mv`, never by
+  writing into them. After a `mv` on the host the Mac's SMB view may still show
+  the old content: compare md5 on both sides before committing.
 * **Backups never live in appdata.** Dumps, archives and manifests go to a
   backup share of their own (`[general] dumps_share` → `<share>/unraid-backup`,
+  in the office's share `UnraidSecretaryOffice` → `backup/`, one folder per desk;
   root only); without a valid one the engine refuses to run (stops before
   pausing anything), setup.sh won't write settings.ini, the caretaker lists it
   as a must. appdata only holds the office's own settings, state and logs.

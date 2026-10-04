@@ -1,6 +1,11 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.13 - 2026-10-04
+# unraid-backup - setup.sh                        Version 2.14 - 2026-10-04
+#   2.14 The whole script is one { ... } block: bash reads it completely before it
+#        starts, so replacing the file while it runs no longer breaks the run
+#   2.14 Nothing of ours directly in /mnt: mount_root and view_root under
+#        /mnt/addons/UnraidSecretaryOffice; in the office's share UnraidSecretaryOffice the
+#        dumps go to backup/; a changed backup place is moved by the next run
 #   2.13 Messages and comments in English; questions take y/n (j still counts as yes),
 #        deleting an old Kopia source is confirmed with DELETE
 #   2.12 Backup place (general|dumps_share): a share of its own proposed and checked,
@@ -74,6 +79,11 @@
 # repository, delete snapshots or data (unless you expressly confirm
 # deleting an old Kopia source with DELETE).
 ###############################################################################
+
+# One block up to the end: bash parses all of it before running any of it. A run
+# takes hours - without the block bash would read on from a file replaced meanwhile.
+# (lib/common.sh is safe anyway: "source" reads a file completely.)
+{
 
 set -uo pipefail
 
@@ -332,6 +342,7 @@ TXT
 # Step 2: the basis (existing settings.ini)
 ##############################################################################
 HAVE_SETTINGS="no"
+ORIG_DUMPS_SHARE=""
 step_basis() {
     hdr "Existing settings"
     explain <<'TXT'
@@ -349,13 +360,19 @@ TXT
         hint "No settings.ini yet - the proposals come from the system"
     fi
     old_keep
+    ORIG_DUMPS_SHARE="$(old "general|dumps_share")"       # before --apply lays the decisions over it
     [[ "$MODE" == "apply" ]] && decisions_load
 
     # General defaults
     pinit "general|server"         "$(hostname -s 2>/dev/null)"
-    pinit "general|mount_root"     "$UB_MNT/backup-snapshots"
-    pinit "general|view_root"      "$UB_MNT/btrfs-snap"
+    pinit "general|mount_root"     "$UB_MNT/addons/$UB_OFFICE_SHARE/snapshots"
+    pinit "general|view_root"      "$UB_MNT/addons/$UB_OFFICE_SHARE/btrfs-snap"
+    # Before 2.14 both were folders directly in /mnt - move them to /mnt/addons (Kopia's
+    # mapping has to follow for mount_root: step_kopia keeps the old one until it does)
+    [[ "$(pget "general|mount_root")" == "$UB_MNT/backup-snapshots" ]] && pset "general|mount_root" "$UB_MNT/addons/$UB_OFFICE_SHARE/snapshots"
+    [[ "$(pget "general|view_root")" == "$UB_MNT/btrfs-snap" ]] && pset "general|view_root" "$UB_MNT/addons/$UB_OFFICE_SHARE/btrfs-snap"
     pinit "general|btrfs_snap_dir" ".btrfs-snap"
+    pinit "general|dumps_share"    ""             # the choice so far stays (before 2.14 it was guessed anew)
     pinit "general|keep_runs"      "14"
     pinit "general|keep_logs"      "60"
     pinit "general|min_free_gb"    "8"
@@ -427,7 +444,7 @@ theft, a power surge or the server failing completely.
 
 What Kopia would do here:
 - Every night, right after the snapshots, Kopia reads the frozen states under
-  /mnt/backup-snapshots/<share> and uploads only what is new. Files are split into
+  <mount_root>/<share> and uploads only what is new. Files are split into
   blocks and deduplicated (across shares too), compressed if you like.
 - Everything is encrypted here on the server BEFORE uploading (AES-256-GCM or
   ChaCha20-Poly1305, key from the repository password). The storage provider sees
@@ -446,7 +463,7 @@ IMPORTANT: Without the repository password the backup cannot be restored, not ev
 the provider. Keep it separately (password manager and on paper).
 
 What setup.sh checks and sets up afterwards: the Kopia container (e.g. imagegenius/kopia
-from Community Apps, PUID=0/PGID=0), the mapping /mnt/backup-snapshots (Read Only - Slave),
+from Community Apps, PUID=0/PGID=0), the mapping of <mount_root> (Read Only - Slave),
 the connection, the policies per share and old sources.
 Without Kopia now: it can be switched on any time later with another setup.sh run.
 TXT
@@ -1163,11 +1180,17 @@ TXT
     explain <<'TXT'
 Database dumps, the archive of the VM configuration and the manifest need a backup share
 of their own - never appdata: the dumps protect the databases in appdata; if they lay next to
-them, a failure of that pool would take both. They go to <share>/unraid-backup (root only).
+them, a failure of that pool would take both. They go to <share>/unraid-backup (root only),
+in the office's share UnraidSecretaryOffice to its folder backup/ (one folder per desk).
 The share should go to Kopia, so that dumps and archives are offsite too.
 TXT
     local ds sugg cand
     ds="$(pget "general|dumps_share")"
+    # The office's own share, newly created: that is where the desks keep their data
+    if [[ "$ds" != "$UB_OFFICE_SHARE" ]] && in_list "$UB_OFFICE_SHARE" "${SH[@]}" && ! old_has "share|$UB_OFFICE_SHARE"; then
+        [[ -n "$ds" ]] && hint "The office's share $UB_OFFICE_SHARE is new - proposed as the backup place instead of '$ds' (the next run moves the dumps)"
+        ds="$UB_OFFICE_SHARE"
+    fi
     if [[ -z "$ds" ]]; then
         # a share made for backups: "Backups"/"Backup" first, then anything with "backup" in its name
         for cand in "${SH[@]}"; do [[ "${cand,,}" =~ ^backups?$ ]] && { sugg="$cand"; break; }; done
@@ -1188,7 +1211,7 @@ TXT
     done
     pset "general|dumps_share" "$ds"
     if [[ -z "${prob:-}" ]]; then
-        ok "Backup place: $UB_MNT/user/$ds/$UB_NAME"
+        ok "Backup place: $(dumps_path "$ds")"
         is_yes "$KOPIA_ENABLED" && [[ "$(pget "share|$ds|mode")" != "kopia" ]] \
             && wrn "Backup place '$ds' does not go to Kopia (mode=$(pget "share|$ds|mode")) - dumps and archives would stay local only; set the share to kopia"
     fi
@@ -1292,6 +1315,13 @@ TXT
     for i in "${!KM_SRC[@]}"; do
         trow "$(printf '    %-28s -> %-22s %-3s %s' "${KM_SRC[$i]}" "${KM_DST[$i]}" "$([[ ${KM_RW[$i]} == true ]] && echo rw || echo ro)" "${KM_PROP[$i]:-rprivate}")"
     done
+    local legacy="$UB_MNT/backup-snapshots"
+    if [[ "$MOUNT_ROOT" != "$legacy" ]] && ! k_map "$MOUNT_ROOT" && k_map "$legacy"; then
+        # The snapshots move to /mnt/addons only once Kopia sees them there; the container
+        # path stays the same, so the Kopia sources (and their history) stay the same too
+        wrn "The Kopia container still maps $legacy - so the snapshots stay there for now. In the Kopia template change only the Host Path to $MOUNT_ROOT (the Container Path stays), then set up again"
+        pset "general|mount_root" "$legacy"; _apply_P
+    fi
     if ! k_map "$MOUNT_ROOT"; then
         KOPIA_FAIL="no_mapping"; bad "No mapping covers $MOUNT_ROOT"
         mapping_help; return 1
@@ -1404,7 +1434,7 @@ mapping_help() {
     say ""
     say "  ${C_B}How to set up the mapping (Unraid > Docker > $KOPIA_CONTAINER > Edit):${C_0}"
     say "    Add another Path, Port, Variable, Label or Device > Config Type: Path"
-    say "      Container Path:  $MOUNT_ROOT"
+    say "      Container Path:  /backup-snapshots   (any path - keep it once chosen: Kopia names its sources after it)"
     say "      Host Path:       $MOUNT_ROOT"
     say "      Access Mode:     Read Only - Slave   (not just 'Read Only' - without slave"
     say "                       the running container sees no new snapshot mounts)"
@@ -1591,6 +1621,13 @@ write_settings() {
     fi
     mv "$tmp" "$UB_SETTINGS"
     WRITTEN="yes"
+    # the backup place changed: the next run moves the dumps so far (state/dumps-previous)
+    local was now
+    was="$(dumps_path "$ORIG_DUMPS_SHARE")"; now="$(dumps_path "$(pget "general|dumps_share")")"
+    if [[ -n "$was" && "$was" != "$now" && -d "$was" ]]; then
+        echo "$was" >"$UB_STATE/dumps-previous"
+        hint "The next run moves the dumps from $was to $now"
+    fi
     ok "settings.ini written ($UB_SETTINGS)"
     [[ -f "$UB_STATE/settings.ini.$TS" ]] && hint "Previous version: state/settings.ini.$TS"
     return 0
@@ -1973,3 +2010,4 @@ TXT
         summary ;;
 esac
 exit 0
+}

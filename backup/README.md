@@ -4,7 +4,7 @@ Part of the [Unraid Secretary Office](../README.md): Mr. Backupsy shows and cont
 
 A nightly backup for Unraid servers. It takes consistent **ZFS/btrfs snapshots** and **database dumps**, puts Nextcloud into **maintenance mode** for that, and — if you want — sends everything encrypted offsite with **Kopia**. Everything specific to your server lives in `settings.ini`, which `setup.sh` writes after asking you. The nightly run `backup.sh` reports every difference between the server and `settings.ini`, but never changes it on its own.
 
-Version **2.13** (4 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
+Version **2.14** (4 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
 
 ---
 
@@ -41,7 +41,7 @@ Replacing an existing backup script: `setup.sh` warns when other User Scripts al
  6  stop databases → network containers                                │ interruption
  7  ZFS snapshots (atomic per pool), btrfs snapshots (per disk/pool)    │
  8  start containers (databases first, "healthy"), maintenance off      ┘
- 9  mount snapshots read-only: /mnt/backup-snapshots/<share>            ┐ only with
+ 9  mount snapshots read-only: <mount_root>/<share>                     ┐ only with
 10  Kopia backs up each share from its snapshot (Kopia keeps running)   ┘ Kopia
 11  unmount, clean up (ZFS d/w/m, btrfs days + emergency brake, dumps, logs), notification
 ```
@@ -59,11 +59,17 @@ If a run dies hard (crash, `kill -9`), the stopped containers and the Nextcloud 
 └── data/unraid-backup/     its data (not in git, root only: 0700)
     ├── settings.ini        written by setup.sh (may be edited by hand)
     ├── state/              lock, status for the office, differences, notes
-    ├── logs/               run-*.log per run, check-/dryrun-/setup-*.log, latest.log
-    └── dumps/<time>/       database dumps, manifest, libvirt.tar.gz, flash.tar.gz if any
+    └── logs/               run-*.log per run, check-/dryrun-/setup-*.log, latest.log
+
+/mnt/user/UnraidSecretaryOffice/      the office's share: what the desks keep, one folder per desk
+└── backup/<time>/          database dumps, manifest, libvirt.tar.gz, flash.tar.gz if any (root only)
+
+/mnt/addons/UnraidSecretaryOffice/    Unraid's place for add-on mounts (RAM, no data of its own)
+├── snapshots/<share>       the snapshots, mounted read-only during a run (mount_root)
+└── btrfs-snap/<disk>       symlinks for browsing the btrfs snapshots (view_root)
 ```
 
-On the flash there is only the User Scripts entry (three lines). The dumps live in the data folder, so in the share `appdata`; `backup.sh` warns if that share itself isn't backed up. `UB_DATA` sets another data folder.
+On the flash there is only the User Scripts entry (three lines). Dumps never live in appdata: they go to the backup place (`[general] dumps_share`) — the office's share `UnraidSecretaryOffice` (folder `backup/`), or any other share of its own (folder `unraid-backup/`). Create the share yourself (not on the pool of appdata, SMB export off); the setup proposes it. Nothing of the engine lies directly in `/mnt`: Fix Common Problems would rightly complain. `UB_DATA` sets another data folder.
 
 ---
 
@@ -71,30 +77,30 @@ On the flash there is only the User Scripts entry (three lines). The dumps live 
 
 Without Kopia everything stays on the server: local ZFS/btrfs snapshots and database dumps. That helps against accidental deletion and broken updates, not against fire, theft, a power surge or a dead server. *Set up…* (step 3 in a terminal) asks whether Kopia comes along and explains:
 
-- **What Kopia does:** every night, right after the snapshots, Kopia reads the frozen states under `/mnt/backup-snapshots/<share>` and uploads only what is new. Files are split into blocks and deduplicated (across shares too), compressed if you like.
+- **What Kopia does:** every night, right after the snapshots, Kopia reads the frozen states under `<mount_root>/<share>` and uploads only what is new. Files are split into blocks and deduplicated (across shares too), compressed if you like.
 - **Encryption:** everything is encrypted on the server **before** it is uploaded (AES-256-GCM or ChaCha20-Poly1305, key from the repository password). The storage provider only sees unreadable blocks — neither contents nor file names.
 - **Where to:** S3-compatible storage (e.g. Backblaze B2, Wasabi, MEGA S4, Hetzner, your own MinIO/Garage). Kopia also does SFTP, WebDAV, Azure, GCS or local.
 - **Versions:** Kopia keeps states by its retention (e.g. 7 daily, 4 weekly, 12 monthly, 3 yearly) and clears away the rest itself.
 - **You set up the repository connection once yourself, in the KopiaUI** (Repository › S3: endpoint, bucket, access key, secret key, repository password). The engine deliberately never asks for these: keys and passwords must never end up in scripts, logs or `settings.ini`. Kopia keeps them in its own config.
 - **Without the repository password the backup cannot be restored** — not even by the provider. Keep the password separately (password manager and on paper).
 
-Switching it on or off: *Set up…* again. With Kopia off, shares are only `snapshot` or `off`. Switch Kopia on later and the shares that were local are proposed for Kopia again. If `/mnt/backup-snapshots` is missing, it is created. Unraid keeps `/mnt` in RAM; after a reboot Docker creates the folder again when the Kopia container starts.
+Switching it on or off: *Set up…* again. With Kopia off, shares are only `snapshot` or `off`. Switch Kopia on later and the shares that were local are proposed for Kopia again. If `<mount_root>` is missing, it is created. `/mnt/addons` lives in RAM; after a reboot Docker creates the folder again when the Kopia container starts.
 
 ## The Kopia container: the one mapping
 
 | | |
 |---|---|
-| Container Path | `/mnt/backup-snapshots` |
-| Host Path | `/mnt/backup-snapshots` |
+| Container Path | `/backup-snapshots` (any path — keep it once chosen: Kopia names its sources after it) |
+| Host Path | `/mnt/addons/UnraidSecretaryOffice/snapshots` (`mount_root`) |
 | Access Mode | **Read Only – Slave** |
 
-That is all `unraid-backup` needs. Further mappings are only needed for sources you maintain yourself in the KopiaUI; the setup lists such sources.
+That is all `unraid-backup` needs. Up to 2.13 the host path was `/mnt/backup-snapshots`; change only the Host Path in the template, then *Set up… › Apply* — the Container Path and so the Kopia sources and their history stay. Until the template is changed, the setup keeps the old place. Further mappings are only needed for sources you maintain yourself in the KopiaUI; the setup lists such sources.
 
 ### Why "Read Only – Slave" and not just "Read Only"?
 
 The engine starts Kopia itself, right after the snapshots (`docker exec <kopia> kopia snapshot create …`). That Kopia process runs **inside the container that is already running**. A container gets its own view of the mounts when it starts — a copy of that moment. The engine mounts the snapshots only at night, **after** the container started.
 
-- **Read Only:** the container sees `/mnt/backup-snapshots` as it was at start: empty folders. Kopia would back up empty directories; you would have to stop Kopia every night, mount, and start it again.
+- **Read Only:** the container sees `<mount_root>` as it was at start: empty folders. Kopia would back up empty directories; you would have to stop Kopia every night, mount, and start it again.
 - **Read Only – Slave:** new mounts and unmounts on the host are passed into the running container, in this direction only (host → container). Kopia sees the snapshots at once; the KopiaUI and maintenance keep running undisturbed.
 
 "Read Only" protects the data, "Slave" makes the nightly mounts visible to Kopia. Unraid turns the setting into `-v …:ro,slave`.
@@ -109,7 +115,7 @@ Tested with Docker 29, kernel 6.18 and imagegenius/kopia 0.23:
 | bind made in a private area, set ro there, then `mount --move` | visible, read-only |
 | unmount on the host | gone in the container too |
 
-That is why `backup.sh` makes every bind mount (btrfs snapshots, live shares) in a private area first (`/run/unraid-backup-stage`), sets it read-only there and only then moves it to `/mnt/backup-snapshots/<share>`.
+That is why `backup.sh` makes every bind mount (btrfs snapshots, live shares) in a private area first (`/run/unraid-backup-stage`), sets it read-only there and only then moves it to `<mount_root>/<share>`.
 
 Before every source, `backup.sh` checks in the container's `/proc/self/mountinfo` that the mount is really visible there. If not, it skips that source instead of uploading an empty folder. The setup runs a live test: it briefly mounts a tiny tmpfs and checks whether the container sees it.
 
@@ -133,7 +139,7 @@ A share is the unit you decide about:
 
 | Mode | Meaning |
 |---|---|
-| `kopia` | local snapshot + Kopia (offsite); Kopia source `/mnt/backup-snapshots/<share>` |
+| `kopia` | local snapshot + Kopia (offsite); Kopia source `<container path>/<share>` |
 | `snapshot` | local snapshot only |
 | `off` | nothing |
 
@@ -255,7 +261,7 @@ For Mr. Backupsy in the office (and any other page), `backup.sh` writes its stat
 | `status.json` | the running or last finished run (check, dry run, backup): `mode`, `phase`, `result` (`running`, `ok`, `warnings`, `errors`, `failed`, `aborted`), `pid`, times, interruption, differences, the Kopia plan with the current source and the result per source |
 | `last-run.json` | the same for the last real backup run |
 | `history.jsonl` | one line per real backup run, the last 200 |
-| `drift.json` | differences of the last check (`level`, `text`) |
+| `drift.json` | differences of the last check (`level`, `text`), and per Kopia target whether its policy matches (`policies`: `kind`, `share`, `ok`, `skipped`, `differences` with `what`/`item`/`have`/`want`; `null` when not compared) |
 | `setup-plan.json` | the last plan of `setup.sh --plan` |
 | `setup-status.json` | progress and messages of `setup.sh --plan` / `--apply` |
 
@@ -286,7 +292,7 @@ The same message doesn't come every night: it is repeated when something changes
 
 | Section / key | Meaning |
 |---|---|
-| `[general] mount_root` | snapshot folder for Kopia (`/mnt/backup-snapshots`) |
+| `[general] mount_root` | snapshot folder for Kopia (`/mnt/addons/UnraidSecretaryOffice/snapshots`) |
 | `view_root` | browse btrfs snapshots: `<view_root>/<disk>` (symlinks) |
 | `snap_prefix` | ZFS snapshot prefix (default `unraidbackup-`); only those are cleared away, other tools' snapshots stay untouched |
 | `keep_runs`, `keep_logs` | dump folders and logs to keep |
@@ -308,7 +314,9 @@ The same message doesn't come every night: it is repeated when something changes
 | `exclude_dataset` | child dataset neither snapshotted nor backed up |
 | `method` | `auto` / `live` |
 
-**Policies per share:** the Kopia policy on `/mnt/backup-snapshots` applies to every share. A share carries in Kopia only what differs (its own ignores, its own retention). Both are in `settings.ini` and set by the setup. The local ZFS retention (`retention`) is separate and only applies on the server.
+**Policies per share:** the Kopia policy on `<mount_root>` applies to every share. A share carries in Kopia only what differs (its own ignores, its own retention). Both are in `settings.ini` and set by the setup. The local ZFS retention (`retention`) is separate and only applies on the server.
+
+**Change rules and retention in the office (or `settings.ini` + `setup.sh --kopia`), never in the KopiaUI.** The setup writes them into Kopia; every run compares Kopia with `settings.ini` and reports what was changed there by hand, and the next *Apply* sets it back. Kopia thins out old versions itself, following these policies. Mr. Backupsy shows per share what Kopia leaves out (its own rules and the inherited ones), what it keeps, and whether Kopia is really set up like that.
 
 ---
 
@@ -316,8 +324,8 @@ The same message doesn't come every night: it is repeated when something changes
 
 Mr. Backupsy's *Getting things back* shows the commands below ready-made, with your names and paths, and copy buttons.
 
-- **Single files from yesterday:** ZFS under `/mnt/<pool>/<share>/.zfs/snapshot/unraidbackup-…/`, btrfs under `/mnt/btrfs-snap/<disk>/<time>/<share>/`.
-- **From Kopia:** KopiaUI › source `/mnt/backup-snapshots/<share>` › snapshot › Restore/Download. The container only sees read-only paths; for a restore straight onto the server, map a writable target for the time being (e.g. `/mnt/user/restore`).
+- **Single files from yesterday:** ZFS under `/mnt/<pool>/<share>/.zfs/snapshot/unraidbackup-…/`, btrfs under `<view_root>/<disk>/<time>/<share>/` (`/mnt/addons/UnraidSecretaryOffice/btrfs-snap`).
+- **From Kopia:** KopiaUI › source `<container path>/<share>` (e.g. `/backup-snapshots/appdata`) › snapshot › Restore/Download. The container only sees read-only paths; for a restore straight onto the server, map a writable target for the time being (e.g. `/mnt/user/restore`).
 - **MariaDB/MySQL:**
   `zcat dumps/<time>/db/mariadb_<container>_<db>.sql.gz | docker exec -i <container> sh -c 'mariadb -uroot -p"$MARIADB_ROOT_PASSWORD"'`
 - **Postgres:**
@@ -351,6 +359,7 @@ So on every new server: *Set up…*, then a check and a dry run first.
 
 ## Versions
 
+- **2.14** – `backup.sh` and `setup.sh` are one block that bash reads completely before it starts: updating the engine while a run takes hours no longer breaks that run. `state/drift.json` also says per Kopia target whether its policy matches settings.ini (`policies`, differences as codes); Mr. Backupsy shows it per share together with the rules. Nothing of the engine directly in `/mnt` any more: the snapshots are mounted under `/mnt/addons/UnraidSecretaryOffice/snapshots`, the btrfs view lives in `…/btrfs-snap`; the office's share `UnraidSecretaryOffice` is proposed as the backup place (folder `backup/`), and a changed backup place is moved by the next run. The setup keeps the chosen backup place instead of guessing it again.
 - **2.13** – The engine speaks English: terminal, logs, notifications, settings.ini comments and the code's comments. Log lines are marked `WARNING:` / `ERROR:`; questions in `setup.sh` take `y`/`n` (`j` still counts as yes). Nothing the office reads changed (interface 1).
 - **2.12** – When Nextcloud refuses its maintenance mode because others can read its data folder (Unraid resets a share root to 0777 whenever share settings are saved), the run says so and how to fix it; the caretaker checks it during the day. The manifest reads btrfs from the kernel only (`--mounted`, time limit) instead of every device — a busy disk held it up for minutes.
 - **2.11** – The User Scripts entry is called `unraid-secretary-office_backup`, like all of the office's entries; the old entry `unraid-backup` moves over with its schedule. The office's containers always keep running during a backup, like Kopia. `setup.sh --plan` also lists what *Apply* would change in settings.ini.

@@ -16,9 +16,16 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.13"
+UB_VERSION="2.14"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry (was unraid-backup; the office moves it)
+# The office's own places. Nothing of ours directly in /mnt (Fix Common Problems rightly
+# complains): mounts go to /mnt/addons, which Unraid creates at boot for this - a small
+# tmpfs in RAM with mount propagation, holding only empty mount points and symlinks. The
+# data the desks keep (dumps, archives) go to the share UnraidSecretaryOffice, one folder
+# per desk - this one is "backup".
+UB_OFFICE_SHARE="UnraidSecretaryOffice"
+UB_DESK_DIR="backup"
 
 ##############################################################################
 # 1. Basics
@@ -204,8 +211,8 @@ cfg_validate() {
     _val "general|keep_mounts"   '^(yes|no)$'               "yes/no"
     _val "general|notify_success" '^(yes|no)$'              "yes/no"
     _val "general|snap_prefix"   '^[a-z0-9_]+-$'            "lower-case letters/digits, ends with -"
-    _val "general|mount_root"    "^$UB_MNT/[^/]+$"          "directly under $UB_MNT"
-    _val "general|view_root"     "^$UB_MNT/[^/]+$"          "directly under $UB_MNT"
+    _val "general|mount_root"    "^$UB_MNT/([^/]+|addons/[^/]+/[^/]+)$" "directly under $UB_MNT or $UB_MNT/addons/<name>/"
+    _val "general|view_root"     "^$UB_MNT/([^/]+|addons/[^/]+/[^/]+)$" "directly under $UB_MNT or $UB_MNT/addons/<name>/"
     _val "zfs|retention"         '^[0-9]+ [0-9]+ [0-9]+$'   "three numbers: daily weekly monthly"
     _val "btrfs|keep_days"       '^[0-9]+$'                 "number"
     _val "btrfs|min_free_gb"     '^[0-9]+$'                 "number"
@@ -252,8 +259,8 @@ load_settings() {
 # Takes CFG into variables (can be called without a file too -> defaults)
 apply_settings() {
     SERVER_NAME="$(cfg "general|server" "$(hostname -s 2>/dev/null || echo unraid)")"
-    MOUNT_ROOT="$(cfg "general|mount_root" "$UB_MNT/backup-snapshots")"
-    VIEW_ROOT="$(cfg "general|view_root" "$UB_MNT/btrfs-snap")"
+    MOUNT_ROOT="$(cfg "general|mount_root" "$UB_MNT/addons/$UB_OFFICE_SHARE/snapshots")"
+    VIEW_ROOT="$(cfg "general|view_root" "$UB_MNT/addons/$UB_OFFICE_SHARE/btrfs-snap")"
     SNAP_PREFIX="$(cfg "general|snap_prefix" "unraidbackup-")"
     BTRFS_SNAP_DIR="$(cfg "general|btrfs_snap_dir" ".btrfs-snap")"
     KEEP_RUNS="$(cfg "general|keep_runs" 14)"
@@ -262,9 +269,10 @@ apply_settings() {
     KEEP_MOUNTS="$(cfg "general|keep_mounts" no)"
     NOTIFY_SUCCESS="$(cfg "general|notify_success" yes)"
     # Dumps, archives and manifests live in their own backup share, never in appdata:
-    # <share>/unraid-backup/<run>/ (dumps_share_problem says whether the share will do)
+    # <share>/unraid-backup/<run>/, in the office's share <share>/backup/<run>/
+    # (dumps_share_problem says whether the share will do)
     DUMPS_SHARE="$(cfg "general|dumps_share")"
-    if [[ -n "$DUMPS_SHARE" ]]; then UB_DUMPS="$UB_MNT/user/$DUMPS_SHARE/$UB_NAME"; else UB_DUMPS=""; fi
+    UB_DUMPS="$(dumps_path "$DUMPS_SHARE")"
 
     ZFS_RETENTION="$(cfg "zfs|retention" "7 4 6")"
     BTRFS_KEEP_DAYS="$(cfg "btrfs|keep_days" 7)"
@@ -771,6 +779,12 @@ dumps_share_problem() {
     [[ "$mode" == "off" ]] && { echo off; return; }
     return 0
 }
+# dumps_path <share>  -> the folder for dumps and archives in that share (empty without a share)
+dumps_path() {
+    [[ -n "$1" ]] || return 0
+    if [[ "$1" == "$UB_OFFICE_SHARE" ]]; then printf '%s' "$UB_MNT/user/$1/$UB_DESK_DIR"
+    else printf '%s' "$UB_MNT/user/$1/$UB_NAME"; fi
+}
 dumps_share_text() { # dumps_share_text <code> <share>
     case "$1" in
         missing)   echo "No backup place set (general|dumps_share): dumps and archives need a backup share of their own - such things do not belong in appdata" ;;
@@ -1000,12 +1014,14 @@ kopia_want_retention() {
 #   KP_DIFF      text lines with the differences
 #   KP_ARGS      arguments for "kopia policy set" that make it as wanted
 #   KP_MISSING   ignore rules missing in Kopia (Kopia would see more than wanted)
+#   KP_CODES     the same differences for other programs: lines "what<US>item<US>have<US>want"
+#                what: ignore_missing | ignore_extra | retention | schedule | one_file_system | compression
 #   Returns 0 = matches, 1 = differs
 kopia_policy_eval() {
     local target="$1" kind="$2" want_ign="$3" want_ret="$4" cur cur_ign x f want have
     local -a wr
     read -r -a wr <<<"$want_ret"
-    KP_DIFF=""; KP_ARGS=(); KP_MISSING=""
+    KP_DIFF=""; KP_ARGS=(); KP_MISSING=""; KP_CODES=()
     cur="$(jq -c --arg p "$target" --arg u "$KOPIA_USER" --arg h "$KOPIA_HOST" \
             'first(.[] | select(.target.path==$p and .target.userName==$u and .target.host==$h)) // {}' \
             <<<"$KP_JSON")"
@@ -1014,12 +1030,14 @@ kopia_policy_eval() {
         [[ -z "$x" ]] && continue
         if ! grep -Fxq -- "$x" <<<"$cur_ign"; then
             KP_DIFF+="  ignore missing in Kopia: $x"$'\n'; KP_ARGS+=( --add-ignore "$x" ); KP_MISSING+="$x"$'\n'
+            KP_CODES+=( "ignore_missing"$'\x1f'"$x"$'\x1f\x1f' )
         fi
     done <<<"$want_ign"
     while IFS= read -r x; do
         [[ -z "$x" ]] && continue
         if ! grep -Fxq -- "$x" <<<"$want_ign"; then
             KP_DIFF+="  extra ignore in Kopia: $x"$'\n'; KP_ARGS+=( --remove-ignore "$x" )
+            KP_CODES+=( "ignore_extra"$'\x1f'"$x"$'\x1f\x1f' )
         fi
     done <<<"$cur_ign"
     local i=0
@@ -1029,6 +1047,7 @@ kopia_policy_eval() {
         have="$(jq -r --arg k "$x" '.retention[$k] // "inherit" | tostring' <<<"$cur")"
         if [[ "$have" != "$want" ]]; then
             KP_DIFF+="  $f: Kopia $have, wanted $want"$'\n'; KP_ARGS+=( "--$f=$want" )
+            KP_CODES+=( "retention"$'\x1f'"$f"$'\x1f'"$have"$'\x1f'"$want" )
         fi
     done
     if [[ "$kind" == "root" ]]; then
@@ -1036,18 +1055,21 @@ kopia_policy_eval() {
         if [[ "$have" != "true" ]]; then
             KP_DIFF+="  schedule: Kopia may schedule these sources itself (wanted: manual only)"$'\n'
             KP_ARGS+=( --manual )
+            KP_CODES+=( "schedule"$'\x1f\x1f'"$have"$'\x1f'"true" )
         fi
         # Careful with jq: "//" also treats false as "missing" - so check for null explicitly
         have="$(jq -r 'if .files.oneFileSystem == null then "inherit" else (.files.oneFileSystem|tostring) end' <<<"$cur")"
         if [[ "$have" != "false" ]]; then
             KP_DIFF+="  one-file-system: Kopia $have, wanted false (child datasets must come along)"$'\n'
             KP_ARGS+=( --one-file-system=false )
+            KP_CODES+=( "one_file_system"$'\x1f\x1f'"$have"$'\x1f'"false" )
         fi
         have="$(jq -r '.compression.compressorName // "inherit"' <<<"$cur")"
         if [[ "$KOPIA_COMPRESSION" != "inherit" && "$have" != "$KOPIA_COMPRESSION" ]] || \
            [[ "$KOPIA_COMPRESSION" == "inherit" && "$have" != "inherit" ]]; then
             KP_DIFF+="  compression: Kopia $have, wanted $KOPIA_COMPRESSION"$'\n'
             KP_ARGS+=( "--compression=$KOPIA_COMPRESSION" )
+            KP_CODES+=( "compression"$'\x1f\x1f'"$have"$'\x1f'"$KOPIA_COMPRESSION" )
         fi
     fi
     [[ -z "$KP_DIFF" ]]
@@ -1238,9 +1260,21 @@ drift_check_containers() {
 }
 
 # Kopia check for the run; sets KOPIA_OK and SKIP_KOPIA
+#   KP_STATUS    one JSON object per Kopia target (for drift.json): kind, share, path,
+#                ok, skipped (the run leaves the share out), differences as codes
+#   KP_CHECKED   yes once the policies were compared (Kopia reachable)
 KOPIA_OK="no"
+declare -ga KP_STATUS=()
+KP_CHECKED="no"
+kp_status_add() { # kp_status_add <kind> <share> <container path> <ok 1/0> <skipped 1/0>
+    local diffs
+    diffs="$(printf '%s\n' "${KP_CODES[@]}" | jq -R 'select(length > 0) | split("\u001f")
+        | {what: .[0], item: (.[1] // ""), have: (.[2] // ""), want: (.[3] // "")}' | jq -sc .)" || diffs='[]'
+    KP_STATUS+=( "$(jq -nc --arg k "$1" --arg s "$2" --arg p "$3" --arg ok "$4" --arg sk "$5" --argjson d "${diffs:-[]}" \
+        '{kind: $k, share: $s, path: $p, ok: ($ok == "1"), skipped: ($sk == "1"), differences: $d}')" )
+}
 drift_check_kopia() {
-    KOPIA_OK="no"
+    KOPIA_OK="no"; KP_STATUS=(); KP_CHECKED="no"
     is_yes "$KOPIA_ENABLED" || { KOPIA_OK="off"; return 0; }
     [[ ${#PLAN_KOPIA[@]} -eq 0 && "$PLAN_FLASH" != "snapshot" ]] && { KOPIA_OK="none"; return 0; }
     if [[ -z "$KOPIA_CONTAINER" ]]; then
@@ -1274,11 +1308,14 @@ drift_check_kopia() {
         drift_add warn "The Kopia identity is now $KOPIA_ID (settings.ini: $KOPIA_IDENTITY_CFG) - new sources instead of continuing the old ones"
     fi
     kopia_policies_load
+    KP_CHECKED="yes"
     local kind hpath share cpath
     while IFS='|' read -r kind hpath share; do
         [[ -z "$kind" ]] && continue
         cpath="$(k_path "$hpath")" || continue
-        if ! kopia_policy_eval "$cpath" "$kind" "$(kopia_want_ignores "$kind" "$share")" "$(kopia_want_retention "$kind" "$share")"; then
+        if kopia_policy_eval "$cpath" "$kind" "$(kopia_want_ignores "$kind" "$share")" "$(kopia_want_retention "$kind" "$share")"; then
+            kp_status_add "$kind" "$share" "$cpath" 1 0
+        else
             # If one of the share's own ignore rules is missing, Kopia would upload more
             # than wanted (e.g. a blockchain). This source is then left out.
             local miss_own="" x
@@ -1290,8 +1327,10 @@ drift_check_kopia() {
             if [[ -n "$miss_own" ]]; then
                 drift_add error "The Kopia policy for $cpath lacks ignore rules ($miss_own) - share '$share' is NOT given to Kopia until 'setup.sh --kopia' has run"
                 SKIP_KOPIA[$share]="policy incomplete"
+                kp_status_add "$kind" "$share" "$cpath" 0 1
             else
                 drift_add warn "The Kopia policy for $cpath differs from settings.ini ('setup.sh --kopia' aligns it):"$'\n'"${KP_DIFF%$'\n'}"
+                kp_status_add "$kind" "$share" "$cpath" 0 0
             fi
         fi
     done < <(kopia_targets)
@@ -1331,7 +1370,8 @@ drift_count() { local lvl="$1" n=0 l; for l in "${DRIFT[@]}"; do [[ "${l%%|*}" =
 #   status.json      running or last run (every mode except unmount)
 #   last-run.json    last real backup run (no dry run, no check)
 #   history.jsonl    one line per real backup run, the last 200
-#   drift.json       drift found by the last check (level + text)
+#   drift.json       drift found by the last check (level + text), and since 2.14 per
+#                    Kopia target whether its policy matches settings.ini ("policies")
 # Writing is never critical: if it fails, the backup carries on.
 UB_INTERFACE=1
 UB_HISTORY_MAX=200
@@ -1412,10 +1452,13 @@ status_finish() { # status_finish <result> [message]
     return 0
 }
 
+# drift.json: {time, items: [{level, text}], policies: null (not compared) | [KP_STATUS ...]}
 drift_json_write() {
-    local tmp="$UB_STATE/.drift.json.$$"
+    local tmp="$UB_STATE/.drift.json.$$" pol="null"
+    [[ "$KP_CHECKED" == "yes" ]] && { pol="$(printf '%s\n' "${KP_STATUS[@]}" | jq -sc .)" || pol="null"; }
     if printf '%s\n' "${DRIFT[@]}" | jq -R 'select(length > 0) | index("|") as $i
-            | {level: .[0:$i], text: .[$i + 1:]}' | jq -sc --argjson t "$(date +%s)" '{time: $t, items: .}' >"$tmp" 2>/dev/null; then
+            | {level: .[0:$i], text: .[$i + 1:]}' | jq -sc --argjson t "$(date +%s)" --argjson p "${pol:-null}" \
+            '{time: $t, items: ., policies: $p}' >"$tmp" 2>/dev/null; then
         mv -f "$tmp" "$UB_STATE/drift.json" 2>/dev/null
     else
         rm -f "$tmp"

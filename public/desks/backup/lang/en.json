@@ -41,7 +41,7 @@
   "show_log": "Log",
   "failed": "failed",
   "never": "not yet",
-  "flash": "Flash (USB stick)",
+  "flash": "Flash (/boot)",
   "now": "Right now",
   "overview": "Overview",
   "protection": "Is everything protected?",
@@ -204,7 +204,7 @@
   "check.kopia_root": "Kopia runs as root (PUID 0)",
   "check.kopia_root_how": "Set PUID and PGID to 0 in the template of «{name}» (now {puid}) — otherwise everything only its owner may read is missing from the backup.",
   "check.kopia_mapping": "«{name}» sees {path} read-only with «Slave»",
-  "check.kopia_mapping_how": "In the template map {path} → {path} with Access Mode «Read Only - Slave» (now: {now}). Without «Slave» Kopia sees empty folders.",
+  "check.kopia_mapping_how": "In the template add a path: Host Path {path}, Container Path e.g. /backup-snapshots, Access Mode «Read Only - Slave» (now: {now}). Without «Slave» Kopia sees empty folders. Once chosen, keep the Container Path: Kopia names its sources after it.",
   "check.kopia_repo": "Kopia is connected to its repository",
   "check.kopia_repo_how": "Connect the repository in the KopiaUI of «{name}», then start a check at Mr. Backupsy.",
   "check.drift": "settings.ini matches the server",
@@ -528,11 +528,88 @@
   "setup.ds_ok": "Place: {path} (root only)",
   "setup.ds_why": "The dumps protect the databases in appdata. Next to them, a failing pool would take both — so a share of its own, ideally on another pool.",
   "check.dumps_share": "A backup place of its own is set",
-  "check.dumps_share_how": "Mr. Backupsy → \"Set up…\" → General → Backup place: choose a share of its own (e.g. \"Backups\"). Without it he refuses every run — backups don't belong in appdata.",
+  "check.dumps_share_how": "Create the share «UnraidSecretaryOffice» (not on the pool of appdata, SMB export off), then Mr. Backupsy → «Set up…» → General → Backup place. Any other share of its own works too. Without one he refuses every run — backups don't belong in appdata.",
   "check.dumps_offsite": "The backup place \"{share}\" goes offsite",
   "check.dumps_offsite_how": "\"{share}\" is set to \"{mode}\" — dumps and archives stay on this server only. At Mr. Backupsy, \"Set up…\", set the share to \"Kopia + snapshot\".",
   "message.dumps_missing": "No backup place set — dumps and archives need a backup share of their own; they don't belong in appdata. Choose one in \"Set up…\".",
   "message.dumps_unknown": "The backup place doesn't exist as a share (any more). Choose another one in \"Set up…\".",
   "message.dumps_forbidden": "The backup place is in appdata, system or domains — backups don't belong there. Choose a share of its own in \"Set up…\".",
-  "message.dumps_off": "The backup place isn't backed up itself — the dumps would be safe nowhere. Let the share be backed up in \"Set up…\"."
+  "message.dumps_off": "The backup place isn't backed up itself — the dumps would be safe nowhere. Let the share be backed up in \"Set up…\".",
+  "details": "Show details",
+  "unfold_all": "Unfold all",
+  "fold_all": "Fold all",
+  "help.rules": "Rules per share",
+  "help.rules_text": "A click on a share shows what Kopia leaves out and how long it keeps versions — the share's own rules and the ones every share inherits — what stays on this server, and whether Kopia is really set up like that (from the last check). Change them only here, with «Change…» or «Set up…», not in the KopiaUI: Mr. Backupsy writes these rules into Kopia himself; whatever is changed there by hand he reports as drift, and the next Apply sets it back. Kopia thins out old versions itself, following these rules.",
+  "policy.ok_short": "matches",
+  "policy.ok": "Kopia is set up exactly like this.",
+  "policy.differs_short": "differs in Kopia",
+  "policy.differs": "Kopia's settings for this share differ from the ones here — Apply in «Set up…» lines them up again.",
+  "policy.skipped_short": "left out",
+  "policy.skipped": "Kopia lacks one of this share's own rules, so the run leaves the share out (it would upload more than wanted) — Apply in «Set up…» fixes it.",
+  "policy.unknown": "Not compared yet — the next check or run does it (needs Kopia running and unraid-backup 2.14 or newer).",
+  "policy.root_differs": "The settings every share inherits differ in Kopia, too:",
+  "pd.skips": "Kopia leaves out",
+  "pd.no_own_rules": "nothing of its own",
+  "pd.no_flash_rules": "nothing",
+  "pd.inherited": "… and like every share",
+  "pd.keeps": "Kopia keeps",
+  "pd.keeps_kopia": "as set in Kopia",
+  "pd.keeps_own": "(this share's own)",
+  "pd.keeps_all": "(like all shares)",
+  "pd.compression": "Compression",
+  "pd.local": "On this server",
+  "pd.excluded": "Not snapshotted",
+  "pd.state": "In Kopia",
+  "pd.where_to_change": "Rules and retention are set here, not in the KopiaUI.",
+  "pd.change": "Change…",
+  "keep.latest": {
+    "one": "the newest",
+    "other": "the {n} newest"
+  },
+  "keep.hourly": {
+    "one": "1 hourly",
+    "other": "{n} hourly"
+  },
+  "keep.daily": {
+    "one": "1 daily",
+    "other": "{n} daily"
+  },
+  "keep.weekly": {
+    "one": "1 weekly",
+    "other": "{n} weekly"
+  },
+  "keep.monthly": {
+    "one": "1 monthly",
+    "other": "{n} monthly"
+  },
+  "keep.annual": {
+    "one": "1 yearly",
+    "other": "{n} yearly"
+  },
+  "local.zfs": "ZFS snapshots: {list}",
+  "local.zfs_d": {
+    "one": "the newest",
+    "other": "the {n} newest"
+  },
+  "local.zfs_w": {
+    "one": "one of last week",
+    "other": "one per week for {n} weeks"
+  },
+  "local.zfs_m": {
+    "one": "one of last month",
+    "other": "one per month for {n} months"
+  },
+  "local.btrfs": {
+    "one": "btrfs snapshots: 1 day",
+    "other": "btrfs snapshots: {n} days"
+  },
+  "local.none": "no local snapshot (the file system can't do it)",
+  "diff.ignore_missing": "Kopia lacks the rule {item}",
+  "diff.ignore_extra": "Kopia has an extra rule {item}",
+  "diff.retention": "{item}: {have} in Kopia, {want} here",
+  "diff.schedule": "Kopia may start these sources on its own schedule (here: only during the run)",
+  "diff.one_file_system": "one-file-system is {have} in Kopia (needed: false, so child datasets come along)",
+  "diff.compression": "compression: {have} in Kopia, {want} here",
+  "check.mnt_folders": "Nothing of the office directly in /mnt",
+  "check.mnt_folders_how": "Fix Common Problems rightly reports {folders}. The snapshots belong under /mnt/addons (Unraid's place for that, in RAM, no data of its own): in the template of «{name}» change only the Host Path of the snapshot mapping to {path} (Container Path and «Read Only - Slave» stay), then Mr. Backupsy → «Set up…» → Apply. The next run removes the old folders."
 }

@@ -12,6 +12,8 @@ declare(strict_types=1);
 
 define('BACKUP_SCRIPT_DIR', OFFICE_DIR . '/backup');
 define('BACKUP_DATA_DIR', OFFICE_DIR . '/data/unraid-backup');
+define('BACKUP_OFFICE_SHARE', 'UnraidSecretaryOffice');   // the office's share: one folder per desk (lib/common.sh UB_OFFICE_SHARE)
+define('BACKUP_DESK_DIR', 'backup');
 const BACKUP_STAGE_DIR = '/run/unraid-backup-stage';   // its private staging area
 
 /**

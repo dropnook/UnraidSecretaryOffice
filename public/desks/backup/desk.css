@@ -26,6 +26,19 @@
 .bk-restore dd{line-height:1.7}
 .bk-copy{cursor:copy}
 
+/* "Is everything protected?": rows unfold to their rules */
+.bk-protect tr.unfolds{cursor:pointer}
+.bk-protect tr.unfolds:hover > *, .bk-protect tr.open > *{background:var(--surface2)}
+.bk-protect tr.bk-detail td{background:var(--surface2); white-space:normal; padding-top:0}
+.bk-pdetail{padding:2px 2px 6px 14px}
+.bk-pdetail .kv{grid-template-columns:minmax(110px, max-content) 1fr}
+.bk-rules code{display:inline-block; margin:0 0 3px}
+.bk-diffs{margin:4px 0 2px; padding-left:18px; font-size:12.5px}
+.bk-polstate .role{margin:4px 0 0}
+.bk-pfoot{margin:6px 0 0}
+/* on a phone the table scrolls sideways in its box: the details stay at screen width, on the left */
+@media (max-width:640px){.bk-pdetail{padding-left:4px; position:sticky; left:0; box-sizing:border-box; max-width:calc(100vw - 48px)} .bk-pdetail .kv{grid-template-columns:1fr} .bk-pdetail .kv dt{margin-top:4px}}
+
 /* setup assistant */
 .bk-shares td.num{text-align:right; font-variant-numeric:tabular-nums}
 .bk-shares td.bk-why{white-space:normal; min-width:180px; color:var(--ink2)}

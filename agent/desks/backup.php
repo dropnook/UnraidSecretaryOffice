@@ -193,6 +193,7 @@ function backupSettingsSummary(array $s): array
         'btrfs_dir'     => $one('general', 'btrfs_snap_dir', '.btrfs-snap'),
         'keep_runs'     => (int) $one('general', 'keep_runs', '7'),
         'dumps_share'   => $one('general', 'dumps_share'),
+        'dumps_dir'     => backupDumpsPath((string) $one('general', 'dumps_share', '')),
         'keep_mounts'   => $one('general', 'keep_mounts', 'no') === 'yes',
         'zfs_retention' => $one('zfs', 'retention'),
         'btrfs_days'    => $one('btrfs', 'keep_days'),
@@ -204,6 +205,8 @@ function backupSettingsSummary(array $s): array
         'kopia_enabled' => in_array(strtolower((string) $one('kopia', 'enabled', 'no')), ['yes', 'ja', '1', 'true'], true),
         'kopia_container' => $one('kopia', 'container'),
         'kopia_keep'    => $kopia,
+        'kopia_ignore'  => array_values($s['kopia']['ignore'] ?? []),      // inherited by every share
+        'kopia_compression' => $one('kopia', 'compression', 'inherit'),
         'dumps'         => array_map(fn ($n) => ['container' => $n, 'type' => backupSetting($s, "dump|$n", 'type')], $names('dump')),
         'nextcloud'     => array_map(fn ($n) => ['container' => $n, 'preexisting' => backupSetting($s, "nextcloud|$n", 'preexisting_maintenance', 'abort')], $names('nextcloud')),
     ];
@@ -221,12 +224,20 @@ function backupShares(array $s, array $history): array
             }
         }
     }
+    // file system of every pool and disk (/mnt/<name>): which local snapshots a share gets
+    $baseFs = [];
+    foreach (mountTable() as $m) {
+        if (preg_match('#^/mnt/([^/]+)$#', $m['mount'], $x)) {
+            $baseFs[$x[1]] = $m['fs'];
+        }
+    }
     $shares = [];
     foreach ($s as $key => $values) {
         if (!str_starts_with($key, 'share|')) {
             continue;
         }
         $name = substr($key, 6);
+        $locations = array_values(array_filter(array_map('trim', explode(',', (string) backupSetting($s, $key, 'locations', '')))));
         $shares[] = [
             'name'       => $name,
             'mode'       => backupSetting($s, $key, 'mode', 'off'),
@@ -235,13 +246,14 @@ function backupShares(array $s, array $history): array
             'kopia_retention' => backupSetting($s, $key, 'kopia_retention'),
             'ignores'    => $values['kopia_ignore'] ?? [],
             'excluded'   => $values['exclude_dataset'] ?? [],
-            'locations'  => array_values(array_filter(array_map('trim', explode(',', (string) backupSetting($s, $key, 'locations', ''))))),
+            'locations'  => $locations,
+            'fs'         => array_values(array_unique(array_map(fn ($l) => $baseFs[$l] ?? '', $locations))),
             'last'       => $last[$name] ?? null,
         ];
     }
     if (backupSetting($s, 'flash', 'mode') === 'snapshot') {
         $shares[] = ['name' => 'flash', 'mode' => 'kopia', 'method' => 'flash', 'retention' => null, 'kopia_retention' => null,
-                     'ignores' => $s['flash']['kopia_ignore'] ?? [], 'excluded' => [], 'locations' => ['boot'], 'last' => $last['flash'] ?? null, 'flash' => true];
+                     'ignores' => $s['flash']['kopia_ignore'] ?? [], 'excluded' => [], 'locations' => ['boot'], 'fs' => ['zfs'], 'last' => $last['flash'] ?? null, 'flash' => true];
     }
     usort($shares, fn ($a, $b) => strnatcasecmp($a['name'], $b['name']));
     return $shares;
@@ -434,7 +446,8 @@ function backupDrift(): array
     $data = BACKUP_DATA_DIR;
     $j = readJson("$data/state/drift.json");
     if ($j) {
-        return ['time' => (int) ($j['time'] ?? 0), 'items' => array_values(array_filter($j['items'] ?? [], 'is_array'))];
+        return ['time' => (int) ($j['time'] ?? 0), 'items' => array_values(array_filter($j['items'] ?? [], 'is_array')),
+                'policies' => backupPolicies($j['policies'] ?? null)];
     }
     // before 2.5: drift.txt with level words (German before 2.13)
     $items = [];
@@ -443,20 +456,66 @@ function backupDrift(): array
             $items[] = ['level' => ['FEHLER' => 'error', 'WARNUNG' => 'warn', 'ERROR' => 'error', 'WARNING' => 'warn', 'INFO' => 'info'][$m[1]], 'text' => $m[2]];
         }
     }
-    return ['time' => (int) @filemtime("$data/state/drift.txt"), 'items' => $items];
+    return ['time' => (int) @filemtime("$data/state/drift.txt"), 'items' => $items, 'policies' => null];
 }
 
-/** Where the engine keeps dumps and archives: <dumps_share>/unraid-backup; the old folder in appdata until the first run moved them */
+/**
+ * Per Kopia target whether its policy matches settings.ini (drift.json, engine
+ * 2.14+): kind root|share|flash, the share, ok, skipped (the run left the share
+ * out) and the differences as codes. null = not compared (older engine, Kopia
+ * off or not reachable).
+ */
+function backupPolicies(mixed $list): ?array
+{
+    if (!is_array($list)) {
+        return null;
+    }
+    $str = fn ($v) => is_scalar($v) ? (string) $v : '';
+    $out = [];
+    foreach ($list as $p) {
+        if (!is_array($p) || !in_array($p['kind'] ?? '', ['root', 'share', 'flash'], true)) {
+            continue;
+        }
+        $out[] = [
+            'kind'    => $p['kind'],
+            'share'   => $str($p['share'] ?? ''),
+            'path'    => $str($p['path'] ?? ''),
+            'ok'      => !empty($p['ok']),
+            'skipped' => !empty($p['skipped']),
+            'differences' => array_values(array_map(fn ($d) => [
+                'what' => $str($d['what'] ?? ''), 'item' => $str($d['item'] ?? ''),
+                'have' => $str($d['have'] ?? ''), 'want' => $str($d['want'] ?? ''),
+            ], array_filter($p['differences'] ?? [], 'is_array'))),
+        ];
+    }
+    return $out;
+}
+
+/** The folder for dumps and archives in a share — the same rule as the engine's dumps_path() */
+function backupDumpsPath(string $share): ?string
+{
+    if ($share === '') {
+        return null;
+    }
+    return $share === BACKUP_OFFICE_SHARE ? "/mnt/user/$share/" . BACKUP_DESK_DIR : "/mnt/user/$share/unraid-backup";
+}
+
+/**
+ * Where the engine keeps dumps and archives: <dumps_share>/unraid-backup, in the
+ * office's share <share>/backup. Until the next run moved them: the place before the
+ * last setup (state/dumps-previous), or the old folder in appdata.
+ */
 function backupDumpsDir(): string
 {
     $settings = backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');
-    $share = backupSettingsSummary($settings)['dumps_share'] ?? null;
-    $new = $share ? "/mnt/user/$share/unraid-backup" : null;
-    $old = BACKUP_DATA_DIR . '/dumps';
-    if ($new && is_dir($new)) {
-        return $new;
+    $new = backupDumpsPath((string) (backupSettingsSummary($settings)['dumps_share'] ?? ''));
+    $previous = trim((string) @file_get_contents(BACKUP_DATA_DIR . '/state/dumps-previous'));
+    foreach ([$new, $previous, BACKUP_DATA_DIR . '/dumps'] as $dir) {
+        if ($dir && is_dir($dir) && glob("$dir/[0-9]*-[0-9]*", GLOB_ONLYDIR)) {
+            return $dir;
+        }
     }
-    return is_dir($old) ? $old : ($new ?? $old);
+    return $new ?? BACKUP_DATA_DIR . '/dumps';
 }
 
 /** dumps/<run>/: database dumps (+ manifest, flash archive) of the last runs */
@@ -832,7 +891,7 @@ function backupChecks(): array
             // linuxserver-style images run the server as PUID; without PUID the image decides (often root)
             $asRoot = !isset($env['PUID']) || $env['PUID'] === '0';
             $out[] = finding('kopia_root', $level, $asRoot, ['name' => $name, 'puid' => $env['PUID'] ?? '–'], 'docker');
-            $root = rtrim($summary['mount_root'] ?: '/mnt/backup-snapshots', '/');
+            $root = rtrim($summary['mount_root'] ?: '/mnt/addons/' . BACKUP_OFFICE_SHARE . '/snapshots', '/');
             $mapping = null;
             foreach ($inspect['Mounts'] ?? [] as $m) {
                 if (rtrim((string) ($m['Source'] ?? ''), '/') === $root) {
@@ -859,6 +918,14 @@ function backupChecks(): array
         $ds = (string) ($summary['dumps_share'] ?? '');
         $dsBad = $ds === '' || in_array(strtolower($ds), ['appdata', 'system', 'domains'], true) || !is_dir("/mnt/user/$ds");
         $out[] = finding('dumps_share', 'required', !$dsBad, ['share' => $ds], '#/backup/setup');
+
+        // nothing of ours directly in /mnt (Fix Common Problems rightly complains): the mounts go to
+        // /mnt/addons; the setup moves them once Kopia's mapping follows, the next run tidies up
+        $legacy = array_values(array_filter(['/mnt/backup-snapshots', '/mnt/btrfs-snap'], 'is_dir'));
+        $mountRoot = (string) ($summary['mount_root'] ?? '');
+        $inMnt = $legacy || preg_match('#^/mnt/[^/]+$#', $mountRoot) || preg_match('#^/mnt/[^/]+$#', (string) ($summary['view_root'] ?? ''));
+        $out[] = finding('mnt_folders', 'recommended', !$inMnt, ['folders' => implode(', ', $legacy ?: [$mountRoot]),
+            'path' => '/mnt/addons/' . BACKUP_OFFICE_SHARE . '/snapshots', 'name' => $summary['kopia_container'] ?: 'kopia'], '#/backup/setup');
         if (!$dsBad && $kopiaOn) {
             $mode = backupSetting($settings, "share|$ds", 'mode', 'off');
             $out[] = finding('dumps_offsite', 'recommended', $mode === 'kopia', ['share' => $ds, 'mode' => $mode], '#/backup/setup');
