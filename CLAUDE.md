@@ -22,7 +22,10 @@ This file holds the conventions and the checklist for changes.
   one-liner). All in
   the ⋯ menu → `caretaker.menu_name`, kept as `MENU_NAME`/`MENU_PLACE` in the
   .cfg, put back by the .plg at every boot (`officeMenuPageApply()`);
-  `index.php` only forwards there. The agent is a service
+  `index.php` only forwards there. `SecretaryOfficeDashboard.page` puts a tile
+  on Unraid's Dashboard (src/dashboard.php: the messenger, the caretaker's
+  traffic light, Mr. Backupsy's last/next run — from the state files only,
+  refreshed by `api.php?a=dash` every minute while in view). The agent is a service
   (`scripts/agent.sh`, started at install/boot and by `event/started`, stopped
   by `event/stopping`). The data folder is `DATA_DIR` from
   `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cfg`
@@ -352,7 +355,9 @@ gather/                  Jack Emby's media gather, consolidate_master.sh (bash; 
 plugin/                  the Unraid plugin: .plg template, build.sh, dev-sync.sh, scripts/ (agent.sh
                          service, job.sh for the cron file), event/ (started, stopping), images/,
                          SecretaryOffice.page (the office in Unraid), SecretaryOfficeButton.page
-                         (the header button), README.md (the short text Unraid's Plugins list shows)
+                         (the header button), SecretaryOfficeDashboard.page (the Dashboard tile),
+                         README.md (the short text Unraid's Plugins list shows); images/ has the
+                         plugin icon as PNG with its SVG source (rendered on the Mac via NSImage)
 .github/workflows/       plugin.yml: builds and attaches .plg/.txz when a release is published
 compose.yaml             the stack: office + agent services; settings in .env
 ```

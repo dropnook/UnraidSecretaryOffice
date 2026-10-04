@@ -9,6 +9,7 @@ declare(strict_types=1);
  * GET  ?a=strings&lang=<code>         all UI strings of a language
  * GET  ?a=log                         tail of the agent log
  * GET  ?a=auth                        PIN set? this browser unlocked?
+ * GET  ?a=dash&lang=<code>            the rows of the tile on Unraid's Dashboard (dashboard.php)
  * POST {"a": "<desk>.<action>", ...}  a request for the agent; it checks everything
  * POST {"a": "office.unlock|lock|pin"} handled here (see auth.php)
  * POST {"a": "office.hire|fire"}       who works here (see staff.php)
@@ -36,6 +37,7 @@ function api_main(): void
                 'strings' => apiStrings((string) ($_GET['lang'] ?? 'en')),
                 'log'     => answer(['ok' => true, 'lines' => apiLogTail(400)]),
                 'auth'    => answer(['ok' => true, 'auth' => officeAuthStatus()]),
+                'dash'    => apiDash((string) ($_GET['lang'] ?? '')),
                 default   => answer(['ok' => false, 'error' => ['key' => 'bad_request']], 404),
             };
         }
@@ -147,4 +149,12 @@ function answer(array $data, int $status = 200): never
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
     exit;
+}
+
+/** The rows of the office's tile on Unraid's Dashboard (src/dashboard.php), for its refresh every minute */
+function apiDash(string $lang): never
+{
+    require_once __DIR__ . '/page.php';
+    require_once __DIR__ . '/dashboard.php';
+    answer(['ok' => true, 'html' => officeDashRows(officeDashLang($lang))]);
 }

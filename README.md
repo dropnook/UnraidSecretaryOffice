@@ -45,7 +45,9 @@ browser. Adding a language means adding JSON files.
   can call it *Office*, *USO* or a name of your own, and have an icon under
   *Settings → User Utilities* instead, as before, or only a button in
   Unraid's header), in Unraid's look and colour theme,
-  served by Unraid behind its login.
+  served by Unraid behind its login. A tile on Unraid's Dashboard shows the
+  essentials at a glance: whether the messenger (the agent) is in, the
+  Caretaker's traffic light, and Mr. Backupsy's last and next run.
 * The page only shows things. The **agent**, a small service of the plugin,
   does the work on the host. It only accepts the actions the desks define and
   checks every request against a fresh look at the system. Commands run

@@ -1121,12 +1121,12 @@ Office.help = function help() {
     dl.appendChild(dd);
   };
   const code = (s) => el('code', '', s);
-  item(t('help.office_title'), t('help.office_text'));
+  item(t('help.office_title'), t(CONFIG.in_unraid ? 'help.office_text_plugin' : 'help.office_text'));
   if (CONFIG.plugin) item(t('help.agent_title'), t('help.agent_text_plugin'));
   else item(t('help.agent_title'), t('help.agent_text'), ' ', code('docker compose'), '.');
-  item(t('help.dot_title'), t('help.dot_text'));
+  item(t('help.dot_title'), t(CONFIG.in_unraid ? 'help.dot_text_plugin' : 'help.dot_text'));
   item(t('help.start_title'), t(CONFIG.plugin ? 'help.start_text_plugin' : 'help.start_text'));
-  item(t('help.languages_title'), t('help.languages_text'), ' ', code('public/lang/<code>.json'), ', ',
+  item(t('help.languages_title'), t(CONFIG.in_unraid ? 'help.languages_text_plugin' : 'help.languages_text'), ' ', code('public/lang/<code>.json'), ', ',
     code('public/desks/<desk>/lang/<code>.json'), '.');
   item(t('help.security_title'), t(CONFIG.plugin ? 'help.security_text_plugin' : 'help.security_text'));
   box.appendChild(dl);

@@ -1,0 +1,169 @@
+<?php
+declare(strict_types=1);
+
+/*
+ * The office's tile on Unraid's Dashboard (plugin only): the messenger, the
+ * caretaker's traffic light and Mr. Backupsy's last and next run — each row
+ * a link into the office. Built from the desks' state files only (no request
+ * to the agent, no disk wakes up); the tile asks api.php?a=dash again every
+ * minute. Texts from the office's language files (dash.*): the language this
+ * browser chose in the office, else Unraid's when the office speaks it.
+ */
+
+/** The language for the tile: the one asked for if the office has it, else Unraid's, else English */
+function officeDashLang(?string $want = null): string
+{
+    $codes = array_column(officeLanguages(), 'code');
+    foreach ([$want, strtolower(strtok((string) ($GLOBALS['locale'] ?? ''), '_-') ?: '')] as $code) {
+        if ($code && in_array($code, $codes, true)) {
+            return $code;
+        }
+    }
+    return 'en';
+}
+
+/** A string with {placeholders}; plurals as {one, other} by n */
+function officeDashT(array $strings, string $key, array $params = []): string
+{
+    $s = $strings[$key] ?? $key;
+    if (is_array($s)) {
+        $s = (($params['n'] ?? 0) === 1 ? ($s['one'] ?? null) : null) ?? $s['other'] ?? '';
+    }
+    return (string) preg_replace_callback('/\{(\w+)\}/', fn ($m) => (string) ($params[$m[1]] ?? $m[0]), (string) $s);
+}
+
+/** "today 12:26", "yesterday 02:00", "tomorrow 02:00", else the date */
+function officeDashWhen(array $strings, int $time, string $lang): string
+{
+    $day = fn (int $t) => date('Y-m-d', $t);
+    $clock = date('H:i', $time);
+    return match ($day($time)) {
+        $day(time())          => officeDashT($strings, 'dash.today', ['time' => $clock]),
+        $day(time() - 86400)  => officeDashT($strings, 'dash.yesterday', ['time' => $clock]),
+        $day(time() + 86400)  => officeDashT($strings, 'dash.tomorrow', ['time' => $clock]),
+        default               => date($lang === 'de' ? 'd.m. H:i' : 'M j, H:i', $time),
+    };
+}
+
+/** The next run of a daily cron ("M H * * *"), else null */
+function officeDashNextDaily(string $cron): ?int
+{
+    if (!preg_match('/^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+\*$/', trim($cron), $m)) {
+        return null;
+    }
+    $next = mktime((int) $m[2], (int) $m[1], 0);
+    return $next > time() ? $next : strtotime('+1 day', $next);
+}
+
+/** A file of the office by its absolute address (the rows are also built by api.php, outside Unraid's page) */
+function officeDashAsset(string $file): string
+{
+    return '/plugins/' . OFFICE_PLUGIN . '/' . $file . '?v=' . (string) @filemtime(OFFICE_PUBLIC . '/' . $file);
+}
+
+/** The tile's rows as HTML (escaped) */
+function officeDashRows(string $lang): string
+{
+    $s = officeStrings($lang);
+    $h = static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES);
+    $url = officeMenuUrl(officeMenuPlace());
+    $base = '/plugins/' . OFFICE_PLUGIN . '/';
+    $row = static function (string $desk, string $icon, string $name, string $state, string $tone, string $sub = '') use ($h, $url): string {
+        return '<a class="sso-dash-row" href="' . $h($url . '#/' . $desk) . '">'
+            . '<img class="sso-dash-icon" src="' . $h($icon) . '" alt="">'
+            . '<span class="sso-dash-name">' . $h($name) . ($sub !== '' ? '<small>' . $h($sub) . '</small>' : '') . '</span>'
+            . '<span class="sso-dash-state ' . $tone . '-text">' . $h($state) . '</span></a>';
+    };
+    if (officeReadProtected() && officeUnlocked() === null) {
+        return '<p class="sso-dash-note">' . $h(officeDashT($s, 'dash.locked')) . '</p>';
+    }
+
+    $out = '';
+    $agent = agentInfo();
+    $out .= $row('', officeDashAsset('assets/messenger.svg'), officeDashT($s, 'dash.messenger'),
+        officeDashT($s, $agent['running'] ? 'agent.label_on' : (isset($agent['no_data']) && ($agent['no_data']['array'] ?? '') !== 'Started' ? 'agent.label_array' : 'agent.label_off')),
+        $agent['running'] ? 'green' : 'red');
+
+    // the caretaker: what is left to do, what he recommends (only desks that work here)
+    $hired = officeHired();
+    $care = officeReadJson(OFFICE_DATA . '/caretaker.json');
+    if ($care) {
+        $todo = $advice = 0;
+        foreach ((array) ($care['checks'] ?? []) as $desk => $list) {
+            if (!isset($hired[$desk])) {
+                continue;
+            }
+            foreach ((array) $list as $f) {
+                if (($f['ok'] ?? null) === true) {
+                    continue;
+                }
+                $todo += ($f['level'] ?? '') === 'required' ? 1 : 0;
+                $advice += ($f['level'] ?? '') === 'recommended' ? 1 : 0;
+            }
+        }
+        [$mood, $state, $tone] = $todo ? ['-todo', officeDashT($s, 'dash.todo', ['n' => $todo]), 'red']
+            : ($advice ? ['-advice', officeDashT($s, 'dash.advice', ['n' => $advice]), 'orange'] : ['', officeDashT($s, 'dash.all_good'), 'green']);
+        $out .= $row('caretaker', officeDashAsset("desks/caretaker/avatar$mood.svg"), officeDashT($s, 'caretaker.name'), $state, $tone);
+    }
+
+    // Mr. Backupsy: the last run and the next one
+    $backup = isset($hired['backup']) ? officeReadJson(OFFICE_DATA . '/backup.json') : null;
+    if ($backup) {
+        $last = ($backup['history'] ?? [])[0] ?? null;
+        if (!empty($backup['running'])) {
+            [$state, $tone] = [officeDashT($s, 'dash.bk_running'), 'orange'];
+        } elseif ($last) {
+            $result = (string) ($last['result'] ?? '');
+            $tone = match ($result) { 'ok' => 'green', 'warnings' => 'orange', default => 'red' };
+            $state = officeDashT($s, 'dash.bk_' . (in_array($result, ['ok', 'warnings'], true) ? $result : 'failed'))
+                . ' · ' . officeDashWhen($s, (int) ($last['finished'] ?? $last['started'] ?? 0), $lang);
+        } else {
+            [$state, $tone] = [officeDashT($s, 'dash.bk_none'), 'orange'];
+        }
+        $schedule = (array) ($backup['schedule'] ?? []);
+        $cron = (string) ($schedule['cron'] ?? $schedule['custom'] ?? '');
+        $next = !empty($schedule['enabled']) && $cron !== '' ? officeDashNextDaily($cron) : null;
+        $sub = empty($schedule['enabled']) ? officeDashT($s, 'dash.bk_no_schedule')
+            : ($next ? officeDashT($s, 'dash.bk_next', ['when' => officeDashWhen($s, $next, $lang)]) : officeDashT($s, 'dash.bk_scheduled'));
+        $out .= $row('backup', officeDashAsset('desks/backup/avatar.svg'), officeDashT($s, 'backup.name'), $state, $tone, $sub);
+    }
+    return $out;
+}
+
+/** The whole tile for Unraid's Dashboard ($mytiles in SecretaryOfficeDashboard.page) */
+function officeDashTile(): string
+{
+    $lang = officeDashLang();
+    $s = officeStrings($lang);
+    $h = static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES);
+    $name = officeMenuName();
+    $api = '/plugins/' . OFFICE_PLUGIN . '/api.php?a=dash&lang=';
+    return '<tbody id="db-sso" title="' . $h($name) . '">'
+        . '<tr><td><span class="tile-header"><span class="tile-header-left">'
+        . '<img class="sso-dash-logo" src="' . $h(officeDashAsset('assets/reception.svg')) . '" alt="">'
+        . '<div class="section"><h3 class="tile-header-main">' . $h($name) . '</h3></div></span>'
+        . '<span class="tile-header-right"><span class="tile-header-right-controls">'
+        . '<a href="' . $h(officeMenuUrl(officeMenuPlace())) . '" title="' . $h(officeDashT($s, 'dash.open')) . '"><i class="fa fa-fw fa-external-link control"></i></a>'
+        . '</span></span></span></td></tr>'
+        . '<tr><td><div id="sso-dash" class="sso-dash">' . officeDashRows($lang) . '</div></td></tr>'
+        . '</tbody>'
+        . '<style>'
+        . '#db-sso .sso-dash-logo{width:32px;height:32px;margin-right:8px}'
+        . '#db-sso .sso-dash{display:flex;flex-direction:column}'
+        . '#db-sso .sso-dash-row{display:flex;align-items:center;gap:10px;padding:6px 0;color:inherit;text-decoration:none;border-top:1px solid var(--table-border-color,rgba(128,128,128,.25))}'
+        . '#db-sso .sso-dash-row:first-child{border-top:0}'
+        . '#db-sso .sso-dash-row:hover .sso-dash-name{text-decoration:underline}'
+        . '#db-sso .sso-dash-icon{width:26px;height:26px;flex:none}'
+        . '#db-sso .sso-dash-name{display:flex;flex-direction:column;min-width:0}'
+        . '#db-sso .sso-dash-name small{opacity:.7;font-size:.92em}'
+        . '#db-sso .sso-dash-state{margin-left:auto;text-align:right}'
+        . '#db-sso .sso-dash-note{margin:6px 0;text-align:left}'
+        . '</style>'
+        // the language this browser chose in the office (⋯ → Language) wins over Unraid's
+        . '<script>(function(){var lang=' . json_encode($lang) . ',own=null;try{own=localStorage.getItem("office.lang");}catch(e){}'
+        . 'var u=' . json_encode($api) . '+encodeURIComponent(own||lang);'
+        . 'function load(){fetch(u,{cache:"no-store"}).then(function(r){return r.json();}).then(function(j){var b=document.getElementById("sso-dash");if(b&&j&&j.ok)b.innerHTML=j.html;}).catch(function(){});}'
+        // the first time always (another language); then every minute while the page is in view, and when it comes back
+        . 'if(own&&own!==lang)load();setInterval(function(){if(!document.hidden)load();},60000);'
+        . 'document.addEventListener("visibilitychange",function(){if(!document.hidden)load();});})();</script>';
+}
