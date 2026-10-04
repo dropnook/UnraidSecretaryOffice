@@ -39,7 +39,7 @@ declare(strict_types=1);
  *                              runs as root —, in the stack 33, www-data in php:apache)
  */
 
-const AGENT_VERSION = '1.20.2';
+const AGENT_VERSION = '1.20.3';
 const RUN_DIR       = '/var/run/unraid-secretary-office';
 const PID_FILE      = RUN_DIR . '/agent.pid';
 const TICK_US       = 150000;
