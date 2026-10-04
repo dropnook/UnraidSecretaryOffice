@@ -1,28 +1,35 @@
 /* Ms. Dustdevil — clears away what nobody uses any more: Docker templates
    without a container, Compose stacks without containers, appdata folders
-   nothing names. Everything goes into her trash first (renamed on the same
-   filesystem), from where it can be put back or emptied for good.
-   The agent part lives in agent/desks/cleanup.php. */
+   nothing names, what deleted VMs left behind (domains folders, NVRAM, TPM
+   states, unused disk images) and Docker's own leftovers (images, volumes,
+   build cache). Everything she can rename goes into her storeroom first,
+   from where it can be put back or emptied for good; Docker's leftovers can
+   only be removed. The agent part lives in agent/desks/cleanup.php. */
 (() => {
 'use strict';
 
 const ID = 'cleanup';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
-const SECTIONS = ['templates', 'stacks', 'appdata', 'trash'];
-const ICONS = { templates: '📄', stacks: '🧩', appdata: '🗃️', trash: '🗑️' };
+const SECTIONS = ['templates', 'stacks', 'appdata', 'vms', 'docker', 'trash'];
+const ICONS = { templates: '📄', stacks: '🧩', appdata: '🗃️', vms: '🖥️', docker: '🐳', trash: '🗑️' };
 const GROUPS = {
   templates: ['leftover', 'unused', 'duplicate', 'noname', 'unknown', 'in_use'],
   stacks: ['leftover', 'broken', 'unused', 'unknown', 'in_use'],
   appdata: ['unused', 'check', 'unknown', 'used'],
+  vms: ['orphan', 'unused', 'check', 'media', 'unknown', 'used'],
+  docker: ['dangling', 'volume', 'unused', 'cache', 'used'],
 };
 const CANDIDATES = {
   templates: ['leftover', 'unused', 'duplicate', 'noname'],
   stacks: ['leftover', 'broken', 'unused'],
   appdata: ['unused', 'check'],
+  vms: ['orphan', 'unused', 'check', 'media'],
+  docker: ['dangling', 'volume', 'unused', 'cache'],
 };
 const CLOSED = ['in_use', 'used', 'unknown'];        // folded until opened
 const KIND_ICONS = { container: '🐳', template: '📄', stack: '🧩', compose: '🧩', flash: '💾', vm: '🖥️' };
+const ITEM_ICONS = { template: '📄', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐' };
 const POLL_MS = 3000;
 
 let state = null;
@@ -34,11 +41,12 @@ const expanded = new Set();
 let shown = [];             // rows that can unfold: { open(), set(bool) }
 let busy = false;
 let timer = null;
+let query = '';             // the filter above the rooms: every word must appear
 
 // ------------------------------------------------------------------ loading
 async function load(fresh) {
   const j = await Office.api.get({ a: 'state', desk: ID, ...(fresh ? { fresh: 1 } : {}) });
-  if (j.ok && j.state) setState(j.state);
+  if (j.ok && j.state && j.state.docker && typeof j.state.docker === 'object') setState(j.state);
   else if (view) render();
   return j;
 }
@@ -64,15 +72,29 @@ function watch() {
 // ------------------------------------------------------------------ helpers
 function entries(sec) {
   if (!state) return [];
-  if (sec === 'templates') return state.templates.list;
-  if (sec === 'stacks') return state.stacks.list;
-  if (sec === 'appdata') return state.appdata.list;
-  return [];
+  return ({
+    templates: state.templates.list, stacks: state.stacks.list, appdata: state.appdata.list,
+    vms: state.vms.list, docker: state.docker.list,
+  })[sec] || [];
 }
 const candidates = (sec) => entries(sec).filter((e) => CANDIDATES[sec].includes(e.category));
-const selectable = (e) => !!state && e.why === null && state.docker && !state.backup_running;
-const label = (sec, e) => (sec === 'templates' ? e.file : sec === 'stacks' ? e.folder : e.name);
+const removable = (e) => ['image', 'volume', 'cache'].includes(e.kind);
+/** Docker's leftovers in use can't be chosen at all; everything else in use only with a warning */
+const selectable = (e) => !!state && e.why === null && !state.backup_running && !(removable(e) && e.category === 'used');
+const label = (e) => (e.kind === 'template' ? e.file : e.kind === 'stack' ? e.folder : e.kind === 'cache' ? T('cache.name') : e.name);
 const sum = (list) => list.reduce((a, e) => a + (e.bytes || 0), 0);
+const words = () => query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+/** Does an entry match the filter? Its name and what it is connected to (image, containers, stack, paths) */
+function matches(e) {
+  const w = words();
+  if (!w.length) return true;
+  const hay = [label(e), e.name, e.file, e.folder, e.image, e.project, e.uuid, e.from, ...(e.refs || []),
+    ...(e.used_by || []).map((u) => u.name), ...(e.containers || []).map((c) => c.name), ...(e.parts || []).map((p) => p.path)]
+    .filter(Boolean).join(' ').toLowerCase();
+  return w.every((x) => hay.includes(x));
+}
+/** VMs only with the VM service switched on, Docker's rooms only with Docker (appdata always: it's a share) */
+const visible = (sec) => (sec === 'vms' ? state.vms.enabled : ['templates', 'stacks', 'docker'].includes(sec) ? state.docker.enabled : true);
 
 function chip(text, cls, tip) {
   const c = el('span', 'chip' + (cls ? ' ' + cls : ''), text);
@@ -107,7 +129,7 @@ function emptyNote(text) {
 
 function whyChip(e) {
   if (!state) return null;
-  if (state.backup_running) return chip('⏸ ' + T('why.backup'), 'quiet', T('why.backup_text'));
+  if (state.backup_running && !removable(e)) return chip('⏸ ' + T('why.backup'), 'quiet', T('why.backup_text'));
   if (!e.why) return null;
   return chip((e.why === 'measuring' || e.why === 'checking' ? '⏳ ' : '') + T('why.' + e.why), e.why === 'dataset' || e.why === 'asleep' ? '' : 'quiet', T('why.' + e.why + '_text'));
 }
@@ -119,11 +141,21 @@ function usedChips(list, more) {
   return out;
 }
 
-function noteChips(f) {
-  return f.notes.map((n) => {
-    if (n.why === 'same_name') return chip(T('note.same_name', { icon: KIND_ICONS[n.kind] || '•', name: n.name }), 'warn', T('note.same_name_text'));
-    if (n.why === 'weak') return chip(T('note.weak'), 'warn', T('note.weak_text', { names: n.names.join(', ') }));
-    return chip(T('note.fresh', { n: n.days }), 'warn', T('note.fresh_text', { days: 30 }));
+const noteText = (n) => ({
+  same_name: () => T('note.same_name_text'),
+  weak: () => T('note.weak_text', { names: n.names.join(', ') }),
+  fresh: () => T('note.fresh_text', { days: 30 }),
+  named_by: () => T('note.named_by_text', { names: n.names.map((x) => x.name).join(', ') }),
+  stack: () => (n.exists ? T('note.stack_text', { name: n.name }) : T('note.stack_gone_text', { name: n.name })),
+})[n.why]();
+
+function noteChips(e) {
+  return (e.notes || []).map((n) => {
+    if (n.why === 'same_name') return chip(T('note.same_name', { icon: KIND_ICONS[n.kind] || '•', name: n.name }), 'warn', noteText(n));
+    if (n.why === 'weak') return chip(T('note.weak'), 'warn', noteText(n));
+    if (n.why === 'fresh') return chip(T('note.fresh'), 'warn', noteText(n));
+    if (n.why === 'named_by') return chip(T('note.named_by', { n: n.names.length }), e.category === 'used' ? 'quiet' : 'warn', noteText(n));
+    return chip(`🧩 ${n.name}`, n.exists ? 'warn' : 'quiet', noteText(n));
   });
 }
 
@@ -155,12 +187,10 @@ Office.desk({
     if (!state) await load(false);
     if (!state) return { bubble: T('bubble.no_data'), facts: [] };
     const facts = [];
-    const t = candidates('templates').length;
-    const s = candidates('stacks').length;
-    const a = candidates('appdata');
-    if (t) facts.push(T('fact.templates', { n: t }));
-    if (s) facts.push(T('fact.stacks', { n: s }));
-    if (a.length) facts.push(T('fact.folders', { n: a.length, size: fmt.size(sum(a)) }));
+    for (const sec of ['templates', 'stacks', 'appdata', 'vms', 'docker']) {
+      const c = candidates(sec);
+      if (c.length) facts.push(T('fact.' + sec, { n: c.length, size: fmt.size(sum(c)) }));
+    }
     if (state.trash.runs.length) facts.push(T('fact.trash', { size: state.trash.bytes === null ? '…' : fmt.size(state.trash.bytes) }));
     return { bubble: bubbleText(), facts };
   },
@@ -174,7 +204,14 @@ function build(root) {
   v.scanBtn.append(el('span', 'spin'), T('scan'));
   v.scanBtn.title = T('scan_title');
   v.scanBtn.onclick = () => scan(false);
-  const head = Office.deskHead({ id: ID, icon: Office.desks.get(ID).icon }, { actions: [v.scanBtn] });
+  v.search = el('input', 'search');
+  v.search.type = 'search';
+  v.search.placeholder = T('search');
+  v.search.autocomplete = 'off';
+  v.search.spellcheck = false;
+  v.search.value = query;
+  v.search.oninput = () => { query = v.search.value; renderSection(); updateSelbar(); };
+  const head = Office.deskHead({ id: ID, icon: Office.desks.get(ID).icon }, { actions: [v.search, v.scanBtn] });
   v.bubble = head.bubble;
   root.appendChild(head.head);
   root.appendChild(Office.pageHelp(ID, [
@@ -184,6 +221,8 @@ function build(root) {
     [T('section.stacks'), T('help.stacks_text')],
     [T('section.appdata'), T('help.appdata_text')],
     [T('help.check'), T('help.check_text')],
+    [T('section.vms'), T('help.vms_text')],
+    [T('section.docker'), T('help.docker_text')],
     [T('help.sizes'), T('help.sizes_text')],
     [T('help.safe'), T('help.safe_text')],
   ]));
@@ -213,15 +252,13 @@ function render() {
 
 function bubbleText() {
   if (!state) return Office.agent.running ? T('bubble.loading') : T('bubble.no_data');
-  if (!state.docker) return T('bubble.docker_down');
   const found = [];
-  const t = candidates('templates').length;
-  const s = candidates('stacks').length;
-  const a = candidates('appdata');
-  if (t) found.push(T('bubble.templates', { n: t }));
-  if (s) found.push(T('bubble.stacks', { n: s }));
-  if (a.length) found.push(T('bubble.folders', { n: a.length, size: fmt.size(sum(a)) }));
+  for (const sec of ['templates', 'stacks', 'appdata', 'vms', 'docker']) {
+    const c = candidates(sec);
+    if (c.length) found.push(T('bubble.' + sec, { n: c.length, size: fmt.size(sum(c)) }));
+  }
   let text = found.length ? T('bubble.found', { list: found.join(', ') }) : T('bubble.spotless');
+  if (state.docker.enabled && !state.docker.ok) text = T('bubble.docker_down') + ' ' + text;
   if (state.trash.runs.length && state.trash.bytes !== null) text += ' ' + T('bubble.trash', { size: fmt.size(state.trash.bytes) });
   if (state.jobs.busy) text += ' ' + T('bubble.busy');
   return text;
@@ -232,7 +269,7 @@ function renderNotice() {
   box.innerHTML = '';
   if (!state) return;
   if (state.backup_running) box.appendChild(el('p', 'callout', T('notice.backup')));
-  if (!state.docker) box.appendChild(el('p', 'callout warn', T('notice.docker_down')));
+  if (state.docker.enabled && !state.docker.ok) box.appendChild(el('p', 'callout warn', T('notice.docker_down')));
 }
 
 // ------------------------------------------------------------------ tiles
@@ -243,6 +280,7 @@ function tileLine(sec) {
   }
   const all = entries(sec);
   const c = candidates(sec);
+  if (sec === 'vms' && !state.vms.ok) return [T('tile.vm_off'), ''];
   if (!all.length) return [T('tile.none'), ''];
   return [c.length ? T('tile.look', { n: c.length }) : T('tile.tidy'), sec === 'templates' || !c.length ? T('tile.total', { n: all.length }) : fmt.size(sum(c))];
 }
@@ -252,6 +290,7 @@ function renderTiles() {
   box.innerHTML = '';
   if (!state) return;
   for (const sec of SECTIONS) {
+    if (!visible(sec)) continue;
     const card = el('button', 'card' + (section === sec ? ' active' : ''));
     card.type = 'button';
     card.setAttribute('aria-pressed', String(section === sec));
@@ -283,7 +322,7 @@ function renderSection() {
   body.innerHTML = '';
   shown = [];
   if (!state) { body.appendChild(emptyNote(Office.agent.running ? T('bubble.loading') : T('bubble.no_data'))); return; }
-  if (!section) return;
+  if (!section || !visible(section)) return;
   const right = [];
   if (section === 'trash') {
     const all = state.trash.runs.filter((r) => !r.purging);
@@ -297,6 +336,8 @@ function renderSection() {
   }
   body.appendChild(Office.sectionHead(T('section.' + section), T('section.' + section + '_sub'), ...right));
   if (section === 'appdata') body.appendChild(appdataInfo());
+  if (section === 'vms') body.appendChild(vmsInfo());
+  if (section === 'docker') body.appendChild(dockerInfo());
   if (section === 'stacks' && !state.stacks.exists) { body.appendChild(emptyNote(T('empty.no_compose', { path: state.stacks.root }))); return; }
   if (section === 'trash') renderTrash(body);
   else renderList(body, section);
@@ -323,30 +364,54 @@ function unfoldBar(body) {
   return bar;
 }
 
+function asleepCallout(disks) {
+  const p = el('p', 'callout');
+  p.append(T('asleep', { disks: disks.join(', ') }), ' ');
+  const b = el('button', 'btn small plain', T('wake'));
+  b.type = 'button';
+  b.disabled = !Office.agent.running || busy;
+  b.onclick = () => scan(true);
+  p.appendChild(b);
+  return p;
+}
+
 function appdataInfo() {
   const a = state.appdata;
   const box = el('div', 'cl-info');
-  const places = a.places.map((p) => p.path).join(', ') || '–';
-  box.appendChild(el('p', 'role', T('appdata.where', { share: a.share, places })));
+  box.appendChild(el('p', 'role', T('share_where', { share: a.share, places: a.places.map((p) => p.path).join(', ') || '–' })));
   if (a.mounters.length) box.appendChild(el('p', 'role', T('appdata.mounters', { names: a.mounters.join(', ') })));
-  if (!a.complete && state.docker) box.appendChild(el('p', 'role', '⏳ ' + T('appdata.checking')));
+  if (!a.complete && state.docker.ok) box.appendChild(el('p', 'role', '⏳ ' + T('appdata.checking')));
   else if (a.flash_at) box.appendChild(el('p', 'role', T('appdata.searched', { when: fmt.relative(a.flash_at) })));
-  if (a.asleep.length) {
-    const p = el('p', 'callout');
-    p.append(T('appdata.asleep', { disks: a.asleep.join(', ') }), ' ');
-    const b = el('button', 'btn small plain', T('appdata.wake'));
-    b.type = 'button';
-    b.disabled = !Office.agent.running || busy;
-    b.onclick = () => scan(true);
-    p.appendChild(b);
-    box.appendChild(p);
-  }
+  if (a.asleep.length) box.appendChild(asleepCallout(a.asleep));
+  return box;
+}
+
+function vmsInfo() {
+  const v = state.vms;
+  const box = el('div', 'cl-info');
+  if (!v.ok) { box.appendChild(el('p', 'callout', T('vms.off'))); return box; }
+  box.appendChild(el('p', 'role', T('vms.count', { n: v.count })));
+  box.appendChild(el('p', 'role', T('share_where', { share: v.domains.share, places: v.domains.places.map((p) => p.path).join(', ') || '–' })));
+  box.appendChild(el('p', 'role', T('vms.isos', { share: v.isos.share, places: v.isos.places.map((p) => p.path).join(', ') || '–' })));
+  if (!v.complete) box.appendChild(el('p', 'role', '⏳ ' + T('appdata.checking')));
+  const asleep = [...new Set([...v.domains.asleep, ...v.isos.asleep])];
+  if (asleep.length) box.appendChild(asleepCallout(asleep));
+  return box;
+}
+
+function dockerInfo() {
+  const box = el('div', 'cl-info');
+  if (!state.docker.ok) { box.appendChild(el('p', 'callout warn', T('notice.docker_down'))); return box; }
+  box.appendChild(el('p', 'role', T('docker.note')));
+  if (state.docker.cache_at) box.appendChild(el('p', 'role', T('docker.cache_at', { when: fmt.relative(state.docker.cache_at) })));
   return box;
 }
 
 function renderList(body, sec) {
-  const list = entries(sec);
-  if (!list.length) { body.appendChild(emptyNote(T('empty.' + sec))); return; }
+  const all = entries(sec);
+  if (!all.length) { body.appendChild(emptyNote(T('empty.' + sec))); return; }
+  const list = all.filter(matches);
+  if (!list.length) { body.appendChild(emptyNote(T('no_match', { query: query.trim() }))); return; }
   const box = el('div', 'box');
   for (const cat of GROUPS[sec]) {
     const items = list.filter((e) => e.category === cat);
@@ -357,13 +422,13 @@ function renderList(body, sec) {
 
 function group(sec, cat, items) {
   const key = `${sec}.${cat}`;
-  const closed = folded[key] ?? CLOSED.includes(cat);
+  const closed = !words().length && (folded[key] ?? CLOSED.includes(cat));      // while filtering, what matches is shown
   const box = el('div', 'group' + (closed ? ' closed' : ''));
   const head = el('div', 'group-head');
   head.tabIndex = 0;
   head.setAttribute('role', 'button');
 
-  // a whole group at once — only where nothing is still in use
+  // a whole group at once (as far as the filter shows it) — only where nothing is still in use
   const can = CLOSED.includes(cat) ? [] : items.filter(selectable);
   const cb = el('input');
   cb.type = 'checkbox';
@@ -387,12 +452,12 @@ function group(sec, cat, items) {
   const title = el('div', 'group-title');
   title.append(el('span', '', T(`cat.${sec}.${cat}`)), chip(fmt.number(items.length), 'quiet'));
   const meta = [T(`cat.${sec}.${cat}_text`)];
-  if (sec !== 'templates' && items.every((e) => e.bytes !== null)) meta.push(fmt.size(sum(items)));     // only when all are measured
+  if (sec !== 'templates' && items.every((e) => e.bytes !== null && e.bytes !== undefined)) meta.push(fmt.size(sum(items)));     // only when all are measured
   mid.append(title, el('div', 'group-meta', meta.join(' · ')));
   head.append(cb, el('span', 'group-arrow', '▼'), mid);
 
-  if (sec === 'appdata' && cat === 'used') {
-    const missing = items.filter((f) => f.bytes === null && !f.measuring);
+  if (cat === 'used' && (sec === 'appdata' || sec === 'vms' || sec === 'docker')) {
+    const missing = items.filter((f) => f.bytes === null && !f.measuring && (f.parts || f.kind === 'volume'));
     if (missing.length) {
       const b = el('button', 'btn small plain', T('measure_n', { n: missing.length }));
       b.type = 'button';
@@ -404,7 +469,7 @@ function group(sec, cat, items) {
   }
 
   const rows = el('div', 'group-rows');
-  items.forEach((e) => rows.appendChild(row(sec, e, sync)));
+  items.forEach((e) => rows.appendChild(row(e, sync)));
   const toggle = () => {
     const now = !box.classList.contains('closed');
     box.classList.toggle('closed', now);
@@ -417,14 +482,29 @@ function group(sec, cat, items) {
   return box;
 }
 
+const VIEWS = {
+  template: () => [templateMeta, templateDetail],
+  stack: () => [stackMeta, stackDetail],
+  appdata: () => [folderMeta, folderDetail],
+  domain: () => [folderMeta, folderDetail],
+  iso: () => [folderMeta, folderDetail],
+  nvram: () => [libvirtMeta, libvirtDetail],
+  tpm: () => [libvirtMeta, libvirtDetail],
+  snapshotdb: () => [libvirtMeta, libvirtDetail],
+  image: () => [imageMeta, imageDetail],
+  volume: () => [volumeMeta, volumeDetail],
+  cache: () => [cacheMeta, cacheDetail],
+};
+
 /** A row: the checkbox selects, a click anywhere else unfolds the details */
-function row(sec, e, groupSync) {
+function row(e, groupSync) {
+  const [metaFn, detailFn] = VIEWS[e.kind]();
   const r = el('div', 'row unfolds' + (selection.has(e.id) ? ' selected' : ''));
   const cb = el('input');
   cb.type = 'checkbox';
   cb.checked = selection.has(e.id);
   cb.disabled = !selectable(e);
-  cb.setAttribute('aria-label', T('select_one', { name: label(sec, e) }));
+  cb.setAttribute('aria-label', T('select_one', { name: label(e) }));
   cb.onchange = () => {
     if (cb.checked) selection.add(e.id); else selection.delete(e.id);
     r.classList.toggle('selected', cb.checked);
@@ -433,11 +513,11 @@ function row(sec, e, groupSync) {
   };
 
   const main = el('div', 'row-main');
-  const name = el('div', 'row-name link', label(sec, e));
+  const name = el('div', 'row-name link', label(e));
   name.title = T('details');
   const meta = el('div', 'row-meta');
   const figures = el('div', 'figures');
-  ({ templates: templateMeta, stacks: stackMeta, appdata: folderMeta })[sec](e, meta, figures);
+  metaFn(e, meta, figures);
   const why = whyChip(e);
   if (why) meta.appendChild(why);
   main.append(name, meta);
@@ -445,7 +525,7 @@ function row(sec, e, groupSync) {
   const more = el('button', 'more', '⋯');
   more.type = 'button';
   more.setAttribute('aria-label', T('actions'));
-  const items = menuItems(sec, e);
+  const items = menuItems(e);
   more.disabled = !items.length;
   more.onclick = (ev) => { ev.stopPropagation(); Office.menu(ev, items); };
   r.append(cb, main, figures, more);
@@ -455,7 +535,7 @@ function row(sec, e, groupSync) {
     if (!open && box) { box.remove(); box = null; expanded.delete(e.id); r.classList.remove('open'); }
     if (open && !box) {
       box = el('div', 'row-detail');
-      box.appendChild(({ templates: templateDetail, stacks: stackDetail, appdata: folderDetail })[sec](e));
+      box.appendChild(detailFn(e));
       r.appendChild(box);
       expanded.add(e.id);
       r.classList.add('open');
@@ -471,14 +551,21 @@ function row(sec, e, groupSync) {
   return r;
 }
 
-function menuItems(sec, e) {
+function menuItems(e) {
   const items = [];
-  if (sec === 'templates') items.push({ text: T('show_xml'), act: () => showFile(sec, e) });
-  if (sec === 'stacks' && e.file) items.push({ text: T('show_compose'), act: () => showFile(sec, e) });
-  if (sec === 'appdata') items.push({ text: T('measure_again'), act: () => measure([e.id]), disabled: !Office.agent.running || e.measuring });
-  const path = sec === 'templates' ? e.path : sec === 'stacks' ? e.dir : (e.parts[0] || {}).path;
+  if (e.kind === 'template') items.push({ text: T('show_xml'), act: () => showFile(e) });
+  if (e.kind === 'stack' && e.file) items.push({ text: T('show_compose'), act: () => showFile(e) });
+  if (e.parts && !e.parts.every((p) => p.file) || (e.kind === 'volume' && e.path)) {
+    items.push({ text: T('measure_again'), act: () => measure([e.id]), disabled: !Office.agent.running || e.measuring });
+  }
+  const path = e.kind === 'template' ? e.path : e.kind === 'stack' ? e.dir : e.parts ? (e.parts[0] || {}).path : e.path;
   if (path) items.push({ text: Office.t('common.copy_path'), act: () => Office.copy(path) });
   return items;
+}
+
+function sizeFigures(e, figures, unit) {
+  if (e.bytes !== null && e.bytes !== undefined) figures.append(el('b', '', fmt.size(e.bytes)), el('span', '', unit));
+  else if (e.measuring) figures.append(el('b', '', '…'), el('span', '', T('measuring')));
 }
 
 // ------------------------------------------------------------------ templates
@@ -560,16 +647,17 @@ function stackDetail(s) {
   return box;
 }
 
-// ------------------------------------------------------------------ appdata
+// ------------------------------------------------------------------ folders (appdata, domains) and disk images
 function folderMeta(f, meta, figures) {
   usedChips(f.used_by, f.used_more).forEach((c) => meta.appendChild(c));
   noteChips(f).forEach((c) => meta.appendChild(c));
   if (f.parts.length > 1) meta.appendChild(chip(f.parts.map((p) => p.root).join(' + '), 'quiet', T('parts_text')));
+  if (f.parts.some((p) => p.dataset)) meta.appendChild(chip(T('zfs'), 'quiet', T('zfs_text', { name: f.parts.map((p) => p.dataset).filter(Boolean).join(', ') })));
   const bc = Office.backupChip(f.parts[0] && f.parts[0].backup);
   if (bc) meta.appendChild(bc);
   if (f.newest) meta.appendChild(el('span', '', T('changed', { when: fmt.relative(f.newest) })));
   if (f.bytes !== null) {
-    figures.append(el('b', '', fmt.size(f.bytes)), el('span', '', T('files', { n: f.files })));
+    figures.append(el('b', '', fmt.size(f.bytes)), el('span', '', f.kind === 'iso' ? T('on_disk') : T('files', { n: f.files })));
     if (f.partial) figures.title = T('partial');
   } else if (f.measuring) {
     figures.append(el('b', '', '…'), el('span', '', T('measuring')));
@@ -580,35 +668,112 @@ function folderDetail(f) {
   const box = el('div');
   const by = f.used_by.map((u) => `${KIND_ICONS[u.kind] || '•'} ${T('kind.' + u.kind)}: ${u.name}${u.weak ? ' (' + T('weak') + ')' : ''}`);
   if (f.used_more) by.push(T('more_names', { n: f.used_more }));
+  const file = f.kind === 'iso';
   box.appendChild(kv([
     [T('d.where'), lines(f.parts.map((p) => p.path + (p.dataset ? `  (${T('d.dataset', { name: p.dataset })})` : '')))],
-    [T('d.size'), f.bytes !== null ? `${fmt.size(f.bytes)} · ${T('files', { n: f.files })}${f.partial ? ' · ' + T('partial') : ''}` : (f.measuring ? T('measuring') : T('d.not_measured'))],
-    [T('d.newest'), when(f.newest)],
-    [T('d.measured'), f.measured_at ? fmt.relative(f.measured_at) : ''],
+    [T('d.size'), f.bytes !== null ? `${fmt.size(f.bytes)}${file ? '' : ' · ' + T('files', { n: f.files })}${f.partial ? ' · ' + T('partial') : ''}` : (f.measuring ? T('measuring') : T('d.not_measured'))],
+    [T(file ? 'd.changed' : 'd.newest'), when(f.newest)],
+    [T('d.measured'), !file && f.measured_at ? fmt.relative(f.measured_at) : ''],
     [T('d.newest_files'), f.top.length ? lines(f.top.map(([t, p]) => `${fmt.date(t)}  ${p}`)) : null],
-    [T('d.used_by'), by.length ? lines(by) : T('d.used_by_none')],
+    [T('d.used_by'), by.length ? lines(by) : T(f.kind === 'appdata' ? 'd.used_by_none' : 'd.used_by_none_vm')],
   ]));
-  for (const n of f.notes) {
-    const text = n.why === 'same_name' ? T('note.same_name_text') : n.why === 'weak' ? T('note.weak_text', { names: n.names.join(', ') }) : T('note.fresh_text', { days: 30 });
-    box.appendChild(el('p', 'role', text));
-  }
+  (f.notes || []).forEach((n) => box.appendChild(el('p', 'role', noteText(n))));
+  if (f.parts.some((p) => p.dataset)) box.appendChild(el('p', 'role', T('zfs_note')));
   return box;
+}
+
+// ------------------------------------------------------------------ libvirt leftovers
+function libvirtMeta(o, meta, figures) {
+  meta.appendChild(chip(T('lv.' + o.kind), '', T('lv.' + o.kind + '_text')));
+  if (o.snapshot) meta.appendChild(chip(T('lv.snapshot'), 'quiet', T('lv.snapshot_text')));
+  if (o.mtime) meta.appendChild(el('span', '', T('changed', { when: fmt.relative(o.mtime) })));
+  figures.append(el('b', '', fmt.size(o.bytes)), el('span', '', ''));
+}
+
+function libvirtDetail(o) {
+  const box = el('div');
+  box.appendChild(kv([
+    [T('d.where'), o.path, true],
+    [T('d.uuid'), o.uuid, true],
+    [T('d.changed'), when(o.mtime)],
+    [T('d.size'), fmt.size(o.bytes)],
+  ]));
+  box.appendChild(el('p', 'role', T('lv.' + o.kind + '_text') + ' ' + T('lv.orphan_text')));
+  return box;
+}
+
+// ------------------------------------------------------------------ Docker's leftovers
+function imageMeta(i, meta, figures) {
+  if (!i.refs.length) meta.appendChild(chip(T('img.dangling'), 'warn', T('img.dangling_text')));
+  if (i.refs.length > 1) meta.appendChild(chip(T('img.tags', { n: i.refs.length }), 'quiet', i.refs.join('\n')));
+  usedChips(i.used_by).forEach((c) => meta.appendChild(c));
+  noteChips(i).forEach((c) => meta.appendChild(c));
+  if (i.created) meta.appendChild(el('span', '', T('img.created', { when: fmt.relative(i.created) })));
+  sizeFigures(i, figures, '');
+}
+
+function imageDetail(i) {
+  const box = el('div');
+  box.appendChild(kv([
+    [T('d.id'), i.image_id, true],
+    [T('d.tags'), i.refs.length ? lines(i.refs) : T('img.dangling')],
+    [T('d.created'), when(i.created)],
+    [T('d.size'), i.bytes !== null ? fmt.size(i.bytes) : ''],
+    [T('d.used_by'), i.used_by.length ? i.used_by.map((u) => u.name) : T('d.none')],
+  ]));
+  (i.notes || []).forEach((n) => box.appendChild(el('p', 'role', noteText(n))));
+  if (i.category !== 'used') box.appendChild(el('p', 'role', T(i.refs.length ? 'img.pull_again' : 'img.dangling_text')));
+  return box;
+}
+
+function volumeMeta(v, meta, figures) {
+  if (v.anonymous) meta.appendChild(chip(T('vol.anonymous'), 'quiet', T('vol.anonymous_text')));
+  usedChips(v.used_by).forEach((c) => meta.appendChild(c));
+  noteChips(v).forEach((c) => meta.appendChild(c));
+  if (v.created) meta.appendChild(el('span', '', T('img.created', { when: fmt.relative(v.created) })));
+  sizeFigures(v, figures, v.files !== null && v.files !== undefined ? T('files', { n: v.files }) : '');
+}
+
+function volumeDetail(v) {
+  const box = el('div');
+  box.appendChild(kv([
+    [T('d.name'), v.name, true],
+    [T('d.mountpoint'), v.path, true],
+    [T('d.driver'), v.driver],
+    [T('d.created'), when(v.created)],
+    [T('d.size'), v.bytes !== null ? `${fmt.size(v.bytes)} · ${T('files', { n: v.files })}` : (v.measuring ? T('measuring') : T('d.not_measured'))],
+    [T('d.newest'), when(v.newest)],
+    [T('d.used_by'), v.used_by.length ? v.used_by.map((u) => u.name) : T('d.none')],
+  ]));
+  (v.notes || []).forEach((n) => box.appendChild(el('p', 'role', noteText(n))));
+  if (v.category !== 'used') box.appendChild(el('p', 'role', T('vol.data_text')));
+  return box;
+}
+
+function cacheMeta(c, meta, figures) {
+  meta.appendChild(el('span', '', T('cache.meta', { size: fmt.size(c.bytes), total: fmt.size(c.total) })));
+  figures.append(el('b', '', fmt.size(c.bytes)), el('span', '', ''));
+}
+
+function cacheDetail() {
+  return el('p', 'role', T('cache.text'));
 }
 
 // ------------------------------------------------------------------ selection
 function updateSelbar() {
   if (!view || !section || section === 'trash' || !selection.size) { Office.selbar(null); return; }
   const list = entries(section).filter((e) => selection.has(e.id));
+  if (!list.length) { Office.selbar(null); return; }
   const bytes = sum(list);
   const forced = list.filter((e) => e.force).length;
   const sub = [section !== 'templates' && bytes ? fmt.size(bytes) : '', forced ? T('selected_in_use', { n: forced }) : ''].filter(Boolean).join(' · ');
+  const go = section === 'docker'
+    ? { text: T('remove.button'), kind: 'danger', act: removeDialog, disabled: !Office.agent.running || busy }
+    : { text: T('park.button'), kind: '', act: parkDialog, disabled: !Office.agent.running || busy || !state || state.backup_running };
   Office.selbar({
     title: T('selected', { n: list.length }),
     sub,
-    buttons: [
-      { text: T('clear'), kind: 'plain', act: () => { selection.clear(); renderSection(); updateSelbar(); } },
-      { text: T('park.button'), kind: '', act: parkDialog, disabled: !Office.agent.running || busy || !state || state.backup_running },
-    ],
+    buttons: [{ text: T('clear'), kind: 'plain', act: () => { selection.clear(); renderSection(); updateSelbar(); } }, go],
   });
 }
 
@@ -631,7 +796,7 @@ async function measure(ids) {
   setState(j.state);
 }
 
-async function showFile(sec, e) {
+async function showFile(e) {
   const j = await Office.api.post(`${ID}.detail`, { id: e.id });
   if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return; }
   const box = el('div');
@@ -641,7 +806,17 @@ async function showFile(sec, e) {
   });
   if (!j.files.length) box.appendChild(el('p', 'role', T('stack.no_file')));
   if (j.env) box.appendChild(el('p', 'role', T('env_hidden', { path: j.env })));
-  Office.dialog({ title: label(sec, e), body: box, wide: true });
+  Office.dialog({ title: label(e), body: box, wide: true });
+}
+
+function shortlist(list) {
+  const ul = el('ul', 'shortlist');
+  list.forEach((e) => {
+    const li = el('li', '', label(e));
+    li.appendChild(el('span', '', e.bytes !== null && e.bytes !== undefined && e.kind !== 'template' ? fmt.size(e.bytes) : ''));
+    ul.appendChild(li);
+  });
+  return ul;
 }
 
 function parkDialog() {
@@ -651,16 +826,11 @@ function parkDialog() {
   const forced = list.filter((e) => e.force);
   const box = el('div');
   box.appendChild(el('p', '', T('park.text_' + sec, { n: list.length })));
-  const ul = el('ul', 'shortlist');
-  list.forEach((e) => {
-    const li = el('li', '', label(sec, e));
-    li.appendChild(el('span', '', e.bytes !== null && e.bytes !== undefined && sec !== 'templates' ? fmt.size(e.bytes) : ''));
-    ul.appendChild(li);
-  });
-  box.appendChild(ul);
+  box.appendChild(shortlist(list));
   const running = sec === 'stacks' ? list.filter((s) => s.containers.length) : [];
   if (running.length) box.appendChild(el('p', 'callout', T('park.down', { names: running.map((s) => s.folder).join(', ') })));
-  if (forced.length) box.appendChild(el('p', 'callout warn', T('park.in_use_' + sec, { names: forced.map((e) => label(sec, e)).join(', ') })));
+  if (forced.length) box.appendChild(el('p', 'callout warn', T('park.in_use_' + sec, { names: forced.map(label).join(', ') })));
+  if (list.some((e) => e.parts && e.parts.some((p) => p.dataset))) box.appendChild(el('p', 'role', T('park.zfs')));
   box.appendChild(el('p', 'role', T('park.where_' + sec)));
   Office.dialog({
     title: T('park.title', { n: list.length }),
@@ -681,6 +851,36 @@ function parkDialog() {
   });
 }
 
+/** Docker's leftovers: no storeroom, removed for good */
+function removeDialog() {
+  const list = entries('docker').filter((e) => selection.has(e.id));
+  if (!list.length) return;
+  const box = el('div');
+  box.appendChild(el('p', '', T('remove.text', { n: list.length, size: fmt.size(sum(list)) })));
+  box.appendChild(shortlist(list));
+  const volumes = list.filter((e) => e.kind === 'volume');
+  if (volumes.length) box.appendChild(el('p', 'callout warn', T('remove.volumes', { n: volumes.length })));
+  if (list.some((e) => e.kind === 'image')) box.appendChild(el('p', 'role', T('remove.images')));
+  box.appendChild(el('p', 'callout warn', T('purge.final')));
+  Office.dialog({
+    title: T('remove.title', { n: list.length }),
+    body: box,
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('remove.go'), kind: 'danger', act: async () => {
+        busy = true;
+        const j = await Office.api.post(`${ID}.remove`, { ids: list.map((e) => e.id) });
+        busy = false;
+        if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return true; }
+        selection.clear();
+        setState(j.state);
+        report(j.results, 'remove');
+        return true;
+      } },
+    ],
+  });
+}
+
 /** One toast when all went well, the list of what failed otherwise */
 function report(results, what) {
   const failed = results.filter((r) => !r.ok);
@@ -693,8 +893,10 @@ function report(results, what) {
 function renderTrash(body) {
   const runs = state.trash.runs;
   if (!runs.length) { body.appendChild(emptyNote(T('empty.trash'))); return; }
+  const shownRuns = runs.filter((r) => !words().length || r.items.some(matches));
+  if (!shownRuns.length) { body.appendChild(emptyNote(T('no_match', { query: query.trim() }))); return; }
   const box = el('div', 'box');
-  runs.forEach((run) => box.appendChild(trashGroup(run)));
+  shownRuns.forEach((run) => box.appendChild(trashGroup(run)));
   body.appendChild(box);
 }
 
@@ -724,7 +926,7 @@ function trashGroup(run) {
   }
   const rows = el('div', 'group-rows');
   if (!run.items.length) rows.appendChild(el('div', 'row nocheck', T('trash.no_items')));
-  run.items.forEach((it) => rows.appendChild(trashRow(run, it)));
+  run.items.filter(matches).forEach((it) => rows.appendChild(trashRow(run, it)));
   const toggle = () => {
     const now = !box.classList.contains('closed');
     box.classList.toggle('closed', now);
@@ -742,10 +944,11 @@ function trashRow(run, it) {
   const main = el('div', 'row-main');
   main.appendChild(el('div', 'row-name', it.name));
   const meta = el('div', 'row-meta');
-  meta.appendChild(chip(`${{ template: '📄', stack: '🧩', appdata: '🗃️' }[it.kind] || '•'} ${T('item.' + it.kind)}`, 'quiet'));
-  if (it.label && it.label !== it.name && it.kind !== 'appdata') meta.appendChild(el('span', '', it.label));
+  meta.appendChild(chip(`${ITEM_ICONS[it.kind] || '•'} ${T('item.' + it.kind)}`, 'quiet'));
+  if (it.label && it.label !== it.name && ['template', 'stack'].includes(it.kind)) meta.appendChild(el('span', '', it.label));
   if (it.from) meta.appendChild(el('span', 'mono', T('item.from', { path: it.from })));
   else if (!run.legacy) meta.appendChild(el('span', '', T('item.no_manifest')));
+  if (it.zfs) meta.appendChild(chip(T('zfs'), 'quiet', T('item.zfs', { name: it.zfs })));
   if (!it.present) meta.appendChild(chip(T('item.gone'), 'warn', T('item.gone_text')));
   if (it.volumes.length) meta.appendChild(chip(T('stack.volumes', { n: it.volumes.length }), 'quiet', T('item.volumes_text', { names: it.volumes.join(', ') })));
   main.appendChild(meta);
@@ -803,7 +1006,8 @@ function purgeDialog(runs) {
   };
   const volBox = vols.length ? option(T('purge.volumes', { n: vols.length }), T('purge.volumes_hint', { names: vols.join(', ') })) : null;
   const imgBox = imgs.length ? option(T('purge.images', { n: imgs.length }), T('purge.images_hint', { names: imgs.join(', ') })) : null;
-  if (runs.some((r) => r.where === 'appdata')) box.appendChild(el('p', 'role', T('purge.snapshots')));
+  if (items.some((it) => it.zfs)) box.appendChild(el('p', 'role', T('purge.zfs')));
+  if (runs.some((r) => ['appdata', 'domains', 'isos'].includes(r.where))) box.appendChild(el('p', 'role', T('purge.snapshots')));
   box.appendChild(el('p', 'callout warn', T('purge.final')));
   Office.dialog({
     title: T('purge.title', { n: runs.length }),

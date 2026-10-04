@@ -8,7 +8,6 @@
   "greet.4": "Keine Sorge, ich werfe nie etwas gleich weg — erst kommt alles in meine Abstellkammer. Man weiss ja nie.",
   "greet.5": "Jedes Ding an seinen Platz!",
   "fit.yes": "Frau Putzteufel krempelt schon die Ärmel hoch: «Docker? Dann liegt irgendwo Staub — den finde ich!»",
-  "fit.no_docker": "Frau Putzteufel hat sich umgesehen: Ohne Docker gibt es bei dir nichts zu putzen. «Wie ordentlich!», sagte sie, fast ein bisschen enttäuscht.",
   "fire_note": "Was in ihrer Abstellkammer liegt, bleibt dort, bis du sie leerst — in den Ordnern _UnraidSecretaryOffice-trash auf dem Flash und in appdata.",
   "check.docker": "Docker läuft (Frau Putzteufel vergleicht Templates, Stacks und Ordner mit den Containern)",
   "check.docker_how": "Starte Docker unter Einstellungen → Docker. Ohne Antwort von Docker sähe jedes Template ungenutzt aus — darum ändert sie dann nichts.",
@@ -210,12 +209,9 @@
   "stack.autostart_text": "Autostart ist an, aber es gibt keine Container.",
   "stack.raw": "docker compose konnte diesen Stack nicht lesen — Pfade und Images sind direkt aus den Dateien gelesen.",
   "stack.down_note": "Beim Wegstellen wird er zuerst mit docker compose down gestoppt (Named Volumes bleiben).",
-  "appdata.where": "Share «{share}»: {places}",
   "appdata.mounters": "Mounten die ganze Share, das sagt nichts über einzelne Ordner (nicht gezählt): {names}",
   "appdata.checking": "Ich suche noch auf dem Flash nach Erwähnungen — danach lassen sich Ordner wegstellen.",
   "appdata.searched": "Flash durchsucht {when}.",
-  "appdata.asleep": "Ein Teil der Share kann auf schlafenden Disks liegen ({disks}) — dort habe ich nicht nachgeschaut.",
-  "appdata.wake": "Wecken & schauen",
   "park.button": "In die Abstellkammer…",
   "park.title": {
     "one": "1 Sache wegstellen?",
@@ -324,10 +320,6 @@
     "one": "1 Stack",
     "other": "{n} Stacks"
   },
-  "bubble.folders": {
-    "one": "1 appdata-Ordner ({size})",
-    "other": "{n} appdata-Ordner ({size})"
-  },
   "bubble.trash": "In meiner Abstellkammer liegen {size}.",
   "bubble.busy": "Ich messe im Hintergrund noch.",
   "fact.templates": {
@@ -337,10 +329,6 @@
   "fact.stacks": {
     "one": "1 Stack zum Anschauen",
     "other": "{n} Stacks zum Anschauen"
-  },
-  "fact.folders": {
-    "one": "1 appdata-Ordner zum Anschauen · {size}",
-    "other": "{n} appdata-Ordner zum Anschauen · {size}"
   },
   "fact.trash": "Abstellkammer: {size}",
   "help.order": "Reihenfolge",
@@ -370,5 +358,160 @@
   "errors.cleanup_target_exists": "{path} gibt es schon.",
   "errors.cleanup_move_failed": "Konnte {path} nicht verschieben: {detail}",
   "errors.cleanup_no_way_back": "{name} lässt sich nicht zurücklegen — es ist nicht verzeichnet, woher es kommt.",
-  "errors.cleanup_no_home": "{path} gibt es nicht mehr."
+  "errors.cleanup_no_home": "{path} gibt es nicht mehr.",
+  "fit.nothing": "Frau Putzteufel hat sich umgesehen: Ohne Docker und ohne VMs gibt es bei dir nichts zu putzen. «Wie ordentlich!», sagte sie, fast ein bisschen enttäuscht.",
+  "share_where": "Share «{share}»: {places}",
+  "asleep": "Ein Teil davon kann auf schlafenden Disks liegen ({disks}) — dort habe ich nicht nachgeschaut.",
+  "wake": "Wecken & schauen",
+  "section.vms": "VMs",
+  "section.vms_sub": "Was gelöschte VMs hinterlassen haben — und Abbilder, die keine VM benutzt.",
+  "section.docker": "Docker-Reste",
+  "section.docker_sub": "Images, die kein Container benutzt, Volumes ohne Container, der Build-Cache.",
+  "tile.vm_off": "VM-Dienst aus",
+  "cat.vms.orphan": "Ohne ihre VM",
+  "cat.vms.orphan_text": "NVRAM, TPM-Zustand oder Snapshot-Liste einer VM, die es nicht mehr gibt",
+  "cat.vms.unused": "Ordner ohne VM",
+  "cat.vms.unused_text": "In der domains-Share, und keine VM benutzt sie",
+  "cat.vms.check": "Bitte prüfen",
+  "cat.vms.check_text": "Keine VM benutzt sie, aber etwas spricht dagegen, sie blind wegzuräumen",
+  "cat.vms.media": "Abbilder, die keine VM benutzt",
+  "cat.vms.media_text": "In der isos-Share — oft absichtlich aufbewahrt, du entscheidest",
+  "cat.vms.unknown": "Kann ich nicht sagen",
+  "cat.vms.unknown_text": "Der VM-Dienst läuft nicht",
+  "cat.vms.used": "In Betrieb",
+  "cat.vms.used_text": "Von einer VM benutzt, oder von einem Container, Template oder einer Datei auf dem Flash genannt",
+  "cat.docker.dangling": "Verwaiste Images",
+  "cat.docker.dangling_text": "Ohne Namen und ohne Container — übrig von Updates",
+  "cat.docker.volume": "Volumes ohne Container",
+  "cat.docker.volume_text": "Kein Container mountet sie — darin können noch Daten liegen",
+  "cat.docker.unused": "Ungenutzte Images",
+  "cat.docker.unused_text": "Mit Namen, aber kein Container benutzt sie — lassen sich wieder herunterladen",
+  "cat.docker.cache": "Build-Cache",
+  "cat.docker.cache_text": "Was docker build aufbewahrt hat und nicht mehr braucht",
+  "cat.docker.used": "In Betrieb",
+  "cat.docker.used_text": "Von einem Container benutzt (läuft oder gestoppt)",
+  "park.text_vms": {
+    "one": "Das kommt in meine Abstellkammer:",
+    "other": "Diese {n} Sachen kommen in meine Abstellkammer:"
+  },
+  "park.in_use_vms": "Noch in Betrieb: {names}. Die VM findet es nicht mehr, bis du es zurücklegst.",
+  "park.where_vms": "Ordner und Abbilder bleiben auf ihrem Pool, in _UnraidSecretaryOffice-trash ihrer Share; NVRAM, TPM-Zustände und Snapshot-Listen in libvirt.img (/etc/libvirt/_UnraidSecretaryOffice-trash). Zurücklegen geht jederzeit, bis du die Abstellkammer leerst.",
+  "park.zfs": "ZFS-Datasets werden neben die Abstellkammer umbenannt (_UnraidSecretaryOffice-trash-<Zeit>-<Name>) — sofort, mitsamt ihren Snapshots.",
+  "zfs": "ZFS-Dataset",
+  "zfs_text": "Ein eigenes ZFS-Dataset: {name}",
+  "zfs_note": "Ein eigenes ZFS-Dataset: Ich stelle es mit zfs rename weg — es liegt dann neben der Abstellkammer, mitsamt seinen Snapshots. Leeren zerstört es, Snapshots inklusive.",
+  "on_disk": "belegt",
+  "d.used_by_none_vm": "Nichts nennt es — keine VM, kein Container, kein Template und keine Datei auf dem Flash würde es vermissen.",
+  "vms.off": "Der VM-Dienst läuft nicht (oder libvirt.img ist nicht eingehängt). Ohne ihn kann ich nicht sagen, was zu einer VM gehört, darum lasse ich alles in Ruhe.",
+  "vms.count": {
+    "one": "1 VM ist eingerichtet.",
+    "other": "{n} VMs sind eingerichtet."
+  },
+  "vms.isos": "Abbilder in der Share «{share}»: {places} — nur .iso, .img, .qcow2 und ähnliche; die anderen Dateien dort gehören dir.",
+  "lv.nvram": "NVRAM",
+  "lv.nvram_text": "Die UEFI-Einstellungen der VM (Boot-Einträge, Secure Boot).",
+  "lv.tpm": "TPM-Zustand",
+  "lv.tpm_text": "Das virtuelle TPM der VM (Windows 11, BitLocker-Schlüssel).",
+  "lv.snapshotdb": "Snapshot-Liste",
+  "lv.snapshotdb_text": "Unraids Liste der Snapshots einer VM.",
+  "lv.snapshot": "Snapshot-Kopie",
+  "lv.snapshot_text": "Die NVRAM-Kopie, die ein VM-Snapshot angelegt hat.",
+  "lv.orphan_text": "Eine VM mit dieser UUID oder diesem Namen gibt es nicht mehr.",
+  "img.dangling": "ohne Namen",
+  "img.dangling_text": "Ein Image ohne Namen: übrig geblieben, als eine neuere Version heruntergeladen wurde. Nichts kann es mehr benutzen.",
+  "img.tags": {
+    "one": "1 Tag",
+    "other": "{n} Tags"
+  },
+  "img.created": "erstellt {when}",
+  "img.pull_again": "Kein Container benutzt es. Brauchst du es wieder, lädt Docker es neu herunter.",
+  "note.named_by": {
+    "one": "von 1 genannt",
+    "other": "von {n} genannt"
+  },
+  "note.named_by_text": "Genannt von {names} — beim Neu-Einrichten würde das Image wieder heruntergeladen.",
+  "note.stack_text": "Gehört zum Compose-Stack {name} — er braucht es wieder, wenn er startet.",
+  "note.stack_gone_text": "Gehörte zum Compose-Projekt {name}, das es nicht mehr gibt.",
+  "vol.anonymous": "anonym",
+  "vol.anonymous_text": "Von einem Container selbst angelegt, ohne Namen — meist übrig, nachdem der Container entfernt wurde.",
+  "vol.data_text": "Kein Container mountet es. Was darin liegt, ist nach dem Entfernen endgültig weg.",
+  "cache.name": "Build-Cache",
+  "cache.meta": "{size} von {total} kann weg",
+  "cache.text": "Schichten, die docker build für spätere Builds aufbewahrt. Entfernt wird nur, was kein Image braucht (docker builder prune).",
+  "d.id": "ID",
+  "d.tags": "Tags",
+  "d.created": "Erstellt",
+  "d.mountpoint": "Mountpoint",
+  "d.driver": "Treiber",
+  "d.uuid": "UUID",
+  "docker.note": "Docker kann diese nicht umbenennen, darum kommen sie nicht in meine Abstellkammer: Entfernen ist endgültig. Images lassen sich wieder herunterladen, Volumes nicht.",
+  "docker.cache_at": "Docker nach dem Build-Cache gefragt {when}.",
+  "remove.button": "Entfernen…",
+  "remove.title": {
+    "one": "1 Sache endgültig entfernen?",
+    "other": "{n} Sachen endgültig entfernen?"
+  },
+  "remove.text": {
+    "one": "Das wird endgültig entfernt ({size}):",
+    "other": "Diese {n} Sachen werden endgültig entfernt ({size}):"
+  },
+  "remove.volumes": {
+    "one": "Ein Volume kann Daten enthalten (oft eine Datenbank) — danach ist es weg.",
+    "other": "{n} Volumes können Daten enthalten (oft Datenbanken) — danach sind sie weg."
+  },
+  "remove.images": "Images lassen sich wieder herunterladen, wenn du sie brauchst.",
+  "remove.go": "Endgültig entfernen",
+  "remove.done": {
+    "one": "Entfernt.",
+    "other": "{n} Sachen entfernt."
+  },
+  "remove.some_failed": {
+    "one": "1 Sache liess sich nicht entfernen",
+    "other": "{n} Sachen liessen sich nicht entfernen"
+  },
+  "purge.zfs": "ZFS-Datasets darin werden mitsamt ihren Snapshots zerstört (zfs destroy -r).",
+  "item.domain": "domains-Ordner",
+  "item.iso": "Abbild",
+  "item.nvram": "NVRAM",
+  "item.tpm": "TPM-Zustand",
+  "item.snapshotdb": "Snapshot-Liste",
+  "item.zfs": "ZFS-Dataset {name} — es liegt neben der Abstellkammer",
+  "where.domains": "in domains",
+  "where.isos": "in isos",
+  "where.libvirt": "in libvirt.img",
+  "why.vm_off": "VM-Dienst aus",
+  "why.vm_off_text": "Ohne den VM-Dienst kann ich nicht sagen, was zu einer VM gehört.",
+  "bubble.appdata": {
+    "one": "1 appdata-Ordner ({size})",
+    "other": "{n} appdata-Ordner ({size})"
+  },
+  "bubble.vms": {
+    "one": "1 VM-Rest ({size})",
+    "other": "{n} VM-Reste ({size})"
+  },
+  "bubble.docker": {
+    "one": "1 Docker-Rest ({size})",
+    "other": "{n} Docker-Reste ({size})"
+  },
+  "fact.appdata": {
+    "one": "1 appdata-Ordner zum Anschauen · {size}",
+    "other": "{n} appdata-Ordner zum Anschauen · {size}"
+  },
+  "fact.vms": {
+    "one": "1 VM-Rest · {size}",
+    "other": "{n} VM-Reste · {size}"
+  },
+  "fact.docker": {
+    "one": "1 Docker-Rest · {size}",
+    "other": "{n} Docker-Reste · {size}"
+  },
+  "help.vms_text": "Ordner in der domains-Share, die keine VM benutzt; NVRAM-Dateien, TPM-Zustände und Snapshot-Listen gelöschter VMs (in libvirt.img); Abbilder in der isos-Share, die keine VM eingebunden hat. Nur solange der VM-Dienst läuft. NVRAM-Kopien von Snapshots einer bestehenden VM gehören zu Frau Snapshotini.",
+  "help.docker_text": "Verwaiste Images (übrig von Updates), Images mit Namen, die kein Container benutzt, Volumes, die kein Container mountet, der Build-Cache. Docker kann sie nicht umbenennen, darum werden sie endgültig entfernt — nie, solange ein Container sie noch benutzt.",
+  "errors.cleanup_vm_off": "Der VM-Dienst läuft nicht — ohne ihn fasse ich {name} nicht an.",
+  "errors.cleanup_destroy_failed": "zfs destroy von {name} ist fehlgeschlagen: {detail}",
+  "errors.cleanup_docker_failed": "Docker konnte {name} nicht entfernen: {detail}",
+  "empty.vms": "Nichts da — keine VM-Reste.",
+  "empty.docker": "Nichts da.",
+  "search": "Filtern…",
+  "no_match": "Nichts passt zu «{query}»."
 }

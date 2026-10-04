@@ -4,12 +4,18 @@ declare(strict_types=1);
 /*
  * Ms. Dustdevil — clears away what nobody uses any more.
  *
- * Three kinds of leftovers, best tidied in this order:
+ * What she looks at, best tidied in this order:
  *   templates  my-*.xml in dockerMan's templates-user without a container
  *   stacks     Compose Manager stacks without containers, or broken ones
  *   appdata    first-level folders of the appdata share that nothing names:
  *              container mounts, templates, stacks, compose files, VMs,
  *              anything on the flash (User Scripts, plugin settings …)
+ *   vms        what deleted VMs left behind: folders in the domains share,
+ *              NVRAM files, TPM states and snapshot lists without their VM,
+ *              and disk images in the isos share that no VM uses
+ *   docker     dangling and unused images, volumes without a container,
+ *              the build cache — Docker can't rename these, so they can
+ *              only be removed for good (images can be pulled again)
  *
  * Nothing is deleted right away. What the user clears away is renamed into a
  * trash folder (CL_TRASH) on the same filesystem it lives on — the flash for
@@ -31,10 +37,16 @@ const CL_TEMPLATES    = '/boot/config/plugins/dockerMan/templates-user';
 const CL_COMPOSE_CFG  = '/boot/config/plugins/compose.manager/compose.manager.cfg';
 const CL_COMPOSE_DEF  = '/boot/config/plugins/compose.manager/projects';
 const CL_FLASH        = '/boot/config';
-const CL_LIBVIRT      = '/etc/libvirt/qemu';
+const CL_LIBVIRT      = '/etc/libvirt';             // libvirt.img, mounted while the VM service runs
 const CL_TRASH        = '_UnraidSecretaryOffice-trash';
 const CL_LEGACY       = '_zumloeschen';            // trash of the old unraid-cleanup.sh
-const CL_KINDS        = ['templates', 'compose', 'appdata'];
+// folder in a trash run => kind of what is in it
+const CL_KINDS        = ['templates' => 'template', 'compose' => 'stack', 'appdata' => 'appdata', 'vms' => 'domain', 'isos' => 'iso',
+                         'nvram' => 'nvram', 'tpm' => 'tpm', 'snapshotdb' => 'snapshotdb'];
+const CL_MEDIA        = '/\.(iso|img|qcow2|raw|vhdx?|vmdk|vdi|pat|dmg)$/i';   // what counts as a VM's disk image in the isos share
+const CL_UUID         = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const CL_CACHE_TTL    = 1800;                      // ask Docker for its build cache again after this
+const CL_CACHE_FORMAT = 2;                         // 2: sizes are blocks on disk (1 counted apparent sizes)
 const CL_FRESH_DAYS   = 30;                        // a folder changed since then is only "check"
 const CL_MEASURE_TTL  = 6 * 3600;                  // a candidate's measurement must be this fresh to be put away
 const CL_FLASH_TTL    = 1800;                      // search the flash again after this
@@ -54,7 +66,8 @@ $GLOBALS['clPurgeTries'] = [];
 
 desk('cleanup', [
     'fit'     => fn (): array => (readCfg('/boot/config/docker.cfg')['DOCKER_ENABLED'] ?? 'no') === 'yes'
-                                 ? fit(true, 'yes') : fit(false, 'no_docker'),
+                                 || (readCfg('/boot/config/domain.cfg')['SERVICE'] ?? 'disable') === 'enable'
+                                 ? fit(true, 'yes') : fit(false, 'nothing'),
     'start'   => fn () => clScan(),
     'tick'    => fn () => clJobsTick(),
     'checks'  => fn (): array => clChecks(),
@@ -66,6 +79,7 @@ desk('cleanup', [
         'park'    => fn (array $r) => clPark(idList($r, 'ids'), !empty($r['force'])),
         'restore' => fn (array $r) => clRestore(idList($r, 'ids')),
         'purge'   => fn (array $r) => clPurge(idList($r, 'ids'), !empty($r['volumes']), !empty($r['images'])),
+        'remove'  => fn (array $r) => clRemove(idList($r, 'ids')),
     ],
 ]);
 
@@ -81,27 +95,38 @@ function clScan(bool $wake = false, bool $jobs = true): array
     $t0 = microtime(true);
     $roots = clRoots();
     $asleep = sleepingDisks();
-    $appdata = clAppdataPlaces($roots, $asleep);
-    if ($wake && $appdata['asleep']) {
-        clWake($appdata['asleep']);
+    $domain = readCfg('/boot/config/domain.cfg');
+    $settings = [
+        'appdata' => readCfg('/boot/config/docker.cfg')['DOCKER_APP_CONFIG_PATH'] ?? '/mnt/user/appdata/',
+        'domains' => $domain['DOMAINDIR'] ?? '/mnt/user/domains/',
+        'isos'    => $domain['MEDIADIR'] ?? '/mnt/user/isos/',
+    ];
+    $places = array_map(fn ($path) => clSharePlaces($path, $roots, $asleep), $settings);
+    $sleeping = array_values(array_unique(array_merge(...array_column($places, 'asleep'))));
+    if ($wake && $sleeping) {
+        clWake($sleeping);
         $asleep = sleepingDisks();
-        foreach ($appdata['asleep'] as $name) {
+        foreach ($sleeping as $name) {
             $asleep[$name] = false;            // Unraid's bookkeeping lags behind
         }
-        $appdata = clAppdataPlaces($roots, $asleep);
+        $places = array_map(fn ($path) => clSharePlaces($path, $roots, $asleep), $settings);
     }
     $GLOBALS['clCtx'] = ['roots' => $roots, 'asleep' => $asleep];
 
     $docker = clDocker();
+    $vms = clVmFacts();
     $cache = clCache();
     $raw = [
         'docker'    => $docker,
         'templates' => clTemplates($docker),
         'stacks'    => clStacks($docker, $cache),
-        'appdata'   => $appdata + ['folders' => clAppdataFolders($appdata)],
+        'appdata'   => $places['appdata'] + ['folders' => clShareFolders($places['appdata'])],
+        'domains'   => $places['domains'] + ['folders' => $vms['enabled'] ? clShareFolders($places['domains']) : ['list' => [], 'files' => 0]],
+        'isos'      => $places['isos'] + ['files' => $vms['enabled'] ? clMediaFiles($places['isos']) : []],
         'compose'   => clForeignCompose($docker),
-        'vms'       => clVms(),
-        'trash'     => clTrashRuns($appdata),
+        'vms'       => $vms,
+        'libvirt'   => clLibvirtOrphans($vms),
+        'trash'     => clTrashRuns($places, $vms),
     ];
     clSaveCache($cache);
     $GLOBALS['clRaw'] = $raw;
@@ -111,19 +136,34 @@ function clScan(bool $wake = false, bool $jobs = true): array
         clJobAdd('flash', 'flash', [['grep', '-roI', '--exclude-dir=' . CL_TRASH, '--exclude-dir=' . CL_LEGACY,
                                      '-e', '/mnt/[^"<>[:space:]]*', CL_FLASH]], 300, true);
     }
+    if ($hired && $docker['ok'] && time() - (int) ($cache['build']['at'] ?? 0) > CL_CACHE_TTL) {
+        clJobAdd('cache', 'cache', [['docker', 'system', 'df', '--format', "{{.Type}}\t{{.Size}}\t{{.Reclaimable}}"]], 120);
+    }
     $state = clBuild();
     if ($hired) {
         // candidates are kept measured (their newest change decides); used folders only when asked
-        foreach ($state['appdata']['list'] as $f) {
-            if ($f['category'] !== 'used') {
+        foreach (array_merge($state['appdata']['list'], $state['vms']['list']) as $f) {
+            if ($f['category'] !== 'used' && isset($f['parts'])) {
                 foreach ($f['parts'] as $p) {
-                    clMeasureQueue($p['path'], CL_MEASURE_TTL);
+                    if (empty($p['file'])) {
+                        clMeasureQueue($p['path'], CL_MEASURE_TTL);
+                    }
                 }
+            }
+        }
+        foreach ($state['docker']['list'] as $e) {
+            if ($e['kind'] === 'volume' && $e['category'] !== 'used' && $e['path']) {
+                clMeasureQueue($e['path'], CL_MEASURE_TTL);
             }
         }
         foreach ($state['trash']['runs'] as $run) {
             if (!$run['purging']) {
                 clMeasureQueue($run['path'], PHP_INT_MAX);
+                foreach ($run['items'] as $it) {
+                    if ($it['zfs_path']) {
+                        clMeasureQueue($it['zfs_path'], PHP_INT_MAX);
+                    }
+                }
             }
         }
     }
@@ -206,7 +246,8 @@ function clWake(array $names): void
 
 function clDocker(): array
 {
-    $out = ['ok' => false, 'compose' => false, 'containers' => [], 'images' => [], 'repos' => [], 'volumes' => []];
+    $out = ['ok' => false, 'enabled' => (readCfg('/boot/config/docker.cfg')['DOCKER_ENABLED'] ?? 'no') === 'yes', 'compose' => false,
+            'containers' => [], 'images' => [], 'repos' => [], 'volumes' => [], 'by_id' => [], 'volume_info' => []];
     $docker = bin('docker');
     if (!$docker || !file_exists('/var/run/docker.sock')) {
         return $out;
@@ -228,15 +269,20 @@ function clDocker(): array
         $name = ltrim((string) ($c['Name'] ?? ''), '/');
         $labels = (array) ($c['Config']['Labels'] ?? []);
         $binds = [];
+        $volumes = [];
         foreach ((array) ($c['Mounts'] ?? []) as $m) {
             if (($m['Type'] ?? '') === 'bind' && !empty($m['Source'])) {
                 $binds[] = (string) $m['Source'];
+            } elseif (($m['Type'] ?? '') === 'volume' && !empty($m['Name'])) {
+                $volumes[] = (string) $m['Name'];
             }
         }
         $out['containers'][$name] = [
             'name'      => $name,
             'state'     => (string) ($c['State']['Status'] ?? 'unknown'),
             'image'     => (string) ($c['Config']['Image'] ?? ''),
+            'image_id'  => (string) ($c['Image'] ?? ''),
+            'volumes'   => $volumes,
             'project'   => $labels['com.docker.compose.project'] ?? null,
             'files'     => array_values(array_filter(explode(',', (string) ($labels['com.docker.compose.project.config_files'] ?? '')))),
             'dockerman' => ($labels['net.unraid.docker.managed'] ?? '') === 'dockerman',
@@ -244,24 +290,38 @@ function clDocker(): array
         ];
     }
 
+    // every top-level image (dangling ones too): id => its tags, size, age
     [$exit, $list] = run([$docker, 'image', 'ls', '--no-trunc', '--format', "{{.ID}}\t{{.Repository}}\t{{.Tag}}"], 30);
-    $byId = [];
     foreach ($exit === 0 ? rows($list) : [] as $f) {
-        if (count($f) >= 3 && $f[1] !== '<none>' && $f[2] !== '<none>') {
+        if (count($f) < 3) {
+            continue;
+        }
+        $out['by_id'][$f[0]] ??= ['id' => $f[0], 'refs' => [], 'bytes' => null, 'created' => null];
+        if ($f[1] !== '<none>' && $f[2] !== '<none>') {
             $out['images'][clNormImage("$f[1]:$f[2]")] = ['ref' => "$f[1]:$f[2]", 'id' => $f[0], 'bytes' => null, 'used_by' => []];
-            $byId[$f[0]] = true;
+            $out['by_id'][$f[0]]['refs'][] = "$f[1]:$f[2]";
         }
     }
-    if ($byId) {
-        [$exit, $sizes] = run(array_merge([$docker, 'image', 'inspect', '--format', "{{.Id}}\t{{.Size}}"], array_keys($byId)), 30);
-        $size = [];
+    [$exit, $list] = run([$docker, 'image', 'ls', '--no-trunc', '--filter', 'dangling=true', '--format', '{{.ID}}'], 30);
+    foreach ($exit === 0 ? rows($list) : [] as $f) {
+        $out['by_id'][$f[0]] ??= ['id' => $f[0], 'refs' => [], 'bytes' => null, 'created' => null];
+    }
+    foreach ($data as $c) {                      // pinned by digest, these don't show up in "image ls" at all
+        $id = (string) ($c['Image'] ?? '');
+        if ($id !== '') {
+            $out['by_id'][$id] ??= ['id' => $id, 'refs' => [], 'bytes' => null, 'created' => null];
+        }
+    }
+    if ($out['by_id']) {
+        [$exit, $sizes] = run(array_merge([$docker, 'image', 'inspect', '--format', "{{.Id}}\t{{.Size}}\t{{.Created}}"], array_keys($out['by_id'])), 30);
         foreach ($exit === 0 ? rows($sizes) : [] as $f) {
-            if (count($f) >= 2) {
-                $size[$f[0]] = (int) $f[1];
+            if (count($f) >= 3 && isset($out['by_id'][$f[0]])) {
+                $out['by_id'][$f[0]]['bytes'] = (int) $f[1];
+                $out['by_id'][$f[0]]['created'] = strtotime($f[2]) ?: null;
             }
         }
         foreach ($out['images'] as &$img) {
-            $img['bytes'] = $size[$img['id']] ?? null;
+            $img['bytes'] = $out['by_id'][$img['id']]['bytes'] ?? null;
         }
         unset($img);
     }
@@ -278,6 +338,19 @@ function clDocker(): array
     [$exit, $vols] = run([$docker, 'volume', 'ls', '--format', "{{.Name}}\t{{.Label \"com.docker.compose.project\"}}"], 30);
     foreach ($exit === 0 ? rows($vols) : [] as $f) {
         $out['volumes'][$f[0]] = $f[1] ?? '';
+    }
+    if ($out['volumes']) {
+        [$exit, $json] = run(array_merge([$docker, 'volume', 'inspect'], array_map('strval', array_keys($out['volumes']))), 30);
+        foreach ($exit === 0 ? (json_decode($json, true) ?: []) : [] as $v) {
+            $labels = (array) ($v['Labels'] ?? []);
+            $out['volume_info'][(string) $v['Name']] = [
+                'path'      => (string) ($v['Mountpoint'] ?? ''),
+                'created'   => strtotime((string) ($v['CreatedAt'] ?? '')) ?: null,
+                'anonymous' => array_key_exists('com.docker.volume.anonymous', $labels) || preg_match('/^[0-9a-f]{64}$/', (string) $v['Name']) === 1,
+                'project'   => $labels['com.docker.compose.project'] ?? null,
+                'driver'    => (string) ($v['Driver'] ?? 'local'),
+            ];
+        }
     }
     $out['compose'] = run([$docker, 'compose', 'version'], 15)[0] === 0;
     $out['ok'] = true;
@@ -561,7 +634,7 @@ function clStacks(array $docker, array &$cache): array
         $volumes = [];
         foreach ($docker['volumes'] as $v => $proj) {
             if ($proj !== '' && ($proj === $s['project'] || in_array($proj, $s['alts'], true))) {
-                $volumes[] = $v;
+                $volumes[] = (string) $v;
             }
         }
         $imgs = array_map(fn ($i) => ['ref' => $i, 'local' => clImageLocal($i, $docker),
@@ -650,22 +723,108 @@ function clForeignCompose(array $docker): array
     return $found;
 }
 
-function clVms(): array
+// --------------------------------------------------------------------- VMs
+
+/** The VMs libvirt knows (its XML files), only while the VM service runs — without it nothing about VMs can be told */
+function clVmFacts(): array
 {
-    $vms = [];
-    foreach (glob(CL_LIBVIRT . '/*.xml') ?: [] as $f) {
-        $vms[basename($f, '.xml')] = clMntPaths((string) @file_get_contents($f, false, null, 0, 1 << 20));
+    $enabled = (readCfg('/boot/config/domain.cfg')['SERVICE'] ?? 'disable') === 'enable';
+    $mounted = false;
+    foreach (mountTable() as $m) {
+        $mounted = $mounted || $m['mount'] === CL_LIBVIRT;
     }
-    return $vms;
+    $out = ['enabled' => $enabled, 'ok' => $enabled && $mounted && is_dir(CL_LIBVIRT . '/qemu'), 'vms' => []];
+    foreach ($out['ok'] ? (glob(CL_LIBVIRT . '/qemu/*.xml') ?: []) : [] as $f) {
+        $xml = (string) @file_get_contents($f, false, null, 0, 1 << 20);
+        $name = preg_match('#<name>([^<]+)</name>#', $xml, $m) ? html_entity_decode(trim($m[1]), ENT_QUOTES | ENT_XML1) : basename($f, '.xml');
+        $out['vms'][$name] = [
+            'name'  => $name,
+            'uuid'  => preg_match('#<uuid>\s*(' . CL_UUID . ')\s*</uuid>#i', $xml, $m) ? strtolower($m[1]) : null,
+            'nvram' => preg_match('#<nvram[^>]*>([^<]+)</nvram>#', $xml, $m) ? trim(html_entity_decode($m[1], ENT_QUOTES | ENT_XML1)) : null,
+            'mnt'   => clMntPaths(html_entity_decode($xml, ENT_QUOTES | ENT_XML1)),
+        ];
+    }
+    return $out;
+}
+
+/**
+ * What deleted VMs left in libvirt.img: NVRAM files and TPM states of a UUID
+ * no VM has, snapshot lists of a name no VM has. NVRAM copies of an existing
+ * VM's snapshots belong to its snapshots (Ms. Snapshotini), not here.
+ */
+function clLibvirtOrphans(array $vms): array
+{
+    if (!$vms['ok']) {
+        return [];
+    }
+    $uuids = [];
+    $nvrams = [];
+    foreach ($vms['vms'] as $v) {
+        if ($v['uuid']) {
+            $uuids[$v['uuid']] = true;
+        }
+        if ($v['nvram']) {
+            $nvrams[$v['nvram']] = true;
+        }
+    }
+    $out = [];
+    foreach (glob(CL_LIBVIRT . '/qemu/nvram/*') ?: [] as $f) {
+        if (is_file($f) && !isset($nvrams[$f]) && preg_match('/^(' . CL_UUID . ')(S\d{14})?_VARS/i', basename($f), $m) && !isset($uuids[strtolower($m[1])])) {
+            $out[] = ['kind' => 'nvram', 'name' => basename($f), 'path' => $f, 'uuid' => strtolower($m[1]), 'snapshot' => !empty($m[2]),
+                      'bytes' => (int) @filesize($f), 'mtime' => (int) @filemtime($f)];
+        }
+    }
+    foreach (glob(CL_LIBVIRT . '/qemu/swtpm/tpm-states/*', GLOB_ONLYDIR) ?: [] as $d) {
+        if (preg_match('/^' . CL_UUID . '$/i', basename($d)) && !isset($uuids[strtolower(basename($d))]) && !is_link($d)) {
+            $out[] = ['kind' => 'tpm', 'name' => basename($d), 'path' => $d, 'uuid' => strtolower(basename($d)), 'snapshot' => false,
+                      'bytes' => clDirBytes($d), 'mtime' => clNewest($d)];
+        }
+    }
+    foreach (glob(CL_LIBVIRT . '/qemu/snapshotdb/*', GLOB_ONLYDIR) ?: [] as $d) {
+        if (!isset($vms['vms'][basename($d)]) && !is_link($d)) {
+            $out[] = ['kind' => 'snapshotdb', 'name' => basename($d), 'path' => $d, 'uuid' => null, 'snapshot' => false,
+                      'bytes' => clDirBytes($d), 'mtime' => clNewest($d)];
+        }
+    }
+    return $out;
+}
+
+/** Newest change in a small folder */
+function clNewest(string $dir): int
+{
+    $t = (int) @filemtime($dir);
+    foreach (glob("$dir/*") ?: [] as $f) {
+        $t = max($t, (int) @filemtime($f));
+    }
+    return $t;
+}
+
+/** Disk images at the first level of the isos share (other files there are the user's business) */
+function clMediaFiles(array $isos): array
+{
+    $files = [];
+    foreach ($isos['places'] as $root => $place) {
+        foreach (@scandir($place['path']) ?: [] as $name) {
+            $full = $place['path'] . "/$name";
+            if ($name[0] === '.' || !preg_match(CL_MEDIA, $name) || is_link($full) || !is_file($full)) {
+                continue;
+            }
+            $st = @stat($full);
+            $files[$name]['name'] = $name;
+            $files[$name]['parts'][] = ['root' => $root, 'path' => $full, 'dataset' => null, 'file' => true,
+                                        'mtime' => (int) ($st['mtime'] ?? 0), 'bytes' => (int) ($st['blocks'] ?? 0) * 512];
+        }
+    }
+    uksort($files, 'strnatcasecmp');
+    return array_values($files);
 }
 
 // --------------------------------------------------------------------- appdata
 
-/** Where the appdata share lives: one path per pool or awake array disk that holds it */
-function clAppdataPlaces(array $roots, array $asleep): array
+/** Where a share lives (from Unraid's setting, e.g. /mnt/user/appdata/): one path per pool or awake array disk that holds it */
+function clSharePlaces(string $path, array $roots, array $asleep): array
 {
-    $path = readCfg('/boot/config/docker.cfg')['DOCKER_APP_CONFIG_PATH'] ?? '/mnt/user/appdata/';
-    $share = preg_match('#^/mnt/[^/]+/([^/]+)#', $path, $m) ? $m[1] : 'appdata';
+    $share = preg_match('#^/mnt/[^/]+/([^/]+)#', $path, $m) ? $m[1] : basename(rtrim($path, '/'));
     $array = (clShareCfg($share)['shareUseCache'] ?? 'no') !== 'only';
     $places = [];
     $sleeping = [];
@@ -684,7 +843,25 @@ function clAppdataPlaces(array $roots, array $asleep): array
     return ['share' => $share, 'setting' => rtrim($path, '/'), 'places' => $places, 'asleep' => $sleeping];
 }
 
-function clAppdataFolders(array $appdata): array
+/**
+ * A dataset can go into the trash with zfs rename when it sits right under the
+ * share's own dataset and its mountpoint is inherited (so it moves along)
+ */
+function clZfsMovable(string $ds, ?string $parent): bool
+{
+    static $sources = null;
+    if ($sources === null) {
+        $sources = [];
+        [$exit, $out] = run(['zfs', 'get', '-H', '-o', 'name,source', '-t', 'filesystem', 'mountpoint'], 30);
+        foreach ($exit === 0 ? rows($out) : [] as $f) {
+            $sources[$f[0]] = $f[1] ?? '';
+        }
+    }
+    return $parent !== null && dirname($ds) === $parent && preg_match('/^(inherited|default)/', $sources[$ds] ?? 'local') === 1;
+}
+
+/** First-level folders of a share, over all places it lives on */
+function clShareFolders(array $share): array
 {
     $mounts = [];
     foreach (mountTable() as $m) {
@@ -692,9 +869,9 @@ function clAppdataFolders(array $appdata): array
     }
     $folders = [];
     $files = 0;
-    foreach ($appdata['places'] as $root => $place) {
+    foreach ($share['places'] as $root => $place) {
         foreach (@scandir($place['path']) ?: [] as $name) {
-            if ($name === '.' || $name === '..' || $name[0] === '.' || $name === CL_TRASH || $name === CL_LEGACY || str_starts_with($name, '_quarantaene-')) {
+            if ($name === '.' || $name === '..' || $name[0] === '.' || str_starts_with($name, CL_TRASH) || $name === CL_LEGACY || str_starts_with($name, '_quarantaene-')) {
                 continue;
             }
             $full = $place['path'] . "/$name";
@@ -705,11 +882,13 @@ function clAppdataFolders(array $appdata): array
             if (count($folders) >= CL_FOLDER_LIMIT && !isset($folders[$name])) {
                 continue;
             }
+            $ds = $mounts[$full] ?? null;               // its own filesystem: rename(2) can't move it, zfs rename can
             $folders[$name]['name'] = $name;
             $folders[$name]['parts'][] = [
                 'root'    => $root,
                 'path'    => $full,
-                'dataset' => isset($mounts[$full]) ? $mounts[$full] : null,     // its own filesystem: rename can't move it
+                'dataset' => $ds,
+                'zfs'     => $ds !== null && clZfsMovable($ds, $mounts[$place['path']] ?? null),
                 'mtime'   => (int) @filemtime($full),
             ];
         }
@@ -729,76 +908,12 @@ function clBuild(): array
     }
     $cache = clCache();
     $jobs = $GLOBALS['clJobs'];
-    $pending = fn (string $key) => isset($jobs['running'][$key]) || isset($jobs['queue'][$key]);
+    $pending = fn (string $key): bool => isset($jobs['running'][$key]) || isset($jobs['queue'][$key]);
     $docker = $raw['docker'];
-    $ad = $raw['appdata'];
-    $share = $ad['share'];
-    $roots = $GLOBALS['clCtx']['roots'];
-
-    // who names which top folder of the appdata share
-    $refs = [];
-    $mounters = [];
-    $add = function (string $path, string $kind, string $name, bool $weak = false) use (&$refs, &$mounters, $share, $roots): void {
-        if (!preg_match('#^/mnt/([^/]+)/([^/]+)(?:/([^/]+))?#', rtrim($path, '/'), $m)
-            || !($m[1] === 'user' || $m[1] === 'user0' || isset($roots[$m[1]])) || $m[2] !== $share) {
-            return;
-        }
-        $top = $m[3] ?? '';
-        if ($top === '') {
-            if ($kind === 'container') {
-                $mounters[$name] = true;               // the whole share (Krusader, backup tools): says nothing about one folder
-            }
-            return;
-        }
-        if ($top === CL_TRASH || $top === CL_LEGACY || str_starts_with($top, '_quarantaene-')) {
-            return;
-        }
-        $refs[$top]["$kind:$name"] ??= ['kind' => $kind, 'name' => $name, 'weak' => $weak];
-        $refs[$top]["$kind:$name"]['weak'] = $refs[$top]["$kind:$name"]['weak'] && $weak;
-    };
-    foreach ($docker['containers'] as $c) {
-        foreach ($c['binds'] as $b) {
-            $add($b, 'container', $c['name']);
-        }
-    }
-    foreach ($raw['templates'] as $t) {
-        foreach ($t['mnt'] as $p) {
-            $add($p, 'template', $t['file']);
-        }
-    }
-    $managed = [];
-    foreach ($raw['stacks']['list'] as $s) {
-        $managed[$s['project']] = true;
-        foreach ($s['alts'] as $a) {
-            $managed[$a] = true;
-        }
-        foreach (array_merge($s['paths'], array_filter([$s['src'], $s['file'], $s['env'], $s['indirect']])) as $p) {
-            $add($p, 'stack', $s['folder']);
-        }
-    }
-    $add($raw['stacks']['root'], 'stack', basename($raw['stacks']['root']));
-    foreach ($raw['compose'] as $project => $files) {
-        foreach (isset($managed[$project]) ? [] : $files as $paths) {
-            foreach ($paths as $p) {
-                $add($p, 'compose', $project);
-            }
-        }
-    }
-    foreach ($raw['vms'] as $vm => $paths) {
-        foreach ($paths as $p) {
-            $add($p, 'vm', $vm);
-        }
-    }
+    $vmf = $raw['vms'];
     $flash = $cache['flash'] ?? null;
-    $composeRoot = $raw['stacks']['root'];
-    foreach ($flash['lines'] ?? [] as [$file, $p]) {
-        if (under($file, CL_TEMPLATES) || under($file, $composeRoot)) {
-            continue;                                  // counted above, with their names
-        }
-        $rel = substr($file, strlen(CL_FLASH) + 1);
-        $add($p, 'flash', $rel, (bool) preg_match(CL_WEAK, $rel));
-    }
-    $complete = $flash !== null && !$pending('flash') && $docker['ok'];
+    $searched = $flash !== null && !$pending('flash');
+    $refs = clRefList($raw, $flash);
 
     // names that suggest a folder belongs to something, even when nothing mounts it
     $named = [];
@@ -814,17 +929,213 @@ function clBuild(): array
         $named[strtolower($s['folder'])] ??= ['kind' => 'stack', 'name' => $s['folder']];
         $named[strtolower($s['project'])] ??= ['kind' => 'stack', 'name' => $s['folder']];
     }
+    $vmNamed = [];
+    foreach ($vmf['vms'] as $v) {
+        $vmNamed[strtolower($v['name'])] = ['kind' => 'vm', 'name' => $v['name']];
+    }
 
-    $folders = [];
+    $ad = $raw['appdata'];
+    [$adRefs, $mounters] = clTopRefs($refs, $ad['share']);
+    $complete = $searched && $docker['ok'];
+    $folders = clFolderEntries($ad['folders']['list'], $adRefs, $named, 'appdata', $docker['ok'], $complete, $cache, $pending);
+
+    // VMs: what deleted VMs left behind (a stopped Docker can't name these, unless it is switched off anyway)
+    $vmItems = [];
+    $vmComplete = $searched && $vmf['ok'] && ($docker['ok'] || !$docker['enabled']);
+    if ($vmf['enabled']) {
+        foreach ($raw['libvirt'] as $o) {
+            $vmItems[] = $o + ['id' => "{$o['kind']}:{$o['name']}", 'category' => 'orphan', 'used_by' => [], 'notes' => [],
+                               'why' => $vmf['ok'] ? null : 'vm_off', 'force' => false];
+        }
+        [$domRefs] = clTopRefs($refs, $raw['domains']['share']);
+        $vmItems = array_merge($vmItems, clFolderEntries($raw['domains']['folders']['list'], $domRefs, $vmNamed, 'domain', $vmf['ok'], $vmComplete, $cache, $pending));
+        [$isoRefs] = clTopRefs($refs, $raw['isos']['share']);
+        foreach (clFolderEntries($raw['isos']['files'], $isoRefs, [], 'iso', $vmf['ok'], $vmComplete, $cache, $pending) as $e) {
+            $e['category'] = in_array($e['category'], ['unused', 'check'], true) ? 'media' : $e['category'];
+            $vmItems[] = $e;
+        }
+    }
+
+    $templates = array_map(function (array $t) use ($docker): array {
+        unset($t['mnt']);
+        $t['kind'] = 'template';
+        $t['why'] = !$docker['ok'] ? 'docker_down' : null;
+        $t['force'] = $t['category'] === 'in_use';
+        return $t;
+    }, $raw['templates']);
+
+    $stacks = array_map(function (array $s) use ($docker): array {
+        unset($s['sig']);
+        $s['kind'] = 'stack';
+        $s['why'] = !$docker['ok'] ? 'docker_down' : (!$s['reachable'] ? 'asleep'
+                  : ($s['containers'] && (!$s['file'] || !$docker['compose']) ? 'no_compose' : null));
+        $s['force'] = $s['category'] === 'in_use';
+        return $s;
+    }, $raw['stacks']['list']);
+
+    $runs = [];
+    $trashBytes = 0;
+    foreach ($raw['trash'] as $run) {
+        $size = $cache['sizes'][$run['path']] ?? null;
+        $run['bytes'] = is_file($run['path']) ? (int) @filesize($run['path']) : ($size && empty($size['error']) ? $size['bytes'] : null);
+        $run['measuring'] = $pending('measure:' . $run['path']);
+        foreach ($run['items'] as $it) {             // parked datasets lie next to the run folder
+            if ($it['zfs_path'] && $run['bytes'] !== null) {
+                $ds = $cache['sizes'][$it['zfs_path']] ?? null;
+                $run['bytes'] = $ds && empty($ds['error']) ? $run['bytes'] + $ds['bytes'] : null;
+                $run['measuring'] = $run['measuring'] || $pending('measure:' . $it['zfs_path']);
+            }
+        }
+        $trashBytes = $trashBytes === null || ($run['bytes'] === null && !$run['purging']) ? null : $trashBytes + (int) $run['bytes'];
+        $runs[] = $run;
+    }
+    usort($runs, fn ($a, $b) => $b['time'] <=> $a['time']);
+
+    $keys = array_keys($jobs['running'] + $jobs['queue']);
+    $state = [
+        'time'      => time(),
+        'duration_ms' => $GLOBALS['clState']['duration_ms'] ?? 0,
+        'host'      => hostname(),
+        'docker'    => [
+            'ok'         => $docker['ok'],
+            'enabled'    => $docker['enabled'],
+            'compose'    => $docker['compose'],
+            'containers' => count($docker['containers']),
+            'cache_at'   => $cache['build']['at'] ?? null,
+            'list'       => clDockerEntries($raw, $cache, $pending),
+        ],
+        'backup_running' => backupScriptState()['running'],
+        'templates' => ['dir' => CL_TEMPLATES, 'list' => $templates],
+        'stacks'    => ['root' => $raw['stacks']['root'], 'exists' => $raw['stacks']['exists'], 'list' => $stacks],
+        'appdata'   => [
+            'share'    => $ad['share'],
+            'places'   => array_values($ad['places']),
+            'asleep'   => $ad['asleep'],
+            'mounters' => $mounters,
+            'complete' => $complete,
+            'flash_at' => $flash['at'] ?? null,
+            'list'     => $folders,
+        ],
+        'vms'       => [
+            'enabled'  => $vmf['enabled'],
+            'ok'       => $vmf['ok'],
+            'count'    => count($vmf['vms']),
+            'domains'  => ['share' => $raw['domains']['share'], 'places' => array_values($raw['domains']['places']), 'asleep' => $raw['domains']['asleep']],
+            'isos'     => ['share' => $raw['isos']['share'], 'places' => array_values($raw['isos']['places']), 'asleep' => $raw['isos']['asleep']],
+            'complete' => $vmComplete,
+            'list'     => $vmItems,
+        ],
+        'trash'     => ['runs' => $runs, 'bytes' => $trashBytes],
+        'jobs'      => [
+            'busy'      => count($keys),
+            'flash'     => $pending('flash'),
+            'measuring' => count(array_filter($keys, fn ($k) => str_starts_with($k, 'measure:'))),
+            'purging'   => count(array_filter($keys, fn ($k) => str_starts_with($k, 'purge:'))),
+        ],
+    ];
+    $GLOBALS['clState'] = $state;
+    return $state;
+}
+
+/** Every path something names: [path, kind, name, weak] — containers, templates, stacks, compose files, VMs, the flash */
+function clRefList(array $raw, ?array $flash): array
+{
+    $refs = [];
+    foreach ($raw['docker']['containers'] as $c) {
+        foreach ($c['binds'] as $b) {
+            $refs[] = [$b, 'container', $c['name'], false];
+        }
+    }
+    foreach ($raw['templates'] as $t) {
+        foreach ($t['mnt'] as $p) {
+            $refs[] = [$p, 'template', $t['file'], false];
+        }
+    }
+    $managed = [];
+    foreach ($raw['stacks']['list'] as $s) {
+        foreach (array_merge([$s['project']], $s['alts']) as $p) {
+            $managed[$p] = true;
+        }
+        foreach (array_merge($s['paths'], array_filter([$s['src'], $s['file'], $s['env'], $s['indirect']])) as $p) {
+            $refs[] = [$p, 'stack', $s['folder'], false];
+        }
+    }
+    $refs[] = [$raw['stacks']['root'], 'stack', basename($raw['stacks']['root']), false];
+    foreach ($raw['compose'] as $project => $files) {
+        foreach (isset($managed[$project]) ? [] : $files as $paths) {
+            foreach ($paths as $p) {
+                $refs[] = [$p, 'compose', (string) $project, false];
+            }
+        }
+    }
+    foreach ($raw['vms']['vms'] as $v) {
+        foreach ($v['mnt'] as $p) {
+            $refs[] = [$p, 'vm', $v['name'], false];
+        }
+    }
+    foreach ($flash['lines'] ?? [] as [$file, $p]) {
+        if (under($file, CL_TEMPLATES) || under($file, $raw['stacks']['root'])) {
+            continue;                                  // counted above, with their names
+        }
+        $rel = substr($file, strlen(CL_FLASH) + 1);
+        $refs[] = [$p, 'flash', $rel, (bool) preg_match(CL_WEAK, $rel)];
+    }
+    return $refs;
+}
+
+/** Who names which first-level entry of a share; and the containers that mount the whole share (they say nothing) */
+function clTopRefs(array $refs, string $share): array
+{
+    $roots = $GLOBALS['clCtx']['roots'];
+    $tops = [];
+    $mounters = [];
+    foreach ($refs as [$path, $kind, $name, $weak]) {
+        if (!preg_match('#^/mnt/([^/]+)/([^/]+)(?:/([^/]+))?#', rtrim($path, '/'), $m)
+            || !($m[1] === 'user' || $m[1] === 'user0' || isset($roots[$m[1]])) || $m[2] !== $share) {
+            continue;
+        }
+        $top = $m[3] ?? '';
+        if ($top === '') {
+            if ($kind === 'container') {
+                $mounters[$name] = true;
+            }
+            continue;
+        }
+        if (str_starts_with($top, CL_TRASH) || $top === CL_LEGACY || str_starts_with($top, '_quarantaene-')) {
+            continue;
+        }
+        $tops[$top]["$kind:$name"] ??= ['kind' => $kind, 'name' => $name, 'weak' => $weak];
+        $tops[$top]["$kind:$name"]['weak'] = $tops[$top]["$kind:$name"]['weak'] && $weak;
+    }
+    return [$tops, array_keys($mounters)];
+}
+
+/**
+ * First-level entries of a share (appdata and domains folders, disk images in
+ * isos) with who names them, how big they are and what they are:
+ *   used     something names it
+ *   check    nothing does, but it has the same name as something, is only
+ *            mentioned in caches, or was changed in the last CL_FRESH_DAYS
+ *   unused   nothing names it
+ *   unknown  can't tell ($known false: Docker or the VM service doesn't answer)
+ */
+function clFolderEntries(array $list, array $tops, array $named, string $kind, bool $known, bool $complete, array $cache, callable $pending): array
+{
     $now = time();
-    foreach ($ad['folders']['list'] as $f) {
-        $by = array_values($refs[$f['name']] ?? []);
+    $out = [];
+    foreach ($list as $f) {
+        $by = array_values($tops[$f['name']] ?? []);
         $strong = array_values(array_filter($by, fn ($r) => !$r['weak']));
         $parts = [];
         $m = ['bytes' => 0, 'files' => 0, 'newest' => 0, 'top' => [], 'at' => PHP_INT_MAX, 'measured' => true, 'measuring' => false, 'partial' => false];
         foreach ($f['parts'] as $p) {
-            $size = $cache['sizes'][$p['path']] ?? null;
-            $busy = $pending('measure:' . $p['path']);
+            if (!empty($p['file'])) {
+                $size = ['bytes' => $p['bytes'], 'files' => 1, 'newest' => $p['mtime'], 'top' => [], 'at' => $now];
+                $busy = false;
+            } else {
+                $size = $cache['sizes'][$p['path']] ?? null;
+                $busy = $pending('measure:' . $p['path']);
+            }
             $ok = $size && empty($size['error']);
             $m['measured'] = $m['measured'] && $ok;
             $m['measuring'] = $m['measuring'] || $busy;
@@ -854,12 +1165,12 @@ function clBuild(): array
         if (!$strong && $m['measured'] && $m['newest'] > $now - CL_FRESH_DAYS * 86400) {
             $notes[] = ['why' => 'fresh', 'days' => intdiv($now - $m['newest'], 86400)];
         }
-        $category = !$docker['ok'] ? 'unknown' : ($strong ? 'used' : ($notes ? 'check' : 'unused'));
+        $category = !$known ? 'unknown' : ($strong ? 'used' : ($notes ? 'check' : 'unused'));
 
         $why = null;
         if ($category === 'unknown') {
-            $why = 'docker_down';
-        } elseif (array_filter($f['parts'], fn ($p) => $p['dataset'])) {
+            $why = $kind === 'appdata' ? 'docker_down' : 'vm_off';
+        } elseif (array_filter($f['parts'], fn ($p) => $p['dataset'] && !$p['zfs'])) {
             $why = 'dataset';
         } elseif (!$complete) {
             $why = 'checking';
@@ -868,8 +1179,9 @@ function clBuild(): array
         } elseif ($category !== 'used' && (!$m['measured'] || $m['at'] < $now - CL_MEASURE_TTL)) {
             $why = 'measure_first';             // its newest change decides whether it is only "check"
         }
-        $folders[] = [
-            'id'       => 'appdata:' . $f['name'],
+        $out[] = [
+            'id'       => "$kind:" . $f['name'],
+            'kind'     => $kind,
             'name'     => $f['name'],
             'category' => $category,
             'notes'    => $notes,
@@ -887,66 +1199,83 @@ function clBuild(): array
             'force'    => $category === 'used',
         ];
     }
+    return $out;
+}
 
-    $templates = array_map(function (array $t) use ($docker): array {
-        unset($t['mnt']);
-        $t['why'] = !$docker['ok'] ? 'docker_down' : null;
-        $t['force'] = $t['category'] === 'in_use';
-        return $t;
-    }, $raw['templates']);
-
-    $stacks = array_map(function (array $s) use ($docker): array {
-        unset($s['sig']);
-        $s['why'] = !$docker['ok'] ? 'docker_down' : (!$s['reachable'] ? 'asleep'
-                  : ($s['containers'] && (!$s['file'] || !$docker['compose']) ? 'no_compose' : null));
-        $s['force'] = $s['category'] === 'in_use';
-        return $s;
-    }, $raw['stacks']['list']);
-
-    $runs = [];
-    $trashBytes = 0;
-    foreach ($raw['trash'] as $run) {
-        $size = $cache['sizes'][$run['path']] ?? null;
-        $run['bytes'] = is_file($run['path']) ? (int) @filesize($run['path']) : ($size && empty($size['error']) ? $size['bytes'] : null);
-        $run['measuring'] = $pending('measure:' . $run['path']);
-        $trashBytes = $trashBytes === null || ($run['bytes'] === null && !$run['purging']) ? null : $trashBytes + (int) $run['bytes'];
-        $runs[] = $run;
+/** Docker's own leftovers: images no container uses (dangling or tagged), volumes no container mounts, the build cache */
+function clDockerEntries(array $raw, array $cache, callable $pending): array
+{
+    $d = $raw['docker'];
+    if (!$d['ok']) {
+        return [];
     }
-    usort($runs, fn ($a, $b) => $b['time'] <=> $a['time']);
+    $imageUsers = [];
+    $volumeUsers = [];
+    foreach ($d['containers'] as $c) {
+        $imageUsers[$c['image_id']][] = $c['name'];
+        foreach ($c['volumes'] as $v) {
+            $volumeUsers[$v][] = $c['name'];
+        }
+    }
+    // templates and stacks that name an image would need it again to be set up
+    $namedBy = [];
+    foreach ($raw['templates'] as $t) {
+        if ($t['image'] !== '') {
+            $namedBy[clNormImage($t['image'])]["template:{$t['file']}"] = ['kind' => 'template', 'name' => $t['file']];
+        }
+    }
+    $stackOf = [];
+    foreach ($raw['stacks']['list'] as $s) {
+        foreach ($s['images'] as $i) {
+            $namedBy[clNormImage($i['ref'])]["stack:{$s['folder']}"] = ['kind' => 'stack', 'name' => $s['folder']];
+        }
+        foreach (array_merge([$s['project']], $s['alts']) as $p) {
+            $stackOf[$p] = $s['folder'];
+        }
+    }
+    $users = fn (array $names) => array_map(fn ($n) => ['kind' => 'container', 'name' => $n, 'weak' => false], $names);
 
-    $backup = backupScriptState();
-    $state = [
-        'time'      => time(),
-        'duration_ms' => $GLOBALS['clState']['duration_ms'] ?? 0,
-        'host'      => hostname(),
-        'docker'    => $docker['ok'],
-        'compose'   => $docker['compose'],
-        'containers' => count($docker['containers']),
-        'images'    => count(array_filter($docker['images'], fn ($i) => $i['id'] !== null)),
-        'backup_running' => $backup['running'],
-        'templates' => ['dir' => CL_TEMPLATES, 'list' => $templates],
-        'stacks'    => ['root' => $raw['stacks']['root'], 'exists' => $raw['stacks']['exists'], 'list' => $stacks],
-        'appdata'   => [
-            'share'    => $share,
-            'setting'  => $ad['setting'],
-            'places'   => array_values($ad['places']),
-            'asleep'   => $ad['asleep'],
-            'mounters' => array_keys($mounters),
-            'files'    => $ad['folders']['files'],
-            'complete' => $complete,
-            'flash_at' => $flash['at'] ?? null,
-            'list'     => $folders,
-        ],
-        'trash'     => ['runs' => $runs, 'bytes' => $trashBytes],
-        'jobs'      => [
-            'busy'      => count($jobs['running']) + count($jobs['queue']),
-            'flash'     => $pending('flash'),
-            'measuring' => count(array_filter(array_keys($jobs['running'] + $jobs['queue']), fn ($k) => str_starts_with($k, 'measure:'))),
-            'purging'   => count(array_filter(array_keys($jobs['running'] + $jobs['queue']), fn ($k) => str_starts_with($k, 'purge:'))),
-        ],
-    ];
-    $GLOBALS['clState'] = $state;
-    return $state;
+    $out = [];
+    foreach ($d['by_id'] as $id => $img) {
+        $by = $imageUsers[$id] ?? [];
+        $names = [];
+        foreach ($img['refs'] as $r) {
+            $names += $namedBy[clNormImage($r)] ?? [];
+        }
+        $out[] = [
+            'id' => "image:$id", 'kind' => 'image', 'image_id' => $id, 'refs' => $img['refs'],
+            'name' => $img['refs'][0] ?? ($by ? $d['containers'][$by[0]]['image'] : substr(preg_replace('/^sha256:/', '', $id), 0, 12)),
+            'category' => $by ? 'used' : ($img['refs'] ? 'unused' : 'dangling'),
+            'bytes' => $img['bytes'], 'created' => $img['created'], 'path' => null,
+            'used_by' => $users($by), 'notes' => $names ? [['why' => 'named_by', 'names' => array_values($names)]] : [],
+            'why' => null, 'force' => false,
+        ];
+    }
+    foreach ($d['volumes'] as $name => $_) {
+        $name = (string) $name;
+        $info = $d['volume_info'][$name] ?? ['path' => '', 'created' => null, 'anonymous' => false, 'project' => null, 'driver' => 'local'];
+        $by = $volumeUsers[$name] ?? [];
+        $size = $info['path'] !== '' ? ($cache['sizes'][$info['path']] ?? null) : null;
+        $ok = $size && empty($size['error']);
+        $notes = [];
+        if ($info['project'] !== null) {
+            $notes[] = ['why' => 'stack', 'name' => $stackOf[$info['project']] ?? $info['project'], 'exists' => isset($stackOf[$info['project']])];
+        }
+        $out[] = [
+            'id' => "volume:$name", 'kind' => 'volume', 'name' => $name,
+            'category' => $by ? 'used' : 'volume', 'anonymous' => $info['anonymous'], 'project' => $info['project'], 'driver' => $info['driver'],
+            'bytes' => $ok ? $size['bytes'] : null, 'files' => $ok ? $size['files'] : null, 'newest' => $ok ? $size['newest'] : null,
+            'measuring' => $info['path'] !== '' && $pending('measure:' . $info['path']),
+            'created' => $info['created'], 'path' => $info['path'] !== '' ? $info['path'] : null,
+            'used_by' => $users($by), 'notes' => $notes, 'why' => null, 'force' => false,
+        ];
+    }
+    $b = $cache['build'] ?? null;
+    if ($b && $b['reclaimable'] > 0) {
+        $out[] = ['id' => 'cache:build', 'kind' => 'cache', 'name' => 'build cache', 'category' => 'cache', 'bytes' => $b['reclaimable'],
+                  'total' => $b['size'], 'created' => null, 'path' => null, 'used_by' => [], 'notes' => [], 'why' => null, 'force' => false];
+    }
+    return $out;
 }
 
 function clWrite(array $state): void
@@ -960,16 +1289,24 @@ function clWrite(array $state): void
 
 // ===================================================================== trash
 
-/** The trash folders: the flash (templates, stacks there), next to a compose root elsewhere, and in appdata on each pool */
-function clTrashRoots(array $appdata): array
+/**
+ * The trash folders: the flash (templates, stacks there), next to a compose
+ * root elsewhere, in appdata, domains and isos on each pool, and in libvirt.img
+ */
+function clTrashRoots(array $places, array $vms): array
 {
     $roots = [CL_FLASH . '/' . CL_TRASH => 'flash'];
     $compose = clComposeRoot();
     if (!under($compose, '/boot')) {
         $roots[dirname($compose) . '/' . CL_TRASH] = 'compose';
     }
-    foreach ($appdata['places'] as $p) {
-        $roots[$p['path'] . '/' . CL_TRASH] = 'appdata';
+    foreach ($places as $where => $share) {
+        foreach ($share['places'] as $p) {
+            $roots[$p['path'] . '/' . CL_TRASH] ??= $where;
+        }
+    }
+    if ($vms['ok']) {
+        $roots[CL_LIBVIRT . '/' . CL_TRASH] = 'libvirt';
     }
     return $roots;
 }
@@ -999,10 +1336,14 @@ function clStampTime(string $stamp, string $path): int
     return $t ? $t->getTimestamp() : (int) @filemtime($path);
 }
 
-function clTrashRuns(array $appdata): array
+function clTrashRuns(array $places, array $vms): array
 {
     $runs = [];
-    foreach (clTrashRoots($appdata) as $root => $where) {
+    $datasets = [];
+    foreach (mountTable() as $m) {
+        $datasets[$m['source']] = $m['mount'];
+    }
+    foreach (clTrashRoots($places, $vms) as $root => $where) {
         if (!is_dir($root) || is_link($root)) {
             continue;
         }
@@ -1016,10 +1357,11 @@ function clTrashRuns(array $appdata): array
             $items = [];
             $known = [];
             foreach ((array) ($manifest['items'] ?? []) as $it) {
-                if (!is_array($it) || !is_string($it['as'] ?? null) || !in_array($it['kind'] ?? '', ['template', 'stack', 'appdata'], true)) {
+                if (!is_array($it) || !is_string($it['as'] ?? null) || !in_array($it['kind'] ?? '', CL_KINDS, true)) {
                     continue;
                 }
                 $known[$it['as']] = true;
+                $zfs = str_starts_with($it['as'], '@') ? substr($it['as'], 1) : null;
                 $items[] = [
                     'id'      => "$path|{$it['as']}",
                     'kind'    => $it['kind'],
@@ -1027,17 +1369,20 @@ function clTrashRuns(array $appdata): array
                     'label'   => (string) ($it['label'] ?? ''),
                     'from'    => is_string($it['from'] ?? null) ? $it['from'] : null,
                     'as'      => $it['as'],
-                    'present' => file_exists("$path/{$it['as']}"),
+                    'dataset' => $zfs !== null && is_string($it['dataset'] ?? null) ? $it['dataset'] : null,
+                    'zfs'     => $zfs,
+                    'zfs_path' => $zfs !== null ? ($datasets[$zfs] ?? null) : null,
+                    'present' => $zfs !== null ? isset($datasets[$zfs]) : file_exists("$path/{$it['as']}"),
                     'volumes' => array_values(array_filter((array) ($it['volumes'] ?? []), 'is_string')),
                     'images'  => array_values(array_filter((array) ($it['images'] ?? []), 'is_string')),
                 ];
             }
             // whatever is in there without a manifest entry (shown, can't go back)
-            foreach (CL_KINDS as $kind) {
-                foreach (@scandir("$path/$kind") ?: [] as $n) {
-                    if ($n !== '.' && $n !== '..' && !isset($known["$kind/$n"])) {
-                        $items[] = ['id' => "$path|$kind/$n", 'kind' => ['templates' => 'template', 'compose' => 'stack', 'appdata' => 'appdata'][$kind],
-                                    'name' => $n, 'label' => '', 'from' => null, 'as' => "$kind/$n", 'present' => true, 'volumes' => [], 'images' => []];
+            foreach (CL_KINDS as $dir => $kind) {
+                foreach (@scandir("$path/$dir") ?: [] as $n) {
+                    if ($n !== '.' && $n !== '..' && !isset($known["$dir/$n"])) {
+                        $items[] = ['id' => "$path|$dir/$n", 'kind' => $kind,
+                                    'name' => $n, 'label' => '', 'from' => null, 'as' => "$dir/$n", 'present' => true, 'volumes' => [], 'images' => [], 'dataset' => null, 'zfs' => null, 'zfs_path' => null];
                     }
                 }
             }
@@ -1063,12 +1408,12 @@ function clTrashRuns(array $appdata): array
                         foreach (@scandir("$path/$n") ?: [] as $x) {
                             if ($x !== '.' && $x !== '..') {
                                 $items[] = ['id' => "$path|$n/$x", 'kind' => $n === 'templates' ? 'template' : 'stack', 'name' => $x, 'label' => '',
-                                            'from' => null, 'as' => "$n/$x", 'present' => true, 'volumes' => [], 'images' => []];
+                                            'from' => null, 'as' => "$n/$x", 'present' => true, 'volumes' => [], 'images' => [], 'dataset' => null, 'zfs' => null, 'zfs_path' => null];
                             }
                         }
                     } else {
                         $items[] = ['id' => "$path|$n", 'kind' => 'appdata', 'name' => $n, 'label' => '', 'from' => null, 'as' => $n,
-                                    'present' => true, 'volumes' => [], 'images' => []];
+                                    'present' => true, 'volumes' => [], 'images' => [], 'dataset' => null, 'zfs' => null, 'zfs_path' => null];
                     }
                 }
             }
@@ -1116,8 +1461,8 @@ function clManifestWrite(array $run): void
 /** Removes a run folder that holds nothing any more (and its trash root, if empty) */
 function clRunTidy(string $path, string $root): void
 {
-    foreach (CL_KINDS as $kind) {
-        @rmdir("$path/$kind");
+    foreach (array_keys(CL_KINDS) as $dir) {
+        @rmdir("$path/$dir");
     }
     $left = array_diff(@scandir($path) ?: [], ['.', '..', 'manifest.json']);
     if (!$left) {
@@ -1141,14 +1486,11 @@ function clGuard(array $state): void
 function clIndex(array $state): array
 {
     $all = [];
-    foreach ($state['templates']['list'] as $t) {
-        $all[$t['id']] = ['kind' => 'template'] + $t;
+    foreach (array_merge($state['templates']['list'], $state['stacks']['list']) as $e) {
+        $all[$e['id']] = $e;
     }
-    foreach ($state['stacks']['list'] as $s) {
-        $all[$s['id']] = ['kind' => 'stack'] + $s;
-    }
-    foreach ($state['appdata']['list'] as $f) {
-        $all[$f['id']] = ['kind' => 'appdata'] + $f;
+    foreach (array_merge($state['appdata']['list'], $state['vms']['list']) as $f) {
+        $all[$f['id']] = $f;
     }
     return $all;
 }
@@ -1170,6 +1512,7 @@ function clPark(array $ids, bool $force): array
                 'no_compose'    => new Problem('cleanup_no_compose', $p),
                 'dataset'       => new Problem('cleanup_dataset', $p),
                 'checking'      => new Problem('cleanup_checking', $p),
+                'vm_off'        => new Problem('cleanup_vm_off', $p),
                 'measuring'     => new Problem('cleanup_measuring', $p),
                 default         => new Problem('cleanup_measure_first', $p),
             };
@@ -1208,13 +1551,28 @@ function clPark(array $ids, bool $force): array
                 $runs[$r]['items'][] = ['kind' => 'stack', 'name' => $e['folder'], 'label' => $e['name'], 'from' => $e['dir'], 'as' => $as,
                                         'project' => $e['project'], 'indirect' => $e['indirect'], 'was_running' => count($e['containers']),
                                         'volumes' => $e['volumes'], 'images' => array_column($e['images'], 'ref')];
+            } elseif (in_array($e['kind'], ['nvram', 'tpm', 'snapshotdb'], true)) {
+                $r = $run(CL_LIBVIRT . '/' . CL_TRASH);
+                $as = $e['kind'] . '/' . $e['name'];
+                clMove($e['path'], $runs[$r]['path'] . "/$as");
+                $runs[$r]['items'][] = ['kind' => $e['kind'], 'name' => $e['name'], 'label' => $e['uuid'] ?? '', 'from' => $e['path'], 'as' => $as,
+                                        'bytes' => $e['bytes']];
             } else {
+                // appdata and domains folders, disk images: each part on its own pool or disk
+                $dir = array_search($e['kind'], CL_KINDS, true);
                 foreach ($e['parts'] as $p) {
                     $r = $run(dirname($p['path']) . '/' . CL_TRASH);
-                    $as = 'appdata/' . $e['name'];
-                    clMove($p['path'], $runs[$r]['path'] . "/$as");
-                    $runs[$r]['items'][] = ['kind' => 'appdata', 'name' => $e['name'], 'label' => $p['root'], 'from' => $p['path'], 'as' => $as,
-                                            'bytes' => $p['bytes']];
+                    if ($p['dataset']) {
+                        // a dataset can't go into a folder: it is renamed next to the trash, its manifest entry says so ("@")
+                        $to = dirname($p['dataset']) . '/' . CL_TRASH . '-' . $runs[$r]['stamp'] . '-' . basename($p['dataset']);
+                        clZfsRename($p['dataset'], $to, $p['path']);
+                        $as = "@$to";
+                    } else {
+                        $as = "$dir/" . $e['name'];
+                        clMove($p['path'], $runs[$r]['path'] . "/$as");
+                    }
+                    $runs[$r]['items'][] = ['kind' => $e['kind'], 'name' => $e['name'], 'label' => $p['root'], 'from' => $p['path'], 'as' => $as,
+                                            'dataset' => $p['dataset'], 'bytes' => $p['bytes']];
                     clManifestWrite($runs[$r]);
                 }
             }
@@ -1238,7 +1596,7 @@ function clPark(array $ids, bool $force): array
     return ['ok' => true, 'results' => $results, 'state' => clScan()];
 }
 
-/** What the user calls it: the template's file, the stack's folder, the folder */
+/** What the user calls it: the template's file, the stack's folder, the name */
 function clLabel(array $e): string
 {
     return match ($e['kind']) {
@@ -1246,6 +1604,18 @@ function clLabel(array $e): string
         'stack'    => $e['folder'],
         default    => $e['name'],
     };
+}
+
+/** zfs rename (its snapshots go along); the empty folder ZFS may leave at the old mountpoint goes too */
+function clZfsRename(string $from, string $to, string $oldPath): void
+{
+    [$exit, , $err] = run(['zfs', 'rename', $from, $to], 120);
+    if ($exit !== 0) {
+        throw new Problem('cleanup_move_failed', ['path' => $from, 'detail' => trim($err)]);
+    }
+    if (is_dir($oldPath) && !array_diff(@scandir($oldPath) ?: [], ['.', '..'])) {
+        @rmdir($oldPath);
+    }
 }
 
 /** Rename only — the trash is on the same filesystem; anything else is refused, never copied */
@@ -1286,21 +1656,34 @@ function clRestore(array $ids): array
         }
         // only to where such a thing belongs — a manifest is a file anybody with root could edit
         $home = match ($it['kind']) {
-            'template' => CL_TEMPLATES,
-            'stack'    => $state['stacks']['root'],
-            'appdata'  => dirname($run['root']),
+            'template'   => CL_TEMPLATES,
+            'stack'      => $state['stacks']['root'],
+            'nvram'      => CL_LIBVIRT . '/qemu/nvram',
+            'tpm'        => CL_LIBVIRT . '/qemu/swtpm/tpm-states',
+            'snapshotdb' => CL_LIBVIRT . '/qemu/snapshotdb',
+            default      => dirname($run['root']),          // appdata, domains, isos: the share on that pool
         };
-        if (dirname($it['from']) !== $home || basename($it['from']) !== basename($it['as'])) {
+        $zfs = $it['zfs'];
+        if (dirname($it['from']) !== $home || basename($it['from']) !== basename($zfs !== null ? (string) $it['dataset'] : $it['as'])
+            || ($zfs !== null && (!$it['dataset'] || dirname($it['dataset']) !== dirname($zfs)))) {
             throw new Problem('cleanup_no_way_back', ['name' => $it['name']]);
         }
         try {
+            if ($zfs !== null && is_dir($it['from']) && !array_diff(@scandir($it['from']) ?: [], ['.', '..'])) {
+                @rmdir($it['from']);               // the empty mountpoint folder ZFS left behind
+            }
             if (file_exists($it['from'])) {
                 throw new Problem('cleanup_target_exists', ['path' => $it['from']]);
             }
             if (!is_dir($home)) {
                 throw new Problem('cleanup_no_home', ['path' => $home]);
             }
-            if (!@rename($run['path'] . '/' . $it['as'], $it['from'])) {
+            if ($zfs !== null) {
+                [$exit, , $err] = run(['zfs', 'rename', $zfs, $it['dataset']], 120);
+                if ($exit !== 0) {
+                    throw new Problem('cleanup_move_failed', ['path' => $it['from'], 'detail' => trim($err)]);
+                }
+            } elseif (!@rename($run['path'] . '/' . $it['as'], $it['from'])) {
                 throw new Problem('cleanup_move_failed', ['path' => $it['from'], 'detail' => error_get_last()['message'] ?? '']);
             }
             $manifest = readJson($run['path'] . '/manifest.json') ?? [];
@@ -1341,6 +1724,17 @@ function clPurge(array $ids, bool $volumes, bool $images): array
     $known = $GLOBALS['clRaw']['docker'] ?? ['volumes' => [], 'images' => []];
     foreach ($todo as $run) {
         $done = ['id' => $run['id'], 'ok' => true, 'volumes' => [], 'images' => []];
+        // datasets of the run first (with their snapshots); the run's folder only when they are gone
+        foreach ($run['items'] as $it) {
+            if ($it['zfs'] !== null && $it['present'] && str_contains(basename($it['zfs']), CL_TRASH . '-')) {
+                [$exit, , $err] = run(['zfs', 'destroy', '-r', $it['zfs']], 600);
+                if ($exit !== 0) {
+                    $results[] = ['id' => $run['id'], 'ok' => false, 'error' => ['key' => 'cleanup_destroy_failed', 'params' => ['name' => $it['zfs'], 'detail' => trim($err)]]];
+                    continue 2;
+                }
+                logLine("Dustdevil destroyed {$it['zfs']}");
+            }
+        }
         if (!@rename($run['path'], $run['path'] . '.purging')) {
             $results[] = ['id' => $run['id'], 'ok' => false, 'error' => ['key' => 'cleanup_move_failed', 'params' => ['path' => $run['path'], 'detail' => '']]];
             continue;
@@ -1369,16 +1763,64 @@ function clPurge(array $ids, bool $volumes, bool $images): array
     return ['ok' => true, 'results' => $results, 'state' => clScan()];
 }
 
-/** Measures folders (appdata) or trash runs again, when asked */
+/** Docker's leftovers can't be put away (Docker can't rename them): removed for good, never forced */
+function clRemove(array $ids): array
+{
+    $state = clScan(false, false);
+    clGuard($state);
+    $all = [];
+    foreach ($state['docker']['list'] as $e) {
+        $all[$e['id']] = $e;
+    }
+    $todo = [];
+    foreach ($ids as $id) {
+        $e = $all[$id] ?? throw new Problem('unknown_target', ['target' => $id]);
+        if ($e['category'] === 'used') {
+            throw new Problem('cleanup_in_use', ['name' => $e['name']]);
+        }
+        $todo[] = $e;
+    }
+    $docker = bin('docker') ?? throw new Problem('cleanup_docker_down', ['name' => $todo[0]['name'] ?? '']);
+    $results = [];
+    foreach ($todo as $e) {
+        // a tagged image goes by its tags (removing the id would refuse while it has several), a dangling one by its id
+        $command = match ($e['kind']) {
+            'image'  => array_merge([$docker, 'image', 'rm'], $e['refs'] ?: [$e['image_id']]),
+            'volume' => [$docker, 'volume', 'rm', $e['name']],
+            'cache'  => [$docker, 'builder', 'prune', '-f'],
+        };
+        [$exit, , $err] = run($command, 300);
+        if ($exit === 0) {
+            $results[] = ['id' => $e['id'], 'ok' => true];
+            logLine("Dustdevil removed Docker's {$e['kind']} {$e['name']}" . ($e['bytes'] ? ' (' . clHuman($e['bytes']) . ')' : ''));
+        } else {
+            $results[] = ['id' => $e['id'], 'ok' => false,
+                          'error' => ['key' => 'cleanup_docker_failed', 'params' => ['name' => $e['name'], 'detail' => trim(substr($err, -300))]]];
+        }
+    }
+    $cache = clCache();
+    unset($cache['build']);                    // ask Docker again
+    clSaveCache($cache);
+    return ['ok' => true, 'results' => $results, 'state' => clScan()];
+}
+
+/** Measures folders, volumes or trash runs again, when asked */
 function clMeasure(array $ids): array
 {
     $state = $GLOBALS['clState'] ?? clScan();
     $paths = [];
-    foreach ($state['appdata']['list'] as $f) {
+    foreach (array_merge($state['appdata']['list'], $state['vms']['list']) as $f) {
         if (in_array($f['id'], $ids, true)) {
-            foreach ($f['parts'] as $p) {
-                $paths[] = $p['path'];
+            foreach ($f['parts'] ?? [] as $p) {
+                if (empty($p['file'])) {
+                    $paths[] = $p['path'];
+                }
             }
+        }
+    }
+    foreach ($state['docker']['list'] as $e) {
+        if (in_array($e['id'], $ids, true) && $e['kind'] === 'volume' && $e['path']) {
+            $paths[] = $e['path'];
         }
     }
     foreach ($state['trash']['runs'] as $r) {
@@ -1420,7 +1862,10 @@ function clDetail(string $id): array
 function clChecks(): array
 {
     $s = $GLOBALS['clState'] ?? clScan();
-    $out = [finding('docker', 'required', $s['docker'] ?? null, [], 'docker')];
+    $out = [];
+    if ($s['docker']['enabled'] ?? true) {
+        $out[] = finding('docker', 'required', $s['docker']['ok'] ?? null, [], 'docker');
+    }
     $old = array_filter($s['trash']['runs'] ?? [], fn ($r) => !$r['purging'] && $r['time'] < time() - CL_FRESH_DAYS * 86400);
     if ($old) {
         $oldest = min(array_column($old, 'time'));
@@ -1454,7 +1899,14 @@ function clCacheFile(): string
 
 function clCache(): array
 {
-    return $GLOBALS['clCache'] ??= (readJson(clCacheFile()) ?? []) + ['flash' => null, 'sizes' => [], 'compose' => []];
+    if (!isset($GLOBALS['clCache'])) {
+        $cache = readJson(clCacheFile()) ?? [];
+        if (($cache['format'] ?? 1) !== CL_CACHE_FORMAT) {
+            $cache = ['format' => CL_CACHE_FORMAT];       // measured differently before: measure again
+        }
+        $GLOBALS['clCache'] = $cache + ['flash' => null, 'sizes' => [], 'compose' => []];
+    }
+    return $GLOBALS['clCache'];
 }
 
 function clSaveCache(array $cache): void
@@ -1487,13 +1939,14 @@ function clMeasureQueue(string $path, int $ttl): void
     if (!clSafe($path) || !is_dir($path)) {
         return;
     }
-    // files, bytes and newest change; and the five newest files (by tab: time, size, path)
-    $awk = 'BEGIN{FS="\t"} {c++; s+=$2; t=int($1); if (t>m) m=t;'
+    // files, bytes on disk (blocks: a sparse vdisk counts what it really takes) and newest change;
+    // and the five newest files (by tab: time, 512-byte blocks, path)
+    $awk = 'BEGIN{FS="\t"} {c++; s+=$2*512; t=int($1); if (t>m) m=t;'
          . ' for (i=1; i<=5; i++) if (!(i in T) || t>T[i]) { for (j=5; j>i; j--) if ((j-1) in T) { T[j]=T[j-1]; P[j]=P[j-1] } T[i]=t; P[i]=$3; break } }'
          . ' END{printf "%d\t%.0f\t%d\n", c, s, m; for (i=1; i<=5; i++) if (i in T) printf "%d\t%s\n", T[i], P[i]}';
     $nice = bin('ionice') ? ['nice', '-n', '10', 'ionice', '-c', '3'] : ['nice', '-n', '10'];
     clJobAdd('measure:' . $path, 'measure', [
-        array_merge($nice, ['find', $path, '-xdev', '-type', 'f', '-printf', "%T@\t%s\t%P\n"]),
+        array_merge($nice, ['find', $path, '-xdev', '-type', 'f', '-printf', "%T@\t%b\t%P\n"]),
         ['awk', $awk],
     ], 3600);
 }
@@ -1630,6 +2083,18 @@ function clJobDone(array $job, bool $killed): void
         } else {
             $cache['sizes'][$path] = ['at' => time(), 'error' => true];
         }
+    } elseif ($job['type'] === 'cache') {
+        // "Build Cache  237.2MB  95.67MB" — Docker counts in powers of 1000
+        $bytes = function (string $s): int {
+            $power = ['' => 0, 'K' => 1, 'M' => 2, 'G' => 3, 'T' => 4, 'P' => 5];
+            return preg_match('/([\d.]+)\s*([kKMGTP]?)B/', $s, $m) ? (int) round((float) $m[1] * 1000 ** $power[strtoupper($m[2])]) : 0;
+        };
+        foreach (rows($text) as $f) {
+            if (count($f) >= 3 && stripos($f[0], 'build') === 0) {
+                $cache['build'] = ['at' => time(), 'size' => $bytes($f[1]), 'reclaimable' => $bytes($f[2])];
+            }
+        }
+        $cache['build'] ??= ['at' => time(), 'size' => 0, 'reclaimable' => 0];
     } elseif ($job['type'] === 'purge') {
         $path = substr($key, 6);
         if (file_exists($path)) {
