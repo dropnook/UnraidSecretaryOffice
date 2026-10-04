@@ -637,11 +637,8 @@
   "adv.sub": "What I would do differently — advice, not errors. «I know, thanks» hides a tip in this browser; it comes back when something changes.",
   "adv.none": "Nothing to add. Rare, but it happens.",
   "adv.all_known": "You know everything I would have said. Rare, but it happens.",
-  "adv.show_known": {
-    "one": "Show the one you know",
-    "other": "Show the {n} you know"
-  },
-  "adv.hide_known": "Hide the ones you know",
+  "adv.show_known": "Show known ({n})",
+  "adv.hide_known": "Hide known",
   "adv.known": "I know, thanks",
   "adv.show_again": "Show again",
   "adv.level_advice": "advice",

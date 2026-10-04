@@ -637,11 +637,8 @@
   "adv.sub": "Was ich anders machen würde — Ratschläge, keine Fehler. «Weiss ich, danke» blendet einen Tipp in diesem Browser aus; er kommt wieder, wenn sich etwas ändert.",
   "adv.none": "Nichts hinzuzufügen. Selten, aber kommt vor.",
   "adv.all_known": "Du weisst schon alles, was ich gesagt hätte. Selten, aber kommt vor.",
-  "adv.show_known": {
-    "one": "Den bekannten zeigen",
-    "other": "Die {n} bekannten zeigen"
-  },
-  "adv.hide_known": "Bekannte ausblenden",
+  "adv.show_known": "Bekanntes anzeigen ({n})",
+  "adv.hide_known": "Bekanntes ausblenden",
   "adv.known": "Weiss ich, danke",
   "adv.show_again": "Wieder zeigen",
   "adv.level_advice": "Ratschlag",
