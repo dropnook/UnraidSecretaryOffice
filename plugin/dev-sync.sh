@@ -33,6 +33,8 @@ copy "$src/plugin/images/" "$dir/images/"
 copy --exclude=__pycache__ "$src/embycache/" "$dir/embycache/"     # Jack Emby's tools; a running one keeps its old files
 copy "$src/gather/"        "$dir/gather/"
 rsync -lt --chmod=F644 "$src"/plugin/*.page "$dir/"
+# the README Unraid shows under Plugins, without the title picture (as plugin/build.sh does)
+awk '/^<h1>/{skip=1; print "**Unraid Secretary Office**"; next} skip&&/^<\/h1>/{skip=0; next} !skip' "$src/README.md" > "$dir/README.md"
 chmod 755 "$dir"/scripts/* "$dir"/event/* "$dir/agent/agent.php"
 
 # a run is "bash <dir>/backup/backup.sh" (atd, the cron file) - only the start of the command line counts
