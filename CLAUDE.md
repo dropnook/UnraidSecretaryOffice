@@ -9,8 +9,8 @@ This file holds the conventions and the checklist for changes.
 
 * **Plugin** (the way users install it, since 1.14): code in RAM under
   `/usr/local/emhttp/plugins/unraid-secretary-office/` — the web files of
-  `public/` at its top, `src/`, `agent/`, `backup/`, `scripts/`, `event/`,
-  `images/` beside them (built by `plugin/build.sh`). Unraid's nginx/php-fpm
+  `public/` at its top, `src/`, `agent/`, `backup/`, `embycache/`, `gather/`,
+  `scripts/`, `event/`, `images/` beside them (built by `plugin/build.sh`). Unraid's nginx/php-fpm
   serve the page behind the Unraid login; the agent is a service
   (`scripts/agent.sh`, started at install/boot and by `event/started`, stopped
   by `event/stopping`). The data folder is `DATA_DIR` from
@@ -65,7 +65,7 @@ differ get a `_plugin` key or come from state (`schedule.via`).
   `atd` (`backupLaunch()` in agent/desks/backup.php), never as a child of the
   agent: `agent.sh stop` ends the agent's whole session (array stop, plugin
   update), and in the stack Docker kills the container's cgroup.
-* **Schedules** (nightly backup, snapshot plans) only through
+* **Schedules** (nightly backup, snapshot plans, EmbyCache, the gather) only through
   `officeJobSchedule()` / `officeJobSetSchedule()` (agent/lib/house.php): as a
   plugin a line in its cron file (`/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cron`,
   calling `scripts/job.sh <job>`, which runs only while the array is
@@ -81,6 +81,19 @@ differ get a `_plugin` key or come from state (`schedule.via`).
   inside the block) and still replace files with a new file + `mv`, never by
   writing into them. After a `mv` on the host the Mac's SMB view may still show
   the old content: compare md5 on both sides before committing.
+* **Jack Emby's tools** ship with the office: `embycache/` (EmbyCache by
+  helmi1987, Python 3 stdlib, German) and `gather/` (media-disk-gather,
+  `consolidate_master.sh`, bash, German). Changes are ours now, kept small and
+  listed at the top of their README.md; their data stays apart
+  (`EMBYCACHE_DIR` = data/embycache, `CONSOLIDATE_CONFIG` = data/gather/consolidate.ini)
+  and they report through status files (`EMBYCACHE_STATUS`,
+  `CONSOLIDATE_STATUS`), never parsed log lines for anything new. EmbyCache
+  MOVES files (rsync, then delete the source) — test with report and dry
+  runs. Runs go through `php agent.php job embycache|gather <mode>` (atd from
+  the page, the cron file or User Scripts on schedule); a real run holds the
+  other tool's lock, EmbyCache's real runs wait for the gather's first real
+  run. The cleaner (`embycache_cleaner.py`) is left out on purpose: on a
+  share whose primary is the pool it would take every new film for an orphan.
 * **Backups never live in appdata.** Dumps, archives and manifests go to a
   backup share of their own (`[general] dumps_share` → `<share>/unraid-backup`,
   in the office's share `UnraidSecretaryOffice` → `backup/`, one folder per desk;
@@ -107,7 +120,7 @@ differ get a `_plugin` key or come from state (`schedule.via`).
 | `snapshot` | Ms. Snapshotini / Frau Snapshotini | ZFS, btrfs and VM snapshots: create, delete with an estimate, rename, hold, unmount; schedules with retention (lib/snapshotplans.php: snapshots `auto-<plan>-YYYYMMDD-HHMM`, retention touches only those; `php agent.php job snapshot-plans` every 5 min — the plugin's cron line `job.sh snapshots`, in the stack the User Scripts entry `unraid-secretary-office_snapshots`) |
 | `whereabouts` | Ms. Whereabouts / Frau Wasistwo | what is where and going on; "where things are" (config files, boot medium, VM files) with their backup protection. Read only |
 | `backup` | Mr. Backupsy / Herr Backupsi | runs the engine in `backup/`: status, history, protection, restore help, setup assistant (`#/backup/setup`) |
-| `emby` | Jack Emby (the intern) | EmbyCache (github.com/helmi1987/embycache-for-unraid): git clone into data/embycache/app, ff-only updates, never changed here; data apart via EMBYCACHE_DIR; settings written via its own save_config(); API key never leaves the server |
+| `emby` | Jack Emby (the intern) | EmbyCache (`embycache/`, from github.com/helmi1987/embycache-for-unraid, extended: back to the origin disk via embycache_origin.json, the emptied folder stays on the disk as a signpost, separate limits for started films and series, deliberately skipped folders = empty mapping) and the gather "Consolidate folders" (`gather/`: one disk per film folder, keeps empty folders whose content is on the pool). Settings via EmbyCache's own save_config() (trial file first); the gather's ini written by Jack; API key never leaves the server; schedules: jobs `embycache` and `gather` (job.sh) |
 | `logs` | Ms. Protocolli / Frau Protokolli | reads logs out loud (fixed source list in agent/desks/logs.php, ids only, never paths); tail/follow by file offset, docker logs and dmesg re-read; lines go into the page as text only. Read only |
 | `cleanup` | Ms. Dustdevil / Frau Putzteufel | clears away what nobody uses: Docker templates, Compose stacks, appdata folders, stray my-*.xml elsewhere, what deleted VMs left behind (domains folders, NVRAM, TPM, snapshot lists, unused disk images; VMs without disks are only pointed out), switched-off User Scripts that lie around, Docker's leftovers. Never deletes right away: renames into `_UnraidSecretaryOffice-trash` on the same filesystem (ZFS datasets with `zfs rename` next to it), `manifest.json` per run, put back or empty; Docker leftovers can only be removed. Only rename, never copy; nothing while a backup runs |
 | `caretaker` | The Caretaker / Der Hauswart | collects every desk's `checks` and what the office needs; tells the user what is left to do |
@@ -271,6 +284,8 @@ public/assets/core.js    Office: i18n, routing, reception, API, PIN, dialog, men
 public/desks/<id>/       desk.json, desk.js, lang/*.json (and desk.css)
 data/                    runtime only (state per desk, mailbox, agent log, office/auth.json) — not in git
 backup/                  the backup engine: backup.sh, setup.sh, lib/common.sh (data in data/unraid-backup)
+embycache/               Jack Emby's EmbyCache (Python; data in data/embycache)
+gather/                  Jack Emby's media gather, consolidate_master.sh (bash; data in data/gather)
 plugin/                  the Unraid plugin: .plg template, build.sh, scripts/ (agent.sh service,
                          job.sh for the cron file), event/ (started, stopping), the menu .page, images/
 .github/workflows/       plugin.yml: builds and attaches .plg/.txz when a release is published

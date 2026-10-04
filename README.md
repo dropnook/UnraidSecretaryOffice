@@ -13,7 +13,7 @@ server, tells you what they noticed and — where it makes sense — lets you ac
 | 📸 **Ms. Snapshotini** | Every snapshot on the server: ZFS (all pools), btrfs (array disks and pools) and VM snapshots (Unraid's own list and libvirt). Create, delete with an estimate of the space freed, rename, hold/release, unmount. **Schedules**: snapshots at fixed times with a simple retention (keep the last N, optionally nothing older than X days) — only her own snapshots are ever cleared away; they run on the server even when the office isn't open. Knows Docker's image layers and leaves them alone, never wakes sleeping disks on her own, and detects a running backup so its mounted snapshots stay untouched. |
 | 🧭 **Ms. Whereabouts** | Knows where everything is and what is going on: shares and where they live, the first folder level of pool shares (and which folders nobody uses), containers (template or compose), compose projects, VMs, users and their share access, SMB/NFS and active sessions, user scripts and cron jobs (with dead paths), places that look like backups, disks with temperature, SMART findings and fill level, Unraid's unread notifications, the license, plugins. **Where things are**: tiles for the places that matter when something breaks or moves — Unraid's configuration on the flash, Docker templates (XML), compose stacks with their .env, the VM configuration in libvirt.img (XML, NVRAM, TPM state), user scripts — each path with how Mr. Backupsy protects it. VMs with firmware, TPM, NVRAM, disks and their snapshot chain. Read only. |
 | 💾 **Mr. Backupsy** | Runs the office's backup engine ([backup/](backup/README.md): consistent ZFS/btrfs snapshots, database dumps, Nextcloud maintenance mode, Kopia offsite): what a run is doing right now and when it will be done (estimated from earlier runs), how the last nights went, which share is protected how (Kopia offsite, local snapshot, not at all) and when it was last copied offsite, what changed on the server since the setup, whether a nightly run is scheduled, and how to get things back (snapshot paths, Kopia, database dumps with ready-made restore commands). Starts a full run, a run without Kopia, a dry run or a check, and stops a run cleanly. **Set up in the browser** (*Set up…*): he reads the server and shows his proposals with reasons — Kopia offsite, every share, which containers stop for the snapshots, database dumps and Nextcloud maintenance mode, retention, Kopia policies — you change what you like and apply; the same engine as `setup.sh` in a terminal checks and writes it. |
-| 🍿 **Jack Emby** | The intern ("check Emby"): fetches coffee, entertains everyone — and looks after [EmbyCache](https://github.com/helmi1987/embycache-for-unraid), which keeps what people are about to watch on the fast pool so the array disks can sleep. He fetches and updates it from its public repository (never changing it), sets it up with your Emby API key and runs it. |
+| 🍿 **Jack Emby** | The intern ("check Emby"): fetches coffee, entertains everyone — and looks after [EmbyCache](https://github.com/helmi1987/embycache-for-unraid), which keeps what people are about to watch on the fast pool so the array disks can sleep, and brings it back to the very disk it came from once it's watched. Before that, the [media gather](https://github.com/helmi1987/media-disk-gather-for-unraid) ("Consolidate folders") brings every film folder together on one disk. Both ship with the office (`embycache/`, `gather/`); Jack sets them up (Emby API key, libraries, people, pool — films and series each their own way), shows whether your shares suit, runs them and schedules them. |
 | 📝 **Ms. Protocolli** | Reads every log out loud — and sadly understands none of it. The office's own logs (agent, Mr. Backupsy's runs, Jack's EmbyCache, the office containers), Unraid's (syslog, kernel, VMs, web UI, Samba, parity checks …), what every User Script printed last, and every container's docker logs. Last 100 to 10000 lines, live like `tail -f`, filter by text or errors and warnings only, copy or download. Read only, from a fixed list; nothing wakes a disk. |
 | 🧹 **Ms. Dustdevil** | Clears away what nobody uses any more: Docker templates without a container, Compose stacks without containers, appdata folders nothing names (container mounts, templates, stacks, compose files, VMs, any file on the flash), what deleted VMs left behind (folders in `domains`, NVRAM files, TPM states, snapshot lists, disk images in `isos` no VM uses) switched-off User Scripts that lie around (pointing to paths that are gone, or unused since the reboot), stray `my-*.xml` outside Unraid's folder (take over or put away; backups are left out), VMs whose disks are gone (pointed out, removed in Unraid) and Docker's leftovers (dangling and unused images, volumes without a container, the build cache). A filter and a CSV export for every room. Nothing is deleted right away: it is renamed into `_UnraidSecretaryOffice-trash` on the same disk (ZFS datasets with `zfs rename`, snapshots included) and can be put back until you empty it. Measures in the background, never wakes a sleeping disk, changes nothing while a backup runs. |
 | 🧰 **The Caretaker** | Looks after the house. Every desk tells him what it needs from the server; he adds what the office as a whole benefits from and lists what is missing — *still to do* (only you can do it, in Unraid), *recommended* (e.g. Fix Common Problems, Files Viewer, notifications by mail or push) and *good to know* (other backup tools, so nothing runs twice by accident) — each with a link into Unraid's web UI. Especially helpful on a fresh server. Read only. |
@@ -61,7 +61,7 @@ Where things are:
 |---|---|
 | The code (in RAM, unpacked at every boot) | `/usr/local/emhttp/plugins/unraid-secretary-office/` |
 | The package and the one setting (`DATA_DIR`) | `/boot/config/plugins/unraid-secretary-office/` |
-| The schedules (nightly backup, snapshot plans) | `…/unraid-secretary-office.cron` next to it, set in the office |
+| The schedules (nightly backup, snapshot plans, EmbyCache, consolidating) | `…/unraid-secretary-office.cron` next to it, set in the office |
 | State, logs, the backup engine's settings | `appdata/UnraidSecretaryOffice/data/` (comes with the array) |
 | Database dumps, archives | the share `UnraidSecretaryOffice`, one folder per desk |
 | Snapshot mounts for Kopia | `/mnt/addons/UnraidSecretaryOffice/` |
@@ -215,9 +215,9 @@ Stop the plugin's agent first (`bash /usr/local/emhttp/plugins/unraid-secretary-
 * Run the agent by hand for debugging: stop the agent (container or plugin
   service), then on the host `php agent/agent.php run`
 * Tests: on the Unraid host `php tests/run.php` — the tricky logic (cron,
-  snapshot retention, Emby detection, User Scripts schedules, the plugin's
-  cron file; on copies only) and every text in both languages. It changes
-  nothing on the server.
+  snapshot retention, Emby detection, the gather's settings, User Scripts
+  schedules, the plugin's cron file; on copies only) and every text in both
+  languages. It changes nothing on the server.
 * The server runs the plugin? `bash plugin/dev-sync.sh` (on the host) copies
   the working copy into the installed plugin in RAM — live until the next
   reboot or plugin update; the agent restarts itself. Never start the stack
@@ -228,7 +228,7 @@ Stop the plugin's agent first (`bash /usr/local/emhttp/plugins/unraid-secretary-
   attaches both (`.github/workflows/plugin.yml`).
 * `data/` holds runtime state only and is not part of the repository —
   including `data/unraid-backup/` (the backup engine's settings, state and
-  logs; root only).
+  logs; root only) and Jack Emby's `data/embycache/` and `data/gather/`.
 
 ## License
 

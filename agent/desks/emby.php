@@ -2,33 +2,46 @@
 declare(strict_types=1);
 
 /*
- * Jack Emby — the intern who loves Emby (say it fast: "check Emby"). He looks after EmbyCache
- * (github.com/helmi1987/embycache-for-unraid): it keeps what people are about
- * to watch on the fast pool, so the array disks can sleep.
+ * Jack Emby — the intern who loves Emby (say it fast: "check Emby"). He looks
+ * after two tools that ship with the office:
  *
- * EmbyCache is never changed here. Jack fetches it from its public
- * repository (git clone into data/embycache/app), updates it with a
- * fast-forward pull, and keeps its data apart (EMBYCACHE_DIR =
- * data/embycache: settings, exclude list, lock, logs) — an update never
- * touches the settings. Settings are written with EmbyCache's own
- * save_config(), runs are started through the host's atd.
+ *   embycache/  EmbyCache (from github.com/helmi1987/embycache-for-unraid):
+ *               puts what people are about to watch on the fast pool, so the
+ *               array disks can sleep, and brings it back to the disk it came
+ *               from once it's watched
+ *   gather/     the media gather (from github.com/helmi1987/media-disk-gather-for-unraid):
+ *               brings the files of a film or series folder together on one
+ *               array disk; it runs once before EmbyCache's first real run
+ *
+ * Both keep their data apart, in data/embycache and data/gather (settings,
+ * exclude list, origin list, lock, logs, status) — an office update never
+ * touches them. EmbyCache's settings are written by its own save_config(),
+ * the gather's consolidate.ini by Jack (values checked, every one quoted).
+ *
+ * Runs go through "php agent.php job embycache|gather <mode>": started by the
+ * host's atd (from the page) or the office's cron file / User Scripts (on a
+ * schedule). The job keeps the two apart (never at the same time), records
+ * how it went and keeps the output of the last run.
  *
  * The Emby API key stays on the server: it is never part of the state the
  * web page gets.
  */
 
-const EMBY_REPO     = 'https://github.com/helmi1987/embycache-for-unraid.git';
-const EMBY_BRANCH   = 'main';
-const EMBY_FILES    = ['embycache_lib.py', 'embycache_run.py', 'embycache_setup.py', 'embycache_cleaner.py'];
 const EMBY_LOG_TAIL = 96 * 1024;
 const EMBY_MODES    = ['report' => ['--show-on-deck', '--compact'], 'dry' => [], 'run' => ['--run']];
+const GATHER_MODES  = ['dry' => ['--dryrun'], 'run' => ['--run']];
 const EMBY_SETTINGS = ['cache_path', 'cache_budget', 'number_episodes', 'movie_share_percent', 'max_episodes_per_series',
-                       'max_resume_items', 'max_favorite_series', 'use_next_up', 'min_free_percent', 'movie_mode',
-                       'fill_tool', 'cleanup_tool'];
+                       'max_resume_items', 'max_resume_movies', 'max_resume_series', 'max_favorite_series', 'use_next_up', 'min_free_percent', 'movie_mode',
+                       'fill_tool', 'cleanup_tool', 'return_to_origin', 'array_source', 'array_path', 'user_path',
+                       'array_disks_glob', 'create_share_root', 'mover_debug_level'];
+const GATHER_LOCK   = '/var/run/consolidate_master.lock';     // the gather's own lock (consolidate_master.sh)
+const EMBY_HISTORY  = 40;
+const EMBY_IGNORED  = '#^/(config|metadata|transcoding-temp|cache|logs|var|boot|tmp)#';   // Emby's own folders, never media
 
+define('EMBY_APP', OFFICE_DIR . '/embycache');
+define('GATHER_APP', OFFICE_DIR . '/gather');
 define('EMBY_DATA', DATA_DIR . '/embycache');
-define('EMBY_APP', EMBY_DATA . '/app');
-define('EMBY_UPDATE', DATA_DIR . '/emby-update.json');
+define('GATHER_DATA', DATA_DIR . '/gather');
 
 desk('emby', [
     'fit'     => function (): array {
@@ -37,15 +50,19 @@ desk('emby', [
     },
     'start'   => fn () => embyScan(),
     'actions' => [
-        'refresh'       => fn (array $r) => ['ok' => true, 'state' => embyScan()],
-        'install'       => fn (array $r) => embyInstall(),
-        'check_updates' => fn (array $r) => embyCheckUpdates(),
-        'update'        => fn (array $r) => embyUpdate(),
-        'connect'       => fn (array $r) => embyConnect(textField($r, 'url'), (string) ($r['api_key'] ?? '')),
-        'save'          => fn (array $r) => embySave($r['settings'] ?? null),
-        'start_run'     => fn (array $r) => embyStart(textField($r, 'mode')),
-        'output'        => fn (array $r) => embyOutput(),
-        'log'           => fn (array $r) => embyLog(),
+        'refresh'      => fn (array $r) => ['ok' => true, 'state' => embyScan()],
+        'connect'      => fn (array $r) => embyConnect(textField($r, 'url'), (string) ($r['api_key'] ?? '')),
+        'save'         => fn (array $r) => embySave($r['settings'] ?? null),
+        'gather_save'  => fn (array $r) => embyGatherSave($r['gather'] ?? null),
+        'start_run'    => fn (array $r) => embyStart('embycache', textField($r, 'mode')),
+        'gather_start' => fn (array $r) => embyStart('gather', textField($r, 'mode')),
+        'schedule'     => fn (array $r) => embySetSchedule(textField($r, 'job'), $r['cron'] ?? null),
+        'output'       => fn (array $r) => embyOutput(textField($r, 'tool')),
+        'log'          => fn (array $r) => embyLog(textField($r, 'tool')),
+    ],
+    'jobs'    => [
+        'embycache' => fn (array $args) => embyJob('embycache', $args),
+        'gather'    => fn (array $args) => embyJob('gather', $args),
     ],
     'checks'  => fn () => embyChecks(),
 ]);
@@ -54,25 +71,32 @@ desk('emby', [
 
 function embyScan(): array
 {
-    $installed = is_file(EMBY_APP . '/embycache_run.py');
     $settings = embyReadSettings();
+    $gather = embyGatherSettings();
     $state = [
-        'time'      => time(),
-        'python'    => embyPython(),
-        'emby'      => embyContainers(),
-        'installed' => $installed,
-        'version'   => $installed ? embyVersion() : null,
-        'update'    => readJson(EMBY_UPDATE),
+        'time'       => time(),
+        'python'     => embyPython(),
+        'emby'       => embyContainers(),
+        'versions'   => embyVersions(),
         'configured' => $settings !== null && !empty($settings['instances']),
-        'settings'  => $settings !== null ? embySettingsPublic($settings) : null,
-        'running'   => flockHeld(EMBY_DATA . '/embycache.lock'),
-        'cache'     => embyCacheStats($settings),
-        'last'      => embyLastRun(),
-        'schedule'  => embySchedule(),
-        'output'    => embyOutputInfo(),
-        'pools'     => embyPools(),
-        'data_dir'  => EMBY_DATA,
-        'app_dir'   => EMBY_APP,
+        'settings'   => $settings !== null ? embySettingsPublic($settings) : null,
+        'shares'     => $settings !== null ? embyShares($settings) : [],
+        'cache'      => embyCacheStats($settings),
+        'pool'       => embyPoolUsage($settings),
+        'gather'     => [
+            'settings' => $gather,
+            'ready'    => embyGatherReady(),
+            'last'     => readJson(GATHER_DATA . '/last-real.json'),
+        ],
+        'jobs'       => ['embycache' => embyJobInfo('embycache'), 'gather' => embyJobInfo('gather')],
+        'last'       => embyLastRun(),
+        'history'    => array_slice(embyHistory(), 0, 20),
+        'schedules'  => ['embycache' => officeJobSchedule('embycache'), 'gather' => officeJobSchedule('gather')],
+        'foreign'    => embyForeignSchedules(),
+        'pools'      => embyPools(),
+        'share_info' => embyShareInfo(),
+        'pool_dirs'  => embyPoolDirs(),
+        'old_clone'  => is_dir(EMBY_DATA . '/app/.git'),
     ];
     writeAtomic(deskFile('emby'), jsonEncode($state));
     return $state;
@@ -82,6 +106,17 @@ function embyPython(): ?string
 {
     [$exit, $out] = run(['python3', '--version'], 10);
     return $exit === 0 ? trim(str_replace('Python', '', $out)) : null;
+}
+
+/** The versions of the two tools that ship with the office */
+function embyVersions(): array
+{
+    $lib = (string) @file_get_contents(EMBY_APP . '/embycache_lib.py', false, null, 0, 4096);
+    $sh = (string) @file_get_contents(GATHER_APP . '/consolidate_master.sh', false, null, 0, 1024);
+    return [
+        'embycache' => preg_match('/__version__\s*=\s*"([^"]+)"/', $lib, $m) ? $m[1] : null,
+        'gather'    => preg_match('/\((V[\d.]+)\)/', $sh, $m) ? $m[1] : null,
+    ];
 }
 
 /** Emby containers with what the setup needs: address and the folders they see */
@@ -150,21 +185,6 @@ function embyPools(): array
     return array_keys($pools);
 }
 
-function embyVersion(): array
-{
-    $lib = (string) @file_get_contents(EMBY_APP . '/embycache_lib.py', false, null, 0, 4096);
-    [$exit, $out] = run(['git', '-C', EMBY_APP, 'log', '-1', '--format=%h%x09%ct%x09%s'], 10);
-    [$h, $t, $s] = $exit === 0 ? explode("\t", trim($out), 3) + [null, null, null] : [null, null, null];
-    [$e2, $dirty] = run(['git', '-C', EMBY_APP, 'status', '--porcelain', '--untracked-files=no'], 10);
-    return [
-        'version' => preg_match('/__version__\s*=\s*"([^"]+)"/', $lib, $m) ? $m[1] : null,
-        'commit'  => $h,
-        'time'    => $t ? (int) $t : null,
-        'subject' => $s,
-        'changed' => $e2 === 0 && trim($dirty) !== '',
-    ];
-}
-
 function embyReadSettings(): ?array
 {
     $j = json_decode((string) @file_get_contents(EMBY_DATA . '/embycache_settings.json'), true);
@@ -180,17 +200,120 @@ function embySettingsPublic(array $s): array
                         'has_key' => !empty($i['api_key']), 'path_mappings' => (array) ($i['path_mappings'] ?? [])];
     }
     $out = ['instances' => $instances, 'libraries' => array_values((array) ($s['libraries'] ?? [])),
-            'valid_users' => $s['valid_users'] ?? []];
+            'library_types' => (array) ($s['library_types'] ?? []), 'valid_users' => $s['valid_users'] ?? []];
     foreach (EMBY_SETTINGS as $k) {
         $out[$k] = $s[$k] ?? null;
     }
     return $out;
 }
 
+// ===================================================================== shares
+
+/** /boot/config/shares/<share>.cfg as key => value */
+function embyShareCfg(string $share): array
+{
+    return preg_match('/^[\w.\- ]+$/u', $share) ? readCfg("/boot/config/shares/$share.cfg") : [];
+}
+
+/** Every user share (by its configuration on the flash) */
+function embyAllShares(): array
+{
+    $out = [];
+    foreach (glob('/boot/config/shares/*.cfg') ?: [] as $f) {
+        $out[] = basename($f, '.cfg');
+    }
+    sort($out);
+    return $out;
+}
+
+/** Every share with where it lives (for the setup: does it suit the chosen pool?) */
+function embyShareInfo(): array
+{
+    $out = [];
+    foreach (embyAllShares() as $share) {
+        $cfg = embyShareCfg($share);
+        $out[$share] = ['use' => (string) ($cfg['shareUseCache'] ?? ''), 'primary' => (string) ($cfg['shareCachePool'] ?? ''),
+                        'secondary' => (string) ($cfg['shareCachePool2'] ?? '')];
+    }
+    return $out;
+}
+
+/** The share folders at the top of each pool (EmbyCache needs the share's folder there — on ZFS a dataset) */
+function embyPoolDirs(): array
+{
+    $out = [];
+    foreach (embyPools() as $pool) {
+        $out[$pool] = array_values(array_map('basename', glob("$pool/*", GLOB_ONLYDIR) ?: []));
+    }
+    return $out;
+}
+
+/** The shares behind the mapped library folders (/mnt/user/<share>/…) */
+function embyMappedShares(array $settings): array
+{
+    $shares = [];
+    $user = rtrim((string) ($settings['user_path'] ?? '/mnt/user'), '/');
+    foreach ((array) ($settings['instances'] ?? []) as $i) {
+        foreach (array_merge((array) ($settings['path_mappings'] ?? []), (array) ($i['path_mappings'] ?? [])) as $host) {
+            if (is_string($host) && preg_match('#^' . preg_quote($user, '#') . '/([^/]+)#', $host, $m)) {
+                $shares[$m[1]] = true;
+            }
+        }
+    }
+    ksort($shares);
+    return array_keys($shares);
+}
+
+/**
+ * Does a share suit EmbyCache with this pool? EmbyCache moves between the
+ * array (/mnt/user0) and one pool: the share must have files on the array.
+ *   ok          primary = the pool, secondary = array (the usual "Cache: yes")
+ *   other_pool  secondary = array, but its primary is another pool
+ *   array_only  array only: works, the way back best via rsync / the origin disk
+ *   no_array    primary pool → secondary pool: never on the array, nothing to do
+ *   pool_only   prefer/only: lives on a pool, the mover would pull everything back
+ */
+function embyShareFit(array $cfg, string $pool): string
+{
+    $use = strtolower((string) ($cfg['shareUseCache'] ?? ''));
+    $primary = (string) ($cfg['shareCachePool'] ?? '');
+    $secondary = (string) ($cfg['shareCachePool2'] ?? '');
+    return match (true) {
+        $use === 'no' || $use === ''             => 'array_only',
+        $use === 'yes' && $secondary !== ''      => 'no_array',
+        $use === 'yes' && $primary !== $pool     => 'other_pool',
+        $use === 'yes'                           => 'ok',
+        default                                  => 'pool_only',
+    };
+}
+
+function embyShares(array $settings): array
+{
+    $cache = rtrim((string) ($settings['cache_path'] ?? ''), '/');
+    $pool = basename($cache);
+    $out = [];
+    foreach (embyMappedShares($settings) as $share) {
+        $cfg = embyShareCfg($share);
+        $out[] = [
+            'share'     => $share,
+            'use'       => (string) ($cfg['shareUseCache'] ?? ''),
+            'primary'   => (string) ($cfg['shareCachePool'] ?? ''),
+            'secondary' => (string) ($cfg['shareCachePool2'] ?? ''),
+            'include'   => (string) ($cfg['shareInclude'] ?? ''),
+            'fit'       => embyShareFit($cfg, $pool),
+            'root'      => $cache !== '' && is_dir("$cache/$share"),     // EmbyCache won't create it (ZFS: a dataset)
+        ];
+    }
+    return $out;
+}
+
+// ===================================================================== what's on the pool
+
 /** What EmbyCache keeps on the pool right now (its exclude list: absolute pool paths) */
 function embyCacheStats(?array $settings): array
 {
     $list = @file(EMBY_DATA . '/embycache_exclude.txt', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    $origin = readJson(EMBY_DATA . '/embycache_origin.json') ?? [];
     $bytes = 0;
     $groups = [];
     $cache = rtrim((string) ($settings['cache_path'] ?? ''), '/');
@@ -201,138 +324,56 @@ function embyCacheStats(?array $settings): array
         $rel = $cache !== '' && str_starts_with($path, "$cache/") ? substr($path, strlen($cache) + 1) : ltrim($path, '/');
         $parts = explode('/', $rel);
         $key = $parts[0] . '/' . ($parts[1] ?? '');
-        $groups[$key] ??= ['share' => $parts[0], 'title' => $parts[1] ?? $parts[0], 'files' => 0, 'bytes' => 0];
+        $groups[$key] ??= ['share' => $parts[0], 'title' => $parts[1] ?? $parts[0], 'files' => 0, 'bytes' => 0, 'origin' => []];
         $groups[$key]['files']++;
         $groups[$key]['bytes'] += $size;
+        if (is_string($origin[$path] ?? null)) {
+            $groups[$key]['origin'][$origin[$path]] = true;
+        }
     }
+    foreach ($groups as &$g) {
+        $g['origin'] = array_keys($g['origin']);
+    }
+    unset($g);
     usort($groups, fn ($a, $b) => $b['bytes'] <=> $a['bytes']);
     return ['files' => count($list), 'bytes' => $bytes, 'groups' => array_slice(array_values($groups), 0, 200),
             'listed_at' => @filemtime(EMBY_DATA . '/embycache_exclude.txt') ?: null];
 }
 
-/** The last run from EmbyCache's log: when, what kind, the result lines */
-function embyLastRun(): ?array
+/**
+ * How full the pool is, against what EmbyCache keeps free there. On ZFS the
+ * pool's top folder only sees its own dataset (nearly empty, so "100 % free"):
+ * the whole pool counts — its used + available space.
+ */
+function embyPoolUsage(?array $settings): ?array
 {
-    $file = EMBY_DATA . '/logs/embycache.log';
-    $size = (int) @filesize($file);
-    if (!$size) {
+    $cache = (string) ($settings['cache_path'] ?? '');
+    if ($cache === '' || !is_dir($cache)) {
         return null;
     }
-    $h = fopen($file, 'r');
-    fseek($h, max(0, $size - EMBY_LOG_TAIL));
-    $tail = (string) stream_get_contents($h);
-    fclose($h);
-    $last = null;
-    $results = [];
-    $errors = 0;
-    $warnings = 0;
-    foreach (explode("\n", $tail) as $line) {
-        if (!preg_match('/^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d),\d+ \| (\w+) \| (.*)$/', $line, $m)) {
-            continue;
-        }
-        $last = strtotime($m[1]) ?: $last;
-        if ($m[2] === 'ERROR') {
-            $errors++;
-        } elseif ($m[2] === 'WARNING') {
-            $warnings++;
-        }
-        // the summary lines EmbyCache writes at the end of every run
-        if (preg_match('/^(Ergebnis (Cleanup|Befüllen):|Dry-Run: )/u', $m[3])) {
-            $results[] = trim($m[3]);
-            if (str_starts_with($m[3], 'Dry-Run: ') || str_starts_with($m[3], 'Ergebnis Cleanup:')) {
-                $results = [trim($m[3])];     // a new run starts its summary
-                $errors = $warnings = 0;
+    $total = (float) @disk_total_space($cache);
+    $free = (float) @disk_free_space($cache);
+    foreach (mountTable() as $m) {
+        if ($m['mount'] === rtrim($cache, '/') && $m['fs'] === 'zfs' && preg_match('#^[\w.-]+$#', $m['source'])) {
+            [$exit, $out] = run(['zfs', 'list', '-Hp', '-o', 'used,avail', $m['source']], 10);
+            $f = preg_split('/\s+/', trim($out));
+            if ($exit === 0 && count($f) === 2 && is_numeric($f[0]) && is_numeric($f[1])) {
+                $total = (float) $f[0] + (float) $f[1];
+                $free = (float) $f[1];
             }
         }
     }
-    return ['time' => $last, 'results' => $results, 'errors' => $errors, 'warnings' => $warnings];
+    return $total > 0 ? ['path' => $cache, 'total' => $total, 'free' => $free,
+                         'free_percent' => round($free / $total * 100, 1), 'min_free' => $settings['min_free_percent'] ?? null] : null;
 }
 
-/** A User Scripts entry that runs EmbyCache, and its schedule */
-function embySchedule(): array
+/** The last run from EmbyCache's own status file (written at the end of every run) */
+function embyLastRun(): ?array
 {
-    $plans = (array) json_decode((string) @file_get_contents('/boot/config/plugins/user.scripts/schedule.json'), true);
-    foreach (glob('/boot/config/plugins/user.scripts/scripts/*/script') ?: [] as $file) {
-        $text = (string) @file_get_contents($file, false, null, 0, 8192);
-        if (str_contains($text, 'embycache_run.py')) {
-            $plan = $plans[$file] ?? [];
-            $freq = (string) ($plan['frequency'] ?? 'disabled');
-            return ['script' => basename(dirname($file)), 'frequency' => $freq, 'custom' => $plan['custom'] ?? null,
-                    'enabled' => !in_array($freq, ['', 'disabled'], true), 'ours' => str_contains($text, EMBY_DATA)];
-        }
-    }
-    return ['script' => null, 'enabled' => false];
+    return readJson(EMBY_DATA . '/status.json');
 }
 
-// ===================================================================== fetching and updating
-
-function embyInstall(): array
-{
-    if (is_dir(EMBY_APP . '/.git')) {
-        throw new Problem('emby_installed');
-    }
-    embyDataDir();
-    [$exit, , $err] = hostNet(['git', 'clone', '--quiet', '--branch', EMBY_BRANCH, EMBY_REPO, EMBY_APP], 180);
-    if ($exit !== 0) {
-        throw new Problem('emby_git', ['detail' => trim($err)]);
-    }
-    logLine('Jack Emby: fetched EmbyCache from ' . EMBY_REPO);
-    @unlink(EMBY_UPDATE);
-    return ['ok' => true, 'state' => embyScan()];
-}
-
-/** settings, exclude list and logs hold the API key and file names: root only */
-function embyDataDir(): void
-{
-    @mkdir(EMBY_DATA, 0700, true);
-    @chmod(EMBY_DATA, 0700);
-    @chown(EMBY_DATA, 0);
-}
-
-function embyCheckUpdates(): array
-{
-    embyNeedApp();
-    [$exit, , $err] = hostNet(['git', '-C', EMBY_APP, 'fetch', '--quiet', 'origin', EMBY_BRANCH], 120);
-    if ($exit !== 0) {
-        throw new Problem('emby_git', ['detail' => trim($err)]);
-    }
-    [, $count] = run(['git', '-C', EMBY_APP, 'rev-list', '--count', 'HEAD..FETCH_HEAD'], 10);
-    [, $log] = run(['git', '-C', EMBY_APP, 'log', '--format=%h%x09%ct%x09%s', '-n', '20', 'HEAD..FETCH_HEAD'], 10);
-    $commits = [];
-    foreach (rows($log) as $f) {
-        $commits[] = ['commit' => $f[0], 'time' => (int) ($f[1] ?? 0), 'subject' => $f[2] ?? ''];
-    }
-    $info = ['checked' => time(), 'behind' => (int) trim($count), 'commits' => $commits];
-    writeAtomic(EMBY_UPDATE, jsonEncode($info));
-    return ['ok' => true, 'state' => embyScan()];
-}
-
-function embyUpdate(): array
-{
-    embyNeedApp();
-    if (flockHeld(EMBY_DATA . '/embycache.lock')) {
-        throw new Problem('emby_running');
-    }
-    if (embyVersion()['changed']) {
-        throw new Problem('emby_local_changes');    // somebody edited the code here — never overwrite that
-    }
-    [$exit, , $err] = hostNet(['git', '-C', EMBY_APP, 'pull', '--quiet', '--ff-only', 'origin', EMBY_BRANCH], 180);
-    if ($exit !== 0) {
-        throw new Problem('emby_git', ['detail' => trim($err)]);
-    }
-    logLine('Jack Emby: updated EmbyCache to ' . (embyVersion()['commit'] ?? '?'));
-    @unlink(EMBY_UPDATE);
-    return ['ok' => true, 'state' => embyScan()];
-}
-
-function embyNeedApp(): void
-{
-    if (!is_file(EMBY_APP . '/embycache_run.py')) {
-        throw new Problem('emby_not_installed');
-    }
-}
-
-// ===================================================================== setup
+// ===================================================================== fetching from Emby (setup)
 
 /**
  * Talks to an Emby server: does it answer, which libraries and users does it
@@ -346,11 +387,7 @@ function embyConnect(string $url, string $key): array
         throw new Problem('emby_bad_url');
     }
     if ($key === '') {
-        foreach (embyReadSettings()['instances'] ?? [] as $i) {
-            if (rtrim((string) ($i['url'] ?? ''), '/') === $url) {
-                $key = (string) ($i['api_key'] ?? '');
-            }
-        }
+        $key = embyStoredKey($url);
     }
     if ($key === '' || !preg_match('/^[A-Za-z0-9]{8,128}$/', $key)) {
         throw new Problem('emby_need_key');
@@ -358,7 +395,7 @@ function embyConnect(string $url, string $key): array
     $info = embyApi($url, $key, '/System/Info');
     $libs = [];
     foreach ((array) embyApi($url, $key, '/Library/VirtualFolders') as $lib) {
-        $locs = array_values(array_filter((array) ($lib['Locations'] ?? []), fn ($l) => !preg_match('#^/(config|metadata|transcoding-temp|cache|logs|var|boot|tmp)#', (string) $l)));
+        $locs = array_values(array_filter((array) ($lib['Locations'] ?? []), fn ($l) => !preg_match(EMBY_IGNORED, (string) $l)));
         if ($locs) {
             $libs[] = ['name' => (string) ($lib['Name'] ?? ''), 'type' => (string) ($lib['CollectionType'] ?? ''), 'locations' => $locs];
         }
@@ -369,6 +406,16 @@ function embyConnect(string $url, string $key): array
     }
     return ['ok' => true, 'server' => ['name' => (string) ($info['ServerName'] ?? ''), 'version' => (string) ($info['Version'] ?? '')],
             'libraries' => $libs, 'users' => $users];
+}
+
+function embyStoredKey(string $url): string
+{
+    foreach (embyReadSettings()['instances'] ?? [] as $i) {
+        if (rtrim((string) ($i['url'] ?? ''), '/') === rtrim($url, '/')) {
+            return (string) ($i['api_key'] ?? '');
+        }
+    }
+    return '';
 }
 
 /** One GET to the Emby API, through the host's network; the key goes in a header file, not on a command line */
@@ -394,6 +441,8 @@ function embyApi(string $url, string $key, string $path): mixed
     return $j;
 }
 
+// ===================================================================== saving the setup
+
 /**
  * Takes the choices of the setup form, lays them over the current settings
  * and lets EmbyCache's own save_config() write them (it checks and fills in
@@ -401,30 +450,28 @@ function embyApi(string $url, string $key, string $path): mixed
  */
 function embySave(mixed $in): array
 {
-    embyNeedApp();
     if (!is_array($in)) {
         throw new Problem('missing_field', ['field' => 'settings']);
     }
-    $cur = embyReadSettings() ?? [];
-    $old = [];
-    foreach ($cur['instances'] ?? [] as $i) {
-        $old[rtrim((string) ($i['url'] ?? ''), '/')] = (string) ($i['api_key'] ?? '');
+    if (embyAnyRunning()) {
+        throw new Problem('emby_running');
     }
+    $cur = embyReadSettings() ?? [];
     $instances = [];
     foreach ((array) ($in['instances'] ?? []) as $i) {
         $url = rtrim((string) ($i['url'] ?? ''), '/');
-        $key = (string) ($i['api_key'] ?? '') ?: ($old[$url] ?? '');
+        $key = trim((string) ($i['api_key'] ?? '')) ?: embyStoredKey($url);
         if (!preg_match('#^https?://\S+$#', $url) || !preg_match('/^[A-Za-z0-9]{8,128}$/', $key)) {
             throw new Problem('emby_need_key');
         }
         $maps = [];
         foreach ((array) ($i['path_mappings'] ?? []) as $from => $to) {
-            if (is_string($from) && is_string($to) && str_starts_with($from, '/') && str_starts_with($to, '/mnt/')) {
-                $maps[$from] = rtrim($to, '/');
+            if (is_string($from) && is_string($to) && str_starts_with($from, '/') && ($to === '' || preg_match('#^/mnt/user/[^/]+#', $to))) {
+                $maps[rtrim($from, '/')] = rtrim($to, '/');        // '' = this folder deliberately not cached
             }
         }
-        $instances[] = ['servername' => substr(trim((string) ($i['servername'] ?? 'Emby')), 0, 60) ?: 'Emby',
-                        'url' => $url, 'api_key' => $key, 'path_mappings' => $maps];
+        $name = mb_substr(trim((string) ($i['servername'] ?? '')), 0, 60) ?: 'Emby' . (count($instances) + 1);
+        $instances[] = ['servername' => $name, 'url' => $url, 'api_key' => $key, 'path_mappings' => $maps];
     }
     if (!$instances) {
         throw new Problem('emby_need_key');
@@ -433,31 +480,58 @@ function embySave(mixed $in): array
     $cfg['instances'] = $instances;
     $cfg['path_mappings'] = [];
     $cfg['libraries'] = array_values(array_filter((array) ($in['libraries'] ?? []), 'is_string'));
-    $users = (array) ($in['valid_users'] ?? []);
-    $cfg['valid_users'] = array_is_list($users) ? array_values(array_filter($users, 'is_string')) : $users;
+    // what kind each chosen library is (films, series …) — only for the office's overview, EmbyCache ignores it
+    $cfg['library_types'] = [];
+    foreach ((array) ($in['library_types'] ?? []) as $name => $type) {
+        if (is_string($name) && in_array($name, $cfg['libraries'], true) && is_string($type) && preg_match('/^[a-z]{0,20}$/', $type)) {
+            $cfg['library_types'][$name] = $type;
+        }
+    }
+    // people: a list of ids, or {id: {budget: "300G"}} when some have a budget of their own
+    $users = [];
+    $budgets = (array) ($in['user_budgets'] ?? []);
+    foreach ((array) ($in['valid_users'] ?? []) as $id) {
+        if (is_string($id) && preg_match('/^[\w-]{1,64}$/', $id)) {
+            $b = trim((string) ($budgets[$id] ?? ''));
+            if ($b !== '' && !preg_match('/^\d+(\.\d+)?\s*[KMGTP]?B?$/i', $b)) {
+                throw new Problem('emby_bad_size', ['value' => $b]);
+            }
+            $users[$id] = $b !== '' ? ['budget' => strtoupper(str_replace(' ', '', $b))] : (object) [];
+        }
+    }
+    $cfg['valid_users'] = array_filter($users, fn ($u) => is_array($u)) ? $users : array_keys($users);
     foreach (EMBY_SETTINGS as $k) {
         if (array_key_exists($k, $in)) {
             $cfg[$k] = $in[$k];
         }
     }
+    $cfg['cache_budget'] = strtoupper(str_replace(' ', '', (string) ($cfg['cache_budget'] ?? '')));
     if (!in_array($cfg['cache_path'] ?? '', embyPools(), true)) {
         throw new Problem('emby_bad_pool', ['path' => (string) ($cfg['cache_path'] ?? '')]);
     }
-
-    embyDataDir();
+    // Unraid's views: fixed here, the page only shows them
+    if (($cfg['array_path'] ?? '/mnt/user0') !== '/mnt/user0' || ($cfg['user_path'] ?? '/mnt/user') !== '/mnt/user'
+        || ($cfg['array_disks_glob'] ?? '/mnt/disk[0-9]*') !== '/mnt/disk[0-9]*') {
+        throw new Problem('emby_config', ['detail' => 'array_path / user_path / array_disks_glob']);
+    }
+    if (!is_file(EMBY_APP . '/embycache_lib.py')) {
+        throw new Problem('emby_missing_tool', ['path' => EMBY_APP]);
+    }
+    embyDataDir(EMBY_DATA);
     // save_config() writes before load_config() checks: let it write a trial file
     // (EMBYCACHE_CONFIG) and only put that in place once EmbyCache accepts it
-    $in = RUN_DIR . '/emby-settings.' . getmypid() . '.json';
+    $file = RUN_DIR . '/emby-settings.' . getmypid() . '.json';
     $trial = EMBY_DATA . '/.embycache_settings.trial.json';
-    file_put_contents($in, json_encode($cfg, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
-    chmod($in, 0600);
+    @mkdir(RUN_DIR, 0700, true);
+    file_put_contents($file, json_encode($cfg, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    chmod($file, 0600);
     @unlink($trial);
     $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import embycache_lib as l; '
         . 'l.save_config(json.load(open(sys.argv[2], encoding="utf-8"))); l.load_config()';
     try {
-        [$exit, , $err] = runEnv(['python3', '-c', $py, EMBY_APP, $in], ['EMBYCACHE_DIR' => EMBY_DATA, 'EMBYCACHE_CONFIG' => $trial], 30);
+        [$exit, , $err] = runEnv(['python3', '-c', $py, EMBY_APP, $file], embyPyEnv() + ['EMBYCACHE_CONFIG' => $trial], 30);
     } finally {
-        @unlink($in);
+        @unlink($file);
     }
     if ($exit !== 0 || !is_file($trial)) {
         @unlink($trial);
@@ -466,8 +540,19 @@ function embySave(mixed $in): array
     }
     chmod($trial, 0600);
     rename($trial, EMBY_DATA . '/embycache_settings.json');
+    if ($gather = embyGatherSettings()) {
+        embyWriteGatherIni($gather, $cfg);             // follows the pool
+    }
     logLine('Jack Emby: EmbyCache settings saved');
     return ['ok' => true, 'state' => embyScan()];
+}
+
+/** settings, exclude list and logs hold the API key and file names: root only */
+function embyDataDir(string $dir): void
+{
+    @mkdir($dir, 0700, true);
+    @chmod($dir, 0700);
+    @chown($dir, 0);
 }
 
 /** run() with a few extra environment variables */
@@ -480,58 +565,292 @@ function runEnv(array $command, array $env, int $timeout = 60): array
     return run(array_merge(['env'], $vars, $command), $timeout);
 }
 
-// ===================================================================== runs
-
-/** report (what's up next), dry (plan, change nothing) or run (move files) — through the host's atd */
-function embyStart(string $mode): array
+/** What EmbyCache's Python always gets: its data folder, no bytecode next to the code, UTF-8 output */
+function embyPyEnv(): array
 {
-    embyNeedApp();
-    if (!isset(EMBY_MODES[$mode])) {
-        throw new Problem('unknown_target', ['target' => $mode]);
-    }
-    if (!embyReadSettings()) {
-        throw new Problem('emby_not_configured');
-    }
-    if (flockHeld(EMBY_DATA . '/embycache.lock')) {
+    return ['EMBYCACHE_DIR' => EMBY_DATA, 'PYTHONDONTWRITEBYTECODE' => '1', 'PYTHONIOENCODING' => 'utf-8', 'PYTHONUNBUFFERED' => '1'];
+}
+
+// ===================================================================== the gather's settings
+
+function embyGatherSettings(): ?array
+{
+    return readJson(GATHER_DATA . '/gather.json');
+}
+
+/** The gather's own settings (works without EmbyCache being set up): shares, minimum free space, duplicates */
+function embyGatherSave(mixed $in): array
+{
+    if (embyAnyRunning()) {
         throw new Problem('emby_running');
     }
-    $out = EMBY_DATA . '/office-output.txt';
-    @unlink($out);
-    writeAtomic(EMBY_DATA . '/office-output.json', jsonEncode(['mode' => $mode, 'started' => time()]), 0600, 0, 0);
-    hostLaunch('emby-job', array_merge(['python3', EMBY_APP . '/embycache_run.py'], EMBY_MODES[$mode]),
-        ['EMBYCACHE_DIR' => EMBY_DATA], $out, EMBY_APP);
-    logLine("Jack Emby: started EmbyCache ($mode) via at");
+    embySaveGather(embyGatherCheck($in), embyReadSettings() ?? []);
+    logLine('Jack Emby: gather settings saved');
+    return ['ok' => true, 'state' => embyScan()];
+}
+
+/** The gather's settings, checked */
+function embyGatherCheck(mixed $in): array
+{
+    $in = is_array($in) ? $in : [];
+    $all = embyAllShares();
+    $shares = array_values(array_unique(array_filter((array) ($in['shares'] ?? []), fn ($s) => is_string($s) && in_array($s, $all, true))));
+    if (!$shares) {
+        throw new Problem('emby_gather_no_share');
+    }
+    $min = $in['min_free_gb'] ?? 256;
+    if (!is_numeric($min) || (int) $min < 0 || (int) $min > 100000) {
+        throw new Problem('emby_bad_number', ['field' => 'min_free_gb']);
+    }
+    $dup = in_array($in['dup_check'] ?? 'size', ['size', 'cmp'], true) ? $in['dup_check'] ?? 'size' : 'size';
+    return ['shares' => $shares, 'min_free_gb' => (int) $min, 'dup_check' => $dup];
+}
+
+function embySaveGather(array $gather, array $emby): void
+{
+    embyDataDir(GATHER_DATA);
+    writeAtomic(GATHER_DATA . '/gather.json', jsonEncode($gather), 0600, 0, 0);
+    embyWriteGatherIni($gather, $emby);
+}
+
+/** consolidate.ini from Jack's settings (written again before every run, so it follows the pool) */
+function embyWriteGatherIni(array $gather, array $emby): void
+{
+    $pools = [];
+    foreach ($gather['shares'] as $share) {
+        foreach (['shareCachePool', 'shareCachePool2'] as $k) {
+            $p = (string) (embyShareCfg($share)[$k] ?? '');
+            if ($p !== '') {
+                $pools[] = "/mnt/$p";
+            }
+        }
+    }
+    if (!empty($emby['cache_path'])) {
+        $pools[] = rtrim((string) $emby['cache_path'], '/');
+    }
+    $ini = embyGatherIni($gather, array_values(array_unique($pools)), GATHER_DATA . '/consolidate.log', EMBY_DATA . '/embycache_exclude.txt');
+    writeAtomic(GATHER_DATA . '/consolidate.ini', $ini, 0600, 0, 0);
+}
+
+/**
+ * The text of consolidate.ini — a file bash sources: every value single
+ * quoted, the shares and pools checked against what exists. Never
+ * --include-cache: what EmbyCache keeps on the pool stays (its list is the
+ * gather's exclude file, too).
+ */
+function embyGatherIni(array $gather, array $pools, string $log, string $exclude): string
+{
+    $q = fn (string $v): string => "'" . str_replace("'", "'\\''", $v) . "'";
+    $dirs = [];
+    foreach ($gather['shares'] as $share) {
+        if (!preg_match('/^[\w.\- ]+$/u', $share)) {
+            throw new Problem('emby_bad_share', ['share' => $share]);
+        }
+        $dirs[] = $q("/mnt/user/$share");
+    }
+    $pools = array_values(array_filter($pools, fn ($p) => preg_match('#^/mnt/[a-z0-9_-]+$#', $p) && !preg_match('#^/mnt/(disk\d+|user0?|disks|remotes|addons)$#', $p)));
+    return "# consolidate.ini - written by the Unraid Secretary Office (Jack Emby), change it there\n"
+        . 'BASE_DIRS=(' . implode(' ', $dirs) . ")\n"
+        . 'LOGFILE=' . $q($log) . "\n"
+        . "ARRAY_PATTERN='/mnt/disk[0-9]*'\n"
+        . 'CACHE_PATTERN=' . $q(implode(' ', $pools)) . "\n"
+        . 'EXCLUDE_FILE=' . $q($exclude) . "\n"
+        . "DRYRUN=true\n"
+        . 'MIN_FREE_GB=' . (int) $gather['min_free_gb'] . "\n"
+        . "CACHE_ONLY_TARGET='skip'\n"
+        . 'DUP_CHECK=' . $q($gather['dup_check'] === 'cmp' ? 'cmp' : 'size') . "\n";
+}
+
+/** Has the gather brought the folders together at least once (a real run that went through)? */
+function embyGatherReady(): bool
+{
+    $last = readJson(GATHER_DATA . '/last-real.json');
+    return $last !== null && in_array($last['result'] ?? '', ['ok', 'errors'], true);
+}
+
+// ===================================================================== runs
+
+/**
+ * Starts a run from the page: through the host's atd as "php agent.php job
+ * <tool> <mode> --office", so it lives on without the agent.
+ */
+function embyStart(string $tool, string $mode): array
+{
+    embyRunCheck($tool, $mode);
+    $agent = AS_PLUGIN ? OFFICE_DIR . '/agent/agent.php' : userSharePath(OFFICE_DIR . '/agent/agent.php');
+    hostLaunch("emby-$tool", [PHP_BINARY, $agent, 'job', $tool, $mode, '--office']);
+    logLine("Jack Emby: started $tool ($mode) via at");
     usleep(800000);
     return ['ok' => true, 'state' => embyScan()];
 }
 
-function embyOutputInfo(): ?array
+/** May this run start now? (also asked again by the job itself) */
+function embyRunCheck(string $tool, string $mode): void
 {
-    $info = readJson(EMBY_DATA . '/office-output.json');
-    if (!$info) {
-        return null;
+    if ($tool === 'embycache') {
+        if (!isset(EMBY_MODES[$mode])) {
+            throw new Problem('unknown_target', ['target' => $mode]);
+        }
+        if (!embyReadSettings()) {
+            throw new Problem('emby_not_configured');
+        }
+        if ($mode === 'run' && !embyGatherReady()) {
+            throw new Problem('emby_gather_first');
+        }
+    } else {
+        if (!isset(GATHER_MODES[$mode])) {
+            throw new Problem('unknown_target', ['target' => $mode]);
+        }
+        if (!embyGatherSettings() || !embyGatherSettings()['shares']) {
+            throw new Problem('emby_gather_not_configured');
+        }
     }
-    $file = EMBY_DATA . '/office-output.txt';
-    $info['size'] = (int) @filesize($file);
-    $info['updated'] = @filemtime($file) ?: null;
-    // done when nothing holds EmbyCache's lock any more and the output stopped growing
-    $info['running'] = flockHeld(EMBY_DATA . '/embycache.lock') || (time() - (int) ($info['updated'] ?? $info['started']) < 3 && time() - $info['started'] < 15);
+    if (embyJobInfo('embycache')['running'] || embyJobInfo('gather')['running']
+        || flockHeld(EMBY_DATA . '/embycache.lock') || flockHeld(GATHER_LOCK)) {
+        throw new Problem('emby_running');
+    }
+}
+
+function embyAnyRunning(): bool
+{
+    return embyJobInfo('embycache')['running'] || embyJobInfo('gather')['running']
+        || flockHeld(EMBY_DATA . '/embycache.lock') || flockHeld(GATHER_LOCK);
+}
+
+function embyToolDir(string $tool): string
+{
+    return $tool === 'gather' ? GATHER_DATA : EMBY_DATA;
+}
+
+/** The run started last (by the office or a schedule): mode, who, when, still at work? */
+function embyJobInfo(string $tool): array
+{
+    $info = readJson(embyToolDir($tool) . '/office-run.json') ?? [];
+    $pid = (int) ($info['pid'] ?? 0);
+    $info['running'] = empty($info['finished']) && $pid > 1 && str_contains((string) @file_get_contents("/proc/$pid/cmdline"), 'agent.php');
+    $out = embyToolDir($tool) . '/office-output.txt';
+    $info['size'] = (int) @filesize($out);
+    $info['updated'] = @filemtime($out) ?: null;
     return $info;
 }
 
-/** The output of the last run started here */
-function embyOutput(): array
+/**
+ * "php agent.php job embycache|gather [mode] [--office]" — what the cron file
+ * (job.sh), User Scripts and the page's runs call. Never both at once: a real
+ * run holds the other tool's lock while it works. EmbyCache's real run waits
+ * for the gather's first one. Returns the tool's exit code.
+ */
+function embyJob(string $tool, array $args): int
 {
-    $info = embyOutputInfo();
-    $text = (string) @file_get_contents(EMBY_DATA . '/office-output.txt', false, null, 0, 2 * 1024 * 1024);
-    // the report prints the log format too: keep only the message part
-    $text = preg_replace('/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d+ \| (?:INFO|DEBUG) \| /m', '', $text);
-    return ['ok' => true, 'info' => $info, 'text' => $text];
+    $by = in_array('--office', $args, true) ? 'office' : 'schedule';
+    $args = array_values(array_filter($args, fn ($a) => !str_starts_with($a, '--')));
+    $mode = $args[0] ?? 'run';
+    $dir = embyToolDir($tool);
+    try {
+        embyRunCheck($tool, $mode);
+    } catch (Problem $p) {
+        if ($p->key !== 'emby_not_configured' && $p->key !== 'emby_gather_not_configured') {
+            embyRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key]);
+        }
+        fwrite(STDERR, "$tool: not started ($p->key)\n");
+        return 1;
+    }
+    // the other tool's lock, held for the whole run, so it can't start meanwhile
+    $hold = null;
+    if ($mode === 'run') {
+        $hold = @fopen($tool === 'gather' ? EMBY_DATA . '/embycache.lock' : GATHER_LOCK, 'c');
+        if (!$hold || !flock($hold, LOCK_EX | LOCK_NB)) {
+            embyRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => 'emby_running']);
+            return 1;
+        }
+    }
+    embyDataDir($dir);
+    $started = time();
+    $run = ['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => $started, 'pid' => getmypid()];
+    writeAtomic("$dir/office-run.json", jsonEncode($run), 0600, 0, 0);
+    @unlink("$dir/status.json");
+
+    if ($tool === 'gather') {
+        embyWriteGatherIni(embyGatherSettings() ?? [], embyReadSettings() ?? []);
+        $cmd = array_merge(['bash', GATHER_APP . '/consolidate_master.sh'], GATHER_MODES[$mode]);
+        $env = ['CONSOLIDATE_CONFIG' => "$dir/consolidate.ini", 'CONSOLIDATE_STATUS' => "$dir/status.json"];
+        $cwd = '/';
+    } else {
+        $cmd = array_merge(['python3', EMBY_APP . '/embycache_run.py'], EMBY_MODES[$mode]);
+        $env = embyPyEnv() + ['EMBYCACHE_STATUS' => "$dir/status.json"];
+        $cwd = EMBY_APP;
+    }
+    $out = fopen("$dir/office-output.txt", 'w');
+    $env = ['PATH' => '/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin', 'HOME' => '/root', 'LANG' => 'C.UTF-8'] + $env;
+    $proc = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => $out, 2 => $out], $pipes, $cwd, $env);
+    $exit = is_resource($proc) ? proc_close($proc) : 127;
+    fclose($out);
+    if ($hold) {
+        flock($hold, LOCK_UN);
+        fclose($hold);
+    }
+    $status = readJson("$dir/status.json") ?? [];
+    $run += ['finished' => time(), 'exit' => $exit];
+    writeAtomic("$dir/office-run.json", jsonEncode($run), 0600, 0, 0);
+    $result = (string) ($status['result'] ?? ($exit === 0 ? 'ok' : 'failed'));
+    if ($tool === 'gather' && $mode === 'run' && in_array($result, ['ok', 'errors'], true)) {
+        writeAtomic("$dir/last-real.json", jsonEncode($status + ['by' => $by]), 0600, 0, 0);
+    }
+    embyRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => $started, 'finished' => time(),
+                  'exit' => $exit, 'result' => $result, 'status' => $status]);
+    return $exit;
 }
 
-function embyLog(): array
+/** Jack's own list of runs (both tools, newest first) */
+function embyHistory(): array
 {
-    $file = EMBY_DATA . '/logs/embycache.log';
+    return (array) (readJson(EMBY_DATA . '/office-history.json')['runs'] ?? []);
+}
+
+function embyRemember(array $entry): void
+{
+    embyDataDir(EMBY_DATA);
+    $lock = fopen(EMBY_DATA . '/office-history.lock', 'c');
+    flock($lock, LOCK_EX);
+    $runs = array_slice(array_merge([$entry], embyHistory()), 0, EMBY_HISTORY);
+    writeAtomic(EMBY_DATA . '/office-history.json', jsonEncode(['runs' => $runs]), 0600, 0, 0);
+    flock($lock, LOCK_UN);
+    fclose($lock);
+}
+
+/** The output of the last run of a tool, as plain text */
+function embyOutput(string $tool): array
+{
+    $tool = $tool === 'gather' ? 'gather' : 'embycache';
+    $text = (string) @file_get_contents(embyToolDir($tool) . '/office-output.txt', false, null, 0, 2 * 1024 * 1024);
+    return ['ok' => true, 'info' => embyJobInfo($tool), 'text' => embyPlainOutput($text)];
+}
+
+/** Terminal output as text: progress lines (\r) collapsed, colour/erase codes and the log prefix gone */
+function embyPlainOutput(string $text): string
+{
+    $text = preg_replace('/\e\[[0-9;]*[A-Za-z]/', '', $text);
+    $lines = [];
+    foreach (explode("\n", $text) as $line) {
+        $parts = explode("\r", $line);
+        $last = '';
+        foreach (array_reverse($parts) as $p) {
+            if (trim($p) !== '') {
+                $last = $p;
+                break;
+            }
+        }
+        if (count($parts) > 1 && $last !== '' && preg_match('/^\s*\[\d+\/\d+\] \d+%/', $last)) {
+            continue;                                  // a progress line that was overwritten
+        }
+        $lines[] = $last;
+    }
+    return preg_replace('/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d+ \| (?:INFO|DEBUG) \| /m', '', implode("\n", $lines));
+}
+
+function embyLog(string $tool): array
+{
+    $file = $tool === 'gather' ? GATHER_DATA . '/consolidate.log' : EMBY_DATA . '/logs/embycache.log';
     $size = (int) @filesize($file);
     $h = @fopen($file, 'r');
     if (!$h) {
@@ -543,29 +862,115 @@ function embyLog(): array
     return ['ok' => true, 'text' => $text, 'cut' => $size > 512 * 1024];
 }
 
+// ===================================================================== schedules
+
+/**
+ * EmbyCache's and the gather's schedule. As a plugin a line in the office's
+ * cron file; in the stack a User Scripts entry Jack writes himself (a
+ * three-line call of the job).
+ */
+function embySetSchedule(string $job, mixed $cron): array
+{
+    if (!in_array($job, ['embycache', 'gather'], true)) {
+        throw new Problem('unknown_target', ['target' => $job]);
+    }
+    $cron = is_string($cron) && trim($cron) !== '' ? trim($cron) : null;
+    if ($cron !== null) {
+        if ($job === 'embycache' && !embyReadSettings()) {
+            throw new Problem('emby_not_configured');
+        }
+        if ($job === 'gather' && !(embyGatherSettings()['shares'] ?? [])) {
+            throw new Problem('emby_gather_not_configured');
+        }
+    }
+    if (!AS_PLUGIN) {
+        if (!housePlugin('user.scripts')) {
+            throw new Problem('emby_no_user_scripts');
+        }
+        $name = OFFICE_JOBS[$job];
+        $dir = US_DIR . "/scripts/$name";
+        if ($cron === null && !is_dir($dir)) {
+            return ['ok' => true, 'live' => true, 'state' => embyScan()];
+        }
+        @mkdir($dir, 0755, true);
+        $what = $job === 'gather' ? 'the media gather (brings film and series folders together on one disk)'
+                                  : 'EmbyCache (what is watched next onto the pool, watched things back to their disk)';
+        $script = "#!/bin/bash\n#description=Unraid Secretary Office - Jack Emby: $what. Managed in the office, not here.\n"
+                . "#arrayStarted=true\n"
+                . 'exec ' . escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(userSharePath(OFFICE_DIR . '/agent/agent.php')) . " job $job\n";
+        if ((string) @file_get_contents("$dir/script") !== $script) {
+            writeAtomic("$dir/script", $script, 0755, 0, 0);
+        }
+        if (!is_file("$dir/name")) {
+            @file_put_contents("$dir/name", $name);
+        }
+    }
+    $live = officeJobSetSchedule($job, $cron);
+    logLine("Jack Emby: $job schedule " . ($cron !== null ? "set to $cron" : 'switched off') . ($live ? '' : ' (not in the crontab yet)'));
+    return ['ok' => true, 'live' => $live, 'state' => embyScan()];
+}
+
+/**
+ * Other things that start EmbyCache or the gather on their own: User Scripts
+ * entries (not the office's) and cron lines. They would run beside Jack's
+ * schedule, outside his locks.
+ */
+function embyForeignSchedules(): array
+{
+    $found = [];
+    $plans = (array) json_decode((string) @file_get_contents(US_SCHEDULE), true);
+    foreach (glob(US_DIR . '/scripts/*/script') ?: [] as $file) {
+        $name = basename(dirname($file));
+        if (str_starts_with($name, US_PREFIX)) {
+            continue;
+        }
+        $text = (string) @file_get_contents($file, false, null, 0, 16384);
+        $tool = str_contains($text, 'embycache_run.py') ? 'embycache' : (str_contains($text, 'consolidate_master.sh') ? 'gather' : null);
+        if ($tool) {
+            $freq = (string) ($plans[$file]['frequency'] ?? 'disabled');
+            $found[] = ['tool' => $tool, 'where' => "User Scripts: $name", 'enabled' => !in_array($freq, ['', 'disabled'], true)];
+        }
+    }
+    foreach (glob('/boot/config/plugins/*/*.cron') ?: [] as $file) {
+        if ($file === OFFICE_CRON) {
+            continue;
+        }
+        foreach (explode("\n", (string) @file_get_contents($file)) as $line) {
+            if ($line !== '' && $line[0] !== '#' && preg_match('/embycache_run\.py|consolidate_master\.sh/', $line, $m)
+                && !str_contains($line, US_DIR)) {
+                $found[] = ['tool' => str_starts_with($m[0], 'embycache') ? 'embycache' : 'gather', 'where' => $file, 'enabled' => true];
+            }
+        }
+    }
+    return $found;
+}
+
 // ===================================================================== checks (for the caretaker)
 
 function embyChecks(): array
 {
     $out = [];
-    $python = embyPython();
     $emby = embyContainers();
     $out[] = finding('emby_container', 'recommended', (bool) $emby, [], 'docker');
     if (!$emby) {
         return $out;                       // without Emby nothing else matters for Jack
     }
-    $out[] = finding('python', 'required', $python !== null, [], 'apps');
-    $out[] = finding('installed', 'required', is_file(EMBY_APP . '/embycache_run.py'), [], '#/emby');
-    if (!is_file(EMBY_APP . '/embycache_run.py')) {
-        return $out;
-    }
+    $out[] = finding('python', 'required', embyPython() !== null, [], 'apps');
     $settings = embyReadSettings();
     $out[] = finding('configured', 'required', $settings !== null && !empty($settings['instances']), [], '#/emby/setup');
     if (!$settings) {
         return $out;
     }
-    $sched = embySchedule();
-    $out[] = finding('schedule', 'recommended', $sched['enabled'], ['script' => (string) ($sched['script'] ?? '')], 'userscripts');
+    $shares = embyShares($settings);
+    $missing = array_column(array_filter($shares, fn ($s) => !$s['root']), 'share');
+    $out[] = finding('share_root', 'required', !$missing, ['shares' => implode(', ', $missing), 'pool' => (string) ($settings['cache_path'] ?? '')], '#/emby');
+    $unfit = array_column(array_filter($shares, fn ($s) => !in_array($s['fit'], ['ok', 'array_only'], true)), 'share');
+    $out[] = finding('share_fit', 'recommended', !$unfit, ['shares' => implode(', ', $unfit)], '#/emby');
+    $out[] = finding('gather_done', 'required', embyGatherReady(), [], '#/emby');
+    $out[] = finding('schedule', 'recommended', officeJobSchedule('embycache')['enabled'], [], '#/emby/schedule');
+    $out[] = finding('gather_schedule', 'recommended', officeJobSchedule('gather')['enabled'], [], '#/emby/gather-schedule');
+    $foreign = array_filter(embyForeignSchedules(), fn ($f) => $f['enabled']);
+    $out[] = finding('foreign', 'recommended', !$foreign, ['where' => implode(', ', array_column($foreign, 'where'))], 'userscripts');
     // Mover Tuning should leave EmbyCache's files on the pool alone
     $tuning = (string) @file_get_contents('/boot/config/plugins/ca.mover.tuning/ca.mover.tuning.cfg');
     $out[] = finding('mover_tuning', 'recommended', str_contains($tuning, 'embycache_exclude.txt'),

@@ -1,15 +1,15 @@
-/* Jack Emby — the intern and Emby fan ("check Emby"). He looks after EmbyCache
-   (github.com/helmi1987/embycache-for-unraid): it keeps what people are about
-   to watch on the fast pool, so the array disks can sleep. He fetches and
-   updates it from its public repository, sets it up (#/emby/setup), runs it
-   and shows what it does. The agent part lives in agent/desks/emby.php. */
+/* Jack Emby — the intern and Emby fan ("check Emby"). He looks after two
+   tools that ship with the office: EmbyCache (what people are about to watch
+   onto the fast pool, back to its disk once watched) and the media gather
+   (the files of a film or series folder together on one array disk). He sets
+   them up (#/emby/setup), runs and schedules them and shows what they do.
+   The agent part lives in agent/desks/emby.php. */
 (() => {
 'use strict';
 
 const ID = 'emby';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
-const REPO = 'https://github.com/helmi1987/embycache-for-unraid';
 const POLL = 3000;
 
 let state = null;
@@ -51,26 +51,67 @@ function section(title, sub, ...extra) {
   s.appendChild(Office.sectionHead(title, sub, ...extra));
   return s;
 }
-function stat(box, label, value, sub, alert) {
-  const s = el('div', 'stat' + (alert ? ' alert' : ''));
+function stat(box, label, value, sub, alert, onclick) {
+  const s = el(onclick ? 'button' : 'div', 'stat' + (alert ? ' alert' : ''));
+  if (onclick) { s.type = 'button'; s.onclick = onclick; }
   s.append(el('div', 'stat-label', label), el('div', 'stat-value', value));
   if (sub) s.appendChild(el('div', 'stat-sub', sub));
   box.appendChild(s);
+  return s;
 }
-const ready = () => !!(state && state.installed && Office.agent.running);
+const running = () => !!(state && (state.jobs.embycache.running || state.jobs.gather.running));
+
+/** How a share suits EmbyCache with this pool (same rules as embyShareFit() in the agent) */
+function shareFit(info, pool) {
+  if (!info) return 'unknown';
+  const use = (info.use || '').toLowerCase();
+  if (use === 'no' || use === '') return 'array_only';
+  if (use === 'yes' && info.secondary) return 'no_array';
+  if (use === 'yes' && info.primary !== pool) return 'other_pool';
+  if (use === 'yes') return 'ok';
+  return 'pool_only';
+}
+const FIT_CLASS = { ok: 'ok', array_only: 'warn', other_pool: 'warn', no_array: 'danger', pool_only: 'danger', unknown: 'warn' };
+function fitChip(fit, params) {
+  return chip(T('fit_chip.' + fit), FIT_CLASS[fit], T('fit_tip.' + fit, params));
+}
+/** /mnt/user/Filme/… -> Filme */
+const shareOf = (path) => { const m = /^\/mnt\/user\/([^/]+)/.exec(path || ''); return m ? m[1] : null; };
+
+function schedText(sc) {
+  if (!sc || !sc.enabled) return T('not_scheduled');
+  return sc.frequency === 'custom' ? fmt.cron(sc.custom) : sc.frequency;
+}
+
+/** One line about how a run went, from the tool's status */
+function runSummary(r) {
+  const s = r.status || r;
+  if (r.result === 'refused') return T('refused', { why: Office.errorText({ key: r.why }, ID) });
+  if (r.tool === 'gather') {
+    if (s.result === 'failed') return s.message || T('result.failed');
+    return T('gather_summary', { moved: s.moved || 0, dups: s.duplicates || 0, conflicts: s.conflicts || 0, dirs: s.dirs_deleted || 0, kept: s.dirs_kept || 0 });
+  }
+  if (s.result === 'busy') return T('result.busy');
+  if (s.result === 'config') return s.message || T('result.config');
+  if (s.mode === 'report' || r.mode === 'report') return s.on_deck ? T('report_summary', { n: s.on_deck.files, size: fmt.size(s.on_deck.bytes) }) : '';
+  const c = s.cleanup || {}; const f = s.fill || {};
+  const key = (s.mode || r.mode) === 'run' ? 'run_summary' : 'dry_summary';
+  return T(key, { back: c.done || 0, back_planned: c.planned || 0, origin: c.to_origin || 0,
+    fill: f.done || 0, fill_planned: f.planned || 0, fill_size: fmt.size(f.bytes_planned || 0) });
+}
 
 function bubbleText() {
   if (!state) return T('bubble.loading');
   const intro = T('bubble.intro');
   if (!state.emby.length) return `${intro} ${T('bubble.no_emby')}`;
   if (!state.python) return `${intro} ${T('bubble.no_python')}`;
-  if (!state.installed) return `${intro} ${T('bubble.fetch')}`;
   if (!state.configured) return `${intro} ${T('bubble.setup')}`;
-  if (state.running) return T('bubble.running');
+  if (state.jobs.gather.running) return T('bubble.gathering');
+  if (state.jobs.embycache.running) return T('bubble.running');
+  if (!state.gather.ready) return T('bubble.gather_first');
   const c = state.cache;
   const parts = [c.files ? T('bubble.on_pool', { n: c.files, size: fmt.size(c.bytes) }) : T('bubble.nothing_yet')];
-  if (state.update && state.update.behind) parts.push(T('bubble.update', { n: state.update.behind }));
-  if (!state.schedule.enabled) parts.push(T('bubble.no_schedule'));
+  if (!state.schedules.embycache.enabled) parts.push(T('bubble.no_schedule'));
   return parts.join(' ');
 }
 
@@ -80,24 +121,25 @@ function render() {
   const root = view;
   root.innerHTML = '';
   const actions = [];
-  if (state && state.installed) {
+  if (state && state.configured) {
+    actions.push(button(T('report'), 'plain', () => startRun('embycache', 'report')));
+    actions.push(button(T('start'), '', chooseRun));
     actions.push(button(T('setup_open'), 'plain', () => Office.go(`#/${ID}/setup`)));
-    if (state.configured) {
-      actions.push(button(T('report'), 'plain', () => startRun('report')));
-      actions.push(button(T('start'), '', chooseRun));
-    }
   } else if (state && state.emby.length && state.python) {
-    actions.push(button(T('fetch'), '', fetchTool));
+    actions.push(button(T('setup_open'), '', () => Office.go(`#/${ID}/setup`)));
   }
-  actions.forEach((b) => { b.disabled = !Office.agent.running || (state && state.running); });
-  const { head } = Office.deskHead(Office.desks.get(ID), { bubble: bubbleText(), actions });
+  actions.forEach((b) => { b.disabled = !Office.agent.running || running(); });
+  const { head } = Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText()), actions });
   root.appendChild(head);
   root.appendChild(Office.pageHelp(ID, [
     [T('help.what'), T('help.what_text')],
-    [T('help.tool'), T('help.tool_text')],
+    [T('help.tools'), T('help.tools_text')],
     [T('report'), T('help.report')],
     [T('mode.dry'), T('help.dry')],
     [T('mode.run'), T('help.run')],
+    [T('help.origin'), T('help.origin_text')],
+    [T('gather'), T('help.gather_text')],
+    [T('help.shares'), T('help.shares_text')],
     [T('help.pool'), T('help.pool_text')],
     [T('help.schedule'), T('help.schedule_text')],
   ]));
@@ -105,57 +147,28 @@ function render() {
 
   if (!state.emby.length) root.appendChild(el('p', 'callout warn', T('notice.no_emby')));
   if (!state.python) root.appendChild(el('p', 'callout warn', T('notice.no_python')));
-
-  root.appendChild(toolSection());
-  if (!state.installed) return;
+  const foreign = state.foreign.filter((f) => f.enabled);
+  if (foreign.length) root.appendChild(el('p', 'callout warn', T('notice.foreign', { where: foreign.map((f) => f.where).join(', ') })));
+  if (running()) {
+    const p = el('p', 'callout', T(state.jobs.gather.running ? 'notice.gathering' : 'notice.running') + ' ');
+    p.appendChild(button(T('show_output_now'), 'small', () => showOutput(state.jobs.gather.running ? 'gather' : 'embycache', true)));
+    root.appendChild(p);
+  }
   if (!state.configured) {
     const p = el('p', 'callout', T('notice.setup') + ' ');
     p.appendChild(button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
     root.appendChild(p);
+    root.appendChild(gatherSection());
+    root.appendChild(historySection());
+    root.appendChild(toolSection());
     return;
   }
   root.appendChild(overview());
+  root.appendChild(shareSection());
+  root.appendChild(gatherSection());
+  root.appendChild(historySection());
   root.appendChild(poolSection());
-}
-
-/** EmbyCache itself: version, updates */
-function toolSection() {
-  const s = section(T('tool'), T('tool_sub'));
-  const stats = el('div', 'stats');
-  if (!state.installed) {
-    stat(stats, 'EmbyCache', T('not_fetched'), T('not_fetched_sub'));
-  } else {
-    const v = state.version || {};
-    stat(stats, 'EmbyCache', v.version ? v.version.replace(/\s*\(.*\)$/, '') : (v.commit || '?'),
-      [v.commit, v.time ? fmt.date(v.time) : null].filter(Boolean).join(' · '), v.changed);
-    const u = state.update;
-    const sub = u ? T('checked', { when: fmt.relative(u.checked) }) : T('never_checked');
-    stat(stats, T('updates'), u ? (u.behind ? T('behind', { n: u.behind }) : T('up_to_date')) : '–', sub, !!(u && u.behind));
-    stat(stats, 'Python', state.python || T('none'), T('python_sub'));
-  }
-  s.appendChild(stats);
-  if (state.installed) {
-    const bar = el('div', 'toolbar');
-    bar.appendChild(button(T('check_updates'), 'small plain', () => act('check_updates', {}, T('checked_now'))));
-    if (state.update && state.update.behind) bar.appendChild(button(T('do_update'), 'small', updateTool));
-    const a = el('a', 'btn small plain', 'GitHub');
-    a.href = REPO;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    bar.appendChild(a);
-    s.appendChild(bar);
-    if (state.version && state.version.changed) s.appendChild(el('p', 'callout warn', T('notice.changed')));
-    if (state.update && state.update.commits && state.update.commits.length) {
-      const ul = el('ul', 'shortlist');
-      state.update.commits.forEach((c) => {
-        const li = el('li', '', c.subject);
-        li.appendChild(el('span', '', `${c.commit} · ${fmt.date(c.time)}`));
-        ul.appendChild(li);
-      });
-      s.appendChild(ul);
-    }
-  }
-  return s;
+  root.appendChild(toolSection());
 }
 
 /** The settings in short, the last run, the schedule */
@@ -165,42 +178,132 @@ function overview() {
   const set = state.settings || {};
   const inst = set.instances || [];
   stat(stats, 'Emby', inst.map((i) => i.servername).join(', ') || '–', inst.map((i) => i.url).join(', '));
-  stat(stats, T('mode'), set.cache_budget ? T('budget', { size: set.cache_budget }) : T('count', { n: set.number_episodes || 0 }),
-    T('pool_free', { pool: set.cache_path || '?', n: set.min_free_percent ?? '?' }));
-  const users = Array.isArray(set.valid_users) ? set.valid_users.length : Object.keys(set.valid_users || {}).length;
-  stat(stats, T('libraries'), (set.libraries || []).join(', ') || T('all'), users ? T('users_n', { n: users }) : T('users_all'));
+  // by number: films and series each their own (only what's chosen; older settings don't know the kinds)
+  const kinds = Object.values(set.library_types || {});
+  const amount = [];
+  if (!kinds.length || kinds.includes('movies')) amount.push(T('count_films', { n: set.max_resume_movies ?? set.max_resume_items ?? 0 }));
+  if (!kinds.length || kinds.includes('tvshows')) amount.push(T('count', { n: set.number_episodes || 0 }));
+  stat(stats, T('mode'), set.cache_budget ? T('budget', { size: set.cache_budget }) : amount.join(' · '),
+    T('libraries_people', { libs: (set.libraries || []).join(', ') || T('all'), people: peopleText(set.valid_users) }));
+  const pool = state.pool;
+  if (pool) {
+    stat(stats, T('pool'), `${fmt.number(pool.free_percent, 1)} %`, T('pool_sub', { pool: pool.path, free: fmt.size(pool.free), min: pool.min_free ?? '?' }),
+      pool.min_free != null && pool.free_percent < pool.min_free);
+  }
   const last = state.last;
-  stat(stats, T('last_run'), last && last.time ? fmt.relative(last.time) : T('never'),
-    last ? T('counts', { errors: last.errors, warnings: last.warnings }) : '', !!(last && last.errors));
-  const sc = state.schedule || {};
-  stat(stats, T('schedule'), sc.enabled ? (sc.frequency === 'custom' ? fmt.cron(sc.custom) : sc.frequency) : T('not_scheduled'),
-    sc.script ? `User Scripts: ${sc.script}` : T('no_script'), !sc.enabled);
+  stat(stats, T('last_run'), last && last.finished ? fmt.relative(last.finished) : T('never'),
+    last ? `${T('mode.' + (last.mode || 'dry'))} · ${T('counts', { errors: last.errors || 0, warnings: last.warnings || 0 })}` : '',
+    !!(last && (last.errors || (last.result && last.result !== 'ok'))));
+  const sc = state.schedules.embycache;
+  stat(stats, T('schedule'), schedText(sc), sc.enabled ? T(sc.via === 'office' ? 'by_office' : 'by_user_scripts') : T('schedule_set'),
+    !sc.enabled, () => scheduleDialog('embycache'));
   s.appendChild(stats);
 
-  if (last && last.results && last.results.length) {
+  if (last && last.result) {
     const box = el('div', 'box jo-results');
-    last.results.forEach((r) => box.appendChild(el('div', 'mono', r)));
+    box.appendChild(el('div', '', runSummary({ tool: 'embycache', mode: last.mode, status: last, result: last.result })));
+    if (last.incomplete) box.appendChild(el('div', 'warn-text', T('incomplete')));
     s.appendChild(box);
   }
   const bar = el('div', 'toolbar');
-  bar.appendChild(button(T('show_log'), 'small plain', showLog));
-  if (state.output) bar.appendChild(button(T('show_output', { mode: T('mode.' + state.output.mode) }), 'small plain', () => showOutput(false)));
+  bar.appendChild(button(T('show_log'), 'small plain', () => showLog('embycache')));
+  if (state.jobs.embycache.mode) bar.appendChild(button(T('show_output', { mode: T('mode.' + state.jobs.embycache.mode) }), 'small plain', () => showOutput('embycache', false)));
   s.appendChild(bar);
-  if (!sc.enabled) s.appendChild(scheduleHint());
   return s;
 }
 
-function scheduleHint() {
-  const box = el('div', 'callout');
-  box.appendChild(el('div', '', T('schedule_hint')));
-  const cmd = `#!/bin/bash\nEMBYCACHE_DIR=${state.data_dir || '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache'} python3 ${state.app_dir || '…/app'}/embycache_run.py --run`;
-  const pre = el('pre', 'code', cmd);
-  const b = button(Office.t('common.copy'), 'small plain', () => Office.copy(cmd));
-  box.append(pre, b);
-  return box;
+function peopleText(vu) {
+  const n = Array.isArray(vu) ? vu.length : Object.keys(vu || {}).length;
+  return n ? T('users_n', { n }) : T('users_all');
 }
 
-/** What EmbyCache keeps on the pool right now */
+/** Do the shares of the chosen libraries suit EmbyCache and its pool? */
+function shareSection() {
+  const shares = state.shares || [];
+  const bad = shares.filter((x) => !['ok', 'array_only'].includes(x.fit) || !x.root).length;
+  const s = section(T('shares'), T('shares_sub'), bad ? chip(T('shares_bad', { n: bad }), 'warn') : chip(T('shares_good'), 'ok'));
+  const box = el('div', 'box');
+  const pool = (state.settings || {}).cache_path || '';
+  shares.forEach((x) => {
+    const row = el('div', 'row nocheck');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name', x.share));
+    const meta = el('div', 'row-meta');
+    meta.append(fitChip(x.fit, { share: x.share, pool: pool.replace('/mnt/', ''), primary: x.primary || '–', secondary: x.secondary || T('array') }));
+    if (!x.root) meta.appendChild(chip(T('root_missing', { pool }), 'danger', T('root_missing_tip', { share: x.share, pool })));
+    meta.appendChild(el('span', '', T('share_where', { primary: x.use === 'no' ? T('array') : (x.primary || '–'), secondary: x.use === 'no' ? '–' : (x.secondary || T('array')) })));
+    if (x.include) meta.appendChild(el('span', '', T('share_disks', { disks: x.include })));
+    main.appendChild(meta);
+    row.appendChild(main);
+    box.appendChild(row);
+  });
+  if (!shares.length) box.appendChild(el('p', 'empty', T('shares_none')));
+  s.appendChild(box);
+  return s;
+}
+
+/** The gather: once before the first real run, then on its own schedule */
+function gatherSection() {
+  const g = state.gather;
+  const s = section(T('gather'), T('gather_sub'), g.ready ? chip(T('gather_ready'), 'ok') : chip(T('gather_not_ready'), 'warn', T('gather_not_ready_tip')));
+  const set = g.settings;
+  if (!set || !set.shares.length) {
+    const p = el('p', 'callout', T('gather_unset') + ' ');
+    p.appendChild(button(T('gather_cfg_open'), 'small', gatherSettingsDialog));
+    s.appendChild(p);
+    return s;
+  }
+  if (!g.ready) s.appendChild(el('p', 'callout', T('gather_first')));
+  const stats = el('div', 'stats');
+  const last = g.last;
+  stat(stats, T('gather_last'), last ? fmt.relative(last.finished) : T('never'),
+    last ? T('gather_summary', { moved: last.moved, dups: last.duplicates, conflicts: last.conflicts, dirs: last.dirs_deleted, kept: last.dirs_kept || 0 }) : T('gather_never'),
+    !!(last && (last.conflicts || last.errors || last.full)));
+  stat(stats, T('shares'), set.shares.join(', '), T('gather_settings', { gb: set.min_free_gb, dup: T('dup.' + set.dup_check) }));
+  const sc = state.schedules.gather;
+  stat(stats, T('schedule'), schedText(sc), sc.enabled ? T(sc.via === 'office' ? 'by_office' : 'by_user_scripts') : T('schedule_set'),
+    false, () => scheduleDialog('gather'));
+  s.appendChild(stats);
+  if (last && (last.conflicts || last.errors || last.full)) s.appendChild(el('p', 'callout warn', T('gather_problems', { conflicts: last.conflicts, errors: last.errors, full: last.full })));
+  const bar = el('div', 'toolbar');
+  const dis = !Office.agent.running || running();
+  const b1 = button(T('mode.dry'), 'small plain', () => startRun('gather', 'dry'));
+  const b2 = button(T('gather_run'), 'small', gatherRunDialog);
+  b1.disabled = b2.disabled = dis;
+  const b3 = button(T('gather_cfg_open'), 'small plain', gatherSettingsDialog);
+  b3.disabled = dis;
+  bar.append(b1, b2, b3);
+  if (state.jobs.gather.mode) bar.appendChild(button(T('show_output', { mode: T('mode.' + state.jobs.gather.mode) }), 'small plain', () => showOutput('gather', false)));
+  bar.appendChild(button(T('show_log'), 'small plain', () => showLog('gather')));
+  s.appendChild(bar);
+  return s;
+}
+
+/** The last runs of both tools */
+function historySection() {
+  const runs = state.history || [];
+  const s = section(T('history'), T('history_sub'));
+  const box = el('div', 'box');
+  if (!runs.length) box.appendChild(el('p', 'empty', T('history_none')));
+  runs.slice(0, 15).forEach((r) => {
+    const row = el('div', 'row nocheck');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name', `${T('tool.' + r.tool)} · ${T('mode.' + r.mode)}`));
+    const meta = el('div', 'row-meta');
+    const ok = ['ok'].includes(r.result) && !((r.status || {}).errors);
+    const cls = r.result === 'refused' ? 'quiet' : ok ? 'ok' : 'warn';
+    meta.append(chip(T('result.' + (r.result || 'failed')), cls, r.exit != null ? T('exit_code', { n: r.exit }) : ''),
+      el('span', '', fmt.date(r.started)), el('span', '', T('by.' + r.by)));
+    if (r.finished && r.finished - r.started >= 60) meta.appendChild(el('span', '', fmt.duration(r.finished - r.started)));
+    main.append(meta, el('div', 'row-meta', runSummary(r)));
+    row.appendChild(main);
+    box.appendChild(row);
+  });
+  s.appendChild(box);
+  return s;
+}
+
+/** What EmbyCache keeps on the pool right now, and where each thing goes back to */
 function poolSection() {
   const c = state.cache;
   const s = section(T('on_pool'), c.listed_at ? T('on_pool_sub', { when: fmt.relative(c.listed_at) }) : T('on_pool_none'),
@@ -214,6 +317,8 @@ function poolSection() {
     main.appendChild(el('div', 'row-name text', g.title.replace(/\./g, ' ')));
     const meta = el('div', 'row-meta');
     meta.append(chip(g.share, 'quiet'), el('span', '', T('files_n', { n: g.files })));
+    if (g.origin.length) meta.appendChild(chip(T('origin', { disks: g.origin.join(', ') }), 'quiet', T('origin_tip')));
+    else meta.appendChild(chip(T('origin_unknown'), 'quiet', T('origin_unknown_tip')));
     main.appendChild(meta);
     const bar = el('div', 'bar thin jo-bar');
     const fill = el('i', 'snaps');
@@ -228,93 +333,261 @@ function poolSection() {
   return s;
 }
 
-// ------------------------------------------------------------------ actions
-async function fetchTool() {
-  Office.toast(T('fetching'));
-  await act('install', {}, T('fetched'));
+/** The tools themselves: they ship with the office */
+function toolSection() {
+  const s = section(T('tools'), T('tools_sub'));
+  const stats = el('div', 'stats');
+  stat(stats, 'EmbyCache', (state.versions.embycache || '?').replace(/\s*\(.*\)$/, ''), T('tool_embycache_sub'));
+  stat(stats, T('gather'), state.versions.gather || '?', T('tool_gather_sub'));
+  stat(stats, 'Python', state.python || T('none'), T('python_sub'), !state.python);
+  s.appendChild(stats);
+  if (state.old_clone) s.appendChild(el('p', 'callout', T('notice.old_clone')));
+  return s;
 }
 
-function updateTool() {
-  Office.dialog({
-    title: T('do_update'),
-    body: el('p', '', T('update_text', { n: state.update.behind })),
-    buttons: [{ text: Office.t('common.cancel') }, { text: T('do_update'), kind: '', act: async () => !!(await act('update', {}, T('updated'))) }],
-  });
-}
-
-function chooseRun() {
+// ------------------------------------------------------------------ runs
+function radioList(name, options, current, onchange) {
   const box = el('div');
-  let mode = 'dry';
-  ['dry', 'run'].forEach((m) => {
+  options.forEach(([value, text, hint, disabled]) => {
     const label = el('label', 'check');
     const input = el('input');
     input.type = 'radio';
-    input.name = 'jo-mode';
-    input.checked = m === mode;
-    input.onchange = () => { mode = m; };
-    const text = el('span', '', T('mode.' + m));
-    text.appendChild(el('small', '', T('mode_hint.' + m)));
-    label.append(input, text);
+    input.name = name;
+    input.checked = value === current;
+    input.disabled = !!disabled;
+    input.onchange = () => onchange(value);
+    const span = el('span', '', text);
+    if (hint) span.appendChild(el('small', '', hint));
+    label.append(input, span);
     box.appendChild(label);
   });
+  return box;
+}
+
+function chooseRun() {
+  let mode = 'dry';
+  const ready = state.gather.ready;
+  const box = radioList('jo-mode', [
+    ['dry', T('mode.dry'), T('mode_hint.dry')],
+    ['run', T('mode.run'), ready ? T('mode_hint.run') : T('mode_hint.run_gather'), !ready],
+  ], mode, (m) => { mode = m; });
   Office.dialog({
     title: T('start_title'),
     body: box,
-    buttons: [{ text: Office.t('common.cancel') }, { text: T('start_go'), kind: '', act: () => startRun(mode) }],
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('start_go'), kind: '', act: () => startRun('embycache', mode) }],
   });
 }
 
-async function startRun(mode) {
-  const j = await act('start_run', { mode });
+function gatherRunDialog() {
+  const body = el('div');
+  body.append(el('p', '', T('gather_run_text', { shares: state.gather.settings.shares.join(', ') })), el('p', 'callout', T('gather_run_wake')));
+  Office.dialog({
+    title: T('gather_run'),
+    body,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('gather_run_go'), kind: '', act: () => startRun('gather', 'run') }],
+  });
+}
+
+/** Which shares to consolidate (only those on the array), free space per disk, what counts as a duplicate */
+function gatherSettingsDialog() {
+  const cur = state.gather.settings;
+  const onArray = Object.entries(state.share_info).filter(([, i]) => i.use === 'no' || (i.use === 'yes' && !i.secondary));
+  const chosen = new Set(cur ? cur.shares : (state.shares || []).filter((x) => ['ok', 'array_only'].includes(x.fit)).map((x) => x.share));
+  const v = { min_free_gb: cur ? cur.min_free_gb : 256, dup_check: cur ? cur.dup_check : 'size' };
+  const box = el('div');
+  box.appendChild(el('p', '', T('gather_cfg_intro')));
+  const list = el('div', 'jo-users');
+  onArray.forEach(([share, i]) => list.appendChild(check(share, chosen.has(share), (on) => { if (on) chosen.add(share); else chosen.delete(share); },
+    T('gather_cfg_share', { primary: i.use === 'no' ? T('array') : i.primary, secondary: i.use === 'no' ? '–' : T('array') }))));
+  if (!onArray.length) list.appendChild(el('p', 'role', T('gather_cfg_none')));
+  box.appendChild(list);
+  const f = el('div', 'jo-form');
+  f.append(field(T('gather_cfg_min_free'), number(v, 'min_free_gb', 0, 100000), T('gather_cfg_min_free_hint')),
+    field(T('gather_cfg_dup'), select(v, 'dup_check', [['size', T('dup.size')], ['cmp', T('dup.cmp')]]), T('gather_cfg_dup_hint')));
+  box.appendChild(f);
+  Office.dialog({
+    title: T('gather_cfg_title'),
+    body: box,
+    wide: true,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('setup.save'), kind: '', act: async () =>
+      !!(await act('gather_save', { gather: { shares: [...chosen], min_free_gb: v.min_free_gb, dup_check: v.dup_check } }, T('gather_cfg_saved'))) }],
+  });
+}
+
+async function startRun(tool, mode) {
+  const j = await act(tool === 'gather' ? 'gather_start' : 'start_run', { mode });
   if (!j) return false;
-  showOutput(true);
+  showOutput(tool, true);
   return true;
 }
 
-/** The output of the last report / dry run / run, following it while it runs */
-async function showOutput(follow) {
+/** The output of the last run of a tool, following it while it runs */
+async function showOutput(tool, follow) {
   clearTimeout(outTimer);
   const pre = el('pre', 'code', Office.t('common.loading'));
   const status = el('p', 'role');
   const box = el('div');
   box.append(status, pre);
-  const dlg = Office.dialog({ title: T('output_title'), body: box, wide: true, onClose: () => clearTimeout(outTimer) });
+  const dlg = Office.dialog({ title: T('output_title.' + tool), body: box, wide: true, onClose: () => clearTimeout(outTimer) });
+  let wasRunning = false;
   const tick = async () => {
-    const j = await Office.api.post(`${ID}.output`, {});
+    const j = await Office.api.post(`${ID}.output`, { tool });
     if (!j.ok) { pre.textContent = Office.errorText(j.error, ID); return; }
     const atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 30;
     pre.textContent = j.text || T('output_empty');
     const info = j.info || {};
     status.textContent = info.mode ? `${T('mode.' + info.mode)} · ${info.running ? T('output_running') : T('output_done')} · ${fmt.date(info.started)}` : '';
     if (atEnd || follow) pre.scrollTop = pre.scrollHeight;
-    if (info.running) outTimer = setTimeout(tick, POLL);
+    // a run started a moment ago may not have written its first line yet
+    const young = info.started && Date.now() / 1000 - info.started < 10;
+    if (info.running || (follow && young && !wasRunning)) { wasRunning = wasRunning || info.running; outTimer = setTimeout(tick, POLL); }
     else if (follow) { follow = false; load(true); }
   };
   tick();
   return dlg;
 }
 
-async function showLog() {
+async function showLog(tool) {
   const pre = el('pre', 'code', Office.t('common.loading'));
-  Office.dialog({ title: 'embycache.log', body: pre, wide: true });
-  const j = await Office.api.post(`${ID}.log`, {});
+  Office.dialog({ title: tool === 'gather' ? 'consolidate.log' : 'embycache.log', body: pre, wide: true });
+  const j = await Office.api.post(`${ID}.log`, { tool });
   pre.textContent = j.ok ? (j.text || T('output_empty')) : Office.errorText(j.error, ID);
   pre.scrollTop = pre.scrollHeight;
 }
 
+// ------------------------------------------------------------------ schedules
+/**
+ * When a tool runs on its own. EmbyCache: every hour or every few hours;
+ * the gather: once a week or every night. Or a cron expression, or not at all.
+ */
+function scheduleDialog(job) {
+  const sc = state.schedules[job] || {};
+  const ready = job === 'gather' ? !!(state.gather.settings && state.gather.settings.shares.length) : state.configured;
+  if (!ready) {
+    Office.dialog({
+      title: T('schedule_title.' + job),
+      body: T('schedule.need_setup'),
+      buttons: [{ text: Office.t('common.close') }, { text: T('setup_open'), kind: '', act: () => { Office.go(`#/${ID}/setup`); } }],
+    });
+    return;
+  }
+  const cur = (sc.enabled && sc.custom) || '';
+  const pad = (n) => String(n).padStart(2, '0');
+  const m1 = /^(\d{1,2}) (\*|\*\/(\d+)) \* \* \*$/.exec(cur);              // hourly / every n hours
+  const m2 = /^(\d{1,2}) (\d{1,2}) \* \* (\*|[0-7])$/.exec(cur);           // daily / weekly
+  let mode;
+  if (!sc.enabled) mode = job === 'gather' ? 'weekly' : 'hourly';
+  else if (job === 'embycache' && m1) mode = m1[3] ? 'every' : 'hourly';
+  else if (job === 'gather' && m2) mode = m2[3] === '*' ? 'daily' : 'weekly';
+  else mode = 'custom';
+
+  const minute = el('input', 'input');
+  minute.type = 'number'; minute.min = 0; minute.max = 59;
+  minute.value = m1 ? m1[1] : '5';
+  const hours = el('select', 'picker');
+  [2, 3, 4, 6, 8, 12].forEach((n) => hours.appendChild(new Option(T('schedule.every_n', { n }), String(n))));
+  hours.value = m1 && m1[3] ? m1[3] : '2';
+  const time = el('input', 'input');
+  time.type = 'time';
+  time.value = m2 ? `${pad(m2[2])}:${pad(m2[1])}` : '04:00';
+  const day = el('select', 'picker');
+  [1, 2, 3, 4, 5, 6, 0].forEach((d) => day.appendChild(new Option(T('weekday.' + d), String(d))));
+  day.value = m2 && m2[3] !== '*' ? String(Number(m2[3]) % 7) : '0';
+  const cron = el('input', 'input mono');
+  cron.value = cur || (job === 'gather' ? '0 4 * * 0' : '5 * * * *');
+  cron.spellcheck = false;
+
+  const box = el('div', 'jo-schedule');
+  box.appendChild(el('p', '', T(sc.via === 'office' ? 'schedule.intro_plugin' : 'schedule.intro', { what: T('tool.' + job) })));
+  const option = (id, text, hint, ...extra) => {
+    const label = el('label', 'check');
+    const input = el('input');
+    input.type = 'radio';
+    input.name = 'jo-schedule';
+    input.checked = mode === id;
+    input.onchange = () => { mode = id; update(); };
+    const span = el('span', '', text);
+    if (hint) span.appendChild(el('small', '', hint));
+    label.append(input, span);
+    box.appendChild(label);
+    if (extra.length) {
+      const f = el('div', 'jo-schedule-field');
+      f.append(...extra);
+      box.appendChild(f);
+    }
+  };
+  if (job === 'embycache') {
+    option('hourly', T('schedule.hourly'), T('schedule.hourly_hint'), minute);
+    option('every', T('schedule.every'), null, hours);
+  } else {
+    option('weekly', T('schedule.weekly'), T('schedule.weekly_hint'), day, time);
+    option('daily', T('schedule.daily'), T('schedule.daily_hint'));
+  }
+  option('custom', T('schedule.custom'), T('schedule.custom_hint'), cron);
+  option('off', T('schedule.off'), T('schedule_off_hint.' + job));
+  const update = () => {
+    minute.disabled = !['hourly', 'every'].includes(mode);
+    hours.disabled = mode !== 'every';
+    time.disabled = !['weekly', 'daily'].includes(mode);
+    day.disabled = mode !== 'weekly';
+    cron.disabled = mode !== 'custom';
+  };
+  update();
+  Office.dialog({
+    title: T('schedule_title.' + job),
+    body: box,
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('schedule.save'), kind: '', act: async () => {
+        let expr = '';
+        const mm = Math.min(59, Math.max(0, Number(minute.value) || 0));
+        if (mode === 'hourly') expr = `${mm} * * * *`;
+        else if (mode === 'every') expr = `${mm} */${hours.value} * * *`;
+        else if (mode === 'weekly' || mode === 'daily') {
+          if (!/^\d\d:\d\d$/.test(time.value)) { Office.toast(T('schedule.need_time'), true); return false; }
+          const [h, m] = time.value.split(':').map(Number);
+          expr = `${m} ${h} * * ${mode === 'weekly' ? day.value : '*'}`;
+        } else if (mode === 'custom') expr = cron.value.trim();
+        const j = await Office.api.post(`${ID}.schedule`, { job, cron: expr });
+        if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
+        if (j.state) state = j.state;
+        if (!j.live) Office.toast(T(sc.via === 'office' ? 'schedule.not_live_plugin' : 'schedule.not_live'), true);
+        else Office.toast(expr ? T('schedule.saved_on', { when: fmt.cron(expr) }) : T('schedule.saved_off'));
+        if (view && page === 'main') render();
+        return true;
+      } },
+    ],
+  });
+}
+
 // ------------------------------------------------------------------ setup (#/emby/setup)
-let form = null;        // { instance:{servername,url,api_key}, server, libraries, users, choice:{…} }
+/*
+ * Everything EmbyCache's own setup asks (embycache_setup.py), plus the
+ * choices it leaves to its settings file:
+ *   1 servers (one or more Emby instances)   2 libraries and their folders
+ *   3 people (and their own budgets)          4 pool and amount
+ *   5 more (way back, tools, sources)
+ * The gather has its own small settings (gatherSettingsDialog).
+ */
+let form = null;
 
 function initForm() {
   const set = state.settings || {};
-  const inst = (set.instances || [])[0];
   const container = state.emby[0] || {};
+  const inst = (set.instances || []).length ? set.instances : [{ servername: container.name || 'Emby', url: container.url || '', has_key: false, path_mappings: {} }];
+  const vu = set.valid_users || [];
+  const budgets = {};
+  if (!Array.isArray(vu)) for (const [id, o] of Object.entries(vu)) if (o && o.budget) budgets[id] = o.budget;
   form = {
-    instance: { servername: inst ? inst.servername : (container.name || 'Emby'), url: inst ? inst.url : (container.url || ''), api_key: '', has_key: !!(inst && inst.has_key) },
-    server: null, libraries: [], users: [],
-    mappings: { ...((inst && inst.path_mappings) || {}) },
+    instances: inst.map((i) => {
+      const maps = { ...(i.path_mappings || {}) };
+      const skip = new Set(Object.keys(maps).filter((p) => maps[p] === ''));     // '' = deliberately not cached
+      skip.forEach((p) => delete maps[p]);
+      return { servername: i.servername, url: i.url, api_key: '', has_key: !!i.has_key, mappings: maps, skip, server: null, libraries: [], users: [] };
+    }),
     chosenLibs: new Set(set.libraries || []),
-    chosenUsers: new Set(Array.isArray(set.valid_users) ? set.valid_users : Object.keys(set.valid_users || {})),
+    chosenUsers: new Set(Array.isArray(vu) ? vu : Object.keys(vu)),
+    budgets,
     values: {
       cache_path: set.cache_path && state.pools.includes(set.cache_path) ? set.cache_path : (state.pools[0] || ''),
       budget_mode: !!set.cache_budget,
@@ -322,23 +595,59 @@ function initForm() {
       number_episodes: set.number_episodes ?? 3,
       movie_share_percent: set.movie_share_percent ?? 50,
       max_episodes_per_series: set.max_episodes_per_series ?? 0,
-      max_resume_items: set.max_resume_items ?? 10,
+      max_resume_movies: set.max_resume_movies ?? set.max_resume_items ?? 10,
+      max_resume_series: set.max_resume_series ?? set.max_resume_items ?? 10,
       max_favorite_series: set.max_favorite_series ?? 10,
       use_next_up: set.use_next_up ?? true,
       min_free_percent: set.min_free_percent ?? 20,
-      movie_mode: set.movie_mode || 'folder',
+      return_to_origin: set.return_to_origin ?? true,
+      cleanup_tool: set.cleanup_tool || 'rsync',
+      fill_tool: set.fill_tool || 'rsync',
+      array_source: set.array_source || 'user0',
+      create_share_root: !!set.create_share_root,
+      mover_debug_level: set.mover_debug_level ?? 0,
     },
   };
 }
 
-/** Docker path -> host path: from the Emby container's own mounts (longest match) */
+/** Docker path -> host path: from the Emby container's own mounts (longest match), else /data|/media -> /mnt/user */
 function suggestMapping(path) {
   const mounts = (state.emby[0] || {}).mounts || {};
   let best = null;
   for (const [dest, src] of Object.entries(mounts)) {
     if ((path === dest || path.startsWith(dest + '/')) && (!best || dest.length > best[0].length)) best = [dest, src];
   }
-  return best ? best[1] + path.slice(best[0].length) : '';
+  if (best) return best[1] + path.slice(best[0].length);
+  for (const prefix of ['/data', '/media', '/mnt/user', '/mnt']) {
+    if (path === prefix || path.startsWith(prefix + '/')) return ('/mnt/user/' + path.slice(prefix.length).replace(/^\//, '')).replace(/\/$/, '');
+  }
+  return '/mnt/user' + path;
+}
+
+/**
+ * A first setup: the pool is the primary pool of the film and series shares
+ * that also lie on the array; chosen are the film and series libraries whose
+ * share suits that pool.
+ */
+function suggestChoice(inst) {
+  const media = inst.libraries.filter((l) => ['movies', 'tvshows'].includes(l.type));
+  const shares = (lib) => lib.locations.filter((p) => !inst.skip.has(p)).map((p) => shareOf(inst.mappings[p])).filter(Boolean);
+  const primaries = media.flatMap(shares).map((sh) => state.share_info[sh])
+    .filter((info) => info && info.use === 'yes' && !info.secondary && state.pools.includes('/mnt/' + info.primary));
+  if (primaries.length) form.values.cache_path = '/mnt/' + primaries[0].primary;
+  const pool = form.values.cache_path.replace('/mnt/', '');
+  const fitting = media.filter((lib) => shares(lib).every((sh) => ['ok', 'array_only'].includes(shareFit(state.share_info[sh], pool))));
+  (fitting.length ? fitting : media).forEach((l) => form.chosenLibs.add(l.name));
+}
+
+/** Libraries of all connected servers by name: [{name, type, at: [[instance index, location], …]}] */
+function libraryList() {
+  const byName = new Map();
+  form.instances.forEach((inst, i) => (inst.libraries || []).forEach((lib) => {
+    if (!byName.has(lib.name)) byName.set(lib.name, { name: lib.name, type: lib.type, at: [] });
+    lib.locations.forEach((p) => byName.get(lib.name).at.push([i, p]));
+  }));
+  return [...byName.values()];
 }
 
 function renderSetup() {
@@ -351,56 +660,94 @@ function renderSetup() {
   root.appendChild(Office.pageHelp(ID + '-setup', [
     [T('setup.key'), T('setup.help_key')],
     [T('setup.mapping'), T('setup.help_mapping')],
+    [T('setup.users'), T('setup.help_users')],
     [T('setup.scope'), T('setup.help_scope')],
+    [T('setup.more'), T('setup.help_more')],
     [T('setup.save'), T('setup.help_save')],
   ]));
   if (!state) return;
-  if (!state.installed) { root.appendChild(el('p', 'callout warn', T('notice.fetch_first'))); return; }
   if (!form) initForm();
+  const connected = form.instances.some((i) => i.server);
 
-  // 1. server
+  // 1. servers
   const s1 = section(T('setup.server'), T('setup.server_sub'));
-  const f1 = el('div', 'jo-form');
-  const name = input(form.instance.servername, (v) => { form.instance.servername = v; });
-  const url = input(form.instance.url, (v) => { form.instance.url = v; });
-  const key = input('', (v) => { form.instance.api_key = v.trim(); });
-  key.type = 'password';
-  key.autocomplete = 'off';
-  key.placeholder = form.instance.has_key ? T('setup.key_kept') : T('setup.key_placeholder');
-  f1.append(field(T('setup.name'), name), field(T('setup.url'), url, T('setup.url_hint')), field(T('setup.key'), key, T('setup.key_hint')));
-  s1.appendChild(f1);
-  const connect = button(T('setup.connect'), '', async () => {
-    connect.disabled = true;
-    const j = await Office.api.post(`${ID}.connect`, { url: form.instance.url, api_key: form.instance.api_key });
-    connect.disabled = false;
-    if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return; }
-    form.server = j.server;
-    form.libraries = j.libraries;
-    form.users = j.users;
-    if (!form.chosenLibs.size) j.libraries.filter((l) => ['movies', 'tvshows'].includes(l.type)).forEach((l) => form.chosenLibs.add(l.name));
-    for (const lib of j.libraries) for (const p of lib.locations) if (!form.mappings[p]) form.mappings[p] = suggestMapping(p);
+  form.instances.forEach((inst, idx) => {
+    const box = el('div', 'box jo-instance');
+    const f1 = el('div', 'jo-form');
+    const name = input(inst.servername, (v) => { inst.servername = v; });
+    const url = input(inst.url, (v) => { inst.url = v.trim(); });
+    const key = input('', (v) => { inst.api_key = v.trim(); });
+    key.type = 'password';
+    key.autocomplete = 'off';
+    key.placeholder = inst.has_key ? T('setup.key_kept') : T('setup.key_placeholder');
+    f1.append(field(T('setup.name'), name), field(T('setup.url'), url, T('setup.url_hint')), field(T('setup.key'), key, T('setup.key_hint')));
+    box.appendChild(f1);
+    const bar = el('div', 'toolbar');
+    const connect = button(T('setup.connect'), inst.server ? 'small plain' : 'small', async () => {
+      connect.disabled = true;
+      const j = await Office.api.post(`${ID}.connect`, { url: inst.url, api_key: inst.api_key });
+      connect.disabled = false;
+      if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return; }
+      inst.server = j.server;
+      inst.libraries = j.libraries;
+      inst.users = j.users;
+      for (const lib of j.libraries) for (const p of lib.locations) if (!inst.mappings[p]) inst.mappings[p] = suggestMapping(p);
+      if (!state.configured && !form.chosenLibs.size) suggestChoice(inst);
+      renderSetup();
+    });
+    bar.appendChild(connect);
+    if (inst.server) bar.appendChild(chip(T('setup.connected', { name: inst.server.name, version: inst.server.version }), 'ok'));
+    if (form.instances.length > 1) bar.appendChild(button(T('setup.remove_server'), 'small plain', () => { form.instances.splice(idx, 1); renderSetup(); }));
+    box.appendChild(bar);
+    s1.appendChild(box);
+  });
+  const add = button(T('setup.add_server'), 'small plain', () => {
+    form.instances.push({ servername: `Emby${form.instances.length + 1}`, url: 'http://', api_key: '', has_key: false, mappings: {}, skip: new Set(), server: null, libraries: [], users: [] });
     renderSetup();
   });
-  const bar = el('div', 'toolbar');
-  bar.appendChild(connect);
-  if (form.server) bar.appendChild(chip(T('setup.connected', { name: form.server.name, version: form.server.version }), 'ok'));
-  s1.appendChild(bar);
+  const bar1 = el('div', 'toolbar');
+  bar1.appendChild(add);
+  s1.appendChild(bar1);
   root.appendChild(s1);
-  if (!form.server) return;
+  if (!connected) { root.appendChild(el('p', 'callout', T('setup.connect_first'))); return; }
 
-  // 2. libraries and their paths
+  // 2. libraries and their folders
+  const v = form.values;
+  const pool = v.cache_path.replace('/mnt/', '');
   const s2 = section(T('setup.libraries'), T('setup.libraries_sub'));
   const box2 = el('div', 'box');
-  form.libraries.forEach((lib) => {
+  libraryList().forEach((lib) => {
     const row = el('div', 'row nocheck jo-lib');
     const main = el('div', 'row-main');
-    main.appendChild(check(`${lib.name}`, form.chosenLibs.has(lib.name), (v) => { if (v) form.chosenLibs.add(lib.name); else form.chosenLibs.delete(lib.name); renderSetup(); },
+    main.appendChild(check(lib.name, form.chosenLibs.has(lib.name), (on) => {
+      if (on) { form.chosenLibs.add(lib.name); lib.at.forEach(([i, p]) => form.instances[i].skip.delete(p)); } else form.chosenLibs.delete(lib.name);
+      renderSetup();
+    },
       T('type.' + (lib.type || 'other'))));
     if (form.chosenLibs.has(lib.name)) {
-      lib.locations.forEach((p) => {
-        const inp = input(form.mappings[p] || '', (v) => { form.mappings[p] = v.trim(); });
+      lib.at.forEach(([i, p]) => {
+        const inst = form.instances[i];
+        const on = !inst.skip.has(p);
+        const label = form.instances.length > 1 ? T('setup.map_on', { server: inst.servername, path: p }) : T('setup.map', { path: p });
+        if (lib.at.length > 1 || !on) {
+          const c = check(T('setup.cache_folder', { path: p }), on, (x) => { if (x) inst.skip.delete(p); else inst.skip.add(p); renderSetup(); },
+            on ? '' : T('setup.cache_folder_off'));
+          c.classList.add('jo-folder');
+          main.appendChild(c);
+        }
+        if (!on) return;
+        const inp = input(inst.mappings[p] || '', (x) => { inst.mappings[p] = x.trim(); });
         inp.classList.add('mono');
-        main.appendChild(field(T('setup.map', { path: p }), inp));
+        const f = field(label, inp);
+        const share = shareOf(inst.mappings[p]);
+        if (share) {
+          const fit = shareFit(state.share_info[share], pool);
+          const meta = el('div', 'row-meta');
+          meta.appendChild(fitChip(fit, { share, pool, primary: (state.share_info[share] || {}).primary || '–', secondary: (state.share_info[share] || {}).secondary || T('array') }));
+          if (!(state.pool_dirs[v.cache_path] || []).includes(share)) meta.appendChild(chip(T('root_missing', { pool: v.cache_path }), v.create_share_root ? 'warn' : 'danger', T('root_missing_tip', { share, pool: v.cache_path })));
+          f.appendChild(meta);
+        }
+        main.appendChild(f);
       });
     }
     row.appendChild(main);
@@ -409,49 +756,98 @@ function renderSetup() {
   s2.appendChild(box2);
   root.appendChild(s2);
 
-  // 3. users
-  const s3 = section(T('setup.users'), T('setup.users_sub'));
+  // 3. people
+  const everyone = [...new Set(form.instances.flatMap((inst) => (inst.users || []).map((u) => u.id)))];
+  const all = button(T('setup.users_all'), 'small plain', () => { everyone.forEach((id) => form.chosenUsers.add(id)); renderSetup(); });
+  const none = button(T('setup.users_none'), 'small plain', () => { form.chosenUsers.clear(); renderSetup(); });
+  const pick = el('div', 'toolbar');
+  pick.append(all, none);
+  const s3 = section(T('setup.users'), T('setup.users_sub'), everyone.length ? pick : null);
   const f3 = el('div', 'jo-users');
-  form.users.forEach((u) => f3.appendChild(check(u.name, form.chosenUsers.has(u.id), (v) => { if (v) form.chosenUsers.add(u.id); else form.chosenUsers.delete(u.id); }, u.admin ? T('setup.admin') : '')));
+  const seen = new Set();
+  form.instances.forEach((inst) => (inst.users || []).forEach((u) => {
+    if (seen.has(u.id)) return;
+    seen.add(u.id);
+    const wrap = el('div');
+    const extra = [u.admin ? T('setup.admin') : '', form.instances.length > 1 ? inst.servername : ''].filter(Boolean).join(' · ');
+    wrap.appendChild(check(u.name, form.chosenUsers.has(u.id), (on) => { if (on) form.chosenUsers.add(u.id); else form.chosenUsers.delete(u.id); renderSetup(); }, extra));
+    if (v.budget_mode && form.chosenUsers.has(u.id)) {
+      const b = input(form.budgets[u.id] || '', (x) => { form.budgets[u.id] = x.trim(); });
+      b.placeholder = T('setup.user_budget_placeholder');
+      wrap.appendChild(field(T('setup.user_budget'), b));
+    }
+    f3.appendChild(wrap);
+  }));
   s3.appendChild(f3);
   root.appendChild(s3);
 
-  // 4. pool and scope
-  const v = form.values;
+  // 4. pool and amount: what applies to both, then films and series apart
   const s4 = section(T('setup.scope'), T('setup.scope_sub'));
   const f4 = el('div', 'jo-form');
-  const pool = el('select', 'picker');
-  state.pools.forEach((p) => pool.appendChild(new Option(p, p)));
-  pool.value = v.cache_path;
-  pool.onchange = () => { v.cache_path = pool.value; };
-  f4.appendChild(field(T('setup.pool'), pool, T('setup.pool_hint')));
+  const poolSel = el('select', 'picker');
+  state.pools.forEach((p) => poolSel.appendChild(new Option(p, p)));
+  poolSel.value = v.cache_path;
+  poolSel.onchange = () => { v.cache_path = poolSel.value; renderSetup(); };
+  f4.appendChild(field(T('setup.pool'), poolSel, T('setup.pool_hint')));
+  f4.appendChild(field(T('setup.min_free'), number(v, 'min_free_percent', 0, 95), T('setup.min_free_hint')));
   const mode = el('select', 'picker');
   mode.append(new Option(T('setup.mode_count'), 'count'), new Option(T('setup.mode_budget'), 'budget'));
   mode.value = v.budget_mode ? 'budget' : 'count';
   mode.onchange = () => { v.budget_mode = mode.value === 'budget'; renderSetup(); };
   f4.appendChild(field(T('setup.mode'), mode, T(v.budget_mode ? 'setup.mode_budget_hint' : 'setup.mode_count_hint')));
-  if (v.budget_mode) {
-    f4.appendChild(field(T('setup.budget'), input(v.cache_budget, (x) => { v.cache_budget = x.trim(); }), T('setup.budget_hint')));
-    f4.appendChild(field(T('setup.movie_share'), number(v, 'movie_share_percent', 0, 100)));
-    f4.appendChild(field(T('setup.max_per_series'), number(v, 'max_episodes_per_series', 0, 999), T('setup.zero_budget')));
-  } else {
-    f4.appendChild(field(T('setup.episodes'), number(v, 'number_episodes', 0, 99)));
-  }
-  f4.appendChild(field(T('setup.resume'), number(v, 'max_resume_items', 0, 999)));
-  f4.appendChild(field(T('setup.favorites'), number(v, 'max_favorite_series', 0, 999), T('setup.zero_off')));
-  f4.appendChild(field(T('setup.min_free'), number(v, 'min_free_percent', 0, 95), T('setup.min_free_hint')));
-  const mm = el('select', 'picker');
-  mm.append(new Option(T('setup.movie_folder'), 'folder'), new Option(T('setup.movie_file'), 'file'));
-  mm.value = v.movie_mode;
-  mm.onchange = () => { v.movie_mode = mm.value; };
-  f4.appendChild(field(T('setup.movie_mode'), mm));
-  f4.appendChild(check(T('setup.next_up'), v.use_next_up, (x) => { v.use_next_up = x; }, T('setup.next_up_hint')));
+  if (v.budget_mode) f4.appendChild(field(T('setup.budget'), input(v.cache_budget, (x) => { v.cache_budget = x.trim(); }), T('setup.budget_hint')));
   s4.appendChild(f4);
+
+  const chosenTypes = new Set(libraryList().filter((l) => form.chosenLibs.has(l.name)).map((l) => l.type));
+  // a part whose kind of library isn't chosen is greyed out, with the reason (its values stay as they are)
+  const part = (title, type, ...fields) => {
+    const used = chosenTypes.has(type);
+    const box = el('div', 'box jo-part' + (used ? '' : ' off'));
+    const head = el('div', 'jo-part-head', title);
+    if (!used) head.appendChild(el('span', 'jo-part-why', T('setup.part_unused', { kind: title })));
+    box.appendChild(head);
+    const f = el('div', 'jo-form');
+    f.append(...fields);
+    if (!used) f.querySelectorAll('input, select').forEach((x) => { x.disabled = true; });
+    box.appendChild(f);
+    s4.appendChild(box);
+  };
+  part(T('type.movies'), 'movies',
+    ...(v.budget_mode ? [field(T('setup.movie_share'), number(v, 'movie_share_percent', 0, 100), T('setup.movie_share_hint'))] : []),
+    field(T('setup.resume_movies'), number(v, 'max_resume_movies', 0, 999), T('setup.resume_movies_hint')),
+    el('p', 'role', T('setup.movies_folder')));
+  part(T('type.tvshows'), 'tvshows',
+    v.budget_mode ? field(T('setup.max_per_series'), number(v, 'max_episodes_per_series', 0, 999), T('setup.zero_budget'))
+                  : field(T('setup.episodes'), number(v, 'number_episodes', 0, 99), T('setup.episodes_hint')),
+    field(T('setup.resume_series'), number(v, 'max_resume_series', 0, 999), T('setup.resume_series_hint')),
+    field(T('setup.favorites'), number(v, 'max_favorite_series', 0, 999), T('setup.zero_off')),
+    check(T('setup.next_up'), v.use_next_up, (x) => { v.use_next_up = x; }, T('setup.next_up_hint')));
   root.appendChild(s4);
 
+  // 5. more: the way back, the tools, where to read from
+  const s5 = section(T('setup.more'), T('setup.more_sub'));
+  const f5 = el('div', 'jo-form');
+  f5.appendChild(check(T('setup.origin'), v.return_to_origin, (x) => { v.return_to_origin = x; }, T('setup.origin_hint')));
+  f5.appendChild(field(T('setup.cleanup_tool'), select(v, 'cleanup_tool', [['rsync', T('setup.tool_rsync_back')], ['mover', T('setup.tool_mover_back')]]), T('setup.cleanup_tool_hint')));
+  f5.appendChild(field(T('setup.fill_tool'), select(v, 'fill_tool', [['rsync', T('setup.tool_rsync_fill')], ['mover', T('setup.tool_mover_fill')]]), T('setup.fill_tool_hint')));
+  f5.appendChild(field(T('setup.array_source'), select(v, 'array_source', [['user0', T('setup.source_user0')], ['disk', T('setup.source_disk')]]), T('setup.array_source_hint')));
+  f5.appendChild(field(T('setup.mover_debug'), number(v, 'mover_debug_level', 0, 3), T('setup.mover_debug_hint')));
+  // only needed when a chosen share has no folder on the pool yet
+  const shares = [...new Set(libraryList().filter((l) => form.chosenLibs.has(l.name))
+    .flatMap((l) => l.at.filter(([i, p]) => !form.instances[i].skip.has(p)).map(([i, p]) => shareOf(form.instances[i].mappings[p]))).filter(Boolean))].sort();
+  const missing = shares.filter((sh) => !(state.pool_dirs[v.cache_path] || []).includes(sh));
+  const rootOpt = check(T('setup.create_root'), v.create_share_root, (x) => { v.create_share_root = x; renderSetup(); },
+    missing.length ? T('setup.create_root_missing', { shares: missing.join(', '), pool: v.cache_path }) : T('setup.create_root_fine', { shares: shares.join(', ') || '–', pool: v.cache_path }));
+  if (!missing.length && !v.create_share_root) { rootOpt.querySelector('input').disabled = true; rootOpt.classList.add('jo-muted'); }
+  f5.appendChild(rootOpt);
+  f5.appendChild(el('p', 'role', T('setup.fixed_paths')));
+  s5.appendChild(f5);
+  root.appendChild(s5);
+
   const save = button(T('setup.save'), '', saveSetup);
+  save.disabled = running();
   const foot = el('div', 'toolbar');
-  foot.append(save, el('span', 'role', T('setup.save_hint')));
+  foot.append(save, el('span', 'role', T(running() ? 'setup.save_running' : 'setup.save_hint')));
   root.appendChild(foot);
 }
 
@@ -469,6 +865,13 @@ function number(obj, key, min, max) {
   i.value = obj[key];
   i.oninput = () => { obj[key] = Number(i.value); };
   return i;
+}
+function select(obj, key, options) {
+  const s = el('select', 'picker');
+  options.forEach(([value, text]) => s.appendChild(new Option(text, value)));
+  s.value = obj[key];
+  s.onchange = () => { obj[key] = s.value; };
+  return s;
 }
 function field(label, inputEl, hint) {
   const f = el('div', 'field');
@@ -490,28 +893,46 @@ function check(text, checked, onchange, small) {
 
 async function saveSetup() {
   const v = form.values;
-  const mappings = {};
-  for (const lib of form.libraries) {
-    if (!form.chosenLibs.has(lib.name)) continue;
-    for (const p of lib.locations) {
-      if (!form.mappings[p] || !form.mappings[p].startsWith('/mnt/')) { Office.toast(T('setup.map_missing', { path: p }), true); return; }
-      mappings[p] = form.mappings[p];
+  const libs = libraryList().filter((l) => form.chosenLibs.has(l.name));
+  if (!libs.length) { Office.toast(T('setup.no_library'), true); return; }
+  const instances = form.instances.map((inst) => ({ servername: inst.servername, url: inst.url, api_key: inst.api_key, path_mappings: {} }));
+  // folders of libraries that aren't chosen: deliberately not cached (EmbyCache then skips them quietly)
+  for (const lib of libraryList()) {
+    if (!form.chosenLibs.has(lib.name)) for (const [i, p] of lib.at) instances[i].path_mappings[p] = '';
+  }
+  for (const lib of libs) {
+    for (const [i, p] of lib.at) {
+      if (form.instances[i].skip.has(p)) { instances[i].path_mappings[p] = ''; continue; }
+      const to = form.instances[i].mappings[p];
+      if (!to || !/^\/mnt\/user\/[^/]+/.test(to)) { Office.toast(T('setup.map_missing', { path: p }), true); return; }
+      instances[i].path_mappings[p] = to;
     }
   }
+  if (v.budget_mode && !/^\d+(\.\d+)?\s*[KMGTP]?B?$/i.test(v.cache_budget)) { Office.toast(T('setup.budget_missing'), true); return; }
   const settings = {
-    instances: [{ servername: form.instance.servername, url: form.instance.url, api_key: form.instance.api_key, path_mappings: mappings }],
-    libraries: [...form.chosenLibs],
+    instances,
+    libraries: libs.map((l) => l.name),
+    library_types: Object.fromEntries(libs.map((l) => [l.name, l.type])),
     valid_users: [...form.chosenUsers],
+    user_budgets: v.budget_mode ? form.budgets : {},
     cache_path: v.cache_path,
     cache_budget: v.budget_mode ? v.cache_budget : '',
     number_episodes: v.number_episodes,
     movie_share_percent: v.movie_share_percent,
     max_episodes_per_series: v.max_episodes_per_series,
-    max_resume_items: v.max_resume_items,
+    max_resume_movies: v.max_resume_movies,
+    max_resume_series: v.max_resume_series,
+    max_resume_items: Math.max(v.max_resume_movies, v.max_resume_series),     // for older EmbyCache versions
     max_favorite_series: v.max_favorite_series,
     use_next_up: v.use_next_up,
     min_free_percent: v.min_free_percent,
-    movie_mode: v.movie_mode,
+    movie_mode: 'folder',          // always the whole folder: subtitles, preview images, nfo, extras
+    return_to_origin: v.return_to_origin,
+    cleanup_tool: v.cleanup_tool,
+    fill_tool: v.fill_tool,
+    array_source: v.array_source,
+    create_share_root: v.create_share_root,
+    mover_debug_level: v.mover_debug_level,
   };
   const j = await act('save', { settings });
   if (!j) return;
@@ -529,30 +950,35 @@ Office.desk({
     if (page === 'setup') {
       if (!state) await load(false);
       renderSetup();
-    } else {
-      render();
-      load(false);
+      return;
     }
+    render();
+    await load(false);
+    // the caretaker's "Open" for a schedule
+    if (sub === 'schedule' || sub === 'gather-schedule') { Office.subroute(''); scheduleDialog(sub === 'schedule' ? 'embycache' : 'gather'); }
   },
   unmount() { view = null; clearTimeout(outTimer); },
   poll() { if (page === 'main') load(false); },
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
   menu() {
     const items = [{ text: T('menu.refresh'), act: () => load(true) }];
-    if (state && state.installed) {
-      items.push({ text: T('check_updates'), act: () => act('check_updates', {}, T('checked_now')) });
-      items.push({ text: T('show_log'), act: showLog });
+    if (state && state.configured) {
+      items.push({ text: T('schedule_title.embycache'), act: () => scheduleDialog('embycache') });
+      items.push({ text: T('schedule_title.gather'), act: () => scheduleDialog('gather') });
+      items.push({ text: T('show_log') + ' · EmbyCache', act: () => showLog('embycache') });
+      items.push({ text: T('show_log') + ' · ' + T('gather'), act: () => showLog('gather') });
     }
     return items;
   },
   async reception() {
     if (!state) await load(false);
     const facts = [];
-    if (state && state.installed && state.configured) {
+    if (state && state.configured) {
       facts.push(T('fact.pool', { n: state.cache.files, size: fmt.size(state.cache.bytes) }));
-      if (state.last && state.last.time) facts.push(T('fact.last', { when: fmt.relative(state.last.time) }));
+      if (state.last && state.last.finished) facts.push(T('fact.last', { when: fmt.relative(state.last.finished) }));
+      if (!state.gather.ready) facts.push(T('fact.gather_first'));
     } else {
-      facts.push(T(state && state.installed ? 'fact.setup' : 'fact.fetch'));
+      facts.push(T('fact.setup'));
     }
     return { bubble: T('bubble.hello_short'), facts };
   },

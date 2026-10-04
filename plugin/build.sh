@@ -12,8 +12,9 @@
 #
 # The GitHub Action (.github/workflows/plugin.yml) runs this when a release
 # is published and attaches both files to it. The package holds the web files
-# (public/) at the top of the plugin folder with src/, agent/ and backup/ next
-# to them, plus plugin/scripts, plugin/event and the menu entry.
+# (public/) at the top of the plugin folder with src/, agent/, backup/,
+# embycache/ and gather/ next to them, plus plugin/scripts, plugin/event and
+# the menu entry.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -37,15 +38,15 @@ pkg="$stage/$name"
 mkdir -p "$pkg" dist
 
 cp -R public/. "$pkg/"
-cp -R src agent backup "$pkg/"
+cp -R src agent backup embycache gather "$pkg/"
 cp -R plugin/scripts plugin/event plugin/images "$pkg/"
 cp plugin/*.page LICENSE README.md "$pkg/"
 rm -f "$pkg/robots.txt"                       # Unraid serves its own
-find "$pkg" \( -name '.DS_Store' -o -name '._*' -o -name '.smbdelete*' -o -name '.gitkeep' \) -exec rm -rf {} +
+find "$pkg" \( -name '.DS_Store' -o -name '._*' -o -name '.smbdelete*' -o -name '.gitkeep' -o -name '__pycache__' \) -exec rm -rf {} +
 
 find "$pkg" -type d -exec chmod 755 {} +
 find "$pkg" -type f -exec chmod 644 {} +
-chmod 755 "$pkg"/scripts/* "$pkg"/event/* "$pkg"/backup/*.sh "$pkg"/agent/agent.php
+chmod 755 "$pkg"/scripts/* "$pkg"/event/* "$pkg"/backup/*.sh "$pkg"/gather/*.sh "$pkg"/agent/agent.php
 
 txz="dist/$name-$version.txz"
 if tar --version 2>/dev/null | grep -q GNU; then

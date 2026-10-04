@@ -9,7 +9,7 @@ declare(strict_types=1);
  * They change nothing on the server: what writes files works on copies in a
  * temporary folder. Two parts:
  *   logic    the tricky functions (cron, snapshot retention, Emby detection,
- *            User Scripts schedules, the plugin's cron file)
+ *            the gather's settings, User Scripts schedules, the plugin's cron file)
  *   strings  German and English have the same keys, and every text the code
  *            asks for exists (desk.js, checks, errors)
  * Exit code 0 when everything passes.
@@ -104,6 +104,38 @@ function testEmby(): void
     foreach (['uping/embystat', 'helmi/embycache', 'jellyfin/jellyfin', 'lscr.io/linuxserver/jellyfin', 'kopia/kopia'] as $i) {
         check("not an emby server: $i", !embyIsServerImage($i));
     }
+
+    // does a share suit EmbyCache with the pool "master"?
+    foreach ([['ok', ['shareUseCache' => 'yes', 'shareCachePool' => 'master']],
+              ['no_array', ['shareUseCache' => 'yes', 'shareCachePool' => 'hive', 'shareCachePool2' => 'ripley']],
+              ['other_pool', ['shareUseCache' => 'yes', 'shareCachePool' => 'cache']],
+              ['array_only', ['shareUseCache' => 'no']],
+              ['pool_only', ['shareUseCache' => 'prefer', 'shareCachePool' => 'master']],
+              ['pool_only', ['shareUseCache' => 'only', 'shareCachePool' => 'master']]] as [$want, $cfg]) {
+        same('emby share fit: ' . json_encode($cfg), $want, embyShareFit($cfg, 'master'));
+    }
+
+    // the gather's consolidate.ini: bash sources it, so every value is quoted and checked
+    $ini = embyGatherIni(['shares' => ['Filme', 'Meine Filme'], 'min_free_gb' => 256, 'dup_check' => 'size'],
+        ['/mnt/master', '/mnt/disk1', '/mnt/user0', '/mnt/bad pool'], "/x/it's/consolidate.log", '/x/embycache_exclude.txt');
+    check('gather ini: shares quoted', str_contains($ini, "BASE_DIRS=('/mnt/user/Filme' '/mnt/user/Meine Filme')\n"));
+    same('gather ini: only real pools as cache', 1, preg_match("/^CACHE_PATTERN='\\/mnt\\/master'$/m", $ini));
+    check('gather ini: never --include-cache, always dry by default', str_contains($ini, "CACHE_ONLY_TARGET='skip'") && str_contains($ini, "DRYRUN=true\n"));
+    $tmp = sys_get_temp_dir() . '/office-tests-gather-' . getmypid() . '.ini';
+    file_put_contents($tmp, $ini . 'echo "${BASE_DIRS[1]}|$MIN_FREE_GB|$LOGFILE"' . "\n");
+    same('gather ini: bash reads it back', "/mnt/user/Meine Filme|256|/x/it's/consolidate.log", trim((string) shell_exec('bash ' . escapeshellarg($tmp))));
+    unlink($tmp);
+    try {
+        embyGatherIni(['shares' => ['a$(reboot)'], 'min_free_gb' => 1, 'dup_check' => 'size'], [], '/l', '/e');
+        check('gather ini refuses a strange share name', false);
+    } catch (Problem $p) {
+        same('gather ini refuses a strange share name', 'emby_bad_share', $p->key);
+    }
+
+    // run output for the page: progress lines collapsed, colour codes gone
+    same('emby output: progress collapsed', "📂 Scanne: /mnt/user/Filme\n   🚚 [disk2 -> disk1] a.srt\nfertig",
+        embyPlainOutput("   [1/2] 50% - A \e[K\r\r\e[K📂 Scanne: /mnt/user/Filme\n   [2/2] 100% - B \e[K\r   [2/2] 100% - B \e[K\r\n\r\e[K   🚚 [disk2 -> disk1] a.srt\n"
+            . "2026-10-04 18:00:00,123 | INFO | fertig"));
 }
 
 /** userScriptSchedule against copies: only its own entry and line change */
@@ -165,6 +197,12 @@ function testOfficeCron(): void
 
     officeJobSetSchedule('backup', '30  3 * * 1-5', $file, false);
     same('office cron: changed, spaces tidied', ['backup' => '30 3 * * 1-5', 'snapshots' => '*/5 * * * *'], officeCronLines($file));
+
+    officeJobSetSchedule('gather', '0 4 * * 0', $file, false);
+    officeJobSetSchedule('embycache', '5 * * * *', $file, false);
+    same('office cron: Jack Emby\'s jobs beside them', ['backup' => '30 3 * * 1-5', 'snapshots' => '*/5 * * * *', 'embycache' => '5 * * * *', 'gather' => '0 4 * * 0'], officeCronLines($file));
+    officeJobSetSchedule('embycache', null, $file, false);
+    officeJobSetSchedule('gather', null, $file, false);
 
     officeJobSetSchedule('backup', null, $file, false);
     same('office cron: backup off, snapshots kept', ['snapshots' => '*/5 * * * *'], officeCronLines($file));

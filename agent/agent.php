@@ -27,6 +27,7 @@ declare(strict_types=1);
  *   php agent.php run       run in the foreground (what the container and agent.sh do)
  *   php agent.php status    is an agent running?
  *   php agent.php job snapshot-plans   run the snapshot schedules that are due (User Scripts calls this)
+ *   php agent.php job <name> [args]    a job a desk registers ('jobs' in desk()), e.g. embycache, gather
  *
  * When one of its files changes, the running agent lints the new code and
  * restarts itself in place.
@@ -82,7 +83,12 @@ function main(array $argv): int
             if (($argv[2] ?? '') === 'snapshot-plans' && is_dir(DATA_DIR)) {
                 return snapPlansRunDue();
             }
-            fwrite(STDERR, "Usage: php agent.php job snapshot-plans\n");
+            foreach (desks() as $desk) {
+                if (isset($desk['jobs'][$argv[2] ?? ''])) {
+                    return is_dir(DATA_DIR) ? (int) $desk['jobs'][$argv[2]](array_slice($argv, 3)) : 0;
+                }
+            }
+            fwrite(STDERR, "Usage: php agent.php job snapshot-plans|<a desk's job>\n");
             return 2;
         case 'status':
             $pid = runningAgent();

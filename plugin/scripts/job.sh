@@ -4,6 +4,8 @@
 #
 #   job.sh backup      Mr. Backupsy's nightly run (the engine in backup/)
 #   job.sh snapshots   Ms. Snapshotini's schedules: the snapshots that are due
+#   job.sh embycache   Jack Emby: EmbyCache (what's watched next onto the pool)
+#   job.sh gather      Jack Emby: the media gather (folders together on one disk)
 #
 # Only while the array is started: the office's data lies in appdata, and
 # nothing may land in /mnt while it is a bare RAM folder.
@@ -16,5 +18,6 @@ cd / || exit 1
 case "$1" in
     backup)    exec bash "$DIR/backup/backup.sh" ;;
     snapshots) exec php "$DIR/agent/agent.php" job snapshot-plans ;;
-    *)         echo "Usage: bash $0 backup|snapshots"; exit 2 ;;
+    embycache|gather) exec php "$DIR/agent/agent.php" job "$1" ;;
+    *)         echo "Usage: bash $0 backup|snapshots|embycache|gather"; exit 2 ;;
 esac

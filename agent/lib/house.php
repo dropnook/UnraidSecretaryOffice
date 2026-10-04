@@ -249,15 +249,17 @@ function userScriptSchedule(string $name, ?string $cron, string $schedule = US_S
 // ===================================================================== the office's schedules
 
 /*
- * Two jobs run on a schedule even when nobody has the office open: Mr.
- * Backupsy's nightly run and Ms. Snapshotini's plans (every 5 minutes).
+ * Jobs run on a schedule even when nobody has the office open: Mr.
+ * Backupsy's nightly run, Ms. Snapshotini's plans (every 5 minutes) and Jack
+ * Emby's EmbyCache and media gather.
  * As a plugin the office writes them into its own cron file on the flash —
  * Unraid adds every installed plugin's *.cron to root's crontab (update_cron)
  * — and scripts/job.sh runs them only while the array is started. In the
  * stack they are User Scripts entries (userScriptSchedule()).
  */
 const OFFICE_CRON = '/boot/config/plugins/' . OFFICE_PLUGIN . '/' . OFFICE_PLUGIN . '.cron';
-const OFFICE_JOBS = ['backup' => 'unraid-secretary-office_backup', 'snapshots' => 'unraid-secretary-office_snapshots'];  // job => its User Scripts entry
+const OFFICE_JOBS = ['backup' => 'unraid-secretary-office_backup', 'snapshots' => 'unraid-secretary-office_snapshots',
+                     'embycache' => 'unraid-secretary-office_embycache', 'gather' => 'unraid-secretary-office_gather'];  // job => its User Scripts entry
 
 function officeJobCommand(string $job): string
 {
