@@ -107,7 +107,7 @@ function external(id, x) {
   const e = EXTERNALS[id];
   const box = el('div', 'box ad-external');
   const row = el('div', 'row nocheck ad-row');
-  row.appendChild(el('div', 'avatar ad-avatar', e.icon));
+  row.appendChild(avatar(e, x));
   const main = el('div', 'row-main');
   main.appendChild(el('div', 'row-name text', T(`ext.${id}.name`)));
   const meta = el('div', 'row-meta');
@@ -144,6 +144,19 @@ function external(id, x) {
   row.appendChild(acts);
   box.appendChild(row);
   box.appendChild(howto(id, x));
+  return box;
+}
+
+/** The maker's icon as Unraid has it (recognised at a glance), else the emoji */
+function avatar(e, x) {
+  const box = el('div', 'avatar ad-avatar');
+  const src = x.icon && (Office.config.in_unraid ? x.icon : state.gui && state.gui + x.icon);
+  if (!src) { box.textContent = e.icon; return box; }
+  const img = el('img');
+  img.alt = '';
+  img.src = src;
+  img.onerror = () => { box.innerHTML = ''; box.textContent = e.icon; };
+  box.appendChild(img);
   return box;
 }
 

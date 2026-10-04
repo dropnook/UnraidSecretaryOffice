@@ -19,7 +19,9 @@ declare(strict_types=1);
  *           and the gather), but there for whoever needs it
  *
  * Read only: whether a plugin is installed, whether a container exists and
- * runs. Nothing is installed or changed from here.
+ * runs, and where Unraid keeps its own icon (the maker's, so it is
+ * recognised; the page shows an emoji while it isn't there). Nothing is
+ * installed or changed from here.
  */
 
 const ADVISOR_EXTERNALS = [
@@ -71,7 +73,7 @@ function advisorScan(): array
         if (isset($how['plugin'])) {
             $p = $plugins[$how['plugin']] ?? null;
             $externals[$id] = ['kind' => 'plugin', 'there' => $p !== null, 'version' => $p['version'] ?? null,
-                'optional' => !empty($how['optional'])];
+                'optional' => !empty($how['optional']), 'icon' => $p !== null ? advisorPluginIcon($how['plugin']) : null];
             continue;
         }
         $found = null;
@@ -82,9 +84,37 @@ function advisorScan(): array
             }
         }
         $externals[$id] = ['kind' => 'container', 'there' => $found !== null, 'name' => $found['name'] ?? null,
-            'image' => $found['image'] ?? null, 'running' => $found['running'] ?? false];
+            'image' => $found['image'] ?? null, 'running' => $found['running'] ?? false,
+            'icon' => $found !== null ? advisorContainerIcon($found['name']) : null];
     }
     $state = ['time' => time(), 'gui' => houseGuiUrl(), 'media' => $media, 'externals' => $externals];
     writeAtomic(deskFile('advisor'), jsonEncode($state));
     return $state;
+}
+
+const ADVISOR_DOCROOT = '/usr/local/emhttp';
+
+/** An installed plugin's icon as Unraid's Plugins page finds it: the .plg's icon=, else plugins/<name>/(images/)<name>.png */
+function advisorPluginIcon(string $name): ?string
+{
+    $plg = (string) @file_get_contents("/boot/config/plugins/$name.plg");
+    $tries = [];
+    if (preg_match('/<PLUGIN\b[^>]*\sicon="([^"&]+\.(?:png|svg|jpg))"/is', $plg, $m)) {
+        $tries[] = "plugins/$name/" . ltrim($m[1], '/');
+    }
+    $short = preg_split('/[._ -]/', $name)[0];
+    array_push($tries, "plugins/$name/images/$name.png", "plugins/$name/$name.png", "plugins/$name/images/$short.png", "plugins/$name/$short.png");
+    foreach ($tries as $path) {
+        if (!str_contains($path, '..') && is_file(ADVISOR_DOCROOT . "/$path")) {
+            return "/$path";
+        }
+    }
+    return null;
+}
+
+/** A container's icon from Unraid's Docker page (it keeps a copy of the template's icon) */
+function advisorContainerIcon(string $name): ?string
+{
+    $path = 'state/plugins/dynamix.docker.manager/images/' . $name . '-icon.png';
+    return preg_match('/^[\w.-]+$/', $name) && is_file(ADVISOR_DOCROOT . "/$path") ? "/$path" : null;
 }
