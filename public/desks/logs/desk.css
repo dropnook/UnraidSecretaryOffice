@@ -1,5 +1,21 @@
 /* Ms. Protocolli */
-.lg-bar .lg-source{max-width:min(100%, 360px)}
+/* the log picker: button + list with a search field */
+.lg-picker{position:relative; max-width:min(100%, 380px); flex:0 1 380px}
+.lg-picker .lg-source{width:100%; text-align:left; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.lg-picker .lg-source.unset{color:var(--muted)}
+.lg-pop{position:absolute; z-index:30; top:calc(100% + 4px); left:0; width:min(92vw, 460px); background:var(--surface); border:1px solid var(--line2); border-radius:var(--radius); box-shadow:var(--shadow); padding:8px}
+.lg-pop .lg-find{width:100%; margin-bottom:6px}
+.lg-list{max-height:min(60vh, 520px); overflow:auto}
+.lg-group{background:var(--surface2); color:var(--ink2); font-size:11.5px; text-transform:uppercase; letter-spacing:.06em; padding:5px 8px; margin-top:4px; position:sticky; top:0}
+.lg-row{display:flex; align-items:center}
+.lg-row.active .lg-item{color:var(--accent-ink); background:var(--accent-soft)}
+.lg-item{flex:1; min-width:0; text-align:left; background:none; border:0; color:var(--ink); font:inherit; font-size:13px; padding:6px 8px 6px 16px; cursor:pointer; overflow-wrap:anywhere; border-radius:4px}
+.lg-item:hover, .lg-item:focus-visible{background:var(--surface2); outline:none}
+.lg-row-star{background:none; border:0; cursor:pointer; color:var(--muted); font-size:15px; padding:4px 8px}
+.lg-row-star.on{color:var(--warn)}
+.lg-none{color:var(--muted); font-size:13px; margin:8px}
+.lg-favs-label{font-size:12px; color:var(--muted); margin-right:2px}
+.lg-favs .lg-reset{margin-left:auto}
 .lg-bar .search{flex:1 1 180px; min-width:140px}
 pre.lg-out{max-height:none; height:min(68vh, 900px); white-space:pre; overflow:auto; font-size:12px; line-height:1.5}
 pre.lg-out.wrap{white-space:pre-wrap; word-break:break-word}
@@ -11,6 +27,6 @@ pre.lg-out.wrap{white-space:pre-wrap; word-break:break-word}
 .lg-sample.error{color:var(--danger); font-family:var(--mono); font-size:12px}
 button.lg-star{font-size:16px; line-height:1; padding-left:8px; padding-right:8px}
 button.lg-star.on{color:var(--warn)}
-.lg-favs{display:flex; flex-wrap:wrap; gap:6px; margin:8px 2px 0}
+.lg-favs{display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:8px 2px 0}
 .lg-favs .lg-fav.active{border-color:var(--accent); color:var(--accent-ink); background:var(--accent-soft)}
-@media (max-width:600px){ pre.lg-out{height:60vh} .lg-bar .lg-source{max-width:100%; flex:1 1 100%} }
+@media (max-width:600px){ pre.lg-out{height:60vh} .lg-picker{max-width:100%; flex:1 1 100%} .lg-pop{width:100%} }

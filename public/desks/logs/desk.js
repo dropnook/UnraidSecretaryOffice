@@ -23,7 +23,7 @@ let offset = null;              // follow position in a file
 let timer = null;
 let loading = false;
 const opts = {
-  source: Office.store('logs.source') || 'syslog',
+  source: Office.store('logs.source') || '',          // nothing is read until a log is chosen
   lines: Number(Office.store('logs.lines')) || 500,
   follow: Office.store('logs.follow') !== '0',
   wrap: Office.store('logs.wrap') === '1',
@@ -48,7 +48,7 @@ function source() { return (state?.sources || []).find((s) => s.id === opts.sour
 
 /** Read the source anew (all of it) or — following a file — only what was added */
 async function read(fresh) {
-  if (loading || !view) return;
+  if (loading || !view || !opts.source) return;
   loading = true;
   const req = { source: opts.source, lines: opts.lines };
   if (!fresh && offset !== null) req.offset = offset;
@@ -99,9 +99,28 @@ function build(root) {
   s.appendChild(Office.sectionHead(T('reading'), T('reading_sub'), v.hint));
 
   const bar = el('div', 'toolbar lg-bar');
-  v.source = el('select', 'picker lg-source');
-  v.source.setAttribute('aria-label', T('help.source'));
-  v.source.onchange = () => pick(v.source.value);
+  // the log picker: a button that opens a list with a search field (the lists are long)
+  v.picker = el('div', 'lg-picker');
+  v.source = el('button', 'picker lg-source');
+  v.source.type = 'button';
+  v.source.setAttribute('aria-haspopup', 'listbox');
+  v.source.onclick = () => (v.pop.hidden ? openPicker() : closePicker());
+  v.pop = el('div', 'lg-pop');
+  v.pop.hidden = true;
+  v.find = el('input', 'search lg-find');
+  v.find.type = 'search';
+  v.find.placeholder = T('find_log');
+  v.find.spellcheck = false;
+  v.find.oninput = renderList;
+  v.find.onkeydown = (e) => {
+    if (e.key === 'Escape') { closePicker(); v.source.focus(); }
+    if (e.key === 'Enter') { const first = v.list.querySelector('.lg-item'); if (first) first.click(); }
+    if (e.key === 'ArrowDown') { const first = v.list.querySelector('.lg-item'); if (first) { e.preventDefault(); first.focus(); } }
+  };
+  v.list = el('div', 'lg-list');
+  v.list.setAttribute('role', 'listbox');
+  v.pop.append(v.find, v.list);
+  v.picker.append(v.source, v.pop);
   v.star = el('button', 'btn small plain lg-star');
   v.star.type = 'button';
   v.star.onclick = toggleFav;
@@ -133,10 +152,12 @@ function build(root) {
   const save = el('button', 'btn small plain', T('download'));
   save.type = 'button';
   save.onclick = download;
-  bar.append(v.source, v.star, v.lines, v.query, v.followSw, onlySw, wrapSw, copy, save);
+  bar.append(v.picker, v.star, v.lines, v.query, v.followSw, onlySw, wrapSw, copy, save);
   s.appendChild(bar);
   v.favs = el('div', 'lg-favs');
   s.appendChild(v.favs);
+  // a click outside the open list closes it
+  root.addEventListener('click', (e) => { if (!v.pop.hidden && !v.picker.contains(e.target)) closePicker(); });
 
   v.out = el('pre', 'code lg-out' + (opts.wrap ? ' wrap' : ''));
   v.out.setAttribute('tabindex', '0');
@@ -167,11 +188,14 @@ function pick(id) {
   restart();
 }
 
-/** Star or unstar the source being read */
-function toggleFav() {
-  favs = favs.includes(opts.source) ? favs.filter((f) => f !== opts.source) : favs.concat(opts.source);
+/** Star or unstar a source (default: the one being read) */
+function toggleFav(id) {
+  id = typeof id === 'string' ? id : opts.source;
+  if (!id) return;
+  favs = favs.includes(id) ? favs.filter((f) => f !== id) : favs.concat(id);
   Office.storeJson('logs.favorites', favs);
   fillSources();
+  if (!view.pop.hidden) renderList();
 }
 
 /** Back to the favourites out of the box (after asking) */
@@ -189,42 +213,83 @@ function resetFavs() {
   });
 }
 
-/** The source list, grouped, favourites first (and only there); a source that is gone falls back to the syslog */
+/** The picker's button, the star and the favourite buttons; a source that is gone means: none chosen */
 function fillSources() {
-  const sel = view.source;
-  sel.innerHTML = '';
   const all = state?.sources || [];
-  const starred = favs.map((id) => all.find((s) => s.id === id)).filter(Boolean);
-  if (starred.length) {
-    const og = el('optgroup');
-    og.label = T('group.favorites');
-    starred.forEach((s) => og.appendChild(new Option(sourceName(s), s.id)));
-    sel.appendChild(og);
-  }
-  for (const g of GROUPS) {
-    const items = all.filter((s) => s.group === g && !favs.includes(s.id));
-    if (!items.length) continue;
-    const og = el('optgroup');
-    og.label = T('group.' + g);
-    items.forEach((s) => og.appendChild(new Option(sourceName(s), s.id)));
-    sel.appendChild(og);
-  }
-  if (!all.some((s) => s.id === opts.source)) opts.source = all.some((s) => s.id === 'syslog') ? 'syslog' : (all[0]?.id || '');
-  sel.value = opts.source;
+  if (opts.source && state && !all.some((s) => s.id === opts.source)) opts.source = '';
+  const cur = source();
+  view.source.textContent = cur ? sourceName(cur) : T('choose_log');
+  view.source.classList.toggle('unset', !cur);
   const on = favs.includes(opts.source);
   view.star.textContent = on ? '★' : '☆';
   view.star.title = T(on ? 'fav_remove' : 'fav_add');
   view.star.setAttribute('aria-label', view.star.title);
   view.star.classList.toggle('on', on);
-  // the favourites as buttons: one click to read them
+  view.star.disabled = !cur;
+  // the favourites as buttons: one click to read them; and getting back the ones out of the box
+  const starred = favs.map((id) => all.find((s) => s.id === id)).filter(Boolean);
   view.favs.innerHTML = '';
+  view.favs.appendChild(el('span', 'lg-favs-label', starred.length ? T('group.favorites') : T('no_favs')));
   starred.forEach((s) => {
     const b = el('button', 'btn small plain lg-fav' + (s.id === opts.source ? ' active' : ''), T('source.' + s.label, { name: s.param }));
     b.type = 'button';
     b.onclick = () => { if (s.id !== opts.source) pick(s.id); };
     view.favs.appendChild(b);
   });
-  view.favs.hidden = !starred.length;
+  const reset = el('button', 'btn small plain lg-reset', T('reset_favs_short'));
+  reset.type = 'button';
+  reset.title = T('menu.reset_favs');
+  reset.onclick = resetFavs;
+  view.favs.appendChild(reset);
+}
+
+function openPicker() {
+  view.pop.hidden = false;
+  view.source.setAttribute('aria-expanded', 'true');
+  view.find.value = '';
+  renderList();
+  view.find.focus();
+}
+function closePicker() {
+  view.pop.hidden = true;
+  view.source.setAttribute('aria-expanded', 'false');
+}
+
+/** The open list: favourites first, then the groups; the search field filters by name */
+function renderList() {
+  const all = state?.sources || [];
+  const q = view.find.value.trim().toLowerCase();
+  const match = (s) => !q || sourceName(s).toLowerCase().includes(q) || s.id.toLowerCase().includes(q);
+  const list = view.list;
+  list.innerHTML = '';
+  const group = (title, items) => {
+    if (!items.length) return;
+    list.appendChild(el('div', 'lg-group', title));
+    items.forEach((s) => {
+      const row = el('div', 'lg-row' + (s.id === opts.source ? ' active' : ''));
+      const item = el('button', 'lg-item', sourceName(s));
+      item.type = 'button';
+      item.setAttribute('role', 'option');
+      item.onclick = () => { closePicker(); if (s.id !== opts.source) pick(s.id); };
+      item.onkeydown = (e) => {
+        const items = [...list.querySelectorAll('.lg-item')];
+        const i = items.indexOf(item);
+        if (e.key === 'ArrowDown' && items[i + 1]) { e.preventDefault(); items[i + 1].focus(); }
+        if (e.key === 'ArrowUp') { e.preventDefault(); (items[i - 1] || view.find).focus(); }
+        if (e.key === 'Escape') { closePicker(); view.source.focus(); }
+      };
+      const on = favs.includes(s.id);
+      const star = el('button', 'lg-row-star' + (on ? ' on' : ''), on ? '★' : '☆');
+      star.type = 'button';
+      star.title = T(on ? 'fav_remove' : 'fav_add');
+      star.onclick = (e) => { e.stopPropagation(); toggleFav(s.id); };
+      row.append(item, star);
+      list.appendChild(row);
+    });
+  };
+  group(T('group.favorites'), favs.map((id) => all.find((s) => s.id === id)).filter((s) => s && match(s)));
+  for (const g of GROUPS) group(T('group.' + g), all.filter((s) => s.group === g && !favs.includes(s.id) && match(s)));
+  if (!list.children.length) list.appendChild(el('p', 'lg-none', T('nothing_found')));
 }
 
 function sourceName(s) {
@@ -292,6 +357,13 @@ function restart() {
   lines = [];
   offset = null;
   view.meta = null;
+  if (!opts.source) {                       // nothing chosen yet: say how, read nothing
+    view.out.innerHTML = '';
+    view.out.appendChild(el('span', 'lg-empty', T('choose_first')));
+    view.status.textContent = '';
+    view.hint.textContent = '';
+    return;
+  }
   view.out.textContent = Office.t('common.loading');
   read(true).then(schedule);
 }
