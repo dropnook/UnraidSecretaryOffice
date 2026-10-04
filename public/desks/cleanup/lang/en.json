@@ -647,5 +647,7 @@
   "item.userscript": "User Script",
   "errors.cleanup_office_script": "{name} belongs to the office — it stays.",
   "errors.cleanup_running": "{name} is running right now.",
-  "errors.cleanup_scheduled": "{name} has a schedule — switch it off in User Scripts first."
+  "errors.cleanup_scheduled": "{name} has a schedule — switch it off in User Scripts first.",
+  "item.now_in": "now in {path}",
+  "trash.parked_at": "put away {when} ({ago})"
 }

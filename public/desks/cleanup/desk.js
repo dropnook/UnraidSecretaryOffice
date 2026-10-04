@@ -1129,10 +1129,12 @@ function purgeButton(run) {
 function trashSingle(run) {
   const it = run.items[0];
   const r = trashRow(run, it);
-  const meta = r.querySelector('.row-meta');
-  const whenSpan = el('span', '', `${fmt.date(run.time)} · ${runMeta(run)}`);
-  whenSpan.title = run.path;
-  meta.appendChild(whenSpan);
+  // a second line: where it lies now, and when, where and how big
+  const meta = el('div', 'row-meta');
+  const now = it.zfs ? (it.zfs_path || it.zfs) : `${run.path}/${it.as}`;
+  meta.append(el('span', 'mono', T('item.now_in', { path: now })),
+    el('span', '', `${T('trash.parked_at', { when: fmt.date(run.time), ago: fmt.relative(run.time) })} · ${runMeta(run)}`));
+  r.querySelector('.row-main').appendChild(meta);
   if (run.legacy) meta.appendChild(chip(T('trash.legacy'), 'quiet', T('trash.legacy_text')));
   if (run.purging) meta.appendChild(chip('⏳ ' + T('trash.purging'), 'warn', T('trash.purging_text')));
   else r.querySelector('.cl-acts').appendChild(purgeButton(run));
@@ -1150,7 +1152,7 @@ function trashGroup(run) {
   head.setAttribute('role', 'button');
   const mid = el('div', 'group-mid');
   const title = el('div', 'group-title');
-  title.append(el('span', '', `${fmt.date(run.time)} · ${fmt.relative(run.time)}`));
+  title.append(el('span', '', T('trash.parked_at', { when: fmt.date(run.time), ago: fmt.relative(run.time) })));
   if (run.legacy) title.appendChild(chip(T('trash.legacy'), 'quiet', T('trash.legacy_text')));
   if (run.purging) title.appendChild(chip('⏳ ' + T('trash.purging'), 'warn', T('trash.purging_text')));
   mid.append(title, el('div', 'group-meta', runMeta(run)), el('div', 'group-meta mono', run.path));
