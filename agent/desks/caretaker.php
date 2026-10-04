@@ -140,7 +140,7 @@ function caretakerMenuName(string $name, string $place): array
     if (!officeMenuNameValid($name)) {
         throw new Problem('menu_name_bad', ['max' => OFFICE_MENU_MAX]);
     }
-    if (!isset(OFFICE_MENU_PLACES[$place])) {
+    if (!array_key_exists($place, OFFICE_MENU_PLACES)) {
         throw new Problem('bad_request');
     }
     $lines = is_file(OFFICE_PLUGIN_CFG) ? (file(OFFICE_PLUGIN_CFG, FILE_IGNORE_NEW_LINES) ?: []) : [];

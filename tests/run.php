@@ -262,6 +262,19 @@ function testMenuName(): void
     check('menu page: an unknown place changes nothing', !officeMenuPageApply($tmp, 'Office', 'dock'));
     same('menu url: menu bar', '/SecretaryOffice', officeMenuUrl('menu'));
     same('menu url: settings', '/Settings/SecretaryOffice', officeMenuUrl('settings'));
+
+    // only a button in Unraid's header: the page without Menu=, the button page with it — and back
+    copy(dirname(__DIR__) . '/plugin/' . OFFICE_BUTTON_PAGE, "$tmp/" . OFFICE_BUTTON_PAGE);
+    $buttonBefore = (string) file_get_contents("$tmp/" . OFFICE_BUTTON_PAGE);
+    check('menu page: to a button', officeMenuPageApply($tmp, 'USO', 'button'));
+    $ini = parse_ini_string(explode("\n---\n", (string) file_get_contents("$tmp/" . OFFICE_MENU_PAGE))[0]);
+    $btn = parse_ini_string(explode("\n---\n", (string) file_get_contents("$tmp/" . OFFICE_BUTTON_PAGE))[0]);
+    same('menu page: no entry of its own as a button', [null, 'USO', 'USO'], [$ini['Menu'] ?? null, $ini['Name'] ?? null, $ini['Title'] ?? null]);
+    same('button page: in the header', ['Buttons:90', 'USO', 'bell-o', '/SecretaryOffice'], [$btn['Menu'] ?? null, $btn['Title'] ?? null, $btn['Icon'] ?? null, $btn['Href'] ?? null]);
+    same('menu url: button', '/SecretaryOffice', officeMenuUrl('button'));
+    check('menu page: from the button back to the menu bar', officeMenuPageApply($tmp, OFFICE_MENU_DEFAULT, 'menu'));
+    same('menu page: as in the repository after the button', $before, file_get_contents("$tmp/" . OFFICE_MENU_PAGE));
+    same('button page: as in the repository again', $buttonBefore, file_get_contents("$tmp/" . OFFICE_BUTTON_PAGE));
     check('menu page: missing page', !officeMenuPageApply("$tmp/none", 'Office'));
     exec('rm -rf ' . escapeshellarg($tmp));
 }

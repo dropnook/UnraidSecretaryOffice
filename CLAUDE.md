@@ -15,7 +15,11 @@ This file holds the conventions and the checklist for changes.
   puts the office into Unraid's menu bar, inside Unraid's page (`officeInUnraid()`,
   `OFFICE_IN_UNRAID`, files from `/plugins/unraid-secretary-office/`); its label is
   the page's `Name=` (default *Sekretariat*); or, the user's choice, an icon
-  under Settings → User Utilities (`Menu="Utilities"` + Title/Icon/Tag). Both in
+  under Settings → User Utilities (`Menu="Utilities"` + Title/Icon/Tag), or
+  only a button in Unraid's header (`SecretaryOfficeButton.page` gets
+  `Menu="Buttons:90"`, the office's page no Menu= — Unraid still serves it at
+  /SecretaryOffice; a button page is loaded on every Unraid page, keep it a
+  one-liner). All in
   the ⋯ menu → `caretaker.menu_name`, kept as `MENU_NAME`/`MENU_PLACE` in the
   .cfg, put back by the .plg at every boot (`officeMenuPageApply()`);
   `index.php` only forwards there. The agent is a service

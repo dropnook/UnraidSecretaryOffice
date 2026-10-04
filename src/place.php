@@ -40,18 +40,22 @@ function officePluginDataDir(): string
 /*
  * The office's entry in Unraid's web UI (plugin only): the page
  * SecretaryOffice.page. Where it shows is its Menu= line — its own entry in
- * the menu bar (Tasks:85, between Apps and Tools; the label its Name= line)
- * or, as before 1.17, an icon under Settings → User Utilities (Utilities;
- * then Title=, Icon= and Tag= name it there). Unraid reads .page files on every
- * request, so a change shows after a reload. The user's choice is MENU_NAME
- * and MENU_PLACE in the plugin's .cfg on the flash; the page in RAM gets it
- * again at every install and boot (the .plg) and when it changes (the
- * caretaker's action menu_name).
+ * the menu bar (Tasks:85, between Apps and Tools; the label its Name= line),
+ * an icon under Settings → User Utilities as before 1.17 (Utilities; then
+ * Title=, Icon= and Tag= name it there), or only a button in Unraid's header
+ * (the page has no Menu= then — Unraid still shows it at /SecretaryOffice —
+ * and SecretaryOfficeButton.page gets Menu="Buttons:…"; Unraid loads a
+ * button page on every page, so it holds nothing but the jump).
+ * Unraid reads .page files on every request, so a change shows after a
+ * reload. The user's choice is MENU_NAME and MENU_PLACE in the plugin's .cfg
+ * on the flash; the pages in RAM get it again at every install and boot (the
+ * .plg) and when it changes (the caretaker's action menu_name).
  */
 const OFFICE_MENU_PAGE    = 'SecretaryOffice.page';
+const OFFICE_BUTTON_PAGE  = 'SecretaryOfficeButton.page';
 const OFFICE_MENU_DEFAULT = 'Sekretariat';
 const OFFICE_MENU_MAX     = 15;
-const OFFICE_MENU_PLACES  = ['menu' => 'Tasks:85', 'settings' => 'Utilities'];
+const OFFICE_MENU_PLACES  = ['menu' => 'Tasks:85', 'settings' => 'Utilities', 'button' => null];
 
 /** A label fit for the menu bar and for the .page header (an ini value in quotes) */
 function officeMenuNameValid(string $name): bool
@@ -72,7 +76,7 @@ function officeMenuPlace(): string
 {
     $cfg = @parse_ini_file(OFFICE_PLUGIN_CFG) ?: [];
     $place = (string) ($cfg['MENU_PLACE'] ?? '');
-    return isset(OFFICE_MENU_PLACES[$place]) ? $place : 'menu';
+    return array_key_exists($place, OFFICE_MENU_PLACES) ? $place : 'menu';
 }
 
 /** The office's address in Unraid's web UI */
@@ -82,15 +86,38 @@ function officeMenuUrl(string $place): string
 }
 
 /**
- * Puts place and label into the page's header (new file + rename): Menu= and
- * Name=; under Settings also Title=, Icon= and Tag=, which Unraid shows there.
+ * Puts place and label into the pages' headers (new file + rename): Menu= and
+ * Name=; outside the menu bar also Title= and Tag= (Unraid's title bar), under
+ * Settings Icon=; the button page gets Menu="Buttons:…" only as a button.
  * False if the page isn't there or the choice isn't valid.
  */
 function officeMenuPageApply(string $dir, string $name, string $place = 'menu'): bool
 {
-    $page = "$dir/" . OFFICE_MENU_PAGE;
+    if (!officeMenuNameValid($name) || !array_key_exists($place, OFFICE_MENU_PLACES)) {
+        return false;
+    }
+    $own = [];
+    if ($place !== 'button') {
+        $own[] = 'Menu="' . OFFICE_MENU_PLACES[$place] . '"';
+    }
+    $own[] = 'Name="' . $name . '"';
+    if ($place !== 'menu') {                // no entry of its own in the menu bar: Unraid's title bar names it
+        $own[] = 'Title="' . $name . '"';
+        $own[] = 'Tag="bell-o"';            // the icon in that title bar
+    }
+    if ($place === 'settings') {
+        $own[] = 'Icon="unraid-secretary-office.png"';
+    }
+    $button = $place === 'button' ? ['Menu="Buttons:90"', 'Title="' . $name . '"'] : ['Title="' . $name . '"'];
+    return officePageHeader("$dir/" . OFFICE_MENU_PAGE, $own, ['Menu', 'Name', 'Title', 'Icon', 'Tag'])
+        && (!is_file("$dir/" . OFFICE_BUTTON_PAGE) || officePageHeader("$dir/" . OFFICE_BUTTON_PAGE, $button, ['Menu', 'Title']));
+}
+
+/** A .page with its header lines $keys replaced by $own (first), the rest as it was; new file + rename */
+function officePageHeader(string $page, array $own, array $keys): bool
+{
     $text = @file_get_contents($page);
-    if ($text === false || !officeMenuNameValid($name) || !isset(OFFICE_MENU_PLACES[$place])) {
+    if ($text === false) {
         return false;
     }
     [$header, $body] = array_pad(explode("\n---\n", $text, 2), 2, null);
@@ -99,22 +126,15 @@ function officeMenuPageApply(string $dir, string $name, string $place = 'menu'):
     }
     $lines = [];
     foreach (explode("\n", $header) as $line) {
-        $key = strtok($line, '=');
-        if (!in_array($key, ['Menu', 'Name', 'Title', 'Icon', 'Tag'], true)) {
+        if (!in_array(strtok($line, '='), $keys, true)) {
             $lines[] = $line;
         }
-    }
-    $own = ['Menu="' . OFFICE_MENU_PLACES[$place] . '"', 'Name="' . $name . '"'];
-    if ($place === 'settings') {
-        $own[] = 'Title="' . $name . '"';
-        $own[] = 'Icon="unraid-secretary-office.png"';
-        $own[] = 'Tag="bell-o"';          // the icon in Unraid's title bar above the office
     }
     $new = implode("\n", array_merge($own, $lines)) . "\n---\n" . $body;
     if ($new === $text) {
         return true;
     }
-    $tmp = "$dir/." . OFFICE_MENU_PAGE . '.' . getmypid() . '.tmp';
+    $tmp = dirname($page) . '/.' . basename($page) . '.' . getmypid() . '.tmp';
     if (@file_put_contents($tmp, $new) === false) {
         return false;
     }

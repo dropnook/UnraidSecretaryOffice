@@ -946,8 +946,9 @@ async function reception(root) {
 }
 
 /**
- * The office's entry in Unraid: where (its own entry in the menu bar, or an
- * icon under Settings → User Utilities as before 1.17) and what it is called
+ * The office's entry in Unraid: where (its own entry in the menu bar, an
+ * icon under Settings → User Utilities as before 1.17, or only a button in
+ * Unraid's header) and what it is called
  * (a few names to pick or one of the user's own). The caretaker's agent
  * writes it into the plugin's page and its .cfg. Unraid's menu bar on this
  * page gets a new name right away; a move takes the browser to the new place.
@@ -977,6 +978,7 @@ function menuNameDialog() {
   const where = group('sso-menu-place', t('office.menu_where'));
   where.option('menu', t('office.menu_place_menu'));
   where.option('settings', t('office.menu_place_settings'));
+  where.option('button', t('office.menu_place_button'));
   (where.list.find((r) => r.value === CONFIG.menu_place) || where.list[0]).checked = true;
 
   const what = group('sso-menu-name', t('office.menu_what'));
@@ -1006,8 +1008,9 @@ function menuNameDialog() {
         if (!name) { msg.textContent = t('office.menu_empty'); msg.hidden = false; input.focus(); return false; }
         const j = await Office.api.post('caretaker.menu_name', { name, place });
         if (!j.ok) { msg.textContent = Office.errorText(j.error, 'caretaker'); msg.hidden = false; return false; }
-        if (j.place !== CONFIG.menu_place || j.place === 'settings') {
-          location.href = j.url + location.hash;        // a new place (or its title bar): load the page there
+        if (j.place !== CONFIG.menu_place || j.place !== 'menu') {
+          // a new place (or its title bar): load the page there — the same address only reloads
+          if (j.url === location.pathname) location.reload(); else location.href = j.url + location.hash;
           return true;
         }
         CONFIG.menu_name = j.name;

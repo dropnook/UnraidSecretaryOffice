@@ -155,6 +155,7 @@
   "office.menu_where": "Where",
   "office.menu_place_menu": "Its own entry in the menu bar, between Apps and Tools",
   "office.menu_place_settings": "An icon under Settings → User Utilities, as before",
+  "office.menu_place_button": "Only a button in Unraid's header, next to search and the terminal",
   "office.menu_what": "Name",
   "office.menu_uso": "Unraid Secretary Office, short",
   "office.menu_own": "A name of your own",
