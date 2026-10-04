@@ -540,7 +540,7 @@ nextcloud_maintenance_on() {
                 || { unset "NC_ON[$c]"; save_restore_state; }
             # the most common cause: Unraid reset the data folder (a share root) to 0777 when share settings were saved
             if grep -q "readable by other people" <<<"$out"; then
-                die_code nc_datadir_readable "Nextcloud '$c': the data directory is readable by others, occ refuses to work. Unraid sets the root of a share to 0777 when share settings are saved. Fix: chown 33:33 and chmod 0770 on the data directory, then start again."
+                die_code nc_datadir_readable "Nextcloud '$c': the data directory is readable by others, occ refuses to work. Unraid sets the root of a share to 0777 nobody:users when share settings are saved, unless it belongs to the group users. Lasting fix: chown 33:100 and chmod 0750 on the data directory (www-data:users), then start again."
             fi
             die "Nextcloud '$c': maintenance mode could not be switched on (occ's message is in the log)"
         fi

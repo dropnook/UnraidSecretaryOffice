@@ -512,14 +512,14 @@
   "setup.edits_title": "Von dir geändert",
   "setup.bubble_old": "Das ist mein Stand von {when} — seither kann sich etwas geändert haben. Lies den Server mit «Neu einlesen» nochmals ein, bevor du übernimmst.",
   "check.nextcloud_datadir": "Nextcloud «{name}»: Datenverzeichnis nur für Nextcloud lesbar",
-  "check.nextcloud_datadir_how": "{path} steht auf {mode} — Nextcloud verweigert dann den Dienst, und der Wartungsmodus fürs Backup lässt sich nicht einschalten. Unraid setzt die Wurzel eines Shares auf 0777 zurück, sobald Share-Einstellungen gespeichert werden. Korrigieren: chown 33:33 und chmod 0770 auf {path} (z. B. als User Script).",
+  "check.nextcloud_datadir_how": "{path} steht auf {mode} — Nextcloud verweigert dann den Dienst, und der Wartungsmodus fürs Backup lässt sich nicht einschalten. Unraid setzt die Wurzel eines Shares beim Speichern von Share-Einstellungen auf 0777 nobody:users zurück, ausser sie gehört der Gruppe «users». Dauerhaft lösen: chown 33:100 und chmod 0750 auf {path} (www-data:users — Nextcloud ist zufrieden, Unraid lässt sie in Ruhe), z. B. als User Script.",
   "paused.stopped": {
     "one": "Gerade angehalten (1):",
     "other": "Gerade angehalten ({n}):"
   },
   "paused.maintenance": "Im Wartungsmodus:",
   "paused.note": "Nur für die Dumps und Snapshots — danach starte ich alles wieder, ganz bestimmt. Auch nach einem Absturz: Das steht hier notiert.",
-  "message.nc_datadir_readable": "Nextcloud verweigerte den Wartungsmodus: Das Datenverzeichnis ist für andere lesbar. Unraid setzt die Wurzel eines Shares beim Speichern der Share-Einstellungen auf 0777 zurück. Abhilfe: chown 33:33 und chmod 0770 auf das Datenverzeichnis, dann den Lauf neu starten.",
+  "message.nc_datadir_readable": "Nextcloud verweigerte den Wartungsmodus: Das Datenverzeichnis ist für andere lesbar. Unraid setzt die Wurzel eines Shares beim Speichern von Share-Einstellungen auf 0777 nobody:users zurück, ausser sie gehört der Gruppe «users». Dauerhaft lösen: chown 33:100 und chmod 0750 auf das Datenverzeichnis, dann den Lauf neu starten.",
   "setup.ds_label": "Backup-Ablage (Dumps, Archive, Manifest)",
   "setup.ds_choose": "— Share wählen —",
   "setup.ds_missing": "Pflicht: Ohne eigenen Backup-Share sichere ich nichts. In appdata gehören keine Backups.",

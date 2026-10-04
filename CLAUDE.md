@@ -151,9 +151,11 @@ character, warnings and errors stay plain and clear.
   anything typed into `crontab -e` is gone after a reboot.
   `/usr/local/sbin/update_cron`'s first line is `#/bin/bash` (no shebang):
   start it through `bash`.
-* **Unraid resets a share's root to `0777 nobody:users`** whenever share
-  settings are saved (emhttpd "Restarting services"). Nextcloud then refuses
-  `occ` (data folder readable by others) — the caretaker checks it.
+* **Unraid resets a share's root to `0777 nobody:users`** when share settings
+  are saved (emhttpd "Restarting services", logged as `shcmd … chmod 0777`),
+  unless the root belongs to the group `users`. Nextcloud then refuses `occ`
+  (data folder readable by others). Lasting fix: the root `33:100` (www-data:users)
+  with `0750` — the caretaker checks that others can't read it.
 * `btrfs filesystem show` without arguments reads every device raw (a busy or
   sleeping disk holds it up for minutes): use `--mounted` or a mount point.
 * A btrfs snapshot of a disk busy with a large copy can take minutes; bash

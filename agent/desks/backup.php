@@ -932,7 +932,8 @@ function backupChecks(): array
         }
 
         // Nextcloud refuses to work (and so its maintenance mode) when others can read its data folder —
-        // and Unraid resets a share's root to 0777 whenever share settings are saved
+        // and Unraid resets a share's root to 0777 nobody:users on saving share settings unless its group is
+        // "users" (lasting fix: 33:100, 0750)
         $seen = [];
         foreach ($summary['nextcloud'] as $nc) {
             $dir = backupNextcloudDataDir($nc['container']);
