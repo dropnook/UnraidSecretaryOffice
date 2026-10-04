@@ -10,7 +10,7 @@ Version **2.14** (4 Oct 2026). The version is in the header of `setup.sh` and `b
 
 ## Requirements
 
-- Unraid 6.12 or newer. Snapshots need pools or array disks on ZFS or btrfs; shares on XFS are backed up without a snapshot ("live").
+- **Unraid 7.3 or newer** (tested on 7.3.2); **Unraid 8 is not supported** for now. Snapshots need pools or array disks on ZFS or btrfs; shares on XFS are backed up without a snapshot ("live").
 - The **User Scripts** plugin for the schedule.
 - Optional: the **Compose Manager**, when stacks with databases are involved.
 - Optional: a **Kopia** container (e.g. `imagegenius/kopia` from Community Apps) for offsite backups.
