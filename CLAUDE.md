@@ -74,6 +74,7 @@ This file holds the conventions and the checklist for changes.
 | `backup` | Mr. Backupsy / Herr Backupsi | runs the engine in `backup/`: status, history, protection, restore help, setup assistant (`#/backup/setup`) |
 | `emby` | Jack Emby (the intern) | EmbyCache (github.com/helmi1987/embycache-for-unraid): git clone into data/embycache/app, ff-only updates, never changed here; data apart via EMBYCACHE_DIR; settings written via its own save_config(); API key never leaves the server |
 | `logs` | Ms. Protocolli / Frau Protokolli | reads logs out loud (fixed source list in agent/desks/logs.php, ids only, never paths); tail/follow by file offset, docker logs and dmesg re-read; lines go into the page as text only. Read only |
+| `cleanup` | Ms. Dustdevil / Frau Putzteufel | clears away what nobody uses: Docker templates, Compose stacks, appdata folders, what deleted VMs left behind (domains folders, NVRAM, TPM, snapshot lists, unused disk images), Docker's leftovers. Never deletes right away: renames into `_UnraidSecretaryOffice-trash` on the same filesystem (ZFS datasets with `zfs rename` next to it), `manifest.json` per run, put back or empty; Docker leftovers can only be removed. Only rename, never copy; nothing while a backup runs |
 | `caretaker` | The Caretaker / Der Hauswart | collects every desk's `checks` and what the office needs; tells the user what is left to do |
 
 **User Scripts entries** of the office are always named `unraid-secretary-office_<what>` (US_PREFIX); renamed ones are moved once by `userScriptsMigrate()` (lib/house.php: folder, schedule, cron line, User Scripts Enhanced category). Descriptions in English: "Unraid Secretary Office - …".
@@ -94,7 +95,8 @@ After hiring, the tip jar (core.js `tipJar`, link `OFFICE_TIP_URL`) says hello.
 **Characters:** Frau Snapshotini (Italian), Herr Backupsi (scatterbrained,
 anxious, checks everything three times), Frau Wasistwo (nosy gossip), Jack
 Emby (the intern), Frau Protokolli (reads everything out, understands nothing),
-the caretaker (plain and friendly). Greetings are lang keys
+Frau Putzteufel (sees dust everywhere, but never throws anything away at once —
+"man weiss ja nie"), the caretaker (plain and friendly). Greetings are lang keys
 `greet.1…n` (`Office.greet` / `Office.withGreeting`); chatty bubbles may carry
 character, warnings and errors stay plain and clear.
 
