@@ -116,8 +116,10 @@
   "office_compose_title": "Updated — the stack needs a restart",
   "office_compose_text": "This time compose.yaml changed too. Please restart the stack once in the Compose Manager (\"Compose Up\") so the containers get the new setting.",
   "check.office_update": "The office is up to date ({version})",
-  "check.office_update_how": "Version {latest} is out — update it at the caretaker under \"The office\".",
+  "check.office_update_how": "Version {latest} is out — the caretaker shows how to update under \"The office\".",
   "errors.office_not_git": "The office wasn't installed with git — update it by hand.",
   "errors.office_local_changes": "The code was changed here — I won't update, so nothing gets lost.",
-  "errors.office_git": "git failed: {detail}"
+  "errors.office_git": "git failed: {detail}",
+  "office_how_plugin": "Unraid updates the office like any other plugin: under Plugins (it checks for updates itself). Your data stays.",
+  "office_to_plugins": "To the plugins"
 }

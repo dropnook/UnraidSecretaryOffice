@@ -137,5 +137,15 @@
   "auth.locked_title": "Das Sekretariat ist gesperrt",
   "auth.locked_text": "Zum Ansehen braucht es die PIN. Dieser Browser bleibt danach 12 Stunden entsperrt.",
   "auth.unlock_text_read": "Dieses Sekretariat ist geschützt — auch zum Ansehen. Gib die PIN ein; dieser Browser bleibt dann 12 Stunden entsperrt.",
-  "errors.pin_needed_first": "Zuerst eine PIN setzen."
+  "errors.pin_needed_first": "Zuerst eine PIN setzen.",
+  "agent.array_stopped_title": "Das Array ist gestoppt.",
+  "agent.array_stopped_text": "Das Sekretariat hat seine Daten in appdata — es arbeitet wieder, sobald das Array läuft.",
+  "agent.no_data_title": "Der Datenordner des Sekretariats fehlt.",
+  "agent.no_data_text": "{dir} gibt es nicht. Der Agent legt ihn an, sobald das Array läuft; fehlt er dann immer noch, prüfe DATA_DIR in /boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cfg.",
+  "help.agent_text_plugin": "Die Webseite zeigt nur an; zfs, Docker und Unraids Einstellungen erledigt ein kleiner Agent, ein Dienst des Plugins auf dem Server. Er startet mit dem Array und hält an, bevor das Array stoppt.",
+  "help.start_text_plugin": "Das Plugin startet den Agent selbst: bei der Installation, beim Booten und bei jedem Array-Start. Bleibt der Punkt rot, obwohl das Array läuft, schau ins Agent-Protokoll (⋯) oder installiere das Plugin unter Plugins neu.",
+  "help.security_text_plugin": "Das Sekretariat gehört zu Unraids Weboberfläche: Hinein kommt nur, wer bei Unraid angemeldet ist. Ändern lässt sich zusätzlich mit einer PIN schützen (⋯ → PIN). Der Agent kann auf dem Server, was root kann, nimmt aber nur die Aufträge an, die die Schreibtische festlegen, und prüft jeden einzelnen.",
+  "office.to_unraid": "Zurück zu Unraid",
+  "errors.logged_out": "Deine Anmeldung bei Unraid ist abgelaufen — bitte melde dich neu an.",
+  "errors.stale_page": "Unraid hat die Anfrage abgelehnt: Die Seite ist veraltet (Server neu gestartet?). Lade sie neu und versuch es noch einmal."
 }

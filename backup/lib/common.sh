@@ -34,7 +34,24 @@ UB_DESK_DIR="backup"
 # The script is part of the Unraid Secretary Office: code in <office>/backup,
 # settings, state and logs in <office>/data/unraid-backup
 # (not in git, root only - the logs name every database).
+# Installed as a plugin the code lies in RAM (/usr/local/emhttp/plugins/...) and the
+# data in the office's data folder: DATA_DIR in the plugin's .cfg on the flash, by
+# default <appdata>/UnraidSecretaryOffice/data (like src/place.php).
 UB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+ub_is_plugin() { [[ "$UB_DIR" == /usr/local/emhttp/plugins/* ]]; }
+ub_plugin_data() {
+    local conf="${UB_BOOT:-/boot}/config" dir appdata
+    dir="$(sed -n 's/^DATA_DIR="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$conf/plugins/unraid-secretary-office/unraid-secretary-office.cfg" 2>/dev/null | tail -n 1)"
+    if [[ "$dir" != /mnt/* ]]; then
+        appdata="$(sed -n 's/^DOCKER_APP_CONFIG_PATH="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$conf/docker.cfg" 2>/dev/null | tail -n 1)"
+        dir="${appdata:-/mnt/user/appdata}"
+        dir="${dir%/}/UnraidSecretaryOffice/data"
+    fi
+    echo "${dir%/}"
+}
+if [[ -z "${UB_DATA:-}" ]] && ub_is_plugin; then
+    UB_DATA="$(ub_plugin_data)/$UB_NAME"
+fi
 UB_DATA="${UB_DATA:-$(cd "$UB_DIR/.." && pwd -P)/data/$UB_NAME}"
 UB_SETTINGS="${UB_SETTINGS:-$UB_DATA/settings.ini}"
 UB_STATE="$UB_DATA/state"

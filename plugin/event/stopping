@@ -1,0 +1,5 @@
+#!/bin/bash
+# The array is about to stop (start of cmdStop): stop the agent and whatever it
+# started, so nothing keeps a pool busy. Takes at most ~11 s.
+bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/agent.sh stop >/dev/null 2>&1
+exit 0

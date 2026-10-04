@@ -190,7 +190,8 @@ function officeSection() {
   if (o.checked) meta.appendChild(el('span', '', T('office_checked_at', { when: fmt.relative(o.checked) })));
   main.appendChild(meta);
   let note = '';
-  if (o.newer && !o.git) note = T('office_how_manual');
+  if (o.newer && o.plugin) note = T('office_how_plugin');
+  else if (o.newer && !o.git) note = T('office_how_manual');
   else if (o.newer && o.changed) note = T('office_how_changed');
   if (note) main.appendChild(el('div', 'row-detail', note));
   row.appendChild(main);
@@ -200,6 +201,11 @@ function officeSection() {
     a.href = o.url;
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
+    right.appendChild(a);
+  }
+  if (o.newer && o.plugin) {
+    const a = el('a', 'btn small', T('office_to_plugins'));
+    a.href = '/Plugins';
     right.appendChild(a);
   }
   if (o.newer && o.git && !o.changed) {

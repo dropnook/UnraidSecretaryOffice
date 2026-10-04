@@ -1103,7 +1103,7 @@ function renderPlans() {
   plans.forEach((p) => list.appendChild(planRow(p)));
   box.appendChild(list);
   const r = info.runner || {};
-  if (plans.some((p) => p.enabled) && !(r.script && r.enabled)) box.appendChild(el('p', 'callout warn', T('plan.runner_off', { name: r.name })));
+  if (plans.some((p) => p.enabled) && !(r.script && r.enabled)) box.appendChild(el('p', 'callout warn', T(r.via === 'office' ? 'plan.runner_off_plugin' : 'plan.runner_off', { name: r.name })));
 }
 
 function planRow(p) {
@@ -1260,7 +1260,8 @@ function planDialog(p) {
   const asleep = check(T('plan.skip_asleep'), T('plan.skip_asleep_hint'));
   asleep.input.checked = p ? !!p.skip_asleep : true;
   box.append(recursive.label, asleep.label);
-  box.appendChild(el('p', 'callout', T('plan.note', { name: state?.plans?.runner?.name || 'unraid-secretary-office_snapshots' })));
+  const runner = state?.plans?.runner || {};
+  box.appendChild(el('p', 'callout', T(runner.via === 'office' ? 'plan.note_plugin' : 'plan.note', { name: runner.name || 'unraid-secretary-office_snapshots' })));
 
   const cronOf = () => {
     const [h, m] = (kind.value === 'weekly' ? weeklyTime.value : time.value).split(':').map(Number);

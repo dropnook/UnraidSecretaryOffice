@@ -137,5 +137,15 @@
   "auth.locked_title": "The office is locked",
   "auth.locked_text": "Looking needs the PIN. This browser then stays unlocked for 12 hours.",
   "auth.unlock_text_read": "This office is protected — for looking too. Enter the PIN; this browser then stays unlocked for 12 hours.",
-  "errors.pin_needed_first": "Set a PIN first."
+  "errors.pin_needed_first": "Set a PIN first.",
+  "agent.array_stopped_title": "The array is stopped.",
+  "agent.array_stopped_text": "The office keeps its data in appdata — it gets back to work as soon as the array runs.",
+  "agent.no_data_title": "The office's data folder is missing.",
+  "agent.no_data_text": "{dir} doesn't exist. The agent creates it once the array runs; if it stays missing, check DATA_DIR in /boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cfg.",
+  "help.agent_text_plugin": "The web page only shows things; zfs, docker and Unraid's configuration are handled by a small agent, a service of the plugin on the server. It starts with the array and stops before the array goes down.",
+  "help.start_text_plugin": "The plugin starts the agent itself: when it is installed, at boot and whenever the array starts. If the dot stays red while the array runs, look into the agent log (⋯) or reinstall the plugin under Plugins.",
+  "help.security_text_plugin": "The office is part of Unraid's web UI: only who is logged in to Unraid gets in. Changing things can be protected with a PIN as well (⋯ → PIN). The agent can do what root can do on the host, but it only accepts the actions the desks define and checks every request.",
+  "office.to_unraid": "Back to Unraid",
+  "errors.logged_out": "Your Unraid session has ended — please log in again.",
+  "errors.stale_page": "Unraid rejected the request: the page is out of date (the server was restarted?). Reload it and try again."
 }

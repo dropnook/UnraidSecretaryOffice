@@ -100,8 +100,9 @@ function houseGuiUrl(): ?string
 
 /**
  * Hands a command to the host's atd, so it lives on without the agent: a
- * process started by the agent itself would be killed with the agent
- * container's cgroup. It also gets the host's network (the agent has none).
+ * process started by the agent itself would be stopped with it (the stack's
+ * container cgroup, the plugin's process group when the array stops). It also
+ * gets the host's network (the agent in the stack has none).
  * Scripts should be run through their interpreter (bash, python3): right
  * after an edit over SMB, Samba may still hold the file open ("Text file busy").
  *
@@ -133,9 +134,13 @@ function hostLaunch(string $job, array $args, array $env = [], ?string $output =
     }
 }
 
-/** Runs a command right away in the host's network (the agent itself has none) */
+/** Runs a command right away in the host's network (the agent in the stack has none; the plugin's has it) */
 function hostNet(array $command, int $timeout = 60): array
 {
+    $own = @readlink('/proc/self/ns/net');
+    if ($own !== false && $own === @readlink('/proc/1/ns/net')) {
+        return run($command, $timeout);
+    }
     return run(array_merge(['nsenter', '--target', '1', '--net', '--'], $command), $timeout);
 }
 
@@ -241,6 +246,133 @@ function userScriptSchedule(string $name, ?string $cron, string $schedule = US_S
     return ($cron !== null) === str_contains($live, $mine);
 }
 
+// ===================================================================== the office's schedules
+
+/*
+ * Two jobs run on a schedule even when nobody has the office open: Mr.
+ * Backupsy's nightly run and Ms. Snapshotini's plans (every 5 minutes).
+ * As a plugin the office writes them into its own cron file on the flash —
+ * Unraid adds every installed plugin's *.cron to root's crontab (update_cron)
+ * — and scripts/job.sh runs them only while the array is started. In the
+ * stack they are User Scripts entries (userScriptSchedule()).
+ */
+const OFFICE_CRON = '/boot/config/plugins/' . OFFICE_PLUGIN . '/' . OFFICE_PLUGIN . '.cron';
+const OFFICE_JOBS = ['backup' => 'unraid-secretary-office_backup', 'snapshots' => 'unraid-secretary-office_snapshots'];  // job => its User Scripts entry
+
+function officeJobCommand(string $job): string
+{
+    return 'bash ' . OFFICE_DIR . "/scripts/job.sh $job > /dev/null 2>&1";
+}
+
+/** @return array<string,string>  job => cron, as the plugin's cron file has them */
+function officeCronLines(string $file = OFFICE_CRON): array
+{
+    $found = [];
+    foreach (explode("\n", (string) @file_get_contents($file)) as $line) {
+        $line = trim($line);
+        foreach (array_keys(OFFICE_JOBS) as $job) {
+            if ($line !== '' && $line[0] !== '#' && str_ends_with($line, ' ' . officeJobCommand($job))) {
+                $found[$job] = implode(' ', array_slice(preg_split('/\s+/', $line), 0, 5));
+            }
+        }
+    }
+    return $found;
+}
+
+/** A job's schedule: the plugin's cron file, in the stack its User Scripts entry */
+function officeJobSchedule(string $job): array
+{
+    if (!AS_PLUGIN) {
+        return ['via' => 'user_scripts'] + backupScheduleOf(OFFICE_JOBS[$job]);
+    }
+    $cron = officeCronLines()[$job] ?? null;
+    return ['via' => 'office', 'script' => true, 'frequency' => $cron !== null ? 'custom' : 'disabled', 'custom' => $cron, 'enabled' => $cron !== null];
+}
+
+/**
+ * Sets (cron) or switches off (null) a job's schedule. As a plugin: its line
+ * in the cron file, the others stay; $file and $apply (update_cron) are there
+ * for the tests.
+ *
+ * @return bool  whether the live crontab has it that way afterwards
+ */
+function officeJobSetSchedule(string $job, ?string $cron, string $file = OFFICE_CRON, bool $apply = true): bool
+{
+    if (!AS_PLUGIN && $file === OFFICE_CRON) {
+        return userScriptSchedule(OFFICE_JOBS[$job], $cron);
+    }
+    if (!isset(OFFICE_JOBS[$job])) {
+        throw new Problem('unknown_target', ['target' => $job]);
+    }
+    if ($cron !== null) {
+        $cron = preg_replace('/\s+/', ' ', trim($cron));
+        if (!cronValid($cron)) {
+            throw new Problem('bad_cron', ['cron' => $cron]);
+        }
+    }
+    $lines = officeCronLines($file);
+    if ($cron === null) {
+        unset($lines[$job]);
+    } else {
+        $lines[$job] = $cron;
+    }
+    if ($lines) {
+        $text = "# Unraid Secretary Office - written by the office, change it there\n";
+        foreach (array_keys(OFFICE_JOBS) as $j) {
+            if (isset($lines[$j])) {
+                $text .= $lines[$j] . ' ' . officeJobCommand($j) . "\n";
+            }
+        }
+        writeAtomic($file, $text, 0600, 0, 0);
+    } else {
+        @unlink($file);
+    }
+    if (!$apply) {
+        return true;
+    }
+    [$exit, , $err] = run(['/bin/bash', '/usr/local/sbin/update_cron'], 30);   // its first line is no shebang
+    if ($exit !== 0) {
+        throw new Problem('command_failed', ['detail' => 'update_cron: ' . trim($err)]);
+    }
+    return ($cron !== null) === str_contains((string) @file_get_contents('/etc/cron.d/root'), officeJobCommand($job));
+}
+
+/**
+ * Moved from the stack to the plugin: the office's User Scripts entries hand
+ * their schedule over to the plugin's cron file and go away (each is only a
+ * three-line call into the old folder). Waits while one is running.
+ */
+function officeJobsFromUserScripts(): void
+{
+    if (!AS_PLUGIN) {
+        return;
+    }
+    foreach (OFFICE_JOBS as $job => $name) {
+        $dir = US_DIR . "/scripts/$name";
+        if (!is_dir($dir)) {
+            continue;
+        }
+        if (file_exists("/tmp/user.scripts/running/$name") || ($job === 'backup' && (backupScriptState()['running'] ?? false))) {
+            continue;                              // next time
+        }
+        $old = backupScheduleOf($name);
+        if ($old['enabled'] && $old['frequency'] === 'custom' && cronValid((string) $old['custom']) && !isset(officeCronLines()[$job])) {
+            officeJobSetSchedule($job, $old['custom'], OFFICE_CRON, false);
+        }
+        if ($old['enabled']) {
+            userScriptSchedule($name, null, US_SCHEDULE, US_CRON, US_RUNTIME, false);
+        }
+        foreach (glob("$dir/{,.}*", GLOB_BRACE) ?: [] as $f) {
+            if (is_file($f)) {
+                @unlink($f);
+            }
+        }
+        @rmdir($dir);
+        logLine("User Scripts: $name handed its schedule (" . ($old['enabled'] ? $old['custom'] : 'off') . ') over to the plugin');
+        run(['/bin/bash', '/usr/local/sbin/update_cron'], 30);
+    }
+}
+
 // ===================================================================== staff
 
 /**
@@ -253,7 +385,7 @@ function staffHired(): array
 {
     $hired = array_keys((array) ((readJson(DATA_DIR . '/office/staff.json') ?? [])['hired'] ?? []));
     foreach (array_keys(desks()) as $id) {
-        if (!empty(readJson(OFFICE_DIR . "/public/desks/$id/desk.json")['always'])) {
+        if (!empty(readJson(OFFICE_WEB . "/desks/$id/desk.json")['always'])) {
             $hired[] = $id;
         }
     }
