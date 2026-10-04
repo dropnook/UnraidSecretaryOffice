@@ -171,7 +171,7 @@ character, warnings and errors stay plain and clear.
   own** (and every share is one): `rename()` can't move them — use
   `zfs rename`, and remember a share and its folders are different
   filesystems.
-* A pool sleeps when **any** of its disks does (`hive`, `hive2` … in
+* A pool sleeps when **any** of its disks does (`cache`, `cache2` … in
   `disks.ini`); `disk1` is not `disk10`.
 * Images pinned by digest (`image: x@sha256:…`) don't show up in
   `docker image ls`; take the image ids from `docker inspect` of the

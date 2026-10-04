@@ -232,7 +232,7 @@ function clShareCfg(string $share): array
     return $GLOBALS['clFresh']['share'][$share] ??= readCfg("/boot/config/shares/$share.cfg");
 }
 
-/** A pool sleeps when any of its disks does (hive, hive2, hive3 …) */
+/** A pool sleeps when any of its disks does (cache, cache2, cache3 …) */
 function clPoolAsleep(string $pool, array $asleep): bool
 {
     if (preg_match('/^disk\d+$/', $pool)) {
@@ -281,7 +281,7 @@ function clExists(string $path): ?bool
 }
 
 /**
- * Wakes the named array disks and pools — every disk of a pool (hive, hive2 …) —
+ * Wakes the named array disks and pools — every disk of a pool (cache, cache2 …) —
  * with one block read from each, in parallel. @return list<string> the disks woken
  */
 function clWake(array $names): array
