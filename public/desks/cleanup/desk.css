@@ -7,3 +7,5 @@
 .cl-info .callout{margin:4px 0 0; display:flex; align-items:center; gap:10px; flex-wrap:wrap}
 .cl-lines{white-space:pre-line; overflow-wrap:anywhere}
 .cl-trash-row .row-meta .mono{overflow-wrap:anywhere}
+.search.cl-filter-on{border-color:var(--danger); box-shadow:0 0 0 1px var(--danger)}
+.cl-filter-note{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0}

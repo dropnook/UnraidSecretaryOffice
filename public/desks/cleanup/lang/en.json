@@ -578,5 +578,8 @@
   "why.in_unraid": "remove in Unraid",
   "why.in_unraid_text": "VMs are removed on Unraid's VM page — I don't touch their definitions.",
   "item.vmdef": "VM definition",
-  "errors.cleanup_in_unraid": "{name} is a VM — remove it on Unraid's VM page."
+  "errors.cleanup_in_unraid": "{name} is a VM — remove it on Unraid's VM page.",
+  "filter_on": "Careful, a filter is set: \"{query}\" — not everything is shown.",
+  "filter_clear": "Clear filter",
+  "filter_on_short": "A filter is set"
 }

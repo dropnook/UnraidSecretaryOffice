@@ -210,7 +210,7 @@ function build(root) {
   v.search.autocomplete = 'off';
   v.search.spellcheck = false;
   v.search.value = query;
-  v.search.oninput = () => { query = v.search.value; renderSection(); updateSelbar(); };
+  v.search.oninput = () => { query = v.search.value; filterMark(); renderSection(); updateSelbar(); };
   const head = Office.deskHead({ id: ID, icon: Office.desks.get(ID).icon }, { actions: [v.search, v.scanBtn] });
   v.bubble = head.bubble;
   root.appendChild(head.head);
@@ -232,15 +232,34 @@ function build(root) {
 
   const s = el('section', 'section');
   s.appendChild(Office.sectionHead(T('rooms'), T('rooms_sub')));
+  v.filterNote = el('p', 'callout warn cl-filter-note');
+  v.filterNote.hidden = true;
   v.tiles = el('div', 'cards');
   v.body = el('div', 'section');
-  s.append(v.tiles, v.body);
+  s.append(v.filterNote, v.tiles, v.body);
   root.appendChild(s);
   return v;
 }
 
+/** A set filter is hard to miss: red frame on the field, a warning above the rooms */
+function filterMark() {
+  if (!view) return;
+  const on = words().length > 0;
+  view.search.classList.toggle('cl-filter-on', on);
+  view.search.title = on ? T('filter_on_short') : '';
+  view.filterNote.hidden = !on;
+  view.filterNote.innerHTML = '';
+  if (!on) return;
+  view.filterNote.append(T('filter_on', { query: query.trim() }), ' ');
+  const b = el('button', 'btn small plain', T('filter_clear'));
+  b.type = 'button';
+  b.onclick = () => { query = ''; view.search.value = ''; filterMark(); renderSection(); updateSelbar(); };
+  view.filterNote.appendChild(b);
+}
+
 function render() {
   if (!view) return;
+  filterMark();
   view.bubble.innerHTML = '';
   view.bubble.append(Office.withGreeting(ID, bubbleText()));
   view.scanBtn.disabled = !Office.agent.running || busy;
