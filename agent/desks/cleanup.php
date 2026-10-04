@@ -20,19 +20,24 @@ declare(strict_types=1);
  *              only be removed for good (images can be pulled again)
  *
  * Nothing is deleted right away. What the user clears away is renamed into a
- * trash folder (CL_TRASH) on the same filesystem it lives on — the flash for
- * templates and stacks, the pool itself for appdata — so putting away and
- * putting back is a rename, never a copy; a rename that fails is refused.
- * Every run gets a folder <stamp>/ with a manifest.json saying where each
- * thing came from. The trash on disk is the truth, there is no index that
+ * trash folder (CL_TRASH, "the storeroom") on the same filesystem it lives
+ * on — the flash for templates and stacks, the share on its pool for appdata,
+ * domains, isos and stray templates, libvirt.img for NVRAM/TPM/snapshot lists
+ * — so putting away and putting back is a rename, never a copy; a rename
+ * that fails is refused. A folder that is a ZFS dataset of its own is renamed
+ * with zfs rename next to the storeroom (CL_TRASH-<stamp>-<name>), snapshots
+ * included. Every run gets a folder <stamp>/ with a manifest.json saying where
+ * each thing came from; the trash on disk is the truth, there is no index that
  * could go stale. Emptying it is the only permanent step (in the background:
  * the run is renamed to <stamp>.purging first, so it is gone at once).
  * The old cleanup script's trash (CL_LEGACY) is shown and can be emptied, but
- * is never written to.
+ * is never written to. VM definitions are never touched: a VM whose disks are
+ * gone is pointed out, and removed on Unraid's VM page.
  *
  * Slow work runs in the background, polled from tick: searching the flash for
- * paths and measuring folders (file count, size, newest change). Sleeping
- * disks are never touched; nothing is changed while a backup runs.
+ * paths, looking for stray templates, measuring folders (file count, size on
+ * disk, newest change), Docker's build cache. Sleeping disks are never touched
+ * unless asked ("wake"); nothing is changed while a backup runs.
  */
 
 const CL_TEMPLATES    = '/boot/config/plugins/dockerMan/templates-user';
@@ -97,6 +102,7 @@ desk('cleanup', [
 function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): array
 {
     $t0 = microtime(true);
+    $GLOBALS['clFresh'] = [];                    // share settings, ZFS mountpoints: read anew on every tour (the agent runs for weeks)
     $roots = clRoots();
     $asleep = sleepingDisks();
     $domain = readCfg('/boot/config/domain.cfg');
@@ -108,9 +114,9 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
     $places = array_map(fn ($path) => clSharePlaces($path, $roots, $asleep), $settings);
     $sleeping = array_values(array_unique(array_merge(...array_column($places, 'asleep'))));
     if ($wake && $sleeping) {
-        clWake($sleeping);
+        $woken = clWake($sleeping);
         $asleep = sleepingDisks();
-        foreach ($sleeping as $name) {
+        foreach ($woken as $name) {
             $asleep[$name] = false;            // Unraid's bookkeeping lags behind
         }
         $places = array_map(fn ($path) => clSharePlaces($path, $roots, $asleep), $settings);
@@ -156,8 +162,6 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         clJobAdd('strays:flash', 'strays', $find(['/boot'], 6), 300);
         if ($pools) {
             clJobAdd('strays:pools', 'strays', $find($pools, 3), 600);
-        } else {
-            $cache['strays']['found']['pools'] = ['paths' => [], 'skipped' => []];
         }
     }
     if ($hired && $docker['ok'] && time() - (int) ($cache['build']['at'] ?? 0) > CL_CACHE_TTL) {
@@ -218,8 +222,7 @@ function clRoots(): array
 
 function clShareCfg(string $share): array
 {
-    static $cache = [];
-    return $cache[$share] ??= readCfg("/boot/config/shares/$share.cfg");
+    return $GLOBALS['clFresh']['share'][$share] ??= readCfg("/boot/config/shares/$share.cfg");
 }
 
 /** A pool sleeps when any of its disks does (hive, hive2, hive3 …) */
@@ -263,21 +266,29 @@ function clExists(string $path): ?bool
     return clSafe($path) ? file_exists($path) : null;
 }
 
-/** Wakes the named array disks (one block read from each, in parallel) */
-function clWake(array $names): void
+/**
+ * Wakes the named array disks and pools — every disk of a pool (hive, hive2 …) —
+ * with one block read from each, in parallel. @return list<string> the disks woken
+ */
+function clWake(array $names): array
 {
     $commands = [];
     foreach (readCfg('/var/local/emhttp/disks.ini', true) as $section => $d) {
         $name = (string) ($d['name'] ?? $section);
         $dev = $d['device'] ?? '';
-        if (in_array($name, $names, true) && preg_match('/^[a-z0-9]+$/', $dev) && file_exists("/dev/$dev")) {
+        $wanted = false;
+        foreach ($names as $n) {
+            $wanted = $wanted || $name === $n || (!preg_match('/^disk\d+$/', $n) && preg_match('/^' . preg_quote($n, '/') . '\d*$/', $name));
+        }
+        if ($wanted && preg_match('/^[a-z0-9]+$/', $dev) && file_exists("/dev/$dev")) {
             $commands[$name] = ['dd', "if=/dev/$dev", 'of=/dev/null', 'bs=4096', 'count=1', 'iflag=direct'];
         }
     }
     if ($commands) {
         runAll($commands, 90);
-        logLine('Dustdevil woke ' . implode(', ', array_keys($commands)) . ' to look at appdata');
+        logLine('Dustdevil woke ' . implode(', ', array_keys($commands)) . ' to look at the shares on them');
     }
+    return array_keys($commands);
 }
 
 // --------------------------------------------------------------------- docker
@@ -952,7 +963,7 @@ function clSharePlaces(string $path, array $roots, array $asleep): array
         if ($r['kind'] === 'disk' && !$array) {
             continue;
         }
-        if ($asleep[$name] ?? false) {
+        if (clPoolAsleep($name, $asleep)) {
             $sleeping[] = $name;
             continue;
         }
@@ -969,14 +980,14 @@ function clSharePlaces(string $path, array $roots, array $asleep): array
  */
 function clZfsMovable(string $ds, ?string $parent): bool
 {
-    static $sources = null;
-    if ($sources === null) {
-        $sources = [];
+    if (!isset($GLOBALS['clFresh']['zfs'])) {
+        $GLOBALS['clFresh']['zfs'] = [];
         [$exit, $out] = run(['zfs', 'get', '-H', '-o', 'name,source', '-t', 'filesystem', 'mountpoint'], 30);
         foreach ($exit === 0 ? rows($out) : [] as $f) {
-            $sources[$f[0]] = $f[1] ?? '';
+            $GLOBALS['clFresh']['zfs'][$f[0]] = $f[1] ?? '';
         }
     }
+    $sources = $GLOBALS['clFresh']['zfs'];
     return $parent !== null && dirname($ds) === $parent && preg_match('/^(inherited|default)/', $sources[$ds] ?? 'local') === 1;
 }
 
@@ -1467,7 +1478,7 @@ function clLegacyRoots(): array
     }
     $ctx = $GLOBALS['clCtx'];
     foreach ($ctx['roots'] as $name => $_) {
-        if (!($ctx['asleep'][$name] ?? false)) {
+        if (!clPoolAsleep($name, $ctx['asleep'])) {
             foreach (glob("/mnt/$name/*/" . CL_LEGACY, GLOB_ONLYDIR) ?: [] as $d) {
                 $found[$d] = true;
             }
@@ -2339,12 +2350,12 @@ function clJobDone(array $job, bool $killed): void
             $power = ['' => 0, 'K' => 1, 'M' => 2, 'G' => 3, 'T' => 4, 'P' => 5];
             return preg_match('/([\d.]+)\s*([kKMGTP]?)B/', $s, $m) ? (int) round((float) $m[1] * 1000 ** $power[strtoupper($m[2])]) : 0;
         };
+        $cache['build'] = ['at' => time(), 'size' => 0, 'reclaimable' => 0];    // also when Docker says nothing: ask again only later
         foreach (rows($text) as $f) {
             if (count($f) >= 3 && stripos($f[0], 'build') === 0) {
                 $cache['build'] = ['at' => time(), 'size' => $bytes($f[1]), 'reclaimable' => $bytes($f[2])];
             }
         }
-        $cache['build'] ??= ['at' => time(), 'size' => 0, 'reclaimable' => 0];
     } elseif ($job['type'] === 'purge') {
         $path = substr($key, 6);
         if (file_exists($path)) {

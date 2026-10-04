@@ -93,8 +93,8 @@ function matches(e) {
     .filter(Boolean).join(' ').toLowerCase();
   return w.every((x) => hay.includes(x));
 }
-/** VMs only with the VM service switched on, Docker's rooms only with Docker (appdata always: it's a share) */
-const visible = (sec) => (sec === 'vms' ? state.vms.enabled : ['templates', 'stacks', 'docker'].includes(sec) ? state.docker.enabled : true);
+/** VMs only with the VM service switched on, Docker's rooms (appdata too: who uses it is told by Docker) only with Docker */
+const visible = (sec) => (sec === 'vms' ? state.vms.enabled : ['templates', 'stacks', 'appdata', 'docker'].includes(sec) ? state.docker.enabled : true);
 
 function chip(text, cls, tip) {
   const c = el('span', 'chip' + (cls ? ' ' + cls : ''), text);
@@ -210,7 +210,14 @@ function build(root) {
   v.search.autocomplete = 'off';
   v.search.spellcheck = false;
   v.search.value = query;
-  v.search.oninput = () => { query = v.search.value; filterMark(); renderSection(); updateSelbar(); };
+  v.search.oninput = () => {
+    query = v.search.value;
+    // what the filter hides is no longer chosen: nothing is put away that isn't in sight
+    for (const e of entries(section)) if (selection.has(e.id) && !matches(e)) selection.delete(e.id);
+    filterMark();
+    renderSection();
+    updateSelbar();
+  };
   const head = Office.deskHead({ id: ID, icon: Office.desks.get(ID).icon }, { actions: [v.search, v.scanBtn] });
   v.bubble = head.bubble;
   root.appendChild(head.head);
