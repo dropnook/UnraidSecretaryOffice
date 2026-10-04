@@ -9,7 +9,7 @@ declare(strict_types=1);
  * adds what the office as a whole needs or benefits from, and tells the user
  * what is missing and what is left to do by hand. He only reads — except
  * updating the office itself when asked (lib/officeupdate.php) and naming
- * its entry in Unraid's menu bar (the reception's "Menu name").
+ * its entry in Unraid's menu bar (⋯ → "Name in the menu bar").
  */
 
 const CARETAKER_UNRAID_MIN = '6.12';

@@ -40,8 +40,8 @@ browser. Adding a language means adding JSON files.
 ```
 
 * The office is an Unraid **plugin**: a page in Unraid's menu bar
-  (*Sekretariat*, between Apps and Tools — at the reception you can call it
-  *Office*, *USO* or a name of your own), in Unraid's look and colour theme,
+  (*Sekretariat*, between Apps and Tools — under *⋯ → Name in the menu bar*
+  you can call it *Office*, *USO* or a name of your own), in Unraid's look and colour theme,
   served by Unraid behind its login.
 * The page only shows things. The **agent**, a small service of the plugin,
   does the work on the host. It only accepts the actions the desks define and

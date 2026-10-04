@@ -258,6 +258,16 @@ Office.setAgent = function setAgent(info) {
   const dot = $('#sso-dot');
   dot.className = 'dot ' + (Office.agent.running ? 'on' : 'off');
   dot.title = Office.agent.running ? t('agent.running', { version: Office.agent.version || '?' }) : t('agent.away');
+  // inside Unraid a word next to the dot: what runs, or what doesn't
+  const state = $('#sso-state');
+  if (state) {
+    const no = Office.agent.no_data;
+    state.className = 'agent-state ' + (Office.agent.running ? 'on' : 'off');
+    $('#sso-state-label').textContent = t(Office.agent.running ? 'agent.label_on'
+      : no ? (no.array !== 'Started' ? 'agent.label_array' : 'agent.label_no_data') : 'agent.label_off');
+    state.title = dot.title;
+    dot.removeAttribute('title');
+  }
   const notice = $('#sso-notice');
   if (Office.agent.running) {
     if (notice.dataset.kind === 'agent') { notice.hidden = true; notice.dataset.kind = ''; }
@@ -893,15 +903,6 @@ async function reception(root) {
   const text = el('div', 'deskhead-text');
   text.append(el('h1', '', t('office.welcome', { host: CONFIG.host })), el('div', 'role', t('office.reception_role')));
   head.appendChild(text);
-  if (CONFIG.plugin) {           // what the office is called in Unraid's menu bar
-    const act = el('div', 'deskhead-actions');
-    const b = el('button', 'btn small plain', t('office.menu_name', { name: CONFIG.menu_name }));
-    b.type = 'button';
-    b.title = t('office.menu_title');
-    b.onclick = () => menuNameDialog(b);
-    act.appendChild(b);
-    head.appendChild(act);
-  }
   root.appendChild(head);
 
   const grid = el('div', 'reception');
@@ -949,7 +950,7 @@ async function reception(root) {
  * user's own (the caretaker's agent writes it into the plugin's page and its
  * .cfg). Unraid's menu bar on this page gets it right away.
  */
-function menuNameDialog(button) {
+function menuNameDialog() {
   const presets = [CONFIG.menu_default, 'Office', 'USO'].filter((n, i, all) => all.indexOf(n) === i);
   const now = CONFIG.menu_name;
   const box = el('div');
@@ -994,7 +995,6 @@ function menuNameDialog(button) {
         if (!j.ok) { msg.textContent = Office.errorText(j.error, 'caretaker'); msg.hidden = false; return false; }
         CONFIG.menu_name = j.name;
         document.querySelectorAll(`#menu .nav-item a[href="/${CONFIG.menu_page}"]`).forEach((a) => { a.textContent = j.name; });
-        if (button && button.isConnected) button.textContent = t('office.menu_name', { name: j.name });
         Office.toast(t('office.menu_saved', { name: j.name }));
         return true;
       } },
@@ -1089,6 +1089,7 @@ function officeMenu(e) {
   ];
   if (Office.auth.mode === 'pin' && Office.auth.unlocked) items.push({ text: t('auth.lock_now'), act: lockNow });
   items.push({ separator: true });
+  if (CONFIG.plugin) items.push({ text: t('office.menu_name', { name: CONFIG.menu_name }), act: menuNameDialog });
   if (CONFIG.languages.length > 1) items.push({ text: t('office.language'), act: languageDialog });
   items.push({ text: t('help.title'), act: Office.help });
   if (Office.current && !Office.current.always) {
@@ -1122,6 +1123,7 @@ async function start() {
   brand();
   footer();
   $('#sso-more').onclick = officeMenu;
+  if ($('#sso-state')) $('#sso-state').onclick = Office.help;
   $('#sso-lock').onclick = () => (Office.auth.unlocked ? lockNow() : Office.unlock());
   try { Office.setAuth((await Office.api.get({ a: 'auth' })).auth); } catch (e) { /* the page still works */ }
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenu(); });

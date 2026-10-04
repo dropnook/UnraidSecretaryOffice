@@ -100,7 +100,7 @@ function officeBody(array $config): void
   <nav class="desk-tabs" id="sso-tabs" aria-label="Desks"></nav>
   <div class="topbar-right">
 <?php if ($inUnraid): ?>
-    <span class="dot" id="sso-dot"></span>
+    <button class="agent-state" id="sso-state" type="button"><span class="agent-label" id="sso-state-label"></span><span class="dot" id="sso-dot"></span></button>
 <?php endif; ?>
     <button class="more" id="sso-lock" type="button" aria-label="PIN" hidden></button>
     <button class="more" id="sso-more" type="button" aria-label="More">⋯</button>
