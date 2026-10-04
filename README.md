@@ -56,7 +56,7 @@ Adding a language means adding JSON files.
 ## Installation
 
 Requirements: **Unraid 7.3 or newer** (built and tested on 7.3.2). **Unraid 8 is not
-supported** for now — it changes a lot underneath; support follows once it is out and tested. Also the
+supported** for now; support follows once it is released and tested. Also the
 **Compose Manager** plugin (or Compose Manager Plus), a free IP on `br0`
 (or use a host port instead).
 
