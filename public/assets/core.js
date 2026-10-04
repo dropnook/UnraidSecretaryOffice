@@ -185,10 +185,18 @@ Office.fmt = {
 };
 
 // ------------------------------------------------------------------ API
+/** As a plugin the page sits behind Unraid's login: an ended session answers with the login page */
+function loggedOut(r) {
+  if (!CONFIG.plugin || !r.redirected || new URL(r.url).pathname !== '/login') return false;
+  location.reload();             // Unraid shows its login, then the office again
+  return true;
+}
+
 Office.api = {
   async get(params) {
     const once = async () => {
       const r = await fetch('api.php?' + new URLSearchParams(params), { cache: 'no-store' });
+      if (loggedOut(r)) return { ok: false, error: { key: 'logged_out' } };
       const j = await r.json();
       if (j.agent) Office.setAgent(j.agent);
       if (j.auth) Office.setAuth(j.auth);
@@ -211,12 +219,17 @@ Office.api = {
 async function postOnce(action, data) {
   let j;
   try {
-    const r = await fetch('api.php', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Office': '1' },
-      body: JSON.stringify({ a: action, ...data }),
-    });
-    try { j = await r.json(); } catch (e) { j = { ok: false, error: { key: 'bad_answer', params: { status: r.status } } }; }
+    const headers = { 'Content-Type': 'application/json', 'X-Office': '1' };
+    if (CONFIG.csrf) headers['X-CSRF-Token'] = CONFIG.csrf;     // Unraid refuses any POST without it
+    const r = await fetch('api.php', { method: 'POST', headers, body: JSON.stringify({ a: action, ...data }) });
+    if (loggedOut(r)) return { ok: false, error: { key: 'logged_out' }, desk: action.split('.')[0] };
+    const text = await r.text();
+    try {
+      j = JSON.parse(text);
+    } catch (e) {
+      // Unraid ends a POST with a stale csrf_token (new after a reboot) without a word
+      j = { ok: false, error: { key: CONFIG.plugin && r.ok && text === '' ? 'stale_page' : 'bad_answer', params: { status: r.status } } };
+    }
   } catch (e) {
     j = { ok: false, error: { key: 'offline' } };
   }
@@ -244,6 +257,15 @@ Office.setAgent = function setAgent(info) {
   const notice = $('#notice');
   if (Office.agent.running) {
     if (notice.dataset.kind === 'agent') { notice.hidden = true; notice.dataset.kind = ''; }
+  } else if (Office.agent.no_data) {
+    // plugin: the data folder lies in appdata and comes with the array
+    const stopped = Office.agent.no_data.array !== 'Started';
+    notice.innerHTML = '';
+    notice.className = 'notice';
+    notice.dataset.kind = 'agent';
+    notice.append(el('strong', '', t(stopped ? 'agent.array_stopped_title' : 'agent.no_data_title')), ' ',
+      stopped ? t('agent.array_stopped_text') : t('agent.no_data_text', { dir: Office.agent.no_data.dir }));
+    notice.hidden = false;
   } else {
     notice.innerHTML = '';
     notice.className = 'notice';
@@ -924,12 +946,13 @@ Office.help = function help() {
   };
   const code = (s) => el('code', '', s);
   item(t('help.office_title'), t('help.office_text'));
-  item(t('help.agent_title'), t('help.agent_text'), ' ', code('docker compose'), '.');
+  if (CONFIG.plugin) item(t('help.agent_title'), t('help.agent_text_plugin'));
+  else item(t('help.agent_title'), t('help.agent_text'), ' ', code('docker compose'), '.');
   item(t('help.dot_title'), t('help.dot_text'));
-  item(t('help.start_title'), t('help.start_text'));
+  item(t('help.start_title'), t(CONFIG.plugin ? 'help.start_text_plugin' : 'help.start_text'));
   item(t('help.languages_title'), t('help.languages_text'), ' ', code('public/lang/<code>.json'), ', ',
     code('public/desks/<desk>/lang/<code>.json'), '.');
-  item(t('help.security_title'), t('help.security_text'));
+  item(t('help.security_title'), t(CONFIG.plugin ? 'help.security_text_plugin' : 'help.security_text'));
   box.appendChild(dl);
   Office.dialog({ title: t('help.title'), body: box, wide: true });
 };
@@ -944,6 +967,7 @@ function officeMenu(e) {
   ];
   if (Office.auth.mode === 'pin' && Office.auth.unlocked) items.push({ text: t('auth.lock_now'), act: lockNow });
   items.push({ separator: true }, { text: t('help.title'), act: Office.help });
+  if (CONFIG.plugin) items.push({ text: t('office.to_unraid'), act: () => { location.href = '/Dashboard'; } });
   if (Office.current && !Office.current.always) {
     items.push({ separator: true }, { text: t('office.fire_menu', { name: t(`${Office.current.id}.name`) }), act: () => Office.fireDialog(Office.current.id) });
   }

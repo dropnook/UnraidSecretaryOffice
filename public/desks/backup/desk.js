@@ -233,8 +233,9 @@ function notices() {
   }
   if (!state.settings_found) callout(T('notice.no_settings'), true, button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
   const sc = state.schedule || {};
-  if (!sc.script) callout(T('notice.no_user_script'), true);
-  else if (!sc.enabled) callout(T('notice.schedule_off'), true, button(T('schedule.open'), 'small', scheduleDialog));
+  if (!sc.script) {
+    if (sc.via !== 'office') callout(T('notice.no_user_script'), true);     // the plugin: "no settings" says it all
+  } else if (!sc.enabled) callout(T('notice.schedule_off'), true, button(T('schedule.open'), 'small', scheduleDialog));
   const errors = (state.drift && state.drift.items || []).filter((d) => d.level === 'error').length;
   if (errors) callout(T('notice.drift_errors', { n: errors }), true);
   const last = lastRun();
@@ -356,7 +357,7 @@ function summary() {
   }
   const sc = state.schedule || {};
   const when = sc.enabled ? (sc.frequency === 'custom' ? fmt.cron(sc.custom) : T('freq.' + sc.frequency)) : T('stat.not_scheduled');
-  const sst = stat(T('stat.schedule'), when, sc.enabled ? T('stat.user_scripts') : T('stat.schedule_hint'), !sc.enabled);
+  const sst = stat(T('stat.schedule'), when, sc.enabled ? T(sc.via === 'office' ? 'stat.by_office' : 'stat.user_scripts') : T('stat.schedule_hint'), !sc.enabled);
   if (sc.script) {
     sst.classList.add('bk-clickable');
     sst.tabIndex = 0;
@@ -1472,7 +1473,7 @@ function scheduleDialog() {
   if (!sc.script) {
     Office.dialog({
       title: T('schedule.title'),
-      body: T('schedule.no_script'),
+      body: T(sc.via === 'office' ? 'schedule.no_settings' : 'schedule.no_script'),
       buttons: [{ text: Office.t('common.close') }, { text: T('setup_open'), kind: '', act: () => { Office.go(`#/${ID}/setup`); } }],
     });
     return;
@@ -1488,7 +1489,7 @@ function scheduleDialog() {
   cron.spellcheck = false;
   const ends = el('small');
   const box = el('div', 'bk-schedule');
-  box.appendChild(el('p', '', T('schedule.intro')));
+  box.appendChild(el('p', '', T(sc.via === 'office' ? 'schedule.intro_plugin' : 'schedule.intro')));
   const option = (id, text, hint, extra) => {
     const label = el('label', 'check');
     const input = el('input');
@@ -1537,7 +1538,7 @@ function scheduleDialog() {
         const j = await Office.api.post(`${ID}.schedule`, { cron: expr });
         if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
         if (j.state) state = j.state;
-        if (!j.live) Office.toast(T('schedule.not_live'), true);
+        if (!j.live) Office.toast(T(sc.via === 'office' ? 'schedule.not_live_plugin' : 'schedule.not_live'), true);
         else Office.toast(expr ? T('schedule.saved_on', { when: fmt.cron(expr) }) : T('schedule.saved_off'));
         if (view && page === 'main') render();
         return true;

@@ -196,7 +196,7 @@
   "check.user_script": "User-Scripts-Eintrag «unraid-secretary-office_backup»",
   "check.user_script_how": "Herr Backupsi → «Einrichten…» → Übernehmen legt ihn an.",
   "check.schedule": "Ein nächtliches Backup ist geplant",
-  "check.schedule_how": "Herr Backupsi → Zeitplan: eine Uhrzeit wählen, er trägt sie in User Scripts ein.",
+  "check.schedule_how": "Herr Backupsi → Zeitplan: eine Uhrzeit wählen.",
   "check.kopia": "Kopia-Container für Offsite-Kopien",
   "check.kopia_how": "Kopia aus den Apps installieren (z. B. imagegenius/kopia), einmal in der KopiaUI mit dem Repository verbinden, dann bei Herrn Backupsi unter «Einrichten…» neu einlesen.",
   "check.kopia_running": "Kopia-Container «{name}» läuft",
@@ -611,5 +611,9 @@
   "diff.one_file_system": "one-file-system steht in Kopia auf {have} (nötig: false, damit Kind-Datasets mitkommen)",
   "diff.compression": "Kompression: in Kopia {have}, hier {want}",
   "check.mnt_folders": "Nichts vom Büro direkt in /mnt",
-  "check.mnt_folders_how": "Fix Common Problems meldet zu Recht {folders}. Die Snapshots gehören unter /mnt/addons (Unraids Ort dafür, im RAM, ohne eigene Daten): im Template von «{name}» beim Snapshot-Mapping nur den Host Path auf {path} ändern (Container Path und «Read Only - Slave» bleiben), dann Herr Backupsi → «Einrichten…» → Anwenden. Der nächste Lauf räumt die alten Ordner weg."
+  "check.mnt_folders_how": "Fix Common Problems meldet zu Recht {folders}. Die Snapshots gehören unter /mnt/addons (Unraids Ort dafür, im RAM, ohne eigene Daten): im Template von «{name}» beim Snapshot-Mapping nur den Host Path auf {path} ändern (Container Path und «Read Only - Slave» bleiben), dann Herr Backupsi → «Einrichten…» → Anwenden. Der nächste Lauf räumt die alten Ordner weg.",
+  "stat.by_office": "hier eingestellt",
+  "schedule.no_settings": "Zuerst muss ich eingerichtet sein: «Einrichten…» → Übernehmen. Dann kannst du hier eine Zeit wählen.",
+  "schedule.intro_plugin": "Ich trage den Zeitplan in die eigene Cron-Datei des Sekretariats auf dem Flash ein; Unraid startet den Lauf auch, wenn niemand das Sekretariat offen hat (nur solange das Array läuft). Wähl am besten eine Zeit, in der niemand den Server braucht: Für die Snapshots halten Container kurz an.",
+  "schedule.not_live_plugin": "Gespeichert, aber Unraid hat ihn noch nicht in die Crontab übernommen — das Plugin unter Plugins neu zu installieren trägt ihn ein."
 }

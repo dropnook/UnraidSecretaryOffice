@@ -5,6 +5,11 @@ declare(strict_types=1);
  * The one page. core.js builds the office from the desks it finds; every
  * desk renders itself (public/desks/<id>/desk.js). Look and feel taken from
  * levelnext Airdrop.
+ *
+ * As a plugin it is a page of its own next to Unraid's web UI (not inside its
+ * frame): Unraid's menu links here, and the office links back. Unraid accepts
+ * a POST only with its csrf_token (local_prepend.php), so the page hands it
+ * to core.js, which sends it along as X-CSRF-Token.
  */
 
 function render_page(): void
@@ -29,7 +34,13 @@ function render_page(): void
         'languages' => officeLanguages(),
         'stamp'     => officeStringsStamp(),
         'tip_url'   => OFFICE_TIP_URL,
+        'plugin'    => OFFICE_AS_PLUGIN,
     ];
+    if (OFFICE_AS_PLUGIN) {
+        $var = @parse_ini_file('/var/local/emhttp/var.ini') ?: [];
+        $config['csrf'] = (string) ($var['csrf_token'] ?? '');
+        $config['array'] = (string) ($var['fsState'] ?? '');     // Started, Stopped, Starting …
+    }
     $v = static fn (string $file): string => (string) @filemtime(OFFICE_PUBLIC . '/' . $file);
     $h = static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES);
     $json = json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP);
@@ -42,7 +53,7 @@ function render_page(): void
 <meta name="color-scheme" content="light dark">
 <meta name="robots" content="noindex">
 <title>Secretary Office · <?= $h($host) ?></title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🗂️</text></svg>">
+<link rel="icon" type="image/svg+xml" href="assets/icon.svg?v=<?= $v('assets/icon.svg') ?>">
 <link rel="stylesheet" href="assets/office.css?v=<?= $v('assets/office.css') ?>">
 <?php foreach ($desks as $id => $d): if ($d['css']): ?>
 <link rel="stylesheet" href="desks/<?= $id ?>/desk.css?v=<?= $v("desks/$id/desk.css") ?>">

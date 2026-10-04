@@ -196,7 +196,7 @@
   "check.user_script": "User Scripts entry «unraid-secretary-office_backup»",
   "check.user_script_how": "Mr. Backupsy → «Set up…» → Apply creates it.",
   "check.schedule": "A nightly backup is scheduled",
-  "check.schedule_how": "Mr. Backupsy → Schedule: pick a time, he enters it in User Scripts.",
+  "check.schedule_how": "Mr. Backupsy → Schedule: pick a time.",
   "check.kopia": "Kopia container for offsite copies",
   "check.kopia_how": "Install Kopia from Apps (e.g. imagegenius/kopia), connect it to your repository once in the KopiaUI, then read the server again in Mr. Backupsy's «Set up…».",
   "check.kopia_running": "Kopia container «{name}» is running",
@@ -611,5 +611,9 @@
   "diff.one_file_system": "one-file-system is {have} in Kopia (needed: false, so child datasets come along)",
   "diff.compression": "compression: {have} in Kopia, {want} here",
   "check.mnt_folders": "Nothing of the office directly in /mnt",
-  "check.mnt_folders_how": "Fix Common Problems rightly reports {folders}. The snapshots belong under /mnt/addons (Unraid's place for that, in RAM, no data of its own): in the template of «{name}» change only the Host Path of the snapshot mapping to {path} (Container Path and «Read Only - Slave» stay), then Mr. Backupsy → «Set up…» → Apply. The next run removes the old folders."
+  "check.mnt_folders_how": "Fix Common Problems rightly reports {folders}. The snapshots belong under /mnt/addons (Unraid's place for that, in RAM, no data of its own): in the template of «{name}» change only the Host Path of the snapshot mapping to {path} (Container Path and «Read Only - Slave» stay), then Mr. Backupsy → «Set up…» → Apply. The next run removes the old folders.",
+  "stat.by_office": "set here",
+  "schedule.no_settings": "First I need to be set up: \"Set up…\" → Apply. Then you can pick a time here.",
+  "schedule.intro_plugin": "I enter the schedule in the office's own cron file on the flash; Unraid runs it even when nobody has the office open (only while the array runs). Best pick a time nobody needs the server: containers pause briefly for the snapshots.",
+  "schedule.not_live_plugin": "Saved, but Unraid didn't take it into the crontab yet — reinstalling the plugin under Plugins puts it in."
 }

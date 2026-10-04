@@ -78,7 +78,9 @@ function caretakerChecks(): array
         ['version' => AGENT_VERSION, 'latest' => (string) ($office['latest'] ?? '')], '#/caretaker');
 
     $out[] = finding('community_apps', 'recommended', housePlugin('community.applications'), [], 'plugins');
-    $out[] = finding('compose_manager', 'recommended', housePlugin('compose.manager'), [], 'apps');
+    if (!AS_PLUGIN) {           // the stack is run with it
+        $out[] = finding('compose_manager', 'recommended', housePlugin('compose.manager'), [], 'apps');
+    }
     $out[] = finding('fix_common_problems', 'recommended', housePlugin('fix.common.problems'), [], 'apps');
     $out[] = finding('files_viewer', 'recommended', housePlugin('filesviewer'), [], 'apps');
 
@@ -93,8 +95,10 @@ function caretakerChecks(): array
         $out[] = finding('mail_subject', 'hint', false, ['subject' => $subject, 'host' => hostname()], 'notifications');
     }
 
-    $auth = readJson(DATA_DIR . '/office/auth.json') ?? [];
-    $out[] = finding('pin', 'recommended', !empty($auth['pin_hash']));
+    if (!AS_PLUGIN) {           // as a plugin the Unraid login guards the office already
+        $auth = readJson(DATA_DIR . '/office/auth.json') ?? [];
+        $out[] = finding('pin', 'recommended', !empty($auth['pin_hash']));
+    }
 
     // other backup tools: worth knowing, so nothing runs twice by accident
     foreach (housePlugins() as $p) {

@@ -116,8 +116,10 @@
   "office_compose_title": "Aktualisiert — der Stack braucht einen Neustart",
   "office_compose_text": "Diesmal hat sich auch compose.yaml geändert. Bitte den Stack im Compose Manager einmal neu starten («Compose Up»), damit die Container die neue Einstellung bekommen.",
   "check.office_update": "Das Büro ist auf dem neusten Stand ({version})",
-  "check.office_update_how": "Version {latest} ist da — beim Hauswart unter «Das Büro» aktualisieren.",
+  "check.office_update_how": "Version {latest} ist da — der Hauswart zeigt unter «Das Büro», wie du aktualisierst.",
   "errors.office_not_git": "Das Büro wurde nicht mit git installiert — von Hand aktualisieren.",
   "errors.office_local_changes": "Am Code wurde hier etwas geändert — ich aktualisiere nicht, damit nichts verloren geht.",
-  "errors.office_git": "git ging nicht: {detail}"
+  "errors.office_git": "git ging nicht: {detail}",
+  "office_how_plugin": "Unraid aktualisiert das Sekretariat wie jedes andere Plugin: unter Plugins (es schaut selbst nach Updates). Deine Daten bleiben.",
+  "office_to_plugins": "Zu den Plugins"
 }

@@ -5,7 +5,8 @@ declare(strict_types=1);
  * Keeping the office itself up to date — the caretaker's job.
  *
  * Once a day he asks GitHub for the latest release and compares it with the
- * running version. Installed with git clone (the README's way), he can also
+ * running version. As a plugin, Unraid's plugin manager updates it (he only
+ * points there). Installed with git clone (the stack), he can also
  * update: a fast-forward pull of the branch, refused when the code was
  * changed locally. The office reads its code live and the agent restarts
  * itself, so an update is active at once; only a changed compose.yaml needs
@@ -49,6 +50,7 @@ function officeUpdateInfo(bool $force = false): array
     return $cache + [
         'version'   => AGENT_VERSION,
         'newer'     => $latest !== null && version_compare(ltrim($latest, 'v'), AGENT_VERSION, '>'),
+        'plugin'    => AS_PLUGIN,
         'git'       => $git,
         'changed'   => $changed,
         'branch'    => $branch,

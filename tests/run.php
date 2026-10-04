@@ -9,7 +9,7 @@ declare(strict_types=1);
  * They change nothing on the server: what writes files works on copies in a
  * temporary folder. Two parts:
  *   logic    the tricky functions (cron, snapshot retention, Emby detection,
- *            User Scripts schedules)
+ *            User Scripts schedules, the plugin's cron file)
  *   strings  German and English have the same keys, and every text the code
  *            asks for exists (desk.js, checks, errors)
  * Exit code 0 when everything passes.
@@ -150,6 +150,47 @@ function testUserScripts(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/** The plugin's cron file against a copy: only the job's own line changes, the order stays */
+function testOfficeCron(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-cron-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    $file = "$tmp/office.cron";
+
+    officeJobSetSchedule('snapshots', '*/5 * * * *', $file, false);
+    officeJobSetSchedule('backup', '0 2 * * *', $file, false);
+    same('office cron: both jobs', ['backup' => '0 2 * * *', 'snapshots' => '*/5 * * * *'], officeCronLines($file));
+    $lines = array_values(array_filter(explode("\n", (string) file_get_contents($file)), fn ($l) => $l !== '' && $l[0] !== '#'));
+    same('office cron: backup line first', '0 2 * * * ' . officeJobCommand('backup'), $lines[0] ?? null);
+
+    officeJobSetSchedule('backup', '30  3 * * 1-5', $file, false);
+    same('office cron: changed, spaces tidied', ['backup' => '30 3 * * 1-5', 'snapshots' => '*/5 * * * *'], officeCronLines($file));
+
+    officeJobSetSchedule('backup', null, $file, false);
+    same('office cron: backup off, snapshots kept', ['snapshots' => '*/5 * * * *'], officeCronLines($file));
+    officeJobSetSchedule('snapshots', null, $file, false);
+    check('office cron: file gone when empty', !file_exists($file));
+
+    foreach (['0 3 * * * rm -rf /', '61 3 * * *'] as $bad) {
+        try {
+            officeJobSetSchedule('backup', $bad, $file, false);
+            check("office cron refuses $bad", false);
+        } catch (Problem $p) {
+            same("office cron refuses $bad", 'bad_cron', $p->key);
+        }
+    }
+    try {
+        officeJobSetSchedule('rm', '0 3 * * *', $file, false);
+        check('office cron refuses an unknown job', false);
+    } catch (Problem $p) {
+        check('office cron refuses an unknown job', true);
+    }
+    // a line someone added by hand is not ours
+    file_put_contents($file, "0 4 * * * bash /tmp/job.sh backup > /dev/null 2>&1\n");
+    same('office cron: foreign line ignored', [], officeCronLines($file));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testEstimates(): void
 {
     // newest first, like backupHistory()
@@ -258,7 +299,7 @@ function testStrings(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testEstimates'], 'strings' => ['testStrings']];
+$parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testEstimates'], 'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
     if ($only === '' || $only === $name) {

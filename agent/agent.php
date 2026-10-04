@@ -5,11 +5,16 @@ declare(strict_types=1);
 /*
  * Unraid Secretary Office — agent
  *
- * The web UI runs in an unprivileged php:apache container and can't touch zfs,
- * btrfs, docker or Unraid's configuration. This agent does that work on the
- * host. The "agent" service in compose.yaml starts it: a privileged container
- * in the host's PID namespace that nsenter's into the host's mount namespace
- * and runs the PHP that ships with Unraid. Nothing gets installed on the host.
+ * The web UI only shows things; this agent does the work on the host (zfs,
+ * btrfs, docker, Unraid's configuration). It runs on the PHP that ships with
+ * Unraid, one of two ways (see src/place.php):
+ *
+ *   plugin   a service of the plugin: scripts/agent.sh starts it (at install,
+ *            boot and array start, through a small supervisor that restarts
+ *            it if it dies) and stops it when the array stops
+ *   stack    the "agent" service in compose.yaml: a privileged container in
+ *            the host's PID namespace that nsenter's into the host's mount
+ *            namespace
  *
  * Every secretary ("desk") is one file in agent/desks/. It registers the
  * actions it handles (see desk() in lib/util.php); the agent loads them all.
@@ -19,16 +24,18 @@ declare(strict_types=1);
  * <id>.response next to it. Deliberately no unix socket: a bound socket keeps
  * the pool busy and Unraid could not stop the array any more.
  *
- *   php agent.php run       run in the foreground (what the container does)
+ *   php agent.php run       run in the foreground (what the container and agent.sh do)
  *   php agent.php status    is an agent running?
  *   php agent.php job snapshot-plans   run the snapshot schedules that are due (User Scripts calls this)
  *
  * When one of its files changes, the running agent lints the new code and
  * restarts itself in place.
  *
- * Environment:
- *   OFFICE_DATA_DIR            data folder shared with the web UI (default: ../data)
- *   OFFICE_WEB_UID             uid of the web server in its container (default 33)
+ * Environment (both optional):
+ *   OFFICE_DATA_DIR            data folder shared with the web UI (default: the plugin's
+ *                              DATA_DIR, in the stack ../data)
+ *   OFFICE_WEB_UID             uid of the web server (default: 0 — Unraid's php-fpm
+ *                              runs as root —, in the stack 33, www-data in php:apache)
  */
 
 const AGENT_VERSION = '1.13.0';
@@ -39,13 +46,17 @@ const LOG_MAX       = 512 * 1024;
 const FILE_UID      = 99;    // nobody:users, like everything else in appdata
 const FILE_GID      = 100;
 
+require dirname(__DIR__) . '/src/place.php';
+
 define('OFFICE_DIR', dirname(__DIR__));
-define('DATA_DIR', rtrim(getenv('OFFICE_DATA_DIR') ?: OFFICE_DIR . '/data', '/'));
+define('AS_PLUGIN', officeIsPlugin(OFFICE_DIR));
+define('OFFICE_WEB', AS_PLUGIN ? OFFICE_DIR : OFFICE_DIR . '/public');     // desks/<id>/desk.json & co.
+define('DATA_DIR', rtrim(getenv('OFFICE_DATA_DIR') ?: (AS_PLUGIN ? officePluginDataDir() : OFFICE_DIR . '/data'), '/'));
 define('MAILBOX', DATA_DIR . '/mailbox');
 define('OFFICE_PRIVATE', DATA_DIR . '/office');
 define('AGENT_INFO', DATA_DIR . '/agent.json');
 define('AGENT_LOG', DATA_DIR . '/agent.log');
-define('WEB_UID', (int) (getenv('OFFICE_WEB_UID') ?: 33));   // www-data in php:apache
+define('WEB_UID', (int) (getenv('OFFICE_WEB_UID') ?: (AS_PLUGIN ? 0 : 33)));
 
 require __DIR__ . '/lib/util.php';
 require __DIR__ . '/lib/mounts.php';
@@ -127,7 +138,7 @@ function serve(): int
 
     while (!$stop) {
         clearstatcache();
-        if (!is_dir(DATA_DIR)) {       // array stopped: wait until it is back
+        if (!is_dir(DATA_DIR) && !makeDataDir()) {     // array stopped: wait until it is back
             $ready = false;
             sleep(5);
             continue;
@@ -184,6 +195,25 @@ function serve(): int
     return 0;
 }
 
+/**
+ * A fresh plugin: create the data folder once the array runs — but only in an
+ * appdata that is there, never a new share on some disk.
+ */
+function makeDataDir(): bool
+{
+    if (!AS_PLUGIN || (readCfg('/var/local/emhttp/var.ini')['fsState'] ?? '') !== 'Started') {
+        return false;
+    }
+    $appdata = dirname(DATA_DIR, 2);         // <appdata>/UnraidSecretaryOffice/data
+    if (!is_dir($appdata) || !@mkdir(DATA_DIR, 0755, true)) {
+        return false;
+    }
+    @chown(dirname(DATA_DIR), FILE_UID);
+    @chgrp(dirname(DATA_DIR), FILE_GID);
+    logLine('Created the data folder ' . DATA_DIR);
+    return true;
+}
+
 function setUp(): void
 {
     if (!is_dir(MAILBOX)) {
@@ -205,6 +235,7 @@ function setUp(): void
     writeInfo(true);
     try {
         userScriptsMigrate();          // the office's User Scripts entries under their current names
+        officeJobsFromUserScripts();   // moved to the plugin: their schedules go into its cron file
     } catch (Throwable $e) {
         logLine('User Scripts migration: ' . $e->getMessage());
     }

@@ -3,18 +3,42 @@
 Read README.md first — it explains the architecture and how a desk (secretary) is built.
 This file holds the conventions and the checklist for changes.
 
+## Two ways to run, one code
+
+`src/place.php` decides by where the code lies (`officeIsPlugin()`):
+
+* **Plugin** (the way users install it, since 1.14): code in RAM under
+  `/usr/local/emhttp/plugins/unraid-secretary-office/` — the web files of
+  `public/` at its top, `src/`, `agent/`, `backup/`, `scripts/`, `event/`,
+  `images/` beside them (built by `plugin/build.sh`). Unraid's nginx/php-fpm
+  serve the page behind the Unraid login; the agent is a service
+  (`scripts/agent.sh`, started at install/boot and by `event/started`, stopped
+  by `event/stopping`). The data folder is `DATA_DIR` from
+  `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cfg`
+  (default `<appdata>/UnraidSecretaryOffice/data`).
+  PHP constants: `OFFICE_AS_PLUGIN` (web), `AS_PLUGIN` and `OFFICE_WEB` (agent).
+* **Stack** (development, and old installs): the git clone in appdata run by
+  `compose.yaml` — office container (php:apache) plus the privileged agent
+  container that nsenter's into the host; data in `<clone>/data`.
+
+Everything else (mailbox, desks, state files, engine interface) is the same.
+Mode-specific code stays small and says why (`if (AS_PLUGIN)`), texts that
+differ get a `_plugin` key or come from state (`schedule.via`).
+
 ## Conventions
 
 * **English** in code, comments, commit messages, README. The UI is translated:
   every string lives in `public/lang/<code>.json` (office) or
   `public/desks/<id>/lang/<code>.json` (desk). `en` and `de` must always have the
   same keys. Never hard-code UI text in JS or PHP.
-* **No build step, no dependencies.** Plain PHP 8.4 (agent runs on Unraid's PHP)
-  and PHP 8.5 in the office container, vanilla JS, one CSS file plus optional
+* **No build step, no dependencies.** Plain PHP 8.4 (Unraid's own PHP runs both
+  the page and the agent; the old Compose stack's office container has PHP 8.5
+  — use nothing newer than 8.4), vanilla JS, one CSS file plus optional
   `desk.css`. The look follows levelnext Airdrop (tokens in `office.css :root`).
-* **The office container never touches the host.** Everything that needs zfs,
-  docker, /boot/config, /proc etc. goes through the agent (`Office.api.post('<desk>.<action>')`
-  → `agent/desks/<desk>.php`).
+  The only "build" is the plugin package (`plugin/build.sh`).
+* **The web side never touches the host** (even though Unraid's php-fpm runs as
+  root). Everything that needs zfs, docker, /boot/config, /proc etc. goes
+  through the agent (`Office.api.post('<desk>.<action>')` → `agent/desks/<desk>.php`).
 * **Agent safety:** commands via `run()`/`runAll()` (array form, no shell). Every
   action re-reads the current state and validates ids against it. Errors are
   `throw new Problem('key', [...])`; the UI translates `errors.<key>`
@@ -39,8 +63,14 @@ This file holds the conventions and the checklist for changes.
   should be, `check.<id>_how` what the user does in Unraid to get there.
 * **Jobs that must outlive the agent** (backup runs) go through the host's
   `atd` (`backupLaunch()` in agent/desks/backup.php), never as a child of the
-  agent: Docker kills the agent container's whole cgroup when it stops.
-* **The backup engine** (`backup/`, bash, English since 2.13) runs on its own via User Scripts. Mr. Backupsy only uses
+  agent: `agent.sh stop` ends the agent's whole session (array stop, plugin
+  update), and in the stack Docker kills the container's cgroup.
+* **Schedules** (nightly backup, snapshot plans) only through
+  `officeJobSchedule()` / `officeJobSetSchedule()` (agent/lib/house.php): as a
+  plugin a line in its cron file (`/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cron`,
+  calling `scripts/job.sh <job>`, which runs only while the array is
+  started), in the stack the User Scripts entry.
+* **The backup engine** (`backup/`, bash, English since 2.13) runs on its own via the plugin's cron file (in the stack: User Scripts). Mr. Backupsy only uses
   its interface (`backup.sh --about`, `data/unraid-backup/state/status.json` &
   co., interface 1; the setup assistant uses `setup.sh --plan` / `--apply`
   with `state/setup-plan.json` / `setup-status.json`). Never parse its log
@@ -63,13 +93,18 @@ This file holds the conventions and the checklist for changes.
   (`state/stopped`, `state/maintenance`) to show what is paused — but nobody
   edits `backup/` then (see above).
 * **Versions:** `OFFICE_VERSION` (src/bootstrap.php) and `AGENT_VERSION`
-  (agent/agent.php) move together.
+  (agent/agent.php) move together; the release tag is `v<that version>`.
+  The plugin's version is a date (`2026.10.05`, a letter for a second one that
+  day): Unraid compares plugin versions with `strcmp`. The GitHub Action
+  (`.github/workflows/plugin.yml`) picks it and builds `.plg` + `.txz` when a
+  release is published; `plugin/build.sh` refuses when the code's versions
+  don't match the tag.
 
 ## The desks
 
 | id | name (en / de) | does |
 |---|---|---|
-| `snapshot` | Ms. Snapshotini / Frau Snapshotini | ZFS, btrfs and VM snapshots: create, delete with an estimate, rename, hold, unmount; schedules with retention (lib/snapshotplans.php: snapshots `auto-<plan>-YYYYMMDD-HHMM`, retention touches only those; one User Scripts entry `unraid-secretary-office_snapshots` runs `php agent.php job snapshot-plans` every 5 min) |
+| `snapshot` | Ms. Snapshotini / Frau Snapshotini | ZFS, btrfs and VM snapshots: create, delete with an estimate, rename, hold, unmount; schedules with retention (lib/snapshotplans.php: snapshots `auto-<plan>-YYYYMMDD-HHMM`, retention touches only those; `php agent.php job snapshot-plans` every 5 min — the plugin's cron line `job.sh snapshots`, in the stack the User Scripts entry `unraid-secretary-office_snapshots`) |
 | `whereabouts` | Ms. Whereabouts / Frau Wasistwo | what is where and going on; "where things are" (config files, boot medium, VM files) with their backup protection. Read only |
 | `backup` | Mr. Backupsy / Herr Backupsi | runs the engine in `backup/`: status, history, protection, restore help, setup assistant (`#/backup/setup`) |
 | `emby` | Jack Emby (the intern) | EmbyCache (github.com/helmi1987/embycache-for-unraid): git clone into data/embycache/app, ff-only updates, never changed here; data apart via EMBYCACHE_DIR; settings written via its own save_config(); API key never leaves the server |
@@ -77,7 +112,7 @@ This file holds the conventions and the checklist for changes.
 | `cleanup` | Ms. Dustdevil / Frau Putzteufel | clears away what nobody uses: Docker templates, Compose stacks, appdata folders, stray my-*.xml elsewhere, what deleted VMs left behind (domains folders, NVRAM, TPM, snapshot lists, unused disk images; VMs without disks are only pointed out), switched-off User Scripts that lie around, Docker's leftovers. Never deletes right away: renames into `_UnraidSecretaryOffice-trash` on the same filesystem (ZFS datasets with `zfs rename` next to it), `manifest.json` per run, put back or empty; Docker leftovers can only be removed. Only rename, never copy; nothing while a backup runs |
 | `caretaker` | The Caretaker / Der Hauswart | collects every desk's `checks` and what the office needs; tells the user what is left to do |
 
-**User Scripts entries** of the office are always named `unraid-secretary-office_<what>` (US_PREFIX); renamed ones are moved once by `userScriptsMigrate()` (lib/house.php: folder, schedule, cron line, User Scripts Enhanced category). Descriptions in English: "Unraid Secretary Office - …".
+**User Scripts entries** (only in the stack) of the office are always named `unraid-secretary-office_<what>` (US_PREFIX); renamed ones are moved once by `userScriptsMigrate()` (lib/house.php: folder, schedule, cron line, User Scripts Enhanced category). Descriptions in English: "Unraid Secretary Office - …". As a plugin, `officeJobsFromUserScripts()` hands their schedule over to the plugin's cron file once and removes them.
 
 Desks know each other only through shared libraries (`backupProtection()`,
 `finding()`) and links (`#/<desk>`) — each one must work on its own.
@@ -143,8 +178,23 @@ character, warnings and errors stay plain and clear.
 
 ## Server facts that bite
 
-* The agent container has **no network** (`network_mode: none`): read
-  addresses from Unraid's config (`/var/local/emhttp/network.ini`), not `ip`.
+* The stack's agent container has **no network** (`network_mode: none`): read
+  addresses from Unraid's config (`/var/local/emhttp/network.ini`), not `ip`;
+  `hostNet()` runs a command in the host's network (directly as a plugin).
+* **Unraid's web stack:** php-fpm runs as root; nginx guards everything with
+  `auth_request` (the login), also `/plugins/…`; `local_prepend.php` (prepended
+  to every PHP run, also CLI) chdir's to `/usr/local/emhttp`, sets the time
+  zone and ends every POST without the right `csrf_token` (field or header
+  `X-CSRF-Token`, value in `/var/local/emhttp/var.ini`) with an empty 200.
+* **Plugin manager:** `.plg` versions compared with `strcmp`, `min`/`max` with
+  `version_compare`; a `Run` script failing (exit ≠ 0) aborts the install.
+  Every installed plugin is installed again at each boot (before the array).
+  `.page` and `.plg` icons (`*.png`) are looked up in `<plugin>/images/`.
+* **emhttp waits for event scripts** (`<plugin>/event/<event>`, executable):
+  a slow one holds up the array start or stop. `started` = end of array
+  start, `stopping` = start of array stop.
+* `update_cron` builds root's crontab from `dynamix/*.cron` and the `*.cron`
+  of **installed** plugins only (`/var/log/plugins/<name>.plg`).
 * Scripts edited over SMB may stay open in Samba for a moment ("Text file
   busy"): start them through `bash <script>`, never by executing them directly.
 * VM configuration (XML, NVRAM, TPM state) lives inside `libvirt.img`, mounted
@@ -189,19 +239,24 @@ character, warnings and errors stay plain and clear.
 
 ## Checklist for a change
 
-1. PHP syntax: on the host `php -l` for every file in `agent/`; in the office
-   container `docker exec UnraidSecretaryOffice php -l /var/www/src/<file>`.
+1. PHP syntax: on the host `php -l` for every file in `agent/`, `src/`,
+   `public/*.php`; `bash -n` for `plugin/scripts/*`, `plugin/event/*`, `backup/`.
 2. JS syntax (no Node on the dev Mac): `osascript -l JavaScript` with `new Function(src)`.
 3. Tests on the host: `php tests/run.php` (logic: cron, snapshot retention,
-   Emby detection, User Scripts schedules — on copies; strings: `en`/`de` keys
+   Emby detection, User Scripts schedules, the plugin's cron file — on copies; strings: `en`/`de` keys
    identical, every T('…'), check and error text exists). Must end with 0 failed.
-4. The agent restarts itself when its files change — watch `data/agent.log`
+4. On a server that runs the plugin, `bash plugin/dev-sync.sh` on the host puts
+   the working copy into the plugin (RAM, until reboot/update; leaves backup/
+   alone while a run is active). The agent restarts itself when its files change — watch `data/agent.log`
    ("Agent code changed — restarting"); a syntax error keeps the old code running.
 5. Reload the page for real (changing only the `#` part of the URL doesn't reload).
 6. Check the page at phone width (375 px): no horizontal scrolling.
 7. Test destructive actions only on throwaway objects, then clean up. Never
    wake sleeping disks, start backup runs or apply settings on a real server
    just to test.
+8. Something for the plugin changed (paths, scripts, `.plg`)? `bash plugin/build.sh <version>`
+   must pass, and both modes must still work. Never run the plugin's agent
+   and the stack's at the same time.
 
 ## Layout
 
@@ -216,5 +271,8 @@ public/assets/core.js    Office: i18n, routing, reception, API, PIN, dialog, men
 public/desks/<id>/       desk.json, desk.js, lang/*.json (and desk.css)
 data/                    runtime only (state per desk, mailbox, agent log, office/auth.json) — not in git
 backup/                  the backup engine: backup.sh, setup.sh, lib/common.sh (data in data/unraid-backup)
-compose.yaml             office + agent services; settings in .env
+plugin/                  the Unraid plugin: .plg template, build.sh, scripts/ (agent.sh service,
+                         job.sh for the cron file), event/ (started, stopping), the menu .page, images/
+.github/workflows/       plugin.yml: builds and attaches .plg/.txz when a release is published
+compose.yaml             the stack: office + agent services; settings in .env
 ```

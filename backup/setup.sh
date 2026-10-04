@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.14 - 2026-10-04
+# unraid-backup - setup.sh                        Version 2.15 - 2026-10-04
+#   2.15 Also part of the office's Unraid plugin: code in RAM, data from the plugin's DATA_DIR,
+#        the nightly run scheduled by the plugin's cron file instead of User Scripts.
 #   2.14 The whole script is one { ... } block: bash reads it completely before it
 #        starts, so replacing the file while it runs no longer breaks the run
 #   2.14 Nothing of ours directly in /mnt: mount_root and view_root under
@@ -334,8 +336,12 @@ TXT
     grep -qw overlay /proc/filesystems 2>/dev/null && ok "overlayfs present (shares across several bases)" \
         || wrn "overlayfs is missing - shares across several bases appear as one subfolder per base"
     [[ -x "$UB_NOTIFY_BIN" ]] && ok "Unraid notifications available" || wrn "Unraid's notify is missing - no notifications"
-    [[ -d "$UB_BOOT/config/plugins/user.scripts" ]] && ok "User Scripts installed" \
-        || wrn "Plugin 'User Scripts' not found - needed for the nightly run"
+    if ub_is_plugin; then
+        ok "The office's plugin schedules the nightly run (no User Scripts needed)"
+    else
+        [[ -d "$UB_BOOT/config/plugins/user.scripts" ]] && ok "User Scripts installed" \
+            || wrn "Plugin 'User Scripts' not found - needed for the nightly run"
+    fi
 }
 
 ##############################################################################
@@ -1743,16 +1749,21 @@ step_kopia_sources() {
 # Step 8: User Scripts, cleaning up, finishing
 ##############################################################################
 step_finish() {
-    hdr "User Scripts and cleaning up"
+    hdr "Schedule and cleaning up"
     explain <<'TXT'
-User Scripts needs its script under /boot/config/plugins/user.scripts/scripts/. Only a
-call of backup.sh in the script folder lies there (#arrayStarted=true: runs only with the
-array started). You set the schedule in the web interface (Custom, e.g. 0 3 * * *).
+Installed as a plugin, the office keeps the nightly run in its own cron file and you
+set the time at Mr. Backupsy's desk. Otherwise User Scripts needs its script under
+/boot/config/plugins/user.scripts/scripts/. Only a call of backup.sh in the script folder
+lies there (#arrayStarted=true: runs only with the array started). You set the schedule
+in the web interface (Custom, e.g. 0 3 * * *).
 TXT
     local us_root="$UB_BOOT/config/plugins/user.scripts/scripts"
     local us_dir="$us_root/$UB_USER_SCRIPT" upath
     upath="$(ub_user_path)"
-    if [[ -d "$us_root" ]]; then
+    if ub_is_plugin; then
+        # the plugin keeps the schedule in its own cron file; the office sets it
+        hint "Set the time at Mr. Backupsy's desk in the office: Schedule..."
+    elif [[ -d "$us_root" ]]; then
         # the old name: normally the office has moved it already (with its schedule)
         if [[ -d "$us_root/$UB_NAME" && ! -e "$us_dir" ]]; then
             mv "$us_root/$UB_NAME" "$us_dir" && echo "$UB_USER_SCRIPT" >"$us_dir/name" \
@@ -1772,15 +1783,15 @@ EOF
             ok "Created: $us_dir/script"
         fi
         hint "Set the schedule in Settings > User Scripts: Custom, e.g. 0 3 * * *"
-        # Other User Scripts that also make snapshots or Kopia runs?
-        local f
-        for f in "$UB_BOOT"/config/plugins/user.scripts/scripts/*/script; do
-            [[ -f "$f" && "$f" != "$us_dir/script" ]] || continue
-            if grep -qE 'kopia[^|]* snapshot create|zfs snapshot|btrfs subvolume snapshot' "$f" 2>/dev/null; then
-                wrn "User Script '$(basename "$(dirname "$f")")' also makes snapshots/Kopia runs - check whether it has been replaced (otherwise switch off its schedule there)"
-            fi
-        done
     fi
+    # Other User Scripts that also make snapshots or Kopia runs?
+    local f
+    for f in "$us_root"/*/script; do
+        [[ -f "$f" && "$f" != "$us_dir/script" ]] || continue
+        if grep -qE 'kopia[^|]* snapshot create|zfs snapshot|btrfs subvolume snapshot' "$f" 2>/dev/null; then
+            wrn "User Script '$(basename "$(dirname "$f")")' also makes snapshots/Kopia runs - check whether it has been replaced (otherwise switch off its schedule there)"
+        fi
+    done
 }
 
 summary() {
@@ -1795,7 +1806,11 @@ summary() {
     say ""
     say "  Next steps:"
     say "    1. Dry run:       UB_DRY_RUN=1 $(ub_user_path)/backup.sh"
-    say "    2. First run:     'Run in Background' in User Scripts, or wait for the schedule"
+    if ub_is_plugin; then
+        say "    2. First run:     at Mr. Backupsy's desk in the office, or wait for the schedule"
+    else
+        say "    2. First run:     'Run in Background' in User Scripts, or wait for the schedule"
+    fi
     say "    3. Check:         $UB_LOGS/latest.log  (or at Mr. Backupsy's desk in the office)"
 }
 

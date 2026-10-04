@@ -1,7 +1,8 @@
 <?php
 declare(strict_types=1);
 
-require dirname(__DIR__) . '/src/bootstrap.php';
-require dirname(__DIR__) . '/src/page.php';
+$base = is_dir(__DIR__ . '/src') ? __DIR__ : dirname(__DIR__);   // plugin: src/ right here
+require $base . '/src/bootstrap.php';
+require $base . '/src/page.php';
 
 render_page();

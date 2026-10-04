@@ -422,7 +422,7 @@
   "check.plans_user_scripts": "User Scripts (für Frau Snapshotinis Zeitpläne)",
   "check.plans_user_scripts_how": "«User Scripts» aus den Apps installieren.",
   "check.plans_runner": "Frau Snapshotinis Zeitpläne laufen",
-  "check.plans_runner_how": "Bei Frau Snapshotini einen Zeitplan einmal speichern — das richtet den Eintrag «{name}» wieder ein.",
+  "check.plans_runner_how": "Bei Frau Snapshotini einen Zeitplan einmal speichern — das richtet ihn wieder ein.",
   "check.plan_failed": "Der Zeitplan «{name}» lief ohne Probleme",
   "check.plan_failed_how": "Bei Frau Snapshotini unter «Zeitpläne» steht, was schiefging.",
   "check.other_snapshot_tool": "Ein anderes Snapshot-Werkzeug: {name}",
@@ -439,5 +439,7 @@
     "one": "1 schlafende Disk wecken",
     "other": "{n} schlafende Disks wecken"
   },
-  "wake_title": "Nur für diesen Scan: weckt die schlafenden btrfs-Disks und liest auch ihre Snapshots. Ohne Haken lasse ich sie schlafen und zeige, was ich zuletzt von ihnen wusste. Unraid legt sie nach seiner Wartezeit wieder schlafen."
+  "wake_title": "Nur für diesen Scan: weckt die schlafenden btrfs-Disks und liest auch ihre Snapshots. Ohne Haken lasse ich sie schlafen und zeige, was ich zuletzt von ihnen wusste. Unraid legt sie nach seiner Wartezeit wieder schlafen.",
+  "plan.runner_off_plugin": "In der Cron-Datei des Sekretariats fehlt die Zeile für die Zeitpläne — sie laufen also nicht. Einen Zeitplan einmal zu speichern richtet sie wieder ein.",
+  "plan.note_plugin": "Das Sekretariat schaut alle 5 Minuten nach, was fällig ist (eine Zeile in seiner Cron-Datei auf dem Flash) — auch wenn niemand es offen hat. Verpasste Zeiten (Server aus) werden einmal nachgeholt."
 }

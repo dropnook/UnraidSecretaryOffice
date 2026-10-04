@@ -1,29 +1,29 @@
 # unraid-backup — Mr. Backupsy's engine
 
-Part of the [Unraid Secretary Office](../README.md): Mr. Backupsy shows and controls this engine in the browser — setting it up, scheduling it, starting and stopping runs, helping with restores. It also works without any web page: User Scripts starts it at night, `setup.sh` sets it up in a terminal.
+Part of the [Unraid Secretary Office](../README.md): Mr. Backupsy shows and controls this engine in the browser — setting it up, scheduling it, starting and stopping runs, helping with restores. It also works without any web page: the office's plugin (or, in the Compose stack, User Scripts) starts it at night, `setup.sh` sets it up in a terminal.
 
 A nightly backup for Unraid servers. It takes consistent **ZFS/btrfs snapshots** and **database dumps**, puts Nextcloud into **maintenance mode** for that, and — if you want — sends everything encrypted offsite with **Kopia**. Everything specific to your server lives in `settings.ini`, which `setup.sh` writes after asking you. The nightly run `backup.sh` reports every difference between the server and `settings.ini`, but never changes it on its own.
 
-Version **2.14** (4 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
+Version **2.15** (4 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
 
 ---
 
 ## Requirements
 
 - **Unraid 7.3 or newer** (tested on 7.3.2); **Unraid 8 is not supported** for now. Snapshots need pools or array disks on ZFS or btrfs; shares on XFS are backed up without a snapshot ("live").
-- The **User Scripts** plugin for the schedule.
+- The office as a plugin schedules the nightly run itself. Only in the Compose stack the **User Scripts** plugin is needed for that.
 - Optional: the **Compose Manager**, when stacks with databases are involved.
 - Optional: a **Kopia** container (e.g. `imagegenius/kopia` from Community Apps) for offsite backups.
 - `jq`, `flock`, `timeout` and friends come with Unraid; `setup.sh` checks for them.
 
 ## Installation
 
-1. Install the office (see the [README](../README.md)); the engine then lives in `/mnt/user/appdata/UnraidSecretaryOffice/backup/`.
+1. Install the office (see the [README](../README.md)); the engine then lives in `/usr/local/emhttp/plugins/unraid-secretary-office/backup/` (in the Compose stack: `/mnt/user/appdata/UnraidSecretaryOffice/backup/`). Below, `<engine>` stands for that folder.
 2. With Kopia: set up the container and **connect it to the repository once in the KopiaUI** (see [Kopia — optional](#kopia--optional)), plus the [one mapping](#the-kopia-container-the-one-mapping) and PUID/PGID 0.
-3. Mr. Backupsy → **Set up…**: he reads the server and proposes everything with reasons; change what you like, then *Apply*. This writes `settings.ini` and creates the User Scripts entry `unraid-secretary-office_backup`.
-   In a terminal instead: `/mnt/user/appdata/UnraidSecretaryOffice/backup/setup.sh` — same checks, every step explained.
-4. Mr. Backupsy → **Schedule…**: e.g. every night at 02:00. (Or in Settings › User Scripts at the entry `unraid-secretary-office_backup`, Custom `0 2 * * *`.)
-5. A **dry run**: Mr. Backupsy → *Back up now… › Dry run*, or in a terminal `UB_DRY_RUN=1 /mnt/user/appdata/UnraidSecretaryOffice/backup/backup.sh`.
+3. Mr. Backupsy → **Set up…**: he reads the server and proposes everything with reasons; change what you like, then *Apply*. This writes `settings.ini` (in the Compose stack it also creates the User Scripts entry `unraid-secretary-office_backup`).
+   In a terminal instead: `bash <engine>/setup.sh` — same checks, every step explained.
+4. Mr. Backupsy → **Schedule…**: e.g. every night at 02:00. The plugin writes it into its cron file `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cron` (in the Compose stack: the User Scripts entry, Custom `0 2 * * *`).
+5. A **dry run**: Mr. Backupsy → *Back up now… › Dry run*, or in a terminal `UB_DRY_RUN=1 bash <engine>/backup.sh`.
 6. The first real run: *Back up now…*, or wait for the schedule.
 
 Replacing an existing backup script: `setup.sh` warns when other User Scripts also take snapshots or run Kopia — switch off their schedule there, otherwise both run. Kopia sources whose path no longer exists in the container can be set to "manual"; after a successful new run they can also be deleted (in the terminal, confirmed by typing `DELETE`).
@@ -51,11 +51,14 @@ If a run dies hard (crash, `kill -9`), the stopped containers and the Nextcloud 
 ## Files
 
 ```
+/usr/local/emhttp/plugins/unraid-secretary-office/backup/
+                            the engine (plugin: in RAM, unpacked at boot;
+                            Compose stack: appdata/UnraidSecretaryOffice/backup)
+├── setup.sh                check, propose, write settings.ini, set up Kopia
+├── backup.sh               the nightly run
+└── lib/common.sh           shared functions
+
 /mnt/user/appdata/UnraidSecretaryOffice/
-├── backup/                 the engine (in git)
-│   ├── setup.sh            check, propose, write settings.ini, set up Kopia
-│   ├── backup.sh           the nightly run
-│   └── lib/common.sh       shared functions
 └── data/unraid-backup/     its data (not in git, root only: 0700)
     ├── settings.ini        written by setup.sh (may be edited by hand)
     ├── state/              lock, status for the office, differences, notes
@@ -69,7 +72,7 @@ If a run dies hard (crash, `kill -9`), the stopped containers and the Nextcloud 
 └── btrfs-snap/<disk>       symlinks for browsing the btrfs snapshots (view_root)
 ```
 
-On the flash there is only the User Scripts entry (three lines). Dumps never live in appdata: they go to the backup place (`[general] dumps_share`) — the office's share `UnraidSecretaryOffice` (folder `backup/`), or any other share of its own (folder `unraid-backup/`). Create the share yourself (not on the pool of appdata, SMB export off); the setup proposes it. Nothing of the engine lies directly in `/mnt`: Fix Common Problems would rightly complain. `UB_DATA` sets another data folder.
+On the flash there is only one line in the plugin's cron file (in the Compose stack: the User Scripts entry, three lines). The plugin's data folder is `DATA_DIR` in `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cfg`; the engine reads it from there. Dumps never live in appdata: they go to the backup place (`[general] dumps_share`) — the office's share `UnraidSecretaryOffice` (folder `backup/`), or any other share of its own (folder `unraid-backup/`). Create the share yourself (not on the pool of appdata, SMB export off); the setup proposes it. Nothing of the engine lies directly in `/mnt`: Fix Common Problems would rightly complain. `UB_DATA` sets another data folder.
 
 ---
 
@@ -359,6 +362,7 @@ So on every new server: *Set up…*, then a check and a dry run first.
 
 ## Versions
 
+- **2.15** – Part of the office's Unraid plugin too: the engine then lies in RAM (`/usr/local/emhttp/plugins/unraid-secretary-office/backup`) and finds its data through the plugin's `DATA_DIR` (by default still `appdata/UnraidSecretaryOffice/data/unraid-backup`); the plugin's cron file starts the nightly run, so `setup.sh` creates no User Scripts entry there and no longer asks for the User Scripts plugin. In the Compose stack nothing changes.
 - **2.14** – `backup.sh` and `setup.sh` are one block that bash reads completely before it starts: updating the engine while a run takes hours no longer breaks that run. `state/drift.json` also says per Kopia target whether its policy matches settings.ini (`policies`, differences as codes); Mr. Backupsy shows it per share together with the rules. Nothing of the engine directly in `/mnt` any more: the snapshots are mounted under `/mnt/addons/UnraidSecretaryOffice/snapshots`, the btrfs view lives in `…/btrfs-snap`; the office's share `UnraidSecretaryOffice` is proposed as the backup place (folder `backup/`), and a changed backup place is moved by the next run. The setup keeps the chosen backup place instead of guessing it again, and adds the global Kopia rule `_UnraidSecretaryOffice-trash*/`: Ms. Dustdevil's storeroom never goes offsite (its contents were backed up under their old path; the local snapshots keep them).
 - **2.13** – The engine speaks English: terminal, logs, notifications, settings.ini comments and the code's comments. Log lines are marked `WARNING:` / `ERROR:`; questions in `setup.sh` take `y`/`n` (`j` still counts as yes). Nothing the office reads changed (interface 1).
 - **2.12** – When Nextcloud refuses its maintenance mode because others can read its data folder (Unraid resets a share root to 0777 whenever share settings are saved), the run says so and how to fix it; the caretaker checks it during the day. The manifest reads btrfs from the kernel only (`--mounted`, time limit) instead of every device — a busy disk held it up for minutes.
