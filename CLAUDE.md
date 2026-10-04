@@ -165,6 +165,27 @@ character, warnings and errors stay plain and clear.
 * User Scripts may be extended by **User Scripts Enhanced** (categories in
   `/boot/config/plugins/user.scripts.enhanced/categories.json`, by
   `name<folder>`); the office's entries are `unraid-secretary-office_<what>`.
+  When a User Script last ran is only known since the reboot
+  (`/tmp/user.scripts/tmpScripts/<name>/log.txt`, RAM).
+* On ZFS pools Unraid makes **each VM folder in `domains` a dataset of its
+  own** (and every share is one): `rename()` can't move them — use
+  `zfs rename`, and remember a share and its folders are different
+  filesystems.
+* A pool sleeps when **any** of its disks does (`hive`, `hive2` … in
+  `disks.ini`); `disk1` is not `disk10`.
+* Images pinned by digest (`image: x@sha256:…`) don't show up in
+  `docker image ls`; take the image ids from `docker inspect` of the
+  containers. `docker system df` takes seconds — not in a `refresh`.
+* Searching a media pool deeper than 3 levels lists every episode (minutes):
+  keep searches shallow, prune `*.sparsebundle`, never the array.
+* Backups keep copies on purpose (the office's share, anything called
+  "backup", e.g. `my-*.xml` in a backup's `templates-user`): never treat
+  them as leftovers.
+* **Ms. Dustdevil's storeroom:** `_UnraidSecretaryOffice-trash` folders (in
+  shares, on the flash, in `/etc/libvirt`) and datasets named
+  `_UnraidSecretaryOffice-trash-<stamp>-<name>` hold things put away, with a
+  `manifest.json` per run. Other desks list them as what they are (or skip
+  them) — never as a share's own folders, and nothing but her writes there.
 
 ## Checklist for a change
 
