@@ -757,6 +757,8 @@ async function setupLoad() {
     setup.applied = j.run;
     if (j.run && j.run.result === 'ok') {
       Office.toast(T('setup.applied'));
+      // the differences shown so far come from before: check against the new settings right away (seconds, changes nothing)
+      Office.api.post(`${ID}.start`, { mode: 'check' }).then(() => load(true));
       load(true);
       await setupPlan(false, true);          // look again: the plan should now show no changes
       return;

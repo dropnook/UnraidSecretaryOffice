@@ -880,6 +880,8 @@ cleanup() {
     if [[ ${#STOPPED[@]} -gt 0 || ${#NC_ON[@]} -gt 0 ]]; then
         log "Stelle den Normalbetrieb wieder her ..."
         restore_service
+        # a stop mid-run: the interruption lasted until now (otherwise the status says 0 s)
+        [[ -n "${STOP_AT:-}" && "${DOWNTIME:-0}" == 0 ]] && DOWNTIME=$(( $(date +%s) - STOP_AT ))
     fi
     if [[ "$MOUNTED" == "yes" && "$KEEP_MOUNTS" != "yes" ]]; then
         unmount_all
