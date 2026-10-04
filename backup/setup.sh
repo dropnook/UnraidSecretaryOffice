@@ -394,6 +394,12 @@ TXT
     pinit "kopia|keep_annual"      "3"
     pinit "kopia|compression"      "inherit"
     pinit "kopia|ignore"           "$(printf '%s\n' .DS_Store '._*' '.Trash-*' '.Recycle.Bin/' '*@eaDir*' '*@__thumb*' '*SynoResource*')"
+    # Ms. Dustdevil's storeroom never goes offsite: what lies there was backed up under its old
+    # path before, and the local snapshots keep it until it is emptied (folders and datasets)
+    if ! plist "kopia|ignore" | grep -Fxq "_$UB_OFFICE_SHARE-trash*/"; then
+        plist_add "kopia|ignore" "_$UB_OFFICE_SHARE-trash*/"
+        hint "Kopia leaves out Ms. Dustdevil's storeroom (_$UB_OFFICE_SHARE-trash) - the local snapshots keep it"
+    fi
 
     # Snapshot prefix: a prefix of its own, "unraidbackup-". backup.sh never touches
     # snapshots of other tools (other prefixes) - not even when cleaning up.
