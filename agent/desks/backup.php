@@ -113,6 +113,7 @@ function backupScan(): array
         'status'     => $status,
         'step'       => $running && !$status ? lastLogStep("$data/logs/latest.log") : null,
         'since'      => $running ? (@filemtime("$data/state/lock") ?: null) : null,
+        'paused'     => $running ? backupPaused($data) : null,
         'history'    => $history,
         'estimates'  => backupEstimates($history),
         'drift'      => backupDrift(),
@@ -580,6 +581,27 @@ function backupNextcloudDataDir(string $container): ?string
     $dir = preg_match("/'datadirectory'\s*=>\s*'([^']+)'/", $text, $m) ? rtrim($m[1], '/') : '/var/www/html/data';
     $host = $toHost($dir);
     return $host !== null && is_dir($host) ? $host : null;
+}
+
+/**
+ * What a running backup has paused right now — the engine notes it in state/
+ * so it can put things back after a crash: stopped containers (state/stopped,
+ * gone once they run again) and Nextclouds in maintenance mode.
+ */
+function backupPaused(string $data): array
+{
+    $read = function (string $file): array {
+        $list = @file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+        return array_values(array_unique(array_filter(array_map('trim', $list), fn ($x) => $x !== '' && preg_match('/^[\w.@-]{1,128}$/', $x))));
+    };
+    $stopped = $read("$data/state/stopped");
+    $maint = $read("$data/state/maintenance");
+    return [
+        'stopped'           => $stopped,
+        'stopped_since'     => $stopped ? (@filemtime("$data/state/stopped") ?: null) : null,
+        'maintenance'       => $maint,
+        'maintenance_since' => $maint ? (@filemtime("$data/state/maintenance") ?: null) : null,
+    ];
 }
 
 /** Sets the nightly run in User Scripts (cron) or switches it off (null / '') */

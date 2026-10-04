@@ -512,5 +512,11 @@
   "setup.edits_title": "Changed by you",
   "setup.bubble_old": "This is what I knew {when} — things may have changed since. Read the server again with \"Read again\" before you apply.",
   "check.nextcloud_datadir": "Nextcloud \"{name}\": data folder readable by Nextcloud only",
-  "check.nextcloud_datadir_how": "{path} is set to {mode} — Nextcloud then refuses to work, and maintenance mode for the backup can't be switched on. Unraid resets a share's root to 0777 whenever share settings are saved. Fix: chown 33:33 and chmod 0770 on {path} (e.g. as a User Script)."
+  "check.nextcloud_datadir_how": "{path} is set to {mode} — Nextcloud then refuses to work, and maintenance mode for the backup can't be switched on. Unraid resets a share's root to 0777 whenever share settings are saved. Fix: chown 33:33 and chmod 0770 on {path} (e.g. as a User Script).",
+  "paused.stopped": {
+    "one": "Stopped right now (1):",
+    "other": "Stopped right now ({n}):"
+  },
+  "paused.maintenance": "In maintenance mode:",
+  "paused.note": "Only for the dumps and snapshots — then I start everything again, I promise. Even after a crash: it's noted down here."
 }

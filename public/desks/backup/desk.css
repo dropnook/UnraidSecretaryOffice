@@ -70,3 +70,9 @@
 .bk-schedule-field{margin:0 0 14px 25px; display:flex; flex-direction:column; gap:5px; max-width:260px}
 .bk-schedule-field small{font-size:12px; color:var(--muted)}
 .bk-schedule input.input:disabled{opacity:.5}
+
+/* what a running backup has paused right now */
+.bk-paused{display:flex; flex-direction:column; gap:6px; padding:10px 12px; border:1px solid var(--line); border-left:3px solid var(--warn); border-radius:var(--radius); background:var(--surface2)}
+.bk-paused-row{display:flex; flex-wrap:wrap; align-items:center; gap:5px 6px}
+.bk-paused-label{font-size:12.5px; font-weight:650; color:var(--ink); margin-right:4px}
+.bk-paused-note{font-size:12px; color:var(--muted)}

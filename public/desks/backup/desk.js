@@ -286,6 +286,26 @@ function runningCard() {
   if (s.downtime_s) line.append(' · ', T('downtime_was', { duration: fmt.duration(s.downtime_s) }));
   card.appendChild(line);
 
+  // what is paused right now: stopped containers, Nextcloud in maintenance mode
+  const pz = state.paused || {};
+  if ((pz.stopped || []).length || (pz.maintenance || []).length) {
+    const paused = el('div', 'bk-paused');
+    if ((pz.stopped || []).length) {
+      const row = el('div', 'bk-paused-row');
+      row.append(el('span', 'bk-paused-label', T('paused.stopped', { n: pz.stopped.length })));
+      pz.stopped.forEach((n) => row.appendChild(chip(n, 'warn')));
+      paused.appendChild(row);
+    }
+    if ((pz.maintenance || []).length) {
+      const row = el('div', 'bk-paused-row');
+      row.append(el('span', 'bk-paused-label', T('paused.maintenance')));      // no time: the engine rewrites that file now and then
+      pz.maintenance.forEach((n) => row.appendChild(chip(n, 'warn')));
+      paused.appendChild(row);
+    }
+    paused.appendChild(el('div', 'bk-paused-note', T('paused.note')));
+    card.appendChild(paused);
+  }
+
   if (p.planned.length) {
     const list = el('div', 'bk-sources');
     const est = state.estimates.sources || {};
