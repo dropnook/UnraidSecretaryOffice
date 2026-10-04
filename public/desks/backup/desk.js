@@ -15,7 +15,7 @@ const SETUP_STALE = 600;          // seconds: an older plan is read again when t
 const STEPS = [
   ['prepare', ['start', 'inventory']],
   ['dumps', ['maintenance', 'manifest', 'stopping_apps', 'dumps']],
-  ['snapshots', ['stopping', 'snapshots', 'starting']],
+  ['snapshots', ['stopping', 'vms', 'snapshots', 'starting']],
   ['kopia', ['mounting', 'kopia']],
   ['finish', ['unmounting', 'cleanup', 'aborting', 'done']],
 ];
@@ -192,6 +192,7 @@ function render() {
     [T('help.protection'), T('help.protection_text')],
     ...['offsite', 'local', 'none'].map((l) => [Office.backupChip(l), Office.t('protect.' + l + '_text')]),
     [T('help.rules'), T('help.rules_text')],
+    [T('help.vms'), T('help.vms_text')],
     [T('help.buttons'), T('help.buttons_text')],
     [T('setup_open'), T('help.setup')],
     [T('history'), T('help.history')],
@@ -351,7 +352,7 @@ function summary() {
     stats.appendChild(st);
     stats.appendChild(stat(T('stat.duration'), last.finished ? fmt.duration(last.finished - last.started) : '–',
       T('stat.downtime', { duration: fmt.duration(last.downtime || 0) })));
-    if (k.length) stats.appendChild(stat(T('stat.kopia'), `${okCount} / ${k.length}`, okCount === k.length ? T('stat.kopia_all') : T('stat.kopia_missing', { n: k.length - okCount }), okCount !== k.length));
+
   } else {
     stats.appendChild(stat(T('stat.last'), '–', T('bubble.no_runs')));
   }
@@ -369,8 +370,86 @@ function summary() {
   if (s && s.mode !== 'backup' && s.finished) {
     stats.appendChild(stat(T('stat.last_' + s.mode), T('result.' + s.result), fmt.relative(s.finished), s.result !== 'ok'));
   }
+  overviewTiles().forEach((t) => stats.appendChild(t));
   box.appendChild(stats);
   return box;
+}
+
+/** What is backed up besides the shares: the containers, the VMs, the flash */
+function overviewTiles() {
+  const set = state.settings || {};
+  const tiles = [];
+  const clickable = (t, act) => {
+    t.classList.add('bk-clickable');
+    t.tabIndex = 0;
+    t.setAttribute('role', 'button');
+    t.onclick = act;
+    t.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); act(); } };
+    return t;
+  };
+  const c = state.containers;
+  // Kopia: the last run's sources, the container, the repository and whether its policies match
+  if (set.kopia_enabled) {
+    // the newest run that got as far as Kopia (a run that stopped before it says nothing about Kopia)
+    const withKopia = (state.history || []).find((r) => (r.kopia || []).length);
+    const k = (withKopia && withKopia.kopia) || [];
+    const okCount = k.filter((x) => x.ok).length;
+    const kc = c && c.kopia;
+    const st = status();
+    const repoNo = st && st.kopia && st.kopia.state === 'no';
+    const pol = state.drift && Array.isArray(state.drift.policies) ? state.drift.policies : null;
+    const bad = pol ? pol.filter((p) => !p.ok).length : 0;
+    const sub = [];
+    if (kc) sub.push(!kc.exists ? T('stat.kopia_missing_ct', { name: kc.name }) : kc.running ? T('stat.kopia_running', { name: kc.name }) : T('stat.kopia_stopped', { name: kc.name }));
+    if (repoNo) sub.push(T('stat.kopia_repo_problem'));
+    if (pol) sub.push(bad ? T('stat.kopia_policies_bad', { n: bad }) : T('stat.kopia_policies_ok'));
+    const value = k.length ? `${okCount} / ${k.length}` : '–';
+    const trouble = (kc && (!kc.exists || !kc.running)) || repoNo || bad > 0 || (k.length && okCount !== k.length);
+    if (k.length && okCount !== k.length) sub.unshift(T('stat.kopia_missing', { n: k.length - okCount }));
+    else if (withKopia) sub.unshift(T('stat.kopia_when', { when: fmt.relative(withKopia.started) }));
+    tiles.push(stat(T('stat.kopia'), value, sub.join(' · '), !!trouble));
+  }
+  if (c && c.total) {
+    tiles.push(stat(T('stat.containers'), String(c.total), [T('stat.ct_stopped', { n: c.stopped }), T('stat.ct_kept', { n: c.kept })].join(' · ')));
+  }
+  // databases: dumped before every snapshot, and the newest dumps
+  const dbs = set.dumps || [];
+  if (dbs.length || (set.nextcloud || []).length) {
+    const latest = (state.dumps || []).find((d) => d.files.length);
+    const sub = [];
+    if (latest) sub.push(T('stat.db_last', { when: fmt.relative(latest.time), size: fmt.size(latest.files.reduce((a, f) => a + f.bytes, 0)) }));
+    else if (dbs.length) sub.push(T('never'));
+    if ((set.nextcloud || []).length) sub.push(T('stat.db_nextcloud'));
+    tiles.push(stat(T('stat.dbs'), String(dbs.length), sub.join(' · ')));
+  }
+  const vms = state.vms || [];
+  if (vms.length) {
+    const count = {};
+    vms.forEach((v) => {
+      const k = !v.configured ? 'unset' : v.mode === 'off' && v.own.length ? 'off' : v.prepare;
+      count[k] = (count[k] || 0) + 1;
+    });
+    const sub = ['freeze', 'pause', 'shutdown', 'none', 'off', 'unset'].filter((k) => count[k]).map((k) => T('stat.vm_' + k, { n: count[k] }));
+    const t = stat(T('stat.vms'), String(vms.length), sub.join(' · '), !!count.unset);
+    tiles.push(clickable(t, () => {
+      const g = view && view.querySelector('.bk-protect tr.bk-group');
+      if (g) g.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }));
+  }
+  const flash = set.flash || 'off';
+  const fl = (state.shares || []).find((x) => x.flash);
+  const tarRun = (state.dumps || []).find((d) => d.flash);
+  let value; let sub = ''; let alert = false;
+  if (flash === 'snapshot') {
+    value = set.kopia_enabled ? T('stat.flash_offsite') : T('stat.flash_local');
+    if (fl && fl.last) { sub = fl.last.ok ? T('stat.flash_last', { when: fmt.relative(fl.last.time) }) : T('failed'); alert = !fl.last.ok; }
+    else if (set.kopia_enabled) sub = T('never');
+  } else if (flash === 'tar') {
+    value = T('stat.flash_tar');
+    sub = tarRun ? T('stat.flash_last', { when: fmt.relative(tarRun.time) }) : T('never');
+  } else { value = T('stat.flash_off'); alert = true; }
+  tiles.push(stat(T('stat.flash'), value, sub, alert));
+  return tiles;
 }
 
 /** Is everything protected? Every share with its mode and last offsite copy; a row unfolds to its rules */
@@ -467,6 +546,57 @@ function protection() {
     shown.push({ open: () => !!dtr, set });
     if (protOpen.has(key(s))) set(true);
   });
+
+  // the VMs: their disks are in their share's snapshot - here how each one is treated for it
+  const vms = state.vms || [];
+  if (vms.length) {
+    const g = el('tr', 'bk-group');
+    const gth = el('th', '', T('vm.group'));
+    gth.colSpan = 5;
+    g.appendChild(gth);
+    body.appendChild(g);
+    vms.forEach((v) => {
+      const tr = el('tr', 'unfolds');
+      const name = el('th', 'link', v.name);
+      name.title = T('details');
+      tr.appendChild(name);
+      const modeCell = el('td');
+      modeCell.appendChild(Office.backupChip(vmLevel(v, kopiaOn)));
+      if (v.configured && v.mode !== 'off') modeCell.append(' ', chip(T('vm.prep.' + v.prepare), v.prepare === 'none' ? 'warn' : '', T('vm.prep_text.' + v.prepare)));
+      if (!v.configured) modeCell.append(' ', chip(T('vm.not_set_up'), 'warn', T('vm.not_set_up_hint')));
+      tr.appendChild(modeCell);
+      const last = v.last;
+      const lastCell = el('td', '', last && last.snapshot && last.time ? fmt.relative(last.time) : '');
+      if (last && last.time) lastCell.title = fmt.date(last.time);
+      const took = el('td', '', last && ['frozen', 'paused', 'shutdown'].includes(last.done) ? dur(last.seconds) : '');
+      tr.append(lastCell, took);
+      tr.appendChild(el('td', '', last ? T('vm.done.' + last.done) : ''));
+      body.appendChild(tr);
+      let dtr = null;
+      const id = 'vm:' + v.name;
+      const set = (open) => {
+        if (!open && dtr) { dtr.remove(); dtr = null; protOpen.delete(id); tr.classList.remove('open'); }
+        if (open && !dtr) {
+          dtr = el('tr', 'bk-detail');
+          const td = el('td');
+          td.colSpan = 5;
+          td.appendChild(vmDetail(v));
+          dtr.appendChild(td);
+          tr.after(dtr);
+          protOpen.add(id);
+          tr.classList.add('open');
+        }
+      };
+      tr.onclick = (e) => {
+        if (e.target.closest('button, a, input, select, [data-own], .chip')) return;
+        if (String(window.getSelection && window.getSelection()).length) return;
+        Office.keepInPlace(tr, () => set(!dtr));
+        label();
+      };
+      shown.push({ open: () => !!dtr, set });
+      if (protOpen.has(id)) set(true);
+    });
+  }
   label();
   table.appendChild(body);
   wrap.appendChild(table);
@@ -481,6 +611,49 @@ function protection() {
     facts.push(T('fact.kopia', { d: k.daily ?? '–', w: k.weekly ?? '–', m: k.monthly ?? '–', y: k.annual ?? '–' }));
   } else facts.push(T('fact.kopia_off'));
   box.appendChild(el('p', 'role', facts.join(' · ')));
+  return box;
+}
+
+/** A VM's protection: its share's, unless it is left out or no snapshot can hold its disks */
+function vmLevel(v, kopiaOn) {
+  if ((v.snap && v.snap !== 'yes') || (v.mode === 'off' && v.own.length) || !v.share_mode || v.share_mode === 'off') return 'none';
+  return v.share_mode === 'kopia' && kopiaOn ? 'offsite' : 'local';
+}
+
+/** An unfolded VM row: how it is treated, what the last run did, where its disks lie, how long snapshots stay */
+function vmDetail(v) {
+  const set = state.settings || {};
+  const box = el('div', 'bk-pdetail');
+  const dl = el('dl', 'kv');
+  const add = (term, ...content) => {
+    const dd = el('dd');
+    content.forEach((c) => dd.append(c));
+    dl.append(el('dt', '', term), dd);
+  };
+  if (v.mode === 'off' && v.own.length) add(T('vm.d_snapshot'), T('vm.left_out'));
+  else add(T('vm.d_snapshot'), v.configured ? T('vm.prep_text.' + v.prepare) : T('vm.not_set_up_hint'));
+  if (v.last) add(T('vm.d_last'), T('vm.done_text.' + v.last.done, { s: dur(v.last.seconds) }), ' ', el('span', 'role', v.last.time ? fmt.relative(v.last.time) : ''));
+  if (v.disks.length) {
+    const ul = el('div', 'bk-rules');
+    v.disks.forEach((d) => ul.append(el('code', '', d.source), ' ', el('span', 'role', d.dataset || d.fs || '?'), el('br')));
+    add(T('vm.d_disks'), ul);
+  }
+  if (v.snap && v.snap !== 'yes') add(T('vm.d_problem'), T('setup.vm_cannot.' + v.snap));
+  else if (v.own.length) {
+    const sh = (state.shares || []).find((x) => x.name === v.share);
+    add(T('vm.d_keeps'), v.retention ? T('vm.keeps_own', { r: v.retention }) : T('vm.keeps_share', { r: (sh && sh.retention) || set.zfs_retention || '?' }));
+  }
+  else if (v.disks.length) add(T('vm.d_keeps'), T('vm.keeps_shared'));
+  const notes = [];
+  if (v.tpm) notes.push(T('vm.note_tpm'));
+  if (v.hostdev) notes.push(T('vm.note_gpu', { n: v.hostdev }));
+  if (notes.length) add(T('vm.d_notes'), notes.join(' '));
+  box.appendChild(dl);
+  const foot = el('p', 'role bk-pfoot', T('vm.where_to_change') + ' ');
+  const b = button(T('pd.change'), 'small', () => { setup.focus = 'vm:' + v.name; Office.go(`#/${ID}/setup`); });
+  b.disabled = !(state.found && Office.agent.running);
+  foot.appendChild(b);
+  box.appendChild(foot);
   return box;
 }
 
@@ -661,6 +834,7 @@ function restoreSection() {
   box.appendChild(dl);
   const vmArchive = (state.dumps || []).find((d) => d.libvirt);
   if (vmArchive) box.appendChild(vmRestore(vmArchive));
+  box.appendChild(newServerGuide());
 
   const dumps = state.dumps || [];
   const latest = dumps.find((d) => d.files.length);
@@ -741,6 +915,57 @@ function vmRestore(d) {
     box.appendChild(one);
   }
   return box;
+}
+
+/**
+ * Everything onto another Unraid server (the old one burnt, was stolen or retired):
+ * what may come back, what must not, and the stumbling blocks - from what is really here.
+ */
+function newServerGuide() {
+  const set = state.settings || {};
+  const wrap = el('div', 'bk-vm-restore');
+  wrap.appendChild(el('h3', '', T('move.title')));
+  wrap.appendChild(el('p', 'role', T('move.sub')));
+  const how = el('details', 'bk-how');
+  how.appendChild(el('summary', '', T('move.open')));
+  const holder = (cls, ...kids) => { const d = el('div', cls); kids.forEach((k) => d.append(k)); return d; };
+  const step = (title, text, ...extra) => {
+    const st = el('div', 'bk-rstep');
+    st.appendChild(el('div', 'bk-rstep-title', title));
+    if (text) st.appendChild(el('div', 'role', text));
+    extra.filter(Boolean).forEach((x) => st.appendChild(x));
+    how.appendChild(st);
+  };
+  const dumps = state.dumps || [];
+  const withManifest = dumps.find((d) => d.manifest);
+  const m = withManifest ? withManifest.path + '/manifest' : '<' + T('move.dumps_folder') + '>/<run>/manifest';
+  const shares = (state.shares || []).filter((x) => !x.flash).map((x) => x.name);
+  const vms = state.vms || [];
+  const gpu = vms.filter((v) => v.hostdev).map((v) => v.name);
+  const tpm = vms.filter((v) => v.tpm).map((v) => v.name);
+  const vmShares = [...new Set(vms.map((v) => v.share).filter(Boolean))];
+  const vmOffsite = vmShares.length && vmShares.every((sh) => (state.shares || []).some((x) => x.name === sh && x.mode === 'kopia')) && set.kopia_enabled;
+
+  step(T('move.s1'), T('move.s1_text'));
+  step(T('move.s2'), T('move.s2_text', { n: shares.length }), shares.length ? holder('bk-rules', ...shares.flatMap((n) => [el('code', '', n), ' '])) : null,
+    el('div', 'role', T('move.s2_cfg', { path: m + '/shares/' })));
+  const advisor = Office.desks.has('advisor') ? Object.assign(el('a', '', T('move.advisor')), { href: '#/advisor' }) : null;
+  step(T('move.s3'), set.kopia_enabled ? T('move.s3_text') : T('move.s3_nokopia'), advisor ? holder('role', advisor) : null);
+  step(T('move.s4'), T('move.s4_text'),
+    codeBlock(`cp -n '${m}/docker-templates/'my-*.xml /boot/config/plugins/dockerMan/templates-user/\ncp -rn '${m}/compose/.' /boot/config/plugins/compose.manager/projects/`),
+    el('div', 'role', T('move.s4_after')));
+  step(T('move.s5'), T('move.s5_text'), (set.nextcloud || []).length ? el('div', 'role', T('move.s5_nextcloud')) : null);
+  if (vms.length) {
+    step(T('move.s6'), vmOffsite ? T('move.s6_offsite') : T('move.s6_local', { shares: vmShares.join(', ') || 'domains' }),
+      el('div', 'role', T('move.s6_xml')),
+      gpu.length ? el('div', 'role', T('move.s6_gpu', { names: gpu.join(', ') })) : null,
+      tpm.length ? el('div', 'role', T('move.s6_tpm', { names: tpm.join(', ') })) : null,
+      el('div', 'role', T('move.s6_overlay')));
+  }
+  step(T('move.s7'), set.flash === 'snapshot' ? T('move.s7_snapshot') : T('move.s7_tar'), el('div', 'role', T('move.s7_never')));
+  step(T('move.s8'), T('move.s8_text'));
+  wrap.appendChild(how);
+  return wrap;
 }
 
 /** A block of commands with a copy button */
@@ -1084,6 +1309,7 @@ function renderSetup() {
   root.appendChild(setupKopia(plan));
   root.appendChild(setupShares(plan));
   root.appendChild(setupContainers(plan));
+  root.appendChild(setupVms(plan));
   root.appendChild(setupDatabases(plan));
   root.appendChild(setupGeneral(plan));
   if (dget('kopia|enabled') === 'yes') root.appendChild(setupPolicies());
@@ -1093,7 +1319,7 @@ function renderSetup() {
   setupBar();
   // came from "Change…" on the main page: show that share
   if (setup.focus) {
-    const row = [...root.querySelectorAll('tr[data-share]')].find((r) => r.dataset.share === setup.focus);
+    const row = [...root.querySelectorAll('[data-share], [data-focus]')].find((r) => (r.dataset.focus || r.dataset.share) === setup.focus);
     setup.focus = null;
     if (row) requestAnimationFrame(() => row.scrollIntoView({ block: 'start', behavior: 'smooth' }));
   }
@@ -1304,6 +1530,56 @@ function setupContainers(plan) {
       right.append(warn, sel);
       row.appendChild(right);
     }
+    list.appendChild(row);
+  });
+  s.appendChild(list);
+  return s;
+}
+
+/** VMs: how each one is treated for the seconds of the snapshot; left out or kept apart when it has a dataset of its own */
+function setupVms(plan) {
+  const s = setupSection(T('setup.vms'), T('setup.vms_sub'));
+  if (!plan.vm_service) { s.appendChild(el('p', 'empty', T('setup.vm_service_off'))); return s; }
+  const vms = plan.vms || [];
+  if (!vms.length) { s.appendChild(el('p', 'empty', T('setup.vm_none'))); return s; }
+  const list = el('div', 'box');
+  vms.forEach((v) => {
+    const k = (x) => `vm|${v.name}|${x}`;
+    const row = el('div', 'row nocheck bk-vm');
+    row.dataset.focus = 'vm:' + v.name;
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name', v.name));
+    const meta = el('div', 'row-meta');
+    meta.appendChild(el('span', '', T(v.state === 'running' ? 'setup.vm_running' : 'setup.vm_off')));
+    meta.appendChild(chip(T('setup.vm_agent.' + v.agent), v.agent === 'yes' ? 'ok' : '', T('setup.vm_agent_hint.' + v.agent)));
+    if (v.tpm) meta.appendChild(chip(T('setup.vm_tpm'), '', T('setup.vm_tpm_hint')));
+    if (v.hostdev) meta.appendChild(chip(T('setup.vm_gpu', { n: v.hostdev }), '', T('setup.vm_gpu_hint')));
+    if (v.snap !== 'yes') meta.appendChild(chip(T('setup.vm_cannot.' + v.snap), 'danger', T('setup.vm_cannot_hint')));
+    else if (v.own.length) meta.appendChild(el('span', 'mono', v.own.join(', ')));
+    else meta.appendChild(chip(T('setup.vm_shared'), '', T('setup.vm_shared_hint')));
+    if (v.share_mode === 'off') meta.appendChild(chip(T('setup.vm_share_off'), 'warn', T('setup.vm_share_off_hint')));
+    main.appendChild(meta);
+    row.appendChild(main);
+
+    const right = el('div', 'bk-right');
+    const mode = selectInput(k('mode'), ['snapshot', 'off'], (o) => T('setup.vm_mode.' + o));
+    if (!v.own.length) { mode.value = 'snapshot'; mode.disabled = true; mode.title = T('setup.vm_shared_hint'); }
+    const prep = selectInput(k('prepare'), ['freeze', 'pause', 'shutdown', 'none'], (o) => T('setup.vm_prep.' + o));
+    prep.title = T('setup.vm_prep_hint');
+    const ret = textInput(k('retention'), /^\d+ \d+ \d+$/, T('setup.vm_ret_ph'));
+    ret.classList.add('bk-ret');
+    ret.title = T('setup.vm_ret_hint');
+    const warn = chip(T('setup.vm_noagent'), 'warn', T('setup.vm_noagent_hint'));
+    const sync = () => {
+      warn.hidden = !(prep.value === 'freeze' && (v.agent === 'no' || v.agent === 'none'));
+      prep.disabled = mode.value === 'off';
+      ret.hidden = !v.own.length || mode.value === 'off';
+    };
+    mode.addEventListener('change', sync);
+    prep.addEventListener('change', sync);
+    right.append(warn, mode, prep, ret);
+    sync();
+    row.appendChild(right);
     list.appendChild(row);
   });
   s.appendChild(list);

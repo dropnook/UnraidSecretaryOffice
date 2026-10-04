@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.15 - 2026-10-04
+# unraid-backup - backup.sh                       Version 2.16 - 2026-10-04
+#   2.16 VMs: [vm "<name>"] prepare = freeze | pause | shutdown | none for the seconds of the
+#        snapshot (released right after the snapshot that holds their disks), mode = off and an own
+#        retention for VMs in a dataset of their own; the libvirt archive after the VMs are held
 #   2.15 Also part of the office's Unraid plugin: code in RAM, data from the plugin's DATA_DIR,
 #        the nightly run scheduled by the plugin's cron file instead of User Scripts.
 #   2.14 The whole script is one { ... } block: bash reads it completely before it
@@ -206,6 +209,111 @@ build_stop_tiers() {
 save_restore_state() {
     if [[ ${#STOPPED[@]} -gt 0 ]]; then printf '%s\n' "${STOPPED[@]}" >"$UB_STATE/stopped"; else rm -f "$UB_STATE/stopped"; fi
     if [[ ${#NC_ON[@]} -gt 0 ]]; then printf '%s\n' "${!NC_ON[@]}" >"$UB_STATE/maintenance"; else rm -f "$UB_STATE/maintenance"; fi
+    local v; : >"$UB_STATE/.vms.$$"
+    for v in "${!VM_HELD[@]}"; do printf '%s|%s\n' "$v" "${VM_HELD[$v]}" >>"$UB_STATE/.vms.$$"; done
+    if [[ -s "$UB_STATE/.vms.$$" ]]; then mv -f "$UB_STATE/.vms.$$" "$UB_STATE/vms"; else rm -f "$UB_STATE/.vms.$$" "$UB_STATE/vms"; fi
+}
+
+##############################################################################
+# VMs around the snapshots
+##############################################################################
+# A running VM's disks change while the snapshot is taken. [vm "<name>"] prepare:
+#   freeze    the guest agent flushes and freezes the file systems inside (seconds)
+#   pause     the VM stops for the seconds of the snapshot (no guest agent needed)
+#   shutdown  shut down cleanly before, started again after (minutes)
+#   none      keeps running - its disks are only crash-consistent (like pulling the plug)
+# Shutdowns begin together with pausing the apps, so they overlap; freezing and pausing
+# come right before the snapshots, and each VM is released right after the snapshot
+# that holds its disks (ZFS first, btrfs after). Noted in state/vms before acting.
+declare -A VM_HELD=()     # name -> frozen | paused | shutdown
+declare -A VM_HELD_AT=()  # name -> since when (s)
+declare -a VM_TODO=()     # running VMs whose disks this run snapshots, prepare != none
+
+vm_plan() {
+    local n p
+    VM_TODO=(); ST_VMS=()
+    for n in "${VM_NAMES[@]}"; do
+        p="$(vm_prepare "$n")"
+        if [[ "$(vm_mode "$n")" == "off" ]]; then ST_VMS+=( "$n|$p|off|0|0" ); continue; fi
+        if ! vm_snapshotted "$n"; then ST_VMS+=( "$n|$p|kept_running|0|0" ); continue; fi
+        if [[ "${VM_STATE[$n]}" != "running" ]]; then ST_VMS+=( "$n|$p|not_running|0|1" ); continue; fi
+        if [[ "$p" == "none" ]]; then ST_VMS+=( "$n|$p|kept_running|0|1" ); continue; fi
+        VM_TODO+=( "$n" ); ST_VMS+=( "$n|$p|planned|0|1" )
+    done
+}
+
+vm_note() { # vm_note <name> <prepare> <done> <seconds>  - replaces the VM's line in ST_VMS
+    local -a keep=(); local l
+    for l in "${ST_VMS[@]}"; do [[ "${l%%|*}" == "$1" ]] || keep+=( "$l" ); done
+    ST_VMS=( "${keep[@]}" "$1|$2|$3|$4|1" ); status_write
+}
+
+vm_hold_begin() { # the shutdowns, early: they take a while
+    local n
+    for n in "${VM_TODO[@]}"; do
+        [[ "$(vm_prepare "$n")" == "shutdown" ]] || continue
+        VM_HELD[$n]="shutdown"; VM_HELD_AT[$n]="$(date +%s)"; save_restore_state
+        if timeout 30 virsh shutdown "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': shutting down"
+        else warn "VM '$n' did not take the shutdown request"; fi
+    done
+}
+
+vm_hold() { # right before the snapshots
+    local n p t
+    for n in "${VM_TODO[@]}"; do
+        p="$(vm_prepare "$n")"
+        case "$p" in
+            shutdown)
+                for (( t = 0; t < VM_SHUTDOWN_TIMEOUT; t += 2 )); do
+                    [[ "$(timeout 10 virsh domstate "$n" 2>/dev/null | head -1)" == "shut off" ]] && break
+                    sleep 2
+                done
+                if [[ "$(timeout 10 virsh domstate "$n" 2>/dev/null | head -1)" == "shut off" ]]; then
+                    log "  VM '$n': shut down"
+                    continue
+                fi
+                # never forced off: pause it instead, the guest decides about its own shutdown
+                warn "VM '$n' did not shut down within ${VM_SHUTDOWN_TIMEOUT} s - paused instead"
+                p="pause"
+                ;;
+        esac
+        if [[ "$p" == "freeze" ]]; then
+            VM_HELD[$n]="frozen"; VM_HELD_AT[$n]="$(date +%s)"; save_restore_state
+            if timeout 60 virsh domfsfreeze "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': file systems frozen"; continue; fi
+            warn "VM '$n': the guest agent did not freeze its file systems - paused instead"
+            unset "VM_HELD[$n]"; p="pause"
+        fi
+        if [[ "$p" == "pause" ]]; then
+            VM_HELD[$n]="paused"; VM_HELD_AT[$n]="${VM_HELD_AT[$n]:-$(date +%s)}"; save_restore_state
+            if timeout 30 virsh suspend "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': paused"
+            else
+                warn "VM '$n' could not be paused - it keeps running (crash-consistent)"
+                unset "VM_HELD[$n]" "VM_HELD_AT[$n]"; save_restore_state
+                vm_note "$n" "$(vm_prepare "$n")" "failed" 0
+            fi
+        fi
+    done
+}
+
+vm_release() { # vm_release [btrfs]  - without an argument the VMs on ZFS only
+    local n how secs
+    for n in "${!VM_HELD[@]}"; do
+        if [[ "${1:-}" != "btrfs" ]] && vm_on_btrfs "$n"; then continue; fi
+        how="${VM_HELD[$n]}"
+        case "$how" in
+            frozen)   timeout 60 virsh domfsthaw "$n" >/dev/null 2>>"$LOG_FILE" || warn "VM '$n': thawing its file systems failed - check the VM" ;;
+            paused)   timeout 30 virsh resume "$n" >/dev/null 2>>"$LOG_FILE" \
+                          || { warn "VM '$n' could NOT be resumed"; ub_notify "VM not resumed" "'$n' is still paused after the snapshot: virsh resume $n" "alert"; } ;;
+            shutdown) [[ "$(timeout 10 virsh domstate "$n" 2>/dev/null | head -1)" == "shut off" ]] \
+                          && { timeout 60 virsh start "$n" >/dev/null 2>>"$LOG_FILE" \
+                               || { warn "VM '$n' could NOT be started"; ub_notify "VM not started" "'$n' could not be started after the snapshot." "alert"; }; } ;;
+        esac
+        secs=$(( $(date +%s) - ${VM_HELD_AT[$n]:-$(date +%s)} ))
+        log "  VM '$n': released ($how, ${secs} s)"
+        vm_note "$n" "$(vm_prepare "$n")" "$how" "$secs"
+        unset "VM_HELD[$n]" "VM_HELD_AT[$n]"
+    done
+    save_restore_state
 }
 
 stop_tier() { # stop_tier <name...>
@@ -911,6 +1019,10 @@ cleanup() {
         status_phase "aborting"
     fi
     kopia_stop
+    if [[ ${#VM_HELD[@]} -gt 0 ]]; then
+        log "Releasing the VMs ..."
+        vm_release btrfs
+    fi
     if [[ ${#STOPPED[@]} -gt 0 || ${#NC_ON[@]} -gt 0 ]]; then
         log "Restoring normal operation ..."
         restore_service
@@ -976,12 +1088,14 @@ RUN_DIR="$UB_DUMPS/$TS"
 status_phase "inventory"
 inv_scan
 docker_load
+vm_load
 plan_build
 [[ ${#PLAN_ZFS[@]}   -gt 0 ]] && ! command -v zfs   >/dev/null && die "zfs is missing"
 [[ ${#PLAN_BTRFS[@]} -gt 0 ]] && ! command -v btrfs >/dev/null && die "btrfs is missing"
 
 drift_check_shares
 drift_check_containers
+drift_check_vms
 if [[ "$SKIPK" != "1" ]]; then drift_check_kopia; else KOPIA_OK="skip"; fi
 
 # The backup place: a share of its own, backed up - otherwise no run (nothing is paused up to here)
@@ -1030,6 +1144,7 @@ esac
 
 # --- Showing the plan -----------------------------------------------------
 build_stop_tiers
+vm_plan
 log "Plan:"
 log "  ZFS snapshots:    ${PLAN_ZFS[*]:-none}"
 log "  btrfs snapshots:  ${PLAN_BTRFS[*]:-none}"
@@ -1039,6 +1154,15 @@ log "  Dumps:            $(cfg_names dump | paste -sd' ' -)"
 log "  Nextcloud:        $(cfg_names nextcloud | paste -sd' ' -)"
 log "  Pause:            ${T_APP[*]:-} | DB: ${T_DB[*]:-} | network: ${T_NET[*]:-}"
 log "  Keep running:     ${KOPIA_CONTAINER:-} ${DOCKER_NO_STOP[*]:-}"
+if [[ "$VM_SERVICE" == "yes" ]]; then
+    # per VM what happens: its prepare method, or why nothing (off, kept_running, not_running)
+    vmline=""
+    for vl in "${ST_VMS[@]}"; do
+        IFS='|' read -r vn vp vd _ <<<"$vl"
+        if [[ "$vd" == "planned" ]]; then vmline+="$vn ($vp) "; else vmline+="$vn ($vd) "; fi
+    done
+    log "  VMs:              ${vmline:-none}"
+fi
 is_yes "$KOPIA_ENABLED" || log "  Kopia:            off"
 for s in "${PLAN_KOPIA[@]}"; do
     hp="$(share_kopia_hostpath "$s")"
@@ -1085,15 +1209,22 @@ STOP_AT="$(date +%s)"
 status_phase "stopping_apps"
 log "Pausing apps: ${#T_APP[@]} (before the dumps, so that dumps and files match)"
 stop_tier "${T_APP[@]}"
+vm_hold_begin
 status_phase "dumps"
 log "Database dumps ..."
 run_dumps
 [[ "$PLAN_FLASH" == "tar" ]] && flash_tar
-[[ "$LIBVIRT_MODE" == "tar" ]] && libvirt_tar
 status_phase "stopping"
 log "Stopping: ${#T_DB[@]} databases, ${#T_NET[@]} network"
 stop_tier "${T_DB[@]}"
 stop_tier "${T_NET[@]}"
+if [[ ${#VM_TODO[@]} -gt 0 ]]; then
+    status_phase "vms"
+    log "VMs: ${#VM_TODO[@]} prepared for the snapshot"
+    vm_hold
+fi
+# after the VMs: their TPM state and NVRAM then match the disks in the snapshot
+[[ "$LIBVIRT_MODE" == "tar" ]] && libvirt_tar
 
 status_phase "snapshots"
 log "Creating snapshots $SNAP_NAME ..."
@@ -1111,6 +1242,7 @@ if [[ "$PLAN_FLASH" == "snapshot" ]]; then
     zfs snapshot "$FLASH_DATASET@$SNAP_NAME" 2>>"$LOG_FILE" \
         || { err "Flash snapshot failed"; PLAN_FLASH="failed"; }
 fi
+[[ ${#VM_HELD[@]} -gt 0 ]] && vm_release          # the VMs on ZFS: their snapshot is taken
 for base in "${PLAN_BTRFS[@]}"; do
     mkdir -p "$base/$BTRFS_SNAP_DIR"
     if btrfs subvolume snapshot -r "$base" "$base/$BTRFS_SNAP_DIR/$TS" >/dev/null 2>>"$LOG_FILE"; then
@@ -1120,6 +1252,7 @@ for base in "${PLAN_BTRFS[@]}"; do
         err "btrfs snapshot of $base failed"
     fi
 done
+[[ ${#VM_HELD[@]} -gt 0 ]] && vm_release btrfs
 
 status_phase "starting"
 log "Starting containers ..."

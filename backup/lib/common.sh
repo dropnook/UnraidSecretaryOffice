@@ -16,7 +16,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.15"
+UB_VERSION="2.16"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry (was unraid-backup; the office moves it)
 # The office's own places. Nothing of ours directly in /mnt (Fix Common Problems rightly
@@ -202,6 +202,7 @@ declare -gA UB_SCHEMA=(
     [nextcloud]="preexisting_maintenance"
     [dump]="type"
     [share]="mode method retention kopia_retention kopia_ignore exclude_dataset id locations note"
+    [vm]="mode prepare retention"
 )
 
 # Checks sections, keys and values. Errors go into CFG_ERRORS.
@@ -261,6 +262,12 @@ cfg_validate() {
         _val "share|$n|kopia_retention" '^([0-9]+|inherit)( ([0-9]+|inherit)){5}$' "six values: latest hourly daily weekly monthly annual"
         [[ -z "$(cfg "share|$n|mode")" ]] && CFG_ERRORS+=( "[share \"$n\"] without mode" )
     done < <(cfg_names share)
+    while IFS= read -r n; do
+        [[ -z "$n" ]] && continue
+        _val "vm|$n|mode"      '^(snapshot|off)$'                  "snapshot/off"
+        _val "vm|$n|prepare"   '^(freeze|pause|shutdown|none)$'    "freeze/pause/shutdown/none"
+        _val "vm|$n|retention" '^[0-9]+ [0-9]+ [0-9]+$'            "three numbers"
+    done < <(cfg_names vm)
     unset -f _val
     [[ ${#CFG_ERRORS[@]} -eq 0 ]]
 }
@@ -761,6 +768,124 @@ compose_container() { # compose_container <stack> <service> <container_name>
 is_media_server() { [[ "${1,,}" =~ (emby|jellyfin|plex) ]]; }
 is_kopia_image() { [[ "${1,,}" == *kopia* ]]; }
 
+# --- VMs (libvirt) -------------------------------------------------------------
+# Their disks are files in a share (usually domains) and so already in that share's
+# snapshot. What a VM adds: how it is treated while the snapshot is taken
+# ([vm "<name>"] prepare), whether its own dataset is left out (mode = off) and its
+# own retention - the last two only when its disks lie in datasets of their own
+# (Unraid makes one per VM folder on ZFS pools).
+#   VM_NAMES             all VMs libvirt knows, shut-off ones too
+#   VM_STATE[n]          running | paused | shut off | ...
+#   VM_AUTOSTART[n]      yes | no
+#   VM_AGENT[n]          yes (the guest agent answers) | no (running, no answer) |
+#                        channel (not running, a guest agent channel is configured) | none
+#   VM_HOSTDEV[n]        number of passed-through devices (GPU & co.)
+#   VM_TPM[n]            yes | no
+#   VM_DISKS[n]          lines "target|source|base|fs|dataset|share" (device=disk only)
+#   VM_SNAP[n]           yes = every disk lies on ZFS or btrfs; otherwise the reason:
+#                        block (a whole device) | live (no snapshots there) | missing | none (no disk)
+#   VM_OWN_DS[n]         its own datasets, one per line - empty if a disk shares its dataset
+#                        with the share or another VM (then it can't be left out or kept apart)
+declare -ga VM_NAMES=()
+declare -gA VM_STATE=() VM_AUTOSTART=() VM_AGENT=() VM_HOSTDEV=() VM_TPM=() VM_DISKS=() VM_SNAP=() VM_OWN_DS=()
+VM_SERVICE="no"
+VM_SHUTDOWN_TIMEOUT="${UB_VM_SHUTDOWN_TIMEOUT:-300}"
+
+vm_load() {
+    VM_NAMES=(); VM_STATE=(); VM_AUTOSTART=(); VM_AGENT=(); VM_HOSTDEV=(); VM_TPM=(); VM_DISKS=(); VM_SNAP=(); VM_OWN_DS=()
+    VM_SERVICE="no"
+    command -v virsh >/dev/null 2>&1 || return 0
+    local names
+    names="$(timeout 20 virsh list --all --name 2>/dev/null)" || return 0
+    VM_SERVICE="yes"
+    mapfile -t VM_NAMES < <(sed '/^[[:space:]]*$/d' <<<"$names")
+    local n xml type dev target src p b fs ds share snap
+    local -A ds_users=()
+    for n in "${VM_NAMES[@]}"; do
+        VM_STATE[$n]="$(timeout 10 virsh domstate "$n" 2>/dev/null | head -1)"
+        VM_AUTOSTART[$n]="no"
+        timeout 10 virsh dominfo "$n" 2>/dev/null | grep -qE '^Autostart:[[:space:]]+enable' && VM_AUTOSTART[$n]="yes"
+        xml="$(timeout 10 virsh dumpxml "$n" 2>/dev/null)"
+        VM_HOSTDEV[$n]="$(grep -c '<hostdev ' <<<"$xml")"
+        if grep -q '<tpm ' <<<"$xml"; then VM_TPM[$n]="yes"; else VM_TPM[$n]="no"; fi
+        if [[ "${VM_STATE[$n]}" == "running" ]]; then
+            if timeout 5 virsh qemu-agent-command "$n" '{"execute":"guest-ping"}' >/dev/null 2>&1; then VM_AGENT[$n]="yes"; else VM_AGENT[$n]="no"; fi
+        elif grep -q 'org.qemu.guest_agent.0' <<<"$xml"; then VM_AGENT[$n]="channel"
+        else VM_AGENT[$n]="none"; fi
+        VM_DISKS[$n]=""; snap="yes"
+        while read -r type dev target src; do
+            [[ "$dev" == "disk" ]] || continue
+            b=""; fs=""; ds=""; share=""
+            if [[ "$type" == "block" ]]; then snap="block"
+            else
+                # /mnt/user/<share>/... -> the pool or disk that really holds the file
+                p="$src"
+                if [[ "$src" == "$UB_MNT"/user/* || "$src" == "$UB_MNT"/user0/* ]]; then
+                    local rel="${src#"$UB_MNT"/user/}"; rel="${rel#"$UB_MNT"/user0/}"
+                    share="${rel%%/*}"; p=""
+                    for b in "${INV_BASES[@]}"; do
+                        [[ -e "${INV_BASE_PATH[$b]}/$rel" ]] && { p="${INV_BASE_PATH[$b]}/$rel"; break; }
+                    done
+                else
+                    for b in "${INV_BASES[@]}"; do
+                        [[ "$src" == "${INV_BASE_PATH[$b]}/"* ]] || continue
+                        share="${src#"${INV_BASE_PATH[$b]}"/}"; share="${share%%/*}"; break
+                    done
+                fi
+                if [[ -z "$p" || ! -e "$p" ]]; then snap="missing"; b=""
+                else
+                    b=""
+                    local x; for x in "${INV_BASES[@]}"; do [[ "$p" == "${INV_BASE_PATH[$x]}/"* ]] && { b="$x"; break; }; done
+                    mount_of "$p"
+                    fs="${MT_FSTYPE[$MO_IDX]:-}"
+                    case "$fs" in
+                        zfs)   ds="${MT_SOURCE[$MO_IDX]}" ;;
+                        btrfs) ;;
+                        *)     [[ "$snap" == "yes" ]] && snap="live" ;;
+                    esac
+                fi
+            fi
+            VM_DISKS[$n]+="$target|$src|$b|$fs|$ds|$share"$'\n'
+            [[ -n "$ds" ]] && ds_users[$ds]+="$n"$'\n'
+        done < <(timeout 10 virsh domblklist --details "$n" 2>/dev/null | awk 'NF >= 4 && $2 ~ /^(disk|cdrom|floppy|lun)$/')
+        [[ -z "${VM_DISKS[$n]}" ]] && snap="none"
+        VM_SNAP[$n]="$snap"
+    done
+    # A dataset is the VM's own when it is not a share's own dataset and no other VM uses it
+    local line own
+    for n in "${VM_NAMES[@]}"; do
+        own=""
+        while IFS='|' read -r target src b fs ds share; do
+            [[ -z "$target" ]] && continue
+            if [[ -z "$ds" ]] || [[ "$(sort -u <<<"${ds_users[$ds]}" | sed '/^$/d' | wc -l)" -ne 1 ]] \
+               || [[ -n "$share" && "${ZDS_MP[$ds]:-}" == "${INV_BASE_PATH[$b]:-?}/$share" ]]; then
+                own=""; break
+            fi
+            grep -Fxq -- "$ds" <<<"$own" || own+="$ds"$'\n'
+        done <<<"${VM_DISKS[$n]}"
+        VM_OWN_DS[$n]="$own"
+    done
+}
+
+vm_mode()    { cfg "vm|$1|mode" "snapshot"; }
+vm_prepare() { cfg "vm|$1|prepare" "none"; }
+# vm_snapshotted <name>  -> 0 when a snapshot of this run holds all of its disks
+vm_snapshotted() {
+    local n="$1" target src b fs ds share
+    [[ "${VM_SNAP[$n]:-}" == "yes" ]] || return 1
+    while IFS='|' read -r target src b fs ds share; do
+        [[ -z "$target" ]] && continue
+        case "$fs" in
+            zfs)   in_list "$ds" "${PLAN_ZFS[@]}" || return 1 ;;
+            btrfs) in_list "${INV_BASE_PATH[$b]:-?}" "${PLAN_BTRFS[@]}" || return 1 ;;
+            *)     return 1 ;;
+        esac
+    done <<<"${VM_DISKS[$n]}"
+    return 0
+}
+# vm_on_btrfs <name>  -> 0 when one of its disks lies on btrfs (released after the btrfs snapshots)
+vm_on_btrfs() { local t s b fs r; while IFS='|' read -r t s b fs r; do [[ "$fs" == "btrfs" ]] && return 0; done <<<"${VM_DISKS[$1]:-}"; return 1; }
+
 ##############################################################################
 # 4. Plan
 ##############################################################################
@@ -826,6 +951,16 @@ plan_build() {
     local s mode meth b m layer sub ret line ds mp
     local -A seen_b=() seen_ds=()
     local -a excl
+    # VMs with datasets of their own: left out (mode = off) or kept by their own retention
+    local -A vm_excl=() vm_ret=()
+    local vn
+    for vn in "${VM_NAMES[@]}"; do
+        while IFS= read -r ds; do
+            [[ -z "$ds" ]] && continue
+            [[ "$(vm_mode "$vn")" == "off" ]] && vm_excl[$ds]=1
+            [[ -n "$(cfg "vm|$vn|retention")" ]] && vm_ret[$ds]="$(cfg "vm|$vn|retention")"
+        done <<<"${VM_OWN_DS[$vn]:-}"
+    done
     while IFS= read -r s; do
         [[ -z "$s" ]] && continue
         mode="$(share_mode "$s")"
@@ -852,13 +987,14 @@ plan_build() {
         done <<<"${INV_LOCS[$s]}"
         while IFS='|' read -r b ds mp; do
             [[ -z "$ds" ]] && continue
-            if in_list "$ds" "${excl[@]}" || _parent_excluded "$ds" "${excl[@]}"; then
+            if in_list "$ds" "${excl[@]}" || _parent_excluded "$ds" "${excl[@]}" || [[ -n "${vm_excl[$ds]:-}" ]]; then
                 PLAN_EXCL[$ds]=1; continue
             fi
             if [[ -z "${seen_ds[$ds]:-}" ]]; then seen_ds[$ds]=1; PLAN_ZFS+=( "$ds" ); PLAN_ZFS_RET[$ds]="$ret"
             else PLAN_ZFS_RET[$ds]="$(_ret_max "${PLAN_ZFS_RET[$ds]}" "$ret")"; fi
         done <<<"${INV_CHILDREN[$s]}"
     done < <(cfg_names share)
+    for ds in "${!vm_ret[@]}"; do [[ -n "${PLAN_ZFS_RET[$ds]:-}" ]] && PLAN_ZFS_RET[$ds]="${vm_ret[$ds]}"; done
 
     if is_yes "$BTRFS_SNAPSHOT_ALL"; then
         for b in "${INV_BASES[@]}"; do
@@ -1162,6 +1298,20 @@ recover_interrupted_run() {
         done <"$UB_STATE/maintenance"
         rm -f "$UB_STATE/maintenance"
     fi
+    # VMs the run froze, paused or shut down (lines "name|frozen|paused|shutdown")
+    if [[ -s "$UB_STATE/vms" ]] && command -v virsh >/dev/null 2>&1; then
+        local how st
+        while IFS='|' read -r n how; do
+            [[ -z "$n" ]] && continue
+            st="$(timeout 10 virsh domstate "$n" 2>/dev/null | head -1)"
+            case "$how" in
+                frozen)   timeout 30 virsh domfsthaw "$n" >/dev/null 2>&1 && list+="VM $n thawed " ;;
+                paused)   [[ "$st" == "paused" ]] && { timeout 30 virsh resume "$n" >/dev/null 2>&1 && list+="VM $n resumed " || err "VM '$n' (from the aborted run) does not resume"; } ;;
+                shutdown) [[ "$st" == "shut off" ]] && { timeout 60 virsh start "$n" >/dev/null 2>&1 && list+="VM $n started " || err "VM '$n' (from the aborted run) does not start"; } ;;
+            esac
+        done <"$UB_STATE/vms"
+        rm -f "$UB_STATE/vms"
+    fi
     if [[ -n "$list" ]]; then
         warn "An earlier run was aborted - restored: $list"
         ub_notify "Aborted run repaired" "Started again or reset: $list" "warning"
@@ -1276,6 +1426,29 @@ drift_check_containers() {
     done
 }
 
+drift_check_vms() {
+    local n
+    [[ "$VM_SERVICE" == "yes" ]] || return 0
+    for n in "${VM_NAMES[@]}"; do
+        if ! cfg_has "vm|$n"; then
+            drift_add info "New VM '$n' - not set up yet: its disks are in the snapshot of their share, but it is not prepared for it (keeps running)"
+            continue
+        fi
+        [[ "$(vm_mode "$n")" == "off" ]] && {
+            [[ -n "${VM_OWN_DS[$n]}" ]] || drift_add info "VM '$n' is set to off, but its disks share a dataset - they are in the share's snapshot anyway"
+            continue
+        }
+        case "${VM_SNAP[$n]}" in
+            block)   drift_add warn "VM '$n' uses a whole device as a disk - no snapshot holds it" ;;
+            live)    drift_add warn "VM '$n' has a disk on a file system without snapshots - it is not backed up" ;;
+            missing) drift_add warn "VM '$n': a disk file was not found" ;;
+        esac
+    done
+    while IFS= read -r n; do
+        [[ -n "$n" ]] && ! in_list "$n" "${VM_NAMES[@]}" && drift_add info "VM '$n' is in settings.ini but no longer exists"
+    done < <(cfg_names vm)
+}
+
 # Kopia check for the run; sets KOPIA_OK and SKIP_KOPIA
 #   KP_STATUS    one JSON object per Kopia target (for drift.json): kind, share, path,
 #                ok, skipped (the run leaves the share out), differences as codes
@@ -1384,7 +1557,8 @@ drift_count() { local lvl="$1" n=0 l; for l in "${DRIFT[@]}"; do [[ "${l%%|*}" =
 # state/status.json describes the running or last finished run with
 # fixed English keys. The texts in the log may change, this
 # interface may not - whoever reads it checks "interface".
-#   status.json      running or last run (every mode except unmount)
+#   status.json      running or last run (every mode except unmount); since 2.16 "vms":
+#                    per VM what the run did (prepare, done, seconds held, snapshot)
 #   last-run.json    last real backup run (no dry run, no check)
 #   history.jsonl    one line per real backup run, the last 200
 #   drift.json       drift found by the last check (level + text), and since 2.14 per
@@ -1406,6 +1580,8 @@ ST_KOPIA_CUR=""
 ST_KOPIA_CUR_T=0
 ST_KOPIA_DONE=()          # lines "name|ok(1/0)|seconds|end"
 ST_DUMP_BYTES=0
+ST_VMS=()                 # lines "name|prepare|done|seconds|snapshot(1/0)" - what the run did with each VM
+                          #   done: planned | frozen | paused | shutdown | kept_running | off | not_running | failed
 
 status_init() { # status_init <mode>
     ST_MODE="$1"; ST_STARTED="$(date +%s)"; ST_ACTIVE="yes"; ST_PHASE="start"
@@ -1421,6 +1597,9 @@ status_json() {
         | {name: .[0], ok: (.[1] == "1"), seconds: (.[2] | tonumber), finished: (.[3] | tonumber)}' | jq -sc .)" || done_='[]'
     drift="$(jq -nc --argjson e "$(drift_count error)" --argjson w "$(drift_count warn)" --argjson i "$(drift_count info)" \
         '{error: $e, warn: $w, info: $i}')" || drift='{}'
+    local vms
+    vms="$(printf '%s\n' "${ST_VMS[@]}" | jq -R 'select(length > 0) | split("|")
+        | {name: .[0], prepare: .[1], done: .[2], seconds: ((.[3] // "0") | tonumber), snapshot: (.[4] == "1")}' | jq -sc .)" || vms='[]'
     jq -nc \
         --arg name "$UB_NAME" --arg version "$UB_VERSION" --argjson interface "$UB_INTERFACE" \
         --arg mode "$ST_MODE" --arg run "${TS:-}" --argjson pid "$$" \
@@ -1431,11 +1610,11 @@ status_json() {
         --argjson dump_bytes "${ST_DUMP_BYTES:-0}" --arg log "$(basename "${LOG_FILE:-}")" \
         --argjson drift "$drift" --argjson planned "$plan" --argjson done "$done_" \
         --arg kopia_enabled "${KOPIA_ENABLED:-}" --arg kopia_ok "${KOPIA_OK:-}" \
-        --arg current "$ST_KOPIA_CUR" --argjson current_since "$ST_KOPIA_CUR_T" \
+        --arg current "$ST_KOPIA_CUR" --argjson current_since "$ST_KOPIA_CUR_T" --argjson vms "${vms:-[]}" \
         '{interface: $interface, name: $name, version: $version, mode: $mode, run: $run, pid: $pid,
           started: $started, updated: $updated, finished: $finished, phase: $phase, result: $result,
           message: $message, errors: $errors, warnings: $warnings, downtime_s: $downtime,
-          snapshot: $snapshot, dump_bytes: $dump_bytes, log: $log, drift: $drift,
+          snapshot: $snapshot, dump_bytes: $dump_bytes, log: $log, drift: $drift, vms: $vms,
           kopia: {enabled: ($kopia_enabled | ascii_downcase | test("^(yes|ja|1|true)$")), state: $kopia_ok,
                   planned: $planned, current: (if $current == "" then null else $current end),
                   current_since: (if $current == "" then null else $current_since end), done: $done}}'

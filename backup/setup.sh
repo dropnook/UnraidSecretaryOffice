@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.15 - 2026-10-04
+# unraid-backup - setup.sh                        Version 2.16 - 2026-10-04
+#   2.16 VMs: [vm "<name>"] prepare = freeze | pause | shutdown | none for the seconds of the
+#        snapshot (released right after the snapshot that holds their disks), mode = off and an own
+#        retention for VMs in a dataset of their own; the libvirt archive after the VMs are held
 #   2.15 Also part of the office's Unraid plugin: code in RAM, data from the plugin's DATA_DIR,
 #        the nightly run scheduled by the plugin's cron file instead of User Scripts.
 #   2.14 The whole script is one { ... } block: bash reads it completely before it
@@ -425,6 +428,7 @@ TXT
     _apply_P
     inv_scan
     docker_load
+    vm_load
     if [[ -z "$(pget "kopia|container")" ]] || ! in_list "$(pget "kopia|container")" "${CT_NAMES[@]}"; then
         pset "kopia|container" "$(kopia_find_container)"
         _apply_P
@@ -968,6 +972,94 @@ TXT
     done
 
     _apply_P
+}
+
+##############################################################################
+# Step 5b: VMs
+##############################################################################
+declare -A VM_WHY=()      # why the proposal: agent | channel | no_agent | shut_off | cannot | previous
+
+# vm_share_mode <name>  -> the mode of the share holding the VM's first disk ("" if none)
+vm_share_mode() {
+    local t s b fs ds share
+    while IFS='|' read -r t s b fs ds share; do
+        [[ -n "$t" && -n "$share" ]] && { pget "share|$share|mode" off; return; }
+    done <<<"${VM_DISKS[$1]:-}"
+}
+
+step_vms() {
+    [[ "$VM_SERVICE" == "yes" && ${#VM_NAMES[@]} -gt 0 ]] || return 0
+    hdr "VMs"
+    explain <<'TXT'
+A VM's disks are files in a share (usually domains) and so in that share's snapshot. What
+matters is how the VM is treated while the snapshot is taken:
+  freeze    the guest agent (qemu-guest-agent in the VM) flushes and freezes its file
+            systems for the seconds of the snapshot - the best result, the VM keeps running
+  pause     the VM stops for those seconds, no guest agent needed - like pulling the plug,
+            but no write is cut in half
+  shutdown  shut down cleanly before and started again after - the safest, takes minutes
+  none      keeps running - its disks are only crash-consistent
+A VM whose disks lie in a dataset of its own (Unraid makes one per VM folder on ZFS) can be
+left out (off) and can keep its snapshots longer or shorter than its share.
+TXT
+    local n i mode prep why
+    for n in "${VM_NAMES[@]}"; do
+        if old_has "vm|$n"; then why="previous"
+        elif [[ "${VM_SNAP[$n]}" != "yes" ]]; then why="cannot"
+        elif [[ "${VM_AGENT[$n]}" == "yes" ]]; then why="agent"
+        elif [[ "${VM_AGENT[$n]}" == "channel" ]]; then why="channel"
+        elif [[ "${VM_STATE[$n]}" != "running" ]]; then why="shut_off"
+        else why="no_agent"; fi
+        VM_WHY[$n]="$why"
+        pinit "vm|$n|mode" "snapshot"
+        case "$why" in
+            agent|channel) prep="freeze" ;;
+            *)             prep="pause" ;;
+        esac
+        pinit "vm|$n|prepare" "$prep"
+        pinit "vm|$n|retention" ""
+        [[ -z "$(pget "vm|$n|retention")" || -z "${VM_OWN_DS[$n]}" ]] && unset "P[vm|$n|retention]"
+    done
+    _apply_P
+    while :; do
+        say ""
+        thead "$(printf '  %-3s %-24s %-9s %-7s %-9s %-9s %s' No VM State Agent Backup Prepare Disks)"
+        i=0
+        for n in "${VM_NAMES[@]}"; do
+            i=$((i+1))
+            local where="" t s b fs ds share
+            while IFS='|' read -r t s b fs ds share; do [[ -n "$t" ]] && where+="${ds:-${b:-?}} "; done <<<"${VM_DISKS[$n]}"
+            [[ -z "${VM_OWN_DS[$n]}" ]] && where+="(shared dataset) "
+            [[ "${VM_SNAP[$n]}" != "yes" ]] && where+="(no snapshot: ${VM_SNAP[$n]}) "
+            trow "$(printf '  %-3s %-24s %-9s %-7s %-9s %-9s %s' "$i" "${n:0:24}" "${VM_STATE[$n]:0:9}" "${VM_AGENT[$n]}" \
+                "$(pget "vm|$n|mode")" "$(pget "vm|$n|prepare")" "$where")"
+        done
+        interactive || break
+        say "  ${C_D}f/p/s/n <no..> = freeze / pause / shutdown / none   o <no..> = off   b <no..> = back up   Enter = take it${C_0}"
+        ask "VMs" ""
+        [[ -z "$REPLY" ]] && break
+        local cmd="${REPLY%% *}" rest="${REPLY#"${REPLY%% *}"}"
+        for i in $(expand_nums "$rest"); do
+            n="${VM_NAMES[$((i-1))]:-}"; [[ -z "$n" ]] && continue
+            case "$cmd" in
+                f) pset "vm|$n|prepare" freeze ;;
+                p) pset "vm|$n|prepare" pause ;;
+                s) pset "vm|$n|prepare" shutdown ;;
+                n) pset "vm|$n|prepare" none ;;
+                o) if [[ -n "${VM_OWN_DS[$n]}" ]]; then pset "vm|$n|mode" off
+                   else say "  '$n' shares its dataset - it can't be left out on its own"; fi ;;
+                b) pset "vm|$n|mode" snapshot ;;
+            esac
+        done
+        _apply_P
+    done
+    for n in "${VM_NAMES[@]}"; do
+        [[ "$(vm_share_mode "$n")" == "off" && "$(pget "vm|$n|mode")" != "off" ]] \
+            && hint "VM '$n': its share is not backed up (mode=off) - the VM isn't either"
+        [[ "${VM_SNAP[$n]}" == "yes" ]] || wrn "VM '$n': $(case "${VM_SNAP[$n]}" in block) echo "a whole device as a disk";; live) echo "a disk on a file system without snapshots";; missing) echo "a disk file was not found";; *) echo "no disk";; esac) - no snapshot holds it"
+        [[ "$(pget "vm|$n|prepare")" == "freeze" && "${VM_AGENT[$n]}" == "no" ]] \
+            && wrn "VM '$n': set to freeze, but its guest agent does not answer - a run pauses it instead"
+    done
 }
 
 ##############################################################################
@@ -1562,6 +1654,25 @@ settings_render() {
             echo "[dump \"$n\"]"
             w_kv type "$(pget "dump|$n|type")"
         done < <(printf '%s\n' "${!P[@]}" | sed -n 's/^dump|\(.*\)|type$/\1/p' | sort)
+        local first_vm="yes"
+        while IFS= read -r n; do
+            [[ -z "$n" ]] && continue
+            # a VM that is gone drops out - unless the VM service is off (then nobody knows)
+            [[ "$VM_SERVICE" == "yes" ]] && ! in_list "$n" "${VM_NAMES[@]}" && continue
+            if [[ "$first_vm" == "yes" ]]; then
+                first_vm="no"
+                echo
+                echo "# --- VMs ----------------------------------------------------------------------"
+                w_c "mode       snapshot = in its share's snapshot, off = its own dataset left out"
+                w_c "prepare    freeze (guest agent) | pause | shutdown | none - for the seconds of the snapshot"
+                w_c "retention  own local ZFS retention 'daily weekly monthly' (only with a dataset of its own)"
+            fi
+            echo
+            echo "[vm \"$n\"]"
+            w_kv mode "$(pget "vm|$n|mode" snapshot)"
+            w_kv prepare "$(pget "vm|$n|prepare" none)"
+            [[ -n "$(pget "vm|$n|retention")" ]] && w_kv retention "$(pget "vm|$n|retention")"
+        done < <(printf '%s\n' "${!P[@]}" | sed -n 's/^vm|\(.*\)|mode$/\1/p' | sort)
         echo
         echo "# --- Shares -------------------------------------------------------------------"
         w_c "mode             kopia = snapshot + Kopia, snapshot = local snapshot only, off = nothing"
@@ -1820,10 +1931,11 @@ summary() {
 run_check() {
     hdr "Check against settings.ini"
     load_settings || { bad "settings.ini is missing - run setup.sh without --check first"; return 1; }
-    inv_scan; docker_load; plan_build
+    inv_scan; docker_load; vm_load; plan_build
     drift_check_settings
     drift_check_shares
     drift_check_containers
+    drift_check_vms
     drift_check_kopia
     if [[ ${#DRIFT[@]} -eq 0 ]]; then ok "No drift"
     else drift_text | while IFS= read -r l; do say "  $l"; done; fi
@@ -1927,6 +2039,18 @@ plan_write() {
          | jq 'map(.running = (.running == "true") | .stop = (.stop == "yes") | .previous = (.previous == "1")
                    | .risk = (.risk == "1") | .kopia = (.kopia == "1")
                    | .volumes = (.volumes | split("\u001e") | map(select(length > 0))))')"
+    local vms
+    vms="$(for n in "${VM_NAMES[@]}"; do
+        printf '%s\x1f' "$n" "${VM_STATE[$n]:-}" "${VM_AUTOSTART[$n]:-}" "${VM_AGENT[$n]:-}" "${VM_HOSTDEV[$n]:-0}" "${VM_TPM[$n]:-}" \
+            "${VM_SNAP[$n]:-}" "$(printf '%s' "${VM_OWN_DS[$n]:-}" | tr '\n' $'\x1e')" "$(printf '%s' "${VM_DISKS[$n]:-}" | tr '\n' $'\x1e')" \
+            "${VM_WHY[$n]:-}" "$(vm_share_mode "$n")" "$(old_has "vm|$n" && echo 1)"
+        echo
+    done | us_json name state autostart agent hostdev tpm snap own disks why share_mode previous \
+         | jq 'map(select(.name != "") | .hostdev = ((.hostdev // "0") | tonumber) | .tpm = (.tpm == "yes") | .autostart = (.autostart == "yes")
+                   | .previous = (.previous == "1")
+                   | .own = (.own | split("\u001e") | map(select(length > 0)))
+                   | .disks = (.disks | split("\u001e") | map(select(length > 0) | split("|")
+                        | {target: .[0], source: .[1], base: .[2], fs: .[3], dataset: .[4], share: .[5]})))')" || vms='[]'
     dbs="$(printf '%s\n' "${DB_ROWS[@]}" | us_json container stack type detected where \
          | jq 'map(select(.container != "") | .dumpable = (.type | test("^(mariadb|postgres|mongodb)$")))')"
     miss="$(printf '%s\n' "${DB_MISSING[@]}" | us_json stack service image type | jq 'map(select(.stack != ""))')"
@@ -1942,6 +2066,7 @@ plan_write() {
         --argjson interface "$UB_INTERFACE" --arg version "$UB_VERSION" --argjson time "$(date +%s)" \
         --arg have "$HAVE_SETTINGS" --argjson P "$p" --argjson O "$o" --argjson pending "$pending" --argjson shares "$shares" --argjson containers "$cts" \
         --argjson databases "$dbs" --argjson missing "$miss" --argjson nextcloud "$ncs" --argjson bases "$bases" \
+        --argjson vms "${vms:-[]}" --arg vm_service "$VM_SERVICE" \
         --arg flash_ds "${FLASH_DATASET:-}" --arg flash_fs "${FLASH_FS:-}" --arg size_timeout "$SIZE_TIMEOUT" \
         --arg k_enabled "$(pget "kopia|enabled" no)" --arg k_container "$kc" --arg k_cands "$cands" \
         --arg k_running "${CT_RUNNING[$kc]:-}" --arg k_image "${CT_IMAGE[$kc]:-}" --arg k_ready "$KOPIA_POLICY_READY" \
@@ -1952,6 +2077,7 @@ plan_write() {
         '{interface: $interface, version: $version, time: $time, have_settings: ($have == "yes"),
           sizes_measured: ($size_timeout != "0"), P: $P, O: $O, pending: $pending, shares: $shares, containers: $containers,
           databases: $databases, missing_databases: $missing, nextcloud: $nextcloud,
+          vms: $vms, vm_service: ($vm_service == "yes"),
           bases: $bases, flash: {dataset: $flash_ds, fs: $flash_fs}, mount_root: $mount_root,
           kopia: {enabled: ($k_enabled == "yes"), container: $k_container,
                   candidates: ($k_cands | split("\u001e") | map(select(length > 0))),
@@ -1989,7 +2115,7 @@ case "$MODE" in
         for k in "${!CFG[@]}"; do P[$k]="${CFG[$k]}"; done
         HAVE_SETTINGS="yes"
         mapfile -t SH < <(cfg_names share)
-        inv_scan; docker_load
+        inv_scan; docker_load; vm_load
         step_kopia && { write_settings; apply_kopia_policies; step_kopia_sources; } ;;
     plan)
         STEP_ID=environment; step_environment
@@ -1997,6 +2123,7 @@ case "$MODE" in
         STEP_ID=offsite;     step_offsite
         STEP_ID=shares;      step_shares
         STEP_ID=containers;  step_containers
+        STEP_ID=vms;         step_vms
         STEP_ID=databases;   step_databases
         STEP_ID=general;     step_general
         STEP_ID=kopia;       step_kopia || true
@@ -2008,6 +2135,7 @@ case "$MODE" in
         STEP_ID=offsite;     step_offsite
         STEP_ID=shares;      step_shares
         STEP_ID=containers;  step_containers
+        STEP_ID=vms;         step_vms
         STEP_ID=databases;   step_databases
         STEP_ID=general;     step_general
         STEP_ID=kopia;       step_kopia || true

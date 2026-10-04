@@ -120,6 +120,8 @@ function backupScan(): array
         'drift'      => backupDrift(),
         'settings'   => backupSettingsSummary($settings),
         'shares'     => backupShares($settings, $history),
+        'vms'        => backupVms($settings),
+        'containers' => backupContainers($settings),
         'dumps'      => backupDumps(),
         'schedule'   => backupSchedule(),
         'logs'       => array_values(array_map(fn ($l) => ['name' => $l['name'], 'kind' => $l['kind'], 'time' => $l['time'], 'size' => $l['size']], $logs)),
@@ -258,6 +260,88 @@ function backupShares(array $s, array $history): array
     }
     usort($shares, fn ($a, $b) => strnatcasecmp($a['name'], $b['name']));
     return $shares;
+}
+
+/**
+ * The containers for the overview: how many there are, how many run, which of the
+ * running ones keep running for the snapshot (Kopia, docker|no_stop) — the engine
+ * stops all other running ones (unless [docker] stop = none) — and the database dumps.
+ */
+function backupContainers(array $s): array
+{
+    $all = houseContainers();
+    $running = array_keys(array_filter($all, fn ($c) => $c['running']));
+    $keep = array_merge($s['docker']['no_stop'] ?? [], array_filter([backupSetting($s, 'kopia', 'container')]));
+    $stopNone = backupSetting($s, 'docker', 'stop', 'all') === 'none';
+    $kept = $stopNone ? $running : array_values(array_intersect($running, $keep));
+    $kopia = (string) backupSetting($s, 'kopia', 'container', '');
+    return ['total' => count($all), 'running' => count($running), 'kept' => count($kept),
+            'stopped' => count($running) - count($kept), 'dumps' => count(array_filter(array_keys($s), fn ($k) => str_starts_with($k, 'dump|'))),
+            'kopia' => $kopia === '' ? null : ['name' => $kopia, 'exists' => isset($all[$kopia]), 'running' => !empty($all[$kopia]['running'])]];
+}
+
+/**
+ * The VMs and how the backup treats them: libvirt's list (live), [vm "<name>"] in
+ * settings.ini, where their disks lie (from the last setup plan) and what the last
+ * real run did with them (last-run.json, engine 2.16+). Empty while the VM service is off.
+ */
+function backupVms(array $s): array
+{
+    [$exit, $out] = run(['virsh', 'list', '--all', '--name'], 15);
+    if ($exit !== 0) {
+        return [];
+    }
+    $names = array_values(array_filter(array_map('trim', explode("\n", (string) $out)), fn ($n) => $n !== ''));
+    $states = [];
+    [$e2, $running] = run(['virsh', 'list', '--name'], 15);
+    foreach (array_filter(array_map('trim', explode("\n", (string) $running))) as $n) {
+        $states[$n] = 'running';
+    }
+    $plan = [];
+    foreach (readJson(BACKUP_DATA_DIR . '/state/setup-plan.json')['vms'] ?? [] as $v) {
+        if (is_array($v) && isset($v['name'])) {
+            $plan[(string) $v['name']] = $v;
+        }
+    }
+    $lastRun = readJson(BACKUP_DATA_DIR . '/state/last-run.json');
+    $done = [];
+    foreach ($lastRun['vms'] ?? [] as $v) {
+        if (is_array($v) && isset($v['name'])) {
+            $done[(string) $v['name']] = ['done' => (string) ($v['done'] ?? ''), 'seconds' => (int) ($v['seconds'] ?? 0),
+                                          'snapshot' => !empty($v['snapshot']), 'time' => (int) ($lastRun['started'] ?? 0)];
+        }
+    }
+    $vms = [];
+    foreach ($names as $n) {
+        $p = $plan[$n] ?? [];
+        $share = '';
+        foreach ($p['disks'] ?? [] as $d) {
+            if (($d['share'] ?? '') !== '') {
+                $share = (string) $d['share'];
+                break;
+            }
+        }
+        $vms[] = [
+            'name'       => $n,
+            'running'    => isset($states[$n]),
+            'configured' => isset($s["vm|$n"]),
+            'mode'       => backupSetting($s, "vm|$n", 'mode', 'snapshot'),
+            'prepare'    => backupSetting($s, "vm|$n", 'prepare', 'none'),
+            'retention'  => backupSetting($s, "vm|$n", 'retention'),
+            'share'      => $share,
+            'share_mode' => $share !== '' ? backupSetting($s, "share|$share", 'mode', 'off') : null,
+            'snap'       => $p['snap'] ?? null,         // yes | block | live | missing | none - null: no plan yet
+            'own'        => array_values($p['own'] ?? []),
+            'disks'      => array_values(array_map(fn ($d) => ['target' => (string) ($d['target'] ?? ''), 'source' => (string) ($d['source'] ?? ''),
+                                'fs' => (string) ($d['fs'] ?? ''), 'dataset' => (string) ($d['dataset'] ?? '')], $p['disks'] ?? [])),
+            'agent'      => $p['agent'] ?? null,
+            'hostdev'    => (int) ($p['hostdev'] ?? 0),
+            'tpm'        => !empty($p['tpm']),
+            'last'       => $done[$n] ?? null,
+        ];
+    }
+    usort($vms, fn ($a, $b) => strnatcasecmp($a['name'], $b['name']));
+    return $vms;
 }
 
 // ===================================================================== history
@@ -1039,13 +1123,15 @@ function backupSetupApply(mixed $decisions): array
     $shares = array_column($plan['shares'] ?? [], 'name');
     $dbs = array_column(array_filter($plan['databases'] ?? [], fn ($d) => !empty($d['dumpable'])), 'container');
     $ncs = array_merge(...array_map(fn ($n) => $n['members'] ?? [], $plan['nextcloud'] ?? []) ?: [[]]);
+    $vms = array_column($plan['vms'] ?? [], 'name');
     $clean = [];
     foreach ($decisions as $key => $value) {
         $key = (string) $key;
         $ok = $key === '_retire_sources' || array_key_exists($key, $plan['P'] ?? [])
             || (preg_match('/^share\|(.+)\|([a-z_]+)$/', $key, $m) && in_array($m[1], $shares, true) && in_array($m[2], BACKUP_SETUP_KEYS, true))
             || (preg_match('/^dump\|(.+)\|type$/', $key, $m) && in_array($m[1], $dbs, true))
-            || (preg_match('/^nextcloud\|(.+)\|preexisting_maintenance$/', $key, $m) && in_array($m[1], $ncs, true));
+            || (preg_match('/^nextcloud\|(.+)\|preexisting_maintenance$/', $key, $m) && in_array($m[1], $ncs, true))
+            || (preg_match('/^vm\|(.+)\|(mode|prepare|retention)$/', $key, $m) && in_array($m[1], $vms, true));
         $plain = fn ($v) => is_string($v) && strlen($v) <= 500 && !preg_match('/[\x00-\x1f]/', $v);
         $valid = $plain($value) || (is_array($value) && array_is_list($value) && count($value) <= 1000 && !in_array(false, array_map($plain, $value), true));
         if (!$ok || !$valid) {

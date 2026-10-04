@@ -4,7 +4,7 @@ Part of the [Unraid Secretary Office](../README.md): Mr. Backupsy shows and cont
 
 A nightly backup for Unraid servers. It takes consistent **ZFS/btrfs snapshots** and **database dumps**, puts Nextcloud into **maintenance mode** for that, and — if you want — sends everything encrypted offsite with **Kopia**. Everything specific to your server lives in `settings.ini`, which `setup.sh` writes after asking you. The nightly run `backup.sh` reports every difference between the server and `settings.ini`, but never changes it on its own.
 
-Version **2.15** (4 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
+Version **2.16** (4 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
 
 ---
 
@@ -190,6 +190,21 @@ Order: apps first, then the database dumps, then the databases, last the network
 
 Apps with their own SQLite database (Emby, Jellyfin, Plex, *arr …) have no dump; they are only clean when stopped for the snapshots. Media servers (Emby, Jellyfin, Plex) are still proposed to keep running, because stopping them would cut running streams; their database is then only crash-consistent in the snapshot, which is usually enough for SQLite.
 
+## VMs
+
+A VM's disks are files in a share (usually `domains`) and so in that share's snapshot — locally; whether they go offsite is the share's mode. What a VM adds is how it is treated while the snapshot is taken (`[vm "<name>"] prepare`):
+
+| prepare | what happens | |
+|---|---|---|
+| `freeze` | the guest agent (qemu-guest-agent inside the VM) flushes and freezes its file systems for the seconds of the snapshot | the best result, the VM keeps running |
+| `pause` | the VM stops for those seconds, no guest agent needed | like pulling the plug, but no write is cut in half |
+| `shutdown` | shut down cleanly before, started again after | the safest, takes minutes; never forced off — if the guest doesn't shut down in 5 minutes it is paused instead |
+| `none` | keeps running | its disks are only crash-consistent |
+
+The setup proposes `freeze` where a guest agent answers (or is configured), `pause` otherwise. Shutdowns begin together with stopping the apps, freezing and pausing come right before the snapshots, and each VM is released right after the snapshot that holds its disks (ZFS first, btrfs after). A run killed in between (`state/vms`) is undone by the next start, like stopped containers. The VM configuration archive (`libvirt.tar.gz`: XML, NVRAM, TPM state) is written after the VMs are held, so it matches their disks.
+
+On ZFS pools Unraid gives every VM folder a dataset of its own. Such a VM can be left out (`mode = off`) and can keep its snapshots longer or shorter than its share (`retention`). A VM whose disks share a dataset with the share or another VM always goes with the share's snapshot. A disk that is a whole device, or a file on a file system without snapshots, is not held by any snapshot — the setup and the nightly check say so.
+
 ## Databases
 
 The setup looks into every container, whether created on its own or from a compose stack. It also reads the Compose Manager's stack files (`/boot/config/plugins/compose.manager/projects/*`, "indirect" stacks too, evaluated with `docker compose config` including `.env`). So it also finds database services of stacks that aren't running.
@@ -261,7 +276,7 @@ For Mr. Backupsy in the office (and any other page), `backup.sh` writes its stat
 
 | File | Content |
 |---|---|
-| `status.json` | the running or last finished run (check, dry run, backup): `mode`, `phase`, `result` (`running`, `ok`, `warnings`, `errors`, `failed`, `aborted`), `pid`, times, interruption, differences, the Kopia plan with the current source and the result per source |
+| `status.json` | the running or last finished run (check, dry run, backup): `mode`, `phase`, `result` (`running`, `ok`, `warnings`, `errors`, `failed`, `aborted`), `pid`, times, interruption, differences, the Kopia plan with the current source and the result per source, and per VM what the run did (`vms`: `prepare`, `done`, seconds held, `snapshot`) |
 | `last-run.json` | the same for the last real backup run |
 | `history.jsonl` | one line per real backup run, the last 200 |
 | `drift.json` | differences of the last check (`level`, `text`), and per Kopia target whether its policy matches (`policies`: `kind`, `share`, `ok`, `skipped`, `differences` with `what`/`item`/`have`/`want`; `null` when not compared) |
@@ -305,6 +320,7 @@ The same message doesn't come every night: it is repeated when something changes
 | `[drift] ignore`, `remind_days` | share patterns not reported, reminder interval |
 | `[docker] stop`, `no_stop`, `known` | `all`/`none`, exceptions, known containers |
 | `[flash] mode` | `snapshot` (only /boot on ZFS) / `tar` / `off` |
+| `[vm "<name>"]` | `mode` = `snapshot` / `off` (only for a VM in a dataset of its own), `prepare` = `freeze` / `pause` / `shutdown` / `none` (default `none`), `retention` = own ZFS retention `d w m` (only with a dataset of its own) |
 | `[libvirt] mode` | `tar` (default) = the content of libvirt.img (XML, NVRAM, TPM state of all VMs) as `libvirt.tar.gz` with the dumps / `off` |
 | `[kopia] enabled` | `yes` = Kopia on, `no` = only local snapshots and dumps |
 | `[kopia] keep_*`, `compression`, `ignore` | policy on `mount_root`, every share inherits it |
@@ -362,6 +378,7 @@ So on every new server: *Set up…*, then a check and a dry run first.
 
 ## Versions
 
+- **2.16** – VMs: per VM how it is treated for the seconds of the snapshot (freeze through the guest agent, pause, shutdown, or as before none), released right after the snapshot that holds its disks; a VM in a dataset of its own can be left out or keep its own retention. The VM configuration archive is written while the VMs are held. `status.json` lists per VM what the run did (`vms`).
 - **2.15** – Part of the office's Unraid plugin too: the engine then lies in RAM (`/usr/local/emhttp/plugins/unraid-secretary-office/backup`) and finds its data through the plugin's `DATA_DIR` (by default still `appdata/UnraidSecretaryOffice/data/unraid-backup`); the plugin's cron file starts the nightly run, so `setup.sh` creates no User Scripts entry there and no longer asks for the User Scripts plugin. In the Compose stack nothing changes.
 - **2.14** – `backup.sh` and `setup.sh` are one block that bash reads completely before it starts: updating the engine while a run takes hours no longer breaks that run. `state/drift.json` also says per Kopia target whether its policy matches settings.ini (`policies`, differences as codes); Mr. Backupsy shows it per share together with the rules. Nothing of the engine directly in `/mnt` any more: the snapshots are mounted under `/mnt/addons/UnraidSecretaryOffice/snapshots`, the btrfs view lives in `…/btrfs-snap`; the office's share `UnraidSecretaryOffice` is proposed as the backup place (folder `backup/`), and a changed backup place is moved by the next run. The setup keeps the chosen backup place instead of guessing it again, and adds the global Kopia rule `_UnraidSecretaryOffice-trash*/`: Ms. Dustdevil's storeroom never goes offsite (its contents were backed up under their old path; the local snapshots keep them).
 - **2.13** – The engine speaks English: terminal, logs, notifications, settings.ini comments and the code's comments. Log lines are marked `WARNING:` / `ERROR:`; questions in `setup.sh` take `y`/`n` (`j` still counts as yes). Nothing the office reads changed (interface 1).
