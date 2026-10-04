@@ -18,7 +18,7 @@ function agentInfo(): array
 {
     $file = OFFICE_DATA . '/agent.json';
     clearstatcache(true, $file);
-    $info = readJsonFile($file) ?? [];
+    $info = officeReadJson($file) ?? [];
     $pulse = (int) @filemtime($file);
     $info['pulse'] = $pulse ?: null;
     $info['running'] = !empty($info['running']) && $pulse > time() - 70 && is_dir(OFFICE_DATA . '/mailbox');

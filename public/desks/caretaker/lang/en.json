@@ -120,6 +120,9 @@
   "errors.office_not_git": "The office wasn't installed with git — update it by hand.",
   "errors.office_local_changes": "The code was changed here — I won't update, so nothing gets lost.",
   "errors.office_git": "git failed: {detail}",
+  "errors.menu_not_plugin": "Only the plugin has an entry in Unraid's menu bar.",
+  "errors.menu_name_bad": "That name doesn't fit: at most {max} characters — letters, digits, spaces and . & + _ -, starting with a letter or digit.",
+  "errors.menu_page_failed": "The menu entry couldn't be changed. Is the plugin installed properly? Installing it again helps.",
   "office_how_plugin": "Unraid updates the office like any other plugin: under Plugins (it checks for updates itself). Your data stays.",
   "office_to_plugins": "To the plugins"
 }

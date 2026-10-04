@@ -9,7 +9,8 @@ declare(strict_types=1);
  * They change nothing on the server: what writes files works on copies in a
  * temporary folder. Two parts:
  *   logic    the tricky functions (cron, snapshot retention, Emby detection,
- *            the gather's settings, User Scripts schedules, the plugin's cron file)
+ *            the gather's settings, User Scripts schedules, the plugin's cron file,
+ *            the menu bar's label)
  *   strings  German and English have the same keys, and every text the code
  *            asks for exists (desk.js, checks, errors)
  * Exit code 0 when everything passes.
@@ -229,6 +230,31 @@ function testOfficeCron(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/** The office's label in Unraid's menu bar (src/place.php): what passes, and the page's Name= line on a copy */
+function testMenuName(): void
+{
+    foreach (['Sekretariat', 'Office', 'USO', 'Mein Büro', 'Büro 2.0', 'A', 'R&D'] as $ok) {
+        check("menu name ok: $ok", officeMenuNameValid($ok));
+    }
+    foreach (['', ' Office', 'Office ', 'x"y', '${HOME}', 'a\\b', "a\nb", '1234567890123456', 'end-', '<b>'] as $bad) {
+        check('menu name refused: ' . json_encode($bad), !officeMenuNameValid($bad));
+    }
+    check('menu name: 15 characters (umlauts count once)', officeMenuNameValid('Büroküche Ölmü'));
+
+    $tmp = sys_get_temp_dir() . '/office-tests-menu-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    copy(dirname(__DIR__) . '/plugin/' . OFFICE_MENU_PAGE, "$tmp/" . OFFICE_MENU_PAGE);
+    $before = (string) file_get_contents("$tmp/" . OFFICE_MENU_PAGE);
+    check('menu page: default name in the repository', str_contains($before, "\nName=\"" . OFFICE_MENU_DEFAULT . "\"\n"));
+    check('menu page: renamed', officeMenuPageApply($tmp, 'Büro & Co'));
+    $after = (string) file_get_contents("$tmp/" . OFFICE_MENU_PAGE);
+    same('menu page: only the Name= line changed', str_replace('Name="' . OFFICE_MENU_DEFAULT . '"', 'Name="Büro & Co"', $before), $after);
+    same('menu page: Unraid reads the name', 'Büro & Co', parse_ini_string(explode("\n---\n", $after)[0])['Name'] ?? null);
+    check('menu page: a bad name changes nothing', !officeMenuPageApply($tmp, 'x"y') && file_get_contents("$tmp/" . OFFICE_MENU_PAGE) === $after);
+    check('menu page: missing page', !officeMenuPageApply("$tmp/none", 'Office'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testEstimates(): void
 {
     // newest first, like backupHistory()
@@ -337,7 +363,7 @@ function testStrings(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testEstimates'], 'strings' => ['testStrings']];
+$parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates'], 'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
     if ($only === '' || $only === $name) {

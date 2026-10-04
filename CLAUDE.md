@@ -11,7 +11,12 @@ This file holds the conventions and the checklist for changes.
   `/usr/local/emhttp/plugins/unraid-secretary-office/` — the web files of
   `public/` at its top, `src/`, `agent/`, `backup/`, `embycache/`, `gather/`,
   `scripts/`, `event/`, `images/` beside them (built by `plugin/build.sh`). Unraid's nginx/php-fpm
-  serve the page behind the Unraid login; the agent is a service
+  serve the page behind the Unraid login: `SecretaryOffice.page` (`Menu="Tasks:85"`)
+  puts the office into Unraid's menu bar, inside Unraid's page (`officeInUnraid()`,
+  `OFFICE_IN_UNRAID`, files from `/plugins/unraid-secretary-office/`); its label is
+  the page's `Name=` (default *Sekretariat*, changed at the reception →
+  `caretaker.menu_name`, kept as `MENU_NAME` in the .cfg, put back by the .plg at
+  every boot); `index.php` only forwards there. The agent is a service
   (`scripts/agent.sh`, started at install/boot and by `event/started`, stopped
   by `event/stopping`). The data folder is `DATA_DIR` from
   `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cfg`
@@ -152,6 +157,19 @@ character, warnings and errors stay plain and clear.
 
 ## UI conventions (every desk looks and behaves the same)
 
+* **Inside Unraid:** everything the office shows lives in `#sso` (src/page.php);
+  office.css and every desk.css nest all their rules in `#sso{ … }` (CSS
+  nesting), so nothing leaks out and, under the id, Unraid's rules don't leak
+  in. A reset at the top (`#sso :where(p, button, input, … span.warn …){all:revert}`)
+  undoes Unraid's styles for bare elements; it sits below every rule of ours.
+  Don't use Unraid's `unapi` class (it switches on Tailwind utilities like
+  `.grid`). Dialogs, menus, the selection bar and tips are appended to `#sso`,
+  never to `body`. Colours are tokens (`--ink`, `--surface` …): on a page of
+  their own the office's, inside Unraid (`.in-unraid`) mixed from Unraid's theme
+  variables (`--text-color`, `--background-color`, `--button-background` …), so
+  black, white, azure and gray all work — never a hard-coded colour. Buttons,
+  tabs and section title bars look like Unraid's there. The Compose stack keeps
+  the office's own look (render_page()).
 * **Head:** `Office.deskHead(...)`, then right after it
   `Office.pageHelp(ID, [[term, text], …])` — "How to read this page", folded
   by default, remembered per desk. Explanations of labels, buttons and tiles go
@@ -162,9 +180,9 @@ character, warnings and errors stay plain and clear.
 * **Remembered per browser** (`Office.store`, prefix `office.`): filters,
   chosen tiles, favourites. Tests in the browser save and restore those keys —
   the user's own pane shares them.
-* **Sections:** `Office.sectionHead(title, explanation, ...extras)` — the
-  explanation sits right under the heading; counts, status and buttons go to
-  the right. No explanatory text floating on the right.
+* **Sections:** `Office.sectionHead(title, explanation, ...extras)` — a title
+  bar (Unraid's inside Unraid) with counts, status and buttons on its right, the
+  explanation right under it. No explanatory text floating on the right.
 * **Tiles** (`button.card`): a click opens or filters; a click on the active
   tile closes it again — nothing open is a valid state. Remember the choice in
   `Office.store`.
@@ -280,7 +298,9 @@ character, warnings and errors stay plain and clear.
    alone while a run is active). The agent restarts itself when its files change — watch `data/agent.log`
    ("Agent code changed — restarting"); a syntax error keeps the old code running.
 5. Reload the page for real (changing only the `#` part of the URL doesn't reload).
-6. Check the page at phone width (375 px): no horizontal scrolling.
+6. Check the page at phone width (375 px): no horizontal scrolling. Inside
+   Unraid check the black and the white theme at least (in a test tab, swap
+   `themes/black.css` for `white.css` — never change the user's setting).
 7. Test destructive actions only on throwaway objects, then clean up. Never
    wake sleeping disks, start backup runs or apply settings on a real server
    just to test.

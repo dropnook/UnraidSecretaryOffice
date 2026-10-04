@@ -1,6 +1,8 @@
 /* Ms. Snapshotini */
+#sso{   /* nested in the office's element, like office.css */
 .sp-plan.paused .row-name{color:var(--muted)}
 .sp-plan .figures{grid-template-columns:auto auto}
 .sp-when{display:flex; flex-wrap:wrap; gap:0 16px}
 .sp-when > .field{flex:1 1 180px; min-width:0}
 .sp-plans-empty{margin:0}
+}

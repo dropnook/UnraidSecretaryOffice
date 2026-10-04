@@ -32,13 +32,18 @@ define('OFFICE_PUBLIC', rtrim(getenv('OFFICE_PUBLIC_DIR') ?: match (true) {
 }, '/'));
 define('OFFICE_DATA', rtrim(getenv('OFFICE_DATA_DIR') ?: (OFFICE_AS_PLUGIN ? officePluginDataDir() : '/var/www/data'), '/'));
 
-// Unraid's PHP has already set the server's zone (local_prepend.php)
-$zone = getenv('TZ') ?: date_default_timezone_get();
-date_default_timezone_set($zone && in_array($zone, timezone_identifiers_list(), true) ? $zone : 'UTC');
-ini_set('display_errors', '0');
-ini_set('log_errors', '1');
-if (PHP_SAPI !== 'cli') {
-    header_remove('X-Powered-By');
+// inside Unraid's own page (SecretaryOffice.page) the office leaves Unraid's settings alone
+defined('OFFICE_IN_UNRAID') || define('OFFICE_IN_UNRAID', false);
+if (!OFFICE_IN_UNRAID) {
+    // Unraid's PHP has already set the server's zone (local_prepend.php)
+    $zone = getenv('TZ') ?: date_default_timezone_get();
+    date_default_timezone_set($zone && in_array($zone, timezone_identifiers_list(), true) ? $zone : 'UTC');
+    unset($zone);
+    ini_set('display_errors', '0');
+    ini_set('log_errors', '1');
+    if (PHP_SAPI !== 'cli') {
+        header_remove('X-Powered-By');
+    }
 }
 
 require __DIR__ . '/mailbox.php';
@@ -46,7 +51,8 @@ require __DIR__ . '/desks.php';
 require __DIR__ . '/auth.php';
 require __DIR__ . '/staff.php';
 
-function readJsonFile(string $file): ?array
+/** (not readJsonFile: Community Applications and Fix Common Problems have one of that name) */
+function officeReadJson(string $file): ?array
 {
     $data = json_decode((string) @file_get_contents($file), true);
     return is_array($data) ? $data : null;

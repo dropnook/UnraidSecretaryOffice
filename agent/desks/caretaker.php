@@ -8,7 +8,8 @@ declare(strict_types=1);
  * …]), see finding() in lib/house.php). The caretaker collects all of that,
  * adds what the office as a whole needs or benefits from, and tells the user
  * what is missing and what is left to do by hand. He only reads — except
- * updating the office itself when asked (lib/officeupdate.php).
+ * updating the office itself when asked (lib/officeupdate.php) and naming
+ * its entry in Unraid's menu bar (the reception's "Menu name").
  */
 
 const CARETAKER_UNRAID_MIN = '6.12';
@@ -19,6 +20,7 @@ desk('caretaker', [
         'refresh'       => fn (array $r) => ['ok' => true, 'state' => caretakerScan()],
         'office_check'  => fn (array $r) => ['ok' => true, 'state' => caretakerScan(true)],
         'office_update' => fn (array $r) => officeUpdate(),
+        'menu_name'     => fn (array $r) => caretakerMenuName((string) ($r['name'] ?? '')),
     ],
     'checks'  => fn () => caretakerChecks(),
 ]);
@@ -118,4 +120,32 @@ function caretakerChecks(): array
         }
     }
     return $out;
+}
+
+/**
+ * The office's label in Unraid's menu bar (plugin only): MENU_NAME in the
+ * plugin's .cfg on the flash (the default isn't written), and right away the
+ * Name= line of the page in RAM (src/place.php). Unraid shows it on the next
+ * page load.
+ */
+function caretakerMenuName(string $name): array
+{
+    if (!AS_PLUGIN) {
+        throw new Problem('menu_not_plugin');
+    }
+    $name = trim((string) preg_replace('/\s+/u', ' ', $name));
+    if (!officeMenuNameValid($name)) {
+        throw new Problem('menu_name_bad', ['max' => OFFICE_MENU_MAX]);
+    }
+    $lines = is_file(OFFICE_PLUGIN_CFG) ? (file(OFFICE_PLUGIN_CFG, FILE_IGNORE_NEW_LINES) ?: []) : [];
+    $lines = array_values(array_filter($lines, fn ($l) => !preg_match('/^\s*MENU_NAME\s*=/', $l)));
+    if ($name !== OFFICE_MENU_DEFAULT) {
+        $lines[] = 'MENU_NAME="' . $name . '"';
+    }
+    writeAtomic(OFFICE_PLUGIN_CFG, implode("\n", $lines) . "\n", 0644, 0, 0);
+    if (!officeMenuPageApply(OFFICE_DIR, $name)) {
+        throw new Problem('menu_page_failed');
+    }
+    logLine("Menu name: $name");
+    return ['ok' => true, 'name' => $name];
 }

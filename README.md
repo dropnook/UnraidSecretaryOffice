@@ -24,8 +24,9 @@ you need — or let them go again later; their data and settings stay.
 
 More desks can join: each one is a module (see below).
 
-The office speaks English and German and follows your device's language.
-Adding a language means adding JSON files.
+The office speaks English and German and follows Unraid's language (English
+where it doesn't speak Unraid's); *⋯ → Language* picks another one for your
+browser. Adding a language means adding JSON files.
 
 ## How it works
 
@@ -38,9 +39,10 @@ Adding a language means adding JSON files.
                └─ zfs, btrfs, docker, virsh, /boot/config …
 ```
 
-* The office is an Unraid **plugin**. Its page is a page of its own next to
-  Unraid's web UI (its own look; *Settings → User Utilities → Secretary
-  Office* leads there), served by Unraid behind its login.
+* The office is an Unraid **plugin**: a page in Unraid's menu bar
+  (*Sekretariat*, between Apps and Tools — at the reception you can call it
+  *Office*, *USO* or a name of your own), in Unraid's look and colour theme,
+  served by Unraid behind its login.
 * The page only shows things. The **agent**, a small service of the plugin,
   does the work on the host. It only accepts the actions the desks define and
   checks every request against a fresh look at the system. Commands run
@@ -77,13 +79,12 @@ once it is released and tested.
    ```
    https://github.com/vipermark2/UnraidSecretaryOffice/releases/latest/download/unraid-secretary-office.plg
    ```
-2. Open it: *Settings → User Utilities → Secretary Office*, or
-   `http://<your server>/plugins/unraid-secretary-office/index.php`.
+2. Open it: *Sekretariat* in Unraid's menu bar (between Apps and Tools).
    The Caretaker welcomes you and suggests whom to hire. For backups:
    Mr. Backupsy → *Set up…*, then *Schedule…*. The Caretaker lists what is
    still missing.
 
-The green dot top left means the agent checked in within the last 70 seconds.
+The green dot next to *⋯* means the agent checked in within the last 70 seconds.
 
 **Updating:** like any plugin, under *Plugins* (Unraid looks for updates; the
 Caretaker also says when a new version is out). Your data stays. While a
@@ -162,7 +163,7 @@ agent/desks/<id>.php            what it does on the host
 public/desks/<id>/desk.json     {"order": 40, "icon": "🧹", "refresh_after": 300, "open_actions": ["scan"]}
                                 ("reception_order" places it differently at the reception)
 public/desks/<id>/desk.js       her desk in the web UI
-public/desks/<id>/desk.css      optional
+public/desks/<id>/desk.css      optional, its rules nested in #sso{ … } like office.css
 public/desks/<id>/lang/en.json  her strings ("name", "role", …), plus other languages
 ```
 

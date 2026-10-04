@@ -24,7 +24,7 @@ function officeStaffFile(): string
 function officeHired(): array
 {
     $hired = [];
-    foreach ((array) ((readJsonFile(officeStaffFile()) ?? [])['hired'] ?? []) as $id => $since) {
+    foreach ((array) ((officeReadJson(officeStaffFile()) ?? [])['hired'] ?? []) as $id => $since) {
         if (is_string($id) && isset(officeDesks()[$id])) {
             $hired[$id] = (int) $since;
         }
@@ -72,7 +72,7 @@ function officeStaffAction(string $action, array $data): array
         throw new AuthProblem('auth_storage', 503);
     }
     try {
-        $staff = readJsonFile($file) ?? [];
+        $staff = officeReadJson($file) ?? [];
         $hired = (array) ($staff['hired'] ?? []);
         foreach ($ids as $id) {
             if ($action === 'office.hire') {

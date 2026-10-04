@@ -1,4 +1,5 @@
 /* Ms. Whereabouts */
+#sso{   /* nested in the office's element, like office.css */
 .row.unfolds .row-detail{cursor:auto}
 .row.open{background:color-mix(in srgb, var(--surface2) 45%, var(--surface))}
 .wa-unfold{justify-content:flex-end; padding:0}
@@ -46,3 +47,4 @@
 .wa-section .card-name{white-space:normal; overflow:visible; line-height:1.25}
 .wa-stack + .wa-path{border-top:0}
 .wa-bad{color:var(--danger); font-weight:600}
+}

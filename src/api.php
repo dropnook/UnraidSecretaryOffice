@@ -87,7 +87,7 @@ function apiState(string $desk, bool $fresh): array
         return ['ok' => false, 'error' => ['key' => 'unknown_desk', 'params' => ['desk' => $desk]]];
     }
     $agent = agentInfo();
-    $state = readJsonFile(OFFICE_DATA . "/$desk.json");
+    $state = officeReadJson(OFFICE_DATA . "/$desk.json");
     $age = $state ? time() - (int) ($state['time'] ?? 0) : PHP_INT_MAX;
     if ($agent['running'] && ($fresh || $age > $desks[$desk]['refresh_after'])) {
         try {
@@ -109,7 +109,7 @@ function apiPart(string $desk, string $part): array
     if (!isset(officeDesks()[$desk]) || !preg_match('/^[a-z][a-z0-9_-]{0,31}$/', $part)) {
         return ['ok' => false, 'error' => ['key' => 'bad_request']];
     }
-    return ['ok' => true, 'agent' => agentInfo(), 'part' => readJsonFile(OFFICE_DATA . "/$desk-$part.json")];
+    return ['ok' => true, 'agent' => agentInfo(), 'part' => officeReadJson(OFFICE_DATA . "/$desk-$part.json")];
 }
 
 function apiStrings(string $code): never

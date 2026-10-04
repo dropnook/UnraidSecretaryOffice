@@ -14,7 +14,8 @@
 (() => {
 'use strict';
 
-const CONFIG = JSON.parse(document.getElementById('office-config').textContent);
+const CONFIG = JSON.parse(document.getElementById('sso-config').textContent);
+const API    = (CONFIG.base || '') + 'api.php';     // inside Unraid's page: the plugin's folder
 const STORE  = 'office.';
 const POLL   = 60000;
 
@@ -39,6 +40,8 @@ const el = (tag, cls, text) => {
 };
 Office.$ = $;
 Office.el = el;
+/** The office's own element: everything it shows lives in it (office.css styles nothing outside) */
+const ROOT = $('#sso');
 
 Office.store = function store(key, value) {
   try {
@@ -80,6 +83,7 @@ function pickLanguage() {
   const codes = CONFIG.languages.map((l) => l.code);
   const saved = Office.store('lang');
   if (saved && codes.includes(saved)) return saved;
+  if (CONFIG.in_unraid) return codes.includes(CONFIG.unraid_lang) ? CONFIG.unraid_lang : 'en';   // like Unraid
   for (const want of navigator.languages || [navigator.language || 'en']) {
     const w = String(want).toLowerCase();
     const exact = codes.find((c) => c.toLowerCase() === w);
@@ -91,7 +95,7 @@ function pickLanguage() {
 }
 
 async function loadStrings(code) {
-  const r = await fetch(`api.php?a=strings&lang=${encodeURIComponent(code)}&v=${CONFIG.stamp}`);
+  const r = await fetch(`${API}?a=strings&lang=${encodeURIComponent(code)}&v=${CONFIG.stamp}`);
   const j = await r.json();
   Office.strings = j.strings || {};
   Office.lang = j.lang || 'en';
@@ -195,7 +199,7 @@ function loggedOut(r) {
 Office.api = {
   async get(params) {
     const once = async () => {
-      const r = await fetch('api.php?' + new URLSearchParams(params), { cache: 'no-store' });
+      const r = await fetch(API + '?' + new URLSearchParams(params), { cache: 'no-store' });
       if (loggedOut(r)) return { ok: false, error: { key: 'logged_out' } };
       const j = await r.json();
       if (j.agent) Office.setAgent(j.agent);
@@ -221,7 +225,7 @@ async function postOnce(action, data) {
   try {
     const headers = { 'Content-Type': 'application/json', 'X-Office': '1' };
     if (CONFIG.csrf) headers['X-CSRF-Token'] = CONFIG.csrf;     // Unraid refuses any POST without it
-    const r = await fetch('api.php', { method: 'POST', headers, body: JSON.stringify({ a: action, ...data }) });
+    const r = await fetch(API, { method: 'POST', headers, body: JSON.stringify({ a: action, ...data }) });
     if (loggedOut(r)) return { ok: false, error: { key: 'logged_out' }, desk: action.split('.')[0] };
     const text = await r.text();
     try {
@@ -251,10 +255,10 @@ Office.errorText = function errorText(error, desk) {
 // ------------------------------------------------------------------ agent status
 Office.setAgent = function setAgent(info) {
   Office.agent = info || { running: false };
-  const dot = $('#agent-dot');
+  const dot = $('#sso-dot');
   dot.className = 'dot ' + (Office.agent.running ? 'on' : 'off');
   dot.title = Office.agent.running ? t('agent.running', { version: Office.agent.version || '?' }) : t('agent.away');
-  const notice = $('#notice');
+  const notice = $('#sso-notice');
   if (Office.agent.running) {
     if (notice.dataset.kind === 'agent') { notice.hidden = true; notice.dataset.kind = ''; }
   } else if (Office.agent.no_data) {
@@ -284,7 +288,7 @@ Office.setAgent = function setAgent(info) {
 // ------------------------------------------------------------------ toasts, copy
 Office.toast = function toast(text, warn) {
   const n = el('div', 'toast' + (warn ? ' warn' : ''), text);
-  $('#toasts').appendChild(n);
+  $('#sso-toasts').appendChild(n);
   setTimeout(() => { n.style.opacity = '0'; setTimeout(() => n.remove(), 300); }, warn ? 6000 : 3200);
 };
 
@@ -313,7 +317,7 @@ Office.copy = function copy(text) {
 Office.setAuth = function setAuth(auth) {
   if (!auth) return;
   Office.auth = auth;
-  const b = $('#btn-lock');
+  const b = $('#sso-lock');
   b.hidden = auth.mode !== 'pin';
   b.textContent = auth.unlocked ? '🔓' : '🔒';
   b.title = auth.unlocked
@@ -430,15 +434,15 @@ Office.dialogOpen = () => !!closeDialog;
     onClose() runs however the dialog ends (button, Escape, click outside, another dialog). */
 Office.dialog = function dialog({ title, body, buttons, wide, onClose }) {
   if (closeDialog) closeDialog();
-  const backdrop = $('#dialog-backdrop');
-  $('#dialog').classList.toggle('wide', !!wide);
-  $('#dialog-title').textContent = title;
-  const box = $('#dialog-body');
+  const backdrop = $('#sso-dialog-backdrop');
+  $('#sso-dialog').classList.toggle('wide', !!wide);
+  $('#sso-dialog-title').textContent = title;
+  const box = $('#sso-dialog-body');
   box.innerHTML = '';
   if (typeof body === 'string') box.appendChild(el('p', '', body));
   else if (body) box.appendChild(body);
 
-  const foot = $('#dialog-foot');
+  const foot = $('#sso-dialog-foot');
   foot.innerHTML = '';
   const made = [];
   (buttons || [{ text: t('common.close') }]).forEach((b) => {
@@ -494,7 +498,7 @@ Office.showErrors = function showErrors(title, errors, desk) {
 
 // ------------------------------------------------------------------ menu
 Office.menu = function menu(event, items) {
-  const box = $('#menu');
+  const box = $('#sso-menu');
   box.innerHTML = '';
   items.forEach((item) => {
     if (item.separator) { box.appendChild(el('hr')); return; }
@@ -523,8 +527,8 @@ Office.menu = function menu(event, items) {
     document.addEventListener('scroll', hideMenu, { once: true, capture: true });
   }, 0);
 };
-function hideMenu() { $('#menu').hidden = true; }
-Office.menuOpen = () => !$('#menu').hidden;
+function hideMenu() { $('#sso-menu').hidden = true; }
+Office.menuOpen = () => !$('#sso-menu').hidden;
 
 // ------------------------------------------------------------------ selection bar
 let selbar = null;
@@ -532,12 +536,12 @@ let selbar = null;
 Office.selbar = function setSelbar(spec) {
   if (!spec) {
     if (selbar) { selbar.remove(); selbar = null; }
-    document.body.classList.remove('with-selbar');
+    ROOT.classList.remove('with-selbar');
     return null;
   }
   if (!selbar) {
     selbar = el('div', 'selbar');
-    document.body.appendChild(selbar);
+    ROOT.appendChild(selbar);
   }
   selbar.innerHTML = '';
   const text = el('div', 'selbar-text');
@@ -553,7 +557,7 @@ Office.selbar = function setSelbar(spec) {
     buttons.appendChild(btn);
   });
   selbar.append(text, buttons);
-  document.body.classList.add('with-selbar');
+  ROOT.classList.add('with-selbar');
   return { sub };
 };
 
@@ -580,7 +584,7 @@ function route() {
   Office.current = next;
   hideMenu();
   tabs();
-  const root = $('#desk');
+  const root = $('#sso-desk');
   root.innerHTML = '';
   root.style.minHeight = '';
   hideTip();
@@ -612,16 +616,22 @@ Office.subroute = (sub) => {
 };
 
 function tabs() {
-  const nav = $('#tabs');
+  const nav = $('#sso-tabs');
   nav.innerHTML = '';
+  let current = null;
   const add = (href, icon, text, active) => {
     const a = el('a', active ? 'active' : '');
     a.href = href;
+    if (active) { a.setAttribute('aria-current', 'page'); current = a; }
     a.append(el('span', 'tab-icon', icon), el('span', '', text));
     nav.appendChild(a);
   };
   add('#/', '🛎️', t('office.reception'), !Office.current);
   for (const d of Office.desks.values()) if (d.hired) add(`#/${d.id}`, d.icon, t(`${d.id}.name`), Office.current === d);
+  // on a phone the tabs scroll sideways in their row: the current one in view (only the row moves, not the page)
+  if (current && nav.scrollWidth > nav.clientWidth) {
+    nav.scrollLeft = Math.max(0, current.offsetLeft - nav.offsetLeft - (nav.clientWidth - current.offsetWidth) / 2);
+  }
 }
 
 /**
@@ -643,14 +653,17 @@ Office.pageHelp = function pageHelp(desk, items) {
   return det;
 };
 
-/** A section heading with its explanation right underneath; extras (counts, buttons) go to the right */
+/**
+ * A section heading: a title bar (inside Unraid like its own) with the extras
+ * (counts, buttons) on its right, the explanation right underneath
+ */
 Office.sectionHead = function sectionHead(title, sub, ...right) {
   const head = el('div', 'section-head');
-  const left = el('div', 'section-title');
-  left.appendChild(el('h2', '', title));
-  if (sub) left.appendChild(el('div', 'section-sub', sub));
-  head.appendChild(left);
-  right.filter(Boolean).forEach((x) => head.appendChild(x));
+  const bar = el('div', 'section-bar');
+  bar.appendChild(el('h2', '', title));
+  right.filter(Boolean).forEach((x) => bar.appendChild(x));
+  head.appendChild(bar);
+  if (sub) head.appendChild(el('div', 'section-sub', sub));
   return head;
 };
 
@@ -689,7 +702,7 @@ function showTip(node, pinned) {
   if (!tipBox) {
     tipBox = el('div', 'tip');
     tipBox.setAttribute('role', 'tooltip');
-    document.body.appendChild(tipBox);
+    ROOT.appendChild(tipBox);
   }
   tipBox.textContent = text;
   tipBox.hidden = false;
@@ -743,7 +756,7 @@ function initTips() {
  * doesn't have to pull the page down at the bottom.
  */
 Office.keepInPlace = function keepInPlace(anchor, change) {
-  const desk = $('#desk');
+  const desk = $('#sso-desk');
   const before = anchor && anchor.isConnected ? anchor.getBoundingClientRect().top : null;
   desk.style.minHeight = Math.max(desk.offsetHeight, parseFloat(desk.style.minHeight) || 0) + 'px';
   change();
@@ -755,7 +768,7 @@ Office.keepInPlace = function keepInPlace(anchor, change) {
 };
 /** give back the kept space as far as it is below the visible part */
 function relaxDesk() {
-  const desk = $('#desk');
+  const desk = $('#sso-desk');
   const min = parseFloat(desk.style.minHeight);
   if (!min) return;
   const slack = document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
@@ -880,6 +893,15 @@ async function reception(root) {
   const text = el('div', 'deskhead-text');
   text.append(el('h1', '', t('office.welcome', { host: CONFIG.host })), el('div', 'role', t('office.reception_role')));
   head.appendChild(text);
+  if (CONFIG.plugin) {           // what the office is called in Unraid's menu bar
+    const act = el('div', 'deskhead-actions');
+    const b = el('button', 'btn small plain', t('office.menu_name', { name: CONFIG.menu_name }));
+    b.type = 'button';
+    b.title = t('office.menu_title');
+    b.onclick = () => menuNameDialog(b);
+    act.appendChild(b);
+    head.appendChild(act);
+  }
   root.appendChild(head);
 
   const grid = el('div', 'reception');
@@ -920,6 +942,106 @@ async function reception(root) {
       bubble.textContent = t('office.no_news');
     }
   }
+}
+
+/**
+ * The office's label in Unraid's menu bar: a few names to pick or one of the
+ * user's own (the caretaker's agent writes it into the plugin's page and its
+ * .cfg). Unraid's menu bar on this page gets it right away.
+ */
+function menuNameDialog(button) {
+  const presets = [CONFIG.menu_default, 'Office', 'USO'].filter((n, i, all) => all.indexOf(n) === i);
+  const now = CONFIG.menu_name;
+  const box = el('div');
+  box.appendChild(el('p', '', t('office.menu_text')));
+  const radios = [];
+  const option = (value, label, hint) => {
+    const l = el('label', 'check');
+    const r = el('input');
+    r.type = 'radio';
+    r.name = 'sso-menu-name';
+    r.value = value;
+    const span = el('span', '', label);
+    if (hint) span.appendChild(el('small', '', hint));
+    l.append(r, span);
+    box.appendChild(l);
+    radios.push(r);
+    return r;
+  };
+  presets.forEach((n) => option(n, n, n === 'USO' ? t('office.menu_uso') : ''));
+  const own = option('', t('office.menu_own'));
+  const field = el('div', 'field sso-menu-own');
+  const input = el('input', 'input');
+  input.maxLength = CONFIG.menu_max || 15;
+  input.autocomplete = 'off';
+  field.append(input, el('small', '', t('office.menu_own_hint', { max: CONFIG.menu_max || 15 })));
+  box.appendChild(field);
+  const msg = el('p', 'callout warn');
+  msg.hidden = true;
+  box.appendChild(msg);
+  const pick = radios.find((r) => r.value === now) || own;
+  if (pick === own) input.value = now;
+  Office.dialog({
+    title: t('office.menu_title'),
+    body: box,
+    buttons: [
+      { text: t('common.cancel') },
+      { text: t('office.menu_save'), kind: '', act: async () => {
+        const chosen = radios.find((r) => r.checked);
+        const name = (chosen === own ? input.value : chosen.value).trim();
+        if (!name) { msg.textContent = t('office.menu_empty'); msg.hidden = false; input.focus(); return false; }
+        const j = await Office.api.post('caretaker.menu_name', { name });
+        if (!j.ok) { msg.textContent = Office.errorText(j.error, 'caretaker'); msg.hidden = false; return false; }
+        CONFIG.menu_name = j.name;
+        document.querySelectorAll(`#menu .nav-item a[href="/${CONFIG.menu_page}"]`).forEach((a) => { a.textContent = j.name; });
+        if (button && button.isConnected) button.textContent = t('office.menu_name', { name: j.name });
+        Office.toast(t('office.menu_saved', { name: j.name }));
+        return true;
+      } },
+    ],
+  });
+  // the dialog focuses the first text field; here the current choice comes first
+  pick.checked = true;
+  if (pick !== own) pick.focus();
+  input.onfocus = input.oninput = () => { own.checked = true; };
+}
+
+/** Which language: like Unraid (or this device), or one chosen for this browser */
+function languageDialog() {
+  const box = el('div');
+  box.appendChild(el('p', '', t('office.language_text')));
+  const saved = Office.store('lang');
+  const radios = [];
+  const option = (value, label) => {
+    const l = el('label', 'check');
+    const r = el('input');
+    r.type = 'radio';
+    r.name = 'sso-language';
+    r.value = value;
+    r.checked = value === (saved || '');
+    l.append(r, el('span', '', label));
+    box.appendChild(l);
+    radios.push(r);
+  };
+  const like = CONFIG.languages.find((l) => l.code === CONFIG.unraid_lang);
+  option('', CONFIG.in_unraid ? t('office.language_unraid', { name: like ? like.name : 'English' }) : t('office.language_device'));
+  CONFIG.languages.forEach((l) => option(l.code, l.name));
+  Office.dialog({
+    title: t('office.language_title'),
+    body: box,
+    buttons: [
+      { text: t('common.cancel') },
+      { text: t('office.language_use'), kind: '', act: async () => {
+        const value = (radios.find((r) => r.checked) || {}).value || '';
+        Office.store('lang', value || null);
+        await loadStrings(pickLanguage());
+        brand();
+        Office.setAgent(Office.agent);
+        route();
+        return true;
+      } },
+    ],
+  });
 }
 
 // ------------------------------------------------------------------ office menu, help, log
@@ -966,8 +1088,9 @@ function officeMenu(e) {
     { text: t(Office.auth.mode === 'pin' ? 'auth.menu_change' : 'auth.menu_set'), act: pinSettings },
   ];
   if (Office.auth.mode === 'pin' && Office.auth.unlocked) items.push({ text: t('auth.lock_now'), act: lockNow });
-  items.push({ separator: true }, { text: t('help.title'), act: Office.help });
-  if (CONFIG.plugin) items.push({ text: t('office.to_unraid'), act: () => { location.href = '/Dashboard'; } });
+  items.push({ separator: true });
+  if (CONFIG.languages.length > 1) items.push({ text: t('office.language'), act: languageDialog });
+  items.push({ text: t('help.title'), act: Office.help });
   if (Office.current && !Office.current.always) {
     items.push({ separator: true }, { text: t('office.fire_menu', { name: t(`${Office.current.id}.name`) }), act: () => Office.fireDialog(Office.current.id) });
   }
@@ -976,7 +1099,7 @@ function officeMenu(e) {
 }
 
 function footer() {
-  const f = $('#footer');
+  const f = $('#sso-footer');
   f.innerHTML = '';
   f.append(el('span', '', `Unraid Secretary Office v${CONFIG.version}`));
   if (Office.agent.version) f.append(el('span', '', t('agent.version', { version: Office.agent.version })));
@@ -987,29 +1110,19 @@ function footer() {
   f.append(a);
 }
 
-function languagePicker() {
-  const sel = $('#lang');
-  sel.innerHTML = '';
-  CONFIG.languages.forEach((l) => sel.appendChild(new Option(l.name, l.code)));
-  sel.value = Office.lang;
-  sel.hidden = CONFIG.languages.length < 2;
-  sel.onchange = async () => {
-    Office.store('lang', sel.value);
-    await loadStrings(sel.value);
-    $('#brand-name').textContent = t('office.name');
-    Office.setAgent(Office.agent);
-    route();
-  };
+/** The office's name top left — only on a page of its own (inside Unraid its menu bar says it) */
+function brand() {
+  const b = $('#sso-brand');
+  if (b) b.textContent = t('office.name');
 }
 
 // ------------------------------------------------------------------ start
 async function start() {
   await loadStrings(pickLanguage());
-  $('#brand-name').textContent = t('office.name');
-  languagePicker();
+  brand();
   footer();
-  $('#btn-more').onclick = officeMenu;
-  $('#btn-lock').onclick = () => (Office.auth.unlocked ? lockNow() : Office.unlock());
+  $('#sso-more').onclick = officeMenu;
+  $('#sso-lock').onclick = () => (Office.auth.unlocked ? lockNow() : Office.unlock());
   try { Office.setAuth((await Office.api.get({ a: 'auth' })).auth); } catch (e) { /* the page still works */ }
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenu(); });
   initTips();

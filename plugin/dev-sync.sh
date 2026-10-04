@@ -33,8 +33,13 @@ copy "$src/plugin/images/" "$dir/images/"
 copy --exclude=__pycache__ "$src/embycache/" "$dir/embycache/"     # Jack Emby's tools; a running one keeps its old files
 copy "$src/gather/"        "$dir/gather/"
 rsync -lt --chmod=F644 "$src"/plugin/*.page "$dir/"
-# the README Unraid shows under Plugins, without the title picture (as plugin/build.sh does)
-awk '/^<h1>/{skip=1; print "**Unraid Secretary Office**"; next} skip&&/^<\/h1>/{skip=0; next} !skip' "$src/README.md" > "$dir/README.md"
+for page in "$dir"/*.page; do        # pages the working copy doesn't have any more (renamed) go
+    [[ -e "$src/plugin/$(basename "$page")" ]] || rm -f "$page"
+done
+# the menu bar's label as chosen at the reception (as the .plg does at every boot)
+php -r 'require $argv[1] . "/src/place.php"; officeMenuPageApply($argv[1], officeMenuName());' "$dir"
+# the short README Unraid shows in its list under Plugins (as plugin/build.sh does)
+rsync -lt --chmod=F644 "$src/plugin/README.md" "$dir/README.md"
 chmod 755 "$dir"/scripts/* "$dir"/event/* "$dir/agent/agent.php"
 
 # a run is "bash <dir>/backup/backup.sh" (atd, the cron file) - only the start of the command line counts

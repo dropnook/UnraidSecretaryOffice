@@ -1,4 +1,5 @@
 /* Ms. Protocolli */
+#sso{   /* nested in the office's element, like office.css */
 /* the log picker: button + list with a search field */
 .lg-picker{position:relative; max-width:min(100%, 380px); flex:0 1 380px}
 .lg-picker .lg-source{width:100%; text-align:left; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
@@ -17,16 +18,17 @@
 .lg-favs-label{font-size:12px; color:var(--muted); margin-right:2px}
 .lg-favs .lg-reset{margin-left:auto}
 .lg-bar .search{flex:1 1 180px; min-width:140px}
-pre.lg-out{max-height:none; height:min(68vh, 900px); white-space:pre; overflow:auto; font-size:12px; line-height:1.5}
-pre.lg-out.wrap{white-space:pre-wrap; word-break:break-word}
+& pre.lg-out{max-height:none; height:min(68vh, 900px); white-space:pre; overflow:auto; font-size:12px; line-height:1.5}
+& pre.lg-out.wrap{white-space:pre-wrap; word-break:break-word}
 .lg-line.error{color:var(--danger)}
 .lg-line.warn{color:var(--warn)}
 .lg-line mark{background:var(--accent-soft); color:inherit; border-radius:2px}
 .lg-empty{color:var(--muted); font-family:inherit}
 .lg-status{margin:4px 2px 0; overflow-wrap:anywhere}
 .lg-sample.error{color:var(--danger); font-family:var(--mono); font-size:12px}
-button.lg-star{font-size:16px; line-height:1; padding-left:8px; padding-right:8px}
-button.lg-star.on{color:var(--warn)}
+& button.lg-star{font-size:16px; line-height:1; padding-left:8px; padding-right:8px}
+& button.lg-star.on{color:var(--warn)}
 .lg-favs{display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:8px 2px 0}
 .lg-favs .lg-fav.active{border-color:var(--accent); color:var(--accent-ink); background:var(--accent-soft)}
-@media (max-width:600px){ pre.lg-out{height:60vh} .lg-picker{max-width:100%; flex:1 1 100%} .lg-pop{width:100%} }
+@media (max-width:600px){ & pre.lg-out{height:60vh} .lg-picker{max-width:100%; flex:1 1 100%} .lg-pop{width:100%} }
+}

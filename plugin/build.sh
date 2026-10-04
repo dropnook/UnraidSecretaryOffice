@@ -41,9 +41,8 @@ cp -R public/. "$pkg/"
 cp -R src agent backup embycache gather "$pkg/"
 cp -R plugin/scripts plugin/event plugin/images "$pkg/"
 cp plugin/*.page LICENSE "$pkg/"
-# Unraid shows the plugin's README.md under Plugins: without the title picture
-# (it lives in .github/, which the package doesn't have) — the name in bold instead
-awk '/^<h1>/{skip=1; print "**Unraid Secretary Office**"; next} skip&&/^<\/h1>/{skip=0; next} !skip' README.md > "$pkg/README.md"
+# Unraid shows the plugin's README.md in its list under Plugins: a short one of its own
+cp plugin/README.md "$pkg/README.md"
 rm -f "$pkg/robots.txt"                       # Unraid serves its own
 find "$pkg" \( -name '.DS_Store' -o -name '._*' -o -name '.smbdelete*' -o -name '.gitkeep' -o -name '__pycache__' \) -exec rm -rf {} +
 

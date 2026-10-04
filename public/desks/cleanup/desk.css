@@ -1,4 +1,5 @@
 /* Ms. Dustdevil */
+#sso{   /* nested in the office's element, like office.css */
 .cl-tile-icon{font-size:17px; line-height:1}
 .cl-count{margin-left:auto; font-size:13px; font-weight:650; color:var(--accent-ink); background:var(--accent-soft); border-radius:999px; padding:1px 8px; font-variant-numeric:tabular-nums}
 .cl-unfold{justify-content:flex-end; padding:0}
@@ -15,4 +16,5 @@
   .row.cl-trash-row{grid-template-columns:minmax(0,1fr)}
   .row.cl-trash-row > div:last-child:empty{display:none}
   .cl-trash-row .cl-acts{justify-content:flex-start}
+}
 }

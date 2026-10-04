@@ -1,8 +1,36 @@
 /* Unraid Secretary Office
    One stylesheet for the office, no dependencies. Desks may add a desk.css.
-   Look and feel from levelnext Airdrop. Light and dark follow the system. */
 
-:root{
+   Everything the office shows lives in its own element (#sso, see
+   src/page.php): every rule below is nested in it (CSS nesting, like Unraid's
+   own stylesheets), so nothing leaks into Unraid's page, and under its id
+   Unraid's rules don't leak in. desk.css files do the same. Inside Unraid
+   (.in-unraid, the plugin) colours, fonts, buttons and title bars come from
+   Unraid's theme (its variables in themes/*.css:
+   black, white, azure, gray); on a page of its own (the Compose stack) the
+   office brings its own look, light and dark following the system. */
+
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes new{0%,30%{background:color-mix(in srgb, var(--accent) 22%, var(--surface))}100%{background:transparent}}
+@keyframes up{from{opacity:0; translate:0 8px}to{opacity:1; translate:0 0}}
+
+/* the office's page of its own (the stack) */
+body.sso-page{margin:0; background:#F2F5F6; -webkit-text-size-adjust:100%}
+@media (prefers-color-scheme: dark){ body.sso-page{background:#0C1216} }
+
+/* Unraid styles bare elements on every page (p justified, buttons in capitals
+   with margins and an orange frame on hover, inputs underlined, dl as a form
+   grid, pre, tables, span.warn as a yellow block …). Inside the office they
+   start from the browser's defaults again — as on a page of its own. The
+   office's rules sit under its id (#sso), above any of Unraid's; this reset
+   sits right under them (#sso + :where(), no more than the id), so it beats
+   Unraid's and every rule of the office beats it. (Not Unraid's opt-out class
+   "unapi": that one switches on Unraid's utility classes like .grid.) */
+#sso :where(p, button, input, select, textarea, table, thead, tbody, tr, td, th, pre, dl, dt, dd, hr, blockquote,
+  div.box, div.box div, span.status, span.warn, span.error, span.small, span.big, .notice, .failed){all:revert}
+
+#sso{
+/* ---------------------------------------------------------------- colours */
   --bg:#F2F5F6;       --surface:#FFFFFF;   --surface2:#E9EEF0;
   --ink:#121B21;      --ink2:#3E4F59;      --muted:#5E6E78;
   --line:#D6DFE3;     --line2:#B9C7CE;
@@ -14,9 +42,10 @@
   --shadow:0 1px 2px rgba(18,27,33,.06), 0 10px 26px -18px rgba(18,27,33,.35);
   --radius:4px;
   --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
-}
-@media (prefers-color-scheme: dark){
-  :root{
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang SC","Microsoft YaHei",sans-serif;
+  --under:0px;        /* what Unraid keeps fixed at the bottom (its footer) */
+
+  @media (prefers-color-scheme: dark){
     --bg:#0C1216;     --surface:#141C21;   --surface2:#1B252B;
     --ink:#E3EBEF;    --ink2:#B6C4CC;      --muted:#8697A1;
     --line:#233037;   --line2:#33454F;
@@ -27,25 +56,50 @@
     --data:#3A4D57;
     --shadow:0 1px 2px rgba(0,0,0,.45), 0 10px 26px -18px rgba(0,0,0,.9);
   }
-}
 
-*{box-sizing:border-box}
-html{height:100%}
-body{min-height:100%}
-body{
-  margin:0; background:var(--bg); color:var(--ink);
-  font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang SC","Microsoft YaHei",sans-serif;
-  -webkit-text-size-adjust:100%;
-  display:flex; flex-direction:column;
-  padding-bottom:env(safe-area-inset-bottom);
-}
-body.with-selbar{padding-bottom:calc(84px + env(safe-area-inset-bottom))}
-h1,h2,h3{margin:0; font-weight:650; letter-spacing:-.01em}
+  /* inside Unraid: its theme decides (not the system's light or dark).
+     Shades are mixed from the theme's text and background, so they work in
+     all four themes; Unraid's orange is the accent. */
+  &.in-unraid{
+    --bg:var(--background-color);
+    --surface:var(--mild-background-color);
+    --surface2:color-mix(in srgb, var(--text-color) 7%, var(--mild-background-color));
+    --ink:var(--text-color);
+    --ink2:color-mix(in srgb, var(--text-color) 80%, var(--background-color));
+    --muted:color-mix(in srgb, var(--text-color) 58%, var(--background-color));
+    --line:color-mix(in srgb, var(--text-color) 13%, var(--background-color));
+    --line2:color-mix(in srgb, var(--text-color) 24%, var(--background-color));
+    --accent:color-mix(in srgb, var(--brand-orange, #ff8c2f) 82%, var(--text-color));   /* readable on white, too */
+    --accent-soft:color-mix(in srgb, var(--brand-orange, #ff8c2f) 16%, var(--mild-background-color));
+    --accent-ink:color-mix(in srgb, var(--brand-orange, #ff8c2f) 72%, var(--text-color));
+    --danger:color-mix(in srgb, var(--red-800, #e22828) 78%, var(--text-color));
+    --danger-soft:color-mix(in srgb, var(--red-800, #e22828) 15%, var(--mild-background-color));
+    --good:color-mix(in srgb, var(--green-500, #17bf0b) 75%, var(--text-color));
+    --warn:color-mix(in srgb, var(--orange-200, #ff9900) 75%, var(--text-color));
+    --warn-soft:color-mix(in srgb, var(--orange-200, #ff9900) 15%, var(--mild-background-color));
+    --on-fill:var(--white, #fff);
+    --data:color-mix(in srgb, var(--text-color) 30%, var(--mild-background-color));
+    --shadow:none;
+    --mono:bitstream,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --font:clear-sans,sans-serif;
+    --under:40px;
+  }
+
+/* ---------------------------------------------------------------- base */
+  font:15px/1.55 var(--font);
+  color:var(--ink);
+  &.in-unraid{font-size:14px}
+  &:not(.in-unraid){min-height:100vh; display:flex; flex-direction:column; padding-bottom:env(safe-area-inset-bottom)}
+  &.with-selbar{padding-bottom:calc(84px + var(--under) + env(safe-area-inset-bottom))}
+
+& *{box-sizing:border-box}
+& h1, & h2, & h3{margin:0; font-weight:650; letter-spacing:-.01em}
 [hidden]{display:none !important}
-a{color:var(--accent)}
-code{font:12.5px var(--mono); background:var(--surface2); border:1px solid var(--line); border-radius:3px; padding:1px 5px; overflow-wrap:anywhere}
+& a{color:var(--accent)}
+& code{font:12.5px var(--mono); background:var(--surface2); border:1px solid var(--line); border-radius:3px; padding:1px 5px; overflow-wrap:anywhere}
 
 /* ---------------------------------------------------------------- top bar */
+/* on a page of its own: the office's name, the desks as tabs, ⋯ */
 .topbar{
   display:flex; align-items:center; gap:14px; flex-wrap:wrap;
   padding:10px 20px; background:var(--surface); border-bottom:1px solid var(--line);
@@ -57,20 +111,32 @@ code{font:12.5px var(--mono); background:var(--surface2); border:1px solid var(-
 .dot{width:9px; height:9px; border-radius:50%; background:var(--muted); flex:none; transition:background .2s}
 .dot.on{background:var(--good)}
 .dot.off{background:var(--danger)}
-.tabs{display:flex; gap:4px; flex-wrap:wrap; min-width:0}
-.tabs a{
+.desk-tabs{display:flex; gap:4px; flex-wrap:wrap; min-width:0}
+.desk-tabs a{
   display:inline-flex; align-items:center; gap:7px;
   padding:6px 11px; border-radius:var(--radius); text-decoration:none;
   color:var(--ink2); font-size:13.5px; font-weight:550; white-space:nowrap;
 }
-.tabs a:hover{background:var(--surface2)}
-.tabs a.active{background:var(--accent-soft); color:var(--accent-ink)}
-.tabs .tab-icon{font-size:15px; line-height:1}
+.desk-tabs a:hover{background:var(--surface2)}
+.desk-tabs a.active{background:var(--accent-soft); color:var(--accent-ink)}
+.desk-tabs .tab-icon{font-size:15px; line-height:1}
 .topbar-right{display:flex; align-items:center; gap:8px; margin-left:auto; flex:none}
-select.lang{
-  font:inherit; font-size:12.5px; padding:4px 6px; border-radius:var(--radius);
-  border:1px solid var(--line2); background:var(--surface); color:var(--ink2);
+
+/* inside Unraid: under its menu bar, the desks as tabs like Unraid's own
+   (Plugins: "Installed Plugins | Install Plugin"); the agent's dot and ⋯ on the right */
+&.in-unraid .topbar{
+  position:static; background:none; padding:0; gap:0 10px; flex-wrap:nowrap; align-items:flex-end;
+  border-bottom:1px solid var(--line2);
 }
+&.in-unraid .desk-tabs{flex:1 1 auto; gap:5px; flex-wrap:wrap}
+&.in-unraid .desk-tabs a{
+  gap:6px; padding:7px 10px; margin-bottom:-1px; font-size:13.5px; font-weight:400; letter-spacing:1px;
+  color:var(--ink); background:transparent; opacity:.6;
+  border:1px solid var(--gray-500, #808080); border-bottom-color:var(--line2); border-radius:6px 6px 0 0;
+}
+&.in-unraid .desk-tabs a:hover{opacity:1; background:transparent}
+&.in-unraid .desk-tabs a.active{opacity:1; color:var(--ink); background:var(--bg); border-color:var(--brand-orange, #ff8c2f); border-bottom-color:var(--bg)}
+&.in-unraid .topbar-right{align-self:center; padding:0 0 4px}
 
 .notice{
   margin:12px 20px 0; font-size:13px; line-height:1.4;
@@ -80,6 +146,7 @@ select.lang{
 .notice.info{color:var(--accent-ink); background:var(--accent-soft); border-left-color:var(--accent)}
 .notice a{color:inherit; font-weight:600}
 .notice strong{font-weight:650}
+&.in-unraid .notice{margin:12px 0 0}
 
 /* ---------------------------------------------------------------- buttons */
 .btn{
@@ -99,13 +166,29 @@ select.lang{
 .btn.small{padding:3px 9px; font-size:12.5px}
 :focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:3px}
 
+/* inside Unraid: Unraid's buttons — capitals, its theme's frame and hover
+   (black/white: the orange gradient). The main action is the filled one. */
+&.in-unraid .btn{
+  font-size:11.5px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase;
+  padding:7px 12px; border:var(--button-border, none); border-radius:4px;
+  color:var(--button-text-color); background:var(--button-background); background-size:var(--button-background-size, auto);
+  transition:none;
+}
+&.in-unraid .btn:hover:not(:disabled), &.in-unraid .btn:not(.plain):not(.danger){
+  color:var(--hover-button-text-color); background:var(--hover-button-background); filter:none;
+}
+&.in-unraid .btn:not(.plain):not(.danger):hover:not(:disabled){filter:brightness(1.1)}
+&.in-unraid .btn.danger, &.in-unraid .btn.danger.plain{background:transparent; border:1px solid var(--danger); color:var(--danger)}
+&.in-unraid .btn.danger:hover:not(:disabled){background:var(--danger); color:var(--on-fill)}
+&.in-unraid .btn:disabled{opacity:.45; cursor:default; color:var(--button-text-color); background:var(--button-background); background-size:var(--button-background-size, auto)}
+&.in-unraid .btn.small{font-size:10.5px; padding:4px 9px; letter-spacing:1px}
+
 .spin{
   display:none; width:12px; height:12px; flex:none;
   border:2px solid currentColor; border-right-color:transparent; border-radius:50%;
   animation:spin .8s linear infinite;
 }
 .running .spin{display:inline-block}
-@keyframes spin{to{transform:rotate(360deg)}}
 
 .more{
   border:0; background:transparent; color:var(--muted); cursor:pointer;
@@ -121,8 +204,9 @@ select.lang{
   padding:18px 20px 10px;
 }
 .section{display:flex; flex-direction:column; gap:10px; min-width:0}
-.section-head{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap}
-.section-head h2{font-size:14px; text-transform:uppercase; letter-spacing:.09em; color:var(--muted)}
+.section-head{display:flex; flex-direction:column; gap:2px; min-width:0}
+.section-bar{display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-height:26px}
+.section-bar h2{font-size:14px; text-transform:uppercase; letter-spacing:.09em; color:var(--muted); margin-right:auto}
 
 /* ---------------------------------------------------------------- desk head */
 .deskhead{display:flex; align-items:flex-start; gap:16px; flex-wrap:wrap}
@@ -153,7 +237,6 @@ select.lang{
 .page-help-list{display:grid; grid-template-columns:max-content 1fr; gap:8px 14px; margin:10px 0 2px; padding:12px 14px; background:var(--surface); border:1px solid var(--line); border-radius:8px}
 .page-help-list dt{font-weight:600; color:var(--ink)}
 .page-help-list dd{margin:0; color:var(--ink2)}
-.section-title{display:flex; flex-direction:column; gap:2px; min-width:0}
 .section-sub{font-size:13px; color:var(--muted)}
 .deskhead-actions{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-left:auto; padding-top:4px}
 
@@ -165,8 +248,8 @@ select.lang{
   display:flex; flex-direction:column; gap:8px; min-width:0;
   text-align:left; font:inherit; color:inherit; transition:border-color .12s, background .12s;
 }
-button.card{cursor:pointer}
-button.card:hover{border-color:var(--line2)}
+& button.card{cursor:pointer}
+& button.card:hover{border-color:var(--line2)}
 .card.active{border-color:var(--accent); background:var(--accent-soft)}
 .card.wide{grid-column:span 2}
 @media (max-width:620px){.card.wide{grid-column:auto}}
@@ -260,7 +343,6 @@ button.card:hover{border-color:var(--line2)}
 .row input[type=checkbox]{width:16px; height:16px; accent-color:var(--accent); margin:0}
 .row input[type=checkbox]:disabled{opacity:.35}
 .row.new{animation:new 3.5s ease-out}
-@keyframes new{0%,30%{background:color-mix(in srgb, var(--accent) 22%, var(--surface))}100%{background:transparent}}
 .row-main{min-width:0}
 .row-name{font:13.5px/1.4 var(--mono); overflow-wrap:anywhere; color:var(--ink)}
 .row-name.text{font-family:inherit; font-weight:600}
@@ -298,11 +380,11 @@ button.card:hover{border-color:var(--line2)}
 
 /* tables (e.g. user access) */
 .table-wrap{overflow:auto; -webkit-overflow-scrolling:touch}
-table.grid{border-collapse:collapse; width:100%; font-size:12.5px}
-table.grid th, table.grid td{padding:7px 10px; border-top:1px solid var(--line); text-align:left; white-space:nowrap}
-table.grid thead th{background:var(--surface2); color:var(--muted); font-weight:600; font-size:11.5px; border-top:0; position:sticky; top:0}
-table.grid tbody th{font-weight:600; color:var(--ink)}
-table.grid td.c{text-align:center}
+& table.grid{border-collapse:collapse; width:100%; font-size:12.5px}
+& table.grid th, & table.grid td{padding:7px 10px; border-top:1px solid var(--line); text-align:left; white-space:nowrap}
+& table.grid thead th{background:var(--surface2); color:var(--muted); font-weight:600; font-size:11.5px; border-top:0; position:sticky; top:0}
+& table.grid tbody th{font-weight:600; color:var(--ink)}
+& table.grid td.c{text-align:center}
 
 /* stat tiles */
 .stats{display:grid; gap:10px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 190px), 1fr))}
@@ -311,8 +393,8 @@ table.grid td.c{text-align:center}
 .stat-value{font-size:19px; font-weight:650; color:var(--ink); font-variant-numeric:tabular-nums; margin-top:1px}
 .stat-sub{font-size:12px; color:var(--ink2); overflow-wrap:anywhere}
 .stat.alert .stat-value{color:var(--warn)}
-button.stat{font:inherit; text-align:left; cursor:pointer; color:inherit}
-button.stat:hover{border-color:var(--line2)}
+& button.stat{font:inherit; text-align:left; cursor:pointer; color:inherit}
+& button.stat:hover{border-color:var(--line2)}
 
 /* reception */
 .reception{display:grid; gap:16px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 340px), 1fr))}
@@ -333,7 +415,7 @@ button.stat:hover{border-color:var(--line2)}
 
 /* ---------------------------------------------------------------- selection bar */
 .selbar{
-  position:fixed; left:50%; transform:translateX(-50%); z-index:50;
+  position:fixed; left:50%; transform:translateX(-50%); z-index:10010;
   bottom:calc(16px + env(safe-area-inset-bottom)); width:min(640px, calc(100% - 24px));
   display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
   padding:10px 12px 10px 16px; border-radius:8px; background:var(--ink); color:var(--bg);
@@ -347,7 +429,7 @@ button.stat:hover{border-color:var(--line2)}
 .selbar .btn.plain:hover{background:color-mix(in srgb, var(--bg) 14%, transparent)}
 
 /* ---------------------------------------------------------------- menu */
-.menu{position:fixed; z-index:70; min-width:200px; padding:5px; background:var(--surface); border:1px solid var(--line2); border-radius:6px; box-shadow:0 10px 34px -10px rgba(0,0,0,.45)}
+.menu{position:fixed; z-index:10020; min-width:200px; padding:5px; background:var(--surface); border:1px solid var(--line2); border-radius:6px; box-shadow:0 10px 34px -10px rgba(0,0,0,.45)}
 .menu button{display:block; width:100%; text-align:left; font:inherit; font-size:13.5px; padding:8px 11px; border:0; border-radius:4px; background:transparent; color:var(--ink); cursor:pointer}
 .menu button:hover:not(:disabled){background:var(--accent-soft)}
 .menu button:disabled{color:var(--muted); cursor:default}
@@ -356,7 +438,7 @@ button.stat:hover{border-color:var(--line2)}
 .menu hr{border:0; border-top:1px solid var(--line); margin:4px 2px}
 
 /* ---------------------------------------------------------------- dialog */
-.dialog-backdrop{position:fixed; inset:0; z-index:80; align-items:center; justify-content:center; padding:18px; background:rgba(6,12,16,.5); display:none}
+.dialog-backdrop{position:fixed; inset:0; z-index:10030; align-items:center; justify-content:center; padding:18px; background:rgba(6,12,16,.5); display:none}
 .dialog-backdrop:not([hidden]){display:flex}
 .dialog{background:var(--surface); border:1px solid var(--line); border-radius:8px; box-shadow:0 24px 60px -20px rgba(0,0,0,.6); width:min(560px,100%); max-height:min(88vh,820px); display:flex; flex-direction:column}
 .dialog.wide{width:min(760px,100%)}
@@ -405,26 +487,25 @@ button.stat:hover{border-color:var(--line2)}
 .shortlist li.error{color:var(--danger); font-family:inherit; font-size:13px}
 .reclaim{display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin:0 0 12px; font-size:13px; color:var(--muted)}
 .reclaim b{font-size:21px; font-weight:650; color:var(--ink); font-variant-numeric:tabular-nums}
-pre.code{margin:0; max-height:60vh; overflow:auto; background:var(--surface2); border:1px solid var(--line); border-radius:4px; padding:10px 12px; font:12px/1.55 var(--mono); color:var(--ink); white-space:pre-wrap; word-break:break-word}
+& pre.code{margin:0; max-height:60vh; overflow:auto; background:var(--surface2); border:1px solid var(--line); border-radius:4px; padding:10px 12px; font:12px/1.55 var(--mono); color:var(--ink); white-space:pre-wrap; word-break:break-word}
 
 /* ---------------------------------------------------------------- toasts */
-.toasts{position:fixed; left:50%; transform:translateX(-50%); bottom:20px; z-index:90; display:flex; flex-direction:column; gap:8px; align-items:center; pointer-events:none; width:min(520px, calc(100% - 32px)); transition:bottom .18s}
-body.with-selbar .toasts{bottom:calc(96px + env(safe-area-inset-bottom))}
+.toasts{position:fixed; left:50%; transform:translateX(-50%); bottom:calc(20px + var(--under)); z-index:10040; display:flex; flex-direction:column; gap:8px; align-items:center; pointer-events:none; width:min(520px, calc(100% - 32px)); transition:bottom .18s}
+&.with-selbar .toasts{bottom:calc(96px + var(--under) + env(safe-area-inset-bottom))}
 .toast{background:var(--ink); color:var(--bg); font-size:13.5px; padding:10px 15px; border-radius:6px; box-shadow:0 10px 30px -12px rgba(0,0,0,.6); animation:up .18s ease-out; transition:opacity .25s}
 .toast.warn{background:var(--danger); color:var(--on-fill)}
-@keyframes up{from{opacity:0; translate:0 8px}to{opacity:1; translate:0 0}}
-@media (prefers-reduced-motion:reduce){*{animation:none !important; transition:none !important}}
+@media (prefers-reduced-motion:reduce){& *{animation:none !important; transition:none !important}}
 
 /* ---------------------------------------------------------------- narrow */
 @media (max-width:820px){
   /* the top bar doesn't stick here — with tabs it would eat a quarter of the screen */
   .topbar{position:static; padding:10px 12px; gap:8px 10px}
-  .tabs{order:3; flex:1 1 100%}
+  .desk-tabs{order:3; flex:1 1 100%}
   .notice{margin:10px 12px 0}
   .page{padding:12px 12px 6px; gap:18px}
   .footer{padding:4px 12px 16px}
   /* iOS zooms into inputs below 16px */
-  .search, .picker, .input, .input.small, select.lang{font-size:16px}
+  .search, .picker, .input, .input.small{font-size:16px}
   .timeline{display:none}
 }
 @media (max-width:640px){
@@ -449,13 +530,13 @@ body.with-selbar .toasts{bottom:calc(96px + env(safe-area-inset-bottom))}
 @media (max-width:380px){
   .btn{padding:6px 10px}
   .seg button{padding:4px 9px}
-  .tabs a{padding:6px 8px}
+  .desk-tabs a{padding:6px 8px}
 }
 .row.unfolds{cursor:pointer}
 
 /* explanations on chips (core.js: initTips) */
 .chip[data-tip], .chip[title]{cursor:help}
-.tip{position:fixed; z-index:95; max-width:min(340px, calc(100vw - 16px)); padding:7px 10px; border-radius:var(--radius); background:var(--ink); color:var(--surface); font-size:12.5px; line-height:1.45; box-shadow:var(--shadow); pointer-events:none; white-space:normal}
+.tip{position:fixed; z-index:10050; max-width:min(340px, calc(100vw - 16px)); padding:7px 10px; border-radius:var(--radius); background:var(--ink); color:var(--surface); font-size:12.5px; line-height:1.45; box-shadow:var(--shadow); pointer-events:none; white-space:normal}
 
 /* the tip jar after hiring (core.js tipJar) */
 .tip-jar{display:flex; gap:14px; align-items:flex-start}
@@ -468,3 +549,33 @@ body.with-selbar .toasts{bottom:calc(96px + env(safe-area-inset-bottom))}
 /* a log in a dialog scrolls itself, the dialog around it doesn't (no second scrollbar):
    at most the dialog's height minus title, buttons and a status line */
 .dialog-body pre.code{max-height:min(60vh, calc(min(88vh, 820px) - 220px))}
+
+/* ---------------------------------------------------------------- inside Unraid */
+/* the page: Unraid's content area gives the room around it */
+&.in-unraid .page{max-width:none; padding:16px 0 10px}
+&.in-unraid .footer{padding:4px 0 12px}
+&.in-unraid .selbar{bottom:calc(16px + var(--under) + env(safe-area-inset-bottom))}
+/* section headings as Unraid's title bars ("Docker Containers") */
+&.in-unraid .section-bar{
+  background:var(--title-header-background-color); border-bottom:1px solid var(--table-border-color, var(--line));
+  padding:5px 10px; min-height:38px;
+}
+&.in-unraid .section-bar h2{font-size:14px; font-weight:400; text-transform:none; letter-spacing:1.8px; color:var(--ink)}
+&.in-unraid .section-sub{padding:2px 2px 0}
+/* lists and tiles: Unraid's flat look */
+&.in-unraid .card, &.in-unraid .box, &.in-unraid .stat, &.in-unraid .desk-card{box-shadow:none}
+&.in-unraid .group-head, &.in-unraid table.grid thead th{background:var(--surface2)}
+&.in-unraid .input, &.in-unraid .search, &.in-unraid .picker{background:var(--bg)}
+&.in-unraid .dialog{background:var(--bg); border-color:var(--line2)}
+&.in-unraid .dialog h3{font-weight:400; letter-spacing:1.2px}
+&.in-unraid .menu{background:var(--bg)}
+@media (max-width:820px){
+  /* the tabs scroll sideways in their row, like Unraid's menu bar */
+  &.in-unraid .desk-tabs{flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; order:0; flex:1 1 auto}
+  &.in-unraid .desk-tabs::-webkit-scrollbar{display:none}
+  &.in-unraid .topbar{padding:0}
+  &.in-unraid .notice{margin:10px 0 0}
+  &.in-unraid .page{padding:12px 0 6px}
+  &.in-unraid .footer{padding:4px 0 12px}
+}
+}

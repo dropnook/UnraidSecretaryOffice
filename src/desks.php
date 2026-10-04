@@ -17,7 +17,7 @@ function officeDesks(): array
     $desks = [];
     foreach (glob(OFFICE_PUBLIC . '/desks/*/desk.json') ?: [] as $file) {
         $id = basename(dirname($file));
-        $meta = readJsonFile($file);
+        $meta = officeReadJson($file);
         if (!$meta || !preg_match('/^[a-z][a-z0-9_-]{0,31}$/', $id) || !is_file(dirname($file) . '/desk.js')) {
             continue;
         }
@@ -42,7 +42,7 @@ function officeLanguages(): array
     $languages = [];
     foreach (glob(OFFICE_PUBLIC . '/lang/*.json') ?: [] as $file) {
         $code = basename($file, '.json');
-        $meta = readJsonFile($file)['_meta'] ?? [];
+        $meta = officeReadJson($file)['_meta'] ?? [];
         if (preg_match('/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/', $code)) {
             $languages[] = ['code' => $code, 'name' => (string) ($meta['name'] ?? $code)];
         }
@@ -58,9 +58,9 @@ function officeLanguages(): array
 function officeStrings(string $code): array
 {
     $layers = function (string $c): array {
-        $strings = readJsonFile(OFFICE_PUBLIC . "/lang/$c.json") ?? [];
+        $strings = officeReadJson(OFFICE_PUBLIC . "/lang/$c.json") ?? [];
         foreach (officeDesks() as $id => $_) {
-            foreach (readJsonFile(OFFICE_PUBLIC . "/desks/$id/lang/$c.json") ?? [] as $key => $value) {
+            foreach (officeReadJson(OFFICE_PUBLIC . "/desks/$id/lang/$c.json") ?? [] as $key => $value) {
                 if ($key !== '_meta') {
                     $strings["$id.$key"] = $value;
                 }

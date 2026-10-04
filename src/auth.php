@@ -34,7 +34,7 @@ function officeAuthFile(): string
 /** @return array{pin_hash?:string, secret?:string, failures?:int, wait_until?:int} */
 function officeAuthRead(): array
 {
-    return readJsonFile(officeAuthFile()) ?? [];
+    return officeReadJson(officeAuthFile()) ?? [];
 }
 
 /**

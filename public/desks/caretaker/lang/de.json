@@ -120,6 +120,9 @@
   "errors.office_not_git": "Das Büro wurde nicht mit git installiert — von Hand aktualisieren.",
   "errors.office_local_changes": "Am Code wurde hier etwas geändert — ich aktualisiere nicht, damit nichts verloren geht.",
   "errors.office_git": "git ging nicht: {detail}",
+  "errors.menu_not_plugin": "Nur das Plugin hat einen Eintrag in Unraids Menüleiste.",
+  "errors.menu_name_bad": "Dieser Name passt nicht: höchstens {max} Zeichen — Buchstaben, Ziffern, Leerzeichen und . & + _ -, am Anfang ein Buchstabe oder eine Ziffer.",
+  "errors.menu_page_failed": "Der Menüeintrag liess sich nicht ändern. Ist das Plugin richtig installiert? Neu installieren hilft.",
   "office_how_plugin": "Unraid aktualisiert das Sekretariat wie jedes andere Plugin: unter Plugins (es schaut selbst nach Updates). Deine Daten bleiben.",
   "office_to_plugins": "Zu den Plugins"
 }
