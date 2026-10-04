@@ -109,9 +109,11 @@ differ get a `_plugin` key or come from state (`schedule.via`).
   (agent/agent.php) move together; the release tag is `v<that version>`.
   The plugin's version is a date (`2026.10.05`, a letter for a second one that
   day): Unraid compares plugin versions with `strcmp`. The GitHub Action
-  (`.github/workflows/plugin.yml`) picks it and builds `.plg` + `.txz` when a
-  release is published; `plugin/build.sh` refuses when the code's versions
-  don't match the tag.
+  (`.github/workflows/plugin.yml`) picks it (the last one from the previous
+  release's `.plg` — "latest" is the new release itself) and builds `.plg` +
+  `.txz` when a release is published; `plugin/build.sh` refuses when the
+  code's versions don't match the tag. Release notes in English, written for
+  users; check afterwards that the `.plg` got a new version.
 
 ## The desks
 
@@ -121,7 +123,7 @@ differ get a `_plugin` key or come from state (`schedule.via`).
 | `whereabouts` | Ms. Whereabouts / Frau Wasistwo | what is where and going on; "where things are" (config files, boot medium, VM files) with their backup protection. Read only |
 | `backup` | Mr. Backupsy / Herr Backupsi | runs the engine in `backup/`: status, history, protection, restore help, setup assistant (`#/backup/setup`) |
 | `emby` | Jack Emby (the intern) | EmbyCache (`embycache/`, from github.com/helmi1987/embycache-for-unraid, extended: back to the origin disk via embycache_origin.json, the emptied folder stays on the disk as a signpost, separate limits for started films and series, deliberately skipped folders = empty mapping) and the gather "Consolidate folders" (`gather/`: one disk per film folder, keeps empty folders whose content is on the pool). Settings via EmbyCache's own save_config() (trial file first); the gather's ini written by Jack; API key never leaves the server; schedules: jobs `embycache` and `gather` (job.sh) |
-| `logs` | Ms. Protocolli / Frau Protokolli | reads logs out loud (fixed source list in agent/desks/logs.php, ids only, never paths); tail/follow by file offset, docker logs and dmesg re-read; lines go into the page as text only. Read only |
+| `logs` | Ms. Protocolli / Frau Protokolli | reads logs out loud (fixed source list in agent/desks/logs.php, ids only, never paths; `backup:latest` = the engine's latest.log); tail/follow by file offset, docker logs and dmesg re-read; lines go into the page as text only. A picker with a search field instead of a select; favourites in `Office.store` (defaults until the user stars/unstars one, "out of the box" brings them back); nothing is read until a log is chosen. Read only |
 | `cleanup` | Ms. Dustdevil / Frau Putzteufel | clears away what nobody uses: Docker templates, Compose stacks, appdata folders, stray my-*.xml elsewhere, what deleted VMs left behind (domains folders, NVRAM, TPM, snapshot lists, unused disk images; VMs without disks are only pointed out), switched-off User Scripts that lie around, Docker's leftovers. Never deletes right away: renames into `_UnraidSecretaryOffice-trash` on the same filesystem (ZFS datasets with `zfs rename` next to it), `manifest.json` per run, put back or empty; Docker leftovers can only be removed. Only rename, never copy; nothing while a backup runs |
 | `caretaker` | The Caretaker / Der Hauswart | collects every desk's `checks` and what the office needs; tells the user what is left to do |
 
@@ -154,6 +156,12 @@ character, warnings and errors stay plain and clear.
   `Office.pageHelp(ID, [[term, text], …])` — "How to read this page", folded
   by default, remembered per desk. Explanations of labels, buttons and tiles go
   there, not into repeated legends on every list.
+* **CSS names:** desk classes carry the desk's prefix (`jo-`, `lg-`, `bk-` …);
+  never reuse a name office.css already styles (`.empty`, `.card`, `.row` …) for
+  something else — a button with `.empty` got 34 px padding.
+* **Remembered per browser** (`Office.store`, prefix `office.`): filters,
+  chosen tiles, favourites. Tests in the browser save and restore those keys —
+  the user's own pane shares them.
 * **Sections:** `Office.sectionHead(title, explanation, ...extras)` — the
   explanation sits right under the heading; counts, status and buttons go to
   the right. No explanatory text floating on the right.
@@ -190,6 +198,15 @@ character, warnings and errors stay plain and clear.
   complete and honest.
 
 ## Server facts that bite
+
+* **Which disk a file is on:** `getfattr -n system.LOCATION` (Python
+  `os.getxattr`) on a `/mnt/user/…` or `/mnt/user0/…` path gives `disk2`,
+  `master` … (`system.LOCATIONS`: all of them) — no look at other disks.
+* A share's split level is `shareSplitLevel` in `/boot/config/shares/<share>.cfg`
+  ("top level only": files go to the disk where their folder already exists,
+  even an empty one — Jack Emby keeps such folders as signposts).
+* On a ZFS pool the top folder only sees its own (nearly empty) dataset:
+  for how full the pool is take `zfs list -Hp -o used,avail <pool>`.
 
 * The stack's agent container has **no network** (`network_mode: none`): read
   addresses from Unraid's config (`/var/local/emhttp/network.ini`), not `ip`;
