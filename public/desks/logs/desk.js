@@ -13,6 +13,8 @@ const { el, fmt } = Office;
 const FOLLOW_MS = 2000;
 const LINE_CHOICES = [100, 500, 2000, 10000];
 const GROUPS = ['office', 'unraid', 'userscripts', 'containers'];
+// favourites until someone stars or unstars one: Unraid's main logs and a few of the office's (missing ones drop out)
+const DEFAULT_FAVS = ['syslog', 'dmesg', 'docker', 'agent', 'backup:latest', 'container:kopia', 'embycache'];
 
 let state = null;
 let view = null;
@@ -28,7 +30,7 @@ const opts = {
   only: Office.store('logs.only') === '1',
   query: '',
 };
-let favs = Office.storeJson('logs.favorites') || [];      // source ids, in the order they were starred
+let favs = Office.storeJson('logs.favorites') || DEFAULT_FAVS.slice();    // source ids, in the order they were starred
 
 const ERROR = /\b(error|err|fail(ed|ure)?|fatal|panic|crit(ical)?|emerg|alert|segfault|denied|oops|call trace|i\/o error)\b/i;
 const WARN = /\b(warn(ing)?|timeout|timed out|retry|retrying)\b/i;

@@ -40,6 +40,7 @@ function logsSources(): array
     // the office
     $file('agent', 'office', 'agent', AGENT_LOG);
     $file('agent.1', 'office', 'agent_old', AGENT_LOG . '.1');
+    $file('backup:latest', 'office', 'backup_latest', DATA_DIR . '/unraid-backup/logs/latest.log');   // the engine's link to its newest log
     $backupLogs = glob(DATA_DIR . '/unraid-backup/logs/*.log') ?: [];
     usort($backupLogs, fn ($a, $b) => filemtime($b) <=> filemtime($a));
     foreach (array_slice(array_filter($backupLogs, fn ($f) => basename($f) !== 'latest.log'), 0, 30) as $f) {
