@@ -325,8 +325,8 @@ function backupRunFromStatus(array $j): array
 
 /**
  * A run of a script version without status files, from its log. The log
- * lines are German and only meant for people; this is a fallback, nothing
- * else depends on it.
+ * lines are only meant for people (German before 2.13, English since); this
+ * is a fallback, nothing else depends on it.
  */
 function backupRunFromLog(string $path, string $run, int $started): array
 {
@@ -355,20 +355,20 @@ function backupRunFromLog(string $path, string $run, int $started): array
         } elseif ($current && preg_match('/^\s+ok \((\d+) s\)/', $text, $x)) {
             $r['kopia'][] = ['name' => $current[0], 'ok' => true, 'seconds' => (int) $x[1], 'finished' => $t];
             $current = null;
-        } elseif ($current && str_contains($text, "Kopia-Snapshot von '{$current[0]}' fehlgeschlagen")) {
+        } elseif ($current && (str_contains($text, "Kopia-Snapshot von '{$current[0]}' fehlgeschlagen") || str_contains($text, "Kopia snapshot of '{$current[0]}' failed"))) {
             $r['kopia'][] = ['name' => $current[0], 'ok' => false, 'seconds' => $t - $current[1], 'finished' => $t];
             $current = null;
-        } elseif (preg_match('/Unterbrechung (\d+) s$/', $text, $x)) {
+        } elseif (preg_match('/(?:Unterbrechung|downtime) (\d+) s$/', $text, $x)) {
             $r['downtime'] = (int) $x[1];
-        } elseif (str_starts_with($text, 'FEHLER:')) {
+        } elseif (preg_match('/^(?:FEHLER|ERROR): (.*)$/', $text, $x)) {
             $r['errors']++;
-            $lastError = trim(substr($text, 7));
-        } elseif (str_starts_with($text, 'WARNUNG:')) {
+            $lastError = trim($x[1]);
+        } elseif (preg_match('/^(?:WARNUNG|WARNING): /', $text)) {
             $r['warnings']++;
-        } elseif (preg_match('/^Backup (erfolgreich|mit .*beendet)/', $text, $x)) {
+        } elseif (preg_match('/^Backup (erfolgreich|successful|mit .*beendet|finished with)/', $text, $x)) {
             $r['finished'] = $t;
             $r['message'] = '';
-            $r['result'] = str_contains($text, 'Fehler(n)') ? 'errors' : (str_contains($text, 'Warnung') ? 'warnings' : 'ok');
+            $r['result'] = preg_match('/Fehler\(n\)|error\(s\)/', $text) ? 'errors' : (preg_match('/Warnung|warning/', $text) ? 'warnings' : 'ok');
         }
     }
     fclose($h);
@@ -436,11 +436,11 @@ function backupDrift(): array
     if ($j) {
         return ['time' => (int) ($j['time'] ?? 0), 'items' => array_values(array_filter($j['items'] ?? [], 'is_array'))];
     }
-    // before 2.5: drift.txt with German level words
+    // before 2.5: drift.txt with level words (German before 2.13)
     $items = [];
     foreach (@file("$data/state/drift.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
-        if (preg_match('/^(FEHLER|WARNUNG|INFO)\s+(.*)$/', $line, $m)) {
-            $items[] = ['level' => ['FEHLER' => 'error', 'WARNUNG' => 'warn', 'INFO' => 'info'][$m[1]], 'text' => $m[2]];
+        if (preg_match('/^(FEHLER|WARNUNG|ERROR|WARNING|INFO)\s+(.*)$/', $line, $m)) {
+            $items[] = ['level' => ['FEHLER' => 'error', 'WARNUNG' => 'warn', 'ERROR' => 'error', 'WARNING' => 'warn', 'INFO' => 'info'][$m[1]], 'text' => $m[2]];
         }
     }
     return ['time' => (int) @filemtime("$data/state/drift.txt"), 'items' => $items];

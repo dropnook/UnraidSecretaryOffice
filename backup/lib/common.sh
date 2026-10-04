@@ -2,43 +2,43 @@
 ###############################################################################
 # unraid-backup - lib/common.sh
 #
-# Gemeinsame Funktionen fuer setup.sh und backup.sh. Wird per "source"
-# geladen und nie direkt ausgefuehrt.
+# Functions shared by setup.sh and backup.sh. Loaded with "source",
+# never run directly.
 #
-# Inhalt
-#   1. Grundlagen      Pfade, Logging, Mitteilungen
-#   2. settings.ini    Lesen, Pruefen, Werte holen
-#   3. Inventar        Pools, Disks, Shares, ZFS-Datasets, Container
-#   4. Plan            was wird gesnapshottet, gemountet, gesichert
-#   5. Kopia           Mapping, Identitaet, Policies (Soll/Ist)
-#   6. Abweichungen    Vergleich Inventar <-> settings.ini
+# Contents
+#   1. Basics          paths, logging, notifications
+#   2. settings.ini    reading, checking, getting values
+#   3. Inventory       pools, disks, shares, ZFS datasets, containers
+#   4. Plan            what is snapshotted, mounted, backed up
+#   5. Kopia           mapping, identity, policies (wanted/actual)
+#   6. Drift           comparing inventory <-> settings.ini
 ###############################################################################
 
-# shellcheck disable=SC2034   # viele Variablen werden erst in den Scripten benutzt
+# shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.12"
+UB_VERSION="2.13"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry (was unraid-backup; the office moves it)
 
 ##############################################################################
-# 1. Grundlagen
+# 1. Basics
 ##############################################################################
 
-# Das Script ist Teil des Unraid Secretary Office: Code in <office>/backup,
-# Einstellungen, Zustand, Protokolle und Dumps in <office>/data/unraid-backup
-# (nicht im Git, nur root hat Zugriff - die Dumps enthalten alle Datenbanken).
+# The script is part of the Unraid Secretary Office: code in <office>/backup,
+# settings, state and logs in <office>/data/unraid-backup
+# (not in git, root only - the logs name every database).
 UB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 UB_DATA="${UB_DATA:-$(cd "$UB_DIR/.." && pwd -P)/data/$UB_NAME}"
 UB_SETTINGS="${UB_SETTINGS:-$UB_DATA/settings.ini}"
 UB_STATE="$UB_DATA/state"
 UB_LOGS="$UB_DATA/logs"
 UB_DUMPS="$UB_DATA/dumps"
-# Privater Zwischenbereich fuer Mounts, die Kopia nicht sehen soll (ZFS-Ebenen)
-# und fuer read-only-Binds, bevor sie in den Snapshot-Ordner verschoben werden
+# Private staging area for mounts Kopia should not see (ZFS layers)
+# and for read-only binds before they are moved into the snapshot folder
 UB_STAGE="${UB_STAGE:-/run/$UB_NAME-stage}"
 
-# Testhilfen - im Betrieb nie setzen. Erlauben einen Probelauf gegen einen
-# nachgebauten Verzeichnisbaum statt gegen das echte System.
+# Test helpers - never set them in operation. They allow a trial run against a
+# rebuilt directory tree instead of the real system.
 UB_MNT="${UB_MNT:-/mnt}"
 UB_BOOT="${UB_BOOT:-/boot}"
 UB_MOUNTS_FILE="${UB_MOUNTS_FILE:-/proc/mounts}"
@@ -55,12 +55,12 @@ _log_line() {
     if [[ -n "$LOG_FILE" ]]; then printf '%s\n' "$1" >>"$LOG_FILE"; fi
 }
 log()  { _log_line "$(_ts)  $*"; }
-warn() { WARNINGS=$((WARNINGS+1)); _log_line "$(_ts)  WARNUNG: $*"; }
-err()  { ERRORS=$((ERRORS+1));     _log_line "$(_ts)  FEHLER: $*"; }
+warn() { WARNINGS=$((WARNINGS+1)); _log_line "$(_ts)  WARNING: $*"; }
+err()  { ERRORS=$((ERRORS+1));     _log_line "$(_ts)  ERROR: $*"; }
 
-# ub_notify <betreff> <kurztext> [normal|warning|alert] [langtext]
-# Datenordner anlegen und abschliessen (0700: das Office liest ihn ueber seinen
-# Agent als root, der Web-Container kommt nicht heran)
+# ub_notify <subject> <short text> [normal|warning|alert] [long text]
+# Create the data folder and lock it (0700: the office reads it through its
+# agent as root, the web container cannot get at it)
 ub_data_dirs() {
     mkdir -p "$UB_STATE" "$UB_LOGS" || return 1      # dumps: in their own backup share (dumps_share), never here
     chmod 700 "$UB_DATA" 2>/dev/null
@@ -77,36 +77,36 @@ ub_notify() {
 
 is_yes() { [[ "${1,,}" == "yes" || "${1,,}" == "ja" || "$1" == "1" || "${1,,}" == "true" ]]; }
 
-# Ganzzahl-Pruefung ohne Ueberraschungen bei leeren Werten
+# Integer check without surprises on empty values
 is_uint() { [[ "$1" =~ ^[0-9]+$ ]]; }
 
-# Bytes -> GB (abgerundet)
+# bytes -> GB (rounded down)
 to_gb() { local b="${1:-0}"; is_uint "$b" || b=0; echo $(( b / 1073741824 )); }
 
 human() { numfmt --to=iec --suffix=B "${1:-0}" 2>/dev/null || echo "${1:-0} B"; }
 
-# Pfad fuer overlayfs-Optionen maskieren (Doppelpunkt, Komma, Backslash)
+# Escape a path for overlayfs options (colon, comma, backslash)
 ovl_escape() { local p="$1"; p="${p//\\/\\\\}"; p="${p//:/\\:}"; p="${p//,/\\,}"; printf '%s' "$p"; }
 
-# Pfad so maskieren, wie /proc/*/mountinfo ihn schreibt
+# Escape a path the way /proc/*/mountinfo writes it
 mi_escape() { local p="$1"; p="${p//\\/\\134}"; p="${p// /\\040}"; p="${p//$'\t'/\\011}"; printf '%s' "$p"; }
 
-# Ein Share-Name ist nur dann verwendbar, wenn er Kopia, overlayfs und
-# settings.ini nicht durcheinanderbringt.
+# A share name is only usable if it does not confuse Kopia, overlayfs and
+# settings.ini.
 share_name_ok() { [[ "$1" != *[@:\"\|]* && "$1" != *$'\n'* && -n "$1" ]]; }
 
 ##############################################################################
 # 2. settings.ini
 ##############################################################################
 # Format
-#   [abschnitt]              z.B. [general]
-#   [typ "name"]             z.B. [share "appdata"]
-#   schluessel = wert        Listen: Schluessel mehrfach angeben
-#   # oder ; am Zeilenanfang = Kommentar (keine Kommentare hinter Werten,
-#                              damit Muster wie "#recycle" moeglich bleiben)
+#   [section]                e.g. [general]
+#   [type "name"]            e.g. [share "appdata"]
+#   key = value              lists: give the key several times
+#   # or ; at the start of a line = comment (no comments after values,
+#                              so that patterns like "#recycle" stay possible)
 #
-# Intern: CFG["general|mount_root"], CFG["share|appdata|mode"], ...
-# Mehrfachwerte sind durch Zeilenumbrueche getrennt.
+# Internally: CFG["general|mount_root"], CFG["share|appdata|mode"], ...
+# Several values are separated by line breaks.
 
 declare -gA CFG=()
 declare -ga CFG_SECTIONS=() CFG_ERRORS=()
@@ -131,33 +131,33 @@ cfg_load() {
             sec="${BASH_REMATCH[1]}|${BASH_REMATCH[2]}"
         elif [[ "$line" =~ $re_kv ]]; then
             if [[ -z "$sec" ]]; then
-                CFG_ERRORS+=( "Zeile $n: Eintrag steht vor dem ersten [Abschnitt]" ); continue
+                CFG_ERRORS+=( "line $n: entry before the first [section]" ); continue
             fi
             key="$sec|${BASH_REMATCH[1]}"; val="${BASH_REMATCH[2]}"
             if [[ -n "${CFG[$key]:-}" ]]; then CFG[$key]+=$'\n'"$val"; else CFG[$key]="$val"; fi
             continue
         else
-            CFG_ERRORS+=( "Zeile $n: nicht verstanden: $line" ); continue
+            CFG_ERRORS+=( "line $n: not understood: $line" ); continue
         fi
         if [[ -z "${seen[$sec]:-}" ]]; then seen[$sec]=1; CFG_SECTIONS+=( "$sec" ); fi
     done <"$file"
     return 0
 }
 
-# cfg <schluessel> [vorgabe]  -> letzter Wert (bei Einzelwerten gewinnt der letzte)
+# cfg <key> [default]  -> last value (for single values the last one wins)
 cfg() {
     local k="$1"
     if [[ -n "${CFG[$k]+x}" && -n "${CFG[$k]}" ]]; then printf '%s' "${CFG[$k]##*$'\n'}"
     else printf '%s' "${2-}"; fi
 }
-# cfg_list <schluessel>  -> alle Werte, einer pro Zeile, leere weggelassen
+# cfg_list <key>  -> all values, one per line, empty ones left out
 cfg_list() {
     local k="$1" v
     [[ -n "${CFG[$k]:-}" ]] || return 0
     while IFS= read -r v; do [[ -n "$v" ]] && printf '%s\n' "$v"; done <<<"${CFG[$k]}"
     return 0
 }
-# cfg_names <typ>  -> Namen aller [typ "name"]-Abschnitte
+# cfg_names <type>  -> names of all [type "name"] sections
 cfg_names() {
     local t="$1" s
     for s in "${CFG_SECTIONS[@]}"; do [[ "$s" == "$t|"* ]] && printf '%s\n' "${s#*|}"; done
@@ -180,44 +180,44 @@ declare -gA UB_SCHEMA=(
     [share]="mode method retention kopia_retention kopia_ignore exclude_dataset id locations note"
 )
 
-# Prueft Abschnitte, Schluessel und Werte. Fehler landen in CFG_ERRORS.
+# Checks sections, keys and values. Errors go into CFG_ERRORS.
 cfg_validate() {
     local k sec typ key allowed v
     for k in "${!CFG[@]}"; do
         sec="${k%|*}"; key="${k##*|}"; typ="${sec%%|*}"
         allowed="${UB_SCHEMA[$typ]:-}"
         if [[ -z "$allowed" ]]; then
-            CFG_ERRORS+=( "Unbekannter Abschnitt [$typ]" ); continue
+            CFG_ERRORS+=( "Unknown section [$typ]" ); continue
         fi
         if [[ " $allowed " != *" $key "* ]]; then
-            CFG_ERRORS+=( "Unbekannter Schluessel '$key' in $(sec_display "$sec")" ); continue
+            CFG_ERRORS+=( "Unknown key '$key' in $(sec_display "$sec")" ); continue
         fi
     done
-    _val() { # _val <schluessel> <regex> <beschreibung>
+    _val() { # _val <key> <regex> <description>
         local v; v="$(cfg "$1")"
-        [[ -z "$v" || "$v" =~ $2 ]] || CFG_ERRORS+=( "$1 = '$v' ist ungueltig ($3)" )
+        [[ -z "$v" || "$v" =~ $2 ]] || CFG_ERRORS+=( "$1 = '$v' is invalid ($3)" )
     }
-    _val "general|dumps_share"   '^[A-Za-z0-9._ -]+$'       "Name eines Shares"
-    _val "general|keep_runs"     '^[0-9]+$'                 "Zahl"
-    _val "general|keep_logs"     '^[0-9]+$'                 "Zahl"
-    _val "general|min_free_gb"   '^[0-9]+$'                 "Zahl"
+    _val "general|dumps_share"   '^[A-Za-z0-9._ -]+$'       "name of a share"
+    _val "general|keep_runs"     '^[0-9]+$'                 "number"
+    _val "general|keep_logs"     '^[0-9]+$'                 "number"
+    _val "general|min_free_gb"   '^[0-9]+$'                 "number"
     _val "general|keep_mounts"   '^(yes|no)$'               "yes/no"
     _val "general|notify_success" '^(yes|no)$'              "yes/no"
-    _val "general|snap_prefix"   '^[a-z0-9_]+-$'            "Kleinbuchstaben/Ziffern, endet auf -"
-    _val "general|mount_root"    "^$UB_MNT/[^/]+$"          "direkt unter $UB_MNT"
-    _val "general|view_root"     "^$UB_MNT/[^/]+$"          "direkt unter $UB_MNT"
-    _val "zfs|retention"         '^[0-9]+ [0-9]+ [0-9]+$'   "drei Zahlen: taeglich woechentlich monatlich"
-    _val "btrfs|keep_days"       '^[0-9]+$'                 "Zahl"
-    _val "btrfs|min_free_gb"     '^[0-9]+$'                 "Zahl"
+    _val "general|snap_prefix"   '^[a-z0-9_]+-$'            "lower-case letters/digits, ends with -"
+    _val "general|mount_root"    "^$UB_MNT/[^/]+$"          "directly under $UB_MNT"
+    _val "general|view_root"     "^$UB_MNT/[^/]+$"          "directly under $UB_MNT"
+    _val "zfs|retention"         '^[0-9]+ [0-9]+ [0-9]+$'   "three numbers: daily weekly monthly"
+    _val "btrfs|keep_days"       '^[0-9]+$'                 "number"
+    _val "btrfs|min_free_gb"     '^[0-9]+$'                 "number"
     _val "btrfs|snapshot_all"    '^(yes|no)$'               "yes/no"
-    _val "drift|remind_days"     '^[0-9]+$'                 "Zahl"
+    _val "drift|remind_days"     '^[0-9]+$'                 "number"
     _val "docker|stop"           '^(all|none)$'             "all/none"
-    _val "docker|stop_timeout"   '^[0-9]+$'                 "Zahl"
+    _val "docker|stop_timeout"   '^[0-9]+$'                 "number"
     _val "flash|mode"            '^(snapshot|tar|off)$'     "snapshot/tar/off"
     _val "libvirt|mode"          '^(tar|off)$'              "tar/off"
     _val "kopia|enabled"         '^(yes|no)$'               "yes/no"
     for key in keep_latest keep_hourly keep_daily keep_weekly keep_monthly keep_annual; do
-        _val "kopia|$key" '^([0-9]+|inherit)$' "Zahl oder inherit"
+        _val "kopia|$key" '^([0-9]+|inherit)$' "number or inherit"
     done
     local n
     while IFS= read -r n; do
@@ -226,22 +226,22 @@ cfg_validate() {
     while IFS= read -r n; do
         [[ -z "$n" ]] && continue
         _val "dump|$n|type" '^(mariadb|postgres|mongodb)$' "mariadb/postgres/mongodb"
-        [[ -z "$(cfg "dump|$n|type")" ]] && CFG_ERRORS+=( "[dump \"$n\"] ohne type" )
+        [[ -z "$(cfg "dump|$n|type")" ]] && CFG_ERRORS+=( "[dump \"$n\"] without type" )
     done < <(cfg_names dump)
     while IFS= read -r n; do
         [[ -z "$n" ]] && continue
-        share_name_ok "$n" || CFG_ERRORS+=( "Share-Name '$n' enthaelt @ : \" oder | - nicht unterstuetzt" )
+        share_name_ok "$n" || CFG_ERRORS+=( "Share name '$n' contains @ : \" or | - not supported" )
         _val "share|$n|mode"      '^(kopia|snapshot|off)$'  "kopia/snapshot/off"
         _val "share|$n|method"    '^(auto|live)$'           "auto/live"
-        _val "share|$n|retention" '^[0-9]+ [0-9]+ [0-9]+$'  "drei Zahlen"
-        _val "share|$n|kopia_retention" '^([0-9]+|inherit)( ([0-9]+|inherit)){5}$' "sechs Werte: latest hourly daily weekly monthly annual"
-        [[ -z "$(cfg "share|$n|mode")" ]] && CFG_ERRORS+=( "[share \"$n\"] ohne mode" )
+        _val "share|$n|retention" '^[0-9]+ [0-9]+ [0-9]+$'  "three numbers"
+        _val "share|$n|kopia_retention" '^([0-9]+|inherit)( ([0-9]+|inherit)){5}$' "six values: latest hourly daily weekly monthly annual"
+        [[ -z "$(cfg "share|$n|mode")" ]] && CFG_ERRORS+=( "[share \"$n\"] without mode" )
     done < <(cfg_names share)
     unset -f _val
     [[ ${#CFG_ERRORS[@]} -eq 0 ]]
 }
 
-# Laedt settings.ini in feste Variablen. Rueckgabe 1, wenn die Datei fehlt.
+# Loads settings.ini into fixed variables. Returns 1 if the file is missing.
 load_settings() {
     cfg_load "$UB_SETTINGS" || return 1
     cfg_validate
@@ -249,7 +249,7 @@ load_settings() {
     return 0
 }
 
-# Uebernimmt CFG in Variablen (auch ohne Datei aufrufbar -> Vorgaben)
+# Takes CFG into variables (can be called without a file too -> defaults)
 apply_settings() {
     SERVER_NAME="$(cfg "general|server" "$(hostname -s 2>/dev/null || echo unraid)")"
     MOUNT_ROOT="$(cfg "general|mount_root" "$UB_MNT/backup-snapshots")"
@@ -280,9 +280,9 @@ apply_settings() {
     mapfile -t DOCKER_KNOWN   < <(cfg_list "docker|known")
 
     FLASH_MODE="$(cfg "flash|mode" tar)"
-    # VM-Konfiguration (XML, NVRAM, TPM-Zustand) aus libvirt.img: Vorgabe tar,
-    # auch ohne Eintrag in settings.ini - sie ist klein und ohne sie ist ein
-    # Umzug der VMs muehsam
+    # VM configuration (XML, NVRAM, TPM state) from libvirt.img: default tar,
+    # also without an entry in settings.ini - it is small, and without it
+    # moving the VMs is a chore
     LIBVIRT_MODE="$(cfg "libvirt|mode" tar)"
     mapfile -t FLASH_TAR_EXCLUDE  < <(cfg_list "flash|tar_exclude")
     mapfile -t FLASH_KOPIA_IGNORE < <(cfg_list "flash|kopia_ignore")
@@ -300,30 +300,30 @@ apply_settings() {
     mapfile -t KOPIA_IGNORE < <(cfg_list "kopia|ignore")
 }
 
-in_list() { # in_list <wert> <eintrag...>
+in_list() { # in_list <value> <entry...>
     local x="$1"; shift
     local e; for e in "$@"; do [[ "$e" == "$x" ]] && return 0; done; return 1
 }
 
-matches_any() { # matches_any <wert> <glob...>
+matches_any() { # matches_any <value> <glob...>
     local x="$1"; shift
     local g
     for g in "$@"; do
-        # shellcheck disable=SC2053  # Glob-Vergleich ist hier gewollt
+        # shellcheck disable=SC2053  # a glob comparison is wanted here
         [[ -n "$g" && "$x" == $g ]] && return 0
     done
     return 1
 }
 
 ##############################################################################
-# 3. Inventar
+# 3. Inventory
 ##############################################################################
 
-# --- Mounttabelle --------------------------------------------------------
+# --- Mount table -----------------------------------------------------------
 declare -ga MT_TARGET=() MT_SOURCE=() MT_FSTYPE=() MT_OPTS=()
 declare -gA MT_SET=()
-# Testhilfe: UB_TEST_FSMAP = Datei mit Zeilen "ziel typ quelle"; ueberschreibt
-# Typ und Quelle dieser Mounts (Probelauf ohne echtes ZFS/btrfs)
+# Test helper: UB_TEST_FSMAP = file with lines "target type source"; overrides
+# type and source of these mounts (trial run without real ZFS/btrfs)
 declare -gA _FSMAP_T=() _FSMAP_S=()
 if [[ -n "${UB_TEST_FSMAP:-}" && -r "${UB_TEST_FSMAP}" ]]; then
     while read -r _a _b _c; do [[ -n "$_a" ]] && { _FSMAP_T[$_a]="$_b"; _FSMAP_S[$_a]="$_c"; }; done <"$UB_TEST_FSMAP"
@@ -340,7 +340,7 @@ mounts_load() {
     done <"$UB_MOUNTS_FILE"
 }
 
-# mount_of <pfad>  -> MO_IDX = Index des Mounts, auf dem der Pfad liegt
+# mount_of <path>  -> MO_IDX = index of the mount the path lies on
 MO_IDX=-1
 mount_of() {
     local p="$1" i t best=-1 bl=-1
@@ -353,7 +353,7 @@ mount_of() {
     MO_IDX=$best
 }
 
-# Alle Mountpunkte unterhalb eines Pfades (tiefste zuerst)
+# All mount points below a path (deepest first)
 mounts_below() {
     local root="$1" t
     mounts_load
@@ -362,7 +362,7 @@ mounts_below() {
     done | awk '{print length($0) "\t" $0}' | sort -rn | cut -f2- | awk '!seen[$0]++'
 }
 
-# --- ZFS-Datasets (ein einziger zfs-Aufruf) -------------------------------
+# --- ZFS datasets (one single zfs call) --------------------------------------
 declare -gA ZDS_MP=() ZDS_CAN=() ZDS_GUID=() ZDS_REF=() ZDS_KEY=()
 HAVE_ZFS="no"
 zfs_load() {
@@ -376,20 +376,20 @@ zfs_load() {
     done < <(zfs list -H -p -t filesystem -o name,mountpoint,canmount,guid,referenced,keystatus 2>/dev/null)
 }
 
-# --- Basen (Pools und Array-Disks) und Shares -----------------------------
-#   INV_BASES                 Namen, Pools alphabetisch, dann disk1..N
-#   INV_BASE_PATH/FS/KIND/SRC  je Basis
-#   INV_SHARES                Share-Namen
-#   INV_LOCS[s]               Zeilen "basis|methode|layer|unterpfad"
-#                             methode: zfs | btrfs | live
-#                             layer:   ZFS-Dataset bzw. btrfs-Wurzel
-#                             unterpfad: "" = Share ist selbst das Dataset
-#   INV_CHILDREN[s]           Zeilen "basis|dataset|mountpoint" (Kind-Datasets)
+# --- Bases (pools and array disks) and shares --------------------------------
+#   INV_BASES                 names, pools alphabetically, then disk1..N
+#   INV_BASE_PATH/FS/KIND/SRC  per base
+#   INV_SHARES                share names
+#   INV_LOCS[s]               lines "base|method|layer|subpath"
+#                             method: zfs | btrfs | live
+#                             layer:  ZFS dataset or btrfs root
+#                             subpath: "" = the share is the dataset itself
+#   INV_CHILDREN[s]           lines "base|dataset|mountpoint" (child datasets)
 #   INV_METHOD[s]             snap | live | none
 #   INV_LAYOUT[s]             single | overlay | split | live | none
-#   INV_ID[s]                 zfs:<guid> oder ino:<basis>:<inode>  (fuer Umbenennungen)
-#   INV_GB[s]                 Groesse in GB, wenn per ZFS sofort bekannt, sonst leer
-#   INV_NOTE[s]               Hinweise (eine Zeile pro Hinweis)
+#   INV_ID[s]                 zfs:<guid> or ino:<base>:<inode>  (for renames)
+#   INV_GB[s]                 size in GB if ZFS knows it at once, else empty
+#   INV_NOTE[s]               notes (one line per note)
 declare -ga INV_BASES=() INV_SHARES=()
 declare -gA INV_BASE_PATH=() INV_BASE_FS=() INV_BASE_KIND=() INV_BASE_SRC=()
 declare -gA INV_LOCS=() INV_CHILDREN=() INV_METHOD=() INV_LAYOUT=() INV_ID=() INV_GB=() INV_NOTE=()
@@ -421,7 +421,7 @@ inv_scan() {
     mapfile -t disks < <(printf '%s\n' "${disks[@]}" | sort -V | sed '/^$/d')
     INV_BASES=( "${pools[@]}" "${disks[@]}" )
 
-    # --- Share-Namen: Verzeichnisse auf allen Basen + Unraid-Share-Configs
+    # --- Share names: folders on all bases + Unraid's share configs
     local -A names=()
     local b d s f
     for b in "${INV_BASES[@]}"; do
@@ -439,7 +439,7 @@ inv_scan() {
     done
     mapfile -t INV_SHARES < <(printf '%s\n' "${!names[@]}" | LC_ALL=C sort | sed '/^$/d')
 
-    # --- Lage jedes Shares
+    # --- Where each share lies
     local p mi mt msrc mfs m layer sub ino n ds cmp nloc anylive anychild
     local -i refsum
     for s in "${INV_SHARES[@]}"; do
@@ -458,7 +458,7 @@ inv_scan() {
                     layer="$msrc"; m="zfs"
                     if [[ "$mt" == "$p" ]]; then sub=""; else sub="${p#"$mt"/}"; fi
                     if [[ "${ZDS_KEY[$layer]:-}" == "unavailable" ]]; then
-                        m="live"; INV_NOTE[$s]+="Dataset $layer ist verschluesselt und gesperrt"$'\n'
+                        m="live"; INV_NOTE[$s]+="Dataset $layer is encrypted and locked"$'\n'
                     fi
                     if [[ -z "$sub" ]]; then
                         [[ -z "${INV_ID[$s]}" ]] && INV_ID[$s]="zfs:${ZDS_GUID[$layer]:-?}"
@@ -469,9 +469,9 @@ inv_scan() {
                     ;;
                 btrfs)
                     if [[ "$mt" != "${INV_BASE_PATH[$b]}" ]]; then
-                        INV_NOTE[$s]+="$p ist ein eigener Mount - nicht im Disk-Snapshot"$'\n'
+                        INV_NOTE[$s]+="$p is a mount of its own - not in the disk snapshot"$'\n'
                     elif [[ "$(stat -c %i "$p" 2>/dev/null)" == "256" ]]; then
-                        INV_NOTE[$s]+="$p ist ein eigenes btrfs-Subvolume - nicht im Disk-Snapshot"$'\n'
+                        INV_NOTE[$s]+="$p is a btrfs subvolume of its own - not in the disk snapshot"$'\n'
                     else
                         m="btrfs"; layer="${INV_BASE_PATH[$b]}"; sub="$s"
                     fi
@@ -482,7 +482,7 @@ inv_scan() {
             if [[ "$m" == "live" ]]; then
                 anylive=1
                 [[ "$mfs" != "zfs" && "$mfs" != "btrfs" ]] && \
-                    INV_NOTE[$s]+="$b ist $mfs - keine Snapshots moeglich"$'\n'
+                    INV_NOTE[$s]+="$b is $mfs - no snapshots possible"$'\n'
             fi
             if [[ -z "${INV_ID[$s]}" ]]; then
                 ino="$(stat -c %i "$p" 2>/dev/null)"
@@ -490,14 +490,14 @@ inv_scan() {
             fi
             INV_LOCS[$s]+="$b|$m|$layer|$sub"$'\n'
 
-            # Kind-Datasets: alles, was unterhalb des Share-Pfades gemountet ist
+            # Child datasets: everything mounted below the share's path
             if [[ "$m" == "zfs" && "$HAVE_ZFS" == "yes" ]]; then
                 for ds in "${!ZDS_MP[@]}"; do
                     cmp="${ZDS_MP[$ds]}"
                     [[ "$cmp" == "$p/"* ]] || continue
                     [[ "${ZDS_CAN[$ds]}" == "on" ]] || continue
                     [[ "${ZDS_KEY[$ds]}" == "unavailable" ]] && continue
-                    [[ -n "${MT_SET[$cmp]+x}" ]] || continue      # nicht gemountet
+                    [[ -n "${MT_SET[$cmp]+x}" ]] || continue      # not mounted
                     INV_CHILDREN[$s]+="$b|$ds|$cmp"$'\n'
                     refsum+=$(( ${ZDS_REF[$ds]:-0} ))
                     anychild=1
@@ -521,15 +521,15 @@ inv_scan() {
     done
 }
 
-# Basen eines Shares als Text "cache, disk5"
+# Bases of a share as text "cache, disk5"
 inv_locnames() {
     local s="$1" l out=""
     while IFS='|' read -r l _; do [[ -n "$l" ]] && out+="${out:+, }$l"; done <<<"${INV_LOCS[$s]:-}"
     printf '%s' "${out:--}"
 }
 
-# Kurzform fuer Tabellen: Pools mit Namen, mehrere Array-Disks gezaehlt
-#   "cache"  |  "cache + 3 Disks"  |  "disk4"  |  "cache, nvme"
+# Short form for tables: pools by name, several array disks counted
+#   "cache"  |  "cache + 3 disks"  |  "disk4"  |  "cache, nvme"
 inv_locnames_short() {
     local s="$1" b out="" ndisk=0 onedisk=""
     while IFS='|' read -r b _; do
@@ -538,13 +538,13 @@ inv_locnames_short() {
         else out+="${out:+, }$b"; fi
     done <<<"${INV_LOCS[$s]:-}"
     if (( ndisk == 1 )); then out+="${out:+, }$onedisk"
-    elif (( ndisk > 1 )); then out+="${out:+ + }$ndisk Disks"; fi
+    elif (( ndisk > 1 )); then out+="${out:+ + }$ndisk disks"; fi
     printf '%s' "${out:--}"
 }
 
 inv_has_share() { [[ -n "${INV_METHOD[$1]+x}" ]]; }
 
-# inv_measure <share> <timeout>  -> GB, -1 bei Zeitueberschreitung
+# inv_measure <share> <timeout>  -> GB, -1 when time ran out
 inv_measure() {
     local s="$1" to="${2:-600}" l b p bytes total=0
     while IFS='|' read -r b _; do
@@ -558,7 +558,7 @@ inv_measure() {
 }
 
 # --- Flash (/boot) ---------------------------------------------------------
-#   FLASH_FS, FLASH_DATASET (wenn ZFS)
+#   FLASH_FS, FLASH_DATASET (if ZFS)
 inv_flash() {
     local i
     FLASH_FS=""; FLASH_DATASET=""
@@ -570,15 +570,15 @@ inv_flash() {
     return 0
 }
 
-# --- Container -------------------------------------------------------------
-#   CT_NAMES             alle Container
+# --- Containers --------------------------------------------------------------
+#   CT_NAMES             all containers
 #   CT_IMAGE[n] CT_RUNNING[n] (true/false) CT_NET[n] CT_ID[n]
-#   CT_BINDS[n]          Zeilen "quelle|ziel|rw"
-#   CT_VOLUMES[n]        Zeilen "volume|ziel"
-#   CT_HEALTH[n]         "" oder healthcheck-Status
-#   CT_ENVKEYS[n]        Namen der Umgebungsvariablen (nur Namen, nie Werte)
-#   CT_PORTS[n]          freigegebene Ports, z.B. "5432/tcp 8080/tcp"
-#   CT_PROJECT[n] CT_SERVICE[n]   Compose-Stack und -Dienst (leer bei Einzel-Containern)
+#   CT_BINDS[n]          lines "source|target|rw"
+#   CT_VOLUMES[n]        lines "volume|target"
+#   CT_HEALTH[n]         "" or healthcheck status
+#   CT_ENVKEYS[n]        names of the environment variables (names only, never values)
+#   CT_PORTS[n]          exposed ports, e.g. "5432/tcp 8080/tcp"
+#   CT_PROJECT[n] CT_SERVICE[n]   Compose stack and service (empty for single containers)
 declare -ga CT_NAMES=()
 declare -gA CT_IMAGE=() CT_RUNNING=() CT_NET=() CT_ID=() CT_BINDS=() CT_VOLUMES=() CT_HEALTH=()
 declare -gA CT_ENVKEYS=() CT_PORTS=() CT_PROJECT=() CT_SERVICE=()
@@ -589,8 +589,8 @@ docker_load() {
     local ids n img run net id binds vols health envk ports proj svc
     mapfile -t ids < <(docker ps -aq 2>/dev/null)
     [[ ${#ids[@]} -eq 0 ]] && return 0
-    # Feldtrenner \x1e statt Tab: bash fasst aufeinanderfolgende Tabs zusammen,
-    # ein leeres Feld (z.B. kein Healthcheck) wuerde alle folgenden verschieben
+    # Field separator \x1e instead of tab: bash merges consecutive tabs,
+    # an empty field (e.g. no healthcheck) would shift all following ones
     while IFS=$'\x1e' read -r n img run net id health binds vols envk ports proj svc; do
         [[ -z "$n" ]] && continue
         CT_NAMES+=( "$n" )
@@ -617,7 +617,7 @@ docker_load() {
         ] | map(gsub("[\n\u001e]"; " ")) | join("\u001e")')
 }
 
-# Name eines Containers zu einer ID oder einem Namen
+# Name of a container for an id or a name
 ct_resolve() {
     local x="$1" n
     for n in "${CT_NAMES[@]}"; do
@@ -626,17 +626,17 @@ ct_resolve() {
     return 1
 }
 
-# Datenbank erkennen - an drei Merkmalen, weil Image-Namen frei waehlbar sind:
-#   1. Umgebungsvariablen, die das offizielle Server-Image selbst setzt
-#      (PG_MAJOR, MARIADB_VERSION, MONGO_VERSION, REDIS_VERSION ...) - die erben
-#      auch umbenannte oder abgeleitete Images
-#   2. der Image-Name (mariadb, postgres, pgvecto-rs, mongo, redis ...)
-#   3. der Standard-Port (3306, 5432, 27017, 6379)
-# Werkzeuge wie phpMyAdmin, Adminer oder Exporter werden nicht mitgezaehlt.
-# db_detect <image> <env-namen> <ports>  ->  "art|merkmal"
-#   art: mariadb | postgres | mongodb  (Dump moeglich)
-#        cache                         (Redis & Co. - Zwischenspeicher, kein Dump)
-#        other                         (InfluxDB, CouchDB ... - Sicherung ueber den Snapshot)
+# Detecting a database - by three features, because image names are free to choose:
+#   1. environment variables the official server image sets itself
+#      (PG_MAJOR, MARIADB_VERSION, MONGO_VERSION, REDIS_VERSION ...) - renamed or
+#      derived images inherit them too
+#   2. the image name (mariadb, postgres, pgvecto-rs, mongo, redis ...)
+#   3. the standard port (3306, 5432, 27017, 6379)
+# Tools like phpMyAdmin, Adminer or exporters do not count.
+# db_detect <image> <env names> <ports>  ->  "kind|feature"
+#   kind: mariadb | postgres | mongodb  (dump possible)
+#         cache                         (Redis & co. - a cache, no dump)
+#         other                         (InfluxDB, CouchDB ... - backed up through the snapshot)
 db_detect() {
     local img="${1,,}" envk="$2" ports=" ${3:-} " base k
     base="${img##*/}"
@@ -674,7 +674,7 @@ db_detect() {
 }
 db_dumpable() { [[ "$1" == "mariadb" || "$1" == "postgres" || "$1" == "mongodb" ]]; }
 ct_db() { db_detect "${CT_IMAGE[$1]:-}" "${CT_ENVKEYS[$1]:-}" "${CT_PORTS[$1]:-}"; }
-# Datenbank-Art eines Containers (ohne Merkmal), leer = keine Datenbank
+# Database kind of a container (without the feature), empty = no database
 ct_db_type() { local r; r="$(ct_db "$1")"; printf '%s' "${r%%|*}"; }
 
 is_nextcloud_image() {
@@ -683,30 +683,30 @@ is_nextcloud_image() {
        && "$img" != *redis* && "$img" != *postgres* && "$img" != *mariadb* ]]
 }
 
-# --- Compose-Stacks ----------------------------------------------------------
-# Liest die Stacks des Compose Managers (auch solche, die gerade nicht laufen)
-# und meldet ihre Datenbank-Dienste. Ausgewertet wird, was "docker compose
-# config" daraus macht - also inklusive .env und Variablen.
-#   COMPOSE_DB  Zeilen "stack|dienst|image|art|merkmal|container_name"
-#   COMPOSE_ERR Zeilen "stack|grund" (Stack nicht auswertbar)
+# --- Compose stacks ------------------------------------------------------------
+# Reads the Compose Manager's stacks (also those not running right now)
+# and reports their database services. What counts is what "docker compose
+# config" makes of them - so .env and variables included.
+#   COMPOSE_DB  lines "stack|service|image|kind|feature|container_name"
+#   COMPOSE_ERR lines "stack|reason" (stack could not be read)
 declare -ga COMPOSE_DB=() COMPOSE_ERR=()
 compose_scan() {
     COMPOSE_DB=(); COMPOSE_ERR=()
     local root="$UB_BOOT/config/plugins/compose.manager/projects" d dir f js stack svc img envk ports cname r
     [[ -d "$root" ]] || return 0
-    docker compose version >/dev/null 2>&1 || { COMPOSE_ERR+=( "*|docker compose fehlt" ); return 0; }
+    docker compose version >/dev/null 2>&1 || { COMPOSE_ERR+=( "*|docker compose is missing" ); return 0; }
     for d in "$root"/*/; do
         [[ -d "$d" ]] || continue
         stack="$(basename "$d")"; dir="${d%/}"
-        # "indirect": der Stack liegt in einem anderen Ordner
+        # "indirect": the stack lives in another folder
         [[ -s "$dir/indirect" ]] && dir="$(head -1 "$dir/indirect" | tr -d '\r')"
         f=""
         for r in compose.yaml compose.yml docker-compose.yml docker-compose.yaml; do
             [[ -f "$dir/$r" ]] && { f="$dir/$r"; break; }
         done
-        [[ -n "$f" ]] || { COMPOSE_ERR+=( "$stack|keine Compose-Datei in $dir" ); continue; }
+        [[ -n "$f" ]] || { COMPOSE_ERR+=( "$stack|no compose file in $dir" ); continue; }
         js="$(cd "$dir" && timeout 30 docker compose --project-directory "$dir" -f "$f" config --format json 2>/dev/null)" \
-            || { COMPOSE_ERR+=( "$stack|docker compose config scheitert (fehlende Variablen?)" ); continue; }
+            || { COMPOSE_ERR+=( "$stack|docker compose config fails (missing variables?)" ); continue; }
         [[ -s "$dir/name" ]] && stack="$(head -1 "$dir/name" | tr -d '\r')"
         while IFS=$'\x1e' read -r svc img envk ports cname; do
             [[ -z "$svc" ]] && continue
@@ -722,8 +722,8 @@ compose_scan() {
     done
 }
 
-# Container eines Compose-Dienstes finden (Label oder container_name)
-compose_container() { # compose_container <stack> <dienst> <container_name>
+# Find the container of a Compose service (label or container_name)
+compose_container() { # compose_container <stack> <service> <container_name>
     local n
     if [[ -n "$3" ]] && in_list "$3" "${CT_NAMES[@]}"; then printf '%s' "$3"; return 0; fi
     for n in "${CT_NAMES[@]}"; do
@@ -739,13 +739,13 @@ is_kopia_image() { [[ "${1,,}" == *kopia* ]]; }
 ##############################################################################
 # 4. Plan
 ##############################################################################
-#   PLAN_KOPIA       Shares, die an Kopia gehen (mode=kopia und Daten vorhanden)
-#   PLAN_SNAP        Shares mit mode=kopia|snapshot und Snapshot-Methode
-#   PLAN_ZFS         Datasets, die gesnapshottet werden
-#   PLAN_ZFS_RET[ds] Aufbewahrung "t w m" (Maximum ueber alle Shares)
-#   PLAN_BTRFS       Basen (Pfade), die einen btrfs-Snapshot bekommen
-#   PLAN_EXCL[ds]    1 = Kind-Dataset bewusst ausgeschlossen
-#   PLAN_FLASH       snapshot | tar | off  (tatsaechlich wirksam)
+#   PLAN_KOPIA       shares that go to Kopia (mode=kopia and data present)
+#   PLAN_SNAP        shares with mode=kopia|snapshot and a snapshot method
+#   PLAN_ZFS         datasets that get snapshotted
+#   PLAN_ZFS_RET[ds] retention "d w m" (maximum over all shares)
+#   PLAN_BTRFS       bases (paths) that get a btrfs snapshot
+#   PLAN_EXCL[ds]    1 = child dataset left out on purpose
+#   PLAN_FLASH       snapshot | tar | off  (what really applies)
 declare -ga PLAN_KOPIA=() PLAN_SNAP=() PLAN_ZFS=() PLAN_BTRFS=()
 declare -gA PLAN_ZFS_RET=() PLAN_EXCL=()
 PLAN_FLASH="off"
@@ -773,14 +773,14 @@ dumps_share_problem() {
 }
 dumps_share_text() { # dumps_share_text <code> <share>
     case "$1" in
-        missing)   echo "Keine Backup-Ablage gesetzt (general|dumps_share): Dumps und Archive brauchen einen eigenen Backup-Share - in appdata gehoert so etwas nicht" ;;
-        unknown)   echo "Backup-Ablage '$2' gibt es nicht als Share" ;;
-        forbidden) echo "Backup-Ablage '$2' geht nicht: in appdata, system oder domains gehoeren keine Backups" ;;
-        off)       echo "Backup-Ablage '$2' wird selbst nicht gesichert (mode=off) - die Dumps waeren nirgends gesichert" ;;
+        missing)   echo "No backup place set (general|dumps_share): dumps and archives need a backup share of their own - such things do not belong in appdata" ;;
+        unknown)   echo "Backup place '$2' does not exist as a share" ;;
+        forbidden) echo "Backup place '$2' will not do: backups do not belong in appdata, system or domains" ;;
+        off)       echo "Backup place '$2' is not backed up itself (mode=off) - the dumps would be backed up nowhere" ;;
     esac
 }
 share_retention() { cfg "share|$1|retention" "$ZFS_RETENTION"; }
-share_method()    { # effektive Methode
+share_method()    { # the method that really applies
     local s="$1"
     inv_has_share "$s" || { echo "none"; return; }
     if [[ "$(cfg "share|$s|method" auto)" == "live" && "${INV_METHOD[$s]}" != "none" ]]; then
@@ -801,7 +801,7 @@ plan_build() {
         [[ "$mode" == "off" ]] && continue
         meth="$(share_method "$s")"
         [[ "$meth" == "none" ]] && continue
-        # mode=kopia bei ausgeschaltetem Kopia = nur lokaler Snapshot
+        # mode=kopia with Kopia switched off = local snapshot only
         [[ "$mode" == "kopia" ]] && is_yes "$KOPIA_ENABLED" && PLAN_KOPIA+=( "$s" )
         [[ "$meth" == "snap" ]] || continue
         PLAN_SNAP+=( "$s" )
@@ -841,12 +841,12 @@ plan_build() {
     if [[ "$PLAN_FLASH" == "snapshot" && -z "$FLASH_DATASET" ]]; then PLAN_FLASH="tar"; fi
 }
 
-_parent_excluded() { # liegt das Dataset unter einem ausgeschlossenen?
+_parent_excluded() { # does the dataset lie below an excluded one?
     local ds="$1"; shift
     local e; for e in "$@"; do [[ -n "$e" && "$ds" == "$e/"* ]] && return 0; done; return 1
 }
 
-# Kind-Datasets eines Shares, die gemountet werden (ohne ausgeschlossene)
+# Child datasets of a share that get mounted (without excluded ones)
 plan_children() {
     local s="$1" b ds mp
     while IFS='|' read -r b ds mp; do
@@ -858,30 +858,30 @@ plan_children() {
 ##############################################################################
 # 5. Kopia
 ##############################################################################
-#   KM_SRC/KM_DST/KM_RW/KM_PROP   Bind-Mounts des Kopia-Containers
+#   KM_SRC/KM_DST/KM_RW/KM_PROP   bind mounts of the Kopia container
 #   KOPIA_RUNNING                 yes/no
 #   KOPIA_CONNECTED               yes/no
-#   KOPIA_ID                      benutzer@host laut Repository-Config
+#   KOPIA_ID                      user@host as the repository config says
 #   KOPIA_USER, KOPIA_HOST
 declare -ga KM_SRC=() KM_DST=() KM_RW=() KM_PROP=()
 KOPIA_RUNNING="no"; KOPIA_CONNECTED="no"; KOPIA_ID=""; KOPIA_USER=""; KOPIA_HOST=""
 KOPIA_VERSION=""; KOPIA_CONFIG_FILE=""; KOPIA_STORAGE=""; KP_JSON="[]"
-KOPIA_SERVER_UID=""     # UID, unter der der Kopia-Server im Container laeuft
-KOPIA_RUN_UID="0"       # UID fuer docker exec (= Server-UID, damit Cache/Logs ihm gehoeren)
+KOPIA_SERVER_UID=""     # UID the Kopia server runs as inside the container
+KOPIA_RUN_UID="0"       # UID for docker exec (= server UID, so that cache/logs belong to it)
 
-# Kopia im Container aufrufen - immer als derselbe Benutzer wie der Server.
-# Jeder Kopia-Aufruf (auch "repository status") schreibt in Cache und Logs.
-# Liefe er als root, waehrend der Server z.B. als UID 99 laeuft, entstuenden
-# root-eigene Cache-Ordner (0700) - der Server kann das Repository danach
-# nicht mehr oeffnen ("permission denied"). Snapshots brauchen aber root, um
-# alle Dateien lesen zu koennen -> der Server muss ebenfalls als root laufen.
+# Call Kopia inside the container - always as the same user as the server.
+# Every Kopia call (even "repository status") writes to cache and logs.
+# If it ran as root while the server runs as e.g. UID 99, root-owned
+# cache folders (0700) would appear - the server could no longer open
+# the repository afterwards ("permission denied"). Snapshots need root, though,
+# to read every file -> the server has to run as root as well.
 kopia_x() {
     local e=()
     [[ "$KOPIA_RUN_UID" != "0" ]] && e=( -e HOME=/tmp )
     docker exec -u "$KOPIA_RUN_UID" "${e[@]}" "$KOPIA_CONTAINER" kopia --no-progress "$@"
 }
 
-# UID des Kopia-Servers: aus der Prozessliste, sonst Besitzer der Config-Datei
+# UID of the Kopia server: from the process list, otherwise the owner of the config file
 kopia_detect_uid() {
     local u cfgp
     u="$(docker top "$KOPIA_CONTAINER" -eo pid,uid,args 2>/dev/null \
@@ -894,12 +894,12 @@ kopia_detect_uid() {
     KOPIA_RUN_UID="$KOPIA_SERVER_UID"
 }
 
-# Kopia-Container automatisch finden, wenn settings.ini keinen nennt
+# Find the Kopia container on its own when settings.ini names none
 kopia_find_container() {
     local n found=""
     for n in "${CT_NAMES[@]}"; do
         is_kopia_image "${CT_IMAGE[$n]}" || continue
-        [[ -n "$found" ]] && { printf '%s' "$found"; return 2; }   # mehrere -> erster, aber melden
+        [[ -n "$found" ]] && { printf '%s' "$found"; return 2; }   # several -> the first, but report it
         found="$n"
     done
     printf '%s' "$found"
@@ -918,7 +918,7 @@ kopia_mounts_load() {
               "$KOPIA_CONTAINER" 2>/dev/null)
 }
 
-# k_map <hostpfad>  -> KMAP_IDX (Mapping, das den Pfad abdeckt), -1 wenn keins
+# k_map <host path>  -> KMAP_IDX (the mapping that covers the path), -1 if none
 KMAP_IDX=-1
 k_map() {
     local p="$1" i s bl=-1
@@ -932,7 +932,7 @@ k_map() {
     (( KMAP_IDX >= 0 ))
 }
 
-# k_path <hostpfad>  -> Pfad im Container (Rueckgabe 1, wenn nicht abgebildet)
+# k_path <host path>  -> path inside the container (returns 1 if not mapped)
 k_path() {
     local p="$1" s d rest
     k_map "$p" || return 1
@@ -966,14 +966,14 @@ kopia_policies_load() {
     jq -e 'type=="array"' >/dev/null 2>&1 <<<"$KP_JSON" || KP_JSON="[]"
 }
 
-# Host-Pfad, unter dem Kopia einen Share liest - immer <mount_root>/<share>,
-# auch bei "live" (dann ein read-only-Bind von /mnt/user/<share>)
+# Host path under which Kopia reads a share - always <mount_root>/<share>,
+# also for "live" (then a read-only bind of /mnt/user/<share>)
 share_kopia_hostpath() { printf '%s' "$MOUNT_ROOT/$1"; }
 FLASH_SOURCE_NAME="_flash"
 
-# Soll-Ignoreliste eines Ziels
-#   root    -> globale Liste aus [kopia] (wird an alle Shares vererbt)
-#   share   -> nur die Share-eigenen Regeln
+# Wanted ignore list of a target
+#   root    -> the global list from [kopia] (inherited by all shares)
+#   share   -> only the share's own rules
 kopia_want_ignores() {
     local kind="$1" s="${2:-}"
     case "$kind" in
@@ -983,7 +983,7 @@ kopia_want_ignores() {
     esac | sed '/^$/d' | LC_ALL=C sort -u
 }
 
-# Soll-Aufbewahrung eines Ziels: sechs Werte (latest hourly daily weekly monthly annual)
+# Wanted retention of a target: six values (latest hourly daily weekly monthly annual)
 kopia_want_retention() {
     local kind="$1" s="${2:-}"
     case "$kind" in
@@ -993,14 +993,14 @@ kopia_want_retention() {
     esac
 }
 
-# kopia_policy_eval <container-pfad> <art: root|share|flash> <soll-ignores> <soll-aufbewahrung>
-#   Vergleicht die in Kopia gespeicherte Policy mit dem Soll. Nur das Ziel
-#   "root" (<mount_root>) traegt Zeitplan, one-file-system und Kompression;
-#   die Shares erben das und tragen nur ihre Abweichungen.
-#   KP_DIFF      Textzeilen mit den Abweichungen
-#   KP_ARGS      Argumente fuer "kopia policy set", die das Soll herstellen
-#   KP_MISSING   Ignore-Regeln, die in Kopia fehlen (Kopia saehe mehr als gewollt)
-#   Rueckgabe 0 = stimmt, 1 = weicht ab
+# kopia_policy_eval <container path> <kind: root|share|flash> <wanted ignores> <wanted retention>
+#   Compares the policy stored in Kopia with what is wanted. Only the target
+#   "root" (<mount_root>) carries schedule, one-file-system and compression;
+#   the shares inherit that and carry only their differences.
+#   KP_DIFF      text lines with the differences
+#   KP_ARGS      arguments for "kopia policy set" that make it as wanted
+#   KP_MISSING   ignore rules missing in Kopia (Kopia would see more than wanted)
+#   Returns 0 = matches, 1 = differs
 kopia_policy_eval() {
     local target="$1" kind="$2" want_ign="$3" want_ret="$4" cur cur_ign x f want have
     local -a wr
@@ -1013,13 +1013,13 @@ kopia_policy_eval() {
     while IFS= read -r x; do
         [[ -z "$x" ]] && continue
         if ! grep -Fxq -- "$x" <<<"$cur_ign"; then
-            KP_DIFF+="  Ignore fehlt in Kopia: $x"$'\n'; KP_ARGS+=( --add-ignore "$x" ); KP_MISSING+="$x"$'\n'
+            KP_DIFF+="  ignore missing in Kopia: $x"$'\n'; KP_ARGS+=( --add-ignore "$x" ); KP_MISSING+="$x"$'\n'
         fi
     done <<<"$want_ign"
     while IFS= read -r x; do
         [[ -z "$x" ]] && continue
         if ! grep -Fxq -- "$x" <<<"$want_ign"; then
-            KP_DIFF+="  Ignore zusaetzlich in Kopia: $x"$'\n'; KP_ARGS+=( --remove-ignore "$x" )
+            KP_DIFF+="  extra ignore in Kopia: $x"$'\n'; KP_ARGS+=( --remove-ignore "$x" )
         fi
     done <<<"$cur_ign"
     local i=0
@@ -1028,33 +1028,33 @@ kopia_policy_eval() {
         x="${f%%:*}"; f="${f#*:}"; want="${wr[$i]:-inherit}"; i=$((i+1))
         have="$(jq -r --arg k "$x" '.retention[$k] // "inherit" | tostring' <<<"$cur")"
         if [[ "$have" != "$want" ]]; then
-            KP_DIFF+="  $f: Kopia $have, Soll $want"$'\n'; KP_ARGS+=( "--$f=$want" )
+            KP_DIFF+="  $f: Kopia $have, wanted $want"$'\n'; KP_ARGS+=( "--$f=$want" )
         fi
     done
     if [[ "$kind" == "root" ]]; then
         have="$(jq -r '.scheduling.manual // false | tostring' <<<"$cur")"
         if [[ "$have" != "true" ]]; then
-            KP_DIFF+="  Zeitplan: Kopia darf diese Quellen selbst planen (Soll: nur manuell)"$'\n'
+            KP_DIFF+="  schedule: Kopia may schedule these sources itself (wanted: manual only)"$'\n'
             KP_ARGS+=( --manual )
         fi
-        # Achtung jq: "//" haelt auch false fuer "fehlt" - darum explizit auf null pruefen
+        # Careful with jq: "//" also treats false as "missing" - so check for null explicitly
         have="$(jq -r 'if .files.oneFileSystem == null then "inherit" else (.files.oneFileSystem|tostring) end' <<<"$cur")"
         if [[ "$have" != "false" ]]; then
-            KP_DIFF+="  one-file-system: Kopia $have, Soll false (Kind-Datasets muessen mit)"$'\n'
+            KP_DIFF+="  one-file-system: Kopia $have, wanted false (child datasets must come along)"$'\n'
             KP_ARGS+=( --one-file-system=false )
         fi
         have="$(jq -r '.compression.compressorName // "inherit"' <<<"$cur")"
         if [[ "$KOPIA_COMPRESSION" != "inherit" && "$have" != "$KOPIA_COMPRESSION" ]] || \
            [[ "$KOPIA_COMPRESSION" == "inherit" && "$have" != "inherit" ]]; then
-            KP_DIFF+="  Kompression: Kopia $have, Soll $KOPIA_COMPRESSION"$'\n'
+            KP_DIFF+="  compression: Kopia $have, wanted $KOPIA_COMPRESSION"$'\n'
             KP_ARGS+=( "--compression=$KOPIA_COMPRESSION" )
         fi
     fi
     [[ -z "$KP_DIFF" ]]
 }
 
-# Alle Kopia-Ziele, die dieses Script verwaltet, mit Art:
-#   Zeilen "art|hostpfad|share"   art: root | share | flash
+# All Kopia targets this script manages, with their kind:
+#   lines "kind|host path|share"   kind: root | share | flash
 kopia_targets() {
     local s
     is_yes "$KOPIA_ENABLED" || return 0
@@ -1064,13 +1064,13 @@ kopia_targets() {
     return 0
 }
 
-# Alle Quellen im Repository (benutzer@host:pfad), je eine Zeile
+# All sources in the repository (user@host:path), one line each
 kopia_sources() {
     kopia_x snapshot list --all --json -n 1 2>/dev/null \
         | jq -r '.[]? | "\(.source.userName)@\(.source.host):\(.source.path)"' 2>/dev/null | LC_ALL=C sort -u
 }
 
-# Mountinfo im Container -> KMI[pfad]=optionen
+# Mountinfo inside the container -> KMI[path]=options
 declare -gA KMI=()
 kopia_mountinfo_load() {
     KMI=()
@@ -1081,8 +1081,8 @@ kopia_mountinfo_load() {
     done < <(docker exec "$KOPIA_CONTAINER" cat /proc/self/mountinfo 2>/dev/null | awk '{print $5 "\t" $6}')
 }
 
-# Probe: sieht der laufende Container einen Mount, der jetzt auf dem Host entsteht?
-#   0 = ja, 1 = nein, 2 = Probe nicht moeglich
+# Test: does the running container see a mount that appears on the host now?
+#   0 = yes, 1 = no, 2 = test not possible
 kopia_probe_propagation() {
     local probe="$MOUNT_ROOT/.ub-probe" cp res
     mkdir -p "$probe" 2>/dev/null || return 2
@@ -1095,17 +1095,17 @@ kopia_probe_propagation() {
     [[ "$res" == "ub-$$" ]]
 }
 
-# Hat ein frueherer Lauf hart abgebrochen (kill -9, Absturz), stehen in state/
-# die Container, die er angehalten, und die Nextclouds, die er in den
-# Wartungsmodus gesetzt hatte. Beides wird hier zurueckgeholt.
-# Aufruf nur mit gehaltener Sperre (dann laeuft kein anderer Lauf).
+# If an earlier run was killed hard (kill -9, crash), state/ lists
+# the containers it had stopped and the Nextclouds it had put into
+# maintenance mode. Both are brought back here.
+# Call only while holding the lock (then no other run is going).
 recover_interrupted_run() {
     local n occ u list=""
     if [[ -s "$UB_STATE/stopped" ]]; then
         while IFS= read -r n; do
             [[ -z "$n" ]] && continue
             [[ "$(docker inspect -f '{{.State.Running}}' "$n" 2>/dev/null)" == "false" ]] || continue
-            if docker start "$n" >/dev/null 2>&1; then list+="$n "; else err "Container '$n' (vom abgebrochenen Lauf) startet nicht"; fi
+            if docker start "$n" >/dev/null 2>&1; then list+="$n "; else err "Container '$n' (from the aborted run) does not start"; fi
         done <"$UB_STATE/stopped"
         rm -f "$UB_STATE/stopped"
     fi
@@ -1117,24 +1117,24 @@ recover_interrupted_run() {
                 docker exec "$n" test -f "$occ" 2>/dev/null || continue
                 u="$(docker exec "$n" stat -c %U "$occ" 2>/dev/null)"; [[ -z "$u" || "$u" == root || "$u" == UNKNOWN ]] && u="www-data"
                 docker exec -u "$u" "$n" php "$occ" maintenance:mode --off >/dev/null 2>&1 \
-                    && list+="Wartungsmodus $n aus " || err "Wartungsmodus von '$n' liess sich nicht ausschalten"
+                    && list+="maintenance mode $n off " || err "Maintenance mode of '$n' could not be switched off"
                 break
             done
         done <"$UB_STATE/maintenance"
         rm -f "$UB_STATE/maintenance"
     fi
     if [[ -n "$list" ]]; then
-        warn "Ein frueherer Lauf wurde abgebrochen - wiederhergestellt: $list"
-        ub_notify "Abgebrochener Lauf repariert" "Wieder gestartet bzw. zurueckgesetzt: $list" "warning"
+        warn "An earlier run was aborted - restored: $list"
+        ub_notify "Aborted run repaired" "Started again or reset: $list" "warning"
     fi
     return 0
 }
 
 ##############################################################################
-# 6. Abweichungen (Inventar <-> settings.ini)
+# 6. Drift (inventory <-> settings.ini)
 ##############################################################################
-#   DRIFT        Zeilen "stufe|text"   stufe: info | warn | error
-#   SKIP_KOPIA[share]=grund   Shares, die Kopia diesmal nicht sichern darf
+#   DRIFT        lines "level|text"   level: info | warn | error
+#   SKIP_KOPIA[share]=reason   shares Kopia must not back up this time
 declare -ga DRIFT=()
 declare -gA SKIP_KOPIA=()
 drift_add() { DRIFT+=( "$1|$2" ); }
@@ -1144,7 +1144,7 @@ drift_check_shares() {
     local -A cfg_has=() missing_by_id=() renamed=()
     while IFS= read -r s; do [[ -n "$s" ]] && cfg_has[$s]=1; done < <(cfg_names share)
 
-    # In settings.ini, aber ohne Daten -> Kandidaten fuer "geloescht" oder "umbenannt"
+    # In settings.ini but without data -> candidates for "deleted" or "renamed"
     for s in "${!cfg_has[@]}"; do
         if ! inv_has_share "$s" || [[ "${INV_METHOD[$s]}" == "none" ]]; then
             id="$(cfg "share|$s|id")"
@@ -1152,60 +1152,60 @@ drift_check_shares() {
         fi
     done
 
-    # Neu oder umbenannt
+    # New or renamed
     for s in "${INV_SHARES[@]}"; do
         [[ "${INV_METHOD[$s]}" == "none" || -n "${cfg_has[$s]:-}" ]] && continue
         o=""
         [[ -n "${INV_ID[$s]:-}" ]] && o="${missing_by_id[${INV_ID[$s]}]:-}"
         if [[ -n "$o" ]]; then
             renamed[$o]="$s"
-            drift_add warn "Share '$o' wurde umbenannt in '$s' (gleiche Kennung ${INV_ID[$s]%%:*}) - '$s' wird erst nach setup.sh gesichert"
+            drift_add warn "Share '$o' was renamed to '$s' (same id ${INV_ID[$s]%%:*}) - '$s' is only backed up after setup.sh"
             continue
         fi
         matches_any "$s" "${DRIFT_IGNORE[@]}" && continue
-        drift_add warn "Neuer Share '$s' ($(inv_locnames "$s")${INV_GB[$s]:+, ${INV_GB[$s]} GB}) - nicht in settings.ini, wird nicht gesichert"
+        drift_add warn "New share '$s' ($(inv_locnames "$s")${INV_GB[$s]:+, ${INV_GB[$s]} GB}) - not in settings.ini, not backed up"
     done
 
-    # Geloescht oder leer
+    # Deleted or empty
     for s in "${!cfg_has[@]}"; do
         [[ -n "${renamed[$s]:-}" ]] && continue
         mode="$(share_mode "$s")"
         if ! inv_has_share "$s"; then
-            # weder Daten noch Unraid-Config
+            # neither data nor Unraid config
             if [[ "$mode" == "off" ]]; then
-                drift_add info "Share '$s' existiert nicht mehr (stand auf off)"
+                drift_add info "Share '$s' no longer exists (was set to off)"
             else
-                drift_add warn "Share '$s' existiert nicht mehr (mode=$mode)"
+                drift_add warn "Share '$s' no longer exists (mode=$mode)"
             fi
         elif [[ "${INV_METHOD[$s]}" == "none" && "$mode" != "off" ]]; then
-            # nur noch in der Unraid-Config. War er schon beim Setup leer (keine
-            # Kennung), ist das nichts Neues - sonst sind die Daten weg.
+            # only left in Unraid's config. If it was empty at setup already (no
+            # id), that is nothing new - otherwise the data is gone.
             if [[ -n "$(cfg "share|$s|id")" ]]; then
-                drift_add warn "Share '$s' hat keine Daten mehr (bisher auf $(cfg "share|$s|locations" "?"), mode=$mode)"
+                drift_add warn "Share '$s' has no data any more (so far on $(cfg "share|$s|locations" "?"), mode=$mode)"
             fi
         elif [[ "${INV_METHOD[$s]}" != "none" && "$mode" != "off" && -z "$(cfg "share|$s|id")" ]]; then
-            drift_add info "Share '$s' hat jetzt Daten und wird gesichert - setup.sh merkt sich dann seine Kennung (fuer das Erkennen von Umbenennungen)"
+            drift_add info "Share '$s' has data now and is backed up - setup.sh then remembers its id (to spot renames)"
         fi
     done
 
     for s in "${INV_SHARES[@]}"; do
         [[ "${INV_METHOD[$s]}" == "none" || -z "${cfg_has[$s]:-}" ]] && continue
-        share_name_ok "$s" || { drift_add warn "Share '$s': Name enthaelt @ : \" oder | - wird nicht gesichert"; continue; }
+        share_name_ok "$s" || { drift_add warn "Share '$s': the name contains @ : \" or | - not backed up"; continue; }
         mode="$(share_mode "$s")"
         [[ "$mode" == "off" ]] && continue
         meth="$(share_method "$s")"
         loc_now="$(inv_locnames "$s")"; loc_cfg="$(cfg "share|$s|locations")"
         if [[ -n "$loc_cfg" && "$loc_cfg" != "$loc_now" ]]; then
-            drift_add info "Share '$s' liegt jetzt auf: $loc_now (laut settings.ini: $loc_cfg) - wird automatisch mitgenommen"
+            drift_add info "Share '$s' now lies on: $loc_now (settings.ini says: $loc_cfg) - taken along automatically"
         fi
         if [[ "$meth" == "live" && "$(cfg "share|$s|method" auto)" != "live" ]]; then
-            drift_add warn "Share '$s' kann nicht per Snapshot gesichert werden ($(printf '%s' "${INV_NOTE[$s]}" | head -1)) - Kopia liest live"
+            drift_add warn "Share '$s' cannot be backed up with a snapshot ($(printf '%s' "${INV_NOTE[$s]}" | head -1)) - Kopia reads it live"
         fi
         if [[ "$mode" == "snapshot" && "$meth" == "live" ]]; then
-            drift_add warn "Share '$s' steht auf mode=snapshot, liegt aber auf einem Dateisystem ohne Snapshots"
+            drift_add warn "Share '$s' is set to mode=snapshot but lies on a file system without snapshots"
         fi
         if [[ "${INV_LAYOUT[$s]}" == "split" ]]; then
-            drift_add info "Share '$s' liegt auf mehreren Basen und hat Kind-Datasets - Kopia sieht je Basis einen Unterordner"
+            drift_add info "Share '$s' lies on several bases and has child datasets - Kopia sees one subfolder per base"
         fi
     done
 }
@@ -1219,59 +1219,59 @@ drift_check_containers() {
         if [[ -z "${known[$n]:-}" ]]; then
             t="$(ct_db_type "$n")"
             if db_dumpable "$t" && ! cfg_has "dump|$n"; then
-                drift_add warn "Neuer Datenbank-Container '$n' ($t, $img${CT_PROJECT[$n]:+, Stack ${CT_PROJECT[$n]}}) - kein Dump eingerichtet (Rohdaten sind per Snapshot dabei)"
+                drift_add warn "New database container '$n' ($t, $img${CT_PROJECT[$n]:+, stack ${CT_PROJECT[$n]}}) - no dump set up (the raw data is in the snapshot)"
             elif is_nextcloud_image "$img" && ! cfg_has "nextcloud|$n"; then
-                drift_add warn "Neuer Nextcloud-Container '$n' - kein Wartungsmodus eingerichtet"
+                drift_add warn "New Nextcloud container '$n' - no maintenance mode set up"
             else
-                drift_add info "Neuer Container '$n' ($img)"
+                drift_add info "New container '$n' ($img)"
             fi
         fi
         if [[ -n "${CT_VOLUMES[$n]}" && -z "${known[$n]:-}" ]]; then
-            drift_add warn "Container '$n' nutzt Docker-Volumes ($(cut -d'|' -f1 <<<"${CT_VOLUMES[$n]}" | paste -sd, -)) - die liegen im Docker-Image und sind NICHT im Backup"
+            drift_add warn "Container '$n' uses Docker volumes ($(cut -d'|' -f1 <<<"${CT_VOLUMES[$n]}" | paste -sd, -)) - they live in the Docker image and are NOT in the backup"
         fi
     done
     for n in $(cfg_names dump) $(cfg_names nextcloud) "${DOCKER_NO_STOP[@]}"; do
         [[ -n "${referenced[$n]:-}" ]] && continue
         referenced[$n]=1
-        in_list "$n" "${CT_NAMES[@]}" || drift_add warn "Container '$n' steht in settings.ini, existiert aber nicht"
+        in_list "$n" "${CT_NAMES[@]}" || drift_add warn "Container '$n' is in settings.ini but does not exist"
     done
 }
 
-# Kopia-Pruefung fuer den Lauf; setzt KOPIA_OK und SKIP_KOPIA
+# Kopia check for the run; sets KOPIA_OK and SKIP_KOPIA
 KOPIA_OK="no"
 drift_check_kopia() {
     KOPIA_OK="no"
     is_yes "$KOPIA_ENABLED" || { KOPIA_OK="off"; return 0; }
     [[ ${#PLAN_KOPIA[@]} -eq 0 && "$PLAN_FLASH" != "snapshot" ]] && { KOPIA_OK="none"; return 0; }
     if [[ -z "$KOPIA_CONTAINER" ]]; then
-        drift_add error "Kein Kopia-Container in settings.ini"; return 1
+        drift_add error "No Kopia container in settings.ini"; return 1
     fi
     if ! in_list "$KOPIA_CONTAINER" "${CT_NAMES[@]}"; then
-        drift_add error "Kopia-Container '$KOPIA_CONTAINER' existiert nicht"; return 1
+        drift_add error "Kopia container '$KOPIA_CONTAINER' does not exist"; return 1
     fi
     kopia_mounts_load
     if ! k_map "$MOUNT_ROOT"; then
-        drift_add error "Kopia-Container bindet $MOUNT_ROOT nicht ein (erwartet: $MOUNT_ROOT -> $MOUNT_ROOT, Read Only - Slave)"; return 1
+        drift_add error "The Kopia container does not map $MOUNT_ROOT (expected: $MOUNT_ROOT -> $MOUNT_ROOT, Read Only - Slave)"; return 1
     fi
     case "${KM_PROP[$KMAP_IDX]}" in
         slave|rslave|shared|rshared) ;;
-        *) drift_add error "Mapping ${KM_SRC[$KMAP_IDX]} im Kopia-Container hat Propagation '${KM_PROP[$KMAP_IDX]:-rprivate}' - neue Snapshot-Mounts bleiben unsichtbar. Access Mode auf 'Read Only - Slave' stellen"
+        *) drift_add error "Mapping ${KM_SRC[$KMAP_IDX]} in the Kopia container has propagation '${KM_PROP[$KMAP_IDX]:-rprivate}' - new snapshot mounts stay invisible. Set the access mode to 'Read Only - Slave'"
            return 1 ;;
     esac
     [[ "${KM_RW[$KMAP_IDX]}" == "true" ]] && \
-        drift_add warn "Mapping ${KM_SRC[$KMAP_IDX]} im Kopia-Container ist beschreibbar - 'Read Only - Slave' empfohlen"
+        drift_add warn "Mapping ${KM_SRC[$KMAP_IDX]} in the Kopia container is writable - 'Read Only - Slave' recommended"
     if ! kopia_status_load; then
-        if [[ "$KOPIA_RUNNING" != "yes" ]]; then drift_add error "Kopia-Container '$KOPIA_CONTAINER' laeuft nicht"
-        else drift_add error "Kopia ist mit keinem Repository verbunden"; fi
+        if [[ "$KOPIA_RUNNING" != "yes" ]]; then drift_add error "Kopia container '$KOPIA_CONTAINER' is not running"
+        else drift_add error "Kopia is not connected to a repository"; fi
         return 1
     fi
     local uid_ok="yes"
     if [[ "$KOPIA_SERVER_UID" != "0" ]]; then
-        drift_add error "Kopia-Server laeuft im Container als UID $KOPIA_SERVER_UID, Snapshots brauchen root (alle Dateien lesen). Ein root-Lauf wuerde den gemeinsamen Cache fuer den Server unlesbar machen - Kopia wird NICHT gestartet. Abhilfe: im Template PUID=0 und PGID=0 setzen"
+        drift_add error "The Kopia server runs as UID $KOPIA_SERVER_UID inside the container, snapshots need root (to read every file). A run as root would make the shared cache unreadable for the server - Kopia is NOT started. Fix: set PUID=0 and PGID=0 in the template"
         uid_ok="no"
     fi
     if [[ -n "$KOPIA_IDENTITY_CFG" && "$KOPIA_IDENTITY_CFG" != "$KOPIA_ID" ]]; then
-        drift_add warn "Kopia-Identitaet ist jetzt $KOPIA_ID (settings.ini: $KOPIA_IDENTITY_CFG) - neue Quellen statt Fortsetzung"
+        drift_add warn "The Kopia identity is now $KOPIA_ID (settings.ini: $KOPIA_IDENTITY_CFG) - new sources instead of continuing the old ones"
     fi
     kopia_policies_load
     local kind hpath share cpath
@@ -1279,8 +1279,8 @@ drift_check_kopia() {
         [[ -z "$kind" ]] && continue
         cpath="$(k_path "$hpath")" || continue
         if ! kopia_policy_eval "$cpath" "$kind" "$(kopia_want_ignores "$kind" "$share")" "$(kopia_want_retention "$kind" "$share")"; then
-            # Fehlt eine Share-eigene Ignore-Regel, wuerde Kopia mehr hochladen als
-            # gewollt (z.B. eine Blockchain). Diese Quelle bleibt dann aussen vor.
+            # If one of the share's own ignore rules is missing, Kopia would upload more
+            # than wanted (e.g. a blockchain). This source is then left out.
             local miss_own="" x
             if [[ "$kind" == "share" ]]; then
                 while IFS= read -r x; do
@@ -1288,10 +1288,10 @@ drift_check_kopia() {
                 done < <(cfg_list "share|$share|kopia_ignore")
             fi
             if [[ -n "$miss_own" ]]; then
-                drift_add error "Kopia-Policy fuer $cpath fehlen Ignore-Regeln ($miss_own) - Share '$share' wird NICHT an Kopia gegeben, bis 'setup.sh --kopia' lief"
-                SKIP_KOPIA[$share]="Policy unvollstaendig"
+                drift_add error "The Kopia policy for $cpath lacks ignore rules ($miss_own) - share '$share' is NOT given to Kopia until 'setup.sh --kopia' has run"
+                SKIP_KOPIA[$share]="policy incomplete"
             else
-                drift_add warn "Kopia-Policy fuer $cpath weicht von settings.ini ab ('setup.sh --kopia' gleicht an):"$'\n'"${KP_DIFF%$'\n'}"
+                drift_add warn "The Kopia policy for $cpath differs from settings.ini ('setup.sh --kopia' aligns it):"$'\n'"${KP_DIFF%$'\n'}"
             fi
         fi
     done < <(kopia_targets)
@@ -1304,17 +1304,17 @@ drift_check_settings() {
     for e in "${CFG_ERRORS[@]}"; do drift_add error "settings.ini: $e"; done
 }
 
-# Fingerabdruck (nur warn/error), damit dieselbe Meldung nicht jede Nacht kommt
+# Fingerprint (warn/error only), so that the same message does not come every night
 drift_fingerprint() {
     printf '%s\n' "${DRIFT[@]}" | grep -E '^(warn|error)\|' | LC_ALL=C sort | md5sum | cut -c1-16
 }
 
-drift_text() { # alle Meldungen lesbar, schwerste zuerst
+drift_text() { # all messages readable, the most serious first
     local lvl l
     for lvl in error warn info; do
         for l in "${DRIFT[@]}"; do
             [[ "${l%%|*}" == "$lvl" ]] || continue
-            case "$lvl" in error) printf 'FEHLER  ' ;; warn) printf 'WARNUNG ' ;; info) printf 'INFO    ' ;; esac
+            case "$lvl" in error) printf 'ERROR   ' ;; warn) printf 'WARNING ' ;; info) printf 'INFO    ' ;; esac
             printf '%s\n' "${l#*|}"
         done
     done
@@ -1323,34 +1323,34 @@ drift_text() { # alle Meldungen lesbar, schwerste zuerst
 drift_count() { local lvl="$1" n=0 l; for l in "${DRIFT[@]}"; do [[ "${l%%|*}" == "$lvl" ]] && n=$((n+1)); done; echo "$n"; }
 
 ##############################################################################
-# 7. Status fuer andere Programme (z.B. Unraid Secretary Office)
+# 7. Status for other programs (e.g. the Unraid Secretary Office)
 ##############################################################################
-# state/status.json beschreibt den laufenden bzw. zuletzt beendeten Lauf mit
-# festen, englischen Schluesseln. Die Texte im Protokoll duerfen sich aendern,
-# diese Schnittstelle nicht - wer sie liest, prueft "interface".
-#   status.json      laufender oder letzter Lauf (alle Modi ausser unmount)
-#   last-run.json    letzter echter Backup-Lauf (kein Trockenlauf, keine Pruefung)
-#   history.jsonl    eine Zeile je echtem Backup-Lauf, die letzten 200
-#   drift.json       Abweichungen der letzten Pruefung (Stufe + Text)
-# Schreiben ist nie kritisch: schlaegt es fehl, laeuft das Backup weiter.
+# state/status.json describes the running or last finished run with
+# fixed English keys. The texts in the log may change, this
+# interface may not - whoever reads it checks "interface".
+#   status.json      running or last run (every mode except unmount)
+#   last-run.json    last real backup run (no dry run, no check)
+#   history.jsonl    one line per real backup run, the last 200
+#   drift.json       drift found by the last check (level + text)
+# Writing is never critical: if it fails, the backup carries on.
 UB_INTERFACE=1
 UB_HISTORY_MAX=200
 
-ST_ACTIVE="no"            # erst mit gehaltener Sperre - sonst ueberschriebe ein
-ST_MODE=""                # abgewiesener zweiter Start den Status des laufenden
+ST_ACTIVE="no"            # only once the lock is held - otherwise a second start
+ST_MODE=""                # that was turned away would overwrite the running one's status
 ST_PHASE=""
 ST_RESULT="running"       # running | ok | warnings | errors | failed | aborted
 ST_MESSAGE=""
 ST_STARTED=0
 ST_FINISHED=0
 ST_ABORTED="no"
-ST_KOPIA_PLAN=()          # Namen der Kopia-Quellen in Reihenfolge
+ST_KOPIA_PLAN=()          # names of the Kopia sources in order
 ST_KOPIA_CUR=""
 ST_KOPIA_CUR_T=0
-ST_KOPIA_DONE=()          # Zeilen "name|ok(1/0)|sekunden|ende"
+ST_KOPIA_DONE=()          # lines "name|ok(1/0)|seconds|end"
 ST_DUMP_BYTES=0
 
-status_init() { # status_init <modus>
+status_init() { # status_init <mode>
     ST_MODE="$1"; ST_STARTED="$(date +%s)"; ST_ACTIVE="yes"; ST_PHASE="start"
     status_write
 }
@@ -1395,9 +1395,9 @@ status_write() {
     return 0
 }
 
-status_finish() { # status_finish <ergebnis> [meldung]
+status_finish() { # status_finish <result> [message]
     [[ "$ST_ACTIVE" == "yes" ]] || return 0
-    [[ "$ST_RESULT" == "running" ]] || return 0      # schon abgeschlossen
+    [[ "$ST_RESULT" == "running" ]] || return 0      # already finished
     ST_RESULT="$1"; ST_MESSAGE="${2:-$ST_MESSAGE}"; ST_FINISHED="$(date +%s)"
     ST_PHASE="done"; ST_KOPIA_CUR=""
     status_write

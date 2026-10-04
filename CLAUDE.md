@@ -37,8 +37,7 @@ This file holds the conventions and the checklist for changes.
 * **Jobs that must outlive the agent** (backup runs) go through the host's
   `atd` (`backupLaunch()` in agent/desks/backup.php), never as a child of the
   agent: Docker kills the agent container's whole cgroup when it stops.
-* **The backup engine** (`backup/`, bash, still German — to be translated
-  before going public) runs on its own via User Scripts. Mr. Backupsy only uses
+* **The backup engine** (`backup/`, bash, English since 2.13) runs on its own via User Scripts. Mr. Backupsy only uses
   its interface (`backup.sh --about`, `data/unraid-backup/state/status.json` &
   co., interface 1; the setup assistant uses `setup.sh --plan` / `--apply`
   with `state/setup-plan.json` / `setup-status.json`). Never parse its log

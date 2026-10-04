@@ -2,11 +2,9 @@
 
 Part of the [Unraid Secretary Office](../README.md): Mr. Backupsy shows and controls this engine in the browser — setting it up, scheduling it, starting and stopping runs, helping with restores. It also works without any web page: User Scripts starts it at night, `setup.sh` sets it up in a terminal.
 
-> The engine's own messages (terminal, logs) are still German; they will be translated. Everything the office shows is in your language already.
-
 A nightly backup for Unraid servers. It takes consistent **ZFS/btrfs snapshots** and **database dumps**, puts Nextcloud into **maintenance mode** for that, and — if you want — sends everything encrypted offsite with **Kopia**. Everything specific to your server lives in `settings.ini`, which `setup.sh` writes after asking you. The nightly run `backup.sh` reports every difference between the server and `settings.ini`, but never changes it on its own.
 
-Version **2.12** (4 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
+Version **2.13** (4 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
 
 ---
 
@@ -28,7 +26,7 @@ Version **2.12** (4 Oct 2026). The version is in the header of `setup.sh` and `b
 5. A **dry run**: Mr. Backupsy → *Back up now… › Dry run*, or in a terminal `UB_DRY_RUN=1 /mnt/user/appdata/UnraidSecretaryOffice/backup/backup.sh`.
 6. The first real run: *Back up now…*, or wait for the schedule.
 
-Replacing an existing backup script: `setup.sh` warns when other User Scripts also take snapshots or run Kopia — switch off their schedule there, otherwise both run. Kopia sources whose path no longer exists in the container can be set to "manual"; after a successful new run they can also be deleted (in the terminal, confirmed by typing `LOESCHEN`).
+Replacing an existing backup script: `setup.sh` warns when other User Scripts also take snapshots or run Kopia — switch off their schedule there, otherwise both run. Kopia sources whose path no longer exists in the container can be set to "manual"; after a successful new run they can also be deleted (in the terminal, confirmed by typing `DELETE`).
 
 ---
 
@@ -233,7 +231,7 @@ In a terminal every step is a coloured bar, tables have an underlined header and
 
 Run the setup again whenever `backup.sh` reports differences; your existing decisions are the defaults. Renamed shares are recognised by their identity (ZFS GUID or inode), and their settings carry over.
 
-What the setup never does: change container templates, connect Kopia to a repository, ask for credentials, delete snapshots or data. The only exception for deleting is an old Kopia source, when you explicitly confirm it in a terminal with `LOESCHEN`.
+What the setup never does: change container templates, connect Kopia to a repository, ask for credentials, delete snapshots or data. The only exception for deleting is an old Kopia source, when you explicitly confirm it in a terminal with `DELETE`.
 
 ## backup.sh
 
@@ -353,6 +351,7 @@ So on every new server: *Set up…*, then a check and a dry run first.
 
 ## Versions
 
+- **2.13** – The engine speaks English: terminal, logs, notifications, settings.ini comments and the code's comments. Log lines are marked `WARNING:` / `ERROR:`; questions in `setup.sh` take `y`/`n` (`j` still counts as yes). Nothing the office reads changed (interface 1).
 - **2.12** – When Nextcloud refuses its maintenance mode because others can read its data folder (Unraid resets a share root to 0777 whenever share settings are saved), the run says so and how to fix it; the caretaker checks it during the day. The manifest reads btrfs from the kernel only (`--mounted`, time limit) instead of every device — a busy disk held it up for minutes.
 - **2.11** – The User Scripts entry is called `unraid-secretary-office_backup`, like all of the office's entries; the old entry `unraid-backup` moves over with its schedule. The office's containers always keep running during a backup, like Kopia. `setup.sh --plan` also lists what *Apply* would change in settings.ini.
 - **2.10** – The VM configuration from libvirt.img (XML, NVRAM, TPM state) goes into an archive with the dumps every night, and so offsite, without backing up the whole `system` share. Default even without an entry in settings.ini.

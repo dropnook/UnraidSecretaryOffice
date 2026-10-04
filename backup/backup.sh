@@ -1,100 +1,102 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.12 - 4.10.2026
-#   2.12 Dumps und Archive in einem eigenen Backup-Share (general|dumps_share), nie in appdata -
-#        ohne gueltige Ablage kein Lauf; bisherige Dumps ziehen beim ersten Lauf um.
-#   2.12 Nextcloud-Rechtefehler klar benannt (Code nc_datadir_readable); Manifest liest btrfs nur
-#        aus dem Kernel (--mounted, Zeitlimit) statt jedes Geraet roh
-#   2.11 User-Scripts-Eintrag heisst unraid-secretary-office_backup (Beschreibung englisch)
-#   2.10 VM-Konfiguration aus libvirt.img (XML, NVRAM, TPM-Zustand) als
-#        Archiv zu den Dumps - [libvirt] mode = tar (Vorgabe) | off
-#   2.9  (nur setup.sh: unbekannte Groesse -> nur lokal vorgeschlagen)
-#   2.8  Apps vor den Dumps anhalten: Dumps passen so zu den Dateien im
-#        Snapshot, auch bei Apps ohne Wartungsmodus (Immich & Co.)
-#   2.7  (nur setup.sh: --plan / --apply)
-#   2.6  Teil des Unraid Secretary Office: Code in <office>/backup, Daten in
-#        <office>/data/unraid-backup (UB_DATA); --about nennt beide Ordner
-#   2.5  Status fuer andere Programme: state/status.json (laufend), last-run.json,
-#        history.jsonl, drift.json mit festen englischen Schluesseln; --about.
-#        Kopia laeuft im Hintergrund, damit Abbrechen (SIGTERM) sofort greift -
-#        der Kopia-Snapshot im Container wird dabei sauber beendet
-#   2.4  Nextcloud aus mehreren Containern (App + Cron, gemeinsame config.php)
-#        wird als EINE Instanz erkannt - der zweite Container meldete den
-#        eben gesetzten Wartungsmodus als "schon an" und brach den Lauf ab;
-#        Wartungsmodus mit 3 Versuchen, Meldungen von occ ins Protokoll
-#   2.3  Shares ohne Daten (nur Unraid-Config) gelten nicht mehr als geloescht;
-#        gemeldet wird, wenn Daten verschwinden oder neu dazukommen
-#   2.2  Allgemeine Fassung ohne serverspezifische Uebernahmen
-#   2.1  Kopia optional ([kopia] enabled), Datenbank-Erkennung ueber Image,
-#        Umgebung und Port, MongoDB-Dumps, Compose-Stacks
-#   2.0  Erstfassung
+# unraid-backup - backup.sh                       Version 2.13 - 2026-10-04
+#   2.13 Messages, logs and comments in English (WARNING:/ERROR: in the log, manifest/drift.txt,
+#        state/last-run with English keys); the office reads interface 1 as before
+#   2.12 Dumps and archives in a backup share of their own (general|dumps_share), never in appdata -
+#        no valid place, no run; existing dumps move there on the first run.
+#   2.12 Nextcloud permission error named clearly (code nc_datadir_readable); the manifest reads btrfs
+#        only from the kernel (--mounted, time limit) instead of every device raw
+#   2.11 The User Scripts entry is called unraid-secretary-office_backup (English description)
+#   2.10 VM configuration from libvirt.img (XML, NVRAM, TPM state) as an
+#        archive next to the dumps - [libvirt] mode = tar (default) | off
+#   2.9  (setup.sh only: unknown size -> proposed as local only)
+#   2.8  Pause apps before the dumps: dumps then match the files in the
+#        snapshot, also for apps without a maintenance mode (Immich & co.)
+#   2.7  (setup.sh only: --plan / --apply)
+#   2.6  Part of the Unraid Secretary Office: code in <office>/backup, data in
+#        <office>/data/unraid-backup (UB_DATA); --about names both folders
+#   2.5  Status for other programs: state/status.json (while running), last-run.json,
+#        history.jsonl, drift.json with fixed English keys; --about.
+#        Kopia runs in the background so that aborting (SIGTERM) works at once -
+#        the Kopia snapshot inside the container is ended cleanly
+#   2.4  Nextcloud from several containers (app + cron, shared config.php)
+#        is recognised as ONE instance - the second container reported the
+#        maintenance mode just switched on as "already on" and aborted the run;
+#        maintenance mode with 3 attempts, occ's messages go into the log
+#   2.3  Shares without data (Unraid config only) no longer count as deleted;
+#        reported is when data disappears or appears
+#   2.2  General version without server-specific leftovers
+#   2.1  Kopia optional ([kopia] enabled), databases detected by image,
+#        environment and port, MongoDB dumps, Compose stacks
+#   2.0  First version
 #
-# Der naechtliche Backup-Lauf fuer Unraid-Server. Alles Serverspezifische
-# steht in settings.ini, die setup.sh erzeugt. Dieses Script liest
-# settings.ini nur - es aendert sie nie.
+# The nightly backup run for Unraid servers. Everything specific to the
+# server is in settings.ini, written by setup.sh. This script only reads
+# settings.ini - it never changes it.
 #
-# ABLAUF
-#    1. settings.ini laden, Inventar aufnehmen (Pools, Disks, Shares, Container)
-#    2. Abweichungen pruefen und melden: neue / umbenannte / geloeschte Shares,
-#       neue Container, Kopia-Mapping und -Policies. Nichts davon wird selbst
-#       "repariert" - neue Shares werden erst gesichert, wenn setup.sh lief.
-#    3. Nextcloud in den Wartungsmodus (bricht ab, wenn er schon an war)
-#    4. Manifest: Versionen, Images, Templates, Share-Configs, settings.ini
-#    5. Apps anhalten, dann Datenbank-Dumps (MariaDB/MySQL, Postgres, MongoDB),
-#       sofort geprueft - so passen Dumps und Dateien zusammen, auch bei Apps
-#       ohne Wartungsmodus (z.B. Immich)
-#    6. Datenbanken und Netzwerk-Container anhalten
-#    7. ZFS-Snapshots (je Pool atomar) und btrfs-Snapshots
-#    8. Container starten, Wartungsmodus aus  -> Unterbrechung endet hier
-#    9. Snapshots je Share unter <mount_root>/<share> einhaengen (read-only)
-#   10. Kopia sichert jeden Share aus <mount_root>/<share>
-#       (nur mit [kopia] enabled = yes - ohne Kopia enden 9/10 hier: lokale
-#       Snapshots und Dumps sind dann das ganze Backup)
-#   11. Aushaengen, aufraeumen (ZFS, btrfs, Dumps, Logs), Mitteilung
+# STEPS
+#    1. Load settings.ini, take inventory (pools, disks, shares, containers)
+#    2. Check for and report drift: new / renamed / deleted shares,
+#       new containers, Kopia mapping and policies. None of it is "repaired"
+#       here - new shares are only backed up once setup.sh has run.
+#    3. Nextcloud into maintenance mode (aborts if it was already on)
+#    4. Manifest: versions, images, templates, share configs, settings.ini
+#    5. Pause apps, then database dumps (MariaDB/MySQL, Postgres, MongoDB),
+#       checked right away - so dumps and files match, also for apps
+#       without a maintenance mode (e.g. Immich)
+#    6. Stop databases and network containers
+#    7. ZFS snapshots (atomic per pool) and btrfs snapshots
+#    8. Start containers, maintenance mode off  -> the downtime ends here
+#    9. Mount the snapshots per share under <mount_root>/<share> (read-only)
+#   10. Kopia backs up every share from <mount_root>/<share>
+#       (only with [kopia] enabled = yes - without Kopia 9/10 end here: local
+#       snapshots and dumps are then the whole backup)
+#   11. Unmount, clean up (ZFS, btrfs, dumps, logs), notification
 #
-# KOPIA-CONTAINER (einmalig) - nur dieses eine Daten-Mapping ist noetig:
+# KOPIA CONTAINER (once) - only this one data mapping is needed:
 #   Host /mnt/backup-snapshots -> Container /mnt/backup-snapshots
 #   Access Mode: Read Only - Slave
-#   "Slave" ist entscheidend: nur dann sieht der laufende Container die
-#   Mounts, die dieses Script nach seinem Start anlegt. Kopia wird daher nie
-#   angehalten. setup.sh prueft das mit einem Live-Test.
+#   "Slave" is what matters: only then does the running container see the
+#   mounts this script creates after it started. Kopia is therefore never
+#   stopped. setup.sh checks this with a live test.
 #
-# AUFRUF
-#   User Scripts: Custom Cron, z.B. 0 3 * * *
-#   Terminal:     /mnt/user/appdata/UnraidSecretaryOffice/backup/backup.sh [Option]
+# USAGE
+#   User Scripts: Custom Cron, e.g. 0 3 * * *
+#   Terminal:     /mnt/user/appdata/UnraidSecretaryOffice/backup/backup.sh [option]
 #
-# VARIANTEN (Umgebungsvariable - die Option dahinter ist eine Abkuerzung)
-#   UB_MODE=backup                 voller Lauf (Vorgabe)
-#   UB_MODE=check     --check      nur pruefen und Abweichungen melden
-#   UB_MODE=unmount   --unmount    alle Snapshot-Mounts loesen
-#                                  (fuer "At Stopping of Array", wenn
-#                                  keep_mounts = yes gesetzt ist)
-#   UB_DRY_RUN=1      --dry-run    Plan anzeigen, nichts veraendern
-#   UB_SKIP_KOPIA=1   --no-kopia   Dumps und Snapshots ja, Kopia nein
+# VARIANTS (environment variable - the option after it is a shortcut)
+#   UB_MODE=backup                 full run (default)
+#   UB_MODE=check     --check      only check and report drift
+#   UB_MODE=unmount   --unmount    release all snapshot mounts
+#                                  (for "At Stopping of Array" when
+#                                  keep_mounts = yes is set)
+#   UB_DRY_RUN=1      --dry-run    show the plan, change nothing
+#   UB_SKIP_KOPIA=1   --no-kopia   dumps and snapshots yes, Kopia no
 #   UB_NC_PREEXISTING=abort|continue
-#                     Nextcloud stand schon im Wartungsmodus:
-#                     abort = Lauf abbrechen, continue = trotzdem sichern und
-#                     den Wartungsmodus danach AN lassen (gilt fuer alle
-#                     Nextclouds und ueberschreibt settings.ini)
-#   UB_NO_NOTIFY=1                 keine Unraid-Mitteilungen
-#                     --about      Name, Version und Schnittstelle als JSON
-#   UB_DATA=/pfad                  anderer Datenordner (Vorgabe <office>/data/unraid-backup)
-#   UB_SETTINGS=/pfad/settings.ini andere Einstellungsdatei
-#   Beispiel: UB_DRY_RUN=1 /mnt/user/appdata/UnraidSecretaryOffice/backup/backup.sh
+#                     Nextcloud was already in maintenance mode:
+#                     abort = abort the run, continue = back up anyway and
+#                     leave maintenance mode ON afterwards (applies to all
+#                     Nextclouds and overrides settings.ini)
+#   UB_NO_NOTIFY=1                 no Unraid notifications
+#                     --about      name, version and interface as JSON
+#   UB_DATA=/path                  another data folder (default <office>/data/unraid-backup)
+#   UB_SETTINGS=/path/settings.ini another settings file
+#   Example: UB_DRY_RUN=1 /mnt/user/appdata/UnraidSecretaryOffice/backup/backup.sh
 #
-# DATEIEN (im Datenordner <office>/data/unraid-backup, nichts auf /boot)
-#   settings.ini        Einstellungen (von setup.sh)
-#   logs/run-*.log      ein Protokoll pro Lauf
-#   dumps/<zeit>/       DB-Dumps, Manifest, ggf. Flash-Archiv
-#   state/              Sperrdatei, letzter Lauf, gemeldete Abweichungen,
-#                       status.json & Co. fuer andere Programme (lib/common.sh, 7.)
+# FILES (in the data folder <office>/data/unraid-backup, nothing on /boot)
+#   settings.ini        settings (from setup.sh)
+#   logs/run-*.log      one log per run
+#   dumps/<time>/       DB dumps, manifest, flash archive if any
+#   state/              lock file, last run, reported drift,
+#                       status.json & co. for other programs (lib/common.sh, 7.)
 ###############################################################################
 
 set -uo pipefail
 
 # shellcheck source=lib/common.sh
 source "$(dirname "$(readlink -f "$0")")/lib/common.sh" \
-    || { echo "lib/common.sh fehlt neben backup.sh"; exit 1; }
+    || { echo "lib/common.sh is missing next to backup.sh"; exit 1; }
 
 usage() { awk 'NR>1 && /^#+$/ {next} NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"; }
 
@@ -107,16 +109,16 @@ for a in "$@"; do
         --about)    jq -nc --arg n "$UB_NAME" --arg v "$UB_VERSION" --argjson i "$UB_INTERFACE" --arg c "$UB_DIR" --arg d "$UB_DATA" \
                         '{name: $n, version: $v, interface: $i, code: $c, data: $d}'; exit 0 ;;
         -h|--help)  usage; exit 0 ;;
-        *) echo "Unbekannte Option: $a  (siehe --help)"; exit 2 ;;
+        *) echo "Unknown option: $a  (see --help)"; exit 2 ;;
     esac
 done
 UB_MODE="${UB_MODE:-backup}"
 DRY="${UB_DRY_RUN:-0}"
 SKIPK="${UB_SKIP_KOPIA:-0}"
-case "$UB_MODE" in backup|check|unmount) ;; *) echo "UB_MODE=$UB_MODE ist unbekannt"; exit 2 ;; esac
+case "$UB_MODE" in backup|check|unmount) ;; *) echo "UB_MODE=$UB_MODE is unknown"; exit 2 ;; esac
 
-[[ $EUID -eq 0 ]] || { echo "Bitte als root ausfuehren."; exit 1; }
-ub_data_dirs || { echo "Kann Ordner in $UB_DATA nicht anlegen"; exit 1; }
+[[ $EUID -eq 0 ]] || { echo "Please run as root."; exit 1; }
+ub_data_dirs || { echo "Cannot create folders in $UB_DATA"; exit 1; }
 
 TS="$(date +%Y%m%d-%H%M)"
 STARTED_AT="$(date +%s)"
@@ -128,26 +130,26 @@ esac
 [[ "$DRY" == "1" && "$UB_MODE" == "backup" ]] && LOG_FILE="$UB_LOGS/dryrun-$TS.log"
 ln -sfn "$(basename "$LOG_FILE")" "$UB_LOGS/latest.log" 2>/dev/null
 
-STOPPED=()                  # tatsaechlich angehaltene Container
-declare -A NC_ON=()         # Nextclouds, deren Wartungsmodus WIR eingeschaltet haben
+STOPPED=()                  # containers actually stopped
+declare -A NC_ON=()         # Nextclouds whose maintenance mode WE switched on
 declare -A NC_OCC=() NC_USER=()
-declare -A NC_SAME=()       # Container -> erster Container derselben Nextcloud-Instanz
-declare -A BTRFS_OK=()     # btrfs-Basis -> Snapshot-Pfad
-declare -A LAYER_MNT=()     # ZFS-Dataset -> Mountpunkt unter .layers
-declare -A SHARE_MOUNTED=() # Share -> single|overlay|split
-declare -A ZFS_FAILED=()    # Pool -> 1
+declare -A NC_SAME=()       # container -> first container of the same Nextcloud instance
+declare -A BTRFS_OK=()     # btrfs base -> snapshot path
+declare -A LAYER_MNT=()     # ZFS dataset -> mount point under .layers
+declare -A SHARE_MOUNTED=() # share -> single|overlay|split
+declare -A ZFS_FAILED=()    # pool -> 1
 MOUNTED="no"
 CLEANUP_DONE="no"
 DOWNTIME=0
 SNAP_NAME=""
 RUN_DIR=""
-KOPIA_PID=""                # laufender Kopia-Snapshot (Hintergrund, siehe kopia_one)
+KOPIA_PID=""                # running Kopia snapshot (background, see kopia_one)
 KOPIA_CP=""
 
 die() {
     err "$*"
     status_finish failed "$*"
-    ub_notify "Backup FEHLGESCHLAGEN" "$*" "alert" "Protokoll: $LOG_FILE"
+    ub_notify "Backup FAILED" "$*" "alert" "Log: $LOG_FILE"
     exit 1
 }
 # die_code <code> <text>: like die, but status.json carries the code - the office translates it
@@ -155,12 +157,12 @@ die_code() {
     local code="$1"; shift
     err "$*"
     status_finish failed "$code"
-    ub_notify "Backup FEHLGESCHLAGEN" "$*" "alert" "Protokoll: $LOG_FILE"
+    ub_notify "Backup FAILED" "$*" "alert" "Log: $LOG_FILE"
     exit 1
 }
 
 ##############################################################################
-# Container anhalten und wieder starten
+# Stopping and starting containers
 ##############################################################################
 T_APP=(); T_DB=(); T_NET=()
 
@@ -184,8 +186,8 @@ build_stop_tiers() {
     done
 }
 
-# Merkzettel in state/: wird ein Lauf hart abgebrochen (kill -9, Absturz),
-# bringt der naechste Start von backup.sh/setup.sh die Dienste zurueck.
+# Notes in state/: if a run is killed hard (kill -9, crash), the next start
+# of backup.sh/setup.sh brings the services back.
 save_restore_state() {
     if [[ ${#STOPPED[@]} -gt 0 ]]; then printf '%s\n' "${STOPPED[@]}" >"$UB_STATE/stopped"; else rm -f "$UB_STATE/stopped"; fi
     if [[ ${#NC_ON[@]} -gt 0 ]]; then printf '%s\n' "${!NC_ON[@]}" >"$UB_STATE/maintenance"; else rm -f "$UB_STATE/maintenance"; fi
@@ -194,14 +196,14 @@ save_restore_state() {
 stop_tier() { # stop_tier <name...>
     [[ $# -eq 0 ]] && return 0
     local n
-    # VOR dem Stoppen eintragen: bricht der Lauf mitten im Stoppen ab (Signal,
-    # kill -9), startet der trap bzw. der naechste Lauf genau diese Container.
-    # "docker start" auf einen laufenden Container schadet nicht.
+    # Write them down BEFORE stopping: if the run ends in the middle of it (signal,
+    # kill -9), the trap or the next run starts exactly these containers.
+    # "docker start" on a running container does no harm.
     STOPPED+=( "$@" ); save_restore_state
     docker stop -t "$DOCKER_STOP_TIMEOUT" "$@" >/dev/null 2>>"$LOG_FILE"
     for n in "$@"; do
         if [[ "$(docker inspect -f '{{.State.Running}}' "$n" 2>/dev/null)" != "false" ]]; then
-            warn "Container '$n' liess sich nicht anhalten - laeuft waehrend des Snapshots weiter"
+            warn "Container '$n' would not stop - it keeps running during the snapshot"
             local -a remaining=(); local x
             for x in "${STOPPED[@]}"; do [[ "$x" != "$n" ]] && remaining+=( "$x" ); done
             STOPPED=( "${remaining[@]}" )
@@ -210,7 +212,7 @@ stop_tier() { # stop_tier <name...>
     save_restore_state
 }
 
-wait_ready() { # wait_ready <sekunden> <name...>
+wait_ready() { # wait_ready <seconds> <name...>
     local limit="$1" t=0 n st all; shift
     [[ $# -eq 0 ]] && return 0
     while (( t < limit )); do
@@ -236,15 +238,15 @@ restore_service() {
                 if docker start "$n" >/dev/null 2>>"$LOG_FILE"; then
                     started+=( "$n" )
                 else
-                    warn "Container '$n' liess sich NICHT starten"
-                    ub_notify "Container nicht gestartet" "'$n' konnte nach dem Snapshot nicht gestartet werden." "alert"
+                    warn "Container '$n' would NOT start"
+                    ub_notify "Container not started" "'$n' could not be started after the snapshot." "alert"
                 fi
             done
             unset -n T
             [[ "$tier" != "APP" && ${#started[@]} -gt 0 ]] && \
-                { wait_ready 120 "${started[@]}" || warn "Nicht alle $tier-Container sind nach 120 s bereit"; }
+                { wait_ready 120 "${started[@]}" || warn "Not all $tier containers are ready after 120 s"; }
         done
-        log "  Container gestartet: ${#STOPPED[@]}"
+        log "  Containers started: ${#STOPPED[@]}"
         STOPPED=()
         save_restore_state
     fi
@@ -255,13 +257,13 @@ restore_service() {
             sleep 2
         done
         if out="$(nc_occ "$c" maintenance:mode --off 2>&1)"; then
-            log "  Nextcloud '$c': Wartungsmodus aus"
+            log "  Nextcloud '$c': maintenance mode off"
             unset "NC_ON[$c]"
             save_restore_state
         else
             nc_log_output "$out"
-            warn "Nextcloud '$c': Wartungsmodus liess sich NICHT ausschalten"
-            ub_notify "Wartungsmodus haengt" "Nextcloud '$c' steht noch im Wartungsmodus: occ maintenance:mode --off" "alert"
+            warn "Nextcloud '$c': maintenance mode would NOT switch off"
+            ub_notify "Maintenance mode stuck" "Nextcloud '$c' is still in maintenance mode: occ maintenance:mode --off" "alert"
         fi
     done
 }
@@ -269,13 +271,13 @@ restore_service() {
 ##############################################################################
 # Mounts
 ##############################################################################
-umount_tree() { # umount_tree <wurzel>  - tiefste zuerst; 1 wenn etwas haengen blieb
+umount_tree() { # umount_tree <root>  - deepest first; 1 if something stayed mounted
     local root="$1" mp rc=0
     while IFS= read -r mp; do
         [[ -z "$mp" ]] && continue
         if ! umount "$mp" 2>/dev/null; then
             sleep 2
-            umount "$mp" 2>>"$LOG_FILE" || { warn "Konnte $mp nicht aushaengen (belegt?)"; rc=1; continue; }
+            umount "$mp" 2>>"$LOG_FILE" || { warn "Could not unmount $mp (busy?)"; rc=1; continue; }
         fi
     done < <(mounts_below "$root")
     [[ -d "$root" ]] && find "$root" -xdev -mindepth 1 -depth -type d -empty -delete 2>/dev/null
@@ -285,13 +287,13 @@ umount_tree() { # umount_tree <wurzel>  - tiefste zuerst; 1 wenn etwas haengen b
 unmount_all() {
     local rc=0
     if [[ -n "$(mounts_below "$MOUNT_ROOT")" ]]; then
-        log "Haenge Snapshots unter $MOUNT_ROOT aus ..."
+        log "Unmounting snapshots under $MOUNT_ROOT ..."
         umount_tree "$MOUNT_ROOT" || rc=1
     fi
-    # In <view_root> gehoeren nur Symlinks - Mounts dort (z.B. von einem
-    # frueheren Script) halten sonst Disks fest und werden geloest
+    # Only symlinks belong in <view_root> - mounts there (e.g. from an
+    # earlier script) would hold disks and are released
     if [[ -n "$(mounts_below "$VIEW_ROOT")" ]]; then
-        log "Loese alte Bind-Mounts unter $VIEW_ROOT ..."
+        log "Releasing old bind mounts under $VIEW_ROOT ..."
         umount_tree "$VIEW_ROOT" || rc=1
     fi
     if [[ -n "$(mounts_below "$UB_STAGE")" ]]; then
@@ -301,8 +303,8 @@ unmount_all() {
     return $rc
 }
 
-# Privater Zwischenbereich (einmal pro Systemstart angelegt, bleibt bestehen).
-# Was hier gemountet wird, wandert nicht in andere Mount-Namespaces.
+# Private staging area (created once per boot, stays).
+# What is mounted here does not travel into other mount namespaces.
 stage_ready() {
     if ! mountpoint -q "$UB_STAGE"; then
         mkdir -p "$UB_STAGE" || return 1
@@ -312,12 +314,12 @@ stage_ready() {
     mkdir -p "$UB_STAGE/layers" "$UB_STAGE/bind"
 }
 
-# Read-only-Bind, der auch im Kopia-Container read-only ankommt.
-# Ein direkt unter <mount_root> angelegter Bind wird beschreibbar an den
-# Container weitergereicht - das spaetere "remount,ro" erreicht ihn nicht.
-# Darum: im privaten Zwischenbereich binden, dort auf ro stellen und erst
-# dann nach <ziel> verschieben. Die Kopie im Container entsteht so bereits ro.
-ro_bind() { # ro_bind <quelle> <ziel>
+# A read-only bind that also arrives read-only in the Kopia container.
+# A bind created directly under <mount_root> is passed on to the container
+# writable - the later "remount,ro" does not reach it.
+# Hence: bind in the private staging area, make it ro there and only
+# then move it to <target>. The copy in the container is ro from the start.
+ro_bind() { # ro_bind <source> <target>
     local st="$UB_STAGE/bind/b$$-$RANDOM"
     mkdir -p "$st" "$2" || return 1
     mount --bind "$1" "$st"                 || { rmdir "$st"; return 1; }
@@ -328,7 +330,7 @@ ro_bind() { # ro_bind <quelle> <ziel>
     return 0
 }
 
-zfs_layer_mount() { # haengt <dataset>@SNAP im Zwischenbereich ein, gibt den Pfad aus
+zfs_layer_mount() { # mounts <dataset>@SNAP in the staging area, prints the path
     local ds="$1" mp
     if [[ -n "${LAYER_MNT[$ds]:-}" ]]; then printf '%s' "${LAYER_MNT[$ds]}"; return 0; fi
     mp="$UB_STAGE/layers/${ds//\//_}"
@@ -338,8 +340,8 @@ zfs_layer_mount() { # haengt <dataset>@SNAP im Zwischenbereich ein, gibt den Pfa
     printf '%s' "$mp"
 }
 
-# Pfad einer Share-Lage im Snapshot (fuer overlay)
-loc_snap_path() { # loc_snap_path <share> <lage-zeile>
+# Path of one location of a share inside the snapshot (for overlay)
+loc_snap_path() { # loc_snap_path <share> <location line>
     local s="$1" b m layer sub lp
     IFS='|' read -r b m layer sub <<<"$2"
     case "$m" in
@@ -351,17 +353,17 @@ loc_snap_path() { # loc_snap_path <share> <lage-zeile>
     esac
 }
 
-# Eine Lage eines Shares samt Kind-Datasets an <ziel> einhaengen
-mount_location() { # mount_location <share> <lage-zeile> <ziel>
+# Mount one location of a share, child datasets included, at <target>
+mount_location() { # mount_location <share> <location line> <target>
     local s="$1" line="$2" target="$3" b m layer sub src
     IFS='|' read -r b m layer sub <<<"$line"
     if [[ "$m" == "zfs" && -z "$sub" && -z "${LAYER_MNT[$layer]:-}" ]]; then
         [[ -n "${ZFS_FAILED[${layer%%/*}]:-}" ]] && return 1
         mkdir -p "$target" && mount -t zfs -o ro "$layer@$SNAP_NAME" "$target" 2>>"$LOG_FILE" || return 1
     else
-        # Schon im Zwischenbereich eingehaengt (Overlay-Versuch) oder Unterordner
-        # eines Pool-Wurzel-Datasets -> von dort binden. Der Snapshot ist
-        # selbst unveraenderlich, das Binden schwaecht nichts ab.
+        # Already mounted in the staging area (overlay attempt) or a subfolder
+        # of a pool's root dataset -> bind from there. The snapshot itself
+        # cannot change, binding weakens nothing.
         [[ "$m" == "zfs" && -n "${ZFS_FAILED[${layer%%/*}]:-}" ]] && return 1
         src="$(loc_snap_path "$s" "$line")" || return 1
         [[ -d "$src" ]] || return 1
@@ -373,9 +375,9 @@ mount_location() { # mount_location <share> <lage-zeile> <ziel>
         rel="${cmp#"$base"/}"
         if [[ -d "$target/$rel" ]]; then
             mount -t zfs -o ro "$cds@$SNAP_NAME" "$target/$rel" 2>>"$LOG_FILE" \
-                || warn "Kind-Dataset $cds liess sich nicht einhaengen"
+                || warn "Child dataset $cds could not be mounted"
         else
-            warn "Kind-Dataset $cds: Mountpunkt '$rel' fehlt im Snapshot von $s"
+            warn "Child dataset $cds: mount point '$rel' is missing in the snapshot of $s"
         fi
     done < <(plan_children "$s")
     return 0
@@ -389,7 +391,7 @@ mount_share() { # mount_share <share>
     [[ "$(share_method "$s")" == "live" ]] && layout="live"
 
     if [[ "$layout" == "live" ]]; then
-        # Kein Snapshot moeglich: der laufende Share, read-only eingebunden
+        # No snapshot possible: the live share, bound read-only
         ro_bind "$UB_MNT/user/$s" "$target" && { SHARE_MOUNTED[$s]="live"; return 0; }
         return 1
     fi
@@ -406,7 +408,7 @@ mount_share() { # mount_share <share>
                 SHARE_MOUNTED[$s]="overlay"; return 0
             fi
         fi
-        warn "Share '$s': Overlay nicht moeglich - Kopia sieht je Basis einen Unterordner"
+        warn "Share '$s': overlay not possible - Kopia sees one subfolder per base"
         layout="split"
     fi
 
@@ -415,17 +417,17 @@ mount_share() { # mount_share <share>
         return 1
     fi
 
-    # split: <mount_root>/<share>/<basis>
+    # split: <mount_root>/<share>/<base>
     ok=0
     for line in "${locs[@]}"; do
         mount_location "$s" "$line" "$target/${line%%|*}" && ok=$((ok+1)) \
-            || warn "Share '$s': Lage ${line%%|*} liess sich nicht einhaengen"
+            || warn "Share '$s': location ${line%%|*} could not be mounted"
     done
     (( ok == ${#locs[@]} )) && { SHARE_MOUNTED[$s]="split"; return 0; }
     return 1
 }
 
-share_mount_points() { # Mountpunkte, die fuer einen Share vorhanden sein muessen
+share_mount_points() { # mount points that must exist for a share
     local s="$1" line
     case "${SHARE_MOUNTED[$s]:-}" in
         single|overlay|live) printf '%s\n' "$MOUNT_ROOT/$s" ;;
@@ -436,7 +438,7 @@ share_mount_points() { # Mountpunkte, die fuer einen Share vorhanden sein muesse
 ##############################################################################
 # Nextcloud
 ##############################################################################
-nc_find_occ() { # setzt NC_OCC[c], NC_USER[c]
+nc_find_occ() { # sets NC_OCC[c], NC_USER[c]
     local c="$1" p u
     for p in /var/www/html/occ /app/www/public/occ /config/www/nextcloud/occ /var/www/nextcloud/occ; do
         if docker exec "$c" test -f "$p" 2>/dev/null; then
@@ -450,7 +452,7 @@ nc_find_occ() { # setzt NC_OCC[c], NC_USER[c]
     return 1
 }
 nc_occ() { local c="$1"; shift; docker exec -u "${NC_USER[$c]}" "$c" php "${NC_OCC[$c]}" "$@"; }
-# Ausgabe eines fehlgeschlagenen occ-Aufrufs ins Protokoll (hoechstens 20 Zeilen)
+# Output of a failed occ call into the log (at most 20 lines)
 nc_log_output() {
     local l
     while IFS= read -r l; do
@@ -461,68 +463,68 @@ nc_log_output() {
 
 nextcloud_maintenance_on() {
     local c was pre id out try on
-    local -A inst=()           # instanceid -> erster Container dieser Instanz
+    local -A inst=()           # instanceid -> first container of this instance
     while IFS= read -r c; do
         [[ -z "$c" ]] && continue
         if [[ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" != "true" ]]; then
-            warn "Nextcloud '$c' laeuft nicht - kein Wartungsmodus"; continue
+            warn "Nextcloud '$c' is not running - no maintenance mode"; continue
         fi
-        nc_find_occ "$c" || { warn "Nextcloud '$c': occ nicht gefunden - kein Wartungsmodus"; continue; }
-        # Mehrere Container koennen EINE Nextcloud bedienen (z.B. App und Cron
-        # mit gemeinsamer config.php). Der Wartungsmodus steht in dieser
-        # config.php - nach dem ersten Container faende der zweite ihn "schon
-        # an" vor. Die instanceid aus config.php erkennt solche Geschwister;
-        # es gilt die Einstellung des ersten.
+        nc_find_occ "$c" || { warn "Nextcloud '$c': occ not found - no maintenance mode"; continue; }
+        # Several containers can serve ONE Nextcloud (e.g. app and cron
+        # with a shared config.php). The maintenance mode lives in that
+        # config.php - after the first container the second would find it
+        # "already on". The instanceid from config.php spots such siblings;
+        # the first one's setting applies.
         id="$(nc_occ "$c" config:system:get instanceid 2>/dev/null | tr -d '\r')"
         if [[ -n "$id" && -n "${inst[$id]:-}" ]]; then
             NC_SAME[$c]="${inst[$id]}"
-            log "  Nextcloud '$c': dieselbe Instanz wie '${inst[$id]}' - dort erledigt"
+            log "  Nextcloud '$c': same instance as '${inst[$id]}' - done there"
             continue
         fi
         [[ -n "$id" ]] && inst[$id]="$c"
-        # 'maintenance:mode --on' meldet einen schon aktiven Modus nur mit
-        # "already enabled" und Exitcode 0 - der Zustand muss vorher gelesen werden.
+        # 'maintenance:mode --on' reports a mode that is already on only with
+        # "already enabled" and exit code 0 - the state has to be read first.
         was="$(nc_occ "$c" config:system:get maintenance 2>/dev/null | tr -d '\r')"
         pre="${UB_NC_PREEXISTING:-$(cfg "nextcloud|$c|preexisting_maintenance" abort)}"
         if [[ "$was" == "true" ]]; then
-            [[ "$pre" == "abort" ]] && die "Nextcloud '$c' steht bereits im Wartungsmodus - Backup abgebrochen (UB_NC_PREEXISTING=continue erzwingt den Lauf)"
-            warn "Nextcloud '$c' stand schon im Wartungsmodus - er bleibt danach AN"
-            ub_notify "Wartungsmodus war schon an" "Nextcloud '$c' wurde trotzdem gesichert und bleibt im Wartungsmodus." "warning"
+            [[ "$pre" == "abort" ]] && die "Nextcloud '$c' is already in maintenance mode - backup aborted (UB_NC_PREEXISTING=continue forces the run)"
+            warn "Nextcloud '$c' was already in maintenance mode - it stays ON afterwards"
+            ub_notify "Maintenance mode was already on" "Nextcloud '$c' was backed up anyway and stays in maintenance mode." "warning"
             continue
         fi
-        # Vor dem Einschalten vormerken: setzt occ den Modus und scheitert erst
-        # danach, schaltet der Abbruch ihn trotzdem wieder aus. Ein weiterer
-        # Versuch nach so einem halben Erfolg meldet "already enabled" mit 0.
+        # Note it before switching on: if occ sets the mode and only fails
+        # afterwards, the abort still switches it off again. Another attempt
+        # after such a half success reports "already enabled" with 0.
         NC_ON[$c]=1; save_restore_state
         on=0
         for try in 1 2 3; do
             if out="$(nc_occ "$c" maintenance:mode --on 2>&1)"; then on=1; break; fi
             nc_log_output "$out"
-            (( try < 3 )) && { warn "Nextcloud '$c': Wartungsmodus nicht eingeschaltet (Versuch $try/3) - neuer Versuch in 5 s"; sleep 5; }
+            (( try < 3 )) && { warn "Nextcloud '$c': maintenance mode not switched on (attempt $try/3) - trying again in 5 s"; sleep 5; }
         done
         if (( on )); then
-            log "  Nextcloud '$c': Wartungsmodus an"
+            log "  Nextcloud '$c': maintenance mode on"
         else
-            # Nur vorgemerkt lassen, was wirklich an ist - sonst meldet der
-            # Abbruch einen haengenden Wartungsmodus, den es nicht gibt.
+            # Keep noted only what is really on - otherwise the abort
+            # reports a stuck maintenance mode that does not exist.
             [[ "$(nc_occ "$c" config:system:get maintenance 2>/dev/null | tr -d '\r')" == "true" ]] \
                 || { unset "NC_ON[$c]"; save_restore_state; }
             # the most common cause: Unraid reset the data folder (a share root) to 0777 when share settings were saved
             if grep -q "readable by other people" <<<"$out"; then
-                die_code nc_datadir_readable "Nextcloud '$c': das Datenverzeichnis ist fuer andere lesbar, occ verweigert den Dienst. Unraid setzt die Wurzel eines Shares beim Speichern der Share-Einstellungen auf 0777. Abhilfe: chown 33:33 und chmod 0770 auf das Datenverzeichnis, dann neu starten."
+                die_code nc_datadir_readable "Nextcloud '$c': the data directory is readable by others, occ refuses to work. Unraid sets the root of a share to 0777 when share settings are saved. Fix: chown 33:33 and chmod 0770 on the data directory, then start again."
             fi
-            die "Nextcloud '$c': Wartungsmodus liess sich nicht einschalten (occ-Meldung im Protokoll)"
+            die "Nextcloud '$c': maintenance mode could not be switched on (occ's message is in the log)"
         fi
     done < <(cfg_names nextcloud)
-    [[ ${#NC_ON[@]} -gt 0 ]] && sleep 5      # laufende Requests auslaufen lassen
+    [[ ${#NC_ON[@]} -gt 0 ]] && sleep 5      # let running requests finish
     return 0
 }
 
 ##############################################################################
-# Datenbank-Dumps
+# Database dumps
 ##############################################################################
-# Passwort per MYSQL_PWD statt -p: es taucht so nicht in der Prozessliste auf.
-my_exec() { # my_exec <container> <bin> <login> <pw-variable> <args...>
+# Password via MYSQL_PWD instead of -p: that way it does not show in the process list.
+my_exec() { # my_exec <container> <bin> <login> <pw variable> <args...>
     local c="$1" bin="$2" login="$3" pwv="$4"; shift 4
     docker exec "$c" sh -c 'eval "MYSQL_PWD=\${$3:-}"; export MYSQL_PWD; b="$1"; u="$2"; shift 3; exec "$b" -u"$u" "$@"' \
         sh "$bin" "$login" "$pwv" "$@"
@@ -535,7 +537,7 @@ dump_mariadb() { # dump_mariadb <container>
         if docker exec "$c" sh -c "[ -n \"\${$v:-}\" ]" 2>/dev/null; then login="root"; pwv="$v"; break; fi
     done
     if [[ -z "$pwv" ]]; then
-        # Kein Root-Passwort -> Anwendungsbenutzer, nur dessen Datenbank
+        # No root password -> the application user, only its database
         for pair in MARIADB_USER:MARIADB_PASSWORD:MARIADB_DATABASE MYSQL_USER:MYSQL_PASSWORD:MYSQL_DATABASE; do
             IFS=: read -r uv pv dv <<<"$pair"
             if docker exec "$c" sh -c "[ -n \"\${$pv:-}\" ]" 2>/dev/null; then
@@ -545,11 +547,11 @@ dump_mariadb() { # dump_mariadb <container>
             fi
         done
     fi
-    [[ -n "$pwv" && -n "$login" ]] || { err "MariaDB '$c': kein Zugang in den Umgebungsvariablen gefunden"; return 1; }
+    [[ -n "$pwv" && -n "$login" ]] || { err "MariaDB '$c': no credentials found in the environment variables"; return 1; }
 
     if docker exec "$c" sh -c 'command -v mariadb-dump' >/dev/null 2>&1; then dump_bin="mariadb-dump"; sql_bin="mariadb"
     else dump_bin="mysqldump"; sql_bin="mysql"; fi
-    # Ohne Root fehlen die Rechte fuer Routinen und Events
+    # Without root the rights for routines and events are missing
     if [[ "$login" == "root" ]]; then extra=( --routines --triggers --events ); else extra=( --triggers ); fi
 
     if [[ -n "$single" ]]; then dbs="$single"
@@ -557,7 +559,7 @@ dump_mariadb() { # dump_mariadb <container>
         dbs="$(my_exec "$c" "$sql_bin" "$login" "$pwv" -N -B -e \
             "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema','performance_schema','sys','mysql')" 2>/dev/null)"
     fi
-    [[ -n "$dbs" ]] || { err "MariaDB '$c': keine Datenbank gefunden"; return 1; }
+    [[ -n "$dbs" ]] || { err "MariaDB '$c': no database found"; return 1; }
 
     local rc=0
     for db in $dbs; do
@@ -566,16 +568,16 @@ dump_mariadb() { # dump_mariadb <container>
         my_exec "$c" "$dump_bin" "$login" "$pwv" --single-transaction --quick --hex-blob "${extra[@]}" \
             --default-character-set=utf8mb4 --add-drop-database --databases "$db" \
             2>"$RUN_DIR/db/${c}_${db}.stderr" | gzip -6 >"$out"
-        if [[ ${PIPESTATUS[0]} -ne 0 ]]; then err "Dump $c/$db fehlgeschlagen - siehe ${c}_${db}.stderr"; rc=1; continue; fi
-        gzip -t "$out" 2>/dev/null                                   || { err "Dump $c/$db: gzip defekt"; rc=1; continue; }
-        zcat "$out" | tail -5 | grep -q 'Dump completed'              || { err "Dump $c/$db unvollstaendig (Abschlusszeile fehlt)"; rc=1; continue; }
+        if [[ ${PIPESTATUS[0]} -ne 0 ]]; then err "Dump $c/$db failed - see ${c}_${db}.stderr"; rc=1; continue; fi
+        gzip -t "$out" 2>/dev/null                                   || { err "Dump $c/$db: gzip broken"; rc=1; continue; }
+        zcat "$out" | tail -5 | grep -q 'Dump completed'              || { err "Dump $c/$db incomplete (closing line missing)"; rc=1; continue; }
         size=$(stat -c %s "$out")
         tbl_dump=$(zcat "$out" | grep -c '^CREATE TABLE')
         tbl_live=$(my_exec "$c" "$sql_bin" "$login" "$pwv" -N -B -e \
             "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$db' AND table_type='BASE TABLE'" 2>/dev/null)
-        if [[ "$tbl_dump" != "$tbl_live" ]]; then err "Dump $c/$db: $tbl_dump Tabellen im Dump, $tbl_live in der Datenbank"; rc=1; continue; fi
+        if [[ "$tbl_dump" != "$tbl_live" ]]; then err "Dump $c/$db: $tbl_dump tables in the dump, $tbl_live in the database"; rc=1; continue; fi
         rm -f "$RUN_DIR/db/${c}_${db}.stderr"
-        log "    OK: $(human "$size"), $tbl_dump Tabellen"
+        log "    OK: $(human "$size"), $tbl_dump tables"
     done
     return $rc
 }
@@ -584,42 +586,42 @@ dump_postgres() { # dump_postgres <container>
     local c="$1" user out size
     user="$(docker exec "$c" sh -c 'printf %s "${POSTGRES_USER:-postgres}"')"
     out="$RUN_DIR/db/postgres_${c}.sql.gz"
-    log "  Postgres '$c' (Benutzer $user) ..."
-    # Ohne -t: mit TTY landet stderr im Dump und Zeilenenden werden zu CRLF
+    log "  Postgres '$c' (user $user) ..."
+    # Without -t: with a TTY stderr ends up in the dump and line ends turn into CRLF
     docker exec "$c" sh -c 'PGPASSWORD="${POSTGRES_PASSWORD:-}" exec pg_dumpall --clean --if-exists --username="$1"' sh "$user" \
         2>"$RUN_DIR/db/${c}.stderr" | gzip -6 >"$out"
-    if [[ ${PIPESTATUS[0]} -ne 0 ]]; then err "Dump $c fehlgeschlagen - siehe ${c}.stderr"; return 1; fi
-    gzip -t "$out" 2>/dev/null || { err "Dump $c: gzip defekt"; return 1; }
+    if [[ ${PIPESTATUS[0]} -ne 0 ]]; then err "Dump $c failed - see ${c}.stderr"; return 1; fi
+    gzip -t "$out" 2>/dev/null || { err "Dump $c: gzip broken"; return 1; }
     zcat "$out" | tail -5 | grep -q 'PostgreSQL database cluster dump complete' \
-        || { err "Dump $c unvollstaendig (Abschlusszeile fehlt)"; return 1; }
+        || { err "Dump $c incomplete (closing line missing)"; return 1; }
     size=$(stat -c %s "$out")
     rm -f "$RUN_DIR/db/${c}.stderr"
-    log "    OK: $(human "$size"), $(zcat "$out" | grep -c '^CREATE TABLE') Tabellen"
+    log "    OK: $(human "$size"), $(zcat "$out" | grep -c '^CREATE TABLE') tables"
 }
 
 dump_mongodb() { # dump_mongodb <container>
     local c="$1" out size
     out="$RUN_DIR/db/mongodb_${c}.archive.gz"
     log "  MongoDB '$c' ..."
-    docker exec "$c" sh -c 'command -v mongodump' >/dev/null 2>&1 || { err "MongoDB '$c': mongodump fehlt im Container"; return 1; }
-    # Zugang aus den Umgebungsvariablen des Containers (offizielles Image)
+    docker exec "$c" sh -c 'command -v mongodump' >/dev/null 2>&1 || { err "MongoDB '$c': mongodump is missing in the container"; return 1; }
+    # Credentials from the container's environment variables (official image)
     if ! docker exec "$c" sh -c 'if [ -n "${MONGO_INITDB_ROOT_USERNAME:-}" ]; then
             exec mongodump --quiet --archive --gzip --username "$MONGO_INITDB_ROOT_USERNAME" \
                  --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin
         else exec mongodump --quiet --archive --gzip; fi' >"$out" 2>"$RUN_DIR/db/${c}.stderr"; then
-        err "Dump $c fehlgeschlagen - siehe ${c}.stderr"; return 1
+        err "Dump $c failed - see ${c}.stderr"; return 1
     fi
     size=$(stat -c %s "$out")
-    [[ "$size" -gt 0 ]] || { err "Dump $c ist leer"; return 1; }
-    # Probe: das Archiv muss sich vollstaendig lesen lassen (nichts wird eingespielt)
+    [[ "$size" -gt 0 ]] || { err "Dump $c is empty"; return 1; }
+    # Test: the archive must read completely (nothing is restored)
     if docker exec -i "$c" sh -c 'if [ -n "${MONGO_INITDB_ROOT_USERNAME:-}" ]; then
             exec mongorestore --dryRun --quiet --archive --gzip --username "$MONGO_INITDB_ROOT_USERNAME" \
                  --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin
         else exec mongorestore --dryRun --quiet --archive --gzip; fi' <"$out" >/dev/null 2>>"$RUN_DIR/db/${c}.stderr"; then
         rm -f "$RUN_DIR/db/${c}.stderr"
-        log "    OK: $(human "$size") (Archiv vollstaendig lesbar)"
+        log "    OK: $(human "$size") (archive reads completely)"
     else
-        err "Dump $c: Archiv laesst sich nicht vollstaendig lesen - siehe ${c}.stderr"; return 1
+        err "Dump $c: the archive does not read completely - see ${c}.stderr"; return 1
     fi
 }
 
@@ -629,7 +631,7 @@ run_dumps() {
         [[ -z "$c" ]] && continue
         t="$(cfg "dump|$c|type")"
         if [[ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" != "true" ]]; then
-            warn "Datenbank-Container '$c' laeuft nicht - kein Dump"; continue
+            warn "Database container '$c' is not running - no dump"; continue
         fi
         case "$t" in
             mariadb)  dump_mariadb "$c" ;;
@@ -641,30 +643,30 @@ run_dumps() {
 }
 
 ##############################################################################
-# Manifest und Flash-Archiv
+# Manifest and flash archive
 ##############################################################################
 write_manifest() {
     local M="$RUN_DIR/manifest" c f
     mkdir -p "$M/docker-templates" "$M/compose" "$M/shares" "$M/nextcloud"
     {
-        echo "# Backup-Manifest $TS  ($UB_NAME $UB_VERSION)"
+        echo "# Backup manifest $TS  ($UB_NAME $UB_VERSION)"
         echo "Host:        $(hostname)"
         echo "Unraid:      $(cat /etc/unraid-version 2>/dev/null)"
         echo "Kernel:      $(uname -r)"
         echo "Snapshot:    $SNAP_NAME"
         echo "Mounts:      $MOUNT_ROOT/<share>"
-        echo "Kopia:       ${KOPIA_ID:-?} (${KOPIA_CONTAINER:-kein Container})"
+        echo "Kopia:       ${KOPIA_ID:-?} (${KOPIA_CONTAINER:-no container})"
         echo
-        echo "## Shares an Kopia"
-        printf '%s\n' "${PLAN_KOPIA[@]:-(keine)}"
+        echo "## Shares to Kopia"
+        printf '%s\n' "${PLAN_KOPIA[@]:-(none)}"
         echo
-        echo "## ZFS-Datasets im Snapshot"
-        printf '%s\n' "${PLAN_ZFS[@]:-(keine)}"
+        echo "## ZFS datasets in the snapshot"
+        printf '%s\n' "${PLAN_ZFS[@]:-(none)}"
         echo
-        echo "## btrfs-Snapshots"
-        printf '%s\n' "${PLAN_BTRFS[@]:-(keine)}"
+        echo "## btrfs snapshots"
+        printf '%s\n' "${PLAN_BTRFS[@]:-(none)}"
         echo
-        echo "## Container (Name, Image)"
+        echo "## Containers (name, image)"
         docker ps -a --format '{{.Names}}\t{{.Image}}' | sort
     } >"$M/manifest.txt"
     local -a ids=(); mapfile -t ids < <(docker ps -aq 2>/dev/null)
@@ -678,14 +680,14 @@ write_manifest() {
     # --mounted: what the kernel knows - no raw reads of every device (a busy or sleeping disk held this up for minutes)
     command -v btrfs >/dev/null && timeout 30 btrfs filesystem show --mounted >"$M/btrfs-show.txt" 2>&1
     cp -a "$UB_SETTINGS" "$M/settings.ini" 2>/dev/null
-    drift_text >"$M/abweichungen.txt"
+    drift_text >"$M/drift.txt"
     cp -a "$UB_BOOT"/config/plugins/dockerMan/templates-user/*.xml "$M/docker-templates/" 2>/dev/null
     cp -a "$UB_BOOT"/config/plugins/compose.manager/projects/.      "$M/compose/"          2>/dev/null
     cp -a "$UB_BOOT"/config/shares/*.cfg                             "$M/shares/"           2>/dev/null
     for c in "${!NC_OCC[@]}"; do
-        [[ -n "${NC_SAME[$c]:-}" ]] && continue     # gleiche Instanz schon im Manifest
+        [[ -n "${NC_SAME[$c]:-}" ]] && continue     # same instance already in the manifest
         docker exec "$c" cat "$(dirname "${NC_OCC[$c]}")/config/config.php" >"$M/nextcloud/${c}_config.php" 2>/dev/null \
-            || warn "config.php von '$c' nicht lesbar"
+            || warn "config.php of '$c' not readable"
         for f in status app:list "config:list system" files_external:list user:list; do
             # shellcheck disable=SC2086
             nc_occ "$c" $f >"$M/nextcloud/${c}_occ-$(tr ' :' '--' <<<"$f").txt" 2>&1
@@ -693,40 +695,40 @@ write_manifest() {
     done
 }
 
-# Inhalt von libvirt.img (unter /etc/libvirt eingehaengt): XML, NVRAM,
-# TPM-Zustaende, Snapshot-Liste, Netzwerke - als Archiv zu den Dumps. Nicht das
-# Image selbst: das ist ein eingehaengtes btrfs-Dateisystem, eine Kopie
-# waehrend laufender VMs koennte inkonsistent sein. Laufen VMs, ist ihr
-# TPM-/NVRAM-Stand im Archiv nur absturzkonsistent (wie beim Ausschalten).
+# Contents of libvirt.img (mounted at /etc/libvirt): XML, NVRAM,
+# TPM states, snapshot list, networks - as an archive next to the dumps. Not the
+# image itself: that is a mounted btrfs file system, a copy taken while
+# VMs run could be inconsistent. If VMs are running, their TPM/NVRAM
+# state in the archive is only crash-consistent (like pulling the plug).
 libvirt_tar() {
     local out="$RUN_DIR/libvirt.tar.gz"
     if ! mountpoint -q /etc/libvirt; then
-        log "VM-Dienst aus - kein libvirt-Archiv"
+        log "VM service off - no libvirt archive"
         return 0
     fi
-    log "Sichere die VM-Konfiguration (/etc/libvirt) als Archiv ..."
+    log "Backing up the VM configuration (/etc/libvirt) as an archive ..."
     if tar -C /etc -czf "$out" libvirt 2>>"$LOG_FILE" && gzip -t "$out" 2>/dev/null; then
         log "  OK: $(human "$(stat -c %s "$out")")"
     else
-        err "libvirt-Archiv fehlgeschlagen"
+        err "libvirt archive failed"
     fi
 }
 
 flash_tar() {
     local out="$RUN_DIR/flash.tar.gz" ex=() e
     for e in "${FLASH_TAR_EXCLUDE[@]}"; do ex+=( "--exclude=$e" ); done
-    log "Sichere $UB_BOOT als Archiv ..."
+    log "Backing up $UB_BOOT as an archive ..."
     if tar -C "$UB_BOOT" "${ex[@]}" -czf "$out" . 2>>"$LOG_FILE" && gzip -t "$out" 2>/dev/null; then
         log "  OK: $(human "$(stat -c %s "$out")")"
     else
-        err "Flash-Archiv fehlgeschlagen"
+        err "Flash archive failed"
     fi
 }
 
 ##############################################################################
-# Aufraeumen
+# Cleaning up
 ##############################################################################
-prune_zfs() { # prune_zfs <dataset> <"t w m">
+prune_zfs() { # prune_zfs <dataset> <"d w m">
     local ds="$1" keep_d keep_w keep_m s i n stamp day week month
     read -r keep_d keep_w keep_m <<<"$2"
     local -a snaps
@@ -750,8 +752,8 @@ prune_zfs() { # prune_zfs <dataset> <"t w m">
     mounts_load
     for s in "${snaps[@]}"; do
         [[ -n "${keep[$s]:-}" ]] && continue
-        if in_list "$s" "${MT_SOURCE[@]}"; then log "  bleibt (gemountet): $s"; continue; fi
-        zfs destroy "$s" 2>>"$LOG_FILE" && log "  entfernt: $s"
+        if in_list "$s" "${MT_SOURCE[@]}"; then log "  kept (mounted): $s"; continue; fi
+        zfs destroy "$s" 2>>"$LOG_FILE" && log "  removed: $s"
     done
 }
 
@@ -767,27 +769,27 @@ prune_btrfs() {
             name="$(basename "$s")"
             [[ "$name" =~ ^[0-9]{8}-[0-9]{4}$ && "$name" != "$TS" ]] || continue
             if [[ "${name%%-*}" < "$cutoff" ]]; then
-                btrfs subvolume delete "${s%/}" >/dev/null 2>>"$LOG_FILE" && log "  entfernt: ${s%/}"
+                btrfs subvolume delete "${s%/}" >/dev/null 2>>"$LOG_FILE" && log "  removed: ${s%/}"
             fi
         done
-        # Notbremse: bei knappem Platz den jeweils aeltesten Snapshot loesen
+        # Emergency brake: when space runs short, release the oldest snapshot each time
         while :; do
             free_gb=$(( $(df -Pm "$base" | awk 'NR==2{print $4}') / 1024 ))
             (( free_gb >= BTRFS_MIN_FREE_GB )) && break
             oldest="$(find "$sdir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null \
                       | grep -E '^[0-9]{8}-[0-9]{4}$' | sort | head -1)"
             if [[ -z "$oldest" || "$oldest" == "$TS" ]]; then
-                warn "$b: nur ${free_gb} GB frei, kein Snapshot mehr loeschbar"
-                ub_notify "Platz wird knapp" "$b hat nur noch ${free_gb} GB frei." "warning"
+                warn "$b: only ${free_gb} GB free, no snapshot left to delete"
+                ub_notify "Space is running out" "$b has only ${free_gb} GB free." "warning"
                 break
             fi
             btrfs subvolume delete "$sdir/$oldest" >/dev/null 2>>"$LOG_FILE" || break
-            warn "$b: nur ${free_gb} GB frei - Snapshot $oldest vorzeitig geloescht"
+            warn "$b: only ${free_gb} GB free - snapshot $oldest deleted early"
         done
     done
 }
 
-refresh_view() { # Durchstoeber-Ansicht: Symlinks statt Bind-Mounts (halten keine Disk fest)
+refresh_view() { # browsing view: symlinks instead of bind mounts (they hold no disk)
     local b base l
     mkdir -p "$VIEW_ROOT" 2>/dev/null || return 0
     for l in "$VIEW_ROOT"/*; do [[ -L "$l" && ! -e "$l" ]] && rm -f "$l"; done
@@ -806,7 +808,7 @@ prune_files() {
     local d
     [[ -n "$UB_DUMPS" && "$UB_DUMPS" == "$UB_MNT"/user/?*/"$UB_NAME" ]] || return 0     # never with an empty or odd path
     ls -1d "$UB_DUMPS"/[0-9]*-[0-9]* 2>/dev/null | sort | head -n -"$KEEP_RUNS" \
-        | while read -r d; do rm -rf "$d" && log "  entfernt: $d"; done
+        | while read -r d; do rm -rf "$d" && log "  removed: $d"; done
     ls -1 "$UB_LOGS"/run-*.log "$UB_LOGS"/check-*.log "$UB_LOGS"/dryrun-*.log 2>/dev/null | sort -t- -k2 | head -n -"$KEEP_LOGS" \
         | while read -r d; do rm -f "$d"; done
     if [[ -f "$UB_LOGS/unmount.log" && $(stat -c %s "$UB_LOGS/unmount.log") -gt 1048576 ]]; then
@@ -815,7 +817,7 @@ prune_files() {
 }
 
 ##############################################################################
-# Abweichungen melden
+# Reporting drift
 ##############################################################################
 report_drift() {
     local fp last_fp="" last_t=0 now nw ne lvl
@@ -823,11 +825,11 @@ report_drift() {
     drift_json_write
     status_write
     if [[ ${#DRIFT[@]} -eq 0 ]]; then
-        log "Keine Abweichungen zu settings.ini."
+        log "No drift from settings.ini."
         rm -f "$UB_STATE/drift.fp" "$UB_STATE/drift.ts"
         return 0
     fi
-    log "Abweichungen zu settings.ini:"
+    log "Drift from settings.ini:"
     while IFS= read -r l; do log "  $l"; done <"$UB_STATE/drift.txt"
     nw=$(drift_count warn); ne=$(drift_count error)
     (( nw + ne == 0 )) && return 0
@@ -837,23 +839,23 @@ report_drift() {
     now="$(date +%s)"
     if [[ "$fp" != "$last_fp" || "$UB_MODE" == "check" ]] || (( now - last_t >= DRIFT_REMIND_DAYS * 86400 )); then
         lvl="warning"; (( ne > 0 )) && lvl="alert"
-        ub_notify "settings.ini nicht mehr aktuell" \
-            "${ne} Fehler, ${nw} Warnungen - bitte setup.sh ausfuehren. Details: $UB_STATE/drift.txt" \
+        ub_notify "settings.ini is out of date" \
+            "${ne} errors, ${nw} warnings - please run setup.sh. Details: $UB_STATE/drift.txt" \
             "$lvl" "$(grep -v '^INFO' "$UB_STATE/drift.txt")"
         echo "$fp" >"$UB_STATE/drift.fp"; echo "$now" >"$UB_STATE/drift.ts"
     fi
 }
 
 ##############################################################################
-# Aufraeumen bei jedem Ende
+# Cleaning up at every end
 ##############################################################################
-# Abbrechen mitten in Kopia: den Snapshot im Container beenden (SIGINT -
-# Kopia schliesst dann sauber ab). Nur den docker-exec-Client zu beenden
-# reicht nicht, der Prozess im Container liefe weiter und hielte die Mounts.
+# Aborting in the middle of Kopia: end the snapshot inside the container (SIGINT -
+# Kopia then finishes cleanly). Ending only the docker exec client is not
+# enough, the process in the container would keep running and hold the mounts.
 kopia_stop() {
     [[ -n "$KOPIA_PID" ]] || return 0
     local pid args t
-    log "Beende den laufenden Kopia-Snapshot ..."
+    log "Ending the running Kopia snapshot ..."
     while read -r pid args; do
         [[ "$pid" =~ ^[0-9]+$ && "$args" == *"snapshot create"* && "$args" == *"$KOPIA_CP"* ]] && kill -INT "$pid" 2>/dev/null
     done < <(docker top "$KOPIA_CONTAINER" -eo pid,args 2>/dev/null | tail -n +2)
@@ -863,7 +865,7 @@ kopia_stop() {
     done
     if kill -0 "$KOPIA_PID" 2>/dev/null; then
         pkill -TERM -P "$KOPIA_PID" 2>/dev/null; kill -TERM "$KOPIA_PID" 2>/dev/null
-        warn "Kopia hat sich nach 60 s nicht beendet"
+        warn "Kopia did not end after 60 s"
     fi
     KOPIA_PID=""
 }
@@ -873,12 +875,12 @@ cleanup() {
     [[ "$CLEANUP_DONE" == "yes" ]] && exit "$rc"
     CLEANUP_DONE="yes"
     if [[ "$ST_ABORTED" == "yes" ]]; then
-        warn "Lauf abgebrochen (Signal)"
+        warn "Run aborted (signal)"
         status_phase "aborting"
     fi
     kopia_stop
     if [[ ${#STOPPED[@]} -gt 0 || ${#NC_ON[@]} -gt 0 ]]; then
-        log "Stelle den Normalbetrieb wieder her ..."
+        log "Restoring normal operation ..."
         restore_service
         # a stop mid-run: the interruption lasted until now (otherwise the status says 0 s)
         [[ -n "${STOP_AT:-}" && "${DOWNTIME:-0}" == 0 ]] && DOWNTIME=$(( $(date +%s) - STOP_AT ))
@@ -898,9 +900,9 @@ on_signal() { ST_ABORTED="yes"; exit 143; }
 ##############################################################################
 exec 9>"$UB_STATE/lock"
 if [[ "$UB_MODE" == "unmount" ]]; then
-    flock -w 10 9 || echo "$(_ts)  Ein Lauf haelt die Sperre - haenge trotzdem aus" >>"$LOG_FILE"
+    flock -w 10 9 || echo "$(_ts)  A run holds the lock - unmounting anyway" >>"$LOG_FILE"
 else
-    flock -n 9 || { echo "Ein anderer Lauf (backup.sh oder setup.sh) ist aktiv."; exit 1; }
+    flock -n 9 || { echo "Another run (backup.sh or setup.sh) is active."; exit 1; }
     if [[ "$UB_MODE" == "check" ]]; then status_init check
     elif [[ "$DRY" == "1" ]]; then status_init dryrun
     else status_init backup; fi
@@ -910,16 +912,16 @@ SETTINGS_OK="yes"
 load_settings || { SETTINGS_OK="no"; apply_settings; }
 
 if [[ "$UB_MODE" == "unmount" ]]; then
-    # Muss auch mit fehlender oder kaputter settings.ini funktionieren
-    log "Aushaengen angefordert."
-    if unmount_all; then log "Alles ausgehaengt."; else log "Nicht alles liess sich aushaengen."; fi
+    # Must also work with a missing or broken settings.ini
+    log "Unmount requested."
+    if unmount_all; then log "Everything unmounted."; else log "Not everything could be unmounted."; fi
     exit 0
 fi
 
-[[ "$SETTINGS_OK" == "yes" ]] || die "settings.ini fehlt ($UB_SETTINGS) - zuerst setup.sh ausfuehren"
+[[ "$SETTINGS_OK" == "yes" ]] || die "settings.ini is missing ($UB_SETTINGS) - run setup.sh first"
 if [[ ${#CFG_ERRORS[@]} -gt 0 ]]; then
     for e in "${CFG_ERRORS[@]}"; do err "settings.ini: $e"; done
-    die "settings.ini ist fehlerhaft (${#CFG_ERRORS[@]} Fehler) - Lauf abgebrochen"
+    die "settings.ini has errors (${#CFG_ERRORS[@]}) - run aborted"
 fi
 
 trap cleanup EXIT
@@ -927,57 +929,57 @@ trap on_signal INT TERM
 
 log "===================== $UB_NAME $UB_VERSION - $UB_MODE $TS ====================="
 recover_interrupted_run
-[[ "$DRY" == "1" ]] && log "TROCKENLAUF - es wird nichts veraendert."
+[[ "$DRY" == "1" ]] && log "DRY RUN - nothing is changed."
 
 for t in docker jq flock timeout gzip numfmt mountpoint awk; do
-    command -v "$t" >/dev/null 2>&1 || die "Werkzeug '$t' fehlt"
+    command -v "$t" >/dev/null 2>&1 || die "Tool '$t' is missing"
 done
-docker info >/dev/null 2>&1 || die "Docker antwortet nicht"
-mountpoint -q "$UB_MNT/user" || die "$UB_MNT/user ist nicht gemountet - Array/Pools nicht gestartet?"
+docker info >/dev/null 2>&1 || die "Docker does not answer"
+mountpoint -q "$UB_MNT/user" || die "$UB_MNT/user is not mounted - array/pools not started?"
 
 SNAP_NAME="${SNAP_PREFIX}${TS}"
 RUN_DIR="$UB_DUMPS/$TS"
 
-# --- Inventar, Plan, Abweichungen ----------------------------------------
+# --- Inventory, plan, drift ------------------------------------------------
 status_phase "inventory"
 inv_scan
 docker_load
 plan_build
-[[ ${#PLAN_ZFS[@]}   -gt 0 ]] && ! command -v zfs   >/dev/null && die "zfs fehlt"
-[[ ${#PLAN_BTRFS[@]} -gt 0 ]] && ! command -v btrfs >/dev/null && die "btrfs fehlt"
+[[ ${#PLAN_ZFS[@]}   -gt 0 ]] && ! command -v zfs   >/dev/null && die "zfs is missing"
+[[ ${#PLAN_BTRFS[@]} -gt 0 ]] && ! command -v btrfs >/dev/null && die "btrfs is missing"
 
 drift_check_shares
 drift_check_containers
 if [[ "$SKIPK" != "1" ]]; then drift_check_kopia; else KOPIA_OK="skip"; fi
 
-# Die Backup-Ablage: ein eigener Share, gesichert - sonst kein Lauf (nichts ist bis hier angehalten)
+# The backup place: a share of its own, backed up - otherwise no run (nothing is paused up to here)
 DUMPS_PROBLEM="$(dumps_share_problem "$DUMPS_SHARE")"
 if [[ -n "$DUMPS_PROBLEM" ]]; then
     if [[ "$UB_MODE" == "check" ]]; then
         drift_add error "$(dumps_share_text "$DUMPS_PROBLEM" "$DUMPS_SHARE")"
     else
-        die_code "dumps_$DUMPS_PROBLEM" "$(dumps_share_text "$DUMPS_PROBLEM" "$DUMPS_SHARE") - Ablage bei Herrn Backupsi unter Einrichten waehlen"
+        die_code "dumps_$DUMPS_PROBLEM" "$(dumps_share_text "$DUMPS_PROBLEM" "$DUMPS_SHARE") - choose the place in Mr. Backupsy's setup"
     fi
 elif is_yes "$KOPIA_ENABLED" && [[ "$(share_mode "$DUMPS_SHARE")" != "kopia" ]]; then
-    drift_add warn "Die Backup-Ablage '$DUMPS_SHARE' geht nicht an Kopia (mode=$(share_mode "$DUMPS_SHARE")) - Dumps und Archive bleiben nur lokal"
+    drift_add warn "The backup place '$DUMPS_SHARE' does not go to Kopia (mode=$(share_mode "$DUMPS_SHARE")) - dumps and archives stay local only"
 fi
 if [[ -z "$DUMPS_PROBLEM" && "$DRY" != "1" && "$UB_MODE" != "check" ]]; then
-    # nur root: Dumps enthalten Datenbankinhalte
-    mkdir -p "$UB_DUMPS" && chmod 700 "$UB_DUMPS" || die "Backup-Ablage $UB_DUMPS laesst sich nicht anlegen"
-    # bisherige Dumps aus dem Datenordner (appdata) einmal mitnehmen
+    # root only: dumps hold database contents
+    mkdir -p "$UB_DUMPS" && chmod 700 "$UB_DUMPS" || die "Backup place $UB_DUMPS cannot be created"
+    # take the dumps so far from the data folder (appdata) along once
     if [[ -d "$UB_DATA/dumps" ]]; then
         for d in "$UB_DATA"/dumps/[0-9]*-[0-9]*; do
             [[ -d "$d" && ! -e "$UB_DUMPS/$(basename "$d")" ]] || continue
-            mv "$d" "$UB_DUMPS/" 2>>"$LOG_FILE" && log "  Dumps $(basename "$d") nach $UB_DUMPS verschoben"
+            mv "$d" "$UB_DUMPS/" 2>>"$LOG_FILE" && log "  Dumps $(basename "$d") moved to $UB_DUMPS"
         done
-        rmdir "$UB_DATA/dumps" 2>/dev/null && log "  Alter Dump-Ordner in appdata entfernt"
+        rmdir "$UB_DATA/dumps" 2>/dev/null && log "  Old dump folder in appdata removed"
     fi
 fi
 
 report_drift
 
 if [[ "$UB_MODE" == "check" ]]; then
-    log "Pruefung beendet: $(drift_count error) Fehler, $(drift_count warn) Warnungen, $(drift_count info) Hinweise."
+    log "Check done: $(drift_count error) errors, $(drift_count warn) warnings, $(drift_count info) notes."
     if (( $(drift_count error) > 0 || ERRORS > 0 )); then status_finish errors
     elif (( $(drift_count warn) > 0 || WARNINGS > 0 )); then status_finish warnings
     else status_finish ok; fi
@@ -986,26 +988,26 @@ if [[ "$UB_MODE" == "check" ]]; then
 fi
 
 case "$KOPIA_OK" in
-    no)  err "Kopia wird in diesem Lauf uebersprungen (siehe Abweichungen oben)" ;;
-    off) log "Kopia ist ausgeschaltet ([kopia] enabled = no) - nur lokale Snapshots und Dumps." ;;
+    no)  err "Kopia is skipped in this run (see the drift above)" ;;
+    off) log "Kopia is switched off ([kopia] enabled = no) - local snapshots and dumps only." ;;
 esac
 
-# --- Plan ausgeben -------------------------------------------------------
+# --- Showing the plan -----------------------------------------------------
 build_stop_tiers
 log "Plan:"
-log "  ZFS-Snapshots:    ${PLAN_ZFS[*]:-keine}"
-log "  btrfs-Snapshots:  ${PLAN_BTRFS[*]:-keine}"
+log "  ZFS snapshots:    ${PLAN_ZFS[*]:-none}"
+log "  btrfs snapshots:  ${PLAN_BTRFS[*]:-none}"
 log "  Flash:            $PLAN_FLASH${FLASH_DATASET:+ ($FLASH_DATASET)}"
-log "  VM-Konfiguration: $LIBVIRT_MODE$(mountpoint -q /etc/libvirt || echo ' (VM-Dienst aus)')"
+log "  VM configuration: $LIBVIRT_MODE$(mountpoint -q /etc/libvirt || echo ' (VM service off)')"
 log "  Dumps:            $(cfg_names dump | paste -sd' ' -)"
 log "  Nextcloud:        $(cfg_names nextcloud | paste -sd' ' -)"
-log "  Anhalten:         ${T_APP[*]:-} | DB: ${T_DB[*]:-} | Netz: ${T_NET[*]:-}"
-log "  Nicht anhalten:   ${KOPIA_CONTAINER:-} ${DOCKER_NO_STOP[*]:-}"
-is_yes "$KOPIA_ENABLED" || log "  Kopia:            aus"
+log "  Pause:            ${T_APP[*]:-} | DB: ${T_DB[*]:-} | network: ${T_NET[*]:-}"
+log "  Keep running:     ${KOPIA_CONTAINER:-} ${DOCKER_NO_STOP[*]:-}"
+is_yes "$KOPIA_ENABLED" || log "  Kopia:            off"
 for s in "${PLAN_KOPIA[@]}"; do
     hp="$(share_kopia_hostpath "$s")"
     cp="$(k_path "$hp" 2>/dev/null)" || cp="?"
-    log "  Kopia:            $s  [$(share_method "$s")/${INV_LAYOUT[$s]}]  $hp -> $cp${SKIP_KOPIA[$s]:+  (UEBERSPRUNGEN: ${SKIP_KOPIA[$s]})}"
+    log "  Kopia:            $s  [$(share_method "$s")/${INV_LAYOUT[$s]}]  $hp -> $cp${SKIP_KOPIA[$s]:+  (SKIPPED: ${SKIP_KOPIA[$s]})}"
 done
 
 if [[ "$KOPIA_OK" == "yes" && "$SKIPK" != "1" ]]; then
@@ -1015,7 +1017,7 @@ fi
 status_write
 
 if [[ "$DRY" == "1" ]]; then
-    log "Trockenlauf beendet."
+    log "Dry run done."
     if (( ERRORS > 0 )); then status_finish errors
     elif (( WARNINGS > 0 )); then status_finish warnings
     else status_finish ok; fi
@@ -1024,53 +1026,53 @@ if [[ "$DRY" == "1" ]]; then
 fi
 
 FREE_MB=$(df -Pm "$UB_DUMPS" 2>/dev/null | awk 'NR==2{print $4}')
-(( ${FREE_MB:-0} >= MIN_FREE_GB * 1024 )) || die "Zu wenig Platz fuer Dumps in $UB_DUMPS (${FREE_MB} MB frei)"
-mkdir -p "$RUN_DIR/db" || die "Kann $RUN_DIR nicht anlegen"
+(( ${FREE_MB:-0} >= MIN_FREE_GB * 1024 )) || die "Not enough space for dumps in $UB_DUMPS (${FREE_MB} MB free)"
+mkdir -p "$RUN_DIR/db" || die "Cannot create $RUN_DIR"
 
-# Reste eines frueheren Laufs loesen
-unmount_all || die "Alte Mounts unter $MOUNT_ROOT lassen sich nicht loesen"
+# Release what an earlier run left behind
+unmount_all || die "Old mounts under $MOUNT_ROOT cannot be released"
 
-# --- Wartungsmodus, Manifest ----------------------------------------------
+# --- Maintenance mode, manifest ---------------------------------------------
 status_phase "maintenance"
 log "Nextcloud ..."
 nextcloud_maintenance_on
 status_phase "manifest"
 log "Manifest ..."
-write_manifest                       # noch mit allen Containern im laufenden Zustand
+write_manifest                       # still with all containers running
 
-# --- Anhalten, Dumps, Snapshots, Starten ----------------------------------
-# Erst die Apps anhalten, dann dumpen: Apps ohne Wartungsmodus (Immich & Co.)
-# schreiben sonst zwischen Dump und Snapshot weiter - der Dump passte dann
-# nicht mehr ganz zu den Dateien. Die Datenbanken laufen fuer den Dump noch.
+# --- Pausing, dumps, snapshots, starting ------------------------------------
+# Pause the apps first, then dump: apps without a maintenance mode (Immich & co.)
+# would otherwise keep writing between dump and snapshot - the dump would then
+# no longer quite match the files. The databases still run for the dump.
 STOP_AT="$(date +%s)"
 status_phase "stopping_apps"
-log "Halte Apps an: ${#T_APP[@]} (vor den Dumps, damit Dumps und Dateien zusammenpassen)"
+log "Pausing apps: ${#T_APP[@]} (before the dumps, so that dumps and files match)"
 stop_tier "${T_APP[@]}"
 status_phase "dumps"
-log "Datenbank-Dumps ..."
+log "Database dumps ..."
 run_dumps
 [[ "$PLAN_FLASH" == "tar" ]] && flash_tar
 [[ "$LIBVIRT_MODE" == "tar" ]] && libvirt_tar
 status_phase "stopping"
-log "Halte an: ${#T_DB[@]} Datenbanken, ${#T_NET[@]} Netzwerk"
+log "Stopping: ${#T_DB[@]} databases, ${#T_NET[@]} network"
 stop_tier "${T_DB[@]}"
 stop_tier "${T_NET[@]}"
 
 status_phase "snapshots"
-log "Erzeuge Snapshots $SNAP_NAME ..."
+log "Creating snapshots $SNAP_NAME ..."
 declare -A BY_POOL=()
 for ds in "${PLAN_ZFS[@]}"; do BY_POOL[${ds%%/*}]+="$ds@$SNAP_NAME"$'\n'; done
 for pool in "${!BY_POOL[@]}"; do
     mapfile -t args < <(printf '%s' "${BY_POOL[$pool]}" | sed '/^$/d')
     if zfs snapshot "${args[@]}" 2>>"$LOG_FILE"; then
-        log "  ZFS $pool: ${#args[@]} Datasets"
+        log "  ZFS $pool: ${#args[@]} datasets"
     else
-        err "ZFS-Snapshot auf Pool '$pool' fehlgeschlagen"; ZFS_FAILED[$pool]=1
+        err "ZFS snapshot on pool '$pool' failed"; ZFS_FAILED[$pool]=1
     fi
 done
 if [[ "$PLAN_FLASH" == "snapshot" ]]; then
     zfs snapshot "$FLASH_DATASET@$SNAP_NAME" 2>>"$LOG_FILE" \
-        || { err "Flash-Snapshot fehlgeschlagen"; PLAN_FLASH="failed"; }
+        || { err "Flash snapshot failed"; PLAN_FLASH="failed"; }
 fi
 for base in "${PLAN_BTRFS[@]}"; do
     mkdir -p "$base/$BTRFS_SNAP_DIR"
@@ -1078,46 +1080,46 @@ for base in "${PLAN_BTRFS[@]}"; do
         BTRFS_OK[$base]="$base/$BTRFS_SNAP_DIR/$TS"
         log "  btrfs $base"
     else
-        err "btrfs-Snapshot von $base fehlgeschlagen"
+        err "btrfs snapshot of $base failed"
     fi
 done
 
 status_phase "starting"
-log "Starte Container ..."
+log "Starting containers ..."
 restore_service
 DOWNTIME=$(( $(date +%s) - STOP_AT ))
 status_write
-log "Normalbetrieb wiederhergestellt - Unterbrechung ${DOWNTIME} s"
+log "Normal operation restored - downtime ${DOWNTIME} s"
 
-# --- Einhaengen (nur, wenn Kopia diesmal wirklich laeuft) ------------------
+# --- Mounting (only when Kopia really runs this time) -----------------------
 if [[ "$KOPIA_OK" == "yes" && "$SKIPK" != "1" ]]; then
     status_phase "mounting"
-    log "Haenge Snapshots unter $MOUNT_ROOT ein ..."
+    log "Mounting snapshots under $MOUNT_ROOT ..."
     mkdir -p "$MOUNT_ROOT"
-    stage_ready || die "Privater Zwischenbereich $UB_STAGE laesst sich nicht anlegen"
+    stage_ready || die "Private staging area $UB_STAGE cannot be created"
     MOUNTED="yes"
     for s in "${PLAN_KOPIA[@]}"; do
         if mount_share "$s"; then log "  $s (${SHARE_MOUNTED[$s]})"
-        else err "Share '$s' liess sich nicht einhaengen - wird nicht gesichert"; fi
+        else err "Share '$s' could not be mounted - it is not backed up"; fi
     done
     if [[ "$PLAN_FLASH" == "snapshot" ]]; then
         if mkdir -p "$MOUNT_ROOT/$FLASH_SOURCE_NAME" && \
            mount -t zfs -o ro "$FLASH_DATASET@$SNAP_NAME" "$MOUNT_ROOT/$FLASH_SOURCE_NAME" 2>>"$LOG_FILE"; then :
-        else err "Flash-Snapshot liess sich nicht einhaengen"; PLAN_FLASH="failed"; fi
+        else err "Flash snapshot could not be mounted"; PLAN_FLASH="failed"; fi
     fi
 fi
 refresh_view
 
 # --- Kopia ----------------------------------------------------------------
 KOPIA_DONE=0; KOPIA_FAILED=0
-kopia_one() { # kopia_one <name> <container-pfad>
+kopia_one() { # kopia_one <name> <container path>
     local name="$1" cp="$2" t0 rc secs
     t0="$(date +%s)"
     log "Kopia: $name  ($cp)"
     ST_KOPIA_CUR="$name"; ST_KOPIA_CUR_T="$t0"; status_write
-    # Im Hintergrund + wait: ein Signal (Abbrechen) unterbricht wait sofort,
-    # waehrend bash auf einen Vordergrund-Befehl bis zu dessen Ende wartet -
-    # bei Kopia koennen das Stunden sein. kopia_stop beendet ihn dann.
+    # In the background + wait: a signal (abort) interrupts wait at once,
+    # while bash waits for a foreground command until it ends -
+    # with Kopia that can be hours. kopia_stop then ends it.
     KOPIA_CP="$cp"
     kopia_x snapshot create "$cp" --description "$UB_NAME $TS" >>"$LOG_FILE" 2>&1 &
     KOPIA_PID=$!
@@ -1125,29 +1127,29 @@ kopia_one() { # kopia_one <name> <container-pfad>
     KOPIA_PID=""; KOPIA_CP=""
     secs=$(( $(date +%s) - t0 ))
     if [[ $rc -eq 0 ]]; then KOPIA_DONE=$((KOPIA_DONE+1)); log "  ok ($secs s)"
-    else KOPIA_FAILED=$((KOPIA_FAILED+1)); err "Kopia-Snapshot von '$name' fehlgeschlagen (Exitcode $rc)"; fi
+    else KOPIA_FAILED=$((KOPIA_FAILED+1)); err "Kopia snapshot of '$name' failed (exit code $rc)"; fi
     ST_KOPIA_DONE+=( "$name|$([[ $rc -eq 0 ]] && echo 1 || echo 0)|$secs|$(date +%s)" )
     ST_KOPIA_CUR=""; status_write
 }
 
-kopia_skip() { # Quelle nicht gesichert, ohne dass Kopia lief
+kopia_skip() { # source not backed up, without Kopia having run
     KOPIA_FAILED=$((KOPIA_FAILED+1))
     ST_KOPIA_DONE+=( "$1|0|0|$(date +%s)" ); status_write
 }
 
 if [[ "$SKIPK" == "1" ]]; then
-    log "Kopia uebersprungen (UB_SKIP_KOPIA=1)."
+    log "Kopia skipped (UB_SKIP_KOPIA=1)."
 elif [[ "$KOPIA_OK" == "off" ]]; then
-    log "Kopia ausgeschaltet - lokale Snapshots und Dumps sind fertig."
+    log "Kopia switched off - local snapshots and dumps are done."
 elif [[ "$KOPIA_OK" == "yes" ]]; then
     status_phase "kopia"
     kopia_mountinfo_load
     for s in "${PLAN_KOPIA[@]}"; do
-        if [[ -n "${SKIP_KOPIA[$s]:-}" ]]; then err "Kopia: '$s' uebersprungen - ${SKIP_KOPIA[$s]}"; kopia_skip "$s"; continue; fi
+        if [[ -n "${SKIP_KOPIA[$s]:-}" ]]; then err "Kopia: '$s' skipped - ${SKIP_KOPIA[$s]}"; kopia_skip "$s"; continue; fi
         hp="$(share_kopia_hostpath "$s")"
-        cp="$(k_path "$hp")" || { err "Kopia: '$s' ist im Container nicht abgebildet"; kopia_skip "$s"; continue; }
+        cp="$(k_path "$hp")" || { err "Kopia: '$s' is not mapped into the container"; kopia_skip "$s"; continue; }
         if [[ -z "${SHARE_MOUNTED[$s]:-}" ]]; then kopia_skip "$s"; continue; fi
-        # Nie ein leeres Verzeichnis sichern: der Mount muss im Container da sein
+        # Never back up an empty folder: the mount must be there inside the container
         missing=""
         while IFS= read -r mp; do
             [[ -z "$mp" ]] && continue
@@ -1155,29 +1157,29 @@ elif [[ "$KOPIA_OK" == "yes" ]]; then
             [[ -n "${KMI[$c_mp]+x}" ]] || missing+="$c_mp "
         done < <(share_mount_points "$s")
         if [[ -n "$missing" ]]; then
-            err "Kopia sieht den Mount nicht: $missing- Mapping auf 'Read Only - Slave' pruefen"
+            err "Kopia does not see the mount: $missing- check that the mapping is 'Read Only - Slave'"
             kopia_skip "$s"; continue
         fi
-        [[ "${SHARE_MOUNTED[$s]}" == "live" ]] && log "  (live: '$s' wird ohne Snapshot gelesen)"
+        [[ "${SHARE_MOUNTED[$s]}" == "live" ]] && log "  (live: '$s' is read without a snapshot)"
         kopia_one "$s" "$cp"
     done
     if [[ "$PLAN_FLASH" == "snapshot" ]]; then
         cp="$(k_path "$MOUNT_ROOT/$FLASH_SOURCE_NAME")"
         if [[ -n "${KMI[$cp]+x}" ]]; then kopia_one "flash" "$cp"
-        else err "Kopia sieht den Flash-Snapshot nicht ($cp)"; kopia_skip "flash"; fi
+        else err "Kopia does not see the flash snapshot ($cp)"; kopia_skip "flash"; fi
     fi
-    [[ $KOPIA_FAILED -gt 0 ]] && ub_notify "Kopia unvollstaendig" \
-        "$KOPIA_FAILED Quelle(n) nicht gesichert, $KOPIA_DONE ok. Protokoll: $LOG_FILE" "warning"
+    [[ $KOPIA_FAILED -gt 0 ]] && ub_notify "Kopia incomplete" \
+        "$KOPIA_FAILED source(s) not backed up, $KOPIA_DONE ok. Log: $LOG_FILE" "warning"
 fi
 
-# --- Aushaengen und Aufraeumen ---------------------------------------------
+# --- Unmounting and cleaning up --------------------------------------------
 if [[ "$KEEP_MOUNTS" != "yes" ]]; then
     status_phase "unmounting"
-    unmount_all || warn "Nicht alle Snapshot-Mounts liessen sich loesen"
+    unmount_all || warn "Not all snapshot mounts could be released"
 fi
 
 status_phase "cleanup"
-log "Raeume auf ..."
+log "Cleaning up ..."
 if command -v zfs >/dev/null 2>&1; then
     mapfile -t OWNERS < <(zfs list -H -t snapshot -o name 2>/dev/null \
         | grep -E "@${SNAP_PREFIX}[0-9]{8}-[0-9]{4}$" | sed 's/@.*//' | sort -u)
@@ -1188,36 +1190,36 @@ fi
 command -v btrfs >/dev/null 2>&1 && prune_btrfs
 prune_files
 
-# --- Abschluss -----------------------------------------------------------
+# --- Finishing --------------------------------------------------------------
 TOTAL=$(( $(date +%s) - STARTED_AT ))
 RUN_SIZE="$(du -sh "$RUN_DIR" 2>/dev/null | cut -f1)"
 ST_DUMP_BYTES="$(du -sb "$RUN_DIR" 2>/dev/null | cut -f1)"; is_uint "$ST_DUMP_BYTES" || ST_DUMP_BYTES=0
 {
     echo "ts=$TS"
-    echo "dauer_s=$TOTAL"
-    echo "unterbrechung_s=$DOWNTIME"
-    echo "fehler=$ERRORS"
-    echo "warnungen=$WARNINGS"
+    echo "duration_s=$TOTAL"
+    echo "downtime_s=$DOWNTIME"
+    echo "errors=$ERRORS"
+    echo "warnings=$WARNINGS"
     echo "kopia_ok=$KOPIA_DONE"
-    echo "kopia_fehler=$KOPIA_FAILED"
-    echo "abweichungen=$(drift_count warn)/$(drift_count error)"
+    echo "kopia_failed=$KOPIA_FAILED"
+    echo "drift=$(drift_count warn)/$(drift_count error)"
     echo "log=$LOG_FILE"
 } >"$UB_STATE/last-run"
 
-if is_yes "$KOPIA_ENABLED"; then KSUM="Kopia ${KOPIA_DONE} ok/${KOPIA_FAILED} Fehler"; else KSUM="Kopia aus"; fi
-SUMMARY="Dauer ${TOTAL}s, Unterbrechung ${DOWNTIME}s, ${KSUM}, Dumps ${RUN_SIZE}"
+if is_yes "$KOPIA_ENABLED"; then KSUM="Kopia ${KOPIA_DONE} ok/${KOPIA_FAILED} failed"; else KSUM="Kopia off"; fi
+SUMMARY="duration ${TOTAL}s, downtime ${DOWNTIME}s, ${KSUM}, dumps ${RUN_SIZE}"
 if (( ERRORS > 0 )); then status_finish errors
 elif (( WARNINGS > 0 )); then status_finish warnings
 else status_finish ok; fi
 if (( ERRORS > 0 )); then
-    log "Backup mit ${ERRORS} Fehler(n) und ${WARNINGS} Warnung(en) beendet. $SUMMARY"
-    ub_notify "Backup mit Fehlern" "${ERRORS} Fehler, ${WARNINGS} Warnungen. $SUMMARY" "alert" "Protokoll: $LOG_FILE"
+    log "Backup finished with ${ERRORS} error(s) and ${WARNINGS} warning(s). $SUMMARY"
+    ub_notify "Backup with errors" "${ERRORS} errors, ${WARNINGS} warnings. $SUMMARY" "alert" "Log: $LOG_FILE"
     exit 1
 elif (( WARNINGS > 0 )); then
-    log "Backup mit ${WARNINGS} Warnung(en) beendet. $SUMMARY"
-    ub_notify "Backup mit Warnungen" "${WARNINGS} Warnungen. $SUMMARY" "warning" "Protokoll: $LOG_FILE"
+    log "Backup finished with ${WARNINGS} warning(s). $SUMMARY"
+    ub_notify "Backup with warnings" "${WARNINGS} warnings. $SUMMARY" "warning" "Log: $LOG_FILE"
 else
-    log "Backup erfolgreich. $SUMMARY"
-    is_yes "$NOTIFY_SUCCESS" && ub_notify "Backup erfolgreich" "$SUMMARY" "normal"
+    log "Backup successful. $SUMMARY"
+    is_yes "$NOTIFY_SUCCESS" && ub_notify "Backup successful" "$SUMMARY" "normal"
 fi
 exit 0
