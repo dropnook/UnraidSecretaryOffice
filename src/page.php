@@ -51,6 +51,7 @@ function officePageConfig(): array
         $config['menu_default'] = OFFICE_MENU_DEFAULT;
         $config['menu_max'] = OFFICE_MENU_MAX;
         $config['menu_page'] = basename(OFFICE_MENU_PAGE, '.page');
+        $config['menu_place'] = officeMenuPlace();
     }
     if (OFFICE_IN_UNRAID) {
         // Unraid's language (de_DE …, '' = English): the office follows it unless the browser chose another
@@ -170,12 +171,12 @@ function render_page(): void
 <?php
 }
 
-/** As a plugin the office lives in Unraid's menu bar: index.php (old links, bookmarks) forwards there */
+/** As a plugin the office lives in Unraid's web UI: index.php (old links, bookmarks) forwards there */
 function render_forward(): void
 {
     header('Content-Type: text/html; charset=utf-8');
     header('Cache-Control: no-store');
-    $to = '/' . basename(OFFICE_MENU_PAGE, '.page');
+    $to = officeMenuUrl(officeMenuPlace());
     ?>
 <!doctype html>
 <meta charset="utf-8">

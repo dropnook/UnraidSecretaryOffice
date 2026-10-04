@@ -38,16 +38,20 @@ function officePluginDataDir(): string
 }
 
 /*
- * The office's entry in Unraid's menu bar (plugin only): the page
- * SecretaryOffice.page, its label the Name= line of that page. Unraid reads
- * .page files on every request, so a new name shows after a reload. The
- * user's choice is MENU_NAME in the plugin's .cfg on the flash; the page in
- * RAM gets it again at every install and boot (the .plg) and when it changes
- * (the caretaker's action menu_name).
+ * The office's entry in Unraid's web UI (plugin only): the page
+ * SecretaryOffice.page. Where it shows is its Menu= line — its own entry in
+ * the menu bar (Tasks:85, between Apps and Tools; the label its Name= line)
+ * or, as before 1.17, an icon under Settings → User Utilities (Utilities;
+ * then Title=, Icon= and Tag= name it there). Unraid reads .page files on every
+ * request, so a change shows after a reload. The user's choice is MENU_NAME
+ * and MENU_PLACE in the plugin's .cfg on the flash; the page in RAM gets it
+ * again at every install and boot (the .plg) and when it changes (the
+ * caretaker's action menu_name).
  */
 const OFFICE_MENU_PAGE    = 'SecretaryOffice.page';
 const OFFICE_MENU_DEFAULT = 'Sekretariat';
 const OFFICE_MENU_MAX     = 15;
+const OFFICE_MENU_PLACES  = ['menu' => 'Tasks:85', 'settings' => 'Utilities'];
 
 /** A label fit for the menu bar and for the .page header (an ini value in quotes) */
 function officeMenuNameValid(string $name): bool
@@ -55,7 +59,7 @@ function officeMenuNameValid(string $name): bool
     return mb_strlen($name) <= OFFICE_MENU_MAX && preg_match('/^[\p{L}\p{N}](?:[\p{L}\p{N} .&+_-]*[\p{L}\p{N}.])?$/u', $name) === 1;
 }
 
-/** The menu label the user chose, else the default */
+/** The label the user chose, else the default */
 function officeMenuName(): string
 {
     $cfg = @parse_ini_file(OFFICE_PLUGIN_CFG) ?: [];
@@ -63,17 +67,52 @@ function officeMenuName(): string
     return officeMenuNameValid($name) ? $name : OFFICE_MENU_DEFAULT;
 }
 
-/** Puts the label into the page's Name= line (new file + rename); false if the page isn't there */
-function officeMenuPageApply(string $dir, string $name): bool
+/** Where the office shows in Unraid: 'menu' (its own entry in the menu bar, the default) or 'settings' */
+function officeMenuPlace(): string
+{
+    $cfg = @parse_ini_file(OFFICE_PLUGIN_CFG) ?: [];
+    $place = (string) ($cfg['MENU_PLACE'] ?? '');
+    return isset(OFFICE_MENU_PLACES[$place]) ? $place : 'menu';
+}
+
+/** The office's address in Unraid's web UI */
+function officeMenuUrl(string $place): string
+{
+    return ($place === 'settings' ? '/Settings/' : '/') . basename(OFFICE_MENU_PAGE, '.page');
+}
+
+/**
+ * Puts place and label into the page's header (new file + rename): Menu= and
+ * Name=; under Settings also Title=, Icon= and Tag=, which Unraid shows there.
+ * False if the page isn't there or the choice isn't valid.
+ */
+function officeMenuPageApply(string $dir, string $name, string $place = 'menu'): bool
 {
     $page = "$dir/" . OFFICE_MENU_PAGE;
     $text = @file_get_contents($page);
-    if ($text === false || !officeMenuNameValid($name)) {
+    if ($text === false || !officeMenuNameValid($name) || !isset(OFFICE_MENU_PLACES[$place])) {
         return false;
     }
-    $new = preg_replace('/^Name="[^"\n]*"$/m', 'Name="' . $name . '"', $text, 1);
-    if ($new === null || $new === $text) {
-        return $new !== null;
+    [$header, $body] = array_pad(explode("\n---\n", $text, 2), 2, null);
+    if ($body === null) {
+        return false;
+    }
+    $lines = [];
+    foreach (explode("\n", $header) as $line) {
+        $key = strtok($line, '=');
+        if (!in_array($key, ['Menu', 'Name', 'Title', 'Icon', 'Tag'], true)) {
+            $lines[] = $line;
+        }
+    }
+    $own = ['Menu="' . OFFICE_MENU_PLACES[$place] . '"', 'Name="' . $name . '"'];
+    if ($place === 'settings') {
+        $own[] = 'Title="' . $name . '"';
+        $own[] = 'Icon="unraid-secretary-office.png"';
+        $own[] = 'Tag="bell-o"';          // the icon in Unraid's title bar above the office
+    }
+    $new = implode("\n", array_merge($own, $lines)) . "\n---\n" . $body;
+    if ($new === $text) {
+        return true;
     }
     $tmp = "$dir/." . OFFICE_MENU_PAGE . '.' . getmypid() . '.tmp';
     if (@file_put_contents($tmp, $new) === false) {

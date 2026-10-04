@@ -269,10 +269,11 @@ function writeInfo(bool $running): void
     ]));
 }
 
-/** All agent files, so any change triggers a restart */
+/** All agent files (and src/place.php, shared with the web side), so any change triggers a restart */
 function codeFiles(): array
 {
-    $files = array_merge(glob(__DIR__ . '/*.php') ?: [], glob(__DIR__ . '/lib/*.php') ?: [], glob(__DIR__ . '/desks/*.php') ?: []);
+    $files = array_merge(glob(__DIR__ . '/*.php') ?: [], glob(__DIR__ . '/lib/*.php') ?: [], glob(__DIR__ . '/desks/*.php') ?: [],
+        [dirname(__DIR__) . '/src/place.php']);
     sort($files);
     return $files;
 }

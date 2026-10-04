@@ -251,6 +251,17 @@ function testMenuName(): void
     same('menu page: only the Name= line changed', str_replace('Name="' . OFFICE_MENU_DEFAULT . '"', 'Name="Büro & Co"', $before), $after);
     same('menu page: Unraid reads the name', 'Büro & Co', parse_ini_string(explode("\n---\n", $after)[0])['Name'] ?? null);
     check('menu page: a bad name changes nothing', !officeMenuPageApply($tmp, 'x"y') && file_get_contents("$tmp/" . OFFICE_MENU_PAGE) === $after);
+
+    // under Settings → User Utilities: Menu=, Title= and Icon=; back in the menu bar as it was
+    check('menu page: to Settings', officeMenuPageApply($tmp, 'Büro & Co', 'settings'));
+    $ini = parse_ini_string(explode("\n---\n", (string) file_get_contents("$tmp/" . OFFICE_MENU_PAGE))[0]);
+    same('menu page: under Settings', ['Utilities', 'Büro & Co', 'Büro & Co', 'unraid-secretary-office.png', 'bell-o', 'f0a2'],
+        [$ini['Menu'] ?? null, $ini['Name'] ?? null, $ini['Title'] ?? null, $ini['Icon'] ?? null, $ini['Tag'] ?? null, $ini['Code'] ?? null]);
+    check('menu page: back to the menu bar', officeMenuPageApply($tmp, OFFICE_MENU_DEFAULT, 'menu'));
+    same('menu page: as in the repository again', $before, file_get_contents("$tmp/" . OFFICE_MENU_PAGE));
+    check('menu page: an unknown place changes nothing', !officeMenuPageApply($tmp, 'Office', 'dock'));
+    same('menu url: menu bar', '/SecretaryOffice', officeMenuUrl('menu'));
+    same('menu url: settings', '/Settings/SecretaryOffice', officeMenuUrl('settings'));
     check('menu page: missing page', !officeMenuPageApply("$tmp/none", 'Office'));
     exec('rm -rf ' . escapeshellarg($tmp));
 }

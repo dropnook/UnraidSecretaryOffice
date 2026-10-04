@@ -549,6 +549,10 @@ body.sso-page{margin:0; background:#F2F5F6; -webkit-text-size-adjust:100%}
 .chip[data-tip], .chip[title]{cursor:help}
 .tip{position:fixed; z-index:10050; max-width:min(340px, calc(100vw - 16px)); padding:7px 10px; border-radius:var(--radius); background:var(--ink); color:var(--surface); font-size:12.5px; line-height:1.45; box-shadow:var(--shadow); pointer-events:none; white-space:normal}
 
+/* groups of choices in a dialog (core.js menuNameDialog) */
+.sso-group-title{margin:16px 0 8px}
+.sso-group-title:first-child{margin-top:0}
+
 /* the tip jar after hiring (core.js tipJar) */
 .tip-jar{display:flex; gap:14px; align-items:flex-start}
 .tip-jar-icon{font-size:30px; line-height:1}

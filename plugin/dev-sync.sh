@@ -36,8 +36,8 @@ rsync -lt --chmod=F644 "$src"/plugin/*.page "$dir/"
 for page in "$dir"/*.page; do        # pages the working copy doesn't have any more (renamed) go
     [[ -e "$src/plugin/$(basename "$page")" ]] || rm -f "$page"
 done
-# the menu bar's label as chosen at the reception (as the .plg does at every boot)
-php -r 'require $argv[1] . "/src/place.php"; officeMenuPageApply($argv[1], officeMenuName());' "$dir"
+# the office's entry (label, place) as chosen in its ⋯ menu (as the .plg does at every boot)
+php -r 'require $argv[1] . "/src/place.php"; officeMenuPageApply($argv[1], officeMenuName(), officeMenuPlace());' "$dir"
 # the short README Unraid shows in its list under Plugins (as plugin/build.sh does)
 rsync -lt --chmod=F644 "$src/plugin/README.md" "$dir/README.md"
 chmod 755 "$dir"/scripts/* "$dir"/event/* "$dir/agent/agent.php"

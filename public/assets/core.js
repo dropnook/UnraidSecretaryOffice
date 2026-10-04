@@ -946,31 +946,43 @@ async function reception(root) {
 }
 
 /**
- * The office's label in Unraid's menu bar: a few names to pick or one of the
- * user's own (the caretaker's agent writes it into the plugin's page and its
- * .cfg). Unraid's menu bar on this page gets it right away.
+ * The office's entry in Unraid: where (its own entry in the menu bar, or an
+ * icon under Settings → User Utilities as before 1.17) and what it is called
+ * (a few names to pick or one of the user's own). The caretaker's agent
+ * writes it into the plugin's page and its .cfg. Unraid's menu bar on this
+ * page gets a new name right away; a move takes the browser to the new place.
  */
 function menuNameDialog() {
   const presets = [CONFIG.menu_default, 'Office', 'USO'].filter((n, i, all) => all.indexOf(n) === i);
   const now = CONFIG.menu_name;
   const box = el('div');
-  box.appendChild(el('p', '', t('office.menu_text')));
-  const radios = [];
-  const option = (value, label, hint) => {
-    const l = el('label', 'check');
-    const r = el('input');
-    r.type = 'radio';
-    r.name = 'sso-menu-name';
-    r.value = value;
-    const span = el('span', '', label);
-    if (hint) span.appendChild(el('small', '', hint));
-    l.append(r, span);
-    box.appendChild(l);
-    radios.push(r);
-    return r;
+  const group = (name, title) => {
+    box.appendChild(el('div', 'field-title sso-group-title', title));
+    const list = [];
+    const option = (value, label, hint) => {
+      const l = el('label', 'check');
+      const r = el('input');
+      r.type = 'radio';
+      r.name = name;
+      r.value = value;
+      const span = el('span', '', label);
+      if (hint) span.appendChild(el('small', '', hint));
+      l.append(r, span);
+      box.appendChild(l);
+      list.push(r);
+      return r;
+    };
+    return { list, option };
   };
-  presets.forEach((n) => option(n, n, n === 'USO' ? t('office.menu_uso') : ''));
-  const own = option('', t('office.menu_own'));
+  const where = group('sso-menu-place', t('office.menu_where'));
+  where.option('menu', t('office.menu_place_menu'));
+  where.option('settings', t('office.menu_place_settings'));
+  (where.list.find((r) => r.value === CONFIG.menu_place) || where.list[0]).checked = true;
+
+  const what = group('sso-menu-name', t('office.menu_what'));
+  box.appendChild(el('p', 'role', t('office.menu_text')));
+  presets.forEach((n) => what.option(n, n, n === 'USO' ? t('office.menu_uso') : ''));
+  const own = what.option('', t('office.menu_own'));
   const field = el('div', 'field sso-menu-own');
   const input = el('input', 'input');
   input.maxLength = CONFIG.menu_max || 15;
@@ -980,7 +992,7 @@ function menuNameDialog() {
   const msg = el('p', 'callout warn');
   msg.hidden = true;
   box.appendChild(msg);
-  const pick = radios.find((r) => r.value === now) || own;
+  const pick = what.list.find((r) => r.value === now) || own;
   if (pick === own) input.value = now;
   Office.dialog({
     title: t('office.menu_title'),
@@ -988,11 +1000,16 @@ function menuNameDialog() {
     buttons: [
       { text: t('common.cancel') },
       { text: t('office.menu_save'), kind: '', act: async () => {
-        const chosen = radios.find((r) => r.checked);
+        const place = where.list.find((r) => r.checked).value;
+        const chosen = what.list.find((r) => r.checked);
         const name = (chosen === own ? input.value : chosen.value).trim();
         if (!name) { msg.textContent = t('office.menu_empty'); msg.hidden = false; input.focus(); return false; }
-        const j = await Office.api.post('caretaker.menu_name', { name });
+        const j = await Office.api.post('caretaker.menu_name', { name, place });
         if (!j.ok) { msg.textContent = Office.errorText(j.error, 'caretaker'); msg.hidden = false; return false; }
+        if (j.place !== CONFIG.menu_place || j.place === 'settings') {
+          location.href = j.url + location.hash;        // a new place (or its title bar): load the page there
+          return true;
+        }
         CONFIG.menu_name = j.name;
         document.querySelectorAll(`#menu .nav-item a[href="/${CONFIG.menu_page}"]`).forEach((a) => { a.textContent = j.name; });
         Office.toast(t('office.menu_saved', { name: j.name }));

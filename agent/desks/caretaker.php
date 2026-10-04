@@ -20,7 +20,7 @@ desk('caretaker', [
         'refresh'       => fn (array $r) => ['ok' => true, 'state' => caretakerScan()],
         'office_check'  => fn (array $r) => ['ok' => true, 'state' => caretakerScan(true)],
         'office_update' => fn (array $r) => officeUpdate(),
-        'menu_name'     => fn (array $r) => caretakerMenuName((string) ($r['name'] ?? '')),
+        'menu_name'     => fn (array $r) => caretakerMenuName((string) ($r['name'] ?? ''), (string) ($r['place'] ?? 'menu')),
     ],
     'checks'  => fn () => caretakerChecks(),
 ]);
@@ -123,12 +123,13 @@ function caretakerChecks(): array
 }
 
 /**
- * The office's label in Unraid's menu bar (plugin only): MENU_NAME in the
- * plugin's .cfg on the flash (the default isn't written), and right away the
- * Name= line of the page in RAM (src/place.php). Unraid shows it on the next
- * page load.
+ * The office's entry in Unraid (plugin only): its label and where it shows —
+ * in the menu bar or under Settings → User Utilities. MENU_NAME and
+ * MENU_PLACE in the plugin's .cfg on the flash (defaults aren't written), and
+ * right away the header of the page in RAM (src/place.php). Unraid shows it
+ * on the next page load.
  */
-function caretakerMenuName(string $name): array
+function caretakerMenuName(string $name, string $place): array
 {
     if (!AS_PLUGIN) {
         throw new Problem('menu_not_plugin');
@@ -137,15 +138,21 @@ function caretakerMenuName(string $name): array
     if (!officeMenuNameValid($name)) {
         throw new Problem('menu_name_bad', ['max' => OFFICE_MENU_MAX]);
     }
+    if (!isset(OFFICE_MENU_PLACES[$place])) {
+        throw new Problem('bad_request');
+    }
     $lines = is_file(OFFICE_PLUGIN_CFG) ? (file(OFFICE_PLUGIN_CFG, FILE_IGNORE_NEW_LINES) ?: []) : [];
-    $lines = array_values(array_filter($lines, fn ($l) => !preg_match('/^\s*MENU_NAME\s*=/', $l)));
+    $lines = array_values(array_filter($lines, fn ($l) => !preg_match('/^\s*MENU_(NAME|PLACE)\s*=/', $l)));
     if ($name !== OFFICE_MENU_DEFAULT) {
         $lines[] = 'MENU_NAME="' . $name . '"';
     }
+    if ($place !== 'menu') {
+        $lines[] = 'MENU_PLACE="' . $place . '"';
+    }
     writeAtomic(OFFICE_PLUGIN_CFG, implode("\n", $lines) . "\n", 0644, 0, 0);
-    if (!officeMenuPageApply(OFFICE_DIR, $name)) {
+    if (!officeMenuPageApply(OFFICE_DIR, $name, $place)) {
         throw new Problem('menu_page_failed');
     }
-    logLine("Menu name: $name");
-    return ['ok' => true, 'name' => $name];
+    logLine("Menu entry: $name ($place)");
+    return ['ok' => true, 'name' => $name, 'place' => $place, 'url' => officeMenuUrl($place)];
 }
