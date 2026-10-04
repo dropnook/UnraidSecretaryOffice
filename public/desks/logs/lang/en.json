@@ -40,6 +40,10 @@
     "other": "{n} lines with \"error\""
   },
   "menu.reload": "Read again",
+  "menu.reset_favs": "Reset favourites",
+  "reset_favs_text": "Your favourites go, the ones out of the box come back: syslog, kernel, Docker, agent, Mr. Backupsy's latest run, Kopia and EmbyCache (as far as they exist).",
+  "reset_favs_go": "Reset",
+  "reset_favs_done": "Favourites as out of the box",
   "group.office": "Office",
   "group.unraid": "Unraid",
   "group.userscripts": "User Scripts",

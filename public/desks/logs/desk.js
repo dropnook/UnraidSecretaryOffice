@@ -174,6 +174,21 @@ function toggleFav() {
   fillSources();
 }
 
+/** Back to the favourites out of the box (after asking) */
+function resetFavs() {
+  Office.dialog({
+    title: T('menu.reset_favs'),
+    body: el('p', '', T('reset_favs_text')),
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('reset_favs_go'), kind: '', act: () => {
+      favs = DEFAULT_FAVS.slice();
+      Office.store('logs.favorites', null);         // no list of your own: the defaults count again
+      if (view) fillSources();
+      Office.toast(T('reset_favs_done'));
+      return true;
+    } }],
+  });
+}
+
 /** The source list, grouped, favourites first (and only there); a source that is gone falls back to the syslog */
 function fillSources() {
   const sel = view.source;
@@ -294,7 +309,10 @@ Office.desk({
   poll() { load(false); },
   agentChanged() { if (view) renderHead(); },
   menu() {
-    return [{ text: T('menu.reload'), act: () => { load(true); if (view) restart(); } }];
+    return [
+      { text: T('menu.reload'), act: () => { load(true); if (view) restart(); } },
+      { text: T('menu.reset_favs'), act: resetFavs },
+    ];
   },
   async reception() {
     if (!state) await load(false);

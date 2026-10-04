@@ -40,6 +40,10 @@
     "other": "{n} Zeilen mit «error»"
   },
   "menu.reload": "Neu einlesen",
+  "menu.reset_favs": "Favoriten zurücksetzen",
+  "reset_favs_text": "Deine Favoriten weg, die von ab Werk zurück: Syslog, Kernel, Docker, Agent, Herr Backupsis letzter Lauf, Kopia und EmbyCache (soweit es sie gibt).",
+  "reset_favs_go": "Zurücksetzen",
+  "reset_favs_done": "Favoriten wie ab Werk",
   "group.office": "Sekretariat",
   "group.unraid": "Unraid",
   "group.userscripts": "User Scripts",
