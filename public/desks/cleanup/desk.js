@@ -1108,7 +1108,40 @@ function renderTrash(body) {
   body.appendChild(box);
 }
 
+/** What a run is: when, where, how big — for a group's title bar or a single row */
+function runMeta(run) {
+  const meta = [T('where.' + run.where)];
+  if (run.items.length !== 1) meta.push(T('items', { n: run.items.length }));
+  if (run.bytes !== null) meta.push(fmt.size(run.bytes));
+  else if (run.measuring) meta.push(T('measuring'));
+  return meta.join(' · ');
+}
+
+function purgeButton(run) {
+  const b = el('button', 'btn small danger plain', T('purge.button'));
+  b.type = 'button';
+  b.disabled = !Office.agent.running || state.backup_running;
+  b.onclick = (e) => { e.stopPropagation(); purgeDialog([run]); };
+  return b;
+}
+
+/** A run with one thing in it is one row: nothing to fold, both buttons side by side */
+function trashSingle(run) {
+  const it = run.items[0];
+  const r = trashRow(run, it);
+  const meta = r.querySelector('.row-meta');
+  const whenSpan = el('span', '', `${fmt.date(run.time)} · ${runMeta(run)}`);
+  whenSpan.title = run.path;
+  meta.appendChild(whenSpan);
+  if (run.legacy) meta.appendChild(chip(T('trash.legacy'), 'quiet', T('trash.legacy_text')));
+  if (run.purging) meta.appendChild(chip('⏳ ' + T('trash.purging'), 'warn', T('trash.purging_text')));
+  else r.querySelector('.cl-acts').appendChild(purgeButton(run));
+  r.classList.add('cl-single');
+  return r;
+}
+
 function trashGroup(run) {
+  if (run.items.length === 1) return trashSingle(run);
   const key = 'trash.' + run.id;
   const closed = folded[key] ?? false;
   const box = el('div', 'group' + (closed ? ' closed' : ''));
@@ -1120,18 +1153,9 @@ function trashGroup(run) {
   title.append(el('span', '', `${fmt.date(run.time)} · ${fmt.relative(run.time)}`));
   if (run.legacy) title.appendChild(chip(T('trash.legacy'), 'quiet', T('trash.legacy_text')));
   if (run.purging) title.appendChild(chip('⏳ ' + T('trash.purging'), 'warn', T('trash.purging_text')));
-  const meta = [T('where.' + run.where), T('items', { n: run.items.length })];
-  if (run.bytes !== null) meta.push(fmt.size(run.bytes));
-  else if (run.measuring) meta.push(T('measuring'));
-  mid.append(title, el('div', 'group-meta', meta.join(' · ')), el('div', 'group-meta mono', run.path));
+  mid.append(title, el('div', 'group-meta', runMeta(run)), el('div', 'group-meta mono', run.path));
   head.append(el('span', 'group-arrow', '▼'), mid);
-  if (!run.purging) {
-    const b = el('button', 'btn small danger plain', T('purge.button'));
-    b.type = 'button';
-    b.disabled = !Office.agent.running || state.backup_running;
-    b.onclick = (e) => { e.stopPropagation(); purgeDialog([run]); };
-    head.appendChild(b);
-  }
+  if (!run.purging) head.appendChild(purgeButton(run));
   const rows = el('div', 'group-rows');
   if (!run.items.length) rows.appendChild(el('div', 'row nocheck', T('trash.no_items')));
   run.items.filter(matches).forEach((it) => rows.appendChild(trashRow(run, it)));
@@ -1160,7 +1184,7 @@ function trashRow(run, it) {
   if (!it.present) meta.appendChild(chip(T('item.gone'), 'warn', T('item.gone_text')));
   if (it.volumes.length) meta.appendChild(chip(T('stack.volumes', { n: it.volumes.length }), 'quiet', T('item.volumes_text', { names: it.volumes.join(', ') })));
   main.appendChild(meta);
-  const act = el('div');
+  const act = el('div', 'cl-acts');
   if (!run.legacy && !run.purging && it.from && it.present) {
     const b = el('button', 'btn small plain', T('restore.button'));
     b.type = 'button';

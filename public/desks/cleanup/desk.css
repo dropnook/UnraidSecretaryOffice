@@ -9,3 +9,10 @@
 .cl-trash-row .row-meta .mono{overflow-wrap:anywhere}
 .search.cl-filter-on{border-color:var(--danger); box-shadow:0 0 0 1px var(--danger)}
 .cl-filter-note{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0}
+.cl-acts{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end}
+.box > .row.cl-single:first-child{border-top:0}
+@media (max-width:640px){
+  .row.cl-trash-row{grid-template-columns:minmax(0,1fr)}
+  .row.cl-trash-row > div:last-child:empty{display:none}
+  .cl-trash-row .cl-acts{justify-content:flex-start}
+}
