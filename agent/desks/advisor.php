@@ -7,7 +7,9 @@ declare(strict_types=1);
  * what they are good for and how to install them by hand.
  *
  *   fcp     Fix Common Problems, a plugin (checks the server for common
- *           mistakes; the caretaker recommends it)
+ *           mistakes)
+ *   filesviewer  Files Viewer, a plugin (browse and manage files in Unraid —
+ *           the office has no file browser of its own on purpose)
  *   kopia   a Kopia container (Mr. Backupsy hands it the offsite copies;
  *           how it must be set up he checks himself)
  *   streamviewer  Stream Viewer, a plugin (who watches what on Emby,
@@ -19,6 +21,7 @@ declare(strict_types=1);
 
 const ADVISOR_EXTERNALS = [
     'fcp'          => ['plugin' => 'fix.common.problems'],
+    'filesviewer'  => ['plugin' => 'filesviewer'],
     'kopia'        => ['container' => 'kopia'],         // image or name contains it
     'streamviewer' => ['plugin' => 'streamviewer', 'media' => true],
 ];
@@ -32,7 +35,8 @@ desk('advisor', [
     ],
     // Kopia: Mr. Backupsy's checks say what he needs from it
     'checks'  => fn () => array_merge(
-        [finding('fcp', 'recommended', housePlugin(ADVISOR_EXTERNALS['fcp']['plugin']), [], 'apps')],
+        [finding('fcp', 'recommended', housePlugin(ADVISOR_EXTERNALS['fcp']['plugin']), [], 'apps'),
+         finding('filesviewer', 'recommended', housePlugin(ADVISOR_EXTERNALS['filesviewer']['plugin']), [], 'apps')],
         ($media = advisorMedia()) ? [finding('streamviewer', 'recommended', housePlugin('streamviewer'), ['media' => $media], 'apps')] : [],
     ),
 ]);

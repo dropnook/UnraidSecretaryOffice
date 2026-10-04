@@ -83,10 +83,10 @@ function caretakerChecks(): array
     if (!AS_PLUGIN) {           // the stack is run with it
         $out[] = finding('compose_manager', 'recommended', housePlugin('compose.manager'), [], 'apps');
     }
-    if (!in_array('advisor', staffHired(), true)) {      // once hired, the consultant looks after it
+    if (!in_array('advisor', staffHired(), true)) {      // once hired, the consultant looks after them
         $out[] = finding('fix_common_problems', 'recommended', housePlugin('fix.common.problems'), [], 'apps');
+        $out[] = finding('files_viewer', 'recommended', housePlugin('filesviewer'), [], 'apps');
     }
-    $out[] = finding('files_viewer', 'recommended', housePlugin('filesviewer'), [], 'apps');
 
     // do Unraid's notifications (backup errors, disks …) reach anybody?
     $cfg = readCfg('/boot/config/plugins/dynamix/dynamix.cfg', true);

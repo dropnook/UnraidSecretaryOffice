@@ -28,6 +28,14 @@
   "ext.fcp.name": "Fix Common Problems",
   "ext.fcp.what": "A plugin from Lime Technology that looks over the server for common mistakes: files of a share on the wrong pool, plugins out of date or no longer compatible, folders that don't belong in /mnt, no parity check schedule, notifications that reach nobody … It says what's wrong and how to fix it, and reports by notification.",
   "open.fcp": "Open Fix Common Problems",
+  "ext.filesviewer.name": "Files Viewer",
+  "ext.filesviewer.what": "A plugin by Lazaros Chalkidis: browse and manage files right in Unraid — previews of images, text, PDF, video, archives, SQLite and more; deleted files go to a recycle bin per share. The office has no file browser of its own on purpose: this external does it far better — and costs less than an internal hire.",
+  "open.filesviewer": "Open Files Viewer",
+  "install.filesviewer.1": "In Apps search for «Files Viewer» (by Lazaros Chalkidis) and install it.",
+  "install.filesviewer.2": "Without Apps: Plugins → Install Plugin, paste the address below and click Install.",
+  "install.filesviewer.3": "Then it has a button in Unraid's header and a page under Tools → Viewers Suite → Files Viewer.",
+  "install.filesviewer.4": "Settings → User Utilities → Files Viewer Settings: which shares it shows, and its recycle bin.",
+  "copy.filesviewer.url": "Plugin address",
   "ext.kopia.name": "Kopia",
   "ext.kopia.what": "A container that copies backups off the server — encrypted and deduplicated, to a cloud storage or another machine (S3, Backblaze B2, MEGA S4, SFTP …). Every night Mr. Backupsy hands it the snapshots of your shares; without it everything stays on this server only.",
   "ext.kopia.for": "Mr. Backupsy hands it the offsite copies",
@@ -68,5 +76,7 @@
   "check.fcp": "Fix Common Problems is installed",
   "check.fcp_how": "Apps → search «Fix Common Problems» → Install. The Consultant explains what it is good for and how to install it by hand.",
   "check.streamviewer": "Stream Viewer shows what's playing on {media}",
-  "check.streamviewer_how": "Apps → search «Stream Viewer» → Install. The Consultant explains what it shows and how to install it by hand."
+  "check.streamviewer_how": "Apps → search «Stream Viewer» → Install. The Consultant explains what it shows and how to install it by hand.",
+  "check.filesviewer": "Files Viewer (by Lazaros Chalkidis)",
+  "check.filesviewer_how": "Look at files and logs — Mr. Backupsy's too — right in Unraid. Apps → search «Files Viewer» → Install; the Consultant explains how to install it by hand."
 }

@@ -1,5 +1,6 @@
 /* The Consultant — from outside the office. He knows the externals the office
-   relies on but doesn't make itself (Fix Common Problems, Kopia): whether
+   relies on but doesn't make itself (Fix Common Problems, Files Viewer, Kopia,
+   Stream Viewer): whether
    they are there, what they are good for, who in the office needs them, and
    how to install them by hand. Read only. The agent part lives in
    agent/desks/advisor.php. */
@@ -16,6 +17,10 @@ const EXTERNALS = {
   fcp: {
     icon: '🩺', open: '/Settings/FixProblems', install: '/Apps', desk: null,
     copy: { url: 'https://raw.githubusercontent.com/unraid/fix.common.problems/master/plugins/fix.common.problems.plg' },
+  },
+  filesviewer: {
+    icon: '🗂️', open: '/Tools/FilesViewerTool', install: '/Apps', desk: null,
+    copy: { url: 'https://raw.githubusercontent.com/Lazaros-Chalkidis/unraid-filesviewer/main/filesviewer.plg' },
   },
   kopia: {
     icon: '☁️', open: '/Docker', install: '/Apps', desk: 'backup',
