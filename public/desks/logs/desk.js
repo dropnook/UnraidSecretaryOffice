@@ -1,7 +1,8 @@
 /* Ms. Protocolli — reads every log out loud, understands none of it. Pick a
    source (the office's own, Unraid's, User Scripts, containers), how many
    lines, follow it live like tail -f, filter by text or "errors and warnings
-   only", copy or download what is shown. The agent part lives in
+   only", copy or download what is shown. Favourites (remembered in this
+   browser) come first in the list and as buttons under it. The agent part lives in
    agent/desks/logs.php; lines always go into the page as text, never as HTML. */
 (() => {
 'use strict';
@@ -27,6 +28,7 @@ const opts = {
   only: Office.store('logs.only') === '1',
   query: '',
 };
+let favs = Office.storeJson('logs.favorites') || [];      // source ids, in the order they were starred
 
 const ERROR = /\b(error|err|fail(ed|ure)?|fatal|panic|crit(ical)?|emerg|alert|segfault|denied|oops|call trace|i\/o error)\b/i;
 const WARN = /\b(warn(ing)?|timeout|timed out|retry|retrying)\b/i;
@@ -85,6 +87,7 @@ function build(root) {
     [T('help.source'), T('help.source_text')],
     [T('live'), T('help.live')],
     [T('only_problems'), T('help.only')],
+    [T('help.favorites'), T('help.favorites_text')],
     [el('span', 'lg-sample error', T('help.red')), T('help.colours')],
     [T('help.safe'), T('help.safe_text')],
   ]));
@@ -96,7 +99,10 @@ function build(root) {
   const bar = el('div', 'toolbar lg-bar');
   v.source = el('select', 'picker lg-source');
   v.source.setAttribute('aria-label', T('help.source'));
-  v.source.onchange = () => { opts.source = v.source.value; Office.store('logs.source', opts.source); restart(); };
+  v.source.onchange = () => pick(v.source.value);
+  v.star = el('button', 'btn small plain lg-star');
+  v.star.type = 'button';
+  v.star.onclick = toggleFav;
   v.lines = el('select', 'picker');
   v.lines.setAttribute('aria-label', T('lines_label'));
   LINE_CHOICES.forEach((n) => v.lines.appendChild(new Option(T('lines', { n }), String(n))));
@@ -125,8 +131,10 @@ function build(root) {
   const save = el('button', 'btn small plain', T('download'));
   save.type = 'button';
   save.onclick = download;
-  bar.append(v.source, v.lines, v.query, v.followSw, onlySw, wrapSw, copy, save);
+  bar.append(v.source, v.star, v.lines, v.query, v.followSw, onlySw, wrapSw, copy, save);
   s.appendChild(bar);
+  v.favs = el('div', 'lg-favs');
+  s.appendChild(v.favs);
 
   v.out = el('pre', 'code lg-out' + (opts.wrap ? ' wrap' : ''));
   v.out.setAttribute('tabindex', '0');
@@ -150,13 +158,34 @@ function bubbleText() {
   return T('bubble.counted', { errors: e, warnings: w });
 }
 
-/** The source list, grouped; a source that is gone falls back to the syslog */
+function pick(id) {
+  opts.source = id;
+  Office.store('logs.source', id);
+  fillSources();
+  restart();
+}
+
+/** Star or unstar the source being read */
+function toggleFav() {
+  favs = favs.includes(opts.source) ? favs.filter((f) => f !== opts.source) : favs.concat(opts.source);
+  Office.storeJson('logs.favorites', favs);
+  fillSources();
+}
+
+/** The source list, grouped, favourites first (and only there); a source that is gone falls back to the syslog */
 function fillSources() {
   const sel = view.source;
   sel.innerHTML = '';
   const all = state?.sources || [];
+  const starred = favs.map((id) => all.find((s) => s.id === id)).filter(Boolean);
+  if (starred.length) {
+    const og = el('optgroup');
+    og.label = T('group.favorites');
+    starred.forEach((s) => og.appendChild(new Option(sourceName(s), s.id)));
+    sel.appendChild(og);
+  }
   for (const g of GROUPS) {
-    const items = all.filter((s) => s.group === g);
+    const items = all.filter((s) => s.group === g && !favs.includes(s.id));
     if (!items.length) continue;
     const og = el('optgroup');
     og.label = T('group.' + g);
@@ -165,6 +194,20 @@ function fillSources() {
   }
   if (!all.some((s) => s.id === opts.source)) opts.source = all.some((s) => s.id === 'syslog') ? 'syslog' : (all[0]?.id || '');
   sel.value = opts.source;
+  const on = favs.includes(opts.source);
+  view.star.textContent = on ? '★' : '☆';
+  view.star.title = T(on ? 'fav_remove' : 'fav_add');
+  view.star.setAttribute('aria-label', view.star.title);
+  view.star.classList.toggle('on', on);
+  // the favourites as buttons: one click to read them
+  view.favs.innerHTML = '';
+  starred.forEach((s) => {
+    const b = el('button', 'btn small plain lg-fav' + (s.id === opts.source ? ' active' : ''), T('source.' + s.label, { name: s.param }));
+    b.type = 'button';
+    b.onclick = () => { if (s.id !== opts.source) pick(s.id); };
+    view.favs.appendChild(b);
+  });
+  view.favs.hidden = !starred.length;
 }
 
 function sourceName(s) {
