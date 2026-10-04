@@ -549,6 +549,39 @@ function backupUserScriptDescribe(): void
     }
 }
 
+/**
+ * A Nextcloud container's data folder on the host: 'datadirectory' from its
+ * config.php (read through the container's own mounts), mapped back to the
+ * host. Null when it can't be found out.
+ */
+function backupNextcloudDataDir(string $container): ?string
+{
+    $c = houseInspect($container);
+    if (!$c) {
+        return null;
+    }
+    $mounts = [];
+    foreach ((array) ($c['Mounts'] ?? []) as $m) {
+        if (!empty($m['Source']) && !empty($m['Destination'])) {
+            $mounts[rtrim($m['Destination'], '/')] = rtrim($m['Source'], '/');
+        }
+    }
+    $toHost = function (string $path) use ($mounts): ?string {
+        $best = null;
+        foreach ($mounts as $dest => $src) {
+            if (($path === $dest || str_starts_with($path, "$dest/")) && ($best === null || strlen($dest) > strlen($best))) {
+                $best = $dest;
+            }
+        }
+        return $best === null ? null : $mounts[$best] . substr($path, strlen($best));
+    };
+    $config = $toHost('/var/www/html/config/config.php');
+    $text = $config ? (string) @file_get_contents($config, false, null, 0, 65536) : '';
+    $dir = preg_match("/'datadirectory'\s*=>\s*'([^']+)'/", $text, $m) ? rtrim($m[1], '/') : '/var/www/html/data';
+    $host = $toHost($dir);
+    return $host !== null && is_dir($host) ? $host : null;
+}
+
 /** Sets the nightly run in User Scripts (cron) or switches it off (null / '') */
 function backupSetSchedule(mixed $cron): array
 {
@@ -780,6 +813,19 @@ function backupChecks(): array
     if (is_file("$data/settings.ini")) {
         $drift = array_filter(backupDrift()['items'], fn ($d) => in_array($d['level'] ?? '', ['warn', 'error'], true));
         $out[] = finding('drift', 'recommended', !$drift, ['n' => count($drift)], '#/backup/setup');
+
+        // Nextcloud refuses to work (and so its maintenance mode) when others can read its data folder —
+        // and Unraid resets a share's root to 0777 whenever share settings are saved
+        $seen = [];
+        foreach ($summary['nextcloud'] as $nc) {
+            $dir = backupNextcloudDataDir($nc['container']);
+            if ($dir !== null && !isset($seen[$dir])) {     // app and cron of one Nextcloud share it
+                $seen[$dir] = true;
+                $mode = @fileperms($dir);
+                $out[] = finding('nextcloud_datadir', 'required', $mode === false ? null : ($mode & 0007) === 0,
+                    ['name' => $nc['container'], 'path' => $dir, 'mode' => $mode === false ? '?' : sprintf('%o', $mode & 0777)], 'userscripts');
+            }
+        }
 
         // the backup stops running containers for its snapshots — the office too, unless told otherwise
         $office = array_values(array_filter(array_keys($containers), fn ($n) => str_starts_with($n, 'UnraidSecretaryOffice')));

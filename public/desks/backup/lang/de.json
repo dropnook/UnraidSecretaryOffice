@@ -509,5 +509,8 @@
   "setup.ct_office": "Sekretariat — läuft immer weiter",
   "setup.ctwhy.office": "Unraid Secretary Office — schreibt nur kleine Dateien, nie eine halbe",
   "setup.pending_title": "Neu gegenüber den gespeicherten Einstellungen",
-  "setup.edits_title": "Von dir geändert"
+  "setup.edits_title": "Von dir geändert",
+  "setup.bubble_old": "Das ist mein Stand von {when} — seither kann sich etwas geändert haben. Lies den Server mit «Neu einlesen» nochmals ein, bevor du übernimmst.",
+  "check.nextcloud_datadir": "Nextcloud «{name}»: Datenverzeichnis nur für Nextcloud lesbar",
+  "check.nextcloud_datadir_how": "{path} steht auf {mode} — Nextcloud verweigert dann den Dienst, und der Wartungsmodus fürs Backup lässt sich nicht einschalten. Unraid setzt die Wurzel eines Shares auf 0777 zurück, sobald Share-Einstellungen gespeichert werden. Korrigieren: chown 33:33 und chmod 0770 auf {path} (z. B. als User Script)."
 }

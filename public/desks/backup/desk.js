@@ -9,6 +9,7 @@ const ID = 'backup';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
 const LIVE_POLL = 5000;
+const SETUP_STALE = 600;          // seconds: an older plan is read again when the setup page opens
 
 // phases of a run (status.json "phase") grouped into the steps the desk shows
 const STEPS = [
@@ -892,6 +893,7 @@ function renderSetup() {
   measure.title = T('setup.measure_hint');
   let bubble = T('setup.bubble_loading');
   if (busy) bubble = T(setup.status.mode === 'apply' ? 'setup.bubble_applying' : 'setup.bubble_planning');
+  else if (setup.plan && Date.now() / 1000 - setup.plan.time > SETUP_STALE) bubble = T('setup.bubble_old', { when: fmt.relative(setup.plan.time) });
   else if (setup.plan) bubble = T(setup.plan.have_settings ? 'setup.bubble_have' : 'setup.bubble_new');
   else if (state && state.running) bubble = T('setup.bubble_backup_runs');
   const { head } = Office.deskHead(Office.desks.get(ID), { bubble, actions: [back, again, measure] });
@@ -1351,6 +1353,10 @@ Office.desk({
       renderSetup();
       if (!state) await load(false);
       await setupLoad();
+      // an old plan doesn't know what changed since (new shares, moved ones): read the server again
+      if (setup.plan && Date.now() / 1000 - setup.plan.time > SETUP_STALE && canPlan() && !(setup.status && setup.status.running)) {
+        setupPlan(false, true);
+      }
     } else {
       Office.selbar(null);
       render();

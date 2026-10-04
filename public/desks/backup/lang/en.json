@@ -509,5 +509,8 @@
   "setup.ct_office": "Office — always keeps running",
   "setup.ctwhy.office": "Unraid Secretary Office — only writes small files, never half of one",
   "setup.pending_title": "New compared with the saved settings",
-  "setup.edits_title": "Changed by you"
+  "setup.edits_title": "Changed by you",
+  "setup.bubble_old": "This is what I knew {when} — things may have changed since. Read the server again with \"Read again\" before you apply.",
+  "check.nextcloud_datadir": "Nextcloud \"{name}\": data folder readable by Nextcloud only",
+  "check.nextcloud_datadir_how": "{path} is set to {mode} — Nextcloud then refuses to work, and maintenance mode for the backup can't be switched on. Unraid resets a share's root to 0777 whenever share settings are saved. Fix: chown 33:33 and chmod 0770 on {path} (e.g. as a User Script)."
 }
