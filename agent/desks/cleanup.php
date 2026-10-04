@@ -15,6 +15,10 @@ declare(strict_types=1);
  *   vms        what deleted VMs left behind: folders in the domains share,
  *              NVRAM files, TPM states and snapshot lists without their VM,
  *              and disk images in the isos share that no VM uses
+ *   scripts    User Scripts that are switched off and lie around: broken
+ *              (no script file), pointing to paths that are gone, or not run
+ *              since the reboot and unchanged for CL_FRESH_DAYS. Scheduled or
+ *              running ones are never put away; the office's own never count
  *   docker     dangling and unused images, volumes without a container,
  *              the build cache — Docker can't rename these, so they can
  *              only be removed for good (images can be pulled again)
@@ -49,7 +53,9 @@ const CL_TRASH        = '_UnraidSecretaryOffice-trash';
 const CL_LEGACY       = '_zumloeschen';            // trash of the old unraid-cleanup.sh
 // folder in a trash run => kind of what is in it
 const CL_KINDS        = ['templates' => 'template', 'compose' => 'stack', 'appdata' => 'appdata', 'vms' => 'domain', 'isos' => 'iso',
-                         'nvram' => 'nvram', 'tpm' => 'tpm', 'snapshotdb' => 'snapshotdb', 'strays' => 'stray'];
+                         'nvram' => 'nvram', 'tpm' => 'tpm', 'snapshotdb' => 'snapshotdb', 'strays' => 'stray', 'userscripts' => 'userscript'];
+const CL_US_SCRIPTS   = US_DIR . '/scripts';
+const CL_US_TMP       = '/tmp/user.scripts';         // running markers and last outputs (RAM: since the reboot)
 const CL_STRAY_TTL    = 6 * 3600;                  // look for stray templates again after this (or when asked)
 const CL_MEDIA        = '/\.(iso|img|qcow2|raw|vhdx?|vmdk|vdi|pat|dmg)$/i';   // what counts as a VM's disk image in the isos share
 const CL_UUID         = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
@@ -135,6 +141,7 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         'domains'   => $places['domains'] + ['folders' => $vms['enabled'] ? clShareFolders($places['domains']) : ['list' => [], 'files' => 0]],
         'isos'      => $places['isos'] + ['files' => $vms['enabled'] ? clMediaFiles($places['isos']) : []],
         'compose'   => clForeignCompose($docker),
+        'scripts'   => clUserScripts(),
         'vms'       => $vms,
         'libvirt'   => clLibvirtOrphans($vms),
         'trash'     => clTrashRuns($places, $vms),
@@ -263,6 +270,13 @@ function clSafe(string $path): bool
 /** true / false, or null when looking would wake a disk */
 function clExists(string $path): ?bool
 {
+    // a share that doesn't exist at all: gone, without asking any disk
+    if (preg_match('#^/mnt/user0?/([^/]+)#', $path, $m)) {
+        $GLOBALS['clFresh']['shares'] ??= array_keys(readCfg('/var/local/emhttp/shares.ini', true));
+        if (!in_array($m[1], $GLOBALS['clFresh']['shares'], true) && !is_file("/boot/config/shares/{$m[1]}.cfg")) {
+            return false;
+        }
+    }
     return clSafe($path) ? file_exists($path) : null;
 }
 
@@ -835,6 +849,58 @@ function clForeignCompose(array $docker): array
     return $found;
 }
 
+// --------------------------------------------------------------------- User Scripts
+
+/** The User Scripts plugin's scripts, with what tells whether they are still in use */
+function clUserScripts(): array
+{
+    $up = (float) explode(' ', (string) @file_get_contents('/proc/uptime'))[0];
+    $out = ['installed' => is_dir(CL_US_SCRIPTS), 'boot' => $up > 0 ? time() - (int) $up : null, 'list' => []];
+    $schedule = json_decode((string) @file_get_contents(US_SCHEDULE), true) ?: [];
+    $now = time();
+    foreach ($out['installed'] ? (glob(CL_US_SCRIPTS . '/*', GLOB_ONLYDIR) ?: []) : [] as $dir) {
+        $id = basename($dir);
+        $file = "$dir/script";
+        $exists = is_file($file);
+        $text = $exists ? (string) @file_get_contents($file, false, null, 0, 65536) : '';
+        $plan = is_array($schedule[$file] ?? null) ? $schedule[$file] : [];
+        $freq = (string) ($plan['frequency'] ?? 'disabled');
+        $description = trim((string) @file_get_contents("$dir/description"));
+        if ($description === '' && preg_match('/^#\s*description=(.*)$/m', $text, $m)) {
+            $description = trim($m[1]);
+        }
+        // paths it names, comments left out (the same rule Ms. Whereabouts follows)
+        preg_match_all('#(?<![\w$}])(/(?:mnt|boot)/[^\s"\'`;|&<>(){}$]+)#', preg_replace('/^\s*#.*$/m', '', $text), $pm);
+        $paths = [];
+        foreach (array_slice(array_unique(array_map(fn ($p) => rtrim($p, '/.,;:'), $pm[1])), 0, 40) as $p) {
+            $paths[] = ['path' => $p, 'exists' => clExists($p)];
+        }
+        $dead = count(array_filter($paths, fn ($p) => $p['exists'] === false));
+        $pid = (int) @file_get_contents(CL_US_TMP . "/running/$id");
+        $running = $pid > 1 && is_dir("/proc/$pid");
+        $lastRun = @filemtime(CL_US_TMP . "/tmpScripts/$id/log.txt") ?: null;
+        $mtime = $exists ? (int) @filemtime($file) : (int) @filemtime($dir);
+        $office = str_starts_with($id, US_PREFIX);
+        $scheduled = $freq !== 'disabled' && $freq !== '';
+        if (!$exists) {
+            $category = 'broken';
+        } elseif ($office || $scheduled || $running || $lastRun || $mtime > $now - CL_FRESH_DAYS * 86400) {
+            $category = 'used';
+        } else {
+            $category = $dead ? 'dead' : 'idle';
+        }
+        $out['list'][] = [
+            'id' => "userscript:$id", 'kind' => 'userscript', 'name' => trim((string) @file_get_contents("$dir/name")) ?: $id, 'folder' => $id,
+            'dir' => $dir, 'path' => $file, 'exists' => $exists, 'description' => $description, 'category' => $category,
+            'frequency' => $freq, 'cron' => trim((string) ($plan['custom'] ?? '')) ?: null, 'running' => $running, 'last_run' => $lastRun,
+            'mtime' => $mtime, 'bytes' => $exists ? (int) @filesize($file) : 0, 'paths' => $paths, 'dead' => $dead, 'office' => $office,
+            'why' => $office ? 'office' : ($running ? 'running' : ($scheduled ? 'scheduled' : null)), 'force' => false,
+        ];
+    }
+    usort($out['list'], fn ($a, $b) => strnatcasecmp($a['name'], $b['name']));
+    return $out;
+}
+
 // --------------------------------------------------------------------- VMs
 
 /** The VMs libvirt knows (its XML files), only while the VM service runs — without it nothing about VMs can be told */
@@ -1154,6 +1220,7 @@ function clBuild(): array
                         'strays_at' => $cache['strays']['at'] ?? null, 'strays_searching' => $pending('strays:flash') || $pending('strays:pools'),
                         'strays_skipped' => $cache['strays']['skipped'] ?? 0, 'strays_skipped_dirs' => $cache['strays']['skipped_dirs'] ?? []],
         'stacks'    => ['root' => $raw['stacks']['root'], 'exists' => $raw['stacks']['exists'], 'list' => $stacks],
+        'scripts'   => $raw['scripts'] + ['dir' => CL_US_SCRIPTS],
         'appdata'   => [
             'share'    => $ad['share'],
             'places'   => array_values($ad['places']),
@@ -1647,7 +1714,7 @@ function clGuard(array $state): void
 function clIndex(array $state): array
 {
     $all = [];
-    foreach (array_merge($state['templates']['list'], $state['stacks']['list']) as $e) {
+    foreach (array_merge($state['templates']['list'], $state['stacks']['list'], $state['scripts']['list']) as $e) {
         $all[$e['id']] = $e;
     }
     foreach (array_merge($state['appdata']['list'], $state['vms']['list']) as $f) {
@@ -1675,6 +1742,9 @@ function clPark(array $ids, bool $force): array
                 'checking'      => new Problem('cleanup_checking', $p),
                 'vm_off'        => new Problem('cleanup_vm_off', $p),
                 'in_unraid'     => new Problem('cleanup_in_unraid', $p),
+                'office'        => new Problem('cleanup_office_script', $p),
+                'running'       => new Problem('cleanup_running', $p),
+                'scheduled'     => new Problem('cleanup_scheduled', $p),
                 'measuring'     => new Problem('cleanup_measuring', $p),
                 default         => new Problem('cleanup_measure_first', $p),
             };
@@ -1713,6 +1783,11 @@ function clPark(array $ids, bool $force): array
                 $runs[$r]['items'][] = ['kind' => 'stack', 'name' => $e['folder'], 'label' => $e['name'], 'from' => $e['dir'], 'as' => $as,
                                         'project' => $e['project'], 'indirect' => $e['indirect'], 'was_running' => count($e['containers']),
                                         'volumes' => $e['volumes'], 'images' => array_column($e['images'], 'ref')];
+            } elseif ($e['kind'] === 'userscript') {
+                $r = $run(CL_FLASH . '/' . CL_TRASH);
+                $as = 'userscripts/' . $e['folder'];
+                clMove($e['dir'], $runs[$r]['path'] . "/$as");
+                $runs[$r]['items'][] = ['kind' => 'userscript', 'name' => $e['folder'], 'label' => $e['name'], 'from' => $e['dir'], 'as' => $as];
             } elseif ($e['kind'] === 'stray') {
                 $r = $run(clStrayTrash($e['path']));
                 $as = clStrayAs($e['path']);
@@ -1825,7 +1900,7 @@ function clLabel(array $e): string
 {
     return match ($e['kind']) {
         'template', 'stray' => $e['file'],
-        'stack'    => $e['folder'],
+        'stack', 'userscript' => $e['folder'],
         default    => $e['name'],
     };
 }
@@ -1891,6 +1966,7 @@ function clRestore(array $ids): array
             'nvram'      => CL_LIBVIRT . '/qemu/nvram',
             'tpm'        => CL_LIBVIRT . '/qemu/swtpm/tpm-states',
             'snapshotdb' => CL_LIBVIRT . '/qemu/snapshotdb',
+            'userscript' => CL_US_SCRIPTS,
             'stray'      => preg_match('#/my-[^/]+\.xml$#', $it['from'])
                             && under($it['from'], under($run['root'], '/boot') ? '/boot' : dirname($run['root'])) ? dirname($it['from']) : '',
             default      => dirname($run['root']),          // appdata, domains, isos: the share on that pool
@@ -2083,6 +2159,7 @@ function clDetail(string $id): array
     $e = $all[$id] ?? throw new Problem('unknown_target', ['target' => $id]);
     $files = match ($e['kind']) {
         'template', 'stray' => [$e['path']],
+        'userscript' => $e['exists'] ? [$e['path']] : [],
         'stack'    => array_values(array_filter([$e['file'], $e['override']])),
         default    => [],
     };

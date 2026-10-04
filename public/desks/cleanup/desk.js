@@ -11,13 +11,14 @@
 const ID = 'cleanup';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
-const SECTIONS = ['templates', 'stacks', 'appdata', 'vms', 'docker', 'trash'];
-const ICONS = { templates: '📄', stacks: '🧩', appdata: '🗃️', vms: '🖥️', docker: '🐳', trash: '🗑️' };
+const SECTIONS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'trash'];
+const ICONS = { templates: '📄', stacks: '🧩', appdata: '🗃️', vms: '🖥️', scripts: '📜', docker: '🐳', trash: '🗑️' };
 const GROUPS = {
   templates: ['leftover', 'unused', 'duplicate', 'noname', 'stray_only_here', 'stray_newer', 'stray_name_exists', 'stray_older', 'stray_copy', 'unknown', 'in_use'],
   stacks: ['leftover', 'broken', 'unused', 'unknown', 'in_use'],
   appdata: ['unused', 'check', 'unknown', 'used'],
   vms: ['broken', 'orphan', 'unused', 'check', 'media', 'unknown', 'used'],
+  scripts: ['broken', 'dead', 'idle', 'used'],
   docker: ['dangling', 'volume', 'unused', 'cache', 'used'],
 };
 const CANDIDATES = {
@@ -25,11 +26,12 @@ const CANDIDATES = {
   stacks: ['leftover', 'broken', 'unused'],
   appdata: ['unused', 'check'],
   vms: ['broken', 'orphan', 'unused', 'check', 'media'],
+  scripts: ['broken', 'dead', 'idle'],
   docker: ['dangling', 'volume', 'unused', 'cache'],
 };
 const CLOSED = ['in_use', 'used', 'unknown'];        // folded until opened
 const KIND_ICONS = { container: '🐳', template: '📄', stack: '🧩', compose: '🧩', flash: '💾', vm: '🖥️' };
-const ITEM_ICONS = { template: '📄', stray: '📄', vmdef: '🖥️', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐' };
+const ITEM_ICONS = { template: '📄', stray: '📄', vmdef: '🖥️', userscript: '📜', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐' };
 const POLL_MS = 3000;
 
 let state = null;
@@ -74,14 +76,14 @@ function entries(sec) {
   if (!state) return [];
   return ({
     templates: state.templates.list, stacks: state.stacks.list, appdata: state.appdata.list,
-    vms: state.vms.list, docker: state.docker.list,
+    vms: state.vms.list, scripts: state.scripts.list, docker: state.docker.list,
   })[sec] || [];
 }
 const candidates = (sec) => entries(sec).filter((e) => CANDIDATES[sec].includes(e.category));
 const removable = (e) => ['image', 'volume', 'cache'].includes(e.kind);
 /** Docker's leftovers in use can't be chosen at all; everything else in use only with a warning */
 const selectable = (e) => !!state && e.why === null && !state.backup_running && !(removable(e) && e.category === 'used');
-const label = (e) => (e.kind === 'template' || e.kind === 'stray' ? e.file : e.kind === 'stack' ? e.folder : e.kind === 'cache' ? T('cache.name') : e.name);
+const label = (e) => (e.kind === 'template' || e.kind === 'stray' ? e.file : e.kind === 'userscript' ? e.name : e.kind === 'stack' ? e.folder : e.kind === 'cache' ? T('cache.name') : e.name);
 const sum = (list) => list.reduce((a, e) => a + (e.bytes || 0), 0);
 const words = () => query.trim().toLowerCase().split(/\s+/).filter(Boolean);
 /** Does an entry match the filter? Its name and what it is connected to (image, containers, stack, paths) */
@@ -94,7 +96,7 @@ function matches(e) {
   return w.every((x) => hay.includes(x));
 }
 /** VMs only with the VM service switched on, Docker's rooms (appdata too: who uses it is told by Docker) only with Docker */
-const visible = (sec) => (sec === 'vms' ? state.vms.enabled : ['templates', 'stacks', 'appdata', 'docker'].includes(sec) ? state.docker.enabled : true);
+const visible = (sec) => (sec === 'vms' ? state.vms.enabled : sec === 'scripts' ? state.scripts.installed : ['templates', 'stacks', 'appdata', 'docker'].includes(sec) ? state.docker.enabled : true);
 
 function chip(text, cls, tip) {
   const c = el('span', 'chip' + (cls ? ' ' + cls : ''), text);
@@ -187,7 +189,7 @@ Office.desk({
     if (!state) await load(false);
     if (!state) return { bubble: T('bubble.no_data'), facts: [] };
     const facts = [];
-    for (const sec of ['templates', 'stacks', 'appdata', 'vms', 'docker']) {
+    for (const sec of ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker']) {
       const c = candidates(sec);
       if (c.length) facts.push(T('fact.' + sec, { n: c.length, size: fmt.size(sum(c)) }));
     }
@@ -229,6 +231,7 @@ function build(root) {
     [T('section.appdata'), T('help.appdata_text')],
     [T('help.check'), T('help.check_text')],
     [T('section.vms'), T('help.vms_text')],
+    [T('section.scripts'), T('help.scripts_text')],
     [T('section.docker'), T('help.docker_text')],
     [T('help.sizes'), T('help.sizes_text')],
     [T('help.safe'), T('help.safe_text')],
@@ -279,7 +282,7 @@ function render() {
 function bubbleText() {
   if (!state) return Office.agent.running ? T('bubble.loading') : T('bubble.no_data');
   const found = [];
-  for (const sec of ['templates', 'stacks', 'appdata', 'vms', 'docker']) {
+  for (const sec of ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker']) {
     const c = candidates(sec);
     if (c.length) found.push(T('bubble.' + sec, { n: c.length, size: fmt.size(sum(c)) }));
   }
@@ -369,6 +372,7 @@ function renderSection() {
   if (section === 'templates') body.appendChild(templatesInfo());
   if (section === 'appdata') body.appendChild(appdataInfo());
   if (section === 'vms') body.appendChild(vmsInfo());
+  if (section === 'scripts') body.appendChild(scriptsInfo());
   if (section === 'docker') body.appendChild(dockerInfo());
   if (section === 'stacks' && !state.stacks.exists) { body.appendChild(emptyNote(T('empty.no_compose', { path: state.stacks.root }))); return; }
   if (section === 'trash') renderTrash(body);
@@ -442,6 +446,13 @@ function vmsInfo() {
   if (!v.complete) box.appendChild(el('p', 'role', '⏳ ' + T('appdata.checking')));
   const asleep = [...new Set([...v.domains.asleep, ...v.isos.asleep])];
   if (asleep.length) box.appendChild(asleepCallout(asleep));
+  return box;
+}
+
+function scriptsInfo() {
+  const box = el('div', 'cl-info');
+  box.appendChild(el('p', 'role', T('us.where', { dir: state.scripts.dir })));
+  if (state.scripts.boot) box.appendChild(el('p', 'role', T('us.boot', { when: fmt.date(state.scripts.boot) })));
   return box;
 }
 
@@ -536,6 +547,7 @@ const VIEWS = {
   domain: () => [folderMeta, folderDetail],
   iso: () => [folderMeta, folderDetail],
   vmdef: () => [vmdefMeta, vmdefDetail],
+  userscript: () => [scriptMeta, scriptDetail],
   nvram: () => [libvirtMeta, libvirtDetail],
   tpm: () => [libvirtMeta, libvirtDetail],
   snapshotdb: () => [libvirtMeta, libvirtDetail],
@@ -604,6 +616,7 @@ function menuItems(e) {
   if (e.kind === 'template' || e.kind === 'stray') items.push({ text: T('show_xml'), act: () => showFile(e) });
   if (e.kind === 'stray' && ['only_here', 'newer'].includes(e.loc)) items.push({ text: T('install.button'), act: () => installDialog(e), disabled: !Office.agent.running || state.backup_running });
   if (e.kind === 'stack' && e.file) items.push({ text: T('show_compose'), act: () => showFile(e) });
+  if (e.kind === 'userscript' && e.exists) items.push({ text: T('show_script'), act: () => showFile(e) });
   if (e.parts && !e.parts.every((p) => p.file) || (e.kind === 'volume' && e.path)) {
     items.push({ text: T('measure_again'), act: () => measure([e.id]), disabled: !Office.agent.running || e.measuring });
   }
@@ -814,6 +827,39 @@ function folderDetail(f) {
   ]));
   (f.notes || []).forEach((n) => box.appendChild(el('p', 'role', noteText(n))));
   if (f.parts.some((p) => p.dataset)) box.appendChild(el('p', 'role', T('zfs_note')));
+  return box;
+}
+
+// ------------------------------------------------------------------ User Scripts
+function freqText(e) {
+  if (e.frequency === 'custom') return e.cron ? fmt.cron(e.cron) : T('us.freq.custom');
+  if (e.frequency === 'disabled' || !e.frequency) return T('us.off') + (e.cron ? ` (${e.cron})` : '');
+  return Office.has(`${ID}.us.freq.${e.frequency}`) ? T('us.freq.' + e.frequency) : e.frequency;
+}
+
+function scriptMeta(e, meta) {
+  if (e.name !== e.folder) meta.appendChild(el('span', 'mono', e.folder));
+  meta.appendChild(chip(freqText(e), e.frequency === 'disabled' ? 'quiet' : 'accent', T('us.schedule_text')));
+  if (e.running) meta.appendChild(chip('▶ ' + T('us.running'), 'accent', T('us.running_text')));
+  if (e.office) meta.appendChild(chip(T('us.office'), 'quiet', T('us.office_text')));
+  if (e.dead) meta.appendChild(chip(T('us.dead', { n: e.dead }), 'warn', T('us.dead_text')));
+  if (!e.exists) meta.appendChild(chip(T('us.no_file'), 'danger', T('us.no_file_text')));
+  meta.appendChild(el('span', '', e.last_run ? T('us.last_run', { when: fmt.relative(e.last_run) }) : T('us.not_since_boot')));
+  meta.appendChild(el('span', '', T('changed', { when: fmt.relative(e.mtime) })));
+}
+
+function scriptDetail(e) {
+  const box = el('div');
+  const paths = e.paths.map((p) => `${p.exists === true ? '✓' : p.exists === false ? '✗' : '?'} ${p.path}`);
+  box.appendChild(kv([
+    [T('d.file'), e.path, true],
+    [T('d.description'), e.description],
+    [T('d.schedule'), freqText(e)],
+    [T('d.last_run'), e.last_run ? when(e.last_run) : T('us.not_since_boot')],
+    [T('d.changed'), when(e.mtime)],
+    [T('d.script_paths'), paths.length ? lines(paths) : null],
+  ]));
+  if (e.why === 'scheduled') box.appendChild(el('p', 'role', T('why.scheduled_text')));
   return box;
 }
 
