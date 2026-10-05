@@ -209,10 +209,11 @@ function notifySection() {
   const items = last ? (last.items || []) : [];
   main.appendChild(el('div', 'row-name text', !last ? T('notify_none')
     : T(last.sent === false ? 'notify_last_failed' : 'notify_last', { when: fmt.relative(last.time), n: items.length })));
-  const meta = el('div', 'row-meta');
-  meta.appendChild(el('span', 'chip ' + (n.on === false ? 'quiet' : 'ok'), T(n.on === false ? 'notify_state_off' : 'notify_state_on')));
-  if (n.on !== false && n.waiting) meta.appendChild(el('span', '', T('notify_waiting', { n: n.waiting })));
-  main.appendChild(meta);
+  if (n.on !== false && n.waiting) {
+    const meta = el('div', 'row-meta');
+    meta.appendChild(el('span', '', T('notify_waiting', { n: n.waiting })));
+    main.appendChild(meta);
+  }
   if (items.length) main.appendChild(el('div', 'row-detail', items.map((f) => text(f)).join(' · ')));
   if (n.available === false) main.appendChild(el('div', 'row-detail', T('notify_missing')));
   r.appendChild(main);

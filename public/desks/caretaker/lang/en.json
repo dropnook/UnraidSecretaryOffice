@@ -133,8 +133,6 @@
   "notify_switch": "Report to Unraid's notifications",
   "notify_on": "I'll report to Unraid's notifications",
   "notify_off": "No more reports to Unraid's notifications",
-  "notify_state_on": "on",
-  "notify_state_off": "off",
   "notify_none": "Nothing reported yet.",
   "notify_last": {
     "one": "Last report {when}: one thing",

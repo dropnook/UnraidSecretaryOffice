@@ -133,8 +133,6 @@
   "notify_switch": "An Unraids Benachrichtigungen melden",
   "notify_on": "Ich melde es Unraids Benachrichtigungen",
   "notify_off": "Keine Meldungen mehr an Unraids Benachrichtigungen",
-  "notify_state_on": "an",
-  "notify_state_off": "aus",
   "notify_none": "Noch nichts gemeldet.",
   "notify_last": {
     "one": "Zuletzt gemeldet {when}: eine Sache",
