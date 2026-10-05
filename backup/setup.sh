@@ -1,6 +1,12 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.18 - 2026-10-05
+# unraid-backup - setup.sh                        Version 2.19 - 2026-10-05
+#   2.19 [app "<name>"] and [vm "<name>"] kopia = yes, folder, kopia_retention, kopia_ignore: apps and VMs
+#        with a Kopia source of their own (backup.sh); their policies are written and compared like the
+#        shares' (kind app / vm), the shares leave their parts out. With --apply only the decisions
+#        count for them. The plan names per container the media server (media), Kopia rules to offer for
+#        caches, transcodes, logs and Immich's thumbnails (offers), and where Nextcloud and Immich keep
+#        their files (data)
 #   2.18 The backup place holds a package per app and VM (backup.sh); its share keeps their history
 #        in snapshots: proposed as at least a local snapshot, never off (why code backup_place), a
 #        warning when it can't take snapshots. keep_runs is no longer written (old files: ignored)
@@ -436,6 +442,11 @@ TXT
     pinit "kopia|identity"  ""
     pinit "flash|mode"      ""
     [[ -z "$(pget "flash|mode")" ]] && unset "P[flash|mode]"
+    # apps and VMs with a Kopia source of their own (since 2.19): as they are - the office decides about them
+    local k
+    for k in "${!OLD[@]}"; do
+        [[ "$k" == app\|* || "$k" =~ ^vm\|.+\|(kopia|folder|kopia_retention|kopia_ignore)$ ]] && P[$k]="${OLD[$k]}"
+    done
 
     # From here on the proposals apply to inventory and plan
     _apply_P
@@ -1105,6 +1116,7 @@ ct_data_where() {
 }
 
 declare -a DB_ROWS=() DB_MISSING=() NC_ROWS=()   # for --plan
+declare -A NC_DATA=()                            # Nextcloud container -> its datadirectory (inside the container)
 step_databases() {
     hdr "Databases and Nextcloud"
     explain <<'TXT'
@@ -1211,6 +1223,8 @@ TXT
         found=1
         u="$(docker exec "$n" stat -c %U "$occ" 2>/dev/null)"; [[ -z "$u" || "$u" == root || "$u" == UNKNOWN ]] && u="www-data"
         id="$(docker exec -u "$u" "$n" php "$occ" config:system:get instanceid 2>/dev/null | tr -d '\r')"
+        # where it keeps the files (for the office's warning when that share is backed up less than the app)
+        NC_DATA[$n]="$(docker exec -u "$u" "$n" php "$occ" config:system:get datadirectory 2>/dev/null | tr -d '\r' | head -1)"
         g="${id:-?$n}"
         [[ -z "${members[$g]:-}" ]] && groups+=( "$g" )
         members[$g]+="${members[$g]:+ }$n"
@@ -1425,7 +1439,7 @@ every share inherits it and carries only its differences (own ignores, own reten
 the folders would be empty. one-file-system=false, so that child datasets come along.
 TXT
     plan_build
-    if [[ ${#PLAN_KOPIA[@]} -eq 0 && "$PLAN_FLASH" != "snapshot" ]]; then
+    if [[ ${#PLAN_KOPIA[@]} -eq 0 && "$PLAN_FLASH" != "snapshot" && ${#PLAN_KITEMS[@]} -eq 0 ]]; then
         KOPIA_FAIL="no_shares"; hint "No share goes to Kopia - Kopia part skipped"; return 0
     fi
 
@@ -1710,7 +1724,33 @@ settings_render() {
             w_kv mode "$(pget "vm|$n|mode" snapshot)"
             w_kv prepare "$(pget "vm|$n|prepare" none)"
             [[ -n "$(pget "vm|$n|retention")" ]] && w_kv retention "$(pget "vm|$n|retention")"
+            if [[ "$(pget "vm|$n|kopia")" == "yes" ]]; then
+                w_kv kopia yes
+                w_list folder "vm|$n|folder"
+                [[ -n "$(pget "vm|$n|kopia_retention")" ]] && w_kv kopia_retention "$(pget "vm|$n|kopia_retention")"
+                w_list kopia_ignore "vm|$n|kopia_ignore"
+            fi
         done < <(printf '%s\n' "${!P[@]}" | sed -n 's/^vm|\(.*\)|mode$/\1/p' | sort)
+        local first_app="yes"
+        while IFS= read -r n; do
+            [[ -z "$n" || "$(pget "app|$n|kopia")" != "yes" ]] && continue
+            if [[ "$first_app" == "yes" ]]; then
+                first_app="no"
+                echo
+                echo "# --- Apps with a Kopia source of their own -----------------------------------"
+                w_c "kopia            yes = its folders and its package are a Kopia source of their own: <container path>/.apps/<name>"
+                w_c "                 (the shares leave those folders out; VMs: the same keys in their [vm] section)"
+                w_c "folder           <share>/<folder> it keeps data in (several times)"
+                w_c "kopia_retention  its own 'latest hourly daily weekly monthly annual' (missing = as in [kopia])"
+                w_c "kopia_ignore     Kopia ignore rule relative to its source: /<share>/<folder>/... (several times)"
+            fi
+            echo
+            echo "[app \"$n\"]"
+            w_kv kopia yes
+            w_list folder "app|$n|folder"
+            [[ -n "$(pget "app|$n|kopia_retention")" ]] && w_kv kopia_retention "$(pget "app|$n|kopia_retention")"
+            w_list kopia_ignore "app|$n|kopia_ignore"
+        done < <(printf '%s\n' "${!P[@]}" | sed -n 's/^app|\(.*\)|kopia$/\1/p' | LC_ALL=C sort)
         echo
         echo "# --- Shares -------------------------------------------------------------------"
         w_c "mode             kopia = snapshot + Kopia, snapshot = local snapshot only, off = nothing"
@@ -1947,7 +1987,9 @@ summary() {
     say ""
     band "Result" "== Result =="
     plan_build
-    if is_yes "$KOPIA_ENABLED"; then say "  Shares to Kopia:      ${PLAN_KOPIA[*]:-none}"
+    if is_yes "$KOPIA_ENABLED"; then
+        say "  Shares to Kopia:      ${PLAN_KOPIA[*]:-none}"
+        (( ${#PLAN_KITEMS[@]} )) && say "  Own Kopia sources:    $(for it in "${PLAN_KITEMS[@]}"; do IFS='|' read -r t n _ <<<"$it"; printf '%s:%s ' "$t" "$n"; done)"
     else say "  Kopia:                off (local snapshots and dumps only)"; fi
     say "  Local only (snapshot): $(for s in "${PLAN_SNAP[@]}"; do in_list "$s" "${PLAN_KOPIA[@]}" || printf '%s ' "$s"; done)"
     say "  ZFS datasets:         ${#PLAN_ZFS[@]}   btrfs bases: ${#PLAN_BTRFS[@]}   flash: $PLAN_FLASH"
@@ -1974,6 +2016,7 @@ run_check() {
     drift_check_shares
     drift_check_containers
     drift_check_vms
+    drift_check_items
     drift_check_kopia
     if [[ ${#DRIFT[@]} -eq 0 ]]; then ok "No drift"
     else drift_text | while IFS= read -r l; do say "  $l"; done; fi
@@ -2049,8 +2092,11 @@ decisions_load() {
     local f="${UB_DECISIONS:-}" k v sec n=0
     [[ -n "$f" && -r "$f" ]] || { bad "Decisions are missing: ${f:-?}"; exit 1; }
     jq -e 'type == "object"' "$f" >/dev/null 2>&1 || { bad "The decisions are not a JSON object: $f"; exit 1; }
-    for k in "${!OLD[@]}"; do [[ "$k" == dump\|* || "$k" == nextcloud\|* ]] && unset "OLD[$k]"; done
-    local -a keep=(); for sec in "${OLD_SECTIONS[@]}"; do [[ "$sec" == dump\|* || "$sec" == nextcloud\|* ]] || keep+=( "$sec" ); done
+    # dumps, Nextclouds, apps and the VMs' own Kopia sources count only when they are in the decisions
+    for k in "${!OLD[@]}"; do
+        [[ "$k" == dump\|* || "$k" == nextcloud\|* || "$k" == app\|* || "$k" =~ ^vm\|.+\|(kopia|folder|kopia_retention|kopia_ignore)$ ]] && unset "OLD[$k]"
+    done
+    local -a keep=(); for sec in "${OLD_SECTIONS[@]}"; do [[ "$sec" == dump\|* || "$sec" == nextcloud\|* || "$sec" == app\|* ]] || keep+=( "$sec" ); done
     OLD_SECTIONS=( "${keep[@]}" )
     while IFS= read -r -d '' k && IFS= read -r -d '' v; do
         if [[ "$k" == "_retire_sources" ]]; then DECIDE_RETIRE="$v"; continue; fi
@@ -2073,10 +2119,57 @@ ct_share_binds() { # ct_share_binds <container>
     done <<<"${CT_BINDS[$1]:-}"
 }
 
+# Kopia rules the office offers per app (never set unasked): folders that are rebuilt by the app itself -
+# caches, transcodes, logs, updates, and Immich's thumbnails and re-encoded videos (rebuilding those takes
+# hours). Paths inside the container; only what exists (on awake disks) and lies in a share is offered.
+offer_candidates() { # offer_candidates <container>  -> lines "kind|path inside the container"
+    local c="$1" P="/config/Library/Application Support/Plex Media Server" x
+    case "$(media_kind "${CT_IMAGE[$c]}")" in
+        emby)     printf '%s\n' "cache|/config/cache" "transcode|/config/transcoding-temp" "log|/config/logs" ;;
+        jellyfin) printf '%s\n' "cache|/config/cache" "cache|/cache" "transcode|/config/transcodes" "transcode|/config/data/transcodes" \
+                                 "transcode|/cache/transcodes" "log|/config/log" ;;
+        plex)     printf '%s\n' "cache|$P/Cache" "codec|$P/Codecs" "crash|$P/Crash Reports" "log|$P/Logs" "update|$P/Updates" "transcode|/transcode" ;;
+    esac
+    if is_immich_server "${CT_IMAGE[$c]}"; then
+        for x in /data /usr/src/app/upload; do printf '%s\n' "thumbs|$x/thumbs" "video|$x/encoded-video"; done
+    fi
+    return 0
+}
+# container_offers <container>  -> "share|path in the share|kind" joined by <RS>; a folder below one already offered is left out
+container_offers() {
+    local c="$1" k p hp where r e out="" below
+    local -a seen=()
+    while IFS='|' read -r k p; do
+        [[ -z "$k" ]] && continue
+        hp="$(ct_host_path "$c" "$p")" || continue
+        r="$(path_share "$hp")" || continue
+        [[ "${r%%|*}" == "*" || -z "${r#*|}" ]] && continue
+        below=0; for e in "${seen[@]}"; do [[ "$r/" == "$e/"* ]] && below=1; done
+        (( below )) && continue
+        where="$(ub_path_where "$hp")"; [[ -n "$where" && -d "$where" ]] || continue
+        seen+=( "$r" )
+        out+="$r|$k"$'\x1e'
+    done < <(offer_candidates "$c")
+    printf '%s' "$out"
+}
+# container_data <container>  -> "kind|share|path in the share" for Nextcloud's and Immich's files (empty otherwise)
+container_data() {
+    local c="$1" hp="" r x kind=""
+    if [[ -n "${NC_DATA[$c]:-}" ]]; then kind="nextcloud"; hp="$(ct_host_path "$c" "${NC_DATA[$c]}")" || hp=""
+    elif is_immich_server "${CT_IMAGE[$c]}"; then
+        kind="immich"
+        for x in /data /usr/src/app/upload; do hp="$(ct_host_path "$c" "$x")" && break; done
+    fi
+    [[ -n "$hp" ]] || return 0
+    r="$(path_share "$hp")" || return 0
+    [[ "${r%%|*}" == "*" ]] && return 0
+    printf '%s|%s' "$kind" "$r"
+}
+
 # key<US>value lines -> JSON object; lists (ignore, no_stop, ...) as arrays
 plan_kv() {
     jq -Rn '[inputs | select(length > 0) | index("\u001f") as $i | {key: .[0:$i], value: .[$i + 1:]}]
-            | map(if (.key | test("\\|(ignore|no_stop|known|skip|kopia_ignore|exclude_dataset|tar_exclude)$"))
+            | map(if (.key | test("\\|(ignore|no_stop|known|skip|kopia_ignore|exclude_dataset|tar_exclude|folder)$"))
                   then .value |= (split("\u001e") | map(select(length > 0))) else . end) | from_entries'
 }
 
@@ -2106,13 +2199,16 @@ plan_write() {
     cts="$(for n in "${CT_NAMES[@]}"; do
         printf '%s\x1f' "$n" "${CT_IMAGE[$n]}" "${CT_RUNNING[$n]}" "${CT_STOP[$n]:-}" "${CT_CODE[$n]:-}" "${CT_ARG[$n]:-}" \
             "${CT_PREV[$n]:-}" "${CT_RISK[$n]:-}" "$(printf '%s' "${CT_VOLUMES[$n]:-}" | cut -d'|' -f2 | tr '\n' $'\x1e')" \
-            "${CT_PROJECT[$n]:-}" "${CT_SERVICE[$n]:-}" "$([[ "$n" == "$KOPIA_CONTAINER" ]] && echo 1)" "$(ct_share_binds "$n")"
+            "${CT_PROJECT[$n]:-}" "${CT_SERVICE[$n]:-}" "$([[ "$n" == "$KOPIA_CONTAINER" ]] && echo 1)" "$(ct_share_binds "$n")" \
+            "$(media_kind "${CT_IMAGE[$n]}")" "$(container_offers "$n")" "$(container_data "$n")"
         echo
-    done | us_json name image running stop why why_arg previous risk volumes project service kopia binds \
+    done | us_json name image running stop why why_arg previous risk volumes project service kopia binds media offers data \
          | jq 'map(.running = (.running == "true") | .stop = (.stop == "yes") | .previous = (.previous == "1")
                    | .risk = (.risk == "1") | .kopia = (.kopia == "1")
                    | .volumes = (.volumes | split("\u001e") | map(select(length > 0)))
-                   | .binds = (.binds | split("\u001e") | map(select(length > 0) | split("|") | {share: .[0], path: .[1], rw: (.[2] == "true")})))')"
+                   | .binds = (.binds | split("\u001e") | map(select(length > 0) | split("|") | {share: .[0], path: .[1], rw: (.[2] == "true")}))
+                   | .offers = (.offers | split("\u001e") | map(select(length > 0) | split("|") | {share: .[0], path: .[1], kind: .[2]}))
+                   | .data = (if .data == "" then null else (.data | split("|") | {kind: .[0], share: .[1], path: .[2]}) end))')"
     local vms
     vms="$(for n in "${VM_NAMES[@]}"; do
         printf '%s\x1f' "$n" "${VM_STATE[$n]:-}" "${VM_AUTOSTART[$n]:-}" "${VM_AGENT[$n]:-}" "${VM_HOSTDEV[$n]:-0}" "${VM_TPM[$n]:-}" \

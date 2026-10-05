@@ -1,6 +1,12 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.18 - 2026-10-05
+# unraid-backup - backup.sh                       Version 2.19 - 2026-10-05
+#   2.19 Apps and VMs at "local + Kopia" are Kopia sources of their own ([app|vm "<name>"] kopia = yes):
+#        their folders and their package, joined read-only under <mount_root>/.apps|.vms/<name>, with
+#        their own retention; the shares leave those parts out. Apps first, then the shares, then the
+#        VMs. Media servers that keep running get a consistent copy of their SQLite databases in their
+#        package (db/sqlite_*.db, SQLite's backup API, checked); the apps' own backups (Emby's plugin,
+#        Jellyfin, Plex, Immich) are named in the package's manifest
 #   2.18 Packages instead of run folders: per app (compose project or single container) and per VM
 #        a folder in the backup place with its small files - templates or compose files, docker
 #        inspect, database dumps, XML/NVRAM/TPM state - overwritten every run, swapped in only when
@@ -75,8 +81,9 @@
 #    7. ZFS snapshots (atomic per pool) and btrfs snapshots - they hold this
 #       run's packages too
 #    8. Start containers, maintenance mode off  -> the downtime ends here
-#    9. Mount the snapshots per share under <mount_root>/<share> (read-only)
-#   10. Kopia backs up every share from <mount_root>/<share>
+#    9. Mount the snapshots per share under <mount_root>/<share> (read-only), and
+#       join each app's and VM's own source under <mount_root>/.apps|.vms/<name>
+#   10. Kopia backs up the apps, every share from <mount_root>/<share>, the VMs
 #       (only with [kopia] enabled = yes - without Kopia 9/10 end here: local
 #       snapshots and dumps are then the whole backup)
 #   11. Unmount, clean up (ZFS, btrfs, logs; once: the run folders of engines
@@ -634,6 +641,54 @@ share_mount_points() { # mount points that must exist for a share
     esac
 }
 
+# --- the own sources of apps and VMs (lib/common.sh, section 9) ----------------
+# <mount_root>/.apps/<name>/<share>/<path>: read-only binds of its folders and its package out of the
+# shares' mounted snapshots - and of whatever is mounted below them (child datasets)
+declare -A ITEM_MPS=()        # "kind:name" -> its mount points (lines)
+declare -A ITEM_PARTS=()      # "kind:name" -> how many of its parts are in
+item_bind() { # item_bind <key> <source> <target>
+    local key="$1" src="$2" dst="$3" mp
+    [[ -d "$src" ]] || return 1
+    ro_bind "$src" "$dst" || { warn "Kopia source of ${key/:/ }: $src could not be bound"; return 1; }
+    ITEM_MPS[$key]+="$dst"$'\n'
+    # the binds are not recursive: the child datasets below the folder are bound one by one, the upper first
+    while IFS= read -r mp; do
+        [[ -z "$mp" ]] && continue
+        if ro_bind "$mp" "$dst/${mp#"$src"/}"; then ITEM_MPS[$key]+="$dst/${mp#"$src"/}"$'\n'
+        else warn "Kopia source of ${key/:/ }: $mp (mounted below $src) could not be bound"; fi
+    done < <(mounts_below "$src" | awk '{print length($0) "\t" $0}' | sort -n | cut -f2-)
+    return 0
+}
+# item_pkg <kind> <name>  -> its package folder in this run ("-" when it has none)
+item_pkg() {
+    local f
+    if [[ "$1" == "app" ]]; then for f in "${PKG_APPS[@]}"; do [[ "${PKG_APP_NAME[$f]}" == "$2" ]] && { printf '%s' "$f"; return; }; done
+    else for f in "${PKG_VMS[@]}"; do [[ "${PKG_VM_NAME[$f]}" == "$2" ]] && { printf '%s' "$f"; return; }; done; fi
+    printf -- '-'
+}
+mount_item() { # mount_item <kind> <name> <folder>
+    local t="$1" n="$2" f="$3" key="$1:$2" root sh rel b got
+    root="$(item_hostpath "$t" "$f")"
+    ITEM_MPS[$key]=""; ITEM_PARTS[$key]=0
+    while IFS='|' read -r sh rel; do
+        [[ -z "$sh" ]] && continue
+        if [[ -z "${SHARE_MOUNTED[$sh]:-}" ]]; then
+            warn "Kopia source of $t '$n': share '$sh' is not mounted - $sh/$rel is left out"; continue
+        fi
+        got=0
+        if [[ "${SHARE_MOUNTED[$sh]}" == "split" ]]; then
+            while IFS='|' read -r b _; do
+                [[ -n "$b" ]] && item_bind "$key" "$MOUNT_ROOT/$sh/$b/$rel" "$root/$sh/$b/$rel" && got=1
+            done <<<"${INV_LOCS[$sh]:-}"
+        else
+            item_bind "$key" "$MOUNT_ROOT/$sh/$rel" "$root/$sh/$rel" && got=1
+        fi
+        if (( got )); then ITEM_PARTS[$key]=$(( ${ITEM_PARTS[$key]} + 1 ))
+        else warn "Kopia source of $t '$n': $sh/$rel is not in this run's snapshot"; fi
+    done < <(kopia_item_parts "$t" "$n" "$(item_pkg "$t" "$n")")
+    (( ${ITEM_PARTS[$key]} > 0 ))
+}
+
 ##############################################################################
 # Nextcloud
 ##############################################################################
@@ -874,6 +929,171 @@ run_dumps() {
 }
 
 ##############################################################################
+# Media servers' databases, the apps' own backups (since 2.19)
+##############################################################################
+# Emby, Jellyfin and Plex usually keep running during the snapshot (running streams): their SQLite
+# databases there are only crash-consistent, and Jellyfin's and Plex's docs say to stop the server
+# for a backup. Such a server that keeps running gets a consistent copy of its main databases in its
+# package (db/sqlite_<container>_<file>): SQLite's backup API, read-only, through the very path the
+# server uses (so locks and the WAL index are shared), checked with PRAGMA quick_check. Made while
+# everything still runs - it doesn't lengthen the interruption. A copy that fails or takes too long
+# keeps the last good one; an unchanged database keeps it too (a hard link: no new blocks in the
+# snapshots of the backup place). Never on a sleeping disk.
+SQ_TIMEOUT="${UB_SQLITE_TIMEOUT:-600}"
+declare -a SQ_PLAN=()                    # "container|host path|path in the container|asleep"
+declare -A SQ_STATE=() SQ_CHECK=()       # "container|file" -> ok | unchanged | failed | asleep;  ok | unchecked
+declare -A SQ_UNCHANGED_BYTES=()         # package folder -> bytes of copies that stayed as they were
+
+# media_db_candidates <kind>  -> its main databases, as paths inside the container (official and linuxserver images)
+media_db_candidates() {
+    local P="/config/Library/Application Support/Plex Media Server/Plug-in Support/Databases"
+    case "$1" in
+        emby)     printf '%s\n' /config/data/library.db /config/data/users.db /config/data/authentication.db ;;
+        jellyfin) printf '%s\n' /config/data/jellyfin.db /config/data/library.db /config/data/data/jellyfin.db /config/data/data/library.db ;;
+        plex)     printf '%s\n' "$P/com.plexapp.plugins.library.db" "$P/com.plexapp.plugins.library.blobs.db" ;;
+    esac
+}
+
+# which databases this run copies: media servers that run, keep running for the snapshot and are backed up
+sqlite_plan() {
+    local c k p hp where
+    SQ_PLAN=()
+    command -v sqlite3 >/dev/null 2>&1 || return 0
+    for c in "${CT_NAMES[@]}"; do
+        [[ "${CT_RUNNING[$c]}" == "true" ]] || continue
+        k="$(media_kind "${CT_IMAGE[$c]}")"; [[ -n "$k" ]] || continue
+        in_list "$c" "${DOCKER_SKIP[@]}" && continue                         # not backed up on purpose
+        in_list "$c" "${T_APP[@]}" "${T_DB[@]}" "${T_NET[@]}" && continue    # stopped: its snapshot is consistent
+        [[ -n "${PKG_APP_OF[$c]:-}" ]] || continue
+        while IFS= read -r p; do
+            hp="$(ct_host_path "$c" "$p")" || continue
+            where="$(ub_path_where "$hp")"
+            if [[ -n "$where" && -f "$where" ]]; then SQ_PLAN+=( "$c|$hp|$p|" )
+            elif [[ "$UB_WHERE_ASLEEP" == "yes" ]]; then SQ_PLAN+=( "$c|$hp|$p|asleep" ); fi
+        done < <(media_db_candidates "$k")
+    done
+    return 0
+}
+
+run_sqlite_copies() {
+    local line c hp p asl f file key out old r sz
+    for line in "${SQ_PLAN[@]}"; do
+        IFS='|' read -r c hp p asl <<<"$line"
+        f="${PKG_APP_OF[$c]}"; file="sqlite_${c}_${p##*/}"; key="$c|$file"
+        out="$PKG_STAGE/apps/$f/db/$file"; old="$UB_DUMPS/apps/$f/db/$file"
+        if [[ "$asl" == "asleep" ]]; then
+            SQ_STATE[$key]="asleep"; log "  SQLite '$c' ${p##*/}: its disk sleeps - the package keeps its last copy"; continue
+        fi
+        # nothing changed since the last copy (the database and its WAL): that copy is still the current state
+        if [[ -f "$old" && ! -L "$old" && -z "$(find "$hp" "$hp-wal" -newer "$old" 2>/dev/null)" ]]; then
+            SQ_STATE[$key]="unchanged"; log "  SQLite '$c' ${p##*/}: unchanged since the last copy"; continue
+        fi
+        [[ "$out" != *"'"* ]] && mkdir -p "${out%/*}" || { SQ_STATE[$key]="failed"; warn "SQLite '$c' ${p##*/}: no place for the copy"; pkg_mark apps "$f" warnings; continue; }
+        log "  SQLite '$c' ${p##*/} ..."
+        if timeout "$SQ_TIMEOUT" sqlite3 "file:$(uri_escape "$hp")?mode=ro" ".backup '$out'" >/dev/null 2>>"$LOG_FILE" && [[ -s "$out" ]]; then
+            r="$(timeout "$SQ_TIMEOUT" sqlite3 "file:$(uri_escape "$out")?mode=ro" 'PRAGMA quick_check;' 2>&1 | head -3)"
+            rm -f "$out-wal" "$out-shm" "$out-journal"
+            if [[ "$r" == "ok" ]]; then SQ_CHECK[$key]="ok"
+            elif grep -qiE 'no such (collation|module|function|tokenizer)' <<<"$r"; then
+                SQ_CHECK[$key]="unchecked"; log "    (Unraid's sqlite3 can't check it - the server's own SQLite extensions: $r)"
+            else
+                SQ_STATE[$key]="failed"; rm -f "$out"
+                warn "SQLite copy of '$c' ${p##*/} fails its check ($r) - the package keeps its last copy"; pkg_mark apps "$f" warnings; continue
+            fi
+            SQ_STATE[$key]="ok"; DUMP_FILE_CT[apps/$f/db/$file]="$c"
+            sz="$(stat -c %s "$out" 2>/dev/null)"
+            log "    OK: $(human "${sz:-0}")$([[ "${SQ_CHECK[$key]}" == "ok" ]] && echo ', checked')"
+        else
+            SQ_STATE[$key]="failed"; rm -f "$out" "$out-journal"
+            warn "SQLite copy of '$c' ${p##*/} failed or took longer than ${SQ_TIMEOUT} s - the package keeps its last copy"; pkg_mark apps "$f" warnings
+        fi
+    done
+    return 0
+}
+
+# a copy that failed, wasn't made (sleeping disk) or wasn't needed (unchanged): the last one comes along
+pkg_keep_sqlite() { # pkg_keep_sqlite <folder> <old dir> <new dir>
+    local f="$1" old="$2" new="$3" line c hp p asl file key sz r
+    for line in "${SQ_PLAN[@]}"; do
+        IFS='|' read -r c hp p asl <<<"$line"
+        [[ "${PKG_APP_OF[$c]:-}" == "$f" ]] || continue
+        file="sqlite_${c}_${p##*/}"; key="$c|$file"
+        [[ "${SQ_STATE[$key]:-}" == "ok" ]] && continue
+        sz="$(pkg_keep "$old" "$new" "db/$file")" || continue
+        DUMP_FILE_CT[apps/$f/db/$file]="$c"
+        SQ_CHECK[$key]="$(jq -r --arg p "db/$file" 'first(.sqlite[]? | select(.file == $p) | .check) // ""' "$old/manifest.json" 2>/dev/null)"
+        if [[ "${SQ_STATE[$key]}" == "unchanged" ]]; then
+            SQ_UNCHANGED_BYTES[$f]=$(( ${SQ_UNCHANGED_BYTES[$f]:-0} + ${sz:-0} ))     # still the current state: this run's
+        else
+            r="$(jq -r --arg p "db/$file" 'first(.files[]? | select(.path == $p) | .run) // ""' "$old/manifest.json" 2>/dev/null)"
+            PKG_FILE_RUN[apps/$f/db/$file]="$r"
+            PKG_KEPT[apps/$f]=$(( ${PKG_KEPT[apps/$f]:-0} + 1 ))
+            log "  db/$file of '$c' stays in the package${r:+ from run $r}"
+        fi
+    done
+    return 0
+}
+
+# sqlite_json <folder>  -> the manifest's "sqlite": per planned copy its container, file, where the database
+# lies (host and container), what this run did and whether the copy is checked
+sqlite_json() {
+    local f="$1" line c hp p asl file key
+    for line in "${SQ_PLAN[@]}"; do
+        IFS='|' read -r c hp p asl <<<"$line"
+        [[ "${PKG_APP_OF[$c]:-}" == "$f" ]] || continue
+        file="sqlite_${c}_${p##*/}"; key="$c|$file"
+        printf '%s\x1f' "$c" "db/$file" "$hp" "$p" "${SQ_STATE[$key]:-failed}" "${SQ_CHECK[$key]:-}" "$([[ -f "$PKG_STAGE/apps/$f/db/$file" ]] && echo 1)"; echo
+    done | jq -Rn '[inputs | split("\u001f") | {container: .[0], file: .[1], source: .[2], path: .[3], state: .[4], check: .[5], present: (.[6] == "1")}]'
+}
+
+# The apps' own backups - a second way back that the restore help names:
+#   emby      the Backup & Restore plugin: <BackupDirectory> from plugins/configurations/MBBackup.xml
+#   jellyfin  10.11 and newer: backups/ in its data folder
+#   plex      its database backups every three days next to the database (com.plexapp.plugins.library.db-<date>)
+#   immich    UPLOAD_LOCATION/backups (daily database dumps, 14 kept unless changed)
+declare -A PKG_OWN=()                    # package folder -> JSON list
+own_backup_line() { # own_backup_line <kind> <container> <host dir> <glob>  - a line when the folder is there
+    local where n=0 newest=0 x m
+    where="$(ub_path_where "$3")"
+    if [[ -z "$where" ]]; then
+        [[ "$UB_WHERE_ASLEEP" == "yes" ]] || return 1
+        printf '%s\x1f%s\x1f%s\x1f0\x1f0\x1f1\n' "$1" "$2" "$3"; return 0        # its disk sleeps: named, not looked into
+    fi
+    [[ -d "$where" ]] || return 1
+    for x in "$where"/$4; do
+        [[ -e "$x" ]] || continue
+        n=$((n+1)); m="$(stat -c %Y "$x" 2>/dev/null)"; (( ${m:-0} > newest )) && newest="$m"
+    done
+    printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f0\n' "$1" "$2" "$3" "$n" "$newest"
+}
+own_backups_of() { # own_backups_of <container>
+    local c="$1" cfg where d hp x
+    case "$(media_kind "${CT_IMAGE[$c]}")" in
+        emby)
+            cfg="$(ct_host_path "$c" /config/plugins/configurations/MBBackup.xml)" || cfg=""
+            where=""; [[ -n "$cfg" ]] && where="$(ub_path_where "$cfg")"
+            d=""; [[ -n "$where" && -f "$where" ]] && d="$(sed -n 's:.*<BackupDirectory>\([^<]*\)</BackupDirectory>.*:\1:p' "$where" | head -1)"
+            [[ -n "$d" ]] && hp="$(ct_host_path "$c" "$d")" && own_backup_line emby "$c" "$hp" '*'
+            ;;
+        jellyfin)
+            for x in /config/backups /config/data/backups /config/data/data/backups; do
+                hp="$(ct_host_path "$c" "$x")" && own_backup_line jellyfin "$c" "$hp" '*' && break
+            done
+            ;;
+        plex)
+            hp="$(ct_host_path "$c" "/config/Library/Application Support/Plex Media Server/Plug-in Support/Databases")" \
+                && own_backup_line plex "$c" "$hp" 'com.plexapp.plugins.library.db-20*'
+            ;;
+    esac
+    if is_immich_server "${CT_IMAGE[$c]}"; then
+        for x in /data /usr/src/app/upload; do
+            hp="$(ct_host_path "$c" "$x/backups")" && own_backup_line immich "$c" "$hp" 'immich-db-backup-*' && break
+        done
+    fi
+    return 0
+}
+
+##############################################################################
 # Packages: one per app and VM in the backup place (lib/common.sh, section 8)
 ##############################################################################
 # Built in <place>/.ub-stage-<run>/ while the run goes on, swapped in before the snapshots,
@@ -1024,6 +1244,9 @@ pkg_server() {
         echo "## Shares to Kopia"
         printf '%s\n' "${PLAN_KOPIA[@]:-(none)}"
         echo
+        echo "## Apps and VMs with a Kopia source of their own (kind|name|folder under <mount_root>/.<kind>s/)"
+        printf '%s\n' "${PLAN_KITEMS[@]:-(none)}"
+        echo
         echo "## ZFS datasets in the snapshot"
         printf '%s\n' "${PLAN_ZFS[@]:-(none)}"
         echo
@@ -1111,6 +1334,9 @@ pkg_app_static() {
             pkg_mark apps "$f" warnings
         fi
     fi
+    # the apps' own backups (since 2.19): named in the manifest, for the restore help
+    PKG_OWN[$f]="$(for c in "${cts[@]}"; do own_backups_of "$c"; done | jq -Rn '[inputs | split("\u001f")
+        | {kind: .[0], container: .[1], path: .[2], files: (.[3] | tonumber), newest: (.[4] | tonumber), asleep: (.[5] == "1")}]')" || PKG_OWN[$f]='[]'
     for c in "${cts[@]}"; do
         [[ -n "${NC_OCC[$c]:-}" && -z "${NC_SAME[$c]:-}" ]] || continue
         mkdir -p "$A/nextcloud"
@@ -1224,6 +1450,7 @@ pkg_keep() {
 pkg_what() { # pkg_what <kind> <path>  - what a file of a package is
     case "$1:$2" in
         app:db/*.stderr) echo error ;;
+        app:db/sqlite_*) echo sqlite ;;
         app:db/*)        echo dump ;;
         app:compose/*|app:compose-files/*) echo compose ;;
         app:nextcloud/*) echo nextcloud ;;
@@ -1314,14 +1541,18 @@ pkg_count() { # pkg_count <key> <dir> <kept bytes>
 
 # the app packages (and flash/) swapped in - after the dumps, before the databases stop
 pkg_commit_apps() {
-    local f new old files kb dumps nc tpls c lg uv pv cl
+    local f new old files kb dumps nc tpls c lg uv pv cl sq own
     mkdir -p "$UB_DUMPS/apps" "$UB_DUMPS/vms" && chmod 700 "$UB_DUMPS/apps" "$UB_DUMPS/vms"
     for f in "${PKG_APPS[@]}"; do
         new="$PKG_STAGE/apps/$f"; old="$UB_DUMPS/apps/$f"
         [[ -d "$new" ]] || continue
         pkg_keep_dumps "$f" "$old" "$new"
+        pkg_keep_sqlite "$f" "$old" "$new"
         files="$(pkg_files_json "$new" "apps/$f" app)" || files='[]'
         kb="$(jq -r --arg r "$TS" '[.[] | select(.run != $r) | .bytes] | add // 0' <<<"$files" 2>/dev/null)"; is_uint "$kb" || kb=0
+        kb=$(( kb + ${SQ_UNCHANGED_BYTES[$f]:-0} ))       # unchanged database copies: hard links, nothing written
+        sq="$(sqlite_json "$f")" || sq='[]'
+        own="${PKG_OWN[$f]:-}"; [[ -n "$own" ]] || own='[]'
         dumps="$(while IFS= read -r c; do
                 [[ -n "$c" ]] && cfg_has "dump|$c" || continue
                 # no dump this time: the credentials the kept one was made with
@@ -1344,7 +1575,8 @@ pkg_commit_apps() {
             --arg run "$TS" --argjson time "$STARTED_AT" --arg host "$(hostname -s 2>/dev/null)" --arg result "${PKG_RESULT[apps/$f]:-ok}" \
             --arg cm "${PKG_APP_CM[$f]:-}" --arg wd "${PKG_PROJ_WD[${PKG_APP_NAME[$f]}]:-}" --arg cfgs "${PKG_PROJ_CFG[${PKG_APP_NAME[$f]}]:-}" \
             --slurpfile ins "$new/.inspect.json" --slurpfile img "$new/.images.json" \
-            --argjson files "$files" --argjson dumps "${dumps:-[]}" --argjson nc "${nc:-[]}" --argjson tpls "$tpls" '
+            --argjson files "$files" --argjson dumps "${dumps:-[]}" --argjson nc "${nc:-[]}" --argjson tpls "$tpls" \
+            --argjson sq "${sq:-[]}" --argjson own "$own" '
             ($img[0] // []) as $images |
             {interface: 1, engine: $engine, kind: "app", type: $type, name: $name, folder: $folder, run: $run, time: $time,
              host: $host, result: $result,
@@ -1356,7 +1588,7 @@ pkg_commit_apps() {
                  service: (.Config.Labels["com.docker.compose.service"] // null),
                  template: ($tpls[$n] // null),
                  inspect: .}],
-             dumps: $dumps, nextcloud: $nc, files: $files}' >"$new/manifest.json" 2>>"$LOG_FILE" \
+             dumps: $dumps, nextcloud: $nc, sqlite: $sq, own_backups: $own, files: $files}' >"$new/manifest.json" 2>>"$LOG_FILE" \
             || { warn "App '${PKG_APP_NAME[$f]}': manifest.json not written"; pkg_mark apps "$f" warnings; }
         rm -f "$new/.inspect.json" "$new/.images.json"
         pkg_swap apps "$f" && pkg_count "apps/$f" "$old" "$kb"
@@ -1743,6 +1975,7 @@ plan_build
 drift_check_shares
 drift_check_containers
 drift_check_vms
+drift_check_items
 if [[ "$SKIPK" != "1" ]]; then drift_check_kopia; else KOPIA_OK="skip"; fi
 
 # The backup place: a share of its own, backed up - otherwise no run (nothing is paused up to here)
@@ -1803,6 +2036,7 @@ esac
 build_stop_tiers
 vm_plan
 pkg_plan
+sqlite_plan
 log "Plan:"
 log "  ZFS snapshots:    ${PLAN_ZFS[*]:-none}"
 log "  btrfs snapshots:  ${PLAN_BTRFS[*]:-none}"
@@ -1813,6 +2047,11 @@ log "  Nextcloud:        $(cfg_names nextcloud | paste -sd' ' -)"
 log "  Pause:            ${T_APP[*]:-} | DB: ${T_DB[*]:-} | network: ${T_NET[*]:-}"
 log "  Keep running:     ${KOPIA_CONTAINER:-} ${DOCKER_NO_STOP[*]:-}"
 log "  Packages:         ${#PKG_APPS[@]} apps, ${#PKG_VMS[@]} VMs -> $UB_DUMPS"
+if (( ${#SQ_PLAN[@]} )); then
+    sqline=""
+    for l in "${SQ_PLAN[@]}"; do IFS='|' read -r sq_c _ sq_p sq_a <<<"$l"; sqline+="$sq_c:${sq_p##*/}${sq_a:+ (asleep)} "; done
+    log "  SQLite copies:    $sqline(media servers that keep running)"
+fi
 if [[ "$VM_SERVICE" == "yes" ]]; then
     # per VM what happens: its prepare method, or why nothing (off, kept_running, not_running)
     vmline=""
@@ -1828,9 +2067,20 @@ for s in "${PLAN_KOPIA[@]}"; do
     cp="$(k_path "$hp" 2>/dev/null)" || cp="?"
     log "  Kopia:            $s  [$(share_method "$s")/${INV_LAYOUT[$s]}]  $hp -> $cp${SKIP_KOPIA[$s]:+  (SKIPPED: ${SKIP_KOPIA[$s]})}"
 done
+for it in "${PLAN_KITEMS[@]}"; do
+    IFS='|' read -r it_t it_n it_f <<<"$it"
+    hp="$(item_hostpath "$it_t" "$it_f")"
+    cp="$(k_path "$hp" 2>/dev/null)" || cp="?"
+    log "  Kopia:            $it_t '$it_n' (a source of its own)  $hp -> $cp${SKIP_KOPIA[$it_t:$it_n]:+  (SKIPPED: ${SKIP_KOPIA[$it_t:$it_n]})}"
+    while IFS='|' read -r it_s it_r; do log "                      $it_s/$it_r"; done < <(kopia_item_parts "$it_t" "$it_n" "$(item_pkg "$it_t" "$it_n")")
+done
 
 if [[ "$KOPIA_OK" == "yes" && "$SKIPK" != "1" ]]; then
-    ST_KOPIA_PLAN=( "${PLAN_KOPIA[@]}" )
+    # in the order of the Kopia phase: apps (app:<name>), shares, VMs (vm:<name>), the flash
+    ST_KOPIA_PLAN=()
+    for it in "${PLAN_KITEMS[@]}"; do [[ "$it" == app\|* ]] && { IFS='|' read -r it_t it_n _ <<<"$it"; ST_KOPIA_PLAN+=( "app:$it_n" ); }; done
+    ST_KOPIA_PLAN+=( "${PLAN_KOPIA[@]}" )
+    for it in "${PLAN_KITEMS[@]}"; do [[ "$it" == vm\|* ]] && { IFS='|' read -r it_t it_n _ <<<"$it"; ST_KOPIA_PLAN+=( "vm:$it_n" ); }; done
     [[ "$PLAN_FLASH" == "snapshot" ]] && ST_KOPIA_PLAN+=( "flash" )
 fi
 status_write
@@ -1865,6 +2115,10 @@ status_phase "manifest"
 log "Packages: templates, compose files, the server's lists ..."
 pkg_server                           # still with all containers running
 pkg_apps_static
+if (( ${#SQ_PLAN[@]} )); then
+    log "Consistent copies of the media servers' databases (they keep running) ..."
+    run_sqlite_copies
+fi
 
 # --- Pausing, dumps, snapshots, starting ------------------------------------
 # Pause the apps first, then dump: apps without a maintenance mode (Immich & co.)
@@ -1933,9 +2187,16 @@ if [[ "$KOPIA_OK" == "yes" && "$SKIPK" != "1" ]]; then
     mkdir -p "$MOUNT_ROOT"
     stage_ready || die "Private staging area $UB_STAGE cannot be created"
     MOUNTED="yes"
-    for s in "${PLAN_KOPIA[@]}"; do
+    # PLAN_MOUNT: the shares that go to Kopia and those holding parts of an app's or VM's own source
+    for s in "${PLAN_MOUNT[@]}"; do
         if mount_share "$s"; then log "  $s (${SHARE_MOUNTED[$s]})"
-        else err "Share '$s' could not be mounted - it is not backed up"; fi
+        elif in_list "$s" "${PLAN_KOPIA[@]}"; then err "Share '$s' could not be mounted - it is not backed up"
+        else warn "Share '$s' could not be mounted - the apps' and VMs' parts in it are left out"; fi
+    done
+    for it in "${PLAN_KITEMS[@]}"; do
+        IFS='|' read -r it_t it_n it_f <<<"$it"
+        if mount_item "$it_t" "$it_n" "$it_f"; then log "  .${it_t}s/$it_f ($it_t '$it_n': ${ITEM_PARTS[$it_t:$it_n]} part(s))"
+        else err "The Kopia source of $it_t '$it_n' could not be put together - it is not backed up"; fi
     done
     if [[ "$PLAN_FLASH" == "snapshot" ]]; then
         if mkdir -p "$MOUNT_ROOT/$FLASH_SOURCE_NAME" && \
@@ -1972,6 +2233,31 @@ kopia_skip() { # source not backed up, without Kopia having run
     ST_KOPIA_DONE+=( "$1|0|0|$(date +%s)" ); status_write
 }
 
+# kopia_item <kind>  - the own sources of the apps or of the VMs
+kopia_item() {
+    local it t n f key cp mp c_mp missing
+    for it in "${PLAN_KITEMS[@]}"; do
+        IFS='|' read -r t n f <<<"$it"
+        [[ "$t" == "$1" ]] || continue
+        key="$t:$n"
+        if [[ -n "${SKIP_KOPIA[$key]:-}" ]]; then err "Kopia: $t '$n' skipped - ${SKIP_KOPIA[$key]}"; kopia_skip "$key"; continue; fi
+        cp="$(k_path "$(item_hostpath "$t" "$f")")" || { err "Kopia: $t '$n' is not mapped into the container"; kopia_skip "$key"; continue; }
+        [[ -n "${ITEM_MPS[$key]:-}" ]] || { kopia_skip "$key"; continue; }
+        # never an empty folder: every part must be visible inside the container
+        missing=""
+        while IFS= read -r mp; do
+            [[ -z "$mp" ]] && continue
+            c_mp="$(k_path "$mp")"
+            [[ -n "${KMI[$c_mp]+x}" ]] || missing+="$c_mp "
+        done <<<"${ITEM_MPS[$key]}"
+        if [[ -n "$missing" ]]; then
+            err "Kopia does not see the mount: $missing- check that the mapping is 'Read Only - Slave'"
+            kopia_skip "$key"; continue
+        fi
+        kopia_one "$key" "$cp"
+    done
+}
+
 if [[ "$SKIPK" == "1" ]]; then
     log "Kopia skipped (UB_SKIP_KOPIA=1)."
 elif [[ "$KOPIA_OK" == "off" ]]; then
@@ -1979,6 +2265,8 @@ elif [[ "$KOPIA_OK" == "off" ]]; then
 elif [[ "$KOPIA_OK" == "yes" ]]; then
     status_phase "kopia"
     kopia_mountinfo_load
+    # the apps first: small, and what a restore needs first; the VMs' disks last, they are big
+    kopia_item app
     for s in "${PLAN_KOPIA[@]}"; do
         if [[ -n "${SKIP_KOPIA[$s]:-}" ]]; then err "Kopia: '$s' skipped - ${SKIP_KOPIA[$s]}"; kopia_skip "$s"; continue; fi
         hp="$(share_kopia_hostpath "$s")"
@@ -1998,6 +2286,7 @@ elif [[ "$KOPIA_OK" == "yes" ]]; then
         [[ "${SHARE_MOUNTED[$s]}" == "live" ]] && log "  (live: '$s' is read without a snapshot)"
         kopia_one "$s" "$cp"
     done
+    kopia_item vm
     if [[ "$PLAN_FLASH" == "snapshot" ]]; then
         cp="$(k_path "$MOUNT_ROOT/$FLASH_SOURCE_NAME")"
         if [[ -n "${KMI[$cp]+x}" ]]; then kopia_one "flash" "$cp"
@@ -2050,6 +2339,9 @@ run_report() {
     echo "Snapshots: ${#PLAN_ZFS[@]} ZFS datasets, ${#BTRFS_OK[@]} btrfs disks$([[ "$PLAN_FLASH" == "snapshot" ]] && echo ", flash")"
     for l in "${DUMPS_DONE[@]}"; do list+="${list:+, }${l%|*} $(human "${l##*|}")"; done
     [[ -n "$list" ]] && echo "Dumps: $list"
+    list=""
+    for l in "${!SQ_STATE[@]}"; do list+="${list:+, }${l#*|} ${SQ_STATE[$l]}"; done
+    [[ -n "$list" ]] && echo "SQLite copies: $list"
     echo "Packages: ${#PKG_APPS[@]} apps, ${#PKG_VMS[@]} VMs in $UB_DUMPS$( (( PKG_OLD_RUNS > 0 )) && [[ "$PKG_OLD_ACTION" == "removed" ]] && echo "; ${PKG_OLD_RUNS} old run folders cleared away")"
     list=""
     for l in "${ST_VMS[@]}"; do

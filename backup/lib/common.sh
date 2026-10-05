@@ -14,11 +14,12 @@
 #   6. Drift           comparing inventory <-> settings.ini
 #   7. Status          status.json & co. for other programs
 #   8. Packages        names and housekeeping of the backup place (since 2.18)
+#   9. Kopia per app   apps and VMs with a Kopia source of their own (since 2.19)
 ###############################################################################
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.18"
+UB_VERSION="2.19"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry (was unraid-backup; the office moves it)
 # The office's own places. Nothing of ours directly in /mnt (Fix Common Problems rightly
@@ -206,7 +207,9 @@ declare -gA UB_SCHEMA=(
     [nextcloud]="preexisting_maintenance"
     [dump]="type"
     [share]="mode method retention kopia_retention kopia_ignore exclude_dataset id locations note"
-    [vm]="mode prepare retention"
+    # kopia, folder, kopia_retention, kopia_ignore (since 2.19): a Kopia source of its own (section 9)
+    [vm]="mode prepare retention kopia folder kopia_retention kopia_ignore"
+    [app]="kopia folder kopia_retention kopia_ignore"
 )
 
 # Checks sections, keys and values. Errors go into CFG_ERRORS.
@@ -271,6 +274,20 @@ cfg_validate() {
         _val "vm|$n|prepare"   '^(freeze|pause|shutdown|none)$'    "freeze/pause/shutdown/none"
         _val "vm|$n|retention" '^[0-9]+ [0-9]+ [0-9]+$'            "three numbers"
     done < <(cfg_names vm)
+    # apps and VMs with a Kopia source of their own (section 9)
+    local t f
+    for t in app vm; do
+        while IFS= read -r n; do
+            [[ -z "$n" ]] && continue
+            [[ "$n" == */* ]] && CFG_ERRORS+=( "[$t \"$n\"]: a name with / is not supported" )
+            _val "$t|$n|kopia" '^(yes|no)$' "yes/no"
+            _val "$t|$n|kopia_retention" '^([0-9]+|inherit)( ([0-9]+|inherit)){5}$' "six values: latest hourly daily weekly monthly annual"
+            while IFS= read -r f; do
+                [[ -z "$f" ]] && continue
+                item_folder_ok "$f" || CFG_ERRORS+=( "[$t \"$n\"] folder = '$f' is invalid (<share>/<folder> inside the share, without .. and without a leading /)" )
+            done < <(cfg_list "$t|$n|folder")
+        done < <(cfg_names "$t")
+    done
     unset -f _val
     [[ ${#CFG_ERRORS[@]} -eq 0 ]]
 }
@@ -593,6 +610,46 @@ inv_measure() {
     to_gb "$total"
 }
 
+# --- Sleeping disks (since 2.19) -------------------------------------------
+# Unraid notes in disks.ini which disks are spun down. A pool sleeps when any of its disks does
+# (cache, cache2 ...); an array disk is just itself (disk1 is not disk10). Only used where the
+# engine reads something it doesn't snapshot (the media servers' databases, the apps' own backups).
+UB_DISKS_INI="${UB_DISKS_INI:-/var/local/emhttp/disks.ini}"
+ub_base_asleep() { # ub_base_asleep <base>  -> 0 when it sleeps
+    [[ -n "$1" && -r "$UB_DISKS_INI" ]] || return 1
+    awk -v b="$1" '
+        /^\[/ { name = $0; gsub(/[\[\]"]/, "", name); next }
+        /^spundown=/ {
+            v = $0; sub(/^spundown="?/, "", v); sub(/"$/, "", v)
+            if (v != "1") next
+            if (b ~ /^disk[0-9]+$/) { if (name == b) f = 1 }
+            else if (name == b || (substr(name, 1, length(b)) == b && substr(name, length(b) + 1) ~ /^[0-9]+$/)) f = 1
+        }
+        END { exit f ? 0 : 1 }' "$UB_DISKS_INI"
+}
+# ub_path_where <path>  -> the path on the pool or disk that holds it ("" when it lies only on sleeping
+# disks or nowhere); a /mnt/user path is looked up on the awake bases of its share only
+UB_WHERE_ASLEEP="no"
+ub_path_where() {
+    local p="${1%/}" rel s b
+    UB_WHERE_ASLEEP="no"
+    if [[ "$p" == "$UB_MNT/user/"* || "$p" == "$UB_MNT/user0/"* ]]; then
+        rel="${p#"$UB_MNT"/user/}"; rel="${rel#"$UB_MNT"/user0/}"; s="${rel%%/*}"
+        while IFS='|' read -r b _; do
+            [[ -z "$b" ]] && continue
+            if ub_base_asleep "$b"; then UB_WHERE_ASLEEP="yes"; continue; fi
+            [[ -e "${INV_BASE_PATH[$b]}/$rel" ]] && { printf '%s' "${INV_BASE_PATH[$b]}/$rel"; return 0; }
+        done <<<"${INV_LOCS[$s]:-}"
+        return 1
+    fi
+    for b in "${INV_BASES[@]}"; do
+        [[ "$p" == "${INV_BASE_PATH[$b]}/"* ]] || continue
+        if ub_base_asleep "$b"; then UB_WHERE_ASLEEP="yes"; return 1; fi
+        break
+    done
+    [[ -e "$p" ]] && printf '%s' "$p"
+}
+
 # --- Flash (/boot) ---------------------------------------------------------
 #   FLASH_FS, FLASH_DATASET (if ZFS)
 inv_flash() {
@@ -770,6 +827,21 @@ compose_container() { # compose_container <stack> <service> <container_name>
 }
 
 is_media_server() { [[ "${1,,}" =~ (emby|jellyfin|plex) ]]; }
+# media_kind <image>  -> emby | jellyfin | plex (empty for anything else)
+media_kind() { local i="${1,,}"; case "$i" in *jellyfin*) echo jellyfin ;; *emby*) echo emby ;; *plex*) echo plex ;; esac; }
+is_immich_server() { [[ "${1,,}" == *immich-server* || "${1,,}" == *immich_server* ]]; }
+# ct_host_path <container> <path inside it>  -> where that lies on the host (the bind with the longest
+# matching target), returns 1 when no bind holds it
+ct_host_path() {
+    local c="$1" p="${2%/}" src dst best="" bsrc=""
+    while IFS='|' read -r src dst _; do
+        [[ -z "$src" ]] && continue
+        dst="${dst%/}"
+        if [[ "$p" == "$dst" || "$p" == "$dst/"* ]] && (( ${#dst} > ${#best} )); then best="$dst"; bsrc="${src%/}"; fi
+    done <<<"${CT_BINDS[$c]:-}"
+    [[ -n "$best" ]] || return 1
+    printf '%s%s' "$bsrc" "${p#"$best"}"
+}
 is_kopia_image() { [[ "${1,,}" == *kopia* ]]; }
 
 # --- VMs (libvirt) -------------------------------------------------------------
@@ -912,7 +984,9 @@ vm_packed() {
 #   PLAN_BTRFS       bases (paths) that get a btrfs snapshot
 #   PLAN_EXCL[ds]    1 = child dataset left out on purpose
 #   PLAN_FLASH       snapshot | tar | off  (what really applies)
-declare -ga PLAN_KOPIA=() PLAN_SNAP=() PLAN_ZFS=() PLAN_BTRFS=()
+#   PLAN_KITEMS      apps and VMs with a Kopia source of their own: "kind|name|folder" (section 9)
+#   PLAN_MOUNT       shares mounted for Kopia: PLAN_KOPIA and the shares the items' parts lie in
+declare -ga PLAN_KOPIA=() PLAN_SNAP=() PLAN_ZFS=() PLAN_BTRFS=() PLAN_KITEMS=() PLAN_MOUNT=()
 declare -gA PLAN_ZFS_RET=() PLAN_EXCL=()
 PLAN_FLASH="off"
 
@@ -963,7 +1037,7 @@ share_method()    { # the method that really applies
 }
 
 plan_build() {
-    PLAN_KOPIA=(); PLAN_SNAP=(); PLAN_ZFS=(); PLAN_BTRFS=(); PLAN_ZFS_RET=(); PLAN_EXCL=()
+    PLAN_KOPIA=(); PLAN_SNAP=(); PLAN_ZFS=(); PLAN_BTRFS=(); PLAN_ZFS_RET=(); PLAN_EXCL=(); PLAN_KITEMS=(); PLAN_MOUNT=()
     local s mode meth b m layer sub ret line ds mp
     local -A seen_b=() seen_ds=()
     local -a excl
@@ -1024,6 +1098,21 @@ plan_build() {
     inv_flash
     PLAN_FLASH="$FLASH_MODE"
     if [[ "$PLAN_FLASH" == "snapshot" && -z "$FLASH_DATASET" ]]; then PLAN_FLASH="tar"; fi
+
+    # apps and VMs with a Kopia source of their own, and the shares their parts lie in - those are
+    # mounted for Kopia too, also when the share itself stays local (section 9)
+    mapfile -t PLAN_KITEMS < <(kopia_items)
+    PLAN_MOUNT=( "${PLAN_KOPIA[@]}" )
+    local it t n f sh
+    for it in "${PLAN_KITEMS[@]}"; do
+        IFS='|' read -r t n f <<<"$it"
+        while IFS='|' read -r sh _; do
+            [[ -z "$sh" ]] && continue
+            in_list "$sh" "${PLAN_MOUNT[@]}" && continue
+            share_name_ok "$sh" && [[ "$(share_mode "$sh")" != "off" ]] || continue
+            case "$(share_method "$sh")" in snap|live) PLAN_MOUNT+=( "$sh" ) ;; esac
+        done < <(kopia_item_parts "$t" "$n")
+    done
 }
 
 _parent_excluded() { # does the dataset lie below an excluded one?
@@ -1158,13 +1247,15 @@ FLASH_SOURCE_NAME="_flash"
 
 # Wanted ignore list of a target
 #   root    -> the global list from [kopia] (inherited by all shares)
-#   share   -> only the share's own rules
+#   share   -> only the share's own rules, and the parts of apps and VMs with a source of their own
+#   app/vm  -> only its own rules (relative to its source: /<share>/<path>/)
 kopia_want_ignores() {
     local kind="$1" s="${2:-}"
     case "$kind" in
-        root)  printf '%s\n' "${KOPIA_IGNORE[@]}" ;;
-        share) cfg_list "share|$s|kopia_ignore" ;;
-        flash) printf '%s\n' "${FLASH_KOPIA_IGNORE[@]}" ;;
+        root)   printf '%s\n' "${KOPIA_IGNORE[@]}" ;;
+        share)  cfg_list "share|$s|kopia_ignore"; kopia_derived_ignores "$s" ;;
+        app|vm) cfg_list "$kind|$s|kopia_ignore" ;;
+        flash)  printf '%s\n' "${FLASH_KOPIA_IGNORE[@]}" ;;
     esac | sed '/^$/d' | LC_ALL=C sort -u
 }
 
@@ -1174,6 +1265,8 @@ kopia_want_retention() {
     case "$kind" in
         root)  echo "$KOPIA_KEEP_LATEST $KOPIA_KEEP_HOURLY $KOPIA_KEEP_DAILY $KOPIA_KEEP_WEEKLY $KOPIA_KEEP_MONTHLY $KOPIA_KEEP_ANNUAL" ;;
         share) cfg "share|$s|kopia_retention" "inherit inherit inherit inherit inherit inherit" ;;
+        # an app or VM without its own: inherits the policy on <mount_root>, so [kopia] keep_*
+        app|vm) cfg "$kind|$s|kopia_retention" "inherit inherit inherit inherit inherit inherit" ;;
         *)     echo "inherit inherit inherit inherit inherit inherit" ;;
     esac
 }
@@ -1247,12 +1340,15 @@ kopia_policy_eval() {
 }
 
 # All Kopia targets this script manages, with their kind:
-#   lines "kind|host path|share"   kind: root | share | flash
+#   lines "kind|host path|name"   kind: root | share | app | vm | flash  (name: the share, app or VM)
 kopia_targets() {
-    local s
+    local s t n f
     is_yes "$KOPIA_ENABLED" || return 0
     printf 'root|%s|\n' "$MOUNT_ROOT"
     for s in "${PLAN_KOPIA[@]}"; do printf 'share|%s|%s\n' "$(share_kopia_hostpath "$s")" "$s"; done
+    while IFS='|' read -r t n f; do
+        [[ -n "$t" ]] && printf '%s|%s|%s\n' "$t" "$(item_hostpath "$t" "$f")" "$n"
+    done < <(kopia_items)
     [[ "$PLAN_FLASH" == "snapshot" ]] && printf 'flash|%s|\n' "$MOUNT_ROOT/$FLASH_SOURCE_NAME"
     return 0
 }
@@ -1476,17 +1572,18 @@ drift_check_vms() {
 KOPIA_OK="no"
 declare -ga KP_STATUS=()
 KP_CHECKED="no"
-kp_status_add() { # kp_status_add <kind> <share> <container path> <ok 1/0> <skipped 1/0>
+kp_status_add() { # kp_status_add <kind> <name: share, app or VM> <container path> <ok 1/0> <skipped 1/0>
     local diffs
     diffs="$(printf '%s\n' "${KP_CODES[@]}" | jq -R 'select(length > 0) | split("\u001f")
         | {what: .[0], item: (.[1] // ""), have: (.[2] // ""), want: (.[3] // "")}' | jq -sc .)" || diffs='[]'
+    # share: only for kind share (as before 2.19); name (since 2.19): the share, app or VM
     KP_STATUS+=( "$(jq -nc --arg k "$1" --arg s "$2" --arg p "$3" --arg ok "$4" --arg sk "$5" --argjson d "${diffs:-[]}" \
-        '{kind: $k, share: $s, path: $p, ok: ($ok == "1"), skipped: ($sk == "1"), differences: $d}')" )
+        '{kind: $k, share: (if $k == "share" then $s else "" end), name: $s, path: $p, ok: ($ok == "1"), skipped: ($sk == "1"), differences: $d}')" )
 }
 drift_check_kopia() {
     KOPIA_OK="no"; KP_STATUS=(); KP_CHECKED="no"
     is_yes "$KOPIA_ENABLED" || { KOPIA_OK="off"; return 0; }
-    [[ ${#PLAN_KOPIA[@]} -eq 0 && "$PLAN_FLASH" != "snapshot" ]] && { KOPIA_OK="none"; return 0; }
+    [[ ${#PLAN_KOPIA[@]} -eq 0 && "$PLAN_FLASH" != "snapshot" && ${#PLAN_KITEMS[@]} -eq 0 ]] && { KOPIA_OK="none"; return 0; }
     if [[ -z "$KOPIA_CONTAINER" ]]; then
         drift_add error "No Kopia container in settings.ini"; return 1
     fi
@@ -1526,17 +1623,19 @@ drift_check_kopia() {
         if kopia_policy_eval "$cpath" "$kind" "$(kopia_want_ignores "$kind" "$share")" "$(kopia_want_retention "$kind" "$share")"; then
             kp_status_add "$kind" "$share" "$cpath" 1 0
         else
-            # If one of the share's own ignore rules is missing, Kopia would upload more
-            # than wanted (e.g. a blockchain). This source is then left out.
-            local miss_own="" x
-            if [[ "$kind" == "share" ]]; then
+            # If one of the share's (app's, VM's) own ignore rules is missing, Kopia would upload more
+            # than wanted (e.g. a blockchain). This source is then left out. A missing rule for the
+            # folder of an app with a source of its own only differs: that folder then goes twice.
+            local miss_own="" x key="$share" what="share '$share'"
+            [[ "$kind" == "app" || "$kind" == "vm" ]] && { key="$kind:$share"; what="$kind '$share'"; }
+            if [[ "$kind" == "share" || "$kind" == "app" || "$kind" == "vm" ]]; then
                 while IFS= read -r x; do
                     [[ -n "$x" ]] && grep -Fxq -- "$x" <<<"$KP_MISSING" && miss_own+="$x "
-                done < <(cfg_list "share|$share|kopia_ignore")
+                done < <(cfg_list "$kind|$share|kopia_ignore")
             fi
             if [[ -n "$miss_own" ]]; then
-                drift_add error "The Kopia policy for $cpath lacks ignore rules ($miss_own) - share '$share' is NOT given to Kopia until 'setup.sh --kopia' has run"
-                SKIP_KOPIA[$share]="policy incomplete"
+                drift_add error "The Kopia policy for $cpath lacks ignore rules ($miss_own) - $what is NOT given to Kopia until 'setup.sh --kopia' has run"
+                SKIP_KOPIA[$key]="policy incomplete"
                 kp_status_add "$kind" "$share" "$cpath" 0 1
             else
                 drift_add warn "The Kopia policy for $cpath differs from settings.ini ('setup.sh --kopia' aligns it):"$'\n'"${KP_DIFF%$'\n'}"
@@ -1546,6 +1645,30 @@ drift_check_kopia() {
     done < <(kopia_targets)
     [[ "$uid_ok" == "yes" ]] || return 1
     KOPIA_OK="yes"
+}
+
+# Apps and VMs with a Kopia source of their own (section 9): gone, or a part in a share that isn't backed up
+drift_check_items() {
+    local it t n f sh rel c found
+    for it in "${PLAN_KITEMS[@]}"; do
+        IFS='|' read -r t n f <<<"$it"
+        if [[ "$t" == "vm" ]]; then
+            [[ "$VM_SERVICE" == "yes" ]] && ! in_list "$n" "${VM_NAMES[@]}" \
+                && drift_add info "VM '$n' has a Kopia source of its own in settings.ini but no longer exists - what is left of it still goes there"
+        else
+            found=0
+            for c in "${CT_NAMES[@]}"; do
+                [[ "${CT_PROJECT[$c]:-}" == "$n" || ( -z "${CT_PROJECT[$c]:-}" && "$c" == "$n" ) ]] && { found=1; break; }
+            done
+            (( found )) || drift_add info "App '$n' has a Kopia source of its own in settings.ini but no container of it exists any more - what is left of it still goes there"
+        fi
+        while IFS='|' read -r sh rel; do
+            [[ -z "$sh" ]] && continue
+            in_list "$sh" "${PLAN_MOUNT[@]}" && continue
+            drift_add warn "The Kopia source of $t '$n': '$sh/$rel' lies in share '$sh', which takes no snapshot (mode=$(share_mode "$sh")) - that part is left out"
+        done < <(kopia_item_parts "$t" "$n")
+    done
+    return 0
 }
 
 drift_check_settings() {
@@ -1765,4 +1888,107 @@ pkg_recover() {
         rm -rf -- "$d"; n=$((n+1))
     done
     echo "$n"
+}
+
+##############################################################################
+# 9. Kopia per app and VM (since 2.19)
+##############################################################################
+# An app or a VM the office sets to "local + Kopia" is a Kopia source of its own:
+#   [app "<name>"] / [vm "<name>"]
+#     kopia = yes                  a source of its own
+#     folder = <share>/<folder>    what it keeps in shares (repeatable): an app's folders in container-data
+#                                  shares (appdata/<app>), a VM's folder in domains
+#     kopia_retention = latest hourly daily weekly monthly annual   (default: [kopia] keep_*)
+#     kopia_ignore = /<share>/<path>/   rules relative to its source (repeatable)
+# The source joins its folders and its package (apps/<app>/ or vms/<vm>/ in the backup place) under
+#   <mount_root>/.apps/<name>/<share>/<path>      (.vms/<name>/ for a VM)
+# - read-only binds out of the shares' mounted snapshots, so it mirrors where everything lies on the
+# server (Kopia names it <container path>/.apps/<name>). The shares those parts lie in leave them out
+# of their own sources (kopia_derived_ignores): nothing goes twice, and the item's own retention holds.
+# Same repository: what Kopia already has (from the share's source) is not uploaded again.
+# Why not <mount_root>/<share>/<folder> as the source: Kopia merges the ignore rules of the policies on
+# every parent path into a source and anchors them at the source's root - an app under
+# <container path>/appdata would also lose its own subfolder mariadb/ because appdata leaves out the
+# folder of another app called mariadb. A folder whose name begins with a dot is never taken for a
+# share (inv_scan skips them, Unraid makes no such shares), so these paths only inherit the policy on
+# <mount_root> (global rules, retention, manual, one-file-system = false) and, like a share, an item
+# carries only what differs. (Not '@': Kopia reads a path with '@' and without ':' as user@host.)
+
+# item_folder_ok <share>/<path>  -> 0 when it names a path inside a share (no leading /, no .., no empty parts)
+item_folder_ok() {
+    local f="$1" sh="${1%%/*}" rel="${1#*/}"
+    [[ "$f" == */* && "$f" != /* && -n "$sh" && -n "$rel" && "$f" != *$'\n'* ]] || return 1
+    share_name_ok "$sh" || return 1
+    [[ "/$rel/" != *"/../"* && "/$rel/" != *"/./"* && "$rel" != *//* && "$rel" != */ ]]
+}
+
+# item_hostpath <kind> <folder>  -> where its source is assembled on the host
+item_hostpath() { printf '%s/.%ss/%s' "$MOUNT_ROOT" "$1" "$2"; }
+
+# dumps_rel  -> the backup place relative to its share (dumps_path): backup in the office's share, else unraid-backup
+dumps_rel() { if [[ "$DUMPS_SHARE" == "$UB_OFFICE_SHARE" ]]; then printf '%s' "$UB_DESK_DIR"; else printf '%s' "$UB_NAME"; fi; }
+
+# kopia_items  -> lines "kind|name|folder" of the apps (first) and VMs with a Kopia source of their own;
+# folder: the name made safe (pkg_folder) - the second of two that come out the same gets a suffix
+kopia_items() {
+    is_yes "${KOPIA_ENABLED:-no}" || return 0
+    local t n f
+    local -A taken=()
+    for t in app vm; do
+        taken=()
+        while IFS= read -r n; do
+            [[ -n "$n" && "$n" != */* && "$(cfg "$t|$n|kopia" no)" == "yes" ]] || continue
+            f="$(pkg_folder "$n")"
+            [[ -n "${taken[$f]:-}" ]] && f="$f-$(printf '%s' "$n" | md5sum | cut -c1-6)"
+            taken[$f]=1
+            printf '%s|%s|%s\n' "$t" "$n" "$f"
+        done < <(cfg_names "$t" | LC_ALL=C sort)
+    done
+    return 0
+}
+
+# kopia_item_parts <kind> <name> [package folder]  -> lines "share|path": its folders, then its package in
+# the backup place (the package folder as given, "-" = none; otherwise its name made safe)
+kopia_item_parts() {
+    local t="$1" n="$2" pf="${3:-}" f
+    while IFS= read -r f; do
+        item_folder_ok "$f" && printf '%s|%s\n' "${f%%/*}" "${f#*/}"
+    done < <(cfg_list "$t|$n|folder")
+    [[ -n "${DUMPS_SHARE:-}" ]] || return 0
+    [[ -z "$pf" ]] && pf="$(pkg_folder "$n")"
+    [[ "$pf" == "-" ]] && return 0
+    printf '%s|%s/%ss/%s\n' "$DUMPS_SHARE" "$(dumps_rel)" "$t" "$pf"
+}
+
+# share_layout <share>  -> how its snapshot is mounted: single | overlay | split | live | none
+share_layout() {
+    if [[ "$(share_method "$1")" == "live" ]]; then echo live; else echo "${INV_LAYOUT[$1]:-none}"; fi
+}
+
+# kopia_derived_ignores <share>  -> the rules the share's own source gets for the parts of apps and VMs
+# with a source of their own (one per base when the share appears as one subfolder per base)
+kopia_derived_ignores() {
+    local s="$1" t n f sh rel b
+    while IFS='|' read -r t n f; do
+        [[ -z "$t" ]] && continue
+        while IFS='|' read -r sh rel; do
+            [[ "$sh" == "$s" && -n "$rel" ]] || continue
+            if [[ "$(share_layout "$s")" == "split" ]]; then
+                while IFS='|' read -r b _; do [[ -n "$b" ]] && printf '/%s/%s/\n' "$b" "$rel"; done <<<"${INV_LOCS[$s]:-}"
+            else
+                printf '/%s/\n' "$rel"
+            fi
+        done < <(kopia_item_parts "$t" "$n")
+    done < <(kopia_items)
+    return 0
+}
+
+# uri_escape <path>  -> the path for an SQLite URI (file:...): everything but letters, digits and / . _ ~ - as %XX
+uri_escape() {
+    local LC_ALL=C p="$1" out="" ch i
+    for (( i = 0; i < ${#p}; i++ )); do
+        ch="${p:i:1}"
+        case "$ch" in [A-Za-z0-9/._~-]) out+="$ch" ;; *) out+="$(printf '%%%02X' "'$ch")" ;; esac
+    done
+    printf '%s' "$out"
 }
