@@ -144,6 +144,95 @@ function hostNet(array $command, int $timeout = 60): array
     return run(array_merge(['nsenter', '--target', '1', '--net', '--'], $command), $timeout);
 }
 
+// ===================================================================== Unraid's notifications
+
+/*
+ * What the office has to tell even when nobody looks at the page goes to
+ * Unraid's notifications (the bell, and mail or push as set under Settings →
+ * Notifications), in the style of the backup engine (ub_notify in
+ * backup/lib/common.sh): the event "Unraid Secretary Office", the subject
+ * behind "Unraid Secretary Office: " (Unraid puts the server's name in front).
+ * Texts come from the desks' language files, in Unraid's language when the
+ * office speaks it (officeNotifyText(), officeNotifyLang()).
+ */
+const OFFICE_NOTIFY_BIN   = '/usr/local/emhttp/webGui/scripts/notify';
+const OFFICE_NOTIFY_EVENT = 'Unraid Secretary Office';
+
+/**
+ * Sends one notification. $level normal|warning|alert; $message the long
+ * text (its lines become Unraid's "\n", which mail, push agents and the
+ * archive turn into line breaks); $link where a click leads (officeNotifyLink()).
+ * Does nothing without Unraid's notify script. Runs in the host's network, so
+ * mail and push get out from the stack's agent too. OFFICE_NOTIFY_BIN in the
+ * environment points to a stand-in — for the tests only.
+ */
+function officeNotify(string $subject, string $description, string $level = 'normal', string $message = '', ?string $link = null): bool
+{
+    static $last = 0;
+    $bin = getenv('OFFICE_NOTIFY_BIN') ?: OFFICE_NOTIFY_BIN;
+    if (!is_executable($bin)) {
+        return false;
+    }
+    $flat = fn (string $s) => trim((string) preg_replace('/\s+/u', ' ', $s));
+    $args = [$bin, '-e', OFFICE_NOTIFY_EVENT, '-s', OFFICE_NOTIFY_EVENT . ': ' . $flat($subject), '-d', $flat($description),
+             '-i', in_array($level, ['normal', 'warning', 'alert'], true) ? $level : 'normal'];
+    if (trim($message) !== '') {
+        $args = [...$args, '-m', str_replace(["\r\n", "\r", "\n"], '\n', trim($message))];
+    }
+    if ($link !== null && $link !== '') {
+        $args = [...$args, '-l', $link];
+    }
+    // Unraid names a notification after its event and second: a second one within the same second would be lost
+    if (time() === $last) {
+        usleep((int) ((1 - fmod(microtime(true), 1)) * 1e6) + 10000);
+    }
+    $last = time();
+    [$exit] = hostNet($args, 30);
+    return $exit === 0;
+}
+
+/** Where a click on a notification leads: a page of the office ("#/caretaker") inside Unraid; null in the stack (its own address) */
+function officeNotifyLink(string $hash = ''): ?string
+{
+    return AS_PLUGIN ? officeMenuUrl(officeMenuPlace()) . $hash : null;
+}
+
+/** Unraid's language (Settings → Display settings), when the office speaks it — otherwise English */
+function officeNotifyLang(string $cfg = '/boot/config/plugins/dynamix/dynamix.cfg'): string
+{
+    $locale = (string) (readCfg($cfg, true)['display']['locale'] ?? '');
+    $code = strtolower((string) strtok($locale, '_-'));
+    return preg_match('/^[a-z]{2,3}$/', $code) && is_file(OFFICE_WEB . "/lang/$code.json") ? $code : 'en';
+}
+
+/**
+ * A text for a notification from a desk's language file ('' = the office's
+ * own): in $lang, else English, else ''. {placeholders} from $params, plurals
+ * ({"one": …, "other": …}) by $params['n'].
+ */
+function officeNotifyText(string $desk, string $key, array $params = [], string $lang = 'en'): string
+{
+    if ($desk !== '' && !preg_match('/^[a-z][a-z0-9_-]*$/', $desk)) {
+        return '';
+    }
+    if (!preg_match('/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/', $lang)) {
+        $lang = 'en';
+    }
+    $base = OFFICE_WEB . ($desk === '' ? '' : "/desks/$desk") . '/lang';
+    $text = null;
+    foreach (array_unique([$lang, 'en']) as $code) {
+        $text = (readJson("$base/$code.json") ?? [])[$key] ?? null;
+        if ($text !== null) {
+            break;
+        }
+    }
+    if (is_array($text)) {
+        $text = (($params['n'] ?? null) === 1 ? ($text['one'] ?? null) : null) ?? $text['other'] ?? '';
+    }
+    return (string) preg_replace_callback('/\{(\w+)\}/', fn ($m) => array_key_exists($m[1], $params) ? (string) $params[$m[1]] : $m[0],
+        is_string($text) ? $text : '');
+}
+
 // ===================================================================== User Scripts schedule
 
 const US_DIR      = '/boot/config/plugins/user.scripts';

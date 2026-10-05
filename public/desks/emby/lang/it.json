@@ -363,5 +363,14 @@
   "setup.resume_movies_hint": "Tanti film per persona sono pronti (prima gli ultimi visti). 0 = nessuno.",
   "setup.movies_folder": "Sempre l'intera cartella del film: sottotitoli, immagini di anteprima, nfo ed extra vengono insieme.",
   "setup.resume_series": "Serie iniziate per persona: al massimo",
-  "setup.resume_series_hint": "Vale anche per «Prossimi». 0 = nessuna."
+  "setup.resume_series_hint": "Vale anche per «Prossimi». 0 = nessuna.",
+  "notify.tool.embycache": "EmbyCache",
+  "notify.tool.gather": "Consolida cartelle",
+  "notify.subject": "{tool}: esecuzione reale — {result}",
+  "notify.no_status": "È terminata senza risultato (codice di uscita {exit}).",
+  "notify.problems": {
+    "one": "Un problema.",
+    "other": "{n} problemi."
+  },
+  "notify.see": "Jack Emby mostra nella segreteria cosa ha stampato l'esecuzione."
 }

@@ -79,6 +79,19 @@ differ get a `_plugin` key or come from state (`schedule.via`).
   `required` only when the desk really can't work without it, otherwise
   `recommended`; `hint` for things to know. Texts: `check.<id>` states how it
   should be, `check.<id>_how` what the user does in Unraid to get there.
+* **Notifications** to Unraid only through `officeNotify()` (agent/lib/house.php):
+  event and subject prefix `Unraid Secretary Office` like the engine; `warning`
+  for something to fix, `alert` only when something is at risk now (failed
+  runs, agent gone); texts via `officeNotifyText()` in Unraid's language
+  (`officeNotifyLang()`), keys `notify.*` in the desk's lang file; tests set
+  `OFFICE_NOTIFY_BIN` to a stand-in. The caretaker runs every hired desk's
+  `checks` every 30 min even without a browser (in the agent's tick) and
+  reports new red findings once after 30 min (`data/caretaker/notify.json`,
+  switch `notify_set`) — so checks must stay cheap and must not wake disks:
+  when the disk/pool behind a path sleeps, return `ok = null` (not looked).
+  As a plugin `agent-watch.cron` (written by `agent.sh start`, removed with the
+  plugin) runs `job.sh watch` every 5 min: agent.json older than 70 s for 10 min
+  with the array started → one alert, and a normal notification when it is back.
 * **Jobs that must outlive the agent** (backup runs) go through the host's
   `atd` (`backupLaunch()` in agent/desks/backup.php), never as a child of the
   agent: `agent.sh stop` ends the agent's whole session (array stop, plugin
@@ -149,7 +162,7 @@ differ get a `_plugin` key or come from state (`schedule.via`).
 | `cleanup` | Ms. Dustdevil / Frau Putzteufel | clears away what nobody uses: Docker templates, Compose stacks, appdata folders, stray my-*.xml elsewhere, what deleted VMs left behind (domains folders, NVRAM, TPM, snapshot lists, unused disk images; VMs without disks are only pointed out), switched-off User Scripts that lie around, Docker's leftovers. Never deletes right away: renames into `_UnraidSecretaryOffice-trash` on the same filesystem (ZFS datasets with `zfs rename` next to it), `manifest.json` per run, put back or empty; Docker leftovers can only be removed. Only rename, never copy; nothing while a backup runs |
 | `advisor` | The Consultant / Der Berater | an external: whether the tools the office relies on are there (Fix Common Problems, Files Viewer, a Kopia container, Stream Viewer where Emby/Jellyfin/Plex runs; unbalanced optional, never suggested — it can get in the way of backups, EmbyCache and the gather), what they are good for, who needs them, how to install them by hand (ADVISOR_EXTERNALS in agent/desks/advisor.php, EXTERNALS in his desk.js). Never installs, never scans. Read only |
 | `restore` | Mr. Restori / Herr Restori | **in training** (desk.json `"training": true`): under contract, apprentice with Mr. Backupsy, cannot be hired yet (office.hire refuses `in_training`, officeHired never counts him); the caretaker shows him with a tip-jar button. Will bring apps and VMs back from Mr. Backupsy's packages (stage B), the snapshots and Kopia — the restore help moves to him then |
-| `caretaker` | The Caretaker / Der Hauswart | collects every desk's `checks` and what the office needs; tells the user what is left to do |
+| `caretaker` | The Caretaker / Der Hauswart | collects every desk's `checks` and what the office needs; tells the user what is left to do; reports new red findings to Unraid's notifications (see Notifications) |
 
 **User Scripts entries** (only in the stack) of the office are always named `unraid-secretary-office_<what>` (US_PREFIX); renamed ones are moved once by `userScriptsMigrate()` (lib/house.php: folder, schedule, cron line, User Scripts Enhanced category). Descriptions in English: "Unraid Secretary Office - …". As a plugin, `officeJobsFromUserScripts()` hands their schedule over to the plugin's cron file once and removes them.
 
@@ -340,6 +353,12 @@ character, warnings and errors stay plain and clear.
   not the host path: changing only the Host Path keeps their history; a new
   repository (bucket) starts every source with a full upload — no dedup across
   repositories.
+* Unraid's `notify` names a notification `<event>-<second>`: a second one with
+  the same event in the same second is dropped. Line breaks in `-m` are a
+  literal `\n`; never a real newline in `-d`.
+* The plugin manager registers a plugin (`/var/log/plugins` symlink) only after
+  its install script: `update_cron` run during a fresh install doesn't pick up
+  the plugin's own cron files yet.
 * `docker top <container> -eo …` needs `pid` in the list (`-eo pid,args`),
   otherwise Docker only answers "Couldn't find PID field".
 

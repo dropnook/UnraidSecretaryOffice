@@ -363,5 +363,14 @@
   "setup.resume_movies_hint": "So viele Filme pro Person liegen bereit (die zuletzt geschauten zuerst). 0 = keine.",
   "setup.movies_folder": "Immer der ganze Filmordner: Untertitel, Vorschaubilder, nfo und Extras kommen mit.",
   "setup.resume_series": "Angefangene Serien pro Person: höchstens",
-  "setup.resume_series_hint": "Gilt auch für «Als Nächstes». 0 = keine."
+  "setup.resume_series_hint": "Gilt auch für «Als Nächstes». 0 = keine.",
+  "notify.tool.embycache": "EmbyCache",
+  "notify.tool.gather": "Ordner zusammenführen",
+  "notify.subject": "{tool}: echter Lauf — {result}",
+  "notify.no_status": "Er endete ohne Ergebnis (Exit-Code {exit}).",
+  "notify.problems": {
+    "one": "Ein Problem.",
+    "other": "{n} Probleme."
+  },
+  "notify.see": "Jack Emby zeigt im Sekretariat, was der Lauf ausgegeben hat."
 }
