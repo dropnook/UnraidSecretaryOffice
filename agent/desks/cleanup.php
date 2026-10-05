@@ -1431,7 +1431,7 @@ function clIconState(array $list, array $cache, callable $pending): array
     }
     unset($e);
     return ['list' => $list, 'loop' => cleanupIconLoopRisk($list), 'checking' => $pending('icons'),
-            'ca_at' => $GLOBALS['clCa']['at'] ?? null, 'collection' => 'homarr-labs/dashboard-icons'];
+            'ca_at' => @filemtime(CL_CA_TEMPLATES) ?: null, 'collection' => 'homarr-labs/dashboard-icons'];
 }
 
 /**
