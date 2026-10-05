@@ -53,6 +53,8 @@
   "check.files_viewer_how": "Dateien und Protokolle — auch die von Herrn Backupsi — direkt in Unraids Oberfläche ansehen. Aus den Apps installieren.",
   "check.notifications": "Unraids Warnungen erreichen dich per Mail oder Push",
   "check.notifications_how": "Unter Settings → Notifications für Warnungen Mail oder einen Agent (Pushover, Telegram, …) einschalten — sonst erfährt niemand von einem fehlgeschlagenen Backup oder einer sterbenden Disk.",
+  "check.icon_loop": "Unraid {version}: kein Container ohne Bild, solange sein Fragezeichen fehlt",
+  "check.icon_loop_how": "{n} Container haben kein Bild, und Unraid {version} liefert das Fragezeichen nicht mit, das es stattdessen zeigt — seine Docker-Seite und das Dashboard fragen dann etwa tausendmal pro Sekunde danach, bis /var/log voll ist. Gib ihnen ein Bild (Frau Putzteufel macht das in ihrem Raum «Fehlende Bilder») oder lege bis zum nächsten Neustart einen Ersatz hin: ein beliebiges PNG nach /usr/local/emhttp/plugins/dynamix.docker.manager/images/question.png kopieren. Bis dahin die Docker-Seite und das Dashboard geschlossen lassen.",
   "check.mail_subject": "Der Mail-Betreff «{subject}» nennt {host} nicht",
   "check.mail_subject_how": "Absicht? Unter Settings → Notifications → SMTP anpassen, damit du erkennst, welcher Server schreibt.",
   "check.pin": "Ändern im Sekretariat braucht eine PIN",

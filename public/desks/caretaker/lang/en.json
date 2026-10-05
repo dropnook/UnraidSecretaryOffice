@@ -53,6 +53,8 @@
   "check.files_viewer_how": "Look at files and logs — Mr. Backupsy's too — right in Unraid's web UI. Install it from Apps.",
   "check.notifications": "Unraid's alerts reach you by mail or push",
   "check.notifications_how": "Switch on mail or an agent (Pushover, Telegram, …) for alerts under Settings → Notifications — otherwise nobody hears about a failed backup or a dying disk.",
+  "check.icon_loop": "Unraid {version}: no container without a picture while its question mark is missing",
+  "check.icon_loop_how": "{n} container(s) have no picture, and Unraid {version} doesn't ship the question mark it shows instead — its Docker page and Dashboard then ask for it about a thousand times a second until /var/log is full. Give them a picture (Ms. Dustdevil does it in her room «Missing pictures»), or put a stand-in in place until the next reboot: copy any PNG to /usr/local/emhttp/plugins/dynamix.docker.manager/images/question.png. Until then keep the Docker page and the Dashboard closed.",
   "check.mail_subject": "The mail subject «{subject}» doesn't mention {host}",
   "check.mail_subject_how": "On purpose? Change it under Settings → Notifications → SMTP, so you can tell which server is writing.",
   "check.pin": "Changing things in the office needs a PIN",

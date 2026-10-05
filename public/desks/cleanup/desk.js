@@ -4,15 +4,17 @@
    states, unused disk images) and Docker's own leftovers (images, volumes,
    build cache). Everything she can rename goes into her storeroom first,
    from where it can be put back or emptied for good; Docker's leftovers can
-   only be removed. The agent part lives in agent/desks/cleanup.php. */
+   only be removed. And she straightens what hangs crooked: containers
+   without a picture get one (the old template or override file goes into
+   the storeroom first). The agent part lives in agent/desks/cleanup.php. */
 (() => {
 'use strict';
 
 const ID = 'cleanup';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
-const SECTIONS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'trash'];
-const ICONS = { templates: '📄', stacks: '🧩', appdata: '🗃️', vms: '🖥️', scripts: '📜', docker: '🐳', trash: '🗑️' };
+const SECTIONS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'trash'];
+const ICONS = { templates: '📄', stacks: '🧩', appdata: '🗃️', vms: '🖥️', scripts: '📜', docker: '🐳', icons: '🖼️', trash: '🗑️' };
 const GROUPS = {
   templates: ['leftover', 'unused', 'duplicate', 'noname', 'stray_only_here', 'stray_newer', 'stray_name_exists', 'stray_older', 'stray_copy', 'unknown', 'in_use'],
   stacks: ['leftover', 'broken', 'unused', 'unknown', 'in_use'],
@@ -20,6 +22,7 @@ const GROUPS = {
   vms: ['broken', 'orphan', 'unused', 'check', 'media', 'unknown', 'used'],
   scripts: ['broken', 'dead', 'idle', 'used'],
   docker: ['dangling', 'volume', 'unused', 'cache', 'used'],
+  icons: ['template', 'compose', 'none', 'ok'],
 };
 const CANDIDATES = {
   templates: ['leftover', 'unused', 'duplicate', 'noname', 'stray_only_here', 'stray_newer', 'stray_name_exists', 'stray_older', 'stray_copy'],
@@ -28,10 +31,11 @@ const CANDIDATES = {
   vms: ['broken', 'orphan', 'unused', 'check', 'media'],
   scripts: ['broken', 'dead', 'idle'],
   docker: ['dangling', 'volume', 'unused', 'cache'],
+  icons: ['template', 'compose', 'none'],
 };
-const CLOSED = ['in_use', 'used', 'unknown'];        // folded until opened
+const CLOSED = ['in_use', 'used', 'unknown', 'ok'];  // folded until opened
 const KIND_ICONS = { container: '🐳', template: '📄', stack: '🧩', compose: '🧩', flash: '💾', vm: '🖥️' };
-const ITEM_ICONS = { template: '📄', stray: '📄', vmdef: '🖥️', userscript: '📜', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐' };
+const ITEM_ICONS = { template: '📄', stray: '📄', vmdef: '🖥️', userscript: '📜', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐', icon: '🖼️' };
 const POLL_MS = 3000;
 
 let state = null;
@@ -40,6 +44,7 @@ let section = SECTIONS.includes(Office.store('cleanup.section')) ? Office.store(
 let folded = Office.storeJson('cleanup.folded') || {};
 const selection = new Set();
 const expanded = new Set();
+const picks = new Map();    // container picture: id => the address chosen here (else her suggestion)
 let shown = [];             // rows that can unfold: { open(), set(bool) }
 let busy = false;
 let timer = null;
@@ -76,13 +81,16 @@ function entries(sec) {
   if (!state) return [];
   return ({
     templates: state.templates.list, stacks: state.stacks.list, appdata: state.appdata.list,
-    vms: state.vms.list, scripts: state.scripts.list, docker: state.docker.list,
+    vms: state.vms.list, scripts: state.scripts.list, docker: state.docker.list, icons: (state.icons || {}).list,
   })[sec] || [];
 }
 const candidates = (sec) => entries(sec).filter((e) => CANDIDATES[sec].includes(e.category));
 const removable = (e) => ['image', 'volume', 'cache'].includes(e.kind);
-/** Docker's leftovers in use can't be chosen at all; everything else in use only with a warning */
-const selectable = (e) => !!state && e.why === null && !state.backup_running && !(removable(e) && e.category === 'used');
+/** The picture a container would get: the one chosen here, else the first one found that loads */
+const iconChoice = (e) => picks.get(e.id) || e.suggest || null;
+/** Docker's leftovers in use can't be chosen at all; everything else in use only with a warning; a container only with a picture to hang */
+const selectable = (e) => !!state && e.why === null && !state.backup_running && !(removable(e) && e.category === 'used')
+  && !(e.kind === 'icon' && (e.category === 'ok' || e.category === 'none' || !iconChoice(e)));
 const label = (e) => (e.kind === 'template' || e.kind === 'stray' ? e.file : e.kind === 'userscript' ? e.name : e.kind === 'stack' ? e.folder : e.kind === 'cache' ? T('cache.name') : e.name);
 const sum = (list) => list.reduce((a, e) => a + (e.bytes || 0), 0);
 const words = () => query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -96,7 +104,8 @@ function matches(e) {
   return w.every((x) => hay.includes(x));
 }
 /** VMs only with the VM service switched on, Docker's rooms (appdata too: who uses it is told by Docker) only with Docker */
-const visible = (sec) => (sec === 'vms' ? state.vms.enabled : sec === 'scripts' ? state.scripts.installed : ['templates', 'stacks', 'appdata', 'docker'].includes(sec) ? state.docker.enabled : true);
+const visible = (sec) => (sec === 'vms' ? state.vms.enabled : sec === 'scripts' ? state.scripts.installed
+  : sec === 'icons' ? state.docker.enabled && !!state.icons : ['templates', 'stacks', 'appdata', 'docker'].includes(sec) ? state.docker.enabled : true);
 
 function chip(text, cls, tip) {
   const c = el('span', 'chip' + (cls ? ' ' + cls : ''), text);
@@ -189,7 +198,7 @@ Office.desk({
     if (!state) await load(false);
     if (!state) return { bubble: T('bubble.no_data'), facts: [] };
     const facts = [];
-    for (const sec of ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker']) {
+    for (const sec of ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons']) {
       const c = candidates(sec);
       if (c.length) facts.push(T('fact.' + sec, { n: c.length, size: fmt.size(sum(c)) }));
     }
@@ -233,6 +242,8 @@ function build(root) {
     [T('section.vms'), T('help.vms_text')],
     [T('section.scripts'), T('help.scripts_text')],
     [T('section.docker'), T('help.docker_text')],
+    [T('section.icons'), T('help.icons_text')],
+    [T('help.loop'), T('help.loop_text')],
     [T('help.sizes'), T('help.sizes_text')],
     [T('help.safe'), T('help.safe_text')],
   ]));
@@ -282,7 +293,7 @@ function render() {
 function bubbleText() {
   if (!state) return Office.agent.running ? T('bubble.loading') : T('bubble.no_data');
   const found = [];
-  for (const sec of ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker']) {
+  for (const sec of ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons']) {
     const c = candidates(sec);
     if (c.length) found.push(T('bubble.' + sec, { n: c.length, size: fmt.size(sum(c)) }));
   }
@@ -311,6 +322,7 @@ function tileLine(sec) {
   const c = candidates(sec);
   if (sec === 'vms' && !state.vms.ok) return [T('tile.vm_off'), ''];
   if (!all.length) return [T('tile.none'), ''];
+  if (sec === 'icons') return [c.length ? T('tile.look', { n: c.length }) : T('tile.pictured'), T('tile.total', { n: all.length })];
   return [c.length ? T('tile.look', { n: c.length }) : T('tile.tidy'), sec === 'templates' || !c.length ? T('tile.total', { n: all.length }) : fmt.size(sum(c))];
 }
 
@@ -374,6 +386,7 @@ function renderSection() {
   if (section === 'vms') body.appendChild(vmsInfo());
   if (section === 'scripts') body.appendChild(scriptsInfo());
   if (section === 'docker') body.appendChild(dockerInfo());
+  if (section === 'icons') body.appendChild(iconsInfo());
   if (section === 'stacks' && !state.stacks.exists) { body.appendChild(emptyNote(T('empty.no_compose', { path: state.stacks.root }))); return; }
   if (section === 'trash') renderTrash(body);
   else renderList(body, section);
@@ -554,6 +567,7 @@ const VIEWS = {
   image: () => [imageMeta, imageDetail],
   volume: () => [volumeMeta, volumeDetail],
   cache: () => [cacheMeta, cacheDetail],
+  icon: () => [iconMeta, iconDetail],
 };
 
 /** A row: the checkbox selects, a click anywhere else unfolds the details */
@@ -575,6 +589,11 @@ function row(e, groupSync) {
   const main = el('div', 'row-main');
   const name = el('div', 'row-name link', label(e));
   name.title = T('details');
+  if (e.kind === 'icon') {      // its picture in front: the one Unraid shows, or the one it would get
+    name.textContent = '';
+    name.classList.add('cl-pic-name');
+    name.append(picture(e.category === 'ok' ? shownIcon(e) : iconChoice(e)), el('span', '', label(e)));
+  }
   const meta = el('div', 'row-meta');
   const figures = el('div', 'figures');
   metaFn(e, meta, figures);
@@ -617,6 +636,8 @@ function menuItems(e) {
   if (e.kind === 'stray' && ['only_here', 'newer'].includes(e.loc)) items.push({ text: T('install.button'), act: () => installDialog(e), disabled: !Office.agent.running || state.backup_running });
   if (e.kind === 'stack' && e.file) items.push({ text: T('show_compose'), act: () => showFile(e) });
   if (e.kind === 'userscript' && e.exists) items.push({ text: T('show_script'), act: () => showFile(e) });
+  if (e.kind === 'icon' && e.template_id) items.push({ text: T('show_xml'), act: () => showFile({ id: e.template_id, kind: 'template', file: e.template.split('/').pop() }) });
+  if (e.kind === 'icon' && e.category === 'compose' && e.project) items.push({ text: T('show_compose'), act: () => showFile({ id: 'stack:' + e.project, kind: 'stack', folder: e.project }) });
   if (e.parts && !e.parts.every((p) => p.file) || (e.kind === 'volume' && e.path)) {
     items.push({ text: T('measure_again'), act: () => measure([e.id]), disabled: !Office.agent.running || e.measuring });
   }
@@ -742,7 +763,7 @@ function exportCsv(sec) {
   } else {
     for (const e of entries(sec).filter(matches)) {
       const path = e.kind === 'stack' ? e.dir : e.path || (e.parts || []).map((p) => p.path).join(' ');
-      rows.push([T(`cat.${sec}.${e.category}`), T('item.' + e.kind), label(e), e.bytes ?? '', csvDate(e.mtime || e.newest || e.created),
+      rows.push([T(`cat.${sec}.${e.category}`), e.kind === 'icon' ? T('d.container') : T('item.' + e.kind), label(e), e.bytes ?? '', csvDate(e.mtime || e.newest || e.created),
         (e.used_by || []).map((u) => u.name).concat((e.containers || []).map((c) => c.name), e.container && e.container.name ? [e.container.name] : []).join(', '),
         (e.notes || []).map(noteText).join(' '), path || '']);
     }
@@ -967,6 +988,182 @@ function cacheDetail() {
   return el('p', 'role', T('cache.text'));
 }
 
+// ------------------------------------------------------------------ missing pictures
+/** A picture as the browser shows it (a file on the server it can't: a frame with a hint) */
+function picture(url) {
+  const box = el('span', 'cl-pic');
+  if (!url || url.startsWith('file://')) {
+    box.classList.add('cl-pic-none');
+    if (url) { box.textContent = '📁'; box.title = T('pic.local_preview'); }
+    return box;
+  }
+  const img = el('img');
+  img.alt = '';
+  img.loading = 'lazy';
+  img.decoding = 'async';
+  img.referrerPolicy = 'no-referrer';
+  img.onerror = () => { img.remove(); box.classList.add('cl-pic-none'); };
+  img.src = url;
+  box.appendChild(img);
+  return box;
+}
+
+/** The picture Unraid shows now: its cached copy inside Unraid (where that is served), else the address it came from */
+const shownIcon = (e) => (Office.config.in_unraid && e.shown ? e.shown : /^https?:\/\//i.test(e.value) ? e.value : null);
+
+function iconMeta(e, meta) {
+  meta.appendChild(el('span', 'mono', e.image.replace(/@sha256:[0-9a-f]+$/i, '')));       // the digest in the details
+  if (e.category === 'ok') return;
+  meta.appendChild(e.status === 'missing'
+    ? chip(T('pic.missing'), 'warn', T('pic.missing_text'))
+    : chip(T('pic.broken'), 'warn', T(e.value.startsWith('/') ? 'pic.broken_local_text' : 'pic.broken_text', { value: e.value })));
+  if (e.category === 'template') meta.appendChild(chip('📄 ' + e.template.split('/').pop(), 'accent', T('pic.via_template_text', { path: e.template })));
+  if (e.category === 'compose') meta.appendChild(chip(`🧩 ${e.project} · ${e.service || '?'}`, 'accent', e.override ? T('pic.via_compose_text', { path: e.override }) : T('cat.icons.compose_text')));
+  if (e.category === 'none' || e.why) return;
+  const url = iconChoice(e);
+  const c = url ? e.candidates.find((x) => x.url === url) : null;
+  if (url) meta.appendChild(chip(T(c ? 'src.' + c.source : 'src.own'), c && c.source === 'guess' ? 'warn' : '', T(c ? `src.${c.source}_text` : 'src.own_text', { detail: c ? c.detail : '' })));
+  else if (e.checking) meta.appendChild(chip('⏳ ' + T('pic.checking'), 'quiet', T('pic.checking_text')));
+  else meta.appendChild(chip(T('pic.none_found'), 'quiet', T('pic.none_found_text')));
+}
+
+function iconDetail(e) {
+  const box = el('div');
+  box.appendChild(kv([
+    [T('d.container'), `${e.name} · ${e.state}`],
+    [T('d.image'), e.image, true],
+    [T('pic.d.now'), e.value ? `${e.value}${e.value_from ? ` (${T('pic.from.' + e.value_from)})` : ''}` : T('d.none'), !!e.value],
+    [T('pic.d.where'), e.category === 'ok' ? '' : e.path, true],
+  ]));
+  if (e.category === 'ok') { box.appendChild(el('p', 'role', T('pic.ok_text'))); return box; }
+  box.appendChild(el('p', 'role', T('pic.how_' + e.category)));
+  if (e.why) box.appendChild(el('p', 'role', T(`why.${e.why}_text`)));
+  if (e.category === 'none' || e.why) return box;
+
+  // which picture: the ones found (those still being checked can't be chosen yet), or an address of her own
+  const list = el('div', 'cl-pic-list');
+  list.setAttribute('role', 'radiogroup');
+  list.setAttribute('aria-label', T('pic.choose'));
+  const current = iconChoice(e);
+  e.candidates.forEach((c) => {
+    const l = el('label', 'check cl-pic-opt');
+    const r = el('input');
+    r.type = 'radio';
+    r.name = 'cl-pic-' + e.id;
+    r.checked = c.url === current;
+    r.disabled = c.status !== 'ok' || !Office.agent.running;
+    r.onchange = () => choose(e, c.url);
+    const text = el('span', '', T('src.' + c.source) + (c.status === 'pending' ? ' · ' + T('pic.checking') : ''));
+    text.title = T(`src.${c.source}_text`, { detail: c.detail });
+    text.appendChild(el('small', 'mono', c.url));
+    l.append(r, picture(c.url), text);
+    list.appendChild(l);
+  });
+  const own = el('div', 'cl-pic-own');
+  const input = el('input', 'input');
+  input.type = 'url';
+  input.placeholder = T('pic.own_placeholder');
+  input.setAttribute('aria-label', T('src.own'));
+  input.spellcheck = false;
+  const chosen = picks.get(e.id);
+  if (chosen && !e.candidates.some((c) => c.url === chosen)) input.value = chosen;
+  const use = el('button', 'btn small plain', T('pic.own_use'));
+  use.type = 'button';
+  use.disabled = !Office.agent.running;
+  const take = () => {
+    const v = input.value.trim();
+    if (!/^https?:\/\/[^\s"'<>\\`]+$/i.test(v)) { Office.toast(T('pic.own_bad'), true); return; }
+    choose(e, v);
+  };
+  use.onclick = take;
+  input.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); take(); } };
+  own.append(input, use);
+  box.append(list, own, el('p', 'role', T('pic.own_hint')));
+  return box;
+}
+
+/** A picture chosen for a container: it is ticked, the row shows it */
+function choose(e, url) {
+  picks.set(e.id, url);
+  selection.add(e.id);
+  Office.keepInPlace(view.tiles, () => renderSection());
+  updateSelbar();
+}
+
+function iconsInfo() {
+  const s = state.icons || {};
+  const loop = s.loop || {};
+  const box = el('div', 'cl-info');
+  if (loop.risk) {
+    const p = el('p', 'callout warn');
+    p.append(T('loop.text', { version: loop.version, n: loop.containers }), ' ');
+    if (loop.standin) {
+      const b = el('button', 'btn small plain', T('loop.button'));
+      b.type = 'button';
+      b.disabled = !Office.agent.running || busy;
+      b.onclick = () => fallback(b);
+      p.appendChild(b);
+    } else {
+      p.append(T('loop.no_standin'));
+    }
+    box.appendChild(p);
+  } else if (loop.affected && !loop.fallback_missing) {
+    box.appendChild(el('p', 'role', T('loop.in_place', { version: loop.version })));
+  }
+  box.appendChild(el('p', 'role', T('pic.where')));
+  if (s.checking) box.appendChild(el('p', 'role', '⏳ ' + T('pic.checking_all')));
+  box.appendChild(el('p', 'role', s.ca_at ? T('pic.ca_at', { when: fmt.relative(s.ca_at) }) : T('pic.no_ca')));
+  return box;
+}
+
+async function fallback(button) {
+  if (busy) return;
+  busy = true;
+  button.disabled = true;
+  const j = await Office.api.post(`${ID}.icon_fallback`, {});
+  busy = false;
+  if (!j.ok) { button.disabled = false; Office.toast(Office.errorText(j.error, ID), true); return; }
+  setState(j.state);
+  Office.toast(T('loop.done'));
+}
+
+function iconsDialog() {
+  const list = entries('icons').filter((e) => selection.has(e.id) && selectable(e));
+  if (!list.length) return;
+  const box = el('div');
+  box.appendChild(el('p', '', T('icons.text', { n: list.length })));
+  const ul = el('ul', 'cl-pic-short');
+  list.forEach((e) => {
+    const li = el('li');
+    const name = el('span', 'cl-pic-name');
+    name.append(picture(iconChoice(e)), el('span', '', e.name));
+    li.append(name, el('span', 'cl-pic-when', T(e.category === 'template' ? 'icons.at_once' : 'icons.after_up')));
+    ul.appendChild(li);
+  });
+  box.appendChild(ul);
+  if (list.some((e) => e.category === 'template')) box.appendChild(el('p', 'role', T('icons.template_note')));
+  if (list.some((e) => e.category === 'compose')) box.appendChild(el('p', 'callout', T('icons.compose_note')));
+  box.appendChild(el('p', 'role', T('icons.undo_note')));
+  Office.dialog({
+    title: T('icons.title', { n: list.length }),
+    body: box,
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('icons.go'), kind: '', act: async () => {
+        busy = true;
+        const j = await Office.api.post(`${ID}.icons`, { items: list.map((e) => ({ id: e.id, url: iconChoice(e) })) });
+        busy = false;
+        if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return true; }
+        selection.clear();
+        j.results.filter((r) => r.ok).forEach((r) => picks.delete(r.id));
+        setState(j.state);
+        report(j.results, 'icons');
+        return true;
+      } },
+    ],
+  });
+}
+
 // ------------------------------------------------------------------ selection
 function updateSelbar() {
   if (!view || !section || section === 'trash' || !selection.size) { Office.selbar(null); return; }
@@ -977,7 +1174,9 @@ function updateSelbar() {
   const sub = [section !== 'templates' && bytes ? fmt.size(bytes) : '', forced ? T('selected_in_use', { n: forced }) : ''].filter(Boolean).join(' · ');
   const go = section === 'docker'
     ? { text: T('remove.button'), kind: 'danger', act: removeDialog, disabled: !Office.agent.running || busy }
-    : { text: T('park.button'), kind: '', act: parkDialog, disabled: !Office.agent.running || busy || !state || state.backup_running };
+    : section === 'icons'
+      ? { text: T('icons.button'), kind: '', act: iconsDialog, disabled: !Office.agent.running || busy || !state || state.backup_running }
+      : { text: T('park.button'), kind: '', act: parkDialog, disabled: !Office.agent.running || busy || !state || state.backup_running };
   Office.selbar({
     title: T('selected', { n: list.length }),
     sub,
@@ -1179,7 +1378,7 @@ function trashRow(run, it) {
   main.appendChild(el('div', 'row-name', it.name));
   const meta = el('div', 'row-meta');
   meta.appendChild(chip(`${ITEM_ICONS[it.kind] || '•'} ${T('item.' + it.kind)}`, 'quiet'));
-  if (it.label && it.label !== it.name && ['template', 'stack'].includes(it.kind)) meta.appendChild(el('span', '', it.label));
+  if (it.label && it.label !== it.name && ['template', 'stack', 'icon'].includes(it.kind)) meta.appendChild(el('span', '', it.label));
   if (it.from) meta.appendChild(el('span', 'mono', T('item.from', { path: it.from })));
   else if (!run.legacy) meta.appendChild(el('span', '', T('item.no_manifest')));
   if (it.zfs) meta.appendChild(chip(T('zfs'), 'quiet', T('item.zfs', { name: it.zfs })));
@@ -1208,7 +1407,7 @@ async function restore(it, button) {
   if (!j.ok) { button.disabled = false; Office.toast(Office.errorText(j.error, ID), true); return; }
   const r = j.results[0];
   if (r && !r.ok) Office.toast(Office.errorText(r.error, ID), true);
-  else Office.toast(T(it.kind === 'stack' ? 'restore.done_stack' : 'restore.done', { name: it.name }));
+  else Office.toast(T(it.kind === 'stack' ? 'restore.done_stack' : it.kind === 'icon' ? 'restore.done_icon' : 'restore.done', { name: it.kind === 'icon' ? it.label || it.name : it.name }));
   setState(j.state);
 }
 
