@@ -12,18 +12,20 @@
 #   4. Plan            what is snapshotted, mounted, backed up
 #   5. Kopia           mapping, identity, policies (wanted/actual)
 #   6. Drift           comparing inventory <-> settings.ini
+#   7. Status          status.json & co. for other programs
+#   8. Packages        names and housekeeping of the backup place (since 2.18)
 ###############################################################################
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.17"
+UB_VERSION="2.18"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry (was unraid-backup; the office moves it)
 # The office's own places. Nothing of ours directly in /mnt (Fix Common Problems rightly
 # complains): mounts go to /mnt/addons, which Unraid creates at boot for this - a small
 # tmpfs in RAM with mount propagation, holding only empty mount points and symlinks. The
-# data the desks keep (dumps, archives) go to the share UnraidSecretaryOffice, one folder
-# per desk - this one is "backup".
+# data the desks keep (here: the packages of apps and VMs) go to the share
+# UnraidSecretaryOffice, one folder per desk - this one is "backup".
 UB_OFFICE_SHARE="UnraidSecretaryOffice"
 UB_DESK_DIR="backup"
 
@@ -56,7 +58,7 @@ UB_DATA="${UB_DATA:-$(cd "$UB_DIR/.." && pwd -P)/data/$UB_NAME}"
 UB_SETTINGS="${UB_SETTINGS:-$UB_DATA/settings.ini}"
 UB_STATE="$UB_DATA/state"
 UB_LOGS="$UB_DATA/logs"
-UB_DUMPS="$UB_DATA/dumps"
+UB_DUMPS="$UB_DATA/dumps"      # the backup place - set from [general] dumps_share (apply_settings)
 # Private staging area for mounts Kopia should not see (ZFS layers)
 # and for read-only binds before they are moved into the snapshot folder
 UB_STAGE="${UB_STAGE:-/run/$UB_NAME-stage}"
@@ -192,6 +194,7 @@ cfg_has() { local s; for s in "${CFG_SECTIONS[@]}"; do [[ "$s" == "$1" ]] && ret
 sec_display() { if [[ "$1" == *"|"* ]]; then printf '[%s "%s"]' "${1%%|*}" "${1#*|}"; else printf '[%s]' "$1"; fi; }
 
 declare -gA UB_SCHEMA=(
+    # keep_runs: before 2.18 the number of run folders kept - accepted in old files, ignored
     [general]="server mount_root view_root snap_prefix btrfs_snap_dir keep_runs keep_logs min_free_gb keep_mounts notify_success dumps_share"
     [zfs]="retention"
     [btrfs]="keep_days min_free_gb snapshot_all"
@@ -224,7 +227,6 @@ cfg_validate() {
         [[ -z "$v" || "$v" =~ $2 ]] || CFG_ERRORS+=( "$1 = '$v' is invalid ($3)" )
     }
     _val "general|dumps_share"   '^[A-Za-z0-9._ -]+$'       "name of a share"
-    _val "general|keep_runs"     '^[0-9]+$'                 "number"
     _val "general|keep_logs"     '^[0-9]+$'                 "number"
     _val "general|min_free_gb"   '^[0-9]+$'                 "number"
     _val "general|keep_mounts"   '^(yes|no)$'               "yes/no"
@@ -288,14 +290,13 @@ apply_settings() {
     VIEW_ROOT="$(cfg "general|view_root" "$UB_MNT/addons/$UB_OFFICE_SHARE/btrfs-snap")"
     SNAP_PREFIX="$(cfg "general|snap_prefix" "unraidbackup-")"
     BTRFS_SNAP_DIR="$(cfg "general|btrfs_snap_dir" ".btrfs-snap")"
-    KEEP_RUNS="$(cfg "general|keep_runs" 14)"
     KEEP_LOGS="$(cfg "general|keep_logs" 60)"
     MIN_FREE_GB="$(cfg "general|min_free_gb" 8)"
     KEEP_MOUNTS="$(cfg "general|keep_mounts" no)"
     NOTIFY_SUCCESS="$(cfg "general|notify_success" yes)"
-    # Dumps, archives and manifests live in their own backup share, never in appdata:
-    # <share>/unraid-backup/<run>/, in the office's share <share>/backup/<run>/
-    # (dumps_share_problem says whether the share will do)
+    # The packages (apps, VMs, server, flash) live in a backup share of their own, never in
+    # appdata: <share>/unraid-backup/, in the office's share <share>/backup/
+    # (dumps_share_problem says whether the share will do; section 8 has the layout)
     DUMPS_SHARE="$(cfg "general|dumps_share")"
     UB_DUMPS="$(dumps_path "$DUMPS_SHARE")"
 
@@ -888,6 +889,18 @@ vm_snapshotted() {
 }
 # vm_on_btrfs <name>  -> 0 when one of its disks lies on btrfs (released after the btrfs snapshots)
 vm_on_btrfs() { local t s b fs r; while IFS='|' read -r t s b fs r; do [[ "$fs" == "btrfs" ]] && return 0; done <<<"${VM_DISKS[$1]:-}"; return 1; }
+# vm_packed <name>  -> 0 when the VM gets a package (its configuration in the backup place): unless it is
+# left out (mode = off) or every share holding its disks is off. A VM whose disks no snapshot can hold
+# (a whole device, XFS) still gets one - then its configuration is all there is.
+vm_packed() {
+    local n="$1" t s b fs ds share any=0 on=0
+    [[ "$(vm_mode "$n")" == "off" ]] && return 1
+    while IFS='|' read -r t s b fs ds share; do
+        [[ -z "$t" || -z "$share" ]] && continue
+        any=1; [[ "$(share_mode "$share")" != "off" ]] && on=1
+    done <<<"${VM_DISKS[$n]:-}"
+    (( ! any || on ))
+}
 
 ##############################################################################
 # 4. Plan
@@ -935,7 +948,7 @@ dumps_share_text() { # dumps_share_text <code> <share>
         missing)   echo "No backup place set (general|dumps_share): dumps and archives need a backup share of their own - such things do not belong in appdata" ;;
         unknown)   echo "Backup place '$2' does not exist as a share" ;;
         forbidden) echo "Backup place '$2' will not do: backups do not belong in appdata, system or domains" ;;
-        off)       echo "Backup place '$2' is not backed up itself (mode=off) - the dumps would be backed up nowhere" ;;
+        off)       echo "Backup place '$2' is not backed up itself (mode=off) - the packages would keep no history and be backed up nowhere" ;;
     esac
 }
 share_retention() { cfg "share|$1|retention" "$ZFS_RETENTION"; }
@@ -1328,10 +1341,12 @@ recover_interrupted_run() {
 # 6. Drift (inventory <-> settings.ini)
 ##############################################################################
 #   DRIFT        lines "level|text"   level: info | warn | error
+#   DRIFT_CODE   the same index: "code<US>value" for messages the office translates (since 2.18;
+#                empty for the others - their text is shown as it is)
 #   SKIP_KOPIA[share]=reason   shares Kopia must not back up this time
-declare -ga DRIFT=()
+declare -ga DRIFT=() DRIFT_CODE=()
 declare -gA SKIP_KOPIA=()
-drift_add() { DRIFT+=( "$1|$2" ); }
+drift_add() { DRIFT+=( "$1|$2" ); DRIFT_CODE+=( "${3:-}"$'\x1f'"${4:-}" ); }   # drift_add <level> <text> [code] [value]
 
 drift_check_shares() {
     local s mode meth id loc_now loc_cfg o
@@ -1566,8 +1581,11 @@ drift_count() { local lvl="$1" n=0 l; for l in "${DRIFT[@]}"; do [[ "${l%%|*}" =
 #                    per VM what the run did (prepare, done, seconds held, snapshot)
 #   last-run.json    last real backup run (no dry run, no check)
 #   history.jsonl    one line per real backup run, the last 200
-#   drift.json       drift found by the last check (level + text), and since 2.14 per
-#                    Kopia target whether its policy matches settings.ini ("policies")
+#   drift.json       drift found by the last check (level + text, since 2.18 a code + value for
+#                    the messages the office translates), and since 2.14 per Kopia target
+#                    whether its policy matches settings.ini ("policies")
+#   since 2.18 status.json and last-run.json carry "packages" (what the run packed, see section 8);
+#   history.jsonl keeps only its counts (without "list")
 # Writing is never critical: if it fails, the backup carries on.
 UB_INTERFACE=1
 UB_HISTORY_MAX=200
@@ -1587,6 +1605,7 @@ ST_KOPIA_DONE=()          # lines "name|ok(1/0)|seconds|end"
 ST_DUMP_BYTES=0
 ST_VMS=()                 # lines "name|prepare|done|seconds|snapshot(1/0)" - what the run did with each VM
                           #   done: planned | frozen | paused | shutdown | kept_running | off | not_running | failed
+ST_PACKAGES="null"        # JSON object: the packages of this run (backup.sh pkg_status), null = none
 
 status_init() { # status_init <mode>
     ST_MODE="$1"; ST_STARTED="$(date +%s)"; ST_ACTIVE="yes"; ST_PHASE="start"
@@ -1616,10 +1635,11 @@ status_json() {
         --argjson drift "$drift" --argjson planned "$plan" --argjson done "$done_" \
         --arg kopia_enabled "${KOPIA_ENABLED:-}" --arg kopia_ok "${KOPIA_OK:-}" \
         --arg current "$ST_KOPIA_CUR" --argjson current_since "$ST_KOPIA_CUR_T" --argjson vms "${vms:-[]}" \
+        --argjson packages "${ST_PACKAGES:-null}" \
         '{interface: $interface, name: $name, version: $version, mode: $mode, run: $run, pid: $pid,
           started: $started, updated: $updated, finished: $finished, phase: $phase, result: $result,
           message: $message, errors: $errors, warnings: $warnings, downtime_s: $downtime,
-          snapshot: $snapshot, dump_bytes: $dump_bytes, log: $log, drift: $drift, vms: $vms,
+          snapshot: $snapshot, dump_bytes: $dump_bytes, log: $log, drift: $drift, vms: $vms, packages: $packages,
           kopia: {enabled: ($kopia_enabled | ascii_downcase | test("^(yes|ja|1|true)$")), state: $kopia_ok,
                   planned: $planned, current: (if $current == "" then null else $current end),
                   current_since: (if $current == "" then null else $current_since end), done: $done}}'
@@ -1645,24 +1665,104 @@ status_finish() { # status_finish <result> [message]
     [[ "$ST_MODE" == "backup" ]] || return 0
     cp -f "$UB_STATE/status.json" "$UB_STATE/.last-run.json.$$" 2>/dev/null \
         && mv -f "$UB_STATE/.last-run.json.$$" "$UB_STATE/last-run.json" 2>/dev/null
+    # a short line per run: the packages only as counts
     {
         tail -n $((UB_HISTORY_MAX - 1)) "$UB_STATE/history.jsonl" 2>/dev/null
-        cat "$UB_STATE/status.json"; echo
+        jq -c 'if (.packages | type) == "object" then .packages |= del(.list) else . end' "$UB_STATE/status.json" 2>/dev/null \
+            || { cat "$UB_STATE/status.json"; echo; }
     } >"$UB_STATE/.history.jsonl.$$" 2>/dev/null \
         && mv -f "$UB_STATE/.history.jsonl.$$" "$UB_STATE/history.jsonl" 2>/dev/null
     return 0
 }
 
-# drift.json: {time, items: [{level, text}], policies: null (not compared) | [KP_STATUS ...]}
+# drift.json: {time, items: [{level, text, code, value}], policies: null (not compared) | [KP_STATUS ...]}
+#   code/value: since 2.18, for the messages the office translates ("" for the others)
 drift_json_write() {
-    local tmp="$UB_STATE/.drift.json.$$" pol="null"
+    local tmp="$UB_STATE/.drift.json.$$" pol="null" i
     [[ "$KP_CHECKED" == "yes" ]] && { pol="$(printf '%s\n' "${KP_STATUS[@]}" | jq -sc .)" || pol="null"; }
-    if printf '%s\n' "${DRIFT[@]}" | jq -R 'select(length > 0) | index("|") as $i
-            | {level: .[0:$i], text: .[$i + 1:]}' | jq -sc --argjson t "$(date +%s)" --argjson p "${pol:-null}" \
-            '{time: $t, items: ., policies: $p}' >"$tmp" 2>/dev/null; then
+    if for i in "${!DRIFT[@]}"; do printf '%s\x1f%s\n' "${DRIFT[$i]%%|*}" "${DRIFT_CODE[$i]:-$'\x1f'}"; done \
+            | jq -R 'select(length > 0) | split("\u001f") | {level: .[0], code: (.[1] // ""), value: (.[2] // "")}' \
+            | jq -sc --argjson t "$(date +%s)" --argjson p "${pol:-null}" --args \
+              '[., ($ARGS.positional | map(index("|") as $i | .[$i + 1:]))] | transpose | map(.[0] + {text: .[1]})
+               | {time: $t, items: ., policies: $p}' "${DRIFT[@]}" >"$tmp" 2>/dev/null; then
         mv -f "$tmp" "$UB_STATE/drift.json" 2>/dev/null
     else
         rm -f "$tmp"
     fi
     return 0
+}
+
+##############################################################################
+# 8. Packages (since 2.18)
+##############################################################################
+# The backup place (dumps_path: <share>/unraid-backup, in the office's share <share>/backup)
+# holds one package per app and VM - small files only, overwritten by every run. The big data
+# stays in the snapshots; the history of the packages lies in the snapshots of the backup
+# place's own share (which therefore takes at least local snapshots). Kopia reads both.
+#   apps/<app>/   manifest.json (containers with their docker inspect, images, dumps, files),
+#                 my-<name>.xml (Unraid templates) or compose/ (the Compose Manager's project
+#                 folder) and compose-files/ (compose files living elsewhere, e.g. indirect
+#                 stacks), db/ (database dumps), nextcloud/ (config.php, occ lists)
+#   vms/<vm>/     manifest.json (disks, the snapshot holding them, how the VM was held),
+#                 <vm>.xml, nvram/, tpm/<uuid>/, snapshotdb/ (Unraid's VM snapshot list)
+#   flash/        flash.tar.gz ([flash] mode = tar)
+#   server/       what belongs to no app: run.json (which run wrote the packages, the result
+#                 of each), settings.ini, shares/, docker lists, libvirt.tar.gz (all of
+#                 libvirt.img), templates and compose projects without a container
+# An app is a compose project (named after it) or a single container (named after it). A
+# package is built in .ub-stage-<run>/ and swapped in only when complete; the one it replaces
+# goes aside as .ub-old-<run>-<folder> for that moment. Packages of apps and VMs a run leaves
+# out (gone, or not backed up) are never deleted - the office lists them as stale.
+
+# pkg_folder <name>  -> the folder for an app or VM: letters, digits, . _ - only, no leading dot
+pkg_folder() {
+    local f
+    f="$(printf '%s' "$1" | LC_ALL=C sed 's/[^A-Za-z0-9._-]/_/g; s/^\./_/')"
+    printf '%s' "${f:-_}"
+}
+
+# old_runs_list <dir>  -> the run folders of engines before 2.18 directly in <dir>, one per line:
+# named like a run (YYYYMMDD-HHMM), owned by root, no mount point or link, and holding nothing but
+# what those runs wrote (db/, manifest/, libvirt.tar.gz, flash*.tar*). Anything else stays.
+old_runs_list() {
+    local dir="$1" d e bad
+    [[ -n "$dir" && -d "$dir" && ! -L "$dir" ]] || return 0
+    for d in "$dir"/[0-9]*-[0-9]*; do
+        [[ -d "$d" && ! -L "$d" && "${d##*/}" =~ ^[0-9]{8}-[0-9]{4}$ ]] || continue
+        [[ "$(stat -c %u "$d" 2>/dev/null)" == "0" ]] || continue
+        mountpoint -q "$d" 2>/dev/null && continue
+        bad=0
+        for e in "$d"/* "$d"/.[!.]* "$d"/..?*; do
+            [[ -e "$e" || -L "$e" ]] || continue
+            case "${e##*/}" in
+                db|manifest)    [[ -d "$e" && ! -L "$e" ]] || bad=1 ;;
+                libvirt.tar.gz|flash*.tar*) [[ -f "$e" && ! -L "$e" ]] || bad=1 ;;
+                *)              bad=1 ;;
+            esac
+            (( bad )) && break
+        done
+        (( bad )) || printf '%s\n' "$d"
+    done
+    return 0
+}
+
+# pkg_recover <base>  -> what a killed run left behind: a package it had put aside goes back when
+# its place is empty (otherwise the aside copy goes), a half-built stage goes. Prints the count.
+pkg_recover() {
+    local base="$1" sub d name n=0
+    [[ -n "$base" && -d "$base" && ! -L "$base" ]] || { echo 0; return 0; }
+    for sub in apps vms .; do
+        for d in "$base/$sub"/.ub-old-*; do
+            [[ -d "$d" && ! -L "$d" ]] || continue
+            name="${d##*/.ub-old-}"; name="${name:14}"          # .ub-old-YYYYMMDD-HHMM-<folder>
+            [[ -n "$name" && "$name" != */* ]] || continue
+            if [[ -e "$base/$sub/$name" ]]; then rm -rf -- "$d"; else mv -- "$d" "$base/$sub/$name"; fi
+            n=$((n+1))
+        done
+    done
+    for d in "$base"/.ub-stage-*; do
+        [[ -d "$d" && ! -L "$d" ]] || continue
+        rm -rf -- "$d"; n=$((n+1))
+    done
+    echo "$n"
 }

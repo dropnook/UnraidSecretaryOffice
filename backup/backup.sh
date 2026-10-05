@@ -1,6 +1,12 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.17 - 2026-10-05
+# unraid-backup - backup.sh                       Version 2.18 - 2026-10-06
+#   2.18 Packages instead of run folders: per app (compose project or single container) and per VM
+#        a folder in the backup place with its small files - templates or compose files, docker
+#        inspect, database dumps, XML/NVRAM/TPM state - overwritten every run, swapped in only when
+#        complete; a failed dump keeps the last good one. Their history lies in the snapshots of the
+#        backup place's share. keep_runs is gone; the first run clears away the old run folders.
+#        drift.json items carry a code for the messages the office translates
 #   2.17 [docker] skip (apps not backed up keep running); datasets in Ms. Dustdevil's storeroom
 #        (_UnraidSecretaryOffice-trash-*) are never snapshotted; btrfs disks with data of held
 #        containers/VMs/the backup place are snapshotted before the restart, the others after it;
@@ -58,18 +64,23 @@
 #       new containers, Kopia mapping and policies. None of it is "repaired"
 #       here - new shares are only backed up once setup.sh has run.
 #    3. Nextcloud into maintenance mode (aborts if it was already on)
-#    4. Manifest: versions, images, templates, share configs, settings.ini
-#    5. Pause apps, then database dumps (MariaDB/MySQL, Postgres, MongoDB),
-#       checked right away - so dumps and files match, also for apps
-#       without a maintenance mode (e.g. Immich)
-#    6. Stop databases and network containers
-#    7. ZFS snapshots (atomic per pool) and btrfs snapshots
+#    4. Packages: per app its templates or compose files and docker inspect,
+#       the server's lists (images, share configs, settings.ini)
+#    5. Pause apps, then database dumps (MariaDB/MySQL, Postgres, MongoDB) into
+#       the apps' packages, checked right away - so dumps and files match, also
+#       for apps without a maintenance mode (e.g. Immich); the app packages
+#       are swapped in
+#    6. Stop databases and network containers, hold the VMs; their packages
+#       (XML, NVRAM, TPM state) and the libvirt archive, swapped in
+#    7. ZFS snapshots (atomic per pool) and btrfs snapshots - they hold this
+#       run's packages too
 #    8. Start containers, maintenance mode off  -> the downtime ends here
 #    9. Mount the snapshots per share under <mount_root>/<share> (read-only)
 #   10. Kopia backs up every share from <mount_root>/<share>
 #       (only with [kopia] enabled = yes - without Kopia 9/10 end here: local
 #       snapshots and dumps are then the whole backup)
-#   11. Unmount, clean up (ZFS, btrfs, dumps, logs), notification
+#   11. Unmount, clean up (ZFS, btrfs, logs; once: the run folders of engines
+#       before 2.18), notification
 #
 # KOPIA CONTAINER (once) - only this one data mapping is needed:
 #   Host <mount_root> (/mnt/addons/UnraidSecretaryOffice/snapshots) -> Container e.g. /backup-snapshots
@@ -105,9 +116,11 @@
 # FILES (in the data folder <office>/data/unraid-backup, nothing on /boot)
 #   settings.ini        settings (from setup.sh)
 #   logs/run-*.log      one log per run
-#   dumps/<time>/       DB dumps, manifest, flash archive if any
 #   state/              lock file, last run, reported drift,
 #                       status.json & co. for other programs (lib/common.sh, 7.)
+# In the backup place ([general] dumps_share: <share>/unraid-backup, in the office's
+# share <share>/backup) the packages: apps/<app>/, vms/<vm>/, server/, flash/
+# (lib/common.sh, 8.)
 ###############################################################################
 
 # One block up to the end: bash parses all of it before running any of it. A run
@@ -165,7 +178,6 @@ MOUNTED="no"
 CLEANUP_DONE="no"
 DOWNTIME=0
 SNAP_NAME=""
-RUN_DIR=""
 KOPIA_PID=""                # running Kopia snapshot (background, see kopia_one)
 KOPIA_CP=""
 
@@ -717,8 +729,22 @@ my_exec() { # my_exec <container> <bin> <login> <pw variable> <args...>
         sh "$bin" "$login" "$pwv" "$@"
 }
 
+# The dump functions write into the app's package (DUMP_DIR = <stage>/apps/<app>/db, DUMP_KEY =
+# apps/<app>); a broken dump is removed, so the last good one stays in the package (pkg_keep_dumps).
+# DUMP_AUTH notes which credentials a dump used - the names of the variables, never their values -
+# so the restore help can use the same ones.
+DUMP_DIR=""; DUMP_KEY=""
+declare -A DUMP_STATE=()         # container -> ok | failed  (none: no dump this run)
+declare -A DUMP_AUTH=()          # container -> "login<US>user variable<US>password variable<US>client"
+declare -A DUMP_FILE_CT=()       # "apps/<app>/db/<file>" -> container
+declare -a DUMPS_DONE=()         # "<file>|bytes" written this run
+dump_done() { # dump_done <container> <file>
+    local size; size="$(stat -c %s "$2" 2>/dev/null)"
+    DUMP_FILE_CT[$DUMP_KEY/db/${2##*/}]="$1"; DUMPS_DONE+=( "${2##*/}|${size:-0}" )
+}
+
 dump_mariadb() { # dump_mariadb <container>
-    local c="$1" login="" pwv="" single="" v uv pv dv pair dump_bin sql_bin dbs db out size tbl_dump tbl_live
+    local c="$1" login="" pwv="" single="" v uv="" pv dv pair dump_bin sql_bin dbs db out size tbl_dump tbl_live
     local -a extra
     for v in MARIADB_ROOT_PASSWORD MYSQL_ROOT_PASSWORD; do
         if docker exec "$c" sh -c "[ -n \"\${$v:-}\" ]" 2>/dev/null; then login="root"; pwv="$v"; break; fi
@@ -738,6 +764,8 @@ dump_mariadb() { # dump_mariadb <container>
 
     if docker exec "$c" sh -c 'command -v mariadb-dump' >/dev/null 2>&1; then dump_bin="mariadb-dump"; sql_bin="mariadb"
     else dump_bin="mysqldump"; sql_bin="mysql"; fi
+    if [[ "$login" == "root" ]]; then DUMP_AUTH[$c]="root"$'\x1f\x1f'"$pwv"$'\x1f'"$sql_bin"
+    else DUMP_AUTH[$c]="user"$'\x1f'"$uv"$'\x1f'"$pv"$'\x1f'"$sql_bin"; fi
     # Without root the rights for routines and events are missing
     if [[ "$login" == "root" ]]; then extra=( --routines --triggers --events ); else extra=( --triggers ); fi
 
@@ -750,20 +778,21 @@ dump_mariadb() { # dump_mariadb <container>
 
     local rc=0
     for db in $dbs; do
-        out="$RUN_DIR/db/mariadb_${c}_${db}.sql.gz"
+        out="$DUMP_DIR/mariadb_${c}_${db}.sql.gz"
         log "  MariaDB '$c' / $db ..."
         my_exec "$c" "$dump_bin" "$login" "$pwv" --single-transaction --quick --hex-blob "${extra[@]}" \
             --default-character-set=utf8mb4 --add-drop-database --databases "$db" \
-            2>"$RUN_DIR/db/${c}_${db}.stderr" | gzip -6 >"$out"
-        if [[ ${PIPESTATUS[0]} -ne 0 ]]; then err "Dump $c/$db failed - see ${c}_${db}.stderr"; rc=1; continue; fi
-        gzip -t "$out" 2>/dev/null                                   || { err "Dump $c/$db: gzip broken"; rc=1; continue; }
-        zcat "$out" | tail -5 | grep -q 'Dump completed'              || { err "Dump $c/$db incomplete (closing line missing)"; rc=1; continue; }
+            2>"$DUMP_DIR/${c}_${db}.stderr" | gzip -6 >"$out"
+        if [[ ${PIPESTATUS[0]} -ne 0 ]]; then err "Dump $c/$db failed - see ${c}_${db}.stderr in the package"; rm -f "$out"; rc=1; continue; fi
+        gzip -t "$out" 2>/dev/null                                   || { err "Dump $c/$db: gzip broken"; rm -f "$out"; rc=1; continue; }
+        zcat "$out" | tail -5 | grep -q 'Dump completed'              || { err "Dump $c/$db incomplete (closing line missing)"; rm -f "$out"; rc=1; continue; }
         size=$(stat -c %s "$out")
         tbl_dump=$(zcat "$out" | grep -c '^CREATE TABLE')
         tbl_live=$(my_exec "$c" "$sql_bin" "$login" "$pwv" -N -B -e \
             "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$db' AND table_type='BASE TABLE'" 2>/dev/null)
-        if [[ "$tbl_dump" != "$tbl_live" ]]; then err "Dump $c/$db: $tbl_dump tables in the dump, $tbl_live in the database"; rc=1; continue; fi
-        rm -f "$RUN_DIR/db/${c}_${db}.stderr"
+        if [[ "$tbl_dump" != "$tbl_live" ]]; then err "Dump $c/$db: $tbl_dump tables in the dump, $tbl_live in the database"; rm -f "$out"; rc=1; continue; fi
+        rm -f "$DUMP_DIR/${c}_${db}.stderr"
+        dump_done "$c" "$out"
         log "    OK: $(human "$size"), $tbl_dump tables"
     done
     return $rc
@@ -772,69 +801,216 @@ dump_mariadb() { # dump_mariadb <container>
 dump_postgres() { # dump_postgres <container>
     local c="$1" user out size
     user="$(docker exec "$c" sh -c 'printf %s "${POSTGRES_USER:-postgres}"')"
-    out="$RUN_DIR/db/postgres_${c}.sql.gz"
+    out="$DUMP_DIR/postgres_${c}.sql.gz"
+    DUMP_AUTH[$c]="user"$'\x1f'"POSTGRES_USER"$'\x1f'"POSTGRES_PASSWORD"$'\x1f'"psql"
     log "  Postgres '$c' (user $user) ..."
     # Without -t: with a TTY stderr ends up in the dump and line ends turn into CRLF
     docker exec "$c" sh -c 'PGPASSWORD="${POSTGRES_PASSWORD:-}" exec pg_dumpall --clean --if-exists --username="$1"' sh "$user" \
-        2>"$RUN_DIR/db/${c}.stderr" | gzip -6 >"$out"
-    if [[ ${PIPESTATUS[0]} -ne 0 ]]; then err "Dump $c failed - see ${c}.stderr"; return 1; fi
-    gzip -t "$out" 2>/dev/null || { err "Dump $c: gzip broken"; return 1; }
+        2>"$DUMP_DIR/${c}.stderr" | gzip -6 >"$out"
+    if [[ ${PIPESTATUS[0]} -ne 0 ]]; then err "Dump $c failed - see ${c}.stderr in the package"; rm -f "$out"; return 1; fi
+    gzip -t "$out" 2>/dev/null || { err "Dump $c: gzip broken"; rm -f "$out"; return 1; }
     zcat "$out" | tail -5 | grep -q 'PostgreSQL database cluster dump complete' \
-        || { err "Dump $c incomplete (closing line missing)"; return 1; }
+        || { err "Dump $c incomplete (closing line missing)"; rm -f "$out"; return 1; }
     size=$(stat -c %s "$out")
-    rm -f "$RUN_DIR/db/${c}.stderr"
+    rm -f "$DUMP_DIR/${c}.stderr"
+    dump_done "$c" "$out"
     log "    OK: $(human "$size"), $(zcat "$out" | grep -c '^CREATE TABLE') tables"
 }
 
 dump_mongodb() { # dump_mongodb <container>
     local c="$1" out size
-    out="$RUN_DIR/db/mongodb_${c}.archive.gz"
+    out="$DUMP_DIR/mongodb_${c}.archive.gz"
     log "  MongoDB '$c' ..."
     docker exec "$c" sh -c 'command -v mongodump' >/dev/null 2>&1 || { err "MongoDB '$c': mongodump is missing in the container"; return 1; }
+    if docker exec "$c" sh -c '[ -n "${MONGO_INITDB_ROOT_USERNAME:-}" ]' 2>/dev/null; then
+        DUMP_AUTH[$c]="root"$'\x1f'"MONGO_INITDB_ROOT_USERNAME"$'\x1f'"MONGO_INITDB_ROOT_PASSWORD"$'\x1f'"mongorestore"
+    else DUMP_AUTH[$c]="none"$'\x1f\x1f\x1f'"mongorestore"; fi
     # Credentials from the container's environment variables (official image)
     if ! docker exec "$c" sh -c 'if [ -n "${MONGO_INITDB_ROOT_USERNAME:-}" ]; then
             exec mongodump --quiet --archive --gzip --username "$MONGO_INITDB_ROOT_USERNAME" \
                  --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin
-        else exec mongodump --quiet --archive --gzip; fi' >"$out" 2>"$RUN_DIR/db/${c}.stderr"; then
-        err "Dump $c failed - see ${c}.stderr"; return 1
+        else exec mongodump --quiet --archive --gzip; fi' >"$out" 2>"$DUMP_DIR/${c}.stderr"; then
+        err "Dump $c failed - see ${c}.stderr in the package"; rm -f "$out"; return 1
     fi
     size=$(stat -c %s "$out")
-    [[ "$size" -gt 0 ]] || { err "Dump $c is empty"; return 1; }
+    [[ "$size" -gt 0 ]] || { err "Dump $c is empty"; rm -f "$out"; return 1; }
     # Test: the archive must read completely (nothing is restored)
     if docker exec -i "$c" sh -c 'if [ -n "${MONGO_INITDB_ROOT_USERNAME:-}" ]; then
             exec mongorestore --dryRun --quiet --archive --gzip --username "$MONGO_INITDB_ROOT_USERNAME" \
                  --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin
-        else exec mongorestore --dryRun --quiet --archive --gzip; fi' <"$out" >/dev/null 2>>"$RUN_DIR/db/${c}.stderr"; then
-        rm -f "$RUN_DIR/db/${c}.stderr"
+        else exec mongorestore --dryRun --quiet --archive --gzip; fi' <"$out" >/dev/null 2>>"$DUMP_DIR/${c}.stderr"; then
+        rm -f "$DUMP_DIR/${c}.stderr"
+        dump_done "$c" "$out"
         log "    OK: $(human "$size") (archive reads completely)"
     else
-        err "Dump $c: the archive does not read completely - see ${c}.stderr"; return 1
+        err "Dump $c: the archive does not read completely - see ${c}.stderr in the package"; rm -f "$out"; return 1
     fi
 }
 
 run_dumps() {
-    local c t
+    local c t f rc
     while IFS= read -r c; do
         [[ -z "$c" ]] && continue
         t="$(cfg "dump|$c|type")"
+        f="${PKG_APP_OF[$c]:-}"
         if [[ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" != "true" ]]; then
-            warn "Database container '$c' is not running - no dump"; continue
+            warn "Database container '$c' is not running - no dump (the package keeps its last one)"
+            [[ -n "$f" ]] && pkg_mark apps "$f" warnings
+            continue
         fi
+        [[ -n "$f" ]] || { warn "Database container '$c' belongs to no package - no dump"; continue; }
+        DUMP_KEY="apps/$f"; DUMP_DIR="$PKG_STAGE/$DUMP_KEY/db"
+        mkdir -p "$DUMP_DIR" || { err "Cannot create $DUMP_DIR"; DUMP_STATE[$c]="failed"; pkg_mark apps "$f" errors; continue; }
         case "$t" in
             mariadb)  dump_mariadb "$c" ;;
             postgres) dump_postgres "$c" ;;
             mongodb)  dump_mongodb "$c" ;;
         esac
+        rc=$?
+        if (( rc == 0 )); then DUMP_STATE[$c]="ok"; else DUMP_STATE[$c]="failed"; pkg_mark apps "$f" errors; fi
+        rmdir "$DUMP_DIR" 2>/dev/null       # nothing came of it (the last good dump comes along at the swap)
     done < <(cfg_names dump)
     return 0
 }
 
 ##############################################################################
-# Manifest and flash archive
+# Packages: one per app and VM in the backup place (lib/common.sh, section 8)
 ##############################################################################
-write_manifest() {
-    local M="$RUN_DIR/manifest" c f
-    mkdir -p "$M/docker-templates" "$M/compose" "$M/shares" "$M/nextcloud"
+# Built in <place>/.ub-stage-<run>/ while the run goes on, swapped in before the snapshots,
+# so this run's snapshot of the backup place's share holds this run's packages:
+#   pkg_plan        which apps and VMs (also in a dry run)
+#   pkg_begin       the stage
+#   pkg_server      server/: the lists and configs that belong to no app   (everything still runs)
+#   pkg_apps_static apps/<app>/: templates, compose files, docker inspect   (everything still runs)
+#   run_dumps       apps/<app>/db/                                          (apps paused)
+#   flash_tar       flash/flash.tar.gz
+#   pkg_commit_apps the app packages and flash/ swapped in                  (before the databases stop)
+#   libvirt_tar, pkg_vms, pkg_commit_rest   VMs and server/                 (VMs held)
+PKG_STAGE=""
+PKG_COMMITTED="no"
+declare -a PKG_APPS=() PKG_VMS=()            # package folders, in order
+declare -A PKG_APP_NAME=() PKG_APP_TYPE=() PKG_APP_MEMBERS=() PKG_APP_OF=() PKG_APP_CM=()
+declare -A PKG_VM_NAME=() PKG_VM_META=()
+declare -A PKG_RESULT=()                     # "apps/<f>", "vms/<f>", "server", "flash" -> ok | warnings | errors
+declare -A PKG_TPL=()                        # container -> its Unraid template (templates-user/my-*.xml)
+declare -A PKG_PROJ_WD=() PKG_PROJ_CFG=()    # compose project -> working dir, config files (from its labels)
+declare -A PKG_FILES=() PKG_BYTES=() PKG_KEPT=() PKG_RUN=()   # per package after the swap
+declare -A PKG_FILE_RUN=()                   # "<package>/<path>" -> the run a kept file is from
+PKG_WRITTEN_BYTES=0                          # what this run wrote into the packages (kept files not counted)
+PKG_OLD_RUNS=0; PKG_OLD_ACTION=""            # run folders of engines before 2.18: how many, removed | would_remove | kept
+
+pkg_mark() { # pkg_mark <sub> <folder> <ok|warnings|errors>  - only ever gets worse
+    local k="$1/$2" now
+    [[ "$1" == "." ]] && k="$2"
+    now="${PKG_RESULT[$k]:-ok}"
+    case "$3" in
+        errors)   PKG_RESULT[$k]="errors" ;;
+        warnings) [[ "$now" == "errors" ]] || PKG_RESULT[$k]="warnings" ;;
+        *)        PKG_RESULT[$k]="$now" ;;
+    esac
+}
+
+# The Compose Manager's project folder of a compose project: its working dir or the folder an
+# "indirect" file points to, otherwise its project_name, name or folder name
+cm_dir_of() { # cm_dir_of <project> <working dir>
+    local p="$1" wd="${2%/}" d ind pn nm
+    local root="$UB_BOOT/config/plugins/compose.manager/projects"
+    if [[ -n "$wd" ]]; then
+        for d in "$root"/*/; do
+            d="${d%/}"; [[ -d "$d" ]] || continue
+            ind="$(head -1 "$d/indirect" 2>/dev/null | tr -d '\r')"
+            [[ "$d" == "$wd" || ( -n "$ind" && "${ind%/}" == "$wd" ) ]] && { printf '%s' "$d"; return 0; }
+        done
+    fi
+    for d in "$root"/*/; do
+        d="${d%/}"; [[ -d "$d" ]] || continue
+        pn="$(head -1 "$d/project_name" 2>/dev/null | tr -d '\r')"
+        nm="$(head -1 "$d/name" 2>/dev/null | tr -d '\r')"
+        [[ "$pn" == "$p" || "${nm,,}" == "$p" || "${d##*/}" == "$p" || "${d##*/}" == "${p,,}" ]] && { printf '%s' "$d"; return 0; }
+    done
+    return 1
+}
+
+# Which apps and VMs get a package. An app is a compose project (named after it) or a single
+# container (named after it); a database container of a project belongs to the project's app.
+# Apps not backed up on purpose ([docker] skip for all their containers, none with a dump) get none.
+pkg_plan() {
+    local n t name key f m all_skip p wd cfgs
+    local -a keys=() sorted=() ids=() vms=()
+    local -A members=() taken=()
+    PKG_APPS=(); PKG_APP_NAME=(); PKG_APP_TYPE=(); PKG_APP_MEMBERS=(); PKG_APP_OF=(); PKG_TPL=()
+    PKG_PROJ_WD=(); PKG_PROJ_CFG=(); PKG_VMS=(); PKG_VM_NAME=()
+    local tdir="$UB_BOOT/config/plugins/dockerMan/templates-user"
+    for t in "$tdir"/*.xml; do
+        [[ -f "$t" ]] || continue
+        name="$(sed -n 's:.*<Name>\([^<]*\)</Name>.*:\1:p' "$t" 2>/dev/null | head -1)"
+        [[ -n "$name" && -z "${PKG_TPL[$name]:-}" ]] && PKG_TPL[$name]="$t"
+    done
+    mapfile -t ids < <(docker ps -aq 2>/dev/null)
+    if (( ${#ids[@]} )); then
+        while IFS=$'\x1e' read -r p wd cfgs; do
+            [[ -n "$p" && -z "${PKG_PROJ_WD[$p]+x}" ]] && { PKG_PROJ_WD[$p]="$wd"; PKG_PROJ_CFG[$p]="$cfgs"; }
+        done < <(docker inspect "${ids[@]}" 2>/dev/null | jq -r '.[] | [(.Config.Labels["com.docker.compose.project"] // ""),
+                    (.Config.Labels["com.docker.compose.project.working_dir"] // ""),
+                    (.Config.Labels["com.docker.compose.project.config_files"] // "")] | map(gsub("[\n\u001e]"; " ")) | join("\u001e")')
+    fi
+    for n in "${CT_NAMES[@]}"; do
+        [[ -z "${PKG_TPL[$n]:-}" && -f "$tdir/my-$n.xml" ]] && PKG_TPL[$n]="$tdir/my-$n.xml"
+        if [[ -n "${CT_PROJECT[$n]}" ]]; then key="1|${CT_PROJECT[$n]}"; else key="2|$n"; fi
+        [[ -z "${members[$key]+x}" ]] && keys+=( "$key" )
+        members[$key]+="$n"$'\n'
+    done
+    # compose projects first: a single container named like a project gets the suffix
+    mapfile -t sorted < <(printf '%s\n' "${keys[@]}" | LC_ALL=C sort)
+    for key in "${sorted[@]}"; do
+        [[ -z "$key" ]] && continue
+        name="${key#*|}"; all_skip=1
+        while IFS= read -r m; do
+            [[ -z "$m" ]] && continue
+            { in_list "$m" "${DOCKER_SKIP[@]}" && ! cfg_has "dump|$m"; } || all_skip=0
+        done <<<"${members[$key]}"
+        (( all_skip )) && continue
+        f="$(pkg_folder "$name")"
+        [[ -n "${taken[$f]:-}" ]] && f="$f-$(printf '%s' "$key" | md5sum | cut -c1-6)"
+        taken[$f]=1
+        PKG_APPS+=( "$f" ); PKG_APP_NAME[$f]="$name"; PKG_APP_MEMBERS[$f]="${members[$key]}"
+        if [[ "$key" == 1\|* ]]; then PKG_APP_TYPE[$f]="compose"
+        elif [[ -n "${PKG_TPL[$name]:-}" ]]; then PKG_APP_TYPE[$f]="template"
+        else PKG_APP_TYPE[$f]="container"; fi
+        while IFS= read -r m; do [[ -n "$m" ]] && PKG_APP_OF[$m]="$f"; done <<<"${members[$key]}"
+    done
+    [[ "$VM_SERVICE" == "yes" ]] || return 0
+    taken=()
+    mapfile -t vms < <(printf '%s\n' "${VM_NAMES[@]}" | LC_ALL=C sort | sed '/^$/d')
+    for n in "${vms[@]}"; do
+        vm_packed "$n" || continue
+        f="$(pkg_folder "$n")"
+        [[ -n "${taken[$f]:-}" ]] && f="$f-$(printf '%s' "$n" | md5sum | cut -c1-6)"
+        taken[$f]=1
+        PKG_VMS+=( "$f" ); PKG_VM_NAME[$f]="$n"
+    done
+    return 0
+}
+
+pkg_begin() {
+    PKG_STAGE="$UB_DUMPS/.ub-stage-$TS"
+    rm -rf -- "$PKG_STAGE"
+    mkdir -p "$PKG_STAGE/apps" "$PKG_STAGE/vms" "$PKG_STAGE/server" && chmod 700 "$PKG_STAGE"
+}
+
+# a small file of a folder (a Compose Manager project) - logs and state files of the folder stay out
+pkg_copy_small() { # pkg_copy_small <file> <target dir>
+    [[ -f "$1" && ! -L "$1" ]] || return 1
+    case "${1##*/}" in last_cmd.log|last_result.json|started_at|*.log) return 1 ;; esac
+    (( $(stat -c %s "$1" 2>/dev/null || echo 0) <= 1048576 )) || return 1
+    mkdir -p "$2" && cp -a "$1" "$2/" 2>>"$LOG_FILE"
+}
+
+# server/: what belongs to no app - the manifest of the runs before 2.18
+pkg_server() {
+    local S="$PKG_STAGE/server" f c t d x
+    local -A tpl_used=() cm_used=()
+    mkdir -p "$S/shares"
     {
         echo "# Backup manifest $TS  ($UB_NAME $UB_VERSION)"
         echo "Host:        $(hostname)"
@@ -843,6 +1019,7 @@ write_manifest() {
         echo "Snapshot:    $SNAP_NAME"
         echo "Mounts:      $MOUNT_ROOT/<share>"
         echo "Kopia:       ${KOPIA_ID:-?} (${KOPIA_CONTAINER:-no container})"
+        echo "Packages:    $UB_DUMPS"
         echo
         echo "## Shares to Kopia"
         printf '%s\n' "${PLAN_KOPIA[@]:-(none)}"
@@ -853,63 +1030,475 @@ write_manifest() {
         echo "## btrfs snapshots"
         printf '%s\n' "${PLAN_BTRFS[@]:-(none)}"
         echo
+        echo "## App packages (folder: app, kind)"
+        for f in "${PKG_APPS[@]}"; do echo "apps/$f: ${PKG_APP_NAME[$f]} (${PKG_APP_TYPE[$f]})"; done
+        echo
+        echo "## VM packages"
+        for f in "${PKG_VMS[@]}"; do echo "vms/$f: ${PKG_VM_NAME[$f]}"; done
+        echo
         echo "## Containers (name, image)"
         docker ps -a --format '{{.Names}}\t{{.Image}}' | sort
-    } >"$M/manifest.txt"
+    } >"$S/manifest.txt"
     local -a ids=(); mapfile -t ids < <(docker ps -aq 2>/dev/null)
     if (( ${#ids[@]} )); then
-        docker inspect --format '{{.Name}}  {{.Config.Image}}  {{.Image}}' "${ids[@]}" >"$M/docker-images.txt" 2>&1
+        docker inspect --format '{{.Name}}  {{.Config.Image}}  {{.Image}}' "${ids[@]}" >"$S/docker-images.txt" 2>&1
     else
-        : >"$M/docker-images.txt"
+        : >"$S/docker-images.txt"
     fi
-    docker ps -a --format '{{.Names}}\t{{.Image}}\t{{.Status}}'      >"$M/docker-ps.txt" 2>&1
-    command -v zfs   >/dev/null && { zfs list -o name,used,refer,mountpoint >"$M/zfs-list.txt" 2>&1; zpool status >"$M/zpool-status.txt" 2>&1; }
+    docker ps -a --format '{{.Names}}\t{{.Image}}\t{{.Status}}' >"$S/docker-ps.txt" 2>&1
+    command -v zfs   >/dev/null && { zfs list -o name,used,refer,mountpoint >"$S/zfs-list.txt" 2>&1; zpool status >"$S/zpool-status.txt" 2>&1; }
     # --mounted: what the kernel knows - no raw reads of every device (a busy or sleeping disk held this up for minutes)
-    command -v btrfs >/dev/null && timeout 30 btrfs filesystem show --mounted >"$M/btrfs-show.txt" 2>&1
-    cp -a "$UB_SETTINGS" "$M/settings.ini" 2>/dev/null
-    drift_text >"$M/drift.txt"
-    cp -a "$UB_BOOT"/config/plugins/dockerMan/templates-user/*.xml "$M/docker-templates/" 2>/dev/null
-    cp -a "$UB_BOOT"/config/plugins/compose.manager/projects/.      "$M/compose/"          2>/dev/null
-    cp -a "$UB_BOOT"/config/shares/*.cfg                             "$M/shares/"           2>/dev/null
-    for c in "${!NC_OCC[@]}"; do
-        [[ -n "${NC_SAME[$c]:-}" ]] && continue     # same instance already in the manifest
-        docker exec "$c" cat "$(dirname "${NC_OCC[$c]}")/config/config.php" >"$M/nextcloud/${c}_config.php" 2>/dev/null \
-            || warn "config.php of '$c' not readable"
-        for f in status app:list "config:list system" files_external:list user:list; do
-            # shellcheck disable=SC2086
-            nc_occ "$c" $f >"$M/nextcloud/${c}_occ-$(tr ' :' '--' <<<"$f").txt" 2>&1
-        done
+    command -v btrfs >/dev/null && timeout 30 btrfs filesystem show --mounted >"$S/btrfs-show.txt" 2>&1
+    cp -a "$UB_SETTINGS" "$S/settings.ini" 2>/dev/null
+    drift_text >"$S/drift.txt"
+    cp -a "$UB_BOOT"/config/shares/*.cfg "$S/shares/" 2>/dev/null
+    # templates no container uses any more (Unraid's "Previous Apps") and compose projects
+    # without a container (a stack not started): they belong to no app
+    for c in "${CT_NAMES[@]}"; do [[ -n "${PKG_TPL[$c]:-}" ]] && tpl_used[${PKG_TPL[$c]}]=1; done
+    for x in "${!PKG_PROJ_WD[@]}"; do d="$(cm_dir_of "$x" "${PKG_PROJ_WD[$x]}")" && cm_used[$d]=1; done
+    for t in "$UB_BOOT"/config/plugins/dockerMan/templates-user/*.xml; do
+        [[ -f "$t" && -z "${tpl_used[$t]:-}" ]] || continue
+        mkdir -p "$S/docker-templates" && cp -a "$t" "$S/docker-templates/" 2>>"$LOG_FILE"
     done
+    for d in "$UB_BOOT"/config/plugins/compose.manager/projects/*/; do
+        d="${d%/}"; [[ -d "$d" && -z "${cm_used[$d]:-}" ]] || continue
+        for x in "$d"/* "$d"/.[!.]*; do pkg_copy_small "$x" "$S/compose/${d##*/}"; done
+    done
+    PKG_RESULT[server]="ok"
 }
 
-# Contents of libvirt.img (mounted at /etc/libvirt): XML, NVRAM,
-# TPM states, snapshot list, networks - as an archive next to the dumps. Not the
-# image itself: that is a mounted btrfs file system, a copy taken while
-# VMs run could be inconsistent. If VMs are running, their TPM/NVRAM
-# state in the archive is only crash-consistent (like pulling the plug).
+pkg_apps_static() {
+    local f
+    for f in "${PKG_APPS[@]}"; do pkg_app_static "$f"; done
+    return 0
+}
+
+# apps/<app>/: its templates or compose files, docker inspect of its containers (with the images'
+# digests), Nextcloud's config.php and occ lists - while everything still runs
+pkg_app_static() {
+    local f="$1" A="$PKG_STAGE/apps/$1" c x p wd cm
+    local -a cts=() ids=() used=()
+    PKG_RESULT[apps/$f]="ok"
+    mkdir -p "$A"
+    mapfile -t cts < <(sed '/^$/d' <<<"${PKG_APP_MEMBERS[$f]}")
+    if ! docker inspect "${cts[@]}" >"$A/.inspect.json" 2>>"$LOG_FILE"; then
+        warn "App '${PKG_APP_NAME[$f]}': docker inspect failed"; pkg_mark apps "$f" warnings
+        jq -e 'type == "array"' "$A/.inspect.json" >/dev/null 2>&1 || echo '[]' >"$A/.inspect.json"
+    fi
+    mapfile -t ids < <(jq -r '.[].Image' "$A/.inspect.json" 2>/dev/null | sort -u)
+    { (( ${#ids[@]} )) && docker image inspect "${ids[@]}" 2>/dev/null; } \
+        | jq -c '[.[] | {id: .Id, tags: (.RepoTags // []), digests: (.RepoDigests // [])}]' >"$A/.images.json" 2>/dev/null
+    jq -e 'type == "array"' "$A/.images.json" >/dev/null 2>&1 || echo '[]' >"$A/.images.json"
+    for c in "${cts[@]}"; do
+        [[ -n "${PKG_TPL[$c]:-}" ]] && { cp -a "${PKG_TPL[$c]}" "$A/" 2>>"$LOG_FILE" || { warn "App '${PKG_APP_NAME[$f]}': template ${PKG_TPL[$c]} not copied"; pkg_mark apps "$f" warnings; }; }
+    done
+    if [[ "${PKG_APP_TYPE[$f]}" == "compose" ]]; then
+        p="${PKG_APP_NAME[$f]}"; wd="${PKG_PROJ_WD[$p]:-}"
+        cm="$(cm_dir_of "$p" "$wd")" || cm=""
+        PKG_APP_CM[$f]="$cm"
+        if [[ -n "$cm" ]]; then
+            for x in "$cm"/* "$cm"/.[!.]*; do pkg_copy_small "$x" "$A/compose"; done
+        fi
+        # the files docker compose read outside that folder (an indirect stack, docker compose by hand)
+        IFS=',' read -r -a used <<<"${PKG_PROJ_CFG[$p]:-}"
+        [[ -n "$wd" ]] && used+=( "${wd%/}/.env" )
+        for x in "${used[@]}"; do
+            [[ -n "$cm" && "$(dirname "$x")" == "$cm" ]] && continue
+            pkg_copy_small "$x" "$A/compose-files"
+        done
+        if [[ ! -d "$A/compose" && ! -d "$A/compose-files" ]]; then
+            warn "App '$p': no compose files found (neither in the Compose Manager nor where docker compose read them)"
+            pkg_mark apps "$f" warnings
+        fi
+    fi
+    for c in "${cts[@]}"; do
+        [[ -n "${NC_OCC[$c]:-}" && -z "${NC_SAME[$c]:-}" ]] || continue
+        mkdir -p "$A/nextcloud"
+        docker exec "$c" cat "$(dirname "${NC_OCC[$c]}")/config/config.php" >"$A/nextcloud/${c}_config.php" 2>/dev/null \
+            || { warn "config.php of '$c' not readable"; rm -f "$A/nextcloud/${c}_config.php"; }
+        for x in status app:list "config:list system" files_external:list user:list; do
+            # shellcheck disable=SC2086
+            nc_occ "$c" $x >"$A/nextcloud/${c}_occ-$(tr ' :' '--' <<<"$x").txt" 2>&1
+        done
+    done
+    return 0
+}
+
+# vms/<vm>/: its XML, NVRAM (also of its Unraid VM snapshots), TPM state and Unraid's snapshot list -
+# after the VMs are held, so they match the disks in the snapshot
+pkg_vms() {
+    local f
+    for f in "${PKG_VMS[@]}"; do pkg_vm "$f"; done
+    return 0
+}
+
+pkg_vm() {
+    local f="$1" n="${PKG_VM_NAME[$1]}" V="$PKG_STAGE/vms/$1" Q=/etc/libvirt/qemu uuid nv x disks auto=false
+    local t s b fs ds share pth rel sz snap
+    PKG_RESULT[vms/$f]="ok"
+    mkdir -p "$V"
+    if [[ -f "$Q/$n.xml" ]]; then cp -a "$Q/$n.xml" "$V/$f.xml" 2>>"$LOG_FILE"
+    else timeout 20 virsh dumpxml --inactive --security-info "$n" >"$V/$f.xml" 2>>"$LOG_FILE"; fi
+    if [[ ! -s "$V/$f.xml" ]]; then
+        err "VM '$n': its configuration (XML) could not be read - its package of the last run stays"
+        PKG_RESULT[vms/$f]="errors"; rm -rf -- "$V"; return 1
+    fi
+    uuid="$(sed -n 's:.*<uuid>\([^<]*\)</uuid>.*:\1:p' "$V/$f.xml" | head -1)"
+    nv="$(sed -n 's:.*<nvram[^>]*>\([^<]*\)</nvram>.*:\1:p' "$V/$f.xml" | head -1)"
+    if [[ -n "$nv" ]]; then
+        if [[ -f "$nv" ]]; then mkdir -p "$V/nvram" && cp -a "$nv" "$V/nvram/" 2>>"$LOG_FILE"
+        else warn "VM '$n': its NVRAM $nv is missing"; pkg_mark vms "$f" warnings; fi
+        if [[ -n "$uuid" ]]; then
+            for x in "$Q/nvram/$uuid"S*; do [[ -f "$x" ]] && { mkdir -p "$V/nvram"; cp -a "$x" "$V/nvram/" 2>>"$LOG_FILE"; }; done
+        fi
+    fi
+    if grep -q '<tpm ' "$V/$f.xml"; then
+        # a TPM state exists once the VM ran with its TPM
+        if [[ -n "$uuid" && -d "$Q/swtpm/tpm-states/$uuid" ]]; then mkdir -p "$V/tpm" && cp -a "$Q/swtpm/tpm-states/$uuid" "$V/tpm/" 2>>"$LOG_FILE"
+        else log "  VM '$n' has a TPM but no TPM state yet (never started with it?)"; fi
+    fi
+    [[ -d "$Q/snapshotdb/$n" ]] && cp -a "$Q/snapshotdb/$n" "$V/snapshotdb" 2>>"$LOG_FILE"
+    [[ -e "$Q/autostart/$n.xml" ]] && auto=true
+    # its disks: where they lie and which snapshot of this run holds them
+    disks="$(while IFS='|' read -r t s b fs ds share; do
+            [[ -z "$t" ]] && continue
+            pth="$s"
+            if [[ -n "$b" && ( "$s" == "$UB_MNT"/user/* || "$s" == "$UB_MNT"/user0/* ) ]]; then
+                rel="${s#"$UB_MNT"/user/}"; rel="${rel#"$UB_MNT"/user0/}"; pth="${INV_BASE_PATH[$b]}/$rel"
+            fi
+            sz=""; [[ -f "$pth" ]] && sz="$(stat -c %s "$pth" 2>/dev/null)"
+            snap=""
+            case "$fs" in
+                zfs)   in_list "$ds" "${PLAN_ZFS[@]}" && snap="$ds@$SNAP_NAME" ;;
+                btrfs) in_list "${INV_BASE_PATH[$b]:-?}" "${PLAN_BTRFS[@]}" && snap="${INV_BASE_PATH[$b]}/$BTRFS_SNAP_DIR/$TS" ;;
+            esac
+            printf '%s\x1f' "$t" "$s" "$b" "$fs" "$ds" "$share" "$sz" "$snap"; echo
+        done <<<"${VM_DISKS[$n]:-}" | jq -Rn '[inputs | split("\u001f") | {target: .[0], source: .[1], base: .[2], fs: .[3],
+            dataset: .[4], share: .[5], bytes: (if .[6] == "" then null else (.[6] | tonumber) end), snapshot: .[7]}]')" || disks='[]'
+    PKG_VM_META[$f]="$(jq -nc --arg uuid "$uuid" --arg state "${VM_STATE[$n]:-}" --argjson auto "$auto" \
+        --arg prepare "$(vm_prepare "$n")" --arg held "${VM_HELD[$n]:-no}" --argjson disks "${disks:-[]}" \
+        '{uuid: $uuid, state: $state, autostart: $auto, prepare: $prepare, held: $held, disks: $disks}')" || PKG_VM_META[$f]='{}'
+    return 0
+}
+
+# Contents of libvirt.img (mounted at /etc/libvirt): XML, NVRAM, TPM states, snapshot lists,
+# networks of all VMs - as a whole in server/, besides the VM packages. Not the image itself: that
+# is a mounted btrfs file system, a copy taken while VMs run could be inconsistent.
 libvirt_tar() {
-    local out="$RUN_DIR/libvirt.tar.gz"
+    local out="$PKG_STAGE/server/libvirt.tar.gz"
     if ! mountpoint -q /etc/libvirt; then
-        log "VM service off - no libvirt archive"
+        log "VM service off - no libvirt archive (the package keeps the last one)"
         return 0
     fi
     log "Backing up the VM configuration (/etc/libvirt) as an archive ..."
     if tar -C /etc -czf "$out" libvirt 2>>"$LOG_FILE" && gzip -t "$out" 2>/dev/null; then
         log "  OK: $(human "$(stat -c %s "$out")")"
     else
-        err "libvirt archive failed"
+        err "libvirt archive failed - the one of the last run stays"; rm -f "$out"; pkg_mark . server errors
     fi
 }
 
 flash_tar() {
-    local out="$RUN_DIR/flash.tar.gz" ex=() e
+    local out="$PKG_STAGE/flash/flash.tar.gz" ex=() e
     for e in "${FLASH_TAR_EXCLUDE[@]}"; do ex+=( "--exclude=$e" ); done
+    mkdir -p "$PKG_STAGE/flash"
+    PKG_RESULT[flash]="ok"
     log "Backing up $UB_BOOT as an archive ..."
     if tar -C "$UB_BOOT" "${ex[@]}" -czf "$out" . 2>>"$LOG_FILE" && gzip -t "$out" 2>/dev/null; then
         log "  OK: $(human "$(stat -c %s "$out")")"
     else
-        err "Flash archive failed"
+        err "Flash archive failed - the one of the last run stays"; rm -f "$out"; pkg_mark . flash errors
     fi
+}
+
+# pkg_keep <old dir> <new dir> <relative path>  - a file of the last package comes along: a hard
+# link where the file system allows it, a copy otherwise. Prints its size.
+pkg_keep() {
+    local o="$1/$3" n="$2/$3"
+    [[ -f "$o" && ! -L "$o" && ! -e "$n" ]] || return 1
+    mkdir -p "$(dirname "$n")" || return 1
+    ln "$o" "$n" 2>/dev/null || cp -a "$o" "$n" 2>>"$LOG_FILE" || return 1
+    stat -c %s "$n" 2>/dev/null || echo 0
+}
+
+pkg_what() { # pkg_what <kind> <path>  - what a file of a package is
+    case "$1:$2" in
+        app:db/*.stderr) echo error ;;
+        app:db/*)        echo dump ;;
+        app:compose/*|app:compose-files/*) echo compose ;;
+        app:nextcloud/*) echo nextcloud ;;
+        app:my-*.xml)    echo template ;;
+        vm:nvram/*)      echo nvram ;;
+        vm:tpm/*)        echo tpm ;;
+        vm:snapshotdb/*) echo snapshots ;;
+        vm:*.xml)        echo xml ;;
+        *:libvirt.tar.gz) echo libvirt ;;
+        *:flash.tar.gz)  echo flash ;;
+        *)               echo other ;;
+    esac
+}
+
+# pkg_files_json <dir> <package key> <kind>  -> [{path, bytes, run, what, container}] of its files
+pkg_files_json() {
+    local D="$1" k="$2" kind="$3" p s
+    ( cd "$D" && find . -type f ! -name manifest.json ! -name run.json ! -name '.inspect.json' ! -name '.images.json' -printf '%P\t%s\n' ) \
+        | LC_ALL=C sort | while IFS=$'\t' read -r p s; do
+            printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$p" "$s" "${PKG_FILE_RUN[$k/$p]:-$TS}" "$(pkg_what "$kind" "$p")" "${DUMP_FILE_CT[$k/$p]:-}"
+        done | jq -Rn '[inputs | split("\u001f") | {path: .[0], bytes: (.[1] | tonumber), run: .[2], what: .[3], container: .[4]}]'
+}
+
+# A dump that failed or did not run this time (container stopped): the last good one comes along,
+# unless this run dumped that container completely (then a missing file is a database that is gone)
+pkg_keep_dumps() { # pkg_keep_dumps <folder> <old dir> <new dir>
+    local f="$1" old="$2" new="$3" p c r sz last o skip
+    if [[ ! -f "$old/manifest.json" ]]; then
+        # no package yet (the first run since 2.18): the newest run folder of the engine before
+        last="$(old_runs_list "$UB_DUMPS" | LC_ALL=C sort | tail -1)"
+        [[ -n "$last" && -d "$last/db" ]] || return 0
+        while IFS= read -r c; do
+            [[ -n "$c" ]] && cfg_has "dump|$c" && [[ "${DUMP_STATE[$c]:-}" != "ok" ]] || continue
+            for p in "$last/db/postgres_$c.sql.gz" "$last/db/mongodb_$c.archive.gz" "$last/db/mariadb_${c}_"*.sql.gz; do
+                [[ -f "$p" ]] || continue
+                skip=0      # mariadb_<c>_<db>: not the dump of another container whose name begins with <c>_
+                while IFS= read -r o; do [[ "$o" != "$c" && "$o" == "${c}_"* && "${p##*/}" == "mariadb_${o}_"* ]] && skip=1; done < <(cfg_names dump)
+                (( skip )) && continue
+                if sz="$(pkg_keep "$last" "$new" "db/${p##*/}")"; then
+                    PKG_FILE_RUN[apps/$f/db/${p##*/}]="${last##*/}"; DUMP_FILE_CT[apps/$f/db/${p##*/}]="$c"
+                    PKG_KEPT[apps/$f]=$(( ${PKG_KEPT[apps/$f]:-0} + 1 ))
+                    log "  db/${p##*/} of '$c' comes into the package from the run folder ${last##*/}"
+                fi
+            done
+        done <<<"${PKG_APP_MEMBERS[$f]}"
+        return 0
+    fi
+    while IFS=$'\x1f' read -r p c r; do
+        [[ "$p" == db/* && "$p" != *.stderr && -n "$c" ]] || continue
+        cfg_has "dump|$c" || continue
+        [[ "${DUMP_STATE[$c]:-}" == "ok" ]] && continue
+        if sz="$(pkg_keep "$old" "$new" "$p")"; then
+            PKG_FILE_RUN[apps/$f/$p]="$r"; DUMP_FILE_CT[apps/$f/$p]="$c"
+            PKG_KEPT[apps/$f]=$(( ${PKG_KEPT[apps/$f]:-0} + 1 ))
+            log "  $p of '$c' stays in the package from run $r"
+        fi
+    done < <(jq -r '.files[]? | [.path, (.container // ""), (.run // "")] | join("\u001f")' "$old/manifest.json" 2>/dev/null)
+}
+
+# pkg_swap <sub> <folder>  - the new package in place of the last one: the last one aside, the new one
+# in, the last one gone. A run killed in between leaves .ub-old-<run>-<folder> (pkg_recover)
+pkg_swap() {
+    local sub="$1" f="$2" new dst aside
+    if [[ "$sub" == "." ]]; then new="$PKG_STAGE/$f"; dst="$UB_DUMPS/$f"; aside="$UB_DUMPS/.ub-old-$TS-$f"
+    else new="$PKG_STAGE/$sub/$f"; dst="$UB_DUMPS/$sub/$f"; aside="$UB_DUMPS/$sub/.ub-old-$TS-$f"; fi
+    [[ -d "$new" ]] || return 1
+    chmod -R go-rwx "$new" 2>/dev/null       # root only: templates and .env hold passwords
+    if [[ -e "$dst" ]] && ! mv -- "$dst" "$aside" 2>>"$LOG_FILE"; then
+        err "Package $sub/$f: the last one could not be put aside - it stays, the new one is dropped"
+        rm -rf -- "$new"; return 1
+    fi
+    if mv -- "$new" "$dst" 2>>"$LOG_FILE"; then rm -rf -- "$aside"; return 0; fi
+    err "Package $sub/$f could not be put in place - the last one stays"
+    [[ -e "$aside" && ! -e "$dst" ]] && mv -- "$aside" "$dst"
+    return 1
+}
+
+# after the swap: files and bytes of a package, and what this run wrote into it
+pkg_count() { # pkg_count <key> <dir> <kept bytes>
+    local b
+    PKG_FILES[$1]="$(find "$2" -type f 2>/dev/null | wc -l)"
+    b="$(du -sb "$2" 2>/dev/null | cut -f1)"; is_uint "$b" || b=0
+    PKG_BYTES[$1]="$b"; PKG_RUN[$1]="$TS"
+    PKG_WRITTEN_BYTES=$(( PKG_WRITTEN_BYTES + b - ${3:-0} ))
+    (( PKG_WRITTEN_BYTES < 0 )) && PKG_WRITTEN_BYTES=0
+    return 0
+}
+
+# the app packages (and flash/) swapped in - after the dumps, before the databases stop
+pkg_commit_apps() {
+    local f new old files kb dumps nc tpls c lg uv pv cl
+    mkdir -p "$UB_DUMPS/apps" "$UB_DUMPS/vms" && chmod 700 "$UB_DUMPS/apps" "$UB_DUMPS/vms"
+    for f in "${PKG_APPS[@]}"; do
+        new="$PKG_STAGE/apps/$f"; old="$UB_DUMPS/apps/$f"
+        [[ -d "$new" ]] || continue
+        pkg_keep_dumps "$f" "$old" "$new"
+        files="$(pkg_files_json "$new" "apps/$f" app)" || files='[]'
+        kb="$(jq -r --arg r "$TS" '[.[] | select(.run != $r) | .bytes] | add // 0' <<<"$files" 2>/dev/null)"; is_uint "$kb" || kb=0
+        dumps="$(while IFS= read -r c; do
+                [[ -n "$c" ]] && cfg_has "dump|$c" || continue
+                # no dump this time: the credentials the kept one was made with
+                [[ -z "${DUMP_AUTH[$c]:-}" && -f "$old/manifest.json" ]] && DUMP_AUTH[$c]="$(jq -r --arg c "$c" \
+                    'first(.dumps[]? | select(.container == $c and .login != "") | [.login, .user_var, .password_var, .client] | join("\u001f")) // ""' \
+                    "$old/manifest.json" 2>/dev/null)"
+                IFS=$'\x1f' read -r lg uv pv cl <<<"${DUMP_AUTH[$c]:-}"
+                printf '%s\x1f' "$c" "$(cfg "dump|$c|type")" "${DUMP_STATE[$c]:-not_run}" "$lg" "$uv" "$pv" "$cl"; echo
+            done <<<"${PKG_APP_MEMBERS[$f]}" | jq -Rn '[inputs | split("\u001f") | {container: .[0], type: .[1], state: .[2],
+                login: .[3], user_var: .[4], password_var: .[5], client: .[6]}]')" || dumps='[]'
+        # (if, not &&: under pipefail a loop ending on a false test would fail the pipe and lose the output)
+        nc="$(while IFS= read -r c; do
+                if [[ -n "$c" && -n "${NC_OCC[$c]:-}" ]]; then printf '%s\x1f%s\x1f%s\x1f%s\n' "$c" "${NC_OCC[$c]}" "${NC_USER[$c]:-www-data}" "${NC_SAME[$c]:-}"; fi
+            done <<<"${PKG_APP_MEMBERS[$f]}" | jq -Rn '[inputs | split("\u001f") | {container: .[0], occ: .[1], user: .[2], same_as: .[3]}]')" || nc='[]'
+        tpls="$(while IFS= read -r c; do
+                if [[ -n "$c" && -n "${PKG_TPL[$c]:-}" ]]; then printf '%s\x1f%s\n' "$c" "${PKG_TPL[$c]##*/}"; fi
+            done <<<"${PKG_APP_MEMBERS[$f]}" | jq -Rn '[inputs | split("\u001f") | {key: .[0], value: .[1]}] | from_entries')" || tpls='{}'
+        [[ -n "$tpls" ]] || tpls="{}"
+        jq -n --arg engine "$UB_VERSION" --arg type "${PKG_APP_TYPE[$f]}" --arg name "${PKG_APP_NAME[$f]}" --arg folder "$f" \
+            --arg run "$TS" --argjson time "$STARTED_AT" --arg host "$(hostname -s 2>/dev/null)" --arg result "${PKG_RESULT[apps/$f]:-ok}" \
+            --arg cm "${PKG_APP_CM[$f]:-}" --arg wd "${PKG_PROJ_WD[${PKG_APP_NAME[$f]}]:-}" --arg cfgs "${PKG_PROJ_CFG[${PKG_APP_NAME[$f]}]:-}" \
+            --slurpfile ins "$new/.inspect.json" --slurpfile img "$new/.images.json" \
+            --argjson files "$files" --argjson dumps "${dumps:-[]}" --argjson nc "${nc:-[]}" --argjson tpls "$tpls" '
+            ($img[0] // []) as $images |
+            {interface: 1, engine: $engine, kind: "app", type: $type, name: $name, folder: $folder, run: $run, time: $time,
+             host: $host, result: $result,
+             compose: (if $type == "compose" then {project: $name, manager_dir: (if $cm == "" then null else ($cm | split("/") | last) end),
+                       manager_path: (if $cm == "" then null else $cm end), working_dir: $wd,
+                       config_files: ($cfgs | split(",") | map(select(length > 0)))} else null end),
+             containers: [($ins[0] // [])[] | . as $c | (.Name | ltrimstr("/")) as $n | {name: $n, image: .Config.Image, image_id: .Image,
+                 digests: (first($images[] | select(.id == $c.Image) | .digests) // []), running: .State.Running,
+                 service: (.Config.Labels["com.docker.compose.service"] // null),
+                 template: ($tpls[$n] // null),
+                 inspect: .}],
+             dumps: $dumps, nextcloud: $nc, files: $files}' >"$new/manifest.json" 2>>"$LOG_FILE" \
+            || { warn "App '${PKG_APP_NAME[$f]}': manifest.json not written"; pkg_mark apps "$f" warnings; }
+        rm -f "$new/.inspect.json" "$new/.images.json"
+        pkg_swap apps "$f" && pkg_count "apps/$f" "$old" "$kb"
+    done
+    if [[ -d "$PKG_STAGE/flash" ]]; then
+        if kb="$(pkg_keep "$UB_DUMPS/flash" "$PKG_STAGE/flash" flash.tar.gz)"; then
+            PKG_FILE_RUN[flash/flash.tar.gz]="$(jq -r '.files[]? | select(.path == "flash.tar.gz") | .run' "$UB_DUMPS/flash/manifest.json" 2>/dev/null)"
+            PKG_KEPT[flash]=1
+        else kb=0; fi
+        pkg_plain_manifest flash "$PKG_STAGE/flash"
+        pkg_swap . flash && pkg_count flash "$UB_DUMPS/flash" "$kb"
+    fi
+    return 0
+}
+
+pkg_plain_manifest() { # pkg_plain_manifest <flash|server> <dir>  - manifest.json (flash) or run.json (server)
+    local k="$1" D="$2" files
+    files="$(pkg_files_json "$D" "$k" "$k")" || files='[]'
+    jq -n --arg engine "$UB_VERSION" --arg kind "$k" --arg run "$TS" --argjson time "$STARTED_AT" \
+        --arg host "$(hostname -s 2>/dev/null)" --arg result "${PKG_RESULT[$k]:-ok}" --argjson files "$files" \
+        '{interface: 1, engine: $engine, kind: $kind, run: $run, time: $time, host: $host, result: $result, files: $files}' \
+        >"$D/manifest.json" 2>>"$LOG_FILE"
+}
+
+# the VM packages and server/ swapped in - while the VMs are held, right before the snapshots
+pkg_commit_rest() {
+    local f new old files kb meta lines=""
+    for f in "${PKG_VMS[@]}"; do
+        new="$PKG_STAGE/vms/$f"; old="$UB_DUMPS/vms/$f"
+        [[ -d "$new" ]] || continue                       # its XML could not be read: the last package stays
+        files="$(pkg_files_json "$new" "vms/$f" vm)" || files='[]'
+        meta="${PKG_VM_META[$f]:-}"; [[ -n "$meta" ]] || meta='{}'
+        jq -n --arg engine "$UB_VERSION" --arg name "${PKG_VM_NAME[$f]}" --arg folder "$f" --arg run "$TS" --argjson time "$STARTED_AT" \
+            --arg host "$(hostname -s 2>/dev/null)" --arg result "${PKG_RESULT[vms/$f]:-ok}" --argjson meta "$meta" \
+            --argjson files "$files" --arg xml "$f.xml" \
+            '{interface: 1, engine: $engine, kind: "vm", name: $name, folder: $folder, run: $run, time: $time, host: $host,
+              result: $result, xml: $xml} + $meta + {files: $files}' >"$new/manifest.json" 2>>"$LOG_FILE" \
+            || { warn "VM '${PKG_VM_NAME[$f]}': manifest.json not written"; pkg_mark vms "$f" warnings; }
+        pkg_swap vms "$f" && pkg_count "vms/$f" "$old" 0
+    done
+    # server/: the libvirt archive of the last run stays when this one has none (VM service off, failed)
+    kb=0
+    if [[ "$LIBVIRT_MODE" == "tar" ]] && kb="$(pkg_keep "$UB_DUMPS/server" "$PKG_STAGE/server" libvirt.tar.gz)"; then
+        PKG_FILE_RUN[server/libvirt.tar.gz]="$(jq -r '.files[]? | select(.path == "libvirt.tar.gz") | .run' "$UB_DUMPS/server/run.json" 2>/dev/null)"
+        PKG_KEPT[server]=1
+    else kb=0; fi
+    pkg_plain_manifest server "$PKG_STAGE/server"
+    # run.json: which run wrote the packages, and how each one went
+    for f in "${PKG_APPS[@]}"; do lines+="app"$'\x1f'"${PKG_APP_NAME[$f]}"$'\x1f'"$f"$'\x1f'"$(pkg_result "apps/$f")"$'\n'; done
+    for f in "${PKG_VMS[@]}"; do lines+="vm"$'\x1f'"${PKG_VM_NAME[$f]}"$'\x1f'"$f"$'\x1f'"$(pkg_result "vms/$f")"$'\n'; done
+    [[ -n "${PKG_RESULT[flash]:-}" ]] && lines+="flash"$'\x1f'"flash"$'\x1f'"flash"$'\x1f'"$(pkg_result flash)"$'\n'
+    if jq --argjson p "$(printf '%s' "$lines" | jq -Rn '[inputs | select(length > 0) | split("\u001f") | {kind: .[0], name: .[1], folder: .[2], result: .[3]}]')" \
+          '. + {packages: $p}' "$PKG_STAGE/server/manifest.json" >"$PKG_STAGE/server/run.json" 2>>"$LOG_FILE"; then
+        rm -f "$PKG_STAGE/server/manifest.json"
+    else
+        mv -f "$PKG_STAGE/server/manifest.json" "$PKG_STAGE/server/run.json"
+    fi
+    pkg_swap . server && pkg_count server "$UB_DUMPS/server" "$kb"
+    rmdir "$PKG_STAGE/apps" "$PKG_STAGE/vms" "$PKG_STAGE" 2>/dev/null || rm -rf -- "$PKG_STAGE"
+    PKG_COMMITTED="yes"
+    pkg_status yes
+}
+
+pkg_result() { # pkg_result <key>  - after its swap: its result; errors when it was not swapped in
+    [[ -n "${PKG_RUN[$1]:-}" ]] || { echo errors; return; }
+    echo "${PKG_RESULT[$1]:-ok}"
+}
+
+# status.json "packages": what this run packed (or would pack: a dry run), and the packages of apps and
+# VMs it left out (stale - never deleted). written: yes = swapped in, no = a dry run
+pkg_status() {
+    local written="$1" f k sub d nm rn ty fl by lines="" r
+    local -A here=()
+    for f in "${PKG_APPS[@]}"; do
+        k="apps/$f"; here[$k]=1
+        if [[ "$written" == "yes" ]]; then r="$(pkg_result "$k")"; else r="planned"; fi
+        lines+="app"$'\x1f'"${PKG_APP_NAME[$f]}"$'\x1f'"$f"$'\x1f'"${PKG_APP_TYPE[$f]}"$'\x1f'"$r"$'\x1f'"${PKG_FILES[$k]:-0}"$'\x1f'"${PKG_BYTES[$k]:-0}"$'\x1f'"${PKG_KEPT[$k]:-0}"$'\x1f'"0"$'\x1f'"${PKG_RUN[$k]:-}"$'\n'
+    done
+    for f in "${PKG_VMS[@]}"; do
+        k="vms/$f"; here[$k]=1
+        if [[ "$written" == "yes" ]]; then r="$(pkg_result "$k")"; else r="planned"; fi
+        lines+="vm"$'\x1f'"${PKG_VM_NAME[$f]}"$'\x1f'"$f"$'\x1f'"vm"$'\x1f'"$r"$'\x1f'"${PKG_FILES[$k]:-0}"$'\x1f'"${PKG_BYTES[$k]:-0}"$'\x1f'"0"$'\x1f'"0"$'\x1f'"${PKG_RUN[$k]:-}"$'\n'
+    done
+    if [[ "$written" == "yes" && -n "${PKG_RESULT[flash]:-}" ]]; then
+        here[flash]=1
+        lines+="flash"$'\x1f'"flash"$'\x1f'"flash"$'\x1f'"flash"$'\x1f'"$(pkg_result flash)"$'\x1f'"${PKG_FILES[flash]:-0}"$'\x1f'"${PKG_BYTES[flash]:-0}"$'\x1f'"${PKG_KEPT[flash]:-0}"$'\x1f'"0"$'\x1f'"${PKG_RUN[flash]:-}"$'\n'
+    fi
+    # what lies there from earlier runs
+    if [[ -n "$UB_DUMPS" && -d "$UB_DUMPS" ]]; then
+        for sub in apps vms; do
+            for d in "$UB_DUMPS/$sub"/*/; do
+                d="${d%/}"; [[ -d "$d" && ! -L "$d" ]] || continue
+                [[ -n "${here[$sub/${d##*/}]:-}" ]] && continue
+                IFS=$'\x1f' read -r nm rn ty < <(jq -r '[(.name // ""), (.run // ""), (.type // .kind // "")] | join("\u001f")' "$d/manifest.json" 2>/dev/null)
+                fl="$(find "$d" -type f 2>/dev/null | wc -l)"; by="$(du -sb "$d" 2>/dev/null | cut -f1)"; is_uint "$by" || by=0
+                lines+="${sub%s}"$'\x1f'"${nm:-${d##*/}}"$'\x1f'"${d##*/}"$'\x1f'"${ty:-}"$'\x1f'"stale"$'\x1f'"$fl"$'\x1f'"$by"$'\x1f'"0"$'\x1f'"1"$'\x1f'"${rn:-}"$'\n'
+            done
+        done
+    fi
+    ST_PACKAGES="$(printf '%s' "$lines" | jq -Rn --arg base "$UB_DUMPS" --arg written "$written" \
+        --argjson old "${PKG_OLD_RUNS:-0}" --arg old_action "$PKG_OLD_ACTION" --argjson wb "${PKG_WRITTEN_BYTES:-0}" '
+        [inputs | select(length > 0) | split("\u001f") | {kind: .[0], name: .[1], folder: .[2], type: .[3], result: .[4],
+            files: (.[5] | tonumber), bytes: (.[6] | tonumber), kept: (.[7] | tonumber), stale: (.[8] == "1"), run: .[9]}] as $l
+        | {base: $base, written: ($written == "yes"), written_bytes: $wb,
+           apps: ([$l[] | select(.kind == "app" and (.stale | not))] | length),
+           vms: ([$l[] | select(.kind == "vm" and (.stale | not))] | length),
+           errors: ([$l[] | select(.result == "errors")] | length),
+           warnings: ([$l[] | select(.result == "warnings")] | length),
+           stale: ([$l[] | select(.stale)] | length),
+           kept: ([$l[].kept] | add // 0),
+           old_runs: $old, old_runs_action: (if $old_action == "" then null else $old_action end), list: $l}')" || ST_PACKAGES="null"
+    status_write
+}
+
+# Run folders of engines before 2.18 (<place>/<YYYYMMDD-HHMM>/): in the backup place, the place before
+# the last setup (state/dumps-previous) and the old folder in appdata. list = say what would go.
+place_path_ok() { [[ -n "$1" && ( "$1" == "$UB_MNT"/user/?*/"$UB_NAME" || "$1" == "$UB_MNT/user/$UB_OFFICE_SHARE/$UB_DESK_DIR" ) ]]; }
+pkg_old_runs() { # pkg_old_runs list|count|remove
+    local how="$1" dir d prev="" n=0
+    [[ -s "$UB_STATE/dumps-previous" ]] && prev="$(head -1 "$UB_STATE/dumps-previous")"
+    place_path_ok "$prev" || prev=""
+    for dir in "$UB_DUMPS" "$prev" "$UB_DATA/dumps"; do
+        [[ -n "$dir" ]] || continue
+        [[ "$dir" == "$UB_DATA/dumps" ]] || place_path_ok "$dir" || continue
+        while IFS= read -r d; do
+            [[ -z "$d" ]] && continue
+            n=$((n+1))
+            case "$how" in
+                remove) if rm -rf -- "$d"; then log "  removed the old run folder $d"; else warn "The old run folder $d could not be removed"; fi ;;
+                list)   log "  would remove the old run folder $d (since 2.18 the packages take their place)" ;;
+            esac
+        done < <(old_runs_list "$dir")
+    done
+    if [[ "$how" == "remove" ]]; then
+        rmdir "$UB_DATA/dumps" 2>/dev/null
+        if [[ -n "$prev" && "$prev" != "$UB_DUMPS" ]]; then
+            rmdir "$prev/apps" "$prev/vms" 2>/dev/null; rmdir "$prev" 2>/dev/null
+            [[ -d "$prev/apps" || -d "$prev/vms" || -n "$(old_runs_list "$prev")" ]] || rm -f "$UB_STATE/dumps-previous"
+        fi
+    fi
+    PKG_OLD_RUNS=$n
+    return 0
 }
 
 ##############################################################################
@@ -992,11 +1581,20 @@ refresh_view() { # browsing view: symlinks instead of bind mounts (they hold no 
 }
 
 prune_files() {
-    local d
-    # never with an empty or odd path
-    [[ -n "$UB_DUMPS" && ( "$UB_DUMPS" == "$UB_MNT"/user/?*/"$UB_NAME" || "$UB_DUMPS" == "$UB_MNT/user/$UB_OFFICE_SHARE/$UB_DESK_DIR" ) ]] || return 0
-    ls -1d "$UB_DUMPS"/[0-9]*-[0-9]* 2>/dev/null | sort | head -n -"$KEEP_RUNS" \
-        | while read -r d; do rm -rf "$d" && log "  removed: $d"; done
+    local d f bad=0
+    # the run folders of engines before 2.18 go once this run's packages are all in place - while a
+    # package failed, the last good dump may still lie only there (never with an empty or odd path)
+    if place_path_ok "$UB_DUMPS" && [[ "$PKG_COMMITTED" == "yes" ]]; then
+        for f in "${!PKG_RESULT[@]}"; do [[ "$(pkg_result "$f")" == "errors" ]] && bad=1; done
+        if (( bad )); then
+            pkg_old_runs count; PKG_OLD_ACTION="kept"
+            (( PKG_OLD_RUNS > 0 )) && log "  ${PKG_OLD_RUNS} old run folder(s) kept: a package of this run had errors"
+        else
+            pkg_old_runs remove; PKG_OLD_ACTION="removed"
+        fi
+        (( PKG_OLD_RUNS > 0 )) || PKG_OLD_ACTION=""
+        pkg_status yes
+    fi
     ls -1 "$UB_LOGS"/run-*.log "$UB_LOGS"/check-*.log "$UB_LOGS"/dryrun-*.log 2>/dev/null | sort -t- -k2 | head -n -"$KEEP_LOGS" \
         | while read -r d; do rm -f "$d"; done
     if [[ -f "$UB_LOGS/unmount.log" && $(stat -c %s "$UB_LOGS/unmount.log") -gt 1048576 ]]; then
@@ -1067,6 +1665,8 @@ cleanup() {
         status_phase "aborting"
     fi
     kopia_stop
+    # a package half swapped in goes back, the stage goes (the packages of the last run stay)
+    [[ -n "$PKG_STAGE" && "$PKG_COMMITTED" != "yes" ]] && pkg_recover "$UB_DUMPS" >/dev/null
     if [[ ${#VM_HELD[@]} -gt 0 ]]; then
         log "Releasing the VMs ..."
         vm_release btrfs
@@ -1130,7 +1730,6 @@ docker info >/dev/null 2>&1 || die "Docker does not answer"
 mountpoint -q "$UB_MNT/user" || die "$UB_MNT/user is not mounted - array/pools not started?"
 
 SNAP_NAME="${SNAP_PREFIX}${TS}"
-RUN_DIR="$UB_DUMPS/$TS"
 
 # --- Inventory, plan, drift ------------------------------------------------
 status_phase "inventory"
@@ -1150,27 +1749,37 @@ if [[ "$SKIPK" != "1" ]]; then drift_check_kopia; else KOPIA_OK="skip"; fi
 DUMPS_PROBLEM="$(dumps_share_problem "$DUMPS_SHARE")"
 if [[ -n "$DUMPS_PROBLEM" ]]; then
     if [[ "$UB_MODE" == "check" ]]; then
-        drift_add error "$(dumps_share_text "$DUMPS_PROBLEM" "$DUMPS_SHARE")"
+        drift_add error "$(dumps_share_text "$DUMPS_PROBLEM" "$DUMPS_SHARE")" "dumps_$DUMPS_PROBLEM" "$DUMPS_SHARE"
     else
         die_code "dumps_$DUMPS_PROBLEM" "$(dumps_share_text "$DUMPS_PROBLEM" "$DUMPS_SHARE") - choose the place in Mr. Backupsy's setup"
     fi
 elif is_yes "$KOPIA_ENABLED" && [[ "$(share_mode "$DUMPS_SHARE")" != "kopia" ]]; then
-    drift_add warn "The backup place '$DUMPS_SHARE' does not go to Kopia (mode=$(share_mode "$DUMPS_SHARE")) - dumps and archives stay local only"
+    drift_add warn "The backup place '$DUMPS_SHARE' does not go to Kopia (mode=$(share_mode "$DUMPS_SHARE")) - the packages stay local only" \
+        place_not_kopia "$DUMPS_SHARE"
+fi
+# the packages keep their history in the snapshots of the backup place's share
+if [[ -z "$DUMPS_PROBLEM" && "$(share_method "$DUMPS_SHARE")" == "live" ]]; then
+    drift_add warn "The backup place '$DUMPS_SHARE' cannot take snapshots ($(printf '%s' "${INV_NOTE[$DUMPS_SHARE]:-}" | head -1)) - its packages keep no history, only the newest state; put the share on a ZFS or btrfs pool" \
+        place_no_history "$DUMPS_SHARE"
 fi
 if [[ -z "$DUMPS_PROBLEM" && "$DRY" != "1" && "$UB_MODE" != "check" ]]; then
-    # root only: dumps hold database contents
+    # root only: the packages hold database contents, templates and .env files with passwords
     mkdir -p "$UB_DUMPS" && chmod 700 "$UB_DUMPS" || die "Backup place $UB_DUMPS cannot be created"
-    # take the dumps so far along once: from the data folder (appdata, before 2.12) and from
-    # the place before the last setup (setup.sh notes it in state/dumps-previous)
+    # what a killed run left half swapped in or half built
+    n="$(pkg_recover "$UB_DUMPS")"; (( n > 0 )) && log "  Backup place: $n package folder(s) of an interrupted run tidied up"
+    # the packages of the place before the last setup come along once (setup.sh notes it in
+    # state/dumps-previous) - those of apps and VMs this place doesn't know; the run folders of
+    # engines before 2.18 there go at the end of the run, like the ones here
     prev=""; [[ -s "$UB_STATE/dumps-previous" ]] && prev="$(head -1 "$UB_STATE/dumps-previous")"
-    for old in "$UB_DATA/dumps" "$prev"; do
-        [[ -n "$old" && "$old" != "$UB_DUMPS" && -d "$old" ]] || continue
-        for d in "$old"/[0-9]*-[0-9]*; do
-            [[ -d "$d" && ! -e "$UB_DUMPS/$(basename "$d")" ]] || continue
-            mv "$d" "$UB_DUMPS/" 2>>"$LOG_FILE" && log "  Dumps $(basename "$d") moved to $UB_DUMPS"
+    if place_path_ok "$prev" && [[ "$prev" != "$UB_DUMPS" && -d "$prev" ]]; then
+        for sub in apps vms; do
+            for d in "$prev/$sub"/*/; do
+                d="${d%/}"; [[ -d "$d" && ! -L "$d" && ! -e "$UB_DUMPS/$sub/${d##*/}" ]] || continue
+                mkdir -p "$UB_DUMPS/$sub" && chmod 700 "$UB_DUMPS/$sub" \
+                    && mv "$d" "$UB_DUMPS/$sub/" 2>>"$LOG_FILE" && log "  Package $sub/${d##*/} moved to $UB_DUMPS"
+            done
         done
-        rmdir "$old" 2>/dev/null && log "  Old dump folder $old removed"
-    done
+    fi
     [[ -n "$prev" && ! -d "$prev" ]] && rm -f "$UB_STATE/dumps-previous"
 fi
 
@@ -1193,6 +1802,7 @@ esac
 # --- Showing the plan -----------------------------------------------------
 build_stop_tiers
 vm_plan
+pkg_plan
 log "Plan:"
 log "  ZFS snapshots:    ${PLAN_ZFS[*]:-none}"
 log "  btrfs snapshots:  ${PLAN_BTRFS[*]:-none}"
@@ -1202,6 +1812,7 @@ log "  Dumps:            $(cfg_names dump | paste -sd' ' -)"
 log "  Nextcloud:        $(cfg_names nextcloud | paste -sd' ' -)"
 log "  Pause:            ${T_APP[*]:-} | DB: ${T_DB[*]:-} | network: ${T_NET[*]:-}"
 log "  Keep running:     ${KOPIA_CONTAINER:-} ${DOCKER_NO_STOP[*]:-}"
+log "  Packages:         ${#PKG_APPS[@]} apps, ${#PKG_VMS[@]} VMs -> $UB_DUMPS"
 if [[ "$VM_SERVICE" == "yes" ]]; then
     # per VM what happens: its prepare method, or why nothing (off, kept_running, not_running)
     vmline=""
@@ -1225,6 +1836,11 @@ fi
 status_write
 
 if [[ "$DRY" == "1" ]]; then
+    for f in "${PKG_APPS[@]}"; do log "  Package apps/$f: ${PKG_APP_NAME[$f]} (${PKG_APP_TYPE[$f]}: $(sed '/^$/d' <<<"${PKG_APP_MEMBERS[$f]}" | paste -sd' ' -))"; done
+    for f in "${PKG_VMS[@]}"; do log "  Package vms/$f: ${PKG_VM_NAME[$f]}"; done
+    pkg_old_runs list
+    PKG_OLD_ACTION=""; (( PKG_OLD_RUNS > 0 )) && PKG_OLD_ACTION="would_remove"
+    pkg_status no
     log "Dry run done."
     if (( ERRORS > 0 )); then status_finish errors
     elif (( WARNINGS > 0 )); then status_finish warnings
@@ -1234,8 +1850,8 @@ if [[ "$DRY" == "1" ]]; then
 fi
 
 FREE_MB=$(df -Pm "$UB_DUMPS" 2>/dev/null | awk 'NR==2{print $4}')
-(( ${FREE_MB:-0} >= MIN_FREE_GB * 1024 )) || die "Not enough space for dumps in $UB_DUMPS (${FREE_MB} MB free)"
-mkdir -p "$RUN_DIR/db" || die "Cannot create $RUN_DIR"
+(( ${FREE_MB:-0} >= MIN_FREE_GB * 1024 )) || die "Not enough space for the packages in $UB_DUMPS (${FREE_MB} MB free)"
+pkg_begin || die "Cannot create $PKG_STAGE"
 
 # Release what an earlier run left behind
 unmount_all || die "Old mounts under $MOUNT_ROOT cannot be released"
@@ -1246,8 +1862,9 @@ status_phase "maintenance"
 log "Nextcloud ..."
 nextcloud_maintenance_on
 status_phase "manifest"
-log "Manifest ..."
-write_manifest                       # still with all containers running
+log "Packages: templates, compose files, the server's lists ..."
+pkg_server                           # still with all containers running
+pkg_apps_static
 
 # --- Pausing, dumps, snapshots, starting ------------------------------------
 # Pause the apps first, then dump: apps without a maintenance mode (Immich & co.)
@@ -1262,6 +1879,7 @@ status_phase "dumps"
 log "Database dumps ..."
 run_dumps
 [[ "$PLAN_FLASH" == "tar" ]] && flash_tar
+pkg_commit_apps                      # the app packages in place, before the databases stop
 status_phase "stopping"
 log "Stopping: ${#T_DB[@]} databases, ${#T_NET[@]} network"
 stop_tier "${T_DB[@]}"
@@ -1273,6 +1891,8 @@ if [[ ${#VM_TODO[@]} -gt 0 ]]; then
 fi
 # after the VMs: their TPM state and NVRAM then match the disks in the snapshot
 [[ "$LIBVIRT_MODE" == "tar" ]] && libvirt_tar
+pkg_vms
+pkg_commit_rest                      # VMs and server/ in place: this run's snapshot holds all packages
 
 status_phase "snapshots"
 log "Creating snapshots $SNAP_NAME ..."
@@ -1407,8 +2027,8 @@ prune_files
 
 # --- Finishing --------------------------------------------------------------
 TOTAL=$(( $(date +%s) - STARTED_AT ))
-RUN_SIZE="$(du -sh "$RUN_DIR" 2>/dev/null | cut -f1)"
-ST_DUMP_BYTES="$(du -sb "$RUN_DIR" 2>/dev/null | cut -f1)"; is_uint "$ST_DUMP_BYTES" || ST_DUMP_BYTES=0
+ST_DUMP_BYTES="$PKG_WRITTEN_BYTES"; is_uint "$ST_DUMP_BYTES" || ST_DUMP_BYTES=0     # what this run wrote into the packages
+RUN_SIZE="$(human "$ST_DUMP_BYTES")"
 {
     echo "ts=$TS"
     echo "duration_s=$TOTAL"
@@ -1428,8 +2048,9 @@ run_report() {
     local l n p d secs ok f list=""
     echo "Duration $(dur_h "$TOTAL"), containers stopped $(dur_h "$DOWNTIME")"
     echo "Snapshots: ${#PLAN_ZFS[@]} ZFS datasets, ${#BTRFS_OK[@]} btrfs disks$([[ "$PLAN_FLASH" == "snapshot" ]] && echo ", flash")"
-    for f in "$RUN_DIR"/db/*; do [[ -e "$f" ]] && list+="${list:+, }$(basename "$f") $(du -sh "$f" 2>/dev/null | cut -f1)"; done
+    for l in "${DUMPS_DONE[@]}"; do list+="${list:+, }${l%|*} $(human "${l##*|}")"; done
     [[ -n "$list" ]] && echo "Dumps: $list"
+    echo "Packages: ${#PKG_APPS[@]} apps, ${#PKG_VMS[@]} VMs in $UB_DUMPS$( (( PKG_OLD_RUNS > 0 )) && [[ "$PKG_OLD_ACTION" == "removed" ]] && echo "; ${PKG_OLD_RUNS} old run folders cleared away")"
     list=""
     for l in "${ST_VMS[@]}"; do
         IFS='|' read -r n p d secs _ <<<"$l"
@@ -1446,7 +2067,7 @@ run_report() {
     echo "Errors $ERRORS, warnings $WARNINGS"
     echo "Log: $LOG_FILE"
 }
-SUMMARY="duration ${TOTAL}s, downtime ${DOWNTIME}s, ${KSUM}, dumps ${RUN_SIZE}"
+SUMMARY="duration ${TOTAL}s, downtime ${DOWNTIME}s, ${KSUM}, packages ${RUN_SIZE}"
 if (( ERRORS > 0 )); then status_finish errors
 elif (( WARNINGS > 0 )); then status_finish warnings
 else status_finish ok; fi

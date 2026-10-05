@@ -9,7 +9,9 @@ declare(strict_types=1);
  * settings in data/unraid-backup/settings.ini and writes its state to
  * data/unraid-backup/state/ (status.json, last-run.json, history.jsonl,
  * drift.json — see "Status fuer andere Programme" in backup/README.md).
- * Mr. Backup reads that, shows it, and starts, checks or stops runs.
+ * Mr. Backup reads that, shows it, and starts, checks or stops runs. Since
+ * engine 2.18 the backup place holds a package per app and VM (apps/, vms/,
+ * server/, flash/ with a manifest.json each) — read by backupPackages().
  *
  * Runs are handed to the host's atd ("at now"). A process started by the
  * agent itself would be stopped with it (the stack's container cgroup, the
@@ -123,7 +125,8 @@ function backupScan(): array
         'shares'     => backupShares($settings, $history),
         'vms'        => backupVms($settings),
         'containers' => backupContainers($settings),
-        'dumps'      => backupDumps(),
+        'dumps'      => backupDumps(),           // run folders of engines before 2.18, until the first 2.18 run cleared them
+        'packages'   => backupPackages($settings),
         'schedule'   => backupSchedule(),
         'logs'       => array_values(array_map(fn ($l) => ['name' => $l['name'], 'kind' => $l['kind'], 'time' => $l['time'], 'size' => $l['size']], $logs)),
         'mounted'    => backupMounted(backupSetting($settings, 'general', 'mount_root')),
@@ -195,7 +198,6 @@ function backupSettingsSummary(array $s): array
         'view_root'     => $one('general', 'view_root'),
         'snap_prefix'   => $one('general', 'snap_prefix', 'unraidbackup-'),
         'btrfs_dir'     => $one('general', 'btrfs_snap_dir', '.btrfs-snap'),
-        'keep_runs'     => (int) $one('general', 'keep_runs', '7'),
         'dumps_share'   => $one('general', 'dumps_share'),
         'dumps_dir'     => backupDumpsPath((string) $one('general', 'dumps_share', '')),
         'keep_mounts'   => $one('general', 'keep_mounts', 'no') === 'yes',
@@ -412,6 +414,8 @@ function backupRunFromStatus(array $j): array
         'warnings'   => (int) ($j['warnings'] ?? 0),
         'downtime'   => (int) ($j['downtime_s'] ?? 0),
         'dump_bytes' => (int) ($j['dump_bytes'] ?? 0),
+        'packages'   => is_array($j['packages'] ?? null) ? ['apps' => (int) ($j['packages']['apps'] ?? 0), 'vms' => (int) ($j['packages']['vms'] ?? 0),
+                            'errors' => (int) ($j['packages']['errors'] ?? 0), 'stale' => (int) ($j['packages']['stale'] ?? 0)] : null,
         'kopia'      => array_map(fn ($k) => ['name' => (string) $k['name'], 'ok' => (bool) $k['ok'], 'seconds' => (int) $k['seconds'], 'finished' => (int) ($k['finished'] ?? 0)],
                                   $j['kopia']['done'] ?? []),
         'kopia_first' => null,
@@ -429,7 +433,7 @@ function backupRunFromStatus(array $j): array
 function backupRunFromLog(string $path, string $run, int $started): array
 {
     $r = ['run' => $run, 'started' => $started, 'finished' => 0, 'result' => 'failed', 'message' => 'interrupted',
-          'errors' => 0, 'warnings' => 0, 'downtime' => 0, 'dump_bytes' => 0, 'kopia' => [], 'kopia_first' => null,
+          'errors' => 0, 'warnings' => 0, 'downtime' => 0, 'dump_bytes' => 0, 'packages' => null, 'kopia' => [], 'kopia_first' => null,
           'log' => basename($path), 'version' => '', 'source' => 'log'];
     $h = @fopen($path, 'r');
     if (!$h) {
@@ -577,15 +581,6 @@ function backupPolicies(mixed $list): ?array
     return $out;
 }
 
-/** The folder for dumps and archives in a share — the same rule as the engine's dumps_path() */
-function backupDumpsPath(string $share): ?string
-{
-    if ($share === '') {
-        return null;
-    }
-    return $share === BACKUP_OFFICE_SHARE ? "/mnt/user/$share/" . BACKUP_DESK_DIR : "/mnt/user/$share/unraid-backup";
-}
-
 /**
  * Where the engine keeps dumps and archives: <dumps_share>/unraid-backup, in the
  * office's share <share>/backup. Until the next run moved them: the place before the
@@ -604,11 +599,17 @@ function backupDumpsDir(): string
     return $new ?? BACKUP_DATA_DIR . '/dumps';
 }
 
-/** dumps/<run>/: database dumps (+ manifest, flash archive) of the last runs */
+/**
+ * <run>/ folders of engines before 2.18: database dumps (+ manifest, flash and libvirt archives).
+ * The first 2.18 run clears them away once its packages are in place.
+ */
 function backupDumps(): array
 {
-    $data = BACKUP_DATA_DIR;
     $dumps = [];
+    $settings = backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');
+    if (backupPlaceAsleep($settings)) {
+        return $GLOBALS['backup']['dumps'] ?? [];     // never wake a disk to look
+    }
     $dir = backupDumpsDir();
     foreach (@scandir($dir, SCANDIR_SORT_DESCENDING) ?: [] as $run) {
         if (!preg_match('/^\d{8}-\d{4}$/', $run)) {
@@ -640,6 +641,173 @@ function backupDumps(): array
         ];
     }
     return $dumps;
+}
+
+/** Does the backup place's share lie on a disk that sleeps right now? */
+function backupPlaceAsleep(array $settings): bool
+{
+    $share = (string) backupSetting($settings, 'general', 'dumps_share', '');
+    return $share !== '' && backupShareAsleep($share, $settings, sleepingDisks());
+}
+
+/**
+ * Does a share lie on a disk that sleeps? Its bases as settings.ini noted them at the setup and as
+ * Unraid's share config allows them (pools, the array disks it may use) - looked up on the flash
+ * and in Unraid's bookkeeping only, never on the disks themselves.
+ */
+function backupShareAsleep(string $share, array $settings, array $asleep): bool
+{
+    if (!in_array(true, $asleep, true)) {
+        return false;
+    }
+    $bases = array_filter(array_map('trim', explode(',', (string) backupSetting($settings, "share|$share", 'locations', ''))));
+    $cfg = preg_match('/^[\w .-]+$/', $share) ? readCfg("/boot/config/shares/$share.cfg") : [];
+    foreach (['shareCachePool', 'shareCachePool2'] as $k) {
+        if (($cfg[$k] ?? '') !== '' && ($cfg['shareUseCache'] ?? 'no') !== 'no') {
+            $bases[] = $cfg[$k];
+        }
+    }
+    if ($cfg && ($cfg['shareUseCache'] ?? 'no') !== 'only') {
+        $include = array_filter(array_map('trim', explode(',', (string) ($cfg['shareInclude'] ?? ''))));
+        $bases = array_merge($bases, $include ?: array_filter(array_keys($asleep), fn ($d) => preg_match('/^disk\d+$/', (string) $d)));
+    }
+    foreach (array_unique($bases) as $base) {
+        if (baseAsleep((string) $base, $asleep)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Does a path under /mnt (a share's or a disk's) lie on a disk that sleeps? */
+function backupPathAsleep(string $path, array $settings, array $asleep): bool
+{
+    if (preg_match('#^/mnt/user0?/([^/]+)#', $path, $m)) {
+        return backupShareAsleep($m[1], $settings, $asleep);
+    }
+    if (preg_match('#^/mnt/([^/]+)/#', $path, $m) && !in_array($m[1], ['addons', 'disks', 'remotes', 'rootshare'], true)) {
+        return baseAsleep($m[1], $asleep);
+    }
+    return false;
+}
+
+/**
+ * The packages in the backup place (engine 2.18+): per app and VM what is in it and from which run,
+ * which are stale (written by an earlier run than the last one, e.g. an app that is gone or no
+ * longer backed up — the engine never deletes them), the server's and the flash's package, and how
+ * many run folders of older engines still lie there. Not read while the share's disk sleeps.
+ */
+function backupPackages(array $settings): array
+{
+    static $cache = [];
+    $base = backupDumpsPath((string) backupSetting($settings, 'general', 'dumps_share', ''));
+    $empty = ['base' => $base, 'asleep' => false, 'found' => false, 'run' => null, 'time' => null, 'result' => null,
+              'apps' => [], 'vms' => [], 'flash' => null, 'server' => null, 'old_runs' => 0];
+    if ($base === null) {
+        return $empty;
+    }
+    if (backupPlaceAsleep($settings)) {
+        return ['asleep' => true] + ($GLOBALS['backup']['packages'] ?? $empty);
+    }
+    $stamp = implode(':', array_map(fn ($p) => (int) @filemtime("$base/$p"), ['', 'apps', 'vms', 'flash', 'server', 'server/run.json']));
+    if (($cache[$base][0] ?? null) !== $stamp) {
+        $cache = [$base => [$stamp, backupPackagesRead($base)]];
+    }
+    return $cache[$base][1];
+}
+
+/** Reads the packages of a backup place (see backupPackages) */
+function backupPackagesRead(string $base): array
+{
+    $time = fn (string $run) => preg_match('/^\d{8}-\d{4}$/', $run) ? (int) (DateTime::createFromFormat('Ymd-Hi', $run)?->getTimestamp() ?: 0) : 0;
+    $str = fn ($v) => is_scalar($v) ? (string) $v : '';
+    $files = fn (array $m) => array_values(array_map(fn ($f) => [
+        'path' => $str($f['path'] ?? ''), 'bytes' => (int) ($f['bytes'] ?? 0), 'run' => $str($f['run'] ?? ''),
+        'time' => $time($str($f['run'] ?? '')), 'what' => $str($f['what'] ?? ''), 'container' => $str($f['container'] ?? ''),
+    ], array_filter((array) ($m['files'] ?? []), 'is_array')));
+    $server = readJson("$base/server/run.json");
+    $last = $str($server['run'] ?? '');
+    $out = ['base' => $base, 'asleep' => false, 'found' => is_dir("$base/apps") || is_dir("$base/vms") || $server !== null,
+            'run' => $last ?: null, 'time' => $last ? $time($last) : null, 'result' => $server['result'] ?? null,
+            'apps' => [], 'vms' => [], 'flash' => null, 'server' => null, 'old_runs' => 0];
+    // stale: written by a run before the last one that wrote packages
+    $stale = fn (string $run) => $last !== '' && $run !== '' && strcmp($run, $last) < 0;
+    foreach (['apps', 'vms'] as $sub) {
+        foreach (@scandir("$base/$sub") ?: [] as $folder) {
+            if ($folder[0] === '.' || !is_dir("$base/$sub/$folder")) {
+                continue;
+            }
+            $m = readJson("$base/$sub/$folder/manifest.json") ?? [];
+            $run = $str($m['run'] ?? '');
+            $list = $files($m);
+            $p = [
+                'name'   => $str($m['name'] ?? '') ?: $folder,
+                'folder' => $folder,
+                'path'   => "$base/$sub/$folder",
+                'run'    => $run,
+                'time'   => $time($run),
+                'result' => $str($m['result'] ?? ''),
+                'stale'  => $stale($run),
+                'bytes'  => array_sum(array_column($list, 'bytes')),
+                'files'  => $list,
+            ];
+            if ($sub === 'apps') {
+                $p += [
+                    'type'       => $str($m['type'] ?? ''),
+                    'containers' => array_values(array_map(fn ($c) => ['name' => $str($c['name'] ?? ''), 'image' => $str($c['image'] ?? ''),
+                                        'digest' => $str(($c['digests'] ?? [])[0] ?? ''), 'template' => $str($c['template'] ?? '')],
+                                        array_filter((array) ($m['containers'] ?? []), 'is_array'))),
+                    'dumps'      => array_values(array_map(fn ($d) => array_map($str, array_intersect_key($d, array_flip(
+                                        ['container', 'type', 'state', 'login', 'user_var', 'password_var', 'client']))),
+                                        array_filter((array) ($m['dumps'] ?? []), 'is_array'))),
+                    'nextcloud'  => array_values(array_map(fn ($n) => ['container' => $str($n['container'] ?? ''), 'occ' => $str($n['occ'] ?? ''),
+                                        'user' => $str($n['user'] ?? '') ?: 'www-data', 'same_as' => $str($n['same_as'] ?? '')],
+                                        array_filter((array) ($m['nextcloud'] ?? []), 'is_array'))),
+                    'compose_dir' => $str($m['compose']['manager_dir'] ?? ''),
+                ];
+                $out['apps'][] = $p;
+            } else {
+                $nvram = array_values(array_filter(array_column($list, 'path'), fn ($x) => str_starts_with($x, 'nvram/')));
+                $p += [
+                    'xml'        => $str($m['xml'] ?? ''),
+                    'uuid'       => $str($m['uuid'] ?? ''),
+                    'autostart'  => !empty($m['autostart']),
+                    'nvram'      => array_map('basename', $nvram),
+                    'tpm'        => (bool) array_filter(array_column($list, 'path'), fn ($x) => str_starts_with($x, 'tpm/')),
+                    'snapshotdb' => in_array('snapshotdb/snapshots.db', array_column($list, 'path'), true),
+                    'held'       => $str($m['held'] ?? ''),
+                    'disks'      => array_values(array_map(fn ($d) => ['source' => $str($d['source'] ?? ''), 'snapshot' => $str($d['snapshot'] ?? ''),
+                                        'bytes' => isset($d['bytes']) ? (int) $d['bytes'] : null], array_filter((array) ($m['disks'] ?? []), 'is_array'))),
+                ];
+                $out['vms'][] = $p;
+            }
+        }
+    }
+    usort($out['apps'], fn ($a, $b) => strnatcasecmp($a['name'], $b['name']));
+    usort($out['vms'], fn ($a, $b) => strnatcasecmp($a['name'], $b['name']));
+    $flash = readJson("$base/flash/manifest.json");
+    if ($flash && is_file("$base/flash/flash.tar.gz")) {
+        $f = array_values(array_filter($files($flash), fn ($x) => $x['path'] === 'flash.tar.gz'))[0] ?? null;
+        $out['flash'] = ['path' => "$base/flash/flash.tar.gz", 'bytes' => (int) @filesize("$base/flash/flash.tar.gz"),
+                         'run' => $f['run'] ?? $str($flash['run'] ?? ''), 'time' => $f['time'] ?? $time($str($flash['run'] ?? ''))];
+    }
+    if ($server) {
+        $list = $files($server);
+        $lv = array_values(array_filter($list, fn ($x) => $x['path'] === 'libvirt.tar.gz'))[0] ?? null;
+        $out['server'] = [
+            'path'      => "$base/server",
+            'libvirt'   => $lv ? "$base/server/libvirt.tar.gz" : null,
+            'libvirt_bytes' => $lv['bytes'] ?? null,
+            'libvirt_time'  => $lv['time'] ?? null,
+            'templates' => count(array_filter($list, fn ($x) => str_starts_with($x['path'], 'docker-templates/'))),
+            'compose'   => array_values(array_unique(array_map(fn ($x) => explode('/', $x['path'])[1] ?? '',
+                               array_filter($list, fn ($x) => str_starts_with($x['path'], 'compose/'))))),
+        ];
+    }
+    // run folders of older engines the next run clears away (the engine's rule: nothing else in them)
+    $out['old_runs'] = count(array_filter(@scandir($base) ?: [], fn ($n) => preg_match('/^\d{8}-\d{4}$/', $n) && is_dir("$base/$n") && !is_link("$base/$n")
+        && !array_filter(array_diff(@scandir("$base/$n") ?: [], ['.', '..']), fn ($e) => !preg_match('/^(db|manifest|libvirt\.tar\.gz|flash.*\.tar.*)$/', $e))));
+    return $out;
 }
 
 /**
@@ -727,10 +895,13 @@ function backupUserScriptDescribe(): void
 /**
  * A Nextcloud container's data folder on the host: 'datadirectory' from its
  * config.php (read through the container's own mounts), mapped back to the
- * host. Null when it can't be found out.
+ * host. Null when it can't be found out - $asleep says when that is because
+ * config.php or the folder lies on a sleeping disk (then nothing was read).
  */
-function backupNextcloudDataDir(string $container): ?string
+function backupNextcloudDataDir(string $container, ?bool &$asleep = null, array $settings = []): ?string
 {
+    $asleep = false;
+    $disks = sleepingDisks();
     $c = houseInspect($container);
     if (!$c) {
         return null;
@@ -751,9 +922,17 @@ function backupNextcloudDataDir(string $container): ?string
         return $best === null ? null : $mounts[$best] . substr($path, strlen($best));
     };
     $config = $toHost('/var/www/html/config/config.php');
+    if ($config && backupPathAsleep($config, $settings, $disks)) {
+        $asleep = true;
+        return null;
+    }
     $text = $config ? (string) @file_get_contents($config, false, null, 0, 65536) : '';
     $dir = preg_match("/'datadirectory'\s*=>\s*'([^']+)'/", $text, $m) ? rtrim($m[1], '/') : '/var/www/html/data';
     $host = $toHost($dir);
+    if ($host !== null && backupPathAsleep($host, $settings, $disks)) {
+        $asleep = true;
+        return null;
+    }
     return $host !== null && is_dir($host) ? $host : null;
 }
 
@@ -1018,10 +1197,14 @@ function backupChecks(): array
         $drift = array_filter(backupDrift()['items'], fn ($d) => in_array($d['level'] ?? '', ['warn', 'error'], true));
         $out[] = finding('drift', 'recommended', !$drift, ['n' => count($drift)], '#/backup/setup');
 
-        // dumps and archives in their own backup share, never in appdata — without one the engine refuses to run
+        // the packages in their own backup share, never in appdata — without one the engine refuses to run;
+        // Unraid's share config (on the flash) says it exists, the share itself is only looked at while its disks are awake
         $ds = (string) ($summary['dumps_share'] ?? '');
-        $dsBad = $ds === '' || in_array(strtolower($ds), ['appdata', 'system', 'domains'], true) || !is_dir("/mnt/user/$ds");
-        $out[] = finding('dumps_share', 'required', !$dsBad, ['share' => $ds], '#/backup/setup');
+        $dsName = $ds !== '' && !in_array(strtolower($ds), ['appdata', 'system', 'domains'], true);
+        $dsCfg = $dsName && preg_match('/^[\w .-]+$/', $ds) && is_file("/boot/config/shares/$ds.cfg");
+        $dsSleeps = $dsName && !$dsCfg && backupShareAsleep($ds, $settings, sleepingDisks());
+        $dsBad = !$dsName || (!$dsCfg && !$dsSleeps && !is_dir("/mnt/user/$ds"));
+        $out[] = finding('dumps_share', 'required', $dsSleeps ? null : !$dsBad, ['share' => $ds], '#/backup/setup');
 
         // nothing of ours directly in /mnt (Fix Common Problems rightly complains): the mounts go to
         // /mnt/addons; the setup moves them once Kopia's mapping follows, the next run tidies up
@@ -1040,7 +1223,11 @@ function backupChecks(): array
         // "users" (lasting fix: 33:100, 0750)
         $seen = [];
         foreach ($summary['nextcloud'] as $nc) {
-            $dir = backupNextcloudDataDir($nc['container']);
+            $dir = backupNextcloudDataDir($nc['container'], $sleeps, $settings);
+            if ($sleeps) {                                  // its disk sleeps: not looked at, not judged
+                $out[] = finding('nextcloud_datadir', 'required', null, ['name' => $nc['container'], 'path' => '?', 'mode' => '?'], 'userscripts');
+                continue;
+            }
             if ($dir !== null && !isset($seen[$dir])) {     // app and cron of one Nextcloud share it
                 $seen[$dir] = true;
                 $mode = @fileperms($dir);

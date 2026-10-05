@@ -10,7 +10,8 @@ declare(strict_types=1);
  * temporary folder. Two parts:
  *   logic    the tricky functions (cron, snapshot retention, Emby detection,
  *            the gather's settings, User Scripts schedules, the plugin's cron file,
- *            the menu bar's label, reports to Unraid's notifications)
+ *            the menu bar's label, reports to Unraid's notifications,
+ *            Mr. Backupsy's packages)
  *   strings  German and English have the same keys, Italian has every English
  *            key, no language has keys English lacks, placeholders and plurals
  *            match English, and every text the code asks for exists (desk.js,
@@ -305,6 +306,67 @@ function testEstimates(): void
     same('estimate: nothing known', null, $e['total']);
 }
 
+/**
+ * Mr. Backupsy's packages (engine 2.18): the office's reader on a made-up backup place, and the
+ * engine's own helpers (lib/common.sh section 8: folder names, old run folders, an interrupted swap)
+ */
+function testBackupPackages(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-packages-' . getmypid();
+    $put = function (string $file, mixed $data) use ($tmp): void {
+        @mkdir(dirname("$tmp/$file"), 0700, true);
+        file_put_contents("$tmp/$file", is_string($data) ? $data : json_encode($data));
+    };
+    $put('server/run.json', ['run' => '20261006-0200', 'result' => 'ok', 'files' => [['path' => 'libvirt.tar.gz', 'bytes' => 9, 'run' => '20261005-0200']]]);
+    $put('server/libvirt.tar.gz', 'x');
+    $put('apps/immich/manifest.json', ['name' => 'immich', 'type' => 'compose', 'run' => '20261006-0200', 'result' => 'warnings',
+        'compose' => ['manager_dir' => 'immich'],
+        'containers' => [['name' => 'immich_postgres', 'image' => 'ghcr.io/immich-app/postgres:14', 'digests' => ['ghcr.io/immich-app/postgres@sha256:ab'], 'inspect' => ['Id' => 'x']]],
+        'dumps' => [['container' => 'immich_postgres', 'type' => 'postgres', 'state' => 'failed', 'login' => 'user', 'user_var' => 'POSTGRES_USER',
+                     'password_var' => 'POSTGRES_PASSWORD', 'client' => 'psql', 'secret' => 'never']],
+        'files' => [['path' => 'db/postgres_immich_postgres.sql.gz', 'bytes' => 100, 'run' => '20261005-0200', 'what' => 'dump', 'container' => 'immich_postgres'],
+                    ['path' => 'compose/docker-compose.yml', 'bytes' => 20, 'run' => '20261006-0200', 'what' => 'compose']]]);
+    $put('apps/gone/manifest.json', ['name' => 'gone', 'type' => 'template', 'run' => '20261001-0200', 'files' => []]);
+    $put('apps/.ub-old-20261006-0200-immich/manifest.json', ['name' => 'aside']);
+    $put('vms/Win_11/manifest.json', ['name' => 'Win 11', 'run' => '20261006-0200', 'xml' => 'Win_11.xml', 'uuid' => 'u-1', 'autostart' => true,
+        'files' => [['path' => 'Win_11.xml', 'bytes' => 5], ['path' => 'nvram/u-1_VARS-pure-efi-tpm.fd', 'bytes' => 7], ['path' => 'tpm/u-1/tpm2/tpm2-00.permall', 'bytes' => 3]]]);
+    $put('flash/manifest.json', ['run' => '20261006-0200', 'files' => [['path' => 'flash.tar.gz', 'bytes' => 4, 'run' => '20261004-0200']]]);
+    $put('flash/flash.tar.gz', 'flsh');
+    $put('20261001-0200/db/mariadb_x_y.sql.gz', 'x');            // an old run folder: the next run clears it away
+    $put('20261002-0200/notes.txt', 'mine');                       // holds something else: stays, not counted
+
+    $p = backupPackagesRead($tmp);
+    same('packages: the last run', '20261006-0200', $p['run']);
+    same('packages: apps, hidden folders left out', ['gone', 'immich'], array_column($p['apps'], 'folder'));
+    same('packages: an app of an earlier run is stale', [true, false], array_column($p['apps'], 'stale'));
+    $immich = $p['apps'][1];
+    $dump = array_values(array_filter($immich['files'], fn ($f) => $f['what'] === 'dump'))[0] ?? [];
+    same('packages: a kept dump keeps its run', ['20261005-0200', 'immich_postgres'], [$dump['run'] ?? null, $dump['container'] ?? null]);
+    same('packages: dump credentials as names only', ['container' => 'immich_postgres', 'type' => 'postgres', 'state' => 'failed', 'login' => 'user',
+        'user_var' => 'POSTGRES_USER', 'password_var' => 'POSTGRES_PASSWORD', 'client' => 'psql'], $immich['dumps'][0] ?? null);
+    same('packages: no docker inspect for the page', ['name', 'image', 'digest', 'template'], array_keys($immich['containers'][0] ?? []));
+    same('packages: bytes from the manifest', 120, $immich['bytes']);
+    $vm = $p['vms'][0] ?? [];
+    same('packages: a VM with NVRAM and TPM', ['Win 11', ['u-1_VARS-pure-efi-tpm.fd'], true, true, false],
+        [$vm['name'] ?? null, $vm['nvram'] ?? null, $vm['tpm'] ?? null, $vm['autostart'] ?? null, $vm['snapshotdb'] ?? null]);
+    same('packages: the libvirt archive in server/', "$tmp/server/libvirt.tar.gz", $p['server']['libvirt'] ?? null);
+    same('packages: the flash archive keeps its run', '20261004-0200', $p['flash']['run'] ?? null);
+    same('packages: old run folders the engine clears away', 1, $p['old_runs']);
+    exec('rm -rf ' . escapeshellarg($tmp));
+
+    // the engine's helpers, in bash
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $sh = fn (string $script) => trim((string) shell_exec('bash -c ' . escapeshellarg("source $lib >/dev/null 2>&1; $script") . ' 2>&1'));
+    same('engine: folder names', 'Windows_11__G__ming_|_hidden|immich|_|', $sh('printf "%s|" "$(pkg_folder "Windows 11 (Gäming)")" "$(pkg_folder ".hidden")" "$(pkg_folder immich)" "$(pkg_folder "")"'));
+    $t = escapeshellarg(sys_get_temp_dir() . '/office-tests-engine-' . getmypid());
+    same('engine: old run folders', '20261001-0200,20261003-0200', $sh("T=$t; mkdir -p \$T/20261001-0200/db \$T/20261002-0200 \$T/20261003-0200/manifest \$T/2026-x \$T/apps;"
+        . ' echo x >$T/20261002-0200/mine.txt; : >$T/20261003-0200/libvirt.tar.gz; old_runs_list $T | xargs -n1 basename | paste -sd, -'));
+    same('engine: an interrupted swap is put right', 'apps:a b|vms:v|left:0', $sh("T=$t; rm -rf \$T; mkdir -p \$T/apps/a \$T/apps/.ub-old-20261006-0200-a \$T/apps/.ub-old-20261006-0200-b"
+        . ' $T/vms/.ub-old-20261006-0200-v $T/.ub-stage-20261006-0200/apps/a; touch $T/apps/a/new; pkg_recover $T >/dev/null;'
+        . ' printf "apps:%s|vms:%s|left:%s" "$(ls $T/apps | paste -sd" " -)" "$(ls $T/vms)" "$(ls -A $T | grep -c "^\.ub-")"; [ -e $T/apps/a/new ] || echo " lost"'));
+    exec('rm -rf ' . $t);
+}
+
 // ===================================================================== notifications
 
 /**
@@ -575,7 +637,8 @@ function testStrings(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify'],
+$parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify',
+                      'testBackupPackages'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
