@@ -337,7 +337,7 @@
   "setup.k_probe_2": "non possibile",
   "setup.k_repo": "Repository",
   "setup.k_uid": "Kopia gira come",
-  "setup.k_caretaker": "Il custode spiega cosa fare.",
+  "setup.k_caretaker": "Il capoufficio spiega cosa fare.",
   "setup.k_hostid": "Il nome host di Kopia è un ID di contenitore — dopo aver ricreato «{name}» tutte le sorgenti sembrerebbero nuove. Imposta un nome host fisso nella KopiaUI.",
   "setup.k_problem.no_shares": "Nessuna condivisione va ancora a Kopia.",
   "setup.k_problem.no_container": "Non c'è un contenitore Kopia. Installane uno da App (ad es. imagegenius/kopia) e collegalo al tuo storage nella KopiaUI.",

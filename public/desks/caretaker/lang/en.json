@@ -1,8 +1,8 @@
 {
-  "name": "The Caretaker",
-  "role": "Looks after the house — what the office needs from your server, and what's left for you to do",
-  "visit": "Visit the caretaker",
-  "bubble.loading": "One moment, I'm walking through the house…",
+  "name": "The Team Lead",
+  "role": "Leads the team — whom to hire, what the office needs from your server, and what's left for you to do",
+  "visit": "Visit the team lead",
+  "bubble.loading": "One moment, I'm doing my round…",
   "bubble.all_good": "Everything's in place — nothing for you to do.",
   "bubble.todo": {
     "one": "There's one thing you still need to do yourself.",
@@ -53,6 +53,8 @@
   "check.files_viewer_how": "Look at files and logs — Mr. Backupsy's too — right in Unraid's web UI. Install it from Apps.",
   "check.notifications": "Unraid's alerts reach you by mail or push",
   "check.notifications_how": "Switch on mail or an agent (Pushover, Telegram, …) for alerts under Settings → Notifications — otherwise nobody hears about a failed backup or a dying disk.",
+  "check.icon_loop": "Unraid {version}: no container without a picture while its question mark is missing",
+  "check.icon_loop_how": "{n} container(s) have no picture, and Unraid {version} doesn't ship the question mark it shows instead — its Docker page and Dashboard then ask for it about a thousand times a second until /var/log is full. Give them a picture (Ms. Dustdevil does it in her room «Missing pictures»), or put a stand-in in place until the next reboot: copy any PNG to /usr/local/emhttp/plugins/dynamix.docker.manager/images/question.png. Until then keep the Docker page and the Dashboard closed.",
   "check.mail_subject": "The mail subject «{subject}» doesn't mention {host}",
   "check.mail_subject_how": "On purpose? Change it under Settings → Notifications → SMTP, so you can tell which server is writing.",
   "check.pin": "Changing things in the office needs a PIN",
@@ -75,7 +77,7 @@
   "help.open": "Buttons on the right",
   "help.open_text": "Takes you where you sort it out: the matching page of Unraid's web UI (Plugins, Apps, Docker, User Scripts, Notifications) in a new tab — or straight to the right desk here in the office, e.g. Mr. Backupsy's \"Set up…\".",
   "help.again": "Looks at everything again right now; otherwise I do when the page is opened and my last look is older than 5 minutes.",
-  "bubble.alone": "Hi, I'm the caretaker. Nobody else is here yet — but I've already asked around who would suit your server. Have a look at the team below and hire whoever you can use.",
+  "bubble.alone": "Hi, I'm the team lead. Nobody else is here yet — but I've already asked around who would suit your server. Have a look at the team below and hire whoever you can use.",
   "bubble.alone_short": "Nobody else is here yet. Come by — I'll introduce who would suit your server.",
   "fact.could_come": "Could come: {names}",
   "team": "The team",
@@ -119,7 +121,7 @@
   "office_compose_title": "Updated — the stack needs a restart",
   "office_compose_text": "This time compose.yaml changed too. Please restart the stack once in the Compose Manager (\"Compose Up\") so the containers get the new setting.",
   "check.office_update": "The office is up to date ({version})",
-  "check.office_update_how": "Version {latest} is out — the caretaker shows how to update under \"The office\".",
+  "check.office_update_how": "Version {latest} is out — the team lead shows how to update under \"The office\".",
   "errors.office_not_git": "The office wasn't installed with git — update it by hand.",
   "errors.office_local_changes": "The code was changed here — I won't update, so nothing gets lost.",
   "errors.office_git": "git failed: {detail}",
@@ -151,5 +153,5 @@
   },
   "notify.description": "Still missing: {list}",
   "notify.more": "… and {n} more",
-  "notify.footer": "The caretaker lists everything that is still to do on his page in the office. You can switch these reports off there."
+  "notify.footer": "The team lead lists everything that is still to do on his page in the office. You can switch these reports off there."
 }

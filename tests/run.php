@@ -11,7 +11,7 @@ declare(strict_types=1);
  *   logic    the tricky functions (cron, snapshot retention, Emby detection,
  *            the gather's settings, User Scripts schedules, the plugin's cron file,
  *            the menu bar's label, reports to Unraid's notifications,
- *            Mr. Backupsy's packages and his Kopia per app and VM)
+ *            Mr. Backupsy's packages and his Kopia per app and VM, Ms. Dustdevil's pictures)
  *   strings  German and English have the same keys, Italian has every English
  *            key, no language has keys English lacks, placeholders and plurals
  *            match English, and every text the code asks for exists (desk.js,
@@ -569,6 +569,166 @@ function testNotify(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/** Ms. Dustdevil's pictures: how Unraid matches templates, the logo lookup, and editing templates and override files on copies */
+function testIcons(): void
+{
+    // DockerUtil::ensureImageTag(): a template's <Repository> and a container's image compare like this
+    same('icon: image tag, official image', 'library/php:apache', clImageTag('php:apache'));
+    same('icon: image tag, latest added', 'ghcr.io/imagegenius/kopia:latest', clImageTag('ghcr.io/imagegenius/kopia'));
+    same('icon: image tag, registry port', 'registry:5000/team/app:latest', clImageTag('registry:5000/team/app'));
+    same('icon: image tag, same image', clImageTag('library/redis:latest'), clImageTag('redis'));
+
+    foreach ([['ghcr.io/immich-app/postgres:14-vectorchord0.4.3@sha256:bcf6', ['ghcr.io/immich-app/postgres', 'immich-app/postgres']],
+              ['docker.io/valkey/valkey:9@sha256:c123', ['valkey/valkey', 'valkey/valkey']],
+              ['mariadb:11.4', ['mariadb', 'mariadb']],
+              ['lscr.io/linuxserver/mariadb', ['lscr.io/linuxserver/mariadb', 'linuxserver/mariadb']],
+              ['registry:5000/Team/App:1', ['registry:5000/team/app', 'team/app']],
+              ['library/nginx:alpine', ['nginx', 'nginx']]] as [$image, $want]) {
+        same("icon: lookup names of $image", $want, clIconRepo($image));
+    }
+    foreach (['immich-app/immich-server' => 'immich', 'immich-app/immich-machine-learning' => 'immich', 'immich-app/postgres' => 'postgres',
+              'tensorchord/pgvecto-rs' => 'postgres', 'tensorchord/vchord-postgres' => 'postgres', 'valkey/valkey' => 'valkey', 'redis' => 'redis',
+              'mariadb' => 'mariadb', 'linuxserver/mariadb' => 'mariadb', 'mysql' => 'mysql', 'mongo' => 'mongodb', 'nextcloud' => 'nextcloud',
+              'nextcloud-ocr' => 'nextcloud', 'nextcloud/all-in-one' => 'nextcloud', 'jellyfin/jellyfin' => 'jellyfin', 'plexinc/pms-docker' => 'plex',
+              'linuxserver/plex' => 'plex', 'emby/embyserver' => 'emby', 'binhex/arch-emby' => 'emby', 'php' => 'php', 'httpd' => 'apache',
+              'jc21/nginx-proxy-manager' => 'nginx-proxy-manager', 'homeassistant/home-assistant' => 'home-assistant',
+              'vaultwarden/server' => 'vaultwarden', 'kopia/kopia' => null, 'uping/embystat' => null, 'linuxserver/jellyseerr' => null] as $loose => $want) {
+        same("icon: table for $loose", $want, clIconTableSlug($loose));
+    }
+    foreach (CL_ICON_TABLE as $re => $slug) {
+        check("icon: table entry $slug is a name of the collection", preg_match('/^[a-z0-9]+(-[a-z0-9]+)*$/', $slug) === 1 && @preg_match($re, '') !== false);
+    }
+    same('icon: guesses for immich ML', ['immich-machine-learning', 'immich'], clIconGuesses('immich-app/immich-machine-learning'));
+    same('icon: guesses for sonarr', ['sonarr'], clIconGuesses('linuxserver/sonarr'));
+    same('icon: guesses leave generic words out', ['arch-emby', 'emby'], clIconGuesses('binhex/arch-emby'));
+    same('icon: guesses strip -server and docker-', ['docker-foo-server', 'foo'], clIconGuesses('x/docker-foo_server'));
+
+    // Community Applications' feed: an Icon belongs to the Repository before it, unless another entry began
+    $feed = implode("\n", ['s:4:"Name";', 's:10:"Repository";s:13:"valkey/valkey"', 's:4:"Icon";s:18:"https://x/vk-1.png"',
+        's:4:"Name";', 's:4:"Name";', 's:10:"Repository";s:21:"lscr.io/linuxserver/a"', 's:4:"Name";',
+        's:4:"Name";', 's:4:"Icon";s:19:"https://x/plug.png"',
+        's:4:"Name";', 's:10:"Repository";s:20:"valkey/valkey:8-trix"', 's:4:"Icon";s:18:"https://x/vk-2.png"',
+        's:4:"Name";', 's:10:"Repository";s:5:"redis"', 's:4:"Icon";s:17:"https://x/r.svg"',
+        '"Name": "b"', '"Repository": "ghcr.io/versity/versitygw"', '"Icon": "https:\/\/x\/vgw.png"', '"Name": "App Data"']);
+    $ca = clCaParse($feed);
+    same('ca: pictures by image', ['https://x/vk-1.png' => 1, 'https://x/vk-2.png' => 1], $ca['exact']['valkey/valkey'] ?? null);
+    check('ca: a plugin\'s picture never goes to the app before it', !isset($ca['exact']['lscr.io/linuxserver/a']));
+    check('ca: svg left out', !isset($ca['exact']['redis']));
+    same('ca: JSON feed, loose name', ['https://x/vgw.png' => 1], $ca['loose']['versity/versitygw'] ?? null);
+
+    check('icon url ok', clIconUrlOk('https://example.com/a/b-1.png?x=1&y=2'));
+    foreach (['file:///boot/x.png', 'ftp://x/y.png', 'https://x/a b.png', 'https://x/"a.png', "https://x/a\n.png", 'javascript:alert(1)', 'https://x/a<b>.png'] as $bad) {
+        check('icon url refused: ' . json_encode($bad), !clIconUrlOk($bad));
+    }
+    same('icon: override name', 'compose.override.yaml', clOverrideName('/x/compose.yaml'));
+    same('icon: override name, old style', 'docker-compose.override.yml', clOverrideName('/x/docker-compose.yml'));
+    same('icon: home of a template', CL_TEMPLATES, clIconHome(CL_TEMPLATES . '/my-a.xml', '/r'));
+    same('icon: home of an override file', '/r/p', clIconHome('/r/p/compose.override.yaml', '/r'));
+    same('icon: no home elsewhere', '', clIconHome('/r/p/q/compose.override.yaml', '/r') . clIconHome('/tmp/my-a.xml', '/r') . clIconHome('/r/p/compose.yaml', '/r'));
+
+    // a template: only its <Icon> changes
+    $tpl = "<?xml version=\"1.0\"?>\n<Container version=\"2\">\n  <Name>web</Name>\n  <Repository>php:apache</Repository>\n  <Registry/>\n  <Icon/>\n  <Config Name=\"x\" Type=\"Path\">/mnt/user/appdata/web</Config>\n</Container>\n";
+    same('template: empty <Icon/> set', str_replace('<Icon/>', '<Icon>https://x/a.png?b=1&amp;c=2</Icon>', $tpl), clXmlSetIcon($tpl, 'https://x/a.png?b=1&c=2', 't'));
+    $old = str_replace('<Icon/>', '<Icon>/boot/config/plugins/dockerMan/images/Apache.png</Icon>', $tpl);
+    same('template: old <Icon> replaced', str_replace('<Icon/>', '<Icon>file:///boot/x.png</Icon>', $tpl), clXmlSetIcon($old, 'file:///boot/x.png', 't'));
+    $none = str_replace("  <Icon/>\n", '', $tpl);
+    same('template: <Icon> added after <Repository>', str_replace("</Repository>\n", "</Repository>\n  <Icon>https://x/a.png</Icon>\n", $none), clXmlSetIcon($none, 'https://x/a.png', 't'));
+    foreach (['two icons' => str_replace('<Icon/>', "<Icon/>\n  <Icon>y</Icon>", $tpl), 'CDATA' => str_replace('<Icon/>', '<Icon><![CDATA[x]]></Icon>', $tpl),
+              'no template' => "<foo/>\n"] as $what => $bad) {
+        try {
+            clXmlSetIcon($bad, 'https://x/a.png', 't');
+            check("template refused: $what", false);
+        } catch (Problem $p) {
+            same("template refused: $what", 'cleanup_icon_shape', $p->key);
+        }
+    }
+
+    // an override file, the shapes Compose Manager writes
+    $set = ['database' => 'https://x/pg.png'];
+    $cm = clOverrideTemplate();
+    same('override: Compose Manager\'s new file', str_replace("services: {}\n", "services:\n  database:\n    labels:\n      net.unraid.docker.managed: 'composeman'\n      net.unraid.docker.icon: 'https://x/pg.png'\n", $cm),
+        clOverrideSetIcons($cm, $set, 'o'));
+    $immich = "services:\n  immich-server:\n    labels:\n      net.unraid.docker.managed: 'composeman'\n      net.unraid.docker.icon: ''\n      net.unraid.docker.webui: ''\n      net.unraid.docker.shell: ''\n"
+            . "  database:\n    labels:\n      net.unraid.docker.managed: 'composeman'\n      net.unraid.docker.icon: ''   # empty\n      net.unraid.docker.webui: ''\n";
+    $want = str_replace("      net.unraid.docker.icon: ''   # empty\n", "      net.unraid.docker.icon: 'https://x/pg.png'\n", $immich);
+    $want = str_replace("      net.unraid.docker.icon: ''\n      net.unraid.docker.webui: ''\n      net.unraid.docker.shell", "      net.unraid.docker.icon: 'https://x/im''s.png'\n      net.unraid.docker.webui: ''\n      net.unraid.docker.shell", $want);
+    same('override: only the icon lines change', $want, clOverrideSetIcons($immich, $set + ['immich-server' => "https://x/im's.png"], 'o'));
+    $more = "version: '3'\nservices:\n  app:\n    environment:\n      - A=1\n    labels:\n      net.unraid.docker.managed: 'composeman'\n      com.example.x: \"y\"\n  cron:\n    environment:\n      B: 2\n\n# end\nnetworks:\n  default: {}\n";
+    same('override: added to labels, a new labels block, a new service', "version: '3'\nservices:\n  app:\n    environment:\n      - A=1\n    labels:\n      net.unraid.docker.managed: 'composeman'\n      net.unraid.docker.icon: 'https://x/a.png'\n      com.example.x: \"y\"\n"
+        . "  cron:\n    environment:\n      B: 2\n    labels:\n      net.unraid.docker.icon: 'https://x/c.png'\n  redis:\n    labels:\n      net.unraid.docker.managed: 'composeman'\n      net.unraid.docker.icon: 'https://x/r.png'\n\n# end\nnetworks:\n  default: {}\n",
+        clOverrideSetIcons($more, ['app' => 'https://x/a.png', 'cron' => 'https://x/c.png', 'redis' => 'https://x/r.png'], 'o'));
+    same('override: labels: {} and CRLF', "services:\r\n  app:\r\n    labels:\r\n      net.unraid.docker.icon: 'https://x/a.png'\r\n",
+        clOverrideSetIcons("services:\r\n  app:\r\n    labels: {}\r\n", ['app' => 'https://x/a.png'], 'o'));
+    same('override: empty file', "services:\n  '1':\n    labels:\n      net.unraid.docker.managed: 'composeman'\n      net.unraid.docker.icon: 'https://x/a.png'\n",
+        clOverrideSetIcons('', ['1' => 'https://x/a.png'], 'o'));
+    foreach (['tab' => "services:\n\tapp:\n", 'four spaces' => "services:\n    app:\n      labels:\n", 'labels as a list' => "services:\n  app:\n    labels:\n      - \"a=b\"\n",
+              'merge key' => "services:\n  app:\n    <<: *base\n", 'anchor' => "services:\n  app:\n    labels:\n      net.unraid.docker.icon: &i x\n",
+              'flow services' => "services: {app: {}}\n", 'deeper label' => "services:\n  app:\n    labels:\n      a:\n        b: c\n",
+              'block scalar' => "services:\n  app:\n    labels:\n      a: |\n        x\n", 'twice' => "services:\n  app: \nservices:\n"] as $what => $bad) {
+        try {
+            clOverrideSetIcons($bad, ['app' => 'https://x/a.png'], 'o');
+            check("override refused: $what", false);
+        } catch (Problem $p) {
+            same("override refused: $what", 'cleanup_icon_shape', $p->key);
+        }
+    }
+
+    // on copies: swap a template into a storeroom and back; a new override file and back; Unraid's cache
+    $tmp = sys_get_temp_dir() . '/office-tests-icons-' . getmypid();
+    @mkdir("$tmp/templates", 0700, true);
+    @mkdir("$tmp/project", 0700, true);
+    @mkdir("$tmp/ram", 0700, true);
+    @mkdir("$tmp/disk", 0700, true);
+    file_put_contents("$tmp/templates/my-web.xml", $old);
+    $new = clXmlSetIcon($old, 'https://x/a.png', 't');
+    clIconReplace("$tmp/templates/my-web.xml", $new, "$tmp/trash/run/icons/abc/my-web.xml");
+    same('swap: the new template in place', $new, file_get_contents("$tmp/templates/my-web.xml"));
+    same('swap: the old one in the storeroom', $old, file_get_contents("$tmp/trash/run/icons/abc/my-web.xml"));
+    same('swap: no temp file left', [], glob("$tmp/templates/.*.tmp") ?: []);
+    $m = ['from' => "$tmp/templates/my-web.xml", 'written' => md5($new), 'was' => 'there'];
+    file_put_contents("$tmp/templates/my-web.xml", $new . ' ');
+    try {
+        clIconPutBack("$tmp/trash/run/icons/abc/my-web.xml", $m);
+        check('put back refused once the template changed', false);
+    } catch (Problem $p) {
+        same('put back refused once the template changed', 'cleanup_icon_changed', $p->key);
+    }
+    file_put_contents("$tmp/templates/my-web.xml", $new);
+    clIconPutBack("$tmp/trash/run/icons/abc/my-web.xml", $m);
+    same('put back: the old template again', $old, file_get_contents("$tmp/templates/my-web.xml"));
+    check('put back: out of the storeroom', !file_exists("$tmp/trash/run/icons/abc/my-web.xml"));
+
+    $override = "$tmp/project/compose.override.yaml";
+    $text = clOverrideSetIcons(clOverrideTemplate(), $set, 'o');
+    clIconReplace($override, $text, "$tmp/trash/run/icons/def/compose.override.yaml", clOverrideTemplate());
+    same('new override: written', $text, file_get_contents($override));
+    same('new override: Compose Manager\'s empty one in the storeroom', clOverrideTemplate(), file_get_contents("$tmp/trash/run/icons/def/compose.override.yaml"));
+    file_put_contents("$tmp/png", "\x89PNG\r\n\x1a\n" . str_repeat('x', 100));
+    file_put_contents("$tmp/docker.json", json_encode(['other' => ['icon' => '/x.png', 'url' => 'u'], 'web' => ['icon' => CL_DM_FALLBACK_WEB, 'updated' => 'false']]));
+    $cache = clIconSeed('web', "$tmp/png", ["$tmp/ram", "$tmp/disk"], "$tmp/docker.json", '/state/x');
+    same('seed: both copies', ["$tmp/ram/web-icon.png", "$tmp/disk/web-icon.png"], array_keys($cache));
+    $dj = json_decode((string) file_get_contents("$tmp/docker.json"), true);
+    same('seed: docker.json points at it, the rest stays', ['other' => ['icon' => '/x.png', 'url' => 'u'], 'web' => ['icon' => '/state/x/web-icon.png', 'updated' => 'false']], $dj);
+    same('seed: a strange name is refused', [], clIconSeed('../x', "$tmp/png", ["$tmp/ram"], "$tmp/docker.json"));
+    file_put_contents("$tmp/project/icon_url", 'https://x/a.png');
+    clIconPutBack("$tmp/trash/run/icons/def/compose.override.yaml", ['from' => $override, 'written' => md5($text), 'was' => 'missing', 'cache' => $cache,
+        'icon_url' => ['path' => "$tmp/project/icon_url", 'md5' => md5('https://x/a.png'), 'was' => 'missing']], ["$tmp/ram", "$tmp/disk"]);
+    check('put back: the new override file is gone again', !file_exists($override) && !file_exists("$tmp/trash/run/icons/def/compose.override.yaml"));
+    check('put back: icon_url and the cache copies gone', !file_exists("$tmp/project/icon_url") && !file_exists("$tmp/ram/web-icon.png") && !file_exists("$tmp/disk/web-icon.png"));
+
+    // what curl answered: a picture only with 200 and a PNG
+    file_put_contents("$tmp/0.png", "\x89PNG\r\n\x1a\nxx");
+    file_put_contents("$tmp/1.png", '<html>');
+    $r = clIconFetchResults("1\t200\t6\ttext/html\n0\t200\t10\timage/png\n2\t404\t9\ttext/plain\n", ['https://a/0.png', 'https://a/1.png', 'https://a/2.png', 'https://a/3.png'], $tmp);
+    ksort($r);
+    same('fetch: what loads', ['https://a/0.png' => true, 'https://a/1.png' => false, 'https://a/2.png' => false, 'https://a/3.png' => false], array_map(fn ($x) => $x['ok'], $r));
+    same('fetch: why not', [null, 'not_png', 'http_404', 'unreachable'], array_values(array_map(fn ($x) => $x['why'], [$r['https://a/0.png'], $r['https://a/1.png'], $r['https://a/2.png'], $r['https://a/3.png']])));
+    $cmd = clIconFetchCommand(['https://a/0.png'], '/d');
+    check('fetch: no shell globbing, http(s) only, no User-Agent', in_array('-g', $cmd, true) && in_array('=http,https', $cmd, true) && $cmd[array_search('-A', $cmd, true) + 1] === '');
+    same('loop risk: its fields', ['version', 'affected', 'fallback_missing', 'containers', 'risk', 'standin'], array_keys(cleanupIconLoopRisk([])));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 // ===================================================================== strings
 
 function langFile(string $file): array
@@ -715,7 +875,7 @@ function testStrings(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify',
-                      'testBackupPackages', 'testBackupKopiaItems'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testIcons'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {

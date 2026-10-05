@@ -352,7 +352,7 @@
   "help.plans": "A schedule takes snapshots at fixed times (named auto-<schedule>-YYYYMMDD-HHMM) and then deletes its own oldest until only as many are left as it should keep. Other snapshots — Mr. Backupsy's, manual ones, held ones — are never touched. It runs through a User Scripts entry, even when the office isn't open. Containers aren't paused for it; for consistent backups there's Mr. Backupsy.",
   "plan.new": "New schedule…",
   "plan.none": "No schedules yet. Allora — how about hourly snapshots of appdata, keeping 24?",
-  "plan.no_user_scripts": "Schedules need the \"User Scripts\" plugin — the caretaker tells you how.",
+  "plan.no_user_scripts": "Schedules need the \"User Scripts\" plugin — the team lead tells you how.",
   "plan.runner_off": "The User Scripts entry \"{name}\" is missing or has no schedule — so the schedules don't run. Saving a schedule once sets it up again.",
   "plan.paused": "paused",
   "plan.keeps": {

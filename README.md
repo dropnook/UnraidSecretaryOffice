@@ -15,11 +15,11 @@ server, tells you what they noticed and — where it makes sense — lets you ac
 | 💾 **Mr. Backupsy** | Runs the office's backup engine ([backup/](backup/README.md): consistent ZFS/btrfs snapshots, database dumps, Nextcloud maintenance mode, a package per app and VM, Kopia offsite — an app or VM you choose as a Kopia source of its own with its own retention): what a run is doing right now and when it will be done (estimated from earlier runs), how the last nights went, which share is protected how (Kopia offsite, local snapshot, not at all) and when it was last copied offsite, what changed on the server since the setup, whether a nightly run is scheduled, what each app's and VM's package holds (templates or compose files, dumps, consistent copies of the databases of media servers that keep running, the VM's XML, NVRAM and TPM state), and how to get things back (snapshot paths, Kopia, database dumps, media server databases and VM configurations with ready-made restore commands, and the apps' own backups as a second way). Starts a full run, a run without Kopia, a dry run or a check, and stops a run cleanly. **Set up in the browser** (*Set up…*): he reads the server and shows his proposals with reasons — Kopia offsite, every share, which containers stop for the snapshots, database dumps and Nextcloud maintenance mode, retention, Kopia policies — you change what you like and apply; the same engine as `setup.sh` in a terminal checks and writes it. It warns when Nextcloud's or Immich's files lie in a share backed up less than the app, and offers to leave caches, transcodes and logs out of Kopia. |
 | 🍿 **Jack Emby** | The intern ("check Emby"): fetches coffee, entertains everyone — and looks after [EmbyCache](https://github.com/helmi1987/embycache-for-unraid), which keeps what people are about to watch on the fast pool so the array disks can sleep, and brings it back to the very disk it came from once it's watched. Before that, the [media gather](https://github.com/helmi1987/media-disk-gather-for-unraid) ("Consolidate folders") brings every film folder together on one disk. Both ship with the office (`embycache/`, `gather/`); Jack sets them up (Emby API key, libraries, people, pool — films and series each their own way), shows whether your shares suit, runs them and schedules them. |
 | 📝 **Ms. Protocolli** | Reads every log out loud — and sadly understands none of it. The office's own logs (agent, Mr. Backupsy's runs, Jack's EmbyCache, the office containers), Unraid's (syslog, kernel, VMs, web UI, Samba, parity checks …), what every User Script printed last, and every container's docker logs. Last 100 to 10000 lines, live like `tail -f`, filter by text or errors and warnings only, copy or download. Read only, from a fixed list; nothing wakes a disk. |
-| 🧹 **Ms. Dustdevil** | Clears away what nobody uses any more: Docker templates without a container, Compose stacks without containers, appdata folders nothing names (container mounts, templates, stacks, compose files, VMs, any file on the flash), what deleted VMs left behind (folders in `domains`, NVRAM files, TPM states, snapshot lists, disk images in `isos` no VM uses) switched-off User Scripts that lie around (pointing to paths that are gone, or unused since the reboot), stray `my-*.xml` outside Unraid's folder (take over or put away; backups are left out), VMs whose disks are gone (pointed out, removed in Unraid) and Docker's leftovers (dangling and unused images, volumes without a container, the build cache). A filter and a CSV export for every room. Nothing is deleted right away: it is renamed into `_UnraidSecretaryOffice-trash` on the same disk (ZFS datasets with `zfs rename`, snapshots included) and can be put back until you empty it. Measures in the background, never wakes a sleeping disk, changes nothing while a backup runs. |
+| 🧹 **Ms. Dustdevil** | Clears away what nobody uses any more: Docker templates without a container, Compose stacks without containers, appdata folders nothing names (container mounts, templates, stacks, compose files, VMs, any file on the flash), what deleted VMs left behind (folders in `domains`, NVRAM files, TPM states, snapshot lists, disk images in `isos` no VM uses) switched-off User Scripts that lie around (pointing to paths that are gone, or unused since the reboot), stray `my-*.xml` outside Unraid's folder (take over or put away; backups are left out), VMs whose disks are gone (pointed out, removed in Unraid) and Docker's leftovers (dangling and unused images, volumes without a container, the build cache). And she straightens what hangs crooked: **missing pictures** — containers that show a question mark on Unraid's Docker page and Dashboard (none set, or one Unraid can't load) get a logo, found in Community Applications on your server, in a table of well-known images (a database in an app's stack gets its database's logo) or guessed from the image's name and checked — addresses of the open [dashboard-icons](https://github.com/homarr-labs/dashboard-icons) collection, nothing is bundled. She sets it in the container's template (shown at once) or in its Compose Manager stack's override file (lasting from the next Compose Up; she never restarts anything), the old file goes into her storeroom first. On Unraid 7.3.2, whose pages reload a missing question.png endlessly, she offers a stand-in. A filter and a CSV export for every room. Nothing is deleted right away: it is renamed into `_UnraidSecretaryOffice-trash` on the same disk (ZFS datasets with `zfs rename`, snapshots included) and can be put back until you empty it. Measures in the background, never wakes a sleeping disk, changes nothing while a backup runs. |
 | 💼 **The Consultant** | An external — he knows the tools the office relies on but doesn't make itself: [Fix Common Problems](https://github.com/unraid/fix.common.problems) (checks the server for common mistakes), [Files Viewer](https://github.com/Lazaros-Chalkidis/unraid-filesviewer) (files in the browser — the office has no file browser of its own on purpose), [Kopia](https://kopia.io/) (Mr. Backupsy hands it the offsite copies) and, where Emby, Jellyfin or Plex runs, [Stream Viewer](https://github.com/Lazaros-Chalkidis/unraid-streamviewer) (who watches what) — and, through gritted teeth, [unbalanced](https://github.com/jbrodriguez/unbalance) (moves files between array disks; can get in the way of backups and EmbyCache, so never suggested). He tells whether they are there, what they are good for, who in the office needs them, and how to install them by hand. Read only. |
-| 🧰 **The Caretaker** | Looks after the house. Every desk tells him what it needs from the server; he adds what the office as a whole benefits from and lists what is missing — *still to do* (only you can do it, in Unraid), *recommended* (e.g. Fix Common Problems, Files Viewer, notifications by mail or push) and *good to know* (other backup tools, so nothing runs twice by accident) — each with a link into Unraid's web UI. Especially helpful on a fresh server. Read only. |
+| 👥 **The Team Lead** | Leads the team. Every desk tells him what it needs from the server; he adds what the office as a whole benefits from and lists what is missing — *still to do* (only you can do it, in Unraid), *recommended* (e.g. Fix Common Problems, Files Viewer, notifications by mail or push) and *good to know* (other backup tools, so nothing runs twice by accident) — each with a link into Unraid's web UI. Especially helpful on a fresh server. Read only. |
 
-A fresh office has only the caretaker. He asks around who would suit your
+A fresh office has only the team lead. He asks around who would suit your
 server (no Emby, no Jack Emby; no ZFS or btrfs, no snapshots) and you hire whom
 you need — or let them go again later; their data and settings stay.
 
@@ -47,7 +47,7 @@ for your browser. Adding a language means adding JSON files.
   Unraid's header), in Unraid's look and colour theme,
   served by Unraid behind its login. A tile on Unraid's Dashboard shows the
   essentials at a glance: whether the messenger (the agent) is in, the
-  Caretaker's traffic light, and Mr. Backupsy's last and next run.
+  Team Lead's traffic light, and Mr. Backupsy's last and next run.
 * The page only shows things. The **agent**, a small service of the plugin,
   does the work on the host. It only accepts the actions the desks define and
   checks every request against a fresh look at the system. Commands run
@@ -78,7 +78,7 @@ Where things are:
 
 What needs you even when the office isn't open goes to Unraid's
 notifications — the bell, and mail or push if you set them up under
-*Settings → Notifications* (the Caretaker recommends it). All of them come
+*Settings → Notifications* (the Team Lead recommends it). All of them come
 as the event *Unraid Secretary Office*:
 
 * **Mr. Backupsy** (the backup engine): a run failed or ended with errors
@@ -90,14 +90,14 @@ as the event *Unraid Secretary Office*:
 * **Ms. Snapshotini**: a schedule had problems (warning).
 * **Jack Emby**: a real EmbyCache or consolidating run failed or had
   problems (warning) — reports and trial runs stay quiet.
-* **The Caretaker**: something new under *Still to do* that has stayed for
+* **The Team Lead**: something new under *Still to do* that has stayed for
   half an hour (warning), once — again only if it was solved and came back,
   never an "all clear". He looks every 30 minutes, also with the office
   closed. A switch on his page turns this off.
 * **The plugin**: the agent hasn't checked in for more than 10 minutes while
   the array runs (alert), and once it is back (normal).
 
-The Caretaker and Jack Emby write in Unraid's language (English where the
+The Team Lead and Jack Emby write in Unraid's language (English where the
 office doesn't speak it); the engine and the plugin's look at the agent in English.
 
 ## Installation
@@ -112,14 +112,14 @@ once it is released and tested.
    https://github.com/vipermark2/UnraidSecretaryOffice/releases/latest/download/unraid-secretary-office.plg
    ```
 2. Open it: *Sekretariat* in Unraid's menu bar (between Apps and Tools).
-   The Caretaker welcomes you and suggests whom to hire. For backups:
-   Mr. Backupsy → *Set up…*, then *Schedule…*. The Caretaker lists what is
+   The Team Lead welcomes you and suggests whom to hire. For backups:
+   Mr. Backupsy → *Set up…*, then *Schedule…*. The Team Lead lists what is
    still missing.
 
 The green dot next to *⋯* means the agent checked in within the last 70 seconds.
 
 **Updating:** like any plugin, under *Plugins* (Unraid looks for updates; the
-Caretaker also says when a new version is out). Your data stays. While a
+Team Lead also says when a new version is out). Your data stays. While a
 backup runs the update refuses — try again when it is done.
 
 **Removing:** *Plugins → Remove*. The code and the schedules go. Your data in
@@ -167,7 +167,7 @@ entries (needs the **User Scripts** plugin).
    folder.)
 3. Open `http://<the IP>/`.
 
-Updating: the Caretaker offers *Update* (a `git pull`, refused if the code was
+Updating: the Team Lead offers *Update* (a `git pull`, refused if the code was
 changed locally); when `compose.yaml` changed, *Compose Up* once more.
 </details>
 
@@ -217,7 +217,7 @@ office serves it at `api.php?a=state&desk=cleaner` and asks for `cleaner.refresh
 when it is older than `refresh_after`. Errors are thrown as
 `new Problem('key', [...])` and translated in the UI (`errors.<key>`).
 
-A desk can also tell the caretaker what it needs (`'checks' => fn () => [...]`,
+A desk can also tell the team lead what it needs (`'checks' => fn () => [...]`,
 built with `finding()` from `agent/lib/house.php`, texts as `check.<id>` and
 `check.<id>_how` in its language files).
 

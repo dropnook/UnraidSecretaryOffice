@@ -172,7 +172,7 @@
   "help.shares": "Shares",
   "help.shares_text": "EmbyCache moves between the array and one pool. A share that never lies on the array (pool to pool) gains nothing; one whose primary is another pool would get files on the wrong pool.",
   "help.pool": "Mover",
-  "help.pool_text": "So the mover doesn't push the prepared files straight back to the array, EmbyCache's list belongs in Mover Tuning as an exception. The caretaker tells you whether it is.",
+  "help.pool_text": "So the mover doesn't push the prepared files straight back to the array, EmbyCache's list belongs in Mover Tuning as an exception. The team lead tells you whether it is.",
   "help.schedule": "Schedules",
   "help.schedule_text": "EmbyCache best every hour, consolidating e.g. once a week at night. As a plugin both lie in the office's cron file and run only while the array is started.",
   "schedule_title.embycache": "When EmbyCache runs",

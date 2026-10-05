@@ -331,7 +331,7 @@
   "setup.k_probe_2": "not possible",
   "setup.k_repo": "Repository",
   "setup.k_uid": "Kopia runs as",
-  "setup.k_caretaker": "The caretaker explains what to do.",
+  "setup.k_caretaker": "The team lead explains what to do.",
   "setup.k_hostid": "Kopia's host name is a container ID — after re-creating «{name}» all sources would look new. Set a fixed host name in the KopiaUI.",
   "setup.k_problem.no_shares": "No share goes to Kopia yet.",
   "setup.k_problem.no_container": "There is no Kopia container. Install one from Apps (e.g. imagegenius/kopia) and connect it to your storage in the KopiaUI.",

@@ -352,7 +352,7 @@
   "help.plans": "Una pianificazione crea snapshot a orari fissi (chiamati auto-<pianificazione>-AAAAMMGG-HHMM) e poi elimina i suoi più vecchi finché ne restano solo quanti deve conservarne. Gli altri snapshot — quelli del signor Backupsi, quelli manuali, quelli protetti — non li tocca mai. Gira tramite una voce di User Scripts, anche quando la segreteria non è aperta. I contenitori non vengono messi in pausa; per backup coerenti c'è il signor Backupsi.",
   "plan.new": "Nuova pianificazione…",
   "plan.none": "Ancora nessuna pianificazione. Allora — che ne dici di snapshot ogni ora di appdata, tenendone 24?",
-  "plan.no_user_scripts": "Le pianificazioni hanno bisogno del plugin «User Scripts» — il custode ti dice come fare.",
+  "plan.no_user_scripts": "Le pianificazioni hanno bisogno del plugin «User Scripts» — il capoufficio ti dice come fare.",
   "plan.runner_off": "La voce di User Scripts «{name}» manca o non ha una pianificazione — così le pianificazioni non girano. Salvare una pianificazione una volta la ricrea.",
   "plan.paused": "in pausa",
   "plan.keeps": {
