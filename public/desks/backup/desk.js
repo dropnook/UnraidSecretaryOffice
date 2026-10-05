@@ -1135,6 +1135,8 @@ async function setupLoad() {
   else if (!setup.plan && !setup.asked && canPlan()) setupPlan(false);
 }
 
+// the plugin schedules through its own cron file (schedule.via), the stack through User Scripts
+const asPlugin = () => !!(state && state.schedule && state.schedule.via === 'office');
 const canPlan = () => !!(state && state.found && state.compatible && Office.agent.running && !state.running);
 
 async function setupPlan(measure, quiet) {
@@ -1173,7 +1175,7 @@ function setupApply() {
     });
     box.appendChild(ul);
   }
-  box.appendChild(el('p', 'role', T('setup.apply_hint')));
+  box.appendChild(el('p', 'role', T(asPlugin() ? 'setup.apply_hint_plugin' : 'setup.apply_hint')));
   Office.dialog({
     title: T('setup.apply_title'),
     body: box,
@@ -1300,7 +1302,7 @@ function renderSetup() {
   if (setup.applied) root.appendChild(appliedCard(setup.applied));
   if (busy) {
     const p = el('p', 'callout running');
-    p.append(el('span', 'spin'), ' ', T(setup.status.mode === 'apply' ? 'setup.applying_long' : 'setup.planning_long'));
+    p.append(el('span', 'spin'), ' ', T(setup.status.mode === 'apply' ? (asPlugin() ? 'setup.applying_long_plugin' : 'setup.applying_long') : 'setup.planning_long'));
     root.appendChild(p);
   }
   if (!setup.plan) { setupBar(); return; }
@@ -1391,6 +1393,7 @@ function shareWhy(sh) {
   if (!code) return sh.why_text || '';
   const arg = sh.why_arg;
   const gb = Number(arg);
+  if (code === 'timemachine' && arg === 'name') return T('setup.why.timemachine_name');   // only a guess from the name
   return T('setup.why.' + code, { arg, size: isNaN(gb) || arg === '' ? arg : gb < 0 ? '> ?' : fmt.size(gb * 1073741824) });
 }
 
@@ -1573,7 +1576,7 @@ function setupVms(plan) {
     if (!v.own.length) { mode.value = 'snapshot'; mode.disabled = true; mode.title = T('setup.vm_shared_hint'); }
     const prep = selectInput(k('prepare'), ['freeze', 'pause', 'shutdown', 'none'], (o) => T('setup.vm_prep.' + o));
     prep.title = T('setup.vm_prep_hint');
-    const ret = textInput(k('retention'), /^\d+ \d+ \d+$/, T('setup.vm_ret_ph'));
+    const ret = textInput(k('retention'), /^\d+ \d+ \d+$/, T('setup.vm_ret_ph', { share: ((v.disks || []).find((d) => d.share) || {}).share || '?' }));
     ret.classList.add('bk-ret');
     ret.title = T('setup.vm_ret_hint');
     const warn = chip(T('setup.vm_noagent'), 'warn', T('setup.vm_noagent_hint'));

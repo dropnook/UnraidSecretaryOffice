@@ -497,9 +497,9 @@ body.sso-page{margin:0; background:#F2F5F6; -webkit-text-size-adjust:100%}
 .callout{font-size:13px; line-height:1.45; padding:9px 12px; margin:0 0 12px; border-left:3px solid var(--accent); background:var(--accent-soft); color:var(--accent-ink); border-radius:0 var(--radius) var(--radius) 0}
 .callout.warn{border-color:var(--danger); background:var(--danger-soft); color:var(--danger)}
 .shortlist{margin:0 0 12px; padding:0; list-style:none; max-height:220px; overflow:auto; border:1px solid var(--line); border-radius:var(--radius)}
-.shortlist li{padding:5px 10px; font:12.5px/1.4 var(--mono); color:var(--ink); border-top:1px solid var(--line); overflow-wrap:anywhere; display:flex; justify-content:space-between; gap:10px}
+.shortlist li{padding:5px 10px; font:12.5px/1.4 var(--mono); color:var(--ink); border-top:1px solid var(--line); overflow-wrap:anywhere; display:flex; flex-wrap:wrap; justify-content:space-between; gap:2px 10px}
 .shortlist li:first-child{border-top:0}
-.shortlist li span{color:var(--muted); white-space:nowrap; font-family:inherit}
+.shortlist li span{color:var(--muted); margin-left:auto; font-family:inherit}  /* a long value wraps under the label instead of squeezing it */
 .shortlist li.error{color:var(--danger); font-family:inherit; font-size:13px}
 .reclaim{display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin:0 0 12px; font-size:13px; color:var(--muted)}
 .reclaim b{font-size:21px; font-weight:650; color:var(--ink); font-variant-numeric:tabular-nums}
