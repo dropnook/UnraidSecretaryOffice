@@ -215,16 +215,27 @@ function busyEl() {
   }
   return el;
 }
+const busyHolds = new Map();   // a desk waiting for work it started in the background -> its safety timer
 function busy(on) {
-  busyCount = Math.max(0, busyCount + (on ? 1 : -1));
-  if (busyCount && !busyTimer) {
-    busyTimer = setTimeout(() => { if (busyCount) busyEl().style.display = 'block'; }, 400);
-  } else if (!busyCount) {
+  if (on === true) busyCount++;
+  else if (on === false) busyCount = Math.max(0, busyCount - 1);
+  const want = busyCount > 0 || busyHolds.size > 0;
+  if (want && !busyTimer) {
+    busyTimer = setTimeout(() => { if (busyCount || busyHolds.size) busyEl().style.display = 'block'; }, 400);
+  } else if (!want) {
     clearTimeout(busyTimer);
     busyTimer = null;
     busyEl().style.display = 'none';
   }
 }
+/** Office.busy('backup.setup', true) while a desk waits for a job it started (an apply, a plan);
+    false when it is done. Lets go by itself after two minutes, so the page never stays blocked. */
+Office.busy = function officeBusy(key, on) {
+  clearTimeout(busyHolds.get(key));
+  busyHolds.delete(key);
+  if (on) busyHolds.set(key, setTimeout(() => Office.busy(key, false), 120000));
+  busy(null);
+};
 async function postBusy(action, data) {
   if (QUIET.test(action)) return postOnce(action, data);
   busy(true);
