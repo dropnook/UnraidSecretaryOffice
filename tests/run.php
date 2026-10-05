@@ -1181,10 +1181,35 @@ function testStrings(): void
     }
 }
 
+/** Ms. Dustdevil squares pictures that aren't square (Unraid would squeeze them) */
+function testIconSquare(): void
+{
+    if (!function_exists('imagecreatetruecolor')) {
+        return;
+    }
+    $tmp = sys_get_temp_dir() . '/office-tests-square-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    foreach (['wide' => [1123, 512], 'tall' => [100, 300], 'square' => [200, 200], 'small' => [60, 30]] as $n => [$w, $h]) {
+        $im = imagecreatetruecolor($w, $h);
+        imagepng($im, "$tmp/$n.png");
+        $sq = clIconSquare("$tmp/$n.png");
+        if ($n === 'square') {
+            same('icon square: a square picture stays', null, $sq);
+            continue;
+        }
+        $size = is_string($sq) ? getimagesizefromstring($sq) : null;
+        $want = min(CL_SQUARE_SIDE, max($w, $h));
+        same("icon square: $n becomes {$want}x{$want}", [$want, $want], $size ? [$size[0], $size[1]] : null);
+    }
+    same('icon square: not a picture', null, clIconSquare(__FILE__));
+    array_map('unlink', glob("$tmp/*") ?: []);
+    @rmdir($tmp);
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testIcons', 'testRestore'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testIcons', 'testIconSquare', 'testRestore'],
           'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';

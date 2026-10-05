@@ -99,6 +99,7 @@ const CL_ICON_OK_TTL    = 7 * 86400;         // a picture that loaded is checked
 const CL_ICON_BAD_TTL   = 86400;             // one that didn't, after this (or at a tour)
 const CL_DM_IMAGES      = '/boot/config/plugins/dockerMan/images';      // where Unraid's own templates keep local pictures
 const CL_ICON_DIR       = '/boot/config/plugins/' . OFFICE_PLUGIN . '/icons';   // pictures the user uploaded (the office's own)
+const CL_SQUARE_SIDE    = 256;              // a picture from the web that isn't square is kept as a square copy of at most this
 const CL_UPLOAD_MAX     = 512 * 1024;        // an uploaded picture: a PNG of at most this …
 const CL_UPLOAD_SIDE    = 512;               // … and at most this wide and high (the page makes 256)
 const CL_PREVIEW_BUDGET = 1536 * 1024;       // previews of pictures on this server in the room's state, all together
@@ -3065,6 +3066,39 @@ function clIconStore(string $name, string $png, string $dir = CL_ICON_DIR): arra
     throw new Problem('cleanup_icon_write_failed', ['path' => "$dir/$base.png"]);
 }
 
+/**
+ * A picture that isn't square (more than 2 % off), as a square PNG of at most
+ * CL_SQUARE_SIDE pixels with transparent edges — Unraid draws every picture
+ * into a square and would squeeze it. Null when it is square already, isn't a
+ * picture, or PHP has no GD.
+ */
+function clIconSquare(string $file): ?string
+{
+    if (!function_exists('imagecreatefromstring') || !is_file($file) || filesize($file) > CL_ICON_MAX) {
+        return null;
+    }
+    $img = @imagecreatefromstring((string) file_get_contents($file));
+    if (!$img) {
+        return null;
+    }
+    [$w, $h] = [imagesx($img), imagesy($img)];
+    if ($w < 1 || $h < 1 || abs($w - $h) <= 0.02 * max($w, $h)) {
+        return null;
+    }
+    $scale = min(1, CL_SQUARE_SIDE / max($w, $h));
+    [$nw, $nh] = [max(1, (int) round($w * $scale)), max(1, (int) round($h * $scale))];
+    $side = max($nw, $nh);
+    $sq = imagecreatetruecolor($side, $side);
+    imagesavealpha($sq, true);
+    imagealphablending($sq, false);
+    imagefill($sq, 0, 0, imagecolorallocatealpha($sq, 0, 0, 0, 127));
+    imagealphablending($sq, true);
+    imagecopyresampled($sq, $img, intdiv($side - $nw, 2), intdiv($side - $nh, 2), 0, 0, $nw, $nh, $w, $h);
+    ob_start();
+    imagepng($sq);
+    return (string) ob_get_clean();
+}
+
 /** An uploaded picture I stored, gone again — only from the office's icons folder and only while unchanged */
 function clIconUnstore(string $path, string $md5, string $dir = CL_ICON_DIR): void
 {
@@ -3142,6 +3176,24 @@ function clIconsApply(array $items): array
             }
             $e['pick'] = 'file://' . $s['path'];
             $e['stored'] = $s['created'] ? [$s['path'] => $s['md5']] : [];
+        }
+        // a picture from the web that isn't square would be squeezed by Unraid: a square copy
+        // (transparent edges) in the office's icons folder instead, kept like an upload
+        if ($e['upload'] === null && !str_starts_with($e['pick'], 'file://') && ($got[$e['pick']]['ok'] ?? false)) {
+            $square = clIconSquare($got[$e['pick']]['file']);
+            if ($square !== null) {
+                try {
+                    $s = clIconStore($e['name'], $square);
+                } catch (Problem $p) {
+                    $results[] = ['id' => $id, 'ok' => false, 'error' => $p->toArray()];
+                    continue;
+                }
+                if ($s['created']) {
+                    $stored[$s['path']] = $s['md5'];
+                }
+                $e['pick'] = 'file://' . $s['path'];
+                $e['stored'] = $s['created'] ? [$s['path'] => $s['md5']] : [];
+            }
         }
         if (str_starts_with($e['pick'], 'file://')) {
             $file = substr($e['pick'], 7);
