@@ -252,8 +252,16 @@
     "other": "{n} changes:"
   },
   "setup.apply_none": "Nothing changed — applying writes the same settings again and lines up Kopia's policies.",
+  "setup.apply_new": "Nothing is set up yet. This is how I set myself up:",
+  "setup.sum_vms": "VMs",
+  "setup.sum_apps": "apps",
+  "setup.sum_shares": "shares",
+  "setup.sum_level.0": "Not backed up",
+  "setup.sum_level.1": "Local only",
+  "setup.sum_level.2": "Local + Kopia",
   "setup.apply_hint": "Mr. Backupsy checks everything again, keeps the previous settings.ini, writes the new one, lines up Kopia's policies and creates the User Scripts entry if it is missing.",
   "setup.apply_hint_plugin": "Mr. Backupsy checks everything again, keeps the previous settings.ini, writes the new one and — if Kopia is on — lines up Kopia's policies. The schedule stays as it is.",
+  "setup.apply_hint_new": "Mr. Backupsy checks everything again, writes settings.ini and — if Kopia is on — Kopia's policies. No backup starts.",
   "setup.bar_changes": {
     "one": "1 change",
     "other": "{n} changes"

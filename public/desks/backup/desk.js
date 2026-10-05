@@ -1113,6 +1113,36 @@ function setupDraftFromPlan() {
   setup.base = clone(setup.draft);         // what the assistant proposes, before the user clicks
 }
 
+/** Keys whose values differ between two sets of settings */
+function diffKeys(a, b) {
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => !same(a[k], b[k])).sort();
+}
+
+/** In words: what is backed up how (for a new setup instead of a list of differences) */
+function setupSummary() {
+  const m = setup.model;
+  const groups = [0, 1, 2].map(() => ({ vms: [], apps: [], shares: [] }));     // not, local, local + Kopia
+  m.vms.forEach((x) => groups[levelOf('vm:' + x.name)].vms.push(x.name));
+  m.apps.forEach((a) => groups[levelOf('app:' + a.id)].apps.push(a.name));
+  setup.plan.shares.filter((x) => x.exists).forEach((x) => {
+    groups[Math.max(0, LV.indexOf(dget(`share|${x.name}|mode`, 'off')))].shares.push(x.name);
+  });
+  const ul = el('ul', 'shortlist');
+  [2, 1, 0].forEach((l) => {
+    if (l === 2 && dget('kopia|enabled') !== 'yes') return;
+    ['vms', 'apps', 'shares'].forEach((kind) => {
+      if (!groups[l][kind].length) return;
+      const li = el('li', '', `${T('setup.sum_level.' + l)} · ${T('setup.sum_' + kind)}`);
+      li.appendChild(el('span', '', groups[l][kind].join(', ')));
+      ul.appendChild(li);
+    });
+  });
+  const li = el('li', '', T('setup.g_flash'));
+  li.appendChild(el('span', '', T('setup.flash.' + dget('flash|mode', 'off'))));
+  ul.appendChild(li);
+  return ul;
+}
+
 /** What the user changed against the assistant's proposal */
 function setupEdits() {
   const out = [];
@@ -1120,14 +1150,6 @@ function setupEdits() {
   const keys = new Set([...Object.keys(base), ...Object.keys(setup.draft)]);
   keys.forEach((k) => { if (!same(base[k], setup.draft[k])) out.push(k); });
   return out;
-}
-
-/** Every key that differs between the plan and the draft */
-function setupChanges() {
-  const out = [];
-  const keys = new Set([...Object.keys(setup.plan.P), ...Object.keys(setup.draft)]);
-  keys.forEach((k) => { if (!same(setup.plan.P[k], setup.draft[k])) out.push(k); });
-  return out.sort();
 }
 
 async function setupLoad() {
@@ -1203,32 +1225,26 @@ function setupApply() {
   const ds = dget('general|dumps_share', '');
   if (!ds) { Office.toast(T('setup.ds_missing'), true); return; }
   if (dget(`share|${ds}|mode`, 'off') === 'off') { Office.toast(T('setup.ds_off', { share: ds }), true); return; }
-  const changes = setupChanges();
-  const pending = setup.plan.pending || [];
   const box = el('div');
-  box.appendChild(el('p', '', changes.length + pending.length ? T('setup.apply_text', { n: changes.length + pending.length }) : T('setup.apply_none')));
-  if (pending.length) {
-    // what my proposal changes against the saved settings.ini, line by line
-    box.appendChild(el('div', 'field-title', T('setup.pending_title')));
-    const ul = el('ul', 'shortlist');
-    pending.forEach((x) => {
-      const li = el('li', '', `${x.op === '+' ? '+' : '−'} ${x.line}`);
-      li.appendChild(el('span', '', `[${x.section}]`));
-      ul.appendChild(li);
-    });
-    box.appendChild(ul);
+  if (!setup.plan.have_settings) {
+    // nothing saved yet: no list of differences, but what will be backed up how
+    box.appendChild(el('p', '', T('setup.apply_new')));
+    box.appendChild(setupSummary());
+  } else {
+    // what really changes in settings.ini - against the saved file, not against proposals
+    const changes = diffKeys(setup.plan.O || {}, setup.draft);
+    box.appendChild(el('p', '', changes.length ? T('setup.apply_text', { n: changes.length }) : T('setup.apply_none')));
+    if (changes.length) {
+      const ul = el('ul', 'shortlist');
+      changes.slice(0, 80).forEach((k) => {
+        const li = el('li', '', changeLabel(k));
+        li.appendChild(el('span', '', `${valueText((setup.plan.O || {})[k], k)} → ${valueText(setup.draft[k], k)}`));
+        ul.appendChild(li);
+      });
+      box.appendChild(ul);
+    }
   }
-  if (changes.length) {
-    if (pending.length) box.appendChild(el('div', 'field-title', T('setup.edits_title')));
-    const ul = el('ul', 'shortlist');
-    changes.slice(0, 60).forEach((k) => {
-      const li = el('li', '', changeLabel(k));
-      li.appendChild(el('span', '', `${valueText(setup.plan.P[k], k)} → ${valueText(setup.draft[k], k)}`));
-      ul.appendChild(li);
-    });
-    box.appendChild(ul);
-  }
-  box.appendChild(el('p', 'role', T(asPlugin() ? 'setup.apply_hint_plugin' : 'setup.apply_hint')));
+  box.appendChild(el('p', 'role', T(!setup.plan.have_settings ? 'setup.apply_hint_new' : asPlugin() ? 'setup.apply_hint_plugin' : 'setup.apply_hint')));
   Office.dialog({
     title: T('setup.apply_title'),
     body: box,
@@ -1299,10 +1315,8 @@ function setupForget() {
 function setupBar() {
   if (page !== 'setup' || !setup.plan || !setup.draft) { Office.selbar(null); return; }
   const edits = setupEdits().length;
-  // proposals: what Apply changes in settings.ini although the user clicked nothing
-  const base = setup.base || setup.plan.P;
-  const derived = [...new Set([...Object.keys(base), ...Object.keys(setup.plan.P)])].filter((k) => !same(base[k], setup.plan.P[k])).length;
-  const proposals = derived + (setup.plan.pending || []).length;
+  // proposals: what Apply would change in the saved settings.ini although the user clicked nothing
+  const proposals = diffKeys(setup.plan.O || {}, setup.base || setup.plan.P).length;
   const fresh = !setup.plan.have_settings;     // nothing set up yet: Apply is how it starts
   const busy = setup.status && setup.status.running;
   if (!edits && !fresh && proposals <= 0) { Office.selbar(null); return; }      // nothing to apply: no bar that keeps offering it

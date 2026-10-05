@@ -252,8 +252,16 @@
     "other": "{n} Änderungen:"
   },
   "setup.apply_none": "Nichts geändert — Übernehmen schreibt dieselben Einstellungen nochmals und gleicht Kopias Policies an.",
+  "setup.apply_new": "Noch ist nichts eingerichtet. So richte ich mich ein:",
+  "setup.sum_vms": "VMs",
+  "setup.sum_apps": "Apps",
+  "setup.sum_shares": "Shares",
+  "setup.sum_level.0": "Nicht gesichert",
+  "setup.sum_level.1": "Nur lokal",
+  "setup.sum_level.2": "Lokal + Kopia",
   "setup.apply_hint": "Herr Backupsi prüft alles nochmals, behält die bisherige settings.ini, schreibt die neue, gleicht Kopias Policies an und legt den User-Scripts-Eintrag an, falls er fehlt.",
   "setup.apply_hint_plugin": "Herr Backupsi prüft alles nochmals, behält die bisherige settings.ini, schreibt die neue und gleicht — wenn Kopia an ist — Kopias Policies an. Der Zeitplan bleibt, wie er ist.",
+  "setup.apply_hint_new": "Herr Backupsi prüft alles nochmals, schreibt die settings.ini und — wenn Kopia an ist — Kopias Policies. Ein Backup startet dabei nicht.",
   "setup.bar_changes": {
     "one": "1 Änderung",
     "other": "{n} Änderungen"
