@@ -798,7 +798,58 @@ function embyJob(string $tool, array $args): int
     }
     embyRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => $started, 'finished' => time(),
                   'exit' => $exit, 'result' => $result, 'status' => $status]);
+    try {
+        embyNotify($tool, $mode, $result, $status, $exit);
+    } catch (Throwable $e) {
+        fwrite(STDERR, "$tool: notification failed: {$e->getMessage()}\n");
+    }
     return $exit;
+}
+
+/**
+ * How a real run ended, if Unraid should hear of it: failed, aborted, config
+ * (EmbyCache didn't accept its settings) or errors (done, with problems).
+ * Report and dry runs stay quiet, so do runs that never started (refused)
+ * and EmbyCache's "busy" (another EmbyCache was at work).
+ */
+function embyNotifyOutcome(string $mode, string $result, array $status): ?string
+{
+    if ($mode !== 'run') {
+        return null;
+    }
+    if (in_array($result, ['failed', 'aborted', 'config'], true)) {
+        return $result;
+    }
+    return $result === 'errors' || ($result === 'ok' && (int) ($status['errors'] ?? 0) > 0) ? 'errors' : null;
+}
+
+/** A real run that went wrong goes to Unraid's notifications (warning) — from the tool's status file, never its log lines */
+function embyNotify(string $tool, string $mode, string $result, array $status, int $exit): bool
+{
+    $outcome = embyNotifyOutcome($mode, $result, $status);
+    if ($outcome === null) {
+        return false;
+    }
+    $lang = officeNotifyLang();
+    $problems = (int) ($status['errors'] ?? 0)
+              + ($tool === 'gather' ? (int) ($status['conflicts'] ?? 0) + (int) ($status['full'] ?? 0) + (int) ($status['dirs_failed'] ?? 0) : 0);
+    $message = trim((string) ($status['message'] ?? ''));
+    if (!$status) {
+        $detail = officeNotifyText('emby', 'notify.no_status', ['exit' => $exit], $lang);
+    } elseif ($message !== '' && $message !== 'Signal') {
+        $detail = $message;
+    } else {
+        $detail = $problems > 0 ? officeNotifyText('emby', 'notify.problems', ['n' => $problems], $lang) : '';
+    }
+    $sent = officeNotify(
+        officeNotifyText('emby', 'notify.subject', ['tool' => officeNotifyText('emby', "notify.tool.$tool", [], $lang),
+                                                     'result' => officeNotifyText('emby', "result.$outcome", [], $lang)], $lang),
+        trim($detail . ' ' . officeNotifyText('emby', 'notify.see', [], $lang)),
+        'warning', '', officeNotifyLink('#/emby'));
+    if ($sent) {
+        logLine("Jack Emby: told Unraid's notifications — $tool ($mode) $outcome");
+    }
+    return $sent;
 }
 
 /** Jack's own list of runs (both tools, newest first) */
