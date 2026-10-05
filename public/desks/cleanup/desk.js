@@ -989,10 +989,11 @@ function cacheDetail() {
 }
 
 // ------------------------------------------------------------------ missing pictures
-/** A picture as the browser shows it (a file on the server it can't: a frame with a hint) */
+/** A picture as the browser shows it — a file on the server through the preview she sent along (else a frame with a hint) */
 function picture(url) {
   const box = el('span', 'cl-pic');
-  if (!url || url.startsWith('file://')) {
+  const preview = url && url.startsWith('file://') ? ((state && state.icons && state.icons.previews) || {})[url] : null;
+  if (!url || (url.startsWith('file://') && !preview)) {
     box.classList.add('cl-pic-none');
     if (url) { box.textContent = '📁'; box.title = T('pic.local_preview'); }
     return box;
@@ -1003,7 +1004,7 @@ function picture(url) {
   img.decoding = 'async';
   img.referrerPolicy = 'no-referrer';
   img.onerror = () => { img.remove(); box.classList.add('cl-pic-none'); };
-  img.src = url;
+  img.src = preview || url;
   box.appendChild(img);
   return box;
 }
@@ -1022,7 +1023,8 @@ function iconMeta(e, meta) {
   if (e.category === 'none' || e.why) return;
   const url = iconChoice(e);
   const c = url ? e.candidates.find((x) => x.url === url) : null;
-  if (url) meta.appendChild(chip(T(c ? 'src.' + c.source : 'src.own'), c && c.source === 'guess' ? 'warn' : '', T(c ? `src.${c.source}_text` : 'src.own_text', { detail: c ? c.detail : '' })));
+  const own = url && url.startsWith('data:') ? 'src.upload' : 'src.own';
+  if (url) meta.appendChild(chip(T(c ? 'src.' + c.source : own), c && c.source === 'guess' ? 'warn' : '', T(c ? `src.${c.source}_text` : own + '_text', { detail: c ? c.detail : '' })));
   else if (e.checking) meta.appendChild(chip('⏳ ' + T('pic.checking'), 'quiet', T('pic.checking_text')));
   else meta.appendChild(chip(T('pic.none_found'), 'quiet', T('pic.none_found_text')));
 }
@@ -1066,7 +1068,7 @@ function iconDetail(e) {
   input.setAttribute('aria-label', T('src.own'));
   input.spellcheck = false;
   const chosen = picks.get(e.id);
-  if (chosen && !e.candidates.some((c) => c.url === chosen)) input.value = chosen;
+  if (chosen && !chosen.startsWith('data:') && !e.candidates.some((c) => c.url === chosen)) input.value = chosen;
   const use = el('button', 'btn small plain', T('pic.own_use'));
   use.type = 'button';
   use.disabled = !Office.agent.running;
@@ -1078,8 +1080,52 @@ function iconDetail(e) {
   use.onclick = take;
   input.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); take(); } };
   own.append(input, use);
-  box.append(list, own, el('p', 'role', T('pic.own_hint')));
+
+  // or a picture from this computer: the browser makes a small square PNG of it, only that goes to the server
+  const upload = el('div', 'cl-pic-own');
+  const file = el('input');
+  file.type = 'file';
+  file.accept = 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml';
+  file.hidden = true;
+  const up = el('button', 'btn small plain', T('pic.upload'));
+  up.type = 'button';
+  up.disabled = !Office.agent.running;
+  up.onclick = () => file.click();
+  file.onchange = async () => {
+    const f = file.files && file.files[0];
+    file.value = '';
+    if (!f) return;
+    try { choose(e, await squarePng(f)); } catch { Office.toast(T('pic.upload_bad'), true); }
+  };
+  upload.append(file, up);
+  if (chosen && chosen.startsWith('data:')) upload.append(picture(chosen), el('span', 'role', T('src.upload')));
+  box.append(list, own, el('p', 'role', T('pic.own_hint')), upload, el('p', 'role', T('pic.upload_hint', { dir: (state.icons || {}).upload_dir || '' })));
   return box;
+}
+
+const UPLOAD_SIDE = 256;
+const UPLOAD_MAX = 512 * 1024;         // the agent takes a PNG of at most this
+/** A picture from this computer as a square PNG of at most 256 × 256 (aspect kept, transparent around it), as a data: address */
+async function squarePng(f) {
+  if (f.size > 20 * 1024 * 1024) throw new Error('too big');
+  const src = URL.createObjectURL(f);
+  try {
+    const img = new Image();
+    await new Promise((ok, bad) => { img.onload = ok; img.onerror = bad; img.src = src; });
+    const vector = f.type === 'image/svg+xml' || /\.svg$/i.test(f.name);
+    const w = img.naturalWidth || UPLOAD_SIDE, h = img.naturalHeight || UPLOAD_SIDE;
+    const side = vector ? UPLOAD_SIDE : Math.min(UPLOAD_SIDE, Math.max(w, h));   // a small picture isn't blown up
+    const scale = side / Math.max(w, h);
+    const dw = Math.max(1, Math.round(w * scale)), dh = Math.max(1, Math.round(h * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = side;
+    canvas.getContext('2d').drawImage(img, Math.floor((side - dw) / 2), Math.floor((side - dh) / 2), dw, dh);
+    const png = canvas.toDataURL('image/png');
+    if (!png.startsWith('data:image/png;base64,') || (png.length - 22) * 0.75 > UPLOAD_MAX) throw new Error('not a picture');
+    return png;
+  } finally {
+    URL.revokeObjectURL(src);
+  }
 }
 
 /** A picture chosen for a container: it is ticked, the row shows it */
@@ -1150,8 +1196,11 @@ function iconsDialog() {
     buttons: [
       { text: Office.t('common.cancel') },
       { text: T('icons.go'), kind: '', act: async () => {
+        // an uploaded picture goes as its PNG (base64), everything else as its address
+        const items = list.map((e) => { const u = iconChoice(e); return u.startsWith('data:') ? { id: e.id, upload: u.slice(u.indexOf(',') + 1) } : { id: e.id, url: u }; });
+        if (JSON.stringify(items).length > 900 * 1024) { Office.toast(T('icons.too_big'), true); return false; }
         busy = true;
-        const j = await Office.api.post(`${ID}.icons`, { items: list.map((e) => ({ id: e.id, url: iconChoice(e) })) });
+        const j = await Office.api.post(`${ID}.icons`, { items });
         busy = false;
         if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return true; }
         selection.clear();

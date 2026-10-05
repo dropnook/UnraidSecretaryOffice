@@ -729,6 +729,77 @@ function testIcons(): void
     $cmd = clIconFetchCommand(['https://a/0.png'], '/d');
     check('fetch: no shell globbing, http(s) only, no User-Agent', in_array('-g', $cmd, true) && in_array('=http,https', $cmd, true) && $cmd[array_search('-A', $cmd, true) + 1] === '');
     same('loop risk: its fields', ['version', 'affected', 'fallback_missing', 'containers', 'risk', 'standin'], array_keys(cleanupIconLoopRisk([])));
+
+    // pictures in dockerMan/images named like the app — never by the first word of the container's name alone
+    $files = ['Apache.png', 'AppleTimeMachine.png', 'emby.png', 'Nextcloud.png', 'cloud.png', 'redis.png', 'app.png'];
+    foreach ([['mbentley/timemachine', 'TimeMachine_Benj', ['AppleTimeMachine.png']], ['emby/embyserver', 'EmbyServer', ['emby.png']],
+              ['nextcloud-ocr', 'nextcloud-app', ['Nextcloud.png']], ['mariadb', 'nextcloud-db', []], ['redis', 'nextcloud-redis', ['redis.png']],
+              ['php', 'CKW-Webseite', []], ['x/y', 'apache', ['Apache.png']]] as [$loose, $name, $want]) {
+        same("icon folder: $name ($loose)", $want, clIconFolderMatches($loose, $name, $files));
+    }
+    check('icon: Time Machine by name or image', preg_match(CL_ICON_TIMEMACHINE, 'TimeMachine_Benj x/y') && preg_match(CL_ICON_TIMEMACHINE, 'b willtho89/samba-time_machine')
+        && !preg_match(CL_ICON_TIMEMACHINE, 'machine timer'));
+    same('icon: a safe file name', ['TimeMachine_Benj', 'a_b_c', 'container'], [clIconFileName('TimeMachine_Benj'), clIconFileName('../a b/c'), clIconFileName('..')]);
+
+    // the stack's picture: its main app, never a database, machine learning only without a better one
+    $immich = [['id' => 'icon:ml', 'name' => 'immich_machine_learning', 'service' => 'immich-machine-learning', 'image' => 'ghcr.io/immich-app/immich-machine-learning:v3', 'project' => 'immich'],
+               ['id' => 'icon:pg', 'name' => 'immich_postgres', 'service' => 'database', 'image' => 'ghcr.io/immich-app/postgres:14', 'project' => 'immich'],
+               ['id' => 'icon:sv', 'name' => 'immich_server', 'service' => 'immich-server', 'image' => 'ghcr.io/immich-app/immich-server:v3', 'project' => 'immich'],
+               ['id' => 'icon:rd', 'name' => 'immich_redis', 'service' => 'redis', 'image' => 'valkey/valkey:9', 'project' => 'immich']];
+    same('stack: ranks', [4, null, 1, null], array_map('clIconMainRank', $immich));
+    $picked = fn (array $list) => clIconStackPick(array_map(fn ($e) => $e + ['pick' => 'https://x/' . $e['name'] . '.png'], $list), $immich)['name'] ?? null;
+    same('stack: the server, not machine learning', 'immich_server', $picked($immich));
+    same('stack: machine learning alone waits for the server', null, $picked([$immich[0]]));
+    same('stack: a database alone never', null, $picked([$immich[1]]));
+    same('stack: named like the project first', 'nextcloud', clIconStackPick([['id' => 'a', 'name' => 'nc-web', 'service' => 'web', 'image' => 'nginx', 'project' => 'nextcloud', 'pick' => 'https://x/w.png'],
+        ['id' => 'b', 'name' => 'nextcloud', 'service' => 'nextcloud', 'image' => 'nextcloud', 'project' => 'nextcloud', 'pick' => 'https://x/n.png']], [])['name'] ?? null);
+    same('stack: no picture from a file on the server', null, clIconStackPick([$immich[2] + ['pick' => 'file:///boot/x.png']], $immich));
+
+    // an uploaded picture: a PNG, small, at most 512 x 512
+    $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==');
+    check('upload: a 1x1 PNG', clIconUploadOk($png));
+    check('upload: 1000 pixels wide refused', !clIconUploadOk(substr_replace($png, pack('N', 1000), 16, 4)));
+    check('upload: a JPEG refused', !clIconUploadOk("\xFF\xD8\xFF\xE0" . substr($png, 4)));
+    check('upload: too big refused', !clIconUploadOk($png . str_repeat("\0", CL_UPLOAD_MAX)));
+    check('upload: cut off refused', !clIconUploadOk(substr($png, 0, -12)));
+    $r = ['items' => [['id' => 'icon:web', 'upload' => base64_encode($png)], ['id' => 'icon:db', 'url' => ' https://x/a.png ']]];
+    same('upload: items', ['icon:web' => ['url' => null, 'png' => $png], 'icon:db' => ['url' => 'https://x/a.png', 'png' => null]], clIconItems($r));
+    try {
+        clIconItems(['items' => [['id' => 'icon:web', 'upload' => 'not base64!']]]);
+        check('upload: bad base64 refused', false);
+    } catch (Problem $p) {
+        same('upload: bad base64 refused', 'cleanup_icon_upload_bad', $p->key);
+    }
+
+    // kept in the office's icons folder: the same picture again reused, another one beside it; put back takes mine away while unchanged
+    $icons = "$tmp/icons";
+    $a = clIconStore('web', $png, $icons);
+    same('store: new', ['path' => "$icons/web.png", 'created' => true, 'md5' => md5($png)], $a);
+    same('store: the same again', ['path' => "$icons/web.png", 'created' => false, 'md5' => md5($png)], clIconStore('web', $png, $icons));
+    $other = substr_replace($png, pack('N', 2), 16, 4);
+    same('store: another beside it', "$icons/web-2.png", clIconStore('web', $other, $icons)['path']);
+    same('store: found for the container again', ["$icons/web-2.png", "$icons/web.png"], clIconUploads('web', $icons));
+    clIconUnstore("$icons/web-2.png", md5($png), $icons);
+    check('unstore: a changed file stays', is_file("$icons/web-2.png"));
+    clIconUnstore("$tmp/png", (string) md5_file("$tmp/png"), $icons);
+    check('unstore: nothing outside the folder', is_file("$tmp/png"));
+    file_put_contents("$tmp/templates/my-web.xml", $old);
+    $new = clXmlSetIcon($old, "file://$icons/web.png", 't');
+    clIconReplace("$tmp/templates/my-web.xml", $new, "$tmp/trash/run/icons/up/my-web.xml");
+    clIconPutBack("$tmp/trash/run/icons/up/my-web.xml", ['from' => "$tmp/templates/my-web.xml", 'written' => md5($new), 'was' => 'there',
+        'uploads' => [$a['path'] => $a['md5']]], ["$tmp/ram"], $icons);
+    check('put back: the uploaded picture is gone, the other stays', !is_file("$icons/web.png") && is_file("$icons/web-2.png"));
+
+    // previews: PNG and JPEG as data: addresses, within the budget, only files on the server
+    file_put_contents("$tmp/p.png", $png);
+    file_put_contents("$tmp/a.jpg", "\xFF\xD8\xFF\xE0xx");
+    file_put_contents("$tmp/a.txt", 'hello');
+    $p64 = 'data:image/png;base64,' . base64_encode($png);
+    same('preview: PNG, JPEG, not text', [$p64, 'data:image/jpeg;base64,' . base64_encode("\xFF\xD8\xFF\xE0xx"), null],
+        [clIconPreview("$tmp/p.png"), clIconPreview("$tmp/a.jpg"), clIconPreview("$tmp/a.txt")]);
+    $room = [['category' => 'template', 'candidates' => [['url' => "file://$tmp/p.png"], ['url' => "file://$tmp/a.jpg"], ['url' => 'https://x/a.png']]],
+             ['category' => 'ok', 'candidates' => [['url' => "file://$tmp/a.txt"]]]];
+    same('previews: only files, within the budget', ["file://$tmp/p.png" => $p64, "file://$tmp/a.jpg" => null], clIconPreviews($room, strlen($p64) + 5));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
