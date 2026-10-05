@@ -392,7 +392,7 @@
   "setup.ct_stop": "für Snapshots anhalten",
   "setup.ct_keep": "weiterlaufen lassen",
   "setup.ct_kopia": "läuft immer weiter · wird selbst nie gesichert",
-  "setup.app_kopia_text": "Kopias eigene Ordner (Konfiguration, Cache, Logs) braucht es zum Wiederherstellen nicht. Es braucht nur seine Vorlage — mit dem Flash gesichert, notfalls neu aus den Community Apps (der Berater zeigt wie) — und deine Zugänge: Repository-Passwort, Speicher (Bucket, Endpoint, Access Key und Secret) und das Login der KopiaUI. Bewahre sie getrennt vom Server auf, z. B. im Passwortmanager und auf Papier — ohne sie kommst du im Ernstfall nicht an deine Backups.",
+  "setup.app_kopia_text": "Kopias eigene Ordner (Konfiguration, Cache, Logs) braucht es zum Wiederherstellen nicht. Es braucht nur seine Vorlage — mit dem Flash gesichert, notfalls neu aus den Community Apps (der Berater zeigt unter «Von Hand installieren», wie — auch nach einem Totalausfall) — und deine Zugänge: Repository-Passwort, Speicher (Bucket, Endpoint, Access Key und Secret) und das Login der KopiaUI. Bewahre sie getrennt vom Server auf, z. B. im Passwortmanager und auf Papier — ohne sie kommst du im Ernstfall nicht an deine Backups.",
   "setup.ct_risk": "nur absturzkonsistent",
   "setup.ct_risk_hint": "Dieser Container schreibt in gesicherte Daten; läuft er weiter, ist sein Snapshot wie Stecker ziehen. Apps mit eigener SQLite-Datenbank (Emby, Jellyfin, Plex, *arr …) sind nur angehalten sauber.",
   "setup.ct_volumes": "Docker-Volumes: {list}",
