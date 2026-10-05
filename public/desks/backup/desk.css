@@ -58,6 +58,8 @@
 .bk-pdetail{padding:2px 2px 6px 14px}
 .bk-pdetail .kv{grid-template-columns:minmax(110px, max-content) 1fr}
 .bk-rules code{display:inline-block; margin:0 0 3px}
+.bk-pdetail .bk-rules code{overflow-wrap:anywhere}          /* image names with digests are long */
+.chip.bk-img{max-width:100%; overflow:hidden; text-overflow:ellipsis; vertical-align:bottom}
 .bk-diffs{margin:4px 0 2px; padding-left:18px; font-size:12.5px}
 .bk-polstate .role{margin:4px 0 0}
 .bk-pfoot{margin:6px 0 0}

@@ -1332,11 +1332,12 @@ pkg_commit_apps() {
                 printf '%s\x1f' "$c" "$(cfg "dump|$c|type")" "${DUMP_STATE[$c]:-not_run}" "$lg" "$uv" "$pv" "$cl"; echo
             done <<<"${PKG_APP_MEMBERS[$f]}" | jq -Rn '[inputs | split("\u001f") | {container: .[0], type: .[1], state: .[2],
                 login: .[3], user_var: .[4], password_var: .[5], client: .[6]}]')" || dumps='[]'
+        # (if, not &&: under pipefail a loop ending on a false test would fail the pipe and lose the output)
         nc="$(while IFS= read -r c; do
-                [[ -n "$c" && -n "${NC_OCC[$c]:-}" ]] && printf '%s\x1f%s\x1f%s\x1f%s\n' "$c" "${NC_OCC[$c]}" "${NC_USER[$c]:-www-data}" "${NC_SAME[$c]:-}"
+                if [[ -n "$c" && -n "${NC_OCC[$c]:-}" ]]; then printf '%s\x1f%s\x1f%s\x1f%s\n' "$c" "${NC_OCC[$c]}" "${NC_USER[$c]:-www-data}" "${NC_SAME[$c]:-}"; fi
             done <<<"${PKG_APP_MEMBERS[$f]}" | jq -Rn '[inputs | split("\u001f") | {container: .[0], occ: .[1], user: .[2], same_as: .[3]}]')" || nc='[]'
         tpls="$(while IFS= read -r c; do
-                [[ -n "$c" && -n "${PKG_TPL[$c]:-}" ]] && printf '%s\x1f%s\n' "$c" "${PKG_TPL[$c]##*/}"
+                if [[ -n "$c" && -n "${PKG_TPL[$c]:-}" ]]; then printf '%s\x1f%s\n' "$c" "${PKG_TPL[$c]##*/}"; fi
             done <<<"${PKG_APP_MEMBERS[$f]}" | jq -Rn '[inputs | split("\u001f") | {key: .[0], value: .[1]}] | from_entries')" || tpls='{}'
         [[ -n "$tpls" ]] || tpls="{}"
         jq -n --arg engine "$UB_VERSION" --arg type "${PKG_APP_TYPE[$f]}" --arg name "${PKG_APP_NAME[$f]}" --arg folder "$f" \

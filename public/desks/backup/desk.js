@@ -1194,7 +1194,7 @@ function dumpRestorePk(pk) {
       meta.append(el('span', '', fmt.size(f.bytes)), el('span', '', f.time ? fmt.date(f.time) : ''));
       if (f.run && f.run !== a.run) meta.appendChild(chip(T('pk.kept'), 'warn', T('pk.kept_hint')));
       const ct = a.containers.find((x) => x.name === f.container);
-      if (ct) meta.appendChild(chip(ct.image, 'quiet', T('restore.pk_image_hint', { digest: ct.digest || '–' })));
+      if (ct) meta.appendChild(chip(ct.image, 'quiet bk-img', T('restore.pk_image_hint', { digest: ct.digest || '–' })));
       main.appendChild(meta);
       row.appendChild(main);
       const cmd = dumpCommand(`${a.path}/${f.path}`, name, f.container, a.dumps.find((d) => d.container === f.container), isImmich(a));

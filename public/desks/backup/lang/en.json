@@ -882,7 +882,7 @@
   "stat.pk_when": "written {when}",
   "stat.pk_errors": {"one": "1 with errors", "other": "{n} with errors"},
   "stat.pk_stale": {"one": "1 stale", "other": "{n} stale"},
-  "stat.pk_old": {"one": "1 old run folder — the next run clears it away", "other": "{n} old run folders — the next run clears them away"},
+  "stat.pk_old": {"one": "1 old run folder — goes once a run packed everything", "other": "{n} old run folders — go once a run packed everything"},
   "stat.pk_asleep": "its disk sleeps — as last seen",
   "stat.pk_first": "the next run writes them and clears the old run folders away",
   "drift_code.place_no_history": "The backup place «{share}» lies on a file system without snapshots — the packages keep no history there, only the newest state. Better a share on a ZFS or btrfs pool.",

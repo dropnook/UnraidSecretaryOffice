@@ -882,7 +882,7 @@
   "stat.pk_when": "geschrieben {when}",
   "stat.pk_errors": {"one": "1 mit Fehlern", "other": "{n} mit Fehlern"},
   "stat.pk_stale": {"one": "1 veraltet", "other": "{n} veraltet"},
-  "stat.pk_old": {"one": "1 alter Lauf-Ordner — der nächste Lauf räumt ihn weg", "other": "{n} alte Lauf-Ordner — der nächste Lauf räumt sie weg"},
+  "stat.pk_old": {"one": "1 alter Lauf-Ordner — geht, sobald ein Lauf alles gepackt hat", "other": "{n} alte Lauf-Ordner — gehen, sobald ein Lauf alles gepackt hat"},
   "stat.pk_asleep": "ihre Disk schläft — Stand zuletzt",
   "stat.pk_first": "der nächste Lauf schreibt sie und räumt die alten Lauf-Ordner weg",
   "drift_code.place_no_history": "Die Backup-Ablage «{share}» liegt auf einem Dateisystem ohne Snapshots — die Pakete haben dort keinen Verlauf, nur den neuesten Stand. Besser ein Share auf einem ZFS- oder btrfs-Pool.",
