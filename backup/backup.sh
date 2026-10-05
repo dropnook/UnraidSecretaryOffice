@@ -1,7 +1,8 @@
 #!/bin/bash
 ###############################################################################
 # unraid-backup - backup.sh                       Version 2.17 - 2026-10-05
-#   2.17 (setup.sh --forget; backup.sh unchanged)
+#   2.17 [docker] skip (apps not backed up keep running); datasets in Ms. Dustdevil's storeroom
+#        (_UnraidSecretaryOffice-trash-*) are never snapshotted
 #   2.16 VMs: [vm "<name>"] prepare = freeze | pause | shutdown | none for the seconds of the
 #        snapshot (released right after the snapshot that holds their disks), mode = off and an own
 #        retention for VMs in a dataset of their own; the libvirt archive after the VMs are held

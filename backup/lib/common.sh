@@ -989,7 +989,9 @@ plan_build() {
         done <<<"${INV_LOCS[$s]}"
         while IFS='|' read -r b ds mp; do
             [[ -z "$ds" ]] && continue
-            if in_list "$ds" "${excl[@]}" || _parent_excluded "$ds" "${excl[@]}" || [[ -n "${vm_excl[$ds]:-}" ]]; then
+            # Ms. Dustdevil's storeroom (datasets put away as _UnraidSecretaryOffice-trash-<stamp>-<name>) is never backed up
+            if in_list "$ds" "${excl[@]}" || _parent_excluded "$ds" "${excl[@]}" || [[ -n "${vm_excl[$ds]:-}" ]] \
+               || [[ "${ds##*/}" == _UnraidSecretaryOffice-trash* ]]; then
                 PLAN_EXCL[$ds]=1; continue
             fi
             if [[ -z "${seen_ds[$ds]:-}" ]]; then seen_ds[$ds]=1; PLAN_ZFS+=( "$ds" ); PLAN_ZFS_RET[$ds]="$ret"

@@ -1968,6 +1968,8 @@ function setupApps(plan) {
     const row = el('div', 'row nocheck');
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name', c.name));
+    // Kopia itself: only its template and the user's access data matter for a restore
+    if (c.kopia) main.appendChild(el('div', 'row-meta', T('setup.app_kopia_text')));
     row.appendChild(main);
     row.appendChild(chip(T(c.kopia ? 'setup.ct_kopia' : 'setup.ct_office'), 'quiet'));
     list.appendChild(row);
