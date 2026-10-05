@@ -125,6 +125,16 @@ differ get a `_plugin` key or come from state (`schedule.via`).
   other tool's lock, EmbyCache's real runs wait for the gather's first real
   run. The cleaner (`embycache_cleaner.py`) is left out on purpose: on a
   share whose primary is the pool it would take every new film for an orphan.
+* **Packages (engine 2.18):** the backup place holds one package per app
+  (compose project or single container) and per VM — `apps/<app>/`,
+  `vms/<vm>/`, plus `server/` and `flash/`, each with a `manifest.json` —
+  built in `.ub-stage-<run>` and swapped in before the snapshots, overwritten
+  every run (a failed dump keeps the last good one). Their history lies in the
+  snapshots of the backup place's share, which must be at least `snapshot`.
+  Packages are never deleted (stale ones stay). The office reads the manifests
+  as part of the engine's interface; restore commands use the credentials the
+  manifest names (variable names, never values). Under `set -o pipefail` a
+  `while … | jq … || fallback` loop must not end on `[[ … ]] && cmd` (use `if`).
 * **Backups never live in appdata.** Dumps, archives and manifests go to a
   backup share of their own (`[general] dumps_share` → `<share>/unraid-backup`,
   in the office's share `UnraidSecretaryOffice` → `backup/`, one folder per desk;

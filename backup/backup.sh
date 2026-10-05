@@ -1,6 +1,6 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.18 - 2026-10-06
+# unraid-backup - backup.sh                       Version 2.18 - 2026-10-05
 #   2.18 Packages instead of run folders: per app (compose project or single container) and per VM
 #        a folder in the backup place with its small files - templates or compose files, docker
 #        inspect, database dumps, XML/NVRAM/TPM state - overwritten every run, swapped in only when

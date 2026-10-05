@@ -1,6 +1,6 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.18 - 2026-10-06
+# unraid-backup - setup.sh                        Version 2.18 - 2026-10-05
 #   2.18 The backup place holds a package per app and VM (backup.sh); its share keeps their history
 #        in snapshots: proposed as at least a local snapshot, never off (why code backup_place), a
 #        warning when it can't take snapshots. keep_runs is no longer written (old files: ignored)
