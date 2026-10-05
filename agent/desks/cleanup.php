@@ -24,11 +24,13 @@ declare(strict_types=1);
  *              only be removed for good (images can be pulled again)
  *   icons      containers without a picture on Unraid's Docker page and
  *              Dashboard (none set, or one Unraid can't load): she finds a
- *              logo (Community Applications on this server, a table of
- *              well-known images, a checked guess — URLs of the open
- *              dashboard-icons collection, never bundled) and sets it in the
- *              container's template or its Compose Manager override file;
- *              the old file goes into the storeroom first
+ *              logo (pictures on this server named like the app, Community
+ *              Applications on this server, a table of well-known images, a
+ *              checked guess — URLs of the open dashboard-icons collection,
+ *              never bundled; or one the user uploads, kept in the office's
+ *              folder on the flash) and sets it in the container's template
+ *              or its Compose Manager override file; the old file goes into
+ *              the storeroom first
  *
  * Nothing is deleted right away. What the user clears away is renamed into a
  * trash folder (CL_TRASH, "the storeroom") on the same filesystem it lives
@@ -95,6 +97,16 @@ const CL_ICON_LABEL     = 'net.unraid.docker.icon';
 const CL_ICON_MAX       = 1 << 20;
 const CL_ICON_OK_TTL    = 7 * 86400;         // a picture that loaded is checked again after this
 const CL_ICON_BAD_TTL   = 86400;             // one that didn't, after this (or at a tour)
+const CL_DM_IMAGES      = '/boot/config/plugins/dockerMan/images';      // where Unraid's own templates keep local pictures
+const CL_ICON_DIR       = '/boot/config/plugins/' . OFFICE_PLUGIN . '/icons';   // pictures the user uploaded (the office's own)
+const CL_UPLOAD_MAX     = 512 * 1024;        // an uploaded picture: a PNG of at most this …
+const CL_UPLOAD_SIDE    = 512;               // … and at most this wide and high (the page makes 256)
+const CL_PREVIEW_BUDGET = 1536 * 1024;       // previews of pictures on this server in the room's state, all together
+// Apple's Time Machine: no open collection has it. Unraid's templates keep it in dockerMan/images; a hosted copy
+// that loads without a User-Agent (checked like every other address before it is offered)
+const CL_ICON_TIMEMACHINE      = '/time[-_]?machine/i';
+const CL_ICON_TIMEMACHINE_FILE = CL_DM_IMAGES . '/AppleTimeMachine.png';
+const CL_ICON_TIMEMACHINE_URLS = ['https://media.githubusercontent.com/media/skyzyx/slackmoji/main/time-machine.png'];
 // well-known images (their name without registry and tag) => the collection's name for the logo;
 // databases and caches first, so the one in an app's stack gets the database's logo, not the app's
 const CL_ICON_TABLE = [
@@ -138,6 +150,11 @@ const CL_ICON_TABLE = [
 const CL_ICON_GENERIC = ['docker', 'server', 'app', 'web', 'base', 'alpine', 'latest', 'image', 'service', 'open', 'unraid', 'arch', 'custom', 'test'];
 // a stack's service that is its database or cache: its picture doesn't become the stack's
 const CL_ICON_HELPERS = '/(^|[-_])(db|database|postgres|postgresql|pg|mariadb|mysql|mongo|mongodb|redis|valkey|cache|cron|worker)([-_]|$)/i';
+const CL_ICON_DB_LOGOS = ['postgres', 'mariadb', 'mysql', 'mongodb', 'valkey', 'redis'];
+// the stack's main app (Compose Manager's icon_url shows its picture): rather a "server", "app" or "web" — a side
+// part like machine learning only when nothing better is there
+const CL_ICON_MAIN    = '/(^|[-_.])(server|app|web)([-_.]|$)/i';
+const CL_ICON_SIDE    = '/(^|[-_.])(machine[-_.]?learning|ml|worker)([-_.]|$)/i';
 
 // mentions on the flash that don't make a folder "used": caches, shell history, plugin installers
 const CL_WEAK = '#^(history/|plugins-removed/|[^/]+\.plg$|plugins/[^/]+\.plg$|plugins/dockerMan/(buildx|templates|template-repos|images)/'
@@ -1011,6 +1028,7 @@ function clIcons(array $docker, array $stacks): array
         }
     }
     $ca = null;
+    $folder = null;
     $out = [];
     foreach ($docker['containers'] as $name => $c) {
         $name = (string) $name;
@@ -1054,7 +1072,25 @@ function clIcons(array $docker, array $stacks): array
             if ($local !== null) {
                 $candidates[] = ['url' => $local, 'source' => 'local', 'detail' => substr($local, 7)];
             }
+            foreach (clIconUploads($name) as $file) {           // uploaded for it before (and put back since)
+                $candidates[] = ['url' => "file://$file", 'source' => 'office', 'detail' => $file];
+            }
             [$exact, $loose] = clIconRepo($c['image']);
+            if (preg_match(CL_ICON_TIMEMACHINE, "$name $loose")) {
+                if (clIconLocal(CL_ICON_TIMEMACHINE_FILE) !== null) {
+                    $candidates[] = ['url' => 'file://' . CL_ICON_TIMEMACHINE_FILE, 'source' => 'timemachine', 'detail' => CL_ICON_TIMEMACHINE_FILE];
+                }
+                foreach (CL_ICON_TIMEMACHINE_URLS as $url) {
+                    $candidates[] = ['url' => $url, 'source' => 'timemachine', 'detail' => (string) parse_url($url, PHP_URL_HOST)];
+                }
+            }
+            $folder ??= clIconFolder();
+            foreach (clIconFolderMatches($loose, $name, $folder) as $file) {
+                $local = clIconLocal(CL_DM_IMAGES . "/$file");
+                if ($local !== null) {
+                    $candidates[] = ['url' => $local, 'source' => 'dockerman', 'detail' => substr($local, 7)];
+                }
+            }
             $ca ??= clCaIcons();
             $hits = $ca['exact'][$exact] ?? $ca['loose'][$loose] ?? [];
             arsort($hits);                         // the picture most of its apps in the feed use first
@@ -1214,6 +1250,119 @@ function clIsPicture(string $file, bool $png = false): bool
     }
     return !$png && (str_starts_with($head, "\xFF\xD8\xFF") || str_starts_with($head, 'GIF8')
                      || (str_starts_with($head, 'RIFF') && substr($head, 8, 4) === 'WEBP'));
+}
+
+/** The PNG pictures in Unraid's dockerMan/images folder (file names) */
+function clIconFolder(string $dir = CL_DM_IMAGES): array
+{
+    $out = [];
+    foreach (@scandir($dir) ?: [] as $f) {
+        if (preg_match('/^[^.\/][^\/]*\.png$/i', $f) && count($out) < 1000) {
+            $out[] = $f;
+        }
+    }
+    return $out;
+}
+
+/**
+ * Pictures in that folder named like the app: the file name holds the image's
+ * name (AppleTimeMachine.png for mbentley/timemachine) or is its beginning
+ * (emby.png for emby/embyserver), or holds the container's whole name — never
+ * just the first word of the container's name (nextcloud.png is not
+ * nextcloud-db's picture)
+ */
+function clIconFolderMatches(string $loose, string $name, array $files): array
+{
+    $norm = fn (string $s): string => (string) preg_replace('/[^a-z0-9]+/', '', strtolower($s));
+    $keys = array_values(array_unique(array_filter(array_map($norm, clIconGuesses($loose)), fn ($k) => strlen($k) >= 3)));
+    $own = $norm($name);
+    $out = [];
+    foreach ($files as $f) {
+        $n = $norm(preg_replace('/\.png$/i', '', $f));
+        if (strlen($n) < 3 || in_array($n, CL_ICON_GENERIC, true)) {
+            continue;
+        }
+        $hit = strlen($own) >= 3 && ($n === $own || (strlen($own) >= 4 && str_contains($n, $own)));
+        foreach ($keys as $k) {
+            $hit = $hit || $n === $k || (strlen($k) >= 4 && str_contains($n, $k)) || (strlen($n) >= 4 && str_starts_with($k, $n));
+        }
+        if ($hit) {
+            $out[] = $f;
+        }
+    }
+    return $out;
+}
+
+/** A container's name as a file name in the office's icons folder */
+function clIconFileName(string $name): string
+{
+    $s = trim((string) preg_replace('/[^A-Za-z0-9_.-]+/', '_', $name), '._-');
+    return substr($s !== '' ? $s : 'container', 0, 100);
+}
+
+/** Pictures uploaded for a container before that are still in the office's icons folder: <name>.png, <name>-2.png … */
+function clIconUploads(string $name, string $dir = CL_ICON_DIR): array
+{
+    $re = '/^' . preg_quote(clIconFileName($name), '/') . '(-\d{1,2})?\.png$/';
+    $out = [];
+    foreach (@scandir($dir) ?: [] as $f) {
+        if (preg_match($re, $f) && is_file("$dir/$f") && (int) @filesize("$dir/$f") <= CL_ICON_MAX && clIsPicture("$dir/$f", true)) {
+            $out[] = "$dir/$f";
+        }
+    }
+    return $out;
+}
+
+/** What kind of picture some bytes are, for a data: address (only PNG and JPEG), or null */
+function clPictureType(string $bytes): ?string
+{
+    return match (true) {
+        str_starts_with($bytes, "\x89PNG\r\n\x1a\n") => 'image/png',
+        str_starts_with($bytes, "\xFF\xD8\xFF")      => 'image/jpeg',
+        default                                      => null,
+    };
+}
+
+/**
+ * A picture on this server as a data: address, so the page can show it (the
+ * browser can't open a file on the server). Only for pictures I found myself
+ * (the candidates), a PNG or JPEG of at most CL_ICON_MAX; kept while the file
+ * is unchanged.
+ */
+function clIconPreview(string $path): ?string
+{
+    $st = is_file($path) ? @stat($path) : false;
+    if (!$st || $st['size'] > CL_ICON_MAX) {
+        return null;
+    }
+    $sig = "{$st['mtime']}:{$st['size']}";
+    $cache = $GLOBALS['clPreviews'][$path] ?? null;
+    if (($cache['sig'] ?? null) === $sig) {
+        return $cache['data'];
+    }
+    $bytes = @file_get_contents($path, false, null, 0, CL_ICON_MAX + 1);
+    $type = is_string($bytes) && strlen($bytes) <= CL_ICON_MAX ? clPictureType($bytes) : null;
+    $data = $type !== null ? "data:$type;base64," . base64_encode($bytes) : null;
+    $GLOBALS['clPreviews'][$path] = ['sig' => $sig, 'data' => $data];
+    return $data;
+}
+
+/** The previews of the room's pictures on this server: file:// address => data: address (null: none, too big for the room) */
+function clIconPreviews(array $list, int $budget = CL_PREVIEW_BUDGET): array
+{
+    $out = [];
+    foreach ($list as $e) {
+        foreach ($e['category'] === 'ok' ? [] : $e['candidates'] as $c) {
+            $url = $c['url'];
+            if (!str_starts_with($url, 'file://') || array_key_exists($url, $out)) {
+                continue;
+            }
+            $data = clIconPreview(substr($url, 7));
+            $out[$url] = $data !== null && strlen($data) <= $budget ? $data : null;
+            $budget -= strlen((string) $out[$url]);
+        }
+    }
+    return $out;
 }
 
 /**
@@ -1431,7 +1580,8 @@ function clIconState(array $list, array $cache, callable $pending): array
     }
     unset($e);
     return ['list' => $list, 'loop' => cleanupIconLoopRisk($list), 'checking' => $pending('icons'),
-            'ca_at' => @filemtime(CL_CA_TEMPLATES) ?: null, 'collection' => 'homarr-labs/dashboard-icons'];
+            'ca_at' => @filemtime(CL_CA_TEMPLATES) ?: null, 'collection' => 'homarr-labs/dashboard-icons',
+            'previews' => clIconPreviews($list), 'upload_dir' => CL_ICON_DIR];
 }
 
 /**
@@ -2755,7 +2905,10 @@ function clDetail(string $id): array
 
 // --------------------------------------------------------------------- pictures
 
-/** The pictures the user chose: id => URL */
+/**
+ * The pictures the user chose: id => [url, png] — an address (url), or a
+ * picture uploaded in the page (png: the PNG it made, sent as base64)
+ */
 function clIconItems(array $r): array
 {
     $items = $r['items'] ?? null;
@@ -2766,12 +2919,78 @@ function clIconItems(array $r): array
     foreach ($items as $it) {
         $id = is_array($it) ? ($it['id'] ?? null) : null;
         $url = is_array($it) ? ($it['url'] ?? null) : null;
-        if (!is_string($id) || !is_string($url) || $id === '' || strlen($id) > 300 || strlen($url) > 1000) {
+        $upload = is_array($it) ? ($it['upload'] ?? null) : null;
+        if (!is_string($id) || $id === '' || strlen($id) > 300) {
             throw new Problem('invalid_selection');
         }
-        $out[$id] = trim($url);
+        if (is_string($upload)) {
+            $png = strlen($upload) <= intdiv(CL_UPLOAD_MAX * 4, 3) + 4 ? base64_decode($upload, true) : false;
+            if (!is_string($png) || !clIconUploadOk($png)) {
+                throw new Problem('cleanup_icon_upload_bad', ['name' => preg_replace('/^icon:/', '', $id)]);
+            }
+            $out[$id] = ['url' => null, 'png' => $png];
+            continue;
+        }
+        if (!is_string($url) || strlen($url) > 1000) {
+            throw new Problem('invalid_selection');
+        }
+        $out[$id] = ['url' => trim($url), 'png' => null];
     }
     return $out;
+}
+
+/** An uploaded picture: a PNG (as the page makes it) of at most CL_UPLOAD_MAX bytes and CL_UPLOAD_SIDE pixels each way */
+function clIconUploadOk(string $png): bool
+{
+    if (strlen($png) > CL_UPLOAD_MAX || strlen($png) < 33 || !str_starts_with($png, "\x89PNG\r\n\x1a\n") || substr($png, 12, 4) !== 'IHDR') {
+        return false;
+    }
+    $size = @getimagesizefromstring($png);
+    return is_array($size) && ($size[2] ?? null) === IMAGETYPE_PNG
+        && $size[0] >= 1 && $size[1] >= 1 && $size[0] <= CL_UPLOAD_SIDE && $size[1] <= CL_UPLOAD_SIDE
+        && str_contains(substr($png, -12), 'IEND');
+}
+
+/**
+ * Keeps an uploaded picture in the office's icons folder on the flash as
+ * <container>.png (new file, then rename; root only — Unraid's downloader runs
+ * as root). The same picture already there is used again; another one there
+ * stays and the new one gets <container>-2.png …
+ * @return array{path: string, created: bool, md5: string}
+ */
+function clIconStore(string $name, string $png, string $dir = CL_ICON_DIR): array
+{
+    if (!is_dir($dir) && !@mkdir($dir, 0700, true)) {
+        throw new Problem('cleanup_icon_write_failed', ['path' => $dir]);
+    }
+    $base = clIconFileName($name);
+    $sum = md5($png);
+    for ($i = 1; $i < 100; $i++) {
+        $path = "$dir/$base" . ($i > 1 ? "-$i" : '') . '.png';
+        if (is_file($path) && md5_file($path) === $sum) {
+            return ['path' => $path, 'created' => false, 'md5' => $sum];
+        }
+        if (!file_exists($path)) {
+            $tmp = "$dir/.$base." . getmypid() . '.tmp';
+            $ok = @file_put_contents($tmp, $png) === strlen($png);
+            @chmod($tmp, 0600);                    // the flash (FAT) may not take it — no matter
+            if (!$ok || !@rename($tmp, $path)) {
+                @unlink($tmp);
+                throw new Problem('cleanup_icon_write_failed', ['path' => $path]);
+            }
+            return ['path' => $path, 'created' => true, 'md5' => $sum];
+        }
+    }
+    throw new Problem('cleanup_icon_write_failed', ['path' => "$dir/$base.png"]);
+}
+
+/** An uploaded picture I stored, gone again — only from the office's icons folder and only while unchanged */
+function clIconUnstore(string $path, string $md5, string $dir = CL_ICON_DIR): void
+{
+    if (dirname($path) === $dir && preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]*\.png$/', basename($path))
+        && is_file($path) && !is_link($path) && md5_file($path) === $md5) {
+        @unlink($path);
+    }
 }
 
 /** A picture address the user typed: http(s), nothing that could break the XML or YAML it goes into */
@@ -2787,7 +3006,9 @@ function clIconUrlOk(string $url): bool
  * override file the icon label for those services (and Compose Manager's
  * icon_url, if it has none). The old file goes into the storeroom (kind
  * "icon"), so "put back" undoes it. Finally Unraid's cache gets the picture,
- * so it shows right away. Nothing is restarted or re-created.
+ * so it shows right away. Nothing is restarted or re-created. A picture the
+ * user uploaded is kept in the office's icons folder on the flash first and
+ * set as file:// (put back removes it again, while unchanged).
  */
 function clIconsApply(array $items): array
 {
@@ -2795,7 +3016,7 @@ function clIconsApply(array $items): array
     clGuard($state);
     $all = array_column($state['icons']['list'] ?? [], null, 'id');
     $todo = [];
-    foreach ($items as $id => $url) {
+    foreach ($items as $id => ['url' => $url, 'png' => $png]) {
         $e = $all[$id] ?? throw new Problem('unknown_target', ['target' => $id]);
         $p = ['name' => $e['name']];
         if ($e['category'] === 'ok') {
@@ -2810,14 +3031,14 @@ function clIconsApply(array $items): array
                 default             => new Problem('cleanup_icon_no_way', $p),
             };
         }
-        // one of the pictures found (a local one only as found), or an address the user typed
-        if (!in_array($url, array_column($e['candidates'], 'url'), true) && !clIconUrlOk($url)) {
+        // one of the pictures found (a local one only as found), an address the user typed, or a picture uploaded (checked already)
+        if ($png === null && !in_array($url, array_column($e['candidates'], 'url'), true) && !clIconUrlOk($url)) {
             throw new Problem('cleanup_icon_bad_url', ['url' => $url]);
         }
-        $todo[$id] = $e + ['pick' => $url];
+        $todo[$id] = $e + ['pick' => $url, 'upload' => $png];
     }
 
-    $web = array_values(array_unique(array_filter(array_column($todo, 'pick'), fn ($u) => !str_starts_with($u, 'file://'))));
+    $web = array_values(array_unique(array_filter(array_column($todo, 'pick'), fn ($u) => is_string($u) && !str_starts_with($u, 'file://'))));
     $dir = RUN_DIR . '/cleanup-icons-' . getmypid();
     $got = [];
     if ($web) {
@@ -2826,7 +3047,21 @@ function clIconsApply(array $items): array
     }
     $results = [];
     $groups = [];
+    $stored = [];                                  // uploaded pictures I put into the office's icons folder: path => md5
     foreach ($todo as $id => $e) {
+        if ($e['upload'] !== null) {                // kept on the flash first; the template or override file points there
+            try {
+                $s = clIconStore($e['name'], $e['upload']);
+            } catch (Problem $p) {
+                $results[] = ['id' => $id, 'ok' => false, 'error' => $p->toArray()];
+                continue;
+            }
+            if ($s['created']) {
+                $stored[$s['path']] = $s['md5'];
+            }
+            $e['pick'] = 'file://' . $s['path'];
+            $e['stored'] = $s['created'] ? [$s['path'] => $s['md5']] : [];
+        }
         if (str_starts_with($e['pick'], 'file://')) {
             $file = substr($e['pick'], 7);
             $got[$e['pick']] = clIconLocal($e['pick']) !== null ? ['ok' => true, 'file' => $file] : ['ok' => false];
@@ -2860,15 +3095,17 @@ function clIconsApply(array $items): array
                 clIconReplace($path, $new, $runs[$trash]['path'] . "/$as", $old === null ? clOverrideTemplate() : null);
                 $item = ['kind' => 'icon', 'name' => basename($path), 'label' => implode(', ', array_column($list, 'name')), 'from' => $path,
                          'as' => $as, 'written' => md5($new), 'was' => $old === null ? 'missing' : 'there',
-                         'icons' => array_column($list, 'pick', 'name'), 'cache' => []];
+                         'icons' => array_column($list, 'pick', 'name'), 'cache' => [], 'uploads' => []];
                 foreach ($list as $e) {
                     $item['cache'] += clIconSeed($e['name'], $e['png']);
+                    $item['uploads'] += $e['stored'] ?? [];
                 }
                 if ($first['category'] === 'compose') {
-                    $item['icon_url'] = clIconUrlFile(dirname($path), $list);
+                    $item['icon_url'] = clIconUrlFile(dirname($path), $list, $all);
                 }
                 $runs[$trash]['items'][] = $item;
                 clManifestWrite($runs[$trash]);
+                $stored = array_diff_key($stored, $item['uploads']);     // theirs now: put back takes them away again
                 foreach ($list as $e) {
                     $results[] = ['id' => $e['id'], 'ok' => true, 'how' => $e['category']];
                 }
@@ -2882,6 +3119,9 @@ function clIconsApply(array $items): array
         }
     } finally {
         clIconTidy($dir);
+        foreach ($stored as $file => $sum) {           // uploaded for a file I couldn't change: not kept
+            clIconUnstore($file, $sum);
+        }
         foreach ($runs as $x) {
             if (!$x['items']) {
                 clRunTidy($x['path'], $x['root']);
@@ -3174,25 +3414,83 @@ function clIconPoint(string $json, string $name, string $web): void
 
 /**
  * Compose Manager's own picture for the stack (in its list), when it has none:
- * the stack's app, not its database — only when the app is among them.
+ * the stack's main app (clIconMainRank()), never its database or cache, and a
+ * side part like machine learning only when no better one is in the stack —
+ * only when that app is among the pictures hung now, and only an address the
+ * browser can load (not a file on the server). $all: the room's containers.
  * @return ?array what to undo: path, md5, was (missing / empty)
  */
-function clIconUrlFile(string $dir, array $list): ?array
+function clIconUrlFile(string $dir, array $list, array $all): ?array
 {
     $file = "$dir/icon_url";
     $was = is_file($file) ? trim((string) @file_get_contents($file, false, null, 0, 4096)) : null;
     if ($was !== null && $was !== '') {
         return null;
     }
+    $e = clIconStackPick($list, $all);
+    if ($e === null || @file_put_contents($file, $e['pick']) === false) {
+        return null;
+    }
+    return ['path' => $file, 'md5' => md5($e['pick']), 'was' => $was === null ? 'missing' : 'empty'];
+}
+
+/**
+ * Of the pictures hung now in a stack, the one of its main app — or null when
+ * that app isn't among them (a better one in the stack, $all, keeps its turn)
+ */
+function clIconStackPick(array $list, array $all): ?array
+{
+    $best = null;
     foreach ($list as $e) {
-        if (!str_starts_with($e['pick'], 'file://') && !preg_match(CL_ICON_HELPERS, (string) $e['service'])) {
-            if (@file_put_contents($file, $e['pick']) === false) {
-                return null;
-            }
-            return ['path' => $file, 'md5' => md5($e['pick']), 'was' => $was === null ? 'missing' : 'empty'];
+        $rank = is_string($e['pick']) && !str_starts_with($e['pick'], 'file://') ? clIconMainRank($e) : null;
+        if ($rank !== null && ($best === null || $rank < $best[0])) {
+            $best = [$rank, $e];
         }
     }
-    return null;
+    if ($best === null) {
+        return null;
+    }
+    $first = $best[1];
+    foreach ($all as $o) {
+        if (($o['project'] ?? null) === $first['project'] && !in_array($o['id'], array_column($list, 'id'), true)) {
+            $rank = clIconMainRank($o);
+            if ($rank !== null && $rank < $best[0]) {
+                return null;
+            }
+        }
+    }
+    return $first;
+}
+
+/**
+ * How much a stack's container looks like its main app: 0 named like the
+ * project, 1 a "server", "app" or "web", 2 holds the project's name, 3 something
+ * else, 4 a side part (machine learning, worker); null a database or cache
+ */
+function clIconMainRank(array $e): ?int
+{
+    $norm = fn (string $s): string => (string) preg_replace('/[^a-z0-9]+/', '', strtolower($s));
+    $names = array_values(array_filter([(string) ($e['service'] ?? ''), (string) ($e['name'] ?? '')]));
+    foreach ($names as $n) {
+        if (preg_match(CL_ICON_HELPERS, $n)) {
+            return null;
+        }
+    }
+    if (in_array(clIconTableSlug(clIconRepo((string) ($e['image'] ?? ''))[1]), CL_ICON_DB_LOGOS, true)) {
+        return null;
+    }
+    $project = $norm((string) ($e['project'] ?? ''));
+    $rank = $names ? PHP_INT_MAX : 3;
+    foreach ($names as $n) {
+        $rank = min($rank, match (true) {
+            $project !== '' && $norm($n) === $project            => 0,
+            preg_match(CL_ICON_SIDE, $n) === 1                    => 4,
+            preg_match(CL_ICON_MAIN, $n) === 1                    => 1,
+            $project !== '' && str_contains($norm($n), $project)  => 2,
+            default                                               => 3,
+        });
+    }
+    return $rank;
 }
 
 /** Where a picture's file may be put back to: a user template, or the override file of a stack in Compose Manager's folder */
@@ -3208,9 +3506,10 @@ function clIconHome(string $from, string $composeRoot): string
  * Puts a picture's file back: the old version replaces the one I wrote — only
  * while that is unchanged (Unraid rewrites a template whenever the container
  * is edited; that wouldn't be mine to throw away). What I added beside it goes
- * too, as far as nobody changed it: icon_url, the copies in Unraid's cache.
+ * too, as far as nobody changed it: icon_url, the copies in Unraid's cache,
+ * pictures the user uploaded for it.
  */
-function clIconPutBack(string $stash, array $m, array $dirs = [CL_DM_RAM, CL_DM_DISK]): void
+function clIconPutBack(string $stash, array $m, array $dirs = [CL_DM_RAM, CL_DM_DISK], string $iconDir = CL_ICON_DIR): void
 {
     $from = (string) $m['from'];
     if (!is_file($from) || md5_file($from) !== ($m['written'] ?? null)) {
@@ -3234,6 +3533,9 @@ function clIconPutBack(string $stash, array $m, array $dirs = [CL_DM_RAM, CL_DM_
             && is_file((string) $file) && md5_file((string) $file) === $sum) {
             @unlink((string) $file);
         }
+    }
+    foreach ((array) ($m['uploads'] ?? []) as $file => $sum) {      // pictures uploaded for it: gone again, while unchanged
+        clIconUnstore((string) $file, (string) $sum, $iconDir);
     }
 }
 

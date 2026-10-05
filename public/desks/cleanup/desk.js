@@ -989,10 +989,11 @@ function cacheDetail() {
 }
 
 // ------------------------------------------------------------------ missing pictures
-/** A picture as the browser shows it (a file on the server it can't: a frame with a hint) */
+/** A picture as the browser shows it — a file on the server through the preview she sent along (else a frame with a hint) */
 function picture(url) {
   const box = el('span', 'cl-pic');
-  if (!url || url.startsWith('file://')) {
+  const preview = url && url.startsWith('file://') ? ((state && state.icons && state.icons.previews) || {})[url] : null;
+  if (!url || (url.startsWith('file://') && !preview)) {
     box.classList.add('cl-pic-none');
     if (url) { box.textContent = '📁'; box.title = T('pic.local_preview'); }
     return box;
@@ -1003,7 +1004,7 @@ function picture(url) {
   img.decoding = 'async';
   img.referrerPolicy = 'no-referrer';
   img.onerror = () => { img.remove(); box.classList.add('cl-pic-none'); };
-  img.src = url;
+  img.src = preview || url;
   box.appendChild(img);
   return box;
 }
