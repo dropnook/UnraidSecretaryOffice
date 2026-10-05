@@ -470,9 +470,9 @@ function snapPlanRun(array $plan, int $now): array
     writeAtomic(snapPlanStateFile(), jsonEncode($states));
     logLine(sprintf('Ms. Snapshotini: plan %s — %d created, %d removed%s%s', $id, count($created), $deleted,
         $skipped ? ', skipped (asleep): ' . implode(', ', $skipped) : '', $failures ? ', ' . count($failures) . ' problem(s)' : ''));
-    if ($failures && is_executable('/usr/local/emhttp/webGui/scripts/notify')) {
-        run(['/usr/local/emhttp/webGui/scripts/notify', '-e', 'Unraid Secretary Office', '-s', "Snapshot plan $id",
-             '-d', "Ms. Snapshotini: plan \"{$plan['label']}\" had " . count($failures) . ' problem(s) — see the office.', '-i', 'warning'], 20);
+    if ($failures) {
+        officeNotify("Snapshot plan $id", "Ms. Snapshotini: plan \"{$plan['label']}\" had " . count($failures) . ' problem(s) — see the office.',
+            'warning', '', officeNotifyLink('#/snapshot'));
     }
     return $states[$id];
 }
