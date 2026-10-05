@@ -1118,6 +1118,10 @@ function diffKeys(a, b) {
   return [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => !same(a[k], b[k])).sort();
 }
 
+/** What the server boots from, as it really is: a USB stick or a boot pool (Unraid 7.3+, licence on the TPM) */
+const flashLabel = (plan) => (plan.flash && plan.flash.dataset
+  ? T('setup.g_flash_pool', { pool: plan.flash.dataset.split('/')[0] }) : T('setup.g_flash'));
+
 /** In words: what is backed up how (for a new setup instead of a list of differences) */
 function setupSummary() {
   const m = setup.model;
@@ -1140,7 +1144,7 @@ function setupSummary() {
       ul.appendChild(li);
     });
   });
-  const li = el('li', '', T('setup.g_flash'));
+  const li = el('li', '', flashLabel(setup.plan));
   li.appendChild(el('span', '', T('setup.flash.' + dget('flash|mode', 'off'))));
   ul.appendChild(li);
   return ul;
@@ -1460,7 +1464,7 @@ function setupKopia(plan) {
   const basics = el('div', 'bk-form');
   basics.appendChild(dumpsShareField(plan));
   const flashOpts = plan.flash.dataset ? ['snapshot', 'tar', 'off'] : ['tar', 'off'];
-  basics.appendChild(field(T('setup.g_flash'), selectInput('flash|mode', flashOpts, (o) => T('setup.flash.' + o)),
+  basics.appendChild(field(flashLabel(plan), selectInput('flash|mode', flashOpts, (o) => T('setup.flash.' + o)),
     plan.flash.dataset ? T('setup.g_flash_zfs', { ds: plan.flash.dataset }) : T('setup.g_flash_other', { fs: plan.flash.fs || '?' })));
   s.appendChild(basics);
   const on = dget('kopia|enabled') === 'yes';
