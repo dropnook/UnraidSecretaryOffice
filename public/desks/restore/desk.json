@@ -1,5 +1,6 @@
 {
   "order": 35,
   "icon": "📦",
-  "training": true
+  "refresh_after": 300,
+  "open_actions": ["versions"]
 }

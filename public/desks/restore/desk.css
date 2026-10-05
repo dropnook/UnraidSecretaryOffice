@@ -1,0 +1,49 @@
+/* Mr. Restori */
+#sso{   /* nested in the office's element, like office.css */
+.rs-tiles{margin-top:2px}
+.rs-tile-icon{font-size:18px; line-height:1}
+.rs-body{display:flex; flex-direction:column; gap:18px; min-width:0}
+.rs-foot{margin:6px 0 0}
+
+/* a row's details: what comes back from where, each a block of its own */
+.rs-detail{padding:4px 0 8px}
+.rs-block{margin-top:12px; padding-top:10px; border-top:1px solid var(--line)}
+.rs-block-title{font-size:13px; font-weight:650; color:var(--ink); margin-bottom:2px}
+.rs-part{margin:10px 0 0 10px}
+.rs-part-title{font-size:12.5px; font-weight:650; color:var(--ink2); margin-bottom:4px}
+.rs-part .box{margin:6px 0}
+.rs-folder{display:flex; flex-wrap:wrap; align-items:center; gap:4px 6px}
+.rs-place{display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; font-size:12.5px; color:var(--ink2); margin:4px 0 0 2px}
+.rs-place-where{color:var(--muted)}
+.rs-look, .rs-whole{margin:4px 0 0 2px; font-size:12.5px}
+.rs-chips{display:inline-flex; flex-wrap:wrap; gap:4px}
+.rs-files{display:flex; flex-direction:column; gap:3px; margin:4px 0 6px}
+.rs-file{display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; font-size:12.5px}
+.rs-file code{overflow-wrap:anywhere}
+.rs-right{display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:flex-end}
+.rs-copy{cursor:copy; overflow-wrap:anywhere}
+.chip.rs-img{max-width:100%; overflow:hidden; text-overflow:ellipsis; vertical-align:bottom}
+
+/* guides: folded steps with commands to copy */
+.rs-how{margin:8px 0}
+.rs-how summary{cursor:pointer; font-size:13px; font-weight:600; color:var(--accent)}
+.rs-how > *:not(summary){margin-left:14px}
+.rs-step{margin:10px 0}
+.rs-step-title{font-size:13px; font-weight:650; color:var(--ink)}
+.rs-code{display:flex; gap:8px; align-items:flex-start; margin-top:6px}
+.rs-code pre{flex:1; min-width:0; margin:0; font-size:11.5px}
+.rs-guide{padding:4px 14px 10px}
+.rs-guide .callout{margin:10px 0 4px}
+.rs-rules code{display:inline-block; margin:0 0 3px}
+.rs-subhead{padding:7px 12px; background:var(--surface2); color:var(--ink); font-weight:650; font-size:13px; border-top:1px solid var(--line)}
+.rs-subhead:first-child{border-top:0}
+
+/* on a phone a row's buttons go under its name instead of squeezing it */
+@media (max-width:640px){
+  .row.nocheck:has(> .rs-right){grid-template-columns:minmax(0,1fr)}
+  .row.nocheck > .rs-right{justify-content:flex-start}
+  .rs-part{margin-left:0}
+  .rs-how > *:not(summary){margin-left:6px}
+  .rs-code{flex-direction:column; align-items:stretch}
+}
+}

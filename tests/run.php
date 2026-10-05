@@ -11,7 +11,8 @@ declare(strict_types=1);
  *   logic    the tricky functions (cron, snapshot retention, Emby detection,
  *            the gather's settings, User Scripts schedules, the plugin's cron file,
  *            the menu bar's label, reports to Unraid's notifications,
- *            Mr. Backupsy's packages and his Kopia per app and VM, Ms. Dustdevil's pictures)
+ *            Mr. Backupsy's packages and his Kopia per app and VM, Ms. Dustdevil's pictures,
+ *            Mr. Restori's reader of the packages)
  *   strings  German and English have the same keys, Italian has every English
  *            key, no language has keys English lacks, placeholders and plurals
  *            match English, and every text the code asks for exists (desk.js,
@@ -442,6 +443,63 @@ function testBackupKopiaItems(): void
     same('packages: the SQLite copies', ['/config/data/library.db', 'unchanged', 'ok', true], [$a['sqlite'][0]['path'] ?? null, $a['sqlite'][0]['state'] ?? null, $a['sqlite'][0]['check'] ?? null, $a['sqlite'][0]['present'] ?? null]);
     same('packages: the app\'s own backups, known kinds only', [['emby', '/mnt/user/Backups/EmbyServer', 3]], array_map(fn ($o) => [$o['kind'], $o['path'], $o['files']], $a['own_backups'] ?? []));
     exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Mr. Restori: his own reader of the packages (dumps with their database and the credentials' variable
+ * names, the folders a container binds, templates, compose files, stale packages), share paths, database types.
+ */
+function testRestore(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-restore-' . getmypid();
+    $put = function (string $file, mixed $data) use ($tmp): void {
+        @mkdir(dirname("$tmp/$file"), 0700, true);
+        file_put_contents("$tmp/$file", is_string($data) ? $data : json_encode($data));
+    };
+    $put('server/run.json', ['run' => '20261006-0200', 'result' => 'ok', 'files' => []]);
+    $put('apps/nextcloud/manifest.json', ['name' => 'nextcloud', 'type' => 'compose', 'run' => '20261006-0200', 'result' => 'ok',
+        'compose' => ['project' => 'nextcloud', 'manager_dir' => 'nextcloud', 'working_dir' => '/boot/x', 'config_files' => ['/boot/x/compose.yaml']],
+        'containers' => [
+            ['name' => 'nextcloud-db', 'image' => 'mariadb:11.4', 'digests' => ['mariadb@sha256:ab'],
+             'inspect' => ['Config' => ['Env' => ['MARIADB_VERSION=11.4', 'MARIADB_PASSWORD=secret']],
+                           'Mounts' => [['Type' => 'bind', 'Source' => '/mnt/user/appdata/nextcloud/db/', 'Destination' => '/var/lib/mysql', 'RW' => true],
+                                        ['Type' => 'volume', 'Source' => '/var/lib/docker/volumes/x', 'Destination' => '/x']]]],
+            ['name' => 'nextcloud-app', 'image' => 'nextcloud:31', 'digests' => [], 'inspect' => ['Config' => ['Env' => []], 'Mounts' => []]],
+        ],
+        'dumps' => [['container' => 'nextcloud-db', 'type' => 'mariadb', 'state' => 'failed', 'login' => 'user', 'user_var' => 'MARIADB_USER',
+                     'password_var' => 'MARIADB_PASSWORD', 'client' => 'mariadb']],
+        'nextcloud' => [['container' => 'nextcloud-app', 'occ' => '/var/www/html/occ', 'user' => 'www-data', 'same_as' => '']],
+        'files' => [['path' => 'db/mariadb_nextcloud-db_nextcloud.sql.gz', 'bytes' => 100, 'run' => '20261005-0200', 'what' => 'dump', 'container' => 'nextcloud-db'],
+                    ['path' => 'compose/compose.yaml', 'bytes' => 20, 'run' => '20261006-0200', 'what' => 'compose'],
+                    ['path' => '../escape', 'bytes' => 1, 'run' => '20261006-0200', 'what' => 'other']]]);
+    $put('apps/emby/manifest.json', ['name' => 'EmbyServer', 'type' => 'template', 'run' => '20261001-0200',
+        'containers' => [['name' => 'EmbyServer', 'image' => 'emby/embyserver', 'template' => 'my-EmbyServer.xml']],
+        'files' => [['path' => 'my-EmbyServer.xml', 'bytes' => 9, 'run' => '20261001-0200', 'what' => 'template']]]);
+    $put('vms/Win/manifest.json', ['name' => 'Win', 'run' => '20261006-0200', 'xml' => 'Win.xml', 'uuid' => '43CD8087-9364-2C3D-EB36-29696480E7D8',
+        'disks' => [['source' => '/mnt/user/domains/Win/vdisk1.img', 'snapshot' => 'master/domains/Win@unraidbackup-20261006-0200', 'share' => 'domains']],
+        'files' => [['path' => 'Win.xml', 'bytes' => 5, 'what' => 'xml'], ['path' => 'nvram/43cd8087-9364-2c3d-eb36-29696480e7d8_VARS-pure-efi.fd', 'bytes' => 7, 'what' => 'nvram']]]);
+    $put('vms/Win/Win.xml', '<domain><hostdev/><hostdev/></domain>');
+    $p = rsPackages($tmp);
+    same('restore: apps by name', ['EmbyServer', 'nextcloud'], array_column($p['apps'], 'name'));
+    same('restore: a package of an earlier run is stale', [true, false], array_column($p['apps'], 'stale'));
+    $nc = $p['apps'][1];
+    same('restore: a kept dump with its database and the variables only', ['db/mariadb_nextcloud-db_nextcloud.sql.gz', 'nextcloud', true, 'user', 'MARIADB_USER', 'MARIADB_PASSWORD'],
+        [$nc['dumps'][0]['file'] ?? null, $nc['dumps'][0]['db'] ?? null, $nc['dumps'][0]['kept'] ?? null, $nc['dumps'][0]['login'] ?? null,
+         $nc['dumps'][0]['user_var'] ?? null, $nc['dumps'][0]['password_var'] ?? null]);
+    same('restore: no secrets in the package as read', false, str_contains(json_encode($p), 'secret'));
+    same('restore: binds only, without the trailing slash', [['source' => '/mnt/user/appdata/nextcloud/db', 'dest' => '/var/lib/mysql', 'rw' => true]], $nc['containers'][0]['binds']);
+    same('restore: database types from env and image', ['mariadb', null], array_column($nc['containers'], 'db'));
+    same('restore: compose files, no path out of the package', [['compose.yaml'], 2], [$nc['compose']['files'], count($nc['files'])]);
+    same('restore: templates', ['my-EmbyServer.xml'], $p['apps'][0]['templates']);
+    $vm = $p['vms'][0] ?? [];
+    same('restore: a VM with its UUID, NVRAM and devices', ['43cd8087-9364-2c3d-eb36-29696480e7d8', ['43cd8087-9364-2c3d-eb36-29696480e7d8_VARS-pure-efi.fd'], 2, false],
+        [$vm['uuid'] ?? null, $vm['nvram'] ?? null, $vm['hostdev'] ?? null, $vm['tpm'] ?? null]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+
+    $ctx = ['fs' => ['master' => 'zfs', 'disk1' => 'btrfs']];
+    same('restore: share paths', [['appdata', 'nextcloud/db', null], ['appdata', 'x', 'master'], null, null, null, ['domains', '', null]],
+        [rsSharePath('/mnt/user/appdata/nextcloud/db/', $ctx), rsSharePath('/mnt/master/appdata/x', $ctx), rsSharePath('/mnt/disks/ud/x', $ctx),
+         rsSharePath('/mnt/user/appdata/../etc', $ctx), rsSharePath('/mnt/user/.hidden/x', $ctx), rsSharePath('/mnt/user/domains', $ctx)]);
 }
 
 // ===================================================================== notifications
@@ -875,7 +933,7 @@ function testStrings(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testIcons'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testIcons', 'testRestore'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
