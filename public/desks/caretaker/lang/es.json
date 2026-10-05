@@ -1,8 +1,8 @@
 {
-  "name": "El conserje",
-  "role": "Cuida de la casa — lo que la secretaría necesita de tu servidor, y lo que te queda por hacer",
-  "visit": "Ir a ver al conserje",
-  "bubble.loading": "Un momento, estoy dando una vuelta por la casa…",
+  "name": "El jefe de equipo",
+  "role": "Dirige el equipo — a quién contratar, lo que la secretaría necesita de tu servidor, y lo que te queda por hacer",
+  "visit": "Ir a ver al jefe de equipo",
+  "bubble.loading": "Un momento, estoy haciendo mi ronda…",
   "bubble.all_good": "Todo está en su sitio — no tienes nada que hacer.",
   "bubble.todo": {
     "one": "Hay una cosa que todavía tienes que hacer tú.",
@@ -75,7 +75,7 @@
   "help.open": "Botones a la derecha",
   "help.open_text": "Te lleva adonde lo resuelves: la página correspondiente de la interfaz web de Unraid (Plugins, Apps, Docker, User Scripts, Notificaciones) en una pestaña nueva — o directamente al escritorio adecuado aquí en la secretaría, p. ej. «Configurar…» del señor Backupsi.",
   "help.again": "Lo vuelve a mirar todo ahora mismo; si no, lo hago cuando se abre la página y mi último vistazo tiene más de 5 minutos.",
-  "bubble.alone": "Hola, soy el conserje. Todavía no hay nadie más — pero ya he preguntado por ahí quién encajaría con tu servidor. Echa un vistazo al equipo de abajo y contrata a quien te sirva.",
+  "bubble.alone": "Hola, soy el jefe de equipo. Todavía no hay nadie más — pero ya he preguntado por ahí quién encajaría con tu servidor. Echa un vistazo al equipo de abajo y contrata a quien te sirva.",
   "bubble.alone_short": "Todavía no hay nadie más. Pásate — te presento a quién encajaría con tu servidor.",
   "fact.could_come": "Podrían venir: {names}",
   "team": "El equipo",
@@ -119,7 +119,7 @@
   "office_compose_title": "Actualizado — la stack necesita reiniciarse",
   "office_compose_text": "Esta vez también ha cambiado compose.yaml. Reinicia la stack una vez en el Compose Manager («Compose Up») para que los contenedores reciban el ajuste nuevo.",
   "check.office_update": "La secretaría está al día ({version})",
-  "check.office_update_how": "Ha salido la versión {latest} — el conserje muestra cómo actualizar en «La secretaría».",
+  "check.office_update_how": "Ha salido la versión {latest} — el jefe de equipo muestra cómo actualizar en «La secretaría».",
   "errors.office_not_git": "La secretaría no se instaló con git — actualízala a mano.",
   "errors.office_local_changes": "El código se ha cambiado aquí — no actualizo, para que no se pierda nada.",
   "errors.office_git": "git falló: {detail}",
@@ -151,5 +151,5 @@
   },
   "notify.description": "Todavía falta: {list}",
   "notify.more": "… y {n} más",
-  "notify.footer": "El conserje lista todo lo que queda por hacer en su página de la secretaría. Allí puedes desactivar estos avisos."
+  "notify.footer": "El jefe de equipo lista todo lo que queda por hacer en su página de la secretaría. Allí puedes desactivar estos avisos."
 }
