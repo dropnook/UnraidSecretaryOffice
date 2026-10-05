@@ -1,8 +1,8 @@
 {
-  "name": "Le concierge",
-  "role": "S'occupe de la maison — ce dont le secrétariat a besoin de ton serveur, et ce qu'il te reste à faire",
-  "visit": "Aller voir le concierge",
-  "bubble.loading": "Un instant, je fais le tour de la maison…",
+  "name": "Le chef d'équipe",
+  "role": "Dirige l'équipe — qui embaucher, ce dont le secrétariat a besoin de ton serveur, et ce qu'il te reste à faire",
+  "visit": "Aller voir le chef d'équipe",
+  "bubble.loading": "Un instant, je fais ma tournée…",
   "bubble.all_good": "Tout est à sa place — rien à faire pour toi.",
   "bubble.todo": {
     "one": "Il te reste {n} chose à faire toi-même.",
@@ -75,7 +75,7 @@
   "help.open": "Boutons à droite",
   "help.open_text": "T'emmène là où tu règles la chose : la page correspondante de l'interface web d'Unraid (Plugins, Applis, Docker, User Scripts, Notifications) dans un nouvel onglet — ou directement au bon bureau ici dans le secrétariat, p. ex. « Configurer… » de Monsieur Backupsi.",
   "help.again": "Regarde tout à nouveau tout de suite ; sinon je le fais quand la page est ouverte et que mon dernier coup d'œil date de plus de 5 minutes.",
-  "bubble.alone": "Salut, je suis le concierge. Personne d'autre n'est encore là — mais je me suis déjà renseigné pour savoir qui conviendrait à ton serveur. Jette un œil à l'équipe ci-dessous et embauche qui peut te servir.",
+  "bubble.alone": "Salut, je suis le chef d'équipe. Personne d'autre n'est encore là — mais je me suis déjà renseigné pour savoir qui conviendrait à ton serveur. Jette un œil à l'équipe ci-dessous et embauche qui peut te servir.",
   "bubble.alone_short": "Personne d'autre n'est encore là. Passe me voir — je te présente qui conviendrait à ton serveur.",
   "fact.could_come": "Pourraient venir : {names}",
   "team": "L'équipe",
@@ -119,7 +119,7 @@
   "office_compose_title": "Mis à jour — la stack doit redémarrer",
   "office_compose_text": "Cette fois, compose.yaml a aussi changé. Redémarre une fois la stack dans le Compose Manager (« Compose Up ») pour que les conteneurs reçoivent le nouveau réglage.",
   "check.office_update": "Le secrétariat est à jour ({version})",
-  "check.office_update_how": "La version {latest} est sortie — le concierge montre comment mettre à jour sous « Le secrétariat ».",
+  "check.office_update_how": "La version {latest} est sortie — le chef d'équipe montre comment mettre à jour sous « Le secrétariat ».",
   "errors.office_not_git": "Le secrétariat n'a pas été installé avec git — mets-le à jour à la main.",
   "errors.office_local_changes": "Le code a été modifié ici — je ne mets pas à jour, pour que rien ne se perde.",
   "errors.office_git": "git a échoué : {detail}",
@@ -151,5 +151,5 @@
   },
   "notify.description": "Il manque encore : {list}",
   "notify.more": "… et {n} de plus",
-  "notify.footer": "Le concierge liste tout ce qui reste à faire sur sa page dans le secrétariat. Tu peux y désactiver ces signalements."
+  "notify.footer": "Le chef d'équipe liste tout ce qui reste à faire sur sa page dans le secrétariat. Tu peux y désactiver ces signalements."
 }
