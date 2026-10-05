@@ -18,11 +18,12 @@
 .lg-favs-label{font-size:12px; color:var(--muted); margin-right:2px}
 .lg-favs .lg-reset{margin-left:auto}
 .lg-bar .search{flex:1 1 180px; min-width:140px}
-& pre.lg-out{max-height:none; height:min(68vh, 900px); white-space:pre; overflow:auto; font-size:12px; line-height:1.5}
+& pre.lg-out{position:relative; max-height:none; height:min(68vh, 900px); white-space:pre; overflow:auto; font-size:12px; line-height:1.5}
 & pre.lg-out.wrap{white-space:pre-wrap; word-break:break-word}
 .lg-line.error{color:var(--danger)}
 .lg-line.warn{color:var(--warn)}
 .lg-line mark{background:var(--accent-soft); color:inherit; border-radius:2px}
+.lg-line.spot{background:var(--accent-soft); outline:1px solid var(--accent); outline-offset:1px; border-radius:2px}
 .lg-empty{color:var(--muted); font-family:inherit}
 .lg-status{margin:4px 2px 0; overflow-wrap:anywhere}
 .lg-sample.error{color:var(--danger); font-family:var(--mono); font-size:12px}
@@ -30,5 +31,34 @@
 & button.lg-star.on{color:var(--warn)}
 .lg-favs{display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:8px 2px 0}
 .lg-favs .lg-fav.active{border-color:var(--accent); color:var(--accent-ink); background:var(--accent-soft)}
-@media (max-width:600px){ & pre.lg-out{height:60vh} .lg-picker{max-width:100%; flex:1 1 100%} .lg-pop{width:100%} }
+/* her tour: the tiles, a small tile per log, the list of the open one */
+.lg-pct{margin-left:auto; font-size:12px; font-weight:600; color:var(--ink2); white-space:nowrap; font-variant-numeric:tabular-nums}
+.lg-pct.warn{color:var(--warn)}
+.lg-pct.danger{color:var(--danger)}
+.bar .lg-used{background:var(--data)}
+.bar .lg-used.warn{background:var(--warn)}
+.bar .lg-used.danger{background:var(--danger)}
+.lg-counts{font-size:12px; color:var(--ink2); font-variant-numeric:tabular-nums; white-space:nowrap}
+.lg-counts b{font-weight:650}
+.lg-counts b.e{color:var(--danger)}
+.lg-counts b.w{color:var(--warn)}
+.lg-srcs{display:grid; gap:8px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 170px), 1fr)); margin-top:10px}
+.lg-srcs .card{padding:8px 11px; gap:3px; box-shadow:none}
+.lg-srcs .card-name{font-size:13px; font-weight:600}
+.lg-tour-body:not(:empty){margin-top:14px}
+.lg-view{display:flex; flex-direction:column; gap:8px}
+.lg-note{margin:0 2px}
+.lg-quiet{cursor:help; border-bottom:1px dotted var(--muted)}
+.lg-subhead{display:flex; align-items:center; gap:6px 10px; flex-wrap:wrap; padding:8px 10px 8px 12px; background:var(--surface2); border-top:1px solid var(--line)}
+.lg-subhead:first-child{border-top:0}
+.lg-subhead-name{font-weight:600; font-size:13.5px; overflow-wrap:anywhere}
+.lg-subhead-meta{font-size:11.5px; color:var(--muted)}
+.lg-subhead .btn{margin-left:auto}
+.row.lg-kind{padding-left:24px}
+.lg-kind-line{font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+& pre.lg-kind-full{white-space:pre-wrap; word-break:break-word; font-size:12px; margin:2px 0 6px; max-height:16em; overflow:auto}
+.lg-kind-facts{display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; font-size:12px; color:var(--muted)}
+.lg-more{padding:6px 12px 8px 24px; font-size:12px; color:var(--muted); border-top:1px solid var(--line)}
+@media (max-width:600px){ & pre.lg-out{height:60vh} .lg-picker{max-width:100%; flex:1 1 100%} .lg-pop{width:100%}
+  .row.lg-kind{padding-left:14px} .lg-more{padding-left:14px} }
 }

@@ -3,6 +3,7 @@
   "icon": "📝",
   "refresh_after": 60,
   "open_actions": [
-    "read"
+    "read",
+    "tour"
   ]
 }
