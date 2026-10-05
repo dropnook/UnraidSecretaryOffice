@@ -299,6 +299,7 @@
   "setup.key.flash_mode": "Flash",
   "setup.key.docker_no_stop": "Container, die weiterlaufen",
   "setup.key.docker_known": "Bekannte Container",
+  "setup.key.docker_skip": "Apps, die nicht gesichert werden",
   "setup.key.kopia_keep_latest": "Kopia behält neueste",
   "setup.key.kopia_keep_hourly": "Kopia behält stündliche",
   "setup.key.kopia_keep_daily": "Kopia behält tägliche",

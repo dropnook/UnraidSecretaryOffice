@@ -1113,9 +1113,26 @@ function setupDraftFromPlan() {
   setup.base = clone(setup.draft);         // what the assistant proposes, before the user clicks
 }
 
-/** Keys whose values differ between two sets of settings */
+/** Keys whose values differ between two sets of settings (nothing and empty count the same) */
+const empty = (v) => v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length);
 function diffKeys(a, b) {
-  return [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => !same(a[k], b[k])).sort();
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => !same(a[k], b[k]) && !(empty(a[k]) && empty(b[k]))).sort();
+}
+
+/**
+ * What settings.ini says today, key by key. It leaves out empty lists and defaults: a key
+ * missing in a section it has means the plan's value; a whole section it lacks is new.
+ */
+function setupSaved() {
+  const O = setup.plan.O || {};
+  const P = setup.plan.P || {};
+  const section = (k) => k.slice(0, k.lastIndexOf('|'));
+  const have = new Set(Object.keys(O).map(section));
+  const saved = {};
+  // a share's id and locations the engine writes itself from what it finds - not a decision of the user's
+  Object.keys(O).forEach((k) => { if (!/^share\|.+\|(id|locations)$/.test(k)) saved[k] = O[k]; });
+  Object.keys(P).forEach((k) => { if (!(k in O) && have.has(section(k))) saved[k] = P[k]; });
+  return saved;
 }
 
 /** What the server boots from, as it really is: a USB stick or a boot pool (Unraid 7.3+, licence on the TPM) */
@@ -1239,13 +1256,14 @@ function setupApply() {
     box.appendChild(setupSummary());
   } else {
     // what really changes in settings.ini - against the saved file, not against proposals
-    const changes = diffKeys(setup.plan.O || {}, setup.draft);
+    const saved = setupSaved();
+    const changes = diffKeys(saved, setup.draft);
     box.appendChild(el('p', '', changes.length ? T('setup.apply_text', { n: changes.length }) : T('setup.apply_none')));
     if (changes.length) {
       const ul = el('ul', 'shortlist');
       changes.slice(0, 80).forEach((k) => {
         const li = el('li', '', changeLabel(k));
-        li.appendChild(el('span', '', `${valueText((setup.plan.O || {})[k], k)} → ${valueText(setup.draft[k], k)}`));
+        li.appendChild(el('span', '', `${valueText(saved[k], k)} → ${valueText(setup.draft[k], k)}`));
         ul.appendChild(li);
       });
       box.appendChild(ul);
@@ -1323,8 +1341,8 @@ function setupBar() {
   if (page !== 'setup' || !setup.plan || !setup.draft) { Office.selbar(null); return; }
   const edits = setupEdits().length;
   // proposals: what Apply would change in the saved settings.ini although the user clicked nothing
-  const proposals = diffKeys(setup.plan.O || {}, setup.base || setup.plan.P).length;
   const fresh = !setup.plan.have_settings;     // nothing set up yet: Apply is how it starts
+  const proposals = fresh ? 0 : diffKeys(setupSaved(), setup.base || setup.plan.P).length;
   const busy = setup.status && setup.status.running;
   if (!edits && !fresh && proposals <= 0) { Office.selbar(null); return; }      // nothing to apply: no bar that keeps offering it
   Office.selbar({
