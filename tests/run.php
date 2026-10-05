@@ -7,11 +7,14 @@ declare(strict_types=1);
  *   php /mnt/user/appdata/UnraidSecretaryOffice/tests/run.php
  *
  * They change nothing on the server: what writes files works on copies in a
- * temporary folder. Two parts:
+ * temporary folder. Three parts:
  *   logic    the tricky functions (cron, snapshot retention, Emby detection,
  *            the gather's settings, User Scripts schedules, the plugin's cron file,
  *            the menu bar's label, reports to Unraid's notifications,
  *            Mr. Backupsy's packages and his Kopia per app and VM, Ms. Dustdevil's pictures)
+ *   hardening  the checks that keep requests, manifests, paths and links in
+ *            bounds (PIN tries, safe writes, the mailbox, Ms. Dustdevil's
+ *            manifests, Emby paths, anchored validators, the release link)
  *   strings  German and English have the same keys, Italian has every English
  *            key, no language has keys English lacks, placeholders and plurals
  *            match English, and every text the code asks for exists (desk.js,
