@@ -18,6 +18,18 @@ declare(strict_types=1);
  *           never suggested (it can get in the way of backups, EmbyCache
  *           and the gather), but there for whoever needs it
  *
+ * Monitoring (group 'monitoring', optional — the office works without it),
+ * in the order it is set up:
+ *   nodeexporter  measures the server and serves the numbers on port 9100 —
+ *           and reads text files from a folder (textfile collector): that is
+ *           where the office's own numbers go, ADVISOR_METRICS_DIR (RAM, the
+ *           office's add-on place, written by the agent). Recommended: the
+ *           container (official image, template "Node-Exporter"), which sees
+ *           the host read-only under /host; ich777's plugin counts too
+ *   prometheus  fetches and keeps the numbers (port 9090)
+ *   grafana     shows them (port 3000)
+ *   loki        later: log lines, for the night watchman's log book
+ *
  * Read only: whether a plugin is installed, whether a container exists and
  * runs, and where Unraid keeps its own icon (the maker's, so it is
  * recognised; the page shows an emoji while it isn't there). Nothing is
@@ -30,7 +42,16 @@ const ADVISOR_EXTERNALS = [
     'kopia'        => ['container' => 'kopia'],         // image or name contains it
     'streamviewer' => ['plugin' => 'streamviewer', 'media' => true],
     'unbalanced'   => ['plugin' => 'unbalanced', 'optional' => true],
+    // 'image': the image's own name (no registry, owner, tag) or the container's name matches
+    'nodeexporter' => ['plugin' => 'prometheus_node_exporter', 'image' => '/^node[-_]exporter$/i', 'optional' => true, 'group' => 'monitoring'],
+    'prometheus'   => ['image' => '/^prometheus$/i', 'optional' => true, 'group' => 'monitoring'],
+    'grafana'      => ['image' => '/^grafana(-oss|-enterprise)?$/i', 'optional' => true, 'group' => 'monitoring'],
+    'loki'         => ['image' => '/^loki$/i', 'optional' => true, 'group' => 'monitoring', 'later' => true],
 ];
+/** Where the office's own numbers go for the node exporter's textfile collector (RAM; *.prom files) */
+const ADVISOR_METRICS_DIR = '/mnt/addons/UnraidSecretaryOffice/metrics';
+/** ich777's node exporter plugin takes its start options from here (start_parameters=…) */
+const ADVISOR_NODE_PLUGIN_CFG = '/boot/config/plugins/prometheus_node_exporter/settings.cfg';
 const ADVISOR_MEDIA = ['emby' => 'Emby', 'jellyfin' => 'Jellyfin', 'plex' => 'Plex'];
 
 desk('advisor', [
@@ -70,26 +91,121 @@ function advisorScan(): array
         if (!empty($how['media']) && $media === null) {
             continue;                       // no media server, nothing to watch
         }
-        if (isset($how['plugin'])) {
-            $p = $plugins[$how['plugin']] ?? null;
+        $common = ['optional' => !empty($how['optional'])] + array_filter(['group' => $how['group'] ?? null, 'later' => !empty($how['later'])]);
+        $p = isset($how['plugin']) ? ($plugins[$how['plugin']] ?? null) : null;
+        if ($p !== null || !isset($how['container']) && !isset($how['image'])) {
             $externals[$id] = ['kind' => 'plugin', 'there' => $p !== null, 'version' => $p['version'] ?? null,
-                'optional' => !empty($how['optional']), 'icon' => $p !== null ? advisorPluginIcon($how['plugin']) : null];
+                'icon' => $p !== null ? advisorPluginIcon($how['plugin']) : null] + $common;
             continue;
         }
-        $found = null;
-        foreach ($containers as $c) {
-            if (stripos($c['image'] . ' ' . $c['name'], $how['container']) !== false) {
-                $found = $c;
-                break;
-            }
-        }
+        $found = advisorFindContainer($how, $containers);
         $externals[$id] = ['kind' => 'container', 'there' => $found !== null, 'name' => $found['name'] ?? null,
             'image' => $found['image'] ?? null, 'running' => $found['running'] ?? false,
-            'icon' => $found !== null ? advisorContainerIcon($found['name']) : null];
+            'icon' => $found !== null ? advisorContainerIcon($found['name']) : null] + $common;
     }
-    $state = ['time' => time(), 'gui' => houseGuiUrl(), 'media' => $media, 'externals' => $externals];
+    if (isset($externals['nodeexporter'])) {
+        $externals['nodeexporter']['textfile'] = advisorNodeTextfile($externals['nodeexporter']);
+    }
+    $state = ['time' => time(), 'gui' => houseGuiUrl(), 'media' => $media, 'metrics_dir' => ADVISOR_METRICS_DIR, 'externals' => $externals];
     writeAtomic(deskFile('advisor'), jsonEncode($state));
     return $state;
+}
+
+/**
+ * The container of an external, a running one first: 'container' — image or
+ * name contains it; 'image' — a pattern for the image's own name or the
+ * container's name (so grafana/loki is Loki, not Grafana)
+ *
+ * @param array<string, array{name:string, image:string, running:bool}> $containers
+ */
+function advisorFindContainer(array $how, array $containers): ?array
+{
+    $found = null;
+    foreach ($containers as $c) {
+        $hit = isset($how['image'])
+            ? preg_match($how['image'], advisorImageName($c['image'])) === 1 || preg_match($how['image'], $c['name']) === 1
+            : stripos($c['image'] . ' ' . $c['name'], $how['container']) !== false;
+        if ($hit && ($found === null || $c['running'] && !$found['running'])) {
+            $found = $c;
+        }
+    }
+    return $found;
+}
+
+/** An image's own name: quay.io/prometheus/node-exporter:latest-distroless → node-exporter */
+function advisorImageName(string $image): string
+{
+    $image = preg_replace('/@sha256:[0-9a-f]+$/i', '', $image);
+    $last = substr($image, (int) strrpos('/' . $image, '/'));
+    return strtolower(preg_replace('/:[^:]*$/', '', $last));
+}
+
+/**
+ * Whether the node exporter reads the office's folder (its textfile
+ * collector): true / false, null when that can't be told. The container: its
+ * arguments (Post Arguments) through its mounts; ich777's plugin: its start
+ * options. Read only.
+ */
+function advisorNodeTextfile(array $x): ?bool
+{
+    if (!$x['there']) {
+        return null;
+    }
+    if ($x['kind'] === 'plugin') {
+        $cfg = (string) @file_get_contents(ADVISOR_NODE_PLUGIN_CFG);
+        $line = preg_match('/^start_parameters=(.*)$/m', $cfg, $m) ? trim($m[1], " \t\r\"'") : '';
+        return in_array(ADVISOR_METRICS_DIR, advisorTextfileDirs(preg_split('/\s+/', $line, -1, PREG_SPLIT_NO_EMPTY), null), true);
+    }
+    $i = houseInspect((string) $x['name']);
+    if ($i === null) {
+        return null;
+    }
+    $mounts = array_map(fn ($m) => [(string) ($m['Source'] ?? ''), (string) ($m['Destination'] ?? '')], $i['Mounts'] ?? []);
+    return in_array(ADVISOR_METRICS_DIR, advisorTextfileDirs(array_map('strval', $i['Args'] ?? []), $mounts), true);
+}
+
+/**
+ * The host folders a node exporter's textfile collector reads, from its
+ * arguments (--collector.textfile.directory, may be given more than once).
+ * $mounts: a container's [host, container] paths — a folder is found through
+ * the deepest mount that holds it (/host/mnt/… with / → /host is /mnt/…), one
+ * outside every mount is left out; null: it runs on the host itself.
+ *
+ * @param list<string> $args
+ * @param list<array{0:string,1:string}>|null $mounts
+ * @return list<string>
+ */
+function advisorTextfileDirs(array $args, ?array $mounts): array
+{
+    $norm = fn (string $p) => '/' . implode('/', array_filter(explode('/', $p), fn ($s) => $s !== '' && $s !== '.'));
+    $dirs = [];
+    foreach ($args as $n => $a) {
+        if (preg_match('/^--collector\.textfile\.directory=(.+)$/', $a, $m)) {
+            $dirs[] = $m[1];
+        } elseif ($a === '--collector.textfile.directory' && isset($args[$n + 1])) {
+            $dirs[] = $args[$n + 1];
+        }
+    }
+    $out = [];
+    foreach ($dirs as $dir) {
+        $dir = $norm(trim($dir, "\"'"));
+        if ($mounts === null) {
+            $out[] = $dir;
+            continue;
+        }
+        $best = null;
+        foreach ($mounts as [$host, $inside]) {
+            $inside = $norm($inside);
+            $under = $inside === '/' || $dir === $inside || str_starts_with($dir, $inside . '/');
+            if ($host !== '' && $under && ($best === null || strlen($inside) > strlen($best[1]))) {
+                $best = [$host, $inside];
+            }
+        }
+        if ($best !== null) {
+            $out[] = $norm($best[0] . '/' . substr($dir, strlen($best[1])));
+        }
+    }
+    return array_values(array_unique($out));
 }
 
 const ADVISOR_DOCROOT = '/usr/local/emhttp';
