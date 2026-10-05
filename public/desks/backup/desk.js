@@ -1625,6 +1625,7 @@ async function setupLoad() {
   const was = setup.status;
   setup.status = j.status;
   setup.run = j.run;
+  Office.busy(`${ID}.setup`, !!(j.status && j.status.running) && (j.status.mode !== 'plan' || !setup.measuring));
   // a plan from before engine 2.17 doesn't know which shares a container binds: read the server again
   const stale = j.plan && ((j.plan.containers || []).some((c) => c.binds === undefined) || !('docker|skip' in (j.plan.P || {})));
   if (stale && !j.status.running && !setup.restale && canPlan()) { setup.restale = true; setupPlan(false, true); }
@@ -1675,6 +1676,7 @@ const canPlan = () => !!(state && state.found && state.compatible && Office.agen
 
 async function setupPlan(measure, quiet) {
   setup.asked = true;
+  setup.measuring = !!measure;            // measuring sizes can take minutes: no wave then
   const j = await Office.api.post(`${ID}.setup_plan`, { measure: !!measure });
   if (!j.ok) { if (!quiet) Office.toast(Office.errorText(j.error, ID), true); return false; }
   setTimeout(setupLoad, 500);
@@ -1725,6 +1727,7 @@ function setupApply() {
         if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
         setup.applied = null;
         Office.toast(T('setup.applying'));
+        Office.busy(`${ID}.setup`, true);
         setupLoad();
         return true;
       } },

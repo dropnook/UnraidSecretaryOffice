@@ -197,6 +197,51 @@ function loggedOut(r) {
   return true;
 }
 
+// ------------------------------------------------------------------ busy
+// An action that takes more than a moment shows a wave and keeps clicks off the
+// page until it is answered: inside Unraid its own (div.spinner.fixed, the
+// animated logo every Unraid page has), on the office's own page ours. Reads that
+// poll or run beside the page (a log being followed, an estimate) stay quiet.
+const QUIET = /\.(read|output|log|estimate|detail|measure)$/;
+let busyCount = 0, busyTimer = null;
+function busyEl() {
+  const unraid = CONFIG.in_unraid && document.querySelector('div.spinner.fixed');
+  if (unraid) return unraid;
+  let el = $('#sso-busy');
+  if (!el) {
+    el = Object.assign(document.createElement('div'), { id: 'sso-busy', className: 'busy' });
+    el.appendChild(document.createElement('span'));
+    $('#sso').appendChild(el);
+  }
+  return el;
+}
+const busyHolds = new Map();   // a desk waiting for work it started in the background -> its safety timer
+function busy(on) {
+  if (on === true) busyCount++;
+  else if (on === false) busyCount = Math.max(0, busyCount - 1);
+  const want = busyCount > 0 || busyHolds.size > 0;
+  if (want && !busyTimer) {
+    busyTimer = setTimeout(() => { if (busyCount || busyHolds.size) busyEl().style.display = 'block'; }, 400);
+  } else if (!want) {
+    clearTimeout(busyTimer);
+    busyTimer = null;
+    busyEl().style.display = 'none';
+  }
+}
+/** Office.busy('backup.setup', true) while a desk waits for a job it started (an apply, a plan);
+    false when it is done. Lets go by itself after two minutes, so the page never stays blocked. */
+Office.busy = function officeBusy(key, on) {
+  clearTimeout(busyHolds.get(key));
+  busyHolds.delete(key);
+  if (on) busyHolds.set(key, setTimeout(() => Office.busy(key, false), 120000));
+  busy(null);
+};
+async function postBusy(action, data) {
+  if (QUIET.test(action)) return postOnce(action, data);
+  busy(true);
+  try { return await postOnce(action, data); } finally { busy(false); }
+}
+
 Office.api = {
   async get(params) {
     const once = async () => {
@@ -215,8 +260,8 @@ Office.api = {
   /** post('snapshot.delete', {ids}) — the agent answers {ok, …} or {ok:false, error:{key, params}}.
       With a PIN set and this browser locked, it asks for the PIN first and then tries again. */
   async post(action, data) {
-    let j = await postOnce(action, data);
-    if (!j.ok && j.error && j.error.key === 'pin_required' && await Office.unlock()) j = await postOnce(action, data);
+    let j = await postBusy(action, data);
+    if (!j.ok && j.error && j.error.key === 'pin_required' && await Office.unlock()) j = await postBusy(action, data);
     return j;
   },
 };
