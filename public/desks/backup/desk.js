@@ -1542,7 +1542,7 @@ function setupShares(plan) {
       const opts = kopiaOn ? ['kopia', 'snapshot', 'off'] : ['snapshot', 'off'];
       const sel = selectInput(`share|${sh.name}|mode`, opts, (o) => T('setup.mode.' + o));
       if (!opts.includes(sel.value)) sel.value = 'snapshot';
-      sel.onchange = () => { dset(`share|${sh.name}|mode`, sel.value); };
+      sel.onchange = () => { dset(`share|${sh.name}|mode`, sel.value); setupDerive(); Office.keepInPlace(sel, () => renderSetup()); };
       modeCell.appendChild(sel);
     } else {
       modeCell.appendChild(chip(T('setup.gone'), 'warn'));
@@ -1766,6 +1766,13 @@ function setupDerive() {
     setup.locks[share] = n;
     dset(`share|${share}|mode`, LV[n.lv]);
   });
+  // whatever goes to Kopia needs its templates, dumps and VM configurations there too: the backup share follows
+  const ds = dget('general|dumps_share', '');
+  if (ds && dget('kopia|enabled') === 'yes'
+      && Object.keys(setup.draft).some((k) => /^share\|.+\|mode$/.test(k) && k !== `share|${ds}|mode` && setup.draft[k] === 'kopia')) {
+    setup.locks[ds] = { lv: 2, why: [T('setup.lock_pkg')] };
+    dset(`share|${ds}|mode`, 'kopia');
+  }
   // Kopia leaves out the folders of apps and VMs that are only local
   if (dget('kopia|enabled') === 'yes') {
     const dirs = new Map();
@@ -1967,11 +1974,10 @@ function dumpsShareField(plan) {
     if (!share) { hint.textContent = T('setup.ds_missing'); hint.className = 'missing'; return; }
     const mode = dget(`share|${share}|mode`, 'off');
     if (mode === 'off') { hint.textContent = T('setup.ds_off', { share }); hint.className = 'missing'; return; }
-    const kopia = dget('kopia|enabled') === 'yes';
-    hint.textContent = kopia && mode !== 'kopia' ? T('setup.ds_local', { share }) : T('setup.ds_ok', { path: dumpsPath(share) });
-    if (kopia && mode !== 'kopia') hint.className = 'missing';
+    hint.textContent = T('setup.ds_ok', { path: dumpsPath(share) });
+    if (setup.locks[share]) hint.textContent += ' · ' + T('setup.ds_kopia');
   };
-  sel.onchange = () => { dset('general|dumps_share', sel.value || undefined); update(); };
+  sel.onchange = () => { dset('general|dumps_share', sel.value || undefined); setupDerive(); Office.keepInPlace(sel, () => renderSetup()); };
   update();
   const f = field(T('setup.ds_label'), sel);
   f.appendChild(hint);

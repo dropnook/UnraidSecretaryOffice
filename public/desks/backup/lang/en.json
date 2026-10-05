@@ -687,6 +687,8 @@
   "setup.level_hint.2": "Like local, and to Kopia too.",
   "setup.lock": "because of {list}",
   "setup.lock_hint": "The VMs and apps above decide this. Change it there.",
+  "setup.lock_pkg": "Kopia — templates, dumps and VM configuration belong with what goes there",
+  "setup.ds_kopia": "goes to Kopia too, because something is backed up there",
   "setup.retention": "4 · Retention",
   "setup.retention_sub": "Two rows of numbers: how long local snapshots stay and how long Kopia keeps its states. Dumps and configurations live inside those snapshots.",
   "setup.r_kopia": "Kopia keeps",

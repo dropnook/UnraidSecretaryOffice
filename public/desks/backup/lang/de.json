@@ -687,6 +687,8 @@
   "setup.level_hint.2": "Wie lokal, dazu an Kopia.",
   "setup.lock": "wegen {list}",
   "setup.lock_hint": "Das legen die VMs und Apps oben fest. Ändern kannst du es dort.",
+  "setup.lock_pkg": "Kopia — Vorlagen, Dumps und VM-Konfiguration gehören zu dem, was dorthin geht",
+  "setup.ds_kopia": "geht mit zu Kopia, weil dort etwas gesichert wird",
   "setup.retention": "4 · Aufbewahrung",
   "setup.retention_sub": "Zwei Zahlenreihen: wie lange lokale Snapshots bleiben und wie lange Kopia seine Stände behält. Dumps und Konfigurationen leben in diesen Snapshots mit.",
   "setup.r_kopia": "Kopia behält",
