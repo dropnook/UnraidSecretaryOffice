@@ -15,6 +15,10 @@ declare(strict_types=1);
  * once, after it has stayed red for a while (see "Reports to Unraid" below);
  * so it reaches the user without a browser, he walks through the house every
  * 30 minutes on his own.
+ *
+ * Recommendations and notes the user already knows about can be put aside
+ * («I know, thanks», see "Noted" below) — kept on the server, so his picture
+ * and the Dashboard tile turn green too. Musts can't.
  */
 
 const CARETAKER_UNRAID_MIN    = '6.12';
@@ -22,6 +26,10 @@ const CARETAKER_TOUR_EVERY    = 1800;      // without a browser (it asks every 5
 const CARETAKER_TOUR_AFTER    = 600;       // … but not in the first 10 minutes after the agent started (the array settles)
 const CARETAKER_NOTIFY_SETTLE = 1800;      // something new to do is told once it has stayed red this long (not a passing state)
 const CARETAKER_WATCH_CRON    = '/boot/config/plugins/' . OFFICE_PLUGIN . '/agent-watch.cron';   // written by scripts/agent.sh
+const CARETAKER_ACK_SIG       = '/^[a-z0-9_-]{1,40}:[a-z0-9_]{1,60}:[0-9a-f]{16}$/';   // desk:id:hash, see caretakerAckSig()
+const CARETAKER_ACK_DRIFT     = ['days', 'size'];    // params that change by themselves (an age, a size) — not a new situation
+const CARETAKER_ACK_KEEP      = 30 * 86400;          // a noted point that hasn't turned up for this long is forgotten
+const CARETAKER_ACK_SEEN      = 86400;               // "still there" is written down at most once a day
 
 desk('caretaker', [
     'start'   => fn () => caretakerScan(),
@@ -32,6 +40,8 @@ desk('caretaker', [
         'office_update' => fn (array $r) => officeUpdate(),
         'menu_name'     => fn (array $r) => caretakerMenuName((string) ($r['name'] ?? ''), (string) ($r['place'] ?? 'menu')),
         'notify_set'    => fn (array $r) => caretakerNotifySet($r['on'] ?? null),
+        'ack'           => fn (array $r) => caretakerAck($r['sig'] ?? null, true),
+        'unack'         => fn (array $r) => caretakerAck($r['sig'] ?? null, false),
     ],
     'checks'  => fn () => caretakerChecks(),
 ]);
@@ -69,6 +79,11 @@ function caretakerScan(bool $checkUpdate = false): array
     } catch (Throwable $e) {
         logLine('Caretaker: reporting to Unraid failed: ' . $e->getMessage());
         $notify = readJson(caretakerNotifyFile()) ?? [];
+    }
+    try {
+        $checks = caretakerAckApply($checks);       // every finding gets its sig, the noted ones "acked"
+    } catch (Throwable $e) {
+        logLine('Caretaker: reading what was noted failed: ' . $e->getMessage());
     }
     $state = [
         'time'        => time(),
@@ -216,7 +231,7 @@ function caretakerNotifyEvaluate(array $checks, ?string $file = null, ?int $now 
         }
     }
     if ($data !== $old) {
-        caretakerNotifyWrite($file, $data);
+        caretakerWrite($file, $data);
     }
     return $data;
 }
@@ -244,7 +259,8 @@ function caretakerNotifySend(array $items, string $lang): bool
     );
 }
 
-function caretakerNotifyWrite(string $file, array $data): void
+/** A file of his own in data/caretaker (notify.json, acks.json) */
+function caretakerWrite(string $file, array $data): void
 {
     if (!is_dir(dirname($file))) {
         @mkdir(dirname($file), 0755, true);
@@ -274,8 +290,150 @@ function caretakerNotifySet(mixed $on): array
     $file = caretakerNotifyFile();
     $data = readJson($file) ?? [];
     $data['on'] = $on;
-    caretakerNotifyWrite($file, $data);
+    caretakerWrite($file, $data);
     logLine("Caretaker: reports to Unraid's notifications " . ($on ? 'on' : 'off'));
+    return ['ok' => true, 'state' => caretakerScan()];
+}
+
+// ===================================================================== noted («I know, thanks»)
+
+/*
+ * A recommendation or a note the user already knows about can be put aside:
+ * it moves to "Noted" on his page and no longer counts — not in his bubble,
+ * his picture, the reception or the Dashboard tile. Kept on the server
+ * (data/caretaker/acks.json), because his picture and the tile are worked out
+ * from his state file, the same for every browser. Each under the finding's
+ * signature: desk, id, level and params (without those that change by
+ * themselves, CARETAKER_ACK_DRIFT) — so it comes back as soon as its situation
+ * changes (another version, another container). Once it is in place the note
+ * is forgotten: back again, it is shown again (like the reports to Unraid).
+ * One that doesn't turn up at all any more (its desk let go, a passing state)
+ * is kept for CARETAKER_ACK_KEEP. Musts ("required") are never put aside —
+ * they are what Unraid's notifications are about, and they stay red.
+ */
+
+function caretakerAckFile(): string
+{
+    return DATA_DIR . '/caretaker/acks.json';
+}
+
+/** What a finding is about, as one short key: desk:id:hash of its level and params */
+function caretakerAckSig(string $desk, array $f): string
+{
+    $p = array_diff_key((array) ($f['params'] ?? []), array_flip(CARETAKER_ACK_DRIFT));
+    ksort($p);
+    return $desk . ':' . (string) ($f['id'] ?? '') . ':' . substr(sha1(jsonEncode([(string) ($f['level'] ?? ''), $p])), 0, 16);
+}
+
+/** Can it be put aside? Recommendations and notes that aren't in place */
+function caretakerAckable(array $f): bool
+{
+    return in_array($f['level'] ?? '', ['recommended', 'hint'], true) && ($f['ok'] ?? null) !== true;
+}
+
+/** @return array<string, array{desk:string, id:string, time:int, seen:int}> sig => note, from the file (anything odd left out) */
+function caretakerAckRead(string $file): array
+{
+    $out = [];
+    foreach ((array) ((readJson($file) ?? [])['acks'] ?? []) as $sig => $a) {
+        if (is_string($sig) && preg_match(CARETAKER_ACK_SIG, $sig) && is_array($a)) {
+            $out[$sig] = ['desk' => (string) ($a['desk'] ?? ''), 'id' => (string) ($a['id'] ?? ''),
+                          'time' => (int) ($a['time'] ?? 0), 'seen' => (int) ($a['seen'] ?? 0)];
+        }
+    }
+    return $out;
+}
+
+/**
+ * One tour: every finding gets its sig, the noted ones "acked" (never a must:
+ * the level is part of the sig, and only those that can be put aside are
+ * marked); a note whose point is in place now is forgotten, one still there
+ * marked as seen (once a day), one gone for CARETAKER_ACK_KEEP dropped.
+ *
+ * @param array<string, list<array>> $checks  desk => findings, as caretakerScan() collects them
+ * @return array{0: array<string, list<array>>, 1: array<string, array>}  the checks marked, the notes from now on
+ */
+function caretakerAckStep(array $checks, array $acks, int $now): array
+{
+    $present = $done = [];
+    foreach ($checks as $desk => $list) {
+        foreach ((array) $list as $i => $f) {
+            if (!is_array($f)) {
+                continue;
+            }
+            $sig = caretakerAckSig((string) $desk, $f);
+            $checks[$desk][$i]['sig'] = $sig;
+            if (isset($acks[$sig]) && caretakerAckable($f)) {
+                $checks[$desk][$i]['acked'] = true;
+                $present[$sig] = true;
+            } elseif (($f['ok'] ?? null) === true) {
+                $done[$sig] = true;
+            }
+        }
+    }
+    foreach ($acks as $sig => $a) {
+        if (isset($present[$sig])) {
+            if ($now - $a['seen'] >= CARETAKER_ACK_SEEN) {
+                $acks[$sig]['seen'] = $now;
+            }
+        } elseif (isset($done[$sig]) || $now - $a['seen'] > CARETAKER_ACK_KEEP) {
+            unset($acks[$sig]);
+        }
+    }
+    return [$checks, $acks];
+}
+
+/** After every tour: marks the noted findings, keeps the file tidy. $file and $now are there for the tests. */
+function caretakerAckApply(array $checks, ?string $file = null, ?int $now = null): array
+{
+    $file ??= caretakerAckFile();
+    $old = caretakerAckRead($file);
+    [$checks, $acks] = caretakerAckStep($checks, $old, $now ?? time());
+    if ($acks !== $old) {
+        try {
+            caretakerWrite($file, ['acks' => $acks]);
+        } catch (Throwable $e) {             // the marks still count; tidied on the next tour
+            logLine('Caretaker: could not write what was noted: ' . $e->getMessage());
+        }
+    }
+    return $checks;
+}
+
+/** «I know, thanks» ($on) or «Bring back» for one finding, by the sig the page got with it */
+function caretakerAck(mixed $sig, bool $on): array
+{
+    if (!is_string($sig) || !preg_match(CARETAKER_ACK_SIG, $sig)) {
+        throw new Problem('bad_request');
+    }
+    $file = caretakerAckFile();
+    if ($on) {
+        $found = null;
+        foreach (caretakerScan()['checks'] as $desk => $list) {     // as things are right now, only desks that work here
+            foreach ($list as $f) {
+                if (($f['sig'] ?? null) === $sig) {
+                    $found = ['desk' => (string) $desk] + $f;
+                }
+            }
+        }
+        if ($found === null || ($found['ok'] ?? null) === true) {
+            throw new Problem('ack_gone');
+        }
+        if (!caretakerAckable($found)) {
+            throw new Problem('ack_required');
+        }
+        $acks = caretakerAckRead($file);
+        $acks[$sig] = ['desk' => $found['desk'], 'id' => (string) $found['id'], 'time' => time(), 'seen' => time()];
+        $what = "{$found['desk']}.{$found['id']}";
+    } else {
+        $acks = caretakerAckRead($file);
+        if (!isset($acks[$sig])) {
+            return ['ok' => true, 'state' => caretakerScan()];     // already back (another browser)
+        }
+        $what = "{$acks[$sig]['desk']}.{$acks[$sig]['id']}";
+        unset($acks[$sig]);
+    }
+    caretakerWrite($file, ['acks' => $acks]);
+    logLine("Caretaker: $what " . ($on ? 'noted («I know, thanks»)' : 'brought back'));
     return ['ok' => true, 'state' => caretakerScan()];
 }
 

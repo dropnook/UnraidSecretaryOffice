@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 /*
  * The office's tile on Unraid's Dashboard (plugin only): the messenger, the
- * caretaker's traffic light and Mr. Backupsy's last and next run — each row
+ * team lead's traffic light (open points only — what the user noted with «I
+ * know, thanks» doesn't count) and Mr. Backupsy's last and next run (or what
+ * the engine is doing right now: a backup, a check, a dry run) — each row
  * a link into the office. Built from the desks' state files only (no request
  * to the agent, no disk wakes up); the tile asks api.php?a=dash again every
  * minute. Texts from the office's language files (dash.*): the language this
@@ -61,6 +63,47 @@ function officeDashAsset(string $file): string
     return '/plugins/' . OFFICE_PLUGIN . '/' . $file . '?v=' . (string) @filemtime(OFFICE_PUBLIC . '/' . $file);
 }
 
+/**
+ * The team lead's traffic light: what is left to do and what he recommends —
+ * only desks that work here, only what is open (not in place, and not put
+ * aside with «I know, thanks»: the agent marks those "acked", never a must)
+ *
+ * @return array{0:int, 1:int}  to do, recommended
+ */
+function officeDashCareCounts(array $care, array $hired): array
+{
+    $todo = $advice = 0;
+    foreach ((array) ($care['checks'] ?? []) as $desk => $list) {
+        if (!isset($hired[$desk])) {
+            continue;
+        }
+        foreach ((array) $list as $f) {
+            if (!is_array($f) || ($f['ok'] ?? null) === true) {
+                continue;
+            }
+            $level = $f['level'] ?? '';
+            if ($level === 'required') {
+                $todo++;
+            } elseif ($level === 'recommended' && empty($f['acked'])) {
+                $advice++;
+            }
+        }
+    }
+    return [$todo, $advice];
+}
+
+/** Mr. Backupsy's line while the engine runs: a backup, a check or a dry run (status.json "mode") — its key in dash.* */
+function officeDashBackupRunning(array $backup): string
+{
+    $status = (array) ($backup['status'] ?? []);
+    $mode = ($status['result'] ?? '') === 'running' ? (string) ($status['mode'] ?? '') : '';
+    return match ($mode) {
+        'check'  => 'dash.bk_checking',
+        'dryrun' => 'dash.bk_dryrun',
+        default  => 'dash.bk_running',
+    };
+}
+
 /** The tile's rows as HTML (escaped) */
 function officeDashRows(string $lang): string
 {
@@ -84,23 +127,11 @@ function officeDashRows(string $lang): string
         officeDashT($s, $agent['running'] ? 'agent.label_on' : (isset($agent['no_data']) && ($agent['no_data']['array'] ?? '') !== 'Started' ? 'agent.label_array' : 'agent.label_off')),
         $agent['running'] ? 'green' : 'red');
 
-    // the caretaker: what is left to do, what he recommends (only desks that work here)
+    // the team lead: what is left to do, what he recommends (only desks that work here, only what is open)
     $hired = officeHired();
     $care = officeReadJson(OFFICE_DATA . '/caretaker.json');
     if ($care) {
-        $todo = $advice = 0;
-        foreach ((array) ($care['checks'] ?? []) as $desk => $list) {
-            if (!isset($hired[$desk])) {
-                continue;
-            }
-            foreach ((array) $list as $f) {
-                if (($f['ok'] ?? null) === true) {
-                    continue;
-                }
-                $todo += ($f['level'] ?? '') === 'required' ? 1 : 0;
-                $advice += ($f['level'] ?? '') === 'recommended' ? 1 : 0;
-            }
-        }
+        [$todo, $advice] = officeDashCareCounts($care, $hired);
         [$mood, $state, $tone] = $todo ? ['-todo', officeDashT($s, 'dash.todo', ['n' => $todo]), 'red']
             : ($advice ? ['-advice', officeDashT($s, 'dash.advice', ['n' => $advice]), 'orange'] : ['', officeDashT($s, 'dash.all_good'), 'green']);
         $out .= $row('caretaker', officeDashAsset("desks/caretaker/avatar$mood.svg"), officeDashT($s, 'caretaker.name'), $state, $tone);
@@ -111,7 +142,7 @@ function officeDashRows(string $lang): string
     if ($backup) {
         $last = ($backup['history'] ?? [])[0] ?? null;
         if (!empty($backup['running'])) {
-            [$state, $tone] = [officeDashT($s, 'dash.bk_running'), 'orange'];
+            [$state, $tone] = [officeDashT($s, officeDashBackupRunning($backup)), 'orange'];
         } elseif ($last) {
             $result = (string) ($last['result'] ?? '');
             $tone = match ($result) { 'ok' => 'green', 'warnings' => 'orange', default => 'red' };

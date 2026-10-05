@@ -153,5 +153,25 @@
   },
   "notify.description": "Todavía falta: {list}",
   "notify.more": "… y {n} más",
-  "notify.footer": "El jefe de equipo lista todo lo que queda por hacer en su página de la secretaría. Allí puedes desactivar estos avisos."
+  "notify.footer": "El jefe de equipo lista todo lo que queda por hacer en su página de la secretaría. Allí puedes desactivar estos avisos.",
+  "todo_count": "Pendiente ({n})",
+  "advice_count": "Recomendado ({n})",
+  "hints_count": "Conviene saber ({n})",
+  "ack": "Ya lo sé, gracias",
+  "ack_title": "Apartarlo: pasa a «Anotado» y deja de contar — hasta que cambie la situación.",
+  "unack": "Devolver a la lista",
+  "unack_title": "Vuelve a su lista — cuenta de nuevo.",
+  "noted": "Anotado ({n})",
+  "noted_term": "Anotado",
+  "noted_sub": "Lo que me dijiste que ya sabes. Ya no cuenta en ningún sitio — hasta que cambie la situación; entonces te lo vuelvo a decir.",
+  "acked": "Anotado — ya no lo cuento.",
+  "unacked": "De vuelta en la lista.",
+  "bubble.all_good_noted": {
+    "one": "No tienes nada pendiente — una cosa la has anotado, la dejo estar.",
+    "other": "No tienes nada pendiente — {n} cosas las has anotado, las dejo estar."
+  },
+  "help.ack": "Aparta una recomendación o una nota, en «Anotado» al final de la página. Deja de contar: ni en mi bocadillo, ni en mi imagen, ni en la recepción, ni en el recuadro de la secretaría en el Dashboard de Unraid — para todos los navegadores, lo guardo en el servidor. Si cambia la situación (otra versión, otro contenedor), o estaba resuelto y vuelve a aparecer, vuelve solo. Lo que está «Pendiente» no se puede apartar — son imprescindibles.",
+  "help.noted": "Lo que apartaste con «Ya lo sé, gracias». «Devolver a la lista» lo devuelve a su lista.",
+  "errors.ack_gone": "Ese punto ha cambiado mientras tanto — échale otro vistazo.",
+  "errors.ack_required": "Es imprescindible — no se puede apartar. En cuanto esté hecho, desaparece solo."
 }

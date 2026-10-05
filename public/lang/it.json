@@ -168,6 +168,8 @@
   "dash.bk_warnings": "Con avvisi",
   "dash.bk_failed": "Non riuscito",
   "dash.bk_running": "Backup in corso",
+  "dash.bk_checking": "Controllo in corso",
+  "dash.bk_dryrun": "Prova a secco in corso",
   "dash.bk_none": "Ancora nessun backup",
   "dash.bk_next": "Prossimo: {when}",
   "dash.bk_scheduled": "Pianificato",

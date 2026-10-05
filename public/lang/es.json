@@ -168,6 +168,8 @@
   "dash.bk_warnings": "Con avisos",
   "dash.bk_failed": "Fallida",
   "dash.bk_running": "Copia en curso",
+  "dash.bk_checking": "Comprobando",
+  "dash.bk_dryrun": "Simulación en curso",
   "dash.bk_none": "Todavía no hay copia",
   "dash.bk_next": "Próxima: {when}",
   "dash.bk_scheduled": "Programada",

@@ -153,5 +153,25 @@
   },
   "notify.description": "Still missing: {list}",
   "notify.more": "… and {n} more",
-  "notify.footer": "The team lead lists everything that is still to do on his page in the office. You can switch these reports off there."
+  "notify.footer": "The team lead lists everything that is still to do on his page in the office. You can switch these reports off there.",
+  "todo_count": "Still to do ({n})",
+  "advice_count": "Recommended ({n})",
+  "hints_count": "Good to know ({n})",
+  "ack": "I know, thanks",
+  "ack_title": "Put it aside: it moves to «Noted» and no longer counts — until its situation changes.",
+  "unack": "Bring back",
+  "unack_title": "Back into its list — it counts again.",
+  "noted": "Noted ({n})",
+  "noted_term": "Noted",
+  "noted_sub": "What you told me you already know. It no longer counts anywhere — until its situation changes; then I bring it up again.",
+  "acked": "Noted — I won't count it any more.",
+  "unacked": "Back on the list.",
+  "bubble.all_good_noted": {
+    "one": "Nothing open for you — one thing you've noted, I'll leave it be.",
+    "other": "Nothing open for you — {n} things you've noted, I'll leave them be."
+  },
+  "help.ack": "Puts a recommendation or a note aside, into «Noted» at the end of the page. It no longer counts: not in my bubble, my picture, at the reception or on the office's tile on Unraid's Dashboard — for every browser, I keep it on the server. When its situation changes (another version, another container), or it was sorted out and turns up again, it comes back by itself. What's «Still to do» can't be put aside — those are musts.",
+  "help.noted": "What you put aside with «I know, thanks». «Bring back» puts it back into its list.",
+  "errors.ack_gone": "That point has changed in the meantime — have another look.",
+  "errors.ack_required": "That's a must — it can't be put aside. Once it's done, it disappears by itself."
 }

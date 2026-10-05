@@ -162,6 +162,8 @@
   "dash.bk_warnings": "Mit Warnungen",
   "dash.bk_failed": "Fehlgeschlagen",
   "dash.bk_running": "Sichert gerade",
+  "dash.bk_checking": "Prüft gerade",
+  "dash.bk_dryrun": "Probelauf läuft",
   "dash.bk_none": "Noch kein Backup",
   "dash.bk_next": "Nächstes: {when}",
   "dash.bk_scheduled": "Nach Zeitplan",
