@@ -23,7 +23,7 @@
   "missing": "assente",
   "stopped": "non in esecuzione",
   "install": "Installa da App",
-  "to_desk": "Da {name}",
+  "to_desk": "Vai da {name}",
   "howto": "Installare a mano",
   "ext.fcp.name": "Fix Common Problems",
   "ext.fcp.what": "Un plugin di Lime Technology che passa in rassegna il server alla ricerca degli errori più comuni: file di una condivisione sul pool sbagliato, plugin vecchi o non più compatibili, cartelle che non c'entrano in /mnt, nessuna pianificazione per il controllo di parità, notifiche che non arrivano a nessuno … Dice cosa non va e come sistemarlo, e avvisa con una notifica.",
