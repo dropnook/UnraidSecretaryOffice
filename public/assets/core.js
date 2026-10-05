@@ -197,6 +197,40 @@ function loggedOut(r) {
   return true;
 }
 
+// ------------------------------------------------------------------ busy
+// An action that takes more than a moment shows a wave and keeps clicks off the
+// page until it is answered: inside Unraid its own (div.spinner.fixed, the
+// animated logo every Unraid page has), on the office's own page ours. Reads that
+// poll or run beside the page (a log being followed, an estimate) stay quiet.
+const QUIET = /\.(read|output|log|estimate|detail|measure)$/;
+let busyCount = 0, busyTimer = null;
+function busyEl() {
+  const unraid = CONFIG.in_unraid && document.querySelector('div.spinner.fixed');
+  if (unraid) return unraid;
+  let el = $('#sso-busy');
+  if (!el) {
+    el = Object.assign(document.createElement('div'), { id: 'sso-busy', className: 'busy' });
+    el.appendChild(document.createElement('span'));
+    $('#sso').appendChild(el);
+  }
+  return el;
+}
+function busy(on) {
+  busyCount = Math.max(0, busyCount + (on ? 1 : -1));
+  if (busyCount && !busyTimer) {
+    busyTimer = setTimeout(() => { if (busyCount) busyEl().style.display = 'block'; }, 400);
+  } else if (!busyCount) {
+    clearTimeout(busyTimer);
+    busyTimer = null;
+    busyEl().style.display = 'none';
+  }
+}
+async function postBusy(action, data) {
+  if (QUIET.test(action)) return postOnce(action, data);
+  busy(true);
+  try { return await postOnce(action, data); } finally { busy(false); }
+}
+
 Office.api = {
   async get(params) {
     const once = async () => {
@@ -215,8 +249,8 @@ Office.api = {
   /** post('snapshot.delete', {ids}) — the agent answers {ok, …} or {ok:false, error:{key, params}}.
       With a PIN set and this browser locked, it asks for the PIN first and then tries again. */
   async post(action, data) {
-    let j = await postOnce(action, data);
-    if (!j.ok && j.error && j.error.key === 'pin_required' && await Office.unlock()) j = await postOnce(action, data);
+    let j = await postBusy(action, data);
+    if (!j.ok && j.error && j.error.key === 'pin_required' && await Office.unlock()) j = await postBusy(action, data);
     return j;
   },
 };
