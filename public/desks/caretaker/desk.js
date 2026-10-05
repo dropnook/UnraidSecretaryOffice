@@ -165,9 +165,9 @@ function row(f) {
     const a = el('a', 'btn small plain', T('open.office'));
     a.href = f.link;
     r.appendChild(a);
-  } else if (f.link && state.gui && LINKS[f.link]) {
+  } else if (f.link && LINKS[f.link] && Office.safeHref(state.gui + LINKS[f.link])) {
     const a = el('a', 'btn small plain', T('open.' + f.link));
-    a.href = state.gui + LINKS[f.link];
+    a.href = Office.safeHref(state.gui + LINKS[f.link]);
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
     r.appendChild(a);
@@ -255,9 +255,9 @@ function officeSection() {
   if (note) main.appendChild(el('div', 'row-detail', note));
   row.appendChild(main);
   const right = el('div', 'ct-office-actions');
-  if (o.newer && o.url) {
+  if (o.newer && Office.safeHref(o.url)) {
     const a = el('a', 'btn small plain', T('office_whats_new'));
-    a.href = o.url;
+    a.href = Office.safeHref(o.url);
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
     right.appendChild(a);

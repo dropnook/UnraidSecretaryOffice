@@ -901,9 +901,9 @@ function vmdefDetail(v) {
     [T('d.uuid'), v.uuid, true],
   ]));
   box.appendChild(el('p', 'role', T('vmdef.text')));
-  if (state.vms.gui) {
+  if (state.vms.gui && Office.safeHref(state.vms.gui + '/VMs')) {
     const a = el('a', 'btn small plain', T('vmdef.open'));
-    a.href = state.vms.gui + '/VMs';
+    a.href = Office.safeHref(state.vms.gui + '/VMs');
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
     box.appendChild(a);

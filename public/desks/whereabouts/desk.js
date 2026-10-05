@@ -387,8 +387,9 @@ function adviceRow(x, known) {
   const acts = el('div', 'wa-advice-acts');
   if (x.link) {
     const a = el('a', 'btn small plain', x.link.text);
-    if (Office.config.in_unraid) a.href = x.link.path;
-    else { a.href = (state.gui || '') + x.link.path; a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+    const href = Office.safeHref(Office.config.in_unraid ? x.link.path : (state.gui || '') + x.link.path);
+    if (href) a.href = href;
+    if (!Office.config.in_unraid) { a.target = '_blank'; a.rel = 'noopener noreferrer'; }
     acts.appendChild(a);
   }
   const b = el('button', 'btn small plain', T(known ? 'adv.show_again' : 'adv.known'));

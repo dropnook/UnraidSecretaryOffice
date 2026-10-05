@@ -896,6 +896,16 @@ function testAnchors(): void
     check('plan id with a trailing newline refused', preg_match(SNAPPLAN_ID, "daily\n") === 0);
 }
 
+/** The release the caretaker links to: a version number and a page of the office's repository on GitHub, nothing else */
+function testUpdateClean(): void
+{
+    $ok = officeUpdateClean(['latest' => '1.26.0', 'url' => 'https://github.com/' . OFFICE_REPO . '/releases/tag/v1.26.0']);
+    same('release kept', ['1.26.0', 'https://github.com/' . OFFICE_REPO . '/releases/tag/v1.26.0'], [$ok['latest'] ?? null, $ok['url']]);
+    $bad = officeUpdateClean(['latest' => "99\n", 'url' => 'javascript:alert(1)']);
+    same('release with odd values', [null, ''], [$bad['latest'] ?? null, $bad['url']]);
+    same('a link elsewhere is dropped', '', officeUpdateClean(['url' => 'https://github.com.evil.example/x'])['url']);
+}
+
 // ===================================================================== strings
 
 function langFile(string $file): array
@@ -1043,7 +1053,7 @@ function testStrings(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify',
                       'testBackupPackages', 'testBackupKopiaItems', 'testIcons'],
-          'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors'],
+          'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
