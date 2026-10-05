@@ -38,7 +38,7 @@
   "copy.filesviewer.url": "Dirección del plugin",
   "ext.kopia.name": "Kopia",
   "ext.kopia.what": "Un contenedor que copia las copias de seguridad fuera del servidor — cifradas y deduplicadas, a un almacenamiento en la nube o a otra máquina (S3, Backblaze B2, MEGA S4, SFTP …). Cada noche el señor Backupsi le entrega las instantáneas de tus recursos compartidos; sin él, todo se queda solo en este servidor.",
-  "ext.kopia.for": "El señor Backupsi le entrega las copias externas",
+  "ext.kopia.for": "El señor Backupsi le entrega las copias que salen del servidor",
   "open.kopia": "A la página de Docker",
   "install.fcp.1": "En Unraid abre Apps (Community Applications) y busca «Fix Common Problems».",
   "install.fcp.2": "Instálalo. Es gratis y viene de Lime Technology.",
