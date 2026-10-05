@@ -281,7 +281,7 @@ function userScriptSchedule(string $name, ?string $cron, string $schedule = US_S
                             ?string $runtime = US_RUNTIME, bool $apply = true): bool
 {
     $script = dirname($schedule) . "/scripts/$name/script";
-    if (!preg_match('/^[A-Za-z0-9._-]{1,64}$/', $name) || !is_file($script)) {
+    if (!preg_match('/^[A-Za-z0-9._-]{1,64}$/D', $name) || !is_file($script)) {
         throw new Problem('no_user_script', ['name' => $name]);
     }
     if ($cron !== null) {

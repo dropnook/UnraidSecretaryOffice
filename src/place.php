@@ -60,7 +60,7 @@ const OFFICE_MENU_PLACES  = ['menu' => 'Tasks:85', 'settings' => 'Utilities', 'b
 /** A label fit for the menu bar and for the .page header (an ini value in quotes) */
 function officeMenuNameValid(string $name): bool
 {
-    return mb_strlen($name) <= OFFICE_MENU_MAX && preg_match('/^[\p{L}\p{N}](?:[\p{L}\p{N} .&+_-]*[\p{L}\p{N}.])?$/u', $name) === 1;
+    return mb_strlen($name) <= OFFICE_MENU_MAX && preg_match('/^[\p{L}\p{N}](?:[\p{L}\p{N} .&+_-]*[\p{L}\p{N}.])?$/uD', $name) === 1;
 }
 
 /** The label the user chose, else the default */

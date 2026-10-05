@@ -212,7 +212,7 @@ function embySettingsPublic(array $s): array
 /** /boot/config/shares/<share>.cfg as key => value */
 function embyShareCfg(string $share): array
 {
-    return preg_match('/^[\w.\- ]+$/u', $share) ? readCfg("/boot/config/shares/$share.cfg") : [];
+    return preg_match('/^[\w.\- ]+$/uD', $share) ? readCfg("/boot/config/shares/$share.cfg") : [];
 }
 
 /** Every user share (by its configuration on the flash) */
@@ -485,7 +485,7 @@ function embySave(mixed $in): array
     // what kind each chosen library is (films, series …) — only for the office's overview, EmbyCache ignores it
     $cfg['library_types'] = [];
     foreach ((array) ($in['library_types'] ?? []) as $name => $type) {
-        if (is_string($name) && in_array($name, $cfg['libraries'], true) && is_string($type) && preg_match('/^[a-z]{0,20}$/', $type)) {
+        if (is_string($name) && in_array($name, $cfg['libraries'], true) && is_string($type) && preg_match('/^[a-z]{0,20}$/D', $type)) {
             $cfg['library_types'][$name] = $type;
         }
     }
@@ -495,7 +495,7 @@ function embySave(mixed $in): array
     foreach ((array) ($in['valid_users'] ?? []) as $id) {
         if (is_string($id) && preg_match('/^[\w-]{1,64}$/D', $id)) {
             $b = trim((string) ($budgets[$id] ?? ''));
-            if ($b !== '' && !preg_match('/^\d+(\.\d+)?\s*[KMGTP]?B?$/i', $b)) {
+            if ($b !== '' && !preg_match('/^\d+(\.\d+)?\s*[KMGTP]?B?$/iD', $b)) {
                 throw new Problem('emby_bad_size', ['value' => $b]);
             }
             $users[$id] = $b !== '' ? ['budget' => strtoupper(str_replace(' ', '', $b))] : (object) [];
@@ -667,7 +667,7 @@ function embyGatherIni(array $gather, array $pools, string $log, string $exclude
     $q = fn (string $v): string => "'" . str_replace("'", "'\\''", $v) . "'";
     $dirs = [];
     foreach ($gather['shares'] as $share) {
-        if (!preg_match('/^[\w.\- ]+$/u', $share)) {
+        if (!preg_match('/^[\w.\- ]+$/uD', $share)) {
             throw new Problem('emby_bad_share', ['share' => $share]);
         }
         $dirs[] = $q("/mnt/user/$share");

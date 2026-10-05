@@ -27,7 +27,7 @@ const SNAPPLAN_SCRIPT  = 'unraid-secretary-office_snapshots';
 const SNAPPLAN_CRON    = '*/5 * * * *';
 const SNAPPLAN_MAX     = 20;
 const SNAPPLAN_KEEP    = 1000;
-const SNAPPLAN_ID      = '/^[a-z0-9][a-z0-9-]{0,23}$/';
+const SNAPPLAN_ID      = '/^[a-z0-9][a-z0-9-]{0,23}$/D';
 
 function snapPlanFile(): string
 {

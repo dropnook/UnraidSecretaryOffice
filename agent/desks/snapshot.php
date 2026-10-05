@@ -18,7 +18,7 @@ declare(strict_types=1);
 const SNAPSHOT_HOLD_TAG   = 'unraid-secretary-office';
 const SNAPSHOT_HOLD_TAGS  = ['unraid-secretary-office', 'snapshots-webseite'];   // ours, incl. the old name
 const SNAPSHOT_BTRFS_DIR  = '.btrfs-snap';
-const SNAPSHOT_NAME       = '/^[A-Za-z0-9][A-Za-z0-9_.:+-]{0,79}$/';
+const SNAPSHOT_NAME       = '/^[A-Za-z0-9][A-Za-z0-9_.:+-]{0,79}$/D';   // D: a trailing newline doesn't pass
 const VM_SNAPSHOT_DB      = '/etc/libvirt/qemu/snapshotdb';
 const VM_XML_DIR          = '/etc/libvirt/qemu';
 

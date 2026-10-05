@@ -54,7 +54,7 @@ function api_main(): void
         if (str_starts_with($action, 'office.')) {
             answer(officeAuthAction($action, $data));
         }
-        if (!preg_match('/^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_]*$/', $action) || !isset(officeDesks()[explode('.', $action)[0]])) {
+        if (!preg_match('/^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_]*$/D', $action) || !isset(officeDesks()[explode('.', $action)[0]])) {
             answer(['ok' => false, 'error' => ['key' => 'unknown_action', 'params' => ['action' => $action]]], 400);
         }
         unset($data['a']);
@@ -108,7 +108,7 @@ function apiState(string $desk, bool $fresh): array
 
 function apiPart(string $desk, string $part): array
 {
-    if (!isset(officeDesks()[$desk]) || !preg_match('/^[a-z][a-z0-9_-]{0,31}$/', $part)) {
+    if (!isset(officeDesks()[$desk]) || !preg_match('/^[a-z][a-z0-9_-]{0,31}$/D', $part)) {
         return ['ok' => false, 'error' => ['key' => 'bad_request']];
     }
     return ['ok' => true, 'agent' => agentInfo(), 'part' => officeReadJson(OFFICE_DATA . "/$desk-$part.json")];

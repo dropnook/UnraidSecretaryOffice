@@ -884,6 +884,18 @@ function testEmbyPaths(): void
     same('EmbyCache: paths with ".." are skipped', 'Filme/A/a.mkv None None', trim($out));
 }
 
+/** Validators end at the end of the string: "$" alone would let a trailing newline through into a name, a file or a command */
+function testAnchors(): void
+{
+    check('snapshot name ok', preg_match(SNAPSHOT_NAME, 'manual-20261005') === 1);
+    check('snapshot name with a trailing newline refused', preg_match(SNAPSHOT_NAME, "manual-20261005\n") === 0);
+    check('menu name ok', officeMenuNameValid('Office'));
+    check('menu name with a trailing newline refused', !officeMenuNameValid("Office\n"));
+    check('picture address ok', clIconUrlOk('https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/emby.png'));
+    check('picture address with a trailing newline refused', !clIconUrlOk("https://example.com/a.png\n"));
+    check('plan id with a trailing newline refused', preg_match(SNAPPLAN_ID, "daily\n") === 0);
+}
+
 // ===================================================================== strings
 
 function langFile(string $file): array
@@ -1031,7 +1043,7 @@ function testStrings(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify',
                       'testBackupPackages', 'testBackupKopiaItems', 'testIcons'],
-          'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths'],
+          'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {

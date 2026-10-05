@@ -1275,7 +1275,7 @@ function clCaParse(string $text): array
  */
 function clIconOverride(array $s, ?string $service): array
 {
-    if ($service === null || !preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]*$/', $service)) {
+    if ($service === null || !preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]*$/D', $service)) {
         return [null, 'no_service'];
     }
     if (!$s['reachable']) {
@@ -2858,7 +2858,7 @@ function clIconItems(array $r): array
 /** A picture address the user typed: http(s), nothing that could break the XML or YAML it goes into */
 function clIconUrlOk(string $url): bool
 {
-    return strlen($url) <= 500 && preg_match('#^https?://[A-Za-z0-9.-]+(:\d{1,5})?(/[^\s"\'<>\\\\`{}|^]*)?$#', $url) === 1;
+    return strlen($url) <= 500 && preg_match('#^https?://[A-Za-z0-9.-]+(:\d{1,5})?(/[^\s"\'<>\\\\`{}|^]*)?$#D', $url) === 1;
 }
 
 /**
@@ -3210,7 +3210,7 @@ function clIconReplace(string $target, string $content, string $stash, ?string $
  */
 function clIconSeed(string $name, string $png, array $dirs = [CL_DM_RAM, CL_DM_DISK], string $json = CL_DM_JSON, string $web = CL_DM_WEB): array
 {
-    if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]*$/', $name) || !clIsPicture($png, true)) {
+    if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]*$/D', $name) || !clIsPicture($png, true)) {
         return [];
     }
     $done = [];
