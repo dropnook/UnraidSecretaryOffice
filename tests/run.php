@@ -794,6 +794,41 @@ function testPinTries(): void
     hardeningRm($dir);
 }
 
+/** writeAtomic(): a link at the target or a file in the way is never written through; the mode is there from the start */
+function testSafeWrites(): void
+{
+    $dir = hardeningTmp('write');
+    $victim = "$dir/victim.txt";
+    file_put_contents($victim, 'keep');
+    symlink($victim, "$dir/state.json");
+    writeAtomic("$dir/state.json", '{"ok":true}', 0600, 0, 0);
+    same('writeAtomic: the victim behind a link is untouched', 'keep', file_get_contents($victim));
+    check('writeAtomic: the link is replaced by a file', !is_link("$dir/state.json") && is_file("$dir/state.json"));
+    same('writeAtomic: mode 0600', '600', substr(sprintf('%o', fileperms("$dir/state.json")), -3));
+    writeAtomic("$dir/script", "#!/bin/bash\n", 0755, 0, 0);
+    same('writeAtomic: a script keeps its execute bits', '755', substr(sprintf('%o', fileperms("$dir/script")), -3));
+    same('writeAtomic: no temporary files left', [], glob("$dir/.*.tmp") ?: []);
+    $tmp = writeNewFile("$dir/.x", 'a');
+    check('writeNewFile: a new file of its own', $tmp !== null && is_file($tmp) && str_starts_with(basename($tmp), '.x.'));
+
+    // the mailbox and data/office: a real folder of the web server's user, closed to others
+    $box = "$dir/mailbox";
+    mkdir($box, 0770);
+    chown($box, WEB_UID);
+    check('mailbox of the web server: accepted', privateDirOk($box));
+    chmod($box, 0777);
+    check('mailbox open to others: refused', !privateDirOk($box));
+    chmod($box, 0770);
+    chown($box, WEB_UID + 1);
+    check("mailbox of another user: refused", !privateDirOk($box));
+    symlink($box, "$dir/linkbox");
+    check('mailbox through a link: refused', !privateDirOk("$dir/linkbox"));
+    check('a link where a private folder belongs is left alone', !privateDirEnsure("$dir/linkbox", 0700, false) && is_link("$dir/linkbox"));
+    check('a link where the mailbox belongs becomes a folder', privateDirEnsure("$dir/linkbox", 0770, true) && !is_link("$dir/linkbox"));
+    same('the folder the link pointed to keeps its owner', WEB_UID + 1, fileowner($box));
+    hardeningRm($dir);
+}
+
 // ===================================================================== strings
 
 function langFile(string $file): array
@@ -941,7 +976,7 @@ function testStrings(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify',
                       'testBackupPackages', 'testBackupKopiaItems', 'testIcons'],
-          'hardening' => ['testPinTries'],
+          'hardening' => ['testPinTries', 'testSafeWrites'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
