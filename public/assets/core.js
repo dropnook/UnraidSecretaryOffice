@@ -915,14 +915,23 @@ Office.avatar = function avatar(id, big) {
 };
 
 /** The desk head every secretary uses: avatar, name, role, speech bubble, actions */
-Office.deskHead = function deskHead(desk, { bubble, actions }) {
+Office.deskHead = function deskHead(desk, { bubble, actions, page, pageSub }) {
   const head = el('div', 'deskhead');
   head.appendChild(Office.avatar(desk.id));
   const text = el('div', 'deskhead-text');
-  text.append(el('h1', '', t(`${desk.id}.name`)), el('div', 'role', t(`${desk.id}.role`)));
   const b = el('div', 'bubble');
-  if (bubble) b.append(bubble);
-  text.appendChild(b);
+  if (page) {
+    // a page of the desk (its setup …): the desk as a way back, the page's name big, no bubble
+    head.classList.add('subpage');
+    const crumb = el('a', 'deskhead-crumb', t(`${desk.id}.name`));
+    crumb.href = `#/${desk.id}`;
+    text.append(crumb, el('h1', '', page));
+    if (pageSub) text.appendChild(el('div', 'role', pageSub));
+  } else {
+    text.append(el('h1', '', t(`${desk.id}.name`)), el('div', 'role', t(`${desk.id}.role`)));
+    if (bubble) b.append(bubble);
+    text.appendChild(b);
+  }
   head.appendChild(text);
   const act = el('div', 'deskhead-actions');
   (actions || []).forEach((a) => act.appendChild(a));

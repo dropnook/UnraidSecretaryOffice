@@ -1106,6 +1106,16 @@ function setupDraftFromPlan() {
   setup.model = setupModel(setup.plan);
   setupInitLevels();
   setupDerive();
+  setup.base = clone(setup.draft);         // what the assistant proposes, before the user clicks
+}
+
+/** What the user changed against the assistant's proposal */
+function setupEdits() {
+  const out = [];
+  const base = setup.base || setup.plan.P;
+  const keys = new Set([...Object.keys(base), ...Object.keys(setup.draft)]);
+  keys.forEach((k) => { if (!same(base[k], setup.draft[k])) out.push(k); });
+  return out;
 }
 
 /** Every key that differs between the plan and the draft */
@@ -1284,12 +1294,16 @@ function setupForget() {
 /** The bar at the bottom: how many changes, apply */
 function setupBar() {
   if (page !== 'setup' || !setup.plan || !setup.draft) { Office.selbar(null); return; }
-  const edits = setupChanges().length;
-  const n = edits + (setup.plan.pending || []).length;   // your edits + what Apply changes in settings.ini anyway
+  const edits = setupEdits().length;
+  // proposals: what Apply changes in settings.ini although the user clicked nothing
+  const base = setup.base || setup.plan.P;
+  const derived = [...new Set([...Object.keys(base), ...Object.keys(setup.plan.P)])].filter((k) => !same(base[k], setup.plan.P[k])).length;
+  const proposals = derived + (setup.plan.pending || []).length;
+  const fresh = !setup.plan.have_settings;     // nothing set up yet: Apply is how it starts
   const busy = setup.status && setup.status.running;
-  if (!n) { Office.selbar(null); return; }      // nothing to apply: no bar that keeps offering it
+  if (!edits && !fresh && proposals <= 0) { Office.selbar(null); return; }      // nothing to apply: no bar that keeps offering it
   Office.selbar({
-    title: T('setup.bar_changes', { n }),
+    title: edits ? T('setup.bar_changes', { n: edits }) : fresh ? T('setup.bar_new') : T('setup.bar_proposals', { n: proposals }),
     sub: T('setup.bar_sub', { when: fmt.relative(setup.plan.time) }),
     buttons: [
       { text: T('setup.discard'), kind: 'plain', disabled: !edits || busy, act: () => { setupDraftFromPlan(); renderSetup(); } },
@@ -1353,15 +1367,14 @@ function renderSetup() {
   const back = button(T('setup.back'), 'plain', () => Office.go(`#/${ID}`));
   const again = button(T('setup.replan'), 'plain', () => setupPlan(false));
   const measure = button(T('setup.measure'), 'plain', () => setupPlan(true));
+  const forget = button(T('setup.forget_short') + ' …', 'plain', setupForget);
   const busy = setup.status && setup.status.running;
-  [again, measure].forEach((b) => { b.disabled = busy || !canPlan(); });
+  [again, measure, forget].forEach((b) => { b.disabled = busy || !canPlan(); });
   measure.title = T('setup.measure_hint');
-  let bubble = T('setup.bubble_loading');
-  if (busy) bubble = T({ apply: 'setup.bubble_applying', forget: 'setup.bubble_forgetting' }[setup.status.mode] || 'setup.bubble_planning');
-  else if (setup.plan && Date.now() / 1000 - setup.plan.time > SETUP_STALE) bubble = T('setup.bubble_old', { when: fmt.relative(setup.plan.time) });
-  else if (setup.plan) bubble = T(setup.plan.have_settings ? 'setup.bubble_have' : 'setup.bubble_new');
-  else if (state && state.running) bubble = T('setup.bubble_backup_runs');
-  const { head } = Office.deskHead(Office.desks.get(ID), { bubble, actions: [back, again, measure] });
+  forget.title = T('help.forget');
+  forget.hidden = !(setup.plan && setup.plan.have_settings);
+  const pageSub = setup.plan ? T(setup.plan.have_settings ? 'setup.sub_have' : 'setup.sub_new') : '';
+  const { head } = Office.deskHead(Office.desks.get(ID), { page: T('setup.page'), pageSub, actions: [back, again, measure, forget] });
   root.appendChild(head);
   root.appendChild(Office.pageHelp(ID + '-setup', [
     [T('help.draft'), T('help.draft_text')],
@@ -1374,6 +1387,9 @@ function renderSetup() {
   ]));
 
   if (setup.applied) root.appendChild(appliedCard(setup.applied));
+  if (!busy && setup.plan && Date.now() / 1000 - setup.plan.time > SETUP_STALE) root.appendChild(el('p', 'callout warn', T('setup.bubble_old', { when: fmt.relative(setup.plan.time) })));
+  if (!busy && !setup.plan && state && state.running) root.appendChild(el('p', 'callout', T('setup.bubble_backup_runs')));
+  if (!busy && !setup.plan && !(state && state.running)) root.appendChild(el('p', 'callout running', T('setup.bubble_loading')));
   if (busy) {
     const p = el('p', 'callout running');
     const mode = setup.status.mode;
@@ -1392,13 +1408,6 @@ function renderSetup() {
   const old = (plan.kopia.sources || []).filter((s) => s.state === 'orphan' || s.state === 'gone');
   if (old.length) root.appendChild(setupSources(old));
   root.appendChild(setupMessages(plan.messages));
-  if (plan.have_settings) {
-    const again = el('p', 'bk-forget');
-    const b = button(T('setup.forget'), 'small plain', setupForget);
-    b.disabled = busy || !canPlan();
-    again.appendChild(b);
-    root.appendChild(again);
-  }
   setupBar();
   // came from "Change…" on the main page: show that share
   if (setup.focus) {

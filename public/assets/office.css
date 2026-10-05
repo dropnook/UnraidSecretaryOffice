@@ -234,6 +234,10 @@ body.sso-page{margin:0; background:#F2F5F6; -webkit-text-size-adjust:100%}
 .chip img.desk-icon{display:inline-block; width:13px; height:13px; vertical-align:-2px; margin-right:4px}
 .deskhead-text{flex:1; min-width:220px; display:flex; flex-direction:column; gap:3px}
 .deskhead-text h1{font-size:22px}
+/* a desk's own page (its setup …): the desk above as the way back */
+.deskhead-crumb{font-size:13px; color:var(--muted); text-decoration:none; width:max-content}
+.deskhead-crumb::after{content:" ›"}
+.deskhead-crumb:hover{color:var(--accent)}
 .role{font-size:13px; color:var(--muted)}
 .bubble{
   position:relative; margin-top:8px; align-self:flex-start; max-width:760px;
