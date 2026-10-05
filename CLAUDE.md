@@ -319,6 +319,21 @@ character, warnings and errors stay plain and clear.
   `_UnraidSecretaryOffice-trash-<stamp>-<name>` hold things put away, with a
   `manifest.json` per run. Other desks list them as what they are (or skip
   them) — never as a share's own folders, and nothing but her writes there.
+* **Kopia over S3:** a full maintenance's snapshot GC reads every snapshot's
+  directory tree from the bucket — with ~3 TB in 25 snapshots it ran 15 hours
+  (~10k contents/h) and then aborted on one download that failed ten times
+  ("Transfer aborted"); it never resumes, the next GC starts from the front.
+  Never run `maintenance run --full --safety=none` while anything can write
+  (no backup, no KopiaUI snapshot), and never drop deleted contents by hand:
+  after a GC that saw no snapshots, newer snapshots can reference contents
+  still marked deleted — only a complete GC undeletes them. Kopia's own
+  schedule (`kopia maintenance info`, owner `user@host`) runs a full cycle every 24 h.
+* Kopia's sources are named by the **container path** (`/backup-snapshots/<share>`),
+  not the host path: changing only the Host Path keeps their history; a new
+  repository (bucket) starts every source with a full upload — no dedup across
+  repositories.
+* `docker top <container> -eo …` needs `pid` in the list (`-eo pid,args`),
+  otherwise Docker only answers "Couldn't find PID field".
 
 ## Checklist for a change
 
