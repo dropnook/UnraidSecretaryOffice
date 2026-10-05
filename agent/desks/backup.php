@@ -1099,12 +1099,61 @@ function backupSetupPlan(bool $measure): array
 function backupSetupGet(): array
 {
     $data = BACKUP_DATA_DIR;
+    $plan = readJson("$data/state/setup-plan.json");
+    if (is_array($plan['shares'] ?? null)) {
+        $asleep = sleepingDisks();
+        foreach ($plan['shares'] as &$share) {
+            $share += backupShareTop($share, $asleep);
+        }
+        unset($share);
+    }
     return [
         'ok'     => true,
         'status' => backupSetupStatus(),
         'run'    => readJson("$data/state/setup-status.json"),
-        'plan'   => readJson("$data/state/setup-plan.json"),
+        'plan'   => $plan,
     ];
+}
+
+/**
+ * The folders at the top of a share, so Kopia can be told to leave one out with
+ * a click. Only disks and pools that are awake are looked at (the others are
+ * named in top_asleep); a share with very many (one folder per film) gets none.
+ */
+function backupShareTop(array $share, array $asleep): array
+{
+    $name = (string) ($share['name'] ?? '');
+    $dirs = [];
+    $sleeping = [];
+    $many = false;
+    if ($name === '' || empty($share['exists']) || str_contains($name, '/')) {
+        return ['top' => [], 'top_asleep' => [], 'top_many' => false];
+    }
+    foreach (array_filter(array_map('trim', explode(',', (string) ($share['locations'] ?? '')))) as $base) {
+        if (!preg_match('/^[A-Za-z0-9_.-]+$/', $base)) {
+            continue;
+        }
+        if (baseAsleep($base, $asleep)) {
+            $sleeping[] = $base;
+            continue;
+        }
+        $names = @scandir("/mnt/$base/$name") ?: [];
+        if (count($names) > 302) {
+            $many = true;
+            continue;
+        }
+        foreach ($names as $n) {
+            if ($n[0] !== '.' && !str_starts_with($n, '_UnraidSecretaryOffice-trash') && is_dir("/mnt/$base/$name/$n")) {
+                $dirs[$n] = true;
+            }
+        }
+    }
+    $dirs = array_keys($dirs);
+    if (count($dirs) > 60) {
+        $many = true;
+    }
+    natcasesort($dirs);
+    return ['top' => $many ? [] : array_values($dirs), 'top_asleep' => $sleeping, 'top_many' => $many];
 }
 
 /**

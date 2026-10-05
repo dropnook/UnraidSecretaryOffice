@@ -1457,16 +1457,21 @@ function shareDetails(sh, plan) {
     box.appendChild(field(T('setup.f_kopia_retention'), textInput(k('kopia_retention'), /^(\d+|inherit)( (\d+|inherit)){5}$/, T('setup.f_like_all')), T('setup.f_kopia_retention_hint')));
     const ign = listInput(k('kopia_ignore'), 3);
     box.appendChild(field(T('setup.f_ignore'), ign, T('setup.f_ignore_hint')));
-    if (sh.folders.length) {
+    // every folder at the top of the share, with the containers that use it
+    const users = new Map();
+    (sh.top || []).forEach((d) => users.set(d, []));
+    sh.folders.forEach((f) => {
+      if (!users.has(f.dir)) users.set(f.dir, []);
+      if (!users.get(f.dir).includes(f.container)) users.get(f.dir).push(f.container);
+    });
+    const asleep = sh.top_asleep || [];
+    if (users.size || sh.top_many || asleep.length) {
       const sug = el('div', 'bk-chips');
-      sug.appendChild(el('small', 'role', T('setup.f_folders')));
-      const seen = new Set();
-      sh.folders.forEach((f) => {
-        if (seen.has(f.dir)) return;
-        seen.add(f.dir);
-        const rule = `/${f.dir}/`;
+      sug.appendChild(el('small', 'role', T(users.size ? 'setup.f_folders' : 'setup.f_folders_none')));
+      users.forEach((cts, dir) => {
+        const rule = `/${dir}/`;
         const have = (dget(k('kopia_ignore'), []) || []).includes(rule);
-        const c = button(`${rule} · ${f.container}`, 'small ' + (have ? '' : 'plain'), () => {
+        const c = button(cts.length ? `${rule} · ${cts.join(', ')}` : rule, 'small ' + (have ? '' : 'plain'), () => {
           const list = [...(dget(k('kopia_ignore'), []) || [])];
           const i = list.indexOf(rule);
           if (i >= 0) list.splice(i, 1); else list.push(rule);
@@ -1476,6 +1481,8 @@ function shareDetails(sh, plan) {
         c.title = T(have ? 'setup.f_folder_on' : 'setup.f_folder_off');
         sug.appendChild(c);
       });
+      if (sh.top_many) sug.appendChild(el('small', 'role', T('setup.f_folders_many')));
+      if (asleep.length) sug.appendChild(el('small', 'role', T('setup.f_folders_asleep', { disks: asleep.join(', ') })));
       box.appendChild(sug);
     }
   }

@@ -118,3 +118,17 @@ function sleepingDisks(): array
     }
     return $result;
 }
+
+/** Does a disk or pool sleep? A pool sleeps when any of its disks does (cache, cache2 …). */
+function baseAsleep(string $base, array $asleep): bool
+{
+    if (preg_match('/^disk\d+$/', $base)) {
+        return $asleep[$base] ?? false;              // an array disk is just itself (disk1 is not disk10)
+    }
+    foreach ($asleep as $disk => $sleeping) {
+        if ($sleeping && preg_match('/^' . preg_quote($base, '/') . '\d*$/', (string) $disk)) {
+            return true;
+        }
+    }
+    return false;
+}
