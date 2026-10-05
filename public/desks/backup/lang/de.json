@@ -34,7 +34,7 @@
     "one": "Seit dem Setup hat sich auf dem Server eine Sache geändert.",
     "other": "Seit dem Setup haben sich auf dem Server {n} Dinge geändert."
   },
-  "check": "Prüfen",
+  "check": "Rundgang",
   "start": "Jetzt sichern…",
   "abort": "Lauf abbrechen",
   "unmount": "Aushängen",
@@ -177,7 +177,7 @@
     "other": "{n} Snapshots sind von einem Lauf noch eingehängt."
   },
   "log_cut": "… (nur das Ende des Protokolls)",
-  "menu.refresh": "Rundgang",
+  "menu.refresh": "Auffrischen",
   "menu.latest_log": "Neuestes Protokoll",
   "errors.backup_missing": "Das Backup-Script liegt nicht in {dir}.",
   "errors.backup_too_old": "unraid-backup {version} lässt sich von hier nicht steuern — auf 2.5 oder neuer aktualisieren.",
@@ -503,8 +503,8 @@
   "help.results_text": "Wie ein Lauf endete; «nicht fertig» heisst, er brach unerwartet ab (Neustart, abgeschossen), «abgebrochen», dass du ihn gestoppt hast. Einzelheiten stehen im Protokoll.",
   "help.protection": "Ist alles geschützt?",
   "help.protection_text": "Jeder Share und wie das Backup ihn schützt — mit denselben Labels wie überall im Sekretariat:",
-  "help.buttons": "Prüfen · Jetzt sichern · Abbrechen",
-  "help.buttons_text": "Prüfen vergleicht den Server mit den Einstellungen (Sekunden, ändert nichts). Jetzt sichern bietet einen vollen Lauf, einen ohne Kopia oder einen Trockenlauf. Ein Lauf geht weiter, auch wenn du die Seite schliesst; Abbrechen beendet ihn sauber — Container laufen wieder, Mounts verschwinden.",
+  "help.buttons": "Rundgang · Jetzt sichern · Abbrechen",
+  "help.buttons_text": "Der Rundgang vergleicht den Server mit den Einstellungen (Sekunden, ändert nichts). Jetzt sichern bietet einen vollen Lauf, einen ohne Kopia oder einen Trockenlauf. Ein Lauf geht weiter, auch wenn du die Seite schliesst; Abbrechen beendet ihn sauber — Container laufen wieder, Mounts verschwinden.",
   "help.setup": "Liest den Server ein und zeigt Vorschläge mit Begründung; du änderst, was du willst, und übernimmst. Alles im Browser — dahinter arbeitet derselbe Motor wie setup.sh.",
   "help.history": "Die letzten Läufe mit Ergebnis, Kopia-Zahl und wie lange Container standen. Ein Klick auf einen Lauf öffnet sein Protokoll.",
   "help.drift": "Neue Shares oder Container seit dem Setup, oder Einstellungen, die nicht mehr passen. «Einrichten…» übernimmt sie.",

@@ -34,7 +34,7 @@
     "one": "One thing on the server changed since the setup.",
     "other": "{n} things on the server changed since the setup."
   },
-  "check": "Check",
+  "check": "Tour",
   "start": "Back up now…",
   "abort": "Stop the run",
   "unmount": "Unmount",
@@ -177,7 +177,7 @@
     "other": "{n} snapshots are still mounted from a run."
   },
   "log_cut": "… (only the end of the log)",
-  "menu.refresh": "Tour",
+  "menu.refresh": "Refresh",
   "menu.latest_log": "Latest log",
   "errors.backup_missing": "The backup script is not in {dir}.",
   "errors.backup_too_old": "unraid-backup {version} can't be controlled from here — update to 2.5 or newer.",
@@ -503,8 +503,8 @@
   "help.results_text": "How a run ended; «not finished» means it stopped unexpectedly (restart, killed), «stopped» that you stopped it. The log tells the details.",
   "help.protection": "Is everything protected?",
   "help.protection_text": "Every share with how the backup protects it — the same labels as everywhere in the office:",
-  "help.buttons": "Check · Back up now · Stop",
-  "help.buttons_text": "Check compares the server with the settings (seconds, changes nothing). Back up now offers a full run, one without Kopia or a dry run. A run keeps going when you close the page; Stop ends it cleanly — containers come back, mounts go.",
+  "help.buttons": "Tour · Back up now · Stop",
+  "help.buttons_text": "The tour compares the server with the settings (seconds, changes nothing). Back up now offers a full run, one without Kopia or a dry run. A run keeps going when you close the page; Stop ends it cleanly — containers come back, mounts go.",
   "help.setup": "Reads the server and shows proposals with reasons; you change what you like and apply. All in the browser — the same engine as setup.sh works behind it.",
   "help.history": "The last runs with result, Kopia count and how long containers were stopped. A click on a run opens its log.",
   "help.drift": "New shares or containers since the setup, or settings that don't fit any more. Set up… takes them over.",
