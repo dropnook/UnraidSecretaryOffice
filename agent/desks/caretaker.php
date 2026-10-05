@@ -312,6 +312,15 @@ function caretakerChecks(): array
         $out[] = finding('mail_subject', 'hint', false, ['subject' => $subject, 'host' => hostname()], 'notifications');
     }
 
+    // Unraid 7.3.2: a container without a picture makes its Docker page and Dashboard flood /var/log
+    if (function_exists('cleanupIconLoopRisk')) {
+        $loop = cleanupIconLoopRisk();
+        if ($loop['affected']) {
+            $out[] = finding('icon_loop', 'recommended', !$loop['risk'], ['version' => $loop['version'], 'n' => $loop['containers']],
+                in_array('cleanup', staffHired(), true) ? '#/cleanup' : 'docker');
+        }
+    }
+
     if (!AS_PLUGIN) {           // as a plugin the Unraid login guards the office already
         $auth = readJson(DATA_DIR . '/office/auth.json') ?? [];
         $out[] = finding('pin', 'recommended', !empty($auth['pin_hash']));

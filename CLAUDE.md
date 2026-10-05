@@ -169,10 +169,10 @@ differ get a `_plugin` key or come from state (`schedule.via`).
 | `backup` | Mr. Backupsy / Herr Backupsi | runs the engine in `backup/`: status, overview tiles (Kopia, containers, databases, VMs, flash), history, protection (shares, then the VMs; rows unfold to their rules), restore help incl. "Onto a new server", setup assistant (`#/backup/setup`: 0 basics → 1 VMs → 2 apps → 3 other shares → 4 retention; a level per VM/app — nicht / lokal / lokal + Kopia, say "Kopia", never "offsite" — and setupDerive() turns it into share modes (locked in step 3), `docker|no_stop`, dumps and Kopia ignores for folders of apps/VMs that are only local; an app's further shares are never ticked unasked; "start anew" = `setup.sh --forget`). VMs (engine 2.16): `[vm "<name>"] prepare` = freeze (guest agent) / pause / shutdown (never forced off) / none for the seconds of the snapshot, released right after the snapshot holding their disks (`state/vms` for a killed run); `mode = off` and `retention` only for a VM in a dataset of its own (`VM_OWN_DS`); per-VM results in `status.json` `vms` |
 | `emby` | Jack Emby (the intern) | EmbyCache (`embycache/`, from github.com/helmi1987/embycache-for-unraid, extended: back to the origin disk via embycache_origin.json, the emptied folder stays on the disk as a signpost, separate limits for started films and series, deliberately skipped folders = empty mapping) and the gather "Consolidate folders" (`gather/`: one disk per film folder, keeps empty folders whose content is on the pool). Settings via EmbyCache's own save_config() (trial file first); the gather's ini written by Jack; API key never leaves the server; schedules: jobs `embycache` and `gather` (job.sh) |
 | `logs` | Ms. Protocolli / Frau Protokolli | reads logs out loud (fixed source list in agent/desks/logs.php, ids only, never paths; `backup:latest` = the engine's latest.log); tail/follow by file offset, docker logs and dmesg re-read; lines go into the page as text only. A picker with a search field instead of a select; favourites in `Office.store` (defaults until the user stars/unstars one, "out of the box" brings them back); nothing is read until a log is chosen. Read only |
-| `cleanup` | Ms. Dustdevil / Frau Putzteufel | clears away what nobody uses: Docker templates, Compose stacks, appdata folders, stray my-*.xml elsewhere, what deleted VMs left behind (domains folders, NVRAM, TPM, snapshot lists, unused disk images; VMs without disks are only pointed out), switched-off User Scripts that lie around, Docker's leftovers. Never deletes right away: renames into `_UnraidSecretaryOffice-trash` on the same filesystem (ZFS datasets with `zfs rename` next to it), `manifest.json` per run, put back or empty; Docker leftovers can only be removed. Only rename, never copy; nothing while a backup runs |
+| `cleanup` | Ms. Dustdevil / Frau Putzteufel | clears away what nobody uses: Docker templates, Compose stacks, appdata folders, stray my-*.xml elsewhere, what deleted VMs left behind (domains folders, NVRAM, TPM, snapshot lists, unused disk images; VMs without disks are only pointed out), switched-off User Scripts that lie around, Docker's leftovers. Never deletes right away: renames into `_UnraidSecretaryOffice-trash` on the same filesystem (ZFS datasets with `zfs rename` next to it), `manifest.json` per run, put back or empty; Docker leftovers can only be removed. Only rename, never copy; nothing while a backup runs. Missing pictures: containers without a picture on the Docker page/Dashboard (found like DockerClient::getIcon: template by Name+Repository, else the label; docker.json / question.png); logos from the CA feed, `CL_ICON_TABLE` and checked guesses — dashboard-icons URLs via jsDelivr, never bundled; set in the user template's `<Icon>` or the Compose Manager override (shape-checked, refused otherwise), old file to the storeroom (kind `icon`, put back only while unchanged), Unraid's cache filled; `cleanupIconLoopRisk()` feeds the caretaker's 7.3.2 check, stand-in question.png (RAM) |
 | `advisor` | The Consultant / Der Berater | an external: whether the tools the office relies on are there (Fix Common Problems, Files Viewer, a Kopia container, Stream Viewer where Emby/Jellyfin/Plex runs; unbalanced optional, never suggested — it can get in the way of backups, EmbyCache and the gather), what they are good for, who needs them, how to install them by hand (ADVISOR_EXTERNALS in agent/desks/advisor.php, EXTERNALS in his desk.js). Never installs, never scans. Read only |
 | `restore` | Mr. Restori / Herr Restori | **in training** (desk.json `"training": true`): under contract, apprentice with Mr. Backupsy, cannot be hired yet (office.hire refuses `in_training`, officeHired never counts him); the caretaker shows him with a tip-jar button. Will bring apps and VMs back from Mr. Backupsy's packages (stage B), the snapshots and Kopia — the restore help moves to him then |
-| `caretaker` | The Caretaker / Der Hauswart | collects every desk's `checks` and what the office needs; tells the user what is left to do; reports new red findings to Unraid's notifications (see Notifications) |
+| `caretaker` | The Team Lead / Der Teamchef (until 1.23: the caretaker / der Hauswart; the id stays `caretaker`) | leads the team (hires, fires, suggests whom to hire); collects every desk's `checks` and what the office needs; tells the user what is left to do; reports new red findings to Unraid's notifications (see Notifications) |
 
 **User Scripts entries** (only in the stack) of the office are always named `unraid-secretary-office_<what>` (US_PREFIX); renamed ones are moved once by `userScriptsMigrate()` (lib/house.php: folder, schedule, cron line, User Scripts Enhanced category). Descriptions in English: "Unraid Secretary Office - …". As a plugin, `officeJobsFromUserScripts()` hands their schedule over to the plugin's cron file once and removes them.
 
@@ -203,10 +203,10 @@ exists.
 anxious, checks everything three times), Frau Wasistwo (nosy gossip), Jack
 Emby (the intern), Frau Protokolli (reads everything out, understands nothing),
 Frau Putzteufel (sees dust everywhere, but never throws anything away at once —
-"man weiss ja nie"), the caretaker (plain and friendly), Herr Restori (calm restorer in white gloves, «Piano, piano», apprentice with Herr Backupsi), the consultant (an external,
+"man weiss ja nie"), the team lead / der Teamchef (plain and friendly, knows his people), Herr Restori (calm restorer in white gloves, «Piano, piano», apprentice with Herr Backupsi), the consultant (an external,
 consultant speak: "quick win", "best practice", the hour runs anyway). In Italian:
 Signora Snapshotini, Signor Backupsi, Signora Dovè, Jack Emby (lo stagista),
-Signora Protocolli, Signora Spolverina, Il custode, Signor Restori, Il consulente
+Signora Protocolli, Signora Spolverina, Il capoufficio, Signor Restori, Il consulente
 (addressing the user with "tu", like the German "du"). Greetings are lang keys
 `greet.1…n` (`Office.greet` / `Office.withGreeting`); chatty bubbles may carry
 character, warnings and errors stay plain and clear.
@@ -268,8 +268,8 @@ character, warnings and errors stay plain and clear.
   (offsite / only local / not backed up), the level coming from
   `backupProtection()` in agent/lib/backupscript.php.
 * **Names in German** read naturally (Frau Snapshotini, Herr Backupsi, Der
-  Hauswart); a desk can set its reception button with the lang key `visit`
-  ("Zum Hauswart"), otherwise the office's "Visit {name}" is used.
+  Teamchef); a desk can set its reception button with the lang key `visit`
+  ("Zum Teamchef"), otherwise the office's "Visit {name}" is used.
 * **Say what is really there:** detect it (boot from a USB stick or a boot
   pool, license bound to the stick or the TPM, a VM disk sitting on a snapshot
   overlay) instead of describing the common case. Restore texts must be
@@ -369,6 +369,14 @@ character, warnings and errors stay plain and clear.
 * The plugin manager registers a plugin (`/var/log/plugins` symlink) only after
   its install script: `update_cron` run during a fresh install doesn't pick up
   the plugin's own cron files yet.
+* **Container pictures (7.3.2):** Unraid's icon downloader (curl, no
+  User-Agent) can't open a bare local path — it needs `file://`; hosts that
+  refuse requests without a User-Agent (Wikimedia: 403) never load. Unraid keeps
+  the icon path in `docker.json` as long as that file exists — once
+  `question.png` exists it never looks again. The Compose Manager's override is
+  `<composefile>.override.<ext>` (or the old `docker-compose.override.yml`);
+  `labels_view_mode=advanced` means "Manual", hands off. CA's
+  `templates_new.json` is PHP-serialized (~30 MB): grep it, never unserialize.
 * `docker top <container> -eo …` needs `pid` in the list (`-eo pid,args`),
   otherwise Docker only answers "Couldn't find PID field".
 

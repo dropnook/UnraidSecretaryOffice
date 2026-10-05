@@ -12,6 +12,21 @@
 .cl-filter-note{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0}
 .cl-acts{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end}
 .box > .row.cl-single:first-child{border-top:0}
+/* missing pictures: a small frame in front of the name, the choice in the details */
+.cl-pic{display:inline-flex; align-items:center; justify-content:center; flex:none; width:28px; height:28px; border-radius:6px; overflow:hidden; background:var(--surface2); font-size:14px; line-height:1}
+.cl-pic img{width:100%; height:100%; object-fit:contain; display:block}
+.cl-pic.cl-pic-none{background:transparent; border:1px dashed var(--line2)}
+.cl-pic-name{display:flex; align-items:center; gap:8px; min-width:0}
+.cl-pic-list{display:flex; flex-direction:column; gap:6px; margin:10px 0 8px}
+.cl-pic-list .cl-pic-opt{align-items:center; margin:0}
+.cl-pic-opt small{overflow-wrap:anywhere}
+.cl-pic-opt input:disabled ~ *{opacity:.55}
+.cl-pic-own{display:flex; gap:8px; align-items:center; margin:4px 0}
+.cl-pic-own .input{flex:1; min-width:0; font-size:13px; padding:5px 8px}
+.cl-pic-short{margin:0 0 12px; padding:0; list-style:none; max-height:260px; overflow:auto; border:1px solid var(--line); border-radius:var(--radius)}
+.cl-pic-short li{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:4px 10px; padding:5px 10px; border-top:1px solid var(--line); font-size:13px; color:var(--ink)}
+.cl-pic-short li:first-child{border-top:0}
+.cl-pic-when{margin-left:auto; color:var(--muted); font-size:12px}
 @media (max-width:640px){
   .row.cl-trash-row{grid-template-columns:minmax(0,1fr)}
   .row.cl-trash-row > div:last-child:empty{display:none}

@@ -1,7 +1,7 @@
 {
-  "name": "Der Hauswart",
-  "role": "Schaut zum Haus — was das Sekretariat von deinem Server braucht und was du noch selbst tun musst",
-  "visit": "Zum Hauswart",
+  "name": "Der Teamchef",
+  "role": "Führt das Team — wen du einstellen kannst, was das Sekretariat von deinem Server braucht und was du noch selbst tun musst",
+  "visit": "Zum Teamchef",
   "bubble.loading": "Einen Moment, ich mache meinen Rundgang…",
   "bubble.all_good": "Alles an seinem Platz — für dich gibt es nichts zu tun.",
   "bubble.todo": {
@@ -53,6 +53,8 @@
   "check.files_viewer_how": "Dateien und Protokolle — auch die von Herrn Backupsi — direkt in Unraids Oberfläche ansehen. Aus den Apps installieren.",
   "check.notifications": "Unraids Warnungen erreichen dich per Mail oder Push",
   "check.notifications_how": "Unter Settings → Notifications für Warnungen Mail oder einen Agent (Pushover, Telegram, …) einschalten — sonst erfährt niemand von einem fehlgeschlagenen Backup oder einer sterbenden Disk.",
+  "check.icon_loop": "Unraid {version}: kein Container ohne Bild, solange sein Fragezeichen fehlt",
+  "check.icon_loop_how": "{n} Container haben kein Bild, und Unraid {version} liefert das Fragezeichen nicht mit, das es stattdessen zeigt — seine Docker-Seite und das Dashboard fragen dann etwa tausendmal pro Sekunde danach, bis /var/log voll ist. Gib ihnen ein Bild (Frau Putzteufel macht das in ihrem Raum «Fehlende Bilder») oder lege bis zum nächsten Neustart einen Ersatz hin: ein beliebiges PNG nach /usr/local/emhttp/plugins/dynamix.docker.manager/images/question.png kopieren. Bis dahin die Docker-Seite und das Dashboard geschlossen lassen.",
   "check.mail_subject": "Der Mail-Betreff «{subject}» nennt {host} nicht",
   "check.mail_subject_how": "Absicht? Unter Settings → Notifications → SMTP anpassen, damit du erkennst, welcher Server schreibt.",
   "check.pin": "Ändern im Sekretariat braucht eine PIN",
@@ -75,7 +77,7 @@
   "help.open": "Knöpfe rechts",
   "help.open_text": "Führt dorthin, wo du es erledigst: zur passenden Seite von Unraids Oberfläche (Plugins, Apps, Docker, User Scripts, Mitteilungen) in einem neuen Tab — oder direkt zum richtigen Schreibtisch hier im Büro, z. B. «Einrichten…» bei Herr Backupsi.",
   "help.again": "Schaut sofort alles neu an; sonst tue ich das, wenn die Seite geöffnet wird und mein letzter Blick älter als 5 Minuten ist.",
-  "bubble.alone": "Hoi, ich bin der Hauswart. Ausser mir ist noch niemand da — aber ich habe mich schon umgehört, wer zu deinem Server passen würde. Schau dir das Team unten an und stell ein, wen du brauchen kannst.",
+  "bubble.alone": "Hoi, ich bin der Teamchef. Ausser mir ist noch niemand da — aber ich habe mich schon umgehört, wer zu deinem Server passen würde. Schau dir das Team unten an und stell ein, wen du brauchen kannst.",
   "bubble.alone_short": "Ausser mir ist noch niemand da. Komm vorbei — ich stelle dir vor, wer zu deinem Server passen würde.",
   "fact.could_come": "Könnten kommen: {names}",
   "team": "Das Team",
@@ -119,7 +121,7 @@
   "office_compose_title": "Aktualisiert — der Stack braucht einen Neustart",
   "office_compose_text": "Diesmal hat sich auch compose.yaml geändert. Bitte den Stack im Compose Manager einmal neu starten («Compose Up»), damit die Container die neue Einstellung bekommen.",
   "check.office_update": "Das Büro ist auf dem neusten Stand ({version})",
-  "check.office_update_how": "Version {latest} ist da — der Hauswart zeigt unter «Das Büro», wie du aktualisierst.",
+  "check.office_update_how": "Version {latest} ist da — der Teamchef zeigt unter «Das Büro», wie du aktualisierst.",
   "errors.office_not_git": "Das Büro wurde nicht mit git installiert — von Hand aktualisieren.",
   "errors.office_local_changes": "Am Code wurde hier etwas geändert — ich aktualisiere nicht, damit nichts verloren geht.",
   "errors.office_git": "git ging nicht: {detail}",
@@ -151,5 +153,5 @@
   },
   "notify.description": "Fehlt noch: {list}",
   "notify.more": "… und {n} weitere",
-  "notify.footer": "Der Hauswart führt auf seiner Seite im Sekretariat alles auf, was noch zu erledigen ist. Dort lassen sich diese Meldungen auch abschalten."
+  "notify.footer": "Der Teamchef führt auf seiner Seite im Sekretariat alles auf, was noch zu erledigen ist. Dort lassen sich diese Meldungen auch abschalten."
 }
