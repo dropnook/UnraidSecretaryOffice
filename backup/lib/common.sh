@@ -195,7 +195,7 @@ declare -gA UB_SCHEMA=(
     [zfs]="retention"
     [btrfs]="keep_days min_free_gb snapshot_all"
     [drift]="ignore remind_days"
-    [docker]="stop no_stop stop_timeout known"
+    [docker]="stop no_stop stop_timeout known skip"
     [flash]="mode tar_exclude kopia_ignore"
     [libvirt]="mode"
     [kopia]="enabled container identity keep_latest keep_hourly keep_daily keep_weekly keep_monthly keep_annual compression ignore"
@@ -309,6 +309,8 @@ apply_settings() {
     DOCKER_STOP="$(cfg "docker|stop" all)"
     DOCKER_STOP_TIMEOUT="$(cfg "docker|stop_timeout" 60)"
     mapfile -t DOCKER_NO_STOP < <(cfg_list "docker|no_stop")
+    # apps the user chose not to back up: they keep running like no_stop (no dump, Kopia leaves them out)
+    mapfile -t DOCKER_SKIP    < <(cfg_list "docker|skip")
     mapfile -t DOCKER_KNOWN   < <(cfg_list "docker|known")
 
     FLASH_MODE="$(cfg "flash|mode" tar)"
@@ -1419,7 +1421,7 @@ drift_check_containers() {
             drift_add warn "Container '$n' uses Docker volumes ($(cut -d'|' -f1 <<<"${CT_VOLUMES[$n]}" | paste -sd, -)) - they live in the Docker image and are NOT in the backup"
         fi
     done
-    for n in $(cfg_names dump) $(cfg_names nextcloud) "${DOCKER_NO_STOP[@]}"; do
+    for n in $(cfg_names dump) $(cfg_names nextcloud) "${DOCKER_NO_STOP[@]}" "${DOCKER_SKIP[@]}"; do
         [[ -n "${referenced[$n]:-}" ]] && continue
         referenced[$n]=1
         in_list "$n" "${CT_NAMES[@]}" || drift_add warn "Container '$n' is in settings.ini but does not exist"

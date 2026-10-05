@@ -198,7 +198,7 @@ build_stop_tiers() {
     for n in "${CT_NAMES[@]}"; do
         [[ "${CT_RUNNING[$n]}" == "true" ]] || continue
         [[ "$n" == "$KOPIA_CONTAINER" ]] && continue
-        in_list "$n" "${DOCKER_NO_STOP[@]}" && continue
+        in_list "$n" "${DOCKER_NO_STOP[@]}" "${DOCKER_SKIP[@]}" && continue
         if [[ -n "${provider[$n]:-}" ]]; then T_NET+=( "$n" )
         elif [[ -n "${isdb[$n]:-}" || -n "$(ct_db_type "$n")" ]]; then T_DB+=( "$n" )
         else T_APP+=( "$n" ); fi

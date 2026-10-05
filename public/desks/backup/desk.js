@@ -1086,9 +1086,9 @@ async function showLog(name, follow) {
 // settings.ini keys) with reasons; the user changes what he wants here, and
 // setup.sh --apply checks and writes it — the same engine as in a terminal.
 const SETUP_POLL = 2000;
-const LIST_KEY = /\|(ignore|no_stop|known|kopia_ignore|exclude_dataset|tar_exclude)$/;
+const LIST_KEY = /\|(ignore|no_stop|known|skip|kopia_ignore|exclude_dataset|tar_exclude)$/;
 let setup = { plan: null, draft: null, status: null, run: null, applied: null, open: new Set(), retire: true, asked: false, focus: null,
-  model: null, levels: {}, deps: new Set(), locks: {} };
+  model: null, levels: {}, held: {}, deps: new Set(), locks: {} };
 let setupTimer = null;
 
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -1123,7 +1123,10 @@ function setupSummary() {
   const m = setup.model;
   const groups = [0, 1, 2].map(() => ({ vms: [], apps: [], shares: [] }));     // not, local, local + Kopia
   m.vms.forEach((x) => groups[levelOf('vm:' + x.name)].vms.push(x.name));
-  m.apps.forEach((a) => groups[levelOf('app:' + a.id)].apps.push(a.name));
+  m.apps.forEach((a) => {
+    const l = levelOf('app:' + a.id);
+    groups[l].apps.push(l > 0 && setup.held[a.id] === 'run' ? `${a.name} ${T('setup.sum_running')}` : a.name);
+  });
   setup.plan.shares.filter((x) => x.exists).forEach((x) => {
     groups[Math.max(0, LV.indexOf(dget(`share|${x.name}|mode`, 'off')))].shares.push(x.name);
   });
@@ -1159,7 +1162,7 @@ async function setupLoad() {
   setup.status = j.status;
   setup.run = j.run;
   // a plan from before engine 2.17 doesn't know which shares a container binds: read the server again
-  const stale = j.plan && (j.plan.containers || []).some((c) => c.binds === undefined);
+  const stale = j.plan && ((j.plan.containers || []).some((c) => c.binds === undefined) || !('docker|skip' in (j.plan.P || {})));
   if (stale && !j.status.running && !setup.restale && canPlan()) { setup.restale = true; setupPlan(false, true); }
   if (j.plan && !stale && (!setup.plan || j.plan.time !== setup.plan.time)) {
     setup.plan = j.plan;
@@ -1691,12 +1694,17 @@ function setupInitLevels() {
   const onKopia = (folders) => folders.length > 0 && folders.every((f) => dget(`share|${f.share}|mode`) === 'kopia' && !ignored(f.share, f.dir));
   const fresh = !setup.plan.have_settings;          // a new setup sends nothing to Kopia unasked
   const nostop = dget('docker|no_stop', []) || [];
+  const skip = dget('docker|skip', []) || [];
   setup.levels = {};
+  setup.held = {};
   setup.deps = new Set();
   m.apps.forEach((a) => {
-    let l = a.members.every((n) => nostop.includes(n)) ? 0 : onKopia(a.folders) ? 2 : 1;
+    // every app has at least its template or compose file: "not" only when the user said so (docker|skip)
+    let l = a.members.every((n) => skip.includes(n)) ? 0 : onKopia(a.folders) ? 2 : 1;
     if (fresh) l = Math.min(l, 1);
     setup.levels['app:' + a.id] = l;      // an app's further shares are never ticked unasked (they grow fast)
+    // during the snapshot: the engine's proposal - media servers and apps without changing data keep running
+    setup.held[a.id] = a.members.every((n) => nostop.includes(n) || skip.includes(n)) ? 'run' : 'stop';
   });
   m.vms.forEach((x) => {
     const k = (y) => `vm|${x.name}|${y}`;
@@ -1722,13 +1730,14 @@ function setupDerive() {
   // apps: not backed up = keeps running; backed up = stopped, its databases dumped
   const inApps = new Set(m.apps.flatMap((a) => a.members));
   const was = dget('docker|no_stop', []) || [];
+  const wasSkip = dget('docker|skip', []) || [];
   const keep = was.filter((n) => !inApps.has(n));
+  const skip = [];
   m.apps.forEach((a) => {
     const l = levelOf('app:' + a.id);
-    if (l === 0) keep.push(...a.members);
-    // backed up: members that were meant to keep running (a cache like redis) may go on doing so -
-    // unless all of them were, then the app was "not" until now and stops as a whole
-    else if (!a.members.every((n) => was.includes(n))) keep.push(...a.members.filter((n) => was.includes(n)));
+    if (l === 0) { skip.push(...a.members); keep.push(...a.members); }
+    else if (setup.held[a.id] === 'run') keep.push(...a.members);
+    else keep.push(...a.dbs.filter((d) => d.type === 'cache').map((d) => d.container));   // a cache (redis) need not stop
     a.dbs.filter((d) => d.dumpable).forEach((d) => {
       const k = `dump|${d.container}|type`;
       dset(k, l > 0 ? (dget(k) ?? d.type) : undefined);
@@ -1742,6 +1751,7 @@ function setupDerive() {
   });
   const nostop = [...was.filter((n) => keep.includes(n)), ...keep.filter((n) => !was.includes(n))];
   dset('docker|no_stop', [...new Set(nostop)]);
+  dset('docker|skip', [...new Set([...wasSkip.filter((n) => skip.includes(n)), ...skip.filter((n) => !wasSkip.includes(n))])]);
   // VMs: not backed up = not held (in a shared dataset it stays in the share's snapshot anyway)
   m.vms.forEach((x) => {
     const l = levelOf('vm:' + x.name);
@@ -1887,11 +1897,22 @@ function setupApps(plan) {
     });
     if (a.ncs.length) meta.appendChild(chip(T('setup.app_nc'), l > 0 ? 'ok' : '', T('setup.nc_text')));
     if (a.volumes.length) meta.appendChild(chip(T('setup.ct_volumes', { list: a.volumes.join(', ') }), 'danger', T('setup.ct_volumes_hint')));
-    if (!a.folders.length && !a.deps.length) meta.appendChild(chip(T('setup.app_nodata'), '', T('setup.app_nodata_hint')));
+    if (!a.folders.length && !a.deps.length) {
+      const flashOff = dget('flash|mode', 'off') === 'off';
+      meta.appendChild(chip(T('setup.app_nodata'), flashOff ? 'warn' : '', T(flashOff ? 'setup.app_nodata_noflash' : 'setup.app_nodata_hint')));
+    }
     main.appendChild(meta);
     row.appendChild(main);
     const right = el('div', 'bk-right');
     right.appendChild(levelPick('app:' + a.id));
+    if (l > 0) {
+      const hold = el('select', 'picker');
+      hold.append(new Option(T('setup.app_hold.stop'), 'stop'), new Option(T('setup.app_hold.run'), 'run'));
+      hold.value = setup.held[a.id] || 'stop';
+      hold.title = T('setup.app_hold_hint');
+      hold.onchange = () => { setup.held[a.id] = hold.value; setupDerive(); };
+      right.appendChild(hold);
+    }
     row.appendChild(right);
     list.appendChild(row);
     // the shares it uses besides its own folder: never ticked unasked - they can grow fast

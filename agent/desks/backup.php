@@ -202,7 +202,7 @@ function backupSettingsSummary(array $s): array
         'zfs_retention' => $one('zfs', 'retention'),
         'btrfs_days'    => $one('btrfs', 'keep_days'),
         'docker_stop'   => $one('docker', 'stop', 'all'),
-        'no_stop'       => $s['docker']['no_stop'] ?? [],
+        'no_stop'       => array_values(array_unique(array_merge($s['docker']['no_stop'] ?? [], $s['docker']['skip'] ?? []))),   // skip: not backed up, keeps running too
         'flash'         => $one('flash', 'mode', 'off'),
         'libvirt'       => $one('libvirt', 'mode', 'tar'),
         'libvirt_img'   => readCfg('/boot/config/domain.cfg')['IMAGE_FILE'] ?? '/mnt/user/system/libvirt/libvirt.img',
@@ -272,7 +272,7 @@ function backupContainers(array $s): array
 {
     $all = houseContainers();
     $running = array_keys(array_filter($all, fn ($c) => $c['running']));
-    $keep = array_merge($s['docker']['no_stop'] ?? [], array_filter([backupSetting($s, 'kopia', 'container')]));
+    $keep = array_merge($s['docker']['no_stop'] ?? [], $s['docker']['skip'] ?? [], array_filter([backupSetting($s, 'kopia', 'container')]));
     $stopNone = backupSetting($s, 'docker', 'stop', 'all') === 'none';
     $kept = $stopNone ? $running : array_values(array_intersect($running, $keep));
     $kopia = (string) backupSetting($s, 'kopia', 'container', '');

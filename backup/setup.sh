@@ -4,7 +4,8 @@
 #   2.17 --forget: start the setup anew - settings.ini, the office's decisions and the
 #        last plan go to state/reset-<time>/; nothing backed up is touched. The share domains
 #        is proposed as a local snapshot (VMs are held for it since 2.16), not as off. The plan
-#        lists the shares each container binds (containers[].binds)
+#        lists the shares each container binds (containers[].binds); [docker] skip = apps not
+#        backed up on purpose (keep running like no_stop)
 #   2.16 VMs: [vm "<name>"] prepare = freeze | pause | shutdown | none for the seconds of the
 #        snapshot (released right after the snapshot that holds their disks), mode = off and an own
 #        retention for VMs in a dataset of their own; the libvirt archive after the VMs are held
@@ -975,6 +976,8 @@ TXT
         [[ "${CT_STOP[$n]}" == "no" ]] && plist_add "docker|no_stop" "$n"
     done
     P[docker|known]="$(printf '%s\n' "${CT_NAMES[@]}")"
+    # apps the user chose not to back up (the office's apps step); only containers that still exist
+    P[docker|skip]="$(old_list "docker|skip" | while IFS= read -r n; do in_list "$n" "${CT_NAMES[@]}" && printf '%s\n' "$n"; done)"
 
     # --- Docker volumes
     local v vn vd vtxt
@@ -1633,6 +1636,8 @@ settings_render() {
         w_kv stop "$(pget docker\|stop)"
         w_kv stop_timeout "$(pget docker\|stop_timeout)"
         w_list no_stop "docker|no_stop"
+        w_c "Apps not backed up on purpose: keep running like no_stop, no dump, Kopia leaves their folders out"
+        w_list skip "docker|skip"
         w_c "Containers present at the last setup.sh - backup.sh reports everything else as new"
         w_list known "docker|known"
         echo
@@ -2056,7 +2061,7 @@ ct_share_binds() { # ct_share_binds <container>
 # key<US>value lines -> JSON object; lists (ignore, no_stop, ...) as arrays
 plan_kv() {
     jq -Rn '[inputs | select(length > 0) | index("\u001f") as $i | {key: .[0:$i], value: .[$i + 1:]}]
-            | map(if (.key | test("\\|(ignore|no_stop|known|kopia_ignore|exclude_dataset|tar_exclude)$"))
+            | map(if (.key | test("\\|(ignore|no_stop|known|skip|kopia_ignore|exclude_dataset|tar_exclude)$"))
                   then .value |= (split("\u001e") | map(select(length > 0))) else . end) | from_entries'
 }
 
