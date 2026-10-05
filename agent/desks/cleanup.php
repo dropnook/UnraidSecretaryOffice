@@ -106,7 +106,7 @@ const CL_PREVIEW_BUDGET = 1536 * 1024;       // previews of pictures on this ser
 // that loads without a User-Agent (checked like every other address before it is offered)
 const CL_ICON_TIMEMACHINE      = '/time[-_]?machine/i';
 const CL_ICON_TIMEMACHINE_FILE = CL_DM_IMAGES . '/AppleTimeMachine.png';
-const CL_ICON_TIMEMACHINE_URLS = ['https://media.githubusercontent.com/media/skyzyx/slackmoji/main/time-machine.png'];
+const CL_ICON_TIMEMACHINE_URLS = [];   // no stable hosted copy of Apple's logo is known (Wikimedia refuses Unraid's downloader); the local file comes first
 // well-known images (their name without registry and tag) => the collection's name for the logo;
 // databases and caches first, so the one in an app's stack gets the database's logo, not the app's
 const CL_ICON_TABLE = [
