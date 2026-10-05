@@ -108,6 +108,7 @@ function render() {
     [deskChip(Office.desks.has('backup') ? 'backup' : ID), T('help.desk_text')],      // a real one, e.g. «💾 Herr Backupsi»
     [T('help.open'), T('help.open_text')],
     [T('check_again'), T('help.again')],
+    [T('notify_title'), T('help.notify')],
   ]));
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
 
@@ -123,6 +124,7 @@ function render() {
     ok.appendChild(p);
     root.appendChild(ok);
   }
+  root.appendChild(notifySection());
   if (g.hints.length) root.appendChild(list(T('hints'), T('hints_text'), g.hints));
   root.appendChild(doneSection(g.done));
   root.appendChild(el('p', 'role', T('checked_at', { when: fmt.relative(state.time) })));
@@ -171,6 +173,52 @@ function row(f) {
     r.appendChild(a);
   }
   return r;
+}
+
+// ------------------------------------------------------------------ reports to Unraid's notifications
+/** What turns red is also told to Unraid (agent: caretakerNotifyEvaluate) — the switch, and the last report */
+function notifySection() {
+  const n = state.notify || { on: true, available: true, waiting: 0, last: null };
+  const s = el('section', 'section');
+  const label = el('label', 'switch');
+  const cb = el('input');
+  cb.type = 'checkbox';
+  cb.checked = n.on !== false;
+  cb.disabled = !Office.agent.running;
+  label.append(cb, el('span', '', T('notify_switch')));
+  cb.onchange = async () => {
+    cb.disabled = true;
+    const on = cb.checked;
+    const j = await Office.api.post(`${ID}.notify_set`, { on });
+    if (!j.ok) {
+      cb.checked = !on;
+      cb.disabled = false;
+      Office.toast(Office.errorText(j.error, ID), true);
+      return;
+    }
+    state = j.state;
+    Office.keepInPlace(null, render);
+    Office.toast(T(on ? 'notify_on' : 'notify_off'));
+  };
+  s.appendChild(Office.sectionHead(T('notify_title'), T('notify_sub'), label));
+
+  const box = el('div', 'box');
+  const r = el('div', 'row nocheck');
+  const main = el('div', 'row-main');
+  const last = n.last;
+  const items = last ? (last.items || []) : [];
+  main.appendChild(el('div', 'row-name text', !last ? T('notify_none')
+    : T(last.sent === false ? 'notify_last_failed' : 'notify_last', { when: fmt.relative(last.time), n: items.length })));
+  const meta = el('div', 'row-meta');
+  meta.appendChild(el('span', 'chip ' + (n.on === false ? 'quiet' : 'ok'), T(n.on === false ? 'notify_state_off' : 'notify_state_on')));
+  if (n.on !== false && n.waiting) meta.appendChild(el('span', '', T('notify_waiting', { n: n.waiting })));
+  main.appendChild(meta);
+  if (items.length) main.appendChild(el('div', 'row-detail', items.map((f) => text(f)).join(' · ')));
+  if (n.available === false) main.appendChild(el('div', 'row-detail', T('notify_missing')));
+  r.appendChild(main);
+  box.appendChild(r);
+  s.appendChild(box);
+  return s;
 }
 
 // ------------------------------------------------------------------ the office itself

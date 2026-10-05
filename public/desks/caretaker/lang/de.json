@@ -127,5 +127,31 @@
   "errors.menu_name_bad": "Dieser Name passt nicht: höchstens {max} Zeichen — Buchstaben, Ziffern, Leerzeichen und . & + _ -, am Anfang ein Buchstabe oder eine Ziffer.",
   "errors.menu_page_failed": "Der Menüeintrag liess sich nicht ändern. Ist das Plugin richtig installiert? Neu installieren hilft.",
   "office_how_plugin": "Unraid aktualisiert das Sekretariat wie jedes andere Plugin: unter Plugins (es schaut selbst nach Updates). Deine Daten bleiben.",
-  "office_to_plugins": "Zu den Plugins"
+  "office_to_plugins": "Zu den Plugins",
+  "notify_title": "Meldungen an Unraid",
+  "notify_sub": "Taucht unter «Noch zu erledigen» etwas Neues auf und bleibt eine halbe Stunde, melde ich es Unraids Benachrichtigungen — der Glocke, und per Mail oder Push, wenn du das eingerichtet hast. Einmal pro Sache; ist sie erledigt und kommt wieder, melde ich sie wieder. Ich schaue alle 30 Minuten nach, auch wenn das Sekretariat zu ist.",
+  "notify_switch": "An Unraids Benachrichtigungen melden",
+  "notify_on": "Ich melde es Unraids Benachrichtigungen",
+  "notify_off": "Keine Meldungen mehr an Unraids Benachrichtigungen",
+  "notify_state_on": "an",
+  "notify_state_off": "aus",
+  "notify_none": "Noch nichts gemeldet.",
+  "notify_last": {
+    "one": "Zuletzt gemeldet {when}: eine Sache",
+    "other": "Zuletzt gemeldet {when}: {n} Sachen"
+  },
+  "notify_last_failed": "Meine letzte Meldung ({when}) kam bei Unraids Benachrichtigungen nicht an",
+  "notify_waiting": {
+    "one": "eine neue Sache — ich schaue, ob sie bleibt",
+    "other": "{n} neue Sachen — ich schaue, ob sie bleiben"
+  },
+  "notify_missing": "Unraids Benachrichtigungs-Skript fehlt — ich kann nichts melden.",
+  "help.notify": "Was unter «Noch zu erledigen» rot wird, geht auch an Unraids Benachrichtigungen (Glocke, Mail, Push) — einmal, nach einer halben Stunde, damit ein kurzer Schluckauf wie der Array-Start oder ein Docker-Neustart still bleibt. Der Schalter stellt es ab. Fehlgeschlagene Läufe melden Herr Backupsi und die anderen selbst.",
+  "notify.subject": {
+    "one": "Etwas Neues zu erledigen",
+    "other": "{n} neue Dinge zu erledigen"
+  },
+  "notify.description": "Fehlt noch: {list}",
+  "notify.more": "… und {n} weitere",
+  "notify.footer": "Der Hauswart führt auf seiner Seite im Sekretariat alles auf, was noch zu erledigen ist. Dort lassen sich diese Meldungen auch abschalten."
 }

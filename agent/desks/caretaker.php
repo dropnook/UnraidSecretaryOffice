@@ -10,17 +10,28 @@ declare(strict_types=1);
  * what is missing and what is left to do by hand. He only reads — except
  * updating the office itself when asked (lib/officeupdate.php) and naming
  * its entry in Unraid's menu bar (⋯ → "Name in the menu bar").
+ *
+ * What turns red ("still to do") is also told to Unraid's notifications,
+ * once, after it has stayed red for a while (see "Reports to Unraid" below);
+ * so it reaches the user without a browser, he walks through the house every
+ * 30 minutes on his own.
  */
 
-const CARETAKER_UNRAID_MIN = '6.12';
+const CARETAKER_UNRAID_MIN    = '6.12';
+const CARETAKER_TOUR_EVERY    = 1800;      // without a browser (it asks every 5 minutes while open): a tour every 30 minutes …
+const CARETAKER_TOUR_AFTER    = 600;       // … but not in the first 10 minutes after the agent started (the array settles)
+const CARETAKER_NOTIFY_SETTLE = 1800;      // something new to do is told once it has stayed red this long (not a passing state)
+const CARETAKER_WATCH_CRON    = '/boot/config/plugins/' . OFFICE_PLUGIN . '/agent-watch.cron';   // written by scripts/agent.sh
 
 desk('caretaker', [
     'start'   => fn () => caretakerScan(),
+    'tick'    => fn () => caretakerTick(),
     'actions' => [
         'refresh'       => fn (array $r) => ['ok' => true, 'state' => caretakerScan()],
         'office_check'  => fn (array $r) => ['ok' => true, 'state' => caretakerScan(true)],
         'office_update' => fn (array $r) => officeUpdate(),
         'menu_name'     => fn (array $r) => caretakerMenuName((string) ($r['name'] ?? ''), (string) ($r['place'] ?? 'menu')),
+        'notify_set'    => fn (array $r) => caretakerNotifySet($r['on'] ?? null),
     ],
     'checks'  => fn () => caretakerChecks(),
 ]);
@@ -53,6 +64,12 @@ function caretakerScan(bool $checkUpdate = false): array
             $checks[$id] = [finding('checks_failed', 'hint', null, ['detail' => $e->getMessage()])];
         }
     }
+    try {
+        $notify = caretakerNotifyEvaluate($checks);
+    } catch (Throwable $e) {
+        logLine('Caretaker: reporting to Unraid failed: ' . $e->getMessage());
+        $notify = readJson(caretakerNotifyFile()) ?? [];
+    }
     $state = [
         'time'        => time(),
         'duration_ms' => (int) round((microtime(true) - $t0) * 1000),
@@ -61,9 +78,202 @@ function caretakerScan(bool $checkUpdate = false): array
         'staff'       => $staff,
         'office'      => $office,
         'hired'       => $hired,
+        'notify'      => caretakerNotifyPublic($notify),
     ];
     writeAtomic(deskFile('caretaker'), jsonEncode($state));
+    $GLOBALS['ctLastScan'] = time();
     return $state;
+}
+
+/**
+ * Every ~150 ms — so nearly always just a comparison. Once a minute it looks
+ * whether a tour is due: when nobody had the page open for 30 minutes (the
+ * page asks for one every 5 minutes), he walks through the house himself.
+ * The tour runs here in the agent, like the page's: the desks answer from
+ * what they already know (a few dozen ms); in a process of its own every
+ * desk would have to read the whole server again (Ms. Dustdevil's full scan).
+ */
+function caretakerTick(): void
+{
+    $now = time();
+    if ($now < ($GLOBALS['ctNextLook'] ?? 0)) {
+        return;
+    }
+    $GLOBALS['ctNextLook'] = $now + 60;
+    if ($now - (int) ($GLOBALS['ctWatchLook'] ?? 0) >= CARETAKER_TOUR_EVERY) {
+        $GLOBALS['ctWatchLook'] = $now;
+        caretakerWatchCron();
+    }
+    if ($now - (int) ($GLOBALS['started'] ?? 0) >= CARETAKER_TOUR_AFTER && $now - (int) ($GLOBALS['ctLastScan'] ?? 0) >= CARETAKER_TOUR_EVERY) {
+        $GLOBALS['ctLastScan'] = $now;          // a tour that fails isn't tried again every minute
+        caretakerScan();
+    }
+}
+
+/**
+ * As a plugin: the look at the agent (scripts/agent.sh writes agent-watch.cron,
+ * every 5 minutes job.sh watch) is in root's crontab. Unraid reads plugins'
+ * cron files only when someone runs update_cron — not right after a fresh
+ * install, so the caretaker sees to it.
+ */
+function caretakerWatchCron(): void
+{
+    if (!AS_PLUGIN || !is_file(CARETAKER_WATCH_CRON) || !is_link('/var/log/plugins/' . OFFICE_PLUGIN . '.plg')
+        || str_contains((string) @file_get_contents('/etc/cron.d/root'), '/scripts/job.sh watch')) {
+        return;
+    }
+    run(['/bin/bash', '/usr/local/sbin/update_cron'], 30);     // its first line is no shebang
+    logLine('Caretaker: the look at the agent is in the crontab again');
+}
+
+// ===================================================================== reports to Unraid
+
+/*
+ * When something "still to do" turns up (a required finding of a desk that
+ * works here, known to be missing — "couldn't check" doesn't count), he tells
+ * Unraid's notifications: once, as a warning (something to set up, nothing is
+ * lost right now — alerts are the backup engine's, for failed runs), after it
+ * has stayed red for CARETAKER_NOTIFY_SETTLE (no passing states: the array
+ * starting, Docker restarting, a desk just hired), all that is new in one
+ * notification. Solved, it is forgotten — back again, it is told again. No
+ * "all clear". Switched off on his page, nothing is told; what turned red
+ * meanwhile counts as told, so switching on brings no backlog.
+ * State: data/caretaker/notify.json.
+ */
+
+function caretakerNotifyFile(): string
+{
+    return DATA_DIR . '/caretaker/notify.json';
+}
+
+/**
+ * The red findings right now (the scan only asks desks that work here), each
+ * under a key that stays the same while it is the same thing: desk, id and
+ * what it is about (a container, a share, a path) — not counts or modes.
+ *
+ * @param array<string, list<array>> $checks  desk => findings, as caretakerScan() collects them
+ * @return array<string, array{desk:string, id:string, params:array}>
+ */
+function caretakerRed(array $checks): array
+{
+    $red = [];
+    foreach ($checks as $desk => $list) {
+        foreach ((array) $list as $f) {
+            if (($f['level'] ?? '') !== 'required' || ($f['ok'] ?? null) !== false) {
+                continue;
+            }
+            $p = (array) ($f['params'] ?? []);
+            $about = $p['name'] ?? $p['share'] ?? $p['path'] ?? '';
+            $red[$desk . ':' . $f['id'] . ':' . (is_scalar($about) ? (string) $about : '')] = ['desk' => (string) $desk, 'id' => (string) $f['id'], 'params' => $p];
+        }
+    }
+    return $red;
+}
+
+/**
+ * One step: what was being followed (key => since, told, desk, id, params)
+ * and what is red now → what to follow from now on, and what to tell now.
+ *
+ * @return array{0: array<string, array>, 1: list<array>}
+ */
+function caretakerNotifyStep(array $tracked, array $red, int $now, bool $on, int $settle = CARETAKER_NOTIFY_SETTLE): array
+{
+    $next = [];
+    $tell = [];
+    foreach ($red as $key => $f) {
+        $old = is_array($tracked[$key] ?? null) ? $tracked[$key] : [];
+        $t = ['since' => (int) ($old['since'] ?? $now), 'told' => isset($old['told']) ? (int) $old['told'] : null] + $f;
+        if ($t['told'] === null && $now - $t['since'] >= $settle) {
+            $t['told'] = $now;
+            if ($on) {
+                $tell[] = $t;
+            }
+        }
+        $next[$key] = $t;
+    }
+    return [$next, $tell];
+}
+
+/**
+ * After every tour: follows the red findings and tells Unraid what is new.
+ * $file, $now and $lang are there for the tests.
+ */
+function caretakerNotifyEvaluate(array $checks, ?string $file = null, ?int $now = null, ?string $lang = null): array
+{
+    $file ??= caretakerNotifyFile();
+    $now ??= time();
+    $old = readJson($file) ?? [];
+    $data = $old + ['on' => true, 'red' => [], 'last' => null];
+    [$data['red'], $tell] = caretakerNotifyStep((array) $data['red'], caretakerRed($checks), $now, $data['on'] !== false);
+    if ($tell) {
+        $sent = caretakerNotifySend($tell, $lang ?? officeNotifyLang());
+        $data['last'] = ['time' => $now, 'sent' => $sent,
+                         'items' => array_map(fn ($t) => ['desk' => $t['desk'], 'id' => $t['id'], 'params' => $t['params']], $tell)];
+        logLine('Caretaker: ' . ($sent ? 'told' : 'could not tell') . " Unraid's notifications about " . count($tell) . ' new thing(s) to do: '
+            . implode(', ', array_map(fn ($t) => "{$t['desk']}.{$t['id']}", $tell)));
+    }
+    if ($data !== $old) {
+        caretakerNotifyWrite($file, $data);
+    }
+    return $data;
+}
+
+/** One notification for everything new: the short list in the bell, each with what to do in the long text */
+function caretakerNotifySend(array $items, string $lang): bool
+{
+    $titles = [];
+    $lines = [];
+    foreach ($items as $f) {
+        $who = officeNotifyText($f['desk'], 'name', [], $lang) ?: $f['desk'];
+        $what = officeNotifyText($f['desk'], "check.{$f['id']}", $f['params'], $lang) ?: $f['id'];
+        $how = officeNotifyText($f['desk'], "check.{$f['id']}_how", $f['params'], $lang);
+        $titles[] = "$who — $what";
+        $lines[] = "• $who — $what" . ($how !== '' ? "\n  $how" : '');
+    }
+    $n = count($items);
+    $list = implode('; ', array_slice($titles, 0, 3)) . ($n > 3 ? ' ' . officeNotifyText('caretaker', 'notify.more', ['n' => $n - 3], $lang) : '');
+    return officeNotify(
+        officeNotifyText('caretaker', 'notify.subject', ['n' => $n], $lang),
+        officeNotifyText('caretaker', 'notify.description', ['list' => $list], $lang),
+        'warning',
+        implode("\n", $lines) . "\n\n" . officeNotifyText('caretaker', 'notify.footer', [], $lang),
+        officeNotifyLink('#/caretaker'),
+    );
+}
+
+function caretakerNotifyWrite(string $file, array $data): void
+{
+    if (!is_dir(dirname($file))) {
+        @mkdir(dirname($file), 0755, true);
+        @chown(dirname($file), FILE_UID);
+        @chgrp(dirname($file), FILE_GID);
+    }
+    writeAtomic($file, jsonEncode($data));
+}
+
+/** For the page: switched on?, can Unraid be told at all, the last report */
+function caretakerNotifyPublic(array $data): array
+{
+    return [
+        'on'        => ($data['on'] ?? true) !== false,
+        'available' => is_executable(OFFICE_NOTIFY_BIN),
+        'waiting'   => count(array_filter((array) ($data['red'] ?? []), fn ($t) => is_array($t) && ($t['told'] ?? null) === null)),
+        'last'      => is_array($data['last'] ?? null) ? $data['last'] : null,
+    ];
+}
+
+/** The switch on his page: report to Unraid's notifications or not */
+function caretakerNotifySet(mixed $on): array
+{
+    if (!is_bool($on)) {
+        throw new Problem('bad_request');
+    }
+    $file = caretakerNotifyFile();
+    $data = readJson($file) ?? [];
+    $data['on'] = $on;
+    caretakerNotifyWrite($file, $data);
+    logLine("Caretaker: reports to Unraid's notifications " . ($on ? 'on' : 'off'));
+    return ['ok' => true, 'state' => caretakerScan()];
 }
 
 /** What the office as a whole needs or benefits from */

@@ -127,5 +127,31 @@
   "errors.menu_name_bad": "That name doesn't fit: at most {max} characters — letters, digits, spaces and . & + _ -, starting with a letter or digit.",
   "errors.menu_page_failed": "The menu entry couldn't be changed. Is the plugin installed properly? Installing it again helps.",
   "office_how_plugin": "Unraid updates the office like any other plugin: under Plugins (it checks for updates itself). Your data stays.",
-  "office_to_plugins": "To the plugins"
+  "office_to_plugins": "To the plugins",
+  "notify_title": "Reports to Unraid",
+  "notify_sub": "When something new turns up under «Still to do» and stays for half an hour, I tell Unraid's notifications — the bell, and mail or push if you set them up. Once per thing; if it's solved and comes back, I tell again. I look every 30 minutes, even with the office closed.",
+  "notify_switch": "Report to Unraid's notifications",
+  "notify_on": "I'll report to Unraid's notifications",
+  "notify_off": "No more reports to Unraid's notifications",
+  "notify_state_on": "on",
+  "notify_state_off": "off",
+  "notify_none": "Nothing reported yet.",
+  "notify_last": {
+    "one": "Last report {when}: one thing",
+    "other": "Last report {when}: {n} things"
+  },
+  "notify_last_failed": "My last report ({when}) didn't reach Unraid's notifications",
+  "notify_waiting": {
+    "one": "one new thing — I'll wait and see whether it stays",
+    "other": "{n} new things — I'll wait and see whether they stay"
+  },
+  "notify_missing": "Unraid's notification script isn't there — I can't report anything.",
+  "help.notify": "What turns red under «Still to do» also goes to Unraid's notifications (bell, mail, push) — once, after half an hour, so a short hiccup like the array starting or Docker restarting stays quiet. The switch turns it off. Failed runs are reported by Mr. Backupsy and the others themselves.",
+  "notify.subject": {
+    "one": "Something new to do",
+    "other": "{n} new things to do"
+  },
+  "notify.description": "Still missing: {list}",
+  "notify.more": "… and {n} more",
+  "notify.footer": "The caretaker lists everything that is still to do on his page in the office. You can switch these reports off there."
 }
