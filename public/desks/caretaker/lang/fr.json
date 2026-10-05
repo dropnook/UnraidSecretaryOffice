@@ -53,6 +53,8 @@
   "check.files_viewer_how": "Regarder des fichiers et des journaux — ceux de Monsieur Backupsi aussi — directement dans l'interface web d'Unraid. Installe-le depuis Applis.",
   "check.notifications": "Les alertes d'Unraid te parviennent par mail ou par push",
   "check.notifications_how": "Active le mail ou un agent (Pushover, Telegram, …) pour les alertes sous Réglages → Notifications — sinon personne n'apprend qu'une sauvegarde a échoué ou qu'un disque est en train de mourir.",
+  "check.icon_loop": "Unraid {version} : aucun conteneur sans image tant que son point d'interrogation manque",
+  "check.icon_loop_how": "{n} conteneur(s) n'ont pas d'image, et Unraid {version} ne livre pas le point d'interrogation qu'il affiche à la place — sa page Docker et le Tableau de bord le demandent alors environ mille fois par seconde, jusqu'à ce que /var/log soit plein. Donne-leur une image (Madame Plumeau le fait dans sa pièce « Images manquantes »), ou mets un remplaçant en place jusqu'au prochain redémarrage : copie n'importe quel PNG vers /usr/local/emhttp/plugins/dynamix.docker.manager/images/question.png. D'ici là, garde la page Docker et le Tableau de bord fermés.",
   "check.mail_subject": "L'objet du mail « {subject} » ne mentionne pas {host}",
   "check.mail_subject_how": "Exprès ? Change-le sous Réglages → Notifications → SMTP, pour savoir quel serveur écrit.",
   "check.pin": "Modifier des choses dans le secrétariat demande un PIN",
