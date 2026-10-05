@@ -113,10 +113,17 @@ function houseGuiUrl(): ?string
  */
 function hostLaunch(string $job, array $args, array $env = [], ?string $output = null, string $cwd = '/'): void
 {
+    // the job file's name and the variables' names go into the script unquoted: only plain names
+    if (!preg_match('/^[a-z][a-z0-9_-]{0,63}\z/', $job) || !$args) {
+        throw new Problem('command_failed', ['detail' => "bad job $job"]);
+    }
     $file = RUN_DIR . "/$job.sh";
-    $line = implode(' ', array_map('escapeshellarg', $args));
+    $line = implode(' ', array_map(fn ($a) => escapeshellarg((string) $a), $args));
     $exports = '';
     foreach ($env as $k => $v) {
+        if (!is_string($k) || !preg_match('/^[A-Z_][A-Z0-9_]{0,63}\z/', $k)) {
+            throw new Problem('command_failed', ['detail' => "bad variable $k"]);
+        }
         $exports .= $k . '=' . escapeshellarg((string) $v) . "\nexport $k\n";
     }
     $out = $output !== null ? escapeshellarg($output) : '/dev/null';
@@ -281,7 +288,7 @@ function userScriptSchedule(string $name, ?string $cron, string $schedule = US_S
                             ?string $runtime = US_RUNTIME, bool $apply = true): bool
 {
     $script = dirname($schedule) . "/scripts/$name/script";
-    if (!preg_match('/^[A-Za-z0-9._-]{1,64}$/', $name) || !is_file($script)) {
+    if (!preg_match('/^[A-Za-z0-9._-]{1,64}$/D', $name) || !is_file($script)) {
         throw new Problem('no_user_script', ['name' => $name]);
     }
     if ($cron !== null) {

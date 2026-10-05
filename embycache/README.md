@@ -14,6 +14,8 @@
 > * A path mapping with an empty host path means "deliberately not cached": such items are
 >   skipped quietly (debug log) instead of a warning each.
 > * `EMBYCACHE_STATUS`: a JSON file with the result of a run (mode, counts, warnings, errors).
+> * A path with `..` (an item path from Emby or a path mapping) is never followed out of the
+>   share: such an item is skipped like one without a mapping (`Locations.to_rel`).
 > * Not taken over: `embycache_setup.py` (Jack is the setup) and `embycache_cleaner.py`
 >   (on a share whose primary is the pool it would take every new film for an orphan).
 

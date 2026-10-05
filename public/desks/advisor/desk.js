@@ -64,8 +64,8 @@ function unraidLink(path, text, kind) {
   if (Office.config.in_unraid) {
     a.href = path;
   } else {
-    if (!state.gui) return null;
-    a.href = state.gui + path;
+    if (!state.gui || !Office.safeHref(state.gui + path)) return null;
+    a.href = Office.safeHref(state.gui + path);
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
   }

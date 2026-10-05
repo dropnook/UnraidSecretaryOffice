@@ -214,30 +214,21 @@ function makeDataDir(): bool
     if (!is_dir($appdata) || !@mkdir(DATA_DIR, 0755, true)) {
         return false;
     }
-    @chown(dirname(DATA_DIR), FILE_UID);
-    @chgrp(dirname(DATA_DIR), FILE_GID);
+    @lchown(dirname(DATA_DIR), FILE_UID);
+    @lchgrp(dirname(DATA_DIR), FILE_GID);
     logLine('Created the data folder ' . DATA_DIR);
     return true;
 }
 
 function setUp(): void
 {
-    if (!is_dir(MAILBOX)) {
-        @mkdir(MAILBOX, 0770);
-    }
-    @chown(MAILBOX, WEB_UID);
-    @chgrp(MAILBOX, WEB_UID);
-    @chmod(MAILBOX, 0770);
+    dataDirTighten();
+    mailboxEnsure();
     foreach (glob(MAILBOX . '/*') ?: [] as $old) {
         @unlink($old);
     }
     // the office's own files (PIN): only the web server may read them
-    if (!is_dir(OFFICE_PRIVATE)) {
-        @mkdir(OFFICE_PRIVATE, 0700);
-    }
-    @chown(OFFICE_PRIVATE, WEB_UID);
-    @chgrp(OFFICE_PRIVATE, WEB_UID);
-    @chmod(OFFICE_PRIVATE, 0700);
+    privateDirEnsure(OFFICE_PRIVATE, 0700, false);
     writeInfo(true);
     try {
         userScriptsMigrate();          // the office's User Scripts entries under their current names
@@ -255,6 +246,68 @@ function setUp(): void
             }
         }
     }
+}
+
+/**
+ * The data folder: nobody but its owner may create, rename or replace things
+ * in it — the mailbox and the state files lie there, and the agent (root)
+ * writes into it. Unraid's "New Permissions" or a copy can leave it open to
+ * everyone; then group and others lose write access (the owner keeps his).
+ */
+function dataDirTighten(): void
+{
+    clearstatcache(true, DATA_DIR);
+    $st = @lstat(DATA_DIR);
+    if ($st && ($st['mode'] & 0170000) === 0040000 && ($st['mode'] & 0022) && @chmod(DATA_DIR, $st['mode'] & 07755)) {
+        logLine(sprintf('The data folder was writable by group or others (%o): now %o', $st['mode'] & 07777, $st['mode'] & 07755));
+    }
+}
+
+/**
+ * Is $dir a real folder (no link) of the web server's user that others can't
+ * get into? The mailbox and data/office must be.
+ */
+function privateDirOk(string $dir): bool
+{
+    clearstatcache(true, $dir);
+    $st = @lstat($dir);
+    return $st !== false && ($st['mode'] & 0170000) === 0040000 && $st['uid'] === WEB_UID && ($st['mode'] & 0007) === 0;
+}
+
+/**
+ * Makes $dir a folder of the web server's user with $mode. Never through a
+ * link: chown/chmod would change whatever it points to. A link where the
+ * mailbox belongs is replaced by a folder ($replaceLink); at data/office it is
+ * left alone and reported (the PIN may lie behind it).
+ */
+function privateDirEnsure(string $dir, int $mode, bool $replaceLink): bool
+{
+    clearstatcache(true, $dir);
+    if (is_link($dir) || (file_exists($dir) && !is_dir($dir))) {
+        if (!$replaceLink || !@unlink($dir)) {
+            logLine("$dir is no folder of its own (a link?) — left alone, fix it by hand");
+            return false;
+        }
+        logLine("$dir was no folder of its own (a link?) — replaced by a folder");
+    }
+    if (!is_dir($dir) && !@mkdir($dir, $mode)) {
+        return false;
+    }
+    if (!is_link($dir)) {
+        @lchown($dir, WEB_UID);
+        @lchgrp($dir, WEB_UID);
+        @chmod($dir, $mode);
+    }
+    return privateDirOk($dir);
+}
+
+function mailboxEnsure(): bool
+{
+    $ok = privateDirEnsure(MAILBOX, 0770, true);
+    if (!$ok) {
+        logLine('The mailbox ' . MAILBOX . ' is not the web server\'s own folder — requests are ignored until it is');
+    }
+    return $GLOBALS['mailboxOk'] = $ok;
 }
 
 function writeInfo(bool $running): void
@@ -317,6 +370,14 @@ function closeInheritedFds(): string
 
 function processMailbox(): void
 {
+    // only the web server's own folder (checked anew every time: a cheap lstat)
+    if (!privateDirOk(MAILBOX)) {
+        if ($GLOBALS['mailboxOk'] ?? true) {
+            mailboxEnsure();
+        }
+        return;
+    }
+    $GLOBALS['mailboxOk'] = true;
     $names = @scandir(MAILBOX);
     if (!$names) {
         return;
@@ -330,6 +391,13 @@ function processMailbox(): void
     asort($requests);
     foreach (array_keys($requests) as $id) {
         $path = MAILBOX . "/$id.request";
+        // a plain file the web server (or root) wrote — no link, nobody else's
+        $st = @lstat($path);
+        if (!$st || ($st['mode'] & 0170000) !== 0100000 || !in_array($st['uid'], [0, WEB_UID], true)) {
+            @unlink($path);
+            logLine("Mailbox: ignored $id.request (not a plain file of the web server)");
+            continue;
+        }
         $raw = @file_get_contents($path, false, null, 0, 1 << 20);
         @unlink($path);
         if ($raw === false) {
@@ -370,6 +438,11 @@ function handle(string $raw): array
 
 function cleanUpMailbox(): void
 {
+    dataDirTighten();
+    if (!privateDirOk(MAILBOX)) {
+        mailboxEnsure();
+        return;
+    }
     $limit = time() - 600;
     foreach (glob(MAILBOX . '/{*,.*.tmp}', GLOB_BRACE) ?: [] as $file) {
         if (is_file($file) && @filemtime($file) < $limit) {

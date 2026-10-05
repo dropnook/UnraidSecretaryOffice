@@ -317,6 +317,8 @@ class Locations:
                 rel = p.relative_to(root)
             except ValueError:
                 continue
+            if ".." in rel.parts:
+                return None   # nie aus der Share hinaus: ein Pfad mit ".." (von Emby oder im Mapping) zählt nicht
             return rel if rel.parts else None
         return None
 

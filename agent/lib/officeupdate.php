@@ -22,11 +22,28 @@ function officeUpdateFile(): string
     return DATA_DIR . '/office-update.json';
 }
 
-/** git with the office's repository; root works on a folder someone else owns */
+/**
+ * git with the office's repository; root works on a folder someone else owns
+ * (safe.directory) — so never with the repository's own hooks or fsmonitor
+ * command: whoever can write the clone could otherwise have root run them.
+ */
 function officeGit(array $args, int $timeout = 60, bool $net = false): array
 {
-    $cmd = array_merge(['git', '-c', 'safe.directory=*', '-C', OFFICE_DIR], $args);
+    $cmd = array_merge(['git', '-c', 'safe.directory=*', '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false',
+                        '-c', 'protocol.ext.allow=never', '-C', OFFICE_DIR], $args);
     return $net ? hostNet($cmd, $timeout) : run($cmd, $timeout);
+}
+
+/** The cached answer as the page may use it: a version number, and a link only to the repository's page on GitHub */
+function officeUpdateClean(array $cache): array
+{
+    if (isset($cache['latest']) && !(is_string($cache['latest']) && preg_match('/^\d{1,4}(\.\d{1,4}){1,3}\z/', $cache['latest']))) {
+        unset($cache['latest']);
+    }
+    if (isset($cache['url']) && !(is_string($cache['url']) && str_starts_with($cache['url'], 'https://github.com/' . OFFICE_REPO . '/'))) {
+        $cache['url'] = '';
+    }
+    return $cache;
 }
 
 /** What the page shows: running version, latest release, how it is installed */
@@ -37,6 +54,7 @@ function officeUpdateInfo(bool $force = false): array
         $cache = officeUpdateFetch();
         writeAtomic(officeUpdateFile(), jsonEncode($cache));
     }
+    $cache = officeUpdateClean($cache);         // also what lies in the file (others may have changed it)
     $git = is_dir(OFFICE_DIR . '/.git');
     $changed = false;
     $branch = null;
@@ -59,7 +77,7 @@ function officeUpdateInfo(bool $force = false): array
 
 function officeUpdateFetch(): array
 {
-    [$exit, $out, $err] = hostNet(['curl', '-s', '-S', '-m', '15', '-H', 'Accept: application/vnd.github+json',
+    [$exit, $out, $err] = hostNet(['curl', '-s', '-S', '-m', '15', '--proto', '=https', '--max-filesize', '1048576', '-H', 'Accept: application/vnd.github+json',
                                    '-w', '\n%{http_code}', OFFICE_RELEASE_API], 20);
     $code = (int) substr((string) strrchr(rtrim($out), "\n"), 1);
     $body = json_decode(substr($out, 0, (int) strrpos(rtrim($out), "\n")), true);
@@ -72,8 +90,8 @@ function officeUpdateFetch(): array
     if ($code !== 200 || !is_array($body) || empty($body['tag_name'])) {
         return ['checked' => time(), 'error' => 'github', 'detail' => "HTTP $code"];
     }
-    return ['checked' => time(), 'latest' => ltrim((string) $body['tag_name'], 'v'), 'name' => (string) ($body['name'] ?? ''),
-            'url' => (string) ($body['html_url'] ?? ''), 'published' => strtotime((string) ($body['published_at'] ?? '')) ?: null];
+    return officeUpdateClean(['checked' => time(), 'latest' => ltrim((string) $body['tag_name'], 'v'), 'name' => (string) ($body['name'] ?? ''),
+            'url' => (string) ($body['html_url'] ?? ''), 'published' => strtotime((string) ($body['published_at'] ?? '')) ?: null]);
 }
 
 /** "Update": fast-forward to what the repository has, never over local changes */
@@ -108,8 +126,8 @@ function officeUpdate(): array
         foreach ($files as $f) {
             $path = OFFICE_DIR . '/' . $f;
             if ($owner && file_exists($path)) {
-                @chown($path, $owner['uid']);
-                @chgrp($path, $owner['gid']);
+                @lchown($path, $owner['uid']);       // a link in the repository: itself, never what it points to
+                @lchgrp($path, $owner['gid']);
             }
         }
     }

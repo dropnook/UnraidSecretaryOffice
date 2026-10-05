@@ -1431,12 +1431,12 @@ function backupSetupApply(mixed $decisions): array
     foreach ($decisions as $key => $value) {
         $key = (string) $key;
         $ok = $key === '_retire_sources' || array_key_exists($key, $plan['P'] ?? [])
-            || (preg_match('/^share\|(.+)\|([a-z_]+)$/', $key, $m) && in_array($m[1], $shares, true) && in_array($m[2], BACKUP_SETUP_KEYS, true))
-            || (preg_match('/^dump\|(.+)\|type$/', $key, $m) && in_array($m[1], $dbs, true))
-            || (preg_match('/^nextcloud\|(.+)\|preexisting_maintenance$/', $key, $m) && in_array($m[1], $ncs, true))
-            || (preg_match('/^vm\|(.+)\|(mode|prepare|retention)$/', $key, $m) && in_array($m[1], $vms, true))
-            || (preg_match('/^vm\|(.+)\|([a-z_]+)$/', $key, $m) && in_array($m[1], $vms, true) && in_array($m[2], BACKUP_ITEM_KEYS, true))
-            || (preg_match('/^app\|(.+)\|([a-z_]+)$/', $key, $m) && in_array($m[1], $apps, true) && in_array($m[2], BACKUP_ITEM_KEYS, true));
+            || (preg_match('/^share\|(.+)\|([a-z_]+)$/D', $key, $m) && in_array($m[1], $shares, true) && in_array($m[2], BACKUP_SETUP_KEYS, true))
+            || (preg_match('/^dump\|(.+)\|type$/D', $key, $m) && in_array($m[1], $dbs, true))
+            || (preg_match('/^nextcloud\|(.+)\|preexisting_maintenance$/D', $key, $m) && in_array($m[1], $ncs, true))
+            || (preg_match('/^vm\|(.+)\|(mode|prepare|retention)$/D', $key, $m) && in_array($m[1], $vms, true))
+            || (preg_match('/^vm\|(.+)\|([a-z_]+)$/D', $key, $m) && in_array($m[1], $vms, true) && in_array($m[2], BACKUP_ITEM_KEYS, true))
+            || (preg_match('/^app\|(.+)\|([a-z_]+)$/D', $key, $m) && in_array($m[1], $apps, true) && in_array($m[2], BACKUP_ITEM_KEYS, true));
         $plain = fn ($v) => is_string($v) && strlen($v) <= 500 && !preg_match('/[\x00-\x1f]/', $v);
         $valid = $plain($value) || (is_array($value) && array_is_list($value) && count($value) <= 1000 && !in_array(false, array_map($plain, $value), true));
         if (!$ok || !$valid) {

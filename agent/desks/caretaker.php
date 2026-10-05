@@ -248,8 +248,8 @@ function caretakerNotifyWrite(string $file, array $data): void
 {
     if (!is_dir(dirname($file))) {
         @mkdir(dirname($file), 0755, true);
-        @chown(dirname($file), FILE_UID);
-        @chgrp(dirname($file), FILE_GID);
+        @lchown(dirname($file), FILE_UID);
+        @lchgrp(dirname($file), FILE_GID);
     }
     writeAtomic($file, jsonEncode($data));
 }

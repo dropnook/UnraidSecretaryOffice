@@ -41,6 +41,8 @@ const el = (tag, cls, text) => {
 };
 Office.$ = $;
 Office.el = el;
+/** Where a link may lead: the office's own pages (#…), Unraid's (/…) and http(s) — never javascript:, data: … from a state file. Else null */
+Office.safeHref = (url) => (typeof url === 'string' && /^(#|\/(?![\/\\])|https?:\/\/)/i.test(url) ? url : null);
 /** The office's own element: everything it shows lives in it (office.css styles nothing outside) */
 const ROOT = $('#sso');
 

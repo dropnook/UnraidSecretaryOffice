@@ -55,12 +55,17 @@ function officeAuthUpdate(callable $change): array
         $data = officeAuthRead();
         $new = $change($data);
         if (is_array($new)) {
-            $tmp = "$dir/.auth." . bin2hex(random_bytes(4)) . '.tmp';
-            if (@file_put_contents($tmp, json_encode($new, JSON_UNESCAPED_SLASHES)) === false || !@rename($tmp, officeAuthFile())) {
+            // a new file of our own (never one that is already there), only readable by us before it takes the name
+            $tmp = "$dir/.auth." . bin2hex(random_bytes(16)) . '.tmp';
+            $f = @fopen($tmp, 'x');
+            $ok = $f && @chmod($tmp, 0600) && @fwrite($f, json_encode($new, JSON_UNESCAPED_SLASHES)) !== false;
+            if ($f) {
+                fclose($f);
+            }
+            if (!$ok || !@rename($tmp, officeAuthFile())) {
                 @unlink($tmp);
                 throw new AuthProblem('auth_storage', 503);
             }
-            @chmod(officeAuthFile(), 0600);
             $data = $new;
         }
         return $data;
@@ -220,12 +225,7 @@ function officeUnlock(string $pin): array
             $auth['wait_until'] = 0;
             return $auth;
         }
-        $failures = (int) ($auth['failures'] ?? 0) + 1;
-        $auth['failures'] = $failures;
-        if ($failures >= OFFICE_FREE_TRIES) {
-            $auth['wait_until'] = time() + min(900, 30 * 2 ** ($failures - OFFICE_FREE_TRIES));
-        }
-        return $auth;
+        return officeAuthFailed($auth);
     });
     if (!$ok) {
         throw new AuthProblem('pin_wrong', 403);
@@ -234,20 +234,38 @@ function officeUnlock(string $pin): array
     return ['ok' => true, 'auth' => officeAuthStatus($until)];
 }
 
+/**
+ * One more wrong PIN — wherever it was typed (unlocking, or as the current PIN
+ * when changing or removing it): after OFFICE_FREE_TRIES the waiting time
+ * doubles from 30 s, up to 15 minutes. Only a right PIN resets the count.
+ */
+function officeAuthFailed(array $auth): array
+{
+    $failures = (int) ($auth['failures'] ?? 0) + 1;
+    $auth['failures'] = $failures;
+    if ($failures >= OFFICE_FREE_TRIES) {
+        $auth['wait_until'] = time() + min(900, 30 * 2 ** min(10, $failures - OFFICE_FREE_TRIES));
+    }
+    return $auth;
+}
+
 /** Set, change ($pin) or remove ($pin === '') the PIN. Needs the current one if there is one. */
 function officeSetPin(string $pin, string $current): array
 {
     if ($pin !== '' && (mb_strlen($pin) < OFFICE_PIN_MIN || mb_strlen($pin) > OFFICE_PIN_MAX)) {
         throw new AuthProblem('pin_length', 400, ['min' => OFFICE_PIN_MIN, 'max' => OFFICE_PIN_MAX]);
     }
-    $auth = officeAuthUpdate(function (array $auth) use ($pin, $current): array {
+    $wrong = false;
+    $auth = officeAuthUpdate(function (array $auth) use ($pin, $current, &$wrong): array {
         if (!empty($auth['pin_hash'])) {
             $wait = (int) ($auth['wait_until'] ?? 0) - time();
             if ($wait > 0) {
                 throw new AuthProblem('pin_wait', 429, ['seconds' => $wait]);
             }
             if (!password_verify($current, $auth['pin_hash'])) {
-                throw new AuthProblem('pin_wrong', 403);
+                // counts like a wrong PIN at unlocking: this is no way around the waiting time
+                $wrong = true;
+                return officeAuthFailed($auth);
             }
         }
         if ($pin === '') {
@@ -256,6 +274,9 @@ function officeSetPin(string $pin, string $current): array
         return ['pin_hash' => password_hash($pin, PASSWORD_DEFAULT), 'secret' => bin2hex(random_bytes(32)), 'failures' => 0, 'wait_until' => 0,
                 'read' => !empty($auth['read'])];      // a new PIN keeps "reading needs the PIN too"
     });
+    if ($wrong) {
+        throw new AuthProblem('pin_wrong', 403);
+    }
     if (empty($auth['pin_hash'])) {
         officeClearUnlockCookie();
         return ['ok' => true, 'auth' => officeAuthStatus(null)];

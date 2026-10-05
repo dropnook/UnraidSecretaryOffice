@@ -1275,7 +1275,7 @@ function clCaParse(string $text): array
  */
 function clIconOverride(array $s, ?string $service): array
 {
-    if ($service === null || !preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]*$/', $service)) {
+    if ($service === null || !preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]*$/D', $service)) {
         return [null, 'no_service'];
     }
     if (!$s['reachable']) {
@@ -2133,6 +2133,78 @@ function clStampTime(string $stamp, string $path): int
     return $t ? $t->getTimestamp() : (int) @filemtime($path);
 }
 
+/**
+ * An "as" of a manifest entry as Ms. Dustdevil writes it: "<kind folder>/<name>"
+ * (strays and icons one folder deeper), inside the run folder, the folder
+ * matching the kind — or "@<pool>/…/_UnraidSecretaryOffice-trash-<this run>-<name>"
+ * for a dataset. Nothing with "..", ".", empty parts or control characters.
+ */
+function clTrashAsOk(string $as, string $kind, string $stamp): bool
+{
+    if (str_starts_with($as, '@')) {
+        $ds = substr($as, 1);
+        return clZfsNameOk($ds) && str_contains($ds, '/') && str_starts_with(basename($ds), CL_TRASH . '-' . $stamp . '-')
+            && in_array($kind, ['appdata', 'domain', 'iso'], true);
+    }
+    if ($as === '' || strlen($as) > 4096 || preg_match('/[\x00-\x1f\x7f]/', $as)) {
+        return false;
+    }
+    $parts = explode('/', $as);
+    foreach ($parts as $p) {
+        if ($p === '' || $p === '.' || $p === '..') {
+            return false;
+        }
+    }
+    $deep = in_array($parts[0], ['strays', 'icons'], true);
+    return (CL_KINDS[$parts[0]] ?? null) === $kind && count($parts) === ($deep ? 3 : 2);
+}
+
+/** An absolute path without "..", ".", empty parts or control characters (a manifest's "from") */
+function clTrashPathOk(string $path): bool
+{
+    if (!str_starts_with($path, '/') || strlen($path) > 4096 || preg_match('/[\x00-\x1f\x7f]/', $path)) {
+        return false;
+    }
+    foreach (explode('/', substr($path, 1)) as $p) {
+        if ($p === '' || $p === '.' || $p === '..') {
+            return false;
+        }
+    }
+    return true;
+}
+
+/** A ZFS dataset name: <pool>/<child>…, ZFS's own characters, no "." or ".." parts */
+function clZfsNameOk(string $name): bool
+{
+    if (!preg_match('#^[A-Za-z0-9][A-Za-z0-9_.:/ -]{0,250}\z#', $name)) {
+        return false;
+    }
+    foreach (explode('/', $name) as $p) {
+        if ($p === '' || $p === '.' || $p === '..') {
+            return false;
+        }
+    }
+    return true;
+}
+
+/** Every folder between the run folder and an entry is a real folder, no link (else a rename would reach elsewhere) */
+function clRunPathOk(string $runPath, string $as): bool
+{
+    if (is_link($runPath) || !is_dir($runPath)) {
+        return false;
+    }
+    $parts = explode('/', $as);
+    array_pop($parts);
+    $at = $runPath;
+    foreach ($parts as $p) {
+        $at .= "/$p";
+        if (is_link($at) || !is_dir($at)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 function clTrashRuns(array $places, array $vms): array
 {
     $runs = [];
@@ -2153,8 +2225,11 @@ function clTrashRuns(array $places, array $vms): array
             $manifest = readJson("$path/manifest.json") ?? [];
             $items = [];
             $known = [];
+            $runStamp = preg_replace('/\.purging$/', '', $stamp);
             foreach ((array) ($manifest['items'] ?? []) as $it) {
-                if (!is_array($it) || !is_string($it['as'] ?? null) || !in_array($it['kind'] ?? '', CL_KINDS, true)) {
+                // the manifest lies in a folder others may write to: only entries of the shape Ms. Dustdevil writes count
+                if (!is_array($it) || !is_string($it['as'] ?? null) || !in_array($it['kind'] ?? '', CL_KINDS, true)
+                    || !clTrashAsOk($it['as'], $it['kind'], $runStamp)) {
                     continue;
                 }
                 $known[$it['as']] = true;
@@ -2165,14 +2240,14 @@ function clTrashRuns(array $places, array $vms): array
                     'kind'    => $it['kind'],
                     'name'    => (string) ($it['name'] ?? basename($it['as'])),
                     'label'   => (string) ($it['label'] ?? ''),
-                    'from'    => is_string($it['from'] ?? null) ? $it['from'] : null,
+                    'from'    => is_string($it['from'] ?? null) && clTrashPathOk($it['from']) ? $it['from'] : null,
                     'as'      => $it['as'],
-                    'dataset' => $zfs !== null && is_string($it['dataset'] ?? null) ? $it['dataset'] : null,
+                    'dataset' => $zfs !== null && is_string($it['dataset'] ?? null) && clZfsNameOk($it['dataset']) ? $it['dataset'] : null,
                     'zfs'     => $zfs,
                     'zfs_path' => $zfs !== null ? ($datasets[$zfs] ?? null) : null,
                     'present' => $zfs !== null ? isset($datasets[$zfs]) : file_exists("$path/{$it['as']}"),
-                    'volumes' => array_values(array_filter((array) ($it['volumes'] ?? []), 'is_string')),
-                    'images'  => array_values(array_filter((array) ($it['images'] ?? []), 'is_string')),
+                    'volumes' => array_values(array_filter((array) ($it['volumes'] ?? []), fn ($v) => is_string($v) && preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}\z/', $v))),
+                    'images'  => array_values(array_filter((array) ($it['images'] ?? []), fn ($v) => is_string($v) && preg_match('#^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,511}\z#', $v))),
                 ];
             }
             // whatever is in there without a manifest entry (shown, can't go back)
@@ -2225,12 +2300,15 @@ function clTrashRuns(array $places, array $vms): array
 /** A new run folder in a trash root (created on the same filesystem as what goes in) */
 function clRunCreate(string $root): array
 {
+    if (is_link($root) || is_link(dirname($root))) {
+        throw new Problem('cleanup_trash_failed', ['path' => $root]);      // a link would lead the rename elsewhere
+    }
     if (!is_dir($root)) {
         if (!@mkdir($root, 0775)) {
             throw new Problem('cleanup_trash_failed', ['path' => $root]);
         }
-        @chown($root, FILE_UID);
-        @chgrp($root, FILE_GID);
+        @lchown($root, FILE_UID);
+        @lchgrp($root, FILE_GID);
     }
     $stamp = date('Ymd-His');
     for ($i = 2; file_exists("$root/$stamp") || file_exists("$root/$stamp.purging"); $i++) {
@@ -2239,8 +2317,8 @@ function clRunCreate(string $root): array
     if (!@mkdir("$root/$stamp", 0775)) {
         throw new Problem('cleanup_trash_failed', ['path' => "$root/$stamp"]);
     }
-    @chown("$root/$stamp", FILE_UID);
-    @chgrp("$root/$stamp", FILE_GID);
+    @lchown("$root/$stamp", FILE_UID);
+    @lchgrp("$root/$stamp", FILE_GID);
     return ['root' => $root, 'path' => "$root/$stamp", 'stamp' => $stamp, 'time' => time(), 'items' => []];
 }
 
@@ -2502,8 +2580,8 @@ function clMove(string $from, string $to): void
             throw new Problem('cleanup_trash_failed', ['path' => $dir]);
         }
         foreach ([$dir, dirname($dir)] as $d) {           // like the run folder: nobody:users
-            @chown($d, FILE_UID);
-            @chgrp($d, FILE_GID);
+            @lchown($d, FILE_UID);
+            @lchgrp($d, FILE_GID);
         }
     }
     if (!@rename($from, $to)) {
@@ -2548,6 +2626,9 @@ function clRestore(array $ids): array
         $zfs = $it['zfs'];
         if (dirname($it['from']) !== $home || basename($it['from']) !== basename($zfs !== null ? (string) $it['dataset'] : $it['as'])
             || ($zfs !== null && (!$it['dataset'] || dirname($it['dataset']) !== dirname($zfs)))) {
+            throw new Problem('cleanup_no_way_back', ['name' => $it['name']]);
+        }
+        if ($zfs === null && !clRunPathOk($run['path'], $it['as'])) {
             throw new Problem('cleanup_no_way_back', ['name' => $it['name']]);
         }
         try {
@@ -2777,7 +2858,7 @@ function clIconItems(array $r): array
 /** A picture address the user typed: http(s), nothing that could break the XML or YAML it goes into */
 function clIconUrlOk(string $url): bool
 {
-    return strlen($url) <= 500 && preg_match('#^https?://[A-Za-z0-9.-]+(:\d{1,5})?(/[^\s"\'<>\\\\`{}|^]*)?$#', $url) === 1;
+    return strlen($url) <= 500 && preg_match('#^https?://[A-Za-z0-9.-]+(:\d{1,5})?(/[^\s"\'<>\\\\`{}|^]*)?$#D', $url) === 1;
 }
 
 /**
@@ -3090,12 +3171,11 @@ function clOverrideSetIcons(string $text, array $icons, string $where): string
  */
 function clIconReplace(string $target, string $content, string $stash, ?string $placeholder = null): void
 {
-    $tmp = dirname($target) . '/.' . basename($target) . '.' . getmypid() . '.tmp';
-    if (@file_put_contents($tmp, $content) === false) {
-        @unlink($tmp);
+    // a new file of our own: a stack's folder may lie in a share others can write to
+    $tmp = writeNewFile(dirname($target) . '/.' . basename($target), $content, is_file($target) ? (fileperms($target) & 0777) : 0644);
+    if ($tmp === null) {
         throw new Problem('cleanup_icon_write_failed', ['path' => $target]);
     }
-    @chmod($tmp, is_file($target) ? (fileperms($target) & 0777) : 0644);
     try {
         if ($placeholder === null) {
             clMove($target, $stash);
@@ -3130,7 +3210,7 @@ function clIconReplace(string $target, string $content, string $stash, ?string $
  */
 function clIconSeed(string $name, string $png, array $dirs = [CL_DM_RAM, CL_DM_DISK], string $json = CL_DM_JSON, string $web = CL_DM_WEB): array
 {
-    if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]*$/', $name) || !clIsPicture($png, true)) {
+    if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]*$/D', $name) || !clIsPicture($png, true)) {
         return [];
     }
     $done = [];

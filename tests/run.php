@@ -7,11 +7,14 @@ declare(strict_types=1);
  *   php /mnt/user/appdata/UnraidSecretaryOffice/tests/run.php
  *
  * They change nothing on the server: what writes files works on copies in a
- * temporary folder. Two parts:
+ * temporary folder. Three parts:
  *   logic    the tricky functions (cron, snapshot retention, Emby detection,
  *            the gather's settings, User Scripts schedules, the plugin's cron file,
  *            the menu bar's label, reports to Unraid's notifications,
  *            Mr. Backupsy's packages and his Kopia per app and VM, Ms. Dustdevil's pictures)
+ *   hardening  the checks that keep requests, manifests, paths and links in
+ *            bounds (PIN tries, safe writes, the mailbox, Ms. Dustdevil's
+ *            manifests, Emby paths, anchored validators, the release link)
  *   strings  German and English have the same keys, Italian has every English
  *            key, no language has keys English lacks, placeholders and plurals
  *            match English, and every text the code asks for exists (desk.js,
@@ -729,6 +732,183 @@ function testIcons(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+// ===================================================================== hardening
+
+/** A temporary folder for a test, removed again by hardeningRm() */
+function hardeningTmp(string $name): string
+{
+    $dir = sys_get_temp_dir() . "/uso-test-$name-" . getmypid();
+    @mkdir($dir, 0700, true);
+    return $dir;
+}
+
+function hardeningRm(string $dir): void
+{
+    if (!is_dir($dir) || is_link($dir)) {
+        @unlink($dir);
+        return;
+    }
+    foreach (array_diff(scandir($dir) ?: [], ['.', '..']) as $n) {
+        hardeningRm("$dir/$n");
+    }
+    @rmdir($dir);
+}
+
+/** A wrong current PIN when changing or removing it counts against the waiting time like a wrong one at unlocking */
+function testPinTries(): void
+{
+    $dir = hardeningTmp('auth');
+    @mkdir("$dir/office", 0700);
+    defined('OFFICE_DATA') || define('OFFICE_DATA', $dir);
+    if (OFFICE_DATA !== $dir) {
+        check('PIN tries: test data folder', false, 'OFFICE_DATA is already ' . OFFICE_DATA);
+        return;
+    }
+    if (!function_exists('officeReadJson')) {
+        function officeReadJson(string $file): ?array
+        {
+            $data = json_decode((string) @file_get_contents($file), true);
+            return is_array($data) ? $data : null;
+        }
+    }
+    require_once OFFICE_DIR . '/src/auth.php';
+    officeSetPin('2468', '');
+    same('PIN set', 'pin', officeAuthMode());
+    same('auth.json only for its owner', '600', substr(sprintf('%o', fileperms(officeAuthFile())), -3));
+    $keys = [];
+    for ($i = 0; $i < OFFICE_FREE_TRIES + 1; $i++) {
+        try {
+            officeSetPin('1357', '0000');
+            $keys[] = 'changed';
+        } catch (AuthProblem $e) {
+            $keys[] = $e->key;
+        }
+    }
+    same('wrong current PIN: refused, then waiting', array_merge(array_fill(0, OFFICE_FREE_TRIES, 'pin_wrong'), ['pin_wait']), $keys);
+    same('wrong current PIN counted', OFFICE_FREE_TRIES, (int) (officeAuthRead()['failures'] ?? 0));
+    try {
+        officeUnlock('2468');
+        $key = 'unlocked';
+    } catch (AuthProblem $e) {
+        $key = $e->key;
+    }
+    same('while waiting even the right PIN waits', 'pin_wait', $key);
+    same('no temporary files left', [], glob("$dir/office/.auth.*.tmp") ?: []);
+    hardeningRm($dir);
+}
+
+/** writeAtomic(): a link at the target or a file in the way is never written through; the mode is there from the start */
+function testSafeWrites(): void
+{
+    $dir = hardeningTmp('write');
+    $victim = "$dir/victim.txt";
+    file_put_contents($victim, 'keep');
+    symlink($victim, "$dir/state.json");
+    writeAtomic("$dir/state.json", '{"ok":true}', 0600, 0, 0);
+    same('writeAtomic: the victim behind a link is untouched', 'keep', file_get_contents($victim));
+    check('writeAtomic: the link is replaced by a file', !is_link("$dir/state.json") && is_file("$dir/state.json"));
+    same('writeAtomic: mode 0600', '600', substr(sprintf('%o', fileperms("$dir/state.json")), -3));
+    writeAtomic("$dir/script", "#!/bin/bash\n", 0755, 0, 0);
+    same('writeAtomic: a script keeps its execute bits', '755', substr(sprintf('%o', fileperms("$dir/script")), -3));
+    same('writeAtomic: no temporary files left', [], glob("$dir/.*.tmp") ?: []);
+    $tmp = writeNewFile("$dir/.x", 'a');
+    check('writeNewFile: a new file of its own', $tmp !== null && is_file($tmp) && str_starts_with(basename($tmp), '.x.'));
+
+    // the mailbox and data/office: a real folder of the web server's user, closed to others
+    $box = "$dir/mailbox";
+    mkdir($box, 0770);
+    chown($box, WEB_UID);
+    check('mailbox of the web server: accepted', privateDirOk($box));
+    chmod($box, 0777);
+    check('mailbox open to others: refused', !privateDirOk($box));
+    chmod($box, 0770);
+    chown($box, WEB_UID + 1);
+    check("mailbox of another user: refused", !privateDirOk($box));
+    symlink($box, "$dir/linkbox");
+    check('mailbox through a link: refused', !privateDirOk("$dir/linkbox"));
+    check('a link where a private folder belongs is left alone', !privateDirEnsure("$dir/linkbox", 0700, false) && is_link("$dir/linkbox"));
+    check('a link where the mailbox belongs becomes a folder', privateDirEnsure("$dir/linkbox", 0770, true) && !is_link("$dir/linkbox"));
+    same('the folder the link pointed to keeps its owner', WEB_UID + 1, fileowner($box));
+    hardeningRm($dir);
+}
+
+/** Ms. Dustdevil's manifests lie in folders others may write to: only entries of her own shape count */
+function testTrashManifest(): void
+{
+    $st = '20261005-120000';
+    foreach ([['templates/my-app.xml', 'template'], ['compose/stack', 'stack'], ['appdata/foo', 'appdata'], ['vms/win11', 'domain'],
+              ['strays/0a1b2c3d/my-x.xml', 'stray'], ['icons/0a1b2c3d/compose.override.yaml', 'icon'], ['nvram/abc_VARS.fd', 'nvram'],
+              ["@cache/appdata/_UnraidSecretaryOffice-trash-$st-foo", 'appdata']] as [$as, $kind]) {
+        check("manifest as accepted: $as", clTrashAsOk($as, $kind, $st));
+    }
+    foreach ([['../../../../boot/config/super.dat', 'template'], ['templates/../../x', 'template'], ['templates/./x', 'template'],
+              ['/boot/config/go', 'template'], ['templates//x', 'template'], ['appdata/foo', 'template'], ['templates/a/b', 'template'],
+              ['strays/x', 'stray'], ["templates/x\ny", 'template'], ['', 'template'], ['@cache/appdata', 'appdata'],
+              ['@cache/appdata/_UnraidSecretaryOffice-trash-20990101-000000-foo', 'appdata'], ["@cache/appdata/_UnraidSecretaryOffice-trash-$st-foo", 'template'],
+              ["@cache/../x/_UnraidSecretaryOffice-trash-$st-foo", 'appdata'], ['@cache', 'appdata']] as [$as, $kind]) {
+        check('manifest as refused: ' . json_encode($as) . " ($kind)", !clTrashAsOk($as, $kind, $st));
+    }
+    check('manifest from: an absolute path', clTrashPathOk('/mnt/cache/appdata/foo'));
+    foreach (['mnt/x', '/mnt/../boot', '/mnt/./x', '/mnt//x', "/mnt/x\n", '/'] as $p) {
+        check('manifest from refused: ' . json_encode($p), !clTrashPathOk($p));
+    }
+    check('dataset name ok', clZfsNameOk('cache/appdata/foo bar'));
+    check('dataset name with .. refused', !clZfsNameOk('cache/../foo'));
+
+    $dir = hardeningTmp('trash');
+    mkdir("$dir/run/appdata", 0755, true);
+    mkdir("$dir/elsewhere", 0755);
+    symlink("$dir/elsewhere", "$dir/run/strays");
+    check('restore source inside the run: ok', clRunPathOk("$dir/run", 'appdata/foo'));
+    check('restore source through a linked folder: refused', !clRunPathOk("$dir/run", 'strays/0a1b2c3d/my-x.xml'));
+    hardeningRm($dir);
+}
+
+/** Jack Emby's path mappings and EmbyCache's paths never lead out of the shares */
+function testEmbyPaths(): void
+{
+    foreach ([['/media/movies', '/mnt/user/Filme'], ['/media/tv/', '/mnt/user/Serien/TV'], ['/media/skip', '']] as [$from, $to]) {
+        check("mapping accepted: $from => $to", embyMappingOk($from, $to));
+    }
+    foreach ([['/media', '/mnt/user/../../boot'], ['/media', '/mnt/user/Filme/../../../etc'], ['media', '/mnt/user/Filme'],
+              ['/media/../x', '/mnt/user/Filme'], ['/media', '/mnt/cache/Filme'], ['/media', "/mnt/user/Filme\n"], ['/media', '/mnt/user/']] as [$from, $to]) {
+        check('mapping refused: ' . json_encode([$from, $to]), !embyMappingOk($from, $to));
+    }
+    [$exit] = run(['python3', '--version'], 10);
+    if ($exit !== 0) {
+        return;                                    // no Python on this server: EmbyCache can't run here either
+    }
+    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import embycache_lib as l; '
+        . 'loc = l.Locations({"cache_path": "/mnt/cache", "array_path": "/mnt/user0", "user_path": "/mnt/user", "array_disks_glob": "/mnt/disk[0-9]*"}, '
+        . '{"/media/movies": "/mnt/user/Filme"}); '
+        . 'print(loc.rel_from_docker("/media/movies/A/a.mkv"), loc.rel_from_docker("/media/movies/../../../../boot/config/go"), '
+        . 'loc.rel_from_docker("/media/movies/A/../../Other/x"))';
+    [$exit, $out] = run(['env', 'EMBYCACHE_DIR=' . sys_get_temp_dir(), 'PYTHONDONTWRITEBYTECODE=1', 'python3', '-c', $py, OFFICE_DIR . '/embycache'], 30);
+    same('EmbyCache: paths with ".." are skipped', 'Filme/A/a.mkv None None', trim($out));
+}
+
+/** Validators end at the end of the string: "$" alone would let a trailing newline through into a name, a file or a command */
+function testAnchors(): void
+{
+    check('snapshot name ok', preg_match(SNAPSHOT_NAME, 'manual-20261005') === 1);
+    check('snapshot name with a trailing newline refused', preg_match(SNAPSHOT_NAME, "manual-20261005\n") === 0);
+    check('menu name ok', officeMenuNameValid('Office'));
+    check('menu name with a trailing newline refused', !officeMenuNameValid("Office\n"));
+    check('picture address ok', clIconUrlOk('https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/emby.png'));
+    check('picture address with a trailing newline refused', !clIconUrlOk("https://example.com/a.png\n"));
+    check('plan id with a trailing newline refused', preg_match(SNAPPLAN_ID, "daily\n") === 0);
+}
+
+/** The release the caretaker links to: a version number and a page of the office's repository on GitHub, nothing else */
+function testUpdateClean(): void
+{
+    $ok = officeUpdateClean(['latest' => '1.26.0', 'url' => 'https://github.com/' . OFFICE_REPO . '/releases/tag/v1.26.0']);
+    same('release kept', ['1.26.0', 'https://github.com/' . OFFICE_REPO . '/releases/tag/v1.26.0'], [$ok['latest'] ?? null, $ok['url']]);
+    $bad = officeUpdateClean(['latest' => "99\n", 'url' => 'javascript:alert(1)']);
+    same('release with odd values', [null, ''], [$bad['latest'] ?? null, $bad['url']]);
+    same('a link elsewhere is dropped', '', officeUpdateClean(['url' => 'https://github.com.evil.example/x'])['url']);
+}
+
 // ===================================================================== strings
 
 function langFile(string $file): array
@@ -876,6 +1056,7 @@ function testStrings(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify',
                       'testBackupPackages', 'testBackupKopiaItems', 'testIcons'],
+          'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
