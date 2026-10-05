@@ -1,8 +1,8 @@
 {
-  "name": "Il custode",
-  "role": "Si prende cura della casa — cosa serve alla segreteria dal tuo server e cosa ti resta da fare",
-  "visit": "Dal custode",
-  "bubble.loading": "Un momento, sto facendo il mio giro per la casa…",
+  "name": "Il capoufficio",
+  "role": "Guida il team — chi assumere, cosa serve alla segreteria dal tuo server e cosa ti resta da fare",
+  "visit": "Dal capoufficio",
+  "bubble.loading": "Un momento, sto facendo il mio giro…",
   "bubble.all_good": "Tutto al suo posto — per te non c'è niente da fare.",
   "bubble.todo": {
     "one": "C'è una cosa che devi ancora fare tu.",
@@ -77,7 +77,7 @@
   "help.open": "Pulsanti a destra",
   "help.open_text": "Ti porta dove lo sistemi: alla pagina giusta dell'interfaccia web di Unraid (Plugin, App, Docker, User Scripts, Notifiche) in una nuova scheda — oppure direttamente alla scrivania giusta qui in ufficio, ad es. «Configura…» dal signor Backupsi.",
   "help.again": "Ricontrolla subito tutto; altrimenti lo faccio quando si apre la pagina e il mio ultimo controllo ha più di 5 minuti.",
-  "bubble.alone": "Ciao, sono il custode. Oltre a me non c'è ancora nessuno — ma ho già chiesto in giro chi andrebbe bene per il tuo server. Dai un'occhiata al team qui sotto e assumi chi ti serve.",
+  "bubble.alone": "Ciao, sono il capoufficio. Oltre a me non c'è ancora nessuno — ma ho già chiesto in giro chi andrebbe bene per il tuo server. Dai un'occhiata al team qui sotto e assumi chi ti serve.",
   "bubble.alone_short": "Oltre a me non c'è ancora nessuno. Passa pure — ti presento chi andrebbe bene per il tuo server.",
   "fact.could_come": "Potrebbero venire: {names}",
   "team": "Il team",
@@ -121,7 +121,7 @@
   "office_compose_title": "Aggiornato — lo stack va riavviato",
   "office_compose_text": "Questa volta è cambiato anche compose.yaml. Riavvia lo stack una volta nel Compose Manager («Compose Up»), così i contenitori ricevono la nuova impostazione.",
   "check.office_update": "L'ufficio è aggiornato ({version})",
-  "check.office_update_how": "È uscita la versione {latest} — il custode mostra in «L'ufficio» come aggiornare.",
+  "check.office_update_how": "È uscita la versione {latest} — il capoufficio mostra in «L'ufficio» come aggiornare.",
   "errors.office_not_git": "L'ufficio non è stato installato con git — aggiornalo a mano.",
   "errors.office_local_changes": "Qui il codice è stato modificato — non aggiorno, così non va perso niente.",
   "errors.office_git": "git non è riuscito: {detail}",
@@ -153,5 +153,5 @@
   },
   "notify.description": "Manca ancora: {list}",
   "notify.more": "… e altre {n}",
-  "notify.footer": "Il custode elenca nella sua pagina della segreteria tutto ciò che resta da fare. Lì puoi anche disattivare queste segnalazioni."
+  "notify.footer": "Il capoufficio elenca nella sua pagina della segreteria tutto ciò che resta da fare. Lì puoi anche disattivare queste segnalazioni."
 }

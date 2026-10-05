@@ -1,7 +1,7 @@
 {
-  "name": "Der Hauswart",
-  "role": "Schaut zum Haus — was das Sekretariat von deinem Server braucht und was du noch selbst tun musst",
-  "visit": "Zum Hauswart",
+  "name": "Der Teamchef",
+  "role": "Führt das Team — wen du einstellen kannst, was das Sekretariat von deinem Server braucht und was du noch selbst tun musst",
+  "visit": "Zum Teamchef",
   "bubble.loading": "Einen Moment, ich mache meinen Rundgang…",
   "bubble.all_good": "Alles an seinem Platz — für dich gibt es nichts zu tun.",
   "bubble.todo": {
@@ -77,7 +77,7 @@
   "help.open": "Knöpfe rechts",
   "help.open_text": "Führt dorthin, wo du es erledigst: zur passenden Seite von Unraids Oberfläche (Plugins, Apps, Docker, User Scripts, Mitteilungen) in einem neuen Tab — oder direkt zum richtigen Schreibtisch hier im Büro, z. B. «Einrichten…» bei Herr Backupsi.",
   "help.again": "Schaut sofort alles neu an; sonst tue ich das, wenn die Seite geöffnet wird und mein letzter Blick älter als 5 Minuten ist.",
-  "bubble.alone": "Hoi, ich bin der Hauswart. Ausser mir ist noch niemand da — aber ich habe mich schon umgehört, wer zu deinem Server passen würde. Schau dir das Team unten an und stell ein, wen du brauchen kannst.",
+  "bubble.alone": "Hoi, ich bin der Teamchef. Ausser mir ist noch niemand da — aber ich habe mich schon umgehört, wer zu deinem Server passen würde. Schau dir das Team unten an und stell ein, wen du brauchen kannst.",
   "bubble.alone_short": "Ausser mir ist noch niemand da. Komm vorbei — ich stelle dir vor, wer zu deinem Server passen würde.",
   "fact.could_come": "Könnten kommen: {names}",
   "team": "Das Team",
@@ -121,7 +121,7 @@
   "office_compose_title": "Aktualisiert — der Stack braucht einen Neustart",
   "office_compose_text": "Diesmal hat sich auch compose.yaml geändert. Bitte den Stack im Compose Manager einmal neu starten («Compose Up»), damit die Container die neue Einstellung bekommen.",
   "check.office_update": "Das Büro ist auf dem neusten Stand ({version})",
-  "check.office_update_how": "Version {latest} ist da — der Hauswart zeigt unter «Das Büro», wie du aktualisierst.",
+  "check.office_update_how": "Version {latest} ist da — der Teamchef zeigt unter «Das Büro», wie du aktualisierst.",
   "errors.office_not_git": "Das Büro wurde nicht mit git installiert — von Hand aktualisieren.",
   "errors.office_local_changes": "Am Code wurde hier etwas geändert — ich aktualisiere nicht, damit nichts verloren geht.",
   "errors.office_git": "git ging nicht: {detail}",
@@ -153,5 +153,5 @@
   },
   "notify.description": "Fehlt noch: {list}",
   "notify.more": "… und {n} weitere",
-  "notify.footer": "Der Hauswart führt auf seiner Seite im Sekretariat alles auf, was noch zu erledigen ist. Dort lassen sich diese Meldungen auch abschalten."
+  "notify.footer": "Der Teamchef führt auf seiner Seite im Sekretariat alles auf, was noch zu erledigen ist. Dort lassen sich diese Meldungen auch abschalten."
 }

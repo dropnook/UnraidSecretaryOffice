@@ -172,7 +172,7 @@
   "help.shares": "Condivisioni",
   "help.shares_text": "EmbyCache sposta tra l'array e un pool. Una condivisione che non sta mai sull'array (da pool a pool) non ci guadagna niente; una con un altro pool come primaria riceverebbe file sul pool sbagliato.",
   "help.pool": "Mover",
-  "help.pool_text": "Perché il Mover non rimandi subito sull'array i file preparati, l'elenco di EmbyCache va messo come eccezione in Mover Tuning. Se è così te lo dice il custode.",
+  "help.pool_text": "Perché il Mover non rimandi subito sull'array i file preparati, l'elenco di EmbyCache va messo come eccezione in Mover Tuning. Se è così te lo dice il capoufficio.",
   "help.schedule": "Pianificazioni",
   "help.schedule_text": "EmbyCache meglio ogni ora, il consolidamento ad es. una volta alla settimana di notte. Come plugin entrambi stanno nel file cron dell'ufficio e girano solo con l'array avviato.",
   "schedule_title.embycache": "Quando gira EmbyCache",
