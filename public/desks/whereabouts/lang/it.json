@@ -1,6 +1,7 @@
 {
   "name": "Signora Dovè",
   "role": "Sa dov'è ogni cosa e cosa sta succedendo — e di solito anche qualcosina in più",
+  "visit": "Dalla signora Dovè",
   "bubble.no_tour": "Non sono ancora andata in giro! Un giro dura pochi secondi — poi saprò tutto.",
   "bubble.no_data": "Non riesco a raggiungere il server e non ho ancora niente da mostrare.",
   "bubble.summary": "Conosco {shares} condivisioni, {containers} contenitori e {scripts} user script — e i loro piccoli segreti.",

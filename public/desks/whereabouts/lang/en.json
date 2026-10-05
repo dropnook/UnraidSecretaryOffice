@@ -1,6 +1,7 @@
 {
   "name": "Ms. Whereabouts",
   "role": "Knows where everything is and what's going on — and usually a little more",
+  "visit": "Visit Ms. Whereabouts",
   "bubble.no_tour": "I haven't been around yet! A tour takes a few seconds — then I'll know everything.",
   "bubble.no_data": "I can't reach the server and have nothing to show yet.",
   "bubble.summary": "I know {shares} shares, {containers} containers and {scripts} user scripts — and their little secrets.",

@@ -43,8 +43,12 @@ differ get a `_plugin` key or come from state (`schedule.via`).
 
 * **English** in code, comments, commit messages, README. The UI is translated:
   every string lives in `public/lang/<code>.json` (office) or
-  `public/desks/<id>/lang/<code>.json` (desk). `en` and `de` must always have the
-  same keys. Never hard-code UI text in JS or PHP.
+  `public/desks/<id>/lang/<code>.json` (desk). `en`, `de` and `it` must always
+  have the same keys — a new UI string needs all three; any other language may
+  leave keys out (English fills in) but never has keys `en` lacks, and
+  placeholders `{…}` and plurals match `en` (tests/run.php checks it). Unraid
+  menu paths in `it` follow Unraid's Italian pack (github.com/unraid/lang-it_IT).
+  Never hard-code UI text in JS or PHP.
 * **No build step, no dependencies.** Plain PHP 8.4 (Unraid's own PHP runs both
   the page and the agent; the old Compose stack's office container has PHP 8.5
   — use nothing newer than 8.4), vanilla JS, one CSS file plus optional
@@ -177,7 +181,10 @@ anxious, checks everything three times), Frau Wasistwo (nosy gossip), Jack
 Emby (the intern), Frau Protokolli (reads everything out, understands nothing),
 Frau Putzteufel (sees dust everywhere, but never throws anything away at once —
 "man weiss ja nie"), the caretaker (plain and friendly), Herr Restori (calm restorer in white gloves, «Piano, piano», apprentice with Herr Backupsi), the consultant (an external,
-consultant speak: "quick win", "best practice", the hour runs anyway). Greetings are lang keys
+consultant speak: "quick win", "best practice", the hour runs anyway). In Italian:
+Signora Snapshotini, Signor Backupsi, Signora Dovè, Jack Emby (lo stagista),
+Signora Protocolli, Signora Spolverina, Il custode, Signor Restori, Il consulente
+(addressing the user with "tu", like the German "du"). Greetings are lang keys
 `greet.1…n` (`Office.greet` / `Office.withGreeting`); chatty bubbles may carry
 character, warnings and errors stay plain and clear.
 
@@ -367,8 +374,9 @@ When more than one Claude chat works on the office, one of them is the
    `public/*.php`; `bash -n` for `plugin/scripts/*`, `plugin/event/*`, `backup/`.
 2. JS syntax (no Node on the dev Mac): `osascript -l JavaScript` with `new Function(src)`.
 3. Tests on the host: `php tests/run.php` (logic: cron, snapshot retention,
-   Emby detection, User Scripts schedules, the plugin's cron file — on copies; strings: `en`/`de` keys
-   identical, every T('…'), check and error text exists). Must end with 0 failed.
+   Emby detection, User Scripts schedules, the plugin's cron file — on copies; strings: `en`/`de`/`it`
+   keys identical, every language against English, every T('…'), check and error text exists).
+   Must end with 0 failed.
 4. On a server that runs the plugin, `bash plugin/dev-sync.sh` on the host puts
    the working copy into the plugin (RAM, until reboot/update; leaves backup/
    alone while a run is active). The agent restarts itself when its files change (agent/, and src/place.php it shares with the web side) — watch `data/agent.log`
