@@ -1015,5 +1015,7 @@
   "restore.sq_unchecked_hint": "Unraid's sqlite3 couldn't check it — the server uses SQLite extensions of its own (Plex does). The copy was still made with SQLite's backup API.",
   "restore.sq_after": "Its whole folder from a snapshot works too (Ms. Snapshotini): stop the server, copy the folder back, start it — crash-consistent, like after a power cut, which SQLite usually copes with.",
   "restore.own_title": "The apps' own backups — a second way",
-  "restore.own_text": "Some apps back themselves up. That's independent of me — and these folders are only in my backup if their share is."
+  "restore.own_text": "Some apps back themselves up. That's independent of me — and these folders are only in my backup if their share is.",
+  "help.items": "Kopia per app and VM",
+  "help.items_text": "An app or VM set to «local + Kopia» is a Kopia source of its own (in Kopia .apps/<name> or .vms/<name>): its folders and its package, with its own retention. The chip on its row says when Kopia last had it. Media servers that keep running during the snapshot get a consistent copy of their databases in their package."
 }

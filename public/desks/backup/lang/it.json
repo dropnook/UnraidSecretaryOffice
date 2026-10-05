@@ -1021,5 +1021,7 @@
   "restore.sq_unchecked_hint": "Lo sqlite3 di Unraid non ha potuto verificarla — il server usa estensioni SQLite proprie (Plex lo fa). La copia è stata comunque fatta con l'API di backup di SQLite.",
   "restore.sq_after": "Va bene anche tutta la sua cartella da uno snapshot (Signora Snapshotini): ferma il server, ricopia la cartella, avvialo — crash-consistent, come dopo un blackout, cosa che SQLite di solito sopporta.",
   "restore.own_title": "I backup propri delle app — una seconda strada",
-  "restore.own_text": "Alcune app fanno il backup da sole. È indipendente da me — e queste cartelle sono nel mio backup solo se lo è la loro condivisione. Meglio controllare tre volte!"
+  "restore.own_text": "Alcune app fanno il backup da sole. È indipendente da me — e queste cartelle sono nel mio backup solo se lo è la loro condivisione. Meglio controllare tre volte!",
+  "help.items": "Kopia per app e VM",
+  "help.items_text": "Un'app o una VM su «locale + Kopia» è una sorgente Kopia a sé (in Kopia .apps/<nome> o .vms/<nome>): le sue cartelle e il suo pacchetto, con una conservazione propria. Il chip nella sua riga dice quando Kopia l'ha avuta l'ultima volta. I media server che restano attivi durante lo snapshot ricevono nel pacchetto una copia coerente dei loro database."
 }

@@ -214,6 +214,7 @@ function render() {
     [T('help.rules'), T('help.rules_text')],
     [T('help.vms'), T('help.vms_text')],
     [T('help.packages'), T('help.packages_text')],
+    [T('help.items'), T('help.items_text')],
     [T('help.buttons'), T('help.buttons_text')],
     [T('setup_open'), T('help.setup')],
     [T('history'), T('help.history')],

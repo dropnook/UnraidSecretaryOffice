@@ -649,6 +649,8 @@ declare -A ITEM_PARTS=()      # "kind:name" -> how many of its parts are in
 item_bind() { # item_bind <key> <source> <target>
     local key="$1" src="$2" dst="$3" mp
     [[ -d "$src" ]] || return 1
+    # never an empty folder (a child dataset left out shows as one): Kopia would keep it as a state and age out the good ones
+    if [[ -z "$(ls -A "$src" 2>/dev/null)" ]]; then warn "Kopia source of ${key/:/ }: $src is empty in this run's snapshot - left out"; return 1; fi
     ro_bind "$src" "$dst" || { warn "Kopia source of ${key/:/ }: $src could not be bound"; return 1; }
     ITEM_MPS[$key]+="$dst"$'\n'
     # the binds are not recursive: the child datasets below the folder are bound one by one, the upper first

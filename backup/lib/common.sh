@@ -1655,6 +1655,8 @@ drift_check_items() {
         if [[ "$t" == "vm" ]]; then
             [[ "$VM_SERVICE" == "yes" ]] && ! in_list "$n" "${VM_NAMES[@]}" \
                 && drift_add info "VM '$n' has a Kopia source of its own in settings.ini but no longer exists - what is left of it still goes there"
+            [[ "$(vm_mode "$n")" == "off" ]] \
+                && drift_add warn "VM '$n' is left out of the snapshots (mode = off) but has a Kopia source of its own - only its package goes there"
         else
             found=0
             for c in "${CT_NAMES[@]}"; do
