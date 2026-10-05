@@ -405,7 +405,7 @@
     "one": "{n} modèle (XML)",
     "other": "{n} modèles (XML)"
   },
-  "place.docker_intro": "Les conteneurs de la page Docker d'Unraid sont décrits par un modèle XML sur la clé flash — un fichier texte avec l'image, les dossiers, les ports et les variables. Ajoute à nouveau le conteneur à partir de lui (Applis → Previous Apps) et il revient avec tous ses réglages. Ses données se trouvent dans appdata.",
+  "place.docker_intro": "Les conteneurs de la page Docker d'Unraid sont décrits par un modèle XML sur la clé flash — un fichier texte avec l'image, les dossiers, les ports et les variables. Ajoute à nouveau le conteneur à partir de lui (Applis → Applications Précédentes) et il revient avec tous ses réglages. Ses données se trouvent dans appdata.",
   "place.compose": "Stacks compose",
   "place.compose_sub": {
     "one": "{n} stack",
