@@ -137,6 +137,19 @@ differ get a `_plugin` key or come from state (`schedule.via`).
   as part of the engine's interface; restore commands use the credentials the
   manifest names (variable names, never values). Under `set -o pipefail` a
   `while … | jq … || fallback` loop must not end on `[[ … ]] && cmd` (use `if`).
+* **Kopia per app/VM (engine 2.19):** `[app|vm "<name>"] kopia = yes,
+  folder = <share>/<folder>, kopia_retention, kopia_ignore`. The source is
+  `<mount_root>/.apps|.vms/<name>`: read-only binds (`ro_bind`) of its folders
+  and its package out of the share mounts; shares get those parts as ignore
+  rules the engine adds itself. Kopia phase order: apps, shares, VMs, flash.
+  Never put a Kopia source under another source's policy path (parent-path
+  ignore rules are merged and re-anchored at the source root), never `@` in a
+  source path (Kopia reads `/x/@y` as user@host). Media servers that keep
+  running get SQLite copies (`db/sqlite_<c>_<file>`, backup API through the
+  container's bind path, before the apps stop); the apps' own backups are named
+  in the manifest (`own_backups`). The setup's step 4 has "Kopia per app and
+  VM"; offered ignore rules are never preselected; data warnings (Nextcloud's
+  data, Immich's uploads in a share backed up less than the app) on the app row.
 * **Backups never live in appdata.** Dumps, archives and manifests go to a
   backup share of their own (`[general] dumps_share` → `<share>/unraid-backup`,
   in the office's share `UnraidSecretaryOffice` → `backup/`, one folder per desk;
