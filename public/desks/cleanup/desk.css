@@ -23,6 +23,7 @@
 .cl-pic-opt input:disabled ~ *{opacity:.55}
 .cl-pic-own{display:flex; gap:8px; align-items:center; margin:4px 0}
 .cl-pic-own .input{flex:1; min-width:0; font-size:13px; padding:5px 8px}
+.cl-pic-own input[type=file]{display:none}
 .cl-pic-short{margin:0 0 12px; padding:0; list-style:none; max-height:260px; overflow:auto; border:1px solid var(--line); border-radius:var(--radius)}
 .cl-pic-short li{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:4px 10px; padding:5px 10px; border-top:1px solid var(--line); font-size:13px; color:var(--ink)}
 .cl-pic-short li:first-child{border-top:0}
