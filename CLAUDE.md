@@ -63,6 +63,15 @@ differ get a `_plugin` key or come from state (`schedule.via`).
   action re-reads the current state and validates ids against it. Errors are
   `throw new Problem('key', [...])`; the UI translates `errors.<key>`
   (desk-specific keys in the desk's lang file).
+* **Hardening rules (1.26):** files only through `writeAtomic()`/`writeNewFile()`
+  (exclusive random tmp, mode from the start, never through a symlink); the agent
+  reads the mailbox only while it is a real folder of the web server's user
+  (`privateDirOk()`) and only plain request files; validators that feed names,
+  files or commands end with `$/D` (PCRE's `$` also matches before a newline);
+  links built from state files only via `Office.safeHref()`; manifests read back
+  from shares (Ms. Dustdevil's storeroom) are trusted only in exactly the shape
+  the office writes. `HARDENING.md` lists what was checked and what is
+  recommended but open.
 * **Never wake sleeping disks on your own.** Check `sleepingDisks()` before
   reading array disks; offer an explicit "wake" option instead.
 * **Nothing directly in /mnt** (Fix Common Problems): mounts go to
