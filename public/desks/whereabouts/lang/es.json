@@ -405,7 +405,7 @@
     "one": "1 plantilla (XML)",
     "other": "{n} plantillas (XML)"
   },
-  "place.docker_intro": "Los contenedores de la página Docker de Unraid se describen con una plantilla XML en la memoria flash — un archivo de texto con imagen, carpetas, puertos y variables. Vuelve a añadir el contenedor a partir de ella (Apps → Previous Apps) y vuelve con todos sus ajustes. Sus datos están en appdata.",
+  "place.docker_intro": "Los contenedores de la página Docker de Unraid se describen con una plantilla XML en la memoria flash — un archivo de texto con imagen, carpetas, puertos y variables. Vuelve a añadir el contenedor a partir de ella (Apps → Apps Instaladas Previamente) y vuelve con todos sus ajustes. Sus datos están en appdata.",
   "place.compose": "Stacks de compose",
   "place.compose_sub": {
     "one": "1 stack",
