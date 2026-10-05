@@ -113,10 +113,17 @@ function houseGuiUrl(): ?string
  */
 function hostLaunch(string $job, array $args, array $env = [], ?string $output = null, string $cwd = '/'): void
 {
+    // the job file's name and the variables' names go into the script unquoted: only plain names
+    if (!preg_match('/^[a-z][a-z0-9_-]{0,63}\z/', $job) || !$args) {
+        throw new Problem('command_failed', ['detail' => "bad job $job"]);
+    }
     $file = RUN_DIR . "/$job.sh";
-    $line = implode(' ', array_map('escapeshellarg', $args));
+    $line = implode(' ', array_map(fn ($a) => escapeshellarg((string) $a), $args));
     $exports = '';
     foreach ($env as $k => $v) {
+        if (!is_string($k) || !preg_match('/^[A-Z_][A-Z0-9_]{0,63}\z/', $k)) {
+            throw new Problem('command_failed', ['detail' => "bad variable $k"]);
+        }
         $exports .= $k . '=' . escapeshellarg((string) $v) . "\nexport $k\n";
     }
     $out = $output !== null ? escapeshellarg($output) : '/dev/null';
