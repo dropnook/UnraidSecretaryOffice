@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+<title>Mr. Restori: a parcel coming back</title>
+<path d="M8 32l8-9h30l-8 9z" fill="#E3B97E"/><path d="M38 32l8-9v24l-8 10z" fill="#A87A44"/><rect x="8" y="32" width="30" height="25" rx="2" fill="#C8955A"/><path d="M20 32h6v25h-6z" fill="#F1DDB0"/><path d="M23 23h6l-3 9h-6z" fill="#F1DDB0"/><path d="M56 40A17 17 0 0 0 31 12" stroke="#2FA36B" stroke-width="5" fill="none" stroke-linecap="round"/><path d="M36 5l-7 7 8 4" stroke="#2FA36B" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

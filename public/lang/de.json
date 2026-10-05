@@ -130,6 +130,7 @@
   "office.tip_give": "Trinkgeld geben (PayPal)",
   "errors.not_hired": "Diese Person arbeitet (noch) nicht hier. Der Hauswart kann sie einstellen.",
   "errors.always_there": "Der Hauswart gehört zum Haus — er wird weder eingestellt noch entlassen.",
+  "errors.in_training": "{desk} ist noch in der Lehre — einstellen kannst du ihn, sobald er ausgelernt hat.",
   "office.fire": "Entlassen",
   "office.fire_menu": "{name} entlassen…",
   "office.fire_title": "{name} entlassen?",

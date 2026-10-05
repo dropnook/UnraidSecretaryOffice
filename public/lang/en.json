@@ -130,6 +130,7 @@
   "office.tip_give": "Leave a tip (PayPal)",
   "errors.not_hired": "This person doesn't work here (yet). The caretaker can hire them.",
   "errors.always_there": "The caretaker comes with the house — he is neither hired nor fired.",
+  "errors.in_training": "{desk} is still an apprentice — you can hire him once he has finished.",
   "office.fire": "Let go",
   "office.fire_menu": "Let {name} go…",
   "office.fire_title": "Let {name} go?",

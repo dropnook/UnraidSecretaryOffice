@@ -270,8 +270,31 @@ function teamSection() {
   s.appendChild(Office.sectionHead(T('team'), T(alone() ? 'team_sub_alone' : 'team_sub'), ...extra));
   const box = el('div', 'box');
   all.forEach((x) => box.appendChild(teamRow(x)));
+  // under contract but still learning (desk.json "training"): shown, not hired yet
+  [...Office.desks.values()].filter((d) => d.training).forEach((d) => box.appendChild(trainingRow(d)));
   s.appendChild(box);
   return s;
+}
+
+function trainingRow(d) {
+  const r = el('div', 'row nocheck ct-person ct-candidate');
+  const av = Office.avatar(d.id);
+  av.classList.add('ct-avatar');
+  r.appendChild(av);
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', Office.t(`${d.id}.name`)));
+  const meta = el('div', 'row-meta');
+  meta.appendChild(el('span', 'chip quiet', T('in_training')));
+  meta.appendChild(el('span', '', Office.t(`${d.id}.role`)));
+  main.appendChild(meta);
+  main.appendChild(el('div', 'row-detail', Office.t(`${d.id}.training`)));
+  r.appendChild(main);
+  const b = el('button', 'btn small plain', T('training_tip'));
+  b.type = 'button';
+  b.title = T('training_tip_title');
+  b.onclick = () => Office.tipJar();
+  r.appendChild(b);
+  return r;
 }
 
 function teamRow(x) {
