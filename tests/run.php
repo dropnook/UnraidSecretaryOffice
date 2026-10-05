@@ -13,7 +13,7 @@ declare(strict_types=1);
  *            the menu bar's label, reports to Unraid's notifications, the team
  *            lead's «I know, thanks» and the Dashboard tile,
  *            Mr. Backupsy's packages and his Kopia per app and VM, Ms. Dustdevil's pictures,
- *            Mr. Restori's reader of the packages, the Consultant's monitoring externals)
+ *            Mr. Restori's reader of the packages, the Consultant's monitoring externals, Ms. Protocolli's tour)
  *   hardening  the checks that keep requests, manifests, paths and links in
  *            bounds (PIN tries, safe writes, the mailbox, Ms. Dustdevil's
  *            manifests, Emby paths, anchored validators, the release link)
@@ -504,6 +504,137 @@ function testRestore(): void
     same('restore: share paths', [['appdata', 'nextcloud/db', null], ['appdata', 'x', 'master'], null, null, null, ['domains', '', null]],
         [rsSharePath('/mnt/user/appdata/nextcloud/db/', $ctx), rsSharePath('/mnt/master/appdata/x', $ctx), rsSharePath('/mnt/disks/ud/x', $ctx),
          rsSharePath('/mnt/user/appdata/../etc', $ctx), rsSharePath('/mnt/user/.hidden/x', $ctx), rsSharePath('/mnt/user/domains', $ctx)]);
+}
+
+/**
+ * Ms. Protocolli's tour: what counts as an error or a warning (own level,
+ * words, what doesn't count), similar lines as one kind, times at the start
+ * of a line, reading a file since the last tour (offset, rotation by inode,
+ * the cap), the team lead's /var/log check — and that the page colours by
+ * the same patterns as the tour counts.
+ */
+function testLogsTour(): void
+{
+    $levels = [
+        'Oct  5 20:27:28 Tower sshd-session[2940377]: error: connect_to 127.0.0.1 port 18080: failed.' => 'error',
+        '2026/10/04 23:21:54 [error] 42368#42368: *817496 open() "/x/question.png" failed (2: No such file)' => 'error',
+        't=2026-10-05T22:41:29+02:00 level=info msg="Database locked, sleeping then retrying" error="database is locked"' => '',
+        'time="2026-10-05T20:00:00Z" level=warning msg="cleanup failed"' => 'warn',
+        '{"level":"warn","ts":1791229645.04,"msg":"HTTP/3 skipped"}' => 'warn',
+        '2026-10-04 19:23:53,729 | INFO | Exclude-Liste: 3 Einträge, 0 Fehler' => '',
+        '2026-10-04 19:23:53,729 | ERROR | Emby antwortet nicht' => 'error',
+        '2026-10-05 21:04:33.953+0000: 268179: error : virNetSocketReadWire:1782 : End of file' => 'error',
+        '2026-10-05 20:01:51.778+0000: 268180: warning : qemuDomainObjTaintMsg:5727 : Domain id=12' => 'warn',
+        '[11:15:34 WARN VmsService]: Initial hypervisor connection failed: Libvirt is not running.' => 'warn',
+        '[05-Oct-2026 08:24:47 Europe/Berlin] PHP Warning:  file_get_contents(x): Failed to open stream' => 'warn',
+        '[05-Oct-2026 20:52:44 Europe/Berlin] PHP Parse error:  Unclosed \'{\' on line 378' => 'error',
+        '[05-Oct-2026 20:52:44 Europe/Berlin] PHP Deprecated:  something failed' => '',
+        '2026-10-05T19:42:42Z INF Retrying connection in up to 2s connIndex=3' => '',
+        '2026-10-05T19:42:42Z ERR Connection terminated connIndex=3' => 'error',
+        '1:C 05 Oct 2026 20:34:07.634 # WARNING Memory overcommit must be enabled! a background save may fail' => 'warn',
+        '[Nest] 218  - 10/05/2026, 9:47:26 PM     LOG Showing log, warn, error, fatal messages' => '',
+        '2026-10-05 22:52:38  Check done: 0 errors, 0 warnings, 0 notes.' => '',
+        'Imported mempool transactions from file: 45101 succeeded, 0 failed, 0 expired' => '',
+        'ENDE: Sat Oct  3 20:42:11 CEST 2026 - Exit Code: 23' => 'error',
+        'ENDE: Sat Oct  3 20:42:11 CEST 2026 - Exit Code: 0' => '',
+        '>f+++++++++ Season.04/Gossip.Girl.-.S04E14.-.Panic.Roommate.mkv' => '',
+        'rsync error: received SIGUSR1 (code 19) at main.c(1622) [generator=3.4.4]' => 'error',
+        'kernel: ata3.00: failed command: READ FPDMA QUEUED' => 'error',
+        'kernel: BTRFS info (device sdb1): Call Trace: x' => 'error',
+        'nginx: [warn] duplicate MIME type "text/html"' => 'warn',
+        'Connection timed out while waiting' => 'warn',
+        '2026-10-05 22:24:35  WARNUNG: [nextcloud] Verify: 1 Abweichungen' => 'warn',
+        'Gather: FEHLER beim Verschieben' => 'error',
+        'Started Daily Cleanup of Temporary Directories.' => '',
+        'nginx: open() "/var/log/nginx/error.log" for writing' => '',
+        '[compose] Pulling images' => '',
+    ];
+    foreach ($levels as $line => $want) {
+        same('logs level: ' . substr($line, 0, 60), $want, logsLevel($line));
+    }
+
+    // similar lines are one kind: times, PIDs, connection numbers, addresses, ids don't matter
+    $kind = fn (string $l) => logsNormalize($l, logsLineTime($l)[1]);
+    same('logs kind: nginx loop', $kind('Oct  4 23:21:47 Tower nginx: 2026/10/04 23:21:47 [error] 42368#42368: *814029 open() "/q.png" failed, client: 192.168.7.61'),
+        $kind('Oct  5 01:02:03 Tower nginx: 2026/10/05 01:02:03 [error] 1234#1234: *9 open() "/q.png" failed, client: 10.0.0.2'));
+    same('logs kind: container ids and UUIDs', $kind('2026-10-05T20:33:38.694584352Z removing 7f505d74adb07ef9bf9bc20ec4652a38d4daf85a for 9b3e9c65-84b4-2410-470b-8f719c38ea21'),
+        $kind('2026-10-06T01:00:00.1Z removing aba6f774f5ad7603936e9b3c6d28853ce5537f2e for 1734176c-cd39-de65-1437-8fe971a30dd6'));
+    check('logs kind: another message is another kind', $kind('Oct  5 01:02:03 Tower sshd[1]: error: connect_to 127.0.0.1 port 18080: failed.')
+        !== $kind('Oct  5 01:02:03 Tower sshd[1]: Read error from remote host 127.0.0.1 port 18080: Connection reset by peer'));
+
+    // times at the start of a line
+    $times = [
+        '2026-10-05 20:52:37.064+0000: 268179: error : x' => '2026-10-05 22:52:37',
+        '2026-10-05T20:52:37.123456789Z line'             => '2026-10-05 22:52:37',
+        '2026-10-05 22:52:15  Backup: started'             => '2026-10-05 22:52:15',
+        '2026/10/04 23:21:54 [error] x'                    => '2026-10-04 23:21:54',
+        '[Sun Oct  5 22:52:31 2026] usb 1-1: new device'   => '2026-10-05 22:52:31',
+        '[05-Oct-2026 18:52:44 UTC] PHP Parse error: x'    => '2026-10-05 20:52:44',
+        '[2026/10/05 11:12:13.123456,  0] ../../source3/smbd/server.c:1736(main)' => '2026-10-05 11:12:13',
+    ];
+    foreach ($times as $line => $want) {
+        [$t] = logsLineTime($line);
+        same('logs time: ' . substr($line, 0, 30), $want, $t === null ? null : date('Y-m-d H:i:s', $t));
+    }
+    [$t, $len] = logsLineTime('Oct  5 22:52:00 Tower kernel: x');
+    same('logs time: syslog (this year, or last year for December read in January)', [true, 16], [$t !== null && $t <= time() + 86400, $len]);
+    same('logs time: none', [null, 0], logsLineTime('rsync error: some files were not transferred'));
+
+    // a sample never ends inside a UTF-8 character
+    same('logs cut: whole characters only', ['aaaaaaaaa', true], logsCut(str_repeat('a', 9) . 'ä' . 'bcd', 10));
+    same('logs cut: short lines stay', ['abc', false], logsCut('abc', 10));
+
+    // a file since the last tour: from its offset, rotated (the rest of <file>.1, found by inode), the first tour's 24 hours
+    $tmp = sys_get_temp_dir() . '/office-tests-logs-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    $log = "$tmp/syslog";
+    $old = date('M j H:i:s', time() - 2 * 86400);
+    $new = date('M j H:i:s', time() - 600);
+    file_put_contents($log, "$old Tower kernel: I/O error, dev sdb\n$new Tower sshd[1]: error: one\n$new Tower sshd[2]: error: one\n$new Tower ok\n");
+    $src = ['group' => 'unraid', 'label' => 'syslog', 'kind' => 'file', 'target' => $log, 'param' => ''];
+    $sources = ['syslog' => $src, 'syslog.1' => ['target' => "$log.1"] + $src];
+    $mem = [];
+    $e = logsTourFileSource('syslog', $src, null, time() - 86400, time() - 86400, $sources, $mem);
+    same('logs tour: the first tour counts the last 24 hours, similar lines as one kind', [2, 1, 2, 1],
+        [$e['errors'], $e['kinds'], $e['groups'][0]['count'] ?? null, $e['groups'][0]['back'] ?? null]);
+    same('logs tour: remembers where the file ended', filesize($log), $mem['syslog']['size'] ?? null);
+    file_put_contents($log, "$new Tower smbd[3]: warning: two\n$new Tower half a li", FILE_APPEND);
+    $mem2 = [];
+    $e = logsTourFileSource('syslog', $src, $mem['syslog'], null, time() - 3600, $sources, $mem2);
+    same('logs tour: the next tour reads only what came, whole lines', [0, 1, 1], [$e['errors'], $e['warnings'], $e['lines']]);
+    check('logs tour: an unfinished line waits for the next tour', ($mem2['syslog']['size'] ?? PHP_INT_MAX) < filesize($log));
+    rename($log, "$log.1");
+    file_put_contents("$log.1", "ne\n$new Tower smbd[4]: error: three\n", FILE_APPEND);
+    file_put_contents($log, "$new Tower smbd[5]: error: four\n");
+    $mem3 = [];
+    $e = logsTourFileSource('syslog', $src, $mem2['syslog'], null, time() - 3600, $sources, $mem3);
+    $srcs = array_values(array_unique(array_column($e['groups'], 'src')));
+    sort($srcs);
+    same('logs tour: rotated — the rest of the old file and the new one', [true, 2, ['syslog', 'syslog.1']], [$e['rotated'], $e['errors'], $srcs]);
+    file_put_contents($log, str_repeat("$new Tower x: nothing to see\n", 160000), FILE_APPEND);
+    $e = logsTourFileSource('syslog', $src, $mem3['syslog'], null, time() - 3600, $sources, $mem);
+    same('logs tour: never more than the cap, the newest part', [true, true], [$e['partial'], $e['skipped'] > 0 && $e['lines'] * 30 <= LOGS_TOUR_BYTES]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+
+    // the team lead: /var/log over 80 % still to do, over 60 % recommended; a /var/log that isn't a disk of its own: nothing
+    $v = fn (int $pct, bool $own = true) => ['ok' => true, 'own' => $own, 'total' => 100 << 20, 'used' => $pct << 20, 'pct' => $pct];
+    same('logs check: levels', [['required', true], ['recommended', false], ['required', false], [], []],
+        array_map(fn ($c) => $c ? [$c[0]['level'], $c[0]['ok']] : [],
+            [logsChecks($v(15)), logsChecks($v(65)), logsChecks($v(85)), logsChecks($v(95, false)), logsChecks(['ok' => false])]));
+
+    // the page colours lines by the same patterns as the tour counts them
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/logs/desk.js');
+    foreach (['OWN_LEVEL' => LOGS_OWN_LEVEL, 'OWN_UPPER' => LOGS_OWN_UPPER, 'NOT_COUNTED' => LOGS_NOT_COUNTED, 'ERROR' => LOGS_ERROR, 'WARN' => LOGS_WARN] as $name => $php) {
+        preg_match('#^const ' . $name . ' = /(.*)/[gi]*;$#m', $js, $m);
+        same("logs: desk.js $name is the agent's", substr($php, 1, strrpos($php, '/') - 1), $m[1] ?? null);
+    }
+    preg_match('#const LEVEL_NAMES = \{(.*?)\};#s', $js, $m);
+    preg_match_all("#'?([a-z][a-z ]*)'?: '(error|warn|)'#", $m[1] ?? '', $pairs, PREG_SET_ORDER);
+    $names = array_column($pairs, 2, 1);
+    $want = LOGS_LEVEL_NAMES;
+    ksort($names);
+    ksort($want);
+    same("logs: desk.js LEVEL_NAMES are the agent's", $want, $names);
 }
 
 // ===================================================================== notifications
@@ -1336,7 +1467,7 @@ function testIconSquare(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testIcons', 'testIconSquare', 'testRestore', 'testAdvisor'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testIcons', 'testIconSquare', 'testRestore', 'testAdvisor', 'testLogsTour'],
           'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
