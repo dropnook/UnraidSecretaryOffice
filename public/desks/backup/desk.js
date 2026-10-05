@@ -1124,21 +1124,27 @@ async function setupLoad() {
       setup.plan = null;                     // the old plan went aside with the settings
       setup.draft = null;
       setup.applied = null;
+      if (page === 'setup') renderSetup();
       load(true);
-      await setupPlan(false, true);          // look at the server as if it were new
+      setup.asked = false;                   // look at the server as if it were new
+      if (!(await setupPlan(false, true))) { setup.asked = false; setupTimer = setTimeout(setupLoad, SETUP_POLL); }
       return;
     }
     Office.toast(T('setup.forget_failed'), true);
   }
+  if (was && was.running && was.mode === 'plan' && !j.status.running) setupAfterPlan();
   const finishedApply = was && was.running && was.mode === 'apply' && !j.status.running;
   if (finishedApply) {
     setup.applied = j.run;
     if (j.run && j.run.result === 'ok') {
       Office.toast(T('setup.applied'));
-      // the differences shown so far come from before: check against the new settings right away (seconds, changes nothing)
-      Office.api.post(`${ID}.start`, { mode: 'check' }).then(() => load(true));
+      setup.plan = { ...setup.plan, P: clone(setup.draft), pending: [] };   // until the new plan is in
+      setupBar();
+      // look again (the plan should now show no changes), then check against the new settings
+      // (seconds, changes nothing) - one after the other, both need the engine's lock
       load(true);
-      await setupPlan(false, true);          // look again: the plan should now show no changes
+      setup.checkNext = true;
+      if (!(await setupPlan(false, true))) setupAfterPlan();
       return;
     }
   }
@@ -1155,8 +1161,16 @@ const canPlan = () => !!(state && state.found && state.compatible && Office.agen
 async function setupPlan(measure, quiet) {
   setup.asked = true;
   const j = await Office.api.post(`${ID}.setup_plan`, { measure: !!measure });
-  if (!j.ok) { if (!quiet) Office.toast(Office.errorText(j.error, ID), true); return; }
+  if (!j.ok) { if (!quiet) Office.toast(Office.errorText(j.error, ID), true); return false; }
   setTimeout(setupLoad, 500);
+  return true;
+}
+
+/** After an apply: once the new plan is in, check against the new settings */
+function setupAfterPlan() {
+  if (!setup.checkNext) return;
+  setup.checkNext = false;
+  Office.api.post(`${ID}.start`, { mode: 'check' }).then(() => load(true));
 }
 
 function setupApply() {
@@ -1183,7 +1197,7 @@ function setupApply() {
     const ul = el('ul', 'shortlist');
     changes.slice(0, 60).forEach((k) => {
       const li = el('li', '', changeLabel(k));
-      li.appendChild(el('span', '', `${valueText(setup.plan.P[k])} → ${valueText(setup.draft[k])}`));
+      li.appendChild(el('span', '', `${valueText(setup.plan.P[k], k)} → ${valueText(setup.draft[k], k)}`));
       ul.appendChild(li);
     });
     box.appendChild(ul);
@@ -1213,12 +1227,21 @@ function changeLabel(k) {
   if (p[0] === 'share') return T('setup.ch_share', { share: p[1], key: T('setup.key.' + p[2]) });
   if (p[0] === 'dump') return T('setup.ch_dump', { name: p[1] });
   if (p[0] === 'nextcloud') return T('setup.ch_nextcloud', { name: p[1] });
+  if (p[0] === 'vm') return T('setup.ch_vm', { name: p[1], key: Office.has(`${ID}.setup.key.vm_${p[2]}`) ? T('setup.key.vm_' + p[2]) : p[2] });
   return Office.has(`${ID}.setup.key.${p.join('_')}`) ? T('setup.key.' + p.join('_')) : k;
 }
-function valueText(v) {
+function valueText(v, k = '') {
   if (v === undefined || v === null) return '–';
   if (Array.isArray(v)) return v.length ? v.join(', ') : '–';
-  return v === '' ? '–' : v;
+  if (v === '') return '–';
+  // the words the page uses, not settings.ini's values
+  const p = k.split('|');
+  const word = p[0] === 'share' && p[2] === 'mode' ? `setup.mode.${v}`
+    : p[0] === 'vm' && p[2] === 'mode' ? `setup.vm_mode.${v}`
+      : p[0] === 'vm' && p[2] === 'prepare' ? `setup.vm_prep.${v}` : '';
+  if (word && Office.has(`${ID}.${word}`)) return T(word);
+  if (v === 'yes' || v === 'no') return Office.t(`common.${v}`);
+  return v;
 }
 
 /** Forget the settings and start the setup anew — nothing backed up is touched */
