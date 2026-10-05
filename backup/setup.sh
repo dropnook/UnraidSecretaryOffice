@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.17 - 2026-10-05
+# unraid-backup - setup.sh                        Version 2.18 - 2026-10-06
+#   2.18 The backup place holds a package per app and VM (backup.sh); its share keeps their history
+#        in snapshots: proposed as at least a local snapshot, never off (why code backup_place), a
+#        warning when it can't take snapshots. keep_runs is no longer written (old files: ignored)
 #   2.17 --forget: start the setup anew - settings.ini, the office's decisions and the
 #        last plan go to state/reset-<time>/; nothing backed up is touched. The share domains
 #        is proposed as a local snapshot (VMs are held for it since 2.16), not as off. The plan
@@ -393,7 +396,6 @@ TXT
     [[ "$(pget "general|view_root")" == "$UB_MNT/btrfs-snap" ]] && pset "general|view_root" "$UB_MNT/addons/$UB_OFFICE_SHARE/btrfs-snap"
     pinit "general|btrfs_snap_dir" ".btrfs-snap"
     pinit "general|dumps_share"    ""             # the choice so far stays (before 2.14 it was guessed anew)
-    pinit "general|keep_runs"      "14"
     pinit "general|keep_logs"      "60"
     pinit "general|min_free_gb"    "8"
     pinit "general|keep_mounts"    "no"
@@ -1275,8 +1277,8 @@ btrfs: one snapshot per disk and run, retention in days. Emergency brake: if the
 space falls below the limit, the oldest are deleted early. Browse them under
 <view_root>/<disk> (symlinks - they hold no disk, the array stop stays free).
 Flash: if /boot lies on ZFS, it is snapshotted and goes to Kopia as the source "_flash";
-otherwise as a tar.gz into the dumps (kernel images and plugin packages left out - Unraid
-downloads those again).
+otherwise as a tar.gz into the backup place (kernel images and plugin packages left out -
+Unraid downloads those again).
 TXT
     inv_flash
     local havez=0 haveb=0 b
@@ -1299,15 +1301,17 @@ TXT
             pset "btrfs|snapshot_all" yes
         else pset "btrfs|snapshot_all" no; fi
     fi
-    ask "  Keep dump/manifest folders (runs)" "$(pget "general|keep_runs")"; is_uint "$REPLY" && pset "general|keep_runs" "$REPLY"
 
-    sub "Backup place (dumps, archives, manifest)"
+    sub "Backup place (the packages of apps and VMs)"
     explain <<'TXT'
-Database dumps, the archive of the VM configuration and the manifest need a backup share
-of their own - never appdata: the dumps protect the databases in appdata; if they lay next to
-them, a failure of that pool would take both. They go to <share>/unraid-backup (root only),
-in the office's share UnraidSecretaryOffice to its folder backup/ (one folder per desk).
-The share should go to Kopia, so that dumps and archives are offsite too.
+Every run writes a package per app and per VM to the backup place: templates or compose files,
+the database dumps, the VM configuration (XML, NVRAM, TPM state) - small files, overwritten
+every night; the big data stays in the snapshots. They need a backup share of their own - never
+appdata: the dumps protect the databases in appdata; if they lay next to them, a failure of that
+pool would take both. They go to <share>/unraid-backup (root only), in the office's share
+UnraidSecretaryOffice to its folder backup/ (one folder per desk).
+The packages keep their history in the snapshots of that share: it takes at least local
+snapshots (better on a ZFS or btrfs pool), and should go to Kopia so the packages are offsite too.
 TXT
     local ds sugg cand
     ds="$(pget "general|dumps_share")"
@@ -1329,6 +1333,14 @@ TXT
     while :; do
         ask "  Share for the backup place" "$ds"
         ds="$REPLY"
+        # its snapshots keep the packages' history: at least a local snapshot - proposed here; decisions
+        # from the office that switch it off are refused below (settings.ini is then not written)
+        if [[ -n "$ds" && "$MODE" != "apply" && "$(pget "share|$ds|mode" off)" == "off" ]] && in_list "$ds" "${SH[@]}" \
+           && [[ -z "$(dumps_share_problem "$ds" snapshot)" ]]; then
+            pset "share|$ds|mode" snapshot; _apply_P
+            why "$ds" backup_place "" "the backup place - its snapshots keep the packages' history"
+            hint "Share '$ds' holds the backup place: proposed as a local snapshot (its snapshots keep the packages' history)"
+        fi
         local prob; prob="$(dumps_share_problem "$ds" "$(pget "share|$ds|mode" off)")"
         [[ -z "$prob" ]] && break
         bad "$(dumps_share_text "$prob" "$ds")"
@@ -1338,7 +1350,9 @@ TXT
     if [[ -z "${prob:-}" ]]; then
         ok "Backup place: $(dumps_path "$ds")"
         is_yes "$KOPIA_ENABLED" && [[ "$(pget "share|$ds|mode")" != "kopia" ]] \
-            && wrn "Backup place '$ds' does not go to Kopia (mode=$(pget "share|$ds|mode")) - dumps and archives would stay local only; set the share to kopia"
+            && wrn "Backup place '$ds' does not go to Kopia (mode=$(pget "share|$ds|mode")) - the packages would stay local only; set the share to kopia"
+        [[ "$(share_method "$ds")" == "live" ]] \
+            && wrn "Backup place '$ds' lies on a file system without snapshots - its packages would keep no history, only the newest state; choose a share on a ZFS or btrfs pool"
     fi
 
     sub "Flash ($UB_BOOT)"
@@ -1347,13 +1361,13 @@ TXT
         say "  $UB_BOOT lies on ZFS ($FLASH_DATASET) - snapshot possible"
         fm="$(old "flash|mode" snapshot)"
     else
-        say "  $UB_BOOT is ${FLASH_FS:-?} - backed up as an archive in the dumps"
+        say "  $UB_BOOT is ${FLASH_FS:-?} - backed up as an archive in the backup place"
         fm="$(old "flash|mode" tar)"; [[ "$fm" == "snapshot" ]] && fm="tar"
     fi
     if is_yes "$KOPIA_ENABLED"; then
         hint "snapshot = ZFS snapshot of $UB_BOOT, goes to Kopia as the source '_flash'"
     else
-        hint "snapshot = local ZFS snapshot only (Kopia is off); tar = archive in the dumps"
+        hint "snapshot = local ZFS snapshot only (Kopia is off); tar = archive in the backup place"
     fi
     ask "  Back up the flash: snapshot | tar | off" "$fm"
     case "$REPLY" in snapshot|tar|off) fm="$REPLY" ;; esac
@@ -1365,7 +1379,7 @@ TXT
     sub "VM configuration (libvirt.img)"
     if mountpoint -q /etc/libvirt; then
         say "  libvirt.img is mounted at /etc/libvirt: XML, NVRAM and TPM state of all VMs"
-        hint "tar = its contents every night as an archive next to the dumps (small; without it moving the VMs is a chore)"
+        hint "tar = its contents every night as a whole in the backup place (server/libvirt.tar.gz); each VM's own configuration goes to its package either way"
         pinit "libvirt|mode" tar
     else
         say "  VM service off - nothing to back up"
@@ -1600,12 +1614,12 @@ settings_render() {
         w_kv snap_prefix "$(pget "general|snap_prefix")"
         w_c "Subfolder for btrfs snapshots on every btrfs disk/btrfs pool"
         w_kv btrfs_snap_dir "$(pget "general|btrfs_snap_dir")"
-        w_c "How many dump/manifest folders and logs to keep (number of runs)"
-        w_kv keep_runs "$(pget "general|keep_runs")"
+        w_c "How many logs to keep (number of runs)"
         w_kv keep_logs "$(pget "general|keep_logs")"
-        w_c "A backup share of its own for dumps, archives and manifest: <share>/unraid-backup (never appdata)"
+        w_c "A backup share of its own for the packages of apps and VMs: <share>/unraid-backup (never appdata);"
+        w_c "its snapshots keep their history"
         w_kv dumps_share "$(pget "general|dumps_share")"
-        w_c "At least this much space (GB) must be free for the dumps"
+        w_c "At least this much space (GB) must be free in the backup place"
         w_kv min_free_gb "$(pget "general|min_free_gb")"
         w_c "yes = snapshots stay mounted until the next run. Then also a"
         w_c "User Script 'At Stopping of Array' with: backup.sh --unmount"
@@ -1642,13 +1656,14 @@ settings_render() {
         w_list known "docker|known"
         echo
         echo "[flash]"
-        w_c "snapshot = ZFS snapshot of /boot to Kopia, tar = archive in dumps/<time>/, off = nothing"
+        w_c "snapshot = ZFS snapshot of /boot to Kopia, tar = archive in the backup place (flash/), off = nothing"
         w_kv mode "$(pget flash\|mode)"
         w_list kopia_ignore "flash|kopia_ignore"
         w_list tar_exclude "flash|tar_exclude"
         echo
         echo "[libvirt]"
-        w_c "VM configuration from libvirt.img (XML, NVRAM, TPM state): tar = archive in dumps/<time>/, off = nothing"
+        w_c "All of libvirt.img (XML, NVRAM, TPM state, networks): tar = archive in the backup place (server/), off = nothing"
+        w_c "(each VM's own configuration goes to its package either way)"
         w_kv mode "$(pget libvirt\|mode tar)"
         echo
         echo "[kopia]"
