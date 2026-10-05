@@ -88,6 +88,11 @@ function messageText(m) {
 }
 
 const lastRun = () => (state && state.history && state.history[0]) || null;
+/** The packages in the backup place (engine 2.18+), null before the first run that wrote some */
+const packages = () => {
+  const pk = state && state.packages;
+  return pk && pk.found && (pk.apps.length || pk.vms.length || pk.server) ? pk : null;
+};
 const status = () => (state && state.status) || null;
 const live = () => !!(state && state.running);
 const canAct = () => !!(state && state.found && state.compatible && Office.agent.running);
@@ -193,6 +198,7 @@ function render() {
     ...['offsite', 'local', 'none'].map((l) => [Office.backupChip(l), Office.t('protect.' + l + '_text')]),
     [T('help.rules'), T('help.rules_text')],
     [T('help.vms'), T('help.vms_text')],
+    [T('help.packages'), T('help.packages_text')],
     [T('help.buttons'), T('help.buttons_text')],
     [T('setup_open'), T('help.setup')],
     [T('history'), T('help.history')],
@@ -306,6 +312,7 @@ function runningCard() {
   if (p.eta) line.append(T(p.overdue ? 'eta_late' : 'eta_at', { time: fmt.time(p.eta) }));
   else line.append(T('eta_unknown'));
   if (s.downtime_s) line.append(' · ', T('downtime_was', { duration: fmt.duration(s.downtime_s) }));
+  if (s.packages && s.packages.written) line.append(' · ', T('pk.run_packed', { apps: s.packages.apps, vms: s.packages.vms }));
   card.appendChild(line);
 
   // what is paused right now: stopped containers, Nextcloud in maintenance mode
@@ -435,13 +442,34 @@ function overviewTiles() {
   }
   // databases: dumped before every snapshot, and the newest dumps
   const dbs = set.dumps || [];
+  const pk = packages();
   if (dbs.length || (set.nextcloud || []).length) {
     const latest = (state.dumps || []).find((d) => d.files.length);
+    const pkDumps = pk ? pk.apps.filter((a) => !a.stale).flatMap((a) => a.files.filter((f) => f.what === 'dump')) : [];
     const sub = [];
-    if (latest) sub.push(T('stat.db_last', { when: fmt.relative(latest.time), size: fmt.size(latest.files.reduce((a, f) => a + f.bytes, 0)) }));
+    if (pkDumps.length) sub.push(T('stat.db_last', { when: fmt.relative(Math.max(...pkDumps.map((f) => f.time))), size: fmt.size(pkDumps.reduce((a, f) => a + f.bytes, 0)) }));
+    else if (latest) sub.push(T('stat.db_last', { when: fmt.relative(latest.time), size: fmt.size(latest.files.reduce((a, f) => a + f.bytes, 0)) }));
     else if (dbs.length) sub.push(T('never'));
     if ((set.nextcloud || []).length) sub.push(T('stat.db_nextcloud'));
     tiles.push(stat(T('stat.dbs'), String(dbs.length), sub.join(' · ')));
+  }
+  // the packages: per app and VM its small files, written by every run
+  if (pk) {
+    const cur = [...pk.apps, ...pk.vms].filter((x) => !x.stale);
+    const bad = cur.filter((x) => x.result === 'errors').length;
+    const stale = pk.apps.length + pk.vms.length - cur.length;
+    const sub = [pk.time ? T('stat.pk_when', { when: fmt.relative(pk.time) }) : T('never')];
+    if (bad) sub.push(T('stat.pk_errors', { n: bad }));
+    if (stale) sub.push(T('stat.pk_stale', { n: stale }));
+    if (pk.old_runs) sub.push(T('stat.pk_old', { n: pk.old_runs }));
+    if (pk.asleep) sub.push(T('stat.pk_asleep'));
+    const t = stat(T('stat.packages'), T('stat.pk_value', { apps: pk.apps.length - pk.apps.filter((a) => a.stale).length, vms: pk.vms.length - pk.vms.filter((v) => v.stale).length }), sub.join(' · '), bad > 0);
+    tiles.push(clickable(t, () => {
+      const g = view && view.querySelector('.bk-protect tr.bk-group.bk-apps');
+      if (g) g.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }));
+  } else if (state.packages && state.packages.old_runs) {
+    tiles.push(stat(T('stat.packages'), '–', T('stat.pk_first')));
   }
   const vms = state.vms || [];
   if (vms.length) {
@@ -467,7 +495,8 @@ function overviewTiles() {
     else if (set.kopia_enabled) sub = T('never');
   } else if (flash === 'tar') {
     value = T('stat.flash_tar');
-    sub = tarRun ? T('stat.flash_last', { when: fmt.relative(tarRun.time) }) : T('never');
+    const t = pk && pk.flash ? pk.flash.time : tarRun ? tarRun.time : null;
+    sub = t ? T('stat.flash_last', { when: fmt.relative(t) }) : T('never');
   } else { value = T('stat.flash_off'); alert = true; }
   tiles.push(stat(T('stat.flash'), value, sub, alert));
   return tiles;
@@ -585,6 +614,8 @@ function protection() {
       modeCell.appendChild(Office.backupChip(vmLevel(v, kopiaOn)));
       if (v.configured && v.mode !== 'off') modeCell.append(' ', chip(T('vm.prep.' + v.prepare), v.prepare === 'none' ? 'warn' : '', T('vm.prep_text.' + v.prepare)));
       if (!v.configured) modeCell.append(' ', chip(T('vm.not_set_up'), 'warn', T('vm.not_set_up_hint')));
+      const vp = vmPackage(v.name);
+      if (vp && (vp.stale || vp.result === 'errors')) modeCell.append(' ', pkChip(vp));
       tr.appendChild(modeCell);
       const last = v.last;
       const lastCell = el('td', '', last && last.snapshot && last.time ? fmt.relative(last.time) : '');
@@ -618,6 +649,57 @@ function protection() {
       if (protOpen.has(id)) set(true);
     });
   }
+
+  // the apps: what their package in the backup place holds (the data itself is in their shares above)
+  const pk = packages();
+  if (pk && pk.apps.length) {
+    const g = el('tr', 'bk-group bk-apps');
+    const gth = el('th', '', T('pk.group') + ' ');
+    gth.colSpan = 5;
+    gth.appendChild(Office.backupChip(placeLevel(kopiaOn)));
+    gth.title = T('pk.group_hint', { path: pk.base + '/apps' });
+    g.appendChild(gth);
+    body.appendChild(g);
+    pk.apps.forEach((a) => {
+      const tr = el('tr', 'unfolds');
+      const name = el('th', 'link', a.name);
+      name.title = T('details');
+      tr.appendChild(name);
+      const st = el('td');
+      st.appendChild(pkChip(a));
+      if (a.files.some((f) => f.run && f.run !== a.run)) st.append(' ', chip(T('pk.kept'), 'warn', T('pk.kept_hint')));
+      tr.appendChild(st);
+      const last = el('td', '', a.time ? fmt.relative(a.time) : '');
+      if (a.time) last.title = fmt.date(a.time);
+      tr.append(last, el('td'));
+      const dumps = a.files.filter((f) => f.what === 'dump').length;
+      tr.appendChild(el('td', '', [T('pk.type.' + (a.type || 'container')), dumps ? T('pk.dumps', { n: dumps }) : '', fmt.size(a.bytes)].filter(Boolean).join(' · ')));
+      body.appendChild(tr);
+      let dtr = null;
+      const id = 'app:' + a.folder;
+      const set = (open) => {
+        if (!open && dtr) { dtr.remove(); dtr = null; protOpen.delete(id); tr.classList.remove('open'); }
+        if (open && !dtr) {
+          dtr = el('tr', 'bk-detail');
+          const td = el('td');
+          td.colSpan = 5;
+          td.appendChild(pkDetail(a));
+          dtr.appendChild(td);
+          tr.after(dtr);
+          protOpen.add(id);
+          tr.classList.add('open');
+        }
+      };
+      tr.onclick = (e) => {
+        if (e.target.closest('button, a, input, select, [data-own], .chip')) return;
+        if (String(window.getSelection && window.getSelection()).length) return;
+        Office.keepInPlace(tr, () => set(!dtr));
+        label();
+      };
+      shown.push({ open: () => !!dtr, set });
+      if (protOpen.has(id)) set(true);
+    });
+  }
   label();
   table.appendChild(body);
   wrap.appendChild(table);
@@ -632,6 +714,51 @@ function protection() {
     facts.push(T('fact.kopia', { d: k.daily ?? '–', w: k.weekly ?? '–', m: k.monthly ?? '–', y: k.annual ?? '–' }));
   } else facts.push(T('fact.kopia_off'));
   box.appendChild(el('p', 'role', facts.join(' · ')));
+  return box;
+}
+
+/** The backup place's own protection: its share's mode (the packages' history lies in its snapshots) */
+function placeLevel(kopiaOn) {
+  const set = state.settings || {};
+  const sh = (state.shares || []).find((x) => x.name === set.dumps_share);
+  if (!sh || sh.mode === 'off') return 'none';
+  return sh.mode === 'kopia' && kopiaOn ? 'offsite' : 'local';
+}
+
+const vmPackage = (name) => { const pk = packages(); return pk ? pk.vms.find((x) => x.name === name) || null : null; };
+
+/** A package's state: written by the last run (ok / with warnings / with errors), or stale (an earlier run's) */
+function pkChip(p) {
+  if (p.stale) return chip(T('pk.stale'), 'warn', T('pk.stale_hint', { when: p.time ? fmt.date(p.time) : '?' }));
+  if (p.result === 'errors') return chip(T('pk.errors'), 'danger', T('pk.errors_hint'));
+  if (p.result === 'warnings') return chip(T('pk.warnings'), 'warn', T('pk.warnings_hint'));
+  return chip(T('pk.ok'), 'ok', T('pk.ok_hint'));
+}
+
+/** An unfolded package: where it lies, its files (and from which run a kept one is), the images it names */
+function pkDetail(p) {
+  const box = el('div', 'bk-pdetail');
+  const dl = el('dl', 'kv');
+  const add = (term, ...content) => {
+    const dd = el('dd');
+    content.forEach((c) => dd.append(c));
+    dl.append(el('dt', '', term), dd);
+  };
+  add(T('pk.d_where'), copyCode(p.path));
+  const files = el('div', 'bk-rules');
+  p.files.filter((f) => f.what !== 'error').forEach((f) => {
+    files.append(el('code', '', f.path), ' ', el('span', 'role', fmt.size(f.bytes)));
+    if (f.run && f.run !== p.run) files.append(' ', chip(T('pk.kept_from', { when: f.time ? fmt.date(f.time) : f.run }), 'warn', T('pk.kept_hint')));
+    files.appendChild(el('br'));
+  });
+  add(T('pk.d_files'), p.files.length ? files : el('span', 'role', T('pk.no_files')));
+  if (p.containers && p.containers.length) {
+    const imgs = el('div', 'bk-rules');
+    p.containers.forEach((c) => imgs.append(el('span', '', c.name + ': '), el('code', '', c.image), el('br')));
+    add(T('pk.d_images'), imgs, el('span', 'role', T('pk.d_images_hint')));
+  }
+  box.appendChild(dl);
+  box.appendChild(el('p', 'role bk-pfoot', T('pk.d_restore')));
   return box;
 }
 
@@ -669,6 +796,10 @@ function vmDetail(v) {
   if (v.tpm) notes.push(T('vm.note_tpm'));
   if (v.hostdev) notes.push(T('vm.note_gpu', { n: v.hostdev }));
   if (notes.length) add(T('vm.d_notes'), notes.join(' '));
+  // its package: XML, UEFI variables, TPM state - written while it was held
+  const vp = vmPackage(v.name);
+  if (vp) add(T('pk.d_package'), pkChip(vp), ' ', copyCode(vp.path), ' ', el('span', 'role', vp.time ? fmt.relative(vp.time) : ''));
+  else if (packages()) add(T('pk.d_package'), el('span', 'role', T(v.mode === 'off' && v.own.length ? 'pk.vm_left_out' : 'pk.vm_none')));
   box.appendChild(dl);
   const foot = el('p', 'role bk-pfoot', T('vm.where_to_change') + ' ');
   const b = button(T('pd.change'), 'small', () => { setup.focus = 'vm:' + v.name; Office.go(`#/${ID}/setup`); });
@@ -792,6 +923,7 @@ function historySection() {
     const k = r.kopia || [];
     if (k.length) meta.appendChild(el('span', '', T('kopia_count', { ok: k.filter((x) => x.ok).length, total: k.length })));
     if (r.downtime) meta.appendChild(el('span', '', T('downtime_short', { duration: fmt.duration(r.downtime) })));
+    if (r.packages && (r.packages.apps || r.packages.vms)) meta.appendChild(el('span', '', T('pk.history', { apps: r.packages.apps, vms: r.packages.vms })));
     if (r.errors || r.warnings) meta.appendChild(el('span', '', T('counts', { errors: r.errors, warnings: r.warnings })));
     if (r.message && r.result !== 'ok') meta.append(el('span', 'note', messageText(r.message)));
     main.appendChild(meta);
@@ -811,6 +943,13 @@ function historySection() {
   return box;
 }
 
+/** A difference in the office's words where the engine gave a code (2.18+), its own words otherwise */
+function driftText(d) {
+  if (d.code && Office.has(`${ID}.drift_code.${d.code}`)) return T('drift_code.' + d.code, { share: d.value || '' });
+  if (d.code && Office.has(`${ID}.message.${d.code}`)) return T('message.' + d.code, { detail: d.value || '' });
+  return d.text;
+}
+
 function driftSection() {
   const items = state.drift.items;
   const box = section(T('drift'), T('drift_sub'), el('span', 'hint', state.drift.time ? T('drift_checked', { when: fmt.relative(state.drift.time) }) : ''));
@@ -821,7 +960,7 @@ function driftSection() {
     const main = el('div', 'row-main');
     const meta = el('div', 'row-meta');
     meta.appendChild(chip(T('level.' + d.level), d.level === 'error' ? 'danger' : d.level === 'warn' ? 'warn' : ''));
-    main.append(el('div', 'row-name text', d.text), meta);
+    main.append(el('div', 'row-name text', driftText(d)), meta);
     row.appendChild(main);
     list.appendChild(row);
   });
@@ -832,7 +971,7 @@ function driftSection() {
   return box;
 }
 
-/** How to get things back: local snapshots, Kopia, database dumps */
+/** How to get things back: local snapshots, Kopia, the packages (database dumps, VM configurations) */
 function restoreSection() {
   const box = section(T('restore'), T('restore_sub'));
   const set = state.settings || {};
@@ -852,11 +991,21 @@ function restoreSection() {
   if (set.kopia_enabled) {
     item(T('restore.kopia'), T('restore.kopia_text', { container: set.kopia_container || 'kopia', root: ((state.drift && Array.isArray(state.drift.policies) && state.drift.policies.find((p) => p.kind === 'root')) || {}).path || set.mount_root || '/mnt/addons/UnraidSecretaryOffice/snapshots' }));
   }
+  const pk = packages();
+  if (pk) item(T('restore.pk'), T('restore.pk_text', { path: pk.base }));
   box.appendChild(dl);
+
+  if (pk) {
+    if ((pk.server && pk.server.libvirt) || pk.vms.length) box.appendChild(vmRestorePk(pk));
+    box.appendChild(newServerGuide(pk));
+    const db = dumpRestorePk(pk);
+    if (db) box.appendChild(db);
+    return box;
+  }
+  // before the first run of engine 2.18: one folder per run
   const vmArchive = (state.dumps || []).find((d) => d.libvirt);
   if (vmArchive) box.appendChild(vmRestore(vmArchive));
-  box.appendChild(newServerGuide());
-
+  box.appendChild(newServerGuide(null));
   const dumps = state.dumps || [];
   const latest = dumps.find((d) => d.files.length);
   if (latest) {
@@ -869,7 +1018,7 @@ function restoreSection() {
       meta.append(el('span', '', fmt.size(f.bytes)), el('span', '', fmt.date(latest.time)));
       main.appendChild(meta);
       row.appendChild(main);
-      const cmd = restoreCommand(latest.path, f.name);
+      const cmd = dumpCommand(`${latest.path}/db/${f.name}`, f.name);
       const b = button(T('restore.copy_command'), 'small plain', () => Office.copy(cmd));
       b.title = cmd;
       b.disabled = !cmd;
@@ -877,13 +1026,23 @@ function restoreSection() {
       list.appendChild(row);
     });
     const head = el('p', 'role', T('restore.dumps', { n: dumps.filter((d) => d.files.length).length, path: latest.path }));
-    box.append(head, list, el('p', 'role', T('restore.dumps_hint')));
+    box.append(head, el('p', 'role', T('restore.dumps_hint')), list, el('p', 'role', T('restore.pk_version')));
+    if (latest.files.some((f) => /^postgres_/.test(f.name))) box.appendChild(el('p', 'role', T('restore.pg_role')));
   }
   return box;
 }
 
+/** A numbered step of a restore guide: title, text, commands to copy */
+function rstep(title, text, cmd) {
+  const s = el('div', 'bk-rstep');
+  s.appendChild(el('div', 'bk-rstep-title', title));
+  if (text) s.appendChild(el('div', 'role', text));
+  if (cmd) s.appendChild(codeBlock(cmd));
+  return s;
+}
+
 /**
- * Getting VMs back from libvirt.tar.gz: everything at once into libvirt.img
+ * Getting VMs back from libvirt.tar.gz (engines before 2.18): everything at once into libvirt.img
  * (lost image, new server), or a single VM next to the others.
  */
 function vmRestore(d) {
@@ -892,23 +1051,7 @@ function vmRestore(d) {
   const a = d.libvirt;
   box.appendChild(el('h3', '', T('restore.vms')));
   box.appendChild(el('p', 'role', T('restore.vms_text', { when: fmt.date(d.time), size: fmt.size(d.libvirt_bytes || 0), n: d.libvirt_vms.length, file: a })));
-
-  const step = (title, text, cmd) => {
-    const s = el('div', 'bk-rstep');
-    s.appendChild(el('div', 'bk-rstep-title', title));
-    if (text) s.appendChild(el('div', 'role', text));
-    if (cmd) s.appendChild(codeBlock(cmd));
-    return s;
-  };
-  const all = el('details', 'bk-how');
-  all.appendChild(el('summary', '', T('restore.vm_all')));
-  all.append(
-    step(T('restore.vm_all_1'), T('restore.vm_all_1_text')),
-    step(T('restore.vm_all_2'), null, `mkdir -p /tmp/libvirt-img && mount -o loop '${img}' /tmp/libvirt-img && tar -xzf '${a}' -C /tmp/libvirt-img --strip-components=1 && umount /tmp/libvirt-img`),
-    step(T('restore.vm_all_3'), T('restore.vm_all_3_text')),
-  );
-  box.appendChild(all);
-
+  box.appendChild(vmRestoreAll(a, img));
   if (d.libvirt_vms.length) {
     const one = el('details', 'bk-how');
     one.appendChild(el('summary', '', T('restore.vm_one')));
@@ -938,11 +1081,181 @@ function vmRestore(d) {
   return box;
 }
 
+/** All of libvirt.img back from its archive: VM service off, unpack into the image, VM service on */
+function vmRestoreAll(a, img) {
+  const all = el('details', 'bk-how');
+  all.appendChild(el('summary', '', T('restore.vm_all')));
+  all.append(
+    rstep(T('restore.vm_all_1'), T('restore.vm_all_1_text')),
+    rstep(T('restore.vm_all_2'), null, `mkdir -p /tmp/libvirt-img && mount -o loop '${img}' /tmp/libvirt-img && tar -xzf '${a}' -C /tmp/libvirt-img --strip-components=1 && umount /tmp/libvirt-img`),
+    rstep(T('restore.vm_all_3'), T('restore.vm_all_3_text')),
+  );
+  return all;
+}
+
+/**
+ * Getting VMs back from the packages (engine 2.18+): all of libvirt.img from server/libvirt.tar.gz,
+ * or a single VM from vms/<vm>/ - also one that is gone (its package stays).
+ */
+function vmRestorePk(pk) {
+  const box = el('div', 'bk-vm-restore');
+  const img = (state.settings && state.settings.libvirt_img) || '/mnt/user/system/libvirt/libvirt.img';
+  box.appendChild(el('h3', '', T('restore.vms')));
+  box.appendChild(el('p', 'role', T('restore.pk_vms_text', { n: pk.vms.length, path: pk.base + '/vms/<vm>/' })));
+  const lv = pk.server && pk.server.libvirt;
+  if (lv) {
+    box.appendChild(el('p', 'role', T('restore.pk_vm_archive', { when: pk.server.libvirt_time ? fmt.date(pk.server.libvirt_time) : '?', size: fmt.size(pk.server.libvirt_bytes || 0), file: lv })));
+    box.appendChild(vmRestoreAll(lv, img));
+  }
+  if (!pk.vms.length) return box;
+  const one = el('details', 'bk-how');
+  one.appendChild(el('summary', '', T('restore.vm_one')));
+  const sel = el('select', 'picker');
+  pk.vms.forEach((v) => sel.appendChild(new Option(v.stale ? `${v.name} · ${T('pk.stale')}` : v.name, v.folder)));
+  const out = el('div');
+  const show = () => {
+    const v = pk.vms.find((x) => x.folder === sel.value);
+    out.innerHTML = '';
+    const p = v.path;
+    const snapVars = v.nvram.filter((n) => /S\d{14}_VARS/.test(n));
+    const cmds = [];
+    v.nvram.filter((n) => !/S\d{14}_VARS/.test(n)).forEach((n) => cmds.push(`cp -a '${p}/nvram/${n}' /etc/libvirt/qemu/nvram/`));
+    if (v.tpm && v.uuid) cmds.push(`mkdir -p /etc/libvirt/qemu/swtpm/tpm-states && cp -a '${p}/tpm/${v.uuid}' /etc/libvirt/qemu/swtpm/tpm-states/`);
+    cmds.push(`virsh define '${p}/${v.xml || v.folder + '.xml'}'`);
+    if (v.autostart) cmds.push(`virsh autostart '${v.name}'`);
+    out.append(
+      el('p', 'role', T('restore.vm_pk_text', { name: v.name, when: v.time ? fmt.date(v.time) : '?' })),
+      codeBlock(cmds.join('\n')),
+      el('p', 'role', [T('restore.vm_one_after'), v.tpm ? T('restore.vm_one_tpm') : ''].filter(Boolean).join(' ')),
+    );
+    if (v.disks.length) {
+      out.appendChild(el('p', 'role', T('restore.vm_pk_disks', { list: v.disks.map((d) => (d.snapshot ? `${d.source} (${d.snapshot})` : d.source)).join(', ') })));
+    }
+    // Unraid's own VM snapshots (a chain of disk files): their list and UEFI variables, only if that chain comes back too
+    if (v.snapshotdb || snapVars.length) {
+      const more = [];
+      if (v.snapshotdb) more.push(`mkdir -p '/etc/libvirt/qemu/snapshotdb/${v.name}' && cp -a '${p}/snapshotdb/.' '/etc/libvirt/qemu/snapshotdb/${v.name}/'`);
+      snapVars.forEach((n) => more.push(`cp -a '${p}/nvram/${n}' /etc/libvirt/qemu/nvram/`));
+      out.append(el('p', 'role', T('restore.vm_pk_snaps')), codeBlock(more.join('\n')));
+    }
+  };
+  sel.onchange = show;
+  one.append(field(T('restore.vm_pick'), sel), out);
+  show();
+  box.appendChild(one);
+  return box;
+}
+
+/**
+ * The command that plays a dump back into its running container, with the credentials the dump
+ * used (the package names the variables) - for Immich through its documented sed first.
+ */
+function dumpCommand(file, name, container, auth, immich) {
+  const a = auth || {};
+  const type = a.type || (/^mariadb_/.test(name) ? 'mariadb' : /^postgres_/.test(name) ? 'postgres' : /^mongodb_/.test(name) ? 'mongodb' : '');
+  const m = name.match(/^(?:mariadb_(.+)_[^_]+\.sql\.gz|postgres_(.+)\.sql\.gz|mongodb_(.+)\.archive\.gz)$/);
+  const c = container || (m && (m[1] || m[2] || m[3])) || '';
+  if (!c) return '';
+  if (type === 'mariadb') {
+    const bin = a.client === 'mysql' ? 'mysql' : 'mariadb';
+    const who = a.login === 'user' && a.user_var ? `-u"$${a.user_var}" -p"$${a.password_var}"` : `-uroot -p"$${a.password_var || 'MARIADB_ROOT_PASSWORD'}"`;
+    return `zcat '${file}' | docker exec -i ${c} sh -c 'exec ${bin} ${who}'`;
+  }
+  if (type === 'postgres') {
+    // pg_dumpall --clean: connect to the database postgres, as the user the dump was made with
+    const fix = immich ? ` | sed "s/SELECT pg_catalog.set_config('search_path', '', false);/SELECT pg_catalog.set_config('search_path', 'public, pg_catalog', true);/g"` : '';
+    return `zcat '${file}'${fix} | docker exec -i ${c} sh -c 'PGPASSWORD="\${POSTGRES_PASSWORD:-}" exec psql -X -U "\${POSTGRES_USER:-postgres}" -d postgres'`;
+  }
+  if (type === 'mongodb') {
+    const who = a.login === 'none' ? '' : ` -u "$${a.user_var || 'MONGO_INITDB_ROOT_USERNAME'}" -p "$${a.password_var || 'MONGO_INITDB_ROOT_PASSWORD'}" --authenticationDatabase admin`;
+    return `docker exec -i ${c} sh -c 'exec mongorestore --drop --archive --gzip${who}' < '${file}'`;
+  }
+  return '';
+}
+
+const isImmich = (a) => a.containers.some((c) => /immich/i.test(c.image));
+
+/** The database dumps in the apps' packages, each with its restore command; Immich and Nextcloud get their own steps */
+function dumpRestorePk(pk) {
+  const apps = pk.apps.filter((a) => a.files.some((f) => f.what === 'dump'));
+  if (!apps.length) return null;
+  const wrap = el('div', 'bk-vm-restore');
+  wrap.appendChild(el('h3', '', T('restore.pk_dumps_title')));
+  wrap.append(el('p', 'role', T('restore.pk_dumps', { path: pk.base + '/apps/<app>/db/' })), el('p', 'role', T('restore.dumps_hint')));
+  const list = el('div', 'box');
+  apps.forEach((a) => {
+    list.appendChild(el('div', 'bk-subhead', a.stale ? `${a.name} · ${T('pk.stale')}` : a.name));
+    a.files.filter((f) => f.what === 'dump').forEach((f) => {
+      const name = f.path.split('/').pop();
+      const row = el('div', 'row nocheck');
+      const main = el('div', 'row-main');
+      main.appendChild(el('div', 'row-name', name));
+      const meta = el('div', 'row-meta');
+      meta.append(el('span', '', fmt.size(f.bytes)), el('span', '', f.time ? fmt.date(f.time) : ''));
+      if (f.run && f.run !== a.run) meta.appendChild(chip(T('pk.kept'), 'warn', T('pk.kept_hint')));
+      const ct = a.containers.find((x) => x.name === f.container);
+      if (ct) meta.appendChild(chip(ct.image, 'quiet', T('restore.pk_image_hint', { digest: ct.digest || '–' })));
+      main.appendChild(meta);
+      row.appendChild(main);
+      const cmd = dumpCommand(`${a.path}/${f.path}`, name, f.container, a.dumps.find((d) => d.container === f.container), isImmich(a));
+      const b = button(T('restore.copy_command'), 'small plain', () => Office.copy(cmd));
+      b.title = cmd;
+      b.disabled = !cmd;
+      row.appendChild(b);
+      list.appendChild(row);
+    });
+  });
+  wrap.appendChild(list);
+  wrap.appendChild(el('p', 'role', T('restore.pk_version')));
+  if (apps.some((a) => a.files.some((f) => f.what === 'dump' && /^db\/postgres_/.test(f.path)))) wrap.appendChild(el('p', 'role', T('restore.pg_role')));
+  apps.forEach((a) => {
+    if (isImmich(a)) wrap.appendChild(immichSteps(a));
+    if (a.nextcloud.length) wrap.appendChild(nextcloudSteps(a));
+  });
+  return wrap;
+}
+
+/** Immich wants its dump in a fresh database, through its sed (otherwise the vector extensions break) */
+function immichSteps(a) {
+  const pg = a.dumps.find((d) => d.type === 'postgres') || {};
+  const f = a.files.find((x) => x.what === 'dump' && x.container === pg.container);
+  const others = a.containers.map((c) => c.name).filter((n) => n !== pg.container);
+  const how = el('details', 'bk-how');
+  how.appendChild(el('summary', '', T('restore.immich', { name: a.name })));
+  if (!pg.container || !f) { how.appendChild(el('p', 'role', T('restore.immich_web'))); return how; }
+  how.append(
+    rstep(T('restore.immich_1'), T('restore.immich_1_text'), others.length ? `docker stop ${others.join(' ')}` : null),
+    rstep(T('restore.immich_2'), T('restore.immich_2_text', { env: `${a.path}/compose/.env` }), `docker stop ${pg.container}`),
+    rstep(T('restore.immich_3'), T('restore.immich_3_text'), `docker start ${pg.container}`),
+    rstep(T('restore.immich_4'), null, dumpCommand(`${a.path}/${f.path}`, f.path.split('/').pop(), pg.container, pg, true)),
+    rstep(T('restore.immich_5'), null, others.length ? `docker start ${others.join(' ')}` : null),
+    el('p', 'role', T('restore.immich_web')),
+  );
+  return how;
+}
+
+/** Nextcloud: maintenance mode around the restore; clients told about an older state afterwards */
+function nextcloudSteps(a) {
+  const n = a.nextcloud.find((x) => !x.same_as) || a.nextcloud[0];
+  const occ = (cmd) => `docker exec -u ${n.user} ${n.container} php ${n.occ} ${cmd}`;
+  const f = a.files.find((x) => x.what === 'dump');
+  const how = el('details', 'bk-how');
+  how.appendChild(el('summary', '', T('restore.nc', { name: a.name })));
+  how.append(
+    rstep(T('restore.nc_1'), null, occ('maintenance:mode --on')),
+    rstep(T('restore.nc_2'), T('restore.nc_2_text'), f ? dumpCommand(`${a.path}/${f.path}`, f.path.split('/').pop(), f.container, a.dumps.find((d) => d.container === f.container), false) : null),
+    rstep(T('restore.nc_3'), null, occ('maintenance:mode --off')),
+    rstep(T('restore.nc_4'), T('restore.nc_4_text'), `${occ('maintenance:data-fingerprint')}\n${occ('files:scan --all')}`),
+  );
+  return how;
+}
+
 /**
  * Everything onto another Unraid server (the old one burnt, was stolen or retired):
  * what may come back, what must not, and the stumbling blocks - from what is really here.
+ * pk: the packages (engine 2.18+), null before - then the run folders' manifest.
  */
-function newServerGuide() {
+function newServerGuide(pk) {
   const set = state.settings || {};
   const wrap = el('div', 'bk-vm-restore');
   wrap.appendChild(el('h3', '', T('move.title')));
@@ -957,9 +1270,29 @@ function newServerGuide() {
     extra.filter(Boolean).forEach((x) => st.appendChild(x));
     how.appendChild(st);
   };
-  const dumps = state.dumps || [];
-  const withManifest = dumps.find((d) => d.manifest);
-  const m = withManifest ? withManifest.path + '/manifest' : '<' + T('move.dumps_folder') + '>/<run>/manifest';
+  const place = '<' + T('move.dumps_folder') + '>';
+  const CM = '/boot/config/plugins/compose.manager/projects';
+  const TPL = '/boot/config/plugins/dockerMan/templates-user';
+  let cfg; let restoreCmd; let flashFile;
+  if (pk) {
+    cfg = pk.server ? pk.server.path + '/shares/' : `${pk.base}/server/shares/`;
+    const lines = [];
+    if (pk.apps.some((a) => a.containers.some((c) => c.template))) lines.push(`cp -n '${pk.base}/apps/'*/my-*.xml ${TPL}/`);
+    if (pk.server && pk.server.templates) lines.push(`cp -n '${pk.server.path}/docker-templates/'my-*.xml ${TPL}/`);
+    pk.apps.filter((a) => a.compose_dir && a.files.some((f) => f.path.startsWith('compose/'))).forEach((a) => {
+      lines.push(`mkdir -p '${CM}/${a.compose_dir}' && cp -rn '${a.path}/compose/.' '${CM}/${a.compose_dir}/'`);
+    });
+    ((pk.server && pk.server.compose) || []).forEach((d) => lines.push(`mkdir -p '${CM}/${d}' && cp -rn '${pk.server.path}/compose/${d}/.' '${CM}/${d}/'`));
+    restoreCmd = lines.join('\n');
+    flashFile = pk.flash ? pk.flash.path : `${pk.base}/flash/flash.tar.gz`;
+  } else {
+    const withManifest = (state.dumps || []).find((d) => d.manifest);
+    const m = withManifest ? withManifest.path + '/manifest' : `${place}/<run>/manifest`;
+    cfg = m + '/shares/';
+    restoreCmd = `cp -n '${m}/docker-templates/'my-*.xml ${TPL}/\ncp -rn '${m}/compose/.' ${CM}/`;
+    const tarRun = (state.dumps || []).find((d) => d.flash);
+    flashFile = tarRun ? `${tarRun.path}/${tarRun.flash}` : `${place}/<run>/flash.tar.gz`;
+  }
   const shares = (state.shares || []).filter((x) => !x.flash).map((x) => x.name);
   const vms = state.vms || [];
   const gpu = vms.filter((v) => v.hostdev).map((v) => v.name);
@@ -969,12 +1302,12 @@ function newServerGuide() {
 
   step(T('move.s1'), T('move.s1_text'));
   step(T('move.s2'), T('move.s2_text', { n: shares.length }), shares.length ? holder('bk-rules', ...shares.flatMap((n) => [el('code', '', n), ' '])) : null,
-    el('div', 'role', T('move.s2_cfg', { path: m + '/shares/' })));
+    el('div', 'role', T('move.s2_cfg', { path: cfg })));
   const advisor = Office.desks.has('advisor') ? Object.assign(el('a', '', T('move.advisor')), { href: '#/advisor' }) : null;
   step(T('move.s3'), set.kopia_enabled ? T('move.s3_text') : T('move.s3_nokopia'), advisor ? holder('role', advisor) : null);
-  step(T('move.s4'), T('move.s4_text'),
-    codeBlock(`cp -n '${m}/docker-templates/'my-*.xml /boot/config/plugins/dockerMan/templates-user/\ncp -rn '${m}/compose/.' /boot/config/plugins/compose.manager/projects/`),
-    el('div', 'role', T('move.s4_after')));
+  const indirect = pk && pk.apps.some((a) => a.files.some((f) => f.path.startsWith('compose-files/')));
+  step(T('move.s4'), T('move.s4_text'), restoreCmd ? codeBlock(restoreCmd) : null,
+    indirect ? el('div', 'role', T('move.s4_indirect')) : null, el('div', 'role', T('move.s4_after')));
   step(T('move.s5'), T('move.s5_text'), (set.nextcloud || []).length ? el('div', 'role', T('move.s5_nextcloud')) : null);
   if (vms.length) {
     step(T('move.s6'), vmOffsite ? T('move.s6_offsite') : T('move.s6_local', { shares: vmShares.join(', ') || 'domains' }),
@@ -983,7 +1316,7 @@ function newServerGuide() {
       tpm.length ? el('div', 'role', T('move.s6_tpm', { names: tpm.join(', ') })) : null,
       el('div', 'role', T('move.s6_overlay')));
   }
-  step(T('move.s7'), set.flash === 'snapshot' ? T('move.s7_snapshot') : T('move.s7_tar'), el('div', 'role', T('move.s7_never')));
+  step(T('move.s7'), set.flash === 'snapshot' ? T('move.s7_snapshot') : T('move.s7_tar', { path: flashFile }), el('div', 'role', T('move.s7_never')));
   step(T('move.s8'), T('move.s8_text'));
   wrap.appendChild(how);
   return wrap;
@@ -1001,18 +1334,9 @@ function codeBlock(text) {
 function copyCode(text) {
   const c = el('code', 'bk-copy', text);
   c.title = Office.t('common.copy');
+  c.dataset.own = '1';                 // a click copies - it doesn't fold the row it sits in
   c.onclick = () => Office.copy(text);
   return c;
-}
-
-function restoreCommand(dir, file) {
-  let m = file.match(/^mariadb_(.+)_[^_]+\.sql\.gz$/);
-  if (m) return `zcat '${dir}/db/${file}' | docker exec -i ${m[1]} sh -c 'exec mariadb -uroot -p"$MARIADB_ROOT_PASSWORD"'`;
-  m = file.match(/^postgres_(.+)\.sql\.gz$/);
-  if (m) return `zcat '${dir}/db/${file}' | docker exec -i ${m[1]} psql -U postgres -d postgres`;
-  m = file.match(/^mongodb_(.+)\.archive\.gz$/);
-  if (m) return `docker exec -i ${m[1]} sh -c 'mongorestore --drop --archive --gzip -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin' < '${dir}/db/${file}'`;
-  return '';
 }
 
 // ------------------------------------------------------------------ actions
@@ -1575,11 +1899,19 @@ function setupShares(plan) {
     tr.appendChild(el('td', 'num', sh.gb === null ? '' : sh.gb < 0 ? '> ?' : fmt.size(sh.gb * 1073741824)));
     const modeCell = el('td');
     const lock = setup.locks[sh.name];
-    if (sh.exists && lock) {
-      // fixed by the VMs and apps above
+    // the backup place: at least local, Kopia on top is the user's choice
+    const atLeast = lock && lock.min ? LV.slice(lock.lv).filter((o) => kopiaOn || o !== 'kopia').reverse() : null;
+    if (sh.exists && atLeast && atLeast.length > 1) {
+      const sel = selectInput(`share|${sh.name}|mode`, atLeast, (o) => T('setup.mode.' + o));
+      if (!atLeast.includes(sel.value)) sel.value = atLeast[atLeast.length - 1];
+      sel.title = T('setup.lock_place_hint');
+      sel.onchange = () => { dset(`share|${sh.name}|mode`, sel.value); setupDerive(); Office.keepInPlace(sel, () => renderSetup()); };
+      modeCell.appendChild(sel);
+    } else if (sh.exists && lock) {
+      // fixed by the VMs and apps above (or the backup place)
       const sel = selectInput(`share|${sh.name}|mode`, [LV[lock.lv]], (o) => T('setup.mode.' + o));
       sel.disabled = true;
-      sel.title = T('setup.lock_hint');
+      sel.title = T(lock.min ? 'setup.lock_place_hint' : 'setup.lock_hint');
       modeCell.appendChild(sel);
     } else if (sh.exists) {
       const opts = kopiaOn ? ['kopia', 'snapshot', 'off'] : ['snapshot', 'off'];
@@ -1816,6 +2148,15 @@ function setupDerive() {
     setup.locks[ds] = { lv: 2, why: [T('setup.lock_pkg')] };
     dset(`share|${ds}|mode`, 'kopia');
   }
+  // the packages keep their history in the backup share's snapshots: at least local (Kopia may be chosen on top)
+  if (ds) {
+    const lock = setup.locks[ds];
+    if (lock) lock.why.push(T('setup.lock_place'));
+    else {
+      setup.locks[ds] = { lv: 1, why: [T('setup.lock_place')], min: true };
+      if (LV.indexOf(dget(`share|${ds}|mode`, 'off')) < 1) dset(`share|${ds}|mode`, 'snapshot');
+    }
+  }
   // Kopia leaves out the folders of apps and VMs that are only local
   if (dget('kopia|enabled') === 'yes') {
     const dirs = new Map();
@@ -2000,11 +2341,11 @@ function setupApps(plan) {
   return s;
 }
 
-/** The folder for dumps in a share — the engine's rule: the office's share has one folder per desk */
+/** The backup place in a share — the engine's rule: the office's share has one folder per desk */
 const OFFICE_SHARE = 'UnraidSecretaryOffice';
 const dumpsPath = (share) => (share === OFFICE_SHARE ? `/mnt/user/${share}/backup` : `/mnt/user/${share}/unraid-backup`);
 
-/** The backup place: its own share for dumps, archives and the manifest — never appdata; required */
+/** The backup place: its own share for the packages of apps and VMs — never appdata; required */
 function dumpsShareField(plan) {
   const banned = ['appdata', 'system', 'domains'];
   const shares = plan.shares.map((x) => x.name).filter((n) => !banned.includes(n.toLowerCase()));
@@ -2020,7 +2361,10 @@ function dumpsShareField(plan) {
     const mode = dget(`share|${share}|mode`, 'off');
     if (mode === 'off') { hint.textContent = T('setup.ds_off', { share }); hint.className = 'missing'; return; }
     hint.textContent = T('setup.ds_ok', { path: dumpsPath(share) });
-    if (setup.locks[share]) hint.textContent += ' · ' + T('setup.ds_kopia');
+    if (setup.locks[share] && setup.locks[share].lv === 2) hint.textContent += ' · ' + T('setup.ds_kopia');
+    // without snapshots the packages keep no history
+    const sh = plan.shares.find((x) => x.name === share);
+    if (sh && sh.method === 'live') { hint.textContent += ' · ' + T('setup.ds_no_history'); hint.className = 'missing'; }
   };
   sel.onchange = () => { dset('general|dumps_share', sel.value || undefined); setupDerive(); Office.keepInPlace(sel, () => renderSetup()); };
   update();
@@ -2040,7 +2384,6 @@ function setupGeneral(plan) {
     box.appendChild(field(T('setup.g_btrfs_free'), textInput('btrfs|min_free_gb', /^\d+$/), T('setup.g_btrfs_free_hint')));
     box.appendChild(checkbox(T('setup.g_btrfs_all'), dget('btrfs|snapshot_all') === 'yes', (v) => dset('btrfs|snapshot_all', v ? 'yes' : 'no')));
   }
-  box.appendChild(field(T('setup.g_keep_runs'), textInput('general|keep_runs', /^\d+$/), T('setup.g_keep_runs_hint')));
   if (plan.P['libvirt|mode'] !== undefined) {
     box.appendChild(field(T('setup.g_libvirt'), selectInput('libvirt|mode', ['tar', 'off'], (o) => T('setup.libvirt.' + o)), T('setup.g_libvirt_hint')));
   }

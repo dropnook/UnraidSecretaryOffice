@@ -38,9 +38,9 @@
 .bk-protect tr.unfolds{cursor:pointer}
 .bk-protect tr.unfolds:hover > *, .bk-protect tr.open > *{background:var(--surface2)}
 .bk-protect tr.bk-detail td{background:var(--surface2); white-space:normal; padding-top:0}
-/* the VMs under the shares: a tinted title bar like a group head, their rows slightly indented */
+/* the VMs and the apps' packages under the shares: a tinted title bar like a group head, their rows slightly indented */
 .bk-protect tr.bk-group > th{background:var(--surface2); color:var(--ink); font-weight:650; padding-top:8px; padding-bottom:8px}
-.bk-protect tr.bk-group ~ tr:not(.bk-detail) > th{padding-left:22px}
+.bk-protect tr.bk-group ~ tr:not(.bk-detail):not(.bk-group) > th{padding-left:22px}
 /* setup: a VM's choices side by side; the retention field stays small */
 .bk-vm .bk-right .input.bk-ret{width:90px; flex:none}
 /* setup steps 1 and 2: nicht | lokal | lokal + Kopia as one control; an app's further shares indented under it */

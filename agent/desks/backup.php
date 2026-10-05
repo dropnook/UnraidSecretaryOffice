@@ -643,18 +643,50 @@ function backupDumps(): array
     return $dumps;
 }
 
-/** Does the backup place's share lie on a disk that sleeps right now? (its locations in settings.ini) */
+/** Does the backup place's share lie on a disk that sleeps right now? */
 function backupPlaceAsleep(array $settings): bool
 {
     $share = (string) backupSetting($settings, 'general', 'dumps_share', '');
-    if ($share === '') {
+    return $share !== '' && backupShareAsleep($share, $settings, sleepingDisks());
+}
+
+/**
+ * Does a share lie on a disk that sleeps? Its bases as settings.ini noted them at the setup and as
+ * Unraid's share config allows them (pools, the array disks it may use) - looked up on the flash
+ * and in Unraid's bookkeeping only, never on the disks themselves.
+ */
+function backupShareAsleep(string $share, array $settings, array $asleep): bool
+{
+    if (!in_array(true, $asleep, true)) {
         return false;
     }
-    $asleep = sleepingDisks();
-    foreach (array_filter(array_map('trim', explode(',', (string) backupSetting($settings, "share|$share", 'locations', '')))) as $base) {
-        if (baseAsleep($base, $asleep)) {
+    $bases = array_filter(array_map('trim', explode(',', (string) backupSetting($settings, "share|$share", 'locations', ''))));
+    $cfg = preg_match('/^[\w .-]+$/', $share) ? readCfg("/boot/config/shares/$share.cfg") : [];
+    foreach (['shareCachePool', 'shareCachePool2'] as $k) {
+        if (($cfg[$k] ?? '') !== '' && ($cfg['shareUseCache'] ?? 'no') !== 'no') {
+            $bases[] = $cfg[$k];
+        }
+    }
+    if ($cfg && ($cfg['shareUseCache'] ?? 'no') !== 'only') {
+        $include = array_filter(array_map('trim', explode(',', (string) ($cfg['shareInclude'] ?? ''))));
+        $bases = array_merge($bases, $include ?: array_filter(array_keys($asleep), fn ($d) => preg_match('/^disk\d+$/', (string) $d)));
+    }
+    foreach (array_unique($bases) as $base) {
+        if (baseAsleep((string) $base, $asleep)) {
             return true;
         }
+    }
+    return false;
+}
+
+/** Does a path under /mnt (a share's or a disk's) lie on a disk that sleeps? */
+function backupPathAsleep(string $path, array $settings, array $asleep): bool
+{
+    if (preg_match('#^/mnt/user0?/([^/]+)#', $path, $m)) {
+        return backupShareAsleep($m[1], $settings, $asleep);
+    }
+    if (preg_match('#^/mnt/([^/]+)/#', $path, $m) && !in_array($m[1], ['addons', 'disks', 'remotes', 'rootshare'], true)) {
+        return baseAsleep($m[1], $asleep);
     }
     return false;
 }
@@ -863,10 +895,13 @@ function backupUserScriptDescribe(): void
 /**
  * A Nextcloud container's data folder on the host: 'datadirectory' from its
  * config.php (read through the container's own mounts), mapped back to the
- * host. Null when it can't be found out.
+ * host. Null when it can't be found out - $asleep says when that is because
+ * config.php or the folder lies on a sleeping disk (then nothing was read).
  */
-function backupNextcloudDataDir(string $container): ?string
+function backupNextcloudDataDir(string $container, ?bool &$asleep = null, array $settings = []): ?string
 {
+    $asleep = false;
+    $disks = sleepingDisks();
     $c = houseInspect($container);
     if (!$c) {
         return null;
@@ -887,9 +922,17 @@ function backupNextcloudDataDir(string $container): ?string
         return $best === null ? null : $mounts[$best] . substr($path, strlen($best));
     };
     $config = $toHost('/var/www/html/config/config.php');
+    if ($config && backupPathAsleep($config, $settings, $disks)) {
+        $asleep = true;
+        return null;
+    }
     $text = $config ? (string) @file_get_contents($config, false, null, 0, 65536) : '';
     $dir = preg_match("/'datadirectory'\s*=>\s*'([^']+)'/", $text, $m) ? rtrim($m[1], '/') : '/var/www/html/data';
     $host = $toHost($dir);
+    if ($host !== null && backupPathAsleep($host, $settings, $disks)) {
+        $asleep = true;
+        return null;
+    }
     return $host !== null && is_dir($host) ? $host : null;
 }
 
@@ -1154,10 +1197,14 @@ function backupChecks(): array
         $drift = array_filter(backupDrift()['items'], fn ($d) => in_array($d['level'] ?? '', ['warn', 'error'], true));
         $out[] = finding('drift', 'recommended', !$drift, ['n' => count($drift)], '#/backup/setup');
 
-        // dumps and archives in their own backup share, never in appdata — without one the engine refuses to run
+        // the packages in their own backup share, never in appdata — without one the engine refuses to run;
+        // Unraid's share config (on the flash) says it exists, the share itself is only looked at while its disks are awake
         $ds = (string) ($summary['dumps_share'] ?? '');
-        $dsBad = $ds === '' || in_array(strtolower($ds), ['appdata', 'system', 'domains'], true) || !is_dir("/mnt/user/$ds");
-        $out[] = finding('dumps_share', 'required', !$dsBad, ['share' => $ds], '#/backup/setup');
+        $dsName = $ds !== '' && !in_array(strtolower($ds), ['appdata', 'system', 'domains'], true);
+        $dsCfg = $dsName && preg_match('/^[\w .-]+$/', $ds) && is_file("/boot/config/shares/$ds.cfg");
+        $dsSleeps = $dsName && !$dsCfg && backupShareAsleep($ds, $settings, sleepingDisks());
+        $dsBad = !$dsName || (!$dsCfg && !$dsSleeps && !is_dir("/mnt/user/$ds"));
+        $out[] = finding('dumps_share', 'required', $dsSleeps ? null : !$dsBad, ['share' => $ds], '#/backup/setup');
 
         // nothing of ours directly in /mnt (Fix Common Problems rightly complains): the mounts go to
         // /mnt/addons; the setup moves them once Kopia's mapping follows, the next run tidies up
@@ -1176,7 +1223,11 @@ function backupChecks(): array
         // "users" (lasting fix: 33:100, 0750)
         $seen = [];
         foreach ($summary['nextcloud'] as $nc) {
-            $dir = backupNextcloudDataDir($nc['container']);
+            $dir = backupNextcloudDataDir($nc['container'], $sleeps, $settings);
+            if ($sleeps) {                                  // its disk sleeps: not looked at, not judged
+                $out[] = finding('nextcloud_datadir', 'required', null, ['name' => $nc['container'], 'path' => '?', 'mode' => '?'], 'userscripts');
+                continue;
+            }
             if ($dir !== null && !isset($seen[$dir])) {     // app and cron of one Nextcloud share it
                 $seen[$dir] = true;
                 $mode = @fileperms($dir);
