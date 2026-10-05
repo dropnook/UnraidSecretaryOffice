@@ -5,4 +5,9 @@
 .ct-candidate .row-name{color:var(--ink2)}
 @media (max-width:600px){ .row.ct-person{grid-template-columns:auto minmax(0,1fr)} .row.ct-person > .btn{grid-column:2; justify-self:start} }
 .ct-office-actions{display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end}
+/* a finding: its buttons on the right (open the place to sort it out, «I know, thanks» / «Bring back») */
+.row.ct-finding{grid-template-columns:minmax(0,1fr) auto}
+.ct-acts{display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end}
+.ct-noted .row-name, .ct-noted .row-detail{color:var(--muted)}
+@media (max-width:640px){ .row.ct-finding{grid-template-columns:minmax(0,1fr)} .ct-acts{justify-content:flex-start} }
 }

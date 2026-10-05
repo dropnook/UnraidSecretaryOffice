@@ -10,7 +10,8 @@ declare(strict_types=1);
  * temporary folder. Three parts:
  *   logic    the tricky functions (cron, snapshot retention, Emby detection,
  *            the gather's settings, User Scripts schedules, the plugin's cron file,
- *            the menu bar's label, reports to Unraid's notifications,
+ *            the menu bar's label, reports to Unraid's notifications, the team
+ *            lead's «I know, thanks» and the Dashboard tile,
  *            Mr. Backupsy's packages and his Kopia per app and VM, Ms. Dustdevil's pictures,
  *            Mr. Restori's reader of the packages)
  *   hardening  the checks that keep requests, manifests, paths and links in
@@ -630,6 +631,94 @@ function testNotify(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/**
+ * The team lead's «I know, thanks»: what a finding's signature depends on,
+ * which findings get marked (never a must), how the notes are kept tidy, the
+ * file on a copy — and the Dashboard tile counting only what is open, and
+ * saying what the engine is doing while it runs.
+ */
+function testCaretakerAcks(): void
+{
+    $f = fn (string $id, string $level, ?bool $ok, array $p = []) => finding($id, $level, $ok, $p);
+
+    // the signature: what it is about — not the order of its params, not an age or a size growing
+    $upd = fn (string $latest, string $level = 'recommended') => $f('office_update', $level, false, ['version' => '1.26', 'latest' => $latest]);
+    $sig = caretakerAckSig('caretaker', $upd('1.27'));
+    check('ack sig: shaped for the action', (bool) preg_match(CARETAKER_ACK_SIG, $sig), $sig);
+    same('ack sig: params in another order', $sig, caretakerAckSig('caretaker', $f('office_update', 'recommended', false, ['latest' => '1.27', 'version' => '1.26'])));
+    check('ack sig: another version — comes back', $sig !== caretakerAckSig('caretaker', $upd('1.28')));
+    check('ack sig: another level — comes back', $sig !== caretakerAckSig('caretaker', $upd('1.27', 'required')));
+    check('ack sig: another desk', $sig !== caretakerAckSig('backup', $upd('1.27')));
+    $cont = fn (string $name) => caretakerAckSig('caretaker', $f('other_backup_container', 'hint', null, ['name' => $name, 'image' => 'duplicati']));
+    check('ack sig: another container — comes back', $cont('a') !== $cont('b'));
+    $old = fn (int $n, int $days, string $size) => caretakerAckSig('cleanup', $f('trash_old', 'recommended', false, ['n' => $n, 'days' => $days, 'size' => $size]));
+    same('ack sig: the storeroom only getting older and bigger — the same', $old(2, 31, '2 GB'), $old(2, 32, '2.1 GB'));
+    check('ack sig: one more old run — comes back', $old(2, 31, '2 GB') !== $old(3, 31, '2 GB'));
+
+    // the marks: a noted recommendation or note counts no more; a must or something in place is never marked
+    $t0 = 1_800_000_000;
+    $checks = ['emby'      => [$f('schedule', 'recommended', false), $f('python', 'required', false)],
+               'caretaker' => [$f('other_backup_container', 'hint', null, ['name' => 'duplicati', 'image' => 'x']), $f('community_apps', 'recommended', true)]];
+    $s = fn (string $desk, int $i) => caretakerAckSig($desk, $checks[$desk][$i]);
+    $note = fn (string $desk, string $id) => ['desk' => $desk, 'id' => $id, 'time' => $t0, 'seen' => $t0];
+    $acks = [$s('emby', 0) => $note('emby', 'schedule'), $s('caretaker', 0) => $note('caretaker', 'other_backup_container'),
+             $s('emby', 1) => $note('emby', 'python'), $s('caretaker', 1) => $note('caretaker', 'community_apps')];   // the last two can't be noted
+    [$marked, $kept] = caretakerAckStep($checks, $acks, $t0 + 60);
+    same('ack mark: every finding has its sig', [true, true, true, true],
+        array_map(fn ($x) => preg_match(CARETAKER_ACK_SIG, (string) ($x['sig'] ?? '')) === 1, [...$marked['emby'], ...$marked['caretaker']]));
+    same('ack mark: the noted recommendation and note', [true, true], [$marked['emby'][0]['acked'] ?? false, $marked['caretaker'][0]['acked'] ?? false]);
+    same('ack mark: never a must', false, $marked['emby'][1]['acked'] ?? false);
+    same('ack mark: nothing in place', false, $marked['caretaker'][1]['acked'] ?? false);
+    same("ack mark: the reports to Unraid don't change", caretakerRed($checks), caretakerRed($marked));
+
+    // tidy: still there → seen once a day; in place → forgotten (back again, shown again); not seen for a month → forgotten
+    same('ack tidy: seen not rewritten within a day', $t0, $kept[$s('emby', 0)]['seen']);
+    [, $kept] = caretakerAckStep($checks, $acks, $t0 + 86400);
+    same('ack tidy: seen once a day', $t0 + 86400, $kept[$s('emby', 0)]['seen']);
+    check('ack tidy: something in place — its note forgotten', !isset($kept[$s('caretaker', 1)]));
+    $solved = $checks;
+    $solved['emby'][0]['ok'] = true;
+    [, $kept] = caretakerAckStep($solved, $acks, $t0 + 60);
+    check('ack tidy: sorted out — forgotten', !isset($kept[$s('emby', 0)]));
+    [$back] = caretakerAckStep($checks, $kept, $t0 + 120);
+    same('ack tidy: turns up again — shown again', false, $back['emby'][0]['acked'] ?? false);
+    $gone = ['emby' => [], 'caretaker' => []];
+    [, $kept] = caretakerAckStep($gone, $acks, $t0 + 29 * 86400);
+    check('ack tidy: not seen for a while (desk let go) — kept', isset($kept[$s('emby', 0)]));
+    [, $kept] = caretakerAckStep($gone, $acks, $t0 + 31 * 86400);
+    same('ack tidy: not seen for a month — forgotten', [], $kept);
+
+    // the file, on a copy
+    $tmp = sys_get_temp_dir() . '/office-tests-acks-' . getmypid();
+    $file = "$tmp/caretaker/acks.json";
+    caretakerAckApply($checks, $file, $t0);
+    check('ack file: nothing noted — no file written', !is_file($file));
+    caretakerWrite($file, ['acks' => [$s('emby', 0) => $note('emby', 'schedule'), '../x' => $note('emby', 'x'), $s('caretaker', 0) => 'odd']]);
+    same('ack file: odd entries left out', [$s('emby', 0)], array_keys(caretakerAckRead($file)));
+    $marked = caretakerAckApply($checks, $file, $t0 + 60);
+    same('ack file: marked from the file', true, $marked['emby'][0]['acked'] ?? false);
+    caretakerAckApply($solved, $file, $t0 + 120);
+    same('ack file: sorted out — gone from the file', [], caretakerAckRead($file));
+    exec('rm -rf ' . escapeshellarg($tmp));
+
+    // the Dashboard tile (src/dashboard.php): only open points of desks that work here
+    require_once OFFICE_DIR . '/src/dashboard.php';
+    [$marked] = caretakerAckStep($checks, $acks, $t0);
+    $all = ['emby' => 1, 'caretaker' => 1];
+    same('dashboard: without notes — to do and recommended', [1, 1], officeDashCareCounts(['checks' => $checks], $all));
+    same('dashboard: the noted recommendation counts no more', [1, 0], officeDashCareCounts(['checks' => $marked], $all));
+    $forged = $checks;
+    $forged['emby'][1]['acked'] = true;
+    same('dashboard: a must always counts', [1, 1], officeDashCareCounts(['checks' => $forged], $all));
+    same("dashboard: desks that don't work here don't count", [0, 0], officeDashCareCounts(['checks' => $checks], ['caretaker' => 1]));
+    same('dashboard: no state', [0, 0], officeDashCareCounts([], $all));
+    foreach ([[['result' => 'running', 'mode' => 'backup'], 'dash.bk_running'], [['result' => 'running', 'mode' => 'check'], 'dash.bk_checking'],
+              [['result' => 'running', 'mode' => 'dryrun'], 'dash.bk_dryrun'], [['result' => 'ok', 'mode' => 'check'], 'dash.bk_running'],
+              [null, 'dash.bk_running']] as [$status, $want]) {
+        same('dashboard: the engine runs, status ' . json_encode($status), $want, officeDashBackupRunning(['running' => true, 'status' => $status]));
+    }
+}
+
 /** Ms. Dustdevil's pictures: how Unraid matches templates, the logo lookup, and editing templates and override files on copies */
 function testIcons(): void
 {
@@ -1208,7 +1297,7 @@ function testIconSquare(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify',
+$parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testIcons', 'testIconSquare', 'testRestore'],
           'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean'],
           'strings' => ['testStrings']];

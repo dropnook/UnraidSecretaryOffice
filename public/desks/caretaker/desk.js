@@ -3,7 +3,10 @@
    benefits from, and says what is missing and what is left to do by hand.
    Every desk delivers its own checks (agent: desk(..., ['checks' => …]));
    their texts live in that desk's language file as check.<id> and
-   check.<id>_how. The agent part lives in agent/desks/caretaker.php. */
+   check.<id>_how. The agent part lives in agent/desks/caretaker.php.
+   Recommendations and notes can be put aside («I know, thanks»): the agent
+   keeps them (data/caretaker/acks.json) and marks them "acked" in its state,
+   each finding carries its "sig" — they move to «Noted» and count nowhere. */
 (() => {
 'use strict';
 
@@ -15,6 +18,7 @@ const LINKS = { plugins: '/Plugins', apps: '/Apps', docker: '/Docker', userscrip
 let state = null;
 let view = null;
 let showDone = false;
+let showNoted = false;
 
 async function load(fresh) {
   const j = await Office.api.get({ a: 'state', desk: ID, ...(fresh ? { fresh: 1 } : {}) });
@@ -47,12 +51,18 @@ const text = (f, suffix) => {
   return Office.has(key) ? Office.t(key, f.params || {}) : (suffix ? '' : f.id);
 };
 
+/** A recommendation or a note that isn't in place can be put aside — a must can't */
+const ackable = (f) => (f.level === 'recommended' || f.level === 'hint') && f.ok !== true && !!f.sig;
+
+/** What is open (counts everywhere), what the user noted (counts nowhere), what is in place */
 function groups() {
   const all = findings();
+  const open = (f) => f.ok !== true && !(f.acked && ackable(f));
   return {
     todo: all.filter((f) => f.level === 'required' && f.ok !== true),
-    advice: all.filter((f) => f.level === 'recommended' && f.ok !== true),
-    hints: all.filter((f) => f.level === 'hint' && f.ok !== true),
+    advice: all.filter((f) => f.level === 'recommended' && open(f)),
+    hints: all.filter((f) => f.level === 'hint' && open(f)),
+    noted: all.filter((f) => f.acked && ackable(f)),
     done: all.filter((f) => f.ok === true),
   };
 }
@@ -76,7 +86,7 @@ function bubbleText() {
   if (!state) return T('bubble.loading');
   if (alone()) return T('bubble.alone');
   const g = groups();
-  if (!g.todo.length && !g.advice.length) return T('bubble.all_good');
+  if (!g.todo.length && !g.advice.length) return g.noted.length ? T('bubble.all_good_noted', { n: g.noted.length }) : T('bubble.all_good');
   const parts = [];
   if (g.todo.length) parts.push(T('bubble.todo', { n: g.todo.length }));
   if (g.advice.length) parts.push(T('bubble.advice', { n: g.advice.length }));
@@ -101,6 +111,8 @@ function render() {
     [T('todo'), T('help.todo')],
     [T('advice'), T('help.advice')],
     [T('hints'), T('help.hints')],
+    [T('ack'), T('help.ack')],
+    [T('noted_term'), T('help.noted')],
     [el('span', 'chip danger', T('missing')), T('help.missing')],
     [el('span', 'chip warn', T('not_yet')), T('help.not_yet')],
     [el('span', 'chip warn', T('unknown')), T('help.unknown')],
@@ -115,8 +127,8 @@ function render() {
   const g = groups();
   root.appendChild(teamSection());                  // who works here comes first
   root.appendChild(officeSection());
-  if (g.todo.length) root.appendChild(list(T('todo'), T('todo_text'), g.todo));
-  if (g.advice.length) root.appendChild(list(T('advice'), T('advice_text'), g.advice));
+  if (g.todo.length) root.appendChild(list('todo', T('todo_count', { n: g.todo.length }), T('todo_text'), g.todo));
+  if (g.advice.length) root.appendChild(list('advice', T('advice_count', { n: g.advice.length }), T('advice_text'), g.advice));
   if (!g.todo.length && !g.advice.length) {
     const ok = el('div', 'box');
     const p = el('div', 'empty');
@@ -125,13 +137,15 @@ function render() {
     root.appendChild(ok);
   }
   root.appendChild(notifySection());
-  if (g.hints.length) root.appendChild(list(T('hints'), T('hints_text'), g.hints));
+  if (g.hints.length) root.appendChild(list('hints', T('hints_count', { n: g.hints.length }), T('hints_text'), g.hints));
   root.appendChild(doneSection(g.done));
+  if (g.noted.length) root.appendChild(notedSection(g.noted));       // put aside: folded, at the end
   root.appendChild(el('p', 'role', T('checked_at', { when: fmt.relative(state.time) })));
 }
 
-function list(title, sub, items) {
+function list(key, title, sub, items) {
   const s = el('section', 'section');
+  s.dataset.ct = key;
   s.appendChild(Office.sectionHead(title, sub));
   const box = el('div', 'box');
   items.forEach((f) => box.appendChild(row(f)));
@@ -147,11 +161,13 @@ function deskChip(desk) {
 }
 
 function row(f) {
-  const r = el('div', 'row nocheck');
+  const noted = !!(f.acked && ackable(f));
+  const r = el('div', 'row nocheck ct-finding' + (noted ? ' ct-noted' : ''));
   const main = el('div', 'row-main');
   main.appendChild(el('div', 'row-name text', text(f)));
   const meta = el('div', 'row-meta');
-  if (f.level !== 'hint') {
+  if (noted) meta.appendChild(el('span', 'chip quiet', T('level.' + f.level)));      // where it goes back to
+  else if (f.level !== 'hint') {
     if (f.ok === null) meta.appendChild(el('span', 'chip warn', T('unknown')));
     else meta.appendChild(el('span', 'chip ' + (f.level === 'required' ? 'danger' : 'warn'), T(f.level === 'required' ? 'missing' : 'not_yet')));
   }
@@ -160,19 +176,63 @@ function row(f) {
   const how = text(f, '_how');
   if (how) main.appendChild(el('div', 'row-detail', how));
   r.appendChild(main);
+  const acts = el('div', 'ct-acts');
   if (f.link && f.link.startsWith('#/')) {
     // a page of the office itself, e.g. Mr. Backupsy's setup
     const a = el('a', 'btn small plain', T('open.office'));
     a.href = f.link;
-    r.appendChild(a);
+    acts.appendChild(a);
   } else if (f.link && LINKS[f.link] && Office.safeHref(state.gui + LINKS[f.link])) {
     const a = el('a', 'btn small plain', T('open.' + f.link));
     a.href = Office.safeHref(state.gui + LINKS[f.link]);
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
-    r.appendChild(a);
+    acts.appendChild(a);
   }
+  if (ackable(f)) {
+    // «I know, thanks» / «Bring back» — kept on the server, so the Dashboard and his picture follow
+    const b = el('button', 'btn small plain', T(noted ? 'unack' : 'ack'));
+    b.type = 'button';
+    b.title = T(noted ? 'unack_title' : 'ack_title');
+    b.disabled = !Office.agent.running;
+    b.onclick = () => ack(f, !noted, b);
+    acts.appendChild(b);
+  }
+  if (acts.childNodes.length) r.appendChild(acts);
   return r;
+}
+
+async function ack(f, on, b) {
+  b.disabled = true;
+  const j = await Office.api.post(`${ID}.${on ? 'ack' : 'unack'}`, { sig: f.sig });
+  if (!j.ok) {
+    Office.toast(Office.errorText(j.error, ID), true);
+    if (j.error && j.error.key === 'ack_gone') await load(true);      // the point changed meanwhile: show it as it is now
+    else b.disabled = false;
+    return;
+  }
+  state = j.state;
+  // the row leaves its list: its section stays where it is on screen — if the section went, the one above it;
+  // brought back, it goes up into its list and «Noted» (or «In place» above it) stays put
+  if (view) renderKeeping(on ? (f.level === 'hint' ? ['hints', 'notify'] : ['advice', 'office']) : ['noted', 'done']);
+  mood();
+  Office.toast(T(on ? 'acked' : 'unacked'));
+}
+
+/** Re-render without the page jumping: the first of these sections that is there before and after keeps its place */
+function renderKeeping(keys) {
+  const top = (k) => {
+    const n = view && view.querySelector(`[data-ct="${k}"]`);
+    return n ? n.getBoundingClientRect().top : null;
+  };
+  const before = keys.map(top);
+  Office.keepInPlace(null, render);
+  for (let i = 0; i < keys.length; i++) {
+    const now = top(keys[i]);
+    if (before[i] === null || now === null) continue;
+    if (Math.abs(now - before[i]) > 1) window.scrollBy(0, now - before[i]);
+    break;
+  }
 }
 
 // ------------------------------------------------------------------ reports to Unraid's notifications
@@ -180,6 +240,7 @@ function row(f) {
 function notifySection() {
   const n = state.notify || { on: true, available: true, waiting: 0, last: null };
   const s = el('section', 'section');
+  s.dataset.ct = 'notify';
   const label = el('label', 'switch');
   const cb = el('input');
   cb.type = 'checkbox';
@@ -226,6 +287,7 @@ function notifySection() {
 function officeSection() {
   const o = state.office || {};
   const s = el('section', 'section');
+  s.dataset.ct = 'office';
   const again = el('button', 'btn small plain', T('office_check'));
   again.type = 'button';
   again.disabled = !Office.agent.running;
@@ -389,6 +451,7 @@ function fire(id) {
 
 function doneSection(items) {
   const s = el('section', 'section');
+  s.dataset.ct = 'done';
   const toggle = el('button', 'btn small plain', showDone ? T('hide') : T('show'));
   toggle.type = 'button';
   toggle.onclick = () => { showDone = !showDone; Office.keepInPlace(null, render); };
@@ -405,6 +468,22 @@ function doneSection(items) {
       r.appendChild(main);
       box.appendChild(r);
     });
+    s.appendChild(box);
+  }
+  return s;
+}
+
+/** What the user put aside with «I know, thanks» — folded, each with «Bring back» */
+function notedSection(items) {
+  const s = el('section', 'section');
+  s.dataset.ct = 'noted';
+  const toggle = el('button', 'btn small plain', showNoted ? T('hide') : T('show'));
+  toggle.type = 'button';
+  toggle.onclick = () => { showNoted = !showNoted; Office.keepInPlace(null, render); };
+  s.appendChild(Office.sectionHead(T('noted', { n: items.length }), T('noted_sub'), toggle));
+  if (showNoted) {
+    const box = el('div', 'box');
+    items.forEach((f) => box.appendChild(row(f)));
     s.appendChild(box);
   }
   return s;

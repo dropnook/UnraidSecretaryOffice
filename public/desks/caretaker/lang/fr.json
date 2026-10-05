@@ -153,5 +153,25 @@
   },
   "notify.description": "Il manque encore : {list}",
   "notify.more": "… et {n} de plus",
-  "notify.footer": "Le chef d'équipe liste tout ce qui reste à faire sur sa page dans le secrétariat. Tu peux y désactiver ces signalements."
+  "notify.footer": "Le chef d'équipe liste tout ce qui reste à faire sur sa page dans le secrétariat. Tu peux y désactiver ces signalements.",
+  "todo_count": "Encore à faire ({n})",
+  "advice_count": "Recommandé ({n})",
+  "hints_count": "Bon à savoir ({n})",
+  "ack": "Je sais, merci",
+  "ack_title": "Le mettre de côté : il passe dans « Noté » et ne compte plus — jusqu'à ce que la situation change.",
+  "unack": "Remettre en liste",
+  "unack_title": "Retour dans sa liste — il compte à nouveau.",
+  "noted": "Noté ({n})",
+  "noted_term": "Noté",
+  "noted_sub": "Ce que tu m'as dit savoir déjà. Ça ne compte plus nulle part — jusqu'à ce que la situation change ; alors je t'en reparle.",
+  "acked": "Noté — je ne le compte plus.",
+  "unacked": "De retour dans la liste.",
+  "bubble.all_good_noted": {
+    "one": "Rien d'ouvert pour toi — une chose que tu as notée, je la laisse tranquille.",
+    "other": "Rien d'ouvert pour toi — {n} choses que tu as notées, je les laisse tranquilles."
+  },
+  "help.ack": "Met une recommandation ou une remarque de côté, dans « Noté » en bas de la page. Elle ne compte plus : ni dans ma bulle, ni sur mon image, ni à l'accueil, ni dans la tuile du secrétariat sur le Dashboard d'Unraid — pour tous les navigateurs, je la garde sur le serveur. Si la situation change (une autre version, un autre conteneur), ou si c'était réglé et que ça revient, elle revient d'elle-même. Ce qui est « Encore à faire » ne peut pas être mis de côté — ce sont des indispensables.",
+  "help.noted": "Ce que tu as mis de côté avec « Je sais, merci ». « Remettre en liste » le remet dans sa liste.",
+  "errors.ack_gone": "Ce point a changé entre-temps — jette un nouveau coup d'œil.",
+  "errors.ack_required": "C'est indispensable — impossible de le mettre de côté. Une fois fait, ça disparaît tout seul."
 }

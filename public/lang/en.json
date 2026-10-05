@@ -162,6 +162,8 @@
   "dash.bk_warnings": "With warnings",
   "dash.bk_failed": "Failed",
   "dash.bk_running": "Backing up right now",
+  "dash.bk_checking": "Checking",
+  "dash.bk_dryrun": "Dry run",
   "dash.bk_none": "No backup yet",
   "dash.bk_next": "Next: {when}",
   "dash.bk_scheduled": "On schedule",

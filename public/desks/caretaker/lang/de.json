@@ -153,5 +153,25 @@
   },
   "notify.description": "Fehlt noch: {list}",
   "notify.more": "… und {n} weitere",
-  "notify.footer": "Der Teamchef führt auf seiner Seite im Sekretariat alles auf, was noch zu erledigen ist. Dort lassen sich diese Meldungen auch abschalten."
+  "notify.footer": "Der Teamchef führt auf seiner Seite im Sekretariat alles auf, was noch zu erledigen ist. Dort lassen sich diese Meldungen auch abschalten.",
+  "todo_count": "Noch zu tun ({n})",
+  "advice_count": "Empfohlen ({n})",
+  "hints_count": "Gut zu wissen ({n})",
+  "ack": "Weiss ich, danke",
+  "ack_title": "Beiseitelegen: kommt zu «Zur Kenntnis genommen» und zählt nicht mehr mit — bis sich die Lage ändert.",
+  "unack": "Zurückholen",
+  "unack_title": "Zurück in seine Liste — zählt wieder mit.",
+  "noted": "Zur Kenntnis genommen ({n})",
+  "noted_term": "Zur Kenntnis genommen",
+  "noted_sub": "Was du nach eigener Aussage schon weisst. Es zählt nirgends mehr mit — bis sich die Lage ändert, dann bringe ich es wieder.",
+  "acked": "Zur Kenntnis genommen — zählt nicht mehr mit.",
+  "unacked": "Wieder auf der Liste.",
+  "bubble.all_good_noted": {
+    "one": "Für dich ist nichts offen — eine Sache hast du zur Kenntnis genommen, die lasse ich in Ruhe.",
+    "other": "Für dich ist nichts offen — {n} Sachen hast du zur Kenntnis genommen, die lasse ich in Ruhe."
+  },
+  "help.ack": "Legt eine Empfehlung oder einen Hinweis beiseite, unter «Zur Kenntnis genommen» am Ende der Seite. Es zählt dann nicht mehr mit: nicht in meiner Sprechblase, meinem Bild, am Empfang und nicht in der Kachel des Sekretariats auf Unraids Dashboard — für jeden Browser, ich merke es mir auf dem Server. Ändert sich die Lage (eine andere Version, ein anderer Container) oder war es erledigt und taucht wieder auf, kommt es von selbst zurück. Was «Noch zu tun» ist, lässt sich nicht beiseitelegen — das sind Muss-Punkte.",
+  "help.noted": "Was du mit «Weiss ich, danke» beiseitegelegt hast. «Zurückholen» stellt es wieder in seine Liste.",
+  "errors.ack_gone": "Dieser Punkt hat sich inzwischen geändert — schau ihn dir nochmals an.",
+  "errors.ack_required": "Das ist ein Muss — das lässt sich nicht beiseitelegen. Sobald es erledigt ist, verschwindet es von selbst."
 }

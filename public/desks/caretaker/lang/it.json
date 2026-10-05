@@ -153,5 +153,25 @@
   },
   "notify.description": "Manca ancora: {list}",
   "notify.more": "… e altre {n}",
-  "notify.footer": "Il capoufficio elenca nella sua pagina della segreteria tutto ciò che resta da fare. Lì puoi anche disattivare queste segnalazioni."
+  "notify.footer": "Il capoufficio elenca nella sua pagina della segreteria tutto ciò che resta da fare. Lì puoi anche disattivare queste segnalazioni.",
+  "todo_count": "Ancora da fare ({n})",
+  "advice_count": "Consigliato ({n})",
+  "hints_count": "Buono a sapersi ({n})",
+  "ack": "Lo so, grazie",
+  "ack_title": "Mettilo da parte: passa a «Preso atto» e non conta più — finché la situazione non cambia.",
+  "unack": "Rimetti in lista",
+  "unack_title": "Torna nella sua lista — conta di nuovo.",
+  "noted": "Preso atto ({n})",
+  "noted_term": "Preso atto",
+  "noted_sub": "Quello che, a detta tua, sai già. Non conta più da nessuna parte — finché la situazione non cambia: allora te lo ripropongo.",
+  "acked": "Preso atto — non lo conto più.",
+  "unacked": "Di nuovo in lista.",
+  "bubble.all_good_noted": {
+    "one": "Per te non c'è niente di aperto — di una cosa hai preso atto, la lascio stare.",
+    "other": "Per te non c'è niente di aperto — di {n} cose hai preso atto, le lascio stare."
+  },
+  "help.ack": "Mette da parte un consiglio o una nota, in «Preso atto» in fondo alla pagina. Da lì non conta più: né nel mio fumetto, né nella mia immagine, né alla reception, né nel riquadro della segreteria sulla Dashboard di Unraid — per ogni browser, lo tengo sul server. Se la situazione cambia (un'altra versione, un altro container), o era sistemato e ricompare, torna da solo. Ciò che è «Ancora da fare» non si può mettere da parte — sono cose indispensabili.",
+  "help.noted": "Ciò che hai messo da parte con «Lo so, grazie». «Rimetti in lista» lo riporta nella sua lista.",
+  "errors.ack_gone": "Questo punto nel frattempo è cambiato — dagli un'altra occhiata.",
+  "errors.ack_required": "È indispensabile — non si può mettere da parte. Appena è fatto, sparisce da solo."
 }
