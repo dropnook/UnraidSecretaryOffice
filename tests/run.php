@@ -11,8 +11,10 @@ declare(strict_types=1);
  *   logic    the tricky functions (cron, snapshot retention, Emby detection,
  *            the gather's settings, User Scripts schedules, the plugin's cron file,
  *            the menu bar's label)
- *   strings  German and English have the same keys, and every text the code
- *            asks for exists (desk.js, checks, errors)
+ *   strings  German and English have the same keys, Italian has every English
+ *            key, no language has keys English lacks, placeholders and plurals
+ *            match English, and every text the code asks for exists (desk.js,
+ *            checks, errors)
  * Exit code 0 when everything passes.
  */
 
@@ -316,6 +318,34 @@ function langFile(string $file): array
     return $j;
 }
 
+/** The {name} placeholders of a text or of all forms of a plural, sorted */
+function langPlaceholders(mixed $v): array
+{
+    $found = [];
+    foreach (is_array($v) ? $v : [$v] as $s) {
+        if (is_string($s) && preg_match_all('/\{(\w+)\}/', $s, $m)) {
+            $found = array_merge($found, $m[1]);
+        }
+    }
+    $found = array_values(array_unique($found));
+    sort($found);
+    return $found;
+}
+
+/** A plural: {"one": …, "other": …} with plural categories only (Intl.PluralRules), "other" always there */
+function langPluralOk(mixed $v): bool
+{
+    if (!is_array($v) || !isset($v['other'])) {
+        return false;
+    }
+    foreach ($v as $cat => $s) {
+        if (!in_array($cat, ['zero', 'one', 'two', 'few', 'many', 'other'], true) || !is_string($s)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 function testStrings(): void
 {
     $pub = OFFICE_DIR . '/public';
@@ -323,6 +353,7 @@ function testStrings(): void
     foreach (glob("$pub/desks/*/lang") ?: [] as $dir) {
         $sets[basename(dirname($dir))] = $dir;
     }
+    $complete = ['de', 'it'];   // need every English key in every set; other languages may leave keys out (English fills in)
     $en = [];
     foreach ($sets as $desk => $dir) {
         $de = langFile("$dir/de.json");
@@ -333,6 +364,38 @@ function testStrings(): void
         foreach ($e as $k => $v) {
             $en[$desk === '' ? $k : "$desk.$k"] = true;
         }
+        same("$where: English plurals well-formed", [], array_keys(array_filter($e, fn ($v) => is_array($v) && !langPluralOk($v))));
+
+        // every other language: no keys English lacks, the same placeholders, plurals where English has them
+        $codes = array_map(fn ($f) => basename($f, '.json'), glob("$dir/*.json") ?: []);
+        foreach (array_diff(array_unique(array_merge($complete, $codes)), ['en']) as $code) {
+            $l = $code === 'de' ? $de : langFile("$dir/$code.json");   // a missing file of a complete language fails here
+            if ($code !== 'de') {   // German's keys are compared above
+                same("$where/$code: keys English lacks", [], array_values(array_diff(array_keys($l), array_keys($e))));
+                if (in_array($code, $complete, true)) {
+                    same("$where/$code: English keys missing", [], array_values(array_diff(array_keys($e), array_keys($l))));
+                }
+            }
+            $shape = $placeholders = [];
+            foreach ($l as $k => $v) {
+                if (!array_key_exists($k, $e)) {
+                    continue;
+                }
+                if (is_array($e[$k]) ? !langPluralOk($v) : !is_string($v)) {
+                    $shape[] = $k;
+                }
+                if (langPlaceholders($v) !== langPlaceholders($e[$k])) {
+                    $placeholders[] = $k;
+                }
+            }
+            same("$where/$code: plurals and texts shaped like English", [], $shape);
+            same("$where/$code: placeholders like English", [], $placeholders);
+        }
+    }
+    foreach (glob("$pub/lang/*.json") ?: [] as $file) {
+        $meta = json_decode((string) @file_get_contents($file), true)['_meta'] ?? [];
+        check(basename($file) . ': _meta has name and locale', is_string($meta['name'] ?? null) && $meta['name'] !== ''
+            && is_string($meta['locale'] ?? null) && $meta['locale'] !== '');
     }
 
     // texts asked for by the pages: T('key') in a desk, t('key') / Office.t('key') anywhere

@@ -25,9 +25,9 @@ you need — or let them go again later; their data and settings stay.
 
 More desks can join: each one is a module (see below).
 
-The office speaks English and German and follows Unraid's language (English
-where it doesn't speak Unraid's); *⋯ → Language* picks another one for your
-browser. Adding a language means adding JSON files.
+The office speaks English, German and Italian and follows Unraid's language
+(English where it doesn't speak Unraid's); *⋯ → Language* picks another one
+for your browser. Adding a language means adding JSON files.
 
 ## How it works
 
@@ -223,8 +223,8 @@ Stop the plugin's agent first (`bash /usr/local/emhttp/plugins/unraid-secretary-
   service), then on the host `php agent/agent.php run`
 * Tests: on the Unraid host `php tests/run.php` — the tricky logic (cron,
   snapshot retention, Emby detection, the gather's settings, User Scripts
-  schedules, the plugin's cron file; on copies only) and every text in both
-  languages. It changes nothing on the server.
+  schedules, the plugin's cron file; on copies only) and every text in every
+  language. It changes nothing on the server.
 * The server runs the plugin? `bash plugin/dev-sync.sh` (on the host) copies
   the working copy into the installed plugin in RAM — live until the next
   reboot or plugin update; the agent restarts itself. Never start the stack
