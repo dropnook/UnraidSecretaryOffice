@@ -12,6 +12,10 @@
     "one": "Et j'ai {n} recommandation.",
     "other": "Et j'ai {n} recommandations."
   },
+  "bubble.advice_only": {
+    "one": "J'ai {n} recommandation pour toi.",
+    "other": "J'ai {n} recommandations pour toi."
+  },
   "check_again": "Tournée",
   "checked": "Vérifié",
   "checked_at": "Vérifié {when}",

@@ -89,7 +89,7 @@ function bubbleText() {
   if (!g.todo.length && !g.advice.length) return g.noted.length ? T('bubble.all_good_noted', { n: g.noted.length }) : T('bubble.all_good');
   const parts = [];
   if (g.todo.length) parts.push(T('bubble.todo', { n: g.todo.length }));
-  if (g.advice.length) parts.push(T('bubble.advice', { n: g.advice.length }));
+  if (g.advice.length) parts.push(T(g.todo.length ? 'bubble.advice' : 'bubble.advice_only', { n: g.advice.length }));
   return parts.join(' ');
 }
 

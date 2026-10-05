@@ -12,6 +12,10 @@
     "one": "And I have one recommendation.",
     "other": "And I have {n} recommendations."
   },
+  "bubble.advice_only": {
+    "one": "I have one recommendation for you.",
+    "other": "I have {n} recommendations for you."
+  },
   "check_again": "Tour",
   "checked": "Checked",
   "checked_at": "Checked {when}",

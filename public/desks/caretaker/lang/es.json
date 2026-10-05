@@ -12,6 +12,10 @@
     "one": "Y tengo una recomendación.",
     "other": "Y tengo {n} recomendaciones."
   },
+  "bubble.advice_only": {
+    "one": "Tengo una recomendación para ti.",
+    "other": "Tengo {n} recomendaciones para ti."
+  },
   "check_again": "Ronda",
   "checked": "Revisado",
   "checked_at": "Revisado {when}",

@@ -12,6 +12,10 @@
     "one": "E ho un consiglio.",
     "other": "E ho {n} consigli."
   },
+  "bubble.advice_only": {
+    "one": "Ho un consiglio per te.",
+    "other": "Ho {n} consigli per te."
+  },
   "check_again": "Giro",
   "checked": "Controllato",
   "checked_at": "Controllato {when}",
