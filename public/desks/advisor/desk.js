@@ -1,6 +1,7 @@
 /* The Consultant — from outside the office. He knows the externals the office
    relies on but doesn't make itself (Fix Common Problems, Files Viewer, Kopia,
-   Stream Viewer; unbalanced only for whoever wants it): whether
+   Stream Viewer; unbalanced only for whoever wants it; and, optional, the
+   monitoring: Node Exporter → Prometheus → Grafana, Loki later): whether
    they are there, what they are good for, who in the office needs them, and
    how to install them by hand. Read only. The agent part lives in
    agent/desks/advisor.php. */
@@ -36,6 +37,47 @@ const EXTERNALS = {
     icon: '⚖️', open: '/Settings/unbalanced', install: '/Apps', desk: null, clash: ['backup', 'emby'],
     copy: { url: 'https://github.com/jbrodriguez/unbalance/releases/latest/download/unbalanced.plg' },
   },
+  // monitoring (the agent's group, optional), in the order it is set up. In what
+  // is copied, {ip} becomes the server's address, {dir} the office's metrics folder
+  nodeexporter: {
+    icon: '🌡️', open: { container: '/Docker', plugin: '/Plugins' }, install: '/Apps', desk: null,
+    copy: {
+      image: 'quay.io/prometheus/node-exporter:latest-distroless',
+      // the template's own Post Arguments, the office's folder at the end (the host's / is /host in there)
+      postargs: '--path.rootfs=/host --path.procfs=/host/proc --path.sysfs=/host/sys --path.udev.data=/host/run/udev/data --collector.textfile.directory=/host{dir}',
+      check: 'http://{ip}:9100/metrics',
+      // ich777's plugin takes its start options from a file on the flash and is started through at, like its .plg does
+      plugin: "echo 'start_parameters=--collector.textfile.directory={dir}' > /boot/config/plugins/prometheus_node_exporter/settings.cfg; kill $(pidof prometheus_node_exporter); sleep 1; echo '/usr/bin/prometheus_node_exporter --collector.textfile.directory={dir}' | at now",
+    },
+  },
+  prometheus: {
+    icon: '🔥', open: '/Docker', install: '/Apps', desk: null,
+    copy: {
+      // the template stops at once without prometheus.yml; an existing one is left alone; 99:100 = the template's --user
+      config: `P=/mnt/user/appdata/prometheus; mkdir -p $P/etc $P/data
+[ -e $P/etc/prometheus.yml ] && echo "prometheus.yml is already there - left as it is" || cat > $P/etc/prometheus.yml <<'EOF'
+global:
+  scrape_interval: 60s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+  - job_name: node
+    static_configs:
+      - targets: ['{ip}:9100']
+EOF
+chown -R 99:100 $P`,
+      image: 'prom/prometheus',
+      check: 'http://{ip}:9090/targets',
+    },
+  },
+  grafana: {
+    icon: '📊', open: '/Docker', install: '/Apps', desk: null,
+    copy: { image: 'grafana/grafana', root_url: 'http://{ip}:3000/', datasource: 'http://{ip}:9090' },
+  },
+  // later (the agent says so): no install button, only why not yet
+  loki: { icon: '📜', open: '/Docker', install: null, desk: null, copy: {} },
 };
 
 let state = null;
@@ -51,11 +93,30 @@ async function load(fresh) {
 const externals = () => Object.entries((state && state.externals) || {}).filter(([id]) => EXTERNALS[id]);
 const missing = () => externals().filter(([, x]) => !x.there && !x.optional);
 const names = (list) => list.map(([id]) => T(`ext.${id}.name`)).join(', ');
+const group = (g) => externals().filter(([, x]) => (x.group || null) === g);
+const begun = (g) => group(g).some(([, x]) => x.there && !x.later);
+/** Monitoring begun but not complete: what is still missing (Loki, for later, doesn't count) */
+const gaps = () => (begun('monitoring') ? group('monitoring').filter(([, x]) => !x.there && !x.later) : []);
 
 function bubbleText() {
   if (!state) return T('bubble.loading');
   const m = missing();
-  return m.length ? T('bubble.missing', { names: names(m), n: m.length }) : T('bubble.all_there');
+  if (m.length) return T('bubble.missing', { names: names(m), n: m.length });
+  const g = gaps();
+  return g.length ? T('bubble.monitoring', { names: names(g), n: g.length }) : T('bubble.all_there');
+}
+
+/** The server's address for what is copied (from Unraid's network settings), or null */
+function serverIp() {
+  const m = /^https?:\/\/([^/:]+)/.exec((state && state.gui) || '');
+  return m ? m[1] : null;
+}
+
+/** An external's values to copy, {ip} and {dir} filled in */
+function copies(id) {
+  const ip = serverIp() || '<server-ip>';
+  const dir = state.metrics_dir || '';
+  return Object.fromEntries(Object.entries(EXTERNALS[id].copy).map(([k, v]) => [k, v.replaceAll('{ip}', ip).replaceAll('{dir}', dir)]));
 }
 
 /** A link into Unraid's web UI: same tab inside Unraid, a new one from the stack's page of its own */
@@ -90,7 +151,9 @@ function render() {
     [el('span', 'chip ok', T('there')), T('help.there')],
     [el('span', 'chip danger', T('missing')), T('help.missing')],
     [el('span', 'chip quiet', T('absent')), T('help.absent')],
+    [el('span', 'chip quiet', T('later')), T('help.later')],
     [el('span', 'chip warn', T('stopped')), T('help.stopped')],
+    [el('span', 'chip ok', T('textfile_yes')), T('help.textfile')],
     [T('howto'), T('help.howto')],
     [T('look_again'), T('help.again')],
   ]));
@@ -98,8 +161,18 @@ function render() {
 
   const s = el('section', 'section');
   s.appendChild(Office.sectionHead(T('externals'), T('externals_sub')));
-  externals().forEach(([id, x]) => s.appendChild(external(id, x)));
+  group(null).forEach(([id, x]) => s.appendChild(external(id, x)));
   root.appendChild(s);
+
+  const mon = group('monitoring');
+  if (mon.length) {
+    const core = mon.filter(([, x]) => !x.later);
+    const count = el('span', 'chip quiet', T('monitoring_count', { n: core.filter(([, x]) => x.there).length, of: core.length }));
+    const m = el('section', 'section');
+    m.appendChild(Office.sectionHead(T('monitoring'), T('monitoring_sub'), count));
+    mon.forEach(([id, x]) => m.appendChild(external(id, x)));
+    root.appendChild(m);
+  }
   root.appendChild(el('p', 'role', T('looked_at', { when: fmt.relative(state.time) })));
 }
 
@@ -111,10 +184,17 @@ function external(id, x) {
   const main = el('div', 'row-main');
   main.appendChild(el('div', 'row-name text', T(`ext.${id}.name`)));
   const meta = el('div', 'row-meta');
-  if (!x.there && x.optional) meta.appendChild(el('span', 'chip quiet', T('absent')));
+  if (!x.there && x.later) meta.appendChild(el('span', 'chip quiet', T('later')));
+  else if (!x.there && x.optional) meta.appendChild(el('span', 'chip quiet', T('absent')));
   else if (!x.there) meta.appendChild(el('span', 'chip danger', T('missing')));
   else if (x.kind === 'container' && !x.running) meta.appendChild(el('span', 'chip warn', T('stopped')));
   else meta.appendChild(el('span', 'chip ok', T('there')));
+  if (x.textfile === true || x.textfile === false) {     // the node exporter: does it read the office's folder?
+    const yes = x.textfile;
+    const chip = el('span', 'chip ' + (yes ? 'ok' : 'warn'), T(yes ? 'textfile_yes' : 'textfile_no'));
+    chip.title = T(yes ? 'textfile_yes_tip' : 'textfile_no_tip', { dir: state.metrics_dir || '' });
+    meta.appendChild(chip);
+  }
   if (x.version) meta.appendChild(el('span', '', 'v' + x.version));
   if (x.name) meta.appendChild(el('span', 'mono', x.name));
   if (e.desk && Office.desks.has(e.desk)) {
@@ -136,7 +216,10 @@ function external(id, x) {
   row.appendChild(main);
 
   const acts = el('div', 'ad-acts');
-  const link = x.there ? unraidLink(e.open, T(`open.${id}`), 'plain') : unraidLink(e.install, T('install'), '');
+  const byKind = typeof e.open === 'object';     // a plugin or a container (the node exporter)
+  const open = byKind ? e.open[x.kind] : e.open;
+  const link = x.there ? unraidLink(open, T(byKind && x.kind === 'plugin' ? `open.${id}_plugin` : `open.${id}`), 'plain')
+    : e.install ? unraidLink(e.install, T('install'), '') : null;
   if (link) acts.appendChild(link);
   if (e.desk && Office.desks.has(e.desk) && Office.desks.get(e.desk).hired) {
     const a = el('a', 'btn small plain', T('to_desk', { name: Office.t(e.desk + '.name') }));
@@ -162,26 +245,42 @@ function avatar(e, x) {
   return box;
 }
 
+/**
+ * Whether the steps start unfolded: something missing that the office needs;
+ * in a group (monitoring) once it is begun, what is still missing, stopped or
+ * not set up for the office yet — never what is for later
+ */
+function startsOpen(x) {
+  if (x.later) return false;
+  if (!x.there && !x.optional) return true;
+  const stopped = x.there && x.kind === 'container' && !x.running;
+  return !!x.group && begun(x.group) && (!x.there || stopped || x.textfile === false);
+}
+
 /** "Install by hand": the steps (lang keys install.<id>.1 …), what to copy below them */
 function howto(id, x) {
-  const e = EXTERNALS[id];
+  const values = copies(id);
   const det = el('details', 'ad-howto');
-  det.open = !x.there && !x.optional;      // missing: the steps right away
+  det.open = startsOpen(x);
   det.appendChild(el('summary', '', T('howto')));
   const ol = el('ol', 'ad-steps');
-  for (let i = 1; Office.has(`${ID}.install.${id}.${i}`); i++) ol.appendChild(el('li', '', T(`install.${id}.${i}`, { ...e.copy, media: state.media || 'Emby' })));
+  const params = { ...values, ip: serverIp() || '<server-ip>', dir: state.metrics_dir || '', media: state.media || 'Emby' };
+  for (let i = 1; Office.has(`${ID}.install.${id}.${i}`); i++) ol.appendChild(el('li', '', T(`install.${id}.${i}`, params)));
   det.appendChild(ol);
-  const copies = el('div', 'ad-copies');
-  Object.entries(e.copy).forEach(([key, value]) => {
-    const line = el('div', 'ad-copy');
-    line.append(el('span', 'ad-copy-label', T(`copy.${id}.${key}`)), el('code', '', value));
+  const box = el('div', 'ad-copies');
+  Object.entries(values).forEach(([key, value]) => {
+    const block = value.includes('\n');          // a command of several lines: below its label, as it is
+    const line = el('div', 'ad-copy' + (block ? ' ad-block' : ''));
     const b = el('button', 'btn small plain', Office.t('common.copy'));
     b.type = 'button';
     b.onclick = () => Office.copy(value);
-    line.appendChild(b);
-    copies.appendChild(line);
+    const label = el('span', 'ad-copy-label', T(`copy.${id}.${key}`));
+    if (block) line.append(label, b, el('pre', 'code', value));
+    else line.append(label, el('code', '', value), b);
+    box.appendChild(line);
   });
-  det.appendChild(copies);
+  if (Object.values(values).some((v) => v.includes('<server-ip>'))) box.appendChild(el('div', 'ad-note', T('ip_unknown')));
+  det.appendChild(box);
   return det;
 }
 

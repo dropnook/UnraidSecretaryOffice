@@ -12,7 +12,7 @@ declare(strict_types=1);
  *            the gather's settings, User Scripts schedules, the plugin's cron file,
  *            the menu bar's label, reports to Unraid's notifications,
  *            Mr. Backupsy's packages and his Kopia per app and VM, Ms. Dustdevil's pictures,
- *            Mr. Restori's reader of the packages)
+ *            Mr. Restori's reader of the packages, the Consultant's monitoring externals)
  *   hardening  the checks that keep requests, manifests, paths and links in
  *            bounds (PIN tries, safe writes, the mailbox, Ms. Dustdevil's
  *            manifests, Emby paths, anchored validators, the release link)
@@ -861,6 +861,44 @@ function testIcons(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/** The Consultant: which container is which external, and whether the node exporter reads the office's folder */
+function testAdvisor(): void
+{
+    foreach (['quay.io/prometheus/node-exporter:latest-distroless' => 'node-exporter', 'prom/prometheus' => 'prometheus',
+              'grafana/grafana:12.1.0' => 'grafana', 'grafana/loki:master' => 'loki', 'registry:5000/Team/App:1' => 'app',
+              'bitnami/node-exporter@sha256:ab12' => 'node-exporter', 'redis' => 'redis'] as $image => $want) {
+        same("advisor: image name of $image", $want, advisorImageName($image));
+    }
+    $c = fn (string $name, string $image, bool $running = true) => ['name' => $name, 'image' => $image, 'running' => $running];
+    $all = ['loki' => $c('loki', 'grafana/loki:master'), 'renderer' => $c('renderer', 'grafana/grafana-image-renderer'),
+            'old' => $c('Grafana-old', 'grafana/grafana-oss', false), 'Grafana' => $c('Grafana', 'grafana/grafana'),
+            'prometheus' => $c('prometheus', 'prom/prometheus'), 'exp' => $c('Node-Exporter', 'quay.io/prometheus/node-exporter:latest-distroless'),
+            'qbit' => $c('qbit-exporter', 'esanchezm/prometheus-qbittorrent-exporter'), 'kopia' => $c('KopiaUI', 'ghcr.io/imagegenius/kopia')];
+    $find = fn (string $id, array $list) => advisorFindContainer(ADVISOR_EXTERNALS[$id], $list)['name'] ?? null;
+    same('advisor: Grafana, the running one, not Loki or the renderer', 'Grafana', $find('grafana', $all));
+    same('advisor: a stopped Grafana is found too', 'Grafana-old', $find('grafana', array_diff_key($all, ['Grafana' => 1])));
+    same('advisor: Loki is grafana/loki', 'loki', $find('loki', $all));
+    same('advisor: Prometheus, not an exporter for it', 'prometheus', $find('prometheus', $all));
+    same('advisor: no Prometheus without one', null, $find('prometheus', ['qbit' => $all['qbit']]));
+    same('advisor: the node exporter by its image', 'Node-Exporter', $find('nodeexporter', $all));
+    same('advisor: a node exporter by its name', 'node_exporter', $find('nodeexporter', [$c('node_exporter', 'some/thing')]));
+    same('advisor: Kopia as before (image or name contains it)', 'KopiaUI', $find('kopia', $all));
+
+    // the template's Post Arguments: the host's / is /host in there
+    $template = ['--path.rootfs=/host', '--path.procfs=/host/proc', '--path.sysfs=/host/sys', '--path.udev.data=/host/run/udev/data'];
+    $root = [['/', '/host']];
+    same('advisor: textfile — the template alone reads nothing', [], advisorTextfileDirs($template, $root));
+    same('advisor: textfile — through /host', [ADVISOR_METRICS_DIR],
+        advisorTextfileDirs([...$template, '--collector.textfile.directory=/host' . ADVISOR_METRICS_DIR], $root));
+    same('advisor: textfile — a path of its own, the deepest mount wins', [ADVISOR_METRICS_DIR],
+        advisorTextfileDirs(['--collector.textfile.directory', '/textfile/'], [['/', '/host'], [ADVISOR_METRICS_DIR . '/', '/textfile']]));
+    same('advisor: textfile — inside the container only: not on the host', [],
+        advisorTextfileDirs(['--collector.textfile.directory=/var/lib/node_exporter'], [['/mnt/user/appdata/x', '/config']]));
+    same('advisor: textfile — /hostile is not under /host', [], advisorTextfileDirs(['--collector.textfile.directory=/hostile/x'], $root));
+    same('advisor: textfile — on the host (the plugin), given twice', [ADVISOR_METRICS_DIR, '/var/lib/x'],
+        advisorTextfileDirs(['--collector.textfile.directory="' . ADVISOR_METRICS_DIR . '/"', '--collector.textfile.directory=/var/lib/x'], null));
+}
+
 // ===================================================================== hardening
 
 /** A temporary folder for a test, removed again by hardeningRm() */
@@ -1209,7 +1247,7 @@ function testIconSquare(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testIcons', 'testIconSquare', 'testRestore'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testIcons', 'testIconSquare', 'testRestore', 'testAdvisor'],
           'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
