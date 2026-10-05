@@ -336,6 +336,31 @@ character, warnings and errors stay plain and clear.
 * `docker top <container> -eo …` needs `pid` in the list (`-eo pid,args`),
   otherwise Docker only answers "Couldn't find PID field".
 
+## Several chats at once
+
+When more than one Claude chat works on the office, one of them is the
+**coordinator**; the others are **workers**, one per task (not one per desk).
+
+* **Workers** work in a git worktree of their own on a branch of their own
+  (`task/<short-name>`), on a local disk — never in the working copy on the
+  server share (slow over SMB, and its index.lock blocks everybody). They
+  commit and push their branch, run the checks they can (`php -l` via ssh,
+  JS syntax, `php tests/run.php` on a copy) and report what they did and what
+  is untested. They never merge into `main`, never run `dev-sync.sh`, never
+  release, never start backup runs or apply settings.
+* **The coordinator** owns `main`, the working copy on the server and the
+  server itself: reviews a worker's branch, merges it, runs the full checklist
+  below, `dev-sync.sh`, checks the page, releases. Only one version runs on the
+  server at a time — so only the coordinator deploys.
+* **Shared files** (`public/assets/core.js`, `office.css`, `src/`, `agent/lib/`,
+  the engine in `backup/`, CLAUDE.md) are changed by one chat at a time; the
+  coordinator says which task may touch them. A desk's own folder
+  (`public/desks/<id>/`, `agent/desks/<id>.php`) belongs to the task working on it.
+* At most two or three workers at once; a finished worker is closed, not kept.
+* Tests that write (`setup.sh --apply`, runs) touch the real Kopia repository and
+  containers even with another `UB_DATA`: only with Kopia switched off in the
+  test decisions, and only by the coordinator.
+
 ## Checklist for a change
 
 1. PHP syntax: on the host `php -l` for every file in `agent/`, `src/`,
