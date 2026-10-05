@@ -299,7 +299,7 @@
   "type.musicvideos": "Music videos",
   "type.mixed": "Mixed",
   "type.other": "Other",
-  "menu.refresh": "Read again",
+  "menu.refresh": "Tour",
   "fact.pool": {
     "one": "1 file ready ({size})",
     "other": "{n} files ready ({size})"

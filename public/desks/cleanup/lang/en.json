@@ -16,7 +16,7 @@
     "one": "One lot ({size}) has been in her storeroom for {days} days. If everything still works, empty it.",
     "other": "{n} lots ({size}) have been in her storeroom for up to {days} days. If everything still works, empty them."
   },
-  "scan": "Look again",
+  "scan": "Tour",
   "scan_title": "Read templates, stacks, appdata and the storeroom anew",
   "scan_done": "Looked around ({ms} ms).",
   "rooms": "Where I tidy",

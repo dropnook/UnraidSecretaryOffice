@@ -3,7 +3,7 @@
   "role": "Gebürtige Italienerin — behält jeden Snapshot im Blick: ZFS, btrfs und VMs. Con amore.",
   "default_prefix": "manuell-",
   "keep_prefix": "behalten-",
-  "bubble.no_scan": "Mamma mia, ich habe mich noch gar nicht umgesehen! Ein Scan dauert nur ein paar Sekunden.",
+  "bubble.no_scan": "Mamma mia, ich habe mich noch gar nicht umgesehen! Ein Rundgang dauert nur ein paar Sekunden.",
   "bubble.no_data": "Ich komme nicht an den Server heran und habe noch nichts zu zeigen.",
   "bubble.count": {
     "one": "Ich behalte {n} Snapshot im Blick, er belegt {size}. Tutto a posto.",
@@ -24,13 +24,13 @@
     "one": "{n} VM-Snapshot",
     "other": "{n} VM-Snapshots"
   },
-  "scan": "Scan",
+  "scan": "Rundgang",
   "scan_title": "Alle Pools, Disks und VMs neu nach Snapshots durchsuchen",
   "scan_wake": {
-    "one": "Scan mit Aufwecken ({n} Disk)",
-    "other": "Scan mit Aufwecken ({n} Disks)"
+    "one": "Rundgang mit Aufwecken ({n} Disk)",
+    "other": "Rundgang mit Aufwecken ({n} Disks)"
   },
-  "scan_now": "Jetzt scannen",
+  "scan_now": "Jetzt Rundgang machen",
   "new": "Neuer Snapshot",
   "new_from_here": "Neuer Snapshot hiervon",
   "storage": "Speicher",
@@ -59,8 +59,8 @@
   "disk_used": "{mount}: {used} von {total} belegt",
   "last_read": "Zuletzt gelesen {when}",
   "never_searched": "Noch nie nach Snapshots durchsucht",
-  "asleep_hint": "Schläft — ein normaler Scan lässt sie schlafen",
-  "wake_scan": "Aufwecken & scannen",
+  "asleep_hint": "Schläft — ein normaler Rundgang lässt sie schlafen",
+  "wake_scan": "Aufwecken & Rundgang",
   "wake_scan_title": "Weckt {disks} auf und liest sie mit",
   "vm_count": {
     "one": "{n} VM",
@@ -90,8 +90,8 @@
   "docker_layers": "Docker-Image-Ebenen",
   "docker_title": "Docker legt jede Image-Ebene als eigenes Dataset unter {parent}/… an, mit Snapshot. Die gehören Docker und bleiben unangetastet. Der system-Share selbst (mit libvirt) steht immer in der Liste.",
   "docker_meta": "liegen unter {parent}/…, gehören Docker · den system-Share selbst (mit libvirt) findest du unter {parent}",
-  "empty.no_scan": "Noch kein Scan",
-  "empty.no_scan_text": "Der Agent läuft — ein Scan dauert meist nur Sekunden.",
+  "empty.no_scan": "Noch kein Rundgang",
+  "empty.no_scan_text": "Der Agent läuft — ein Rundgang dauert meist nur Sekunden.",
   "empty.no_data": "Keine Daten",
   "empty.no_data_text": "Der Agent auf dem Server hat noch nichts geliefert.",
   "empty.filtered": "Nichts passt zum Filter",
@@ -125,7 +125,7 @@
   "has_clones": "hat Klone",
   "writable": "beschreibbar",
   "disk_asleep": "Disk schläft",
-  "detected_title": "Nur über seinen Mount erkannt — die Disk wurde seit seiner Entstehung nicht gelesen. «Aufwecken & scannen» holt die Details.",
+  "detected_title": "Nur über seinen Mount erkannt — die Disk wurde seit seiner Entstehung nicht gelesen. «Aufwecken & Rundgang» holt die Details.",
   "vm_current": "aktuell",
   "vm_current_title": "Die VM schreibt gerade in die Overlay-Datei dieses Snapshots",
   "vm_gone": "VM gibt es nicht mehr",
@@ -156,8 +156,8 @@
   "frees_unknown": "(+ {n} btrfs ohne Schätzung)",
   "waking": "Wecke schlafende Disks auf — das dauert einen Moment…",
   "scan_done": {
-    "one": "Scan fertig: {n} Snapshot",
-    "other": "Scan fertig: {n} Snapshots"
+    "one": "Rundgang fertig: {n} Snapshot",
+    "other": "Rundgang fertig: {n} Snapshots"
   },
   "scan_new": "{n} neu",
   "scan_gone": "{n} verschwunden",
@@ -337,8 +337,8 @@
   "help.sources": "Quellen-Chips",
   "help.sources_text": "Wer ihn gemacht hat: das Backup-Script (Herr Backupsi), Docker, eine VM, von Hand oder ein anderes Werkzeug.",
   "help.docker": "Dockers eigene Image-Ebenen (ZFS) — Hunderte davon, von Docker verwaltet. Ausgeblendet, ausser eingeschaltet; hier nie löschbar.",
-  "help.scan": "Scan · Aufwecken & scannen",
-  "help.scan_text": "Scan liest alle Pools, Disks und VMs neu — schlafende Array-Disks bleiben in Ruhe. «Aufwecken & scannen» weckt sie absichtlich.",
+  "help.scan": "Rundgang · Aufwecken & Rundgang",
+  "help.scan_text": "Der Rundgang liest alle Pools, Disks und VMs neu — schlafende Array-Disks bleiben in Ruhe. «Aufwecken & Rundgang» weckt sie absichtlich.",
   "visit": "Zu Frau Snapshotini",
   "greet.1": "Buongiorno!",
   "greet.2": "Ciao, bello!",
@@ -439,7 +439,7 @@
     "one": "1 schlafende Disk wecken",
     "other": "{n} schlafende Disks wecken"
   },
-  "wake_title": "Nur für diesen Scan: weckt die schlafenden btrfs-Disks und liest auch ihre Snapshots. Ohne Haken lasse ich sie schlafen und zeige, was ich zuletzt von ihnen wusste. Unraid legt sie nach seiner Wartezeit wieder schlafen.",
+  "wake_title": "Nur für diesen Rundgang: weckt die schlafenden btrfs-Disks und liest auch ihre Snapshots. Ohne Haken lasse ich sie schlafen und zeige, was ich zuletzt von ihnen wusste. Unraid legt sie nach seiner Wartezeit wieder schlafen.",
   "plan.runner_off_plugin": "In der Cron-Datei des Sekretariats fehlt die Zeile für die Zeitpläne — sie laufen also nicht. Einen Zeitplan einmal zu speichern richtet sie wieder ein.",
   "plan.note_plugin": "Das Sekretariat schaut alle 5 Minuten nach, was fällig ist (eine Zeile in seiner Cron-Datei auf dem Flash) — auch wenn niemand es offen hat. Verpasste Zeiten (Server aus) werden einmal nachgeholt."
 }

@@ -299,7 +299,7 @@
   "type.musicvideos": "Musikvideos",
   "type.mixed": "Gemischt",
   "type.other": "Anderes",
-  "menu.refresh": "Neu einlesen",
+  "menu.refresh": "Rundgang",
   "fact.pool": {
     "one": "1 Datei bereit ({size})",
     "other": "{n} Dateien bereit ({size})"

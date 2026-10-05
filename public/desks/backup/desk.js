@@ -1103,6 +1103,10 @@ function dset(k, v) {
 /** A fresh draft from the plan, with the apps' and VMs' levels read from it */
 function setupDraftFromPlan() {
   setup.draft = clone(setup.plan.P);
+  if (!setup.plan.have_settings) {
+    // a new setup sends nothing to Kopia unasked: every share starts local, the user picks what goes to Kopia
+    Object.keys(setup.draft).forEach((k) => { if (/^share\|.+\|mode$/.test(k) && setup.draft[k] === 'kopia') setup.draft[k] = 'snapshot'; });
+  }
   setup.model = setupModel(setup.plan);
   setupInitLevels();
   setupDerive();

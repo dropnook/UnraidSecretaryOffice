@@ -12,7 +12,7 @@
     "one": "And I have one recommendation.",
     "other": "And I have {n} recommendations."
   },
-  "check_again": "Check again",
+  "check_again": "Tour",
   "checked": "Checked",
   "checked_at": "Checked {when}",
   "todo": "Still to do",

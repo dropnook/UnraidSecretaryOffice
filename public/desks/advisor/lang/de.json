@@ -14,7 +14,7 @@
     "one": "{names} ist noch nicht im Haus. Unten steht, wofür das gut ist und wie du es holst.",
     "other": "{names} sind noch nicht im Haus. Unten steht, wofür sie gut sind und wie du sie holst."
   },
-  "look_again": "Nochmals schauen",
+  "look_again": "Rundgang",
   "looked": "Nochmals geschaut.",
   "looked_at": "Geschaut {when}.",
   "externals": "Externe Mitarbeitende",

@@ -16,7 +16,7 @@
     "one": "Ein Posten ({size}) liegt seit {days} Tagen in ihrer Abstellkammer. Wenn alles noch läuft, leere ihn.",
     "other": "{n} Posten ({size}) liegen seit bis zu {days} Tagen in ihrer Abstellkammer. Wenn alles noch läuft, leere sie."
   },
-  "scan": "Nochmals schauen",
+  "scan": "Rundgang",
   "scan_title": "Templates, Stacks, appdata und die Abstellkammer neu einlesen",
   "scan_done": "Umgeschaut ({ms} ms).",
   "rooms": "Wo ich putze",
