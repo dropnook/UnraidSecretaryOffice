@@ -3,8 +3,9 @@ declare(strict_types=1);
 
 /*
  * The backup engine (unraid-backup), part of the office: code in backup/,
- * settings, state, logs and dumps in data/unraid-backup — the same rule as
- * UB_DATA in backup/lib/common.sh. Mr. Backup runs it (agent/desks/backup.php).
+ * settings, state and logs in data/unraid-backup — the same rule as UB_DATA in
+ * backup/lib/common.sh; the packages of apps and VMs in the backup place
+ * (backupDumpsPath()). Mr. Backup runs it (agent/desks/backup.php).
  *
  * While it runs it mounts its snapshots under <mount_root> so Kopia can read
  * them. Those must not be unmounted, deleted or renamed in the meantime.
@@ -43,6 +44,19 @@ function backupScriptState(): array
         $state['step'] = lastLogStep("$data/logs/latest.log");
     }
     return $state;
+}
+
+/**
+ * The backup place in a share — the same rule as the engine's dumps_path(): <share>/unraid-backup,
+ * in the office's share <share>/backup. Since engine 2.18 it holds the packages (apps/, vms/,
+ * server/, flash/), before that one folder per run.
+ */
+function backupDumpsPath(string $share): ?string
+{
+    if ($share === '') {
+        return null;
+    }
+    return $share === BACKUP_OFFICE_SHARE ? "/mnt/user/$share/" . BACKUP_DESK_DIR : "/mnt/user/$share/unraid-backup";
 }
 
 /** Where the backup script mounts things */
@@ -154,17 +168,20 @@ function backupProtection(string $path, int $depth = 0): ?string
     $kopia = in_array(strtolower((string) backupSetting($s, 'kopia', 'enabled', 'no')), ['yes', 'ja', '1', 'true'], true);
     $path = rtrim($path, '/');
 
+    // archives and packages lie in the backup place: protected like its share
+    $place = backupDumpsPath((string) backupSetting($s, 'general', 'dumps_share', ''));
     if ($path === '/boot' || str_starts_with($path, '/boot/')) {
         return match (backupSetting($s, 'flash', 'mode', 'off')) {
             'snapshot' => $kopia ? 'offsite' : 'local',
-            'tar'      => backupProtection(BACKUP_DATA_DIR . '/dumps', $depth + 1),
+            'tar'      => $place ? backupProtection($place, $depth + 1) : 'none',
             default    => 'none',
         };
     }
     if ($path === '/etc/libvirt' || str_starts_with($path, '/etc/libvirt/')) {
-        // the engine archives the content of libvirt.img with the dumps (default), else only the image's share counts
-        if (backupSetting($s, 'libvirt', 'mode', 'tar') === 'tar') {
-            return backupProtection(BACKUP_DATA_DIR . '/dumps', $depth + 1);
+        // the engine puts every VM's configuration into its package and all of libvirt.img into server/
+        // (libvirt mode tar, the default); else only the image's share counts
+        if ($place && backupSetting($s, 'libvirt', 'mode', 'tar') === 'tar') {
+            return backupProtection($place, $depth + 1);
         }
         $img = readCfg('/boot/config/domain.cfg')['IMAGE_FILE'] ?? null;
         return $img ? backupProtection($img, $depth + 1) : null;
