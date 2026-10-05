@@ -471,7 +471,9 @@ function logsTourRun(): int
     $running = array_column(houseContainers(), 'running', 'name');
     foreach ($sources as $id => $src) {
         if ($src['kind'] === 'file' && logsTourWanted($id)) {
-            $found[] = logsTourFileSource($id, $src, $mem['files'][$id] ?? null, $first ? $since : null, $since, $sources, $next['files']);
+            // a file she knows from the last tour: from where it ended; one she doesn't (first tour, new file): by its lines' times
+            $last = $mem['files'][$id] ?? null;
+            $found[] = logsTourFileSource($id, $src, $last, $last === null ? $since : null, $since, $sources, $next['files']);
         } elseif ($src['kind'] === 'dmesg') {
             $found[] = logsTourDmesg($since);
         } elseif ($src['kind'] === 'docker' && !empty($running[$src['target']])) {
@@ -601,9 +603,10 @@ function logsTourEntry(string $id, array $src, array $acc): array
 /**
  * A file since the last tour: from where it ended then (same inode, not
  * shorter) — or, when it was rotated, the rest of the old file (now
- * "<file>.1", found by its inode) and the new one from its start. The first
- * tour reads the newest part and counts the last 24 hours. Never more than
- * LOGS_TOUR_BYTES per file.
+ * "<file>.1", found by its inode) and the new one from its start. A file
+ * without a position (the first tour, a new file) is read from its newest
+ * part, its lines counted by their time ($after: the first tour's 24 hours,
+ * else since the last tour). Never more than LOGS_TOUR_BYTES per file.
  */
 function logsTourFileSource(string $id, array $src, ?array $last, ?int $after, int $since, array $sources, array &$memory): array
 {
