@@ -220,7 +220,7 @@ function peopleText(vu) {
 /** Do the shares of the chosen libraries suit EmbyCache and its pool? */
 function shareSection() {
   const shares = state.shares || [];
-  const bad = shares.filter((x) => !['ok', 'array_only'].includes(x.fit) || !x.root).length;
+  const bad = shares.filter((x) => !['ok', 'array_only'].includes(x.fit) || x.root === false).length;
   const s = section(T('shares'), T('shares_sub'), bad ? chip(T('shares_bad', { n: bad }), 'warn') : chip(T('shares_good'), 'ok'));
   const box = el('div', 'box');
   const pool = (state.settings || {}).cache_path || '';
@@ -230,7 +230,7 @@ function shareSection() {
     main.appendChild(el('div', 'row-name', x.share));
     const meta = el('div', 'row-meta');
     meta.append(fitChip(x.fit, { share: x.share, pool: pool.replace('/mnt/', ''), primary: x.primary || '–', secondary: x.secondary || T('array') }));
-    if (!x.root) meta.appendChild(chip(T('root_missing', { pool }), 'danger', T('root_missing_tip', { share: x.share, pool })));
+    if (x.root === false) meta.appendChild(chip(T('root_missing', { pool }), 'danger', T('root_missing_tip', { share: x.share, pool })));
     meta.appendChild(el('span', '', T('share_where', { primary: x.use === 'no' ? T('array') : (x.primary || '–'), secondary: x.use === 'no' ? '–' : (x.secondary || T('array')) })));
     if (x.include) meta.appendChild(el('span', '', T('share_disks', { disks: x.include })));
     main.appendChild(meta);

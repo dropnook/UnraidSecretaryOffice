@@ -1,6 +1,7 @@
 {
   "name": "Frau Wasistwo",
   "role": "Weiss, wo alles ist und was gerade los ist — und meistens noch ein bisschen mehr",
+  "visit": "Zu Frau Wasistwo",
   "bubble.no_tour": "Ich war noch gar nicht unterwegs! Ein Rundgang dauert ein paar Sekunden — dann weiss ich alles.",
   "bubble.no_data": "Ich komme nicht an den Server heran und habe noch nichts zu zeigen.",
   "bubble.summary": "Ich kenne {shares} Shares, {containers} Container und {scripts} User Scripts — und ihre kleinen Geheimnisse.",

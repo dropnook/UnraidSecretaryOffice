@@ -363,5 +363,14 @@
   "setup.resume_movies_hint": "This many films per person are ready (the last watched first). 0 = none.",
   "setup.movies_folder": "Always the whole film folder: subtitles, preview images, nfo and extras come along.",
   "setup.resume_series": "Started series per person: at most",
-  "setup.resume_series_hint": "Also counts for \"Next Up\". 0 = none."
+  "setup.resume_series_hint": "Also counts for \"Next Up\". 0 = none.",
+  "notify.tool.embycache": "EmbyCache",
+  "notify.tool.gather": "Consolidate folders",
+  "notify.subject": "{tool}: real run — {result}",
+  "notify.no_status": "It ended without a result (exit code {exit}).",
+  "notify.problems": {
+    "one": "One problem.",
+    "other": "{n} problems."
+  },
+  "notify.see": "Jack Emby shows in the office what the run printed."
 }

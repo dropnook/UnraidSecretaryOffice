@@ -25,9 +25,9 @@ you need — or let them go again later; their data and settings stay.
 
 More desks can join: each one is a module (see below).
 
-The office speaks English and German and follows Unraid's language (English
-where it doesn't speak Unraid's); *⋯ → Language* picks another one for your
-browser. Adding a language means adding JSON files.
+The office speaks English, German and Italian and follows Unraid's language
+(English where it doesn't speak Unraid's); *⋯ → Language* picks another one
+for your browser. Adding a language means adding JSON files.
 
 ## How it works
 
@@ -69,9 +69,36 @@ Where things are:
 | The code (in RAM, unpacked at every boot) | `/usr/local/emhttp/plugins/unraid-secretary-office/` |
 | The package and the one setting (`DATA_DIR`) | `/boot/config/plugins/unraid-secretary-office/` |
 | The schedules (nightly backup, snapshot plans, EmbyCache, consolidating) | `…/unraid-secretary-office.cron` next to it, set in the office |
+| The look at the agent every 5 minutes | `…/agent-watch.cron` next to it |
 | State, logs, the backup engine's settings | `appdata/UnraidSecretaryOffice/data/` (comes with the array) |
 | Mr. Backupsy's packages per app and VM (templates, compose files, database dumps, VM configurations) | the share `UnraidSecretaryOffice`, one folder per desk (`backup/`); their history in that share's snapshots |
 | Snapshot mounts for Kopia | `/mnt/addons/UnraidSecretaryOffice/` |
+
+## Notifications
+
+What needs you even when the office isn't open goes to Unraid's
+notifications — the bell, and mail or push if you set them up under
+*Settings → Notifications* (the Caretaker recommends it). All of them come
+as the event *Unraid Secretary Office*:
+
+* **Mr. Backupsy** (the backup engine): a run failed or ended with errors
+  (alert) or warnings (warning), or went well (normal — can be switched off
+  in his setup); a VM not resumed or started, a container not started,
+  Nextcloud stuck in maintenance mode (alert); maintenance mode was already
+  on, space running out, Kopia incomplete, an aborted run repaired,
+  settings.ini out of date (warning).
+* **Ms. Snapshotini**: a schedule had problems (warning).
+* **Jack Emby**: a real EmbyCache or consolidating run failed or had
+  problems (warning) — reports and trial runs stay quiet.
+* **The Caretaker**: something new under *Still to do* that has stayed for
+  half an hour (warning), once — again only if it was solved and came back,
+  never an "all clear". He looks every 30 minutes, also with the office
+  closed. A switch on his page turns this off.
+* **The plugin**: the agent hasn't checked in for more than 10 minutes while
+  the array runs (alert), and once it is back (normal).
+
+The Caretaker and Jack Emby write in Unraid's language (English where the
+office doesn't speak it); the engine and the plugin's look at the agent in English.
 
 ## Installation
 
@@ -223,8 +250,8 @@ Stop the plugin's agent first (`bash /usr/local/emhttp/plugins/unraid-secretary-
   service), then on the host `php agent/agent.php run`
 * Tests: on the Unraid host `php tests/run.php` — the tricky logic (cron,
   snapshot retention, Emby detection, the gather's settings, User Scripts
-  schedules, the plugin's cron file; on copies only) and every text in both
-  languages. It changes nothing on the server.
+  schedules, the plugin's cron file; on copies only) and every text in every
+  language. It changes nothing on the server.
 * The server runs the plugin? `bash plugin/dev-sync.sh` (on the host) copies
   the working copy into the installed plugin in RAM — live until the next
   reboot or plugin update; the agent restarts itself. Never start the stack

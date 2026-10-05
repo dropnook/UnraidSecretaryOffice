@@ -371,7 +371,7 @@ body.sso-page{margin:0; background:#F2F5F6; -webkit-text-size-adjust:100%}
 .row-meta{display:flex; flex-wrap:wrap; align-items:center; gap:3px 8px; margin-top:2px; font-size:11.5px; color:var(--muted); font-variant-numeric:tabular-nums}
 .row-meta .mono{color:var(--ink2); font-family:var(--mono); font-size:11.5px; overflow-wrap:anywhere}
 .row-meta .note{color:var(--ink2); font-style:italic}
-.row-detail{grid-column:1 / -1; font-size:12.5px; color:var(--ink2); padding:2px 0 4px}
+.row-detail{grid-column:1 / -1; font-size:12.5px; color:var(--ink2); padding:2px 0 4px; overflow-wrap:anywhere}
 .chip{
   font-size:10.5px; line-height:17px; padding:0 7px; border-radius:9px; white-space:nowrap;
   background:var(--surface2); border:1px solid var(--line); color:var(--ink2);
