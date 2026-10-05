@@ -829,6 +829,38 @@ function testSafeWrites(): void
     hardeningRm($dir);
 }
 
+/** Ms. Dustdevil's manifests lie in folders others may write to: only entries of her own shape count */
+function testTrashManifest(): void
+{
+    $st = '20261005-120000';
+    foreach ([['templates/my-app.xml', 'template'], ['compose/stack', 'stack'], ['appdata/foo', 'appdata'], ['vms/win11', 'domain'],
+              ['strays/0a1b2c3d/my-x.xml', 'stray'], ['icons/0a1b2c3d/compose.override.yaml', 'icon'], ['nvram/abc_VARS.fd', 'nvram'],
+              ["@cache/appdata/_UnraidSecretaryOffice-trash-$st-foo", 'appdata']] as [$as, $kind]) {
+        check("manifest as accepted: $as", clTrashAsOk($as, $kind, $st));
+    }
+    foreach ([['../../../../boot/config/super.dat', 'template'], ['templates/../../x', 'template'], ['templates/./x', 'template'],
+              ['/boot/config/go', 'template'], ['templates//x', 'template'], ['appdata/foo', 'template'], ['templates/a/b', 'template'],
+              ['strays/x', 'stray'], ["templates/x\ny", 'template'], ['', 'template'], ['@cache/appdata', 'appdata'],
+              ['@cache/appdata/_UnraidSecretaryOffice-trash-20990101-000000-foo', 'appdata'], ["@cache/appdata/_UnraidSecretaryOffice-trash-$st-foo", 'template'],
+              ["@cache/../x/_UnraidSecretaryOffice-trash-$st-foo", 'appdata'], ['@cache', 'appdata']] as [$as, $kind]) {
+        check('manifest as refused: ' . json_encode($as) . " ($kind)", !clTrashAsOk($as, $kind, $st));
+    }
+    check('manifest from: an absolute path', clTrashPathOk('/mnt/cache/appdata/foo'));
+    foreach (['mnt/x', '/mnt/../boot', '/mnt/./x', '/mnt//x', "/mnt/x\n", '/'] as $p) {
+        check('manifest from refused: ' . json_encode($p), !clTrashPathOk($p));
+    }
+    check('dataset name ok', clZfsNameOk('cache/appdata/foo bar'));
+    check('dataset name with .. refused', !clZfsNameOk('cache/../foo'));
+
+    $dir = hardeningTmp('trash');
+    mkdir("$dir/run/appdata", 0755, true);
+    mkdir("$dir/elsewhere", 0755);
+    symlink("$dir/elsewhere", "$dir/run/strays");
+    check('restore source inside the run: ok', clRunPathOk("$dir/run", 'appdata/foo'));
+    check('restore source through a linked folder: refused', !clRunPathOk("$dir/run", 'strays/0a1b2c3d/my-x.xml'));
+    hardeningRm($dir);
+}
+
 // ===================================================================== strings
 
 function langFile(string $file): array
@@ -976,7 +1008,7 @@ function testStrings(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify',
                       'testBackupPackages', 'testBackupKopiaItems', 'testIcons'],
-          'hardening' => ['testPinTries', 'testSafeWrites'],
+          'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
