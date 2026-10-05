@@ -10,7 +10,7 @@ declare(strict_types=1);
  * temporary folder. Two parts:
  *   logic    the tricky functions (cron, snapshot retention, Emby detection,
  *            the gather's settings, User Scripts schedules, the plugin's cron file,
- *            the menu bar's label)
+ *            the menu bar's label, reports to Unraid's notifications)
  *   strings  German and English have the same keys, and every text the code
  *            asks for exists (desk.js, checks, errors)
  * Exit code 0 when everything passes.
@@ -303,6 +303,131 @@ function testEstimates(): void
     same('estimate: nothing known', null, $e['total']);
 }
 
+// ===================================================================== notifications
+
+/**
+ * Reports to Unraid's notifications: the caretaker's transitions (new red →
+ * told once it stayed, same → quiet, solved and back → told again), with a
+ * stand-in notify in a temporary folder; Jack Emby's choice of what to tell.
+ */
+function testNotify(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-notify-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    $log = "$tmp/notified";
+    file_put_contents("$tmp/notify", "#!/bin/bash\nfor a in \"\$@\"; do printf '%s\\x1f' \"\$a\"; done >> " . escapeshellarg($log) . "\necho >> " . escapeshellarg($log) . "\n");
+    chmod("$tmp/notify", 0755);
+    $before = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    $calls = function () use ($log): array {
+        $out = [];
+        foreach (array_filter(explode("\n", (string) @file_get_contents($log))) as $line) {
+            $args = explode("\x1f", rtrim($line, "\x1f"));
+            $o = [];
+            for ($i = 0; $i + 1 < count($args); $i += 2) {
+                $o[$args[$i]] = $args[$i + 1];
+            }
+            $out[] = $o;
+        }
+        return $out;
+    };
+
+    // which findings are red: required and known to be missing, one key per thing
+    $f = fn (string $id, string $level, ?bool $ok, array $p = []) => finding($id, $level, $ok, $p);
+    $red = caretakerRed(['backup' => [$f('setup', 'required', true), $f('schedule', 'required', false), $f('kopia_repo', 'required', null),
+                                      $f('drift', 'recommended', false), $f('kopia_running', 'required', false, ['name' => 'kopia'])],
+                         'emby'   => [$f('python', 'required', false)]]);
+    same('notify: red findings', ['backup:schedule:', 'backup:kopia_running:kopia', 'emby:python:'], array_keys($red));
+
+    // the steps by themselves
+    $t0 = 1_800_000_000;
+    $one = ['backup:schedule:' => ['desk' => 'backup', 'id' => 'schedule', 'params' => []]];
+    [$tr, $tell] = caretakerNotifyStep([], $one, $t0, true, 1800);
+    same('notify step: new — waits', [0, $t0, null], [count($tell), $tr['backup:schedule:']['since'], $tr['backup:schedule:']['told']]);
+    [$tr, $tell] = caretakerNotifyStep($tr, $one, $t0 + 1799, true, 1800);
+    same('notify step: not yet half an hour', 0, count($tell));
+    [$tr, $tell] = caretakerNotifyStep($tr, $one, $t0 + 1800, true, 1800);
+    same('notify step: stayed — told', ['schedule'], array_column($tell, 'id'));
+    [$tr, $tell] = caretakerNotifyStep($tr, $one, $t0 + 9000, true, 1800);
+    same('notify step: same — quiet', 0, count($tell));
+    [$tr, $tell] = caretakerNotifyStep($tr, [], $t0 + 9100, true, 1800);
+    same('notify step: solved — forgotten', [], $tr);
+    [$tr, $tell] = caretakerNotifyStep($tr, $one, $t0 + 9200, true, 1800);
+    [$tr, $tell] = caretakerNotifyStep($tr, $one, $t0 + 11000, true, 1800);
+    same('notify step: back — told again', ['schedule'], array_column($tell, 'id'));
+    [$tr, $tell] = caretakerNotifyStep([], $one, $t0, false, 1800);
+    [$tr, $tell] = caretakerNotifyStep($tr, $one, $t0 + 1800, false, 1800);
+    same('notify step: switched off — nothing told', 0, count($tell));
+    [$tr, $tell] = caretakerNotifyStep($tr, $one, $t0 + 3600, true, 1800);
+    same('notify step: switched on again — no backlog', 0, count($tell));
+
+    // the whole way, with the state file and the stand-in notify
+    $file = "$tmp/caretaker/notify.json";
+    $checks = ['backup' => [$f('schedule', 'required', false)], 'emby' => [$f('python', 'required', true)]];
+    caretakerNotifyEvaluate($checks, $file, $t0, 'de');
+    same('notify: a new red finding waits', 0, count($calls()));
+    check('notify: state written', is_file($file));
+    caretakerNotifyEvaluate($checks, $file, $t0 + 1800, 'de');
+    $c = $calls();
+    same('notify: told after half an hour', 1, count($c));
+    same('notify: subject in Unraid\'s language', 'Unraid Secretary Office: Etwas Neues zu erledigen', $c[0]['-s'] ?? null);
+    same('notify: event as the engine\'s', 'Unraid Secretary Office', $c[0]['-e'] ?? null);
+    same('notify: a warning', 'warning', $c[0]['-i'] ?? null);
+    check('notify: what is missing in the bell', str_contains($c[0]['-d'] ?? '', 'Herr Backupsi — Ein nächtliches Backup ist geplant'), $c[0]['-d'] ?? '');
+    check('notify: long text with what to do, lines as Unraid\'s \n', str_contains($c[0]['-m'] ?? '', 'Herr Backupsi → Zeitplan')
+        && str_contains($c[0]['-m'] ?? '', '\n') && !str_contains($c[0]['-m'] ?? '', "\n"), $c[0]['-m'] ?? '');
+    $page = caretakerNotifyPublic(readJson($file) ?? []);
+    same('notify: the last report for the page', [true, ['schedule']], [$page['on'], array_column($page['last']['items'] ?? [], 'id')]);
+    caretakerNotifyEvaluate($checks, $file, $t0 + 5400, 'de');
+    same('notify: same finding — quiet', 1, count($calls()));
+    caretakerNotifyEvaluate(['backup' => [$f('schedule', 'required', true)]], $file, $t0 + 6000, 'de');
+    same('notify: solved — no all clear', 1, count($calls()));
+    $two = ['backup' => [$f('schedule', 'required', false)], 'emby' => [$f('python', 'required', false)]];
+    caretakerNotifyEvaluate($two, $file, $t0 + 6100, 'en');
+    caretakerNotifyEvaluate($two, $file, $t0 + 7900, 'en');
+    $c = $calls();
+    same('notify: back and a second one — one notification', 2, count($c));
+    same('notify: both in it (English)', 'Unraid Secretary Office: 2 new things to do', $c[1]['-s'] ?? null);
+    check('notify: both listed', str_contains($c[1]['-d'] ?? '', 'Mr. Backupsy — A nightly backup is scheduled')
+        && str_contains($c[1]['-d'] ?? '', 'Jack Emby — Python 3'), $c[1]['-d'] ?? '');
+    $data = readJson($file) ?? [];
+    $data['on'] = false;
+    file_put_contents($file, json_encode($data));
+    $other = ['backup' => [$f('dumps_share', 'required', false, ['share' => ''])]];
+    caretakerNotifyEvaluate($other, $file, $t0 + 8000, 'en');
+    caretakerNotifyEvaluate($other, $file, $t0 + 9800, 'en');
+    same('notify: switched off — quiet', 2, count($calls()));
+    same('notify: switched off — the page knows', false, caretakerNotifyPublic(readJson($file) ?? [])['on']);
+
+    // Unraid's language, when the office speaks it
+    foreach (['de_DE' => 'de', 'fr_FR' => 'en', '' => 'en', '../x' => 'en'] as $locale => $want) {
+        file_put_contents("$tmp/dynamix.cfg", "[display]\nlocale=\"$locale\"\n[notify]\nalert=\"1\"\n");
+        same("notify language for locale '$locale'", $want, officeNotifyLang("$tmp/dynamix.cfg"));
+    }
+    same('notify text: plural and placeholder', '3 neue Dinge zu erledigen', officeNotifyText('caretaker', 'notify.subject', ['n' => 3], 'de'));
+    same('notify text: unknown key', '', officeNotifyText('caretaker', 'notify.nothing', [], 'de'));
+    putenv("OFFICE_NOTIFY_BIN=$tmp/none");
+    check('notify: no notify script — nothing, no error', !officeNotify('x', 'y'));
+
+    // Jack Emby: only real runs that went wrong
+    foreach ([['run', 'failed', [], 'failed'], ['run', 'aborted', [], 'aborted'], ['run', 'config', [], 'config'],
+              ['run', 'errors', [], 'errors'], ['run', 'ok', ['errors' => 2], 'errors'], ['run', 'ok', ['errors' => 0], null],
+              ['run', 'busy', [], null], ['run', 'refused', [], null], ['dry', 'failed', [], null], ['report', 'failed', [], null]] as [$mode, $result, $status, $want]) {
+        same("emby notify: $mode $result " . json_encode($status), $want, embyNotifyOutcome($mode, $result, $status));
+    }
+
+    // every notification text the code asks for by name exists in English
+    foreach (array_merge(glob(OFFICE_DIR . '/agent/desks/*.php') ?: [], glob(OFFICE_DIR . '/agent/lib/*.php') ?: []) as $php) {
+        preg_match_all("/officeNotifyText\\(\\s*'([a-z]+)',\\s*'([a-z0-9_.]+)'/", (string) file_get_contents($php), $m, PREG_SET_ORDER);
+        foreach ($m as [, $desk, $key]) {
+            check(basename($php) . " asks for notification text $desk.$key", officeNotifyText($desk, $key, ['n' => 2], 'en') !== '');
+        }
+    }
+
+    putenv($before === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$before");
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 // ===================================================================== strings
 
 function langFile(string $file): array
@@ -387,7 +512,8 @@ function testStrings(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates'], 'strings' => ['testStrings']];
+$parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify'],
+          'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
     if ($only === '' || $only === $name) {

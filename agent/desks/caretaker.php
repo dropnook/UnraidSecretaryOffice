@@ -200,6 +200,7 @@ function caretakerNotifyStep(array $tracked, array $red, int $now, bool $on, int
  */
 function caretakerNotifyEvaluate(array $checks, ?string $file = null, ?int $now = null, ?string $lang = null): array
 {
+    $real = $file === null;                 // a test's copy stays out of the agent's log
     $file ??= caretakerNotifyFile();
     $now ??= time();
     $old = readJson($file) ?? [];
@@ -209,8 +210,10 @@ function caretakerNotifyEvaluate(array $checks, ?string $file = null, ?int $now 
         $sent = caretakerNotifySend($tell, $lang ?? officeNotifyLang());
         $data['last'] = ['time' => $now, 'sent' => $sent,
                          'items' => array_map(fn ($t) => ['desk' => $t['desk'], 'id' => $t['id'], 'params' => $t['params']], $tell)];
-        logLine('Caretaker: ' . ($sent ? 'told' : 'could not tell') . " Unraid's notifications about " . count($tell) . ' new thing(s) to do: '
-            . implode(', ', array_map(fn ($t) => "{$t['desk']}.{$t['id']}", $tell)));
+        if ($real) {
+            logLine('Caretaker: ' . ($sent ? 'told' : 'could not tell') . " Unraid's notifications about " . count($tell) . ' new thing(s) to do: '
+                . implode(', ', array_map(fn ($t) => "{$t['desk']}.{$t['id']}", $tell)));
+        }
     }
     if ($data !== $old) {
         caretakerNotifyWrite($file, $data);
