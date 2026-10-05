@@ -1646,9 +1646,13 @@ function setupVms(plan) {
     if (!v.own.length) { mode.value = 'snapshot'; mode.disabled = true; mode.title = T('setup.vm_shared_hint'); }
     const prep = selectInput(k('prepare'), ['freeze', 'pause', 'shutdown', 'none'], (o) => T('setup.vm_prep.' + o));
     prep.title = T('setup.vm_prep_hint');
-    const ret = textInput(k('retention'), /^\d+ \d+ \d+$/, T('setup.vm_ret_ph', { share: ((v.disks || []).find((d) => d.share) || {}).share || '?' }));
-    ret.classList.add('bk-ret');
-    ret.title = T('setup.vm_ret_hint');
+    // own retention: labelled, the placeholder shows what applies when it stays empty (the share's)
+    const share = ((v.disks || []).find((d) => d.share) || {}).share || '';
+    const input = textInput(k('retention'), /^\d+ \d+ \d+$/, dget(`share|${share}|retention`, '') || dget('zfs|retention', ''));
+    input.classList.add('bk-ret');
+    const ret = el('label', 'bk-ret-field');
+    ret.append(el('span', 'role', T('setup.vm_ret_label')), input);
+    ret.title = T('setup.vm_ret_hint', { share: share || '?' });
     const warn = chip(T('setup.vm_noagent'), 'warn', T('setup.vm_noagent_hint'));
     const sync = () => {
       warn.hidden = !(prep.value === 'freeze' && (v.agent === 'no' || v.agent === 'none'));

@@ -2,7 +2,8 @@
 ###############################################################################
 # unraid-backup - setup.sh                        Version 2.17 - 2026-10-05
 #   2.17 --forget: start the setup anew - settings.ini, the office's decisions and the
-#        last plan go to state/reset-<time>/; nothing backed up is touched
+#        last plan go to state/reset-<time>/; nothing backed up is touched. The share domains
+#        is proposed as a local snapshot (VMs are held for it since 2.16), not as off
 #   2.16 VMs: [vm "<name>"] prepare = freeze | pause | shutdown | none for the seconds of the
 #        snapshot (released right after the snapshot that holds their disks), mode = off and an own
 #        retention for VMs in a dataset of their own; the libvirt archive after the VMs are held
@@ -527,7 +528,15 @@ share_propose() {
     if ! share_name_ok "$s"; then why "$s" name_bad "" "name with @ : \" or | is not supported"; PROP_MODE=off; return; fi
     case "$s" in
         system)  why "$s" system "" "Docker image/libvirt - created anew"; PROP_MODE=off; return ;;
-        domains) why "$s" domains "" "VM vdisks - running VMs are not consistent, VM backup separately"; PROP_MODE=off; return ;;
+        domains)
+            # Since 2.16 every VM is held (freeze/pause/shutdown) for the seconds of the snapshot:
+            # with snapshots the VM disks are consistent; without them (live) they are not
+            if [[ "${INV_METHOD[$s]:-}" == "snap" ]]; then
+                why "$s" domains_snap "" "VM disks - local snapshot, each VM held for it (see the VMs)"; PROP_MODE=snapshot
+            else
+                why "$s" domains "" "VM vdisks - running VMs are not consistent, VM backup separately"; PROP_MODE=off
+            fi
+            return ;;
     esac
     # Time Machine target: already holds the backups of other computers and
     # keeps changing in large blocks

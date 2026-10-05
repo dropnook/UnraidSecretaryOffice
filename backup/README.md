@@ -151,7 +151,7 @@ What the setup proposes for new shares:
 | Share | Proposal | Why |
 |---|---|---|
 | `system` | off | Docker image/libvirt, recreated anyway (the VM configuration from libvirt.img is archived separately, see `[libvirt]`) |
-| `domains` | off | vdisks of running VMs aren't consistent; back up VMs separately |
+| `domains` | snapshot (off without snapshots) | each VM is held for the seconds of the snapshot (see VMs below); read live, the disks of running VMs aren't consistent |
 | Time Machine target | off | already holds other computers' backups. Recognised by the SMB export "Yes/Time Machine", by a Time Machine container (image with `timemachine` in its name) that binds the share, or by the name (`timemachine`, `time_machine`, `time-machine`, `time machine`) |
 | the Kopia container's working folder | off | cache/tmp |
 | container data (`appdata`, or a share with folders of at least three containers), even over 500 GB | kopia | not switched off because of its size. What is big there are usually single folders (caches, blockchains, media) — exclude those right after |
@@ -379,7 +379,7 @@ So on every new server: *Set up…*, then a check and a dry run first.
 
 ## Versions
 
-- **2.17** – `setup.sh --forget` starts the setup anew: `settings.ini`, the office's decisions and the last plan go to `state/reset-<time>/`; nothing backed up is touched (Mr. Backupsy: "Forget everything and start anew").
+- **2.17** – `setup.sh --forget` starts the setup anew: `settings.ini`, the office's decisions and the last plan go to `state/reset-<time>/`; nothing backed up is touched (Mr. Backupsy: "Forget everything and start anew"). The share `domains` is proposed as a local snapshot (the VMs are held for it since 2.16) instead of off.
 - **2.16** – VMs: per VM how it is treated for the seconds of the snapshot (freeze through the guest agent, pause, shutdown, or as before none), released right after the snapshot that holds its disks; a VM in a dataset of its own can be left out or keep its own retention. The VM configuration archive is written while the VMs are held. `status.json` lists per VM what the run did (`vms`).
 - **2.15** – Part of the office's Unraid plugin too: the engine then lies in RAM (`/usr/local/emhttp/plugins/unraid-secretary-office/backup`) and finds its data through the plugin's `DATA_DIR` (by default still `appdata/UnraidSecretaryOffice/data/unraid-backup`); the plugin's cron file starts the nightly run, so `setup.sh` creates no User Scripts entry there and no longer asks for the User Scripts plugin. In the Compose stack nothing changes.
 - **2.14** – `backup.sh` and `setup.sh` are one block that bash reads completely before it starts: updating the engine while a run takes hours no longer breaks that run. `state/drift.json` also says per Kopia target whether its policy matches settings.ini (`policies`, differences as codes); Mr. Backupsy shows it per share together with the rules. Nothing of the engine directly in `/mnt` any more: the snapshots are mounted under `/mnt/addons/UnraidSecretaryOffice/snapshots`, the btrfs view lives in `…/btrfs-snap`; the office's share `UnraidSecretaryOffice` is proposed as the backup place (folder `backup/`), and a changed backup place is moved by the next run. The setup keeps the chosen backup place instead of guessing it again, and adds the global Kopia rule `_UnraidSecretaryOffice-trash*/`: Ms. Dustdevil's storeroom never goes offsite (its contents were backed up under their old path; the local snapshots keep them).
