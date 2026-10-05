@@ -108,8 +108,8 @@ function officeUpdate(): array
         foreach ($files as $f) {
             $path = OFFICE_DIR . '/' . $f;
             if ($owner && file_exists($path)) {
-                @chown($path, $owner['uid']);
-                @chgrp($path, $owner['gid']);
+                @lchown($path, $owner['uid']);       // a link in the repository: itself, never what it points to
+                @lchgrp($path, $owner['gid']);
             }
         }
     }

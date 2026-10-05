@@ -2229,8 +2229,8 @@ function clRunCreate(string $root): array
         if (!@mkdir($root, 0775)) {
             throw new Problem('cleanup_trash_failed', ['path' => $root]);
         }
-        @chown($root, FILE_UID);
-        @chgrp($root, FILE_GID);
+        @lchown($root, FILE_UID);
+        @lchgrp($root, FILE_GID);
     }
     $stamp = date('Ymd-His');
     for ($i = 2; file_exists("$root/$stamp") || file_exists("$root/$stamp.purging"); $i++) {
@@ -2239,8 +2239,8 @@ function clRunCreate(string $root): array
     if (!@mkdir("$root/$stamp", 0775)) {
         throw new Problem('cleanup_trash_failed', ['path' => "$root/$stamp"]);
     }
-    @chown("$root/$stamp", FILE_UID);
-    @chgrp("$root/$stamp", FILE_GID);
+    @lchown("$root/$stamp", FILE_UID);
+    @lchgrp("$root/$stamp", FILE_GID);
     return ['root' => $root, 'path' => "$root/$stamp", 'stamp' => $stamp, 'time' => time(), 'items' => []];
 }
 
@@ -2502,8 +2502,8 @@ function clMove(string $from, string $to): void
             throw new Problem('cleanup_trash_failed', ['path' => $dir]);
         }
         foreach ([$dir, dirname($dir)] as $d) {           // like the run folder: nobody:users
-            @chown($d, FILE_UID);
-            @chgrp($d, FILE_GID);
+            @lchown($d, FILE_UID);
+            @lchgrp($d, FILE_GID);
         }
     }
     if (!@rename($from, $to)) {
@@ -3090,12 +3090,11 @@ function clOverrideSetIcons(string $text, array $icons, string $where): string
  */
 function clIconReplace(string $target, string $content, string $stash, ?string $placeholder = null): void
 {
-    $tmp = dirname($target) . '/.' . basename($target) . '.' . getmypid() . '.tmp';
-    if (@file_put_contents($tmp, $content) === false) {
-        @unlink($tmp);
+    // a new file of our own: a stack's folder may lie in a share others can write to
+    $tmp = writeNewFile(dirname($target) . '/.' . basename($target), $content, is_file($target) ? (fileperms($target) & 0777) : 0644);
+    if ($tmp === null) {
         throw new Problem('cleanup_icon_write_failed', ['path' => $target]);
     }
-    @chmod($tmp, is_file($target) ? (fileperms($target) & 0777) : 0644);
     try {
         if ($placeholder === null) {
             clMove($target, $stash);

@@ -207,20 +207,56 @@ function jsonEncode(array $data): string
     return json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
 }
 
-/** Writes via tmp + rename so the web UI never reads half a file. */
+/**
+ * Writes via tmp + rename so the web UI never reads half a file. The tmp is a
+ * new file of our own (writeNewFile()): a file or link somebody put in the
+ * folder beforehand is never written through, rename() replaces a link at
+ * $path instead of following it.
+ */
 function writeAtomic(string $path, string $content, int $mode = 0644, int $uid = FILE_UID, int $gid = FILE_GID): void
 {
-    $tmp = dirname($path) . '/.' . basename($path) . '.' . getmypid() . '.tmp';
-    if (@file_put_contents($tmp, $content) === false) {
+    $tmp = writeNewFile(dirname($path) . '/.' . basename($path), $content, $mode);
+    if ($tmp === null) {
         throw new RuntimeException("cannot write $path");
     }
-    @chmod($tmp, $mode);
-    @chown($tmp, $uid);
-    @chgrp($tmp, $gid);
+    @lchown($tmp, $uid);
+    @lchgrp($tmp, $gid);
     if (!@rename($tmp, $path)) {
         @unlink($tmp);
         throw new RuntimeException("cannot replace $path");
     }
+}
+
+/**
+ * Creates "<prefix>.<random>.tmp" exclusively (fopen 'x': fails on anything
+ * already there, a link included) with $mode from the start (umask, so no
+ * chmod that could follow a link swapped in later), and writes $content.
+ * @return string|null the new file, or null
+ */
+function writeNewFile(string $prefix, string $content, int $mode = 0644): ?string
+{
+    $old = umask(0777 & ~$mode);
+    try {
+        for ($i = 0, $f = false; $i < 3 && !$f; $i++) {
+            $tmp = $prefix . '.' . bin2hex(random_bytes(6)) . '.tmp';
+            $f = @fopen($tmp, 'x');
+        }
+    } finally {
+        umask($old);
+    }
+    if (!$f) {
+        return null;
+    }
+    $ok = @fwrite($f, $content) === strlen($content);
+    $ok = fclose($f) && $ok;
+    if ($ok && ($mode & ~0666)) {
+        $ok = @chmod($tmp, $mode);      // execute bits (scripts): a new file never gets them from fopen
+    }
+    if (!$ok) {
+        @unlink($tmp);
+        return null;
+    }
+    return $tmp;
 }
 
 function logLine(string $text): void
@@ -229,14 +265,17 @@ function logLine(string $text): void
         return;
     }
     clearstatcache(true, AGENT_LOG);
+    if (is_link(AGENT_LOG)) {
+        @unlink(AGENT_LOG);             // appending would write through it into another file
+    }
     if (@filesize(AGENT_LOG) > LOG_MAX) {
         @rename(AGENT_LOG, AGENT_LOG . '.1');
     }
     $new = !file_exists(AGENT_LOG);
-    @file_put_contents(AGENT_LOG, date('Y-m-d H:i:s') . '  ' . str_replace("\n", ' | ', trim($text)) . "\n", FILE_APPEND);
+    @file_put_contents(AGENT_LOG, date('Y-m-d H:i:s') . '  ' . str_replace(["\r", "\n"], ['', ' | '], trim($text)) . "\n", FILE_APPEND);
     if ($new) {
-        @chown(AGENT_LOG, FILE_UID);
-        @chgrp(AGENT_LOG, FILE_GID);
+        @lchown(AGENT_LOG, FILE_UID);
+        @lchgrp(AGENT_LOG, FILE_GID);
     }
 }
 
