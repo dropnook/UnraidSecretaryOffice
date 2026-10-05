@@ -75,7 +75,7 @@
   "help.unknown": "I couldn't find out — e.g. Kopia hasn't been checked yet.",
   "help.desk_text": "Each point says who needs it. Everyone in the team tells me what they need from the server — I collect it all here.",
   "help.open": "Buttons on the right",
-  "help.open_text": "Takes you where you sort it out: the matching page of Unraid's web UI (Plugins, Apps, Docker, User Scripts, Notifications) in a new tab — or straight to the right desk here in the office, e.g. Mr. Backupsy's \"Set up…\".",
+  "help.open_text": "Takes you where you sort it out: the matching page of Unraid's web UI (Plugins, Apps, Docker, User Scripts, Notifications) — or straight to the right desk here in the office, e.g. Mr. Backupsy's \"Set up…\".",
   "help.again": "Looks at everything again right now; otherwise I do when the page is opened and my last look is older than 5 minutes.",
   "bubble.alone": "Hi, I'm the team lead. Nobody else is here yet — but I've already asked around who would suit your server. Have a look at the team below and hire whoever you can use.",
   "bubble.alone_short": "Nobody else is here yet. Come by — I'll introduce who would suit your server.",

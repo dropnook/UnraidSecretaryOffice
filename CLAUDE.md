@@ -43,11 +43,13 @@ differ get a `_plugin` key or come from state (`schedule.via`).
 
 * **English** in code, comments, commit messages, README. The UI is translated:
   every string lives in `public/lang/<code>.json` (office) or
-  `public/desks/<id>/lang/<code>.json` (desk). `en`, `de` and `it` must always
-  have the same keys — a new UI string needs all three; any other language may
+  `public/desks/<id>/lang/<code>.json` (desk). `en`, `de`, `it`, `fr` and `es`
+  must always have the same keys — a new UI string needs all five; any other language may
   leave keys out (English fills in) but never has keys `en` lacks, and
   placeholders `{…}` and plurals match `en` (tests/run.php checks it). Unraid
-  menu paths in `it` follow Unraid's Italian pack (github.com/unraid/lang-it_IT).
+  menu paths follow Unraid's language packs (github.com/unraid/lang-it_IT,
+  lang-fr_FR, lang-es_ES). French `one` covers 0 and 1 (Intl): write `{n}` in
+  French one-forms where 0 can occur.
   Never hard-code UI text in JS or PHP.
 * **No build step, no dependencies.** Plain PHP 8.4 (Unraid's own PHP runs both
   the page and the agent; the old Compose stack's office container has PHP 8.5
@@ -207,7 +209,12 @@ Frau Putzteufel (sees dust everywhere, but never throws anything away at once �
 consultant speak: "quick win", "best practice", the hour runs anyway). In Italian:
 Signora Snapshotini, Signor Backupsi, Signora Dovè, Jack Emby (lo stagista),
 Signora Protocolli, Signora Spolverina, Il capoufficio, Signor Restori, Il consulente
-(addressing the user with "tu", like the German "du"). Greetings are lang keys
+(addressing the user with "tu", like the German "du"). In French / Spanish:
+Madame / Señora Snapshotini, Monsieur / Señor Backupsi, Madame Saitout / Señora
+Dondestá, Madame Protocolli / Señora Protocoli, Madame Plumeau / Señora Plumero
+(storeroom débarras / trastero), Le chef d'équipe / El jefe de equipo, Le
+consultant / El consultor, Monsieur / Señor Restori, Jack Emby le stagiaire / el
+becario (tu / tú). Greetings are lang keys
 `greet.1…n` (`Office.greet` / `Office.withGreeting`); chatty bubbles may carry
 character, warnings and errors stay plain and clear.
 
@@ -411,7 +418,7 @@ When more than one Claude chat works on the office, one of them is the
    `public/*.php`; `bash -n` for `plugin/scripts/*`, `plugin/event/*`, `backup/`.
 2. JS syntax (no Node on the dev Mac): `osascript -l JavaScript` with `new Function(src)`.
 3. Tests on the host: `php tests/run.php` (logic: cron, snapshot retention,
-   Emby detection, User Scripts schedules, the plugin's cron file — on copies; strings: `en`/`de`/`it`
+   Emby detection, User Scripts schedules, the plugin's cron file — on copies; strings: `en`/`de`/`it`/`fr`/`es`
    keys identical, every language against English, every T('…'), check and error text exists).
    Must end with 0 failed.
 4. On a server that runs the plugin, `bash plugin/dev-sync.sh` on the host puts

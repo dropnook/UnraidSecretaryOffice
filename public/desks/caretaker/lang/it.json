@@ -75,7 +75,7 @@
   "help.unknown": "Non sono riuscito a scoprirlo — ad es. Kopia non è ancora stato controllato.",
   "help.desk_text": "Per ogni punto c'è scritto chi ne ha bisogno. Ognuno nel team mi dice cosa gli serve dal server — io raccolgo tutto qui.",
   "help.open": "Pulsanti a destra",
-  "help.open_text": "Ti porta dove lo sistemi: alla pagina giusta dell'interfaccia web di Unraid (Plugin, App, Docker, User Scripts, Notifiche) in una nuova scheda — oppure direttamente alla scrivania giusta qui in ufficio, ad es. «Configura…» dal signor Backupsi.",
+  "help.open_text": "Ti porta dove lo sistemi: alla pagina giusta dell'interfaccia web di Unraid (Plugin, App, Docker, User Scripts, Notifiche) — oppure direttamente alla scrivania giusta qui in ufficio, ad es. «Configura…» dal signor Backupsi.",
   "help.again": "Ricontrolla subito tutto; altrimenti lo faccio quando si apre la pagina e il mio ultimo controllo ha più di 5 minuti.",
   "bubble.alone": "Ciao, sono il capoufficio. Oltre a me non c'è ancora nessuno — ma ho già chiesto in giro chi andrebbe bene per il tuo server. Dai un'occhiata al team qui sotto e assumi chi ti serve.",
   "bubble.alone_short": "Oltre a me non c'è ancora nessuno. Passa pure — ti presento chi andrebbe bene per il tuo server.",
