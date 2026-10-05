@@ -1023,5 +1023,7 @@
   "restore.own_title": "I backup propri delle app — una seconda strada",
   "restore.own_text": "Alcune app fanno il backup da sole. È indipendente da me — e queste cartelle sono nel mio backup solo se lo è la loro condivisione. Meglio controllare tre volte!",
   "help.items": "Kopia per app e VM",
-  "help.items_text": "Un'app o una VM su «locale + Kopia» è una sorgente Kopia a sé (in Kopia .apps/<nome> o .vms/<nome>): le sue cartelle e il suo pacchetto, con una conservazione propria. Il chip nella sua riga dice quando Kopia l'ha avuta l'ultima volta. I media server che restano attivi durante lo snapshot ricevono nel pacchetto una copia coerente dei loro database."
+  "help.items_text": "Un'app o una VM su «locale + Kopia» è una sorgente Kopia a sé (in Kopia .apps/<nome> o .vms/<nome>): le sue cartelle e il suo pacchetto, con una conservazione propria. Il chip nella sua riga dice quando Kopia l'ha avuta l'ultima volta. I media server che restano attivi durante lo snapshot ricevono nel pacchetto una copia coerente dei loro database.",
+  "pd.own_sources": "Sorgenti Kopia proprie",
+  "pd.own_sources_hint": "— le loro cartelle e i loro pacchetti vanno lì a Kopia, con una conservazione propria; questa condivisione li esclude."
 }

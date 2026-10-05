@@ -574,7 +574,7 @@
   "setup.ds_ok": "Ablage: {path} (nur root)",
   "setup.ds_why": "Die Pakete enthalten die Datenbank-Dumps, die die Datenbanken in appdata schützen. Lägen sie daneben, nähme ein Ausfall dieses Pools beides mit — darum ein eigener Share, am besten auf einem anderen Pool. Seine Snapshots bewahren den Verlauf der Pakete.",
   "check.dumps_share": "Eine eigene Backup-Ablage ist gesetzt",
-  "check.dumps_share_how": "Den Share «UnraidSecretaryOffice» anlegen (nicht auf dem Pool von appdata, SMB-Export aus), dann Herr Backupsi → «Einrichten…» → Allgemein → Backup-Ablage. Ein anderer eigener Share geht auch. Ohne verweigert er jeden Lauf — in appdata gehören keine Backups.",
+  "check.dumps_share_how": "Den Share «UnraidSecretaryOffice» anlegen (nicht auf dem Pool von appdata, SMB-Export aus), dann Herr Backupsi → «Einrichten…» → Grundlagen → Backup-Ablage. Ein anderer eigener Share geht auch. Ohne verweigert er jeden Lauf — in appdata gehören keine Backups.",
   "check.dumps_offsite": "Die Backup-Ablage «{share}» geht zu Kopia",
   "check.dumps_offsite_how": "«{share}» steht auf «{mode}» — Dumps und Archive bleiben nur auf diesem Server. Bei Herrn Backupsi unter «Einrichten…» den Share auf «Snapshot + Kopia» stellen.",
   "message.dumps_missing": "Keine Backup-Ablage gesetzt — Dumps und Archive brauchen einen eigenen Backup-Share, in appdata gehört so etwas nicht. Bei «Einrichten…» einen wählen.",
@@ -1017,5 +1017,7 @@
   "restore.own_title": "Die eigenen Backups der Apps — ein zweiter Weg",
   "restore.own_text": "Manche Apps sichern sich selbst. Das ist unabhängig von mir — und diese Ordner sind nur in meinem Backup, wenn ihre Share es ist.",
   "help.items": "Kopia pro App und VM",
-  "help.items_text": "Eine App oder VM auf «lokal + Kopia» ist eine eigene Kopia-Quelle (in Kopia .apps/<Name> bzw. .vms/<Name>): ihre Ordner und ihr Paket, mit eigener Aufbewahrung. Der Chip in ihrer Zeile sagt, wann Kopia sie zuletzt hatte. Medienserver, die während des Snapshots weiterlaufen, bekommen eine konsistente Kopie ihrer Datenbanken in ihr Paket."
+  "help.items_text": "Eine App oder VM auf «lokal + Kopia» ist eine eigene Kopia-Quelle (in Kopia .apps/<Name> bzw. .vms/<Name>): ihre Ordner und ihr Paket, mit eigener Aufbewahrung. Der Chip in ihrer Zeile sagt, wann Kopia sie zuletzt hatte. Medienserver, die während des Snapshots weiterlaufen, bekommen eine konsistente Kopie ihrer Datenbanken in ihr Paket.",
+  "pd.own_sources": "Eigene Kopia-Quellen",
+  "pd.own_sources_hint": "— ihre Ordner und Pakete gehen dort an Kopia, mit eigener Aufbewahrung; diese Share lässt sie aus."
 }

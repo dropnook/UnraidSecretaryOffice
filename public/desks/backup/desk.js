@@ -870,6 +870,9 @@ function protectionDetail(s, kopiaOn) {
     add(T('pd.skips'), s.ignores.length ? rules(s.ignores) : el('span', 'role', T(s.flash ? 'pd.no_flash_rules' : 'pd.no_own_rules')));
     const inherited = set.kopia_ignore || [];
     if (inherited.length) add(T('pd.inherited'), rules(inherited));
+    // apps and VMs whose folders (or packages, in the backup place) go to Kopia as sources of their own
+    const ownSrc = (state.items || []).filter((i) => i.folders.some((f) => f.split('/')[0] === s.name) || (!s.flash && s.name === set.dumps_share));
+    if (ownSrc.length) add(T('pd.own_sources'), ownSrc.map((i) => srcLabel(i.kind + ':' + i.name)).join(', '), ' ', el('span', 'role', T('pd.own_sources_hint')));
     // kept: the share's own retention where it has one, the shared one otherwise
     const own = (s.kopia_retention || '').trim().split(/\s+/);
     const keep = set.kopia_keep || {};
