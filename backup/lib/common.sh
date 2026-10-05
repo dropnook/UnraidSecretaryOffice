@@ -94,7 +94,8 @@ ub_data_dirs() {
 ub_notify() {
     [[ "${UB_NO_NOTIFY:-0}" == "1" ]] && return 0
     [[ -x "$UB_NOTIFY_BIN" ]] || return 0
-    local args=( -e "$UB_NAME" -s "${SERVER_NAME:-$(hostname -s)}: $1" -d "$2" -i "${3:-normal}" )
+    # Unraid puts the server's name in front of the subject itself
+    local args=( -e "Unraid Secretary Office" -s "Unraid Secretary Office: $1" -d "$2" -i "${3:-normal}" )
     [[ -n "${4:-}" ]] && args+=( -m "$4" )
     "$UB_NOTIFY_BIN" "${args[@]}" >/dev/null 2>&1 || true
 }

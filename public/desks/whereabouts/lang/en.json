@@ -503,7 +503,7 @@
   "vm.base": "Base {n}",
   "vm.move_hint": "To move this VM to another server you need all of these files.",
   "vm.tpm_hint": "Without the TPM state Windows still starts, but BitLocker asks for its recovery key and Windows Hello PINs are gone.",
-  "vm.config_local": "XML, NVRAM and TPM state are only backed up locally, not offsite. Mr. Backupsy can archive them with the dumps (Set up… → VM configuration).",
+  "vm.config_local": "XML, NVRAM and TPM state are only backed up locally, not with Kopia. Mr. Backupsy can archive them with the dumps (Set up… → VM configuration).",
   "vm.config_none": "XML, NVRAM and TPM state aren't backed up at all. Mr. Backupsy can archive them with the dumps (Set up… → VM configuration).",
   "boot.layout.mirror": "mirror",
   "boot.layout.single": "single disk",
@@ -570,7 +570,7 @@
     "one": "1 share",
     "other": "{n} shares"
   },
-  "sum.shares_backup": "{offsite} offsite · {local} only local · {none} not backed up",
+  "sum.shares_backup": "{offsite} with Kopia · {local} only local · {none} not backed up",
   "sum.folders": "first level of the pool shares",
   "sum.folders_unused": {
     "one": "1 folder in {share} nobody uses",

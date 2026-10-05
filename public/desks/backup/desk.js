@@ -249,6 +249,22 @@ function notices() {
   return out;
 }
 
+/** Under the steps: the stretch in which apps and VMs are held - before, now, done */
+function holdBracket(s, p) {
+  const from = STEPS.findIndex(([n]) => n === 'dumps');
+  const to = STEPS.findIndex(([n]) => n === 'snapshots');
+  const held = ((state.paused || {}).stopped || []).length;
+  let cls = '';
+  let text = T('hold.before');
+  if (s.downtime_s) { cls = 'done'; text = T('hold.done', { duration: fmt.duration(s.downtime_s) }); }
+  else if (p.step >= from) { cls = 'now'; text = held ? T('hold.now', { n: held }) : T('hold.now_none'); }
+  const row = el('div', 'bk-hold');
+  const span = el('div', 'bk-hold-span ' + cls, text);
+  span.style.gridColumn = `${from + 1} / ${to + 2}`;
+  row.appendChild(span);
+  return row;
+}
+
 /** A run is going on: steps, Kopia sources, ready at about … */
 function runningCard() {
   const s = status();
@@ -275,16 +291,19 @@ function runningCard() {
     steps.appendChild(li);
   });
   card.appendChild(steps);
+  card.appendChild(holdBracket(s, p));
 
   if (p.percent !== null) {
-    const bar = el('div', 'bar');
+    // the bar says itself how far and how long still
+    const bar = el('div', 'bar bk-bigbar');
     const fill = el('i', 'snaps');
     fill.style.width = p.percent + '%';
-    bar.appendChild(fill);
+    const left = p.eta && !p.overdue ? ' · ' + T('eta_left', { left: fmt.duration(p.eta - Date.now() / 1000) }) : '';
+    bar.append(fill, el('span', 'bk-bar-label', `${Math.round(p.percent)} %${left}`));
     card.appendChild(bar);
   }
   const line = el('div', 'card-line');
-  if (p.eta) line.append(T(p.overdue ? 'eta_late' : 'eta', { time: fmt.time(p.eta), left: fmt.duration(p.eta - Date.now() / 1000) }));
+  if (p.eta) line.append(T(p.overdue ? 'eta_late' : 'eta_at', { time: fmt.time(p.eta) }));
   else line.append(T('eta_unknown'));
   if (s.downtime_s) line.append(' · ', T('downtime_was', { duration: fmt.duration(s.downtime_s) }));
   card.appendChild(line);
@@ -322,9 +341,11 @@ function runningCard() {
       r.append(mark, el('span', 'bk-source-name', name));
       let info = '';
       if (d) info = d.ok ? dur(d.seconds) : T('failed');
-      else if (current) info = dur(Date.now() / 1000 - s.kopia.current_since) + (est[name] ? ' / ~' + dur(est[name]) : '');
-      else if (est[name]) info = '~' + dur(est[name]);
-      r.appendChild(el('span', 'bk-source-info', info));
+      else if (current) info = dur(Date.now() / 1000 - s.kopia.current_since) + (est[name] ? ' · ' + T('src_last', { d: dur(est[name]) }) : '');
+      else if (est[name]) info = T('src_last', { d: dur(est[name]) });
+      const inf = el('span', 'bk-source-info', info);
+      if (est[name] && !d) inf.title = T('src_last_hint');
+      r.appendChild(inf);
       list.appendChild(r);
     });
     card.classList.add('running');

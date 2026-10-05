@@ -2,7 +2,10 @@
 ###############################################################################
 # unraid-backup - backup.sh                       Version 2.17 - 2026-10-05
 #   2.17 [docker] skip (apps not backed up keep running); datasets in Ms. Dustdevil's storeroom
-#        (_UnraidSecretaryOffice-trash-*) are never snapshotted
+#        (_UnraidSecretaryOffice-trash-*) are never snapshotted; btrfs disks with data of held
+#        containers/VMs/the backup place are snapshotted before the restart, the others after it;
+#        VM shutdowns begin together with pausing the apps; notifications say "Unraid Secretary
+#        Office: …" (Unraid adds the server's name) and carry a short report of the run
 #   2.16 VMs: [vm "<name>"] prepare = freeze | pause | shutdown | none for the seconds of the
 #        snapshot (released right after the snapshot that holds their disks), mode = off and an own
 #        retention for VMs in a dataset of their own; the libvirt archive after the VMs are held
@@ -316,6 +319,49 @@ vm_release() { # vm_release [btrfs]  - without an argument the VMs on ZFS only
         unset "VM_HELD[$n]" "VM_HELD_AT[$n]"
     done
     save_restore_state
+}
+
+# --- btrfs snapshots ------------------------------------------------------
+btrfs_snap() { # btrfs_snap <disk path> [note]
+    local base="$1"
+    mkdir -p "$base/$BTRFS_SNAP_DIR"
+    if btrfs subvolume snapshot -r "$base" "$base/$BTRFS_SNAP_DIR/$TS" >/dev/null 2>>"$LOG_FILE"; then
+        BTRFS_OK[$base]="$base/$BTRFS_SNAP_DIR/$TS"
+        log "  btrfs $base${2:+ ($2)}"
+    else
+        err "btrfs snapshot of $base failed"
+    fi
+}
+
+# The share a bind source lies in (/mnt/user/<share>/…, /mnt/<disk or pool>/<share>/…)
+src_share() { # src_share <path>
+    local p="${1%/}" r="" b
+    if [[ "$p" == "$UB_MNT/user/"* || "$p" == "$UB_MNT/user0/"* ]]; then r="${p#"$UB_MNT"/user/}"; r="${r#"$UB_MNT"/user0/}"
+    else
+        for b in "${INV_BASES[@]}"; do [[ "$p" == "${INV_BASE_PATH[$b]}/"* ]] && { r="${p#"${INV_BASE_PATH[$b]}"/}"; break; }; done
+    fi
+    [[ -n "$r" ]] && printf '%s' "${r%%/*}"
+}
+
+# BTRFS_NEED[disk path]: btrfs disks with data of a stopped container, a held VM or the backup place
+declare -A BTRFS_NEED=()
+btrfs_needed() {
+    local n src s t b fs share
+    local -A shares=()
+    for n in "${STOPPED[@]}"; do
+        while IFS='|' read -r src _ _; do
+            [[ -z "$src" ]] && continue
+            s="$(src_share "$src")" && [[ -n "$s" ]] && shares[$s]=1
+        done <<<"${CT_BINDS[$n]:-}"
+    done
+    for n in "${VM_TODO[@]}"; do
+        while IFS='|' read -r t src b fs _ share; do [[ -n "$share" ]] && shares[$share]=1; done <<<"${VM_DISKS[$n]:-}"
+    done
+    [[ -n "${DUMPS_SHARE:-}" ]] && shares[$DUMPS_SHARE]=1
+    for s in "${!shares[@]}"; do
+        while IFS='|' read -r b m layer _; do [[ "$m" == "btrfs" ]] && BTRFS_NEED[$layer]=1; done <<<"${INV_LOCS[$s]:-}"
+    done
+    return 0
 }
 
 stop_tier() { # stop_tier <name...>
@@ -1210,8 +1256,8 @@ write_manifest                       # still with all containers running
 STOP_AT="$(date +%s)"
 status_phase "stopping_apps"
 log "Pausing apps: ${#T_APP[@]} (before the dumps, so that dumps and files match)"
+vm_hold_begin                        # shutdowns take a while: begin them together with pausing the apps
 stop_tier "${T_APP[@]}"
-vm_hold_begin
 status_phase "dumps"
 log "Database dumps ..."
 run_dumps
@@ -1245,15 +1291,11 @@ if [[ "$PLAN_FLASH" == "snapshot" ]]; then
         || { err "Flash snapshot failed"; PLAN_FLASH="failed"; }
 fi
 [[ ${#VM_HELD[@]} -gt 0 ]] && vm_release          # the VMs on ZFS: their snapshot is taken
-for base in "${PLAN_BTRFS[@]}"; do
-    mkdir -p "$base/$BTRFS_SNAP_DIR"
-    if btrfs subvolume snapshot -r "$base" "$base/$BTRFS_SNAP_DIR/$TS" >/dev/null 2>>"$LOG_FILE"; then
-        BTRFS_OK[$base]="$base/$BTRFS_SNAP_DIR/$TS"
-        log "  btrfs $base"
-    else
-        err "btrfs snapshot of $base failed"
-    fi
-done
+# btrfs in two parts: first the disks that hold data of what is held (stopped containers,
+# held VMs, the backup place with the dumps) - consistency before speed; then everything
+# starts again, and only then the disks nobody held anything on (media, a busy rsync)
+btrfs_needed
+for base in "${PLAN_BTRFS[@]}"; do [[ -n "${BTRFS_NEED[$base]:-}" ]] && btrfs_snap "$base"; done
 [[ ${#VM_HELD[@]} -gt 0 ]] && vm_release btrfs
 
 status_phase "starting"
@@ -1262,6 +1304,7 @@ restore_service
 DOWNTIME=$(( $(date +%s) - STOP_AT ))
 status_write
 log "Normal operation restored - downtime ${DOWNTIME} s"
+for base in "${PLAN_BTRFS[@]}"; do [[ -z "${BTRFS_NEED[$base]:-}" ]] && btrfs_snap "$base" "after the restart"; done
 
 # --- Mounting (only when Kopia really runs this time) -----------------------
 if [[ "$KOPIA_OK" == "yes" && "$SKIPK" != "1" ]]; then
@@ -1379,20 +1422,44 @@ ST_DUMP_BYTES="$(du -sb "$RUN_DIR" 2>/dev/null | cut -f1)"; is_uint "$ST_DUMP_BY
 } >"$UB_STATE/last-run"
 
 if is_yes "$KOPIA_ENABLED"; then KSUM="Kopia ${KOPIA_DONE} ok/${KOPIA_FAILED} failed"; else KSUM="Kopia off"; fi
+# A few lines for the notification: what this run did, like the office's overview
+dur_h() { local s="${1:-0}"; if (( s >= 60 )); then printf '%d min %d s' $(( s / 60 )) $(( s % 60 )); else printf '%d s' "$s"; fi; }
+run_report() {
+    local l n p d secs ok f list=""
+    echo "Duration $(dur_h "$TOTAL"), containers stopped $(dur_h "$DOWNTIME")"
+    echo "Snapshots: ${#PLAN_ZFS[@]} ZFS datasets, ${#BTRFS_OK[@]} btrfs disks$([[ "$PLAN_FLASH" == "snapshot" ]] && echo ", flash")"
+    for f in "$RUN_DIR"/db/*; do [[ -e "$f" ]] && list+="${list:+, }$(basename "$f") $(du -sh "$f" 2>/dev/null | cut -f1)"; done
+    [[ -n "$list" ]] && echo "Dumps: $list"
+    list=""
+    for l in "${ST_VMS[@]}"; do
+        IFS='|' read -r n p d secs _ <<<"$l"
+        case "$d" in off|kept_running|not_running|planned) continue ;; esac
+        list+="${list:+, }$n ($d, $(dur_h "$secs"))"
+    done
+    [[ -n "$list" ]] && echo "VMs: $list"
+    list=""
+    for l in "${ST_KOPIA_DONE[@]}"; do
+        IFS='|' read -r n ok secs _ <<<"$l"
+        if [[ "$ok" == "1" ]]; then list+="${list:+, }$n $(dur_h "$secs")"; else list+="${list:+, }$n FAILED"; fi
+    done
+    [[ -n "$list" ]] && echo "Kopia: $list"
+    echo "Errors $ERRORS, warnings $WARNINGS"
+    echo "Log: $LOG_FILE"
+}
 SUMMARY="duration ${TOTAL}s, downtime ${DOWNTIME}s, ${KSUM}, dumps ${RUN_SIZE}"
 if (( ERRORS > 0 )); then status_finish errors
 elif (( WARNINGS > 0 )); then status_finish warnings
 else status_finish ok; fi
 if (( ERRORS > 0 )); then
     log "Backup finished with ${ERRORS} error(s) and ${WARNINGS} warning(s). $SUMMARY"
-    ub_notify "Backup with errors" "${ERRORS} errors, ${WARNINGS} warnings. $SUMMARY" "alert" "Log: $LOG_FILE"
+    ub_notify "Backup with errors" "${ERRORS} errors, ${WARNINGS} warnings. $SUMMARY" "alert" "$(run_report)"
     exit 1
 elif (( WARNINGS > 0 )); then
     log "Backup finished with ${WARNINGS} warning(s). $SUMMARY"
-    ub_notify "Backup with warnings" "${WARNINGS} warnings. $SUMMARY" "warning" "Log: $LOG_FILE"
+    ub_notify "Backup with warnings" "${WARNINGS} warnings. $SUMMARY" "warning" "$(run_report)"
 else
     log "Backup successful. $SUMMARY"
-    is_yes "$NOTIFY_SUCCESS" && ub_notify "Backup successful" "$SUMMARY" "normal"
+    is_yes "$NOTIFY_SUCCESS" && ub_notify "Backup successful" "$SUMMARY" "normal" "$(run_report)"
 fi
 exit 0
 }

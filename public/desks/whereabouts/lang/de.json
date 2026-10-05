@@ -503,7 +503,7 @@
   "vm.base": "Basis {n}",
   "vm.move_hint": "Für einen Umzug dieser VM auf einen anderen Server brauchst du alle diese Dateien.",
   "vm.tpm_hint": "Ohne den TPM-Zustand startet Windows zwar, aber BitLocker verlangt den Wiederherstellungsschlüssel und Windows-Hello-PINs sind weg.",
-  "vm.config_local": "XML, NVRAM und TPM-Zustand werden nur lokal gesichert, nicht offsite. Herr Backupsi kann sie mit den Dumps archivieren (Einrichten… → VM-Konfiguration).",
+  "vm.config_local": "XML, NVRAM und TPM-Zustand werden nur lokal gesichert, nicht mit Kopia. Herr Backupsi kann sie mit den Dumps archivieren (Einrichten… → VM-Konfiguration).",
   "vm.config_none": "XML, NVRAM und TPM-Zustand werden gar nicht gesichert. Herr Backupsi kann sie mit den Dumps archivieren (Einrichten… → VM-Konfiguration).",
   "boot.layout.mirror": "Mirror",
   "boot.layout.single": "eine Disk",
@@ -570,7 +570,7 @@
     "one": "1 Share",
     "other": "{n} Shares"
   },
-  "sum.shares_backup": "{offsite} offsite · {local} nur lokal · {none} nicht gesichert",
+  "sum.shares_backup": "{offsite} mit Kopia · {local} nur lokal · {none} nicht gesichert",
   "sum.folders": "erste Ebene der Pool-Shares",
   "sum.folders_unused": {
     "one": "1 Ordner in {share}, den niemand benutzt",
