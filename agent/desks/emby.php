@@ -385,13 +385,13 @@ function embyLastRun(): ?array
 function embyConnect(string $url, string $key): array
 {
     $url = rtrim($url, '/');
-    if (!preg_match('#^https?://[^\s/]+(:\d+)?(/[^\s]*)?$#', $url)) {
+    if (!preg_match('#^https?://[^\s/]+(:\d+)?(/[^\s]*)?$#D', $url)) {
         throw new Problem('emby_bad_url');
     }
     if ($key === '') {
         $key = embyStoredKey($url);
     }
-    if ($key === '' || !preg_match('/^[A-Za-z0-9]{8,128}$/', $key)) {
+    if ($key === '' || !preg_match('/^[A-Za-z0-9]{8,128}$/D', $key)) {
         throw new Problem('emby_need_key');
     }
     $info = embyApi($url, $key, '/System/Info');
@@ -463,12 +463,12 @@ function embySave(mixed $in): array
     foreach ((array) ($in['instances'] ?? []) as $i) {
         $url = rtrim((string) ($i['url'] ?? ''), '/');
         $key = trim((string) ($i['api_key'] ?? '')) ?: embyStoredKey($url);
-        if (!preg_match('#^https?://\S+$#', $url) || !preg_match('/^[A-Za-z0-9]{8,128}$/', $key)) {
+        if (!preg_match('#^https?://\S+$#D', $url) || !preg_match('/^[A-Za-z0-9]{8,128}$/D', $key)) {
             throw new Problem('emby_need_key');
         }
         $maps = [];
         foreach ((array) ($i['path_mappings'] ?? []) as $from => $to) {
-            if (is_string($from) && is_string($to) && str_starts_with($from, '/') && ($to === '' || preg_match('#^/mnt/user/[^/]+#', $to))) {
+            if (is_string($from) && is_string($to) && embyMappingOk($from, $to)) {
                 $maps[rtrim($from, '/')] = rtrim($to, '/');        // '' = this folder deliberately not cached
             }
         }
@@ -493,7 +493,7 @@ function embySave(mixed $in): array
     $users = [];
     $budgets = (array) ($in['user_budgets'] ?? []);
     foreach ((array) ($in['valid_users'] ?? []) as $id) {
-        if (is_string($id) && preg_match('/^[\w-]{1,64}$/', $id)) {
+        if (is_string($id) && preg_match('/^[\w-]{1,64}$/D', $id)) {
             $b = trim((string) ($budgets[$id] ?? ''));
             if ($b !== '' && !preg_match('/^\d+(\.\d+)?\s*[KMGTP]?B?$/i', $b)) {
                 throw new Problem('emby_bad_size', ['value' => $b]);
@@ -547,6 +547,28 @@ function embySave(mixed $in): array
     }
     logLine('Jack Emby: EmbyCache settings saved');
     return ['ok' => true, 'state' => embyScan()];
+}
+
+/**
+ * A path mapping: Emby's folder (absolute) => the share folder it is on this
+ * server (/mnt/user/<share>/…, or '' = deliberately not cached). EmbyCache
+ * moves files along these paths: no "..", ".", empty parts or control
+ * characters, so a mapping can never point out of the shares.
+ */
+function embyMappingOk(string $from, string $to): bool
+{
+    $clean = function (string $path): bool {
+        if (!str_starts_with($path, '/') || strlen($path) > 1024 || preg_match('/[\x00-\x1f\x7f]/', $path)) {
+            return false;
+        }
+        foreach (explode('/', trim($path, '/')) as $p) {
+            if ($p === '' || $p === '.' || $p === '..') {
+                return false;
+            }
+        }
+        return true;
+    };
+    return $clean($from) && ($to === '' || ($clean($to) && preg_match('#^/mnt/user/[^/]+#', $to)));
 }
 
 /** settings, exclude list and logs hold the API key and file names: root only */

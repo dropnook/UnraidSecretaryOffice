@@ -861,6 +861,29 @@ function testTrashManifest(): void
     hardeningRm($dir);
 }
 
+/** Jack Emby's path mappings and EmbyCache's paths never lead out of the shares */
+function testEmbyPaths(): void
+{
+    foreach ([['/media/movies', '/mnt/user/Filme'], ['/media/tv/', '/mnt/user/Serien/TV'], ['/media/skip', '']] as [$from, $to]) {
+        check("mapping accepted: $from => $to", embyMappingOk($from, $to));
+    }
+    foreach ([['/media', '/mnt/user/../../boot'], ['/media', '/mnt/user/Filme/../../../etc'], ['media', '/mnt/user/Filme'],
+              ['/media/../x', '/mnt/user/Filme'], ['/media', '/mnt/cache/Filme'], ['/media', "/mnt/user/Filme\n"], ['/media', '/mnt/user/']] as [$from, $to]) {
+        check('mapping refused: ' . json_encode([$from, $to]), !embyMappingOk($from, $to));
+    }
+    [$exit] = run(['python3', '--version'], 10);
+    if ($exit !== 0) {
+        return;                                    // no Python on this server: EmbyCache can't run here either
+    }
+    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import embycache_lib as l; '
+        . 'loc = l.Locations({"cache_path": "/mnt/cache", "array_path": "/mnt/user0", "user_path": "/mnt/user", "array_disks_glob": "/mnt/disk[0-9]*"}, '
+        . '{"/media/movies": "/mnt/user/Filme"}); '
+        . 'print(loc.rel_from_docker("/media/movies/A/a.mkv"), loc.rel_from_docker("/media/movies/../../../../boot/config/go"), '
+        . 'loc.rel_from_docker("/media/movies/A/../../Other/x"))';
+    [$exit, $out] = run(['env', 'EMBYCACHE_DIR=' . sys_get_temp_dir(), 'PYTHONDONTWRITEBYTECODE=1', 'python3', '-c', $py, OFFICE_DIR . '/embycache'], 30);
+    same('EmbyCache: paths with ".." are skipped', 'Filme/A/a.mkv None None', trim($out));
+}
+
 // ===================================================================== strings
 
 function langFile(string $file): array
@@ -1008,7 +1031,7 @@ function testStrings(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify',
                       'testBackupPackages', 'testBackupKopiaItems', 'testIcons'],
-          'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest'],
+          'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
