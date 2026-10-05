@@ -729,6 +729,71 @@ function testIcons(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+// ===================================================================== hardening
+
+/** A temporary folder for a test, removed again by hardeningRm() */
+function hardeningTmp(string $name): string
+{
+    $dir = sys_get_temp_dir() . "/uso-test-$name-" . getmypid();
+    @mkdir($dir, 0700, true);
+    return $dir;
+}
+
+function hardeningRm(string $dir): void
+{
+    if (!is_dir($dir) || is_link($dir)) {
+        @unlink($dir);
+        return;
+    }
+    foreach (array_diff(scandir($dir) ?: [], ['.', '..']) as $n) {
+        hardeningRm("$dir/$n");
+    }
+    @rmdir($dir);
+}
+
+/** A wrong current PIN when changing or removing it counts against the waiting time like a wrong one at unlocking */
+function testPinTries(): void
+{
+    $dir = hardeningTmp('auth');
+    @mkdir("$dir/office", 0700);
+    defined('OFFICE_DATA') || define('OFFICE_DATA', $dir);
+    if (OFFICE_DATA !== $dir) {
+        check('PIN tries: test data folder', false, 'OFFICE_DATA is already ' . OFFICE_DATA);
+        return;
+    }
+    if (!function_exists('officeReadJson')) {
+        function officeReadJson(string $file): ?array
+        {
+            $data = json_decode((string) @file_get_contents($file), true);
+            return is_array($data) ? $data : null;
+        }
+    }
+    require_once OFFICE_DIR . '/src/auth.php';
+    officeSetPin('2468', '');
+    same('PIN set', 'pin', officeAuthMode());
+    same('auth.json only for its owner', '600', substr(sprintf('%o', fileperms(officeAuthFile())), -3));
+    $keys = [];
+    for ($i = 0; $i < OFFICE_FREE_TRIES + 1; $i++) {
+        try {
+            officeSetPin('1357', '0000');
+            $keys[] = 'changed';
+        } catch (AuthProblem $e) {
+            $keys[] = $e->key;
+        }
+    }
+    same('wrong current PIN: refused, then waiting', array_merge(array_fill(0, OFFICE_FREE_TRIES, 'pin_wrong'), ['pin_wait']), $keys);
+    same('wrong current PIN counted', OFFICE_FREE_TRIES, (int) (officeAuthRead()['failures'] ?? 0));
+    try {
+        officeUnlock('2468');
+        $key = 'unlocked';
+    } catch (AuthProblem $e) {
+        $key = $e->key;
+    }
+    same('while waiting even the right PIN waits', 'pin_wait', $key);
+    same('no temporary files left', [], glob("$dir/office/.auth.*.tmp") ?: []);
+    hardeningRm($dir);
+}
+
 // ===================================================================== strings
 
 function langFile(string $file): array
@@ -876,6 +941,7 @@ function testStrings(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify',
                       'testBackupPackages', 'testBackupKopiaItems', 'testIcons'],
+          'hardening' => ['testPinTries'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
