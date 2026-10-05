@@ -1087,7 +1087,8 @@ async function showLog(name, follow) {
 // setup.sh --apply checks and writes it — the same engine as in a terminal.
 const SETUP_POLL = 2000;
 const LIST_KEY = /\|(ignore|no_stop|known|kopia_ignore|exclude_dataset|tar_exclude)$/;
-let setup = { plan: null, draft: null, status: null, run: null, applied: null, open: new Set(), retire: true, asked: false, focus: null };
+let setup = { plan: null, draft: null, status: null, run: null, applied: null, open: new Set(), retire: true, asked: false, focus: null,
+  model: null, levels: {}, deps: new Set(), locks: {} };
 let setupTimer = null;
 
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -1097,6 +1098,14 @@ function dset(k, v) {
   if (v === undefined || v === null) delete setup.draft[k];
   else setup.draft[k] = v;
   setupBar();
+}
+
+/** A fresh draft from the plan, with the apps' and VMs' levels read from it */
+function setupDraftFromPlan() {
+  setup.draft = clone(setup.plan.P);
+  setup.model = setupModel(setup.plan);
+  setupInitLevels();
+  setupDerive();
 }
 
 /** Every key that differs between the plan and the draft */
@@ -1113,9 +1122,12 @@ async function setupLoad() {
   const was = setup.status;
   setup.status = j.status;
   setup.run = j.run;
-  if (j.plan && (!setup.plan || j.plan.time !== setup.plan.time)) {
+  // a plan from before engine 2.17 doesn't know which shares a container binds: read the server again
+  const stale = j.plan && (j.plan.containers || []).some((c) => c.binds === undefined);
+  if (stale && !j.status.running && !setup.restale && canPlan()) { setup.restale = true; setupPlan(false, true); }
+  if (j.plan && !stale && (!setup.plan || j.plan.time !== setup.plan.time)) {
     setup.plan = j.plan;
-    setup.draft = clone(j.plan.P);
+    setupDraftFromPlan();
   }
   const finishedForget = was && was.running && was.mode === 'forget' && !j.status.running;
   if (finishedForget) {
@@ -1280,7 +1292,7 @@ function setupBar() {
     title: T('setup.bar_changes', { n }),
     sub: T('setup.bar_sub', { when: fmt.relative(setup.plan.time) }),
     buttons: [
-      { text: T('setup.discard'), kind: 'plain', disabled: !edits || busy, act: () => { setup.draft = clone(setup.plan.P); renderSetup(); } },
+      { text: T('setup.discard'), kind: 'plain', disabled: !edits || busy, act: () => { setupDraftFromPlan(); renderSetup(); } },
       { text: T('setup.apply'), disabled: busy || !Office.agent.running, act: setupApply },
     ],
   });
@@ -1371,13 +1383,12 @@ function renderSetup() {
   if (!setup.plan) { setupBar(); return; }
 
   const plan = setup.plan;
-  root.appendChild(setupKopia(plan));
-  root.appendChild(setupShares(plan));
-  root.appendChild(setupContainers(plan));
-  root.appendChild(setupVms(plan));
-  root.appendChild(setupDatabases(plan));
-  root.appendChild(setupGeneral(plan));
-  if (dget('kopia|enabled') === 'yes') root.appendChild(setupPolicies());
+  root.appendChild(setupKopia(plan));          // 0 basics: where backups go, Kopia, the flash
+  root.appendChild(setupVms(plan));            // 1
+  root.appendChild(setupApps(plan));           // 2
+  root.appendChild(setupShares(plan));         // 3 what is left
+  root.appendChild(setupRetention(plan));      // 4
+  root.appendChild(setupGeneral(plan));        // everything else, rarely changed
   const old = (plan.kopia.sources || []).filter((s) => s.state === 'orphan' || s.state === 'gone');
   if (old.length) root.appendChild(setupSources(old));
   root.appendChild(setupMessages(plan.messages));
@@ -1416,10 +1427,17 @@ function appliedCard(run) {
 function setupKopia(plan) {
   const k = plan.kopia;
   const s = setupSection(T('setup.kopia'), T('setup.kopia_sub'));
+  const basics = el('div', 'bk-form');
+  basics.appendChild(dumpsShareField(plan));
+  const flashOpts = plan.flash.dataset ? ['snapshot', 'tar', 'off'] : ['tar', 'off'];
+  basics.appendChild(field(T('setup.g_flash'), selectInput('flash|mode', flashOpts, (o) => T('setup.flash.' + o)),
+    plan.flash.dataset ? T('setup.g_flash_zfs', { ds: plan.flash.dataset }) : T('setup.g_flash_other', { fs: plan.flash.fs || '?' })));
+  s.appendChild(basics);
   const on = dget('kopia|enabled') === 'yes';
   s.appendChild(checkbox(T('setup.kopia_on'), on, (v) => {
     dset('kopia|enabled', v ? 'yes' : 'no');
     if (!v) Object.keys(setup.draft).forEach((key) => { if (/^share\|.+\|mode$/.test(key) && setup.draft[key] === 'kopia') setup.draft[key] = 'snapshot'; });
+    setupDerive();
     renderSetup();
   }, T('setup.kopia_on_hint')));
   if (!on) return s;
@@ -1483,7 +1501,14 @@ function setupShares(plan) {
     tr.appendChild(el('td', '', sh.where === '-' ? '' : sh.where));
     tr.appendChild(el('td', 'num', sh.gb === null ? '' : sh.gb < 0 ? '> ?' : fmt.size(sh.gb * 1073741824)));
     const modeCell = el('td');
-    if (sh.exists) {
+    const lock = setup.locks[sh.name];
+    if (sh.exists && lock) {
+      // fixed by the VMs and apps above
+      const sel = selectInput(`share|${sh.name}|mode`, [LV[lock.lv]], (o) => T('setup.mode.' + o));
+      sel.disabled = true;
+      sel.title = T('setup.lock_hint');
+      modeCell.appendChild(sel);
+    } else if (sh.exists) {
       const opts = kopiaOn ? ['kopia', 'snapshot', 'off'] : ['snapshot', 'off'];
       const sel = selectInput(`share|${sh.name}|mode`, opts, (o) => T('setup.mode.' + o));
       if (!opts.includes(sel.value)) sel.value = 'snapshot';
@@ -1493,7 +1518,7 @@ function setupShares(plan) {
       modeCell.appendChild(chip(T('setup.gone'), 'warn'));
     }
     tr.appendChild(modeCell);
-    const why = el('td', 'bk-why', shareWhy(sh));
+    const why = el('td', 'bk-why', lock ? T('setup.lock', { list: lock.why.join(', ') }) : shareWhy(sh));
     if (sh.notes.length) why.title = sh.notes.join('\n');
     tr.appendChild(why);
     const more = el('td');
@@ -1575,56 +1600,193 @@ function shareDetails(sh, plan) {
   return box;
 }
 
-function setupContainers(plan) {
-  const s = setupSection(T('setup.containers'), T('setup.containers_sub'));
-  const list = el('div', 'box');
-  const nostop = () => dget('docker|no_stop', []) || [];
+// ---- steps 1 and 2: the VMs and apps the user wants back decide the shares they live in
+// A level per VM / app: 0 not backed up, 1 local snapshot, 2 local + Kopia. Shares,
+// running containers, dumps and Kopia's exceptions follow from them (setupDerive).
+const LV = ['off', 'snapshot', 'kopia'];
+
+/** Apps (a compose stack or a single container) and VMs with the shares and folders they use */
+function setupModel(plan) {
+  const names = new Set(plan.shares.map((x) => x.name));
+  // container shares (appdata & co.): folders of three or more containers - an app's home
+  const homes = new Set(plan.shares.filter((x) => new Set((x.folders || []).map((f) => f.container)).size >= 3).map((x) => x.name));
+  const groups = new Map();
+  const skipped = [];
   plan.containers.forEach((c) => {
-    const row = el('div', 'row nocheck');
-    const main = el('div', 'row-main');
-    main.appendChild(el('div', 'row-name', c.name));
-    const meta = el('div', 'row-meta');
-    meta.appendChild(el('span', '', c.running ? T('setup.ct_running') : T('setup.ct_stopped')));
-    meta.appendChild(el('span', '', T('setup.ctwhy.' + (c.why || 'no_data'), { arg: c.why_arg })));
-    if (c.volumes.length && !c.kopia) meta.appendChild(chip(T('setup.ct_volumes', { list: c.volumes.join(', ') }), 'danger', T('setup.ct_volumes_hint')));
-    main.appendChild(meta);
-    row.appendChild(main);
-    if (c.kopia) {
-      row.appendChild(chip(T('setup.ct_kopia'), 'quiet'));
-    } else if (c.why === 'office') {
-      row.appendChild(chip(T('setup.ct_office'), 'quiet'));     // the office never stops itself
-    } else {
-      const keep = nostop().includes(c.name);
-      const sel = el('select', 'picker');
-      sel.append(new Option(T('setup.ct_stop'), 'stop'), new Option(T('setup.ct_keep'), 'keep'));
-      sel.value = keep ? 'keep' : 'stop';
-      sel.onchange = () => {
-        const now = nostop().filter((x) => x !== c.name);
-        if (sel.value === 'keep') now.push(c.name);
-        dset('docker|no_stop', now);
-        warn.hidden = !(sel.value === 'keep' && /^(writes|volumes|binds_root|media_server)$/.test(c.why));
-      };
-      const warn = chip(T('setup.ct_risk'), 'warn', T('setup.ct_risk_hint'));
-      warn.hidden = !(keep && /^(writes|volumes|binds_root|media_server)$/.test(c.why));
-      const right = el('div', 'bk-right');
-      right.append(warn, sel);
-      row.appendChild(right);
-    }
-    list.appendChild(row);
+    if (c.kopia || c.why === 'office') { skipped.push(c); return; }
+    const id = c.project ? 'stack:' + c.project : 'ct:' + c.name;
+    if (!groups.has(id)) groups.set(id, { id, name: c.project || c.name, stack: !!c.project, members: [] });
+    groups.get(id).members.push(c);
   });
-  s.appendChild(list);
-  return s;
+  const apps = [...groups.values()].map((a) => {
+    const members = a.members.map((c) => c.name);
+    const folders = [];
+    const deps = new Map();
+    a.members.forEach((c) => (c.binds || []).forEach((b) => {
+      if (!names.has(b.share) || b.share.toLowerCase() === 'system') return;
+      if (homes.has(b.share)) {
+        const dir = b.path.split('/')[0];
+        if (dir && !folders.some((f) => f.share === b.share && f.dir === dir)) folders.push({ share: b.share, dir });
+        return;
+      }
+      const d = deps.get(b.share) || { share: b.share, paths: [] };
+      if (b.path && !d.paths.includes(b.path)) d.paths.push(b.path);
+      deps.set(b.share, d);
+    }));
+    return {
+      ...a, members, folders, deps: [...deps.values()],
+      dbs: plan.databases.filter((d) => members.includes(d.container)),
+      ncs: plan.nextcloud.filter((n) => n.members.some((m) => members.includes(m))),
+      volumes: a.members.flatMap((c) => c.volumes.map((v) => (a.stack ? `${c.name}: ${v}` : v))),
+    };
+  }).sort((x, y) => (y.stack - x.stack) || x.name.localeCompare(y.name, undefined, { sensitivity: 'base' }));
+  const vms = (plan.vms || []).map((v) => {
+    const disks = (v.disks || []).filter((d) => d.share && names.has(d.share));
+    const folders = [];
+    disks.forEach((d) => {
+      const m = (d.source || '').match(/^\/mnt\/[^/]+\/[^/]+\/([^/]+)\//);
+      if (m && !folders.some((f) => f.share === d.share && f.dir === m[1])) folders.push({ share: d.share, dir: m[1] });
+    });
+    return { name: v.name, v, own: v.own.length > 0, shares: [...new Set(disks.map((d) => d.share))], folders };
+  });
+  return { apps, vms, skipped, homes };
 }
 
-/** VMs: how each one is treated for the seconds of the snapshot; left out or kept apart when it has a dataset of its own */
+const levelOf = (key) => {
+  const max = dget('kopia|enabled') === 'yes' ? 2 : 1;
+  return Math.min(setup.levels[key] ?? 0, max);
+};
+
+/** The levels as the draft says (settings.ini or the plan's proposals) */
+function setupInitLevels() {
+  const m = setup.model;
+  const ignored = (share, dir) => (dget(`share|${share}|kopia_ignore`, []) || []).includes(`/${dir}/`);
+  const onKopia = (folders) => folders.length > 0 && folders.every((f) => dget(`share|${f.share}|mode`) === 'kopia' && !ignored(f.share, f.dir));
+  const fresh = !setup.plan.have_settings;          // a new setup sends nothing to Kopia unasked
+  const nostop = dget('docker|no_stop', []) || [];
+  setup.levels = {};
+  setup.deps = new Set();
+  m.apps.forEach((a) => {
+    let l = a.members.every((n) => nostop.includes(n)) ? 0 : onKopia(a.folders) ? 2 : 1;
+    if (fresh) l = Math.min(l, 1);
+    setup.levels['app:' + a.id] = l;      // an app's further shares are never ticked unasked (they grow fast)
+  });
+  m.vms.forEach((x) => {
+    const k = (y) => `vm|${x.name}|${y}`;
+    const shareOff = x.shares.some((sh) => dget(`share|${sh}|mode`, 'off') === 'off');
+    let l = shareOff || dget(k('mode')) === 'off' || dget(k('prepare')) === 'none' ? 0 : onKopia(x.folders) ? 2 : 1;
+    if (fresh) l = Math.min(l, 1);
+    setup.levels['vm:' + x.name] = l;
+  });
+}
+
+/** Writes what the levels mean into the draft; remembers which shares they fix (setup.locks) */
+function setupDerive() {
+  const m = setup.model;
+  if (!m) return;
+  const need = new Map();
+  const want = (share, l, who) => {
+    if (l < 1) return;
+    const n = need.get(share) || { lv: 0, why: [] };
+    n.lv = Math.max(n.lv, l);
+    if (!n.why.includes(who)) n.why.push(who);
+    need.set(share, n);
+  };
+  // apps: not backed up = keeps running; backed up = stopped, its databases dumped
+  const inApps = new Set(m.apps.flatMap((a) => a.members));
+  const was = dget('docker|no_stop', []) || [];
+  const keep = was.filter((n) => !inApps.has(n));
+  m.apps.forEach((a) => {
+    const l = levelOf('app:' + a.id);
+    if (l === 0) keep.push(...a.members);
+    // backed up: members that were meant to keep running (a cache like redis) may go on doing so -
+    // unless all of them were, then the app was "not" until now and stops as a whole
+    else if (!a.members.every((n) => was.includes(n))) keep.push(...a.members.filter((n) => was.includes(n)));
+    a.dbs.filter((d) => d.dumpable).forEach((d) => {
+      const k = `dump|${d.container}|type`;
+      dset(k, l > 0 ? (dget(k) ?? d.type) : undefined);
+    });
+    a.ncs.forEach((n) => n.members.forEach((mb) => {
+      const k = `nextcloud|${mb}|preexisting_maintenance`;
+      dset(k, l > 0 ? (dget(k) || n.preexisting || 'abort') : undefined);
+    }));
+    a.folders.forEach((f) => want(f.share, l, a.name));
+    a.deps.forEach((d) => { if (setup.deps.has(`${a.id}|${d.share}`)) want(d.share, l, a.name); });
+  });
+  const nostop = [...was.filter((n) => keep.includes(n)), ...keep.filter((n) => !was.includes(n))];
+  dset('docker|no_stop', [...new Set(nostop)]);
+  // VMs: not backed up = not held (in a shared dataset it stays in the share's snapshot anyway)
+  m.vms.forEach((x) => {
+    const l = levelOf('vm:' + x.name);
+    const k = (y) => `vm|${x.name}|${y}`;
+    dset(k('mode'), x.own && l === 0 ? 'off' : 'snapshot');
+    if (l === 0) dset(k('prepare'), 'none');
+    else if (!dget(k('prepare')) || dget(k('prepare')) === 'none') dset(k('prepare'), ['yes', 'channel'].includes(x.v.agent) ? 'freeze' : 'pause');
+    x.shares.forEach((sh) => want(sh, l, x.name));
+  });
+  setup.locks = {};
+  need.forEach((n, share) => {
+    setup.locks[share] = n;
+    dset(`share|${share}|mode`, LV[n.lv]);
+  });
+  // Kopia leaves out the folders of apps and VMs that are only local
+  if (dget('kopia|enabled') === 'yes') {
+    const dirs = new Map();
+    const note = (f, l) => {
+      const key = `${f.share}|${f.dir}`;
+      dirs.set(key, Math.max(dirs.get(key) ?? 0, l));
+    };
+    m.apps.forEach((a) => a.folders.forEach((f) => note(f, levelOf('app:' + a.id))));
+    m.vms.forEach((x) => x.folders.forEach((f) => note(f, levelOf('vm:' + x.name))));
+    dirs.forEach((l, key) => {
+      const [share, dir] = key.split('|');
+      if (dget(`share|${share}|mode`) !== 'kopia') return;
+      const k = `share|${share}|kopia_ignore`;
+      const list = [...(dget(k, []) || [])];
+      const rule = `/${dir}/`;
+      const at = list.indexOf(rule);
+      if (l < 2 && at < 0) list.push(rule);
+      if (l >= 2 && at >= 0) list.splice(at, 1);
+      dset(k, list);
+    });
+  }
+}
+
+/** nicht | lokal | lokal + Kopia */
+function levelPick(key, onPick) {
+  const max = dget('kopia|enabled') === 'yes' ? 2 : 1;
+  const now = levelOf(key);
+  const g = el('div', 'bk-seg');
+  g.setAttribute('role', 'radiogroup');
+  for (let l = 0; l <= max; l++) {
+    const b = el('button', l === now ? 'on' : '', T('setup.level.' + l));
+    b.type = 'button';
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(l === now));
+    b.title = T('setup.level_hint.' + l);
+    b.onclick = () => {
+      if (l === now) return;
+      setup.levels[key] = l;
+      if (onPick) onPick(l);
+      setupDerive();
+      Office.keepInPlace(g, () => renderSetup());
+    };
+    g.appendChild(b);
+  }
+  return g;
+}
+
+/** Step 1: which VMs are wanted back, and how each one is held for the snapshot */
 function setupVms(plan) {
   const s = setupSection(T('setup.vms'), T('setup.vms_sub'));
   if (!plan.vm_service) { s.appendChild(el('p', 'empty', T('setup.vm_service_off'))); return s; }
-  const vms = plan.vms || [];
+  const vms = setup.model.vms;
   if (!vms.length) { s.appendChild(el('p', 'empty', T('setup.vm_none'))); return s; }
   const list = el('div', 'box');
-  vms.forEach((v) => {
-    const k = (x) => `vm|${v.name}|${x}`;
+  vms.forEach((x) => {
+    const v = x.v;
+    const k = (y) => `vm|${v.name}|${y}`;
+    const l = levelOf('vm:' + v.name);
     const row = el('div', 'row nocheck bk-vm');
     row.dataset.focus = 'vm:' + v.name;
     const main = el('div', 'row-main');
@@ -1635,34 +1797,35 @@ function setupVms(plan) {
     if (v.tpm) meta.appendChild(chip(T('setup.vm_tpm'), '', T('setup.vm_tpm_hint')));
     if (v.hostdev) meta.appendChild(chip(T('setup.vm_gpu', { n: v.hostdev }), '', T('setup.vm_gpu_hint')));
     if (v.snap !== 'yes') meta.appendChild(chip(T('setup.vm_cannot.' + v.snap), 'danger', T('setup.vm_cannot_hint')));
-    else if (v.own.length) meta.appendChild(el('span', 'mono', v.own.join(', ')));
+    else if (x.own) meta.appendChild(el('span', 'mono', v.own.join(', ')));
     else meta.appendChild(chip(T('setup.vm_shared'), '', T('setup.vm_shared_hint')));
-    if (v.share_mode === 'off') meta.appendChild(chip(T('setup.vm_share_off'), 'warn', T('setup.vm_share_off_hint')));
     main.appendChild(meta);
+    if (l === 0 && !x.own && x.shares.some((sh) => dget(`share|${sh}|mode`, 'off') !== 'off')) {
+      main.appendChild(el('div', 'row-meta', T('setup.vm_off_shared', { share: x.shares.join(', ') })));
+    }
     row.appendChild(main);
 
     const right = el('div', 'bk-right');
-    const mode = selectInput(k('mode'), ['snapshot', 'off'], (o) => T('setup.vm_mode.' + o));
-    if (!v.own.length) { mode.value = 'snapshot'; mode.disabled = true; mode.title = T('setup.vm_shared_hint'); }
-    const prep = selectInput(k('prepare'), ['freeze', 'pause', 'shutdown', 'none'], (o) => T('setup.vm_prep.' + o));
-    prep.title = T('setup.vm_prep_hint');
-    // own retention: labelled, the placeholder shows what applies when it stays empty (the share's)
-    const share = ((v.disks || []).find((d) => d.share) || {}).share || '';
-    const input = textInput(k('retention'), /^\d+ \d+ \d+$/, dget(`share|${share}|retention`, '') || dget('zfs|retention', ''));
-    input.classList.add('bk-ret');
-    const ret = el('label', 'bk-ret-field');
-    ret.append(el('span', 'role', T('setup.vm_ret_label')), input);
-    ret.title = T('setup.vm_ret_hint', { share: share || '?' });
-    const warn = chip(T('setup.vm_noagent'), 'warn', T('setup.vm_noagent_hint'));
-    const sync = () => {
-      warn.hidden = !(prep.value === 'freeze' && (v.agent === 'no' || v.agent === 'none'));
-      prep.disabled = mode.value === 'off';
-      ret.hidden = !v.own.length || mode.value === 'off';
-    };
-    mode.addEventListener('change', sync);
-    prep.addEventListener('change', sync);
-    right.append(warn, mode, prep, ret);
-    sync();
+    right.appendChild(levelPick('vm:' + v.name));
+    if (l > 0) {
+      const prep = selectInput(k('prepare'), ['freeze', 'pause', 'shutdown'], (o) => T('setup.vm_prep.' + o));
+      prep.title = T('setup.vm_prep_hint');
+      const warn = chip(T('setup.vm_noagent'), 'warn', T('setup.vm_noagent_hint'));
+      const sync = () => { warn.hidden = !(prep.value === 'freeze' && (v.agent === 'no' || v.agent === 'none')); };
+      prep.addEventListener('change', sync);
+      sync();
+      right.append(warn, prep);
+      if (x.own) {
+        // own retention: labelled, the placeholder shows what applies when it stays empty (the share's)
+        const share = x.shares[0] || '';
+        const input = textInput(k('retention'), /^\d+ \d+ \d+$/, dget(`share|${share}|retention`, '') || dget('zfs|retention', ''));
+        input.classList.add('bk-ret');
+        const ret = el('label', 'bk-ret-field');
+        ret.append(el('span', 'role', T('setup.vm_ret_label')), input);
+        ret.title = T('setup.vm_ret_hint', { share: share || '?' });
+        right.appendChild(ret);
+      }
+    }
     row.appendChild(right);
     list.appendChild(row);
   });
@@ -1670,52 +1833,70 @@ function setupVms(plan) {
   return s;
 }
 
-function setupDatabases(plan) {
-  const s = setupSection(T('setup.databases'), T('setup.databases_sub'));
-  if (!plan.databases.length && !plan.nextcloud.length && !plan.missing_databases.length) {
-    s.appendChild(el('p', 'role', T('setup.no_databases')));
-    return s;
-  }
+/** Step 2: apps - a compose stack or a single container; databases and the shares they need come along */
+function setupApps(plan) {
+  const s = setupSection(T('setup.apps'), T('setup.apps_sub'));
+  const m = setup.model;
+  if (!m.apps.length && !m.skipped.length) { s.appendChild(el('p', 'empty', T('setup.apps_none'))); return s; }
+  const shareOf = (n) => plan.shares.find((x) => x.name === n);
   const list = el('div', 'box');
-  plan.databases.forEach((d) => {
-    const row = el('div', 'row nocheck');
+  let head = null;
+  m.apps.forEach((a) => {
+    const kind = a.stack ? 'stacks' : 'single';
+    if (head !== kind) { list.appendChild(el('div', 'bk-subhead', T('setup.apps_' + kind))); head = kind; }
+    const l = levelOf('app:' + a.id);
+    const row = el('div', 'row nocheck bk-app');
+    row.dataset.focus = 'app:' + a.id;
     const main = el('div', 'row-main');
-    main.appendChild(el('div', 'row-name', d.container));
+    main.appendChild(el('div', 'row-name', a.name));
     const meta = el('div', 'row-meta');
-    meta.appendChild(chip(T('setup.dbtype.' + d.type), d.type === 'cache' ? 'quiet' : ''));
-    if (d.stack !== '-') meta.appendChild(el('span', '', d.stack));
-    meta.appendChild(el('span', d.where.includes('!') ? 'bk-bad' : '', T('setup.db_where', { where: d.where.replace('im Container!', T('setup.db_inside')) })));
+    if (a.stack) meta.appendChild(el('span', '', a.members.join(', ')));
+    else {
+      const c = plan.containers.find((x) => x.name === a.name);
+      if (c) meta.appendChild(el('span', '', c.running ? T('setup.ct_running') : T('setup.ct_stopped')));
+    }
+    a.dbs.forEach((d) => {
+      if (d.dumpable) meta.appendChild(chip(T('setup.app_dump', { type: T('setup.dbtype.' + d.type) }), l > 0 ? 'ok' : '', T('setup.app_dump_hint')));
+    });
+    if (a.ncs.length) meta.appendChild(chip(T('setup.app_nc'), l > 0 ? 'ok' : '', T('setup.nc_text')));
+    if (a.volumes.length) meta.appendChild(chip(T('setup.ct_volumes', { list: a.volumes.join(', ') }), 'danger', T('setup.ct_volumes_hint')));
+    if (!a.folders.length && !a.deps.length) meta.appendChild(chip(T('setup.app_nodata'), '', T('setup.app_nodata_hint')));
     main.appendChild(meta);
     row.appendChild(main);
-    if (d.dumpable) {
-      const key = `dump|${d.container}|type`;
-      row.appendChild(checkbox(T('setup.db_dump'), dget(key) !== undefined, (v) => dset(key, v ? d.type : undefined)));
-    } else {
-      row.appendChild(el('span', 'role', T(d.type === 'cache' ? 'setup.db_cache' : 'setup.db_snapshot')));
-    }
+    const right = el('div', 'bk-right');
+    right.appendChild(levelPick('app:' + a.id));
+    row.appendChild(right);
     list.appendChild(row);
+    // the shares it uses besides its own folder: never ticked unasked - they can grow fast
+    if (l > 0) {
+      a.deps.forEach((d) => {
+        const sh = shareOf(d.share);
+        const key = `${a.id}|${d.share}`;
+        const sub = el('div', 'row nocheck bk-dep');
+        const size = sh && sh.gb !== null ? (sh.gb < 0 ? '> ?' : fmt.size(sh.gb * 1073741824)) : T('setup.app_dep_unknown');
+        const where = d.paths.length ? T('setup.app_dep_paths', { paths: d.paths.join(', ') }) : '';
+        const mode = dget(`share|${d.share}|mode`, 'off');
+        const step3 = !setup.deps.has(key) && mode !== 'off' ? T('setup.app_dep_step3', { mode: T('setup.mode.' + mode) }) : '';
+        sub.title = step3 ? T('setup.app_dep_step3_hint') : '';
+        sub.appendChild(checkbox(T('setup.app_dep', { share: d.share }), setup.deps.has(key), (v) => {
+          if (v) setup.deps.add(key); else setup.deps.delete(key);
+          setupDerive();
+          Office.keepInPlace(sub, () => renderSetup());
+        }, [step3, size, where, T('setup.app_dep_hint')].filter(Boolean).join(' · ')));
+        list.appendChild(sub);
+      });
+    }
   });
-  plan.nextcloud.forEach((n) => {
+  m.skipped.forEach((c) => {
     const row = el('div', 'row nocheck');
     const main = el('div', 'row-main');
-    main.appendChild(el('div', 'row-name', `Nextcloud: ${n.members.join(' + ')}`));
-    main.appendChild(el('div', 'row-meta', T('setup.nc_text')));
+    main.appendChild(el('div', 'row-name', c.name));
     row.appendChild(main);
-    const keys = n.members.map((m) => `nextcloud|${m}|preexisting_maintenance`);
-    const on = keys.some((k) => dget(k) !== undefined);
-    const right = el('div', 'bk-right');
-    const pre = el('select', 'picker');
-    pre.append(new Option(T('setup.nc_abort'), 'abort'), new Option(T('setup.nc_continue'), 'continue'));
-    pre.value = keys.map((k) => dget(k)).find((v) => v) || n.preexisting || 'abort';
-    pre.disabled = !on;
-    pre.title = T('setup.nc_pre_hint');
-    pre.onchange = () => keys.forEach((k) => dset(k, pre.value));
-    right.append(checkbox(T('setup.nc_on'), on, (v) => { keys.forEach((k) => dset(k, v ? pre.value : undefined)); pre.disabled = !v; }), pre);
-    row.appendChild(right);
+    row.appendChild(chip(T(c.kopia ? 'setup.ct_kopia' : 'setup.ct_office'), 'quiet'));
     list.appendChild(row);
   });
   s.appendChild(list);
-  plan.missing_databases.forEach((m) => s.appendChild(el('p', 'callout warn', T('setup.db_missing', { stack: m.stack, service: m.service, type: m.type }))));
+  plan.missing_databases.forEach((md) => s.appendChild(el('p', 'callout warn', T('setup.db_missing', { stack: md.stack, service: md.service, type: md.type }))));
   return s;
 }
 
@@ -1755,39 +1936,42 @@ function setupGeneral(plan) {
   const box = el('div', 'bk-form');
   const zfs = plan.bases.some((b) => b.fs === 'zfs');
   const btrfs = plan.bases.some((b) => b.fs === 'btrfs');
-  if (zfs) {
-    box.appendChild(field(T('setup.g_zfs'), textInput('zfs|retention', /^\d+ \d+ \d+$/), T('setup.g_zfs_hint')));
-    box.appendChild(field(T('setup.g_prefix'), textInput('general|snap_prefix', /^[a-z0-9_]+-$/), T('setup.g_prefix_hint')));
-  }
+  if (zfs) box.appendChild(field(T('setup.g_prefix'), textInput('general|snap_prefix', /^[a-z0-9_]+-$/), T('setup.g_prefix_hint')));
   if (btrfs) {
-    box.appendChild(field(T('setup.g_btrfs_days'), textInput('btrfs|keep_days', /^\d+$/)));
     box.appendChild(field(T('setup.g_btrfs_free'), textInput('btrfs|min_free_gb', /^\d+$/), T('setup.g_btrfs_free_hint')));
     box.appendChild(checkbox(T('setup.g_btrfs_all'), dget('btrfs|snapshot_all') === 'yes', (v) => dset('btrfs|snapshot_all', v ? 'yes' : 'no')));
   }
-  box.appendChild(dumpsShareField(plan));
   box.appendChild(field(T('setup.g_keep_runs'), textInput('general|keep_runs', /^\d+$/), T('setup.g_keep_runs_hint')));
   if (plan.P['libvirt|mode'] !== undefined) {
     box.appendChild(field(T('setup.g_libvirt'), selectInput('libvirt|mode', ['tar', 'off'], (o) => T('setup.libvirt.' + o)), T('setup.g_libvirt_hint')));
   }
-  const flashOpts = plan.flash.dataset ? ['snapshot', 'tar', 'off'] : ['tar', 'off'];
-  box.appendChild(field(T('setup.g_flash'), selectInput('flash|mode', flashOpts, (o) => T('setup.flash.' + o)),
-    plan.flash.dataset ? T('setup.g_flash_zfs', { ds: plan.flash.dataset }) : T('setup.g_flash_other', { fs: plan.flash.fs || '?' })));
   box.appendChild(checkbox(T('setup.g_notify'), dget('general|notify_success') === 'yes', (v) => dset('general|notify_success', v ? 'yes' : 'no')));
+  if (dget('kopia|enabled') === 'yes') {
+    box.appendChild(field(T('setup.p_compression'), textInput('kopia|compression', /^[a-z0-9-]+$/), T('setup.p_compression_hint')));
+    box.appendChild(field(T('setup.p_ignore'), listInput('kopia|ignore', 4), T('setup.p_ignore_hint')));
+  }
   s.appendChild(box);
   return s;
 }
 
-function setupPolicies() {
-  const s = setupSection(T('setup.policies'), T('setup.policies_sub'));
+/** Step 4: two rows of numbers - how long local snapshots stay, how long Kopia keeps its states */
+function setupRetention(plan) {
+  const s = setupSection(T('setup.retention'), T('setup.retention_sub'));
   const box = el('div', 'bk-form');
-  const keep = el('div', 'bk-keep');
-  ['latest', 'hourly', 'daily', 'weekly', 'monthly', 'annual'].forEach((x) => {
-    keep.appendChild(field(T('setup.p_' + x), textInput(`kopia|keep_${x}`, /^(\d+|inherit)$/)));
-  });
-  box.appendChild(keep);
-  box.appendChild(field(T('setup.p_compression'), textInput('kopia|compression', /^[a-z0-9-]+$/), T('setup.p_compression_hint')));
-  box.appendChild(field(T('setup.p_ignore'), listInput('kopia|ignore', 4), T('setup.p_ignore_hint')));
+  if (plan.bases.some((b) => b.fs === 'zfs')) box.appendChild(field(T('setup.g_zfs'), textInput('zfs|retention', /^\d+ \d+ \d+$/), T('setup.g_zfs_hint')));
+  if (plan.bases.some((b) => b.fs === 'btrfs')) box.appendChild(field(T('setup.g_btrfs_days'), textInput('btrfs|keep_days', /^\d+$/)));
   s.appendChild(box);
+  if (dget('kopia|enabled') === 'yes') {
+    const keep = el('div', 'bk-keep');
+    ['latest', 'hourly', 'daily', 'weekly', 'monthly', 'annual'].forEach((x) => {
+      keep.appendChild(field(T('setup.p_' + x), textInput(`kopia|keep_${x}`, /^(\d+|inherit)$/)));
+    });
+    const f = field(T('setup.r_kopia'), keep, T('setup.r_kopia_hint'));
+    const kb = el('div', 'bk-form');
+    kb.appendChild(f);
+    s.appendChild(kb);
+  }
+  s.appendChild(el('p', 'role', T('setup.r_exceptions')));
   return s;
 }
 

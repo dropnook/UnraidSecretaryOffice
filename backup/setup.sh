@@ -3,7 +3,8 @@
 # unraid-backup - setup.sh                        Version 2.17 - 2026-10-05
 #   2.17 --forget: start the setup anew - settings.ini, the office's decisions and the
 #        last plan go to state/reset-<time>/; nothing backed up is touched. The share domains
-#        is proposed as a local snapshot (VMs are held for it since 2.16), not as off
+#        is proposed as a local snapshot (VMs are held for it since 2.16), not as off. The plan
+#        lists the shares each container binds (containers[].binds)
 #   2.16 VMs: [vm "<name>"] prepare = freeze | pause | shutdown | none for the seconds of the
 #        snapshot (released right after the snapshot that holds their disks), mode = off and an own
 #        retention for VMs in a dataset of their own; the libvirt archive after the VMs are held
@@ -2041,6 +2042,17 @@ decisions_load() {
     ok "$n decisions taken over from the office"
 }
 
+# The shares a container binds: "share|path in it|rw" joined by <RS> (for the office's apps step)
+ct_share_binds() { # ct_share_binds <container>
+    local src rw r
+    while IFS='|' read -r src _ rw; do
+        [[ -z "$src" ]] && continue
+        r="$(path_share "$src")" || continue
+        [[ "${r%%|*}" == "*" ]] && continue
+        printf '%s|%s\x1e' "$r" "$rw"
+    done <<<"${CT_BINDS[$1]:-}"
+}
+
 # key<US>value lines -> JSON object; lists (ignore, no_stop, ...) as arrays
 plan_kv() {
     jq -Rn '[inputs | select(length > 0) | index("\u001f") as $i | {key: .[0:$i], value: .[$i + 1:]}]
@@ -2074,12 +2086,13 @@ plan_write() {
     cts="$(for n in "${CT_NAMES[@]}"; do
         printf '%s\x1f' "$n" "${CT_IMAGE[$n]}" "${CT_RUNNING[$n]}" "${CT_STOP[$n]:-}" "${CT_CODE[$n]:-}" "${CT_ARG[$n]:-}" \
             "${CT_PREV[$n]:-}" "${CT_RISK[$n]:-}" "$(printf '%s' "${CT_VOLUMES[$n]:-}" | cut -d'|' -f2 | tr '\n' $'\x1e')" \
-            "${CT_PROJECT[$n]:-}" "${CT_SERVICE[$n]:-}" "$([[ "$n" == "$KOPIA_CONTAINER" ]] && echo 1)"
+            "${CT_PROJECT[$n]:-}" "${CT_SERVICE[$n]:-}" "$([[ "$n" == "$KOPIA_CONTAINER" ]] && echo 1)" "$(ct_share_binds "$n")"
         echo
-    done | us_json name image running stop why why_arg previous risk volumes project service kopia \
+    done | us_json name image running stop why why_arg previous risk volumes project service kopia binds \
          | jq 'map(.running = (.running == "true") | .stop = (.stop == "yes") | .previous = (.previous == "1")
                    | .risk = (.risk == "1") | .kopia = (.kopia == "1")
-                   | .volumes = (.volumes | split("\u001e") | map(select(length > 0))))')"
+                   | .volumes = (.volumes | split("\u001e") | map(select(length > 0)))
+                   | .binds = (.binds | split("\u001e") | map(select(length > 0) | split("|") | {share: .[0], path: .[1], rw: (.[2] == "true")})))')"
     local vms
     vms="$(for n in "${VM_NAMES[@]}"; do
         printf '%s\x1f' "$n" "${VM_STATE[$n]:-}" "${VM_AUTOSTART[$n]:-}" "${VM_AGENT[$n]:-}" "${VM_HOSTDEV[$n]:-0}" "${VM_TPM[$n]:-}" \
