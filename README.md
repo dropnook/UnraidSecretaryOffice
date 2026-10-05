@@ -25,9 +25,9 @@ you need — or let them go again later; their data and settings stay.
 
 More desks can join: each one is a module (see below).
 
-The office speaks English, German and Italian and follows Unraid's language
-(English where it doesn't speak Unraid's); *⋯ → Language* picks another one
-for your browser. Adding a language means adding JSON files.
+The office speaks English, German, Italian, French and Spanish and follows
+Unraid's language (English where it doesn't speak Unraid's); *⋯ → Language*
+picks another one for your browser. Adding a language means adding JSON files.
 
 ## How it works
 

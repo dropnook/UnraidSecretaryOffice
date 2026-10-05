@@ -464,7 +464,7 @@ function testNotify(): void
     same('notify: switched off — the page knows', false, caretakerNotifyPublic(readJson($file) ?? [])['on']);
 
     // Unraid's language, when the office speaks it
-    foreach (['de_DE' => 'de', 'fr_FR' => 'en', '' => 'en', '../x' => 'en'] as $locale => $want) {
+    foreach (['de_DE' => 'de', 'fr_FR' => 'fr', 'pt_BR' => 'en', '' => 'en', '../x' => 'en'] as $locale => $want) {
         file_put_contents("$tmp/dynamix.cfg", "[display]\nlocale=\"$locale\"\n[notify]\nalert=\"1\"\n");
         same("notify language for locale '$locale'", $want, officeNotifyLang("$tmp/dynamix.cfg"));
     }
@@ -700,7 +700,7 @@ function testStrings(): void
     foreach (glob("$pub/desks/*/lang") ?: [] as $dir) {
         $sets[basename(dirname($dir))] = $dir;
     }
-    $complete = ['de', 'it'];   // need every English key in every set; other languages may leave keys out (English fills in)
+    $complete = ['de', 'it', 'fr', 'es'];   // need every English key in every set; other languages may leave keys out (English fills in)
     $en = [];
     foreach ($sets as $desk => $dir) {
         $de = langFile("$dir/de.json");
