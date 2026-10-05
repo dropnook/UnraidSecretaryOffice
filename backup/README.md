@@ -4,7 +4,7 @@ Part of the [Unraid Secretary Office](../README.md): Mr. Backupsy shows and cont
 
 A nightly backup for Unraid servers. It takes consistent **ZFS/btrfs snapshots** and **database dumps**, puts Nextcloud into **maintenance mode** for that, and — if you want — sends everything encrypted offsite with **Kopia**. Everything specific to your server lives in `settings.ini`, which `setup.sh` writes after asking you. The nightly run `backup.sh` reports every difference between the server and `settings.ini`, but never changes it on its own.
 
-Version **2.16** (4 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
+Version **2.17** (5 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
 
 ---
 
@@ -246,8 +246,9 @@ Usually you never call it yourself: Mr. Backupsy's *Set up…* uses it (`--plan`
 | `setup.sh --yes` | take every proposal without asking (also with `--kopia`) |
 | `setup.sh --plan` | like `--yes`, but writes nothing: proposals, reasons (as codes), check results, the saved values and what *Apply* would change in settings.ini, to `state/setup-plan.json` |
 | `setup.sh --apply=<file>` | lay decisions (JSON: settings.ini keys as in the plan → value or list) over the current values, then check, write and align policies like `--yes` |
+| `setup.sh --forget` | start anew: `settings.ini`, the office's decisions and the last plan go to `state/reset-<time>/` (asks first, `--yes` doesn't); snapshots, dumps, Kopia and the history stay. Until the next apply `backup.sh` refuses to run |
 
-`--plan` and `--apply` are the interface of Mr. Backupsy's setup page. Both report their progress in `state/setup-status.json` (`mode`, `result`, `written`, messages with step and level). With `--apply`, dumps and Nextclouds only count when they are in the decisions; old Kopia sources are only set to "manual" with `_retire_sources = yes`, nothing is ever deleted.
+`--plan`, `--apply` and `--forget` are the interface of Mr. Backupsy's setup page. They report their progress in `state/setup-status.json` (`mode`, `result`, `written`, messages with step and level). With `--apply`, dumps and Nextclouds only count when they are in the decisions; old Kopia sources are only set to "manual" with `_retire_sources = yes`, nothing is ever deleted.
 
 Environment: `UB_SETUP`, `UB_YES`, `UB_EXPLAIN`, `UB_SIZE_TIMEOUT` (seconds per share for `du`, 0 = don't measure), `UB_SETTINGS`, `UB_STRIPES`.
 
@@ -378,6 +379,7 @@ So on every new server: *Set up…*, then a check and a dry run first.
 
 ## Versions
 
+- **2.17** – `setup.sh --forget` starts the setup anew: `settings.ini`, the office's decisions and the last plan go to `state/reset-<time>/`; nothing backed up is touched (Mr. Backupsy: "Forget everything and start anew").
 - **2.16** – VMs: per VM how it is treated for the seconds of the snapshot (freeze through the guest agent, pause, shutdown, or as before none), released right after the snapshot that holds its disks; a VM in a dataset of its own can be left out or keep its own retention. The VM configuration archive is written while the VMs are held. `status.json` lists per VM what the run did (`vms`).
 - **2.15** – Part of the office's Unraid plugin too: the engine then lies in RAM (`/usr/local/emhttp/plugins/unraid-secretary-office/backup`) and finds its data through the plugin's `DATA_DIR` (by default still `appdata/UnraidSecretaryOffice/data/unraid-backup`); the plugin's cron file starts the nightly run, so `setup.sh` creates no User Scripts entry there and no longer asks for the User Scripts plugin. In the Compose stack nothing changes.
 - **2.14** – `backup.sh` and `setup.sh` are one block that bash reads completely before it starts: updating the engine while a run takes hours no longer breaks that run. `state/drift.json` also says per Kopia target whether its policy matches settings.ini (`policies`, differences as codes); Mr. Backupsy shows it per share together with the rules. Nothing of the engine directly in `/mnt` any more: the snapshots are mounted under `/mnt/addons/UnraidSecretaryOffice/snapshots`, the btrfs view lives in `…/btrfs-snap`; the office's share `UnraidSecretaryOffice` is proposed as the backup place (folder `backup/`), and a changed backup place is moved by the next run. The setup keeps the chosen backup place instead of guessing it again, and adds the global Kopia rule `_UnraidSecretaryOffice-trash*/`: Ms. Dustdevil's storeroom never goes offsite (its contents were backed up under their old path; the local snapshots keep them).

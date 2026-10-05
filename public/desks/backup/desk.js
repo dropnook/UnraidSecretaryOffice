@@ -1117,6 +1117,19 @@ async function setupLoad() {
     setup.plan = j.plan;
     setup.draft = clone(j.plan.P);
   }
+  const finishedForget = was && was.running && was.mode === 'forget' && !j.status.running;
+  if (finishedForget) {
+    if (j.run && j.run.result === 'ok') {
+      Office.toast(T('setup.forgotten'));
+      setup.plan = null;                     // the old plan went aside with the settings
+      setup.draft = null;
+      setup.applied = null;
+      load(true);
+      await setupPlan(false, true);          // look at the server as if it were new
+      return;
+    }
+    Office.toast(T('setup.forget_failed'), true);
+  }
   const finishedApply = was && was.running && was.mode === 'apply' && !j.status.running;
   if (finishedApply) {
     setup.applied = j.run;
@@ -1208,6 +1221,31 @@ function valueText(v) {
   return v === '' ? '–' : v;
 }
 
+/** Forget the settings and start the setup anew — nothing backed up is touched */
+function setupForget() {
+  const box = el('div');
+  box.appendChild(el('p', '', T('setup.forget_text')));
+  box.appendChild(el('p', 'callout warn', T('setup.forget_warn')));
+  box.appendChild(el('p', '', T('setup.forget_keeps')));
+  box.appendChild(el('p', 'role', T('setup.forget_snapshots')));
+  Office.dialog({
+    title: T('setup.forget_title'),
+    body: box,
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('setup.forget_go'), kind: 'danger', act: async () => {
+        const j = await Office.api.post(`${ID}.setup_forget`, {});
+        if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
+        if (j.state) state = j.state;
+        setup.status = { ...(setup.status || {}), running: true, mode: 'forget' };
+        renderSetup();
+        setTimeout(setupLoad, 500);
+        return true;
+      } },
+    ],
+  });
+}
+
 /** The bar at the bottom: how many changes, apply */
 function setupBar() {
   if (page !== 'setup' || !setup.plan || !setup.draft) { Office.selbar(null); return; }
@@ -1284,7 +1322,7 @@ function renderSetup() {
   [again, measure].forEach((b) => { b.disabled = busy || !canPlan(); });
   measure.title = T('setup.measure_hint');
   let bubble = T('setup.bubble_loading');
-  if (busy) bubble = T(setup.status.mode === 'apply' ? 'setup.bubble_applying' : 'setup.bubble_planning');
+  if (busy) bubble = T({ apply: 'setup.bubble_applying', forget: 'setup.bubble_forgetting' }[setup.status.mode] || 'setup.bubble_planning');
   else if (setup.plan && Date.now() / 1000 - setup.plan.time > SETUP_STALE) bubble = T('setup.bubble_old', { when: fmt.relative(setup.plan.time) });
   else if (setup.plan) bubble = T(setup.plan.have_settings ? 'setup.bubble_have' : 'setup.bubble_new');
   else if (state && state.running) bubble = T('setup.bubble_backup_runs');
@@ -1297,12 +1335,14 @@ function renderSetup() {
     [T('help.reasons'), T('help.reasons_text')],
     [T('setup.more'), T('help.details')],
     [T('setup.apply'), T('help.apply')],
+    [T('setup.forget_short'), T('help.forget')],
   ]));
 
   if (setup.applied) root.appendChild(appliedCard(setup.applied));
   if (busy) {
     const p = el('p', 'callout running');
-    p.append(el('span', 'spin'), ' ', T(setup.status.mode === 'apply' ? (asPlugin() ? 'setup.applying_long_plugin' : 'setup.applying_long') : 'setup.planning_long'));
+    const mode = setup.status.mode;
+    p.append(el('span', 'spin'), ' ', T(mode === 'apply' ? (asPlugin() ? 'setup.applying_long_plugin' : 'setup.applying_long') : mode === 'forget' ? 'setup.forgetting' : 'setup.planning_long'));
     root.appendChild(p);
   }
   if (!setup.plan) { setupBar(); return; }
@@ -1318,6 +1358,13 @@ function renderSetup() {
   const old = (plan.kopia.sources || []).filter((s) => s.state === 'orphan' || s.state === 'gone');
   if (old.length) root.appendChild(setupSources(old));
   root.appendChild(setupMessages(plan.messages));
+  if (plan.have_settings) {
+    const again = el('p', 'bk-forget');
+    const b = button(T('setup.forget'), 'small plain', setupForget);
+    b.disabled = busy || !canPlan();
+    again.appendChild(b);
+    root.appendChild(again);
+  }
   setupBar();
   // came from "Change…" on the main page: show that share
   if (setup.focus) {

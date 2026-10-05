@@ -57,6 +57,7 @@ desk('backup', [
         'setup_plan'  => fn (array $r) => backupSetupPlan(!empty($r['measure'])),
         'setup_get'   => fn (array $r) => backupSetupGet(),
         'setup_apply' => fn (array $r) => backupSetupApply($r['decisions'] ?? null),
+        'setup_forget' => fn (array $r) => backupSetupForget(),
         'schedule'    => fn (array $r) => backupSetSchedule($r['cron'] ?? null),
     ],
     'checks' => fn () => backupChecks(),
@@ -1192,6 +1193,18 @@ function backupSetupApply(mixed $decisions): array
     writeAtomic($file, jsonEncode($clean), 0600, 0, 0);
     backupLaunch(["$dir/setup.sh", "--apply=$file"], ['UB_SIZE_TIMEOUT' => 0]);
     logLine('Backup: setup.sh --apply started via at (' . count($clean) . ' decisions)');
+    return ['ok' => true, 'started' => backupSetupWait(), 'state' => backupScan()];
+}
+
+/**
+ * Starts the setup anew: setup.sh --forget puts settings.ini, the decisions and
+ * the last plan aside (state/reset-<time>/). Nothing backed up is touched.
+ */
+function backupSetupForget(): array
+{
+    $dir = backupCheckReady();
+    backupLaunch(["$dir/setup.sh", '--forget', '--yes']);
+    logLine('Backup: setup.sh --forget started via at');
     return ['ok' => true, 'started' => backupSetupWait(), 'state' => backupScan()];
 }
 

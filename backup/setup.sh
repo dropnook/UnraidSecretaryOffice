@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.16 - 2026-10-04
+# unraid-backup - setup.sh                        Version 2.17 - 2026-10-05
+#   2.17 --forget: start the setup anew - settings.ini, the office's decisions and the
+#        last plan go to state/reset-<time>/; nothing backed up is touched
 #   2.16 VMs: [vm "<name>"] prepare = freeze | pause | shutdown | none for the seconds of the
 #        snapshot (released right after the snapshot that holds their disks), mode = off and an own
 #        retention for VMs in a dataset of their own; the libvirt archive after the VMs are held
@@ -68,6 +70,11 @@
 #                                 values, then check and write like --yes
 #                                 Both write their progress to
 #                                 state/setup-status.json
+#   UB_SETUP=forget    --forget   start anew: settings.ini, the office's decisions
+#                                 and the last plan go to state/reset-<time>/
+#                                 (asks first; with --yes without asking). Snapshots,
+#                                 dumps, Kopia and the history stay. Progress also
+#                                 to state/setup-status.json
 #   UB_YES=1           --yes      take all proposals without asking
 #                                 (also together with --kopia; never deletes Kopia sources)
 #   UB_EXPLAIN=0                  leave out the explanations for each step
@@ -104,6 +111,7 @@ for a in "$@"; do
         --kopia) UB_SETUP="kopia" ;;
         --plan)  UB_SETUP="plan" ;;
         --apply=*) UB_SETUP="apply"; UB_DECISIONS="${a#--apply=}" ;;
+        --forget) UB_SETUP="forget" ;;
         --yes)   UB_YES=1 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown option: $a  (see --help)"; exit 2 ;;
@@ -113,11 +121,11 @@ MODE="${UB_SETUP:-interactive}"
 YES="${UB_YES:-0}"
 [[ "$MODE" == "auto" || "$MODE" == "plan" || "$MODE" == "apply" ]] && YES=1
 [[ "$MODE" == "interactive" && "$YES" == "1" ]] && MODE="auto"
-case "$MODE" in interactive|check|kopia|auto|plan|apply) ;; *) echo "UB_SETUP=$MODE is unknown"; exit 2 ;; esac
+case "$MODE" in interactive|check|kopia|auto|plan|apply|forget) ;; *) echo "UB_SETUP=$MODE is unknown"; exit 2 ;; esac
 SIZE_TIMEOUT="${UB_SIZE_TIMEOUT:-120}"
 EXPLAIN="${UB_EXPLAIN:-1}"
 
-if [[ "$YES" != "1" && ( "$MODE" == "interactive" || "$MODE" == "kopia" ) ]] && ! [[ -r /dev/tty && -t 1 ]]; then
+if [[ "$YES" != "1" && ( "$MODE" == "interactive" || "$MODE" == "kopia" || "$MODE" == "forget" ) ]] && ! [[ -r /dev/tty && -t 1 ]]; then
     echo "No terminal - setup.sh needs input. Without questions: --yes, only checking: --check"
     exit 2
 fi
@@ -177,7 +185,7 @@ bad()  { ERRORS=$((ERRORS+1));     say "  ${C_R}ERROR${C_0}   $*"; msg error "$*
 declare -a MSGS=()
 STEP_ID=""
 msg() {
-    [[ "$MODE" == "plan" || "$MODE" == "apply" ]] || return 0
+    [[ "$MODE" == "plan" || "$MODE" == "apply" || "$MODE" == "forget" ]] || return 0
     local t
     t="$(sed 's/\x1b\[[0-9;]*[mK]//g' <<<"$2")"
     MSGS+=( "$1"$'\x1f'"$STEP_ID"$'\x1f'"$t" )
@@ -1975,6 +1983,30 @@ setup_status_write() { # setup_status_write <result>
     fi
 }
 
+# Start anew: what the setup decided goes aside (state/reset-<time>/), so the
+# next plan proposes everything as on a new server. Nothing backed up is touched;
+# without settings.ini backup.sh refuses to run until the next apply.
+step_forget() {
+    local dir="$UB_STATE/reset-$TS" f n=0
+    [[ -e "$dir" ]] && dir="$dir-$$"
+    if [[ ! -e "$UB_SETTINGS" && ! -e "$UB_STATE/setup-decisions.json" && ! -e "$UB_STATE/setup-plan.json" ]]; then
+        ok "Nothing to forget - there are no settings yet"; return 0
+    fi
+    if interactive && ! ask_yn "Forget the settings and start the setup anew (backups stop until you apply again)?" n; then
+        say "Nothing changed."; return 0
+    fi
+    mkdir -m 700 -p "$dir" || { bad "Cannot create $dir"; return 1; }
+    for f in "$UB_SETTINGS" "$UB_STATE/setup-decisions.json" "$UB_STATE/setup-plan.json"; do
+        [[ -e "$f" ]] || continue
+        mv -f "$f" "$dir/" || { bad "Cannot move $f to $dir"; return 1; }
+        n=$((n+1))
+    done
+    ok "$n file(s) put aside in $dir - the next setup starts as on a new server"
+    hint "Back up again only after the next apply; snapshots, dumps and Kopia stay as they are"
+    [[ -e "$dir/settings.ini" ]] && hint "To go back: mv $dir/settings.ini $UB_SETTINGS"
+    return 0
+}
+
 setup_end() {
     local rc=$?
     if (( rc == 0 )); then setup_status_write ok; else setup_status_write failed; fi
@@ -2096,17 +2128,19 @@ plan_write() {
 ##############################################################################
 exec 9>"$UB_STATE/lock"
 flock -n 9 || { echo "backup.sh is running right now - start setup.sh later."; exit 1; }
-if [[ "$MODE" == "plan" || "$MODE" == "apply" ]]; then
+if [[ "$MODE" == "plan" || "$MODE" == "apply" || "$MODE" == "forget" ]]; then
     SETUP_STARTED="$(date +%s)"
     setup_status_write running
     trap setup_end EXIT
 fi
 
 say "${C_B}$UB_NAME $UB_VERSION - setup ($MODE) on $(hostname -s)${C_0}"
-[[ "$MODE" != "check" && "$MODE" != "plan" ]] && recover_interrupted_run
+[[ "$MODE" != "check" && "$MODE" != "plan" && "$MODE" != "forget" ]] && recover_interrupted_run
 case "$MODE" in
     check)
         STEPS=1; run_check ;;
+    forget)
+        STEP_ID=forget; step_forget || exit 1 ;;
     kopia)
         STEPS=1
         load_settings || { echo "settings.ini is missing - run setup.sh without --kopia first"; exit 1; }
