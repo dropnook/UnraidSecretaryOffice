@@ -2,9 +2,9 @@
 
 Part of the [Unraid Secretary Office](../README.md): Mr. Backupsy shows and controls this engine in the browser — setting it up, scheduling it, starting and stopping runs, helping with restores. It also works without any web page: the office's plugin (or, in the Compose stack, User Scripts) starts it at night, `setup.sh` sets it up in a terminal.
 
-A nightly backup for Unraid servers. It takes consistent **ZFS/btrfs snapshots** and **database dumps**, puts Nextcloud into **maintenance mode** for that, keeps a **package per app and VM** (templates or compose files, dumps, VM configuration) and — if you want — sends everything encrypted offsite with **Kopia**. Everything specific to your server lives in `settings.ini`, which `setup.sh` writes after asking you. The nightly run `backup.sh` reports every difference between the server and `settings.ini`, but never changes it on its own.
+A nightly backup for Unraid servers. It takes consistent **ZFS/btrfs snapshots** and **database dumps**, puts Nextcloud into **maintenance mode** for that, keeps a **package per app and VM** (templates or compose files, dumps, VM configuration) and — if you want — sends everything encrypted offsite with **Kopia**, an app or VM you choose as a Kopia source of its own with its own retention. Everything specific to your server lives in `settings.ini`, which `setup.sh` writes after asking you. The nightly run `backup.sh` reports every difference between the server and `settings.ini`, but never changes it on its own.
 
-Version **2.18** (5 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
+Version **2.19** (5 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
 
 ---
 
@@ -36,7 +36,8 @@ Replacing an existing backup script: `setup.sh` warns when other User Scripts al
  1  load settings.ini, take inventory (pools, disks, shares, datasets, containers)
  2  check and report differences (new / renamed / gone / policies / mapping)
  3  Nextcloud → maintenance mode
- 4  packages: per app its templates or compose files and docker inspect, server/ (images, share configs, settings.ini)
+ 4  packages: per app its templates or compose files and docker inspect, server/ (images, share configs, settings.ini);
+    consistent copies of the databases of media servers that keep running
  5  stop apps, then database dumps into the apps' packages (checked right away);   ┐
     the app packages are swapped in                                              │
  6  stop databases → network containers; hold the VMs, their packages (XML,      │ interruption
@@ -44,8 +45,10 @@ Replacing an existing backup script: `setup.sh` warns when other User Scripts al
  7  ZFS snapshots (atomic per pool), btrfs snapshots (per disk/pool) -           │
     they hold this run's packages too                                            │
  8  start containers (databases first, "healthy"), maintenance off               ┘
- 9  mount snapshots read-only: <mount_root>/<share>                     ┐ only with
-10  Kopia backs up each share from its snapshot (Kopia keeps running)   ┘ Kopia
+ 9  mount snapshots read-only: <mount_root>/<share>; the apps' and VMs'  ┐
+    own sources joined under <mount_root>/.apps|.vms/<name>               │ only with
+10  Kopia backs up the apps, each share, the VMs from the snapshots      ┘ Kopia
+    (Kopia keeps running)
 11  unmount, clean up (ZFS d/w/m, btrfs days + emergency brake, logs; once: the run folders of engines before 2.18), notification
 ```
 
@@ -69,13 +72,14 @@ If a run dies hard (crash, `kill -9`), the stopped containers and the Nextcloud 
 
 /mnt/user/UnraidSecretaryOffice/      the office's share: what the desks keep, one folder per desk
 └── backup/                 the backup place (root only), overwritten by every run:
-    ├── apps/<app>/         manifest.json, my-<name>.xml or compose/ (+ compose-files/), db/, nextcloud/
+    ├── apps/<app>/         manifest.json, my-<name>.xml or compose/ (+ compose-files/), db/ (+ db/sqlite_*.db), nextcloud/
     ├── vms/<vm>/           manifest.json, <vm>.xml, nvram/, tpm/<uuid>/, snapshotdb/
     ├── server/             run.json, settings.ini, shares/, docker lists, libvirt.tar.gz, …
     └── flash/              flash.tar.gz ([flash] mode = tar)
 
 /mnt/addons/UnraidSecretaryOffice/    Unraid's place for add-on mounts (RAM, no data of its own)
 ├── snapshots/<share>       the snapshots, mounted read-only during a run (mount_root)
+├── snapshots/.apps/<app>   an app's own Kopia source: read-only binds of its folders and package (also .vms/<vm>)
 └── btrfs-snap/<disk>       symlinks for browsing the btrfs snapshots (view_root)
 ```
 
@@ -87,7 +91,7 @@ Every real run writes one package per app and per VM to the backup place — sma
 
 | Package | Holds |
 |---|---|
-| `apps/<app>/` | An app is a compose project (named after it) or a single container (named after it); a database container of a project belongs to the project's app. `manifest.json` (per container: image, image id, digests, `docker inspect`; the dumps with the names of the variables they used for user and password, never their values; the files with the run each comes from), the Unraid template(s) `my-<name>.xml`, or `compose/` (the Compose Manager's project folder, without its logs) and `compose-files/` (compose files and `.env` docker compose read elsewhere, e.g. an "indirect" stack), `db/` (the dumps), `nextcloud/` (`config.php`, occ lists) |
+| `apps/<app>/` | An app is a compose project (named after it) or a single container (named after it); a database container of a project belongs to the project's app. `manifest.json` (per container: image, image id, digests, `docker inspect`; the dumps with the names of the variables they used for user and password, never their values; the files with the run each comes from; since 2.19 `sqlite` — the database copies of a media server, where each database lies and whether the copy is checked — and `own_backups` — the app's own backups, see below), the Unraid template(s) `my-<name>.xml`, or `compose/` (the Compose Manager's project folder, without its logs) and `compose-files/` (compose files and `.env` docker compose read elsewhere, e.g. an "indirect" stack), `db/` (the dumps; `sqlite_<container>_<file>`: a media server's database copies), `nextcloud/` (`config.php`, occ lists) |
 | `vms/<vm>/` | `<vm>.xml` (as libvirt keeps it), `nvram/` (UEFI variables, also those of its Unraid VM snapshots), `tpm/<uuid>/` (TPM state), `snapshotdb/` (Unraid's list of its VM snapshots), `manifest.json` (disks with paths, sizes and the snapshot of this run that holds them, the `prepare` used and how the VM was held while the package was written) |
 | `server/` | what belongs to no app: `run.json` (which run wrote the packages, the result of each), `settings.ini`, `shares/*.cfg`, `docker-images.txt`, `docker-ps.txt`, ZFS/btrfs lists, `drift.txt`, `libvirt.tar.gz` (all of libvirt.img: every VM, the networks), templates no container uses (`docker-templates/`), Compose Manager projects without a container (`compose/`) |
 | `flash/` | `flash.tar.gz` (`[flash] mode = tar`) |
@@ -158,6 +162,23 @@ The fix, once: **PUID = 0, PGID = 0** in the Kopia template. Server and engine t
 
 As long as the server doesn't run as root, the engine calls Kopia only as its UID and **starts no snapshots** — it breaks nothing, and the message names the fix.
 
+### Kopia per app and VM (since 2.19)
+
+An app or VM that Mr. Backupsy's setup sets to **local + Kopia** is a Kopia source of its own, with its own retention:
+
+| | |
+|---|---|
+| What goes there | its folders (an app's folders in container-data shares like `appdata/<app>`, a VM's folder in `domains`) and its package (`apps/<app>/` or `vms/<vm>/` in the backup place) |
+| Kopia source | `<container path>/.apps/<app>` (`.vms/<vm>`), e.g. `/backup-snapshots/.apps/nextcloud`; inside, every part lies where it lies on the server: `appdata/nextcloud/…`, `UnraidSecretaryOffice/backup/apps/nextcloud/…` |
+| How | the shares' snapshots are mounted as usual (also a share that only stays local, when such a part lies in it); the parts are bound read-only from there to `<mount_root>/.apps/<app>/<share>/<path>` — child datasets below a folder one by one. Before Kopia starts, every bind is checked in the container's mountinfo like a share; a part that is empty in the snapshot is left out |
+| The shares | leave those parts out of their own sources (rules the engine adds itself, e.g. `/nextcloud/` for appdata, `/backup/apps/nextcloud/` for the backup place) — nothing goes twice, and the app's retention holds. Same repository: what Kopia already has from the share's earlier snapshots is not uploaded again; the share's history stays |
+| Retention | `kopia_retention` of the app or VM; without one its source inherits the policy on `<mount_root>` (`[kopia] keep_*`) |
+| Order | the apps first (small, and what a restore needs first), then the shares, then the VMs (big disks), the flash last |
+
+Why not `<container path>/appdata/nextcloud` as the source: Kopia merges the ignore rules of the policies on every parent path into a source and anchors them at the source's root — the app would also lose its own subfolder `mariadb/` because appdata leaves out the folder of another app called mariadb. A folder whose name begins with a dot is never taken for a share, so `.apps/…` only inherits the policy on `<mount_root>`, and an app, like a share, carries only what differs. (Not `@app`: Kopia reads a path with `@` and without `:` as `user@host`.)
+
+The setup offers rules for folders an app rebuilds itself — Plex `Cache/`, `Codecs/`, `Crash Reports/`, `Logs/`, `Updates/`; Jellyfin `cache/`, `transcodes/`, `log/`; Emby `cache/`, `transcoding-temp/`, `logs/`; Immich `thumbs/`, `encoded-video/` (rebuilding those takes hours) — only where the folder exists, never set unasked. It warns on an app's row when Nextcloud's data folder or Immich's `UPLOAD_LOCATION` lies in a share backed up less than the app: database and files would not match after a restore.
+
 ---
 
 ## Shares
@@ -212,7 +233,11 @@ For the seconds of the snapshots, every running container that writes into backe
 
 Order: apps first, then the database dumps, then the databases, last the network containers (e.g. a VPN whose network others use). Because the apps are already stopped, nobody writes during the dump: dump and files in the snapshot match — also for apps without a maintenance mode, such as Immich. The apps are stopped that much longer (usually seconds). Starting goes the other way round; databases only once they are "healthy".
 
-Apps with their own SQLite database (Emby, Jellyfin, Plex, *arr …) have no dump; they are only clean when stopped for the snapshots. Media servers (Emby, Jellyfin, Plex) are still proposed to keep running, because stopping them would cut running streams; their database is then only crash-consistent in the snapshot, which is usually enough for SQLite.
+Apps with their own SQLite database (Emby, Jellyfin, Plex, *arr …) have no dump; they are only clean when stopped for the snapshots. Media servers (Emby, Jellyfin, Plex) are still proposed to keep running, because stopping them would cut running streams; their database is then only crash-consistent in the snapshot — and Jellyfin's and Plex's own docs say to stop the server for a backup.
+
+So since 2.19 a media server that keeps running gets a **consistent copy of its main databases** in its package: Emby `data/library.db`, `users.db`, `authentication.db`; Jellyfin `data/jellyfin.db` (and `library.db` of older versions); Plex `Plug-in Support/Databases/com.plexapp.plugins.library.db` and `…blobs.db` — found through the container's `/config` bind. The copy is made with SQLite's backup API (`sqlite3 'file:<path>?mode=ro' ".backup '<copy>'"`), read-only and through the very path the server uses (so locks and the WAL index are shared), then checked with `PRAGMA quick_check` (Plex's own SQLite extensions can keep Unraid's `sqlite3` from checking — then the copy is marked "not checked"). It is made while everything still runs, before the apps stop, so it doesn't lengthen the interruption; at most `UB_SQLITE_TIMEOUT` seconds (600) per database. A copy that fails or takes too long is a warning and keeps the last good one; a database that hasn't changed since keeps its last copy too (a hard link — no new blocks in the backup place's snapshots). Never on a sleeping disk. Note: every changed database is a new file each night — the backup place's snapshots keep one copy per night they hold.
+
+**The apps' own backups** are named in the package's manifest (`own_backups`) and in the restore help as a second way: Emby's Backup & Restore plugin (its `BackupDirectory` from `plugins/configurations/MBBackup.xml`), Jellyfin 10.11 and newer (`backups/` in its data folder), Plex's database backups every three days next to its database, Immich `UPLOAD_LOCATION/backups` (daily database dumps, 14 kept). They are only in the backup if their share is.
 
 ## VMs
 
@@ -301,10 +326,10 @@ For Mr. Backupsy in the office (and any other page), `backup.sh` writes its stat
 
 | File | Content |
 |---|---|
-| `status.json` | the running or last finished run (check, dry run, backup): `mode`, `phase`, `result` (`running`, `ok`, `warnings`, `errors`, `failed`, `aborted`), `pid`, times, interruption, differences, the Kopia plan with the current source and the result per source, per VM what the run did (`vms`: `prepare`, `done`, seconds held, `snapshot`), and the packages (`packages`, since 2.18: `base`, `written` — false in a dry run —, `written_bytes`, counts `apps`, `vms`, `errors`, `warnings`, `stale`, `kept`, `old_runs` with `old_runs_action` = `removed` / `would_remove` / `kept`, and `list`: per package `kind` (app, vm, flash), `name`, `folder`, `type` (compose, template, container, vm), `result` (ok, warnings, errors, planned, stale), `files`, `bytes`, `kept`, `stale`, `run`). `dump_bytes` is what the run wrote into the packages |
+| `status.json` | the running or last finished run (check, dry run, backup): `mode`, `phase`, `result` (`running`, `ok`, `warnings`, `errors`, `failed`, `aborted`), `pid`, times, interruption, differences, the Kopia plan with the current source and the result per source (since 2.19 an app's or VM's own source is named `app:<name>` / `vm:<name>`, in the order apps, shares, VMs, flash), per VM what the run did (`vms`: `prepare`, `done`, seconds held, `snapshot`), and the packages (`packages`, since 2.18: `base`, `written` — false in a dry run —, `written_bytes`, counts `apps`, `vms`, `errors`, `warnings`, `stale`, `kept`, `old_runs` with `old_runs_action` = `removed` / `would_remove` / `kept`, and `list`: per package `kind` (app, vm, flash), `name`, `folder`, `type` (compose, template, container, vm), `result` (ok, warnings, errors, planned, stale), `files`, `bytes`, `kept`, `stale`, `run`). `dump_bytes` is what the run wrote into the packages |
 | `last-run.json` | the same for the last real backup run |
 | `history.jsonl` | one line per real backup run, the last 200 — `packages` without `list` |
-| `drift.json` | differences of the last check (`level`, `text`, since 2.18 `code` and `value` for the messages the office translates: `place_no_history`, `place_not_kopia`, `dumps_<problem>`), and per Kopia target whether its policy matches (`policies`: `kind`, `share`, `ok`, `skipped`, `differences` with `what`/`item`/`have`/`want`; `null` when not compared) |
+| `drift.json` | differences of the last check (`level`, `text`, since 2.18 `code` and `value` for the messages the office translates: `place_no_history`, `place_not_kopia`, `dumps_<problem>`), and per Kopia target whether its policy matches (`policies`: `kind` — `root`, `share`, `flash`, since 2.19 `app`, `vm` —, `share` (for kind share), `name` (since 2.19: the share, app or VM), `path`, `ok`, `skipped`, `differences` with `what`/`item`/`have`/`want`; `null` when not compared) |
 | `setup-plan.json` | the last plan of `setup.sh --plan` |
 | `setup-status.json` | progress and messages of `setup.sh --plan` / `--apply` |
 
@@ -325,7 +350,8 @@ Stopping: `SIGTERM` to the `pid` in `status.json` (Mr. Backupsy's *Stop the run*
 | backup place doesn't go to Kopia / can't take snapshots | warning | the packages stay local / keep no history |
 | Docker volumes of a new container | warning | they live in Docker's folder, not in the backup |
 | Kopia policy differs | warning | `setup.sh --kopia` (or *Apply*) aligns it |
-| Kopia policy lacks a share's ignore rule | **error** | this share doesn't go to Kopia (otherwise e.g. an excluded huge folder would be uploaded) |
+| Kopia policy lacks a share's ignore rule | **error** | this share doesn't go to Kopia (otherwise e.g. an excluded huge folder would be uploaded); the same for an app's or VM's own rules. A share's missing rule for an app's folder only differs (that folder goes twice) |
+| an app's or VM's own source: a part in a share that takes no snapshot, a VM left out, an app or VM gone | warning / hint | that part is left out; what is left still goes there |
 | mapping missing / without slave / server not root | **error** | Kopia is skipped, snapshots and dumps run |
 
 The same message doesn't come every night: it is repeated when something changes, otherwise every `remind_days` days. `state/drift.txt` shows the current state.
@@ -347,7 +373,8 @@ The same message doesn't come every night: it is repeated when something changes
 | `[drift] ignore`, `remind_days` | share patterns not reported, reminder interval |
 | `[docker] stop`, `no_stop`, `known` | `all`/`none`, exceptions, known containers |
 | `[flash] mode` | `snapshot` (only /boot on ZFS) / `tar` (archive in `flash/`) / `off` |
-| `[vm "<name>"]` | `mode` = `snapshot` / `off` (only for a VM in a dataset of its own), `prepare` = `freeze` / `pause` / `shutdown` / `none` (default `none`), `retention` = own ZFS retention `d w m` (only with a dataset of its own) |
+| `[vm "<name>"]` | `mode` = `snapshot` / `off` (only for a VM in a dataset of its own), `prepare` = `freeze` / `pause` / `shutdown` / `none` (default `none`), `retention` = own ZFS retention `d w m` (only with a dataset of its own); since 2.19 `kopia`, `folder`, `kopia_retention`, `kopia_ignore` like `[app]` |
+| `[app "<name>"]` | since 2.19, an app (a compose project or a single container, by its name) as a Kopia source of its own: `kopia` = `yes`, `folder` = `<share>/<folder>` it keeps data in (repeatable), `kopia_retention` = `latest hourly daily weekly monthly annual` (missing = `[kopia] keep_*`), `kopia_ignore` = rule relative to its source, `/<share>/<folder>/…` (repeatable). Written by the setup only for apps at "local + Kopia"; with `--apply` only the decisions count |
 | `[libvirt] mode` | `tar` (default) = all of libvirt.img (XML, NVRAM, TPM state of all VMs, networks) as `server/libvirt.tar.gz` / `off`; each VM's package is written either way |
 | `[kopia] enabled` | `yes` = Kopia on, `no` = only local snapshots and dumps |
 | `[kopia] keep_*`, `compression`, `ignore` | policy on `mount_root`, every share inherits it |
@@ -360,7 +387,7 @@ The same message doesn't come every night: it is repeated when something changes
 | `exclude_dataset` | child dataset neither snapshotted nor backed up |
 | `method` | `auto` / `live` |
 
-**Policies per share:** the Kopia policy on `<mount_root>` applies to every share. A share carries in Kopia only what differs (its own ignores, its own retention). Both are in `settings.ini` and set by the setup. The local ZFS retention (`retention`) is separate and only applies on the server.
+**Policies per share:** the Kopia policy on `<mount_root>` applies to every share. A share carries in Kopia only what differs (its own ignores, its own retention, and since 2.19 the folders of apps and VMs with a source of their own). The same for an app's or VM's own source (`.apps/<app>`, `.vms/<vm>`). Both are in `settings.ini` and set by the setup. The local ZFS retention (`retention`) is separate and only applies on the server.
 
 **Change rules and retention in the office (or `settings.ini` + `setup.sh --kopia`), never in the KopiaUI.** The setup writes them into Kopia; every run compares Kopia with `settings.ini` and reports what was changed there by hand, and the next *Apply* sets it back. Kopia thins out old versions itself, following these policies. Mr. Backupsy shows per share what Kopia leaves out (its own rules and the inherited ones), what it keeps, and whether Kopia is really set up like that.
 
@@ -371,7 +398,7 @@ The same message doesn't come every night: it is repeated when something changes
 Mr. Backupsy's *Getting things back* shows the commands below ready-made, with your names and paths, and copy buttons. `<place>` is the backup place (e.g. `/mnt/user/UnraidSecretaryOffice/backup`); older states of the packages are in the snapshots of its share (or in Kopia).
 
 - **Single files from yesterday:** ZFS under `/mnt/<pool>/<share>/.zfs/snapshot/unraidbackup-…/`, btrfs under `<view_root>/<disk>/<time>/<share>/` (`/mnt/addons/UnraidSecretaryOffice/btrfs-snap`).
-- **From Kopia:** KopiaUI › source `<container path>/<share>` (e.g. `/backup-snapshots/appdata`) › snapshot › Restore/Download. The container only sees read-only paths; for a restore straight onto the server, map a writable target for the time being (e.g. `/mnt/user/restore`).
+- **From Kopia:** KopiaUI › source `<container path>/<share>` (e.g. `/backup-snapshots/appdata`) › snapshot › Restore/Download. An app or VM with a source of its own: `<container path>/.apps/<app>` (`.vms/<vm>`) — inside, each part where it lies on the server (`appdata/<app>/…`, and its package `<share>/backup/apps/<app>/…`); its states before 2.19 are in the share's source. The container only sees read-only paths; for a restore straight onto the server, map a writable target for the time being (e.g. `/mnt/user/restore`).
 - **Databases:** stop the app's other containers first, so only the database container runs (Nextcloud: its maintenance mode instead). The dump overwrites what the database holds. Use the credentials the dump was made with — `manifest.json` of the package names the variables (`dumps[].login`, `user_var`, `password_var`):
   - MariaDB/MySQL (root): `zcat <place>/apps/<app>/db/mariadb_<container>_<db>.sql.gz | docker exec -i <container> sh -c 'exec mariadb -uroot -p"$MARIADB_ROOT_PASSWORD"'` — made with the app's user (no root password set): `-u"$MARIADB_USER" -p"$MARIADB_PASSWORD"` instead (or the `MYSQL_*` variables; `mysql` in old images).
   - Postgres: `zcat <place>/apps/<app>/db/postgres_<container>.sql.gz | docker exec -i <container> sh -c 'PGPASSWORD="${POSTGRES_PASSWORD:-}" exec psql -X -U "${POSTGRES_USER:-postgres}" -d postgres'` — errors like "role … already exists" are harmless.
@@ -379,6 +406,8 @@ Mr. Backupsy's *Getting things back* shows the commands below ready-made, with y
   - MongoDB: `docker exec -i <container> sh -c 'exec mongorestore --drop --archive --gzip -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin' < <place>/apps/<app>/db/mongodb_<container>.archive.gz`
   - Nextcloud: `occ maintenance:mode --on` before, `--off` after; if the backup is older than what the sync clients have, then `occ maintenance:data-fingerprint` and `occ files:scan --all`, so the clients upload their newer files instead of deleting them. Its data folder should come from the same night's snapshot.
   - A database's folder from a snapshot only starts with the same major version of the image that wrote it (`manifest.json` records image and digest per container); a dump also goes into a newer version.
+  - A media server's database copy (`db/sqlite_<container>_<file>`): stop the container, copy it over the database (`manifest.json` → `sqlite[].source`), give it the owner of its folder, remove the `-wal` and `-shm` next to it (they belong to the state being replaced), start the container: `docker stop <c> && cp <place>/apps/<app>/db/sqlite_<c>_library.db <source> && chown --reference=<its folder> <source> && chmod 0644 <source> && rm -f <source>-wal <source>-shm && docker start <c>`. Put back the copies of one server together.
+  - The apps' own backups: Emby — the Backup & Restore plugin's page › Restore; Jellyfin 10.11+ — Dashboard › Backups › Restore; Plex — stop it, copy a `com.plexapp.plugins.library.db-<date>` over the database (remove `-wal`/`-shm`), start it; Immich — Administration › Maintenance › Restore database backup.
 - **A single VM:** with the VM service running, copy its `nvram/<uuid>_VARS…fd` to `/etc/libvirt/qemu/nvram/` and its `tpm/<uuid>` to `/etc/libvirt/qemu/swtpm/tpm-states/`, then `virsh define <place>/vms/<vm>/<vm>.xml` (and `virsh autostart`). Its disks must be where the XML says; `manifest.json` names the snapshot holding them. Also works for a VM that is gone — its package stays.
 - **All VMs at once:** `<place>/server/libvirt.tar.gz` holds what libvirt.img holds; unpack it into the image while the VM service is off.
 - **Containers on a new server:** the templates `<place>/apps/*/my-*.xml` to `/boot/config/plugins/dockerMan/templates-user/`, each `compose/` folder to `/boot/config/plugins/compose.manager/projects/<its folder>/` (`manifest.json`: `compose.manager_dir`); which images and digests ran: `manifest.json` per app, `server/docker-images.txt`. The share settings: `server/shares/`.
@@ -407,6 +436,7 @@ So on every new server: *Set up…*, then a check and a dry run first.
 
 ## Versions
 
+- **2.19** – Kopia per app and VM: an app or VM at "local + Kopia" is a Kopia source of its own (`[app|vm "<name>"] kopia = yes`, `folder`, `kopia_retention`, `kopia_ignore`) — its folders and its package, joined read-only under `<mount_root>/.apps|.vms/<name>`, with its own retention; the shares leave those parts out, policies are written by the setup and compared every run (`drift.json` policies of kind `app` / `vm`, with a `name`), the Kopia phase goes apps, shares, VMs, flash. Same repository, so nothing already there is uploaded again; settings.ini without `[app]` sections behaves as before. Media servers that keep running get consistent copies of their SQLite databases in their package (backup API, checked, never on a sleeping disk, the last good copy kept). The apps' own backups (Emby's plugin, Jellyfin, Plex, Immich) are named in the manifest. The setup's plan names per container the media server, Kopia rules to offer for caches, transcodes, logs and thumbnails, and where Nextcloud and Immich keep their files.
 - **2.18** – Packages instead of run folders: per app (a compose project or a single container) and per VM a folder in the backup place with its small files — templates or compose files, `docker inspect` with the image digests, the database dumps, Nextcloud's config, the VM's XML, NVRAM and TPM state — overwritten every run, built aside and swapped in only when complete, before the snapshots; `server/` holds what belongs to no app (with `libvirt.tar.gz`), `flash/` the flash archive. A dump that failed or did not run keeps the last good one, and the package says from which run and which credentials made it. The history lies in the snapshots of the backup place's share: the setup proposes it as at least a local snapshot and refuses `off`, the run reports a share that can't take snapshots. Packages of apps and VMs left out are never deleted (`stale`). `keep_runs` is gone (accepted in old files); the first run clears away the old run folders once all its packages are in place. `status.json` and `last-run.json` gain `packages`, `drift.json` items a `code`.
 - **2.17** – `setup.sh --forget` starts the setup anew: `settings.ini`, the office's decisions and the last plan go to `state/reset-<time>/`; nothing backed up is touched (Mr. Backupsy: "Forget everything and start anew"). The share `domains` is proposed as a local snapshot (the VMs are held for it since 2.16) instead of off. `[docker] skip` lists apps the user does not want backed up: they keep running like `no_stop`, get no dump, and the office has Kopia leave their folders out. The plan lists the shares each container binds (`containers[].binds`). Datasets in Ms. Dustdevil's storeroom (`_UnraidSecretaryOffice-trash-*`) are never snapshotted.
 - **2.16** – VMs: per VM how it is treated for the seconds of the snapshot (freeze through the guest agent, pause, shutdown, or as before none), released right after the snapshot that holds its disks; a VM in a dataset of its own can be left out or keep its own retention. The VM configuration archive is written while the VMs are held. `status.json` lists per VM what the run did (`vms`).

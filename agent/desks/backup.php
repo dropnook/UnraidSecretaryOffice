@@ -11,7 +11,8 @@ declare(strict_types=1);
  * drift.json — see "Status fuer andere Programme" in backup/README.md).
  * Mr. Backup reads that, shows it, and starts, checks or stops runs. Since
  * engine 2.18 the backup place holds a package per app and VM (apps/, vms/,
- * server/, flash/ with a manifest.json each) — read by backupPackages().
+ * server/, flash/ with a manifest.json each) — read by backupPackages(). Since 2.19 apps and VMs
+ * at "local + Kopia" are Kopia sources of their own ([app|vm "<name>"] kopia = yes, backupKopiaItems()).
  *
  * Runs are handed to the host's atd ("at now"). A process started by the
  * agent itself would be stopped with it (the stack's container cgroup, the
@@ -123,6 +124,7 @@ function backupScan(): array
         'drift'      => backupDrift(),
         'settings'   => backupSettingsSummary($settings),
         'shares'     => backupShares($settings, $history),
+        'items'      => backupKopiaItems($settings, $history),
         'vms'        => backupVms($settings),
         'containers' => backupContainers($settings),
         'dumps'      => backupDumps(),           // run folders of engines before 2.18, until the first 2.18 run cleared them
@@ -263,6 +265,56 @@ function backupShares(array $s, array $history): array
     }
     usort($shares, fn ($a, $b) => strnatcasecmp($a['name'], $b['name']));
     return $shares;
+}
+
+/**
+ * Apps and VMs with a Kopia source of their own (engine 2.19, lib/common.sh section 9): kind, name,
+ * the folders it keeps, its own retention and rules, where Kopia finds it (<container path>/.apps|.vms/
+ * <folder>, the container path from the policies the last check compared) and the last Kopia result
+ * of "app:<name>" / "vm:<name>".
+ */
+function backupKopiaItems(array $s, array $history): array
+{
+    if (!in_array(strtolower((string) backupSetting($s, 'kopia', 'enabled', 'no')), ['yes', 'ja', '1', 'true'], true)) {
+        return [];
+    }
+    $last = [];
+    foreach ($history as $run) {                       // newest first
+        foreach ($run['kopia'] ?? [] as $k) {
+            if (preg_match('/^(app|vm):/', $k['name'])) {
+                $last[$k['name']] ??= ['time' => $k['finished'] ?: $run['started'], 'ok' => $k['ok'], 'seconds' => $k['seconds']];
+                if ($k['ok']) {
+                    $last[$k['name']]['good'] ??= $k['finished'] ?: $run['started'];
+                }
+            }
+        }
+    }
+    $paths = [];
+    foreach (backupDrift()['policies'] ?? [] as $p) {
+        if (in_array($p['kind'], ['app', 'vm'], true)) {
+            $paths[$p['kind'] . ':' . $p['name']] = $p['path'];
+        }
+    }
+    $items = [];
+    foreach (['app', 'vm'] as $kind) {
+        $names = array_map(fn ($k) => substr($k, strlen($kind) + 1), array_filter(array_keys($s), fn ($k) => str_starts_with($k, "$kind|")));
+        sort($names, SORT_STRING);
+        foreach ($names as $name) {
+            if (backupSetting($s, "$kind|$name", 'kopia', 'no') !== 'yes') {
+                continue;
+            }
+            $items[] = [
+                'kind'      => $kind,
+                'name'      => $name,
+                'folders'   => array_values($s["$kind|$name"]['folder'] ?? []),
+                'retention' => backupSetting($s, "$kind|$name", 'kopia_retention'),
+                'ignores'   => array_values($s["$kind|$name"]['kopia_ignore'] ?? []),
+                'path'      => $paths["$kind:$name"] ?? null,
+                'last'      => $last["$kind:$name"] ?? null,
+            ];
+        }
+    }
+    return $items;
 }
 
 /**
@@ -551,9 +603,10 @@ function backupDrift(): array
 
 /**
  * Per Kopia target whether its policy matches settings.ini (drift.json, engine
- * 2.14+): kind root|share|flash, the share, ok, skipped (the run left the share
- * out) and the differences as codes. null = not compared (older engine, Kopia
- * off or not reachable).
+ * 2.14+): kind root|share|flash (app|vm since 2.19), the share, the name (the
+ * share, app or VM; older engines: the share), ok, skipped (the run left it out)
+ * and the differences as codes. null = not compared (older engine, Kopia off or
+ * not reachable).
  */
 function backupPolicies(mixed $list): ?array
 {
@@ -563,12 +616,13 @@ function backupPolicies(mixed $list): ?array
     $str = fn ($v) => is_scalar($v) ? (string) $v : '';
     $out = [];
     foreach ($list as $p) {
-        if (!is_array($p) || !in_array($p['kind'] ?? '', ['root', 'share', 'flash'], true)) {
+        if (!is_array($p) || !in_array($p['kind'] ?? '', ['root', 'share', 'flash', 'app', 'vm'], true)) {
             continue;
         }
         $out[] = [
             'kind'    => $p['kind'],
             'share'   => $str($p['share'] ?? ''),
+            'name'    => $str($p['name'] ?? ($p['share'] ?? '')),
             'path'    => $str($p['path'] ?? ''),
             'ok'      => !empty($p['ok']),
             'skipped' => !empty($p['skipped']),
@@ -764,6 +818,15 @@ function backupPackagesRead(string $base): array
                                         'user' => $str($n['user'] ?? '') ?: 'www-data', 'same_as' => $str($n['same_as'] ?? '')],
                                         array_filter((array) ($m['nextcloud'] ?? []), 'is_array'))),
                     'compose_dir' => $str($m['compose']['manager_dir'] ?? ''),
+                    // engine 2.19: consistent copies of the media servers' databases, the apps' own backups
+                    'sqlite'     => array_values(array_map(fn ($q) => ['container' => $str($q['container'] ?? ''), 'file' => $str($q['file'] ?? ''),
+                                        'source' => $str($q['source'] ?? ''), 'path' => $str($q['path'] ?? ''), 'state' => $str($q['state'] ?? ''),
+                                        'check' => $str($q['check'] ?? ''), 'present' => !empty($q['present'])],
+                                        array_filter((array) ($m['sqlite'] ?? []), 'is_array'))),
+                    'own_backups' => array_values(array_map(fn ($o) => ['kind' => $str($o['kind'] ?? ''), 'container' => $str($o['container'] ?? ''),
+                                        'path' => $str($o['path'] ?? ''), 'files' => (int) ($o['files'] ?? 0), 'newest' => (int) ($o['newest'] ?? 0),
+                                        'asleep' => !empty($o['asleep'])],
+                                        array_filter((array) ($m['own_backups'] ?? []), fn ($o) => is_array($o) && in_array($o['kind'] ?? '', ['emby', 'jellyfin', 'plex', 'immich'], true)))),
                 ];
                 $out['apps'][] = $p;
             } else {
@@ -1250,6 +1313,7 @@ function backupChecks(): array
 // ===================================================================== setup (setup.sh --plan / --apply)
 
 const BACKUP_SETUP_KEYS = ['mode', 'retention', 'kopia_retention', 'method', 'kopia_ignore', 'exclude_dataset'];
+const BACKUP_ITEM_KEYS  = ['kopia', 'folder', 'kopia_retention', 'kopia_ignore'];     // [app|vm "<name>"], engine 2.19
 
 /** setup.sh's progress (state/setup-status.json), without the messages */
 function backupSetupStatus(): array
@@ -1361,6 +1425,8 @@ function backupSetupApply(mixed $decisions): array
     $dbs = array_column(array_filter($plan['databases'] ?? [], fn ($d) => !empty($d['dumpable'])), 'container');
     $ncs = array_merge(...array_map(fn ($n) => $n['members'] ?? [], $plan['nextcloud'] ?? []) ?: [[]]);
     $vms = array_column($plan['vms'] ?? [], 'name');
+    // apps as the office groups them: a compose project, or a single container
+    $apps = array_values(array_unique(array_map(fn ($c) => (string) (($c['project'] ?? '') !== '' ? $c['project'] : ($c['name'] ?? '')), $plan['containers'] ?? [])));
     $clean = [];
     foreach ($decisions as $key => $value) {
         $key = (string) $key;
@@ -1368,7 +1434,9 @@ function backupSetupApply(mixed $decisions): array
             || (preg_match('/^share\|(.+)\|([a-z_]+)$/', $key, $m) && in_array($m[1], $shares, true) && in_array($m[2], BACKUP_SETUP_KEYS, true))
             || (preg_match('/^dump\|(.+)\|type$/', $key, $m) && in_array($m[1], $dbs, true))
             || (preg_match('/^nextcloud\|(.+)\|preexisting_maintenance$/', $key, $m) && in_array($m[1], $ncs, true))
-            || (preg_match('/^vm\|(.+)\|(mode|prepare|retention)$/', $key, $m) && in_array($m[1], $vms, true));
+            || (preg_match('/^vm\|(.+)\|(mode|prepare|retention)$/', $key, $m) && in_array($m[1], $vms, true))
+            || (preg_match('/^vm\|(.+)\|([a-z_]+)$/', $key, $m) && in_array($m[1], $vms, true) && in_array($m[2], BACKUP_ITEM_KEYS, true))
+            || (preg_match('/^app\|(.+)\|([a-z_]+)$/', $key, $m) && in_array($m[1], $apps, true) && in_array($m[2], BACKUP_ITEM_KEYS, true));
         $plain = fn ($v) => is_string($v) && strlen($v) <= 500 && !preg_match('/[\x00-\x1f]/', $v);
         $valid = $plain($value) || (is_array($value) && array_is_list($value) && count($value) <= 1000 && !in_array(false, array_map($plain, $value), true));
         if (!$ok || !$valid) {

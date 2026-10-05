@@ -11,7 +11,7 @@ declare(strict_types=1);
  *   logic    the tricky functions (cron, snapshot retention, Emby detection,
  *            the gather's settings, User Scripts schedules, the plugin's cron file,
  *            the menu bar's label, reports to Unraid's notifications,
- *            Mr. Backupsy's packages, Ms. Dustdevil's pictures)
+ *            Mr. Backupsy's packages and his Kopia per app and VM, Ms. Dustdevil's pictures)
  *   strings  German and English have the same keys, Italian has every English
  *            key, no language has keys English lacks, placeholders and plurals
  *            match English, and every text the code asks for exists (desk.js,
@@ -365,6 +365,83 @@ function testBackupPackages(): void
         . ' $T/vms/.ub-old-20261006-0200-v $T/.ub-stage-20261006-0200/apps/a; touch $T/apps/a/new; pkg_recover $T >/dev/null;'
         . ' printf "apps:%s|vms:%s|left:%s" "$(ls $T/apps | paste -sd" " -)" "$(ls $T/vms)" "$(ls -A $T | grep -c "^\.ub-")"; [ -e $T/apps/a/new ] || echo " lost"'));
     exec('rm -rf ' . $t);
+}
+
+/**
+ * Mr. Backupsy's Kopia per app and VM (engine 2.19): the engine's items, the rules the shares get for their
+ * parts, the targets, the checks of settings.ini, sleeping disks, SQLite URIs; settings.ini of 2.18 (no
+ * [app] sections) gives the very same rules as before; the office's reader of policies and packages.
+ */
+function testBackupKopiaItems(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-items-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    $ini = "[general]\ndumps_share = UnraidSecretaryOffice\nmount_root = /mnt/addons/UnraidSecretaryOffice/snapshots\n"
+         . "[kopia]\nenabled = yes\n[share \"appdata\"]\nmode = kopia\nkopia_ignore = /kopia/\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n";
+    file_put_contents("$tmp/old.ini", $ini);
+    file_put_contents("$tmp/new.ini", $ini
+        . "[app \"nextcloud\"]\nkopia = yes\nfolder = appdata/nextcloud\nkopia_retention = 7 0 14 8 24 5\nkopia_ignore = /appdata/nextcloud/data/cache/\n"
+        . "[app \"my app\"]\nkopia = yes\nfolder = appdata/myapp\n[app \"my_app\"]\nkopia = yes\n[app \"left\"]\nkopia = no\nfolder = appdata/left\n"
+        . "[vm \"Win 11\"]\nmode = snapshot\nprepare = freeze\nkopia = yes\nfolder = domains/Win 11\n");
+    file_put_contents("$tmp/bad.ini", $ini . "[app \"x\"]\nkopia = maybe\nfolder = appdata/../etc\nfolder = /appdata/x\nkopia_retention = 7 7\n");
+    file_put_contents("$tmp/disks.ini", "[\"disk1\"]\nname=\"disk1\"\nspundown=\"0\"\n[\"disk10\"]\nname=\"disk10\"\nspundown=\"1\"\n"
+        . "[\"master\"]\nname=\"master\"\nspundown=\"0\"\n[\"master2\"]\nname=\"master2\"\nspundown=\"1\"\n[\"ripley\"]\nname=\"ripley\"\nspundown=\"0\"\n");
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $sh = function (string $file, string $script) use ($lib, $tmp): string {
+        $pre = "UB_DATA=$tmp/data UB_DISKS_INI=$tmp/disks.ini; source $lib >/dev/null 2>&1; cfg_load $tmp/$file; cfg_validate >/dev/null; apply_settings;"
+             . ' INV_METHOD[appdata]=snap; INV_LAYOUT[appdata]=single; INV_LOCS[appdata]="master|zfs|master/appdata|"$\'\\n\';'
+             . ' INV_METHOD[UnraidSecretaryOffice]=snap; INV_LAYOUT[UnraidSecretaryOffice]=single; PLAN_KOPIA=(UnraidSecretaryOffice appdata); PLAN_FLASH=off;';
+        return trim((string) shell_exec('bash -c ' . escapeshellarg("$pre $script") . ' 2>&1'));
+    };
+    $md5 = substr(md5('my_app'), 0, 6);
+    same('items: apps first (sorted), then VMs; a name that comes out the same gets a suffix; kopia = no is none',
+        "app|my app|my_app\napp|my_app|my_app-$md5\napp|nextcloud|nextcloud\nvm|Win 11|Win_11", $sh('new.ini', 'kopia_items'));
+    same('items: an app\'s parts - its folders, then its package', "appdata|nextcloud\nUnraidSecretaryOffice|backup/apps/nextcloud",
+        $sh('new.ini', 'kopia_item_parts app nextcloud'));
+    same('items: a VM\'s package', "domains|Win 11\nUnraidSecretaryOffice|backup/vms/Win_11", $sh('new.ini', 'kopia_item_parts vm "Win 11"'));
+    same('items: the share leaves their folders out, besides its own rules', "/kopia/\n/myapp/\n/nextcloud/", $sh('new.ini', 'kopia_want_ignores share appdata'));
+    same('items: the backup place leaves their packages out', "/backup/apps/my_app/\n/backup/apps/nextcloud/\n/backup/vms/Win_11/",
+        $sh('new.ini', 'kopia_want_ignores share UnraidSecretaryOffice'));
+    same('items: a split share gets a rule per base', "/disk1/myapp/\n/disk1/nextcloud/\n/kopia/\n/master/myapp/\n/master/nextcloud/",
+        $sh('new.ini', 'INV_LAYOUT[appdata]=split; INV_LOCS[appdata]="master|zfs|x|"$\'\\n\'"disk1|btrfs|/mnt/disk1|appdata"; kopia_want_ignores share appdata'));
+    same('items: own rules and retention, or inherited', "/appdata/nextcloud/data/cache/|7 0 14 8 24 5|inherit inherit inherit inherit inherit inherit",
+        $sh('new.ini', 'printf "%s|%s|%s" "$(kopia_want_ignores app nextcloud)" "$(kopia_want_retention app nextcloud)" "$(kopia_want_retention app "my app")"'));
+    $root = '/mnt/addons/UnraidSecretaryOffice/snapshots';
+    same('items: the targets', "root|$root|\nshare|$root/UnraidSecretaryOffice|UnraidSecretaryOffice\nshare|$root/appdata|appdata\n"
+        . "app|$root/.apps/my_app|my app\napp|$root/.apps/my_app-$md5|my_app\napp|$root/.apps/nextcloud|nextcloud\nvm|$root/.vms/Win_11|Win 11",
+        $sh('new.ini', 'kopia_targets'));
+    same('items: none with Kopia off', '', $sh('new.ini', 'KOPIA_ENABLED=no; kopia_items'));
+    same('settings.ini of 2.18: no items, the same rules and targets as before', "|/kopia/|root|$root|\nshare|$root/UnraidSecretaryOffice|UnraidSecretaryOffice\nshare|$root/appdata|appdata",
+        $sh('old.ini', 'printf "%s|%s|%s" "$(kopia_items)" "$(kopia_want_ignores share appdata)" "$(kopia_targets)"'));
+    same('items: settings.ini valid', '0', $sh('new.ini', 'echo ${#CFG_ERRORS[@]}'));
+    same('items: bad keys found', '4', $sh('bad.ini', 'echo ${#CFG_ERRORS[@]}'));
+    same('engine: sleeping disks (a pool sleeps with any of its disks, disk1 is not disk10)', 'master disk10',
+        $sh('new.ini', 'for b in master disk1 disk10 ripley mast; do ub_base_asleep $b && printf "%s " $b; done'));
+    same('engine: a path for an SQLite URI', '/a%20b/Plug-in%20Support/%C3%A4%3F%23.db', $sh('new.ini', 'uri_escape "/a b/Plug-in Support/ä?#.db"'));
+    same('engine: a container path on the host', '/mnt/user/appdata/plex/Library/x|/mnt/user/Backups/Emby|1',
+        $sh('new.ini', 'CT_BINDS[c]="/mnt/user/appdata/plex|/config|true"$\'\\n\'"/mnt/user/Backups/Emby|/config/backup|true";'
+            . ' printf "%s|%s|" "$(ct_host_path c /config/Library/x)" "$(ct_host_path c /config/backup)"; ct_host_path c /data || echo 1'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+
+    // the office: policies of apps and VMs, and what a package says about its databases and the app's own backups
+    $pol = backupPolicies([['kind' => 'app', 'share' => '', 'name' => 'nextcloud', 'path' => '/backup-snapshots/.apps/nextcloud', 'ok' => true, 'differences' => []],
+                           ['kind' => 'share', 'share' => 'appdata', 'path' => '/backup-snapshots/appdata', 'ok' => false, 'differences' => [['what' => 'ignore_missing', 'item' => '/nextcloud/']]],
+                           ['kind' => 'odd', 'share' => 'x']]);
+    same('policies: apps and VMs, the name (older engines: the share)', [['app', 'nextcloud'], ['share', 'appdata']], array_map(fn ($p) => [$p['kind'], $p['name']], $pol));
+    $tmp = sys_get_temp_dir() . '/office-tests-items-pk-' . getmypid();
+    @mkdir("$tmp/apps/emby", 0700, true);
+    @mkdir("$tmp/server", 0700, true);
+    file_put_contents("$tmp/server/run.json", json_encode(['run' => '20261006-0200']));
+    file_put_contents("$tmp/apps/emby/manifest.json", json_encode(['name' => 'EmbyServer', 'type' => 'template', 'run' => '20261006-0200',
+        'sqlite' => [['container' => 'EmbyServer', 'file' => 'db/sqlite_EmbyServer_library.db', 'source' => '/mnt/user/appdata/EmbyServer/data/library.db',
+                      'path' => '/config/data/library.db', 'state' => 'unchanged', 'check' => 'ok', 'present' => true]],
+        'own_backups' => [['kind' => 'emby', 'container' => 'EmbyServer', 'path' => '/mnt/user/Backups/EmbyServer', 'files' => 3, 'newest' => 1791200000, 'asleep' => false],
+                          ['kind' => 'odd', 'path' => '/etc']],
+        'files' => [['path' => 'db/sqlite_EmbyServer_library.db', 'bytes' => 9, 'run' => '20261006-0200', 'what' => 'sqlite', 'container' => 'EmbyServer']]]));
+    $a = backupPackagesRead($tmp)['apps'][0] ?? [];
+    same('packages: the SQLite copies', ['/config/data/library.db', 'unchanged', 'ok', true], [$a['sqlite'][0]['path'] ?? null, $a['sqlite'][0]['state'] ?? null, $a['sqlite'][0]['check'] ?? null, $a['sqlite'][0]['present'] ?? null]);
+    same('packages: the app\'s own backups, known kinds only', [['emby', '/mnt/user/Backups/EmbyServer', 3]], array_map(fn ($o) => [$o['kind'], $o['path'], $o['files']], $a['own_backups'] ?? []));
+    exec('rm -rf ' . escapeshellarg($tmp));
 }
 
 // ===================================================================== notifications
@@ -798,7 +875,7 @@ function testStrings(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify',
-                      'testBackupPackages', 'testIcons'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testIcons'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {

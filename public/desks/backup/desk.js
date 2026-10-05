@@ -87,6 +87,21 @@ function messageText(m) {
   return Office.has(`${ID}.message.${code}`) ? T('message.' + code, { detail: m }) : m;
 }
 
+/** A Kopia source as the run names it: a share, "flash", or app:<name> / vm:<name> (a source of its own, engine 2.19) */
+function srcLabel(name) {
+  const m = /^(app|vm):(.*)$/.exec(name || '');
+  if (m) return T('src.' + m[1], { name: m[2] });
+  return name === 'flash' ? T('flash') : name;
+}
+/** The own Kopia source of an app or VM (state.items), if it has one */
+const itemOf = (kind, name) => (state && state.items || []).find((i) => i.kind === kind && i.name === name) || null;
+/** A chip for an app's or VM's own Kopia source: when Kopia last had it */
+function itemChip(it) {
+  const l = it.last;
+  const text = !l ? T('item.chip_never') : l.ok ? T('item.chip', { when: fmt.relative(l.time) }) : T('item.chip_failed');
+  return chip(text, l && !l.ok ? 'danger' : 'ok', T('item.chip_hint', { path: it.path || '.' + it.kind + 's/' + it.name }));
+}
+
 const lastRun = () => (state && state.history && state.history[0]) || null;
 /** The packages in the backup place (engine 2.18+), null before the first run that wrote some */
 const packages = () => {
@@ -151,7 +166,7 @@ function bubbleText() {
     const p = progress();
     if (s && s.mode !== 'backup') out.push(T('bubble.running_' + s.mode));
     else if (s && s.kopia.current) {
-      out.push(T('bubble.running_kopia', { share: s.kopia.current, n: s.kopia.done.length + 1, total: s.kopia.planned.length }));
+      out.push(T('bubble.running_kopia', { share: srcLabel(s.kopia.current), n: s.kopia.done.length + 1, total: s.kopia.planned.length }));
     } else if (s) out.push(T('bubble.running_phase', { step: T('step.' + STEPS[p ? p.step : 0][0]) }));
     else out.push(T('bubble.running_old', { step: state.step || '…' }));
     if (p && p.eta) out.push(T(p.overdue ? 'bubble.eta_late' : 'bubble.eta', { time: fmt.time(p.eta) }));
@@ -199,6 +214,7 @@ function render() {
     [T('help.rules'), T('help.rules_text')],
     [T('help.vms'), T('help.vms_text')],
     [T('help.packages'), T('help.packages_text')],
+    [T('help.items'), T('help.items_text')],
     [T('help.buttons'), T('help.buttons_text')],
     [T('setup_open'), T('help.setup')],
     [T('history'), T('help.history')],
@@ -345,7 +361,7 @@ function runningCard() {
       const icon = d ? (d.ok ? '✓' : '✕') : current ? '' : '·';
       const mark = el('span', 'bk-mark', icon);
       if (current) mark.appendChild(el('span', 'spin'));
-      r.append(mark, el('span', 'bk-source-name', name));
+      r.append(mark, el('span', 'bk-source-name', srcLabel(name)));
       let info = '';
       if (d) info = d.ok ? dur(d.seconds) : T('failed');
       else if (current) info = dur(Date.now() / 1000 - s.kopia.current_since) + (est[name] ? ' · ' + T('src_last', { d: dur(est[name]) }) : '');
@@ -616,6 +632,8 @@ function protection() {
       if (!v.configured) modeCell.append(' ', chip(T('vm.not_set_up'), 'warn', T('vm.not_set_up_hint')));
       const vp = vmPackage(v.name);
       if (vp && (vp.stale || vp.result === 'errors')) modeCell.append(' ', pkChip(vp));
+      const vi = kopiaOn ? itemOf('vm', v.name) : null;
+      if (vi) modeCell.append(' ', itemChip(vi));
       tr.appendChild(modeCell);
       const last = v.last;
       const lastCell = el('td', '', last && last.snapshot && last.time ? fmt.relative(last.time) : '');
@@ -667,7 +685,10 @@ function protection() {
       tr.appendChild(name);
       const st = el('td');
       st.appendChild(pkChip(a));
-      if (a.files.some((f) => f.run && f.run !== a.run)) st.append(' ', chip(T('pk.kept'), 'warn', T('pk.kept_hint')));
+      if (a.files.some((f) => f.what === 'dump' && f.run && f.run !== a.run)) st.append(' ', chip(T('pk.kept'), 'warn', T('pk.kept_hint')));
+      if (a.files.some((f) => f.what === 'sqlite' && f.run && f.run !== a.run)) st.append(' ', chip(T('pk.sq_kept'), 'warn', T('pk.sq_kept_hint')));
+      const ai = kopiaOn ? itemOf('app', a.name) : null;
+      if (ai) st.append(' ', itemChip(ai));
       tr.appendChild(st);
       const last = el('td', '', a.time ? fmt.relative(a.time) : '');
       if (a.time) last.title = fmt.date(a.time);
@@ -757,6 +778,14 @@ function pkDetail(p) {
     p.containers.forEach((c) => imgs.append(el('span', '', c.name + ': '), el('code', '', c.image), el('br')));
     add(T('pk.d_images'), imgs, el('span', 'role', T('pk.d_images_hint')));
   }
+  if ((p.sqlite || []).length) add(T('pk.d_sqlite'), T('pk.d_sqlite_text', { n: p.sqlite.filter((q) => q.present).length }));
+  if ((p.own_backups || []).length) {
+    const ob = el('div', 'bk-rules');
+    p.own_backups.forEach((o) => ob.append(el('span', '', T('own.kind.' + o.kind) + ': '), el('code', '', o.path), el('br')));
+    add(T('pk.d_own'), ob);
+  }
+  const it = itemOf('app', p.name);
+  if (it && state.settings && state.settings.kopia_enabled) add(T('item.d_source'), copyCode(it.path || '.apps/' + p.name), ' ', el('span', 'role', it.retention ? T('item.keeps_own', { r: it.retention }) : T('item.keeps_all')));
   box.appendChild(dl);
   box.appendChild(el('p', 'role bk-pfoot', T('pk.d_restore')));
   return box;
@@ -765,7 +794,7 @@ function pkDetail(p) {
 /** A VM's protection: its share's, unless it is left out or no snapshot can hold its disks */
 function vmLevel(v, kopiaOn) {
   if ((v.snap && v.snap !== 'yes') || (v.mode === 'off' && v.own.length) || !v.share_mode || v.share_mode === 'off') return 'none';
-  return v.share_mode === 'kopia' && kopiaOn ? 'offsite' : 'local';
+  return (v.share_mode === 'kopia' || itemOf('vm', v.name)) && kopiaOn ? 'offsite' : 'local';
 }
 
 /** An unfolded VM row: how it is treated, what the last run did, where its disks lie, how long snapshots stay */
@@ -797,6 +826,8 @@ function vmDetail(v) {
   if (v.hostdev) notes.push(T('vm.note_gpu', { n: v.hostdev }));
   if (notes.length) add(T('vm.d_notes'), notes.join(' '));
   // its package: XML, UEFI variables, TPM state - written while it was held
+  const vi = set.kopia_enabled ? itemOf('vm', v.name) : null;
+  if (vi) add(T('item.d_source'), copyCode(vi.path || '.vms/' + v.name), ' ', el('span', 'role', vi.retention ? T('item.keeps_own', { r: vi.retention }) : T('item.keeps_all')));
   const vp = vmPackage(v.name);
   if (vp) add(T('pk.d_package'), pkChip(vp), ' ', copyCode(vp.path), ' ', el('span', 'role', vp.time ? fmt.relative(vp.time) : ''));
   else if (packages()) add(T('pk.d_package'), el('span', 'role', T(v.mode === 'off' && v.own.length ? 'pk.vm_left_out' : 'pk.vm_none')));
@@ -839,6 +870,9 @@ function protectionDetail(s, kopiaOn) {
     add(T('pd.skips'), s.ignores.length ? rules(s.ignores) : el('span', 'role', T(s.flash ? 'pd.no_flash_rules' : 'pd.no_own_rules')));
     const inherited = set.kopia_ignore || [];
     if (inherited.length) add(T('pd.inherited'), rules(inherited));
+    // apps and VMs whose folders (or packages, in the backup place) go to Kopia as sources of their own
+    const ownSrc = (state.items || []).filter((i) => i.folders.some((f) => f.split('/')[0] === s.name) || (!s.flash && s.name === set.dumps_share));
+    if (ownSrc.length) add(T('pd.own_sources'), ownSrc.map((i) => srcLabel(i.kind + ':' + i.name)).join(', '), ' ', el('span', 'role', T('pd.own_sources_hint')));
     // kept: the share's own retention where it has one, the shared one otherwise
     const own = (s.kopia_retention || '').trim().split(/\s+/);
     const keep = set.kopia_keep || {};
@@ -989,7 +1023,9 @@ function restoreSection() {
     ' ', T('restore.local_btrfs'), ' ', el('code', '', `${set.view_root || '/mnt/addons/UnraidSecretaryOffice/btrfs-snap'}/<disk>/<…>/<share>/`),
     '. ', Office.desks.has('snapshot') ? snapLink : '');
   if (set.kopia_enabled) {
-    item(T('restore.kopia'), T('restore.kopia_text', { container: set.kopia_container || 'kopia', root: ((state.drift && Array.isArray(state.drift.policies) && state.drift.policies.find((p) => p.kind === 'root')) || {}).path || set.mount_root || '/mnt/addons/UnraidSecretaryOffice/snapshots' }));
+    const root = ((state.drift && Array.isArray(state.drift.policies) && state.drift.policies.find((p) => p.kind === 'root')) || {}).path || set.mount_root || '/mnt/addons/UnraidSecretaryOffice/snapshots';
+    item(T('restore.kopia'), T('restore.kopia_text', { container: set.kopia_container || 'kopia', root }),
+      ...((state.items || []).length ? [' ', T('restore.kopia_items', { root, list: state.items.map((i) => `.${i.kind}s/${i.name}`).join(', ') })] : []));
   }
   const pk = packages();
   if (pk) item(T('restore.pk'), T('restore.pk_text', { path: pk.base }));
@@ -1000,6 +1036,10 @@ function restoreSection() {
     box.appendChild(newServerGuide(pk));
     const db = dumpRestorePk(pk);
     if (db) box.appendChild(db);
+    const sq = sqliteRestorePk(pk);
+    if (sq) box.appendChild(sq);
+    const own = ownBackupsPk(pk);
+    if (own) box.appendChild(own);
     return box;
   }
   // before the first run of engine 2.18: one folder per run
@@ -1212,6 +1252,63 @@ function dumpRestorePk(pk) {
     if (isImmich(a)) wrap.appendChild(immichSteps(a));
     if (a.nextcloud.length) wrap.appendChild(nextcloudSteps(a));
   });
+  return wrap;
+}
+
+/**
+ * The media servers' databases (engine 2.19): consistent copies made while the server kept running - back over
+ * the database with the server stopped; its -wal and -shm belong to the state being replaced and go.
+ */
+function sqliteRestorePk(pk) {
+  const apps = pk.apps.filter((a) => (a.sqlite || []).some((q) => q.present));
+  if (!apps.length) return null;
+  const q1 = (x) => `'${x}'`;
+  const wrap = el('div', 'bk-vm-restore');
+  wrap.appendChild(el('h3', '', T('restore.sq_title')));
+  wrap.appendChild(el('p', 'role', T('restore.sq_text')));
+  const list = el('div', 'box');
+  apps.forEach((a) => {
+    list.appendChild(el('div', 'bk-subhead', a.stale ? `${a.name} · ${T('pk.stale')}` : a.name));
+    a.sqlite.filter((q) => q.present).forEach((q) => {
+      const f = a.files.find((x) => x.path === q.file) || {};
+      const row = el('div', 'row nocheck');
+      const main = el('div', 'row-main');
+      main.appendChild(el('div', 'row-name', q.path.split('/').pop()));
+      const meta = el('div', 'row-meta');
+      meta.append(el('span', '', fmt.size(f.bytes || 0)), el('span', '', f.time ? fmt.date(f.time) : ''));
+      meta.appendChild(q.check === 'ok' ? chip(T('restore.sq_checked'), 'ok', T('restore.sq_checked_hint')) : chip(T('restore.sq_unchecked'), '', T('restore.sq_unchecked_hint')));
+      if (f.run && f.run !== a.run) meta.appendChild(chip(T('pk.sq_kept'), 'warn', T('pk.sq_kept_hint')));
+      main.appendChild(meta);
+      row.appendChild(main);
+      const dir = q.source.slice(0, q.source.lastIndexOf('/'));
+      const cmd = `docker stop ${q.container} && cp ${q1(a.path + '/' + q.file)} ${q1(q.source)} && chown --reference=${q1(dir)} ${q1(q.source)} && chmod 0644 ${q1(q.source)} && rm -f ${q1(q.source + '-wal')} ${q1(q.source + '-shm')} && docker start ${q.container}`;
+      const b = button(T('restore.copy_command'), 'small plain', () => Office.copy(cmd));
+      b.title = cmd;
+      row.appendChild(b);
+      list.appendChild(row);
+    });
+  });
+  wrap.appendChild(list);
+  wrap.appendChild(el('p', 'role', T('restore.sq_after')));
+  return wrap;
+}
+
+/** What the apps keep themselves (Emby's plugin, Jellyfin, Plex, Immich) - a second way back, named with its path */
+function ownBackupsPk(pk) {
+  const all = pk.apps.flatMap((a) => (a.own_backups || []).map((o) => ({ ...o, app: a.name })));
+  if (!all.length) return null;
+  const wrap = el('div', 'bk-vm-restore');
+  wrap.appendChild(el('h3', '', T('restore.own_title')));
+  wrap.appendChild(el('p', 'role', T('restore.own_text')));
+  const dl = el('dl', 'kv');
+  all.forEach((o) => {
+    dl.appendChild(el('dt', '', `${o.app} · ${T('own.kind.' + o.kind)}`));
+    const dd = el('dd');
+    dd.append(copyCode(o.path), ' ', el('span', 'role', o.asleep ? T('own.asleep') : o.files ? T('own.files', { n: o.files, when: fmt.relative(o.newest) }) : T('own.empty')));
+    dd.appendChild(el('div', 'role', T('own.how.' + o.kind)));
+    dl.appendChild(dd);
+  });
+  wrap.appendChild(dl);
   return wrap;
 }
 
@@ -1431,9 +1528,9 @@ async function showLog(name, follow) {
 // settings.ini keys) with reasons; the user changes what he wants here, and
 // setup.sh --apply checks and writes it — the same engine as in a terminal.
 const SETUP_POLL = 2000;
-const LIST_KEY = /\|(ignore|no_stop|known|skip|kopia_ignore|exclude_dataset|tar_exclude)$/;
+const LIST_KEY = /\|(ignore|no_stop|known|skip|kopia_ignore|exclude_dataset|tar_exclude|folder)$/;
 let setup = { plan: null, draft: null, status: null, run: null, applied: null, open: new Set(), retire: true, asked: false, focus: null,
-  model: null, levels: {}, held: {}, deps: new Set(), locks: {} };
+  model: null, levels: {}, held: {}, deps: new Set(), locks: {}, itemKeep: {} };
 let setupTimer = null;
 
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -1448,6 +1545,7 @@ function dset(k, v) {
 /** A fresh draft from the plan, with the apps' and VMs' levels read from it */
 function setupDraftFromPlan() {
   setup.draft = clone(setup.plan.P);
+  setup.itemKeep = {};
   if (!setup.plan.have_settings) {
     // a new setup sends nothing to Kopia unasked: every share starts local, the user picks what goes to Kopia
     Object.keys(setup.draft).forEach((k) => { if (/^share\|.+\|mode$/.test(k) && setup.draft[k] === 'kopia') setup.draft[k] = 'snapshot'; });
@@ -1637,6 +1735,8 @@ function setupApply() {
 function changeLabel(k) {
   const p = k.split('|');
   if (p[0] === 'share') return T('setup.ch_share', { share: p[1], key: T('setup.key.' + p[2]) });
+  if (p[0] === 'app') return T('setup.ch_app', { name: p[1], key: Office.has(`${ID}.setup.key.item_${p[2]}`) ? T('setup.key.item_' + p[2]) : p[2] });
+  if (p[0] === 'vm' && Office.has(`${ID}.setup.key.item_${p[2]}`)) return T('setup.ch_vm', { name: p[1], key: T('setup.key.item_' + p[2]) });
   if (p[0] === 'dump') return T('setup.ch_dump', { name: p[1] });
   if (p[0] === 'nextcloud') return T('setup.ch_nextcloud', { name: p[1] });
   if (p[0] === 'vm') return T('setup.ch_vm', { name: p[1], key: Office.has(`${ID}.setup.key.vm_${p[2]}`) ? T('setup.key.vm_' + p[2]) : p[2] });
@@ -2075,7 +2175,8 @@ function setupInitLevels() {
   setup.deps = new Set();
   m.apps.forEach((a) => {
     // every app has at least its template or compose file: "not" only when the user said so (docker|skip)
-    let l = a.members.every((n) => skip.includes(n)) ? 0 : onKopia(a.folders) ? 2 : 1;
+    // a Kopia source of its own (engine 2.19) says "local + Kopia" also for an app without folders of its own
+    let l = a.members.every((n) => skip.includes(n)) ? 0 : onKopia(a.folders) || dget(`app|${a.name}|kopia`) === 'yes' ? 2 : 1;
     if (fresh) l = Math.min(l, 1);
     setup.levels['app:' + a.id] = l;      // an app's further shares are never ticked unasked (they grow fast)
     // during the snapshot: the engine's proposal - media servers and apps without changing data keep running
@@ -2084,7 +2185,7 @@ function setupInitLevels() {
   m.vms.forEach((x) => {
     const k = (y) => `vm|${x.name}|${y}`;
     const shareOff = x.shares.some((sh) => dget(`share|${sh}|mode`, 'off') === 'off');
-    let l = shareOff || dget(k('mode')) === 'off' || dget(k('prepare')) === 'none' ? 0 : onKopia(x.folders) ? 2 : 1;
+    let l = shareOff || dget(k('mode')) === 'off' || dget(k('prepare')) === 'none' ? 0 : onKopia(x.folders) || dget(k('kopia')) === 'yes' ? 2 : 1;
     if (fresh) l = Math.min(l, 1);
     setup.levels['vm:' + x.name] = l;
   });
@@ -2178,6 +2279,56 @@ function setupDerive() {
       dset(k, list);
     });
   }
+  setupDeriveItems();
+}
+
+/**
+ * Apps and VMs at "local + Kopia" are Kopia sources of their own (engine 2.19): [app|vm "<name>"] kopia = yes
+ * with the folders they keep (an app's folders in container shares, a VM's folder in domains); their package
+ * comes along by itself. A folder several apps use goes to one of them: the one named like it, else the first.
+ * Lower the level and the section goes (its own retention and rules are remembered for this page).
+ */
+function itemFolders() {
+  const m = setup.model;
+  const owner = new Map();
+  m.apps.forEach((a) => {
+    if (levelOf('app:' + a.id) < 2) return;
+    a.folders.forEach((f) => {
+      const key = `${f.share}|${f.dir}`;
+      const named = [a.name, ...a.members].some((n) => n.toLowerCase() === f.dir.toLowerCase());
+      const now = owner.get(key);
+      if (!now || (named && !now.named)) owner.set(key, { id: a.id, named });
+    });
+  });
+  return owner;
+}
+const ITEM_KEYS = ['kopia', 'folder', 'kopia_retention', 'kopia_ignore'];
+function setupDeriveItems() {
+  const m = setup.model;
+  const on = dget('kopia|enabled') === 'yes';
+  const owner = itemFolders();
+  const set = (kind, name, yes, folders) => {
+    const pre = `${kind}|${name}|`;
+    if (yes) {
+      const kept = setup.itemKeep[pre] || {};
+      dset(pre + 'kopia', 'yes');
+      dset(pre + 'folder', folders);
+      ['kopia_retention', 'kopia_ignore'].forEach((x) => { if (dget(pre + x) === undefined && kept[x] !== undefined) dset(pre + x, kept[x]); });
+    } else {
+      if (dget(pre + 'kopia') === 'yes') setup.itemKeep[pre] = { kopia_retention: dget(pre + 'kopia_retention'), kopia_ignore: dget(pre + 'kopia_ignore') };
+      ITEM_KEYS.forEach((x) => dset(pre + x, undefined));
+    }
+  };
+  const names = new Set();
+  m.apps.forEach((a) => {
+    const yes = on && levelOf('app:' + a.id) === 2 && !names.has(a.name);
+    names.add(a.name);
+    set('app', a.name, yes, yes ? a.folders.filter((f) => (owner.get(`${f.share}|${f.dir}`) || {}).id === a.id).map((f) => `${f.share}/${f.dir}`) : []);
+  });
+  m.vms.forEach((x) => {
+    const yes = on && levelOf('vm:' + x.name) === 2;
+    set('vm', x.name, yes, yes ? x.folders.map((f) => `${f.share}/${f.dir}`) : []);
+  });
 }
 
 /** nicht | lokal | lokal + Kopia */
@@ -2293,6 +2444,7 @@ function setupApps(plan) {
       meta.appendChild(chip(T('setup.app_nodata'), flashOff ? 'warn' : '', T(flashOff ? 'setup.app_nodata_noflash' : 'setup.app_nodata_hint')));
     }
     main.appendChild(meta);
+    appDataWarnings(a, l, plan).forEach((w) => main.appendChild(w));
     row.appendChild(main);
     const right = el('div', 'bk-right');
     right.appendChild(levelPick('app:' + a.id));
@@ -2339,6 +2491,31 @@ function setupApps(plan) {
   s.appendChild(list);
   plan.missing_databases.forEach((md) => s.appendChild(el('p', 'callout warn', T('setup.db_missing', { stack: md.stack, service: md.service, type: md.type }))));
   return s;
+}
+
+/**
+ * Nextcloud's data folder and Immich's UPLOAD_LOCATION: when their share is backed up less than the app,
+ * database and files don't match after a restore. A visible warning - the share is never ticked unasked.
+ */
+function appDataWarnings(a, l, plan) {
+  if (l < 1) return [];
+  const max = dget('kopia|enabled') === 'yes' ? 2 : 1;
+  const seen = new Set();
+  const out = [];
+  a.members.forEach((n) => {
+    const c = plan.containers.find((x) => x.name === n);
+    const d = c && c.data;
+    if (!d || seen.has(`${d.share}|${d.path}`)) return;
+    seen.add(`${d.share}|${d.path}`);
+    const own = a.folders.some((f) => f.share === d.share && (d.path === f.dir || d.path.startsWith(f.dir + '/')));
+    const cov = own ? l : Math.min(Math.max(0, LV.indexOf(dget(`share|${d.share}|mode`, 'off'))), max);
+    if (cov >= l) return;
+    const w = el('div', 'bk-warnline');
+    w.append(chip(T('setup.data_chip.' + d.kind), 'warn'), ' ',
+      T(cov === 0 ? 'setup.data_off' : 'setup.data_local', { what: T('setup.data_what.' + d.kind), share: d.share, path: d.path ? `${d.share}/${d.path}` : d.share }));
+    out.push(w);
+  });
+  return out;
 }
 
 /** The backup place in a share — the engine's rule: the office's share has one folder per desk */
@@ -2412,9 +2589,89 @@ function setupRetention(plan) {
     const kb = el('div', 'bk-form');
     kb.appendChild(f);
     s.appendChild(kb);
+    const items = setupItems(plan);
+    if (items) s.appendChild(items);
   }
   s.appendChild(el('p', 'role', T('setup.r_exceptions')));
   return s;
+}
+
+/**
+ * Apps and VMs at "local + Kopia": each a Kopia source of its own - how long Kopia keeps it, and what it
+ * leaves out of it. The rules the office offers (caches, transcodes, logs, Immich's thumbnails) are never set unasked.
+ */
+function setupItems(plan) {
+  const m = setup.model;
+  const apps = m.apps.filter((a) => dget(`app|${a.name}|kopia`) === 'yes');
+  const vms = m.vms.filter((x) => dget(`vm|${x.name}|kopia`) === 'yes');
+  if (!apps.length && !vms.length) return null;
+  const wrap = el('div', 'bk-items');
+  wrap.appendChild(el('p', 'role bk-items-sub', T('setup.items_sub')));
+  const list = el('div', 'box');
+  list.appendChild(el('div', 'bk-subhead', T('setup.items')));
+  const row = (kind, name, offers) => {
+    const pre = `${kind}|${name}|`;
+    const r = el('div', 'row nocheck bk-item');
+    r.dataset.focus = `${kind}:${name}`;
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name', name));
+    const meta = el('div', 'row-meta');
+    meta.appendChild(el('span', '', T('setup.item_kind.' + kind)));
+    const folders = dget(pre + 'folder', []) || [];
+    meta.appendChild(el('span', 'mono', folders.length ? folders.join(', ') : T('setup.item_pkg_only')));
+    main.appendChild(meta);
+    // offered rules: in its own folders -> its own rule; in a share that goes to Kopia by itself -> that share's rule
+    if (offers.length) {
+      const sug = el('div', 'bk-chips');
+      offers.forEach((o) => {
+        const mine = folders.some((f) => `${o.share}/${o.path}` === f || `${o.share}/${o.path}`.startsWith(f + '/'));
+        const shareKopia = dget(`share|${o.share}|mode`) === 'kopia';
+        if (!mine && !shareKopia) return;
+        const key = mine ? pre + 'kopia_ignore' : `share|${o.share}|kopia_ignore`;
+        const rule = mine ? `/${o.share}/${o.path}/` : `/${o.path}/`;
+        const have = (dget(key, []) || []).includes(rule);
+        const b = button(`${o.share}/${o.path}/ · ${T('setup.offer.' + o.kind)}`, 'small ' + (have ? '' : 'plain'), () => {
+          const now = [...(dget(key, []) || [])];
+          const i = now.indexOf(rule);
+          if (i >= 0) now.splice(i, 1); else now.push(rule);
+          dset(key, now);
+          Office.keepInPlace(b, () => renderSetup());
+        });
+        b.title = T(have ? 'setup.offer_on' : 'setup.offer_off') + ' ' + T('setup.offer_hint.' + (['thumbs', 'video'].includes(o.kind) ? 'immich' : 'cache'));
+        sug.appendChild(b);
+      });
+      if (sug.childNodes.length) {
+        sug.prepend(el('small', 'role', T('setup.offers')));
+        main.appendChild(sug);
+      }
+    }
+    r.appendChild(main);
+    const right = el('div', 'bk-right');
+    const ret = textInput(pre + 'kopia_retention', /^(\d+|inherit)( (\d+|inherit)){5}$/, T('setup.item_like_all'));
+    ret.classList.add('bk-kret');
+    ret.title = T('setup.item_ret_hint');
+    const lab = el('label', 'bk-ret-field');
+    lab.append(el('span', 'role', T('setup.item_ret')), ret);
+    right.appendChild(lab);
+    const open = setup.open.has(pre);
+    right.appendChild(button(open ? T('setup.less') : T('setup.more'), 'small plain', () => {
+      if (open) setup.open.delete(pre); else setup.open.add(pre);
+      renderSetup();
+    }));
+    r.appendChild(right);
+    list.appendChild(r);
+    if (open) {
+      const d = el('div', 'row nocheck bk-dep');
+      const box = el('div', 'bk-form');
+      box.appendChild(field(T('setup.item_ignore'), listInput(pre + 'kopia_ignore', 3), T('setup.item_ignore_hint', { example: `/${(folders[0] || 'appdata/' + name)}/cache/` })));
+      d.appendChild(box);
+      list.appendChild(d);
+    }
+  };
+  apps.forEach((a) => row('app', a.name, a.members.flatMap((n) => ((plan.containers.find((c) => c.name === n) || {}).offers || []))));
+  vms.forEach((x) => row('vm', x.name, []));
+  wrap.appendChild(list);
+  return wrap;
 }
 
 function setupSources(old) {

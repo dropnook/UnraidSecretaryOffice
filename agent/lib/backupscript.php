@@ -192,6 +192,19 @@ function backupProtection(string $path, int $depth = 0): ?string
     }
     $share = $m[2];
     $rel = $m[3] ?? '';
+    // a folder of an app or VM with a Kopia source of its own (engine 2.19) goes offsite there,
+    // whatever its share does - as long as the share takes a snapshot to read it from
+    if ($kopia && $rel !== '' && backupSetting($s, "share|$share", 'mode', 'off') !== 'off') {
+        foreach ($s as $section => $keys) {
+            if (preg_match('/^(app|vm)\|/', $section) && ($keys['kopia'] ?? []) && end($keys['kopia']) === 'yes') {
+                foreach ($keys['folder'] ?? [] as $f) {
+                    if ($f === "$share/$rel" || str_starts_with("$share/$rel", rtrim($f, '/') . '/')) {
+                        return 'offsite';
+                    }
+                }
+            }
+        }
+    }
     $mode = backupSetting($s, "share|$share", 'mode');
     if ($mode === null || $mode === 'off') {
         return 'none';
