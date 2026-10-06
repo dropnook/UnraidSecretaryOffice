@@ -11,10 +11,33 @@
 # Only while the array is started: the office's data lies in appdata, and
 # nothing may land in /mnt while it is a bare RAM folder. The watch looks
 # itself (a stopped array resets its count).
+#
+# Once per job and minute: Unraid's crond reads root's own crontab as well as
+# /etc/cron.d/root, so a line that is in both (or twice in one) starts a job
+# twice at the same time. The second start ends here quietly, with one line in
+# the syslog (the night watchman and Ms. Protocolli see it).
 
 DIR=/usr/local/emhttp/plugins/unraid-secretary-office
+RUN=/var/run/unraid-secretary-office
 
 cd / || exit 1
+case "$1" in
+    backup|snapshots|embycache|gather|watch) ;;
+    *) echo "Usage: bash $0 backup|snapshots|embycache|gather|watch"; exit 2 ;;
+esac
+
+# the minute this job last started, in a stamp of its own, read and written under its lock;
+# anything in the way (no RAM folder, no lock): the job runs - twice is better than never
+if mkdir -p "$RUN" 2>/dev/null && chmod 700 "$RUN" && exec 9>>"$RUN/job-$1.minute" && flock -w 10 9; then
+    now=$(date +%Y%m%d%H%M)
+    if [[ "$(cat "$RUN/job-$1.minute" 2>/dev/null)" == "$now" ]]; then
+        logger -t unraid-secretary-office "job $1: second start in the same minute skipped"
+        exit 0
+    fi
+    echo "$now" >"$RUN/job-$1.minute"
+fi
+exec 9>&-          # not into the job: it would hold the lock for hours
+
 [[ "$1" == watch ]] && exec bash "$DIR/scripts/agent.sh" watch
 grep -q '^fsState="Started"' /var/local/emhttp/var.ini 2>/dev/null || exit 0
 
@@ -22,5 +45,4 @@ case "$1" in
     backup)    exec bash "$DIR/backup/backup.sh" ;;
     snapshots) exec php "$DIR/agent/agent.php" job snapshot-plans ;;
     embycache|gather) exec php "$DIR/agent/agent.php" job "$1" ;;
-    *)         echo "Usage: bash $0 backup|snapshots|embycache|gather|watch"; exit 2 ;;
 esac
