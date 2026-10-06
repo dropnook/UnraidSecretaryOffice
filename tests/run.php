@@ -878,6 +878,122 @@ SH);
 }
 
 /**
+ * Engine 2.21 in the office: what waits for a decision (backupWaiting - folders decided since drop out, apps by
+ * compose project, VMs without settings), a new folder's protection (only local), and the setup assistant's
+ * logic run by node (Unraid ships it; skipped where it is missing): new apps and VMs at most local and kept
+ * running, a new folder nobody owns proposed «only local», the apply dialog's group «New».
+ */
+function testBackupNewLocalOffice(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-newlocal-office-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    file_put_contents("$tmp/s.ini", "[general]\ndumps_share = UnraidSecretaryOffice\n[docker]\nknown = c1\nknown = kopia\nknown = nc-app\n[kopia]\nenabled = yes\ncontainer = kopia\n"
+        . "[share \"appdata\"]\nmode = kopia\nkopia_ignore = /kopia/\nkopia_ignore = /we ird?1?/\nkopia_known = /c1/\nkopia_known = /decided/\n"
+        . "[share \"UnraidSecretaryOffice\"]\nmode = kopia\nkopia_known =\n[share \"old\"]\nmode = kopia\n[share \"loc\"]\nmode = snapshot\n[vm \"oldvm\"]\nmode = snapshot\n");
+    $s = backupReadSettings("$tmp/s.ini");
+    file_put_contents("$tmp/new-local.json", json_encode(['interface' => 1, 'folders' => [
+        ['share' => 'appdata', 'folder' => 'bitcoin', 'bytes' => 5, 'first_seen' => 100], ['share' => 'appdata', 'folder' => 'decided'],
+        ['share' => 'appdata', 'folder' => 'we ird[1]'], ['share' => 'appdata', 'folder' => 'a/b'], ['share' => 'loc', 'folder' => 'x'],
+        ['share' => 'old', 'folder' => 'x'], 'odd']]));
+    $w = backupWaiting($s, [['name' => 'oldvm', 'configured' => true], ['name' => 'newvm', 'configured' => false]],
+        ['c1' => '', 'kopia' => '', 'nc-app' => 'nextcloud', 'nc-redis' => 'nextcloud', 'btc' => '', 'imm-a' => 'immich', 'imm-b' => 'immich'], "$tmp/new-local.json");
+    same('office waiting: folders still undecided (decided, ignored, unwatched ones drop out)', [['appdata', 'bitcoin', 5, 100]],
+        array_map(fn ($f) => [$f['share'], $f['folder'], $f['bytes'], $f['first_seen']], $w['folders']));
+    same('office waiting: new apps - none of their containers known (a known stack with a new member is not new)', ['btc', 'immich'], $w['apps']);
+    same('office waiting: new VMs', ['newvm'], $w['vms']);
+    same('office waiting: nothing before the first setup', ['folders' => [], 'apps' => [], 'vms' => []], backupWaiting([], [['name' => 'v', 'configured' => false]], [], "$tmp/new-local.json"));
+    same('protection: a recorded folder goes offsite, a new one only local, the backup place\'s folder always goes',
+        ['offsite', 'local', 'local', 'offsite', 'offsite', 'offsite'],
+        [backupProtection('/mnt/user/appdata/c1/x', 0, $s), backupProtection('/mnt/user/appdata/bitcoin', 0, $s), backupProtection('/mnt/user/appdata/kopia', 0, $s),
+         backupProtection('/mnt/user/UnraidSecretaryOffice/backup/apps', 0, $s), backupProtection('/mnt/user/old/anything', 0, $s), backupProtection('/mnt/user/appdata', 0, $s)]);
+
+    // the setup assistant, under node
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('office setup logic: node is missing here - skipped', true);
+        exec('rm -rf ' . escapeshellarg($tmp));
+        return;
+    }
+    $plan = [
+        'time' => time(), 'have_settings' => true,
+        'P' => ['kopia|enabled' => 'yes', 'general|dumps_share' => 'UnraidSecretaryOffice', 'docker|no_stop' => ['btc', 'nc-redis'], 'docker|skip' => [], 'docker|known' => ['c1', 'c2', 'c3', 'btc', 'nc-app', 'nc-redis'],
+                'share|appdata|mode' => 'kopia', 'share|appdata|kopia_ignore' => ['/kopia/'], 'share|appdata|kopia_known' => ['/c1/', '/c2/', '/c3/', '/nc/'],
+                'share|UnraidSecretaryOffice|mode' => 'kopia', 'share|UnraidSecretaryOffice|kopia_known' => ['/backup/'],
+                'share|domains|mode' => 'snapshot', 'vm|oldvm|mode' => 'snapshot', 'vm|oldvm|prepare' => 'pause', 'vm|newvm|mode' => 'snapshot', 'vm|newvm|prepare' => 'none',
+                'vm|sharedvm|mode' => 'snapshot', 'vm|sharedvm|prepare' => 'none'],
+        'O' => ['kopia|enabled' => 'yes', 'general|dumps_share' => 'UnraidSecretaryOffice', 'docker|no_stop' => ['nc-redis'], 'docker|known' => ['c1', 'c2', 'c3', 'nc-app', 'nc-redis'],
+                'share|appdata|mode' => 'kopia', 'share|appdata|kopia_ignore' => ['/kopia/'], 'share|UnraidSecretaryOffice|mode' => 'kopia', 'share|domains|mode' => 'snapshot',
+                'vm|oldvm|mode' => 'snapshot', 'vm|oldvm|prepare' => 'pause'],
+        'shares' => [
+            ['name' => 'appdata', 'exists' => true, 'folders' => [['dir' => 'c1', 'container' => 'c1'], ['dir' => 'c2', 'container' => 'c2'], ['dir' => 'c3', 'container' => 'c3'],
+                ['dir' => 'bitcoin', 'container' => 'btc'], ['dir' => 'nc', 'container' => 'nc-app']],
+             'waiting' => [['dir' => 'bitcoin', 'bytes' => null, 'first_seen' => null], ['dir' => 'manual[1]', 'bytes' => 1024, 'first_seen' => 100]]],
+            ['name' => 'UnraidSecretaryOffice', 'exists' => true, 'folders' => [], 'waiting' => []],
+            ['name' => 'domains', 'exists' => true, 'folders' => [], 'waiting' => []]],
+        'containers' => [
+            ['name' => 'c1', 'why' => 'writes', 'previous' => true, 'binds' => [['share' => 'appdata', 'path' => 'c1', 'rw' => true]], 'volumes' => []],
+            ['name' => 'c2', 'why' => 'writes', 'previous' => true, 'binds' => [['share' => 'appdata', 'path' => 'c2', 'rw' => true]], 'volumes' => []],
+            ['name' => 'c3', 'why' => 'writes', 'previous' => true, 'binds' => [['share' => 'appdata', 'path' => 'c3', 'rw' => true]], 'volumes' => []],
+            ['name' => 'btc', 'why' => 'new', 'previous' => false, 'binds' => [['share' => 'appdata', 'path' => 'bitcoin', 'rw' => true]], 'volumes' => []],
+            ['name' => 'nc-app', 'project' => 'nextcloud', 'why' => 'writes', 'previous' => true, 'binds' => [['share' => 'appdata', 'path' => 'nc', 'rw' => true]], 'volumes' => []],
+            ['name' => 'nc-redis', 'project' => 'nextcloud', 'why' => 'new', 'previous' => false, 'binds' => [], 'volumes' => []]],
+        'vms' => [
+            ['name' => 'oldvm', 'why' => 'previous', 'agent' => 'no', 'own' => ['master/domains/oldvm'], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/oldvm/vdisk1.img']]],
+            ['name' => 'newvm', 'why' => 'new', 'agent' => 'no', 'own' => ['master/domains/newvm'], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/newvm/vdisk1.img']]],
+            ['name' => 'sharedvm', 'why' => 'new', 'agent' => 'no', 'own' => [], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/sharedvm/vdisk1.img']]]],
+        'databases' => [], 'nextcloud' => [], 'missing_databases' => [],
+    ];
+    file_put_contents("$tmp/plan.json", json_encode($plan));
+    $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, selbar: () => {}, has: () => false };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+b.setup.plan = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+b.setupDraftFromPlan();
+const d = b.setup.draft;
+const out = {
+  levels: b.setup.levels, held: b.setup.held,
+  ignore: d['share|appdata|kopia_ignore'], known: d['share|appdata|kopia_known'], noStop: d['docker|no_stop'],
+  prepare: [d['vm|newvm|prepare'], d['vm|sharedvm|prepare'], d['vm|oldvm|prepare']],
+  waiting: b.waitingFolders().map((w) => [w.dir, w.owner && w.owner.name, b.waitChoice(w)]),
+  news: b.setupNewLines(),
+  changes: b.setupChanges(b.setupSaved(), d),
+};
+b.waitSet(b.waitingFolders()[1], 'kopia');
+out.afterKopia = [b.setup.draft['share|appdata|kopia_known'], b.setup.draft['share|appdata|kopia_ignore']];
+b.setState({ waiting: { folders: [{ share: 'appdata', folder: 'bitcoin', bytes: 2048 }], apps: ['btc'], vms: [] } });
+out.callout = b.waitingText();
+console.log(JSON.stringify(out));
+JS;
+    file_put_contents("$tmp/t.js", $js);
+    $r = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' ' . escapeshellarg("$tmp/plan.json") . ' 2>&1'), true);
+    if (!is_array($r)) {
+        check('office setup logic: ran under node', false, (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' ' . escapeshellarg("$tmp/plan.json") . ' 2>&1'));
+        exec('rm -rf ' . escapeshellarg($tmp));
+        return;
+    }
+    same('office setup: a new app at most local (its folder lies in a Kopia share), kept running; a known one as before',
+        [1, 'run', 2], [$r['levels']['app:ct:btc'] ?? null, $r['held']['ct:btc'] ?? null, $r['levels']['app:ct:c1'] ?? null]);
+    same('office setup: a new VM of its own local and kept running, sharing a dataset "not" (the same); a known one as before',
+        [1, 0, 1, 'none', 'none', 'pause'], [$r['levels']['vm:newvm'] ?? null, $r['levels']['vm:sharedvm'] ?? null, $r['levels']['vm:oldvm'] ?? null, ...$r['prepare']]);
+    same('office setup: Kopia leaves the new app\'s folder and the new folder nobody owns out ("only local" proposed)', ['/kopia/', '/bitcoin/', '/manual?1?/'], $r['ignore']);
+    same('office setup: the record of known folders untouched', ['/c1/', '/c2/', '/c3/', '/nc/'], $r['known']);
+    same('office setup: the waiting folders - owned by an app (it decides), or the user\'s choice', [['bitcoin', 'btc', 'local'], ['manual[1]', null, 'local']], $r['waiting']);
+    same('office setup: the apply dialog\'s group «New» - VMs, apps, new members of a known app, folders',
+        [['setup.new_vm {"name":"newvm"}', 'setup.level.1, setup.vm_prep.none'], ['setup.new_vm {"name":"sharedvm"}', 'setup.level.0'],
+         ['setup.new_app {"name":"btc"}', 'setup.level.1, setup.app_hold.run'], ['setup.new_member {"name":"nc-redis","app":"nextcloud"}', 'setup.level.2, setup.app_hold.stop'],
+         ['appdata/bitcoin', 'setup.waiting_follows {"name":"btc","level":"setup.level.1"}'], ['appdata/manual[1]', 'setup.waiting_local']], $r['news']);
+    check('office setup: the first record of a share\'s folders is a change Apply makes (also an empty one)',
+        in_array('share|appdata|kopia_known', $r['changes'], true) && in_array('share|UnraidSecretaryOffice|kopia_known', $r['changes'], true), json_encode($r['changes']));
+    same('office setup: «local + Kopia» for a new folder - recorded, its rule goes', [['/c1/', '/c2/', '/c3/', '/nc/', '/manual[1]/'], ['/kopia/', '/bitcoin/']], $r['afterKopia']);
+    same('office main page: the callout', 'waiting.callout {"n":2} waiting.folders {"n":1,"list":"appdata/bitcoin (2048 B)"} · waiting.apps {"n":1,"list":"btc"}', $r['callout']);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * Engine 2.20: a run that finds the lock busy is skipped, never silent — the engine's helpers (the holder
  * note, skipped.json, the history line, the history's own lock) on a temporary data folder, and the
  * office's side: who holds the lock, skips kept apart from the runs (history, estimates, the last run),
@@ -4346,7 +4462,7 @@ function testWhereaboutsAfterWatchman(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman'],
           'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
           'strings' => ['testStrings']];

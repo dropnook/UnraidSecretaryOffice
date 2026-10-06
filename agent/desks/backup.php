@@ -21,6 +21,10 @@ declare(strict_types=1);
  * Older script versions without state/status.json are shown from their log
  * files (read only); starting needs interface 1 or newer.
  *
+ * Since engine 2.21 new things stay local and keep running until the user decided: backupWaiting() lists the new
+ * folders the engine left out of Kopia (state/new-local.json), the new apps (containers not in [docker] known) and
+ * the new VMs (no [vm] section) for the main page; the setup decides about them (kopia_known / kopia_ignore).
+ *
  * Since engine 2.20 a run that finds the lock busy is skipped, not lost: state/skipped.json (the last
  * attempt) and a history.jsonl line with "result": "skipped" — kept apart from the runs (history,
  * estimates, the last run and its downtime never see them) and shown as "skips"; who holds the lock
@@ -219,7 +223,8 @@ function backupScan(): array
         'settings'   => backupSettingsSummary($settings),
         'shares'     => backupShares($settings, $history),
         'items'      => backupKopiaItems($settings, $history),
-        'vms'        => backupVms($settings),
+        'vms'        => $vms = backupVms($settings),
+        'waiting'    => backupWaiting($settings, $vms),   // new folders, apps and VMs waiting for a decision (engine 2.21)
         'containers' => backupContainers($settings),
         'dumps'      => backupDumps(),           // run folders of engines before 2.18, until the first 2.18 run cleared them
         'packages'   => backupPackages($settings),
@@ -969,6 +974,72 @@ function backupZfsSnapSum(string $out, string $snap): ?int
 
 // ===================================================================== more state
 
+/**
+ * What is new and waits for the user's decision — only local and kept running so far (engine 2.21):
+ *   folders  the engine's state/new-local.json (the last run that reached Kopia), without those decided since:
+ *            in kopia_known or kopia_ignore of their share now, or the share no longer goes to Kopia
+ *   apps     containers not in [docker] known, grouped like the setup (a compose project or a single container);
+ *            an app counts when none of its containers is known
+ *   vms      VMs without a [vm "<name>"] section
+ * Nothing before the first setup (no settings.ini) — then everything is still to be set up anyway.
+ * $containers (name => compose project) and $file for the tests; otherwise docker ps and the engine's state.
+ */
+function backupWaiting(array $s, array $vms, ?array $containers = null, ?string $file = null): array
+{
+    $out = ['folders' => [], 'apps' => [], 'vms' => []];
+    if (!$s) {
+        return $out;
+    }
+    $kopiaOn = in_array(strtolower((string) backupSetting($s, 'kopia', 'enabled', 'no')), ['yes', 'ja', '1', 'true'], true);
+    $j = readJson($file ?? BACKUP_DATA_DIR . '/state/new-local.json');
+    foreach (is_array($j['folders'] ?? null) ? $j['folders'] : [] as $f) {
+        $share = is_array($f) && is_string($f['share'] ?? null) ? $f['share'] : '';
+        $folder = is_array($f) && is_string($f['folder'] ?? null) ? $f['folder'] : '';
+        if ($share === '' || $folder === '' || preg_match('/[\x00-\x1f\/]/', $folder) || !$kopiaOn
+            || backupSetting($s, "share|$share", 'mode') !== 'kopia' || !isset($s["share|$share"]['kopia_known'])) {
+            continue;
+        }
+        $rule = '/' . $folder . '/';
+        $escaped = '/' . preg_replace('/[*?\[\]\\\\]/', '?', $folder) . '/';
+        if (in_array($rule, $s["share|$share"]['kopia_known'], true)
+            || array_intersect([$rule, $escaped, rtrim($rule, '/'), rtrim($escaped, '/')], $s["share|$share"]['kopia_ignore'] ?? [])) {
+            continue;
+        }
+        $out['folders'][] = ['share' => $share, 'folder' => $folder, 'bytes' => is_int($f['bytes'] ?? null) ? $f['bytes'] : null,
+                             'first_seen' => is_int($f['first_seen'] ?? null) ? $f['first_seen'] : null];
+    }
+    $known = $s['docker']['known'] ?? [];
+    if ($known) {
+        if ($containers === null) {
+            $containers = [];
+            [$exit, $outp] = run(['docker', 'ps', '-a', '--format', '{{.Names}}' . "\t" . '{{.Label "com.docker.compose.project"}}'], 20);
+            foreach ($exit === 0 ? rows($outp) : [] as $r) {
+                if (($r[0] ?? '') !== '') {
+                    $containers[$r[0]] = (string) ($r[1] ?? '');
+                }
+            }
+        }
+        $kopia = (string) backupSetting($s, 'kopia', 'container', '');
+        $apps = [];
+        foreach ($containers as $name => $project) {
+            if ($name === $kopia) {
+                continue;
+            }
+            $app = $project !== '' ? $project : $name;
+            $apps[$app] = ($apps[$app] ?? true) && !in_array($name, $known, true);
+        }
+        $out['apps'] = array_keys(array_filter($apps));
+        natcasesort($out['apps']);
+        $out['apps'] = array_values($out['apps']);
+    }
+    foreach ($vms as $v) {
+        if (empty($v['configured'])) {
+            $out['vms'][] = (string) $v['name'];
+        }
+    }
+    return $out;
+}
+
 function backupDrift(): array
 {
     $data = BACKUP_DATA_DIR;
@@ -1663,7 +1734,7 @@ function backupChecks(): array
 
 // ===================================================================== setup (setup.sh --plan / --apply)
 
-const BACKUP_SETUP_KEYS = ['mode', 'retention', 'kopia_retention', 'method', 'kopia_ignore', 'exclude_dataset'];
+const BACKUP_SETUP_KEYS = ['mode', 'retention', 'kopia_retention', 'method', 'kopia_ignore', 'kopia_known', 'exclude_dataset'];
 const BACKUP_ITEM_KEYS  = ['kopia', 'folder', 'kopia_retention', 'kopia_ignore'];     // [app|vm "<name>"], engine 2.19
 
 /** setup.sh's progress (state/setup-status.json), without the messages */
