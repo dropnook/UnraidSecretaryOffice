@@ -188,9 +188,11 @@ const WATCH_POSTURE = [
     'flash'           => 'advice',
     'public'          => 'advice',
     'telnet'          => 'advice',
+    'upnp'            => 'advice',
     'ftp'             => 'advice',
     'mitigations_off' => 'advice',
     'vmscape'         => 'advice',
+    'remote_access'   => 'info',
     'privileged'      => 'info',
     'mitigations_on'  => 'info',
 ];
@@ -2154,8 +2156,15 @@ function watchmanPostureLook(array $paths): array
 {
     $inetd = isset($paths['inetd']) ? (string) @file_get_contents($paths['inetd'], false, null, 0, 65536) : null;
     $ftp = $inetd === null ? null : preg_match('/^\s*ftp\s/m', $inetd) === 1;
+    $ident = isset($paths['ident']) ? readCfg($paths['ident']) : null;
+    $connect = isset($paths['connect']) ? readJson($paths['connect']) : null;
+    $remote = is_array($connect) ? strtoupper((string) ($connect['dynamicRemoteAccessType'] ?? 'DISABLED')) : null;
     return [
-        'telnet'  => isset($paths['ident']) ? (readCfg($paths['ident'])['USE_TELNET'] ?? 'no') === 'yes' : null,
+        'telnet'  => $ident === null ? null : ($ident['USE_TELNET'] ?? 'no') === 'yes',
+        'upnp'    => $ident === null ? null : ($ident['USE_UPNP'] ?? 'no') === 'yes',
+        // Unraid Connect's remote access: the WebGUI reachable from the internet (STATIC: a port on the router, UPNP: opened by UPnP)
+        'remote'  => $remote === null || $remote === 'DISABLED' || !preg_match('/^[A-Z_]{1,20}$/D', $remote) ? null
+                     : ['type' => $remote, 'port' => (int) ($connect['wanport'] ?? 0) ?: null],
         'ftp'     => $ftp,
         // Fix Common Problems warns about the FTP server itself once it has users (FTPrunning()): then it is its check
         'ftp_fcp' => $ftp === true && isset($paths['plugins'], $paths['ftp_users'])
@@ -2284,6 +2293,13 @@ function watchmanPosture(array $f, array $seen, array $prev = []): array
     }
     if (!empty($f['telnet'])) {
         $add('telnet', [], '', ['to' => 'access', 'path' => '/Settings/ManagementAccess']);
+    }
+    if (!empty($f['upnp'])) {
+        $add('upnp', [], '', ['to' => 'access', 'path' => '/Settings/ManagementAccess']);
+    }
+    if (is_array($f['remote'] ?? null)) {
+        $add('remote_access', ['type' => (string) $f['remote']['type'], 'port' => (string) ($f['remote']['port'] ?? '–')],
+            $f['remote']['type'] . ':' . ($f['remote']['port'] ?? ''), ['to' => 'access', 'path' => '/Settings/ManagementAccess']);
     }
     if (!empty($f['ftp']) && empty($f['ftp_fcp'])) {
         $add('ftp', [], '', ['to' => 'ftp', 'path' => '/Settings/FTP']);
