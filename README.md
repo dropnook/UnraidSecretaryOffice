@@ -261,6 +261,7 @@ get a **supporter key** — the tip jar says how; it shows the server ID the key
 The key unlocks nothing — it just says thank you: the office stops reminding you of the tip jar
 and the Team Lead shows a small thank-you. Backups, restores and every desk work exactly the same
 with or without it.
+Buying or upgrading an Unraid licence? The support page has an affiliate link that supports the office (clearly marked).
 
 ## Thanks
 
