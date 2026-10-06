@@ -103,7 +103,7 @@ function officeMenuPageApply(string $dir, string $name, string $place = 'menu'):
     $own[] = 'Name="' . $name . '"';
     if ($place !== 'menu') {                // no entry of its own in the menu bar: Unraid's title bar names it
         $own[] = 'Title="' . $name . '"';
-        $own[] = 'Tag="bell-o"';            // the icon in that title bar
+        $own[] = 'Tag="building-o"';        // the icon in that title bar
     }
     if ($place === 'settings') {
         $own[] = 'Icon="unraid-secretary-office.png"';
