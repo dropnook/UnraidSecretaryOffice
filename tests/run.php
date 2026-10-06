@@ -796,6 +796,39 @@ function testLogsTour(): void
     check('logs kind: another message is another kind', $kind('Oct  5 01:02:03 Tower sshd[1]: error: connect_to 127.0.0.1 port 18080: failed.')
         !== $kind('Oct  5 01:02:03 Tower sshd[1]: Read error from remote host 127.0.0.1 port 18080: Connection reset by peer'));
 
+    // ... nor do file names and paths: quoted, absolute (also with spaces), relative, Samba's "for <name> with NT_STATUS_…"
+    $samePairs = [
+        'Samba inherit_new_acl' => ['Oct  5 12:00:00 Tower smbd[12]:   open_file_ntcreate: inherit_new_acl failed for Fotos/2024/IMG_0001.jpg with NT_STATUS_ACCESS_DENIED',
+                                    'Oct  5 12:30:00 Tower smbd[99]:   open_file_ntcreate: inherit_new_acl failed for Dokumente/Steuer 2025/Beleg Nr. 7.pdf with NT_STATUS_ACCESS_DENIED'],
+        'Samba [file]'          => ['Oct  5 12:00:00 Tower smbd[12]:   streams_xattr_pwrite: Write to xattr [user.DosStream.WofCompressedData:$DATA] on file [Windows/System32/fr-FR/wmerror.dll.mui] exceeds maximum',
+                                    'Oct  5 12:00:01 Tower smbd[12]:   streams_xattr_pwrite: Write to xattr [user.DosStream.WofCompressedData:$DATA] on file [Windows/SysWOW64/ErrorDetails.dll] exceeds maximum'],
+        'quoted path'           => ['Oct  4 23:21:47 Tower nginx: 2026/10/04 23:21:47 [error] 1#1: *1 open() "/usr/local/emhttp/a/question.png" failed (2: No such file or directory), request: "GET /a/question.png HTTP/1.1", referrer: "http://192.168.7.59/Dashboard"',
+                                    'Oct  4 23:21:48 Tower nginx: 2026/10/04 23:21:48 [error] 1#1: *2 open() "/usr/local/emhttp/b/c/logo.svg" failed (2: No such file or directory), request: "GET /b/c/logo.svg?v=3 HTTP/1.1", referrer: "http://tower.local/Docker"'],
+        'quoted file name'      => ["[05-Oct-2026 08:24:47 Europe/Berlin] PHP Warning:  file_get_contents('state.json'): Failed to open stream",
+                                    "[05-Oct-2026 08:24:48 Europe/Berlin] PHP Warning:  file_get_contents('/tmp/other folder/x.json'): Failed to open stream"],
+        'absolute path'         => ["Oct  5 03:40:01 Tower move: create_parent: /mnt/master/Serien/Gabby's.Dollhouse.(2019)/Season.04 error: No space left on device",
+                                    'Oct  5 03:40:02 Tower move: create_parent: /mnt/master/Serien/Slow.Horses/Season.01 error: No space left on device'],
+        'absolute with spaces'  => ['Oct  5 03:40:01 Tower move: move: /mnt/cache/Filme/Der Name der Rose (1986)/Der Name der Rose.mkv No space left on device',
+                                    'Oct  5 03:40:02 Tower move: move: /mnt/cache/Serien/Slow.Horses/Season.04/Slow.Horses.-.S04E01.mkv No space left on device'],
+    ];
+    foreach ($samePairs as $what => [$a, $b]) {
+        same("logs kind: $what", $kind($a), $kind($b));
+    }
+    $otherPairs = [
+        'Samba: another status' => ['Oct  5 12:00:00 Tower smbd[12]:   inherit_new_acl failed for a/b.txt with NT_STATUS_ACCESS_DENIED',
+                                    'Oct  5 12:00:00 Tower smbd[12]:   inherit_new_acl failed for a/b.txt with NT_STATUS_DISK_FULL'],
+        'quoted words'          => ['time="2026-10-05T20:00:00Z" level=warning msg="cleanup failed"', 'time="2026-10-05T20:00:00Z" level=warning msg="restore failed"'],
+        'the words after a path' => ['Oct  5 03:40:01 Tower move: create_parent: /mnt/a/b error: No space left on device',
+                                    'Oct  5 03:40:01 Tower move: create_parent: /mnt/a/b error: Read-only file system'],
+    ];
+    foreach ($otherPairs as $what => [$a, $b]) {
+        check("logs kind: $what stays apart", $kind($a) !== $kind($b), $kind($a));
+    }
+    same('logs kind: dates, HTTP/1.1, I/O and a lone slash are no paths', 'on 2026/10/04 via HTTP/1.1: I/O error, files / folders',
+        logsNormalizePaths('on 2026/10/04 via HTTP/1.1: I/O error, files / folders'));
+    same('logs kind: a quoted message stays', 'msg="Database locked, sleeping then retrying" [error] "HTTP/3 skipped"',
+        logsNormalizePaths('msg="Database locked, sleeping then retrying" [error] "HTTP/3 skipped"'));
+
     // times at the start of a line
     $times = [
         '2026-10-05 20:52:37.064+0000: 268179: error : x' => '2026-10-05 22:52:37',
