@@ -272,6 +272,20 @@ the desk in the tabs and at the reception, firing hides it again — data and
 whatever it set up on the server stay (`fire_note` says what keeps running).
 Unhired desks get no write actions (`not_hired`) and their checks don't count.
 After hiring, the tip jar (core.js `tipJar`, link `OFFICE_TIP_URL`) says hello — and that a share of the tips goes to helmi1987, the author of Jack Emby's tools (`office.tip_credit`).
+**Supporter key** (Benj, 2026-10-06: no licence, no paywall, nothing ever locked): a thank-you for a tip that unlocks
+nothing — only the reminders ask it, never backups, restores or a desk (`src/supporter.php`, web side like staff.php).
+Server ID = sha256("uso-supporter:" + upper(regGUID, else flashGUID)), first 16 hex as `XXXX-XXXX-XXXX-XXXX`, from
+var.ini like the csrf token (the GUID never leaves the server). Key `USO1.<b64url(payload)>.<b64url(DER ECDSA P-256/SHA-256
+over "USO1.<b64url(payload)>")>`, payload `{"v":1,"id","name","date"}` in that order, checked as transmitted with
+`openssl_verify()` against `OFFICE_SUPPORTER_PUBLIC_KEY` (the exact rules in supporter.php's head; `OFFICE_SUPPORTER_PUBKEY`
+= a PEM file, tests only). Kept in `data/office/supporter.json` (0600, `officeWriteAtomic()`, also `first_seen` and the
+team lead's ask), actions `office.supporter_set|remove|ask`, the page gets `CONFIG.supporter`. A valid key: no tip jar
+after hiring, the tip jar thanks, «☕ Thank you, <name>» at the team lead's «The team». Without: his one ask, a callout
+under «The team» 7 days after `first_seen` («Not now» = 30 days, at most twice more; «Don't ask again») — never a modal,
+never at the reception or on the Dashboard. Keys come from the support page (`OFFICE_SUPPORT_URL`, opened with
+`?id=<server ID>&lang=<language>`, shows the key after the tip) or by hand: `tools/supporter-key.sh <server-id> "<name>"
+[YYYY-MM-DD]` (private key on Benj's Mac only, `~/.config/uso-supporter/`; never in the repo or on a server).
+`OFFICE_SPONSOR_URL` adds a GitHub Sponsors button.
 
 **Pictures:** every desk has its own drawing, `public/desks/<id>/avatar.svg`
 (64×64, flat, thick shapes, outlined where a light part meets a light theme;
