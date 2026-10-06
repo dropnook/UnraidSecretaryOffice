@@ -1898,6 +1898,7 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
     ];
     if ($now['state'] === 'missing') {
         $plan['blockers'][] = ['key' => 'restore_share_missing', 'params' => ['share' => $share]];
+        $plan['options']['asleep'] = [];            // nothing to wake for a share that isn't there
         return $plan;
     }
     if (!is_dir($user)) {
