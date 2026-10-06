@@ -1182,6 +1182,43 @@ function testRestoreShares(): void
     $c['asleep'] = ['hive' => true];
     $p = rsPlanFilesFor('/mnt/user/zzdrop', '', '', true, $owner, $stamp, $c);
     same('restore shares: with «wake» it is looked into', ['name:manual-x', []], [$p['target']['snap'], array_column($p['blockers'], 'key')]);
+
+    // «wake» really wakes the sleeping parts first (a block read from each of their disks, waited for), only those, only when ticked
+    $woke = [];
+    $GLOBALS['rs']['wake_run'] = function (array $commands) use (&$woke): array {
+        $woke[] = $commands;
+        return array_map(fn ($cmd) => [0, '', ''], $commands);
+    };
+    $disks = ['hive' => ['name' => 'hive', 'device' => 'null', 'spundown' => '1', 'fsFree' => '1000000'], 'hive2' => ['name' => 'hive2', 'device' => 'null', 'spundown' => '0'],
+              'mother' => ['name' => 'mother', 'device' => 'null', 'spundown' => '0', 'fsFree' => '500000'], 'disk1' => ['name' => 'disk1', 'device' => 'null', 'fsFree' => '7']];
+    $c = $ctx;
+    $c['disks'] = $disks;
+    $c['asleep'] = ['hive' => true, 'hive2' => false, 'mother' => false];
+    $p = rsPlanFilesFor('/mnt/user/zzdrop', '', '', false, $owner, $stamp, $c);
+    same('restore shares: without «wake» no disk is woken', [[], ['restore_asleep']], [$woke, array_column($p['blockers'], 'key')]);
+    $c = $ctx;
+    $c['disks'] = $disks;
+    $c['asleep'] = ['hive' => true, 'hive2' => false, 'mother' => false];
+    $p = rsPlanFilesFor('/mnt/user/zzdrop', '', 'swap', true, $owner, $stamp, $c, ['files', 'texts']);
+    same('restore shares: «wake» wakes every disk of the sleeping pool, nothing else', [['hive', 'hive2']], array_map('array_keys', $woke));
+    same('restore shares: the dd read of one block', ['dd', 'if=/dev/null', 'of=/dev/null', 'bs=4096', 'count=1', 'iflag=direct'], $woke[0]['hive'] ?? null);
+    same('restore shares: woken, then its moments and the choices kept', [['woken' => ['hive'], 'failed' => []], [], ['hive'], 'name:manual-x', ['files', 'texts'], 'swap', []],
+        [$p['woke'], $p['options']['asleep'], $p['options']['woken'], $p['target']['snap'], $p['target']['items'], $p['target']['mode'], array_column($p['blockers'], 'key')]);
+    $woke = [];
+    $GLOBALS['rs']['wake_run'] = function (array $commands) use (&$woke): array {
+        $woke[] = $commands;
+        return array_map(fn ($cmd) => [1, '', 'timeout'], $commands);
+    };
+    $c = $ctx;
+    $c['disks'] = $disks;
+    $c['asleep'] = ['hive' => true, 'hive2' => false, 'mother' => false];
+    $p = rsPlanFilesFor('/mnt/user/zzdrop', '', '', true, $owner, $stamp, $c);
+    same('restore shares: a disk that doesn\'t answer stays asleep — said so, never read', [['woken' => [], 'failed' => ['hive']], ['hive'], ['restore_wake_failed'], ['mother', 'disk1']],
+        [$p['woke'], $p['options']['asleep'], array_column($p['blockers'], 'key'), array_values(array_unique(array_merge(...array_column($p['options']['moments'], 'bases'))))]);
+    unset($GLOBALS['rs']['wake_run']);
+    $c = $ctx;
+    same('restore shares: the entries chosen stay when copy is chosen instead', [['files', 'texts'], 'copy'],
+        (fn ($p) => [$p['target']['items'], $p['target']['mode']])(rsPlanFilesFor('/mnt/user/zzdrop', 'name:manual-x', 'copy', false, $owner, $stamp, $c, ['texts', 'files'])));
     $c = $ctx;
     $c['fs']['disk2'] = 'xfs';
     $bases = fn (array $cfg) => (function () use ($c, $cfg) { $c['cfg']['zz'] = $cfg; return rsShareBases('zz', $c); })();

@@ -27,9 +27,11 @@ let shown = [];                               // the rows of the open section, f
 let job = null;                               // the restore going on (or the last one): data/restore-job.json
 let jobTimer = null;
 const journals = new Map();                   // id -> {loading, journal, log, error} — a journal unfolded on the page
+const journalShown = new Map();               // id -> {box, fill, fail}: the journal's box drawn last (the page re-renders while one loads)
 
 // ------------------------------------------------------------------ loading
 async function load(fresh) {
+  if (fresh) journals.forEach((v, id) => { if (v.error) journals.delete(id); });   // a journal that failed to load is asked again
   const j = await Office.api.get({ a: 'state', desk: ID, ...(fresh ? { fresh: 1 } : {}) });
   if (j.ok && j.state) state = j.state;
   if (view) render();
@@ -147,6 +149,11 @@ function dl(items) {
 
 const q = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
 const date = (t) => (t ? fmt.date(t) : '?');
+
+/** Names as the language lists them: "a", "a and b", "a, b and c" (the browser's Intl, commas where it has none) */
+function andList(names) {
+  try { return new Intl.ListFormat(Office.locale, { style: 'long', type: 'conjunction' }).format(names); } catch (e) { return names.join(', '); }
+}
 const apps = () => (state && state.apps) || [];
 const vms = () => (state && state.vms) || [];
 const engine = () => (state && state.engine) || {};
@@ -743,7 +750,7 @@ function unitPart(f, owner) {
     title.append(' ', b);
   }
   part.appendChild(title);
-  if (f.whole) part.appendChild(el('div', 'role', T('snaps.whole', { share: f.share, names: (f.containers || []).join(', ') })));
+  if (f.whole) part.appendChild(el('div', 'role', T('snaps.whole', { share: f.share, names: andList(f.containers || []), n: (f.containers || []).length })));
   else if (f.containers && f.containers.length) part.appendChild(el('div', 'role', T('snaps.used_by', { names: f.containers.join(', ') })));
   (f.places || []).forEach((p) => {
     const line = el('div', 'rs-place');
@@ -1198,10 +1205,13 @@ async function restoreDialog(req, title) {
   const update = () => { go.disabled = !ready(); };
   okBox.onchange = update;
 
-  const onChange = (next) => { ask = next; preview(); };
+  // a choice changes only its own field of what is asked — the others (the entries ticked, copy or swap, wake) stay,
+  // also when it comes from options drawn before the last preview arrived; a function gets what is asked now
+  const onChange = (patch) => { ask = { ...ask, ...(typeof patch === 'function' ? patch(ask) : patch) }; preview(); };
+  let sleepers = [];             // the parts seen asleep: named on «wake» also once they are awake
   const options = () => {
     entrySig = JSON.stringify(((plan && plan.options && plan.options.entries) || []).map((e) => entryBytes(e, sizeMap)));
-    filesOptions(opts, plan, ask, onChange, sizeMap);
+    filesOptions(opts, plan, ask, onChange, sizeMap, sleepers);
   };
 
   async function preview() {
@@ -1209,13 +1219,20 @@ async function restoreDialog(req, title) {
     const mine = ++seq;
     go.disabled = true;
     pv.innerHTML = '';
-    pv.appendChild(el('p', 'role', T('rd.loading')));
+    // «wake» ticked while a part sleeps: the agent wakes it and waits until it answers (seconds, up to a minute or so)
+    const waking = ask.wake && plan && plan.options ? (plan.options.asleep || []) : [];
+    if (waking.length) {
+      const w = el('p', 'callout running rs-waking');
+      w.append(el('span', 'spin'), ' ', T('rd.waking', { base: waking.join(', ') }));
+      pv.appendChild(w);
+    } else pv.appendChild(el('p', 'role', T('rd.loading')));
     const j = await Office.api.post(`${ID}.preview`, { ...ask, ...(plan ? { stamp: plan.stamp } : {}) });
     if (mine !== seq) return;
     pv.innerHTML = '';
     if (!j.ok) { plan = null; pv.appendChild(el('p', 'callout warn', Office.errorText(j.error, ID))); update(); return; }
     plan = j.preview;
     sizes = plan.sizes;
+    if (plan.options) sleepers = [...new Set([...sleepers, ...(plan.options.asleep || []), ...(plan.options.woken || [])])];
     if (plan.options && req.kind === 'files') options();
     pv.appendChild(previewView(plan, sizes));
     update();
@@ -1270,7 +1287,7 @@ async function restoreDialog(req, title) {
  * Step 4's options: which moment (newest first, with the parts of the share it covers), a whole share's entries
  * (with their sizes), copy next to it or swap it in (put it in place, when nothing is there), wake a sleeping disk
  */
-function filesOptions(box, plan, ask, change, sizeMap) {
+function filesOptions(box, plan, ask, change, sizeMap, sleepers) {
   box.innerHTML = '';
   const o = plan.options || {};
   if ((o.moments || []).length) {
@@ -1291,11 +1308,11 @@ function filesOptions(box, plan, ask, change, sizeMap) {
       op.selected = m.id === plan.target.snap;
       sel.appendChild(op);
     });
-    sel.onchange = () => change({ ...ask, snap: sel.value });
+    sel.onchange = () => change({ snap: sel.value });
     f.append(label, sel);
     box.appendChild(f);
   }
-  if (o.whole && (o.entries || []).length) box.appendChild(entriesField(o.entries, plan, ask, change, sizeMap));
+  if (o.whole && (o.entries || []).length) box.appendChild(entriesField(o.entries, plan, change, sizeMap));
   const way = el('div', 'field');
   way.appendChild(el('div', 'field-title', T('rd.way')));
   ['copy', 'swap'].forEach((m) => {
@@ -1304,7 +1321,7 @@ function filesOptions(box, plan, ask, change, sizeMap) {
     r.type = 'radio';
     r.name = 'rs-way';
     r.checked = (ask.mode || plan.target.mode || 'copy') === m;
-    r.onchange = () => change({ ...ask, mode: m, snap: plan.target.snap || ask.snap || '' });
+    r.onchange = () => change((now) => ({ mode: m, snap: now.snap || plan.target.snap || '' }));
     const key = m === 'swap' && o.nothing_live ? 'rd.way_place' : 'rd.way_' + m;
     const text = el('span', '', T(key));
     text.appendChild(el('small', '', T(key + '_hint')));
@@ -1317,9 +1334,10 @@ function filesOptions(box, plan, ask, change, sizeMap) {
     const c = el('input');
     c.type = 'checkbox';
     c.checked = !!ask.wake;
-    c.onchange = () => change({ ...ask, wake: c.checked });
-    const text = el('span', '', T('rd.wake', { base: (o.asleep || []).join(', ') || '–' }));
-    text.appendChild(el('small', '', T('rd.wake_hint')));
+    c.onchange = () => change({ wake: c.checked });
+    const names = (o.asleep || []).length ? o.asleep : (o.woken || []).length ? o.woken : (sleepers || []);
+    const text = el('span', '', T('rd.wake', { base: names.join(', ') || '–' }));
+    text.appendChild(el('small', '', T(ask.wake && !(o.asleep || []).length ? 'rd.woke' : 'rd.wake_hint', { base: names.join(', ') || '–' })));
     l.append(c, text);
     box.appendChild(l);
   }
@@ -1335,12 +1353,15 @@ function momentLabel(m, o) {
   return bits.join(' · ');
 }
 
-/** A whole share's entries at its top: all of them, or the ones ticked */
-function entriesField(entries, plan, ask, change, sizeMap) {
+/**
+ * A whole share's entries at its top: all of them, or the ones ticked. What is ticked stays across re-plans (another
+ * moment, copy or swap, wake); an entry the chosen moment doesn't hold drops out.
+ */
+function entriesField(entries, plan, change, sizeMap) {
   const f = el('div', 'field rs-entries');
   f.appendChild(el('div', 'field-title', T('rd.items')));
   const chosen = new Set(plan.target.items || entries.map((e) => e.name));
-  const send = () => change({ ...ask, snap: plan.target.snap, items: entries.map((e) => e.name).filter((n) => chosen.has(n)) });
+  const send = () => change((now) => ({ snap: now.snap || plan.target.snap, items: entries.map((e) => e.name).filter((n) => chosen.has(n)) }));
   const all = el('label', 'check');
   const allBox = el('input');
   allBox.type = 'checkbox';
@@ -1475,16 +1496,22 @@ function journalDetail(r) {
       box.appendChild(p);
     } else if (!live && ['ok', 'warnings'].includes(r.result) && !r.putback && r.kind !== 'putback') box.appendChild(el('p', 'role', T(r.kind === 'kopia' ? 'j.no_putback_kopia' : 'j.no_putback')));
   };
+  const fail = (error) => { box.innerHTML = ''; box.appendChild(el('p', 'callout warn', Office.errorText(error, ID))); };
+  // the page may draw this row anew while the journal is on its way: the answer goes to the box shown then
+  journalShown.set(r.id, { box, fill, fail });
   if (live) fill(live, null);
   else if (have && have.journal) fill(have.journal, have.log);
+  else if (have && have.error) fail(have.error);      // «Look again» asks again
   else {
     box.appendChild(el('p', 'role', Office.t('common.loading')));
     if (!have) {
       journals.set(r.id, { loading: true });
       Office.api.post(`${ID}.journal`, { id: r.id }).then((j) => {
         journals.set(r.id, j.ok ? { journal: j.journal, log: j.log } : { error: j.error });
-        if (j.ok) fill(j.journal, j.log);
-        else { box.innerHTML = ''; box.appendChild(el('p', 'callout warn', Office.errorText(j.error, ID))); }
+        const to = journalShown.get(r.id);
+        if (!to || !to.box.isConnected) return;  // folded meanwhile: unfolding shows it
+        if (j.ok) to.fill(j.journal, j.log);
+        else to.fail(j.error);
       });
     }
   }

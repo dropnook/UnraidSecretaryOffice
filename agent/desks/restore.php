@@ -60,6 +60,7 @@ const RS_HOLDS_CHECK  = 24;          // moments looked into (does it hold the fo
 const RS_ENTRIES_MAX  = 60;          // entries at the top of a share he brings back at once
 const RS_STOREROOM    = '_UnraidSecretaryOffice-trash';   // Ms. Dustdevil's: never a share's own folder
 const RS_OWN_LEFTOVER = '/\.(restored|aside|putback)-\d{8}-\d{6}$/D';   // what he left next to a folder himself
+const RS_WAKE_TIMEOUT = 90;          // seconds a sleeping disk gets to spin up when «wake» is ticked
 
 define('RS_DATA', DATA_DIR . '/restore');
 define('RS_JOB_FILE', DATA_DIR . '/restore-job.json');       // the running (or last) restore, polled by the page (api part "job")
@@ -335,6 +336,51 @@ function rsShareBases(string $share, array &$ctx): array
     }
     $bases = array_merge($bases, array_filter(array_map('trim', explode(',', (string) backupSetting($ctx['settings'], "share|$share", 'locations', '')))));
     return array_values(array_unique(array_filter($bases, fn ($b) => isset($ctx['fs'][$b]))));
+}
+
+/**
+ * Wakes sleeping pools and disks — only ever because the user ticked «wake»: one block read straight from each of
+ * their disks (a pool: all of them, cache, cache2 …), in parallel, waiting until each answers (≤ RS_WAKE_TIMEOUT s),
+ * the way the other desks wake disks. Unraid's bookkeeping lags behind: the disks that answered are marked awake in
+ * $ctx['asleep']; one that didn't stays asleep. A base without a known device is left to the read that follows.
+ *
+ * @return array{woken: list<string>, failed: list<string>}  the bases
+ */
+function rsWake(array $bases, array &$ctx): array
+{
+    $out = ['woken' => [], 'failed' => []];
+    $disksOf = [];
+    $commands = [];
+    foreach ($bases as $base) {
+        $base = (string) $base;
+        $disksOf[$base] = [];
+        foreach ($ctx['disks'] ?? [] as $sec => $d) {
+            $name = (string) ($d['name'] ?? $sec);
+            $mine = preg_match('/^disk\d+$/D', $base) ? $name === $base : (bool) preg_match('/^' . preg_quote($base, '/') . '\d*$/D', $name);
+            $dev = (string) ($d['device'] ?? '');
+            if ($mine && preg_match('/^[a-z0-9]{1,32}$/D', $dev) && file_exists("/dev/$dev")) {
+                $disksOf[$base][] = $name;
+                $commands[$name] = ['dd', "if=/dev/$dev", 'of=/dev/null', 'bs=4096', 'count=1', 'iflag=direct'];
+            }
+        }
+    }
+    $results = !$commands ? [] : (isset($GLOBALS['rs']['wake_run']) ? ($GLOBALS['rs']['wake_run'])($commands) : runAll($commands, RS_WAKE_TIMEOUT));
+    foreach ($disksOf as $base => $disks) {
+        $ok = !array_filter($disks, fn ($n) => ($results[$n][0] ?? 1) !== 0);
+        $out[$ok ? 'woken' : 'failed'][] = $base;
+        if ($ok) {
+            foreach (array_keys($ctx['asleep'] ?? []) as $n) {
+                if ($n === $base || (!preg_match('/^disk\d+$/D', $base) && preg_match('/^' . preg_quote($base, '/') . '\d*$/D', (string) $n))) {
+                    $ctx['asleep'][$n] = false;
+                }
+            }
+        }
+    }
+    if ($commands && !isset($GLOBALS['rs']['wake_run'])) {
+        logLine('Mr. Restori woke ' . implode(', ', $bases) . ' («wake» ticked) to read its snapshots'
+            . ($out['failed'] ? ' — did not answer: ' . implode(', ', $out['failed']) : ''));
+    }
+    return $out;
 }
 
 /** A path under /mnt as [share, rel] (/mnt/user/<share>/<rel> or /mnt/<pool or disk>/<share>/<rel>), null otherwise */
@@ -1845,7 +1891,8 @@ function rsUnitOwner(array $state, string $path): ?array
  * has it) and moves the copy into its place — the interruption is seconds. Nothing there (an empty share, a folder
  * that is gone): swap only puts it in place, and is the default. A folder that is a ZFS dataset of its own on one
  * pool stays one (zfs rename, its copy a dataset too). A missing share is never created here: Unraid does that.
- * A sleeping disk is only read with the explicit wake option; sizes are measured in the background.
+ * A sleeping disk is only read with the explicit wake option (then woken first and waited for: rsWake); sizes are
+ * measured in the background.
  */
 function rsPlanFiles(array $r, string $stamp): array
 {
@@ -1881,20 +1928,31 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
     $user = rtrim((string) ($ctx['user'] ?? '/mnt/user'), '/');
     $plan = rsPlanBase('files', $owner['name'], ['path' => $path, 'snap' => $momentId, 'mode' => $mode, 'wake' => $wake,
                                                  'owner' => $owner['kind'], 'id' => $owner['id'], 'items' => null]);
-    if ($wake) {
-        $ctx['asleep'] = [];                     // asked for: sleeping disks are read (and so woken)
-    }
     $now = rsShareNow($share, $ctx);
+    // asked for («wake» ticked): the share's sleeping parts are woken first — and waited for — then looked into
+    $woke = null;
+    if ($wake && $now['state'] !== 'missing') {
+        $sleeping = array_values(array_filter(rsShareBases($share, $ctx), fn ($b) => baseAsleep((string) $b, $ctx['asleep'] ?? [])));
+        $woke = rsWake($sleeping, $ctx);
+        if ($woke['woken']) {
+            $ctx['now'] = [];
+            $now = rsShareNow($share, $ctx);         // its top folders were not looked into while it slept
+        }
+    }
     $plan['share_now'] = $now;
+    $plan['woke'] = $woke;
     $places = rsLocate($path, $ctx);
     $asleep = array_values(array_map(fn ($p) => $p['base'], array_filter($places, fn ($p) => $p['asleep'])));
+    // a part still asleep: tick «wake» — or, ticked, it didn't answer
+    $sleepy = fn (): array => ['key' => $wake ? 'restore_wake_failed' : 'restore_asleep', 'params' => ['base' => implode(', ', $asleep)]];
     $moments = rsMoments($places, rsKopiaRestored($path, $ctx));
     rsMomentHolds($moments, $whole);
     $plan['options'] = [
         'moments' => array_map(fn ($m) => ['id' => $m['id'], 'name' => $m['name'], 'time' => $m['time'], 'ours' => $m['ours'], 'kopia' => $m['kopia'],
                                            'bases' => array_map('strval', array_keys($m['parts'])), 'holds' => $m['holds']], $moments),
         'parts'   => array_values(array_map(fn ($p) => $p['base'], $places)),
-        'asleep'  => $asleep, 'vm' => $owner['kind'] === 'vm', 'whole' => $whole, 'share' => $share, 'entries' => null, 'nothing_live' => false,
+        'asleep'  => $asleep, 'woken' => $woke['woken'] ?? [], 'vm' => $owner['kind'] === 'vm', 'whole' => $whole, 'share' => $share,
+        'entries' => null, 'nothing_live' => false,
     ];
     if ($now['state'] === 'missing') {
         $plan['blockers'][] = ['key' => 'restore_share_missing', 'params' => ['share' => $share]];
@@ -1921,7 +1979,7 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
             throw new Problem('unknown_target', ['target' => $momentId]);
         }
         // a part that sleeps may hold it: say so (with «wake»), never "nothing there"
-        $plan['blockers'][] = $asleep ? ['key' => 'restore_asleep', 'params' => ['base' => implode(', ', $asleep)]]
+        $plan['blockers'][] = $asleep ? $sleepy()
             : ($momentId === '' && $moments ? ['key' => 'restore_not_in_snapshot', 'params' => ['path' => $path]] : ['key' => 'restore_no_snapshot', 'params' => []]);
         return $plan;
     }
@@ -1976,8 +2034,7 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
         $chosen = $items === null ? $names : array_values(array_intersect($names, $items));
         $plan['target']['items'] = $chosen;
         if (!$names) {
-            $plan['blockers'][] = $asleep ? ['key' => 'restore_asleep', 'params' => ['base' => implode(', ', $asleep)]]
-                : ['key' => 'restore_not_in_snapshot', 'params' => ['path' => $path]];
+            $plan['blockers'][] = $asleep ? $sleepy() : ['key' => 'restore_not_in_snapshot', 'params' => ['path' => $path]];
             return $plan;
         }
         if (!$chosen) {
@@ -2005,8 +2062,7 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
     foreach ($chosen as $n) {
         $it = $infos[$n];
         if (!$it['sources']) {
-            $plan['blockers'][] = $asleep ? ['key' => 'restore_asleep', 'params' => ['base' => implode(', ', $asleep)]]
-                : ['key' => 'restore_not_in_snapshot', 'params' => ['path' => "/mnt/user/$share/$n"]];
+            $plan['blockers'][] = $asleep ? $sleepy() : ['key' => 'restore_not_in_snapshot', 'params' => ['path' => "/mnt/user/$share/$n"]];
             continue;
         }
         $own = count($it['live']) === 1 && $it['live'][0]['own_dataset'] ? $it['live'][0] : null;
@@ -2065,9 +2121,9 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
             $plan['notes'][] = ['key' => 'note.files_inner', 'params' => ['list' => implode(', ', array_unique($inside))]];
         }
     }
-    if ($asleep && $userItems && !in_array('restore_asleep', array_column($plan['blockers'], 'key'), true)) {
+    if ($asleep && $userItems && !array_intersect(['restore_asleep', 'restore_wake_failed'], array_column($plan['blockers'], 'key'))) {
         // through /mnt/user shfs looks on every disk of the share: never on a sleeping one unasked
-        $plan['blockers'][] = ['key' => 'restore_asleep', 'params' => ['base' => implode(', ', $asleep)]];
+        $plan['blockers'][] = $sleepy();
     } elseif ($asleep) {
         $plan['notes'][] = ['key' => 'note.files_asleep', 'params' => ['base' => implode(', ', $asleep)]];
     }
