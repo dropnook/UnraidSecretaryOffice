@@ -17,7 +17,8 @@ declare(strict_types=1);
  *            Mr. Restori's reader of the packages and his restores (steps, put back, the lock, a job on its own),
  *            the Consultant's monitoring externals and his installs, Ms. Protocolli's tour,
  *            the night watchman's rounds, bursts, baseline and «I know, thanks», his watch over what
- *            starts on its own (crontabs, .cron files, User Scripts, at, notification agents),
+ *            starts on its own (crontabs, .cron files, User Scripts, at, notification agents), his
+ *            data flow (ss, smbstatus, zfs written, containers' counters; learning, the unusual),
  *            job.sh's guard against a second start in the same minute)
  *   hardening  the checks that keep requests, manifests, paths and links in
  *            bounds (PIN tries, pin.sh unblock/reset, safe writes, the mailbox, Ms. Dustdevil's
@@ -1607,6 +1608,258 @@ function testWatchmanSched(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/**
+ * The night watchman's data flow: the parsers on real output (ss -tin, smbstatus -b, zfs get,
+ * /proc/<pid>/net/dev — addresses anonymised), then rounds on made-up looks: the first look counts
+ * nothing, deltas per connection, container and dataset, what is unusual while learning and once
+ * learned, the office's own backup and media servers expected, snapshots taken and deleted, a pool
+ * asleep, SMB's users, machines and hours, «I know, thanks» raising the normal, the page and metrics.
+ */
+function testWatchmanFlow(): void
+{
+    $gb = 1024 ** 3;
+    $ports = watchmanFlowPorts(['PORT' => '80', 'PORTSSL' => '443', 'PORTSSH' => '22']);
+    same('flow ports: SMB, NFS, SSH, the WebGUI', [22 => 'ssh', 80 => 'web', 139 => 'smb', 443 => 'web', 445 => 'smb', 2049 => 'nfs'], $ports);
+    same('flow ports: as var.ini has them', [139 => 'smb', 445 => 'smb', 2049 => 'nfs', 2222 => 'ssh', 8080 => 'web', 8443 => 'web'],
+        watchmanFlowPorts(['PORT' => '8080', 'PORTSSL' => '8443', 'PORTSSH' => '2222']));
+
+    // ss -tinH state established '( sport = :445 or … )', as iproute2 7.1 prints it
+    $ss = "0      0      192.0.2.20:445 192.0.2.7:55802\n"
+        . "\t bbr wscale:6,9 rto:246 rtt:45.275/8.359 ato:118 mss:1368 pmtu:1500 rcvmss:1076 advmss:1448 cwnd:10 ssthresh:33 bytes_sent:32840019 bytes_retrans:661846 bytes_acked:32178173 bytes_received:24455317 segs_out:69826 segs_in:130590 data_segs_out:67789 data_segs_in:65970 send 2417228bps lastsnd:507 lastrcv:507 lastack:464 pacing_rate 903296bps delivery_rate 730048bps delivered:66893 app_limited busy:3078775ms retrans:0/1055 rcv_space:179080 minrtt:26.563 snd_wnd:216832 rcv_wnd:931328 rehash:84 \n"
+        . "0      292    192.0.2.20:22  192.0.2.7:58436\n"
+        . "\t bbr wscale:6,9 rto:239 rtt:38.161/13.082 ato:40 mss:1368 cwnd:18 bytes_sent:6210 bytes_acked:5918 bytes_received:4974 segs_out:20 segs_in:21 \n"
+        . "0      0      192.0.2.20:80  192.0.2.7:58252\n"
+        . "\t cubic wscale:7,7 rto:204 rtt:3.2/1.1 mss:1448 cwnd:10 bytes_sent:40185701 bytes_retrans:2734473 bytes_acked:37451228 bytes_received:2212 \n"
+        . "0      0      [::ffff:192.0.2.20]:445  [::ffff:192.0.2.8]:49152\n"
+        . "\t cubic rto:204 bytes_sent:1000 bytes_received:300 \n"
+        . "0      0      [2001:db8::20]:2049  [2001:db8::7%br0]:833\n"
+        . "\t cubic rto:204 bytes_sent:77 bytes_acked:70 bytes_received:5 \n"
+        . "0      0      192.0.2.20:9100  192.0.2.30:40000\n"
+        . "\t cubic bytes_sent:999 bytes_acked:999 \n";
+    $c = watchmanSsParse($ss, $ports);
+    same('flow ss: the file services only, delivered bytes (acked, else sent), IPv4 inside IPv6, IPv6 without its zone',
+        [['192.0.2.7', 'smb', 32178173, 24455317], ['192.0.2.7', 'ssh', 5918, 4974], ['192.0.2.7', 'web', 37451228, 2212], ['192.0.2.8', 'smb', 1000, 300],
+         ['2001:db8::7', 'nfs', 70, 5]],
+        array_map(fn ($x) => [$x['peer'], $x['service'], $x['sent'], $x['rcvd']], $c));
+    same('flow ss: the server\'s side and the ports', ['192.0.2.20', 445, 55802], [$c[0]['local'], $c[0]['lport'], $c[0]['pport']]);
+    same('flow ss: nothing', [], watchmanSsParse('', $ports));
+
+    // smbstatus -b --json (Samba 4.22), and the plain table of an older one
+    $json = '{"timestamp": "2026-10-06T12:32:21.495236+0200", "version": "4.22.10", "smb_conf": "/etc/samba/smb.conf", "sessions": {"2639366901": {"session_id": "2639366901", '
+          . '"server_id": {"pid": "1661504", "task_id": "0", "vnn": "4294967295", "unique_id": "2174023641075356141"}, "uid": 1000, "gid": 100, "username": "benj", '
+          . '"groupname": "users", "creation_time": "2026-10-06T08:32:00.685066+02:00", "expiration_time": "30828-09-14T04:48:05.477581+02:00", '
+          . '"auth_time": "2026-10-06T08:32:00.730198+02:00", "remote_machine": "192.0.2.7", "hostname": "ipv4:192.0.2.7:55802", "session_dialect": "SMB3_11", '
+          . '"client_guid": "f8f6c3f9-c5ef-d249-a58a-7324699ba732", "encryption": {"cipher": "-", "degree": "none"}, "signing": {"cipher": "AES-128-GMAC", "degree": "partial"}, '
+          . '"channels": {"0": {"channel_id": "0", "creation_time": "2026-10-06T08:32:00.685066+02:00", "local_address": "ipv4:192.0.2.20:445", "remote_address": "ipv4:192.0.2.7:55802"}}}, '
+          . '"77": {"session_id": "77", "username": "nobody", "remote_machine": "laptop", "hostname": "ipv6:[2001:db8::7]:50000", "creation_time": "2026-10-06T09:00:00+02:00"}}}';
+    same('flow smbstatus --json: user, address, machine, when it started',
+        [['2639366901', 'benj', '192.0.2.7', '192.0.2.7', strtotime('2026-10-06 08:32:00')], ['77', 'nobody', '2001:db8::7', 'laptop', strtotime('2026-10-06 09:00:00')]],
+        array_map(fn ($s) => array_values($s), (array) watchmanSmbParse($json)));
+    same('flow smbstatus --json: no sessions', [], watchmanSmbParse('{"timestamp": "x", "sessions": {}}'));
+    $table = "\nSamba version 4.22.10\nPID     Username     Group        Machine                                   Protocol Version  Encryption           Signing              \n"
+           . str_repeat('-', 136) . "\n"
+           . "1661504 benj         users        192.0.2.7 (ipv4:192.0.2.7:55802)      SMB3_11           -                    partial(AES-128-GMAC)\n"
+           . "2000001 nobody       nogroup      laptop (ipv6:[2001:db8::7]:50000)      SMB3_11           -                    -                    \n\n";
+    same('flow smbstatus -b: the table of an older Samba', [['pid1661504', 'benj', '192.0.2.7', '192.0.2.7', null], ['pid2000001', 'nobody', '2001:db8::7', 'laptop', null]],
+        array_map(fn ($s) => array_values($s), (array) watchmanSmbParse($table)));
+    same('flow smbstatus: neither is none', null, watchmanSmbParse("smbstatus: unknown option --json\n"));
+
+    // zfs get -Hp -o name,property,value -t filesystem,volume -r written,used,snapshots_changed
+    $zfs = "tank\twritten\t155648\ntank\tused\t5564653240320\ntank\tsnapshots_changed\t-\n"
+         . "tank/appdata\twritten\t2744066048\ntank/appdata\tused\t1366701264896\ntank/appdata\tsnapshots_changed\t1791242200\n"
+         . "tank/tmp\twritten\t75522048\ntank/tmp\tused\t75522048\ntank/tmp\tsnapshots_changed\t-\n"
+         . "tank/My Files\twritten\t0\ntank/My Files\tused\t98304\ntank/My Files\tsnapshots_changed\t1791280804\n";
+    same('flow zfs: written, used, the last snapshot change (none: never a snapshot)',
+        ['tank' => ['w' => 155648, 'u' => 5564653240320, 's' => null], 'tank/appdata' => ['w' => 2744066048, 'u' => 1366701264896, 's' => 1791242200],
+         'tank/tmp' => ['w' => 75522048, 'u' => 75522048, 's' => null], 'tank/My Files' => ['w' => 0, 'u' => 98304, 's' => 1791280804]], watchmanZfsParse($zfs));
+
+    // /proc/<pid>/net/dev of a container (bridge or macvlan alike): what every interface but lo sent
+    $dev = "Inter-|   Receive                                                |  Transmit\n"
+         . " face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n"
+         . "    lo: 4148728   32674    0    0    0     0          0         0  4148728   32674    0    0    0     0       0          0\n"
+         . " tunl0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0\n"
+         . "  eth0: 150120315180 264328623    0    0    0     0          0    148454 1735183657381 306999993    0    0    0     0       0          0\n"
+         . "  eth1: 5402383   40340    0    0    0     0          0     33756  2026277    6175    0    0    0     0       0          0\n";
+    same('flow net/dev: sent bytes without lo', 1735183657381 + 2026277, watchmanNetDevTx($dev));
+    same('flow net/dev: nothing readable', null, watchmanNetDevTx(''));
+    same('flow size: like the page', ['1023 B', '1.0 GB', '5,0 GB', '38 GB'], [watchmanSize(1023), watchmanSize($gb), watchmanSize(5 * $gb, 'de'), watchmanSize(38 * $gb)]);
+
+    // rounds on made-up looks: Monday 10:02 is the first
+    $t0 = strtotime('2026-10-05 10:02:00');
+    $conn = fn (string $peer, int $sent, int $pport = 50000, string $svc = 'smb', int $lport = 445) =>
+        ['local' => '192.0.2.20', 'lport' => $lport, 'peer' => $peer, 'pport' => $pport, 'service' => $svc, 'sent' => $sent, 'rcvd' => 0];
+    $ct = fn (int $pid, string $ns, int $tx, string $image = 'img', bool $host = false) => ['pid' => $pid, 'ns' => $ns, 'tx' => $tx, 'host' => $host, 'image' => $image];
+    $ds = fn (int $w, int $u, ?int $s) => ['w' => $w, 'u' => $u, 's' => $s];
+    $look = fn (array $o) => $o + ['conns' => [], 'smb' => ['on' => true, 'sessions' => []], 'containers' => null, 'nfs' => false, 'holder' => null, 'kopia' => 'kopia',
+                                   'zfs' => null, 'office_shares' => ['UnraidSecretaryOffice']];      // null: not looked at this time
+    $sess = fn (string $id, string $user, string $ip, int $start, string $machine = '') => ['id' => $id, 'user' => $user, 'ip' => $ip, 'machine' => $machine, 'start' => $start];
+    $cts = fn (int $kopia, int $emby, int $web, int $app) => ['kopia' => $ct(100, 'n1', $kopia, 'ghcr.io/imagegenius/kopia'), 'EmbyServer' => $ct(200, 'n2', $emby, 'emby/embyserver'),
+        'web' => $ct(300, 'n3', $web, 'nginx'), 'app' => $ct(400, 'n4', $app), 'app-db' => $ct(401, 'n4', $app), 'node' => $ct(500, 'host', 99 * $gb, 'node-exporter', true)];
+    $zfs = fn (int $data, int $media, ?int $snapData = 1000, ?int $snapMedia = 1000, int $place = 0) => ['datasets' => [
+        'tank' => $ds(1, 900 * $gb, null), 'tank/data' => $ds($data, 100 * $gb, $snapData), 'tank/data/sub' => $ds(0, $gb, $snapData),
+        'tank/media' => $ds($media, 500 * $gb, $snapMedia), 'tank/tmp' => $ds(10 * $gb, 10 * $gb, null),
+        'tank/UnraidSecretaryOffice' => $ds($place, 50 * $gb, 1000)], 'pools' => ['tank'], 'asleep' => ['cold']];
+    $bf = null;
+    $book = [];
+    $kinds = fn (array $added) => (function (array $a) { sort($a); return $a; })($added);
+
+    [$added, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['conns' => [$conn('192.0.2.7', 5 * $gb)], 'containers' => $cts(500 * $gb, 10 * $gb, 0, $gb),
+        'smb' => ['on' => true, 'sessions' => [$sess('s1', 'benj', '192.0.2.7', $t0 - 3600)]], 'zfs' => $zfs($gb, 0)]), $book, $t0);
+    same('flow first look: counters only, nothing told; SMB\'s user and machine are normal', [[], [], ['benj'], ['192.0.2.7'], [watchmanHourOfWeek($t0 - 3600)]],
+        [$added, $flow['clients'], array_keys($bf['smb_users']), array_keys($bf['smb_clients']), $bf['smb_clients']['192.0.2.7']['hours']]);
+    same('flow first look: containers sharing a network once, the host\'s network apart, every share', [['EmbyServer', 'app', 'kopia', 'web'], ['app-db'], ['node'],
+        ['tank/UnraidSecretaryOffice', 'tank/data', 'tank/media', 'tank/tmp']], [(function (array $a) { sort($a); return $a; })(array_keys($flow['containers'])), $flow['containers']['app']['with'],
+        $flow['can']['host'], (function (array $a) { sort($a); return $a; })(array_keys($flow['shares']))]);
+
+    // five minutes later, the office's backup holds the engine's lock
+    [$added, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['holder' => 'backup',
+        'conns' => [$conn('192.0.2.7', 6 * $gb), $conn('192.0.2.9', 60 * $gb, 51000), $conn('127.0.0.1', 99 * $gb, 41000, 'web', 443), $conn('192.0.2.7', 2 * 1024 ** 2, 58000, 'web', 80)],
+        'containers' => $cts(600 * $gb, 90 * $gb, 60 * $gb, 2 * $gb),
+        'smb' => ['on' => true, 'sessions' => [$sess('s1', 'benj', '192.0.2.7', $t0 - 3600), $sess('s2', 'eve', '192.0.2.50', $t0 + 200, 'LAPTOP')]],
+        'zfs' => $zfs(31 * $gb, 0, 1000, 1000, 40 * $gb)]), $book, $t0 + 300);
+    same('flow: unusual while still learning — a new client with 60 GB in a round, a container with 60 GB, 30 % of a share; a new SMB user and machine',
+        ['flow_client', 'flow_container', 'flow_written', 'smb_client', 'smb_user'], $kinds($added));
+    $by = array_column(array_filter($book, 'watchmanOpen'), null, 'kind');
+    same('flow: who and how much', [['192.0.2.9', 'smb', 60 * $gb, 5, true, 50 * $gb], ['web', 60 * $gb], ['eve', '192.0.2.50', 'LAPTOP']],
+        [[$by['flow_client']['p']['ip'], $by['flow_client']['p']['service'], $by['flow_client']['p']['bytes'], $by['flow_client']['p']['minutes'],
+          $by['flow_client']['p']['learning'], $by['flow_client']['p']['limit']],
+         [$by['flow_container']['p']['name'], $by['flow_container']['p']['bytes']], [$by['smb_user']['p']['user'], $by['smb_user']['p']['ip'], $by['smb_user']['p']['machine']]]);
+    $h = intdiv($t0 + 300, 3600);
+    same('flow: the office\'s backup — Kopia\'s upload and its backup place kept apart, never told; other shares judged; a media server streams',
+        [[$h => 100 * $gb], [], [$h => 40 * $gb], [], [$h => 30 * $gb], [$h => 80 * $gb]],
+        [$flow['containers']['kopia']['o'], $flow['containers']['kopia']['h'], $flow['shares']['tank/UnraidSecretaryOffice']['o'],
+         $flow['shares']['tank/UnraidSecretaryOffice']['h'], $flow['shares']['tank/data']['h'], $flow['containers']['EmbyServer']['h']]);
+    same('flow entry: a share in words', '30 GB written into tank/data in 5 min — 30 % of the share while I\'m still learning what is normal',
+        officeNotifyText('watchman', 'entry.flow_written', watchmanText($by['flow_written'], 'en'), 'en'));
+    same('flow: per client and service, the server talking to itself left out', [['192.0.2.7|smb', '192.0.2.9|smb', '192.0.2.7|web'], 61 * $gb, 2 * 1024 ** 2],
+        [array_keys($flow['clients']), $flow['totals']['sent']['smb'], $flow['totals']['sent']['web']]);
+    same('flow: containers sharing a network counted once', [$h => $gb], $flow['containers']['app']['h']);
+    same('flow: the office at work, on the page', 'backup', $flow['can']['office']);
+
+    // the backup is done; the pull goes on, a share gets a lot written
+    [$added, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look([
+        'conns' => [$conn('192.0.2.7', 6 * $gb), $conn('192.0.2.9', 70 * $gb, 51000)], 'containers' => $cts(605 * $gb, 90 * $gb, 60 * $gb, 2 * $gb),
+        'zfs' => $zfs(61 * $gb, 0, 1000, 1000, 40 * $gb)]), $book, $t0 + 600);
+    $by = array_column(array_filter($book, 'watchmanOpen'), null, 'kind');
+    same('flow: going on, the entries count on (bytes, minutes, the part of the share) — nothing new', [[], 60 * $gb, 60, 10, 70 * $gb, 10, 1],
+        [$added, $by['flow_written']['p']['bytes'], $by['flow_written']['p']['pct'], $by['flow_written']['p']['minutes'], $by['flow_client']['p']['bytes'],
+         $by['flow_client']['p']['minutes'], $by['flow_client']['count']]);
+    same('flow: Kopia outside the backup is learned like any other', [$h => 5 * $gb], $flow['containers']['kopia']['h']);
+    same('flow entry: in words (English)', '192.0.2.9 pulled 70 GB over SMB in 10 min — more than 50 GB in one round while I\'m still learning what is normal',
+        officeNotifyText('watchman', 'entry.flow_client', watchmanText($by['flow_client'], 'en'), 'en'));
+
+    // snapshots: one taken (written drops: what came since), one deleted (it grew: can't be told — left out)
+    [$added, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs(2 * $gb, 5 * $gb, $t0 + 850, $t0 + 880)]), $book, $t0 + 900);
+    same('flow written: a new snapshot counts what came since it, a deleted one leaves the round out', [62 * $gb, 0],
+        [$flow['totals']['written']['tank/data'], $flow['totals']['written']['tank/media'] ?? 0]);
+    same('flow written: since the latest snapshot, and whether there is one', [2 * $gb, $t0 + 850, true, false],
+        [$flow['shares']['tank/data']['w'], $flow['shares']['tank/data']['s'], $flow['shares']['tank/data']['snap'], $flow['shares']['tank/tmp']['snap']]);
+    // the pool asleep: never asked, its counters kept; awake again: what came meanwhile
+    [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => ['datasets' => [], 'pools' => [], 'asleep' => ['tank', 'cold']]]), $book, $t0 + 1200);
+    same('flow: a sleeping pool keeps its counters', [2 * $gb, $t0 + 850], $cnt['ds']['tank/data']);
+    [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs(3 * $gb, 5 * $gb, $t0 + 850, $t0 + 880)]), $book, $t0 + 1500);
+    same('flow: awake again — counted on', 63 * $gb, $flow['totals']['written']['tank/data']);
+    // a container restarted: its counters start anew
+    $re = $cts(605 * $gb, 90 * $gb, 60 * $gb, 2 * $gb);
+    $re['web'] = $ct(301, 'n3b', 3 * 1024 ** 2, 'nginx');
+    [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['containers' => $re]), $book, $t0 + 1800);
+    same('flow: a restarted container counts from its start (containers not looked at meanwhile: counted on)', 60 * $gb + 3 * 1024 ** 2,
+        array_sum($flow['containers']['web']['h']));
+
+    // «I know, thanks» on the learning ones: that much is normal now
+    $b2 = ['flow' => $bf];
+    foreach ($book as $i => $e) {
+        if (watchmanOpen($e)) {
+            watchmanFlowAdopt($b2, $e, $t0 + 2000);
+            $book[$i]['noted'] = $t0 + 2000;
+        }
+    }
+    $bf = $b2['flow'];
+    same('flow ack: the most of the pull is normal for it; the user and the machine known', [70 * $gb, 60 * $gb, true, true],
+        [$bf['ack']['flow_client:192.0.2.9|smb']['bytes'] ?? null, $bf['ack']['flow_container:web']['bytes'] ?? null, isset($bf['smb_users']['eve']), isset($bf['smb_clients']['192.0.2.50'])]);
+    $prevTime = $t0 + 2100;
+    $cnt = ['time' => $prevTime, 'conns' => ['192.0.2.20:445>192.0.2.9:52000' => 0], 'cts' => $cnt['cts'], 'ds' => $cnt['ds'], 'smb' => []];
+    [$added] = watchmanFlowCompare($bf, $flow, $cnt, $look(['conns' => [$conn('192.0.2.9', 100 * $gb, 52000)]]), $book, $t0 + 2400);
+    same('flow ack: twice as much again stays quiet (under ' . WATCH_FLOW_FACTOR . ' × the normal)', [], $added);
+
+    // learned: a client with a week and more of history — unusual is far more than at that time of the week
+    $t = strtotime('2026-10-12 10:20:00');               // Monday
+    $bfL = ['since' => $t - 9 * 86400, 'smb_users' => ['benj' => $t - 9 * 86400],
+            'smb_clients' => ['192.0.2.7' => ['first' => $t - 9 * 86400, 'last' => $t - 600, 'hours' => [watchmanHourOfWeek($t)], 'name' => '']], 'ack' => []];
+    $flowL = ['since' => $t - 9 * 86400, 'clients' => ['192.0.2.7|smb' => watchmanFlowSeries($t - 9 * 86400,
+        ['last' => $t - 86400, 'h' => [intdiv($t - 7 * 86400, 3600) => $gb, intdiv($t - 7 * 86400 - 3600, 3600) => intdiv($gb, 2), intdiv($t - 3 * 86400, 3600) => 2 * $gb]])],
+        'containers' => [], 'shares' => [], 'totals' => ['sent' => [], 'written' => []]];
+    same('flow usual: the most at this time of the week (±1 h), or a quarter of the busiest hour', $gb, watchmanFlowUsual($flowL['clients']['192.0.2.7|smb']['h'], $t));
+    $k = '192.0.2.20:445>192.0.2.7:60000';
+    $bookL = [];
+    $prevL = ['time' => $t - 300, 'conns' => [$k => 0], 'cts' => [], 'ds' => [], 'smb' => ['s1']];
+    [$added, $flowL, $prevL] = watchmanFlowCompare($bfL, $flowL, $prevL, $look(['conns' => [$conn('192.0.2.7', 3 * $gb, 60000)],
+        'smb' => ['on' => true, 'sessions' => [$sess('s1', 'benj', '192.0.2.7', $t - 7200), $sess('s3', 'benj', '192.0.2.7', $t - 100)]]]), $bookL, $t);
+    same('flow learned: 3 GB in the hour, usually 1 GB — not unusual (limit 4 GB); a session at a known hour', [], $added);
+    [$added, $flowL, $prevL] = watchmanFlowCompare($bfL, $flowL, $prevL, $look(['conns' => [$conn('192.0.2.7', 5 * $gb, 60000)],
+        'smb' => ['on' => true, 'sessions' => [$sess('s1', 'benj', '192.0.2.7', $t - 7200), $sess('s3', 'benj', '192.0.2.7', $t - 100)]]]), $bookL, $t + 300);
+    $e = array_values(array_filter($bookL, 'watchmanOpen'))[0] ?? [];
+    same('flow learned: 5 GB in the hour — told, with what is normal', [['flow_client'], '192.0.2.7 pulled 5.0 GB over SMB in 10 min — usually at most 1.0 GB per hour at this time'],
+        [$added, officeNotifyText('watchman', 'entry.flow_client', watchmanText($e, 'en'), 'en')]);
+    $wed3 = strtotime('2026-10-14 03:10:00');
+    $prevL['time'] = $wed3 - 300;
+    [$added] = watchmanFlowCompare($bfL, $flowL, $prevL, $look(['conns' => [], 'smb' => ['on' => true, 'sessions' => [$sess('s4', 'benj', '192.0.2.7', $wed3 - 60)]]]), $bookL, $wed3);
+    $e = array_column(array_filter($bookL, 'watchmanOpen'), null, 'kind')['smb_hour'] ?? [];
+    same('flow SMB: a session at an hour that machine never used', [['smb_hour'], [watchmanHourOfWeek($wed3)], 'Wed 03:00'],
+        [$added, $e['p']['hours'] ?? null, watchmanText($e)['hours'] ?? null]);
+    $b3 = ['flow' => $bfL];
+    watchmanFlowAdopt($b3, $e, $wed3);
+    same('flow SMB ack: the hour is normal for it', true, in_array(watchmanHourOfWeek($wed3), $b3['flow']['smb_clients']['192.0.2.7']['hours'], true));
+
+    // tidy: hours beyond the kept days and tiny past hours go
+    $old = ['since' => 0, 'clients' => ['x|smb' => watchmanFlowSeries($t - 20 * 86400, ['last' => $t, 'h' => [intdiv($t - 15 * 86400, 3600) => 9 * $gb,
+        intdiv($t - 7200, 3600) => 1000, intdiv($t - 3600, 3600) => 5 * $gb, intdiv($t, 3600) => 10]])], 'containers' => [], 'shares' => [], 'totals' => ['sent' => [], 'written' => []]];
+    $bfT = ['since' => 0, 'smb_users' => [], 'smb_clients' => [], 'ack' => ['flow_client:gone|smb' => ['bytes' => 1, 'time' => 0]]];
+    watchmanFlowTidy($bfT, $old, $t);
+    same('flow tidy: kept days, tiny past hours out, the hour going on stays; notes of what is gone go', [[intdiv($t - 3600, 3600), intdiv($t, 3600)], []],
+        [array_keys($old['clients']['x|smb']['h']), $bfT['ack']]);
+
+    // a whole round with the data flow, on copies: flow.json, the page, the metrics, «I know, thanks»
+    $tmp = sys_get_temp_dir() . '/office-tests-flow-' . getmypid();
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    @mkdir("$src/plugins", 0700, true);
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd", 'shadow' => "$src/shadow",
+              'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd"];
+    file_put_contents($paths['syslog'], '');
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    $now = $t0;
+    $looks = [$look(['conns' => [$conn('192.0.2.7', $gb)], 'zfs' => $zfs($gb, 0)]),
+              $look(['conns' => [$conn('192.0.2.7', $gb), $conn('192.0.2.9', 60 * $gb, 51000)], 'zfs' => $zfs(2 * $gb, 0)])];
+    $i = 0;
+    $flowFn = function (?array $containers) use (&$looks, &$i) {
+        return $looks[$i++];
+    };
+    $docker = fn () => [];
+    $acks = "$tmp/acks.json";
+    $r = watchmanRound($paths, $data, 1000, $now, $docker, false, $acks, $flowFn);
+    same('flow round: taken over — learning starts, nothing told', [true, [], true], [$r['fresh'], $r['added'], is_file("$data/flow.json")]);
+    $r = watchmanRound($paths, $data, 1000, $now + 300, $docker, false, $acks, $flowFn);
+    same('flow round: a new client pulling 60 GB', ['flow_client'], $r['added']);
+    $page = watchmanPageState($data, $now + 400, false);
+    $f = $page['flow'];
+    same('flow page: learning, per client the last 24 h, the share, what works here', [0, 7, ['192.0.2.9', 60 * $gb], ['tank/data', $gb], true, ['tank'], ['cold']],
+        [$f['days'], $f['learn'], [$f['clients'][0]['ip'], $f['clients'][0]['day']], [$f['shares'][0]['share'], $f['shares'][0]['day']], $f['can']['ss'],
+         $f['can']['zfs']['pools'], $f['can']['zfs']['asleep']]);
+    check('flow page: no counters, no internals', !preg_match('/"(?:conns|cts|ds|_h|_f|run|h|o)"\s*:/', json_encode($page['flow'])));
+    $m = array_column(watchmanMetrics($data), null, 'name');
+    same('flow metrics: sent per service, written per share (counters)', ['counter', [['service' => 'smb'], 60 * $gb], [['share' => 'tank/data'], $gb]],
+        [$m['uso_watchman_sent_bytes_total']['type'] ?? null, $m['uso_watchman_sent_bytes_total']['samples'][0] ?? null, $m['uso_watchman_written_bytes_total']['samples'][0] ?? null]);
+    watchmanAck('*', $data, $now + 500, false);
+    same('flow ack through his page: the client\'s normal raised', 60 * $gb, watchmanLoad($data)['baseline']['flow']['ack']['flow_client:192.0.2.9|smb']['bytes'] ?? null);
+    $f = array_column(watchmanFindings([watchmanEntry('flow_client', 'flow_client:x', $now, ['ip' => '192.0.2.9', 'service' => 'smb', 'bytes' => 5, 'minutes' => 3])]), null, 'id');
+    same('flow finding for the team lead: what moves left out (his «I know, thanks» holds while a pull goes on)', [false, false, '5 B'],
+        [isset($f['flow_client']['params']['minutes']), isset($f['flow_client']['params']['usual']), $f['flow_client']['params']['size'] ?? null]);
+    @unlink(watchmanLockFile($data, 'book'));
+    @unlink(watchmanFlowCountersFile($data));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 /** job.sh: a second start of the same job in the same minute ends quietly, with one line for the syslog */
 function testJobGuard(): void
 {
@@ -3134,7 +3387,7 @@ function testIconSquare(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanSched', 'testJobGuard', 'testComposeBuilds'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanSched', 'testWatchmanFlow', 'testJobGuard', 'testComposeBuilds'],
           'hardening' => ['testPinTries', 'testPinScript', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
