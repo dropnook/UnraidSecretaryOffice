@@ -410,6 +410,78 @@ function testEstimates(): void
 }
 
 /**
+ * Mr. Backupsy and a first upload to Kopia: which source has no snapshot in the repository yet (a new
+ * repository starts every source anew), the Kopia process found in /proc (a copy), what it read, the
+ * snapshot's size, and the rate between looks — replayed with what nostromo's upload showed on 2026-10-06
+ */
+function testBackupFirstUpload(): void
+{
+    $run = fn (string $id, int $started, array $kopia) => ['run' => $id, 'started' => $started,
+        'kopia' => array_map(fn ($n, $ok) => ['name' => $n, 'ok' => $ok, 'seconds' => 3, 'finished' => $started + 60], array_keys($kopia), $kopia)];
+    $history = [$run('c', 3000, ['appdata' => true, 'app:immich' => false]), $run('b', 2000, ['Backups_statisch' => true]), $run('a', 1000, ['appdata' => true])];
+    same('first upload: copied before, the repository unknown — not the first time', false, backupFirstUpload('Backups_statisch', $history, null));
+    same('first upload: copied only into an earlier repository — the first time', true, backupFirstUpload('Backups_statisch', $history, 2500));
+    same('first upload: copied since the repository came', false, backupFirstUpload('appdata', $history, 2500));
+    same('first upload: failed so far, or never there', [true, true], [backupFirstUpload('app:immich', $history, null), backupFirstUpload('isos', $history, null)]);
+
+    same('first upload: a container path on the host (the longest mapping)', '/mnt/user/appdata/kopia/repository.config',
+        backupContainerHostPath([['Source' => '/mnt/user/appdata/kopia', 'Destination' => '/config'], ['Source' => '/mnt/user', 'Destination' => '/']],
+            '/config/repository.config'));
+    same('first upload: not mapped, or with ..', [null, null], [backupContainerHostPath([['Source' => '/mnt/x', 'Destination' => '/data']], '/config/repository.config'),
+        backupContainerHostPath([['Source' => '/mnt/user/appdata/kopia', 'Destination' => '/config']], '/config/../etc/shadow')]);
+    $policies = [['kind' => 'share', 'name' => 'Backups_statisch', 'path' => '/backup-snapshots/Backups_statisch'],
+                 ['kind' => 'app', 'name' => 'immich', 'path' => '/backup-snapshots/.apps/immich']];
+    same('first upload: where Kopia reads a source', [['/backup-snapshots/Backups_statisch', '/Backups_statisch'], ['/backup-snapshots/.apps/immich', '/.apps/immich'],
+        [null, '/.vms/Debian'], [null, '/_flash']],
+        [backupKopiaSourcePath('Backups_statisch', $policies), backupKopiaSourcePath('app:immich', $policies), backupKopiaSourcePath('vm:Debian', $policies),
+         backupKopiaSourcePath('flash', $policies)]);
+
+    // /proc as the host sees the engine's docker exec: the client, Kopia in the container, another source
+    $proc = sys_get_temp_dir() . '/office-tests-upload-' . getmypid();
+    $ps = ['3123' => ['docker', 'exec', '-u', '0', 'kopia', 'kopia', '--no-progress', 'snapshot', 'create', '/backup-snapshots/Backups_statisch', '--description', 'uso-backup 20261006-0100'],
+           '4456' => ['kopia', '--no-progress', 'snapshot', 'create', '/backup-snapshots/Backups_statisch', '--description', 'uso-backup 20261006-0100'],
+           '5789' => ['kopia', '--no-progress', 'snapshot', 'create', '/backup-snapshots/Backups_statisch_alt'],
+           '6000' => ['kopia', 'server', 'start', '--address=0.0.0.0:51515']];
+    foreach ($ps as $pid => $argv) {
+        @mkdir("$proc/$pid", 0700, true);
+        file_put_contents("$proc/$pid/cmdline", implode("\0", $argv) . "\0");
+    }
+    file_put_contents("$proc/4456/io", "rchar: 2390370860668\nwchar: 1180491244705\nsyscr: 36974388\nsyscw: 73561450\nread_bytes: 3466402299392\n");
+    same('first upload: the Kopia process of the source (not the docker client, not another source)', [4456, 4456, null],
+        [backupKopiaPid('/backup-snapshots/Backups_statisch', '/Backups_statisch', $proc), backupKopiaPid(null, '/Backups_statisch', $proc),
+         backupKopiaPid('/backup-snapshots/isos', '/isos', $proc)]);
+    same('first upload: what it has read (rchar, not what it sent)', [2390370860668, null], [backupProcRead(4456, $proc), backupProcRead(3123, $proc)]);
+    exec('rm -rf ' . escapeshellarg($proc));
+
+    $zfs = "ripley/Backups_statisch@uso-backup-20261005-0100\t2355000000000\nripley/Backups_statisch@uso-backup-20261006-0100\t2355490998272\n"
+         . "ripley/Backups_statisch/child@uso-backup-20261006-0100\t1000\nripley/Backups_statisch/child@other\t5\n";
+    same('first upload: the size of this run\'s snapshot, child datasets too', [2355490999272, null],
+        [backupZfsSnapSum($zfs, 'uso-backup-20261006-0100'), backupZfsSnapSum($zfs, 'uso-backup-20261007-0100')]);
+
+    // nostromo, 2026-10-06: Backups_statisch from 04:18:47; at 13:20 the snapshot (2.36 TB) was read past its size — done 13:27:58
+    $c = ['source' => 'Backups_statisch', 'size' => 2355490998272, 'looks' => []];
+    [$c, $o] = backupUploadStep($c, 1791253127, 2390370860668, 1791285605);
+    same('first upload: the first look — the average since it started, any moment now', ['Backups_statisch', true, 73599694, 0, 1],
+        [$o['source'], $o['first'], $o['rate'], $o['left'], count($c['looks'])]);
+    // a made-up one: 1 TB, 100 MB/s on average, 50 MB/s for the last minutes
+    $t0 = 1000000;
+    $c = ['source' => 'x', 'size' => 10 ** 12, 'looks' => []];
+    [$c, $o] = backupUploadStep($c, $t0, 0, $t0 + 30);
+    same('first upload: too early for a rate', [null, null, 0], [$o['rate'], $o['left'], $o['read']]);
+    [$c, $o] = backupUploadStep($c, $t0, 360 * 10 ** 9, $t0 + 3600);
+    same('first upload: from the newest look before the last 15 minutes', [100840336, 6347], [$o['rate'], $o['left']]);
+    [$c, $o] = backupUploadStep($c, $t0, 360 * 10 ** 9 + 300 * 50 * 10 ** 6, $t0 + 3900);
+    same('first upload: the rate between looks minutes apart', [50000000, 12500], [$o['rate'], $o['left']]);
+    for ($t = $t0 + 3920; $t <= $t0 + 6000; $t += 5) {
+        [$c] = backupUploadStep($c, $t0, 375 * 10 ** 9 + ($t - $t0 - 3900) * 50 * 10 ** 6, $t);
+    }
+    check('first upload: a look every 20 seconds, the last 15 minutes and one before', count($c['looks']) <= BACKUP_UPLOAD_KEEP / 20 + 2
+        && $t0 + 6000 - $c['looks'][0][0] > BACKUP_UPLOAD_KEEP && $t0 + 6000 - $c['looks'][1][0] <= BACKUP_UPLOAD_KEEP, json_encode([count($c['looks']), $c['looks'][0] ?? null]));
+    [, $o] = backupUploadStep(['source' => 'x', 'size' => null, 'looks' => []], $t0, 10 ** 9, $t0 + 600);
+    same('first upload: no size, no estimate (but a rate)', [null, 1666667], [$o['left'], $o['rate']]);
+}
+
+/**
  * Mr. Backupsy's packages (engine 2.18): the office's reader on a made-up backup place, and the
  * engine's own helpers (lib/common.sh section 8: folder names, old run folders, an interrupted swap)
  */
@@ -3188,7 +3260,7 @@ function testIconSquare(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify', 'testCaretakerAcks',
+$parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanSched', 'testWatchmanFlow', 'testJobGuard', 'testComposeBuilds'],
           'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
           'strings' => ['testStrings']];

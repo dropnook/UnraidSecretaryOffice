@@ -32,6 +32,8 @@ const BACKUP_MODES       = ['backup' => [], 'nokopia' => ['--no-kopia'], 'dryrun
 const BACKUP_LOG_NAME    = '/^(?:(run|check|dryrun|setup)-(\d{8})-(\d{4})\.log|unmount\.log)$/';
 const BACKUP_LOG_BYTES   = 512 * 1024;
 const BACKUP_HISTORY     = 60;           // runs shown
+const BACKUP_UPLOAD_LOOK = 180;          // a first upload's rate: from looks at least this far apart (seconds) …
+const BACKUP_UPLOAD_KEEP = 900;          // … within the last 15 minutes; before that, the average since it started
 
 $GLOBALS['backup'] = null;
 $GLOBALS['backupLogCache'] = [];         // legacy log file => [mtime, parsed]
@@ -212,6 +214,7 @@ function backupScan(): array
         'skips'      => $skips,                  // backup runs skipped because the lock was busy, newest first
         'skipped'    => backupSkipRow(readJson("$data/state/skipped.json")),   // the last attempt of any mode
         'estimates'  => backupEstimates($history),
+        'upload'     => $running ? backupUpload($status, $history, $settings) : null,     // a first upload to Kopia going on now
         'drift'      => backupDrift(),
         'settings'   => backupSettingsSummary($settings),
         'shares'     => backupShares($settings, $history),
@@ -679,6 +682,289 @@ function backupEstimates(array $history): array
         'before'  => $median($before),
         'total'   => $median($total),
     ];
+}
+
+// ===================================================================== a first upload to Kopia
+
+/**
+ * The Kopia source going up now, when it goes to Kopia for the first time — nothing of it in the
+ * repository yet, so all of it goes up once: hours, where other nights took minutes. Earlier runs
+ * can't tell how long then; this does: the source's size (the ZFS snapshot Kopia reads,
+ * backupSourceSize()), what the Kopia process has read so far (/proc/<pid>/io rchar) and its rate
+ * between looks a few minutes apart (the page asks every few seconds while it is open; before a
+ * second look: the average since the source started). Checked on nostromo, 2026-10-06 (2.36 TB,
+ * 9 h): at 13:21 it had read 2.39 TB of 2.41 TB (the files' own sizes; holes of sparse files are
+ * read too, so it may run a little past logicalreferenced — then "any moment now"), ~38 MB/s, done
+ * at 13:28 as reckoned; wchar (what it sent: 1.18 TB) was no measure — compression and content the
+ * repository already had. The looks live in RAM ($cache, RUN_DIR). Null while no Kopia source is
+ * going up, or the one going up was there before.
+ *
+ * @return array{source: string, first: true, since: int, size: ?int, read: ?int, rate: ?int, left: ?int, time: int}|null
+ */
+function backupUpload(?array $status, array $history, array $settings, ?string $cache = null): ?array
+{
+    $k = is_array($status['kopia'] ?? null) ? $status['kopia'] : [];
+    $source = is_string($k['current'] ?? null) ? $k['current'] : '';
+    $since = (int) ($k['current_since'] ?? 0);
+    $run = (string) ($status['run'] ?? '');
+    if (($status['phase'] ?? '') !== 'kopia' || $source === '' || $since <= 0 || $run === '') {
+        return null;
+    }
+    $cache ??= RUN_DIR . '/backup-upload.json';
+    $keep = function (array $c) use ($cache): void {
+        try {
+            @mkdir(dirname($cache), 0700, true);
+            writeAtomic($cache, jsonEncode($c), 0600, 0, 0);
+        } catch (Throwable $e) {
+            // RAM only - without it the rate is the average since the source started
+        }
+    };
+    $c = readJson($cache) ?? [];
+    if (($c['run'] ?? null) !== $run) {
+        $c = ['run' => $run, 'repo' => backupKopiaRepoSince($settings)];      // once per run (docker inspect)
+        $keep($c);
+    }
+    if (!backupFirstUpload($source, $history, isset($c['repo']) ? (int) $c['repo'] : null)) {
+        return null;
+    }
+    if (($c['source'] ?? null) !== $source) {
+        $c = ['run' => $run, 'repo' => $c['repo'] ?? null, 'source' => $source, 'pid' => null, 'looks' => [],
+              'size' => backupSourceSize($source, $settings, (string) ($status['snapshot'] ?? ''))];      // once per source
+    }
+    [$exact, $suffix] = backupKopiaSourcePath($source, backupDrift()['policies'] ?? null);
+    $pid = (int) ($c['pid'] ?? 0);
+    if ($pid <= 1 || !backupKopiaIsSnapshot($pid, $exact, $suffix)) {
+        $pid = backupKopiaPid($exact, $suffix) ?? 0;
+        if ($pid !== (int) ($c['pid'] ?? 0)) {
+            $c['looks'] = [];                           // another process: its counter starts anew
+        }
+        $c['pid'] = $pid > 1 ? $pid : null;
+    }
+    [$c, $out] = backupUploadStep($c, $since, $pid > 1 ? backupProcRead($pid) : null, time());
+    $keep($c);
+    return $out;
+}
+
+/**
+ * One look at a first upload: what the Kopia process has read now ($read), the looks before ([time,
+ * read], oldest first) give the rate — from the oldest look of the last BACKUP_UPLOAD_KEEP that is at
+ * least BACKUP_UPLOAD_LOOK old (or the newest older one), else the average since the source started
+ * (after a minute). Left = what is not read yet of its size at that rate (0: any moment now). Keeps a
+ * look every 20 seconds, one beyond BACKUP_UPLOAD_KEEP.
+ *
+ * @return array{0: array, 1: array}  the cache to keep, what the page gets
+ */
+function backupUploadStep(array $c, int $since, ?int $read, int $now): array
+{
+    $looks = array_values(array_filter((array) ($c['looks'] ?? []), fn ($l) => is_array($l) && count($l) === 2 && $l[0] < $now));
+    $rate = null;
+    if ($read !== null) {
+        $within = $beyond = null;
+        foreach ($looks as $l) {                                        // oldest first
+            if ($now - $l[0] >= BACKUP_UPLOAD_LOOK && $l[1] <= $read) {
+                if ($now - $l[0] <= BACKUP_UPLOAD_KEEP) {
+                    $within ??= $l;                                     // the oldest within the window
+                } else {
+                    $beyond = $l;                                       // the newest one before it
+                }
+            }
+        }
+        $base = $within ?? $beyond;
+        if ($base !== null) {
+            $rate = ($read - $base[1]) / ($now - $base[0]);
+        } elseif ($now - $since >= 60) {
+            $rate = $read / ($now - $since);
+        }
+        if (!$looks || $now - end($looks)[0] >= 20) {
+            $looks[] = [$now, $read];
+        }
+        $old = array_keys(array_filter($looks, fn ($l) => $now - $l[0] > BACKUP_UPLOAD_KEEP));
+        if (count($old) > 1) {
+            $looks = array_values(array_slice($looks, (int) end($old)));     // one look beyond the window is enough
+        }
+    }
+    $c['looks'] = $looks;
+    $size = isset($c['size']) ? (int) $c['size'] : null;
+    $rate = $rate !== null && $rate > 0 ? (int) round($rate) : null;
+    $left = $size !== null && $read !== null && $rate !== null ? (int) ceil(max(0, $size - $read) / $rate) : null;
+    return [$c, ['source' => (string) ($c['source'] ?? ''), 'first' => true, 'since' => $since, 'size' => $size, 'read' => $read,
+                 'rate' => $rate, 'left' => $left, 'time' => $now]];
+}
+
+/**
+ * Has this Kopia source no snapshot in the repository yet? No earlier run copied it — counting only
+ * runs since Kopia connected to the repository it uses now ($repoSince, backupKopiaRepoSince(); null
+ * = unknown, every run counts): a new repository (another bucket) starts every source anew.
+ */
+function backupFirstUpload(string $source, array $history, ?int $repoSince): bool
+{
+    foreach ($history as $run) {
+        if ($repoSince !== null && (int) ($run['started'] ?? 0) < $repoSince) {
+            continue;
+        }
+        foreach ($run['kopia'] ?? [] as $k) {
+            if (($k['name'] ?? null) === $source && !empty($k['ok'])) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+/**
+ * Since when the Kopia container uses its repository: the time of its repository.config
+ * (KOPIA_CONFIG_PATH, else ~/.config/kopia/repository.config — written when Kopia connects to or
+ * creates a repository, never by a snapshot), on the host through the container's mappings. Only
+ * those two variables are read of its environment (the rest may hold keys). Null when it can't be
+ * told (no container, the file not mapped, its disk asleep).
+ */
+function backupKopiaRepoSince(array $settings): ?int
+{
+    $name = (string) backupSetting($settings, 'kopia', 'container', '');
+    if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/D', $name)) {
+        return null;
+    }
+    $i = houseInspect($name);
+    if (!$i) {
+        return null;
+    }
+    $env = [];
+    foreach ((array) ($i['Config']['Env'] ?? []) as $e) {
+        if (is_string($e) && preg_match('/^(KOPIA_CONFIG_PATH|HOME)=(\/[^\x00-\x1f]*)$/D', $e, $m)) {
+            $env[$m[1]] = $m[2];
+        }
+    }
+    $config = $env['KOPIA_CONFIG_PATH'] ?? rtrim($env['HOME'] ?? '/root', '/') . '/.config/kopia/repository.config';
+    $host = backupContainerHostPath((array) ($i['Mounts'] ?? []), $config);
+    if ($host === null || backupPathAsleep($host, $settings, sleepingDisks())) {
+        return null;
+    }
+    clearstatcache(true, $host);
+    return @filemtime($host) ?: null;
+}
+
+/** A path inside a container on the host, through its mappings (the longest that holds it), or null */
+function backupContainerHostPath(array $mounts, string $path): ?string
+{
+    if (!str_starts_with($path, '/') || preg_match('#(^|/)\.\.?(/|$)#', $path)) {
+        return null;
+    }
+    $best = null;
+    foreach ($mounts as $m) {
+        $dst = rtrim((string) ($m['Destination'] ?? ''), '/');
+        $src = rtrim((string) ($m['Source'] ?? ''), '/');
+        if ($src === '' || !str_starts_with((string) ($m['Source'] ?? ''), '/') || !($dst === '' || under($path, $dst))) {
+            continue;
+        }
+        if ($best === null || strlen($dst) > strlen($best[0])) {
+            $best = [$dst, $src];
+        }
+    }
+    return $best === null ? null : $best[1] . substr($path, strlen($best[0]));
+}
+
+/**
+ * Where Kopia reads a source, in the container: the path the last check compared the policy at
+ * (drift.json), and the end every such path has (<root>/<share>, /.apps/<app>, /.vms/<vm>, /_flash)
+ * @return array{0: ?string, 1: string}
+ */
+function backupKopiaSourcePath(string $source, ?array $policies): array
+{
+    [$kind, $name] = preg_match('/^(app|vm):(.+)$/D', $source, $m) ? [$m[1], $m[2]] : ($source === 'flash' ? ['flash', ''] : ['share', $source]);
+    $suffix = match ($kind) { 'app' => "/.apps/$name", 'vm' => "/.vms/$name", 'flash' => '/_flash', default => "/$name" };
+    foreach ($policies ?? [] as $p) {
+        if (($p['kind'] ?? '') === $kind && ($kind === 'flash' || ($p['name'] ?? '') === $name) && str_ends_with((string) ($p['path'] ?? ''), $suffix)) {
+            return [(string) $p['path'], $suffix];
+        }
+    }
+    return [null, $suffix];
+}
+
+/** Is $pid a "kopia … snapshot create <the source>" (the engine's docker exec, as the host sees it)? */
+function backupKopiaIsSnapshot(int $pid, ?string $exact, string $suffix, string $proc = '/proc'): bool
+{
+    $argv = explode("\0", rtrim((string) @file_get_contents("$proc/$pid/cmdline", false, null, 0, 8192), "\0"));
+    if (basename($argv[0]) !== 'kopia' || !in_array('snapshot', $argv, true) || !in_array('create', $argv, true)) {
+        return false;
+    }
+    foreach (array_slice($argv, 1) as $a) {
+        if ($exact !== null ? $a === $exact : str_ends_with($a, $suffix)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** The Kopia process snapshotting the source now, or null */
+function backupKopiaPid(?string $exact, string $suffix, string $proc = '/proc'): ?int
+{
+    foreach (@scandir($proc) ?: [] as $d) {
+        if (ctype_digit($d) && (int) $d > 1 && backupKopiaIsSnapshot((int) $d, $exact, $suffix, $proc)) {
+            return (int) $d;
+        }
+    }
+    return null;
+}
+
+/** What a process has read so far (rchar of /proc/<pid>/io: files, plus a little from sockets and its cache) */
+function backupProcRead(int $pid, string $proc = '/proc'): ?int
+{
+    return preg_match('/^rchar:\s*(\d+)$/m', (string) @file_get_contents("$proc/$pid/io"), $m) ? (int) $m[1] : null;
+}
+
+/**
+ * How big a source is in the snapshot Kopia reads: logicalreferenced of every dataset of this run's
+ * ZFS snapshot under its share (an app's or VM's folders: under each folder that is a dataset), on
+ * each place settings.ini names for the share. Null when it can't be told (a place that isn't ZFS or
+ * sleeps, a folder that is no dataset, the flash).
+ */
+function backupSourceSize(string $source, array $settings, string $snap): ?int
+{
+    if (!preg_match('/^[A-Za-z0-9_.:-]{1,200}$/D', $snap) || $source === 'flash') {
+        return null;
+    }
+    $parts = [];
+    if (preg_match('/^(app|vm):(.+)$/D', $source, $m)) {
+        foreach ((array) ($settings["$m[1]|$m[2]"]['folder'] ?? []) as $f) {
+            $parts[] = explode('/', (string) $f, 2) + [1 => ''];
+        }
+    } else {
+        $parts[] = [$source, ''];
+    }
+    $asleep = sleepingDisks();
+    $total = 0;
+    foreach ($parts as [$share, $sub]) {
+        $places = array_filter(array_map('trim', explode(',', (string) backupSetting($settings, "share|$share", 'locations', ''))));
+        if (!$places) {
+            return null;
+        }
+        foreach ($places as $place) {
+            $ds = "$place/$share" . ($sub !== '' ? '/' . trim($sub, '/') : '');
+            if (baseAsleep($place, $asleep) || !preg_match('#^[A-Za-z0-9][\w .:/-]{0,250}$#D', $ds) || str_contains($ds, '//')) {
+                return null;
+            }
+            [$exit, $out] = run(['zfs', 'list', '-Hp', '-t', 'snapshot', '-r', '-o', 'name,logicalreferenced', $ds], 30);
+            $n = $exit === 0 ? backupZfsSnapSum($out, $snap) : null;
+            if ($n === null) {
+                return null;
+            }
+            $total += $n;
+        }
+    }
+    return $parts ? $total : null;
+}
+
+/** The sum of a size column of "zfs list -Hp -o name,<size>" for the snapshots named @$snap, null when there is none */
+function backupZfsSnapSum(string $out, string $snap): ?int
+{
+    $sum = null;
+    foreach (explode("\n", $out) as $line) {
+        $f = explode("\t", $line);
+        if (count($f) === 2 && str_ends_with($f[0], "@$snap") && ctype_digit($f[1])) {
+            $sum = ($sum ?? 0) + (int) $f[1];
+        }
+    }
+    return $sum;
 }
 
 // ===================================================================== more state
