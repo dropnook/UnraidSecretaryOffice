@@ -112,6 +112,10 @@ const WATCH_TRACK_MAX    = 2000;             // addresses with recent failures f
 const WATCH_LIST_MAX     = 8;                // names and services kept per entry
 const WATCH_ID           = '/^w[0-9a-f]{10}$/D';
 const WATCH_CODE_HOSTS   = ['github.com', 'raw.githubusercontent.com', 'gitlab.com', 'codeberg.org', 'bitbucket.org'];
+// what the office installed itself (the consultant's record, watchmanOfficeLook()): never told, noted by itself
+const WATCH_OFFICE_PLUGIN = 900;             // a plugin he installed: its link in /var/log/plugins (and a cron.d file of its name) this soon after his job started
+const WATCH_OFFICE_FORM   = 7200;            // a container from Unraid's form he prepared: created this soon after
+const WATCH_OFFICE_KEEP   = 7 * 86400;       // his records older than this are left out
 
 /** Every kind of entry: its group, and whether it goes to Unraid's notifications right away */
 const WATCH_KINDS = [
@@ -177,7 +181,8 @@ const WATCH_SSH_OK      = '/\ssshd[\w-]*(?:\[\d+\])?:\s+Accepted (\S+) for (\S+)
 const WATCH_SSH_FAIL    = '/\ssshd[\w-]*(?:\[\d+\])?:\s+Failed (\S+) for (invalid user )?(\S+) from (\S+) port \d+/';
 const WATCH_SSH_INVALID = '/\ssshd[\w-]*(?:\[\d+\])?:\s+Invalid user (.*) from (\S+) port \d+/';
 // docker inspect: name, image, HostConfig and mounts as JSON (tabs and newlines inside are escaped), the main process (data flow)
-const WATCH_INSPECT     = "{{json .Name}}\t{{json .Config.Image}}\t{{json .HostConfig}}\t{{json .Mounts}}\t{{.State.Pid}}";
+// and the consultant's label (ADVISOR_LABEL: he prepared Unraid's form) and when it was created — what the office installed itself
+const WATCH_INSPECT     = "{{json .Name}}\t{{json .Config.Image}}\t{{json .HostConfig}}\t{{json .Mounts}}\t{{.State.Pid}}\t{{json (index .Config.Labels \"uso.installed-by\")}}\t{{json .Created}}";
 
 desk('watchman', [
     'fit'     => fn (): array => fit(true, 'yes'),
@@ -216,6 +221,7 @@ function watchmanPaths(): array
         'cron_files' => '/boot/config/plugins',
         'userscripts' => '/boot/config/plugins/user.scripts',
         'atjobs'     => '/var/spool/atjobs',
+        'office_installs' => DATA_DIR . '/advisor/installs.json',    // the consultant's record of what he installed (root only)
         'agents'     => '/boot/config/plugins/dynamix/notifications/agents',
         'var_ini'    => '/var/local/emhttp/var.ini',
         'disks_ini'  => '/var/local/emhttp/disks.ini',
@@ -253,8 +259,9 @@ function watchmanHiredSince(): ?int
 // ===================================================================== his files
 
 /**
- * His files. Entries of a kind he no longer keeps (cron_dead up to 1.28: Ms. Whereabouts tells those now) are
- * left out quietly — gone from every view, and from the file at the book's next write.
+ * His files. Entries of a kind he no longer keeps (cron_dead up to 1.28: Ms. Whereabouts tells those now) and
+ * the false alarms about dcron's reload signal (up to 1.29, watchmanCronSignalEntry()) are left out quietly —
+ * gone from every view, and from the file at the book's next write.
  *
  * @return array{baseline: ?array, book: list<array>, state: array}
  */
@@ -264,11 +271,20 @@ function watchmanLoad(?string $dir = null): array
     $book = readJson("$dir/book.json");
     $entries = [];
     foreach ((array) ($book['entries'] ?? []) as $e) {
-        if (is_array($e) && is_string($e['id'] ?? null) && is_string($e['kind'] ?? null) && (isset(WATCH_KINDS[$e['kind']]) || $e['kind'] === 'watch')) {
+        if (is_array($e) && is_string($e['id'] ?? null) && is_string($e['kind'] ?? null) && (isset(WATCH_KINDS[$e['kind']]) || $e['kind'] === 'watch')
+            && !watchmanCronSignalEntry($e)) {
             $entries[] = $e;
         }
     }
     return ['baseline' => readJson("$dir/baseline.json"), 'book' => $entries, 'state' => readJson("$dir/state.json") ?? []];
+}
+
+/** A false alarm up to 1.29: «new» lines that were only dcron's reload signal (WATCH_CRON_SIGNAL, its text the user's name) */
+function watchmanCronSignalEntry(array $e): bool
+{
+    $jobs = (array) ($e['p']['jobs'] ?? []);
+    return $e['kind'] === 'cron_new' && $jobs && count($jobs) === (int) ($e['p']['lines'] ?? -1)
+        && !array_filter($jobs, fn ($j) => !preg_match('#^(?:cron\.d/)?' . preg_quote(WATCH_CRON_SIGNAL, '#') . ': [a-z_][a-z0-9_.-]{0,31}$#D', (string) $j));
 }
 
 /** Writes what changed ($new: baseline, book, state; seen when given) */
@@ -502,12 +518,14 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         'shares'     => watchmanShares($paths),
         'sched'      => watchmanSched($paths, (array) ((readJson("$dir/seen.json") ?? [])['sched'] ?? []), $now),
     ];
+    $office = watchmanOfficeLook($paths, $now);
     $facts = watchmanPostureLook($paths);
     // snapshots that vanish: only rounds write snaps.json (one at a time), so it is read out here
     $snapKnown = $snaps ? readJson("$dir/snaps.json") : null;
     $snapRes = $snaps ? watchmanSnaps($paths, $fresh ? null : $snapKnown, $fresh ? [] : (array) ($snap['baseline']['snaps']['series'] ?? []), $now) : null;
 
-    return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes): array {
+    return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes,
+                                               $office): array {
         $old = watchmanLoad($dir);
         $old['seen'] = readJson("$dir/seen.json");
         $old['flow'] = readJson("$dir/flow.json");
@@ -538,11 +556,11 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             watchmanTeamLeadNotes($b, $book, is_array($old['seen']) ? $old['seen'] : $observed, $now, $acks);
             $added = array_merge(
                 watchmanLogins($b, $book, $st, $events, false),
-                watchmanContainersCompare($b['containers'], $seen['containers'], $book, $now),
-                watchmanPluginsCompare($b['plugins'], $seen['plugins'], $book, $now),
+                watchmanContainersCompare($b['containers'], $seen['containers'], $book, $now, $office),
+                watchmanPluginsCompare($b['plugins'], $seen['plugins'], $book, $now, $office),
                 watchmanFlashCompare($b['flash'], $seen['flash'], $book, $now),
                 watchmanSharesCompare($b['shares'], $seen['shares'], $book, $now),
-                watchmanSchedCompare($b['sched'], $seen['sched'], $seen['plugins'], $book, $now),
+                watchmanSchedCompare($b['sched'], $seen['sched'], $seen['plugins'], $book, $now, $office),
             );
         }
         $flow = null;
@@ -1055,8 +1073,13 @@ function watchmanContainers(): ?array
         if ($name === '' || !is_array($hc)) {
             continue;
         }
+        $by = json_decode($f[5] ?? 'null');
+        $created = json_decode($f[6] ?? 'null');
+        $created = is_string($created) ? strtotime((string) preg_replace('/\.\d+/', '', $created)) : false;
         $out[$name] = ['image' => (string) json_decode($f[1]), 'tokens' => watchmanContainerTokens($hc, is_array($mounts) ? $mounts : []),
-                       'pid' => (int) ($f[4] ?? 0)];
+                       'pid' => (int) ($f[4] ?? 0)]
+                    + (is_string($by) && preg_match('/^[a-z]{1,20}$/D', $by) ? ['by' => $by] : [])
+                    + ($created !== false ? ['created' => $created] : []);
     }
     ksort($out);
     return $out;
@@ -1133,7 +1156,7 @@ function watchmanTokenKind(string $t): string
  * rights; a known one with new rights gets an entry per kind; rights that went
  * are the new normal. Gone ones are remembered for WATCH_FORGET.
  */
-function watchmanContainersCompare(?array &$known, ?array $seen, array &$book, int $now): array
+function watchmanContainersCompare(?array &$known, ?array $seen, array &$book, int $now, array $office = []): array
 {
     if ($seen === null) {
         return [];                  // Docker didn't answer: nothing to compare
@@ -1148,6 +1171,12 @@ function watchmanContainersCompare(?array &$known, ?array $seen, array &$book, i
         if (!isset($known[$name])) {
             if (!watchmanRights($tokens)) {
                 $known[$name] = ['tokens' => $tokens, 'seen' => $now];
+                continue;
+            }
+            if (watchmanOfficeContainer($office, (string) $name, (array) $c)) {
+                // made from Unraid's form the consultant prepared: the office's own — noted, never told
+                $known[$name] = ['tokens' => $tokens, 'seen' => $now];
+                watchmanOfficeNote($book, 'container_new', "container_new:$name", $now, ['name' => (string) $name, 'image' => (string) ($c['image'] ?? ''), 'tokens' => $tokens]);
                 continue;
             }
             $added[] = watchmanSet($book, 'container_new', "container_new:$name", $now,
@@ -1171,6 +1200,92 @@ function watchmanContainersCompare(?array &$known, ?array $seen, array &$book, i
         }
     }
     return array_values(array_filter($added));
+}
+
+// ===================================================================== what the office installed itself
+
+/**
+ * The consultant's record of what he installed (data/advisor/installs.json, advisorInstallRecord()):
+ * trusted only while its folder and the file are root's own and no one else may write them (folder
+ * 0700, a plain file 0600 with one link) and only in exactly the shape he writes; older than
+ * WATCH_OFFICE_KEEP left out.
+ *
+ * @return list<array{kind: string, name: string, t: int, image?: string}>
+ */
+function watchmanOfficeInstalls(?string $file, int $now): array
+{
+    if ($file === null) {
+        return [];
+    }
+    $own = function (string $path, bool $dir): bool {
+        $st = @lstat($path);
+        return $st && ($st['mode'] & 0170000) === ($dir ? 0040000 : 0100000) && $st['uid'] === 0 && !($st['mode'] & 0077)
+            && ($dir || ($st['nlink'] === 1 && $st['size'] <= 65536));
+    };
+    clearstatcache();
+    if (!$own(dirname($file), true) || !$own($file, false)) {
+        return [];
+    }
+    $out = [];
+    foreach ((array) ((readJson($file) ?? [])['installs'] ?? []) as $r) {
+        if (!is_array($r) || !in_array($r['kind'] ?? null, ['plugin', 'container'], true) || !is_string($r['name'] ?? null)
+            || !preg_match('/^[A-Za-z0-9._+-]{1,100}$/D', $r['name']) || !is_int($r['t'] ?? null) || $r['t'] > $now + 60 || $r['t'] < $now - WATCH_OFFICE_KEEP
+            || ($r['kind'] === 'container' && (!is_string($r['image'] ?? null) || $r['image'] === ''))) {
+            continue;
+        }
+        $out[] = ['kind' => $r['kind'], 'name' => $r['name'], 't' => $r['t']] + ($r['kind'] === 'container' ? ['image' => $r['image']] : []);
+    }
+    return $out;
+}
+
+/**
+ * What of this round's look the office installed itself: plugins the consultant installed (exactly
+ * that name, its link in /var/log/plugins made within WATCH_OFFICE_PLUGIN after his job started) and
+ * the /etc/cron.d file of that plugin's name made then too; the containers whose form he prepared
+ * (matched in watchmanOfficeContainer()).
+ *
+ * @return array{plugins: array<string,int>, cron_d: array<string,int>, containers: array<string, list<array{image: string, t: int}>>}
+ */
+function watchmanOfficeLook(array $paths, int $now): array
+{
+    $out = ['plugins' => [], 'cron_d' => [], 'containers' => []];
+    foreach (watchmanOfficeInstalls($paths['office_installs'] ?? null, $now) as $r) {
+        if ($r['kind'] === 'container') {
+            $out['containers'][$r['name']][] = ['image' => $r['image'], 't' => $r['t']];
+            continue;
+        }
+        $then = fn ($st, string $k): bool => is_array($st) && $st[$k] >= $r['t'] - 5 && $st[$k] <= $r['t'] + WATCH_OFFICE_PLUGIN;
+        if (!isset($paths['plugins']) || !$then(@lstat($paths['plugins'] . "/{$r['name']}.plg"), 'mtime')) {
+            continue;
+        }
+        $out['plugins'][$r['name']] = $r['t'];
+        if (isset($paths['cron_d']) && $then(watchmanPlain($paths['cron_d'] . "/{$r['name']}"), 'ctime')) {
+            $out['cron_d'][$r['name']] = $r['t'];
+        }
+    }
+    return $out;
+}
+
+/** A new container the office made: the consultant prepared its form (that name, that image), it carries his label and was created soon after */
+function watchmanOfficeContainer(array $office, string $name, array $c): bool
+{
+    foreach ((array) ($office['containers'][$name] ?? []) as $r) {
+        $created = $c['created'] ?? null;
+        if (($c['by'] ?? null) === 'consultant' && (string) ($c['image'] ?? '') === $r['image'] && is_int($created)
+            && $created >= $r['t'] - 5 && $created <= $r['t'] + WATCH_OFFICE_FORM) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** The office's own doing: a line in the book, noted by himself (`by` office) — never open, never told */
+function watchmanOfficeNote(array &$book, string $kind, string $key, int $now, array $p): void
+{
+    $e = watchmanEntry($kind, $key, $now, $p + ['installed_by' => 'consultant']);
+    $e['noted'] = $now;
+    $e['by'] = 'office';
+    $book[] = $e;
 }
 
 // ===================================================================== plugins
@@ -1247,11 +1362,17 @@ function watchmanSource(?string $url): string
 }
 
 /** Plugins against what is normal: a new one, or one whose source moved; a new version from the same place is normal */
-function watchmanPluginsCompare(array &$known, array $seen, array &$book, int $now): array
+function watchmanPluginsCompare(array &$known, array $seen, array &$book, int $now, array $office = []): array
 {
     $added = [];
     foreach ($seen as $name => $p) {
         $k = $known[$name] ?? null;
+        if ($k === null && isset($office['plugins'][$name])) {
+            // the consultant installed exactly this one just then: the office's own — noted, never told
+            $known[$name] = $p + ['seen' => $now];
+            watchmanOfficeNote($book, 'plugin_new', "plugin_new:$name", $now, ['name' => (string) $name, 'source' => $p['source'], 'version' => $p['version']]);
+            continue;
+        }
         if ($k === null) {
             $added[] = watchmanSet($book, 'plugin_new', "plugin_new:$name", $now,
                 ['name' => (string) $name, 'source' => $p['source'], 'version' => $p['version']]);
@@ -1808,13 +1929,26 @@ function watchmanHash(string $s): string
     return substr(sha1($s), 0, 12);
 }
 
-/** @return list<string> a crontab's job lines, whitespace normalised (no comments, empty lines, VAR=value) */
+/**
+ * dcron's signal to reload (`crontab -c <dir> -` — update_cron — writes it with the user's name, crond
+ * deletes it at its next minute): in /etc/cron.d and in the crontabs folder, never a crontab
+ */
+const WATCH_CRON_SIGNAL = 'cron.update';
+/** A cron line's shape: five time fields (numbers, *, ranges, steps, lists, month and day names) or an @keyword, then a command */
+define('WATCH_CRON_LINE', (function (): string {
+    $atom = '(?:\*|\d{1,2}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|sun|mon|tue|wed|thu|fri|sat))';
+    $field = "$atom(?:-$atom)?(?:/\\d{1,3})?";
+    $field = "$field(?:,$field)*";
+    return "#^(?:@(?:reboot|yearly|annually|monthly|weekly|daily|midnight|hourly|noauto)|$field $field $field $field $field) \\S#i";
+})());
+
+/** @return list<string> a crontab's job lines, whitespace normalised — only what has a cron line's shape (no comments, VAR=value, stray text) */
 function watchmanCronJobs(string $text): array
 {
     $jobs = [];
     foreach (explode("\n", $text) as $line) {
         $line = trim((string) preg_replace('/\s+/', ' ', $line));
-        if ($line !== '' && $line[0] !== '#' && !preg_match('/^[A-Za-z_][A-Za-z0-9_]*\s?=/', $line)) {
+        if ($line !== '' && $line[0] !== '#' && preg_match(WATCH_CRON_LINE, $line)) {
             $jobs[] = $line;
         }
     }
@@ -1913,17 +2047,18 @@ function watchmanCrontabs(array $paths): ?array
     $system = array_flip(watchmanCronJobs((string) @file_get_contents($paths['cron_d'] . '/root', false, null, 0, 1 << 20)));
     $sources = [];
     foreach (glob($paths['crontabs'] . '/*') ?: [] as $f) {
-        if (preg_match('/^[a-z_][a-z0-9_.-]{0,31}$/D', basename($f)) && basename($f) !== 'cron.update') {
-            $sources[] = [basename($f) === 'root' ? '' : basename($f) . ': ', $f, basename($f) === 'root'];
+        if (preg_match('/^[a-z_][a-z0-9_.-]{0,31}$/D', basename($f)) && basename($f) !== WATCH_CRON_SIGNAL) {
+            $sources[] = [basename($f) === 'root' ? '' : basename($f) . ': ', $f, basename($f) === 'root', null];
         }
     }
     foreach (glob($paths['cron_d'] . '/*') ?: [] as $f) {
-        if (basename($f) !== 'root') {
-            $sources[] = ['cron.d/' . watchmanClean(basename($f), 60) . ': ', $f, false];
+        if (basename($f) !== 'root' && basename($f) !== WATCH_CRON_SIGNAL) {
+            $sources[] = ['cron.d/' . watchmanClean(basename($f), 60) . ': ', $f, false, basename($f)];
         }
     }
-    $out = ['mtime' => null, 'lines' => [], 'twice' => [], 'office' => []];
-    foreach ($sources as [$label, $file, $root]) {
+    // cron_d: /etc/cron.d's other files — name => their lines' hashes (a file that came with a plugin the office installed: watchmanOfficeLook())
+    $out = ['mtime' => null, 'lines' => [], 'twice' => [], 'office' => [], 'cron_d' => []];
+    foreach ($sources as [$label, $file, $root, $cronD]) {
         $st = watchmanPlain($file);
         if (!$st) {
             continue;
@@ -1938,6 +2073,9 @@ function watchmanCrontabs(array $paths): ?array
             $h = watchmanHash($label . $line);
             $short = $label . watchmanCronShort($line);
             $out['lines'][$h] = $short;
+            if ($cronD !== null && preg_match('/^[A-Za-z0-9._+-]{1,100}$/D', $cronD)) {
+                $out['cron_d'][$cronD][] = $h;
+            }
             if (!$root) {
                 continue;
             }
@@ -2236,7 +2374,7 @@ function watchmanAgents(array $paths, array $prev): ?array
  *
  * @return list<string>  the kinds of new entries
  */
-function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, array &$book, int $now): array
+function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, array &$book, int $now, array $office = []): array
 {
     if ($seen === null) {
         return [];
@@ -2254,10 +2392,20 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
         } else {
             $k += ['lines' => [], 'twice' => [], 'office' => []];
             $ev = ['mtime' => $c['mtime'], 'evidence' => (array) ($c['evidence']['lines'] ?? [])];
+            $new = array_diff_key($c['lines'], $c['twice'], $c['office'], (array) $k['lines']);
+            // a cron.d file that came with a plugin the consultant installed (its name, then): the office's own — noted, never told
+            foreach ((array) ($c['cron_d'] ?? []) as $file => $hashes) {
+                $ours = isset($office['cron_d'][$file], $installed[$file]) ? array_intersect_key($new, array_flip((array) $hashes)) : [];
+                if ($ours) {
+                    $k['lines'] = (array) $k['lines'] + $ours;
+                    $new = array_diff_key($new, $ours);
+                    watchmanOfficeNote($book, 'cron_new', "cron_new:office:$file", $now, ['file' => "cron.d/$file", 'plugin' => (string) $file] + watchmanJobs($ours));
+                }
+            }
             $lists = [
                 'cron_office' => array_diff_key($c['office'], (array) $k['office']),
                 'cron_twice'  => array_diff_key($c['twice'], (array) $k['twice']),
-                'cron_new'    => array_diff_key($c['lines'], $c['twice'], $c['office'], (array) $k['lines']),
+                'cron_new'    => $new,
             ];
             foreach ($lists as $kind => $list) {
                 if ($list) {
