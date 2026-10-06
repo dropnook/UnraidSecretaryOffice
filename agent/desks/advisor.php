@@ -853,21 +853,33 @@ function advisorGrafanaFiles(string $ip, bool $default, string $inside, ?string 
     return $files;
 }
 
-/** The office's dashboard (an export with an input for its data source) as Grafana provisions it: the data source filled in */
+/**
+ * The office's dashboard (an export with an input for its data source) as Grafana provisions it: the
+ * data source filled in. Decoded as objects, not arrays: Grafana's value mappings are objects keyed
+ * "0", "1" … — as PHP arrays they would come back as lists and the mappings would be lost.
+ */
 function advisorDashboardJson(string $file): ?string
 {
-    $j = json_decode((string) @file_get_contents($file), true);
-    if (!is_array($j) || !isset($j['panels'])) {
+    $j = json_decode((string) @file_get_contents($file));
+    if (!$j instanceof stdClass || !isset($j->panels)) {
         return null;
     }
-    unset($j['__inputs'], $j['__elements'], $j['__requires']);
-    $j['id'] = null;
-    array_walk_recursive($j, function (&$v) {
+    unset($j->__inputs, $j->__elements, $j->__requires);
+    $j->id = null;
+    $fill = function (mixed $v) use (&$fill): mixed {
         if ($v === '${DS_PROMETHEUS}') {
-            $v = ADVISOR_DS_UID;
+            return ADVISOR_DS_UID;
         }
-    });
-    return json_encode($j, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+        if ($v instanceof stdClass) {
+            foreach (get_object_vars($v) as $k => $x) {
+                $v->$k = $fill($x);
+            }
+        } elseif (is_array($v)) {
+            $v = array_map($fill, $v);
+        }
+        return $v;
+    };
+    return json_encode($fill($j), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
 }
 
 /**
