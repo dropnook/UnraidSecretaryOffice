@@ -23,7 +23,6 @@ const POLL   = 60000;
 const Office = window.Office = {
   config: CONFIG,
   agent: { running: false },
-  auth: { mode: 'none', unlocked: true },
   desks: new Map(),
   current: null,
   lang: 'en',
@@ -86,15 +85,7 @@ function pickLanguage() {
   const codes = CONFIG.languages.map((l) => l.code);
   const saved = Office.store('lang');
   if (saved && codes.includes(saved)) return saved;
-  if (CONFIG.in_unraid) return codes.includes(CONFIG.unraid_lang) ? CONFIG.unraid_lang : 'en';   // like Unraid
-  for (const want of navigator.languages || [navigator.language || 'en']) {
-    const w = String(want).toLowerCase();
-    const exact = codes.find((c) => c.toLowerCase() === w);
-    if (exact) return exact;
-    const base = codes.find((c) => c.toLowerCase() === w.split('-')[0]);
-    if (base) return base;
-  }
-  return 'en';
+  return codes.includes(CONFIG.unraid_lang) ? CONFIG.unraid_lang : 'en';   // like Unraid
 }
 
 async function loadStrings(code) {
@@ -192,22 +183,22 @@ Office.fmt = {
 };
 
 // ------------------------------------------------------------------ API
-/** As a plugin the page sits behind Unraid's login: an ended session answers with the login page */
+/** The page sits behind Unraid's login: an ended session answers with the login page */
 function loggedOut(r) {
-  if (!CONFIG.plugin || !r.redirected || new URL(r.url).pathname !== '/login') return false;
+  if (!r.redirected || new URL(r.url).pathname !== '/login') return false;
   location.reload();             // Unraid shows its login, then the office again
   return true;
 }
 
 // ------------------------------------------------------------------ busy
 // An action that takes more than a moment shows a wave and keeps clicks off the
-// page until it is answered: inside Unraid its own (div.spinner.fixed, the
-// animated logo every Unraid page has), on the office's own page ours. Reads that
-// poll or run beside the page (a log being followed, an estimate) stay quiet.
+// page until it is answered: Unraid's own (div.spinner.fixed, the animated logo
+// every Unraid page has; ours only if a page lacks it). Reads that poll or run
+// beside the page (a log being followed, an estimate) stay quiet.
 const QUIET = /\.(read|output|log|estimate|detail|measure)$/;
 let busyCount = 0, busyTimer = null;
 function busyEl() {
-  const unraid = CONFIG.in_unraid && document.querySelector('div.spinner.fixed');
+  const unraid = document.querySelector('div.spinner.fixed');
   if (unraid) return unraid;
   let el = $('#sso-busy');
   if (!el) {
@@ -246,25 +237,15 @@ async function postBusy(action, data) {
 
 Office.api = {
   async get(params) {
-    const once = async () => {
-      const r = await fetch(API + '?' + new URLSearchParams(params), { cache: 'no-store' });
-      if (loggedOut(r)) return { ok: false, error: { key: 'logged_out' } };
-      const j = await r.json();
-      if (j.agent) Office.setAgent(j.agent);
-      if (j.auth) Office.setAuth(j.auth);
-      return j;
-    };
-    let j = await once();
-    // "reading needs the PIN too" and this browser is locked: ask once, then try again
-    if (!j.ok && j.error && j.error.key === 'pin_required' && !Office.dialogOpen() && await Office.unlock()) j = await once();
+    const r = await fetch(API + '?' + new URLSearchParams(params), { cache: 'no-store' });
+    if (loggedOut(r)) return { ok: false, error: { key: 'logged_out' } };
+    const j = await r.json();
+    if (j.agent) Office.setAgent(j.agent);
     return j;
   },
-  /** post('snapshot.delete', {ids}) — the agent answers {ok, …} or {ok:false, error:{key, params}}.
-      With a PIN set and this browser locked, it asks for the PIN first and then tries again. */
+  /** post('snapshot.delete', {ids}) — the agent answers {ok, …} or {ok:false, error:{key, params}} */
   async post(action, data) {
-    let j = await postBusy(action, data);
-    if (!j.ok && j.error && j.error.key === 'pin_required' && await Office.unlock()) j = await postBusy(action, data);
-    return j;
+    return postBusy(action, data);
   },
 };
 
@@ -280,13 +261,12 @@ async function postOnce(action, data) {
       j = JSON.parse(text);
     } catch (e) {
       // Unraid ends a POST with a stale csrf_token (new after a reboot) without a word
-      j = { ok: false, error: { key: CONFIG.plugin && r.ok && text === '' ? 'stale_page' : 'bad_answer', params: { status: r.status } } };
+      j = { ok: false, error: { key: r.ok && text === '' ? 'stale_page' : 'bad_answer', params: { status: r.status } } };
     }
   } catch (e) {
     j = { ok: false, error: { key: 'offline' } };
   }
   if (j.agent) Office.setAgent(j.agent);
-  if (j.auth) Office.setAuth(j.auth);
   j.desk = action.split('.')[0];
   return j;
 }
@@ -306,21 +286,19 @@ Office.setAgent = function setAgent(info) {
   const dot = $('#sso-dot');
   dot.className = 'dot ' + (Office.agent.running ? 'on' : 'off');
   dot.title = Office.agent.running ? t('agent.running', { version: Office.agent.version || '?' }) : t('agent.away');
-  // inside Unraid a word next to the dot: what runs, or what doesn't
+  // a word next to the dot: what runs, or what doesn't
   const state = $('#sso-state');
-  if (state) {
-    const no = Office.agent.no_data;
-    state.className = 'agent-state ' + (Office.agent.running ? 'on' : 'off');
-    $('#sso-state-label').textContent = t(Office.agent.running ? 'agent.label_on'
-      : no ? (no.array !== 'Started' ? 'agent.label_array' : 'agent.label_no_data') : 'agent.label_off');
-    state.title = dot.title;
-    dot.removeAttribute('title');
-  }
+  const no = Office.agent.no_data;
+  state.className = 'agent-state ' + (Office.agent.running ? 'on' : 'off');
+  $('#sso-state-label').textContent = t(Office.agent.running ? 'agent.label_on'
+    : no ? (no.array !== 'Started' ? 'agent.label_array' : 'agent.label_no_data') : 'agent.label_off');
+  state.title = dot.title;
+  dot.removeAttribute('title');
   const notice = $('#sso-notice');
   if (Office.agent.running) {
     if (notice.dataset.kind === 'agent') { notice.hidden = true; notice.dataset.kind = ''; }
   } else if (Office.agent.no_data) {
-    // plugin: the data folder lies in appdata and comes with the array
+    // the data folder lies in appdata and comes with the array
     const stopped = Office.agent.no_data.array !== 'Started';
     notice.innerHTML = '';
     notice.className = 'notice';
@@ -367,143 +345,6 @@ Office.copy = function copy(text) {
   ta.remove();
   Office.toast(ok ? t('common.copied') : t('common.copy_failed'), !ok);
 };
-
-// ------------------------------------------------------------------ PIN
-// Reading is open. With a PIN set, changing things needs an unlocked browser
-// (a cookie the server signs, valid for some hours). See src/auth.php.
-
-Office.setAuth = function setAuth(auth) {
-  if (!auth) return;
-  Office.auth = auth;
-  const b = $('#sso-lock');
-  b.hidden = auth.mode !== 'pin';
-  b.textContent = auth.unlocked ? '🔓' : '🔒';
-  b.title = auth.unlocked
-    ? t('auth.unlocked_until', { time: auth.until ? Office.fmt.time(auth.until) : '–' })
-    : t('auth.locked');
-};
-
-/** Asks for the PIN. Resolves true once this browser is unlocked. */
-Office.unlock = function unlock() {
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = (value) => { if (!done) { done = true; resolve(value); } };
-    const box = el('div');
-    box.appendChild(el('p', '', t(Office.auth.read ? 'auth.unlock_text_read' : 'auth.unlock_text')));
-    const input = pinInput('current-password');
-    const msg = el('p', 'callout warn');
-    msg.hidden = true;
-    // while this device waits after wrong tries: the time left, and the way out for whoever runs the server
-    const admin = el('p', 'role');
-    admin.hidden = true;
-    if (CONFIG.plugin) admin.append(t('auth.wait_admin'), ' ', el('code', '', PIN_SH + ' unblock'));
-    box.append(input, msg, admin);
-    let timer = 0;
-    Office.dialog({
-      title: t('auth.unlock_title'),
-      body: box,
-      onClose: () => { clearInterval(timer); finish(false); },
-      buttons: [
-        { text: t('common.cancel') },
-        { text: t('auth.unlock'), kind: '', act: async () => {
-          const j = await postOnce('office.unlock', { pin: input.value });
-          clearInterval(timer);
-          if (j.ok) {
-            finish(true);
-            if (lockedView) route();          // the office was hidden behind the PIN
-            return true;
-          }
-          msg.textContent = Office.errorText(j.error);
-          msg.hidden = false;
-          const wait = !!(j.error && j.error.key === 'pin_wait');
-          admin.hidden = !(wait && CONFIG.plugin);
-          if (wait) {
-            const end = Date.now() + (Number(j.error.params && j.error.params.seconds) || 0) * 1000;
-            const show = () => {
-              const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
-              msg.textContent = left ? t('auth.wait_left', { time: `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` }) : t('auth.wait_over');
-              if (!left) clearInterval(timer);
-            };
-            show();
-            timer = setInterval(show, 1000);
-          }
-          input.select();
-          return false;
-        } },
-      ],
-    });
-  });
-};
-
-/** In Unraid's terminal: unblock lifts the waits and keeps the PIN, reset forgets it (src/auth.php, officeAuthCli) */
-const PIN_SH = 'bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/pin.sh';
-
-function pinInput(autocomplete) {
-  const input = el('input', 'input');
-  input.type = 'password';
-  input.autocomplete = autocomplete;
-  input.maxLength = 64;
-  return input;
-}
-
-async function lockNow() {
-  const j = await postOnce('office.lock', {});
-  if (j.ok) Office.toast(t('auth.locked_now'));
-  if (j.ok && Office.auth.read) route();     // reading needs the PIN too: hide the office again
-}
-
-/** Set, change or remove the PIN */
-function pinSettings() {
-  const a = Office.auth;
-  const box = el('div');
-  box.appendChild(el('p', '', t(a.mode === 'pin' ? 'auth.settings_text_on' : 'auth.settings_text_off')));
-  if (!a.writable) box.appendChild(el('p', 'callout warn', t('auth.not_writable')));
-  const field = (label, input) => {
-    const f = el('div', 'field');
-    const l = el('label', '', label);
-    f.append(l, input);
-    box.appendChild(f);
-    return input;
-  };
-  if (a.mode === 'pin') {
-    // reading needs the PIN too — switched right here, from an unlocked browser
-    const label = el('label', 'check');
-    const cb = el('input');
-    cb.type = 'checkbox';
-    cb.checked = !!a.read;
-    cb.disabled = !a.unlocked;
-    const span = el('span', '', t('auth.read'));
-    span.appendChild(el('small', '', t('auth.read_hint')));
-    label.append(cb, span);
-    cb.onchange = async () => {
-      const j = await postOnce('office.read', { on: cb.checked });
-      if (!j.ok) { cb.checked = !cb.checked; Office.toast(Office.errorText(j.error), true); return; }
-      Office.toast(t(cb.checked ? 'auth.read_on' : 'auth.read_off'));
-    };
-    box.appendChild(label);
-  }
-  const current = a.mode === 'pin' ? field(t('auth.current'), pinInput('current-password')) : null;
-  const pin = field(t('auth.new'), pinInput('new-password'));
-  const again = field(t('auth.again'), pinInput('new-password'));
-  box.appendChild(el('p', 'role', t('auth.forgot')));
-  const msg = el('p', 'callout warn');
-  msg.hidden = true;
-  box.appendChild(msg);
-  const fail = (text) => { msg.textContent = text; msg.hidden = false; return false; };
-
-  const save = async (remove) => {
-    if (!remove && pin.value !== again.value) return fail(t('auth.mismatch'));
-    if (!remove && !pin.value) return fail(t('auth.empty'));
-    const j = await postOnce('office.pin', { pin: remove ? '' : pin.value, current: current ? current.value : '' });
-    if (!j.ok) return fail(Office.errorText(j.error));
-    Office.toast(t(remove ? 'auth.removed' : 'auth.saved'));
-    return true;
-  };
-  const buttons = [{ text: t('common.cancel') }];
-  if (a.mode === 'pin') buttons.push({ text: t('auth.remove'), kind: 'danger plain', act: () => save(true) });
-  buttons.push({ text: t(a.mode === 'pin' ? 'auth.change' : 'auth.set'), kind: '', act: () => save(false) });
-  Office.dialog({ title: t('auth.settings_title'), body: box, buttons });
-}
 
 // ------------------------------------------------------------------ dialog
 let closeDialog = null;
@@ -646,7 +487,6 @@ Office.desk = function registerDesk(desk) {
   Office.desks.set(desk.id, { ...meta, ...desk });
 };
 
-let lockedView = false;
 function route() {
   const parts = (location.hash.replace(/^#\/?/, '') || '').split('/');
   const id = parts[0] || '';
@@ -668,18 +508,6 @@ function route() {
   root.style.minHeight = '';
   hideTip();
   window.scrollTo(0, 0);
-  lockedView = Office.auth.mode === 'pin' && Office.auth.read && !Office.auth.unlocked;
-  if (lockedView) {               // reading needs the PIN too: nothing to see before it
-    document.title = `${t('office.name')} · ${CONFIG.host}`;
-    const box = el('div', 'box locked-view');
-    box.append(el('div', 'avatar big', '🔒'), el('h1', '', t('auth.locked_title')), el('p', 'role', t('auth.locked_text')));
-    const b = el('button', 'btn', t('auth.unlock'));
-    b.type = 'button';
-    b.onclick = () => Office.unlock();
-    box.appendChild(b);
-    root.appendChild(box);
-    return;
-  }
   if (next) {
     document.title = `${t(next.id + '.name')} · ${CONFIG.host}`;
     next.mount(root, sub);
@@ -1155,7 +983,7 @@ function languageDialog() {
     radios.push(r);
   };
   const like = CONFIG.languages.find((l) => l.code === CONFIG.unraid_lang);
-  option('', CONFIG.in_unraid ? t('office.language_unraid', { name: like ? like.name : 'English' }) : t('office.language_device'));
+  option('', t('office.language_unraid', { name: like ? like.name : 'English' }));
   CONFIG.languages.forEach((l) => option(l.code, l.name));
   Office.dialog({
     title: t('office.language_title'),
@@ -1166,7 +994,6 @@ function languageDialog() {
         const value = (radios.find((r) => r.checked) || {}).value || '';
         Office.store('lang', value || null);
         await loadStrings(pickLanguage());
-        brand();
         Office.setAgent(Office.agent);
         route();
         return true;
@@ -1198,17 +1025,13 @@ Office.help = function help() {
     dl.appendChild(dd);
   };
   const code = (s) => el('code', '', s);
-  item(t('help.office_title'), t(CONFIG.in_unraid ? 'help.office_text_plugin' : 'help.office_text'));
-  if (CONFIG.plugin) item(t('help.agent_title'), t('help.agent_text_plugin'));
-  else item(t('help.agent_title'), t('help.agent_text'), ' ', code('docker compose'), '.');
-  item(t('help.dot_title'), t(CONFIG.in_unraid ? 'help.dot_text_plugin' : 'help.dot_text'));
-  item(t('help.start_title'), t(CONFIG.plugin ? 'help.start_text_plugin' : 'help.start_text'));
-  item(t('help.languages_title'), t(CONFIG.in_unraid ? 'help.languages_text_plugin' : 'help.languages_text'), ' ', code('public/lang/<code>.json'), ', ',
+  item(t('help.office_title'), t('help.office_text'));
+  item(t('help.agent_title'), t('help.agent_text'));
+  item(t('help.dot_title'), t('help.dot_text'));
+  item(t('help.start_title'), t('help.start_text'));
+  item(t('help.languages_title'), t('help.languages_text'), ' ', code('public/lang/<code>.json'), ', ',
     code('public/desks/<desk>/lang/<code>.json'), '.');
-  if (CONFIG.plugin) {
-    item(t('help.security_title'), t('help.security_text_plugin'), el('br'), t('help.pin_plugin'), ' ', code(PIN_SH + ' unblock'),
-      el('br'), t('help.pin_reset_plugin'), ' ', code(PIN_SH + ' reset'));
-  } else item(t('help.security_title'), t('help.security_text'));
+  item(t('help.security_title'), t('help.security_text'));
   box.appendChild(dl);
   Office.dialog({ title: t('help.title'), body: box, wide: true });
 };
@@ -1219,11 +1042,8 @@ function officeMenu(e) {
     { text: t('office.refresh'), act: () => route() },
     { text: t('office.log'), act: showLog },
     { separator: true },
-    { text: t(Office.auth.mode === 'pin' ? 'auth.menu_change' : 'auth.menu_set'), act: pinSettings },
+    { text: t('office.menu_name', { name: CONFIG.menu_name }), act: menuNameDialog },
   ];
-  if (Office.auth.mode === 'pin' && Office.auth.unlocked) items.push({ text: t('auth.lock_now'), act: lockNow });
-  items.push({ separator: true });
-  if (CONFIG.plugin) items.push({ text: t('office.menu_name', { name: CONFIG.menu_name }), act: menuNameDialog });
   if (CONFIG.languages.length > 1) items.push({ text: t('office.language'), act: languageDialog });
   items.push({ text: t('help.title'), act: Office.help });
   if (Office.current && !Office.current.always) {
@@ -1245,28 +1065,19 @@ function footer() {
   f.append(a);
 }
 
-/** The office's name top left — only on a page of its own (inside Unraid its menu bar says it) */
-function brand() {
-  const b = $('#sso-brand');
-  if (b) b.textContent = t('office.name');
-}
-
 // ------------------------------------------------------------------ start
 async function start() {
   await loadStrings(pickLanguage());
-  brand();
   footer();
   $('#sso-more').onclick = officeMenu;
-  if ($('#sso-state')) $('#sso-state').onclick = Office.help;
-  $('#sso-lock').onclick = () => (Office.auth.unlocked ? lockNow() : Office.unlock());
-  try { Office.setAuth((await Office.api.get({ a: 'auth' })).auth); } catch (e) { /* the page still works */ }
+  $('#sso-state').onclick = Office.help;
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenu(); });
   initTips();
   window.addEventListener('scroll', relaxDesk, { passive: true });
   window.addEventListener('hashchange', route);
   route();
   // desks that want to know something on every page (the caretaker's badge), unless the office is locked
-  if (!lockedView) for (const d of Office.desks.values()) if (d.started) d.started();
+  for (const d of Office.desks.values()) if (d.started) d.started();
   setInterval(() => {
     if (document.hidden || Office.dialogOpen() || Office.menuOpen()) return;
     if (Office.current && Office.current.poll) Office.current.poll();

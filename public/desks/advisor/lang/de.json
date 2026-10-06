@@ -164,7 +164,7 @@
   "by_me_tip": "Unraid hat diesen Container aus dem Formular angelegt, das ich ausgefüllt habe (Label uso.installed-by=consultant). Sonst ist er ein Container wie jeder andere.",
   "help.by_me": "Ein Container, den Unraid aus einem vom Berater vorbereiteten Formular angelegt hat. Nur ein Vermerk — er ändert nichts.",
   "help.do_term": "Mach ich für dich / In Unraids Formular vorbereitet",
-  "help.do": "Das zweite Angebot des Beraters, nach dem Weg von Hand: Plugins über Unraids Plugin-Manager (wie Plugins → Install Plugin), Container über Unraids eigenes Formular «Add Container», ausgefüllt wie eine Vorlage aus Apps — du siehst jedes Feld und klickst selbst auf Apply. Immer zuerst eine Vorschau; mit PIN nur aus einem entsperrten Browser. Nie über etwas, das schon da ist.",
+  "help.do": "Das zweite Angebot des Beraters, nach dem Weg von Hand: Plugins über Unraids Plugin-Manager (wie Plugins → Install Plugin), Container über Unraids eigenes Formular «Add Container», ausgefüllt wie eine Vorlage aus Apps — du siehst jedes Feld und klickst selbst auf Apply. Immer zuerst eine Vorschau. Nie über etwas, das schon da ist.",
   "help.sheet": "Wenn Kopias Repository hier eingerichtet wurde: eine druckbare Seite mit allem, was es braucht, um deine Backups auf einem neuen Server zurückzuholen — Schlüssel und Passwort inklusive. Nur in deinem Browser erstellt; das Sekretariat behält nichts davon.",
   "installing": "wird installiert …",
   "installing_tip": "Unraids Plugin-Manager ist an der Arbeit — Klick zeigt seine Ausgabe.",
@@ -339,6 +339,5 @@
   "errors.ad_kopia_failed": "Kopia sagt nein: {output}",
   "errors.ad_kopia_field": "Bitte «{field}» prüfen.",
   "errors.ad_secret_missing": "Die Schlüssel sind nicht angekommen (doppelt geschickt, oder zu spät?). Nichts wurde geändert — versuch es noch einmal.",
-  "errors.ad_secret_plugin_only": "Nur mit dem Sekretariat als Plugin: Im Compose-Stack kann die Seite dem Agenten nichts über den Arbeitsspeicher übergeben. Richte Kopia von Hand ein.",
   "errors.ad_secret_inbox": "Das Sekretariat konnte seinen Übergabe-Ordner im Arbeitsspeicher ({dir}) nicht vorbereiten — nichts wurde geschickt."
 }

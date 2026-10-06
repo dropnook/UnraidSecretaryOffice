@@ -427,7 +427,7 @@
   "place.scripts_intro": "Ogni user script è una cartella sull'unità flash con il suo script; le pianificazioni di tutti stanno in un unico file.",
   "place.office": "Questa segreteria",
   "place.office_sub": "codice, stato, dati di backup",
-  "place.office_intro": "La segreteria stessa, i suoi dati di esecuzione (stato, PIN) e impostazioni, log e dump dei database del motore di backup.",
+  "place.office_intro": "La segreteria stessa, i suoi dati di esecuzione (stato, chi lavora qui) e impostazioni, log e dump dei database del motore di backup.",
   "loc_count": {
     "one": "1 voce",
     "other": "{n} voci"

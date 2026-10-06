@@ -593,7 +593,7 @@
   "cat.scripts.idle": "Tirados por ahí",
   "cat.scripts.idle_text": "Desactivado, sin ejecutarse desde el reinicio, sin cambios desde hace 30 días",
   "cat.scripts.used": "En uso",
-  "cat.scripts.used_text": "Programado, en ejecución, ejecutado desde el reinicio o modificado hace poco — o de la propia secretaría",
+  "cat.scripts.used_text": "Programado, en ejecución, ejecutado desde el reinicio o modificado hace poco",
   "us.where": "Scripts en {dir}. Guardar significa: la carpeta del script va a mi trastero en la memoria flash.",
   "us.boot": "Cuándo se ejecutó un script por última vez solo se sabe desde el reinicio ({when}) — User Scripts lo guarda en la RAM.",
   "us.off": "desactivado",
@@ -608,8 +608,6 @@
   "us.schedule_text": "Su programación en User Scripts",
   "us.running": "en ejecución",
   "us.running_text": "Se está ejecutando ahora mismo.",
-  "us.office": "secretaría",
-  "us.office_text": "Una de las entradas propias de la secretaría — aquí nunca se recoge.",
   "us.dead": {
     "one": "1 ruta desaparecida",
     "other": "{n} rutas desaparecidas"
@@ -624,8 +622,6 @@
   "d.last_run": "Última ejecución",
   "d.script_paths": "Rutas en el script",
   "show_script": "Mostrar script",
-  "why.office": "secretaría",
-  "why.office_text": "Las entradas de User Scripts propias de la secretaría se quedan.",
   "why.running": "en ejecución",
   "why.running_text": "Se está ejecutando ahora mismo — espero.",
   "why.scheduled": "programado",
@@ -645,9 +641,8 @@
     "one": "1 User Script para revisar",
     "other": "{n} User Scripts para revisar"
   },
-  "help.scripts_text": "Scripts del plugin User Scripts que están desactivados: rotos (sin archivo de script), que apuntan a rutas desaparecidas, o sin ejecutarse desde el reinicio y sin cambios desde hace 30 días. Los scripts programados o en ejecución y los de la secretaría nunca se guardan.",
+  "help.scripts_text": "Scripts del plugin User Scripts que están desactivados: rotos (sin archivo de script), que apuntan a rutas desaparecidas, o sin ejecutarse desde el reinicio y sin cambios desde hace 30 días. Los scripts programados o en ejecución nunca se guardan.",
   "item.userscript": "User Script",
-  "errors.cleanup_office_script": "{name} pertenece a la secretaría — se queda.",
   "errors.cleanup_running": "{name} se está ejecutando ahora mismo.",
   "errors.cleanup_scheduled": "{name} tiene una programación — desactívala primero en User Scripts.",
   "item.now_in": "ahora en {path}",

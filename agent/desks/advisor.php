@@ -39,7 +39,7 @@ declare(strict_types=1);
  * repository.config), whether Grafana gets the office's data source and
  * dashboard. Cheap and cached in the state.
  *
- * Installing — never behind the user's back, always preview + PIN + confirm:
+ * Installing — never behind the user's back, always preview + confirm:
  *   plugins     Unraid's own `plugin install <url>` as an atd job (the URLs
  *               pinned here: the makers' repositories, as Community
  *               Applications has them), its output shown; never for one that
@@ -140,11 +140,11 @@ desk('advisor', [
     'tick'    => fn () => advisorTick(),
     'actions' => [
         'refresh'          => fn (array $r) => ['ok' => true, 'state' => advisorScan()],
-        // read only (open_actions): what an install would do, a plugin job's output
+        // read only: what an install would do, a plugin job's output
         'install_preview'  => fn (array $r) => ['ok' => true, 'plan' => advisorInstallPublic(advisorInstallPlan(advisorId($r), advisorEnv(), $r))],
         'provision_preview' => fn (array $r) => ['ok' => true, 'plan' => advisorProvisionPublic(advisorProvisionPlan(advisorEnv()))],
         'job'              => fn (array $r) => ['ok' => true, 'job' => advisorJob()],
-        // writing (PIN)
+        // writing (after a preview and a confirmation on the page)
         'install_prepare'  => fn (array $r) => advisorInstallPrepare(advisorId($r), $r, advisorEnv()) + ['state' => advisorScan()],
         'provision'        => fn (array $r) => advisorProvision(advisorEnv()) + ['state' => advisorScan()],
         'plugin_install'   => fn (array $r) => advisorPluginInstall(advisorId($r)),
@@ -216,7 +216,7 @@ function advisorScan(): array
     }
     $state = ['time' => time(), 'gui' => houseGuiUrl(), 'ip' => $env['ip'], 'media' => $media, 'metrics_dir' => ADVISOR_METRICS_DIR,
               'dashboard' => ADVISOR_DASHBOARD_URL, 'prometheus_yml' => ADVISOR_PROMETHEUS_YML, 'externals' => $externals,
-              'server' => hostname(), 'plugin' => AS_PLUGIN, 'job' => advisorJob()];
+              'server' => hostname(), 'job' => advisorJob()];
     writeAtomic(deskFile('advisor'), jsonEncode($state));
     return $state;
 }

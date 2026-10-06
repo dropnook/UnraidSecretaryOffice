@@ -311,7 +311,6 @@
   "detail.content": "Contenuto",
   "detail.content_changed": "modificato",
   "detail.content_same": "come prima",
-  "detail.office_script": "Una delle voci User Scripts dell'ufficio (lo stack Compose).",
   "detail.when": "Previsto",
   "detail.command": "Esegue",
   "detail.uid": "Come utente",

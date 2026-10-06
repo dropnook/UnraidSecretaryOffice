@@ -311,7 +311,6 @@
   "detail.content": "Inhalt",
   "detail.content_changed": "geändert",
   "detail.content_same": "wie vorher",
-  "detail.office_script": "Einer der eigenen User-Scripts-Einträge des Büros (der Compose-Stack).",
   "detail.when": "Fällig",
   "detail.command": "Führt aus",
   "detail.uid": "Als Benutzer",

@@ -4,8 +4,8 @@ declare(strict_types=1);
 /*
  * Talking to the agent on the host.
  *
- * The web side never calls zfs, docker & co. itself (in the container it
- * can't; as a plugin it leaves that to the agent all the same). It drops a request
+ * The web side never calls zfs, docker & co. itself, even though Unraid's
+ * php-fpm runs as root: it leaves that to the agent. It drops a request
  * into data/mailbox/ (<id>.request), the agent picks it up within ~150 ms
  * and puts <id>.response next to it.
  */
@@ -22,7 +22,7 @@ function agentInfo(): array
     $pulse = (int) @filemtime($file);
     $info['pulse'] = $pulse ?: null;
     $info['running'] = !empty($info['running']) && $pulse > time() - 70 && is_dir(OFFICE_DATA . '/mailbox');
-    if (!$info['running'] && OFFICE_AS_PLUGIN && !is_dir(OFFICE_DATA)) {
+    if (!$info['running'] && !is_dir(OFFICE_DATA)) {
         // the data folder comes with the array: say why nobody answers
         $var = @parse_ini_file('/var/local/emhttp/var.ini') ?: [];
         $info['no_data'] = ['array' => (string) ($var['fsState'] ?? ''), 'dir' => OFFICE_DATA];

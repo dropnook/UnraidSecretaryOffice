@@ -427,7 +427,7 @@
   "place.scripts_intro": "Cada user script es una carpeta en la memoria flash con su script; las programaciones de todos están en un único archivo.",
   "place.office": "Esta secretaría",
   "place.office_sub": "código, estado, datos de copias de seguridad",
-  "place.office_intro": "La propia secretaría, sus datos de ejecución (estado, PIN) y los ajustes, registros y volcados de bases de datos del motor de copias de seguridad.",
+  "place.office_intro": "La propia secretaría, sus datos de ejecución (estado, quién trabaja aquí) y los ajustes, registros y volcados de bases de datos del motor de copias de seguridad.",
   "loc_count": {
     "one": "1 entrada",
     "other": "{n} entradas"

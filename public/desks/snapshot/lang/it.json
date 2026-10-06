@@ -349,11 +349,10 @@
   "fit.no_cow": "Ho chiesto alla signora Snapshotini, ma senza ZFS o btrfs qui non c'è niente di cui fare snapshot. «Peccato!», ha detto.",
   "plans": "Pianificazioni",
   "plans_sub": "Snapshot a orari fissi — elimino sempre e solo i miei vecchi. Non è un backup: i contenitori continuano a girare.",
-  "help.plans": "Una pianificazione crea snapshot a orari fissi (chiamati uso-plan-<pianificazione>-AAAAMMGG-HHMM; quelli più vecchi auto-<pianificazione>-…, contano allo stesso modo) e poi elimina i suoi più vecchi finché ne restano solo quanti deve conservarne. Gli altri snapshot — quelli del signor Backupsi, quelli manuali, quelli protetti — non li tocca mai. Gira tramite una voce di User Scripts, anche quando la segreteria non è aperta. I contenitori non vengono messi in pausa; per backup coerenti c'è il signor Backupsi.",
+  "help.plans": "Una pianificazione crea snapshot a orari fissi (chiamati uso-plan-<pianificazione>-AAAAMMGG-HHMM; quelli più vecchi auto-<pianificazione>-…, contano allo stesso modo) e poi elimina i suoi più vecchi finché ne restano solo quanti deve conservarne. Gli altri snapshot — quelli del signor Backupsi, quelli manuali, quelli protetti — non li tocca mai. Gira tramite una riga nel file cron della segreteria, anche quando la segreteria non è aperta. I contenitori non vengono messi in pausa; per backup coerenti c'è il signor Backupsi.",
   "plan.new": "Nuova pianificazione…",
   "plan.none": "Ancora nessuna pianificazione. Allora — che ne dici di snapshot ogni ora di appdata, tenendone 24?",
-  "plan.no_user_scripts": "Le pianificazioni hanno bisogno del plugin «User Scripts» — il capoufficio ti dice come fare.",
-  "plan.runner_off": "La voce di User Scripts «{name}» manca o non ha una pianificazione — così le pianificazioni non girano. Salvare una pianificazione una volta la ricrea.",
+  "plan.runner_off": "Nel file cron della segreteria manca la riga per le pianificazioni — quindi non girano. Salvare una pianificazione una volta la ricrea.",
   "plan.paused": "in pausa",
   "plan.keeps": {
     "one": "ne tiene 1",
@@ -408,19 +407,16 @@
   "plan.recursive_hint": "Anche i dataset sotto ricevono uno snapshot (ZFS); la conservazione vale per ogni dataset.",
   "plan.skip_asleep": "Salta i dischi in standby",
   "plan.skip_asleep_hint": "Uno snapshot li sveglierebbe. In quell'esecuzione non ne ricevono nessuno.",
-  "plan.note": "Per questo creo la voce di User Scripts «{name}»; ogni 5 minuti guarda cosa è in scadenza — anche quando la segreteria non è aperta. Gli orari persi (server spento) li recupero una volta.",
+  "plan.note": "La segreteria controlla ogni 5 minuti cosa è in scadenza (una riga nel suo file cron sull'unità flash) — anche quando nessuno la tiene aperta. Gli orari persi (server spento) vengono recuperati una volta.",
   "plan.save": "Salva",
   "plan.saved": "Pianificato: {when}",
   "plan.need_targets": "Scegli almeno una destinazione.",
   "plan.need_label": "Dagli un nome.",
-  "errors.no_user_scripts_plugin": "Per questo serve il plugin «User Scripts».",
   "errors.plan_bad_label": "Il nome manca o è troppo lungo (al massimo 40 caratteri).",
   "errors.plan_too_many": "Al massimo {max} pianificazioni.",
   "errors.plan_unknown": "Questa pianificazione non esiste (più).",
   "errors.plan_no_targets": "La pianificazione ha bisogno di almeno una destinazione.",
   "errors.plan_bad_keep": "«Conserva» deve essere tra 1 e 1000, «giorni» tra 0 e 3650.",
-  "check.plans_user_scripts": "User Scripts (per le pianificazioni della signora Snapshotini)",
-  "check.plans_user_scripts_how": "Installa «User Scripts» da App.",
   "check.plans_runner": "Le pianificazioni della signora Snapshotini girano",
   "check.plans_runner_how": "Salva una volta una pianificazione dalla signora Snapshotini — così si ricrea.",
   "check.plan_failed": "La pianificazione «{name}» è andata senza problemi",
@@ -439,7 +435,5 @@
     "one": "Sveglia 1 disco in standby",
     "other": "Sveglia {n} dischi in standby"
   },
-  "wake_title": "Solo per questo giro: sveglia i dischi btrfs in standby e legge anche i loro snapshot. Senza spunta li lascio dormire e mostro quello che sapevo di loro l'ultima volta. Unraid li rimette in standby dopo il suo tempo di attesa.",
-  "plan.runner_off_plugin": "Nel file cron della segreteria manca la riga per le pianificazioni — quindi non girano. Salvare una pianificazione una volta la ricrea.",
-  "plan.note_plugin": "La segreteria controlla ogni 5 minuti cosa è in scadenza (una riga nel suo file cron sull'unità flash) — anche quando nessuno la tiene aperta. Gli orari persi (server spento) vengono recuperati una volta."
+  "wake_title": "Solo per questo giro: sveglia i dischi btrfs in standby e legge anche i loro snapshot. Senza spunta li lascio dormire e mostro quello che sapevo di loro l'ultima volta. Unraid li rimette in standby dopo il suo tempo di attesa."
 }

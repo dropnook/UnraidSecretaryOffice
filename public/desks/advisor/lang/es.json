@@ -164,7 +164,7 @@
   "by_me_tip": "Unraid creó este contenedor desde el formulario que rellené yo (label uso.installed-by=consultant). Por lo demás es un contenedor como cualquier otro.",
   "help.by_me": "Un contenedor que Unraid creó desde un formulario preparado por el consultor. Solo una nota — no cambia nada.",
   "help.do_term": "Lo hago yo / Preparado en el formulario de Unraid",
-  "help.do": "La segunda oferta del consultor, después del camino a mano: los plugins con el gestor de plugins de Unraid (como Plugins → Instalar Plugin), los contenedores con el formulario «Agregar Contenedor» de Unraid, rellenado como una plantilla de Apps — ves cada campo y haces clic tú en Aplicar. Siempre primero una vista previa; con un PIN, solo desde un navegador desbloqueado. Nunca encima de algo que ya está.",
+  "help.do": "La segunda oferta del consultor, después del camino a mano: los plugins con el gestor de plugins de Unraid (como Plugins → Instalar Plugin), los contenedores con el formulario «Agregar Contenedor» de Unraid, rellenado como una plantilla de Apps — ves cada campo y haces clic tú en Aplicar. Siempre primero una vista previa. Nunca encima de algo que ya está.",
   "help.sheet": "Cuando el repositorio de Kopia se configuró aquí: una página para imprimir con todo lo necesario para recuperar tus copias en un servidor nuevo — claves y contraseña incluidas. Creada solo en tu navegador; la secretaría no guarda nada de ella.",
   "installing": "instalándose …",
   "installing_tip": "El gestor de plugins de Unraid está trabajando — haz clic para ver su salida.",
@@ -339,6 +339,5 @@
   "errors.ad_kopia_failed": "Kopia dice que no: {output}",
   "errors.ad_kopia_field": "Revisa «{field}».",
   "errors.ad_secret_missing": "Las claves no llegaron (¿enviadas dos veces, o demasiado tarde?). No se cambió nada — vuelve a intentarlo.",
-  "errors.ad_secret_plugin_only": "Solo con la secretaría como plugin: en el stack de Compose la página no puede pasar nada al agente por la memoria RAM. Configura Kopia a mano.",
   "errors.ad_secret_inbox": "La secretaría no pudo preparar su carpeta de entrega en la memoria RAM ({dir}) — no se envió nada."
 }

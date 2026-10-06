@@ -164,7 +164,7 @@
   "by_me_tip": "Unraid created this container from the form I filled in (label uso.installed-by=consultant). Otherwise it's a container like any other.",
   "help.by_me": "A container Unraid created from a form the consultant prepared. Only a note — it changes nothing.",
   "help.do_term": "Let me install it / Prepared in Unraid's form",
-  "help.do": "The consultant's second offer, after the manual way: plugins through Unraid's plugin manager (as Plugins → Install Plugin), containers through Unraid's own «Add Container» form, filled in like a template from Apps — you see every field and click Apply yourself. Always a preview first; with a PIN set, only from an unlocked browser. Never over something that is there.",
+  "help.do": "The consultant's second offer, after the manual way: plugins through Unraid's plugin manager (as Plugins → Install Plugin), containers through Unraid's own «Add Container» form, filled in like a template from Apps — you see every field and click Apply yourself. Always a preview first. Never over something that is there.",
   "help.sheet": "After Kopia's repository is set up here: one printable page with everything needed to get your backups back on a new server — keys and password included. Made in your browser only; the office keeps none of it.",
   "installing": "being installed …",
   "installing_tip": "Unraid's plugin manager is at work — click to see its output.",
@@ -339,6 +339,5 @@
   "errors.ad_kopia_failed": "Kopia said no: {output}",
   "errors.ad_kopia_field": "Please check «{field}».",
   "errors.ad_secret_missing": "The keys didn't arrive (sent twice, or too late?). Nothing was changed — try again.",
-  "errors.ad_secret_plugin_only": "Only with the office as a plugin: in the Compose stack the page can't hand anything to the agent through RAM. Set Kopia up by hand.",
   "errors.ad_secret_inbox": "The office couldn't prepare its handover folder in RAM ({dir}) — nothing was sent."
 }

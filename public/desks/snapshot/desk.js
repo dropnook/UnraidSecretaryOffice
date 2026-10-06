@@ -1101,10 +1101,9 @@ function renderPlans() {
   const info = state?.plans || { plans: [] };
   const add = el('button', 'btn small', T('plan.new'));
   add.type = 'button';
-  add.disabled = !Office.agent.running || !info.user_scripts;
+  add.disabled = !Office.agent.running;
   add.onclick = () => planDialog(null);
   box.appendChild(Office.sectionHead(T('plans'), T('plans_sub'), add));
-  if (!info.user_scripts) box.appendChild(el('p', 'callout warn', T('plan.no_user_scripts')));
   const plans = info.plans || [];
   if (!plans.length) {
     box.appendChild(el('p', 'empty sp-plans-empty', T('plan.none')));
@@ -1114,7 +1113,7 @@ function renderPlans() {
   plans.forEach((p) => list.appendChild(planRow(p)));
   box.appendChild(list);
   const r = info.runner || {};
-  if (plans.some((p) => p.enabled) && !(r.script && r.enabled)) box.appendChild(el('p', 'callout warn', T(r.via === 'office' ? 'plan.runner_off_plugin' : 'plan.runner_off', { name: r.name })));
+  if (plans.some((p) => p.enabled) && !(r.script && r.enabled)) box.appendChild(el('p', 'callout warn', T('plan.runner_off')));
 }
 
 function planRow(p) {
@@ -1271,8 +1270,7 @@ function planDialog(p) {
   const asleep = check(T('plan.skip_asleep'), T('plan.skip_asleep_hint'));
   asleep.input.checked = p ? !!p.skip_asleep : true;
   box.append(recursive.label, asleep.label);
-  const runner = state?.plans?.runner || {};
-  box.appendChild(el('p', 'callout', T(runner.via === 'office' ? 'plan.note_plugin' : 'plan.note', { name: runner.name || 'unraid-secretary-office_snapshots' })));
+  box.appendChild(el('p', 'callout', T('plan.note')));
 
   const cronOf = () => {
     const [h, m] = (kind.value === 'weekly' ? weeklyTime.value : time.value).split(':').map(Number);

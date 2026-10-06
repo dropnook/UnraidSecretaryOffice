@@ -115,8 +115,8 @@
 #   stopped. setup.sh checks this with a live test.
 #
 # USAGE
-#   User Scripts: Custom Cron, e.g. 0 3 * * *
-#   Terminal:     /mnt/user/appdata/UnraidSecretaryOffice/backup/backup.sh [option]
+#   Scheduled:    the plugin's cron file (Mr. Backupsy -> Schedule...) calls scripts/job.sh backup
+#   Terminal:     bash /usr/local/emhttp/plugins/unraid-secretary-office/backup/backup.sh [option]
 #
 # VARIANTS (environment variable - the option after it is a shortcut)
 #   UB_MODE=backup                 full run (default)
@@ -135,7 +135,7 @@
 #                     --about      name, version and interface as JSON
 #   UB_DATA=/path                  another data folder (default <office>/data/unraid-backup)
 #   UB_SETTINGS=/path/settings.ini another settings file
-#   Example: UB_DRY_RUN=1 /mnt/user/appdata/UnraidSecretaryOffice/backup/backup.sh
+#   Example: UB_DRY_RUN=1 bash /usr/local/emhttp/plugins/unraid-secretary-office/backup/backup.sh
 #
 # FILES (in the data folder <office>/data/unraid-backup, nothing on /boot)
 #   settings.ini        settings (from setup.sh)

@@ -1,9 +1,5 @@
 {
   "order": 40,
   "icon": "📝",
-  "refresh_after": 60,
-  "open_actions": [
-    "read",
-    "tour"
-  ]
+  "refresh_after": 60
 }

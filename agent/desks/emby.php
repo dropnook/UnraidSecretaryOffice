@@ -19,8 +19,7 @@ declare(strict_types=1);
  * the gather's consolidate.ini by Jack (values checked, every one quoted).
  *
  * Runs go through "php agent.php job embycache|gather <mode>": started by the
- * host's atd (from the page) or the office's cron file / User Scripts (on a
- * schedule). The job keeps the two apart (never at the same time), records
+ * host's atd (from the page) or the office's cron file (on a schedule). The job keeps the two apart (never at the same time), records
  * how it went and keeps the output of the last run.
  *
  * The Emby API key stays on the server: it is never part of the state the
@@ -735,8 +734,7 @@ function embyGatherReady(): bool
 function embyStart(string $tool, string $mode): array
 {
     embyRunCheck($tool, $mode);
-    $agent = AS_PLUGIN ? OFFICE_DIR . '/agent/agent.php' : userSharePath(OFFICE_DIR . '/agent/agent.php');
-    hostLaunch("emby-$tool", [PHP_BINARY, $agent, 'job', $tool, $mode, '--office']);
+    hostLaunch("emby-$tool", [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', $tool, $mode, '--office']);
     logLine("Jack Emby: started $tool ($mode) via at");
     usleep(800000);
     return ['ok' => true, 'state' => embyScan()];
@@ -794,7 +792,7 @@ function embyJobInfo(string $tool): array
 
 /**
  * "php agent.php job embycache|gather [mode] [--office]" — what the cron file
- * (job.sh), User Scripts and the page's runs call. Never both at once: a real
+ * (job.sh) and the page's runs call. Never both at once: a real
  * run holds the other tool's lock while it works. EmbyCache's real run waits
  * for the gather's first one. Returns the tool's exit code.
  */
@@ -973,11 +971,7 @@ function embyLog(string $tool): array
 
 // ===================================================================== schedules
 
-/**
- * EmbyCache's and the gather's schedule. As a plugin a line in the office's
- * cron file; in the stack a User Scripts entry Jack writes himself (a
- * three-line call of the job).
- */
+/** EmbyCache's and the gather's schedule: a line in the office's cron file */
 function embySetSchedule(string $job, mixed $cron): array
 {
     if (!in_array($job, ['embycache', 'gather'], true)) {
@@ -992,37 +986,15 @@ function embySetSchedule(string $job, mixed $cron): array
             throw new Problem('emby_gather_not_configured');
         }
     }
-    if (!AS_PLUGIN) {
-        if (!housePlugin('user.scripts')) {
-            throw new Problem('emby_no_user_scripts');
-        }
-        $name = OFFICE_JOBS[$job];
-        $dir = US_DIR . "/scripts/$name";
-        if ($cron === null && !is_dir($dir)) {
-            return ['ok' => true, 'live' => true, 'state' => embyScan()];
-        }
-        @mkdir($dir, 0755, true);
-        $what = $job === 'gather' ? 'the media gather (brings film and series folders together on one disk)'
-                                  : 'EmbyCache (what is watched next onto the pool, watched things back to their disk)';
-        $script = "#!/bin/bash\n#description=Unraid Secretary Office - Jack Emby: $what. Managed in the office, not here.\n"
-                . "#arrayStarted=true\n"
-                . 'exec ' . escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(userSharePath(OFFICE_DIR . '/agent/agent.php')) . " job $job\n";
-        if ((string) @file_get_contents("$dir/script") !== $script) {
-            writeAtomic("$dir/script", $script, 0755, 0, 0);
-        }
-        if (!is_file("$dir/name")) {
-            @file_put_contents("$dir/name", $name);
-        }
-    }
     $live = officeJobSetSchedule($job, $cron);
     logLine("Jack Emby: $job schedule " . ($cron !== null ? "set to $cron" : 'switched off') . ($live ? '' : ' (not in the crontab yet)'));
     return ['ok' => true, 'live' => $live, 'state' => embyScan()];
 }
 
 /**
- * Other things that start EmbyCache or the gather on their own: User Scripts
- * entries (not the office's) and cron lines. They would run beside Jack's
- * schedule, outside his locks.
+ * Other things that start EmbyCache or the gather on their own: the user's
+ * User Scripts entries and cron lines. They would run beside Jack's schedule,
+ * outside his locks.
  */
 function embyForeignSchedules(): array
 {
@@ -1030,9 +1002,6 @@ function embyForeignSchedules(): array
     $plans = (array) json_decode((string) @file_get_contents(US_SCHEDULE), true);
     foreach (glob(US_DIR . '/scripts/*/script') ?: [] as $file) {
         $name = basename(dirname($file));
-        if (str_starts_with($name, US_PREFIX)) {
-            continue;
-        }
         $text = (string) @file_get_contents($file, false, null, 0, 16384);
         $tool = str_contains($text, 'embycache_run.py') ? 'embycache' : (str_contains($text, 'consolidate_master.sh') ? 'gather' : null);
         if ($tool) {

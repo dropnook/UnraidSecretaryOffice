@@ -4,8 +4,7 @@ declare(strict_types=1);
 /*
  * Mr. Backup — runs the backup engine in backup/ (unraid-backup).
  *
- * The engine works on its own: the plugin's cron file (in the stack a User
- * Scripts entry) starts it at night, it keeps its
+ * The engine works on its own: the plugin's cron file starts it at night, it keeps its
  * settings in data/unraid-backup/settings.ini and writes its state to
  * data/unraid-backup/state/ (status.json, last-run.json, history.jsonl,
  * drift.json — see "Status fuer andere Programme" in backup/README.md).
@@ -15,8 +14,8 @@ declare(strict_types=1);
  * at "local + Kopia" are Kopia sources of their own ([app|vm "<name>"] kopia = yes, backupKopiaItems()).
  *
  * Runs are handed to the host's atd ("at now"). A process started by the
- * agent itself would be stopped with it (the stack's container cgroup, the
- * plugin's process group when the array stops or the plugin is updated) —
+ * agent itself would be stopped with it (the plugin's process group when
+ * the array stops or the plugin is updated) —
  * a 10-hour backup must not depend on the office.
  *
  * Older script versions without state/status.json are shown from their log
@@ -33,8 +32,6 @@ const BACKUP_MODES       = ['backup' => [], 'nokopia' => ['--no-kopia'], 'dryrun
 const BACKUP_LOG_NAME    = '/^(?:(run|check|dryrun|setup)-(\d{8})-(\d{4})\.log|unmount\.log)$/';
 const BACKUP_LOG_BYTES   = 512 * 1024;
 const BACKUP_HISTORY     = 60;           // runs shown
-const BACKUP_SCHEDULE    = '/boot/config/plugins/user.scripts/schedule.json';
-const BACKUP_USER_SCRIPT = 'unraid-secretary-office_backup';   // was unraid-backup (userScriptsMigrate)
 
 $GLOBALS['backup'] = null;
 $GLOBALS['backupLogCache'] = [];         // legacy log file => [mtime, parsed]
@@ -161,8 +158,6 @@ function backupMetricsLastSuccess(string $file): int
 
 function backupScan(): array
 {
-    userScriptsMigrate();              // waits while a run uses the old entry; cheap otherwise
-    backupUserScriptDescribe();
     $dir = BACKUP_SCRIPT_DIR;
     $data = BACKUP_DATA_DIR;
     $state = ['time' => time(), 'found' => false, 'dir' => $dir, 'data' => $data, 'asleep' => false];
@@ -1016,48 +1011,10 @@ function backupLibvirtArchive(string $file): array
     return $vms;
 }
 
-/**
- * The nightly run's schedule. As a plugin it lies in the plugin's cron file
- * and can be set once the setup is done; in the stack it is the User Scripts
- * entry setup.sh creates.
- */
+/** The nightly run's schedule: a line in the plugin's cron file, to be set once the setup is done */
 function backupSchedule(): array
 {
-    if (AS_PLUGIN) {
-        return ['script' => is_file(BACKUP_DATA_DIR . '/settings.ini')] + officeJobSchedule('backup');
-    }
-    $script = "/boot/config/plugins/user.scripts/scripts/" . BACKUP_USER_SCRIPT . '/script';
-    $result = ['script' => is_file($script), 'frequency' => null, 'custom' => null, 'enabled' => false];
-    foreach ((array) json_decode((string) @file_get_contents(BACKUP_SCHEDULE), true) as $entry) {
-        if (is_array($entry) && ($entry['script'] ?? '') === $script) {
-            $result['frequency'] = (string) ($entry['frequency'] ?? '');
-            $result['custom'] = (string) ($entry['custom'] ?? '');
-            $result['enabled'] = !in_array($result['frequency'], ['', 'disabled'], true);
-        }
-    }
-    return $result;
-}
-
-/**
- * The entry's description as the office writes it today (setup.sh writes the
- * same for new entries) — only the #description line, nothing else.
- */
-function backupUserScriptDescribe(): void
-{
-    if (AS_PLUGIN) {
-        return;
-    }
-    $file = US_DIR . '/scripts/' . BACKUP_USER_SCRIPT . '/script';
-    $text = (string) @file_get_contents($file);
-    if (!preg_match('#^exec "([^"]+)/backup\.sh"#m', $text, $m)) {
-        return;
-    }
-    $line = "#description=Unraid Secretary Office - Mr. Backupsy's nightly backup: snapshots, database dumps, Kopia offsite. "
-          . "Set up and scheduled in the office. Code: {$m[1]}, data: " . dirname($m[1]) . '/data/unraid-backup';
-    $new = preg_replace('/^#description=.*$/m', $line, $text, 1);
-    if ($new !== null && $new !== $text) {
-        writeAtomic($file, $new, 0755, 0, 0);
-    }
+    return ['script' => is_file(BACKUP_DATA_DIR . '/settings.ini')] + officeJobSchedule('backup');
 }
 
 /**
@@ -1125,11 +1082,11 @@ function backupPaused(string $data): array
     ];
 }
 
-/** Sets the nightly run (cron) or switches it off (null / '') — plugin cron file or User Scripts */
+/** Sets the nightly run (cron) or switches it off (null / '') — the plugin's cron file */
 function backupSetSchedule(mixed $cron): array
 {
     $cron = is_string($cron) && trim($cron) !== '' ? trim($cron) : null;
-    if (AS_PLUGIN && $cron !== null && !is_file(BACKUP_DATA_DIR . '/settings.ini')) {
+    if ($cron !== null && !is_file(BACKUP_DATA_DIR . '/settings.ini')) {
         throw new Problem('backup_no_settings');
     }
     $live = officeJobSetSchedule('backup', $cron);
@@ -1178,7 +1135,7 @@ function backupCheckReady(): string
 /** Hands a backup engine command to the host's atd (see hostLaunch()) */
 function backupLaunch(array $args, array $env = []): void
 {
-    // the engine finds its data next to its code in the stack, not in the plugin: always say where
+    // always say where its data lies: the folder the office reads (the engine would find the plugin's DATA_DIR itself)
     hostLaunch('backup-job', array_merge(['/bin/bash'], $args), ['UB_DATA' => BACKUP_DATA_DIR] + $env);
 }
 
@@ -1319,14 +1276,8 @@ function backupChecks(): array
     $summary = backupSettingsSummary($settings);
     $kopiaOn = $summary['kopia_enabled'];
 
-    if (!AS_PLUGIN) {           // the plugin schedules the run itself
-        $out[] = finding('user_scripts', 'required', housePlugin('user.scripts'), [], 'apps');
-    }
     $out[] = finding('setup', 'required', is_file("$data/settings.ini"), ['path' => BACKUP_SCRIPT_DIR . '/setup.sh'], '#/backup/setup');
     $schedule = backupSchedule();
-    if (!AS_PLUGIN) {
-        $out[] = finding('user_script', 'required', $schedule['script'], ['path' => BACKUP_SCRIPT_DIR . '/setup.sh'], '#/backup/setup');
-    }
     if ($schedule['script']) {
         $out[] = finding('schedule', 'required', $schedule['enabled'], [], '#/backup/schedule');
     }
@@ -1418,13 +1369,6 @@ function backupChecks(): array
                 $out[] = finding('nextcloud_datadir', 'required', $mode === false ? null : ($mode & 0007) === 0,
                     ['name' => $nc['container'], 'path' => $dir, 'mode' => $mode === false ? '?' : sprintf('%o', $mode & 0777)], 'userscripts');
             }
-        }
-
-        // the backup stops running containers for its snapshots — the office too, unless told otherwise
-        $office = array_values(array_filter(array_keys($containers), fn ($n) => str_starts_with($n, 'UnraidSecretaryOffice')));
-        if ($office && $summary['docker_stop'] !== 'none') {
-            $stopped = array_values(array_diff($office, $summary['no_stop']));
-            $out[] = finding('office_keeps_running', 'recommended', !$stopped, ['names' => implode(', ', $stopped)], '#/backup/setup');
         }
     }
 

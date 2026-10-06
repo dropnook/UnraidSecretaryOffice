@@ -126,21 +126,13 @@ function copies(id) {
     v.replaceAll('{yml}', yml).replaceAll('{ip}', ip).replaceAll('{dir}', dir)]));
 }
 
-/** A link into Unraid's web UI: same tab inside Unraid, a new one from the stack's page of its own */
+/** A link into Unraid's web UI, in the same tab */
 function unraidLink(path, text, kind) {
   const a = el('a', 'btn small' + (kind ? ' ' + kind : ''), text);
-  const href = unraidHref(path);
+  const href = Office.safeHref(path);
   if (!href) return null;
   a.href = href;
-  if (!Office.config.in_unraid) {
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-  }
   return a;
-}
-function unraidHref(path) {
-  if (Office.config.in_unraid) return Office.safeHref(path);
-  return state.gui ? Office.safeHref(state.gui + path) : null;
 }
 
 /** A button of the consultant's own (his second offer, after the manual way) */
@@ -287,7 +279,7 @@ function external(id, x) {
     acts.appendChild(offerButton(T('do.container'), () => containerDialog(id), x.offer.refuse ? Office.errorText(x.offer.refuse, ID) : null));
   }
   if (id === 'kopia' && x.there && repo && repo.connected === false) {
-    acts.appendChild(offerButton(T('do.kopia_repo'), () => kopiaIntro(x), state.plugin ? null : Office.errorText({ key: 'ad_secret_plugin_only' }, ID)));
+    acts.appendChild(offerButton(T('do.kopia_repo'), () => kopiaIntro(x)));
   }
   if (id === 'grafana' && x.there && prov && prov.host && !(prov.done && prov.points)) {
     acts.appendChild(offerButton(T('do.grafana_prov'), () => provisionDialog()));
@@ -306,7 +298,7 @@ function external(id, x) {
 /** The maker's icon as Unraid has it (recognised at a glance), else the emoji */
 function avatar(e, x) {
   const box = el('div', 'avatar ad-avatar');
-  const src = x.icon && (Office.config.in_unraid ? x.icon : state.gui && state.gui + x.icon);
+  const src = x.icon;
   if (!src) { box.textContent = e.icon; return box; }
   const img = el('img');
   img.alt = '';
@@ -551,11 +543,10 @@ async function containerDialog(id) {
         const r = await Office.api.post('advisor.install_prepare', { id, anon });
         if (!r.ok) { Office.toast(errorOf(r), true); return false; }
         await afterAction(r);
-        const href = unraidHref(r.url);
+        const href = Office.safeHref(r.url);
         if (!href) { Office.toast(T('ci.no_gui'), true); return true; }
         Office.toast(T('ci.opened'));
-        if (Office.config.in_unraid) location.href = href;
-        else window.open(href, '_blank', 'noopener');
+        location.href = href;
         return true;
       } },
     ],

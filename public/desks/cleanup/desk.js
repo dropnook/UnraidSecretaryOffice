@@ -862,7 +862,6 @@ function scriptMeta(e, meta) {
   if (e.name !== e.folder) meta.appendChild(el('span', 'mono', e.folder));
   meta.appendChild(chip(freqText(e), e.frequency === 'disabled' ? 'quiet' : 'accent', T('us.schedule_text')));
   if (e.running) meta.appendChild(chip('▶ ' + T('us.running'), 'accent', T('us.running_text')));
-  if (e.office) meta.appendChild(chip(T('us.office'), 'quiet', T('us.office_text')));
   if (e.dead) meta.appendChild(chip(T('us.dead', { n: e.dead }), 'warn', T('us.dead_text')));
   if (!e.exists) meta.appendChild(chip(T('us.no_file'), 'danger', T('us.no_file_text')));
   meta.appendChild(el('span', '', e.last_run ? T('us.last_run', { when: fmt.relative(e.last_run) }) : T('us.not_since_boot')));
@@ -901,13 +900,9 @@ function vmdefDetail(v) {
     [T('d.uuid'), v.uuid, true],
   ]));
   box.appendChild(el('p', 'role', T('vmdef.text')));
-  if (state.vms.gui && Office.safeHref(state.vms.gui + '/VMs')) {
-    const a = el('a', 'btn small plain', T('vmdef.open'));
-    a.href = Office.safeHref(state.vms.gui + '/VMs');
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    box.appendChild(a);
-  }
+  const a = el('a', 'btn small plain', T('vmdef.open'));
+  a.href = '/VMs';
+  box.appendChild(a);
   return box;
 }
 
@@ -1009,8 +1004,8 @@ function picture(url) {
   return box;
 }
 
-/** The picture Unraid shows now: its cached copy inside Unraid (where that is served), else the address it came from */
-const shownIcon = (e) => (Office.config.in_unraid && e.shown ? e.shown : /^https?:\/\//i.test(e.value) ? e.value : null);
+/** The picture Unraid shows now: its cached copy (Unraid serves it), else the address it came from */
+const shownIcon = (e) => (e.shown ? e.shown : /^https?:\/\//i.test(e.value) ? e.value : null);
 
 function iconMeta(e, meta) {
   meta.appendChild(el('span', 'mono', e.image.replace(/@sha256:[0-9a-f]+$/i, '')));       // the digest in the details

@@ -427,7 +427,7 @@
   "place.scripts_intro": "Every user script is a folder on the flash with its script; the schedules of all of them are in one file.",
   "place.office": "This office",
   "place.office_sub": "code, state, backup data",
-  "place.office_intro": "The office itself, its runtime data (state, PIN) and the backup engine's settings, logs and database dumps.",
+  "place.office_intro": "The office itself, its runtime data (state, who works here) and the backup engine's settings, logs and database dumps.",
   "loc_count": {
     "one": "1 entry",
     "other": "{n} entries"

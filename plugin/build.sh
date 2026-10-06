@@ -43,7 +43,6 @@ cp -R plugin/scripts plugin/event plugin/images "$pkg/"
 cp plugin/*.page LICENSE "$pkg/"
 # Unraid shows the plugin's README.md in its list under Plugins: a short one of its own
 cp plugin/README.md "$pkg/README.md"
-rm -f "$pkg/robots.txt"                       # Unraid serves its own
 find "$pkg" \( -name '.DS_Store' -o -name '._*' -o -name '.smbdelete*' -o -name '.gitkeep' -o -name '__pycache__' \) -exec rm -rf {} +
 
 find "$pkg" -type d -exec chmod 755 {} +

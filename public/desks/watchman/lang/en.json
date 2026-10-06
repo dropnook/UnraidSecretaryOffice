@@ -311,7 +311,6 @@
   "detail.content": "Content",
   "detail.content_changed": "changed",
   "detail.content_same": "as before",
-  "detail.office_script": "One of the office's own User Scripts entries (the Compose stack).",
   "detail.when": "Due",
   "detail.command": "Runs",
   "detail.uid": "As user",

@@ -8,9 +8,7 @@ declare(strict_types=1);
  *
  * The folder is METRICS_HOST_DIR, in Unraid's place for add-on mounts — a
  * 1 MB tmpfs (RAM, gone after a reboot) shared with the backup engine's mount
- * points. As a plugin the agent runs on the host; in the stack it runs in the
- * host's mount namespace (nsenter --mount), so it is the same folder. The
- * agent creates it at start (metricsStart(), never /mnt/addons itself) and
+ * points. The agent creates it at start (metricsStart(), never /mnt/addons itself) and
  * writes once a minute from its loop (metricsTick()):
  *
  *   uso_office.prom   the office itself (uso_office_info, when it wrote last)

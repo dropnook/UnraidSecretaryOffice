@@ -1885,9 +1885,8 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
         } else {
             foreach ($scripts as $name => $s) {
                 $k = $known['scripts'][$name] ?? null;
-                $office = str_starts_with((string) $name, US_PREFIX);
                 if ($k === null) {
-                    $added[] = watchmanSet($book, 'script_new', "script_new:$name", $now, ['name' => (string) $name, 'cron' => $s['cron'], 'office' => $office, '_f' => $s['h']]);
+                    $added[] = watchmanSet($book, 'script_new', "script_new:$name", $now, ['name' => (string) $name, 'cron' => $s['cron'], '_f' => $s['h']]);
                     continue;
                 }
                 $content = $k['h'] !== $s['h'];
@@ -1899,7 +1898,7 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
                     continue;
                 }
                 $added[] = watchmanSet($book, 'script_changed', "script_changed:$name", $now,
-                    ['name' => (string) $name, 'content' => $content, 'cron' => $s['cron'], 'old' => (string) $k['cron'], 'office' => $office, '_f' => $s['h']]);
+                    ['name' => (string) $name, 'content' => $content, 'cron' => $s['cron'], 'old' => (string) $k['cron'], '_f' => $s['h']]);
             }
             $known['scripts'] = array_intersect_key($known['scripts'], $scripts);
         }

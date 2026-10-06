@@ -1,9 +1,5 @@
 {
   "order": 45,
   "icon": "🧹",
-  "refresh_after": 300,
-  "open_actions": [
-    "scan",
-    "measure"
-  ]
+  "refresh_after": 300
 }

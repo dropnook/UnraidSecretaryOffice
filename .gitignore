@@ -5,9 +5,6 @@ data/*
 # Plugin builds (plugin/build.sh)
 dist/
 
-# Local settings
-.env
-
 # SMB / macOS leftovers
 .smbdelete*
 .schreibtest

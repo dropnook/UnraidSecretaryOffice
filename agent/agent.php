@@ -7,14 +7,9 @@ declare(strict_types=1);
  *
  * The web UI only shows things; this agent does the work on the host (zfs,
  * btrfs, docker, Unraid's configuration). It runs on the PHP that ships with
- * Unraid, one of two ways (see src/place.php):
- *
- *   plugin   a service of the plugin: scripts/agent.sh starts it (at install,
- *            boot and array start, through a small supervisor that restarts
- *            it if it dies) and stops it when the array stops
- *   stack    the "agent" service in compose.yaml: a privileged container in
- *            the host's PID namespace that nsenter's into the host's mount
- *            namespace
+ * Unraid, as a service of the plugin (see src/place.php): scripts/agent.sh
+ * starts it (at install, boot and array start, through a small supervisor
+ * that restarts it if it dies) and stops it when the array stops.
  *
  * Every secretary ("desk") is one file in agent/desks/. It registers the
  * actions it handles (see desk() in lib/util.php); the agent loads them all.
@@ -24,19 +19,16 @@ declare(strict_types=1);
  * <id>.response next to it. Deliberately no unix socket: a bound socket keeps
  * the pool busy and Unraid could not stop the array any more.
  *
- *   php agent.php run       run in the foreground (what the container and agent.sh do)
+ *   php agent.php run       run in the foreground (what agent.sh does)
  *   php agent.php status    is an agent running?
- *   php agent.php job snapshot-plans   run the snapshot schedules that are due (User Scripts calls this)
+ *   php agent.php job snapshot-plans   run the snapshot schedules that are due (the plugin's cron file, via scripts/job.sh)
  *   php agent.php job <name> [args]    a job a desk registers ('jobs' in desk()), e.g. embycache, gather
  *
  * When one of its files changes, the running agent lints the new code and
  * restarts itself in place.
  *
- * Environment (both optional):
- *   OFFICE_DATA_DIR            data folder shared with the web UI (default: the plugin's
- *                              DATA_DIR, in the stack ../data)
- *   OFFICE_WEB_UID             uid of the web server (default: 0 — Unraid's php-fpm
- *                              runs as root —, in the stack 33, www-data in php:apache)
+ * Environment (tests only):
+ *   OFFICE_DATA_DIR            another data folder than the plugin's DATA_DIR
  */
 
 const AGENT_VERSION = '1.27.0';
@@ -46,18 +38,18 @@ const TICK_US       = 150000;
 const LOG_MAX       = 512 * 1024;
 const FILE_UID      = 99;    // nobody:users, like everything else in appdata
 const FILE_GID      = 100;
+const WEB_UID       = 0;     // the web server's user: Unraid's php-fpm runs as root
 
 require dirname(__DIR__) . '/src/place.php';
 
 define('OFFICE_DIR', dirname(__DIR__));
-define('AS_PLUGIN', officeIsPlugin(OFFICE_DIR));
-define('OFFICE_WEB', AS_PLUGIN ? OFFICE_DIR : OFFICE_DIR . '/public');     // desks/<id>/desk.json & co.
-define('DATA_DIR', rtrim(getenv('OFFICE_DATA_DIR') ?: (AS_PLUGIN ? officePluginDataDir() : OFFICE_DIR . '/data'), '/'));
+// the web files (desks/<id>/desk.json, lang/ …) lie at the top of the plugin's folder; the tests set the repository's public/
+defined('OFFICE_WEB') || define('OFFICE_WEB', OFFICE_DIR);
+define('DATA_DIR', rtrim(getenv('OFFICE_DATA_DIR') ?: officePluginDataDir(), '/'));
 define('MAILBOX', DATA_DIR . '/mailbox');
 define('OFFICE_PRIVATE', DATA_DIR . '/office');
 define('AGENT_INFO', DATA_DIR . '/agent.json');
 define('AGENT_LOG', DATA_DIR . '/agent.log');
-define('WEB_UID', (int) (getenv('OFFICE_WEB_UID') ?: (AS_PLUGIN ? 0 : 33)));
 
 require __DIR__ . '/lib/util.php';
 require __DIR__ . '/lib/mounts.php';
@@ -80,7 +72,7 @@ function main(array $argv): int
         case 'run':
             return serve();
         case 'job':
-            // jobs the host runs on its own (User Scripts), e.g. Ms. Snapshotini's schedules
+            // jobs the host runs on its own (the plugin's cron file, atd), e.g. Ms. Snapshotini's schedules
             if (($argv[2] ?? '') === 'snapshot-plans' && is_dir(DATA_DIR)) {
                 return snapPlansRunDue();
             }
@@ -209,7 +201,7 @@ function serve(): int
  */
 function makeDataDir(): bool
 {
-    if (!AS_PLUGIN || (readCfg('/var/local/emhttp/var.ini')['fsState'] ?? '') !== 'Started') {
+    if ((readCfg('/var/local/emhttp/var.ini')['fsState'] ?? '') !== 'Started') {
         return false;
     }
     $appdata = dirname(DATA_DIR, 2);         // <appdata>/UnraidSecretaryOffice/data
@@ -229,14 +221,13 @@ function setUp(): void
     foreach (glob(MAILBOX . '/*') ?: [] as $old) {
         @unlink($old);
     }
-    // the office's own files (PIN): only the web server may read them
+    // the office's own files (who works here): only the web server may read them
     privateDirEnsure(OFFICE_PRIVATE, 0700, false);
     writeInfo(true);
-    try {
-        userScriptsMigrate();          // the office's User Scripts entries under their current names
-        officeJobsFromUserScripts();   // moved to the plugin: their schedules go into its cron file
-    } catch (Throwable $e) {
-        logLine('User Scripts migration: ' . $e->getMessage());
+    // up to 1.27 a PIN could guard changes (office/auth.json, left as it is): said once in the log
+    $pinGone = 'The office has no PIN any more: Unraid\'s login guards it (office/auth.json is no longer read)';
+    if (!empty(readJson(OFFICE_PRIVATE . '/auth.json')['pin_hash']) && !str_contains((string) @file_get_contents(AGENT_LOG), $pinGone)) {
+        logLine($pinGone);
     }
     logLine('Agent started (v' . AGENT_VERSION . ', PID ' . getmypid() . ', desks: ' . implode(', ', array_keys(desks())) . ')');
     metricsStart();         // its folder in /mnt/addons and a first write, before the caretaker's start tour looks
@@ -281,7 +272,7 @@ function privateDirOk(string $dir): bool
  * Makes $dir a folder of the web server's user with $mode. Never through a
  * link: chown/chmod would change whatever it points to. A link where the
  * mailbox belongs is replaced by a folder ($replaceLink); at data/office it is
- * left alone and reported (the PIN may lie behind it).
+ * left alone and reported (staff.json may lie behind it).
  */
 function privateDirEnsure(string $dir, int $mode, bool $replaceLink): bool
 {

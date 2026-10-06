@@ -9,7 +9,7 @@ declare(strict_types=1);
  * They change nothing on the server: what writes files works on copies in a
  * temporary folder. Three parts:
  *   logic    the tricky functions (cron, snapshot retention and names, Emby detection,
- *            the gather's settings, User Scripts schedules, the plugin's cron file,
+ *            the gather's settings, the plugin's cron file,
  *            the menu bar's label, reports to Unraid's notifications, the team
  *            lead's «I know, thanks» and the Dashboard tile,
  *            Mr. Backupsy's packages and his Kopia per app and VM, a run skipped because
@@ -20,7 +20,7 @@ declare(strict_types=1);
  *            starts on its own (crontabs, .cron files, User Scripts, at, notification agents),
  *            job.sh's guard against a second start in the same minute)
  *   hardening  the checks that keep requests, manifests, paths and links in
- *            bounds (PIN tries, pin.sh unblock/reset, safe writes, the mailbox, Ms. Dustdevil's
+ *            bounds (safe writes, the mailbox, Ms. Dustdevil's
  *            manifests, Emby paths, anchored validators, the release link, the
  *            Consultant's secrets for Kopia: RAM only, never in a file, log or ps)
  *   strings  German and English have the same keys, Italian has every English
@@ -31,6 +31,9 @@ declare(strict_types=1);
  */
 
 define('AGENT_LIBRARY_ONLY', 1);
+// the repository, not the plugin's folder: the web files in public/, a data folder of its own (never the plugin's DATA_DIR)
+define('OFFICE_WEB', dirname(__DIR__) . '/public');
+putenv('OFFICE_DATA_DIR=' . dirname(__DIR__) . '/data');
 require dirname(__DIR__) . '/agent/agent.php';
 date_default_timezone_set('Europe/Zurich');
 
@@ -276,50 +279,6 @@ function testEmby(): void
     same('emby output: progress collapsed', "📂 Scanne: /mnt/user/Filme\n   🚚 [disk2 -> disk1] a.srt\nfertig",
         embyPlainOutput("   [1/2] 50% - A \e[K\r\r\e[K📂 Scanne: /mnt/user/Filme\n   [2/2] 100% - B \e[K\r   [2/2] 100% - B \e[K\r\n\r\e[K   🚚 [disk2 -> disk1] a.srt\n"
             . "2026-10-04 18:00:00,123 | INFO | fertig"));
-}
-
-/** userScriptSchedule against copies: only its own entry and line change */
-function testUserScripts(): void
-{
-    $tmp = sys_get_temp_dir() . '/office-tests-' . getmypid();
-    @mkdir("$tmp/user.scripts/scripts/demo", 0700, true);
-    touch("$tmp/user.scripts/scripts/demo/script");
-    $other = "$tmp/user.scripts/scripts/other/script";
-    $json = json_encode([$other => ['script' => $other, 'frequency' => 'custom', 'id' => 'scheduleother', 'custom' => '1 12 * * *']], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-    file_put_contents("$tmp/user.scripts/schedule.json", $json);
-    $cron = "# Generated cron schedule for user.scripts\n1 12 * * * " . US_START . " $other > /dev/null 2>&1\n\n";
-    file_put_contents("$tmp/user.scripts/customSchedule.cron", $cron);
-    $s = "$tmp/user.scripts/schedule.json";
-    $c = "$tmp/user.scripts/customSchedule.cron";
-
-    userScriptSchedule('demo', '0 3 * * *', $s, $c, null, false);
-    $all = json_decode((string) file_get_contents($s), true);
-    same('schedule: own entry set', '0 3 * * *', $all["$tmp/user.scripts/scripts/demo/script"]['custom'] ?? null);
-    same('schedule: other entry untouched', '1 12 * * *', $all[$other]['custom'] ?? null);
-    check('schedule: own cron line', str_contains((string) file_get_contents($c), "0 3 * * * " . US_START . " $tmp/user.scripts/scripts/demo/script "));
-    check('schedule: other cron line kept', str_contains((string) file_get_contents($c), "1 12 * * * " . US_START . " $other "));
-
-    userScriptSchedule('demo', null, $s, $c, null, false);
-    $all = json_decode((string) file_get_contents($s), true);
-    same('schedule off: frequency', 'disabled', $all["$tmp/user.scripts/scripts/demo/script"]['frequency'] ?? null);
-    check('schedule off: own cron line gone', !str_contains((string) file_get_contents($c), 'scripts/demo/script'));
-    check('schedule off: other cron line kept', str_contains((string) file_get_contents($c), $other));
-
-    foreach (['0 3 * * * rm -rf /', '61 3 * * *'] as $bad) {
-        try {
-            userScriptSchedule('demo', $bad, $s, $c, null, false);
-            check("schedule refuses $bad", false);
-        } catch (Problem $p) {
-            same("schedule refuses $bad", 'bad_cron', $p->key);
-        }
-    }
-    try {
-        userScriptSchedule('../x', '0 3 * * *', $s, $c, null, false);
-        check('schedule refuses a bad name', false);
-    } catch (Problem $p) {
-        check('schedule refuses a bad name', true);
-    }
-    exec('rm -rf ' . escapeshellarg($tmp));
 }
 
 /** The plugin's cron file against a copy: only the job's own line changes, the order stays */
@@ -2516,163 +2475,6 @@ function hardeningRm(string $dir): void
     @rmdir($dir);
 }
 
-/** A wrong current PIN when changing or removing it counts against the waiting time like a wrong one at unlocking */
-function testPinTries(): void
-{
-    $dir = hardeningTmp('auth');
-    @mkdir("$dir/office", 0700);
-    defined('OFFICE_DATA') || define('OFFICE_DATA', $dir);
-    if (OFFICE_DATA !== $dir) {
-        check('PIN tries: test data folder', false, 'OFFICE_DATA is already ' . OFFICE_DATA);
-        return;
-    }
-    if (!function_exists('officeReadJson')) {
-        function officeReadJson(string $file): ?array
-        {
-            $data = json_decode((string) @file_get_contents($file), true);
-            return is_array($data) ? $data : null;
-        }
-    }
-    require_once OFFICE_DIR . '/src/auth.php';
-    $addrBefore = $_SERVER['REMOTE_ADDR'] ?? null;
-    $_SERVER['REMOTE_ADDR'] = '192.168.7.50';
-    officeSetPin('2468', '');
-    same('PIN set', 'pin', officeAuthMode());
-    same('auth.json only for its owner', '600', substr(sprintf('%o', fileperms(officeAuthFile())), -3));
-    $keys = [];
-    for ($i = 0; $i < OFFICE_FREE_TRIES + 1; $i++) {
-        try {
-            officeSetPin('1357', '0000');
-            $keys[] = 'changed';
-        } catch (AuthProblem $e) {
-            $keys[] = $e->key;
-        }
-    }
-    same('wrong current PIN: refused, then waiting', array_merge(array_fill(0, OFFICE_FREE_TRIES, 'pin_wrong'), ['pin_wait']), $keys);
-    same('wrong current PIN counted', OFFICE_FREE_TRIES, (int) (officeAuthRead()['failures'] ?? 0));
-    try {
-        officeUnlock('2468');
-        $key = 'unlocked';
-    } catch (AuthProblem $e) {
-        $key = $e->key;
-    }
-    same('while waiting even the right PIN waits', 'pin_wait', $key);
-
-    // per client: the one who guessed waits, the others don't (IPv6 by its /64, IPv4 mapped into IPv6 as IPv4)
-    $try = function (string $addr, string $pin): string {
-        $_SERVER['REMOTE_ADDR'] = $addr;
-        try {
-            officeUnlock($pin);
-            return 'unlocked';
-        } catch (AuthProblem $e) {
-            return $e->key;
-        }
-    };
-    same('PIN per client: another client is not kept waiting', 'unlocked', $try('192.168.7.51', '2468'));
-    same('PIN per client: the one who guessed still waits', ['pin_wait', 'pin_wait'], [$try('192.168.7.50', '2468'), $try('::ffff:192.168.7.50', '2468')]);
-    $six = [];
-    foreach (range(1, OFFICE_FREE_TRIES) as $i) {
-        $six[] = $try("2001:db8::$i", '0000');
-    }
-    same('PIN per client: IPv6 addresses of one /64 are one client', array_merge(array_fill(0, OFFICE_FREE_TRIES, 'pin_wrong'), ['pin_wait']),
-        array_merge($six, [$try('2001:db8::99', '2468')]));
-    same('PIN per client: another /64 is another client', 'pin_wrong', $try('2001:db8:0:1::1', '0000'));
-    same('PIN per client: a right PIN starts that client anew', ['unlocked', 'pin_wrong'], [$try('192.168.7.52', '2468'), $try('192.168.7.52', '0000')]);
-
-    // all clients together: after OFFICE_GLOBAL_TRIES everybody waits — many addresses can't guess on and on
-    $keys = [];
-    for ($i = 0; count($keys) < OFFICE_GLOBAL_TRIES + 5; $i++) {
-        $keys[] = $try('10.0.' . intdiv($i, 3) . '.' . ($i % 3 + 1), '0000');
-    }
-    check('PIN for all: every client waits after the tries of all', in_array('pin_wait', $keys, true)
-        && (int) (officeAuthRead()['failures'] ?? 0) >= OFFICE_GLOBAL_TRIES, json_encode(array_count_values($keys)));
-    same('PIN for all: a fresh client waits too', 'pin_wait', $try('172.16.0.1', '2468'));
-    check('PIN per client: only so many clients kept', count((array) (officeAuthRead()['clients'] ?? [])) <= OFFICE_CLIENTS_MAX);
-
-    // open actions that do more than read or measure need the PIN
-    same('PIN for open actions: setup plan and waking disks', [true, true, false, false],
-        [officeOpenNeedsPin('backup.setup_plan', []), officeOpenNeedsPin('snapshot.scan', ['wake' => true]),
-         officeOpenNeedsPin('snapshot.scan', ['wake' => false]), officeOpenNeedsPin('cleanup.measure', ['ids' => ['x']])]);
-
-    if ($addrBefore === null) {
-        unset($_SERVER['REMOTE_ADDR']);
-    } else {
-        $_SERVER['REMOTE_ADDR'] = $addrBefore;
-    }
-    same('no temporary files left', [], glob("$dir/office/.auth.*.tmp") ?: []);
-    hardeningRm($dir);
-}
-
-/**
- * pin.sh in Unraid's terminal, on a temporary data folder: status tells, unblock lifts only the waits
- * (PIN and secret stay — an unlocked browser stays unlocked), reset forgets the PIN; auth.json stays
- * 0600 with its owner (the web server's user), a lock it creates gets the folder's owner, a link is refused.
- */
-function testPinScript(): void
-{
-    require_once OFFICE_DIR . '/src/auth.php';          // officeUnlockSignature(): what the page signs a browser's unlock with
-    $tmp = hardeningTmp('pinsh');
-    $office = "$tmp/data/office";
-    @mkdir($office, 0700, true);
-    $file = "$office/auth.json";
-    $now = time();
-    $auth = ['pin_hash' => password_hash('2468', PASSWORD_DEFAULT), 'secret' => bin2hex(random_bytes(32)), 'failures' => 7, 'wait_until' => 0, 'read' => true,
-             'clients' => ['192.168.7.50' => ['f' => 6, 'w' => $now + 300, 't' => $now], '2001:db8::/64' => ['f' => 1, 'w' => 0, 't' => $now]]];
-    file_put_contents($file, json_encode($auth));
-    chmod($file, 0600);
-    foreach ([$file, $office] as $f) {          // the web server's user (in the stack www-data; here nobody:users)
-        chown($f, 99);
-        chgrp($f, 100);
-    }
-    $pin = function (string $what, ?string $data = null) use ($tmp): array {
-        exec('OFFICE_DATA_DIR=' . escapeshellarg($data ?? "$tmp/data") . ' bash ' . escapeshellarg(OFFICE_DIR . '/plugin/scripts/pin.sh') . ' ' . escapeshellarg($what) . ' 2>&1', $out, $code);
-        return [$code, implode("\n", $out)];
-    };
-    $owner = function (string $f): string {
-        clearstatcache();
-        $st = @lstat($f);
-        return $st ? sprintf('%d:%d %o', $st['uid'], $st['gid'], $st['mode'] & 0777) : 'missing';
-    };
-
-    [$code, $out] = $pin('status');
-    check('pin.sh status: PIN, looking, the tries, who waits', $code === 0 && str_contains($out, 'PIN: set (looking needs it too)')
-        && str_contains($out, '7 of ' . OFFICE_GLOBAL_TRIES) && preg_match('/192\.168\.7\.50\s+6 wrong, waits [45] min/', $out) === 1, $out);
-
-    $until = $now + 3600;
-    $before = officeUnlockSignature($auth, $until);
-    [$code, $out] = $pin('unblock');
-    $after = json_decode((string) file_get_contents($file), true) ?: [];
-    same('pin.sh unblock: the waits gone, PIN, secret and «looking» kept', [0, 0, 0, false, $auth['pin_hash'], $auth['secret'], true],
-        [$code, $after['failures'] ?? null, $after['wait_until'] ?? null, isset($after['clients']), $after['pin_hash'] ?? null, $after['secret'] ?? null, $after['read'] ?? null]);
-    same('pin.sh unblock: an unlocked browser stays unlocked', $before, officeUnlockSignature($after, $until));
-    same('pin.sh unblock: auth.json 0600 with its owner, the new lock the folder\'s', ['99:100 600', '99:100'],
-        [$owner($file), substr($owner("$office/.auth.lock"), 0, 6)]);
-    check('pin.sh unblock: says what it did', str_contains($out, '7 wrong tries forgotten, those of 2 device(s)'), $out);
-    [$code, $out] = $pin('unblock');
-    check('pin.sh unblock again: nothing to do', $code === 0 && str_contains($out, 'Nobody was waiting'), $out);
-
-    [$code, $out] = $pin('reset');
-    same('pin.sh reset: the PIN forgotten, the file stays 0600 with its owner', [0, [], '99:100 600'],
-        [$code, json_decode((string) file_get_contents($file), true), $owner($file)]);
-    [$code, $out] = $pin('status');
-    check('pin.sh status after reset: no PIN', $code === 0 && str_contains($out, 'PIN: not set'), $out);
-    [$code, $out] = $pin('reset');
-    check('pin.sh reset again: nothing to do', $code === 0 && str_contains($out, 'No PIN was set'), $out);
-
-    // a link in place of auth.json: refused, the other file untouched
-    file_put_contents("$tmp/elsewhere.json", json_encode(['pin_hash' => 'x', 'failures' => 9]));
-    unlink($file);
-    symlink("$tmp/elsewhere.json", $file);
-    [$code, $out] = $pin('unblock');
-    same('pin.sh: a link in place of auth.json is refused', [1, ['pin_hash' => 'x', 'failures' => 9]],
-        [$code, json_decode((string) file_get_contents("$tmp/elsewhere.json"), true)]);
-    unlink($file);
-
-    same('pin.sh: an unknown word, no data folder', [2, 1], [$pin('open')[0], $pin('status', "$tmp/none")[0]]);
-    same('pin.sh: no temporary files left', [], glob("$office/.auth.*.tmp") ?: []);
-    hardeningRm($tmp);
-}
-
 /** writeAtomic(): a link at the target or a file in the way is never written through; the mode is there from the start */
 function testSafeWrites(): void
 {
@@ -2836,7 +2638,7 @@ function testAdvisorSecrets(): void
     $secrets = ['password' => 'Corr3ct-Horse-' . bin2hex(random_bytes(4)), 'access_key' => 'AKIATEST' . strtoupper(bin2hex(random_bytes(4))),
                 'secret_key' => 'sk/' . bin2hex(random_bytes(12)) . '+x'];
     $web = "$tmp/web.php";
-    file_put_contents($web, '<?php define("OFFICE_AS_PLUGIN", true); require ' . var_export(OFFICE_DIR . '/src/place.php', true) . '; require '
+    file_put_contents($web, '<?php require ' . var_export(OFFICE_DIR . '/src/place.php', true) . '; require '
         . var_export(OFFICE_DIR . '/src/api.php', true) . '; echo apiSecretStash("advisor.kopia_repo", json_decode(stream_get_contents(STDIN), true));');
     $p = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, ['OFFICE_INBOX_DIR' => $inbox, 'PATH' => getenv('PATH')]);
     fwrite($pipes[0], json_encode($secrets));
@@ -3099,7 +2901,7 @@ function testStrings(): void
     }
     foreach (array_merge(glob(OFFICE_DIR . '/agent/*.php') ?: [], glob(OFFICE_DIR . '/agent/lib/*.php') ?: [], glob(OFFICE_DIR . '/agent/desks/*.php') ?: [],
                          glob(OFFICE_DIR . '/src/*.php') ?: []) as $file) {
-        preg_match_all("/new (?:Problem|AuthProblem)\\(\\s*'([a-z0-9_]+)'/", (string) file_get_contents($file), $m);
+        preg_match_all("/new (?:Problem|OfficeProblem)\\(\\s*'([a-z0-9_]+)'/", (string) file_get_contents($file), $m);
         foreach (array_unique($m[1]) as $key) {
             check(basename($file) . ": text for error '$key'", isset($errors[$key]));
         }
@@ -3133,9 +2935,9 @@ function testIconSquare(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify', 'testCaretakerAcks',
+$parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanSched', 'testJobGuard', 'testComposeBuilds'],
-          'hardening' => ['testPinTries', 'testPinScript', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
+          'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {

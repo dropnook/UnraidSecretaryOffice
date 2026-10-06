@@ -1,6 +1,5 @@
 {
   "order": 60,
   "icon": "💼",
-  "refresh_after": 300,
-  "open_actions": ["install_preview", "provision_preview", "job"]
+  "refresh_after": 300
 }
