@@ -903,6 +903,7 @@ function testWatchman(): void
         }
     }
     putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    @unlink(watchmanLockFile($data, 'book'));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
