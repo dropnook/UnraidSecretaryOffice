@@ -56,6 +56,11 @@ declare(strict_types=1);
  *               container and share, told only when far above what is normal at
  *               that time of the week; the office's own backup and restore, and
  *               what moves data (the mover, EmbyCache …), are expected
+ *   snapshots   ZFS snapshots of the awake pools and the btrfs snapshot folders of
+ *               the awake disks, round against round (see "snapshots that vanish"):
+ *               gone without the office removing them (Ms. Snapshotini's log, the
+ *               engine's retention during its run, renamed, the storeroom), a hold
+ *               released not by Ms. Snapshotini — what an attacker does first
  *
  * All of it lives in RAM or on the flash: no disk wakes up. What differs goes
  * into his watch book, to the team lead as 'checks' (recommended, one per
@@ -65,8 +70,9 @@ declare(strict_types=1);
  * that state the new normal. What gets safer (fewer rights, a share closed
  * again, a plugin removed) becomes normal by itself.
  *
- * How secure (his posture tips, each round, from RAM and the flash): shares
- * guests may read, write and delete, Telnet, Unraid's FTP server, the CPU's
+ * How secure (his posture tips, each round, from RAM and the flash): the flash
+ * exported to guests (also only for reading: password hashes and SSH keys lie
+ * there), shares guests may read, write and delete, Telnet, Unraid's FTP server, the CPU's
  * protection against Spectre-like flaws switched off (and VMScape with VMs) or
  * on, privileged containers. Advice, not findings: never in the book, never a
  * notification; «I know, thanks» on one is kept in posture.json (for every
@@ -84,7 +90,8 @@ declare(strict_types=1);
  * the tick and the metrics read it), seen.json (what the last round saw, for
  * «I know, thanks»), flow.json (the data flow's hourly history, aggregated —
  * never per connection; the last round's counters stay in RAM), posture.json
- * (his posture tips you know about). The page reads data/watchman.json
+ * (his posture tips you know about), snaps.json (the snapshots of the last round,
+ * what the office removed, the position in its log). The page reads data/watchman.json
  * (watchmanPageState()); with Grafana and the office's dashboard there (the
  * consultant's look) it links his data flow's history in it.
  */
@@ -140,6 +147,8 @@ const WATCH_KINDS = [
     'smb_user'             => ['flow', true],
     'smb_client'           => ['flow', false],
     'smb_hour'             => ['flow', false],
+    'snap_gone'            => ['snap', true],       // snapshots gone that the office didn't remove
+    'snap_hold_released'   => ['snap', true],       // a hold released, not by Ms. Snapshotini
 ];
 
 /**
@@ -147,6 +156,7 @@ const WATCH_KINDS = [
  * of his page. advice: he would change it; info: can be right as it is, as long as you know.
  */
 const WATCH_POSTURE = [
+    'flash'           => 'advice',
     'public'          => 'advice',
     'telnet'          => 'advice',
     'ftp'             => 'advice',
@@ -209,6 +219,12 @@ function watchmanPaths(): array
         'agents'     => '/boot/config/plugins/dynamix/notifications/agents',
         'var_ini'    => '/var/local/emhttp/var.ini',
         'disks_ini'  => '/var/local/emhttp/disks.ini',
+        // snapshots that vanish (watchmanSnaps())
+        'zfs'        => 'zfs',
+        'zpool'      => 'zpool',
+        'mnt'        => '/mnt',
+        'agent_log'  => AGENT_LOG,
+        'engine'     => BACKUP_DATA_DIR,
         // how secure (watchmanPostureLook())
         'ident'      => '/boot/config/ident.cfg',
         'inetd'      => '/etc/inetd.conf',
@@ -263,7 +279,7 @@ function watchmanSave(string $dir, array $old, array $new): void
         @lchgrp($dir, FILE_GID);
     }
     foreach (['baseline' => 'baseline.json', 'book' => 'book.json', 'state' => 'state.json', 'seen' => 'seen.json', 'flow' => 'flow.json',
-              'posture' => 'posture.json'] as $k => $file) {
+              'posture' => 'posture.json', 'snaps' => 'snaps.json'] as $k => $file) {
         if (!array_key_exists($k, $new) || $new[$k] === null || ($old[$k] ?? null) === $new[$k]) {
             continue;
         }
@@ -418,7 +434,7 @@ function watchmanRun(): int
         return 0;               // another round is on its way
     }
     try {
-        $r = watchmanRound(watchmanPaths(), $dir, $since, flow: fn (?array $containers): array => watchmanFlowLook(watchmanPaths(), $containers));
+        $r = watchmanRound(watchmanPaths(), $dir, $since, flow: fn (?array $containers): array => watchmanFlowLook(watchmanPaths(), $containers), snaps: true);
     } catch (Throwable $e) {
         logLine('Night watchman: round failed: ' . $e->getMessage());
         try {
@@ -458,12 +474,14 @@ function watchmanRun(): int
  * takes over the watch anew). $docker: a stand-in for docker inspect (tests);
  * $acks: the team lead's notes (tests); $notify false: tell nobody. $flow: the
  * data flow's look (watchmanFlowLook(), given the containers with their main
- * process); without it the data flow is left out.
+ * process); without it the data flow is left out. $snaps: the snapshot watch
+ * (watchmanSnaps(), with $paths' zfs, zpool, mnt, agent_log and engine) — left
+ * out without it.
  *
  * @return array{fresh: bool, added: list<string>, told: list<array>, summary: array}
  */
 function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, ?callable $docker = null, bool $notify = true, ?string $acks = null,
-                       ?callable $flow = null): array
+                       ?callable $flow = null, bool $snaps = false): array
 {
     $t0 = microtime(true);
     $now ??= time();
@@ -484,8 +502,11 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         'sched'      => watchmanSched($paths, (array) ((readJson("$dir/seen.json") ?? [])['sched'] ?? []), $now),
     ];
     $facts = watchmanPostureLook($paths);
+    // snapshots that vanish: only rounds write snaps.json (one at a time), so it is read out here
+    $snapKnown = $snaps ? readJson("$dir/snaps.json") : null;
+    $snapRes = $snaps ? watchmanSnaps($paths, $fresh ? null : $snapKnown, $fresh ? [] : (array) ($snap['baseline']['snaps']['series'] ?? []), $now) : null;
 
-    return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts): array {
+    return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes): array {
         $old = watchmanLoad($dir);
         $old['seen'] = readJson("$dir/seen.json");
         $old['flow'] = readJson("$dir/flow.json");
@@ -512,6 +533,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             $b['containers'] = is_array($b['containers'] ?? null) ? $b['containers'] : null;
             $b['shares'] = is_array($b['shares'] ?? null) ? $b['shares'] : null;
             $b['sched'] = is_array($b['sched'] ?? null) ? $b['sched'] : null;
+            $b['snaps'] = is_array($b['snaps'] ?? null) ? $b['snaps'] : ['series' => []];
             watchmanTeamLeadNotes($b, $book, is_array($old['seen']) ? $old['seen'] : $observed, $now, $acks);
             $added = array_merge(
                 watchmanLogins($b, $book, $st, $events, false),
@@ -536,6 +558,14 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             writeAtomic(watchmanFlowCountersFile($dir), jsonEncode($counters), 0600, 0, 0);
             $st['flow'] = watchmanFlowTotals($flow);
         }
+        if ($snapRes !== null) {
+            // snapshots gone or released that the office didn't do (taken over anew: all of it normal)
+            $b['snaps'] = is_array($b['snaps'] ?? null) ? $b['snaps'] : ['series' => []];
+            if (!$fresh) {
+                $added = array_merge($added, watchmanSnapCompare($b['snaps'], $snapRes, $book, $now));
+            }
+            $st['snaps'] = $snapRes['summary'];
+        }
         // how secure it stands: from what he sees now (what Docker or emhttp didn't answer: as the last round saw it)
         $st['posture'] = ['time' => $now, 'tips' => watchmanPosture($facts, $observed, (array) ($st['posture']['tips'] ?? []))];
         $old['posture'] = readJson("$dir/posture.json");
@@ -550,8 +580,11 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $st['open'] = watchmanOpenCounts($book);
         $st['round'] = ['time' => $now, 'duration_ms' => (int) round((microtime(true) - $t0) * 1000), 'failed' => false,
                         'read' => $read['read'], 'skipped' => $read['skipped'], 'rotated' => $read['rotated'],
-                        'docker' => $seen['containers'] !== null, 'shares' => $seen['shares'] !== null, 'flow' => $look !== null, 'added' => count($added)];
-        watchmanSave($dir, $old, ['baseline' => $b, 'book' => $book, 'state' => $st, 'seen' => $observed, 'flow' => $flow, 'posture' => $known]);
+                        'docker' => $seen['containers'] !== null, 'shares' => $seen['shares'] !== null, 'flow' => $look !== null,
+                        'snaps' => $snapRes !== null, 'added' => count($added)];
+        $old['snaps'] = $snapKnown;
+        watchmanSave($dir, $old, ['baseline' => $b, 'book' => $book, 'state' => $st, 'seen' => $observed, 'flow' => $flow, 'posture' => $known,
+                                  'snaps' => $snapRes['known'] ?? null]);
         return ['fresh' => $fresh, 'added' => array_values($added), 'told' => $told, 'summary' => watchmanCounts($b)];
     });
 }
@@ -565,7 +598,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
 function watchmanTakeOver(int $hired, array $events, array $seen, array $book, array $st, int $now): array
 {
     $b = ['hired' => $hired, 'time' => $now, 'ips' => [], 'fail_ips' => [], 'containers' => null, 'plugins' => [],
-          'flash' => $seen['flash'], 'shares' => null, 'sched' => null];
+          'flash' => $seen['flash'], 'shares' => null, 'sched' => null, 'snaps' => ['series' => []]];
     $st['fails'] = [];
     $st['notified'] = [];
     $none = [];
@@ -1590,11 +1623,23 @@ function watchmanPosture(array $f, array $seen, array $prev = []): array
     $add = function (string $id, array $p, string $about, ?array $link) use (&$tips): void {
         $tips[$id] = ['id' => $id, 'level' => WATCH_POSTURE[$id], 'p' => $p, 'link' => $link, 'sig' => watchmanHash("$id|$about")];
     };
-    // shares guests may read, write and delete (security «Public», exported) — user shares, disks, pools, the flash
+    // the flash exported to guests — reading alone is too much there: /boot/config/shadow (the password hashes), ssh/ (the keys)
+    $flash = [];
+    foreach (['smb' => 'SMB', 'nfs' => 'NFS'] as $proto => $label) {
+        $level = (int) ($seen['shares']['flash'][$proto] ?? 0);
+        if ($level >= 1) {
+            $flash[$label] = $level;
+        }
+    }
+    if ($flash) {
+        $add('flash', ['proto' => implode(', ', array_keys($flash)), 'level' => max($flash) >= 2 ? 'public' : 'secure'],
+            implode(',', array_map(fn ($k, $v) => "$k:$v", array_keys($flash), $flash)), ['to' => 'flash', 'path' => watchmanShareLink('flash', [])]);
+    }
+    // shares guests may read, write and delete (security «Public», exported) — user shares, disks, pools (the flash: above)
     $open = [];
     foreach ((array) ($seen['shares'] ?? []) as $name => $s) {
         foreach (['smb' => 'SMB', 'nfs' => 'NFS'] as $proto => $label) {
-            if ((int) ($s[$proto] ?? 0) >= 2) {
+            if ((int) ($s[$proto] ?? 0) >= 2 && (string) $name !== 'flash') {
                 $open[] = [(string) $name, $label];
             }
         }
@@ -1923,13 +1968,14 @@ function watchmanEvidence(string $syslog, ?int $mtime, ?array $prev, int $now): 
 }
 
 /**
- * Syslog lines within WATCH_EVIDENCE_SPAN of $t (syslog.1, then syslog; found by halving, read
- * from there at most 4 MB) that name a plugin, a script or cron — never a login line (a password may
- * stand in it). The closest WATCH_EVIDENCE_MAX, by time, each as "HH:MM:SS process: text", scrubbed.
+ * Syslog lines within $span (WATCH_EVIDENCE_SPAN) of $t (syslog.1, then syslog; found by halving, read
+ * from there at most 4 MB) that name a plugin, a script or cron ($pattern; the snapshot watch: zfs, btrfs,
+ * snapshots) — never a login line (a password may stand in it). The closest WATCH_EVIDENCE_MAX, by time,
+ * each as "HH:MM:SS process: text", scrubbed.
  *
  * @return list<string>
  */
-function watchmanSyslogAround(string $syslog, int $t, int $now): array
+function watchmanSyslogAround(string $syslog, int $t, int $now, string $pattern = WATCH_EVIDENCE_LINE, int $span = WATCH_EVIDENCE_SPAN): array
 {
     $hits = [];
     foreach (["$syslog.1", $syslog] as $file) {
@@ -1955,7 +2001,7 @@ function watchmanSyslogAround(string $syslog, int $t, int $now): array
         while ($hi - $lo > 65536) {
             $mid = intdiv($lo + $hi, 2);
             $lt = $time($mid);
-            if ($lt === null || $lt >= $t - WATCH_EVIDENCE_SPAN) {
+            if ($lt === null || $lt >= $t - $span) {
                 $hi = $mid;
             } else {
                 $lo = $mid;
@@ -1967,13 +2013,13 @@ function watchmanSyslogAround(string $syslog, int $t, int $now): array
         }
         for ($read = 0; $read < 4 << 20 && ($line = fgets($h)) !== false; $read += strlen($line)) {
             $lt = watchmanLineTime($line, $now);
-            if ($lt === null || $lt < $t - WATCH_EVIDENCE_SPAN) {
+            if ($lt === null || $lt < $t - $span) {
                 continue;
             }
-            if ($lt > $t + WATCH_EVIDENCE_SPAN) {
+            if ($lt > $t + $span) {
                 break;
             }
-            if (!preg_match(WATCH_EVIDENCE_LINE, $line) || preg_match(WATCH_WEB, $line) || preg_match('/\ssshd[\w-]*(?:\[\d+\])?:/', $line)) {
+            if (!preg_match($pattern, $line) || preg_match(WATCH_WEB, $line) || preg_match('/\ssshd[\w-]*(?:\[\d+\])?:/', $line)) {
                 continue;
             }
             $text = (string) preg_replace(['/^[A-Z][a-z]{2}\s+\d{1,2}\s+(\d\d:\d\d:\d\d)\s+\S+\s+/', '/^\d{4}-\d\d-\d\d[T ](\d\d:\d\d:\d\d)\S*\s+\S+\s+/'], '$1 ', rtrim($line));
@@ -3446,6 +3492,596 @@ function watchmanFlowSummary(?array $bf, ?array $flow, int $now): ?array
     ];
 }
 
+// ===================================================================== snapshots that vanish
+
+/*
+ * An attacker removes the snapshots first, then encrypts. Every round he compares the snapshots with
+ * the round before — cheap, and never waking a disk: `zfs list -t snapshot -o name,guid,userrefs` of
+ * the awake ZFS pools only (disks.ini, like the data flow; Docker's image layers left out), and the
+ * snapshot folders of the awake btrfs disks and pools (.btrfs-snap — the engine's and Ms.
+ * Snapshotini's — and the engine's btrfs_snap_dir). A pool asleep keeps its last list: compared once it
+ * is awake again, never "gone" because it slept.
+ *
+ * What the office removes itself is no news:
+ *   Ms. Snapshotini  her deletions, releases and renames — by hand and her schedules' retention — stand
+ *                    in the office's log (agent.log: "Deleted: <ds>@<a>,<b>", "Deleted: <path> (btrfs)",
+ *                    "Released: <ds>@<name>", "Renamed: <where> <old> → <new>"), read by offset like the
+ *                    syslog and remembered WATCH_SNAP_OFFICE (a deletion logged before the snapshot is
+ *                    missed in a list still counts)
+ *   the engine       its retention prunes only its own names, only in a real backup run (status.json,
+ *                    history.jsonl — its interface, never its log) and always keeps the newest: one of
+ *                    its snapshots gone while a run went on, with a newer one of its own still on that
+ *                    dataset (that disk), is its retention
+ *   renamed          a ZFS snapshot whose guid is still there under another name (Ms. Snapshotini's
+ *                    rename, Mr. Restori and Ms. Dustdevil renaming datasets aside)
+ *   the storeroom    datasets in Ms. Dustdevil's storeroom (put away, and emptied when you ask her)
+ *   learned          «I know, thanks» on an entry: snapshots named like those (their series: the name
+ *                    with its numbers as #) may go — while a newer one of the same series stays on that
+ *                    dataset, like a retention of yours does
+ * The rest: `snap_gone` (important) — how many, which datasets, the pool's `zpool history -l` lines of
+ * that time naming them (who ran zfs destroy, when — read only then) and the syslog around it. A hold
+ * released (userrefs fewer) not by Ms. Snapshotini: `snap_hold_released` (important) — the step before
+ * deleting a held snapshot. The lists, what the office removed and the log's position: snaps.json (only
+ * rounds write it). The office's log is writable by the web server's user like all its data: whoever
+ * writes «Deleted:» lines into it can hide a deletion — an attack on the office itself, not what
+ * ransomware does.
+ */
+const WATCH_SNAP_MAX      = 20000;              // snapshots followed in all (a pool beyond is not compared)
+const WATCH_SNAP_DIR_MAX  = 5000;               // btrfs snapshots per disk
+const WATCH_SNAP_OFFICE   = 7 * 86400;          // what the office removed is remembered this long
+const WATCH_SNAP_OFFICE_N = 5000;               // … at most so many
+const WATCH_SNAP_LOG_MAX  = 4 * 1024 * 1024;    // the office's log read in one round at most
+const WATCH_SNAP_SERIES   = 200;                // learned series
+const WATCH_SNAP_DOCKER   = '/^(?:[0-9a-f]{64}|[a-z0-9]{25})(?:-init)?$/D';     // Docker's image layers (its zfs storage driver)
+const WATCH_SNAP_NAME     = '#^[A-Za-z0-9_.:-]+(?:/[^\x00-\x1F@/]+)*@[^\x00-\x1F@/,]+$#D';
+const WATCH_SNAP_EVIDENCE = '#\bzfs\b|\bzpool\b|btrfs|snapshot|subvolume|destroy|shcmd|/plugins/|\.(?:sh|php|py)\b|user\.scripts|unraid-secretary-office#i';
+
+/**
+ * One round's snapshot watch, outside the book's lock: the look, what the office removed since, the
+ * engine's runs, what is gone and why, the evidence for what nobody of the office did. $known: snaps.json
+ * (null: taking over the watch — all of it is normal), $series: the learned series (baseline).
+ *
+ * @return array{known: array, gone: list<array>, released: list<array>, summary: array}
+ */
+function watchmanSnaps(array $paths, ?array $known, array $series, int $now): array
+{
+    $settings = isset($paths['engine']) ? backupReadSettings($paths['engine'] . '/settings.ini') : [];
+    $snapDirs = array_values(array_unique(['.btrfs-snap', basename((string) backupSetting($settings, 'general', 'btrfs_snap_dir', '.btrfs-snap'))]));
+    $prefixes = backupSnapPrefixes(backupSetting($settings, 'general', 'snap_prefix'));
+    $look = watchmanSnapLook($paths, $snapDirs);
+    [$events, $pos] = isset($paths['agent_log'])
+        ? watchmanSnapOfficeLog($paths['agent_log'], is_array($known['log'] ?? null) ? $known['log'] : null, $now)
+        : [['d' => [], 'r' => [], 'm' => []], null];
+    $office = watchmanSnapOfficeMerge((array) ($known['office'] ?? []), $events, $now);
+    $runs = isset($paths['engine']) ? watchmanEngineRuns($paths['engine']) : [];
+    $diff = watchmanSnapDiff($known, $look, $office, $runs, $prefixes, $now);
+    $office = $diff['office'];
+    $gone = [];
+    foreach ($diff['gone'] as $g) {
+        $g['list'] = watchmanSnapUnlearned($g['list'], $series);
+        if ($g['list']) {
+            $gone[] = $g + watchmanSnapEvidence($paths, $g, $now, 'destroy|rename|release');
+        }
+    }
+    $released = [];
+    foreach ($diff['released'] as $g) {
+        $released[] = $g + watchmanSnapEvidence($paths, $g, $now, 'release|destroy');
+    }
+    $diff['known'] += ['office' => $office, 'log' => $pos];
+    $count = fn (array $lists) => array_map('count', $lists);
+    return ['known' => $diff['known'], 'gone' => $gone, 'released' => $released, 'summary' => [
+        'time'     => $now,
+        'zfs'      => is_array($look['zfs']) ? $count($look['zfs']['snaps']) : null,
+        'btrfs'    => is_array($look['btrfs']) ? $count($look['btrfs']['snaps']) : null,
+        'asleep'   => array_values(array_merge((array) ($look['zfs']['asleep'] ?? []), (array) ($look['btrfs']['asleep'] ?? []))),
+        'capped'   => (array) ($look['zfs']['capped'] ?? []),
+        'expected' => $diff['expected'],
+    ]];
+}
+
+/**
+ * The snapshots now: ZFS of the awake pools (one `zfs list`; a pool sleeps when any of its disks does —
+ * never asked; Docker's layers left out; over WATCH_SNAP_MAX the pools beyond aren't looked at), the
+ * snapshot folders of the awake btrfs disks and pools. A part that can't be looked at is null; a pool
+ * not looked at (asleep, capped, zfs failing) keeps its last list.
+ *
+ * @return array{zfs: ?array{pools: list<string>, asleep: list<string>, capped: list<string>, snaps: array<string, array<string, array{0: string, 1: int}>>},
+ *               btrfs: ?array{disks: list<string>, asleep: list<string>, snaps: array<string, array<string, int>>}}
+ */
+function watchmanSnapLook(array $paths, array $snapDirs): array
+{
+    $ini = isset($paths['disks_ini']) ? readCfg($paths['disks_ini'], true) : [];
+    $sleep = [];
+    foreach ($ini as $section => $v) {
+        $sleep[(string) ($v['name'] ?? $section)] = ($v['spundown'] ?? '0') === '1';
+    }
+    $zpools = $zasleep = $bdisks = $basleep = [];
+    foreach ($ini as $section => $v) {
+        $name = (string) ($v['name'] ?? $section);
+        $fs = (string) preg_replace('/^luks:/', '', strtolower((string) ($v['fsType'] ?? '')));
+        if (!preg_match('/^[A-Za-z0-9_.-]{1,64}$/D', $name)) {
+            continue;
+        }
+        if ($fs === 'zfs' && !in_array($v['type'] ?? '', ['Boot', 'Flash'], true)) {
+            baseAsleep($name, $sleep) ? $zasleep[] = $name : $zpools[] = $name;
+        } elseif ($fs === 'btrfs' && in_array($v['type'] ?? '', ['Data', 'Cache'], true) && ($v['fsStatus'] ?? 'Mounted') === 'Mounted') {
+            baseAsleep($name, $sleep) ? $basleep[] = $name : $bdisks[] = $name;
+        }
+    }
+    $zfs = null;
+    $zbin = isset($paths['zfs']) ? (str_contains($paths['zfs'], '/') ? $paths['zfs'] : bin($paths['zfs'])) : null;
+    if ($zbin !== null && $ini) {
+        $zfs = ['pools' => [], 'asleep' => $zasleep, 'capped' => [], 'snaps' => []];
+        if ($zpools) {
+            [$exit, $out] = run([$zbin, 'list', '-H', '-p', '-t', 'snapshot', '-o', 'name,guid,userrefs', '-r', ...$zpools], 120);
+            if ($exit === 0) {
+                $lists = watchmanSnapParse($out);
+                $total = 0;
+                foreach ($zpools as $pool) {
+                    $n = count($lists[$pool] ?? []);
+                    if ($total + $n > WATCH_SNAP_MAX) {
+                        $zfs['capped'][] = $pool;
+                        continue;
+                    }
+                    $total += $n;
+                    $zfs['pools'][] = $pool;
+                    $zfs['snaps'][$pool] = $lists[$pool] ?? [];
+                }
+            } else {
+                $zfs['failed'] = true;      // zfs didn't answer: nothing looked at, every list kept
+            }
+        }
+    }
+    $btrfs = null;
+    if (isset($paths['mnt']) && $ini) {
+        $mnt = rtrim($paths['mnt'], '/');
+        $btrfs = ['disks' => [], 'asleep' => $basleep, 'snaps' => []];
+        foreach ($bdisks as $d) {
+            if (!is_dir("$mnt/$d")) {
+                continue;                   // not mounted: not looked at
+            }
+            $list = [];
+            foreach ($snapDirs as $sd) {
+                $dir = "$mnt/$d/$sd";
+                if (!preg_match('/^\.?[A-Za-z0-9_.-]{1,64}$/D', $sd) || is_link($dir) || !is_dir($dir)) {
+                    continue;
+                }
+                foreach (@scandir($dir) ?: [] as $n) {
+                    if ($n === '.' || $n === '..' || count($list) >= WATCH_SNAP_DIR_MAX || preg_match('/[\x00-\x1F]/', $n)) {
+                        continue;
+                    }
+                    if (!is_link("$dir/$n") && is_dir("$dir/$n")) {
+                        $list["$dir/$n"] = 1;
+                    }
+                }
+            }
+            ksort($list);
+            $btrfs['disks'][] = $d;
+            $btrfs['snaps'][$d] = $list;
+        }
+    }
+    return ['zfs' => $zfs, 'btrfs' => $btrfs];
+}
+
+/** zfs list -Hp -t snapshot -o name,guid,userrefs → pool => [dataset@name => [guid, userrefs]], Docker's layers left out */
+function watchmanSnapParse(string $text): array
+{
+    $out = [];
+    foreach (explode("\n", $text) as $line) {
+        $f = explode("\t", $line);
+        if (count($f) !== 3 || !preg_match(WATCH_SNAP_NAME, $f[0]) || !ctype_digit($f[1]) || !ctype_digit(trim($f[2]))) {
+            continue;
+        }
+        $ds = strstr($f[0], '@', true);
+        if (preg_match(WATCH_SNAP_DOCKER, basename($ds))) {
+            continue;
+        }
+        $out[explode('/', $ds)[0]][$f[0]] = [$f[1], (int) trim($f[2])];
+    }
+    foreach ($out as &$list) {
+        ksort($list);
+    }
+    return $out;
+}
+
+/** A snapshot's series: its name with every number as # (uso-plan-daily-20261006-0100 → uso-plan-daily-#-#) */
+function watchmanSnapSeries(string $name): string
+{
+    return (string) preg_replace('/\d+/', '#', $name);
+}
+
+/**
+ * The office's log since $pos: what Ms. Snapshotini deleted, released and renamed (by hand and her
+ * schedules). Rotated meanwhile (agent.log.1, found by its inode): its rest first. Without a position:
+ * from now on. Only whole lines, at most WATCH_SNAP_LOG_MAX of a file.
+ *
+ * @return array{0: array{d: array<string, int>, r: array<string, int>, m: list<array{0: string, 1: string, 2: string, 3: int}>}, 1: ?array}
+ */
+function watchmanSnapOfficeLog(string $log, ?array $pos, int $now): array
+{
+    $ev = ['d' => [], 'r' => [], 'm' => []];
+    clearstatcache();
+    $st = @stat($log);
+    if (!$st) {
+        return [$ev, $pos];
+    }
+    $read = function (string $file, int $from) use (&$ev, $now): int {
+        $h = @fopen($file, 'r');
+        if (!$h) {
+            return $from;
+        }
+        $size = (int) (fstat($h)['size'] ?? 0);
+        $start = max($from, $size - WATCH_SNAP_LOG_MAX);
+        fseek($h, $start);
+        if ($start > $from && $start > 0) {
+            fgets($h);              // began inside a line
+        }
+        $at = (int) ftell($h);
+        while (($line = fgets($h)) !== false && str_ends_with($line, "\n")) {
+            $at += strlen($line);
+            if (!preg_match('/^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)  (Deleted|Released|Renamed): (.+)$/D', rtrim($line, "\r\n"), $m)) {
+                continue;
+            }
+            $t = strtotime($m[1]) ?: $now;
+            if ($m[2] === 'Deleted' && preg_match('/^(.+) \(btrfs\)$/D', $m[3], $x)) {
+                $ev['d'][$x[1]] = $t;
+            } elseif ($m[2] === 'Deleted' && preg_match('/^([^@]+)@(.+)$/D', $m[3], $x)) {
+                foreach (explode(',', $x[2]) as $n) {
+                    $ev['d']["$x[1]@$n"] = $t;
+                }
+            } elseif ($m[2] === 'Released' && preg_match('/^[^@]+@.+$/D', $m[3])) {
+                $ev['r'][$m[3]] = $t;
+            } elseif ($m[2] === 'Renamed' && preg_match('/^(.+) (\S+) → (\S+)$/uD', $m[3], $x)) {
+                $ev['m'][] = [$x[1], $x[2], $x[3], $t];
+            }
+        }
+        fclose($h);
+        return $at;
+    };
+    if ($pos === null) {
+        return [$ev, ['ino' => (int) $st['ino'], 'size' => (int) $st['size']]];
+    }
+    if ((int) ($pos['ino'] ?? -1) === (int) $st['ino'] && (int) ($pos['size'] ?? PHP_INT_MAX) <= (int) $st['size']) {
+        $from = (int) $pos['size'];
+    } else {
+        $from = 0;
+        $old = @stat("$log.1");
+        if ($old && (int) $old['ino'] === (int) ($pos['ino'] ?? -1) && (int) ($pos['size'] ?? PHP_INT_MAX) <= (int) $old['size']) {
+            $read("$log.1", (int) $pos['size']);
+        }
+    }
+    $end = $read($log, $from);
+    return [$ev, ['ino' => (int) $st['ino'], 'size' => $end]];
+}
+
+/** What the office removed: the remembered and this round's, those older than WATCH_SNAP_OFFICE out, at most WATCH_SNAP_OFFICE_N */
+function watchmanSnapOfficeMerge(array $old, array $new, int $now): array
+{
+    $out = [];
+    foreach (['d', 'r'] as $k) {
+        $list = array_filter((array) ($old[$k] ?? []) + (array) ($new[$k] ?? []), fn ($t) => is_int($t) && $t >= $now - WATCH_SNAP_OFFICE);
+        foreach ((array) ($new[$k] ?? []) as $name => $t) {
+            $list[$name] = $t;              // the newest time
+        }
+        arsort($list);
+        $out[$k] = array_slice($list, 0, WATCH_SNAP_OFFICE_N, true);
+    }
+    $m = array_values(array_filter(array_merge((array) ($old['m'] ?? []), (array) ($new['m'] ?? [])),
+        fn ($x) => is_array($x) && count($x) === 4 && (int) $x[3] >= $now - WATCH_SNAP_OFFICE));
+    $out['m'] = array_slice($m, -WATCH_SNAP_OFFICE_N);
+    return $out;
+}
+
+/**
+ * The engine's real backup runs — only they prune its snapshots: the one in status.json (going on while
+ * its lock is held) and the newest of history.jsonl (skipped ones left out), as [started, ended|null].
+ *
+ * @return list<array{0: int, 1: ?int}>
+ */
+function watchmanEngineRuns(string $engine): array
+{
+    $runs = [];
+    $st = readJson("$engine/state/status.json");
+    if (is_array($st) && ($st['mode'] ?? '') === 'backup' && is_numeric($st['started'] ?? null)) {
+        $end = is_numeric($st['finished'] ?? null) ? (int) $st['finished'] : null;
+        if ($end === null && !flockHeld("$engine/state/lock")) {
+            $end = is_numeric($st['updated'] ?? null) ? (int) $st['updated'] : (int) $st['started'];     // ended without a word
+        }
+        $runs[] = [(int) $st['started'], $end];
+    }
+    $lines = @file("$engine/state/history.jsonl", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    foreach (array_slice($lines, -20) as $line) {
+        $r = json_decode($line, true);
+        if (is_array($r) && ($r['result'] ?? '') !== 'skipped' && in_array($r['mode'] ?? 'backup', ['backup', ''], true)
+            && is_numeric($r['started'] ?? null) && is_numeric($r['finished'] ?? null)) {
+            $runs[] = [(int) $r['started'], (int) $r['finished']];
+        }
+    }
+    return $runs;
+}
+
+/** Did one of the engine's runs go on between $from and $to? */
+function watchmanEngineRan(array $runs, int $from, int $to): bool
+{
+    foreach ($runs as [$start, $end]) {
+        if ($start <= $to && ($end ?? $to) >= $from) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * The lists then ($known) and now ($look): what went, which ZFS snapshots lost a hold — and why
+ * the office's going ones are no news (watchmanSnapWhy()). The new lists: what was looked at now, the
+ * rest as before (a pool asleep, not looked at); a pool or disk gone from disks.ini is forgotten after
+ * WATCH_FORGET. Gone and released per pool/disk, with the time of the list before ('from').
+ *
+ * @return array{known: array, gone: list<array>, released: list<array>, expected: array<string, int>, office: array}
+ */
+function watchmanSnapDiff(?array $known, array $look, array $office, array $runs, array $prefixes, int $now): array
+{
+    $new = ['zfs' => (array) ($known['zfs'] ?? []), 'btrfs' => (array) ($known['btrfs'] ?? [])];
+    $gone = $released = [];
+    $expected = [];
+    $there_ = [];                   // every snapshot there now
+    $note = function (string $why) use (&$expected): void {
+        $expected[$why] = ($expected[$why] ?? 0) + 1;
+    };
+    if (is_array($look['zfs'] ?? null)) {
+        $guids = [];
+        foreach ($look['zfs']['snaps'] as $list) {
+            foreach ($list as $full => $v) {
+                $guids[$v[0]] = true;
+            }
+        }
+        foreach ($look['zfs']['pools'] as $pool) {
+            $cur = $look['zfs']['snaps'][$pool] ?? [];
+            $there_ += $cur;
+            $old = $known === null ? null : ($known['zfs'][$pool] ?? null);
+            if (is_array($old)) {
+                $present = [];
+                foreach ($cur as $full => $_) {
+                    [$ds, $n] = explode('@', $full, 2);
+                    $present[$ds][] = $n;
+                }
+                $from = (int) ($old['time'] ?? 0);
+                $lost = $rel = [];
+                foreach ((array) ($old['s'] ?? []) as $full => $v) {
+                    [$guid, $refs] = array_pad(explode(':', (string) $v, 2), 2, '0');
+                    $refs = (int) $refs;
+                    if (isset($cur[$full])) {
+                        if ($cur[$full][1] < $refs && !str_contains($full, WATCH_STOREROOM)) {
+                            isset($office['r'][$full]) ? $note('office') : $rel[] = ['name' => (string) $full];
+                        }
+                        continue;
+                    }
+                    [$ds, $n] = explode('@', (string) $full, 2) + [1 => ''];
+                    $why = isset($guids[$guid]) ? 'renamed' : watchmanSnapWhy('zfs', (string) $full, $ds, $n, $office, $runs, $prefixes, $present[$ds] ?? [], $from, $now);
+                    if ($why !== null) {
+                        $note($why);
+                        continue;
+                    }
+                    $lost[] = ['name' => (string) $full, 'ds' => $ds, 'held' => $refs > 0] + watchmanSnapLeft($n, $present[$ds] ?? []);
+                }
+                if ($lost) {
+                    $gone[] = ['fs' => 'zfs', 'where' => $pool, 'from' => $from, 'list' => $lost];
+                }
+                if ($rel) {
+                    $released[] = ['fs' => 'zfs', 'where' => $pool, 'from' => $from, 'list' => $rel];
+                }
+            }
+            $new['zfs'][$pool] = ['time' => $now, 's' => array_map(fn ($v) => "$v[0]:$v[1]", $cur)];
+        }
+    }
+    if (is_array($look['btrfs'] ?? null)) {
+        foreach ($look['btrfs']['disks'] as $disk) {
+            $cur = $look['btrfs']['snaps'][$disk] ?? [];
+            $there_ += $cur;
+            $old = $known === null ? null : ($known['btrfs'][$disk] ?? null);
+            if (is_array($old)) {
+                $present = [];
+                foreach ($cur as $path => $_) {
+                    $present[dirname($path)][] = basename($path);
+                }
+                $from = (int) ($old['time'] ?? 0);
+                $lost = [];
+                foreach (array_keys((array) ($old['s'] ?? [])) as $path) {
+                    $path = (string) $path;
+                    if (isset($cur[$path])) {
+                        continue;
+                    }
+                    $dir = dirname($path);
+                    $why = watchmanSnapWhy('btrfs', $path, $dir, basename($path), $office, $runs, $prefixes, $present[$dir] ?? [], $from, $now);
+                    if ($why !== null) {
+                        $note($why);
+                        continue;
+                    }
+                    $lost[] = ['name' => $path, 'ds' => $dir, 'held' => false] + watchmanSnapLeft(basename($path), $present[$dir] ?? []);
+                }
+                if ($lost) {
+                    $gone[] = ['fs' => 'btrfs', 'where' => $disk, 'from' => $from, 'list' => $lost];
+                }
+            }
+            $new['btrfs'][$disk] = ['time' => $now, 's' => $cur];
+        }
+    }
+    // a deletion the office logged before a snapshot of that name was there (again): made anew since — that record is used up
+    foreach ($office['d'] ?? [] as $id => $t) {
+        if ((int) $t < $now - 5 && isset($there_[(string) $id])) {
+            unset($office['d'][$id]);
+        }
+    }
+    // a pool or disk that left disks.ini (not asleep, not looked at): forgotten after a while
+    $there = array_merge((array) ($look['zfs']['pools'] ?? []), (array) ($look['zfs']['asleep'] ?? []), (array) ($look['zfs']['capped'] ?? []),
+        (array) ($look['btrfs']['disks'] ?? []), (array) ($look['btrfs']['asleep'] ?? []));
+    foreach (['zfs', 'btrfs'] as $fs) {
+        foreach ($new[$fs] as $name => $x) {
+            if (!in_array((string) $name, $there, true) && is_array($look[$fs] ?? null) && empty($look[$fs]['failed'])
+                && $now - (int) ($x['time'] ?? 0) > WATCH_FORGET) {
+                unset($new[$fs][$name]);
+            }
+        }
+    }
+    ksort($expected);
+    return ['known' => $new + ['time' => $now], 'gone' => $gone, 'released' => $released, 'expected' => $expected, 'office' => $office];
+}
+
+/**
+ * Why a snapshot that went is no news, or null: the office deleted it (Ms. Snapshotini's log), renamed
+ * (btrfs: her log; ZFS: its guid — the caller), in Ms. Dustdevil's storeroom, or the engine's retention
+ * (its name, a real run between the two lists, a newer one of its own still there). $present: the names
+ * still on that dataset (btrfs: in that folder).
+ */
+function watchmanSnapWhy(string $fs, string $id, string $ds, string $name, array $office, array $runs, array $prefixes, array $present, int $from, int $to): ?string
+{
+    if (isset($office['d'][$id])) {
+        return 'office';
+    }
+    if (str_contains($ds, WATCH_STOREROOM)) {
+        return 'storeroom';
+    }
+    if ($fs === 'btrfs') {
+        foreach ((array) ($office['m'] ?? []) as [$where, $old, $new]) {
+            if ($old === $name && str_starts_with($id, rtrim((string) $where, '/') . '/') && in_array($new, $present, true)) {
+                return 'renamed';
+            }
+        }
+    }
+    if (backupIsEngineSnap($name, $prefixes, $fs) && watchmanEngineRan($runs, $from, $to)) {
+        $stamp = substr($name, -13);
+        foreach ($present as $p) {
+            if (backupIsEngineSnap((string) $p, $prefixes, $fs) && strcmp(substr((string) $p, -13), $stamp) > 0) {
+                return 'engine';
+            }
+        }
+    }
+    return null;
+}
+
+/** A snapshot's series, and whether a newer one of it stays ($present: the names still there) */
+function watchmanSnapLeft(string $name, array $present): array
+{
+    $series = watchmanSnapSeries($name);
+    $left = false;
+    foreach ($present as $p) {
+        $left = $left || (watchmanSnapSeries((string) $p) === $series && strnatcmp((string) $p, $name) > 0);
+    }
+    return ['series' => $series, 'left' => $left];
+}
+
+/** What went, without what a learned series may lose (a newer one of it stays) */
+function watchmanSnapUnlearned(array $list, array $series): array
+{
+    return array_values(array_filter($list, fn ($x) => !(!empty($x['left']) && isset($series[$x['series'] ?? '']))));
+}
+
+/**
+ * Who removed them: `zpool history -l` of the pool (each command with its time, user and host — read
+ * only now, for this) — the lines since the list before that name these datasets (or one above them) —
+ * and the syslog around the first of them; without one, around the time between the two lists.
+ *
+ * @return array{history: list<string>, evidence: list<string>}
+ */
+function watchmanSnapEvidence(array $paths, array $g, int $now, string $verbs): array
+{
+    $from = (int) ($g['from'] ?? $now - WATCH_EVERY);
+    $hist = [];
+    $first = null;
+    $bin = $g['fs'] === 'zfs' && isset($paths['zpool']) ? (str_contains($paths['zpool'], '/') ? $paths['zpool'] : bin($paths['zpool'])) : null;
+    if ($bin !== null) {
+        $names = [];
+        foreach ($g['list'] as $x) {
+            for ($ds = (string) ($x['ds'] ?? strstr((string) $x['name'], '@', true)); $ds !== '' && $ds !== '.'; $ds = dirname($ds)) {
+                $names[$ds] = true;
+            }
+        }
+        static $read = [];              // a pool's history once per round (gone and released ask both)
+        $out = $read["$bin|{$g['where']}|$now"] ??= (string) run([$bin, 'history', '-l', (string) $g['where']], 60)[1];
+        $read = array_slice($read, -8, null, true);
+        foreach (explode("\n", $out) as $line) {
+            if (!preg_match('/^(\d{4}-\d\d-\d\d)\.(\d\d:\d\d:\d\d) ((?:zfs|zpool) (?:' . $verbs . ')\b.*)$/', $line, $m)) {
+                continue;
+            }
+            $t = strtotime("$m[1] $m[2]");
+            if ($t === false || $t < $from - 60 || $t > $now + 60) {
+                continue;
+            }
+            $hit = false;
+            foreach (array_keys($names) as $ds) {
+                $hit = $hit || str_contains($m[3], " $ds@") || preg_match('/ ' . preg_quote((string) $ds, '/') . '(?:\s|$)/', $m[3]) === 1;
+            }
+            if ($hit) {
+                $first ??= $t;
+                $hist[] = mb_strimwidth(watchmanClean(watchmanScrub("$m[1] $m[2] $m[3]"), 400), 0, 220, '…');
+            }
+        }
+    }
+    $hist = array_slice($hist, -6);
+    $t = $first ?? intdiv($from + $now, 2);
+    $span = $first !== null ? WATCH_EVIDENCE_SPAN : max(WATCH_EVIDENCE_SPAN, min(900, intdiv($now - $from, 2) + 30));
+    $evidence = isset($paths['syslog']) ? watchmanSyslogAround($paths['syslog'], $t, $now, WATCH_SNAP_EVIDENCE, $span) : [];
+    return ['history' => $hist, 'evidence' => $evidence];
+}
+
+/**
+ * Inside the book's lock: what went and what lost its hold, as entries — one open entry per pool or disk,
+ * a later round adds to it (count = how many snapshots). A learned series is left out again (an «I know,
+ * thanks» may have come since the look).
+ *
+ * @return list<string>  the kinds of new entries
+ */
+function watchmanSnapCompare(array &$bs, array $res, array &$book, int $now): array
+{
+    $series = (array) ($bs['series'] ?? []);
+    $added = [];
+    foreach ($res['gone'] as $g) {
+        $list = watchmanSnapUnlearned($g['list'], $series);
+        if (!$list) {
+            continue;
+        }
+        $added[] = watchmanBump($book, 'snap_gone', "snap_gone:{$g['fs']}:{$g['where']}", $now, count($list), watchmanSnapWords($g, $list));
+    }
+    foreach ($res['released'] as $g) {
+        $added[] = watchmanBump($book, 'snap_hold_released', "snap_hold_released:{$g['fs']}:{$g['where']}", $now, count($g['list']), watchmanSnapWords($g, $g['list']));
+    }
+    return array_values(array_filter($added));
+}
+
+/** An entry's words: where, the datasets, a few of the snapshots, their series, how many were held, the evidence */
+function watchmanSnapWords(array $g, array $list): array
+{
+    $names = $datasets = $series = [];
+    foreach ($list as $x) {
+        $name = (string) $x['name'];
+        if ($g['fs'] === 'btrfs') {
+            $at = strpos($name, '/' . $g['where'] . '/');
+            $name = $at === false ? $name : substr($name, $at + 1);           // disk1/.btrfs-snap/20261006-0100
+        } else {
+            $datasets[(string) ($x['ds'] ?? '')] = true;
+        }
+        $names[] = watchmanClean($name, 200);
+        $series[(string) ($x['series'] ?? '')] = true;
+    }
+    return ['where' => (string) $g['where'], 'fs' => (string) $g['fs'],
+            'datasets' => array_slice(array_map('strval', array_keys(array_filter($datasets, fn ($k) => $k !== '', ARRAY_FILTER_USE_KEY))), 0, WATCH_LIST_MAX),
+            'names' => array_slice($names, 0, WATCH_LIST_MAX),
+            'series' => array_slice(array_map('strval', array_keys(array_filter($series, fn ($k) => $k !== '', ARRAY_FILTER_USE_KEY))), 0, WATCH_LIST_MAX),
+            'held' => count(array_filter($list, fn ($x) => !empty($x['held']))),
+            'history' => array_values((array) ($g['history'] ?? [])), 'evidence' => array_values((array) ($g['evidence'] ?? []))];
+}
+
+/** "What I keep an eye on" of the snapshots: per pool and disk how many, which sleep, the learned series */
+function watchmanSnapSummary(?array $s, ?array $bs): ?array
+{
+    if (!is_array($s)) {
+        return null;
+    }
+    return ['time' => (int) ($s['time'] ?? 0), 'zfs' => $s['zfs'] ?? null, 'btrfs' => $s['btrfs'] ?? null, 'asleep' => (array) ($s['asleep'] ?? []),
+            'capped' => (array) ($s['capped'] ?? []), 'expected' => (array) ($s['expected'] ?? []),
+            'series' => array_slice(array_map('strval', array_keys((array) ($bs['series'] ?? []))), 0, 50)];
+}
+
 // ===================================================================== «I know, thanks»
 
 /**
@@ -3533,6 +4169,19 @@ function watchmanAdopt(array &$b, array $e, array $seen, int $now): void
         case 'smb_client':
         case 'smb_hour':
             watchmanFlowAdopt($b, $e, $now);
+            break;
+        case 'snap_gone':
+            // snapshots named like these may go from now on — while a newer one of the same series stays (watchmanSnapLeft())
+            $b['snaps'] = is_array($b['snaps'] ?? null) ? $b['snaps'] : ['series' => []];
+            foreach ((array) ($p['series'] ?? []) as $series) {
+                if (is_string($series) && $series !== '' && strlen($series) <= 255) {
+                    $b['snaps']['series'][$series] = $now;
+                }
+            }
+            if (count($b['snaps']['series']) > WATCH_SNAP_SERIES) {
+                arsort($b['snaps']['series']);
+                $b['snaps']['series'] = array_slice($b['snaps']['series'], 0, WATCH_SNAP_SERIES, true);
+            }
             break;
         default:
             if ((WATCH_KINDS[$kind][0] ?? '') === 'sched') {
@@ -3700,6 +4349,9 @@ function watchmanText(array $e, ?string $lang = null): array
         'smb_user'       => ['user' => (string) ($p['user'] ?? ''), 'ip' => (string) ($p['ip'] ?? '')],
         'smb_client'     => ['ip' => (string) ($p['ip'] ?? ''), 'user' => $list('users') ?: '?'],
         'smb_hour'       => ['ip' => (string) ($p['ip'] ?? ''), 'user' => $list('users') ?: '?', 'hours' => watchmanHourNames((array) ($p['hours'] ?? []))],
+        'snap_gone', 'snap_hold_released'
+                         => ['where' => (string) ($p['where'] ?? ''), 'names' => watchmanNames((array) ($p['names'] ?? []), 3),
+                             'datasets' => watchmanNames((array) ($p['datasets'] ?? []), 3) ?: (string) ($p['where'] ?? '')],
         'watch'          => array_map('intval', $p),
         default          => [],
     };
@@ -3988,6 +4640,7 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         'book'     => $book,
         'watch'    => $onWatch ? watchmanSummary($b, readJson("$dir/seen.json")) : null,
         'flow'     => $onWatch ? watchmanFlowSummary(is_array($b['flow'] ?? null) ? $b['flow'] : null, readJson("$dir/flow.json"), $now) : null,
+        'snaps'    => $onWatch ? watchmanSnapSummary($st['snaps'] ?? null, is_array($b['snaps'] ?? null) ? $b['snaps'] : null) : null,
         'posture'  => $onWatch ? watchmanPosturePage($st['posture'] ?? null, readJson("$dir/posture.json")) : null,
         'grafana'  => $onWatch ? watchmanGrafana($grafana) : null,
         'notified' => $st['last_notify'] ?? null,
