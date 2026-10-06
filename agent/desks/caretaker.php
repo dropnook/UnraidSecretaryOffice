@@ -537,7 +537,8 @@ function caretakerMonitoringChecks(): array
     $dir = metricsDir();
     $out = [finding('metrics_written', 'recommended', metricsFresh($dir), ['dir' => $dir])];
     if ($node !== null) {
-        $out[] = finding('metrics_textfile', 'recommended', advisorNodeTextfile($node), ['name' => $node['name'], 'dir' => METRICS_HOST_DIR], $advisor);
+        $out[] = finding('metrics_textfile', 'recommended',
+            advisorNodeTextfile($node, $node['kind'] === 'container' ? houseInspect($node['name']) : null), ['name' => $node['name'], 'dir' => METRICS_HOST_DIR], $advisor);
     }
     if ($prom === null) {
         $out[] = finding('metrics_no_prometheus', 'hint', null, [], $advisor);
