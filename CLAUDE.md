@@ -637,6 +637,9 @@ backup/                  the backup engine: backup.sh, setup.sh, lib/common.sh (
 embycache/               Jack Emby's EmbyCache (Python; data in data/embycache)
 gather/                  Jack Emby's media gather, consolidate_master.sh (bash; data in data/gather)
 monitoring/              grafana-dashboard.json: the office's dashboard to import (its numbers: lib/metrics.php)
+support-worker/          the support page OFFICE_SUPPORT_URL points to — a Cloudflare Worker, NOT in the plugin:
+                         tips (PayPal; bank/Bitcoin on trust), signs supporter keys (format as src/supporter.php),
+                         lost keys; worker.js, wrangler.toml, SETUP.md (de/en), test.mjs (node, fake PayPal)
 plugin/                  the Unraid plugin: .plg template, build.sh, dev-sync.sh, scripts/ (agent.sh
                          service, job.sh for the cron file), event/ (started, stopping), images/,
                          SecretaryOffice.page (the office in Unraid), SecretaryOfficeButton.page
