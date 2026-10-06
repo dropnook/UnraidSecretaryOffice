@@ -62,7 +62,96 @@ desk('snapshot', [
         'plan_run'    => fn (array $r) => snapPlanRunNow(textField($r, 'id')),
     ],
     'checks'  => fn () => snapPlanChecks(),
+    'metrics' => fn (): array => snapshotMetrics(),
 ]);
+
+/**
+ * Ms. Snapshotini's numbers for Prometheus (lib/metrics.php, once a minute):
+ * from her state file (as of her last look — written by her scans and by the
+ * schedules' job) and her plans' files. Docker's image layers don't count.
+ */
+function snapshotMetrics(?string $file = null): array
+{
+    $seen = metricsCached($file ?? deskFile('snapshot'), fn (string $f) => snapshotMetricsPools(readJson($f)));
+    $out = [];
+    if ($seen !== null) {
+        $count = $newest = $used = [];
+        foreach ($seen['pools'] as $p) {
+            $labels = ['fs' => $p['fs'], 'pool' => $p['pool']];
+            $count[] = [$labels, $p['n']];
+            if ($p['t'] > 0) {
+                $newest[] = [$labels, $p['t']];
+            }
+            if ($p['used'] !== null) {
+                $used[] = [$labels, $p['used']];
+            }
+        }
+        $out[] = metricsGauge('uso_snapshot_snapshots', 'Snapshots per ZFS pool, btrfs disk and of the VMs (without Docker\'s image layers)', $count);
+        $out[] = metricsGauge('uso_snapshot_newest_timestamp_seconds', 'When the newest snapshot of a pool or disk was taken', $newest);
+        $out[] = metricsGauge('uso_snapshot_used_bytes', 'Space held by the snapshots of a ZFS pool', $used);
+        $out[] = metricsGauge('uso_snapshot_scanned_timestamp_seconds', 'When Ms. Snapshotini last looked (the numbers above are from then)', $seen['time']);
+    }
+    $states = snapPlanStates();
+    $active = array_filter(snapPlans(), fn ($p) => !empty($p['enabled']) && is_string($p['id'] ?? null));
+    if ($active) {
+        $ok = $when = [];
+        $failing = 0;
+        foreach ($active as $p) {
+            $st = is_array($states[$p['id']] ?? null) ? $states[$p['id']] : [];
+            if (!isset($st['result'])) {
+                continue;                       // not run yet
+            }
+            $bad = in_array($st['result'], ['failed', 'partly'], true);
+            $failing += (int) $bad;
+            $ok[] = [['plan' => $p['id']], !$bad];
+            $when[] = [['plan' => $p['id']], (int) ($st['last_run'] ?? 0)];
+        }
+        $out[] = metricsGauge('uso_snapshot_plans_failing', 'Active snapshot plans whose last run failed or only partly worked', $failing);
+        $out[] = metricsGauge('uso_snapshot_plan_ok', 'Whether an active snapshot plan\'s last run worked (1) or had problems (0)', $ok);
+        $out[] = metricsGauge('uso_snapshot_plan_last_run_timestamp_seconds', 'When an active snapshot plan last ran', $when);
+    }
+    return $out;
+}
+
+/**
+ * Per ZFS pool, btrfs disk and for the VMs: how many snapshots, the newest
+ * one's time, the space they hold (ZFS) — null without a state
+ *
+ * @return array{time:int, pools:list<array{fs:string, pool:string, n:int, t:int, used:?int}>}|null
+ */
+function snapshotMetricsPools(?array $s): ?array
+{
+    if (!$s) {
+        return null;
+    }
+    $pools = [];
+    foreach ((array) ($s['zfs']['pools'] ?? []) as $p) {
+        if (is_array($p) && is_string($p['name'] ?? null)) {
+            $pools["zfs\t{$p['name']}"] = ['fs' => 'zfs', 'pool' => $p['name'], 'n' => 0, 't' => 0, 'used' => (int) ($p['snapused'] ?? 0)];
+        }
+    }
+    foreach ((array) ($s['btrfs']['devices'] ?? []) as $d) {
+        // a disk she hasn't read yet (asleep since the agent started) is "not known", not "none"
+        if (is_array($d) && is_string($d['name'] ?? null) && !empty($d['scanned']) && empty($d['error'])) {
+            $pools["btrfs\t{$d['name']}"] = ['fs' => 'btrfs', 'pool' => $d['name'], 'n' => 0, 't' => 0, 'used' => null];
+        }
+    }
+    if (!empty($s['vm']['available'])) {
+        $pools["vm\tVMs"] = ['fs' => 'vm', 'pool' => 'VMs', 'n' => 0, 't' => 0, 'used' => null];
+    }
+    foreach (['zfs', 'btrfs', 'vm'] as $fs) {
+        foreach ((array) ($s[$fs]['snapshots'] ?? []) as $x) {
+            if (!is_array($x) || !empty($x['docker']) || !is_string($x['pool'] ?? null)) {
+                continue;
+            }
+            $key = "$fs\t{$x['pool']}";
+            $pools[$key] ??= ['fs' => $fs, 'pool' => $x['pool'], 'n' => 0, 't' => 0, 'used' => null];
+            $pools[$key]['n']++;
+            $pools[$key]['t'] = max($pools[$key]['t'], (int) ($x['t'] ?? 0));
+        }
+    }
+    return ['time' => (int) ($s['time'] ?? 0), 'pools' => array_values($pools)];
+}
 
 // ===================================================================== scanning
 
