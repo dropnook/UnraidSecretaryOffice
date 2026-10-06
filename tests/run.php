@@ -4484,6 +4484,34 @@ function testMetrics(): void
     check('metrics folder: a link is refused', !metricsEnsureDir($link) && !metricsEnsureDir("$link/metrics") && !file_exists(dirname($dir) . '/base/metrics'));
     check('metrics folder: nothing without its base', metricsWrite($now, [], dirname($dir) . '/missing/metrics') === null);
 
+    // a fresh Unraid has no /mnt/addons (Unassigned Devices' tmpfs): made as a plain folder, the office's below it;
+    // gone again (a tmpfs mounted over it later) - made again; never through a link, never another owner's
+    $fresh = dirname($dir) . '/fresh';
+    mkdir($fresh, 0755);
+    $addons = "$fresh/addons";
+    $mine = "$addons/UnraidSecretaryOffice/metrics";
+    $st = metricsEnsureDir($mine, $addons) ? @lstat($addons) : false;
+    check('metrics base: missing - made as a plain folder of the agent\'s own, 0755, the office\'s folder below',
+        $st && ($st['mode'] & 0170000) === 0040000 && ($st['mode'] & 0777) === 0755 && $st['uid'] === posix_geteuid() && is_dir($mine), json_encode($st ? [$st['mode'], $st['uid']] : null));
+    check('metrics base: written into', is_array(metricsWrite($now, [], $mine)) && is_file("$mine/uso_office.prom"));
+    exec('rm -rf ' . escapeshellarg("$addons/UnraidSecretaryOffice"));
+    check('metrics base: the office\'s folder vanished - made again at the next look', metricsEnsureDir($mine, $addons) && is_dir($mine));
+    same('metrics base: nothing else made in it', ['UnraidSecretaryOffice'], array_values(array_diff(scandir($addons) ?: [], ['.', '..'])));
+    check('metrics base: there already - used as it is', metricsEnsureDir($mine, $addons) && is_dir($mine));
+    symlink(dirname($dir) . '/base', "$fresh/addons-link");
+    check('metrics base: a link is refused, nothing made through it',
+        !metricsEnsureDir("$fresh/addons-link/UnraidSecretaryOffice/metrics", "$fresh/addons-link") && !file_exists(dirname($dir) . '/base/UnraidSecretaryOffice'));
+    check('metrics base: not made where its parent is missing', !metricsEnsureDir("$fresh/none/addons/x", "$fresh/none/addons") && !file_exists("$fresh/none"));
+    exec('rm -rf ' . escapeshellarg("$addons/UnraidSecretaryOffice"));
+    symlink(dirname($dir) . '/base', "$addons/UnraidSecretaryOffice");
+    check('metrics base: the office\'s folder a link - refused', !metricsEnsureDir($mine, $addons) && !file_exists(dirname($dir) . '/base/metrics'));
+    unlink("$addons/UnraidSecretaryOffice");
+    if (posix_geteuid() === 0) {
+        mkdir("$addons/UnraidSecretaryOffice", 0755);
+        chown("$addons/UnraidSecretaryOffice", 99);
+        check('metrics base: the office\'s folder of another owner - refused', !metricsEnsureDir($mine, $addons) && !file_exists($mine));
+    }
+
     // Mr. Backupsy's hook from the engine's state files
     $st = dirname($dir) . '/state';
     mkdir($st);

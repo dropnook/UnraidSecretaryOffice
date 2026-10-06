@@ -6,10 +6,15 @@ declare(strict_types=1);
  * textfile collector, which reads every *.prom file in a folder and serves
  * it along with its own numbers (Prometheus fetches them from there).
  *
- * The folder is METRICS_HOST_DIR, in Unraid's place for add-on mounts — a
- * 1 MB tmpfs (RAM, gone after a reboot) shared with the backup engine's mount
- * points. The agent creates it at start (metricsStart(), never /mnt/addons itself) and
- * writes once a minute from its loop (metricsTick()):
+ * The folder is METRICS_HOST_DIR, below /mnt/addons — the place for add-on
+ * mounts that Unassigned Devices makes (a 1 MB tmpfs, RAM, gone after a
+ * reboot), shared with the backup engine's mount points. A fresh Unraid without
+ * Unassigned Devices has no /mnt/addons: the agent then makes it as a plain
+ * folder (root, 0755 — never a tmpfs or mount of its own; /mnt is RAM on Unraid).
+ * The agent creates its folders at start (metricsStart()) and looks again
+ * every minute before it writes from its loop (metricsTick()) — Unassigned
+ * Devices installed later mounts its tmpfs over a plain /mnt/addons, and the
+ * office's folder is made again below it:
  *
  *   uso_office.prom   the office itself (uso_office_info, when it wrote last)
  *   uso_<desk>.prom   what a hired desk reports through its hook
@@ -30,7 +35,7 @@ declare(strict_types=1);
  */
 
 const METRICS_HOST_DIR    = '/mnt/addons/UnraidSecretaryOffice/metrics';
-const METRICS_HOST_BASE   = '/mnt/addons';          // Unraid's: never created by the office
+const METRICS_HOST_BASE   = '/mnt/addons';          // Unassigned Devices' tmpfs; without it a plain folder the office makes
 const METRICS_EVERY       = 60;                     // seconds between two writes
 const METRICS_MAX_BYTES   = 16384;                  // all files together (the tmpfs has 1 MB, shared)
 const METRICS_MAX_SAMPLES = 500;                    // per family, before the size cap even looks
@@ -89,17 +94,26 @@ function metricsNoteClear(string $key): void
 
 /**
  * The folder, made where it is missing: every part below the base a real
- * folder (no link) of the agent's own user. The base is /mnt/addons (Unraid's
- * tmpfs) for the real folder — if that isn't there, nothing is written — and
- * the parent for another one.
+ * folder (no link) of the agent's own user. The base is /mnt/addons for the
+ * real folder — made as a plain folder when nothing made it (metricsMakeBase(),
+ * no Unassigned Devices); the base must be a real folder, never a link — and
+ * the parent for another one (which must be there). $base: the tests' stand-in
+ * for /mnt/addons. Cheap (an lstat per part): runs before every write, so a
+ * folder that vanished (a tmpfs mounted over it) is made again; said once.
  */
-function metricsEnsureDir(string $dir): bool
+function metricsEnsureDir(string $dir, ?string $base = null): bool
 {
-    $base = $dir === METRICS_HOST_DIR ? METRICS_HOST_BASE : dirname($dir);
+    $make = $base !== null || $dir === METRICS_HOST_DIR;
+    $base ??= $dir === METRICS_HOST_DIR ? METRICS_HOST_BASE : dirname($dir);
     clearstatcache();
     $st = @lstat($base);
+    if (!$st && $make) {
+        metricsMakeBase($base);
+        clearstatcache();
+        $st = @lstat($base);
+    }
     if (!$st || ($st['mode'] & 0170000) !== 0040000) {
-        metricsNote('dir', "Metrics: $base isn't there — the office's numbers for Prometheus are not written");
+        metricsNote('dir', "Metrics: $base isn't there or is no folder (a link?) — the office's numbers for Prometheus are not written");
         return false;
     }
     $path = $base;
@@ -116,6 +130,28 @@ function metricsEnsureDir(string $dir): bool
     }
     metricsNoteClear('dir');
     return true;
+}
+
+/**
+ * /mnt/addons where nothing made it (a server without Unassigned Devices, whose tmpfs it is): a plain
+ * folder, root's own, 0755 (umask, no chmod) — never a mount of the office's own, nothing else made
+ * there. Only inside a real folder (/mnt), never through a link. Said in the log when made.
+ */
+function metricsMakeBase(string $base): void
+{
+    $st = @lstat(dirname($base));
+    if (!$st || ($st['mode'] & 0170000) !== 0040000) {
+        return;
+    }
+    $old = umask(0022);
+    try {
+        $made = @mkdir($base, 0755);
+    } finally {
+        umask($old);
+    }
+    if ($made) {
+        logLine("Metrics: created $base as a plain folder (nothing had made it — Unassigned Devices makes it a tmpfs)");
+    }
 }
 
 /**

@@ -73,7 +73,7 @@ installed plugin (see the checklist).
 * **Never wake sleeping disks on your own.** Check `sleepingDisks()` before
   reading array disks; offer an explicit "wake" option instead.
 * **Nothing directly in /mnt** (Fix Common Problems): mounts go to
-  `/mnt/addons/UnraidSecretaryOffice/…` (Unraid's place for add-on mounts, RAM),
+  `/mnt/addons/UnraidSecretaryOffice/…` (the place for add-on mounts, RAM — see Server facts),
   data the desks keep to the share `UnraidSecretaryOffice/<desk>/`.
 * **Never block the array stop:** no sockets or open files in the pool; the agent
   keeps nothing open there.
@@ -96,9 +96,13 @@ installed plugin (see the checklist).
   (`metricsGauge()` builds one). Called once a minute from the agent's loop, hired
   desks only, so like `tick`: state files only (`metricsCached()` re-reads a file
   only when it changed), no zfs/docker/commands. The agent writes `uso_<desk>.prom`
-  plus `uso_office.prom` into `/mnt/addons/UnraidSecretaryOffice/metrics` (the 1 MB
-  tmpfs, see Server facts) with `writeAtomic()` in that folder; files of desks let go
-  or no longer reporting go. Names `uso_…` (`[a-zA-Z_][a-zA-Z0-9_]*`), each once over
+  plus `uso_office.prom` into `/mnt/addons/UnraidSecretaryOffice/metrics` (RAM, see
+  Server facts) with `writeAtomic()` in that folder; files of desks let go
+  or no longer reporting go. `metricsEnsureDir()` looks before every write (an lstat per
+  part, said once per change): a missing `/mnt/addons` is made as a plain folder (root,
+  0755 — never a mount of the office's own), the office's folders below it again when they
+  vanished; a link or another owner on the way is refused. The Consultant says «reads the
+  office's folder» only while that folder is there (`advisorMetricsThere()`). Names `uso_…` (`[a-zA-Z_][a-zA-Z0-9_]*`), each once over
   all desks, the same label names within a family, no `_count`/`_sum`/`_bucket` on a
   gauge (promtool), times as `…_timestamp_seconds` (Grafana does `time() - x`); few
   label values (no series per file or per snapshot). **Size cap:** all files together
@@ -529,8 +533,11 @@ character, warnings and errors stay plain and clear.
   `<composefile>.override.<ext>` (or the old `docker-compose.override.yml`);
   `labels_view_mode=advanced` means "Manual", hands off. CA's
   `templates_new.json` is PHP-serialized (~30 MB): grep it, never unserialize.
-* `/mnt/addons` is a 1 MB tmpfs on Unraid (shared with the backup's mount
-  points): the office's metrics files there (`/mnt/addons/UnraidSecretaryOffice/metrics`,
+* `/mnt/addons` is **Unassigned Devices'** 1 MB tmpfs (propagation shared), not Unraid's: a fresh
+  Unraid without UD has none. `/mnt` itself is RAM with shared propagation, so the office makes a plain
+  `/mnt/addons` there (metrics; the engine's `mkdir -p` of its mount root does the same); UD installed
+  later mounts its tmpfs over it and the office's folders are made again below. Shared with the
+  backup's mount points: the office's metrics files there (`/mnt/addons/UnraidSecretaryOffice/metrics`,
   read by the node exporter's textfile collector) must stay a few KB.
 * Unraid's Docker LOG rotation is `DOCKER_LOG_ROTATION/DOCKER_LOG_SIZE/DOCKER_LOG_FILES`
   in `/boot/config/docker.cfg` (dockerd `--log-opt max-size/max-file`); it only
