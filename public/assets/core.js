@@ -745,6 +745,7 @@ Office.tipJar = function openTipJar(ids) {
   const key = !ids ? 'office.tip_text_team' : ids.length > 1 ? 'office.tip_text_many' : 'office.tip_text';
   text.appendChild(el('p', '', thanked ? t('office.supporter_thanks', { name: sup.name }) : t(key, { names: names.join(', ') })));
   text.appendChild(el('p', '', t('office.tip_credit')));     // a share goes to helmi1987, who wrote Jack Emby's tools
+  text.appendChild(el('p', '', t('office.tip_shelter')));    // what goes beyond our work goes to animal shelters (Benj)
   text.appendChild(supporterPart(sup));
   const cb = el('input');
   cb.type = 'checkbox';

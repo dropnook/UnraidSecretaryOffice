@@ -278,7 +278,7 @@ file, told by the caretaker). The caretaker suggests whom to hire; hiring
 the desk in the tabs and at the reception, firing hides it again — data and
 whatever it set up on the server stay (`fire_note` says what keeps running).
 Unhired desks get no write actions (`not_hired`) and their checks don't count.
-After hiring, the tip jar (core.js `tipJar`, link `OFFICE_TIP_URL`) says hello — and that a share of the tips goes to helmi1987, the author of Jack Emby's tools (`office.tip_credit`).
+After hiring, the tip jar (core.js `tipJar`, link `OFFICE_TIP_URL`) says hello — and that a share of the tips goes to helmi1987, the author of Jack Emby's tools (`office.tip_credit`), and what goes beyond our work's cost to animal shelters (`office.tip_shelter`, Benj).
 **Supporter key** (Benj, 2026-10-06: no licence, no paywall, nothing ever locked): a thank-you for a tip that unlocks
 nothing — only the reminders ask it, never backups, restores or a desk (`src/supporter.php`, web side like staff.php).
 Server ID = sha256("uso-supporter:" + upper(regGUID, else flashGUID)), first 16 hex as `XXXX-XXXX-XXXX-XXXX`, from
