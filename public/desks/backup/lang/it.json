@@ -989,5 +989,6 @@
   "setup.known_first": {"one": "registrata: {n} cartella — quelle che arrivano dopo aspettano la tua decisione", "other": "registrate: {n} cartelle — quelle che arrivano dopo aspettano la tua decisione"},
   "setup.key.kopia_known": "cartelle che vanno su Kopia",
   "help.new": "Cose nuove",
-  "help.new_text": "Ciò che è arrivato dopo l'ultima configurazione — una VM, un'app, una cartella in una condivisione che va su Kopia — è segnato «nuovo — decidi tu» e sta in cima. Finché non applichi, viene salvato solo in locale e continua a girare; non lo mando mai su Kopia né lo fermo senza chiedere. Applica lo elenca a parte sotto «Nuovo»."
+  "help.new_text": "Ciò che è arrivato dopo l'ultima configurazione — una VM, un'app, una cartella in una condivisione che va su Kopia — è segnato «nuovo — decidi tu» e sta in cima. Finché non applichi, viene salvato solo in locale e continua a girare; non lo mando mai su Kopia né lo fermo senza chiedere. Applica lo elenca a parte sotto «Nuovo».",
+  "setup.known_all": "ogni cartella, anche quelle nuove — una raccolta (moltissime cartelle in cima)"
 }

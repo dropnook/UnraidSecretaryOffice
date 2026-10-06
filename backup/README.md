@@ -222,6 +222,7 @@ New things are backed up **only locally and without stopping**, on their own —
 - **Told once:** the run logs it, writes `status.json` `new_local` and `state/new-local.json`, adds a drift note `new_waiting` (info — it doesn't make a run "with warnings") and sends one notification (normal) for the folders it sees for the first time, not every night. The setup lists them per share as waiting (`setup-plan.json` `shares[].waiting`).
 - **Containers:** a container that is not in `[docker] known` (it came after the last setup) keeps running during the run instead of being stopped; the setup proposes it as *keep running*. **VMs** without a `[vm]` section aren't held (as before); the setup proposes `prepare = none` for them.
 - **Apps and VMs with a Kopia source of their own** hold only what their `folder =` lines and their package name — nothing new reaches them without the setup.
+- A share with very many folders at its top when it is first recorded (more than 500 — films, photos: a new folder there is the collection growing, not a new thing) gets `kopia_known = *`: every folder goes, new ones too, as before. List folders there by hand instead and new ones wait there too.
 - A share **without** any `kopia_known` line works as before 2.21: every folder goes to Kopia (drift note `known_missing`) until the setup is applied once. A share with a sleeping disk gets its first record at a setup when it is awake (the setup never wakes a disk). Only folders count: files at the top of a share go along as before.
 
 ### How a share is mounted
@@ -315,7 +316,7 @@ Usually you never call it yourself: Mr. Backupsy's *Set up…* uses it (`--plan`
 
 `--plan`, `--apply` and `--forget` are the interface of Mr. Backupsy's setup page. With `--apply`, `kopia_known` in the decisions is taken as it is (a folder that is gone drops out); a share without it that goes to Kopia records all its folders, and a container not named in `docker|known` stays new. They report their progress in `state/setup-status.json` (`mode`, `result`, `written`, messages with step and level). With `--apply`, dumps and Nextclouds only count when they are in the decisions; old Kopia sources are only set to "manual" with `_retire_sources = yes`, nothing is ever deleted.
 
-Environment: `UB_SETUP`, `UB_YES`, `UB_EXPLAIN`, `UB_SIZE_TIMEOUT` (seconds per share for `du`, 0 = don't measure), `UB_SETTINGS`, `UB_STRIPES`.
+Environment: `UB_SETUP`, `UB_YES`, `UB_EXPLAIN`, `UB_SIZE_TIMEOUT` (seconds per share for `du`, 0 = don't measure), `UB_SETTINGS`, `UB_STRIPES`, `UB_KNOWN_MAX` (500: more folders at a share's top at its first record = a collection, `kopia_known = *`).
 
 In a terminal every step is a coloured bar, tables have an underlined header and every second row is slightly shaded. For the stripes, the setup asks the terminal for its background colour; if it doesn't answer, dark is assumed (as in Unraid's web terminal). `UB_STRIPES=light` or `dark` sets it, `UB_STRIPES=off` switches the stripes off. Logs have no colours.
 
@@ -435,7 +436,7 @@ The same message doesn't come every night: it is repeated when something changes
 | `retention` | ZFS retention for this share only |
 | `kopia_retention` | Kopia retention for this share only: `latest hourly daily weekly monthly annual` |
 | `kopia_ignore` | ignore rule relative to the share (repeatable) |
-| `kopia_known` | since 2.21: a top-level folder that goes to Kopia, `/<folder>/` (repeatable; `kopia_known =` alone = recorded, none yet). Written by the setup; a folder neither known nor ignored is new and stays local until you decide. No line at all: every folder goes (as before 2.21) |
+| `kopia_known` | since 2.21: a top-level folder that goes to Kopia, `/<folder>/` (repeatable; `kopia_known =` alone = recorded, none yet; `kopia_known = *` = every folder, new ones too — a collection). Written by the setup; a folder neither known nor ignored is new and stays local until you decide. No line at all: every folder goes (as before 2.21) |
 | `exclude_dataset` | child dataset neither snapshotted nor backed up |
 | `method` | `auto` / `live` |
 

@@ -1004,5 +1004,6 @@
   "setup.known_first": {"one": "registrada: {n} carpeta — las que lleguen después esperan tu decisión", "other": "registradas: {n} carpetas — las que lleguen después esperan tu decisión"},
   "setup.key.kopia_known": "carpetas que van a Kopia",
   "help.new": "Novedades",
-  "help.new_text": "Lo que llegó después de la última configuración — una VM, una app, una carpeta en un recurso compartido que va a Kopia — lleva la marca «nuevo — decide tú» y aparece primero. Hasta que apliques, solo se guarda en local y sigue funcionando; nunca lo mando a Kopia ni lo detengo sin preguntar. Aplicar lo muestra aparte bajo «Nuevo»."
+  "help.new_text": "Lo que llegó después de la última configuración — una VM, una app, una carpeta en un recurso compartido que va a Kopia — lleva la marca «nuevo — decide tú» y aparece primero. Hasta que apliques, solo se guarda en local y sigue funcionando; nunca lo mando a Kopia ni lo detengo sin preguntar. Aplicar lo muestra aparte bajo «Nuevo».",
+  "setup.known_all": "cada carpeta, también las nuevas — una colección (muchísimas carpetas en la raíz)"
 }

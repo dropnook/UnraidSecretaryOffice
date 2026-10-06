@@ -1004,5 +1004,6 @@
   "setup.known_first": {"one": "enregistré : {n} dossier — ceux qui arrivent plus tard attendent ta décision", "other": "enregistrés : {n} dossiers — ceux qui arrivent plus tard attendent ta décision"},
   "setup.key.kopia_known": "dossiers qui vont vers Kopia",
   "help.new": "Nouveautés",
-  "help.new_text": "Ce qui est arrivé après la dernière configuration — une VM, une appli, un dossier dans un partage qui va vers Kopia — est marqué « nouveau — à toi de décider » et listé en premier. Tant que tu n'appliques pas, c'est sauvegardé seulement en local et ça continue de tourner ; je ne l'envoie jamais vers Kopia ni ne l'arrête sans te demander. Appliquer le liste à part sous « Nouveau »."
+  "help.new_text": "Ce qui est arrivé après la dernière configuration — une VM, une appli, un dossier dans un partage qui va vers Kopia — est marqué « nouveau — à toi de décider » et listé en premier. Tant que tu n'appliques pas, c'est sauvegardé seulement en local et ça continue de tourner ; je ne l'envoie jamais vers Kopia ni ne l'arrête sans te demander. Appliquer le liste à part sous « Nouveau ».",
+  "setup.known_all": "chaque dossier, les nouveaux aussi — une collection (de très nombreux dossiers à la racine)"
 }

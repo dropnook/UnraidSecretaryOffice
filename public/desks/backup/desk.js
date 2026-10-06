@@ -1499,6 +1499,7 @@ function setupApply() {
 function knownText(before, after) {
   const a = before || [];
   const b = after || [];
+  if (b.includes('*')) return T('setup.known_all');           // a collection: every folder goes, new ones too
   if (before === undefined) return T('setup.known_first', { n: b.length });
   const plus = b.filter((x) => !a.includes(x));
   const minus = a.filter((x) => !b.includes(x));

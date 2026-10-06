@@ -12,7 +12,8 @@ declare(strict_types=1);
  *            the gather's settings, the plugin's cron file,
  *            the menu bar's label, reports to Unraid's notifications, the team
  *            lead's «I know, thanks» and the Dashboard tile,
- *            Mr. Backupsy's packages and his Kopia per app and VM, a run skipped because
+ *            Mr. Backupsy's packages and his Kopia per app and VM, new things that stay local until
+ *            decided (engine and setup on a fixture server, the setup's logic under node), a run skipped because
  *            the engine's lock was busy (and who holds it), Ms. Dustdevil's pictures,
  *            Mr. Restori's reader of the packages and his restores (steps, put back, the lock, a job on its own;
  *            a share on several pools: moments, the union, targets on the share, missing and empty shares),
@@ -731,6 +732,10 @@ SH);
     touch("$root/appdata/file");
     same('new: the folders at the top - no links, files or .zfs', "_UnraidSecretaryOffice-trash-1\na\nb\ndecided\nkopia\nnc\nstill\nwe ird[1]",
         $sh("top_dirs $root/appdata | LC_ALL=C sort"));
+    same('new: a collection (kopia_known = *) is not watched - every folder goes', '0|',
+        $sh("$pre CFG[share|appdata|kopia_known]='*'; cfg_validate >/dev/null; printf '%s|' \${#CFG_ERRORS[@]}; share_watched appdata && echo watched"));
+    same('new: a folder\'s size only where cheap - a ZFS dataset of its own', '42|',
+        $sh("$pre INV_BASE_PATH[master]=/p; INV_CHILDREN[appdata]=\$'master|master/appdata/b|/p/appdata/b\\n'; ZDS_REF[master/appdata/b]=42; printf '%s|%s' \"\$(new_folder_bytes appdata b)\" \"\$(new_folder_bytes appdata c)\""));
     same('new: the wanted policy of a share includes the rules for its new folders', "/cache*/\n/deep/cache/\n/kopia/\n/nc/\n/still/",
         $sh("$pre NEW_RULES[appdata]=/still/; kopia_want_ignores share appdata"));
 
@@ -788,19 +793,22 @@ SH);
 
     // --- setup.sh on a fixture server: --plan and --apply
     $pool = "$mnt/master";
+    foreach (["$pool/media/a", "$pool/media/b", "$pool/media/c", "$pool/media/d", "$pool/media/e", "$pool/media/f", "$pool/media/g"] as $d) {
+        @mkdir($d, 0700, true);
+    }
     foreach (["$mnt/user", "$pool/appdata/c1", "$pool/appdata/bitcoin2", "$pool/appdata/kopia", "$pool/appdata/gone", "$pool/appdata/bigds", "$pool/appdata/_UnraidSecretaryOffice-trash",
               "$pool/UnraidSecretaryOffice/backup", "$pool/docs", "$mnt/ripley/sleepy/old"] as $d) {
         @mkdir($d, 0700, true);
     }
-    foreach (['appdata', 'UnraidSecretaryOffice', 'docs', 'sleepy'] as $n) {
+    foreach (['appdata', 'UnraidSecretaryOffice', 'docs', 'sleepy', 'media'] as $n) {
         touch("$tmp/boot/config/shares/$n.cfg");
     }
     file_put_contents("$tmp/fake/mounts", "master $pool zfs rw 0 0\nmaster/appdata $pool/appdata zfs rw 0 0\nmaster/appdata/bigds $pool/appdata/bigds zfs rw 0 0\n"
-        . "master/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\nmaster/docs $pool/docs zfs rw 0 0\nripley $mnt/ripley zfs rw 0 0\nripley/sleepy $mnt/ripley/sleepy zfs rw 0 0\n"
+        . "master/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\nmaster/docs $pool/docs zfs rw 0 0\nmaster/media $pool/media zfs rw 0 0\nripley $mnt/ripley zfs rw 0 0\nripley/sleepy $mnt/ripley/sleepy zfs rw 0 0\n"
         . "shfs $mnt/user fuse.shfs rw 0 0\n");
     $z = fn ($n, $mp, $ref) => "$n\t$mp\ton\t" . crc32($n) . "\t$ref\t-\n";
     file_put_contents("$tmp/fake/zfs.txt", $z('master', $pool, 1) . $z('master/appdata', "$pool/appdata", 5000) . $z('master/appdata/bigds', "$pool/appdata/bigds", 123456789)
-        . $z('master/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 10) . $z('master/docs', "$pool/docs", 10) . $z('ripley', "$mnt/ripley", 1) . $z('ripley/sleepy', "$mnt/ripley/sleepy", 10));
+        . $z('master/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 10) . $z('master/docs', "$pool/docs", 10) . $z('master/media', "$pool/media", 10) . $z('ripley', "$mnt/ripley", 1) . $z('ripley/sleepy', "$mnt/ripley/sleepy", 10));
     file_put_contents("$tmp/fake/disks.ini", "[\"master\"]\nname=\"master\"\nspundown=\"0\"\n[\"ripley\"]\nname=\"ripley\"\nspundown=\"1\"\n");
     file_put_contents("$tmp/fake/repo.json", json_encode(['configFile' => '/config/repository.config', 'storage' => ['type' => 'filesystem'], 'clientOptions' => ['username' => 'root', 'hostname' => 'kopia']]));
     file_put_contents("$tmp/fake/ids", "id1\nid2\nid3\n");
@@ -816,8 +824,8 @@ SH);
     file_put_contents("$data/settings.ini", "[general]\nserver = Test\nmount_root = $root\nview_root = $mnt/addons/UnraidSecretaryOffice/btrfs-snap\nsnap_prefix = uso-backup-\n"
         . "dumps_share = UnraidSecretaryOffice\n[docker]\nstop = all\nknown = kopia\nknown = c1\n[flash]\nmode = off\n[kopia]\nenabled = yes\ncontainer = kopia\nidentity = root@kopia\n"
         . "ignore = _UnraidSecretaryOffice-trash*/\n[share \"appdata\"]\nmode = kopia\nkopia_ignore = /kopia/\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n"
-        . "[share \"docs\"]\nmode = kopia\n[share \"sleepy\"]\nmode = kopia\n[vm \"oldvm\"]\nmode = snapshot\nprepare = pause\n");
-    $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
+        . "[share \"docs\"]\nmode = kopia\n[share \"sleepy\"]\nmode = kopia\n[share \"media\"]\nmode = kopia\n[vm \"oldvm\"]\nmode = snapshot\nprepare = pause\n");
+    $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0 UB_KNOWN_MAX=6; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
     $out = $setup('--plan');
     $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
     $P = $plan['P'] ?? [];
@@ -825,6 +833,7 @@ SH);
         [['/bigds/', '/bitcoin2/', '/c1/', '/gone/'], ['/backup/'], []],
         [$P['share|appdata|kopia_known'] ?? null, $P['share|UnraidSecretaryOffice|kopia_known'] ?? null, $P['share|docs|kopia_known'] ?? null], $out);
     check('setup plan: a share with a sleeping disk gets its first record later (nothing woken)', !array_key_exists('share|sleepy|kopia_known', $P), json_encode($P));
+    same('setup plan: very many folders at a share\'s top - a collection, every folder goes (*)', ['*'], $P['share|media|kopia_known'] ?? null);
     $cts = array_column($plan['containers'] ?? [], null, 'name');
     same('setup plan: a new container keeps running (code new), a known one as before', [['new', false], [true, true]],
         [[$cts['btc']['why'] ?? null, $cts['btc']['stop'] ?? null], [$cts['c1']['previous'] ?? null, $cts['c1']['stop'] ?? null]]);
@@ -839,7 +848,7 @@ SH);
     $ini = (string) @file_get_contents("$data/settings.ini");
     check('setup apply: kopia_known written, an empty one as "kopia_known =", none for the sleeping share',
         str_contains($ini, "kopia_known = /bigds/\nkopia_known = /bitcoin2/\nkopia_known = /c1/\nkopia_known = /gone/\n") && str_contains($ini, "[share \"docs\"]\nmode = kopia\nkopia_known =\n")
-        && !preg_match('/\[share "sleepy"\][^\[]*kopia_known/', $ini) && str_contains($ini, "known = btc"), $ini . $out);
+        && !preg_match('/\[share "sleepy"\][^\[]*kopia_known/', $ini) && str_contains($ini, "known = btc") && str_contains($ini, "[share \"media\"]\nmode = kopia\nkopia_known = *\n"), $ini . $out);
     same('setup apply: the settings written load without errors', '0', $sh("cfg_load $data/settings.ini; cfg_validate >/dev/null; echo \${#CFG_ERRORS[@]}"));
     // a folder comes: the plan lists it as waiting, Apply leaves it out of Kopia until decided
     @mkdir("$pool/appdata/zz-new", 0700);

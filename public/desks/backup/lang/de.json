@@ -983,5 +983,6 @@
   "setup.known_first": {"one": "festgehalten: {n} Ordner — später dazukommende warten auf deine Entscheidung", "other": "festgehalten: {n} Ordner — später dazukommende warten auf deine Entscheidung"},
   "setup.key.kopia_known": "Ordner, die zu Kopia gehen",
   "help.new": "Neues",
-  "help.new_text": "Was nach dem letzten Setup dazukam — eine VM, eine App, ein Ordner in einem Share, der zu Kopia geht — ist mit «neu — bitte entscheiden» markiert und steht zuoberst. Bis du übernimmst, wird es nur lokal gesichert und läuft weiter; ich schicke es nie ungefragt zu Kopia und halte es nie ungefragt an. Übernehmen listet es separat unter «Neu»."
+  "help.new_text": "Was nach dem letzten Setup dazukam — eine VM, eine App, ein Ordner in einem Share, der zu Kopia geht — ist mit «neu — bitte entscheiden» markiert und steht zuoberst. Bis du übernimmst, wird es nur lokal gesichert und läuft weiter; ich schicke es nie ungefragt zu Kopia und halte es nie ungefragt an. Übernehmen listet es separat unter «Neu».",
+  "setup.known_all": "jeder Ordner, auch neue — eine Sammlung (sehr viele Ordner zuoberst)"
 }

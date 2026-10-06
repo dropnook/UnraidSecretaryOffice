@@ -983,5 +983,6 @@
   "setup.known_first": {"one": "recorded: {n} folder — folders that come later wait for your decision", "other": "recorded: {n} folders — folders that come later wait for your decision"},
   "setup.key.kopia_known": "folders that go to Kopia",
   "help.new": "New things",
-  "help.new_text": "Whatever came after the last setup — a VM, an app, a folder in a share that goes to Kopia — is marked «new — please decide» and listed first. Until you apply, it is backed up only locally and keeps running; I never send it to Kopia or stop it unasked. Apply lists it separately under «New»."
+  "help.new_text": "Whatever came after the last setup — a VM, an app, a folder in a share that goes to Kopia — is marked «new — please decide» and listed first. Until you apply, it is backed up only locally and keeps running; I never send it to Kopia or stop it unasked. Apply lists it separately under «New».",
+  "setup.known_all": "every folder, new ones too — a collection (very many folders at its top)"
 }

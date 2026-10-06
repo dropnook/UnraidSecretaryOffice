@@ -372,7 +372,7 @@ function backupProtection(string $path, int $depth = 0, ?array $settings = null)
     // engine 2.21: a top-level folder that is not in kopia_known is new - only local until the user decides
     // (an app's or VM's own part went offsite above; the backup place's own folder always goes)
     $top = explode('/', $rel, 2)[0];
-    if ($top !== '' && isset($s["share|$share"]['kopia_known']) && !in_array("/$top/", $s["share|$share"]['kopia_known'], true)
+    if ($top !== '' && isset($s["share|$share"]['kopia_known']) && !array_intersect(["/$top/", '*'], $s["share|$share"]['kopia_known'])
         && !($share === backupSetting($s, 'general', 'dumps_share') && $top === ($share === BACKUP_OFFICE_SHARE ? BACKUP_DESK_DIR : 'unraid-backup'))) {
         return 'local';
     }

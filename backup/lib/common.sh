@@ -281,8 +281,8 @@ cfg_validate() {
         [[ -z "$(cfg "share|$n|mode")" ]] && CFG_ERRORS+=( "[share \"$n\"] without mode" )
         local kk
         while IFS= read -r kk; do
-            [[ "$kk" =~ ^/[^/]+/$ && "$kk" != "/./" && "$kk" != "/../" ]] \
-                || CFG_ERRORS+=( "[share \"$n\"] kopia_known = '$kk' is invalid (/<folder>/: a folder at the top of the share)" )
+            [[ "$kk" == "*" || ( "$kk" =~ ^/[^/]+/$ && "$kk" != "/./" && "$kk" != "/../" ) ]] \
+                || CFG_ERRORS+=( "[share \"$n\"] kopia_known = '$kk' is invalid (/<folder>/: a folder at the top of the share, or * for all)" )
         done < <(cfg_list "share|$n|kopia_known")
     done < <(cfg_names share)
     while IFS= read -r n; do
@@ -2229,6 +2229,9 @@ zfs_prune_select() {
 #   - a share going to Kopia records its top-level folders when the setup is applied:
 #       [share "<name>"] kopia_known = /<folder>/   (repeatable; an empty "kopia_known =" means recorded,
 #                                                    none yet)
+#     A share with more than UB_KNOWN_MAX folders at its top when it is first recorded is a collection (films,
+#     photos - a new folder there is the collection growing, not a new thing): kopia_known = * - every folder
+#     goes, new ones too, as before 2.21; listing folders instead makes new ones wait there too.
 #     A top-level folder that is neither known nor left out - by the share's kopia_ignore, the global
 #     [kopia] ignore, as a part of an app or VM with a Kopia source of its own (section 9), or as the
 #     backup place's own folder - is NEW: the run leaves it out of the share's Kopia source (rules it
@@ -2244,6 +2247,7 @@ zfs_prune_select() {
 #                         bytes: only where it is cheap (a ZFS dataset of its own), else null; rules: the
 #                         ignore rules the run set for it. Written by real backup runs that reached Kopia.
 
+UB_KNOWN_MAX="${UB_KNOWN_MAX:-500}"   # more folders at a share's top at its first record: a collection (kopia_known = *)
 declare -gA NEW_RULES=()       # share -> ignore rules for its new folders (lines): part of its wanted policy
 declare -gA NEW_SEEN=()        # "share|folder" -> first seen (unix), from state/new-local.json
 declare -gA NEW_SEEN_RULES=()  # "share|folder" -> the rules a run set for it (lines)
@@ -2256,8 +2260,10 @@ ND_SHARE=""
 ST_NEW_LOCAL="null"            # status.json "new_local" (null: this run didn't look)
 
 # share_watched <share>  -> 0 when the share's new folders stay local: it goes to Kopia and its folders are recorded
+# (not "*", a collection)
 share_watched() {
-    is_yes "${KOPIA_ENABLED:-no}" && [[ "$(share_mode "$1")" == "kopia" && -n "${CFG[share|$1|kopia_known]+x}" ]]
+    is_yes "${KOPIA_ENABLED:-no}" && [[ "$(share_mode "$1")" == "kopia" && -n "${CFG[share|$1|kopia_known]+x}" \
+        && $'\n'"${CFG[share|$1|kopia_known]}"$'\n' != *$'\n*\n'* ]]
 }
 
 # top_dirs <dir>  -> the folders right inside it, one per line: no links, no .zfs or lost+found, no names with
@@ -2368,7 +2374,7 @@ new_folder_bytes() {
     local s="$1" n="$2" b ds mp sum=""
     while IFS='|' read -r b ds mp; do
         [[ -n "$ds" && "$mp" == "${INV_BASE_PATH[$b]:-/nonexistent}/$s/$n" ]] || continue
-        is_uint "${ZDS_REF[$ds]:-}" && sum=$(( ${sum:-0} + ZDS_REF[$ds] ))
+        is_uint "${ZDS_REF[$ds]:-}" && sum=$(( ${sum:-0} + ${ZDS_REF[$ds]} ))
     done <<<"${INV_CHILDREN[$s]:-}"
     printf '%s' "$sum"
 }

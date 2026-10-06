@@ -911,7 +911,9 @@ share_known_all() {
             unset "P[$k]"; continue
         fi
         share_top_live "$s"
-        if [[ -n "${P[$k]+x}" ]]; then
+        if [[ -n "${P[$k]+x}" ]] && plist "$k" | grep -Fxq '*'; then
+            :       # a collection: every folder goes, new ones too (by hand: list folders instead)
+        elif [[ -n "${P[$k]+x}" ]]; then
             # recorded before: as it is; a folder that is gone drops out (only when every part is awake)
             P[$k]="$(plist "$k" | while IFS= read -r x; do
                 [[ "$x" =~ ^/[^/]+/$ ]] || continue
@@ -920,6 +922,10 @@ share_known_all() {
         elif [[ "$SK_ASLEEP" == "yes" ]]; then
             unset "P[$k]"
             hint "Share '$s': a disk of it sleeps - which of its folders go to Kopia is recorded at a setup when it is awake (until then every folder goes there, new ones too)"
+        elif (( ${#SK_DIRS[@]} > UB_KNOWN_MAX )); then
+            # very many folders at its top: a collection (films, photos) - a new folder there is the collection growing
+            P[$k]="*"
+            hint "Share '$s': ${#SK_DIRS[@]} folders at its top - a collection: every folder goes to Kopia, new ones too (kopia_known = *; list folders instead to have new ones wait)"
         else
             # the first record: what is there and not left out goes to Kopia (as it did so far)
             P[$k]="$(for n in "${SK_DIRS[@]}"; do share_rules_hide "$s" "$n" || printf '/%s/\n' "$n"; done)"
@@ -1855,7 +1861,7 @@ settings_render() {
         w_c "method           auto | live  (live = without a snapshot: bind /mnt/user/<share> read-only)"
         w_c "kopia_ignore     Kopia ignore rule relative to the share (several times)"
         w_c "kopia_known      a top-level folder that goes to Kopia (several times; empty = none yet) - a folder"
-        w_c "                 neither known nor ignored is new: only local until you decide (no line: every folder goes)"
+        w_c "                 neither known nor ignored is new: only local until you decide (* or no line: every folder goes)"
         w_c "exclude_dataset  child dataset neither snapshotted nor backed up (several times)"
         w_c "id, locations    from setup.sh - spot renames and moves"
         for s in "${SH[@]}"; do

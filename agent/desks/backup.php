@@ -996,7 +996,8 @@ function backupWaiting(array $s, array $vms, ?array $containers = null, ?string 
         $share = is_array($f) && is_string($f['share'] ?? null) ? $f['share'] : '';
         $folder = is_array($f) && is_string($f['folder'] ?? null) ? $f['folder'] : '';
         if ($share === '' || $folder === '' || preg_match('/[\x00-\x1f\/]/', $folder) || !$kopiaOn
-            || backupSetting($s, "share|$share", 'mode') !== 'kopia' || !isset($s["share|$share"]['kopia_known'])) {
+            || backupSetting($s, "share|$share", 'mode') !== 'kopia' || !isset($s["share|$share"]['kopia_known'])
+            || in_array('*', $s["share|$share"]['kopia_known'], true)) {
             continue;
         }
         $rule = '/' . $folder . '/';
