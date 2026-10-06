@@ -224,6 +224,7 @@ function watchmanPaths(): array
         'zpool'      => 'zpool',
         'mnt'        => '/mnt',
         'agent_log'  => AGENT_LOG,
+        'snap_record' => DATA_DIR . '/snapshot/deletes.jsonl',     // Ms. Snapshotini's own record (root only)
         'engine'     => BACKUP_DATA_DIR,
         // how secure (watchmanPostureLook())
         'ident'      => '/boot/config/ident.cfg',
@@ -3504,10 +3505,14 @@ function watchmanFlowSummary(?array $bf, ?array $flow, int $now): ?array
  *
  * What the office removes itself is no news:
  *   Ms. Snapshotini  her deletions, releases and renames — by hand and her schedules' retention — stand
- *                    in the office's log (agent.log: "Deleted: <ds>@<a>,<b>", "Deleted: <path> (btrfs)",
- *                    "Released: <ds>@<name>", "Renamed: <where> <old> → <new>"), read by offset like the
- *                    syslog and remembered WATCH_SNAP_OFFICE (a deletion logged before the snapshot is
- *                    missed in a list still counts)
+ *                    in her own record, which only root can write (data/snapshot/deletes.jsonl, see
+ *                    snapshot.php; watchmanSnapRecord()), and in the office's log (agent.log: "Deleted:
+ *                    <ds>@<a>,<b>", "Deleted: <path> (btrfs)", "Released: <ds>@<name>", "Renamed: <where>
+ *                    <old> → <new>"); both read by offset like the syslog, remembered WATCH_SNAP_OFFICE (a
+ *                    deletion noted before the snapshot is missed in a list still counts). The record wins:
+ *                    the log's lines count only until it is there (the round it first shows up — what an
+ *                    older office logged), and once she keeps one, a record that isn't one any more (gone,
+ *                    open to others) leaves her lines unproven
  *   the engine       its retention prunes only its own names, only in a real backup run (status.json,
  *                    history.jsonl — its interface, never its log) and always keeps the newest: one of
  *                    its snapshots gone while a run went on, with a newer one of its own still on that
@@ -3523,8 +3528,8 @@ function watchmanFlowSummary(?array $bf, ?array $flow, int $now): ?array
  * released (userrefs fewer) not by Ms. Snapshotini: `snap_hold_released` (important) — the step before
  * deleting a held snapshot. The lists, what the office removed and the log's position: snaps.json (only
  * rounds write it). The office's log is writable by the web server's user like all its data: whoever
- * writes «Deleted:» lines into it can hide a deletion — an attack on the office itself, not what
- * ransomware does.
+ * writes «Deleted:» lines into it could hide a deletion — that is why her record (root only) counts
+ * instead of them.
  */
 const WATCH_SNAP_MAX      = 20000;              // snapshots followed in all (a pool beyond is not compared)
 const WATCH_SNAP_DIR_MAX  = 5000;               // btrfs snapshots per disk
@@ -3552,6 +3557,17 @@ function watchmanSnaps(array $paths, ?array $known, array $series, int $now): ar
     [$events, $pos] = isset($paths['agent_log'])
         ? watchmanSnapOfficeLog($paths['agent_log'], is_array($known['log'] ?? null) ? $known['log'] : null, $now)
         : [['d' => [], 'r' => [], 'm' => []], null];
+    // her own record (root only) beats her log lines: those count only for what came before it — the
+    // round it first shows up; a record she kept that isn't one any more leaves her lines unproven
+    $hadRecord = is_array($known['record'] ?? null);
+    $record = isset($paths['snap_record']) ? watchmanSnapRecord($paths['snap_record'], $hadRecord ? $known['record'] : null, $known === null) : null;
+    $recPos = $hadRecord ? $known['record'] : null;
+    if ($record !== null) {
+        [$recEvents, $recPos] = $record;
+        $events = $hadRecord ? $recEvents : watchmanSnapEventsAdd($events, $recEvents);
+    } elseif ($hadRecord) {
+        $events = ['d' => [], 'r' => [], 'm' => []];
+    }
     $office = watchmanSnapOfficeMerge((array) ($known['office'] ?? []), $events, $now);
     $runs = isset($paths['engine']) ? watchmanEngineRuns($paths['engine']) : [];
     $diff = watchmanSnapDiff($known, $look, $office, $runs, $prefixes, $now);
@@ -3567,7 +3583,7 @@ function watchmanSnaps(array $paths, ?array $known, array $series, int $now): ar
     foreach ($diff['released'] as $g) {
         $released[] = $g + watchmanSnapEvidence($paths, $g, $now, 'release|destroy');
     }
-    $diff['known'] += ['office' => $office, 'log' => $pos];
+    $diff['known'] += ['office' => $office, 'log' => $pos, 'record' => $recPos];
     $count = fn (array $lists) => array_map('count', $lists);
     return ['known' => $diff['known'], 'gone' => $gone, 'released' => $released, 'summary' => [
         'time'     => $now,
@@ -3752,6 +3768,94 @@ function watchmanSnapOfficeLog(string $log, ?array $pos, int $now): array
     }
     $end = $read($log, $from);
     return [$ev, ['ino' => (int) $st['ino'], 'size' => $end]];
+}
+
+/**
+ * Ms. Snapshotini's own record (data/snapshot/deletes.jsonl, see agent/desks/snapshot.php) since $pos:
+ * the same facts as her log lines, in a file only root can write. Counts only while it is one: a real
+ * folder of root's, closed to others, and in it a plain file of root's, closed to others, one link —
+ * else null (not a record). Rotated meanwhile (deletes.jsonl.1, found by its inode): its rest first.
+ * Without a position: from now on when the watch is taken over anew ($fresh), else from its beginning
+ * (the round it first appears). Only whole lines, at most WATCH_SNAP_LOG_MAX of a file.
+ *
+ * @return array{0: array{d: array<string, int>, r: array<string, int>, m: list<array{0: string, 1: string, 2: string, 3: int}>}, 1: array}|null
+ */
+function watchmanSnapRecord(string $file, ?array $pos, bool $fresh): ?array
+{
+    $own = function (string $path, bool $dir): ?array {
+        $st = @lstat($path);
+        return $st && ($st['mode'] & 0170000) === ($dir ? 0040000 : 0100000) && $st['uid'] === 0 && !($st['mode'] & 0077)
+            && ($dir || $st['nlink'] === 1) ? $st : null;
+    };
+    clearstatcache();
+    if ($own(dirname($file), true) === null) {
+        return null;
+    }
+    $st = $own($file, false);
+    $old = $own("$file.1", false);
+    if ($st === null && (file_exists($file) || is_link($file) || $old === null)) {
+        return null;                        // missing for a moment while she starts a new one: only .1 then
+    }
+    $ev = ['d' => [], 'r' => [], 'm' => []];
+    $read = function (string $path, int $from) use (&$ev): int {
+        $h = @fopen($path, 'r');
+        if (!$h) {
+            return $from;
+        }
+        $size = (int) (fstat($h)['size'] ?? 0);
+        $start = max($from, $size - WATCH_SNAP_LOG_MAX);
+        fseek($h, $start);
+        if ($start > $from && $start > 0) {
+            fgets($h);                      // began inside a line
+        }
+        $at = (int) ftell($h);
+        while (($line = fgets($h)) !== false && str_ends_with($line, "\n")) {
+            $at += strlen($line);
+            $e = json_decode($line, true);
+            $str = fn (string $k): ?string => is_array($e) && is_string($e[$k] ?? null) && $e[$k] !== '' && !preg_match('/[\x00-\x1F]/', $e[$k]) ? $e[$k] : null;
+            if (!is_array($e) || !is_int($e['t'] ?? null)) {
+                continue;
+            }
+            $t = $e['t'];
+            if (($e['do'] ?? '') === 'deleted' && ($e['fs'] ?? '') === 'zfs' && $str('ds') !== null && is_array($e['names'] ?? null)) {
+                foreach ($e['names'] as $n) {
+                    if (is_string($n) && $n !== '' && !preg_match('/[\x00-\x1F@,]/', $n)) {
+                        $ev['d'][$e['ds'] . "@$n"] = $t;
+                    }
+                }
+            } elseif (($e['do'] ?? '') === 'deleted' && ($e['fs'] ?? '') === 'btrfs' && $str('path') !== null) {
+                $ev['d'][$e['path']] = $t;
+            } elseif (($e['do'] ?? '') === 'released' && $str('ds') !== null && $str('name') !== null) {
+                $ev['r'][$e['ds'] . '@' . $e['name']] = $t;
+            } elseif (($e['do'] ?? '') === 'renamed' && $str('where') !== null && $str('from') !== null && $str('to') !== null) {
+                $ev['m'][] = [$e['where'], $e['from'], $e['to'], $t];
+            }
+        }
+        fclose($h);
+        return $at;
+    };
+    if ($st === null) {                     // only .1 for a moment: its rest; the new one from its beginning next round
+        $from = $pos !== null && (int) ($pos['ino'] ?? -1) === (int) $old['ino'] ? (int) ($pos['size'] ?? 0) : 0;
+        $read("$file.1", $from);
+        return [$ev, ['ino' => -1, 'size' => 0]];
+    }
+    if ($pos === null && $fresh) {
+        return [$ev, ['ino' => (int) $st['ino'], 'size' => (int) $st['size']]];
+    }
+    $from = 0;
+    if ($pos !== null && (int) ($pos['ino'] ?? -1) === (int) $st['ino'] && (int) ($pos['size'] ?? PHP_INT_MAX) <= (int) $st['size']) {
+        $from = (int) $pos['size'];
+    } elseif ($pos !== null && $old !== null && (int) $old['ino'] === (int) ($pos['ino'] ?? -1) && (int) ($pos['size'] ?? PHP_INT_MAX) <= (int) $old['size']) {
+        $read("$file.1", (int) $pos['size']);
+    }
+    $end = $read($file, $from);
+    return [$ev, ['ino' => (int) $st['ino'], 'size' => $end]];
+}
+
+/** Two rounds' worth of what the office removed, as one */
+function watchmanSnapEventsAdd(array $a, array $b): array
+{
+    return ['d' => $b['d'] + $a['d'], 'r' => $b['r'] + $a['r'], 'm' => array_merge($a['m'], $b['m'])];
 }
 
 /** What the office removed: the remembered and this round's, those older than WATCH_SNAP_OFFICE out, at most WATCH_SNAP_OFFICE_N */

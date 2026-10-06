@@ -70,6 +70,7 @@
   "errors.unknown": "Errore «{key}» {detail}",
   "errors.agent_away": "L'agente non ha ritirato la richiesta — è in esecuzione?",
   "errors.agent_busy": "L'agente ci sta ancora lavorando. Riprova tra un momento.",
+  "errors.agent_restarted": "Nel frattempo l'aiutante dell'ufficio si è riavviato — riprova.",
   "errors.offline": "Nessuna connessione con il server.",
   "errors.bad_answer": "Il server ha risposto in modo strano (HTTP {status}).",
   "errors.rejected": "Richiesta rifiutata.",

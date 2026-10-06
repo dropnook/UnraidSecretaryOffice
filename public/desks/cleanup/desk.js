@@ -2,7 +2,8 @@
    without a container, Compose stacks without containers, appdata folders
    nothing names, what deleted VMs left behind (domains folders, NVRAM, TPM
    states, unused disk images) and Docker's own leftovers (images, volumes,
-   build cache). Everything she can rename goes into her storeroom first,
+   build cache), and what Mr. Restori left next to what he brought back
+   (from his journals). Everything she can rename goes into her storeroom first,
    from where it can be put back or emptied for good; Docker's leftovers can
    only be removed. And she straightens what hangs crooked: containers
    without a picture get one (the old template or override file goes into
@@ -13,8 +14,8 @@
 const ID = 'cleanup';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
-const SECTIONS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'trash'];
-const ICONS = { templates: '📄', stacks: '🧩', appdata: '🗃️', vms: '🖥️', scripts: '📜', docker: '🐳', icons: '🖼️', trash: '🗑️' };
+const SECTIONS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'leftovers', 'trash'];
+const ICONS = { templates: '📄', stacks: '🧩', appdata: '🗃️', vms: '🖥️', scripts: '📜', docker: '🐳', icons: '🖼️', leftovers: '📦', trash: '🗑️' };
 const GROUPS = {
   templates: ['leftover', 'unused', 'duplicate', 'noname', 'stray_only_here', 'stray_newer', 'stray_name_exists', 'stray_older', 'stray_copy', 'unknown', 'in_use'],
   stacks: ['leftover', 'broken', 'unused', 'unknown', 'in_use'],
@@ -23,6 +24,7 @@ const GROUPS = {
   scripts: ['broken', 'dead', 'idle', 'used'],
   docker: ['dangling', 'volume', 'unused', 'cache', 'used'],
   icons: ['template', 'compose', 'none', 'ok'],
+  leftovers: ['leftover', 'way_back', 'unknown'],     // shown per restore (renderLeftovers), these for the CSV
 };
 const CANDIDATES = {
   templates: ['leftover', 'unused', 'duplicate', 'noname', 'stray_only_here', 'stray_newer', 'stray_name_exists', 'stray_older', 'stray_copy'],
@@ -32,10 +34,12 @@ const CANDIDATES = {
   scripts: ['broken', 'dead', 'idle'],
   docker: ['dangling', 'volume', 'unused', 'cache'],
   icons: ['template', 'compose', 'none'],
+  leftovers: ['leftover', 'way_back'],
 };
 const CLOSED = ['in_use', 'used', 'unknown', 'ok'];  // folded until opened
 const KIND_ICONS = { container: '🐳', template: '📄', stack: '🧩', compose: '🧩', flash: '💾', vm: '🖥️' };
-const ITEM_ICONS = { template: '📄', stray: '📄', vmdef: '🖥️', userscript: '📜', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐', icon: '🖼️' };
+const ITEM_ICONS = { template: '📄', stray: '📄', vmdef: '🖥️', userscript: '📜', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐', icon: '🖼️', leftover: '📦' };
+const ROOMS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'leftovers'];     // where she finds something (not the storeroom)
 const POLL_MS = 3000;
 
 let state = null;
@@ -82,6 +86,7 @@ function entries(sec) {
   return ({
     templates: state.templates.list, stacks: state.stacks.list, appdata: state.appdata.list,
     vms: state.vms.list, scripts: state.scripts.list, docker: state.docker.list, icons: (state.icons || {}).list,
+    leftovers: (state.leftovers || {}).list,
   })[sec] || [];
 }
 const candidates = (sec) => entries(sec).filter((e) => CANDIDATES[sec].includes(e.category));
@@ -98,13 +103,14 @@ const words = () => query.trim().toLowerCase().split(/\s+/).filter(Boolean);
 function matches(e) {
   const w = words();
   if (!w.length) return true;
-  const hay = [label(e), e.name, e.file, e.folder, e.image, e.project, e.uuid, e.from, e.path, ...(e.refs || []),
+  const hay = [label(e), e.name, e.file, e.folder, e.image, e.project, e.uuid, e.from, e.path, e.restore && e.restore.what, ...(e.refs || []),
     ...(e.used_by || []).map((u) => u.name), ...(e.containers || []).map((c) => c.name), ...(e.parts || []).map((p) => p.path)]
     .filter(Boolean).join(' ').toLowerCase();
   return w.every((x) => hay.includes(x));
 }
 /** VMs only with the VM service switched on, Docker's rooms (appdata too: who uses it is told by Docker) only with Docker */
 const visible = (sec) => (sec === 'vms' ? state.vms.enabled : sec === 'scripts' ? state.scripts.installed
+  : sec === 'leftovers' ? !!state.leftovers && state.leftovers.restores > 0
   : sec === 'icons' ? state.docker.enabled && !!state.icons : ['templates', 'stacks', 'appdata', 'docker'].includes(sec) ? state.docker.enabled : true);
 
 function chip(text, cls, tip) {
@@ -198,7 +204,7 @@ Office.desk({
     if (!state) await load(false);
     if (!state) return { bubble: T('bubble.no_data'), facts: [] };
     const facts = [];
-    for (const sec of ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons']) {
+    for (const sec of ROOMS) {
       const c = candidates(sec);
       if (c.length) facts.push(T('fact.' + sec, { n: c.length, size: fmt.size(sum(c)) }));
     }
@@ -243,6 +249,7 @@ function build(root) {
     [T('section.scripts'), T('help.scripts_text')],
     [T('section.docker'), T('help.docker_text')],
     [T('section.icons'), T('help.icons_text')],
+    [T('section.leftovers'), T('help.leftovers_text')],
     [T('help.loop'), T('help.loop_text')],
     [T('help.sizes'), T('help.sizes_text')],
     [T('help.safe'), T('help.safe_text')],
@@ -293,7 +300,7 @@ function render() {
 function bubbleText() {
   if (!state) return Office.agent.running ? T('bubble.loading') : T('bubble.no_data');
   const found = [];
-  for (const sec of ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons']) {
+  for (const sec of ROOMS) {
     const c = candidates(sec);
     if (c.length) found.push(T('bubble.' + sec, { n: c.length, size: fmt.size(sum(c)) }));
   }
@@ -387,8 +394,10 @@ function renderSection() {
   if (section === 'scripts') body.appendChild(scriptsInfo());
   if (section === 'docker') body.appendChild(dockerInfo());
   if (section === 'icons') body.appendChild(iconsInfo());
+  if (section === 'leftovers') body.appendChild(leftoversInfo());
   if (section === 'stacks' && !state.stacks.exists) { body.appendChild(emptyNote(T('empty.no_compose', { path: state.stacks.root }))); return; }
   if (section === 'trash') renderTrash(body);
+  else if (section === 'leftovers') renderLeftovers(body);
   else renderList(body, section);
   if (shown.length > 1) body.insertBefore(unfoldBar(body), body.querySelector('.box'));
 }
@@ -568,6 +577,7 @@ const VIEWS = {
   volume: () => [volumeMeta, volumeDetail],
   cache: () => [cacheMeta, cacheDetail],
   icon: () => [iconMeta, iconDetail],
+  leftover: () => [leftoverMeta, leftoverDetail],
 };
 
 /** A row: the checkbox selects, a click anywhere else unfolds the details */
@@ -763,7 +773,7 @@ function exportCsv(sec) {
   } else {
     for (const e of entries(sec).filter(matches)) {
       const path = e.kind === 'stack' ? e.dir : e.path || (e.parts || []).map((p) => p.path).join(' ');
-      rows.push([T(`cat.${sec}.${e.category}`), e.kind === 'icon' ? T('d.container') : T('item.' + e.kind), label(e), e.bytes ?? '', csvDate(e.mtime || e.newest || e.created),
+      rows.push([T(`cat.${sec}.${e.category}`), e.kind === 'icon' ? T('d.container') : T('item.' + e.kind), label(e), e.bytes ?? '', csvDate(e.mtime || e.newest || e.created || e.time),
         (e.used_by || []).map((u) => u.name).concat((e.containers || []).map((c) => c.name), e.container && e.container.name ? [e.container.name] : []).join(', '),
         (e.notes || []).map(noteText).join(' '), path || '']);
     }
@@ -1206,6 +1216,109 @@ function iconsDialog() {
       } },
     ],
   });
+}
+
+// ------------------------------------------------------------------ Mr. Restori's leftovers
+function leftoversInfo() {
+  const l = state.leftovers;
+  const box = el('div', 'cl-info');
+  const p = el('p', 'role', T('lo.where', { n: l.restores }) + ' ');
+  const a = el('a', '', T('lo.journal'));
+  a.href = '#/restore';
+  p.appendChild(a);
+  box.appendChild(p);
+  if (l.asleep.length) box.appendChild(asleepCallout(l.asleep));
+  return box;
+}
+
+/** A restore as Mr. Restori names it in his journal */
+const restoreName = (r) => (Office.has(`${ID}.lo.kind.${r.kind}`) ? T('lo.kind.' + r.kind, { what: r.what }) : `${r.kind}: ${r.what}`);
+
+/** Per restore, newest first: what it left, with a checkbox for all of it that can go */
+function renderLeftovers(body) {
+  const all = entries('leftovers');
+  if (!all.length) { body.appendChild(emptyNote(T('empty.leftovers'))); return; }
+  const list = all.filter(matches);
+  if (!list.length) { body.appendChild(emptyNote(T('no_match', { query: query.trim() }))); return; }
+  const by = new Map();
+  list.forEach((e) => { if (!by.has(e.restore.id)) by.set(e.restore.id, []); by.get(e.restore.id).push(e); });
+  const box = el('div', 'box');
+  by.forEach((items) => box.appendChild(restoreGroup(items)));
+  body.appendChild(box);
+}
+
+function restoreGroup(items) {
+  const r = items[0].restore;
+  const key = 'leftovers.' + r.id;
+  const closed = !words().length && (folded[key] ?? false);
+  const box = el('div', 'group' + (closed ? ' closed' : ''));
+  const head = el('div', 'group-head');
+  head.tabIndex = 0;
+  head.setAttribute('role', 'button');
+  // the whole restore at once — only what isn't still his way back (that one asks on its own)
+  const can = items.filter((e) => selectable(e) && !e.force);
+  const cb = el('input');
+  cb.type = 'checkbox';
+  cb.disabled = !can.length;
+  cb.title = T('select_group');
+  const sync = () => {
+    const n = can.filter((e) => selection.has(e.id)).length;
+    cb.checked = n > 0 && n === can.length;
+    cb.indeterminate = n > 0 && n < can.length;
+  };
+  sync();
+  cb.onclick = (ev) => {
+    ev.stopPropagation();
+    const every = can.every((x) => selection.has(x.id));
+    can.forEach((x) => (every ? selection.delete(x.id) : selection.add(x.id)));
+    renderSection();
+    updateSelbar();
+  };
+  const mid = el('div', 'group-mid');
+  const title = el('div', 'group-title');
+  title.append(el('span', '', restoreName(r)), chip(fmt.number(items.length), 'quiet'));
+  if (r.undone) title.appendChild(chip(T('lo.undone'), 'quiet', T('lo.undone_text')));
+  const meta = [r.time ? `${fmt.date(r.time)} · ${fmt.relative(r.time)}` : r.id];
+  if (items.every((e) => e.bytes !== null && e.bytes !== undefined)) meta.push(fmt.size(sum(items)));
+  mid.append(title, el('div', 'group-meta', meta.join(' · ')));
+  head.append(cb, el('span', 'group-arrow', '▼'), mid);
+  const rows = el('div', 'group-rows');
+  items.forEach((e) => rows.appendChild(row(e, sync)));
+  const toggle = () => {
+    const now = !box.classList.contains('closed');
+    box.classList.toggle('closed', now);
+    folded[key] = now;
+    Office.storeJson('cleanup.folded', folded);
+  };
+  head.onclick = (e) => { if (e.target.closest('button, input, a')) return; Office.keepInPlace(head, toggle); if (e.detail > 0) head.blur(); };
+  head.onkeydown = (e) => { if (e.target === head && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); Office.keepInPlace(head, toggle); } };
+  box.append(head, rows);
+  return box;
+}
+
+function leftoverMeta(e, meta, figures) {
+  meta.appendChild(chip(T('lo.what.' + e.what), '', T('lo.what.' + e.what + '_text')));
+  if (e.category === 'way_back') meta.appendChild(chip(T('lo.way_back'), 'warn', T('lo.way_back_text')));
+  if (e.category === 'unknown') meta.appendChild(chip(T('lo.unknown'), 'quiet', T('lo.unknown_text')));
+  if (e.parts.length > 1) meta.appendChild(chip(e.parts.map((p) => p.root).join(' + '), 'quiet', T('parts_text')));
+  if (e.parts.some((p) => p.dataset)) meta.appendChild(chip(T('zfs'), 'quiet', T('zfs_text', { name: e.parts.map((p) => p.dataset).filter(Boolean).join(', ') })));
+  meta.appendChild(el('span', '', T('lo.since', { when: fmt.relative(e.time) })));
+  sizeFigures(e, figures, '');
+}
+
+function leftoverDetail(e) {
+  const box = el('div');
+  const r = e.restore;
+  box.appendChild(kv([
+    [T('d.where'), e.parts.length ? lines(e.parts.map((p) => p.path + (p.dataset ? `  (${T('d.dataset', { name: p.dataset })})` : ''))) : e.path, true],
+    [T('lo.d.restore'), `${restoreName(r)} · ${r.id}`],
+    [T('lo.d.aside'), when(e.time)],
+    [T('d.size'), e.bytes !== null && e.bytes !== undefined ? fmt.size(e.bytes) : (e.measuring ? T('measuring') : T('d.not_measured'))],
+  ]));
+  box.appendChild(el('p', 'role', T('lo.what.' + e.what + '_text')));
+  if (e.category === 'way_back') box.appendChild(el('p', 'role', T('lo.way_back_text')));
+  if (e.asleep.length) box.appendChild(el('p', 'role', T('asleep', { disks: e.asleep.join(', ') })));
+  return box;
 }
 
 // ------------------------------------------------------------------ selection

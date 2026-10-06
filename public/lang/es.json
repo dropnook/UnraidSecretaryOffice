@@ -70,6 +70,7 @@
   "errors.unknown": "Error «{key}» {detail}",
   "errors.agent_away": "El agente no recogió la petición — ¿se está ejecutando?",
   "errors.agent_busy": "El agente todavía está trabajando en ello. Inténtalo de nuevo en un momento.",
+  "errors.agent_restarted": "Mientras tanto, el ayudante de la oficina se ha reiniciado — inténtalo de nuevo.",
   "errors.offline": "Sin conexión con el servidor.",
   "errors.bad_answer": "El servidor respondió de forma extraña (HTTP {status}).",
   "errors.rejected": "Petición rechazada.",

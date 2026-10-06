@@ -267,6 +267,8 @@ async function postOnce(action, data) {
     j = { ok: false, error: { key: 'offline' } };
   }
   if (j.agent) Office.setAgent(j.agent);
+  // the agent restarted while this waited: nothing it was asked before is coming — no desk keeps the wave up for it
+  if (j.error && j.error.key === 'agent_restarted') [...busyHolds.keys()].forEach((key) => Office.busy(key, false));
   j.desk = action.split('.')[0];
   return j;
 }

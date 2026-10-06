@@ -70,6 +70,7 @@
   "errors.unknown": "Error «{key}» {detail}",
   "errors.agent_away": "The agent did not pick up the request — is it running?",
   "errors.agent_busy": "The agent is still working on it. Try again in a moment.",
+  "errors.agent_restarted": "The office's helper restarted meanwhile — please try again.",
   "errors.offline": "No connection to the server.",
   "errors.bad_answer": "The server answered strangely (HTTP {status}).",
   "errors.rejected": "Request rejected.",

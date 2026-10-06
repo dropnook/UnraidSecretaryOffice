@@ -70,6 +70,7 @@
   "errors.unknown": "Fehler «{key}» {detail}",
   "errors.agent_away": "Der Agent hat den Auftrag nicht abgeholt — läuft er?",
   "errors.agent_busy": "Der Agent arbeitet noch daran. Gleich nochmals versuchen.",
+  "errors.agent_restarted": "Der Helfer des Büros hat inzwischen neu gestartet — bitte nochmals versuchen.",
   "errors.offline": "Keine Verbindung zum Server.",
   "errors.bad_answer": "Der Server antwortet seltsam (HTTP {status}).",
   "errors.rejected": "Anfrage abgelehnt.",

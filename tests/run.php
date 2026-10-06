@@ -27,7 +27,7 @@ declare(strict_types=1);
  *            job.sh's guard against a second start in the same minute, Ms. Whereabouts on exclusive shares
  *            and on cron lines whose program is gone)
  *   hardening  the checks that keep requests, manifests, paths and links in
- *            bounds (safe writes, the mailbox, Ms. Dustdevil's
+ *            bounds (safe writes, the mailbox — and a request a restarting agent dropped —, Ms. Snapshotini's record of what she removed, Ms. Dustdevil's
  *            manifests, Emby paths, anchored validators, the release link, the
  *            Consultant's secrets for Kopia: RAM only, never in a file, log or ps)
  *   strings  German and English have the same keys, Italian has every English
@@ -2451,6 +2451,96 @@ function testLogsTour(): void
 }
 
 /** Ms. Whereabouts: which services of a compose file build their own image (her rebuild tip) */
+/**
+ * Ms. Dustdevil's room for Mr. Restori's leftovers: what his journals say he put aside (only in exactly his
+ * shapes, with the restore's own time), what his «Put back» still needs, his journals only from his own
+ * folder, her storeroom on the leftover's own filesystem, and the way back from it.
+ */
+function testLeftovers(): void
+{
+    $u = fn (array $j) => array_map(fn ($x) => [$x['path'], $x['dataset'], $x['what'], $x['back']], clLeftoverUnits($j));
+    // shapes as on nostromo (data/restore/<id>/journal.json)
+    same('leftovers: a copy next to the live one', [['/mnt/hive/drop/shares.restored-20261006-150008', null, 'restored', false]],
+        $u(['id' => '20261006-150008-2814', 'kind' => 'files', 'result' => 'ok', 'putback' => null, 'aside' => [],
+            'steps' => [['do' => 'copy', 'to' => '/mnt/hive/drop/shares.restored-20261006-150008', 'dataset' => null]]]));
+    $vm = 'master/domains/Win.aside-20261006-175854';
+    same('leftovers: a swap — the live one aside (a dataset, his way back), the copy (moved into place: existence decides)',
+        [['/mnt/master/domains/Win.aside-20261006-175854', $vm, 'aside', true], ['/mnt/master/domains/Win.restored-20261006-175854', 'master/domains/Win.restored-20261006-175854', 'restored', false]],
+        $u(['id' => '20261006-175854-9b26', 'kind' => 'files', 'result' => 'ok', 'putback' => null,
+            'steps' => [['do' => 'copy', 'to' => '/mnt/master/domains/Win.restored-20261006-175854', 'dataset' => 'master/domains/Win.restored-20261006-175854'],
+                        ['do' => 'aside', 'path' => '/mnt/master/domains/Win', 'to' => '/mnt/master/domains/Win.aside-20261006-175854']],
+            'aside' => [['from' => '/mnt/master/domains/Win', 'to' => '/mnt/master/domains/Win.aside-20261006-175854', 'dataset' => 'master/domains/Win', 'to_dataset' => $vm]]]));
+    same('leftovers: a database put back already — its safety dumps\' folder and the folder aside are no way back any more',
+        [['/mnt/user/UnraidSecretaryOffice/backup/restore/zz/20261006-172818', null, 'safety', false], ['/mnt/master/appdata/zz/pg.aside-20261006-172818', null, 'aside', false]],
+        $u(['id' => '20261006-172818-56e7', 'kind' => 'db', 'result' => 'ok', 'putback' => ['id' => '20261006-173611-d33f', 'result' => 'ok'], 'steps' => [],
+            'aside' => [['from' => 'db:zz-pg', 'to' => '/mnt/user/UnraidSecretaryOffice/backup/restore/zz/20261006-172818/postgres_zz-pg.sql.gz', 'what' => 'safety_dump'],
+                        ['from' => 'db:zz-mdb', 'to' => '/mnt/user/UnraidSecretaryOffice/backup/restore/zz/20261006-172818/mariadb_zz.sql.gz', 'what' => 'safety_dump'],
+                        ['from' => '/mnt/master/appdata/zz/pg', 'to' => '/mnt/master/appdata/zz/pg.aside-20261006-172818', 'dataset' => null, 'to_dataset' => null]]]));
+    same('leftovers: what «Put back» set aside', [['/mnt/master/appdata/zz/pg.putback-20261006-173611', null, 'putback', false]],
+        $u(['id' => '20261006-173611-d33f', 'kind' => 'putback', 'result' => 'ok', 'putback' => null, 'steps' => [],
+            'aside' => [['from' => '/mnt/master/appdata/zz/pg', 'to' => '/mnt/master/appdata/zz/pg.putback-20261006-173611', 'dataset' => null, 'to_dataset' => null]]]));
+    same('leftovers: templates on the flash (one folder for the time), a compose file elsewhere, a VM\'s configuration',
+        [['/boot/config/_UnraidSecretaryOffice-restore/20261007-090000', null, 'flash', true], ['/mnt/user/appdata/x/compose.yml.restored-aside-20261007-090000', null, 'file_aside', true],
+         ['/etc/libvirt/_UnraidSecretaryOffice-restore/20261007-090000', null, 'libvirt', true]],
+        $u(['id' => '20261007-090000-0a1b', 'kind' => 'config', 'result' => 'failed', 'putback' => ['result' => 'refused'], 'steps' => [],
+            'aside' => [['from' => '/boot/config/plugins/dockerMan/templates-user/my-a.xml', 'to' => '/boot/config/_UnraidSecretaryOffice-restore/20261007-090000/plugins/dockerMan/templates-user/my-a.xml'],
+                        ['from' => '/boot/config/plugins/compose.manager/projects/x/compose.yaml', 'to' => '/boot/config/_UnraidSecretaryOffice-restore/20261007-090000/plugins/compose.manager/projects/x/compose.yaml'],
+                        ['from' => '/mnt/user/appdata/x/compose.yml', 'to' => '/mnt/user/appdata/x/compose.yml.restored-aside-20261007-090000'],
+                        ['from' => 'vm:Win', 'to' => '/etc/libvirt/_UnraidSecretaryOffice-restore/20261007-090000/Win/domain.xml', 'what' => 'xml']]]));
+    same('leftovers: never another shape — another time, none, unfilled, outside /mnt, «..», a dump elsewhere, a dataset of another name', [['/mnt/a/b/ok.aside-20261007-090000', null, 'aside', false]],
+        $u(['id' => '20261007-090000-0a1b', 'kind' => 'db', 'result' => 'refused', 'steps' => [['do' => 'copy', 'to' => '/mnt/a/b/c.restored-20261001-000000']],
+            'aside' => [['to' => '/mnt/a/b/c.aside-20261001-000000'], ['to' => '/mnt/a/b/c'], ['to' => '/mnt/a/b/c.aside-{T}'], ['to' => '/tmp/c.aside-20261007-090000'],
+                        ['to' => '/mnt/a/../b/c.aside-20261007-090000'], ['to' => '/mnt/a/b/x.sql.gz', 'what' => 'safety_dump'], ['to' => "/mnt/a/b/c.aside-20261007-090000\n"],
+                        ['to' => '/mnt/a/b/ok.aside-20261007-090000', 'to_dataset' => 'a/b/other'], ['to' => '/boot/config/_UnraidSecretaryOffice-restore/20261001-000000/x']]]));
+    same('leftovers: what «Put back» can still undo', [true, true, false, false, false, true],
+        array_map('clRestoreUndoable', [['kind' => 'db', 'result' => 'ok'], ['kind' => 'files', 'result' => 'interrupted', 'putback' => ['result' => 'refused']],
+            ['kind' => 'db', 'result' => 'ok', 'putback' => ['result' => 'failed']], ['kind' => 'putback', 'result' => 'ok'], ['kind' => 'kopia', 'result' => 'ok'],
+            ['kind' => 'vm', 'result' => 'warnings']]));
+
+    // his journals: only from his own folder, only his own files
+    $tmp = hardeningTmp('leftovers');
+    $dir = "$tmp/restore";
+    $journal = function (string $id, array $j, int $uid = 0) use ($dir): void {
+        @mkdir("$dir/$id", 0700, true);
+        file_put_contents("$dir/$id/journal.json", json_encode(['id' => $id] + $j));
+        chmod("$dir/$id/journal.json", 0600);
+        chown("$dir/$id/journal.json", $uid);
+    };
+    $journal('20261006-150008-2814', ['kind' => 'files']);
+    $journal('20261006-160000-aaaa', ['kind' => 'db'], 99);
+    $journal('20261006-170000-bbbb', ['kind' => 'db', 'id' => 'x']);
+    $journal('not-a-restore', ['kind' => 'db']);
+    file_put_contents("$dir/20261006-170000-bbbb/journal.json", json_encode(['id' => '20261006-999999-ffff', 'kind' => 'db']));
+    chmod($dir, 0700);
+    same('journals: only his own (root\'s, its own id), newest first', ['20261006-150008-2814'], array_column(clRestoreJournals($dir), 'id'));
+    chmod($dir, 0777);
+    same('journals: a folder others may write in — none', [], clRestoreJournals($dir));
+    unset($GLOBALS['clJournals']);
+
+    // her storeroom on the leftover's own filesystem, inside its share; the way back only to his places
+    $top = "$tmp/mnt/pool/share";
+    mkdir("$top/app/db", 0755, true);
+    same('storeroom: at the share\'s top on the same filesystem', "$top/" . CL_TRASH, clLeftoverTrash("$top/app/db/pg.aside-20261006-172818", $top));
+    same('storeroom: never outside the share, nothing where its folder is gone', [null, null],
+        [clLeftoverTrash("$tmp/mnt/pool/other/x.aside-20261006-172818", $top), clLeftoverTrash("$top/gone/x.aside-20261006-172818", $top)]);
+    same('way back: to where he leaves things, on the storeroom\'s own filesystem', ['/mnt/hive/drop', '/boot/config/' . CL_RESTORE_ASIDE, '', '', ''],
+        [clLeftoverHome('/mnt/hive/drop/shares.restored-20261006-150008', '/mnt/hive/drop/' . CL_TRASH),
+         clLeftoverHome('/boot/config/' . CL_RESTORE_ASIDE . '/20261006-150008', '/boot/config/' . CL_TRASH),
+         clLeftoverHome('/mnt/hive/drop/shares', '/mnt/hive/drop/' . CL_TRASH),
+         clLeftoverHome('/mnt/hive/other/shares.restored-20261006-150008', '/mnt/hive/drop/' . CL_TRASH),
+         clLeftoverHome('/etc/libvirt/' . CL_RESTORE_ASIDE . '/20261006-150008', '/boot/config/' . CL_TRASH)]);
+    hardeningRm($tmp);
+
+    // the page's words for every kind of leftover and restore
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/lang/en.json'), true) ?: [];
+    foreach (['aside', 'putback', 'restored', 'file_aside', 'flash', 'libvirt', 'safety'] as $w) {
+        check("leftovers: words for $w", isset($en["lo.what.$w"], $en["lo.what.{$w}_text"]));
+    }
+    foreach (['db', 'sqlite', 'files', 'config', 'vm', 'kopia', 'putback'] as $k) {
+        check("leftovers: words for a restore of kind $k", isset($en["lo.kind.$k"]));
+    }
+}
+
 function testComposeBuilds(): void
 {
     $yaml = "name: x\nservices:\n  db:\n    image: mariadb:11\n    environment:\n      build: no   # an env value, not a key of the service\n"
@@ -4511,20 +4601,175 @@ function testSafeWrites(): void
     hardeningRm($dir);
 }
 
+/**
+ * The page waits for an answer while the agent restarts (a deploy) or stops: askAgent() notices it in
+ * agent.json (pid and start time, running) and says so at once — never a wait of ten minutes. The web
+ * side in a process of its own (bootstrap.php, the data folder in a temporary folder); this one plays
+ * the agent.
+ */
+function testAgentRestarted(): void
+{
+    $tmp = hardeningTmp('restarted');
+    mkdir("$tmp/mailbox", 0770);
+    $info = fn (int $started, bool $running = true) => file_put_contents("$tmp/agent.json",
+        json_encode(['running' => $running, 'version' => AGENT_VERSION, 'pid' => 4242, 'started' => $started, 'host' => 'test', 'desks' => []]));
+    $web = "$tmp/web.php";
+    file_put_contents($web, '<?php require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; $t = microtime(true);'
+        . ' try { $out = askAgent("x.y", [], 8); } catch (Throwable $e) { $out = get_class($e); }'
+        . ' echo json_encode(["out" => $out, "s" => round(microtime(true) - $t, 1)]);');
+    // the web side asks; $agent(request file) plays the agent once the request is there
+    $ask = function (callable $agent) use ($web, $tmp): array {
+        $p = proc_open([PHP_BINARY, $web], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => $tmp, 'PATH' => getenv('PATH')]);
+        $request = null;
+        for ($i = 0; $i < 60 && $request === null; $i++) {
+            usleep(50000);
+            $request = (glob("$tmp/mailbox/*.request") ?: [null])[0];
+        }
+        if ($request !== null) {
+            $agent($request);
+        }
+        $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return (json_decode(substr($raw, (int) strpos($raw, '{')), true) ?: []) + ['raw' => $raw];
+    };
+    $answer = fn (string $request, array $a) => file_put_contents(substr($request, 0, -strlen('.request')) . '.response', json_encode($a)) && unlink($request);
+
+    $info(1000);
+    $r = $ask(fn (string $req) => $answer($req, ['ok' => true, 'n' => 1]));
+    same('restart: an answer as always', ['ok' => true, 'n' => 1], $r['out'] ?? $r['raw']);
+
+    // a deploy: the new agent empties the mailbox when it starts, then writes agent.json
+    $r = $ask(function (string $req) use ($info): void {
+        unlink($req);
+        $info(1001);
+    });
+    check('restart: the request emptied away by a new agent is told at once', ($r['out'] ?? '') === 'AgentRestarted' && ($r['s'] ?? 99) < 3, $r['raw']);
+
+    // the new agent came before the request (it was not emptied away): it answers, nothing is told
+    $info(1002);
+    $r = $ask(function (string $req) use ($info, $answer): void {
+        $info(1003);
+        usleep(1200000);                    // the web side sees the new agent while the request is still there
+        $answer($req, ['ok' => true, 'n' => 2]);
+    });
+    same('restart: a request the new agent still finds is answered', ['ok' => true, 'n' => 2], $r['out'] ?? $r['raw']);
+
+    // stopped (array stop, plugin update): a request still waiting is taken back and told
+    $info(1004);
+    $r = $ask(fn () => $info(1004, false));
+    check('restart: a stopped agent is told at once', ($r['out'] ?? '') === 'AgentRestarted' && ($r['s'] ?? 99) < 3, $r['raw']);
+    same('restart: its request taken back', [], glob("$tmp/mailbox/*.request") ?: []);
+
+    // a restart in place keeps the pid — the start time tells
+    $info(1005);
+    $r = $ask(function (string $req) use ($info): void {
+        unlink($req);                       // picked up, then the agent restarted itself before answering
+        usleep(300000);
+        $info(1006);
+    });
+    same('restart: in place (same pid, new start time) is told too', 'AgentRestarted', $r['out'] ?? $r['raw']);
+    hardeningRm($tmp);
+}
+
+/**
+ * Ms. Snapshotini's record of what she removed (data/snapshot/deletes.jsonl, root only) and how the night
+ * watchman reads it: it beats her lines in the office's log, which the web server's user may write — those
+ * count only until the record is there.
+ */
+function testSnapshotRecord(): void
+{
+    $tmp = hardeningTmp('snaprecord');
+    mkdir("$tmp/data", 0755);
+    $file = "$tmp/data/snapshot/deletes.jsonl";
+    $GLOBALS['snapshotRecordFile'] = $file;
+    $mode = fn (string $p) => substr(sprintf('%o', fileperms($p)), -3);
+    check('record: set up — a folder of root\'s own (0700), an empty file (0600)',
+        snapshotRecordReady() && is_file($file) && filesize($file) === 0 && $mode(dirname($file)) === '700' && $mode($file) === '600' && fileowner($file) === 0);
+    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hive/My Share', 'names' => ['a', 'b']]);
+    snapshotRecord(['do' => 'deleted', 'fs' => 'btrfs', 'path' => '/mnt/disk1/.btrfs-snap/x']);
+    snapshotRecord(['do' => 'released', 'ds' => 'hive/data', 'name' => 'keep']);
+    snapshotRecord(['do' => 'renamed', 'where' => 'hive/data', 'from' => 'manual', 'to' => 'manual2']);
+    same('record: a line each, with its time', [['deleted', true], ['deleted', true], ['released', true], ['renamed', true]],
+        array_map(fn ($l) => [json_decode($l, true)['do'] ?? null, is_int(json_decode($l, true)['t'] ?? null)], file($file) ?: []));
+
+    // the watchman: taking the watch over = from now on; the round it first shows up = from its beginning; then by its position
+    [$ev, $pos] = watchmanSnapRecord($file, null, true);
+    same('record read, the watch taken over: from now on', [[], filesize($file)], [$ev['d'], $pos['size']]);
+    [$ev, $pos] = watchmanSnapRecord($file, null, false);
+    same('record read: her deletions (several at once, btrfs), releases, renames',
+        [['hive/My Share@a', 'hive/My Share@b', '/mnt/disk1/.btrfs-snap/x'], ['hive/data@keep'], [['hive/data', 'manual', 'manual2']]],
+        [array_keys($ev['d']), array_keys($ev['r']), array_map(fn ($m) => array_slice($m, 0, 3), $ev['m'])]);
+    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hive/data', 'names' => ['c']]);
+    [$ev, $pos] = watchmanSnapRecord($file, $pos, false);
+    same('record read: by its position', ['hive/data@c'], array_keys($ev['d']));
+
+    // full: it becomes deletes.jsonl.1 — the watchman reads the rest of that one (by its inode), then the new one
+    file_put_contents($file, json_encode(['t' => 1, 'do' => 'padding', 'x' => str_repeat('x', SNAPSHOT_RECORD_MAX)]) . "\n", FILE_APPEND);
+    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hive/data', 'names' => ['d']]);
+    [$ev, $pos] = watchmanSnapRecord($file, $pos, false);
+    same('record full: a new one begins, one older kept, nothing missed', [true, 1, ['hive/data@d']],
+        [is_file("$file.1"), count(file($file) ?: []), array_keys($ev['d'])]);
+
+    // a record others could have written is no record: the watchman refuses it, she sets it aside and begins anew
+    foreach (['open to others' => fn () => chmod($file, 0644), 'not root\'s' => fn () => chown($file, 99), 'the folder open to others' => fn () => chmod(dirname($file), 0755)] as $what => $do) {
+        $do();
+        same("record refused by the watchman: $what", null, watchmanSnapRecord($file, $pos, false));
+        check("record: set aside and begun anew — $what", snapshotRecordReady() && $mode(dirname($file)) === '700' && fileowner($file) === 0 && $mode($file) === '600');
+    }
+    same('record: what others could have written is set aside, never read again', 2, count(glob("$file.untrusted-*") ?: []));
+    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hive/data', 'names' => ['e']]);
+    [$ev] = watchmanSnapRecord($file, $pos, false);
+    same('record begun anew: read from its beginning', ['hive/data@e'], array_keys($ev['d']));
+    unlink($file);
+    symlink("$file.1", $file);
+    same('record refused by the watchman: a link', null, watchmanSnapRecord($file, $pos, false));
+    unlink($file);
+    $pos = watchmanSnapRecord("$file.1", null, true)[1];        // (only .1 there for a moment: what she wrote there still counts)
+
+    // in his round: the record beats the log; the log's lines count only until the record is there
+    snapshotRecordReady();
+    $log = "$tmp/agent.log";
+    file_put_contents($log, '');
+    $paths = ['agent_log' => $log, 'snap_record' => $file];
+    $round = fn (?array $known) => watchmanSnaps($paths, $known, [], time())['known'];
+    $known = $round(null);
+    check('round: the record\'s and the log\'s positions kept', is_array($known['record'] ?? null) && is_array($known['log'] ?? null));
+    $stamp = date('Y-m-d H:i:s');
+    file_put_contents($log, "$stamp  Deleted: hive/forged@x\n$stamp  Released: hive/forged@held\n", FILE_APPEND);
+    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hive/real', 'names' => ['y']]);
+    $k2 = $round($known);
+    same('round: her record counts, a line in the log alone doesn\'t (forged)', [['hive/real@y'], []], [array_keys($k2['office']['d'] ?? []), array_keys($k2['office']['r'] ?? [])]);
+    // an older office's snaps.json (no record yet): what its log said since, and the record from its beginning
+    $old = $known;
+    unset($old['record']);
+    $k3 = $round($old);
+    same('round: the record first there — the log\'s lines before it count too', ['hive/real@y', 'hive/forged@x'], array_keys($k3['office']['d'] ?? []));
+    // she kept a record, and it isn't one now: her log lines alone prove nothing
+    file_put_contents($log, "$stamp  Deleted: hive/forged@z\n", FILE_APPEND);
+    chmod($file, 0644);
+    $k4 = $round($k2);
+    check('round: a record that isn\'t one any more — the log\'s lines don\'t count', !isset($k4['office']['d']['hive/forged@z']) && isset($k4['office']['d']['hive/real@y']));
+    unset($GLOBALS['snapshotRecordFile']);
+    hardeningRm($tmp);
+}
+
 /** Ms. Dustdevil's manifests lie in folders others may write to: only entries of her own shape count */
 function testTrashManifest(): void
 {
     $st = '20261005-120000';
     foreach ([['templates/my-app.xml', 'template'], ['compose/stack', 'stack'], ['appdata/foo', 'appdata'], ['vms/win11', 'domain'],
               ['strays/0a1b2c3d/my-x.xml', 'stray'], ['icons/0a1b2c3d/compose.override.yaml', 'icon'], ['nvram/abc_VARS.fd', 'nvram'],
-              ["@cache/appdata/_UnraidSecretaryOffice-trash-$st-foo", 'appdata']] as [$as, $kind]) {
+              ["@cache/appdata/_UnraidSecretaryOffice-trash-$st-foo", 'appdata'], ['restore/0a1b2c3d/pg.aside-20261006-172818', 'leftover'],
+              ["@master/domains/_UnraidSecretaryOffice-trash-$st-Win.aside-20261006-175854", 'leftover']] as [$as, $kind]) {
         check("manifest as accepted: $as", clTrashAsOk($as, $kind, $st));
     }
     foreach ([['../../../../boot/config/super.dat', 'template'], ['templates/../../x', 'template'], ['templates/./x', 'template'],
               ['/boot/config/go', 'template'], ['templates//x', 'template'], ['appdata/foo', 'template'], ['templates/a/b', 'template'],
               ['strays/x', 'stray'], ["templates/x\ny", 'template'], ['', 'template'], ['@cache/appdata', 'appdata'],
               ['@cache/appdata/_UnraidSecretaryOffice-trash-20990101-000000-foo', 'appdata'], ["@cache/appdata/_UnraidSecretaryOffice-trash-$st-foo", 'template'],
-              ["@cache/../x/_UnraidSecretaryOffice-trash-$st-foo", 'appdata'], ['@cache', 'appdata']] as [$as, $kind]) {
+              ["@cache/../x/_UnraidSecretaryOffice-trash-$st-foo", 'appdata'], ['@cache', 'appdata'], ['restore/pg.aside-20261006-172818', 'leftover'],
+              ['restore/0a1b2c3d/pg.aside-20261006-172818', 'appdata'], ['appdata/foo', 'leftover']] as [$as, $kind]) {
         check('manifest as refused: ' . json_encode($as) . " ($kind)", !clTrashAsOk($as, $kind, $st));
     }
     check('manifest from: an absolute path', clTrashPathOk('/mnt/cache/appdata/foo'));
@@ -5682,8 +5927,8 @@ function testSupporterKeys(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
-                      'testWhereaboutsAfterWatchman', 'testSupporter'],
-          'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
+                      'testWhereaboutsAfterWatchman', 'testSupporter', 'testLeftovers'],
+          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
