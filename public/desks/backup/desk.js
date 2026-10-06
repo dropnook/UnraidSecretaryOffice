@@ -137,6 +137,18 @@ const live = () => !!(state && state.running);
 const canAct = () => !!(state && state.found && state.compatible && Office.agent.running);
 /** Mr. Restori holds the engine's lock (a restore of his): no run, check or setup meanwhile — the agent refuses too */
 const restoring = () => !!(state && state.holder && state.holder.holder === 'restore');
+/**
+ * The kind of run going on: backup, check (the «Tour» button) or dryrun — the lock's note first (status.json may
+ * still be the last run's for a moment), then status.json; anything else is a run
+ */
+function runMode() {
+  const h = state && state.holder;
+  if (h && ['backup', 'check', 'dryrun'].includes(h.holder)) return h.holder;
+  const s = status();
+  return s && s.result === 'running' && ['check', 'dryrun'].includes(s.mode) ? s.mode : 'backup';
+}
+/** A stop text named by that kind: «Stop the tour» for a check, «Stop the dry run», a backup keeps «Stop the run» */
+const stopKey = (key, mode = runMode()) => (mode === 'backup' ? key : `${key}_${mode}`);
 
 /**
  * The Kopia source going up for the first time right now (agent: backupUpload()) — its size, what
@@ -268,7 +280,7 @@ function render() {
   const actions = [];
   if (state && state.found) {
     if (live()) {
-      actions.push(button(T('abort'), 'danger plain', abortRun));
+      actions.push(button(T(stopKey('abort')), 'danger plain', abortRun));
     } else {
       actions.push(button(T('setup_open'), 'plain', () => Office.go(`#/${ID}/setup`)));
       actions.push(button(T('check'), 'plain', () => startRun('check')));
@@ -1200,7 +1212,8 @@ function chooseRun() {
     input.checked = m === mode;
     input.onchange = () => { mode = m; };
     const text = el('span', '', T('mode.' + m));
-    text.appendChild(el('small', '', T('mode_hint.' + m)));
+    // a full backup sends to Kopia only while it is switched on in the settings: say what really happens
+    text.appendChild(el('small', '', T(m === 'backup' && !kopia ? 'mode_hint.backup_local' : 'mode_hint.' + m)));
     label.append(input, text);
     box.appendChild(label);
   });
@@ -1227,21 +1240,24 @@ async function startRun(mode) {
 
 function abortRun() {
   const s = status();
+  const mode = runMode();
   const box = el('div');
-  box.appendChild(el('p', '', T('abort_text')));
-  if (s && s.phase === 'kopia') box.appendChild(el('p', 'callout', T('abort_kopia')));
-  if (s && s.phase === 'vm_shutdown') box.appendChild(el('p', 'callout', T('abort_vm_shutdown')));
-  if (s && ['stopping', 'snapshots', 'starting'].includes(s.phase)) box.appendChild(el('p', 'callout warn', T('abort_downtime')));
+  box.appendChild(el('p', '', T(stopKey('abort_text', mode))));
+  if (mode === 'backup') {
+    if (s && s.phase === 'kopia') box.appendChild(el('p', 'callout', T('abort_kopia')));
+    if (s && s.phase === 'vm_shutdown') box.appendChild(el('p', 'callout', T('abort_vm_shutdown')));
+    if (s && ['stopping', 'snapshots', 'starting'].includes(s.phase)) box.appendChild(el('p', 'callout warn', T('abort_downtime')));
+  }
   Office.dialog({
-    title: T('abort_title'),
+    title: T(stopKey('abort_title', mode)),
     body: box,
     buttons: [
       { text: Office.t('common.cancel') },
-      { text: T('abort'), kind: 'danger', act: async () => {
+      { text: T(stopKey('abort', mode)), kind: 'danger', act: async () => {
         const j = await Office.api.post(`${ID}.abort`, {});
         if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
         if (j.state) state = j.state;
-        Office.toast(T('aborting'));
+        Office.toast(T(stopKey('aborting', mode)));
         render();
         schedule();
         return true;
