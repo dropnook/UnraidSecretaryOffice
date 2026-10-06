@@ -28,6 +28,7 @@ let job = null;                               // the restore going on (or the la
 let jobTimer = null;
 const journals = new Map();                   // id -> {loading, journal, log, error} — a journal unfolded on the page
 const journalShown = new Map();               // id -> {box, fill, fail}: the journal's box drawn last (the page re-renders while one loads)
+let agentWas = null;                          // the agent running when the page was drawn last
 
 // ------------------------------------------------------------------ loading
 async function load(fresh) {
@@ -1529,7 +1530,13 @@ Office.desk({
   },
   unmount() { view = null; clearTimeout(jobTimer); jobTimer = null; },
   poll() { load(false); },
-  agentChanged() { if (view) render(); },
+  // every answer carries the agent's info: draw anew only when it comes or goes (the buttons depend on it) — not on
+  // each answer, which would fold what is open (earlier nights asked for when a fold opens)
+  agentChanged() {
+    const running = !!Office.agent.running;
+    if (view && running !== agentWas) render();
+    agentWas = running;
+  },
   async reception() {
     if (!state) await load(false);
     if (!state) return null;
