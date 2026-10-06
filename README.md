@@ -251,6 +251,15 @@ and the agent restarts itself (after `php -l`) when one of its files changes.
   `unraid-backup/` (the backup engine's settings, state and logs; root only)
   and Jack Emby's `embycache/` and `gather/`.
 
+## Thanks
+
+Jack Emby's two tools are the work of **[helmi1987](https://github.com/helmi1987)**:
+[EmbyCache](https://github.com/helmi1987/embycache-for-unraid) and
+[media-disk-gather](https://github.com/helmi1987/media-disk-gather-for-unraid) ("Consolidate
+folders"). They ship with the office in `embycache/` and `gather/`; what we changed is listed at
+the top of their READMEs. Thank you, helmi1987 — a share of the tips (the tip jar in the office)
+goes to him.
+
 ## License
 
 Copyright (c) 2026 Benjamin Mueller
