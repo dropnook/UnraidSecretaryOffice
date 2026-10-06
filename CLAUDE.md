@@ -257,7 +257,9 @@ After hiring, the tip jar (core.js `tipJar`, link `OFFICE_TIP_URL`) says hello.
 
 **Pictures:** every desk has its own drawing, `public/desks/<id>/avatar.svg`
 (64×64, flat, thick shapes, outlined where a light part meets a light theme;
-the reception's is `assets/reception.svg`). `Office.deskIcon(id)` /
+the reception's is `assets/reception.svg`, a desk bell filling its square; the plugin icon in
+`plugin/images/` is that bell cropped to its bounds, its 128×128 PNG rendered on the Mac with NSImage
+— JXA: `NSImage.alloc.initWithContentsOfFile(svg)` drawn into an `NSBitmapImageRep`, saved as PNG). `Office.deskIcon(id)` /
 `Office.avatar(id)` show it in avatars, tabs and chips; desk.json's `icon`
 emoji is only the fallback. A desk may change it with its state:
 `Office.setDeskMood(id, mood)` shows `avatar-<mood>.svg` (the caretaker:
@@ -369,6 +371,19 @@ character, warnings and errors stay plain and clear.
   `version_compare`; a `Run` script failing (exit ≠ 0) aborts the install.
   Every installed plugin is installed again at each boot (before the array).
   `.page` and `.plg` icons (`*.png`) are looked up in `<plugin>/images/`.
+* **Header buttons (7.3.2, `DefaultPageLayout.php`, `Navigation/Main.php`):** a `Menu="Buttons:…"`
+  page's body goes through `parse_text()` (`_(…)_`, `:…_help:` lines) and is evaluated inside `<head>`
+  of every Unraid page — only `<style>`/`<script>` belong there, kept to a line or two (a
+  `<plugin>/sheets/<Page>.css` would be linked on every page too). `Icon=` becomes
+  `<b class="fa fa-<icon> system">` (`icon-…`: Unraid's own font; `*.png`: an `<img>` from
+  `<plugin>/icons/`, not themed); `Code=` is the glyph the sidebar themes (azure, gray) put in
+  `.nav-item.<Page> a:before` (fonts docker-icon, fontawesome, unraid), for Tasks pages too; `Link="<class>"`
+  renders only an empty div. Unraid's own header icons are 1em glyphs (12 px in the black/white header,
+  16 px in the sidebar) in the header's text colour. Font Awesome 4.7 has no desk bell, so the office's
+  button paints the reception's bell as a CSS mask in `currentColor` over its glyph (fallback
+  `building-o`). A Tasks page's code runs only on its own page: its sidebar glyph stays a font glyph
+  (`f0f7` building-o — never a bell, that's Unraid's notifications); `Tag=` (the title bar) likewise, or a
+  PNG from `<plugin>/icons/`. Settings tiles (`Icon=*.png`) come from `<plugin>/images/`.
 * **emhttp waits for event scripts** (`<plugin>/event/<event>`, executable):
   a slow one holds up the array start or stop. `started` = end of array
   start, `stopping` = start of array stop.

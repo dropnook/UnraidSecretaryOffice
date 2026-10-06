@@ -390,7 +390,7 @@ function testMenuName(): void
     // under Settings → User Utilities: Menu=, Title= and Icon=; back in the menu bar as it was
     check('menu page: to Settings', officeMenuPageApply($tmp, 'Büro & Co', 'settings'));
     $ini = parse_ini_string(explode("\n---\n", (string) file_get_contents("$tmp/" . OFFICE_MENU_PAGE))[0]);
-    same('menu page: under Settings', ['Utilities', 'Büro & Co', 'Büro & Co', 'unraid-secretary-office.png', 'bell-o', 'f0a2'],
+    same('menu page: under Settings', ['Utilities', 'Büro & Co', 'Büro & Co', 'unraid-secretary-office.png', 'bell-o', 'f0f7'],
         [$ini['Menu'] ?? null, $ini['Name'] ?? null, $ini['Title'] ?? null, $ini['Icon'] ?? null, $ini['Tag'] ?? null, $ini['Code'] ?? null]);
     check('menu page: back to the menu bar', officeMenuPageApply($tmp, OFFICE_MENU_DEFAULT, 'menu'));
     same('menu page: as in the repository again', $before, file_get_contents("$tmp/" . OFFICE_MENU_PAGE));
@@ -405,7 +405,14 @@ function testMenuName(): void
     $ini = parse_ini_string(explode("\n---\n", (string) file_get_contents("$tmp/" . OFFICE_MENU_PAGE))[0]);
     $btn = parse_ini_string(explode("\n---\n", (string) file_get_contents("$tmp/" . OFFICE_BUTTON_PAGE))[0]);
     same('menu page: no entry of its own as a button', [null, 'USO', 'USO'], [$ini['Menu'] ?? null, $ini['Name'] ?? null, $ini['Title'] ?? null]);
-    same('button page: in the header', ['Buttons:90', 'USO', 'bell-o', '/SecretaryOffice'], [$btn['Menu'] ?? null, $btn['Title'] ?? null, $btn['Icon'] ?? null, $btn['Href'] ?? null]);
+    same('button page: in the header', ['Buttons:90', 'USO', 'building-o', '/SecretaryOffice'], [$btn['Menu'] ?? null, $btn['Title'] ?? null, $btn['Icon'] ?? null, $btn['Href'] ?? null]);
+    // its icon: the desk bell as a CSS mask in the header's text colour (Icon=/Code= are only the fallback).
+    // Unraid runs a button page's body through parse_text() in <head> of every page: nothing there may match it
+    $body = explode("\n---\n", $buttonBefore, 2)[1] ?? '';
+    check('button page: the desk bell as a mask in currentColor', preg_match('/\.nav-item\.SecretaryOfficeButton\{--sso-bell:url\("data:image\/svg\+xml,([^"]*)"\)\}/', $body, $m) === 1
+        && !preg_match('/[<>#]/', $m[1]) && @simplexml_load_string(rawurldecode($m[1])) !== false
+        && str_contains($body, 'mask:var(--sso-bell)') && str_contains($body, 'background-color:currentColor'));
+    check('button page: nothing for parse_text', !preg_match('/_\((.+?)\)_|^:(.+_help|.+_plug):$|^:end$/m', $body));
     same('menu url: button', '/SecretaryOffice', officeMenuUrl('button'));
     check('menu page: from the button back to the menu bar', officeMenuPageApply($tmp, OFFICE_MENU_DEFAULT, 'menu'));
     same('menu page: as in the repository after the button', $before, file_get_contents("$tmp/" . OFFICE_MENU_PAGE));
