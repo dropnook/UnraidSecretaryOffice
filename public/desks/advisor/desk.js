@@ -25,7 +25,7 @@ const EXTERNALS = {
   },
   kopia: {
     icon: '☁️', open: '/Docker', install: '/Apps', desk: 'backup',
-    copy: { image: 'ghcr.io/imagegenius/kopia', path: '/mnt/addons/UnraidSecretaryOffice/snapshots', target: '/backup-snapshots' },
+    copy: { image: 'ghcr.io/imagegenius/kopia', path: '/mnt/addons/UnraidSecretaryOffice/snapshots', target: '/uso' },
   },
   // only where Emby, Jellyfin or Plex runs (the agent leaves it out otherwise)
   streamviewer: {

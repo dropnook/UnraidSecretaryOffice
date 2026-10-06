@@ -47,7 +47,7 @@
   "install.kopia.1": "En Apps busca «Kopia» e instala «kopia» de imagegenius ({image}).",
   "install.kopia.2": "Sin Apps: Docker → Agregar Contenedor, Repositorio {image}, puerto WebUI 51515, una ruta /config → /mnt/user/appdata/kopia.",
   "install.kopia.3": "Pon PUID y PGID a 0 (root): Kopia tiene que leer todos los archivos, también los que solo puede leer root.",
-  "install.kopia.4": "Añade una ruta: Ruta del Host {path}, Ruta del contenedor {target}, Modo de acceso «Solo lectura - Esclavo» (Read Only - Slave). Sin «Esclavo», Kopia ve carpetas vacías. Mantén la ruta del contenedor una vez elegida — Kopia nombra sus fuentes según ella.",
+  "install.kopia.4": "Añade una ruta: Ruta del Host {path}, Ruta del contenedor {target}, Modo de acceso «Solo lectura - Esclavo» (Read Only - Slave). Sin «Esclavo», Kopia ve carpetas vacías. Kopia nombra sus fuentes según la ruta del contenedor ({target}/<recurso>): cambiarla más tarde crea fuentes nuevas — en el mismo repositorio no se sube nada dos veces, pero cada archivo se vuelve a leer, y las fuentes antiguas conservan su historial con los nombres antiguos hasta que las quites en Kopia.",
   "install.kopia.5": "Pon la caché de Kopia (/cache) en un pool, p. ej. /mnt/user/kopia_tmp — no en el array.",
   "install.kopia.6": "Inícialo, abre KopiaUI (puerto 51515) y crea o conecta un repositorio: adonde van las copias. Elige una contraseña de cifrado y guárdala fuera del servidor — sin ella no se puede restaurar nada.",
   "install.kopia.7": "Dale a Kopia un nombre de host fijo en KopiaUI, para que un contenedor recreado no haga que todas las fuentes parezcan nuevas.",
