@@ -1,6 +1,13 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.20 - 2026-10-06
+# unraid-backup - backup.sh                       Version 2.21 - 2026-10-06
+#   2.21 New things stay local and keep running until the user decided: a top-level folder of a share
+#        that goes to Kopia which is neither in its kopia_known (recorded by the setup) nor left out is
+#        left out of the share's Kopia source for the run (rules in the share's policy, taken away again
+#        once it is decided or gone) - the local snapshot holds it. Said in the log, in status.json
+#        new_local, state/new-local.json, drift info new_waiting and once in a notification (normal).
+#        A container not in [docker] known keeps running instead of being stopped for the snapshot.
+#        Shares without kopia_known work as before (drift info known_missing)
 #   2.20 Names: what the office makes is called uso-...: ZFS snapshots uso-backup-YYYYMMDD-HHMM (default
 #        [general] snap_prefix; the old default unraidbackup- counts as the default - those snapshots
 #        stay the engine's and age out by the retention, matched exactly), Kopia snapshot descriptions
@@ -223,12 +230,12 @@ die_code() {
 ##############################################################################
 # Stopping and starting containers
 ##############################################################################
-T_APP=(); T_DB=(); T_NET=()
+T_APP=(); T_DB=(); T_NET=(); T_NEW=()
 
 build_stop_tiers() {
     local n prov
     local -A provider=() isdb=()
-    T_APP=(); T_DB=(); T_NET=()
+    T_APP=(); T_DB=(); T_NET=(); T_NEW=()
     [[ "$DOCKER_STOP" == "none" ]] && return 0
     for n in "${CT_NAMES[@]}"; do
         [[ "${CT_NET[$n]}" == container:* ]] || continue
@@ -239,6 +246,8 @@ build_stop_tiers() {
         [[ "${CT_RUNNING[$n]}" == "true" ]] || continue
         [[ "$n" == "$KOPIA_CONTAINER" ]] && continue
         in_list "$n" "${DOCKER_NO_STOP[@]}" "${DOCKER_SKIP[@]}" && continue
+        # a container the setup hasn't seen ([docker] known) keeps running until the user decided (2.21)
+        if (( ${#DOCKER_KNOWN[@]} )) && ! in_list "$n" "${DOCKER_KNOWN[@]}"; then T_NEW+=( "$n" ); continue; fi
         if [[ -n "${provider[$n]:-}" ]]; then T_NET+=( "$n" )
         elif [[ -n "${isdb[$n]:-}" || -n "$(ct_db_type "$n")" ]]; then T_DB+=( "$n" )
         else T_APP+=( "$n" ); fi
@@ -2117,6 +2126,7 @@ drift_check_shares
 drift_check_containers
 drift_check_vms
 drift_check_items
+drift_check_new_local                # what the last run left out as new and is still undecided (section 11)
 if [[ "$SKIPK" != "1" ]]; then drift_check_kopia; else KOPIA_OK="skip"; fi
 
 # The backup place: a share of its own, backed up - otherwise no run (nothing is paused up to here)
@@ -2189,6 +2199,11 @@ log "  Dumps:            $(cfg_names dump | paste -sd' ' -)"
 log "  Nextcloud:        $(cfg_names nextcloud | paste -sd' ' -)"
 log "  Pause:            ${T_APP[*]:-} | DB: ${T_DB[*]:-} | network: ${T_NET[*]:-}"
 log "  Keep running:     ${KOPIA_CONTAINER:-} ${DOCKER_NO_STOP[*]:-}"
+(( ${#T_NEW[@]} )) && log "  New, keep running: ${T_NEW[*]} (not stopped until you decide in the setup)"
+if (( ${#NEW_LIST[@]} )); then
+    nl=""; for l in "${NEW_LIST[@]}"; do IFS=$'\x1f' read -r nl_s nl_n _ <<<"$l"; nl+="$nl_s/$nl_n "; done
+    log "  New, only local:  ${nl}(Kopia leaves them out until you decide; the run looks again before Kopia)"
+fi
 log "  Packages:         ${#PKG_APPS[@]} apps, ${#PKG_VMS[@]} VMs -> $UB_DUMPS"
 if (( ${#SQ_PLAN[@]} )); then
     sqline=""
@@ -2408,6 +2423,8 @@ elif [[ "$KOPIA_OK" == "off" ]]; then
 elif [[ "$KOPIA_OK" == "yes" ]]; then
     status_phase "kopia"
     kopia_mountinfo_load
+    # new folders of the shares going to Kopia stay local until the user decided (section 11)
+    new_local_run
     # the apps first: small, and what a restore needs first; the VMs' disks last, they are big
     kopia_item app
     for s in "${PLAN_KOPIA[@]}"; do
@@ -2498,6 +2515,10 @@ run_report() {
         if [[ "$ok" == "1" ]]; then list+="${list:+, }$n $(dur_h "$secs")"; else list+="${list:+, }$n FAILED"; fi
     done
     [[ -n "$list" ]] && echo "Kopia: $list"
+    list=""
+    for l in "${NEW_LIST[@]}"; do IFS=$'\x1f' read -r n p _ <<<"$l"; list+="${list:+, }$n/$p"; done
+    [[ -n "$list" ]] && echo "New, only local until you decide: $list"
+    (( ${#T_NEW[@]} )) && echo "New containers, kept running until you decide: ${T_NEW[*]}"
     echo "Errors $ERRORS, warnings $WARNINGS"
     echo "Log: $LOG_FILE"
 }

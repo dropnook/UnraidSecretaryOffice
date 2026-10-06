@@ -1,6 +1,13 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.20 - 2026-10-06
+# unraid-backup - setup.sh                        Version 2.21 - 2026-10-06
+#   2.21 New things stay local and keep running until you decide: per share that goes to Kopia the
+#        top-level folders that exist are recorded as kopia_known (the first time all of them, later
+#        what was known plus what you send to Kopia; a share with a sleeping disk gets its first record
+#        at a later setup); a folder neither known nor left out is new and waits - the plan lists it per
+#        share (waiting), a terminal asks (local + Kopia / only local / later). A container that is not in
+#        [docker] known is proposed to keep running, a VM without a [vm] section not to be held
+#        (prepare none). Kopia's policies leave the waiting folders out
 #   2.20 Names: the default snapshot prefix is uso-backup-; a settings.ini with the old default
 #        unraidbackup- gets the new one proposed (a normal change), a prefix of the user's own stays.
 #        A prefix may join words with - (uso-backup-), never begin with uso-plan- (Ms. Snapshotini's).
@@ -763,7 +770,7 @@ TXT
             o="${gone_by_id[${INV_ID[$s]}]:-}"
         fi
         if [[ -n "$o" ]]; then
-            for k in mode retention kopia_retention method kopia_ignore exclude_dataset; do
+            for k in mode retention kopia_retention method kopia_ignore kopia_known exclude_dataset; do
                 [[ -n "${OLD[share|$o|$k]+x}" ]] && P[share|$s|$k]="${OLD[share|$o|$k]}"
             done
             why "$s" renamed_from "$o" "renamed from '$o' - settings taken over"
@@ -793,6 +800,8 @@ TXT
         [[ -n "${P[share|$s|method]+x}" ]]          || pinit "share|$s|method"          "auto"
         [[ -n "${P[share|$s|kopia_ignore]+x}" ]]    || pinit "share|$s|kopia_ignore"    ""
         [[ -n "${P[share|$s|exclude_dataset]+x}" ]] || pinit "share|$s|exclude_dataset" ""
+        # the folders that go to Kopia (2.21): as recorded - share_known_all decides at the end
+        [[ -z "${P[share|$s|kopia_known]+x}" && -n "${OLD[share|$s|kopia_known]+x}" ]] && P[share|$s|kopia_known]="${OLD[share|$s|kopia_known]}"
     done
     _apply_P
 
@@ -884,6 +893,59 @@ TXT
         done
     fi
     _apply_P
+    share_known_all
+}
+
+# Kopia and what is new (2.21, lib/common.sh section 11): per share that goes to Kopia its top-level folders
+# are recorded (kopia_known) - all of them the first time and when the share newly goes there (that is your
+# decision for the whole share), afterwards what was known (a folder gone drops out) plus what you send there.
+# A folder neither known nor left out is new: it waits, only local, until you decide (NEW_LIST, the plan's
+# "waiting"). Never wakes a disk: a share whose part sleeps keeps its record, or gets its first one later.
+share_known_all() {
+    local s n x k l b
+    new_local_state_load
+    for s in "${SH[@]}"; do
+        k="share|$s|kopia_known"
+        if [[ "$(pget "share|$s|mode")" != "kopia" ]] || ! is_yes "$KOPIA_ENABLED" || ! inv_has_share "$s" \
+           || [[ "${WHY[$s]:-}" == "no longer exists"* ]]; then
+            unset "P[$k]"; continue
+        fi
+        share_top_live "$s"
+        if [[ -n "${P[$k]+x}" ]]; then
+            # recorded before: as it is; a folder that is gone drops out (only when every part is awake)
+            P[$k]="$(plist "$k" | while IFS= read -r x; do
+                [[ "$x" =~ ^/[^/]+/$ ]] || continue
+                [[ "$SK_ASLEEP" == "yes" ]] || in_list "${x:1:${#x}-2}" "${SK_DIRS[@]}" && printf '%s\n' "$x"
+            done)"
+        elif [[ "$SK_ASLEEP" == "yes" ]]; then
+            unset "P[$k]"
+            hint "Share '$s': a disk of it sleeps - which of its folders go to Kopia is recorded at a setup when it is awake (until then every folder goes there, new ones too)"
+        else
+            # the first record: what is there and not left out goes to Kopia (as it did so far)
+            P[$k]="$(for n in "${SK_DIRS[@]}"; do share_rules_hide "$s" "$n" || printf '/%s/\n' "$n"; done)"
+            hint "Share '$s': $(plist "$k" | wc -l) folder(s) recorded that go to Kopia - folders that appear later stay local until you decide"
+        fi
+    done
+    _apply_P
+    new_local_scan_live
+    (( ${#NEW_LIST[@]} )) || return 0
+    if interactive; then
+        sub "New folders - only in the local snapshots so far"
+        for l in "${NEW_LIST[@]}"; do
+            IFS=$'\x1f' read -r s n b _ <<<"$l"
+            ask "  '$s/$n'${b:+ ($(human "$b"))} is new. k = local + Kopia, l = only local, Enter = decide later" ""
+            case "$REPLY" in
+                k) plist_add "share|$s|kopia_known" "/$n/" ;;
+                l) plist_add "share|$s|kopia_ignore" "/$(new_rule_name "$n")/" ;;
+            esac
+        done
+        _apply_P
+        new_local_scan_live
+    fi
+    for l in "${NEW_LIST[@]}"; do
+        IFS=$'\x1f' read -r s n b _ <<<"$l"
+        hint "Share '$s': the new folder '$n'${b:+ ($(human "$b"))} stays local until you decide - Kopia leaves it out"
+    done
 }
 
 declare -A NC_GROUP=()     # Nextcloud container -> the other containers of the same instance
@@ -972,6 +1034,13 @@ TXT
             fi
             continue
         fi
+        # new since the last setup (2.21): keeps running until you decide - backup.sh doesn't stop it either
+        if [[ "$had_cfg" == "yes" ]]; then
+            CT_STOP[$n]="no"
+            container_needs_stop "$n" && CT_RISK[$n]=1
+            ctwhy "$n" new "" "new - keeps running until you decide"
+            continue
+        fi
         if container_needs_stop "$n"; then CT_STOP[$n]="yes"; else CT_STOP[$n]="no"; fi
         # Media servers keep running: stopping them would break running streams. Their
         # SQLite database in the snapshot is then only crash-consistent (usually enough).
@@ -1003,7 +1072,12 @@ TXT
         [[ "$n" == "$KOPIA_CONTAINER" ]] && continue
         [[ "${CT_STOP[$n]}" == "no" ]] && plist_add "docker|no_stop" "$n"
     done
-    P[docker|known]="$(printf '%s\n' "${CT_NAMES[@]}")"
+    if [[ "$MODE" == "apply" ]]; then
+        # --apply: what the decisions name is known - a container that came after the plan stays new (2.21)
+        P[docker|known]="$(for n in "${CT_NAMES[@]}"; do in_list "$n" "${known[@]}" && printf '%s\n' "$n"; done)"
+    else
+        P[docker|known]="$(printf '%s\n' "${CT_NAMES[@]}")"
+    fi
     # apps the user chose not to back up (the office's apps step); only containers that still exist
     P[docker|skip]="$(old_list "docker|skip" | while IFS= read -r n; do in_list "$n" "${CT_NAMES[@]}" && printf '%s\n' "$n"; done)"
 
@@ -1054,6 +1128,7 @@ TXT
     local n i mode prep why
     for n in "${VM_NAMES[@]}"; do
         if old_has "vm|$n"; then why="previous"
+        elif [[ "$HAVE_SETTINGS" == "yes" ]]; then why="new"       # since the last setup (2.21): not held until you decide
         elif [[ "${VM_SNAP[$n]}" != "yes" ]]; then why="cannot"
         elif [[ "${VM_AGENT[$n]}" == "yes" ]]; then why="agent"
         elif [[ "${VM_AGENT[$n]}" == "channel" ]]; then why="channel"
@@ -1063,6 +1138,7 @@ TXT
         pinit "vm|$n|mode" "snapshot"
         case "$why" in
             agent|channel) prep="freeze" ;;
+            new)           prep="none" ;;
             *)             prep="pause" ;;
         esac
         pinit "vm|$n|prepare" "$prep"
@@ -1778,6 +1854,8 @@ settings_render() {
         w_c "                 (missing = as in [kopia]; single values may also be 'inherit')"
         w_c "method           auto | live  (live = without a snapshot: bind /mnt/user/<share> read-only)"
         w_c "kopia_ignore     Kopia ignore rule relative to the share (several times)"
+        w_c "kopia_known      a top-level folder that goes to Kopia (several times; empty = none yet) - a folder"
+        w_c "                 neither known nor ignored is new: only local until you decide (no line: every folder goes)"
         w_c "exclude_dataset  child dataset neither snapshotted nor backed up (several times)"
         w_c "id, locations    from setup.sh - spot renames and moves"
         for s in "${SH[@]}"; do
@@ -1796,6 +1874,10 @@ settings_render() {
                 w_kv method "$(pget "share|$s|method")"
             fi
             w_list kopia_ignore "share|$s|kopia_ignore"
+            if [[ -n "${P[share|$s|kopia_known]+x}" ]]; then
+                if [[ -n "$(plist "share|$s|kopia_known")" ]]; then w_list kopia_known "share|$s|kopia_known"
+                else echo "kopia_known ="; fi
+            fi
             w_list exclude_dataset "share|$s|exclude_dataset"
             inv_has_share "$s" && [[ "${INV_METHOD[$s]}" != "none" ]] && {
                 w_kv id "${INV_ID[$s]}"
@@ -1857,6 +1939,7 @@ apply_kopia_policies() {
     [[ "$KOPIA_POLICY_READY" == "yes" ]] || { hint "Kopia policies not set (Kopia check incomplete)"; return 0; }
     load_settings >/dev/null
     plan_build
+    new_local_state_load; new_local_scan_live      # folders still new stay left out (2.21)
     kopia_mounts_load; kopia_status_load || return 1; kopia_policies_load
     local kind hpath share cpath changes=0
     local -a todo=()
@@ -2036,6 +2119,7 @@ run_check() {
     drift_check_containers
     drift_check_vms
     drift_check_items
+    drift_check_new_local
     drift_check_kopia
     if [[ ${#DRIFT[@]} -eq 0 ]]; then ok "No drift"
     else drift_text | while IFS= read -r l; do say "  $l"; done; fi
@@ -2189,7 +2273,7 @@ container_data() {
 # key<US>value lines -> JSON object; lists (ignore, no_stop, ...) as arrays
 plan_kv() {
     jq -Rn '[inputs | select(length > 0) | index("\u001f") as $i | {key: .[0:$i], value: .[$i + 1:]}]
-            | map(if (.key | test("\\|(ignore|no_stop|known|skip|kopia_ignore|exclude_dataset|tar_exclude|folder)$"))
+            | map(if (.key | test("\\|(ignore|no_stop|known|skip|kopia_ignore|kopia_known|exclude_dataset|tar_exclude|folder)$"))
                   then .value |= (split("\u001e") | map(select(length > 0))) else . end) | from_entries'
 }
 
@@ -2216,6 +2300,10 @@ plan_write() {
                    | .notes = (.notes | split("\u001e") | map(select(length > 0)))
                    | .children = (.children | split("\u001e") | map(select(length > 0)))
                    | .folders = (.folders | split("\u001e") | map(select(length > 0) | split("|") | {dir: .[0], container: .[1]})))')"
+    # the new folders of each share going to Kopia: waiting for a decision, only local so far (2.21)
+    shares="$(jq -c --argjson w "$(new_local_json)" 'map(.name as $n
+        | .waiting = [$w[] | select(.share == $n) | {dir: .folder, bytes, first_seen: (if .first_seen > 0 then .first_seen else null end)}])' <<<"$shares")" \
+        || shares="[]"
     cts="$(for n in "${CT_NAMES[@]}"; do
         printf '%s\x1f' "$n" "${CT_IMAGE[$n]}" "${CT_RUNNING[$n]}" "${CT_STOP[$n]:-}" "${CT_CODE[$n]:-}" "${CT_ARG[$n]:-}" \
             "${CT_PREV[$n]:-}" "${CT_RISK[$n]:-}" "$(printf '%s' "${CT_VOLUMES[$n]:-}" | cut -d'|' -f2 | tr '\n' $'\x1e')" \

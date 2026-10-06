@@ -623,6 +623,261 @@ function testBackupKopiaItems(): void
 }
 
 /**
+ * Engine 2.21: new things stay local and keep running until the user decided. The engine's rules (which
+ * top-level folder is new, the rules that leave it out, kopia_known in settings.ini), the run's step right
+ * before Kopia (fixture folders as the mounted snapshot, the policy's rules, state/new-local.json, drift,
+ * one notification) and setup.sh --plan / --apply on a fixture server: stand-ins for docker (Kopia inside),
+ * zfs, virsh, mount and notify on PATH - nothing real is touched, no Kopia, no mount, no container.
+ */
+function testBackupNewLocal(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-newlocal-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    $root = "$mnt/addons/UnraidSecretaryOffice/snapshots";
+    foreach (["$tmp/bin", "$tmp/fake", "$tmp/data/unraid-backup/state", "$tmp/boot/config/shares", "$root/appdata"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$tmp/data/unraid-backup UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares"
+         . " UB_DISKS_INI=$tmp/fake/disks.ini UB_NOTIFY_BIN=$tmp/bin/notify UB_MOUNTS_FILE=$tmp/fake/mounts FAKE=$tmp/fake FAKE_ROOT=$root";
+    // stand-ins: every call of docker logged, Kopia answers from fixtures, "policy set" only noted
+    file_put_contents("$tmp/bin/docker", <<<'SH'
+#!/bin/bash
+echo "$*" >>"$FAKE/docker.log"
+case "$1" in
+  info) exit 0 ;;
+  version) echo 29.0; exit 0 ;;
+  ps) cat "$FAKE/ids" 2>/dev/null; exit 0 ;;
+  compose) exit 1 ;;
+  top) printf 'PID UID COMMAND\n7 0 /app/kopia server start\n'; exit 0 ;;
+  inspect)
+    shift
+    if [[ "$1" == -f ]]; then
+      case "$2" in
+        *State.Running*) echo true ;;
+        *Mounts*) printf '%s\x1e/uso\x1efalse\x1erslave\n' "$FAKE_ROOT" ;;
+      esac
+      exit 0
+    fi
+    cat "$FAKE/inspect.json"; exit 0 ;;
+  exec)
+    shift
+    while [[ "$1" == -* ]]; do case "$1" in -u|-e) shift 2 ;; *) shift ;; esac; done
+    shift
+    case "$1" in
+      cat) [[ "$2" == /proc/self/mountinfo ]] && exit 0; cat "$FAKE_ROOT${2#/uso}" 2>/dev/null; exit ;;
+      kopia)
+        shift; [[ "$1" == --no-progress ]] && shift
+        case "$1 ${2:-}" in
+          "repository status") cat "$FAKE/repo.json" ;;
+          "policy list") cat "$FAKE/policies.json" 2>/dev/null || echo '[]' ;;
+          "policy set") [[ -n "${FAKE_POLICY_FAIL:-}" ]] && exit 1 ;;
+          "snapshot list") echo '[]' ;;
+          --version*) echo "0.23.0 build" ;;
+        esac
+        exit 0 ;;
+    esac
+    exit 1 ;;
+esac
+exit 0
+SH);
+    file_put_contents("$tmp/bin/zfs", "#!/bin/bash\n[[ \"\$*\" == *'-t filesystem'* ]] && cat \"\$FAKE/zfs.txt\"\nexit 0\n");
+    file_put_contents("$tmp/bin/virsh", <<<'SH'
+#!/bin/bash
+case "$1" in
+  list) [[ "$*" == *--all* ]] && printf 'oldvm\nnewvm\n'; exit 0 ;;
+  domstate) echo "shut off" ;;
+  dominfo) echo "Autostart:      disable" ;;
+  dumpxml) echo "<domain/>" ;;
+  domblklist) printf 'Type Device Target Source\n' ;;
+esac
+exit 0
+SH);
+    file_put_contents("$tmp/bin/mountpoint", "#!/bin/bash\n[[ \"\${@: -1}\" == */user ]]\n");
+    file_put_contents("$tmp/bin/mount", "#!/bin/bash\nmkdir -p \"\${@: -1}\"\n");
+    file_put_contents("$tmp/bin/umount", "#!/bin/bash\nexit 0\n");
+    file_put_contents("$tmp/bin/notify", "#!/bin/bash\nprintf '%s\\n' \"\$*\" >>\"\$FAKE/notify.log\"\n");
+    foreach (glob("$tmp/bin/*") as $f) {
+        chmod($f, 0755);
+    }
+    $sh = fn (string $script) => trim((string) shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; $script") . ' 2>&1'));
+
+    // --- the rules: which top-level folder is new
+    file_put_contents("$tmp/s.ini", "[general]\ndumps_share = UnraidSecretaryOffice\nmount_root = $root\n[kopia]\nenabled = yes\nignore = _UnraidSecretaryOffice-trash*/\nignore = .DS_Store\n"
+        . "[share \"appdata\"]\nmode = kopia\nkopia_ignore = /kopia/\nkopia_ignore = /cache*/\nkopia_ignore = /deep/cache/\nkopia_known = /a/\nkopia_known = /decided/\n"
+        . "[share \"UnraidSecretaryOffice\"]\nmode = kopia\nkopia_known =\n[share \"docs\"]\nmode = kopia\n[share \"local\"]\nmode = snapshot\nkopia_known = /x/\n"
+        . "[app \"nc\"]\nkopia = yes\nfolder = appdata/nc\n");
+    $pre = "cfg_load $tmp/s.ini; cfg_validate >/dev/null; apply_settings; INV_METHOD[appdata]=snap; INV_LAYOUT[appdata]=single;"
+         . ' INV_LOCS[appdata]="master|zfs|master/appdata|"$\'\\n\'; INV_METHOD[UnraidSecretaryOffice]=snap; INV_LAYOUT[UnraidSecretaryOffice]=single;';
+    same('new: settings.ini with kopia_known is valid (an empty one too)', '0', $sh("$pre echo \${#CFG_ERRORS[@]}"));
+    file_put_contents("$tmp/bad.ini", "[share \"x\"]\nmode = kopia\nkopia_known = a\nkopia_known = /a/b/\nkopia_known = /../\nkopia_known = /ok/\n");
+    same('new: kopia_known must be /<folder>/', '3', $sh("cfg_load $tmp/bad.ini; cfg_validate >/dev/null; echo \${#CFG_ERRORS[@]}"));
+    same('new: watched - kopia with kopia_known (also empty); without it, or only local: as before',
+        'appdata UnraidSecretaryOffice', $sh("$pre for s in appdata UnraidSecretaryOffice docs local; do share_watched \$s && printf '%s ' \$s; done"));
+    same('new: what is decided - known, own and global rules, an app\'s own part, the backup place\'s folder',
+        'a=1 decided=1 kopia=1 cache2=1 deep=0 nc=1 _UnraidSecretaryOffice-trash-1=1 .DS_Store=1 b=0 ncx=0 backup:place=1 other:place=0',
+        $sh("$pre new_decided_load appdata; for n in a decided kopia cache2 deep nc _UnraidSecretaryOffice-trash-1 .DS_Store b ncx; do new_decided appdata \"\$n\" && printf '%s=1 ' \$n || printf '%s=0 ' \$n; done;"
+            . ' new_decided_load UnraidSecretaryOffice; new_decided UnraidSecretaryOffice backup && printf "backup:place=1 " || printf "backup:place=0 "; new_decided UnraidSecretaryOffice other && printf "other:place=1" || printf "other:place=0"'));
+    same('new: fancier rules never count as leaving a folder out (it stays new - left out by the run itself)', '0 0 0 0 1 1',
+        $sh('for r in "/@(b)/" "/b\\\\x/" "!/b/" "/b/c/" "b" "/b"; do rule_hides_top "$r" b && printf "1 " || printf "0 "; done'));
+    same('new: a pattern character in a folder becomes ? in its rule', "/we ird?1??/\n/x/", $sh("$pre new_rules_for appdata 'we ird[1]*'; new_rules_for appdata x"));
+    same('new: a split share gets a rule per base', "/master/x/\n/disk1/x/",
+        $sh("$pre INV_LAYOUT[appdata]=split; INV_LOCS[appdata]=\"master|zfs|master/appdata|\"\$'\\n'\"disk1|btrfs|/mnt/disk1|appdata\"; new_rules_for appdata x"));
+    foreach (['a', 'b', 'decided', 'kopia', 'nc', 'still', 'we ird[1]', '_UnraidSecretaryOffice-trash-1', '.zfs'] as $d) {
+        @mkdir("$root/appdata/$d", 0700, true);
+    }
+    symlink("$root/appdata/a", "$root/appdata/link");
+    touch("$root/appdata/file");
+    same('new: the folders at the top - no links, files or .zfs', "_UnraidSecretaryOffice-trash-1\na\nb\ndecided\nkopia\nnc\nstill\nwe ird[1]",
+        $sh("top_dirs $root/appdata | LC_ALL=C sort"));
+    same('new: the wanted policy of a share includes the rules for its new folders', "/cache*/\n/deep/cache/\n/kopia/\n/nc/\n/still/",
+        $sh("$pre NEW_RULES[appdata]=/still/; kopia_want_ignores share appdata"));
+
+    // --- the run, right before Kopia: the snapshot's folders, the policy, the state, drift, one notification
+    file_put_contents("$tmp/data/unraid-backup/state/new-local.json", json_encode(['interface' => 1, 'folders' => [
+        ['share' => 'appdata', 'folder' => 'still', 'bytes' => null, 'first_seen' => 1000, 'rules' => ['/still/']],
+        ['share' => 'appdata', 'folder' => 'decided', 'bytes' => null, 'first_seen' => 1000, 'rules' => ['/decided/']],
+        ['share' => 'appdata', 'folder' => 'vanished', 'bytes' => 7, 'first_seen' => 1000, 'rules' => ['/vanished/']],
+        ['share' => 'docs', 'folder' => 'x', 'first_seen' => 1000, 'rules' => ['/x/']],
+        ['share' => "odd\nshare", 'folder' => 'x', 'first_seen' => 1, 'rules' => ['/x/']]]]));
+    $kp = json_encode([['target' => ['path' => '/uso/appdata', 'userName' => 'root', 'host' => 'kopia'],
+        'policy' => [], 'files' => ['ignore' => ['/kopia/', '/still/', '/decided/', '/vanished/']]]]);
+    file_put_contents("$tmp/kp.json", $kp);
+    $run = "$pre ub_data_dirs; TS=20261007-0100; LOG_FILE=$tmp/run.log; KOPIA_CONTAINER=kopia; KOPIA_USER=root; KOPIA_HOST=kopia; KOPIA_ID=root@kopia;"
+         . " KP_JSON=\"\$(cat $tmp/kp.json)\"; KM_SRC=($root); KM_DST=(/uso); KM_RW=(false); KM_PROP=(rslave); PLAN_KOPIA=(appdata UnraidSecretaryOffice docs);"
+         . ' declare -A SHARE_MOUNTED=([appdata]=single); ST_ACTIVE=yes; ST_MODE=backup; ST_STARTED=1;';
+    same('run: before Kopia - what the last run left out and is still undecided (decided ones go, unwatched shares go)',
+        "appdata/still appdata/vanished |/still/\n/vanished/|new_waiting new_waiting known_missing",
+        $sh("$run drift_check_new_local; for l in \"\${NEW_LIST[@]}\"; do IFS=\$'\\x1f' read -r s n _ <<<\"\$l\"; printf '%s/%s ' \$s \$n; done;"
+            . ' printf "|%s|" "${NEW_RULES[appdata]%$\'\\n\'}"; for c in "${DRIFT_CODE[@]}"; do printf "%s " "${c%%$\'\\x1f\'*}"; done'));
+    $out = $sh("$run drift_check_new_local; new_local_run; echo \"skip=\${SKIP_KOPIA[appdata]:-}\"");
+    check('run: the share\'s policy - the new folder in, the decided and the vanished one out, only those',
+        str_contains((string) @file_get_contents("$tmp/fake/docker.log"), 'exec -u 0 kopia kopia --no-progress policy set root@kopia:/uso/appdata --add-ignore /b/ --add-ignore /we ird?1?/ --remove-ignore /decided/ --remove-ignore /vanished/'),
+        (string) @file_get_contents("$tmp/fake/docker.log") . " | $out");
+    $st = json_decode((string) @file_get_contents("$tmp/data/unraid-backup/state/new-local.json"), true);
+    same('run: state/new-local.json - the new folders, the earlier first sight kept, their rules',
+        [['appdata', 'b', ['/b/']], ['appdata', 'still', ['/still/']], ['appdata', 'we ird[1]', ['/we ird?1?/']]],
+        array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $st['folders'] ?? []));
+    same('run: first seen - the earlier one kept, a new one now', [true, 1000], [($st['folders'][0]['first_seen'] ?? 0) > 1000, $st['folders'][1]['first_seen'] ?? null]);
+    $notes = (string) @file_get_contents("$tmp/fake/notify.log");
+    check('run: one notification (normal) for the folders seen for the first time', substr_count($notes, "\n") === 1 && str_contains($notes, '2 new folders stay local')
+        && str_contains($notes, 'appdata/b, appdata/we ird[1]') && str_contains($notes, '-i normal') && !str_contains($notes, 'still'), $notes);
+    $dj = json_decode((string) @file_get_contents("$tmp/data/unraid-backup/state/drift.json"), true);
+    same('run: drift.json - a note per new folder (info, code new_waiting)', [['info', 'known_missing', 'docs'], ['info', 'new_waiting', 'appdata/b'], ['info', 'new_waiting', 'appdata/still'], ['info', 'new_waiting', 'appdata/we ird[1]']],
+        array_map(fn ($i) => [$i['level'], $i['code'], $i['value']], $dj['items'] ?? []));
+    $sj = json_decode((string) @file_get_contents("$tmp/data/unraid-backup/state/status.json"), true);
+    same('run: status.json new_local', ['b', 'still', 'we ird[1]'], array_column($sj['new_local'] ?? [], 'folder'));
+    check('run: nothing skipped', str_contains($out, 'skip=') && !str_contains($out, 'skip=its'), $out);
+    // the next night: nothing new - no notification, no policy change
+    @unlink("$tmp/fake/docker.log");
+    file_put_contents("$tmp/kp.json", json_encode([['target' => ['path' => '/uso/appdata', 'userName' => 'root', 'host' => 'kopia'],
+        'files' => ['ignore' => ['/kopia/', '/still/', '/b/', '/we ird?1?/']]]]));
+    $sh("$run drift_check_new_local; new_local_run");
+    same('run: the next night - no second notification, no policy change', [1, ''], [substr_count((string) @file_get_contents("$tmp/fake/notify.log"), "\n"), trim((string) @file_get_contents("$tmp/fake/docker.log"))]);
+    // decided meanwhile: b goes to Kopia (known), the rule goes; Kopia refusing a rule skips the share
+    $sh("sed -i 's|^kopia_known = /a/|kopia_known = /a/\\nkopia_known = /b/|' $tmp/s.ini");
+    $sh("$run drift_check_new_local; new_local_run");
+    check('run: a folder decided for Kopia - its rule goes', str_contains((string) @file_get_contents("$tmp/fake/docker.log"), '--remove-ignore /b/'), (string) @file_get_contents("$tmp/fake/docker.log"));
+    @mkdir("$root/appdata/c", 0700);
+    same('run: Kopia refuses the rule - the share is skipped, never uploaded unasked', 'its new folders could not be left out of its policy',
+        $sh("FAKE_POLICY_FAIL=1; export FAKE_POLICY_FAIL; $run drift_check_new_local; new_local_run >/dev/null; printf '%s' \"\${SKIP_KOPIA[appdata]:-}\""));
+    same('run: a share not mounted this run keeps its notes', 'appdata/c appdata/still appdata/we ird[1]',
+        $sh("$run SHARE_MOUNTED=(); drift_check_new_local; new_local_run >/dev/null; for l in \"\${NEW_LIST[@]}\"; do IFS=\$'\\x1f' read -r s n _ <<<\"\$l\"; printf '%s/%s ' \"\$s\" \"\$n\"; done"));
+    exec('rm -rf ' . escapeshellarg("$root/appdata"));
+
+    // --- setup.sh on a fixture server: --plan and --apply
+    $pool = "$mnt/master";
+    foreach (["$mnt/user", "$pool/appdata/c1", "$pool/appdata/bitcoin2", "$pool/appdata/kopia", "$pool/appdata/gone", "$pool/appdata/bigds", "$pool/appdata/_UnraidSecretaryOffice-trash",
+              "$pool/UnraidSecretaryOffice/backup", "$pool/docs", "$mnt/ripley/sleepy/old"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    foreach (['appdata', 'UnraidSecretaryOffice', 'docs', 'sleepy'] as $n) {
+        touch("$tmp/boot/config/shares/$n.cfg");
+    }
+    file_put_contents("$tmp/fake/mounts", "master $pool zfs rw 0 0\nmaster/appdata $pool/appdata zfs rw 0 0\nmaster/appdata/bigds $pool/appdata/bigds zfs rw 0 0\n"
+        . "master/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\nmaster/docs $pool/docs zfs rw 0 0\nripley $mnt/ripley zfs rw 0 0\nripley/sleepy $mnt/ripley/sleepy zfs rw 0 0\n"
+        . "shfs $mnt/user fuse.shfs rw 0 0\n");
+    $z = fn ($n, $mp, $ref) => "$n\t$mp\ton\t" . crc32($n) . "\t$ref\t-\n";
+    file_put_contents("$tmp/fake/zfs.txt", $z('master', $pool, 1) . $z('master/appdata', "$pool/appdata", 5000) . $z('master/appdata/bigds', "$pool/appdata/bigds", 123456789)
+        . $z('master/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 10) . $z('master/docs', "$pool/docs", 10) . $z('ripley', "$mnt/ripley", 1) . $z('ripley/sleepy', "$mnt/ripley/sleepy", 10));
+    file_put_contents("$tmp/fake/disks.ini", "[\"master\"]\nname=\"master\"\nspundown=\"0\"\n[\"ripley\"]\nname=\"ripley\"\nspundown=\"1\"\n");
+    file_put_contents("$tmp/fake/repo.json", json_encode(['configFile' => '/config/repository.config', 'storage' => ['type' => 'filesystem'], 'clientOptions' => ['username' => 'root', 'hostname' => 'kopia']]));
+    file_put_contents("$tmp/fake/ids", "id1\nid2\nid3\n");
+    $ct = fn ($name, $img, $binds) => ['Name' => "/$name", 'Id' => "id-$name", 'Config' => ['Image' => $img, 'Env' => [], 'Labels' => new stdClass()],
+        'State' => ['Running' => true], 'HostConfig' => ['NetworkMode' => 'bridge'],
+        'Mounts' => array_map(fn ($b) => ['Type' => 'bind', 'Source' => $b[0], 'Destination' => $b[1], 'RW' => true], $binds)];
+    file_put_contents("$tmp/fake/inspect.json", json_encode([
+        $ct('kopia', 'imagegenius/kopia', [["$mnt/user/appdata/kopia", '/config'], [$root, '/uso']]),
+        $ct('c1', 'nginx', [["$mnt/user/appdata/c1", '/config']]),
+        $ct('btc', 'bitcoind', [["$mnt/user/appdata/bitcoin2", '/data']])]));
+    $data = "$tmp/data/unraid-backup";
+    exec('rm -rf ' . escapeshellarg("$data/state") . ' ' . escapeshellarg("$tmp/fake/docker.log") . ' ' . escapeshellarg("$tmp/fake/notify.log"));
+    file_put_contents("$data/settings.ini", "[general]\nserver = Test\nmount_root = $root\nview_root = $mnt/addons/UnraidSecretaryOffice/btrfs-snap\nsnap_prefix = uso-backup-\n"
+        . "dumps_share = UnraidSecretaryOffice\n[docker]\nstop = all\nknown = kopia\nknown = c1\n[flash]\nmode = off\n[kopia]\nenabled = yes\ncontainer = kopia\nidentity = root@kopia\n"
+        . "ignore = _UnraidSecretaryOffice-trash*/\n[share \"appdata\"]\nmode = kopia\nkopia_ignore = /kopia/\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n"
+        . "[share \"docs\"]\nmode = kopia\n[share \"sleepy\"]\nmode = kopia\n[vm \"oldvm\"]\nmode = snapshot\nprepare = pause\n");
+    $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
+    $out = $setup('--plan');
+    $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    $P = $plan['P'] ?? [];
+    same('setup plan: the first record - every folder that is there and not left out (2.20 settings: nothing recorded yet)',
+        [['/bigds/', '/bitcoin2/', '/c1/', '/gone/'], ['/backup/'], []],
+        [$P['share|appdata|kopia_known'] ?? null, $P['share|UnraidSecretaryOffice|kopia_known'] ?? null, $P['share|docs|kopia_known'] ?? null], $out);
+    check('setup plan: a share with a sleeping disk gets its first record later (nothing woken)', !array_key_exists('share|sleepy|kopia_known', $P), json_encode($P));
+    $cts = array_column($plan['containers'] ?? [], null, 'name');
+    same('setup plan: a new container keeps running (code new), a known one as before', [['new', false], [true, true]],
+        [[$cts['btc']['why'] ?? null, $cts['btc']['stop'] ?? null], [$cts['c1']['previous'] ?? null, $cts['c1']['stop'] ?? null]]);
+    check('setup plan: the new container in no_stop', in_array('btc', $P['docker|no_stop'] ?? [], true), json_encode($P['docker|no_stop'] ?? null));
+    $vms = array_column($plan['vms'] ?? [], null, 'name');
+    same('setup plan: a new VM is not held (prepare none), a known one as before', ['none', 'pause', true, false],
+        [$P['vm|newvm|prepare'] ?? null, $P['vm|oldvm|prepare'] ?? null, $vms['oldvm']['previous'] ?? null, $vms['newvm']['previous'] ?? null]);
+    same('setup plan: nothing waiting at the first record', [], array_merge(...array_map(fn ($s) => $s['waiting'] ?? ['?'], $plan['shares'] ?? [])));
+    // apply what the plan says (the office sends its draft: every key of P)
+    file_put_contents("$tmp/dec.json", json_encode($P + ['_retire_sources' => 'no']));
+    $out = $setup("--apply=$tmp/dec.json");
+    $ini = (string) @file_get_contents("$data/settings.ini");
+    check('setup apply: kopia_known written, an empty one as "kopia_known =", none for the sleeping share',
+        str_contains($ini, "kopia_known = /bigds/\nkopia_known = /bitcoin2/\nkopia_known = /c1/\nkopia_known = /gone/\n") && str_contains($ini, "[share \"docs\"]\nmode = kopia\nkopia_known =\n")
+        && !preg_match('/\[share "sleepy"\][^\[]*kopia_known/', $ini) && str_contains($ini, "known = btc"), $ini . $out);
+    same('setup apply: the settings written load without errors', '0', $sh("cfg_load $data/settings.ini; cfg_validate >/dev/null; echo \${#CFG_ERRORS[@]}"));
+    // a folder comes: the plan lists it as waiting, Apply leaves it out of Kopia until decided
+    @mkdir("$pool/appdata/zz-new", 0700);
+    rmdir("$pool/appdata/gone");
+    $setup('--plan');
+    $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    $sh2 = array_column($plan['shares'] ?? [], null, 'name');
+    same('setup plan: a new folder waits, the record stays (a gone folder drops out)',
+        [[['dir' => 'zz-new', 'bytes' => null, 'first_seen' => null]], ['/bigds/', '/bitcoin2/', '/c1/']],
+        [$sh2['appdata']['waiting'] ?? null, $plan['P']['share|appdata|kopia_known'] ?? null]);
+    @unlink("$tmp/fake/docker.log");
+    file_put_contents("$tmp/dec.json", json_encode($plan['P'] + ['_retire_sources' => 'no']));
+    $out = $setup("--apply=$tmp/dec.json");
+    $log = (string) @file_get_contents("$tmp/fake/docker.log");
+    check('setup apply: undecided - Kopia\'s policy leaves the new folder out', (bool) preg_match('#policy set root@kopia:/uso/appdata .*--add-ignore /zz-new/#', $log), $log . $out);
+    check('setup apply: undecided - not recorded', !str_contains((string) @file_get_contents("$data/settings.ini"), 'kopia_known = /zz-new/'));
+    // decided: local + Kopia
+    @unlink("$tmp/fake/docker.log");
+    file_put_contents("$tmp/fake/policies.json", json_encode([['target' => ['path' => '/uso/appdata', 'userName' => 'root', 'host' => 'kopia'], 'files' => ['ignore' => ['/kopia/', '/zz-new/']]]]));
+    $dec = $plan['P'];
+    $dec['share|appdata|kopia_known'][] = '/zz-new/';
+    file_put_contents("$tmp/dec.json", json_encode($dec + ['_retire_sources' => 'no']));
+    $setup("--apply=$tmp/dec.json");
+    $log = (string) @file_get_contents("$tmp/fake/docker.log");
+    check('setup apply: decided for Kopia - recorded, and its rule goes', str_contains((string) @file_get_contents("$data/settings.ini"), 'kopia_known = /zz-new/')
+        && (bool) preg_match('#policy set root@kopia:/uso/appdata .*--remove-ignore /zz-new/#', $log), $log);
+    // a container that came after the plan stays new at Apply
+    file_put_contents("$tmp/fake/ids", "id1\nid2\nid3\nid4\n");
+    $all = json_decode((string) file_get_contents("$tmp/fake/inspect.json"));
+    $all[] = $ct('late', 'redis', []);
+    file_put_contents("$tmp/fake/inspect.json", json_encode($all));
+    $setup("--apply=$tmp/dec.json");
+    $ini = (string) @file_get_contents("$data/settings.ini");
+    check('setup apply: a container that came after the plan stays new (keeps running, not known)', !str_contains($ini, 'known = late') && str_contains($ini, 'no_stop = late'), $ini);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * Engine 2.20: a run that finds the lock busy is skipped, never silent — the engine's helpers (the holder
  * note, skipped.json, the history line, the history's own lock) on a temporary data folder, and the
  * office's side: who holds the lock, skips kept apart from the runs (history, estimates, the last run),
@@ -4091,7 +4346,7 @@ function testWhereaboutsAfterWatchman(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman'],
           'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
           'strings' => ['testStrings']];
