@@ -493,6 +493,7 @@
   "errors.restore_no_snapshot": "No local snapshot holds this folder.",
   "errors.restore_swap_mountpoint": "{dataset} has a mountpoint of its own — I don't swap it; copying next to it works.",
   "errors.restore_swap_inner": "Datasets of their own lie inside it ({list}) — I don't swap it as a whole; copying next to it works.",
+  "errors.restore_swap_spread": "The folder also lies on other disks (or on a sleeping one) — swapping only its part on {base} would leave a folder of two states. Copy it next to it instead.",
   "errors.restore_exists": "Already there: {path} — I never write over it.",
   "errors.restore_no_space": "Not enough space: {need} needed, {free} free.",
   "errors.restore_vm_running": "{name} is not shut off ({state}) — shut it down first; I never force anything off.",

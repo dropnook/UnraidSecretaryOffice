@@ -493,6 +493,7 @@
   "errors.restore_no_snapshot": "Nessuno snapshot locale tiene questa cartella.",
   "errors.restore_swap_mountpoint": "{dataset} ha un mountpoint proprio — non lo scambio; copiarlo accanto funziona.",
   "errors.restore_swap_inner": "Dentro ci sono dataset propri ({list}) — non la scambio per intero; copiarla accanto funziona.",
+  "errors.restore_swap_spread": "La cartella sta anche su altri dischi (o su uno che dorme) — scambiare solo la sua parte su {base} darebbe una cartella con due stati. Copiala invece accanto.",
   "errors.restore_exists": "C'è già: {path} — non ci scrivo mai sopra.",
   "errors.restore_no_space": "Spazio insufficiente: servono {need}, liberi {free}.",
   "errors.restore_vm_running": "{name} non è spenta ({state}) — spegnila prima; non spengo mai niente con la forza.",

@@ -493,6 +493,7 @@
   "errors.restore_no_snapshot": "Kein lokaler Snapshot hält diesen Ordner.",
   "errors.restore_swap_mountpoint": "{dataset} hat einen eigenen Mountpoint — den tausche ich nicht aus; daneben kopieren geht.",
   "errors.restore_swap_inner": "Darin liegen eigene Datasets ({list}) — ich tausche ihn nicht als Ganzes aus; daneben kopieren geht.",
+  "errors.restore_swap_spread": "Der Ordner liegt auch auf anderen Disks (oder auf einer schlafenden) — nur seinen Teil auf {base} auszutauschen, gäbe einen Ordner aus zwei Ständen. Kopiere ihn stattdessen daneben.",
   "errors.restore_exists": "Schon da: {path} — ich schreibe nie darüber.",
   "errors.restore_no_space": "Nicht genug Platz: {need} nötig, {free} frei.",
   "errors.restore_vm_running": "{name} ist nicht ausgeschaltet ({state}) — fahre sie zuerst herunter; ich schalte nie etwas mit Gewalt aus.",

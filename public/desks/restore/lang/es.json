@@ -493,6 +493,7 @@
   "errors.restore_no_snapshot": "Ninguna instantánea local contiene esta carpeta.",
   "errors.restore_swap_mountpoint": "{dataset} tiene su propio punto de montaje — no lo intercambio; copiarlo al lado funciona.",
   "errors.restore_swap_inner": "Dentro hay datasets propios ({list}) — no la intercambio entera; copiarla al lado funciona.",
+  "errors.restore_swap_spread": "La carpeta también está en otros discos (o en uno dormido) — intercambiar solo su parte en {base} dejaría una carpeta con dos estados. Cópiala mejor al lado.",
   "errors.restore_exists": "Ya está: {path} — nunca escribo encima.",
   "errors.restore_no_space": "No hay espacio suficiente: hacen falta {need}, hay {free} libres.",
   "errors.restore_vm_running": "{name} no está apagada ({state}) — apágala primero; nunca apago nada a la fuerza.",

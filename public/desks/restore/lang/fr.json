@@ -493,6 +493,7 @@
   "errors.restore_no_snapshot": "Aucun snapshot local ne contient ce dossier.",
   "errors.restore_swap_mountpoint": "{dataset} a son propre point de montage — je ne l'échange pas ; la copie à côté fonctionne.",
   "errors.restore_swap_inner": "Des datasets à part s'y trouvent ({list}) — je ne l'échange pas en entier ; la copie à côté fonctionne.",
+  "errors.restore_swap_spread": "Le dossier se trouve aussi sur d'autres disques (ou sur un disque endormi) — n'échanger que sa partie sur {base} donnerait un dossier de deux états. Copie-le plutôt à côté.",
   "errors.restore_exists": "Déjà là : {path} — je n'écris jamais par-dessus.",
   "errors.restore_no_space": "Pas assez de place : {need} nécessaires, {free} libres.",
   "errors.restore_vm_running": "{name} n'est pas éteinte ({state}) — éteins-la d'abord ; je n'éteins jamais rien de force.",

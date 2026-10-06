@@ -1584,6 +1584,10 @@ function rsPlanFilesFor(string $path, string $snapId, string $mode, bool $wake, 
     }
     if (count(array_filter($places, fn ($p) => $p['exists'])) > 1 || ($asleep && !in_array($snap['base'], $asleep, true))) {
         $plan['notes'][] = ['key' => 'note.files_part', 'params' => ['base' => $snap['base']]];
+        if ($mode === 'swap') {
+            // only the part on that disk would be swapped: a folder of two states
+            $plan['blockers'][] = ['key' => 'restore_swap_spread', 'params' => ['base' => $snap['base']]];
+        }
     }
     if (file_exists($restored) || is_link($restored)) {
         $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $restored]];
