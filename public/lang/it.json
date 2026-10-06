@@ -127,7 +127,7 @@
   "office.supporter_saved": "Grazie, {name}!",
   "office.supporter_thanks_title": "Grazie!",
   "office.supporter_thanks": "Grazie, {name} — sostieni la segreteria. Tutto il team ne è felice, e non ci saranno più promemoria.",
-  "office.supporter_key_info": "Chiave sostenitore per questo server ({id}), del {date}.",
+  "office.supporter_key_info": "Per questo server ({id}), del {date}.",
   "office.supporter_other": "La chiave salvata qui è per un altro server ({id}) e qui non ha effetto. L'ID di questo server è {server}.",
   "office.supporter_bad_saved": "La chiave salvata qui non è leggibile — rimuovila o inseriscila di nuovo.",
   "office.supporter_remove": "Rimuovi chiave…",

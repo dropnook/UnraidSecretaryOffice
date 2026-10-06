@@ -127,7 +127,7 @@
   "office.supporter_saved": "Thank you, {name}!",
   "office.supporter_thanks_title": "Thank you!",
   "office.supporter_thanks": "Thank you, {name} — you support the office. The whole team is glad of it, and there will be no more reminders.",
-  "office.supporter_key_info": "Supporter key for this server ({id}), from {date}.",
+  "office.supporter_key_info": "For this server ({id}), from {date}.",
   "office.supporter_other": "The key saved here is for another server ({id}) and has no effect here. This server's ID is {server}.",
   "office.supporter_bad_saved": "The key saved here can't be read — remove it or enter it again.",
   "office.supporter_remove": "Remove key…",
