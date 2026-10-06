@@ -13,7 +13,8 @@ declare(strict_types=1);
  *            the menu bar's label, reports to Unraid's notifications, the team
  *            lead's «I know, thanks» and the Dashboard tile,
  *            Mr. Backupsy's packages and his Kopia per app and VM, Ms. Dustdevil's pictures,
- *            Mr. Restori's reader of the packages, the Consultant's monitoring externals, Ms. Protocolli's tour)
+ *            Mr. Restori's reader of the packages, the Consultant's monitoring externals, Ms. Protocolli's tour,
+ *            the night watchman's rounds, bursts, baseline and «I know, thanks»)
  *   hardening  the checks that keep requests, manifests, paths and links in
  *            bounds (PIN tries, safe writes, the mailbox, Ms. Dustdevil's
  *            manifests, Emby paths, anchored validators, the release link)

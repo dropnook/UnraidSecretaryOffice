@@ -110,7 +110,7 @@ function ackAll() {
 /** Re-render without the page jumping: the row that was noted stays where it is (or, gone from the list, the book) */
 function renderKeeping(id) {
   if (!view) return;
-  const find = () => (id && view.querySelector(`.wm-entry[data-id="${id}"]`)) || view.querySelector('.wm-book');
+  const find = () => (id && view.querySelector(`.wm-entry[data-id="${CSS.escape(id)}"]`)) || view.querySelector('.wm-book');
   const a = find();
   const top = a ? a.getBoundingClientRect().top : null;
   Office.keepInPlace(null, render);
@@ -373,10 +373,10 @@ function details(e) {
 }
 
 // ------------------------------------------------------------------ what he keeps an eye on
-function item(name, parts, extra) {
+function item(name, parts, extra, label) {
   const r = el('div', 'row nocheck wm-item');
   const main = el('div', 'row-main');
-  main.appendChild(el('div', 'row-name', name));
+  main.appendChild(el('div', 'row-name' + (label ? ' text' : ''), name));
   const meta = el('div', 'row-meta');
   parts.filter(Boolean).forEach((x) => meta.appendChild(el('span', '', x)));
   if (extra) meta.appendChild(extra);
@@ -442,10 +442,10 @@ function watchSection() {
   const flash = [
     item(T('watch.go'), [f.go ? T('watch.go_lines', { n: f.go.lines }) : T('watch.go_none')]),
     item(T('watch.extra'), f.extra.length ? f.extra.map((x) => `${x.file} · ${fmt.size(x.size)}`) : [T('watch.extra_none')]),
-    item(T('watch.users'), [f.users.join(', ')]),
+    item(T('watch.users'), [f.users.join(', ')], null, true),
   ];
-  if (f.keys.length) f.keys.forEach((k) => flash.push(item(T('watch.keys'), [k.user, [k.type, k.comment].filter(Boolean).join(' '), k.fp])));
-  else flash.push(item(T('watch.keys'), [T('watch.keys_none')]));
+  if (f.keys.length) f.keys.forEach((k) => flash.push(item(T('watch.keys'), [k.user, [k.type, k.comment].filter(Boolean).join(' '), k.fp], null, true)));
+  else flash.push(item(T('watch.keys'), [T('watch.keys_none')], null, true));
   box.appendChild(group('flash', T('watch.flash'), T('watch.flash_sum', { extra: f.extra.length, users: f.users.length, keys: f.keys.length }), flash));
   const sh = w.shares;
   box.appendChild(group('shares', T('watch.shares'),

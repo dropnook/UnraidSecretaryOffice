@@ -1504,7 +1504,7 @@ function watchmanTeamLeadNotes(array &$b, array &$book, array $seen, int $now, ?
 function watchmanText(array $e): array
 {
     $p = (array) ($e['p'] ?? []);
-    $services = implode(', ', array_map('watchmanServiceName', (array) ($p['services'] ?? [])));
+    $services = implode(', ', watchmanServiceNames((array) ($p['services'] ?? [])));
     $list = fn (string $k) => implode(', ', array_map('strval', (array) ($p[$k] ?? [])));
     return match ((string) $e['kind']) {
         'login_new_ip'   => ['ip' => (string) ($p['ip'] ?? ''), 'user' => $list('users') ?: '?', 'service' => $services],
@@ -1530,6 +1530,14 @@ function watchmanServiceName(string $s): string
         return 'WebGUI';
     }
     return str_starts_with($s, 'ssh:') ? 'SSH (' . substr($s, 4) . ')' : 'SSH';
+}
+
+/** The names of a list of services; a bare "SSH" (an invalid user, no method) only when no SSH method is named */
+function watchmanServiceNames(array $services): array
+{
+    $names = array_values(array_unique(array_map(fn ($s) => watchmanServiceName((string) $s), $services)));
+    $methods = array_filter($names, fn ($n) => str_starts_with($n, 'SSH ('));
+    return array_values(array_filter($names, fn ($n) => $n !== 'SSH' || !$methods));
 }
 
 /**
@@ -1702,7 +1710,7 @@ function watchmanSummary(array $b): array
     $ips = [];
     foreach ((array) ($b['ips'] ?? []) as $ip => $k) {
         $ips[] = ['ip' => (string) $ip, 'first' => (int) ($k['first'] ?? 0), 'last' => (int) ($k['last'] ?? 0),
-                  'users' => (array) ($k['users'] ?? []), 'services' => array_map('watchmanServiceName', (array) ($k['services'] ?? []))];
+                  'users' => (array) ($k['users'] ?? []), 'services' => watchmanServiceNames((array) ($k['services'] ?? []))];
     }
     usort($ips, fn ($x, $y) => [$y['last'], $x['ip']] <=> [$x['last'], $y['ip']]);
     $fails = [];
