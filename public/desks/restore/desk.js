@@ -462,6 +462,8 @@ function appDetail(a) {
     [T('d.package'), copyCode(a.path), ' · ', date(a.time), a.result && a.result !== 'ok' ? ` · ${T('result.' + a.result)}` : ''],
     [T('d.containers'), containerChips(a.containers)],
   ]));
+  const needs = needsBlock(a);
+  if (needs) box.appendChild(needs);
   box.appendChild(packageBlock(a));
   box.appendChild(snapshotsBlock(a.folders, a.shares, a));
   if (kopia().enabled) box.appendChild(kopiaBlock(a.kopia));
@@ -707,47 +709,104 @@ function earlierPart(kind, p) {
   return det;
 }
 
-/** The local snapshots of the folders an app or VM keeps its data in */
+/** The local snapshots of the folders an app or VM keeps its data in, and of whole shares it binds */
 function snapshotsBlock(folders, shares, owner) {
-  const b = block(T('from_snapshots'), folders.length ? T('snaps.text') : T('snaps.none'));
-  folders.forEach((f) => {
-    const part = el('div', 'rs-part');
-    const title = el('div', 'rs-part-title rs-folder');
-    title.append(copyCode(f.path));
-    const pc = Office.backupChip(f.protection);
-    if (pc) title.append(' ', pc);
-    if (!f.exists && !f.asleep) title.append(' ', chip(T('snaps.missing'), 'danger', T('snaps.missing_hint')));
-    // from a local snapshot, or from what Kopia brought back into its restore folder
-    const fromKopia = (state.restores || []).some((r) => r.kind === 'kopia' && ['ok', 'warnings'].includes(r.result));
-    if (owner && (f.snaps || f.asleep || fromKopia)) title.append(' ', restoreButton(T('files.button'), { kind: 'files', path: f.path }, T('rd.title.files', { what: f.path })));
-    part.appendChild(title);
-    if (f.containers && f.containers.length) part.appendChild(el('div', 'role', T('snaps.used_by', { names: f.containers.join(', ') })));
-    (f.places || []).forEach((p) => {
-      const line = el('div', 'rs-place');
-      const where = p.dataset ? T('snaps.zfs', { base: p.base, dataset: p.dataset }) : T('snaps.base', { base: p.base, fs: p.fs || '?' });
-      line.appendChild(el('span', 'rs-place-where', where));
-      if (p.asleep) line.appendChild(chip(T('snaps.asleep'), 'quiet', T('snaps.asleep_hint')));
-      else if (!p.count) line.appendChild(chip(T('snaps.zero'), 'warn', T('snaps.zero_hint', { fs: p.fs || '?' })));
-      else line.appendChild(el('span', '', T('snaps.count', { n: p.count, when: date(p.latest && p.latest.time) })));
-      if (p.own_dataset) line.appendChild(chip(T('snaps.own_ds'), 'quiet', T('snaps.own_ds_hint')));
-      if ((p.inner || []).length) line.appendChild(chip(T('snaps.inner', { n: p.inner.length }), 'warn', T('snaps.inner_hint', { list: p.inner.join(', ') })));
-      part.appendChild(line);
-      if (p.latest) {
-        const look = el('div', 'role rs-look');
-        look.append(T('snaps.look'), ' ', copyCode(p.latest.path));
-        part.appendChild(look);
-      }
-    });
-    b.appendChild(part);
-  });
-  (shares || []).forEach((s) => {
-    const line = el('div', 'role rs-whole');
-    line.append(T('snaps.whole', { share: s.share, names: s.containers.join(', ') }), ' ');
-    const pc = Office.backupChip(s.protection);
-    if (pc) line.appendChild(pc);
-    b.appendChild(line);
-  });
+  const all = [...folders, ...(shares || [])];
+  const b = block(T('from_snapshots'), all.length ? T('snaps.text') : T('snaps.none'));
+  all.forEach((f) => b.appendChild(unitPart(f, owner)));
   return b;
+}
+
+/** The share of a folder, when it is missing on this server: data can't come back before the user creates it */
+function missingShare(owner, share) {
+  const n = ((owner && owner.needs) || []).find((x) => x.share === share);
+  return n && n.state === 'missing' ? n : null;
+}
+
+/** A folder (or a whole share) an app or VM keeps its data in: where it lies, its snapshots, «Restore…» */
+function unitPart(f, owner) {
+  const part = el('div', 'rs-part');
+  const title = el('div', 'rs-part-title rs-folder');
+  title.append(copyCode(f.path));
+  if (f.whole) title.append(' ', chip(T('snaps.whole_chip'), 'quiet', T('snaps.whole_hint')));
+  const pc = Office.backupChip(f.protection);
+  if (pc) title.append(' ', pc);
+  if (!f.whole && !f.exists && !f.asleep) title.append(' ', chip(T('snaps.missing'), 'danger', T('snaps.missing_hint')));
+  // from a moment of its snapshots, or from what Kopia brought back into its restore folder
+  const fromKopia = (state.restores || []).some((r) => r.kind === 'kopia' && ['ok', 'warnings'].includes(r.result));
+  if (owner && (f.snaps || f.asleep || fromKopia)) {
+    const b = restoreButton(T('files.button'), { kind: 'files', path: f.path }, f.whole ? T('rd.title.share', { share: f.share }) : T('rd.title.files', { what: f.path }));
+    if (missingShare(owner, f.share)) {
+      b.disabled = true;
+      b.title = T('needs.missing_button', { share: f.share });
+    }
+    title.append(' ', b);
+  }
+  part.appendChild(title);
+  if (f.whole) part.appendChild(el('div', 'role', T('snaps.whole', { share: f.share, names: (f.containers || []).join(', ') })));
+  else if (f.containers && f.containers.length) part.appendChild(el('div', 'role', T('snaps.used_by', { names: f.containers.join(', ') })));
+  (f.places || []).forEach((p) => {
+    const line = el('div', 'rs-place');
+    const where = p.dataset ? T('snaps.zfs', { base: p.base, dataset: p.dataset }) : T('snaps.base', { base: p.base, fs: p.fs || '?' });
+    line.appendChild(el('span', 'rs-place-where', where));
+    if (p.asleep) line.appendChild(chip(T('snaps.asleep'), 'quiet', T('snaps.asleep_hint')));
+    else if (!p.count) line.appendChild(chip(T('snaps.zero'), 'warn', T('snaps.zero_hint', { fs: p.fs || '?' })));
+    else line.appendChild(el('span', '', T('snaps.count', { n: p.count, when: date(p.latest && p.latest.time) })));
+    if (p.own_dataset && !f.whole) line.appendChild(chip(T('snaps.own_ds'), 'quiet', T('snaps.own_ds_hint')));
+    if ((p.inner || []).length) line.appendChild(chip(T('snaps.inner', { n: p.inner.length }), 'warn', T('snaps.inner_hint', { list: p.inner.join(', ') })));
+    part.appendChild(line);
+    if (p.latest) {
+      const look = el('div', 'role rs-look');
+      look.append(T('snaps.look'), ' ', copyCode(p.latest.path));
+      part.appendChild(look);
+    }
+  });
+  return part;
+}
+
+/** The shares an app or VM keeps its data in, as they are here — before data comes back they must be there */
+function needsBlock(x) {
+  const list = x.needs || [];
+  if (!list.length) return null;
+  const b = block(T('needs.title'), T('needs.text'));
+  list.forEach((n) => b.appendChild(needLine(n)));
+  return b;
+}
+
+function needLine(n) {
+  const line = el('div', 'rs-need');
+  const head = el('div', 'rs-place');
+  const cls = { data: 'ok', empty: 'quiet', missing: 'danger', unknown: 'quiet' }[n.state] || 'quiet';
+  head.append(el('code', '', n.share), ' ', chip(T('needs.' + n.state), cls, T('needs.' + n.state + '_hint')));
+  line.appendChild(head);
+  if (n.state === 'missing') {
+    line.appendChild(el('div', 'role', T('needs.create', { share: n.share })));
+    oldSettingsLines(n).forEach((x) => line.appendChild(x));
+  }
+  return line;
+}
+
+/** A missing share's settings on the old server, from the package — information only: this server may have other pools */
+function oldSettingsLines(n) {
+  if (!n.old) return [el('div', 'role', T('needs.old_none'))];
+  return [el('div', 'role', T('needs.old', { settings: oldSettingsText(n.old) })),
+    el('div', 'role', (n.old.missing_pools || []).length ? T('needs.pools_missing', { names: n.old.missing_pools.join(', ') }) : T('needs.old_info'))];
+}
+
+function oldSettingsText(o) {
+  const store = (s) => (s === 'array' ? T('needs.array') : s);
+  const parts = [T('needs.o_primary', { name: store(o.primary) })];
+  if (o.secondary) parts.push(T('needs.o_secondary', { name: store(o.secondary) }));
+  if (o.mover) parts.push(T('needs.o_mover', o.mover === 'to_primary' ? { from: store(o.secondary), to: store(o.primary) } : { from: store(o.primary), to: store(o.secondary) }));
+  parts.push(T('needs.o_allocator', { name: ['highwater', 'mostfree', 'fillup'].includes(o.allocator) ? T('needs.alloc_' + o.allocator) : o.allocator }));
+  parts.push(['any', 'manual'].includes(o.split) ? T('needs.o_split_' + o.split) : T('needs.o_split', { level: o.split }));
+  if (o.floor) parts.push(T('needs.o_floor', { size: fmt.size(o.floor) }));
+  if ((o.include || []).length) parts.push(T('needs.o_include', { list: o.include.join(', ') }));
+  if ((o.exclude || []).length) parts.push(T('needs.o_exclude', { list: o.exclude.join(', ') }));
+  parts.push(T('needs.o_smb_' + (['yes', 'hidden'].includes(o.smb) ? o.smb : 'no')));
+  if (o.smb === 'yes' || o.smb === 'hidden') parts.push(T('needs.o_security_' + (['secure', 'private'].includes(o.security) ? o.security : 'public')));
+  parts.push(T('needs.o_nfs_' + (o.nfs === 'yes' ? 'yes' : 'no')));
+  return parts.join(', ');
 }
 
 /** Where Kopia has an app or VM: its own source, or its share's */
@@ -846,6 +905,8 @@ function vmDetail(v) {
   b.appendChild(vmCommands(v));
   b.appendChild(earlierPart('vm', v));
   box.appendChild(b);
+  const needs = needsBlock(v);
+  if (needs) box.appendChild(needs);
   box.appendChild(snapshotsBlock(v.folders, [], v));
   if (kopia().enabled) box.appendChild(kopiaBlock(v.kopia));
   return box;
@@ -984,9 +1045,14 @@ function moveSection() {
   const vmOffsite = e.kopia && vmShares.length && vmShares.every((sh) => (state.shares || []).some((x) => x.name === sh && x.mode === 'kopia'));
   const flash = state.flash ? state.flash.path : `${base}/flash/flash.tar.gz`;
 
+  // the shares the apps and VMs keep their data in, as they are here: a missing one the user creates himself
+  const needs = new Map();
+  [...apps(), ...vms()].forEach((x) => (x.needs || []).forEach((n) => { if (!needs.has(n.share)) needs.set(n.share, n); }));
+  const needList = needs.size ? holder('rs-needs', el('div', 'role', T('move.s2_needs')), ...[...needs.values()].map(needLine)) : null;
+
   step(T('move.s1'), T('move.s1_text'));
   step(T('move.s2'), T('move.s2_text', { n: shares.length }), shares.length ? holder('rs-rules', ...shares.flatMap((n) => [el('code', '', n), ' '])) : null,
-    el('div', 'role', T('move.s2_cfg', { path: (state.server && state.server.shares) || `${base}/server/shares/` })));
+    el('div', 'role', T('move.s2_cfg', { path: (state.server && state.server.shares) || `${base}/server/shares/` })), needList);
   step(T('move.s3'), e.kopia ? T('move.s3_text', { root: kopiaRoot() }) : T('move.s3_nokopia'), e.kopia ? kopiaRootNote() : null, adviserLink());
   step(T('move.s4'), T('move.s4_text'), lines.length ? codeBlock(lines.join('\n')) : null,
     apps().some((a) => a.compose && a.compose.indirect) ? el('div', 'role', T('move.s4_indirect')) : null, el('div', 'role', T('move.s4_after')));
@@ -998,7 +1064,8 @@ function moveSection() {
       tpm.length ? el('div', 'role', T('move.s6_tpm', { names: tpm.join(', ') })) : null,
       el('div', 'role', T('move.s6_overlay')));
   }
-  step(T('move.s7'), e.flash === 'snapshot' ? T('move.s7_snapshot') : T('move.s7_tar', { path: flash }), el('div', 'role', T('move.s7_never')));
+  step(T('move.s7'), e.flash === 'snapshot' ? T('move.s7_snapshot') : T('move.s7_tar', { path: flash }), el('div', 'role', T('move.s7_never')),
+    el('div', 'role', T('move.s7_official')));
   step(T('move.s8'), T('move.s8_text'));
   s.appendChild(box);
   return s;
@@ -1045,6 +1112,8 @@ function listBlock(title, items) {
 function previewView(p, sizes) {
   const box = el('div', 'rs-preview');
   (p.blockers || []).forEach((b) => box.appendChild(el('p', 'callout warn', problemText(b))));
+  if (p.share_now && p.share_now.state === 'missing') oldSettingsLines(p.share_now).forEach((x) => box.appendChild(x));
+  if (p.moment) box.appendChild(momentView(p.moment));
   if (p.source) {
     const src = el('p', 'role rs-pv-src');
     src.append(T('rd.from'), ' ', el('code', '', p.source.path || ''));
@@ -1052,7 +1121,7 @@ function previewView(p, sizes) {
     if (bits.length) src.append(' · ', bits.join(' · '));
     box.appendChild(src);
   }
-  (p.notes || []).forEach((n) => box.appendChild(el('p', n.key.startsWith('note.method_') ? 'callout' : 'role', T(n.key, nice(n.params)))));
+  (p.notes || []).forEach((n) => box.appendChild(el('p', n.warn ? 'callout warn' : n.key.startsWith('note.method_') ? 'callout' : 'role', T(n.key, nice(n.params)))));
   if ((p.steps || []).length) {
     const ol = el('ol', 'rs-pv-steps');
     p.steps.forEach((s) => ol.appendChild(el('li', '', stepText(s))));
@@ -1073,8 +1142,28 @@ function previewView(p, sizes) {
   return box;
 }
 
+/** Step 4's source: the moment, and per part of the share (pool or disk) what it holds of it */
+function momentView(m) {
+  const wrap = el('div', 'rs-pv-part');
+  const src = el('p', 'role rs-pv-src');
+  src.append(T('rd.from'), ' ', el('strong', '', m.kopia ? T('rd.snap_kopia', { name: m.name }) : m.name), ' · ', date(m.time));
+  wrap.appendChild(src);
+  const ul = el('ul', 'rs-pv-list');
+  (m.parts || []).forEach((x) => {
+    const li = el('li');
+    li.append(el('strong', '', x.base === 'kopia' ? 'Kopia' : x.base), ': ');
+    if (x.asleep) li.append(T('rd.part_asleep'));
+    else if (!x.covered) li.append(T(x.content ? 'rd.part_uncovered_content' : 'rd.part_uncovered'));
+    else if (!x.holds) li.append(T('rd.part_empty'));
+    else li.append(copyCode(x.path));
+    ul.appendChild(li);
+  });
+  wrap.appendChild(ul);
+  return wrap;
+}
+
 /**
- * A restore's dialog: options (files: which snapshot, copy or swap, wake), the preview from the agent,
+ * A restore's dialog: options (files: which moment, a whole share's entries, copy or swap, wake), the preview from the agent,
  * an explicit «I have read it», then the start with the preview's token — the agent builds the plan
  * again and runs it only when it is still the same.
  */
@@ -1091,6 +1180,9 @@ async function restoreDialog(req, title) {
   let sizes = null;
   let timer = null;
   let ask = { ...req };
+  let seq = 0;                   // the newest preview asked for: an older answer arriving late is dropped
+  let sizeMap = null;            // path -> {bytes}: what the agent measured in the background
+  let entrySig = '';
   const d = Office.dialog({
     title,
     body,
@@ -1106,35 +1198,50 @@ async function restoreDialog(req, title) {
   const update = () => { go.disabled = !ready(); };
   okBox.onchange = update;
 
+  const onChange = (next) => { ask = next; preview(); };
+  const options = () => {
+    entrySig = JSON.stringify(((plan && plan.options && plan.options.entries) || []).map((e) => entryBytes(e, sizeMap)));
+    filesOptions(opts, plan, ask, onChange, sizeMap);
+  };
+
   async function preview() {
     clearTimeout(timer);
+    const mine = ++seq;
     go.disabled = true;
     pv.innerHTML = '';
     pv.appendChild(el('p', 'role', T('rd.loading')));
     const j = await Office.api.post(`${ID}.preview`, { ...ask, ...(plan ? { stamp: plan.stamp } : {}) });
+    if (mine !== seq) return;
     pv.innerHTML = '';
     if (!j.ok) { plan = null; pv.appendChild(el('p', 'callout warn', Office.errorText(j.error, ID))); update(); return; }
     plan = j.preview;
     sizes = plan.sizes;
-    if (plan.options && req.kind === 'files') filesOptions(opts, plan, ask, (next) => { ask = next; preview(); });
+    if (plan.options && req.kind === 'files') options();
     pv.appendChild(previewView(plan, sizes));
     update();
-    if (sizes && sizes.measuring) watchSize();
+    if ((sizes && sizes.measuring) || entriesPending()) watchSize();
   }
 
-  // the size of a snapshot's state is measured in the background: the page asks until it is there
+  // the entries of a whole share whose size isn't known yet (measured in the background, for the choice)
+  const entriesPending = () => ((plan && plan.options && plan.options.entries) || []).some((e) => entryBytes(e, sizeMap) === null);
+
+  // sizes are measured in the background: the page asks until they are there
   async function watchSize() {
+    const mine = seq;
     const j = await Office.api.get({ a: 'part', desk: ID, part: 'sizes' });
-    const got = j.ok && j.part && j.part.sizes && j.part.sizes[sizes.path];
-    if (got && got.bytes !== null && got.bytes !== undefined) {
-      sizes = { ...sizes, need: got.bytes, measuring: false };
-      if (sizes.free !== null && sizes.need > sizes.free * 0.95) { await preview(); return; }    // the agent says it won't fit
+    if (mine !== seq || !plan || !Office.dialogOpen()) return;
+    sizeMap = (j.ok && j.part && j.part.sizes) || {};
+    if (req.kind === 'files' && plan.options && JSON.stringify((plan.options.entries || []).map((e) => entryBytes(e, sizeMap))) !== entrySig) options();
+    const paths = sizes ? (sizes.paths || (sizes.path ? [sizes.path] : [])) : [];
+    const got = paths.map((x) => sizeMap[x]);
+    if (sizes && sizes.measuring && got.length && got.every((g) => g && g.bytes !== null && g.bytes !== undefined)) {
+      sizes = { ...sizes, need: got.reduce((sum, g) => sum + g.bytes, 0), measuring: false };
+      if (sizes.free !== null && sizes.free !== undefined && sizes.need > sizes.free * 0.95) { await preview(); return; }    // the agent says it won't fit
       pv.innerHTML = '';
       pv.appendChild(previewView(plan, sizes));
       update();
-      return;
     }
-    if (Office.dialogOpen()) timer = setTimeout(watchSize, JOB_POLL);
+    if ((sizes && sizes.measuring) || entriesPending()) timer = setTimeout(watchSize, JOB_POLL);
   }
 
   async function start() {
@@ -1159,26 +1266,36 @@ async function restoreDialog(req, title) {
   preview();
 }
 
-/** Step 4's options: which snapshot (newest first), copy next to it or swap it in, wake a sleeping disk */
-function filesOptions(box, plan, ask, change) {
+/**
+ * Step 4's options: which moment (newest first, with the parts of the share it covers), a whole share's entries
+ * (with their sizes), copy next to it or swap it in (put it in place, when nothing is there), wake a sleeping disk
+ */
+function filesOptions(box, plan, ask, change, sizeMap) {
   box.innerHTML = '';
   const o = plan.options || {};
-  if ((o.snaps || []).length) {
+  if ((o.moments || []).length) {
     const f = el('div', 'field');
     const label = el('label', '', T('rd.snap'));
     const sel = el('select', 'input');
     sel.id = 'rs-snap';
     label.htmlFor = sel.id;
-    o.snaps.forEach((s) => {
-      const op = el('option', '', s.kopia ? `${date(s.time)} — ${T('rd.snap_kopia', { name: s.name })}` : `${date(s.time)} — ${s.name}${s.ours ? ' · ' + T('rd.snap_ours') : ''} (${s.base})`);
-      op.value = s.id;
-      op.selected = s.id === plan.target.snap;
+    if (!plan.target.snap) {
+      const op = el('option', '', T('rd.m_choose'));
+      op.value = '';
+      op.selected = true;
+      sel.appendChild(op);
+    }
+    o.moments.forEach((m) => {
+      const op = el('option', '', momentLabel(m, o));
+      op.value = m.id;
+      op.selected = m.id === plan.target.snap;
       sel.appendChild(op);
     });
     sel.onchange = () => change({ ...ask, snap: sel.value });
     f.append(label, sel);
     box.appendChild(f);
   }
+  if (o.whole && (o.entries || []).length) box.appendChild(entriesField(o.entries, plan, ask, change, sizeMap));
   const way = el('div', 'field');
   way.appendChild(el('div', 'field-title', T('rd.way')));
   ['copy', 'swap'].forEach((m) => {
@@ -1186,10 +1303,11 @@ function filesOptions(box, plan, ask, change) {
     const r = el('input');
     r.type = 'radio';
     r.name = 'rs-way';
-    r.checked = (ask.mode || 'copy') === m;
+    r.checked = (ask.mode || plan.target.mode || 'copy') === m;
     r.onchange = () => change({ ...ask, mode: m, snap: plan.target.snap || ask.snap || '' });
-    const text = el('span', '', T('rd.way_' + m));
-    text.appendChild(el('small', '', T('rd.way_' + m + '_hint')));
+    const key = m === 'swap' && o.nothing_live ? 'rd.way_place' : 'rd.way_' + m;
+    const text = el('span', '', T(key));
+    text.appendChild(el('small', '', T(key + '_hint')));
     l.append(r, text);
     way.appendChild(l);
   });
@@ -1205,6 +1323,61 @@ function filesOptions(box, plan, ask, change) {
     l.append(c, text);
     box.appendChild(l);
   }
+}
+
+/** A moment in the list: when, its name, whose, which parts of the share it covers, whether it holds anything of it */
+function momentLabel(m, o) {
+  if (m.kopia) return `${date(m.time)} — ${T('rd.snap_kopia', { name: m.name })}`;
+  const bits = [`${date(m.time)} — ${m.name}`];
+  if (m.ours) bits.push(T('rd.snap_ours'));
+  if ((o.parts || []).length > 1) bits.push(m.bases.length >= o.parts.length ? T('rd.m_all') : T('rd.m_some', { bases: m.bases.join(' + ') }));
+  if (m.holds && !m.holds.length) bits.push(T('rd.m_empty'));
+  return bits.join(' · ');
+}
+
+/** A whole share's entries at its top: all of them, or the ones ticked */
+function entriesField(entries, plan, ask, change, sizeMap) {
+  const f = el('div', 'field rs-entries');
+  f.appendChild(el('div', 'field-title', T('rd.items')));
+  const chosen = new Set(plan.target.items || entries.map((e) => e.name));
+  const send = () => change({ ...ask, snap: plan.target.snap, items: entries.map((e) => e.name).filter((n) => chosen.has(n)) });
+  const all = el('label', 'check');
+  const allBox = el('input');
+  allBox.type = 'checkbox';
+  allBox.checked = entries.every((e) => chosen.has(e.name));
+  allBox.onchange = () => { entries.forEach((e) => (allBox.checked ? chosen.add(e.name) : chosen.delete(e.name))); send(); };
+  all.append(allBox, el('span', '', T('rd.items_all', { share: (plan.options || {}).share || '' })));
+  f.appendChild(all);
+  const multi = ((plan.options || {}).parts || []).length > 1;
+  entries.forEach((e) => {
+    const l = el('label', 'check rs-entry');
+    const c = el('input');
+    c.type = 'checkbox';
+    c.checked = chosen.has(e.name);
+    c.onchange = () => { if (c.checked) chosen.add(e.name); else chosen.delete(e.name); send(); };
+    const text = el('span', '', e.kind === 'file' ? e.name : `${e.name}/`);
+    const bytes = entryBytes(e, sizeMap);
+    const meta = [bytes !== null ? fmt.size(bytes) : T('rd.item_measuring'), T(e.live ? 'rd.item_there' : 'rd.item_not_there')];
+    if (multi && (e.bases || []).length) meta.push(e.bases.join(' + '));
+    text.appendChild(el('small', '', meta.join(' · ')));
+    l.append(c, text);
+    f.appendChild(l);
+  });
+  return f;
+}
+
+/** An entry's size: from the plan, or from what was measured since (all of its parts), null while not known */
+function entryBytes(e, sizeMap) {
+  if (e.bytes !== null && e.bytes !== undefined) return e.bytes;
+  const paths = e.paths || [];
+  if (!sizeMap || !paths.length) return null;
+  let sum = 0;
+  for (const x of paths) {
+    const got = sizeMap[x];
+    if (!got || got.bytes === null || got.bytes === undefined) return null;
+    sum += got.bytes;
+  }
+  return sum;
 }
 
 /** Step 6: which Kopia snapshot of a source — Kopia is asked first (seconds) — then the usual preview */

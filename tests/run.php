@@ -1055,7 +1055,8 @@ function testRestoreShares(): void
                     'zz-mother/zzdrop' => [['name' => 'unraidbackup-20261006-0100', 'time' => $T0 + 60], ['name' => 'manual-x', 'time' => $T1], ['name' => 'uso-plan-test-20261006-1500', 'time' => $T2]],
                     'zz-hive/zzdrop/shares' => [['name' => 'manual-x', 'time' => $T1]],
                     'zz-hive/zzempty' => [['name' => 'manual-e', 'time' => $T1]], 'zz-hive/zzmany' => [['name' => 'manual-m', 'time' => $T1]]],
-        'asleep' => [], 'prefixes' => ['uso-backup-', 'unraidbackup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => [],
+        // disk1 still holds a part of it (the engine noted it at the setup): the array is no storage of the share any more
+        'asleep' => [], 'prefixes' => ['uso-backup-', 'unraidbackup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => ['share|zzdrop' => ['locations' => ['hive, mother, disk1']]],
         'cfg' => ['zzdrop' => ['shareUseCache' => 'prefer', 'shareCachePool' => 'hive', 'shareCachePool2' => 'mother', 'shareFloor' => '1000'],
                   'zzempty' => ['shareUseCache' => 'only', 'shareCachePool' => 'hive'], 'zzmany' => ['shareUseCache' => 'only', 'shareCachePool' => 'hive'], 'zzgone' => []],
         'mnt' => $mnt, 'user' => "$mnt/user",
@@ -1158,6 +1159,7 @@ function testRestoreShares(): void
 
     // a part with content now that the moment doesn't cover: said so (warning); a moment that holds nothing of it is refused
     $put("$mnt/mother/zzdrop/texts/m.txt", 'on mother');
+    $stamp = '20261006-161000';
     $c = $ctx;
     $p = rsPlanFilesFor('/mnt/user/zzdrop/texts', 'name:hive-only', 'swap', false, $owner, $stamp, $c);
     $un = array_values(array_filter($p['notes'], fn ($n) => $n['key'] === 'note.files_uncovered'))[0] ?? [];
@@ -1169,6 +1171,21 @@ function testRestoreShares(): void
     $c['asleep'] = ['mother' => true];
     same('restore shares: a part asleep — through /mnt/user only with «wake»', ['restore_asleep'],
         array_column(rsPlanFilesFor('/mnt/user/zzdrop/texts', 'name:manual-x', 'copy', false, $owner, $stamp, $c)['blockers'], 'key'));
+    $c = $ctx;
+    $c['asleep'] = ['hive' => true];
+    $p = rsPlanFilesFor('/mnt/user/zzdrop', '', '', false, $owner, $stamp, $c);
+    same('restore shares: the part holding the data asleep — «wake», never "nothing there"', [['restore_asleep'], ['hive'], ['mother', 'disk1']],
+        [array_column($p['blockers'], 'key'), $p['options']['asleep'], array_values(array_unique(array_merge(...array_column($p['options']['moments'], 'bases'))))]);
+    $c = $ctx;
+    $c['asleep'] = ['hive' => true];
+    $p = rsPlanFilesFor('/mnt/user/zzdrop', '', '', true, $owner, $stamp, $c);
+    same('restore shares: with «wake» it is looked into', ['name:manual-x', []], [$p['target']['snap'], array_column($p['blockers'], 'key')]);
+    $c = $ctx;
+    $c['fs']['disk2'] = 'xfs';
+    $bases = fn (array $cfg) => (function () use ($c, $cfg) { $c['cfg']['zz'] = $cfg; return rsShareBases('zz', $c); })();
+    same('restore shares: the array is a part only as primary or secondary storage', [['hive', 'mother'], ['hive', 'disk1', 'disk2'], ['disk1', 'disk2'], ['hive']],
+        [$bases(['shareUseCache' => 'prefer', 'shareCachePool' => 'hive', 'shareCachePool2' => 'mother']), $bases(['shareUseCache' => 'yes', 'shareCachePool' => 'hive']),
+         $bases(['shareUseCache' => 'no', 'shareCachePool' => 'hive']), $bases(['shareUseCache' => 'only', 'shareCachePool' => 'hive'])]);
 
     // a share that is gone: never created here — its old settings as information, pools this server lacks named
     $c = $ctx;

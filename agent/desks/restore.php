@@ -325,7 +325,9 @@ function rsShareBases(string $share, array &$ctx): array
             $bases[] = $cfg[$k];
         }
     }
-    if (!$cfg || ($cfg['shareUseCache'] ?? 'no') !== 'only') {
+    // the array: primary storage (no cache) or secondary — not when the share is pool only or its secondary is a pool
+    $use = $cfg['shareUseCache'] ?? 'no';
+    if (!$cfg || $use === 'no' || (in_array($use, ['yes', 'prefer'], true) && ($cfg['shareCachePool2'] ?? '') === '')) {
         $include = array_filter(array_map('trim', explode(',', (string) ($cfg['shareInclude'] ?? ''))));
         $exclude = array_filter(array_map('trim', explode(',', (string) ($cfg['shareExclude'] ?? ''))));
         $disks = $include ?: array_filter(array_keys($ctx['fs']), fn ($d) => preg_match('/^disk\d+$/', (string) $d));
@@ -1917,8 +1919,9 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
         if ($momentId !== '' && !$asleep) {
             throw new Problem('unknown_target', ['target' => $momentId]);
         }
-        $plan['blockers'][] = $momentId === '' && $moments ? ['key' => 'restore_not_in_snapshot', 'params' => ['path' => $path]]
-            : ($asleep ? ['key' => 'restore_asleep', 'params' => ['base' => implode(', ', $asleep)]] : ['key' => 'restore_no_snapshot', 'params' => []]);
+        // a part that sleeps may hold it: say so (with «wake»), never "nothing there"
+        $plan['blockers'][] = $asleep ? ['key' => 'restore_asleep', 'params' => ['base' => implode(', ', $asleep)]]
+            : ($momentId === '' && $moments ? ['key' => 'restore_not_in_snapshot', 'params' => ['path' => $path]] : ['key' => 'restore_no_snapshot', 'params' => []]);
         return $plan;
     }
     if ($moment['holds'] === null) {
@@ -1972,7 +1975,8 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
         $chosen = $items === null ? $names : array_values(array_intersect($names, $items));
         $plan['target']['items'] = $chosen;
         if (!$names) {
-            $plan['blockers'][] = ['key' => 'restore_not_in_snapshot', 'params' => ['path' => $path]];
+            $plan['blockers'][] = $asleep ? ['key' => 'restore_asleep', 'params' => ['base' => implode(', ', $asleep)]]
+                : ['key' => 'restore_not_in_snapshot', 'params' => ['path' => $path]];
             return $plan;
         }
         if (!$chosen) {
@@ -2000,7 +2004,8 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
     foreach ($chosen as $n) {
         $it = $infos[$n];
         if (!$it['sources']) {
-            $plan['blockers'][] = ['key' => 'restore_not_in_snapshot', 'params' => ['path' => "/mnt/user/$share/$n"]];
+            $plan['blockers'][] = $asleep ? ['key' => 'restore_asleep', 'params' => ['base' => implode(', ', $asleep)]]
+                : ['key' => 'restore_not_in_snapshot', 'params' => ['path' => "/mnt/user/$share/$n"]];
             continue;
         }
         $own = count($it['live']) === 1 && $it['live'][0]['own_dataset'] ? $it['live'][0] : null;
@@ -2059,11 +2064,11 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
             $plan['notes'][] = ['key' => 'note.files_inner', 'params' => ['list' => implode(', ', array_unique($inside))]];
         }
     }
-    if ($asleep && $userItems) {
+    if ($asleep && $userItems && !in_array('restore_asleep', array_column($plan['blockers'], 'key'), true)) {
         // through /mnt/user shfs looks on every disk of the share: never on a sleeping one unasked
         $plan['blockers'][] = ['key' => 'restore_asleep', 'params' => ['base' => implode(', ', $asleep)]];
     } elseif ($asleep) {
-        $plan['notes'][] = ['key' => 'note.files_part', 'params' => ['base' => implode(', ', $asleep)]];
+        $plan['notes'][] = ['key' => 'note.files_asleep', 'params' => ['base' => implode(', ', $asleep)]];
     }
     if ($union) {
         $plan['notes'][] = ['key' => 'note.files_union', 'params' => ['bases' => implode(' + ', array_unique($union))]];
