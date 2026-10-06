@@ -153,6 +153,30 @@ const WATCH_KINDS = [
     'smb_hour'             => ['flow', false],
     'snap_gone'            => ['snap', true],       // snapshots gone that the office didn't remove
     'snap_hold_released'   => ['snap', true],       // a hold released, not by Ms. Snapshotini
+    'log_cleared'          => ['host', true],       // a log emptied or replaced outside its rotation (watchmanHostLogsCompare())
+    'user_ram'             => ['host', true],       // an account in RAM the flash doesn't have, a second root, a login shell or password for a system account
+    'listen_new'           => ['host', true],       // a program of the server listens on a network port it never used
+    'proc_odd'             => ['host', true],       // a program runs from a scratch folder (/tmp, /dev/shm …) or from memory
+];
+
+/**
+ * Each kind's nearest MITRE ATT&CK technique (attack.mitre.org) — the words a security team searches for; the page
+ * links it, the syslog export carries it. Nearest, not exact: a new plugin is software that runs as root at boot.
+ */
+const WATCH_ATTACK = [
+    'login_new_ip' => 'T1078', 'login_failures' => 'T1110',
+    'container_new' => 'T1610', 'container_privileged' => 'T1611', 'container_host' => 'T1611', 'container_ports' => 'T1133',
+    'container_rights' => 'T1611',
+    'plugin_new' => 'T1543', 'plugin_source' => 'T1195.002',
+    'flash_go' => 'T1037.004', 'flash_extra' => 'T1037.004', 'flash_user' => 'T1136.001', 'flash_password' => 'T1098',
+    'flash_ssh_key' => 'T1098.004', 'share_public' => 'T1222',
+    'cron_new' => 'T1053.003', 'cron_twice' => 'T1053.003', 'cron_office' => 'T1053.003', 'cron_file' => 'T1053.003',
+    'cron_file_foreign' => 'T1053.003', 'script_new' => 'T1053.003', 'script_changed' => 'T1053.003',
+    'at_job' => 'T1053.002', 'at_userscript' => 'T1053.002', 'notify_agent' => 'T1546',
+    'flow_client' => 'T1039', 'flow_container' => 'T1041', 'flow_written' => 'T1486', 'flow_gone' => 'T1485',
+    'smb_user' => 'T1021.002', 'smb_client' => 'T1021.002', 'smb_hour' => 'T1021.002',
+    'snap_gone' => 'T1490', 'snap_hold_released' => 'T1490',
+    'log_cleared' => 'T1070.002', 'user_ram' => 'T1136.001', 'listen_new' => 'T1133', 'proc_odd' => 'T1105',
 ];
 
 /**
@@ -241,6 +265,14 @@ function watchmanPaths(): array
         'cpu_vulns'  => '/sys/devices/system/cpu/vulnerabilities',
         'libvirt_sock' => '/var/run/libvirt/libvirt-sock',
         'virsh'      => 'virsh',
+        // the host itself (watchmanHost())
+        'proc'       => '/proc',
+        'etc_shadow' => '/etc/shadow',
+        'logs'       => WATCH_HOST_LOGS,
+        'logrotate'  => '/var/lib/logrotate.status',
+        'boot_id'    => '/proc/sys/kernel/random/boot_id',
+        'port_range' => '/proc/sys/net/ipv4/ip_local_port_range',
+        'ss'         => 'ss',
     ];
 }
 
@@ -508,6 +540,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     [$events, $pos, $read] = watchmanReadLogins($paths['syslog'], $fresh ? null : ($snap['state']['syslog'] ?? null), $fresh, $known, $now);
     $containers = $docker ? $docker() : watchmanContainers();
     $look = $flow ? $flow($containers) : null;
+    $host = watchmanHost($paths, $containers);          // with the containers' main processes (whose programs run where)
     if (is_array($containers)) {
         $containers = array_map(fn ($c) => array_diff_key((array) $c, ['pid' => true]), $containers);     // the process is the data flow's only
     }
@@ -517,6 +550,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         'flash'      => watchmanFlash($paths),
         'shares'     => watchmanShares($paths),
         'sched'      => watchmanSched($paths, (array) ((readJson("$dir/seen.json") ?? [])['sched'] ?? []), $now),
+        'host'       => $host,
     ];
     $office = watchmanOfficeLook($paths, $now);
     $facts = watchmanPostureLook($paths);
@@ -540,6 +574,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         if ($observed['shares'] === null) {
             $observed['shares'] = $old['seen']['shares'] ?? null;
         }
+        $observed['host'] = watchmanHostObserved($seen['host'], $old['seen']['host'] ?? null);
         $added = $told = [];
         if ($fresh) {
             [$b, $book, $st] = watchmanTakeOver($hired, $events, $seen, $book, $st, $now);
@@ -561,6 +596,8 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                 watchmanFlashCompare($b['flash'], $seen['flash'], $book, $now),
                 watchmanSharesCompare($b['shares'], $seen['shares'], $book, $now),
                 watchmanSchedCompare($b['sched'], $seen['sched'], $seen['plugins'], $book, $now, $office),
+                watchmanHostCompare($b['host'], $seen['host'], is_array($old['seen']) ? ($old['seen']['host'] ?? null) : null,
+                    (array) ($seen['flash']['users'] ?? []), $book, $now),
             );
         }
         $flow = null;
@@ -630,6 +667,8 @@ function watchmanTakeOver(int $hired, array $events, array $seen, array $book, a
         $b['shares'] = array_map(fn ($s) => $s + ['seen' => $now], $seen['shares']);
     }
     watchmanSchedCompare($b['sched'], $seen['sched'] ?? null, $seen['plugins'], $none, $now);     // all of it normal
+    $b['host'] = null;
+    watchmanHostCompare($b['host'], $seen['host'] ?? null, null, (array) ($seen['flash']['users'] ?? []), $none, $now);     // likewise
     foreach ($book as $i => $e) {
         if (watchmanOpen($e)) {
             $book[$i]['noted'] = $now;
@@ -1279,6 +1318,36 @@ function watchmanOfficeContainer(array $office, string $name, array $c): bool
     return false;
 }
 
+/** A line of the office's own cron file exactly as officeJobSetSchedule() writes it: a cron time, then one of its jobs */
+function watchmanOfficeCronLine(string $line): bool
+{
+    foreach (OFFICE_JOBS as $job) {
+        $cmd = ' ' . officeJobCommand($job);
+        if (str_ends_with($line, $cmd) && preg_match(WATCH_CRON_LINE, $line) && count(preg_split('/\s+/', substr($line, 0, -strlen($cmd)))) === 5) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * The office changed its own schedule (a time set on a desk's page): a line in the book, noted by himself (`by`
+ * schedule); an entry still open about that file (from before 1.30) is closed with it
+ */
+function watchmanOfficeNoteSchedule(array &$book, string $file, int $now, array $p): void
+{
+    foreach ($book as $i => $e) {
+        if (($e['key'] ?? '') === "cron_file:$file" && watchmanOpen($e)) {
+            $book[$i]['noted'] = $now;
+            $book[$i]['by'] = 'schedule';
+        }
+    }
+    $e = watchmanEntry('cron_file', "cron_file:$file", $now, $p);
+    $e['noted'] = $now;
+    $e['by'] = 'schedule';
+    $book[] = $e;
+}
+
 /** The office's own doing: a line in the book, noted by himself (`by` office) — never open, never told */
 function watchmanOfficeNote(array &$book, string $kind, string $key, int $now, array $p): void
 {
@@ -1616,6 +1685,350 @@ function watchmanSharesCompare(?array &$known, ?array $seen, array &$book, int $
     foreach ($known as $share => $k) {
         if (!isset($seen[$share]) && $now - (int) ($k['seen'] ?? $now) > WATCH_FORGET) {
             unset($known[$share]);
+        }
+    }
+    return array_values(array_filter($added));
+}
+
+// ===================================================================== the host itself (what a SOC watches on Linux)
+
+/*
+ * What a security operations centre watches on a Linux server beyond logins and schedules — only what says
+ * something on Unraid and costs little each round (RAM and /proc, no disk woken, nothing switched on):
+ * logs emptied or replaced outside their rotation (T1070.002), accounts that exist only in RAM or got a
+ * login (T1136.001), a program that newly listens on a network port (T1133), programs running from a scratch
+ * folder or from memory (T1105). Like everything else: what is there at his first round is normal; later a
+ * new one is an entry; «I know, thanks» makes it normal. Not done, and why — help.host_not.
+ */
+const WATCH_HOST_LOGS   = ['syslog' => '/var/log/syslog', 'wtmp' => '/var/log/wtmp', 'btmp' => '/var/log/btmp', 'lastlog' => '/var/log/lastlog'];
+const WATCH_HOST_MAX    = 200;          // listeners, odd programs, accounts — each
+// a scratch folder (also in a container), a hidden folder on the way, a program in memory only
+const WATCH_ODD_EXE     = '#^/(?:tmp|dev/shm|var/tmp|run)/|/\.[^/]+/|^/memfd:#';
+const WATCH_ODD_OK      = '#^/memfd:runc_cloned:#';      // Docker's runc runs a copy of itself from memory at every container start
+// listeners that are someone else's to watch: Docker's port forwarders (his container_ports), the VMs' consoles
+const WATCH_LISTEN_SKIP = '/^(?:docker-proxy|qemu-system-.*)$/D';
+
+/**
+ * The host as this round sees it — null parts were not looked at ($paths without them: the tests' older copies).
+ * $containers: name => [pid …] (the main process: a program's container is found by its PID namespace).
+ */
+function watchmanHost(array $paths, ?array $containers): ?array
+{
+    if (!isset($paths['proc'])) {
+        return null;
+    }
+    $boot = isset($paths['boot_id']) ? trim((string) @file_get_contents($paths['boot_id'], false, null, 0, 64)) : '';
+    return [
+        'boot'   => $boot !== '' ? $boot : null,
+        'logs'   => isset($paths['logs']) ? watchmanHostLogs((array) $paths['logs'], $paths['logrotate'] ?? null) : null,
+        'users'  => watchmanHostUsers($paths),
+        'listen' => watchmanHostListen($paths),
+        'procs'  => watchmanHostProcs((string) $paths['proc'], $containers),
+    ];
+}
+
+/** What the last round saw stays for the parts not looked at this time (like Docker not answering) */
+function watchmanHostObserved(?array $seen, ?array $old): ?array
+{
+    if ($seen === null) {
+        return $old;
+    }
+    foreach (['logs', 'users', 'listen', 'procs'] as $k) {
+        if ($seen[$k] === null && is_array($old[$k] ?? null) && ($k !== 'logs' || ($old['boot'] ?? null) === $seen['boot'])) {
+            $seen[$k] = $old[$k];
+        }
+    }
+    return $seen;
+}
+
+/**
+ * The logs a cleaner of tracks empties: per log its inode and size, the inodes of its rotated copies
+ * (<log>.1 …) and logrotate's date for it — a rotation (Unraid's logrotate renames, size 1M for the
+ * syslog, monthly for wtmp/btmp) gives a new file whose old inode lives on as .1, or a new date.
+ *
+ * @return array<string, ?array{ino: int, size: int, old: list<int>, rot: ?string}>
+ */
+function watchmanHostLogs(array $logs, ?string $status): array
+{
+    $rotated = [];
+    foreach (explode("\n", (string) ($status !== null ? @file_get_contents($status, false, null, 0, 1 << 20) : '')) as $line) {
+        if (preg_match('/^"([^"]+)"\s+(\S+)/', trim($line), $m)) {
+            $rotated[$m[1]] = $m[2];
+        }
+    }
+    $out = [];
+    clearstatcache();
+    foreach ($logs as $id => $file) {
+        $st = @lstat((string) $file);
+        if (!$st || ($st['mode'] & 0170000) !== 0100000) {
+            $out[$id] = null;
+            continue;
+        }
+        $old = [];
+        foreach (glob($file . '.[0-9]') ?: [] as $f) {
+            $o = @lstat($f);
+            if ($o) {
+                $old[] = (int) $o['ino'];
+            }
+        }
+        $out[$id] = ['ino' => (int) $st['ino'], 'size' => (int) $st['size'], 'old' => $old, 'rot' => $rotated[$file] ?? null];
+    }
+    return $out;
+}
+
+/**
+ * The accounts in RAM (/etc/passwd, /etc/shadow — Unraid builds them from the flash at boot): uid, whether its
+ * shell lets it log in, and of the password only its state — a hash, none at all (empty: no password needed), or
+ * locked (!, *, x). Never the hash.
+ *
+ * @return array<string, array{uid: int, shell: bool, pw: string}>|null
+ */
+function watchmanHostUsers(array $paths): ?array
+{
+    $text = isset($paths['etc_passwd']) ? @file_get_contents($paths['etc_passwd'], false, null, 0, 1 << 20) : false;
+    if (!is_string($text) || $text === '') {
+        return null;
+    }
+    $pw = [];
+    $shadow = isset($paths['etc_shadow']) ? @file_get_contents($paths['etc_shadow'], false, null, 0, 1 << 20) : false;
+    foreach (explode("\n", is_string($shadow) ? $shadow : '') as $line) {
+        $f = explode(':', $line);
+        if (count($f) >= 2 && $f[0] !== '') {
+            $pw[$f[0]] = $f[1] === '' ? 'none' : (preg_match('/^[!*x]/', $f[1]) ? 'locked' : 'hash');
+        }
+    }
+    $out = [];
+    foreach (explode("\n", $text) as $line) {
+        $f = explode(':', trim($line));
+        if (count($f) < 7 || !preg_match('/^[a-z_][a-z0-9_.-]{0,31}\$?$/iD', $f[0]) || !ctype_digit($f[2]) || count($out) >= WATCH_HOST_MAX) {
+            continue;
+        }
+        // an empty shell field means /bin/sh; nologin, false and the like don't let anyone in
+        $shell = trim($f[6]);
+        $out[$f[0]] = ['uid' => (int) $f[2], 'shell' => !preg_match('#(?:^|/)(?:nologin|false|true|sync|shutdown|halt)$#D', $shell),
+                       'pw' => $pw[$f[0]] ?? ($f[1] === '' ? 'none' : 'locked')];
+    }
+    return $out;
+}
+
+/** The TCP ports programs of the server listen on (ss, the host's network) — not loopback, not Docker's or the VMs' */
+function watchmanHostListen(array $paths): ?array
+{
+    if (!isset($paths['ss']) || ($paths['ss'] === 'ss' && bin('ss') === null)) {
+        return null;
+    }
+    [$exit, $out] = hostNet([(string) $paths['ss'], '-H', '-tlnp'], 20);
+    if ($exit !== 0) {
+        return null;
+    }
+    $low = (int) (preg_split('/\s+/', trim((string) @file_get_contents($paths['port_range'] ?? '', false, null, 0, 64)))[0] ?? 0);
+    return watchmanListenParse($out, $low > 1024 ? $low : 32768);
+}
+
+/**
+ * `ss -H -tlnp` (State Recv-Q Send-Q Local Peer Process) → "tcp:<port>" => program, port, addresses: the port is
+ * what is new (ss names the first process holding it — Samba's smbd one round, smbd-scavenger the next). A port
+ * from the dynamic range (ip_local_port_range: rpc.statd and the like pick one at every start) counts as
+ * "<program>:*" — there the program is what is new, not its port.
+ *
+ * @return array<string, array{prog: string, port: ?int, addr: list<string>}>
+ */
+function watchmanListenParse(string $text, int $low): array
+{
+    $out = [];
+    foreach (explode("\n", $text) as $line) {
+        $f = preg_split('/\s+/', trim($line));
+        if (count($f) < 5 || $f[0] !== 'LISTEN' || !preg_match('/^(.+):(\d{1,5})$/D', $f[3], $m)) {
+            continue;
+        }
+        $addr = trim((string) preg_replace('/%.*$/', '', $m[1]), '[]');
+        if (str_starts_with($addr, '127.') || $addr === '::1' || $addr === '::ffff:127.0.0.1' || $addr === 'localhost') {
+            continue;               // only this server itself reaches it
+        }
+        $prog = preg_match('/users:\(\("([^"]{1,64})"/', $line, $p) ? watchmanClean($p[1], 32) : '?';
+        if (preg_match(WATCH_LISTEN_SKIP, $prog)) {
+            continue;
+        }
+        $port = (int) $m[2];
+        $dynamic = $port >= $low;
+        $key = $dynamic ? "$prog:*" : "tcp:$port";
+        if (!isset($out[$key])) {
+            if (count($out) >= WATCH_HOST_MAX) {
+                break;
+            }
+            $out[$key] = ['prog' => $prog, 'port' => $dynamic ? null : $port, 'addr' => []];
+        }
+        $where = in_array($addr, ['*', '0.0.0.0', '::'], true) ? '*' : $addr;
+        if (!in_array($where, $out[$key]['addr'], true) && count($out[$key]['addr']) < WATCH_LIST_MAX) {
+            $out[$key]['addr'][] = $where;
+        }
+    }
+    ksort($out);
+    return $out;
+}
+
+/**
+ * Programs running from a scratch folder, a hidden folder or from memory — on the server itself or inside a
+ * container (its path as the container sees it; the container by its PID namespace). One readlink per process
+ * (~1'600 on nostromo), the namespaces only for the few that match. A binary replaced while it runs (a plugin
+ * update) shows "(deleted)" — that alone is no news.
+ *
+ * @return array<string, array{where: ?string, exe: string, prog: string}>|null  "host:<exe>" / "ct:<container>:<exe>"
+ */
+function watchmanHostProcs(string $proc, ?array $containers): ?array
+{
+    $init = @readlink("$proc/1/ns/mnt");
+    if ($init === false || !is_dir($proc)) {
+        return null;
+    }
+    $pidns = null;
+    $out = [];
+    foreach (scandir($proc) ?: [] as $pid) {
+        if (!ctype_digit($pid)) {
+            continue;
+        }
+        $exe = @readlink("$proc/$pid/exe");
+        if ($exe === false || $exe === '') {
+            continue;               // a kernel thread, or gone meanwhile
+        }
+        $path = str_ends_with($exe, ' (deleted)') ? substr($exe, 0, -10) : $exe;
+        if (!preg_match(WATCH_ODD_EXE, $path) || preg_match(WATCH_ODD_OK, $path)) {
+            continue;
+        }
+        $where = null;
+        if (@readlink("$proc/$pid/ns/mnt") !== $init) {
+            if ($pidns === null) {
+                $pidns = [];
+                foreach ((array) $containers as $name => $c) {
+                    $main = (int) ($c['pid'] ?? 0);
+                    $ns = $main > 1 ? @readlink("$proc/$main/ns/pid") : false;
+                    if ($ns !== false) {
+                        $pidns[$ns] ??= (string) $name;
+                    }
+                }
+            }
+            $where = $pidns[(string) @readlink("$proc/$pid/ns/pid")] ?? '?';
+        }
+        $clean = watchmanClean($path, 200);
+        $key = ($where === null ? 'host' : 'ct:' . watchmanClean($where, 100)) . ':' . watchmanOddKey($clean);
+        if (!isset($out[$key])) {
+            if (count($out) >= WATCH_HOST_MAX) {
+                break;
+            }
+            $out[$key] = ['where' => $where === null ? null : watchmanClean($where, 100), 'exe' => $clean,
+                          'prog' => watchmanClean(trim((string) @file_get_contents("$proc/$pid/comm", false, null, 0, 64)), 32)];
+        }
+    }
+    ksort($out);
+    return $out;
+}
+
+/**
+ * A program's path as his memory keeps it: parts a program picks anew at every start become * — an AppImage's
+ * mount (/tmp/.mount_firefoAb12Cd/…, Unraid's GUI mode runs Firefox so), a folder of mktemp (tmp.Xy12Ab) or another
+ * name of letters and digits mixed. The entry still shows the real path.
+ */
+function watchmanOddKey(string $path): string
+{
+    $path = (string) preg_replace('#^/tmp/\.mount_([^/]*?)[A-Za-z0-9]{6}/#', '/tmp/.mount_$1*/', $path);
+    $parts = explode('/', $path);
+    foreach ($parts as $i => $part) {
+        if ($i < count($parts) - 1 && preg_match('/^(?:tmp\.)?(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{6,}$/D', $part)) {
+            $parts[$i] = '*';
+        }
+    }
+    return implode('/', $parts);
+}
+
+/**
+ * The host against what is normal ($known: baseline host — users, listen, procs; null: everything seen is normal,
+ * his first look). Logs: this round against the last ($prev), only within one boot (/var/log is new at every boot).
+ * $flash: the users on the flash — their changes are the flash watch's.
+ *
+ * @return list<string>  the kinds of new entries
+ */
+function watchmanHostCompare(?array &$known, ?array $seen, ?array $prev, array $flash, array &$book, int $now): array
+{
+    if ($seen === null) {
+        return [];
+    }
+    $first = !is_array($known);
+    $known = is_array($known) ? $known : [];
+    $added = [];
+    // logs: emptied (the same file, smaller), replaced or gone — unless logrotate did it
+    if (!$first && is_array($seen['logs']) && is_array($prev['logs'] ?? null) && $seen['boot'] !== null && ($prev['boot'] ?? null) === $seen['boot']) {
+        foreach ($seen['logs'] as $id => $cur) {
+            $was = $prev['logs'][$id] ?? null;
+            if (!is_array($was)) {
+                continue;
+            }
+            $rotated = (is_array($cur) && in_array((int) $was['ino'], (array) $cur['old'], true)) || (($cur['rot'] ?? null) !== ($was['rot'] ?? null) && ($cur['rot'] ?? null) !== null);
+            $how = null;
+            if ($cur === null) {
+                $how = $rotated ? null : 'gone';
+            } elseif ((int) $cur['ino'] === (int) $was['ino']) {
+                $how = (int) $cur['size'] < (int) $was['size'] ? 'cut' : null;
+            } elseif (!$rotated) {
+                $how = 'replaced';
+            }
+            if ($how !== null) {
+                $added[] = watchmanBump($book, 'log_cleared', "log_cleared:$id", $now, 1,
+                    ['log' => (string) (WATCH_HOST_LOGS[$id] ?? $id), 'how' => [$how],
+                     'sizes' => [watchmanSize((int) $was['size']) . ' → ' . ($cur === null ? '–' : watchmanSize((int) $cur['size']))]]);
+            }
+        }
+    }
+    // accounts: a new one the flash doesn't have, a second root, a system account that got a login shell or a password
+    if (is_array($seen['users'])) {
+        $knownUsers = is_array($known['users'] ?? null) ? $known['users'] : null;
+        foreach ($seen['users'] as $name => $u) {
+            $k = $knownUsers[$name] ?? null;
+            $onFlash = in_array($name, $flash, true);
+            $why = [];
+            if ($knownUsers !== null && !$first) {
+                if ($k === null && !$onFlash) {
+                    $why[] = 'new';
+                }
+                if ($u['uid'] === 0 && $name !== 'root' && (int) ($k['uid'] ?? -1) !== 0) {
+                    $why[] = 'uid0';
+                }
+                if ($k !== null && !$onFlash) {
+                    if ($u['shell'] && empty($k['shell'])) {
+                        $why[] = 'shell';
+                    }
+                    if ($u['pw'] !== ($k['pw'] ?? 'locked') && $u['pw'] !== 'locked') {
+                        $why[] = $u['pw'] === 'none' ? 'pw_none' : 'pw';
+                    }
+                }
+            }
+            if ($why) {
+                $added[] = watchmanSet($book, 'user_ram', "user_ram:$name", $now, ['user' => (string) $name, 'uid' => $u['uid'], 'why' => $why]);
+            } else {
+                $knownUsers[$name] = $u;        // normal — or safer than before (a shell taken away, a password locked)
+            }
+        }
+        $known['users'] = $knownUsers;
+    }
+    // ports and programs: what wasn't there is new; what stays away for long is forgotten
+    foreach (['listen' => 'listen_new', 'procs' => 'proc_odd'] as $part => $kind) {
+        if (!is_array($seen[$part])) {
+            continue;
+        }
+        if ($first || !is_array($known[$part] ?? null)) {
+            $known[$part] = array_map(fn () => $now, $seen[$part]);
+            continue;
+        }
+        foreach ($seen[$part] as $key => $x) {
+            if (isset($known[$part][$key])) {
+                $known[$part][$key] = $now;
+                continue;
+            }
+            $added[] = watchmanSet($book, $kind, "$kind:$key", $now, $x + ['key' => (string) $key]);
+        }
+        foreach ($known[$part] as $key => $t) {
+            if (!isset($seen[$part][$key]) && $now - (int) $t > WATCH_FORGET) {
+                unset($known[$part][$key]);
+            }
         }
     }
     return array_values(array_filter($added));
@@ -2186,16 +2599,21 @@ function watchmanCronFiles(array $paths, array $prev): ?array
             continue;
         }
         $p = $prev[$name] ?? null;
-        if (watchmanSameFile($p, $st) && is_array($p['lines'] ?? null)) {
+        $office = $name === OFFICE_PLUGIN . '/' . OFFICE_PLUGIN . '.cron';
+        if (watchmanSameFile($p, $st) && is_array($p['lines'] ?? null) && (!$office || is_array($p['own'] ?? null))) {
             $out[$name] = $p;
             continue;
         }
         $text = (string) @file_get_contents($file, false, null, 0, 1 << 20);
-        $lines = [];
+        $lines = $own = [];
         foreach (array_slice(watchmanCronJobs($text), 0, WATCH_SCHED_MAX) as $l) {
             $lines[watchmanHash($l)] = watchmanCronShort($l);
+            if ($office && watchmanOfficeCronLine($l)) {
+                $own[] = watchmanHash($l);
+            }
         }
-        $out[$name] = ['m' => (int) $st['mtime'], 'c' => (int) $st['ctime'], 's' => (int) $st['size'], 'h' => watchmanHash($text), 'lines' => $lines];
+        $out[$name] = ['m' => (int) $st['mtime'], 'c' => (int) $st['ctime'], 's' => (int) $st['size'], 'h' => watchmanHash($text), 'lines' => $lines]
+                    + ($office ? ['own' => $own] : []);
     }
     ksort($out);
     return $out;
@@ -2434,6 +2852,12 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
                     continue;
                 }
                 $plugin = (string) strtok((string) $name, '/');
+                if ($plugin === OFFICE_PLUGIN && !array_diff_key($new, array_flip((array) ($f['own'] ?? [])))) {
+                    // the office's own schedule, exactly as it writes it (a time changed on a desk's page): noted by himself
+                    $known['files'][$name] = ['h' => $f['h'], 'lines' => $f['lines']];
+                    watchmanOfficeNoteSchedule($book, (string) $name, $now, ['file' => (string) $name, 'plugin' => $plugin, 'new' => $k === null, 'office' => true] + watchmanJobs($new));
+                    continue;
+                }
                 $kind = $plugin === 'dynamix' || isset($installed[$plugin]) ? 'cron_file' : 'cron_file_foreign';
                 $added[] = watchmanSet($book, $kind, "$kind:$name", $now,
                     ['file' => (string) $name, 'plugin' => $plugin, 'new' => $k === null, 'office' => $plugin === OFFICE_PLUGIN] + watchmanJobs($new) + ['_f' => $f['h']]);
@@ -4435,7 +4859,22 @@ function watchmanAdopt(array &$b, array $e, array $seen, int $now): void
                 $b['snaps']['series'] = array_slice($b['snaps']['series'], 0, WATCH_SNAP_SERIES, true);
             }
             break;
+        case 'user_ram':
+            // this account as it is now is normal (a second root too, once you know it)
+            $u = $seen['host']['users'][$p['user'] ?? ''] ?? null;
+            if (is_array($u) && is_array($b['host']['users'] ?? null)) {
+                $b['host']['users'][(string) $p['user']] = $u;
+            }
+            break;
+        case 'listen_new':
+        case 'proc_odd':
+            $part = $kind === 'listen_new' ? 'listen' : 'procs';
+            if (is_string($p['key'] ?? null) && is_array($b['host'][$part] ?? null)) {
+                $b['host'][$part][$p['key']] = $now;
+            }
+            break;
         default:
+            // log_cleared: something that happened — nothing to adopt
             if ((WATCH_KINDS[$kind][0] ?? '') === 'sched') {
                 watchmanSchedAdopt($b, $kind, $p, $seen);
             }
@@ -4604,6 +5043,12 @@ function watchmanText(array $e, ?string $lang = null): array
         'snap_gone', 'snap_hold_released'
                          => ['where' => (string) ($p['where'] ?? ''), 'names' => watchmanNames((array) ($p['names'] ?? []), 3),
                              'datasets' => watchmanNames((array) ($p['datasets'] ?? []), 3) ?: (string) ($p['where'] ?? '')],
+        'log_cleared'    => ['log' => (string) ($p['log'] ?? '')],
+        'user_ram'       => ['user' => (string) ($p['user'] ?? ''), 'uid' => (int) ($p['uid'] ?? 0)],
+        'listen_new'     => ['prog' => (string) ($p['prog'] ?? ''), 'port' => isset($p['port']) ? (string) (int) $p['port'] : '*'],
+        'proc_odd'       => ['prog' => (string) ($p['prog'] ?? '') ?: '?', 'exe' => (string) ($p['exe'] ?? ''),
+                             'where' => ($p['where'] ?? null) === null
+                                 ? ($lang === null ? '' : officeNotifyText('watchman', 'where.host', [], $lang)) : (string) $p['where']],
         'watch'          => array_map('intval', $p),
         default          => [],
     };
@@ -4867,6 +5312,7 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
     $book = [];
     foreach ($d['book'] as $e) {
         $book[] = ['id' => $e['id'], 'kind' => $e['kind'], 'group' => WATCH_KINDS[$e['kind']][0] ?? 'watch', 'tell' => WATCH_KINDS[$e['kind']][1] ?? false,
+                   'attack' => WATCH_ATTACK[$e['kind']] ?? null,
                    'time' => (int) $e['time'], 'last' => (int) $e['last'], 'count' => (int) $e['count'],
                    'open' => watchmanOpen($e), 't' => watchmanText($e),
                    'p' => array_filter((array) ($e['p'] ?? []), fn ($k) => !str_starts_with((string) $k, '_'), ARRAY_FILTER_USE_KEY),

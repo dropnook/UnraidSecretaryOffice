@@ -9,6 +9,9 @@
 .wm-flags{display:inline-flex; flex-wrap:wrap; gap:4px; vertical-align:middle}
 .wm-flag{font-family:var(--mono); font-size:11.5px; line-height:1.5; padding:0 6px; border-radius:4px; background:var(--surface2); color:var(--ink2); overflow-wrap:anywhere}
 .wm-more{margin:8px 12px}
+/* an entry's MITRE ATT&CK technique: a chip that is a link (a new tab) */
+a.chip.wm-attack{text-decoration:none; font-family:var(--mono); font-size:11.5px; cursor:pointer}
+a.chip.wm-attack:hover{text-decoration:underline}
 /* scheduled things: lines, the syslog then, a command to copy (never run) */
 .wm-lines{display:flex; flex-direction:column; gap:2px; min-width:0}
 .wm-lines .mono, .wm-fix code{overflow-wrap:anywhere; white-space:pre-wrap}

@@ -192,6 +192,9 @@ function render() {
     [T('help.flow_gone'), T('help.flow_gone_text', goneLimits())],
     [T('help.flow_not'), T('help.flow_not_text')],
     [T('help.snaps'), T('help.snaps_text')],
+    [T('help.host'), T('help.host_text')],
+    [T('help.host_not'), T('help.host_not_text')],
+    [T('help.attack'), T('help.attack_text')],
     [T('help.grafana'), T('help.grafana_text')],
     [T('help.notify'), T('help.notify_text')],
     [T('help.safe'), T('help.safe_text')],
@@ -419,6 +422,8 @@ function entryRow(e) {
     name.title = T('details');
     meta.appendChild(e.open ? chip(T('state.open'), 'warn', T('state.open_title')) : chip(T('state.noted'), 'quiet', T('state.noted_title')));
     meta.appendChild(chip(T('group.' + e.group), '', T('group_title.' + e.group)));
+    const tech = attackLink(e.attack);
+    if (tech) meta.appendChild(tech);
   }
   const when = el('span', '', fmt.date(e.last));
   when.dataset.tip = fmt.relative(e.last);
@@ -452,10 +457,24 @@ function entryRow(e) {
   return r;
 }
 
+/** The entry's nearest MITRE ATT&CK technique: a chip that opens its page on attack.mitre.org (a new tab) */
+function attackLink(id) {
+  if (typeof id !== 'string' || !/^T\d{4}(\.\d{3})?$/.test(id)) return null;
+  const href = Office.safeHref('https://attack.mitre.org/techniques/' + id.replace('.', '/') + '/');
+  if (!href) return null;
+  const a = el('a', 'chip quiet wm-attack', id);
+  a.href = href;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.title = T('attack_title', { id });
+  return a;
+}
+
 /** An entry's words; the data flow's sizes, what is normal and the hours in this browser's language */
 function entryParams(e) {
   const t = { ...(e.t || {}), n: e.count };
   const p = e.p || {};
+  if (e.kind === 'proc_odd') t.where = p.where || T('where.host');
   if (e.group !== 'flow') return t;
   if (p.bytes !== undefined) t.size = fmt.size(p.bytes);
   if (e.kind.startsWith('flow_')) t.usual = usualText(e.kind, p);
@@ -608,6 +627,24 @@ function details(e) {
     if (p.fs !== 'btrfs') add(T('detail.history'), (p.history || []).length ? lines(p.history) : T('detail.history_none'));
     add(T('detail.evidence'), (p.evidence || []).length ? lines(p.evidence) : T('detail.evidence_none_snap'));
     if (e.kind === 'snap_gone' && (p.series || []).length) add(T('detail.series'), lines(p.series));
+  } else if (e.group === 'host') {
+    if (e.kind === 'log_cleared') {
+      add(T('detail.log'), p.log, true);
+      add(T('detail.how'), (p.how || []).map((h) => T('detail.how_' + h)).join(' · '));
+      if ((p.sizes || []).length) add(T('detail.sizes'), lines(p.sizes));
+    } else if (e.kind === 'user_ram') {
+      add(T('detail.user'), p.user);
+      add(T('detail.user_id'), String(p.uid));
+      add(T('detail.why'), (p.why || []).map((w) => T('detail.why_' + w)).join(' · '));
+    } else if (e.kind === 'listen_new') {
+      add(T('detail.program'), p.prog, true);
+      add(T('detail.port'), p.port === null || p.port === undefined ? T('detail.port_dynamic') : String(p.port));
+      add(T('detail.addresses'), (p.addr || []).map((a) => (a === '*' ? T('detail.addr_all') : a)).join(', '));
+    } else if (e.kind === 'proc_odd') {
+      add(T('detail.program'), p.prog, true);
+      add(T('detail.exe'), p.exe, true);
+      add(T('detail.runs_in'), p.where || T('where.host'));
+    }
   } else if (e.group === 'sched') {
     if (p.file) add(T('detail.cron_file'), '/boot/config/plugins/' + p.file + (p.new ? ` (${T('detail.file_new')})` : ''), true);
     if (p.plugin) add(T('detail.plugin'), p.plugin);
@@ -641,7 +678,7 @@ function details(e) {
   if (e.group === 'flow' && p.learning) notes.push(T('detail.learning'));
   if (p.office && e.kind.startsWith('cron_file')) notes.push(T('detail.office_cron'));
   if (e.open) notes.push(T('adopt.' + e.kind));
-  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office'].includes(e.by) ? e.by : 'page'), { when: fmt.date(e.noted) }));
+  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'schedule'].includes(e.by) ? e.by : 'page'), { when: fmt.date(e.noted) }));
   if (e.told) notes.push(T('detail.told', { when: fmt.date(e.told) }));
   else if (e.muted && e.tell) notes.push(T('detail.muted'));
   else if (e.open) notes.push(T(e.tell ? 'detail.not_told' : 'detail.book_only'));
