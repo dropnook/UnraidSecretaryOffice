@@ -106,6 +106,7 @@
   "office.fired": "{name} has been let go.",
   "office.tip_title_team": "Tips & pay rise",
   "office.tip_text_team": "Happy with how the team works? Everyone is glad of a tip or a small pay rise — Jack Emby most of all, he fetches the coffee after all.",
+  "office.tip_credit": "Part of the tips goes to helmi1987, who wrote the tools Jack Emby works with — EmbyCache and \"Consolidate folders\".",
   "agent.array_stopped_title": "The array is stopped.",
   "agent.array_stopped_text": "The office keeps its data in appdata — it gets back to work as soon as the array runs.",
   "agent.no_data_title": "The office's data folder is missing.",

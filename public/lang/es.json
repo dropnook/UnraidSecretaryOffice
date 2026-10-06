@@ -106,6 +106,7 @@
   "office.fired": "{name} ha sido despedido.",
   "office.tip_title_team": "Propinas y aumento",
   "office.tip_text_team": "¿Contento con cómo trabaja el equipo? A todos les alegra una propina o un pequeño aumento — sobre todo a Jack Emby, que al fin y al cabo es quien trae el café.",
+  "office.tip_credit": "Una parte de las propinas es para helmi1987, que escribió las herramientas con las que trabaja Jack Emby: EmbyCache y «Agrupar carpetas».",
   "agent.array_stopped_title": "El array está detenido.",
   "agent.array_stopped_text": "La secretaría guarda sus datos en appdata — vuelve al trabajo en cuanto el array esté en marcha.",
   "agent.no_data_title": "Falta la carpeta de datos de la secretaría.",

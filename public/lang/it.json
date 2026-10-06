@@ -106,6 +106,7 @@
   "office.fired": "{name} non lavora più qui.",
   "office.tip_title_team": "Mancia & aumento",
   "office.tip_text_team": "Ti piace come lavora il team? Una mancia o un piccolo aumento fanno piacere a tutti — soprattutto a Jack Emby, che dopotutto porta il caffè.",
+  "office.tip_credit": "Una parte delle mance va a helmi1987, che ha scritto gli strumenti con cui lavora Jack Emby: EmbyCache e «Consolida cartelle».",
   "agent.array_stopped_title": "L'array è fermato.",
   "agent.array_stopped_text": "La segreteria tiene i suoi dati in appdata — torna al lavoro appena l'array è avviato.",
   "agent.no_data_title": "Manca la cartella dati della segreteria.",

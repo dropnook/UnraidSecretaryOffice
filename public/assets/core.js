@@ -742,6 +742,7 @@ Office.tipJar = function openTipJar(ids) {
   const text = el('div');
   const key = !ids ? 'office.tip_text_team' : ids.length > 1 ? 'office.tip_text_many' : 'office.tip_text';
   text.appendChild(el('p', '', t(key, { names: names.join(', ') })));
+  text.appendChild(el('p', '', t('office.tip_credit')));     // a share goes to helmi1987, who wrote Jack Emby's tools
   const cb = el('input');
   cb.type = 'checkbox';
   if (ids) {                         // after hiring it may stop asking; asked for, it never nags
