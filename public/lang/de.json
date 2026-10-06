@@ -116,7 +116,6 @@
   "office.tip_sponsor": "GitHub Sponsors",
   "office.tip_give_page": "Trinkgeld geben",
   "office.supporter_title": "Unterstützer-Schlüssel",
-  "office.supporter_text": "Schreib die ID dieses Servers in die Notiz deines Trinkgelds — egal wie viel — und du bekommst einen Unterstützer-Schlüssel per E-Mail. Er schaltet nichts frei (hier ist alles kostenlos und bleibt es); er sagt nur Danke und beendet die Erinnerungen.",
   "office.supporter_text_page": "Nach deinem Trinkgeld zeigt die Seite deinen Unterstützer-Schlüssel sofort an — füg ihn hier mit «Schlüssel eingeben…» ein. Verloren? Dieselbe Seite zeigt ihn wieder. Er schaltet nichts frei (hier ist alles kostenlos und bleibt es); er sagt nur Danke und beendet die Erinnerungen.",
   "office.supporter_id": "Server-ID",
   "office.supporter_id_title": "Aus der GUID deiner Unraid-Lizenz gebildet — die GUID selbst verlässt den Server nie.",

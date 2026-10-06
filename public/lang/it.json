@@ -116,7 +116,6 @@
   "office.tip_sponsor": "GitHub Sponsors",
   "office.tip_give_page": "Lascia una mancia",
   "office.supporter_title": "Chiave sostenitore",
-  "office.supporter_text": "Scrivi l'ID di questo server nella nota della tua mancia — qualsiasi importo — e riceverai una chiave sostenitore per e-mail. Non sblocca nulla (qui è tutto gratuito e lo resta); dice solo grazie e ferma i promemoria.",
   "office.supporter_text_page": "Dopo la tua mancia la pagina ti mostra subito la chiave sostenitore — incollala qui con «Inserisci chiave…». L'hai persa? La stessa pagina te la mostra di nuovo. Non sblocca nulla (qui è tutto gratuito e lo resta); dice solo grazie e ferma i promemoria.",
   "office.supporter_id": "ID del server",
   "office.supporter_id_title": "Ricavato dal GUID della tua licenza Unraid — il GUID stesso non lascia mai il server.",

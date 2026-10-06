@@ -748,7 +748,8 @@ Office.tipJar = function openTipJar(ids) {
   text.appendChild(el('p', '', thanked ? t('office.supporter_thanks', { name: sup.name }) : t(key, { names: names.join(', ') })));
   text.appendChild(el('p', '', t('office.tip_credit')));     // a share goes to helmi1987, who wrote Jack Emby's tools
   text.appendChild(el('p', '', t('office.tip_shelter')));    // what goes beyond our work goes to animal shelters (Benj)
-  text.appendChild(supporterPart(sup));
+  // the key part only once the support page hands keys out (Benj issues none by hand) — or when one is saved
+  if (supportPage(sup) || sup.state !== 'none') text.appendChild(supporterPart(sup));
   const cb = el('input');
   cb.type = 'checkbox';
   if (ids) {                         // after hiring it may stop asking; asked for, it never nags
@@ -763,7 +764,7 @@ Office.tipJar = function openTipJar(ids) {
     window.open(url, '_blank', 'noopener,noreferrer');
   };
   if (Office.safeHref(CONFIG.sponsor_url) && /^https:/.test(CONFIG.sponsor_url)) buttons.push({ text: t('office.tip_sponsor'), act: give(CONFIG.sponsor_url) });
-  const page = supportPage(sup);     // the support page shows the key right after the tip; else PayPal and the key by e-mail
+  const page = supportPage(sup);     // the support page shows the key right after the tip; else just the PayPal link
   if (page) buttons.push({ text: t('office.tip_give_page'), kind: thanked ? undefined : '', act: give(page) });
   else if (CONFIG.tip_url) buttons.push({ text: t('office.tip_give'), kind: thanked ? undefined : '', act: give(CONFIG.tip_url) });
   Office.dialog({ title: t(thanked ? 'office.supporter_thanks_title' : ids ? 'office.tip_title' : 'office.tip_title_team'), body: box, buttons });
@@ -807,7 +808,8 @@ function supporterPart(sup) {
   } else {
     if (sup.state === 'other') part.appendChild(el('p', 'callout warn', t('office.supporter_other', { id: sup.key_id, server: sup.id || '?' })));
     if (sup.state === 'invalid') part.appendChild(el('p', 'callout warn', t('office.supporter_bad_saved')));
-    part.appendChild(el('p', '', t(!sup.id ? 'office.supporter_no_id' : supportPage(sup) ? 'office.supporter_text_page' : 'office.supporter_text')));
+    const how = !sup.id ? 'office.supporter_no_id' : supportPage(sup) ? 'office.supporter_text_page' : null;
+    if (how) part.appendChild(el('p', '', t(how)));
   }
   const line = el('div', 'toolbar');
   const button = (text, cls, act) => {

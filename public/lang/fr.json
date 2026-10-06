@@ -116,7 +116,6 @@
   "office.tip_sponsor": "GitHub Sponsors",
   "office.tip_give_page": "Laisser un pourboire",
   "office.supporter_title": "Clé de soutien",
-  "office.supporter_text": "Écris l'ID de ce serveur dans la note de ton pourboire — n'importe quel montant — et tu reçois une clé de soutien par e-mail. Elle ne débloque rien (tout ici est gratuit et le reste) ; elle dit simplement merci et arrête les rappels.",
   "office.supporter_text_page": "Après ton pourboire, la page affiche aussitôt ta clé de soutien — colle-la ici avec « Saisir la clé… ». Perdue ? La même page te la montre à nouveau. Elle ne débloque rien (tout ici est gratuit et le reste) ; elle dit simplement merci et arrête les rappels.",
   "office.supporter_id": "ID du serveur",
   "office.supporter_id_title": "Calculé à partir du GUID de ta licence Unraid — le GUID lui-même ne quitte jamais le serveur.",

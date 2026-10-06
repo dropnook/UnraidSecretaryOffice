@@ -116,7 +116,6 @@
   "office.tip_sponsor": "GitHub Sponsors",
   "office.tip_give_page": "Dejar una propina",
   "office.supporter_title": "Clave de apoyo",
-  "office.supporter_text": "Escribe el ID de este servidor en la nota de tu propina — cualquier importe — y recibirás una clave de apoyo por correo electrónico. No desbloquea nada (aquí todo es gratis y lo seguirá siendo); solo da las gracias y detiene los recordatorios.",
   "office.supporter_text_page": "Después de tu propina, la página te muestra al instante tu clave de apoyo — pégala aquí con «Introducir clave…». ¿La perdiste? La misma página te la vuelve a mostrar. No desbloquea nada (aquí todo es gratis y lo seguirá siendo); solo da las gracias y detiene los recordatorios.",
   "office.supporter_id": "ID del servidor",
   "office.supporter_id_title": "Calculado a partir del GUID de tu licencia de Unraid — el GUID en sí nunca sale del servidor.",
