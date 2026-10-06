@@ -92,6 +92,7 @@ KEY»). Er gehört **nie** ins Repository, in ein Mail oder einen Chat.
    | `BANK_NAME` | Text | Bank und Ort, freiwillig |
    | `BTC_LIGHTNING` | Text | Lightning-Adresse, `name@domain` |
    | `BTC_ADDRESS` | Text | On-Chain-Adresse (`bc1…`, auch `1…`/`3…`) |
+   | `UNRAID_REFERRAL_URL` | Text | dein Unraid-Affiliate-Link (siehe 4c) |
 
    → **Deploy**. (Später neuen Code einfügen behält diese Einstellungen.)
 
@@ -101,7 +102,7 @@ Braucht Node (`brew install node`). Im Ordner `support-worker/`:
 ```
 npx wrangler login
 npx wrangler kv namespace create SUPPORT_KV        # die ausgegebene id in wrangler.toml eintragen
-# PAYPAL_CLIENT_ID (und BANK_…/BTC_… nach Wunsch) in wrangler.toml unter [vars] eintragen
+# PAYPAL_CLIENT_ID (und BANK_…/BTC_…/UNRAID_REFERRAL_URL nach Wunsch) in wrangler.toml unter [vars] eintragen
 npx wrangler secret put PAYPAL_CLIENT_SECRET
 npx wrangler secret put SUPPORTER_KEY < ~/.config/uso-supporter/supporter-private-pkcs8.pem
 npx wrangler deploy
@@ -110,11 +111,25 @@ Nur mit wrangler gibt es zusätzlich Cloudflares Rate-Limiter (`[[ratelimits]]` 
 Nimm *einen* Weg: `wrangler deploy` überschreibt die Text-Variablen aus dem Dashboard mit denen aus
 `wrangler.toml`.
 
+### 4c. Unraid-Affiliate-Link (freiwillig)
+
+Lime Technology zahlt über das Programm **«Unraid Ambassadors»** eine Provision für Lizenzen, die über
+deinen Link gekauft werden — für die Käufer kostet es nicht mehr.
+
+1. Selbst beim Ambassadors-Programm anmelden (auf unraid.net) und deinen persönlichen Link kopieren.
+2. Beim Worker `UNRAID_REFERRAL_URL` = dieser Link → **Deploy**.
+
+Der Worker nimmt nur `https://` auf `unraid.net` oder einer Subdomain davon an (kein Benutzer, kein Port);
+alles andere wird nicht angezeigt und steht unter `problems` in `/api/health`. Auf der Seite erscheint ein
+kleiner, ruhiger Abschnitt nach den Wegen fürs Trinkgeld — klar als **Affiliate-Link** beschriftet, öffnet
+in einem neuen Tab (`rel="sponsored"`); die Seite selbst zählt keine Klicks. Ins Sekretariat (Plugin)
+kommt der Link nicht. Leer lassen = kein Abschnitt.
+
 ### 5. Prüfen
 
 `https://uso-support.<dein-konto>.workers.dev/api/health` öffnen. Erwartet:
 ```
-{"ok":true,"env":"sandbox","methods":{"paypal":true,"bank":…,"lightning":…,"onchain":…},"problems":[]}
+{"ok":true,"env":"sandbox","methods":{"paypal":true,"bank":…,"lightning":…,"onchain":…},"referral":…,"problems":[]}
 ```
 Steht etwas unter `problems`, ist genau diese Einstellung falsch oder fehlt (Werte zeigt die Seite nie).
 
@@ -253,6 +268,7 @@ KEY»). It **never** goes into the repository, a mail or a chat.
    | `BANK_NAME` | Text | bank and town, optional |
    | `BTC_LIGHTNING` | Text | a Lightning address, `name@domain` |
    | `BTC_ADDRESS` | Text | an on-chain address (`bc1…`, also `1…`/`3…`) |
+   | `UNRAID_REFERRAL_URL` | Text | your Unraid affiliate link (see 4c) |
 
    → **Deploy**. (Pasting new code later keeps these settings.)
 
@@ -262,7 +278,7 @@ Needs Node (`brew install node`). In `support-worker/`:
 ```
 npx wrangler login
 npx wrangler kv namespace create SUPPORT_KV        # put the printed id into wrangler.toml
-# put PAYPAL_CLIENT_ID (and BANK_…/BTC_… if you like) into wrangler.toml under [vars]
+# put PAYPAL_CLIENT_ID (and BANK_…/BTC_…/UNRAID_REFERRAL_URL if you like) into wrangler.toml under [vars]
 npx wrangler secret put PAYPAL_CLIENT_SECRET
 npx wrangler secret put SUPPORTER_KEY < ~/.config/uso-supporter/supporter-private-pkcs8.pem
 npx wrangler deploy
@@ -270,11 +286,24 @@ npx wrangler deploy
 Only wrangler adds Cloudflare's rate limiter on top (`[[ratelimits]]` in `wrangler.toml`). Pick *one*
 way: `wrangler deploy` replaces the dashboard's text variables with those in `wrangler.toml`.
 
+### 4c. Unraid affiliate link (optional)
+
+Through its **«Unraid Ambassadors»** program Lime Technology pays a commission for licences bought through
+your link — the buyer pays nothing extra.
+
+1. Join the Ambassadors program yourself (on unraid.net) and copy your personal link.
+2. At the worker: `UNRAID_REFERRAL_URL` = that link → **Deploy**.
+
+The worker takes only `https://` on `unraid.net` or a subdomain of it (no user, no port); anything else is
+not shown and appears under `problems` in `/api/health`. The page shows a small, quiet section after the
+ways to give — clearly labelled **affiliate link**, opening in a new tab (`rel="sponsored"`); the page
+itself counts no clicks. The link never goes into the office (the plugin). Empty = no section.
+
 ### 5. Check
 
 Open `https://uso-support.<your-account>.workers.dev/api/health`. Expected:
 ```
-{"ok":true,"env":"sandbox","methods":{"paypal":true,"bank":…,"lightning":…,"onchain":…},"problems":[]}
+{"ok":true,"env":"sandbox","methods":{"paypal":true,"bank":…,"lightning":…,"onchain":…},"referral":…,"problems":[]}
 ```
 Anything under `problems` is exactly the setting that is wrong or missing (the page never shows values).
 
