@@ -2941,7 +2941,7 @@ function rsDoKopia(array &$j, int $i): array
         return rsFail('exists', ['path' => $s['host']]);
     }
     $log = rsDir($j['id']) . '/log.txt';
-    $p = proc_open(['docker', 'exec', (string) $s['container'], 'kopia', 'snapshot', 'restore', (string) $s['snapshot'], (string) $s['dest']],
+    $p = proc_open(rsKopiaCmd((string) $s['container'], (int) ($s['uid'] ?? 0), ['snapshot', 'restore', (string) $s['snapshot'], (string) $s['dest']]),
         [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, '/', rsEnv());
     if (!is_resource($p)) {
         return rsFail('kopia_failed', ['snapshot' => $s['snapshot']]);
@@ -2966,6 +2966,28 @@ function rsDoKopia(array &$j, int $i): array
     $exit = rsWait($j, [$p], $i, $read)[0];
     $j['steps'][$i]['progress'] = ['line' => $line];
     return $exit === 0 ? ['state' => 'ok'] : rsFail('kopia_failed', ['snapshot' => $s['snapshot'], 'exit' => $exit], $line);
+}
+
+/**
+ * Kopia inside its container always as the user its server runs as (like the engine's kopia_x): a call as
+ * root next to a server of another user leaves root-owned cache folders the server can't open any more.
+ */
+function rsKopiaUid(string $container): int
+{
+    [$exit, $out] = run(['docker', 'top', $container, '-eo', 'pid,uid,args'], 20);
+    foreach ($exit === 0 ? explode("\n", $out) : [] as $line) {
+        if (preg_match('#^\s*\d+\s+(\d+)\s+(?:\S*/)?kopia\s+server\b#', $line, $m)) {
+            return (int) $m[1];
+        }
+    }
+    [$exit, $out] = run(['docker', 'exec', $container, 'sh', '-c', 'stat -c %u "${KOPIA_CONFIG_PATH:-$HOME/.config/kopia/repository.config}"'], 20);
+    return $exit === 0 && ctype_digit(trim($out)) ? (int) trim($out) : 0;
+}
+
+/** docker exec of a kopia command as that user */
+function rsKopiaCmd(string $container, int $uid, array $args): array
+{
+    return array_merge(['docker', 'exec', '-u', (string) $uid], $uid !== 0 ? ['-e', 'HOME=/tmp'] : [], [$container, 'kopia'], $args);
 }
 
 /** The Kopia sources Mr. Restori offers: shares that go to Kopia, apps and VMs with a source of their own (relative to the root) */
@@ -3016,7 +3038,7 @@ function rsKopiaSnapshots(array $k, string $source): array
     if (!$k['root']) {
         throw new Problem('restore_kopia_root');
     }
-    [$exit, $out, $err] = run(['docker', 'exec', $k['container'], 'kopia', 'snapshot', 'list', "{$k['root']}/$source", '--json'], 180);
+    [$exit, $out, $err] = run(rsKopiaCmd($k['container'], rsKopiaUid($k['container']), ['--no-progress', 'snapshot', 'list', "{$k['root']}/$source", '--json']), 180);
     if ($exit !== 0) {
         throw new Problem('restore_kopia_list', ['detail' => mb_substr(trim($err), 0, 300)]);
     }
@@ -3072,7 +3094,8 @@ function rsPlanKopia(array $r, string $stamp): array
         $plan['blockers'][] = ['key' => 'restore_no_space', 'params' => ['need' => $snap['bytes'], 'free' => (int) $free]];
     }
     $plan['source'] = ['path' => "{$k['root']}/$source", 'time' => $snap['time'], 'bytes' => $snap['bytes'], 'files' => $snap['files']];
-    $plan['steps'] = [['do' => 'kopia', 'container' => $k['container'], 'snapshot' => $snapshot, 'dest' => $dest, 'host' => $host, 'source' => "{$k['root']}/$source"]];
+    $plan['steps'] = [['do' => 'kopia', 'container' => $k['container'], 'uid' => rsKopiaUid($k['container']), 'snapshot' => $snapshot, 'dest' => $dest, 'host' => $host,
+                       'source' => "{$k['root']}/$source"]];
     $plan['notes'][] = ['key' => 'note.kopia', 'params' => []];
     $plan['after'][] = ['key' => 'after.kopia', 'params' => ['path' => $host]];
     return $plan;
