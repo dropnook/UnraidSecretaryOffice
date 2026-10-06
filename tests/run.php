@@ -1937,6 +1937,8 @@ function testPinTries(): void
         }
     }
     require_once OFFICE_DIR . '/src/auth.php';
+    $addrBefore = $_SERVER['REMOTE_ADDR'] ?? null;
+    $_SERVER['REMOTE_ADDR'] = '192.168.7.50';
     officeSetPin('2468', '');
     same('PIN set', 'pin', officeAuthMode());
     same('auth.json only for its owner', '600', substr(sprintf('%o', fileperms(officeAuthFile())), -3));
@@ -1958,6 +1960,48 @@ function testPinTries(): void
         $key = $e->key;
     }
     same('while waiting even the right PIN waits', 'pin_wait', $key);
+
+    // per client: the one who guessed waits, the others don't (IPv6 by its /64, IPv4 mapped into IPv6 as IPv4)
+    $try = function (string $addr, string $pin): string {
+        $_SERVER['REMOTE_ADDR'] = $addr;
+        try {
+            officeUnlock($pin);
+            return 'unlocked';
+        } catch (AuthProblem $e) {
+            return $e->key;
+        }
+    };
+    same('PIN per client: another client is not kept waiting', 'unlocked', $try('192.168.7.51', '2468'));
+    same('PIN per client: the one who guessed still waits', ['pin_wait', 'pin_wait'], [$try('192.168.7.50', '2468'), $try('::ffff:192.168.7.50', '2468')]);
+    $six = [];
+    foreach (range(1, OFFICE_FREE_TRIES) as $i) {
+        $six[] = $try("2001:db8::$i", '0000');
+    }
+    same('PIN per client: IPv6 addresses of one /64 are one client', array_merge(array_fill(0, OFFICE_FREE_TRIES, 'pin_wrong'), ['pin_wait']),
+        array_merge($six, [$try('2001:db8::99', '2468')]));
+    same('PIN per client: another /64 is another client', 'pin_wrong', $try('2001:db8:0:1::1', '0000'));
+    same('PIN per client: a right PIN starts that client anew', ['unlocked', 'pin_wrong'], [$try('192.168.7.52', '2468'), $try('192.168.7.52', '0000')]);
+
+    // all clients together: after OFFICE_GLOBAL_TRIES everybody waits — many addresses can't guess on and on
+    $keys = [];
+    for ($i = 0; count($keys) < OFFICE_GLOBAL_TRIES + 5; $i++) {
+        $keys[] = $try('10.0.' . intdiv($i, 3) . '.' . ($i % 3 + 1), '0000');
+    }
+    check('PIN for all: every client waits after the tries of all', in_array('pin_wait', $keys, true)
+        && (int) (officeAuthRead()['failures'] ?? 0) >= OFFICE_GLOBAL_TRIES, json_encode(array_count_values($keys)));
+    same('PIN for all: a fresh client waits too', 'pin_wait', $try('172.16.0.1', '2468'));
+    check('PIN per client: only so many clients kept', count((array) (officeAuthRead()['clients'] ?? [])) <= OFFICE_CLIENTS_MAX);
+
+    // open actions that do more than read or measure need the PIN
+    same('PIN for open actions: setup plan and waking disks', [true, true, false, false],
+        [officeOpenNeedsPin('backup.setup_plan', []), officeOpenNeedsPin('snapshot.scan', ['wake' => true]),
+         officeOpenNeedsPin('snapshot.scan', ['wake' => false]), officeOpenNeedsPin('cleanup.measure', ['ids' => ['x']])]);
+
+    if ($addrBefore === null) {
+        unset($_SERVER['REMOTE_ADDR']);
+    } else {
+        $_SERVER['REMOTE_ADDR'] = $addrBefore;
+    }
     same('no temporary files left', [], glob("$dir/office/.auth.*.tmp") ?: []);
     hardeningRm($dir);
 }

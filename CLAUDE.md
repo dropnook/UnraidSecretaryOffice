@@ -84,7 +84,9 @@ differ get a `_plugin` key or come from state (`schedule.via`).
 * Desk lang keys `name` and `role` are the desk's title and subtitle — don't reuse them.
 * **PIN:** every POST except `refresh` and the desk's `open_actions` (desk.json)
   needs an unlocked browser when a PIN is set. Only list actions there that
-  read or measure. Who may write is decided in `src/auth.php` only.
+  read or measure; an open action asked to do more (`wake`: `OFFICE_PIN_FLAGS`) or listed in
+  `OFFICE_PIN_ACTIONS` (backup's `setup_plan`) needs the PIN anyway. Wrong PINs count per client
+  (address, IPv6 by /64), with a ceiling for all. Who may write is decided in `src/auth.php` only.
 * **Checks for the caretaker:** a desk that needs plugins, containers or
   settings registers `'checks'` returning `finding()`s (agent/lib/house.php):
   `required` only when the desk really can't work without it, otherwise

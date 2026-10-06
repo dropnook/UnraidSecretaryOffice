@@ -208,7 +208,10 @@ in, and every change carries Unraid's CSRF token, so other web pages in your
 browser can't trigger anything. On top of that, changing things (deleting
 snapshots, starting a backup …) can be protected with a **PIN**: ⋯ → *Protect
 with a PIN*. A browser that entered it stays unlocked for 12 hours; changing
-the PIN locks every browser again. In the same dialog, *Needed to look, too*
+the PIN locks every browser again. Five wrong tries make the device that typed
+them wait (longer each time) — the others aren't held up; only many wrong tries
+from many devices make everybody wait. Without the PIN one can still look, but
+not wake sleeping disks or start the backup setup's look at the server. In the same dialog, *Needed to look, too*
 hides everything — shares, paths, containers, logs — from browsers without
 the PIN. Forgot it? Delete `data/office/auth.json` in the data folder. All of
 this lives in `src/auth.php`.
