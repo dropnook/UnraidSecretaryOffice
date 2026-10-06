@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<!-- The Consultant's template for Kopia (agent/desks/advisor.php fills in {{…}} and opens Unraid's
+     Add Container form with it). Based on imagegenius' template in Community Applications; changed:
+     PUID/PGID 0, the office's snapshots read-only at /uso, a restore folder at /uso-restore, the
+     cache in appdata, no default WebUI password, the label uso.installed-by. -->
+<Container version="2">
+  <Name>kopia</Name>
+  <Repository>ghcr.io/imagegenius/kopia</Repository>
+  <Registry>https://github.com/orgs/imagegenius/packages/container/package/kopia</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <MyMAC/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/imagegenius/docker-kopia/issues/new/choose</Support>
+  <Project>https://kopia.io/</Project>
+  <ReadMe>https://github.com/imagegenius/docker-kopia#readme</ReadMe>
+  <Overview>Kopia is a fast and secure open-source backup/restore tool that allows you to create encrypted snapshots of your data and save the snapshots to remote or cloud storage of your choice, to network-attached storage or server, or locally on your machine. Prepared by the Unraid Secretary Office's consultant: it runs as root (PUID/PGID 0) so it can read every file, sees the office's snapshots read-only at /uso and restores into /uso-restore. Choose the WebUI's user name and password below.</Overview>
+  <Category>Backup: Cloud: Network:Other Productivity: Tools:Utilities</Category>
+  <WebUI>http://[IP]:[PORT:51515]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/imagegenius/templates/main/unraid/kopia.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/imagegenius/templates/main/unraid/img/kopia.png</Icon>
+  <ExtraParams>--hostname=kopia --cap-add=SYS_ADMIN</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="WebUI" Target="51515" Default="51515" Mode="tcp" Description="WebUI Port" Type="Port" Display="always" Required="true" Mask="false">51515</Config>
+  <Config Name="Appdata" Target="/config" Default="{{APPDATA}}/kopia" Mode="rw" Description="Appdata Path: Kopia's settings and its connection to the repository" Type="Path" Display="advanced" Required="true" Mask="false">{{APPDATA}}/kopia</Config>
+  <Config Name="Snapshots of the Secretary Office" Target="/uso" Default="{{SNAPSHOTS}}" Mode="ro,slave" Description="Read Only - Slave: the snapshots Mr. Backupsy mounts for every night's run. Kopia names its sources after this container path (/uso/ + the share) - keep it." Type="Path" Display="always" Required="true" Mask="false">{{SNAPSHOTS}}</Config>
+  <Config Name="Restore folder" Target="/uso-restore" Default="{{RESTORE}}" Mode="rw" Description="Where Kopia restores files to (Mr. Restori)" Type="Path" Display="always" Required="true" Mask="false">{{RESTORE}}</Config>
+  <Config Name="Path: /cache" Target="/cache" Default="{{APPDATA}}/kopia/cache" Mode="rw" Description="Temporary Uploads Path (Cache) - on a pool, not on the array" Type="Path" Display="always" Required="true" Mask="false">{{APPDATA}}/kopia/cache</Config>
+  <Config Name="Path: /local" Target="/local" Default="" Mode="rw" Description="Path for local filesystem repositories (optional, e.g. an Unassigned Device)" Type="Path" Display="always" Required="false" Mask="false"/>
+  <Config Name="USERNAME" Target="USERNAME" Default="kopia" Mode="" Description="User name for the WebUI (port 51515)" Type="Variable" Display="always" Required="true" Mask="false">kopia</Config>
+  <Config Name="PASSWORD" Target="PASSWORD" Default="" Mode="" Description="Choose a password for the WebUI - not kopia. Needed at the first start only (the image keeps it in /config/htpasswd)." Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="KOPIA_PERSIST_CREDENTIALS_ON_CONNECT" Target="KOPIA_PERSIST_CREDENTIALS_ON_CONNECT" Default="true" Mode="" Description="Automatically connect to repository (the nightly run needs it)" Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+  <Config Name="CLI_ARGS" Target="CLI_ARGS" Default="" Mode="" Description="Overwrite CLI arguments" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="PUID" Target="PUID" Default="0" Mode="" Description="0 (root): Kopia must read every file, also those only root may read" Type="Variable" Display="advanced" Required="true" Mask="false">0</Config>
+  <Config Name="PGID" Target="PGID" Default="0" Mode="" Description="0 (root), like PUID" Type="Variable" Display="advanced" Required="true" Mask="false">0</Config>
+  <Config Name="UMASK" Target="UMASK" Default="022" Mode="" Description="UMASK for newly created files. Do not change unless you know what you're doing." Type="Variable" Display="advanced-hide" Required="false" Mask="false">022</Config>
+  <Config Name="/dev/fuse" Target="/dev/fuse" Default="/dev/fuse" Mode="" Description="Allows fuse mounts to function" Type="Device" Display="always" Required="true" Mask="false">/dev/fuse</Config>
+  <Config Name="Installed by" Target="uso.installed-by" Default="consultant" Mode="" Description="A note of the Unraid Secretary Office: its consultant prepared this container. Changes nothing." Type="Label" Display="advanced" Required="false" Mask="false">consultant</Config>
+</Container>

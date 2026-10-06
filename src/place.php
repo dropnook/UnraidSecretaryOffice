@@ -141,3 +141,15 @@ function officePageHeader(string $page, array $own, array $keys): bool
     @chmod($tmp, 0644);
     return @rename($tmp, $page) || (@unlink($tmp) && false);
 }
+
+/**
+ * Where the web side hands secrets to the agent (the Consultant's Kopia setup):
+ * a root-only folder in /run — a tmpfs, RAM — never the mailbox, which lies in
+ * the data folder on the pool (snapshotted, backed up). See apiSecretStash()
+ * in src/api.php and advisorSecretTake() in agent/desks/advisor.php.
+ * OFFICE_INBOX_DIR points elsewhere for the tests.
+ */
+function officeInboxDir(): string
+{
+    return rtrim(getenv('OFFICE_INBOX_DIR') ?: '/var/run/unraid-secretary-office/inbox', '/');
+}

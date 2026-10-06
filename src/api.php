@@ -66,7 +66,19 @@ function api_main(): void
         set_time_limit(660);
         ignore_user_abort(true);   // a deletion runs to the end even if the tab closes
 
-        $response = askAgent($action, $data, 600);
+        // secrets never go into the mailbox (it lies on the pool): through RAM, see apiSecretStash()
+        $stash = array_key_exists('secret', $data) ? apiSecretStash($action, $data['secret']) : null;
+        unset($data['secret']);
+        if ($stash !== null) {
+            $data['secret_ref'] = $stash;
+        }
+        try {
+            $response = askAgent($action, $data, 600);
+        } finally {
+            if ($stash !== null) {
+                apiSecretDrop($stash);     // the agent took it already — or never will
+            }
+        }
         $response['agent'] = agentInfo();
         answer($response);
     } catch (AuthProblem $e) {
@@ -133,6 +145,61 @@ function checkOrigin(): void
     $origin = (string) ($_SERVER['HTTP_ORIGIN'] ?? '');
     if ($origin !== '' && preg_replace('#^https?://#', '', $origin) !== ($_SERVER['HTTP_HOST'] ?? '')) {
         answer(['ok' => false, 'error' => ['key' => 'rejected']], 403);
+    }
+}
+
+/** The only actions that may carry secrets (the Consultant's Kopia setup) */
+const OFFICE_SECRET_ACTIONS = ['advisor.kopia_repo'];
+
+/**
+ * Secrets for the agent (keys, passwords the user types) must never touch
+ * persistent storage — and the mailbox lies in the data folder on the pool,
+ * which is snapshotted and backed up. So they go into a file of their own in
+ * officeInboxDir() (a root-only folder in /run, a tmpfs: RAM), 0600 from the
+ * start, a random name; only that name travels in the request. The agent
+ * reads the file and removes it at once; apiSecretDrop() removes it here in
+ * any case after the request. Plugin only: in the Compose stack the page is a
+ * container of its own that shares no RAM with the agent.
+ * Answers an error itself (and ends the request) when it can't.
+ */
+function apiSecretStash(string $action, mixed $secret): string
+{
+    $ok = in_array($action, OFFICE_SECRET_ACTIONS, true) && is_array($secret) && $secret && count($secret) <= 8;
+    foreach ($ok ? $secret : [] as $k => $v) {
+        $ok = $ok && is_string($k) && preg_match('/^[a-z_]{1,32}$/D', $k) === 1 && is_string($v) && strlen($v) <= 4096;
+    }
+    if (!$ok) {
+        answer(['ok' => false, 'error' => ['key' => 'bad_request']], 400);
+    }
+    if (!OFFICE_AS_PLUGIN) {
+        answer(['ok' => false, 'error' => ['key' => 'ad_secret_plugin_only']], 400);
+    }
+    $dir = officeInboxDir();
+    @mkdir(dirname($dir), 0700, true);
+    @mkdir($dir, 0700);
+    clearstatcache(true, $dir);
+    $st = @lstat($dir);
+    $me = function_exists('posix_geteuid') ? posix_geteuid() : -1;
+    if (!$st || ($st['mode'] & 0170000) !== 0040000 || ($st['mode'] & 0077) !== 0 || $st['uid'] !== $me) {
+        answer(['ok' => false, 'error' => ['key' => 'ad_secret_inbox', 'params' => ['dir' => $dir]]], 500);
+    }
+    $id = bin2hex(random_bytes(16));
+    $text = json_encode($secret, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $old = umask(0177);
+    $f = @fopen("$dir/$id.secret", 'x');          // new, ours, 0600 from the start; never through a link
+    umask($old);
+    $written = $f !== false && @fwrite($f, (string) $text) === strlen((string) $text);
+    if ($f === false || !fclose($f) || !$written) {
+        @unlink("$dir/$id.secret");
+        answer(['ok' => false, 'error' => ['key' => 'ad_secret_inbox', 'params' => ['dir' => $dir]]], 500);
+    }
+    return $id;
+}
+
+function apiSecretDrop(string $id): void
+{
+    if (preg_match('/^[0-9a-f]{32}$/D', $id)) {
+        @unlink(officeInboxDir() . "/$id.secret");
     }
 }
 
