@@ -2338,6 +2338,9 @@ function testAdvisor(): void
 /** The Consultant installs: his templates, what he refuses, what he writes beforehand (only where nothing is), the facts he reads */
 function testAdvisorInstall(): void
 {
+    // Unraid's exclusive shares: only /mnt/user/<share> → /mnt/<pool>/<share> is followed; other paths stay
+    same('advisor: a path outside /mnt/user stays', '/tmp/x/y', advisorUnraidPath('/tmp/x/y'));
+    same('advisor: a share that is no link stays', '/mnt/user/zz-uso-no-such-share/a', advisorUnraidPath('/mnt/user/zz-uso-no-such-share/a'));
     $tmp = hardeningTmp('advisor-install');
     mkdir("$tmp/appdata");
     mkdir("$tmp/tu");
