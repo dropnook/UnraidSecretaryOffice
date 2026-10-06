@@ -74,7 +74,7 @@
 # is new.
 #
 # USAGE
-#   /mnt/user/appdata/UnraidSecretaryOffice/backup/setup.sh [option]
+#   bash /usr/local/emhttp/plugins/unraid-secretary-office/backup/setup.sh [option]
 #
 # VARIANTS (environment variable - the option after it is a shortcut)
 #   UB_SETUP=interactive          check everything, ask, write (default)
@@ -104,7 +104,7 @@
 #   UB_STRIPES=auto               table rows alternately slightly shaded;
 #                                 auto asks the terminal for its back-
 #                                 ground, dark / light set it, off = none
-#   Example: UB_SETUP=check /mnt/user/appdata/UnraidSecretaryOffice/backup/setup.sh
+#   Example: UB_SETUP=check bash /usr/local/emhttp/plugins/unraid-secretary-office/backup/setup.sh
 #
 # What setup.sh NEVER does: change container templates, connect Kopia to a
 # repository, delete snapshots or data (unless you expressly confirm
@@ -341,8 +341,9 @@ What happens here: setup.sh checks that everything the nightly run needs is ther
   (e.g. cache pool + array) into ONE view - the way /mnt/user does it live.
 - jq: reads the JSON output of docker and kopia.
 - notify: Unraid's notifications (bell, mail, push - depending on your Unraid settings).
-- User Scripts: starts backup.sh on a schedule. Only a 3-line call lies on the
-  flash for that; script, settings, dumps and logs stay in the office folder.
+- The schedule: the office's plugin starts backup.sh from its cron file (a copy
+  outside the plugin folder needs a User Scripts entry, a 3-line call on the
+  flash); settings, dumps and logs stay in the office's folders.
 TXT
     say "  Script folder: $UB_DIR"
     say "  Data folder:   $UB_DATA"
@@ -914,6 +915,7 @@ container_needs_stop() { # sets CT_WHY; 0 = stop it
 
 # Does the container belong to the Unraid Secretary Office (maps its folder)? The office
 # writes only small files atomically (tmp + rename) and shows the run - it always keeps running.
+# (Only the containers of the office's old Compose stack did; the plugin has none.)
 is_office_container() { # is_office_container <name>
     local src office rel
     office="$(cd "$UB_DIR/.." && pwd -P)"

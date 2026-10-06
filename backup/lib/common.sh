@@ -22,7 +22,7 @@
 
 UB_VERSION="2.20"
 UB_NAME="unraid-backup"
-UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry (was unraid-backup; the office moves it)
+UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
 # name. The engine's ZFS snapshots: <snap_prefix>YYYYMMDD-HHMM, by default uso-backup-... (section 10);
 # before 2.20 the default was unraidbackup- - still the engine's, its snapshots age out by the retention.
@@ -41,12 +41,13 @@ UB_DESK_DIR="backup"
 # 1. Basics
 ##############################################################################
 
-# The script is part of the Unraid Secretary Office: code in <office>/backup,
-# settings, state and logs in <office>/data/unraid-backup
-# (not in git, root only - the logs name every database).
-# Installed as a plugin the code lies in RAM (/usr/local/emhttp/plugins/...) and the
-# data in the office's data folder: DATA_DIR in the plugin's .cfg on the flash, by
-# default <appdata>/UnraidSecretaryOffice/data (like src/place.php).
+# The script is part of the Unraid Secretary Office's plugin: the code lies in RAM
+# (/usr/local/emhttp/plugins/unraid-secretary-office/backup) and the data - settings,
+# state and logs, root only (the logs name every database) - in the office's data
+# folder: DATA_DIR in the plugin's .cfg on the flash, by default
+# <appdata>/UnraidSecretaryOffice/data (like src/place.php), in unraid-backup/.
+# UB_DATA names another folder; a copy outside the plugin folder (a clone, a test)
+# keeps its data next to its code in ../data/unraid-backup.
 UB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 ub_is_plugin() { [[ "$UB_DIR" == /usr/local/emhttp/plugins/* ]]; }
 ub_plugin_data() {
@@ -94,7 +95,7 @@ err()  { ERRORS=$((ERRORS+1));     _log_line "$(_ts)  ERROR: $*"; }
 
 # ub_notify <subject> <short text> [normal|warning|alert] [long text]
 # Create the data folder and lock it (0700: the office reads it through its
-# agent as root, the web container cannot get at it)
+# agent as root)
 ub_data_dirs() {
     mkdir -p "$UB_STATE" "$UB_LOGS" || return 1      # dumps: in their own backup share (dumps_share), never here
     chmod 700 "$UB_DATA" 2>/dev/null
