@@ -533,7 +533,7 @@
   "note.vm_hostdev": {"one": "Elle a {n} périphérique transmis (GPU, USB …) — il doit exister sur ce serveur.", "other": "Elle a {n} périphériques transmis (GPU, USB …) — ils doivent exister sur ce serveur."},
   "note.kopia": "Kopia écrit dans un dossier à part ; rien n'est remplacé sur le serveur.",
   "after.nextcloud": "Nextcloud : si la sauvegarde est plus ancienne que ce qu'ont les clients de synchronisation — docker exec -u {user} {container} php {occ} maintenance:data-fingerprint, puis files:scan --all.",
-  "after.files_copy": "L'état se trouve dans {path} — prends ce dont tu as besoin ; supprime-le toi-même (ou laisse faire Madame Plumeau) quand tu as fini.",
+  "after.files_copy": "L'état se trouve dans {path} — prends ce dont tu as besoin et supprime-le toi-même quand tu as fini ; je ne supprime jamais rien.",
   "after.files_swap": "L'ancien dossier reste dans {aside} jusqu'à ce que tu le supprimes — ou « Remettre en place ».",
   "after.files_place": "En place : {path}.",
   "after.tpl_apply": "Docker → {container} → Edit → Apply : Unraid recrée le conteneur avec le modèle remis en place.",

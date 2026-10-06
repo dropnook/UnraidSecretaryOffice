@@ -533,7 +533,7 @@
   "note.vm_hostdev": {"one": "Sie hat 1 durchgereichtes Gerät (GPU, USB …) — es muss auf diesem Server da sein.", "other": "Sie hat {n} durchgereichte Geräte (GPU, USB …) — sie müssen auf diesem Server da sein."},
   "note.kopia": "Kopia schreibt in einen eigenen Ordner; auf dem Server wird nichts ersetzt.",
   "after.nextcloud": "Nextcloud: Wenn das Backup älter ist als das, was die Sync-Clients haben — docker exec -u {user} {container} php {occ} maintenance:data-fingerprint, dann files:scan --all.",
-  "after.files_copy": "Der Stand liegt in {path} — nimm, was du brauchst; lösche ihn selbst (oder lass Frau Putzteufel), wenn du fertig bist.",
+  "after.files_copy": "Der Stand liegt in {path} — nimm, was du brauchst, und lösche ihn selbst, wenn du fertig bist; ich lösche nie etwas.",
   "after.files_swap": "Der alte Ordner bleibt in {aside}, bis du ihn löschst — oder «Zurücklegen».",
   "after.files_place": "An seinem Platz: {path}.",
   "after.tpl_apply": "Docker → {container} → Edit → Apply: Unraid erstellt den Container mit dem zurückgelegten Template neu.",

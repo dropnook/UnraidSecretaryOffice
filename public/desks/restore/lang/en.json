@@ -533,7 +533,7 @@
   "note.vm_hostdev": {"one": "It has 1 passed-through device (GPU, USB …) — it must exist on this server.", "other": "It has {n} passed-through devices (GPU, USB …) — they must exist on this server."},
   "note.kopia": "Kopia writes into a folder of its own; nothing on the server is replaced.",
   "after.nextcloud": "Nextcloud: if the backup is older than what the sync clients have — docker exec -u {user} {container} php {occ} maintenance:data-fingerprint, then files:scan --all.",
-  "after.files_copy": "The state lies in {path} — take what you need; delete it yourself (or let Ms. Dustdevil) when you're done.",
+  "after.files_copy": "The state lies in {path} — take what you need and delete it yourself when you're done; I never delete anything.",
   "after.files_swap": "The old folder stays in {aside} until you delete it — or «Put back».",
   "after.files_place": "In place: {path}.",
   "after.tpl_apply": "Docker → {container} → Edit → Apply: Unraid recreates the container with the template put back.",

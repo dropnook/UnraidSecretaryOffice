@@ -533,7 +533,7 @@
   "note.vm_hostdev": {"one": "Ha 1 dispositivo passato (GPU, USB …) — deve esserci su questo server.", "other": "Ha {n} dispositivi passati (GPU, USB …) — devono esserci su questo server."},
   "note.kopia": "Kopia scrive in una cartella propria; sul server non si sostituisce niente.",
   "after.nextcloud": "Nextcloud: se il backup è più vecchio di ciò che hanno i client di sincronizzazione — docker exec -u {user} {container} php {occ} maintenance:data-fingerprint, poi files:scan --all.",
-  "after.files_copy": "Lo stato sta in {path} — prendi ciò che ti serve; cancellalo tu (o lascia fare alla signora Spolverina) quando hai finito.",
+  "after.files_copy": "Lo stato sta in {path} — prendi ciò che ti serve e cancellalo tu quando hai finito; io non cancello mai niente.",
   "after.files_swap": "La vecchia cartella resta in {aside} finché non la cancelli — oppure «Rimetti a posto».",
   "after.files_place": "Al suo posto: {path}.",
   "after.tpl_apply": "Docker → {container} → Edit → Apply: Unraid ricrea il contenitore con il template rimesso a posto.",
