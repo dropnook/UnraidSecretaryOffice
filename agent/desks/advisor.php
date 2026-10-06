@@ -39,6 +39,12 @@ declare(strict_types=1);
  * repository.config), whether Grafana gets the office's data source and
  * dashboard. Cheap and cached in the state.
  *
+ * Kept current (no confirmation: it is the office's own file): the office's dashboard in Grafana's
+ * provisioning, ADVISOR_DASHBOARD_REL — only that file, only while it is a plain file whose uid is the
+ * office's, replaced when this version's dashboard differs (advisorDashboardKeep(), at his scan and
+ * hourly while Grafana runs). Grafana reloads provisioned files by itself and doesn't save provisioned
+ * dashboards, so nothing of the user's is lost; the data source and provider files stay as they are.
+ *
  * Installing — never behind the user's back, always preview + confirm:
  *   plugins     Unraid's own `plugin install <url>` as an atd job (the URLs
  *               pinned here: the makers' repositories, as Community
@@ -105,6 +111,10 @@ const ADVISOR_LABEL = 'uso.installed-by';
 const ADVISOR_GRAFANA_DATA = '/var/lib/grafana';
 const ADVISOR_GRAFANA_PROV = ADVISOR_GRAFANA_DATA . '/provisioning';
 const ADVISOR_DS_UID       = 'uso-prometheus';
+/** The office's dashboard in Grafana's provisioning (kept current, advisorDashboardKeep()) and its uid; how often he looks */
+const ADVISOR_DASHBOARD_REL   = 'dashboards/uso/unraid-secretary-office.json';
+const ADVISOR_DASHBOARD_UID   = 'unraid-secretary-office';
+const ADVISOR_DASHBOARD_EVERY = 3600;
 /** The plugin manager, and his one plugin job at a time (RAM: <job>.json, .out, .done) */
 const ADVISOR_PLUGIN_BIN = '/usr/local/sbin/plugin';
 const ADVISOR_JOB        = RUN_DIR . '/advisor-plugin';
@@ -203,7 +213,9 @@ function advisorScan(): array
             } elseif ($id === 'kopia' && $inspect) {
                 $x['kopia'] = advisorKopiaInfo($found, $inspect);
             } elseif ($id === 'grafana' && $inspect) {
-                $x['grafana'] = advisorGrafanaPublic(advisorGrafanaInfo($found, $inspect));
+                $g = advisorGrafanaInfo($found, $inspect);
+                $x['grafana'] = advisorGrafanaPublic($g);
+                advisorDashboardCurrent($g);
             }
         } elseif (isset($how['template']) && empty($how['later'])) {
             $refuse = advisorInstallRefusal($id, $how['template'], $env, false);
@@ -221,15 +233,109 @@ function advisorScan(): array
     return $state;
 }
 
-/** Every 60 s: secrets nobody took within two minutes go (the web side removes its own; this is for a request cut off half-way) */
+/**
+ * Every 60 s: secrets nobody took within two minutes go (the web side removes its own; this is for a
+ * request cut off half-way). Every ADVISOR_DASHBOARD_EVERY: the office's dashboard in Grafana kept current.
+ */
 function advisorTick(): void
 {
-    static $last = 0;
+    static $last = 0, $dash = 0;
     if (time() - $last < 60) {
         return;
     }
     $last = time();
     advisorInboxSweep(officeInboxDir(), 120);
+    if (time() - $dash >= ADVISOR_DASHBOARD_EVERY) {
+        $dash = time();
+        $found = advisorFindContainer(ADVISOR_EXTERNALS['grafana'], houseContainers());
+        $inspect = $found !== null && $found['running'] ? houseInspect($found['name']) : null;
+        if ($inspect !== null) {
+            advisorDashboardCurrent(advisorGrafanaInfo($found, $inspect));
+        }
+    }
+}
+
+/**
+ * The office's dashboard in this Grafana's provisioning, kept current — only while Grafana runs (then
+ * its folder is awake). A file unchanged since the last look (and this version's dashboard the same)
+ * isn't read again. What happened is logged once.
+ */
+function advisorDashboardCurrent(array $g): void
+{
+    static $seen = [], $told = [];
+    if (empty($g['running']) || $g['host'] === null || !is_file(ADVISOR_DASHBOARD_FILE)) {
+        return;
+    }
+    $path = advisorUnraidPath($g['host'] . '/' . ADVISOR_DASHBOARD_REL);
+    clearstatcache(true, $path);
+    $st = @lstat($path);
+    $src = @stat(ADVISOR_DASHBOARD_FILE);
+    $key = $st ? implode(':', [$st['ino'], $st['size'], $st['mtime'], $src['size'] ?? 0, $src['mtime'] ?? 0]) : null;
+    if ($key === null || ($seen[$path] ?? null) === $key) {
+        return;                 // none there (only the consultant's provisioning puts it there), or as last time
+    }
+    try {
+        $r = advisorDashboardKeep($path, advisorDashboardJson(ADVISOR_DASHBOARD_FILE));
+    } catch (Throwable $e) {
+        $r = 'failed';
+    }
+    clearstatcache(true, $path);
+    $st = @lstat($path);
+    $seen[$path] = $st && $r !== 'failed' ? implode(':', [$st['ino'], $st['size'], $st['mtime'], $src['size'] ?? 0, $src['mtime'] ?? 0]) : null;   // failed: again next time
+    if ($r === 'updated') {
+        logLine("Consultant: the office's dashboard in Grafana brought up to date ($path)");
+    } elseif (in_array($r, ['foreign', 'failed'], true) && !isset($told["$path:$r"])) {
+        $told["$path:$r"] = true;
+        logLine("Consultant: the office's dashboard in Grafana left as it is ($path: " . ($r === 'foreign' ? 'not the office\'s file any more' : 'could not be replaced') . ')');
+    }
+}
+
+/**
+ * Replaces the office's provisioned dashboard ($path) with $want when they differ — only while it is a
+ * plain file (no link) in a real folder whose JSON carries the office's uid; atomically (a new file
+ * beside it, then rename), keeping its owner, group and mode. Never creates one.
+ *
+ * @return string  updated | same | absent | foreign | none (no dashboard to give) | failed
+ */
+function advisorDashboardKeep(string $path, ?string $want): string
+{
+    if ($want === null) {
+        return 'none';
+    }
+    clearstatcache(true, $path);
+    $st = @lstat($path);
+    if (!$st) {
+        return 'absent';
+    }
+    $dir = @lstat(dirname($path));
+    if (($st['mode'] & 0170000) !== 0100000 || !$dir || ($dir['mode'] & 0170000) !== 0040000 || $st['size'] > 8 << 20) {
+        return 'foreign';
+    }
+    $have = @file_get_contents($path, false, null, 0, 8 << 20);
+    if ($have === false) {
+        return 'failed';
+    }
+    $j = json_decode($have);
+    if (!$j instanceof stdClass || ($j->uid ?? null) !== ADVISOR_DASHBOARD_UID) {
+        return 'foreign';
+    }
+    if ($have === $want) {
+        return 'same';
+    }
+    $tmp = writeNewFile(dirname($path) . '/.' . basename($path), $want, $st['mode'] & 0777);
+    if ($tmp === null) {
+        return 'failed';
+    }
+    @lchown($tmp, (int) $st['uid']);
+    @lchgrp($tmp, (int) $st['gid']);
+    @chmod($tmp, $st['mode'] & 0777);
+    clearstatcache(true, $path);
+    $now = @lstat($path);
+    if (!$now || $now['ino'] !== $st['ino'] || ($now['mode'] & 0170000) !== 0100000 || !@rename($tmp, $path)) {
+        @unlink($tmp);           // changed meanwhile: left alone, looked at again next time
+        return 'failed';
+    }
+    return 'updated';
 }
 
 /**

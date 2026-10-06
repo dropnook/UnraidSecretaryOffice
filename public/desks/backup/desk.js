@@ -137,7 +137,34 @@ const canAct = () => !!(state && state.found && state.compatible && Office.agent
 /** Mr. Restori holds the engine's lock (a restore of his): no run, check or setup meanwhile — the agent refuses too */
 const restoring = () => !!(state && state.holder && state.holder.holder === 'restore');
 
-/** Where the run is and when it will be done, from the durations of earlier runs */
+/**
+ * The Kopia source going up for the first time right now (agent: backupUpload()) — its size, what
+ * Kopia read so far, the rate; null for any other source. Its seconds left as of now (measured at u.time).
+ */
+function firstUpload() {
+  const s = status();
+  const u = state && state.upload;
+  return u && u.first && live() && s && s.kopia && s.kopia.current === u.source ? u : null;
+}
+const firstLeft = (u) => (u.left === null || u.left === undefined ? null : Math.max(0, u.left - (Date.now() / 1000 - u.time)));
+
+/** A first upload in words: Mr. Backupsy's bubble (bubble.first_*) or the run card's plain line (first.*) */
+function firstText(u, bubble) {
+  const pre = bubble ? 'bubble.first_' : 'first.';
+  const share = srcLabel(u.source);
+  if (u.size === null || u.size === undefined) return T(pre + 'nosize', { share });
+  const size = fmt.size(u.size);
+  const left = firstLeft(u);
+  if (!u.rate || left === null) return T(pre + 'measuring', { share, size });
+  const rate = fmt.size(u.rate);
+  if (left < 60) return T(pre + 'soon', { share, size, rate });
+  return T(pre + 'eta', { share, size, rate, time: fmt.time(Date.now() / 1000 + left) });
+}
+
+/**
+ * Where the run is and when it will be done, from the durations of earlier runs — except a source going
+ * to Kopia for the first time: its own measure (size, rate), never "late"
+ */
 function progress() {
   const s = status();
   if (!s || !live()) return null;
@@ -147,11 +174,17 @@ function progress() {
   const done = new Map(((s.kopia && s.kopia.done) || []).map((d) => [d.name, d]));
   const phase = s.phase;
   const step = Math.max(0, STEPS.findIndex(([, phases]) => phases.includes(phase)));
+  const first = firstUpload();
   let remaining = 0;
   let known = true;
   let overdue = false;
 
   const sourceLeft = (name) => {
+    if (first && name === first.source) {
+      const left = first.rate && first.size !== null && first.size !== undefined ? firstLeft(first) : null;
+      if (left === null) known = false;
+      return left || 0;
+    }
     const e = est.sources[name];
     if (e === undefined || e === null) { known = false; return 0; }
     if (name === s.kopia.current && s.kopia.current_since) {
@@ -178,6 +211,7 @@ function progress() {
     eta: known ? now + remaining : null,
     percent: known && elapsed + remaining > 0 ? Math.min(99, Math.round(elapsed / (elapsed + remaining) * 100)) : null,
     overdue,
+    first,
   };
 }
 
@@ -192,6 +226,7 @@ function bubbleText() {
     if (s && s.mode !== 'backup') out.push(T('bubble.running_' + s.mode));
     else if (s && s.kopia.current) {
       out.push(T('bubble.running_kopia', { share: srcLabel(s.kopia.current), n: s.kopia.done.length + 1, total: s.kopia.planned.length }));
+      if (p && p.first) out.push(firstText(p.first, true));
     } else if (s) out.push(T('bubble.running_phase', { step: T('step.' + STEPS[p ? p.step : 0][0]) }));
     else out.push(T('bubble.running_old', { step: state.step || '…' }));
     if (p && p.eta) out.push(T(p.overdue ? 'bubble.eta_late' : 'bubble.eta', { time: fmt.time(p.eta) }));
@@ -357,10 +392,11 @@ function runningCard() {
   }
   const line = el('div', 'card-line');
   if (p.eta) line.append(T(p.overdue ? 'eta_late' : 'eta_at', { time: fmt.time(p.eta) }));
-  else line.append(T('eta_unknown'));
+  else line.append(T(p.first ? 'eta_first' : 'eta_unknown'));
   if (s.downtime_s) line.append(' · ', T('downtime_was', { duration: fmt.duration(s.downtime_s) }));
   if (s.packages && s.packages.written) line.append(' · ', T('pk.run_packed', { apps: s.packages.apps, vms: s.packages.vms }));
   card.appendChild(line);
+  if (p.first) card.appendChild(el('div', 'card-line', firstText(p.first, false)));
 
   // what is paused right now: stopped containers, Nextcloud in maintenance mode
   const pz = state.paused || {};
@@ -393,12 +429,15 @@ function runningCard() {
       const mark = el('span', 'bk-mark', icon);
       if (current) mark.appendChild(el('span', 'spin'));
       r.append(mark, el('span', 'bk-source-name', srcLabel(name)));
+      const first = current && p.first;
       let info = '';
       if (d) info = d.ok ? dur(d.seconds) : T('failed');
+      else if (first) info = dur(Date.now() / 1000 - s.kopia.current_since) + ' · ' + T('src_first');
       else if (current) info = dur(Date.now() / 1000 - s.kopia.current_since) + (est[name] ? ' · ' + T('src_last', { d: dur(est[name]) }) : '');
       else if (est[name]) info = T('src_last', { d: dur(est[name]) });
       const inf = el('span', 'bk-source-info', info);
-      if (est[name] && !d) inf.title = T('src_last_hint');
+      if (first) inf.title = T('src_first_hint');
+      else if (est[name] && !d) inf.title = T('src_last_hint');
       r.appendChild(inf);
       list.appendChild(r);
     });

