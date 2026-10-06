@@ -91,7 +91,8 @@ as the event *Unraid Secretary Office*:
   in his setup); a VM not resumed or started, a container not started,
   Nextcloud stuck in maintenance mode (alert); maintenance mode was already
   on, space running out, Kopia incomplete, an aborted run repaired,
-  settings.ini out of date (warning).
+  settings.ini out of date, a backup run skipped because the engine was busy
+  — the night before still uploading, the setup or a restore (warning).
 * **Ms. Snapshotini**: a schedule had problems (warning).
 * **Jack Emby**: a real EmbyCache or consolidating run failed or had
   problems (warning) — reports and trial runs stay quiet.
@@ -99,8 +100,9 @@ as the event *Unraid Secretary Office*:
   half an hour (warning), once — again only if it was solved and came back,
   never an "all clear". He looks every 30 minutes, also with the office
   closed. A switch on his page turns this off.
-* **The Night Watchman**: a login from a new address, a burst of failed logins, a container newly privileged or on the
-  host, a new plugin or a moved plugin source, a change on the flash, a share newly open to guests (warning) — per kind
+* **The Night Watchman**: a login from a new address, a burst of failed logins, a new container with special rights, a
+  container newly privileged or on the host, a new plugin or a moved plugin source, a change on the flash (`go`,
+  `/boot/extra`, a new user, a changed password, a new SSH key), a share newly open to guests (warning) — per kind
   at most once an hour, so a burst gives one message. A switch on his page turns this off (what comes
   meanwhile stays in his watch book).
 * **The plugin**: the agent hasn't checked in for more than 10 minutes while
