@@ -31,7 +31,7 @@ declare(strict_types=1);
  *   OFFICE_DATA_DIR            another data folder than the plugin's DATA_DIR
  */
 
-const AGENT_VERSION = '1.29.0';
+const AGENT_VERSION = '1.29.1';
 const RUN_DIR       = '/var/run/unraid-secretary-office';
 const PID_FILE      = RUN_DIR . '/agent.pid';
 const TICK_US       = 150000;
