@@ -1792,6 +1792,25 @@ function testRestore(): void
     same('restore: share paths', [['appdata', 'nextcloud/db', null], ['appdata', 'x', 'master'], null, null, null, ['domains', '', null]],
         [rsSharePath('/mnt/user/appdata/nextcloud/db/', $ctx), rsSharePath('/mnt/master/appdata/x', $ctx), rsSharePath('/mnt/disks/ud/x', $ctx),
          rsSharePath('/mnt/user/appdata/../etc', $ctx), rsSharePath('/mnt/user/.hidden/x', $ctx), rsSharePath('/mnt/user/domains', $ctx)]);
+
+    // whether he suits the server says what is really there (a fresh server: no package, no snapshot yet)
+    $set = ['general' => ['dumps_share' => ['UnraidSecretaryOffice']]];
+    $cow = ['zfs' => ['master'], 'btrfs' => []];
+    $fitOf = fn (array $f) => [$f['ok'], $f['why'], $f['params']['n'] ?? null];
+    $ran = fn (int $finished, bool $written) => ['finished' => $finished, 'packages' => ['written' => $written, 'apps' => 25, 'vms' => 3]];
+    same('restore fit: the packages of his last look', [true, 'packages', 2],
+        $fitOf(rsFit(['time' => 100, 'apps' => [['id' => 'a']], 'vms' => [['id' => 'v']]], [], $set, $cow)));
+    same('restore fit: a real run wrote packages after his last look', [true, 'packages', 28], $fitOf(rsFit(['time' => 100, 'apps' => []], $ran(200, true), $set, $cow)));
+    same('restore fit: set up, no packages yet (none written, or before his look)', [[true, 'no_packages', null], [true, 'no_packages', null], [true, 'no_packages', null]],
+        [$fitOf(rsFit(['time' => 100, 'apps' => []], $ran(200, false), $set, $cow)), $fitOf(rsFit(['time' => 300, 'apps' => []], $ran(200, true), $set, $cow)),
+         $fitOf(rsFit(['time' => 300], [], $set, ['zfs' => [], 'btrfs' => []]))]);
+    same('restore fit: a fresh server with ZFS — nothing yet, worth hiring with Mr. Backupsy (never «snapshots»)', [true, 'with_backup', null],
+        $fitOf(rsFit(['time' => 0], [], [], $cow)));
+    same('restore fit: neither packages nor ZFS/btrfs', [false, 'nothing', null], $fitOf(rsFit(['time' => 0], [], [], ['zfs' => [], 'btrfs' => []])));
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/restore/lang/en.json'), true) ?: [];
+    foreach (['packages', 'no_packages', 'with_backup', 'nothing'] as $why) {
+        check("restore fit: words for $why", isset($en["fit.$why"]));
+    }
 }
 
 /**
@@ -2907,6 +2926,74 @@ function testLeftovers(): void
     foreach (['db', 'sqlite', 'files', 'config', 'vm', 'kopia', 'putback'] as $k) {
         check("leftovers: words for a restore of kind $k", isset($en["lo.kind.$k"]));
     }
+
+    // a dataset is as big as ZFS counts it with its snapshots — nostromo's VM folder set aside: used 17.3 GB, referenced 96 KB,
+    // find saw «0 B»; the other rooms (domains, appdata, the storeroom's parked datasets) the same
+    $aside = 'master/domains/VM.aside-20261006-175854';
+    $calls = [];
+    $zfs = function (array $cmd) use (&$calls, $aside): array {
+        $calls[] = $cmd;
+        return [1, "$aside\t17299173376\t17299075072\nother/x\t5\t0\nmaster/domains/odd\tx\t1\n", "cannot open 'pool/gone': dataset does not exist\n"];
+    };
+    $space = clZfsSpace([$aside, 'pool/gone', 'master/domains/odd'], $zfs);
+    same('zfs space: used and what the snapshots hold, only the datasets named', [$aside => ['used' => 17299173376, 'snaps' => 17299075072]], $space);
+    same('zfs space: one call naming them, none without datasets', [[['zfs', 'list', '-Hp', '-o', 'name,used,usedbysnapshots', $aside, 'pool/gone', 'master/domains/odd']], []],
+        [$calls, clZfsSpace([], $zfs)]);
+    $raw = [
+        'appdata'   => ['folders' => ['list' => [['parts' => [['dataset' => 'master/appdata/x'], ['dataset' => null]]], ['parts' => [['dataset' => 'tmpfs'], ['dataset' => '/dev/sdb1']]]]]],
+        'domains'   => ['folders' => ['list' => [['parts' => [['dataset' => $aside]]]]]],
+        'leftovers' => ['list' => [['parts' => [['dataset' => $aside], ['dataset' => null]]]]],
+        'trash'     => [['items' => [['zfs' => 'master/domains/_UnraidSecretaryOffice-trash-20261004-150957-W', 'present' => true], ['zfs' => 'master/gone', 'present' => false],
+                                     ['zfs' => null, 'present' => true], ['zfs' => '-o/x', 'present' => true]]]],
+    ];
+    same('zfs space: the datasets of the rooms, each once (no device, no tmpfs, no option)', ['master/appdata/x', $aside, 'master/domains/_UnraidSecretaryOffice-trash-20261004-150957-W'],
+        clRawDatasets($raw));
+    $path = "/mnt/$aside";
+    $lo = clLeftoverSizes([['parts' => [['path' => $path, 'dataset' => $aside, 'file' => false, 'bytes' => null],
+                                        ['path' => '/mnt/master/appdata/zz/pg.aside-20261006-172818', 'dataset' => null, 'file' => false, 'bytes' => null]]]],
+        ['sizes' => [$path => ['bytes' => 0, 'at' => time()], '/mnt/master/appdata/zz/pg.aside-20261006-172818' => ['bytes' => 18404352, 'at' => time()]]], fn () => false, $space)[0];
+    same('leftovers: a dataset set aside with all in its snapshots — 17.3 GB, of which 17.3 GB in them (not «0 B»)',
+        [17299173376 + 18404352, 17299075072, 17299173376, 17299075072, null, false], [$lo['bytes'], $lo['snaps'], $lo['parts'][0]['bytes'], $lo['parts'][0]['snaps'], $lo['parts'][1]['snaps'], $lo['measuring']]);
+    $lo = clLeftoverSizes([['parts' => [['path' => $path, 'dataset' => $aside, 'file' => false, 'bytes' => null]]]], ['sizes' => []], fn () => true, [])[0];
+    same('leftovers: without ZFS\'s word, measured in the background', [null, 0, true], [$lo['bytes'], $lo['snaps'], $lo['measuring']]);
+    $old = time() - 40 * 86400;
+    $list = [['name' => 'VM.aside-20261006-175854', 'parts' => [['root' => 'master', 'path' => $path, 'dataset' => $aside, 'zfs' => true, 'mtime' => $old]]]];
+    $cache = ['sizes' => [$path => ['at' => time(), 'files' => 3, 'bytes' => 98304, 'newest' => $old, 'top' => []]]];
+    $f = clFolderEntries($list, [], [], 'domain', true, true, $cache, fn () => false, $space)[0];
+    same('domains: a folder that is a dataset counts its snapshots, find still tells files and the newest change', [17299173376, 17299075072, 17299075072, 3, $old],
+        [$f['bytes'], $f['snaps'], $f['parts'][0]['snaps'], $f['files'], $f['newest']]);
+    $f = clFolderEntries($list, [], [], 'domain', true, true, $cache, fn () => false)[0];
+    same('domains: without ZFS\'s word what find counted', [98304, 0], [$f['bytes'], $f['snaps']]);
+    foreach (['snaps.chip', 'snaps.chip_text', 'snaps.of', 'snaps.of_run', 'lo.since_made', 'lo.d.made'] as $k) {
+        check("cleanup: words for $k", isset($en[$k]));
+    }
+
+    // what his journals name is his room's only — exactly by path, never by a name's pattern
+    $los = [['path' => '/mnt/user/appdata/prometheus.restored-20261007-000716', 'parts' => [['path' => '/mnt/master/appdata/prometheus.restored-20261007-000716']]],
+            ['path' => '/mnt/master/domains/Win.aside-20261006-175854', 'parts' => []]];
+    $folders = ['files' => 2, 'list' => [
+        ['name' => 'prometheus.restored-20261007-000716', 'parts' => [['path' => '/mnt/master/appdata/prometheus.restored-20261007-000716'], ['path' => '/mnt/disk1/appdata/prometheus.restored-20261007-000716']]],
+        ['name' => 'grafana.restored-20261007-000716', 'parts' => [['path' => '/mnt/master/appdata/grafana.restored-20261007-000716']]],
+        ['name' => 'prometheus', 'parts' => [['path' => '/mnt/master/appdata/prometheus']]]]];
+    $kept = clWithoutLeftovers($folders, $los, 'appdata');
+    same('his leftovers: out of the appdata room (all its parts), a look-alike nobody named and the rest stay',
+        [['grafana.restored-20261007-000716', 'prometheus'], 2], [array_column($kept['list'], 'name'), $kept['files']]);
+    $dom = clWithoutLeftovers(['list' => [['name' => 'Win.aside-20261006-175854', 'parts' => [['path' => '/mnt/master/domains/Win.aside-20261006-175854'],
+                                                                                         ['path' => '/mnt/hive/domains/Win.aside-20261006-175854']]]]], $los, 'domains');
+    same('his leftovers: a pool path takes out that part only', [['/mnt/hive/domains/Win.aside-20261006-175854']], array_map(fn ($f) => array_column($f['parts'], 'path'), $dom['list']));
+    same('his leftovers: none named, nothing taken out', $folders, clWithoutLeftovers($folders, [], 'appdata'));
+
+    // a restore finished after her last look: the page looks again (his job file's time, never while the lock is held)
+    $tmp = hardeningTmp('restore-newer');
+    $GLOBALS['clRestoreJob'] = "$tmp/restore-job.json";
+    same('restore newer: no job file, or never looked', [null, null], [clRestoreNewer(time() - 60, false), clRestoreNewer(null, false)]);
+    file_put_contents("$tmp/restore-job.json", '{}');
+    $t = time() - 10;
+    touch("$tmp/restore-job.json", $t);
+    same('restore newer: after her look / before it / while the lock is held', [$t, null, null],
+        [clRestoreNewer($t - 50, false), clRestoreNewer($t + 5, false), clRestoreNewer($t - 50, true)]);
+    unset($GLOBALS['clRestoreJob']);
+    hardeningRm($tmp);
 }
 
 function testComposeBuilds(): void
