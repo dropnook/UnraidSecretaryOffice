@@ -15,10 +15,10 @@ server, tells you what they noticed and — where it makes sense — lets you ac
 | 💾 **Mr. Backupsy** | Runs the office's backup engine ([backup/](backup/README.md): consistent ZFS/btrfs snapshots, database dumps, Nextcloud maintenance mode, a package per app and VM, Kopia offsite — an app or VM you choose as a Kopia source of its own with its own retention): what a run is doing right now and when it will be done (estimated from earlier runs), how the last nights went, which share is protected how (Kopia offsite, local snapshot, not at all) and when it was last copied offsite, what changed on the server since the setup, whether a nightly run is scheduled, what each app's and VM's package holds (templates or compose files, dumps, consistent copies of the databases of media servers that keep running, the VM's XML, NVRAM and TPM state), and where everything lies (getting it back is Mr. Restori's job). Starts a full run, a run without Kopia, a dry run or a check, and stops a run cleanly. **Set up in the browser** (*Set up…*): he reads the server and shows his proposals with reasons — Kopia offsite, every share, which containers stop for the snapshots, database dumps and Nextcloud maintenance mode, retention, Kopia policies — you change what you like and apply; the same engine as `setup.sh` in a terminal checks and writes it. It warns when Nextcloud's or Immich's files lie in a share backed up less than the app, and offers to leave caches, transcodes and logs out of Kopia. |
 | 📦 **Mr. Restori** | Brings back what is gone — careful as a restorer in white gloves, «piano, piano». Organised by app and VM: what can come back from where, with dates — from Mr. Backupsy's package (templates or compose files and whether they are still on the server, database dumps, a media server's database copies; for a VM its XML, UEFI variables and TPM state; earlier nights' packages from the snapshots of the backup place), from the local ZFS and btrfs snapshots of its folders (where they lie, how many, the newest, datasets inside), and from Kopia (its own source or its share's, and when it last went there). Each row says what its chips refer to: the **package** (and whether Kopia has it, with the backup place's share) and the **data** (its folders' snapshots, Kopia, protection). **He brings things back himself**: a database from its dump (a safety dump of what is there first; Postgres into a fresh database with the old one kept aside as it is — the only way for Immich —, MariaDB and MongoDB in place), a media server's database copies, a folder from a local snapshot (copied next to it, or swapped in with seconds of downtime), templates and compose files (what is there goes aside; he never starts or recreates a container — he says what to click), a VM's configuration (only while it is shut off), a Kopia snapshot into a writable folder of the Kopia container. Every restore shows first exactly what will happen — the steps, what goes aside where (nothing is ever deleted), which containers stop and for how long — and starts only once you confirm; it runs on its own on the server, one at a time, never while a backup runs (a backup that comes along is skipped and says why), and his **journal** shows every step; **Put back** undoes a restore, also one that failed. Ready-made commands with your names and paths too: databases with the credentials the dump was made with (Immich into a fresh database through its sed, Nextcloud with maintenance mode and a new data fingerprint), media server databases, templates and compose files, a single VM, all of libvirt.img; the apps' own backups as a second way; the way out of Kopia step by step with every source; and **onto a new server**: what comes back from where, what must not, and where it gets fiddly. Never wakes a sleeping disk unless you tick «wake». |
 | 🍿 **Jack Emby** | The intern ("check Emby"): fetches coffee, entertains everyone — and looks after [EmbyCache](https://github.com/helmi1987/embycache-for-unraid), which keeps what people are about to watch on the fast pool so the array disks can sleep, and brings it back to the very disk it came from once it's watched. Before that, the [media gather](https://github.com/helmi1987/media-disk-gather-for-unraid) ("Consolidate folders") brings every film folder together on one disk. Both ship with the office (`embycache/`, `gather/`); Jack sets them up (Emby API key, libraries, people, pool — films and series each their own way), shows whether your shares suit, runs them and schedules them. |
-| 📝 **Ms. Protocolli** | Reads every log out loud — and sadly understands none of it. The office's own logs (agent, Mr. Backupsy's runs, Jack's EmbyCache, the office containers), Unraid's (syslog, kernel, VMs, web UI, Samba, parity checks …), what every User Script printed last, and every container's docker logs. Last 100 to 10000 lines, live like `tail -f`, filter by text or errors and warnings only, copy or download. **Her tour** counts and groups (understanding stays someone else's job): how full `/var/log` is — Unraid's 128 MB RAM disk — with its biggest files and how much they grew since her last tour, every container's log size and whether Docker's log rotation limits it, and per log the lines that sound like an error or a warning since her last tour (the first time: the last 24 hours) — a line that names its own level goes by it, others by their words; similar lines (also when only a file or a path differs) as one entry with how often, first and last seen and the newest line, one click away from that line in the reader. The team lead hears from her when `/var/log` is over 60 % (recommended) or 80 % (still to do). Read only, from a fixed list; nothing wakes a disk. |
+| 📝 **Ms. Protocolli** | Reads every log out loud — and sadly understands none of it. The office's own logs (agent, Mr. Backupsy's runs, Jack's EmbyCache), Unraid's (syslog, kernel, VMs, web UI, Samba, parity checks …), what every User Script printed last, and every container's docker logs. Last 100 to 10000 lines, live like `tail -f`, filter by text or errors and warnings only, copy or download. **Her tour** counts and groups (understanding stays someone else's job): how full `/var/log` is — Unraid's 128 MB RAM disk — with its biggest files and how much they grew since her last tour, every container's log size and whether Docker's log rotation limits it, and per log the lines that sound like an error or a warning since her last tour (the first time: the last 24 hours) — a line that names its own level goes by it, others by their words; similar lines (also when only a file or a path differs) as one entry with how often, first and last seen and the newest line, one click away from that line in the reader. The team lead hears from her when `/var/log` is over 60 % (recommended) or 80 % (still to do). Read only, from a fixed list; nothing wakes a disk. |
 | 🏮 **The Night Watchman** | Keeps the watch book and tells you only what is different from normal — calm, few words. When you hire him he notes what is normal and reports nothing for it; then every five minutes, also with the office closed: a WebGUI or SSH login from an address he hasn't seen, a burst of failed logins (five from one address within ten minutes), a container that turned privileged, uses the host's network or processes, publishes new ports or got new capabilities, devices or the Docker socket (a new container only when it has such rights), a new plugin or one that takes its updates from somewhere else now, changes on the flash (`go`, `/boot/extra`, users, passwords, SSH keys), a share — or a disk, a pool, the flash — that guests reach without a password now, and what starts on its own as root: new lines in root's own crontab (`crontab -l`), lines that are in it *and* in Unraid's (`/etc/cron.d/root` — Unraid's cron reads both, so they run twice), the office's own schedule there (it belongs in its cron file only — an old copy starts a second backup), programs gone with their plugin — each with the file's time and what the syslog said around it, to find out who wrote it —, the plugins' `.cron` files on the flash, User Scripts and their schedules, jobs in atd's queue that aren't the office's, and Unraid's notification agents. Each goes into his watch book, to the team lead and, the important ones, to Unraid's notifications (per kind at most once an hour). *I know, thanks* makes it the new normal; what gets safer becomes normal by itself. He keeps no log lines (only the few around a crontab's change, cleaned of tokens), no text of `go` or of notification agents and no passwords — only addresses, names and fingerprints. He never changes a crontab: where something can be undone, the entry has the command for Unraid's terminal. Not Fix Common Problems' checks: only what changed. Read only; nothing wakes a disk. |
 | 🧹 **Ms. Dustdevil** | Clears away what nobody uses any more: Docker templates without a container, Compose stacks without containers, appdata folders nothing names (container mounts, templates, stacks, compose files, VMs, any file on the flash), what deleted VMs left behind (folders in `domains`, NVRAM files, TPM states, snapshot lists, disk images in `isos` no VM uses) switched-off User Scripts that lie around (pointing to paths that are gone, or unused since the reboot), stray `my-*.xml` outside Unraid's folder (take over or put away; backups are left out), VMs whose disks are gone (pointed out, removed in Unraid) and Docker's leftovers (dangling and unused images, volumes without a container, the build cache). And she straightens what hangs crooked: **missing pictures** — containers that show a question mark on Unraid's Docker page and Dashboard (none set, or one Unraid can't load) get a logo, found on your server (pictures in Unraid's `dockerMan/images` named like the app; Apple's Time Machine logo for Time Machine containers), in Community Applications on your server, in a table of well-known images (a database in an app's stack gets its database's logo) or guessed from the image's name and checked — addresses of the open [dashboard-icons](https://github.com/homarr-labs/dashboard-icons) collection, nothing is bundled. Or you upload your own: your browser turns it into a square PNG of at most 256 × 256 pixels, which she keeps on the flash in `/boot/config/plugins/unraid-secretary-office/icons/`. She sets it in the container's template (shown at once) or in its Compose Manager stack's override file (lasting from the next Compose Up; she never restarts anything), the old file goes into her storeroom first. On Unraid 7.3.2, whose pages reload a missing question.png endlessly, she offers a stand-in. A filter and a CSV export for every room. Nothing is deleted right away: it is renamed into `_UnraidSecretaryOffice-trash` on the same disk (ZFS datasets with `zfs rename`, snapshots included) and can be put back until you empty it. Measures in the background, never wakes a sleeping disk, changes nothing while a backup runs. |
-| 💼 **The Consultant** | An external — he knows the tools the office relies on but doesn't make itself: [Fix Common Problems](https://github.com/unraid/fix.common.problems) (checks the server for common mistakes), [Files Viewer](https://github.com/Lazaros-Chalkidis/unraid-filesviewer) (files in the browser — the office has no file browser of its own on purpose), [Kopia](https://kopia.io/) (Mr. Backupsy hands it the offsite copies) and, where Emby, Jellyfin or Plex runs, [Stream Viewer](https://github.com/Lazaros-Chalkidis/unraid-streamviewer) (who watches what) — and, through gritted teeth, [unbalanced](https://github.com/jbrodriguez/unbalance) (moves files between array disks; can get in the way of backups and EmbyCache, so never suggested). Optional, free and self-hosted, the monitoring in the order it is set up: a [Node Exporter](https://github.com/prometheus/node_exporter) (measures the server; its textfile collector reads the folder the office will write its own numbers to, `/mnt/addons/UnraidSecretaryOffice/metrics`), [Prometheus](https://prometheus.io/) (keeps the numbers; a ready `prometheus.yml` to paste) and [Grafana](https://grafana.com/oss/grafana/) (draws them) — [Loki](https://grafana.com/oss/loki/) only named, for later. He tells whether they are there, what they are good for, who in the office needs them, and how to install them by hand — and, if you like, installs them himself: plugins through Unraid's own plugin manager (you see its output), containers by filling in Unraid's own *Add Container* form the way Apps does — you see every field and click Apply yourself; Prometheus gets its `prometheus.yml`, Grafana the Prometheus data source and the office's dashboard (provisioning files, no login, no clicking in Grafana), never over what is there. For Kopia he also sets up the repository (S3-compatible storage or a folder, new or existing) — only after he said plainly that this means typing your storage's keys and the repository password into the page, and you confirmed it: they reach Kopia through RAM only and the office keeps none of them. Whoever wants maximum security sets Kopia up by hand. At the end a printable **recovery sheet** with everything needed to get the backups back on a new server, made in your browser only — print it, keep it in a safe. Always with a preview first and, with a PIN, only from an unlocked browser. |
+| 💼 **The Consultant** | An external — he knows the tools the office relies on but doesn't make itself: [Fix Common Problems](https://github.com/unraid/fix.common.problems) (checks the server for common mistakes), [Files Viewer](https://github.com/Lazaros-Chalkidis/unraid-filesviewer) (files in the browser — the office has no file browser of its own on purpose), [Kopia](https://kopia.io/) (Mr. Backupsy hands it the offsite copies) and, where Emby, Jellyfin or Plex runs, [Stream Viewer](https://github.com/Lazaros-Chalkidis/unraid-streamviewer) (who watches what) — and, through gritted teeth, [unbalanced](https://github.com/jbrodriguez/unbalance) (moves files between array disks; can get in the way of backups and EmbyCache, so never suggested). Optional, free and self-hosted, the monitoring in the order it is set up: a [Node Exporter](https://github.com/prometheus/node_exporter) (measures the server; its textfile collector reads the folder the office will write its own numbers to, `/mnt/addons/UnraidSecretaryOffice/metrics`), [Prometheus](https://prometheus.io/) (keeps the numbers; a ready `prometheus.yml` to paste) and [Grafana](https://grafana.com/oss/grafana/) (draws them) — [Loki](https://grafana.com/oss/loki/) only named, for later. He tells whether they are there, what they are good for, who in the office needs them, and how to install them by hand — and, if you like, installs them himself: plugins through Unraid's own plugin manager (you see its output), containers by filling in Unraid's own *Add Container* form the way Apps does — you see every field and click Apply yourself; Prometheus gets its `prometheus.yml`, Grafana the Prometheus data source and the office's dashboard (provisioning files, no login, no clicking in Grafana), never over what is there. For Kopia he also sets up the repository (S3-compatible storage or a folder, new or existing) — only after he said plainly that this means typing your storage's keys and the repository password into the page, and you confirmed it: they reach Kopia through RAM only and the office keeps none of them. Whoever wants maximum security sets Kopia up by hand. At the end a printable **recovery sheet** with everything needed to get the backups back on a new server, made in your browser only — print it, keep it in a safe. Always with a preview first. |
 | 👥 **The Team Lead** | Leads the team. Every desk tells him what it needs from the server; he adds what the office as a whole benefits from and lists what is missing — *still to do* (only you can do it, in Unraid), *recommended* (e.g. Fix Common Problems, Files Viewer, notifications by mail or push) and *good to know* (other backup tools, so nothing runs twice by accident) — each with a link into Unraid's web UI. A recommendation or note you already know about you put aside with *I know, thanks*: it moves to *Noted* at the end of his page and stops counting — in his bubble, his picture, at the reception and on the Dashboard tile (kept on the server, for every browser) — and comes back by itself when its situation changes (another version, another container) or when it was sorted out and turns up again; what is *still to do* can't be put aside. Especially helpful on a fresh server. Read only. |
 
 A fresh office has only the team lead. He asks around who would suit your
@@ -159,67 +159,16 @@ appdata, the share `UnraidSecretaryOffice`, the setting on the flash and
 whatever the desks set up on the server (snapshots, Ms. Dustdevil's
 storeroom) stay — delete them yourself if you don't want them any more.
 
-### Moving over from the Compose stack
-
-Up to version 1.13 the office ran as a Compose stack (two containers). The
-plugin uses the same data folder, so nothing needs copying:
-
-1. Make sure no backup is running. In the Compose Manager stop the stack
-   `UnraidSecretaryOffice` (*Compose Down*). Never run both: the plugin's
-   agent doesn't start while the stack's agent is running.
-2. Install the plugin (above). It takes `appdata/UnraidSecretaryOffice/data`.
-   Cloned the repository somewhere else? Put the path of its `data` folder into
-   `DATA_DIR` in `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cfg`,
-   then `bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/agent.sh restart`.
-3. The agent takes the nightly backup's and Ms. Snapshotini's schedules over
-   from User Scripts: the entries `unraid-secretary-office_backup` and
-   `…_snapshots` hand over their times and go away.
-4. Remove the stack in the Compose Manager. Of the cloned repository only its
-   `data` folder is still used.
-
-The way back: remove the plugin and start the stack again; then Mr. Backupsy
-→ *Set up… → Apply* creates the User Scripts entry again (set the time under
-*Schedule…*), and saving one of Ms. Snapshotini's plans does the same for hers.
-
-<details>
-<summary>Without the plugin: the Compose stack (the old way, still works)</summary>
-
-Also needs the **Compose Manager** plugin (or Compose Manager Plus) and a free
-IP on `br0` (or a host port instead). The office container serves the page
-(`php:apache`, no special rights, **no login** — keep it in your LAN and set a
-PIN); the agent container is privileged, shares the host's PID namespace and
-`nsenter`s into the host to run Unraid's PHP. The schedules are User Scripts
-entries (needs the **User Scripts** plugin).
-
-1. `git clone https://github.com/vipermark2/UnraidSecretaryOffice /mnt/user/appdata/UnraidSecretaryOffice`
-2. Copy `.env.example` to `.env` and set at least `OFFICE_IP`. In the Compose
-   Manager: *Add New Stack* → `UnraidSecretaryOffice` → gear → *indirect*:
-   `/mnt/user/appdata/UnraidSecretaryOffice`, then *Compose Up*. (Without the
-   Compose Manager: `docker compose -p unraidsecretaryoffice up -d` in the
-   folder.)
-3. Open `http://<the IP>/`.
-
-Updating: the Team Lead offers *Update* (a `git pull`, refused if the code was
-changed locally); when `compose.yaml` changed, *Compose Up* once more.
-</details>
-
 ## Security
 
 The office is part of Unraid's web UI: only who is logged in to Unraid gets
 in, and every change carries Unraid's CSRF token, so other web pages in your
-browser can't trigger anything. On top of that, changing things (deleting
-snapshots, starting a backup …) can be protected with a **PIN**: ⋯ → *Protect
-with a PIN*. A browser that entered it stays unlocked for 12 hours; changing
-the PIN locks every browser again. Five wrong tries make the device that typed
-them wait (longer each time) — the others aren't held up; only many wrong tries
-from many devices make everybody wait. Without the PIN one can still look, but
-not wake sleeping disks or start the backup setup's look at the server. In the same dialog, *Needed to look, too*
-hides everything — shares, paths, containers, logs — from browsers without
-the PIN. Waiting too long after wrong tries? In Unraid's terminal
-`bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/pin.sh unblock` lifts the waiting
-times and keeps the PIN (browsers that are unlocked stay unlocked); `… pin.sh reset` forgets the PIN
-(the same as deleting `data/office/auth.json` in the data folder); `… pin.sh status` shows both. All of
-this lives in `src/auth.php`.
+browser can't trigger anything. Whoever is logged in to Unraid is root on the
+server anyway — with or without the office — so the office has no PIN or login
+of its own: keep Unraid logged in only on devices you trust. What it adds are
+previews and confirmations against mistakes: before anything changes it shows
+what will happen and asks (a restore or the Kopia setup also wants you to tick
+that you have read it).
 
 The agent can do what root can do on the host — that is what it is for — but
 it only offers the actions listed in `agent/desks/*.php`.
@@ -230,7 +179,7 @@ A desk is a set of files; nothing in the core needs to change.
 
 ```
 agent/desks/<id>.php            what it does on the host
-public/desks/<id>/desk.json     {"order": 40, "icon": "🧹", "refresh_after": 300, "open_actions": ["scan"]}
+public/desks/<id>/desk.json     {"order": 40, "icon": "🧹", "refresh_after": 300}
                                 ("reception_order" places it differently at the reception)
 public/desks/<id>/desk.js       her desk in the web UI
 public/desks/<id>/desk.css      optional, its rules nested in #sso{ … } like office.css
@@ -259,10 +208,6 @@ A desk can also tell the team lead what it needs (`'checks' => fn () => [...]`,
 built with `finding()` from `agent/lib/house.php`, texts as `check.<id>` and
 `check.<id>_how` in its language files).
 
-`open_actions` lists the actions anybody may call even when a PIN is set
-(only reading or measuring); `refresh` always is. Everything else needs an
-unlocked browser.
-
 On the web side it registers with `Office.desk({ id, mount(root), poll(), reception() })`
 and uses `Office.api`, `Office.dialog`, `Office.menu`, `Office.toast`, `Office.fmt`
 and `Office.scope('<id>')` for its strings. See the existing desks.
@@ -277,30 +222,30 @@ dates and "3 hours ago" come from the browser.
 
 ## Development
 
-No build step, no dependencies. Work in a git clone on the server and run it
-as the Compose stack (see above): the office reads its code on every request,
+No build step, no dependencies. Work in a git clone (e.g. on the server in
+appdata) and put it into the installed plugin with `bash plugin/dev-sync.sh`
+(on the host): it copies the working copy into the plugin in RAM — live until
+the next reboot or plugin update; the page reads its files on every request,
 and the agent restarts itself (after `php -l`) when one of its files changes.
-Stop the plugin's agent first (`bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/agent.sh stop`)
-— never two agents.
 
 * Agent log: `data/agent.log` (also under ⋯ → Agent log)
-* Run the agent by hand for debugging: stop the agent (container or plugin
-  service), then on the host `php agent/agent.php run`
-* Tests: on the Unraid host `php tests/run.php` — the tricky logic (cron,
-  snapshot retention, Emby detection, the gather's settings, User Scripts
-  schedules, the plugin's cron file; on copies only) and every text in every
-  language. It changes nothing on the server.
-* The server runs the plugin? `bash plugin/dev-sync.sh` (on the host) copies
-  the working copy into the installed plugin in RAM — live until the next
-  reboot or plugin update; the agent restarts itself. Never start the stack
-  next to the plugin.
+* Run the agent by hand for debugging: stop the service
+  (`bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/agent.sh stop`),
+  then on the host `php /usr/local/emhttp/plugins/unraid-secretary-office/agent/agent.php run`
+  — never two agents.
+* Tests: on the Unraid host `php tests/run.php` in the clone — the tricky logic
+  (cron, snapshot retention, Emby detection, the gather's settings, the
+  plugin's cron file; on copies only) and every text in every language. They
+  use the clone's `data/` and `public/`, never the plugin's data folder, and
+  change nothing on the server.
 * The plugin package: `bash plugin/build.sh <version>` builds
   `dist/unraid-secretary-office-<date>.txz` and `dist/unraid-secretary-office.plg`.
   Publishing a release (tag `v<version>`) does the same on GitHub and
   attaches both (`.github/workflows/plugin.yml`).
-* `data/` holds runtime state only and is not part of the repository —
-  including `data/unraid-backup/` (the backup engine's settings, state and
-  logs; root only) and Jack Emby's `data/embycache/` and `data/gather/`.
+* The data folder (`DATA_DIR`, by default `appdata/UnraidSecretaryOffice/data`)
+  holds runtime state only and is not part of the repository — including
+  `unraid-backup/` (the backup engine's settings, state and logs; root only)
+  and Jack Emby's `embycache/` and `gather/`.
 
 ## License
 

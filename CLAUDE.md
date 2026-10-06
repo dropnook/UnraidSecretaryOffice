@@ -3,41 +3,35 @@
 Read README.md first — it explains the architecture and how a desk (secretary) is built.
 This file holds the conventions and the checklist for changes.
 
-## Two ways to run, one code
+## How it runs: the plugin
 
-`src/place.php` decides by where the code lies (`officeIsPlugin()`):
-
-* **Plugin** (the way users install it, since 1.14): code in RAM under
-  `/usr/local/emhttp/plugins/unraid-secretary-office/` — the web files of
-  `public/` at its top, `src/`, `agent/`, `backup/`, `embycache/`, `gather/`,
-  `scripts/`, `event/`, `images/` beside them (built by `plugin/build.sh`). Unraid's nginx/php-fpm
-  serve the page behind the Unraid login: `SecretaryOffice.page` (`Menu="Tasks:85"`)
-  puts the office into Unraid's menu bar, inside Unraid's page (`officeInUnraid()`,
-  `OFFICE_IN_UNRAID`, files from `/plugins/unraid-secretary-office/`); its label is
-  the page's `Name=` (default *Sekretariat*); or, the user's choice, an icon
-  under Settings → User Utilities (`Menu="Utilities"` + Title/Icon/Tag), or
-  only a button in Unraid's header (`SecretaryOfficeButton.page` gets
-  `Menu="Buttons:90"`, the office's page no Menu= — Unraid still serves it at
-  /SecretaryOffice; a button page is loaded on every Unraid page, keep it a
-  one-liner). All in
-  the ⋯ menu → `caretaker.menu_name`, kept as `MENU_NAME`/`MENU_PLACE` in the
-  .cfg, put back by the .plg at every boot (`officeMenuPageApply()`);
-  `index.php` only forwards there. `SecretaryOfficeDashboard.page` puts a tile
-  on Unraid's Dashboard (src/dashboard.php: the messenger, the caretaker's
-  traffic light, Mr. Backupsy's last/next run — from the state files only,
-  refreshed by `api.php?a=dash` every minute while in view). The agent is a service
-  (`scripts/agent.sh`, started at install/boot and by `event/started`, stopped
-  by `event/stopping`). The data folder is `DATA_DIR` from
-  `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cfg`
-  (default `<appdata>/UnraidSecretaryOffice/data`).
-  PHP constants: `OFFICE_AS_PLUGIN` (web), `AS_PLUGIN` and `OFFICE_WEB` (agent).
-* **Stack** (development, and old installs): the git clone in appdata run by
-  `compose.yaml` — office container (php:apache) plus the privileged agent
-  container that nsenter's into the host; data in `<clone>/data`.
-
-Everything else (mailbox, desks, state files, engine interface) is the same.
-Mode-specific code stays small and says why (`if (AS_PLUGIN)`), texts that
-differ get a `_plugin` key or come from state (`schedule.via`).
+The office is an Unraid plugin — the only way to run it (the old Compose stack
+went in 2026-10). Its code lies in RAM under
+`/usr/local/emhttp/plugins/unraid-secretary-office/` — the web files of
+`public/` at its top, `src/`, `agent/`, `backup/`, `embycache/`, `gather/`,
+`scripts/`, `event/`, `images/` beside them (built by `plugin/build.sh`). Unraid's nginx/php-fpm
+serve the page behind the Unraid login: `SecretaryOffice.page` (`Menu="Tasks:85"`)
+puts the office into Unraid's menu bar, inside Unraid's page (`officeInUnraid()`,
+`OFFICE_IN_UNRAID`, files from `/plugins/unraid-secretary-office/`); its label is
+the page's `Name=` (default *Sekretariat*); or, the user's choice, an icon
+under Settings → User Utilities (`Menu="Utilities"` + Title/Icon/Tag), or
+only a button in Unraid's header (`SecretaryOfficeButton.page` gets
+`Menu="Buttons:90"`, the office's page no Menu= — Unraid still serves it at
+/SecretaryOffice; a button page is loaded on every Unraid page, keep it a
+one-liner). All in
+the ⋯ menu → `caretaker.menu_name`, kept as `MENU_NAME`/`MENU_PLACE` in the
+.cfg, put back by the .plg at every boot (`officeMenuPageApply()`);
+`index.php` only forwards there. `SecretaryOfficeDashboard.page` puts a tile
+on Unraid's Dashboard (src/dashboard.php: the messenger, the caretaker's
+traffic light, Mr. Backupsy's last/next run — from the state files only,
+refreshed by `api.php?a=dash` every minute while in view). The agent is a service
+(`scripts/agent.sh`, started at install/boot and by `event/started`, stopped
+by `event/stopping`) on the host. The data folder is `DATA_DIR` from
+`/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cfg`
+(default `<appdata>/UnraidSecretaryOffice/data`; `OFFICE_DATA_DIR` overrides it —
+the tests use the repository's `data/`, and `OFFICE_WEB` its `public/`).
+Development: a git clone anywhere, `plugin/dev-sync.sh` puts it into the
+installed plugin (see the checklist).
 
 ## Conventions
 
@@ -52,14 +46,13 @@ differ get a `_plugin` key or come from state (`schedule.via`).
   French one-forms where 0 can occur.
   Never hard-code UI text in JS or PHP.
 * **No build step, no dependencies.** Plain PHP 8.4 (Unraid's own PHP runs both
-  the page and the agent; the old Compose stack's office container has PHP 8.5
-  — use nothing newer than 8.4), vanilla JS, one CSS file plus optional
+  the page and the agent — use nothing newer), vanilla JS, one CSS file plus optional
   `desk.css`. The look follows levelnext Airdrop (tokens in `office.css :root`).
   The only "build" is the plugin package (`plugin/build.sh`).
 * **The web side never touches the host** (even though Unraid's php-fpm runs as
   root). Everything that needs zfs, docker, /boot/config, /proc etc. goes
   through the agent (`Office.api.post('<desk>.<action>')` → `agent/desks/<desk>.php`).
-  One exception, plugin only: secrets the user types for the agent (the Consultant's Kopia
+  One exception: secrets the user types for the agent (the Consultant's Kopia
   setup) never go into the mailbox (it lies on the pool) — `apiSecretStash()` (src/api.php)
   puts them into a 0600 file in `officeInboxDir()` (`/var/run/unraid-secretary-office/inbox`,
   RAM), the request carries only its name, the agent reads and removes it at once
@@ -87,14 +80,11 @@ differ get a `_plugin` key or come from state (`schedule.via`).
 * **Keep `tick` functions cheap** — they run every ~150 ms. Long work (like `du`)
   runs as a background process polled from `tick` (see whereabouts sizes).
 * Desk lang keys `name` and `role` are the desk's title and subtitle — don't reuse them.
-* **PIN:** every POST except `refresh` and the desk's `open_actions` (desk.json)
-  needs an unlocked browser when a PIN is set. Only list actions there that
-  read or measure; an open action asked to do more (`wake`: `OFFICE_PIN_FLAGS`) or listed in
-  `OFFICE_PIN_ACTIONS` (backup's `setup_plan`) needs the PIN anyway. Wrong PINs count per client
-  (address, IPv6 by /64), with a ceiling for all. Who may write is decided in `src/auth.php` only.
-  In Unraid's terminal `scripts/pin.sh unblock|reset|status` (root) runs `officeAuthCli()` there with
-  Unraid's PHP (bootstrap.php, so the same data folder, lock and file handling): unblock clears
-  `failures`/`wait_until`/`clients` only, reset empties auth.json; the file keeps 0600 and its owner.
+* **No lock of its own:** every page and POST is behind Unraid's login (nginx `auth_request`) and
+  carries its `csrf_token` (plus the API's `X-Office`/Origin checks, src/api.php); whoever is logged
+  in to Unraid is root. The office adds previews and confirmations of changing actions against
+  mistakes — never a PIN or a second login (the PIN went in 2026-10; an old `data/office/auth.json`
+  is ignored). HARDENING.md «Who gets in».
 * **Checks for the caretaker:** a desk that needs plugins, containers or
   settings registers `'checks'` returning `finding()`s (agent/lib/house.php):
   `required` only when the desk really can't work without it, otherwise
@@ -128,19 +118,20 @@ differ get a `_plugin` key or come from state (`schedule.via`).
   reports new red findings once after 30 min (`data/caretaker/notify.json`,
   switch `notify_set`) — so checks must stay cheap and must not wake disks:
   when the disk/pool behind a path sleeps, return `ok = null` (not looked).
-  As a plugin `agent-watch.cron` (written by `agent.sh start`, removed with the
+  `agent-watch.cron` (written by `agent.sh start`, removed with the
   plugin) runs `job.sh watch` every 5 min: agent.json older than 70 s for 10 min
   with the array started → one alert, and a normal notification when it is back.
 * **Jobs that must outlive the agent** (backup runs) go through the host's
   `atd` (`backupLaunch()` in agent/desks/backup.php), never as a child of the
   agent: `agent.sh stop` ends the agent's whole session (array stop, plugin
-  update), and in the stack Docker kills the container's cgroup.
+  update).
 * **Schedules** (nightly backup, snapshot plans, EmbyCache, the gather) only through
-  `officeJobSchedule()` / `officeJobSetSchedule()` (agent/lib/house.php): as a
-  plugin a line in its cron file (`/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cron`,
+  `officeJobSchedule()` / `officeJobSetSchedule()` (agent/lib/house.php): a line in
+  the plugin's cron file (`/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cron`,
   calling `scripts/job.sh <job>`, which runs only while the array is
-  started), in the stack the User Scripts entry.
-* **The backup engine** (`backup/`, bash, English since 2.13) runs on its own via the plugin's cron file (in the stack: User Scripts). Mr. Backupsy only uses
+  started). Never User Scripts for the office's own jobs (User Scripts are the user's: Ms.
+  Dustdevil, Ms. Whereabouts, Jack Emby and the night watchman only look at them).
+* **The backup engine** (`backup/`, bash, English since 2.13) runs on its own via the plugin's cron file. Mr. Backupsy only uses
   its interface (`backup.sh --about`, `data/unraid-backup/state/status.json` &
   co., interface 1; the setup assistant uses `setup.sh --plan` / `--apply`
   with `state/setup-plan.json` / `setup-status.json`). Never parse its log
@@ -160,7 +151,7 @@ differ get a `_plugin` key or come from state (`schedule.via`).
   `CONSOLIDATE_STATUS`), never parsed log lines for anything new. EmbyCache
   MOVES files (rsync, then delete the source) — test with report and dry
   runs. Runs go through `php agent.php job embycache|gather <mode>` (atd from
-  the page, the cron file or User Scripts on schedule); a real run holds the
+  the page, the cron file on schedule); a real run holds the
   other tool's lock, EmbyCache's real runs wait for the gather's first real
   run. The cleaner (`embycache_cleaner.py`) is left out on purpose: on a
   share whose primary is the pool it would take every new film for an orphan.
@@ -237,18 +228,16 @@ differ get a `_plugin` key or come from state (`schedule.via`).
 
 | id | name (en / de) | does |
 |---|---|---|
-| `snapshot` | Ms. Snapshotini / Frau Snapshotini | ZFS, btrfs and VM snapshots: create, delete with an estimate, rename, hold, unmount; schedules with retention (lib/snapshotplans.php: snapshots `uso-plan-<plan>-YYYYMMDD-HHMM` — up to 1.27 `auto-<plan>-…`, counted with them —, retention touches only those and never what matches the engine's names (`backupIsEngineSnap()`); `php agent.php job snapshot-plans` every 5 min — the plugin's cron line `job.sh snapshots`, in the stack the User Scripts entry `unraid-secretary-office_snapshots`) |
+| `snapshot` | Ms. Snapshotini / Frau Snapshotini | ZFS, btrfs and VM snapshots: create, delete with an estimate, rename, hold, unmount; schedules with retention (lib/snapshotplans.php: snapshots `uso-plan-<plan>-YYYYMMDD-HHMM` — up to 1.27 `auto-<plan>-…`, counted with them —, retention touches only those and never what matches the engine's names (`backupIsEngineSnap()`); `php agent.php job snapshot-plans` every 5 min — the plugin's cron line `job.sh snapshots`) |
 | `whereabouts` | Ms. Whereabouts / Frau Wasistwo | what is where and going on; "where things are" (config files, boot medium, VM files) with their backup protection; "If I were you …" — her advice (waAdvice() reads a few settings; the tips are built in desk.js, «I know, thanks» per browser with a signature, so a tip returns when the situation changes; nothing Fix Common Problems checks). Read only |
 | `backup` | Mr. Backupsy / Herr Backupsi | runs the engine in `backup/`: status, overview tiles (Kopia, containers, databases, VMs, flash), history, protection (shares, then the VMs; rows unfold to their rules), restore help incl. "Onto a new server", setup assistant (`#/backup/setup`: 0 basics → 1 VMs → 2 apps → 3 other shares → 4 retention; a level per VM/app — nicht / lokal / lokal + Kopia, say "Kopia", never "offsite" — and setupDerive() turns it into share modes (locked in step 3), `docker|no_stop`, dumps and Kopia ignores for folders of apps/VMs that are only local; an app's further shares are never ticked unasked; "start anew" = `setup.sh --forget`). VMs (engine 2.16): `[vm "<name>"] prepare` = freeze (guest agent) / pause / shutdown (never forced off) / none for the seconds of the snapshot, released right after the snapshot holding their disks (`state/vms` for a killed run); `mode = off` and `retention` only for a VM in a dataset of its own (`VM_OWN_DS`); per-VM results in `status.json` `vms` |
 | `emby` | Jack Emby (the intern) | EmbyCache (`embycache/`, from github.com/helmi1987/embycache-for-unraid, extended: back to the origin disk via embycache_origin.json, the emptied folder stays on the disk as a signpost, separate limits for started films and series, deliberately skipped folders = empty mapping) and the gather "Consolidate folders" (`gather/`: one disk per film folder, keeps empty folders whose content is on the pool). Settings via EmbyCache's own save_config() (trial file first); the gather's ini written by Jack; API key never leaves the server; schedules: jobs `embycache` and `gather` (job.sh) |
 | `logs` | Ms. Protocolli / Frau Protokolli | reads logs out loud (fixed source list in agent/desks/logs.php, ids only, never paths; `backup:latest` = the engine's latest.log); tail/follow by file offset, docker logs and dmesg re-read; lines go into the page as text only. A picker with a search field instead of a select; favourites in `Office.store` (defaults until the user stars/unstars one, "out of the box" brings them back); nothing is read until a log is chosen. Read only. Tour (`logs.tour`, open action; `php agent.php job logs-tour` in the background, polled from tick → `data/logs-tour.json`, part `tour`): /var/log fill and biggest files with growth, container log sizes by stat plus Docker LOG rotation, errors and warnings per source since the last tour (offset, rotation by inode, first tour 24 h; ≤4 MB per file, ≤3000 lines per running container), similar lines grouped (`logsNormalize`: numbers, addresses, ids, file names and paths — quoted, absolute, relative, Samba's `for <name> with NT_STATUS_…`); a line's own level beats words, the page's colouring uses the same patterns (tests compare them). Check `varlog`: /var/log >60 % recommended, >80 % required |
-| `watchman` | The Night Watchman / Der Nachtwächter (it Il guardiano notturno, fr Le veilleur de nuit, es El sereno) | calm, factual, few words; keeps the watch book (Wachbuch, registro di guardia, main courante, libro de guardia) and reports only what is DIFFERENT from normal. Read only. His first round after hiring is the baseline (also the login addresses in the syslog's history; hired again = a new baseline), nothing reported; then `php agent.php job watchman-round` every 5 min, started from his tick (a round lock in RUN_DIR; the merge into `data/watchman/` baseline/book/state/seen.json under a book lock, so «I know, thanks» never races a round): WebGUI/SSH logins from a new address and bursts of failures (WATCH_FAIL_BURST within WATCH_FAIL_WINDOW; syslog by offset, rotation by inode; names tried kept only when they are users), container rights as docker run flags (privileged, host network/PID/IPC, ports, caps, devices, docker.sock, /; a new container only with rights), plugins (`/var/log/plugins`, the `<PLUGIN pluginURL>` host, on code hosts with the owner), the flash (go as line hashes, /boot/extra, users, a hash per shadow field, authorized_keys fingerprints), shares newly open to guests (sec.ini/sec_nfs.ini); scheduled and auto-starting things (group `sched`, T1053): root's own crontab against `/etc/cron.d/root` (`cron_new`, `cron_twice` — in both, they run twice —, `cron_office` — the office's job.sh lines there —, `cron_dead`; the spool file's mtime and the syslog lines ±2 min around it naming plugins/scripts/cron, scrubbed, as evidence; the undo command only as information — he never edits a crontab), other users' crontabs and `/etc/cron.d`'s other files (`cron_new`), the plugins' `.cron` files on the flash (`cron_file`; `cron_file_foreign` = folder of no installed plugin), User Scripts (`script_new`/`script_changed`: content hash, schedule.json), atd's queue (`at_job`: not marked `HOST_LAUNCH_MARK` by hostLaunch(), command after at's `cd … || {}` only — never its environment), notification agents (`notify_agent`, a salted hash only); stat first (size, mtime, ctime from seen.json), read only on change. Findings: the watch book (500 entries, noted ones 90 days), the team lead's `checks` (one recommended per kind; his «I know, thanks» on it counts as noted at the next round), the important kinds to `officeNotify()` (per kind once an hour; switch `notify_set` like the team lead's, PIN, default on — `state.json` `notify`; entries that come while it is off are `muted`, never told later). «I know, thanks» (`ack`, `ack_all`, PIN) adopts that state into the baseline; what gets safer adopts itself. `metrics` hook: open entries per kind, the last round |
+| `watchman` | The Night Watchman / Der Nachtwächter (it Il guardiano notturno, fr Le veilleur de nuit, es El sereno) | calm, factual, few words; keeps the watch book (Wachbuch, registro di guardia, main courante, libro de guardia) and reports only what is DIFFERENT from normal. Read only. His first round after hiring is the baseline (also the login addresses in the syslog's history; hired again = a new baseline), nothing reported; then `php agent.php job watchman-round` every 5 min, started from his tick (a round lock in RUN_DIR; the merge into `data/watchman/` baseline/book/state/seen.json under a book lock, so «I know, thanks» never races a round): WebGUI/SSH logins from a new address and bursts of failures (WATCH_FAIL_BURST within WATCH_FAIL_WINDOW; syslog by offset, rotation by inode; names tried kept only when they are users), container rights as docker run flags (privileged, host network/PID/IPC, ports, caps, devices, docker.sock, /; a new container only with rights), plugins (`/var/log/plugins`, the `<PLUGIN pluginURL>` host, on code hosts with the owner), the flash (go as line hashes, /boot/extra, users, a hash per shadow field, authorized_keys fingerprints), shares newly open to guests (sec.ini/sec_nfs.ini); scheduled and auto-starting things (group `sched`, T1053): root's own crontab against `/etc/cron.d/root` (`cron_new`, `cron_twice` — in both, they run twice —, `cron_office` — the office's job.sh lines there —, `cron_dead`; the spool file's mtime and the syslog lines ±2 min around it naming plugins/scripts/cron, scrubbed, as evidence; the undo command only as information — he never edits a crontab), other users' crontabs and `/etc/cron.d`'s other files (`cron_new`), the plugins' `.cron` files on the flash (`cron_file`; `cron_file_foreign` = folder of no installed plugin), User Scripts (`script_new`/`script_changed`: content hash, schedule.json), atd's queue (`at_job`: not marked `HOST_LAUNCH_MARK` by hostLaunch(), command after at's `cd … || {}` only — never its environment), notification agents (`notify_agent`, a salted hash only); stat first (size, mtime, ctime from seen.json), read only on change. Findings: the watch book (500 entries, noted ones 90 days), the team lead's `checks` (one recommended per kind; his «I know, thanks» on it counts as noted at the next round), the important kinds to `officeNotify()` (per kind once an hour; switch `notify_set` like the team lead's, default on — `state.json` `notify`; entries that come while it is off are `muted`, never told later). «I know, thanks» (`ack`, `ack_all`) adopts that state into the baseline; what gets safer adopts itself. `metrics` hook: open entries per kind, the last round |
 | `cleanup` | Ms. Dustdevil / Frau Putzteufel | clears away what nobody uses: Docker templates, Compose stacks, appdata folders, stray my-*.xml elsewhere, what deleted VMs left behind (domains folders, NVRAM, TPM, snapshot lists, unused disk images; VMs without disks are only pointed out), switched-off User Scripts that lie around, Docker's leftovers. Never deletes right away: renames into `_UnraidSecretaryOffice-trash` on the same filesystem (ZFS datasets with `zfs rename` next to it), `manifest.json` per run, put back or empty; Docker leftovers can only be removed. Only rename, never copy; nothing while a backup runs. Missing pictures: containers without a picture on the Docker page/Dashboard (found like DockerClient::getIcon: template by Name+Repository, else the label; docker.json / question.png); logos from the CA feed, `CL_ICON_TABLE` and checked guesses — dashboard-icons URLs via jsDelivr, never bundled; set in the user template's `<Icon>` or the Compose Manager override (shape-checked, refused otherwise), old file to the storeroom (kind `icon`, put back only while unchanged), Unraid's cache filled; `cleanupIconLoopRisk()` feeds the caretaker's 7.3.2 check, stand-in question.png (RAM); local candidates (dockerMan/images named like the app, AppleTimeMachine.png for Time Machine) go to the page as data: previews in the state (PNG/JPEG ≤ 1 MB); uploads: the browser makes a ≤ 256×256 PNG, kept in `/boot/config/plugins/unraid-secretary-office/icons/<container>.png` (≤ 512 KB, set as file://, put back removes it while unchanged); `icon_url` from the stack's main app (`clIconMainRank()`) |
-| `advisor` | The Consultant / Der Berater | an external: whether the tools the office relies on are there (Fix Common Problems, Files Viewer, a Kopia container, Stream Viewer where Emby/Jellyfin/Plex runs; unbalanced optional, never suggested — it can get in the way of backups, EmbyCache and the gather), what they are good for, who needs them, how to install them by hand (ADVISOR_EXTERNALS in agent/desks/advisor.php, EXTERNALS in his desk.js). Optional monitoring (group `monitoring`, never counted as missing): Node Exporter (container recommended, ich777's plugin counts; its textfile collector reads `/mnt/addons/UnraidSecretaryOffice/metrics`, he shows whether it does) → Prometheus (ready prometheus.yml command, never overwrites) → Grafana; Loki `later` (for the night watchman). **Installs, second offer after the manual way** (preview + PIN + confirm, never over what is there, detection by image): plugins with Unraid's `plugin install <url>` as an atd job (URLs pinned in ADVISOR_EXTERNALS `plg`, output read back by the open action `job`; never unbalanced); containers through Unraid's own Add Container form — his template (`public/desks/advisor/templates/<id>.xml`, from the CA template, names as CA's: `kopia`, `Node-Exporter`, `prometheus`, `Grafana`, label `uso.installed-by=consultant`) filled in into `RUN_DIR/templates/` and the form opened with `xmlTemplate=default:<file>`; the user clicks Apply, Unraid writes `my-<Name>.xml`; refused while a container of that kind, that name or a `my-<Name>.xml` exists. Beforehand, only where nothing is: prometheus.yml; Grafana's provisioning (`GF_PATHS_PROVISIONING=/var/lib/grafana/provisioning` in his template; data source uid `uso-prometheus`, the office's dashboard from `monitoring/grafana-dashboard.json` with its input filled in; for an existing Grafana the same files plus the one template change). Kopia: `/uso` (ro,slave) and `/uso-restore` (`<share>/restore/kopia`, rw), PUID/PGID 0; the repository assistant (S3 or a folder, create or connect) takes the keys and password only after an explicit confirmation, through RAM (see the web-side exception above) to `docker exec -i … sh -c` on Kopia's stdin, restarts the container once, keeps only the non-secret facts; the recovery sheet is made in the browser only. He never logs into a web UI or an HTTP API: files and command lines only |
+| `advisor` | The Consultant / Der Berater | an external: whether the tools the office relies on are there (Fix Common Problems, Files Viewer, a Kopia container, Stream Viewer where Emby/Jellyfin/Plex runs; unbalanced optional, never suggested — it can get in the way of backups, EmbyCache and the gather), what they are good for, who needs them, how to install them by hand (ADVISOR_EXTERNALS in agent/desks/advisor.php, EXTERNALS in his desk.js). Optional monitoring (group `monitoring`, never counted as missing): Node Exporter (container recommended, ich777's plugin counts; its textfile collector reads `/mnt/addons/UnraidSecretaryOffice/metrics`, he shows whether it does) → Prometheus (ready prometheus.yml command, never overwrites) → Grafana; Loki `later` (for the night watchman). **Installs, second offer after the manual way** (preview + confirm, never over what is there, detection by image): plugins with Unraid's `plugin install <url>` as an atd job (URLs pinned in ADVISOR_EXTERNALS `plg`, output read back by the open action `job`; never unbalanced); containers through Unraid's own Add Container form — his template (`public/desks/advisor/templates/<id>.xml`, from the CA template, names as CA's: `kopia`, `Node-Exporter`, `prometheus`, `Grafana`, label `uso.installed-by=consultant`) filled in into `RUN_DIR/templates/` and the form opened with `xmlTemplate=default:<file>`; the user clicks Apply, Unraid writes `my-<Name>.xml`; refused while a container of that kind, that name or a `my-<Name>.xml` exists. Beforehand, only where nothing is: prometheus.yml; Grafana's provisioning (`GF_PATHS_PROVISIONING=/var/lib/grafana/provisioning` in his template; data source uid `uso-prometheus`, the office's dashboard from `monitoring/grafana-dashboard.json` with its input filled in; for an existing Grafana the same files plus the one template change). Kopia: `/uso` (ro,slave) and `/uso-restore` (`<share>/restore/kopia`, rw), PUID/PGID 0; the repository assistant (S3 or a folder, create or connect) takes the keys and password only after an explicit confirmation, through RAM (see the web-side exception above) to `docker exec -i … sh -c` on Kopia's stdin, restarts the container once, keeps only the non-secret facts; the recovery sheet is made in the browser only. He never logs into a web UI or an HTTP API: files and command lines only |
 | `restore` | Mr. Restori / Herr Restori | brings apps and VMs back (calm restorer in white gloves, «Piano, piano»; never over something that is still there without asking, everything he replaces is put aside first, never deleted). Reads: per app/VM what comes back from the package (and earlier nights from the backup place's snapshots), local snapshots and Kopia, chips grouped «Package» / «Data» (a package in Kopia is not the data), ready-made commands, the Kopia guide, onto a new server; he reads the packages himself (`rsPackages`). Restores: every restore is planned against a fresh look (`rsPlan` → preview: steps, what goes aside where, what stops how long, sizes — `du` in his tick), confirmed with the plan's token (`rsStart`; a changed server = `restore_changed`), run by atd as `php agent.php job restore <id>` (`rsJob`). The job takes the engine's `state/lock` non-blocking (busy → journal `refused`, `restore_busy_<holder>`, exit 75), writes `state/lock-holder.json` `{holder: restore, mode: <kind>, what, pid, started}` (new file + rename, removed only while its pid), journals each step in `data/restore/<id>/` (plan.json, journal.json, log.txt, root only) and `data/restore-job.json` (page polls api part `job`, the Dashboard shows a row while its heartbeat is fresh). Stops at the first failed step; each step records its undo, «Put back» (`kind putback`) runs those newest first between the restore's own container handling — also a job, also puts aside (`.putback-<time>`). Kinds: `db` (safety dump into `<place>/restore/<app>/<time>/`, the app's other containers stop; Postgres the fresh way when the cluster's folder can be put aside — container stops, folder aside (dataset: `zfs rename`, new dataset with its local properties), starts on an empty folder, ready over TCP, dump in, tables checked; Immich only that way, its search_path line replaced while streaming; else in place after ending other connections; MariaDB/MongoDB in place; credentials only as variable names from `RS_ENV_VARS` in `sh -c` inside the container), `sqlite` (a media server's copies, -wal/-shm aside), `files` (a folder unit from a local snapshot: copy to `<folder>.restored-<time>` or swap — copy first, then stop its users, live folder aside, copy in; datasets of their own as datasets; refuses swap with datasets inside or an own mountpoint; never wakes a disk without `wake`), `config` (templates/compose files that differ or are missing; aside on the flash into `/boot/config/_UnraidSecretaryOffice-restore/<time>/`, elsewhere `<file>.restored-aside-<time>`; never starts or recreates containers — says what to click), `vm` (XML, NVRAM, TPM only while shut off; aside in `/etc/libvirt/_UnraidSecretaryOffice-restore/<time>/`), `kopia` (into a writable rw mapping of the Kopia container named *restore*, as the server's UID like the engine's `kopia_x`; without one he explains the template path). One restore at a time; Mr. Backupsy refuses (`restore_running`) and says so, Ms. Dustdevil refuses (`cleanup_restore_running`) |
 | `caretaker` | The Team Lead / Der Teamchef (until 1.23: the caretaker / der Hauswart; the id stays `caretaker`) | leads the team (hires, fires, suggests whom to hire); collects every desk's `checks` and what the office needs; tells the user what is left to do; reports new red findings to Unraid's notifications (see Notifications); «I know, thanks» (`ack`/`unack`) puts aside recommended findings and hints — never musts — in `data/caretaker/acks.json`, keyed by sig = desk:id:hash(level, params without `days`/`size`); noted ones count nowhere (bubble, mood, reception, Dashboard tile); forgotten once in place or unseen for 30 days. Params that grow on their own must be named `days`/`size` |
-
-**User Scripts entries** (only in the stack) of the office are always named `unraid-secretary-office_<what>` (US_PREFIX); renamed ones are moved once by `userScriptsMigrate()` (lib/house.php: folder, schedule, cron line, User Scripts Enhanced category). Descriptions in English: "Unraid Secretary Office - …". As a plugin, `officeJobsFromUserScripts()` hands their schedule over to the plugin's cron file once and removes them.
 
 Desks know each other only through shared libraries (`backupProtection()`,
 `finding()`) and links (`#/<desk>`) — each one must work on its own.
@@ -257,7 +246,7 @@ Desks know each other only through shared libraries (`backupProtection()`,
 Every other desk declares in the agent whether it suits the server
 (`'fit' => fn () => fit(bool, why, params)`, texts `fit.<why>` in its own lang
 file, told by the caretaker). The caretaker suggests whom to hire; hiring
-(`office.hire`, src/staff.php → data/office/staff.json, PIN-protected) shows
+(`office.hire`, src/staff.php → data/office/staff.json) shows
 the desk in the tabs and at the reception, firing hides it again — data and
 whatever it set up on the server stay (`fire_note` says what keeps running).
 Unhired desks get no write actions (`not_hired`) and their checks don't count.
@@ -301,16 +290,15 @@ character, warnings and errors stay plain and clear.
   undoes Unraid's styles for bare elements; it sits below every rule of ours.
   Don't use Unraid's `unapi` class (it switches on Tailwind utilities like
   `.grid`). Dialogs, menus, the selection bar and tips are appended to `#sso`,
-  never to `body`. Links into Unraid's own pages: same tab inside Unraid
-  (`Office.config.in_unraid`), a new tab from the stack's page. The office
+  never to `body`. Links into Unraid's own pages (`/Docker`, `/Plugins` …) open in
+  the same tab, like Unraid's own. The office
   follows Unraid's language (`unraid_lang`; ⋯ → Language per browser).
   Buttons inside Unraid: its theme's frame, plain letters (no capitals).
-  Colours are tokens (`--ink`, `--surface` …): on a page of
-  their own the office's, inside Unraid (`.in-unraid`) mixed from Unraid's theme
+  Colours are tokens (`--ink`, `--surface` …) mixed from Unraid's theme
   variables (`--text-color`, `--background-color`, `--button-background` …), so
   black, white, azure and gray all work — never a hard-coded colour. Buttons,
-  tabs and section title bars look like Unraid's there. The Compose stack keeps
-  the office's own look (render_page()).
+  tabs and section title bars look like Unraid's (the `.in-unraid` rules; `#sso`
+  always carries that class).
 * **Head:** `Office.deskHead(...)`, then right after it
   `Office.pageHelp(ID, [[term, text], …])` — "How to read this page", folded
   by default, remembered per desk. Explanations of labels, buttons and tiles go
@@ -367,9 +355,6 @@ character, warnings and errors stay plain and clear.
 * On a ZFS pool the top folder only sees its own (nearly empty) dataset:
   for how full the pool is take `zfs list -Hp -o used,avail <pool>`.
 
-* The stack's agent container has **no network** (`network_mode: none`): read
-  addresses from Unraid's config (`/var/local/emhttp/network.ini`), not `ip`;
-  `hostNet()` runs a command in the host's network (directly as a plugin).
 * **Unraid's web stack:** php-fpm runs as root; nginx guards everything with
   `auth_request` (the login), also `/plugins/…`; `local_prepend.php` (prepended
   to every PHP run, also CLI) chdir's to `/usr/local/emhttp`, sets the time
@@ -431,7 +416,7 @@ character, warnings and errors stay plain and clear.
   runs a trap (abort) only after the current command — that is the pause then.
 * User Scripts may be extended by **User Scripts Enhanced** (categories in
   `/boot/config/plugins/user.scripts.enhanced/categories.json`, by
-  `name<folder>`); the office's entries are `unraid-secretary-office_<what>`.
+  `name<folder>`).
   When a User Script last ran is only known since the reboot
   (`/tmp/user.scripts/tmpScripts/<name>/log.txt`, RAM).
 * On ZFS pools Unraid makes **each VM folder in `domains` a dataset of its
@@ -548,7 +533,7 @@ When more than one Claude chat works on the office, one of them is the
    `public/*.php`; `bash -n` for `plugin/scripts/*`, `plugin/event/*`, `backup/`.
 2. JS syntax (no Node on the dev Mac): `osascript -l JavaScript` with `new Function(src)`.
 3. Tests on the host: `php tests/run.php` (logic: cron, snapshot retention,
-   Emby detection, User Scripts schedules, the plugin's cron file — on copies; strings: `en`/`de`/`it`/`fr`/`es`
+   Emby detection, the plugin's cron file — on copies; strings: `en`/`de`/`it`/`fr`/`es`
    keys identical, every language against English, every T('…'), check and error text exists).
    Must end with 0 failed.
 4. On a server that runs the plugin, `bash plugin/dev-sync.sh` on the host puts
@@ -563,8 +548,7 @@ When more than one Claude chat works on the office, one of them is the
    wake sleeping disks, start backup runs or apply settings on a real server
    just to test.
 8. Something for the plugin changed (paths, scripts, `.plg`)? `bash plugin/build.sh <version>`
-   must pass, and both modes must still work. Never run the plugin's agent
-   and the stack's at the same time.
+   must pass.
 
 ## Layout
 
@@ -573,11 +557,11 @@ agent/agent.php          loop, mailbox, desk loading, self-restart
 agent/lib/*.php          shared helpers (util: run, writeAtomic, readCfg, Problem;
                          mounts; backupscript; house: plugins, containers, finding)
 agent/desks/<id>.php     one desk each: desk('<id>', [...])
-src/*.php                web side: bootstrap, mailbox client, desk/lang discovery, auth (PIN), API, page
-public/assets/core.js    Office: i18n, routing, reception, API, PIN, dialog, menu, toast, fmt,
+src/*.php                web side: bootstrap, mailbox client, desk/lang discovery, staff, API, page, Dashboard tile
+public/assets/core.js    Office: i18n, routing, reception, API, dialog, menu, toast, fmt,
                          deskHead, pageHelp, sectionHead, backupChip
 public/desks/<id>/       desk.json, desk.js, lang/*.json (and desk.css, avatar.svg)
-data/                    runtime only (state per desk, mailbox, agent log, office/auth.json) — not in git
+data/                    runtime only (state per desk, mailbox, agent log, office/staff.json) — not in git
 backup/                  the backup engine: backup.sh, setup.sh, lib/common.sh (data in data/unraid-backup)
 embycache/               Jack Emby's EmbyCache (Python; data in data/embycache)
 gather/                  Jack Emby's media gather, consolidate_master.sh (bash; data in data/gather)
@@ -589,5 +573,4 @@ plugin/                  the Unraid plugin: .plg template, build.sh, dev-sync.sh
                          README.md (the short text Unraid's Plugins list shows); images/ has the
                          plugin icon as PNG with its SVG source (rendered on the Mac via NSImage)
 .github/workflows/       plugin.yml: builds and attaches .plg/.txz when a release is published
-compose.yaml             the stack: office + agent services; settings in .env
 ```
