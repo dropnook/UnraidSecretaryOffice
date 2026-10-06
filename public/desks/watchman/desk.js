@@ -184,6 +184,7 @@ function render() {
     [T('help.logins'), T('help.logins_text', { burst: lim.burst || 5, minutes: Math.round((lim.window || 600) / 60) })],
     [T('help.containers'), T('help.containers_text')],
     [T('help.plugins'), T('help.plugins_text')],
+    [T('help.office'), T('help.office_text')],
     [T('help.flash'), T('help.flash_text')],
     [T('help.shares'), T('help.shares_text')],
     [T('help.sched'), T('help.sched_text')],
@@ -640,7 +641,7 @@ function details(e) {
   if (e.group === 'flow' && p.learning) notes.push(T('detail.learning'));
   if (p.office && e.kind.startsWith('cron_file')) notes.push(T('detail.office_cron'));
   if (e.open) notes.push(T('adopt.' + e.kind));
-  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto'].includes(e.by) ? e.by : 'page'), { when: fmt.date(e.noted) }));
+  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office'].includes(e.by) ? e.by : 'page'), { when: fmt.date(e.noted) }));
   if (e.told) notes.push(T('detail.told', { when: fmt.date(e.told) }));
   else if (e.muted && e.tell) notes.push(T('detail.muted'));
   else if (e.open) notes.push(T(e.tell ? 'detail.not_told' : 'detail.book_only'));

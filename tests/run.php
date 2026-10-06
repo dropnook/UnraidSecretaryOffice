@@ -3595,6 +3595,124 @@ function testWatchmanSched(): void
 }
 
 /**
+ * The night watchman and the office's own doings: dcron's reload signal (cron.update) and stray text are no
+ * crontab lines; what the consultant installed (his root-only record: a plugin, the cron.d file that came with
+ * it, a container from the form he prepared) is noted by itself, never told — strictly that name, that image,
+ * that time; anything else stays reported.
+ */
+function testWatchmanOffice(): void
+{
+    same('cron shape: only cron lines count (five time fields or an @keyword, then a command)',
+        ['*/5 * * * * a', '@reboot b', '30 4 * * mon-fri c', '0 0 1 jan,jul * d', '0-59/15 1,13 * * 0 e'],
+        watchmanCronJobs("root\nhello world this is a test of text\n* * * *\n*/5 * * * * a\n@reboot b\n30 4 * * mon-fri c\n0 0 1 jan,jul * d\n"
+            . "0-59/15 1,13 * * 0 e\n@sometimes f\nMAILTO=root\n"));
+    same('cron signal: an old false alarm about cron.update is left out of the book', [true, true, false],
+        [watchmanCronSignalEntry(['kind' => 'cron_new', 'p' => ['lines' => 1, 'jobs' => ['cron.d/cron.update: root']]]),
+         watchmanCronSignalEntry(['kind' => 'cron_new', 'p' => ['lines' => 1, 'jobs' => ['cron.update: root']]]),
+         watchmanCronSignalEntry(['kind' => 'cron_new', 'p' => ['lines' => 2, 'jobs' => ['cron.d/cron.update: root', 'cron.d/x: * * * * * y']]])]);
+
+    $tmp = sys_get_temp_dir() . '/office-tests-office-own-' . getmypid();
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['crontabs', 'cron.d', 'logplugins', 'atjobs', 'agents', 'extra', 'ssh', 'flash', 'advisor'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $record = "$src/advisor/installs.json";
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/logplugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+              'etc_passwd' => "$src/passwd", 'crontabs' => "$src/crontabs", 'cron_d' => "$src/cron.d", 'cron_files' => "$src/flash",
+              'userscripts' => "$src/flash/user.scripts", 'atjobs' => "$src/atjobs", 'agents' => "$src/agents", 'office_installs' => $record];
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n");
+    file_put_contents($paths['syslog'], '');
+    file_put_contents("$src/cron.d/root", "*/1 * * * * /usr/local/emhttp/plugins/dynamix/scripts/monitor &> /dev/null\n");
+    file_put_contents("$src/crontabs/root", "# nothing of root's own\n");
+    file_put_contents("$src/logplugins/unraid-secretary-office.plg", "<PLUGIN name=\"unraid-secretary-office\" version=\"1\">\n");
+    $notified = "$tmp/notified";
+    file_put_contents("$tmp/notify", "#!/bin/bash\nfor a in \"\$@\"; do printf '%s\\x1f' \"\$a\"; done >> " . escapeshellarg($notified) . "\necho >> " . escapeshellarg($notified) . "\n");
+    chmod("$tmp/notify", 0755);
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    $now = time();              // real time: a cron.d file's change time can't be set
+    $kopia = ['image' => 'ghcr.io/imagegenius/kopia', 'tokens' => ['--cap-add=SYS_ADMIN', '--device=/dev/fuse', '-p 51515:51515/tcp']];
+    $node = ['image' => 'quay.io/prometheus/node-exporter:latest-distroless', 'tokens' => ['--network=host', '--pid=host', '-v /']];
+    $containers = [];
+    $docker = function () use (&$containers) { return $containers; };
+    $acks = "$tmp/acks.json";
+    watchmanRound($paths, $data, 1000, $now - 600, $docker, true, $acks);
+
+    // the reload signal in both places, a stray file: nothing
+    file_put_contents("$src/cron.d/cron.update", "root\n");
+    file_put_contents("$src/crontabs/cron.update", "root\n");
+    file_put_contents("$src/cron.d/notes", "remember to water the plants\nthis is no crontab at all\n");
+    $r = watchmanRound($paths, $data, 1000, $now - 300, $docker, true, $acks);
+    same('cron signal: cron.update (both folders) and a stray file are no new lines', [[], []], [$r['added'], $r['told']]);
+
+    // his record (root only), then what came: two plugins of his, the cron.d file of one, a container from his form
+    chmod("$src/advisor", 0700);
+    $GLOBALS['advisorRecordFile'] = $record;
+    advisorRecord(['kind' => 'plugin', 'id' => 'streamviewer', 'name' => 'streamviewer', 'url' => ADVISOR_EXTERNALS['streamviewer']['plg']], $now - 3000);
+    advisorRecord(['kind' => 'plugin', 'id' => 'fcp', 'name' => 'fix.common.problems', 'url' => ADVISOR_EXTERNALS['fcp']['plg']], $now);
+    advisorRecord(['kind' => 'plugin', 'id' => 'filesviewer', 'name' => 'filesviewer', 'url' => ADVISOR_EXTERNALS['filesviewer']['plg']], $now);
+    advisorRecord(['kind' => 'container', 'id' => 'kopia', 'name' => 'kopia', 'image' => 'ghcr.io/imagegenius/kopia'], $now);
+    advisorRecord(['kind' => 'container', 'id' => 'nodeexporter', 'name' => 'Node-Exporter', 'image' => $node['image']], $now);
+    unset($GLOBALS['advisorRecordFile']);
+    same('advisor record: root only, as the night watchman trusts it', [0700, 0600, 5],
+        [fileperms("$src/advisor") & 0777, fileperms($record) & 0777, count(watchmanOfficeInstalls($record, $now))]);
+    foreach (['fix.common.problems' => $now + 20, 'filesviewer' => $now + 60, 'streamviewer' => $now, 'other.plugin' => $now + 30] as $p => $t) {
+        file_put_contents("$src/logplugins/$p.plg", "<PLUGIN name=\"$p\" version=\"2026.10.06\" pluginURL=\"https://raw.githubusercontent.com/someone/$p/main/$p.plg\">\n");
+        touch("$src/logplugins/$p.plg", $t);
+    }
+    file_put_contents("$src/cron.d/filesviewer", "# Files Viewer: empty expired recycle bin events daily\n30 4 * * * /usr/bin/php /usr/local/emhttp/plugins/filesviewer/include/filesviewer_recycle_cron.php > /dev/null 2>&1\n");
+    file_put_contents("$src/cron.d/other.plugin", "15 3 * * * /usr/local/emhttp/plugins/other.plugin/run.sh\n");
+    $containers = ['kopia' => $kopia + ['by' => 'consultant', 'created' => $now + 45],
+                   'Node-Exporter' => ['image' => 'evil/node-exporter'] + $node + ['by' => 'consultant', 'created' => $now + 30],
+                   'stranger' => $kopia + ['created' => $now + 50]];
+    $r = watchmanRound($paths, $data, 1000, $now + 300, $docker, true, $acks);
+    $book = watchmanLoad($data)['book'];
+    $ours = array_values(array_filter($book, fn ($e) => ($e['by'] ?? null) === 'office'));
+    $keys = array_column($ours, 'key');
+    sort($keys);
+    same('office own: his plugins, the cron.d file that came with one, the container from his form — noted by itself',
+        [['container_new:kopia', 'cron_new:office:filesviewer', 'plugin_new:filesviewer', 'plugin_new:fix.common.problems'], [false], ['consultant']],
+        [$keys, array_values(array_unique(array_map('watchmanOpen', $ours))), array_values(array_unique(array_column(array_column($ours, 'p'), 'installed_by')))]);
+    $open = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+    ksort($open);
+    same('office own: anything else stays reported — a plugin not his, one of his but long after his job, another name or image',
+        ['container_new:Node-Exporter', 'container_new:stranger', 'cron_new', 'plugin_new:other.plugin', 'plugin_new:streamviewer'], array_keys($open));
+    same('office own: the other cron.d file is told, his is not', ['cron.d/other.plugin: 15 3 * * * other.plugin/run.sh'], $open['cron_new']['p']['jobs'] ?? null);
+    $told = array_column($r['told'], 'n', 'kind');
+    ksort($told);
+    same('office own: told only what isn\'t the office\'s', ['container_new' => 2, 'cron_new' => 1, 'plugin_new' => 2], $told);
+    $r = watchmanRound($paths, $data, 1000, $now + 600, $docker, true, $acks);
+    same('office own: the next round — known, nothing new, no second note', [[], 4],
+        [$r['added'], count(array_filter(watchmanLoad($data)['book'], fn ($e) => ($e['by'] ?? null) === 'office'))]);
+    $page = watchmanPageState($data, $now + 700, false);
+    $row = array_values(array_filter($page['book'], fn ($e) => ($e['key'] ?? '') === 'plugin_new:filesviewer' || ($e['t']['name'] ?? '') === 'filesviewer'))[0] ?? [];
+    same('office own: on the page — noted by the office', ['office', false], [$row['by'] ?? null, $row['open'] ?? null]);
+
+    // his record trusted only as root's own, nobody else may write it
+    chmod($record, 0640);
+    same('office record: a file others may read or write is not trusted', [], watchmanOfficeInstalls($record, $now));
+    chmod($record, 0600);
+    chmod("$src/advisor", 0755);
+    same('office record: a folder others may enter is not trusted', [], watchmanOfficeInstalls($record, $now));
+    chmod("$src/advisor", 0700);
+    rename($record, "$tmp/elsewhere.json");
+    symlink("$tmp/elsewhere.json", $record);
+    same('office record: a link is not trusted', [], watchmanOfficeInstalls($record, $now));
+    unlink($record);
+    file_put_contents($record, json_encode(['installs' => [['t' => $now, 'kind' => 'plugin', 'name' => 'a/../b'], ['t' => (string) $now, 'kind' => 'plugin', 'name' => 'x'],
+        ['t' => $now, 'kind' => 'container', 'name' => 'y'], ['t' => $now + 3600, 'kind' => 'plugin', 'name' => 'z'], ['t' => $now, 'kind' => 'other', 'name' => 'w']]]));
+    chmod($record, 0600);
+    same('office record: only in exactly his shape', [], watchmanOfficeInstalls($record, $now));
+
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    @unlink(watchmanLockFile($data, 'book'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * The night watchman and data that vanishes: per ZFS share from `referenced` (its snapshots keeping
  * some, a pool asleep named), per XFS/btrfs disk from its used space (not while its snapshots changed),
  * who moved data then — and what is no loss: what moves data (the mover …), the office at work, a
@@ -4578,6 +4696,7 @@ function testAdvisorInstall(): void
     same('advisor: a path outside /mnt/user stays', '/tmp/x/y', advisorUnraidPath('/tmp/x/y'));
     same('advisor: a share that is no link stays', '/mnt/user/zz-uso-no-such-share/a', advisorUnraidPath('/mnt/user/zz-uso-no-such-share/a'));
     $tmp = hardeningTmp('advisor-install');
+    $GLOBALS['advisorRecordFile'] = "$tmp/record/installs.json";       // his record of what he prepared: never the test copy's data
     mkdir("$tmp/appdata");
     mkdir("$tmp/tu");
     $env = ['appdata' => "$tmp/appdata", 'ip' => '192.0.2.10', 'templates' => ADVISOR_TEMPLATE_DIR, 'user_templates' => "$tmp/tu",
@@ -4663,6 +4782,12 @@ function testAdvisorInstall(): void
     }
     same('advisor grafana: the provisioning files are the ones he checks', advisorGrafanaRels(is_file(ADVISOR_DASHBOARD_FILE)),
         array_keys(advisorGrafanaFiles('192.0.2.10', true, ADVISOR_GRAFANA_PROV, ADVISOR_DASHBOARD_FILE)));
+    same('advisor grafana: the provisioning folders Grafana looks for, there and empty', [true, true, [], []],
+        [is_dir("$prov/plugins"), is_dir("$prov/alerting"), array_values(array_diff(scandir("$prov/plugins") ?: [], ['.', '..'])),
+         array_values(array_diff(scandir("$prov/alerting") ?: [], ['.', '..']))]);
+    same('advisor grafana: his record says which form he prepared', ['Grafana', 'grafana/grafana'],
+        [end(json_decode((string) file_get_contents("$tmp/record/installs.json"), true)['installs'])['name'] ?? null,
+         end(json_decode((string) file_get_contents("$tmp/record/installs.json"), true)['installs'])['image'] ?? null]);
     same('advisor grafana: an existing Grafana keeps its default data source', true,
         str_contains(advisorGrafanaFiles('192.0.2.10', false, ADVISOR_GRAFANA_PROV, null)['datasources/uso-prometheus.yaml'][1], 'isDefault: false'));
 
@@ -4735,7 +4860,57 @@ function testAdvisorInstall(): void
             check("advisor: desk.js shows the same address for $id", str_contains($js, "'" . $how['plg'] . "'"));
         }
     }
+    unset($GLOBALS['advisorRecordFile'], $GLOBALS['advisorPrepared']);
     hardeningRm($tmp);
+}
+
+/**
+ * The consultant's record of what he installed (root only, kept small) and his re-look after he prepared
+ * Unraid's form; Grafana's admin password optional; Grafana's provisioning with the folders it looks for.
+ */
+function testAdvisorRecord(): void
+{
+    $tmp = hardeningTmp('advisor-record');
+    $GLOBALS['advisorRecordFile'] = "$tmp/advisor/installs.json";
+    $now = 1791300000;
+    check('advisor record: written', advisorRecord(['kind' => 'plugin', 'id' => 'fcp', 'name' => 'fix.common.problems', 'url' => 'u'], $now - 40 * 86400)
+        && advisorRecord(['kind' => 'plugin', 'id' => 'filesviewer', 'name' => 'filesviewer', 'url' => 'v'], $now));
+    $rec = json_decode((string) file_get_contents("$tmp/advisor/installs.json"), true);
+    same('advisor record: folder 0700 and file 0600 of root\'s, older than 30 days dropped', [0700, 0600, 0, [['t' => $now, 'kind' => 'plugin', 'id' => 'filesviewer', 'name' => 'filesviewer', 'url' => 'v']]],
+        [fileperms("$tmp/advisor") & 0777, fileperms("$tmp/advisor/installs.json") & 0777, fileowner("$tmp/advisor/installs.json"), $rec['installs'] ?? null]);
+    for ($i = 0; $i < 25; $i++) {
+        advisorRecord(['kind' => 'container', 'id' => 'kopia', 'name' => 'kopia', 'image' => "img$i"], $now + $i);
+    }
+    $rec = json_decode((string) file_get_contents("$tmp/advisor/installs.json"), true)['installs'] ?? [];
+    same('advisor record: the newest ' . ADVISOR_RECORD_MAX, [ADVISOR_RECORD_MAX, 'img24'], [count($rec), end($rec)['image'] ?? null]);
+    chmod("$tmp/advisor/installs.json", 0666);
+    chmod("$tmp/advisor", 0777);
+    advisorRecord(['kind' => 'plugin', 'id' => 'fcp', 'name' => 'fix.common.problems', 'url' => 'u'], $now + 100);
+    $rec = json_decode((string) file_get_contents("$tmp/advisor/installs.json"), true)['installs'] ?? [];
+    same('advisor record: one others could write is not read — begins anew, root\'s again', [1, 0700, 0600],
+        [count($rec), fileperms("$tmp/advisor") & 0777, fileperms("$tmp/advisor/installs.json") & 0777]);
+    unset($GLOBALS['advisorRecordFile']);
+    hardeningRm($tmp);
+
+    // the re-look after a prepared form
+    $kopia = ['kopia' => ['name' => 'kopia', 'image' => 'ghcr.io/imagegenius/kopia', 'running' => true]];
+    same('advisor re-look: wait, the container came (scan), given up after a while, an unknown id',
+        ['wait', 'scan', 'stop', 'stop'],
+        [advisorRelookDue(['id' => 'kopia', 'at' => $now], [], $now + 60), advisorRelookDue(['id' => 'kopia', 'at' => $now], $kopia, $now + 60),
+         advisorRelookDue(['id' => 'kopia', 'at' => $now], [], $now + ADVISOR_RELOOK_FOR + 1), advisorRelookDue(['id' => 'nothing', 'at' => $now], $kopia, $now)]);
+    same('advisor: his page looks again when his state is older than a minute', 60,
+        json_decode((string) file_get_contents(OFFICE_WEB . '/desks/advisor/desk.json'), true)['refresh_after'] ?? null);
+
+    // Grafana: the admin password optional (admin/admin, Grafana asks at the first login) — the warning stays on the page
+    $xml = (string) file_get_contents(ADVISOR_TEMPLATE_DIR . '/grafana.xml');
+    check('advisor grafana: the admin password optional', (bool) preg_match('/<Config Name="GF_SECURITY_ADMIN_PASSWORD"[^>]*\sRequired="false"[^>]*Mask="true"/', $xml));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/advisor/lang/$l.json"), true);
+        check("advisor grafana ($l): the form's note and the dashboard say admin/admin", str_contains($lang['ci.grafana'] ?? '', 'admin/admin')
+            && str_contains($lang['dashboard.admin'] ?? '', 'admin/admin') && str_contains($lang['ui.grafana'] ?? '', 'admin/admin'));
+    }
+    check('advisor grafana: the admin/admin warning shown also for his own Grafana',
+        !str_contains((string) file_get_contents(OFFICE_WEB . '/desks/advisor/desk.js'), "if (!g.by_consultant) main.appendChild(el('div', 'row-detail ad-careful', T('dashboard.admin')))"));
 }
 
 /**
@@ -6357,7 +6532,7 @@ function testSupporterKeys(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];

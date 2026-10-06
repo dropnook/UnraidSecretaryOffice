@@ -390,7 +390,7 @@ function lockGuide() {
  * The office's own dashboard for Grafana (monitoring/grafana-dashboard.json): what it shows; when
  * the consultant provisioned it (Grafana's chip "set up") it is simply there and kept current — a link
  * into Grafana, the import guide folded away for a Grafana installed by hand; otherwise how to import
- * it, and that admin/admin must go first (not when he installed Grafana: its form asked for a password)
+ * it, and that admin/admin must go first (also when he installed Grafana: its admin password is optional)
  */
 function dashboard() {
   const g = (state.externals || {}).grafana || {};
@@ -403,7 +403,7 @@ function dashboard() {
   main.appendChild(el('div', 'row-name text', T('dashboard.name')));
   main.appendChild(el('div', 'row-detail', T('dashboard.what')));
   main.appendChild(el('div', 'row-detail', T(provisioned ? 'dashboard.provisioned' : 'dashboard.import_hint')));
-  if (!g.by_consultant) main.appendChild(el('div', 'row-detail ad-careful', T('dashboard.admin')));
+  main.appendChild(el('div', 'row-detail ad-careful', T('dashboard.admin')));
   row.appendChild(main);
   const inGrafana = provisioned && g.webui ? Office.safeHref(String(g.webui).replace(/\/+$/, '') + '/d/unraid-secretary-office') : null;
   const href = inGrafana || Office.safeHref(state.dashboard);
