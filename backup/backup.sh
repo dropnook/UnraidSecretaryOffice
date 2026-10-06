@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
 # unraid-backup - backup.sh                       Version 2.20 - 2026-10-06
+#   2.20 Names: what the office makes is called uso-...: ZFS snapshots uso-backup-YYYYMMDD-HHMM (default
+#        [general] snap_prefix; the old default unraidbackup- counts as the default - those snapshots
+#        stay the engine's and age out by the retention, matched exactly), Kopia snapshot descriptions
+#        "uso-backup <run>". The Kopia container path recommended for new setups is /uso.
 #   2.20 A run that finds the lock busy (another run still going - a first Kopia upload takes longer
 #        than a day -, the setup, a restore) is never lost silently: it leaves status.json and
 #        everything else alone and says so in state/skipped.json, in history.jsonl ("result":
@@ -99,8 +103,9 @@
 #       before 2.18), notification
 #
 # KOPIA CONTAINER (once) - only this one data mapping is needed:
-#   Host <mount_root> (/mnt/addons/UnraidSecretaryOffice/snapshots) -> Container e.g. /backup-snapshots
-#   (keep the container path once chosen: Kopia names its sources after it)
+#   Host <mount_root> (/mnt/addons/UnraidSecretaryOffice/snapshots) -> Container e.g. /uso
+#   (Kopia names its sources after the container path: changing it later makes new sources - same
+#   repository, so nothing is uploaded twice, but every file is read once more)
 #   Access Mode: Read Only - Slave
 #   "Slave" is what matters: only then does the running container see the
 #   mounts this script creates after it started. Kopia is therefore never
@@ -1780,30 +1785,14 @@ pkg_old_runs() { # pkg_old_runs list|count|remove
 ##############################################################################
 # Cleaning up
 ##############################################################################
-prune_zfs() { # prune_zfs <dataset> <"d w m">
-    local ds="$1" keep_d keep_w keep_m s i n stamp day week month
-    read -r keep_d keep_w keep_m <<<"$2"
-    local -a snaps
-    mapfile -t snaps < <(zfs list -H -t snapshot -o name -s creation -d 1 "$ds" 2>/dev/null \
-                         | grep -E "@${SNAP_PREFIX}[0-9]{8}-[0-9]{4}$")
-    [[ ${#snaps[@]} -eq 0 ]] && return 0
-    local -A keep=() wk=() mo=()
-    for (( i=${#snaps[@]}-1, n=0; i>=0 && n<keep_d; i--, n++ )); do keep[${snaps[$i]}]=1; done
-    for (( i=${#snaps[@]}-1; i>=0; i-- )); do
-        stamp="${snaps[$i]##*@"${SNAP_PREFIX}"}"
-        day="${stamp:0:4}-${stamp:4:2}-${stamp:6:2}"
-        week="$(date -d "$day" +%G-%V 2>/dev/null)"
-        month="${stamp:0:6}"
-        if (( keep_w > 0 )) && [[ -n "$week" && -z "${wk[$week]:-}" ]] && (( ${#wk[@]} < keep_w )); then
-            wk[$week]=1; keep[${snaps[$i]}]=1
-        fi
-        if (( keep_m > 0 )) && [[ -z "${mo[$month]:-}" ]] && (( ${#mo[@]} < keep_m )); then
-            mo[$month]=1; keep[${snaps[$i]}]=1
-        fi
-    done
+prune_zfs() { # prune_zfs <dataset> <"d w m">  - only the engine's snapshots (zfs_prune_select, lib/common.sh)
+    local ds="$1" s
+    local -a doomed
+    mapfile -t doomed < <(zfs list -H -t snapshot -o name -s creation -d 1 "$ds" 2>/dev/null | zfs_prune_select "$2")
+    [[ ${#doomed[@]} -eq 0 ]] && return 0
     mounts_load
-    for s in "${snaps[@]}"; do
-        [[ -n "${keep[$s]:-}" ]] && continue
+    for s in "${doomed[@]}"; do
+        snap_is_ours "$s" || continue                    # never anything else (and never a dataset)
         if in_list "$s" "${MT_SOURCE[@]}"; then log "  kept (mounted): $s"; continue; fi
         zfs destroy "$s" 2>>"$LOG_FILE" && log "  removed: $s"
     done
@@ -2058,6 +2047,10 @@ docker info >/dev/null 2>&1 || die "Docker does not answer"
 mountpoint -q "$UB_MNT/user" || die "$UB_MNT/user is not mounted - array/pools not started?"
 
 SNAP_NAME="${SNAP_PREFIX}${TS}"
+# settings.ini still names the old default prefix: new snapshots get the new one, the old ones age out
+if [[ "$SNAP_PREFIX_SET" == "$UB_SNAP_PREFIX_LEGACY" ]]; then
+    log "Snapshot names: settings.ini still says the old default prefix $UB_SNAP_PREFIX_LEGACY - new snapshots are called ${SNAP_PREFIX}YYYYMMDD-HHMM, the ${UB_SNAP_PREFIX_LEGACY}... ones stay the engine's and age out by the retention (Set up... > Apply writes the new prefix)"
+fi
 
 # --- Inventory, plan, drift ------------------------------------------------
 status_phase "inventory"
@@ -2135,6 +2128,8 @@ pkg_plan
 sqlite_plan
 log "Plan:"
 log "  ZFS snapshots:    ${PLAN_ZFS[*]:-none}"
+if (( ${#SNAP_PREFIXES[@]} > 1 )); then log "  Snapshot name:    $SNAP_NAME (the retention also clears away the older ${SNAP_PREFIXES[*]:1}...)"
+else log "  Snapshot name:    $SNAP_NAME"; fi
 log "  btrfs snapshots:  ${PLAN_BTRFS[*]:-none}"
 log "  Flash:            $PLAN_FLASH${FLASH_DATASET:+ ($FLASH_DATASET)}"
 log "  VM configuration: $LIBVIRT_MODE$(mountpoint -q /etc/libvirt || echo ' (VM service off)')"
@@ -2313,7 +2308,7 @@ kopia_one() { # kopia_one <name> <container path>
     # while bash waits for a foreground command until it ends -
     # with Kopia that can be hours. kopia_stop then ends it.
     KOPIA_CP="$cp"
-    kopia_x snapshot create "$cp" --description "$UB_NAME $TS" >>"$LOG_FILE" 2>&1 &
+    kopia_x snapshot create "$cp" --description "$UB_KOPIA_DESC $TS" >>"$LOG_FILE" 2>&1 &
     KOPIA_PID=$!
     wait "$KOPIA_PID"; rc=$?
     KOPIA_PID=""; KOPIA_CP=""
@@ -2401,8 +2396,7 @@ fi
 status_phase "cleanup"
 log "Cleaning up ..."
 if command -v zfs >/dev/null 2>&1; then
-    mapfile -t OWNERS < <(zfs list -H -t snapshot -o name 2>/dev/null \
-        | grep -E "@${SNAP_PREFIX}[0-9]{8}-[0-9]{4}$" | sed 's/@.*//' | sort -u)
+    mapfile -t OWNERS < <(zfs list -H -t snapshot -o name 2>/dev/null | snap_filter | sed 's/@.*//' | sort -u)
     for ds in "${OWNERS[@]}"; do
         prune_zfs "$ds" "${PLAN_ZFS_RET[$ds]:-$ZFS_RETENTION}"
     done

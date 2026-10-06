@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
 # unraid-backup - setup.sh                        Version 2.20 - 2026-10-06
+#   2.20 Names: the default snapshot prefix is uso-backup-; a settings.ini with the old default
+#        unraidbackup- gets the new one proposed (a normal change), a prefix of the user's own stays.
+#        A prefix may join words with - (uso-backup-), never begin with uso-plan- (Ms. Snapshotini's).
+#        The Kopia container path shown for new setups is /uso
 #   2.20 Notes itself as the lock's holder in state/lock-holder.json while it runs (a backup run that
 #        finds the lock busy says why it was skipped); when the lock is busy it names who holds it,
 #        exit code 75
@@ -432,13 +436,19 @@ TXT
         hint "Kopia leaves out Ms. Dustdevil's storeroom (_$UB_OFFICE_SHARE-trash) - the local snapshots keep it"
     fi
 
-    # Snapshot prefix: a prefix of its own, "unraidbackup-". backup.sh never touches
+    # Snapshot prefix: a prefix of its own, "uso-backup-". backup.sh never touches
     # snapshots of other tools (other prefixes) - not even when cleaning up.
-    pinit "general|snap_prefix" "unraidbackup-"
+    pinit "general|snap_prefix" "$UB_SNAP_PREFIX"
+    # The old default (2.9-2.19) counts as the default: proposed as the new one, a normal change Apply
+    # writes. backup.sh already names new snapshots so; the old ones age out by the retention (lib/common.sh 10)
+    if [[ "$(pget "general|snap_prefix")" == "$UB_SNAP_PREFIX_LEGACY" ]]; then
+        pset "general|snap_prefix" "$UB_SNAP_PREFIX"
+        hint "Snapshot prefix: $UB_SNAP_PREFIX instead of the old default $UB_SNAP_PREFIX_LEGACY - the ${UB_SNAP_PREFIX_LEGACY}... snapshots stay the engine's and age out by the retention"
+    fi
     if command -v zfs >/dev/null 2>&1 && [[ -z "${OLD[general|snap_prefix]+x}" ]]; then
         local others
-        others="$(zfs list -H -t snapshot -o name 2>/dev/null | sed -n 's/.*@\([a-zA-Z0-9_]*[-_]\).*/\1/p' \
-                  | grep -vx "$(pget "general|snap_prefix")" | sort -u | head -5 | paste -sd' ' -)"
+        others="$(zfs list -H -t snapshot -o name 2>/dev/null | snap_filter_not | sed -n 's/.*@\([a-zA-Z0-9_]*[-_]\).*/\1/p' \
+                  | sort -u | head -5 | paste -sd' ' -)"
         [[ -n "$others" ]] && hint "ZFS snapshots of other tools present (prefix $others) - they stay untouched"
     fi
     pinit "kopia|container" ""
@@ -1308,7 +1318,7 @@ TXT
         ask "  Keep local ZFS snapshots: daily weekly monthly" "$(pget "zfs|retention")"
         [[ "$REPLY" =~ ^[0-9]+\ [0-9]+\ [0-9]+$ ]] && pset "zfs|retention" "$REPLY"
         ask "  Prefix of the ZFS snapshots" "$(pget "general|snap_prefix")"
-        [[ "$REPLY" =~ ^[a-z0-9_]+-$ ]] && pset "general|snap_prefix" "$REPLY"
+        snap_prefix_ok "$REPLY" && pset "general|snap_prefix" "$REPLY"
     fi
     if (( haveb )); then
         ask "  Keep btrfs snapshots (days)" "$(pget "btrfs|keep_days")"; is_uint "$REPLY" && pset "btrfs|keep_days" "$REPLY"
@@ -1590,7 +1600,10 @@ mapping_help() {
     say ""
     say "  ${C_B}How to set up the mapping (Unraid > Docker > $KOPIA_CONTAINER > Edit):${C_0}"
     say "    Add another Path, Port, Variable, Label or Device > Config Type: Path"
-    say "      Container Path:  /backup-snapshots   (any path - keep it once chosen: Kopia names its sources after it)"
+    say "      Container Path:  /uso   (any path - Kopia names its sources after it: /uso/<share>, /uso/.apps/<app>;"
+    say "                       changing it later makes new sources - in the same repository nothing is uploaded"
+    say "                       twice, but every file is read once more, and the old sources keep their history"
+    say "                       under the old names until you remove them in Kopia)"
     say "      Host Path:       $MOUNT_ROOT"
     say "      Access Mode:     Read Only - Slave   (not just 'Read Only' - without slave"
     say "                       the running container sees no new snapshot mounts)"
@@ -1628,6 +1641,7 @@ settings_render() {
         w_c "Browse btrfs snapshots: <view_root>/<disk> (symlinks, they hold no disk)"
         w_kv view_root "$(pget "general|view_root")"
         w_c "ZFS snapshots are called <prefix>YYYYMMDD-HHMM; only this prefix is cleaned up"
+        w_c "(with the default uso-backup- also the older unraidbackup-... ones, by the same retention)"
         w_kv snap_prefix "$(pget "general|snap_prefix")"
         w_c "Subfolder for btrfs snapshots on every btrfs disk/btrfs pool"
         w_kv btrfs_snap_dir "$(pget "general|btrfs_snap_dir")"
