@@ -4,7 +4,7 @@ Part of the [Unraid Secretary Office](../README.md): Mr. Backupsy shows and cont
 
 A nightly backup for Unraid servers. It takes consistent **ZFS/btrfs snapshots** and **database dumps**, puts Nextcloud into **maintenance mode** for that, keeps a **package per app and VM** (templates or compose files, dumps, VM configuration) and — if you want — sends everything encrypted offsite with **Kopia**, an app or VM you choose as a Kopia source of its own with its own retention. Everything specific to your server lives in `settings.ini`, which `setup.sh` writes after asking you. The nightly run `backup.sh` reports every difference between the server and `settings.ini`, but never changes it on its own. **What is new stays local and keeps running until you decide** (since 2.21): a new folder in a share that goes to Kopia stays in the local snapshots only, a new container isn't stopped — see [New things stay local](#new-things-stay-local-since-221).
 
-Version **2.21** (6 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
+Version **2.22** (6 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
 
 ---
 
@@ -35,22 +35,23 @@ Replacing an existing backup script: `setup.sh` warns when other User Scripts al
 ```
  1  load settings.ini, take inventory (pools, disks, shares, datasets, containers)
  2  check and report differences (new / renamed / gone / policies / mapping)
- 3  Nextcloud → maintenance mode
- 4  packages: per app its templates or compose files and docker inspect, server/ (images, share configs, settings.ini);
+ 3  VMs with prepare = shutdown: shut down and waited for, while everything else still runs
+ 4  Nextcloud → maintenance mode
+ 5  packages: per app its templates or compose files and docker inspect, server/ (images, share configs, settings.ini);
     consistent copies of the databases of media servers that keep running
- 5  stop apps, then database dumps into the apps' packages (checked right away);   ┐
+ 6  stop apps, then database dumps into the apps' packages (checked right away); ┐
     the app packages are swapped in                                              │
- 6  stop databases → network containers; hold the VMs, their packages (XML,      │ interruption
-    NVRAM, TPM state) and server/libvirt.tar.gz, swapped in                       │
- 7  ZFS snapshots (atomic per pool), btrfs snapshots (per disk/pool) -           │
+ 7  stop databases → network containers; hold the VMs (freeze, pause), their     │ interruption
+    packages (XML, NVRAM, TPM state) and server/libvirt.tar.gz, swapped in       │
+ 8  ZFS snapshots (atomic per pool), btrfs snapshots (per disk/pool) -           │
     they hold this run's packages too                                            │
- 8  start containers (databases first, "healthy"), maintenance off               ┘
- 9  mount snapshots read-only: <mount_root>/<share>; the apps' and VMs'  ┐
-    own sources joined under <mount_root>/.apps|.vms/<name>               │ only with
-10  new folders of the shares stay out of Kopia until you decide;        │ Kopia
+ 9  start containers (databases first, "healthy"), maintenance off               ┘
+10  mount snapshots read-only: <mount_root>/<share>; the apps' and VMs'  ┐
+    own sources joined under <mount_root>/.apps|.vms/<name>              │ only with
+11  new folders of the shares stay out of Kopia until you decide;        │ Kopia
     Kopia backs up the apps, each share, the VMs from the snapshots      ┘
     (Kopia keeps running)
-11  unmount, clean up (ZFS d/w/m, btrfs days + emergency brake, logs; once: the run folders of engines before 2.18), notification
+12  unmount, clean up (ZFS d/w/m, btrfs days + emergency brake, logs; once: the run folders of engines before 2.18), notification
 ```
 
 Only one run at a time: `backup.sh`, `setup.sh` and Mr. Restori's restores share a lock (`state/lock`). A run that finds it busy — the night before is still uploading to Kopia, the setup is looking at the server — doesn't happen, but is never lost silently: see [When the lock is busy](#when-the-lock-is-busy).
@@ -264,10 +265,10 @@ A VM's disks are files in a share (usually `domains`) and so in that share's sna
 |---|---|---|
 | `freeze` | the guest agent (qemu-guest-agent inside the VM) flushes and freezes its file systems for the seconds of the snapshot | the best result, the VM keeps running |
 | `pause` | the VM stops for those seconds, no guest agent needed | like pulling the plug, but no write is cut in half |
-| `shutdown` | shut down cleanly before, started again after | the safest, takes minutes; never forced off — if the guest doesn't shut down in 5 minutes it is paused instead |
+| `shutdown` | shut down cleanly before anything else stops, started again after | the safest, takes minutes; never forced off — if the guest doesn't shut down in 5 minutes it is paused for the snapshot instead |
 | `none` | keeps running | its disks are only crash-consistent |
 
-The setup proposes `freeze` where a guest agent answers (or is configured), `pause` otherwise. Shutdowns begin together with stopping the apps and share one deadline: each VM gets `UB_VM_SHUTDOWN_TIMEOUT` seconds (300) from its shutdown request, all are watched together — three VMs that ignore the request cost five minutes, not fifteen. A VM still running gets the request again every `UB_VM_SHUTDOWN_RETRY` seconds (60): Windows swallows the first ACPI power button event while idle with the display off. Whichever isn't off by the deadline is paused (never forced off). Freezing and pausing come right before the snapshots, and each VM is released right after the snapshot that holds its disks (ZFS first, btrfs after). A run killed in between (`state/vms`) is undone by the next start, like stopped containers. Each VM's package (`vms/<vm>/`: XML, NVRAM, TPM state) and the archive of all of libvirt.img (`server/libvirt.tar.gz`) are written after the VMs are held, so they match their disks in the snapshot.
+The setup proposes `freeze` where a guest agent answers (or is configured), `pause` otherwise. **Shutdowns come first** (since 2.22): before Nextcloud's maintenance mode and before any app stops, the run asks the VMs to shut down and waits for them while everything else still runs — the apps' interruption (`downtime_s`) never includes a guest that takes minutes or ignores the request (up to 2.21 they began together with stopping the apps, and the apps waited). They share one deadline: each VM gets `UB_VM_SHUTDOWN_TIMEOUT` seconds (300) from its shutdown request, all are watched together — three VMs that ignore the request cost five minutes, not fifteen. A VM still running gets the request again every `UB_VM_SHUTDOWN_RETRY` seconds (60): Windows swallows the first ACPI power button event while idle with the display off. Whichever isn't off by the deadline keeps running and is paused right before the snapshots (never forced off); one that went off meanwhile stays off and is started again like the others. Freezing and pausing come right before the snapshots, and each VM is released right after the snapshot that holds its disks (ZFS first, btrfs after). A run stopped while a VM is going down waits for it (until its deadline) and starts it again; a run killed in between (`state/vms`) is undone by the next start, like stopped containers. In `status.json` `vms`, `seconds` is how long a VM was held: a shut-down VM from its request until it is started again, a frozen or paused one from the freeze or pause. Each VM's package (`vms/<vm>/`: XML, NVRAM, TPM state) and the archive of all of libvirt.img (`server/libvirt.tar.gz`) are written after the VMs are held, so they match their disks in the snapshot.
 
 On ZFS pools Unraid gives every VM folder a dataset of its own. Such a VM can be left out (`mode = off`) and can keep its snapshots longer or shorter than its share (`retention`). A VM whose disks share a dataset with the share or another VM always goes with the share's snapshot. A disk that is a whole device, or a file on a file system without snapshots, is not held by any snapshot — the setup and the nightly check say so.
 
@@ -345,7 +346,7 @@ For Mr. Backupsy in the office (and any other page), `backup.sh` writes its stat
 
 | File | Content |
 |---|---|
-| `status.json` | the running or last finished run (check, dry run, backup): `mode`, `phase`, `result` (`running`, `ok`, `warnings`, `errors`, `failed`, `aborted`), `pid`, times, interruption, differences, the Kopia plan with the current source and the result per source (since 2.19 an app's or VM's own source is named `app:<name>` / `vm:<name>`, in the order apps, shares, VMs, flash), per VM what the run did (`vms`: `prepare`, `done`, seconds held, `snapshot`), the new folders this run left out of Kopia (`new_local`, since 2.21: `share`, `folder`, `bytes`, `first_seen`; `null` when it didn't look, e.g. no Kopia), and the packages (`packages`, since 2.18: `base`, `written` — false in a dry run —, `written_bytes`, counts `apps`, `vms`, `errors`, `warnings`, `stale`, `kept`, `old_runs` with `old_runs_action` = `removed` / `would_remove` / `kept`, and `list`: per package `kind` (app, vm, flash), `name`, `folder`, `type` (compose, template, container, vm), `result` (ok, warnings, errors, planned, stale), `files`, `bytes`, `kept`, `stale`, `run`). `dump_bytes` is what the run wrote into the packages |
+| `status.json` | the running or last finished run (check, dry run, backup): `mode`, `phase` (since 2.22 `vm_shutdown` while the VMs shut down, before `maintenance`), `result` (`running`, `ok`, `warnings`, `errors`, `failed`, `aborted`), `pid`, times, interruption (`downtime_s`: from stopping the first app until all run again — since 2.22 without the VMs' shutdown, which comes before), differences, the Kopia plan with the current source and the result per source (since 2.19 an app's or VM's own source is named `app:<name>` / `vm:<name>`, in the order apps, shares, VMs, flash), per VM what the run did (`vms`: `prepare`, `done`, seconds held, `snapshot`), the new folders this run left out of Kopia (`new_local`, since 2.21: `share`, `folder`, `bytes`, `first_seen`; `null` when it didn't look, e.g. no Kopia), and the packages (`packages`, since 2.18: `base`, `written` — false in a dry run —, `written_bytes`, counts `apps`, `vms`, `errors`, `warnings`, `stale`, `kept`, `old_runs` with `old_runs_action` = `removed` / `would_remove` / `kept`, and `list`: per package `kind` (app, vm, flash), `name`, `folder`, `type` (compose, template, container, vm), `result` (ok, warnings, errors, planned, stale), `files`, `bytes`, `kept`, `stale`, `run`). `dump_bytes` is what the run wrote into the packages |
 | `last-run.json` | the same for the last real backup run |
 | `history.jsonl` | one line per real backup run, the last 200 — `packages` without `list`; since 2.20 also a skipped backup run (`result` = `skipped`, see below) — whoever computes durations, downtimes or "the last run" from it leaves those out |
 | `skipped.json` | since 2.20: the last run that could not take the lock (any mode, see below) |
@@ -500,8 +501,11 @@ Played through with and without Kopia, and switching it on again. Mount propagat
 
 So on every new server: *Set up…*, then a check and a dry run first.
 
+No warranty: a backup can be faulty or incomplete, and you stay responsible for your data and your backup strategy — test a restore now and then and keep more than one copy (e.g. 3-2-1: three copies, two kinds of storage, one off site). See the [license](../README.md#license).
+
 ## Versions
 
+- **2.22** – VMs with `prepare = shutdown` go down before anything stops: the run asks them and waits for them (one deadline, the request again every 60 s) while the apps still run, before Nextcloud's maintenance mode — the apps' interruption (`downtime_s`) no longer includes waiting for a VM. Freezing and pausing stay right before the snapshots, so does pausing a VM that wasn't off by its deadline (its `seconds` count from the pause; one that went off later is started again like the others). A run stopped while a VM goes down waits for it and starts it again. `status.json` has the phase `vm_shutdown`.
 - **2.21** – `state/pruned.json`: the snapshots the retention destroyed, run by run (the last 30 runs within 30 days).
 - **2.21** – New things stay local and keep running until you decide. A share that goes to Kopia records its top-level folders when the setup is applied (`kopia_known`); a folder that appears later and that nobody decided about stays in the local snapshots only — the run leaves it out of the share's Kopia policy right before the upload, takes the rule away again once it is decided or gone, and says so (log, `status.json` `new_local`, `state/new-local.json`, drift note `new_waiting`, one notification when first seen). Containers that came after the last setup keep running during the run, and the setup proposes them so (and VMs without settings as not held). The setup lists the new folders per share (`waiting`) and asks about them in a terminal. A share without `kopia_known` works as before until the setup is applied once.
 - **2.20** – Names: what the office makes is called `uso-…` (places keep the long name). ZFS snapshots are `uso-backup-YYYYMMDD-HHMM` (default `snap_prefix`); a settings.ini with the old default `unraidbackup-` counts as the default — new snapshots get the new name, the old ones stay the engine's and age out by the normal retention (matched exactly, never anything looser), and *Set up…* proposes writing the new prefix. A prefix of your own stays as it is. Kopia snapshots are described `uso-backup <run>`; new setups are shown the Container Path `/uso` (the engine always reads the real one). A run that finds the lock busy (the night before still uploading to Kopia, the setup, a restore) is never lost silently: it touches nothing of the run going on and says so in `state/skipped.json`, in `history.jsonl` (`result` `skipped`, reason `skipped_busy_<holder>`) and, for a real backup, in a notification (warning); exit code 75. Whoever holds the lock notes it in `state/lock-holder.json` — backup.sh, setup.sh, and the format is open for Mr. Restori's restores and others. VMs with `prepare = shutdown` share one deadline (the timeout from their shutdown request) instead of waiting one timeout after the other, and get the request again every 60 s while they run (Windows swallows the first one); a VM that refuses the request is paused right away. An app folder that is simply empty in the snapshot is a note in the log, no longer two warnings. An app whose compose services build their own image (`build:`, no registry has it) gets `build/<service>/` in its package: the Dockerfile and the small files of the build context (top level, ≤ 1 MB each, at most 100 files / 10 MB), unless `compose/` holds them already — a rebuild needs them.

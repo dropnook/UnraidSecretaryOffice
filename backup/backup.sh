@@ -1,6 +1,12 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.21 - 2026-10-06
+# unraid-backup - backup.sh                       Version 2.22 - 2026-10-06
+#   2.22 VMs with prepare = shutdown go down BEFORE anything stops: their shutdowns are requested and
+#        waited for (one deadline, the request again every 60 s) while the apps still run, before
+#        Nextcloud's maintenance mode - the apps' downtime (downtime_s) no longer includes waiting for a
+#        VM. Freezing and pausing stay right before the snapshots, so does pausing a VM that wasn't off
+#        by its deadline (one that went off later is started again like the others). A run stopped
+#        while a VM goes down waits for it (until its deadline) and starts it again
 #   2.21 New things stay local and keep running until the user decided: a top-level folder of a share
 #        that goes to Kopia which is neither in its kopia_known (recorded by the setup) nor left out is
 #        left out of the share's Kopia source for the run (rules in the share's policy, taken away again
@@ -94,24 +100,26 @@
 #    2. Check for and report drift: new / renamed / deleted shares,
 #       new containers, Kopia mapping and policies. None of it is "repaired"
 #       here - new shares are only backed up once setup.sh has run.
-#    3. Nextcloud into maintenance mode (aborts if it was already on)
-#    4. Packages: per app its templates or compose files and docker inspect,
+#    3. VMs with prepare = shutdown: shut down and waited for, while everything
+#       else still runs (a guest may take minutes or ignore the request)
+#    4. Nextcloud into maintenance mode (aborts if it was already on)
+#    5. Packages: per app its templates or compose files and docker inspect,
 #       the server's lists (images, share configs, settings.ini)
-#    5. Pause apps, then database dumps (MariaDB/MySQL, Postgres, MongoDB) into
+#    6. Pause apps, then database dumps (MariaDB/MySQL, Postgres, MongoDB) into
 #       the apps' packages, checked right away - so dumps and files match, also
 #       for apps without a maintenance mode (e.g. Immich); the app packages
-#       are swapped in
-#    6. Stop databases and network containers, hold the VMs; their packages
-#       (XML, NVRAM, TPM state) and the libvirt archive, swapped in
-#    7. ZFS snapshots (atomic per pool) and btrfs snapshots - they hold this
+#       are swapped in  -> the downtime begins here
+#    7. Stop databases and network containers, hold the VMs (freeze, pause); their
+#       packages (XML, NVRAM, TPM state) and the libvirt archive, swapped in
+#    8. ZFS snapshots (atomic per pool) and btrfs snapshots - they hold this
 #       run's packages too
-#    8. Start containers, maintenance mode off  -> the downtime ends here
-#    9. Mount the snapshots per share under <mount_root>/<share> (read-only), and
+#    9. Start containers, maintenance mode off  -> the downtime ends here
+#   10. Mount the snapshots per share under <mount_root>/<share> (read-only), and
 #       join each app's and VM's own source under <mount_root>/.apps|.vms/<name>
-#   10. Kopia backs up the apps, every share from <mount_root>/<share>, the VMs
-#       (only with [kopia] enabled = yes - without Kopia 9/10 end here: local
+#   11. Kopia backs up the apps, every share from <mount_root>/<share>, the VMs
+#       (only with [kopia] enabled = yes - without Kopia 10/11 end here: local
 #       snapshots and dumps are then the whole backup)
-#   11. Unmount, clean up (ZFS, btrfs, logs; once: the run folders of engines
+#   12. Unmount, clean up (ZFS, btrfs, logs; once: the run folders of engines
 #       before 2.18), notification
 #
 # KOPIA CONTAINER (once) - only this one data mapping is needed:
@@ -209,7 +217,8 @@ declare -A SHARE_MOUNTED=() # share -> single|overlay|split
 declare -A ZFS_FAILED=()    # pool -> 1
 MOUNTED="no"
 CLEANUP_DONE="no"
-DOWNTIME=0
+DOWNTIME=0                  # the apps' downtime (downtime_s): from stopping the first app until all run again -
+                            # since 2.22 without waiting for VMs to shut down (that comes before, vm_shutdowns)
 SNAP_NAME=""
 KOPIA_PID=""                # running Kopia snapshot (background, see kopia_one)
 KOPIA_CP=""
@@ -274,14 +283,17 @@ save_restore_state() {
 #   pause     the VM stops for the seconds of the snapshot (no guest agent needed)
 #   shutdown  shut down cleanly before, started again after (minutes)
 #   none      keeps running - its disks are only crash-consistent (like pulling the plug)
-# Shutdowns begin together with pausing the apps, so they overlap; freezing and pausing
-# come right before the snapshots, and each VM is released right after the snapshot
-# that holds its disks (ZFS first, btrfs after). Noted in state/vms before acting.
-declare -A VM_HELD=()     # name -> frozen | paused | shutdown
-declare -A VM_HELD_AT=()  # name -> since when (s)
+# Shutdowns come first (2.22): requested together and waited for while everything else still
+# runs, before Nextcloud's maintenance mode and the apps stop - their downtime never includes a
+# guest taking minutes or ignoring the request (vm_shutdowns). Freezing and pausing - also of a VM
+# that wasn't off by its deadline - come right before the snapshots (vm_hold), and each VM is
+# released right after the snapshot that holds its disks (ZFS first, btrfs after). Noted in
+# state/vms before acting: a run stopped or killed starts again what it shut down or paused.
+declare -A VM_HELD=()     # name -> frozen | paused | shutdown (asked to shut down: off, going down or ignoring it)
+declare -A VM_HELD_AT=()  # name -> since when (s): the shutdown request, the freeze, the pause
 declare -a VM_TODO=()     # running VMs whose disks this run snapshots, prepare != none
 declare -A VM_SHUT_ASKED=()  # name -> 1: the shutdown request went through (vm_hold_begin)
-declare -A VM_SHUT_DOWN=()   # name -> 1: shut off in time (vm_shutdown_wait)
+declare -A VM_SHUT_DOWN=()   # name -> 1: seen shut off (vm_shutdown_wait, vm_hold)
 
 vm_plan() {
     local n p
@@ -302,37 +314,67 @@ vm_note() { # vm_note <name> <prepare> <done> <seconds>  - replaces the VM's lin
     ST_VMS=( "${keep[@]}" "$1|$2|$3|$4|1" ); status_write
 }
 
-vm_hold_begin() { # the shutdowns, early: they take a while
+vm_domstate() { timeout 10 virsh domstate "$1" 2>/dev/null | head -1; }
+
+# The VMs to shut down, before anything else stops: requested together, then waited for. A run
+# without such a VM does nothing here (no phase, no line).
+vm_shutdowns() {
+    local n k=0
+    for n in "${VM_TODO[@]}"; do [[ "$(vm_prepare "$n")" == "shutdown" ]] && k=$((k+1)); done
+    (( k > 0 )) || return 0
+    status_phase "vm_shutdown"
+    log "VMs: shutting down $k before anything stops (the apps keep running meanwhile; waiting at most ${VM_SHUTDOWN_TIMEOUT} s)"
+    vm_hold_begin
+    vm_shutdown_wait
+}
+
+vm_hold_begin() { # the shutdown requests, all together
     local n
     for n in "${VM_TODO[@]}"; do
         [[ "$(vm_prepare "$n")" == "shutdown" ]] || continue
+        # noted before asking (also when the request fails - it may have reached the guest): if it
+        # goes off, the trap or the next run starts it again
         VM_HELD[$n]="shutdown"; VM_HELD_AT[$n]="$(date +%s)"; save_restore_state
         if timeout 30 virsh shutdown "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': shutting down"; VM_SHUT_ASKED[$n]=1
-        else warn "VM '$n' did not take the shutdown request - it is paused instead"; fi
+        else warn "VM '$n' did not take the shutdown request - it keeps running and is paused for the snapshot instead"; fi
     done
 }
 
+# vm_shutdown_wait [abort]
 # The shutdowns were all requested together (vm_hold_begin), so they share one deadline: each VM
 # its request time + VM_SHUTDOWN_TIMEOUT, all polled in one loop - at most one timeout in all,
 # not one after the other. A VM that didn't take the request isn't waited for. While waiting, a VM
 # still running gets the request again every VM_SHUTDOWN_RETRY seconds: Windows swallows the first
 # ACPI power button event while idle with the display off (harmless while a guest shuts down).
+# One not off by its deadline keeps running until vm_hold pauses it (never forced off).
+# abort: a run stopped early waits only for the VMs still going down after its request, until their
+# deadline, so that vm_release can start them again - no new requests.
 vm_shutdown_wait() {
-    local n now
+    local n now mode="${1:-}"
     local -a pending=() left=()
-    local -A last=() told=()
+    local -A last=() told=() deadline=()
     for n in "${VM_TODO[@]}"; do
-        [[ "$(vm_prepare "$n")" == "shutdown" && -n "${VM_SHUT_ASKED[$n]:-}" ]] && { pending+=( "$n" ); last[$n]="${VM_HELD_AT[$n]:-$(date +%s)}"; }
+        [[ "${VM_HELD[$n]:-}" == "shutdown" && -n "${VM_SHUT_ASKED[$n]:-}" && -z "${VM_SHUT_DOWN[$n]:-}" ]] || continue
+        last[$n]="${VM_HELD_AT[$n]:-$(date +%s)}"; deadline[$n]=$(( ${last[$n]} + VM_SHUTDOWN_TIMEOUT ))
+        [[ "$mode" == "abort" ]] && (( $(date +%s) >= ${deadline[$n]} )) && continue    # past it: it ignored the request
+        pending+=( "$n" )
     done
+    (( ${#pending[@]} > 0 )) || return 0
+    [[ "$mode" == "abort" ]] && log "  Waiting for ${#pending[@]} VM(s) going down, to start them again (at most until ${VM_SHUTDOWN_TIMEOUT} s after the request)"
     while (( ${#pending[@]} > 0 )); do
         left=()
         for n in "${pending[@]}"; do
-            if [[ "$(timeout 10 virsh domstate "$n" 2>/dev/null | head -1)" == "shut off" ]]; then
+            if [[ "$(vm_domstate "$n")" == "shut off" ]]; then
                 VM_SHUT_DOWN[$n]=1; log "  VM '$n': shut down"; continue
             fi
             now="$(date +%s)"
-            (( now < ${VM_HELD_AT[$n]:-$now} + VM_SHUTDOWN_TIMEOUT )) || continue
+            if (( now >= ${deadline[$n]} )); then
+                [[ "$mode" == "abort" ]] \
+                    || warn "VM '$n' did not shut down within ${VM_SHUTDOWN_TIMEOUT} s of the request - it keeps running and is paused for the snapshot instead"
+                continue
+            fi
             left+=( "$n" )
+            [[ "$mode" == "abort" ]] && continue
             if (( now - ${last[$n]} >= VM_SHUTDOWN_RETRY )); then
                 last[$n]="$now"
                 timeout 30 virsh shutdown "$n" >/dev/null 2>>"$LOG_FILE" \
@@ -345,16 +387,20 @@ vm_shutdown_wait() {
     return 0
 }
 
-vm_hold() { # right before the snapshots
+vm_hold() { # right before the snapshots: freeze, pause - also a VM that wasn't off by its deadline
     local n p
-    vm_shutdown_wait
     for n in "${VM_TODO[@]}"; do
         p="$(vm_prepare "$n")"
         if [[ "$p" == "shutdown" ]]; then
             [[ -n "${VM_SHUT_DOWN[$n]:-}" ]] && continue
-            # never forced off: pause it instead, the guest decides about its own shutdown
-            [[ -n "${VM_SHUT_ASKED[$n]:-}" ]] && warn "VM '$n' did not shut down within ${VM_SHUTDOWN_TIMEOUT} s of the request - paused instead"
-            p="pause"
+            # off after all, later than its deadline (it went down while the apps stopped): it stays
+            # off for the snapshot and is started again like the others
+            if [[ "$(vm_domstate "$n")" == "shut off" ]]; then
+                VM_SHUT_DOWN[$n]=1; log "  VM '$n': shut down (after its deadline)"; continue
+            fi
+            # never forced off: paused instead, the guest decides about its own shutdown. It ran
+            # until now - held from the pause on
+            unset "VM_HELD_AT[$n]"; p="pause"
         fi
         if [[ "$p" == "freeze" ]]; then
             VM_HELD[$n]="frozen"; VM_HELD_AT[$n]="$(date +%s)"; save_restore_state
@@ -375,7 +421,7 @@ vm_hold() { # right before the snapshots
 }
 
 vm_release() { # vm_release [btrfs]  - without an argument the VMs on ZFS only
-    local n how secs
+    local n how secs st
     for n in "${!VM_HELD[@]}"; do
         if [[ "${1:-}" != "btrfs" ]] && vm_on_btrfs "$n"; then continue; fi
         how="${VM_HELD[$n]}"
@@ -383,9 +429,14 @@ vm_release() { # vm_release [btrfs]  - without an argument the VMs on ZFS only
             frozen)   timeout 60 virsh domfsthaw "$n" >/dev/null 2>>"$LOG_FILE" || warn "VM '$n': thawing its file systems failed - check the VM" ;;
             paused)   timeout 30 virsh resume "$n" >/dev/null 2>>"$LOG_FILE" \
                           || { warn "VM '$n' could NOT be resumed"; ub_notify "VM not resumed" "'$n' is still paused after the snapshot: virsh resume $n" "alert"; } ;;
-            shutdown) [[ "$(timeout 10 virsh domstate "$n" 2>/dev/null | head -1)" == "shut off" ]] \
-                          && { timeout 60 virsh start "$n" >/dev/null 2>>"$LOG_FILE" \
-                               || { warn "VM '$n' could NOT be started"; ub_notify "VM not started" "'$n' could not be started after the snapshot." "alert"; }; } ;;
+            shutdown) st="$(vm_domstate "$n")"
+                      if [[ "$st" != "shut off" ]]; then
+                          # only when a run stops before vm_hold: it never went down (or not by its deadline)
+                          log "  VM '$n': not shut down (${st:-state unknown}) - nothing to start"
+                          unset "VM_HELD[$n]" "VM_HELD_AT[$n]"; continue
+                      fi
+                      timeout 60 virsh start "$n" >/dev/null 2>>"$LOG_FILE" \
+                          || { warn "VM '$n' could NOT be started"; ub_notify "VM not started" "'$n' could not be started after the snapshot." "alert"; } ;;
         esac
         secs=$(( $(date +%s) - ${VM_HELD_AT[$n]:-$(date +%s)} ))
         log "  VM '$n': released ($how, ${secs} s)"
@@ -1998,6 +2049,7 @@ cleanup() {
     [[ -n "$PKG_STAGE" && "$PKG_COMMITTED" != "yes" ]] && pkg_recover "$UB_DUMPS" >/dev/null
     if [[ ${#VM_HELD[@]} -gt 0 ]]; then
         log "Releasing the VMs ..."
+        vm_shutdown_wait abort       # one still going down after the run's request: started again once it is off
         vm_release btrfs
     fi
     if [[ ${#STOPPED[@]} -gt 0 || ${#NC_ON[@]} -gt 0 ]]; then
@@ -2268,6 +2320,11 @@ pkg_begin || die "Cannot create $PKG_STAGE"
 unmount_all || die "Old mounts under $MOUNT_ROOT cannot be released"
 legacy_dirs_remove
 
+# --- VMs that shut down: before anything stops ------------------------------
+# A guest takes minutes or ignores the request: shut down and waited for while everything still
+# runs, so neither Nextcloud's maintenance mode nor the apps' downtime includes it (2.22)
+vm_shutdowns
+
 # --- Maintenance mode, manifest ---------------------------------------------
 status_phase "maintenance"
 log "Nextcloud ..."
@@ -2288,7 +2345,6 @@ fi
 STOP_AT="$(date +%s)"
 status_phase "stopping_apps"
 log "Pausing apps: ${#T_APP[@]} (before the dumps, so that dumps and files match)"
-vm_hold_begin                        # shutdowns take a while: begin them together with pausing the apps
 stop_tier "${T_APP[@]}"
 status_phase "dumps"
 log "Database dumps ..."
@@ -2302,7 +2358,7 @@ stop_tier "${T_NET[@]}"
 if [[ ${#VM_TODO[@]} -gt 0 ]]; then
     status_phase "vms"
     log "VMs: ${#VM_TODO[@]} prepared for the snapshot"
-    vm_hold
+    vm_hold                          # freeze, pause (the shutdowns are done - vm_shutdowns)
 fi
 # after the VMs: their TPM state and NVRAM then match the disks in the snapshot
 [[ "$LIBVIRT_MODE" == "tar" ]] && libvirt_tar

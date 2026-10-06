@@ -701,10 +701,11 @@ function backupEstimates(array $history): array
  * 9 h): at 13:21 it had read 2.39 TB of 2.41 TB (the files' own sizes; holes of sparse files are
  * read too, so it may run a little past logicalreferenced — then "any moment now"), ~38 MB/s, done
  * at 13:28 as reckoned; wchar (what it sent: 1.18 TB) was no measure — compression and content the
- * repository already had. The looks live in RAM ($cache, RUN_DIR). Null while no Kopia source is
- * going up, or the one going up was there before.
+ * repository already had. So the rate is what Kopia reads; what it really sent so far (wchar) is told
+ * beside it ('sent'), never used for the estimate. The looks live in RAM ($cache, RUN_DIR). Null while
+ * no Kopia source is going up, or the one going up was there before.
  *
- * @return array{source: string, first: true, since: int, size: ?int, read: ?int, rate: ?int, left: ?int, time: int}|null
+ * @return array{source: string, first: true, since: int, size: ?int, read: ?int, sent: ?int, rate: ?int, left: ?int, time: int}|null
  */
 function backupUpload(?array $status, array $history, array $settings, ?string $cache = null): ?array
 {
@@ -745,7 +746,8 @@ function backupUpload(?array $status, array $history, array $settings, ?string $
         }
         $c['pid'] = $pid > 1 ? $pid : null;
     }
-    [$c, $out] = backupUploadStep($c, $since, $pid > 1 ? backupProcRead($pid) : null, time());
+    [$read, $sent] = $pid > 1 ? backupProcIo($pid) : [null, null];
+    [$c, $out] = backupUploadStep($c, $since, $read, time(), $sent);
     $keep($c);
     return $out;
 }
@@ -755,11 +757,12 @@ function backupUpload(?array $status, array $history, array $settings, ?string $
  * read], oldest first) give the rate — from the oldest look of the last BACKUP_UPLOAD_KEEP that is at
  * least BACKUP_UPLOAD_LOOK old (or the newest older one), else the average since the source started
  * (after a minute). Left = what is not read yet of its size at that rate (0: any moment now). Keeps a
- * look every 20 seconds, one beyond BACKUP_UPLOAD_KEEP.
+ * look every 20 seconds, one beyond BACKUP_UPLOAD_KEEP. $sent (what it wrote so far: wchar) only goes
+ * along to the page.
  *
  * @return array{0: array, 1: array}  the cache to keep, what the page gets
  */
-function backupUploadStep(array $c, int $since, ?int $read, int $now): array
+function backupUploadStep(array $c, int $since, ?int $read, int $now, ?int $sent = null): array
 {
     $looks = array_values(array_filter((array) ($c['looks'] ?? []), fn ($l) => is_array($l) && count($l) === 2 && $l[0] < $now));
     $rate = null;
@@ -793,7 +796,7 @@ function backupUploadStep(array $c, int $since, ?int $read, int $now): array
     $rate = $rate !== null && $rate > 0 ? (int) round($rate) : null;
     $left = $size !== null && $read !== null && $rate !== null ? (int) ceil(max(0, $size - $read) / $rate) : null;
     return [$c, ['source' => (string) ($c['source'] ?? ''), 'first' => true, 'since' => $since, 'size' => $size, 'read' => $read,
-                 'rate' => $rate, 'left' => $left, 'time' => $now]];
+                 'sent' => $sent, 'rate' => $rate, 'left' => $left, 'time' => $now]];
 }
 
 /**
@@ -914,7 +917,21 @@ function backupKopiaPid(?string $exact, string $suffix, string $proc = '/proc'):
 /** What a process has read so far (rchar of /proc/<pid>/io: files, plus a little from sockets and its cache) */
 function backupProcRead(int $pid, string $proc = '/proc'): ?int
 {
-    return preg_match('/^rchar:\s*(\d+)$/m', (string) @file_get_contents("$proc/$pid/io"), $m) ? (int) $m[1] : null;
+    return backupProcIo($pid, $proc)[0];
+}
+
+/**
+ * What a process has read and written so far, in one look at /proc/<pid>/io: [rchar, wchar], each null
+ * when not there. For a Kopia upload wchar is what it sent (to the repository, plus a little cache and
+ * log) — about half of what it read on nostromo (compression, content the repository already had).
+ *
+ * @return array{0: ?int, 1: ?int}
+ */
+function backupProcIo(int $pid, string $proc = '/proc'): array
+{
+    $io = (string) @file_get_contents("$proc/$pid/io");
+    $get = fn (string $k): ?int => preg_match('/^' . $k . ':\s*(\d+)$/m', $io, $m) ? (int) $m[1] : null;
+    return [$get('rchar'), $get('wchar')];
 }
 
 /**

@@ -15,7 +15,7 @@ const KOPIA_ROOT_EXAMPLE = '/uso'; // the Kopia container path new setups are sh
 // phases of a run (status.json "phase") grouped into the steps the desk shows
 const STEPS = [
   ['prepare', ['start', 'inventory']],
-  ['dumps', ['maintenance', 'manifest', 'stopping_apps', 'dumps']],
+  ['dumps', ['vm_shutdown', 'maintenance', 'manifest', 'stopping_apps', 'dumps']],     // vm_shutdown: engine 2.22, before anything stops
   ['snapshots', ['stopping', 'vms', 'snapshots', 'starting']],
   ['kopia', ['mounting', 'kopia']],
   ['finish', ['unmounting', 'cleanup', 'aborting', 'done']],
@@ -148,9 +148,16 @@ function firstUpload() {
 }
 const firstLeft = (u) => (u.left === null || u.left === undefined ? null : Math.max(0, u.left - (Date.now() / 1000 - u.time)));
 
-/** A first upload in words: Mr. Backupsy's bubble (bubble.first_*) or the run card's plain line (first.*) */
+/**
+ * A first upload in words: Mr. Backupsy's bubble (bubble.first_*) or the run card's plain line (first.*).
+ * The rate is what Kopia reads (rchar); what it really sent so far (wchar) follows on its own.
+ */
 function firstText(u, bubble) {
   const pre = bubble ? 'bubble.first_' : 'first.';
+  const sent = u.sent > 0 ? ' ' + T(pre + 'sent', { sent: fmt.size(u.sent) }) : '';
+  return firstWords(u, pre) + sent;
+}
+function firstWords(u, pre) {
   const share = srcLabel(u.source);
   if (u.size === null || u.size === undefined) return T(pre + 'nosize', { share });
   const size = fmt.size(u.size);
@@ -227,7 +234,8 @@ function bubbleText() {
     else if (s && s.kopia.current) {
       out.push(T('bubble.running_kopia', { share: srcLabel(s.kopia.current), n: s.kopia.done.length + 1, total: s.kopia.planned.length }));
       if (p && p.first) out.push(firstText(p.first, true));
-    } else if (s) out.push(T('bubble.running_phase', { step: T('step.' + STEPS[p ? p.step : 0][0]) }));
+    } else if (s && s.phase === 'vm_shutdown') out.push(T('bubble.running_vm_shutdown'));
+    else if (s) out.push(T('bubble.running_phase', { step: T('step.' + STEPS[p ? p.step : 0][0]) }));
     else out.push(T('bubble.running_old', { step: state.step || '…' }));
     if (p && p.eta) out.push(T(p.overdue ? 'bubble.eta_late' : 'bubble.eta', { time: fmt.time(p.eta) }));
     if (newSkip()) out.push(T('bubble.skipped', { when: fmt.relative(newSkip().time) }));
@@ -295,6 +303,8 @@ function render() {
   root.appendChild(historySection());
   if ((state.drift && state.drift.items || []).length) root.appendChild(driftSection());
   root.appendChild(restoreSection());
+  // quiet and plain: no backup is a guarantee, the data stays the user's responsibility
+  root.appendChild(el('p', 'bk-disclaimer', T('disclaimer')));
 }
 
 function missing() {
@@ -421,6 +431,7 @@ function runningCard() {
   if (s.downtime_s) line.append(' · ', T('downtime_was', { duration: fmt.duration(s.downtime_s) }));
   if (s.packages && s.packages.written) line.append(' · ', T('pk.run_packed', { apps: s.packages.apps, vms: s.packages.vms }));
   card.appendChild(line);
+  if (s.phase === 'vm_shutdown') card.appendChild(el('div', 'card-line', T('vm_shutdown_now')));
   if (p.first) card.appendChild(el('div', 'card-line', firstText(p.first, false)));
 
   // what is paused right now: stopped containers, Nextcloud in maintenance mode
@@ -1218,6 +1229,7 @@ function abortRun() {
   const box = el('div');
   box.appendChild(el('p', '', T('abort_text')));
   if (s && s.phase === 'kopia') box.appendChild(el('p', 'callout', T('abort_kopia')));
+  if (s && s.phase === 'vm_shutdown') box.appendChild(el('p', 'callout', T('abort_vm_shutdown')));
   if (s && ['stopping', 'snapshots', 'starting'].includes(s.phase)) box.appendChild(el('p', 'callout warn', T('abort_downtime')));
   Office.dialog({
     title: T('abort_title'),
@@ -1475,6 +1487,7 @@ function setupApply() {
     }
   }
   box.appendChild(el('p', 'role', T(!setup.plan.have_settings ? 'setup.apply_hint_new' : 'setup.apply_hint')));
+  box.appendChild(el('p', 'role', T('setup.apply_responsibility')));
   Office.dialog({
     title: T('setup.apply_title'),
     body: box,

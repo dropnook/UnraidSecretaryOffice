@@ -22,7 +22,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.21"
+UB_VERSION="2.22"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -884,7 +884,7 @@ is_kopia_image() { [[ "${1,,}" == *kopia* ]]; }
 declare -ga VM_NAMES=()
 declare -gA VM_STATE=() VM_AUTOSTART=() VM_AGENT=() VM_HOSTDEV=() VM_TPM=() VM_DISKS=() VM_SNAP=() VM_OWN_DS=()
 VM_SERVICE="no"
-VM_SHUTDOWN_TIMEOUT="${UB_VM_SHUTDOWN_TIMEOUT:-300}"
+VM_SHUTDOWN_TIMEOUT="${UB_VM_SHUTDOWN_TIMEOUT:-300}"   # from the request; backup.sh waits for it before anything stops (2.22)
 VM_SHUTDOWN_RETRY="${UB_VM_SHUTDOWN_RETRY:-60}"     # the shutdown request again every so many seconds (Windows swallows the first one)
 
 vm_load() {
@@ -1727,8 +1727,10 @@ drift_count() { local lvl="$1" n=0 l; for l in "${DRIFT[@]}"; do [[ "${l%%|*}" =
 # fixed English keys. The texts in the log may change, this
 # interface may not - whoever reads it checks "interface".
 #   status.json      running or last run (every mode except unmount); since 2.16 "vms":
-#                    per VM what the run did (prepare, done, seconds held, snapshot)
-#   last-run.json    last real backup run (no dry run, no check)
+#                    per VM what the run did (prepare, done, seconds held, snapshot); "downtime_s":
+#                    from stopping the first app until all run again - since 2.22 without waiting for
+#                    VMs to shut down (backup.sh does that before anything stops; new phase vm_shutdown)
+#   last-run.json   last real backup run (no dry run, no check)
 #   history.jsonl    one line per real backup run, the last 200
 #   drift.json       drift found by the last check (level + text, since 2.18 a code + value for
 #                    the messages the office translates), and since 2.14 per Kopia target
@@ -1761,6 +1763,8 @@ ST_KOPIA_DONE=()          # lines "name|ok(1/0)|seconds|end"
 ST_DUMP_BYTES=0
 ST_VMS=()                 # lines "name|prepare|done|seconds|snapshot(1/0)" - what the run did with each VM
                           #   done: planned | frozen | paused | shutdown | kept_running | off | not_running | failed
+                          #   seconds held: a shutdown from its request until it is started again, a freeze or
+                          #   pause from then (since 2.22 also a VM that ignored its shutdown and was paused)
 ST_PACKAGES="null"        # JSON object: the packages of this run (backup.sh pkg_status), null = none
 
 status_init() { # status_init <mode>
