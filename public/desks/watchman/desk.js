@@ -1,13 +1,15 @@
-/* The Night Watchman — keeps the watch book and tells only what is different
-   from normal. His page: the last round (when, the next one, what is open),
-   the watch book (newest first; a row unfolds to its details; «I know,
-   thanks» per entry and «Note all») and what he
-   keeps an eye on (what is normal, summarised; also what starts on its own:
-   crontabs, the plugins' .cron files, User Scripts, at, notification agents;
-   the data flow: who pulls how much, containers, what is written into ZFS
-   shares, SMB's users and machines). His rounds run on the server
-   every five minutes, read only: agent/desks/watchman.php. Everything from his
-   state goes into the page as text, never as HTML. */
+/* The Night Watchman — the office's security department. His page: the last
+   round (when, the next one, what is open); how secure it stands (his posture
+   tips: what he would set differently, with why, a link into Unraid and «I
+   know, thanks» kept on the server); what changed — the watch book (newest
+   first; a row unfolds to its details; «I know, thanks» per entry and «Note
+   all») and what he keeps an eye on (what is normal, summarised; also what
+   starts on its own: crontabs, the plugins' .cron files, User Scripts, at,
+   notification agents; the data flow: who pulls how much, containers, what is
+   written into ZFS shares, SMB's users and machines — with a link to its
+   history in Grafana where the office's dashboard is). His rounds run on the
+   server every five minutes, read only: agent/desks/watchman.php. Everything
+   from his state goes into the page as text, never as HTML. */
 (() => {
 'use strict';
 
@@ -16,6 +18,14 @@ const T = Office.scope(ID);
 const { el, fmt } = Office;
 const POLL_MS = 2000;
 const PAGE = 30;                // rows of the book shown at first (and per «Show more»)
+/** The kernel's names of CPU flaws (/sys/devices/system/cpu/vulnerabilities) as people know them */
+const VULN = {
+  spectre_v1: 'Spectre v1', spectre_v2: 'Spectre v2', spec_store_bypass: 'Speculative Store Bypass', vmscape: 'VMScape',
+  spec_rstack_overflow: 'SRSO (Inception)', retbleed: 'Retbleed', mds: 'MDS', meltdown: 'Meltdown', l1tf: 'L1TF',
+  tsa: 'TSA', gather_data_sampling: 'Downfall (GDS)', mmio_stale_data: 'MMIO Stale Data', reg_file_data_sampling: 'RFDS',
+  srbds: 'SRBDS', tsx_async_abort: 'TAA', itlb_multihit: 'iTLB Multihit', indirect_target_selection: 'ITS',
+  ghostwrite: 'GhostWrite', old_microcode: 'old microcode',
+};
 
 let state = null;
 let view = null;
@@ -28,8 +38,10 @@ const unfolded = new Set();     // entries unfolded on this visit
 let bookRows = [];              // the book's unfoldable rows: {open(), set(open)}
 let bookLabel = null;           // brings «Unfold all» up to date
 let watchGroups = [];           // {open(), set(open)}
+let showKnownTips = false;      // posture tips you know about: shown on request
 
 const openCount = () => Object.values((state && state.open) || {}).reduce((a, b) => a + (Number(b) || 0), 0);
+const postureOpen = () => Number((state && state.posture && state.posture.open) || 0);
 const running = () => !!(state && state.round && state.round.running);
 const hired = () => !!(Office.desks.get(ID) || {}).hired;
 
@@ -112,8 +124,13 @@ function ackAll() {
 
 /** Re-render without the page jumping: the row that was noted stays where it is (or, gone from the list, the book) */
 function renderKeeping(id) {
+  renderAt(id && `.wm-entry[data-id="${CSS.escape(id)}"]`, '.wm-book');
+}
+
+/** Re-render; the first of these that is there stays where it was on screen */
+function renderAt(...selectors) {
   if (!view) return;
-  const find = () => (id && view.querySelector(`.wm-entry[data-id="${CSS.escape(id)}"]`)) || view.querySelector('.wm-book');
+  const find = () => selectors.map((x) => x && view.querySelector(x)).find(Boolean);
   const a = find();
   const top = a ? a.getBoundingClientRect().top : null;
   Office.keepInPlace(null, render);
@@ -130,9 +147,10 @@ function bubbleText() {
   if (running()) return T('bubble.touring');
   if (!state.on_watch) return T('bubble.first');
   const n = openCount();
-  if (n) return T('bubble.open', { n });
-  if (state.round && state.round.failed) return T('bubble.failed');
-  return T('bubble.quiet', { when: fmt.relative(state.round && state.round.last) });
+  const tips = postureOpen() ? ' ' + T('bubble.posture', { n: postureOpen() }) : '';
+  if (n) return T('bubble.open', { n }) + tips;
+  if (state.round && state.round.failed) return T('bubble.failed') + tips;
+  return T('bubble.quiet', { when: fmt.relative(state.round && state.round.last) }) + tips;
 }
 
 function chip(text, cls, tip) {
@@ -157,6 +175,7 @@ function render() {
   root.appendChild(head);
   const lim = (state && state.limits) || {};
   root.appendChild(Office.pageHelp(ID, [
+    [T('help.posture'), T('help.posture_text')],
     [T('help.book'), T('help.book_text', { keep: lim.keep || 500, days: lim.days || 90 })],
     [T('ack'), T('help.ack_text')],
     [T('help.normal'), T('help.normal_text')],
@@ -170,11 +189,12 @@ function render() {
     [T('help.flow'), T('help.flow_text', flowLimits())],
     [T('help.flow_gone'), T('help.flow_gone_text', goneLimits())],
     [T('help.flow_not'), T('help.flow_not_text')],
+    [T('help.grafana'), T('help.grafana_text')],
     [T('help.notify'), T('help.notify_text')],
     [T('help.safe'), T('help.safe_text')],
   ]));
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
-  root.append(roundSection(), bookSection(), watchSection());
+  root.append(roundSection(), postureSection(), bookSection(), watchSection());
 }
 
 // ------------------------------------------------------------------ the last round
@@ -239,6 +259,89 @@ function notifySwitch() {
     Office.toast(T(on ? 'notify_on' : 'notify_off'));
   };
   return label;
+}
+
+// ------------------------------------------------------------------ how secure it stands
+/**
+ * His posture tips: how the server stands now (not what changed) — each with why, where in Unraid and
+ * «I know, thanks» (kept on the server for every browser; the tip comes back when what it is about changes).
+ * Known ones are folded away, «Show known» brings them back.
+ */
+function postureSection() {
+  const s = el('section', 'section wm-posture');
+  const p = state.posture;
+  const tips = (p && p.tips) || [];
+  const known = tips.filter((x) => x.known);
+  const extras = [];
+  if (known.length) {
+    const b = el('button', 'btn small plain', T(showKnownTips ? 'posture.hide_known' : 'posture.show_known', { n: known.length }));
+    b.type = 'button';
+    b.onclick = () => { showKnownTips = !showKnownTips; renderAt('.wm-posture'); };
+    extras.push(b);
+  }
+  s.appendChild(Office.sectionHead(T('posture.title'), T('posture.sub'), ...extras));
+  if (!p) {
+    s.appendChild(el('p', 'role wm-posture-none', T(state.on_watch ? 'posture.wait' : 'posture.first')));
+    return s;
+  }
+  const list = tips.filter((x) => !x.known || showKnownTips);
+  if (!list.length) {
+    s.appendChild(el('p', 'role wm-posture-none', T(tips.length ? 'posture.all_known' : 'posture.none')));
+    return s;
+  }
+  const box = el('div', 'box');
+  list.forEach((x) => box.appendChild(postureRow(x)));
+  s.appendChild(box);
+  return s;
+}
+
+/** A tip's words: names and numbers from the agent, the CPU's flaws by the names people know */
+function postureParams(x) {
+  const p = { ...(x.p || {}) };
+  if (Array.isArray(p.open)) p.open = p.open.map((v) => VULN[v] || v).join(', ') || '–';
+  return p;
+}
+
+function postureRow(x) {
+  const r = el('div', 'row nocheck wm-tip' + (x.known ? ' wm-tip-known' : ''));
+  r.dataset.tip = x.id;
+  const main = el('div', 'row-main');
+  const params = postureParams(x);
+  main.appendChild(el('div', 'row-name text', T(`posture.${x.id}.title`, params)));
+  const meta = el('div', 'row-meta');
+  meta.appendChild(chip(T(`posture.level_${x.level}`), x.level === 'advice' ? 'accent' : 'quiet', T(`posture.level_${x.level}_text`)));
+  main.appendChild(meta);
+  main.appendChild(el('div', 'row-detail', T(`posture.${x.id}.why`, params)));
+  r.appendChild(main);
+  const acts = el('div', 'wm-tip-acts');
+  const href = x.link && Office.safeHref(x.link.path);
+  if (href && Office.has(`${ID}.posture.to_${x.link.to}`)) {
+    const a = el('a', 'btn small plain', T(`posture.to_${x.link.to}`, { name: x.link.name || '' }));      // into Unraid, in the same tab like its own links
+    a.href = href;
+    acts.appendChild(a);
+  }
+  const b = el('button', 'btn small plain', T(x.known ? 'posture.show_again' : 'ack'));
+  b.type = 'button';
+  b.title = T(x.known ? 'posture.show_again_title' : 'posture.ack_title');
+  b.disabled = !Office.agent.running || !hired();
+  b.onclick = () => postureAck(x, !x.known, b);
+  acts.appendChild(b);
+  r.appendChild(acts);
+  return r;
+}
+
+async function postureAck(x, on, b) {
+  b.disabled = true;
+  const j = await Office.api.post(`${ID}.posture_ack`, { id: x.id, on });
+  if (!j.ok) {
+    Office.toast(Office.errorText(j.error, ID), true);
+    if (j.error && j.error.key === 'watch_tip_gone') await load(true);
+    else b.disabled = false;
+    return;
+  }
+  if (j.state) state = j.state;
+  renderAt('.wm-posture');
+  Office.toast(T(on ? 'posture.acked' : 'posture.unacked'));
 }
 
 // ------------------------------------------------------------------ the watch book
@@ -494,7 +597,6 @@ function details(e) {
     if (Array.isArray(p.hours) && p.hours.length) add(T('detail.hours'), p.hours.map(hourName).join(', '));
   } else if (e.group === 'sched') {
     if (p.file) add(T('detail.cron_file'), '/boot/config/plugins/' + p.file + (p.new ? ` (${T('detail.file_new')})` : ''), true);
-    if (p.path) add(T('detail.program'), p.path, true);
     if (p.plugin) add(T('detail.plugin'), p.plugin);
     if (p.job) add(T('detail.job'), p.job, true);
     if (p.jobs && p.jobs.length) add(T('detail.jobs'), lines(p.jobs, p.lines));
@@ -663,6 +765,23 @@ function usualRow(x) {
   return n > 0 ? T('watch.flow_usual', { size: fmt.size(n) }) : T('watch.flow_usual_none');
 }
 
+/**
+ * The data flow's history in Grafana: the office's dashboard at this group's panel — only where the
+ * consultant found Grafana with the office's dashboard (agent: watchmanGrafana()). A link, never embedded.
+ */
+function grafanaRow(key) {
+  const href = state.grafana && Office.safeHref(state.grafana[key]);
+  if (!href) return null;
+  const p = el('p', 'wm-note wm-flow-note');
+  const a = el('a', '', T('watch.grafana'));
+  a.href = href;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.title = T('watch.grafana_title');
+  p.appendChild(a);
+  return p;
+}
+
 /** «What I keep an eye on» of the data flow: who pulls, containers, written into shares, SMB's users and machines */
 function flowGroups(f) {
   if (!f) return [group('flow_clients', T('watch.flow_clients'), T('watch.flow_wait'), [])];
@@ -676,6 +795,8 @@ function flowGroups(f) {
   (f.clients || []).forEach((x) => clients.push(item(x.name ? `${x.ip} · ${x.name}` : x.ip,
     [serviceName(x.service), T('watch.flow_day', { size: fmt.size(x.day) }), usualRow(x), learningText(x.learning, f),
       x.ack ? T('watch.flow_noted', { size: fmt.size(x.ack) }) : '', T('watch.last_seen', { when: fmt.relative(x.last) })])));
+  const gc = grafanaRow('flow_clients');
+  if (gc) clients.push(gc);
   out.push(group('flow_clients', T('watch.flow_clients'),
     T('watch.flow_clients_sum', { learning: overall, n: (f.clients || []).length, size: fmt.size(total(f.clients, 'day')) }), clients));
 
@@ -701,6 +822,8 @@ function flowGroups(f) {
   if (zfs && zfs.asleep && zfs.asleep.length) shares.push(item(zfs.asleep.join(', '), [T('watch.flow_asleep')]));
   const noShares = !zfs ? T('watch.flow_no_zfs') : !(f.shares || []).length && !(zfs.asleep || []).length ? T('watch.flow_no_zfs_shares') : '';
   if (noShares) shares.push(note(noShares));
+  const gs = !noShares && grafanaRow('flow_shares');
+  if (gs) shares.push(gs);
   out.push(group('flow_shares', T('watch.flow_shares'),
     noShares || T('watch.flow_shares_sum', { n: (f.shares || []).length, size: fmt.size(total(f.shares, 'day')) }), shares));
 
@@ -757,6 +880,7 @@ Office.desk({
     facts.push(state.round && state.round.last ? T('fact.last', { when: fmt.relative(state.round.last) }) : T('fact.first'));
     const n = openCount();
     if (state.on_watch) facts.push(n ? T('fact.open', { n }) : T('fact.quiet'));
+    if (postureOpen()) facts.push(T('fact.posture', { n: postureOpen() }));
     if (state.watch) facts.push(T('fact.known', { ips: state.watch.ips.length, plugins: state.watch.plugins.length }));
     return { bubble: bubbleText(), facts };
   },

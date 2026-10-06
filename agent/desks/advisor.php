@@ -628,6 +628,25 @@ function advisorGrafanaPublic(array $g): array
             'done' => $g['there'] ? !in_array(false, $g['there'], true) : null];
 }
 
+/**
+ * The office's dashboard in Grafana, as his last look saw it (his state file — no docker call, so other
+ * desks may ask; the night watchman links his data flow's history there): only while Grafana was there
+ * and running, with a web address, and the office's provisioning in place where Grafana reads it (the
+ * dashboard has the uid ADVISOR_DASHBOARD_UID). The address is the WebUI's (advisorWebUi()), checked again.
+ */
+function advisorGrafanaDashboard(?string $file = null): ?string
+{
+    $g = (readJson($file ?? deskFile('advisor')) ?? [])['externals']['grafana'] ?? null;
+    if (!is_array($g) || empty($g['there']) || empty($g['running']) || !is_array($g['grafana'] ?? null)
+        || ($g['grafana']['done'] ?? null) !== true || ($g['grafana']['points'] ?? null) !== true) {
+        return null;
+    }
+    if (!preg_match('#^(https?://[A-Za-z0-9.:\[\]-]+)(/[^\s"<>?\#]*)?(?:[?\#].*)?$#D', (string) ($g['webui'] ?? ''), $m)) {
+        return null;
+    }
+    return $m[1] . rtrim($m[2] ?? '', '/') . '/d/' . ADVISOR_DASHBOARD_UID;
+}
+
 // ===================================================================== installing a container
 
 /** The external a request means — one he can install */

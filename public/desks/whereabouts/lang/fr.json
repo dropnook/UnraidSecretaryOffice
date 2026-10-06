@@ -193,6 +193,8 @@
   "access.r": "lecture",
   "access_legend": "Accès via SMB. public : tout le monde peut lire et écrire · sécurisé : tout le monde lit, la liste d'écriture écrit · privé : seulement les listes de lecture et d'écriture.",
   "not_exported_list": "Pas exporté via SMB : {names}",
+  "watchman_sees": "Ce qui change ici — un nouvel utilisateur, un partage ouvert aux invités, qui tire combien — le veilleur de nuit le voit :",
+  "watchman_sees_link": "sa main courante",
   "smb_sessions": "Sessions SMB",
   "session_count": {
     "zero": "personne de connecté",
@@ -217,6 +219,8 @@
   },
   "cron_jobs": "⏰ Tâches cron",
   "cron_meta": "tout ce que cron exécute, y compris les tâches d'Unraid lui-même",
+  "cron_gone": "programme disparu",
+  "cron_gone_title": "Son programme était dans le dossier du plugin {plugin} et a disparu — une ligne restée",
   "sched.disabled": "désactivé",
   "sched.custom": "personnalisé",
   "sched.start": "au démarrage de l'array",
@@ -650,8 +654,6 @@
   "adv.never": "jamais",
   "adv.to_share": "Partage {name}",
   "adv.to_scheduler": "Planificateur",
-  "adv.to_access": "Gestion des Accès",
-  "adv.to_ftp": "Serveur FTP",
   "adv.to_docker": "Docker",
   "adv.to_disks": "Paramètres disque",
   "adv.to_main": "Principal",
@@ -659,8 +661,7 @@
   "adv.to_syslog": "Serveur Syslog",
   "adv.to_share_settings": "Paramètres globaux des partages",
   "adv.to_browse": "Parcourir {path}",
-  "adv.boot_grub": "Principal → pool de démarrage → Configuration du GRUB",
-  "adv.boot_syslinux": "Principal → Flash → Configuration de Syslinux",
+  "adv.to_team_lead": "Chez le chef d'équipe",
   "adv.system_array.title": "Sur l'array : {names}",
   "adv.system_array.why": "Les affaires de Docker et des VM ont leur place sur un pool (SSD/NVMe) : sur l'array, chaque conteneur et chaque VM devient lent, et les disques ne peuvent jamais dormir. Dans les réglages du partage, mets le stockage principal sur un pool et le secondaire sur aucun, puis laisse le Mover transférer les fichiers (Docker et VM arrêtés).",
   "adv.mover.title": {
@@ -700,20 +701,6 @@
     "one": "Je n'ai pas pu m'empêcher de le remarquer : ce partage garde ses données sur son pool, et le Mover ramène ce qui a débordé sur le stockage secondaire. Sans stockage secondaire, il pourrait être un partage exclusif — /mnt/user/… un lien direct vers le pool, en contournant la couche FUSE d'Unraid, nettement plus rapide. Ça ne vaut la peine que si le pool a de la place pour tout : sans stockage secondaire, un pool plein veut dire un partage plein. Si oui : laisse tourner le Mover jusqu'à ce que tout soit sur le pool, mets « Stockage Secondaire » sur « Aucun » dans les réglages du partage, supprime ce qui reste du partage sur un autre pool ou disque (entre parenthèses ; les dossiers vides comptent aussi), puis arrête et redémarre l'array. Il faut « Permettre des partages exclusifs » (Réglages → Paramètres globaux des partages).",
     "other": "Je n'ai pas pu m'empêcher de le remarquer : ces partages gardent leurs données sur leur pool, et le Mover ramène ce qui a débordé sur le stockage secondaire. Sans stockage secondaire, ils pourraient être des partages exclusifs — /mnt/user/… un lien direct vers le pool, en contournant la couche FUSE d'Unraid, nettement plus rapide. Ça ne vaut la peine que si le pool a de la place pour tout : sans stockage secondaire, un pool plein veut dire un partage plein. Si oui : laisse tourner le Mover jusqu'à ce que tout soit sur le pool, mets « Stockage Secondaire » sur « Aucun » dans les réglages du partage, supprime ce qui reste du partage sur un autre pool ou disque (entre parenthèses ; les dossiers vides comptent aussi), puis arrête et redémarre l'array. Il faut « Permettre des partages exclusifs » (Réglages → Paramètres globaux des partages)."
   },
-  "adv.public.title": {
-    "one": "Ouvert à tout le monde dans le réseau : {names}",
-    "other": "{n} partages ouverts à tout le monde dans le réseau : {names}"
-  },
-  "adv.public.why": "« Public » signifie que n'importe qui dans ton réseau peut lire, écrire et supprimer — chaque appareil, chaque invité, chaque portable infecté. Mets la sécurité sur « Sécurisé » (tout le monde lit, les utilisateurs choisis écrivent) ou « Privé », et donne l'accès à tes utilisateurs.",
-  "adv.telnet.title": "Telnet est activé",
-  "adv.telnet.why": "Telnet envoie tout en clair, le mot de passe root aussi. SSH fait la même chose, chiffré. Désactive Telnet sous Gestion des Accès.",
-  "adv.ftp.title": "Le serveur FTP est activé",
-  "adv.ftp.why": "FTP envoie les mots de passe et les fichiers en clair. Si tu n'en as pas besoin, désactive-le ; pour les fichiers sur le réseau, SMB ou SFTP (fourni avec SSH) sont le meilleur choix.",
-  "adv.privileged.title": {
-    "one": "{names} tourne en mode privilégié",
-    "other": "{n} conteneurs tournent en mode privilégié : {names}"
-  },
-  "adv.privileged.why": "Un conteneur privilégié peut faire presque n'importe quoi sur le serveur — très bien pour les outils qui en ont besoin (matériel, VPN, la sauvegarde), à revoir pour tout le reste. Sur la page Docker : Modifier → Privilégié désactivé, et vois si ça marche encore.",
   "adv.compose_build.title": {
     "one": "{names} construit sa propre image",
     "other": "{n} stacks construisent leur propre image : {names}"
@@ -722,6 +709,13 @@
     "one": "Son image est construite ici à partir d'un Dockerfile (« build: » dans le fichier compose) ; aucun registre ne l'a. « Update » et « Force Update » du Compose Manager téléchargent d'abord les images — ici, ça échoue et peut laisser les conteneurs « Created ». Reconstruis-la plutôt dans un terminal (le >_ d'Unraid en haut à droite) : ça récupère l'image de base plus récente, reconstruit et recrée ce qui a changé.",
     "other": "Leurs images sont construites ici à partir d'un Dockerfile (« build: » dans le fichier compose) ; aucun registre ne les a. « Update » et « Force Update » du Compose Manager téléchargent d'abord les images — ici, ça échoue et peut laisser les conteneurs « Created ». Reconstruis-les plutôt dans un terminal (le >_ d'Unraid en haut à droite) : ça récupère l'image de base plus récente, reconstruit et recrée ce qui a changé."
   },
+  "adv.cron_dead.title": {
+    "one": "Une ligne cron lance {names} — qui n'existe plus",
+    "other": "Des lignes cron lancent {n} programmes qui n'existent plus : {names}"
+  },
+  "adv.cron_dead.why": "Tiens, tiens — des restes : le plugin ({plugins}) est parti, sa ligne est restée. crond essaie à chaque fois et échoue en silence. Sans danger, mais pas rangé — et déroutant quand on cherche ce qui tourne quand. {how}",
+  "adv.cron_dead.own": "Elles sont dans la crontab de root (crontab -l) : la commande ci-dessous les retire dans un terminal (le >_ d'Unraid en haut à droite) et garde d'abord une copie sur la flash.",
+  "adv.cron_dead.system": "Les lignes de /etc/cron.d viennent d'un plugin (Unraid y construit sa propre crontab à partir des fichiers .cron des plugins sur la flash) : réinstalle ce plugin, ou supprime-le sous Plugins.",
   "adv.spindown_default.title": "Les disques ne dorment jamais",
   "adv.spindown_default.why": "Le délai d'arrêt des plateaux par défaut est « Jamais » : chaque disque de l'array tourne jour et nuit — électricité, chaleur et usure. 30 à 60 minutes, c'est un bon début ; avec des pools pour appdata et les VM, la plupart des disques se reposent alors vraiment.",
   "adv.spindown_some.title": {
@@ -740,13 +734,6 @@
   "adv.ups.why": "Quand le courant saute, le serveur s'arrête net : des fichiers ouverts peuvent être abîmés, ensuite Unraid lance un long contrôle de parité. Un petit onduleur lui donne le temps de s'arrêter proprement (Réglages → Paramètres de l'onduleur ; pour un serveur NUT, le plugin NUT).",
   "adv.syslog.title": "Après un plantage, le journal a disparu",
   "adv.syslog.why": "Unraid garde son syslog en RAM — après un plantage ou un reset brutal, personne ne peut lire ce qui s'est passé, Madame Protocolli comprise. « Refléter le syslog dans le flash » (pour un temps, ça use la clé) ou un serveur syslog (celui-ci : un partage comme dossier syslog local) le conserve.",
-  "adv.mitigations_off.title": "Protection du CPU désactivée (mitigations=off)",
-  "adv.mitigations_off.why": "Ton {cpu} démarre sans les protections contre les failles de type Spectre ; ouvertes en ce moment : {open}. Ça fait gagner quelques pour cent de vitesse (bien plus sur les anciens Intel, moins sur les CPU récents et AMD). Désactivé, c'est bien quand seuls toi et des programmes de confiance tournent ici. Activé, c'est mieux dès que des VM ou des conteneurs exécutent du code que tu ne contrôles pas, que d'autres utilisent le serveur ou que des services sont accessibles depuis Internet. AMD est concerné aussi — par ses propres failles (p. ex. SRSO, Retbleed, TSA). Pour activer : retire « mitigations=off » de la configuration de démarrage ({boot}), puis redémarre.",
-  "adv.vmscape.title": {
-    "one": "VMScape : {n} VM pourrait lire l'hôte",
-    "other": "VMScape : {n} VM pourraient lire l'hôte"
-  },
-  "adv.vmscape.why": "Cette faille de 2025 permet à un invité de lire la mémoire du processus VM de l'hôte (QEMU) — exactement ce que couvrirait la protection désactivée. Avec des VM que toi seul utilises, ça compte peu ; avec des VM que d'autres utilisent, ou qui font tourner des logiciels douteux, réactive la protection.",
-  "adv.mitigations_on.title": "La protection du CPU est activée",
-  "adv.mitigations_on.why": "Ton {cpu} tourne avec les protections contre les failles de type Spectre — le réglage sûr par défaut. Ça coûte quelques pour cent de vitesse, davantage sur les anciens CPU Intel (beaucoup d'E/S, beaucoup de VM). La désactiver (« mitigations=off » dans la configuration de démarrage : {boot}) ne vaut la peine que si rien sur le serveur n'exécute de code auquel tu ne fais pas confiance et que rien n'est accessible depuis Internet. AMD en a besoin aussi : il a ses propres failles (SRSO, Retbleed, TSA)."
+  "adv.security.title": "La sécurité, c'est le veilleur de nuit maintenant",
+  "adv.security.why": "Partages ouverts à tout le monde, Telnet, FTP, conteneurs privilégiés, la protection du CPU — c'est son service maintenant, et il remarque aussi quand quelque chose change. Seulement, il ne travaille pas encore ici. Le chef d'équipe peut l'embaucher. Entre nous : moi, je le ferais."
 }

@@ -267,23 +267,20 @@ function findings() {
 // ------------------------------------------------------------------ advice ("If I were you …")
 const ADVICE_HIDDEN = 'whereabouts.advice_hidden';     // {id: signature} — "I know, thanks" per browser
 const DAY = 86400;
-const VULN = {
-  spectre_v1: 'Spectre v1', spectre_v2: 'Spectre v2', spec_store_bypass: 'Speculative Store Bypass', vmscape: 'VMScape',
-  spec_rstack_overflow: 'SRSO (Inception)', retbleed: 'Retbleed', mds: 'MDS', meltdown: 'Meltdown', l1tf: 'L1TF',
-  tsa: 'TSA', gather_data_sampling: 'Downfall (GDS)', mmio_stale_data: 'MMIO Stale Data', reg_file_data_sampling: 'RFDS',
-  srbds: 'SRBDS', tsx_async_abort: 'TAA', itlb_multihit: 'iTLB Multihit', indirect_target_selection: 'ITS',
-  ghostwrite: 'GhostWrite', old_microcode: 'old microcode',
-};
+const CRON_SAVE = '/boot/config/crontab-root-before-cleanup.txt';     // a copy of root's crontab before a line goes
 let showHiddenAdvice = false;
 
 const listNames = (names, max) => names.length > (max || 5) ? `${names.slice(0, max || 5).join(', ')} +${names.length - (max || 5)}` : names.join(', ');
 const shareLink = (name) => `/Shares/Share?name=${encodeURIComponent(name)}`;
+/** Security is the night watchman's: does he work here? (the office's staff list, not his code) */
+const watchmanHired = () => !!(Office.desks.get('watchman') || {}).hired;
 
 /**
  * Her tips: what she would do differently — each with why, where in Unraid
  * to change it, and a signature (what it is about), so a tip she was thanked
- * for comes back once the situation changes. Things Fix Common Problems
- * checks are left to the consultant.
+ * for comes back once the situation changes. Operational only: security
+ * advice is the night watchman's (while he isn't hired, one tip says so).
+ * Things Fix Common Problems checks are left to the consultant.
  */
 function advice() {
   const a = state && state.advice;
@@ -326,20 +323,15 @@ function advice() {
     }
   }
 
-  const open = [
-    ...shares.filter((s) => s.smb.export !== '-' && s.smb.security === 'public').map((s) => `${s.name} (SMB)`),
-    ...shares.filter((s) => s.nfs.export !== '-' && s.nfs.security === 'public').map((s) => `${s.name} (NFS)`),
-  ];
-  if (open.length) {
-    const first = open[0].replace(/ \((SMB|NFS)\)$/, '');
-    add('public', 'advice', { names: listNames(open), n: open.length }, { path: shareLink(first), text: T('adv.to_share', { name: first }) }, open.join(','));
+  // cron lines whose program went with its plugin: they only fail, quietly (order — not the watchman's)
+  const dead = (state.cron || []).filter((c) => c.gone && /^\/[A-Za-z0-9_.\/+@-]+$/.test(c.program || ''));
+  if (dead.length) {
+    const programs = [...new Set(dead.map((c) => c.program))];
+    const own = [...new Set(dead.filter((c) => c.source === 'crontab').map((c) => c.program))];       // root's own crontab (crontab -l)
+    const how = [own.length ? T('adv.cron_dead.own') : '', dead.some((c) => c.source !== 'crontab') ? T('adv.cron_dead.system') : ''].filter(Boolean).join(' ');
+    add('cron_dead', 'advice', { names: listNames(programs, 3), n: programs.length, plugins: listNames([...new Set(dead.map((c) => c.gone))], 3), how },
+      null, programs.join(','), own.length ? [cronCleanup(own)] : null);
   }
-
-  if (a.telnet) add('telnet', 'advice', {}, { path: '/Settings/ManagementAccess', text: T('adv.to_access') });
-  if (a.ftp) add('ftp', 'advice', {}, { path: '/Settings/FTP', text: T('adv.to_ftp') });
-
-  const privileged = (state.containers || []).filter((c) => c.privileged).map((c) => c.name);
-  if (privileged.length) add('privileged', 'info', { names: listNames(privileged), n: privileged.length }, { path: '/Docker', text: T('adv.to_docker') }, privileged.join(','));
 
   // stacks that build their own image: Compose Manager's (Force) Update only pulls — a rebuild in a terminal instead
   const built = (state.compose || []).filter((p) => p.builds && p.folder);
@@ -369,16 +361,14 @@ function advice() {
   if (!a.ups) add('ups', 'info', {}, { path: '/Settings/UPSsettings', text: T('adv.to_ups') });
   if (!a.syslog_kept) add('syslog', 'advice', {}, { path: '/Settings/SyslogSettings', text: T('adv.to_syslog') });
 
-  const cpu = a.cpu;
-  if (cpu && cpu.off) {
-    add('mitigations_off', 'advice', { cpu: cpu.model || cpu.vendor || 'CPU', open: cpu.open.map((x) => VULN[x] || x).join(', ') || '–', boot: T('adv.boot_' + cpu.boot) },
-      { path: '/Main', text: T('adv.to_main') }, cpu.open.join(','));
-    if (cpu.open.includes('vmscape') && (state.vms || []).length) add('vmscape', 'advice', { n: state.vms.length }, { path: '/Main', text: T('adv.to_main') }, 'vmscape');
-  } else if (cpu && cpu.covered.length) {
-    add('mitigations_on', 'info', { cpu: cpu.model || cpu.vendor || 'CPU', vendor: cpu.vendor || '', boot: T('adv.boot_' + cpu.boot) },
-      { path: '/Main', text: T('adv.to_main') }, cpu.covered.join(','));
-  }
+  // security advice is the night watchman's — while he doesn't work here, she says where it went
+  if (Office.desks.has('watchman') && !watchmanHired()) add('security', 'info', {}, { path: '#/caretaker', text: T('adv.to_team_lead') });
   return out;
+}
+
+/** Removes root's own crontab lines that start these programs — a copy of it goes to the flash first (shown, never run by the office) */
+function cronCleanup(programs) {
+  return `crontab -l > ${CRON_SAVE}; crontab -l | grep -v -F${programs.map((x) => ` -e '${x}'`).join('')} | crontab -`;
 }
 
 /** The rebuild of a stack that builds its own image, run in its folder: build --pull for those services, then up -d */
@@ -1251,6 +1241,17 @@ function access(body) {
   const notExported = state.shares.filter((s) => !s.smb.export || s.smb.export === '-').map((s) => s.name);
   body.appendChild(el('p', 'hint', T('access_legend')));
   if (notExported.length) body.appendChild(el('p', 'hint', T('not_exported_list', { names: notExported.join(', ') })));
+  watchmanSees(body);
+}
+
+/** A plain directory here; what changes in it (new users, shares opened, who pulls how much) the night watchman sees — when he works here */
+function watchmanSees(body) {
+  if (!watchmanHired()) return;
+  const p = el('p', 'hint');
+  const a = el('a', '', T('watchman_sees_link'));
+  a.href = '#/watchman';
+  p.append(T('watchman_sees'), ' ', a);
+  body.appendChild(p);
 }
 
 // --------------------------------------------------------------- network shares
@@ -1283,6 +1284,7 @@ function network(body) {
   ]));
   box.appendChild(group(T('settings'), T('settings_meta'), [settings]));
   body.appendChild(box);
+  watchmanSees(body);
 }
 
 // --------------------------------------------------------------- scripts & cron
@@ -1327,7 +1329,8 @@ function scripts(body) {
     key: 'cron:' + i + c.command,
     name: c.title || c.command,
     mono: !c.title,
-    meta: [chip(fmt.cron(c.schedule), 'accent', c.schedule), el('span', 'mono', c.source)],
+    meta: [chip(fmt.cron(c.schedule), 'accent', c.schedule), c.gone ? chip(T('cron_gone'), 'danger', T('cron_gone_title', { plugin: c.gone })) : null,
+      el('span', 'mono', c.source)],
     detail: () => kv([[T('schedule'), `${fmt.cron(c.schedule)} (${c.schedule})`], [T('command'), c.command, true], [T('source'), c.source, true]]),
   }));
   if (!cronRows.length) cronRows.push(emptyNote(T('nothing_found')));

@@ -1049,6 +1049,11 @@ function waUserScripts(array $roots, array $asleep): array
     return $scripts;
 }
 
+/**
+ * The cron jobs: root's own crontab (`crontab -l`) and /etc/cron.d's files (Unraid's own, /etc/cron.d/root,
+ * among them). A line whose program lay in a plugin's folder and is gone (`gone`: the plugin) is a
+ * leftover of a removed plugin — it only fails, quietly; she tells it (order, not security).
+ */
 function waCron(): array
 {
     $jobs = [];
@@ -1066,10 +1071,11 @@ function waCron(): array
                 }
                 continue;
             }
-            if (preg_match('/^(@\w+)\s+(.+)$/', $line, $m)) {
-                $jobs[] = ['source' => $source, 'title' => $title, 'schedule' => $m[1], 'command' => $m[2]];
-            } elseif (preg_match('/^(\S+\s+\S+\s+\S+\s+\S+\s+\S+)\s+(.+)$/', $line, $m)) {
-                $jobs[] = ['source' => $source, 'title' => $title, 'schedule' => $m[1], 'command' => $m[2]];
+            if (preg_match('/^(@\w+)\s+(.+)$/', $line, $m) || preg_match('/^(\S+\s+\S+\s+\S+\s+\S+\s+\S+)\s+(.+)$/', $line, $m)) {
+                $program = waCronProgram($m[2]);
+                $gone = $program === null ? null : waCronGone($program);
+                $jobs[] = ['source' => $source, 'title' => $title, 'schedule' => $m[1], 'command' => $m[2],
+                           'gone' => $gone, 'program' => $gone === null ? null : $program];
             }
             $title = null;
         }
@@ -1082,6 +1088,45 @@ function waCron(): array
         $parse($file, (string) @file_get_contents($file));
     }
     return $jobs;
+}
+
+/**
+ * The program a cron command starts, when it is an absolute path: its first word — or, behind an
+ * interpreter or a wrapper (bash, php, nice …), the script it runs. Null when it can't be told (a
+ * command name, inline code like `sh -c …`).
+ */
+function waCronProgram(string $command): ?string
+{
+    preg_match_all('/"([^"]*)"|\'([^\']*)\'|(\S+)/', $command, $m, PREG_SET_ORDER | PREG_UNMATCHED_AS_NULL);
+    $runners = ['sh', 'bash', 'dash', 'php', 'php-cgi', 'python', 'python3', 'perl', 'nice', 'ionice', 'nohup', 'timeout', 'env', 'exec'];
+    foreach ($m as $t) {
+        $word = (string) ($t[1] ?? $t[2] ?? $t[3] ?? '');
+        if ($word === '' || preg_match('/^[A-Za-z_][A-Za-z0-9_]*=/', $word) || preg_match('/^\d+[smhd]?$/D', $word)) {
+            continue;                       // VAR=value, timeout's seconds
+        }
+        if ($word === '-c' || $word === '-r') {
+            return null;                    // inline code
+        }
+        if ($word[0] === '-' || in_array(basename($word), $runners, true)) {
+            continue;                       // an interpreter and its options
+        }
+        return str_starts_with($word, '/') ? $word : null;
+    }
+    return null;
+}
+
+/**
+ * The plugin whose folder a program lay in when it is gone there (/usr/local/emhttp/plugins/<p>/ or
+ * /boot/config/plugins/<p>/), else null. Never a path under /mnt (a disk would wake) or one with odd
+ * characters (it goes into the command she shows, between single quotes).
+ */
+function waCronGone(string $path, ?callable $exists = null): ?string
+{
+    if (str_starts_with($path, '/mnt/') || str_contains($path, '/../') || !preg_match('#^[A-Za-z0-9_./+@-]{1,300}$#D', $path)
+        || !preg_match('#^(?:/usr/local/emhttp/plugins|/boot/config/plugins)/([A-Za-z0-9._+-]{1,100})/#', $path, $p)) {
+        return null;
+    }
+    return ($exists ?? 'file_exists')($path) ? null : $p[1];
 }
 
 // --------------------------------------------------------------------- backups
@@ -1181,13 +1226,14 @@ function waBackups(array $containers, array $scripts, array $backupScript): arra
 /**
  * What Ms. Whereabouts needs for her advice beyond what the tour knows
  * anyway: a few of Unraid's settings, read from its own files only (no disk
- * wakes up). The page turns these and the rest of the state into tips.
+ * wakes up). The page turns these and the rest of the state into tips —
+ * operational ones; security advice (shares open to everyone, Telnet, FTP,
+ * privileged containers, the CPU's protection) is the night watchman's.
  *
  * @param array $shares what waShares() found (with $roots and $asleep of the same tour)
  */
 function waAdvice(array $shares, array $roots, array $asleep): array
 {
-    $ident = readCfg('/boot/config/ident.cfg');
     $share = readCfg('/boot/config/share.cfg');
     $disk = readCfg('/boot/config/disk.cfg');
     $docker = readCfg('/boot/config/docker.cfg');
@@ -1211,14 +1257,11 @@ function waAdvice(array $shares, array $roots, array $asleep): array
             $shareOf((string) ($domain['IMAGE_FILE'] ?? '')),
             $shareOf((string) ($domain['DOMAINDIR'] ?? '')),
         ]))),
-        'telnet'         => ($ident['USE_TELNET'] ?? 'no') === 'yes',
-        'ftp'            => preg_match('/^\s*ftp\s/m', (string) @file_get_contents('/etc/inetd.conf')) === 1,
         'spindown'       => ['default' => (string) ($disk['spindownDelay'] ?? '0'), 'never' => $never],
         'ups'            => ($ups['SERVICE'] ?? 'disable') === 'enable'
             || (bool) array_filter(array_keys(housePlugins()), fn ($n) => str_contains(strtolower($n), 'nut')),
         // kept after a crash: mirrored to the flash or sent to a syslog server (this one's own share too)
         'syslog_kept'    => ($syslog['syslog_flash'] ?? '') !== '' || trim((string) ($syslog['remote_server'] ?? '')) !== '',
-        'cpu'            => waCpuMitigations(),
         'exclusive'      => waExclusive($shares, $roots, $asleep, $share),
     ];
 }
@@ -1279,36 +1322,6 @@ function waExclusive(array $shares, array $roots, array $asleep, array $shareCfg
         }
     }
     return $out;
-}
-
-/**
- * The CPU's protection against speculative-execution flaws (Spectre & co.):
- * switched off at boot (mitigations=off) or not, and what the kernel says
- * per flaw — still open ("Vulnerable") or covered ("Mitigation: …"); the
- * ones the CPU isn't affected by are left out.
- */
-function waCpuMitigations(): array
-{
-    $cmdline = (string) @file_get_contents('/proc/cmdline');
-    $info = (string) @file_get_contents('/proc/cpuinfo');
-    $vendor = preg_match('/^vendor_id\s*:\s*(\S+)/m', $info, $m) ? $m[1] : '';
-    $open = $covered = [];
-    foreach (glob('/sys/devices/system/cpu/vulnerabilities/*') ?: [] as $file) {
-        $state = trim((string) @file_get_contents($file));
-        if (str_starts_with($state, 'Vulnerable')) {
-            $open[] = basename($file);
-        } elseif (str_starts_with($state, 'Mitigation')) {
-            $covered[] = basename($file);
-        }
-    }
-    return [
-        'vendor'  => match ($vendor) { 'GenuineIntel' => 'Intel', 'AuthenticAMD' => 'AMD', default => $vendor ?: null },
-        'model'   => preg_match('/^model name\s*:\s*(.+)$/m', $info, $m) ? trim($m[1]) : null,
-        'off'     => preg_match('/(^|\s)mitigations=off(\s|$)/', $cmdline) === 1,
-        'open'    => $open,
-        'covered' => $covered,
-        'boot'    => is_file('/boot/grub/grub.cfg') ? 'grub' : 'syslinux',
-    ];
 }
 
 // --------------------------------------------------------------------- health: temperatures, SMART, fill level
