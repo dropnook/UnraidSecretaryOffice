@@ -18,6 +18,11 @@
 >   share: such an item is skipped like one without a mapping (`Locations.to_rel`).
 > * Not taken over: `embycache_setup.py` (Jack is the setup) and `embycache_cleaner.py`
 >   (on a share whose primary is the pool it would take every new film for an orphan).
+>
+> **Licence:** helmi1987's original is under the GNU GPL v3 — its
+> [LICENSE](https://github.com/helmi1987/embycache-for-unraid/blob/main/LICENSE) is the GPL v3 text,
+> its README says «Copyright (C) 2025–2026 helmi1987» and SPDX `GPL-3.0-or-later` (since
+> 2026-10-06). This modified copy is likewise GPL-3.0-or-later, as part of the office.
 
 # 🎬 EmbyCache für Unraid
 

@@ -1,13 +1,22 @@
 > **In the Unraid Secretary Office** this is Jack Emby's "Consolidate folders": taken from
 > [helmi1987/media-disk-gather-for-unraid](https://github.com/helmi1987/media-disk-gather-for-unraid)
-> (V11.0) and since changed here (V11.2). Jack writes its settings (`data/gather/consolidate.ini`)
+> (V11.0) and since changed here (V11.3). Jack writes its settings (`data/gather/consolidate.ini`)
 > and runs it — never with `--include-cache`, never while EmbyCache runs. Changes against V11.0:
 >
 > * `CONSOLIDATE_CONFIG`: where the ini is (default: next to the script).
 > * `CONSOLIDATE_STATUS`: a JSON file with the result (mode, counters, exit code).
+> * `CONSOLIDATE_STOP`: a file; once it exists the run stops after the folder it is on (no retry,
+>   no deep clean; result `stopped`, exit 3, `folders`/`folders_done` in the status) — Jack writes it
+>   when someone starts watching Emby during a real run.
+> * `CONSOLIDATE_LOCK`, `CONSOLIDATE_USER_ROOT`: the lock file and `/mnt/user` — for the tests only.
 > * Deep clean keeps an empty array folder when the same folder exists on a cache/pool: its
 >   content lies there right now and the folder shows which disk it belongs to.
 > * Not taken over: `setup_consolidate.sh` (Jack is the setup), the zip and the test suite.
+>
+> **Licence:** helmi1987's original is under the GNU GPL v3 — its
+> [LICENSE](https://github.com/helmi1987/media-disk-gather-for-unraid/blob/main/LICENSE) is the GPL v3
+> text, its README says «Copyright (C) 2026 helmi1987» and SPDX `GPL-3.0-or-later` (since 2026-10-06).
+> This modified copy is likewise GPL-3.0-or-later, as part of the office.
 
 # Unraid Media Consolidator & Cleaner (V11.0)
 

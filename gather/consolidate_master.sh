@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-#  consolidate_master.sh  —  Unraid Media Consolidator & Cleaner  (V11.2)
+#  consolidate_master.sh  —  Unraid Media Consolidator & Cleaner  (V11.3)
 # =============================================================================
 #  Führt zersplitterte Medienordner (Film-/Serienordner) auf EINER Array-Disk
 #  zusammen, entfernt identische Duplikate und räumt leere Ordner auf.
@@ -43,13 +43,18 @@
 #    CONSOLIDATE_CONFIG  Pfad der ini (Standard: consolidate.ini neben dem Script)
 #    CONSOLIDATE_STATUS  JSON-Datei, in die am Ende das Ergebnis geschrieben wird
 #                        (Modus, Zähler, Exit-Code) – für Programme, die das Script starten
+#    CONSOLIDATE_STOP    Datei: sobald es sie gibt, hört das Script nach dem Ordner auf,
+#                        an dem es gerade ist (kein Retry, kein Deep Clean; Ergebnis
+#                        "stopped", Exit 3) – z.B. wenn jemand Emby zu schauen beginnt
+#    CONSOLIDATE_LOCK, CONSOLIDATE_USER_ROOT   Sperrdatei und /mnt/user – nur für Tests
 #
 #  LEERE ORDNER  werden gelöscht – ausser es gibt denselben Ordner auf einem
 #                Cache/Pool: Dann liegt der Inhalt gerade dort (z.B. von EmbyCache
 #                bereitgelegt), und der leere Ordner zeigt, auf welche Disk er
 #                zurückgehört (beim Split-Level «nur oberste Ebene» folgt Unraid ihm).
 #
-#  EXIT-CODES   0 = ok, 1 = Konfig-/Startfehler, 2 = Lauf mit Fehlern/Konflikten
+#  EXIT-CODES   0 = ok, 1 = Konfig-/Startfehler, 2 = Lauf mit Fehlern/Konflikten,
+#               3 = auf Wunsch angehalten (CONSOLIDATE_STOP)
 # =============================================================================
 set -u
 shopt -s nullglob
@@ -67,9 +72,9 @@ MIN_FREE_GB=256
 MOVE_CACHE=false
 CACHE_ONLY_TARGET="most-free"
 DUP_CHECK="size"
-LOCKFILE="/var/run/consolidate_master.lock"
+LOCKFILE="${CONSOLIDATE_LOCK:-/var/run/consolidate_master.lock}"
 MOVER_PIDFILE="/var/run/mover.pid"
-USER_ROOT="/mnt/user"
+USER_ROOT="${CONSOLIDATE_USER_ROOT:-/mnt/user}"
 
 # -----------------------
 # 📥 CONFIG LADEN
@@ -77,7 +82,9 @@ USER_ROOT="/mnt/user"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${CONSOLIDATE_CONFIG:-$SCRIPT_DIR/consolidate.ini}"
 STATUS_FILE="${CONSOLIDATE_STATUS:-}"
+STOP_FILE="${CONSOLIDATE_STOP:-}"
 STARTED=$(printf '%(%s)T' -1)
+N_FOLDERS=0; N_FOLDERS_DONE=0
 N_MOVED=0; N_DUP_DELETED=0; N_IGNORED=0; N_SKIPPED_CACHE=0
 N_FULL_FAILED=0; N_RSYNC_ERR=0; N_CONFLICT=0; N_DIRS_DELETED=0; N_DIRS_FAILED=0; N_DIRS_KEPT=0
 
@@ -86,12 +93,12 @@ json_str() {                 # $1 -> JSON-String (Anführungszeichen, Backslash,
     s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; s="${s//$'\n'/ }"; s="${s//$'\r'/ }"; s="${s//$'\t'/ }"
     printf '"%s"' "$s"
 }
-write_status() {             # $1 result (ok|errors|failed|aborted), $2 exit code, $3 Meldung
+write_status() {             # $1 result (ok|errors|failed|aborted|stopped), $2 exit code, $3 Meldung
     [[ -n "$STATUS_FILE" ]] || return 0
-    printf '{"version":"V11.2","mode":%s,"result":%s,"exit":%d,"message":%s,"started":%d,"finished":%d,"moved":%d,"duplicates":%d,"ignored":%d,"cache_skipped":%d,"full":%d,"errors":%d,"conflicts":%d,"dirs_deleted":%d,"dirs_failed":%d,"dirs_kept":%d}\n' \
+    printf '{"version":"V11.3","mode":%s,"result":%s,"exit":%d,"message":%s,"started":%d,"finished":%d,"moved":%d,"duplicates":%d,"ignored":%d,"cache_skipped":%d,"full":%d,"errors":%d,"conflicts":%d,"dirs_deleted":%d,"dirs_failed":%d,"dirs_kept":%d,"folders":%d,"folders_done":%d}\n' \
         "$(json_str "$( [[ "${DRYRUN:-true}" == false ]] && echo run || echo dry )")" "$(json_str "$1")" "$2" "$(json_str "${3:-}")" \
         "$STARTED" "$(printf '%(%s)T' -1)" "$N_MOVED" "$N_DUP_DELETED" "$N_IGNORED" "$N_SKIPPED_CACHE" \
-        "$N_FULL_FAILED" "$N_RSYNC_ERR" "$N_CONFLICT" "$N_DIRS_DELETED" "$N_DIRS_FAILED" "$N_DIRS_KEPT" > "$STATUS_FILE.tmp" 2>/dev/null \
+        "$N_FULL_FAILED" "$N_RSYNC_ERR" "$N_CONFLICT" "$N_DIRS_DELETED" "$N_DIRS_FAILED" "$N_DIRS_KEPT" "$N_FOLDERS" "$N_FOLDERS_DONE" > "$STATUS_FILE.tmp" 2>/dev/null \
         && mv -f "$STATUS_FILE.tmp" "$STATUS_FILE"
 }
 
@@ -144,6 +151,8 @@ done
 [[ ${#BASE_RELS[@]} -gt 0 ]] || die "Keines der BASE_DIRS existiert."
 
 is_dry() { [[ "$DRYRUN" == true ]]; }
+stop_requested() { [[ -n "$STOP_FILE" && -e "$STOP_FILE" ]]; }    # CONSOLIDATE_STOP: nach dem aktuellen Ordner aufhören
+STOPPED=false
 
 # -----------------------
 # 📝 LOGGING
@@ -607,9 +616,10 @@ build_index
 
 echo "🚀 PHASE 2: Verarbeitung"
 echo "----------------------------------------"
-total=${#GROUP_LIST[@]}; current=0; last_base=""
+total=${#GROUP_LIST[@]}; current=0; last_base=""; N_FOLDERS=$total
 (( total == 0 )) && echo "   (keine Film-/Serienordner gefunden)"
 for group in "${GROUP_LIST[@]}"; do
+    if stop_requested; then STOPPED=true; break; fi      # zwischen zwei Ordnern, nie mitten in einem
     ((current++))
     base="${group%/*}"
     if [[ "$base" != "$last_base" ]]; then
@@ -618,21 +628,28 @@ for group in "${GROUP_LIST[@]}"; do
     fi
     printf '   [%d/%d] %d%% - %s \033[K\r' "$current" "$total" "$(( 100 * current / total ))" "${group##*/}"
     process_group "$group"
+    N_FOLDERS_DONE=$current
 done
 clear_line
 
 # RETRY (Queue)
-if [[ ${#RETRY_SRC[@]} -gt 0 ]]; then
+if ! $STOPPED && [[ ${#RETRY_SRC[@]} -gt 0 ]]; then
     echo "========================================"
     echo "🔄 RETRY (volle Disks, ${#RETRY_SRC[@]} Dateien)"
     echo "========================================"
     for i in "${!RETRY_SRC[@]}"; do
+        if stop_requested; then STOPPED=true; break; fi
         execute_move "${RETRY_SRC[$i]}" "${RETRY_TGT[$i]}" "${RETRY_REL[$i]}" true
     done
 fi
 
 echo ""
-run_deep_clean
+if $STOPPED; then
+    echo "⏸️  Angehalten auf Wunsch nach $N_FOLDERS_DONE von $total Ordnern (kein Deep Clean)."
+    logf "ANGEHALTEN auf Wunsch nach $N_FOLDERS_DONE von $total Ordnern"
+else
+    run_deep_clean
+fi
 
 echo ""
 echo "========================================"
@@ -652,6 +669,7 @@ echo "----------------------------------------"
 echo "========================================"
 logf "===== ENDE: verschoben=$N_MOVED duplikate=$N_DUP_DELETED konflikte=$N_CONFLICT voll=$N_FULL_FAILED fehler=$N_RSYNC_ERR rmdir=$N_DIRS_DELETED/$N_DIRS_FAILED ====="
 echo "--- Fertig ---"
+if $STOPPED; then write_status stopped 3 "stopped after $N_FOLDERS_DONE of $total folders"; exit 3; fi
 if (( N_CONFLICT + N_FULL_FAILED + N_RSYNC_ERR + N_DIRS_FAILED > 0 )); then write_status errors 2; exit 2; fi
 write_status ok 0
 exit 0

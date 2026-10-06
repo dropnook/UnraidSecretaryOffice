@@ -88,13 +88,45 @@ function schedText(sc) {
   return sc.frequency === 'custom' ? fmt.cron(sc.custom) : sc.frequency;
 }
 
+/** «isp3 watches … on iPad» — who watches what on which device (Emby's sessions, as the agent judged them) */
+function watcherText(w) {
+  return T(w.paused ? 'watch.who_paused' : 'watch.who', { user: w.user || T('watch.someone'), title: w.title || '?', device: w.device || w.client || '?' });
+}
+function watchList(who) {
+  const ul = el('ul', 'shortlist');
+  (who || []).forEach((w) => ul.appendChild(el('li', '', watcherText(w))));
+  return ul;
+}
+const whoText = (who) => (who && who.length ? ' — ' + who.map(watcherText).join('; ') : '');
+
+/** An error line inside a dialog: a refusal stays readable there (the dialog stays open) instead of a passing toast */
+function errorLine() {
+  const box = el('div', 'callout warn');
+  box.setAttribute('role', 'alert');
+  box.style.display = 'none';
+  return box;
+}
+function showError(box, error) {
+  box.innerHTML = '';
+  box.appendChild(el('div', '', Office.errorText(error, ID)));
+  if (error && error.key === 'emby_watching') box.append(watchList((error.params || {}).who), el('div', '', T('watch.no_override')));
+  box.style.display = '';
+  box.scrollIntoView({ block: 'nearest' });
+}
+
 /** One line about how a run went, from the tool's status */
 function runSummary(r) {
   const s = r.status || r;
-  if (r.result === 'refused') return T('refused', { why: Office.errorText({ key: r.why }, ID) });
+  if (r.result === 'refused') return T('refused', { why: Office.errorText({ key: r.why, params: { detail: r.detail || '' } }, ID) }) + whoText(r.who);
+  if (r.result === 'skipped') return T('gather_skipped_summary', { min: Math.round((r.waited || 0) / 60) }) + whoText(r.who);
   if (r.tool === 'gather') {
     if (s.result === 'failed') return s.message || T('result.failed');
-    return T('gather_summary', { moved: s.moved || 0, dups: s.duplicates || 0, conflicts: s.conflicts || 0, dirs: s.dirs_deleted || 0, kept: s.dirs_kept || 0 });
+    const notes = [];
+    if (s.result === 'stopped') notes.push(T('gather_stopped', { done: s.folders_done || 0, total: s.folders || 0 }) + whoText(r.who));
+    notes.push(T('gather_summary', { moved: s.moved || 0, dups: s.duplicates || 0, conflicts: s.conflicts || 0, dirs: s.dirs_deleted || 0, kept: s.dirs_kept || 0 }));
+    if (r.waited) notes.push(T('watch_note.waited', { min: Math.round(r.waited / 60) }));
+    if (r.emby) notes.push(T('watch_note.' + r.emby));
+    return notes.join(' · ');
   }
   if (s.result === 'busy') return T('result.busy');
   if (s.result === 'config') return s.message || T('result.config');
@@ -113,6 +145,7 @@ function bubbleText() {
   if (!state.configured) return `${intro} ${T('bubble.setup')}`;
   if (state.jobs.gather.running) return T('bubble.gathering');
   if (state.jobs.embycache.running) return T('bubble.running');
+  if (state.gather.waiting) return T('bubble.gather_waiting');
   if (!state.gather.ready) return T('bubble.gather_first');
   const c = state.cache;
   const parts = [c.files ? T('bubble.on_pool', { n: c.files, size: fmt.size(c.bytes) }) : T('bubble.nothing_yet')];
@@ -144,6 +177,7 @@ function render() {
     [T('mode.run'), T('help.run')],
     [T('help.origin'), T('help.origin_text')],
     [T('gather'), T('help.gather_text')],
+    [T('help.watch'), T('help.watch_text')],
     [T('help.shares'), T('help.shares_text')],
     [T('help.pool'), T('help.pool_text')],
     [T('help.schedule'), T('help.schedule_text')],
@@ -278,6 +312,18 @@ function gatherSection() {
     return s;
   }
   if (!g.ready) s.appendChild(el('p', 'callout', T('gather_first')));
+  if (g.waiting) {
+    const c = el('div', 'callout');
+    c.append(el('div', '', T('gather_waiting', { next: fmt.time(g.waiting.next), until: fmt.time(g.waiting.until) })), watchList(g.waiting.who));
+    s.appendChild(c);
+  } else {
+    const lastRun = (state.history || []).find((r) => r.tool === 'gather' && r.mode === 'run');
+    if (lastRun && lastRun.result === 'skipped') {
+      const c = el('div', 'callout');
+      c.append(el('div', '', T('gather_skipped', { date: fmt.date(lastRun.started) })), watchList(lastRun.who));
+      s.appendChild(c);
+    }
+  }
   const stats = el('div', 'stats');
   const last = g.last;
   stat(stats, T('gather_last'), last ? fmt.relative(last.finished) : T('never'),
@@ -315,7 +361,7 @@ function historySection() {
     main.appendChild(el('div', 'row-name', `${T('tool.' + r.tool)} · ${T('mode.' + r.mode)}`));
     const meta = el('div', 'row-meta');
     const ok = ['ok'].includes(r.result) && !((r.status || {}).errors);
-    const cls = r.result === 'refused' ? 'quiet' : ok ? 'ok' : 'warn';
+    const cls = ['refused', 'skipped', 'stopped'].includes(r.result) ? 'quiet' : ok ? 'ok' : 'warn';
     meta.append(chip(T('result.' + (r.result || 'failed')), cls, r.exit != null ? T('exit_code', { n: r.exit }) : ''),
       el('span', '', fmt.date(r.started)), el('span', '', T('by.' + r.by)));
     if (r.finished && r.finished - r.started >= 60) meta.appendChild(el('span', '', fmt.duration(r.finished - r.started)));
@@ -405,11 +451,20 @@ function chooseRun() {
 
 function gatherRunDialog() {
   const body = el('div');
-  body.append(el('p', '', T('gather_run_text', { shares: state.gather.settings.shares.join(', ') })), el('p', 'callout', T('gather_run_wake')));
+  const err = errorLine();
+  body.append(el('p', '', T('gather_run_text', { shares: state.gather.settings.shares.join(', ') })), el('p', 'callout', T('gather_run_wake')),
+    el('p', 'role', T('gather_run_watch')), err);
   Office.dialog({
     title: T('gather_run'),
     body,
-    buttons: [{ text: Office.t('common.cancel') }, { text: T('gather_run_go'), kind: '', act: () => startRun('gather', 'run') }],
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('gather_run_go'), kind: '', act: async () => {
+      const j = await Office.api.post(`${ID}.gather_start`, { mode: 'run' });
+      if (!j.ok) { showError(err, j.error); return false; }
+      if (j.state) state = j.state;
+      if (view && page === 'main') render();
+      showOutput('gather', true);
+      return true;
+    } }],
   });
 }
 
@@ -902,15 +957,16 @@ function importDialog() {
   const b = input(importFolders.gather, (x) => { importFolders.gather = x; });
   b.placeholder = '/mnt/user/system/scripts/consolidate';
   f.append(field(T('import.folder_embycache'), a, T('import.folder_embycache_hint')), field(T('import.folder_gather'), b, T('import.folder_gather_hint')));
-  box.append(f, el('p', 'role', T('import.read_only')));
+  const err = errorLine();
+  box.append(f, el('p', 'role', T('import.read_only')), err);
   Office.dialog({ title: T('import.title'), body: box, wide: true,
-    buttons: [{ text: Office.t('common.cancel') }, { text: T('import.look'), kind: '', act: importLook }] });
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('import.look'), kind: '', act: () => importLook(err) }] });
 }
 
-async function importLook() {
+async function importLook(err) {
   const folders = { embycache: importFolders.embycache.trim(), gather: importFolders.gather.trim() };
   const j = await Office.api.post(`${ID}.import_preview`, folders);
-  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
+  if (!j.ok) { showError(err, j.error); return false; }
   importPreview(j.preview, folders);
   return true;
 }
@@ -1028,14 +1084,16 @@ function importPreview(p, folders) {
   if (p.running) box.appendChild(el('p', 'callout warn', T('errors.emby_running')));
   else if (!p.ready) box.appendChild(el('p', 'callout warn', T('errors.emby_import_blocked')));
   else box.appendChild(el('p', 'role', T('import.backup_note')));
+  const err = errorLine();
+  box.appendChild(err);
   const buttons = [{ text: Office.t('common.cancel') }];
-  if (p.ready && !p.running) buttons.push({ text: T('import.go'), kind: '', act: () => importGo(folders, p) });
+  if (p.ready && !p.running) buttons.push({ text: T('import.go'), kind: '', act: () => importGo(folders, p, err) });
   Office.dialog({ title: T('import.preview_title'), body: box, wide: true, buttons });
 }
 
-async function importGo(folders, p) {
+async function importGo(folders, p, err) {
   const j = await Office.api.post(`${ID}.import_apply`, { ...folders, token: p.token });
-  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
+  if (!j.ok) { showError(err, j.error); return false; }
   if (j.state) state = j.state;
   form = null;
   importDone(j.done);
