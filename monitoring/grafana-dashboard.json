@@ -86,7 +86,7 @@
   "panels": [
     {
       "type": "row",
-      "title": "The office",
+      "title": "Unraid Secretary Office (USO)",
       "id": 1,
       "collapsed": false,
       "panels": [],
@@ -99,8 +99,8 @@
     },
     {
       "type": "stat",
-      "title": "Numbers written",
-      "description": "How long ago the office's agent last wrote its numbers (once a minute). Red: the agent stopped writing — is it running, is the array started? The Node Exporter keeps serving the last files, so the other panels show old values then.",
+      "title": "USO numbers written",
+      "description": "How long ago the Unraid Secretary Office's agent last wrote its numbers (once a minute). Red: the agent stopped writing — is it running, is the array started? The Node Exporter keeps serving the last files, so the other panels show old values then.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -168,8 +168,8 @@
     },
     {
       "type": "stat",
-      "title": "Office version",
-      "description": "The version of the office's agent that writes the numbers.",
+      "title": "USO version",
+      "description": "The version of the Unraid Secretary Office's agent that writes the numbers.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -233,8 +233,8 @@
     },
     {
       "type": "stat",
-      "title": "Agent running since",
-      "description": "When the office's agent started (it restarts itself after an update).",
+      "title": "USO agent running since",
+      "description": "When the Unraid Secretary Office's agent started (it restarts itself after an update).",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -297,8 +297,8 @@
     },
     {
       "type": "stat",
-      "title": "Textfile collector",
-      "description": "Whether the Node Exporter could read the office's folder (node_textfile_scrape_error). Error: the folder is missing (the agent creates it) or a file is broken.",
+      "title": "USO textfile collector",
+      "description": "Whether the Node Exporter could read the Unraid Secretary Office's folder of numbers (node_textfile_scrape_error). Error: the folder is missing (the agent creates it) or a file is broken.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -336,7 +336,7 @@
               "type": "value",
               "options": {
                 "0": {
-                  "text": "reads the office's files",
+                  "text": "reads USO's files",
                   "color": "green",
                   "index": 0
                 },
@@ -378,8 +378,8 @@
     },
     {
       "type": "stat",
-      "title": "Left out (size cap)",
-      "description": "Metric families the office left out to stay under its size cap (16 KB — the folder lives in a 1 MB RAM disk shared with the backup's mount points). The agent log names them.",
+      "title": "USO left out (size cap)",
+      "description": "Metric families the Unraid Secretary Office left out to stay under its size cap (16 KB — the folder lives in a 1 MB RAM disk shared with the backup's mount points). The agent log names them.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1217,7 +1217,7 @@
     {
       "type": "bargauge",
       "title": "Package sizes",
-      "description": "The size of each package (app, VM, flash) in the backup place after the last real backup run. Left out when the office's numbers would grow over their size cap.",
+      "description": "The size of each package (app, VM, flash) in the backup place after the last real backup run. Left out when the Unraid Secretary Office's numbers would grow over their size cap.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2482,7 +2482,7 @@
     {
       "type": "timeseries",
       "title": "Sent to clients per service",
-      "description": "What the server sent to clients over SMB, NFS, SSH and the WebGUI, per second (the night watchman's data flow: the kernel's counters of the open connections, read every round — five minutes —, so the curve moves in five-minute steps). The office's own Kopia upload is not in here: it goes out from the Kopia container.",
+      "description": "What the server sent to clients over SMB, NFS, SSH and the WebGUI, per second (the night watchman's data flow: the kernel's counters of the open connections, read every round — five minutes —, so the curve moves in five-minute steps). The Unraid Secretary Office's own Kopia upload is not in here: it goes out from the Kopia container.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2566,7 +2566,7 @@
     {
       "type": "timeseries",
       "title": "Written into shares per hour (top 8)",
-      "description": "What was written into each ZFS share per hour (ZFS written: rewritten files count too — the pattern of encrypting ransomware), stacked, the eight shares with the most in that hour. The office's own backups and restores are in here too; the night watchman keeps them apart in his book.",
+      "description": "What was written into each ZFS share per hour (ZFS written: rewritten files count too — the pattern of encrypting ransomware), stacked, the eight shares with the most in that hour. The Unraid Secretary Office's own backups and restores are in here too; the night watchman keeps them apart in his book.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -3246,7 +3246,7 @@
     {
       "type": "gauge",
       "title": "/mnt/addons",
-      "description": "Unraid's RAM disk for add-on mounts (1 MB): the backup's mount points and the office's numbers share it.",
+      "description": "Unraid's RAM disk for add-on mounts (1 MB): the backup's mount points and the Unraid Secretary Office's numbers share it.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
