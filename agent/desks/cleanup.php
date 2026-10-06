@@ -267,6 +267,7 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         'trash'     => clTrashRuns($places, $vms, $leftovers['trash']),
     ];
     $raw['icons'] = clIcons($docker, $raw['stacks']);
+    $raw['zfs_space'] = clZfsSpace(clRawDatasets($raw));     // what a dataset holds with its snapshots (find sees only the live files)
     clSaveCache($cache);
     $GLOBALS['clRaw'] = $raw;
 
@@ -317,7 +318,7 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         }
         foreach ($state['leftovers']['list'] as $e) {
             foreach ($e['parts'] as $p) {
-                if (!$p['file']) {
+                if (!$p['file'] && $p['snaps'] === null) {          // a dataset's size comes from ZFS
                     clMeasureQueue($p['path'], CL_MEASURE_TTL);
                 }
             }
@@ -326,7 +327,7 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
             if (!$run['purging']) {
                 clMeasureQueue($run['path'], PHP_INT_MAX);
                 foreach ($run['items'] as $it) {
-                    if ($it['zfs_path']) {
+                    if ($it['zfs_path'] && !isset($raw['zfs_space'][$it['zfs'] ?? ''])) {
                         clMeasureQueue($it['zfs_path'], PHP_INT_MAX);
                     }
                 }
@@ -1809,6 +1810,64 @@ function clZfsMovable(string $ds, ?string $parent): bool
     return $parent !== null && dirname($ds) === $parent && preg_match('/^(inherited|default)/', $sources[$ds] ?? 'local') === 1;
 }
 
+/**
+ * The datasets the rooms show (folders of appdata and domains that are datasets of their own, Mr. Restori's leftovers,
+ * the storeroom's parked datasets) — all on awake pools: their places were looked at only there
+ *
+ * @return list<string>
+ */
+function clRawDatasets(array $raw): array
+{
+    $names = [];
+    foreach (['appdata', 'domains'] as $share) {
+        foreach ($raw[$share]['folders']['list'] ?? [] as $f) {
+            foreach ($f['parts'] as $p) {
+                $names[] = $p['dataset'];
+            }
+        }
+    }
+    foreach ($raw['leftovers']['list'] ?? [] as $e) {
+        foreach ($e['parts'] as $p) {
+            $names[] = $p['dataset'];
+        }
+    }
+    foreach ($raw['trash'] ?? [] as $run) {
+        foreach ($run['items'] as $it) {
+            $names[] = $it['present'] ? $it['zfs'] : null;
+        }
+    }
+    // a dataset under its pool (a share's folder is never a pool's root; a tmpfs mount's source is no dataset)
+    return array_values(array_unique(array_filter($names, fn ($n) => is_string($n) && str_contains($n, '/') && clZfsNameOk($n))));
+}
+
+/**
+ * What putting a dataset away or removing it concerns: ZFS's `used` (its files, its snapshots and the datasets inside
+ * it) and how much of that its snapshots hold. find (the folders' measurement) sees only the live files — a dataset
+ * set aside whose content lies in its snapshots (used 17 GB, referenced 0) showed «0 B». One zfs call per tour, only
+ * the datasets named (never a sleeping pool's: see clRawDatasets()).
+ *
+ * @param list<string> $names
+ * @return array<string, array{used:int, snaps:int}>
+ */
+function clZfsSpace(array $names, ?callable $zfs = null): array
+{
+    if (!$names || (!$zfs && !bin('zfs'))) {
+        return [];
+    }
+    $zfs ??= fn (array $cmd): array => run($cmd, 30);
+    $out = [];
+    foreach (array_chunk($names, 200) as $chunk) {
+        // a dataset gone meanwhile: zfs says so on stderr and still lists the others
+        [, $text] = $zfs(array_merge(['zfs', 'list', '-Hp', '-o', 'name,used,usedbysnapshots'], $chunk));
+        foreach (rows((string) $text) as $f) {
+            if (count($f) >= 3 && in_array($f[0], $chunk, true) && ctype_digit($f[1]) && ctype_digit($f[2])) {
+                $out[$f[0]] = ['used' => (int) $f[1], 'snaps' => (int) $f[2]];
+            }
+        }
+    }
+    return $out;
+}
+
 /** First-level folders of a share, over all places it lives on */
 function clShareFolders(array $share): array
 {
@@ -2123,6 +2182,39 @@ function clLeftovers(bool $libvirt): array
     return $out;
 }
 
+/**
+ * Mr. Restori's leftovers with their sizes: a dataset as ZFS counts it with its snapshots (clZfsSpace() — a VM's folder
+ * he set aside may hold everything in them: «0 B» by find), anything else as measured in the background (files at
+ * once). 'snaps': how much of 'bytes' the snapshots hold.
+ */
+function clLeftoverSizes(array $list, array $cache, callable $pending, array $space): array
+{
+    $out = [];
+    foreach ($list as $e) {
+        $bytes = 0;
+        $snaps = 0;
+        $e['measuring'] = false;
+        foreach ($e['parts'] as &$p) {
+            $ds = $p['dataset'] !== null ? ($space[$p['dataset']] ?? null) : null;
+            $p['snaps'] = $ds ? $ds['snaps'] : null;
+            if ($ds) {
+                $p['bytes'] = $ds['used'];
+                $snaps += $ds['snaps'];
+            } elseif (!$p['file']) {
+                $size = $cache['sizes'][$p['path']] ?? null;
+                $p['bytes'] = $size && empty($size['error']) ? $size['bytes'] : null;
+                $e['measuring'] = $e['measuring'] || $pending('measure:' . $p['path']);
+            }
+            $bytes = $bytes === null || $p['bytes'] === null ? null : $bytes + $p['bytes'];
+        }
+        unset($p);
+        $e['bytes'] = $e['parts'] ? $bytes : null;
+        $e['snaps'] = $e['parts'] ? $snaps : null;
+        $out[] = $e;
+    }
+    return $out;
+}
+
 /** Back from the storeroom: only to where Mr. Restori leaves things, on the storeroom's own filesystem */
 function clLeftoverHome(string $from, string $runRoot): string
 {
@@ -2170,7 +2262,8 @@ function clBuild(): array
     $ad = $raw['appdata'];
     [$adRefs, $mounters] = clTopRefs($refs, $ad['share']);
     $complete = $searched && $docker['ok'];
-    $folders = clFolderEntries($ad['folders']['list'], $adRefs, $named, 'appdata', $docker['ok'], $complete, $cache, $pending);
+    $space = $raw['zfs_space'] ?? [];
+    $folders = clFolderEntries($ad['folders']['list'], $adRefs, $named, 'appdata', $docker['ok'], $complete, $cache, $pending, $space);
 
     // VMs: what deleted VMs left behind (a stopped Docker can't name these, unless it is switched off anyway)
     $vmItems = [];
@@ -2195,7 +2288,7 @@ function clBuild(): array
                                'why' => $vmf['ok'] ? null : 'vm_off', 'force' => false];
         }
         [$domRefs] = clTopRefs($refs, $raw['domains']['share']);
-        $vmItems = array_merge($vmItems, clFolderEntries($raw['domains']['folders']['list'], $domRefs, $vmNamed, 'domain', $vmf['ok'], $vmComplete, $cache, $pending));
+        $vmItems = array_merge($vmItems, clFolderEntries($raw['domains']['folders']['list'], $domRefs, $vmNamed, 'domain', $vmf['ok'], $vmComplete, $cache, $pending, $space));
         [$isoRefs] = clTopRefs($refs, $raw['isos']['share']);
         foreach (clFolderEntries($raw['isos']['files'], $isoRefs, [], 'iso', $vmf['ok'], $vmComplete, $cache, $pending) as $e) {
             $e['category'] = in_array($e['category'], ['unused', 'check'], true) ? 'media' : $e['category'];
@@ -2226,8 +2319,13 @@ function clBuild(): array
         $size = $cache['sizes'][$run['path']] ?? null;
         $run['bytes'] = is_file($run['path']) ? (int) @filesize($run['path']) : ($size && empty($size['error']) ? $size['bytes'] : null);
         $run['measuring'] = $pending('measure:' . $run['path']);
+        $run['snaps'] = 0;
         foreach ($run['items'] as $it) {             // parked datasets lie next to the run folder
-            if ($it['zfs_path'] && $run['bytes'] !== null) {
+            $ds = $it['zfs'] !== null && $it['present'] ? ($space[$it['zfs']] ?? null) : null;
+            if ($ds) {                               // with their snapshots: emptying destroys them too
+                $run['bytes'] = $run['bytes'] === null ? null : $run['bytes'] + $ds['used'];
+                $run['snaps'] += $ds['snaps'];
+            } elseif ($it['zfs_path'] && $run['bytes'] !== null) {
                 $ds = $cache['sizes'][$it['zfs_path']] ?? null;
                 $run['bytes'] = $ds && empty($ds['error']) ? $run['bytes'] + $ds['bytes'] : null;
                 $run['measuring'] = $run['measuring'] || $pending('measure:' . $it['zfs_path']);
@@ -2238,23 +2336,8 @@ function clBuild(): array
     }
     usort($runs, fn ($a, $b) => $b['time'] <=> $a['time']);
 
-    // Mr. Restori's leftovers: sizes as measured in the background (files at once)
-    $leftovers = [];
-    foreach ($raw['leftovers']['list'] ?? [] as $e) {
-        $bytes = 0;
-        $e['measuring'] = false;
-        foreach ($e['parts'] as &$p) {
-            if (!$p['file']) {
-                $size = $cache['sizes'][$p['path']] ?? null;
-                $p['bytes'] = $size && empty($size['error']) ? $size['bytes'] : null;
-                $e['measuring'] = $e['measuring'] || $pending('measure:' . $p['path']);
-            }
-            $bytes = $bytes === null || $p['bytes'] === null ? null : $bytes + $p['bytes'];
-        }
-        unset($p);
-        $e['bytes'] = $e['parts'] ? $bytes : null;
-        $leftovers[] = $e;
-    }
+    // Mr. Restori's leftovers: sizes as measured in the background (files at once, datasets by ZFS)
+    $leftovers = clLeftoverSizes($raw['leftovers']['list'] ?? [], $cache, $pending, $space);
 
     $keys = array_keys($jobs['running'] + $jobs['queue']);
     $state = [
@@ -2390,7 +2473,7 @@ function clTopRefs(array $refs, string $share): array
  *   unused   nothing names it
  *   unknown  can't tell ($known false: Docker or the VM service doesn't answer)
  */
-function clFolderEntries(array $list, array $tops, array $named, string $kind, bool $known, bool $complete, array $cache, callable $pending): array
+function clFolderEntries(array $list, array $tops, array $named, string $kind, bool $known, bool $complete, array $cache, callable $pending, array $space = []): array
 {
     $now = time();
     $out = [];
@@ -2398,7 +2481,7 @@ function clFolderEntries(array $list, array $tops, array $named, string $kind, b
         $by = array_values($tops[$f['name']] ?? []);
         $strong = array_values(array_filter($by, fn ($r) => !$r['weak']));
         $parts = [];
-        $m = ['bytes' => 0, 'files' => 0, 'newest' => 0, 'top' => [], 'at' => PHP_INT_MAX, 'measured' => true, 'measuring' => false, 'partial' => false];
+        $m = ['bytes' => 0, 'files' => 0, 'newest' => 0, 'top' => [], 'at' => PHP_INT_MAX, 'measured' => true, 'measuring' => false, 'partial' => false, 'snaps' => 0];
         foreach ($f['parts'] as $p) {
             if (!empty($p['file'])) {
                 $size = ['bytes' => $p['bytes'], 'files' => 1, 'newest' => $p['mtime'], 'top' => [], 'at' => $now];
@@ -2411,6 +2494,12 @@ function clFolderEntries(array $list, array $tops, array $named, string $kind, b
             $m['measured'] = $m['measured'] && $ok;
             $m['measuring'] = $m['measuring'] || $busy;
             $m['partial'] = $m['partial'] || !empty($size['partial']);
+            // a dataset of its own: its size with its snapshots (find counts only the live files; its newest change still decides)
+            $ds = !empty($p['dataset']) ? ($space[$p['dataset']] ?? null) : null;
+            if ($ok && $ds) {
+                $size['bytes'] = $ds['used'];
+                $m['snaps'] += $ds['snaps'];
+            }
             if ($ok) {
                 $m['bytes'] += $size['bytes'];
                 $m['files'] += $size['files'];
@@ -2420,7 +2509,7 @@ function clFolderEntries(array $list, array $tops, array $named, string $kind, b
                     $m['top'][] = [$t, count($f['parts']) > 1 ? $p['root'] . ": $rel" : $rel];
                 }
             }
-            $parts[] = $p + ['bytes' => $ok ? $size['bytes'] : null, 'backup' => backupProtection($p['path'])];
+            $parts[] = $p + ['bytes' => $ok ? $size['bytes'] : null, 'snaps' => $ok && $ds ? $ds['snaps'] : null, 'backup' => backupProtection($p['path'])];
         }
         usort($m['top'], fn ($a, $b) => $b[0] <=> $a[0]);
         $m['top'] = array_slice($m['top'], 0, 5);
@@ -2460,6 +2549,7 @@ function clFolderEntries(array $list, array $tops, array $named, string $kind, b
             'used_more' => max(0, count($by) - 25),
             'parts'    => $parts,
             'bytes'    => $m['measured'] ? $m['bytes'] : null,
+            'snaps'    => $m['measured'] ? $m['snaps'] : null,     // of those bytes, what the snapshots of its datasets hold
             'files'    => $m['measured'] ? $m['files'] : null,
             'newest'   => $m['measured'] ? $m['newest'] : null,
             'top'      => $m['top'],

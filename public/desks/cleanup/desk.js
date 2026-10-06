@@ -656,6 +656,14 @@ function menuItems(e) {
   return items;
 }
 
+/** What the snapshots of its datasets hold of its size (ZFS counts them in; a dataset set aside may hold all in them) */
+function snapsChip(e) {
+  if (!e.snaps) return null;
+  const size = fmt.size(e.snaps);
+  return chip(T('snaps.chip', { size }), 'quiet', T('snaps.chip_text', { size }));
+}
+const snapsOf = (e, key = 'snaps.of') => (e.snaps ? ', ' + T(key, { size: fmt.size(e.snaps) }) : '');
+
 function sizeFigures(e, figures, unit) {
   if (e.bytes !== null && e.bytes !== undefined) figures.append(el('b', '', fmt.size(e.bytes)), el('span', '', unit));
   else if (e.measuring) figures.append(el('b', '', '…'), el('span', '', T('measuring')));
@@ -832,6 +840,8 @@ function folderMeta(f, meta, figures) {
   noteChips(f).forEach((c) => meta.appendChild(c));
   if (f.parts.length > 1) meta.appendChild(chip(f.parts.map((p) => p.root).join(' + '), 'quiet', T('parts_text')));
   if (f.parts.some((p) => p.dataset)) meta.appendChild(chip(T('zfs'), 'quiet', T('zfs_text', { name: f.parts.map((p) => p.dataset).filter(Boolean).join(', ') })));
+  const sc = snapsChip(f);
+  if (sc) meta.appendChild(sc);
   const bc = Office.backupChip(f.parts[0] && f.parts[0].backup);
   if (bc) meta.appendChild(bc);
   if (f.newest) meta.appendChild(el('span', '', T('changed', { when: fmt.relative(f.newest) })));
@@ -850,7 +860,7 @@ function folderDetail(f) {
   const file = f.kind === 'iso';
   box.appendChild(kv([
     [T('d.where'), lines(f.parts.map((p) => p.path + (p.dataset ? `  (${T('d.dataset', { name: p.dataset })})` : '')))],
-    [T('d.size'), f.bytes !== null ? `${fmt.size(f.bytes)}${file ? '' : ' · ' + T('files', { n: f.files })}${f.partial ? ' · ' + T('partial') : ''}` : (f.measuring ? T('measuring') : T('d.not_measured'))],
+    [T('d.size'), f.bytes !== null ? `${fmt.size(f.bytes)}${snapsOf(f)}${file ? '' : ' · ' + T('files', { n: f.files })}${f.partial ? ' · ' + T('partial') : ''}` : (f.measuring ? T('measuring') : T('d.not_measured'))],
     [T(file ? 'd.changed' : 'd.newest'), when(f.newest)],
     [T('d.measured'), !file && f.measured_at ? fmt.relative(f.measured_at) : ''],
     [T('d.newest_files'), f.top.length ? lines(f.top.map(([t, p]) => `${fmt.date(t)}  ${p}`)) : null],
@@ -1302,6 +1312,8 @@ function leftoverMeta(e, meta, figures) {
   if (e.category === 'unknown') meta.appendChild(chip(T('lo.unknown'), 'quiet', T('lo.unknown_text')));
   if (e.parts.length > 1) meta.appendChild(chip(e.parts.map((p) => p.root).join(' + '), 'quiet', T('parts_text')));
   if (e.parts.some((p) => p.dataset)) meta.appendChild(chip(T('zfs'), 'quiet', T('zfs_text', { name: e.parts.map((p) => p.dataset).filter(Boolean).join(', ') })));
+  const sc = snapsChip(e);
+  if (sc) meta.appendChild(sc);
   meta.appendChild(el('span', '', T('lo.since', { when: fmt.relative(e.time) })));
   sizeFigures(e, figures, '');
 }
@@ -1313,7 +1325,7 @@ function leftoverDetail(e) {
     [T('d.where'), e.parts.length ? lines(e.parts.map((p) => p.path + (p.dataset ? `  (${T('d.dataset', { name: p.dataset })})` : ''))) : e.path, true],
     [T('lo.d.restore'), `${restoreName(r)} · ${r.id}`],
     [T('lo.d.aside'), when(e.time)],
-    [T('d.size'), e.bytes !== null && e.bytes !== undefined ? fmt.size(e.bytes) : (e.measuring ? T('measuring') : T('d.not_measured'))],
+    [T('d.size'), e.bytes !== null && e.bytes !== undefined ? fmt.size(e.bytes) + snapsOf(e) : (e.measuring ? T('measuring') : T('d.not_measured'))],
   ]));
   box.appendChild(el('p', 'role', T('lo.what.' + e.what + '_text')));
   if (e.category === 'way_back') box.appendChild(el('p', 'role', T('lo.way_back_text')));
@@ -1468,7 +1480,7 @@ function renderTrash(body) {
 function runMeta(run) {
   const meta = [T('where.' + run.where)];
   if (run.items.length !== 1) meta.push(T('items', { n: run.items.length }));
-  if (run.bytes !== null) meta.push(fmt.size(run.bytes));
+  if (run.bytes !== null) meta.push(fmt.size(run.bytes) + snapsOf(run, 'snaps.of_run'));
   else if (run.measuring) meta.push(T('measuring'));
   return meta.join(' · ');
 }

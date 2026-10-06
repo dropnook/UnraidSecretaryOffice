@@ -2926,6 +2926,47 @@ function testLeftovers(): void
     foreach (['db', 'sqlite', 'files', 'config', 'vm', 'kopia', 'putback'] as $k) {
         check("leftovers: words for a restore of kind $k", isset($en["lo.kind.$k"]));
     }
+
+    // a dataset is as big as ZFS counts it with its snapshots — nostromo's VM folder set aside: used 17.3 GB, referenced 96 KB,
+    // find saw «0 B»; the other rooms (domains, appdata, the storeroom's parked datasets) the same
+    $aside = 'master/domains/VM.aside-20261006-175854';
+    $calls = [];
+    $zfs = function (array $cmd) use (&$calls, $aside): array {
+        $calls[] = $cmd;
+        return [1, "$aside\t17299173376\t17299075072\nother/x\t5\t0\nmaster/domains/odd\tx\t1\n", "cannot open 'pool/gone': dataset does not exist\n"];
+    };
+    $space = clZfsSpace([$aside, 'pool/gone', 'master/domains/odd'], $zfs);
+    same('zfs space: used and what the snapshots hold, only the datasets named', [$aside => ['used' => 17299173376, 'snaps' => 17299075072]], $space);
+    same('zfs space: one call naming them, none without datasets', [[['zfs', 'list', '-Hp', '-o', 'name,used,usedbysnapshots', $aside, 'pool/gone', 'master/domains/odd']], []],
+        [$calls, clZfsSpace([], $zfs)]);
+    $raw = [
+        'appdata'   => ['folders' => ['list' => [['parts' => [['dataset' => 'master/appdata/x'], ['dataset' => null]]], ['parts' => [['dataset' => 'tmpfs'], ['dataset' => '/dev/sdb1']]]]]],
+        'domains'   => ['folders' => ['list' => [['parts' => [['dataset' => $aside]]]]]],
+        'leftovers' => ['list' => [['parts' => [['dataset' => $aside], ['dataset' => null]]]]],
+        'trash'     => [['items' => [['zfs' => 'master/domains/_UnraidSecretaryOffice-trash-20261004-150957-W', 'present' => true], ['zfs' => 'master/gone', 'present' => false],
+                                     ['zfs' => null, 'present' => true], ['zfs' => '-o/x', 'present' => true]]]],
+    ];
+    same('zfs space: the datasets of the rooms, each once (no device, no tmpfs, no option)', ['master/appdata/x', $aside, 'master/domains/_UnraidSecretaryOffice-trash-20261004-150957-W'],
+        clRawDatasets($raw));
+    $path = "/mnt/$aside";
+    $lo = clLeftoverSizes([['parts' => [['path' => $path, 'dataset' => $aside, 'file' => false, 'bytes' => null],
+                                        ['path' => '/mnt/master/appdata/zz/pg.aside-20261006-172818', 'dataset' => null, 'file' => false, 'bytes' => null]]]],
+        ['sizes' => [$path => ['bytes' => 0, 'at' => time()], '/mnt/master/appdata/zz/pg.aside-20261006-172818' => ['bytes' => 18404352, 'at' => time()]]], fn () => false, $space)[0];
+    same('leftovers: a dataset set aside with all in its snapshots — 17.3 GB, of which 17.3 GB in them (not «0 B»)',
+        [17299173376 + 18404352, 17299075072, 17299173376, 17299075072, null, false], [$lo['bytes'], $lo['snaps'], $lo['parts'][0]['bytes'], $lo['parts'][0]['snaps'], $lo['parts'][1]['snaps'], $lo['measuring']]);
+    $lo = clLeftoverSizes([['parts' => [['path' => $path, 'dataset' => $aside, 'file' => false, 'bytes' => null]]]], ['sizes' => []], fn () => true, [])[0];
+    same('leftovers: without ZFS\'s word, measured in the background', [null, 0, true], [$lo['bytes'], $lo['snaps'], $lo['measuring']]);
+    $old = time() - 40 * 86400;
+    $list = [['name' => 'VM.aside-20261006-175854', 'parts' => [['root' => 'master', 'path' => $path, 'dataset' => $aside, 'zfs' => true, 'mtime' => $old]]]];
+    $cache = ['sizes' => [$path => ['at' => time(), 'files' => 3, 'bytes' => 98304, 'newest' => $old, 'top' => []]]];
+    $f = clFolderEntries($list, [], [], 'domain', true, true, $cache, fn () => false, $space)[0];
+    same('domains: a folder that is a dataset counts its snapshots, find still tells files and the newest change', [17299173376, 17299075072, 17299075072, 3, $old],
+        [$f['bytes'], $f['snaps'], $f['parts'][0]['snaps'], $f['files'], $f['newest']]);
+    $f = clFolderEntries($list, [], [], 'domain', true, true, $cache, fn () => false)[0];
+    same('domains: without ZFS\'s word what find counted', [98304, 0], [$f['bytes'], $f['snaps']]);
+    foreach (['snaps.chip', 'snaps.chip_text', 'snaps.of', 'snaps.of_run'] as $k) {
+        check("cleanup: words for $k", isset($en[$k]));
+    }
 }
 
 function testComposeBuilds(): void
