@@ -1752,9 +1752,11 @@ function embyWatchProblem(array $look): ?Problem
  * Before a real gather (php agent.php job gather run): may it start? Someone watching, from the
  * page → refused. On schedule → wait: look again every EMBY_WATCH_EVERY seconds up to
  * EMBY_WATCH_MAX, then skip. While waiting it holds only its own wait lock (never the gather's or
- * EmbyCache's) and shows itself in office-wait.json; a second scheduled start meanwhile adds
- * nothing (result `already`). A real gather that started meanwhile (from the page) ends the wait.
- * $o: look, sleep, now (callables), dir, every, max — for the tests.
+ * EmbyCache's) and shows itself in emby-gather-wait.json — both in RAM (RUN_DIR), so a wait of
+ * hours keeps nothing open on the pool; a second scheduled start meanwhile adds nothing (result
+ * `already`). A real gather that started meanwhile (from the page) ends the wait, so does the
+ * array stopping (`array`).
+ * $o: look, sleep, now, array (callables), dir (the gather's data), waitdir, every, max — for the tests.
  *
  * @return array{go: bool, result?: string, why?: string, look: array, waited: int, lock: mixed}
  *   go true: start now; `lock` is the wait lock (or null) — release it with embyWaitEnd() once the run shows as running
@@ -1765,6 +1767,8 @@ function embyGatherGate(string $by, array $o = []): array
     $sleep = $o['sleep'] ?? fn (int $s) => sleep($s);
     $now = $o['now'] ?? fn () => time();
     $dir = $o['dir'] ?? GATHER_DATA;
+    $waitDir = $o['waitdir'] ?? RUN_DIR;
+    $started = $o['array'] ?? fn () => (readCfg('/var/local/emhttp/var.ini')['fsState'] ?? '') === 'Started';
     $every = (int) ($o['every'] ?? EMBY_WATCH_EVERY);
     $max = (int) ($o['max'] ?? EMBY_WATCH_MAX);
 
@@ -1775,8 +1779,8 @@ function embyGatherGate(string $by, array $o = []): array
     if ($by !== 'schedule') {
         return ['go' => false, 'result' => 'refused', 'why' => 'emby_watching', 'look' => $w, 'waited' => 0, 'lock' => null];
     }
-    embyDataDir($dir);
-    $lock = @fopen("$dir/office-wait.lock", 'c');
+    @mkdir($waitDir, 0700, true);
+    $lock = @fopen("$waitDir/emby-gather-wait.lock", 'c');
     if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
         if ($lock) {
             fclose($lock);
@@ -1787,23 +1791,27 @@ function embyGatherGate(string $by, array $o = []): array
     $until = $since + $max;
     while (true) {
         $next = min($now() + $every, $until);
-        writeAtomic("$dir/office-wait.json", jsonEncode(['pid' => getmypid(), 'since' => $since, 'until' => $until, 'next' => $next,
-                                                        'looked' => $now(), 'who' => $w['who']]), 0600, 0, 0);
+        writeAtomic("$waitDir/emby-gather-wait.json", jsonEncode(['pid' => getmypid(), 'since' => $since, 'until' => $until, 'next' => $next,
+                                                                 'looked' => $now(), 'who' => $w['who']]), 0600, 0, 0);
         if ($now() >= $until) {
-            embyWaitEnd($lock, $dir);
+            embyWaitEnd($lock, $waitDir);
             return ['go' => false, 'result' => 'skipped', 'why' => 'emby_watching', 'look' => $w, 'waited' => $now() - $since, 'lock' => null];
         }
         $sleep(max(1, $next - $now()));
+        if (!$started()) {
+            embyWaitEnd($lock, $waitDir);     // the array stopped meanwhile: no data folder, no gather tonight
+            return ['go' => false, 'result' => 'array', 'look' => $w, 'waited' => $now() - $since, 'lock' => null];
+        }
         $run = readJson("$dir/office-run.json") ?? [];
         if (($run['mode'] ?? '') === 'run' && (int) ($run['started'] ?? 0) >= $since) {
-            embyWaitEnd($lock, $dir);         // a real gather started from the page meanwhile: tonight's is done
+            embyWaitEnd($lock, $waitDir);     // a real gather started from the page meanwhile: tonight's is done
             return ['go' => false, 'result' => 'meanwhile', 'look' => $w, 'waited' => $now() - $since, 'lock' => null];
         }
         $w = $look();
         if ($w['state'] !== 'watching') {
             $v = embyGateVerdict($w, $now() - $since, $lock);
             if (!$v['go']) {
-                embyWaitEnd($lock, $dir);
+                embyWaitEnd($lock, $waitDir);
                 $v['lock'] = null;
             }
             return $v;
@@ -1821,9 +1829,9 @@ function embyGateVerdict(array $w, int $waited, mixed $lock): array
 }
 
 /** The wait is over: its file goes, its lock is let go */
-function embyWaitEnd(mixed $lock, string $dir = GATHER_DATA): void
+function embyWaitEnd(mixed $lock, string $waitDir = RUN_DIR): void
 {
-    @unlink("$dir/office-wait.json");
+    @unlink("$waitDir/emby-gather-wait.json");
     if (is_resource($lock)) {
         flock($lock, LOCK_UN);
         fclose($lock);
@@ -1831,10 +1839,10 @@ function embyWaitEnd(mixed $lock, string $dir = GATHER_DATA): void
 }
 
 /** A scheduled gather waiting for Emby to be free (for the page), or null */
-function embyGatherWaiting(string $dir = GATHER_DATA): ?array
+function embyGatherWaiting(string $waitDir = RUN_DIR): ?array
 {
-    $w = readJson("$dir/office-wait.json");
-    if (!$w || !flockHeld("$dir/office-wait.lock")) {
+    $w = readJson("$waitDir/emby-gather-wait.json");
+    if (!$w || !flockHeld("$waitDir/emby-gather-wait.lock")) {
         return null;                       // a wait whose job is gone (reboot, killed) is no wait
     }
     return array_intersect_key($w, ['since' => 1, 'until' => 1, 'next' => 1, 'looked' => 1, 'who' => 1]);
@@ -2083,6 +2091,9 @@ function embyGateRefused(array $gate, string $by, int $asked): int
             return 0;
         case 'meanwhile':
             logLine('Jack Emby: the scheduled gather stops waiting — a real gather was started from the page meanwhile');
+            return 0;
+        case 'array':
+            logLine('Jack Emby: the scheduled gather stops waiting for Emby — the array was stopped');
             return 0;
         case 'skipped':
             logLine('Jack Emby: the scheduled gather is skipped tonight — someone watched Emby for ' . intdiv($gate['waited'], 60) . ' min (' . embyWatchersLine($who) . ')');

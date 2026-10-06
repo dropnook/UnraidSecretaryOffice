@@ -367,7 +367,7 @@ function testEmbyWatch(): void
         $t = 1000000;
         $slept = [];
         $n = 0;
-        $r = embyGatherGate($by, ['dir' => $dir, 'now' => function () use (&$t) { return $t; },
+        $r = embyGatherGate($by, ['dir' => $dir, 'waitdir' => "$dir/run", 'array' => fn () => !file_exists("$dir/array-stopped"), 'now' => function () use (&$t) { return $t; },
             'sleep' => function (int $s) use (&$t, &$slept, $during, $dir) { $slept[] = $s; $t += $s; if ($during) { $during($t, $dir); } },
             'look' => function () use (&$n, $looks) { return $looks[min($n++, count($looks) - 1)]; }]);
         return $r + ['slept' => $slept, 'looks' => $n];
@@ -381,22 +381,22 @@ function testEmbyWatch(): void
     $r = $gate('schedule', [['state' => 'error', 'who' => [], 'why' => 'emby_watch_key']]);
     same('gate on schedule: a bad key — refused, said why', [false, 'refused', 'emby_watch_key'], [$r['go'], $r['result'], $r['why']]);
     $seen = null;
-    $r = $gate('schedule', [$W, $W, $F], function () use (&$seen, $dir) { $seen ??= embyGatherWaiting($dir); });
+    $r = $gate('schedule', [$W, $W, $F], function () use (&$seen, $dir) { $seen ??= embyGatherWaiting("$dir/run"); });
     same('gate on schedule: waits 15 min at a time until nobody watches', [true, [900, 900], 1800, 3], [$r['go'], $r['slept'], $r['waited'], $r['looks']]);
-    check('gate on schedule: holds its wait lock until the run shows as running', is_resource($r['lock']) && flockHeld("$dir/office-wait.lock"));
+    check('gate on schedule: holds its wait lock (in RAM, not the pool) until the run shows as running', is_resource($r['lock']) && flockHeld("$dir/run/emby-gather-wait.lock"));
     same('gate on schedule: the page sees the wait — who, next look, until when',
         [1000000, 1000000 + 7200, 1000000 + 900, 'isp3'], [$seen['since'] ?? null, $seen['until'] ?? null, $seen['next'] ?? null, $seen['who'][0]['user'] ?? null]);
     check('gate on schedule: never the gather\'s or EmbyCache\'s lock while waiting', !flockHeld(GATHER_LOCK) || true);
-    embyWaitEnd($r['lock'], $dir);
-    check('gate: the wait\'s file and lock go when it ends', !file_exists("$dir/office-wait.json") && !flockHeld("$dir/office-wait.lock") && embyGatherWaiting($dir) === null);
+    embyWaitEnd($r['lock'], "$dir/run");
+    check('gate: the wait\'s file and lock go when it ends', !file_exists("$dir/run/emby-gather-wait.json") && !flockHeld("$dir/run/emby-gather-wait.lock") && embyGatherWaiting("$dir/run") === null);
     $r = $gate('schedule', [$W]);
     same('gate on schedule: watched for 2 h — skipped tonight', [false, 'skipped', 'emby_watching', 7200, 9, array_fill(0, 8, 900)],
         [$r['go'], $r['result'], $r['why'] ?? null, $r['waited'], $r['looks'], $r['slept']]);
-    check('gate on schedule: a skip lets go of its lock and file', !flockHeld("$dir/office-wait.lock") && !file_exists("$dir/office-wait.json"));
+    check('gate on schedule: a skip lets go of its lock and file', !flockHeld("$dir/run/emby-gather-wait.lock") && !file_exists("$dir/run/emby-gather-wait.json"));
     $r = $gate('schedule', [$W, ['state' => 'error', 'who' => [], 'why' => 'emby_watch_answer', 'detail' => 'HTTP 500']]);
     same('gate on schedule: Emby answers badly while waiting — refused', [false, 'refused', 'emby_watch_answer', null], [$r['go'], $r['result'], $r['why'], $r['lock']]);
-    check('gate on schedule: … and lets go of its lock', !flockHeld("$dir/office-wait.lock"));
-    $other = fopen("$dir/office-wait.lock", 'c');
+    check('gate on schedule: … and lets go of its lock', !flockHeld("$dir/run/emby-gather-wait.lock"));
+    $other = fopen("$dir/run/emby-gather-wait.lock", 'c');
     flock($other, LOCK_EX);
     $r = $gate('schedule', [$W]);
     same('gate on schedule: a second start while one waits — nothing new', [false, 'already', [], 1], [$r['go'], $r['result'], $r['slept'], $r['looks']]);
@@ -407,7 +407,11 @@ function testEmbyWatch(): void
     @unlink("$dir/office-run.json");
     $r = $gate('schedule', [$W, $F], function (int $t, string $dir) { writeAtomic("$dir/office-run.json", jsonEncode(['mode' => 'dry', 'started' => $t]), 0600, 0, 0); });
     same('gate on schedule: a dry run meanwhile doesn\'t', [true, 900], [$r['go'], $r['waited']]);
-    embyWaitEnd($r['lock'], $dir);
+    embyWaitEnd($r['lock'], "$dir/run");
+    @unlink("$dir/office-run.json");
+    $r = $gate('schedule', [$W], function (int $t, string $dir) { touch("$dir/array-stopped"); });
+    same('gate on schedule: the array stopped while waiting — the wait ends', [false, 'array', [900]], [$r['go'], $r['result'], $r['slept']]);
+    check('gate on schedule: … nothing left behind', !flockHeld("$dir/run/emby-gather-wait.lock") && !file_exists("$dir/run/emby-gather-wait.json"));
 
     // during a real run: someone starts watching → the stop request, the run ends after its folder
     $stop = "$tmp/stop.json";
