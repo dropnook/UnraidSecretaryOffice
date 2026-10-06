@@ -427,7 +427,7 @@
   "place.scripts_intro": "Chaque user script est un dossier sur la clé flash avec son script ; les planifications de tous se trouvent dans un seul fichier.",
   "place.office": "Ce secrétariat",
   "place.office_sub": "code, état, données de sauvegarde",
-  "place.office_intro": "Le secrétariat lui-même, ses données d'exécution (état, PIN) et les réglages, journaux et dumps de bases de données du moteur de sauvegarde.",
+  "place.office_intro": "Le secrétariat lui-même, ses données d'exécution (état, qui travaille ici) et les réglages, journaux et dumps de bases de données du moteur de sauvegarde.",
   "loc_count": {
     "one": "{n} entrée",
     "other": "{n} entrées"

@@ -4,12 +4,10 @@ declare(strict_types=1);
 /*
  * Where the office lives — shared by the web side and the agent.
  *
- * Two ways to run it:
- *   plugin   installed by Unraid's plugin manager: code in RAM under
- *            /usr/local/emhttp/plugins/unraid-secretary-office (web files and
- *            src/, agent/, backup/ side by side), served by Unraid's own
- *            nginx/PHP behind the Unraid login, the agent a service on the host
- *   stack    the repository in appdata, run by the Compose stack (compose.yaml)
+ * The office is an Unraid plugin: its code lies in RAM under
+ * /usr/local/emhttp/plugins/unraid-secretary-office (the web files at the top,
+ * src/, agent/, backup/ … beside them), Unraid's own nginx/PHP serve the page
+ * behind the Unraid login, the agent is a service on the host.
  *
  * The plugin keeps one small setting on the flash (DATA_DIR in its .cfg);
  * state, logs and the backup engine's data stay in appdata, which comes with
@@ -18,12 +16,6 @@ declare(strict_types=1);
 
 const OFFICE_PLUGIN     = 'unraid-secretary-office';
 const OFFICE_PLUGIN_CFG = '/boot/config/plugins/' . OFFICE_PLUGIN . '/' . OFFICE_PLUGIN . '.cfg';
-
-/** Is the office in $dir (where src/ lies) installed as a plugin? */
-function officeIsPlugin(string $dir): bool
-{
-    return str_starts_with($dir . '/', '/usr/local/emhttp/plugins/');
-}
 
 /** The plugin's data folder: DATA_DIR in its .cfg, by default <appdata>/UnraidSecretaryOffice/data */
 function officePluginDataDir(): string
@@ -38,7 +30,7 @@ function officePluginDataDir(): string
 }
 
 /*
- * The office's entry in Unraid's web UI (plugin only): the page
+ * The office's entry in Unraid's web UI: the page
  * SecretaryOffice.page. Where it shows is its Menu= line — its own entry in
  * the menu bar (Tasks:85, between Apps and Tools; the label its Name= line),
  * an icon under Settings → User Utilities as before 1.17 (Utilities; then

@@ -1,7 +1,7 @@
 /* The Night Watchman — keeps the watch book and tells only what is different
    from normal. His page: the last round (when, the next one, what is open),
    the watch book (newest first; a row unfolds to its details; «I know,
-   thanks» per entry and «Note all» — writes, so behind the PIN) and what he
+   thanks» per entry and «Note all») and what he
    keeps an eye on (what is normal, summarised; also what starts on its own:
    crontabs, the plugins' .cron files, User Scripts, at, notification agents).
    His rounds run on the server
@@ -443,7 +443,6 @@ function details(e) {
   box.appendChild(dl);
   const notes = [];
   if (p.office && e.kind.startsWith('cron_file')) notes.push(T('detail.office_cron'));
-  if (p.office && e.kind.startsWith('script_')) notes.push(T('detail.office_script'));
   if (e.open) notes.push(T('adopt.' + e.kind));
   if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline'].includes(e.by) ? e.by : 'page'), { when: fmt.date(e.noted) }));
   if (e.told) notes.push(T('detail.told', { when: fmt.date(e.told) }));

@@ -2026,9 +2026,8 @@ function rsLaunch(array $plan, bool $run = true): string
     if (!$run) {
         return $id;
     }
-    $agent = AS_PLUGIN ? OFFICE_DIR . '/agent/agent.php' : userSharePath(OFFICE_DIR . '/agent/agent.php');
     try {
-        hostLaunch('restore-job', [PHP_BINARY, $agent, 'job', 'restore', $id]);
+        hostLaunch('restore-job', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'restore', $id]);
     } catch (Problem $p) {
         $j['result'] = 'refused';
         $j['reason'] = $p->key;

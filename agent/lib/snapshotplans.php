@@ -17,8 +17,7 @@ declare(strict_types=1);
  *
  * Running: "php agent.php job snapshot-plans" every few minutes, on the host
  * itself, so it works even when nobody has the office open — a line in the
- * plugin's cron file (in the stack: one User Scripts entry, SNAPPLAN_SCRIPT;
- * see officeJobSchedule()). It runs whatever is due — also a run missed while
+ * plugin's cron file (see officeJobSchedule()). It runs whatever is due — also a run missed while
  * the server was off, once. The office sets it up when the first plan is
  * saved and switches it off when no plan is active any more.
  *
@@ -26,7 +25,6 @@ declare(strict_types=1);
  * data/snapshot-plans-state.json  {"<plan>": {last_run, result, …}}
  */
 
-const SNAPPLAN_SCRIPT  = 'unraid-secretary-office_snapshots';
 const SNAPPLAN_CRON    = '*/5 * * * *';
 const SNAPPLAN_MAX     = 20;
 const SNAPPLAN_KEEP    = 1000;
@@ -173,22 +171,7 @@ function snapPlansPublic(?array $scan): array
             'bytes'    => $bytes,
         ];
     }
-    return ['plans' => $out, 'runner' => $runner + ['name' => SNAPPLAN_SCRIPT], 'user_scripts' => AS_PLUGIN || housePlugin('user.scripts')];
-}
-
-/** Like backupSchedule(), for any User Scripts entry */
-function backupScheduleOf(string $name): array
-{
-    $script = US_DIR . "/scripts/$name/script";
-    $result = ['script' => is_file($script), 'frequency' => null, 'custom' => null, 'enabled' => false];
-    foreach ((array) json_decode((string) @file_get_contents(US_SCHEDULE), true) as $entry) {
-        if (is_array($entry) && ($entry['script'] ?? '') === $script) {
-            $result['frequency'] = (string) ($entry['frequency'] ?? '');
-            $result['custom'] = (string) ($entry['custom'] ?? '');
-            $result['enabled'] = !in_array($result['frequency'], ['', 'disabled'], true);
-        }
-    }
-    return $result;
+    return ['plans' => $out, 'runner' => $runner];
 }
 
 // ===================================================================== changing plans
@@ -197,9 +180,6 @@ function snapPlanSave(mixed $in): array
 {
     if (!is_array($in)) {
         throw new Problem('missing_field', ['field' => 'plan']);
-    }
-    if (!AS_PLUGIN && !housePlugin('user.scripts')) {
-        throw new Problem('no_user_scripts_plugin');
     }
     $plans = snapPlans();
     $label = trim((string) ($in['label'] ?? ''));
@@ -328,38 +308,13 @@ function snapPlanDelete(string $id): array
     return ['ok' => true, 'state' => snapshotScan(false)];
 }
 
-/**
- * The User Scripts entry that runs the plans: written while a plan is
- * active, its schedule switched off when none is.
- */
+/** The line in the plugin's cron file that runs the plans: there while a plan is active, gone when none is */
 function snapPlanRunner(): void
 {
     $active = array_filter(snapPlans(), fn ($p) => !empty($p['enabled']));
-    if (AS_PLUGIN) {            // a line in the plugin's cron file
-        if (isset(officeCronLines()['snapshots']) !== (bool) $active) {
-            officeJobSetSchedule('snapshots', $active ? SNAPPLAN_CRON : null);
-        }
-        return;
+    if (isset(officeCronLines()['snapshots']) !== (bool) $active) {
+        officeJobSetSchedule('snapshots', $active ? SNAPPLAN_CRON : null);
     }
-    $dir = US_DIR . '/scripts/' . SNAPPLAN_SCRIPT;
-    if (!$active && !is_dir($dir)) {
-        return;
-    }
-    if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
-        throw new Problem('command_failed', ['detail' => "cannot create $dir"]);
-    }
-    $agent = userSharePath(OFFICE_DIR . '/agent/agent.php');
-    $script = "#!/bin/bash\n"
-        . "#description=Unraid Secretary Office - Ms. Snapshotini's snapshot schedules: takes the snapshots that are due and clears away the schedule's old ones. Managed in the office, not here.\n"
-        . "#arrayStarted=true\n"
-        . 'exec ' . escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($agent) . " job snapshot-plans\n";
-    if ((string) @file_get_contents("$dir/script") !== $script) {
-        writeAtomic("$dir/script", $script, 0755, 0, 0);
-    }
-    if (!is_file("$dir/name")) {
-        @file_put_contents("$dir/name", SNAPPLAN_SCRIPT);
-    }
-    userScriptSchedule(SNAPPLAN_SCRIPT, $active ? SNAPPLAN_CRON : null);
 }
 
 // ===================================================================== running
@@ -560,11 +515,8 @@ function snapPlanChecks(): array
     $plans = snapPlans();
     $active = array_filter($plans, fn ($p) => !empty($p['enabled']));
     if ($active) {
-        if (!AS_PLUGIN) {
-            $out[] = finding('plans_user_scripts', 'required', housePlugin('user.scripts'), [], 'apps');
-        }
         $runner = officeJobSchedule('snapshots');
-        $out[] = finding('plans_runner', 'required', $runner['script'] && $runner['enabled'], ['name' => SNAPPLAN_SCRIPT], '#/snapshot');
+        $out[] = finding('plans_runner', 'required', $runner['script'] && $runner['enabled'], [], '#/snapshot');
         $states = snapPlanStates();
         foreach ($active as $p) {
             $st = $states[$p['id']] ?? [];

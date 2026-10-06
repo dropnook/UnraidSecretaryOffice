@@ -349,11 +349,10 @@
   "fit.no_cow": "Ich habe Frau Snapshotini gefragt, aber ohne ZFS oder btrfs gibt es hier nichts zu snapshotten. «Peccato!», hat sie gesagt.",
   "plans": "Zeitpläne",
   "plans_sub": "Snapshots zu festen Zeiten — ich räume dabei nur meine eigenen alten wieder weg. Kein Ersatz fürs Backup: Container laufen weiter.",
-  "help.plans": "Ein Zeitplan legt zu festen Zeiten Snapshots an (Name uso-plan-<zeitplan>-JJJJMMTT-HHMM; ältere heissen auto-<zeitplan>-… und zählen genauso) und löscht danach seine eigenen ältesten, bis nur noch so viele übrig sind, wie er behalten soll. Andere Snapshots — die von Herrn Backupsi, manuelle, gehaltene — fasst er nie an. Er läuft über einen User-Scripts-Eintrag, auch wenn das Sekretariat nicht offen ist. Container werden dabei nicht angehalten; für konsistente Sicherungen ist Herr Backupsi da.",
+  "help.plans": "Ein Zeitplan legt zu festen Zeiten Snapshots an (Name uso-plan-<zeitplan>-JJJJMMTT-HHMM; ältere heissen auto-<zeitplan>-… und zählen genauso) und löscht danach seine eigenen ältesten, bis nur noch so viele übrig sind, wie er behalten soll. Andere Snapshots — die von Herrn Backupsi, manuelle, gehaltene — fasst er nie an. Er läuft über eine Zeile in der Cron-Datei des Sekretariats, auch wenn das Sekretariat nicht offen ist. Container werden dabei nicht angehalten; für konsistente Sicherungen ist Herr Backupsi da.",
   "plan.new": "Neuer Zeitplan…",
   "plan.none": "Noch keine Zeitpläne. Allora — wie wäre es mit stündlichen Snapshots von appdata, 24 behalten?",
-  "plan.no_user_scripts": "Für Zeitpläne braucht es das Plugin «User Scripts» — der Teamchef sagt dir, wie.",
-  "plan.runner_off": "Der User-Scripts-Eintrag «{name}» fehlt oder hat keinen Zeitplan — so laufen die Zeitpläne nicht. Einen Zeitplan einmal speichern richtet ihn wieder ein.",
+  "plan.runner_off": "In der Cron-Datei des Sekretariats fehlt die Zeile für die Zeitpläne — sie laufen also nicht. Einen Zeitplan einmal zu speichern richtet sie wieder ein.",
   "plan.paused": "pausiert",
   "plan.keeps": {
     "one": "behält 1",
@@ -408,19 +407,16 @@
   "plan.recursive_hint": "Datasets darunter bekommen auch einen Snapshot (ZFS); aufgeräumt wird pro Dataset.",
   "plan.skip_asleep": "Schlafende Disks überspringen",
   "plan.skip_asleep_hint": "Ein Snapshot würde sie wecken. Dann gibt es für sie in diesem Lauf keinen.",
-  "plan.note": "Ich lege dafür den User-Scripts-Eintrag «{name}» an; er schaut alle 5 Minuten, was fällig ist — auch wenn das Sekretariat nicht offen ist. Verpasste Termine (Server aus) hole ich einmal nach.",
+  "plan.note": "Das Sekretariat schaut alle 5 Minuten nach, was fällig ist (eine Zeile in seiner Cron-Datei auf dem Flash) — auch wenn niemand es offen hat. Verpasste Zeiten (Server aus) werden einmal nachgeholt.",
   "plan.save": "Speichern",
   "plan.saved": "Geplant: {when}",
   "plan.need_targets": "Bitte mindestens ein Ziel wählen.",
   "plan.need_label": "Bitte einen Namen geben.",
-  "errors.no_user_scripts_plugin": "Dafür braucht es das Plugin «User Scripts».",
   "errors.plan_bad_label": "Der Name fehlt oder ist zu lang (höchstens 40 Zeichen).",
   "errors.plan_too_many": "Höchstens {max} Zeitpläne.",
   "errors.plan_unknown": "Diesen Zeitplan gibt es nicht (mehr).",
   "errors.plan_no_targets": "Der Zeitplan braucht mindestens ein Ziel.",
   "errors.plan_bad_keep": "«Behalten» muss zwischen 1 und 1000 liegen, «Tage» zwischen 0 und 3650.",
-  "check.plans_user_scripts": "User Scripts (für Frau Snapshotinis Zeitpläne)",
-  "check.plans_user_scripts_how": "«User Scripts» aus den Apps installieren.",
   "check.plans_runner": "Frau Snapshotinis Zeitpläne laufen",
   "check.plans_runner_how": "Bei Frau Snapshotini einen Zeitplan einmal speichern — das richtet ihn wieder ein.",
   "check.plan_failed": "Der Zeitplan «{name}» lief ohne Probleme",
@@ -439,7 +435,5 @@
     "one": "1 schlafende Disk wecken",
     "other": "{n} schlafende Disks wecken"
   },
-  "wake_title": "Nur für diesen Rundgang: weckt die schlafenden btrfs-Disks und liest auch ihre Snapshots. Ohne Haken lasse ich sie schlafen und zeige, was ich zuletzt von ihnen wusste. Unraid legt sie nach seiner Wartezeit wieder schlafen.",
-  "plan.runner_off_plugin": "In der Cron-Datei des Sekretariats fehlt die Zeile für die Zeitpläne — sie laufen also nicht. Einen Zeitplan einmal zu speichern richtet sie wieder ein.",
-  "plan.note_plugin": "Das Sekretariat schaut alle 5 Minuten nach, was fällig ist (eine Zeile in seiner Cron-Datei auf dem Flash) — auch wenn niemand es offen hat. Verpasste Zeiten (Server aus) werden einmal nachgeholt."
+  "wake_title": "Nur für diesen Rundgang: weckt die schlafenden btrfs-Disks und liest auch ihre Snapshots. Ohne Haken lasse ich sie schlafen und zeige, was ich zuletzt von ihnen wusste. Unraid legt sie nach seiner Wartezeit wieder schlafen."
 }

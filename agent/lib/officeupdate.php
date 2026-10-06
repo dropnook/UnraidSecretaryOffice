@@ -2,15 +2,11 @@
 declare(strict_types=1);
 
 /*
- * Keeping the office itself up to date — the caretaker's job.
+ * Is the office up to date? — the caretaker's question.
  *
  * Once a day he asks GitHub for the latest release and compares it with the
- * running version. As a plugin, Unraid's plugin manager updates it (he only
- * points there). Installed with git clone (the stack), he can also
- * update: a fast-forward pull of the branch, refused when the code was
- * changed locally. The office reads its code live and the agent restarts
- * itself, so an update is active at once; only a changed compose.yaml needs
- * the stack restarted, and he says so. Files keep the owner the folder had.
+ * running version. Unraid's plugin manager does the update; he only points
+ * there.
  */
 
 const OFFICE_REPO        = 'vipermark2/UnraidSecretaryOffice';
@@ -20,18 +16,6 @@ const OFFICE_CHECK_EVERY = 86400;
 function officeUpdateFile(): string
 {
     return DATA_DIR . '/office-update.json';
-}
-
-/**
- * git with the office's repository; root works on a folder someone else owns
- * (safe.directory) — so never with the repository's own hooks or fsmonitor
- * command: whoever can write the clone could otherwise have root run them.
- */
-function officeGit(array $args, int $timeout = 60, bool $net = false): array
-{
-    $cmd = array_merge(['git', '-c', 'safe.directory=*', '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false',
-                        '-c', 'protocol.ext.allow=never', '-C', OFFICE_DIR], $args);
-    return $net ? hostNet($cmd, $timeout) : run($cmd, $timeout);
 }
 
 /** The cached answer as the page may use it: a version number, and a link only to the repository's page on GitHub */
@@ -46,7 +30,7 @@ function officeUpdateClean(array $cache): array
     return $cache;
 }
 
-/** What the page shows: running version, latest release, how it is installed */
+/** What the page shows: running version, latest release */
 function officeUpdateInfo(bool $force = false): array
 {
     $cache = readJson(officeUpdateFile()) ?? [];
@@ -55,23 +39,10 @@ function officeUpdateInfo(bool $force = false): array
         writeAtomic(officeUpdateFile(), jsonEncode($cache));
     }
     $cache = officeUpdateClean($cache);         // also what lies in the file (others may have changed it)
-    $git = is_dir(OFFICE_DIR . '/.git');
-    $changed = false;
-    $branch = null;
-    if ($git) {
-        [$e1, $st] = officeGit(['status', '--porcelain', '--untracked-files=no'], 20);
-        $changed = $e1 !== 0 || trim($st) !== '';
-        [, $br] = officeGit(['rev-parse', '--abbrev-ref', 'HEAD'], 10);
-        $branch = trim($br) ?: null;
-    }
     $latest = $cache['latest'] ?? null;
     return $cache + [
         'version'   => AGENT_VERSION,
         'newer'     => $latest !== null && version_compare(ltrim($latest, 'v'), AGENT_VERSION, '>'),
-        'plugin'    => AS_PLUGIN,
-        'git'       => $git,
-        'changed'   => $changed,
-        'branch'    => $branch,
     ];
 }
 
@@ -92,47 +63,4 @@ function officeUpdateFetch(): array
     }
     return officeUpdateClean(['checked' => time(), 'latest' => ltrim((string) $body['tag_name'], 'v'), 'name' => (string) ($body['name'] ?? ''),
             'url' => (string) ($body['html_url'] ?? ''), 'published' => strtotime((string) ($body['published_at'] ?? '')) ?: null]);
-}
-
-/** "Update": fast-forward to what the repository has, never over local changes */
-function officeUpdate(): array
-{
-    $info = officeUpdateInfo();
-    if (!$info['git']) {
-        throw new Problem('office_not_git');
-    }
-    if ($info['changed']) {
-        throw new Problem('office_local_changes');
-    }
-    $branch = $info['branch'] ?: 'main';
-    [, $before] = officeGit(['rev-parse', 'HEAD'], 10);
-    [$exit, , $err] = officeGit(['fetch', '--quiet', '--tags', 'origin', $branch], 120, true);
-    if ($exit !== 0) {
-        throw new Problem('office_git', ['detail' => trim($err)]);
-    }
-    [$exit, , $err] = officeGit(['merge', '--ff-only', '--quiet', 'FETCH_HEAD'], 60);
-    if ($exit !== 0) {
-        throw new Problem('office_git', ['detail' => trim($err)]);
-    }
-    [, $after] = officeGit(['rev-parse', 'HEAD'], 10);
-    $before = trim($before);
-    $after = trim($after);
-    $files = [];
-    if ($before !== $after) {
-        [, $list] = officeGit(['diff', '--name-only', $before, $after], 20);
-        $files = array_values(array_filter(explode("\n", trim($list))));
-        // git ran as root: give changed files the folder's owner back (edits over SMB keep working)
-        $owner = @stat(OFFICE_DIR);
-        foreach ($files as $f) {
-            $path = OFFICE_DIR . '/' . $f;
-            if ($owner && file_exists($path)) {
-                @lchown($path, $owner['uid']);       // a link in the repository: itself, never what it points to
-                @lchgrp($path, $owner['gid']);
-            }
-        }
-    }
-    logLine("Caretaker: office updated " . substr($before, 0, 7) . ' → ' . substr($after, 0, 7) . ' (' . count($files) . ' files)');
-    @unlink(officeUpdateFile());
-    return ['ok' => true, 'updated' => $before !== $after, 'files' => count($files),
-            'compose' => in_array('compose.yaml', $files, true), 'state' => caretakerScan()];
 }

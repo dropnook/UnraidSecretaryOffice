@@ -427,7 +427,7 @@
   "place.scripts_intro": "Jedes User Script ist ein Ordner auf dem Flash mit seinem Script; die Zeitpläne aller Scripts stehen in einer Datei.",
   "place.office": "Dieses Sekretariat",
   "place.office_sub": "Code, Zustand, Backup-Daten",
-  "place.office_intro": "Das Sekretariat selbst, seine Laufzeitdaten (Zustand, PIN) und Einstellungen, Protokolle und Datenbank-Dumps des Backup-Motors.",
+  "place.office_intro": "Das Sekretariat selbst, seine Laufzeitdaten (Zustand, wer hier arbeitet) und Einstellungen, Protokolle und Datenbank-Dumps des Backup-Motors.",
   "loc_count": {
     "one": "1 Eintrag",
     "other": "{n} Einträge"

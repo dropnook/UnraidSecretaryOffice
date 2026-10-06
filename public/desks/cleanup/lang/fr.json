@@ -593,7 +593,7 @@
   "cat.scripts.idle": "Traînent",
   "cat.scripts.idle_text": "Désactivé, pas exécuté depuis le redémarrage, inchangé depuis 30 jours",
   "cat.scripts.used": "Utilisés",
-  "cat.scripts.used_text": "Planifié, en cours, exécuté depuis le redémarrage ou modifié récemment — ou appartenant au secrétariat",
+  "cat.scripts.used_text": "Planifié, en cours, exécuté depuis le redémarrage ou modifié récemment",
   "us.where": "Scripts dans {dir}. Ranger signifie : le dossier du script va dans mon débarras sur la clé flash.",
   "us.boot": "Quand un script a tourné pour la dernière fois n'est connu que depuis le redémarrage ({when}) — User Scripts garde ça en RAM.",
   "us.off": "désactivé",
@@ -608,8 +608,6 @@
   "us.schedule_text": "Sa planification dans User Scripts",
   "us.running": "en cours",
   "us.running_text": "Il tourne en ce moment.",
-  "us.office": "secrétariat",
-  "us.office_text": "Une des entrées du secrétariat lui-même — jamais rangée ici.",
   "us.dead": {
     "one": "{n} chemin disparu",
     "other": "{n} chemins disparus"
@@ -624,8 +622,6 @@
   "d.last_run": "Dernière exécution",
   "d.script_paths": "Chemins dans le script",
   "show_script": "Afficher le script",
-  "why.office": "secrétariat",
-  "why.office_text": "Les propres entrées User Scripts du secrétariat restent.",
   "why.running": "en cours",
   "why.running_text": "Il tourne en ce moment — j'attends.",
   "why.scheduled": "planifié",
@@ -645,9 +641,8 @@
     "one": "{n} User Script à regarder",
     "other": "{n} User Scripts à regarder"
   },
-  "help.scripts_text": "Scripts du plugin User Scripts qui sont désactivés : cassés (pas de fichier de script), pointant vers des chemins disparus, ou pas exécutés depuis le redémarrage et inchangés depuis 30 jours. Les scripts planifiés ou en cours et ceux du secrétariat ne sont jamais rangés.",
+  "help.scripts_text": "Scripts du plugin User Scripts qui sont désactivés : cassés (pas de fichier de script), pointant vers des chemins disparus, ou pas exécutés depuis le redémarrage et inchangés depuis 30 jours. Les scripts planifiés ou en cours ne sont jamais rangés.",
   "item.userscript": "User Script",
-  "errors.cleanup_office_script": "{name} appartient au secrétariat — il reste.",
   "errors.cleanup_running": "{name} tourne en ce moment.",
   "errors.cleanup_scheduled": "{name} a une planification — désactive-la d'abord dans User Scripts.",
   "item.now_in": "maintenant dans {path}",

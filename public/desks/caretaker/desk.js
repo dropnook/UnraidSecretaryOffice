@@ -182,11 +182,10 @@ function row(f) {
     const a = el('a', 'btn small plain', T('open.office'));
     a.href = f.link;
     acts.appendChild(a);
-  } else if (f.link && LINKS[f.link] && Office.safeHref(state.gui + LINKS[f.link])) {
+  } else if (f.link && LINKS[f.link]) {
+    // a page of Unraid's web UI, in the same tab like Unraid's own links
     const a = el('a', 'btn small plain', T('open.' + f.link));
-    a.href = Office.safeHref(state.gui + LINKS[f.link]);
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
+    a.href = LINKS[f.link];
     acts.appendChild(a);
   }
   if (ackable(f)) {
@@ -310,11 +309,7 @@ function officeSection() {
   else if (o.error) meta.appendChild(el('span', 'chip quiet', T('office_error.' + o.error)));
   if (o.checked) meta.appendChild(el('span', '', T('office_checked_at', { when: fmt.relative(o.checked) })));
   main.appendChild(meta);
-  let note = '';
-  if (o.newer && o.plugin) note = T('office_how_plugin');
-  else if (o.newer && !o.git) note = T('office_how_manual');
-  else if (o.newer && o.changed) note = T('office_how_changed');
-  if (note) main.appendChild(el('div', 'row-detail', note));
+  if (o.newer) main.appendChild(el('div', 'row-detail', T('office_how')));
   row.appendChild(main);
   const right = el('div', 'ct-office-actions');
   if (o.newer && Office.safeHref(o.url)) {
@@ -324,40 +319,15 @@ function officeSection() {
     a.rel = 'noopener noreferrer';
     right.appendChild(a);
   }
-  if (o.newer && o.plugin) {
+  if (o.newer) {
     const a = el('a', 'btn small', T('office_to_plugins'));
     a.href = '/Plugins';
     right.appendChild(a);
-  }
-  if (o.newer && o.git && !o.changed) {
-    const b = el('button', 'btn small', T('office_update'));
-    b.type = 'button';
-    b.disabled = !Office.agent.running;
-    b.onclick = () => officeUpdate(o);
-    right.appendChild(b);
   }
   row.appendChild(right);
   box.appendChild(row);
   s.appendChild(box);
   return s;
-}
-
-function officeUpdate(o) {
-  Office.dialog({
-    title: T('office_update_title', { version: o.latest }),
-    body: el('p', '', T('office_update_text')),
-    buttons: [
-      { text: Office.t('common.cancel') },
-      { text: T('office_update'), kind: '', act: async () => {
-        const j = await Office.api.post(`${ID}.office_update`, {});
-        if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
-        if (j.compose) Office.dialog({ title: T('office_compose_title'), body: el('p', '', T('office_compose_text')) });
-        else Office.toast(T('office_updated'));
-        setTimeout(() => location.reload(), j.compose ? 15000 : 2500);      // the new page code
-        return true;
-      } },
-    ],
-  });
 }
 
 // ------------------------------------------------------------------ the team

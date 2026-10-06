@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /*
- * The office's tile on Unraid's Dashboard (plugin only): the messenger, the
+ * The office's tile on Unraid's Dashboard: the messenger, the
  * team lead's traffic light (open points only — what the user noted with «I
  * know, thanks» doesn't count) and Mr. Backupsy's last and next run (or what
  * the engine is doing right now: a backup, a check, a dry run; a run skipped
@@ -150,10 +150,6 @@ function officeDashRows(string $lang): string
             . '<span class="sso-dash-name">' . $h($name) . ($sub !== '' ? '<small>' . $h($sub) . '</small>' : '') . '</span>'
             . '<span class="sso-dash-state ' . $tone . '-text">' . $h($state) . '</span></a>';
     };
-    if (officeReadProtected() && officeUnlocked() === null) {
-        return '<p class="sso-dash-note">' . $h(officeDashT($s, 'dash.locked')) . '</p>';
-    }
-
     $out = '';
     $agent = agentInfo();
     $out .= $row('', officeDashAsset('assets/messenger.svg'), officeDashT($s, 'dash.messenger'),
@@ -219,7 +215,6 @@ function officeDashTile(): string
         . '#db-sso .sso-dash-name{display:flex;flex-direction:column;min-width:0}'
         . '#db-sso .sso-dash-name small{opacity:.7;font-size:.92em}'
         . '#db-sso .sso-dash-state{margin-left:auto;text-align:right}'
-        . '#db-sso .sso-dash-note{margin:6px 0;text-align:left}'
         . '</style>'
         // the language this browser chose in the office (⋯ → Language) wins over Unraid's
         . '<script>(function(){var lang=' . json_encode($lang) . ',own=null;try{own=localStorage.getItem("office.lang");}catch(e){}'

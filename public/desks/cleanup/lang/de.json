@@ -593,7 +593,7 @@
   "cat.scripts.idle": "Liegen herum",
   "cat.scripts.idle_text": "Ausgeschaltet, seit dem Neustart nicht gelaufen, seit 30 Tagen unverändert",
   "cat.scripts.used": "In Betrieb",
-  "cat.scripts.used_text": "Mit Zeitplan, läuft, lief seit dem Neustart oder kürzlich geändert — oder eines des Büros",
+  "cat.scripts.used_text": "Mit Zeitplan, läuft, lief seit dem Neustart oder kürzlich geändert",
   "us.where": "Scripts in {dir}. Wegstellen heisst: Der Ordner des Scripts kommt in meine Abstellkammer auf dem Flash.",
   "us.boot": "Wann ein Script zuletzt lief, weiss ich nur seit dem Neustart ({when}) — User Scripts hält das im RAM.",
   "us.off": "aus",
@@ -608,8 +608,6 @@
   "us.schedule_text": "Sein Zeitplan in User Scripts",
   "us.running": "läuft",
   "us.running_text": "Es läuft gerade.",
-  "us.office": "Büro",
-  "us.office_text": "Ein eigener Eintrag des Büros — wird hier nie weggeräumt.",
   "us.dead": {
     "one": "1 Pfad weg",
     "other": "{n} Pfade weg"
@@ -624,8 +622,6 @@
   "d.last_run": "Zuletzt gelaufen",
   "d.script_paths": "Pfade im Script",
   "show_script": "Script anzeigen",
-  "why.office": "Büro",
-  "why.office_text": "Die eigenen User-Scripts-Einträge des Büros bleiben.",
   "why.running": "läuft",
   "why.running_text": "Es läuft gerade — ich warte.",
   "why.scheduled": "hat Zeitplan",
@@ -645,9 +641,8 @@
     "one": "1 User Script zum Anschauen",
     "other": "{n} User Scripts zum Anschauen"
   },
-  "help.scripts_text": "Scripts des User-Scripts-Plugins, die ausgeschaltet sind: kaputt (keine Script-Datei), mit Pfaden, die es nicht mehr gibt, oder seit dem Neustart nicht gelaufen und seit 30 Tagen unverändert. Scripts mit Zeitplan, laufende und die eigenen des Büros werden nie weggestellt.",
+  "help.scripts_text": "Scripts des User-Scripts-Plugins, die ausgeschaltet sind: kaputt (keine Script-Datei), mit Pfaden, die es nicht mehr gibt, oder seit dem Neustart nicht gelaufen und seit 30 Tagen unverändert. Scripts mit Zeitplan und laufende werden nie weggestellt.",
   "item.userscript": "User Script",
-  "errors.cleanup_office_script": "{name} gehört dem Büro — es bleibt.",
   "errors.cleanup_running": "{name} läuft gerade.",
   "errors.cleanup_scheduled": "{name} hat einen Zeitplan — schalte ihn zuerst in User Scripts aus.",
   "item.now_in": "liegt jetzt in {path}",

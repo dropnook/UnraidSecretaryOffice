@@ -349,11 +349,10 @@
   "fit.no_cow": "I asked Ms. Snapshotini, but without ZFS or btrfs there's nothing to snapshot here. \"Peccato!\", she said.",
   "plans": "Schedules",
   "plans_sub": "Snapshots at fixed times — I only ever clear away my own old ones. Not a backup: containers keep running.",
-  "help.plans": "A schedule takes snapshots at fixed times (named uso-plan-<schedule>-YYYYMMDD-HHMM; older ones auto-<schedule>-…, they count the same) and then deletes its own oldest until only as many are left as it should keep. Other snapshots — Mr. Backupsy's, manual ones, held ones — are never touched. It runs through a User Scripts entry, even when the office isn't open. Containers aren't paused for it; for consistent backups there's Mr. Backupsy.",
+  "help.plans": "A schedule takes snapshots at fixed times (named uso-plan-<schedule>-YYYYMMDD-HHMM; older ones auto-<schedule>-…, they count the same) and then deletes its own oldest until only as many are left as it should keep. Other snapshots — Mr. Backupsy's, manual ones, held ones — are never touched. It runs through a line in the office's cron file, even when the office isn't open. Containers aren't paused for it; for consistent backups there's Mr. Backupsy.",
   "plan.new": "New schedule…",
   "plan.none": "No schedules yet. Allora — how about hourly snapshots of appdata, keeping 24?",
-  "plan.no_user_scripts": "Schedules need the \"User Scripts\" plugin — the team lead tells you how.",
-  "plan.runner_off": "The User Scripts entry \"{name}\" is missing or has no schedule — so the schedules don't run. Saving a schedule once sets it up again.",
+  "plan.runner_off": "The office's cron file has no line for the schedules — so they don't run. Saving a schedule once sets it up again.",
   "plan.paused": "paused",
   "plan.keeps": {
     "one": "keeps 1",
@@ -408,19 +407,16 @@
   "plan.recursive_hint": "Datasets below get a snapshot too (ZFS); retention works per dataset.",
   "plan.skip_asleep": "Skip sleeping disks",
   "plan.skip_asleep_hint": "A snapshot would wake them. They then get none in that run.",
-  "plan.note": "I set up the User Scripts entry \"{name}\" for this; it checks every 5 minutes what is due — even when the office isn't open. Missed times (server off) are caught up once.",
+  "plan.note": "The office checks every 5 minutes what is due (a line in its cron file on the flash) — even when nobody has it open. Missed times (server off) are caught up once.",
   "plan.save": "Save",
   "plan.saved": "Scheduled: {when}",
   "plan.need_targets": "Please choose at least one target.",
   "plan.need_label": "Please give it a name.",
-  "errors.no_user_scripts_plugin": "This needs the \"User Scripts\" plugin.",
   "errors.plan_bad_label": "The name is missing or too long (at most 40 characters).",
   "errors.plan_too_many": "At most {max} schedules.",
   "errors.plan_unknown": "This schedule doesn't exist (any more).",
   "errors.plan_no_targets": "The schedule needs at least one target.",
   "errors.plan_bad_keep": "\"Keep\" must be between 1 and 1000, \"days\" between 0 and 3650.",
-  "check.plans_user_scripts": "User Scripts (for Ms. Snapshotini's schedules)",
-  "check.plans_user_scripts_how": "Install \"User Scripts\" from Apps.",
   "check.plans_runner": "Ms. Snapshotini's schedules are running",
   "check.plans_runner_how": "Save a schedule at Ms. Snapshotini once — that sets it up again.",
   "check.plan_failed": "The schedule \"{name}\" ran without problems",
@@ -439,7 +435,5 @@
     "one": "Wake 1 sleeping disk",
     "other": "Wake {n} sleeping disks"
   },
-  "wake_title": "Only for this tour: wakes the sleeping btrfs disks and reads their snapshots too. Unticked, I let them sleep and show what I last knew about them. Unraid puts them back to sleep after its delay.",
-  "plan.runner_off_plugin": "The office's cron file has no line for the schedules — so they don't run. Saving a schedule once sets it up again.",
-  "plan.note_plugin": "The office checks every 5 minutes what is due (a line in its cron file on the flash) — even when nobody has it open. Missed times (server off) are caught up once."
+  "wake_title": "Only for this tour: wakes the sleeping btrfs disks and reads their snapshots too. Unticked, I let them sleep and show what I last knew about them. Unraid puts them back to sleep after its delay."
 }

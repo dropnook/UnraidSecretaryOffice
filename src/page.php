@@ -5,21 +5,19 @@ declare(strict_types=1);
  * The one page. core.js builds the office from the desks it finds; every
  * desk renders itself (public/desks/<id>/desk.js).
  *
- * As a plugin the office is a page of Unraid's web UI: SecretaryOffice.page
- * puts it into Unraid's menu bar and calls officeInUnraid() — Unraid's
- * header, menu and footer around it, its theme's colours (office.css,
- * .in-unraid). The office's own index.php only forwards there.
- * In the Compose stack there is no Unraid around it: render_page() makes a
- * page of its own, with the office's own colours.
+ * The office is a page of Unraid's web UI: SecretaryOffice.page puts it into
+ * Unraid's menu bar and calls officeInUnraid() — Unraid's header, menu and
+ * footer around it, its theme's colours (office.css). The office's own
+ * index.php only forwards there.
  *
  * Unraid accepts a POST only with its csrf_token (local_prepend.php), so the
  * page hands it to core.js, which sends it along as X-CSRF-Token.
  */
 
-/** Where the browser finds the office's files: next to index.php, or the plugin's folder from Unraid's page */
+/** Where the browser finds the office's files from Unraid's page: the plugin's folder */
 function officeWebBase(): string
 {
-    return OFFICE_IN_UNRAID ? '/plugins/' . OFFICE_PLUGIN . '/' : '';
+    return '/plugins/' . OFFICE_PLUGIN . '/';
 }
 
 /** What core.js needs to start */
@@ -41,25 +39,19 @@ function officePageConfig(): array
         'languages' => officeLanguages(),
         'stamp'     => officeStringsStamp(),
         'tip_url'   => OFFICE_TIP_URL,
-        'plugin'    => OFFICE_AS_PLUGIN,
         'base'      => officeWebBase(),
-        'in_unraid' => OFFICE_IN_UNRAID,
         'reception_icon' => officeAsset('assets/reception.svg'),
     ];
-    if (OFFICE_AS_PLUGIN) {
-        $var = @parse_ini_file('/var/local/emhttp/var.ini') ?: [];
-        $config['csrf'] = (string) ($var['csrf_token'] ?? '');
-        $config['array'] = (string) ($var['fsState'] ?? '');     // Started, Stopped, Starting …
-        $config['menu_name'] = officeMenuName();
-        $config['menu_default'] = OFFICE_MENU_DEFAULT;
-        $config['menu_max'] = OFFICE_MENU_MAX;
-        $config['menu_page'] = basename(OFFICE_MENU_PAGE, '.page');
-        $config['menu_place'] = officeMenuPlace();
-    }
-    if (OFFICE_IN_UNRAID) {
-        // Unraid's language (de_DE …, '' = English): the office follows it unless the browser chose another
-        $config['unraid_lang'] = strtolower(strtok((string) ($GLOBALS['locale'] ?? ''), '_-') ?: 'en');
-    }
+    $var = @parse_ini_file('/var/local/emhttp/var.ini') ?: [];
+    $config['csrf'] = (string) ($var['csrf_token'] ?? '');
+    $config['array'] = (string) ($var['fsState'] ?? '');     // Started, Stopped, Starting …
+    $config['menu_name'] = officeMenuName();
+    $config['menu_default'] = OFFICE_MENU_DEFAULT;
+    $config['menu_max'] = OFFICE_MENU_MAX;
+    $config['menu_page'] = basename(OFFICE_MENU_PAGE, '.page');
+    $config['menu_place'] = officeMenuPlace();
+    // Unraid's language (de_DE …, '' = English): the office follows it unless the browser chose another
+    $config['unraid_lang'] = strtolower(strtok((string) ($GLOBALS['locale'] ?? ''), '_-') ?: 'en');
     return $config;
 }
 
@@ -82,31 +74,20 @@ function officeStyles(): void
 }
 
 /**
- * The office itself: one element (.sso) that holds everything, dialogs and
+ * The office itself: one element (#sso) that holds everything, dialogs and
  * menus included — office.css styles nothing outside it.
  */
 function officeBody(array $config): void
 {
-    $h = static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES);
     $json = json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP);
-    $inUnraid = !empty($config['in_unraid']);
+    $h = static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES);
     ?>
-<div class="sso<?= $inUnraid ? ' in-unraid' : '' ?>" id="sso">
+<div class="sso in-unraid" id="sso">
 
 <header class="topbar">
-<?php if (!$inUnraid): ?>
-  <a class="brand" href="#/">
-    <span class="dot" id="sso-dot"></span>
-    <span class="brand-name" id="sso-brand">Secretary Office</span>
-    <span class="hint"><?= $h($config['host']) ?></span>
-  </a>
-<?php endif; ?>
   <nav class="desk-tabs" id="sso-tabs" aria-label="Desks"></nav>
   <div class="topbar-right">
-<?php if ($inUnraid): ?>
     <button class="agent-state" id="sso-state" type="button"><span class="agent-label" id="sso-state-label"></span><span class="dot" id="sso-dot"></span></button>
-<?php endif; ?>
-    <button class="more" id="sso-lock" type="button" aria-label="PIN" hidden></button>
     <button class="more" id="sso-more" type="button" aria-label="More">⋯</button>
   </div>
 </header>
@@ -145,36 +126,7 @@ function officeInUnraid(): void
     officeBody(officePageConfig());
 }
 
-/** A page of its own (the Compose stack) */
-function render_page(): void
-{
-    header('Content-Type: text/html; charset=utf-8');
-    header('Cache-Control: no-store');
-    header('X-Content-Type-Options: nosniff');
-    header('Referrer-Policy: no-referrer');
-
-    $config = officePageConfig();
-    $h = static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES);
-    ?>
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="light dark">
-<meta name="robots" content="noindex">
-<title>Secretary Office · <?= $h($config['host']) ?></title>
-<link rel="icon" type="image/svg+xml" href="<?= $h(officeAsset('assets/icon.svg')) ?>">
-<?php officeStyles(); ?>
-</head>
-<body class="sso-page">
-<?php officeBody($config); ?>
-</body>
-</html>
-<?php
-}
-
-/** As a plugin the office lives in Unraid's web UI: index.php (old links, bookmarks) forwards there */
+/** The office lives in Unraid's web UI: index.php (old links, bookmarks) forwards there */
 function render_forward(): void
 {
     header('Content-Type: text/html; charset=utf-8');

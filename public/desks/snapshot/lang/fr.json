@@ -349,11 +349,10 @@
   "fit.no_cow": "J'ai demandé à Madame Snapshotini, mais sans ZFS ni btrfs, il n'y a rien à snapshotter ici. « Peccato ! », a-t-elle dit.",
   "plans": "Planifications",
   "plans_sub": "Des snapshots à heures fixes — je ne nettoie jamais que mes propres anciens. Pas une sauvegarde : les conteneurs continuent de tourner.",
-  "help.plans": "Une planification prend des snapshots à heures fixes (nommés uso-plan-<planification>-YYYYMMDD-HHMM ; les plus anciens auto-<planification>-…, ils comptent pareil) puis supprime ses propres plus anciens jusqu'à ce qu'il n'en reste que le nombre à garder. Les autres snapshots — ceux de Monsieur Backupsi, les manuels, les protégés — ne sont jamais touchés. Elle passe par une entrée User Scripts, même quand le secrétariat n'est pas ouvert. Les conteneurs ne sont pas mis en pause pour ça ; pour des sauvegardes cohérentes, il y a Monsieur Backupsi.",
+  "help.plans": "Une planification prend des snapshots à heures fixes (nommés uso-plan-<planification>-YYYYMMDD-HHMM ; les plus anciens auto-<planification>-…, ils comptent pareil) puis supprime ses propres plus anciens jusqu'à ce qu'il n'en reste que le nombre à garder. Les autres snapshots — ceux de Monsieur Backupsi, les manuels, les protégés — ne sont jamais touchés. Elle passe par une ligne du fichier cron du secrétariat, même quand le secrétariat n'est pas ouvert. Les conteneurs ne sont pas mis en pause pour ça ; pour des sauvegardes cohérentes, il y a Monsieur Backupsi.",
   "plan.new": "Nouvelle planification…",
   "plan.none": "Pas encore de planification. Allora — que dirais-tu de snapshots horaires d'appdata, en en gardant 24 ?",
-  "plan.no_user_scripts": "Les planifications ont besoin du plugin « User Scripts » — le chef d'équipe te dit comment faire.",
-  "plan.runner_off": "L'entrée User Scripts « {name} » manque ou n'a pas de planification — donc les planifications ne tournent pas. Enregistrer une planification une fois la remet en place.",
+  "plan.runner_off": "Le fichier cron du secrétariat n'a pas de ligne pour les planifications — donc elles ne tournent pas. Enregistrer une planification une fois la remet en place.",
   "plan.paused": "en pause",
   "plan.keeps": {
     "one": "en garde {n}",
@@ -408,19 +407,16 @@
   "plan.recursive_hint": "Les datasets en dessous reçoivent aussi un snapshot (ZFS) ; la rétention fonctionne par dataset.",
   "plan.skip_asleep": "Ignorer les disques endormis",
   "plan.skip_asleep_hint": "Un snapshot les réveillerait. Ils n'en reçoivent alors pas lors de cette exécution.",
-  "plan.note": "Je mets en place pour ça l'entrée User Scripts « {name} » ; elle vérifie toutes les 5 minutes ce qui est dû — même quand le secrétariat n'est pas ouvert. Les heures manquées (serveur éteint) sont rattrapées une fois.",
+  "plan.note": "Le secrétariat vérifie toutes les 5 minutes ce qui est dû (une ligne dans son fichier cron sur la clé flash) — même quand personne ne l'a ouvert. Les heures manquées (serveur éteint) sont rattrapées une fois.",
   "plan.save": "Enregistrer",
   "plan.saved": "Planifié : {when}",
   "plan.need_targets": "Choisis au moins une cible, s'il te plaît.",
   "plan.need_label": "Donne-lui un nom, s'il te plaît.",
-  "errors.no_user_scripts_plugin": "Il faut pour cela le plugin « User Scripts ».",
   "errors.plan_bad_label": "Le nom manque ou est trop long (40 caractères au plus).",
   "errors.plan_too_many": "{max} planifications au plus.",
   "errors.plan_unknown": "Cette planification n'existe pas (plus).",
   "errors.plan_no_targets": "La planification a besoin d'au moins une cible.",
   "errors.plan_bad_keep": "« Garder » doit être entre 1 et 1000, « jours » entre 0 et 3650.",
-  "check.plans_user_scripts": "User Scripts (pour les planifications de Madame Snapshotini)",
-  "check.plans_user_scripts_how": "Installe « User Scripts » depuis Applis.",
   "check.plans_runner": "Les planifications de Madame Snapshotini tournent",
   "check.plans_runner_how": "Enregistre une fois une planification chez Madame Snapshotini — ça la remet en place.",
   "check.plan_failed": "La planification « {name} » a tourné sans problème",
@@ -439,7 +435,5 @@
     "one": "Réveiller {n} disque endormi",
     "other": "Réveiller {n} disques endormis"
   },
-  "wake_title": "Seulement pour cette tournée : réveille les disques btrfs endormis et lit aussi leurs snapshots. Décoché, je les laisse dormir et je montre ce que je savais d'eux en dernier. Unraid les rendort après son délai.",
-  "plan.runner_off_plugin": "Le fichier cron du secrétariat n'a pas de ligne pour les planifications — donc elles ne tournent pas. Enregistrer une planification une fois la remet en place.",
-  "plan.note_plugin": "Le secrétariat vérifie toutes les 5 minutes ce qui est dû (une ligne dans son fichier cron sur la clé flash) — même quand personne ne l'a ouvert. Les heures manquées (serveur éteint) sont rattrapées une fois."
+  "wake_title": "Seulement pour cette tournée : réveille les disques btrfs endormis et lit aussi leurs snapshots. Décoché, je les laisse dormir et je montre ce que je savais d'eux en dernier. Unraid les rendort après son délai."
 }

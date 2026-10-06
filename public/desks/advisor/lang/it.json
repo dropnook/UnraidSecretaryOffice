@@ -164,7 +164,7 @@
   "by_me_tip": "Unraid ha creato questo container dal modulo che ho compilato io (label uso.installed-by=consultant). Per il resto è un container come gli altri.",
   "help.by_me": "Un container che Unraid ha creato da un modulo preparato dal consulente. Solo una nota — non cambia niente.",
   "help.do_term": "Lo faccio io / Preparato nel modulo di Unraid",
-  "help.do": "La seconda offerta del consulente, dopo la via a mano: i plugin con il gestore dei plugin di Unraid (come Plugin → Installa Plugin), i container con il modulo «Aggiungi Contenitore» di Unraid, compilato come un modello da Apps — vedi ogni campo e clicchi tu su Applica. Sempre prima un'anteprima; con un PIN solo da un browser sbloccato. Mai sopra qualcosa che c'è già.",
+  "help.do": "La seconda offerta del consulente, dopo la via a mano: i plugin con il gestore dei plugin di Unraid (come Plugin → Installa Plugin), i container con il modulo «Aggiungi Contenitore» di Unraid, compilato come un modello da Apps — vedi ogni campo e clicchi tu su Applica. Sempre prima un'anteprima. Mai sopra qualcosa che c'è già.",
   "help.sheet": "Quando il repository di Kopia è stato configurato qui: una pagina da stampare con tutto ciò che serve per riavere i tuoi backup su un nuovo server — chiavi e password comprese. Creata solo nel tuo browser; la segreteria non ne tiene niente.",
   "installing": "in installazione …",
   "installing_tip": "Il gestore dei plugin di Unraid è al lavoro — clicca per vedere il suo output.",
@@ -339,6 +339,5 @@
   "errors.ad_kopia_failed": "Kopia dice di no: {output}",
   "errors.ad_kopia_field": "Controlla «{field}».",
   "errors.ad_secret_missing": "Le chiavi non sono arrivate (inviate due volte, o troppo tardi?). Non è cambiato niente — riprova.",
-  "errors.ad_secret_plugin_only": "Solo con la segreteria come plugin: nello stack Compose la pagina non può passare niente all'agente attraverso la RAM. Configura Kopia a mano.",
   "errors.ad_secret_inbox": "La segreteria non è riuscita a preparare la sua cartella di consegna nella RAM ({dir}) — non è stato inviato niente."
 }

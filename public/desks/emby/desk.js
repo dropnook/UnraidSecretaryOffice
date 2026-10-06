@@ -195,7 +195,7 @@ function overview() {
     last ? `${T('mode.' + (last.mode || 'dry'))} · ${T('counts', { errors: last.errors || 0, warnings: last.warnings || 0 })}` : '',
     !!(last && (last.errors || (last.result && last.result !== 'ok'))));
   const sc = state.schedules.embycache;
-  stat(stats, T('schedule'), schedText(sc), sc.enabled ? T(sc.via === 'office' ? 'by_office' : 'by_user_scripts') : T('schedule_set'),
+  stat(stats, T('schedule'), schedText(sc), sc.enabled ? T('by_office') : T('schedule_set'),
     !sc.enabled, () => scheduleDialog('embycache'));
   s.appendChild(stats);
 
@@ -261,7 +261,7 @@ function gatherSection() {
     !!(last && (last.conflicts || last.errors || last.full)));
   stat(stats, T('shares'), set.shares.join(', '), T('gather_settings', { gb: set.min_free_gb, dup: T('dup.' + set.dup_check) }));
   const sc = state.schedules.gather;
-  stat(stats, T('schedule'), schedText(sc), sc.enabled ? T(sc.via === 'office' ? 'by_office' : 'by_user_scripts') : T('schedule_set'),
+  stat(stats, T('schedule'), schedText(sc), sc.enabled ? T('by_office') : T('schedule_set'),
     false, () => scheduleDialog('gather'));
   s.appendChild(stats);
   if (last && (last.conflicts || last.errors || last.full)) s.appendChild(el('p', 'callout warn', T('gather_problems', { conflicts: last.conflicts, errors: last.errors, full: last.full })));
@@ -498,7 +498,7 @@ function scheduleDialog(job) {
   cron.spellcheck = false;
 
   const box = el('div', 'jo-schedule');
-  box.appendChild(el('p', '', T(sc.via === 'office' ? 'schedule.intro_plugin' : 'schedule.intro', { what: T('tool.' + job) })));
+  box.appendChild(el('p', '', T('schedule.intro', { what: T('tool.' + job) })));
   const option = (id, text, hint, ...extra) => {
     const label = el('label', 'check');
     const input = el('input');
@@ -551,7 +551,7 @@ function scheduleDialog(job) {
         const j = await Office.api.post(`${ID}.schedule`, { job, cron: expr });
         if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
         if (j.state) state = j.state;
-        if (!j.live) Office.toast(T(sc.via === 'office' ? 'schedule.not_live_plugin' : 'schedule.not_live'), true);
+        if (!j.live) Office.toast(T('schedule.not_live'), true);
         else Office.toast(expr ? T('schedule.saved_on', { when: fmt.cron(expr) }) : T('schedule.saved_off'));
         if (view && page === 'main') render();
         return true;

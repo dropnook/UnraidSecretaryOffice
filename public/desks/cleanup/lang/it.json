@@ -593,7 +593,7 @@
   "cat.scripts.idle": "Abbandonati in giro",
   "cat.scripts.idle_text": "Disattivato, non eseguito dal riavvio, invariato da 30 giorni",
   "cat.scripts.used": "In uso",
-  "cat.scripts.used_text": "Pianificato, in esecuzione, eseguito dal riavvio o modificato di recente — oppure uno dell'ufficio",
+  "cat.scripts.used_text": "Pianificato, in esecuzione, eseguito dal riavvio o modificato di recente",
   "us.where": "Script in {dir}. Mettere via vuol dire: la cartella dello script va nel mio ripostiglio sull'unità flash.",
   "us.boot": "Quando uno script è stato eseguito l'ultima volta lo so solo dal riavvio ({when}) — User Scripts lo tiene nella RAM.",
   "us.off": "spento",
@@ -608,8 +608,6 @@
   "us.schedule_text": "La sua pianificazione in User Scripts",
   "us.running": "in esecuzione",
   "us.running_text": "È in esecuzione proprio ora.",
-  "us.office": "ufficio",
-  "us.office_text": "Una delle voci dell'ufficio stesso — qui non viene mai messa via.",
   "us.dead": {
     "one": "1 percorso sparito",
     "other": "{n} percorsi spariti"
@@ -624,8 +622,6 @@
   "d.last_run": "Ultima esecuzione",
   "d.script_paths": "Percorsi nello script",
   "show_script": "Mostra lo script",
-  "why.office": "ufficio",
-  "why.office_text": "Le voci di User Scripts dell'ufficio stesso restano.",
   "why.running": "in esecuzione",
   "why.running_text": "È in esecuzione proprio ora — aspetto.",
   "why.scheduled": "pianificato",
@@ -645,9 +641,8 @@
     "one": "1 User Script da guardare",
     "other": "{n} User Script da guardare"
   },
-  "help.scripts_text": "Script del plugin User Scripts che sono disattivati: rotti (nessun file di script), che puntano a percorsi spariti, o non eseguiti dal riavvio e invariati da 30 giorni. Gli script pianificati o in esecuzione e quelli dell'ufficio non vengono mai messi via.",
+  "help.scripts_text": "Script del plugin User Scripts che sono disattivati: rotti (nessun file di script), che puntano a percorsi spariti, o non eseguiti dal riavvio e invariati da 30 giorni. Gli script pianificati o in esecuzione non vengono mai messi via.",
   "item.userscript": "User Script",
-  "errors.cleanup_office_script": "{name} appartiene all'ufficio — resta.",
   "errors.cleanup_running": "{name} è in esecuzione proprio ora.",
   "errors.cleanup_scheduled": "{name} ha una pianificazione — prima disattivala in User Scripts.",
   "item.now_in": "ora è in {path}",

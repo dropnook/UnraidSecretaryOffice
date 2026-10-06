@@ -12,7 +12,6 @@ declare(strict_types=1);
  * nightly backup, say) keeps running until you switch it off there.
  *
  * data/office/staff.json: {"hired": {"<desk>": <since>, …}}
- * Hiring and firing need an unlocked browser, like every other change.
  */
 
 function officeStaffFile(): string
@@ -45,34 +44,31 @@ function officeIsHired(string $desk): bool
 /** office.hire {desks: [...]} and office.fire {desk} */
 function officeStaffAction(string $action, array $data): array
 {
-    if (officeUnlocked() === null) {
-        throw new AuthProblem('pin_required', 401);
-    }
     $desks = officeDesks();
     $ids = $action === 'office.hire' ? (array) ($data['desks'] ?? []) : [(string) ($data['desk'] ?? '')];
     $ids = array_values(array_unique(array_filter($ids, 'is_string')));
     if (!$ids) {
-        throw new AuthProblem('missing_field', 400, ['field' => 'desks']);
+        throw new OfficeProblem('missing_field', 400, ['field' => 'desks']);
     }
     foreach ($ids as $id) {
         if (!isset($desks[$id])) {
-            throw new AuthProblem('unknown_desk', 400, ['desk' => $id]);
+            throw new OfficeProblem('unknown_desk', 400, ['desk' => $id]);
         }
         if ($desks[$id]['always']) {
-            throw new AuthProblem('always_there', 400, ['desk' => $id]);
+            throw new OfficeProblem('always_there', 400, ['desk' => $id]);
         }
         if ($desks[$id]['training'] && $action === 'office.hire') {
-            throw new AuthProblem('in_training', 400, ['desk' => $id]);
+            throw new OfficeProblem('in_training', 400, ['desk' => $id]);
         }
     }
     $file = officeStaffFile();
     $dir = dirname($file);
     if (!is_dir($dir) || !is_writable($dir)) {
-        throw new AuthProblem('auth_storage', 503);
+        throw new OfficeProblem('office_storage', 503);
     }
     $h = fopen("$dir/.staff.lock", 'c');
     if (!$h || !flock($h, LOCK_EX)) {
-        throw new AuthProblem('auth_storage', 503);
+        throw new OfficeProblem('office_storage', 503);
     }
     try {
         $staff = officeReadJson($file) ?? [];
@@ -88,7 +84,7 @@ function officeStaffAction(string $action, array $data): array
         $tmp = "$dir/.staff." . bin2hex(random_bytes(4)) . '.tmp';
         if (@file_put_contents($tmp, json_encode($staff, JSON_UNESCAPED_SLASHES)) === false || !@rename($tmp, $file)) {
             @unlink($tmp);
-            throw new AuthProblem('auth_storage', 503);
+            throw new OfficeProblem('office_storage', 503);
         }
     } finally {
         flock($h, LOCK_UN);

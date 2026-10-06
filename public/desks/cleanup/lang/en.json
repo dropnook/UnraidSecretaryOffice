@@ -593,7 +593,7 @@
   "cat.scripts.idle": "Lying around",
   "cat.scripts.idle_text": "Switched off, not run since the reboot, unchanged for 30 days",
   "cat.scripts.used": "In use",
-  "cat.scripts.used_text": "Scheduled, running, run since the reboot or changed lately — or the office's own",
+  "cat.scripts.used_text": "Scheduled, running, run since the reboot or changed lately",
   "us.where": "Scripts in {dir}. Put away means: the script's folder goes into my storeroom on the flash.",
   "us.boot": "When a script last ran is only known since the reboot ({when}) — User Scripts keeps that in RAM.",
   "us.off": "off",
@@ -608,8 +608,6 @@
   "us.schedule_text": "Its schedule in User Scripts",
   "us.running": "running",
   "us.running_text": "It is running right now.",
-  "us.office": "office",
-  "us.office_text": "One of the office's own entries — never cleared away here.",
   "us.dead": {
     "one": "1 path gone",
     "other": "{n} paths gone"
@@ -624,8 +622,6 @@
   "d.last_run": "Last run",
   "d.script_paths": "Paths in the script",
   "show_script": "Show script",
-  "why.office": "office",
-  "why.office_text": "The office's own User Scripts entries stay.",
   "why.running": "running",
   "why.running_text": "It is running right now — I'll wait.",
   "why.scheduled": "scheduled",
@@ -645,9 +641,8 @@
     "one": "1 User Script to look at",
     "other": "{n} User Scripts to look at"
   },
-  "help.scripts_text": "Scripts of the User Scripts plugin that are switched off: broken (no script file), pointing to paths that are gone, or not run since the reboot and unchanged for 30 days. Scheduled or running scripts and the office's own are never put away.",
+  "help.scripts_text": "Scripts of the User Scripts plugin that are switched off: broken (no script file), pointing to paths that are gone, or not run since the reboot and unchanged for 30 days. Scheduled or running scripts are never put away.",
   "item.userscript": "User Script",
-  "errors.cleanup_office_script": "{name} belongs to the office — it stays.",
   "errors.cleanup_running": "{name} is running right now.",
   "errors.cleanup_scheduled": "{name} has a schedule — switch it off in User Scripts first.",
   "item.now_in": "now in {path}",

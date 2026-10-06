@@ -8,8 +8,9 @@ declare(strict_types=1);
  * …]), see finding() in lib/house.php). The caretaker collects all of that,
  * adds what the office as a whole needs or benefits from, and tells the user
  * what is missing and what is left to do by hand. He only reads — except
- * updating the office itself when asked (lib/officeupdate.php) and naming
- * its entry in Unraid's menu bar (⋯ → "Name in the menu bar").
+ * naming the office's entry in Unraid (⋯ → "Entry in Unraid"); whether a
+ * newer release is out he asks GitHub (lib/officeupdate.php), Unraid's
+ * plugin manager does the update.
  *
  * What turns red ("still to do") is also told to Unraid's notifications,
  * once, after it has stayed red for a while (see "Reports to Unraid" below);
@@ -38,7 +39,6 @@ desk('caretaker', [
     'actions' => [
         'refresh'       => fn (array $r) => ['ok' => true, 'state' => caretakerScan()],
         'office_check'  => fn (array $r) => ['ok' => true, 'state' => caretakerScan(true)],
-        'office_update' => fn (array $r) => officeUpdate(),
         'menu_name'     => fn (array $r) => caretakerMenuName((string) ($r['name'] ?? ''), (string) ($r['place'] ?? 'menu')),
         'notify_set'    => fn (array $r) => caretakerNotifySet($r['on'] ?? null),
         'ack'           => fn (array $r) => caretakerAck($r['sig'] ?? null, true),
@@ -90,7 +90,6 @@ function caretakerScan(bool $checkUpdate = false): array
     $state = [
         'time'        => time(),
         'duration_ms' => (int) round((microtime(true) - $t0) * 1000),
-        'gui'         => houseGuiUrl(),
         'checks'      => $checks,
         'staff'       => $staff,
         'office'      => $office,
@@ -128,14 +127,14 @@ function caretakerTick(): void
 }
 
 /**
- * As a plugin: the look at the agent (scripts/agent.sh writes agent-watch.cron,
+ * The look at the agent (scripts/agent.sh writes agent-watch.cron,
  * every 5 minutes job.sh watch) is in root's crontab. Unraid reads plugins'
  * cron files only when someone runs update_cron — not right after a fresh
  * install, so the caretaker sees to it.
  */
 function caretakerWatchCron(): void
 {
-    if (!AS_PLUGIN || !is_file(CARETAKER_WATCH_CRON) || !is_link('/var/log/plugins/' . OFFICE_PLUGIN . '.plg')
+    if (!is_file(CARETAKER_WATCH_CRON) || !is_link('/var/log/plugins/' . OFFICE_PLUGIN . '.plg')
         || str_contains((string) @file_get_contents('/etc/cron.d/root'), '/scripts/job.sh watch')) {
         return;
     }
@@ -453,9 +452,6 @@ function caretakerChecks(): array
         ['version' => AGENT_VERSION, 'latest' => (string) ($office['latest'] ?? '')], '#/caretaker');
 
     $out[] = finding('community_apps', 'recommended', housePlugin('community.applications'), [], 'plugins');
-    if (!AS_PLUGIN) {           // the stack is run with it
-        $out[] = finding('compose_manager', 'recommended', housePlugin('compose.manager'), [], 'apps');
-    }
     if (!in_array('advisor', staffHired(), true)) {      // once hired, the consultant looks after them
         $out[] = finding('fix_common_problems', 'recommended', housePlugin('fix.common.problems'), [], 'apps');
         $out[] = finding('files_viewer', 'recommended', housePlugin('filesviewer'), [], 'apps');
@@ -481,11 +477,6 @@ function caretakerChecks(): array
         }
     }
 
-    if (!AS_PLUGIN) {           // as a plugin the Unraid login guards the office already
-        $auth = readJson(DATA_DIR . '/office/auth.json') ?? [];
-        $out[] = finding('pin', 'recommended', !empty($auth['pin_hash']));
-    }
-
     // other backup tools: worth knowing, so nothing runs twice by accident
     foreach (housePlugins() as $p) {
         if (preg_match('/backup/i', $p['name'])) {
@@ -499,7 +490,7 @@ function caretakerChecks(): array
     }
     foreach (glob('/boot/config/plugins/user.scripts/scripts/*', GLOB_ONLYDIR) ?: [] as $dir) {
         $name = basename($dir);
-        if (!str_starts_with($name, US_PREFIX) && !isset(US_RENAMED[$name]) && preg_match('/backup|sicherung/i', $name)) {
+        if (preg_match('/backup|sicherung/i', $name)) {
             $out[] = finding('other_backup_script', 'hint', null, ['name' => $name], 'userscripts');
         }
     }
@@ -687,7 +678,7 @@ function caretakerMetrics(?array $state, array $hired): array
 }
 
 /**
- * The office's entry in Unraid (plugin only): its label and where it shows —
+ * The office's entry in Unraid: its label and where it shows —
  * in the menu bar or under Settings → User Utilities. MENU_NAME and
  * MENU_PLACE in the plugin's .cfg on the flash (defaults aren't written), and
  * right away the header of the page in RAM (src/place.php). Unraid shows it
@@ -695,9 +686,6 @@ function caretakerMetrics(?array $state, array $hired): array
  */
 function caretakerMenuName(string $name, string $place): array
 {
-    if (!AS_PLUGIN) {
-        throw new Problem('menu_not_plugin');
-    }
     $name = trim((string) preg_replace('/\s+/u', ' ', $name));
     if (!officeMenuNameValid($name)) {
         throw new Problem('menu_name_bad', ['max' => OFFICE_MENU_MAX]);

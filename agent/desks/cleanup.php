@@ -991,11 +991,10 @@ function clUserScripts(): array
         $running = $pid > 1 && is_dir("/proc/$pid");
         $lastRun = @filemtime(CL_US_TMP . "/tmpScripts/$id/log.txt") ?: null;
         $mtime = $exists ? (int) @filemtime($file) : (int) @filemtime($dir);
-        $office = str_starts_with($id, US_PREFIX);
         $scheduled = $freq !== 'disabled' && $freq !== '';
         if (!$exists) {
             $category = 'broken';
-        } elseif ($office || $scheduled || $running || $lastRun || $mtime > $now - CL_FRESH_DAYS * 86400) {
+        } elseif ($scheduled || $running || $lastRun || $mtime > $now - CL_FRESH_DAYS * 86400) {
             $category = 'used';
         } else {
             $category = $dead ? 'dead' : 'idle';
@@ -1004,8 +1003,8 @@ function clUserScripts(): array
             'id' => "userscript:$id", 'kind' => 'userscript', 'name' => trim((string) @file_get_contents("$dir/name")) ?: $id, 'folder' => $id,
             'dir' => $dir, 'path' => $file, 'exists' => $exists, 'description' => $description, 'category' => $category,
             'frequency' => $freq, 'cron' => trim((string) ($plan['custom'] ?? '')) ?: null, 'running' => $running, 'last_run' => $lastRun,
-            'mtime' => $mtime, 'bytes' => $exists ? (int) @filesize($file) : 0, 'paths' => $paths, 'dead' => $dead, 'office' => $office,
-            'why' => $office ? 'office' : ($running ? 'running' : ($scheduled ? 'scheduled' : null)), 'force' => false,
+            'mtime' => $mtime, 'bytes' => $exists ? (int) @filesize($file) : 0, 'paths' => $paths, 'dead' => $dead,
+            'why' => $running ? 'running' : ($scheduled ? 'scheduled' : null), 'force' => false,
         ];
     }
     usort($out['list'], fn ($a, $b) => strnatcasecmp($a['name'], $b['name']));
@@ -1497,13 +1496,6 @@ function clOverrideTemplate(): string
          . "services: {}\n";
 }
 
-/** A command in the host's network — hostNet() for background jobs (the stack's agent has no network of its own) */
-function clNet(array $command): array
-{
-    $own = @readlink('/proc/self/ns/net');
-    return $own !== false && $own === @readlink('/proc/1/ns/net') ? $command : array_merge(['nsenter', '--target', '1', '--net', '--'], $command);
-}
-
 /**
  * Fetches pictures the way Unraid's downloader will (no User-Agent, redirects
  * followed), at most CL_ICON_MAX each, into $dir/<n>.png — one curl, four at a time
@@ -1572,7 +1564,7 @@ function clIconQueue(array $icons, bool $again): void
     if ($urls) {
         $urls = array_slice(array_keys($urls), 0, 40);
         $dir = RUN_DIR . '/cleanup-icons-check';
-        clJobAdd('icons', 'icons', [clNet(clIconFetchCommand($urls, $dir))], 120, true, ['urls' => $urls, 'dir' => $dir]);
+        clJobAdd('icons', 'icons', [clIconFetchCommand($urls, $dir)], 120, true, ['urls' => $urls, 'dir' => $dir]);
     }
 }
 
@@ -1976,7 +1968,6 @@ function clBuild(): array
             'domains'  => ['share' => $raw['domains']['share'], 'places' => array_values($raw['domains']['places']), 'asleep' => $raw['domains']['asleep']],
             'isos'     => ['share' => $raw['isos']['share'], 'places' => array_values($raw['isos']['places']), 'asleep' => $raw['isos']['asleep']],
             'complete' => $vmComplete,
-            'gui'      => houseGuiUrl(),
             'list'     => $vmItems,
         ],
         'trash'     => ['runs' => $runs, 'bytes' => $trashBytes],
@@ -2592,7 +2583,6 @@ function clPark(array $ids, bool $force): array
                 'checking'      => new Problem('cleanup_checking', $p),
                 'vm_off'        => new Problem('cleanup_vm_off', $p),
                 'in_unraid'     => new Problem('cleanup_in_unraid', $p),
-                'office'        => new Problem('cleanup_office_script', $p),
                 'running'       => new Problem('cleanup_running', $p),
                 'scheduled'     => new Problem('cleanup_scheduled', $p),
                 'measuring'     => new Problem('cleanup_measuring', $p),
@@ -3205,7 +3195,7 @@ function clIconsApply(array $items): array
     $dir = RUN_DIR . '/cleanup-icons-' . getmypid();
     $got = [];
     if ($web) {
-        [, $out] = run(clNet(clIconFetchCommand($web, $dir)), 60);
+        [, $out] = hostNet(clIconFetchCommand($web, $dir), 60);
         $got = clIconFetchResults($out, $web, $dir);
     }
     $results = [];

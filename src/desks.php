@@ -7,7 +7,7 @@ declare(strict_types=1);
  * a language. Adding a secretary or a language means adding files.
  */
 
-/** @return array<string, array{id:string, order:int, reception_order:int, icon:string, refresh_after:int, open_actions:list<string>, css:bool, always:bool, training:bool}> */
+/** @return array<string, array{id:string, order:int, reception_order:int, icon:string, refresh_after:int, css:bool, always:bool, training:bool}> */
 function officeDesks(): array
 {
     static $desks = null;
@@ -27,7 +27,6 @@ function officeDesks(): array
             'reception_order' => (int) ($meta['reception_order'] ?? $meta['order'] ?? 100),   // place at the reception, if different
             'icon'          => (string) ($meta['icon'] ?? '•'),
             'refresh_after' => (int) ($meta['refresh_after'] ?? 300),
-            'open_actions'  => array_values(array_filter((array) ($meta['open_actions'] ?? []), 'is_string')),
             'css'           => is_file(dirname($file) . '/desk.css'),
             'always'        => !empty($meta['always']),       // always in the office (the caretaker), never hired or fired
             'training'      => !empty($meta['training']),     // still learning: the caretaker shows him, nobody can hire him yet

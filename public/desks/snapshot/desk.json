@@ -1,9 +1,5 @@
 {
   "order": 35,
   "icon": "📸",
-  "refresh_after": 60,
-  "open_actions": [
-    "scan",
-    "estimate"
-  ]
+  "refresh_after": 60
 }

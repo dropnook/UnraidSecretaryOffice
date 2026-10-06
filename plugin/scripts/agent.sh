@@ -66,11 +66,6 @@ start() {
         echo "The agent is already running."
         return 0
     fi
-    # moving over from the Compose stack: never two agents (snapshot schedules twice, desks racing)
-    if [[ -S /var/run/docker.sock ]] && [[ "$(timeout 10 docker inspect -f '{{.State.Running}}' UnraidSecretaryOffice-Agent 2>/dev/null)" == true ]]; then
-        echo "The Compose stack's agent (UnraidSecretaryOffice-Agent) is running - not starting a second one. Stop the stack, then: bash $0 start"
-        return 0
-    fi
     mkdir -p "$RUN" && chmod 700 "$RUN"
     rm -f "$STOPPING"
     # tail -c keeps the RAM log small across restarts

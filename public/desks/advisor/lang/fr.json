@@ -164,7 +164,7 @@
   "by_me_tip": "Unraid a créé ce conteneur à partir du formulaire que j'ai rempli (label uso.installed-by=consultant). Pour le reste, c'est un conteneur comme les autres.",
   "help.by_me": "Un conteneur qu'Unraid a créé à partir d'un formulaire préparé par le consultant. Juste une note — elle ne change rien.",
   "help.do_term": "Je m'en occupe / Préparé dans le formulaire d'Unraid",
-  "help.do": "La deuxième offre du consultant, après la voie à la main : les plugins par le gestionnaire de plugins d'Unraid (comme Plugins → Installer le Plugin), les conteneurs par le formulaire « Ajouter Conteneur » d'Unraid, rempli comme un modèle d'Applis — tu vois chaque champ et tu cliques toi-même sur Appliquer. Toujours un aperçu d'abord ; avec un PIN, seulement depuis un navigateur déverrouillé. Jamais par-dessus quelque chose qui existe.",
+  "help.do": "La deuxième offre du consultant, après la voie à la main : les plugins par le gestionnaire de plugins d'Unraid (comme Plugins → Installer le Plugin), les conteneurs par le formulaire « Ajouter Conteneur » d'Unraid, rempli comme un modèle d'Applis — tu vois chaque champ et tu cliques toi-même sur Appliquer. Toujours un aperçu d'abord. Jamais par-dessus quelque chose qui existe.",
   "help.sheet": "Une fois le dépôt de Kopia configuré ici : une page à imprimer avec tout ce qu'il faut pour récupérer tes sauvegardes sur un nouveau serveur — clés et mot de passe compris. Créée uniquement dans ton navigateur ; le secrétariat n'en garde rien.",
   "installing": "installation en cours …",
   "installing_tip": "Le gestionnaire de plugins d'Unraid est au travail — clique pour voir sa sortie.",
@@ -339,6 +339,5 @@
   "errors.ad_kopia_failed": "Kopia dit non : {output}",
   "errors.ad_kopia_field": "Vérifie « {field} ».",
   "errors.ad_secret_missing": "Les clés ne sont pas arrivées (envoyées deux fois, ou trop tard ?). Rien n'a été changé — réessaie.",
-  "errors.ad_secret_plugin_only": "Seulement avec le secrétariat en plugin : dans le stack Compose, la page ne peut rien transmettre à l'agent par la mémoire vive. Configure Kopia à la main.",
   "errors.ad_secret_inbox": "Le secrétariat n'a pas pu préparer son dossier de transmission en mémoire vive ({dir}) — rien n'a été envoyé."
 }

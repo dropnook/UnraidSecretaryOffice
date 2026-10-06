@@ -8,15 +8,17 @@ declare(strict_types=1);
  * GET  ?a=part&desk=<id>&part=<name>  an extra state file data/<id>-<name>.json
  * GET  ?a=strings&lang=<code>         all UI strings of a language
  * GET  ?a=log                         tail of the agent log
- * GET  ?a=auth                        PIN set? this browser unlocked?
  * GET  ?a=dash&lang=<code>            the rows of the tile on Unraid's Dashboard (dashboard.php)
  * POST {"a": "<desk>.<action>", ...}  a request for the agent; it checks everything
- * POST {"a": "office.unlock|lock|pin"} handled here (see auth.php)
  * POST {"a": "office.hire|fire"}       who works here (see staff.php)
  *
- * POSTs need JSON and the header X-Office: 1. Another web page in the same
- * browser can't send that without a CORS preflight, which never succeeds
- * here. Reading is open (LAN); changing things can be protected by a PIN.
+ * Who may use it is Unraid's business: everything under /plugins/… is behind
+ * its login (nginx auth_request), and every POST needs its csrf_token
+ * (local_prepend.php). On top of that POSTs need JSON and the header
+ * X-Office: 1 — another web page in the same browser can't send that without
+ * a CORS preflight, which never succeeds here — and an Origin, if any, of
+ * this host. Whoever is logged in to Unraid is root anyway; the desks add
+ * previews and confirmations against mistakes, not a second lock.
  */
 
 function api_main(): void
@@ -27,16 +29,11 @@ function api_main(): void
     try {
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
         if ($method === 'GET') {
-            $a = (string) ($_GET['a'] ?? '');
-            if (in_array($a, ['state', 'part', 'log'], true)) {
-                officeMayRead();         // with "reading needs the PIN too"
-            }
-            match ($a) {
+            match ((string) ($_GET['a'] ?? '')) {
                 'state'   => answer(apiState((string) ($_GET['desk'] ?? ''), !empty($_GET['fresh']))),
                 'part'    => answer(apiPart((string) ($_GET['desk'] ?? ''), (string) ($_GET['part'] ?? ''))),
                 'strings' => apiStrings((string) ($_GET['lang'] ?? 'en')),
                 'log'     => answer(['ok' => true, 'lines' => apiLogTail(400)]),
-                'auth'    => answer(['ok' => true, 'auth' => officeAuthStatus()]),
                 'dash'    => apiDash((string) ($_GET['lang'] ?? '')),
                 default   => answer(['ok' => false, 'error' => ['key' => 'bad_request']], 404),
             };
@@ -51,9 +48,6 @@ function api_main(): void
         if ($action === 'office.hire' || $action === 'office.fire') {
             answer(officeStaffAction($action, $data));
         }
-        if (str_starts_with($action, 'office.')) {
-            answer(officeAuthAction($action, $data));
-        }
         if (!preg_match('/^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_]*$/D', $action) || !isset(officeDesks()[explode('.', $action)[0]])) {
             answer(['ok' => false, 'error' => ['key' => 'unknown_action', 'params' => ['action' => $action]]], 400);
         }
@@ -62,7 +56,6 @@ function api_main(): void
         if (!officeIsHired($desk) && explode('.', $action)[1] !== 'refresh') {
             answer(['ok' => false, 'error' => ['key' => 'not_hired', 'params' => ['desk' => $desk]]], 403);
         }
-        officeMayWrite($action);
         set_time_limit(660);
         ignore_user_abort(true);   // a deletion runs to the end even if the tab closes
 
@@ -81,8 +74,8 @@ function api_main(): void
         }
         $response['agent'] = agentInfo();
         answer($response);
-    } catch (AuthProblem $e) {
-        answer(['ok' => false, 'error' => ['key' => $e->key, 'params' => $e->params], 'auth' => officeAuthStatus()], $e->status);
+    } catch (OfficeProblem $e) {
+        answer(['ok' => false, 'error' => ['key' => $e->key, 'params' => $e->params]], $e->status);
     } catch (AgentAway $e) {
         answer(['ok' => false, 'error' => ['key' => 'agent_away'], 'agent' => agentInfo()], 503);
     } catch (AgentBusy $e) {
@@ -158,8 +151,7 @@ const OFFICE_SECRET_ACTIONS = ['advisor.kopia_repo'];
  * officeInboxDir() (a root-only folder in /run, a tmpfs: RAM), 0600 from the
  * start, a random name; only that name travels in the request. The agent
  * reads the file and removes it at once; apiSecretDrop() removes it here in
- * any case after the request. Plugin only: in the Compose stack the page is a
- * container of its own that shares no RAM with the agent.
+ * any case after the request.
  * Answers an error itself (and ends the request) when it can't.
  */
 function apiSecretStash(string $action, mixed $secret): string
@@ -170,9 +162,6 @@ function apiSecretStash(string $action, mixed $secret): string
     }
     if (!$ok) {
         answer(['ok' => false, 'error' => ['key' => 'bad_request']], 400);
-    }
-    if (!OFFICE_AS_PLUGIN) {
-        answer(['ok' => false, 'error' => ['key' => 'ad_secret_plugin_only']], 400);
     }
     $dir = officeInboxDir();
     @mkdir(dirname($dir), 0700, true);

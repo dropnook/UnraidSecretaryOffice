@@ -1079,8 +1079,6 @@ function previewView(p, sizes) {
  * again and runs it only when it is still the same.
  */
 async function restoreDialog(req, title) {
-  // the preview already needs the PIN: asked first, so its dialog doesn't replace this one
-  if (Office.auth && !Office.auth.unlocked && !(await Office.unlock())) return;
   const body = el('div', 'rs-dlg');
   const opts = el('div', 'rs-opts');
   const pv = el('div');
@@ -1211,7 +1209,6 @@ function filesOptions(box, plan, ask, change) {
 
 /** Step 6: which Kopia snapshot of a source — Kopia is asked first (seconds) — then the usual preview */
 async function kopiaDialog(source, path) {
-  if (Office.auth && !Office.auth.unlocked && !(await Office.unlock())) return;
   const body = el('div');
   body.appendChild(el('p', 'role', T('kr.loading', { source: path })));
   const d = Office.dialog({ title: T('rd.title.kopia', { what: path }), body, buttons: [{ text: Office.t('common.cancel') }] });
