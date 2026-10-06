@@ -11,6 +11,11 @@ const ID = 'emby';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
 const POLL = 3000;
+/** Where the two tools come from (helmi1987's repositories) — for the credit under the desk head */
+const ORIGINS = [
+  ['embycache-for-unraid', 'https://github.com/helmi1987/embycache-for-unraid'],
+  ['media-disk-gather-for-unraid', 'https://github.com/helmi1987/media-disk-gather-for-unraid'],
+];
 
 let state = null;
 let view = null;
@@ -143,6 +148,7 @@ function render() {
     [T('help.pool'), T('help.pool_text')],
     [T('help.schedule'), T('help.schedule_text')],
   ]));
+  root.appendChild(credit());
   if (!state) return;
 
   if (!state.emby.length) root.appendChild(el('p', 'callout warn', T('notice.no_emby')));
@@ -169,6 +175,23 @@ function render() {
   root.appendChild(historySection());
   root.appendChild(poolSection());
   root.appendChild(toolSection());
+}
+
+/** A quiet line under the desk head: both tools are helmi1987's, and a share of the tips goes to him */
+function credit() {
+  const box = el('div', 'jo-credit');
+  box.append(el('b', '', T('credit_title')), ' ', T('credit', { gather: T('gather') }), ' ');
+  const links = el('span', 'jo-credit-links');
+  ORIGINS.forEach(([name, url], i) => {
+    const a = el('a', '', name);
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    if (i) links.append(' · ');
+    links.appendChild(a);
+  });
+  box.appendChild(links);
+  return box;
 }
 
 /** The settings in short, the last run, the schedule */
