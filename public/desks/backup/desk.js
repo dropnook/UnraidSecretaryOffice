@@ -1503,7 +1503,8 @@ function knownText(before, after) {
   if (before === undefined) return T('setup.known_first', { n: b.length });
   const plus = b.filter((x) => !a.includes(x));
   const minus = a.filter((x) => !b.includes(x));
-  return [plus.length ? '+ ' + plus.join(', ') : '', minus.length ? '− ' + minus.join(', ') : ''].filter(Boolean).join(' · ') || '–';
+  const list = (l) => (l.length > 8 ? `${l.slice(0, 8).join(', ')} … (${l.length})` : l.join(', '));
+  return [plus.length ? '+ ' + list(plus) : '', minus.length ? '− ' + list(minus) : ''].filter(Boolean).join(' · ') || '–';
 }
 
 /** The apply dialog's group «New»: each new VM, app, container of a known app and folder, and how Apply takes it in */

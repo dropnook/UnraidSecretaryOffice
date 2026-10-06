@@ -791,6 +791,25 @@ SH);
         $sh("$run SHARE_MOUNTED=(); drift_check_new_local; new_local_run >/dev/null; for l in \"\${NEW_LIST[@]}\"; do IFS=\$'\\x1f' read -r s n _ <<<\"\$l\"; printf '%s/%s ' \"\$s\" \"\$n\"; done"));
     exec('rm -rf ' . escapeshellarg("$root/appdata"));
 
+    // --- what the retention removed: state/pruned.json, run by run (the last runs within the days, capped)
+    $data0 = "$tmp/data/unraid-backup";
+    $old = ['interface' => 1, 'runs' => [['run' => 'ancient', 'time' => 1000, 'zfs' => ['p/a@uso-backup-20200101-0100'], 'btrfs' => []], 'odd']];
+    for ($i = 0; $i < 4; $i++) {
+        $old['runs'][] = ['run' => "r$i", 'time' => 2000000000 - 3600 * (10 - $i), 'zfs' => [], 'btrfs' => []];
+    }
+    file_put_contents("$data0/state/pruned.json", json_encode($old));
+    $sh('UB_PRUNED_RUNS=3; UB_PRUNED_CAP=2; TS=20330518-0333; PRUNED_ZFS=(p/a@uso-backup-20330501-0100 p/a@uso-backup-20330502-0100 p/b@uso-backup-20330501-0100);'
+        . ' PRUNED_BTRFS=(/mnt/disk4/.btrfs-snap/20330501-0100); pruned_write 2000000000');
+    $pr = json_decode((string) @file_get_contents("$data0/state/pruned.json"), true);
+    same('pruned: the newest runs within the days, this one last (an old and an odd entry go)', ['r2', 'r3', '20330518-0333'], array_column($pr['runs'] ?? [], 'run'));
+    same('pruned: this run\'s snapshots, a list capped with the rest counted', [['p/a@uso-backup-20330501-0100', 'p/a@uso-backup-20330502-0100'], 1, ['/mnt/disk4/.btrfs-snap/20330501-0100'], 2000000000],
+        [$pr['runs'][2]['zfs'] ?? null, $pr['runs'][2]['zfs_more'] ?? null, $pr['runs'][2]['btrfs'] ?? null, $pr['updated'] ?? null]);
+    file_put_contents("$data0/state/pruned.json", 'not json');
+    $sh('TS=20330519-0100; pruned_write 2000086400');
+    $pr = json_decode((string) @file_get_contents("$data0/state/pruned.json"), true);
+    same('pruned: a broken file starts anew; a run that removed nothing has empty lists', [['20330519-0100', [], []]],
+        array_map(fn ($r) => [$r['run'], $r['zfs'], $r['btrfs']], $pr['runs'] ?? []));
+
     // --- setup.sh on a fixture server: --plan and --apply
     $pool = "$mnt/master";
     foreach (["$pool/media/a", "$pool/media/b", "$pool/media/c", "$pool/media/d", "$pool/media/e", "$pool/media/f", "$pool/media/g"] as $d) {

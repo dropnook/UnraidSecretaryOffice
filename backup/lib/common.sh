@@ -15,7 +15,8 @@
 #   7. Status          status.json & co. for other programs
 #   8. Packages        names and housekeeping of the backup place (since 2.18)
 #   9. Kopia per app   apps and VMs with a Kopia source of their own (since 2.19)
-#  10. Snapshot names  the engine's ZFS snapshots: prefixes, exact matching, retention (since 2.20)
+#  10. Snapshot names  the engine's ZFS snapshots: prefixes, exact matching, retention (since 2.20); what its
+#                      retention removed, state/pruned.json (since 2.21)
 #  11. New things      what is new stays local and keeps running until the user decided (since 2.21)
 ###############################################################################
 
@@ -2216,6 +2217,42 @@ zfs_prune_select() {
         fi
     done
     for s in "${snaps[@]}"; do [[ -n "${keep[$s]:-}" ]] || printf '%s\n' "$s"; done
+    return 0
+}
+
+# --- What the retention removed (since 2.21) ------------------------------------
+# state/pruned.json says which snapshots the engine itself destroyed, run by run - so whoever watches the
+# server (the night watchman) doesn't have to guess or read logs:
+#   {interface, version, updated, runs: [{run, time, zfs: ["pool/ds@name", ...], btrfs: ["/mnt/diskN/.btrfs-snap/
+#    YYYYMMDD-HHMM", ...]}, ...]}   newest last; a run that removed nothing has empty lists
+# Kept: the last UB_PRUNED_RUNS runs (30), none older than UB_PRUNED_DAYS (30); per run at most UB_PRUNED_CAP
+# names per list (1000), what is left out counted in zfs_more / btrfs_more. A new file + mv; the state folder is root's.
+UB_PRUNED_RUNS="${UB_PRUNED_RUNS:-30}"
+UB_PRUNED_DAYS="${UB_PRUNED_DAYS:-30}"
+UB_PRUNED_CAP="${UB_PRUNED_CAP:-1000}"
+declare -ga PRUNED_ZFS=() PRUNED_BTRFS=()   # what this run's retention removed (backup.sh prune_zfs, prune_btrfs)
+
+# pruned_write [time]  -> this run's PRUNED_ZFS / PRUNED_BTRFS appended to state/pruned.json
+pruned_write() {
+    local now="${1:-$(date +%s)}" old='{}' z b tmp="$UB_STATE/.pruned.json.$$"
+    if [[ -s "$UB_STATE/pruned.json" ]]; then
+        old="$(jq -c 'if type == "object" and (.runs | type) == "array" then . else {} end' "$UB_STATE/pruned.json" 2>/dev/null)" || old='{}'
+        [[ -n "$old" ]] || old='{}'
+    fi
+    z="$(printf '%s\n' "${PRUNED_ZFS[@]}" | jq -R 'select(length > 0)' | jq -sc .)" || z='[]'
+    b="$(printf '%s\n' "${PRUNED_BTRFS[@]}" | jq -R 'select(length > 0)' | jq -sc .)" || b='[]'
+    if jq -nc --argjson old "$old" --argjson z "${z:-[]}" --argjson b "${b:-[]}" --arg run "${TS:-}" --argjson time "$now" \
+            --argjson interface "$UB_INTERFACE" --arg version "$UB_VERSION" --argjson runs "$UB_PRUNED_RUNS" \
+            --argjson days "$UB_PRUNED_DAYS" --argjson cap "$UB_PRUNED_CAP" '
+        def entry: {run: $run, time: $time, zfs: $z[:$cap], btrfs: $b[:$cap]}
+            + (if ($z | length) > $cap then {zfs_more: (($z | length) - $cap)} else {} end)
+            + (if ($b | length) > $cap then {btrfs_more: (($b | length) - $cap)} else {} end);
+        ([($old.runs // [])[] | select(type == "object" and ((.time // 0) | type) == "number")] + [entry])
+        | map(select(.time >= $time - $days * 86400)) | .[-$runs:]
+        | {interface: $interface, version: $version, updated: $time, runs: .}' >"$tmp" 2>/dev/null && [[ -s "$tmp" ]]; then
+        mv -f "$tmp" "$UB_STATE/pruned.json" 2>/dev/null
+    fi
+    rm -f "$tmp"
     return 0
 }
 

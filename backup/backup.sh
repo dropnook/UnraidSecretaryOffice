@@ -8,6 +8,8 @@
 #        new_local, state/new-local.json, drift info new_waiting and once in a notification (normal).
 #        A container not in [docker] known keeps running instead of being stopped for the snapshot.
 #        Shares without kopia_known work as before (drift info known_missing)
+#   2.21 state/pruned.json: the snapshots the retention destroyed, run by run (ZFS dataset@name, btrfs
+#        paths; the last 30 runs within 30 days) - the night watchman need not guess or read logs
 #   2.20 Names: what the office makes is called uso-...: ZFS snapshots uso-backup-YYYYMMDD-HHMM (default
 #        [general] snap_prefix; the old default unraidbackup- counts as the default - those snapshots
 #        stay the engine's and age out by the retention, matched exactly), Kopia snapshot descriptions
@@ -1855,7 +1857,7 @@ prune_zfs() { # prune_zfs <dataset> <"d w m">  - only the engine's snapshots (zf
     for s in "${doomed[@]}"; do
         snap_is_ours "$s" || continue                    # never anything else (and never a dataset)
         if in_list "$s" "${MT_SOURCE[@]}"; then log "  kept (mounted): $s"; continue; fi
-        zfs destroy "$s" 2>>"$LOG_FILE" && log "  removed: $s"
+        zfs destroy "$s" 2>>"$LOG_FILE" && { log "  removed: $s"; PRUNED_ZFS+=( "$s" ); }
     done
 }
 
@@ -1871,7 +1873,7 @@ prune_btrfs() {
             name="$(basename "$s")"
             [[ "$name" =~ ^[0-9]{8}-[0-9]{4}$ && "$name" != "$TS" ]] || continue
             if [[ "${name%%-*}" < "$cutoff" ]]; then
-                btrfs subvolume delete "${s%/}" >/dev/null 2>>"$LOG_FILE" && log "  removed: ${s%/}"
+                btrfs subvolume delete "${s%/}" >/dev/null 2>>"$LOG_FILE" && { log "  removed: ${s%/}"; PRUNED_BTRFS+=( "${s%/}" ); }
             fi
         done
         # Emergency brake: when space runs short, release the oldest snapshot each time
@@ -1886,6 +1888,7 @@ prune_btrfs() {
                 break
             fi
             btrfs subvolume delete "$sdir/$oldest" >/dev/null 2>>"$LOG_FILE" || break
+            PRUNED_BTRFS+=( "$sdir/$oldest" )
             warn "$b: only ${free_gb} GB free - snapshot $oldest deleted early"
         done
     done
@@ -2471,6 +2474,7 @@ if command -v zfs >/dev/null 2>&1; then
     done
 fi
 command -v btrfs >/dev/null 2>&1 && prune_btrfs
+pruned_write                         # what the retention removed, for whoever watches the server (state/pruned.json)
 prune_files
 
 # --- Finishing --------------------------------------------------------------

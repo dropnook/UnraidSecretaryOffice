@@ -194,6 +194,9 @@ installed plugin (see the checklist).
   apply dialog has a group «New»; the main page a callout (`state.waiting`, `backupWaiting()`). A share without
   `kopia_known` works as before (drift `known_missing`) until the setup is applied once. Settings already decided
   never change level by this.
+* **What the engine pruned (engine 2.21):** `state/pruned.json` lists per real run the snapshots its retention destroyed
+  (`runs: [{run, time, zfs: [dataset@name], btrfs: [path]}]`, the last 30 runs within 30 days, lists capped) — for the
+  night watchman, who never parses the engine's logs.
 * **One run at a time, never lost silently (engine 2.20):** `state/lock` (flock) is held by
   backup.sh, setup.sh and Mr. Restori's restores; whoever takes it opens it with `>>` (never
   truncating), `touch`es it and writes `state/lock-holder.json` (`holder`, `mode`, `what`, `run`,
