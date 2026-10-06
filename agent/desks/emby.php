@@ -90,8 +90,10 @@ function embyMetrics(?string $state = null, ?string $history = null): array
         $last = [];
         foreach ((array) (readJson($f)['runs'] ?? []) as $r) {       // newest first
             $tool = is_array($r) ? ($r['tool'] ?? null) : null;
-            if (in_array($tool, ['embycache', 'gather'], true) && !isset($last[$tool]) && ($r['mode'] ?? '') === 'run' && ($r['result'] ?? '') !== 'refused') {
-                $last[$tool] = ['ok' => ($r['result'] ?? '') === 'ok', 'finished' => (int) ($r['finished'] ?? 0)];
+            // runs that never started (refused, skipped while someone watched Emby) are no runs; one stopped for a watcher went well
+            if (in_array($tool, ['embycache', 'gather'], true) && !isset($last[$tool]) && ($r['mode'] ?? '') === 'run'
+                && !in_array($r['result'] ?? '', ['refused', 'skipped'], true)) {
+                $last[$tool] = ['ok' => in_array($r['result'] ?? '', ['ok', 'stopped'], true), 'finished' => (int) ($r['finished'] ?? 0)];
             }
         }
         return $last;

@@ -458,6 +458,15 @@ function testEmbyWatch(): void
     check('gather stopped: no deep clean', !str_contains($out, 'PHASE 3') && str_contains($out, 'Angehalten'), $out);
     same('gather stopped: Jack tells nobody (no failure)', null, embyNotifyOutcome('run', 'stopped', ['errors' => 0]));
     same('gather stopped with errors: those are told', 'errors', embyNotifyOutcome('run', 'stopped', ['errors' => 2]));
+    // the last real run for Prometheus: a night skipped for a watcher is no run
+    file_put_contents("$tmp/history.json", json_encode(['runs' => [
+        ['tool' => 'gather', 'mode' => 'run', 'result' => 'skipped', 'finished' => 300],
+        ['tool' => 'gather', 'mode' => 'run', 'result' => 'refused', 'finished' => 200],
+        ['tool' => 'gather', 'mode' => 'run', 'result' => 'stopped', 'finished' => 100]]]));
+    $fam = array_column(embyMetrics("$tmp/none.json", "$tmp/history.json"), null, 'name');
+    $sample = fn (string $name) => array_values(array_filter($fam[$name]['samples'] ?? [], fn ($x) => ($x[0]['tool'] ?? '') === 'gather'))[0][1] ?? null;
+    same('metrics: skipped and refused nights are no runs, a stopped one went well', [true, 100],
+        [$sample('uso_emby_last_run_ok'), $sample('uso_emby_last_run_end_timestamp_seconds')]);
     hardeningRm($tmp);
 }
 
