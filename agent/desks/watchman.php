@@ -1205,7 +1205,7 @@ function watchmanContainersCompare(?array &$known, ?array $seen, array &$book, i
 // ===================================================================== what the office installed itself
 
 /**
- * The consultant's record of what he installed (data/advisor/installs.json, advisorInstallRecord()):
+ * The consultant's record of what he installed (data/advisor/installs.json, advisorRecord()):
  * trusted only while its folder and the file are root's own and no one else may write them (folder
  * 0700, a plain file 0600 with one link) and only in exactly the shape he writes; older than
  * WATCH_OFFICE_KEEP left out.
