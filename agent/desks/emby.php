@@ -58,6 +58,8 @@ desk('emby', [
         'schedule'     => fn (array $r) => embySetSchedule(textField($r, 'job'), $r['cron'] ?? null),
         'output'       => fn (array $r) => embyOutput(textField($r, 'tool')),
         'log'          => fn (array $r) => embyLog(textField($r, 'tool')),
+        'import_preview' => fn (array $r) => embyImportPreview($r),     // taking over an earlier install: what would come over
+        'import_apply'   => fn (array $r) => embyImportDo($r),          // … and doing it, with the preview's token
     ],
     'jobs'    => [
         'embycache' => fn (array $args) => embyJob('embycache', $args),
@@ -740,6 +742,826 @@ function embyGatherReady(): bool
 {
     $last = readJson(GATHER_DATA . '/last-real.json');
     return $last !== null && in_array($last['result'] ?? '', ['ok', 'errors'], true);
+}
+
+// ===================================================================== taking over an earlier install
+
+/*
+ * Someone who ran helmi1987's tools before (from a User Scripts folder, say) types the folder
+ * where the old files lie; Jack never searches. The agent reads only the known files there —
+ * plain files, size-capped — on the server: the Emby API key never goes to the page (the preview
+ * says found / not found, and every answer is scrubbed of it). Preview first (what changes, what
+ * is left out, what gets Jack's defaults, how many cached files and origins come over), then the
+ * import with the preview's token. Before anything of Jack's is overwritten, a copy of it stays
+ * next to it (<file>.before-import-<time>), so it can be undone by hand.
+ */
+
+const EMBY_IMPORT_FILES = [   // the only files read in the old folder: name, size cap
+    'settings' => ['embycache_settings.json', 1048576],
+    'exclude'  => ['embycache_exclude.txt', 16777216],
+    'origin'   => ['embycache_origin.json', 16777216],
+    'ini'      => ['consolidate.ini', 65536],
+];
+// set by Jack whatever the old file says (Unraid's views, the share configs); the mover only as EmbyCache finds it itself
+const EMBY_IMPORT_FIXED = ['array_path' => '/mnt/user0', 'user_path' => '/mnt/user', 'array_disks_glob' => '/mnt/disk[0-9]*',
+                           'shares_cfg_dir' => '/boot/config/shares'];
+const EMBY_MOVER_BINS   = ['', '/usr/libexec/unraid/move', '/usr/local/sbin/move', '/usr/local/bin/move'];
+// rsync options an imported rsync_args may hold: plain switches only (no -e, no files, no remote shell)
+const EMBY_RSYNC_SHORT  = '/^-[aAXHSDglopPrtuvhxWcm]+$/D';
+const EMBY_RSYNC_LONG   = ['--numeric-ids', '--sparse', '--hard-links', '--acls', '--xattrs', '--preallocate', '--whole-file', '--no-whole-file',
+                           '--checksum', '--inplace', '--partial', '--progress', '--human-readable', '--times', '--perms', '--owner', '--group',
+                           '--archive', '--verbose', '--quiet'];
+const EMBY_IMPORT_PCT   = ['min_free_percent', 'movie_share_percent'];
+const GATHER_IMPORT_KEYS = ['BASE_DIRS', 'MIN_FREE_GB', 'DUP_CHECK'];                     // what Jack's gather settings take over
+const GATHER_IMPORT_JACK = ['LOGFILE', 'ARRAY_PATTERN', 'CACHE_PATTERN', 'EXCLUDE_FILE', 'DRYRUN', 'CACHE_ONLY_TARGET', 'MOVE_CACHE'];  // Jack's own
+
+/** What the import looks at: Jack's folders and the server's pools, shares and sleeping disks (the tests pass their own) */
+function embyImportContext(): array
+{
+    return ['emby_dir' => EMBY_DATA, 'gather_dir' => GATHER_DATA, 'tmp' => RUN_DIR, 'fs' => '',
+            'pools' => embyPools(), 'shares' => embyAllShares(), 'asleep' => sleepingDisks(),
+            'share_cfg' => fn (string $s): array => embyShareCfg($s), 'defaults' => null];
+}
+
+/** The two folders of a request ('' = not used) */
+function embyImportFolders(array $r): array
+{
+    $out = [];
+    foreach (['embycache', 'gather'] as $k) {
+        $v = $r[$k] ?? '';
+        if (!is_string($v) || strlen($v) > 1024) {
+            throw new Problem('missing_field', ['field' => $k]);
+        }
+        $out[$k] = trim($v);
+    }
+    if ($out['embycache'] === '' && $out['gather'] === '') {
+        throw new Problem('emby_import_nothing');
+    }
+    return $out;
+}
+
+function embyImportPreview(array $r): array
+{
+    $f = embyImportFolders($r);
+    $plan = embyImportPlan($f['embycache'], $f['gather'], embyImportContext());
+    return ['ok' => true, 'preview' => $plan['preview'] + ['running' => embyAnyRunning()]];
+}
+
+function embyImportDo(array $r): array
+{
+    $f = embyImportFolders($r);
+    if (embyAnyRunning()) {
+        throw new Problem('emby_running');
+    }
+    $ctx = embyImportContext();
+    $plan = embyImportPlan($f['embycache'], $f['gather'], $ctx);
+    if (!hash_equals($plan['preview']['token'], textField($r, 'token'))) {
+        throw new Problem('emby_import_changed');
+    }
+    if (!$plan['preview']['ready']) {
+        throw new Problem('emby_import_blocked');
+    }
+    $done = embyImportApply($plan['do'], $ctx);
+    logLine('Jack Emby: took over an earlier install (' . implode(', ', array_keys(array_filter($plan['do']))) . ') from '
+        . implode(', ', array_filter($f)) . ($done['backups'] ? '; copies of his own: .before-import-' . $done['stamp'] : ''));
+    return ['ok' => true, 'done' => embyImportScrub($done, $plan['secrets']), 'state' => embyScan()];
+}
+
+/**
+ * The folder typed for an earlier install, checked before anything in it is read: absolute, no
+ * "." or "..", under /mnt/user/<share>, a pool, an array disk or User Scripts' folder on the
+ * flash; the disks behind it awake (Jack never wakes one); every part a real folder — no link,
+ * but Unraid's own of an exclusive share (/mnt/user/<share> → ../<pool>/<share>). Returns the
+ * real folder to read from.
+ */
+function embyImportFolder(string $path, array $ctx): string
+{
+    $path = rtrim($path, '/');
+    if (strlen($path) > 1024 || !preg_match('#^(/[^/\x00-\x1f\x7f]+)+$#D', $path)
+        || array_intersect(explode('/', substr($path, 1)), ['.', '..'])) {
+        throw new Problem('emby_import_folder', ['path' => $path]);
+    }
+    $pools = (array) $ctx['pools'];
+    if (preg_match('#^/mnt/user/([^/]+)(?:/|$)#', $path, $m)) {
+        if (!preg_match('/^[\w.\- ]+$/uD', $m[1])) {
+            throw new Problem('emby_import_where', ['path' => $path]);
+        }
+        $bases = embyImportShareBases($m[1], $ctx);
+    } elseif (preg_match('#^/mnt/(disk\d+)(?:/|$)#', $path, $m) || (preg_match('#^/mnt/([^/]+)(?:/|$)#', $path, $m) && in_array("/mnt/{$m[1]}", $pools, true))) {
+        $bases = [$m[1]];
+    } elseif (preg_match('#^/boot/config/plugins/user\.scripts/scripts/[^/]+(?:/|$)#', $path)) {
+        $bases = [];                                    // the flash never sleeps
+    } else {
+        throw new Problem('emby_import_where', ['path' => $path]);
+    }
+    $sleeping = array_values(array_filter($bases, fn ($b) => baseAsleep((string) $b, (array) $ctx['asleep'])));
+    if ($sleeping) {
+        throw new Problem('emby_import_asleep', ['path' => $path, 'disks' => implode(', ', $sleeping)]);
+    }
+    $fs = (string) ($ctx['fs'] ?? '');
+    $real = '';
+    foreach (explode('/', substr($path, 1)) as $i => $part) {
+        $next = "$real/$part";
+        clearstatcache(true, $fs . $next);
+        $st = @lstat($fs . $next);
+        if ($st && ($st['mode'] & 0170000) === 0120000 && $i === 2 && str_starts_with($path, '/mnt/user/')) {
+            // an exclusive share: exactly ../<pool>/<share> or /mnt/<pool>/<share>, an awake pool of this server
+            $to = (string) @readlink($fs . $next);
+            if (preg_match('#^(?:\.\./|/mnt/)([^/]+)/([^/]+)/?$#D', $to, $t) && $t[2] === $part && in_array("/mnt/{$t[1]}", $pools, true)) {
+                if (baseAsleep($t[1], (array) $ctx['asleep'])) {
+                    throw new Problem('emby_import_asleep', ['path' => $path, 'disks' => $t[1]]);
+                }
+                $next = "/mnt/{$t[1]}/$part";
+                clearstatcache(true, $fs . $next);
+                $st = @lstat($fs . $next);
+            }
+        }
+        if (!$st) {
+            throw new Problem('emby_import_missing', ['path' => $path]);
+        }
+        if (($st['mode'] & 0170000) === 0120000) {
+            throw new Problem('emby_import_link', ['path' => $next]);
+        }
+        if (($st['mode'] & 0170000) !== 0040000) {
+            throw new Problem('emby_import_missing', ['path' => $path]);
+        }
+        $real = $next;
+    }
+    foreach ([$ctx['emby_dir'], $ctx['gather_dir']] as $own) {
+        if (realpath($fs . $real) === realpath((string) $own)) {
+            throw new Problem('emby_import_own', ['path' => $path]);
+        }
+    }
+    return $fs . $real;
+}
+
+/** The disks and pools a share may lie on (its config on the flash; never a look at the disks) */
+function embyImportShareBases(string $share, array $ctx): array
+{
+    $cfg = ($ctx['share_cfg'])($share);
+    $use = (string) ($cfg['shareUseCache'] ?? 'no');
+    $bases = [];
+    if ($use !== 'no') {
+        foreach (['shareCachePool', 'shareCachePool2'] as $k) {
+            if (($cfg[$k] ?? '') !== '') {
+                $bases[] = (string) $cfg[$k];
+            }
+        }
+    }
+    if ($use === 'no' || ($use !== 'only' && ($cfg['shareCachePool2'] ?? '') === '')) {     // the array is its primary or secondary
+        $include = array_filter(array_map('trim', explode(',', (string) ($cfg['shareInclude'] ?? ''))));
+        $bases = array_merge($bases, $include ?: array_filter(array_keys((array) $ctx['asleep']), fn ($d) => preg_match('/^disk\d+$/D', (string) $d)));
+    }
+    return array_values(array_unique(array_map('strval', $bases)));
+}
+
+/** One of the known files in the old folder: a plain file (no link), at most $cap bytes; null when it isn't there */
+function embyImportRead(string $dir, string $name, int $cap): ?string
+{
+    $file = "$dir/$name";
+    clearstatcache(true, $file);
+    $st = @lstat($file);
+    if (!$st) {
+        return null;
+    }
+    if (($st['mode'] & 0170000) !== 0100000) {
+        throw new Problem('emby_import_file', ['file' => $name]);
+    }
+    if ($st['size'] > $cap) {
+        throw new Problem('emby_import_big', ['file' => $name]);
+    }
+    $h = @fopen($file, 'rb');
+    $fst = $h ? fstat($h) : false;
+    if (!$h || !$fst || $fst['ino'] !== $st['ino'] || $fst['dev'] !== $st['dev'] || ($fst['mode'] & 0170000) !== 0100000) {
+        if ($h) {
+            fclose($h);
+        }
+        throw new Problem('emby_import_file', ['file' => $name]);
+    }
+    $data = (string) stream_get_contents($h, $cap + 1);
+    fclose($h);
+    if (strlen($data) > $cap) {
+        throw new Problem('emby_import_big', ['file' => $name]);
+    }
+    return $data;
+}
+
+/** EmbyCache's own DEFAULTS (the version that ships with the office), asked from embycache_lib.py */
+function embyImportDefaults(): array
+{
+    $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import embycache_lib as l; print(json.dumps(l.DEFAULTS))';
+    [$exit, $out, $err] = runEnv(['python3', '-c', $py, EMBY_APP], embyPyEnv(), 30);
+    $j = $exit === 0 ? json_decode(trim($out), true) : null;
+    if (!is_array($j) || !array_key_exists('cache_path', $j)) {
+        $lines = array_filter(explode("\n", trim((string) $err)));
+        throw new Problem('emby_config', ['detail' => (string) (end($lines) ?: 'DEFAULTS')]);
+    }
+    return $j;
+}
+
+/**
+ * What would come over from the old folders, against Jack's files now. Returns the preview (for
+ * the page: no API key, the token over everything that will be done), what will be done (`do`,
+ * agent only) and the secrets the answers are scrubbed of.
+ */
+function embyImportPlan(string $embyFolder, string $gatherFolder, array $ctx): array
+{
+    $ctx['defaults'] ??= embyImportDefaults();
+    $secrets = [];
+    $preview = ['embycache' => null, 'gather' => null];
+    $do = ['embycache' => null, 'gather' => null];
+    $current = readJson($ctx['emby_dir'] . '/embycache_settings.json');
+    foreach ((array) ($current['instances'] ?? []) as $i) {
+        if (is_array($i) && is_string($i['api_key'] ?? null) && $i['api_key'] !== '') {
+            $secrets[] = $i['api_key'];
+        }
+    }
+    if ($embyFolder !== '') {
+        [$preview['embycache'], $do['embycache']] = embyImportEmbyCache(embyImportFolder($embyFolder, $ctx), $ctx, $current, $secrets);
+        $preview['embycache']['folder'] = rtrim($embyFolder, '/');
+    }
+    if ($gatherFolder !== '') {
+        $emby = $do['embycache']['settings'] ?? $current ?? [];
+        [$preview['gather'], $do['gather']] = embyImportGather(embyImportFolder($gatherFolder, $ctx), $ctx, $emby);
+        $preview['gather']['folder'] = rtrim($gatherFolder, '/');
+    }
+    if (!in_array(true, (array) ($preview['embycache']['found'] ?? []), true) && !($preview['gather']['found'] ?? false)) {
+        throw new Problem('emby_import_none');
+    }
+    $preview['ready'] = $do['embycache'] !== null || $do['gather'] !== null;
+    $preview = embyImportScrub($preview, $secrets);
+    // the token: what the page saw, what will be done, and Jack's own files as they are now
+    $mine = '';
+    foreach ([$ctx['emby_dir'] . '/embycache_settings.json', $ctx['emby_dir'] . '/embycache_exclude.txt', $ctx['emby_dir'] . '/embycache_origin.json',
+              $ctx['gather_dir'] . '/gather.json'] as $f) {
+        $mine .= (string) @sha1_file($f) . '|';
+    }
+    $preview['token'] = sha1(jsonEncode($preview) . "\n" . sha1(jsonEncode($do)) . "\n" . $mine);
+    return ['preview' => $preview, 'do' => $do, 'secrets' => $secrets];
+}
+
+/** Every secret value replaced, wherever it appears in an answer for the page */
+function embyImportScrub(mixed $data, array $secrets): mixed
+{
+    $secrets = array_values(array_filter(array_unique($secrets), fn ($s) => is_string($s) && strlen($s) >= 4));
+    if (!$secrets) {
+        return $data;
+    }
+    if (is_array($data)) {
+        $out = [];
+        foreach ($data as $k => $v) {
+            $out[is_string($k) ? str_replace($secrets, '•••', $k) : $k] = embyImportScrub($v, $secrets);
+        }
+        return $out;
+    }
+    return is_string($data) ? str_replace($secrets, '•••', $data) : $data;
+}
+
+/** An address as the page may see it: no user:password@, no query */
+function embyImportMaskUrl(string $url): string
+{
+    return preg_replace(['#^(https?://)[^/@]*@#', '#\?.*$#s'], ['$1•••@', '?•••'], $url);
+}
+
+/** EmbyCache's part: settings, the list of what lies on the pool, where it came from */
+function embyImportEmbyCache(string $dir, array $ctx, ?array $current, array &$secrets): array
+{
+    $files = [];
+    foreach (['settings', 'exclude', 'origin'] as $k) {
+        $files[$k] = embyImportRead($dir, EMBY_IMPORT_FILES[$k][0], EMBY_IMPORT_FILES[$k][1]);
+    }
+    $pv = ['found' => array_map(fn ($f) => $f !== null, $files), 'blockers' => [], 'warnings' => [], 'changes' => [], 'same' => 0,
+           'defaults' => [], 'jack' => [], 'dropped' => [], 'instances' => [], 'users' => null, 'libraries' => null,
+           'exclude' => null, 'origin' => null];
+    $cfg = null;
+    if ($files['settings'] !== null) {
+        $old = json_decode($files['settings'], true);
+        if (!is_array($old) || ($old && array_is_list($old))) {
+            $pv['blockers'][] = ['key' => 'bad_json'];
+        } else {
+            $cfg = embyImportSettings($old, $ctx, $current, $pv, $secrets);
+        }
+    }
+    // the list and the origins: checked against the pool of the settings Jack will have
+    $target = $cfg ?? $current;
+    $cache = rtrim((string) ($target['cache_path'] ?? ''), '/');
+    $exclude = $origin = null;
+    if ($files['exclude'] !== null || $files['origin'] !== null) {
+        if ($target === null || $cache === '') {
+            $pv['blockers'][] = ['key' => 'no_settings'];
+        } else {
+            $mine = array_values(array_filter(array_map('trim', explode("\n", (string) @file_get_contents($ctx['emby_dir'] . '/embycache_exclude.txt')))));
+            $exclude = $mine;
+            if ($files['exclude'] !== null) {
+                $lines = array_values(array_filter(array_map('trim', explode("\n", $files['exclude'])), fn ($l) => $l !== ''));
+                $ok = array_values(array_unique(array_filter($lines, fn ($l) => embyImportPathOk($l, $cache, $ctx['shares']))));
+                $exclude = array_values(array_unique(array_merge($mine, $ok)));
+                sort($exclude, SORT_STRING);
+                $bad = array_values(array_filter($lines, fn ($l) => !embyImportPathOk($l, $cache, $ctx['shares'])));
+                $pv['exclude'] = ['lines' => count($lines), 'ok' => count($ok), 'bad' => count($bad),
+                                  'bad_sample' => array_map(fn ($l) => mb_substr($l, 0, 200), array_slice($bad, 0, 5)),
+                                  'already' => count(array_intersect($ok, $mine)), 'mine' => count($mine), 'total' => count($exclude)];
+            }
+            $mineOrigin = readJson($ctx['emby_dir'] . '/embycache_origin.json') ?? [];
+            if ($files['origin'] !== null) {
+                $o = json_decode($files['origin'], true);
+                $o = is_array($o) && !($o && array_is_list($o)) ? $o : [];
+                $ok = [];
+                foreach ($o as $path => $disk) {
+                    if (is_string($disk) && preg_match('/^disk\d{1,3}$/D', $disk) && embyImportPathOk((string) $path, $cache, $ctx['shares'])) {
+                        $ok[(string) $path] = $disk;
+                    }
+                }
+                $origin = $mineOrigin + $ok;              // Jack's own entries win: they are newer
+                ksort($origin, SORT_STRING);
+                $pv['origin'] = ['entries' => count($o), 'ok' => count($ok), 'bad' => count($o) - count($ok),
+                                 'already' => count(array_intersect_key($ok, $mineOrigin)), 'total' => count($origin),
+                                 'unreadable' => !is_array(json_decode($files['origin'], true))];
+            }
+            $away = count(array_filter($mine, fn ($l) => !str_starts_with($l, "$cache/")));
+            if ($away) {                                   // Jack's own list on another pool: EmbyCache won't bring those back
+                $pv['warnings'][] = ['key' => 'pool_change', 'params' => ['n' => $away, 'pool' => $cache]];
+            }
+        }
+    }
+    if ($files['settings'] !== null && $files['exclude'] === null) {
+        $pv['warnings'][] = ['key' => 'no_exclude'];
+    }
+    if ($cfg !== null && !$pv['blockers']) {
+        $detail = embyImportTrial($cfg, $ctx);
+        if ($detail !== null) {
+            $pv['blockers'][] = ['key' => 'config', 'params' => ['detail' => $detail]];
+        }
+    }
+    $pv['ok'] = !$pv['blockers'] && in_array(true, $pv['found'], true);
+    $do = $pv['ok'] ? ['settings' => $cfg, 'exclude' => $files['exclude'] !== null ? $exclude : null, 'origin' => $files['origin'] !== null ? $origin : null] : null;
+    return [$pv, $do];
+}
+
+/** A line of the list or a key of the origins: a file under <pool>/<share>/ of this server, no "." or ".." */
+function embyImportPathOk(string $path, string $cache, array $shares): bool
+{
+    if ($cache === '' || !str_starts_with($path, "$cache/") || strlen($path) > 4096 || !mb_check_encoding($path, 'UTF-8')
+        || preg_match('/[\x00-\x1f\x7f]/', $path)) {
+        return false;
+    }
+    $parts = explode('/', substr($path, strlen($cache) + 1));
+    if (count($parts) < 2 || !in_array($parts[0], $shares, true)) {
+        return false;
+    }
+    foreach ($parts as $p) {
+        if ($p === '' || $p === '.' || $p === '..') {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * The old settings mapped onto EmbyCache's keys of the version that ships with the office: keys
+ * it doesn't know are left out, keys it added get its defaults, values that aren't valid here or
+ * belong to the office are Jack's. Fills the preview's lists; returns the settings to write.
+ */
+function embyImportSettings(array $old, array $ctx, ?array $current, array &$pv, array &$secrets): array
+{
+    $defaults = (array) $ctx['defaults'];
+    $structured = ['instances', 'path_mappings', 'valid_users', 'libraries'];
+    foreach (array_keys($old) as $k) {
+        if (!array_key_exists($k, $defaults) && $k !== 'library_types') {
+            $pv['dropped'][] = (string) $k;          // the name only: its value may be anything
+        }
+    }
+    $cfg = [];
+    foreach ($defaults as $k => $def) {
+        if (in_array($k, $structured, true)) {
+            continue;
+        }
+        if ($k === 'cache_path') {                   // the pool: one of this server's, never a default
+            $v = is_string($old[$k] ?? null) ? rtrim($old[$k], '/') : '';
+            if (!in_array($v, (array) $ctx['pools'], true)) {
+                $pv['blockers'][] = ['key' => 'pool', 'params' => ['path' => mb_substr($v, 0, 200)]];
+            }
+            $cfg[$k] = $v;
+            continue;
+        }
+        if (!array_key_exists($k, $old)) {
+            $cfg[$k] = $def;
+            $pv['defaults'][] = ['key' => $k, 'value' => $def];
+            continue;
+        }
+        $v = $old[$k];
+        if (isset(EMBY_IMPORT_FIXED[$k])) {
+            $cfg[$k] = EMBY_IMPORT_FIXED[$k];
+            if (!is_string($v) || ($k === 'array_disks_glob' ? $v : rtrim($v, '/')) !== EMBY_IMPORT_FIXED[$k]) {
+                $pv['jack'][] = ['key' => $k, 'old' => embyImportShow($v), 'new' => EMBY_IMPORT_FIXED[$k]];
+            }
+            continue;
+        }
+        if ($k === 'cache_budget' && is_string($v)) {
+            $v = strtoupper(str_replace(' ', '', $v));
+        }
+        if (embyImportValueOk($k, $v, $def)) {
+            $cfg[$k] = $v;
+        } else {
+            $cfg[$k] = $def;
+            $pv['jack'][] = ['key' => $k, 'old' => embyImportShow($v), 'new' => $def];
+        }
+    }
+
+    // servers: their mappings (the old global ones merged in, as EmbyCache does), the key stays here
+    $global = is_array($old['path_mappings'] ?? null) ? $old['path_mappings'] : [];
+    $instances = [];
+    foreach (is_array($old['instances'] ?? null) ? $old['instances'] : [] as $n => $i) {
+        if (!is_array($i)) {
+            continue;
+        }
+        $url = rtrim(is_string($i['url'] ?? null) ? trim($i['url']) : '', '/');
+        $name = mb_substr(trim(is_string($i['servername'] ?? null) ? $i['servername'] : ''), 0, 60) ?: 'Emby' . (count($instances) + 1);
+        $key = is_string($i['api_key'] ?? null) ? trim($i['api_key']) : '';
+        if ($key !== '') {
+            $secrets[] = $key;                        // even one that isn't valid never goes to the page
+        }
+        $state = 'found';
+        if (!preg_match('/^[A-Za-z0-9]{8,128}$/D', $key)) {
+            $key = '';
+            foreach ((array) ($current['instances'] ?? []) as $c) {
+                if (is_array($c) && rtrim((string) ($c['url'] ?? ''), '/') === $url) {
+                    $key = (string) ($c['api_key'] ?? '');
+                }
+            }
+            $state = preg_match('/^[A-Za-z0-9]{8,128}$/D', $key) ? 'jack' : 'missing';
+        }
+        $maps = $bad = $show = [];
+        // the old global mappings first, the server's own over them (as EmbyCache merges them)
+        foreach (array_replace($global, is_array($i['path_mappings'] ?? null) ? $i['path_mappings'] : []) as $from => $to) {
+            $from = rtrim((string) $from, '/');
+            $to = is_string($to) ? rtrim($to, '/') : null;
+            if ($from === '' || $to === null || !embyMappingOk($from, $to)) {
+                $bad[] = mb_substr($from, 0, 200);
+                continue;
+            }
+            $maps[$from] = $to;
+            $show[] = ['from' => $from, 'to' => $to, 'there' => $to === '' ? true : embyImportThere($to, $ctx)];
+        }
+        $okUrl = (bool) preg_match('#^https?://\S+$#D', $url) && strlen($url) <= 500;
+        $pv['instances'][] = ['servername' => $name, 'url' => embyImportMaskUrl(mb_substr($url, 0, 200)), 'key' => $state,
+                              'mappings' => $show, 'bad_mappings' => $bad];
+        if (!$okUrl) {
+            $pv['blockers'][] = ['key' => 'bad_url', 'params' => ['server' => $name]];
+        }
+        if ($state === 'missing') {
+            $pv['blockers'][] = ['key' => 'no_key', 'params' => ['server' => $name]];
+        }
+        $instances[] = ['servername' => $name, 'url' => $url, 'api_key' => $key, 'path_mappings' => $maps];
+    }
+    if (!$instances) {
+        $pv['blockers'][] = ['key' => 'no_server'];
+    }
+    $cfg['instances'] = $instances;
+    $cfg['path_mappings'] = [];
+
+    // people: a list of ids, or {id: {budget}} when some have a budget of their own
+    $vu = is_array($old['valid_users'] ?? null) ? $old['valid_users'] : [];
+    $users = [];
+    $badUsers = 0;
+    foreach ($vu as $k => $v) {
+        $id = array_is_list($vu) ? $v : $k;
+        $opts = array_is_list($vu) ? null : $v;
+        if (!(is_string($id) || is_int($id)) || !preg_match('/^[\w-]{1,64}$/D', (string) $id)) {
+            $badUsers++;
+            continue;
+        }
+        $b = is_array($opts) && is_string($opts['budget'] ?? null) ? strtoupper(str_replace(' ', '', $opts['budget'])) : '';
+        if ($b !== '' && !preg_match('/^\d+(\.\d+)?[KMGTP]?B?$/D', $b)) {
+            $badUsers++;
+            $b = '';
+        }
+        $users[(string) $id] = $b !== '' ? ['budget' => $b] : (object) [];
+    }
+    $cfg['valid_users'] = array_filter($users, fn ($u) => is_array($u)) ? $users : array_map('strval', array_keys($users));
+    $pv['users'] = ['n' => count($users), 'budgets' => count(array_filter($users, fn ($u) => is_array($u))), 'bad' => $badUsers];
+    $cfg['libraries'] = array_values(array_filter(is_array($old['libraries'] ?? null) ? $old['libraries'] : [], fn ($l) => is_string($l) && strlen($l) <= 200));
+    $pv['libraries'] = $cfg['libraries'];
+    // what kind each library is: only the office's overview — kept from Jack's own where the name matches
+    $cfg['library_types'] = array_intersect_key(is_array($current['library_types'] ?? null) ? $current['library_types'] : [], array_flip($cfg['libraries']));
+
+    foreach ($cfg as $k => $v) {
+        if (in_array($k, ['instances', 'path_mappings', 'valid_users', 'library_types'], true)) {
+            continue;
+        }
+        if ($current !== null && array_key_exists($k, $current) && $current[$k] === $v) {
+            $pv['same']++;
+        } else {
+            $pv['changes'][] = ['key' => $k, 'old' => $current !== null && array_key_exists($k, $current) ? embyImportShow($current[$k]) : null, 'new' => embyImportShow($v)];
+        }
+    }
+    return $cfg;
+}
+
+/** A value as the preview shows it (strings capped; lists and objects as JSON) */
+function embyImportShow(mixed $v): mixed
+{
+    if (is_string($v)) {
+        return mb_substr($v, 0, 200);
+    }
+    if (is_array($v) || is_object($v)) {
+        return mb_substr(json_encode($v, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) ?: '', 0, 200);
+    }
+    return $v;
+}
+
+/** Is an old value valid for EmbyCache here? Its type as the default's, the few choices it knows, nothing that runs or writes elsewhere */
+function embyImportValueOk(string $key, mixed $v, mixed $def): bool
+{
+    return match (true) {
+        $key === 'mover_bin'      => in_array($v, EMBY_MOVER_BINS, true),
+        $key === 'rsync_args'     => is_array($v) && array_is_list($v) && $v && count($v) <= 20
+                                     && !array_filter($v, fn ($a) => !is_string($a) || (!preg_match(EMBY_RSYNC_SHORT, $a) && !in_array($a, EMBY_RSYNC_LONG, true))),
+        $key === 'cache_budget'   => is_string($v) && ($v === '' || (bool) preg_match('/^\d+(\.\d+)?[KMGTP]?B?$/D', $v)),
+        $key === 'movie_mode'     => in_array($v, ['folder', 'file'], true),
+        in_array($key, ['fill_tool', 'cleanup_tool'], true) => in_array($v, ['rsync', 'mover'], true),
+        $key === 'array_source'   => in_array($v, ['user0', 'disk'], true),
+        $key === 'mover_debug_level' => is_int($v) && $v >= 0 && $v <= 3,
+        in_array($key, EMBY_IMPORT_PCT, true) => (is_int($v) || is_float($v)) && $v >= 0 && $v <= 100,
+        is_bool($def)             => is_bool($v),
+        $def === null             => $v === null || (is_int($v) && $v >= 0 && $v <= 100000),
+        is_int($def), is_float($def) => (is_int($v) || is_float($v)) && $v >= 0 && $v <= 100000,
+        is_string($def)           => is_string($v) && strlen($v) <= 200 && !preg_match('/[\x00-\x1f\x7f]/', $v),
+        default                   => false,
+    };
+}
+
+/** Is a mapping's host folder there on this server? null = its disks sleep, not looked at */
+function embyImportThere(string $host, array $ctx): ?bool
+{
+    if (!preg_match('#^/mnt/user/([^/]+)(/.*)?$#D', $host, $m) || !in_array($m[1], (array) $ctx['shares'], true)) {
+        return false;
+    }
+    if (($m[2] ?? '') === '') {
+        return true;                                   // the share itself: its config is on the flash
+    }
+    foreach (embyImportShareBases($m[1], $ctx) as $b) {
+        if (baseAsleep($b, (array) $ctx['asleep'])) {
+            return null;
+        }
+    }
+    return is_dir(($ctx['fs'] ?? '') . $host);
+}
+
+/** Would EmbyCache accept these settings? Its own save_config() + load_config() on a trial folder; null = yes, else why not */
+function embyImportTrial(array $cfg, array $ctx): ?string
+{
+    $dir = ($ctx['tmp'] ?? RUN_DIR) . '/emby-import-trial.' . bin2hex(random_bytes(4));
+    try {
+        embyWriteSettings($cfg, $dir, (string) ($ctx['tmp'] ?? RUN_DIR));
+        return null;
+    } catch (Problem $p) {
+        return (string) ($p->params['detail'] ?? $p->key);
+    } finally {
+        @unlink("$dir/embycache_settings.json");
+        @unlink("$dir/.embycache_settings.trial.json");
+        @rmdir($dir);
+    }
+}
+
+/** The gather's part: consolidate.ini onto Jack's gather settings (shares, free space, duplicates) */
+function embyImportGather(string $dir, array $ctx, array $emby): array
+{
+    $text = embyImportRead($dir, EMBY_IMPORT_FILES['ini'][0], EMBY_IMPORT_FILES['ini'][1]);
+    $pv = ['found' => $text !== null, 'blockers' => [], 'warnings' => [], 'changes' => [], 'jack' => [], 'dropped' => [],
+           'shares' => [], 'dropped_shares' => [], 'strange' => 0];
+    if ($text === null) {
+        return [$pv + ['ok' => false], null];
+    }
+    [$vars, $pv['strange']] = embyImportIni($text);
+    $cur = readJson($ctx['gather_dir'] . '/gather.json');
+    $new = ['shares' => [], 'min_free_gb' => (int) ($cur['min_free_gb'] ?? 256), 'dup_check' => ($cur['dup_check'] ?? 'size') === 'cmp' ? 'cmp' : 'size'];
+    $jack = ['LOGFILE' => $ctx['gather_dir'] . '/consolidate.log', 'ARRAY_PATTERN' => '/mnt/disk[0-9]*', 'CACHE_PATTERN' => null,
+             'EXCLUDE_FILE' => $ctx['emby_dir'] . '/embycache_exclude.txt', 'DRYRUN' => 'true', 'CACHE_ONLY_TARGET' => 'skip', 'MOVE_CACHE' => 'false'];
+    foreach ($vars as $k => $v) {
+        if (in_array($k, GATHER_IMPORT_KEYS, true)) {
+            continue;
+        }
+        if (!in_array($k, GATHER_IMPORT_JACK, true)) {
+            $pv['dropped'][] = $k;
+            continue;
+        }
+        $old = is_array($v) ? implode(' ', $v) : $v;
+        if ($k === 'EXCLUDE_FILE' && $old !== '' && $old !== $jack[$k]) {
+            $pv['warnings'][] = ['key' => 'gather_exclude', 'params' => ['path' => mb_substr($old, 0, 200)]];
+        }
+        if ($k !== 'CACHE_PATTERN' && $old !== $jack[$k]) {
+            $pv['jack'][] = ['key' => $k, 'old' => mb_substr($old, 0, 200), 'new' => $jack[$k]];
+        }
+    }
+    foreach (is_array($vars['BASE_DIRS'] ?? null) ? $vars['BASE_DIRS'] : (isset($vars['BASE_DIRS']) ? [$vars['BASE_DIRS']] : []) as $base) {
+        $base = rtrim($base, '/');
+        if (preg_match('#^/mnt/user/([\w.\- ]+)$#uD', $base, $m) && in_array($m[1], (array) $ctx['shares'], true)) {
+            $new['shares'][] = $m[1];
+        } else {
+            $pv['dropped_shares'][] = ['path' => mb_substr($base, 0, 200),
+                                       'why' => preg_match('#^/mnt/user/([\w.\- ]+)$#uD', $base) ? 'missing' : (str_starts_with($base, '/mnt/user/') ? 'not_share' : 'outside')];
+        }
+    }
+    $new['shares'] = array_values(array_unique($new['shares']));
+    foreach (['MIN_FREE_GB' => 'min_free_gb', 'DUP_CHECK' => 'dup_check'] as $ini => $key) {
+        if (!array_key_exists($ini, $vars)) {
+            continue;
+        }
+        $v = $vars[$ini];
+        $ok = $key === 'min_free_gb' ? is_string($v) && preg_match('/^\d{1,6}$/D', $v) && (int) $v <= 100000 : in_array($v, ['size', 'cmp'], true);
+        if ($ok) {
+            $new[$key] = $key === 'min_free_gb' ? (int) $v : $v;
+        } else {
+            $pv['jack'][] = ['key' => $ini, 'old' => embyImportShow($v), 'new' => $new[$key]];
+        }
+    }
+    $pools = embyGatherPools($new['shares'], $emby, $ctx['share_cfg']);
+    $oldCache = $vars['CACHE_PATTERN'] ?? null;
+    if ($oldCache !== null && (is_array($oldCache) ? implode(' ', $oldCache) : $oldCache) !== implode(' ', $pools)) {
+        $pv['jack'][] = ['key' => 'CACHE_PATTERN', 'old' => mb_substr(is_array($oldCache) ? implode(' ', $oldCache) : $oldCache, 0, 200), 'new' => implode(' ', $pools)];
+    }
+    $pv['shares'] = $new['shares'];
+    if (!$new['shares']) {
+        $pv['blockers'][] = ['key' => 'no_share'];
+    }
+    foreach ($new as $k => $v) {
+        $was = $cur[$k] ?? null;
+        if ($was !== $v) {
+            $pv['changes'][] = ['key' => $k, 'old' => $was === null ? null : embyImportShow($was), 'new' => embyImportShow($v)];
+        }
+    }
+    $pv['ok'] = !$pv['blockers'];
+    return [$pv, $pv['ok'] ? embyGatherCheck($new, (array) $ctx['shares']) : null];
+}
+
+/**
+ * consolidate.ini as consolidate_master.sh would see it — read, never sourced: NAME=value lines
+ * with '…', "…" (no $ or `) or plain words, NAME=( … ) for a list (over several lines too);
+ * comments and empty lines skipped. Returns [name => value or list, lines not understood].
+ */
+function embyImportIni(string $text): array
+{
+    $vars = [];
+    $strange = 0;
+    $lines = preg_split('/\r?\n/', $text);
+    for ($l = 0; $l < count($lines); $l++) {
+        $line = trim($lines[$l]);
+        if ($line === '' || $line[0] === '#') {
+            continue;
+        }
+        if (!preg_match('/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/sD', $line, $m)) {
+            $strange++;
+            continue;
+        }
+        $value = $m[2];
+        if (str_starts_with($value, '(')) {
+            $value = substr($value, 1);
+            while (($words = embyImportWords($value, true)) === false && $l + 1 < count($lines) && strlen($value) < 65536) {
+                $value .= "\n" . $lines[++$l];
+            }
+        } else {
+            $words = embyImportWords($value, false);
+        }
+        if (!is_array($words)) {
+            $strange++;
+            continue;
+        }
+        $vars[$m[1]] = str_starts_with($m[2], '(') ? $words : ($words[0] ?? '');
+    }
+    return [$vars, $strange];
+}
+
+/**
+ * Shell words without any expansion: '…' as is, "…" with \ escapes (a $ or ` in it = refused),
+ * \x, plain characters. A list ends at ")"; after the value only blanks or a comment.
+ * Returns the words, false when a list or a quote isn't closed yet, null when refused.
+ */
+function embyImportWords(string $s, bool $list): array|false|null
+{
+    $words = [];
+    $cur = null;
+    $n = strlen($s);
+    for ($i = 0; $i < $n;) {
+        $c = $s[$i];
+        if ($c === "'") {
+            $j = strpos($s, "'", $i + 1);
+            if ($j === false) {
+                return $list ? false : null;
+            }
+            $cur = ($cur ?? '') . substr($s, $i + 1, $j - $i - 1);
+            $i = $j + 1;
+        } elseif ($c === '"') {
+            $buf = '';
+            for ($i++; $i < $n && $s[$i] !== '"'; $i++) {
+                if ($s[$i] === '$' || $s[$i] === '`') {
+                    return null;
+                }
+                if ($s[$i] === '\\' && $i + 1 < $n && str_contains("\"\\\$`\n", $s[$i + 1])) {
+                    $i++;
+                }
+                $buf .= $s[$i];
+            }
+            if ($i >= $n) {
+                return $list ? false : null;
+            }
+            $cur = ($cur ?? '') . $buf;
+            $i++;
+        } elseif ($c === '\\' && $i + 1 < $n) {
+            $cur = ($cur ?? '') . $s[$i + 1];
+            $i += 2;
+        } elseif ($c === ' ' || $c === "\t" || $c === "\n") {
+            if ($cur !== null) {
+                $words[] = $cur;
+                $cur = null;
+            }
+            if (!$list && $c !== "\n") {           // after a value: only a comment may follow
+                $rest = ltrim(substr($s, $i));
+                return $rest === '' || $rest[0] === '#' ? $words : null;
+            }
+            $i++;
+        } elseif ($list && $c === '#' && $cur === null) {
+            $nl = strpos($s, "\n", $i);
+            if ($nl === false) {
+                return false;
+            }
+            $i = $nl;
+        } elseif ($list && $c === ')') {
+            if ($cur !== null) {
+                $words[] = $cur;
+            }
+            $rest = ltrim(substr($s, $i + 1));
+            return $rest === '' || $rest[0] === '#' ? $words : null;
+        } elseif (str_contains('$`;&|<>()', $c) || ($list && (str_contains('*?[{', $c) || ($c === '~' && $cur === null)))) {
+            return null;                               // something bash would run or expand
+        } else {
+            $cur = ($cur ?? '') . $c;
+            $i++;
+        }
+    }
+    if ($list) {
+        return false;
+    }
+    if ($cur !== null) {
+        $words[] = $cur;
+    }
+    return $words ?: [''];
+}
+
+/**
+ * Does what the preview showed: a copy of each of Jack's files first (<file>.before-import-<time>,
+ * next to it), then EmbyCache's settings (its own save_config(), trial first), the list and the
+ * origins merged, the gather's settings — and the gather's ini follows EmbyCache's pool.
+ */
+function embyImportApply(array $do, array $ctx): array
+{
+    $stamp = date('Ymd-His');
+    $backups = [];
+    if ($do['embycache']) {
+        $e = $do['embycache'];
+        embyDataDir($ctx['emby_dir']);
+        $backups = embyImportBackup($ctx['emby_dir'], array_filter(['embycache_settings.json' => $e['settings'] !== null,
+            'embycache_exclude.txt' => $e['exclude'] !== null, 'embycache_origin.json' => $e['origin'] !== null]), $stamp);
+        if ($e['settings'] !== null) {
+            embyWriteSettings($e['settings'], $ctx['emby_dir'], (string) ($ctx['tmp'] ?? RUN_DIR));
+        }
+        if ($e['exclude'] !== null) {
+            writeAtomic($ctx['emby_dir'] . '/embycache_exclude.txt', $e['exclude'] ? implode("\n", $e['exclude']) . "\n" : '', 0600, 0, 0);
+        }
+        if ($e['origin'] !== null) {
+            writeAtomic($ctx['emby_dir'] . '/embycache_origin.json',
+                json_encode((object) $e['origin'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n", 0600, 0, 0);
+        }
+    }
+    $emby = readJson($ctx['emby_dir'] . '/embycache_settings.json') ?? [];
+    if ($do['gather']) {
+        $backups = array_merge($backups, embyImportBackup($ctx['gather_dir'], ['gather.json' => true, 'consolidate.ini' => true], $stamp));
+        embySaveGather($do['gather'], $emby, $ctx['gather_dir'], $ctx['emby_dir']);
+    } elseif ($do['embycache'] && ($g = readJson($ctx['gather_dir'] . '/gather.json')) && !empty($g['shares'])) {
+        embyWriteGatherIni($g, $emby, $ctx['gather_dir'], $ctx['emby_dir']);     // follows the pool, like Jack's own save
+    }
+    return ['stamp' => $stamp, 'backups' => $backups, 'embycache' => $do['embycache'] !== null, 'gather' => $do['gather'] !== null,
+            'settings' => ($do['embycache']['settings'] ?? null) !== null,
+            'exclude' => isset($do['embycache']['exclude']) ? count($do['embycache']['exclude']) : null,
+            'origin' => isset($do['embycache']['origin']) ? count($do['embycache']['origin']) : null];
+}
+
+/** A copy of each of these files of Jack's that exists (plain files only), named <file>.before-import-<time> */
+function embyImportBackup(string $dir, array $names, string $stamp): array
+{
+    $made = [];
+    foreach (array_keys($names) as $name) {
+        $file = "$dir/$name";
+        clearstatcache(true, $file);
+        $st = @lstat($file);
+        if (!$st || ($st['mode'] & 0170000) !== 0100000) {
+            continue;
+        }
+        $copy = "$file.before-import-$stamp";
+        writeAtomic($copy, (string) file_get_contents($file), 0600, 0, 0);
+        $made[] = $copy;
+    }
+    return $made;
 }
 
 // ===================================================================== runs

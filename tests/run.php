@@ -288,6 +288,222 @@ function testEmby(): void
             . "2026-10-04 18:00:00,123 | INFO | fertig"));
 }
 
+/**
+ * Jack takes over an earlier install of helmi1987's tools (fixtures shaped like EmbyCache 7.2.1
+ * and setup_consolidate.sh V11 write them) on a fake server tree: the folder's checks (links,
+ * "..", outside, asleep), unknown and new keys, the API key never in an answer to the page, the
+ * list and origins merged with Jack's own, bad lines left out, the copies made, the gather's ini.
+ */
+function testEmbyImport(): void
+{
+    $tmp = hardeningTmp('embyimport');
+    $fs = "$tmp/fs";                      // the fake server: /mnt and /boot below it
+    $pool = "$tmp/pool";                  // EmbyCache's pool (load_config() wants a real folder)
+    $key = 'FakeKey0123456789abcdefFAKEKEY99';
+    $jackKey = 'JackOwnKey0123456789JACKKEY0000';
+    foreach (['mnt/user/system/scripts/embycache', 'mnt/user/system/scripts/consolidate', 'mnt/user/system/scripts/badfile',
+              'mnt/user/Filme', 'mnt/cache/appdata/old', 'mnt/hive/x', 'boot/config/plugins/user.scripts/scripts/old-embycache',
+              'mnt/cache/appdata/UnraidSecretaryOffice/data/embycache', 'mnt/cache/appdata/UnraidSecretaryOffice/data/gather', 'pool', 'run'] as $d) {
+        @mkdir(str_starts_with($d, 'pool') || $d === 'run' ? "$tmp/$d" : "$fs/$d", 0700, true);
+    }
+    symlink('../cache/appdata', "$fs/mnt/user/appdata");                         // an exclusive share, Unraid's own link
+    symlink('/tmp', "$fs/mnt/user/linked");                                      // any other link
+    symlink('embycache', "$fs/mnt/user/system/scripts/lnk");
+    symlink('/etc/hostname', "$fs/mnt/user/system/scripts/badfile/embycache_settings.json");
+    file_put_contents("$fs/mnt/user/system/scripts/notes.txt", 'x');
+    $jack = "$fs/mnt/cache/appdata/UnraidSecretaryOffice/data";
+    $ctx = ['emby_dir' => "$jack/embycache", 'gather_dir' => "$jack/gather", 'tmp' => "$tmp/run", 'fs' => $fs,
+            'pools' => ['/mnt/cache', '/mnt/hive', $pool], 'shares' => ['Filme', 'Serien', 'system', 'appdata', 'Sleepy'],
+            'asleep' => ['disk1' => false, 'disk2' => true, 'cache' => false, 'hive' => true],
+            'share_cfg' => fn (string $s): array => ['Filme' => ['shareUseCache' => 'yes', 'shareCachePool' => 'cache', 'shareInclude' => 'disk1'],
+                                                      'Serien' => ['shareUseCache' => 'yes', 'shareCachePool' => 'cache', 'shareInclude' => 'disk1'],
+                                                      'system' => ['shareUseCache' => 'only', 'shareCachePool' => 'cache'],
+                                                      'appdata' => ['shareUseCache' => 'only', 'shareCachePool' => 'cache'],
+                                                      'linked' => ['shareUseCache' => 'only', 'shareCachePool' => 'cache'],
+                                                      'Sleepy' => ['shareUseCache' => 'no', 'shareInclude' => 'disk2']][$s] ?? [],   // no cfg: the array
+            'defaults' => null];
+    $err = function (callable $f): string {
+        try {
+            $f();
+            return 'none';
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+
+    // the folder: absolute, no "..", in the allowed places, awake, real folders only
+    $old = '/mnt/user/system/scripts/embycache';
+    same('import folder: a share folder', "$fs$old", embyImportFolder("$old/", $ctx));
+    same('import folder: through an exclusive share\'s link to its pool', "$fs/mnt/cache/appdata/old", embyImportFolder('/mnt/user/appdata/old', $ctx));
+    same('import folder: User Scripts on the flash', "$fs/boot/config/plugins/user.scripts/scripts/old-embycache",
+        embyImportFolder('/boot/config/plugins/user.scripts/scripts/old-embycache', $ctx));
+    foreach (['relative/embycache' => 'emby_import_folder', '/mnt/user/system/../system/scripts/embycache' => 'emby_import_folder',
+              '/mnt/user/system/./scripts' => 'emby_import_folder', "/mnt/user/sys\ntem" => 'emby_import_folder',
+              '/etc' => 'emby_import_where', '/mnt/user0/system' => 'emby_import_where', '/mnt/disks/usb' => 'emby_import_where',
+              '/mnt/user' => 'emby_import_where', '/boot/config/plugins/user.scripts/scripts' => 'emby_import_where', '/tmp/x' => 'emby_import_where',
+              '/mnt/user/linked' => 'emby_import_link', '/mnt/user/linked/x' => 'emby_import_link', '/mnt/user/system/scripts/lnk' => 'emby_import_link',
+              '/mnt/user/Sleepy/old' => 'emby_import_asleep', '/mnt/hive/x' => 'emby_import_asleep', '/mnt/disk2/scripts' => 'emby_import_asleep',
+              '/mnt/user/system/nothing' => 'emby_import_missing', '/mnt/user/system/scripts/badfile/embycache_settings.json' => 'emby_import_link',
+              '/mnt/user/Nocfg/old' => 'emby_import_asleep', '/mnt/user/system/scripts/notes.txt' => 'emby_import_missing',
+              '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache' => 'emby_import_own'] as $path => $want) {
+        same('import folder refused: ' . json_encode($path), $want, $err(fn () => embyImportFolder($path, $ctx)));
+    }
+    same('import: a file that is a link is refused', 'emby_import_file', $err(fn () => embyImportPlan('/mnt/user/system/scripts/badfile', '', $ctx)));
+    same('import: an empty folder has nothing', 'emby_import_none', $err(fn () => embyImportPlan('/mnt/user/Filme', '', $ctx)));
+    same('import: no folder typed', 'emby_import_nothing', $err(fn () => embyImportFolders(['embycache' => ' ', 'gather' => ''])));
+
+    // the old install: EmbyCache 7.2.1's settings (every key of its DEFAULTS), its list, our origins
+    $settings = ['cache_path' => "$pool/", 'array_path' => '/mnt/user0/', 'user_path' => '/mnt/user', 'array_disks_glob' => '/mnt/disk[0-9]*',
+        'array_source' => 'user0',
+        'instances' => [['servername' => 'Nostromo', 'url' => 'http://192.168.7.10:8096', 'api_key' => $key,
+                         'path_mappings' => ['/media/Serien' => '/mnt/user/Serien', '/media/Musik' => '', '/media/bad' => '/mnt/user/../etc',
+                                             '/media/Gone' => '/mnt/user/Gone/Filme', '/media/Filme' => '/mnt/user/Filme/']]],
+        'path_mappings' => ['/media/Filme' => '/mnt/user/Oops'], 'libraries' => ['Filme', 'Serien'],
+        'valid_users' => ['u1' => ['budget' => '300 g'], 'bad id!' => [], 'u2' => [], 'u3' => ['budget' => 'lots']],
+        'number_episodes' => 3, 'cache_budget' => '2.5t', 'movie_share_percent' => 50, 'max_episodes_per_series' => 0, 'max_resume_items' => 8,
+        'max_favorite_series' => 10, 'use_next_up' => true, 'min_free_percent' => 15, 'movie_mode' => 'folder', 'create_share_root' => false,
+        'mover_bin' => '/mnt/user/system/evil.sh', 'mover_debug_level' => 0, 'rsync_args' => ['-aAX', '--numeric-ids', '--rsh=sh -c reboot'],
+        'fill_tool' => 'rsync', 'cleanup_tool' => 'mover', 'api_timeout' => 10, 'shares_cfg_dir' => '/boot/config/shares',
+        'old_option' => 1, 'emby_token' => $key];
+    $dir = "$fs$old";
+    file_put_contents("$dir/embycache_settings.json", json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    file_put_contents("$dir/embycache_exclude.txt", implode("\n", ["$pool/Filme/Alien (1979)/Alien.mkv", "$pool/Serien/X/S01/e1.mkv",
+        "$pool/Serien/X/S01/e1.mkv", "/mnt/other/Filme/x.mkv", "$pool/Filme/../../etc/passwd", "$pool/NoShare/x.mkv", 'relative.mkv',
+        "$pool/Filme", "$pool/Filme/a\x01b.mkv", '', "  $pool/Filme/Brazil/Brazil.mkv  "]) . "\n");
+    file_put_contents("$dir/embycache_origin.json", json_encode(["$pool/Filme/Alien (1979)/Alien.mkv" => 'disk1', "$pool/Serien/X/S01/e1.mkv" => 'disk2',
+        "$pool/Filme/../x.mkv" => 'disk1', "$pool/Filme/y.mkv" => 'cache', "$pool/Filme/z.mkv" => 3], JSON_UNESCAPED_SLASHES));
+    // the gather, as setup_consolidate.sh V11 writes it — plus a list over two lines, a key it never had, a command
+    file_put_contents("$fs/mnt/user/system/scripts/consolidate/consolidate.ini", implode("\n", [
+        '# consolidate.ini – erzeugt von setup_consolidate.sh (V11)',
+        "BASE_DIRS=('/mnt/user/Filme' '/mnt/user/Serien/'",
+        "  '/mnt/user/Filme/Sub' \"/mnt/user/Gone\" '/data/x') # the shares",
+        "LOGFILE='/mnt/user/PlexMedia/consolidate.log'", '', '# Disks', "ARRAY_PATTERN='/mnt/disk[0-9]*'", "CACHE_PATTERN='/mnt/cache /mnt/nvme'", '',
+        "EXCLUDE_FILE='/mnt/user/system/my-excludes.txt'", 'DRYRUN=false', 'MIN_FREE_GB=300', '',
+        "CACHE_ONLY_TARGET='most-free'", "DUP_CHECK='cmp'", 'FOO=bar', 'echo $(reboot)', 'EVIL="$(reboot)"']) . "\n");
+    // what Jack has already: his own settings (another key), a list and origins
+    @mkdir("$jack/embycache", 0700, true);
+    @mkdir("$jack/gather", 0700, true);
+    $mine = ['cache_path' => $pool, 'instances' => [['servername' => 'Emby', 'url' => 'http://192.168.7.10:8096', 'api_key' => $jackKey,
+             'path_mappings' => ['/media/Filme' => '/mnt/user/Filme']]], 'min_free_percent' => 20, 'library_types' => ['Filme' => 'movies', 'Musik' => 'music'],
+             'cleanup_tool' => 'rsync'];
+    file_put_contents("$jack/embycache/embycache_settings.json", json_encode($mine, JSON_UNESCAPED_SLASHES));
+    file_put_contents("$jack/embycache/embycache_exclude.txt", "$pool/Filme/Alien (1979)/Alien.mkv\n$pool/Filme/Jack Own/j.mkv\n");
+    file_put_contents("$jack/embycache/embycache_origin.json", json_encode(["$pool/Filme/Jack Own/j.mkv" => 'disk3', "$pool/Filme/Alien (1979)/Alien.mkv" => 'disk4'], JSON_UNESCAPED_SLASHES));
+    file_put_contents("$jack/gather/gather.json", json_encode(['shares' => ['Filme'], 'min_free_gb' => 256, 'dup_check' => 'size']));
+
+    $plan = embyImportPlan("$old/", '/mnt/user/system/scripts/consolidate', $ctx);
+    $p = $plan['preview'];
+    $e = $p['embycache'];
+    $json = json_encode($p, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    check('import preview: the old API key never in it', !str_contains($json, $key), $json);
+    check('import preview: Jack\'s own API key never in it', !str_contains($json, $jackKey));
+    same('import preview: the files found', ['settings' => true, 'exclude' => true, 'origin' => true], $e['found']);
+    same('import preview: nothing stops it', [[], []], [$e['blockers'], $p['gather']['blockers']]);
+    check('import preview: ready, with a token', $p['ready'] === true && strlen($p['token']) === 40);
+    same('import preview: the key found (no value)', 'found', $e['instances'][0]['key']);
+    same('import preview: keys this version doesn\'t know — names only', ['old_option', 'emby_token'], $e['dropped']);
+    $defaults = array_column($e['defaults'], 'key');
+    sort($defaults);
+    same('import preview: keys 7.3.0 added get its defaults', ['max_resume_movies', 'max_resume_series', 'return_to_origin'], $defaults);
+    $jackSet = array_column($e['jack'], 'new', 'key');
+    same('import preview: Jack\'s values for what runs or isn\'t valid', ['mover_bin' => '', 'rsync_args' => ['-aAX', '--numeric-ids']],
+        array_intersect_key($jackSet, ['mover_bin' => 1, 'rsync_args' => 1]));
+    check('import preview: array_path with a slash is no change', !isset($jackSet['array_path']));
+    $changes = array_column($e['changes'], null, 'key');
+    same('import preview: a change, old → new', ['key' => 'min_free_percent', 'old' => 20, 'new' => 15], $changes['min_free_percent'] ?? null);
+    same('import preview: a key Jack didn\'t have', ['old' => null, 'new' => '2.5T'], array_intersect_key($changes['cache_budget'] ?? [], ['old' => 1, 'new' => 1]));
+    same('import preview: the mappings, the server\'s own over the old global one', [['/media/Filme', '/mnt/user/Filme', true], ['/media/Serien', '/mnt/user/Serien', true],
+        ['/media/Musik', '', true], ['/media/Gone', '/mnt/user/Gone/Filme', false]],
+        array_map(fn ($m) => [$m['from'], $m['to'], $m['there']], $e['instances'][0]['mappings']));
+    same('import preview: a mapping out of the shares left out', ['/media/bad'], $e['instances'][0]['bad_mappings']);
+    same('import preview: people', ['n' => 3, 'budgets' => 1, 'bad' => 2], $e['users']);
+    same('import preview: the list', ['lines' => 10, 'ok' => 3, 'bad' => 6, 'already' => 1, 'mine' => 2, 'total' => 4],
+        array_diff_key($e['exclude'], ['bad_sample' => 1]));
+    same('import preview: the origins', ['entries' => 5, 'ok' => 2, 'bad' => 3, 'already' => 1, 'total' => 3, 'unreadable' => false], $e['origin']);
+    $g = $p['gather'];
+    same('import preview: the gather\'s shares', ['Filme', 'Serien'], $g['shares']);
+    same('import preview: shares left out and why', [['/mnt/user/Filme/Sub', 'not_share'], ['/mnt/user/Gone', 'missing'], ['/data/x', 'outside']],
+        array_map(fn ($d) => [$d['path'], $d['why']], $g['dropped_shares']));
+    same('import preview: the gather\'s unknown keys', ['FOO'], $g['dropped']);
+    same('import preview: lines not understood (a command, a $(…))', 2, $g['strange']);
+    same('import preview: the gather\'s changes', [['shares', '["Filme"]', '["Filme","Serien"]'], ['min_free_gb', 256, 300], ['dup_check', 'size', 'cmp']],
+        array_map(fn ($c) => [$c['key'], $c['old'], $c['new']], $g['changes']));
+    same('import preview: what Jack sets himself', ['LOGFILE', 'EXCLUDE_FILE', 'DRYRUN', 'CACHE_ONLY_TARGET', 'CACHE_PATTERN'], array_column($g['jack'], 'key'));
+    same('import preview: own exclusions of the old gather said', ['gather_exclude'], array_column($g['warnings'], 'key'));
+
+    // the import: something changed since the preview → refused; then done, with copies of Jack's files
+    $again = embyImportPlan($old, '/mnt/user/system/scripts/consolidate', $ctx);
+    same('import: the same look gives the same token', $p['token'], $again['preview']['token']);
+    file_put_contents("$jack/embycache/embycache_exclude.txt", "$pool/Filme/Jack Own/j.mkv\n$pool/Filme/Alien (1979)/Alien.mkv\n$pool/Filme/New/n.mkv\n");
+    check('import: Jack\'s list changed meanwhile — another token', embyImportPlan($old, '/mnt/user/system/scripts/consolidate', $ctx)['preview']['token'] !== $p['token']);
+    $plan = embyImportPlan($old, '/mnt/user/system/scripts/consolidate', $ctx);
+    $before = ['settings' => file_get_contents("$jack/embycache/embycache_settings.json"), 'exclude' => file_get_contents("$jack/embycache/embycache_exclude.txt"),
+               'origin' => file_get_contents("$jack/embycache/embycache_origin.json"), 'gather' => file_get_contents("$jack/gather/gather.json")];
+    $done = embyImportApply($plan['do'], $ctx);
+    check('import done: the API key never in the answer', !str_contains(json_encode(embyImportScrub($done, $plan['secrets'])), $key));
+    $copies = array_map(fn ($f) => basename($f), $done['backups']);
+    same('import done: copies of Jack\'s files', array_map(fn ($n) => "$n.before-import-{$done['stamp']}",
+        ['embycache_settings.json', 'embycache_exclude.txt', 'embycache_origin.json', 'gather.json', 'consolidate.ini'])[0], $copies[0] ?? null);
+    same('import done: copies of all five (consolidate.ini only if it was there)', 4, count($copies));
+    same('import done: the copies hold what Jack had', $before, [
+        'settings' => (string) @file_get_contents("$jack/embycache/embycache_settings.json.before-import-{$done['stamp']}"),
+        'exclude' => (string) @file_get_contents("$jack/embycache/embycache_exclude.txt.before-import-{$done['stamp']}"),
+        'origin' => (string) @file_get_contents("$jack/embycache/embycache_origin.json.before-import-{$done['stamp']}"),
+        'gather' => (string) @file_get_contents("$jack/gather/gather.json.before-import-{$done['stamp']}")]);
+    same('import done: copies are root\'s only', '600', substr(sprintf('%o', fileperms($done['backups'][0])), -3));
+    $s = json_decode((string) file_get_contents("$jack/embycache/embycache_settings.json"), true);
+    same('import done: the old key stays on the server', $key, $s['instances'][0]['api_key'] ?? null);
+    same('import done: settings as shown', [$pool, 15, '', ['-aAX', '--numeric-ids'], true, '/mnt/user0', '2.5T', []],
+        [$s['cache_path'], $s['min_free_percent'], $s['mover_bin'], $s['rsync_args'], $s['return_to_origin'], $s['array_path'], $s['cache_budget'], $s['path_mappings']]);
+    check('import done: unknown keys gone', !isset($s['old_option']) && !isset($s['emby_token']));
+    same('import done: people with their budget', ['u1' => ['budget' => '300G'], 'u2' => [], 'u3' => []], $s['valid_users']);
+    same('import done: library types kept where the name matches', ['Filme' => 'movies'], $s['library_types']);
+    same('import done: Jack\'s list and the old one, merged', ["$pool/Filme/Alien (1979)/Alien.mkv", "$pool/Filme/Brazil/Brazil.mkv", "$pool/Filme/Jack Own/j.mkv",
+        "$pool/Filme/New/n.mkv", "$pool/Serien/X/S01/e1.mkv"], file("$jack/embycache/embycache_exclude.txt", FILE_IGNORE_NEW_LINES));
+    same('import done: origins merged, Jack\'s own win', ["$pool/Filme/Alien (1979)/Alien.mkv" => 'disk4', "$pool/Filme/Jack Own/j.mkv" => 'disk3',
+        "$pool/Serien/X/S01/e1.mkv" => 'disk2'], json_decode((string) file_get_contents("$jack/embycache/embycache_origin.json"), true));
+    same('import done: the gather\'s settings', ['shares' => ['Filme', 'Serien'], 'min_free_gb' => 300, 'dup_check' => 'cmp'],
+        json_decode((string) file_get_contents("$jack/gather/gather.json"), true));
+    $ini = (string) file_get_contents("$jack/gather/consolidate.ini");
+    check('import done: the gather\'s ini is Jack\'s', str_contains($ini, "BASE_DIRS=('/mnt/user/Filme' '/mnt/user/Serien')\n") && str_contains($ini, "DRYRUN=true\n")
+        && str_contains($ini, "MIN_FREE_GB=300\n") && str_contains($ini, "EXCLUDE_FILE='$jack/embycache/embycache_exclude.txt'\n"), $ini);
+    same('import done: nothing left in the trial folder', [], glob("$tmp/run/*") ?: []);
+
+    // what stops it: a pool this server lacks, no key (and none of Jack's for that address), EmbyCache saying no
+    $bad = $settings;
+    $bad['cache_path'] = '/mnt/nowhere';
+    $bad['instances'][0]['api_key'] = 'short';
+    $bad['instances'][0]['url'] = 'http://elsewhere:8096';
+    file_put_contents("$dir/embycache_settings.json", json_encode($bad, JSON_UNESCAPED_SLASHES));
+    $b = embyImportPlan($old, '', $ctx)['preview'];
+    same('import blocked: a strange pool, no key', ['pool', 'no_key'], array_column($b['embycache']['blockers'], 'key'));
+    check('import blocked: not ready', $b['ready'] === false);
+    check('import blocked: the strange key never in the preview', !str_contains(json_encode($b), 'short'));
+    $bad['instances'][0]['url'] = 'http://192.168.7.10:8096';                    // Jack has a key for that address
+    $bad['cache_path'] = $pool;
+    $bad['movie_mode'] = 'chaos';
+    $bad['max_resume_items'] = 'many';                                         // EmbyCache's own check refuses it
+    file_put_contents("$dir/embycache_settings.json", json_encode($bad, JSON_UNESCAPED_SLASHES));
+    $b = embyImportPlan($old, '', $ctx)['preview'];
+    same('import: no key in the old file — Jack keeps his own', 'jack', $b['embycache']['instances'][0]['key']);
+    same('import: a choice EmbyCache doesn\'t know is Jack\'s', 'folder', array_column($b['embycache']['jack'], 'new', 'key')['movie_mode'] ?? null);
+    check('import: Jack\'s key never in the preview either', !str_contains(json_encode($b), $jackKey));
+    $bad['instances'][0]['path_mappings'] = ['/media/Musik' => ''];            // nothing cached at all: EmbyCache's load_config() says no
+    $bad['path_mappings'] = [];
+    file_put_contents("$dir/embycache_settings.json", json_encode($bad, JSON_UNESCAPED_SLASHES));
+    $b = embyImportPlan($old, '', $ctx)['preview'];
+    same('import blocked: EmbyCache\'s own check says no', ['config'], array_column($b['embycache']['blockers'], 'key'));
+    check('import blocked: its reason told', str_contains((string) ($b['embycache']['blockers'][0]['params']['detail'] ?? ''), 'path_mappings'));
+    file_put_contents("$dir/embycache_settings.json", '[1, 2]');
+    same('import blocked: settings that aren\'t an object', ['bad_json'], array_column(embyImportPlan($old, '', $ctx)['preview']['embycache']['blockers'], 'key'));
+
+    // the ini is read, never run
+    [$vars, $strange] = embyImportIni("A='it'\\''s' # c\nB=\"x \\\"y\\\"\"\nC=( 'a b'\n# a comment\n c )\nD=(a *)\nE=plain\nF=\nG=a b\nH=\"\$HOME\"\nI=( ~/x )\nJ=#x\n");
+    same('import ini: values as bash sees them, nothing expanded', ['A' => "it's", 'B' => 'x "y"', 'C' => ['a b', 'c'], 'E' => 'plain', 'F' => '', 'J' => '#x'], $vars);
+    same('import ini: globs, commands, variables refused', 4, $strange);
+    hardeningRm($tmp);
+}
+
 /** The plugin's cron file against a copy: only the job's own line changes, the order stays */
 function testOfficeCron(): void
 {
@@ -6113,7 +6329,7 @@ function testSupporterKeys(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
+$parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
