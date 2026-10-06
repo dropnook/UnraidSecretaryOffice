@@ -12,6 +12,8 @@ declare(strict_types=1);
 
 final class AgentAway extends RuntimeException {}
 final class AgentBusy extends RuntimeException {}
+/** The agent restarted (or stopped) while a request waited: what it hadn't answered is lost */
+final class AgentRestarted extends RuntimeException {}
 
 /** Is the agent alive? It touches agent.json every 20 seconds. */
 function agentInfo(): array
@@ -41,6 +43,8 @@ function askAgent(string $action, array $data = [], float $wait = 20.0): array
     $request = "$mailbox/$id.request";
     $response = "$mailbox/$id.response";
 
+    // who will answer: the agent of agent.json (pid and start time) — read before the request is there
+    $who = agentIdentity(officeReadJson(OFFICE_DATA . '/agent.json'));
     $raw = json_encode(['action' => $action] + $data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if (@file_put_contents($tmp, $raw) === false || !@rename($tmp, $request)) {
         @unlink($tmp);
@@ -49,22 +53,66 @@ function askAgent(string $action, array $data = [], float $wait = 20.0): array
 
     $deadline = microtime(true) + $wait;
     $picked = false;
+    $round = 0;
     while (microtime(true) < $deadline) {
         usleep(50000);
         clearstatcache();
         if (is_file($response)) {
-            $text = (string) @file_get_contents($response);
-            @unlink($response);
-            $answer = json_decode($text, true);
-            if (!is_array($answer)) {
-                throw new RuntimeException('unreadable answer from the agent');
-            }
-            return $answer;
+            return agentAnswer($response);
         }
         $picked = $picked || !is_file($request);
+        if ($who !== null && ++$round % 10 === 0) {
+            // every half second: still the same agent? A new one empties the mailbox when it starts
+            // (setUp()), a stopped one answers nothing more — what was waiting is lost
+            $now = agentIdentity(officeReadJson(OFFICE_DATA . '/agent.json'));
+            if ($now === null || ($now['id'] === $who['id'] && ($now['running'] || !$who['running']))) {
+                continue;
+            }
+            clearstatcache();
+            if (is_file($response)) {
+                return agentAnswer($response);
+            }
+            if (is_file($request)) {
+                if ($now['id'] !== $who['id'] && $now['running']) {
+                    $who = $now;        // came after the new one emptied its mailbox (agent.json is written after that): it answers
+                    continue;
+                }
+                if (!@unlink($request)) {
+                    continue;           // taken this very moment: the next look decides
+                }
+            }
+            throw new AgentRestarted('restarted');
+        }
     }
     if (!$picked && @unlink($request)) {
         throw new AgentAway('not_picked_up');
     }
     throw new AgentBusy('still_working');
+}
+
+/**
+ * Which agent process wrote agent.json — its pid and start time (a restart in place keeps the pid,
+ * never the start time) — and whether it said it runs; null when it can't tell.
+ *
+ * @return array{id: string, running: bool}|null
+ */
+function agentIdentity(?array $info): ?array
+{
+    $pid = $info['pid'] ?? null;
+    $started = $info['started'] ?? null;
+    if (!is_int($pid) || !is_int($started) || $pid <= 1) {
+        return null;
+    }
+    return ['id' => "$pid:$started", 'running' => !empty($info['running'])];
+}
+
+function agentAnswer(string $response): array
+{
+    $text = (string) @file_get_contents($response);
+    @unlink($response);
+    $answer = json_decode($text, true);
+    if (!is_array($answer)) {
+        throw new RuntimeException('unreadable answer from the agent');
+    }
+    return $answer;
 }

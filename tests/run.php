@@ -27,7 +27,7 @@ declare(strict_types=1);
  *            job.sh's guard against a second start in the same minute, Ms. Whereabouts on exclusive shares
  *            and on cron lines whose program is gone)
  *   hardening  the checks that keep requests, manifests, paths and links in
- *            bounds (safe writes, the mailbox, Ms. Dustdevil's
+ *            bounds (safe writes, the mailbox — and a request a restarting agent dropped —, Ms. Dustdevil's
  *            manifests, Emby paths, anchored validators, the release link, the
  *            Consultant's secrets for Kopia: RAM only, never in a file, log or ps)
  *   strings  German and English have the same keys, Italian has every English
@@ -4293,6 +4293,77 @@ function testSafeWrites(): void
     hardeningRm($dir);
 }
 
+/**
+ * The page waits for an answer while the agent restarts (a deploy) or stops: askAgent() notices it in
+ * agent.json (pid and start time, running) and says so at once — never a wait of ten minutes. The web
+ * side in a process of its own (bootstrap.php, the data folder in a temporary folder); this one plays
+ * the agent.
+ */
+function testAgentRestarted(): void
+{
+    $tmp = hardeningTmp('restarted');
+    mkdir("$tmp/mailbox", 0770);
+    $info = fn (int $started, bool $running = true) => file_put_contents("$tmp/agent.json",
+        json_encode(['running' => $running, 'version' => AGENT_VERSION, 'pid' => 4242, 'started' => $started, 'host' => 'test', 'desks' => []]));
+    $web = "$tmp/web.php";
+    file_put_contents($web, '<?php require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; $t = microtime(true);'
+        . ' try { $out = askAgent("x.y", [], 8); } catch (Throwable $e) { $out = get_class($e); }'
+        . ' echo json_encode(["out" => $out, "s" => round(microtime(true) - $t, 1)]);');
+    // the web side asks; $agent(request file) plays the agent once the request is there
+    $ask = function (callable $agent) use ($web, $tmp): array {
+        $p = proc_open([PHP_BINARY, $web], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => $tmp, 'PATH' => getenv('PATH')]);
+        $request = null;
+        for ($i = 0; $i < 60 && $request === null; $i++) {
+            usleep(50000);
+            $request = (glob("$tmp/mailbox/*.request") ?: [null])[0];
+        }
+        if ($request !== null) {
+            $agent($request);
+        }
+        $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return (json_decode(substr($raw, (int) strpos($raw, '{')), true) ?: []) + ['raw' => $raw];
+    };
+    $answer = fn (string $request, array $a) => file_put_contents(substr($request, 0, -strlen('.request')) . '.response', json_encode($a)) && unlink($request);
+
+    $info(1000);
+    $r = $ask(fn (string $req) => $answer($req, ['ok' => true, 'n' => 1]));
+    same('restart: an answer as always', ['ok' => true, 'n' => 1], $r['out'] ?? $r['raw']);
+
+    // a deploy: the new agent empties the mailbox when it starts, then writes agent.json
+    $r = $ask(function (string $req) use ($info): void {
+        unlink($req);
+        $info(1001);
+    });
+    check('restart: the request emptied away by a new agent is told at once', ($r['out'] ?? '') === 'AgentRestarted' && ($r['s'] ?? 99) < 3, $r['raw']);
+
+    // the new agent came before the request (it was not emptied away): it answers, nothing is told
+    $info(1002);
+    $r = $ask(function (string $req) use ($info, $answer): void {
+        $info(1003);
+        usleep(1200000);                    // the web side sees the new agent while the request is still there
+        $answer($req, ['ok' => true, 'n' => 2]);
+    });
+    same('restart: a request the new agent still finds is answered', ['ok' => true, 'n' => 2], $r['out'] ?? $r['raw']);
+
+    // stopped (array stop, plugin update): a request still waiting is taken back and told
+    $info(1004);
+    $r = $ask(fn () => $info(1004, false));
+    check('restart: a stopped agent is told at once', ($r['out'] ?? '') === 'AgentRestarted' && ($r['s'] ?? 99) < 3, $r['raw']);
+    same('restart: its request taken back', [], glob("$tmp/mailbox/*.request") ?: []);
+
+    // a restart in place keeps the pid — the start time tells
+    $info(1005);
+    $r = $ask(function (string $req) use ($info): void {
+        unlink($req);                       // picked up, then the agent restarted itself before answering
+        usleep(300000);
+        $info(1006);
+    });
+    same('restart: in place (same pid, new start time) is told too', 'AgentRestarted', $r['out'] ?? $r['raw']);
+    hardeningRm($tmp);
+}
+
 /** Ms. Dustdevil's manifests lie in folders others may write to: only entries of her own shape count */
 function testTrashManifest(): void
 {
@@ -5465,7 +5536,7 @@ function testSupporterKeys(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman', 'testSupporter'],
-          'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
+          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {

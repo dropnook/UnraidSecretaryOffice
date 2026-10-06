@@ -84,6 +84,9 @@ function api_main(): void
         answer(['ok' => false, 'error' => ['key' => 'agent_away'], 'agent' => agentInfo()], 503);
     } catch (AgentBusy $e) {
         answer(['ok' => false, 'error' => ['key' => 'agent_busy'], 'agent' => agentInfo()], 504);
+    } catch (AgentRestarted $e) {
+        // a deploy or a crash restarted it while the request waited: said at once, never a wait of minutes
+        answer(['ok' => false, 'error' => ['key' => 'agent_restarted'], 'agent' => agentInfo()], 503);
     } catch (Throwable $e) {
         error_log('UnraidSecretaryOffice: ' . $e);
         answer(['ok' => false, 'error' => ['key' => 'internal', 'params' => ['detail' => $e->getMessage()]]], 500);
@@ -108,8 +111,8 @@ function apiState(string $desk, bool $fresh): array
             }
         } catch (AgentAway) {
             $agent['running'] = false;
-        } catch (AgentBusy) {
-            // busy with something longer — the last state will do
+        } catch (AgentBusy | AgentRestarted) {
+            // busy with something longer, or restarted meanwhile — the last state will do
         }
     }
     return ['ok' => true, 'agent' => $agent, 'state' => $state];
