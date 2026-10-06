@@ -32,6 +32,7 @@ copy "$src/plugin/event/"  "$dir/event/"
 copy "$src/plugin/images/" "$dir/images/"
 copy --exclude=__pycache__ "$src/embycache/" "$dir/embycache/"     # Jack Emby's tools; a running one keeps its old files
 copy "$src/gather/"        "$dir/gather/"
+copy "$src/monitoring/"    "$dir/monitoring/"     # the Grafana dashboard the Consultant provisions
 rsync -lt --chmod=F644 "$src"/plugin/*.page "$dir/"
 for page in "$dir"/*.page; do        # pages the working copy doesn't have any more (renamed) go
     [[ -e "$src/plugin/$(basename "$page")" ]] || rm -f "$page"

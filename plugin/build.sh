@@ -38,7 +38,7 @@ pkg="$stage/$name"
 mkdir -p "$pkg" dist
 
 cp -R public/. "$pkg/"
-cp -R src agent backup embycache gather "$pkg/"
+cp -R src agent backup embycache gather monitoring "$pkg/"
 cp -R plugin/scripts plugin/event plugin/images "$pkg/"
 cp plugin/*.page LICENSE "$pkg/"
 # Unraid shows the plugin's README.md in its list under Plugins: a short one of its own

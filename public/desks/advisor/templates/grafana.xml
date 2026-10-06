@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<!-- The Consultant's template for Grafana (agent/desks/advisor.php fills in {{…}}). Based on the
+     official image's template in Community Applications (atribe); changed: the real root URL, no
+     default admin password (the user chooses one), provisioning inside the mapped appdata folder
+     (the agent puts the Prometheus data source and the office's dashboard there beforehand),
+     anonymous viewing off unless chosen, the label uso.installed-by. -->
+<Container version="2">
+  <Name>Grafana</Name>
+  <Repository>grafana/grafana</Repository>
+  <Registry>https://hub.docker.com/r/grafana/grafana/</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <MyMAC/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://forums.unraid.net/index.php?topic=51498.0</Support>
+  <Project>http://grafana.org/</Project>
+  <ReadMe/>
+  <Overview>Grafana is an open source, feature rich metrics dashboard and graph editor for Graphite, Elasticsearch, OpenTSDB, Prometheus and InfluxDB. Prepared by the Unraid Secretary Office's consultant: the Prometheus data source and the office's dashboard are there at the first start. Choose the admin password below.</Overview>
+  <Category>Network:Management Tools:Utilities</Category>
+  <WebUI>http://[IP]:[PORT:3000]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/atribe/unRAID-docker/master/grafana.xml</TemplateURL>
+  <Icon>https://github.com/atribe/unRAID-docker/raw/master/icons/grafana.png</Icon>
+  <ExtraParams>--user 0</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="WebUI" Target="3000" Default="3000" Mode="tcp" Description="" Type="Port" Display="always" Required="true" Mask="false">3000</Config>
+  <Config Name="Appdata" Target="/var/lib/grafana" Default="{{APPDATA}}/grafana" Mode="rw" Description="Grafana's data, plugins and provisioning" Type="Path" Display="always" Required="true" Mask="false">{{APPDATA}}/grafana</Config>
+  <Config Name="GF_SERVER_ROOT_URL" Target="GF_SERVER_ROOT_URL" Default="http://{{IP}}:3000/" Mode="" Description="The address Grafana is reached at" Type="Variable" Display="always" Required="false" Mask="false">http://{{IP}}:3000/</Config>
+  <Config Name="GF_SECURITY_ADMIN_PASSWORD" Target="GF_SECURITY_ADMIN_PASSWORD" Default="" Mode="" Description="Choose the password of Grafana's user admin - not admin. Read at the very first start only; later you change it in Grafana." Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="GF_PATHS_PROVISIONING" Target="GF_PATHS_PROVISIONING" Default="/var/lib/grafana/provisioning" Mode="" Description="Data sources and dashboards Grafana sets up at every start (inside the appdata folder above)" Type="Variable" Display="advanced" Required="false" Mask="false">/var/lib/grafana/provisioning</Config>
+  <Config Name="GF_AUTH_ANONYMOUS_ENABLED" Target="GF_AUTH_ANONYMOUS_ENABLED" Default="false|true" Mode="" Description="true: anyone who reaches Grafana may look at the dashboards without logging in (not change them)" Type="Variable" Display="always" Required="false" Mask="false">{{ANON}}</Config>
+  <Config Name="GF_AUTH_ANONYMOUS_ORG_ROLE" Target="GF_AUTH_ANONYMOUS_ORG_ROLE" Default="Viewer" Mode="" Description="What anonymous visitors may do (Viewer: look only)" Type="Variable" Display="advanced" Required="false" Mask="false">Viewer</Config>
+  <Config Name="Installed by" Target="uso.installed-by" Default="consultant" Mode="" Description="A note of the Unraid Secretary Office: its consultant prepared this container. Changes nothing." Type="Label" Display="advanced" Required="false" Mask="false">consultant</Config>
+</Container>

@@ -14,11 +14,12 @@ declare(strict_types=1);
  *            lead's «I know, thanks» and the Dashboard tile,
  *            Mr. Backupsy's packages and his Kopia per app and VM, a run skipped because
  *            the engine's lock was busy (and who holds it), Ms. Dustdevil's pictures,
- *            Mr. Restori's reader of the packages, the Consultant's monitoring externals, Ms. Protocolli's tour,
+ *            Mr. Restori's reader of the packages, the Consultant's monitoring externals and his installs, Ms. Protocolli's tour,
  *            the night watchman's rounds, bursts, baseline and «I know, thanks»)
  *   hardening  the checks that keep requests, manifests, paths and links in
  *            bounds (PIN tries, safe writes, the mailbox, Ms. Dustdevil's
- *            manifests, Emby paths, anchored validators, the release link)
+ *            manifests, Emby paths, anchored validators, the release link, the
+ *            Consultant's secrets for Kopia: RAM only, never in a file, log or ps)
  *   strings  German and English have the same keys, Italian has every English
  *            key, no language has keys English lacks, placeholders and plurals
  *            match English, and every text the code asks for exists (desk.js,
@@ -1695,6 +1696,168 @@ function testAdvisor(): void
         advisorTextfileDirs(['--collector.textfile.directory="' . ADVISOR_METRICS_DIR . '/"', '--collector.textfile.directory=/var/lib/x'], null));
 }
 
+/** The Consultant installs: his templates, what he refuses, what he writes beforehand (only where nothing is), the facts he reads */
+function testAdvisorInstall(): void
+{
+    $tmp = hardeningTmp('advisor-install');
+    mkdir("$tmp/appdata");
+    mkdir("$tmp/tu");
+    $env = ['appdata' => "$tmp/appdata", 'ip' => '192.0.2.10', 'templates' => ADVISOR_TEMPLATE_DIR, 'user_templates' => "$tmp/tu",
+            'prepared' => "$tmp/prepared", 'containers' => [], 'dashboard' => ADVISOR_DASHBOARD_FILE, 'snapshots' => ADVISOR_SNAPSHOTS,
+            'restore' => ADVISOR_RESTORE, 'metrics' => ADVISOR_METRICS_DIR, 'uid' => posix_getuid(), 'gid' => posix_getgid()];
+    $formModes = ['rw', 'rw,slave', 'rw,shared', 'ro', 'ro,slave', 'ro,shared'];   // Unraid's form (CreateDocker.php): anything else becomes rw
+    $byTarget = fn (array $t) => array_column($t['config'], null, 'target');
+    foreach (['kopia' => 'kopia', 'nodeexporter' => 'Node-Exporter', 'prometheus' => 'prometheus', 'grafana' => 'Grafana'] as $id => $name) {
+        $t = advisorTemplate($id, $env);
+        same("advisor template $id: the container's name", $name, $t['name']);
+        check("advisor template $id: everything filled in, no comment", !str_contains($t['xml'], '{{') && !str_contains($t['xml'], '<!--'));
+        $c = $byTarget($t);
+        same("advisor template $id: marked", ['Label', 'consultant'], [$c[ADVISOR_LABEL]['type'] ?? null, $c[ADVISOR_LABEL]['value'] ?? null]);
+        same("advisor template $id: path modes Unraid's form knows", [],
+            array_values(array_filter($t['config'], fn ($x) => $x['type'] === 'Path' && !in_array($x['mode'], $formModes, true))));
+        same("advisor template $id: no markup in names and descriptions (the form puts them into HTML)", [],
+            array_values(array_filter($t['config'], fn ($x) => preg_match('/[<>]/', $x['name']) === 1)));
+        check("advisor template $id: no markup in the XML's descriptions", !preg_match('/Description="[^"]*(&lt;|&gt;)/', $t['xml']));
+    }
+    $k = $byTarget(advisorTemplate('kopia', $env));
+    same('advisor kopia: the snapshots read-only at /uso', [ADVISOR_SNAPSHOTS, 'ro,slave'], [$k['/uso']['value'], $k['/uso']['mode']]);
+    same('advisor kopia: the restore folder writable', [ADVISOR_RESTORE, 'rw'], [$k['/uso-restore']['value'], $k['/uso-restore']['mode']]);
+    same('advisor kopia: root, appdata', ['0', '0', "$tmp/appdata/kopia"], [$k['PUID']['value'], $k['PGID']['value'], $k['/config']['value']]);
+    same('advisor kopia: the WebUI password masked and empty', [true, ''], [$k['PASSWORD']['mask'], $k['PASSWORD']['value']]);
+    $n = advisorTemplate('nodeexporter', $env);
+    check('advisor node exporter: reads the office\'s folder', in_array(ADVISOR_METRICS_DIR, advisorTextfileDirs(preg_split('/\s+/', $n['post']), [['/', '/host']]), true));
+    same('advisor node exporter: the host read-only', 'ro,slave', $byTarget($n)['/host']['mode']);
+    $g = $byTarget(advisorTemplate('grafana', $env));
+    same('advisor grafana: provisioning inside its appdata', ADVISOR_GRAFANA_PROV, $g['GF_PATHS_PROVISIONING']['value']);
+    same('advisor grafana: the admin password masked and empty', [true, ''], [$g['GF_SECURITY_ADMIN_PASSWORD']['mask'], $g['GF_SECURITY_ADMIN_PASSWORD']['value']]);
+    same('advisor grafana: the real address', 'http://192.0.2.10:3000/', $g['GF_SERVER_ROOT_URL']['value']);
+    same('advisor grafana: anonymous viewing off unless chosen', ['false', 'true'],
+        [$g['GF_AUTH_ANONYMOUS_ENABLED']['value'], $byTarget(advisorTemplate('grafana', $env, ['anon' => true]))['GF_AUTH_ANONYMOUS_ENABLED']['value']]);
+    $public = advisorInstallPublic(advisorInstallPlan('grafana', $env));
+    same('advisor plan: masked values never in the preview', '', array_column($public['config'], null, 'target')['GF_SECURITY_ADMIN_PASSWORD']['value']);
+    check('advisor plan: no file contents in the preview', !isset($public['files'][0]['content']));
+
+    // what he refuses
+    $cnt = fn (string $name, string $image) => [$name => ['name' => $name, 'image' => $image, 'running' => true]];
+    same('advisor refuses: Kopia is there (by image)', 'ad_there',
+        advisorInstallRefusal('kopia', 'kopia', ['containers' => $cnt('backup-thing', 'ghcr.io/imagegenius/kopia')] + $env)['key'] ?? null);
+    same('advisor refuses: nothing in the way', null, advisorInstallRefusal('kopia', 'kopia', $env));
+    touch("$tmp/tu/my-Kopia.xml");
+    same('advisor refuses: a template of that name (any case)', ['ad_template_taken', 'my-Kopia.xml'],
+        [advisorInstallRefusal('kopia', 'kopia', $env)['key'] ?? null, advisorInstallRefusal('kopia', 'kopia', $env)['params']['file'] ?? null]);
+    same('advisor refuses: Grafana without the server\'s address', 'ad_no_ip', advisorInstallRefusal('grafana', 'Grafana', ['ip' => null] + $env)['key'] ?? null);
+    same('advisor refuses: no appdata', 'ad_appdata', advisorInstallRefusal('grafana', 'Grafana', ['appdata' => "$tmp/none"] + $env)['key'] ?? null);
+    same('advisor scan: appdata not looked at', null, advisorInstallRefusal('grafana', 'Grafana', ['appdata' => "$tmp/none"] + $env, false));
+    try {
+        advisorInstallPrepare('kopia', [], $env);
+        check('advisor prepare: refused over a template', false);
+    } catch (Problem $p) {
+        same('advisor prepare: refused over a template', 'ad_template_taken', $p->key);
+    }
+    same('advisor prepare: nothing prepared then', false, is_dir("$tmp/prepared"));
+
+    // Prometheus: its yml only where none is, the form's address
+    $r = advisorInstallPrepare('prometheus', [], $env);
+    $yml = "$tmp/appdata/prometheus/etc/prometheus.yml";
+    check('advisor prometheus: yml written with the address', str_contains((string) @file_get_contents($yml), "targets: ['192.0.2.10:9100']"));
+    check('advisor prometheus: data folder there', is_dir("$tmp/appdata/prometheus/data"));
+    same('advisor prometheus: the form\'s address', ADVISOR_ADD_CONTAINER . "$tmp/prepared/prometheus.xml", $r['url']);
+    check('advisor prometheus: the template in its folder', is_file("$tmp/prepared/prometheus.xml"));
+    file_put_contents($yml, "mine\n");
+    $r = advisorInstallPrepare('prometheus', [], $env);
+    same('advisor prometheus: an existing yml stays', ["mine\n", [], [$yml]], [file_get_contents($yml), $r['written'], $r['kept']]);
+    same('advisor prometheus: no temporary files left', [], glob("$tmp/appdata/prometheus/etc/.*.tmp") ?: []);
+
+    // Grafana: the data source, the provider and the dashboard, there at its first start
+    $r = advisorInstallPrepare('grafana', [], $env);
+    $prov = "$tmp/appdata/grafana/provisioning";
+    $ds = (string) @file_get_contents("$prov/datasources/uso-prometheus.yaml");
+    check('advisor grafana: the data source', str_contains($ds, 'uid: ' . ADVISOR_DS_UID) && str_contains($ds, 'url: http://192.0.2.10:9090')
+        && str_contains($ds, 'isDefault: true'));
+    check('advisor grafana: the provider reads its folder', str_contains((string) @file_get_contents("$prov/dashboards/uso.yaml"), 'path: ' . ADVISOR_GRAFANA_PROV . '/dashboards/uso'));
+    $dash = (string) @file_get_contents("$prov/dashboards/uso/unraid-secretary-office.json");
+    $dj = json_decode($dash, true);
+    if (is_file(ADVISOR_DASHBOARD_FILE)) {
+        check('advisor grafana: the dashboard with its data source filled in', is_array($dj) && !str_contains($dash, '${DS_PROMETHEUS}')
+            && str_contains($dash, '"' . ADVISOR_DS_UID . '"') && !isset($dj['__inputs']) && ($dj['uid'] ?? '') === 'unraid-secretary-office');
+    }
+    same('advisor grafana: the provisioning files are the ones he checks', advisorGrafanaRels(is_file(ADVISOR_DASHBOARD_FILE)),
+        array_keys(advisorGrafanaFiles('192.0.2.10', true, ADVISOR_GRAFANA_PROV, ADVISOR_DASHBOARD_FILE)));
+    same('advisor grafana: an existing Grafana keeps its default data source', true,
+        str_contains(advisorGrafanaFiles('192.0.2.10', false, ADVISOR_GRAFANA_PROV, null)['datasources/uso-prometheus.yaml'][1], 'isDefault: false'));
+
+    // never through a link
+    mkdir("$tmp/appdata2");
+    mkdir("$tmp/elsewhere");
+    symlink("$tmp/elsewhere", "$tmp/appdata2/prometheus");
+    try {
+        advisorInstallPrepare('prometheus', [], ['appdata' => "$tmp/appdata2"] + $env);
+        check('advisor: a link in appdata refused', false);
+    } catch (Problem $p) {
+        same('advisor: a link in appdata refused', 'ad_link', $p->key);
+    }
+    same('advisor: nothing written behind the link', [], array_values(array_diff(scandir("$tmp/elsewhere") ?: [], ['.', '..'])));
+
+    // facts from docker inspect: the web page, Kopia's folders, Grafana's provisioning
+    $inspect = fn (string $mode, array $bind, string $own = '') => ['Config' => ['Labels' => ['net.unraid.docker.webui' => 'http://[IP]:[PORT:51515]/']],
+        'HostConfig' => ['NetworkMode' => $mode, 'PortBindings' => $bind], 'NetworkSettings' => ['Networks' => [$mode => ['IPAddress' => $own]]]];
+    same('advisor web page: a published port', 'http://192.0.2.10:51600/', advisorWebUi($inspect('bridge', ['51515/tcp' => [['HostPort' => '51600']]], '172.17.0.5'), '192.0.2.10'));
+    same('advisor web page: br0 — the container\'s own address', 'http://192.168.21.158:51515/', advisorWebUi($inspect('br0.21', [], '192.168.21.158'), '192.0.2.10'));
+    same('advisor web page: the host\'s network', 'http://192.0.2.10:51515/', advisorWebUi($inspect('host', []), '192.0.2.10'));
+    same('advisor web page: none without the label', null, advisorWebUi(['Config' => []], '192.0.2.10'));
+    $kopia = ['Mounts' => [
+        ['Type' => 'bind', 'Source' => ADVISOR_SNAPSHOTS, 'Destination' => '/backup-snapshots', 'RW' => false],
+        ['Type' => 'bind', 'Source' => "$tmp/appdata/kopia", 'Destination' => '/config', 'RW' => true],
+        ['Type' => 'volume', 'Source' => '/var/lib/docker/volumes/x/_data', 'Destination' => '/source', 'RW' => true],
+        ['Type' => 'bind', 'Source' => '/mnt/user/kopia_tmp', 'Destination' => '/cache', 'RW' => true],
+        ['Type' => 'bind', 'Source' => '/mnt/user/appdata/kopia/local/', 'Destination' => '/local', 'RW' => true],
+        ['Type' => 'bind', 'Source' => ADVISOR_RESTORE, 'Destination' => ADVISOR_RESTORE_TARGET, 'RW' => true]],
+        'Config' => ['Env' => ['PUID=0']]];
+    mkdir("$tmp/appdata/kopia");
+    $ki = advisorKopiaInfo(['name' => 'kopia', 'running' => true], $kopia);
+    same('advisor kopia: where it sees the snapshots', '/backup-snapshots', $ki['sources']['target'] ?? null);
+    same('advisor kopia: the restore folder', ADVISOR_RESTORE_TARGET, $ki['restore']['target'] ?? null);
+    same('advisor kopia: folders for a repository', [['host' => '/mnt/user/appdata/kopia/local', 'target' => '/local']], $ki['folders']);
+    same('advisor kopia: not connected without repository.config', ['connected' => false], $ki['repo']);
+    file_put_contents("$tmp/appdata/kopia/repository.config", json_encode(['storage' => ['type' => 's3', 'config' => [
+        'bucket' => 'nostromo', 'endpoint' => 's3.example.test', 'accessKeyID' => 'AKIASECRETID', 'secretAccessKey' => 'very-secret-key']],
+        'hostname' => 'kopia', 'username' => 'root']));
+    $facts = advisorKopiaInfo(['name' => 'kopia', 'running' => true], $kopia)['repo'];
+    same('advisor kopia: the facts of a connection', ['connected' => true, 'type' => 's3', 'bucket' => 'nostromo', 'endpoint' => 's3.example.test', 'client' => 'root@kopia'], $facts);
+    check('advisor kopia: no key among the facts', !str_contains(json_encode($facts), 'SECRET') && !str_contains(json_encode($facts), 'very-secret'));
+    same('advisor kopia: not looked at while it is stopped', null, advisorKopiaInfo(['name' => 'kopia', 'running' => false], $kopia)['repo']);
+    $graf = fn (string $prov) => ['Mounts' => [['Type' => 'bind', 'Source' => "$tmp/appdata/grafana", 'Destination' => '/var/lib/grafana', 'RW' => true]],
+        'Config' => ['Env' => ["GF_PATHS_PROVISIONING=$prov"]]];
+    $gi = advisorGrafanaInfo(['name' => 'Grafana', 'running' => true], $graf('/etc/grafana/provisioning'));
+    same('advisor grafana as on nostromo: reads its own folder, the files would wait in appdata', [false, "$tmp/appdata/grafana/provisioning", ADVISOR_GRAFANA_PROV],
+        [$gi['points'], $gi['host'], $gi['inside']]);
+    $gi = advisorGrafanaInfo(['name' => 'Grafana', 'running' => true], $graf(ADVISOR_GRAFANA_PROV));
+    same('advisor grafana pointed there: all set up', [true, true], [$gi['points'], advisorGrafanaPublic($gi)['done']]);
+
+    // a plugin job, read back
+    $base = "$tmp/job";
+    file_put_contents("$base.json", json_encode(['id' => 'fcp', 'plugin' => 'fix.common.problems', 'url' => 'x', 'started' => time()]));
+    file_put_contents("$base.out", "plugin: downloading\e[1m bold\e[0m\nplugin: done\n");
+    same('advisor job: running without an exit code', 'running', advisorJob($base)['state'] ?? null);
+    same('advisor job: its output without terminal codes', "plugin: downloading bold\nplugin: done\n", advisorJob($base)['output'] ?? null);
+    file_put_contents("$base.done", "1\n");
+    same('advisor job: failed', ['failed', 1], [advisorJob($base)['state'] ?? null, advisorJob($base)['exit'] ?? null]);
+    file_put_contents("$base.done", "0\n");
+    check('advisor job: done only when Unraid lists it', in_array(advisorJob($base)['state'] ?? null, ['done', 'unregistered'], true)
+        && (advisorJob($base)['state'] === 'done') === (is_file('/var/log/plugins/fix.common.problems.plg') && is_file(HOUSE_PLUGINS . '/fix.common.problems.plg')));
+    file_put_contents("$base.json", json_encode(['id' => 'nothing-of-his']));
+    same('advisor job: only his externals', null, advisorJob($base));
+
+    // the plugin addresses the page shows for installing by hand are the ones he installs
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/advisor/desk.js');
+    foreach (ADVISOR_EXTERNALS as $id => $how) {
+        if (isset($how['plg'])) {
+            check("advisor: desk.js shows the same address for $id", str_contains($js, "'" . $how['plg'] . "'"));
+        }
+    }
+    hardeningRm($tmp);
+}
+
 /**
  * Reads Prometheus' text format back the way a strict parser does: HELP and
  * TYPE before a family's series, label values escaped, the same label names
@@ -2125,6 +2288,184 @@ function testUpdateClean(): void
     same('a link elsewhere is dropped', '', officeUpdateClean(['url' => 'https://github.com.evil.example/x'])['url']);
 }
 
+/**
+ * The Consultant's Kopia setup: the user's keys and password go from the web side through a RAM
+ * file (gone once read) to Kopia's stdin — end to end with a stand-in for docker and Kopia: no
+ * secret in any file but that one (and Kopia's own config), in no log, no state, no answer, no ps.
+ */
+function testAdvisorSecrets(): void
+{
+    $tmp = hardeningTmp('advisor-secrets');
+    $inbox = "$tmp/inbox";
+    mkdir($inbox, 0700);
+    $put = function (string $name, string $text, int $mode = 0600) use ($inbox): string {
+        file_put_contents("$inbox/$name.secret", $text);
+        chmod("$inbox/$name.secret", $mode);
+        return $name;
+    };
+    $id = str_repeat('a', 32);
+    same('secret: taken', ['password' => 'pw'], advisorSecretTake($put($id, '{"password":"pw"}'), $inbox));
+    check('secret: gone once taken', !file_exists("$inbox/$id.secret"));
+    foreach (['open to others' => fn () => $put($id, '{"password":"pw"}', 0644), 'a wrong name' => fn () => '../inbox/x',
+              'unknown' => fn () => str_repeat('b', 32), 'not JSON' => fn () => $put($id, 'pw')] as $what => $make) {
+        try {
+            advisorSecretTake($make(), $inbox);
+            check("secret refused: $what", false);
+        } catch (Problem $p) {
+            same("secret refused: $what", 'ad_secret_missing', $p->key);
+        }
+    }
+    check('secret: a refused one is gone all the same', !file_exists("$inbox/$id.secret"));
+    file_put_contents("$tmp/victim", 'keep');
+    symlink("$tmp/victim", "$inbox/$id.secret");
+    try {
+        advisorSecretTake($id, $inbox);
+    } catch (Problem) {
+    }
+    check('secret: a link is never read, only removed', !is_link("$inbox/$id.secret") && file_get_contents("$tmp/victim") === 'keep');
+    chmod($inbox, 0755);
+    try {
+        advisorSecretTake($put($id, '{"password":"pw"}'), $inbox);
+        check('secret refused: an inbox open to others', false);
+    } catch (Problem $p) {
+        same('secret refused: an inbox open to others', 'ad_secret_missing', $p->key);
+    }
+    chmod($inbox, 0700);
+    touch("$inbox/" . $put(str_repeat('c', 32), '{}') . '.secret', time() - 600);
+    same('secret: the sweep removes what nobody took', [1, []], [advisorInboxSweep($inbox, 120), glob("$inbox/*") ?: []]);
+    same('secret: scrubbed out of what Kopia says', "ERROR invalid ••• for •••\n", advisorScrub("ERROR invalid pass\x01word-123 for AKIAXYZ\n", ['pass' => 'password-123', 'k' => 'AKIAXYZ']));
+
+    // end to end: the web side's handover (in a process of its own, the secrets on its stdin) …
+    $secrets = ['password' => 'Corr3ct-Horse-' . bin2hex(random_bytes(4)), 'access_key' => 'AKIATEST' . strtoupper(bin2hex(random_bytes(4))),
+                'secret_key' => 'sk/' . bin2hex(random_bytes(12)) . '+x'];
+    $web = "$tmp/web.php";
+    file_put_contents($web, '<?php define("OFFICE_AS_PLUGIN", true); require ' . var_export(OFFICE_DIR . '/src/place.php', true) . '; require '
+        . var_export(OFFICE_DIR . '/src/api.php', true) . '; echo apiSecretStash("advisor.kopia_repo", json_decode(stream_get_contents(STDIN), true));');
+    $p = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, ['OFFICE_INBOX_DIR' => $inbox, 'PATH' => getenv('PATH')]);
+    fwrite($pipes[0], json_encode($secrets));
+    fclose($pipes[0]);
+    $ref = trim((string) stream_get_contents($pipes[1]));
+    $webErr = (string) stream_get_contents($pipes[2]);
+    proc_close($p);
+    $st = @lstat("$inbox/$ref.secret");
+    check('secret e2e: the web side left a 0600 file in the inbox', $st !== false && ($st['mode'] & 0777) === 0600, $webErr);
+    $refused = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes2, null, ['OFFICE_INBOX_DIR' => $inbox]);
+    fwrite($pipes2[0], json_encode(['password' => ['nested']]));
+    fclose($pipes2[0]);
+    check('secret e2e: the web side refuses odd shapes', str_contains((string) stream_get_contents($pipes2[1]), 'bad_request'));
+    proc_close($refused);
+
+    // … a stand-in for docker and Kopia: records hashes of what Kopia got, ps while it runs, writes its config as Kopia would
+    $bin = "$tmp/bin";
+    mkdir($bin);
+    file_put_contents("$bin/docker", "#!/bin/sh\n# stand-in: docker exec [-i] <name> <cmd…> | docker restart …\n"
+        . "case \"\$1\" in restart) exit 0;; exec) shift; [ \"\$1\" = -i ] && shift; shift; PATH=\"$bin:\$PATH\" exec \"\$@\";; esac\nexit 1\n");
+    file_put_contents("$bin/kopia", "#!/bin/sh\n# stand-in for Kopia\n"
+        . "[ \"\$1\" = --version ] && { echo '0.99.0 build: stand-in'; exit 0; }\n"
+        . "ps -eo args > '$tmp/ps.txt'\n"
+        . "printf '%s\\n' \"\$*\" > '$tmp/args.txt'\n"
+        . "for v in \"\$KOPIA_PASSWORD\" \"\$AWS_ACCESS_KEY_ID\" \"\$AWS_SECRET_ACCESS_KEY\"; do printf '%s' \"\$v\" | sha256sum | cut -c1-64; done > '$tmp/got.txt'\n"
+        . "if [ \"\$2\" = connect ]; then echo \"ERROR: invalid repository password \$KOPIA_PASSWORD\" >&2; exit 1; fi\n"
+        . "printf '{\"storage\":{\"type\":\"s3\",\"config\":{\"bucket\":\"b1\",\"endpoint\":\"s3.example.test\",\"accessKeyID\":\"%s\",\"secretAccessKey\":\"%s\"}},\"hostname\":\"kopia\",\"username\":\"root\"}' "
+        . "\"\$AWS_ACCESS_KEY_ID\" \"\$AWS_SECRET_ACCESS_KEY\" > '$tmp/config/repository.config'\n");
+    chmod("$bin/docker", 0755);
+    chmod("$bin/kopia", 0755);
+    mkdir("$tmp/config");
+    putenv("OFFICE_ADVISOR_DOCKER=$bin/docker");
+    $target = ['name' => 'kopia-standin', 'image' => 'ghcr.io/imagegenius/kopia', 'webui' => 'http://192.0.2.10:51515',
+               'info' => ['config' => "$tmp/config", 'sources' => ['host' => ADVISOR_SNAPSHOTS, 'target' => '/uso'], 'restore' => null, 'folders' => []]];
+    $request = ['mode' => 'create', 'storage' => 's3', 'provider' => 'mega', 'endpoint' => 's3.example.test', 'bucket' => 'b1', 'prefix' => 'unraid/',
+                'secret_ref' => $ref];
+    $logBefore = (int) @filesize(AGENT_LOG);
+    try {
+        $answer = advisorKopiaRepo($request, $inbox, $target);
+    } catch (Problem $p) {
+        $answer = ['ok' => false, 'error' => $p->toArray()];
+    }
+    same('secret e2e: Kopia created and connected', true, $answer['ok'] ?? null);
+    same('secret e2e: the RAM file is gone', [], glob("$inbox/*") ?: []);
+    same('secret e2e: Kopia got the three secrets on its stdin', array_map(fn ($v) => hash('sha256', $v), array_values($secrets)),
+        array_values(array_filter(explode("\n", (string) @file_get_contents("$tmp/got.txt")))));
+    same('secret e2e: Kopia\'s arguments, no secret among them', 'repository create s3 --bucket=b1 --endpoint=s3.example.test --prefix=unraid/ --persist-credentials',
+        trim((string) @file_get_contents("$tmp/args.txt")));
+    same('secret e2e: the facts for the recovery sheet', ['b1', 's3.example.test', 'unraid/', 'root@kopia', '0.99.0', 'mega'],
+        [$answer['facts']['bucket'] ?? null, $answer['facts']['endpoint'] ?? null, $answer['facts']['prefix'] ?? null, $answer['facts']['client'] ?? null,
+         $answer['facts']['version'] ?? null, $answer['facts']['provider'] ?? null]);
+    $ps = (string) @file_get_contents("$tmp/ps.txt");
+    check('secret e2e: ps was looked at while Kopia ran', str_contains($ps, 'repository create s3'));
+
+    // … and the second time a connect that fails, Kopia repeating the password: cleaned out of the answer
+    file_put_contents("$inbox/" . ($ref2 = str_repeat('d', 32)) . '.secret', json_encode($secrets));
+    chmod("$inbox/$ref2.secret", 0600);
+    try {
+        advisorKopiaRepo(['mode' => 'connect', 'secret_ref' => $ref2] + $request, $inbox, $target);
+        $fail = null;
+    } catch (Problem $p) {
+        $fail = $p;
+    }
+    same('secret e2e: a failing Kopia is a Problem', 'ad_kopia_failed', $fail?->key);
+    $said = (string) ($fail?->params['output'] ?? '');
+    check('secret e2e: its words without the password', str_contains($said, 'invalid repository password •••') && !str_contains($said, $secrets['password']));
+    same('secret e2e: the RAM file is gone after a failure too', [], glob("$inbox/*") ?: []);
+    $leaks = [];
+    $look = function (string $dir) use (&$look, &$leaks, $secrets, $tmp) {
+        foreach (array_diff(scandir($dir) ?: [], ['.', '..']) as $n) {
+            $path = "$dir/$n";
+            if (is_link($path) || $path === "$tmp/config/repository.config") {   // Kopia's own config holds them, as when set up by hand
+                continue;
+            }
+            if (is_dir($path)) {
+                $look($path);
+                continue;
+            }
+            $text = (string) @file_get_contents($path);
+            foreach ($secrets as $k => $v) {
+                if (str_contains($text, $v)) {
+                    $leaks[] = "$k in $path";
+                }
+            }
+        }
+    };
+    $look($tmp);
+    $look(DATA_DIR);
+    foreach ($secrets as $k => $v) {
+        if (str_contains($ps, $v)) {
+            $leaks[] = "$k in ps";
+        }
+        if (str_contains(json_encode([$answer, $fail?->params]), $v)) {
+            $leaks[] = "$k in an answer";
+        }
+    }
+    same('secret e2e: no secret in any file (data folder, log, state, the test\'s folders), in ps or an answer', [], $leaks);
+    check('secret e2e: the log says what happened, nothing more', str_contains((string) @file_get_contents(AGENT_LOG, false, null, $logBefore), 'Kopia repository create (s3) in kopia-standin - exit 0'));
+    $kept = (string) @file_get_contents("$tmp/config/repository.config");
+    check('secret e2e: Kopia\'s own config keeps the connection (its job)', str_contains($kept, $secrets['access_key']));
+    putenv('OFFICE_ADVISOR_DOCKER');
+
+    // the request's fields: each checked
+    $k = ['info' => ['folders' => [['host' => '/mnt/disks/usb/kopia', 'target' => '/local']]]];
+    $base = ['mode' => 'create', 'storage' => 's3', 'endpoint' => 's3.example.test', 'bucket' => 'b1'];
+    $good = ['password' => 'long-enough-pw', 'access_key' => 'AKIA1', 'secret_key' => 'secret-key-1'];
+    foreach ([['endpoint', ['endpoint' => 'https://s3.example.test']], ['endpoint', ['endpoint' => "s3.exa\nmple.test"]], ['bucket', ['bucket' => 'b']],
+              ['prefix', ['prefix' => '../x']], ['prefix', ['prefix' => '/abs']], ['mode', ['mode' => 'delete']], ['region', ['region' => 'eu central']],
+              ['password', [], ['password' => 'short']], ['password', [], ['password' => "two\nlines-password"]], ['secret_key', [], ['secret_key' => 'with space key']],
+              ['path', ['storage' => 'filesystem', 'path' => '/config/repo']], ['path', ['storage' => 'filesystem', 'path' => '/local/../etc']],
+              ['client', ['mode' => 'connect', 'client' => 'root@kopia; rm']]] as $case) {
+        [$want, $over, $sec] = $case + [2 => []];
+        try {
+            advisorKopiaSpec($over + $base, $sec + $good, $k);
+            check("kopia field refused: $want " . json_encode($over + $sec), false);
+        } catch (Problem $p) {
+            same("kopia field refused: $want " . json_encode($over + $sec), $want, $p->params['field'] ?? null);
+        }
+    }
+    $fs = advisorKopiaSpec(['storage' => 'filesystem', 'path' => '/local/repo/'] + $base, $good, $k);
+    same('kopia field: a folder under a writable path', ['/local/repo', '/mnt/disks/usb/kopia/repo', ['create', 'filesystem', '--path=/local/repo', '--persist-credentials']],
+        [$fs['path'], $fs['path_host'], $fs['args']]);
+    same('kopia field: connect with another user@host', 'root@nostromo', advisorKopiaSpec(['mode' => 'connect', 'client' => 'root@nostromo'] + $base, $good, $k)['client']);
+    hardeningRm($tmp);
+}
+
 // ===================================================================== strings
 
 function langFile(string $file): array
@@ -2296,8 +2637,8 @@ function testIconSquare(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testAdvisor', 'testLogsTour', 'testMetrics', 'testWatchman', 'testComposeBuilds'],
-          'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testComposeBuilds'],
+          'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
