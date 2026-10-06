@@ -28,6 +28,12 @@
 .rs-copy{cursor:copy; overflow-wrap:anywhere}
 .chip.rs-img{max-width:100%; overflow:hidden; text-overflow:ellipsis; vertical-align:bottom}
 
+/* databases: per app a tinted subheading, its dumps and copies under it slightly indented */
+.rs-dbhead{display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px}
+.rs-dbhead-link{margin-left:auto; font-size:12px; font-weight:500}
+.row.rs-dbrow{padding-left:24px}
+.rs-dbrow .kv{grid-template-columns:max-content minmax(0,1fr)}   /* a long image name doesn't widen it */
+
 /* guides: folded steps with commands to copy */
 .rs-how{margin:8px 0}
 .rs-how summary{cursor:pointer; font-size:13px; font-weight:600; color:var(--accent)}
@@ -78,6 +84,8 @@
   .row.nocheck:has(> .rs-right){grid-template-columns:minmax(0,1fr)}
   .row.nocheck > .rs-right{justify-content:flex-start}
   .rs-part, .rs-need{margin-left:0}
+  .row.rs-dbrow{padding-left:14px}
+  .rs-dbrow .kv{grid-template-columns:minmax(0,1fr)}
   .rs-entry{margin-left:6px}
   .rs-how > *:not(summary){margin-left:6px}
   .rs-code{flex-direction:column; align-items:stretch}

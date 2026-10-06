@@ -1133,6 +1133,7 @@ function rsScan(): array
         $a['shares'] = $whole;
         $a['needs'] = rsNeeds($folders, $whole, $ctx);
         $a['kopia'] = $sources;
+        $a['package_protection'] = rsPackageProtection($a['path'], $own('app', $a['name']));
         $a['files'] = array_values(array_filter($a['files'], fn ($f) => $f['what'] !== 'error'));
         $state['apps'][] = $a;
     }
@@ -1170,6 +1171,15 @@ function rsScan(): array
     return rsWrite($state);
 }
 
+/**
+ * Where an app's package (its dumps and database copies with it) is kept: its own Kopia source takes it along,
+ * otherwise it is protected like the backup place's share (backupProtection; null when not known)
+ */
+function rsPackageProtection(string $path, bool $ownKopia, ?array $settings = null): ?string
+{
+    return $ownKopia ? 'offsite' : backupProtection($path, 0, $settings);
+}
+
 function rsWrite(array $state): array
 {
     $GLOBALS['rs']['state'] = $state;
@@ -1203,7 +1213,7 @@ function rsVersions(string $kind, string $id): array
     return ['ok' => true, 'kind' => $kind, 'id' => $id, 'versions' => rsVersionList($place, $kind, $id, $current['run'])];
 }
 
-/** @return list<array{snap:string, time:int, run:string, run_time:?int, path:string, dumps:list<array>, files:int}> */
+/** @return list<array{snap:string, time:int, run:string, run_time:?int, path:string, dumps:list<array>, sqlite:list<array>, files:int}> */
 function rsVersionList(array $place, string $kind, string $id, string $currentRun): array
 {
     $out = [];
@@ -1224,6 +1234,8 @@ function rsVersionList(array $place, string $kind, string $id, string $currentRu
             $seen[$key] = true;
             $out[] = ['snap' => $s['id'], 'time' => $s['time'], 'run' => $pkg['run'], 'run_time' => $pkg['time'], 'path' => $dir,
                       'dumps' => $kind === 'app' ? array_map(fn ($d) => array_intersect_key($d, array_flip(['file', 'container', 'type', 'bytes', 'time', 'kept'])), $pkg['dumps']) : [],
+                      // a media server's database copies: that night's go back together (kind sqlite with this version)
+                      'sqlite' => $kind === 'app' ? array_map(fn ($q) => array_intersect_key($q, array_flip(['file', 'container', 'bytes', 'time', 'kept'])), $pkg['sqlite']) : [],
                       'files' => count($pkg['files'])];
         }
     }

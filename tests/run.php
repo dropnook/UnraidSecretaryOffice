@@ -17,7 +17,8 @@ declare(strict_types=1);
  *            the engine's lock was busy (and who holds it), the order around VMs that shut down (backup.sh
  *            on a fixture server), Ms. Dustdevil's pictures,
  *            Mr. Restori's reader of the packages and his restores (steps, put back, the lock, a job on its own;
- *            a share on several pools: moments, the union, targets on the share, missing and empty shares),
+ *            a share on several pools: moments, the union, targets on the share, missing and empty shares;
+ *            his databases tile, its list under node),
  *            the Consultant's monitoring externals and his installs, Ms. Protocolli's tour,
  *            the night watchman's rounds, bursts, baseline and «I know, thanks», his watch over what
  *            starts on its own (crontabs, .cron files, User Scripts, at, notification agents), his
@@ -1912,6 +1913,158 @@ function testRestoreShares(): void
 
     unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file'], $GLOBALS['rs']['ub_data'], $GLOBALS['rs']['sizes_file'], $GLOBALS['rs']['users']);
     $GLOBALS['rs']['du'] = ['queue' => [], 'running' => []];
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Mr. Restori's databases tile: the dumps and the media servers' SQLite copies of every package (in the shapes of
+ * nostromo's real manifests, engine 2.20), earlier nights' copies from the backup place's snapshots (the SQLite
+ * copies too), where a package is kept; then the page's list under node — per app, one media server's copies as one
+ * entry, names, the tile's line («none» too), each earlier night once and never the one listed, the requests
+ * «Restore…» sends (the existing kinds db / sqlite). Everything in a temporary folder.
+ */
+function testRestoreDatabases(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rsdb-' . getmypid();
+    $put = function (string $file, mixed $data) use ($tmp): void {
+        @mkdir(dirname("$tmp/$file"), 0700, true);
+        file_put_contents("$tmp/$file", is_string($data) ? $data : json_encode($data));
+    };
+    $f = fn (string $path, int $bytes, string $run, string $what, string $c = '') => ['path' => $path, 'bytes' => $bytes, 'run' => $run, 'what' => $what, 'container' => $c];
+    $mdb = 'db/mariadb_zz-uso-test-db-mdb_usotest.sql.gz';
+    $pg = 'db/postgres_zz-uso-test-db-pg.sql.gz';
+    $testdb = fn (string $run, string $mdbRun, int $mdbBytes, string $pgRun, int $pgBytes) => ['interface' => 1, 'engine' => '2.20', 'kind' => 'app', 'type' => 'compose',
+        'name' => 'zz-uso-test-db', 'folder' => 'zz-uso-test-db', 'run' => $run, 'result' => 'ok',
+        'compose' => ['project' => 'zz-uso-test-db', 'manager_dir' => null, 'working_dir' => '/mnt/user/appdata/zz-uso-test-db', 'config_files' => ['/mnt/user/appdata/zz-uso-test-db/compose.yaml']],
+        'containers' => [['name' => 'zz-uso-test-db-mdb', 'image' => 'mariadb:11', 'digests' => ['mariadb@sha256:64'], 'running' => true, 'service' => 'mdb', 'template' => null],
+                         ['name' => 'zz-uso-test-db-pg', 'image' => 'postgres:16-alpine', 'digests' => ['postgres@sha256:72'], 'running' => true, 'service' => 'pg', 'template' => null]],
+        'dumps' => [['container' => 'zz-uso-test-db-mdb', 'type' => 'mariadb', 'state' => 'ok', 'login' => 'root', 'user_var' => '', 'password_var' => 'MARIADB_ROOT_PASSWORD', 'client' => 'mariadb'],
+                    ['container' => 'zz-uso-test-db-pg', 'type' => 'postgres', 'state' => 'ok', 'login' => 'user', 'user_var' => 'POSTGRES_USER', 'password_var' => 'POSTGRES_PASSWORD', 'client' => 'psql']],
+        'nextcloud' => [], 'sqlite' => [], 'own_backups' => [],
+        'files' => [$f('compose-files/compose.yaml', 759, $run, 'compose'), $f($mdb, $mdbBytes, $mdbRun, 'dump', 'zz-uso-test-db-mdb'), $f($pg, $pgBytes, $pgRun, 'dump', 'zz-uso-test-db-pg')]];
+    $copy = fn (string $name, bool $present = true) => ['container' => 'EmbyServer', 'file' => "db/sqlite_EmbyServer_$name", 'source' => "/mnt/user/appdata/EmbyServer/data/$name",
+        'path' => "/config/data/$name", 'state' => 'ok', 'check' => 'ok', 'present' => $present];
+    $emby = fn (string $run, int $lib) => ['interface' => 1, 'kind' => 'app', 'type' => 'template', 'name' => 'EmbyServer', 'run' => $run, 'result' => 'ok',
+        'containers' => [['name' => 'EmbyServer', 'image' => 'emby/embyserver:latest', 'template' => 'my-EmbyServer.xml']],
+        'dumps' => [], 'sqlite' => [$copy('library.db'), $copy('users.db'), $copy('authentication.db', false)],
+        'own_backups' => [['kind' => 'emby', 'container' => 'EmbyServer', 'path' => '/mnt/user/Backups/EmbyServer', 'files' => 0, 'newest' => 0, 'asleep' => false]],
+        'files' => [$f('my-EmbyServer.xml', 9, $run, 'template'), $f('db/sqlite_EmbyServer_library.db', $lib, $run, 'sqlite', 'EmbyServer'),
+                    $f('db/sqlite_EmbyServer_users.db', 40960, $run, 'sqlite', 'EmbyServer')]];
+    $chat = ['kind' => 'app', 'type' => 'template', 'name' => 'chat', 'run' => '20261006-1600',
+        'containers' => [['name' => 'chat-mongo', 'image' => 'mongo:7']],
+        'dumps' => [['container' => 'chat-mongo', 'type' => 'mongodb', 'state' => 'failed', 'login' => 'none']],
+        'files' => [$f('db/mongodb_chat-mongo.archive.gz', 500, '20261005-1600', 'dump', 'chat-mongo')]];
+    $web = ['kind' => 'app', 'type' => 'template', 'name' => 'web', 'run' => '20261006-1600', 'containers' => [['name' => 'web', 'image' => 'nginx']], 'dumps' => [], 'sqlite' => [], 'files' => []];
+    // tonight's packages (and the snapshot taken right after), an earlier night where Postgres's dump failed (kept), the night before
+    foreach (['place', 'snapNew'] as $root) {
+        $put("$root/server/run.json", ['run' => '20261006-1600', 'result' => 'ok', 'files' => []]);
+        $put("$root/apps/zz-uso-test-db/manifest.json", $testdb('20261006-1600', '20261006-1600', 1405, '20261006-1600', 2291));
+        $put("$root/apps/EmbyServer/manifest.json", $emby('20261006-1600', 414433280));
+        $put("$root/apps/chat/manifest.json", $chat);
+        $put("$root/apps/web/manifest.json", $web);
+    }
+    $put('snapB/apps/zz-uso-test-db/manifest.json', $testdb('20261006-0200', '20261006-0200', 1390, '20261005-1600', 2200));
+    $put('snapB/apps/EmbyServer/manifest.json', $emby('20261005-1600', 414000000));
+    $put('snapA/apps/zz-uso-test-db/manifest.json', $testdb('20261005-1600', '20261005-1600', 1300, '20261005-1600', 2200));
+    $put('snapA/apps/EmbyServer/manifest.json', $emby('20261005-1600', 414000000));
+    $t06 = rsRunTime('20261006-1600');
+    $t0602 = rsRunTime('20261006-0200');
+    $t05 = rsRunTime('20261005-1600');
+
+    $pk = rsPackages("$tmp/place");
+    $by = array_column($pk['apps'], null, 'id');
+    same('restore databases: the packages by name', ['chat', 'EmbyServer', 'web', 'zz-uso-test-db'], array_column($pk['apps'], 'id'));
+    same('restore databases: dumps as the real manifests list them (a MariaDB dump names its database)',
+        [[$mdb, 'mariadb', 'usotest', 1405, $t06, false], [$pg, 'postgres', null, 2291, $t06, false]],
+        array_map(fn ($d) => [$d['file'], $d['type'], $d['db'], $d['bytes'], $d['time'], $d['kept']], $by['zz-uso-test-db']['dumps']));
+    same('restore databases: a failed dump keeps the last good one', [true, $t05], [$by['chat']['dumps'][0]['kept'], $by['chat']['dumps'][0]['time']]);
+    same('restore databases: the media server\'s copies that are there (not one the run found missing)',
+        [['db/sqlite_EmbyServer_library.db', 414433280, $t06], ['db/sqlite_EmbyServer_users.db', 40960, $t06]],
+        array_map(fn ($q) => [$q['file'], $q['bytes'], $q['time']], $by['EmbyServer']['sqlite']));
+
+    // earlier nights: the snapshots of the backup place, newest first
+    $place = ['places' => [['snaps' => [['id' => 'snapNew', 'time' => $t06 + 1800, 'path' => "$tmp/snapNew"], ['id' => 'snapB', 'time' => $t0602 + 3600, 'path' => "$tmp/snapB"],
+                                         ['id' => 'snapA', 'time' => $t05 + 1800, 'path' => "$tmp/snapA"]]]]];
+    $vt = rsVersionList($place, 'app', 'zz-uso-test-db', '20261006-1600');
+    $ve = rsVersionList($place, 'app', 'EmbyServer', '20261006-1600');
+    same('restore databases: earlier packages of an app with dumps', [['snapNew', []], ['snapB', []], ['snapA', []]], array_map(fn ($v) => [$v['snap'], $v['sqlite']], $vt));
+    same('restore databases: earlier nights carry the SQLite copies (no paths on the server), one package once',
+        [['snapNew', [['container' => 'EmbyServer', 'file' => 'db/sqlite_EmbyServer_library.db', 'bytes' => 414433280, 'time' => $t06, 'kept' => false],
+                      ['container' => 'EmbyServer', 'file' => 'db/sqlite_EmbyServer_users.db', 'bytes' => 40960, 'time' => $t06, 'kept' => false]]],
+         ['snapB', [['container' => 'EmbyServer', 'file' => 'db/sqlite_EmbyServer_library.db', 'bytes' => 414000000, 'time' => $t05, 'kept' => false],
+                    ['container' => 'EmbyServer', 'file' => 'db/sqlite_EmbyServer_users.db', 'bytes' => 40960, 'time' => $t05, 'kept' => false]]]],
+        array_map(fn ($v) => [$v['snap'], $v['sqlite']], $ve));
+
+    // where a package is kept: the app's own Kopia source, else like the backup place's share
+    @mkdir($tmp, 0700, true);
+    $ini = function (string $text) use ($tmp): array {
+        file_put_contents("$tmp/s.ini", $text);
+        return backupReadSettings("$tmp/s.ini");
+    };
+    $p = '/mnt/user/UnraidSecretaryOffice/backup/apps/zz-uso-test-db';
+    $snap = $ini("[general]\ndumps_share = UnraidSecretaryOffice\n[kopia]\nenabled = yes\n[share \"UnraidSecretaryOffice\"]\nmode = snapshot\n");
+    $kop = $ini("[general]\ndumps_share = UnraidSecretaryOffice\n[kopia]\nenabled = yes\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n");
+    same('restore databases: a package kept only locally, in Kopia with its own source, in Kopia with the share, not known',
+        ['local', 'offsite', 'offsite', null], [rsPackageProtection($p, false, $snap), rsPackageProtection($p, true, $snap), rsPackageProtection($p, false, $kop), rsPackageProtection($p, false, [])]);
+
+    // the page's list, under node
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('restore databases page: node is missing here - skipped', true);
+        exec('rm -rf ' . escapeshellarg($tmp));
+        return;
+    }
+    $apps = array_map(fn ($a) => $a + ['present' => true, 'package_protection' => 'offsite'], $pk['apps']);
+    file_put_contents("$tmp/in.json", json_encode(['state' => ['apps' => $apps, 'place' => ['found' => true, 'snaps' => 3]],
+                                                    'versions' => ['zz-uso-test-db' => $vt, 'EmbyServer' => $ve, 'chat' => [], 'web' => []]]));
+    $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, has: () => false,
+  fmt: { size: (b) => b + ' B', relative: (t) => 'rel ' + t, date: (t) => 'date ' + t } };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const r = OFFICE_DESK_TESTS.restore;
+const input = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+r.setState(input.state);
+const groups = r.dbGroups();
+const out = {
+  groups: groups.map((g) => [g.app.id, g.items.map((x) => [x.key, x.engine, r.dbName(x), x.container, x.bytes, x.time, x.kept])]),
+  tile: r.tileLine('dbs'),
+  requests: groups.flatMap((g) => g.items.map((x) => r.dbRequest(g.app, x, x.kind === 'sqlite' ? 'snapB' : null))),
+  earlier: Object.fromEntries(groups.flatMap((g) => g.items.map((x) => [x.key, r.earlierOf(input.versions[g.app.id], x).map((e) => [e.snap, e.time, e.bytes, e.path])]))),
+};
+r.setState({ ...input.state, apps: input.state.apps.map((a) => ({ ...a, dumps: [], sqlite: [] })) });
+out.none = [r.dbGroups().length, r.tileLine('dbs')];
+console.log(JSON.stringify(out));
+JS;
+    file_put_contents("$tmp/t.js", $js);
+    $cmd = escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/restore/desk.js') . ' ' . escapeshellarg("$tmp/in.json") . ' 2>&1';
+    $raw = (string) shell_exec($cmd);
+    $r = json_decode($raw, true);
+    if (!is_array($r)) {
+        check('restore databases page: ran under node', false, $raw);
+        exec('rm -rf ' . escapeshellarg($tmp));
+        return;
+    }
+    $name = fn (string $engine, string $n) => 'dbs.name ' . json_encode(['engine' => "dbs.engine.$engine", 'name' => $n]);
+    same('restore databases page: per app (none without databases), a dump each, one media server\'s copies as one entry',
+        [['chat', [['db:chat:db/mongodb_chat-mongo.archive.gz', 'mongodb', $name('mongodb', 'dbs.all'), 'chat-mongo', 500, $t05, true]]],
+         ['EmbyServer', [['sq:EmbyServer:EmbyServer', 'sqlite', $name('sqlite', 'library.db, users.db'), 'EmbyServer', 414433280 + 40960, $t06, false]]],
+         ['zz-uso-test-db', [["db:zz-uso-test-db:$mdb", 'mariadb', $name('mariadb', 'usotest'), 'zz-uso-test-db-mdb', 1405, $t06, false],
+                             ["db:zz-uso-test-db:$pg", 'postgres', $name('postgres', 'dbs.all'), 'zz-uso-test-db-pg', 2291, $t06, false]]]],
+        $r['groups']);
+    same('restore databases page: the tile - dumps, copies, the newest', ['tile.dbs_dumps {"n":3} · tile.dbs_copies {"n":2}', "rel $t06"], $r['tile']);
+    same('restore databases page: nothing in the packages', [0, ['tile.dbs_none', '']], $r['none']);
+    same('restore databases page: «Restore…» asks for the existing plans (an earlier night with its snapshot)',
+        [['kind' => 'db', 'app' => 'chat', 'file' => 'db/mongodb_chat-mongo.archive.gz'], ['kind' => 'sqlite', 'app' => 'EmbyServer', 'container' => 'EmbyServer', 'version' => 'snapB'],
+         ['kind' => 'db', 'app' => 'zz-uso-test-db', 'file' => $mdb], ['kind' => 'db', 'app' => 'zz-uso-test-db', 'file' => $pg]], $r['requests']);
+    same('restore databases page: earlier nights - each copy once, never the one listed, newest first',
+        ['db:chat:db/mongodb_chat-mongo.archive.gz' => [],
+         'sq:EmbyServer:EmbyServer' => [['snapB', $t05, 414000000 + 40960, "$tmp/snapB/apps/EmbyServer/db"]],
+         "db:zz-uso-test-db:$mdb" => [['snapB', $t0602, 1390, "$tmp/snapB/apps/zz-uso-test-db/$mdb"], ['snapA', $t05, 1300, "$tmp/snapA/apps/zz-uso-test-db/$mdb"]],
+         "db:zz-uso-test-db:$pg" => [['snapB', $t05, 2200, "$tmp/snapB/apps/zz-uso-test-db/$pg"]]],
+        $r['earlier']);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -5092,7 +5245,7 @@ function testWhereaboutsAfterWatchman(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman'],
           'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
           'strings' => ['testStrings']];
