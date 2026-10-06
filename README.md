@@ -76,6 +76,7 @@ Where things are:
 | State, logs, the backup engine's settings | `appdata/UnraidSecretaryOffice/data/` (comes with the array) |
 | Mr. Backupsy's packages per app and VM (templates, compose files, database dumps, VM configurations) | the share `UnraidSecretaryOffice`, one folder per desk (`backup/`); their history in that share's snapshots |
 | Snapshot mounts for Kopia | `/mnt/addons/UnraidSecretaryOffice/` |
+| The office's numbers for Prometheus (a few KB, rewritten every minute) | `/mnt/addons/UnraidSecretaryOffice/metrics/` |
 
 ## Notifications
 
@@ -102,6 +103,25 @@ as the event *Unraid Secretary Office*:
 
 The Team Lead and Jack Emby write in Unraid's language (English where the
 office doesn't speak it); the engine and the plugin's look at the agent in English.
+
+## Monitoring
+
+Optional: with a Node Exporter, Prometheus and Grafana on the server (the
+Consultant shows how to set them up, in that order), the office's own numbers
+go there too. Once a minute the agent writes them as small text files to
+`/mnt/addons/UnraidSecretaryOffice/metrics` (RAM, a few KB), which the Node
+Exporter's textfile collector serves along with its own: Mr. Backupsy's last
+run (when it ended, how it went, downtime, duration, Kopia sources, package
+sizes), the last one that went well, a run going on now, runs skipped because
+the engine was busy; Ms. Snapshotini's snapshots per pool and her plans; the
+Team Lead's open points; the night watchman's findings; Ms. Protocolli's last
+tour, EmbyCache and Ms. Dustdevil's storeroom — all named `uso_…`.
+[`monitoring/grafana-dashboard.json`](monitoring/grafana-dashboard.json) is a
+ready dashboard (Grafana: *Dashboards → New → Import*, choose the Prometheus
+data source). Where a Node Exporter or Prometheus runs, the Team Lead follows
+the chain: the numbers are fresh, the Node Exporter reads their folder,
+Prometheus answers and fetches the Node Exporter. Change Grafana's default
+admin/admin before it can be reached from outside.
 
 ## Installation
 

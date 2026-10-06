@@ -33,10 +33,13 @@ final class Problem extends RuntimeException
  *   checks   fn(): list<array>                    what it needs from the server, see
  *                                                 finding() in lib/house.php — the
  *                                                 caretaker collects them
+ *   metrics  fn(): list<array>                    its numbers for Prometheus, once a
+ *                                                 minute from the agent's loop (from state
+ *                                                 files only) — see lib/metrics.php
  */
 function desk(string $id, array $definition): void
 {
-    $GLOBALS['desks'][$id] = $definition + ['actions' => [], 'start' => null, 'tick' => null, 'checks' => null, 'fit' => null];
+    $GLOBALS['desks'][$id] = $definition + ['actions' => [], 'start' => null, 'tick' => null, 'checks' => null, 'fit' => null, 'metrics' => null];
 }
 
 function desks(): array

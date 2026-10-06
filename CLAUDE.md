@@ -90,6 +90,24 @@ differ get a `_plugin` key or come from state (`schedule.via`).
   `required` only when the desk really can't work without it, otherwise
   `recommended`; `hint` for things to know. Texts: `check.<id>` states how it
   should be, `check.<id>_how` what the user does in Unraid to get there.
+* **Metrics for Prometheus** (`agent/lib/metrics.php`): a desk may register
+  `'metrics' => fn (): array => [...]` — families `['name' => 'uso_<desk>_…',
+  'type' => 'gauge'|'counter', 'help' => '…', 'samples' => [[['label' => 'value'], <number>], …]]`
+  (`metricsGauge()` builds one). Called once a minute from the agent's loop, hired
+  desks only, so like `tick`: state files only (`metricsCached()` re-reads a file
+  only when it changed), no zfs/docker/commands. The agent writes `uso_<desk>.prom`
+  plus `uso_office.prom` into `/mnt/addons/UnraidSecretaryOffice/metrics` (the 1 MB
+  tmpfs, see Server facts) with `writeAtomic()` in that folder; files of desks let go
+  or no longer reporting go. Names `uso_…` (`[a-zA-Z_][a-zA-Z0-9_]*`), each once over
+  all desks, the same label names within a family, no `_count`/`_sum`/`_bucket` on a
+  gauge (promtool), times as `…_timestamp_seconds` (Grafana does `time() - x`); few
+  label values (no series per file or per snapshot). **Size cap:** all files together
+  ≤ `METRICS_MAX_BYTES` (16 KB) — the families with the most series are dropped first,
+  logged once, counted in `uso_metrics_dropped_families`. `monitoring/grafana-dashboard.json`
+  uses the names: renaming one means changing it there too. Where a Node Exporter or
+  Prometheus exists the team lead follows the chain (numbers fresh → the exporter
+  reads their folder → Prometheus ready → an up node target); nobody writes
+  prometheus.yml. Tests: `OFFICE_METRICS_DIR`.
 * **Notifications** to Unraid only through `officeNotify()` (agent/lib/house.php):
   event and subject prefix `Unraid Secretary Office` like the engine; `warning`
   for something to fix, `alert` only when something is at risk now (failed
@@ -490,6 +508,7 @@ data/                    runtime only (state per desk, mailbox, agent log, offic
 backup/                  the backup engine: backup.sh, setup.sh, lib/common.sh (data in data/unraid-backup)
 embycache/               Jack Emby's EmbyCache (Python; data in data/embycache)
 gather/                  Jack Emby's media gather, consolidate_master.sh (bash; data in data/gather)
+monitoring/              grafana-dashboard.json: the office's dashboard to import (its numbers: lib/metrics.php)
 plugin/                  the Unraid plugin: .plg template, build.sh, dev-sync.sh, scripts/ (agent.sh
                          service, job.sh for the cron file), event/ (started, stopping), images/,
                          SecretaryOffice.page (the office in Unraid), SecretaryOfficeButton.page

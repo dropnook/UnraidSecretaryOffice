@@ -104,7 +104,35 @@ desk('logs', [
     ],
     'jobs'    => ['logs-tour' => fn (array $args) => logsTourRun()],
     'checks'  => fn (): array => logsChecks(),
+    'metrics' => fn (): array => logsMetrics(),
 ]);
+
+/**
+ * Ms. Protocolli's numbers for Prometheus (lib/metrics.php, once a minute):
+ * from her last tour (data/logs-tour.json). /var/log's fill level comes from
+ * the Node Exporter itself (node_filesystem_*{mountpoint="/var/log"}).
+ */
+function logsMetrics(?string $file = null): array
+{
+    $t = metricsCached($file ?? logsTourFile(), function (string $f): ?array {
+        $j = readJson($f);
+        return $j && isset($j['time']) ? ['time' => (int) $j['time'], 'errors' => (int) ($j['errors'] ?? 0), 'warnings' => (int) ($j['warnings'] ?? 0),
+            'since' => (int) ($j['since'] ?? 0), 'docker' => !empty($j['docker']['enabled']) ? (int) ($j['docker']['total'] ?? 0) : null] : null;
+    });
+    if ($t === null) {
+        return [];
+    }
+    $out = [
+        metricsGauge('uso_logs_tour_lines', 'Lines that looked like an error or a warning in Ms. Protocolli\'s last tour (since the tour before)',
+            [[['level' => 'error'], $t['errors']], [['level' => 'warning'], $t['warnings']]]),
+        metricsGauge('uso_logs_tour_since_timestamp_seconds', 'Where her last tour started counting (the tour before, or 24 hours back)', $t['since']),
+        metricsGauge('uso_logs_last_tour_timestamp_seconds', 'When Ms. Protocolli last made her tour', $t['time']),
+    ];
+    if ($t['docker'] !== null) {
+        $out[] = metricsGauge('uso_logs_container_log_bytes', 'All containers\' docker logs together, at her last tour', $t['docker']);
+    }
+    return $out;
+}
 
 /**
  * Every source that can be read here: id => [group, label, kind, target, label param].

@@ -30,6 +30,7 @@ const CARETAKER_ACK_SIG       = '/^[a-z0-9_-]{1,40}:[a-z0-9_]{1,60}:[0-9a-f]{16}
 const CARETAKER_ACK_DRIFT     = ['days', 'size'];    // params that change by themselves (an age, a size) — not a new situation
 const CARETAKER_ACK_KEEP      = 30 * 86400;          // a noted point that hasn't turned up for this long is forgotten
 const CARETAKER_ACK_SEEN      = 86400;               // "still there" is written down at most once a day
+const CARETAKER_PROM_ASK      = 300;                 // Prometheus is asked at most this often (the page refreshes every 5 minutes)
 
 desk('caretaker', [
     'start'   => fn () => caretakerScan(),
@@ -44,6 +45,7 @@ desk('caretaker', [
         'unack'         => fn (array $r) => caretakerAck($r['sig'] ?? null, false),
     ],
     'checks'  => fn () => caretakerChecks(),
+    'metrics' => fn (): array => caretakerMetrics(readJson(deskFile('caretaker')), staffHired()),
 ]);
 
 function caretakerScan(bool $checkUpdate = false): array
@@ -501,7 +503,186 @@ function caretakerChecks(): array
             $out[] = finding('other_backup_script', 'hint', null, ['name' => $name], 'userscripts');
         }
     }
+    array_push($out, ...caretakerMonitoringChecks());
     return $out;
+}
+
+// ===================================================================== monitoring
+
+/*
+ * Once monitoring is in use here — a Node Exporter or a Prometheus, found the
+ * consultant's way (ADVISOR_EXTERNALS) —, he follows the office's numbers
+ * along the chain: fresh in their folder (lib/metrics.php) → the Node
+ * Exporter reads that folder → Prometheus answers → it has an "up" target for
+ * the Node Exporter. Without either of them nothing is missing. He never
+ * writes prometheus.yml: the consultant has one ready to copy.
+ */
+function caretakerMonitoringChecks(): array
+{
+    if (!function_exists('advisorFindContainer')) {
+        return [];
+    }
+    $containers = houseContainers();
+    $node = null;
+    if (housePlugin(ADVISOR_EXTERNALS['nodeexporter']['plugin'])) {
+        $node = ['kind' => 'plugin', 'there' => true, 'name' => 'Prometheus Node Exporter'];
+    } elseif ($c = advisorFindContainer(ADVISOR_EXTERNALS['nodeexporter'], $containers)) {
+        $node = ['kind' => 'container', 'there' => true, 'name' => $c['name']];
+    }
+    $prom = advisorFindContainer(ADVISOR_EXTERNALS['prometheus'], $containers);
+    if ($node === null && $prom === null) {
+        return [];
+    }
+    $advisor = in_array('advisor', staffHired(), true) ? '#/advisor' : 'docker';
+    $dir = metricsDir();
+    $out = [finding('metrics_written', 'recommended', metricsFresh($dir), ['dir' => $dir])];
+    if ($node !== null) {
+        $out[] = finding('metrics_textfile', 'recommended', advisorNodeTextfile($node), ['name' => $node['name'], 'dir' => METRICS_HOST_DIR], $advisor);
+    }
+    if ($prom === null) {
+        $out[] = finding('metrics_no_prometheus', 'hint', null, [], $advisor);
+        return $out;
+    }
+    $p = caretakerPrometheus($prom);
+    $out[] = finding('metrics_prometheus', 'recommended', $p['ready'], ['name' => $prom['name']], 'docker');
+    if ($p['ready'] && $p['node'] === 'none') {
+        $ip = preg_match('#^https?://([^/:]+)#', (string) houseGuiUrl(), $m) ? $m[1] : '<server-ip>';
+        $out[] = finding('metrics_node_job', 'recommended', false, ['target' => "$ip:9100"], $advisor);
+    } elseif ($p['ready'] && $p['node'] !== null) {
+        $out[] = finding('metrics_node_target', 'recommended', $p['node']['up'], ['target' => $p['node']['target']]);
+    }
+    return $out;
+}
+
+/**
+ * Asks the Prometheus container (in the host's network, seconds at most;
+ * at most every CARETAKER_PROM_ASK) whether it is ready and how its target
+ * for the Node Exporter is.
+ *
+ * @param array{name:string, running:bool} $c
+ * @return array{ready:?bool, node:'none'|array{up:bool, target:string}|null}  ready null: couldn't tell; node null: not asked or an odd answer
+ */
+function caretakerPrometheus(array $c): array
+{
+    if (!$c['running']) {
+        return ['ready' => false, 'node' => null];
+    }
+    $cached = $GLOBALS['ctProm'][$c['name']] ?? null;
+    if ($cached !== null && time() - $cached['at'] < CARETAKER_PROM_ASK) {
+        return $cached['result'];
+    }
+    $where = caretakerPrometheusUrl(houseInspect($c['name']));
+    $result = ['ready' => null, 'node' => null];
+    if ($where !== null) {
+        [$url, $own] = $where;
+        [$exit, $code] = hostNet(['curl', '-s', '-m', '3', '-o', '/dev/null', '-w', '%{http_code}', "$url/-/ready"], 10);
+        $ready = $exit === 0 && trim($code) === '200';
+        // on an address of its own (br0) the host may not be allowed to reach it: that is "couldn't tell"
+        $result['ready'] = $ready ? true : ($own && $exit !== 0 ? null : false);
+        if ($ready) {
+            [$exit, $body] = hostNet(['curl', '-s', '-m', '5', "$url/api/v1/targets?state=active"], 10);
+            $result['node'] = $exit === 0 ? caretakerNodeTarget(json_decode($body, true)) : null;
+        }
+    }
+    $GLOBALS['ctProm'][$c['name']] = ['at' => time(), 'result' => $result];
+    return $result;
+}
+
+/**
+ * Where the host reaches Prometheus, from docker inspect: its port (9090, or
+ * --web.listen-address), published on the host or in the host's network →
+ * 127.0.0.1; otherwise the container's own address (own = true).
+ *
+ * @return array{0:string, 1:bool}|null  the address, whether it is the container's own
+ */
+function caretakerPrometheusUrl(?array $i): ?array
+{
+    if ($i === null) {
+        return null;
+    }
+    $port = 9090;
+    foreach ((array) ($i['Args'] ?? []) as $a) {
+        if (is_string($a) && preg_match('/^--web\.listen-address=\S*:(\d{1,5})$/D', $a, $m)) {
+            $port = (int) $m[1];
+        }
+    }
+    if (($i['HostConfig']['NetworkMode'] ?? '') === 'host') {
+        return ["http://127.0.0.1:$port", false];
+    }
+    foreach ((array) ($i['NetworkSettings']['Ports']["$port/tcp"] ?? []) as $b) {
+        $host = (string) ($b['HostIp'] ?? '');
+        $hostPort = (string) ($b['HostPort'] ?? '');
+        if (preg_match('/^\d{1,5}$/D', $hostPort) && (in_array($host, ['', '0.0.0.0', '::'], true) || filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4))) {
+            return ['http://' . (in_array($host, ['', '0.0.0.0', '::'], true) ? '127.0.0.1' : $host) . ":$hostPort", false];
+        }
+    }
+    foreach ((array) ($i['NetworkSettings']['Networks'] ?? []) as $net) {
+        $ip = (string) ($net['IPAddress'] ?? '');
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return ["http://$ip:$port", true];
+        }
+    }
+    return null;
+}
+
+/**
+ * The Node Exporter's target in Prometheus' /api/v1/targets: a job named
+ * like "node" or an address on port 9100 — up when one of them is.
+ *
+ * @return 'none'|array{up:bool, target:string}|null  null: not Prometheus' answer
+ */
+function caretakerNodeTarget(mixed $j): string|array|null
+{
+    if (!is_array($j) || ($j['status'] ?? '') !== 'success' || !is_array($j['data']['activeTargets'] ?? null)) {
+        return null;
+    }
+    $found = null;
+    foreach ($j['data']['activeTargets'] as $t) {
+        if (!is_array($t)) {
+            continue;
+        }
+        $job = (string) ($t['labels']['job'] ?? $t['scrapePool'] ?? '');
+        $url = (string) ($t['scrapeUrl'] ?? '');
+        if (!preg_match('/node/i', $job) && parse_url($url, PHP_URL_PORT) !== 9100) {
+            continue;
+        }
+        $up = ($t['health'] ?? '') === 'up';
+        $target = substr((string) ($t['labels']['instance'] ?? parse_url($url, PHP_URL_HOST) ?? ''), 0, 100);
+        if ($found === null || $up && !$found['up']) {
+            $found = ['up' => $up, 'target' => $target];
+        }
+    }
+    return $found ?? 'none';
+}
+
+/**
+ * The team lead's numbers for Prometheus (lib/metrics.php, once a minute):
+ * open findings by level as the Dashboard tile counts them — only desks that
+ * work here, not in place, not put aside («I know, thanks»); hints too.
+ */
+function caretakerMetrics(?array $state, array $hired): array
+{
+    if (!$state) {
+        return [];
+    }
+    $hired = array_flip($hired);
+    $open = ['required' => 0, 'recommended' => 0, 'hint' => 0];
+    foreach ((array) ($state['checks'] ?? []) as $desk => $list) {
+        if (!isset($hired[$desk])) {
+            continue;
+        }
+        foreach ((array) $list as $f) {
+            $level = is_array($f) ? (string) ($f['level'] ?? '') : '';
+            if (isset($open[$level]) && ($f['ok'] ?? null) !== true && empty($f['acked'])) {
+                $open[$level]++;
+            }
+        }
+    }
+    return [
+        metricsGauge('uso_caretaker_open_findings', 'The team lead\'s open points by level: still to do (required), recommended, good to know (hint) — without what was put aside',
+            array_map(fn ($level) => [['level' => $level], $open[$level]], array_keys($open))),
+        metricsGauge('uso_caretaker_checked_timestamp_seconds', 'When the team lead last walked through the house (the numbers above are from then)', (int) ($state['time'] ?? 0)),
+    ];
 }
 
 /**

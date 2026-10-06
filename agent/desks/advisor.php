@@ -27,7 +27,8 @@ declare(strict_types=1);
  *           container (official image, template "Node-Exporter"), which sees
  *           the host read-only under /host; ich777's plugin counts too
  *   prometheus  fetches and keeps the numbers (port 9090)
- *   grafana     shows them (port 3000)
+ *   grafana     shows them (port 3000); the office's own dashboard to import
+ *               is monitoring/grafana-dashboard.json (ADVISOR_DASHBOARD_URL)
  *   loki        later: log lines, for the night watchman's log book
  *
  * Read only: whether a plugin is installed, whether a container exists and
@@ -48,8 +49,10 @@ const ADVISOR_EXTERNALS = [
     'grafana'      => ['image' => '/^grafana(-oss|-enterprise)?$/i', 'optional' => true, 'group' => 'monitoring'],
     'loki'         => ['image' => '/^loki$/i', 'optional' => true, 'group' => 'monitoring', 'later' => true],
 ];
-/** Where the office's own numbers go for the node exporter's textfile collector (RAM; *.prom files) */
-const ADVISOR_METRICS_DIR = '/mnt/addons/UnraidSecretaryOffice/metrics';
+/** Where the office's own numbers go for the node exporter's textfile collector (RAM; *.prom files, lib/metrics.php writes them) */
+const ADVISOR_METRICS_DIR = METRICS_HOST_DIR;
+/** The office's dashboard for Grafana, to import (monitoring/grafana-dashboard.json on main) */
+const ADVISOR_DASHBOARD_URL = 'https://raw.githubusercontent.com/' . OFFICE_REPO . '/main/monitoring/grafana-dashboard.json';
 /** ich777's node exporter plugin takes its start options from here (start_parameters=…) */
 const ADVISOR_NODE_PLUGIN_CFG = '/boot/config/plugins/prometheus_node_exporter/settings.cfg';
 const ADVISOR_MEDIA = ['emby' => 'Emby', 'jellyfin' => 'Jellyfin', 'plex' => 'Plex'];
@@ -106,7 +109,8 @@ function advisorScan(): array
     if (isset($externals['nodeexporter'])) {
         $externals['nodeexporter']['textfile'] = advisorNodeTextfile($externals['nodeexporter']);
     }
-    $state = ['time' => time(), 'gui' => houseGuiUrl(), 'media' => $media, 'metrics_dir' => ADVISOR_METRICS_DIR, 'externals' => $externals];
+    $state = ['time' => time(), 'gui' => houseGuiUrl(), 'media' => $media, 'metrics_dir' => ADVISOR_METRICS_DIR,
+              'dashboard' => ADVISOR_DASHBOARD_URL, 'externals' => $externals];
     writeAtomic(deskFile('advisor'), jsonEncode($state));
     return $state;
 }

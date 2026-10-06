@@ -69,7 +69,93 @@ desk('backup', [
         'schedule'    => fn (array $r) => backupSetSchedule($r['cron'] ?? null),
     ],
     'checks' => fn () => backupChecks(),
+    'metrics' => fn (): array => backupMetrics(),
 ]);
+
+/**
+ * Mr. Backupsy's numbers for Prometheus (lib/metrics.php, once a minute) —
+ * only from the engine's state files: last-run.json (the last real backup
+ * run), history.jsonl (the last one that went well), status.json and the lock
+ * (a run going on now), skipped.json (a run that couldn't start because the
+ * lock was busy, engine 2.20; read only when it is there and in its shape).
+ */
+function backupMetrics(?string $state = null): array
+{
+    $state ??= BACKUP_DATA_DIR . '/state';
+    if (!is_dir($state)) {
+        return [];
+    }
+    $word = fn (mixed $v, string $else = 'other') => is_string($v) && preg_match('/^[a-z0-9_]{1,40}$/D', $v) ? $v : $else;
+    $out = [];
+    $last = metricsCached("$state/last-run.json", fn (string $f) => readJson($f));
+    if ($last && ($last['result'] ?? '') !== 'running') {
+        $result = $word($last['result'] ?? null);
+        $finished = (int) ($last['finished'] ?? 0);
+        $ok = in_array($result, ['ok', 'warnings'], true);
+        $out[] = metricsGauge('uso_backup_last_success', 'Whether the last real backup run went well (ok or with warnings)', $ok);
+        $out[] = metricsGauge('uso_backup_last_result', 'The result of the last real backup run (ok, warnings, errors, failed, aborted)', [[['result' => $result], 1]]);
+        if ($finished > 0) {
+            $out[] = metricsGauge('uso_backup_last_run_end_timestamp_seconds', 'When the last real backup run ended', $finished);
+            $out[] = metricsGauge('uso_backup_last_duration_seconds', 'How long the last real backup run took', max(0, $finished - (int) ($last['started'] ?? $finished)));
+        }
+        $out[] = metricsGauge('uso_backup_last_downtime_seconds', 'How long containers and VMs were held in the last real backup run', (int) ($last['downtime_s'] ?? 0));
+        $out[] = metricsGauge('uso_backup_last_errors', 'Errors in the last real backup run', (int) ($last['errors'] ?? 0));
+        $out[] = metricsGauge('uso_backup_last_warnings', 'Warnings in the last real backup run', (int) ($last['warnings'] ?? 0));
+        $kopia = is_array($last['kopia'] ?? null) ? $last['kopia'] : [];
+        if (!empty($kopia['enabled'])) {
+            $done = array_filter((array) ($kopia['done'] ?? []), 'is_array');
+            $went = count(array_filter($done, fn ($d) => ($d['ok'] ?? false) === true));
+            $planned = count((array) ($kopia['planned'] ?? []));
+            $out[] = metricsGauge('uso_backup_last_kopia_sources', 'Kopia sources of the last real backup run: copied (ok) and not (failed, or never reached)',
+                [[['result' => 'ok'], $went], [['result' => 'failed'], max(count($done), $planned) - $went]]);
+        }
+        $packages = is_array($last['packages'] ?? null) ? $last['packages'] : [];
+        if (!empty($packages['written'])) {
+            $out[] = metricsGauge('uso_backup_last_packages_bytes', 'What the last real backup run wrote into the packages of apps and VMs', (int) ($packages['written_bytes'] ?? 0));
+            $each = [];
+            foreach ((array) ($packages['list'] ?? []) as $p) {
+                if (is_array($p) && is_string($p['name'] ?? null) && $p['name'] !== '' && ($p['result'] ?? '') !== 'planned') {
+                    $each[] = [['kind' => $word($p['kind'] ?? null), 'name' => $p['name']], (int) ($p['bytes'] ?? 0)];
+                }
+            }
+            $out[] = metricsGauge('uso_backup_package_bytes', 'The size of each package (app, VM, flash) in the backup place after the last real backup run', $each);
+        }
+    }
+    $success = metricsCached("$state/history.jsonl", fn (string $f) => backupMetricsLastSuccess($f));
+    if ($success > 0) {
+        $out[] = metricsGauge('uso_backup_last_success_timestamp_seconds', 'When the last real backup run that went well (ok or with warnings) ended', $success);
+    }
+
+    // a run going on now: status.json says so, its process lives and the engine holds its lock (not a killed run's leftover)
+    $status = metricsCached("$state/status.json", fn (string $f) => readJson($f));
+    $running = is_array($status) && ($status['result'] ?? '') === 'running' && (int) ($status['pid'] ?? 0) > 1
+        && posix_kill((int) $status['pid'], 0) && flockHeld("$state/lock");
+    $out[] = metricsGauge('uso_backup_running', 'Whether the backup engine is running now (a backup, a check or a dry run)', $running);
+    if ($running) {
+        $out[] = metricsGauge('uso_backup_current_phase', 'The run going on now: its mode and phase', [[['mode' => $word($status['mode'] ?? null), 'phase' => $word($status['phase'] ?? null)], 1]]);
+        $out[] = metricsGauge('uso_backup_current_started_timestamp_seconds', 'When the run going on now started', (int) ($status['started'] ?? 0));
+    }
+
+    $skipped = metricsCached("$state/skipped.json", fn (string $f) => readJson($f));
+    if (is_array($skipped) && is_int($skipped['time'] ?? null) && $skipped['time'] > 0) {
+        $out[] = metricsGauge('uso_backup_last_skipped_timestamp_seconds', 'When a run last could not start because the engine was busy, with its mode and reason',
+            [[['mode' => $word($skipped['mode'] ?? null), 'reason' => $word($skipped['reason'] ?? null)], $skipped['time']]]);
+    }
+    return $out;
+}
+
+/** The end of the newest real backup run in history.jsonl that went well (ok or with warnings), 0 when there is none */
+function backupMetricsLastSuccess(string $file): int
+{
+    $lines = @file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    for ($i = count($lines) - 1; $i >= 0; $i--) {
+        $run = json_decode($lines[$i], true);
+        if (is_array($run) && ($run['mode'] ?? 'backup') === 'backup' && in_array($run['result'] ?? '', ['ok', 'warnings'], true)) {
+            return (int) ($run['finished'] ?? 0);
+        }
+    }
+    return 0;
+}
 
 // ===================================================================== state
 

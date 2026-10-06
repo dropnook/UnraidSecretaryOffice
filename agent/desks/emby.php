@@ -65,7 +65,41 @@ desk('emby', [
         'gather'    => fn (array $args) => embyJob('gather', $args),
     ],
     'checks'  => fn () => embyChecks(),
+    'metrics' => fn (): array => embyMetrics(),
 ]);
+
+/**
+ * Jack Emby's numbers for Prometheus (lib/metrics.php, once a minute): what
+ * EmbyCache keeps on the pool (his state, as of his last look) and how the
+ * last real run of each tool went (his list of runs).
+ */
+function embyMetrics(?string $state = null, ?string $history = null): array
+{
+    $cache = metricsCached($state ?? deskFile('emby'), function (string $f): ?array {
+        $j = readJson($f);
+        return $j && !empty($j['configured']) && is_array($j['cache'] ?? null) ? ['files' => (int) ($j['cache']['files'] ?? 0), 'bytes' => (int) ($j['cache']['bytes'] ?? 0)] : null;
+    });
+    $runs = metricsCached($history ?? EMBY_DATA . '/office-history.json', function (string $f): array {
+        $last = [];
+        foreach ((array) (readJson($f)['runs'] ?? []) as $r) {       // newest first
+            $tool = is_array($r) ? ($r['tool'] ?? null) : null;
+            if (in_array($tool, ['embycache', 'gather'], true) && !isset($last[$tool]) && ($r['mode'] ?? '') === 'run' && ($r['result'] ?? '') !== 'refused') {
+                $last[$tool] = ['ok' => ($r['result'] ?? '') === 'ok', 'finished' => (int) ($r['finished'] ?? 0)];
+            }
+        }
+        return $last;
+    });
+    $out = [];
+    if ($cache !== null) {
+        $out[] = metricsGauge('uso_emby_cache_bytes', 'What EmbyCache keeps on the pool right now (as of Jack\'s last look)', $cache['bytes']);
+        $out[] = metricsGauge('uso_emby_cache_files', 'Files EmbyCache keeps on the pool right now (as of Jack\'s last look)', $cache['files']);
+    }
+    $out[] = metricsGauge('uso_emby_last_run_ok', 'Whether the last real run of EmbyCache / the gather went well',
+        array_map(fn ($tool) => [['tool' => $tool], $runs[$tool]['ok']], array_keys($runs)));
+    $out[] = metricsGauge('uso_emby_last_run_end_timestamp_seconds', 'When the last real run of EmbyCache / the gather ended',
+        array_map(fn ($tool) => [['tool' => $tool], $runs[$tool]['finished']], array_keys($runs)));
+    return $out;
+}
 
 // ===================================================================== state
 

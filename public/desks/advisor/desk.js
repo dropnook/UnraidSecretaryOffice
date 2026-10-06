@@ -171,6 +171,7 @@ function render() {
     const m = el('section', 'section');
     m.appendChild(Office.sectionHead(T('monitoring'), T('monitoring_sub'), count));
     mon.forEach(([id, x]) => m.appendChild(external(id, x)));
+    if (state.dashboard) m.appendChild(dashboard());
     root.appendChild(m);
   }
   root.appendChild(el('p', 'role', T('looked_at', { when: fmt.relative(state.time) })));
@@ -282,6 +283,48 @@ function howto(id, x) {
   if (Object.values(values).some((v) => v.includes('<server-ip>'))) box.appendChild(el('div', 'ad-note', T('ip_unknown')));
   det.appendChild(box);
   return det;
+}
+
+/**
+ * The office's own dashboard for Grafana (monitoring/grafana-dashboard.json):
+ * what it shows, how to import it, and that admin/admin must go first
+ */
+function dashboard() {
+  const box = el('div', 'box ad-external');
+  const row = el('div', 'row nocheck ad-row');
+  row.appendChild(avatar({ icon: '📈' }, {}));
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', T('dashboard.name')));
+  main.appendChild(el('div', 'row-detail', T('dashboard.what')));
+  main.appendChild(el('div', 'row-detail ad-careful', T('dashboard.admin')));
+  row.appendChild(main);
+  const href = Office.safeHref(state.dashboard);
+  if (href) {
+    const acts = el('div', 'ad-acts');
+    const a = el('a', 'btn small plain', T('dashboard.open'));
+    a.href = href;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    acts.appendChild(a);
+    row.appendChild(acts);
+  }
+  box.appendChild(row);
+
+  const det = el('details', 'ad-howto');
+  det.appendChild(el('summary', '', T('dashboard.howto')));
+  const ol = el('ol', 'ad-steps');
+  for (let i = 1; Office.has(`${ID}.dashboard.${i}`); i++) ol.appendChild(el('li', '', T(`dashboard.${i}`, { dir: state.metrics_dir || '' })));
+  det.appendChild(ol);
+  const line = el('div', 'ad-copy');
+  const b = el('button', 'btn small plain', Office.t('common.copy'));
+  b.type = 'button';
+  b.onclick = () => Office.copy(state.dashboard);
+  line.append(el('span', 'ad-copy-label', T('copy.dashboard.url')), el('code', '', state.dashboard), b);
+  const copies = el('div', 'ad-copies');
+  copies.appendChild(line);
+  det.appendChild(copies);
+  box.appendChild(det);
+  return box;
 }
 
 // ------------------------------------------------------------------ desk

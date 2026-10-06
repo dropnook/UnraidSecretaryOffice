@@ -173,6 +173,7 @@ desk('cleanup', [
     'start'   => fn () => clScan(),
     'tick'    => fn () => clJobsTick(),
     'checks'  => fn (): array => clChecks(),
+    'metrics' => fn (): array => clMetrics(),
     'actions' => [
         'refresh' => fn (array $r) => ['ok' => true, 'state' => clScan()],
         'scan'    => fn (array $r) => ['ok' => true, 'state' => clScan(!empty($r['wake']), true, true)],
@@ -187,6 +188,16 @@ desk('cleanup', [
         'icon_fallback' => fn (array $r) => clIconFallback(),
     ],
 ]);
+
+/** Her numbers for Prometheus (lib/metrics.php, once a minute): what lies in her storeroom, as of her last look */
+function clMetrics(): array
+{
+    $trash = metricsCached(deskFile('cleanup'), fn (string $f) => readJson($f)['trash'] ?? null);
+    return is_array($trash) ? [
+        metricsGauge('uso_cleanup_storeroom_bytes', 'What lies in Ms. Dustdevil\'s storeroom, put away and not yet emptied', (int) ($trash['bytes'] ?? 0)),
+        metricsGauge('uso_cleanup_storeroom_runs', 'How many times things were put into her storeroom and are still there', count((array) ($trash['runs'] ?? []))),
+    ] : [];
+}
 
 // ===================================================================== tour
 
