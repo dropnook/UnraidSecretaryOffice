@@ -3535,6 +3535,71 @@ function testUpdateClean(): void
 }
 
 /**
+ * Ransomware protection: does the bucket keep S3 Object Lock? AWS's own Signature V4 example, the region
+ * an endpoint names, what each answer means (enabled / off / unsupported / unknown and why), how the
+ * request is made (Amazon virtual-hosted and signed again for the bucket's region, elsewhere path style)
+ */
+function testAdvisorObjectLock(): void
+{
+    $e = hash('sha256', '');
+    same('s3 signature: AWS\'s own example (GET Bucket Lifecycle, 2013-05-24)',
+        'AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, '
+        . 'Signature=fea454ca298b7da1c68078a5d1bdbfbbe0d65c699e0f91ac7a200a0136783543',
+        advisorS3Sign('GET', '/', ['lifecycle' => ''], ['host' => 'examplebucket.s3.amazonaws.com', 'x-amz-date' => '20130524T000000Z', 'x-amz-content-sha256' => $e],
+            'AKIAIOSFODNN7EXAMPLE', 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY', 'us-east-1', '20130524T000000Z'));
+    same('s3 region: from the endpoint', ['eu-central-1', 'eu-central-003', 'eu-central-2', 'us-east-1', 'eu-central-1', 'fsn1', null, 'us-west-2'],
+        array_map('advisorS3Region', ['s3.eu-central-1.amazonaws.com', 's3.eu-central-003.backblazeb2.com', 's3.eu-central-2.wasabisys.com', 's3.amazonaws.com',
+            's3.eu-central-1.s4.mega.io', 'fsn1.your-objectstorage.com', 'minio.lan:9000', 's3.dualstack.us-west-2.amazonaws.com']));
+
+    $ans = fn (int $status, string $body, array $headers = []) => ['status' => $status, 'headers' => $headers, 'body' => $body, 'error' => $status ? null : 'timeout'];
+    $err = fn (string $code) => "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Error><Code>$code</Code><Message>x</Message></Error>";
+    $on = '<ObjectLockConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><ObjectLockEnabled>Enabled</ObjectLockEnabled>';
+    foreach ([
+        'enabled, with the bucket\'s own rule' => [$ans(200, "$on<Rule><DefaultRetention><Mode>GOVERNANCE</Mode><Days>14</Days></DefaultRetention></Rule></ObjectLockConfiguration>"), 's3',
+                                                  ['state' => 'enabled', 'mode' => 'GOVERNANCE', 'days' => 14]],
+        'enabled, a rule in years'            => [$ans(200, "$on<Rule><DefaultRetention><Mode>COMPLIANCE</Mode><Years>1</Years></DefaultRetention></Rule></ObjectLockConfiguration>"), 'aws',
+                                                  ['state' => 'enabled', 'mode' => 'COMPLIANCE', 'days' => 365]],
+        'enabled, no rule'                    => [$ans(200, "$on</ObjectLockConfiguration>"), 'b2', ['state' => 'enabled', 'mode' => null, 'days' => null]],
+        'off: the bucket made without it'     => [$ans(404, $err('ObjectLockConfigurationNotFoundError')), 'aws', ['state' => 'off']],
+        'off: a configuration, not enabled'   => [$ans(200, '<ObjectLockConfiguration></ObjectLockConfiguration>'), 'minio', ['state' => 'off']],
+        'unsupported: not implemented'        => [$ans(501, $err('NotImplemented')), 's3', ['state' => 'unsupported']],
+        'unsupported: answered with a listing' => [$ans(200, '<ListBucketResult><Name>b1</Name></ListBucketResult>'), 's3', ['state' => 'unsupported']],
+        'unsupported: MEGA S4, an unclear no' => [$ans(403, $err('AccessDenied')), 'mega', ['state' => 'unsupported']],
+        'unknown: the keys refused'           => [$ans(403, $err('SignatureDoesNotMatch')), 'mega', ['state' => 'unknown', 'why' => 'keys']],
+        'unknown: not allowed to read it'     => [$ans(403, $err('AccessDenied')), 'b2', ['state' => 'unknown', 'why' => 'denied']],
+        'unknown: no such bucket'             => [$ans(404, $err('NoSuchBucket')), 'wasabi', ['state' => 'unknown', 'why' => 'no_bucket']],
+        'unknown: no answer'                  => [$ans(0, ''), 's3', ['state' => 'unknown', 'why' => 'unreachable']],
+        'unknown: something else'             => [$ans(500, $err('InternalError')), 's3', ['state' => 'unknown', 'why' => 'other', 'code' => 'InternalError']],
+    ] as $what => [$answer, $provider, $want]) {
+        same("object lock: $what", $want, advisorObjectLockState($answer, $provider));
+    }
+
+    // Amazon: virtual-hosted; signed for us-east-1 first, then for the region the bucket names
+    $seen = [];
+    $http = function (string $url, array $h) use (&$seen, $ans, $err, $on): array {
+        $seen[] = [$url, $h];
+        return count($seen) === 1 ? $ans(400, $err('AuthorizationHeaderMalformed') . '<Region>eu-west-1</Region>', ['x-amz-bucket-region' => 'eu-west-1'])
+            : $ans(200, "$on</ObjectLockConfiguration>");
+    };
+    $keys = ['access' => 'AKIATEST', 'secret' => 'never-in-a-request'];
+    $r = advisorObjectLock(['provider' => 'aws', 'endpoint' => 's3.amazonaws.com', 'region' => null, 'bucket' => 'my-backups'] + $keys, $http);
+    $region = fn (int $i) => preg_match('#/\d{8}/([a-z0-9-]+)/s3/aws4_request#', (string) ($seen[$i][1]['Authorization'] ?? ''), $m) ? $m[1] : null;
+    same('object lock on Amazon: virtual-hosted, signed again for the bucket\'s region, the secret key in no request',
+        ['enabled', 'https://my-backups.s3.amazonaws.com/?object-lock', 'us-east-1', 'eu-west-1', false, true],
+        [$r['state'], $seen[0][0] ?? null, $region(0), $region(1), str_contains(json_encode($seen), 'never-in-a-request'),
+         (bool) preg_match('/^\d{8}T\d{6}Z$/D', (string) ($seen[0][1]['x-amz-date'] ?? ''))]);
+    $seen = [];
+    advisorObjectLock(['provider' => 'minio', 'endpoint' => 'minio.lan:9000', 'region' => null, 'bucket' => 'b.with.dots'] + $keys,
+        function (string $url, array $h) use (&$seen, $ans): array {
+            $seen[] = [$url, $h];
+            return $ans(404, '<Error><Code>ObjectLockConfigurationNotFoundError</Code></Error>');
+        });
+    same('object lock elsewhere: path style, the host with its port, asked once', ['https://minio.lan:9000/b.with.dots?object-lock', 1, 'us-east-1'],
+        [$seen[0][0] ?? null, count($seen), $region(0)]);
+    same('object lock: https only, never anything else', 'no curl', advisorHttps('http://example.test/', [])['error']);
+}
+
+/**
  * The Consultant's Kopia setup: the user's keys and password go from the web side through a RAM
  * file (gone once read) to Kopia's stdin — end to end with a stand-in for docker and Kopia: no
  * secret in any file but that one (and Kopia's own config), in no log, no state, no answer, no ps.
@@ -3608,6 +3673,9 @@ function testAdvisorSecrets(): void
         . "case \"\$1\" in restart) exit 0;; exec) shift; [ \"\$1\" = -i ] && shift; shift; PATH=\"$bin:\$PATH\" exec \"\$@\";; esac\nexit 1\n");
     file_put_contents("$bin/kopia", "#!/bin/sh\n# stand-in for Kopia\n"
         . "[ \"\$1\" = --version ] && { echo '0.99.0 build: stand-in'; exit 0; }\n"
+        . "[ \"\$1\" = maintenance ] && { printf '%s\\n' \"\$*\" >> '$tmp/maint.txt'; [ \"\$2\" = info ] && echo '{\"extendObjectLocks\":true}'; exit 0; }\n"
+        . "[ \"\$1\" = repository ] && [ \"\$2\" = status ] && { if [ -e '$tmp/locked' ]; then echo '{\"blobRetention\":{\"retentionMode\":\"COMPLIANCE\",\"retentionPeriod\":2592000000000000}}'; "
+        . "else echo '{\"blobRetention\":{}}'; fi; exit 0; }\n"
         . "ps -eo args > '$tmp/ps.txt'\n"
         . "printf '%s\\n' \"\$*\" > '$tmp/args.txt'\n"
         . "for v in \"\$KOPIA_PASSWORD\" \"\$AWS_ACCESS_KEY_ID\" \"\$AWS_SECRET_ACCESS_KEY\"; do printf '%s' \"\$v\" | sha256sum | cut -c1-64; done > '$tmp/got.txt'\n"
@@ -3639,6 +3707,7 @@ function testAdvisorSecrets(): void
          $answer['facts']['version'] ?? null, $answer['facts']['provider'] ?? null]);
     $ps = (string) @file_get_contents("$tmp/ps.txt");
     check('secret e2e: ps was looked at while Kopia ran', str_contains($ps, 'repository create s3'));
+    same('secret e2e: the repository\'s format says it — no Object Lock', ['mode' => null], $answer['facts']['lock'] ?? 'not said');
 
     // … and the second time a connect that fails, Kopia repeating the password: cleaned out of the answer
     file_put_contents("$inbox/" . ($ref2 = str_repeat('d', 32)) . '.secret', json_encode($secrets));
@@ -3653,7 +3722,59 @@ function testAdvisorSecrets(): void
     $said = (string) ($fail?->params['output'] ?? '');
     check('secret e2e: its words without the password', str_contains($said, 'invalid repository password •••') && !str_contains($said, $secrets['password']));
     same('secret e2e: the RAM file is gone after a failure too', [], glob("$inbox/*") ?: []);
+
+    // ransomware protection: asking the bucket about Object Lock (step probe) — the keys through RAM, signed here, nothing created …
+    $requests = [];
+    $bucketSays = ['status' => 200, 'headers' => [], 'error' => null,
+                   'body' => '<?xml version="1.0"?><ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>'];
+    $http = function (string $url, array $headers) use (&$requests, &$bucketSays): array {
+        $requests[] = [$url, $headers];
+        return $bucketSays;
+    };
+    $stash = function (string $ref, array $sec) use ($inbox): string {
+        file_put_contents("$inbox/$ref.secret", json_encode($sec));
+        chmod("$inbox/$ref.secret", 0600);
+        return $ref;
+    };
+    @unlink("$tmp/args.txt");
+    $probe = advisorKopiaRepo(['step' => 'probe', 'secret_ref' => $stash(str_repeat('e', 32), ['access_key' => $secrets['access_key'], 'secret_key' => $secrets['secret_key']])]
+        + $request, $inbox, $target, $http);
+    $auth = (string) ($requests[0][1]['Authorization'] ?? '');
+    same('lock probe: the bucket keeps it — offered, 30 days (7 to 365); nothing created; the RAM file gone',
+        ['enabled', [ADVISOR_LOCK_DAYS, ADVISOR_LOCK_MIN, ADVISOR_LOCK_MAX], false, []], [$probe['lock']['state'] ?? null, $probe['lock']['range'] ?? null, is_file("$tmp/args.txt"), glob("$inbox/*") ?: []]);
+    same('lock probe: one signed GET ?object-lock to the endpoint typed (path style), only the access key ID in it', ['https://s3.example.test/b1?object-lock', 1, true],
+        [$requests[0][0] ?? null, count($requests), str_starts_with($auth, 'AWS4-HMAC-SHA256 Credential=' . $secrets['access_key'] . '/')]);
+    // … a new repository with it: asked again, created with COMPLIANCE for 30 days, the locks extended at maintenance …
+    touch("$tmp/locked");
+    $lockAnswer = advisorKopiaRepo(['lock_days' => '30', 'secret_ref' => $stash(str_repeat('f', 32), $secrets)] + $request, $inbox, $target, $http);
+    same('lock create: Kopia\'s arguments — the retention, still no secret among them',
+        'repository create s3 --bucket=b1 --endpoint=s3.example.test --prefix=unraid/ --retention-mode=COMPLIANCE --retention-period=30d --persist-credentials',
+        trim((string) @file_get_contents("$tmp/args.txt")));
+    same('lock create: the bucket asked again first, Kopia told to extend the locks, the facts say so (for the sheet)',
+        [2, 'maintenance set --extend-object-locks=true', ['mode' => 'COMPLIANCE', 'days' => 30, 'extend' => true]],
+        [count($requests), trim((string) @file_get_contents("$tmp/maint.txt")), $lockAnswer['facts']['lock'] ?? null]);
+    $connectLock = advisorKopiaLock("$bin/docker", 'kopia-standin', null);
+    unlink("$tmp/locked");
+    same('lock connect: an existing repository\'s lock read from its format, whether Kopia extends it from its maintenance',
+        [['mode' => 'COMPLIANCE', 'days' => 30, 'extend' => true], ['mode' => null]], [$connectLock, advisorKopiaLock("$bin/docker", 'kopia-standin', null)]);
+    // … and a bucket that says no on the second look: nothing created
+    $bucketSays = ['status' => 404, 'headers' => [], 'error' => null, 'body' => '<Error><Code>ObjectLockConfigurationNotFoundError</Code></Error>'];
+    @unlink("$tmp/args.txt");
+    try {
+        advisorKopiaRepo(['lock_days' => 30, 'secret_ref' => $stash(str_repeat('0', 32), $secrets)] + $request, $inbox, $target, $http);
+        $lockFail = null;
+    } catch (Problem $p) {
+        $lockFail = $p->key;
+    }
+    same('lock create: no Object Lock on the second look — refused before Kopia, the RAM file gone', ['ad_lock_off', false, []], [$lockFail, is_file("$tmp/args.txt"), glob("$inbox/*") ?: []]);
     $leaks = [];
+    foreach ($requests as [$url, $headers]) {
+        foreach (['secret_key', 'password'] as $k) {
+            if (str_contains($url . json_encode($headers), $secrets[$k])) {
+                $leaks[] = "$k in a request to the bucket";
+            }
+        }
+    }
     $look = function (string $dir) use (&$look, &$leaks, $secrets, $tmp) {
         foreach (array_diff(scandir($dir) ?: [], ['.', '..']) as $n) {
             $path = "$dir/$n";
@@ -3678,7 +3799,7 @@ function testAdvisorSecrets(): void
         if (str_contains($ps, $v)) {
             $leaks[] = "$k in ps";
         }
-        if (str_contains(json_encode([$answer, $fail?->params]), $v)) {
+        if (str_contains(json_encode([$answer, $fail?->params, $probe, $lockAnswer]), $v)) {
             $leaks[] = "$k in an answer";
         }
     }
@@ -3696,7 +3817,9 @@ function testAdvisorSecrets(): void
               ['prefix', ['prefix' => '../x']], ['prefix', ['prefix' => '/abs']], ['mode', ['mode' => 'delete']], ['region', ['region' => 'eu central']],
               ['password', [], ['password' => 'short']], ['password', [], ['password' => "two\nlines-password"]], ['secret_key', [], ['secret_key' => 'with space key']],
               ['path', ['storage' => 'filesystem', 'path' => '/config/repo']], ['path', ['storage' => 'filesystem', 'path' => '/local/../etc']],
-              ['client', ['mode' => 'connect', 'client' => 'root@kopia; rm']]] as $case) {
+              ['client', ['mode' => 'connect', 'client' => 'root@kopia; rm']], ['lock_days', ['lock_days' => '6']], ['lock_days', ['lock_days' => '366']],
+              ['lock_days', ['lock_days' => '30d']], ['lock_days', ['mode' => 'connect', 'lock_days' => 30]],
+              ['lock_days', ['storage' => 'filesystem', 'path' => '/local/repo', 'lock_days' => 30]]] as $case) {
         [$want, $over, $sec] = $case + [2 => []];
         try {
             advisorKopiaSpec($over + $base, $sec + $good, $k);
@@ -3709,6 +3832,9 @@ function testAdvisorSecrets(): void
     same('kopia field: a folder under a writable path', ['/local/repo', '/mnt/disks/usb/kopia/repo', ['create', 'filesystem', '--path=/local/repo', '--persist-credentials']],
         [$fs['path'], $fs['path_host'], $fs['args']]);
     same('kopia field: connect with another user@host', 'root@nostromo', advisorKopiaSpec(['mode' => 'connect', 'client' => 'root@nostromo'] + $base, $good, $k)['client']);
+    $locked = advisorKopiaSpec(['lock_days' => '45'] + $base, $good, $k);
+    same('kopia field: Object Lock for 45 days', [['mode' => 'COMPLIANCE', 'days' => 45], ['create', 's3', '--bucket=b1', '--endpoint=s3.example.test', '--retention-mode=COMPLIANCE', '--retention-period=45d', '--persist-credentials']],
+        [$locked['lock'], $locked['args']]);
     hardeningRm($tmp);
 }
 
@@ -4283,7 +4409,7 @@ function testWhereaboutsAfterWatchman(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman'],
           'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
           'strings' => ['testStrings']];
