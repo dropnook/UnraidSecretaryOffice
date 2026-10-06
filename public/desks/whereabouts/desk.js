@@ -298,6 +298,34 @@ function advice() {
   const moved = shares.filter((s) => ['yes', 'prefer'].includes(s.storage.use_cache));
   if (moved.length && !a.mover_schedule) add('mover', 'advice', { names: listNames(moved.map((s) => s.name)), n: moved.length }, { path: '/Settings/Scheduler', text: T('adv.to_scheduler') }, moved.map((s) => s.name).join(','));
 
+  // exclusive shares: /mnt/user/<share> a link straight to its pool, past Unraid's FUSE layer (waExclusive())
+  const ex = a.exclusive;
+  if (ex) {
+    const also = (x) => (x.where.length ? `${x.name} (${T('adv.exclusive_also', { where: x.where.join(', ') })})` : x.name);
+    if (ex.ready.length) {
+      add('exclusive_off', 'advice', { names: listNames(ex.ready), n: ex.ready.length },
+        { path: '/Settings/ShareSettings', text: T('adv.to_share_settings') }, ex.ready.join(','));
+    }
+    if (ex.elsewhere.length) {
+      const f = ex.elsewhere[0];
+      const stray = `/mnt/${f.where[0]}/${f.name}`;
+      add('exclusive_elsewhere', 'advice', { names: listNames(ex.elsewhere.map(also), 3), n: ex.elsewhere.length },
+        { path: `/Main/Browse?dir=${encodeURIComponent(stray)}`, text: T('adv.to_browse', { path: stray }) },
+        ex.elsewhere.map((x) => `${x.name}:${x.where.join('+')}`).join(','));
+    }
+    if (ex.unclear.length) {
+      const maybe = ex.asleep.length ? T('adv.exclusive_unclear.asleep', { disks: listNames(ex.asleep) }) : T('adv.exclusive_unclear.awake');
+      add('exclusive_unclear', 'info', { names: listNames(ex.unclear), n: ex.unclear.length, maybe },
+        { path: '/Main', text: T('adv.to_main') }, ex.unclear.join(','));
+    }
+    // a system share with the array as secondary storage has its own tip above (system_array)
+    const over = ex.overflow.filter((x) => !onArray.some((s) => s.name === x.name));
+    if (over.length) {
+      add('exclusive_overflow', 'info', { names: listNames(over.map(also), 3), n: over.length },
+        { path: shareLink(over[0].name), text: T('adv.to_share', { name: over[0].name }) }, over.map((x) => x.name).join(','));
+    }
+  }
+
   const open = [
     ...shares.filter((s) => s.smb.export !== '-' && s.smb.security === 'public').map((s) => `${s.name} (SMB)`),
     ...shares.filter((s) => s.nfs.export !== '-' && s.nfs.security === 'public').map((s) => `${s.name} (NFS)`),

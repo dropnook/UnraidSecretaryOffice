@@ -657,6 +657,8 @@
   "adv.to_main": "Main",
   "adv.to_ups": "UPS Settings",
   "adv.to_syslog": "Syslog Server",
+  "adv.to_share_settings": "Global Share Settings",
+  "adv.to_browse": "Browse {path}",
   "adv.boot_grub": "Main → Boot-Pool → GRUB-Konfiguration",
   "adv.boot_syslinux": "Main → Flash → Syslinux Configuration",
   "adv.system_array.title": "Auf dem Array: {names}",
@@ -666,6 +668,38 @@
     "other": "Der Mover hat keinen Zeitplan — {n} Shares verlassen sich auf ihn: {names}"
   },
   "adv.mover.why": "Diese Shares schreiben zuerst auf einen Pool, und der Mover soll die Dateien aufs Array bringen (oder zurück). Ohne Zeitplan läuft er nur, wenn man ihn von Hand startet — der Pool läuft voll. Settings → Scheduler → Mover Settings. (Startet etwas anderes den Mover für dich: «Weiss ich, danke».)",
+  "adv.exclusive_also": "auch auf {where}",
+  "adv.exclusive_off.title": {
+    "one": "Exklusive Shares sind aus — {names} käme in Frage",
+    "other": "Exklusive Shares sind aus — {n} Shares kämen in Frage: {names}"
+  },
+  "adv.exclusive_off.why": {
+    "one": "Psst — dieser Share liegt auf einem einzigen Pool und sonst nirgends, und trotzdem quetscht sich jedes Byte unter /mnt/user durch Unraids FUSE-Schicht (shfs). Als exklusiver Share wird /mnt/user/… ein Link direkt auf den Pool, Lesen und Schreiben gehen an dieser Schicht vorbei — spürbar schneller, vor allem bei vielen kleinen Dateien. Pfade von Docker und VMs wie /mnt/user/appdata funktionieren weiter: Sie gehen durch den Link. Die Einstellung lässt sich nur bei gestopptem Array ändern (Docker und VMs stoppen mit): Main → Array Operation → Stop, dann Settings → Global Share Settings → «Permit exclusive shares»: Yes → Apply, und das Array wieder starten. Unraid entscheidet beim Start des Arrays — ein Share mit einem Ordner auch auf einer anderen Disk oder einem anderen Pool bleibt, wie er ist. (Bei exklusiven Shares ignoriert Unraid «Minimum free space».)",
+    "other": "Psst — diese Shares liegen auf einem einzigen Pool und sonst nirgends, und trotzdem quetscht sich jedes Byte unter /mnt/user durch Unraids FUSE-Schicht (shfs). Als exklusive Shares wird /mnt/user/… ein Link direkt auf den Pool, Lesen und Schreiben gehen an dieser Schicht vorbei — spürbar schneller, vor allem bei vielen kleinen Dateien. Pfade von Docker und VMs wie /mnt/user/appdata funktionieren weiter: Sie gehen durch den Link. Die Einstellung lässt sich nur bei gestopptem Array ändern (Docker und VMs stoppen mit): Main → Array Operation → Stop, dann Settings → Global Share Settings → «Permit exclusive shares»: Yes → Apply, und das Array wieder starten. Unraid entscheidet beim Start des Arrays — ein Share mit einem Ordner auch auf einer anderen Disk oder einem anderen Pool bleibt, wie er ist. (Bei exklusiven Shares ignoriert Unraid «Minimum free space».)"
+  },
+  "adv.exclusive_elsewhere.title": {
+    "one": "{names} kann nicht exklusiv sein",
+    "other": "{n} Shares können nicht exklusiv sein: {names}"
+  },
+  "adv.exclusive_elsewhere.why": "Sieh mal an — ein gleichnamiger Ordner auf einem anderen Pool oder einer anderen Disk (in Klammern). Schon der, auch leer, hält Unraid davon ab, den Share direkt auf seinen Pool zu verlinken: Er bleibt in der langsameren FUSE-Schicht. Was in diesem Ordner liegt, gehört zum Share: auf den Pool des Shares verschieben (Unraids Dateimanager: Browse) oder den Ordner löschen, wenn er leer ist. Dann das Array einmal stoppen und starten (Main → Array Operation) — Unraid entscheidet beim Start.",
+  "adv.exclusive_unclear.title": {
+    "one": "{names} ist nicht exklusiv — und ich sehe nicht, warum",
+    "other": "{n} Shares sind nicht exklusiv — und ich sehe nicht, warum: {names}"
+  },
+  "adv.exclusive_unclear.why": {
+    "one": "Also das ist mir ein Rätsel: Nach seinen Einstellungen käme er in Frage, ich sehe seinen Ordner nur auf seinem eigenen Pool, und trotzdem sagt Unraid «Exclusive access: No». {maybe} Unraid entscheidet beim Start des Arrays: Ist das geklärt, das Array stoppen und starten (Main → Array Operation).",
+    "other": "Also das ist mir ein Rätsel: Nach ihren Einstellungen kämen sie in Frage, ich sehe ihren Ordner nur auf ihrem eigenen Pool, und trotzdem sagt Unraid «Exclusive access: No». {maybe} Unraid entscheidet beim Start des Arrays: Ist das geklärt, das Array stoppen und starten (Main → Array Operation)."
+  },
+  "adv.exclusive_unclear.asleep": "Vielleicht liegt ein gleichnamiger Ordner auf einer Disk, in die ich nicht geschaut habe, weil sie schlief ({disks}) — schau dort nach und verschiebe ihn auf den Pool.",
+  "adv.exclusive_unclear.awake": "Vielleicht haben sich die Einstellungen nach dem Start des Arrays geändert.",
+  "adv.exclusive_overflow.title": {
+    "one": "{names} könnte exklusiv sein — wäre da nicht der sekundäre Speicher",
+    "other": "{n} Shares könnten exklusiv sein — wäre da nicht der sekundäre Speicher: {names}"
+  },
+  "adv.exclusive_overflow.why": {
+    "one": "Ist mir halt aufgefallen: Dieser Share hat seine Daten auf seinem Pool, und der Mover holt zurück, was auf den sekundären Speicher übergelaufen ist. Ohne sekundären Speicher könnte er ein exklusiver Share sein — /mnt/user/… ein Link direkt auf den Pool, an Unraids FUSE-Schicht vorbei, spürbar schneller. Lohnt sich nur, wenn der Pool Platz für alles hat: Ohne sekundären Speicher heisst ein voller Pool ein voller Share. Wenn ja: den Mover laufen lassen, bis alles auf dem Pool ist, in den Einstellungen des Shares «Secondary storage» auf «None» setzen, löschen, was vom Share auf einem anderen Pool oder einer anderen Disk übrig ist (in Klammern; auch leere Ordner zählen), dann das Array stoppen und starten. Braucht «Permit exclusive shares» (Settings → Global Share Settings).",
+    "other": "Ist mir halt aufgefallen: Diese Shares haben ihre Daten auf ihrem Pool, und der Mover holt zurück, was auf den sekundären Speicher übergelaufen ist. Ohne sekundären Speicher könnten sie exklusive Shares sein — /mnt/user/… ein Link direkt auf den Pool, an Unraids FUSE-Schicht vorbei, spürbar schneller. Lohnt sich nur, wenn der Pool Platz für alles hat: Ohne sekundären Speicher heisst ein voller Pool ein voller Share. Wenn ja: den Mover laufen lassen, bis alles auf dem Pool ist, in den Einstellungen des Shares «Secondary storage» auf «None» setzen, löschen, was vom Share auf einem anderen Pool oder einer anderen Disk übrig ist (in Klammern; auch leere Ordner zählen), dann das Array stoppen und starten. Braucht «Permit exclusive shares» (Settings → Global Share Settings)."
+  },
   "adv.public.title": {
     "one": "Offen für alle im Netz: {names}",
     "other": "{n} Shares offen für alle im Netz: {names}"

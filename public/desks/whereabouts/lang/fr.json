@@ -657,6 +657,8 @@
   "adv.to_main": "Principal",
   "adv.to_ups": "Paramètres de l'onduleur",
   "adv.to_syslog": "Serveur Syslog",
+  "adv.to_share_settings": "Paramètres globaux des partages",
+  "adv.to_browse": "Parcourir {path}",
   "adv.boot_grub": "Principal → pool de démarrage → Configuration du GRUB",
   "adv.boot_syslinux": "Principal → Flash → Configuration de Syslinux",
   "adv.system_array.title": "Sur l'array : {names}",
@@ -666,6 +668,38 @@
     "other": "Le Mover n'a pas de planification — {n} partages comptent dessus : {names}"
   },
   "adv.mover.why": "Ces partages écrivent d'abord sur un pool et le Mover doit emmener les choses vers l'array (ou les ramener). Sans planification, il ne tourne que lancé à la main — le pool se remplit. Réglages → Planificateur → Paramètres du Mover. (Si autre chose lance le Mover pour toi : « Je sais, merci ».)",
+  "adv.exclusive_also": "aussi sur {where}",
+  "adv.exclusive_off.title": {
+    "one": "Les partages exclusifs sont désactivés — {names} pourrait l'être",
+    "other": "Les partages exclusifs sont désactivés — {n} partages pourraient l'être : {names}"
+  },
+  "adv.exclusive_off.why": {
+    "one": "Psst — ce partage vit sur un seul pool et nulle part ailleurs, et pourtant chaque octet se faufile par la couche FUSE d'Unraid (shfs) sous /mnt/user. En partage exclusif, /mnt/user/… devient un lien direct vers le pool : lectures et écritures contournent cette couche — nettement plus rapide, surtout avec beaucoup de petits fichiers. Les chemins de Docker et des VM comme /mnt/user/appdata continuent de marcher : ils passent par le lien. Le réglage ne se change qu'avec l'array arrêté (Docker et les VM s'arrêtent avec lui) : Principal → Fonctionnement de l'Array → Arrêter, puis Réglages → Paramètres globaux des partages → « Permettre des partages exclusifs » : Oui → Appliquer, et redémarre l'array. Unraid décide au démarrage de l'array — un partage qui a aussi un dossier sur un autre disque ou pool reste tel quel. (Pour les partages exclusifs, Unraid ignore l'« Espace libre minimum ».)",
+    "other": "Psst — ces partages vivent sur un seul pool et nulle part ailleurs, et pourtant chaque octet se faufile par la couche FUSE d'Unraid (shfs) sous /mnt/user. En partages exclusifs, /mnt/user/… devient un lien direct vers le pool : lectures et écritures contournent cette couche — nettement plus rapide, surtout avec beaucoup de petits fichiers. Les chemins de Docker et des VM comme /mnt/user/appdata continuent de marcher : ils passent par le lien. Le réglage ne se change qu'avec l'array arrêté (Docker et les VM s'arrêtent avec lui) : Principal → Fonctionnement de l'Array → Arrêter, puis Réglages → Paramètres globaux des partages → « Permettre des partages exclusifs » : Oui → Appliquer, et redémarre l'array. Unraid décide au démarrage de l'array — un partage qui a aussi un dossier sur un autre disque ou pool reste tel quel. (Pour les partages exclusifs, Unraid ignore l'« Espace libre minimum ».)"
+  },
+  "adv.exclusive_elsewhere.title": {
+    "one": "{names} ne peut pas être exclusif",
+    "other": "{n} partages ne peuvent pas être exclusifs : {names}"
+  },
+  "adv.exclusive_elsewhere.why": "Tiens, tiens — un dossier du même nom sur un autre pool ou disque (entre parenthèses). Lui seul, même vide, empêche Unraid de lier le partage directement à son pool : il reste dans la couche FUSE, plus lente. Ce qui est dans ce dossier fait partie du partage : déplace-le sur le pool du partage (le gestionnaire de fichiers d'Unraid : Parcourir), ou supprime le dossier s'il est vide. Ensuite arrête et redémarre l'array une fois (Principal → Fonctionnement de l'Array) — Unraid décide au démarrage.",
+  "adv.exclusive_unclear.title": {
+    "one": "{names} n'est pas exclusif — et je ne vois pas pourquoi",
+    "other": "{n} partages ne sont pas exclusifs — et je ne vois pas pourquoi : {names}"
+  },
+  "adv.exclusive_unclear.why": {
+    "one": "Voilà un mystère : d'après ses réglages il convient, je ne vois son dossier que sur son propre pool, et pourtant Unraid dit « Accès exclusif : Non ». {maybe} Unraid décide au démarrage de l'array : une fois ça réglé, arrête et redémarre l'array (Principal → Fonctionnement de l'Array).",
+    "other": "Voilà un mystère : d'après leurs réglages ils conviennent, je ne vois leur dossier que sur leur propre pool, et pourtant Unraid dit « Accès exclusif : Non ». {maybe} Unraid décide au démarrage de l'array : une fois ça réglé, arrête et redémarre l'array (Principal → Fonctionnement de l'Array)."
+  },
+  "adv.exclusive_unclear.asleep": "Peut-être qu'un dossier du même nom se trouve sur un disque où je n'ai pas regardé parce qu'il dormait ({disks}) — va voir là-bas et déplace-le sur le pool.",
+  "adv.exclusive_unclear.awake": "Peut-être que les réglages ont changé après le démarrage de l'array.",
+  "adv.exclusive_overflow.title": {
+    "one": "{names} pourrait être exclusif — sans le stockage secondaire",
+    "other": "{n} partages pourraient être exclusifs — sans le stockage secondaire : {names}"
+  },
+  "adv.exclusive_overflow.why": {
+    "one": "Je n'ai pas pu m'empêcher de le remarquer : ce partage garde ses données sur son pool, et le Mover ramène ce qui a débordé sur le stockage secondaire. Sans stockage secondaire, il pourrait être un partage exclusif — /mnt/user/… un lien direct vers le pool, en contournant la couche FUSE d'Unraid, nettement plus rapide. Ça ne vaut la peine que si le pool a de la place pour tout : sans stockage secondaire, un pool plein veut dire un partage plein. Si oui : laisse tourner le Mover jusqu'à ce que tout soit sur le pool, mets « Stockage Secondaire » sur « Aucun » dans les réglages du partage, supprime ce qui reste du partage sur un autre pool ou disque (entre parenthèses ; les dossiers vides comptent aussi), puis arrête et redémarre l'array. Il faut « Permettre des partages exclusifs » (Réglages → Paramètres globaux des partages).",
+    "other": "Je n'ai pas pu m'empêcher de le remarquer : ces partages gardent leurs données sur leur pool, et le Mover ramène ce qui a débordé sur le stockage secondaire. Sans stockage secondaire, ils pourraient être des partages exclusifs — /mnt/user/… un lien direct vers le pool, en contournant la couche FUSE d'Unraid, nettement plus rapide. Ça ne vaut la peine que si le pool a de la place pour tout : sans stockage secondaire, un pool plein veut dire un partage plein. Si oui : laisse tourner le Mover jusqu'à ce que tout soit sur le pool, mets « Stockage Secondaire » sur « Aucun » dans les réglages du partage, supprime ce qui reste du partage sur un autre pool ou disque (entre parenthèses ; les dossiers vides comptent aussi), puis arrête et redémarre l'array. Il faut « Permettre des partages exclusifs » (Réglages → Paramètres globaux des partages)."
+  },
   "adv.public.title": {
     "one": "Ouvert à tout le monde dans le réseau : {names}",
     "other": "{n} partages ouverts à tout le monde dans le réseau : {names}"

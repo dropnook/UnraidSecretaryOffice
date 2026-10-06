@@ -657,6 +657,8 @@
   "adv.to_main": "Main",
   "adv.to_ups": "UPS Settings",
   "adv.to_syslog": "Syslog Server",
+  "adv.to_share_settings": "Global Share Settings",
+  "adv.to_browse": "Browse {path}",
   "adv.boot_grub": "Main → boot pool → GRUB configuration",
   "adv.boot_syslinux": "Main → Flash → Syslinux Configuration",
   "adv.system_array.title": "On the array: {names}",
@@ -666,6 +668,38 @@
     "other": "The mover has no schedule — {n} shares rely on it: {names}"
   },
   "adv.mover.why": "These shares write to a pool first and the mover is meant to take things to the array (or back). Without a schedule it only runs when started by hand — the pool fills up. Settings → Scheduler → Mover Settings. (If something else starts the mover for you, «I know, thanks».)",
+  "adv.exclusive_also": "also on {where}",
+  "adv.exclusive_off.title": {
+    "one": "Exclusive shares are off — {names} would qualify",
+    "other": "Exclusive shares are off — {n} shares would qualify: {names}"
+  },
+  "adv.exclusive_off.why": {
+    "one": "Psst — this share lives on a single pool and nowhere else, and still every byte squeezes through Unraid's FUSE layer (shfs) under /mnt/user. As an exclusive share /mnt/user/… becomes a link straight to the pool, so reads and writes skip that layer — noticeably faster, most of all with many small files. Docker and VM paths like /mnt/user/appdata keep working: they go through the link. The setting can only be changed with the array stopped (Docker and VMs stop with it): Main → Array Operation → Stop, then Settings → Global Share Settings → «Permit exclusive shares»: Yes → Apply, and start the array again. Unraid decides when the array starts — a share with a folder on another disk or pool too stays as it is. (For exclusive shares Unraid ignores «Minimum free space».)",
+    "other": "Psst — these shares live on a single pool and nowhere else, and still every byte squeezes through Unraid's FUSE layer (shfs) under /mnt/user. As exclusive shares /mnt/user/… becomes a link straight to the pool, so reads and writes skip that layer — noticeably faster, most of all with many small files. Docker and VM paths like /mnt/user/appdata keep working: they go through the link. The setting can only be changed with the array stopped (Docker and VMs stop with it): Main → Array Operation → Stop, then Settings → Global Share Settings → «Permit exclusive shares»: Yes → Apply, and start the array again. Unraid decides when the array starts — a share with a folder on another disk or pool too stays as it is. (For exclusive shares Unraid ignores «Minimum free space».)"
+  },
+  "adv.exclusive_elsewhere.title": {
+    "one": "{names} can't be exclusive",
+    "other": "{n} shares can't be exclusive: {names}"
+  },
+  "adv.exclusive_elsewhere.why": "Well, well — a folder of the same name on another pool or disk (in brackets). That alone, even an empty one, keeps Unraid from linking the share straight to its pool: it stays in the slower FUSE layer. What lies in that folder is part of the share: move it onto the share's pool (Unraid's file manager: Browse), or delete the folder if it is empty. Then stop and start the array once (Main → Array Operation) — Unraid decides when it starts.",
+  "adv.exclusive_unclear.title": {
+    "one": "{names} isn't exclusive — and I can't see why",
+    "other": "{n} shares aren't exclusive — and I can't see why: {names}"
+  },
+  "adv.exclusive_unclear.why": {
+    "one": "Now that's a mystery: by its settings it qualifies, I see its folder only on its own pool, and still Unraid says «Exclusive access: No». {maybe} Unraid decides when the array starts: once that is sorted out, stop and start the array (Main → Array Operation).",
+    "other": "Now that's a mystery: by their settings they qualify, I see their folder only on their own pool, and still Unraid says «Exclusive access: No». {maybe} Unraid decides when the array starts: once that is sorted out, stop and start the array (Main → Array Operation)."
+  },
+  "adv.exclusive_unclear.asleep": "Perhaps a folder of the same name lies on a disk I didn't look at because it was asleep ({disks}) — have a look there and move it onto the pool.",
+  "adv.exclusive_unclear.awake": "Perhaps the settings changed after the array started.",
+  "adv.exclusive_overflow.title": {
+    "one": "{names} could be exclusive — but for the secondary storage",
+    "other": "{n} shares could be exclusive — but for the secondary storage: {names}"
+  },
+  "adv.exclusive_overflow.why": {
+    "one": "I couldn't help noticing: this share keeps its data on its pool, and the mover brings back whatever spilled over to the secondary storage. Without a secondary storage it could be an exclusive share — /mnt/user/… a link straight to the pool, past Unraid's FUSE layer, noticeably faster. Worth it only if the pool has room for all of it: without a secondary storage a full pool means a full share. If so: run the mover so everything is on the pool, set «Secondary storage» to «None» in the share's settings, delete what is left of the share on another pool or disk (in brackets; empty folders count too), then stop and start the array. Needs «Permit exclusive shares» (Settings → Global Share Settings).",
+    "other": "I couldn't help noticing: these shares keep their data on their pool, and the mover brings back whatever spilled over to the secondary storage. Without a secondary storage they could be exclusive shares — /mnt/user/… a link straight to the pool, past Unraid's FUSE layer, noticeably faster. Worth it only if the pool has room for all of it: without a secondary storage a full pool means a full share. If so: run the mover so everything is on the pool, set «Secondary storage» to «None» in the share's settings, delete what is left of the share on another pool or disk (in brackets; empty folders count too), then stop and start the array. Needs «Permit exclusive shares» (Settings → Global Share Settings)."
+  },
   "adv.public.title": {
     "one": "Open to everyone in the network: {names}",
     "other": "{n} shares open to everyone in the network: {names}"
