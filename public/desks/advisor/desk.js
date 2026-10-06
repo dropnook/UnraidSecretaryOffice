@@ -815,18 +815,18 @@ function kopiaPreview(form) {
 }
 
 /** Step 3: connected — now the recovery sheet; what was typed is forgotten when this closes */
-function kopiaDone(form, facts) {
+function kopiaDone(form, facts, warned = false) {
   let printed = false;
-  let warned = false;
+  let leaving = false;
   const box = el('div');
   box.appendChild(callout(T('kr.done')));
   box.appendChild(el('p', '', T('kr.sheet_hint')));
   const sheet = el('button', 'btn', T('do.sheet'));
   sheet.type = 'button';
-  sheet.onclick = () => { printed = recoverySheet(form, facts) || printed; };
-  box.appendChild(el('p', '', '')).appendChild(sheet);
+  sheet.onclick = () => { recoverySheet(form, facts); printed = true; };
+  box.appendChild(el('p')).appendChild(sheet);
   const warn = callout(T('kr.close_warn'), true);
-  warn.hidden = true;
+  warn.hidden = !warned;
   box.appendChild(warn);
   if (Office.desks.has('backup')) {
     const p = el('p', '', T('kr.after') + ' ');
@@ -847,9 +847,13 @@ function kopiaDone(form, facts) {
   Office.dialog({
     title: T('kr.title'),
     body: box,
-    onClose: () => wipe(form),
+    onClose: () => {
+      // Escape or a click beside it before the sheet was made: once more, with the warning
+      if (!printed && !warned && !leaving) { setTimeout(() => kopiaDone(form, facts, true), 0); return; }
+      wipe(form);
+    },
     buttons: [{ text: Office.t('common.close'), act: () => {
-      if (printed || warned) return true;
+      if (printed || warned) { leaving = true; return true; }
       warned = true;
       warn.hidden = false;
       return false;
@@ -861,12 +865,36 @@ function kopiaDone(form, facts) {
 /**
  * Everything needed to get the backups back on a new server — the keys and
  * the password included — on one printable page, made here in the browser
- * (a window of its own, nothing sent anywhere, nothing stored). Print it or
- * save it as PDF; the office keeps none of the secrets.
+ * and nowhere else: a page of its own in a frame over the office (printing
+ * the frame prints only the sheet; no pop-up to be blocked), or in a window
+ * of its own. Nothing is sent anywhere, nothing stored; closing it drops it.
  */
 function recoverySheet(form, f) {
-  const w = window.open('', '_blank');
-  if (!w) { Office.toast(T('sheet.popup'), true); return false; }
+  const host = document.getElementById('sso') || document.body;
+  const overlay = el('div', 'ad-sheet-overlay');
+  const bar = el('div', 'ad-sheet-bar');
+  const own = el('button', 'btn small plain', T('sheet.window'));
+  own.type = 'button';
+  const close = el('button', 'btn small', Office.t('common.close'));
+  close.type = 'button';
+  bar.append(el('span', 'ad-sheet-title', T('sheet.title')), own, close);
+  const frame = el('iframe');
+  frame.title = T('sheet.title');
+  overlay.append(bar, frame);
+  host.appendChild(overlay);
+  sheetInto(frame.contentWindow, form, f);
+  close.onclick = () => overlay.remove();
+  own.onclick = () => {
+    const w = window.open('', '_blank');
+    if (!w) { Office.toast(T('sheet.popup'), true); return; }
+    sheetInto(w, form, f);
+    try { w.opener = null; } catch (e) { /* not ours to change */ }
+    w.focus();
+  };
+}
+
+/** Writes the sheet into an empty window (the frame's or one of its own): built node by node, no markup from data */
+function sheetInto(w, form, f) {
   const d = w.document;
   d.open();
   d.write('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body></body></html>');
@@ -903,10 +931,11 @@ function recoverySheet(form, f) {
     main.appendChild(dl);
   };
   const s3 = f.storage === 's3';
+  const bare = (key) => T(key).replace(/\s*\([^)]*\)\s*$/, '');      // the form's "(optional)" means nothing on the sheet
   section(T('sheet.repo'), [
     [T('sheet.storage'), s3 ? T('kr.storage_s3') : T('kr.storage_fs')],
     s3 && [T('kr.provider'), f.provider === 's3' || !f.provider ? T('kr.provider_other') : PROVIDER_NAMES[f.provider]],
-    s3 && [T('kr.endpoint'), f.endpoint], s3 && [T('kr.region'), f.region], s3 && [T('kr.bucket'), f.bucket], s3 && [T('kr.prefix'), f.prefix],
+    s3 && [T('kr.endpoint'), f.endpoint], s3 && [bare('kr.region'), f.region], s3 && [T('kr.bucket'), f.bucket], s3 && [bare('kr.prefix'), f.prefix],
     s3 && [T('kr.access_key'), form.access_key.trim(), true], s3 && [T('kr.secret_key'), form.secret_key.trim(), true],
     !s3 && [T('sheet.path_container'), f.path], !s3 && [T('sheet.path_host'), f.path_host],
     [T('kr.password'), form.password, true],
@@ -922,10 +951,10 @@ function recoverySheet(form, f) {
   main.appendChild(mk('h2', '', T('sheet.steps')));
   const ol = mk('ol');
   const target = (f.sources && f.sources.target) || '/uso';
-  const host = (f.sources && f.sources.host) || '/mnt/addons/UnraidSecretaryOffice/snapshots';
-  [T('sheet.step1', { image: f.image || 'ghcr.io/imagegenius/kopia' }), T('sheet.step2', { target, host }),
+  const hostPath = (f.sources && f.sources.host) || '/mnt/addons/UnraidSecretaryOffice/snapshots';
+  [T('sheet.step1', { image: f.image || 'ghcr.io/imagegenius/kopia' }), T('sheet.step2', { target, host: hostPath }),
    !s3 && T('sheet.step_fs', { path: f.path, host: f.path_host }),
-   T('sheet.step3', { client: f.client || 'root@kopia' }), T('sheet.step4')].filter(Boolean).forEach((s) => ol.appendChild(mk('li', '', s)));
+   T('sheet.step3', { client: f.client || 'root@kopia' }), T('sheet.step4')].filter(Boolean).forEach((x) => ol.appendChild(mk('li', '', x)));
   main.appendChild(ol);
   main.appendChild(mk('p', '', T('sheet.cli')));
   const cli = s3
@@ -936,9 +965,6 @@ function recoverySheet(form, f) {
   main.appendChild(mk('pre', '', `${cli}\nkopia repository set-client --username=${client[0]} --hostname=${client[1] || 'kopia'}`));
   main.appendChild(mk('p', 'foot', T('sheet.foot', { date })));
   d.body.appendChild(main);
-  try { w.opener = null; } catch (e) { /* not ours to change */ }
-  w.focus();
-  return true;
 }
 
 const SHEET_CSS = `

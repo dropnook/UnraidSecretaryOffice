@@ -4,7 +4,7 @@
 .row.ad-row{grid-template-columns:auto minmax(0,1fr) auto; align-items:start; border-top:0; padding:12px 12px 10px 14px}
 .ad-avatar{width:42px; height:42px; font-size:23px; overflow:hidden}
 .ad-avatar img{width:30px; height:30px; object-fit:contain; display:block}
-.ad-acts{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; padding-top:4px}
+.ad-acts{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; padding-top:4px; max-width:300px}
 .ad-howto{border-top:1px solid var(--line); padding:9px 14px 11px}
 .ad-howto summary{cursor:pointer; color:var(--accent); font-size:13px; width:max-content}
 .ad-steps{margin:10px 0 8px; padding-left:22px; font-size:13px; line-height:1.5; color:var(--ink2); display:flex; flex-direction:column; gap:6px}
@@ -23,9 +23,14 @@ pre.code.ad-output{min-height:120px; max-height:min(50vh, 420px)}
 .ad-pw{display:flex; gap:6px; align-items:center}
 .ad-pw .input{flex:1 1 auto; min-width:0}
 .dialog-body .field-title{margin:4px 0 6px}
+/* the recovery sheet: a page of its own in a frame over everything (printing the frame prints only the sheet) */
+.ad-sheet-overlay{position:fixed; inset:0; z-index:10035; display:flex; flex-direction:column; background:var(--surface)}
+.ad-sheet-bar{display:flex; gap:8px; align-items:center; padding:10px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap}
+.ad-sheet-title{margin-right:auto; font-weight:650; color:var(--ink)}
+.ad-sheet-overlay iframe{flex:1 1 auto; width:100%; min-height:0; border:0; background:#fff}
 @media (max-width:600px){
   .row.ad-row{grid-template-columns:auto minmax(0,1fr)}
-  .row.ad-row > .ad-acts{grid-column:2; justify-content:flex-start}
+  .row.ad-row > .ad-acts{grid-column:2; justify-content:flex-start; max-width:none}
   .ad-copy-label{min-width:0; width:100%}
   .dialog-body .props.ad-props{grid-template-columns:minmax(0,1fr); gap:1px}
   .dialog-body .props.ad-props dd{margin-bottom:7px}
