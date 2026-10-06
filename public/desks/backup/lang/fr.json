@@ -497,7 +497,7 @@
   "drift_sub": "Ce qui a changé sur le serveur depuis la configuration — la sauvegarde ne le reprend pas d'elle-même.",
   "restore_sub": "Où sont mes sauvegardes — Monsieur Restori en ramène les choses.",
   "setup.messages_sub": "Tout ce que setup.sh a vérifié en lisant le serveur.",
-  "help.run": "Une exécution",
+  "help.run": "Une sauvegarde, étape par étape",
   "help.run_text": "Faire le tour → dumps de bases de données (applis arrêtées d'abord, pour que dumps et fichiers correspondent) → snapshots (conteneurs arrêtés quelques minutes) → Kopia → ranger. L'accolade sous les étapes montre quand les applis et les VM sont en pause. « Terminé vers » et « dernière » viennent des durées des exécutions précédentes — sauf pour une source envoyée à Kopia pour la première fois : elle est calculée d'après sa taille et la vitesse à laquelle Kopia la lit maintenant.",
   "help.results": "OK · avertissements · erreurs · sautée",
   "help.results_text": "Comment une exécution s'est terminée ; « pas terminé » signifie qu'elle s'est arrêtée de façon inattendue (redémarrage, processus tué), « arrêté » que tu l'as arrêtée, « sautée » qu'elle n'a pas démarré parce qu'une autre exécution, la configuration ou une restauration tenait encore le moteur — elle n'a rien changé, et la prochaine exécution sauvegarde comme d'habitude. Le journal donne les détails.",

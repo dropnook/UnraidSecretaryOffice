@@ -497,7 +497,7 @@
   "drift_sub": "Cosa è cambiato sul server dalla configurazione — il backup non lo applica da solo.",
   "restore_sub": "Dove stanno i miei backup — il signor Restori ne riporta indietro le cose.",
   "setup.messages_sub": "Tutto ciò che setup.sh ha controllato leggendo il server.",
-  "help.run": "Un'esecuzione",
+  "help.run": "Un backup, passo per passo",
   "help.run_text": "Guardarsi intorno → dump dei database (prima le app vengono fermate, così dump e file corrispondono) → snapshot (contenitori fermi per qualche minuto) → Kopia → mettere in ordine. La parentesi sotto i passi mostra quando app e VM sono ferme. «Finito verso le» e «l'ultima volta» vengono dalle durate delle esecuzioni precedenti — tranne per una sorgente che va a Kopia per la prima volta: si calcola dalla sua dimensione e dalla velocità con cui Kopia la legge adesso.",
   "help.results": "OK · avvisi · errori · saltato",
   "help.results_text": "Come è finita un'esecuzione; «non finito» vuol dire che si è fermata inaspettatamente (riavvio, processo ucciso), «interrotto» che l'hai fermata tu, «saltato» che non è partita perché un'altra esecuzione, la configurazione o un ripristino aveva ancora il motore — non ha cambiato niente, e la prossima esecuzione fa il backup come sempre. I dettagli sono nel log.",

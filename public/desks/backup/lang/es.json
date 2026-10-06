@@ -497,7 +497,7 @@
   "drift_sub": "Lo que ha cambiado en el servidor desde la configuración — la copia de seguridad no lo incorpora por su cuenta.",
   "restore_sub": "Dónde están mis copias — el señor Restori trae las cosas de vuelta desde ellas.",
   "setup.messages_sub": "Todo lo que setup.sh comprobó al leer el servidor.",
-  "help.run": "Una ejecución",
+  "help.run": "Una copia de seguridad, paso a paso",
   "help.run_text": "Echar un vistazo → volcados de bases de datos (primero se detienen las apps, para que volcados y archivos cuadren) → instantáneas (contenedores detenidos unos minutos) → Kopia → recoger. La llave bajo los pasos muestra cuándo se detienen las apps y las VMs. «Terminará hacia» y «última» salen de la duración de ejecuciones anteriores — salvo una fuente que va a Kopia por primera vez: esa se calcula por su tamaño y la velocidad a la que Kopia la lee ahora.",
   "help.results": "OK · avisos · errores · omitida",
   "help.results_text": "Cómo terminó una ejecución; «sin terminar» significa que se paró de forma inesperada (reinicio, proceso matado), «detenida» que la detuviste tú, «omitida» que no arrancó porque otra ejecución, la configuración o una restauración tenía todavía el motor — no cambió nada, y la próxima ejecución hace la copia como siempre. El registro cuenta los detalles.",
