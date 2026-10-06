@@ -47,7 +47,7 @@
   "install.kopia.1": "In App cerca «Kopia» e installa «kopia» di imagegenius ({image}).",
   "install.kopia.2": "Senza App: Docker → Aggiungi Contenitore, Repository {image}, porta WebUI 51515, un percorso /config → /mnt/user/appdata/kopia.",
   "install.kopia.3": "Imposta PUID e PGID a 0 (root): Kopia deve poter leggere ogni file, anche quelli che può leggere solo root.",
-  "install.kopia.4": "Aggiungi un percorso: Percorso Host {path}, Percorso contenitore {target}, Modalità di accesso «Solo Lettura - Slave». Senza «Slave» Kopia vede cartelle vuote. Una volta scelto, non cambiare più il percorso del contenitore — Kopia ci dà il nome alle sue sorgenti.",
+  "install.kopia.4": "Aggiungi un percorso: Percorso Host {path}, Percorso contenitore {target}, Modalità di accesso «Solo Lettura - Slave». Senza «Slave» Kopia vede cartelle vuote. Kopia dà il nome alle sue sorgenti in base al percorso del contenitore ({target}/<share>): cambiarlo in seguito crea nuove sorgenti — nello stesso repository non si carica niente due volte, ma ogni file viene riletto, e le vecchie sorgenti tengono la loro storia sotto i vecchi nomi finché non le rimuovi in Kopia.",
   "install.kopia.5": "Metti la cache di Kopia (/cache) su un pool, ad es. /mnt/user/kopia_tmp — non sull'array.",
   "install.kopia.6": "Avvialo, apri la KopiaUI (porta 51515) e crea o collega un repository: è lì che vanno le copie. Scegli una password di cifratura e conservala fuori dal server — senza non si può ripristinare niente.",
   "install.kopia.7": "Dai a Kopia un nome host fisso nella KopiaUI, così un contenitore ricreato non fa sembrare nuove tutte le sorgenti.",

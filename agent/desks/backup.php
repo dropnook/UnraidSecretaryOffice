@@ -294,7 +294,8 @@ function backupSettingsSummary(array $s): array
         'server'        => $one('general', 'server'),
         'mount_root'    => $one('general', 'mount_root'),
         'view_root'     => $one('general', 'view_root'),
-        'snap_prefix'   => $one('general', 'snap_prefix', 'unraidbackup-'),
+        'snap_prefix'   => backupSnapPrefixes($one('general', 'snap_prefix'))[0],     // what new snapshots are called
+        'snap_prefixes' => backupSnapPrefixes($one('general', 'snap_prefix')),        // the engine's, older names too
         'btrfs_dir'     => $one('general', 'btrfs_snap_dir', '.btrfs-snap'),
         'dumps_share'   => $one('general', 'dumps_share'),
         'dumps_dir'     => backupDumpsPath((string) $one('general', 'dumps_share', '')),

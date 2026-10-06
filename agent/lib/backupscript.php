@@ -16,6 +16,9 @@ define('BACKUP_DATA_DIR', DATA_DIR . '/unraid-backup');
 define('BACKUP_OFFICE_SHARE', 'UnraidSecretaryOffice');   // the office's share: one folder per desk (lib/common.sh UB_OFFICE_SHARE)
 define('BACKUP_DESK_DIR', 'backup');
 const BACKUP_STAGE_DIR = '/run/unraid-backup-stage';   // its private staging area
+// the engine's ZFS snapshots: <snap_prefix>YYYYMMDD-HHMM (lib/common.sh UB_SNAP_PREFIX, section 10)
+const BACKUP_SNAP_PREFIX        = 'uso-backup-';      // the default since engine 2.20
+const BACKUP_SNAP_PREFIX_LEGACY = 'unraidbackup-';    // the default of engines 2.9-2.19: still the engine's
 
 /**
  * Is the backup script running right now? It holds an flock on state/lock for
@@ -25,7 +28,7 @@ const BACKUP_STAGE_DIR = '/run/unraid-backup-stage';   // its private staging ar
 function backupScriptState(): array
 {
     $state = ['found' => false, 'running' => false, 'since' => null, 'step' => null,
-              'prefix' => null, 'mount_root' => null, 'keep_mounts' => false, 'dir' => null, 'settings' => []];
+              'prefix' => null, 'prefixes' => [], 'mount_root' => null, 'keep_mounts' => false, 'dir' => null, 'settings' => []];
     $dir = BACKUP_SCRIPT_DIR;
     $data = BACKUP_DATA_DIR;
     if (!is_file("$dir/backup.sh")) {
@@ -34,7 +37,8 @@ function backupScriptState(): array
     $general = readCfg("$data/settings.ini", true)['general'] ?? [];
     $state['found'] = true;
     $state['dir'] = BACKUP_SCRIPT_DIR;
-    $state['prefix'] = $general['snap_prefix'] ?? null;
+    $state['prefixes'] = backupSnapPrefixes(is_string($general['snap_prefix'] ?? null) ? $general['snap_prefix'] : null);
+    $state['prefix'] = $state['prefixes'][0];        // what new snapshots are called
     $state['mount_root'] = $general['mount_root'] ?? null;
     $state['keep_mounts'] = ($general['keep_mounts'] ?? 'no') === 'yes';
     $state['settings'] = $general;
@@ -44,6 +48,50 @@ function backupScriptState(): array
         $state['step'] = lastLogStep("$data/logs/latest.log");
     }
     return $state;
+}
+
+/**
+ * The prefixes of the engine's ZFS snapshots — the same rule as snap_prefix_resolve() in
+ * backup/lib/common.sh: the first is what new snapshots are called. The old default unraidbackup- counts
+ * as the default (engine 2.20): new snapshots get uso-backup-, the old ones stay the engine's and age out
+ * by its retention, so both are listed. A prefix of the user's own stays alone.
+ *
+ * @return list<string>
+ */
+function backupSnapPrefixes(?string $configured): array
+{
+    $p = trim((string) $configured);
+    if ($p === '' || $p === BACKUP_SNAP_PREFIX || $p === BACKUP_SNAP_PREFIX_LEGACY) {
+        return [BACKUP_SNAP_PREFIX, BACKUP_SNAP_PREFIX_LEGACY];
+    }
+    return [$p];
+}
+
+/** The prefixes of the engine's ZFS snapshots on this server (its settings.ini) */
+function backupEngineSnapPrefixes(): array
+{
+    $general = readCfg(BACKUP_DATA_DIR . '/settings.ini', true)['general'] ?? [];
+    return backupSnapPrefixes(is_string($general['snap_prefix'] ?? null) ? $general['snap_prefix'] : null);
+}
+
+/**
+ * Is this one of the engine's snapshot names? ZFS (and anything else): exactly <prefix>YYYYMMDD-HHMM for
+ * one of $prefixes (backupSnapPrefixes()) — never anything looser (snap_is_ours() in lib/common.sh);
+ * btrfs: also its folders YYYYMMDD-HHMM. The name only, without dataset@.
+ *
+ * @param list<string> $prefixes
+ */
+function backupIsEngineSnap(string $name, array $prefixes, string $fs = 'zfs'): bool
+{
+    if ($fs === 'btrfs' && preg_match('/^\d{8}-\d{4}$/D', $name)) {
+        return true;
+    }
+    foreach ($prefixes as $p) {
+        if (is_string($p) && $p !== '' && str_starts_with($name, $p) && preg_match('/^\d{8}-\d{4}$/D', substr($name, strlen($p)))) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /** Who may hold the engine's lock (engine 2.20): a run of the engine by its mode, the setup, a restore, anybody else */

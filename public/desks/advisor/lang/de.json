@@ -47,7 +47,7 @@
   "install.kopia.1": "Suche in Apps nach «Kopia» und installiere «kopia» von imagegenius ({image}).",
   "install.kopia.2": "Ohne Apps: Docker → Add Container, Repository {image}, WebUI-Port 51515, ein Pfad /config → /mnt/user/appdata/kopia.",
   "install.kopia.3": "PUID und PGID auf 0 (root) setzen: Kopia muss jede Datei lesen können, auch die, die nur root lesen darf.",
-  "install.kopia.4": "Einen Pfad hinzufügen: Host Path {path}, Container Path {target}, Access Mode «Read Only - Slave». Ohne «Slave» sieht Kopia leere Ordner. Den Container Path danach nicht mehr ändern — Kopia benennt seine Quellen danach.",
+  "install.kopia.4": "Einen Pfad hinzufügen: Host Path {path}, Container Path {target}, Access Mode «Read Only - Slave». Ohne «Slave» sieht Kopia leere Ordner. Kopia benennt seine Quellen nach dem Container Path ({target}/<share>): Wird er später geändert, entstehen neue Quellen — im selben Repository wird nichts doppelt hochgeladen, aber jede Datei wird noch einmal gelesen, und die alten Quellen behalten ihre Geschichte unter den alten Namen, bis du sie in Kopia entfernst.",
   "install.kopia.5": "Kopias Cache (/cache) auf einen Pool legen, z. B. /mnt/user/kopia_tmp — nicht aufs Array.",
   "install.kopia.6": "Starten, die KopiaUI öffnen (Port 51515) und ein Repository anlegen oder verbinden: dorthin gehen die Kopien. Ein Verschlüsselungs-Passwort wählen und ausserhalb des Servers aufbewahren — ohne es lässt sich nichts zurückholen.",
   "install.kopia.7": "In der KopiaUI einen festen Hostnamen setzen, damit nach dem Neu-Erstellen des Containers nicht alle Quellen neu aussehen.",

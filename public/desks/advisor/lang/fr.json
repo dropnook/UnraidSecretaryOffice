@@ -47,7 +47,7 @@
   "install.kopia.1": "Dans Applis, cherche « Kopia » et installe « kopia » d'imagegenius ({image}).",
   "install.kopia.2": "Sans Applis : Docker → Ajouter Conteneur, Référentiel {image}, port WebUI 51515, un chemin /config → /mnt/user/appdata/kopia.",
   "install.kopia.3": "Mets PUID et PGID à 0 (root) : Kopia doit lire chaque fichier, y compris ceux que seul root peut lire.",
-  "install.kopia.4": "Ajoute un chemin : Chemin de l'hôte {path}, Chemin du conteneur {target}, Mode d'accès « Lecture seule - Esclave » (Read Only - Slave). Sans « Esclave », Kopia voit des dossiers vides. Garde le chemin du conteneur une fois choisi — Kopia nomme ses sources d'après lui.",
+  "install.kopia.4": "Ajoute un chemin : Chemin de l'hôte {path}, Chemin du conteneur {target}, Mode d'accès « Lecture seule - Esclave » (Read Only - Slave). Sans « Esclave », Kopia voit des dossiers vides. Kopia nomme ses sources d'après le chemin du conteneur ({target}/<partage>) : le changer plus tard crée de nouvelles sources — dans le même dépôt rien n'est envoyé deux fois, mais chaque fichier est relu, et les anciennes sources gardent leur historique sous les anciens noms jusqu'à ce que tu les supprimes dans Kopia.",
   "install.kopia.5": "Mets le cache de Kopia (/cache) sur un pool, p. ex. /mnt/user/kopia_tmp — pas sur l'array.",
   "install.kopia.6": "Démarre-le, ouvre KopiaUI (port 51515) et crée ou connecte un dépôt : là où vont les copies. Choisis un mot de passe de chiffrement et garde-le hors du serveur — sans lui, rien ne peut être restauré.",
   "install.kopia.7": "Donne à Kopia un nom d'hôte fixe dans KopiaUI, pour qu'un conteneur recréé ne fasse pas paraître toutes les sources comme nouvelles.",

@@ -15,6 +15,7 @@
 #   7. Status          status.json & co. for other programs
 #   8. Packages        names and housekeeping of the backup place (since 2.18)
 #   9. Kopia per app   apps and VMs with a Kopia source of their own (since 2.19)
+#  10. Snapshot names  the engine's ZFS snapshots: prefixes, exact matching, retention (since 2.20)
 ###############################################################################
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
@@ -22,6 +23,12 @@
 UB_VERSION="2.20"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry (was unraid-backup; the office moves it)
+# What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
+# name. The engine's ZFS snapshots: <snap_prefix>YYYYMMDD-HHMM, by default uso-backup-... (section 10);
+# before 2.20 the default was unraidbackup- - still the engine's, its snapshots age out by the retention.
+UB_SNAP_PREFIX="uso-backup-"
+UB_SNAP_PREFIX_LEGACY="unraidbackup-"
+UB_KOPIA_DESC="uso-backup"        # Kopia snapshot description "uso-backup <run>" (before 2.20: "unraid-backup <run>")
 # The office's own places. Nothing of ours directly in /mnt (Fix Common Problems rightly
 # complains): mounts go to /mnt/addons, which Unraid creates at boot for this - a small
 # tmpfs in RAM with mount propagation, holding only empty mount points and symlinks. The
@@ -234,7 +241,9 @@ cfg_validate() {
     _val "general|min_free_gb"   '^[0-9]+$'                 "number"
     _val "general|keep_mounts"   '^(yes|no)$'               "yes/no"
     _val "general|notify_success" '^(yes|no)$'              "yes/no"
-    _val "general|snap_prefix"   '^[a-z0-9_]+-$'            "lower-case letters/digits, ends with -"
+    _val "general|snap_prefix"   '^[a-z0-9_]+(-[a-z0-9_]+)*-$' "lower-case letters/digits, words joined by -, ends with -"
+    # Ms. Snapshotini's schedules name theirs uso-plan-<plan>-...: never the engine's prefix (its retention would take them)
+    [[ "$(cfg "general|snap_prefix")" == uso-plan-* ]] && CFG_ERRORS+=( "general|snap_prefix = '$(cfg "general|snap_prefix")' is invalid (uso-plan- belongs to Ms. Snapshotini's schedules)" )
     _val "general|mount_root"    "^$UB_MNT/([^/]+|addons/[^/]+/[^/]+)$" "directly under $UB_MNT or $UB_MNT/addons/<name>/"
     _val "general|view_root"     "^$UB_MNT/([^/]+|addons/[^/]+/[^/]+)$" "directly under $UB_MNT or $UB_MNT/addons/<name>/"
     _val "zfs|retention"         '^[0-9]+ [0-9]+ [0-9]+$'   "three numbers: daily weekly monthly"
@@ -305,7 +314,8 @@ apply_settings() {
     SERVER_NAME="$(cfg "general|server" "$(hostname -s 2>/dev/null || echo unraid)")"
     MOUNT_ROOT="$(cfg "general|mount_root" "$UB_MNT/addons/$UB_OFFICE_SHARE/snapshots")"
     VIEW_ROOT="$(cfg "general|view_root" "$UB_MNT/addons/$UB_OFFICE_SHARE/btrfs-snap")"
-    SNAP_PREFIX="$(cfg "general|snap_prefix" "unraidbackup-")"
+    SNAP_PREFIX_SET="$(cfg "general|snap_prefix")"        # as settings.ini says it (empty: not at all)
+    snap_prefix_resolve "$SNAP_PREFIX_SET"               # -> SNAP_PREFIX, SNAP_PREFIXES (section 10)
     BTRFS_SNAP_DIR="$(cfg "general|btrfs_snap_dir" ".btrfs-snap")"
     KEEP_LOGS="$(cfg "general|keep_logs" 60)"
     MIN_FREE_GB="$(cfg "general|min_free_gb" 8)"
@@ -2107,4 +2117,89 @@ uri_escape() {
         case "$ch" in [A-Za-z0-9/._~-]) out+="$ch" ;; *) out+="$(printf '%%%02X' "'$ch")" ;; esac
     done
     printf '%s' "$out"
+}
+
+##############################################################################
+# 10. Snapshot names (since 2.20)
+##############################################################################
+# The engine's ZFS snapshots (the shares' datasets and the flash's) are called <prefix>YYYYMMDD-HHMM,
+# [general] snap_prefix. Since 2.20 the default prefix is uso-backup- (what the office makes is named
+# uso-...; Ms. Snapshotini's schedules: uso-plan-<plan>-...). From 2.9 to 2.19 it was unraidbackup-, and
+# settings.ini files of that time name it: exactly that old default counts as the default. New
+# snapshots then get uso-backup-; the unraidbackup- ones stay the engine's and age out by the normal
+# retention - one series per dataset, by creation, as if they had the new name. A prefix of the user's
+# own stays as it is, and alone (nothing else of the engine's is cleared away then - as before 2.20).
+# Matching is exact: <prefix> + 8 digits + "-" + 4 digits, nothing before or after - never looser.
+# The office follows the same rule (backupSnapPrefixes() in agent/lib/backupscript.php).
+# The engine's btrfs snapshots are folders <btrfs_snap_dir>/YYYYMMDD-HHMM on each disk (unchanged).
+
+# snap_prefix_resolve <prefix as settings.ini says it>  -> SNAP_PREFIX (new snapshots), SNAP_PREFIXES (all of the engine's)
+snap_prefix_resolve() {
+    local p="${1:-$UB_SNAP_PREFIX}"
+    if [[ "$p" == "$UB_SNAP_PREFIX" || "$p" == "$UB_SNAP_PREFIX_LEGACY" ]]; then
+        SNAP_PREFIX="$UB_SNAP_PREFIX"
+        SNAP_PREFIXES=( "$UB_SNAP_PREFIX" "$UB_SNAP_PREFIX_LEGACY" )
+    else
+        SNAP_PREFIX="$p"
+        SNAP_PREFIXES=( "$p" )
+    fi
+}
+
+# snap_is_ours <dataset@name>  -> 0 when it is exactly one of the engine's snapshot names (SNAP_PREFIXES)
+snap_is_ours() {
+    local s="$1" n p
+    [[ "$s" == ?*@?* && "$s" != *$'\n'* ]] || return 1
+    n="${s##*@}"
+    for p in "${SNAP_PREFIXES[@]}"; do
+        [[ -n "$p" && "$n" == "$p"* && "${n#"$p"}" =~ ^[0-9]{8}-[0-9]{4}$ ]] && return 0
+    done
+    return 1
+}
+
+# snap_filter  -> of the snapshot names on stdin (dataset@name, one per line) only the engine's
+snap_filter() {
+    local s
+    while IFS= read -r s; do snap_is_ours "$s" && printf '%s\n' "$s"; done
+    return 0
+}
+# snap_filter_not  -> the others
+snap_filter_not() {
+    local s
+    while IFS= read -r s; do snap_is_ours "$s" || printf '%s\n' "$s"; done
+    return 0
+}
+
+# snap_prefix_ok <prefix>  -> 0 when it will do as [general] snap_prefix (the same rule as cfg_validate);
+# a new one also never begins with auto- (Ms. Snapshotini's schedules before 2.20)
+snap_prefix_ok() {
+    [[ "$1" =~ ^[a-z0-9_]+(-[a-z0-9_]+)*-$ && "$1" != uso-plan-* && "$1" != auto-* ]]
+}
+
+# zfs_prune_select <"d w m">  -> of one dataset's snapshots on stdin (dataset@name, oldest first, as
+# "zfs list -s creation" gives them) those the retention lets go: only the engine's (snap_is_ours), never
+# anything else. Kept: the newest d, the newest of each of the last w weeks and of the last m months (by
+# the time in the name). A retention that isn't three numbers lets nothing go.
+zfs_prune_select() {
+    local keep_d keep_w keep_m s i n stamp day week month
+    read -r keep_d keep_w keep_m _ <<<"$1"
+    is_uint "$keep_d" && is_uint "$keep_w" && is_uint "$keep_m" || { cat >/dev/null; return 0; }
+    local -a snaps=()
+    while IFS= read -r s; do snap_is_ours "$s" && snaps+=( "$s" ); done
+    [[ ${#snaps[@]} -eq 0 ]] && return 0
+    local -A keep=() wk=() mo=()
+    for (( i=${#snaps[@]}-1, n=0; i>=0 && n<keep_d; i--, n++ )); do keep[${snaps[$i]}]=1; done
+    for (( i=${#snaps[@]}-1; i>=0; i-- )); do
+        stamp="${snaps[$i]: -13}"                        # YYYYMMDD-HHMM, whichever prefix
+        day="${stamp:0:4}-${stamp:4:2}-${stamp:6:2}"
+        week="$(date -d "$day" +%G-%V 2>/dev/null)"
+        month="${stamp:0:6}"
+        if (( keep_w > 0 )) && [[ -n "$week" && -z "${wk[$week]:-}" ]] && (( ${#wk[@]} < keep_w )); then
+            wk[$week]=1; keep[${snaps[$i]}]=1
+        fi
+        if (( keep_m > 0 )) && [[ -z "${mo[$month]:-}" ]] && (( ${#mo[@]} < keep_m )); then
+            mo[$month]=1; keep[${snaps[$i]}]=1
+        fi
+    done
+    for s in "${snaps[@]}"; do [[ -n "${keep[$s]:-}" ]] || printf '%s\n' "$s"; done
+    return 0
 }

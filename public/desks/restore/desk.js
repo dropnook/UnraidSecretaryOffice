@@ -108,7 +108,11 @@ const apps = () => (state && state.apps) || [];
 const vms = () => (state && state.vms) || [];
 const engine = () => (state && state.engine) || {};
 const kopia = () => (state && state.kopia) || {};
-const kopiaRoot = () => kopia().root || '/backup-snapshots';
+// the Container Path Kopia names its sources after: the real one (the engine's last compare, or the container's
+// mapping of mount_root) - /uso only as an example while it isn't known
+const KOPIA_ROOT_EXAMPLE = '/uso';
+const kopiaRoot = () => kopia().root || KOPIA_ROOT_EXAMPLE;
+const kopiaRootNote = () => (kopia().root ? null : el('p', 'role', T('kg.root_example', { root: KOPIA_ROOT_EXAMPLE, path: engine().mount_root || '' })));
 const snapshotLink = (text) => Object.assign(el('a', '', text), { href: '#/snapshot' });
 
 /** All local snapshots of a set of folders: how many, the newest */
@@ -752,6 +756,8 @@ function kopiaSection() {
     rstep(T('kg.s3'), k.restore ? T('kg.s3_mapped', { dest: k.restore.dest, source: k.restore.source }) : T('kg.s3_text')),
     rstep(T('kg.s4'), T('kg.s4_text')),
   );
+  const note = kopiaRootNote();
+  if (note) box.insertBefore(note, box.children[1] || null);
   box.appendChild(el('p', 'callout', T('kg.password')));
   s.appendChild(box);
   // the sources: apps and VMs with a source of their own first, then the shares
@@ -830,7 +836,7 @@ function moveSection() {
   step(T('move.s1'), T('move.s1_text'));
   step(T('move.s2'), T('move.s2_text', { n: shares.length }), shares.length ? holder('rs-rules', ...shares.flatMap((n) => [el('code', '', n), ' '])) : null,
     el('div', 'role', T('move.s2_cfg', { path: (state.server && state.server.shares) || `${base}/server/shares/` })));
-  step(T('move.s3'), e.kopia ? T('move.s3_text') : T('move.s3_nokopia'), adviserLink());
+  step(T('move.s3'), e.kopia ? T('move.s3_text', { root: kopiaRoot() }) : T('move.s3_nokopia'), e.kopia ? kopiaRootNote() : null, adviserLink());
   step(T('move.s4'), T('move.s4_text'), lines.length ? codeBlock(lines.join('\n')) : null,
     apps().some((a) => a.compose && a.compose.indirect) ? el('div', 'role', T('move.s4_indirect')) : null, el('div', 'role', T('move.s4_after')));
   step(T('move.s5'), T('move.s5_text'), apps().some((a) => a.nextcloud.length) ? el('div', 'role', T('move.s5_nextcloud')) : null);

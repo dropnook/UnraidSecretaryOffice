@@ -84,7 +84,7 @@ function rsContext(array $settings): array
         'zfs'       => $mounts,                 // mountpoint => dataset
         'snaps'     => $snaps,                  // dataset => [{name, time}] oldest first
         'asleep'    => sleepingDisks(),
-        'prefix'    => (string) backupSetting($settings, 'general', 'snap_prefix', 'unraidbackup-'),
+        'prefixes'  => backupSnapPrefixes(backupSetting($settings, 'general', 'snap_prefix')),   // the engine's, old names too
         'btrfs_dir' => (string) backupSetting($settings, 'general', 'btrfs_snap_dir', '.btrfs-snap'),
         'settings'  => $settings,
         'cfg'       => [],
@@ -186,7 +186,7 @@ function rsLocate(string $path, array &$ctx): array
                 $inside = substr($live, strlen($best));
                 foreach (array_reverse($ctx['snaps'][$ds] ?? []) as $s) {
                     $p['snaps'][] = ['id' => "$ds@{$s['name']}", 'name' => $s['name'], 'time' => $s['time'],
-                                     'path' => "$best/.zfs/snapshot/{$s['name']}$inside", 'ours' => str_starts_with($s['name'], $ctx['prefix'])];
+                                     'path' => "$best/.zfs/snapshot/{$s['name']}$inside", 'ours' => backupIsEngineSnap($s['name'], $ctx['prefixes'])];
                     if (count($p['snaps']) >= RS_SNAPS_MAX) {
                         break;
                     }
@@ -202,7 +202,7 @@ function rsLocate(string $path, array &$ctx): array
                 }
                 $t = preg_match('/(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)/', $n, $z)
                     ? (int) mktime((int) $z[4], (int) $z[5], 0, (int) $z[2], (int) $z[3], (int) $z[1]) : (int) @filemtime("$dir/$n");
-                $p['snaps'][] = ['id' => "$base:$n", 'name' => $n, 'time' => $t, 'path' => $in, 'ours' => (bool) preg_match('/^\d{8}-\d{4}$/', $n)];
+                $p['snaps'][] = ['id' => "$base:$n", 'name' => $n, 'time' => $t, 'path' => $in, 'ours' => backupIsEngineSnap($n, $ctx['prefixes'], 'btrfs')];
                 if (count($p['snaps']) >= RS_SNAPS_MAX) {
                     break;
                 }
@@ -229,7 +229,7 @@ function rsEngine(array $settings): array
         'kopia_container' => (string) backupSetting($settings, 'kopia', 'container', ''),
         'mount_root' => (string) backupSetting($settings, 'general', 'mount_root', '/mnt/addons/' . BACKUP_OFFICE_SHARE . '/snapshots'),
         'view_root'  => (string) backupSetting($settings, 'general', 'view_root', '/mnt/addons/' . BACKUP_OFFICE_SHARE . '/btrfs-snap'),
-        'prefix'     => (string) backupSetting($settings, 'general', 'snap_prefix', 'unraidbackup-'),
+        'prefix'     => backupSnapPrefixes(backupSetting($settings, 'general', 'snap_prefix'))[0],
         'flash'      => (string) backupSetting($settings, 'flash', 'mode', 'off'),
     ];
 }
@@ -307,8 +307,7 @@ function rsKopia(array $engine, array $settings): array
             $out['restore'] = ['source' => $src, 'dest' => $dst];
         }
     }
-    $out['root'] ??= '/backup-snapshots';
-    return $out;
+    return $out;                 // root null: not known (the page shows an example)
 }
 
 // ===================================================================== the packages

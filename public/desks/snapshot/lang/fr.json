@@ -349,7 +349,7 @@
   "fit.no_cow": "J'ai demandé à Madame Snapshotini, mais sans ZFS ni btrfs, il n'y a rien à snapshotter ici. « Peccato ! », a-t-elle dit.",
   "plans": "Planifications",
   "plans_sub": "Des snapshots à heures fixes — je ne nettoie jamais que mes propres anciens. Pas une sauvegarde : les conteneurs continuent de tourner.",
-  "help.plans": "Une planification prend des snapshots à heures fixes (nommés auto-<planification>-YYYYMMDD-HHMM) puis supprime ses propres plus anciens jusqu'à ce qu'il n'en reste que le nombre à garder. Les autres snapshots — ceux de Monsieur Backupsi, les manuels, les protégés — ne sont jamais touchés. Elle passe par une entrée User Scripts, même quand le secrétariat n'est pas ouvert. Les conteneurs ne sont pas mis en pause pour ça ; pour des sauvegardes cohérentes, il y a Monsieur Backupsi.",
+  "help.plans": "Une planification prend des snapshots à heures fixes (nommés uso-plan-<planification>-YYYYMMDD-HHMM ; les plus anciens auto-<planification>-…, ils comptent pareil) puis supprime ses propres plus anciens jusqu'à ce qu'il n'en reste que le nombre à garder. Les autres snapshots — ceux de Monsieur Backupsi, les manuels, les protégés — ne sont jamais touchés. Elle passe par une entrée User Scripts, même quand le secrétariat n'est pas ouvert. Les conteneurs ne sont pas mis en pause pour ça ; pour des sauvegardes cohérentes, il y a Monsieur Backupsi.",
   "plan.new": "Nouvelle planification…",
   "plan.none": "Pas encore de planification. Allora — que dirais-tu de snapshots horaires d'appdata, en en gardant 24 ?",
   "plan.no_user_scripts": "Les planifications ont besoin du plugin « User Scripts » — le chef d'équipe te dit comment faire.",

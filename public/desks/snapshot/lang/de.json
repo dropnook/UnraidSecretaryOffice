@@ -349,7 +349,7 @@
   "fit.no_cow": "Ich habe Frau Snapshotini gefragt, aber ohne ZFS oder btrfs gibt es hier nichts zu snapshotten. «Peccato!», hat sie gesagt.",
   "plans": "Zeitpläne",
   "plans_sub": "Snapshots zu festen Zeiten — ich räume dabei nur meine eigenen alten wieder weg. Kein Ersatz fürs Backup: Container laufen weiter.",
-  "help.plans": "Ein Zeitplan legt zu festen Zeiten Snapshots an (Name auto-<zeitplan>-JJJJMMTT-HHMM) und löscht danach seine eigenen ältesten, bis nur noch so viele übrig sind, wie er behalten soll. Andere Snapshots — die von Herrn Backupsi, manuelle, gehaltene — fasst er nie an. Er läuft über einen User-Scripts-Eintrag, auch wenn das Sekretariat nicht offen ist. Container werden dabei nicht angehalten; für konsistente Sicherungen ist Herr Backupsi da.",
+  "help.plans": "Ein Zeitplan legt zu festen Zeiten Snapshots an (Name uso-plan-<zeitplan>-JJJJMMTT-HHMM; ältere heissen auto-<zeitplan>-… und zählen genauso) und löscht danach seine eigenen ältesten, bis nur noch so viele übrig sind, wie er behalten soll. Andere Snapshots — die von Herrn Backupsi, manuelle, gehaltene — fasst er nie an. Er läuft über einen User-Scripts-Eintrag, auch wenn das Sekretariat nicht offen ist. Container werden dabei nicht angehalten; für konsistente Sicherungen ist Herr Backupsi da.",
   "plan.new": "Neuer Zeitplan…",
   "plan.none": "Noch keine Zeitpläne. Allora — wie wäre es mit stündlichen Snapshots von appdata, 24 behalten?",
   "plan.no_user_scripts": "Für Zeitpläne braucht es das Plugin «User Scripts» — der Teamchef sagt dir, wie.",
