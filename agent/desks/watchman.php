@@ -1933,8 +1933,9 @@ function watchmanHostProcs(string $proc, ?array $containers): ?array
             if (count($out) >= WATCH_HOST_MAX) {
                 break;
             }
+            // the program by its file's name: a process's own name changes (Firefox's «Privileged Cont», «Web Content» …)
             $out[$key] = ['where' => $where === null ? null : watchmanClean($where, 100), 'exe' => $clean,
-                          'prog' => watchmanClean(trim((string) @file_get_contents("$proc/$pid/comm", false, null, 0, 64)), 32)];
+                          'prog' => watchmanClean(basename($path), 32) ?: '?'];
         }
     }
     ksort($out);
