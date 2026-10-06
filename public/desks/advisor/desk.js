@@ -348,22 +348,29 @@ function howto(id, x) {
 }
 
 /**
- * The office's own dashboard for Grafana (monitoring/grafana-dashboard.json):
- * what it shows, how to import it, and that admin/admin must go first
+ * The office's own dashboard for Grafana (monitoring/grafana-dashboard.json): what it shows; when
+ * the consultant provisioned it (Grafana's chip "set up") it is simply there and kept current — a link
+ * into Grafana, the import guide folded away for a Grafana installed by hand; otherwise how to import
+ * it, and that admin/admin must go first (not when he installed Grafana: its form asked for a password)
  */
 function dashboard() {
+  const g = (state.externals || {}).grafana || {};
+  const prov = g.grafana || {};
+  const provisioned = !!(g.there && prov.done && prov.points);
   const box = el('div', 'box ad-external');
   const row = el('div', 'row nocheck ad-row');
   row.appendChild(avatar({ icon: '📈' }, {}));
   const main = el('div', 'row-main');
   main.appendChild(el('div', 'row-name text', T('dashboard.name')));
   main.appendChild(el('div', 'row-detail', T('dashboard.what')));
-  main.appendChild(el('div', 'row-detail ad-careful', T('dashboard.admin')));
+  if (provisioned) main.appendChild(el('div', 'row-detail', T('dashboard.provisioned')));
+  if (!g.by_consultant) main.appendChild(el('div', 'row-detail ad-careful', T('dashboard.admin')));
   row.appendChild(main);
-  const href = Office.safeHref(state.dashboard);
+  const inGrafana = provisioned && g.webui ? Office.safeHref(String(g.webui).replace(/\/+$/, '') + '/d/unraid-secretary-office') : null;
+  const href = inGrafana || Office.safeHref(state.dashboard);
   if (href) {
     const acts = el('div', 'ad-acts');
-    const a = el('a', 'btn small plain', T('dashboard.open'));
+    const a = el('a', 'btn small plain', T(inGrafana ? 'dashboard.in_grafana' : 'dashboard.open'));
     a.href = href;
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
@@ -373,7 +380,7 @@ function dashboard() {
   box.appendChild(row);
 
   const det = el('details', 'ad-howto');
-  det.appendChild(el('summary', '', T('dashboard.howto')));
+  det.appendChild(el('summary', '', T(provisioned ? 'dashboard.howto_manual' : 'dashboard.howto')));
   const ol = el('ol', 'ad-steps');
   for (let i = 1; Office.has(`${ID}.dashboard.${i}`); i++) ol.appendChild(el('li', '', T(`dashboard.${i}`, { dir: state.metrics_dir || '' })));
   det.appendChild(ol);
