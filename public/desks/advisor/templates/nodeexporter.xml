@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <!-- The Consultant's template for the Node Exporter (agent/desks/advisor.php fills in {{…}}). Based on
      the official image's template in Community Applications (RasmusLauritsen); changed: the
-     textfile collector reads the office's numbers ({{METRICS}}), the host's / is mounted read-only
-     with rslave in Extra Parameters - Docker refuses a bind of / (it holds its own root) with "slave",
-     and Unraid's form knows no "rslave" (it would save "ro,rslave" as rw) -, the label uso.installed-by. -->
+     textfile collector reads the office's numbers ({{METRICS}}), the host's / is a plain "Read Only"
+     path: Docker then picks rslave for it by itself (it holds Docker's root); asked for explicitly
+     ("slave", "rslave") it refuses, Unraid's / being a private mount; the label uso.installed-by. -->
 <Container version="2">
   <Name>Node-Exporter</Name>
   <Repository>quay.io/prometheus/node-exporter:latest-distroless</Repository>
@@ -21,11 +21,12 @@
   <WebUI>http://[IP]:9100/metrics</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/RasmusLauritsen/unraid-node-exporter/main/templates/node-exporter.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/RasmusLauritsen/unraid-node-exporter/main/icon.png</Icon>
-  <ExtraParams>--pid=host -v /:/host:ro,rslave</ExtraParams>
+  <ExtraParams>--pid=host</ExtraParams>
   <PostArgs>--path.rootfs=/host --path.procfs=/host/proc --path.sysfs=/host/sys --path.udev.data=/host/run/udev/data --collector.textfile.directory=/host{{METRICS}}</PostArgs>
   <CPUset/>
   <DonateText/>
   <DonateLink/>
   <Requires>Docker must be enabled and host TCP port 9100 must be available. The read-only host-root mount exposes host files to the container.</Requires>
+  <Config Name="Host root filesystem" Target="/host" Default="/" Mode="ro" Description="The server read-only for node_exporter (Docker makes it rslave by itself, so it sees Unraid's mounts)" Type="Path" Display="advanced" Required="true" Mask="false">/</Config>
   <Config Name="Installed by" Target="uso.installed-by" Default="consultant" Mode="" Description="A note of the Unraid Secretary Office: its consultant prepared this container. Changes nothing." Type="Label" Display="advanced" Required="false" Mask="false">consultant</Config>
 </Container>

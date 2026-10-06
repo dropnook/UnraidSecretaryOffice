@@ -2365,10 +2365,9 @@ function testAdvisorInstall(): void
     same('advisor kopia: the WebUI password masked and empty', [true, ''], [$k['PASSWORD']['mask'], $k['PASSWORD']['value']]);
     $n = advisorTemplate('nodeexporter', $env);
     check('advisor node exporter: reads the office\'s folder', in_array(ADVISOR_METRICS_DIR, advisorTextfileDirs(preg_split('/\s+/', $n['post']), [['/', '/host']]), true));
-    // Docker refuses a bind of / with "slave" (it holds Docker's own root): rslave, which Unraid's form can't
-    // express, so it goes into Extra Parameters and no Path entry names /host
-    same('advisor node exporter: the host read-only, rslave, in Extra Parameters', [true, false],
-        [str_contains($n['extra'], '-v /:/host:ro,rslave'), isset($byTarget($n)['/host'])]);
+    // a plain "ro" path: Docker picks rslave by itself for a source that holds its root; asked for
+    // explicitly ("slave", "rslave") it refuses on Unraid, whose / is a private mount
+    same('advisor node exporter: the host read-only, nothing explicit', ['ro', '--pid=host'], [$byTarget($n)['/host']['mode'], $n['extra']]);
     $g = $byTarget(advisorTemplate('grafana', $env));
     same('advisor grafana: provisioning inside its appdata', ADVISOR_GRAFANA_PROV, $g['GF_PATHS_PROVISIONING']['value']);
     same('advisor grafana: the admin password masked and empty', [true, ''], [$g['GF_SECURITY_ADMIN_PASSWORD']['mask'], $g['GF_SECURITY_ADMIN_PASSWORD']['value']]);
