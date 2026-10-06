@@ -618,7 +618,7 @@
   "syslog_off": "Plus d'entrées dans le syslog.",
   "watch.host": "Le serveur lui-même",
   "watch.host_wait": "À partir de sa prochaine ronde.",
-  "watch.host_sum": "{ports} ports · {doors} entrées · {procs} programmes d'endroits inhabituels · {users} comptes",
+  "watch.host_sum": "ports : {ports} · entrées : {doors} · programmes d'endroits inhabituels : {procs} · comptes : {users}",
   "watch.door": "entrée",
   "watch.port": "port",
   "help.siem": "Vers un SIEM",

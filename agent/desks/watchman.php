@@ -5610,6 +5610,7 @@ function watchmanHostSummary(?array $h, ?array $seen): ?array
     foreach (array_intersect_key((array) ($seen['listen'] ?? []), (array) ($h['listen'] ?? [])) as $key => $l) {
         $listen[] = ['key' => (string) $key, 'prog' => (string) ($l['prog'] ?? ''), 'port' => $l['port'] ?? null, 'addr' => (array) ($l['addr'] ?? [])];
     }
+    usort($listen, fn ($a, $b) => [$a['port'] === null, $a['port'], $a['key']] <=> [$b['port'] === null, $b['port'], $b['key']]);     // by port, the dynamic ones last
     $procs = [];
     foreach (array_intersect_key((array) ($seen['procs'] ?? []), (array) ($h['procs'] ?? [])) as $x) {
         $procs[] = ['prog' => (string) ($x['prog'] ?? ''), 'exe' => (string) ($x['exe'] ?? ''), 'where' => $x['where'] ?? null];

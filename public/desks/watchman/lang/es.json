@@ -618,7 +618,7 @@
   "syslog_off": "No más entradas al syslog.",
   "watch.host": "El propio servidor",
   "watch.host_wait": "A partir de su próxima ronda.",
-  "watch.host_sum": "{ports} puertos · {doors} entradas · {procs} programas de lugares inusuales · {users} cuentas",
+  "watch.host_sum": "puertos: {ports} · entradas: {doors} · programas de lugares inusuales: {procs} · cuentas: {users}",
   "watch.door": "entrada",
   "watch.port": "puerto",
   "help.siem": "A un SIEM",
