@@ -98,6 +98,8 @@ function houseGuiUrl(): ?string
     return ($ssl ? 'https://' : 'http://') . $ip . ($port !== $default ? ":$port" : '');
 }
 
+const HOST_LAUNCH_MARK = '# written by the Unraid Secretary Office agent';     // in every job it hands to atd (the night watchman knows them by it)
+
 /**
  * Hands a command to the host's atd, so it lives on without the agent: a
  * process started by the agent itself would be stopped with it (the stack's
@@ -127,7 +129,7 @@ function hostLaunch(string $job, array $args, array $env = [], ?string $output =
         $exports .= $k . '=' . escapeshellarg((string) $v) . "\nexport $k\n";
     }
     $out = $output !== null ? escapeshellarg($output) : '/dev/null';
-    $script = "#!/bin/sh\n# written by the Unraid Secretary Office agent\n"
+    $script = "#!/bin/sh\n" . HOST_LAUNCH_MARK . "\n"
             . "PATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin\nexport PATH\n$exports"
             . 'cd ' . escapeshellarg($cwd) . "\n"
             . "exec $line </dev/null >$out 2>&1\n";
