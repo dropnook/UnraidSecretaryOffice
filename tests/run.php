@@ -2658,6 +2658,52 @@ function testAdvisorInstall(): void
     };
     same('advisor dashboard: mappings stay objects, data source filled in', [$objects((string) file_get_contents($src)), false],
         [$objects((string) $out), str_contains((string) $out, '${DS_PROMETHEUS}')]);
+
+    // the provisioned dashboard kept current: only the office's own file (its uid), plain, never created; owner and mode kept
+    $keep = hardeningTmp('advisor-dashboard');
+    $dir = "$keep/provisioning/dashboards/uso";
+    mkdir($dir, 0755, true);
+    $file = "$dir/unraid-secretary-office.json";
+    $old = str_replace('"title": "Unraid Secretary Office (USO)"', '"title": "The office"', (string) $out);
+    check('advisor dashboard keep: the test\'s old version differs', $old !== $out);
+    same('advisor dashboard keep: none there — none made', ['absent', false], [advisorDashboardKeep($file, $out), file_exists($file)]);
+    file_put_contents($file, $old);
+    chmod($file, 0640);
+    $owner = posix_getuid() === 0 ? [472, 100] : [posix_getuid(), posix_getgid()];       // as root: Grafana's user, like a real one
+    chown($file, $owner[0]);
+    chgrp($file, $owner[1]);
+    $ino = fileinode($file);
+    same('advisor dashboard keep: an older version of the office\'s — replaced, owner and mode kept, a new file', ['updated', $out, 0640, $owner, true],
+        [advisorDashboardKeep($file, $out), file_get_contents($file), fileperms($file) & 0777, [fileowner($file), filegroup($file)],
+         (clearstatcache() ?? true) && fileinode($file) !== $ino]);
+    same('advisor dashboard keep: the same — left alone', 'same', advisorDashboardKeep($file, $out));
+    same('advisor dashboard keep: nothing to give', 'none', advisorDashboardKeep($file, null));
+    $theirs = (string) json_encode(['uid' => 'my-own-copy', 'title' => 'Mine', 'panels' => []]);
+    file_put_contents($file, $theirs);
+    same('advisor dashboard keep: another uid (the user\'s own) — never touched', ['foreign', $theirs], [advisorDashboardKeep($file, $out), file_get_contents($file)]);
+    file_put_contents($file, 'not json');
+    same('advisor dashboard keep: no JSON — never touched', ['foreign', 'not json'], [advisorDashboardKeep($file, $out), file_get_contents($file)]);
+    unlink($file);
+    file_put_contents("$keep/elsewhere.json", $old);
+    symlink("$keep/elsewhere.json", $file);
+    same('advisor dashboard keep: a link — never followed, never replaced', ['foreign', $old, true],
+        [advisorDashboardKeep($file, $out), file_get_contents("$keep/elsewhere.json"), is_link($file)]);
+    unlink($file);
+    rename($dir, "$keep/real-uso");
+    file_put_contents("$keep/real-uso/unraid-secretary-office.json", $old);
+    symlink("$keep/real-uso", $dir);
+    same('advisor dashboard keep: its folder a link — never written through', ['foreign', $old],
+        [advisorDashboardKeep($file, $out), file_get_contents("$keep/real-uso/unraid-secretary-office.json")]);
+    same('advisor dashboard keep: no tmp files left', [], array_values(array_filter(scandir("$keep/real-uso"), fn ($f) => str_ends_with($f, '.tmp'))));
+    // at his scan or hourly: only while Grafana runs, in the provisioning folder its mappings give
+    unlink($dir);
+    rename("$keep/real-uso", $dir);
+    $g = ['running' => false, 'host' => "$keep/provisioning"];
+    advisorDashboardCurrent($g);
+    same('advisor dashboard current: Grafana stopped — not looked at', $old, file_get_contents($file));
+    advisorDashboardCurrent(['running' => true] + $g);
+    same('advisor dashboard current: Grafana running — the office\'s dashboard of this version', advisorDashboardJson(ADVISOR_DASHBOARD_FILE), file_get_contents($file));
+    exec('rm -rf ' . escapeshellarg($keep));
     // Unraid's exclusive shares: only /mnt/user/<share> → /mnt/<pool>/<share> is followed; other paths stay
     same('advisor: a path outside /mnt/user stays', '/tmp/x/y', advisorUnraidPath('/tmp/x/y'));
     same('advisor: a share that is no link stays', '/mnt/user/zz-uso-no-such-share/a', advisorUnraidPath('/mnt/user/zz-uso-no-such-share/a'));
