@@ -1878,8 +1878,8 @@ function watchmanListenParse(string $text, int $low): array
 function watchmanHostProcs(string $proc, ?array $containers): ?array
 {
     $init = @readlink("$proc/1/ns/mnt");
-    if ($init === false || !is_dir($proc)) {
-        return null;
+    if ($init === false || !is_dir($proc) || $containers === null) {
+        return null;                // Docker didn't answer: a container's program would look like no container's — not looked
     }
     $pidns = null;
     $out = [];

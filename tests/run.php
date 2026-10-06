@@ -6503,6 +6503,7 @@ function testWatchmanHost(): void
         ['/tmp/.mount_firefoXy12Ab/firefox-bin', '/tmp/*/run.sh', '/tmp/build/go-build', '/usr/bin/x'],
         [$p['host:/tmp/.mount_firefo*/firefox-bin']['exe'] === '/tmp/.mount_firefogY32OL/firefox-bin' ? '/tmp/.mount_firefoXy12Ab/firefox-bin' : '?',
          watchmanOddKey('/tmp/tmp.aB3dE9/run.sh'), watchmanOddKey('/tmp/build/go-build'), watchmanOddKey('/usr/bin/x')]);
+    same('host procs: Docker didn\'t answer — not looked at (a container\'s program would seem new)', null, watchmanHostProcs($proc, null));
     same('host procs: the program and where', ['kworkerd', null, 'virtual-dsm'], [$p['host:/tmp/.x/kworkerd']['prog'], $p['host:/tmp/.x/kworkerd']['where'],
         $p['ct:virtual-dsm:/run/host.bin']['where']]);
 
