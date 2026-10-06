@@ -158,7 +158,7 @@
   "snaps.inner": {"one": "1 dataset all'interno", "other": "{n} dataset all'interno"},
   "snaps.inner_hint": "Dataset propri dentro questa cartella ({list}) — una copia da questo snapshot li mostra vuoti; ognuno ha i suoi snapshot.",
   "snaps.look": "Stato più recente da guardare o da cui copiare:",
-  "snaps.whole": "L'intera condivisione {share} — {names} la montano così com'è. Può tornare tutta, o con le voci scelte al suo primo livello.",
+  "snaps.whole": {"one": "L'intera condivisione {share} — {names} la monta così com'è. Può tornare tutta, o con le voci scelte al suo primo livello.", "other": "L'intera condivisione {share} — {names} la montano così com'è. Può tornare tutta, o con le voci scelte al suo primo livello."},
   "snaps.whole_chip": "condivisione intera",
   "snaps.whole_hint": "Un contenitore monta questa condivisione così com'è: i suoi dati sono l'intera condivisione.",
   "needs.title": "Condivisioni che le servono",

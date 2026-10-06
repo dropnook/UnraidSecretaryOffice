@@ -158,7 +158,7 @@
   "snaps.inner": {"one": "1 dataset dentro", "other": "{n} datasets dentro"},
   "snaps.inner_hint": "Datasets propios dentro de esta carpeta ({list}) — una copia desde esta instantánea los muestra vacíos; cada uno tiene sus propias instantáneas.",
   "snaps.look": "Estado más reciente para mirar o copiar:",
-  "snaps.whole": "El recurso compartido entero {share} — {names} lo montan tal cual. Puede volver entero, o con las entradas elegidas de su primer nivel.",
+  "snaps.whole": {"one": "El recurso compartido entero {share} — {names} lo monta tal cual. Puede volver entero, o con las entradas elegidas de su primer nivel.", "other": "El recurso compartido entero {share} — {names} lo montan tal cual. Puede volver entero, o con las entradas elegidas de su primer nivel."},
   "snaps.whole_chip": "recurso entero",
   "snaps.whole_hint": "Un contenedor monta este recurso compartido tal cual: sus datos son el recurso entero.",
   "needs.title": "Recursos compartidos que necesita",

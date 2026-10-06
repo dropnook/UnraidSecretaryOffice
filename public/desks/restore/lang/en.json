@@ -158,7 +158,7 @@
   "snaps.inner": {"one": "1 dataset inside", "other": "{n} datasets inside"},
   "snaps.inner_hint": "Datasets of their own inside this folder ({list}) — a copy from this snapshot shows them empty; each has its own snapshots.",
   "snaps.look": "Newest state to look at or copy from:",
-  "snaps.whole": "The whole share {share} — {names} bind it as it is. All of it can come back, or chosen entries at its top.",
+  "snaps.whole": {"one": "The whole share {share} — {names} binds it as it is. All of it can come back, or chosen entries at its top.", "other": "The whole share {share} — {names} bind it as it is. All of it can come back, or chosen entries at its top."},
   "snaps.whole_chip": "whole share",
   "snaps.whole_hint": "A container binds this share as it is: its data is the whole share.",
   "needs.title": "Shares it needs",

@@ -158,7 +158,7 @@
   "snaps.inner": {"one": "{n} dataset à l'intérieur", "other": "{n} datasets à l'intérieur"},
   "snaps.inner_hint": "Des datasets à part dans ce dossier ({list}) — une copie depuis ce snapshot les montre vides ; chacun a ses propres snapshots.",
   "snaps.look": "État le plus récent, à regarder ou d'où copier :",
-  "snaps.whole": "Tout le partage {share} — {names} le montent tel quel. Il peut revenir en entier, ou avec les entrées choisies à son premier niveau.",
+  "snaps.whole": {"one": "Tout le partage {share} — {names} le monte tel quel. Il peut revenir en entier, ou avec les entrées choisies à son premier niveau.", "other": "Tout le partage {share} — {names} le montent tel quel. Il peut revenir en entier, ou avec les entrées choisies à son premier niveau."},
   "snaps.whole_chip": "partage entier",
   "snaps.whole_hint": "Un conteneur monte ce partage tel quel : ses données sont le partage entier.",
   "needs.title": "Partages dont elle a besoin",

@@ -147,6 +147,11 @@ function dl(items) {
 
 const q = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
 const date = (t) => (t ? fmt.date(t) : '?');
+
+/** Names as the language lists them: "a", "a and b", "a, b and c" (the browser's Intl, commas where it has none) */
+function andList(names) {
+  try { return new Intl.ListFormat(Office.locale, { style: 'long', type: 'conjunction' }).format(names); } catch (e) { return names.join(', '); }
+}
 const apps = () => (state && state.apps) || [];
 const vms = () => (state && state.vms) || [];
 const engine = () => (state && state.engine) || {};
@@ -743,7 +748,7 @@ function unitPart(f, owner) {
     title.append(' ', b);
   }
   part.appendChild(title);
-  if (f.whole) part.appendChild(el('div', 'role', T('snaps.whole', { share: f.share, names: (f.containers || []).join(', ') })));
+  if (f.whole) part.appendChild(el('div', 'role', T('snaps.whole', { share: f.share, names: andList(f.containers || []), n: (f.containers || []).length })));
   else if (f.containers && f.containers.length) part.appendChild(el('div', 'role', T('snaps.used_by', { names: f.containers.join(', ') })));
   (f.places || []).forEach((p) => {
     const line = el('div', 'rs-place');

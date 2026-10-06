@@ -158,7 +158,7 @@
   "snaps.inner": {"one": "1 Dataset darin", "other": "{n} Datasets darin"},
   "snaps.inner_hint": "Eigene Datasets in diesem Ordner ({list}) — eine Kopie aus diesem Snapshot zeigt sie leer; jedes hat eigene Snapshots.",
   "snaps.look": "Neuester Stand zum Anschauen oder Herauskopieren:",
-  "snaps.whole": "Der ganze Share {share} — {names} binden ihn so ein, wie er ist. Er kann ganz zurückkommen oder mit ausgewählten Einträgen seiner obersten Ebene.",
+  "snaps.whole": {"one": "Der ganze Share {share} — {names} bindet ihn so ein, wie er ist. Er kann ganz zurückkommen oder mit ausgewählten Einträgen seiner obersten Ebene.", "other": "Der ganze Share {share} — {names} binden ihn so ein, wie er ist. Er kann ganz zurückkommen oder mit ausgewählten Einträgen seiner obersten Ebene."},
   "snaps.whole_chip": "ganzer Share",
   "snaps.whole_hint": "Ein Container bindet diesen Share so ein, wie er ist: Seine Daten sind der ganze Share.",
   "needs.title": "Shares, die sie braucht",
