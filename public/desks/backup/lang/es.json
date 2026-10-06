@@ -451,7 +451,7 @@
   "setup.g_prefix_hint": "Solo se limpian las instantáneas con este prefijo — las instantáneas de otras herramientas se quedan. Con el prefijo predeterminado uso-backup-, las más antiguas llamadas unraidbackup-… siguen la misma retención.",
   "setup.g_btrfs_days": "Instantáneas btrfs conservadas (días)",
   "setup.g_btrfs_free": "Freno de emergencia btrfs (GB libres)",
-  "setup.g_btrfs_free_hint": "Por debajo de esto, las instantáneas btrfs más antiguas se van antes.",
+  "setup.g_btrfs_free_hint": "Por debajo de esto, las instantáneas btrfs más antiguas se van antes — como máximo una décima parte del disco (0 = desactivado).",
   "setup.g_btrfs_all": "Instantánea de todos los discos btrfs del array (para explorarlos), incluso sin recursos compartidos con copia",
   "setup.g_flash": "Medio de arranque (memoria USB)",
   "setup.g_flash_pool": "Medio de arranque (pool de arranque «{pool}»)",

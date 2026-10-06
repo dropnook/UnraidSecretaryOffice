@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.22 - 2026-10-06
+# unraid-backup - backup.sh                       Version 2.23 - 2026-10-07
+#   2.23 The btrfs emergency brake scales with the disk: its floor is [btrfs] min_free_gb, but at most a
+#        tenth of the disk (small disks were always "short"); with no earlier snapshot of ours left to
+#        release it is a log line only, no warning and no notification every run
 #   2.22 VMs with prepare = shutdown go down BEFORE anything stops: their shutdowns are requested and
 #        waited for (one deadline, the request again every 60 s) while the apps still run, before
 #        Nextcloud's maintenance mode - the apps' downtime (downtime_s) no longer includes waiting for a
@@ -1913,7 +1916,7 @@ prune_zfs() { # prune_zfs <dataset> <"d w m">  - only the engine's snapshots (zf
 }
 
 prune_btrfs() {
-    local b base sdir s name cutoff free_gb oldest
+    local b base sdir s name cutoff free_gb oldest floor
     cutoff="$(date -d "-${BTRFS_KEEP_DAYS} days" +%Y%m%d)"
     for b in "${INV_BASES[@]}"; do
         [[ "${INV_BASE_FS[$b]}" == "btrfs" ]] || continue
@@ -1927,20 +1930,22 @@ prune_btrfs() {
                 btrfs subvolume delete "${s%/}" >/dev/null 2>>"$LOG_FILE" && { log "  removed: ${s%/}"; PRUNED_BTRFS+=( "${s%/}" ); }
             fi
         done
-        # Emergency brake: when space runs short, release the oldest snapshot each time
-        while :; do
+        # Emergency brake: when space runs short, release the oldest snapshot each time. The floor scales
+        # with the disk (brake_floor_gb, 2.23); with none of ours left to release it is only a log line -
+        # a full disk is Unraid's own warning (its disk thresholds), not something the brake can change
+        floor="$(brake_floor_gb $(( $(df -Pm "$base" | awk 'NR==2{print $2}') / 1024 )))"
+        while (( floor > 0 )); do
             free_gb=$(( $(df -Pm "$base" | awk 'NR==2{print $4}') / 1024 ))
-            (( free_gb >= BTRFS_MIN_FREE_GB )) && break
+            (( free_gb >= floor )) && break
             oldest="$(find "$sdir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null \
                       | grep -E '^[0-9]{8}-[0-9]{4}$' | sort | head -1)"
             if [[ -z "$oldest" || "$oldest" == "$TS" ]]; then
-                warn "$b: only ${free_gb} GB free, no snapshot left to delete"
-                ub_notify "Space is running out" "$b has only ${free_gb} GB free." "warning"
+                log "  $b: ${free_gb} GB free (brake at ${floor} GB) - no earlier snapshot of ours left to release"
                 break
             fi
             btrfs subvolume delete "$sdir/$oldest" >/dev/null 2>>"$LOG_FILE" || break
             PRUNED_BTRFS+=( "$sdir/$oldest" )
-            warn "$b: only ${free_gb} GB free - snapshot $oldest deleted early"
+            warn "$b: only ${free_gb} GB free (brake at ${floor} GB) - snapshot $oldest deleted early"
         done
     done
 }

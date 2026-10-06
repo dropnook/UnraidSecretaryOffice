@@ -445,7 +445,7 @@
   "setup.g_prefix_hint": "Only snapshots with this prefix are ever tidied up — other tools' snapshots stay. With the default uso-backup-, the older ones named unraidbackup-… go by the same retention.",
   "setup.g_btrfs_days": "btrfs snapshots kept (days)",
   "setup.g_btrfs_free": "btrfs emergency brake (GB free)",
-  "setup.g_btrfs_free_hint": "Below this, the oldest btrfs snapshots go early.",
+  "setup.g_btrfs_free_hint": "Below this, the oldest btrfs snapshots go early — at most a tenth of the disk (0 = off).",
   "setup.g_btrfs_all": "Snapshot all btrfs array disks (to browse them), even without backed-up shares",
   "setup.g_flash": "Boot medium (USB stick)",
   "setup.g_flash_pool": "Boot medium (boot pool «{pool}»)",

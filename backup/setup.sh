@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.22 - 2026-10-06
+# unraid-backup - setup.sh                        Version 2.23 - 2026-10-07
+#   2.23 (backup.sh only: the btrfs emergency brake scales with the disk)
 #   2.22 (backup.sh only: VMs with prepare = shutdown go down before anything stops - the apps no
 #        longer wait for them)
 #   2.21 New things stay local and keep running until you decide: per share that goes to Kopia the

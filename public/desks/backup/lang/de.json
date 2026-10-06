@@ -445,7 +445,7 @@
   "setup.g_prefix_hint": "Aufgeräumt werden nur Snapshots mit diesem Präfix — die anderer Werkzeuge bleiben. Mit dem Standard uso-backup- gehen die älteren unraidbackup-… nach denselben Regeln.",
   "setup.g_btrfs_days": "btrfs-Snapshots behalten (Tage)",
   "setup.g_btrfs_free": "btrfs-Notbremse (GB frei)",
-  "setup.g_btrfs_free_hint": "Darunter werden die ältesten btrfs-Snapshots vorzeitig gelöscht.",
+  "setup.g_btrfs_free_hint": "Darunter werden die ältesten btrfs-Snapshots vorzeitig gelöscht – höchstens ein Zehntel der Disk (0 = aus).",
   "setup.g_btrfs_all": "Alle btrfs-Array-Disks snapshotten (zum Durchstöbern), auch ohne gesicherte Shares",
   "setup.g_flash": "Boot-Medium (USB-Stick)",
   "setup.g_flash_pool": "Boot-Medium (Boot-Pool «{pool}»)",
