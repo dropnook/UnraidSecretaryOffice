@@ -1794,8 +1794,10 @@ function backupSetupGet(): array
     $plan = readJson("$data/state/setup-plan.json");
     if (is_array($plan['shares'] ?? null)) {
         $asleep = sleepingDisks();
+        $place = backupPlaceFacts($plan['shares']);
         foreach ($plan['shares'] as &$share) {
             $share += backupShareTop($share, $asleep);
+            $share['place'] = $place[(string) ($share['name'] ?? '')] ?? [];
         }
         unset($share);
     }
@@ -1805,6 +1807,127 @@ function backupSetupGet(): array
         'run'    => readJson("$data/state/setup-status.json"),
         'plan'   => $plan,
     ];
+}
+
+/**
+ * What speaks against each share as the backup place — Benj's points, warnings only: the office never
+ * blocks or changes the user's choice (the setup's step 0 shows them for the share chosen):
+ *   same_pool      on a pool appdata lies on too: a failing pool takes the apps and their dumps together
+ *   no_history     a part without snapshots (no ZFS/btrfs, or the plan found it "live"): the packages keep
+ *                  only the last state, no earlier nights
+ *   secondary      a secondary storage is set: the mover moves the packages between drives
+ *   no_redundancy  (info) a pool without mirror/raidz/raid1…, or the array without parity
+ * `where` names the pool or disk ('' = the array). From the shares' cfg on the flash, Unraid's disks.ini
+ * and where the plan found each share's folders — never from the disks themselves. Paths for the tests.
+ *
+ * @return array<string, list<array{code: string, where: string}>>  share name => its warnings
+ */
+function backupPlaceFacts(array $shares, string $cfgDir = '/boot/config/shares', string $disksIni = '/var/local/emhttp/disks.ini'): array
+{
+    $disks = readCfg($disksIni, true);
+    $bases = [];
+    $cfgs = [];
+    foreach ($shares as $sh) {
+        $name = (string) ($sh['name'] ?? '');
+        if (!preg_match('/^[\w .-]+$/D', $name) || $name[0] === '.') {
+            continue;
+        }
+        $cfgs[$name] = readCfg("$cfgDir/$name.cfg");
+        $bases[$name] = backupPlaceBases((string) ($sh['locations'] ?? ''), $cfgs[$name], $disks);
+    }
+    $appdata = null;
+    foreach (array_keys($bases) as $name) {
+        if (strtolower((string) $name) === 'appdata') {
+            $appdata = $bases[$name];
+        }
+    }
+    $parity = false;
+    foreach ($disks as $d) {
+        $parity = $parity || (($d['type'] ?? '') === 'Parity' && ($d['device'] ?? '') !== '');
+    }
+    $fs = fn (string $base) => preg_replace('/^luks:/', '', strtolower((string) ($disks[$base]['fsType'] ?? '')));
+    $out = [];
+    foreach ($shares as $sh) {
+        $name = (string) ($sh['name'] ?? '');
+        if (!isset($bases[$name])) {
+            continue;
+        }
+        $b = $bases[$name];
+        $w = [];
+        $same = $appdata !== null && strtolower($name) !== 'appdata' ? array_values(array_intersect($b['pools'], $appdata['pools'])) : [];
+        if ($same) {
+            $w[] = ['code' => 'same_pool', 'where' => $same[0]];
+        }
+        $flat = array_values(array_filter([...$b['pools'], ...$b['disks']], fn ($x) => !in_array($fs($x), ['', 'zfs', 'btrfs'], true)));
+        if ($flat || ($sh['method'] ?? '') === 'live') {
+            $w[] = ['code' => 'no_history', 'where' => $flat[0] ?? ''];
+        }
+        $use = strtolower((string) ($cfgs[$name]['shareUseCache'] ?? ''));
+        if ($use === 'yes' || $use === 'prefer') {
+            $w[] = ['code' => 'secondary', 'where' => (string) ($cfgs[$name]['shareCachePool2'] ?? '')];
+        }
+        $single = array_values(array_filter($b['pools'], fn ($p) => isset($disks[$p])
+            && !preg_match('/^(mirror|raidz|draid|raid1|raid5|raid6)/i', (string) ($disks[$p]['fsProfile'] ?? ''))));
+        if ($single) {
+            $w[] = ['code' => 'no_redundancy', 'where' => $single[0]];
+        } elseif ($b['array'] && !$parity && $disks) {
+            $w[] = ['code' => 'no_redundancy', 'where' => ''];
+        }
+        $out[$name] = $w;
+    }
+    return $out;
+}
+
+/**
+ * Where a share lies or may put files: pools and array disks where the plan found its folders, plus what
+ * its cfg allows (primary and secondary storage; the array's disks by shareInclude/shareExclude).
+ *
+ * @return array{pools: list<string>, disks: list<string>, array: bool}
+ */
+function backupPlaceBases(string $locations, array $cfg, array $disks): array
+{
+    $pools = [];
+    $onDisks = [];
+    $array = false;
+    foreach (array_map('trim', explode(',', $locations)) as $base) {
+        if (!preg_match('/^[A-Za-z0-9_.-]+$/D', $base)) {
+            continue;                                    // "-": no folder anywhere yet
+        }
+        if (preg_match('/^disk\d+$/D', $base)) {
+            $onDisks[] = $base;
+            $array = true;
+        } else {
+            $pools[] = $base;
+        }
+    }
+    $use = strtolower((string) ($cfg['shareUseCache'] ?? ''));
+    $primary = (string) ($cfg['shareCachePool'] ?? '');
+    $secondary = (string) ($cfg['shareCachePool2'] ?? '');
+    if ($use === 'no') {
+        $array = true;
+    } elseif ($use === 'only' && $primary !== '') {
+        $pools[] = $primary;
+    } elseif ($use === 'yes' || $use === 'prefer') {
+        if ($primary !== '') {
+            $pools[] = $primary;
+        }
+        if ($secondary !== '') {
+            $pools[] = $secondary;
+        } else {
+            $array = true;
+        }
+    }
+    if ($array && $cfg) {
+        $include = array_filter(array_map('trim', explode(',', (string) ($cfg['shareInclude'] ?? ''))));
+        $exclude = array_filter(array_map('trim', explode(',', (string) ($cfg['shareExclude'] ?? ''))));
+        foreach ($disks as $id => $d) {
+            if (($d['type'] ?? '') === 'Data' && preg_match('/^disk\d+$/D', (string) $id) && ($d['fsType'] ?? '') !== ''
+                && (!$include || in_array($id, $include, true)) && !in_array($id, $exclude, true)) {
+                $onDisks[] = (string) $id;
+            }
+        }
+    }
+    return ['pools' => array_values(array_unique($pools)), 'disks' => array_values(array_unique($onDisks)), 'array' => $array];
 }
 
 /**

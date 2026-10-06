@@ -1270,6 +1270,124 @@ JS;
 }
 
 /**
+ * The backup place on a fresh server: what speaks against a share (backupPlaceFacts() from the shares' cfg,
+ * disks.ini and the plan's locations - warnings only), and the setup's step 0 under node: the warnings'
+ * texts, Mr. Backupsy's word while none is chosen, and a new plan keeping what the user chose but didn't apply
+ */
+function testBackupPlace(): void
+{
+    $tmp = hardeningTmp('backup-place');
+    mkdir("$tmp/shares");
+    file_put_contents("$tmp/disks.ini", implode("\n", ['["parity"]', 'type="Parity"', 'device=""', '["disk1"]', 'type="Data"', 'fsType="xfs"',
+        '["disk2"]', 'type="Data"', 'fsType="luks:btrfs"', '["cache"]', 'type="Cache"', 'fsType="btrfs"', 'fsProfile="single"', '["cache2"]', 'type="Cache"', 'fsType=""',
+        '["fast"]', 'type="Cache"', 'fsType="luks:zfs"', 'fsProfile="mirror"', '["fast2"]', 'type="Cache"', 'fsType=""', '']));
+    $cfg = fn (string $name, string $use, string $pool = '', string $pool2 = '', string $include = '') => file_put_contents("$tmp/shares/$name.cfg",
+        "shareInclude=\"$include\"\nshareExclude=\"\"\nshareUseCache=\"$use\"\nshareCachePool=\"$pool\"\nshareCachePool2=\"$pool2\"\n");
+    $cfg('appdata', 'only', 'cache');
+    $cfg('UnraidSecretaryOffice', 'only', 'fast');
+    $cfg('isos', 'yes', 'cache');
+    $cfg('onarray', 'no', '', '', 'disk2');
+    $cfg('arrayx', 'no');
+    $cfg('moved', 'prefer', 'fast', 'cache');
+    $sh = fn (string $name, string $loc = '-', string $method = 'none') => ['name' => $name, 'locations' => $loc, 'method' => $method];
+    $shares = [$sh('appdata', 'cache', 'snap'), $sh('UnraidSecretaryOffice'), $sh('isos', 'cache', 'snap'), $sh('onarray'), $sh('arrayx', 'disk2', 'snap'),
+               $sh('moved', 'fast', 'snap'), $sh('newpool', 'fast', 'snap'), $sh('legacy', 'disk1', 'live'), $sh('liveonly', '-', 'live'), $sh('../x'), $sh('.hidden')];
+    $w = fn (string $code, string $where) => ['code' => $code, 'where' => $where];
+    $f = backupPlaceFacts($shares, "$tmp/shares", "$tmp/disks.ini");
+    same('backup place: a ZFS mirror pool of its own - nothing to say', [], $f['UnraidSecretaryOffice'] ?? null);
+    same('backup place: appdata\'s pool, the array behind it with an XFS disk, a secondary storage, no redundancy',
+        [$w('same_pool', 'cache'), $w('no_history', 'disk1'), $w('secondary', ''), $w('no_redundancy', 'cache')], $f['isos'] ?? null);
+    same('backup place: the array limited to a btrfs disk - only no parity', [$w('no_redundancy', '')], $f['onarray'] ?? null);
+    same('backup place: the whole array (an XFS disk among them)', [$w('no_history', 'disk1'), $w('no_redundancy', '')], $f['arrayx'] ?? null);
+    same('backup place: prefer with a secondary pool - appdata\'s pool as the secondary, the mover', [$w('same_pool', 'cache'), $w('secondary', 'cache'), $w('no_redundancy', 'cache')], $f['moved'] ?? null);
+    same('backup place: no cfg, its folder on a mirror pool - nothing', [], $f['newpool'] ?? null);
+    same('backup place: no cfg, the plan found it on an XFS disk', [$w('no_history', 'disk1'), $w('no_redundancy', '')], $f['legacy'] ?? null);
+    same('backup place: the plan says live, the part unknown', [$w('no_history', '')], $f['liveonly'] ?? null);
+    check('backup place: odd names never read', !isset($f['../x']) && !isset($f['.hidden']));
+    file_put_contents("$tmp/disks.ini", str_replace("device=\"\"", "device=\"sdb\"", (string) file_get_contents("$tmp/disks.ini")));
+    same('backup place: the array with parity is redundant', [], backupPlaceFacts([$sh('onarray')], "$tmp/shares", "$tmp/disks.ini")['onarray'] ?? null);
+    same('backup place: no disks.ini (array stopped) - only what the cfg tells', [$w('secondary', '')], backupPlaceFacts([$sh('isos')], "$tmp/shares", "$tmp/none.ini")['isos'] ?? null);
+
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('backup place: setup page - node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    $c = fn (string $name, string $dir) => ['name' => $name, 'why' => 'writes', 'previous' => false, 'binds' => [['share' => 'appdata', 'path' => $dir, 'rw' => true]], 'volumes' => []];
+    $a = ['time' => 1000, 'have_settings' => false,
+        'P' => ['kopia|enabled' => 'no', 'general|dumps_share' => '', 'flash|mode' => 'tar', 'zfs|retention' => '7 4 3', 'docker|no_stop' => [], 'docker|skip' => [],
+                'share|appdata|mode' => 'snapshot', 'share|isos|mode' => 'off'],
+        'shares' => [['name' => 'appdata', 'exists' => true, 'folders' => [['dir' => 'c1', 'container' => 'c1'], ['dir' => 'c2', 'container' => 'c2'], ['dir' => 'c3', 'container' => 'c3']], 'waiting' => []],
+                     ['name' => 'isos', 'exists' => true, 'folders' => [], 'waiting' => []]],
+        'containers' => [$c('c1', 'c1'), $c('c2', 'c2'), $c('c3', 'c3')], 'vms' => [], 'databases' => [], 'nextcloud' => []];
+    // the user made the office's share in Unraid meanwhile: the engine proposes it, and a new retention
+    $b = $a;
+    $b['time'] = 2000;
+    $b['P']['general|dumps_share'] = 'UnraidSecretaryOffice';
+    $b['P']['share|UnraidSecretaryOffice|mode'] = 'snapshot';
+    $b['P']['zfs|retention'] = '14 4 3';
+    $b['shares'][] = ['name' => 'UnraidSecretaryOffice', 'exists' => true, 'folders' => [], 'waiting' => []];
+    file_put_contents("$tmp/a.json", json_encode($a));
+    file_put_contents("$tmp/b.json", json_encode($b));
+    $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, selbar: () => {}, has: () => false };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const out = {};
+out.lines = b.placeLines({ place: [{ code: 'same_pool', where: 'cache' }, { code: 'no_history', where: 'disk1' }, { code: 'no_history', where: '' },
+  { code: 'secondary', where: '' }, { code: 'no_redundancy', where: 'cache' }, { code: 'odd', where: 'x' }] });
+out.old = [b.placeLines({ method: 'live' }), b.placeLines({ method: 'snap' }), b.placeLines(null)];
+const plan = (names) => ({ shares: names.map((name) => ({ name })) });
+out.intro = [b.placeIntro(plan(['appdata', 'system', 'domains', 'isos']), ''), b.placeIntro(plan(['appdata', 'isos', 'Backups']), ''),
+  b.placeIntro(plan(['appdata', 'isos']), 'isos')];
+// a first plan: what the user picks and doesn't apply
+b.setup.plan = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+b.setupDraftKeep();
+b.dset('flash|mode', 'off');
+b.dset('general|dumps_share', 'isos');
+b.setup.levels['app:ct:c2'] = 0;
+b.setup.held['ct:c3'] = 'run';
+b.setupDerive();
+out.before = [b.setup.draft['docker|skip'], b.setup.draft['docker|no_stop']];
+// a new plan (a tour, or the setup opened again)
+b.setup.plan = JSON.parse(fs.readFileSync(process.argv[4], 'utf8'));
+b.setupDraftKeep();
+const d = b.setup.draft;
+out.after = { flash: d['flash|mode'], ds: d['general|dumps_share'], retention: d['zfs|retention'], skip: d['docker|skip'], noStop: d['docker|no_stop'],
+  levels: [b.setup.levels['app:ct:c1'], b.setup.levels['app:ct:c2']], held: b.setup.held['ct:c3'], office: d['share|UnraidSecretaryOffice|mode'] };
+// the same plan once more without anything chosen: just the plan
+b.setupDraftFromPlan();
+out.plain = [b.setup.draft['flash|mode'], b.setup.levels['app:ct:c2']];
+console.log(JSON.stringify(out));
+JS;
+    file_put_contents("$tmp/t.js", $js);
+    $cmd = escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
+        . escapeshellarg("$tmp/a.json") . ' ' . escapeshellarg("$tmp/b.json") . ' 2>&1';
+    $r = json_decode((string) shell_exec($cmd), true);
+    if (!is_array($r)) {
+        check('backup place: setup page ran under node', false, (string) shell_exec($cmd));
+        hardeningRm($tmp);
+        return;
+    }
+    same('backup place: the warnings\' texts - warn, the array named, redundancy only as information, unknown codes left out', [
+        ['warn' => true, 'text' => 'setup.place_same_pool {"where":"cache"}'], ['warn' => true, 'text' => 'setup.place_no_history {"where":"disk1"}'],
+        ['warn' => true, 'text' => 'setup.ds_no_history'], ['warn' => true, 'text' => 'setup.place_secondary {"where":"setup.place_array"}'],
+        ['warn' => false, 'text' => 'setup.place_no_redundancy {"where":"cache"}']], $r['lines']);
+    same('backup place: an older agent\'s plan (no place) - the plan\'s live still warns', [[['warn' => true, 'text' => 'setup.ds_no_history']], [], []], $r['old']);
+    same('backup place: Mr. Backupsy\'s word - no share to choose (only isos), choose one, none once chosen', ['setup.place_none', 'setup.place_choose', null], $r['intro']);
+    same('backup place: before the new plan - the user\'s levels in the draft', [['c2'], ['c2', 'c3']], $r['before']);
+    same('backup place: a new plan keeps what the user chose (flash, a level, a hold); takes the engine\'s new proposals (the share made meanwhile, a retention)',
+        ['flash' => 'off', 'ds' => 'UnraidSecretaryOffice', 'retention' => '14 4 3', 'skip' => ['c2'], 'noStop' => ['c2', 'c3'], 'levels' => [1, 0], 'held' => 'run', 'office' => 'snapshot'],
+        $r['after']);
+    same('backup place: «Discard» still goes back to the plan', ['tar', 1], $r['plain']);
+    hardeningRm($tmp);
+}
+
+/**
  * Engine 2.20: a run that finds the lock busy is skipped, never silent — the engine's helpers (the holder
  * note, skipped.json, the history line, the history's own lock) on a temporary data folder, and the
  * office's side: who holds the lock, skips kept apart from the runs (history, estimates, the last run),
@@ -5996,7 +6114,7 @@ function testSupporterKeys(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];

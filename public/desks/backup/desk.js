@@ -9,7 +9,8 @@ const ID = 'backup';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
 const LIVE_POLL = 5000;
-const SETUP_STALE = 600;          // seconds: an older plan is read again when the setup page opens
+const SETUP_STALE = 600;          // seconds: an older plan gets a warning on the setup page
+const SETUP_REPLAN = 60;          // seconds: an older plan is read again when the setup page opens (a share made meanwhile)
 const KOPIA_ROOT_EXAMPLE = '/uso'; // the Kopia container path new setups are shown, while the real one isn't known
 
 // phases of a run (status.json "phase") grouped into the steps the desk shows
@@ -1308,6 +1309,35 @@ function setupDraftFromPlan() {
   // new folders that no app or VM owns: proposed "only local" - Kopia only when the user says so (engine 2.21)
   waitingFolders().forEach((w) => { if (!w.owner && waitChoice(w) === null) waitSet(w, 'local'); });
   setup.base = clone(setup.draft);         // what the assistant proposes, before the user clicks
+  setup.baseLevels = { ...setup.levels };
+  setup.baseHeld = { ...setup.held };
+}
+
+/**
+ * A new plan came in (a tour, measuring, the setup opened again): the proposals are read anew, but what the
+ * user chose and hasn't applied stays - a key the engine still proposes as before keeps the user's value (one
+ * it proposes differently now takes the new proposal), a level or hold picked stays while the app or VM is there
+ */
+function setupDraftKeep() {
+  const old = setup.draft && setup.base ? { draft: setup.draft, base: setup.base, levels: setup.levels, held: setup.held,
+    baseLevels: setup.baseLevels || {}, baseHeld: setup.baseHeld || {} } : null;
+  setupDraftFromPlan();
+  if (!old) return;
+  const keys = new Set([...Object.keys(old.base), ...Object.keys(old.draft)]);
+  let kept = 0;
+  keys.forEach((k) => {
+    if (same(old.base[k], old.draft[k]) || !same(old.base[k], setup.base[k])) return;
+    if (old.draft[k] === undefined) delete setup.draft[k];
+    else setup.draft[k] = old.draft[k];
+    kept++;
+  });
+  Object.keys(old.levels).forEach((k) => {
+    if (old.levels[k] !== old.baseLevels[k] && k in setup.levels) { setup.levels[k] = old.levels[k]; kept++; }
+  });
+  Object.keys(old.held).forEach((k) => {
+    if (old.held[k] !== old.baseHeld[k] && k in setup.held) { setup.held[k] = old.held[k]; kept++; }
+  });
+  if (kept) setupDerive();
 }
 
 /** Keys whose values differ between two sets of settings (nothing and empty count the same) */
@@ -1393,7 +1423,7 @@ async function setupLoad() {
   if (stale && !j.status.running && !setup.restale && canPlan()) { setup.restale = true; setupPlan(false, true); }
   if (j.plan && !stale && (!setup.plan || j.plan.time !== setup.plan.time)) {
     setup.plan = j.plan;
-    setupDraftFromPlan();
+    setupDraftKeep();
   }
   const finishedForget = was && was.running && was.mode === 'forget' && !j.status.running;
   if (finishedForget) {
@@ -1739,6 +1769,7 @@ function setupKopia(plan) {
   basics.appendChild(field(flashLabel(plan), selectInput('flash|mode', flashOpts, (o) => T('setup.flash.' + o)),
     plan.flash.dataset ? T('setup.g_flash_zfs', { ds: plan.flash.dataset }) : T('setup.g_flash_other', { fs: plan.flash.fs || '?' })));
   s.appendChild(basics);
+  s.appendChild(placeGuide(plan));
   const on = dget('kopia|enabled') === 'yes';
   s.appendChild(checkbox(T('setup.kopia_on'), on, (v) => {
     dset('kopia|enabled', v ? 'yes' : 'no');
@@ -2440,11 +2471,61 @@ function appDataWarnings(a, l, plan) {
 /** The backup place in a share — the engine's rule: the office's share has one folder per desk */
 const OFFICE_SHARE = 'UnraidSecretaryOffice';
 const dumpsPath = (share) => (share === OFFICE_SHARE ? `/mnt/user/${share}/backup` : `/mnt/user/${share}/unraid-backup`);
+/** The shares the backup place may be (never appdata, system, domains - like the engine's dumps_share_problem) */
+const placeShares = (plan) => plan.shares.map((x) => x.name).filter((n) => !['appdata', 'system', 'domains'].includes(n.toLowerCase()));
+
+/**
+ * What speaks against the share chosen as the backup place (the agent's backupPlaceFacts(): same pool as
+ * appdata, no snapshots, a secondary storage, no redundancy) - warnings only, the choice stays the user's
+ */
+function placeLines(sh) {
+  if (!sh) return [];
+  const place = sh.place || (sh.method === 'live' ? [{ code: 'no_history', where: '' }] : []);
+  const where = (w) => w || T('setup.place_array');
+  return place.map((p) => {
+    if (p.code === 'same_pool') return { warn: true, text: T('setup.place_same_pool', { where: p.where }) };
+    if (p.code === 'no_history') return { warn: true, text: p.where ? T('setup.place_no_history', { where: p.where }) : T('setup.ds_no_history') };
+    if (p.code === 'secondary') return { warn: true, text: T('setup.place_secondary', { where: where(p.where) }) };
+    if (p.code === 'no_redundancy') return { warn: false, text: T('setup.place_no_redundancy', { where: where(p.where) }) };
+    return null;
+  }).filter(Boolean);
+}
+
+/** Mr. Backupsy's word above the guide while no backup place is chosen: none to choose (a fresh server: only isos), or choose one */
+function placeIntro(plan, ds) {
+  if (ds) return null;
+  return placeShares(plan).some((n) => n.toLowerCase() !== 'isos') ? 'setup.place_choose' : 'setup.place_none';
+}
+
+/**
+ * What matters for the backup place (Benj's five points) and the way to a new share in Unraid (Shares → Add
+ * Share, same tab) - the office never creates it, the user decides where it lies; open while none is chosen
+ */
+function placeGuide(plan) {
+  const ds = dget('general|dumps_share', '');
+  const box = el('div', 'bk-place');
+  const intro = placeIntro(plan, ds);
+  if (intro === 'setup.place_none') box.appendChild(el('p', 'callout warn', T('setup.place_none')));
+  else if (intro) box.appendChild(el('p', 'callout warn', T('setup.place_choose')));
+  const det = el('details', 'bk-place-guide');
+  det.open = !ds;
+  det.appendChild(el('summary', '', T('setup.place_title')));
+  const ol = el('ol');
+  [T('setup.place_1'), T('setup.place_2'), T('setup.place_3'), T('setup.place_4'), T('setup.place_5')].forEach((t) => ol.appendChild(el('li', '', t)));
+  det.appendChild(ol);
+  const add = el('p', 'bk-place-add');
+  const a = el('a', 'btn small', T('setup.place_add'));
+  a.href = Office.safeHref('/Shares/Share?name=');
+  add.append(a, ' ', T('setup.place_name', { name: OFFICE_SHARE }));
+  det.appendChild(add);
+  det.appendChild(el('small', '', T('setup.place_back')));
+  box.appendChild(det);
+  return box;
+}
 
 /** The backup place: its own share for the packages of apps and VMs — never appdata; required */
 function dumpsShareField(plan) {
-  const banned = ['appdata', 'system', 'domains'];
-  const shares = plan.shares.map((x) => x.name).filter((n) => !banned.includes(n.toLowerCase()));
+  const shares = placeShares(plan);
   const sel = el('select', 'picker');
   sel.appendChild(new Option(T('setup.ds_choose'), ''));
   shares.forEach((n) => sel.appendChild(new Option(n, n)));
@@ -2458,14 +2539,13 @@ function dumpsShareField(plan) {
     if (mode === 'off') { hint.textContent = T('setup.ds_off', { share }); hint.className = 'missing'; return; }
     hint.textContent = T('setup.ds_ok', { path: dumpsPath(share) });
     if (setup.locks[share] && setup.locks[share].lv === 2) hint.textContent += ' · ' + T('setup.ds_kopia');
-    // without snapshots the packages keep no history
-    const sh = plan.shares.find((x) => x.name === share);
-    if (sh && sh.method === 'live') { hint.textContent += ' · ' + T('setup.ds_no_history'); hint.className = 'missing'; }
   };
   sel.onchange = () => { dset('general|dumps_share', sel.value || undefined); setupDerive(); Office.keepInPlace(sel, () => renderSetup()); };
   update();
   const f = field(T('setup.ds_label'), sel);
   f.appendChild(hint);
+  // what speaks against it (another pool than appdata, snapshots, one place, redundancy): said, never blocked
+  placeLines(plan.shares.find((x) => x.name === sel.value)).forEach((l) => f.appendChild(el('small', l.warn ? 'missing' : '', l.text)));
   f.appendChild(el('small', '', T('setup.ds_why')));
   return f;
 }
@@ -2720,8 +2800,8 @@ Office.desk({
       renderSetup();
       if (!state) await load(false);
       await setupLoad();
-      // an old plan doesn't know what changed since (new shares, moved ones): read the server again
-      if (setup.plan && Date.now() / 1000 - setup.plan.time > SETUP_STALE && canPlan() && !(setup.status && setup.status.running)) {
+      // an old plan doesn't know what changed since (a share made for the backup place, moved ones): read the server again
+      if (setup.plan && Date.now() / 1000 - setup.plan.time > SETUP_REPLAN && canPlan() && !(setup.status && setup.status.running)) {
         setupPlan(false, true);
       }
     } else {
@@ -2777,6 +2857,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     get setup() { return setup; },
     setState: (s) => { state = s; },
     setupDraftFromPlan, setupNewLines, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText,
+    placeLines, placeIntro, setupDraftKeep, setupDerive, dset,
   };
 }
 })();
