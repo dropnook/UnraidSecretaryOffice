@@ -19,7 +19,7 @@ declare(strict_types=1);
  *            the night watchman's rounds, bursts, baseline and «I know, thanks», his watch over what
  *            starts on its own (crontabs, .cron files, User Scripts, at, notification agents), his
  *            data flow (ss, smbstatus, zfs written, containers' counters; learning, the unusual),
- *            job.sh's guard against a second start in the same minute)
+ *            job.sh's guard against a second start in the same minute, Ms. Whereabouts on exclusive shares)
  *   hardening  the checks that keep requests, manifests, paths and links in
  *            bounds (safe writes, the mailbox, Ms. Dustdevil's
  *            manifests, Emby paths, anchored validators, the release link, the
@@ -1153,6 +1153,85 @@ function testComposeBuilds(): void
           . "  \"web\":\n    build: ./web\n  cron:\n    image: nextcloud-ocr:\${V}\nnetworks:\n  build:\n    driver: bridge\n";
     same('compose builds: services with build:, nothing else', ['app', 'web'], waComposeBuilds($yaml));
     same('compose builds: none', [], waComposeBuilds("services:\n  a:\n    image: x\n"));
+}
+
+/**
+ * Ms. Whereabouts on exclusive shares: which shares would become exclusive once
+ * «Permit exclusive shares» is on, which can't (a folder on another pool or
+ * disk), which Unraid refuses for no reason she can see, and which only their
+ * secondary storage keeps from it — from the tour's shares only (fixtures).
+ */
+function testExclusive(): void
+{
+    $roots = ['disk1' => ['fs' => 'xfs', 'kind' => 'disk'], 'disk2' => ['fs' => 'xfs', 'kind' => 'disk'],
+              'cache' => ['fs' => 'zfs', 'kind' => 'pool'], 'fast' => ['fs' => 'btrfs', 'kind' => 'pool']];
+    // shaped like waShares()' storage: use_cache, primary, secondary, exclusive (shares.ini), pools/disks with a top folder
+    $share = fn (string $name, string $use, string $primary, ?string $secondary, array $pools, array $disks = [], bool $exclusive = false, bool $missing = false)
+        => ['name' => $name, 'storage' => ['use_cache' => $use, 'primary' => $primary, 'secondary' => $secondary, 'exclusive' => $exclusive,
+                                           'pools' => $pools, 'disks' => $disks, 'missing' => $missing]];
+    $shares = [
+        $share('appdata', 'only', 'cache', null, ['cache']),                         // qualifies
+        $share('system', 'only', 'cache', null, ['cache'], ['disk1']),               // a folder on disk1 too
+        $share('drop', 'only', 'fast', null, ['cache', 'fast']),                     // nostromo's drop: mother + hive
+        $share('films', 'yes', 'cache', 'array', ['cache'], ['disk1']),              // cache → array: belongs to the array
+        $share('media', 'no', 'array', null, [], ['disk1', 'disk2']),
+        $share('tm', 'prefer', 'fast', 'cache', ['cache', 'fast']),                  // pool ← pool, data meant on fast
+        $share('vms', 'prefer', 'cache', 'array', ['cache']),                        // pool ← array
+        $share('later', 'prefer', 'cache', 'array', [], ['disk1']),                  // nothing on its pool yet
+        $share('gone', 'only', 'old', null, [], [], false, true),                    // a pool that doesn't exist
+        $share('new', 'only', 'cache', null, []),                                    // no folder anywhere (yet)
+        $share('moved', 'only', 'fast', null, ['cache']),                         // only elsewhere, not on its pool
+    ];
+    $asleep = ['disk2' => true, 'disk1' => false, 'cache' => false];
+
+    // off: what would become exclusive — nothing else is told but the overflow
+    $off = waExclusive($shares, $roots, $asleep, ['shareUserExclusive' => 'no', 'shareUser' => 'e']);
+    same('exclusive off: permitted', false, $off['permitted']);
+    same('exclusive off: would become exclusive', ['appdata'], $off['ready']);
+    same('exclusive off: no reasons asked for yet', [[], []], [$off['unclear'], $off['elsewhere']]);
+    same('exclusive off: only the secondary storage stands in the way', [
+        ['name' => 'tm', 'pool' => 'fast', 'secondary' => 'cache', 'where' => ['cache']],
+        ['name' => 'vms', 'pool' => 'cache', 'secondary' => 'array', 'where' => []]], $off['overflow']);
+    same('exclusive off: asleep = roots not looked at', ['disk2'], $off['asleep']);
+    same('exclusive: an empty share.cfg means off', false, waExclusive($shares, $roots, $asleep, [])['permitted']);
+
+    // on: Unraid's word (shares.ini) for appdata and drop; reasons for those it refuses
+    $on = $shares;
+    $on[0]['storage']['exclusive'] = true;                                       // appdata: fine, nothing to say
+    $on[] = $share('fresh', 'only', 'fast', null, ['fast']);                         // qualifies, Unraid still says no
+    $r = waExclusive($on, $roots, $asleep, ['shareUserExclusive' => 'yes']);
+    same('exclusive on: permitted', true, $r['permitted']);
+    same('exclusive on: nothing "would become" any more', [], $r['ready']);
+    same('exclusive on: a folder on another pool or disk', [
+        ['name' => 'system', 'pool' => 'cache', 'where' => ['disk1']],
+        ['name' => 'drop', 'pool' => 'fast', 'where' => ['cache']],
+        ['name' => 'moved', 'pool' => 'fast', 'where' => ['cache']]], $r['elsewhere']);
+    same('exclusive on: no reason in sight', ['fresh'], $r['unclear']);
+    same('exclusive on: overflow still told', ['tm', 'vms'], array_column($r['overflow'], 'name'));
+
+    // all exclusive that can be: nothing to tell
+    $all = [$share('appdata', 'only', 'cache', null, ['cache'], [], true), $share('media', 'no', 'array', null, [], ['disk1']),
+            $share('films', 'yes', 'cache', 'array', ['cache'], ['disk1'])];
+    $quiet = waExclusive($all, $roots, [], ['shareUserExclusive' => 'yes']);
+    same('exclusive: all done — no tip', [[], [], [], [], []],
+        [$quiet['ready'], $quiet['unclear'], $quiet['elsewhere'], $quiet['overflow'], $quiet['asleep']]);
+
+    // user shares off (no /mnt/user), the array stopped (no roots): nothing
+    $noUser = waExclusive($shares, $roots, $asleep, ['shareUserExclusive' => 'no', 'shareUser' => '-']);
+    same('exclusive: user shares off — nothing', [[], [], [], []], [$noUser['ready'], $noUser['unclear'], $noUser['elsewhere'], $noUser['overflow']]);
+    $stopped = waExclusive($shares, [], [], ['shareUserExclusive' => 'no']);
+    same('exclusive: array stopped — nothing', [[], []], [$stopped['ready'], $stopped['overflow']]);
+    $numeric = $share('x', 'only', 'cache', null, ['cache']);
+    $numeric['name'] = 2024;                                                         // array_keys() of shares.ini makes it an int
+    same('exclusive: a numeric share name stays a string', ['2024'], waExclusive([$numeric], $roots, [], [])['ready']);
+
+    // the page builds four tips from it: each needs its title and why (the other languages are compared to English)
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/whereabouts/lang/en.json'), true);
+    foreach (['exclusive_off', 'exclusive_elsewhere', 'exclusive_unclear', 'exclusive_overflow'] as $id) {
+        check("whereabouts: texts for tip $id", isset($en["adv.$id.title"], $en["adv.$id.why"]));
+        check("whereabouts: tip $id is built in desk.js",
+            str_contains((string) file_get_contents(OFFICE_DIR . '/public/desks/whereabouts/desk.js'), "add('$id',"));
+    }
 }
 
 /**
@@ -3560,7 +3639,7 @@ function testIconSquare(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testJobGuard', 'testComposeBuilds'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testJobGuard', 'testComposeBuilds', 'testExclusive'],
           'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';

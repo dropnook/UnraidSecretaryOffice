@@ -657,6 +657,8 @@
   "adv.to_main": "Principal",
   "adv.to_ups": "Ajustes del SAI",
   "adv.to_syslog": "Servidor Syslog",
+  "adv.to_share_settings": "Recursos Compartidos",
+  "adv.to_browse": "Explorar {path}",
   "adv.boot_grub": "Principal → pool de arranque → Configuración de GRUB",
   "adv.boot_syslinux": "Principal → Flash → Configuración de Syslinux",
   "adv.system_array.title": "En el array: {names}",
@@ -666,6 +668,38 @@
     "other": "El Mover no tiene programación — {n} recursos compartidos dependen de él: {names}"
   },
   "adv.mover.why": "Estos recursos compartidos escriben primero en un pool y el Mover debe llevar las cosas al array (o de vuelta). Sin programación solo se ejecuta si se inicia a mano — el pool se llena. Ajustes → Tareas Programadas → Ajustes del Servicio Mover. (Si otra cosa inicia el Mover por ti: «Ya lo sé, gracias».)",
+  "adv.exclusive_also": "también en {where}",
+  "adv.exclusive_off.title": {
+    "one": "Los recursos compartidos exclusivos están desactivados — {names} podría serlo",
+    "other": "Los recursos compartidos exclusivos están desactivados — {n} podrían serlo: {names}"
+  },
+  "adv.exclusive_off.why": {
+    "one": "Psst — este recurso compartido vive en un solo pool y en ningún otro sitio, y aun así cada byte se cuela por la capa FUSE de Unraid (shfs) bajo /mnt/user. Como recurso compartido exclusivo, /mnt/user/… pasa a ser un enlace directo al pool y las lecturas y escrituras se saltan esa capa — notablemente más rápido, sobre todo con muchos archivos pequeños. Las rutas de Docker y de las VMs como /mnt/user/appdata siguen funcionando: pasan por el enlace. El ajuste solo se cambia con el array detenido (Docker y las VMs se detienen con él): Principal → Operaciones del Array → Detener, luego Ajustes → Recursos Compartidos → «Permitir shares exclusivos»: Sí → Aplicar, y vuelve a iniciar el array. Unraid decide al iniciar el array — un recurso compartido con una carpeta también en otro disco o pool se queda como está. (Para los recursos compartidos exclusivos Unraid ignora el «Espacio mínimo disponible».)",
+    "other": "Psst — estos recursos compartidos viven en un solo pool y en ningún otro sitio, y aun así cada byte se cuela por la capa FUSE de Unraid (shfs) bajo /mnt/user. Como recursos compartidos exclusivos, /mnt/user/… pasa a ser un enlace directo al pool y las lecturas y escrituras se saltan esa capa — notablemente más rápido, sobre todo con muchos archivos pequeños. Las rutas de Docker y de las VMs como /mnt/user/appdata siguen funcionando: pasan por el enlace. El ajuste solo se cambia con el array detenido (Docker y las VMs se detienen con él): Principal → Operaciones del Array → Detener, luego Ajustes → Recursos Compartidos → «Permitir shares exclusivos»: Sí → Aplicar, y vuelve a iniciar el array. Unraid decide al iniciar el array — un recurso compartido con una carpeta también en otro disco o pool se queda como está. (Para los recursos compartidos exclusivos Unraid ignora el «Espacio mínimo disponible».)"
+  },
+  "adv.exclusive_elsewhere.title": {
+    "one": "{names} no puede ser exclusivo",
+    "other": "{n} recursos compartidos no pueden ser exclusivos: {names}"
+  },
+  "adv.exclusive_elsewhere.why": "Vaya, vaya — una carpeta con el mismo nombre en otro pool o disco (entre paréntesis). Basta con ella, aunque esté vacía, para que Unraid no enlace el recurso compartido directamente a su pool: se queda en la capa FUSE, más lenta. Lo que hay en esa carpeta forma parte del recurso compartido: muévelo al pool del recurso (el gestor de archivos de Unraid: Explorar), o borra la carpeta si está vacía. Luego detén e inicia el array una vez (Principal → Operaciones del Array) — Unraid decide al iniciar.",
+  "adv.exclusive_unclear.title": {
+    "one": "{names} no es exclusivo — y no veo por qué",
+    "other": "{n} recursos compartidos no son exclusivos — y no veo por qué: {names}"
+  },
+  "adv.exclusive_unclear.why": {
+    "one": "Esto sí que es un misterio: por sus ajustes cumple, solo veo su carpeta en su propio pool, y aun así Unraid dice «Acceso exclusivo: No». {maybe} Unraid decide al iniciar el array: una vez aclarado, detén e inicia el array (Principal → Operaciones del Array).",
+    "other": "Esto sí que es un misterio: por sus ajustes cumplen, solo veo su carpeta en su propio pool, y aun así Unraid dice «Acceso exclusivo: No». {maybe} Unraid decide al iniciar el array: una vez aclarado, detén e inicia el array (Principal → Operaciones del Array)."
+  },
+  "adv.exclusive_unclear.asleep": "Quizá una carpeta con el mismo nombre está en un disco que no miré porque dormía ({disks}) — échale un vistazo y muévela al pool.",
+  "adv.exclusive_unclear.awake": "Quizá los ajustes cambiaron después de iniciar el array.",
+  "adv.exclusive_overflow.title": {
+    "one": "{names} podría ser exclusivo — si no fuera por el almacenamiento secundario",
+    "other": "{n} recursos compartidos podrían ser exclusivos — si no fuera por el almacenamiento secundario: {names}"
+  },
+  "adv.exclusive_overflow.why": {
+    "one": "No he podido evitar fijarme: este recurso compartido guarda sus datos en su pool, y el Mover trae de vuelta lo que se desbordó al almacenamiento secundario. Sin almacenamiento secundario podría ser un recurso compartido exclusivo — /mnt/user/… un enlace directo al pool, saltándose la capa FUSE de Unraid, notablemente más rápido. Solo vale la pena si el pool tiene sitio para todo: sin almacenamiento secundario, un pool lleno significa un recurso compartido lleno. Si es así: deja que el Mover lo pase todo al pool, pon «Almacenamiento secundario» en «Ninguno» en los ajustes del recurso compartido, borra lo que quede del recurso en otro pool o disco (entre paréntesis; las carpetas vacías también cuentan), y luego detén e inicia el array. Hace falta «Permitir shares exclusivos» (Ajustes → Recursos Compartidos).",
+    "other": "No he podido evitar fijarme: estos recursos compartidos guardan sus datos en su pool, y el Mover trae de vuelta lo que se desbordó al almacenamiento secundario. Sin almacenamiento secundario podrían ser recursos compartidos exclusivos — /mnt/user/… un enlace directo al pool, saltándose la capa FUSE de Unraid, notablemente más rápido. Solo vale la pena si el pool tiene sitio para todo: sin almacenamiento secundario, un pool lleno significa un recurso compartido lleno. Si es así: deja que el Mover lo pase todo al pool, pon «Almacenamiento secundario» en «Ninguno» en los ajustes del recurso compartido, borra lo que quede del recurso en otro pool o disco (entre paréntesis; las carpetas vacías también cuentan), y luego detén e inicia el array. Hace falta «Permitir shares exclusivos» (Ajustes → Recursos Compartidos)."
+  },
   "adv.public.title": {
     "one": "Abierto a todos en la red: {names}",
     "other": "{n} recursos compartidos abiertos a todos en la red: {names}"

@@ -142,7 +142,7 @@ function whereaboutsScan(bool $awake = false): array
         'license'     => waLicense(),
         'notices'     => waNotices(),
         'locations'   => waLocations($vms, $cron),
-        'advice'      => waAdvice(),
+        'advice'      => waAdvice($shares, $roots, $asleep),
     ];
     $state['duration_ms'] = (int) round((microtime(true) - $t0) * 1000);
     $GLOBALS['whereabouts'] = $state;
@@ -1182,8 +1182,10 @@ function waBackups(array $containers, array $scripts, array $backupScript): arra
  * What Ms. Whereabouts needs for her advice beyond what the tour knows
  * anyway: a few of Unraid's settings, read from its own files only (no disk
  * wakes up). The page turns these and the rest of the state into tips.
+ *
+ * @param array $shares what waShares() found (with $roots and $asleep of the same tour)
  */
-function waAdvice(): array
+function waAdvice(array $shares, array $roots, array $asleep): array
 {
     $ident = readCfg('/boot/config/ident.cfg');
     $share = readCfg('/boot/config/share.cfg');
@@ -1217,7 +1219,66 @@ function waAdvice(): array
         // kept after a crash: mirrored to the flash or sent to a syslog server (this one's own share too)
         'syslog_kept'    => ($syslog['syslog_flash'] ?? '') !== '' || trim((string) ($syslog['remote_server'] ?? '')) !== '',
         'cpu'            => waCpuMitigations(),
+        'exclusive'      => waExclusive($shares, $roots, $asleep, $share),
     ];
+}
+
+/**
+ * Exclusive shares (Settings → Global Share Settings → Permit exclusive shares,
+ * `shareUserExclusive` in share.cfg, changed only with the array stopped):
+ * /mnt/user/<share> becomes a symlink to /mnt/<pool>/<share>, past Unraid's
+ * FUSE layer (shfs). Unraid 7.3.2's help names three conditions — primary
+ * storage a pool, secondary storage none, the share on a single volume — and
+ * emhttpd decides at array start; shares.ini says `exclusive="yes|no"`, never why.
+ *
+ * Cheap on purpose: only what the tour knows anyway — share.cfg, the shares'
+ * settings and shares.ini (in $shares), and which awake pools and disks have a
+ * top folder of the share's name (waShares' is_dir; sleeping ones are never
+ * looked at, they are listed in `asleep`). No system.LOCATIONS, no du.
+ *
+ * @param array $shares   waShares()
+ * @param array $roots    waStorageRoots()
+ * @param array $asleep   sleepingDisks() (or [] right after waking them)
+ * @param array $shareCfg /boot/config/share.cfg
+ * @return array{permitted: bool, ready: list<string>, unclear: list<string>,
+ *               elsewhere: list<array{name: string, pool: string, where: list<string>}>,
+ *               overflow: list<array{name: string, pool: string, secondary: string, where: list<string>}>,
+ *               asleep: list<string>}
+ *   ready      not permitted: would become exclusive once it is (on their pool only, as far as seen)
+ *   unclear    permitted, on their pool only as far as seen, and still Unraid says no
+ *   elsewhere  permitted, settings qualify, but a folder of the share lies on another pool or disk too (`where`)
+ *   overflow   data meant to live on the pool (mover: secondary → primary) — only the secondary storage stands in the way
+ */
+function waExclusive(array $shares, array $roots, array $asleep, array $shareCfg): array
+{
+    $permitted = ($shareCfg['shareUserExclusive'] ?? 'no') === 'yes';
+    $out = ['permitted' => $permitted, 'ready' => [], 'unclear' => [], 'elsewhere' => [], 'overflow' => [],
+            'asleep' => array_values(array_filter(array_map('strval', array_keys($roots)), fn ($r) => $asleep[$r] ?? false))];
+    if (($shareCfg['shareUser'] ?? 'e') === '-') {
+        return $out;        // user shares off: there is no /mnt/user
+    }
+    foreach ($shares as $s) {
+        $name = (string) $s['name'];          // a numeric share name comes out of array_keys() as an int
+        $st = $s['storage'] ?? [];
+        $pool = (string) ($st['primary'] ?? 'array');
+        if (!empty($st['exclusive']) || !empty($st['missing']) || ($roots[$pool]['kind'] ?? '') !== 'pool') {
+            continue;
+        }
+        $onPool = in_array($pool, $st['pools'] ?? [], true);
+        $where = array_values(array_diff(array_merge($st['pools'] ?? [], $st['disks'] ?? []), [$pool]));
+        if (($st['use_cache'] ?? '') === 'only') {
+            if ($where) {
+                if ($permitted) {
+                    $out['elsewhere'][] = ['name' => $name, 'pool' => $pool, 'where' => $where];
+                }
+            } elseif ($onPool) {
+                $out[$permitted ? 'unclear' : 'ready'][] = $name;
+            }
+        } elseif (($st['use_cache'] ?? '') === 'prefer' && ($st['secondary'] ?? null) !== null && $onPool) {
+            $out['overflow'][] = ['name' => $name, 'pool' => $pool, 'secondary' => (string) $st['secondary'], 'where' => $where];
+        }
+    }
+    return $out;
 }
 
 /**

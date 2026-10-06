@@ -354,6 +354,15 @@ character, warnings and errors stay plain and clear.
   even an empty one — Jack Emby keeps such folders as signposts).
 * On a ZFS pool the top folder only sees its own (nearly empty) dataset:
   for how full the pool is take `zfs list -Hp -o used,avail <pool>`.
+* **Exclusive shares** (Settings → Global Share Settings → Permit exclusive shares, `shareUserExclusive` in
+  `/boot/config/share.cfg`, changeable only with the array stopped): `/mnt/user/<share>` is then a **symlink**
+  `../<pool>/<share>` to `/mnt/<pool>/<share>`, past shfs — for a share whose primary storage is a pool, secondary
+  none, and whose top folder exists on that one volume only (an empty folder of that name on another disk or pool is
+  enough to prevent it). emhttpd decides at array start; shares.ini says `exclusive="yes|no"`, never why (Ms.
+  Whereabouts' `waExclusive()`). On nostromo most pool shares are (appdata, system, domains …). Code that refuses
+  links must allow exactly this one — `/mnt/user/<share>` → `../<pool>/<share>` or `/mnt/<pool>/<share>`, the same
+  share name, a real folder there, like `advisorUnraidPath()` in agent/desks/advisor.php; `realpath()` gives the pool
+  path, `is_dir()` follows the link, `lstat()`/`is_link()` don't.
 
 * **Unraid's web stack:** php-fpm runs as root; nginx guards everything with
   `auth_request` (the login), also `/plugins/…`; `local_prepend.php` (prepended
