@@ -7,7 +7,8 @@
    starts on its own: crontabs, the plugins' .cron files, User Scripts, at,
    notification agents; the data flow: who pulls how much, containers, what is
    written into ZFS shares, SMB's users and machines — with a link to its
-   history in Grafana where the office's dashboard is). His rounds run on the
+   history in Grafana where the office's dashboard is; the snapshots he
+   follows: gone or released without the office). His rounds run on the
    server every five minutes, read only: agent/desks/watchman.php. Everything
    from his state goes into the page as text, never as HTML. */
 (() => {
@@ -189,6 +190,7 @@ function render() {
     [T('help.flow'), T('help.flow_text', flowLimits())],
     [T('help.flow_gone'), T('help.flow_gone_text', goneLimits())],
     [T('help.flow_not'), T('help.flow_not_text')],
+    [T('help.snaps'), T('help.snaps_text')],
     [T('help.grafana'), T('help.grafana_text')],
     [T('help.notify'), T('help.notify_text')],
     [T('help.safe'), T('help.safe_text')],
@@ -299,6 +301,7 @@ function postureSection() {
 function postureParams(x) {
   const p = { ...(x.p || {}) };
   if (Array.isArray(p.open)) p.open = p.open.map((v) => VULN[v] || v).join(', ') || '–';
+  if (x.id === 'flash') p.access = T('level.' + (p.level === 'public' ? 'public' : 'secure'));
   return p;
 }
 
@@ -419,7 +422,8 @@ function entryRow(e) {
   const when = el('span', '', fmt.date(e.last));
   when.dataset.tip = fmt.relative(e.last);
   meta.appendChild(when);
-  if (e.count > 1 && e.kind !== 'login_failures') meta.appendChild(el('span', '', T('times', { n: e.count })));
+  // snapshots: the count is how many, it stands in the words already
+  if (e.count > 1 && e.kind !== 'login_failures' && e.group !== 'snap') meta.appendChild(el('span', '', T('times', { n: e.count })));
   main.append(name, meta);
   r.appendChild(main);
   if (e.open) {
@@ -543,7 +547,7 @@ function details(e) {
   const p = e.p || {};
   add(T('detail.first'), fmt.date(e.time));
   if (e.last !== e.time) add(T('detail.last'), fmt.date(e.last));
-  if (e.count > 1) add(T('detail.count'), T('times', { n: e.count }));
+  if (e.count > 1 && e.group !== 'snap') add(T('detail.count'), T('times', { n: e.count }));
   if (e.group === 'login') {
     add(T('detail.ip'), p.ip, true);
     const users = (p.users || []).join(', ');
@@ -595,6 +599,14 @@ function details(e) {
       if (p.peak) add(T('detail.peak'), fmt.size(p.peak));
     }
     if (Array.isArray(p.hours) && p.hours.length) add(T('detail.hours'), p.hours.map(hourName).join(', '));
+  } else if (e.group === 'snap') {
+    add(T('detail.where'), `${p.where || '?'} (${p.fs === 'btrfs' ? 'btrfs' : 'ZFS'})`, true);
+    if ((p.datasets || []).length) add(T('detail.datasets'), lines(p.datasets));
+    add(T(e.kind === 'snap_gone' ? 'detail.snaps_gone' : 'detail.snaps_released'), lines(p.names, e.count));
+    if (p.held) add(T('detail.held'), T('detail.held_n', { n: p.held }));
+    if (p.fs !== 'btrfs') add(T('detail.history'), (p.history || []).length ? lines(p.history) : T('detail.history_none'));
+    add(T('detail.evidence'), (p.evidence || []).length ? lines(p.evidence) : T('detail.evidence_none_snap'));
+    if (e.kind === 'snap_gone' && (p.series || []).length) add(T('detail.series'), lines(p.series));
   } else if (e.group === 'sched') {
     if (p.file) add(T('detail.cron_file'), '/boot/config/plugins/' + p.file + (p.new ? ` (${T('detail.file_new')})` : ''), true);
     if (p.plugin) add(T('detail.plugin'), p.plugin);
@@ -717,6 +729,7 @@ function watchSection() {
     !sh ? T('watch.shares_wait') : sh.open.length ? T('watch.shares_sum', { open: sh.open.length, count: sh.count }) : T('watch.shares_none'),
     sh ? sh.open.map((x) => item(x.share, [x.smb ? `SMB: ${level(x.smb)}` : '', x.nfs ? `NFS: ${level(x.nfs)}` : ''])) : []));
   box.appendChild(schedGroup(w.sched));
+  box.appendChild(snapGroup(state.snaps));
   flowGroups(state.flow).forEach((g) => box.appendChild(g));
   const label = () => {
     unfold.textContent = watchGroups.some((x) => !x.open()) ? T('unfold_all') : T('fold_all');
@@ -747,6 +760,22 @@ function schedGroup(s) {
   const sum = T('watch.sched_sum', { lines: (s.crontab || []).length, files: (s.files || []).length,
     scripts: (s.scripts || []).length, agents: (s.agents || []).length });
   return group('sched', T('watch.sched'), sum, rows);
+}
+
+/** The snapshots he follows: per pool and disk how many, which sleep (compared once awake), the series you taught him */
+function snapGroup(s) {
+  if (!s) return group('snaps', T('watch.snaps'), T('watch.snaps_wait'), []);
+  const rows = [];
+  let total = 0;
+  Object.entries(s.zfs || {}).forEach(([pool, n]) => { total += n; rows.push(item(pool, ['ZFS', T('watch.snaps_n', { n })])); });
+  Object.entries(s.btrfs || {}).forEach(([disk, n]) => { total += n; rows.push(item(disk, ['btrfs', T('watch.snaps_n', { n })])); });
+  (s.asleep || []).forEach((x) => rows.push(item(x, [T('watch.snaps_asleep')])));
+  (s.capped || []).forEach((x) => rows.push(item(x, [T('watch.snaps_capped')])));
+  (s.series || []).forEach((x) => rows.push(item(x, [T('watch.snaps_learned')])));
+  const office = Object.values(s.expected || {}).reduce((a, b) => a + (Number(b) || 0), 0);
+  if (office) rows.push(item(T('watch.snaps_office'), [T('watch.snaps_office_n', { n: office })], null, true));
+  if (s.zfs === null && s.btrfs === null) rows.push(note(T('watch.snaps_none')));
+  return group('snaps', T('watch.snaps'), T('watch.snaps_sum', { n: total, places: Object.keys(s.zfs || {}).length + Object.keys(s.btrfs || {}).length }), rows);
 }
 
 // ------------------------------------------------------------------ data flow

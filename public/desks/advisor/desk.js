@@ -6,8 +6,9 @@
    how to install them by hand — and, the second offer, he installs them:
    plugins through Unraid's plugin manager, containers through Unraid's own
    «Add Container» form (the user clicks Apply), Kopia's repository with the
-   user's keys (through RAM only) and a recovery sheet made here in the
-   browser. The agent part lives in agent/desks/advisor.php. */
+   user's keys (through RAM only) — with ransomware protection (S3 Object Lock)
+   where the bucket keeps it — and a recovery sheet made here in the browser.
+   The agent part lives in agent/desks/advisor.php. */
 (() => {
 'use strict';
 
@@ -344,7 +345,32 @@ function howto(id, x) {
   });
   if (Object.values(values).some((v) => v.includes('<server-ip>'))) box.appendChild(el('div', 'ad-note', T('ip_unknown')));
   det.appendChild(box);
+  if (id === 'kopia') det.appendChild(lockGuide());
   return det;
+}
+
+/** Kopia by hand: ransomware protection with S3 Object Lock — what, why, who offers it, how, the price, after an attack */
+const LOCK_COPIES = {
+  create: 'kopia repository create s3 --bucket=<bucket> --endpoint=<endpoint> --access-key=<access key> --secret-access-key=<secret key> --retention-mode=COMPLIANCE --retention-period=30d',
+  extend: 'kopia maintenance set --extend-object-locks=true',
+  check: 'kopia repository status',
+};
+function lockGuide() {
+  const box = el('div', 'ad-lock-guide');
+  box.appendChild(el('div', 'field-title', T('lock.title')));
+  for (let i = 1; Office.has(`${ID}.lock.${i}`); i++) box.appendChild(el('p', 'ad-lock-p', T(`lock.${i}`, { days: 30 })));
+  const copies = el('div', 'ad-copies');
+  Object.entries(LOCK_COPIES).forEach(([key, value]) => {
+    const line = el('div', 'ad-copy');
+    const b = el('button', 'btn small plain', Office.t('common.copy'));
+    b.type = 'button';
+    b.onclick = () => Office.copy(value);
+    line.append(el('span', 'ad-copy-label', T(`copy.lock.${key}`)), el('code', '', value), b);
+    copies.appendChild(line);
+  });
+  box.appendChild(copies);
+  box.appendChild(callout(T('lock.minio'), true));
+  return box;
 }
 
 /**
@@ -414,7 +440,7 @@ function callout(text, warn) {
 
 function errorOf(j) {
   const e = j.error || { key: 'internal', params: {} };
-  if (e.key === 'ad_kopia_field') return T('errors.ad_kopia_field', { field: T(`kr.${(e.params || {}).field}`) });
+  if (e.key === 'ad_kopia_field') return T('errors.ad_kopia_field', { field: T(`kr.${(e.params || {}).field}`) });     // kr.lock_days too
   return Office.errorText(e, ID);
 }
 
@@ -632,7 +658,8 @@ function freshForm(x) {
   const folders = (x.kopia && x.kopia.folders) || [];
   return { mode: 'create', storage: 's3', provider: 's3', endpoint: '', region: '', bucket: '', prefix: '',
            path: folders.length ? folders[0].target.replace(/\/$/, '') + '/kopia-repository' : '', client: '',
-           access_key: '', secret_key: '', password: '', password2: '', generated: false, x };
+           access_key: '', secret_key: '', password: '', password2: '', generated: false, x,
+           lock: null, lockOn: false, lockDays: 30 };
 }
 
 /** Forget what was typed (as far as the browser lets us) */
@@ -747,15 +774,90 @@ function kopiaForm(x, form, problem) {
     onClose: () => { if (!done) wipe(form); },
     buttons: [
       { text: Office.t('common.cancel') },
-      { text: T('kr.check'), kind: '', act: () => {
+      { text: T('kr.check'), kind: '', act: async () => {
         const bad = kopiaCheck(form);
-        if (bad) { msg.textContent = bad; msg.hidden = false; return false; }
+        if (bad) { msg.className = 'callout warn'; msg.textContent = bad; msg.hidden = false; return false; }
+        form.lock = null;
+        if (form.storage === 's3' && form.mode === 'create') {
+          // a new repository in S3: ask the bucket whether it keeps Object Lock (the keys through RAM, like the setup itself)
+          msg.className = 'callout';
+          msg.textContent = T('kr.lock_asking');
+          msg.hidden = false;
+          const j = await Office.api.post('advisor.kopia_repo', { step: 'probe', ...requestFields(form),
+            secret: { access_key: form.access_key.trim(), secret_key: form.secret_key.trim() } });
+          if (!j.ok) { msg.className = 'callout warn'; msg.textContent = errorOf(j); return false; }
+          form.lock = j.lock || { state: 'unknown', why: 'other' };
+          const range = form.lock.range || [30, 7, 365];
+          form.lockOn = form.lock.state === 'enabled';
+          form.lockDays = form.lock.days >= range[1] && form.lock.days <= range[2] ? form.lock.days : range[0];
+        }
         done = true;
         setTimeout(() => kopiaPreview(form), 0);
         return true;
       } },
     ],
   });
+}
+
+/** The request's fields without the secrets */
+function requestFields(form) {
+  return { mode: form.mode, storage: form.storage, provider: form.provider, endpoint: form.endpoint.trim(), region: form.region.trim(),
+    bucket: form.bucket.trim(), prefix: form.prefix.trim(), path: form.path.trim(), client: form.client.trim() };
+}
+
+/**
+ * The preview's ransomware protection (a new repository in S3): what the bucket said — Object Lock there:
+ * on (compliance) for so many days, with the price; made without it: where providers switch it on; a
+ * provider without it: said plainly; couldn't ask: why, and no offer
+ */
+function lockBox(form) {
+  const l = form.lock || { state: 'unknown', why: 'other' };
+  const [, min, max] = l.range || [30, 7, 365];
+  const box = el('div', 'ad-lock');
+  box.appendChild(el('div', 'field-title', T('kr.lock')));
+  if (l.state === 'enabled') {
+    const label = el('label', 'check');
+    const cb = el('input');
+    cb.type = 'checkbox';
+    cb.checked = form.lockOn;
+    const span = el('span', '', T('kr.lock_on'));
+    span.appendChild(el('small', '', T('kr.lock_hint')));
+    label.append(cb, span);
+    const days = el('input', 'input ad-days');
+    days.type = 'number';
+    days.min = String(min);
+    days.max = String(max);
+    days.step = '1';
+    days.value = String(form.lockDays);
+    const f = el('div', 'field');
+    f.append(el('label', '', T('kr.lock_days')), days, el('small', '', T('kr.lock_days_hint', { min, max })));
+    const cost = callout('');
+    const show = () => {
+      f.hidden = !form.lockOn;
+      cost.hidden = !form.lockOn;
+      cost.textContent = T('kr.lock_cost', { days: Number(form.lockDays) || 30 });
+    };
+    cb.onchange = () => { form.lockOn = cb.checked; show(); };
+    days.oninput = () => { form.lockDays = days.value.trim() === '' ? '' : Number(days.value); show(); };
+    box.append(label, f, cost);
+    if (l.mode && l.days) box.appendChild(el('p', 'ad-note', T('kr.lock_default', { mode: l.mode, days: l.days })));
+    show();
+  } else if (l.state === 'off') {
+    box.appendChild(callout(T('kr.lock_off')));
+  } else if (l.state === 'unsupported') {
+    box.appendChild(callout(T('kr.lock_unsupported', { provider: PROVIDER_NAMES[form.provider] || T('kr.lock_this') })));
+  } else {
+    const why = ['keys', 'denied', 'no_bucket', 'unreachable'].includes(l.why) ? l.why : 'other';
+    box.appendChild(callout(T('kr.lock_unknown', { why: T(`kr.why_${why}`, { bucket: form.bucket.trim(), endpoint: form.endpoint.trim(), code: String(l.code || '?') }) }), true));
+  }
+  return box;
+}
+
+/** Days kept that will do, or null */
+function lockDaysOk(form) {
+  const [, min, max] = (form.lock && form.lock.range) || [30, 7, 365];
+  const d = Number(form.lockDays);
+  return Number.isInteger(d) && d >= min && d <= max ? d : null;
 }
 
 /** What the page can tell before sending: missing fields, the passwords, the endpoint's shape */
@@ -786,6 +888,10 @@ function kopiaPreview(form) {
   rows.push([T('kr.password'), '••••••••']);
   if (form.mode === 'connect' && form.client.trim()) rows.push([T('kr.client'), form.client.trim()]);
   box.appendChild(props(rows));
+  if (form.storage === 's3' && form.mode === 'create') box.appendChild(lockBox(form));
+  const bad = callout('', true);
+  bad.hidden = true;
+  box.appendChild(bad);
   box.appendChild(callout(T('kr.restart')));
   box.appendChild(el('p', 'ad-note', T('kr.keeps', { config: (x.kopia && x.kopia.config) || '/config' })));
   Office.dialog({
@@ -795,13 +901,17 @@ function kopiaPreview(form) {
     buttons: [
       { text: T('kr.back'), act: () => { done = true; setTimeout(() => kopiaForm(x, form), 0); return true; } },
       { text: T(form.mode === 'create' ? 'kr.go_create' : 'kr.go_connect'), kind: '', act: async () => {
+        const locked = form.storage === 's3' && form.mode === 'create' && form.lock && form.lock.state === 'enabled' && form.lockOn;
+        if (locked && lockDaysOk(form) === null) {
+          const [, min, max] = form.lock.range || [30, 7, 365];
+          bad.textContent = T('kr.lock_days_bad', { min, max });
+          bad.hidden = false;
+          return false;
+        }
         const secret = { password: form.password };
         if (form.storage === 's3') { secret.access_key = form.access_key.trim(); secret.secret_key = form.secret_key.trim(); }
         // the web side takes "secret" out of the request and hands it to the agent through RAM only (src/api.php)
-        const j = await Office.api.post('advisor.kopia_repo', {
-          mode: form.mode, storage: form.storage, provider: form.provider, endpoint: form.endpoint.trim(), region: form.region.trim(),
-          bucket: form.bucket.trim(), prefix: form.prefix.trim(), path: form.path.trim(), client: form.client.trim(), secret,
-        });
+        const j = await Office.api.post('advisor.kopia_repo', { ...requestFields(form), lock_days: locked ? lockDaysOk(form) : '', secret });
         done = true;
         if (!j.ok) { setTimeout(() => kopiaForm(x, form, errorOf(j)), 0); return true; }
         await afterAction(j);
@@ -818,6 +928,16 @@ function kopiaDone(form, facts, warned = false) {
   let leaving = false;
   const box = el('div');
   box.appendChild(callout(T('kr.done')));
+  const lk = facts.lock;
+  if (lk && lk.mode) {
+    // ransomware protection: switched on now, or what the existing repository keeps (its format)
+    const words = form.mode === 'create' ? T('kr.lock_done', { mode: lk.mode, days: lk.days })
+      : T('kr.lock_has', { mode: lk.mode, days: lk.days }) + (lk.extend ? ' ' + T('kr.lock_extends') : '');
+    box.appendChild(callout(words));
+    if (lk.extend === false) box.appendChild(callout(T('kr.lock_extend_no', { days: lk.days }), true));
+  } else if (lk && facts.storage === 's3') {
+    box.appendChild(el('p', 'ad-note', T('kr.lock_none')));
+  }
   box.appendChild(el('p', '', T('kr.sheet_hint')));
   const sheet = el('button', 'btn', T('do.sheet'));
   sheet.type = 'button';
@@ -938,6 +1058,7 @@ function sheetInto(w, form, f) {
     !s3 && [T('sheet.path_container'), f.path], !s3 && [T('sheet.path_host'), f.path_host],
     [T('kr.password'), form.password, true],
     [T('sheet.client'), f.client],
+    s3 && f.lock && [T('sheet.lock'), f.lock.mode ? T('sheet.lock_on', { mode: f.lock.mode, days: f.lock.days }) : T('sheet.lock_off')],
   ]);
   section(T('sheet.kopia'), [
     [T('sheet.container'), f.container], [T('sheet.image'), f.image], [T('sheet.version'), f.version],
@@ -952,7 +1073,8 @@ function sheetInto(w, form, f) {
   const hostPath = (f.sources && f.sources.host) || '/mnt/addons/UnraidSecretaryOffice/snapshots';
   [T('sheet.step1', { image: f.image || 'ghcr.io/imagegenius/kopia' }), T('sheet.step2', { target, host: hostPath }),
    !s3 && T('sheet.step_fs', { path: f.path, host: f.path_host }),
-   T('sheet.step3', { client: f.client || 'root@kopia' }), T('sheet.step4')].filter(Boolean).forEach((x) => ol.appendChild(mk('li', '', x)));
+   T('sheet.step3', { client: f.client || 'root@kopia' }), T('sheet.step4'),
+   s3 && f.lock && f.lock.mode && T('sheet.step_lock', { days: f.lock.days })].filter(Boolean).forEach((x) => ol.appendChild(mk('li', '', x)));
   main.appendChild(ol);
   main.appendChild(mk('p', '', T('sheet.cli')));
   const cli = s3

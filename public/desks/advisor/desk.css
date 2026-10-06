@@ -23,6 +23,11 @@ pre.code.ad-output{min-height:120px; max-height:min(50vh, 420px)}
 .ad-pw{display:flex; gap:6px; align-items:center}
 .ad-pw .input{flex:1 1 auto; min-width:0}
 .dialog-body .field-title{margin:4px 0 6px}
+/* ransomware protection: the preview's choice, the guide by hand */
+.ad-lock{margin:4px 0 12px; display:flex; flex-direction:column; gap:8px}
+.ad-lock .input.ad-days{width:8em; max-width:100%}
+.ad-lock-guide{margin-top:12px; padding-top:10px; border-top:1px dashed var(--line); display:flex; flex-direction:column; gap:6px}
+.ad-lock-p{margin:0; font-size:13px; line-height:1.5; color:var(--ink2)}
 /* the recovery sheet: a page of its own in a frame over everything (printing the frame prints only the sheet) */
 .ad-sheet-overlay{position:fixed; inset:0; z-index:10035; display:flex; flex-direction:column; background:var(--surface)}
 .ad-sheet-bar{display:flex; gap:8px; align-items:center; padding:10px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap}

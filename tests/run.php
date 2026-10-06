@@ -3572,6 +3572,71 @@ function testUpdateClean(): void
 }
 
 /**
+ * Ransomware protection: does the bucket keep S3 Object Lock? AWS's own Signature V4 example, the region
+ * an endpoint names, what each answer means (enabled / off / unsupported / unknown and why), how the
+ * request is made (Amazon virtual-hosted and signed again for the bucket's region, elsewhere path style)
+ */
+function testAdvisorObjectLock(): void
+{
+    $e = hash('sha256', '');
+    same('s3 signature: AWS\'s own example (GET Bucket Lifecycle, 2013-05-24)',
+        'AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, '
+        . 'Signature=fea454ca298b7da1c68078a5d1bdbfbbe0d65c699e0f91ac7a200a0136783543',
+        advisorS3Sign('GET', '/', ['lifecycle' => ''], ['host' => 'examplebucket.s3.amazonaws.com', 'x-amz-date' => '20130524T000000Z', 'x-amz-content-sha256' => $e],
+            'AKIAIOSFODNN7EXAMPLE', 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY', 'us-east-1', '20130524T000000Z'));
+    same('s3 region: from the endpoint', ['eu-central-1', 'eu-central-003', 'eu-central-2', 'us-east-1', 'eu-central-1', 'fsn1', null, 'us-west-2'],
+        array_map('advisorS3Region', ['s3.eu-central-1.amazonaws.com', 's3.eu-central-003.backblazeb2.com', 's3.eu-central-2.wasabisys.com', 's3.amazonaws.com',
+            's3.eu-central-1.s4.mega.io', 'fsn1.your-objectstorage.com', 'minio.lan:9000', 's3.dualstack.us-west-2.amazonaws.com']));
+
+    $ans = fn (int $status, string $body, array $headers = []) => ['status' => $status, 'headers' => $headers, 'body' => $body, 'error' => $status ? null : 'timeout'];
+    $err = fn (string $code) => "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Error><Code>$code</Code><Message>x</Message></Error>";
+    $on = '<ObjectLockConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><ObjectLockEnabled>Enabled</ObjectLockEnabled>';
+    foreach ([
+        'enabled, with the bucket\'s own rule' => [$ans(200, "$on<Rule><DefaultRetention><Mode>GOVERNANCE</Mode><Days>14</Days></DefaultRetention></Rule></ObjectLockConfiguration>"), 's3',
+                                                  ['state' => 'enabled', 'mode' => 'GOVERNANCE', 'days' => 14]],
+        'enabled, a rule in years'            => [$ans(200, "$on<Rule><DefaultRetention><Mode>COMPLIANCE</Mode><Years>1</Years></DefaultRetention></Rule></ObjectLockConfiguration>"), 'aws',
+                                                  ['state' => 'enabled', 'mode' => 'COMPLIANCE', 'days' => 365]],
+        'enabled, no rule'                    => [$ans(200, "$on</ObjectLockConfiguration>"), 'b2', ['state' => 'enabled', 'mode' => null, 'days' => null]],
+        'off: the bucket made without it'     => [$ans(404, $err('ObjectLockConfigurationNotFoundError')), 'aws', ['state' => 'off']],
+        'off: a configuration, not enabled'   => [$ans(200, '<ObjectLockConfiguration></ObjectLockConfiguration>'), 'minio', ['state' => 'off']],
+        'unsupported: not implemented'        => [$ans(501, $err('NotImplemented')), 's3', ['state' => 'unsupported']],
+        'unsupported: answered with a listing' => [$ans(200, '<ListBucketResult><Name>b1</Name></ListBucketResult>'), 's3', ['state' => 'unsupported']],
+        'unsupported: MEGA S4, an unclear no' => [$ans(403, $err('AccessDenied')), 'mega', ['state' => 'unsupported']],
+        'unknown: the keys refused'           => [$ans(403, $err('SignatureDoesNotMatch')), 'mega', ['state' => 'unknown', 'why' => 'keys']],
+        'unknown: not allowed to read it'     => [$ans(403, $err('AccessDenied')), 'b2', ['state' => 'unknown', 'why' => 'denied']],
+        'unknown: no such bucket'             => [$ans(404, $err('NoSuchBucket')), 'wasabi', ['state' => 'unknown', 'why' => 'no_bucket']],
+        'unknown: no answer'                  => [$ans(0, ''), 's3', ['state' => 'unknown', 'why' => 'unreachable']],
+        'unknown: something else'             => [$ans(500, $err('InternalError')), 's3', ['state' => 'unknown', 'why' => 'other', 'code' => 'InternalError']],
+    ] as $what => [$answer, $provider, $want]) {
+        same("object lock: $what", $want, advisorObjectLockState($answer, $provider));
+    }
+
+    // Amazon: virtual-hosted; signed for us-east-1 first, then for the region the bucket names
+    $seen = [];
+    $http = function (string $url, array $h) use (&$seen, $ans, $err, $on): array {
+        $seen[] = [$url, $h];
+        return count($seen) === 1 ? $ans(400, $err('AuthorizationHeaderMalformed') . '<Region>eu-west-1</Region>', ['x-amz-bucket-region' => 'eu-west-1'])
+            : $ans(200, "$on</ObjectLockConfiguration>");
+    };
+    $keys = ['access' => 'AKIATEST', 'secret' => 'never-in-a-request'];
+    $r = advisorObjectLock(['provider' => 'aws', 'endpoint' => 's3.amazonaws.com', 'region' => null, 'bucket' => 'my-backups'] + $keys, $http);
+    $region = fn (int $i) => preg_match('#/\d{8}/([a-z0-9-]+)/s3/aws4_request#', (string) ($seen[$i][1]['Authorization'] ?? ''), $m) ? $m[1] : null;
+    same('object lock on Amazon: virtual-hosted, signed again for the bucket\'s region, the secret key in no request',
+        ['enabled', 'https://my-backups.s3.amazonaws.com/?object-lock', 'us-east-1', 'eu-west-1', false, true],
+        [$r['state'], $seen[0][0] ?? null, $region(0), $region(1), str_contains(json_encode($seen), 'never-in-a-request'),
+         (bool) preg_match('/^\d{8}T\d{6}Z$/D', (string) ($seen[0][1]['x-amz-date'] ?? ''))]);
+    $seen = [];
+    advisorObjectLock(['provider' => 'minio', 'endpoint' => 'minio.lan:9000', 'region' => null, 'bucket' => 'b.with.dots'] + $keys,
+        function (string $url, array $h) use (&$seen, $ans): array {
+            $seen[] = [$url, $h];
+            return $ans(404, '<Error><Code>ObjectLockConfigurationNotFoundError</Code></Error>');
+        });
+    same('object lock elsewhere: path style, the host with its port, asked once', ['https://minio.lan:9000/b.with.dots?object-lock', 1, 'us-east-1'],
+        [$seen[0][0] ?? null, count($seen), $region(0)]);
+    same('object lock: https only, never anything else', 'no curl', advisorHttps('http://example.test/', [])['error']);
+}
+
+/**
  * The Consultant's Kopia setup: the user's keys and password go from the web side through a RAM
  * file (gone once read) to Kopia's stdin — end to end with a stand-in for docker and Kopia: no
  * secret in any file but that one (and Kopia's own config), in no log, no state, no answer, no ps.
@@ -3645,6 +3710,9 @@ function testAdvisorSecrets(): void
         . "case \"\$1\" in restart) exit 0;; exec) shift; [ \"\$1\" = -i ] && shift; shift; PATH=\"$bin:\$PATH\" exec \"\$@\";; esac\nexit 1\n");
     file_put_contents("$bin/kopia", "#!/bin/sh\n# stand-in for Kopia\n"
         . "[ \"\$1\" = --version ] && { echo '0.99.0 build: stand-in'; exit 0; }\n"
+        . "[ \"\$1\" = maintenance ] && { printf '%s\\n' \"\$*\" >> '$tmp/maint.txt'; [ \"\$2\" = info ] && echo '{\"extendObjectLocks\":true}'; exit 0; }\n"
+        . "[ \"\$1\" = repository ] && [ \"\$2\" = status ] && { if [ -e '$tmp/locked' ]; then echo '{\"blobRetention\":{\"retentionMode\":\"COMPLIANCE\",\"retentionPeriod\":2592000000000000}}'; "
+        . "else echo '{\"blobRetention\":{}}'; fi; exit 0; }\n"
         . "ps -eo args > '$tmp/ps.txt'\n"
         . "printf '%s\\n' \"\$*\" > '$tmp/args.txt'\n"
         . "for v in \"\$KOPIA_PASSWORD\" \"\$AWS_ACCESS_KEY_ID\" \"\$AWS_SECRET_ACCESS_KEY\"; do printf '%s' \"\$v\" | sha256sum | cut -c1-64; done > '$tmp/got.txt'\n"
@@ -3676,6 +3744,7 @@ function testAdvisorSecrets(): void
          $answer['facts']['version'] ?? null, $answer['facts']['provider'] ?? null]);
     $ps = (string) @file_get_contents("$tmp/ps.txt");
     check('secret e2e: ps was looked at while Kopia ran', str_contains($ps, 'repository create s3'));
+    same('secret e2e: the repository\'s format says it — no Object Lock', ['mode' => null], $answer['facts']['lock'] ?? 'not said');
 
     // … and the second time a connect that fails, Kopia repeating the password: cleaned out of the answer
     file_put_contents("$inbox/" . ($ref2 = str_repeat('d', 32)) . '.secret', json_encode($secrets));
@@ -3690,7 +3759,59 @@ function testAdvisorSecrets(): void
     $said = (string) ($fail?->params['output'] ?? '');
     check('secret e2e: its words without the password', str_contains($said, 'invalid repository password •••') && !str_contains($said, $secrets['password']));
     same('secret e2e: the RAM file is gone after a failure too', [], glob("$inbox/*") ?: []);
+
+    // ransomware protection: asking the bucket about Object Lock (step probe) — the keys through RAM, signed here, nothing created …
+    $requests = [];
+    $bucketSays = ['status' => 200, 'headers' => [], 'error' => null,
+                   'body' => '<?xml version="1.0"?><ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>'];
+    $http = function (string $url, array $headers) use (&$requests, &$bucketSays): array {
+        $requests[] = [$url, $headers];
+        return $bucketSays;
+    };
+    $stash = function (string $ref, array $sec) use ($inbox): string {
+        file_put_contents("$inbox/$ref.secret", json_encode($sec));
+        chmod("$inbox/$ref.secret", 0600);
+        return $ref;
+    };
+    @unlink("$tmp/args.txt");
+    $probe = advisorKopiaRepo(['step' => 'probe', 'secret_ref' => $stash(str_repeat('e', 32), ['access_key' => $secrets['access_key'], 'secret_key' => $secrets['secret_key']])]
+        + $request, $inbox, $target, $http);
+    $auth = (string) ($requests[0][1]['Authorization'] ?? '');
+    same('lock probe: the bucket keeps it — offered, 30 days (7 to 365); nothing created; the RAM file gone',
+        ['enabled', [ADVISOR_LOCK_DAYS, ADVISOR_LOCK_MIN, ADVISOR_LOCK_MAX], false, []], [$probe['lock']['state'] ?? null, $probe['lock']['range'] ?? null, is_file("$tmp/args.txt"), glob("$inbox/*") ?: []]);
+    same('lock probe: one signed GET ?object-lock to the endpoint typed (path style), only the access key ID in it', ['https://s3.example.test/b1?object-lock', 1, true],
+        [$requests[0][0] ?? null, count($requests), str_starts_with($auth, 'AWS4-HMAC-SHA256 Credential=' . $secrets['access_key'] . '/')]);
+    // … a new repository with it: asked again, created with COMPLIANCE for 30 days, the locks extended at maintenance …
+    touch("$tmp/locked");
+    $lockAnswer = advisorKopiaRepo(['lock_days' => '30', 'secret_ref' => $stash(str_repeat('f', 32), $secrets)] + $request, $inbox, $target, $http);
+    same('lock create: Kopia\'s arguments — the retention, still no secret among them',
+        'repository create s3 --bucket=b1 --endpoint=s3.example.test --prefix=unraid/ --retention-mode=COMPLIANCE --retention-period=30d --persist-credentials',
+        trim((string) @file_get_contents("$tmp/args.txt")));
+    same('lock create: the bucket asked again first, Kopia told to extend the locks, the facts say so (for the sheet)',
+        [2, 'maintenance set --extend-object-locks=true', ['mode' => 'COMPLIANCE', 'days' => 30, 'extend' => true]],
+        [count($requests), trim((string) @file_get_contents("$tmp/maint.txt")), $lockAnswer['facts']['lock'] ?? null]);
+    $connectLock = advisorKopiaLock("$bin/docker", 'kopia-standin', null);
+    unlink("$tmp/locked");
+    same('lock connect: an existing repository\'s lock read from its format, whether Kopia extends it from its maintenance',
+        [['mode' => 'COMPLIANCE', 'days' => 30, 'extend' => true], ['mode' => null]], [$connectLock, advisorKopiaLock("$bin/docker", 'kopia-standin', null)]);
+    // … and a bucket that says no on the second look: nothing created
+    $bucketSays = ['status' => 404, 'headers' => [], 'error' => null, 'body' => '<Error><Code>ObjectLockConfigurationNotFoundError</Code></Error>'];
+    @unlink("$tmp/args.txt");
+    try {
+        advisorKopiaRepo(['lock_days' => 30, 'secret_ref' => $stash(str_repeat('0', 32), $secrets)] + $request, $inbox, $target, $http);
+        $lockFail = null;
+    } catch (Problem $p) {
+        $lockFail = $p->key;
+    }
+    same('lock create: no Object Lock on the second look — refused before Kopia, the RAM file gone', ['ad_lock_off', false, []], [$lockFail, is_file("$tmp/args.txt"), glob("$inbox/*") ?: []]);
     $leaks = [];
+    foreach ($requests as [$url, $headers]) {
+        foreach (['secret_key', 'password'] as $k) {
+            if (str_contains($url . json_encode($headers), $secrets[$k])) {
+                $leaks[] = "$k in a request to the bucket";
+            }
+        }
+    }
     $look = function (string $dir) use (&$look, &$leaks, $secrets, $tmp) {
         foreach (array_diff(scandir($dir) ?: [], ['.', '..']) as $n) {
             $path = "$dir/$n";
@@ -3715,7 +3836,7 @@ function testAdvisorSecrets(): void
         if (str_contains($ps, $v)) {
             $leaks[] = "$k in ps";
         }
-        if (str_contains(json_encode([$answer, $fail?->params]), $v)) {
+        if (str_contains(json_encode([$answer, $fail?->params, $probe, $lockAnswer]), $v)) {
             $leaks[] = "$k in an answer";
         }
     }
@@ -3733,7 +3854,9 @@ function testAdvisorSecrets(): void
               ['prefix', ['prefix' => '../x']], ['prefix', ['prefix' => '/abs']], ['mode', ['mode' => 'delete']], ['region', ['region' => 'eu central']],
               ['password', [], ['password' => 'short']], ['password', [], ['password' => "two\nlines-password"]], ['secret_key', [], ['secret_key' => 'with space key']],
               ['path', ['storage' => 'filesystem', 'path' => '/config/repo']], ['path', ['storage' => 'filesystem', 'path' => '/local/../etc']],
-              ['client', ['mode' => 'connect', 'client' => 'root@kopia; rm']]] as $case) {
+              ['client', ['mode' => 'connect', 'client' => 'root@kopia; rm']], ['lock_days', ['lock_days' => '6']], ['lock_days', ['lock_days' => '366']],
+              ['lock_days', ['lock_days' => '30d']], ['lock_days', ['mode' => 'connect', 'lock_days' => 30]],
+              ['lock_days', ['storage' => 'filesystem', 'path' => '/local/repo', 'lock_days' => 30]]] as $case) {
         [$want, $over, $sec] = $case + [2 => []];
         try {
             advisorKopiaSpec($over + $base, $sec + $good, $k);
@@ -3746,6 +3869,9 @@ function testAdvisorSecrets(): void
     same('kopia field: a folder under a writable path', ['/local/repo', '/mnt/disks/usb/kopia/repo', ['create', 'filesystem', '--path=/local/repo', '--persist-credentials']],
         [$fs['path'], $fs['path_host'], $fs['args']]);
     same('kopia field: connect with another user@host', 'root@nostromo', advisorKopiaSpec(['mode' => 'connect', 'client' => 'root@nostromo'] + $base, $good, $k)['client']);
+    $locked = advisorKopiaSpec(['lock_days' => '45'] + $base, $good, $k);
+    same('kopia field: Object Lock for 45 days', [['mode' => 'COMPLIANCE', 'days' => 45], ['create', 's3', '--bucket=b1', '--endpoint=s3.example.test', '--retention-mode=COMPLIANCE', '--retention-period=45d', '--persist-credentials']],
+        [$locked['lock'], $locked['args']]);
     hardeningRm($tmp);
 }
 
@@ -3969,10 +4095,19 @@ function testWatchmanPosture(): void
     same('posture: before his first round — nothing to show', null, watchmanPageState($data, $now, false)['posture']);
     $round(0);
     $t = $tips();
-    same('posture: his tips, in the order of his page', ['public', 'telnet', 'ftp', 'mitigations_off', 'vmscape', 'privileged'], array_keys($t));
-    same('posture: shares open to everyone — a user share (SMB, NFS) and a disk; the flash for reading only and one not exported are not',
+    same('posture: his tips, in the order of his page', ['flash', 'public', 'telnet', 'ftp', 'mitigations_off', 'vmscape', 'privileged'], array_keys($t));
+    same('posture: shares open to everyone — a user share (SMB, NFS) and a disk; the flash (its own tip) and one not exported are not',
         [['names' => 'Media (SMB), Media (NFS), disk1 (SMB)', 'n' => 2], ['to' => 'share', 'name' => 'Media', 'path' => '/Shares/Share?name=Media'], 'advice'],
         [$t['public']['p'], $t['public']['link'], $t['public']['level']]);
+    same('posture: the flash exported to guests for reading only is advice too (password hashes, SSH keys), with its page',
+        [['proto' => 'SMB', 'level' => 'secure'], ['to' => 'flash', 'path' => '/Main/Boot?name=flash'], 'advice'],
+        [$t['flash']['p'], $t['flash']['link'], $t['flash']['level']]);
+    $flashTip = fn (array $shares) => array_column(watchmanPosture([], ['shares' => $shares]), null, 'id');
+    $both = $flashTip(['flash' => ['smb' => 2, 'nfs' => 1], 'Photos' => ['smb' => 1, 'nfs' => 0]]);
+    same('posture: the flash for writing over SMB and reading over NFS — one tip of its own, never among the public shares; a user share «Secure» has none',
+        [['flash'], ['proto' => 'SMB, NFS', 'level' => 'public']], [array_keys($both), $both['flash']['p'] ?? null]);
+    check('posture: the flash tip comes back when its access changes', ($both['flash']['sig'] ?? 1) !== ($flashTip(['flash' => ['smb' => 1, 'nfs' => 0]])['flash']['sig'] ?? 2));
+    same('posture: the flash not exported — no tip', [], $flashTip(['flash' => ['smb' => 0, 'nfs' => 0]]));
     same('posture: links into Unraid — a disk\'s page, the boot device\'s for the flash',
         ['/Shares/Disk?name=disk1', '/Main/Boot?name=flash', '/Shares/Share?name=My%20Share'],
         [watchmanShareLink('disk1', ['disk1', 'flash']), watchmanShareLink('flash', []), watchmanShareLink('My Share', ['disk1'])]);
@@ -3982,10 +4117,10 @@ function testWatchmanPosture(): void
         [$t['mitigations_off']['p'], $t['vmscape']['p'], $t['mitigations_off']['link']['path']]);
     same('posture: a privileged container — good to know', [['names' => 'vpn', 'n' => 1], 'info'], [$t['privileged']['p'], $t['privileged']['level']]);
     $page = watchmanPageState($data, $now + 10, false);
-    same('posture: on the page — nobody knows them yet, five of his advice open', [5, [false]], [$page['posture']['open'], array_values(array_unique(array_column($page['posture']['tips'], 'known')))]);
+    same('posture: on the page — nobody knows them yet, six of his advice open', [6, [false]], [$page['posture']['open'], array_values(array_unique(array_column($page['posture']['tips'], 'known')))]);
     check('posture: no signatures on the page', !str_contains(json_encode($page['posture']), 'sig'));
     $hint = array_column(watchmanChecks($data), null, 'id');
-    same('posture: the team lead hears it as good to know, next to "quiet"', [true, 'hint', null, 5, '#/watchman'],
+    same('posture: the team lead hears it as good to know, next to "quiet"', [true, 'hint', null, 6, '#/watchman'],
         [isset($hint['quiet']), $hint['posture']['level'] ?? null, array_key_exists('ok', $hint['posture'] ?? []) ? $hint['posture']['ok'] : 'x',
          $hint['posture']['params']['n'] ?? null, $hint['posture']['link'] ?? null]);
     same('posture: never in the watch book', ['watch'], array_column(watchmanLoad($data)['book'], 'kind'));
@@ -3994,8 +4129,8 @@ function testWatchmanPosture(): void
     watchmanPostureAck('telnet', true, $data, $now + 20, false);
     watchmanPostureAck('public', true, $data, $now + 21, false);
     $page = watchmanPageState($data, $now + 30, false);
-    same('posture ack: known, counted no more', [true, true, false, 3], [$tips(30)['telnet']['known'], $tips(30)['public']['known'], $tips(30)['ftp']['known'], $page['posture']['open']]);
-    same('posture ack: the team lead\'s hint follows', 3, array_column(watchmanChecks($data), null, 'id')['posture']['params']['n'] ?? null);
+    same('posture ack: known, counted no more', [true, true, false, 4], [$tips(30)['telnet']['known'], $tips(30)['public']['known'], $tips(30)['ftp']['known'], $page['posture']['open']]);
+    same('posture ack: the team lead\'s hint follows', 4, array_column(watchmanChecks($data), null, 'id')['posture']['params']['n'] ?? null);
     $round(300);
     same('posture: the next round, the same — still known', [true, true], [$tips(310)['telnet']['known'], $tips(310)['public']['known']]);
     same('posture: VMs counted by libvirt (virsh list --all), never a look into libvirt.img', [1, null, 0],
@@ -4030,7 +4165,7 @@ function testWatchmanPosture(): void
     $vulns(['vmscape' => 'Mitigation: IBPB before exit to userspace', 'spectre_v2' => 'Mitigation: Enhanced IBRS']);
     $containers['vpn']['tokens'] = ['--cap-add=NET_ADMIN'];
     $round(1200);
-    same('posture: FTP left to Fix Common Problems, the CPU protected, no privileged container any more', ['public', 'telnet', 'mitigations_on'], array_keys($tips(1210)));
+    same('posture: FTP left to Fix Common Problems, the CPU protected, no privileged container any more', ['flash', 'public', 'telnet', 'mitigations_on'], array_keys($tips(1210)));
     same('posture: the CPU on — which model, good to know', [['cpu' => 'Intel(R) Core(TM) Ultra 7 265K'], 'info'], [$tips(1210)['mitigations_on']['p'], $tips(1210)['mitigations_on']['level']]);
     foreach ([['nothing', true, 'bad_request'], ['telnet', 'yes', 'bad_request'], ['vmscape', true, 'watch_tip_gone']] as [$id, $on, $want]) {
         try {
@@ -4090,10 +4225,193 @@ function testWatchmanPosture(): void
     foreach (array_keys(WATCH_POSTURE) as $id) {
         check("watchman: texts for posture tip $id", isset($en["posture.$id.title"], $en["posture.$id.why"]));
     }
-    foreach (['share', 'access', 'ftp', 'docker', 'boot'] as $to) {
+    foreach (['share', 'flash', 'access', 'ftp', 'docker', 'boot'] as $to) {
         check("watchman: link label posture.to_$to", isset($en["posture.to_$to"]));
     }
     @unlink(watchmanLockFile($data, 'book'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Snapshots that vanish: round against round, ZFS of the awake pools and the btrfs snapshot folders of the
+ * awake disks — what the office removed itself (Ms. Snapshotini's log, the engine's retention during its
+ * run, renamed, the storeroom) is no news; the rest is snap_gone with zpool history and the syslog; a hold
+ * released not by Ms. Snapshotini is snap_hold_released; a pool asleep is never "gone"; «I know, thanks»
+ * teaches a series
+ */
+function testWatchmanSnaps(): void
+{
+    $now = strtotime('2026-10-06 12:00:00');
+    $tmp = sys_get_temp_dir() . '/office-tests-snaps-' . getmypid();
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh', 'engine/state', 'mnt/disk1/.btrfs-snap', 'mnt/disk3/.btrfs-snap/20261001-0100'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    foreach (['20261001-0100', '20261006-0100', 'uso-plan-b-20261006-0100'] as $n) {
+        @mkdir("$src/mnt/disk1/.btrfs-snap/$n", 0700, true);
+    }
+    file_put_contents("$src/mnt/disk1/.btrfs-snap/not-a-snapshot.txt", 'x');
+
+    // unit parts first: the list, series, the office's log
+    $docker = 'hive/system/' . str_repeat('ab', 32);
+    same('snaps parse: per pool, Docker\'s layers and odd lines left out', ['hive' => ['hive/data@a' => ['11', 0], 'hive/data@b' => ['12', 2]], 'cold' => ['cold@c' => ['13', 0]]],
+        watchmanSnapParse("hive/data@b\t12\t2\nhive/data@a\t11\t0\n$docker@123\t14\t0\n$docker-init@1\t15\t0\ncold@c\t13\t0\nbad name\nhive/x@y\tnot\t0\n"));
+    same('snaps series: numbers as #', ['uso-plan-daily-#-#', 'autosnap_#-#-#_#:#:#_hourly', 'manual'],
+        array_map('watchmanSnapSeries', ['uso-plan-daily-20261006-0100', 'autosnap_2026-10-06_14:00:01_hourly', 'manual']));
+    $log = "$src/agent.log";
+    file_put_contents($log, "2026-10-06 11:00:00  Deleted: hive/old@x\n");
+    [$ev, $pos] = watchmanSnapOfficeLog($log, null, $now);
+    same('office log: without a position, from now on', [[], filesize($log)], [$ev['d'], $pos['size']]);
+    file_put_contents($log, "2026-10-06 11:01:00  Deleted: hive/My Share@a,b\n2026-10-06 11:02:00  Deleted: $src/mnt/disk1/.btrfs-snap/x (btrfs)\n"
+        . "2026-10-06 11:03:00  Released: hive/data@keep\n2026-10-06 11:04:00  Renamed: /mnt/disk1 old → new\n2026-10-06 11:05:00  Snapshot scan: 3 snapshots\n"
+        . "2026-10-06 11:06:00  Deleted: half", FILE_APPEND);
+    [$ev, $pos2] = watchmanSnapOfficeLog($log, $pos, $now);
+    same('office log: her deletions (several at once, btrfs), releases, renames — a line not finished waits',
+        [['hive/My Share@a', 'hive/My Share@b', "$src/mnt/disk1/.btrfs-snap/x"], ['hive/data@keep'], [['/mnt/disk1', 'old', 'new', strtotime('2026-10-06 11:04:00')]], filesize($log) - strlen('2026-10-06 11:06:00  Deleted: half')],
+        [array_keys($ev['d']), array_keys($ev['r']), $ev['m'], $pos2['size']]);
+    rename($log, "$log.1");
+    file_put_contents("$log.1", "\n", FILE_APPEND);
+    file_put_contents($log, "2026-10-06 11:07:00  Deleted: hive/new@z\n");
+    [$ev] = watchmanSnapOfficeLog($log, $pos2, $now);
+    same('office log: rotated — the rest of the old one (by its inode), then the new one', ['hive/new@z'], array_keys($ev['d']));
+    same('office log: what the office removed is remembered a week, the newest time counts', [['b' => $now, 'a' => $now - 10], []],
+        [watchmanSnapOfficeMerge(['d' => ['a' => $now - 10, 'old' => $now - 8 * 86400, 'b' => $now - 100], 'm' => [['x', 'y', 'z', $now - 9 * 86400]]],
+            ['d' => ['b' => $now]], $now)['d'], watchmanSnapOfficeMerge(['m' => [['x', 'y', 'z', $now - 9 * 86400]]], [], $now)['m']]);
+    file_put_contents($log, '');
+    @unlink("$log.1");
+    file_put_contents("$src/engine/state/history.jsonl", json_encode(['mode' => 'backup', 'result' => 'ok', 'started' => $now - 86400, 'finished' => $now - 80000]) . "\n");
+    same('engine runs: from history.jsonl (skipped ones left out), status.json while its run goes on', [true, false],
+        [watchmanEngineRan(watchmanEngineRuns("$src/engine"), $now - 90000, $now), watchmanEngineRan(watchmanEngineRuns("$src/engine"), $now - 3600, $now)]);
+
+    // the server: hive and cold (ZFS), disk1 awake and disk3 asleep (btrfs), the boot pool never asked
+    $ini = fn (bool $coldAsleep) => file_put_contents("$src/disks.ini", "[\"hive\"]\nname=\"hive\"\ntype=\"Cache\"\nfsType=\"zfs\"\nspundown=\"0\"\n"
+        . "[\"cold\"]\nname=\"cold\"\ntype=\"Cache\"\nfsType=\"luks:zfs\"\nspundown=\"" . ($coldAsleep ? 1 : 0) . "\"\n"
+        . "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"luks:btrfs\"\nfsStatus=\"Mounted\"\nspundown=\"0\"\n"
+        . "[\"disk3\"]\nname=\"disk3\"\ntype=\"Data\"\nfsType=\"btrfs\"\nfsStatus=\"Mounted\"\nspundown=\"1\"\n"
+        . "[\"flash\"]\nname=\"flash\"\ntype=\"Boot\"\nfsType=\"zfs\"\nspundown=\"0\"\n");
+    $ini(false);
+    $snaps = ['hive/data@uso-backup-20261001-0100' => ['11', 0], 'hive/data@uso-backup-20261006-0100' => ['12', 0],
+              'hive/data@uso-plan-daily-20261001-0100' => ['13', 0], 'hive/data@uso-plan-daily-20261006-0100' => ['14', 0],
+              'hive/data@manual' => ['15', 0], 'hive/data@keep' => ['16', 1],
+              'hive/media@uso-plan-x-20261005-0100' => ['21', 0], 'hive/media@uso-plan-x-20261006-0100' => ['22', 0], 'hive/media@held' => ['23', 1],
+              'hive/_UnraidSecretaryOffice-trash-20261006-110000-old@uso-backup-20261001-0100' => ['31', 0], "$docker@123" => ['41', 0],
+              'cold/x@a' => ['51', 0], 'flash/cfg@b' => ['61', 0]];
+    $write = function () use (&$snaps, $src) {
+        file_put_contents("$src/zfs-list.txt", implode('', array_map(fn ($k, $v) => "$k\t$v[0]\t$v[1]\n", array_keys($snaps), $snaps)));
+    };
+    $write();
+    // stand-ins: zfs lists only the pools it is asked for (and fails while zfs-fails is there); zpool history
+    file_put_contents("$tmp/zfs", "#!/bin/sh\nprintf '%s\\n' \"\$*\" >> " . escapeshellarg("$src/zfs-args.txt") . "\n[ -e " . escapeshellarg("$src/zfs-fails") . " ] && exit 1\n"
+        . "seen=0\nfor a in \"\$@\"; do\n  [ \$seen = 1 ] && grep -E \"^\$a[/@]\" " . escapeshellarg("$src/zfs-list.txt") . "\n  [ \"\$a\" = -r ] && seen=1\ndone\nexit 0\n");
+    file_put_contents("$tmp/zpool", "#!/bin/sh\n[ \"\$1\" = history ] && [ \"\$2\" = -l ] && cat " . escapeshellarg("$src/zpool-history.txt") . "\nexit 0\n");
+    chmod("$tmp/zfs", 0755);
+    chmod("$tmp/zpool", 0755);
+    file_put_contents("$src/zpool-history.txt", '');
+    file_put_contents("$src/passwd", "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents("$src/syslog", "Oct  6 11:59:00 tower kernel: hello\n");
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+              'etc_passwd' => "$src/passwd", 'disks_ini' => "$src/disks.ini", 'zfs' => "$tmp/zfs", 'zpool' => "$tmp/zpool", 'mnt' => "$src/mnt",
+              'agent_log' => $log, 'engine' => "$src/engine"];
+    $round = fn (int $t) => watchmanRound($paths, $data, 1000, $now + $t, fn () => [], false, "$tmp/acks.json", null, true);
+    $open = fn () => array_column(array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => watchmanOpen($e) && WATCH_KINDS[$e['kind']][0] === 'snap')), null, 'key');
+    $summary = fn () => (readJson("$data/state.json") ?? [])['snaps'] ?? null;
+
+    // his first round: all of it normal; Docker's layers, the boot pool and the sleeping disk left out
+    $round(0);
+    same('snaps: the first round — nothing told; per pool and disk, the sleeping one named', [[], ['hive' => 10, 'cold' => 1], ['disk1' => 3], ['disk3']],
+        [$open(), $summary()['zfs'] ?? null, $summary()['btrfs'] ?? null, $summary()['asleep'] ?? null]);
+    same('snaps: zfs asked for the awake pools only (never the boot pool)', 'list -H -p -t snapshot -o name,guid,userrefs -r hive cold',
+        trim((string) file_get_contents("$src/zfs-args.txt")));
+    check('snaps: the lists kept for the next round (snaps.json)', isset((readJson("$data/snaps.json") ?? [])['zfs']['hive']['s']['hive/data@keep']));
+
+    // what the office does: Ms. Snapshotini deletes, releases (her log), renames; the engine's run prunes (with a newer one of its
+    // own staying); the storeroom is emptied — nothing told
+    file_put_contents($log, "2026-10-06 12:02:00  Deleted: hive/data@uso-plan-daily-20261001-0100\n2026-10-06 12:02:01  Released: hive/data@keep\n"
+        . "2026-10-06 12:02:02  Renamed: hive/data manual → manual2\n2026-10-06 12:02:03  Snapshot scan: 9 snapshots\n", FILE_APPEND);
+    file_put_contents("$src/engine/state/history.jsonl", json_encode(['mode' => 'backup', 'result' => 'ok', 'started' => $now + 100, 'finished' => $now + 250]) . "\n", FILE_APPEND);
+    unset($snaps['hive/data@uso-plan-daily-20261001-0100'], $snaps['hive/data@uso-backup-20261001-0100'], $snaps['hive/data@manual'],
+        $snaps['hive/_UnraidSecretaryOffice-trash-20261006-110000-old@uso-backup-20261001-0100']);
+    $snaps['hive/data@manual2'] = ['15', 0];
+    $snaps['hive/data@keep'] = ['16', 0];
+    $write();
+    rmdir("$src/mnt/disk1/.btrfs-snap/20261001-0100");
+    $round(300);
+    same('snaps: what the office removed — Ms. Snapshotini, the engine\'s retention (ZFS and btrfs), renamed, the storeroom — no news',
+        [[], ['engine' => 2, 'office' => 2, 'renamed' => 1, 'storeroom' => 1]], [$open(), $summary()['expected'] ?? null]);
+
+    // an attacker: the newest of the engine's (no run now), a renamed one, one of a plan; a hold released; on disk1 a snapshot of a
+    // plan — while cold sleeps (its snapshot missing from the list is never "gone")
+    $ini(true);
+    unset($snaps['hive/data@uso-backup-20261006-0100'], $snaps['hive/data@manual2'], $snaps['hive/media@uso-plan-x-20261005-0100'], $snaps['cold/x@a']);
+    $snaps['hive/media@held'] = ['23', 0];
+    $write();
+    rmdir("$src/mnt/disk1/.btrfs-snap/uso-plan-b-20261006-0100");
+    file_put_contents("$src/engine/state/history.jsonl", json_encode(['mode' => 'backup', 'result' => 'skipped', 'started' => $now + 500, 'finished' => $now + 500]) . "\n", FILE_APPEND);
+    file_put_contents("$src/zpool-history.txt", "2026-10-06.11:00:00 zfs destroy hive/data@older [user 0 (root) on tower:linux]\n"
+        . "2026-10-06.12:07:30 zfs destroy hive/data@uso-backup-20261006-0100,manual2 [user 0 (root) on tower:linux]\n"
+        . "2026-10-06.12:07:31 zfs release unraid-secretary-office hive/media@held [user 0 (root) on tower:linux]\n"
+        . "2026-10-06.12:07:32 zfs destroy hive/media@uso-plan-x-20261005-0100 [user 0 (root) on tower:linux]\n"
+        . "2026-10-06.12:07:33 zfs snapshot hive/data@new [user 0 (root) on tower:linux]\n");
+    file_put_contents("$src/syslog", "Oct  6 12:07:29 tower root: zfs destroy started by /root/evil.sh\nOct  6 12:07:31 tower kernel: nothing to see\n", FILE_APPEND);
+    $round(600);
+    $o = $open();
+    $g = $o['snap_gone:zfs:hive'] ?? [];
+    same('snaps gone: on hive — how many, which datasets, a few of them, their series, zpool history (who, when), the syslog then',
+        [3, ['hive/data', 'hive/media'], ['hive/data@manual2', 'hive/data@uso-backup-20261006-0100', 'hive/media@uso-plan-x-20261005-0100'], ['manual#', 'uso-backup-#-#', 'uso-plan-x-#-#'], 0,
+         ['2026-10-06 12:07:30 zfs destroy hive/data@uso-backup-20261006-0100,manual2 [user 0 (root) on tower:linux]',
+          '2026-10-06 12:07:31 zfs release unraid-secretary-office hive/media@held [user 0 (root) on tower:linux]',
+          '2026-10-06 12:07:32 zfs destroy hive/media@uso-plan-x-20261005-0100 [user 0 (root) on tower:linux]'],
+         ['12:07:29 root: zfs destroy started by /root/evil.sh']],
+        [$g['count'] ?? null, $g['p']['datasets'] ?? null, $g['p']['names'] ?? null, $g['p']['series'] ?? null, $g['p']['held'] ?? null, $g['p']['history'] ?? null, $g['p']['evidence'] ?? null]);
+    same('snaps gone: on disk1 (btrfs) — and nothing for cold, asleep', [['snap_gone:btrfs:disk1', 'snap_gone:zfs:hive', 'snap_hold_released:zfs:hive'], ['disk1/.btrfs-snap/uso-plan-b-20261006-0100'], []],
+        [(function (array $a) { sort($a); return $a; })(array_keys($o)), $o['snap_gone:btrfs:disk1']['p']['names'] ?? null, $o['snap_gone:btrfs:disk1']['p']['history'] ?? null]);
+    same('snaps: a hold released, not by Ms. Snapshotini', [1, ['hive/media@held'], 2],
+        [$o['snap_hold_released:zfs:hive']['count'] ?? null, $o['snap_hold_released:zfs:hive']['p']['names'] ?? null, count($o['snap_hold_released:zfs:hive']['p']['history'] ?? [])]);
+    same('snaps gone in words', '3 snapshots vanished on hive — not removed by the office: hive/data@manual2, hive/data@uso-backup-20261006-0100, hive/media@uso-plan-x-20261005-0100',
+        officeNotifyText('watchman', 'entry.snap_gone', ['n' => 3] + watchmanText($g, 'en'), 'en'));
+    $checks = array_column(watchmanChecks($data), null, 'id');
+    same('snaps: the team lead hears of both — important, so to Unraid\'s notifications too', ['recommended', 'recommended', true, true],
+        [$checks['snap_gone']['level'] ?? null, $checks['snap_hold_released']['level'] ?? null, WATCH_KINDS['snap_gone'][1], WATCH_KINDS['snap_hold_released'][1]]);
+    same('snaps: the sleeping pool named', ['cold', 'disk3'], $summary()['asleep'] ?? null);
+
+    // cold awake again, its snapshot there: it slept, nothing went
+    $ini(false);
+    $snaps['cold/x@a'] = ['51', 0];
+    $snaps['hive/media@uso-plan-x-20261007-0100'] = ['24', 0];
+    $write();
+    $round(900);
+    same('snaps: a pool that slept is compared with its list from before — nothing gone', [3, 1], [$open()['snap_gone:zfs:hive']['count'] ?? null, count($open()) === 3 ? 1 : 0]);
+
+    // «I know, thanks»: a retention of yours — its series may go while a newer one stays; another series, or the last of one, is told
+    watchmanAck($g['id'], $data, $now + 950, false);
+    same('snaps ack: the series learned', ['manual#', 'uso-backup-#-#', 'uso-plan-x-#-#'], array_keys(watchmanLoad($data)['baseline']['snaps']['series'] ?? []));
+    unset($snaps['hive/media@uso-plan-x-20261006-0100'], $snaps['hive/data@uso-plan-daily-20261006-0100']);
+    $write();
+    $round(1200);
+    $o = $open();
+    same('snaps learned: a plan of yours pruned (a newer one stays) is quiet; another series is told', [1, ['hive/data@uso-plan-daily-20261006-0100']],
+        [$o['snap_gone:zfs:hive']['count'] ?? null, $o['snap_gone:zfs:hive']['p']['names'] ?? null]);
+
+    // zfs not answering: nothing compared, the lists kept — what went meanwhile is told once it answers again
+    touch("$src/zfs-fails");
+    unset($snaps['cold/x@a']);
+    $write();
+    $round(1500);
+    same('snaps: zfs not answering — nothing told, the list kept', [false, true], [isset($open()['snap_gone:zfs:cold']), isset((readJson("$data/snaps.json") ?? [])['zfs']['cold']['s']['cold/x@a'])]);
+    unlink("$src/zfs-fails");
+    $round(1800);
+    same('snaps: answering again — what went meanwhile', ['cold/x@a'], $open()['snap_gone:zfs:cold']['p']['names'] ?? null);
+
+    // the page: what he follows
+    $page = watchmanPageState($data, $now + 1810, false);
+    same('snaps on the page: per pool and disk, the series learned', [['hive' => 3, 'cold' => 0], ['disk1' => 1], ['manual#', 'uso-backup-#-#', 'uso-plan-x-#-#']],
+        [$page['snaps']['zfs'] ?? null, $page['snaps']['btrfs'] ?? null, $page['snaps']['series'] ?? null]);
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/watchman/lang/en.json'), true) ?: [];
+    check('snaps: the page\'s words', isset($en['group.snap'], $en['group_title.snap'], $en['watch.snaps'], $en['help.snaps_text'], $en['detail.history']));
+    @unlink(watchmanLockFile($data, 'book'));
+    @unlink(watchmanLockFile($data, 'round'));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -4128,7 +4446,7 @@ function testWhereaboutsAfterWatchman(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman'],
           'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
           'strings' => ['testStrings']];

@@ -60,7 +60,12 @@ declare(strict_types=1);
  *               beforehand, only where there are none.
  *   Kopia's repository  the user's keys and password reach the agent only
  *               through RAM (officeInboxDir(), src/api.php), go to Kopia only
- *               on its stdin and are kept nowhere by the office (HARDENING.md)
+ *               on its stdin and are kept nowhere by the office (HARDENING.md).
+ *               Ransomware protection: before a new repository in S3 he asks
+ *               the bucket whether it keeps S3 Object Lock (one signed GET
+ *               ?object-lock from here, advisorObjectLock()) and, when it does,
+ *               offers Kopia's retention (COMPLIANCE, N days) — Kopia then
+ *               extends the locks at its full maintenance
  *
  * The office never logs into a web page or an HTTP API of an external: it
  * configures them through files and command lines, at install time.
@@ -143,6 +148,12 @@ const ADVISOR_KOPIA_SH = 'IFS= read -r KOPIA_PASSWORD || exit 64; IFS= read -r A
     . 'exec kopia repository "$@"';
 /** S3 providers offered in the page (only remembered for the recovery sheet; Kopia takes endpoint and region) */
 const ADVISOR_S3_PROVIDERS = ['s3', 'aws', 'b2', 'r2', 'mega', 'wasabi', 'hetzner', 'idrive', 'minio'];
+/** Providers that don't offer S3 Object Lock — said plainly also when the bucket's answer is unclear */
+const ADVISOR_NO_LOCK = ['mega'];
+/** Object Lock: the days offered (default), the least (a week — and Kopia's full maintenance must run a day more often), the most */
+const ADVISOR_LOCK_DAYS = 30;
+const ADVISOR_LOCK_MIN  = 7;
+const ADVISOR_LOCK_MAX  = 365;
 
 desk('advisor', [
     'start'   => fn () => advisorScan(),
@@ -1150,16 +1161,37 @@ function advisorPluginManagerBusy(): bool
  * config folder, as when it is set up by hand). Only for a Kopia container
  * that runs and isn't connected yet, never while a backup or restore holds
  * the engine's lock. Afterwards the container restarts once, so the KopiaUI
- * (its server, started before) shows the repository. $inbox and $target are
- * there for the tests.
+ * (its server, started before) shows the repository. $inbox, $target and
+ * $http are there for the tests.
+ *
+ * step 'probe' (S3, before the preview): only asks the bucket whether it keeps
+ * Object Lock (advisorObjectLock()) — nothing is created. With lock_days (a new
+ * repository in S3): the bucket is asked again, Kopia creates it with
+ * --retention-mode=COMPLIANCE --retention-period=<n>d and is told to extend the
+ * locks at its full maintenance. Create or connect, the facts say whether the
+ * repository keeps Object Lock (advisorKopiaLock()) — for the recovery sheet.
  */
-function advisorKopiaRepo(array $r, ?string $inbox = null, ?array $target = null): array
+function advisorKopiaRepo(array $r, ?string $inbox = null, ?array $target = null, ?callable $http = null): array
 {
     $secret = advisorSecretTake($r['secret_ref'] ?? null, $inbox ?? officeInboxDir());
-    $spec = null;
+    $spec = $s3 = null;
     try {
         $k = $target ?? advisorKopiaTarget();      // the tests bring a stand-in
+        if (($r['step'] ?? null) === 'probe') {
+            // before the preview: does the bucket keep Object Lock? (only the keys travel, nothing is created)
+            $s3 = advisorKopiaS3($r, $secret);
+            $lock = advisorObjectLock($s3, $http);
+            logLine("Consultant: asked the bucket about Object Lock - {$lock['state']}" . (isset($lock['why']) ? " ({$lock['why']})" : ''));
+            return ['ok' => true, 'lock' => $lock + ['range' => [ADVISOR_LOCK_DAYS, ADVISOR_LOCK_MIN, ADVISOR_LOCK_MAX]]];
+        }
         $spec = advisorKopiaSpec($r, $secret, $k);
+        if ($spec['lock'] !== null) {
+            // asked again, a fresh look: a retention on a bucket without Object Lock would fail — or, worse, be ignored
+            $again = advisorObjectLock($spec['s3'], $http);
+            if ($again['state'] !== 'enabled') {
+                throw new Problem('ad_lock_off');
+            }
+        }
         $docker = advisorDocker();
         [$exit, $out, $err] = advisorRunStdin([$docker, 'exec', '-i', $k['name'], 'sh', '-c', ADVISOR_KOPIA_SH, 'sh', ...$spec['args']],
             $spec['stdin'], 300);
@@ -1172,8 +1204,16 @@ function advisorKopiaRepo(array $r, ?string $inbox = null, ?array $target = null
             [$u, $h] = explode('@', $spec['client'], 2);
             run([$docker, 'exec', $k['name'], 'kopia', 'repository', 'set-client', "--username=$u", "--hostname=$h"], 60);
         }
+        $extend = null;
+        if ($spec['lock'] !== null) {
+            // what Kopia still needs keeps its lock: extended at every full maintenance (daily; the period is a week at least)
+            [$x] = run([$docker, 'exec', $k['name'], 'kopia', 'maintenance', 'set', '--extend-object-locks=true'], 60);
+            $extend = $x === 0;
+            logLine("Consultant: Kopia extends the object locks at its full maintenance - exit $x");
+        }
+        $lock = advisorKopiaLock($docker, $k['name'], $extend);
         [$version] = array_pad(preg_split('/\s+/', trim(run([$docker, 'exec', $k['name'], 'kopia', '--version'], 30)[1])) ?: [], 1, '');
-        [$restarted] = run([$docker, 'restart', '-t', '30', $k['name']], 120);
+        [$restarted] = run([$docker, 'restart', '-t', '30', $k['name']], 90);
         $repo = $k['info']['config'] !== null ? advisorKopiaRepoFacts($k['info']['config'] . '/repository.config') : ['connected' => true];
         $facts = [
             'server' => hostname(), 'time' => time(), 'container' => $k['name'], 'image' => $k['image'], 'version' => $version,
@@ -1181,11 +1221,11 @@ function advisorKopiaRepo(array $r, ?string $inbox = null, ?array $target = null
             'endpoint' => $spec['endpoint'], 'region' => $spec['region'], 'bucket' => $spec['bucket'], 'prefix' => $spec['prefix'],
             'path' => $spec['path'], 'path_host' => $spec['path_host'], 'config' => $k['info']['config'],
             'sources' => $k['info']['sources'], 'restore' => $k['info']['restore'], 'client' => $repo['client'] ?? $spec['client'],
-            'webui' => $k['webui'], 'restarted' => $restarted === 0,
+            'webui' => $k['webui'], 'restarted' => $restarted === 0, 'lock' => $lock,
         ];
         return ['ok' => true, 'facts' => $facts, 'state' => $target === null ? advisorScan() : null];
     } finally {
-        unset($secret, $spec);         // as far as PHP lets go of them
+        unset($secret, $spec, $s3);    // as far as PHP lets go of them
     }
 }
 
@@ -1223,17 +1263,7 @@ function advisorKopiaTarget(): array
  */
 function advisorKopiaSpec(array $r, array $secret, array $k): array
 {
-    $field = function (string $name, string $pattern, bool $optional = false) use ($r): string {
-        $v = $r[$name] ?? '';
-        $v = is_string($v) ? trim($v) : '';
-        if ($v === '' && $optional) {
-            return '';
-        }
-        if (!preg_match($pattern, $v)) {
-            throw new Problem('ad_kopia_field', ['field' => $name]);
-        }
-        return $v;
-    };
+    $field = fn (string $name, string $pattern, bool $optional = false): string => advisorKopiaField($r, $name, $pattern, $optional);
     $mode = $field('mode', '/^(create|connect)$/D');
     $storage = $field('storage', '/^(s3|filesystem)$/D');
     $password = (string) ($secret['password'] ?? '');
@@ -1241,32 +1271,30 @@ function advisorKopiaSpec(array $r, array $secret, array $k): array
         throw new Problem('ad_kopia_field', ['field' => 'password']);
     }
     $out = ['mode' => $mode, 'storage' => $storage, 'provider' => null, 'endpoint' => null, 'region' => null, 'bucket' => null,
-            'prefix' => null, 'path' => null, 'path_host' => null, 'client' => null];
+            'prefix' => null, 'path' => null, 'path_host' => null, 'client' => null, 'lock' => null, 's3' => null];
     $access = $secretKey = '';
     if ($storage === 's3') {
-        $out['provider'] = in_array($r['provider'] ?? '', ADVISOR_S3_PROVIDERS, true) ? $r['provider'] : 's3';
-        $out['endpoint'] = $field('endpoint', '/^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,252})(?::\d{1,5})?$/D');
-        $out['region'] = $field('region', '/^[A-Za-z0-9-]{1,40}$/D', true) ?: null;
-        $out['bucket'] = $field('bucket', '/^[A-Za-z0-9][A-Za-z0-9._-]{1,62}$/D');
-        $prefix = $field('prefix', '#^[A-Za-z0-9._/-]{1,200}$#D', true);
-        if ($prefix !== '' && (str_starts_with($prefix, '/') || in_array('..', explode('/', $prefix), true))) {
-            throw new Problem('ad_kopia_field', ['field' => 'prefix']);
-        }
-        $out['prefix'] = $prefix ?: null;
-        $access = (string) ($secret['access_key'] ?? '');
-        $secretKey = (string) ($secret['secret_key'] ?? '');
-        if (!preg_match('/^[\x21-\x7e]{3,256}$/D', $access)) {
-            throw new Problem('ad_kopia_field', ['field' => 'access_key']);
-        }
-        if (!preg_match('/^[\x21-\x7e]{8,512}$/D', $secretKey)) {
-            throw new Problem('ad_kopia_field', ['field' => 'secret_key']);
-        }
+        $s3 = advisorKopiaS3($r, $secret);
+        $out = array_merge($out, array_intersect_key($s3, array_flip(['provider', 'endpoint', 'region', 'bucket', 'prefix'])));
+        $out['s3'] = $s3;               // with the keys: for asking about Object Lock again (never in the facts)
+        $access = $s3['access'];
+        $secretKey = $s3['secret'];
         $args = [$mode, 's3', '--bucket=' . $out['bucket'], '--endpoint=' . $out['endpoint']];
         if ($out['region'] !== null) {
             $args[] = '--region=' . $out['region'];
         }
         if ($out['prefix'] !== null) {
             $args[] = '--prefix=' . $out['prefix'];
+        }
+        // ransomware protection: Object Lock in compliance mode, for so many days (only a new repository; the bucket must keep Object Lock)
+        $days = $r['lock_days'] ?? null;
+        if ($days !== null && $days !== '' && $days !== false && $days !== 0) {
+            if ($mode !== 'create' || !preg_match('/^\d{1,4}$/D', (string) $days) || (int) $days < ADVISOR_LOCK_MIN || (int) $days > ADVISOR_LOCK_MAX) {
+                throw new Problem('ad_kopia_field', ['field' => 'lock_days']);
+            }
+            $out['lock'] = ['mode' => 'COMPLIANCE', 'days' => (int) $days];
+            $args[] = '--retention-mode=COMPLIANCE';
+            $args[] = '--retention-period=' . (int) $days . 'd';
         }
     } else {
         $path = advisorNormPath($field('path', '#^/[A-Za-z0-9._/-]{1,200}$#D'));
@@ -1281,12 +1309,267 @@ function advisorKopiaSpec(array $r, array $secret, array $k): array
         $out['path_host'] = $host;
         $args = [$mode, 'filesystem', '--path=' . $path];
     }
+    if ($storage !== 's3' && !in_array($r['lock_days'] ?? null, [null, '', false, 0], true)) {
+        throw new Problem('ad_kopia_field', ['field' => 'lock_days']);      // Object Lock is S3's
+    }
     $args[] = '--persist-credentials';        // the nightly run connects without anybody typing the password
     if ($mode === 'connect') {
         $client = $field('client', '/^[A-Za-z0-9._-]{1,64}@[A-Za-z0-9._-]{1,64}$/D', true);
         $out['client'] = $client ?: null;
     }
     return $out + ['args' => $args, 'stdin' => "$password\n$access\n$secretKey\n"];
+}
+
+/** One field of the request, trimmed, checked against $pattern (Problem 'ad_kopia_field' naming it) */
+function advisorKopiaField(array $r, string $name, string $pattern, bool $optional = false): string
+{
+    $v = $r[$name] ?? '';
+    $v = is_string($v) ? trim($v) : '';
+    if ($v === '' && $optional) {
+        return '';
+    }
+    if (!preg_match($pattern, $v)) {
+        throw new Problem('ad_kopia_field', ['field' => $name]);
+    }
+    return $v;
+}
+
+/**
+ * The S3 storage of a request, checked: provider, endpoint, region, bucket, prefix — and the two keys
+ * from the RAM file ('access', 'secret'; never kept, never in an answer).
+ *
+ * @return array{provider: string, endpoint: string, region: ?string, bucket: string, prefix: ?string, access: string, secret: string}
+ */
+function advisorKopiaS3(array $r, array $secret): array
+{
+    $field = fn (string $name, string $pattern, bool $optional = false): string => advisorKopiaField($r, $name, $pattern, $optional);
+    $out = ['provider' => in_array($r['provider'] ?? '', ADVISOR_S3_PROVIDERS, true) ? $r['provider'] : 's3'];
+    $out['endpoint'] = $field('endpoint', '/^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,252})(?::\d{1,5})?$/D');
+    $out['region'] = $field('region', '/^[A-Za-z0-9-]{1,40}$/D', true) ?: null;
+    $out['bucket'] = $field('bucket', '/^[A-Za-z0-9][A-Za-z0-9._-]{1,62}$/D');
+    $prefix = $field('prefix', '#^[A-Za-z0-9._/-]{1,200}$#D', true);
+    if ($prefix !== '' && (str_starts_with($prefix, '/') || in_array('..', explode('/', $prefix), true))) {
+        throw new Problem('ad_kopia_field', ['field' => 'prefix']);
+    }
+    $out['prefix'] = $prefix ?: null;
+    $out['access'] = (string) ($secret['access_key'] ?? '');
+    $out['secret'] = (string) ($secret['secret_key'] ?? '');
+    if (!preg_match('/^[\x21-\x7e]{3,256}$/D', $out['access'])) {
+        throw new Problem('ad_kopia_field', ['field' => 'access_key']);
+    }
+    if (!preg_match('/^[\x21-\x7e]{8,512}$/D', $out['secret'])) {
+        throw new Problem('ad_kopia_field', ['field' => 'secret_key']);
+    }
+    return $out;
+}
+
+// ===================================================================== ransomware protection: S3 Object Lock
+
+/*
+ * Ransomware gangs get root first, find Kopia's keys (its config folder) and delete the backups, then
+ * encrypt. S3 Object Lock in COMPLIANCE mode makes every object the storage keeps undeletable and
+ * unchangeable until its date — also with the keys, also for the account's owner. Kopia sets it on every
+ * object it uploads (`--retention-mode COMPLIANCE --retention-period <n>d` at create; it can't be added to
+ * a repository later by the office) and, with `maintenance set --extend-object-locks=true`, extends it at
+ * every full maintenance for what it still needs. Deleting old data then waits for the lock (it costs
+ * storage), backups go on as before.
+ *
+ * Whether the bucket can: S3's GetObjectLockConfiguration, asked here — no AWS CLI in Kopia's image,
+ * and Kopia's own error would come only at the create. One GET ?object-lock, signed here (AWS Signature
+ * V4, advisorS3Sign(): the secret key only goes into HMACs in this process), sent by PHP's curl straight
+ * to the endpoint the user typed (HTTPS only, certificate checked, no proxy, no redirect) — no command
+ * line, no file. Only the access key ID travels, in the Authorization header, as in Kopia's own requests.
+ */
+
+/**
+ * Does the bucket keep Object Lock? enabled (with the bucket's own default rule, if it has one: mode,
+ * days) / off (the bucket was made without it) / unsupported (the provider doesn't know it — also said for
+ * providers known not to offer it when their answer is unclear) / unknown (couldn't ask: why — keys,
+ * denied, no_bucket, unreachable, other). $http: a stand-in for the tests.
+ *
+ * @param array{provider?: string, endpoint: string, region: ?string, bucket: string, access: string, secret: string} $s3
+ * @return array{state: string, why?: string, code?: string|int, mode?: ?string, days?: ?int}
+ */
+function advisorObjectLock(array $s3, ?callable $http = null): array
+{
+    $http ??= 'advisorHttps';
+    $endpoint = strtolower($s3['endpoint']);
+    $aws = preg_match('/(^|\.)amazonaws\.com(:\d+)?$/D', $endpoint) === 1;
+    $region = $s3['region'] ?? advisorS3Region($endpoint) ?? 'us-east-1';
+    $answer = ['status' => 0, 'headers' => [], 'body' => '', 'error' => 'not asked'];
+    for ($try = 0; $try < 2; $try++) {
+        // like Kopia's S3 library: virtual-hosted on Amazon (a bucket without dots), the path elsewhere
+        $virtual = $aws && !str_contains($s3['bucket'], '.');
+        $host = $virtual ? "{$s3['bucket']}.$endpoint" : $endpoint;
+        $path = $virtual ? '/' : '/' . $s3['bucket'];
+        $date = gmdate('Ymd\THis\Z');
+        $headers = ['host' => $host, 'x-amz-content-sha256' => hash('sha256', ''), 'x-amz-date' => $date];
+        $auth = advisorS3Sign('GET', $path, ['object-lock' => ''], $headers, $s3['access'], $s3['secret'], $region, $date);
+        $answer = $http("https://$host$path?object-lock", ['Authorization' => $auth, 'x-amz-content-sha256' => $headers['x-amz-content-sha256'], 'x-amz-date' => $date]);
+        unset($auth);
+        $hint = advisorS3RegionHint($answer);
+        if ((int) $answer['status'] === 200 || $hint === null || $hint === $region) {
+            break;
+        }
+        $region = $hint;                // signed for another region: once more, as the bucket says
+    }
+    return advisorObjectLockState($answer, (string) ($s3['provider'] ?? 's3'));
+}
+
+/** What the bucket's answer means (advisorObjectLock()) */
+function advisorObjectLockState(array $answer, string $provider): array
+{
+    $status = (int) ($answer['status'] ?? 0);
+    $body = substr((string) ($answer['body'] ?? ''), 0, 65536);
+    $code = preg_match('#<Code>\s*([A-Za-z0-9.]{1,64})\s*</Code>#', $body, $m) ? $m[1] : null;
+    if ($status === 200 && preg_match('#<ObjectLockConfiguration\b#', $body)) {
+        if (!preg_match('#<ObjectLockEnabled>\s*Enabled\s*</ObjectLockEnabled>#', $body)) {
+            return ['state' => 'off'];
+        }
+        $days = null;
+        if (preg_match('#<Days>\s*(\d{1,5})\s*</Days>#', $body, $d)) {
+            $days = (int) $d[1];
+        } elseif (preg_match('#<Years>\s*(\d{1,3})\s*</Years>#', $body, $y)) {
+            $days = (int) $y[1] * 365;
+        }
+        return ['state' => 'enabled', 'mode' => preg_match('#<Mode>\s*(GOVERNANCE|COMPLIANCE)\s*</Mode>#', $body, $x) ? $x[1] : null, 'days' => $days];
+    }
+    if ($status === 404 && $code !== null && preg_match('/ObjectLock\w*NotFound|NoSuchObjectLockConfiguration/i', $code)) {
+        return ['state' => 'off'];
+    }
+    [$state, $why] = match (true) {
+        $status === 404 && $code === 'NoSuchBucket'                                        => ['unknown', 'no_bucket'],
+        $status === 200                                                                    => ['unsupported', null],     // it answered something else: it doesn't know ?object-lock
+        $status === 501 || $status === 405
+            || in_array($code, ['NotImplemented', 'NotSupported', 'UnsupportedOperation', 'MethodNotAllowed'], true)
+            || ($status === 400 && in_array($code, ['InvalidArgument', 'InvalidRequest'], true)) => ['unsupported', null],
+        $status === 403 && in_array($code, ['InvalidAccessKeyId', 'SignatureDoesNotMatch', 'InvalidToken'], true) => ['unknown', 'keys'],
+        $status === 403                                                                    => ['unknown', 'denied'],
+        $status === 0                                                                      => ['unknown', 'unreachable'],
+        default                                                                            => ['unknown', 'other'],
+    };
+    if ($state === 'unknown' && in_array($why, ['denied', 'other'], true) && in_array($provider, ADVISOR_NO_LOCK, true)) {
+        [$state, $why] = ['unsupported', null];
+    }
+    return ['state' => $state] + ($why !== null ? ['why' => $why] : []) + ($state === 'unknown' && $why === 'other' ? ['code' => $code ?? $status] : []);
+}
+
+/**
+ * AWS Signature Version 4 of an S3 request without a body: the Authorization header's value. $query:
+ * name => value; $headers: lower-case name => value (host, x-amz-content-sha256, x-amz-date at least —
+ * all of them signed). $date: Ymd\THis\Z (UTC).
+ */
+function advisorS3Sign(string $method, string $path, array $query, array $headers, string $access, string $secret, string $region, string $date): string
+{
+    ksort($query, SORT_STRING);
+    $q = implode('&', array_map(fn ($k, $v) => rawurlencode((string) $k) . '=' . rawurlencode((string) $v), array_keys($query), $query));
+    ksort($headers, SORT_STRING);
+    $canonical = implode('', array_map(fn ($k, $v) => strtolower((string) $k) . ':' . trim((string) $v) . "\n", array_keys($headers), $headers));
+    $signed = implode(';', array_map('strtolower', array_keys($headers)));
+    $request = "$method\n$path\n$q\n$canonical\n$signed\n" . ($headers['x-amz-content-sha256'] ?? hash('sha256', ''));
+    $day = substr($date, 0, 8);
+    $scope = "$day/$region/s3/aws4_request";
+    $key = hash_hmac('sha256', 'aws4_request', hash_hmac('sha256', 's3', hash_hmac('sha256', $region, hash_hmac('sha256', $day, "AWS4$secret", true), true), true), true);
+    return "AWS4-HMAC-SHA256 Credential=$access/$scope, SignedHeaders=$signed, Signature="
+        . hash_hmac('sha256', "AWS4-HMAC-SHA256\n$date\n$scope\n" . hash('sha256', $request), $key);
+}
+
+/** The region an endpoint names (Amazon, Backblaze, Wasabi, MEGA, Hetzner), or null */
+function advisorS3Region(string $endpoint): ?string
+{
+    $host = (string) preg_replace('/:\d+$/', '', strtolower($endpoint));
+    return match (true) {
+        (bool) preg_match('/(?:^|\.)s3[.-](?:dualstack\.)?([a-z]{2}(?:-gov)?-[a-z]+-\d+)\.amazonaws\.com$/D', $host, $m) => $m[1],
+        (bool) preg_match('/^s3\.([a-z0-9-]+)\.backblazeb2\.com$/D', $host, $m)                                 => $m[1],
+        (bool) preg_match('/^s3\.([a-z0-9-]+)\.wasabisys\.com$/D', $host, $m)                                   => $m[1],
+        $host === 's3.wasabisys.com' || $host === 's3.amazonaws.com'                                            => 'us-east-1',
+        (bool) preg_match('/^s3\.([a-z0-9-]+)\.s4\.mega\.io$/D', $host, $m)                                     => $m[1],
+        (bool) preg_match('/^([a-z0-9]+)\.your-objectstorage\.com$/D', $host, $m)                               => $m[1],
+        default => null,
+    };
+}
+
+/** The region an S3 error names (header x-amz-bucket-region, or <Region> in its XML), or null */
+function advisorS3RegionHint(array $answer): ?string
+{
+    $r = (string) ($answer['headers']['x-amz-bucket-region'] ?? '');
+    if ($r === '' && preg_match('#<Region>\s*([a-z0-9-]{1,40})\s*</Region>#', (string) ($answer['body'] ?? ''), $m)) {
+        $r = $m[1];
+    }
+    return preg_match('/^[a-z0-9-]{1,40}$/D', $r) ? $r : null;
+}
+
+/**
+ * One HTTPS GET with PHP's curl: certificate checked, no proxy (whatever the environment says), no
+ * redirect, at most 64 KB of answer, $timeout seconds.
+ *
+ * @return array{status: int, headers: array<string, string>, body: string, error: ?string}
+ */
+function advisorHttps(string $url, array $headers, int $timeout = 15): array
+{
+    if (!function_exists('curl_init') || !str_starts_with($url, 'https://')) {
+        return ['status' => 0, 'headers' => [], 'body' => '', 'error' => 'no curl'];
+    }
+    $got = [];
+    $body = '';
+    $c = curl_init($url);
+    curl_setopt_array($c, [
+        CURLOPT_FOLLOWLOCATION => false,
+        CURLOPT_HTTPHEADER     => array_map(fn ($k, $v) => "$k: $v", array_keys($headers), $headers),
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT        => $timeout,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
+        CURLOPT_PROXY          => '',
+        CURLOPT_NOPROXY        => '*',
+        CURLOPT_USERAGENT      => 'unraid-secretary-office',
+        CURLOPT_HEADERFUNCTION => function ($c, string $line) use (&$got): int {
+            if (preg_match('/^([A-Za-z0-9-]{1,64}):\s*(.{0,200}?)\s*$/', $line, $m)) {
+                $got[strtolower($m[1])] = $m[2];
+            }
+            return strlen($line);
+        },
+        CURLOPT_WRITEFUNCTION  => function ($c, string $chunk) use (&$body): int {
+            if (strlen($body) >= 65536) {
+                return 0;               // enough: stop reading
+            }
+            $body .= $chunk;
+            return strlen($chunk);
+        },
+    ]);
+    curl_setopt($c, defined('CURLOPT_PROTOCOLS_STR') ? CURLOPT_PROTOCOLS_STR : CURLOPT_PROTOCOLS, defined('CURLOPT_PROTOCOLS_STR') ? 'https' : CURLPROTO_HTTPS);
+    $ok = curl_exec($c);
+    $status = (int) curl_getinfo($c, CURLINFO_RESPONSE_CODE);
+    $error = $ok === false && $status === 0 ? (curl_error($c) ?: 'no answer') : null;
+    unset($c);
+    return ['status' => $status, 'headers' => $got, 'body' => $body, 'error' => $error];
+}
+
+/**
+ * Whether Kopia's repository keeps Object Lock — its format (`repository status --json`: blobRetention,
+ * the period in nanoseconds) — and whether Kopia extends the locks (`maintenance info --json`, unless
+ * $extend says it, after setting it). ['mode' => null]: no Object Lock; null: Kopia didn't say.
+ *
+ * @return array{mode: ?string, days?: int, extend?: ?bool}|null
+ */
+function advisorKopiaLock(string $docker, string $name, ?bool $extend): ?array
+{
+    [$exit, $out] = run([$docker, 'exec', $name, 'kopia', 'repository', 'status', '--json'], 30);
+    $j = $exit === 0 ? json_decode(substr($out, (int) strpos($out, '{')), true) : null;
+    if (!is_array($j)) {
+        return null;
+    }
+    $mode = (string) ($j['blobRetention']['retentionMode'] ?? '');
+    $period = $j['blobRetention']['retentionPeriod'] ?? 0;
+    if (!in_array($mode, ['COMPLIANCE', 'GOVERNANCE'], true) || !is_int($period) || $period <= 0) {
+        return ['mode' => null];
+    }
+    if ($extend === null) {
+        [$x, $info] = run([$docker, 'exec', $name, 'kopia', 'maintenance', 'info', '--json'], 20);
+        $i = $x === 0 ? json_decode(substr($info, (int) strpos($info, '{')), true) : null;
+        $extend = is_array($i) && is_bool($i['extendObjectLocks'] ?? null) ? $i['extendObjectLocks'] : null;
+    }
+    return ['mode' => $mode, 'days' => intdiv($period, 86400 * 1000000000), 'extend' => $extend];
 }
 
 /**
