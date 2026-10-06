@@ -553,7 +553,8 @@ function watchSection() {
 function schedGroup(s) {
   if (!s) return group('sched', T('watch.sched'), T('watch.sched_wait'), []);
   const rows = [];
-  (s.crontab || []).forEach((x) => rows.push(item(x, [T('watch.crontab')])));
+  // root's own lines as they are; another user's or /etc/cron.d's other files carry their place in front ("cron.d/x: …")
+  (s.crontab || []).forEach((x) => rows.push(item(x, [/^[\w.-]+(\/[^:]+)?: /.test(x) ? '' : T('watch.crontab')])));
   if (s.twice) rows.push(item(T('watch.crontab'), [T('watch.crontab_twice', { n: s.twice })], null, true));
   (s.files || []).forEach((x) => rows.push(item(x.file, ['.cron', T('watch.cron_lines', { n: x.lines })])));
   (s.scripts || []).forEach((x) => rows.push(item(x.name, [T('watch.script'), freq(x.cron)])));
