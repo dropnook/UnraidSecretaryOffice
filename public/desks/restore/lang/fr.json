@@ -32,7 +32,7 @@
   "help.package": "Paquet",
   "help.package_text": "Ce que Monsieur Backupsi garde par appli et par VM dans l'emplacement des sauvegardes : modèles ou fichiers compose, dumps de bases de données, les copies des bases d'un serveur multimédia ; pour une VM son XML, ses variables UEFI et son état TPM. Les paquets des nuits précédentes sont dans les snapshots du partage de l'emplacement.",
   "help.snapshots": "Snapshots locaux",
-  "help.snapshots_text": "Les snapshots ZFS et btrfs qui contiennent les dossiers d'une appli ou d'une VM, avec la date la plus récente. Seuls les disques réveillés sont regardés.",
+  "help.snapshots_text": "Les snapshots ZFS et btrfs qui contiennent les dossiers d'une appli ou d'une VM (et des partages entiers qu'elle monte), avec la date la plus récente. Un partage sur plusieurs pools et disques est la somme de ses parties : un snapshot pris sur toutes à la fois (ceux de Monsieur Backupsi) ramène tout, un snapshot pris sur certaines seulement ne ramène que ces parties — je dis lesquelles. Ce qui revient va sur le partage (/mnt/user/…), pour qu'Unraid le place selon ses réglages. Seuls les disques réveillés sont regardés.",
   "help.kopia": "Kopia",
   "help.kopia_text": "Quand Kopia a copié l'appli ou la VM hors site pour la dernière fois — sa propre source (.apps/…, .vms/…) ou celle de son partage.",
   "help.commands": "Commandes",

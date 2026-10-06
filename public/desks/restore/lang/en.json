@@ -32,7 +32,7 @@
   "help.package": "Package",
   "help.package_text": "What Mr. Backupsy keeps per app and VM in the backup place: templates or compose files, database dumps, a media server's database copies; for a VM its XML, UEFI variables and TPM state. Earlier nights' packages lie in the snapshots of the backup place's share.",
   "help.snapshots": "Local snapshots",
-  "help.snapshots_text": "The ZFS and btrfs snapshots that hold the folders of an app or VM, with the newest date. Only awake disks are looked at.",
+  "help.snapshots_text": "The ZFS and btrfs snapshots that hold the folders of an app or VM (and whole shares it binds), with the newest date. A share on several pools and disks is the sum of its parts: a snapshot taken on all of them at once (Mr. Backupsy's) brings back all of it, one taken on some only brings back those parts — I say which. What comes back goes onto the share (/mnt/user/…), so Unraid places it by the share's settings. Only awake disks are looked at.",
   "help.kopia": "Kopia",
   "help.kopia_text": "When Kopia last copied the app or VM offsite — its own source (.apps/…, .vms/…) or its share's.",
   "help.commands": "Commands",

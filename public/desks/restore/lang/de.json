@@ -32,7 +32,7 @@
   "help.package": "Paket",
   "help.package_text": "Was Herr Backupsi pro App und VM in der Backup-Ablage aufbewahrt: Templates oder Compose-Dateien, Datenbank-Dumps, die Datenbank-Kopien eines Medienservers; bei einer VM ihr XML, die UEFI-Variablen und der TPM-Zustand. Die Pakete früherer Nächte liegen in den Snapshots des Shares der Backup-Ablage.",
   "help.snapshots": "Lokale Snapshots",
-  "help.snapshots_text": "Die ZFS- und btrfs-Snapshots, die die Ordner einer App oder VM enthalten, mit dem neuesten Datum. Angeschaut werden nur wache Disks.",
+  "help.snapshots_text": "Die ZFS- und btrfs-Snapshots, die die Ordner einer App oder VM enthalten (und ganze Shares, die sie einbindet), mit dem neuesten Datum. Ein Share auf mehreren Pools und Disks ist die Summe seiner Teile: Ein Snapshot, der auf allen zugleich entstand (die von Herrn Backupsi), bringt alles zurück, einer nur auf einigen bringt nur diese Teile — ich sage, welche. Was zurückkommt, geht auf den Share (/mnt/user/…), damit Unraid es nach den Einstellungen des Shares ablegt. Angeschaut werden nur wache Disks.",
   "help.kopia": "Kopia",
   "help.kopia_text": "Wann Kopia die App oder VM zuletzt ausser Haus kopiert hat — ihre eigene Quelle (.apps/…, .vms/…) oder die ihres Shares.",
   "help.commands": "Befehle",

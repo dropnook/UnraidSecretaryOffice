@@ -32,7 +32,7 @@
   "help.package": "Paquete",
   "help.package_text": "Lo que el señor Backupsi guarda por app y por VM en el lugar de las copias: plantillas o archivos compose, volcados de bases de datos, las copias de las bases de un servidor multimedia; para una VM su XML, sus variables UEFI y su estado del TPM. Los paquetes de noches anteriores están en las instantáneas del recurso compartido del lugar de las copias.",
   "help.snapshots": "Instantáneas locales",
-  "help.snapshots_text": "Las instantáneas ZFS y btrfs que contienen las carpetas de una app o VM, con la fecha más reciente. Solo se miran los discos despiertos.",
+  "help.snapshots_text": "Las instantáneas ZFS y btrfs que contienen las carpetas de una app o VM (y recursos compartidos enteros que monta), con la fecha más reciente. Un recurso compartido en varios pools y discos es la suma de sus partes: una instantánea tomada en todas a la vez (las del señor Backupsi) lo devuelve todo, una tomada solo en algunas devuelve solo esas partes — digo cuáles. Lo que vuelve va al recurso compartido (/mnt/user/…), para que Unraid lo coloque según sus ajustes. Solo se miran los discos despiertos.",
   "help.kopia": "Kopia",
   "help.kopia_text": "Cuándo copió Kopia la app o la VM fuera del servidor por última vez — su fuente propia (.apps/…, .vms/…) o la de su recurso compartido.",
   "help.commands": "Comandos",
