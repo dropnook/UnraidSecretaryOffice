@@ -38,6 +38,7 @@ const EMBY_HISTORY  = 40;
 const EMBY_IGNORED  = '#^/(config|metadata|transcoding-temp|cache|logs|var|boot|tmp)#';   // Emby's own folders, never media
 // Benj's rule (2026-10-06): never a real gather while someone watches Emby
 const EMBY_WATCH_TIMEOUT = 5;       // seconds: an Emby that hasn't answered by then counts as down (the run may go)
+const EMBY_WATCH_PAGE    = 2;       // … asked from the page (in the agent's loop): shorter — the job itself asks again
 const EMBY_WATCH_EVERY   = 900;     // a scheduled gather that finds someone watching looks again every 15 min …
 const EMBY_WATCH_MAX     = 7200;    // … for up to 2 h, then that night is skipped
 const EMBY_WATCH_DURING  = 60;      // during a real gather Emby is asked once a minute; someone watching = stop after the current folder
@@ -1614,7 +1615,7 @@ function embyImportBackup(string $dir, array $names, string $stamp): array
  *
  * @return array{status: int, body: string, errno: int, error: string}
  */
-function embyWatchFetch(string $url, string $key): array
+function embyWatchFetch(string $url, string $key, int $timeout = EMBY_WATCH_TIMEOUT): array
 {
     if (!function_exists('curl_init')) {
         return ['status' => 0, 'body' => '', 'errno' => -1, 'error' => 'no curl in PHP'];
@@ -1624,8 +1625,8 @@ function embyWatchFetch(string $url, string $key): array
     curl_setopt_array($c, [
         CURLOPT_HTTPHEADER     => ["X-Emby-Token: $key", 'Accept: application/json'],
         CURLOPT_FOLLOWLOCATION => false,
-        CURLOPT_CONNECTTIMEOUT => 3,
-        CURLOPT_TIMEOUT        => EMBY_WATCH_TIMEOUT,
+        CURLOPT_CONNECTTIMEOUT => min(3, $timeout),
+        CURLOPT_TIMEOUT        => $timeout,
         CURLOPT_PROXY          => '',
         CURLOPT_NOPROXY        => '*',
         CURLOPT_USERAGENT      => 'unraid-secretary-office',
@@ -1899,7 +1900,8 @@ function embyStart(string $tool, string $mode): array
 {
     embyRunCheck($tool, $mode);
     if ($tool === 'gather' && $mode === 'run') {
-        $look = embyWatching();
+        // asked in the agent's own loop: a short look (an Emby that is slow counts as down here — the job asks again, fully)
+        $look = embyWatching(null, fn (string $url, string $key) => embyWatchFetch($url, $key, EMBY_WATCH_PAGE));
         if ($p = embyWatchProblem($look)) {
             logLine("Jack Emby: gather (run) not started — " . ($look['state'] === 'watching' ? 'someone watches Emby: ' . embyWatchersLine($look['who'])
                 : "Emby's answer: " . ($look['why'] ?? '') . ' ' . ($look['detail'] ?? '')));

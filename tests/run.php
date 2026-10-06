@@ -5161,7 +5161,14 @@ function testAdvisorRecord(): void
     $rec = json_decode((string) file_get_contents("$tmp/advisor/installs.json"), true)['installs'] ?? [];
     same('advisor record: one others could write is not read — begins anew, root\'s again', [1, 0700, 0600],
         [count($rec), fileperms("$tmp/advisor") & 0777, fileperms("$tmp/advisor/installs.json") & 0777]);
-    unset($GLOBALS['advisorRecordFile']);
+    advisorRecord(['kind' => 'container', 'id' => 'kopia', 'name' => 'kopia', 'image' => 'img'], $now + 200);
+    unset($GLOBALS['advisorPrepared']);
+    advisorPreparedRestore($now + 200 + ADVISOR_RELOOK_FOR + 1);
+    $late = $GLOBALS['advisorPrepared'] ?? null;
+    advisorPreparedRestore($now + 500);
+    same('advisor: after an agent restart a form he prepared lately is still looked after (not one from long ago)',
+        [null, ['id' => 'kopia', 'at' => $now + 200]], [$late, $GLOBALS['advisorPrepared'] ?? null]);
+    unset($GLOBALS['advisorPrepared'], $GLOBALS['advisorRecordFile']);
     hardeningRm($tmp);
 
     // the re-look after a prepared form
@@ -6512,6 +6519,22 @@ function testWatchmanHost(): void
         [$p['host:/tmp/.mount_firefo*/firefox-bin']['exe'] === '/tmp/.mount_firefogY32OL/firefox-bin' ? '/tmp/.mount_firefoXy12Ab/firefox-bin' : '?',
          watchmanOddKey('/tmp/tmp.aB3dE9/run.sh'), watchmanOddKey('/tmp/build/go-build'), watchmanOddKey('/usr/bin/x')]);
     same('host procs: Docker didn\'t answer — not looked at (a container\'s program would seem new)', null, watchmanHostProcs($proc, null));
+    $kp = ['procs' => ['host:/usr/x' => $now]];
+    $bp = [];
+    $hp = fn (array $pr) => ['boot' => 'b1', 'logs' => null, 'users' => null, 'listen' => null, 'procs' => $pr, 'doors' => null];
+    $one = ['ct:?:/run/host.bin' => ['where' => '?', 'exe' => '/run/host.bin', 'prog' => 'host.bin']];
+    same('host procs: new for one round only (a container restarted between the looks) — nothing; seen two rounds in a row — told',
+        [[], ['proc_odd']], [watchmanHostCompare($kp, $hp($one), $hp([]), [], $bp, $now), watchmanHostCompare($kp, $hp($one), $hp($one), [], $bp, $now + 300)]);
+    @mkdir("$proc/500/ns", 0700, true);
+    symlink('/usr/bin/node_exporter', "$proc/500/exe");
+    symlink('mnt:[11]', "$proc/500/ns/mnt");
+    symlink('pid:[1]', "$proc/500/ns/pid");
+    @mkdir("$proc/600/ns", 0700, true);
+    symlink('/tmp/y', "$proc/600/exe");
+    symlink('mnt:[12]', "$proc/600/ns/mnt");
+    symlink('pid:[1]', "$proc/600/ns/pid");
+    same('host procs: a --pid=host container is no name for the server\'s PID namespace', '?',
+        watchmanHostProcs($proc, ['Node-Exporter' => ['pid' => 500], 'virtual-dsm' => ['pid' => 200]])['ct:?:/tmp/y']['where'] ?? null);
     same('host procs: the program and where', ['kworkerd', null, 'virtual-dsm'], [$p['host:/tmp/.x/kworkerd']['prog'], $p['host:/tmp/.x/kworkerd']['where'],
         $p['ct:virtual-dsm:/run/host.bin']['where']]);
 
@@ -6586,7 +6609,11 @@ function testWatchmanHost(): void
     chmod("$tmp/notify-stand-in", 0755);
     $t1 = watchmanChainsDue($cb, $cst, $now + 21000, true, 'en');
     $t2 = watchmanChainsDue($cb, $cst, $now + 21300, true, 'en');
-    same('chains: told once when it forms, not again', [[['kind' => 'chain', 'n' => 1, 'sent' => true]], []], [$t1, $t2]);
+    same('chains: told once when it forms, not again', [[['kind' => 'chain', 'n' => 1, 'sent' => true]], []],
+        [array_map(fn ($t) => array_intersect_key($t, ['kind' => 1, 'n' => 1, 'sent' => 1]), $t1), $t2]);
+    $cl = json_decode(watchmanSyslogChainLine($t1[0]), true);
+    same('chains: the SIEM line — the ids and groups of the chain', ['chain', 3, ['login', 'sched', 'host'], 'Night watchman: 3 entries that may belong together'],
+        [$cl['kind'], count($cl['ids']), $cl['groups'], $cl['text']]);
     same('chains: the minutes between when the first and the last came (not when seen again)', [$now, $now + 1500], [$ch[0]['first'], $ch[0]['last']]);
     check('chains: the message names it', str_contains((string) @file_get_contents("$tmp/notified"), '3 entries that may belong together'));
     $off = ['notify' => false];
