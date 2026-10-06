@@ -14,7 +14,8 @@ declare(strict_types=1);
  *            lead's «I know, thanks» and the Dashboard tile,
  *            Mr. Backupsy's packages and his Kopia per app and VM, a run skipped because
  *            the engine's lock was busy (and who holds it), Ms. Dustdevil's pictures,
- *            Mr. Restori's reader of the packages and his restores (steps, put back, the lock, a job on its own),
+ *            Mr. Restori's reader of the packages and his restores (steps, put back, the lock, a job on its own;
+ *            a share on several pools: moments, the union, targets on the share, missing and empty shares),
  *            the Consultant's monitoring externals and his installs, Ms. Protocolli's tour,
  *            the night watchman's rounds, bursts, baseline and «I know, thanks», his watch over what
  *            starts on its own (crontabs, .cron files, User Scripts, at, notification agents), his
@@ -978,6 +979,237 @@ function testRestoreJobs(): void
          officeDashRestoring(['result' => 'ok', 'what' => 'x', 'heartbeat' => 1000], 1010)]);
 
     unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file'], $GLOBALS['rs']['ub_data']);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Mr. Restori and a share on several pools and disks (like drop: primary hive, secondary mother, an array disk):
+ * moments across the parts (the engine's run on all, a manual snapshot on two, a plan's on one), never a moment
+ * whose parts hold nothing by default, the union of the parts as the source (primary first), a ZFS dataset of its
+ * own at the top of a share from its own snapshots, targets on the share (/mnt/user/<share>/…, never the pool),
+ * a whole share entry by entry with what binds it stopping, the swap run and put back, a part with content a
+ * moment doesn't cover, a missing share (its old settings as information only), an empty one (straight in), too
+ * many entries, a share's settings in words, where Unraid places it and how much room is there. All in a
+ * temporary folder: pools as folders, /mnt/user/<share> as a link to its pool (like an exclusive share).
+ */
+function testRestoreShares(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rsshare-' . getmypid();
+    $mnt = "$tmp/mnt";
+    @mkdir("$tmp/data/unraid-backup/state", 0700, true);
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    $GLOBALS['rs']['ub_data'] = "$tmp/data/unraid-backup";
+    $GLOBALS['rs']['sizes_file'] = "$tmp/data/restore-sizes.json";
+    // what stops: the container that binds the whole share (only asked for with roots, as for a whole share)
+    $GLOBALS['rs']['users'] = fn (array $paths, array $roots): array => [$roots ? ['zz-drop'] : [], $roots ? [] : ['zz-drop']];
+    $put = function (string $file, ?string $text = null): void {
+        @mkdir($text === null ? $file : dirname($file), 0755, true);
+        if ($text !== null) {
+            file_put_contents($file, $text);
+        }
+    };
+    $snap = fn (string $pool, string $name, string $share = 'zzdrop'): string => "$mnt/$pool/$share/.zfs/snapshot/$name";
+    $T0 = (int) strtotime('2026-10-06 01:16');
+    $T1 = (int) strtotime('2026-10-06 14:59');
+    $T2 = (int) strtotime('2026-10-06 15:00');
+    $Th = (int) strtotime('2026-10-05 12:00');
+    // live: the data on hive, mother's part empty, the array disk's empty
+    $put("$mnt/hive/zzdrop/files");
+    $put("$mnt/hive/zzdrop/texts/t1.txt", 'live text');
+    $put("$mnt/hive/zzdrop/shares/a/x", 'live x');
+    $put("$mnt/mother/zzdrop");
+    $put("$mnt/disk1/zzdrop");
+    // snapshots: the engine's run on all three, a manual one on hive and mother, a plan's on mother only, one on hive only
+    $put($snap('hive', 'hive-only') . '/files/h.png', 'h');
+    $put($snap('hive', 'hive-only') . '/texts/t1.txt', 'hive-only text');
+    $put($snap('hive', 'unraidbackup-20261006-0100') . '/files/f0.png', 'png0');
+    $put($snap('hive', 'manual-x') . '/files/f1.png', 'png1');
+    $put($snap('hive', 'manual-x') . '/texts/t1.txt', 'old text');
+    $put($snap('hive', 'manual-x') . '/shares');                       // a dataset of its own: empty in its parent's snapshot
+    $put($snap('hive', 'manual-x') . '/.thumbs/t', 'thumb');
+    $put($snap('hive', 'manual-x') . '/files.restored-20261006-150008/old', 'mine');   // what he left himself: not listed
+    $put("$mnt/hive/zzdrop/shares/.zfs/snapshot/manual-x/a/x", 'snap x');
+    $put($snap('mother', 'unraidbackup-20261006-0100') . '/files/m0.png', 'm0');
+    $put($snap('mother', 'manual-x'));
+    $put($snap('mother', 'uso-plan-test-20261006-1500'));
+    $put("$mnt/disk1/.btrfs-snap/20261006-0100/zzdrop/files/d1.png", 'd1');
+    // the share's settings as the last run packed them (a share that is gone now)
+    $put("$tmp/pkg/server/shares/zzgone.cfg", "shareUseCache=\"prefer\"\nshareCachePool=\"hive\"\nshareCachePool2=\"zzpool2\"\nshareAllocator=\"mostfree\"\n"
+        . "shareSplitLevel=\"1\"\nshareFloor=\"2000\"\nshareExport=\"eh\"\nshareSecurity=\"private\"\nshareExportNFS=\"-\"\n");
+    // an empty share on hive only, and one with too much at its top
+    $put("$mnt/hive/zzempty");
+    $put($snap('hive', 'manual-e', 'zzempty') . '/data/d.txt', 'd');
+    for ($i = 0; $i <= RS_ENTRIES_MAX; $i++) {
+        $put($snap('hive', 'manual-m', 'zzmany') . "/f$i");
+    }
+    $put("$mnt/user");
+    foreach (['zzdrop', 'zzempty', 'zzmany'] as $s) {
+        symlink("$mnt/hive/$s", "$mnt/user/$s");
+    }
+    $ctx = [
+        'fs' => ['hive' => 'zfs', 'mother' => 'zfs', 'disk1' => 'btrfs'],
+        'zfs' => ["$mnt/hive/zzdrop" => 'zz-hive/zzdrop', "$mnt/mother/zzdrop" => 'zz-mother/zzdrop', "$mnt/hive/zzdrop/shares" => 'zz-hive/zzdrop/shares',
+                  "$mnt/hive/zzempty" => 'zz-hive/zzempty', "$mnt/hive/zzmany" => 'zz-hive/zzmany'],
+        'snaps' => ['zz-hive/zzdrop' => [['name' => 'hive-only', 'time' => $Th], ['name' => 'unraidbackup-20261006-0100', 'time' => $T0], ['name' => 'manual-x', 'time' => $T1]],
+                    'zz-mother/zzdrop' => [['name' => 'unraidbackup-20261006-0100', 'time' => $T0 + 60], ['name' => 'manual-x', 'time' => $T1], ['name' => 'uso-plan-test-20261006-1500', 'time' => $T2]],
+                    'zz-hive/zzdrop/shares' => [['name' => 'manual-x', 'time' => $T1]],
+                    'zz-hive/zzempty' => [['name' => 'manual-e', 'time' => $T1]], 'zz-hive/zzmany' => [['name' => 'manual-m', 'time' => $T1]]],
+        'asleep' => [], 'prefixes' => ['uso-backup-', 'unraidbackup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => [],
+        'cfg' => ['zzdrop' => ['shareUseCache' => 'prefer', 'shareCachePool' => 'hive', 'shareCachePool2' => 'mother', 'shareFloor' => '1000'],
+                  'zzempty' => ['shareUseCache' => 'only', 'shareCachePool' => 'hive'], 'zzmany' => ['shareUseCache' => 'only', 'shareCachePool' => 'hive'], 'zzgone' => []],
+        'mnt' => $mnt, 'user' => "$mnt/user",
+        'disks' => ['hive' => ['name' => 'hive', 'fsFree' => '1000000'], 'mother' => ['name' => 'mother', 'fsFree' => '500000'], 'disk1' => ['name' => 'disk1', 'fsFree' => '7']],
+        'shares_ini' => ['zzdrop' => ['exclusive' => 'no'], 'zzempty' => ['exclusive' => 'yes'], 'zzmany' => ['exclusive' => 'yes']],
+        'old_shares' => "$tmp/pkg/server/shares", 'now' => [],
+    ];
+    $owner = ['kind' => 'app', 'name' => 'zz', 'id' => 'zz', 'vm_state' => null];
+    $stamp = '20261006-160000';
+    $c = $ctx;
+
+    // moments: by run (the engine's, on every part — ZFS and btrfs alike) or by name; newest first; which parts each covers
+    $m = rsMoments(rsLocate('/mnt/user/zzdrop', $c));
+    same('restore shares: moments across the parts, newest first', [
+            ['name:uso-plan-test-20261006-1500', ['mother']], ['name:manual-x', ['hive', 'mother']],
+            ['run:20261006-0100', ['hive', 'mother', 'disk1']], ['name:hive-only', ['hive']]],
+        array_map(fn ($x) => [$x['id'], array_keys($x['parts'])], $m));
+    same('restore shares: the engine\'s run named by its ZFS snapshot, the newest part\'s time', ['unraidbackup-20261006-0100', $T0 + 60, true],
+        [$m[2]['name'], $m[2]['time'], $m[2]['ours']]);
+    rsMomentHolds($m, true);
+    same('restore shares: which parts hold anything', [[], ['hive'], ['hive', 'mother', 'disk1'], ['hive']], array_column($m, 'holds'));
+
+    // a whole share: the default moment holds something (not the plan's empty one on mother), its entries, copy by default
+    $p = rsPlanFilesFor('/mnt/user/zzdrop', '', '', false, $owner, $stamp, $c);
+    same('restore shares: the default moment is never one whose parts hold nothing', 'name:manual-x', $p['target']['snap']);
+    same('restore shares: the moment\'s parts', [['hive', true, true], ['mother', true, false], ['disk1', false, false]],
+        array_map(fn ($x) => [$x['base'], $x['covered'], $x['holds']], $p['moment']['parts']));
+    same('restore shares: entries at its top (his own leftovers not)', ['.thumbs', 'files', 'shares', 'texts'], array_column($p['options']['entries'], 'name'));
+    same('restore shares: data there, so copy by default', ['copy', []], [$p['target']['mode'], $p['blockers']]);
+    same('restore shares: copies go onto the share, not the pool', ["$mnt/user/zzdrop/.thumbs.restored-$stamp", "$mnt/user/zzdrop/files.restored-$stamp",
+            "$mnt/user/zzdrop/shares.restored-$stamp", "$mnt/user/zzdrop/texts.restored-$stamp"],
+        array_column($p['steps'], 'to'));
+    same('restore shares: a dataset of its own comes from its own snapshot', ["$mnt/hive/zzdrop/shares/.zfs/snapshot/manual-x"], $p['steps'][2]['sources']);
+    $notes = array_column($p['notes'], 'key');
+    check('restore shares: Unraid places it by the share\'s settings', in_array('note.files_place2', $notes, true), json_encode($notes));
+    $place = array_values(array_filter($p['notes'], fn ($n) => $n['key'] === 'note.files_place2'))[0]['params'] ?? [];
+    same('restore shares: primary and secondary storage', ['/mnt/user/zzdrop', 'hive', 'mother'], [$place['path'] ?? null, $place['primary'] ?? null, $place['secondary'] ?? null]);
+
+    // chosen entries, swapped: copies first, what binds the whole share stops, each aside through the share, the copy in place
+    $c = $ctx;
+    $p = rsPlanFilesFor('/mnt/user/zzdrop', 'name:manual-x', 'swap', false, $owner, $stamp, $c, ['texts', 'files', 'nope']);
+    same('restore shares: only chosen entries that are there, in their order', ['files', 'texts'], $p['target']['items']);
+    same('restore shares: the swap\'s steps', ['copy', 'copy', 'stop', 'aside', 'move', 'aside', 'move', 'start'], array_column($p['steps'], 'do'));
+    same('restore shares: what binds the share stops', [['zz-drop'], ['zz-drop']], [$p['steps'][2]['containers'], $p['stops']]);
+    same('restore shares: aside on the share', ["$mnt/user/zzdrop/files" => "$mnt/user/zzdrop/files.aside-$stamp", "$mnt/user/zzdrop/texts" => "$mnt/user/zzdrop/texts.aside-$stamp"],
+        array_column($p['aside'], 'to', 'from'));
+    same('restore shares: nothing blocks it', [], $p['blockers']);
+    $c = $ctx;
+    $q = rsPlanFilesFor('/mnt/user/zzdrop', 'name:manual-x', 'swap', false, $owner, $stamp, $c, ['shares']);
+    same('restore shares: a dataset of its own whose mountpoint isn\'t inherited is not swapped', ['restore_swap_mountpoint'], array_column($q['blockers'], 'key'));
+    $c = $ctx;
+    same('restore shares: nothing chosen', ['restore_nothing_chosen'], array_column(rsPlanFilesFor('/mnt/user/zzdrop', 'name:manual-x', 'swap', false, $owner, $stamp, $c, [])['blockers'], 'key'));
+
+    // the swap runs on the folders, then «Put back» brings back what was there
+    $id = "$stamp-ab12";
+    rsPrivateDir(rsData());
+    rsPrivateDir(rsDir($id));
+    $p['stamp'] = $stamp;
+    $j = rsJournalNew($id, $p);
+    $states = [];
+    foreach (array_keys($j['steps']) as $i) {
+        $j['steps'][$i] = array_merge($j['steps'][$i], rsStep($j, $i));
+        $states[] = $j['steps'][$i]['state'];
+    }
+    same('restore shares: the swap ran', array_fill(0, 8, 'ok'), $states);
+    clearstatcache();
+    same('restore shares: the snapshot\'s state in place, the live one aside', ['png1', 'old text', 'live text'],
+        [@file_get_contents("$mnt/hive/zzdrop/files/f1.png"), @file_get_contents("$mnt/hive/zzdrop/texts/t1.txt"), @file_get_contents("$mnt/hive/zzdrop/texts.aside-$stamp/t1.txt")]);
+    $j['result'] = 'ok';
+    writeAtomic(rsDir($id) . '/plan.json', jsonEncode($p), 0600, 0, 0);
+    rsJournalWrite($j);
+    $back = rsPlanSeal(rsPlanPutback(['id' => $id], '20261006-170000'), '20261006-170000');
+    same('restore shares: the put back\'s steps', [['stop', 'aside', 'move', 'aside', 'move', 'start'], []], [array_column($back['steps'], 'do'), $back['blockers']]);
+    $pb = rsJournalNew('20261006-170000-cd34', $back);
+    rsPrivateDir(rsDir($pb['id']));
+    $states = [];
+    foreach (array_keys($pb['steps']) as $i) {
+        $pb['steps'][$i] = array_merge($pb['steps'][$i], rsStep($pb, $i));
+        $states[] = $pb['steps'][$i]['state'];
+    }
+    clearstatcache();
+    same('restore shares: put back — as before, the restored state aside', [array_fill(0, 6, 'ok'), 'live text', false, 'old text', 'png1'],
+        [$states, @file_get_contents("$mnt/hive/zzdrop/texts/t1.txt"), file_exists("$mnt/hive/zzdrop/files/f1.png"),
+         @file_get_contents("$mnt/hive/zzdrop/texts.putback-20261006-170000/t1.txt"), @file_get_contents("$mnt/hive/zzdrop/files.putback-20261006-170000/f1.png")]);
+
+    // one folder from the engine's run: the union of its parts (primary first), copied together
+    $c = $ctx;
+    $p = rsPlanFilesFor('/mnt/user/zzdrop/files', 'run:20261006-0100', 'copy', false, $owner, $stamp, $c);
+    same('restore shares: the union of the parts, primary storage first', [$snap('hive', 'unraidbackup-20261006-0100') . '/files', $snap('mother', 'unraidbackup-20261006-0100') . '/files',
+            "$mnt/disk1/.btrfs-snap/20261006-0100/zzdrop/files"], $p['steps'][0]['sources'] ?? null);
+    $union = array_values(array_filter($p['notes'], fn ($n) => $n['key'] === 'note.files_union'))[0]['params']['bases'] ?? null;
+    same('restore shares: said so', 'hive + mother + disk1', $union);
+    $j = rsJournalNew("$stamp-ef56", $p);
+    rsPrivateDir(rsDir($j['id']));
+    $r = rsStep($j, 0);
+    same('restore shares: the copy holds every part', ['ok', 'png0', 'm0', 'd1'], [$r['state'], @file_get_contents("$mnt/user/zzdrop/files.restored-$stamp/f0.png"),
+        @file_get_contents("$mnt/user/zzdrop/files.restored-$stamp/m0.png"), @file_get_contents("$mnt/user/zzdrop/files.restored-$stamp/d1.png")]);
+    $c = $ctx;
+    same('restore shares: never over a copy that is there', ['restore_exists'], array_column(rsPlanFilesFor('/mnt/user/zzdrop/files', 'run:20261006-0100', 'copy', false, $owner, $stamp, $c)['blockers'], 'key'));
+
+    // a part with content now that the moment doesn't cover: said so (warning); a moment that holds nothing of it is refused
+    $put("$mnt/mother/zzdrop/texts/m.txt", 'on mother');
+    $c = $ctx;
+    $p = rsPlanFilesFor('/mnt/user/zzdrop/texts', 'name:hive-only', 'swap', false, $owner, $stamp, $c);
+    $un = array_values(array_filter($p['notes'], fn ($n) => $n['key'] === 'note.files_uncovered'))[0] ?? [];
+    same('restore shares: a part with content the moment doesn\'t cover', ['mother', 'texts', true], [$un['params']['bases'] ?? null, $un['params']['names'] ?? null, $un['warn'] ?? null]);
+    $c = $ctx;
+    same('restore shares: a moment that holds nothing of it', ['restore_not_in_snapshot'],
+        array_column(rsPlanFilesFor('/mnt/user/zzdrop/texts', 'name:uso-plan-test-20261006-1500', 'copy', false, $owner, $stamp, $c)['blockers'], 'key'));
+    $c = $ctx;
+    $c['asleep'] = ['mother' => true];
+    same('restore shares: a part asleep — through /mnt/user only with «wake»', ['restore_asleep'],
+        array_column(rsPlanFilesFor('/mnt/user/zzdrop/texts', 'name:manual-x', 'copy', false, $owner, $stamp, $c)['blockers'], 'key'));
+
+    // a share that is gone: never created here — its old settings as information, pools this server lacks named
+    $c = $ctx;
+    $p = rsPlanFilesFor('/mnt/user/zzgone/x', '', '', false, $owner, $stamp, $c);
+    $old = $p['share_now']['old'] ?? [];
+    same('restore shares: a missing share blocks, with its old settings', [['restore_share_missing'], 'missing', 'hive', 'zzpool2', 'to_primary', ['zzpool2']],
+        [array_column($p['blockers'], 'key'), $p['share_now']['state'], $old['primary'] ?? null, $old['secondary'] ?? null, $old['mover'] ?? null, $old['missing_pools'] ?? null]);
+    same('restore shares: the old settings in words', ['mostfree', '1', 2048000, 'hidden', 'private', 'no'],
+        [$old['allocator'] ?? null, $old['split'] ?? null, $old['floor'] ?? null, $old['smb'] ?? null, $old['security'] ?? null, $old['nfs'] ?? null]);
+
+    // an empty share: straight in — nothing to put aside, «put in place» by default
+    $c = $ctx;
+    $p = rsPlanFilesFor('/mnt/user/zzempty', '', '', false, $owner, $stamp, $c);
+    same('restore shares: an empty share is filled straight in', ['empty', 'swap', ['copy', 'stop', 'move', 'start'], [], 'after.files_place'],
+        [$p['share_now']['state'], $p['target']['mode'], array_column($p['steps'], 'do'), $p['aside'], $p['after'][0]['key'] ?? null]);
+    check('restore shares: and says so', in_array('note.files_share_empty', array_column($p['notes'], 'key'), true));
+    same('restore shares: an exclusive share is placed on its pool only', ['note.files_place', 'hive'],
+        [array_values(array_filter($p['notes'], fn ($n) => str_starts_with($n['key'], 'note.files_place')))[0]['key'] ?? null,
+         array_values(array_filter($p['notes'], fn ($n) => str_starts_with($n['key'], 'note.files_place')))[0]['params']['primary'] ?? null]);
+    $c = $ctx;
+    same('restore shares: too much at the top of a share', [['restore_too_many'], RS_ENTRIES_MAX + 1],
+        [array_column(rsPlanFilesFor('/mnt/user/zzmany', '', '', false, $owner, $stamp, $c)['blockers'], 'key'),
+         rsPlanFilesFor('/mnt/user/zzmany', '', '', false, $owner, $stamp, $c)['blockers'][0]['params']['n'] ?? null]);
+
+    // the shares an app needs, as they are; settings in words; where Unraid puts it and how much room
+    $c = $ctx;
+    same('restore shares: the shares as they are', ['data', 'empty', 'missing'], [rsShareNow('zzdrop', $c)['state'], rsShareNow('zzempty', $c)['state'], rsShareNow('zzgone', $c)['state']]);
+    $s = fn (array $cfg) => array_intersect_key(rsShareSettings($cfg, $ctx), array_flip(['primary', 'secondary', 'mover']));
+    same('restore shares: primary and secondary storage from the cfg', [
+            ['primary' => 'array', 'secondary' => null, 'mover' => null], ['primary' => 'hive', 'secondary' => null, 'mover' => null],
+            ['primary' => 'hive', 'secondary' => 'array', 'mover' => 'to_secondary'], ['primary' => 'cache', 'secondary' => 'mother', 'mover' => 'to_primary']],
+        [$s([]), $s(['shareUseCache' => 'only', 'shareCachePool' => 'hive']), $s(['shareUseCache' => 'yes', 'shareCachePool' => 'hive']),
+         $s(['shareUseCache' => 'prefer', 'shareCachePool2' => 'mother'])]);
+    same('restore shares: odd values are not taken', ['array', 'no', 'public'],
+        array_values(array_intersect_key(rsShareSettings(['shareUseCache' => 'x;y', 'shareSecurity' => '<b>', 'shareExport' => 'e;rm'], $ctx), array_flip(['primary', 'security', 'smb']))));
+    $c = $ctx;
+    same('restore shares: room on primary and secondary, less the minimum free space', ['hive', 'mother', 999000 * 1024, 499000 * 1024, 1498000 * 1024],
+        array_values(rsShareSpace('zzdrop', $c)));
+
+    unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file'], $GLOBALS['rs']['ub_data'], $GLOBALS['rs']['sizes_file'], $GLOBALS['rs']['users']);
+    $GLOBALS['rs']['du'] = ['queue' => [], 'running' => []];
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -3639,7 +3871,7 @@ function testIconSquare(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testJobGuard', 'testComposeBuilds', 'testExclusive'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testJobGuard', 'testComposeBuilds', 'testExclusive'],
           'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';

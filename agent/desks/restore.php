@@ -52,12 +52,25 @@ const RS_FLASH_ASIDE  = '/boot/config/_UnraidSecretaryOffice-restore';   // temp
 const RS_LIBVIRT_ASIDE = '_UnraidSecretaryOffice-restore';               // a VM's configuration he replaces, inside /etc/libvirt
 const RS_KEEP         = 60;          // journals listed (the folders stay)
 const RS_DU_PARALLEL  = 2;
+// a share's parts and moments (several pools or disks, snapshots taken on all at once — or only on some)
+const RS_SHARES_INI   = '/var/local/emhttp/shares.ini';   // emhttp's shares: which exist, exclusive or not
+const RS_DISKS_INI    = '/var/local/emhttp/disks.ini';    // free space per pool and disk, read without touching a disk
+const RS_MOMENTS_MAX  = 80;          // moments offered for one folder or share
+const RS_HOLDS_CHECK  = 24;          // moments looked into (does it hold the folder?) — each look mounts a ZFS snapshot
+const RS_ENTRIES_MAX  = 60;          // entries at the top of a share he brings back at once
+const RS_STOREROOM    = '_UnraidSecretaryOffice-trash';   // Ms. Dustdevil's: never a share's own folder
+const RS_OWN_LEFTOVER = '/\.(restored|aside|putback)-\d{8}-\d{6}$/D';   // what he left next to a folder himself
 
 define('RS_DATA', DATA_DIR . '/restore');
 define('RS_JOB_FILE', DATA_DIR . '/restore-job.json');       // the running (or last) restore, polled by the page (api part "job")
 define('RS_SIZES_FILE', DATA_DIR . '/restore-sizes.json');   // sizes measured in the background (api part "sizes")
 
 $GLOBALS['rs'] = ['state' => null, 'du' => ['queue' => [], 'running' => []]];
+
+function rsSizesFile(): string
+{
+    return $GLOBALS['rs']['sizes_file'] ?? RS_SIZES_FILE;
+}
 
 /** Where his restores, the job file and the engine's lock live — tests point them to a temporary folder */
 function rsData(): string
@@ -135,7 +148,158 @@ function rsContext(array $settings): array
         'btrfs_dir' => (string) backupSetting($settings, 'general', 'btrfs_snap_dir', '.btrfs-snap'),
         'settings'  => $settings,
         'cfg'       => [],
+        'mnt'       => '/mnt',                  // where the pools and disks are mounted (tests: a temporary folder)
+        'user'      => '/mnt/user',             // the user shares (shfs): where restores go, so Unraid places them
+        'disks'     => readCfg(RS_DISKS_INI, true),
+        'shares_ini' => readCfg(RS_SHARES_INI, true) ?: null,   // null: unknown (then the flash and the folders tell)
+        'old_shares' => null,                   // <backup place>/server/shares: the shares' settings as the last run found them
+        'now'       => [],                      // rsShareNow() per share, once per look
     ];
+}
+
+/**
+ * A share's settings as Unraid's cfg keeps them, in words the page can show: primary and secondary storage (a pool's
+ * name or "array"), which way the mover goes, allocation, split level, minimum free space, disks, exports — and which of
+ * the named pools this server doesn't have. Values are only taken in a plain shape (the cfg may come from a package).
+ */
+function rsShareSettings(array $cfg, array $ctx): array
+{
+    $word = fn (string $k, string $re = '/^[\w.-]{1,64}$/D'): string => preg_match($re, (string) ($cfg[$k] ?? '')) ? (string) $cfg[$k] : '';
+    $p1 = $word('shareCachePool') ?: 'cache';
+    $p2 = $word('shareCachePool2') ?: 'array';
+    [$primary, $secondary, $mover] = match ($word('shareUseCache')) {
+        'only'   => [$p1, null, null],
+        'yes'    => [$p1, $p2, 'to_secondary'],
+        'prefer' => [$p1, $p2, 'to_primary'],
+        default  => ['array', null, null],
+    };
+    $list = fn (string $k): array => array_values(array_filter(array_map('trim', explode(',', $word($k, '/^[\w.,\s-]{0,400}$/D'))), fn ($x) => $x !== ''));
+    $split = $word('shareSplitLevel', '/^\d{0,2}$/D');
+    $floor = $word('shareFloor', '/^\d{1,15}$/D');
+    return [
+        'primary'   => $primary,
+        'secondary' => $secondary,
+        'mover'     => $mover,
+        'allocator' => $word('shareAllocator') ?: 'highwater',
+        'split'     => $split === '' ? 'any' : ($split === '0' ? 'manual' : $split),
+        'floor'     => $floor !== '' ? (int) $floor * 1024 : null,          // Unraid keeps KB
+        'include'   => $list('shareInclude'),
+        'exclude'   => $list('shareExclude'),
+        'smb'       => ['e' => 'yes', 'eh' => 'hidden'][$word('shareExport')] ?? 'no',
+        'security'  => in_array($word('shareSecurity'), ['public', 'secure', 'private'], true) ? $word('shareSecurity') : 'public',
+        'nfs'       => $word('shareExportNFS') === 'e' ? 'yes' : 'no',
+        'missing_pools' => array_values(array_filter([$primary, $secondary], fn ($p) => $p !== null && $p !== 'array' && !isset($ctx['fs'][$p]))),
+    ];
+}
+
+/** A share's settings as the last backup run found them (the package's server/shares/<share>.cfg), or null */
+function rsShareOld(string $share, array $ctx): ?array
+{
+    $dir = $ctx['old_shares'] ?? null;
+    if (!is_string($dir) || !preg_match('/^[\w .-]+$/D', $share)) {
+        return null;
+    }
+    $file = "$dir/$share.cfg";
+    clearstatcache(true, $file);
+    if (!is_file($file) || is_link($file) || (int) @filesize($file) > 65536) {
+        return null;
+    }
+    return rsShareSettings(readCfg($file), $ctx);
+}
+
+/** Does a folder hold anything (Ms. Dustdevil's storeroom doesn't count)? Read only until the first entry */
+function rsDirHasEntries(string $dir): bool
+{
+    $h = is_dir($dir) ? @opendir($dir) : false;
+    if (!$h) {
+        return false;
+    }
+    try {
+        while (($n = readdir($h)) !== false) {
+            if ($n !== '.' && $n !== '..' && $n !== '.zfs' && $n !== RS_STOREROOM) {      // .zfs: a snapshot folder made visible
+                return true;
+            }
+        }
+        return false;
+    } finally {
+        closedir($h);
+    }
+}
+
+/**
+ * Is a share there, and does it hold anything — from emhttp's list of shares and a look at the top folder on
+ * each of its awake pools and disks (never through /mnt/user, never on a sleeping disk):
+ *   data | empty | missing | unknown (nothing on the awake parts, but some sleep).
+ * A missing one carries its settings from the package, as information: Mr. Restori never creates a share.
+ */
+function rsShareNow(string $share, array &$ctx): array
+{
+    if (isset($ctx['now'][$share])) {
+        return $ctx['now'][$share];
+    }
+    $mnt = $ctx['mnt'] ?? '/mnt';
+    $ini = $ctx['shares_ini'] ?? null;
+    if (is_array($ini)) {
+        $exists = isset($ini[$share]);
+    } else {
+        $exists = is_file("/boot/config/shares/$share.cfg");
+        foreach (array_keys($ctx['fs']) as $base) {
+            $exists = $exists || (!baseAsleep((string) $base, $ctx['asleep'] ?? []) && is_dir("$mnt/$base/$share"));
+        }
+    }
+    $out = ['share' => $share, 'state' => 'missing', 'exclusive' => ($ini[$share]['exclusive'] ?? '') === 'yes', 'asleep' => [], 'old' => null, 'old_known' => false];
+    if (!$exists) {
+        $out['old'] = rsShareOld($share, $ctx);
+        $out['old_known'] = is_string($ctx['old_shares'] ?? null);
+        return $ctx['now'][$share] = $out;
+    }
+    $data = false;
+    foreach (rsShareBases($share, $ctx) as $base) {
+        if (baseAsleep($base, $ctx['asleep'] ?? [])) {
+            $out['asleep'][] = $base;
+        } elseif (!$data && rsDirHasEntries("$mnt/$base/$share")) {
+            $data = true;
+        }
+    }
+    $out['state'] = $data ? 'data' : ($out['asleep'] ? 'unknown' : 'empty');
+    return $ctx['now'][$share] = $out;
+}
+
+/**
+ * Where Unraid puts something new in a share, and how much room is there: its primary storage, then the
+ * secondary one (an exclusive share: its pool only) — the free space emhttp keeps per pool and disk
+ * (disks.ini, no disk touched), less the share's minimum free space. Bytes, null when not known.
+ */
+function rsShareSpace(string $share, array &$ctx): array
+{
+    $set = rsShareSettings(rsShareCfg($share, $ctx), $ctx);
+    $now = rsShareNow($share, $ctx);
+    $floor = $set['floor'] ?? 0;
+    $free = function (string $name) use ($ctx, $set, $floor): ?int {
+        $names = [$name];
+        if ($name === 'array') {
+            $names = [];
+            foreach ($ctx['disks'] ?? [] as $sec => $d) {
+                $n = (string) ($d['name'] ?? $sec);
+                if (preg_match('/^disk\d+$/D', $n) && (!$set['include'] || in_array($n, $set['include'], true)) && !in_array($n, $set['exclude'], true)) {
+                    $names[] = $n;
+                }
+            }
+        }
+        $sum = null;
+        foreach ($names as $n) {
+            $kb = $ctx['disks'][$n]['fsFree'] ?? null;
+            if (is_string($kb) && ctype_digit($kb)) {
+                $sum = ($sum ?? 0) + max(0, (int) $kb * 1024 - $floor);
+            }
+        }
+        return $sum;
+    };
+    $secondary = $now['exclusive'] ? null : $set['secondary'];
+    $a1 = $free($set['primary']);
+    $a2 = $secondary !== null ? $free($secondary) : null;
+    return ['primary' => $set['primary'], 'secondary' => $secondary, 'primary_free' => $a1, 'secondary_free' => $a2,
+            'free' => $a1 === null && $a2 === null ? null : (int) ($a1 ?? 0) + (int) ($a2 ?? 0)];
 }
 
 /** Unraid's settings of a share (on the flash) */
@@ -149,11 +313,12 @@ function rsShareCfg(string $share, array &$ctx): array
 
 /**
  * The pools and disks a share may lie on: its pools, the array disks it may use (Unraid's share
- * config), and what the engine noted at the setup — looked up, never read from the disks.
+ * config), and what the engine noted at the setup — looked up, never read from the disks. The
+ * primary storage first: shfs shows its copy when a name lies on two of them, and so does a restore.
  */
 function rsShareBases(string $share, array &$ctx): array
 {
-    $bases = array_filter(array_map('trim', explode(',', (string) backupSetting($ctx['settings'], "share|$share", 'locations', ''))));
+    $bases = [];
     $cfg = rsShareCfg($share, $ctx);
     foreach (['shareCachePool', 'shareCachePool2'] as $k) {
         if (($cfg[$k] ?? '') !== '' && ($cfg['shareUseCache'] ?? 'no') !== 'no') {
@@ -166,6 +331,7 @@ function rsShareBases(string $share, array &$ctx): array
         $disks = $include ?: array_filter(array_keys($ctx['fs']), fn ($d) => preg_match('/^disk\d+$/', (string) $d));
         $bases = array_merge($bases, array_diff($disks, $exclude));
     }
+    $bases = array_merge($bases, array_filter(array_map('trim', explode(',', (string) backupSetting($ctx['settings'], "share|$share", 'locations', '')))));
     return array_values(array_unique(array_filter($bases, fn ($b) => isset($ctx['fs'][$b]))));
 }
 
@@ -199,10 +365,11 @@ function rsLocate(string $path, array &$ctx): array
         return [];
     }
     [$share, $rel, $only] = $sp;
+    $mnt = $ctx['mnt'] ?? '/mnt';
     $bases = $only !== null ? [$only] : rsShareBases($share, $ctx);
     $places = [];
     foreach ($bases as $base) {
-        $live = "/mnt/$base/$share" . ($rel !== '' ? "/$rel" : '');
+        $live = "$mnt/$base/$share" . ($rel !== '' ? "/$rel" : '');
         $p = ['base' => $base, 'fs' => $ctx['fs'][$base] ?? '', 'live' => $live, 'asleep' => baseAsleep($base, $ctx['asleep']),
               'exists' => false, 'dataset' => null, 'own_dataset' => false, 'inner' => [], 'snaps' => []];
         if ($p['asleep']) {
@@ -210,8 +377,8 @@ function rsLocate(string $path, array &$ctx): array
             continue;
         }
         clearstatcache(true, $live);
-        $p['exists'] = file_exists($live);
-        if (!$p['exists'] && !is_dir("/mnt/$base/$share")) {
+        $p['exists'] = file_exists($live) || is_link($live);
+        if (!$p['exists'] && !is_dir("$mnt/$base/$share")) {
             continue;                                   // the share doesn't lie there at all
         }
         if ($p['fs'] === 'zfs') {
@@ -240,11 +407,12 @@ function rsLocate(string $path, array &$ctx): array
                 }
             }
         } elseif ($p['fs'] === 'btrfs') {
-            $dir = "/mnt/$base/" . $ctx['btrfs_dir'];
+            // a snapshot of the whole disk: it covers the share when the share's folder is in it (the folder itself may not be)
+            $dir = "$mnt/$base/" . $ctx['btrfs_dir'];
             $names = array_filter(@scandir($dir, SCANDIR_SORT_DESCENDING) ?: [], fn ($n) => $n[0] !== '.');
             foreach ($names as $n) {
                 $in = "$dir/$n/$share" . ($rel !== '' ? "/$rel" : '');
-                if (!file_exists($in)) {
+                if (!is_dir("$dir/$n/$share")) {
                     continue;
                 }
                 $t = preg_match('/(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)/', $n, $z)
@@ -259,6 +427,160 @@ function rsLocate(string $path, array &$ctx): array
         $places[] = $p;
     }
     return $places;
+}
+
+/**
+ * Which moment a snapshot belongs to: the engine's are taken on every pool and disk of a run at once (ZFS
+ * <prefix>YYYYMMDD-HHMM, btrfs YYYYMMDD-HHMM — the run), anybody else's by their name (Ms. Snapshotini's
+ * uso-plan-…, a manual one) — those may be taken on some parts only.
+ */
+function rsMomentKey(array $s): string
+{
+    return !empty($s['ours']) && preg_match('/(\d{8}-\d{4})$/D', (string) $s['name'], $m) ? "run:$m[1]" : 'name:' . $s['name'];
+}
+
+/**
+ * A share's content is the union of its parts on all its pools and disks; so is a snapshot of it. The moments
+ * of a folder (or a whole share), newest first: per moment the parts it covers (base => that part's path in the
+ * snapshot), its time (the newest part's), whether it is the engine's. Folders Kopia brought back are moments of
+ * their own (one part, "kopia").
+ *
+ * @return list<array{id:string, key:string, name:string, time:int, ours:bool, kopia:bool, parts:array<string, array{path:string, snap:string, name:string, time:int}>}>
+ */
+function rsMoments(array $places, array $kopia = []): array
+{
+    $m = [];
+    foreach ($places as $p) {
+        foreach ($p['asleep'] ? [] : $p['snaps'] as $s) {
+            $key = rsMomentKey($s);
+            $m[$key] ??= ['id' => $key, 'key' => $key, 'name' => $s['name'], 'time' => 0, 'ours' => false, 'kopia' => false, 'parts' => []];
+            if (!isset($m[$key]['parts'][$p['base']])) {
+                $m[$key]['parts'][$p['base']] = ['path' => $s['path'], 'snap' => $s['id'], 'name' => $s['name'], 'time' => (int) $s['time']];
+                $m[$key]['time'] = max($m[$key]['time'], (int) $s['time']);
+                $m[$key]['ours'] = $m[$key]['ours'] || !empty($s['ours']);
+                if (str_starts_with($key, 'run:') && ($p['fs'] ?? '') === 'zfs') {
+                    $m[$key]['name'] = $s['name'];          // the ZFS name says whose it is (btrfs only the run)
+                }
+            }
+        }
+    }
+    foreach ($kopia as $k) {
+        $m[$k['id']] = ['id' => $k['id'], 'key' => $k['id'], 'name' => $k['name'], 'time' => (int) $k['time'], 'ours' => false, 'kopia' => true,
+                        'parts' => ['kopia' => ['path' => $k['path'], 'snap' => $k['id'], 'name' => $k['name'], 'time' => (int) $k['time']]]];
+    }
+    $m = array_values($m);
+    usort($m, fn ($a, $b) => [$b['time'], $a['id']] <=> [$a['time'], $b['id']]);
+    return array_slice($m, 0, RS_MOMENTS_MAX);
+}
+
+/**
+ * Which parts of a moment hold the folder (for a whole share: anything at its top) — looked into for the newest
+ * RS_HOLDS_CHECK moments only (each look mounts a ZFS snapshot); 'holds' stays null for the others.
+ */
+function rsMomentHolds(array &$moments, bool $whole): void
+{
+    foreach ($moments as $i => &$mo) {
+        if ($i >= RS_HOLDS_CHECK) {
+            $mo['holds'] = null;
+            continue;
+        }
+        $mo['holds'] = [];
+        foreach ($mo['parts'] as $base => $part) {
+            clearstatcache(true, $part['path']);
+            if ($whole ? rsDirHasEntries($part['path']) : (file_exists($part['path']) || is_link($part['path']))) {
+                $mo['holds'][] = (string) $base;
+            }
+        }
+    }
+    unset($mo);
+}
+
+/**
+ * What lies at the top of a share in a moment: the union of its parts' top folders (Ms. Dustdevil's storeroom and
+ * what he left next to folders himself left out), name => {kind, bases}; count = how many there are in all.
+ */
+function rsMomentEntries(array $moment): array
+{
+    $names = [];
+    $count = 0;
+    foreach ($moment['parts'] as $base => $part) {
+        foreach (@scandir($part['path'], SCANDIR_SORT_ASCENDING) ?: [] as $n) {
+            if ($n === '.' || $n === '..' || $n === '.zfs' || $n === RS_STOREROOM || preg_match(RS_OWN_LEFTOVER, $n) || preg_match('/[\x00-\x1f\x7f]/', $n)) {
+                continue;
+            }
+            if (!isset($names[$n])) {
+                $count++;
+                if (count($names) >= RS_ENTRIES_MAX * 4) {
+                    continue;                      // counted, not listed
+                }
+                $names[$n] = ['kind' => is_dir("{$part['path']}/$n") && !is_link("{$part['path']}/$n") ? 'dir' : 'file', 'bases' => []];
+            }
+            if (isset($names[$n])) {
+                $names[$n]['bases'][] = (string) $base;
+            }
+        }
+    }
+    uksort($names, 'strnatcasecmp');
+    return ['names' => $names, 'count' => $count];
+}
+
+/**
+ * The places of one entry at the top of a share, from the share's places: its live path and its paths in the
+ * snapshots. A ZFS dataset at or inside it (one of its own) is located on its own instead — its content lies in its
+ * own snapshots, not in the share's.
+ */
+function rsItemPlaces(array $rootPlaces, string $share, string $name, array &$ctx): array
+{
+    foreach ($rootPlaces as $p) {
+        foreach (array_keys($ctx['zfs']) as $mp) {
+            if (!$p['asleep'] && under((string) $mp, "{$p['live']}/$name")) {
+                return rsLocate("/mnt/user/$share/$name", $ctx);
+            }
+        }
+    }
+    $out = [];
+    foreach ($rootPlaces as $p) {
+        $q = $p;
+        $q['live'] = "{$p['live']}/$name";
+        if (!$p['asleep']) {
+            clearstatcache(true, $q['live']);
+            $q['exists'] = file_exists($q['live']) || is_link($q['live']);
+        }
+        $q['own_dataset'] = false;
+        $q['inner'] = [];
+        $q['snaps'] = array_map(fn ($s) => ['path' => "{$s['path']}/$name"] + $s, $p['snaps']);
+        $out[] = $q;
+    }
+    return $out;
+}
+
+/**
+ * Where a moment holds one item: per part that has the moment's snapshot and the item in it (the union, primary
+ * storage first, as the places come); a Kopia moment's folder plus $kopiaSub. Also which parts the moment covers at all.
+ *
+ * @return array{0: list<array{base:string, path:string}>, 1: list<string>}
+ */
+function rsItemSources(array $moment, array $places, string $kopiaSub = ''): array
+{
+    if ($moment['kopia']) {
+        $p = $moment['parts']['kopia']['path'] . $kopiaSub;
+        clearstatcache(true, $p);
+        return [file_exists($p) || is_link($p) ? [['base' => 'kopia', 'path' => $p]] : [], ['kopia']];
+    }
+    $sources = $covered = [];
+    foreach ($places as $p) {
+        foreach ($p['asleep'] ? [] : $p['snaps'] as $s) {
+            if (rsMomentKey($s) === $moment['key']) {
+                $covered[] = $p['base'];
+                clearstatcache(true, $s['path']);
+                if (file_exists($s['path']) || is_link($s['path'])) {
+                    $sources[] = ['base' => $p['base'], 'path' => $s['path']];
+                }
+                break;
+            }
+        }
+    }
+    return [$sources, $covered];
 }
 
 // ===================================================================== the engine and its place
@@ -609,9 +931,8 @@ function rsVmStates(): ?array
 
 /**
  * The folders of an app as restore units: the first folder below a share that one of its
- * containers binds (appdata/<app>, a photo folder in another share …). A whole share bound as
- * it is (a media library) is named, but is no unit: single files come back through Ms. Snapshotini
- * or Kopia.
+ * containers binds (appdata/<app>, a photo folder in another share …), and a whole share bound as
+ * it is (drop's data, a media library) — that one comes back as a whole or by chosen folders at its top.
  */
 function rsAppFolders(array $app, array &$ctx): array
 {
@@ -637,14 +958,26 @@ function rsAppFolders(array $app, array &$ctx): array
     }
     $out = [];
     foreach ($units as $u) {
-        $out[] = rsFolder($u['path'], array_keys($u['containers']), $ctx);
+        $out[] = rsFolder($u['path'], array_keys($u['containers']), $ctx) + ['share' => $u['share'], 'whole' => false];
     }
     usort($out, fn ($a, $b) => strnatcasecmp($a['path'], $b['path']));
     $whole = [];
+    ksort($shares, SORT_NATURAL | SORT_FLAG_CASE);
     foreach ($shares as $share => $cts) {
-        $whole[] = ['share' => $share, 'containers' => array_keys($cts), 'protection' => backupProtection("/mnt/user/$share")];
+        $whole[] = rsFolder("/mnt/user/$share", array_keys($cts), $ctx) + ['share' => (string) $share, 'whole' => true];
     }
     return [$out, $whole];
+}
+
+/**
+ * The shares an app or VM keeps its data in, as they are now (rsShareNow): before data comes back they must be
+ * there — a missing one the user creates in Unraid himself (its old settings shown as information).
+ */
+function rsNeeds(array $folders, array $whole, array &$ctx): array
+{
+    $shares = array_unique(array_merge(array_column($folders, 'share'), array_column($whole, 'share')));
+    natcasesort($shares);
+    return array_values(array_map(fn ($s) => rsShareNow((string) $s, $ctx), $shares));
 }
 
 /** A folder as the page shows it: where it lies, its protection, its local snapshots */
@@ -703,6 +1036,7 @@ function rsScan(): array
         return rsWrite($state);
     }
     $pk = $place['found'] ? rsPackages($place['base']) : null;
+    $ctx['old_shares'] = $pk['server']['shares'] ?? null;
     $kopiaLast = rsKopiaLast();
     $containers = houseContainers();
     $vmStates = rsVmStates();
@@ -749,6 +1083,7 @@ function rsScan(): array
         $a['present'] = (bool) array_filter($a['containers'], fn ($c) => $c['now'] !== 'missing');
         $a['folders'] = $folders;
         $a['shares'] = $whole;
+        $a['needs'] = rsNeeds($folders, $whole, $ctx);
         $a['kopia'] = $sources;
         $a['files'] = array_values(array_filter($a['files'], fn ($f) => $f['what'] !== 'error'));
         $state['apps'][] = $a;
@@ -762,7 +1097,8 @@ function rsScan(): array
                 $units["/mnt/user/{$sp[0]}/$first"] = true;
             }
         }
-        $v['folders'] = array_map(fn ($p) => rsFolder($p, [], $ctx), array_keys($units));
+        $v['folders'] = array_map(fn ($p) => rsFolder($p, [], $ctx) + ['share' => explode('/', $p)[3], 'whole' => false], array_keys($units));
+        $v['needs'] = rsNeeds($v['folders'], [], $ctx);
         $v['state'] = $vmStates === null ? null : ($vmStates[$v['name']] ?? 'missing');
         $v['kopia'] = $sourcesOf('vm', $v['name'], $v['id'], $v['folders'], []);
         unset($v['files']);
@@ -1476,12 +1812,12 @@ function rsPlanSqliteFor(array &$ctx, array $app, array $pkg, ?array $version, s
     return $plan;
 }
 
-/** Which app or VM a folder unit belongs to (from a fresh look), or null */
+/** Which app or VM a folder unit (or a whole share it binds) belongs to (from a fresh look), or null */
 function rsUnitOwner(array $state, string $path): ?array
 {
     foreach ($state['apps'] ?? [] as $a) {
-        foreach ($a['folders'] as $f) {
-            if ($f['path'] === $path) {
+        foreach (array_merge($a['folders'], $a['shares'] ?? []) as $f) {
+            if (($f['path'] ?? null) === $path) {
                 return ['kind' => 'app', 'name' => $a['name'], 'id' => $a['id'], 'vm_state' => null];
             }
         }
@@ -1497,13 +1833,17 @@ function rsUnitOwner(array $state, string $path): ?array
 }
 
 /**
- * Step 4 — a folder of an app or VM from one of its local snapshots (ZFS .zfs/snapshot/<name>, btrfs
- * <disk>/<snap dir>/<run>; the engine's, Ms. Snapshotini's, anybody's). Two ways: «copy» (default) puts
- * the snapshot's state next to the live folder as <folder>.restored-<time> and replaces nothing; «swap»
- * copies it there first (while everything runs), then stops what uses the folder, puts the live folder
- * aside (<folder>.aside-<time>; a folder that is a ZFS dataset of its own is renamed with zfs rename,
- * its copy made as a dataset too) and moves the copy into its place — the interruption is seconds.
- * A sleeping disk is only read with the explicit wake option; the size is measured in the background.
+ * Step 4 — a folder of an app or VM, or a whole share it binds (all of it or chosen entries at its top), from a
+ * moment: a snapshot taken on the share's pools and disks (the engine's on all at once, others maybe on some) —
+ * its source is the union of the parts holding it, primary storage first — or what Kopia brought back.
+ * It goes back onto the share, not the pool: through /mnt/user/<share>/… (Unraid's shfs places it by the share's
+ * settings; an exclusive share's /mnt/user/<share> is the link to its pool). Two ways: «copy» puts the state next
+ * to it as <name>.restored-<time> and replaces nothing; «swap» copies it there first (while everything runs), then
+ * stops what uses it, puts the live one aside as <name>.aside-<time> (shfs renames it on every pool and disk that
+ * has it) and moves the copy into its place — the interruption is seconds. Nothing there (an empty share, a folder
+ * that is gone): swap only puts it in place, and is the default. A folder that is a ZFS dataset of its own on one
+ * pool stays one (zfs rename, its copy a dataset too). A missing share is never created here: Unraid does that.
+ * A sleeping disk is only read with the explicit wake option; sizes are measured in the background.
  */
 function rsPlanFiles(array $r, string $stamp): array
 {
@@ -1515,109 +1855,267 @@ function rsPlanFiles(array $r, string $stamp): array
     }
     $settings = backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');
     $ctx = rsContext($settings);
-    return rsPlanFilesFor($path, is_string($r['snap'] ?? null) ? $r['snap'] : '', ($r['mode'] ?? '') === 'swap' ? 'swap' : 'copy', !empty($r['wake']), $owner, $stamp, $ctx);
+    $ctx['old_shares'] = $state['server']['shares'] ?? null;
+    $items = null;
+    if (is_array($r['items'] ?? null) && count($r['items']) <= RS_ENTRIES_MAX * 4) {
+        $items = array_values(array_unique(array_filter($r['items'], fn ($x) => is_string($x) && $x !== '' && strlen($x) <= 255)));
+    }
+    $mode = in_array($r['mode'] ?? '', ['copy', 'swap'], true) ? (string) $r['mode'] : '';
+    return rsPlanFilesFor($path, is_string($r['snap'] ?? null) ? $r['snap'] : '', $mode, !empty($r['wake']), $owner, $stamp, $ctx, $items);
 }
 
-function rsPlanFilesFor(string $path, string $snapId, string $mode, bool $wake, array $owner, string $stamp, array &$ctx): array
+/**
+ * The plan of step 4 for a unit /mnt/user/<share>/<folder> or /mnt/user/<share> (whole): $mode '' = the default
+ * (swap when nothing is there to replace, else copy); $items = the chosen entries of a whole share (null: all).
+ */
+function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake, array $owner, string $stamp, array &$ctx, ?array $items = null): array
 {
-    $plan = rsPlanBase('files', $owner['name'], ['path' => $path, 'snap' => $snapId, 'mode' => $mode, 'wake' => $wake,
-                                                 'owner' => $owner['kind'], 'id' => $owner['id']]);
-    $plan['method'] = $mode;
+    $sp = rsSharePath($path, $ctx);
+    if (!$sp || $sp[2] !== null || str_contains($sp[1], '/') || !str_starts_with($path, '/mnt/user/')) {
+        throw new Problem('unknown_target', ['target' => $path]);
+    }
+    [$share, $rel] = $sp;
+    $whole = $rel === '';
+    $user = rtrim((string) ($ctx['user'] ?? '/mnt/user'), '/');
+    $plan = rsPlanBase('files', $owner['name'], ['path' => $path, 'snap' => $momentId, 'mode' => $mode, 'wake' => $wake,
+                                                 'owner' => $owner['kind'], 'id' => $owner['id'], 'items' => null]);
     if ($wake) {
         $ctx['asleep'] = [];                     // asked for: sleeping disks are read (and so woken)
     }
+    $now = rsShareNow($share, $ctx);
+    $plan['share_now'] = $now;
     $places = rsLocate($path, $ctx);
-    $snaps = [];
-    foreach ($places as $p) {
-        foreach ($p['snaps'] as $s) {
-            $snaps[] = $s + ['base' => $p['base'], 'fs' => $p['fs']];
-        }
-    }
-    // what Kopia brought back into its restore folder (step 6) is a source too: next to the live folder's place
-    $home = array_values(array_filter($places, fn ($p) => $p['exists'] && !$p['asleep']))[0]
-        ?? array_values(array_filter($places, fn ($p) => !$p['asleep'] && is_dir(dirname($p['live']))))[0] ?? null;
-    if ($home) {
-        foreach (rsKopiaRestored($path, $ctx) as $k) {
-            $snaps[] = $k + ['base' => $home['base'], 'fs' => $home['fs']];
-        }
-    }
-    usort($snaps, fn ($a, $b) => $b['time'] <=> $a['time']);
     $asleep = array_values(array_map(fn ($p) => $p['base'], array_filter($places, fn ($p) => $p['asleep'])));
-    $plan['options'] = ['snaps' => array_map(fn ($s) => ['id' => $s['id'], 'name' => $s['name'], 'time' => $s['time'], 'base' => $s['base'], 'ours' => $s['ours'],
-                                                          'kopia' => !empty($s['kopia'])], $snaps),
-                        'asleep' => $asleep, 'vm' => $owner['kind'] === 'vm'];
-    $snap = null;
-    foreach ($snaps as $s) {
-        if ($snapId === '' ? $snap === null : $s['id'] === $snapId) {
-            $snap = $s;
-        }
-    }
-    if (!$snap) {
-        if ($snapId !== '' && !$asleep) {
-            throw new Problem('unknown_target', ['target' => $snapId]);
-        }
-        $plan['blockers'][] = $asleep ? ['key' => 'restore_asleep', 'params' => ['base' => implode(', ', $asleep)]] : ['key' => 'restore_no_snapshot', 'params' => []];
+    $moments = rsMoments($places, rsKopiaRestored($path, $ctx));
+    rsMomentHolds($moments, $whole);
+    $plan['options'] = [
+        'moments' => array_map(fn ($m) => ['id' => $m['id'], 'name' => $m['name'], 'time' => $m['time'], 'ours' => $m['ours'], 'kopia' => $m['kopia'],
+                                           'bases' => array_map('strval', array_keys($m['parts'])), 'holds' => $m['holds']], $moments),
+        'parts'   => array_values(array_map(fn ($p) => $p['base'], $places)),
+        'asleep'  => $asleep, 'vm' => $owner['kind'] === 'vm', 'whole' => $whole, 'share' => $share, 'entries' => null, 'nothing_live' => false,
+    ];
+    if ($now['state'] === 'missing') {
+        $plan['blockers'][] = ['key' => 'restore_share_missing', 'params' => ['share' => $share]];
         return $plan;
     }
-    $plan['target']['snap'] = $snap['id'];
-    $place = array_values(array_filter($places, fn ($p) => $p['base'] === $snap['base']))[0];
-    $live = $place['live'];
-    $restored = "$live.restored-$stamp";
-    $asideP = "$live.aside-$stamp";
-    $plan['source'] = ['path' => $snap['path'], 'snap' => $snap['name'], 'time' => $snap['time'], 'base' => $snap['base']];
-    $ds = $rds = $ads = null;
-    if ($place['own_dataset'] && $place['exists']) {
-        if (rsZfsInherited((string) $place['dataset'])) {
-            $ds = $place['dataset'];
-            $rds = "$ds.restored-$stamp";
-            $ads = "$ds.aside-$stamp";
-        } elseif ($mode === 'swap') {
-            $plan['blockers'][] = ['key' => 'restore_swap_mountpoint', 'params' => ['dataset' => $place['dataset']]];
+    if (!is_dir($user)) {
+        $plan['blockers'][] = ['key' => 'restore_no_user_shares', 'params' => []];
+        return $plan;
+    }
+
+    // the moment: the one asked for, else the newest that holds something of it — never one whose parts hold nothing
+    $moment = null;
+    foreach ($momentId !== '' ? $moments : [] as $m) {
+        $moment ??= $m['id'] === $momentId ? $m : null;
+    }
+    foreach ($momentId === '' ? [true, false] : [] as $checked) {
+        foreach ($moments as $m) {
+            $moment ??= ($checked ? ($m['holds'] ?? []) !== [] : $m['holds'] === null) ? $m : null;
         }
     }
-    if ($place['inner']) {
-        if ($mode === 'swap') {
-            $plan['blockers'][] = ['key' => 'restore_swap_inner', 'params' => ['list' => implode(', ', $place['inner'])]];
-        } else {
-            $plan['notes'][] = ['key' => 'note.files_inner', 'params' => ['list' => implode(', ', $place['inner'])]];
+    if (!$moment) {
+        if ($momentId !== '' && !$asleep) {
+            throw new Problem('unknown_target', ['target' => $momentId]);
         }
+        $plan['blockers'][] = $momentId === '' && $moments ? ['key' => 'restore_not_in_snapshot', 'params' => ['path' => $path]]
+            : ($asleep ? ['key' => 'restore_asleep', 'params' => ['base' => implode(', ', $asleep)]] : ['key' => 'restore_no_snapshot', 'params' => []]);
+        return $plan;
     }
-    if (count(array_filter($places, fn ($p) => $p['exists'])) > 1 || ($asleep && !in_array($snap['base'], $asleep, true))) {
-        $plan['notes'][] = ['key' => 'note.files_part', 'params' => ['base' => $snap['base']]];
-        if ($mode === 'swap') {
-            // only the part on that disk would be swapped: a folder of two states
-            $plan['blockers'][] = ['key' => 'restore_swap_spread', 'params' => ['base' => $snap['base']]];
+    if ($moment['holds'] === null) {
+        $one = [$moment];
+        rsMomentHolds($one, $whole);
+        $moment = $one[0];
+    }
+    $plan['target']['snap'] = $moment['id'];
+    $plan['moment'] = ['id' => $moment['id'], 'name' => $moment['name'], 'time' => $moment['time'], 'ours' => $moment['ours'], 'kopia' => $moment['kopia'], 'parts' => []];
+    foreach ($moment['kopia'] ? [] : $places as $p) {
+        $b = (string) $p['base'];
+        $plan['moment']['parts'][] = ['base' => $b, 'asleep' => $p['asleep'], 'covered' => isset($moment['parts'][$b]), 'holds' => in_array($b, $moment['holds'], true),
+            'path' => $moment['parts'][$b]['path'] ?? null, 'content' => !$p['asleep'] && ($whole ? rsDirHasEntries($p['live']) : $p['exists'])];
+    }
+    if ($moment['kopia']) {
+        $plan['moment']['parts'][] = ['base' => 'kopia', 'asleep' => false, 'covered' => true, 'holds' => true, 'path' => $moment['parts']['kopia']['path'], 'content' => false];
+    }
+
+    // what comes back: the folder, or the entries at the top of the share in this moment
+    if ($whole) {
+        $e = rsMomentEntries($moment);
+        if ($e['count'] > RS_ENTRIES_MAX) {
+            $plan['blockers'][] = ['key' => 'restore_too_many', 'params' => ['n' => $e['count'], 'max' => RS_ENTRIES_MAX]];
+            return $plan;
         }
+        $names = array_map('strval', array_keys($e['names']));
+    } else {
+        $names = [$rel];
     }
-    if (file_exists($restored) || is_link($restored)) {
-        $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $restored]];
-    }
-    // the size of the snapshot's state (measured in the background) and the space next to the live folder
     $sizes = rsSizes();
-    $need = $sizes[$snap['path']]['bytes'] ?? null;
-    if ($need === null) {
-        rsDuQueue($snap['path']);
+    $infos = [];
+    foreach ($names as $n) {
+        $ip = $whole ? rsItemPlaces($places, $share, $n, $ctx) : $places;
+        [$src, $covered] = rsItemSources($moment, $ip, $whole ? "/$n" : '');
+        $live = array_values(array_filter($ip, fn ($p) => !$p['asleep'] && $p['exists']));
+        $content = array_values(array_map(fn ($p) => (string) $p['base'],
+            array_filter($live, fn ($p) => !is_dir($p['live']) || is_link($p['live']) || rsDirHasEntries($p['live']))));
+        $bytes = 0;
+        $known = (bool) $src;
+        foreach ($src as $s) {
+            $b = $sizes[$s['path']]['bytes'] ?? null;
+            $known = $known && $b !== null;
+            $bytes += (int) $b;
+        }
+        $infos[$n] = ['places' => $ip, 'sources' => $src, 'covered' => $covered, 'live' => $live, 'content' => $content,
+                      'kind' => $src && (!is_dir($src[0]['path']) || is_link($src[0]['path'])) ? 'file' : 'dir', 'bytes' => $known ? $bytes : null];
     }
-    $free = rsFree($place + ['dataset' => $place['dataset'] ?? null]);
-    $plan['sizes'] = ['need' => $need, 'free' => $free, 'measuring' => $need === null, 'path' => $snap['path'], 'what' => 'files'];
-    if ($need !== null && $free !== null && $need > $free * 0.95) {
+    if ($whole) {
+        $plan['options']['entries'] = array_map(fn ($n) => ['name' => $n, 'kind' => $infos[$n]['kind'], 'bases' => array_column($infos[$n]['sources'], 'base'),
+            'live' => (bool) $infos[$n]['live'], 'bytes' => $infos[$n]['bytes'], 'paths' => array_column($infos[$n]['sources'], 'path')], $names);
+        $chosen = $items === null ? $names : array_values(array_intersect($names, $items));
+        $plan['target']['items'] = $chosen;
+        if (!$names) {
+            $plan['blockers'][] = ['key' => 'restore_not_in_snapshot', 'params' => ['path' => $path]];
+            return $plan;
+        }
+        if (!$chosen) {
+            $plan['blockers'][] = ['key' => 'restore_nothing_chosen', 'params' => []];
+            return $plan;
+        }
+    } else {
+        $chosen = [$rel];
+    }
+    $nothingLive = !array_filter($chosen, fn ($n) => (bool) $infos[$n]['live']);
+    $plan['options']['nothing_live'] = $nothingLive;
+    if ($mode === '') {
+        $mode = $nothingLive || $now['state'] === 'empty' ? 'swap' : 'copy';
+    }
+    $plan['target']['mode'] = $mode;
+    $plan['method'] = $mode;
+    if ($now['state'] === 'empty') {
+        $plan['notes'][] = ['key' => 'note.files_share_empty', 'params' => ['share' => $share]];
+    }
+
+    // per item: where it goes (onto the share, or as the dataset it is), what goes aside, what stops
+    $copies = $swaps = $userPaths = $restored = $asides = $targets = $union = $uncovered = $paths = [];
+    $userItems = false;
+    $dsPlace = null;
+    foreach ($chosen as $n) {
+        $it = $infos[$n];
+        if (!$it['sources']) {
+            $plan['blockers'][] = ['key' => 'restore_not_in_snapshot', 'params' => ['path' => "/mnt/user/$share/$n"]];
+            continue;
+        }
+        $own = count($it['live']) === 1 && $it['live'][0]['own_dataset'] ? $it['live'][0] : null;
+        $inherited = $own !== null && rsZfsInherited((string) $own['dataset']);
+        $dsMode = $own !== null && $inherited;
+        $inside = [];
+        foreach ($it['live'] as $p) {
+            foreach ($ctx['zfs'] as $mp => $dsn) {
+                if (under((string) $mp, $p['live']) && !($dsMode && $mp === $p['live'])) {
+                    $inside[] = $dsn;
+                }
+            }
+        }
+        $T = $dsMode ? $own['live'] : "$user/$share/$n";
+        $ds = $dsMode ? (string) $own['dataset'] : null;
+        $rds = $ds !== null ? "$ds.restored-$stamp" : null;
+        $to = "$T.restored-$stamp";
+        $asideP = "$T.aside-$stamp";
+        if (file_exists($to) || is_link($to)) {
+            $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $to]];
+        }
+        if ($dsMode) {
+            $plan['notes'][] = ['key' => 'note.files_dataset', 'params' => ['path' => $T, 'base' => (string) $own['base']]];
+            $dsPlace ??= $own;
+        } else {
+            $userItems = true;
+        }
+        $src = array_column($it['sources'], 'path');
+        $copies[] = ['do' => 'copy', 'from' => implode(' + ', $src), 'sources' => $src, 'to' => $to, 'dataset' => $rds] + ($it['kind'] === 'file' ? ['file' => true] : []);
+        $restored[] = $to;
+        $targets[] = $T;
+        array_push($paths, ...$src);
+        if (count($it['sources']) > 1) {
+            $union = array_merge($union, array_column($it['sources'], 'base'));
+        }
+        foreach ($moment['kopia'] ? [] : array_diff($it['content'], $it['covered']) as $b) {
+            $uncovered[$b][] = $n;
+        }
+        if ($mode === 'swap') {
+            if ($own !== null && !$inherited) {
+                $plan['blockers'][] = ['key' => 'restore_swap_mountpoint', 'params' => ['dataset' => (string) $own['dataset']]];
+            } elseif ($inside) {
+                $plan['blockers'][] = ['key' => 'restore_swap_inner', 'params' => ['list' => implode(', ', array_unique($inside))]];
+            }
+            if ($it['live']) {
+                $swaps[] = ['do' => 'aside', 'path' => $T, 'to' => $asideP, 'dataset' => $ds, 'to_dataset' => $ds !== null ? "$ds.aside-$stamp" : null];
+                $plan['aside'][] = ['what' => 'folder', 'from' => $T, 'to' => $asideP];
+                $asides[] = $asideP;
+            }
+            $swaps[] = ['do' => 'move', 'from' => $to, 'to' => $T, 'dataset' => $rds, 'to_dataset' => $ds];
+            $userPaths[] = "/mnt/user/$share/$n";
+            foreach ($it['places'] as $p) {
+                $userPaths[] = "/mnt/{$p['base']}/$share/$n";
+            }
+        } elseif ($inside) {
+            $plan['notes'][] = ['key' => 'note.files_inner', 'params' => ['list' => implode(', ', array_unique($inside))]];
+        }
+    }
+    if ($asleep && $userItems) {
+        // through /mnt/user shfs looks on every disk of the share: never on a sleeping one unasked
+        $plan['blockers'][] = ['key' => 'restore_asleep', 'params' => ['base' => implode(', ', $asleep)]];
+    } elseif ($asleep) {
+        $plan['notes'][] = ['key' => 'note.files_part', 'params' => ['base' => implode(', ', $asleep)]];
+    }
+    if ($union) {
+        $plan['notes'][] = ['key' => 'note.files_union', 'params' => ['bases' => implode(' + ', array_unique($union))]];
+    }
+    if ($uncovered) {
+        $plan['notes'][] = ['key' => 'note.files_uncovered', 'warn' => true,
+                            'params' => ['bases' => implode(', ', array_keys($uncovered)), 'names' => implode(', ', array_unique(array_merge(...array_values($uncovered))))]];
+    }
+
+    // the sizes (measured in the background) and the room where Unraid puts it
+    $need = 0;
+    $measuring = false;
+    foreach (array_unique($paths) as $p) {
+        $b = $sizes[$p]['bytes'] ?? null;
+        $measuring = $measuring || $b === null;
+        $need += (int) $b;
+        if ($b === null) {
+            rsDuQueue($p);
+        }
+    }
+    foreach ($plan['options']['entries'] ?? [] as $e) {
+        foreach ($e['bytes'] === null ? $e['paths'] : [] as $p) {
+            rsDuQueue($p);                    // the others listed, for the page's choice
+        }
+    }
+    $space = $userItems ? rsShareSpace($share, $ctx) : null;
+    $free = $space !== null ? $space['free'] : ($dsPlace !== null ? rsFree($dsPlace) : null);
+    $plan['sizes'] = ['need' => $measuring ? null : $need, 'free' => $free, 'measuring' => $measuring, 'path' => $paths[0] ?? '', 'paths' => array_values(array_unique($paths)), 'what' => 'files'];
+    if (!$measuring && $free !== null && $need > $free * 0.95) {
         $plan['blockers'][] = ['key' => 'restore_no_space', 'params' => ['need' => $need, 'free' => $free]];
     }
-    $steps = [['do' => 'copy', 'from' => $snap['path'], 'to' => $restored, 'dataset' => $rds]];
-    $plan['notes'][] = ['key' => $mode === 'swap' ? 'note.files_swap' : 'note.files_copy', 'params' => []];
+    if ($space !== null) {
+        $plan['notes'][] = ['key' => $space['secondary'] !== null ? 'note.files_place2' : 'note.files_place',
+                            'params' => ['path' => "/mnt/user/$share", 'primary' => $space['primary'], 'secondary' => (string) $space['secondary']]];
+        if (!$measuring && $space['secondary'] !== null && $space['primary_free'] !== null && $need > $space['primary_free']) {
+            $plan['notes'][] = ['key' => 'note.files_overflow', 'params' => ['primary' => $space['primary'], 'secondary' => $space['secondary']]];
+        }
+    }
+
+    $steps = $copies;
+    $plan['notes'][] = ['key' => $mode === 'swap' ? ($nothingLive ? 'note.files_place_in' : 'note.files_swap') : 'note.files_copy', 'params' => []];
     if ($mode === 'swap') {
         if ($owner['kind'] === 'vm' && !in_array($owner['vm_state'], [null, 'shut off', 'missing'], true)) {
             $plan['blockers'][] = ['key' => 'restore_vm_running', 'params' => ['name' => $owner['name'], 'state' => (string) $owner['vm_state']]];
         }
-        [$users, $parents] = rsUsers(array_values(array_unique([$path, $live])));
+        // what binds an item (or, for a whole share, the share itself) stops; what binds a folder above it keeps running
+        $roots = $whole ? array_merge(["/mnt/user/$share"], array_map(fn ($p) => "/mnt/{$p['base']}/$share", $places)) : [];
+        [$users, $parents] = rsUsers(array_values(array_unique($userPaths)), $roots);
         if ($users) {
             $steps[] = ['do' => 'stop', 'containers' => $users];
         }
-        if ($place['exists']) {
-            $steps[] = ['do' => 'aside', 'path' => $live, 'to' => $asideP, 'dataset' => $ds, 'to_dataset' => $ads];
-            $plan['aside'][] = ['what' => 'folder', 'from' => $live, 'to' => $asideP];
-        }
-        $steps[] = ['do' => 'move', 'from' => $restored, 'to' => $live, 'dataset' => $rds, 'to_dataset' => $ds];
+        $steps = array_merge($steps, $swaps);
         if ($users) {
             $steps[] = ['do' => 'start', 'containers' => $users, 'only_stopped' => true];
             $plan['putback_pre'] = [['do' => 'stop', 'containers' => $users]];
@@ -1628,9 +2126,10 @@ function rsPlanFilesFor(string $path, string $snapId, string $mode, bool $wake, 
         }
         $plan['stops'] = $users;
         $plan['downtime'] = $users ? 20 : 0;
-        $plan['after'][] = ['key' => 'after.files_swap', 'params' => ['aside' => $asideP]];
+        $plan['after'][] = $asides ? ['key' => 'after.files_swap', 'params' => ['aside' => implode(', ', $asides)]]
+            : ['key' => 'after.files_place', 'params' => ['path' => implode(', ', $targets)]];
     } else {
-        $plan['after'][] = ['key' => 'after.files_copy', 'params' => ['path' => $restored]];
+        $plan['after'][] = ['key' => 'after.files_copy', 'params' => ['path' => implode(', ', $restored)]];
     }
     if ($owner['kind'] === 'vm') {
         $plan['target']['vm'] = $owner['name'];
@@ -1641,17 +2140,19 @@ function rsPlanFilesFor(string $path, string $snapId, string $mode, bool $wake, 
 
 /**
  * Folders Kopia brought back (finished kopia restores of his) that hold this folder unit: a share's source
- * holds it at <restored>/<folder>, an app's or VM's own source at <restored>/<share>/<folder>.
+ * holds it at <restored>/<folder> (a whole share: <restored> itself), an app's or VM's own source at
+ * <restored>/<share>/<folder>.
  *
  * @return list<array{id:string, name:string, time:int, path:string, ours:bool, kopia:bool}>
  */
 function rsKopiaRestored(string $path, array $ctx): array
 {
     $sp = rsSharePath($path, $ctx);
-    if (!$sp || $sp[1] === '') {
+    if (!$sp) {
         return [];
     }
     [$share, $rel] = $sp;
+    $sub = $rel !== '' ? "/$rel" : '';
     $out = [];
     foreach (rsJournals() as $r) {
         if ($r['kind'] !== 'kopia' || !in_array($r['result'], ['ok', 'warnings'], true)) {
@@ -1663,7 +2164,7 @@ function rsKopiaRestored(string $path, array $ctx): array
         if ($host === '' || !rsCleanPath($host)) {
             continue;
         }
-        $cand = str_starts_with($source, '.') ? "$host/$share/$rel" : ($source === $share ? "$host/$rel" : null);
+        $cand = str_starts_with($source, '.') ? "$host/$share$sub" : ($source === $share ? "$host$sub" : null);
         if ($cand !== null && is_dir($cand)) {
             $time = (int) (readJson(rsDir($r['id']) . '/plan.json')['source']['time'] ?? 0) ?: (int) $r['finished'];
             $out[] = ['id' => 'kopia:' . $r['id'], 'name' => 'Kopia ' . basename($host), 'time' => $time, 'path' => $cand, 'ours' => false, 'kopia' => true];
@@ -1674,12 +2175,16 @@ function rsKopiaRestored(string $path, array $ctx): array
 
 /**
  * The running containers that bind one of these paths or something inside (they stop for a swap), and
- * those that only bind a folder above it (they keep running, named in the preview).
+ * those that only bind a folder above it (they keep running, named in the preview) — except one that binds
+ * one of $roots or above (a whole share swapped entry by entry: its data changes, it stops too).
  *
  * @return array{0: list<string>, 1: list<string>}
  */
-function rsUsers(array $paths): array
+function rsUsers(array $paths, array $roots = []): array
 {
+    if (isset($GLOBALS['rs']['users'])) {
+        return ($GLOBALS['rs']['users'])($paths, $roots);          // tests: no docker
+    }
     [$exit, $out] = run(['docker', 'ps', '-q'], 20);
     $ids = array_values(array_filter(explode("\n", trim($out)), fn ($x) => (bool) preg_match('/^[0-9a-f]{6,64}$/D', $x)));
     if ($exit !== 0 || !$ids) {
@@ -1698,7 +2203,17 @@ function rsUsers(array $paths): array
                 if (under($src, $p)) {
                     $users[$name] = true;
                 } elseif (under($p, $src) && substr_count($src, '/') >= 3) {
-                    $parents[$name] = true;          // binds a share or a folder above it (not /mnt or /mnt/user)
+                    // binds a share or a folder above it (not /mnt or /mnt/user): it keeps running — unless it binds
+                    // one of the roots (the whole share being restored): then its data changes, it stops
+                    $root = false;
+                    foreach ($roots as $r) {
+                        $root = $root || under($r, $src);
+                    }
+                    if ($root) {
+                        $users[$name] = true;
+                    } else {
+                        $parents[$name] = true;
+                    }
                 }
             }
         }
@@ -2839,23 +3354,36 @@ function rsDoFresh(array &$j, array $s): array
 
 /**
  * Copies a folder (a snapshot's state, a package's TPM state) to a new place with rsync — owners,
- * modes, times, hard links and extended attributes kept; its progress in the journal. As a dataset of
- * its own when the folder it stands in for is one (with that one's local settings).
+ * modes, times, hard links and extended attributes kept; its progress in the journal. Several sources
+ * (the parts of a share on its pools and disks) are put together into one: rsync merges the folders, and
+ * for a name in two of them the first source's wins (the primary storage's, as shfs shows it). A single
+ * file (an entry at the top of a share) is copied from its first source. As a dataset of its own when the
+ * folder it stands in for is one (with that one's local settings).
  */
 function rsDoCopy(array &$j, int $i): array
 {
     $s = $j['steps'][$i];
-    $from = rtrim($s['from'], '/');
+    $file = !empty($s['file']);
+    $sources = array_values(array_map(fn ($x) => rtrim((string) $x, '/'), (array) ($s['sources'] ?? [$s['from']])));
     $to = $s['to'];
-    $ds = $s['dataset'] ?? null;
+    $ds = $file ? null : ($s['dataset'] ?? null);
     clearstatcache();
-    if (!is_dir($from)) {
-        return rsFail('gone', ['path' => $from]);
+    foreach ($sources as $from) {
+        if ($from === '' || ($file ? !file_exists($from) && !is_link($from) : !is_dir($from))) {
+            return rsFail('gone', ['path' => $from]);
+        }
+    }
+    if (!$sources) {
+        return rsFail('gone', ['path' => (string) ($s['from'] ?? '')]);
     }
     if (!rsFreePlace($to, $ds !== null)) {
         return rsFail('exists', ['path' => $to]);
     }
-    if ($ds !== null) {
+    if ($file) {
+        if (!rsMkdirs(dirname($to))) {
+            return rsFail('mkdir_failed', ['path' => dirname($to)]);
+        }
+    } elseif ($ds !== null) {
         $like = preg_replace('/\.restored-\d{8}-\d{6}$/D', '', $ds);
         if (rsDatasetExists($ds) || !rsZfsCreate($j, $ds, rsDatasetExists($like) ? $like : null) || !is_dir($to)) {
             return rsFail('mkdir_failed', ['path' => $to]);
@@ -2864,7 +3392,8 @@ function rsDoCopy(array &$j, int $i): array
         return rsFail('mkdir_failed', ['path' => $to]);
     }
     $log = rsDir($j['id']) . '/log.txt';
-    $p = proc_open(['rsync', '-aHX', '--numeric-ids', '--info=progress2', '--no-inc-recursive', "$from/", "$to/"],
+    $args = $file ? [$sources[0], $to] : array_merge(array_map(fn ($x) => "$x/", $sources), ["$to/"]);
+    $p = proc_open(array_merge(['rsync', '-aHX', '--numeric-ids', '--info=progress2', '--no-inc-recursive'], $args),
         [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', $log, 'a']], $pipes, '/', rsEnv());
     if (!is_resource($p)) {
         return rsFail('copy_failed', ['path' => $to]);
@@ -3155,7 +3684,7 @@ function rsPlanKopia(array $r, string $stamp): array
 
 function rsSizes(): array
 {
-    return (array) (readJson(RS_SIZES_FILE)['sizes'] ?? []);
+    return (array) (readJson(rsSizesFile())['sizes'] ?? []);
 }
 
 /** Measures a path in the background (du in the agent's tick) — only paths a plan checked */
@@ -3214,7 +3743,7 @@ function rsSizesSave(array $changed): void
         uasort($sizes, fn ($a, $b) => ($b['at'] ?? 0) <=> ($a['at'] ?? 0));
         $sizes = array_slice($sizes, 0, 200, true);
     }
-    writeAtomic(RS_SIZES_FILE, jsonEncode(['sizes' => $sizes ?: new stdClass(), 'queue' => array_values($GLOBALS['rs']['du']['queue']),
+    writeAtomic(rsSizesFile(), jsonEncode(['sizes' => $sizes ?: new stdClass(), 'queue' => array_values($GLOBALS['rs']['du']['queue']),
                                            'running' => array_keys($GLOBALS['rs']['du']['running'])]));
 }
 
