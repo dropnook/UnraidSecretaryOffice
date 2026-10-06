@@ -12,7 +12,8 @@ declare(strict_types=1);
  *            the gather's settings, User Scripts schedules, the plugin's cron file,
  *            the menu bar's label, reports to Unraid's notifications, the team
  *            lead's «I know, thanks» and the Dashboard tile,
- *            Mr. Backupsy's packages and his Kopia per app and VM, Ms. Dustdevil's pictures,
+ *            Mr. Backupsy's packages and his Kopia per app and VM, a run skipped because
+ *            the engine's lock was busy (and who holds it), Ms. Dustdevil's pictures,
  *            Mr. Restori's reader of the packages, the Consultant's monitoring externals, Ms. Protocolli's tour)
  *   hardening  the checks that keep requests, manifests, paths and links in
  *            bounds (PIN tries, safe writes, the mailbox, Ms. Dustdevil's
@@ -446,6 +447,113 @@ function testBackupKopiaItems(): void
     $a = backupPackagesRead($tmp)['apps'][0] ?? [];
     same('packages: the SQLite copies', ['/config/data/library.db', 'unchanged', 'ok', true], [$a['sqlite'][0]['path'] ?? null, $a['sqlite'][0]['state'] ?? null, $a['sqlite'][0]['check'] ?? null, $a['sqlite'][0]['present'] ?? null]);
     same('packages: the app\'s own backups, known kinds only', [['emby', '/mnt/user/Backups/EmbyServer', 3]], array_map(fn ($o) => [$o['kind'], $o['path'], $o['files']], $a['own_backups'] ?? []));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Engine 2.20: a run that finds the lock busy is skipped, never silent — the engine's helpers (the holder
+ * note, skipped.json, the history line, the history's own lock) on a temporary data folder, and the
+ * office's side: who holds the lock, skips kept apart from the runs (history, estimates, the last run),
+ * the Dashboard tile. Nothing runs backup.sh; a stand-in "backup.sh" only sleeps.
+ */
+function testBackupSkip(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-skip-' . getmypid();
+    @mkdir("$tmp/data/state", 0700, true);
+    @mkdir("$tmp/data/logs", 0700, true);
+    file_put_contents("$tmp/backup.sh", "sleep 30\n");
+    $sleeper = proc_open(['bash', "$tmp/backup.sh"], [], $pipes);
+    $sleeperPid = (int) proc_get_status($sleeper)['pid'];
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $state = "$tmp/data/state";
+    $sh = fn (string $script) => trim((string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/data; source $lib >/dev/null 2>&1; TS=20261007-0100; $script") . ' 2>&1'));
+    $note = fn (array $n) => file_put_contents("$state/lock-holder.json", json_encode($n));
+    $read = 'ub_holder_read; printf "%s|%s|%s|%s|%s" "$HOLDER_KIND" "$HOLDER_MODE" "$HOLDER_WHAT" "$HOLDER_RUN" "$HOLDER_STARTED"';
+
+    // the engine: who holds the lock - trusted only while its pid lives (and runs backup.sh / setup.sh)
+    same('engine holder: no note - other', 'other||||0', $sh($read));
+    $note(['holder' => 'backup', 'mode' => 'check', 'run' => '20261006-0100', 'pid' => $sleeperPid, 'started' => 1791241200]);
+    same('engine holder: a check of backup.sh', 'check|check||20261006-0100|1791241200', $sh($read));
+    $note(['holder' => 'backup', 'mode' => 'backup', 'run' => '20261006-0100', 'pid' => getmypid(), 'started' => 1]);
+    same('engine holder: the pid runs something else - other', 'other||||0', $sh($read));
+    $note(['holder' => 'restore', 'what' => "next\ncloud", 'pid' => getmypid(), 'started' => 5]);
+    same('engine holder: a restore, control characters gone', 'restore||next cloud||5', $sh($read));
+    $note(['holder' => 'restore', 'what' => 'x', 'pid' => 4194305, 'started' => 5]);
+    same('engine holder: a dead pid - other', 'other||||0', $sh($read));
+    @unlink("$state/lock-holder.json");
+    file_put_contents("$state/status.json", json_encode(['mode' => 'backup', 'run' => '20261006-0100', 'pid' => $sleeperPid, 'started' => 9, 'result' => 'running']));
+    same('engine holder: no note, but status.json names a running backup.sh (an engine before 2.20)', 'backup|backup||20261006-0100|9', $sh($read));
+    file_put_contents("$state/status.json", json_encode(['mode' => 'backup', 'run' => '20261006-0100', 'pid' => $sleeperPid, 'started' => 9, 'result' => 'ok']));
+    same('engine holder: no note, status.json not running - other', 'other||||0', $sh($read));
+    @unlink("$state/status.json");
+    same('engine holder: written with its own pid', 'backup|dryrun|20261007-0100|7|true',
+        $sh('ub_holder_write backup dryrun "$TS" 7; jq -r --argjson me $$ \'[.holder, .mode, .run, .started, (.pid == $me)] | map(tostring) | join("|")\' "$UB_STATE/lock-holder.json"'));
+    same('engine holder: its own note cleared', '0', $sh('ub_holder_write setup plan "$TS" 1; ub_holder_clear; ls "$UB_STATE" | grep -c lock-holder'));
+    $note(['holder' => 'restore', 'pid' => $sleeperPid]);
+    same("engine holder: another's note stays", '1', $sh('ub_holder_clear; ls "$UB_STATE" | grep -c lock-holder'));
+
+    // a skipped run: skipped.json always, a history line only for a real backup run
+    $note(['holder' => 'backup', 'mode' => 'backup', 'run' => '20261006-0100', 'pid' => $sleeperPid, 'started' => 1791241200]);
+    file_put_contents("$state/history.jsonl", json_encode(['run' => '20261006-0100', 'started' => 100, 'finished' => 500, 'result' => 'ok', 'kopia' => ['done' => [['name' => 'appdata', 'ok' => true, 'seconds' => 300, 'finished' => 450]]]]) . "\n");
+    $sh('ub_holder_read; status_skipped check skipped_busy_backup kopia appdata');
+    $j = readJson("$state/skipped.json");
+    same('engine skip: a check - skipped.json', ['check', 'skipped', 'skipped_busy_backup', 'backup', 'kopia', 'appdata', '20261006-0100'],
+        [$j['mode'] ?? null, $j['result'] ?? null, $j['reason'] ?? null, $j['holder']['kind'] ?? null, $j['holder']['phase'] ?? null, $j['holder']['current'] ?? null, $j['holder']['run'] ?? null]);
+    same('engine skip: a check - no history line', 1, count(file("$state/history.jsonl")));
+    $sh('ub_holder_read; status_skipped backup skipped_busy_backup kopia appdata');
+    $lines = file("$state/history.jsonl", FILE_IGNORE_NEW_LINES);
+    same('engine skip: a backup - a history line', [2, 'skipped', '20261007-0100'], [count($lines), json_decode($lines[1], true)['result'] ?? null, json_decode($lines[1], true)['run'] ?? null]);
+    same('engine skip: status.json untouched', false, is_file("$state/status.json"));
+    same('engine history: the last UB_HISTORY_MAX lines', '3|l3|l5', $sh('UB_HISTORY_MAX=3; for i in 1 2 3 4 5; do history_append "{\"l\":\"l$i\"}"; done;'
+        . ' printf "%s|%s|%s" "$(wc -l <"$UB_STATE/history.jsonl")" "$(head -1 "$UB_STATE/history.jsonl" | jq -r .l)" "$(tail -1 "$UB_STATE/history.jsonl" | jq -r .l)"'));
+
+    // the office: skips are no runs - history, estimates and the last run never see them
+    file_put_contents("$state/history.jsonl", implode("\n", [
+        json_encode(['run' => '20261005-0100', 'started' => 1000, 'finished' => 1600, 'result' => 'ok', 'downtime_s' => 60,
+                     'kopia' => ['done' => [['name' => 'appdata', 'ok' => true, 'seconds' => 400, 'finished' => 1500]]]]),
+        json_encode(['run' => '20261006-0100', 'started' => 2000, 'finished' => 2000, 'result' => 'skipped', 'time' => 2000, 'mode' => 'backup',
+                     'reason' => 'skipped_busy_backup', 'holder' => ['kind' => 'backup', 'started' => 1000, 'phase' => 'kopia', 'current' => 'appdata']]),
+        json_encode(['run' => '20261006-0100', 'started' => 2100, 'finished' => 2100, 'result' => 'skipped', 'time' => 2100, 'mode' => 'odd',
+                     'reason' => 'skipped_busy_x', 'holder' => ['kind' => '<b>', 'what' => str_repeat('a', 200)]]),
+    ]) . "\n");
+    $history = backupHistory([], null, $skips, "$state/history.jsonl");
+    same('office history: the skipped lines are no runs', ['20261005-0100'], array_column($history, 'run'));
+    same('office history: skips newest first, unknown holder = other', [[2100, 'skipped_busy_other', 'other', 'backup'], [2000, 'skipped_busy_backup', 'backup', 'backup']],
+        array_map(fn ($k) => [$k['time'], $k['reason'], $k['holder']['kind'], $k['mode']], $skips));
+    same('office history: texts from the engine kept short', 80, mb_strlen($skips[0]['holder']['what']));
+    same('office history: estimates from the runs only', 600, backupEstimates($history)['total']);
+    same('office: not a skip', null, backupSkipRow(['result' => 'ok']));
+
+    // who holds the lock, for the office (Mr. Backupsy, Mr. Restori)
+    same('office holder: nobody holds the lock', null, backupLockHolder("$tmp/data"));
+    $lock = fopen("$state/lock", 'c');
+    flock($lock, LOCK_EX);
+    $note(['holder' => 'backup', 'mode' => 'dryrun', 'run' => '20261006-0100', 'pid' => $sleeperPid, 'started' => 1791241200]);
+    same('office holder: a dry run of backup.sh', ['dryrun', '20261006-0100', 1791241200], array_values(array_intersect_key(backupLockHolder("$tmp/data") ?? [], ['holder' => 1, 'run' => 1, 'started' => 1])));
+    $note(['holder' => 'setup', 'mode' => 'plan', 'pid' => $sleeperPid]);
+    same('office holder: "setup" but the pid runs backup.sh - other', 'other', backupLockHolder("$tmp/data")['holder'] ?? null);
+    $note(['holder' => 'restore', 'what' => 'nextcloud', 'pid' => getmypid(), 'started' => 7]);
+    same('office holder: a restore', ['restore', 'nextcloud'], [backupLockHolder("$tmp/data")['holder'] ?? null, backupLockHolder("$tmp/data")['what'] ?? null]);
+    $note(['holder' => 'restore', 'pid' => 4194305]);
+    same('office holder: a dead pid - other', 'other', backupLockHolder("$tmp/data")['holder'] ?? null);
+    @unlink("$state/lock-holder.json");
+    same('office holder: no note - other', 'other', backupLockHolder("$tmp/data")['holder'] ?? null);
+    file_put_contents("$state/status.json", json_encode(['mode' => 'check', 'run' => '20261006-0100', 'pid' => $sleeperPid, 'started' => 9, 'result' => 'running']));
+    same('office holder: no note, a running check in status.json (an engine before 2.20)', ['check', 9], [backupLockHolder("$tmp/data")['holder'] ?? null, backupLockHolder("$tmp/data")['started'] ?? null]);
+    @unlink("$state/status.json");
+    flock($lock, LOCK_UN);
+    fclose($lock);
+
+    // the Dashboard tile: a skip newer than the last run shows, an older one doesn't
+    require_once OFFICE_DIR . '/src/dashboard.php';
+    $last = ['result' => 'ok', 'started' => 1000, 'finished' => 1600];
+    same('dashboard: a skip after the last run', ['backup.dash_skipped', 'orange', 2000], officeDashBackupState(['history' => [$last], 'skips' => [['time' => 2000]]]));
+    same('dashboard: a run after the skip', ['dash.bk_ok', 'green', 1600], officeDashBackupState(['history' => [$last], 'skips' => [['time' => 900]]]));
+    same('dashboard: running beats a skip', ['dash.bk_running', 'orange', null], officeDashBackupState(['running' => true, 'history' => [$last], 'skips' => [['time' => 2000]]]));
+    same('dashboard: nothing yet', ['dash.bk_none', 'orange', null], officeDashBackupState([]));
+
+    proc_terminate($sleeper);
+    proc_close($sleeper);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -1467,7 +1575,7 @@ function testIconSquare(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testIcons', 'testIconSquare', 'testRestore', 'testAdvisor', 'testLogsTour'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testAdvisor', 'testLogsTour'],
           'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';

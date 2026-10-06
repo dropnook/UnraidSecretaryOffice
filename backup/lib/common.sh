@@ -1829,7 +1829,8 @@ history_append() {
 # backup.sh: mode backup | check | dryrun, run = its run id (YYYYMMDD-HHMM); setup.sh: mode plan |
 # apply | forget | check | kopia | interactive | auto. Only holder and pid are a must.
 # The note is never trusted blindly: the lock itself stays the truth, the note counts only while its
-# pid lives (and, for backup.sh and setup.sh, is that script). Unknown or missing = "other".
+# pid lives (and, for backup.sh and setup.sh, is that script). Unknown or missing = "other" - unless
+# status.json names a running run whose pid runs backup.sh (an engine before 2.20 writes no note).
 ub_holder_write() { # ub_holder_write <holder> <mode> <run> <started>
     local tmp="$UB_STATE/.lock-holder.json.$$"
     if jq -nc --arg h "$1" --arg m "${2:-}" --arg r "${3:-}" --argjson pid "$$" --argjson started "${4:-$(date +%s)}" \
@@ -1853,23 +1854,38 @@ ub_pid_runs() {
     return 1
 }
 # ub_holder_read: who holds the lock, from the note - sets HOLDER_KIND (backup | check | dryrun |
-# setup | restore | other), HOLDER_MODE, HOLDER_WHAT, HOLDER_RUN, HOLDER_PID, HOLDER_STARTED
+# setup | restore | other), HOLDER_MODE, HOLDER_WHAT, HOLDER_RUN, HOLDER_PID, HOLDER_STARTED.
+# Without a note that counts, a run that status.json calls running while its pid runs backup.sh
+# (an engine before 2.20 writes no note) is taken as the holder.
 ub_holder_read() {
     HOLDER_KIND="other"; HOLDER_MODE=""; HOLDER_WHAT=""; HOLDER_RUN=""; HOLDER_PID=0; HOLDER_STARTED=0
-    local line h m w r p t
-    [[ -s "$UB_STATE/lock-holder.json" ]] || return 0
-    line="$(jq -r 'def s: tostring | gsub("[\u0000-\u001f]"; " ") | .[:80];
-        [(.holder // "" | s), (.mode // "" | s), (.what // "" | s), (.run // "" | s), (.pid // 0 | s), (.started // 0 | s)]
-        | join("\u001f")' "$UB_STATE/lock-holder.json" 2>/dev/null)" || return 0
-    IFS=$'\x1f' read -r h m w r p t <<<"$line"
-    is_uint "$p" && (( p > 1 && p != $$ )) && kill -0 "$p" 2>/dev/null || return 0
-    case "$h" in
-        backup)  ub_pid_runs "$p" backup.sh || return 0
-                 case "$m" in check|dryrun) HOLDER_KIND="$m" ;; *) HOLDER_KIND="backup" ;; esac ;;
-        setup)   ub_pid_runs "$p" setup.sh || return 0; HOLDER_KIND="setup" ;;
-        restore) HOLDER_KIND="restore" ;;
-        *)       HOLDER_KIND="other" ;;
-    esac
+    local line h="" m="" w="" r="" p="" t="" kind=""
+    if [[ -s "$UB_STATE/lock-holder.json" ]]; then
+        line="$(jq -r 'def s: tostring | gsub("[\u0000-\u001f]"; " ") | .[:80];
+            [(.holder // "" | s), (.mode // "" | s), (.what // "" | s), (.run // "" | s), (.pid // 0 | s), (.started // 0 | s)]
+            | join("\u001f")' "$UB_STATE/lock-holder.json" 2>/dev/null)"
+        IFS=$'\x1f' read -r h m w r p t <<<"$line"
+        if is_uint "$p" && (( p > 1 && p != $$ )) && kill -0 "$p" 2>/dev/null; then
+            case "$h" in
+                backup)  ub_pid_runs "$p" backup.sh && kind="backup" ;;
+                setup)   ub_pid_runs "$p" setup.sh && kind="setup" ;;
+                restore) kind="restore" ;;
+                *)       kind="other" ;;
+            esac
+        fi
+    fi
+    if [[ -z "$kind" ]]; then
+        line="$(jq -r 'select(.result == "running") | [(.mode // "" | tostring), (.run // "" | tostring), (.pid // 0 | tostring),
+            (.started // 0 | tostring)] | map(gsub("[\u0000-\u001f]"; " ")) | join("\u001f")' "$UB_STATE/status.json" 2>/dev/null)"
+        IFS=$'\x1f' read -r m r p t <<<"$line"; w=""
+        is_uint "$p" && (( p > 1 && p != $$ )) && kill -0 "$p" 2>/dev/null && ub_pid_runs "$p" backup.sh || return 0
+        kind="backup"
+    fi
+    if [[ "$kind" == "backup" ]]; then
+        case "$m" in check|dryrun) HOLDER_KIND="$m" ;; *) HOLDER_KIND="backup" ;; esac
+    else
+        HOLDER_KIND="$kind"
+    fi
     HOLDER_MODE="$m"; HOLDER_WHAT="$w"; HOLDER_PID="$p"
     [[ "$r" =~ ^[0-9]{8}-[0-9]{4}$ ]] && HOLDER_RUN="$r"
     is_uint "$t" && HOLDER_STARTED="$t"

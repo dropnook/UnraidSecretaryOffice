@@ -365,7 +365,7 @@ The next scheduled run backs up as usual. `reason` is a code the office translat
 | `what` | what it works on, e.g. the app a restore brings back |
 | `run` | backup.sh's run id `YYYYMMDD-HHMM` (setup.sh: its log's) |
 
-A restore job writes e.g. `{"holder": "restore", "what": "nextcloud", "pid": 4711, "started": 1791300000}`. The note is never trusted blindly — the lock itself stays the truth: it counts only while the lock is held and its `pid` lives (for `backup` and `setup`, only while that process runs `backup.sh` / `setup.sh`); a missing, stale or unknown note means holder `other`. Open the lock without truncating it (`exec 9>>state/lock`, not `9>`): opening must not change it; the holder `touch`es it once it has the lock (the office still reads a run's start from its time).
+A restore job writes e.g. `{"holder": "restore", "what": "nextcloud", "pid": 4711, "started": 1791300000}`. The note is never trusted blindly — the lock itself stays the truth: it counts only while the lock is held and its `pid` lives (for `backup` and `setup`, only while that process runs `backup.sh` / `setup.sh`); a missing, stale or unknown note means holder `other` — unless `status.json` names a run that is `running` and whose `pid` runs `backup.sh` (an engine before 2.20 writes no note). Open the lock without truncating it (`exec 9>>state/lock`, not `9>`): opening must not change it; the holder `touch`es it once it has the lock (the office still reads a run's start from its time).
 
 Stopping: `SIGTERM` to the `pid` in `status.json` (Mr. Backupsy's *Stop the run* does that). The `trap` ends a running Kopia snapshot in the container cleanly (SIGINT), starts the stopped containers, switches maintenance mode off, unmounts and sets `result` to `aborted`.
 

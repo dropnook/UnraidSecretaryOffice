@@ -21,6 +21,11 @@ declare(strict_types=1);
  *
  * Older script versions without state/status.json are shown from their log
  * files (read only); starting needs interface 1 or newer.
+ *
+ * Since engine 2.20 a run that finds the lock busy is skipped, not lost: state/skipped.json (the last
+ * attempt) and a history.jsonl line with "result": "skipped" — kept apart from the runs (history,
+ * estimates, the last run and its downtime never see them) and shown as "skips"; who holds the lock
+ * comes from state/lock-holder.json (backupLockHolder()).
  */
 
 const BACKUP_INTERFACE   = 1;
@@ -93,8 +98,10 @@ function backupScan(): array
     $about = backupAbout($dir);
     $settings = backupReadSettings("$data/settings.ini");
     $setup = backupSetupStatus();
-    // the lock is shared with setup.sh: while it plans or applies, no backup is running
-    $running = flockHeld("$data/state/lock") && !$setup['running'];
+    // the lock is shared with setup.sh and Mr. Restori's restores: while they hold it, no backup is running
+    // (an unknown holder - an engine before 2.20 writes no note - still counts as a run)
+    $holder = backupLockHolder();
+    $running = $holder !== null && !$setup['running'] && !in_array($holder['holder'], ['setup', 'restore'], true);
     $status = readJson("$data/state/status.json");
     if ($status && ($status['interface'] ?? 0) < BACKUP_INTERFACE) {
         $status = null;
@@ -107,7 +114,7 @@ function backupScan(): array
     }
 
     $logs = backupLogs();
-    $history = backupHistory($logs, $running ? ($status['run'] ?? null) : null);
+    $history = backupHistory($logs, $running ? ($status['run'] ?? null) : null, $skips);
 
     $state += [
         'version'    => $about['version'] ?? null,
@@ -117,9 +124,12 @@ function backupScan(): array
         'running'    => $running,
         'status'     => $status,
         'step'       => $running && !$status ? lastLogStep("$data/logs/latest.log") : null,
-        'since'      => $running ? (@filemtime("$data/state/lock") ?: null) : null,
+        'since'      => $running ? (($holder['started'] ?? 0) ?: (@filemtime("$data/state/lock") ?: null)) : null,
+        'holder'     => $holder,
         'paused'     => $running ? backupPaused($data) : null,
         'history'    => $history,
+        'skips'      => $skips,                  // backup runs skipped because the lock was busy, newest first
+        'skipped'    => backupSkipRow(readJson("$data/state/skipped.json")),   // the last attempt of any mode
         'estimates'  => backupEstimates($history),
         'drift'      => backupDrift(),
         'settings'   => backupSettingsSummary($settings),
@@ -422,18 +432,26 @@ function backupLogs(): array
 
 /**
  * Finished backup runs, newest first: from history.jsonl, and for runs of
- * older versions (or before 2.5) read from their logs.
+ * older versions (or before 2.5) read from their logs. Runs skipped because
+ * the lock was busy (engine 2.20) are no runs: they go to $skips (newest first).
  */
-function backupHistory(array $logs, ?string $runningRun): array
+function backupHistory(array $logs, ?string $runningRun, ?array &$skips = null, ?string $file = null): array
 {
-    $data = BACKUP_DATA_DIR;
+    $file ??= BACKUP_DATA_DIR . '/state/history.jsonl';
     $runs = [];
-    foreach (@file("$data/state/history.jsonl", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+    $skips = [];
+    foreach (@file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
         $j = json_decode($line, true);
-        if (is_array($j) && !empty($j['run'])) {
+        if (is_array($j) && ($j['result'] ?? '') === 'skipped') {
+            if ($skip = backupSkipRow($j)) {
+                $skips[] = $skip;
+            }
+        } elseif (is_array($j) && !empty($j['run'])) {
             $runs[$j['run']] = backupRunFromStatus($j);
         }
     }
+    usort($skips, fn ($a, $b) => $b['time'] <=> $a['time']);
+    $skips = array_slice($skips, 0, 20);
     foreach ($logs as $log) {
         if ($log['kind'] !== 'run') {
             continue;
@@ -1059,8 +1077,13 @@ function backupCheckReady(): string
     if ((backupAbout($dir)['interface'] ?? 0) < BACKUP_INTERFACE) {
         throw new Problem('backup_too_old', ['version' => backupAbout($dir)['version'] ?? '?']);
     }
-    if (flockHeld("$data/state/lock")) {
-        throw new Problem(backupSetupStatus()['running'] ? 'setup_running' : 'backup_running');
+    $holder = backupLockHolder();
+    if ($holder !== null) {
+        throw new Problem(match (true) {
+            backupSetupStatus()['running'] || $holder['holder'] === 'setup' => 'setup_running',
+            $holder['holder'] === 'restore' => 'restore_running',
+            default => 'backup_running',
+        });
     }
     return $dir;
 }
@@ -1083,18 +1106,29 @@ function backupStart(string $mode): array
         throw new Problem('backup_no_settings');
     }
     $before = (int) (readJson("$data/state/status.json")['started'] ?? 0);
+    $skipBefore = readJson("$data/state/skipped.json");
+    $t0 = time();
     backupLaunch(array_merge([$dir . '/backup.sh'], BACKUP_MODES[$mode]));
     logLine("Backup: started backup.sh ($mode) via at");
 
-    // wait a moment until it took the lock and wrote its status
+    // wait a moment until it took the lock and wrote its status - or found the lock taken after all
+    // (something took it between our look and its start: engine 2.20 says so in skipped.json)
     $seen = false;
-    for ($i = 0; $i < 40 && !$seen; $i++) {
+    $skipped = null;
+    for ($i = 0; $i < 40 && !$seen && !$skipped; $i++) {
         usleep(250000);
         clearstatcache();
         $status = readJson("$data/state/status.json");
         $seen = (int) ($status['started'] ?? 0) > $before;
+        $skip = readJson("$data/state/skipped.json");
+        if ($skip && $skip !== $skipBefore && (int) ($skip['time'] ?? 0) >= $t0 - 1) {
+            $skipped = backupSkipRow($skip);
+        }
     }
-    return ['ok' => true, 'started' => $seen, 'state' => backupScan()];
+    if ($skipped) {
+        logLine("Backup: backup.sh ($mode) was skipped - $skipped[reason]");
+    }
+    return ['ok' => true, 'started' => $seen, 'skipped' => $skipped, 'state' => backupScan()];
 }
 
 /** SIGTERM to the running backup.sh — its trap cleans up (Kopia, containers, mounts) */
