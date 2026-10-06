@@ -195,6 +195,7 @@ function render() {
     [T('help.host'), T('help.host_text')],
     [T('help.host_not'), T('help.host_not_text')],
     [T('help.attack'), T('help.attack_text')],
+    [T('help.siem'), T('help.siem_text')],
     [T('help.grafana'), T('help.grafana_text')],
     [T('help.notify'), T('help.notify_text')],
     [T('help.safe'), T('help.safe_text')],
@@ -216,7 +217,7 @@ function stat(label, value, sub, cls, tip) {
 function roundSection() {
   const s = el('section', 'section');
   const r = state.round || {};
-  s.appendChild(Office.sectionHead(T('round.title'), T('round.sub'), running() ? el('span', 'hint', T('stat.running')) : null, notifySwitch()));
+  s.appendChild(Office.sectionHead(T('round.title'), T('round.sub'), running() ? el('span', 'hint', T('stat.running')) : null, notifySwitch(), syslogSwitch()));
   const stats = el('div', 'stats');
   stats.appendChild(stat(T('stat.last'), r.last ? fmt.relative(r.last) : T('stat.never'),
     r.last ? fmt.date(r.last) + (r.duration_ms ? ' · ' + T('stat.took', { ms: r.duration_ms }) : '') : ''));
@@ -263,6 +264,32 @@ function notifySwitch() {
     if (j.state) state = j.state;
     if (view) Office.keepInPlace(null, render);
     Office.toast(T(on ? 'notify_on' : 'notify_off'));
+  };
+  return label;
+}
+
+/** For a SIEM: also write each new entry to Unraid's syslog (its remote syslog sends it on) — off by default */
+function syslogSwitch() {
+  const label = el('label', 'switch');
+  const cb = el('input');
+  cb.type = 'checkbox';
+  cb.checked = !!(state.syslog && state.syslog.on);
+  cb.disabled = !Office.agent.running || !hired();
+  label.append(cb, el('span', '', T('syslog_switch')));
+  label.title = T('syslog_title');
+  cb.onchange = async () => {
+    cb.disabled = true;
+    const on = cb.checked;
+    const j = await Office.api.post(`${ID}.syslog_set`, { on });
+    if (!j.ok) {
+      cb.checked = !on;
+      cb.disabled = false;
+      Office.toast(Office.errorText(j.error, ID), true);
+      return;
+    }
+    if (j.state) state = j.state;
+    if (view) Office.keepInPlace(null, render);
+    Office.toast(T(on ? 'syslog_on' : 'syslog_off'));
   };
   return label;
 }
@@ -470,11 +497,18 @@ function attackLink(id) {
   return a;
 }
 
+/** A way in, in words (agent: watchmanDoorWords()) */
+function doorWords(d) {
+  return T('door.' + (d.door || d.what || 'ssh'), { name: d.name || '', port: d.port === null || d.port === undefined ? '–' : String(d.port),
+    issuer: d.issuer || '', n: d.new_peers || d.peers || 0 });
+}
+
 /** An entry's words; the data flow's sizes, what is normal and the hours in this browser's language */
 function entryParams(e) {
   const t = { ...(e.t || {}), n: e.count };
   const p = e.p || {};
   if (e.kind === 'proc_odd') t.where = p.where || T('where.host');
+  if (e.kind === 'door_new') t.door = doorWords(p);
   if (e.group !== 'flow') return t;
   if (p.bytes !== undefined) t.size = fmt.size(p.bytes);
   if (e.kind.startsWith('flow_')) t.usual = usualText(e.kind, p);
@@ -644,6 +678,9 @@ function details(e) {
       add(T('detail.program'), p.prog, true);
       add(T('detail.exe'), p.exe, true);
       add(T('detail.runs_in'), p.where || T('where.host'));
+    } else if (e.kind === 'door_new') {
+      add(T('detail.door'), doorWords(p));
+      if (p.door === 'wg') add(T('detail.peers'), T('detail.peers_n', { n: p.peers || 0, new: p.new_peers || 0 }));
     }
   } else if (e.group === 'sched') {
     if (p.file) add(T('detail.cron_file'), '/boot/config/plugins/' + p.file + (p.new ? ` (${T('detail.file_new')})` : ''), true);
@@ -767,6 +804,7 @@ function watchSection() {
     !sh ? T('watch.shares_wait') : sh.open.length ? T('watch.shares_sum', { open: sh.open.length, count: sh.count }) : T('watch.shares_none'),
     sh ? sh.open.map((x) => item(x.share, [x.smb ? `SMB: ${level(x.smb)}` : '', x.nfs ? `NFS: ${level(x.nfs)}` : ''])) : []));
   box.appendChild(schedGroup(w.sched));
+  box.appendChild(hostGroup(w.host));
   box.appendChild(snapGroup(state.snaps));
   flowGroups(state.flow).forEach((g) => box.appendChild(g));
   const label = () => {
@@ -798,6 +836,17 @@ function schedGroup(s) {
   const sum = T('watch.sched_sum', { lines: (s.crontab || []).length, files: (s.files || []).length,
     scripts: (s.scripts || []).length, agents: (s.agents || []).length });
   return group('sched', T('watch.sched'), sum, rows);
+}
+
+/** The server itself: the ports programs listen on, programs from odd places he knows, the ways in that are open */
+function hostGroup(h) {
+  if (!h) return group('host', T('watch.host'), T('watch.host_wait'), []);
+  const rows = [];
+  h.doors.forEach((d) => rows.push(item(doorWords(d), [T('watch.door')], null, true)));
+  h.listen.forEach((l) => rows.push(item(l.port === null || l.port === undefined ? `${l.prog} (${T('detail.port_dynamic')})` : `${l.port} · ${l.prog}`,
+    [T('watch.port'), (l.addr || []).map((a) => (a === '*' ? T('detail.addr_all') : a)).join(', ')])));
+  h.procs.forEach((x) => rows.push(item(x.exe, [x.prog, x.where || T('where.host')])));
+  return group('host', T('watch.host'), T('watch.host_sum', { ports: h.listen.length, doors: h.doors.length, procs: h.procs.length, users: h.users }), rows);
 }
 
 /** The snapshots he follows: per pool and disk how many, which sleep (compared once awake), the series you taught him */

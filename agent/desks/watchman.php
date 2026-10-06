@@ -157,6 +157,7 @@ const WATCH_KINDS = [
     'user_ram'             => ['host', true],       // an account in RAM the flash doesn't have, a second root, a login shell or password for a system account
     'listen_new'           => ['host', true],       // a program of the server listens on a network port it never used
     'proc_odd'             => ['host', true],       // a program runs from a scratch folder (/tmp, /dev/shm …) or from memory
+    'door_new'             => ['host', true],       // a new way in from outside: SSH on or on another port, UPnP, Connect's remote access, a single sign-on, a WireGuard peer
 ];
 
 /**
@@ -176,7 +177,7 @@ const WATCH_ATTACK = [
     'flow_client' => 'T1039', 'flow_container' => 'T1041', 'flow_written' => 'T1486', 'flow_gone' => 'T1485',
     'smb_user' => 'T1021.002', 'smb_client' => 'T1021.002', 'smb_hour' => 'T1021.002',
     'snap_gone' => 'T1490', 'snap_hold_released' => 'T1490',
-    'log_cleared' => 'T1070.002', 'user_ram' => 'T1136.001', 'listen_new' => 'T1133', 'proc_odd' => 'T1105',
+    'log_cleared' => 'T1070.002', 'user_ram' => 'T1136.001', 'listen_new' => 'T1133', 'proc_odd' => 'T1105', 'door_new' => 'T1133',
 ];
 
 /**
@@ -218,6 +219,7 @@ desk('watchman', [
         'ack'     => fn (array $r) => watchmanAck($r['id'] ?? null),
         'ack_all' => fn (array $r) => watchmanAck('*'),
         'notify_set' => fn (array $r) => watchmanNotifySet($r['on'] ?? null),
+        'syslog_set' => fn (array $r) => watchmanSyslogSet($r['on'] ?? null),
         'posture_ack' => fn (array $r) => watchmanPostureAck($r['id'] ?? null, $r['on'] ?? null),
     ],
     'jobs'    => ['watchman-round' => fn (array $args) => watchmanRun()],
@@ -273,6 +275,10 @@ function watchmanPaths(): array
         'boot_id'    => '/proc/sys/kernel/random/boot_id',
         'port_range' => '/proc/sys/net/ipv4/ip_local_port_range',
         'ss'         => 'ss',
+        'connect'    => '/boot/config/plugins/dynamix.my.servers/configs/connect.json',
+        'oidc'       => '/boot/config/plugins/dynamix.my.servers/configs/oidc.json',
+        'wireguard'  => '/boot/config/wireguard',
+        'logger'     => 'logger',
     ];
 }
 
@@ -559,7 +565,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     $snapRes = $snaps ? watchmanSnaps($paths, $fresh ? null : $snapKnown, $fresh ? [] : (array) ($snap['baseline']['snaps']['series'] ?? []), $now) : null;
 
     return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes,
-                                               $office): array {
+                                               $office, $paths): array {
         $old = watchmanLoad($dir);
         $old['seen'] = readJson("$dir/seen.json");
         $old['flow'] = readJson("$dir/flow.json");
@@ -576,6 +582,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         }
         $observed['host'] = watchmanHostObserved($seen['host'], $old['seen']['host'] ?? null);
         $added = $told = [];
+        $before = array_flip(array_column($book, 'id'));
         if ($fresh) {
             [$b, $book, $st] = watchmanTakeOver($hired, $events, $seen, $book, $st, $now);
         } else {
@@ -641,6 +648,9 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $old['snaps'] = $snapKnown;
         watchmanSave($dir, $old, ['baseline' => $b, 'book' => $book, 'state' => $st, 'seen' => $observed, 'flow' => $flow, 'posture' => $known,
                                   'snaps' => $snapRes['known'] ?? null]);
+        if (!$fresh && !empty($st['syslog']) && isset($paths['logger'])) {
+            watchmanSyslogForward((string) $paths['logger'], array_values(array_filter($book, fn ($e) => !isset($before[$e['id']]) && $e['kind'] !== 'watch')));
+        }
         return ['fresh' => $fresh, 'added' => array_values($added), 'told' => $told, 'summary' => watchmanCounts($b)];
     });
 }
@@ -1332,15 +1342,22 @@ function watchmanOfficeCronLine(string $line): bool
 
 /**
  * The office changed its own schedule (a time set on a desk's page): a line in the book, noted by himself (`by`
- * schedule); an entry still open about that file (from before 1.30) is closed with it
+ * schedule) — or, while an entry about that file is still open (from before 1.30), that one, closed
  */
 function watchmanOfficeNoteSchedule(array &$book, string $file, int $now, array $p): void
 {
+    $closed = false;
     foreach ($book as $i => $e) {
         if (($e['key'] ?? '') === "cron_file:$file" && watchmanOpen($e)) {
+            $book[$i]['p'] = $p + (array) $e['p'];
+            $book[$i]['last'] = $now;
             $book[$i]['noted'] = $now;
             $book[$i]['by'] = 'schedule';
+            $closed = true;
         }
+    }
+    if ($closed) {
+        return;                     // that entry is the line
     }
     $e = watchmanEntry('cron_file', "cron_file:$file", $now, $p);
     $e['noted'] = $now;
@@ -1724,6 +1741,7 @@ function watchmanHost(array $paths, ?array $containers): ?array
         'users'  => watchmanHostUsers($paths),
         'listen' => watchmanHostListen($paths),
         'procs'  => watchmanHostProcs((string) $paths['proc'], $containers),
+        'doors'  => watchmanHostDoors($paths),
     ];
 }
 
@@ -1733,8 +1751,8 @@ function watchmanHostObserved(?array $seen, ?array $old): ?array
     if ($seen === null) {
         return $old;
     }
-    foreach (['logs', 'users', 'listen', 'procs'] as $k) {
-        if ($seen[$k] === null && is_array($old[$k] ?? null) && ($k !== 'logs' || ($old['boot'] ?? null) === $seen['boot'])) {
+    foreach (['logs', 'users', 'listen', 'procs', 'doors'] as $k) {
+        if (($seen[$k] ?? null) === null && is_array($old[$k] ?? null) && ($k !== 'logs' || ($old['boot'] ?? null) === $seen['boot'])) {
             $seen[$k] = $old[$k];
         }
     }
@@ -1924,6 +1942,59 @@ function watchmanHostProcs(string $proc, ?array $containers): ?array
 }
 
 /**
+ * The ways into the server from outside that Unraid's settings open — read from the flash only (ident.cfg, Unraid
+ * Connect's connect.json and oidc.json, the WireGuard tunnels): SSH and its port, UPnP (the server opens ports on
+ * the router by itself), Connect's remote access (its type and port), the WebGUI's single sign-ons (provider and
+ * issuer), per WireGuard tunnel a fingerprint of each peer's public key. Never a private key, a token or a client
+ * secret — those lines aren't even kept.
+ *
+ * @return array<string, array{what: string, name: string, on: bool, port?: ?int, peers?: list<string>, issuer?: string}>|null
+ */
+function watchmanHostDoors(array $paths): ?array
+{
+    if (!isset($paths['ident'])) {
+        return null;
+    }
+    $ident = readCfg($paths['ident']);
+    if (!$ident) {
+        return null;
+    }
+    $out = [];
+    $out['ssh'] = ['what' => 'ssh', 'name' => 'SSH', 'on' => ($ident['USE_SSH'] ?? 'no') === 'yes', 'port' => (int) ($ident['PORTSSH'] ?? 22) ?: 22];
+    $out['upnp'] = ['what' => 'upnp', 'name' => 'UPnP', 'on' => ($ident['USE_UPNP'] ?? 'no') === 'yes'];
+    $connect = isset($paths['connect']) ? readJson($paths['connect']) : null;
+    if (is_array($connect)) {
+        $type = strtoupper((string) ($connect['dynamicRemoteAccessType'] ?? 'DISABLED'));
+        $type = preg_match('/^[A-Z_]{1,20}$/D', $type) ? $type : 'OTHER';
+        $out['connect'] = ['what' => 'connect', 'name' => $type, 'on' => $type !== 'DISABLED', 'port' => (int) ($connect['wanport'] ?? 0) ?: null];
+    }
+    $oidc = isset($paths['oidc']) ? readJson($paths['oidc']) : null;
+    foreach (array_slice((array) ($oidc['providers'] ?? []), 0, 20) as $pv) {
+        $id = is_array($pv) ? (string) ($pv['id'] ?? '') : '';
+        if (preg_match('/^[A-Za-z0-9._-]{1,64}$/D', $id)) {
+            $host = (string) (parse_url((string) ($pv['issuer'] ?? ''), PHP_URL_HOST) ?? '');
+            $out["oidc:$id"] = ['what' => 'oidc', 'name' => watchmanClean((string) ($pv['name'] ?? $id), 60) ?: $id, 'on' => true,
+                                'issuer' => watchmanClean($host, 120)];
+        }
+    }
+    foreach (isset($paths['wireguard']) ? (glob($paths['wireguard'] . '/*.conf') ?: []) : [] as $file) {
+        $tunnel = basename($file, '.conf');
+        if (!preg_match('/^[A-Za-z0-9_.-]{1,32}$/D', $tunnel) || !watchmanPlain($file)) {
+            continue;
+        }
+        $peers = [];
+        foreach (explode("\n", (string) @file_get_contents($file, false, null, 0, 1 << 20)) as $line) {
+            if (preg_match('/^\s*PublicKey\s*=\s*([A-Za-z0-9+\/=]{40,60})\s*$/', $line, $m) && count($peers) < 200) {
+                $peers[] = watchmanHash('wg-peer:' . $m[1]);
+            }
+        }
+        sort($peers);
+        $out["wg:$tunnel"] = ['what' => 'wg', 'name' => $tunnel, 'on' => true, 'peers' => array_values(array_unique($peers))];
+    }
+    return $out;
+}
+
+/**
  * A program's path as his memory keeps it: parts a program picks anew at every start become * — an AppImage's
  * mount (/tmp/.mount_firefoAb12Cd/…, Unraid's GUI mode runs Firefox so), a folder of mktemp (tmp.Xy12Ab) or another
  * name of letters and digits mixed. The entry still shows the real path.
@@ -2008,6 +2079,30 @@ function watchmanHostCompare(?array &$known, ?array $seen, ?array $prev, array $
             }
         }
         $known['users'] = $knownUsers;
+    }
+    // the ways in: one opened (switched on, another port, another type, a new single sign-on, a new tunnel or peer) is new;
+    // one closed or a peer gone is the new normal by itself
+    if (is_array($seen['doors'] ?? null)) {
+        if ($first || !is_array($known['doors'] ?? null)) {
+            $known['doors'] = $seen['doors'];
+        } else {
+            foreach ($seen['doors'] as $key => $d) {
+                $k = $known['doors'][$key] ?? null;
+                $opened = $d['on'] && ($k === null || !$k['on'] || ($d['port'] ?? null) !== ($k['port'] ?? null)
+                    || ($d['what'] === 'connect' && $d['name'] !== ($k['name'] ?? null)) || ($d['issuer'] ?? null) !== ($k['issuer'] ?? null));
+                $newPeers = array_values(array_diff((array) ($d['peers'] ?? []), (array) ($k['peers'] ?? [])));
+                if ($opened || ($k !== null && $newPeers)) {
+                    $added[] = watchmanSet($book, 'door_new', "door_new:$key", $now, ['key' => (string) $key, 'door' => $d['what'], 'name' => $d['name'],
+                        'port' => $d['port'] ?? null, 'issuer' => $d['issuer'] ?? null, 'peers' => count((array) ($d['peers'] ?? [])),
+                        'new_peers' => $k === null ? count((array) ($d['peers'] ?? [])) : count($newPeers)]);
+                } else {
+                    $known['doors'][$key] = $d;     // the same, or closed: normal
+                }
+            }
+            foreach (array_diff_key($known['doors'], $seen['doors']) as $key => $_) {
+                unset($known['doors'][$key]);       // gone (a tunnel removed, a provider dropped): safer
+            }
+        }
     }
     // ports and programs: what wasn't there is new; what stays away for long is forgotten
     foreach (['listen' => 'listen_new', 'procs' => 'proc_odd'] as $part => $kind) {
@@ -2571,7 +2666,8 @@ function watchmanSyslogAround(string $syslog, int $t, int $now, string $pattern 
             if ($lt > $t + $span) {
                 break;
             }
-            if (!preg_match($pattern, $line) || preg_match(WATCH_WEB, $line) || preg_match('/\ssshd[\w-]*(?:\[\d+\])?:/', $line)) {
+            if (!preg_match($pattern, $line) || preg_match(WATCH_WEB, $line) || preg_match('/\ssshd[\w-]*(?:\[\d+\])?:/', $line)
+                || preg_match(WATCH_SYSLOG_OWN, $line)) {
                 continue;
             }
             $text = (string) preg_replace(['/^[A-Z][a-z]{2}\s+\d{1,2}\s+(\d\d:\d\d:\d\d)\s+\S+\s+/', '/^\d{4}-\d\d-\d\d[T ](\d\d:\d\d:\d\d)\S*\s+\S+\s+/'], '$1 ', rtrim($line));
@@ -4866,6 +4962,12 @@ function watchmanAdopt(array &$b, array $e, array $seen, int $now): void
                 $b['host']['users'][(string) $p['user']] = $u;
             }
             break;
+        case 'door_new':
+            $d = $seen['host']['doors'][$p['key'] ?? ''] ?? null;
+            if (is_array($d) && is_array($b['host']['doors'] ?? null)) {
+                $b['host']['doors'][(string) $p['key']] = $d;
+            }
+            break;
         case 'listen_new':
         case 'proc_odd':
             $part = $kind === 'listen_new' ? 'listen' : 'procs';
@@ -5049,9 +5151,21 @@ function watchmanText(array $e, ?string $lang = null): array
         'proc_odd'       => ['prog' => (string) ($p['prog'] ?? '') ?: '?', 'exe' => (string) ($p['exe'] ?? ''),
                              'where' => ($p['where'] ?? null) === null
                                  ? ($lang === null ? '' : officeNotifyText('watchman', 'where.host', [], $lang)) : (string) $p['where']],
+        'door_new'       => ['door' => watchmanDoorWords($p, $lang), 'name' => (string) ($p['name'] ?? '')],
         'watch'          => array_map('intval', $p),
         default          => [],
     };
+}
+
+/** A way in, in words: in $lang (notifications, the team lead), or '' — the page writes it itself (door.<what>) */
+function watchmanDoorWords(array $p, ?string $lang): string
+{
+    if ($lang === null) {
+        return '';
+    }
+    $what = in_array($p['door'] ?? null, ['ssh', 'upnp', 'connect', 'oidc', 'wg'], true) ? $p['door'] : 'ssh';
+    return officeNotifyText('watchman', "door.$what", ['name' => (string) ($p['name'] ?? ''),
+        'port' => (string) ($p['port'] ?? '–'), 'issuer' => (string) ($p['issuer'] ?? ''), 'n' => (int) ($p['new_peers'] ?? 0)], $lang);
 }
 
 /**
@@ -5236,6 +5350,51 @@ function watchmanNotifySet(mixed $on, ?string $dir = null, bool $page = true): a
     return ['ok' => true, 'state' => watchmanPageState()];
 }
 
+/**
+ * For a SIEM: each new entry of his book as one line in Unraid's syslog (tag uso-watchman, JSON: id, kind, group, the
+ * ATT&CK technique, important, noted by himself or not, the time, the entry in English words) — Unraid's Settings →
+ * Syslog Server → Remote syslog server sends it on to Wazuh, Graylog, Splunk, Elastic … Off by default
+ * (`syslog_set`). Never more than the book says: no hashes, no evidence lines, at most WATCH_SYSLOG_MAX a round.
+ */
+const WATCH_SYSLOG_MAX = 20;
+const WATCH_SYSLOG_OWN = '/\suso-watchman(?:\[\d+\])?:/';
+
+function watchmanSyslogLine(array $e): string
+{
+    $kind = (string) $e['kind'];
+    $text = officeNotifyText('watchman', "entry.$kind", ['n' => (int) ($e['count'] ?? 1)] + watchmanText($e, 'en'), 'en');
+    return jsonEncode(['v' => 1, 'id' => (string) $e['id'], 'kind' => $kind, 'group' => WATCH_KINDS[$kind][0] ?? 'watch',
+        'attack' => WATCH_ATTACK[$kind] ?? null, 'important' => (bool) (WATCH_KINDS[$kind][1] ?? false), 'noted' => $e['by'] ?? null,
+        'time' => date('c', (int) ($e['time'] ?? time())), 'text' => mb_strimwidth(watchmanClean($text, 1200), 0, 700, '…')]);
+}
+
+function watchmanSyslogForward(string $logger, array $entries): void
+{
+    foreach (array_slice($entries, 0, WATCH_SYSLOG_MAX) as $e) {
+        run([$logger, '-t', 'uso-watchman', '-p', 'user.notice', '--', watchmanSyslogLine($e)], 5);
+    }
+}
+
+/** The switch on his page: also write the book's new entries to the syslog, for a SIEM — default off */
+function watchmanSyslogSet(mixed $on, ?string $dir = null, bool $page = true): array
+{
+    if (!is_bool($on)) {
+        throw new Problem('bad_request');
+    }
+    $dir ??= watchmanDir();
+    watchmanLocked($dir, function () use ($dir, $on): void {
+        $d = watchmanLoad($dir);
+        $st = $d['state'];
+        $st['syslog'] = $on;
+        watchmanSave($dir, $d, ['state' => $st]);
+    });
+    if (!$page) {
+        return ['ok' => true];
+    }
+    logLine('Night watchman: new entries to the syslog (for a SIEM) ' . ($on ? 'on' : 'off'));
+    return ['ok' => true, 'state' => watchmanPageState()];
+}
+
 /** One notification for a kind: the bell's line, the newest in its words, each entry with its time */
 function watchmanNotifySend(string $kind, array $entries, string $lang): bool
 {
@@ -5343,6 +5502,7 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         'grafana'  => $onWatch ? watchmanGrafana($grafana) : null,
         'notified' => $st['last_notify'] ?? null,
         'notify'   => ['on' => ($st['notify'] ?? true) !== false, 'available' => is_executable(OFFICE_NOTIFY_BIN)],
+        'syslog'   => ['on' => !empty($st['syslog'])],
         'limits'   => ['every' => WATCH_EVERY, 'burst' => WATCH_FAIL_BURST, 'window' => WATCH_FAIL_WINDOW,
                        'quiet' => WATCH_NOTIFY_QUIET, 'keep' => WATCH_BOOK_MAX, 'days' => WATCH_BOOK_DAYS],
     ];
@@ -5436,7 +5596,32 @@ function watchmanSummary(array $b, ?array $seen = null): array
                          'extra' => $extra, 'users' => array_values((array) ($f['users'] ?? [])), 'keys' => $keys],
         'shares'     => $shares,
         'sched'      => watchmanSchedSummary(is_array($b['sched'] ?? null) ? $b['sched'] : null),
+        'host'       => watchmanHostSummary(is_array($b['host'] ?? null) ? $b['host'] : null, is_array($seen['host'] ?? null) ? $seen['host'] : null),
     ];
+}
+
+/** "What I keep an eye on" of the server itself: the ports, the programs from odd places, the ways in — what is normal and there now */
+function watchmanHostSummary(?array $h, ?array $seen): ?array
+{
+    if ($h === null || $seen === null) {
+        return null;
+    }
+    $listen = [];
+    foreach (array_intersect_key((array) ($seen['listen'] ?? []), (array) ($h['listen'] ?? [])) as $key => $l) {
+        $listen[] = ['key' => (string) $key, 'prog' => (string) ($l['prog'] ?? ''), 'port' => $l['port'] ?? null, 'addr' => (array) ($l['addr'] ?? [])];
+    }
+    $procs = [];
+    foreach (array_intersect_key((array) ($seen['procs'] ?? []), (array) ($h['procs'] ?? [])) as $x) {
+        $procs[] = ['prog' => (string) ($x['prog'] ?? ''), 'exe' => (string) ($x['exe'] ?? ''), 'where' => $x['where'] ?? null];
+    }
+    $doors = [];
+    foreach ((array) ($h['doors'] ?? []) as $d) {
+        if (!empty($d['on'])) {
+            $doors[] = ['what' => (string) $d['what'], 'name' => (string) $d['name'], 'port' => $d['port'] ?? null, 'issuer' => $d['issuer'] ?? null,
+                        'peers' => count((array) ($d['peers'] ?? []))];
+        }
+    }
+    return ['listen' => $listen, 'procs' => $procs, 'doors' => $doors, 'users' => count((array) ($h['users'] ?? []))];
 }
 
 /** "What I keep an eye on" of what starts on its own: root's crontab lines, the .cron files, User Scripts, at, agents */
