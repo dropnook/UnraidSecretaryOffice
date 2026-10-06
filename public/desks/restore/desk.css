@@ -16,6 +16,10 @@
 .rs-place{display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; font-size:12.5px; color:var(--ink2); margin:4px 0 0 2px}
 .rs-place-where{color:var(--muted)}
 .rs-look, .rs-whole{margin:4px 0 0 2px; font-size:12.5px}
+.rs-need{margin:6px 0 0 10px}
+.rs-need > .role{margin:2px 0 0 2px; font-size:12.5px}
+.rs-needs{margin-top:6px}
+.rs-needs .rs-need{margin-left:0}
 .rs-chips{display:inline-flex; flex-wrap:wrap; gap:4px}
 .rs-files{display:flex; flex-direction:column; gap:3px; margin:4px 0 6px}
 .rs-file{display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; font-size:12.5px}
@@ -47,6 +51,9 @@
 /* a restore's dialog: options, the preview, the confirmation */
 .rs-opts .field{margin-bottom:10px}
 .rs-opts select.input{max-width:100%}
+.rs-entries{display:flex; flex-direction:column; gap:2px; max-height:260px; overflow:auto}
+.rs-entries label.check span{overflow-wrap:anywhere}
+.rs-entry{margin-left:14px}
 .rs-preview{display:flex; flex-direction:column; gap:6px; margin:6px 0 10px}
 .rs-preview p{margin:0}
 .rs-preview .callout{margin:0}
@@ -69,7 +76,8 @@
 @media (max-width:640px){
   .row.nocheck:has(> .rs-right){grid-template-columns:minmax(0,1fr)}
   .row.nocheck > .rs-right{justify-content:flex-start}
-  .rs-part{margin-left:0}
+  .rs-part, .rs-need{margin-left:0}
+  .rs-entry{margin-left:6px}
   .rs-how > *:not(summary){margin-left:6px}
   .rs-code{flex-direction:column; align-items:stretch}
   .rs-chipgroup{padding-left:0; border-left:0}
