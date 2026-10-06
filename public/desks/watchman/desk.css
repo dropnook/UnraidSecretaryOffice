@@ -22,9 +22,11 @@
 .row.wm-item .row-name{font-size:12.5px}
 .row.wm-item .row-meta span{overflow-wrap:anywhere; min-width:0}
 .wm-empty-group .group-arrow{visibility:hidden}
+.wm-flow-note{margin:0; padding:8px 12px 8px 24px; border-top:1px solid var(--line)}
 @media (max-width:640px){
   .row.wm-entry{grid-template-columns:minmax(0,1fr)}
   .row.wm-entry > .btn{justify-self:start}
   .row.wm-item{padding-left:14px}
+  .wm-flow-note{padding-left:14px}
 }
 }

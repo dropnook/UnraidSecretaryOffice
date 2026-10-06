@@ -462,11 +462,10 @@ function details(e) {
       add(T(e.kind === 'flow_written' ? 'detail.written' : e.kind === 'flow_container' ? 'detail.sent' : 'detail.pulled'),
         T('detail.in_minutes', { size: fmt.size(p.bytes), minutes: p.minutes || 1 }));
       if (e.kind === 'flow_written' && p.pct) add(T('detail.part'), `${fmt.number(p.pct)} %`);
-      add(T('detail.usual'), usualText(e.kind, p));
+      if (!p.learning) add(T('detail.usual'), usualText(e.kind, p));
       if (p.peak) add(T('detail.peak'), fmt.size(p.peak));
     }
     if (Array.isArray(p.hours) && p.hours.length) add(T('detail.hours'), p.hours.map(hourName).join(', '));
-    if (p.learning) box.appendChild(el('p', 'wm-note', T('detail.learning')));
   } else if (e.group === 'sched') {
     if (p.file) add(T('detail.cron_file'), '/boot/config/plugins/' + p.file + (p.new ? ` (${T('detail.file_new')})` : ''), true);
     if (p.path) add(T('detail.program'), p.path, true);
@@ -494,6 +493,7 @@ function details(e) {
   }
   box.appendChild(dl);
   const notes = [];
+  if (e.group === 'flow' && p.learning) notes.push(T('detail.learning'));
   if (p.office && e.kind.startsWith('cron_file')) notes.push(T('detail.office_cron'));
   if (p.office && e.kind.startsWith('script_')) notes.push(T('detail.office_script'));
   if (e.open) notes.push(T('adopt.' + e.kind));
@@ -619,8 +619,11 @@ function schedGroup(s) {
 }
 
 // ------------------------------------------------------------------ data flow
-/** "learning: 2 of 7 days" — or nothing once learned */
-const learningText = (days, f) => (days === null || days === undefined ? '' : T('watch.flow_learning', { days, learn: f.learn || 7 }));
+/** "learning: 2 of 7 days" on a row — only when it is behind the rest (it came later); nothing once learned */
+const learningText = (days, f) => (days === null || days === undefined || (days === f.days && f.days < f.learn) ? ''
+  : T('watch.flow_learning', { days, learn: f.learn || 7 }));
+/** A quiet line in a group: what can't be looked at here, and why */
+const note = (text) => el('p', 'wm-note wm-flow-note', text);
 const total = (list, k) => (list || []).reduce((a, x) => a + (Number(x[k]) || 0), 0);
 const serviceName = (s) => ({ smb: 'SMB', nfs: 'NFS', ssh: 'SSH', web: 'WebGUI' }[s] || s);
 
@@ -640,7 +643,7 @@ function flowGroups(f) {
 
   // who pulls: per client and service
   const clients = [];
-  if (can.ss === false) clients.push(item(T('watch.flow_no_ss'), [], null, true));
+  if (can.ss === false) clients.push(note(T('watch.flow_no_ss')));
   (f.clients || []).forEach((x) => clients.push(item(x.name ? `${x.ip} · ${x.name}` : x.ip,
     [serviceName(x.service), T('watch.flow_day', { size: fmt.size(x.day) }), usualRow(x), learningText(x.learning, f),
       x.ack ? T('watch.flow_noted', { size: fmt.size(x.ack) }) : '', T('watch.last_seen', { when: fmt.relative(x.last) })])));
@@ -649,13 +652,13 @@ function flowGroups(f) {
 
   // containers: the top senders
   const cts = [];
-  if (can.docker === false) cts.push(item(T('watch.flow_no_docker'), [], null, true));
+  if (can.docker === false) cts.push(note(T('watch.flow_no_docker')));
   (f.containers || []).forEach((x) => cts.push(item(x.name, [T('watch.flow_day', { size: fmt.size(x.day) }),
     x.office ? T('watch.flow_office', { size: fmt.size(x.office) }) : '',
     x.media ? T('watch.flow_media') : x.kopia ? T('watch.flow_kopia') : usualRow(x), learningText(x.learning, f),
     x.with && x.with.length ? T('watch.flow_with', { names: x.with.join(', ') }) : ''])));
-  if (f.idle) cts.push(item(T('watch.flow_idle', { n: f.idle }), [], null, true));
-  if (can.host && can.host.length) cts.push(item(T('watch.flow_host', { names: can.host.join(', ') }), [], null, true));
+  if (can.host && can.host.length) cts.push(item(can.host.join(', '), [T('watch.flow_host')]));
+  if (f.idle) cts.push(note(T('watch.flow_idle', { n: f.idle })));
   out.push(group('flow_containers', T('watch.flow_containers'),
     can.docker === false ? T('watch.flow_no_docker') : T('watch.flow_containers_sum', { size: fmt.size(total(f.containers, 'day')) }), cts));
 
@@ -666,9 +669,9 @@ function flowGroups(f) {
     x.office ? T('watch.flow_office', { size: fmt.size(x.office) }) : '',
     x.snapshots ? (x.snap ? T('watch.flow_written_now', { when: fmt.relative(x.snap), size: fmt.size(x.written) }) : '') : T('watch.flow_nosnap'),
     usualRow(x), learningText(x.learning, f)])));
-  if (zfs && zfs.asleep && zfs.asleep.length) shares.push(item(T('watch.flow_asleep', { pools: zfs.asleep.join(', ') }), [], null, true));
+  if (zfs && zfs.asleep && zfs.asleep.length) shares.push(item(zfs.asleep.join(', '), [T('watch.flow_asleep')]));
   const noShares = !zfs ? T('watch.flow_no_zfs') : !(f.shares || []).length && !(zfs.asleep || []).length ? T('watch.flow_no_zfs_shares') : '';
-  if (noShares) shares.push(item(noShares, [], null, true));
+  if (noShares) shares.push(note(noShares));
   out.push(group('flow_shares', T('watch.flow_shares'),
     noShares || T('watch.flow_shares_sum', { n: (f.shares || []).length, size: fmt.size(total(f.shares, 'day')) }), shares));
 
@@ -676,7 +679,7 @@ function flowGroups(f) {
   const smb = f.smb || { users: [], clients: [] };
   const rows = [];
   const smbState = can.smb === 'off' ? T('watch.flow_smb_off') : can.smb === null ? T('watch.flow_smb_none') : '';
-  if (smbState) rows.push(item(smbState, [], null, true));
+  if (smbState) rows.push(note(smbState));
   if (smb.users.length) rows.push(item(T('watch.flow_smb_users_row'), [smb.users.join(', ')], null, true));
   smb.clients.forEach((x) => rows.push(item(x.name ? `${x.ip} · ${x.name}` : x.ip,
     [T('watch.flow_smb_hours', { n: x.hours }), learningText(x.learning, f), T('watch.last_seen', { when: fmt.relative(x.last) })])));

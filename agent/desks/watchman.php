@@ -2364,6 +2364,7 @@ function watchmanHourNear(array $hours, int $h, int $span = 1): bool
  */
 function watchmanFlowUsual(array $hours, int $now): int
 {
+    static $week = [];           // hour index => hour of the week (the same hours for every series)
     $cur = intdiv($now, 3600);
     $how = watchmanHourOfWeek($now);
     $same = $max = 0;
@@ -2372,7 +2373,10 @@ function watchmanFlowUsual(array $hours, int $now): int
             continue;
         }
         $max = max($max, (int) $bytes);
-        if ((int) $bytes > $same && watchmanHourNear([watchmanHourOfWeek((int) $idx * 3600)], $how)) {
+        if (count($week) > 4096) {
+            $week = [];
+        }
+        if ((int) $bytes > $same && watchmanHourNear([$week[(int) $idx] ??= watchmanHourOfWeek((int) $idx * 3600)], $how)) {
             $same = (int) $bytes;
         }
     }
