@@ -65,6 +65,7 @@ require __DIR__ . '/lib/backupscript.php';
 require __DIR__ . '/lib/house.php';
 require __DIR__ . '/lib/snapshotplans.php';
 require __DIR__ . '/lib/officeupdate.php';
+require __DIR__ . '/lib/metrics.php';
 foreach (glob(__DIR__ . '/desks/*.php') ?: [] as $deskFile) {
     require $deskFile;
 }
@@ -164,6 +165,7 @@ function serve(): int
                 }
             }
         }
+        metricsTick();          // the office's numbers for Prometheus, once a minute (lib/metrics.php)
 
         $now = time();
         if ($now - $lastPulse >= 20) {
@@ -237,6 +239,7 @@ function setUp(): void
         logLine('User Scripts migration: ' . $e->getMessage());
     }
     logLine('Agent started (v' . AGENT_VERSION . ', PID ' . getmypid() . ', desks: ' . implode(', ', array_keys(desks())) . ')');
+    metricsStart();         // its folder in /mnt/addons and a first write, before the caretaker's start tour looks
     foreach (desks() as $id => $desk) {
         if ($desk['start']) {
             try {

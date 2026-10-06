@@ -1119,6 +1119,215 @@ function testAdvisor(): void
         advisorTextfileDirs(['--collector.textfile.directory="' . ADVISOR_METRICS_DIR . '/"', '--collector.textfile.directory=/var/lib/x'], null));
 }
 
+/**
+ * Reads Prometheus' text format back the way a strict parser does: HELP and
+ * TYPE before a family's series, label values escaped, the same label names
+ * within a family, no series twice, no family twice.
+ *
+ * @return array<string, array{type:string, help:string, samples:list<array{0:array<string,string>, 1:string}>}>|string  the families, or what is wrong
+ */
+function metricsParseBack(string $text): array|string
+{
+    $value = '"(?:[^"\\\\\n]|\\\\[\\\\"n])*"';
+    $sample = '/^([a-zA-Z_][a-zA-Z0-9_]*)(?:\{([a-zA-Z_][a-zA-Z0-9_]*=' . $value . '(?:,[a-zA-Z_][a-zA-Z0-9_]*=' . $value . ')*)\})? (-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|NaN|[+-]Inf)$/D';
+    if ($text !== '' && !str_ends_with($text, "\n")) {
+        return 'no newline at the end';
+    }
+    $families = [];
+    $current = null;
+    foreach (explode("\n", rtrim($text, "\n")) as $n => $line) {
+        if (preg_match('/^# HELP ([a-zA-Z_][a-zA-Z0-9_]*) ((?:[^\\\\\n]|\\\\[\\\\n])*)$/D', $line, $m)) {
+            if (isset($families[$m[1]])) {
+                return "line $n: $m[1] twice";
+            }
+            $families[$m[1]] = ['type' => '', 'help' => $m[2], 'samples' => []];
+            $current = $m[1];
+        } elseif (preg_match('/^# TYPE ([a-zA-Z_][a-zA-Z0-9_]*) (gauge|counter)$/D', $line, $m)) {
+            if ($m[1] !== $current || $families[$current]['type'] !== '') {
+                return "line $n: TYPE out of place";
+            }
+            $families[$current]['type'] = $m[2];
+        } elseif (preg_match($sample, $line, $m)) {
+            if ($m[1] !== $current || $families[$current]['type'] === '') {
+                return "line $n: a series without its HELP and TYPE";
+            }
+            preg_match_all('/([a-zA-Z_][a-zA-Z0-9_]*)=("(?:[^"\\\\\n]|\\\\[\\\\"n])*")/', $m[2] ?? '', $pairs, PREG_SET_ORDER);
+            $labels = [];
+            foreach ($pairs as [, $k, $v]) {
+                $labels[$k] = stripcslashes(substr($v, 1, -1));
+            }
+            foreach ($families[$current]['samples'] as [$other]) {
+                if (array_keys($other) !== array_keys($labels)) {
+                    return "line $n: other label names than before";
+                }
+                if ($other === $labels) {
+                    return "line $n: the same series twice";
+                }
+            }
+            $families[$current]['samples'][] = [$labels, $m[3]];
+        } else {
+            return "line $n: not Prometheus' format: " . json_encode($line);
+        }
+    }
+    return $families;
+}
+
+/** The office's numbers for Prometheus: the text format, what is left out, the size cap, the files, the desks' hooks */
+function testMetrics(): void
+{
+    $GLOBALS['metricsNoted'] = [];
+    $g = fn (string $name, array $samples, string $type = 'gauge') => ['name' => $name, 'type' => $type, 'help' => "about $name", 'samples' => $samples];
+
+    // escaping: backslash, quote and newline in label values; backslash and newline in HELP
+    $fam = metricsClean(['backup' => [['name' => 'uso_test_bytes', 'type' => 'gauge', 'help' => "two\nlines \\ and \"quotes\"",
+        'samples' => [[['name' => "a\"b\\c\nd", 'kind' => 'app'], 12], [['kind' => 'vm', 'name' => 'Win 11'], 3.5]]]]]);
+    same('metrics: text format with escapes', "# HELP uso_test_bytes two\\nlines \\\\ and \"quotes\"\n# TYPE uso_test_bytes gauge\n"
+        . "uso_test_bytes{kind=\"app\",name=\"a\\\"b\\\\c\\nd\"} 12\nuso_test_bytes{kind=\"vm\",name=\"Win 11\"} 3.5\n", metricsRender($fam['backup']));
+    $back = metricsParseBack(metricsRender($fam['backup']));
+    same('metrics: escaped label value reads back', "a\"b\\c\nd", is_array($back) ? $back['uso_test_bytes']['samples'][0][0]['name'] : $back);
+    same('metrics: numbers', ['1', '0', '7', '0.25', 'NaN', '+Inf', '-Inf', '1.0E+25'],
+        array_map('metricsNumber', [1, 0, 7.0, 0.25, NAN, INF, -INF, 1e25]));
+    same('metrics: a label value is cut to 200 bytes, control characters become spaces', [200, "a b"],
+        [strlen(metricsLabelValue(str_repeat('é', 150))), metricsLabelValue("a\tb")]);
+
+    // what doesn't fit Prometheus is left out — the rest stays
+    $clean = metricsClean([
+        'snapshot' => [
+            $g('uso_ok', [[[], true], [['x' => '1'], 2]]),                      // other label names: the second goes
+            $g('9uso_bad', [[[], 1]]), $g('uso-bad', [[[], 1]]), $g("uso_bad\n", [[[], 1]]), $g('other_metric', [[[], 1]]),
+            $g('uso_type', [[[], 1]], 'histogram'),
+            $g('uso_labels', [[['__name__' => 'x'], 1], [['a-b' => 'x'], 1], [["a\n" => 'x'], 1], [['a' => ['x']], 1], [['a' => 'x'], 'one'], [['a' => 'y'], 2]]),
+            $g('uso_twice', [[['a' => 'x'], 1], [['a' => 'x'], 2]]),
+            $g('uso_empty', []),
+            'not a family',
+        ],
+        'backup' => [$g('uso_ok', [[[], 5]]), $g('uso_more', [[[], false]])],    // uso_ok again: the first desk keeps it
+        'Bad-Area' => [$g('uso_area', [[[], 1]])],
+    ]);
+    same('metrics: valid families kept, by area', ['snapshot' => ['uso_ok', 'uso_labels', 'uso_twice'], 'backup' => ['uso_more']],
+        array_map(fn ($fs) => array_column($fs, 'name'), $clean));
+    same('metrics: one series per label set, only the first label names', [[[], '1']], $clean['snapshot'][0]['samples']);
+    same('metrics: odd labels left out', [[['a' => 'y'], '2']], $clean['snapshot'][1]['samples']);
+    same('metrics: a series twice — the first stays', [[['a' => 'x'], '1']], $clean['snapshot'][2]['samples']);
+    same('metrics: false is 0', '0', $clean['backup'][0]['samples'][0][1]);
+    check('metrics: anchored names', preg_match(METRICS_NAME, "uso_x\n") === 0 && preg_match(METRICS_FILE, "uso_x.prom\n") === 0);
+
+    // the size cap: per-item series go first, then whole areas — never above the budget
+    $many = array_map(fn ($i) => [['kind' => 'app', 'name' => "app-$i"], $i * 1000], range(1, 120));
+    $areas = metricsClean(['backup' => [$g('uso_backup_package_bytes', $many), $g('uso_backup_running', [[[], 0]])],
+                           'snapshot' => [$g('uso_snapshot_snapshots', [[['pool' => 'a'], 1], [['pool' => 'b'], 2]])]]);
+    [$texts, $dropped] = metricsFit($areas, 2000);
+    same('metrics cap: the family with the most series goes first', ['uso_backup_package_bytes'], $dropped);
+    check('metrics cap: within the budget', array_sum(array_map('strlen', $texts)) <= 2000);
+    [$texts, $dropped] = metricsFit($areas, 150);
+    check('metrics cap: per-item ones before single numbers', $dropped[0] === 'uso_backup_package_bytes' && $dropped[1] === 'uso_snapshot_snapshots'
+        && array_sum(array_map('strlen', $texts)) <= 150, json_encode($dropped));
+    same('metrics cap: nothing left out when it fits', [], metricsFit($areas, 100000)[1]);
+
+    // the files: one per area plus the office's, temp files in the same folder never "*.prom", stale ones go, foreign ones stay
+    $dir = hardeningTmp('metrics') . '/metrics';
+    $now = time();
+    @mkdir(dirname($dir) . '/base', 0755);
+    check('metrics folder: made below an existing parent', metricsEnsureDir($dir) && is_dir($dir));
+    file_put_contents("$dir/uso_gone.prom", "# a desk let go\n");
+    file_put_contents("$dir/node_other.prom", "other_tool 1\n");
+    file_put_contents("$dir/.uso_backup.prom.0a1b2c3d4e5f.tmp", 'left by a crash');
+    touch("$dir/.uso_backup.prom.0a1b2c3d4e5f.tmp", $now - 3600);
+    $big = array_map(fn ($i) => [['kind' => 'app', 'name' => str_repeat('x', 60) . "-$i"], $i], range(1, 400));
+    $r = metricsWrite($now, ['backup' => [$g('uso_backup_running', [[[], 1]]), $g('uso_backup_package_bytes', $big)],
+                             'caretaker' => [$g('uso_caretaker_open_findings', [[['level' => 'required'], 0]])]], $dir);
+    $names = array_values(array_filter(scandir($dir) ?: [], fn ($n) => $n[0] !== '.'));
+    same('metrics files: one per area and the office\'s, foreign ones untouched', ['node_other.prom', 'uso_backup.prom', 'uso_caretaker.prom', 'uso_office.prom'], $names);
+    same('metrics files: no temporary file left (an old one from a crash removed)', [], array_values(array_diff(scandir($dir) ?: [], ['.', '..'], $names)));
+    same('metrics files: the big per-item family was left out', ['uso_backup_package_bytes'], $r['dropped'] ?? null);
+    $total = array_sum(array_map(fn ($n) => filesize("$dir/$n"), preg_grep('/^uso_.*\.prom$/', $names)));
+    check("metrics files: all together within " . METRICS_MAX_BYTES . " bytes ($total)", $total <= METRICS_MAX_BYTES && $total === array_sum($r['files']));
+    $office = metricsParseBack((string) file_get_contents("$dir/uso_office.prom"));
+    check('metrics files: the office\'s file reads back', is_array($office), is_string($office) ? $office : '');
+    same('metrics files: office info and when written', [[['version' => AGENT_VERSION], '1'], (string) $now, '1'],
+        is_array($office) ? [$office['uso_office_info']['samples'][0], $office['uso_metrics_written_timestamp_seconds']['samples'][0][1],
+                             $office['uso_metrics_dropped_families']['samples'][0][1]] : null);
+    check('metrics files: every file reads back', array_reduce(preg_grep('/^uso_.*\.prom$/', $names), fn ($ok, $n) => $ok && is_array(metricsParseBack((string) file_get_contents("$dir/$n"))), true));
+    check('metrics fresh: just written', metricsFresh($dir, $now) && !metricsFresh($dir, $now + METRICS_FRESH + 1));
+    $tmp = writeNewFile("$dir/.uso_backup.prom", 'x');
+    check('metrics: writeAtomic\'s temporary names are hidden and never end in .prom', $tmp !== null && preg_match(METRICS_TMP, basename($tmp)) === 1 && !str_ends_with($tmp, '.prom'));
+    @unlink((string) $tmp);
+    metricsWrite($now + 60, ['backup' => [$g('uso_backup_running', [[[], 0]])]], $dir);
+    check('metrics files: an area that stops reporting loses its file', !file_exists("$dir/uso_caretaker.prom") && is_file("$dir/uso_backup.prom"));
+
+    // never through a link
+    $link = dirname($dir) . '/linked';
+    symlink(dirname($dir) . '/base', $link);
+    check('metrics folder: a link is refused', !metricsEnsureDir($link) && !metricsEnsureDir("$link/metrics") && !file_exists(dirname($dir) . '/base/metrics'));
+    check('metrics folder: nothing without its base', metricsWrite($now, [], dirname($dir) . '/missing/metrics') === null);
+
+    // Mr. Backupsy's hook from the engine's state files
+    $st = dirname($dir) . '/state';
+    mkdir($st);
+    $run = fn (string $result, int $end, array $more = []) => ['interface' => 1, 'mode' => 'backup', 'result' => $result, 'started' => $end - 600, 'finished' => $end] + $more;
+    file_put_contents("$st/last-run.json", jsonEncode($run('failed', 1791229704, ['downtime_s' => 285, 'errors' => 2, 'warnings' => 1,
+        'kopia' => ['enabled' => true, 'planned' => ['app:a', 'b', 'c'], 'done' => [['name' => 'app:a', 'ok' => true], ['name' => 'b', 'ok' => false]]],
+        'packages' => ['written' => true, 'written_bytes' => 300, 'list' => [['kind' => 'app', 'name' => 'immich', 'bytes' => 200, 'result' => 'ok'],
+            ['kind' => 'vm', 'name' => 'Debian', 'bytes' => 100, 'result' => 'ok'], ['kind' => 'app', 'name' => 'planned', 'bytes' => 1, 'result' => 'planned']]]])));
+    file_put_contents("$st/history.jsonl", jsonEncode($run('warnings', 1791100000)) . "\n" . jsonEncode($run('ok', 1791200000)) . "\n"
+        . jsonEncode(['mode' => 'backup', 'result' => 'skipped', 'finished' => 1791210000]) . "\n" . jsonEncode($run('failed', 1791229704)) . "\n");
+    file_put_contents("$st/status.json", jsonEncode(['result' => 'running', 'mode' => 'backup', 'phase' => 'kopia', 'started' => 1791241202]));
+    $bk = [];
+    foreach (backupMetrics($st) as $f) {
+        $bk[$f['name']] = count($f['samples']) === 1 && !$f['samples'][0][0] ? $f['samples'][0][1] : $f['samples'];
+    }
+    same('backup metrics: the last run', [false, [[['result' => 'failed'], 1]], 1791229704, 600, 285, 2, 1],
+        [$bk['uso_backup_last_success'] ?? null, $bk['uso_backup_last_result'] ?? null, $bk['uso_backup_last_run_end_timestamp_seconds'] ?? null,
+         $bk['uso_backup_last_duration_seconds'] ?? null, $bk['uso_backup_last_downtime_seconds'] ?? null, $bk['uso_backup_last_errors'] ?? null, $bk['uso_backup_last_warnings'] ?? null]);
+    same('backup metrics: the last success from the history (a skipped run is none)', 1791200000, $bk['uso_backup_last_success_timestamp_seconds'] ?? null);
+    same('backup metrics: Kopia sources — one not reached counts as failed', [[['result' => 'ok'], 1], [['result' => 'failed'], 2]], $bk['uso_backup_last_kopia_sources'] ?? null);
+    same('backup metrics: package sizes, planned ones not', [[['kind' => 'app', 'name' => 'immich'], 200], [['kind' => 'vm', 'name' => 'Debian'], 100]], $bk['uso_backup_package_bytes'] ?? null);
+    same('backup metrics: running needs the lock too', [false, null], [$bk['uso_backup_running'] ?? null, $bk['uso_backup_current_phase'] ?? null]);
+    same('backup metrics: no skipped.json, no series', null, $bk['uso_backup_last_skipped_timestamp_seconds'] ?? null);
+    file_put_contents("$st/skipped.json", jsonEncode(['time' => 1791244800, 'mode' => 'backup', 'reason' => 'lock_busy', 'result' => 'skipped']));
+    $sk = array_values(array_filter(backupMetrics($st), fn ($f) => $f['name'] === 'uso_backup_last_skipped_timestamp_seconds'));
+    same('backup metrics: a skipped run', [[['mode' => 'backup', 'reason' => 'lock_busy'], 1791244800]], $sk[0]['samples'] ?? null);
+    file_put_contents("$st/skipped.json", '{"time":"soon","mode":"backup"}');
+    same('backup metrics: skipped.json in another shape is left out', [], array_values(array_filter(backupMetrics($st), fn ($f) => $f['name'] === 'uso_backup_last_skipped_timestamp_seconds')));
+    same('backup metrics: no state folder, nothing', [], backupMetrics("$st/none"));
+
+    // Ms. Snapshotini: per pool and disk, Docker's layers left out; VMs only where they are on
+    $pools = snapshotMetricsPools(['time' => 50, 'zfs' => ['pools' => [['name' => 'cache', 'snapused' => 10], ['name' => 'empty', 'snapused' => 0]],
+        'snapshots' => [['pool' => 'cache', 't' => 5, 'docker' => false], ['pool' => 'cache', 't' => 9, 'docker' => false], ['pool' => 'cache', 't' => 99, 'docker' => true]]],
+        'btrfs' => ['devices' => [['name' => 'disk1', 'scanned' => null], ['name' => 'disk2', 'scanned' => null], ['name' => 'disk3', 'scanned' => 40]],
+                    'snapshots' => [['pool' => 'disk1', 't' => 7]]], 'vm' => ['available' => false, 'snapshots' => []]]);
+    same('snapshot metrics: per pool and disk (a disk never read is left out)', [['zfs', 'cache', 2, 9, 10], ['zfs', 'empty', 0, 0, 0], ['btrfs', 'disk3', 0, 0, null], ['btrfs', 'disk1', 1, 7, null]],
+        array_map(fn ($p) => [$p['fs'], $p['pool'], $p['n'], $p['t'], $p['used']], $pools['pools'] ?? []));
+
+    // the team lead: open points by level, like the Dashboard tile (only desks that work here, nothing put aside)
+    $care = ['time' => 70, 'checks' => [
+        'backup' => [['level' => 'required', 'ok' => false], ['level' => 'required', 'ok' => null], ['level' => 'recommended', 'ok' => true],
+                     ['level' => 'recommended', 'ok' => false, 'acked' => true], ['level' => 'recommended', 'ok' => false], ['level' => 'hint', 'ok' => null]],
+        'gone' => [['level' => 'required', 'ok' => false]]]];
+    $ct = caretakerMetrics($care, ['backup', 'caretaker']);
+    same('caretaker metrics: open by level', [[['level' => 'required'], 2], [['level' => 'recommended'], 1], [['level' => 'hint'], 1]], $ct[0]['samples'] ?? null);
+
+    // the chain: where the host reaches Prometheus, and its target for the Node Exporter
+    same('prometheus: published port', ['http://127.0.0.1:9090', false],
+        caretakerPrometheusUrl(['HostConfig' => ['NetworkMode' => 'bridge'], 'NetworkSettings' => ['Ports' => ['9090/tcp' => [['HostIp' => '0.0.0.0', 'HostPort' => '9090']]],
+            'Networks' => ['bridge' => ['IPAddress' => '172.17.0.5']]]]));
+    same('prometheus: host network with its own port', ['http://127.0.0.1:9191', false],
+        caretakerPrometheusUrl(['Args' => ['--web.listen-address=:9191'], 'HostConfig' => ['NetworkMode' => 'host']]));
+    same('prometheus: an address of its own (br0)', ['http://192.168.7.30:9090', true],
+        caretakerPrometheusUrl(['HostConfig' => ['NetworkMode' => 'br0'], 'NetworkSettings' => ['Ports' => [], 'Networks' => ['br0' => ['IPAddress' => '192.168.7.30']]]]));
+    $targets = fn (array ...$t) => ['status' => 'success', 'data' => ['activeTargets' => $t]];
+    $tg = fn (string $job, string $url, string $health) => ['labels' => ['job' => $job, 'instance' => parse_url($url, PHP_URL_HOST) . ':' . parse_url($url, PHP_URL_PORT)],
+                                                          'scrapeUrl' => $url, 'health' => $health];
+    same('prometheus: node target up', ['up' => true, 'target' => '192.168.7.20:9100'],
+        caretakerNodeTarget($targets($tg('prometheus', 'http://localhost:9090/metrics', 'up'), $tg('node', 'http://192.168.7.20:9100/metrics', 'up'))));
+    same('prometheus: a target on port 9100 under another job, down', ['up' => false, 'target' => '10.0.0.2:9100'],
+        caretakerNodeTarget($targets($tg('server', 'http://10.0.0.2:9100/metrics', 'down'))));
+    same('prometheus: no node job', 'none', caretakerNodeTarget($targets($tg('prometheus', 'http://localhost:9090/metrics', 'up'))));
+    same('prometheus: an odd answer', null, caretakerNodeTarget(['status' => 'error']));
+    hardeningRm(dirname($dir));
+    $GLOBALS['metricsNoted'] = [];
+}
+
 // ===================================================================== hardening
 
 /** A temporary folder for a test, removed again by hardeningRm() */
@@ -1467,7 +1676,7 @@ function testIconSquare(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testIcons', 'testIconSquare', 'testRestore', 'testAdvisor', 'testLogsTour'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testIcons', 'testIconSquare', 'testRestore', 'testAdvisor', 'testLogsTour', 'testMetrics'],
           'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
