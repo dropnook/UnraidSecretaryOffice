@@ -114,6 +114,7 @@ const WATCH_KINDS = [
     'script_new'           => ['sched', false],
     'script_changed'       => ['sched', false],
     'at_job'               => ['sched', true],
+    'at_userscript'        => ['sched', false],     // a User Script run in the background: noted by himself (watchmanAtUserScript())
     'notify_agent'         => ['sched', true],
     'flow_client'          => ['flow', true],
     'flow_container'       => ['flow', true],
@@ -1429,13 +1430,22 @@ function watchmanSharesCompare(?array &$known, ?array $seen, array &$book, int $
  *             lines; one in the folder of no installed plugin counts more (update_cron leaves it
  *             out — until a plugin of that name comes)
  *   scripts   User Scripts: a new script, its content or schedule changed
- *   at        jobs waiting in atd's queue that aren't the office's own (hostLaunch() marks those)
+ *   at        jobs waiting in atd's queue that aren't the office's own (hostLaunch() marks those); a User
+ *             Script started «in the background» (the User Scripts plugin goes through `at NOW`) is only a
+ *             line in the book, noted by itself — when the job is exactly that and nothing else
  *   agents    Unraid's notification agents: every file there runs as root with each notification.
  *             New or changed; their content holds tokens — only a fingerprint is kept.
  */
 const WATCH_CRON_OFFICE   = '/plugins/' . OFFICE_PLUGIN . '/scripts/job.sh';
 const WATCH_CRON_SAVE     = '/boot/config/crontab-root-before-cleanup.txt';
 const WATCH_SCHED_MAX     = 500;            // lines, files, scripts, jobs — each
+// User Scripts' «Run in background» (backgroundScript.sh): echo <launcher> "/tmp/…/tmpScripts/<name>/script" | at NOW -M
+const WATCH_US_LAUNCHER   = '/usr/local/emhttp/plugins/user.scripts/startBackground.php';
+const WATCH_US_TMP        = '/tmp/user.scripts/tmpScripts/';
+// what such a job's environment must not set (it would run something else than the script), and where PATH may point
+const WATCH_AT_ENV_BAD    = '/^(?:LD_\w*|BASH_ENV|ENV|BASH_FUNC_.*|PHPRC|PHP_INI_SCAN_DIR|PHP_\w*|PERL5OPT|PERL5LIB|PERLLIB|PYTHON\w*|RUBYOPT|RUBYLIB|NODE_OPTIONS|GCONV_PATH|GLIBC_TUNABLES|IFS|PS4|SHELLOPTS|BASHOPTS|PROMPT_COMMAND|CDPATH|GLOBIGNORE)$/D';
+const WATCH_AT_PATH       = ['/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin'];
+const WATCH_AT_SHELLS     = ['/bin/sh', '/bin/bash', '/usr/bin/sh', '/usr/bin/bash'];
 const WATCH_EVIDENCE_SPAN = 120;            // syslog lines this many seconds around the crontab's time …
 const WATCH_EVIDENCE_MAX  = 12;             // … at most so many, the closest
 const WATCH_EVIDENCE_LINE = '#/plugins/|\bplugins?\b|crontab|update_cron|crond|\batd\b|\batq\b|\.(?:sh|php|py|plg|cron)\b|user\.scripts|unraid-secretary-office#i';
@@ -1797,10 +1807,65 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
         $text = (string) @file_get_contents($paths['atjobs'] . "/$f", false, null, 0, 65536);
         $ours = str_contains($text, "\n" . HOST_LAUNCH_MARK . "\n");
         $jobs[$f] = ['ours' => $ours, 'when' => hexdec($m[1]) * 60, 'uid' => preg_match('/^# atrun uid=(\d+)/m', $text, $u) ? (int) $u[1] : null,
-                     'cmd' => $ours ? '' : watchmanAtCommand($text)];
+                     'cmd' => $ours ? '' : watchmanAtCommand($text), 'us' => $ours ? null : watchmanAtUserScript($text, $paths['userscripts'] ?? null)];
     }
     ksort($jobs);
     return ['m' => (int) $st['mtime'], 'jobs' => $jobs];
+}
+
+/**
+ * The User Script an at job runs «in the background» (User Scripts' backgroundScript.sh pipes
+ * "startBackground.php /tmp/user.scripts/tmpScripts/<name>/script" into `at NOW`), or null. Only when
+ * that is all the job does — one command, exactly that, for a script that exists in $dir/scripts/<name>/
+ * (a name with no character the shell would act on) — and its environment can't make it run something
+ * else (no LD_PRELOAD and the like, PATH and SHELL only the system's: at runs the commands with $SHELL).
+ */
+function watchmanAtUserScript(string $text, ?string $dir): ?string
+{
+    if ($dir === null) {
+        return null;
+    }
+    $lines = explode("\n", rtrim($text, "\n"));
+    $n = count($lines);
+    // the head at writes: #!/bin/sh, # atrun …, # mail …, umask, the environment as NAME=value; export NAME
+    for ($i = 0; $i < $n && !preg_match('/^cd\s.*\|\|\s*\{\s*$/', $lines[$i]); $i++) {
+        $l = $lines[$i];
+        if ($l === '' || $l[0] === '#' || preg_match('/^umask [0-7]+$/D', $l)) {
+            continue;
+        }
+        if (!preg_match('/^([A-Za-z_][A-Za-z0-9_]*)=(.*); export \1$/D', $l, $m) || preg_match(WATCH_AT_ENV_BAD, $m[1])) {
+            return null;            // anything else (a value over several lines too)
+        }
+        $value = stripslashes($m[2]);
+        if (($m[1] === 'PATH' && array_diff(explode(':', $value), WATCH_AT_PATH)) || ($m[1] === 'SHELL' && !in_array($value, WATCH_AT_SHELLS, true))) {
+            return null;
+        }
+    }
+    for ($i++; $i < $n && trim($lines[$i]) !== '}'; $i++) {
+        // the "cd … || { echo …; exit 1; }" at puts in front
+    }
+    $cmds = [];
+    $delim = null;
+    for ($i++; $i < $n; $i++) {
+        $l = $lines[$i];
+        if ($delim === null && !$cmds && preg_match("/^\\$\\{SHELL:-\\/bin\\/sh\\} << '(marcinDELIMITER[0-9a-f]+)'$/D", $l, $m)) {
+            $delim = $m[1];
+        } elseif ($delim !== null && $l === $delim) {
+            $delim = '';
+        } elseif (trim($l) !== '' && ltrim($l)[0] !== '#') {
+            $cmds[] = $l;
+        }
+    }
+    $head = WATCH_US_LAUNCHER . ' ' . WATCH_US_TMP;
+    if (count($cmds) !== 1 || !str_starts_with($cmds[0], $head) || !str_ends_with($cmds[0], '/script')) {
+        return null;
+    }
+    $name = substr($cmds[0], strlen($head), -strlen('/script'));
+    if ($name === '' || $name === '.' || $name === '..' || strlen($name) > 200 || !mb_check_encoding($name, 'UTF-8')
+        || preg_match('/[\x00-\x1F\x7F\/;&|`$<>()\\\\\'"*?\[\]{}~#!]/', $name) || !is_file("$dir/scripts/$name/script")) {
+        return null;
+    }
+    return $name;
 }
 
 /** An at job's first command: after the "cd … || { … }" at puts in front (never the environment above it) */
@@ -1950,6 +2015,12 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
     $at = $seen['at'] ?? null;
     if (is_array($at)) {
         $foreign = array_filter((array) $at['jobs'], fn ($j) => empty($j['ours']));
+        foreach ($foreign as $f => $j) {
+            if (is_string($j['us'] ?? null) && $j['us'] !== '') {
+                unset($foreign[$f]);
+                watchmanAtUserScriptNote($book, (string) $f, $j, $now);      // nothing to tell: a line in the book, noted
+            }
+        }
         if (!is_array($known['at'] ?? null)) {
             $known['at'] = array_fill_keys(array_keys($foreign), true);
         } else {
@@ -1977,6 +2048,26 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
         }
     }
     return array_values(array_filter($added));
+}
+
+/**
+ * A User Script started «in the background»: a line in the book, noted by itself (never open, never
+ * told, nothing for the team lead) — once per job, which keeps its number while atd runs it
+ * (a<number> waiting, =<number> running).
+ */
+function watchmanAtUserScriptNote(array &$book, string $job, array $j, int $now): void
+{
+    $key = 'at_userscript:' . substr($job, 1);
+    foreach ($book as $e) {
+        if (($e['key'] ?? '') === $key) {
+            return;
+        }
+    }
+    $e = watchmanEntry('at_userscript', $key, $now, ['job' => $job, 'name' => watchmanClean((string) $j['us'], 100), 'when' => (int) ($j['when'] ?? 0),
+                                                     'uid' => $j['uid'] ?? null]);
+    $e['noted'] = $now;
+    $e['by'] = 'auto';
+    $book[] = $e;
 }
 
 /** «I know, thanks» on one of these kinds: what it names, as the last round saw it, becomes normal */
@@ -3097,6 +3188,7 @@ function watchmanText(array $e, ?string $lang = null): array
                          => ['file' => (string) ($p['file'] ?? ''), 'plugin' => (string) ($p['plugin'] ?? ''), 'lines' => (int) ($p['lines'] ?? 0), 'jobs' => $jobs],
         'script_new', 'script_changed' => ['name' => (string) ($p['name'] ?? ''), 'cron' => (string) ($p['cron'] ?? '')],
         'at_job'         => ['cmd' => (string) ($p['cmd'] ?? '') ?: '?', 'when' => date('Y-m-d H:i', (int) ($p['when'] ?? 0))],
+        'at_userscript'  => ['name' => (string) ($p['name'] ?? ''), 'when' => date('Y-m-d H:i', (int) ($p['when'] ?? 0))],
         'notify_agent'   => ['name' => (string) ($p['name'] ?? '')],
         'flow_client'    => ['ip' => (string) ($p['ip'] ?? ''), 'service' => WATCH_FLOW_SERVICES[$p['service'] ?? ''] ?? (string) ($p['service'] ?? ''),
                              'size' => watchmanSize((int) ($p['bytes'] ?? 0), $lang ?? 'en'), 'minutes' => (int) ($p['minutes'] ?? 0),

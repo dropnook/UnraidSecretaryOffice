@@ -483,6 +483,10 @@ function details(e) {
       add(T('detail.command'), p.cmd || '?', true);
       if (p.uid !== null && p.uid !== undefined) add(T('detail.uid'), String(p.uid));
     }
+    if (e.kind === 'at_userscript') {
+      add(T('detail.script'), p.name);
+      add(T('detail.started'), fmt.date(p.when));
+    }
     if (e.kind === 'notify_agent') {
       add(T('detail.agent'), p.name);
       add(T('detail.content'), T(p.new ? 'detail.file_new' : 'detail.content_changed'));
@@ -496,7 +500,7 @@ function details(e) {
   if (e.group === 'flow' && p.learning) notes.push(T('detail.learning'));
   if (p.office && e.kind.startsWith('cron_file')) notes.push(T('detail.office_cron'));
   if (e.open) notes.push(T('adopt.' + e.kind));
-  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline'].includes(e.by) ? e.by : 'page'), { when: fmt.date(e.noted) }));
+  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto'].includes(e.by) ? e.by : 'page'), { when: fmt.date(e.noted) }));
   if (e.told) notes.push(T('detail.told', { when: fmt.date(e.told) }));
   else if (e.muted && e.tell) notes.push(T('detail.muted'));
   else if (e.open) notes.push(T(e.tell ? 'detail.not_told' : 'detail.book_only'));
