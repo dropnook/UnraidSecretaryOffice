@@ -15,7 +15,7 @@ const KOPIA_ROOT_EXAMPLE = '/uso'; // the Kopia container path new setups are sh
 // phases of a run (status.json "phase") grouped into the steps the desk shows
 const STEPS = [
   ['prepare', ['start', 'inventory']],
-  ['dumps', ['maintenance', 'manifest', 'stopping_apps', 'dumps']],
+  ['dumps', ['vm_shutdown', 'maintenance', 'manifest', 'stopping_apps', 'dumps']],     // vm_shutdown: engine 2.22, before anything stops
   ['snapshots', ['stopping', 'vms', 'snapshots', 'starting']],
   ['kopia', ['mounting', 'kopia']],
   ['finish', ['unmounting', 'cleanup', 'aborting', 'done']],
@@ -227,7 +227,8 @@ function bubbleText() {
     else if (s && s.kopia.current) {
       out.push(T('bubble.running_kopia', { share: srcLabel(s.kopia.current), n: s.kopia.done.length + 1, total: s.kopia.planned.length }));
       if (p && p.first) out.push(firstText(p.first, true));
-    } else if (s) out.push(T('bubble.running_phase', { step: T('step.' + STEPS[p ? p.step : 0][0]) }));
+    } else if (s && s.phase === 'vm_shutdown') out.push(T('bubble.running_vm_shutdown'));
+    else if (s) out.push(T('bubble.running_phase', { step: T('step.' + STEPS[p ? p.step : 0][0]) }));
     else out.push(T('bubble.running_old', { step: state.step || '…' }));
     if (p && p.eta) out.push(T(p.overdue ? 'bubble.eta_late' : 'bubble.eta', { time: fmt.time(p.eta) }));
     if (newSkip()) out.push(T('bubble.skipped', { when: fmt.relative(newSkip().time) }));
@@ -421,6 +422,7 @@ function runningCard() {
   if (s.downtime_s) line.append(' · ', T('downtime_was', { duration: fmt.duration(s.downtime_s) }));
   if (s.packages && s.packages.written) line.append(' · ', T('pk.run_packed', { apps: s.packages.apps, vms: s.packages.vms }));
   card.appendChild(line);
+  if (s.phase === 'vm_shutdown') card.appendChild(el('div', 'card-line', T('vm_shutdown_now')));
   if (p.first) card.appendChild(el('div', 'card-line', firstText(p.first, false)));
 
   // what is paused right now: stopped containers, Nextcloud in maintenance mode
@@ -1218,6 +1220,7 @@ function abortRun() {
   const box = el('div');
   box.appendChild(el('p', '', T('abort_text')));
   if (s && s.phase === 'kopia') box.appendChild(el('p', 'callout', T('abort_kopia')));
+  if (s && s.phase === 'vm_shutdown') box.appendChild(el('p', 'callout', T('abort_vm_shutdown')));
   if (s && ['stopping', 'snapshots', 'starting'].includes(s.phase)) box.appendChild(el('p', 'callout warn', T('abort_downtime')));
   Office.dialog({
     title: T('abort_title'),
