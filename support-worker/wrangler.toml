@@ -1,0 +1,39 @@
+# Unraid Secretary Office — the support page (Cloudflare Worker). See SETUP.md.
+#
+# Only for `wrangler deploy`; whoever pastes worker.js into the Cloudflare dashboard sets the
+# same things there (Settings → Variables and Secrets, Bindings).
+#
+# Secrets are never written here — set them with
+#   wrangler secret put PAYPAL_CLIENT_SECRET
+#   wrangler secret put SUPPORTER_KEY < ~/.config/uso-supporter/supporter-private-pkcs8.pem
+
+name = "uso-support"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+# Optional: your own address instead of uso-support.<account>.workers.dev
+# routes = [{ pattern = "support.example.com", custom_domain = true }]
+
+[vars]
+PAYPAL_ENV = "sandbox"          # "live" once the sandbox test went through
+PAYPAL_CLIENT_ID = ""           # the client ID of the PayPal REST app (sandbox or live, matching PAYPAL_ENV)
+
+# Optional — other ways to give. Empty = not shown on the page.
+BANK_IBAN = ""                  # e.g. "CH93 0076 2011 6238 5295 7"
+BANK_HOLDER = ""                # the account holder's name
+BANK_BIC = ""                   # optional
+BANK_NAME = ""                  # optional, e.g. the bank's name and town
+BTC_LIGHTNING = ""              # a Lightning address, name@domain
+BTC_ADDRESS = ""                # an on-chain address, bc1…
+
+[[kv_namespaces]]
+binding = "SUPPORT_KV"
+id = "REPLACE-WITH-THE-KV-NAMESPACE-ID"   # wrangler kv namespace create SUPPORT_KV
+
+# Optional, wrangler only (the dashboard can't set it): Cloudflare's rate limiter on top of the
+# worker's own counters. Per client IP, per minute.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
