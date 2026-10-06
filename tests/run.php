@@ -27,7 +27,7 @@ declare(strict_types=1);
  *            job.sh's guard against a second start in the same minute, Ms. Whereabouts on exclusive shares
  *            and on cron lines whose program is gone)
  *   hardening  the checks that keep requests, manifests, paths and links in
- *            bounds (safe writes, the mailbox — and a request a restarting agent dropped —, Ms. Dustdevil's
+ *            bounds (safe writes, the mailbox — and a request a restarting agent dropped —, Ms. Snapshotini's record of what she removed, Ms. Dustdevil's
  *            manifests, Emby paths, anchored validators, the release link, the
  *            Consultant's secrets for Kopia: RAM only, never in a file, log or ps)
  *   strings  German and English have the same keys, Italian has every English
@@ -4364,6 +4364,88 @@ function testAgentRestarted(): void
     hardeningRm($tmp);
 }
 
+/**
+ * Ms. Snapshotini's record of what she removed (data/snapshot/deletes.jsonl, root only) and how the night
+ * watchman reads it: it beats her lines in the office's log, which the web server's user may write — those
+ * count only until the record is there.
+ */
+function testSnapshotRecord(): void
+{
+    $tmp = hardeningTmp('snaprecord');
+    mkdir("$tmp/data", 0755);
+    $file = "$tmp/data/snapshot/deletes.jsonl";
+    $GLOBALS['snapshotRecordFile'] = $file;
+    $mode = fn (string $p) => substr(sprintf('%o', fileperms($p)), -3);
+    check('record: set up — a folder of root\'s own (0700), an empty file (0600)',
+        snapshotRecordReady() && is_file($file) && filesize($file) === 0 && $mode(dirname($file)) === '700' && $mode($file) === '600' && fileowner($file) === 0);
+    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hive/My Share', 'names' => ['a', 'b']]);
+    snapshotRecord(['do' => 'deleted', 'fs' => 'btrfs', 'path' => '/mnt/disk1/.btrfs-snap/x']);
+    snapshotRecord(['do' => 'released', 'ds' => 'hive/data', 'name' => 'keep']);
+    snapshotRecord(['do' => 'renamed', 'where' => 'hive/data', 'from' => 'manual', 'to' => 'manual2']);
+    same('record: a line each, with its time', [['deleted', true], ['deleted', true], ['released', true], ['renamed', true]],
+        array_map(fn ($l) => [json_decode($l, true)['do'] ?? null, is_int(json_decode($l, true)['t'] ?? null)], file($file) ?: []));
+
+    // the watchman: taking the watch over = from now on; the round it first shows up = from its beginning; then by its position
+    [$ev, $pos] = watchmanSnapRecord($file, null, true);
+    same('record read, the watch taken over: from now on', [[], filesize($file)], [$ev['d'], $pos['size']]);
+    [$ev, $pos] = watchmanSnapRecord($file, null, false);
+    same('record read: her deletions (several at once, btrfs), releases, renames',
+        [['hive/My Share@a', 'hive/My Share@b', '/mnt/disk1/.btrfs-snap/x'], ['hive/data@keep'], [['hive/data', 'manual', 'manual2']]],
+        [array_keys($ev['d']), array_keys($ev['r']), array_map(fn ($m) => array_slice($m, 0, 3), $ev['m'])]);
+    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hive/data', 'names' => ['c']]);
+    [$ev, $pos] = watchmanSnapRecord($file, $pos, false);
+    same('record read: by its position', ['hive/data@c'], array_keys($ev['d']));
+
+    // full: it becomes deletes.jsonl.1 — the watchman reads the rest of that one (by its inode), then the new one
+    file_put_contents($file, json_encode(['t' => 1, 'do' => 'padding', 'x' => str_repeat('x', SNAPSHOT_RECORD_MAX)]) . "\n", FILE_APPEND);
+    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hive/data', 'names' => ['d']]);
+    [$ev, $pos] = watchmanSnapRecord($file, $pos, false);
+    same('record full: a new one begins, one older kept, nothing missed', [true, 1, ['hive/data@d']],
+        [is_file("$file.1"), count(file($file) ?: []), array_keys($ev['d'])]);
+
+    // a record others could have written is no record: the watchman refuses it, she sets it aside and begins anew
+    foreach (['open to others' => fn () => chmod($file, 0644), 'not root\'s' => fn () => chown($file, 99), 'the folder open to others' => fn () => chmod(dirname($file), 0755)] as $what => $do) {
+        $do();
+        same("record refused by the watchman: $what", null, watchmanSnapRecord($file, $pos, false));
+        check("record: set aside and begun anew — $what", snapshotRecordReady() && $mode(dirname($file)) === '700' && fileowner($file) === 0 && $mode($file) === '600');
+    }
+    same('record: what others could have written is set aside, never read again', 2, count(glob("$file.untrusted-*") ?: []));
+    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hive/data', 'names' => ['e']]);
+    [$ev] = watchmanSnapRecord($file, $pos, false);
+    same('record begun anew: read from its beginning', ['hive/data@e'], array_keys($ev['d']));
+    unlink($file);
+    symlink("$file.1", $file);
+    same('record refused by the watchman: a link', null, watchmanSnapRecord($file, $pos, false));
+    unlink($file);
+    $pos = watchmanSnapRecord("$file.1", null, true)[1];        // (only .1 there for a moment: what she wrote there still counts)
+
+    // in his round: the record beats the log; the log's lines count only until the record is there
+    snapshotRecordReady();
+    $log = "$tmp/agent.log";
+    file_put_contents($log, '');
+    $paths = ['agent_log' => $log, 'snap_record' => $file];
+    $round = fn (?array $known) => watchmanSnaps($paths, $known, [], time())['known'];
+    $known = $round(null);
+    check('round: the record\'s and the log\'s positions kept', is_array($known['record'] ?? null) && is_array($known['log'] ?? null));
+    $stamp = date('Y-m-d H:i:s');
+    file_put_contents($log, "$stamp  Deleted: hive/forged@x\n$stamp  Released: hive/forged@held\n", FILE_APPEND);
+    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hive/real', 'names' => ['y']]);
+    $k2 = $round($known);
+    same('round: her record counts, a line in the log alone doesn\'t (forged)', [['hive/real@y'], []], [array_keys($k2['office']['d'] ?? []), array_keys($k2['office']['r'] ?? [])]);
+    // an older office's snaps.json (no record yet): what its log said since, and the record from its beginning
+    $old = $known;
+    unset($old['record']);
+    $k3 = $round($old);
+    same('round: the record first there — the log\'s lines before it count too', ['hive/real@y', 'hive/forged@x'], array_keys($k3['office']['d'] ?? []));
+    // she kept a record, and it isn't one now: her log lines alone prove nothing
+    file_put_contents($log, "$stamp  Deleted: hive/forged@z\n", FILE_APPEND);
+    chmod($file, 0644);
+    $k4 = $round($k2);
+    check('round: a record that isn\'t one any more — the log\'s lines don\'t count', !isset($k4['office']['d']['hive/forged@z']) && isset($k4['office']['d']['hive/real@y']));
+    unset($GLOBALS['snapshotRecordFile']);
+    hardeningRm($tmp);
+}
+
 /** Ms. Dustdevil's manifests lie in folders others may write to: only entries of her own shape count */
 function testTrashManifest(): void
 {
@@ -5536,7 +5618,7 @@ function testSupporterKeys(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman', 'testSupporter'],
-          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
+          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {

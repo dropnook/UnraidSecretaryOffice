@@ -32,6 +32,9 @@ desk('snapshot', [
         return $n ? fit(true, 'yes', ['places' => implode(', ', array_merge($fs['zfs'], $fs['btrfs']))]) : fit(false, 'no_cow');
     },
     'start' => function (): void {
+        if (!snapshotRecordReady()) {          // her record of what she removes, for the night watchman (root only)
+            logLine('Ms. Snapshotini: could not set up her record ' . snapshotRecordFile());
+        }
         $old = readJson(deskFile('snapshot'));
         if ($old) {
             $GLOBALS['snapshot'] = $old;
@@ -1046,6 +1049,7 @@ function snapshotDelete(array $ids, bool $unmount = false): array
                 $failures[] = ['key' => 'command_failed', 'params' => ['detail' => trim($err)]];
                 logLine("Delete failed: $arg — " . trim($err));
             } else {
+                snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => $ds, 'names' => array_values($batch)]);
                 logLine("Deleted: $arg");
             }
         }
@@ -1056,6 +1060,7 @@ function snapshotDelete(array $ids, bool $unmount = false): array
             $failures[] = ['key' => 'command_failed', 'params' => ['detail' => "$path: " . trim($err)]];
             logLine("Delete failed: $path — " . trim($err));
         } else {
+            snapshotRecord(['do' => 'deleted', 'fs' => 'btrfs', 'path' => $path]);
             logLine("Deleted: $path (btrfs)");
         }
     }
@@ -1105,6 +1110,7 @@ function snapshotRename(string $id, string $new): array
         }
         $newId = "btrfs:$target";
     }
+    snapshotRecord(['do' => 'renamed', 'where' => $s['ds'], 'from' => $s['name'], 'to' => $new]);
     logLine("Renamed: {$s['ds']} {$s['name']} → $new");
     return ['ok' => true, 'id' => $newId, 'state' => snapshotScan(false, false, $mounts)];
 }
@@ -1132,6 +1138,121 @@ function snapshotHold(string $id, bool $on): array
             throw new Problem('command_failed', ['detail' => trim($err)]);
         }
     }
+    if (!$on) {
+        snapshotRecord(['do' => 'released', 'ds' => $s['ds'], 'name' => $s['name']]);
+    }
     logLine(($on ? 'Held: ' : 'Released: ') . $full);
     return ['ok' => true, 'state' => snapshotScan(false)];
+}
+
+// ===================================================================== her record of what she removed
+
+/*
+ * The night watchman takes what she deleted, released and renamed for no news. Her lines in the
+ * office's log (Deleted:/Released:/Renamed: — they stay as they are, their shape is his interface too)
+ * lie in the data folder, which the web server's user may write: a forged line there would hide a
+ * deletion. So the same facts also go into a record only root can write — data/snapshot/deletes.jsonl
+ * (a folder of root's own, 0700; the file 0600, one JSON object per line), appended under a lock (her
+ * schedules run as a job of their own), never through a link; beyond SNAPSHOT_RECORD_MAX the file
+ * becomes deletes.jsonl.1 (one older file kept). A record someone else could have written (Unraid's
+ * «New Permissions» on appdata, say) is no record: it is set aside (deletes.jsonl.untrusted-<time>)
+ * and a new one begins — the watchman never reads that one.
+ *   {"t": <time>, "do": "deleted", "fs": "zfs", "ds": "<dataset>", "names": ["<snapshot>", …]}
+ *   {"t": <time>, "do": "deleted", "fs": "btrfs", "path": "<snapshot folder>"}
+ *   {"t": <time>, "do": "released", "ds": "<dataset>", "name": "<snapshot>"}
+ *   {"t": <time>, "do": "renamed", "where": "<dataset or disk>", "from": "<old>", "to": "<new>"}
+ */
+const SNAPSHOT_RECORD_MAX = 1024 * 1024;
+
+/** Her record (tests point it elsewhere) */
+function snapshotRecordFile(): string
+{
+    return $GLOBALS['snapshotRecordFile'] ?? DATA_DIR . '/snapshot/deletes.jsonl';
+}
+
+/**
+ * The record's folder of root's own and the record in it (created empty when missing, so the watchman
+ * knows from now on that only the record counts). False when it can't be — then nothing is written.
+ */
+function snapshotRecordReady(?string $file = null): bool
+{
+    $file ??= snapshotRecordFile();
+    $dir = dirname($file);
+    clearstatcache();
+    if (is_link($dir) || (file_exists($dir) && !is_dir($dir))) {
+        return false;                       // never through a link
+    }
+    if (!is_dir($dir) && !@mkdir($dir, 0700)) {
+        return false;
+    }
+    $st = @lstat($dir);
+    if ($st && ($st['uid'] !== 0 || $st['gid'] !== 0 || ($st['mode'] & 0077))) {
+        @lchown($dir, 0);
+        @lchgrp($dir, 0);
+        if (!is_link($dir)) {
+            @chmod($dir, 0700);
+        }
+        clearstatcache();
+        $st = @lstat($dir);
+    }
+    if (!$st || ($st['mode'] & 0170000) !== 0040000 || $st['uid'] !== 0 || ($st['mode'] & 0077)) {
+        return false;
+    }
+    $f = @lstat($file);
+    if ($f && (($f['mode'] & 0170000) !== 0100000 || $f['uid'] !== 0 || ($f['mode'] & 0077) || $f['nlink'] !== 1)) {
+        // others could have written it: set aside, a new one begins
+        $aside = "$file.untrusted-" . date('Ymd-His');
+        for ($i = 2; file_exists($aside) || is_link($aside); $i++) {
+            $aside = "$file.untrusted-" . date('Ymd-His') . "-$i";
+        }
+        if (!@rename($file, $aside)) {
+            return false;
+        }
+        logLine("Ms. Snapshotini: her record $file could be written by others — set aside as " . basename($aside) . ', a new one begins');
+        $f = false;
+    }
+    if (!$f) {
+        $old = umask(0077);
+        $h = @fopen($file, 'x');            // new, root's, 0600 from the start
+        umask($old);
+        if (!$h) {
+            return false;
+        }
+        fclose($h);
+    }
+    return true;
+}
+
+/** One line in her record (see above); a record that can't be written is said in the log, the deletion stands */
+function snapshotRecord(array $entry): void
+{
+    $file = snapshotRecordFile();
+    if (!snapshotRecordReady($file)) {
+        logLine("Ms. Snapshotini: could not write her record $file");
+        return;
+    }
+    $line = jsonEncode(['t' => time()] + $entry) . "\n";
+    $h = @fopen($file, 'a');                // in a folder only root can write: no link can be in the way
+    if (!$h) {
+        logLine("Ms. Snapshotini: could not write her record $file");
+        return;
+    }
+    flock($h, LOCK_EX);
+    $st = fstat($h);
+    if ($st && $st['size'] + strlen($line) > SNAPSHOT_RECORD_MAX && @rename($file, "$file.1")) {
+        flock($h, LOCK_UN);
+        fclose($h);
+        $old = umask(0077);
+        $h = @fopen($file, 'a');            // a new one; whoever still holds the old one writes on into .1, which the watchman reads too
+        umask($old);
+        if (!$h) {
+            logLine("Ms. Snapshotini: could not write her record $file");
+            return;
+        }
+        flock($h, LOCK_EX);
+    }
+    fwrite($h, $line);
+    fflush($h);
+    flock($h, LOCK_UN);
+    fclose($h);
 }
