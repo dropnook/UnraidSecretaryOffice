@@ -257,7 +257,9 @@ After hiring, the tip jar (core.js `tipJar`, link `OFFICE_TIP_URL`) says hello.
 
 **Pictures:** every desk has its own drawing, `public/desks/<id>/avatar.svg`
 (64×64, flat, thick shapes, outlined where a light part meets a light theme;
-the reception's is `assets/reception.svg`). `Office.deskIcon(id)` /
+the reception's is `assets/reception.svg`, a desk bell filling its square; the plugin icon in
+`plugin/images/` is that bell cropped to its bounds, its 128×128 PNG rendered on the Mac with NSImage
+— JXA: `NSImage.alloc.initWithContentsOfFile(svg)` drawn into an `NSBitmapImageRep`, saved as PNG). `Office.deskIcon(id)` /
 `Office.avatar(id)` show it in avatars, tabs and chips; desk.json's `icon`
 emoji is only the fallback. A desk may change it with its state:
 `Office.setDeskMood(id, mood)` shows `avatar-<mood>.svg` (the caretaker:
