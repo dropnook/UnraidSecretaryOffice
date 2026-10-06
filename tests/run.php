@@ -9,7 +9,9 @@ declare(strict_types=1);
  * They change nothing on the server: what writes files works on copies in a
  * temporary folder. Three parts:
  *   logic    the tricky functions (cron, snapshot retention and names, Emby detection,
- *            the gather's settings, Jack taking over an earlier install, the plugin's cron file,
+ *            the gather's settings, no real gather while someone watches Emby (a stand-in Emby, the
+ *            wait on schedule, the gather stopping between folders), Jack taking over an earlier
+ *            install, the plugin's cron file,
  *            the menu bar's label, reports to Unraid's notifications, the team
  *            lead's «I know, thanks» and the Dashboard tile,
  *            Mr. Backupsy's packages and his Kopia per app and VM, new things that stay local until
