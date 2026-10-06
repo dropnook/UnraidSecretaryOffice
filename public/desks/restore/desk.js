@@ -27,9 +27,11 @@ let shown = [];                               // the rows of the open section, f
 let job = null;                               // the restore going on (or the last one): data/restore-job.json
 let jobTimer = null;
 const journals = new Map();                   // id -> {loading, journal, log, error} — a journal unfolded on the page
+const journalShown = new Map();               // id -> {box, fill, fail}: the journal's box drawn last (the page re-renders while one loads)
 
 // ------------------------------------------------------------------ loading
 async function load(fresh) {
+  if (fresh) journals.forEach((v, id) => { if (v.error) journals.delete(id); });   // a journal that failed to load is asked again
   const j = await Office.api.get({ a: 'state', desk: ID, ...(fresh ? { fresh: 1 } : {}) });
   if (j.ok && j.state) state = j.state;
   if (view) render();
@@ -1494,16 +1496,22 @@ function journalDetail(r) {
       box.appendChild(p);
     } else if (!live && ['ok', 'warnings'].includes(r.result) && !r.putback && r.kind !== 'putback') box.appendChild(el('p', 'role', T(r.kind === 'kopia' ? 'j.no_putback_kopia' : 'j.no_putback')));
   };
+  const fail = (error) => { box.innerHTML = ''; box.appendChild(el('p', 'callout warn', Office.errorText(error, ID))); };
+  // the page may draw this row anew while the journal is on its way: the answer goes to the box shown then
+  journalShown.set(r.id, { box, fill, fail });
   if (live) fill(live, null);
   else if (have && have.journal) fill(have.journal, have.log);
+  else if (have && have.error) fail(have.error);      // «Look again» asks again
   else {
     box.appendChild(el('p', 'role', Office.t('common.loading')));
     if (!have) {
       journals.set(r.id, { loading: true });
       Office.api.post(`${ID}.journal`, { id: r.id }).then((j) => {
         journals.set(r.id, j.ok ? { journal: j.journal, log: j.log } : { error: j.error });
-        if (j.ok) fill(j.journal, j.log);
-        else { box.innerHTML = ''; box.appendChild(el('p', 'callout warn', Office.errorText(j.error, ID))); }
+        const to = journalShown.get(r.id);
+        if (!to || !to.box.isConnected) return;  // folded meanwhile: unfolding shows it
+        if (j.ok) to.fill(j.journal, j.log);
+        else to.fail(j.error);
       });
     }
   }
