@@ -240,6 +240,7 @@
   "setup.applied_ok": "Übernommen. settings.ini ist geschrieben; der nächste Lauf arbeitet damit.",
   "setup.applied_failed": "Nicht übernommen — siehe Meldungen.",
   "setup.apply": "Übernehmen",
+  "setup.review": "Prüfen…",
   "setup.apply_go": "Übernehmen",
   "setup.forget": "Alles vergessen und neu anfangen …",
   "setup.forget_short": "Neu anfangen",

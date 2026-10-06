@@ -240,6 +240,7 @@
   "setup.applied_ok": "Applied. settings.ini is written; the next run uses it.",
   "setup.applied_failed": "Not applied — see the messages.",
   "setup.apply": "Apply",
+  "setup.review": "Review…",
   "setup.apply_go": "Apply",
   "setup.forget": "Forget everything and start anew …",
   "setup.forget_short": "Start anew",

@@ -243,6 +243,7 @@
   "setup.applied_ok": "Appliqué. settings.ini est écrit ; la prochaine exécution l'utilise.",
   "setup.applied_failed": "Pas appliqué — vois les messages.",
   "setup.apply": "Appliquer",
+  "setup.review": "Vérifier…",
   "setup.apply_go": "Appliquer",
   "setup.forget": "Tout oublier et recommencer …",
   "setup.forget_short": "Recommencer",

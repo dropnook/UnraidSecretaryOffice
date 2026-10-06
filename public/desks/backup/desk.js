@@ -1589,7 +1589,7 @@ function setupBar() {
     sub: T('setup.bar_sub', { when: fmt.relative(setup.plan.time) }),
     buttons: [
       { text: T('setup.discard'), kind: 'plain', disabled: !edits || busy, act: () => { setupDraftFromPlan(); renderSetup(); } },
-      { text: T('setup.apply'), disabled: busy || !Office.agent.running, act: setupApply },
+      { text: T('setup.review'), disabled: busy || !Office.agent.running, act: setupApply },   // opens the list of changes; its dialog applies
     ],
   });
 }
