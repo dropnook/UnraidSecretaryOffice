@@ -1155,6 +1155,29 @@ function testWatchman(): void
     same('watch metrics: open per kind, the last round', ['uso_watchman_open_findings', count(WATCH_KINDS), 1, 'uso_watchman_last_round_timestamp_seconds', $now + 300 + 600 + WATCH_NOTIFY_QUIET],
         [$m[0]['name'], count($m[0]['samples']), array_column(array_map(fn ($s) => [$s[0]['kind'], $s[1]], $m[0]['samples']), 1, 0)['login_failures'], $m[1]['name'], $m[1]['samples'][0][1]]);
 
+    // the switch (like the team lead's): off — nothing told, and what came meanwhile stays untold once it is on again
+    $book2 = [watchmanEntry('flash_user', 'flash_user:zed', $now, ['user' => 'zed'])];
+    $st2 = ['notify' => false];
+    $before = count($calls());
+    $t2 = watchmanNotifyDue($book2, $st2, $now + 99999, true, 'en');
+    same('watch switch off: nothing told, the entry muted', [[], $before, true, null], [$t2, count($calls()), !empty($book2[0]['muted']), $book2[0]['told'] ?? null]);
+    $st2['notify'] = true;
+    $t2 = watchmanNotifyDue($book2, $st2, $now + 99999 + 60, true, 'en');
+    same('watch switch on again: what came meanwhile stays untold', [[], $before], [$t2, count($calls())]);
+    $book2[] = watchmanEntry('flash_user', 'flash_user:amy', $now, ['user' => 'amy']);
+    $t2 = watchmanNotifyDue($book2, $st2, $now + 99999 + 120, true, 'en');
+    same('watch switch on: what is new is told', [[['kind' => 'flash_user', 'n' => 1, 'sent' => true]], $before + 1], [$t2, count($calls())]);
+    same('watch switch: on by default', true, watchmanPageState($data, $now + 5000, false)['notify']['on']);
+    watchmanNotifySet(false, $data, false);
+    same('watch switch: kept in his state, the page sees it', [false, false], [watchmanLoad($data)['state']['notify'] ?? null, watchmanPageState($data, $now + 5000, false)['notify']['on']]);
+    watchmanNotifySet(true, $data, false);
+    try {
+        watchmanNotifySet('yes', $data, false);
+        check('watch switch: only true or false', false);
+    } catch (Problem $e) {
+        same('watch switch: only true or false', 'bad_request', $e->key);
+    }
+
     // hired anew: a new look at what is normal, what was open is closed
     $r = watchmanRound($paths, $data, 2000, $now + 9000, $docker, true, $acks);
     $d = watchmanLoad($data);

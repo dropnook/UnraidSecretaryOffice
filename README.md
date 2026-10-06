@@ -101,7 +101,8 @@ as the event *Unraid Secretary Office*:
   closed. A switch on his page turns this off.
 * **The Night Watchman**: a login from a new address, a burst of failed logins, a container newly privileged or on the
   host, a new plugin or a moved plugin source, a change on the flash, a share newly open to guests (warning) — per kind
-  at most once an hour, so a burst gives one message.
+  at most once an hour, so a burst gives one message. A switch on his page turns this off (what comes
+  meanwhile stays in his watch book).
 * **The plugin**: the agent hasn't checked in for more than 10 minutes while
   the array runs (alert), and once it is back (normal).
 
