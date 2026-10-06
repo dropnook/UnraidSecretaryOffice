@@ -15,12 +15,14 @@
 #   7. Status          status.json & co. for other programs
 #   8. Packages        names and housekeeping of the backup place (since 2.18)
 #   9. Kopia per app   apps and VMs with a Kopia source of their own (since 2.19)
-#  10. Snapshot names  the engine's ZFS snapshots: prefixes, exact matching, retention (since 2.20)
+#  10. Snapshot names  the engine's ZFS snapshots: prefixes, exact matching, retention (since 2.20); what its
+#                      retention removed, state/pruned.json (since 2.21)
+#  11. New things      what is new stays local and keeps running until the user decided (since 2.21)
 ###############################################################################
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.20"
+UB_VERSION="2.21"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -214,7 +216,8 @@ declare -gA UB_SCHEMA=(
     [kopia]="enabled container identity keep_latest keep_hourly keep_daily keep_weekly keep_monthly keep_annual compression ignore"
     [nextcloud]="preexisting_maintenance"
     [dump]="type"
-    [share]="mode method retention kopia_retention kopia_ignore exclude_dataset id locations note"
+    # kopia_known (since 2.21): the top-level folders that go to Kopia (section 11)
+    [share]="mode method retention kopia_retention kopia_ignore kopia_known exclude_dataset id locations note"
     # kopia, folder, kopia_retention, kopia_ignore (since 2.19): a Kopia source of its own (section 9)
     [vm]="mode prepare retention kopia folder kopia_retention kopia_ignore"
     [app]="kopia folder kopia_retention kopia_ignore"
@@ -277,6 +280,11 @@ cfg_validate() {
         _val "share|$n|retention" '^[0-9]+ [0-9]+ [0-9]+$'  "three numbers"
         _val "share|$n|kopia_retention" '^([0-9]+|inherit)( ([0-9]+|inherit)){5}$' "six values: latest hourly daily weekly monthly annual"
         [[ -z "$(cfg "share|$n|mode")" ]] && CFG_ERRORS+=( "[share \"$n\"] without mode" )
+        local kk
+        while IFS= read -r kk; do
+            [[ "$kk" == "*" || ( "$kk" =~ ^/[^/]+/$ && "$kk" != "/./" && "$kk" != "/../" ) ]] \
+                || CFG_ERRORS+=( "[share \"$n\"] kopia_known = '$kk' is invalid (/<folder>/: a folder at the top of the share, or * for all)" )
+        done < <(cfg_list "share|$n|kopia_known")
     done < <(cfg_names share)
     while IFS= read -r n; do
         [[ -z "$n" ]] && continue
@@ -1259,13 +1267,14 @@ FLASH_SOURCE_NAME="_flash"
 
 # Wanted ignore list of a target
 #   root    -> the global list from [kopia] (inherited by all shares)
-#   share   -> only the share's own rules, and the parts of apps and VMs with a source of their own
+#   share   -> only the share's own rules, and the parts of apps and VMs with a source of their own, and
+#              (since 2.21) the rules for its new folders that stay local (NEW_RULES, section 11)
 #   app/vm  -> only its own rules (relative to its source: /<share>/<path>/)
 kopia_want_ignores() {
     local kind="$1" s="${2:-}"
     case "$kind" in
         root)   printf '%s\n' "${KOPIA_IGNORE[@]}" ;;
-        share)  cfg_list "share|$s|kopia_ignore"; kopia_derived_ignores "$s" ;;
+        share)  cfg_list "share|$s|kopia_ignore"; kopia_derived_ignores "$s"; printf '%s\n' "${NEW_RULES[$s]:-}" ;;
         app|vm) cfg_list "$kind|$s|kopia_ignore" ;;
         flash)  printf '%s\n' "${FLASH_KOPIA_IGNORE[@]}" ;;
     esac | sed '/^$/d' | LC_ALL=C sort -u
@@ -1534,13 +1543,15 @@ drift_check_containers() {
     for n in "${CT_NAMES[@]}"; do
         img="${CT_IMAGE[$n]}"
         if [[ -z "${known[$n]:-}" ]]; then
+            # since 2.21 a new container keeps running in a run until the user decided (section 11)
             t="$(ct_db_type "$n")"
             if db_dumpable "$t" && ! cfg_has "dump|$n"; then
-                drift_add warn "New database container '$n' ($t, $img${CT_PROJECT[$n]:+, stack ${CT_PROJECT[$n]}}) - no dump set up (the raw data is in the snapshot)"
+                drift_add warn "New database container '$n' ($t, $img${CT_PROJECT[$n]:+, stack ${CT_PROJECT[$n]}}) - keeps running, no dump set up until you decide (its raw data is in the snapshot, crash-consistent)" \
+                    new_database "$n"
             elif is_nextcloud_image "$img" && ! cfg_has "nextcloud|$n"; then
-                drift_add warn "New Nextcloud container '$n' - no maintenance mode set up"
+                drift_add warn "New Nextcloud container '$n' - keeps running, no maintenance mode set up until you decide" new_nextcloud "$n"
             else
-                drift_add info "New container '$n' ($img)"
+                drift_add info "New container '$n' ($img) - keeps running during the backup until you decide" new_container "$n"
             fi
         fi
         if [[ -n "${CT_VOLUMES[$n]}" && -z "${known[$n]:-}" ]]; then
@@ -1559,7 +1570,8 @@ drift_check_vms() {
     [[ "$VM_SERVICE" == "yes" ]] || return 0
     for n in "${VM_NAMES[@]}"; do
         if ! cfg_has "vm|$n"; then
-            drift_add info "New VM '$n' - not set up yet: its disks are in the snapshot of their share, but it is not prepared for it (keeps running)"
+            drift_add info "New VM '$n' - not set up yet: its disks are in the snapshot of their share, but it is not prepared for it (keeps running) until you decide" \
+                new_vm "$n"
             continue
         fi
         [[ "$(vm_mode "$n")" == "off" ]] && {
@@ -1723,6 +1735,8 @@ drift_count() { local lvl="$1" n=0 l; for l in "${DRIFT[@]}"; do [[ "${l%%|*}" =
 #                    whether its policy matches settings.ini ("policies")
 #   since 2.18 status.json and last-run.json carry "packages" (what the run packed, see section 8);
 #   history.jsonl keeps only its counts (without "list")
+#   since 2.21 status.json carries "new_local": the new folders this run left out of Kopia (section 11;
+#   null when it didn't look - no Kopia this time), and state/new-local.json keeps them between runs
 #   since 2.20:
 #   lock-holder.json who holds state/lock right now (whoever takes the lock writes it, see below)
 #   skipped.json     the last run that could not start because the lock was busy; a real backup run
@@ -1777,11 +1791,12 @@ status_json() {
         --argjson drift "$drift" --argjson planned "$plan" --argjson done "$done_" \
         --arg kopia_enabled "${KOPIA_ENABLED:-}" --arg kopia_ok "${KOPIA_OK:-}" \
         --arg current "$ST_KOPIA_CUR" --argjson current_since "$ST_KOPIA_CUR_T" --argjson vms "${vms:-[]}" \
-        --argjson packages "${ST_PACKAGES:-null}" \
+        --argjson packages "${ST_PACKAGES:-null}" --argjson new_local "${ST_NEW_LOCAL:-null}" \
         '{interface: $interface, name: $name, version: $version, mode: $mode, run: $run, pid: $pid,
           started: $started, updated: $updated, finished: $finished, phase: $phase, result: $result,
           message: $message, errors: $errors, warnings: $warnings, downtime_s: $downtime,
           snapshot: $snapshot, dump_bytes: $dump_bytes, log: $log, drift: $drift, vms: $vms, packages: $packages,
+          new_local: $new_local,
           kopia: {enabled: ($kopia_enabled | ascii_downcase | test("^(yes|ja|1|true)$")), state: $kopia_ok,
                   planned: $planned, current: (if $current == "" then null else $current end),
                   current_since: (if $current == "" then null else $current_since end), done: $done}}'
@@ -2202,5 +2217,398 @@ zfs_prune_select() {
         fi
     done
     for s in "${snaps[@]}"; do [[ -n "${keep[$s]:-}" ]] || printf '%s\n' "$s"; done
+    return 0
+}
+
+# --- What the retention removed (since 2.21) ------------------------------------
+# state/pruned.json says which snapshots the engine itself destroyed, run by run - so whoever watches the
+# server (the night watchman) doesn't have to guess or read logs:
+#   {interface, version, updated, runs: [{run, time, zfs: ["pool/ds@name", ...], btrfs: ["/mnt/diskN/.btrfs-snap/
+#    YYYYMMDD-HHMM", ...]}, ...]}   newest last; a run that removed nothing has empty lists
+# Kept: the last UB_PRUNED_RUNS runs (30), none older than UB_PRUNED_DAYS (30); per run at most UB_PRUNED_CAP
+# names per list (1000), what is left out counted in zfs_more / btrfs_more. A new file + mv; the state folder is root's.
+UB_PRUNED_RUNS="${UB_PRUNED_RUNS:-30}"
+UB_PRUNED_DAYS="${UB_PRUNED_DAYS:-30}"
+UB_PRUNED_CAP="${UB_PRUNED_CAP:-1000}"
+declare -ga PRUNED_ZFS=() PRUNED_BTRFS=()   # what this run's retention removed (backup.sh prune_zfs, prune_btrfs)
+
+# pruned_write [time]  -> this run's PRUNED_ZFS / PRUNED_BTRFS appended to state/pruned.json
+pruned_write() {
+    local now="${1:-$(date +%s)}" old='{}' z b tmp="$UB_STATE/.pruned.json.$$"
+    if [[ -s "$UB_STATE/pruned.json" ]]; then
+        old="$(jq -c 'if type == "object" and (.runs | type) == "array" then . else {} end' "$UB_STATE/pruned.json" 2>/dev/null)" || old='{}'
+        [[ -n "$old" ]] || old='{}'
+    fi
+    z="$(printf '%s\n' "${PRUNED_ZFS[@]}" | jq -R 'select(length > 0)' | jq -sc .)" || z='[]'
+    b="$(printf '%s\n' "${PRUNED_BTRFS[@]}" | jq -R 'select(length > 0)' | jq -sc .)" || b='[]'
+    if jq -nc --argjson old "$old" --argjson z "${z:-[]}" --argjson b "${b:-[]}" --arg run "${TS:-}" --argjson time "$now" \
+            --argjson interface "$UB_INTERFACE" --arg version "$UB_VERSION" --argjson runs "$UB_PRUNED_RUNS" \
+            --argjson days "$UB_PRUNED_DAYS" --argjson cap "$UB_PRUNED_CAP" '
+        def entry: {run: $run, time: $time, zfs: $z[:$cap], btrfs: $b[:$cap]}
+            + (if ($z | length) > $cap then {zfs_more: (($z | length) - $cap)} else {} end)
+            + (if ($b | length) > $cap then {btrfs_more: (($b | length) - $cap)} else {} end);
+        ([($old.runs // [])[] | select(type == "object" and ((.time // 0) | type) == "number")] + [entry])
+        | map(select(.time >= $time - $days * 86400)) | .[-$runs:]
+        | {interface: $interface, version: $version, updated: $time, runs: .}' >"$tmp" 2>/dev/null && [[ -s "$tmp" ]]; then
+        mv -f "$tmp" "$UB_STATE/pruned.json" 2>/dev/null
+    fi
+    rm -f "$tmp"
+    return 0
+}
+
+##############################################################################
+# 11. New things stay local (since 2.21)
+##############################################################################
+# What is new on the server is backed up only locally and without stopping, on its own - Kopia, and
+# stopping or pausing, only once the user decided (Mr. Backupsy's setup, or setup.sh in a terminal):
+#   - a container not in [docker] known keeps running in a run (backup.sh build_stop_tiers; setup.sh
+#     proposes it so too); a VM without a [vm] section is not held (prepare none, as before)
+#   - a share going to Kopia records its top-level folders when the setup is applied:
+#       [share "<name>"] kopia_known = /<folder>/   (repeatable; an empty "kopia_known =" means recorded,
+#                                                    none yet)
+#     A share with more than UB_KNOWN_MAX folders at its top when it is first recorded is a collection (films,
+#     photos - a new folder there is the collection growing, not a new thing): kopia_known = * - every folder
+#     goes, new ones too, as before 2.21; listing folders instead makes new ones wait there too.
+#     A top-level folder that is neither known nor left out - by the share's kopia_ignore, the global
+#     [kopia] ignore, as a part of an app or VM with a Kopia source of its own (section 9), or as the
+#     backup place's own folder - is NEW: the run leaves it out of the share's Kopia source (rules it
+#     adds to the share's policy right before the upload and takes away again once the folder is
+#     decided or gone); the local snapshot holds it all the same. A share without any kopia_known line
+#     works as before 2.21 (every folder goes) until the setup is applied once. The setup shows the new
+#     folders ("waiting for your decision"): only local = kopia_ignore, local + Kopia = kopia_known.
+#   - an app's or VM's own Kopia source holds only its folder = lines and its package: nothing new
+#     reaches it without the setup.
+# The run says so: a log line, status.json "new_local", drift info new_waiting, state/new-local.json, and
+# one notification (normal) for the folders it sees for the first time - not every night:
+#   state/new-local.json  {interface, version, run, time, folders: [{share, folder, bytes, first_seen, rules}]}
+#                         bytes: only where it is cheap (a ZFS dataset of its own), else null; rules: the
+#                         ignore rules the run set for it. Written by real backup runs that reached Kopia.
+
+UB_KNOWN_MAX="${UB_KNOWN_MAX:-500}"   # more folders at a share's top at its first record: a collection (kopia_known = *)
+declare -gA NEW_RULES=()       # share -> ignore rules for its new folders (lines): part of its wanted policy
+declare -gA NEW_SEEN=()        # "share|folder" -> first seen (unix), from state/new-local.json
+declare -gA NEW_SEEN_RULES=()  # "share|folder" -> the rules a run set for it (lines)
+declare -gA NEW_SEEN_BYTES=()  # "share|folder" -> its size as noted ("" = unknown)
+declare -ga NEW_LIST=()        # new folders: "share<US>folder<US>bytes<US>first seen<US>rules joined by <RS>"
+declare -gA ND_KNOWN=() ND_PARTS=()   # new_decided_load: the share's known folders, its folders that are decided otherwise
+declare -ga SK_DIRS=()         # share_top_live: the top-level folders on the awake parts
+SK_ASLEEP="no"
+ND_SHARE=""
+ST_NEW_LOCAL="null"            # status.json "new_local" (null: this run didn't look)
+
+# share_watched <share>  -> 0 when the share's new folders stay local: it goes to Kopia and its folders are recorded
+# (not "*", a collection)
+share_watched() {
+    is_yes "${KOPIA_ENABLED:-no}" && [[ "$(share_mode "$1")" == "kopia" && -n "${CFG[share|$1|kopia_known]+x}" \
+        && $'\n'"${CFG[share|$1|kopia_known]}"$'\n' != *$'\n*\n'* ]]
+}
+
+# top_dirs <dir>  -> the folders right inside it, one per line: no links, no .zfs or lost+found, no names with
+# control characters (they could not travel through the state files)
+top_dirs() {
+    local d="$1" p n
+    [[ -d "$d" ]] || return 0
+    for p in "$d"/* "$d"/.[!.]* "$d"/..?*; do
+        [[ -d "$p" && ! -L "$p" ]] || continue
+        n="${p##*/}"
+        [[ "$n" == ".zfs" || "$n" == "lost+found" || "$n" == *[$'\x01'-$'\x1f']* ]] && continue
+        printf '%s\n' "$n"
+    done
+    return 0
+}
+
+# share_top_live <share>  -> SK_DIRS: its top-level folders as they are now, on the parts that are awake;
+# SK_ASLEEP=yes when a part sleeps (never woken - its folders are then not all known)
+share_top_live() {
+    local s="$1" b n
+    local -A seen=()
+    SK_DIRS=(); SK_ASLEEP="no"
+    while IFS='|' read -r b _; do
+        [[ -n "$b" ]] || continue
+        if ub_base_asleep "$b"; then SK_ASLEEP="yes"; continue; fi
+        while IFS= read -r n; do
+            [[ -n "$n" && -z "${seen[$n]:-}" ]] || continue
+            seen[$n]=1; SK_DIRS+=( "$n" )
+        done < <(top_dirs "${INV_BASE_PATH[$b]:-/nonexistent}/$s")
+    done <<<"${INV_LOCS[$s]:-}"
+    mapfile -t SK_DIRS < <(printf '%s\n' "${SK_DIRS[@]}" | sed '/^$/d' | LC_ALL=C sort)
+}
+
+# new_rule_name <folder>  -> the folder as part of an ignore rule: a character Kopia reads as a pattern
+# (* ? [ ] \) becomes ? - at worst a look-alike is left out too (it stays local), never less
+new_rule_name() { local n="$1"; printf '%s' "${n//[]*?[\\]/?}"; }
+
+# new_rules_for <share> <folder>  -> the rules that leave the folder out of the share's source: /<folder>/,
+# or one per base when the share appears as one subfolder per base (split)
+new_rules_for() {
+    local s="$1" n b
+    n="$(new_rule_name "$2")"
+    if [[ "$(share_layout "$s")" == "split" ]]; then
+        while IFS='|' read -r b _; do [[ -n "$b" ]] && printf '/%s/%s/\n' "$b" "$n"; done <<<"${INV_LOCS[$s]:-}"
+    else
+        printf '/%s/\n' "$n"
+    fi
+    return 0
+}
+
+# rule_hides_top <rule> <folder>  -> 0 when the ignore rule leaves out that top-level folder as a whole:
+# /x/, /x, x/ or x - x a name or a simple pattern (* ? [..]) as Kopia reads it. Deeper rules and anything
+# fancier don't count: such a folder stays new, so the run leaves it out itself - never uploaded unasked
+rule_hides_top() {
+    local r="$1" n="$2"
+    [[ -n "$r" && "$r" != '!'* && "$r" != '#'* && "$r" != *[\\\(\)\|\{\}]* ]] || return 1
+    r="${r#/}"; r="${r%/}"
+    [[ -n "$r" && "$r" != */* ]] || return 1
+    # shellcheck disable=SC2053   # a pattern on purpose
+    [[ "$n" == $r ]]
+}
+
+# new_decided_load <share>  -> ND_KNOWN (its kopia_known), ND_PARTS (its folders that are an app's or VM's
+# own part, or the backup place's folder) for new_decided
+new_decided_load() {
+    local s="$1" x t n f sh rel
+    ND_KNOWN=(); ND_PARTS=(); ND_SHARE="$s"
+    while IFS= read -r x; do [[ -n "$x" ]] && ND_KNOWN[$x]=1; done < <(cfg_list "share|$s|kopia_known")
+    while IFS='|' read -r t n f; do
+        [[ -n "$t" ]] || continue
+        while IFS='|' read -r sh rel; do
+            [[ "$sh" == "$s" && -n "$rel" && "$rel" != */* ]] && ND_PARTS[$rel]=1
+        done < <(kopia_item_parts "$t" "$n")
+    done < <(kopia_items)
+    [[ -n "${DUMPS_SHARE:-}" && "$s" == "$DUMPS_SHARE" ]] && ND_PARTS[$(dumps_rel)]=1
+    return 0
+}
+
+# new_decided <share> <folder>  -> 0 when the top-level folder is decided (new_decided_load <share> first):
+# known (goes to Kopia), left out (the share's rules, the global ones), or another source's part
+new_decided() {
+    local k="/$2/"
+    [[ -n "${ND_KNOWN[$k]:-}" || -n "${ND_PARTS[$2]:-}" ]] && return 0
+    share_rules_hide "$1" "$2"
+}
+
+# share_rules_hide <share> <folder>  -> 0 when the share's own ignore rules or the global ones leave the
+# top-level folder out as a whole
+share_rules_hide() {
+    local s="$1" n="$2" r b
+    while IFS= read -r r; do
+        [[ -n "$r" ]] || continue
+        rule_hides_top "$r" "$n" && return 0
+        if [[ "$(share_layout "$s")" == "split" ]]; then
+            # one subfolder per base: a rule for the folder on every base it may lie on
+            while IFS='|' read -r b _; do
+                [[ -n "$b" && ( "$r" == "/$b/$n/" || "$r" == "/$b/$n" ) ]] && return 0
+            done <<<"${INV_LOCS[$s]:-}"
+        fi
+    done < <(cfg_list "share|$s|kopia_ignore")
+    for r in "${KOPIA_IGNORE[@]}"; do rule_hides_top "$r" "$n" && return 0; done
+    return 1
+}
+
+# new_folder_bytes <share> <folder>  -> its size when that is cheap: a ZFS dataset of its own (the inventory
+# knows its "referenced"); empty otherwise - nothing is measured, no disk is woken
+new_folder_bytes() {
+    local s="$1" n="$2" b ds mp sum=""
+    while IFS='|' read -r b ds mp; do
+        [[ -n "$ds" && "$mp" == "${INV_BASE_PATH[$b]:-/nonexistent}/$s/$n" ]] || continue
+        is_uint "${ZDS_REF[$ds]:-}" && sum=$(( ${sum:-0} + ${ZDS_REF[$ds]} ))
+    done <<<"${INV_CHILDREN[$s]:-}"
+    printf '%s' "$sum"
+}
+
+# new_local_scan_live  -> NEW_LIST, NEW_RULES: the new folders of the shares going to Kopia as they are now
+# (awake parts only) - for setup.sh: what it shows as waiting, and what the policies it writes leave out
+new_local_scan_live() {
+    local s n
+    NEW_LIST=(); NEW_RULES=()
+    while IFS= read -r s; do
+        [[ -n "$s" ]] && share_watched "$s" && inv_has_share "$s" || continue
+        share_top_live "$s"
+        new_decided_load "$s"
+        for n in "${SK_DIRS[@]}"; do
+            new_decided "$s" "$n" && continue
+            NEW_RULES[$s]+="$(new_rules_for "$s" "$n")"$'\n'
+            NEW_LIST+=( "$s"$'\x1f'"$n"$'\x1f'"$(new_folder_bytes "$s" "$n")"$'\x1f'"${NEW_SEEN[$s|$n]:-}"$'\x1f' )
+        done
+    done < <(cfg_names share | LC_ALL=C sort)
+    return 0
+}
+
+# new_local_state_load  -> NEW_SEEN, NEW_SEEN_RULES, NEW_SEEN_BYTES from state/new-local.json (trusted only in
+# its own shape)
+new_local_state_load() {
+    local s f t b r
+    NEW_SEEN=(); NEW_SEEN_RULES=(); NEW_SEEN_BYTES=()
+    [[ -s "$UB_STATE/new-local.json" ]] || return 0
+    while IFS=$'\x1f' read -r s f t b r; do
+        [[ -n "$s" && -n "$f" ]] && share_name_ok "$s" || continue
+        is_uint "$t" || t=0
+        is_uint "$b" || b=""
+        NEW_SEEN[$s|$f]="$t"; NEW_SEEN_BYTES[$s|$f]="$b"
+        NEW_SEEN_RULES[$s|$f]="$(tr '\036' '\n' <<<"$r" | grep '^/' )"
+    done < <(jq -r '.folders[]? | select((.share | type) == "string" and (.folder | type) == "string")
+                    | [.share, .folder, (.first_seen // 0 | tostring), (.bytes // "" | tostring),
+                       ((.rules // []) | map(select(type == "string")) | join("\u001e"))]
+                    | select(all(.[]; test("[\u0000-\u001d\n]") | not)) | join("\u001f")' "$UB_STATE/new-local.json" 2>/dev/null)
+    return 0
+}
+
+# new_local_drift  -> the drift notes new_waiting, as NEW_LIST says (the old ones go)
+new_local_drift() {
+    local i l s n b
+    local -a d=() dc=()
+    for i in "${!DRIFT[@]}"; do
+        [[ "${DRIFT_CODE[$i]:-}" == new_waiting$'\x1f'* ]] && continue
+        d+=( "${DRIFT[$i]}" ); dc+=( "${DRIFT_CODE[$i]:-$'\x1f'}" )
+    done
+    DRIFT=( "${d[@]}" ); DRIFT_CODE=( "${dc[@]}" )
+    for l in "${NEW_LIST[@]}"; do
+        IFS=$'\x1f' read -r s n b _ <<<"$l"
+        drift_add info "New folder '$s/$n'${b:+ ($(human "$b"))} stays local - Kopia leaves it out until you decide in the setup" \
+            new_waiting "$s/$n"
+    done
+    return 0
+}
+
+# drift_check_new_local  -> what the last run left out and is still undecided: NEW_LIST, NEW_RULES (so the
+# policies compare as the run left them), drift info new_waiting; and the shares going to Kopia without a
+# record of their folders (known_missing). Before drift_check_kopia, after plan_build.
+drift_check_new_local() {
+    local k s n missing=""
+    local -a keys=()
+    new_local_state_load
+    NEW_LIST=(); NEW_RULES=(); ND_SHARE=""
+    mapfile -t keys < <(printf '%s\n' "${!NEW_SEEN[@]}" | sed '/^$/d' | LC_ALL=C sort)
+    for k in "${keys[@]}"; do
+        s="${k%%|*}"; n="${k#*|}"
+        share_watched "$s" || continue
+        [[ "$ND_SHARE" == "$s" ]] || new_decided_load "$s"
+        new_decided "$s" "$n" && continue
+        NEW_RULES[$s]+="${NEW_SEEN_RULES[$k]:-}"$'\n'
+        NEW_LIST+=( "$s"$'\x1f'"$n"$'\x1f'"${NEW_SEEN_BYTES[$k]:-}"$'\x1f'"${NEW_SEEN[$k]}"$'\x1f'"${NEW_SEEN_RULES[$k]//$'\n'/$'\x1e'}" )
+    done
+    new_local_drift
+    for s in "${PLAN_KOPIA[@]}"; do
+        [[ -n "${CFG[share|$s|kopia_known]+x}" ]] || missing+="${missing:+, }$s"
+    done
+    [[ -n "$missing" ]] && drift_add info "Every folder of these shares goes to Kopia, new ones too, until the setup is applied once and records their folders: $missing" \
+        known_missing "$missing"
+    return 0
+}
+
+# new_local_json  -> NEW_LIST as status.json's "new_local"
+new_local_json() {
+    printf '%s\n' "${NEW_LIST[@]}" | jq -R 'select(length > 0) | split("\u001f")
+        | {share: .[0], folder: .[1], bytes: (if (.[2] // "") == "" then null else (.[2] | tonumber) end),
+           first_seen: ((.[3] // "0") | if . == "" then 0 else tonumber end),
+           rules: ((.[4] // "") | split("\u001e") | map(select(length > 0)))}' | jq -sc . 2>/dev/null || echo '[]'
+}
+
+new_local_state_write() {
+    local tmp="$UB_STATE/.new-local.json.$$"
+    if new_local_json | jq -c --argjson interface "$UB_INTERFACE" --arg version "$UB_VERSION" --arg run "${TS:-}" \
+            --argjson time "$(date +%s)" '{interface: $interface, version: $version, run: $run, time: $time, folders: .}' \
+            >"$tmp" 2>/dev/null && [[ -s "$tmp" ]]; then
+        mv -f "$tmp" "$UB_STATE/new-local.json" 2>/dev/null
+    fi
+    rm -f "$tmp"
+    return 0
+}
+
+# new_policy_align <share> <container path>  -> the share's policy leaves out its new folders (NEW_RULES), and no
+# longer leaves out those a run left out before and nobody wants left out now (decided or gone). Only these
+# rules - everything else in the policy is the setup's. 1 when Kopia refused.
+new_policy_align() {
+    local s="$1" cpath="$2" cur want r k
+    local -a args=()
+    local -A seen=()
+    cur="$(jq -r --arg p "$cpath" --arg u "$KOPIA_USER" --arg h "$KOPIA_HOST" \
+            'first(.[] | select(.target.path==$p and .target.userName==$u and .target.host==$h)) // {} | .files.ignore[]?' \
+            <<<"$KP_JSON" 2>/dev/null)"
+    want="$(kopia_want_ignores share "$s")"
+    while IFS= read -r r; do
+        [[ -n "$r" && -z "${seen[$r]:-}" ]] || continue
+        seen[$r]=1
+        grep -Fxq -- "$r" <<<"$cur" || args+=( --add-ignore "$r" )
+    done <<<"${NEW_RULES[$s]:-}"
+    while IFS= read -r k; do
+        [[ -n "$k" && "${k%%|*}" == "$s" ]] || continue
+        while IFS= read -r r; do
+            [[ -n "$r" && -z "${seen[$r]:-}" ]] || continue
+            seen[$r]=1
+            grep -Fxq -- "$r" <<<"$cur" && ! grep -Fxq -- "$r" <<<"$want" && args+=( --remove-ignore "$r" )
+        done <<<"${NEW_SEEN_RULES[$k]}"
+    done < <(printf '%s\n' "${!NEW_SEEN_RULES[@]}" | LC_ALL=C sort)
+    (( ${#args[@]} )) || return 0
+    kopia_x policy set "$KOPIA_ID:$cpath" "${args[@]}" >>"${LOG_FILE:-/dev/null}" 2>&1 || return 1
+    log "  Kopia policy of '$s': ${args[*]}"
+    return 0
+}
+
+# new_local_run  -> right before the Kopia uploads: which top-level folders of the shares going there are new
+# - looked up where Kopia reads them, in the mounted snapshots (<mount_root>/<share>, per base when split) -,
+# left out of the share's policy (a share whose policy Kopia refuses is skipped: never uploaded unasked),
+# noted in state/new-local.json, status.json and drift.json, and told once. backup.sh: Kopia phase, after
+# drift_check_new_local; uses SHARE_MOUNTED and SKIP_KOPIA of the run.
+new_local_run() {
+    local s n b cpath bytes first rules now k l fresh="" nfresh=0
+    local -A looked=() names=()
+    local -a keep=( "${NEW_LIST[@]}" )
+    now="$(date +%s)"
+    NEW_LIST=()
+    for s in "${PLAN_KOPIA[@]}"; do
+        share_watched "$s" || continue
+        [[ -z "${SKIP_KOPIA[$s]:-}" && -n "${SHARE_MOUNTED[$s]:-}" ]] || continue
+        cpath="$(k_path "$(share_kopia_hostpath "$s")")" || continue
+        looked[$s]=1
+        new_decided_load "$s"
+        names=()
+        if [[ "$(share_layout "$s")" == "split" ]]; then
+            while IFS='|' read -r b _; do
+                [[ -n "$b" ]] || continue
+                while IFS= read -r n; do [[ -n "$n" ]] && names[$n]=1; done < <(top_dirs "$MOUNT_ROOT/$s/$b")
+            done <<<"${INV_LOCS[$s]:-}"
+        else
+            while IFS= read -r n; do [[ -n "$n" ]] && names[$n]=1; done < <(top_dirs "$MOUNT_ROOT/$s")
+        fi
+        NEW_RULES[$s]=""
+        while IFS= read -r n; do
+            [[ -n "$n" ]] || continue
+            new_decided "$s" "$n" && continue
+            k="$s|$n"
+            bytes="$(new_folder_bytes "$s" "$n")"
+            first="${NEW_SEEN[$k]:-}"
+            if [[ -z "$first" ]]; then
+                first="$now"; nfresh=$((nfresh+1))
+                fresh+="${fresh:+, }$s/$n${bytes:+ ($(human "$bytes"))}"
+            fi
+            rules="$(new_rules_for "$s" "$n")"
+            NEW_RULES[$s]+="$rules"$'\n'
+            NEW_LIST+=( "$s"$'\x1f'"$n"$'\x1f'"$bytes"$'\x1f'"$first"$'\x1f'"${rules//$'\n'/$'\x1e'}" )
+            log "  New folder '$s/$n'${bytes:+ ($(human "$bytes"))} stays local: Kopia leaves it out until you decide (Set up...)"
+        done < <(printf '%s\n' "${!names[@]}" | sed '/^$/d' | LC_ALL=C sort)
+        new_policy_align "$s" "$cpath" || SKIP_KOPIA[$s]="its new folders could not be left out of its policy"
+    done
+    # what this run didn't look at (a share skipped or not mounted) stays as it was, while undecided
+    for l in "${keep[@]}"; do
+        s="${l%%$'\x1f'*}"
+        [[ -n "${looked[$s]:-}" ]] || NEW_LIST+=( "$l" )
+    done
+    new_local_state_write
+    ST_NEW_LOCAL="$(new_local_json | jq -c 'map(del(.rules))' 2>/dev/null)" || ST_NEW_LOCAL="[]"
+    [[ -n "$ST_NEW_LOCAL" ]] || ST_NEW_LOCAL="[]"
+    new_local_drift
+    drift_text >"$UB_STATE/drift.txt" 2>/dev/null
+    drift_json_write
+    status_write
+    if (( nfresh > 0 )); then
+        if (( nfresh == 1 )); then
+            ub_notify "New folder stays local" "$fresh - new in a share that goes to Kopia: only in the local snapshots until you decide in Mr. Backupsy's setup." "normal"
+        else
+            ub_notify "$nfresh new folders stay local" "$fresh - new in shares that go to Kopia: only in the local snapshots until you decide in Mr. Backupsy's setup." "normal"
+        fi
+        # Unraid's notify keeps one notification per event and second: the run's own report comes later
+        [[ "${UB_NO_NOTIFY:-0}" == "1" ]] || sleep 1
+    fi
     return 0
 }

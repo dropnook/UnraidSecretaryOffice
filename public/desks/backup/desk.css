@@ -59,6 +59,10 @@
 .bk-items-sub{margin:6px 0 8px}
 .bk-item .bk-right .input.bk-kret{width:150px; flex:none}
 .bk-item .bk-chips{margin:6px 0 0}
+/* engine 2.21: a share's new folders in step 3 - only local so far, waiting for a decision */
+.bk-waiting{padding:6px 2px 8px; display:grid; gap:6px}
+.bk-waitrow{display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px}
+.bk-waitrow .mono{overflow-wrap:anywhere}
 /* on a phone the choices of a row (containers, VMs …) go under its name instead of squeezing it */
 @media (max-width:640px){.row.nocheck:has(> .bk-right){grid-template-columns:minmax(0,1fr)} .row.nocheck > .bk-right{justify-content:flex-start}}
 .bk-pdetail{padding:2px 2px 6px 14px}

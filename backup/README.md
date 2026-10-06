@@ -2,9 +2,9 @@
 
 Part of the [Unraid Secretary Office](../README.md): Mr. Backupsy shows and controls this engine in the browser — setting it up, scheduling it, starting and stopping runs, helping with restores. It also works without any web page: the office's plugin starts it at night from its cron file, `setup.sh` sets it up in a terminal, and `bash <engine>/backup.sh` runs it by hand.
 
-A nightly backup for Unraid servers. It takes consistent **ZFS/btrfs snapshots** and **database dumps**, puts Nextcloud into **maintenance mode** for that, keeps a **package per app and VM** (templates or compose files, dumps, VM configuration) and — if you want — sends everything encrypted offsite with **Kopia**, an app or VM you choose as a Kopia source of its own with its own retention. Everything specific to your server lives in `settings.ini`, which `setup.sh` writes after asking you. The nightly run `backup.sh` reports every difference between the server and `settings.ini`, but never changes it on its own.
+A nightly backup for Unraid servers. It takes consistent **ZFS/btrfs snapshots** and **database dumps**, puts Nextcloud into **maintenance mode** for that, keeps a **package per app and VM** (templates or compose files, dumps, VM configuration) and — if you want — sends everything encrypted offsite with **Kopia**, an app or VM you choose as a Kopia source of its own with its own retention. Everything specific to your server lives in `settings.ini`, which `setup.sh` writes after asking you. The nightly run `backup.sh` reports every difference between the server and `settings.ini`, but never changes it on its own. **What is new stays local and keeps running until you decide** (since 2.21): a new folder in a share that goes to Kopia stays in the local snapshots only, a new container isn't stopped — see [New things stay local](#new-things-stay-local-since-221).
 
-Version **2.20** (6 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
+Version **2.21** (6 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
 
 ---
 
@@ -47,7 +47,8 @@ Replacing an existing backup script: `setup.sh` warns when other User Scripts al
  8  start containers (databases first, "healthy"), maintenance off               ┘
  9  mount snapshots read-only: <mount_root>/<share>; the apps' and VMs'  ┐
     own sources joined under <mount_root>/.apps|.vms/<name>               │ only with
-10  Kopia backs up the apps, each share, the VMs from the snapshots      ┘ Kopia
+10  new folders of the shares stay out of Kopia until you decide;        │ Kopia
+    Kopia backs up the apps, each share, the VMs from the snapshots      ┘
     (Kopia keeps running)
 11  unmount, clean up (ZFS d/w/m, btrfs days + emergency brake, logs; once: the run folders of engines before 2.18), notification
 ```
@@ -69,7 +70,7 @@ If a run dies hard (crash, `kill -9`), the stopped containers and the Nextcloud 
 /mnt/user/appdata/UnraidSecretaryOffice/
 └── data/unraid-backup/     its data (not in git, root only: 0700)
     ├── settings.ini        written by setup.sh (may be edited by hand)
-    ├── state/              lock and who holds it, status for the office, differences, notes
+    ├── state/              lock and who holds it, status for the office, differences, new folders, notes
     └── logs/               run-*.log per run, check-/dryrun-/setup-*.log, latest.log
 
 /mnt/user/UnraidSecretaryOffice/      the office's share: what the desks keep, one folder per desk
@@ -206,12 +207,23 @@ What the setup proposes for new shares:
 | container data (`appdata`, or a share with folders of at least three containers), even over 500 GB | kopia | not switched off because of its size. What is big there are usually single folders (caches, blockchains, media) — exclude those right after |
 | other shares over 500 GB (or measuring takes too long) | off | decide deliberately |
 | size unknown (no ZFS and not measured) | snapshot | nothing big goes offsite unasked — measure (*Measure sizes*) or decide |
-| share without data (only in Unraid's config) | kopia | "still empty"; once there is data, it comes along |
+| share without data (only in Unraid's config) | kopia | "still empty"; folders that appear later wait for your decision (only local until then, since 2.21) |
 | everything else | kopia (or snapshot without Kopia) | |
 
 In a share's container folders (e.g. `appdata`) the setup proposes to ignore the Kopia container's own folder. On request it shows the biggest folders, so you can exclude caches, blockchains or media. Each folder is measured for at most 60 seconds; what takes longer is listed first as "> 60 s", as that is almost always a very big folder.
 
 In the share table, "Location" names pools and sums up several array disks, e.g. `cache + 3 disks`.
+
+### New things stay local (since 2.21)
+
+New things are backed up **only locally and without stopping**, on their own — Kopia, and stopping or pausing, only once you decide in Mr. Backupsy's setup (or in `setup.sh` in a terminal). Say you install a Bitcoin node and it fills `appdata/bitcoin` with hundreds of GB: the next night it is in the local snapshot, but nothing of it goes up to Kopia until you say so.
+
+- **Folders:** when the setup is applied, every share that goes to Kopia records its top-level folders as `kopia_known` — the first time all that are there (and not left out), afterwards what was known plus what you send to Kopia. A top-level folder that is neither known nor left out (the share's `kopia_ignore`, the global `[kopia] ignore`, the folder of an app or VM with a Kopia source of its own, the backup place's own folder) is **new**: right before the upload the run looks at what Kopia is about to read (the mounted snapshot) and leaves the new folders out of the share's policy (`/<folder>/`, one rule per base for a split share; a character Kopia reads as a pattern becomes `?`). Once you decide, the setup records it — *local + Kopia* as `kopia_known`, *only local* as `kopia_ignore` — and the run takes its own rule away again (also when the folder is gone). If Kopia refuses the rule, that share is skipped for the night rather than uploaded unasked.
+- **Told once:** the run logs it, writes `status.json` `new_local` and `state/new-local.json`, adds a drift note `new_waiting` (info — it doesn't make a run "with warnings") and sends one notification (normal) for the folders it sees for the first time, not every night. The setup lists them per share as waiting (`setup-plan.json` `shares[].waiting`).
+- **Containers:** a container that is not in `[docker] known` (it came after the last setup) keeps running during the run instead of being stopped; the setup proposes it as *keep running*. **VMs** without a `[vm]` section aren't held (as before); the setup proposes `prepare = none` for them.
+- **Apps and VMs with a Kopia source of their own** hold only what their `folder =` lines and their package name — nothing new reaches them without the setup.
+- A share with very many folders at its top when it is first recorded (more than 500 — films, photos: a new folder there is the collection growing, not a new thing) gets `kopia_known = *`: every folder goes, new ones too, as before. List folders there by hand instead and new ones wait there too.
+- A share **without** any `kopia_known` line works as before 2.21: every folder goes to Kopia (drift note `known_missing`) until the setup is applied once. A share with a sleeping disk gets its first record at a setup when it is awake (the setup never wakes a disk). Only folders count: files at the top of a share go along as before.
 
 ### How a share is mounted
 
@@ -234,6 +246,7 @@ For the seconds of the snapshots, every running container that writes into backe
 - the office's own containers (they only write small files, never half of one),
 - containers whose paths lie only in `off` shares or in folders Kopia ignores (stopping them would change nothing),
 - containers you explicitly set to "keep running". If such a container writes into backed-up data, the setup marks it: its snapshot is only crash-consistent.
+- containers that came after the last setup (not in `[docker] known`, since 2.21) — until you decide in the setup.
 
 Order: apps first, then the database dumps, then the databases, last the network containers (e.g. a VPN whose network others use). Because the apps are already stopped, nobody writes during the dump: dump and files in the snapshot match — also for apps without a maintenance mode, such as Immich. The apps are stopped that much longer (usually seconds). Starting goes the other way round; databases only once they are "healthy".
 
@@ -297,13 +310,13 @@ Usually you never call it yourself: Mr. Backupsy's *Set up…* uses it (`--plan`
 | `setup.sh --check` | only check and report (incl. the live test of the mapping) |
 | `setup.sh --kopia` | only the Kopia part, with the existing settings.ini (align policies) |
 | `setup.sh --yes` | take every proposal without asking (also with `--kopia`) |
-| `setup.sh --plan` | like `--yes`, but writes nothing: proposals, reasons (as codes), check results, the saved values and what *Apply* would change in settings.ini, to `state/setup-plan.json` |
+| `setup.sh --plan` | like `--yes`, but writes nothing: proposals, reasons (as codes), check results, the saved values and what *Apply* would change in settings.ini, to `state/setup-plan.json` (since 2.21 per share also `waiting`: its new folders — `dir`, `bytes`, `first_seen`) |
 | `setup.sh --apply=<file>` | lay decisions (JSON: settings.ini keys as in the plan → value or list) over the current values, then check, write and align policies like `--yes` |
 | `setup.sh --forget` | start anew: `settings.ini`, the office's decisions and the last plan go to `state/reset-<time>/` (asks first, `--yes` doesn't); snapshots, dumps, Kopia and the history stay. Until the next apply `backup.sh` refuses to run |
 
-`--plan`, `--apply` and `--forget` are the interface of Mr. Backupsy's setup page. They report their progress in `state/setup-status.json` (`mode`, `result`, `written`, messages with step and level). With `--apply`, dumps and Nextclouds only count when they are in the decisions; old Kopia sources are only set to "manual" with `_retire_sources = yes`, nothing is ever deleted.
+`--plan`, `--apply` and `--forget` are the interface of Mr. Backupsy's setup page. With `--apply`, `kopia_known` in the decisions is taken as it is (a folder that is gone drops out); a share without it that goes to Kopia records all its folders, and a container not named in `docker|known` stays new. They report their progress in `state/setup-status.json` (`mode`, `result`, `written`, messages with step and level). With `--apply`, dumps and Nextclouds only count when they are in the decisions; old Kopia sources are only set to "manual" with `_retire_sources = yes`, nothing is ever deleted.
 
-Environment: `UB_SETUP`, `UB_YES`, `UB_EXPLAIN`, `UB_SIZE_TIMEOUT` (seconds per share for `du`, 0 = don't measure), `UB_SETTINGS`, `UB_STRIPES`.
+Environment: `UB_SETUP`, `UB_YES`, `UB_EXPLAIN`, `UB_SIZE_TIMEOUT` (seconds per share for `du`, 0 = don't measure), `UB_SETTINGS`, `UB_STRIPES`, `UB_KNOWN_MAX` (500: more folders at a share's top at its first record = a collection, `kopia_known = *`).
 
 In a terminal every step is a coloured bar, tables have an underlined header and every second row is slightly shaded. For the stripes, the setup asks the terminal for its background colour; if it doesn't answer, dark is assumed (as in Unraid's web terminal). `UB_STRIPES=light` or `dark` sets it, `UB_STRIPES=off` switches the stripes off. Logs have no colours.
 
@@ -332,14 +345,28 @@ For Mr. Backupsy in the office (and any other page), `backup.sh` writes its stat
 
 | File | Content |
 |---|---|
-| `status.json` | the running or last finished run (check, dry run, backup): `mode`, `phase`, `result` (`running`, `ok`, `warnings`, `errors`, `failed`, `aborted`), `pid`, times, interruption, differences, the Kopia plan with the current source and the result per source (since 2.19 an app's or VM's own source is named `app:<name>` / `vm:<name>`, in the order apps, shares, VMs, flash), per VM what the run did (`vms`: `prepare`, `done`, seconds held, `snapshot`), and the packages (`packages`, since 2.18: `base`, `written` — false in a dry run —, `written_bytes`, counts `apps`, `vms`, `errors`, `warnings`, `stale`, `kept`, `old_runs` with `old_runs_action` = `removed` / `would_remove` / `kept`, and `list`: per package `kind` (app, vm, flash), `name`, `folder`, `type` (compose, template, container, vm), `result` (ok, warnings, errors, planned, stale), `files`, `bytes`, `kept`, `stale`, `run`). `dump_bytes` is what the run wrote into the packages |
+| `status.json` | the running or last finished run (check, dry run, backup): `mode`, `phase`, `result` (`running`, `ok`, `warnings`, `errors`, `failed`, `aborted`), `pid`, times, interruption, differences, the Kopia plan with the current source and the result per source (since 2.19 an app's or VM's own source is named `app:<name>` / `vm:<name>`, in the order apps, shares, VMs, flash), per VM what the run did (`vms`: `prepare`, `done`, seconds held, `snapshot`), the new folders this run left out of Kopia (`new_local`, since 2.21: `share`, `folder`, `bytes`, `first_seen`; `null` when it didn't look, e.g. no Kopia), and the packages (`packages`, since 2.18: `base`, `written` — false in a dry run —, `written_bytes`, counts `apps`, `vms`, `errors`, `warnings`, `stale`, `kept`, `old_runs` with `old_runs_action` = `removed` / `would_remove` / `kept`, and `list`: per package `kind` (app, vm, flash), `name`, `folder`, `type` (compose, template, container, vm), `result` (ok, warnings, errors, planned, stale), `files`, `bytes`, `kept`, `stale`, `run`). `dump_bytes` is what the run wrote into the packages |
 | `last-run.json` | the same for the last real backup run |
 | `history.jsonl` | one line per real backup run, the last 200 — `packages` without `list`; since 2.20 also a skipped backup run (`result` = `skipped`, see below) — whoever computes durations, downtimes or "the last run" from it leaves those out |
 | `skipped.json` | since 2.20: the last run that could not take the lock (any mode, see below) |
+| `pruned.json` | since 2.21: the snapshots the engine's retention destroyed, run by run — see [Snapshots the engine removed](#snapshots-the-engine-removed) |
+| `new-local.json` | since 2.21: the new folders the last runs left out of Kopia and still wait for a decision — `interface`, `version`, `run`, `time`, `folders`: `share`, `folder`, `bytes` (only where cheap — a ZFS dataset of its own —, else `null`), `first_seen` (unix seconds), `rules` (the ignore rules the run set). Written by real backup runs that reached Kopia; a folder that was decided meanwhile is still listed until the next such run — check it against `settings.ini` (`kopia_known`, `kopia_ignore`) |
 | `lock-holder.json` | since 2.20: who holds the lock right now (see below) |
-| `drift.json` | differences of the last check (`level`, `text`, since 2.18 `code` and `value` for the messages the office translates: `place_no_history`, `place_not_kopia`, `dumps_<problem>`), and per Kopia target whether its policy matches (`policies`: `kind` — `root`, `share`, `flash`, since 2.19 `app`, `vm` —, `share` (for kind share), `name` (since 2.19: the share, app or VM), `path`, `ok`, `skipped`, `differences` with `what`/`item`/`have`/`want`; `null` when not compared) |
+| `drift.json` | differences of the last check (`level`, `text`, since 2.18 `code` and `value` for the messages the office translates: `place_no_history`, `place_not_kopia`, `dumps_<problem>`; since 2.21 `new_waiting` (value `<share>/<folder>`), `known_missing` (value: the shares, comma-separated), `new_container`, `new_database`, `new_nextcloud`, `new_vm` (value: the name)), and per Kopia target whether its policy matches (`policies`: `kind` — `root`, `share`, `flash`, since 2.19 `app`, `vm` —, `share` (for kind share), `name` (since 2.19: the share, app or VM), `path`, `ok`, `skipped`, `differences` with `what`/`item`/`have`/`want`; `null` when not compared) |
 | `setup-plan.json` | the last plan of `setup.sh --plan` |
 | `setup-status.json` | progress and messages of `setup.sh --plan` / `--apply` |
+
+### Snapshots the engine removed
+
+Since 2.21 every real backup run notes in `state/pruned.json` which snapshots its retention destroyed — ZFS (`[zfs] retention`, a share's or VM's own) and btrfs (`[btrfs] keep_days` and the emergency brake) —, so whoever watches the server (the office's night watchman) knows which vanished snapshots were the engine's without guessing or reading logs:
+
+```json
+{"interface": 1, "version": "2.21", "updated": 1791328000,
+ "runs": [{"run": "20261007-0100", "time": 1791328000,
+           "zfs": ["master/appdata@uso-backup-20260930-0100"], "btrfs": ["/mnt/disk4/.btrfs-snap/20260929-0100"]}]}
+```
+
+`runs` newest last, one entry per real run that reached its cleanup (empty lists when it removed nothing); the last 30 runs, none older than 30 days (`UB_PRUNED_RUNS`, `UB_PRUNED_DAYS`). Per run at most 1000 names per list (`UB_PRUNED_CAP`), what is left out counted in `zfs_more` / `btrfs_more`. Written as a new file + `mv`, in the root-only state folder. Only what the engine destroyed is listed — its own snapshots, exactly matched (never anything else).
 
 ### When the lock is busy
 
@@ -382,7 +409,9 @@ Stopping: `SIGTERM` to the `pid` in `status.json` (Mr. Backupsy's *Stop the run*
 | share was empty at setup and has data now | hint | already backed up; the setup remembers its identity for renames |
 | share now also lies elsewhere | hint | taken along automatically (overlay) |
 | share can't take snapshots any more (e.g. XFS) | warning | Kopia reads it live |
-| new container / new database / new Nextcloud | hint / warning | new containers are stopped, database without a dump |
+| new container / new database / new Nextcloud | hint / warning | new containers keep running until you decide (since 2.21; before: stopped), database without a dump |
+| new folder in a share that goes to Kopia (since 2.21) | info | only in the local snapshot until you decide; one notification (normal) when first seen |
+| a share that goes to Kopia without `kopia_known` (since 2.21) | info | every folder goes, new ones too, until the setup is applied once |
 | backup place doesn't go to Kopia / can't take snapshots | warning | the packages stay local / keep no history |
 | Docker volumes of a new container | warning | they live in Docker's folder, not in the backup |
 | Kopia policy differs | warning | `setup.sh --kopia` (or *Apply*) aligns it |
@@ -420,6 +449,7 @@ The same message doesn't come every night: it is repeated when something changes
 | `retention` | ZFS retention for this share only |
 | `kopia_retention` | Kopia retention for this share only: `latest hourly daily weekly monthly annual` |
 | `kopia_ignore` | ignore rule relative to the share (repeatable) |
+| `kopia_known` | since 2.21: a top-level folder that goes to Kopia, `/<folder>/` (repeatable; `kopia_known =` alone = recorded, none yet; `kopia_known = *` = every folder, new ones too — a collection). Written by the setup; a folder neither known nor ignored is new and stays local until you decide. No line at all: every folder goes (as before 2.21) |
 | `exclude_dataset` | child dataset neither snapshotted nor backed up |
 | `method` | `auto` / `live` |
 
@@ -472,6 +502,8 @@ So on every new server: *Set up…*, then a check and a dry run first.
 
 ## Versions
 
+- **2.21** – `state/pruned.json`: the snapshots the retention destroyed, run by run (the last 30 runs within 30 days).
+- **2.21** – New things stay local and keep running until you decide. A share that goes to Kopia records its top-level folders when the setup is applied (`kopia_known`); a folder that appears later and that nobody decided about stays in the local snapshots only — the run leaves it out of the share's Kopia policy right before the upload, takes the rule away again once it is decided or gone, and says so (log, `status.json` `new_local`, `state/new-local.json`, drift note `new_waiting`, one notification when first seen). Containers that came after the last setup keep running during the run, and the setup proposes them so (and VMs without settings as not held). The setup lists the new folders per share (`waiting`) and asks about them in a terminal. A share without `kopia_known` works as before until the setup is applied once.
 - **2.20** – Names: what the office makes is called `uso-…` (places keep the long name). ZFS snapshots are `uso-backup-YYYYMMDD-HHMM` (default `snap_prefix`); a settings.ini with the old default `unraidbackup-` counts as the default — new snapshots get the new name, the old ones stay the engine's and age out by the normal retention (matched exactly, never anything looser), and *Set up…* proposes writing the new prefix. A prefix of your own stays as it is. Kopia snapshots are described `uso-backup <run>`; new setups are shown the Container Path `/uso` (the engine always reads the real one). A run that finds the lock busy (the night before still uploading to Kopia, the setup, a restore) is never lost silently: it touches nothing of the run going on and says so in `state/skipped.json`, in `history.jsonl` (`result` `skipped`, reason `skipped_busy_<holder>`) and, for a real backup, in a notification (warning); exit code 75. Whoever holds the lock notes it in `state/lock-holder.json` — backup.sh, setup.sh, and the format is open for Mr. Restori's restores and others. VMs with `prepare = shutdown` share one deadline (the timeout from their shutdown request) instead of waiting one timeout after the other, and get the request again every 60 s while they run (Windows swallows the first one); a VM that refuses the request is paused right away. An app folder that is simply empty in the snapshot is a note in the log, no longer two warnings. An app whose compose services build their own image (`build:`, no registry has it) gets `build/<service>/` in its package: the Dockerfile and the small files of the build context (top level, ≤ 1 MB each, at most 100 files / 10 MB), unless `compose/` holds them already — a rebuild needs them.
 - **2.19** – Kopia per app and VM: an app or VM at "local + Kopia" is a Kopia source of its own (`[app|vm "<name>"] kopia = yes`, `folder`, `kopia_retention`, `kopia_ignore`) — its folders and its package, joined read-only under `<mount_root>/.apps|.vms/<name>`, with its own retention; the shares leave those parts out, policies are written by the setup and compared every run (`drift.json` policies of kind `app` / `vm`, with a `name`), the Kopia phase goes apps, shares, VMs, flash. Same repository, so nothing already there is uploaded again; settings.ini without `[app]` sections behaves as before. Media servers that keep running get consistent copies of their SQLite databases in their package (backup API, checked, never on a sleeping disk, the last good copy kept). The apps' own backups (Emby's plugin, Jellyfin, Plex, Immich) are named in the manifest. The setup's plan names per container the media server, Kopia rules to offer for caches, transcodes, logs and thumbnails, and where Nextcloud and Immich keep their files.
 - **2.18** – Packages instead of run folders: per app (a compose project or a single container) and per VM a folder in the backup place with its small files — templates or compose files, `docker inspect` with the image digests, the database dumps, Nextcloud's config, the VM's XML, NVRAM and TPM state — overwritten every run, built aside and swapped in only when complete, before the snapshots; `server/` holds what belongs to no app (with `libvirt.tar.gz`), `flash/` the flash archive. A dump that failed or did not run keeps the last good one, and the package says from which run and which credentials made it. The history lies in the snapshots of the backup place's share: the setup proposes it as at least a local snapshot and refuses `off`, the run reports a share that can't take snapshots. Packages of apps and VMs left out are never deleted (`stale`). `keep_runs` is gone (accepted in old files); the first run clears away the old run folders once all its packages are in place. `status.json` and `last-run.json` gain `packages`, `drift.json` items a `code`.

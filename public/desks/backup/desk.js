@@ -245,6 +245,7 @@ function bubbleText() {
     if (age > 36 * 3600) out.push(T('bubble.old', { days: Math.floor(age / 86400) }));
   }
   if (newSkip()) out.push(T('bubble.skipped', { when: fmt.relative(newSkip().time) }));
+  if (waitingCount()) out.push(T('bubble.waiting', { n: waitingCount() }));
   if (state.schedule && state.schedule.script && !state.schedule.enabled) out.push(T('bubble.no_schedule'));
   const drift = (state.drift && state.drift.items || []).filter((d) => d.level !== 'info').length;
   if (drift) out.push(T('bubble.drift', { n: drift }));
@@ -277,6 +278,7 @@ function render() {
     [T('help.vms'), T('help.vms_text')],
     [T('help.packages'), T('help.packages_text')],
     [T('help.items'), T('help.items_text')],
+    [T('help.waiting'), T('help.waiting_text')],
     [T('help.buttons'), T('help.buttons_text')],
     [T('setup_open'), T('help.setup')],
     [T('history'), T('help.history')],
@@ -304,6 +306,24 @@ function missing() {
   return box;
 }
 
+/**
+ * What is new and waits for the user's decision — only local and kept running so far (engine 2.21, agent
+ * backupWaiting()): new folders in shares that go to Kopia, new apps, new VMs. Decided in the setup.
+ */
+const waiting = () => (state && state.waiting) || { folders: [], apps: [], vms: [] };
+const waitingCount = () => { const w = waiting(); return (w.folders || []).length + (w.apps || []).length + (w.vms || []).length; };
+function waitingText() {
+  const w = waiting();
+  const short = (list) => (list.length > 4 ? [...list.slice(0, 4), '…'] : list).join(', ');
+  const parts = [];
+  if ((w.folders || []).length) {
+    parts.push(T('waiting.folders', { n: w.folders.length, list: short(w.folders.map((f) => `${f.share}/${f.folder}${f.bytes ? ' (' + fmt.size(f.bytes) + ')' : ''}`)) }));
+  }
+  if ((w.apps || []).length) parts.push(T('waiting.apps', { n: w.apps.length, list: short(w.apps) }));
+  if ((w.vms || []).length) parts.push(T('waiting.vms', { n: w.vms.length, list: short(w.vms) }));
+  return T('waiting.callout', { n: waitingCount() }) + ' ' + parts.join(' · ');
+}
+
 function notices() {
   const out = [];
   const callout = (text, warn, more) => {
@@ -329,6 +349,11 @@ function notices() {
   if (!live() && last && last.result === 'failed' && last.message === 'interrupted') callout(T('notice.interrupted'), true);
   const skip = newSkip();
   if (skip) callout(skipText(skip) + ' ' + T('skipped.next'), true);
+  if (waitingCount() && state.settings_found) {
+    const go = button(T('waiting.decide'), 'small', () => { setup.focus = 'waiting'; Office.go(`#/${ID}/setup`); });
+    go.disabled = !canAct() || live() || restoring();
+    callout(waitingText(), false, go);
+  }
   if (!live() && (state.mounted || []).length && !(state.settings && state.settings.keep_mounts)) {
     const b = button(T('unmount'), 'small plain', unmount);
     b.disabled = !canAct();
@@ -1071,7 +1096,7 @@ function historySection() {
 
 /** A difference in the office's words where the engine gave a code (2.18+), its own words otherwise */
 function driftText(d) {
-  if (d.code && Office.has(`${ID}.drift_code.${d.code}`)) return T('drift_code.' + d.code, { share: d.value || '' });
+  if (d.code && Office.has(`${ID}.drift_code.${d.code}`)) return T('drift_code.' + d.code, { share: d.value || '', value: d.value || '' });
   if (d.code && Office.has(`${ID}.message.${d.code}`)) return T('message.' + d.code, { detail: d.value || '' });
   return d.text;
 }
@@ -1243,7 +1268,7 @@ async function showLog(name, follow) {
 // settings.ini keys) with reasons; the user changes what he wants here, and
 // setup.sh --apply checks and writes it — the same engine as in a terminal.
 const SETUP_POLL = 2000;
-const LIST_KEY = /\|(ignore|no_stop|known|skip|kopia_ignore|exclude_dataset|tar_exclude|folder)$/;
+const LIST_KEY = /\|(ignore|no_stop|known|skip|kopia_ignore|kopia_known|exclude_dataset|tar_exclude|folder)$/;
 let setup = { plan: null, draft: null, status: null, run: null, applied: null, open: new Set(), retire: true, asked: false, focus: null,
   model: null, levels: {}, held: {}, deps: new Set(), locks: {}, itemKeep: {} };
 let setupTimer = null;
@@ -1268,6 +1293,8 @@ function setupDraftFromPlan() {
   setup.model = setupModel(setup.plan);
   setupInitLevels();
   setupDerive();
+  // new folders that no app or VM owns: proposed "only local" - Kopia only when the user says so (engine 2.21)
+  waitingFolders().forEach((w) => { if (!w.owner && waitChoice(w) === null) waitSet(w, 'local'); });
   setup.base = clone(setup.draft);         // what the assistant proposes, before the user clicks
 }
 
@@ -1289,8 +1316,16 @@ function setupSaved() {
   const saved = {};
   // a share's id and locations the engine writes itself from what it finds - not a decision of the user's
   Object.keys(O).forEach((k) => { if (!/^share\|.+\|(id|locations)$/.test(k)) saved[k] = O[k]; });
-  Object.keys(P).forEach((k) => { if (!(k in O) && have.has(section(k))) saved[k] = P[k]; });
+  // kopia_known (engine 2.21) missing means "not recorded yet" - recording it is a change Apply makes
+  Object.keys(P).forEach((k) => { if (!(k in O) && have.has(section(k)) && !/\|kopia_known$/.test(k)) saved[k] = P[k]; });
   return saved;
+}
+
+/** What Apply changes against the saved settings: the differences, and a share's first record of its folders (even none) */
+function setupChanges(saved, draft) {
+  const keys = new Set(diffKeys(saved, draft));
+  Object.keys(draft).forEach((k) => { if (/\|kopia_known$/.test(k) && saved[k] === undefined && draft[k] !== undefined) keys.add(k); });
+  return [...keys].sort();
 }
 
 /** What the server boots from, as it really is: a USB stick or a boot pool (Unraid 7.3+, licence on the TPM) */
@@ -1415,13 +1450,25 @@ function setupApply() {
   } else {
     // what really changes in settings.ini - against the saved file, not against proposals
     const saved = setupSaved();
-    const changes = diffKeys(saved, setup.draft);
+    const changes = setupChanges(saved, setup.draft);
     box.appendChild(el('p', '', changes.length ? T('setup.apply_text', { n: changes.length }) : T('setup.apply_none')));
     if (changes.length) {
       const ul = el('ul', 'shortlist');
       changes.slice(0, 80).forEach((k) => {
         const li = el('li', '', changeLabel(k));
-        li.appendChild(el('span', '', `${valueText(saved[k], k)} → ${valueText(setup.draft[k], k)}`));
+        li.appendChild(el('span', '', /\|kopia_known$/.test(k) ? knownText(saved[k], setup.draft[k]) : `${valueText(saved[k], k)} → ${valueText(setup.draft[k], k)}`));
+        ul.appendChild(li);
+      });
+      box.appendChild(ul);
+    }
+    // what is new on the server and how this Apply takes it in (engine 2.21: until now only local, kept running)
+    const news = setupNewLines();
+    if (news.length) {
+      box.appendChild(el('p', '', T('setup.apply_group_new', { n: news.length })));
+      const ul = el('ul', 'shortlist bk-newlist');
+      news.forEach(([name, how]) => {
+        const li = el('li', '', name);
+        li.appendChild(el('span', '', how));
         ul.appendChild(li);
       });
       box.appendChild(ul);
@@ -1446,6 +1493,37 @@ function setupApply() {
       } },
     ],
   });
+}
+
+/** A share's record of the folders that go to Kopia (engine 2.21): the first one counted, later what comes and goes */
+function knownText(before, after) {
+  const a = before || [];
+  const b = after || [];
+  if (b.includes('*')) return T('setup.known_all');           // a collection: every folder goes, new ones too
+  if (before === undefined) return T('setup.known_first', { n: b.length });
+  const plus = b.filter((x) => !a.includes(x));
+  const minus = a.filter((x) => !b.includes(x));
+  const list = (l) => (l.length > 8 ? `${l.slice(0, 8).join(', ')} … (${l.length})` : l.join(', '));
+  return [plus.length ? '+ ' + list(plus) : '', minus.length ? '− ' + list(minus) : ''].filter(Boolean).join(' · ') || '–';
+}
+
+/** The apply dialog's group «New»: each new VM, app, container of a known app and folder, and how Apply takes it in */
+function setupNewLines() {
+  const m = setup.model;
+  if (!m) return [];
+  const out = [];
+  const appHow = (a) => {
+    const l = levelOf('app:' + a.id);
+    return l === 0 ? T('setup.level.0') : `${T('setup.level.' + l)}, ${T('setup.app_hold.' + (setup.held[a.id] || 'stop'))}`;
+  };
+  m.vms.filter((x) => x.isNew).forEach((x) => {
+    const l = levelOf('vm:' + x.name);
+    out.push([T('setup.new_vm', { name: x.name }), l === 0 ? T('setup.level.0') : `${T('setup.level.' + l)}, ${T('setup.vm_prep.' + dget(`vm|${x.name}|prepare`, 'none'))}`]);
+  });
+  m.apps.filter((a) => a.isNew).forEach((a) => out.push([T('setup.new_app', { name: a.name }), appHow(a)]));
+  m.apps.filter((a) => a.newMembers.length).forEach((a) => out.push([T('setup.new_member', { name: a.newMembers.join(', '), app: a.name }), appHow(a)]));
+  waitingFolders().forEach((w) => out.push([`${w.share}/${w.dir}`, waitHow(w)]));
+  return out;
 }
 
 function changeLabel(k) {
@@ -1503,7 +1581,7 @@ function setupBar() {
   const edits = setupEdits().length;
   // proposals: what Apply would change in the saved settings.ini although the user clicked nothing
   const fresh = !setup.plan.have_settings;     // nothing set up yet: Apply is how it starts
-  const proposals = fresh ? 0 : diffKeys(setupSaved(), setup.base || setup.plan.P).length;
+  const proposals = fresh ? 0 : setupChanges(setupSaved(), setup.base || setup.plan.P).length;
   const busy = setup.status && setup.status.running;
   if (!edits && !fresh && proposals <= 0) { Office.selbar(null); return; }      // nothing to apply: no bar that keeps offering it
   Office.selbar({
@@ -1586,6 +1664,7 @@ function renderSetup() {
     [T('setup.measure'), T('setup.measure_hint')],
     [T('help.reasons'), T('help.reasons_text')],
     [T('setup.more'), T('help.details')],
+    [T('help.new'), T('help.new_text')],
     [T('setup.apply'), T('help.apply')],
     [T('setup.forget_short'), T('help.forget')],
   ]));
@@ -1615,7 +1694,8 @@ function renderSetup() {
   setupBar();
   // came from "Change…" on the main page: show that share
   if (setup.focus) {
-    const row = [...root.querySelectorAll('[data-share], [data-focus]')].find((r) => (r.dataset.focus || r.dataset.share) === setup.focus);
+    const row = setup.focus === 'waiting' ? root.querySelector('.bk-isnew')
+      : [...root.querySelectorAll('[data-share], [data-focus]')].find((r) => (r.dataset.focus || r.dataset.share) === setup.focus);
     setup.focus = null;
     if (row) requestAnimationFrame(() => row.scrollIntoView({ block: 'start', behavior: 'smooth' }));
   }
@@ -1701,6 +1781,7 @@ function shareWhy(sh) {
 function setupShares(plan) {
   const s = setupSection(T('setup.shares'), T('setup.shares_sub'));
   const kopiaOn = dget('kopia|enabled') === 'yes';
+  const waits = waitingFolders();
   const wrap = el('div', 'box table-wrap');
   const table = el('table', 'grid bk-shares');
   const hr = el('tr');
@@ -1759,6 +1840,16 @@ function setupShares(plan) {
       td.appendChild(shareDetails(sh, plan));
       dtr.appendChild(td);
       body.appendChild(dtr);
+    }
+    // its new folders: only local so far, waiting for a decision (engine 2.21)
+    const ws = waits.filter((w) => w.share === sh.name);
+    if (ws.length) {
+      const wtr = el('tr', 'bk-detail');
+      const td = el('td');
+      td.colSpan = 6;
+      td.appendChild(waitingBox(ws));
+      wtr.appendChild(td);
+      body.appendChild(wtr);
     }
   });
   table.appendChild(body);
@@ -1821,6 +1912,87 @@ function shareDetails(sh, plan) {
   return box;
 }
 
+// ---- what is new (engine 2.21): only local and kept running until the user decides here
+/**
+ * The new folders (the plan's shares[].waiting) of the shares that go to Kopia in the draft, each with the app or
+ * VM it belongs to - then that one's level decides; the others the user decides: only local or local + Kopia
+ */
+function waitingFolders() {
+  const m = setup.model;
+  if (!m || dget('kopia|enabled') !== 'yes') return [];
+  const out = [];
+  (setup.plan.shares || []).forEach((sh) => {
+    if (!(sh.waiting || []).length || dget(`share|${sh.name}|mode`) !== 'kopia') return;
+    sh.waiting.forEach((wf) => {
+      const app = m.apps.find((a) => a.folders.some((f) => f.share === sh.name && f.dir === wf.dir));
+      const vm = app ? null : m.vms.find((x) => x.folders.some((f) => f.share === sh.name && f.dir === wf.dir));
+      const owner = app ? { name: app.name, key: 'app:' + app.id, step: 2 } : vm ? { name: vm.name, key: 'vm:' + vm.name, step: 1 } : null;
+      out.push({ share: sh.name, dir: wf.dir, bytes: wf.bytes, since: wf.first_seen, owner });
+    });
+  });
+  return out;
+}
+/** A folder as a part of a Kopia rule: what Kopia reads as a pattern becomes ? (like the engine's new_rule_name) */
+const ruleName = (dir) => dir.replace(/[*?[\]\\]/g, '?');
+/** local | kopia | null (not decided in the draft) */
+function waitChoice(w) {
+  const known = dget(`share|${w.share}|kopia_known`, []) || [];
+  const ign = dget(`share|${w.share}|kopia_ignore`, []) || [];
+  if (known.includes(`/${w.dir}/`)) return 'kopia';
+  if (ign.includes(`/${w.dir}/`) || ign.includes(`/${ruleName(w.dir)}/`)) return 'local';
+  return null;
+}
+/** only local = a Kopia ignore rule; local + Kopia = recorded in kopia_known */
+function waitSet(w, choice) {
+  const kk = `share|${w.share}|kopia_known`;
+  const ki = `share|${w.share}|kopia_ignore`;
+  const rules = [`/${w.dir}/`, `/${ruleName(w.dir)}/`];
+  const known = (dget(kk, []) || []).filter((x) => x !== rules[0]);
+  const ign = (dget(ki, []) || []).filter((x) => !rules.includes(x));
+  if (choice === 'kopia') known.push(rules[0]);
+  else ign.push(rules[1]);
+  dset(kk, known);
+  dset(ki, ign);
+}
+const waitHow = (w) => (w.owner ? T('setup.waiting_follows', { name: w.owner.name, level: T('setup.level.' + levelOf(w.owner.key)) })
+  : T('setup.waiting_' + (waitChoice(w) || 'local')));
+
+/** Step 3, under a share: its new folders, waiting for a decision - only local so far */
+function waitingBox(ws) {
+  const box = el('div', 'bk-waiting bk-isnew');
+  box.appendChild(el('div', 'role', T('setup.waiting_head')));
+  ws.forEach((w) => {
+    const row = el('div', 'bk-waitrow');
+    const name = el('span', 'mono', `/${w.dir}/`);
+    const meta = [w.bytes ? fmt.size(w.bytes) : '', w.since ? T('setup.waiting_since', { when: fmt.relative(w.since) }) : ''].filter(Boolean).join(' · ');
+    row.append(name);
+    if (meta) row.appendChild(el('small', 'role', meta));
+    if (w.owner) {
+      row.appendChild(chip(waitHow(w), '', T('setup.waiting_follows_hint', { step: w.owner.step })));
+    } else {
+      const now = waitChoice(w) || 'local';
+      const g = el('div', 'bk-seg');
+      g.setAttribute('role', 'radiogroup');
+      ['local', 'kopia'].forEach((c) => {
+        const b = el('button', c === now ? 'on' : '', T('setup.waiting_' + c));
+        b.type = 'button';
+        b.setAttribute('role', 'radio');
+        b.setAttribute('aria-checked', String(c === now));
+        b.title = T('setup.waiting_' + c + '_hint');
+        b.onclick = () => {
+          if (c === now) return;
+          waitSet(w, c);
+          Office.keepInPlace(g, () => renderSetup());
+        };
+        g.appendChild(b);
+      });
+      row.appendChild(g);
+    }
+    box.appendChild(row);
+  });
+  return box;
+}
+
 // ---- steps 1 and 2: the VMs and apps the user wants back decide the shares they live in
 // A level per VM / app: 0 not backed up, 1 local snapshot, 2 local + Kopia. Shares,
 // running containers, dumps and Kopia's exceptions follow from them (setupDerive).
@@ -1854,8 +2026,11 @@ function setupModel(plan) {
       if (b.path && !d.paths.includes(b.path)) d.paths.push(b.path);
       deps.set(b.share, d);
     }));
+    // new since the last setup (engine 2.21: not in [docker] known): only local and keeps running until decided
+    const fresh = !!plan.have_settings && a.members.every((c) => c.why === 'new');
+    const newMembers = plan.have_settings && !fresh ? a.members.filter((c) => c.why === 'new').map((c) => c.name) : [];
     return {
-      ...a, members, folders, deps: [...deps.values()],
+      ...a, members, folders, deps: [...deps.values()], isNew: fresh, newMembers,
       dbs: plan.databases.filter((d) => members.includes(d.container)),
       ncs: plan.nextcloud.filter((n) => n.members.some((m) => members.includes(m))),
       volumes: a.members.flatMap((c) => c.volumes.map((v) => (a.stack ? `${c.name}: ${v}` : v))),
@@ -1868,8 +2043,12 @@ function setupModel(plan) {
       const m = (d.source || '').match(/^\/mnt\/[^/]+\/[^/]+\/([^/]+)\//);
       if (m && !folders.some((f) => f.share === d.share && f.dir === m[1])) folders.push({ share: d.share, dir: m[1] });
     });
-    return { name: v.name, v, own: v.own.length > 0, shares: [...new Set(disks.map((d) => d.share))], folders };
+    return { name: v.name, v, own: v.own.length > 0, shares: [...new Set(disks.map((d) => d.share))], folders,
+      isNew: !!plan.have_settings && v.why === 'new' };
   });
+  // the new ones first in their step: they wait for a decision
+  apps.sort((x, y) => (y.isNew - x.isNew));
+  vms.sort((x, y) => (y.isNew - x.isNew));
   return { apps, vms, skipped, homes };
 }
 
@@ -1893,7 +2072,7 @@ function setupInitLevels() {
     // every app has at least its template or compose file: "not" only when the user said so (docker|skip)
     // a Kopia source of its own (engine 2.19) says "local + Kopia" also for an app without folders of its own
     let l = a.members.every((n) => skip.includes(n)) ? 0 : onKopia(a.folders) || dget(`app|${a.name}|kopia`) === 'yes' ? 2 : 1;
-    if (fresh) l = Math.min(l, 1);
+    if (fresh || a.isNew) l = Math.min(l, 1);           // new: never Kopia unasked
     setup.levels['app:' + a.id] = l;      // an app's further shares are never ticked unasked (they grow fast)
     // during the snapshot: the engine's proposal - media servers and apps without changing data keep running
     setup.held[a.id] = a.members.every((n) => nostop.includes(n) || skip.includes(n)) ? 'run' : 'stop';
@@ -1901,8 +2080,11 @@ function setupInitLevels() {
   m.vms.forEach((x) => {
     const k = (y) => `vm|${x.name}|${y}`;
     const shareOff = x.shares.some((sh) => dget(`share|${sh}|mode`, 'off') === 'off');
-    let l = shareOff || dget(k('mode')) === 'off' || dget(k('prepare')) === 'none' ? 0 : onKopia(x.folders) || dget(k('kopia')) === 'yes' ? 2 : 1;
-    if (fresh) l = Math.min(l, 1);
+    // prepare none: "not" for a VM sharing its dataset (it isn't held); in a dataset of its own it can be
+    // local and keep running (engine 2.21 proposes that for a new VM) - "not" is mode off there
+    const unheld = dget(k('prepare')) === 'none' && !x.own;
+    let l = shareOff || dget(k('mode')) === 'off' || unheld ? 0 : onKopia(x.folders) || dget(k('kopia')) === 'yes' ? 2 : 1;
+    if (fresh || x.isNew) l = Math.min(l, 1);
     setup.levels['vm:' + x.name] = l;
   });
 }
@@ -1950,7 +2132,7 @@ function setupDerive() {
     const k = (y) => `vm|${x.name}|${y}`;
     dset(k('mode'), x.own && l === 0 ? 'off' : 'snapshot');
     if (l === 0) dset(k('prepare'), 'none');
-    else if (!dget(k('prepare')) || dget(k('prepare')) === 'none') dset(k('prepare'), ['yes', 'channel'].includes(x.v.agent) ? 'freeze' : 'pause');
+    else if (!dget(k('prepare')) || (dget(k('prepare')) === 'none' && !x.own)) dset(k('prepare'), ['yes', 'channel'].includes(x.v.agent) ? 'freeze' : 'pause');
     x.shares.forEach((sh) => want(sh, l, x.name));
   });
   setup.locks = {};
@@ -1993,6 +2175,9 @@ function setupDerive() {
       if (l < 2 && at < 0) list.push(rule);
       if (l >= 2 && at >= 0) list.splice(at, 1);
       dset(k, list);
+      // only local: no longer among the folders that go to Kopia (engine 2.21)
+      const kk = `share|${share}|kopia_known`;
+      if (l < 2 && (dget(kk) || []).includes(rule)) dset(kk, dget(kk).filter((x) => x !== rule));
     });
   }
   setupDeriveItems();
@@ -2082,11 +2267,12 @@ function setupVms(plan) {
     const v = x.v;
     const k = (y) => `vm|${v.name}|${y}`;
     const l = levelOf('vm:' + v.name);
-    const row = el('div', 'row nocheck bk-vm');
+    const row = el('div', 'row nocheck bk-vm' + (x.isNew ? ' bk-isnew' : ''));
     row.dataset.focus = 'vm:' + v.name;
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name', v.name));
     const meta = el('div', 'row-meta');
+    if (x.isNew) meta.appendChild(chip(T('setup.new_chip'), 'accent', T('setup.new_chip_hint')));
     meta.appendChild(el('span', '', T(v.state === 'running' ? 'setup.vm_running' : 'setup.vm_off')));
     meta.appendChild(chip(T('setup.vm_agent.' + v.agent), v.agent === 'yes' ? 'ok' : '', T('setup.vm_agent_hint.' + v.agent)));
     if (v.tpm) meta.appendChild(chip(T('setup.vm_tpm'), '', T('setup.vm_tpm_hint')));
@@ -2101,9 +2287,11 @@ function setupVms(plan) {
     row.appendChild(main);
 
     const right = el('div', 'bk-right');
-    right.appendChild(levelPick('vm:' + v.name));
+    // from "not" up: freeze or pause proposed again (a VM of its own could keep running at "not")
+    right.appendChild(levelPick('vm:' + v.name, (nl) => { if (l === 0 && nl > 0) dset(k('prepare'), undefined); }));
     if (l > 0) {
-      const prep = selectInput(k('prepare'), ['freeze', 'pause', 'shutdown'], (o) => T('setup.vm_prep.' + o));
+      // keep running (none): only in a dataset of its own - sharing one, it would be "not" (engine 2.21: a new VM's proposal)
+      const prep = selectInput(k('prepare'), x.own ? ['freeze', 'pause', 'shutdown', 'none'] : ['freeze', 'pause', 'shutdown'], (o) => T('setup.vm_prep.' + o));
       prep.title = T('setup.vm_prep_hint');
       const warn = chip(T('setup.vm_noagent'), 'warn', T('setup.vm_noagent_hint'));
       const sync = () => { warn.hidden = !(prep.value === 'freeze' && (v.agent === 'no' || v.agent === 'none')); };
@@ -2137,14 +2325,16 @@ function setupApps(plan) {
   const list = el('div', 'box');
   let head = null;
   m.apps.forEach((a) => {
-    const kind = a.stack ? 'stacks' : 'single';
+    const kind = a.isNew ? 'new' : a.stack ? 'stacks' : 'single';      // the new ones first: they wait for a decision
     if (head !== kind) { list.appendChild(el('div', 'bk-subhead', T('setup.apps_' + kind))); head = kind; }
     const l = levelOf('app:' + a.id);
-    const row = el('div', 'row nocheck bk-app');
+    const row = el('div', 'row nocheck bk-app' + (a.isNew ? ' bk-isnew' : ''));
     row.dataset.focus = 'app:' + a.id;
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name', a.name));
     const meta = el('div', 'row-meta');
+    if (a.isNew) meta.appendChild(chip(T('setup.new_chip'), 'accent', T('setup.new_chip_hint')));
+    if (a.newMembers.length) meta.appendChild(chip(T('setup.new_members', { list: a.newMembers.join(', ') }), 'accent', T('setup.new_members_hint')));
     if (a.stack) meta.appendChild(el('span', '', a.members.join(', ')));
     else {
       const c = plan.containers.find((x) => x.name === a.name);
@@ -2567,4 +2757,13 @@ Office.desk({
     return { bubble: bubbleText().join(' '), facts };
   },
 });
+
+// tests/run.php runs the setup assistant's logic under node (Unraid's own) - never set in a browser
+if (globalThis.OFFICE_DESK_TESTS) {
+  globalThis.OFFICE_DESK_TESTS.backup = {
+    get setup() { return setup; },
+    setState: (s) => { state = s; },
+    setupDraftFromPlan, setupNewLines, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText,
+  };
+}
 })();

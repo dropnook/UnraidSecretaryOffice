@@ -297,18 +297,22 @@ function backupSetting(array $settings, string $section, string $key, ?string $d
  * How is a path protected by the backup? For any desk that shows paths.
  *   offsite  local snapshot + Kopia      local  local snapshot (or dump) only
  *   none     not backed up               null   no backup set up (or can't tell)
- * Follows the same rules as the engine: share mode, Kopia ignore rules,
- * flash mode for /boot, and /etc/libvirt lives in libvirt.img.
+ * Follows the same rules as the engine: share mode, Kopia ignore rules, a new top-level
+ * folder (not in kopia_known, engine 2.21) only local, flash mode for /boot, and
+ * /etc/libvirt lives in libvirt.img.
  */
-function backupProtection(string $path, int $depth = 0): ?string
+function backupProtection(string $path, int $depth = 0, ?array $settings = null): ?string
 {
     static $cache = [];
-    $file = BACKUP_DATA_DIR . '/settings.ini';
-    $stamp = (int) @filemtime($file);
-    if (($cache['stamp'] ?? null) !== $stamp) {
-        $cache = ['stamp' => $stamp, 'settings' => $stamp ? backupReadSettings($file) : []];
+    if ($settings === null) {           // the engine's settings.ini (tests pass their own)
+        $file = BACKUP_DATA_DIR . '/settings.ini';
+        $stamp = (int) @filemtime($file);
+        if (($cache['stamp'] ?? null) !== $stamp) {
+            $cache = ['stamp' => $stamp, 'settings' => $stamp ? backupReadSettings($file) : []];
+        }
+        $settings = $cache['settings'];
     }
-    $s = $cache['settings'];
+    $s = $settings;
     if (!$s || $depth > 3) {
         return null;
     }
@@ -320,7 +324,7 @@ function backupProtection(string $path, int $depth = 0): ?string
     if ($path === '/boot' || str_starts_with($path, '/boot/')) {
         return match (backupSetting($s, 'flash', 'mode', 'off')) {
             'snapshot' => $kopia ? 'offsite' : 'local',
-            'tar'      => $place ? backupProtection($place, $depth + 1) : 'none',
+            'tar'      => $place ? backupProtection($place, $depth + 1, $s) : 'none',
             default    => 'none',
         };
     }
@@ -328,10 +332,10 @@ function backupProtection(string $path, int $depth = 0): ?string
         // the engine puts every VM's configuration into its package and all of libvirt.img into server/
         // (libvirt mode tar, the default); else only the image's share counts
         if ($place && backupSetting($s, 'libvirt', 'mode', 'tar') === 'tar') {
-            return backupProtection($place, $depth + 1);
+            return backupProtection($place, $depth + 1, $s);
         }
         $img = readCfg('/boot/config/domain.cfg')['IMAGE_FILE'] ?? null;
-        return $img ? backupProtection($img, $depth + 1) : null;
+        return $img ? backupProtection($img, $depth + 1, $s) : null;
     }
     // /mnt/user/<share>/…, /mnt/<pool or disk>/<share>/…, or a resolved exclusive share
     if (!preg_match('#^/mnt/([^/]+)/([^/]+)(?:/(.*))?$#', $path, $m) || in_array($m[1], ['disks', 'remotes', 'addons'], true)) {
@@ -364,6 +368,13 @@ function backupProtection(string $path, int $depth = 0): ?string
         if (str_starts_with($rule, '/') && $r !== '' && !preg_match('/[*?\[]/', $r) && ($rel === $r || str_starts_with($rel, "$r/"))) {
             return 'local';
         }
+    }
+    // engine 2.21: a top-level folder that is not in kopia_known is new - only local until the user decides
+    // (an app's or VM's own part went offsite above; the backup place's own folder always goes)
+    $top = explode('/', $rel, 2)[0];
+    if ($top !== '' && isset($s["share|$share"]['kopia_known']) && !array_intersect(["/$top/", '*'], $s["share|$share"]['kopia_known'])
+        && !($share === backupSetting($s, 'general', 'dumps_share') && $top === ($share === BACKUP_OFFICE_SHARE ? BACKUP_DESK_DIR : 'unraid-backup'))) {
+        return 'local';
     }
     return 'offsite';
 }
