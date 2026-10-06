@@ -1198,10 +1198,13 @@ async function restoreDialog(req, title) {
   const update = () => { go.disabled = !ready(); };
   okBox.onchange = update;
 
-  const onChange = (next) => { ask = next; preview(); };
+  // a choice changes only its own field of what is asked — the others (the entries ticked, copy or swap, wake) stay,
+  // also when it comes from options drawn before the last preview arrived; a function gets what is asked now
+  const onChange = (patch) => { ask = { ...ask, ...(typeof patch === 'function' ? patch(ask) : patch) }; preview(); };
+  let sleepers = [];             // the parts seen asleep: named on «wake» also once they are awake
   const options = () => {
     entrySig = JSON.stringify(((plan && plan.options && plan.options.entries) || []).map((e) => entryBytes(e, sizeMap)));
-    filesOptions(opts, plan, ask, onChange, sizeMap);
+    filesOptions(opts, plan, ask, onChange, sizeMap, sleepers);
   };
 
   async function preview() {
@@ -1209,13 +1212,20 @@ async function restoreDialog(req, title) {
     const mine = ++seq;
     go.disabled = true;
     pv.innerHTML = '';
-    pv.appendChild(el('p', 'role', T('rd.loading')));
+    // «wake» ticked while a part sleeps: the agent wakes it and waits until it answers (seconds, up to a minute or so)
+    const waking = ask.wake && plan && plan.options ? (plan.options.asleep || []) : [];
+    if (waking.length) {
+      const w = el('p', 'callout running rs-waking');
+      w.append(el('span', 'spin'), ' ', T('rd.waking', { base: waking.join(', ') }));
+      pv.appendChild(w);
+    } else pv.appendChild(el('p', 'role', T('rd.loading')));
     const j = await Office.api.post(`${ID}.preview`, { ...ask, ...(plan ? { stamp: plan.stamp } : {}) });
     if (mine !== seq) return;
     pv.innerHTML = '';
     if (!j.ok) { plan = null; pv.appendChild(el('p', 'callout warn', Office.errorText(j.error, ID))); update(); return; }
     plan = j.preview;
     sizes = plan.sizes;
+    if (plan.options) sleepers = [...new Set([...sleepers, ...(plan.options.asleep || []), ...(plan.options.woken || [])])];
     if (plan.options && req.kind === 'files') options();
     pv.appendChild(previewView(plan, sizes));
     update();
@@ -1270,7 +1280,7 @@ async function restoreDialog(req, title) {
  * Step 4's options: which moment (newest first, with the parts of the share it covers), a whole share's entries
  * (with their sizes), copy next to it or swap it in (put it in place, when nothing is there), wake a sleeping disk
  */
-function filesOptions(box, plan, ask, change, sizeMap) {
+function filesOptions(box, plan, ask, change, sizeMap, sleepers) {
   box.innerHTML = '';
   const o = plan.options || {};
   if ((o.moments || []).length) {
@@ -1291,11 +1301,11 @@ function filesOptions(box, plan, ask, change, sizeMap) {
       op.selected = m.id === plan.target.snap;
       sel.appendChild(op);
     });
-    sel.onchange = () => change({ ...ask, snap: sel.value });
+    sel.onchange = () => change({ snap: sel.value });
     f.append(label, sel);
     box.appendChild(f);
   }
-  if (o.whole && (o.entries || []).length) box.appendChild(entriesField(o.entries, plan, ask, change, sizeMap));
+  if (o.whole && (o.entries || []).length) box.appendChild(entriesField(o.entries, plan, change, sizeMap));
   const way = el('div', 'field');
   way.appendChild(el('div', 'field-title', T('rd.way')));
   ['copy', 'swap'].forEach((m) => {
@@ -1304,7 +1314,7 @@ function filesOptions(box, plan, ask, change, sizeMap) {
     r.type = 'radio';
     r.name = 'rs-way';
     r.checked = (ask.mode || plan.target.mode || 'copy') === m;
-    r.onchange = () => change({ ...ask, mode: m, snap: plan.target.snap || ask.snap || '' });
+    r.onchange = () => change((now) => ({ mode: m, snap: now.snap || plan.target.snap || '' }));
     const key = m === 'swap' && o.nothing_live ? 'rd.way_place' : 'rd.way_' + m;
     const text = el('span', '', T(key));
     text.appendChild(el('small', '', T(key + '_hint')));
@@ -1317,9 +1327,10 @@ function filesOptions(box, plan, ask, change, sizeMap) {
     const c = el('input');
     c.type = 'checkbox';
     c.checked = !!ask.wake;
-    c.onchange = () => change({ ...ask, wake: c.checked });
-    const text = el('span', '', T('rd.wake', { base: (o.asleep || []).join(', ') || '–' }));
-    text.appendChild(el('small', '', T('rd.wake_hint')));
+    c.onchange = () => change({ wake: c.checked });
+    const names = (o.asleep || []).length ? o.asleep : (o.woken || []).length ? o.woken : (sleepers || []);
+    const text = el('span', '', T('rd.wake', { base: names.join(', ') || '–' }));
+    text.appendChild(el('small', '', T(ask.wake && !(o.asleep || []).length ? 'rd.woke' : 'rd.wake_hint', { base: names.join(', ') || '–' })));
     l.append(c, text);
     box.appendChild(l);
   }
@@ -1335,12 +1346,15 @@ function momentLabel(m, o) {
   return bits.join(' · ');
 }
 
-/** A whole share's entries at its top: all of them, or the ones ticked */
-function entriesField(entries, plan, ask, change, sizeMap) {
+/**
+ * A whole share's entries at its top: all of them, or the ones ticked. What is ticked stays across re-plans (another
+ * moment, copy or swap, wake); an entry the chosen moment doesn't hold drops out.
+ */
+function entriesField(entries, plan, change, sizeMap) {
   const f = el('div', 'field rs-entries');
   f.appendChild(el('div', 'field-title', T('rd.items')));
   const chosen = new Set(plan.target.items || entries.map((e) => e.name));
-  const send = () => change({ ...ask, snap: plan.target.snap, items: entries.map((e) => e.name).filter((n) => chosen.has(n)) });
+  const send = () => change((now) => ({ snap: now.snap || plan.target.snap, items: entries.map((e) => e.name).filter((n) => chosen.has(n)) }));
   const all = el('label', 'check');
   const allBox = el('input');
   allBox.type = 'checkbox';

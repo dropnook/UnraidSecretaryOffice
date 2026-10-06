@@ -62,6 +62,7 @@
 .rs-pv-steps, .rs-pv-list{margin:4px 0 0; padding-left:22px; font-size:13px; color:var(--ink2)}
 .rs-pv-steps li, .rs-pv-list li{margin:3px 0; overflow-wrap:anywhere}
 .rs-measuring{color:var(--accent-ink)}
+.rs-waking{display:flex; align-items:center; gap:8px; margin:6px 0 10px}
 .rs-confirm{margin-top:4px}
 
 /* the journal: steps with their state, progress, what they found */
