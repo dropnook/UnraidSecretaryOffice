@@ -1760,6 +1760,125 @@ function testWatchmanSched(): void
 }
 
 /**
+ * The night watchman and data that vanishes: per ZFS share from `referenced` (its snapshots keeping
+ * some, a pool asleep named), per XFS/btrfs disk from its used space (not while its snapshots changed),
+ * who moved data then — and what is no loss: what moves data (the mover …), the office at work, a
+ * dataset put into Ms. Dustdevil's storeroom or the storeroom emptied
+ */
+function testWatchmanFlowGone(): void
+{
+    $gb = 1024 ** 3;
+    $tmp = sys_get_temp_dir() . '/office-tests-gone-flow-' . getmypid();
+    same('gone movers: who moves data (not unbalanced\'s web page, always running)', ['mover', 'mover', 'embycache', 'gather', 'rsync', null, 'storeroom', null, null], array_map('watchmanFlowMover', [
+        ['/bin/bash', '/usr/local/sbin/mover', 'start'], ['/bin/bash', '/usr/local/emhttp/plugins/ca.mover.tuning/age_mover', 'start'],
+        ['python3', '/usr/local/emhttp/plugins/unraid-secretary-office/embycache/embycache_run.py', '--run'],
+        ['bash', '/usr/local/emhttp/plugins/unraid-secretary-office/gather/consolidate_master.sh', 'run'],
+        ['rsync', '-a', '--remove-source-files', '/mnt/user/a/', '/mnt/user/b/'], ['rsync', '-a', '/mnt/user/a/', '/mnt/user/b/'],
+        ['rm', '-rf', '--', '/mnt/hive/Serien/_UnraidSecretaryOffice-trash/20261006-1010.purging'], ['rm', '-rf', '/mnt/hive/Serien/Staffel 1'],
+        ['/usr/local/emhttp/plugins/unbalanced/unbalanced', '--port', '7090']]));
+    foreach (['100' => ['/bin/bash', '/usr/local/sbin/mover', 'start'], '200' => ['sleep', '60'], 'self' => ['x']] as $pid => $argv) {
+        @mkdir("$tmp/proc/$pid", 0700, true);
+        file_put_contents("$tmp/proc/$pid/cmdline", implode("\0", $argv) . "\0");
+    }
+    same('gone movers: from /proc', [['mover'], null], [watchmanFlowMovers("$tmp/proc"), watchmanFlowMovers("$tmp/none")]);
+
+    // the disks: an awake btrfs disk with snapshots and shares, an XFS one asleep, ZFS left to the datasets
+    foreach (['disk1/.btrfs-snap/20261006-0100', 'disk1/Serien', 'disk1/Filme', 'disk1/_UnraidSecretaryOffice-trash', 'disk1/.Recycle.Bin', 'disk2/Filme'] as $d) {
+        @mkdir("$tmp/mnt/$d", 0700, true);
+    }
+    touch("$tmp/mnt/disk1/.btrfs-snap", 1791200000);
+    file_put_contents("$tmp/disks.ini", "[parity]\nname=\"parity\"\ntype=\"Parity\"\nfsType=\"\"\n[disk1]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"luks:btrfs\"\nfsStatus=\"Mounted\"\nspundown=\"0\"\n"
+        . "[disk2]\nname=\"disk2\"\ntype=\"Data\"\nfsType=\"xfs\"\nfsStatus=\"Mounted\"\nspundown=\"1\"\n[hive]\nname=\"hive\"\ntype=\"Cache\"\nfsType=\"zfs\"\nfsStatus=\"Mounted\"\nspundown=\"0\"\n");
+    $d = watchmanFlowDisks(['disks_ini' => "$tmp/disks.ini", 'mnt' => "$tmp/mnt"]);
+    same('gone disks: the awake XFS/btrfs ones with their shares and snapshot time, the sleeping one not asked', [['disk1'], 'btrfs', 1791200000, ['Filme', 'Serien'], true, ['disk2']],
+        [array_keys($d['disks'] ?? []), $d['disks']['disk1']['fs'] ?? null, $d['disks']['disk1']['snap'] ?? null,
+         (function (array $a) { sort($a); return $a; })($d['disks']['disk1']['shares'] ?? []), ($d['disks']['disk1']['used'] ?? 0) > 0, $d['asleep'] ?? null]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+
+    same('gone: the share of a dataset — also a share put whole into the storeroom (a second run in that second: -2)', ['Serien', 'Serien', 'Serien', null, 'Serien', 'old'],
+        [watchmanGoneShare('tank/Serien'), watchmanGoneShare('tank/Serien/Staffel 1'), watchmanGoneShare('tank/Serien/_UnraidSecretaryOffice-trash-20261006-140500-x'),
+         watchmanGoneShare('tank'), watchmanGoneShare('tank/_UnraidSecretaryOffice-trash-20261006-140500-Serien/sub'),
+         watchmanGoneShare('tank/_UnraidSecretaryOffice-trash-20261006-140500-2-old')]);
+
+    // rounds on made-up looks
+    $t0 = strtotime('2026-10-06 14:02:00');
+    $ds = fn (int $r, int $b = 0) => ['w' => 0, 'u' => $r + $b, 's' => 1000, 'r' => $r, 'b' => $b];
+    $look = fn (array $o) => $o + ['conns' => [], 'smb' => ['on' => true, 'sessions' => []], 'containers' => null, 'nfs' => false, 'holder' => null, 'kopia' => 'kopia',
+                                   'zfs' => null, 'office_shares' => ['UnraidSecretaryOffice'], 'disks' => null, 'moving' => []];
+    $conn = fn (string $peer, int $sent, string $svc = 'ssh', int $lport = 22) => ['local' => '192.0.2.20', 'lport' => $lport, 'peer' => $peer, 'pport' => 50000,
+        'service' => $svc, 'sent' => $sent, 'rcvd' => 0];
+    $zfs = fn (array $sets, array $asleep = []) => ['datasets' => ['tank' => $ds(1)] + $sets, 'pools' => ['tank'], 'asleep' => $asleep];
+    $disks = fn (int $used1, int $used3, int $snap3) => ['disks' => ['disk1' => ['fs' => 'btrfs', 'used' => $used1, 'snap' => 1791200000, 'shares' => ['Filme', 'Serien']],
+        'disk3' => ['fs' => 'btrfs', 'used' => $used3, 'snap' => $snap3, 'shares' => ['Musik']]], 'asleep' => []];
+    $bf = null;
+    $book = [];
+    $all = ['tank/Serien' => $ds(1000 * $gb), 'tank/Serien/sub' => $ds(100 * $gb), 'cold/Serien' => $ds(50 * $gb), 'tank/Filme' => $ds(440 * $gb),
+            'tank/Filme/old' => $ds(20 * $gb), 'tank/Filme/tmp' => $ds(60 * $gb), 'tank/_UnraidSecretaryOffice-trash-20261005-090000-junk' => $ds(30 * $gb)];
+    [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['conns' => [$conn('192.0.2.7', 1000)], 'zfs' => $zfs($all) + ['pools' => ['tank', 'cold']],
+        'disks' => $disks(10000 * $gb, 5000 * $gb, 1791200000)]), $book, $t0);
+    same('gone: the first look — counters only', [[], []], [$flow['gone'], $book]);
+
+    // five minutes later: 300 GB gone from Serien (200 GB kept by its snapshots, cold asleep), Filme: one dataset into the storeroom,
+    // one destroyed (60 GB of ~520), the storeroom emptied; disk1 200 GB less, disk3's snapshots changed
+    $now = $all;
+    $now['tank/Serien'] = $ds(700 * $gb, 200 * $gb);
+    unset($now['cold/Serien'], $now['tank/Filme/old'], $now['tank/Filme/tmp'], $now['tank/_UnraidSecretaryOffice-trash-20261005-090000-junk']);
+    $now['tank/Filme/_UnraidSecretaryOffice-trash-20261006-140500-old'] = $ds(20 * $gb);
+    [$added, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['conns' => [$conn('192.0.2.7', 2000)], 'zfs' => $zfs($now, ['cold']),
+        'disks' => $disks(9800 * $gb, 4000 * $gb, $t0 + 200)]), $book, $t0 + 300);
+    $by = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+    $se = $by['flow_gone:share:Serien']['p'] ?? [];
+    same('gone: Serien (300 GB, 27 %, 200 GB still in snapshots, cold asleep, an SSH client then), Filme (the destroyed one only), disk1 — disk3 left out',
+        [['flow_gone', 'flow_gone', 'flow_gone'], ['flow_gone:disk:disk1', 'flow_gone:share:Filme', 'flow_gone:share:Serien'], [300 * $gb, 27, 200 * $gb, ['cold'], 'clients', ['192.0.2.7 (SSH)']],
+         60 * $gb, 200 * $gb, [0, 0]],
+        [$added, (function (array $a) { sort($a); return $a; })(array_keys($by)), [$se['bytes'] ?? null, $se['pct'] ?? null, $se['kept'] ?? null, $se['asleep'] ?? null, $se['from'] ?? null, $se['clients'] ?? null],
+         $by['flow_gone:share:Filme']['p']['bytes'] ?? null, $by['flow_gone:disk:disk1']['p']['bytes'] ?? null,
+         [array_sum($flow['gone']['disk:disk3']['h'] ?? []), array_sum($flow['gone']['disk:disk3']['o'] ?? [])]]);
+    same('gone in words', "300 GB gone from Serien in 5 min — 27 % of the share while I'm still learning what is normal. 200 GB of it still in its snapshots. "
+        . "Moving data over SMB, NFS or SSH then: 192.0.2.7 (SSH). Not looked at (asleep): cold.",
+        officeNotifyText('watchman', 'entry.flow_gone', watchmanText($by['flow_gone:share:Serien'], 'en'), 'en'));
+    same('gone in words: a disk', "200 GB gone from disk1 (Filme, Serien) in 5 min — more than 100 GB in one round while I'm still learning what is normal. "
+        . "Moving data over SMB, NFS or SSH then: 192.0.2.7 (SSH). Measured for the whole disk (btrfs), not per share.",
+        officeNotifyText('watchman', 'entry.flow_gone', watchmanText($by['flow_gone:disk:disk1'], 'en'), 'en'));
+
+    // the mover runs: what vanishes meanwhile (and the round after) went elsewhere; then nobody connected: from the server itself
+    $now['tank/Musik'] = $ds(800 * $gb);
+    [$added, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['conns' => [$conn('192.0.2.7', 2000)], 'zfs' => $zfs($now), 'moving' => ['mover']]), $book, $t0 + 600);
+    $now['tank/Musik'] = $ds(600 * $gb);
+    [$added2, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['conns' => [$conn('192.0.2.7', 2000)], 'zfs' => $zfs($now)]), $book, $t0 + 900);
+    $now['tank/Musik'] = $ds(400 * $gb);
+    [$added3, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['conns' => [$conn('192.0.2.7', 2000)], 'zfs' => $zfs($now), 'holder' => 'backup']), $book, $t0 + 1200);
+    $now['tank/Musik'] = $ds(200 * $gb);
+    [$added4, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['conns' => [$conn('192.0.2.7', 2000)], 'zfs' => $zfs($now)]), $book, $t0 + 1500);
+    $mu = array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_gone:share:Musik']['p'] ?? [];
+    same('gone: the mover moving (and the round after), the office at work — expected; then 200 GB with nobody connected: the server itself',
+        [[], [], [], ['flow_gone'], 400 * $gb, 'server', []],
+        [$added, $added2, $added3, $added4, array_sum($flow['gone']['share:Musik']['o'] ?? []), $mu['from'] ?? null, $flow['can']['moving'] ?? null]);
+
+    // a whole share (with a child dataset) put into the storeroom, later the storeroom emptied: never a loss
+    $now['tank/Alt'] = $ds(90 * $gb);
+    $now['tank/Alt/kind'] = $ds(10 * $gb);
+    [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs($now)]), $book, $t0 + 1510);
+    unset($now['tank/Alt'], $now['tank/Alt/kind']);
+    $now['tank/_UnraidSecretaryOffice-trash-20261006-143000-Alt'] = $ds(90 * $gb);
+    $now['tank/_UnraidSecretaryOffice-trash-20261006-143000-Alt/kind'] = $ds(10 * $gb);
+    [$a1, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs($now)]), $book, $t0 + 1520);
+    unset($now['tank/_UnraidSecretaryOffice-trash-20261006-143000-Alt'], $now['tank/_UnraidSecretaryOffice-trash-20261006-143000-Alt/kind']);
+    [$a2, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs($now)]), $book, $t0 + 1530);
+    same('gone: a share put whole into the storeroom, the storeroom emptied — no loss', [[], [], 0],
+        [$a1, $a2, array_sum($flow['gone']['share:Alt']['h'] ?? []) + array_sum($flow['gone']['share:Alt']['o'] ?? [])]);
+
+    $f = watchmanFlowSummary($bf, $flow, $t0 + 1600);
+    $rows = array_column($f['gone'], null, 'key');
+    same('gone on the page: per share and disk, the last 24 h, what was expected, no counters', [300 * $gb, 400 * $gb, 200 * $gb, 'disk1', 100, 10],
+        [$rows['share:Serien']['day'] ?? null, $rows['share:Musik']['expected'] ?? null, $rows['share:Musik']['day'] ?? null, $rows['disk:disk1']['disk'] ?? null,
+         (int) round($f['limits']['gone_new'] / $gb), $f['limits']['gone_part']]);
+    $b2 = ['flow' => $bf];
+    watchmanFlowAdopt($b2, array_column($book, null, 'key')['flow_gone:share:Serien'], $t0 + 1700);
+    same('gone ack: that much is normal for the share now', 300 * $gb, $b2['flow']['ack']['flow_gone:share:Serien']['bytes'] ?? null);
+}
+
+/**
  * The night watchman's data flow: the parsers on real output (ss -tin, smbstatus -b, zfs get,
  * /proc/<pid>/net/dev — addresses anonymised), then rounds on made-up looks: the first look counts
  * nothing, deltas per connection, container and dataset, what is unusual while learning and once
@@ -3381,7 +3500,7 @@ function testIconSquare(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testJobGuard', 'testComposeBuilds'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testJobGuard', 'testComposeBuilds'],
           'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';

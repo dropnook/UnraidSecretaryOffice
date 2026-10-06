@@ -47,9 +47,11 @@ declare(strict_types=1);
  *               SMB's users, machines and the hours they start sessions;
  *               per container what it sent (its network namespace's counters);
  *               per ZFS share what was written (ZFS `written`, the ransomware
- *               pattern) — hourly, learned per client, container and share,
- *               told only when far above what is normal at that time of the
- *               week; the office's own backup and restore are expected
+ *               pattern) and what vanished from it (ZFS `referenced`; XFS and
+ *               btrfs disks: their used space) — hourly, learned per client,
+ *               container and share, told only when far above what is normal at
+ *               that time of the week; the office's own backup and restore, and
+ *               what moves data (the mover, EmbyCache …), are expected
  *
  * All of it lives in RAM or on the flash: no disk wakes up. What differs goes
  * into his watch book, to the team lead as 'checks' (recommended, one per
@@ -119,6 +121,7 @@ const WATCH_KINDS = [
     'flow_client'          => ['flow', true],
     'flow_container'       => ['flow', true],
     'flow_written'         => ['flow', true],
+    'flow_gone'            => ['flow', true],
     'smb_user'             => ['flow', true],
     'smb_client'           => ['flow', false],
     'smb_hour'             => ['flow', false],
@@ -2145,6 +2148,18 @@ function watchmanSchedAdopt(array &$b, string $kind, array $p, array $seen): voi
  *   shares      per share of an awake ZFS pool (or ZFS array disk) the bytes written (ZFS `written`
  *               of its datasets: since their latest snapshot — rewritten files count, which is what
  *               encrypting ransomware does; without a snapshot only growth shows)
+ *   gone        what vanished between two rounds (deleted — or moved somewhere else): per user share
+ *               the drop of ZFS `referenced` of its datasets on every awake ZFS pool (pools asleep are
+ *               named; `usedbysnapshots` rising tells how much its snapshots still hold); per awake
+ *               XFS/btrfs disk or pool the drop of its used space (statfs — a disk, not a share: the
+ *               shares with a folder there are named; while its btrfs snapshots changed lately, its
+ *               used space says nothing). Not a loss: the office's own work (the engine's lock), what
+ *               moves data (watchmanFlowMovers(): the mover, EmbyCache, the gather, rsync
+ *               --remove-source-files, Ms. Dustdevil emptying her storeroom — seen this round or the
+ *               last), a dataset renamed into her storeroom, snapshots pruned (they change
+ *               usedbysnapshots, not referenced). Told while learning: one round over WATCH_GONE_NEW
+ *               or WATCH_GONE_PART of the share; with who was connected over SMB, NFS or SSH then —
+ *               or nobody: it came from the server itself
  *
  * Learned per client/service, container and share: hourly sums for WATCH_FLOW_KEEP; unusual is an
  * hour far above (WATCH_FLOW_FACTOR) what it was at that time of the week (±1 h) or a quarter of its
@@ -2176,6 +2191,10 @@ const WATCH_FLOW_TOP      = 8;                  // shares in the metrics
 const WATCH_FLOW_MEDIA    = '/(?:^|[\/_.:-])(?:emby|jellyfin|plex)/i';
 const WATCH_FLOW_OFFICE   = ['backup', 'check', 'dryrun', 'restore'];     // holders of the engine's lock whose traffic is the office's own
 const WATCH_FLOW_SERVICES = ['smb' => 'SMB', 'nfs' => 'NFS', 'ssh' => 'SSH', 'web' => 'WebGUI'];
+const WATCH_GONE_NEW      = 100 * 1024 ** 3;    // gone, still learning: one round over this (100 GB) …
+const WATCH_GONE_PART     = 0.1;                // … or over this part of the share (and at least WATCH_FLOW_WRITE)
+const WATCH_GONE_SNAPS    = 1800;               // a btrfs disk whose snapshots changed this recently: its used space says nothing
+const WATCH_STOREROOM     = '_UnraidSecretaryOffice-trash';     // Ms. Dustdevil's storeroom (folders and datasets)
 
 /** The counters of the last round (RAM: they mean nothing after a reboot), per data folder */
 function watchmanFlowCountersFile(string $dir): string
@@ -2252,15 +2271,112 @@ function watchmanFlowLook(array $paths, ?array $containers): array
     $settings = function_exists('backupReadSettings') ? backupReadSettings(BACKUP_DATA_DIR . '/settings.ini') : [];
     $kopia = (string) backupSetting($settings, 'kopia', 'container', '');
     $place = (string) backupSetting($settings, 'general', 'dumps_share', '');
+    $snapDirs = array_values(array_unique(['.btrfs-snap', basename((string) backupSetting($settings, 'general', 'btrfs_snap_dir', '.btrfs-snap'))]));
     return ['conns' => $conns, 'smb' => $smb, 'containers' => $cts, 'zfs' => watchmanFlowZfs($paths), 'nfs' => ($var['shareNFSEnabled'] ?? 'no') === 'yes',
             'holder' => $holder['holder'] ?? null, 'kopia' => $kopia !== '' ? $kopia : null,
-            'office_shares' => array_values(array_unique(array_filter([BACKUP_OFFICE_SHARE, $place])))];
+            'office_shares' => array_values(array_unique(array_filter([BACKUP_OFFICE_SHARE, $place]))),
+            'disks' => watchmanFlowDisks($paths, $snapDirs), 'moving' => watchmanFlowMovers($paths['proc'] ?? '/proc')];
 }
 
 /**
- * ZFS `written`, `used` and `snapshots_changed` of every dataset of the awake ZFS pools and ZFS array
- * disks (disks.ini: a pool sleeps when any of its disks does — those are never asked). Null: no ZFS here.
- * @return array{datasets: array<string, array{w:int, u:int, s:?int}>, pools: list<string>, asleep: list<string>}|null
+ * The used space of every awake XFS/btrfs array disk and pool (statfs — no disk is woken: the
+ * sleeping ones aren't asked), the newest time of its btrfs snapshot folders (.btrfs-snap: the
+ * engine's and Ms. Snapshotini's — their snapshots going frees space that was deleted long ago) and the
+ * user shares with a folder on it. Null: no disks.ini.
+ * @return array{disks: array<string, array{fs: string, used: int, snap: ?int, shares: list<string>}>, asleep: list<string>}|null
+ */
+function watchmanFlowDisks(array $paths, array $snapDirs = ['.btrfs-snap']): ?array
+{
+    $ini = readCfg($paths['disks_ini'], true);
+    if (!$ini) {
+        return null;
+    }
+    $mnt = rtrim($paths['mnt'] ?? '/mnt', '/');
+    $sleep = [];
+    foreach ($ini as $section => $v) {
+        $sleep[(string) ($v['name'] ?? $section)] = ($v['spundown'] ?? '0') === '1';
+    }
+    $out = $asleep = [];
+    foreach ($ini as $section => $v) {
+        $name = (string) ($v['name'] ?? $section);
+        $fs = preg_replace('/^luks:/', '', strtolower((string) ($v['fsType'] ?? '')));
+        if (!in_array($fs, ['xfs', 'btrfs', 'reiserfs'], true) || !in_array($v['type'] ?? '', ['Data', 'Cache'], true)
+            || ($v['fsStatus'] ?? 'Mounted') !== 'Mounted' || !preg_match('/^[A-Za-z0-9_.-]{1,64}$/D', $name)) {
+            continue;
+        }
+        if (baseAsleep($name, $sleep)) {
+            $asleep[] = $name;
+            continue;
+        }
+        $dir = "$mnt/$name";
+        $total = @disk_total_space($dir);
+        $free = @disk_free_space($dir);
+        if ($total === false || $free === false || $total <= 0) {
+            continue;
+        }
+        $snap = null;
+        foreach ($fs === 'btrfs' ? $snapDirs : [] as $sd) {
+            clearstatcache(true, "$dir/$sd");
+            $t = @filemtime("$dir/$sd");
+            $snap = $t !== false ? max($snap ?? 0, (int) $t) : $snap;
+        }
+        $shares = [];
+        foreach (@scandir($dir) ?: [] as $f) {
+            if ($f[0] !== '.' && !str_starts_with($f, WATCH_STOREROOM) && count($shares) < 50 && is_dir("$dir/$f")) {
+                $shares[] = watchmanClean($f, 100);
+            }
+        }
+        $out[$name] = ['fs' => $fs, 'used' => (int) round($total - $free), 'snap' => $snap, 'shares' => $shares];
+    }
+    ksort($out);
+    return ['disks' => $out, 'asleep' => $asleep];
+}
+
+/**
+ * What moves data right now — so what vanishes in one place is somewhere else: Unraid's mover (also
+ * Mover Tuning's age_mover), the office's EmbyCache and gather, rsync with --remove-source-files,
+ * Ms. Dustdevil emptying her storeroom (rm of a storeroom: a deletion you asked for in the office).
+ * Not unbalanced's own process: it runs all the time (its web page). From /proc; null when it can't be read.
+ * @return list<string>|null
+ */
+function watchmanFlowMovers(string $proc = '/proc'): ?array
+{
+    $pids = @scandir($proc);
+    if (!$pids) {
+        return null;
+    }
+    $out = [];
+    foreach ($pids as $pid) {
+        if (ctype_digit($pid)) {
+            $what = watchmanFlowMover(explode("\0", rtrim((string) @file_get_contents("$proc/$pid/cmdline", false, null, 0, 8192), "\0")));
+            if ($what !== null) {
+                $out[$what] = true;
+            }
+        }
+    }
+    ksort($out);
+    return array_keys($out);
+}
+
+/** Which kind of mover a process is (its program, or the script an interpreter runs), or null */
+function watchmanFlowMover(array $argv): ?string
+{
+    $names = array_map(fn ($a) => basename((string) $a), array_slice($argv, 0, 3));
+    return match (true) {
+        (bool) array_intersect($names, ['mover', 'age_mover'])                                  => 'mover',
+        (bool) array_intersect($names, ['embycache_run.py'])                                   => 'embycache',
+        (bool) array_intersect($names, ['consolidate_master.sh'])                              => 'gather',
+        $names[0] === 'rsync' && in_array('--remove-source-files', $argv, true)               => 'rsync',
+        $names[0] === 'rm' && (bool) array_filter($argv, fn ($a) => str_contains((string) $a, '/' . WATCH_STOREROOM)) => 'storeroom',
+        default => null,
+    };
+}
+
+/**
+ * ZFS `written`, `used`, `referenced`, `usedbysnapshots` and `snapshots_changed` of every dataset of the
+ * awake ZFS pools and ZFS array disks (disks.ini: a pool sleeps when any of its disks does — those are
+ * never asked). Null: no ZFS here.
+ * @return array{datasets: array<string, array{w:int, u:int, s:?int, r?:int, b?:int}>, pools: list<string>, asleep: list<string>}|null
  */
 function watchmanFlowZfs(array $paths): ?array
 {
@@ -2288,10 +2404,10 @@ function watchmanFlowZfs(array $paths): ?array
     if (!$pools) {
         return ['datasets' => [], 'pools' => [], 'asleep' => $asleep];
     }
-    $cmd = ['zfs', 'get', '-H', '-p', '-o', 'name,property,value', '-t', 'filesystem,volume', '-r', 'written,used,snapshots_changed', ...$pools];
+    $cmd = ['zfs', 'get', '-H', '-p', '-o', 'name,property,value', '-t', 'filesystem,volume', '-r', 'written,used,referenced,usedbysnapshots,snapshots_changed', ...$pools];
     [$exit, $out] = run($cmd, 60);
     if ($exit !== 0 && !str_contains($out, "\twritten\t")) {
-        $cmd[10] = 'written,used';          // an older ZFS without snapshots_changed
+        $cmd[9] = 'written,used,referenced,usedbysnapshots';          // an older ZFS without snapshots_changed
         [, $out] = run($cmd, 60);
     }
     return ['datasets' => watchmanZfsParse($out), 'pools' => $pools, 'asleep' => $asleep];
@@ -2423,6 +2539,8 @@ function watchmanZfsParse(string $text): array
         match ($f[1]) {
             'written' => $out[$f[0]]['w'] = ctype_digit($v) ? (int) $v : 0,
             'used'    => $out[$f[0]]['u'] = ctype_digit($v) ? (int) $v : 0,
+            'referenced' => $out[$f[0]]['r'] = ctype_digit($v) ? (int) $v : 0,
+            'usedbysnapshots' => $out[$f[0]]['b'] = ctype_digit($v) ? (int) $v : 0,
             'snapshots_changed' => $out[$f[0]]['s'] = ctype_digit($v) ? (int) $v : null,
             default   => null,
         };
@@ -2578,14 +2696,15 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
         $prev = null;
     }
     $bf += ['since' => $now, 'smb_users' => [], 'smb_clients' => [], 'ack' => []];
-    $flow += ['since' => (int) $bf['since'], 'clients' => [], 'containers' => [], 'shares' => [], 'totals' => ['sent' => [], 'written' => []]];
+    $flow += ['since' => (int) $bf['since'], 'clients' => [], 'containers' => [], 'shares' => [], 'gone' => [], 'totals' => ['sent' => [], 'written' => []]];
     $office = in_array($look['holder'] ?? null, WATCH_FLOW_OFFICE, true);
     $restore = ($look['holder'] ?? null) === 'restore';
     $officeShares = array_flip(array_map('strval', (array) ($look['office_shares'] ?? [])));
     $prevTime = $prev === null ? null : (int) $prev['time'];
     $ack = fn (string $key): int => (int) ($bf['ack'][$key]['bytes'] ?? 0);
     $added = [];
-    $next = ['time' => $now, 'conns' => null, 'cts' => null, 'ds' => null, 'smb' => null];
+    $next = ['time' => $now, 'conns' => null, 'cts' => null, 'ds' => null, 'smb' => null, 'ref' => null, 'disks' => null, 'moving' => null];
+    $active = null;                 // who moved data over SMB, NFS or SSH this round (for what vanished), null: can't be told
 
     // SMB: users, machines, the hours they start sessions
     $names = [];
@@ -2662,8 +2781,12 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
                 $sum["$peer|$c[service]"] = ($sum["$peer|$c[service]"] ?? 0) + $d;
             }
         }
+        $active = is_array($was) ? [] : null;
         foreach ($sum as $key => $d) {
             [$ip, $svc] = explode('|', (string) $key, 2);
+            if ($active !== null && $svc !== 'web' && count($active) < WATCH_LIST_MAX) {
+                $active[] = "$ip (" . WATCH_FLOW_SERVICES[$svc] . ')';
+            }
             $flow['totals']['sent'][$svc] = (int) ($flow['totals']['sent'][$svc] ?? 0) + $d;
             $s = is_array($flow['clients'][$key] ?? null) ? $flow['clients'][$key] : watchmanFlowSeries($now);
             watchmanFlowAdd($s, $d, $now, $prevTime, false);
@@ -2785,7 +2908,119 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
         }
     }
 
-    foreach (['conns', 'cts', 'ds', 'smb'] as $part) {
+    // gone: what vanished from shares — ZFS per user share, XFS/btrfs per disk
+    $movers = is_array($look['moving'] ?? null) ? array_values(array_map('strval', $look['moving'])) : null;
+    $next['moving'] = $movers;
+    $moving = array_values(array_unique(array_merge($movers ?? [], array_map('strval', (array) ($prev['moving'] ?? [])))));
+    $expected = $office || $moving;         // the office at work, or something moving data: what vanishes went elsewhere
+    $users = [];
+    foreach ((array) ($smb['sessions'] ?? []) as $x) {
+        $users[(string) $x['user']] = true;
+    }
+    $whoNow = ['clients' => $active ?? [], 'users' => array_slice(array_keys($users), 0, WATCH_LIST_MAX),
+               'from' => $active === null ? null : ($active ? 'clients' : 'server')];
+    $gone = function (string $key, int $loss, int $size, array $who) use (&$flow, &$added, &$book, $now, $prevTime, $expected, $whoNow, $ack): void {
+        if (!isset($flow['gone'][$key]) && count($flow['gone']) >= WATCH_FLOW_SHARES) {
+            return;
+        }
+        $s = is_array($flow['gone'][$key] ?? null) ? $flow['gone'][$key] : watchmanFlowSeries($now);
+        $s = $who + $s;
+        $s['size'] = $size;
+        $s['seen'] = $now;
+        if ($loss > 0) {
+            watchmanFlowAdd($s, $loss, $now, $prevTime, $expected);
+            if (!$expected) {
+                $clear = max(WATCH_FLOW_WRITE, min(WATCH_GONE_NEW, (int) ($size * WATCH_GONE_PART)));
+                $j = watchmanFlowJudge($s, $loss, $now, $ack("flow_gone:$key"), WATCH_FLOW_MIN, $clear);
+                $run = (array) $s['run'];
+                $pct = $size > 0 ? (int) min(999, round(100 * (int) $run['bytes'] / $size)) : 0;
+                $added[] = watchmanFlowNote($book, 'flow_gone', "flow_gone:$key", $now, $run, (int) ($s['h'][intdiv($now, 3600)] ?? 0), $j,
+                    $who + ['pct' => $pct, 'part' => $j !== null && $j['learning'] && $loss >= (int) ($size * WATCH_GONE_PART)] + $whoNow);
+            }
+        }
+        $flow['gone'][$key] = $s;
+    };
+    $flow['gone'] = (array) ($flow['gone'] ?? []);
+    if (is_array($z)) {
+        // ZFS: referenced of each user share's datasets on the awake pools (a pool asleep keeps its counters). Net per share:
+        // a dataset renamed (also into Ms. Dustdevil's storeroom, inside the share or as the share itself) is gone under its
+        // old name and new under the new one; the storeroom emptied is no loss; a pool not counted before adds nothing yet
+        $next['ref'] = [];
+        $was = $prev['ref'] ?? null;
+        $sleeping = array_flip((array) $z['asleep']);
+        $per = $off = $known = [];
+        foreach (is_array($was) ? $was : [] as $ds => $v) {
+            $pool = (string) strtok((string) $ds, '/');
+            $known[$pool] = true;
+            if (isset($sleeping[$pool])) {
+                $next['ref'][$ds] = $v;
+                if (($sh = watchmanGoneShare((string) $ds)) !== null) {
+                    $off[$sh][$pool] = true;
+                }
+            }
+        }
+        $blank = ['prev' => 0, 'cur' => 0, 'b0' => 0, 'b1' => 0];
+        foreach ((array) $z['datasets'] as $ds => $v) {
+            if (!isset($v['r'])) {
+                continue;
+            }
+            $ds = (string) $ds;
+            $next['ref'][$ds] = [(int) $v['r'], (int) ($v['b'] ?? 0)];
+            if (!is_array($was) || ($sh = watchmanGoneShare($ds)) === null) {
+                continue;
+            }
+            $a = $per[$sh] ?? $blank;
+            if (is_array($was[$ds] ?? null)) {
+                $a['prev'] += (int) $was[$ds][0];
+                $a['cur'] += (int) $v['r'];
+                $a['b0'] += (int) $was[$ds][1];
+                $a['b1'] += (int) ($v['b'] ?? 0);
+            } elseif (isset($known[strtok($ds, '/')])) {
+                $a['cur'] += (int) $v['r'];             // new here: created, or a dataset's new name
+            }
+            $per[$sh] = $a;
+        }
+        foreach (is_array($was) ? $was : [] as $ds => $v) {
+            $ds = (string) $ds;
+            if (isset($next['ref'][$ds]) || str_contains($ds, '/' . WATCH_STOREROOM) || ($sh = watchmanGoneShare($ds)) === null) {
+                continue;                               // still there, or the storeroom emptied
+            }
+            $per[$sh] ??= $blank;
+            $per[$sh]['prev'] += (int) $v[0];           // destroyed, or renamed (its new name counts above)
+        }
+        foreach ($per as $sh => $a) {
+            $loss = max(0, $a['prev'] - $a['cur']);
+            $gone("share:$sh", $loss, $a['prev'] ?: $a['cur'], ['share' => (string) $sh, 'disk' => null, 'shares' => [],
+                'kept' => min($loss, max(0, $a['b1'] - $a['b0'])), 'asleep' => array_keys($off[$sh] ?? [])]);
+        }
+    }
+    $dk = $look['disks'] ?? null;
+    if (is_array($dk)) {
+        // XFS/btrfs: the used space of each awake disk and pool (a sleeping one keeps its counters)
+        $next['disks'] = [];
+        $was = $prev['disks'] ?? null;
+        foreach (array_flip((array) $dk['asleep']) as $name => $_) {
+            if (is_array($was[$name] ?? null)) {
+                $next['disks'][$name] = $was[$name];
+            }
+        }
+        foreach ((array) $dk['disks'] as $name => $d) {
+            $name = (string) $name;
+            $next['disks'][$name] = [(int) $d['used'], $d['snap']];
+            $p = $was[$name] ?? null;
+            if (!is_array($p)) {
+                continue;
+            }
+            $loss = max(0, (int) $p[0] - (int) $d['used']);
+            if ($d['snap'] !== $p[1] || ($d['snap'] !== null && $now - (int) $d['snap'] < WATCH_GONE_SNAPS)) {
+                $loss = 0;              // its btrfs snapshots changed lately: what they freed was deleted long ago — this round left out
+            }
+            $gone("disk:$name", $loss, (int) $p[0], ['share' => null, 'disk' => $name, 'fs' => (string) $d['fs'],
+                'shares' => array_slice(array_map('strval', (array) $d['shares']), 0, WATCH_LIST_MAX), 'kept' => 0, 'asleep' => []]);
+        }
+    }
+
+    foreach (['conns', 'cts', 'ds', 'smb', 'ref', 'disks', 'moving'] as $part) {
         if ($next[$part] === null) {
             $next[$part] = $prev[$part] ?? null;       // not looked at this time: the last counters stay (counted on next time)
         }
@@ -2794,6 +3029,8 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
     $flow['can'] = ['ss' => is_array($conns), 'smb' => is_array($smb) ? (!empty($smb['on']) ? 'on' : 'off') : null, 'nfs' => !empty($look['nfs']),
                     'docker' => is_array($cts), 'host' => array_slice($host, 0, 50),
                     'zfs' => is_array($z) ? ['pools' => array_values((array) $z['pools']), 'asleep' => array_values((array) $z['asleep'])] : null,
+                    'disks' => is_array($dk) ? ['disks' => array_keys((array) $dk['disks']), 'asleep' => array_values((array) $dk['asleep'])] : null,
+                    'moving' => $movers,
                     'office' => $office ? (string) $look['holder'] : null];
     watchmanFlowTidy($bf, $flow, $now);
     return [array_values(array_filter($added)), $flow, $next];
@@ -2804,7 +3041,7 @@ function watchmanFlowTidy(array &$bf, array &$flow, int $now): void
 {
     $oldest = intdiv($now - WATCH_FLOW_KEEP, 3600);
     $cur = intdiv($now, 3600);
-    foreach (['clients' => WATCH_FLOW_CLIENTS, 'containers' => WATCH_FLOW_CTS, 'shares' => WATCH_FLOW_SHARES] as $part => $cap) {
+    foreach (['clients' => WATCH_FLOW_CLIENTS, 'containers' => WATCH_FLOW_CTS, 'shares' => WATCH_FLOW_SHARES, 'gone' => WATCH_FLOW_SHARES] as $part => $cap) {
         $list = (array) ($flow[$part] ?? []);
         foreach ($list as $key => $s) {
             foreach (['h', 'o'] as $hk) {
@@ -2824,7 +3061,7 @@ function watchmanFlowTidy(array &$bf, array &$flow, int $now): void
         }
         $flow[$part] = $list;
     }
-    $parts = ['flow_client' => 'clients', 'flow_container' => 'containers', 'flow_written' => 'shares'];
+    $parts = ['flow_client' => 'clients', 'flow_container' => 'containers', 'flow_written' => 'shares', 'flow_gone' => 'gone'];
     foreach ((array) $bf['ack'] as $key => $a) {
         [$kind, $what] = array_pad(explode(':', (string) $key, 2), 2, '');
         if (!isset($parts[$kind], $flow[$parts[$kind]][$what])) {
@@ -2882,7 +3119,7 @@ function watchmanFlowUsualText(array $p, string $kind, ?string $lang): string
         return '';
     }
     if (!empty($p['learning'])) {
-        return $kind === 'flow_written'
+        return $kind === 'flow_written' || ($kind === 'flow_gone' && !empty($p['part']))
             ? officeNotifyText('watchman', 'flow.learning_share', ['pct' => (int) ($p['pct'] ?? 0)], $lang)
             : officeNotifyText('watchman', 'flow.learning', ['size' => watchmanSize((int) ($p['limit'] ?? 0), $lang)], $lang);
     }
@@ -2925,6 +3162,15 @@ function watchmanFlowSummary(?array $bf, ?array $flow, int $now): ?array
                      'usual' => watchmanFlowUsual($h, $now), 'learning' => $learning($s), 'seen' => (int) ($s['seen'] ?? 0)];
     }
     usort($shares, fn ($x, $y) => [$y['day'], $x['share']] <=> [$x['day'], $y['share']]);
+    $gone = [];
+    foreach ((array) ($flow['gone'] ?? []) as $key => $s) {
+        $h = (array) ($s['h'] ?? []);
+        $gone[] = ['key' => (string) $key, 'share' => $s['share'] ?? null, 'disk' => $s['disk'] ?? null, 'fs' => (string) ($s['fs'] ?? 'zfs'),
+                   'shares' => (array) ($s['shares'] ?? []), 'size' => (int) ($s['size'] ?? 0), 'day' => $sum($h), 'expected' => $sum((array) ($s['o'] ?? [])),
+                   'usual' => watchmanFlowUsual($h, $now), 'learning' => $learning($s), 'asleep' => (array) ($s['asleep'] ?? []),
+                   'last' => (int) ($s['last'] ?? 0), 'ack' => (int) ($bf['ack']["flow_gone:$key"]['bytes'] ?? 0)];
+    }
+    usort($gone, fn ($x, $y) => [$y['day'] + $y['expected'], $y['last'], $x['key']] <=> [$x['day'] + $x['expected'], $x['last'], $y['key']]);
     $smbClients = [];
     foreach ((array) ($bf['smb_clients'] ?? []) as $ip => $c) {
         $smbClients[] = ['ip' => (string) $ip, 'name' => (string) ($c['name'] ?? ''), 'hours' => count((array) ($c['hours'] ?? [])),
@@ -2943,9 +3189,10 @@ function watchmanFlowSummary(?array $bf, ?array $flow, int $now): ?array
         'containers' => array_slice($cts, 0, 15),
         'idle'       => max(0, count($cts) - 15),
         'shares'     => array_slice($shares, 0, 60),
+        'gone'       => array_slice($gone, 0, 60),
         'smb'        => ['users' => array_slice($users, 0, 60), 'clients' => array_slice($smbClients, 0, 40)],
         'limits'     => ['factor' => WATCH_FLOW_FACTOR, 'min' => WATCH_FLOW_MIN, 'new' => WATCH_FLOW_NEW, 'part' => (int) round(WATCH_FLOW_PART * 100),
-                         'keep' => intdiv(WATCH_FLOW_KEEP, 86400)],
+                         'keep' => intdiv(WATCH_FLOW_KEEP, 86400), 'gone_new' => WATCH_GONE_NEW, 'gone_part' => (int) round(WATCH_GONE_PART * 100)],
     ];
 }
 
@@ -3031,6 +3278,7 @@ function watchmanAdopt(array &$b, array $e, array $seen, int $now): void
         case 'flow_client':
         case 'flow_container':
         case 'flow_written':
+        case 'flow_gone':
         case 'smb_user':
         case 'smb_client':
         case 'smb_hour':
@@ -3060,6 +3308,7 @@ function watchmanFlowAdopt(array &$b, array $e, int $now): void
         case 'flow_client':
         case 'flow_container':
         case 'flow_written':
+        case 'flow_gone':
             $key = (string) $e['key'];
             $f['ack'][$key] = ['bytes' => max((int) ($f['ack'][$key]['bytes'] ?? 0), (int) ($p['peak'] ?? 0)), 'time' => $now];
             break;
@@ -3197,12 +3446,73 @@ function watchmanText(array $e, ?string $lang = null): array
                              'minutes' => (int) ($p['minutes'] ?? 0), 'usual' => watchmanFlowUsualText($p, 'flow_container', $lang)],
         'flow_written'   => ['share' => (string) ($p['share'] ?? ''), 'size' => watchmanSize((int) ($p['bytes'] ?? 0), $lang ?? 'en'),
                              'minutes' => (int) ($p['minutes'] ?? 0), 'usual' => watchmanFlowUsualText($p, 'flow_written', $lang)],
+        'flow_gone'      => ['share' => watchmanGoneName($p), 'size' => watchmanSize((int) ($p['bytes'] ?? 0), $lang ?? 'en'),
+                             'minutes' => (int) ($p['minutes'] ?? 0), 'usual' => watchmanFlowUsualText($p, 'flow_gone', $lang),
+                             'more' => watchmanGoneMore($p, $lang)],
         'smb_user'       => ['user' => (string) ($p['user'] ?? ''), 'ip' => (string) ($p['ip'] ?? '')],
         'smb_client'     => ['ip' => (string) ($p['ip'] ?? ''), 'user' => $list('users') ?: '?'],
         'smb_hour'       => ['ip' => (string) ($p['ip'] ?? ''), 'user' => $list('users') ?: '?', 'hours' => watchmanHourNames((array) ($p['hours'] ?? []))],
         'watch'          => array_map('intval', $p),
         default          => [],
     };
+}
+
+/**
+ * The user share a ZFS dataset belongs to: <pool>/<share>/…; a share put whole into Ms. Dustdevil's
+ * storeroom (<pool>/_UnraidSecretaryOffice-trash-<stamp>-<share>/…) still counts for it. Null: the pool's top.
+ */
+function watchmanGoneShare(string $ds): ?string
+{
+    $p = explode('/', $ds, 3);
+    if (count($p) < 2) {
+        return null;
+    }
+    if (str_starts_with($p[1], WATCH_STOREROOM)) {
+        return preg_match('/^' . preg_quote(WATCH_STOREROOM, '/') . '-\d{8}-\d{6}(?:-\d+)?-(.+)$/D', $p[1], $m) ? $m[1] : null;
+    }
+    return $p[1];
+}
+
+/** Where something vanished, in a few words: the share, or the disk with the shares that have a folder there ("disk3 (Filme, Serien)") */
+function watchmanGoneName(array $p): string
+{
+    if (($p['disk'] ?? null) === null) {
+        return (string) ($p['share'] ?? '');
+    }
+    $shares = array_map('strval', array_slice((array) ($p['shares'] ?? []), 0, 3));
+    return (string) $p['disk'] . ($shares ? ' (' . implode(', ', $shares) . (count((array) $p['shares']) > 3 ? ', …' : '') . ')' : '');
+}
+
+/**
+ * What else an entry of vanished data says, in words of $lang (null: left out — the page writes it
+ * itself): how much its snapshots still hold, who moved data over SMB, NFS or SSH then — or nobody, so
+ * it came from the server itself —, the SMB users connected, a disk measured as a whole, pools asleep.
+ */
+function watchmanGoneMore(array $p, ?string $lang): string
+{
+    if ($lang === null) {
+        return '';
+    }
+    $t = fn (string $k, array $x = []) => officeNotifyText('watchman', $k, $x, $lang);
+    $out = [];
+    if ((int) ($p['kept'] ?? 0) > 0) {
+        $out[] = $t('gone.kept', ['size' => watchmanSize((int) $p['kept'], $lang)]);
+    }
+    if (($p['from'] ?? null) === 'clients') {
+        $out[] = $t('gone.who_clients', ['list' => implode(', ', array_map('strval', (array) ($p['clients'] ?? [])))]);
+    } elseif (($p['from'] ?? null) === 'server') {
+        $out[] = $t('gone.who_server');
+    }
+    if ((array) ($p['users'] ?? [])) {
+        $out[] = $t('gone.who_smb', ['users' => implode(', ', array_map('strval', (array) $p['users']))]);
+    }
+    if (($p['disk'] ?? null) !== null) {
+        $out[] = $t('gone.disk', ['fs' => (string) ($p['fs'] ?? '')]);
+    }
+    if ((array) ($p['asleep'] ?? [])) {
+        $out[] = $t('gone.asleep', ['pools' => implode(', ', array_map('strval', (array) $p['asleep']))]);
+    }
+    return $out ? ' ' . implode(' ', $out) : '';
 }
 
 /** "SSH (publickey)", "WebGUI" — names, not words */

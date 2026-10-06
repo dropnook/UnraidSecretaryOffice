@@ -168,6 +168,7 @@ function render() {
     [T('help.shares'), T('help.shares_text')],
     [T('help.sched'), T('help.sched_text')],
     [T('help.flow'), T('help.flow_text', flowLimits())],
+    [T('help.flow_gone'), T('help.flow_gone_text', goneLimits())],
     [T('help.flow_not'), T('help.flow_not_text')],
     [T('help.notify'), T('help.notify_text')],
     [T('help.safe'), T('help.safe_text')],
@@ -350,13 +351,29 @@ function entryParams(e) {
   if (e.group !== 'flow') return t;
   if (p.bytes !== undefined) t.size = fmt.size(p.bytes);
   if (e.kind.startsWith('flow_')) t.usual = usualText(e.kind, p);
+  if (e.kind === 'flow_gone') t.more = goneMore(p);
   if (Array.isArray(p.hours)) t.hours = p.hours.map(hourName).join(', ');
   return t;
 }
 
+/** What else an entry of vanished data says (agent: watchmanGoneMore()): its snapshots, who moved data then, a whole disk, pools asleep */
+function goneMore(p) {
+  const out = [];
+  if (p.kept > 0) out.push(T('gone.kept', { size: fmt.size(p.kept) }));
+  if (p.from === 'clients') out.push(T('gone.who_clients', { list: (p.clients || []).join(', ') }));
+  else if (p.from === 'server') out.push(T('gone.who_server'));
+  if ((p.users || []).length) out.push(T('gone.who_smb', { users: p.users.join(', ') }));
+  if (p.disk) out.push(T('gone.disk', { fs: p.fs || '' }));
+  if ((p.asleep || []).length) out.push(T('gone.asleep', { pools: p.asleep.join(', ') }));
+  return out.length ? ' ' + out.join(' ') : '';
+}
+
+/** What moves data now (agent: watchmanFlowMovers()), in words */
+const movingText = (list) => (list || []).map((m) => (Office.has(`${ID}.moving.${m}`) ? T('moving.' + m) : m)).join(', ');
+
 /** "usually at most 1 GB per hour at this time" — or why it was told while still learning */
 function usualText(kind, p) {
-  if (p.learning) return kind === 'flow_written' ? T('flow.learning_share', { pct: p.pct || 0 }) : T('flow.learning', { size: fmt.size(p.limit || 0) });
+  if (p.learning) return kind === 'flow_written' || (kind === 'flow_gone' && p.part) ? T('flow.learning_share', { pct: p.pct || 0 }) : T('flow.learning', { size: fmt.size(p.limit || 0) });
   return p.usual > 0 ? T('flow.usual', { size: fmt.size(p.usual) }) : T('flow.usual_none');
 }
 
@@ -368,6 +385,10 @@ function hourName(h) {
   return `${day} ${String(h % 24).padStart(2, '0')}:00`;
 }
 
+const goneLimits = () => {
+  const l = (state && state.flow && state.flow.limits) || {};
+  return { new: fmt.size(l.gone_new || 100 * 1024 ** 3), part: l.gone_part || 10, learn: (state && state.flow && state.flow.learn) || 7 };
+};
 const flowLimits = () => {
   const l = (state && state.flow && state.flow.limits) || {};
   return { keep: l.keep || 14, factor: l.factor || 4, min: fmt.size(l.min || 2 * 1024 ** 3), learn: (state && state.flow && state.flow.learn) || 7,
@@ -458,10 +479,15 @@ function details(e) {
     if (p.name) add(T('detail.name'), p.name);
     if (p.image) add(T('detail.image'), p.image, true);
     if (p.share) add(T('detail.share'), p.share, true);
+    if (p.disk) add(T('detail.disk'), `${p.disk} (${p.fs || '?'})`, true);
+    if (p.disk && (p.shares || []).length) add(T('detail.shares_on'), p.shares.join(', '));
     if (p.bytes !== undefined) {
-      add(T(e.kind === 'flow_written' ? 'detail.written' : e.kind === 'flow_container' ? 'detail.sent' : 'detail.pulled'),
+      add(T(e.kind === 'flow_written' ? 'detail.written' : e.kind === 'flow_gone' ? 'detail.gone' : e.kind === 'flow_container' ? 'detail.sent' : 'detail.pulled'),
         T('detail.in_minutes', { size: fmt.size(p.bytes), minutes: p.minutes || 1 }));
-      if (e.kind === 'flow_written' && p.pct) add(T('detail.part'), `${fmt.number(p.pct)} %`);
+      if ((e.kind === 'flow_written' || e.kind === 'flow_gone') && p.pct) add(T('detail.part'), `${fmt.number(p.pct)} %`);
+      if (e.kind === 'flow_gone' && p.kept) add(T('detail.kept'), fmt.size(p.kept));
+      if (e.kind === 'flow_gone' && p.from) add(T('detail.who'), p.from === 'clients' ? (p.clients || []).join(', ') : T('detail.who_server'));
+      if (e.kind === 'flow_gone' && (p.asleep || []).length) add(T('detail.asleep'), p.asleep.join(', '));
       if (!p.learning) add(T('detail.usual'), usualText(e.kind, p));
       if (p.peak) add(T('detail.peak'), fmt.size(p.peak));
     }
@@ -677,6 +703,20 @@ function flowGroups(f) {
   if (noShares) shares.push(note(noShares));
   out.push(group('flow_shares', T('watch.flow_shares'),
     noShares || T('watch.flow_shares_sum', { n: (f.shares || []).length, size: fmt.size(total(f.shares, 'day')) }), shares));
+
+  // gone from shares: ZFS per share, XFS/btrfs per disk
+  const gone = [];
+  if (can.moving && can.moving.length) gone.push(note(T('watch.flow_moving', { what: movingText(can.moving) })));
+  (f.gone || []).forEach((x) => gone.push(item(x.disk ? `${x.disk} · ${(x.shares || []).join(', ') || '–'}` : x.share,
+    [x.disk ? T('watch.flow_gone_disk', { fs: x.fs }) : '', T('watch.flow_day', { size: fmt.size(x.day) }),
+      x.expected ? T('watch.flow_gone_expected', { size: fmt.size(x.expected) }) : '', usualRow(x), learningText(x.learning, f),
+      x.ack ? T('watch.flow_noted', { size: fmt.size(x.ack) }) : '', (x.asleep || []).length ? T('watch.flow_gone_asleep', { pools: x.asleep.join(', ') }) : ''])));
+  const disks = can.disks;
+  if (disks && disks.asleep && disks.asleep.length) gone.push(item(disks.asleep.join(', '), [T('watch.flow_asleep')]));
+  const noGone = !(f.gone || []).length && !zfs && !(disks && disks.disks && disks.disks.length) ? T('watch.flow_gone_none') : '';
+  if (noGone) gone.push(note(noGone));
+  out.push(group('flow_gone', T('watch.flow_gone'),
+    noGone || T('watch.flow_gone_sum', { n: (f.gone || []).length, size: fmt.size(total(f.gone, 'day')) }), gone));
 
   // SMB: users and machines
   const smb = f.smb || { users: [], clients: [] };
