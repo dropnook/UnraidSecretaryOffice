@@ -14,9 +14,21 @@
 .ad-copy.ad-block pre.code{flex-basis:100%; max-height:none; font-size:12px}
 .ad-note{font-size:12.5px; color:var(--muted)}
 .row-detail.ad-careful{color:var(--warn)}
+.row-detail.ad-where a{overflow-wrap:anywhere}
+/* his dialogs: the prepared form's fields, the plugin manager's output, the Kopia assistant */
+.ad-props{margin:6px 0 14px}
+.ad-props dd .mono{overflow-wrap:anywhere}
+pre.code.ad-output{min-height:120px; max-height:min(50vh, 420px)}
+.ad-radios{margin:6px 0 12px}
+.ad-pw{display:flex; gap:6px; align-items:center}
+.ad-pw .input{flex:1 1 auto; min-width:0}
+.dialog-body .field-title{margin:4px 0 6px}
 @media (max-width:600px){
   .row.ad-row{grid-template-columns:auto minmax(0,1fr)}
   .row.ad-row > .ad-acts{grid-column:2; justify-content:flex-start}
   .ad-copy-label{min-width:0; width:100%}
+  .dialog-body .props.ad-props{grid-template-columns:minmax(0,1fr); gap:1px}
+  .dialog-body .props.ad-props dd{margin-bottom:7px}
+  .ad-pw{flex-wrap:wrap}
 }
 }
