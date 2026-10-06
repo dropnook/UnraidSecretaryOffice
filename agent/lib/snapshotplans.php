@@ -8,9 +8,12 @@ declare(strict_types=1);
  * A plan names its targets (ZFS datasets, btrfs disks — the same ids as a
  * manual snapshot), when to run (a cron expression; the page offers hourly,
  * daily, weekly) and how many to keep. Its snapshots are called
- * auto-<plan>-YYYYMMDD-HHMM, and retention only ever looks at exactly those:
- * the backup engine's (unraidbackup-…, btrfs YYYYMMDD-HHMM), manual and held
- * snapshots are never touched.
+ * uso-plan-<plan>-YYYYMMDD-HHMM (up to office 1.27: auto-<plan>-…, still
+ * hers), and retention only ever looks at exactly those: the backup engine's
+ * (uso-backup-… and the older unraidbackup-…, btrfs YYYYMMDD-HHMM), manual and
+ * held snapshots are never touched — whatever matches the engine's names is
+ * refused even when it looks like a plan's. Not uso-<plan>-: a plan called
+ * "backup" would make the engine's names.
  *
  * Running: "php agent.php job snapshot-plans" every few minutes, on the host
  * itself, so it works even when nobody has the office open — a line in the
@@ -55,15 +58,15 @@ function snapPlanSaveAll(array $plans): void
     writeAtomic(snapPlanFile(), jsonEncode(['plans' => array_values($plans)]));
 }
 
-/** The name a plan gives its snapshots, and the pattern that finds exactly those again */
+/** The name a plan gives its snapshots, and the pattern that finds exactly those again (also the older auto-<plan>-…) */
 function snapPlanName(string $id, int $time): string
 {
-    return "auto-$id-" . date('Ymd-Hi', $time);
+    return "uso-plan-$id-" . date('Ymd-Hi', $time);
 }
 
 function snapPlanPattern(string $id): string
 {
-    return '/^auto-' . preg_quote($id, '/') . '-\d{8}-\d{4}$/';
+    return '/^(?:uso-plan|auto)-' . preg_quote($id, '/') . '-\d{8}-\d{4}$/D';
 }
 
 // ===================================================================== cron
@@ -480,13 +483,17 @@ function snapPlanRun(array $plan, int $now): array
 /**
  * Which of this plan's snapshots go: per dataset/disk the newest `keep` stay,
  * and with max_days nothing older than that — but never the one just taken.
+ * Its older auto-<plan>-… count with the new names (one series), and nothing
+ * that matches the engine's names ($enginePrefixes, default: its settings.ini).
  *
  * @param list<string> $take  the targets of this run
  * @return list<string> snapshot ids
  */
-function snapPlanDoomed(array $plan, array $take, array $all, int $now): array
+function snapPlanDoomed(array $plan, array $take, array $all, int $now, ?array $enginePrefixes = null): array
 {
     $pattern = snapPlanPattern($plan['id']);
+    // what is (or was) the backup engine's is never a plan's, whatever it looks like
+    $engine = array_values(array_unique(array_merge($enginePrefixes ?? backupEngineSnapPrefixes(), backupSnapPrefixes(null))));
     $volumes = [];
     foreach ($take as $t) {
         $volumes[$t] = true;
@@ -499,7 +506,8 @@ function snapPlanDoomed(array $plan, array $take, array $all, int $now): array
     }
     $groups = [];
     foreach ($all as $s) {
-        if (!empty($s['docker']) || ($s['fs'] ?? '') === 'vm' || !preg_match($pattern, (string) $s['name'])) {
+        if (!empty($s['docker']) || ($s['fs'] ?? '') === 'vm' || !preg_match($pattern, (string) $s['name'])
+            || backupIsEngineSnap((string) $s['name'], $engine, (string) ($s['fs'] ?? 'zfs'))) {
             continue;
         }
         $mine = isset($volumes[$s['vol'] ?? '']);

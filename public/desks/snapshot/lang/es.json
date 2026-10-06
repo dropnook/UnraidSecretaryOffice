@@ -349,7 +349,7 @@
   "fit.no_cow": "Se lo pregunté a la señora Snapshotini, pero sin ZFS ni btrfs aquí no hay nada de lo que hacer instantáneas. «¡Peccato!», dijo.",
   "plans": "Programaciones",
   "plans_sub": "Instantáneas a horas fijas — solo limpio mis propias instantáneas antiguas. No es una copia de seguridad: los contenedores siguen funcionando.",
-  "help.plans": "Una programación toma instantáneas a horas fijas (llamadas auto-<programacion>-YYYYMMDD-HHMM) y luego borra sus propias instantáneas más antiguas hasta que solo queden las que debe conservar. Las demás instantáneas — las del señor Backupsi, las manuales, las protegidas — nunca se tocan. Funciona mediante una entrada de User Scripts, incluso cuando la secretaría no está abierta. Los contenedores no se pausan para ello; para copias de seguridad consistentes está el señor Backupsi.",
+  "help.plans": "Una programación toma instantáneas a horas fijas (llamadas uso-plan-<programacion>-YYYYMMDD-HHMM; las más antiguas auto-<programacion>-…, cuentan igual) y luego borra sus propias instantáneas más antiguas hasta que solo queden las que debe conservar. Las demás instantáneas — las del señor Backupsi, las manuales, las protegidas — nunca se tocan. Funciona mediante una entrada de User Scripts, incluso cuando la secretaría no está abierta. Los contenedores no se pausan para ello; para copias de seguridad consistentes está el señor Backupsi.",
   "plan.new": "Nueva programación…",
   "plan.none": "Todavía no hay programaciones. Allora — ¿qué tal instantáneas cada hora de appdata, conservando 24?",
   "plan.no_user_scripts": "Las programaciones necesitan el plugin «User Scripts» — el jefe de equipo te dice cómo.",

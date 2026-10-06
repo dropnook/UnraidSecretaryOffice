@@ -58,10 +58,10 @@ function filterPools() {
 function source(s) {
   if (s.docker) return { key: 'docker', label: T('source.docker') };
   if (s.fs === 'vm') return { key: 'vm', label: T('source.vm') };
+  // the engine's first: what matches its names is never a schedule's (her retention leaves it alone too)
+  if (fromBackup(s)) return { key: 'backup', label: T('source.backup') };
   const plan = planOf(s);
   if (plan) return { key: 'plan:' + plan.id, label: '⏱ ' + plan.label, plan };
-  const bp = state?.backup?.prefix;
-  if ((bp && s.name.startsWith(bp)) || (s.fs === 'btrfs' && /^\d{8}-\d{4}$/.test(s.name))) return { key: 'backup', label: T('source.backup') };
   if (/^(manual|manuell)-/i.test(s.name) || s.name.startsWith(T('default_prefix'))) return { key: 'manual', label: T('source.manual') };
   if (s.name.startsWith('autosnap_')) return { key: 'sanoid', label: 'Sanoid' };
   if (s.name.startsWith('syncoid_')) return { key: 'syncoid', label: 'Syncoid' };
@@ -75,9 +75,20 @@ function sourceChip(src) {
   return src.key === 'backup' ? 'chip accent' : src.key === 'manual' ? 'chip warn' : src.plan ? 'chip ok' : 'chip';
 }
 
-/** The schedule a snapshot belongs to: auto-<plan>-YYYYMMDD-HHMM */
+/**
+ * Made by the backup engine: exactly <prefix>YYYYMMDD-HHMM for one of its prefixes (uso-backup-, and the older
+ * unraidbackup- while that is its default — the agent's backupSnapPrefixes()), btrfs: YYYYMMDD-HHMM
+ */
+function fromBackup(s) {
+  const name = s.name || '';
+  if (s.fs === 'btrfs' && /^\d{8}-\d{4}$/.test(name)) return true;
+  const list = state?.backup?.prefixes || (state?.backup?.prefix ? [state.backup.prefix] : []);
+  return list.some((p) => p && name.startsWith(p) && /^\d{8}-\d{4}$/.test(name.slice(p.length)));
+}
+
+/** The schedule a snapshot belongs to: uso-plan-<plan>-YYYYMMDD-HHMM (up to 1.27: auto-<plan>-…) */
 function planOf(s) {
-  const m = /^auto-([a-z0-9][a-z0-9-]*)-\d{8}-\d{4}$/.exec(s.name || '');
+  const m = /^(?:uso-plan|auto)-([a-z0-9][a-z0-9-]*)-\d{8}-\d{4}$/.exec(s.name || '');
   return m ? (state?.plans?.plans || []).find((p) => p.id === m[1]) || null : null;
 }
 
@@ -112,7 +123,7 @@ function kindText(s) {
 }
 
 /** Same run: same name — or same source with the same timestamp
-    (the backup script names ZFS snapshots «unraidbackup-YYYYMMDD-HHMM», btrfs ones just «YYYYMMDD-HHMM»). */
+    (the backup script names ZFS snapshots «uso-backup-YYYYMMDD-HHMM» — before «unraidbackup-…» —, btrfs ones just «YYYYMMDD-HHMM»). */
 function runOf(s) {
   if (s.docker) return { key: 'docker', title: T('docker_layers') };
   const src = source(s);

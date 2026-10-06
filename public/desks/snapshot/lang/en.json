@@ -349,7 +349,7 @@
   "fit.no_cow": "I asked Ms. Snapshotini, but without ZFS or btrfs there's nothing to snapshot here. \"Peccato!\", she said.",
   "plans": "Schedules",
   "plans_sub": "Snapshots at fixed times — I only ever clear away my own old ones. Not a backup: containers keep running.",
-  "help.plans": "A schedule takes snapshots at fixed times (named auto-<schedule>-YYYYMMDD-HHMM) and then deletes its own oldest until only as many are left as it should keep. Other snapshots — Mr. Backupsy's, manual ones, held ones — are never touched. It runs through a User Scripts entry, even when the office isn't open. Containers aren't paused for it; for consistent backups there's Mr. Backupsy.",
+  "help.plans": "A schedule takes snapshots at fixed times (named uso-plan-<schedule>-YYYYMMDD-HHMM; older ones auto-<schedule>-…, they count the same) and then deletes its own oldest until only as many are left as it should keep. Other snapshots — Mr. Backupsy's, manual ones, held ones — are never touched. It runs through a User Scripts entry, even when the office isn't open. Containers aren't paused for it; for consistent backups there's Mr. Backupsy.",
   "plan.new": "New schedule…",
   "plan.none": "No schedules yet. Allora — how about hourly snapshots of appdata, keeping 24?",
   "plan.no_user_scripts": "Schedules need the \"User Scripts\" plugin — the team lead tells you how.",

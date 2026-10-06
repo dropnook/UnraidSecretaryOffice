@@ -10,6 +10,7 @@ const T = Office.scope(ID);
 const { el, fmt } = Office;
 const LIVE_POLL = 5000;
 const SETUP_STALE = 600;          // seconds: an older plan is read again when the setup page opens
+const KOPIA_ROOT_EXAMPLE = '/uso'; // the Kopia container path new setups are shown, while the real one isn't known
 
 // phases of a run (status.json "phase") grouped into the steps the desk shows
 const STEPS = [
@@ -1060,7 +1061,7 @@ function driftSection() {
 function restoreSection() {
   const box = section(T('restore'), T('restore_sub'));
   const set = state.settings || {};
-  const prefix = set.snap_prefix || 'unraidbackup-';
+  const prefixes = set.snap_prefixes || [set.snap_prefix || 'uso-backup-'];
   const dl = el('dl', 'kv bk-restore');
   const item = (title, ...parts) => {
     dl.appendChild(el('dt', '', title));
@@ -1068,11 +1069,15 @@ function restoreSection() {
     parts.forEach((p) => dd.append(p));
     dl.appendChild(dd);
   };
-  item(T('restore.local'), T('restore.local_zfs'), ' ', el('code', '', `/mnt/<pool>/<share>/.zfs/snapshot/${prefix}…/`),
+  item(T('restore.local'), T('restore.local_zfs'), ' ', el('code', '', `/mnt/<pool>/<share>/.zfs/snapshot/${prefixes[0]}…/`),
+    ...(prefixes.length > 1 ? [' ', T('restore.local_older', { names: prefixes.slice(1).map((p) => `${p}…`).join(', ') })] : []),
     ' ', T('restore.local_btrfs'), ' ', el('code', '', `${set.view_root || '/mnt/addons/UnraidSecretaryOffice/btrfs-snap'}/<disk>/<…>/<share>/`));
   if (set.kopia_enabled) {
-    const root = ((state.drift && Array.isArray(state.drift.policies) && state.drift.policies.find((p) => p.kind === 'root')) || {}).path || set.mount_root || '/mnt/addons/UnraidSecretaryOffice/snapshots';
+    // the Container Path Kopia names its sources after, as the engine last compared it - otherwise only an example
+    const known = ((state.drift && Array.isArray(state.drift.policies) && state.drift.policies.find((p) => p.kind === 'root')) || {}).path;
+    const root = known || KOPIA_ROOT_EXAMPLE;
     item(T('restore.kopia'), T('restore.kopia_text', { container: set.kopia_container || 'kopia', root }),
+      ...(known ? [] : [' ', T('restore.kopia_example', { root })]),
       ...((state.items || []).length ? [' ', T('restore.kopia_items', { root, list: state.items.map((i) => `.${i.kind}s/${i.name}`).join(', ') })] : []));
   }
   const pk = packages();
@@ -2226,7 +2231,8 @@ function setupGeneral(plan) {
   const box = el('div', 'bk-form');
   const zfs = plan.bases.some((b) => b.fs === 'zfs');
   const btrfs = plan.bases.some((b) => b.fs === 'btrfs');
-  if (zfs) box.appendChild(field(T('setup.g_prefix'), textInput('general|snap_prefix', /^[a-z0-9_]+-$/), T('setup.g_prefix_hint')));
+  // like the engine's snap_prefix_ok(): words joined by -, ends with -; never Ms. Snapshotini's uso-plan- / auto-
+  if (zfs) box.appendChild(field(T('setup.g_prefix'), textInput('general|snap_prefix', /^(?!uso-plan-|auto-)[a-z0-9_]+(?:-[a-z0-9_]+)*-$/), T('setup.g_prefix_hint')));
   if (btrfs) {
     box.appendChild(field(T('setup.g_btrfs_free'), textInput('btrfs|min_free_gb', /^\d+$/), T('setup.g_btrfs_free_hint')));
     box.appendChild(checkbox(T('setup.g_btrfs_all'), dget('btrfs|snapshot_all') === 'yes', (v) => dset('btrfs|snapshot_all', v ? 'yes' : 'no')));

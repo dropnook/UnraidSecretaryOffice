@@ -349,7 +349,7 @@
   "fit.no_cow": "Ho chiesto alla signora Snapshotini, ma senza ZFS o btrfs qui non c'è niente di cui fare snapshot. «Peccato!», ha detto.",
   "plans": "Pianificazioni",
   "plans_sub": "Snapshot a orari fissi — elimino sempre e solo i miei vecchi. Non è un backup: i contenitori continuano a girare.",
-  "help.plans": "Una pianificazione crea snapshot a orari fissi (chiamati auto-<pianificazione>-AAAAMMGG-HHMM) e poi elimina i suoi più vecchi finché ne restano solo quanti deve conservarne. Gli altri snapshot — quelli del signor Backupsi, quelli manuali, quelli protetti — non li tocca mai. Gira tramite una voce di User Scripts, anche quando la segreteria non è aperta. I contenitori non vengono messi in pausa; per backup coerenti c'è il signor Backupsi.",
+  "help.plans": "Una pianificazione crea snapshot a orari fissi (chiamati uso-plan-<pianificazione>-AAAAMMGG-HHMM; quelli più vecchi auto-<pianificazione>-…, contano allo stesso modo) e poi elimina i suoi più vecchi finché ne restano solo quanti deve conservarne. Gli altri snapshot — quelli del signor Backupsi, quelli manuali, quelli protetti — non li tocca mai. Gira tramite una voce di User Scripts, anche quando la segreteria non è aperta. I contenitori non vengono messi in pausa; per backup coerenti c'è il signor Backupsi.",
   "plan.new": "Nuova pianificazione…",
   "plan.none": "Ancora nessuna pianificazione. Allora — che ne dici di snapshot ogni ora di appdata, tenendone 24?",
   "plan.no_user_scripts": "Le pianificazioni hanno bisogno del plugin «User Scripts» — il capoufficio ti dice come fare.",
