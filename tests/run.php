@@ -1917,6 +1917,224 @@ function testRestoreShares(): void
 }
 
 /**
+ * Mr. Restori's findings of 2026-10-06 (a VM's folder in domains, a ZFS dataset of its own): sizes from the source by a
+ * du that sees an unmounted ZFS snapshot, allocated and apparent (sparse), ZFS sources counted with their data's own
+ * size where the target doesn't compress; an empty folder counts as nothing there («put in place», it goes aside); the
+ * snapshots of a dataset he put aside are still offered (and said to stay with it); a folder holding a running VM's
+ * disks is never swapped or put back under it (and checked again in the job); rsync keeps sparse files sparse; a
+ * journal put back says so and where the restored state went; Kopia's list shows what a snapshot holds. All in a
+ * temporary folder, VMs and ZFS as stand-ins.
+ */
+function testRestoreFindings(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rsfind-' . getmypid();
+    $mnt = "$tmp/mnt";
+    @mkdir("$tmp/data/unraid-backup/state", 0700, true);
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    $GLOBALS['rs']['ub_data'] = "$tmp/data/unraid-backup";
+    $GLOBALS['rs']['sizes_file'] = "$tmp/data/restore-sizes.json";
+    $GLOBALS['rs']['users'] = fn (array $paths, array $roots): array => [[], []];
+    $GLOBALS['rs']['inherited'] = fn (string $ds): bool => true;
+    $GLOBALS['rs']['ratios'] = fn (array $snaps): array => array_fill_keys($snaps, 1.25);
+    $compresses = false;
+    $GLOBALS['rs']['compresses'] = function (string $ds) use (&$compresses): bool { return $compresses; };
+    $vmState = 'running';
+    $GLOBALS['rs']['vm_disks'] = function () use (&$vmState): array {
+        return ['VM1' => ['state' => $vmState, 'disks' => ['/mnt/user/domains/VM1/vdisk1.img']],
+                'Other' => ['state' => 'running', 'disks' => ['/mnt/master/domains/Other/vdisk1.img']]];
+    };
+    $put = function (string $file, ?string $text = null): void {
+        @mkdir($text === null ? $file : dirname($file), 0755, true);
+        if ($text !== null) {
+            file_put_contents($file, $text);
+        }
+    };
+    $T = (int) strtotime('2026-10-06 16:00');
+    $aside = "$mnt/master/domains/VM2.aside-20261006-175854";
+    // VM1: a dataset of its own, empty now, its snapshot holds the disk; VM2: data now, its old dataset put aside with the snapshot
+    $put("$mnt/master/domains/VM1/.zfs/snapshot/uso-backup-20261006-1600/vdisk1.img", 'disk one');
+    $put("$mnt/master/domains/VM2/vdisk1.img", 'live two');
+    $put("$aside/.zfs/snapshot/uso-backup-20261006-1600/vdisk1.img", 'old two');
+    $put("$mnt/user");
+    symlink("$mnt/master/domains", "$mnt/user/domains");
+    $ctx = [
+        'fs' => ['master' => 'zfs'],
+        'zfs' => ["$mnt/master/domains" => 'zz-master/domains', "$mnt/master/domains/VM1" => 'zz-master/domains/VM1',
+                  "$mnt/master/domains/VM2" => 'zz-master/domains/VM2', $aside => 'zz-master/domains/VM2.aside-20261006-175854'],
+        'snaps' => ['zz-master/domains/VM1' => [['name' => 'uso-backup-20261006-1600', 'time' => $T]],
+                    'zz-master/domains/VM2.aside-20261006-175854' => [['name' => 'uso-backup-20261006-1600', 'time' => $T]]],
+        'asleep' => [], 'prefixes' => ['uso-backup-', 'unraidbackup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => [],
+        'cfg' => ['domains' => ['shareUseCache' => 'only', 'shareCachePool' => 'master']],
+        'mnt' => $mnt, 'user' => "$mnt/user", 'disks' => ['master' => ['name' => 'master', 'fsFree' => '1000000000']],
+        'shares_ini' => ['domains' => ['exclusive' => 'yes']], 'old_shares' => null, 'now' => [],
+    ];
+    $owner = ['kind' => 'vm', 'name' => 'VM1', 'id' => 'VM1', 'vm_state' => 'shut off'];
+    $stamp = '20261006-190000';
+    $src1 = "$mnt/master/domains/VM1/.zfs/snapshot/uso-backup-20261006-1600";
+
+    // 2: an empty folder (here a dataset holding only its .zfs) is nothing there: «put in place» by default, it goes aside
+    $c = $ctx;
+    $p = rsPlanFilesFor('/mnt/user/domains/VM1', '', '', false, $owner, $stamp, $c);
+    $notes = array_column($p['notes'], 'key');
+    same('restore findings: an empty folder — put in place by default, as a dataset, the empty one aside',
+        [true, 'swap', ['copy', 'vms_off', 'aside', 'move'], 'empty', 'zz-master/domains/VM1.restored-' . $stamp],
+        [$p['options']['nothing_live'], $p['target']['mode'], array_column($p['steps'], 'do'), $p['aside'][0]['what'] ?? null, $p['steps'][0]['dataset'] ?? null]);
+    check('restore findings: and says so (place, the empty folder aside)', in_array('note.files_place_empty', $notes, true)
+        && in_array('after.files_empty_aside', array_column($p['after'], 'key'), true) && ($p['after'][0]['key'] ?? '') === 'after.files_place', json_encode([$notes, $p['after']]));
+    // 7: its snapshots go with the dataset put aside — said so
+    $snapNote = array_values(array_filter($p['notes'], fn ($n) => $n['key'] === 'note.files_dataset_snaps'))[0] ?? [];
+    same('restore findings: the snapshots stay with the dataset put aside — said so', [1, "zz-master/domains/VM1.aside-$stamp", true],
+        [$snapNote['params']['n'] ?? null, $snapNote['params']['dataset'] ?? null, $snapNote['warn'] ?? null]);
+    // 6: a running VM keeps its disk there — refused, with a reason; the job looks again before replacing anything
+    same('restore findings: never under a running VM', [['restore_vm_uses'], 'VM1', 'running', '/mnt/user/domains/VM1/vdisk1.img'],
+        [array_values(array_diff(array_column($p['blockers'], 'key'), [])), $p['blockers'][0]['params']['name'] ?? null,
+         $p['blockers'][0]['params']['state'] ?? null, $p['blockers'][0]['params']['path'] ?? null]);
+    same('restore findings: the job checks the VMs again with every way to the folder',
+        [['/mnt/user/domains/VM1', '/mnt/master/domains/VM1'], ['VM1']], [$p['steps'][1]['paths'] ?? null, $p['steps'][1]['names'] ?? null]);
+    same('restore findings: a VM elsewhere doesn\'t count', [], array_column(rsVmsUsing(['/mnt/user/domains/VM2']), 'name'));
+    same('restore findings: the VM running blocks the step in the job, shut off it passes', ['failed', 'vm_running', 'VM1 (running)'],
+        (fn ($r) => [$r['state'], $r['note'] ?? null, $r['params']['names'] ?? null])(rsDoVmsOff($p['steps'][1])));
+    $vmState = 'shut off';
+    same('restore findings: shut off it passes', 'ok', rsDoVmsOff($p['steps'][1])['state']);
+    $c = $ctx;
+    $p = rsPlanFilesFor('/mnt/user/domains/VM1', '', '', false, $owner, $stamp, $c);
+    same('restore findings: VM shut off — nothing blocks, said to stay off', [[], true],
+        [array_column($p['blockers'], 'key'), in_array('note.files_vms_off', array_column($p['notes'], 'key'), true)]);
+    $c = $ctx;
+    $q = rsPlanFilesFor('/mnt/user/domains/VM1', '', 'copy', false, $owner, $stamp, $c);
+    same('restore findings: a copy next to it never asks the VMs (nothing replaced)', [['copy'], []], [array_column($q['steps'], 'do'), $q['blockers']]);
+
+    // 1: the size comes from the source; old entries (the du that said 1 KB) count as not measured; 3: ZFS → its data's size
+    same('restore findings: measured from the source, in the background', [true, null, [$src1]], [$p['sizes']['measuring'], $p['sizes']['need'], $p['sizes']['paths']]);
+    rsSizesSave([$src1 => ['bytes' => 1024, 'at' => time(), 'seconds' => 0]]);
+    $c = $ctx;
+    same('restore findings: a size from the old du is measured again', true, rsPlanFilesFor('/mnt/user/domains/VM1', '', '', false, $owner, $stamp, $c)['sizes']['measuring']);
+    $g = 1 << 30;
+    rsSizesSave([$src1 => ['bytes' => 16 * $g, 'apparent' => 108 * $g, 'at' => time(), 'seconds' => 3]]);
+    $c = $ctx;
+    $p = rsPlanFilesFor('/mnt/user/domains/VM1', '', '', false, $owner, $stamp, $c);
+    same('restore findings: into a target that doesn\'t compress, the data\'s own size; the apparent size beside it',
+        [false, 20 * $g, 20 * $g, 108 * $g, [$src1 => 1.25], false],
+        [$p['sizes']['measuring'], $p['sizes']['need'], $p['sizes']['logical'], $p['sizes']['apparent'], (array) $p['sizes']['scale'], $p['sizes']['compresses']]);
+    $compresses = true;
+    $c = $ctx;
+    same('restore findings: into a ZFS dataset that compresses, what it takes there', 16 * $g, rsPlanFilesFor('/mnt/user/domains/VM1', '', '', false, $owner, $stamp, $c)['sizes']['need']);
+
+    // 7: the snapshots of a dataset put aside are still offered for the folder, as what they are
+    $c = $ctx;
+    $owner2 = ['kind' => 'vm', 'name' => 'VM2', 'id' => 'VM2', 'vm_state' => 'shut off'];
+    $p = rsPlanFilesFor('/mnt/user/domains/VM2', '', '', false, $owner2, $stamp, $c);
+    $mid = 'aside:VM2.aside-20261006-175854@uso-backup-20261006-1600';
+    same('restore findings: the snapshot of the dataset put aside is a moment of its own (data there: copy)',
+        [[$mid], $aside, $mid, 'copy', ["$aside/.zfs/snapshot/uso-backup-20261006-1600"], true],
+        [array_column($p['options']['moments'], 'id'), $p['options']['moments'][0]['aside'] ?? null, $p['target']['snap'], $p['target']['mode'],
+         $p['steps'][0]['sources'] ?? null, in_array('note.files_from_aside', array_column($p['notes'], 'key'), true)]);
+    same('restore findings: counted for the folder\'s row', 1, rsFolder('/mnt/user/domains/VM2', [], $c)['snaps']);
+
+    // 1: du sees an unmounted ZFS snapshot (it looks inside: <path>/.), allocated and apparent of a sparse file
+    same('restore findings: du looks inside a folder, apparent on request',
+        [['nice', '-n', '10', 'du', '-s', '-B1', '-x', "$src1/."], ['nice', '-n', '10', 'du', '-s', '-B1', '-x', '--apparent-size', "$src1/vdisk1.img"]],
+        [rsDuCommand($src1, false), rsDuCommand("$src1/vdisk1.img", true)]);
+    $sp = "$tmp/sparse";
+    $put("$sp/disk.img", str_repeat('x', 65536));
+    $h = fopen("$sp/disk.img", 'r+');
+    ftruncate($h, 64 << 20);
+    fclose($h);
+    $GLOBALS['rs']['du'] = ['queue' => [], 'running' => []];
+    rsDuQueue($sp);
+    for ($i = 0; $i < 100 && (rsSizeOf(rsSizes(), $sp) === null); $i++) {
+        rsDuTick();
+        usleep(50000);
+    }
+    $m = rsSizeOf(rsSizes(), $sp);
+    check('restore findings: the background du measures allocated and apparent', $m !== null && $m['bytes'] < (8 << 20) && $m['apparent'] >= (64 << 20), json_encode($m));
+
+    // 3: rsync keeps sparse files sparse
+    $id = "$stamp-ab12";
+    rsPrivateDir(rsData());
+    rsPrivateDir(rsDir($id));
+    $j = rsJournalNew($id, rsPlanBase('files', 'zz', []) + ['stamp' => $stamp]);
+    $j['steps'] = [['do' => 'copy', 'from' => $sp, 'sources' => [$sp], 'to' => "$tmp/copy", 'state' => 'running']];
+    $r = rsStep($j, 0);
+    clearstatcache();
+    $st = @stat("$tmp/copy/disk.img");
+    check('restore findings: the copy keeps the sparse file sparse', $r['state'] === 'ok' && $st && $st['size'] === (64 << 20) && $st['blocks'] * 512 < (8 << 20),
+        json_encode([$r, $st ? [$st['size'], $st['blocks']] : null]));
+
+    // 6: «Put back» of such a restore — never under a running VM, the VMs checked again first
+    $vmState = 'running';
+    $jid = '20261006-180000-cd34';
+    rsPrivateDir(rsDir($jid));
+    $jr = rsJournalNew($jid, rsPlanBase('files', 'VM1', ['path' => '/mnt/user/domains/VM1']) + ['stamp' => '20261006-180000']);
+    $jr['result'] = 'ok';
+    $jr['steps'] = [['do' => 'aside', 'state' => 'ok', 'undo' => [
+        ['do' => 'aside', 'path' => '/mnt/master/domains/VM1', 'to' => '/mnt/master/domains/VM1.putback-{T}', 'optional' => true],
+        ['do' => 'move', 'from' => '/mnt/master/domains/VM1.aside-20261006-180000', 'to' => '/mnt/master/domains/VM1']]]];   // only planned, never run
+    writeAtomic(rsDir($jid) . '/plan.json', jsonEncode(rsPlanBase('files', 'VM1', []) + ['stamp' => '20261006-180000']), 0600, 0, 0);
+    rsJournalWrite($jr, false);
+    $GLOBALS['rs']['vm_disks'] = fn (): array => ['VM1' => ['state' => 'running', 'disks' => ['/mnt/master/domains/VM1/vdisk1.img']]];
+    $b = rsPlanPutback(['id' => $jid], '20261006-200000');
+    check('restore findings: a put back under a running VM is refused, its VMs checked first',
+        in_array('restore_vm_uses', array_column($b['blockers'], 'key'), true) && ($b['steps'][0]['do'] ?? '') === 'vms_off', json_encode([$b['blockers'], $b['steps']]));
+    same('restore findings: VM disks found by any way to them', [['VM1'], []],
+        [array_column(rsVmsUsing(['/mnt/user/domains/VM1']), 'name'), rsVmsUsing(['/mnt/disks/x/domains/VM1', '/boot/config'])]);
+
+    // 5: a journal put back: when, where the restored state went, its put back's entry
+    $pid = '20261006-200000-ef56';
+    rsPrivateDir(rsDir($pid));
+    $pj = rsJournalNew($pid, rsPlanBase('putback', 'VM1', ['id' => $jid]) + ['stamp' => '20261006-200000']);
+    $pj['result'] = 'ok';
+    $pj['finished'] = 1791300000;
+    $pj['aside'] = [['from' => "$mnt/master/domains/VM1", 'to' => "$mnt/master/domains/VM1.putback-20261006-200000"]];
+    rsJournalWrite($pj, false);
+    rsMarkPutback($jid, $pid, 'ok');
+    $row = rsJournalRow(rsJournal($jid));
+    same('restore findings: the journal says it was put back, when, and where the restored state went',
+        [$pid, 'ok', 1791300000, ["$mnt/master/domains/VM1.putback-20261006-200000"], false],
+        [$row['putback']['id'] ?? null, $row['putback']['result'] ?? null, $row['putback']['finished'] ?? null, array_column($row['putback']['aside'] ?? [], 'to'), $row['can_putback']]);
+
+    // 8: Kopia's list shows what a snapshot holds (rootEntry.summ), not the files read anew in that run
+    $k = rsKopiaParse(json_encode([['id' => '0123456789abcdef0123456789abcdef', 'startTime' => '2026-10-05T23:17:22Z',
+        'stats' => ['totalSize' => 28788869, 'fileCount' => 2, 'cachedFiles' => 801, 'nonCachedFiles' => 2, 'dirCount' => 187],
+        'rootEntry' => ['summ' => ['size' => 28788869, 'files' => 803, 'dirs' => 187, 'numFailed' => 0]]],
+        ['id' => 'abcdef0123456789abcdef0123456789', 'startTime' => '2026-10-04T23:17:22Z',
+         'stats' => ['totalSize' => 5, 'fileCount' => 2, 'cachedFiles' => 7, 'nonCachedFiles' => 2]]]));
+    same('restore findings: Kopia — what the snapshot holds (old ones: cached + read anew)', [[803, 187, 28788869, 0], [9, null, 5, 0]],
+        array_map(fn ($x) => [$x['files'], $x['dirs'], $x['bytes'], $x['failed']], $k));
+
+    // the page sums sizes the same way, under node
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('restore findings page: node is missing here - skipped', true);
+    } else {
+        $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, has: () => false, fmt: {} };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const r = OFFICE_DESK_TESTS.restore;
+const sizes = { measuring: true, need: null, paths: ['/a', '/b'], scale: { '/a': 1.25 }, compresses: false, free: 100 };
+const map = { '/a': { bytes: 1000, apparent: 9000 }, '/b': { bytes: 10, apparent: 10 } };
+console.log(JSON.stringify([r.sizesDone(sizes, map), r.sizesDone({ ...sizes, compresses: true }, map),
+  r.sizesDone(sizes, { '/a': { bytes: 1024 }, '/b': map['/b'] })]));
+JS;
+        file_put_contents("$tmp/t.js", $js);
+        $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/restore/desk.js') . ' 2>&1');
+        $o = json_decode($raw, true);
+        same('restore findings page: sizes summed like the agent (scaled where the target doesn\'t compress, apparent, old entries not measured)',
+            [[1260, 1260, 9010, false], 1010, null],
+            is_array($o) ? [[$o[0]['need'] ?? null, $o[0]['logical'] ?? null, $o[0]['apparent'] ?? null, $o[0]['measuring'] ?? null], $o[1]['need'] ?? null, $o[2]] : $raw);
+    }
+
+    unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file'], $GLOBALS['rs']['ub_data'], $GLOBALS['rs']['sizes_file'], $GLOBALS['rs']['users'],
+          $GLOBALS['rs']['inherited'], $GLOBALS['rs']['ratios'], $GLOBALS['rs']['compresses'], $GLOBALS['rs']['vm_disks']);
+    $GLOBALS['rs']['du'] = ['queue' => [], 'running' => []];
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * Mr. Restori's databases tile: the dumps and the media servers' SQLite copies of every package (in the shapes of
  * nostromo's real manifests, engine 2.20), earlier nights' copies from the backup place's snapshots (the SQLite
  * copies too), where a package is kept; then the page's list under node — per app, one media server's copies as one
@@ -5463,7 +5681,7 @@ function testSupporterKeys(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman', 'testSupporter'],
           'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];
