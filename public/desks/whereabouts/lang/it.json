@@ -681,7 +681,7 @@
     "one": "{names} non può essere esclusiva",
     "other": "{n} condivisioni non possono essere esclusive: {names}"
   },
-  "adv.exclusive_elsewhere.why": "Guarda un po' — una cartella con lo stesso nome su un altro pool o disco (tra parentesi). Basta quella, anche vuota, perché Unraid non colleghi la condivisione direttamente al suo pool: resta nel più lento strato FUSE. Quello che c'è in quella cartella fa parte della condivisione: spostalo sul pool della condivisione (il file manager di Unraid: Sfoglia), oppure elimina la cartella se è vuota. Poi ferma e riavvia l'array una volta (Principale → Operazioni Array) — Unraid decide all'avvio.",
+  "adv.exclusive_elsewhere.why": "Guarda un po' — una cartella con lo stesso nome su un altro pool o disco (tra parentesi). Basta quella, anche vuota, perché Unraid non colleghi la condivisione direttamente al suo pool: resta nel più lento strato FUSE. Quello che c'è in quella cartella fa parte della condivisione: spostalo sul pool della condivisione (il file manager di Unraid: Sfoglia), oppure elimina la cartella se è vuota. Poi ferma e riavvia l'array una volta (Principale → Operazioni Array) — Unraid decide all'avvio. Anche Fix Common Problems segnala queste cartelle — fagli ricontrollare dopo aver fatto ordine (Impostazioni → Impostazioni Plugin → Fix Common Problems → Rescan).",
   "adv.exclusive_unclear.title": {
     "one": "{names} non è esclusiva — e non capisco perché",
     "other": "{n} condivisioni non sono esclusive — e non capisco perché: {names}"

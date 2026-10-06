@@ -681,7 +681,7 @@
     "one": "{names} kann nicht exklusiv sein",
     "other": "{n} Shares können nicht exklusiv sein: {names}"
   },
-  "adv.exclusive_elsewhere.why": "Sieh mal an — ein gleichnamiger Ordner auf einem anderen Pool oder einer anderen Disk (in Klammern). Schon der, auch leer, hält Unraid davon ab, den Share direkt auf seinen Pool zu verlinken: Er bleibt in der langsameren FUSE-Schicht. Was in diesem Ordner liegt, gehört zum Share: auf den Pool des Shares verschieben (Unraids Dateimanager: Browse) oder den Ordner löschen, wenn er leer ist. Dann das Array einmal stoppen und starten (Main → Array Operation) — Unraid entscheidet beim Start.",
+  "adv.exclusive_elsewhere.why": "Sieh mal an — ein gleichnamiger Ordner auf einem anderen Pool oder einer anderen Disk (in Klammern). Schon der, auch leer, hält Unraid davon ab, den Share direkt auf seinen Pool zu verlinken: Er bleibt in der langsameren FUSE-Schicht. Was in diesem Ordner liegt, gehört zum Share: auf den Pool des Shares verschieben (Unraids Dateimanager: Browse) oder den Ordner löschen, wenn er leer ist. Dann das Array einmal stoppen und starten (Main → Array Operation) — Unraid entscheidet beim Start. Fix Common Problems meldet solche Ordner ebenfalls — lass es nach dem Aufräumen nochmals prüfen (Settings → User Utilities → Fix Common Problems → Rescan).",
   "adv.exclusive_unclear.title": {
     "one": "{names} ist nicht exklusiv — und ich sehe nicht, warum",
     "other": "{n} Shares sind nicht exklusiv — und ich sehe nicht, warum: {names}"

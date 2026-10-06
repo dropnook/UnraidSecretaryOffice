@@ -681,7 +681,7 @@
     "one": "{names} ne peut pas être exclusif",
     "other": "{n} partages ne peuvent pas être exclusifs : {names}"
   },
-  "adv.exclusive_elsewhere.why": "Tiens, tiens — un dossier du même nom sur un autre pool ou disque (entre parenthèses). Lui seul, même vide, empêche Unraid de lier le partage directement à son pool : il reste dans la couche FUSE, plus lente. Ce qui est dans ce dossier fait partie du partage : déplace-le sur le pool du partage (le gestionnaire de fichiers d'Unraid : Parcourir), ou supprime le dossier s'il est vide. Ensuite arrête et redémarre l'array une fois (Principal → Fonctionnement de l'Array) — Unraid décide au démarrage.",
+  "adv.exclusive_elsewhere.why": "Tiens, tiens — un dossier du même nom sur un autre pool ou disque (entre parenthèses). Lui seul, même vide, empêche Unraid de lier le partage directement à son pool : il reste dans la couche FUSE, plus lente. Ce qui est dans ce dossier fait partie du partage : déplace-le sur le pool du partage (le gestionnaire de fichiers d'Unraid : Parcourir), ou supprime le dossier s'il est vide. Ensuite arrête et redémarre l'array une fois (Principal → Fonctionnement de l'Array) — Unraid décide au démarrage. Fix Common Problems signale aussi ces dossiers — laisse-le vérifier à nouveau après le rangement (Réglages → Utilitaires utilisateurs → Fix Common Problems → Rescan).",
   "adv.exclusive_unclear.title": {
     "one": "{names} n'est pas exclusif — et je ne vois pas pourquoi",
     "other": "{n} partages ne sont pas exclusifs — et je ne vois pas pourquoi : {names}"

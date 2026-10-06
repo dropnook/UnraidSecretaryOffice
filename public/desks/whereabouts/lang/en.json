@@ -681,7 +681,7 @@
     "one": "{names} can't be exclusive",
     "other": "{n} shares can't be exclusive: {names}"
   },
-  "adv.exclusive_elsewhere.why": "Well, well — a folder of the same name on another pool or disk (in brackets). That alone, even an empty one, keeps Unraid from linking the share straight to its pool: it stays in the slower FUSE layer. What lies in that folder is part of the share: move it onto the share's pool (Unraid's file manager: Browse), or delete the folder if it is empty. Then stop and start the array once (Main → Array Operation) — Unraid decides when it starts.",
+  "adv.exclusive_elsewhere.why": "Well, well — a folder of the same name on another pool or disk (in brackets). That alone, even an empty one, keeps Unraid from linking the share straight to its pool: it stays in the slower FUSE layer. What lies in that folder is part of the share: move it onto the share's pool (Unraid's file manager: Browse), or delete the folder if it is empty. Then stop and start the array once (Main → Array Operation) — Unraid decides when it starts. Fix Common Problems reports such folders too — let it check again after tidying up (Settings → User Utilities → Fix Common Problems → Rescan).",
   "adv.exclusive_unclear.title": {
     "one": "{names} isn't exclusive — and I can't see why",
     "other": "{n} shares aren't exclusive — and I can't see why: {names}"

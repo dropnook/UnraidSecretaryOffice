@@ -681,7 +681,7 @@
     "one": "{names} no puede ser exclusivo",
     "other": "{n} recursos compartidos no pueden ser exclusivos: {names}"
   },
-  "adv.exclusive_elsewhere.why": "Vaya, vaya — una carpeta con el mismo nombre en otro pool o disco (entre paréntesis). Basta con ella, aunque esté vacía, para que Unraid no enlace el recurso compartido directamente a su pool: se queda en la capa FUSE, más lenta. Lo que hay en esa carpeta forma parte del recurso compartido: muévelo al pool del recurso (el gestor de archivos de Unraid: Explorar), o borra la carpeta si está vacía. Luego detén e inicia el array una vez (Principal → Operaciones del Array) — Unraid decide al iniciar.",
+  "adv.exclusive_elsewhere.why": "Vaya, vaya — una carpeta con el mismo nombre en otro pool o disco (entre paréntesis). Basta con ella, aunque esté vacía, para que Unraid no enlace el recurso compartido directamente a su pool: se queda en la capa FUSE, más lenta. Lo que hay en esa carpeta forma parte del recurso compartido: muévelo al pool del recurso (el gestor de archivos de Unraid: Explorar), o borra la carpeta si está vacía. Luego detén e inicia el array una vez (Principal → Operaciones del Array) — Unraid decide al iniciar. Fix Common Problems también avisa de estas carpetas — deja que vuelva a comprobar después de ordenar (Ajustes → Utilidades de Usuario → Fix Common Problems → Rescan).",
   "adv.exclusive_unclear.title": {
     "one": "{names} no es exclusivo — y no veo por qué",
     "other": "{n} recursos compartidos no son exclusivos — y no veo por qué: {names}"
