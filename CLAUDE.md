@@ -169,6 +169,15 @@ differ get a `_plugin` key or come from state (`schedule.via`).
   translated as `backup.message.<code>`) and a warning notification; exit 75. The office keeps skips
   apart from runs (`state.skips` — history, estimates, the last run and the Dashboard's last run never
   count them) and shows the newest skip while no run finished after it.
+* **Names (engine 2.20):** what the office creates in numbers carries the short prefix `uso`; places
+  keep the long name (share `UnraidSecretaryOffice`, `/mnt/addons/UnraidSecretaryOffice/…`,
+  `_UnraidSecretaryOffice-trash`, the plugin's folders, `unraid-backup` as the interface's name). The
+  engine's ZFS snapshots `uso-backup-YYYYMMDD-HHMM` (`[general] snap_prefix`), Ms. Snapshotini's
+  `uso-plan-<plan>-YYYYMMDD-HHMM`, Kopia descriptions `uso-backup <run>`, the Kopia container path shown
+  to new setups `/uso`. Old names stay recognised wherever they are read and age out by their normal
+  retention: the old default `unraidbackup-` counts as the default (lib/common.sh section 10,
+  `backupSnapPrefixes()` / `backupIsEngineSnap()` in agent/lib/backupscript.php — always exact:
+  `<prefix>` + `YYYYMMDD-HHMM`, never looser); a prefix of the user's own stays alone.
 * **Backups never live in appdata.** Dumps, archives and manifests go to a
   backup share of their own (`[general] dumps_share` → `<share>/unraid-backup`,
   in the office's share `UnraidSecretaryOffice` → `backup/`, one folder per desk;
@@ -198,7 +207,7 @@ differ get a `_plugin` key or come from state (`schedule.via`).
 
 | id | name (en / de) | does |
 |---|---|---|
-| `snapshot` | Ms. Snapshotini / Frau Snapshotini | ZFS, btrfs and VM snapshots: create, delete with an estimate, rename, hold, unmount; schedules with retention (lib/snapshotplans.php: snapshots `auto-<plan>-YYYYMMDD-HHMM`, retention touches only those; `php agent.php job snapshot-plans` every 5 min — the plugin's cron line `job.sh snapshots`, in the stack the User Scripts entry `unraid-secretary-office_snapshots`) |
+| `snapshot` | Ms. Snapshotini / Frau Snapshotini | ZFS, btrfs and VM snapshots: create, delete with an estimate, rename, hold, unmount; schedules with retention (lib/snapshotplans.php: snapshots `uso-plan-<plan>-YYYYMMDD-HHMM` — up to 1.27 `auto-<plan>-…`, counted with them —, retention touches only those and never what matches the engine's names (`backupIsEngineSnap()`); `php agent.php job snapshot-plans` every 5 min — the plugin's cron line `job.sh snapshots`, in the stack the User Scripts entry `unraid-secretary-office_snapshots`) |
 | `whereabouts` | Ms. Whereabouts / Frau Wasistwo | what is where and going on; "where things are" (config files, boot medium, VM files) with their backup protection; "If I were you …" — her advice (waAdvice() reads a few settings; the tips are built in desk.js, «I know, thanks» per browser with a signature, so a tip returns when the situation changes; nothing Fix Common Problems checks). Read only |
 | `backup` | Mr. Backupsy / Herr Backupsi | runs the engine in `backup/`: status, overview tiles (Kopia, containers, databases, VMs, flash), history, protection (shares, then the VMs; rows unfold to their rules), restore help incl. "Onto a new server", setup assistant (`#/backup/setup`: 0 basics → 1 VMs → 2 apps → 3 other shares → 4 retention; a level per VM/app — nicht / lokal / lokal + Kopia, say "Kopia", never "offsite" — and setupDerive() turns it into share modes (locked in step 3), `docker|no_stop`, dumps and Kopia ignores for folders of apps/VMs that are only local; an app's further shares are never ticked unasked; "start anew" = `setup.sh --forget`). VMs (engine 2.16): `[vm "<name>"] prepare` = freeze (guest agent) / pause / shutdown (never forced off) / none for the seconds of the snapshot, released right after the snapshot holding their disks (`state/vms` for a killed run); `mode = off` and `retention` only for a VM in a dataset of its own (`VM_OWN_DS`); per-VM results in `status.json` `vms` |
 | `emby` | Jack Emby (the intern) | EmbyCache (`embycache/`, from github.com/helmi1987/embycache-for-unraid, extended: back to the origin disk via embycache_origin.json, the emptied folder stays on the disk as a signpost, separate limits for started films and series, deliberately skipped folders = empty mapping) and the gather "Consolidate folders" (`gather/`: one disk per film folder, keeps empty folders whose content is on the pool). Settings via EmbyCache's own save_config() (trial file first); the gather's ini written by Jack; API key never leaves the server; schedules: jobs `embycache` and `gather` (job.sh) |
@@ -398,10 +407,12 @@ character, warnings and errors stay plain and clear.
   after a GC that saw no snapshots, newer snapshots can reference contents
   still marked deleted — only a complete GC undeletes them. Kopia's own
   schedule (`kopia maintenance info`, owner `user@host`) runs a full cycle every 24 h.
-* Kopia's sources are named by the **container path** (`/backup-snapshots/<share>`),
-  not the host path: changing only the Host Path keeps their history; a new
-  repository (bucket) starts every source with a full upload — no dedup across
-  repositories.
+* Kopia's sources are named by the **container path** (`/uso/<share>` for new setups,
+  `/backup-snapshots/<share>` on nostromo and older installs; the engine reads the real one from the
+  container's mapping), not the host path: changing only the Host Path keeps their history; changing
+  the Container Path makes new sources (same repository: content deduplicated, but every file read
+  once more; the old sources keep their history under the old names until removed in Kopia); a new
+  repository (bucket) starts every source with a full upload — no dedup across repositories.
 * Unraid's `notify` names a notification `<event>-<second>`: a second one with
   the same event in the same second is dropped. Line breaks in `-m` are a
   literal `\n`; never a real newline in `-d`.
