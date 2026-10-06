@@ -7,8 +7,9 @@
 #        "skipped", reason skipped_busy_<holder>) and, for a real backup, in a notification (warning);
 #        exit code 75. Whoever holds the lock notes it in state/lock-holder.json (backup.sh, setup.sh,
 #        Mr. Restori's restores). VMs with prepare = shutdown wait for one shared deadline (timeout
-#        from their shutdown request), not one timeout after the other. An app folder that is empty in
-#        the snapshot is a note in the log, not a warning
+#        from their shutdown request), not one timeout after the other, and get the request again every
+#        60 s (Windows swallows the first one). An app folder that is empty in the snapshot is a note in
+#        the log, not a warning
 #   2.19 Apps and VMs at "local + Kopia" are Kopia sources of their own ([app|vm "<name>"] kopia = yes):
 #        their folders and their package, joined read-only under <mount_root>/.apps|.vms/<name>, with
 #        their own retention; the shares leave those parts out. Apps first, then the shares, then the
@@ -294,12 +295,15 @@ vm_hold_begin() { # the shutdowns, early: they take a while
 
 # The shutdowns were all requested together (vm_hold_begin), so they share one deadline: each VM
 # its request time + VM_SHUTDOWN_TIMEOUT, all polled in one loop - at most one timeout in all,
-# not one after the other. A VM that didn't take the request isn't waited for.
+# not one after the other. A VM that didn't take the request isn't waited for. While waiting, a VM
+# still running gets the request again every VM_SHUTDOWN_RETRY seconds: Windows swallows the first
+# ACPI power button event while idle with the display off (harmless while a guest shuts down).
 vm_shutdown_wait() {
     local n now
     local -a pending=() left=()
+    local -A last=() told=()
     for n in "${VM_TODO[@]}"; do
-        [[ "$(vm_prepare "$n")" == "shutdown" && -n "${VM_SHUT_ASKED[$n]:-}" ]] && pending+=( "$n" )
+        [[ "$(vm_prepare "$n")" == "shutdown" && -n "${VM_SHUT_ASKED[$n]:-}" ]] && { pending+=( "$n" ); last[$n]="${VM_HELD_AT[$n]:-$(date +%s)}"; }
     done
     while (( ${#pending[@]} > 0 )); do
         left=()
@@ -308,7 +312,13 @@ vm_shutdown_wait() {
                 VM_SHUT_DOWN[$n]=1; log "  VM '$n': shut down"; continue
             fi
             now="$(date +%s)"
-            (( now < ${VM_HELD_AT[$n]:-$now} + VM_SHUTDOWN_TIMEOUT )) && left+=( "$n" )
+            (( now < ${VM_HELD_AT[$n]:-$now} + VM_SHUTDOWN_TIMEOUT )) || continue
+            left+=( "$n" )
+            if (( now - ${last[$n]} >= VM_SHUTDOWN_RETRY )); then
+                last[$n]="$now"
+                timeout 30 virsh shutdown "$n" >/dev/null 2>>"$LOG_FILE" \
+                    && [[ -z "${told[$n]:-}" ]] && { told[$n]=1; log "  VM '$n': still running - asked again to shut down (every ${VM_SHUTDOWN_RETRY} s)"; }
+            fi
         done
         pending=( "${left[@]}" )
         (( ${#pending[@]} > 0 )) && sleep 2

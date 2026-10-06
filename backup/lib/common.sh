@@ -866,6 +866,7 @@ declare -ga VM_NAMES=()
 declare -gA VM_STATE=() VM_AUTOSTART=() VM_AGENT=() VM_HOSTDEV=() VM_TPM=() VM_DISKS=() VM_SNAP=() VM_OWN_DS=()
 VM_SERVICE="no"
 VM_SHUTDOWN_TIMEOUT="${UB_VM_SHUTDOWN_TIMEOUT:-300}"
+VM_SHUTDOWN_RETRY="${UB_VM_SHUTDOWN_RETRY:-60}"     # the shutdown request again every so many seconds (Windows swallows the first one)
 
 vm_load() {
     VM_NAMES=(); VM_STATE=(); VM_AUTOSTART=(); VM_AGENT=(); VM_HOSTDEV=(); VM_TPM=(); VM_DISKS=(); VM_SNAP=(); VM_OWN_DS=()
