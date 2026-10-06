@@ -454,6 +454,22 @@ function rsLocate(string $path, array &$ctx): array
                     }
                 }
             }
+            // a dataset of its own he put aside (<folder>.aside-<time>, zfs rename) took its snapshots along: still
+            // offered for this folder, as what they are — found by their mountpoint next to it
+            $aside = [];
+            foreach ($ctx['zfs'] as $mp => $ads) {
+                if (preg_match('/^' . preg_quote($live, '/') . '\.aside-\d{8}-\d{6}$/D', (string) $mp)) {
+                    foreach (array_reverse($ctx['snaps'][$ads] ?? []) as $s) {
+                        $aside[] = ['id' => "$ads@{$s['name']}", 'name' => $s['name'], 'time' => $s['time'], 'path' => "$mp/.zfs/snapshot/{$s['name']}",
+                                    'ours' => backupIsEngineSnap($s['name'], $ctx['prefixes']), 'aside' => (string) $mp];
+                    }
+                }
+            }
+            if ($aside) {
+                $p['snaps'] = array_merge($p['snaps'], $aside);
+                usort($p['snaps'], fn ($a, $b) => $b['time'] <=> $a['time']);
+                $p['snaps'] = array_slice($p['snaps'], 0, RS_SNAPS_MAX);
+            }
         } elseif ($p['fs'] === 'btrfs') {
             // a snapshot of the whole disk: it covers the share when the share's folder is in it (the folder itself may not be)
             $dir = "$mnt/$base/" . $ctx['btrfs_dir'];
@@ -480,10 +496,14 @@ function rsLocate(string $path, array &$ctx): array
 /**
  * Which moment a snapshot belongs to: the engine's are taken on every pool and disk of a run at once (ZFS
  * <prefix>YYYYMMDD-HHMM, btrfs YYYYMMDD-HHMM — the run), anybody else's by their name (Ms. Snapshotini's
- * uso-plan-…, a manual one) — those may be taken on some parts only.
+ * uso-plan-…, a manual one) — those may be taken on some parts only. A snapshot of a dataset he put aside is a
+ * moment of its own (that folder's state, not the share's): aside:<the folder put aside>@<name>.
  */
 function rsMomentKey(array $s): string
 {
+    if (!empty($s['aside'])) {
+        return 'aside:' . basename((string) $s['aside']) . '@' . $s['name'];
+    }
     return !empty($s['ours']) && preg_match('/(\d{8}-\d{4})$/D', (string) $s['name'], $m) ? "run:$m[1]" : 'name:' . $s['name'];
 }
 
@@ -491,9 +511,9 @@ function rsMomentKey(array $s): string
  * A share's content is the union of its parts on all its pools and disks; so is a snapshot of it. The moments
  * of a folder (or a whole share), newest first: per moment the parts it covers (base => that part's path in the
  * snapshot), its time (the newest part's), whether it is the engine's. Folders Kopia brought back are moments of
- * their own (one part, "kopia").
+ * their own (one part, "kopia"); so are the snapshots of a dataset he put aside (aside: its folder).
  *
- * @return list<array{id:string, key:string, name:string, time:int, ours:bool, kopia:bool, parts:array<string, array{path:string, snap:string, name:string, time:int}>}>
+ * @return list<array{id:string, key:string, name:string, time:int, ours:bool, kopia:bool, aside:?string, parts:array<string, array{path:string, snap:string, name:string, time:int}>}>
  */
 function rsMoments(array $places, array $kopia = []): array
 {
@@ -501,7 +521,8 @@ function rsMoments(array $places, array $kopia = []): array
     foreach ($places as $p) {
         foreach ($p['asleep'] ? [] : $p['snaps'] as $s) {
             $key = rsMomentKey($s);
-            $m[$key] ??= ['id' => $key, 'key' => $key, 'name' => $s['name'], 'time' => 0, 'ours' => false, 'kopia' => false, 'parts' => []];
+            $m[$key] ??= ['id' => $key, 'key' => $key, 'name' => $s['name'], 'time' => 0, 'ours' => false, 'kopia' => false, 'parts' => [],
+                          'aside' => $s['aside'] ?? null];
             if (!isset($m[$key]['parts'][$p['base']])) {
                 $m[$key]['parts'][$p['base']] = ['path' => $s['path'], 'snap' => $s['id'], 'name' => $s['name'], 'time' => (int) $s['time']];
                 $m[$key]['time'] = max($m[$key]['time'], (int) $s['time']);
@@ -513,7 +534,7 @@ function rsMoments(array $places, array $kopia = []): array
         }
     }
     foreach ($kopia as $k) {
-        $m[$k['id']] = ['id' => $k['id'], 'key' => $k['id'], 'name' => $k['name'], 'time' => (int) $k['time'], 'ours' => false, 'kopia' => true,
+        $m[$k['id']] = ['id' => $k['id'], 'key' => $k['id'], 'name' => $k['name'], 'time' => (int) $k['time'], 'ours' => false, 'kopia' => true, 'aside' => null,
                         'parts' => ['kopia' => ['path' => $k['path'], 'snap' => $k['id'], 'name' => $k['name'], 'time' => (int) $k['time']]]];
     }
     $m = array_values($m);
@@ -606,14 +627,14 @@ function rsItemPlaces(array $rootPlaces, string $share, string $name, array &$ct
  * Where a moment holds one item: per part that has the moment's snapshot and the item in it (the union, primary
  * storage first, as the places come); a Kopia moment's folder plus $kopiaSub. Also which parts the moment covers at all.
  *
- * @return array{0: list<array{base:string, path:string}>, 1: list<string>}
+ * @return array{0: list<array{base:string, path:string, snap:?string}>, 1: list<string>}  snap: the ZFS snapshot (dataset@name) it lies in
  */
 function rsItemSources(array $moment, array $places, string $kopiaSub = ''): array
 {
     if ($moment['kopia']) {
         $p = $moment['parts']['kopia']['path'] . $kopiaSub;
         clearstatcache(true, $p);
-        return [file_exists($p) || is_link($p) ? [['base' => 'kopia', 'path' => $p]] : [], ['kopia']];
+        return [file_exists($p) || is_link($p) ? [['base' => 'kopia', 'path' => $p, 'snap' => null]] : [], ['kopia']];
     }
     $sources = $covered = [];
     foreach ($places as $p) {
@@ -622,7 +643,7 @@ function rsItemSources(array $moment, array $places, string $kopiaSub = ''): arr
                 $covered[] = $p['base'];
                 clearstatcache(true, $s['path']);
                 if (file_exists($s['path']) || is_link($s['path'])) {
-                    $sources[] = ['base' => $p['base'], 'path' => $s['path']];
+                    $sources[] = ['base' => $p['base'], 'path' => $s['path'], 'snap' => ($p['fs'] ?? '') === 'zfs' && str_contains((string) $s['id'], '@') ? (string) $s['id'] : null];
                 }
                 break;
             }
@@ -1384,10 +1405,33 @@ function rsJournalRow(array $j): array
         'failed'     => $failed,
         'aside'      => array_values((array) ($j['aside'] ?? [])),
         'putback_of' => $j['putback_of'] ?? null,
-        'putback'    => $j['putback'] ?? null,
+        'putback'    => rsPutbackInfo($j),
         'can_putback' => rsCanPutback($j),
         'after'      => (array) ($j['after'] ?? []),
     ];
+}
+
+/**
+ * The put back of a restore as its journal row shows it: its id and how it went — and, from its own journal, when it
+ * ended and where the restored state went (what it put aside, <x>.putback-<time>). Null when it was never put back.
+ */
+function rsPutbackInfo(array $j): ?array
+{
+    $pb = $j['putback'] ?? null;
+    if (!is_array($pb) || !is_string($pb['id'] ?? null) || !preg_match(RS_ID_PATTERN, $pb['id'])) {
+        return null;
+    }
+    $out = ['id' => $pb['id'], 'result' => (string) ($pb['result'] ?? ''), 'finished' => null, 'aside' => []];
+    $other = readJson(rsData() . "/{$pb['id']}/journal.json");
+    if ($other) {
+        $out['finished'] = $other['finished'] ?? null;
+        foreach ((array) ($other['aside'] ?? []) as $a) {
+            if (is_array($a) && is_string($a['from'] ?? null) && is_string($a['to'] ?? null)) {
+                $out['aside'][] = ['from' => $a['from'], 'to' => $a['to']];
+            }
+        }
+    }
+    return $out;
 }
 
 /** Can «Put back» undo this restore? Something of it was done and can be undone, and it wasn't put back yet */
@@ -1597,6 +1641,9 @@ function rsGzSize(string $file): int
 /** Is a dataset's mountpoint inherited (so a rename moves it along)? */
 function rsZfsInherited(string $ds): bool
 {
+    if (isset($GLOBALS['rs']['inherited'])) {
+        return ($GLOBALS['rs']['inherited'])($ds);           // tests: no zfs
+    }
     [$exit, $out] = run(['zfs', 'get', '-H', '-o', 'source', 'mountpoint', $ds], 20);
     $src = trim($out);
     return $exit === 0 && ($src === 'default' || str_starts_with($src, 'inherited'));
@@ -1961,7 +2008,7 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
     rsMomentHolds($moments, $whole);
     $plan['options'] = [
         'moments' => array_map(fn ($m) => ['id' => $m['id'], 'name' => $m['name'], 'time' => $m['time'], 'ours' => $m['ours'], 'kopia' => $m['kopia'],
-                                           'bases' => array_map('strval', array_keys($m['parts'])), 'holds' => $m['holds']], $moments),
+                                           'aside' => $m['aside'] ?? null, 'bases' => array_map('strval', array_keys($m['parts'])), 'holds' => $m['holds']], $moments),
         'parts'   => array_values(array_map(fn ($p) => $p['base'], $places)),
         'asleep'  => $asleep, 'woken' => $woke['woken'] ?? [], 'vm' => $owner['kind'] === 'vm', 'whole' => $whole, 'share' => $share,
         'entries' => null, 'nothing_live' => false,
@@ -2001,7 +2048,8 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
         $moment = $one[0];
     }
     $plan['target']['snap'] = $moment['id'];
-    $plan['moment'] = ['id' => $moment['id'], 'name' => $moment['name'], 'time' => $moment['time'], 'ours' => $moment['ours'], 'kopia' => $moment['kopia'], 'parts' => []];
+    $plan['moment'] = ['id' => $moment['id'], 'name' => $moment['name'], 'time' => $moment['time'], 'ours' => $moment['ours'], 'kopia' => $moment['kopia'],
+                       'aside' => $moment['aside'] ?? null, 'parts' => []];
     foreach ($moment['kopia'] ? [] : $places as $p) {
         $b = (string) $p['base'];
         $plan['moment']['parts'][] = ['base' => $b, 'asleep' => $p['asleep'], 'covered' => isset($moment['parts'][$b]), 'holds' => in_array($b, $moment['holds'], true),
@@ -2028,12 +2076,14 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
         $ip = $whole ? rsItemPlaces($places, $share, $n, $ctx) : $places;
         [$src, $covered] = rsItemSources($moment, $ip, $whole ? "/$n" : '');
         $live = array_values(array_filter($ip, fn ($p) => !$p['asleep'] && $p['exists']));
+        // what holds something now: a file, or a folder with entries (an empty one — or one holding only what the
+        // office leaves aside, Ms. Dustdevil's storeroom, a ZFS snapshot folder made visible — counts as nothing there)
         $content = array_values(array_map(fn ($p) => (string) $p['base'],
             array_filter($live, fn ($p) => !is_dir($p['live']) || is_link($p['live']) || rsDirHasEntries($p['live']))));
         $bytes = 0;
         $known = (bool) $src;
         foreach ($src as $s) {
-            $b = $sizes[$s['path']]['bytes'] ?? null;
+            $b = rsSizeOf($sizes, $s['path'])['bytes'] ?? null;
             $known = $known && $b !== null;
             $bytes += (int) $b;
         }
@@ -2042,7 +2092,8 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
     }
     if ($whole) {
         $plan['options']['entries'] = array_map(fn ($n) => ['name' => $n, 'kind' => $infos[$n]['kind'], 'bases' => array_column($infos[$n]['sources'], 'base'),
-            'live' => (bool) $infos[$n]['live'], 'bytes' => $infos[$n]['bytes'], 'paths' => array_column($infos[$n]['sources'], 'path')], $names);
+            'live' => (bool) $infos[$n]['content'], 'empty' => $infos[$n]['live'] && !$infos[$n]['content'], 'bytes' => $infos[$n]['bytes'],
+            'paths' => array_column($infos[$n]['sources'], 'path')], $names);
         $chosen = $items === null ? $names : array_values(array_intersect($names, $items));
         $plan['target']['items'] = $chosen;
         if (!$names) {
@@ -2056,7 +2107,8 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
     } else {
         $chosen = [$rel];
     }
-    $nothingLive = !array_filter($chosen, fn ($n) => (bool) $infos[$n]['live']);
+    // nothing there to replace: gone, or only an empty folder (which goes aside like anything else, never deleted)
+    $nothingLive = !array_filter($chosen, fn ($n) => (bool) $infos[$n]['content']);
     $plan['options']['nothing_live'] = $nothingLive;
     if ($mode === '') {
         $mode = $nothingLive || $now['state'] === 'empty' ? 'swap' : 'copy';
@@ -2068,11 +2120,16 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
     }
 
     // per item: where it goes (onto the share, or as the dataset it is), what goes aside, what stops
-    $copies = $swaps = $userPaths = $restored = $asides = $targets = $union = $uncovered = $paths = [];
+    $copies = $swaps = $userPaths = $restored = $asides = $emptyAsides = $targets = $union = $uncovered = $paths = $snapOf = $itemPaths = [];
     $userItems = false;
     $dsPlace = null;
     foreach ($chosen as $n) {
         $it = $infos[$n];
+        // every way the item is reached (the share, each pool or disk): for the VMs whose disks lie in it
+        $itemPaths[] = "/mnt/user/$share/$n";
+        foreach ($it['places'] as $p) {
+            $itemPaths[] = "/mnt/{$p['base']}/$share/$n";
+        }
         if (!$it['sources']) {
             $plan['blockers'][] = $asleep ? $sleepy() : ['key' => 'restore_not_in_snapshot', 'params' => ['path' => "/mnt/user/$share/$n"]];
             continue;
@@ -2107,6 +2164,9 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
         $restored[] = $to;
         $targets[] = $T;
         array_push($paths, ...$src);
+        foreach ($it['sources'] as $x) {
+            $snapOf[$x['path']] = $x['snap'] ?? null;
+        }
         if (count($it['sources']) > 1) {
             $union = array_merge($union, array_column($it['sources'], 'base'));
         }
@@ -2121,8 +2181,17 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
             }
             if ($it['live']) {
                 $swaps[] = ['do' => 'aside', 'path' => $T, 'to' => $asideP, 'dataset' => $ds, 'to_dataset' => $ds !== null ? "$ds.aside-$stamp" : null];
-                $plan['aside'][] = ['what' => 'folder', 'from' => $T, 'to' => $asideP];
+                $plan['aside'][] = ['what' => $it['content'] ? 'folder' : 'empty', 'from' => $T, 'to' => $asideP];
                 $asides[] = $asideP;
+                if (!$it['content']) {
+                    $emptyAsides[] = $asideP;
+                }
+                // a dataset put aside takes its snapshots along (zfs rename): the restored one starts without any
+                $ownSnaps = $ds !== null ? count($ctx['snaps'][$ds] ?? []) : 0;
+                if ($ownSnaps) {
+                    $plan['notes'][] = ['key' => 'note.files_dataset_snaps', 'warn' => true,
+                                        'params' => ['n' => $ownSnaps, 'path' => $T, 'aside' => $asideP, 'dataset' => "$ds.aside-$stamp"]];
+                }
             }
             $swaps[] = ['do' => 'move', 'from' => $to, 'to' => $T, 'dataset' => $rds, 'to_dataset' => $ds];
             $userPaths[] = "/mnt/user/$share/$n";
@@ -2146,18 +2215,11 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
         $plan['notes'][] = ['key' => 'note.files_uncovered', 'warn' => true,
                             'params' => ['bases' => implode(', ', array_keys($uncovered)), 'names' => implode(', ', array_unique(array_merge(...array_values($uncovered))))]];
     }
+    if ($moment['aside'] ?? null) {
+        $plan['notes'][] = ['key' => 'note.files_from_aside', 'params' => ['aside' => (string) $moment['aside']]];
+    }
 
     // the sizes (measured in the background) and the room where Unraid puts it
-    $need = 0;
-    $measuring = false;
-    foreach (array_unique($paths) as $p) {
-        $b = $sizes[$p]['bytes'] ?? null;
-        $measuring = $measuring || $b === null;
-        $need += (int) $b;
-        if ($b === null) {
-            rsDuQueue($p);
-        }
-    }
     foreach ($plan['options']['entries'] ?? [] as $e) {
         foreach ($e['bytes'] === null ? $e['paths'] : [] as $p) {
             rsDuQueue($p);                    // the others listed, for the page's choice
@@ -2165,7 +2227,24 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
     }
     $space = $userItems ? rsShareSpace($share, $ctx) : null;
     $free = $space !== null ? $space['free'] : ($dsPlace !== null ? rsFree($dsPlace) : null);
-    $plan['sizes'] = ['need' => $measuring ? null : $need, 'free' => $free, 'measuring' => $measuring, 'path' => $paths[0] ?? '', 'paths' => array_values(array_unique($paths)), 'what' => 'files'];
+    // where it goes: a ZFS dataset that compresses takes about what the source takes on ZFS; anywhere else the copy
+    // takes the data's own size (a ZFS source's logicalreferenced share) — rsync --sparse keeps holes holes either way
+    $intoDs = $userItems ? rsShareDataset($share, (string) ($space['primary'] ?? ''), $ctx) : ($dsPlace['dataset'] ?? null);
+    $ratio = rsSnapRatios(array_values(array_unique(array_filter($snapOf))));
+    $scale = [];
+    foreach ($snapOf as $p => $snap) {
+        if ($snap !== null && ($ratio[$snap] ?? 1.0) > 1.0) {
+            $scale[$p] = $ratio[$snap];
+        }
+    }
+    $plan['sizes'] = rsSizesNeed(array_values(array_unique($paths)), $sizes, $scale, $intoDs !== null && rsZfsCompresses($intoDs)) + ['free' => $free, 'what' => 'files'];
+    foreach ($plan['sizes']['paths'] as $p) {
+        if (rsSizeOf($sizes, $p) === null) {
+            rsDuQueue($p);
+        }
+    }
+    $need = (int) $plan['sizes']['need'];
+    $measuring = $plan['sizes']['measuring'];
     if (!$measuring && $free !== null && $need > $free * 0.95) {
         $plan['blockers'][] = ['key' => 'restore_no_space', 'params' => ['need' => $need, 'free' => $free]];
     }
@@ -2177,15 +2256,34 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
         }
     }
 
+    // the VMs whose disks lie in it: never swapped under a VM that runs (he never stops a VM himself)
+    $vms = $mode === 'swap' ? rsVmsUsing(array_values(array_unique($itemPaths))) : [];
+
     $steps = $copies;
-    $plan['notes'][] = ['key' => $mode === 'swap' ? ($nothingLive ? 'note.files_place_in' : 'note.files_swap') : 'note.files_copy', 'params' => []];
+    $plan['notes'][] = ['key' => $mode === 'swap' ? ($nothingLive ? ($emptyAsides ? 'note.files_place_empty' : 'note.files_place_in') : 'note.files_swap') : 'note.files_copy',
+                        'params' => ['aside' => implode(', ', $emptyAsides)]];
     if ($mode === 'swap') {
+        $blockedVm = [];
         if ($owner['kind'] === 'vm' && !in_array($owner['vm_state'], [null, 'shut off', 'missing'], true)) {
             $plan['blockers'][] = ['key' => 'restore_vm_running', 'params' => ['name' => $owner['name'], 'state' => (string) $owner['vm_state']]];
+            $blockedVm[] = $owner['name'];
+        }
+        foreach ($vms as $v) {
+            if ($v['state'] !== 'shut off' && !in_array($v['name'], $blockedVm, true)) {
+                $plan['blockers'][] = ['key' => 'restore_vm_uses', 'params' => ['name' => $v['name'], 'state' => $v['state'], 'path' => $v['path']]];
+            }
+        }
+        $off = array_values(array_map(fn ($v) => $v['name'], array_filter($vms, fn ($v) => $v['state'] === 'shut off')));
+        if ($off) {
+            $plan['notes'][] = ['key' => 'note.files_vms_off', 'params' => ['names' => implode(', ', $off)]];
         }
         // what binds an item (or, for a whole share, the share itself) stops; what binds a folder above it keeps running
         $roots = $whole ? array_merge(["/mnt/user/$share"], array_map(fn ($p) => "/mnt/{$p['base']}/$share", $places)) : [];
         [$users, $parents] = rsUsers(array_values(array_unique($userPaths)), $roots);
+        if ($vms) {
+            // the copy takes a while: right before anything is replaced, once more — a VM started meanwhile stops the restore
+            $steps[] = ['do' => 'vms_off', 'paths' => array_values(array_unique($itemPaths)), 'names' => array_column($vms, 'name')];
+        }
         if ($users) {
             $steps[] = ['do' => 'stop', 'containers' => $users];
         }
@@ -2200,8 +2298,11 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
         }
         $plan['stops'] = $users;
         $plan['downtime'] = $users ? 20 : 0;
-        $plan['after'][] = $asides ? ['key' => 'after.files_swap', 'params' => ['aside' => implode(', ', $asides)]]
+        $plan['after'][] = $asides && !$nothingLive ? ['key' => 'after.files_swap', 'params' => ['aside' => implode(', ', $asides)]]
             : ['key' => 'after.files_place', 'params' => ['path' => implode(', ', $targets)]];
+        if ($emptyAsides) {
+            $plan['after'][] = ['key' => 'after.files_empty_aside', 'params' => ['aside' => implode(', ', $emptyAsides)]];
+        }
     } else {
         $plan['after'][] = ['key' => 'after.files_copy', 'params' => ['path' => implode(', ', $restored)]];
     }
@@ -2210,6 +2311,149 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
     }
     $plan['steps'] = $steps;
     return $plan;
+}
+
+/**
+ * A measured size of a path — only one the current du measured (it carries the apparent size too; older entries came
+ * from a du that skipped a ZFS snapshot's folder not mounted yet and said 1 KB), else null.
+ */
+function rsSizeOf(array $sizes, string $path): ?array
+{
+    $s = $sizes[$path] ?? null;
+    return is_array($s) && array_key_exists('apparent', $s) && is_int($s['bytes'] ?? null) ? $s : null;
+}
+
+/**
+ * What a copy of these sources needs, once all are measured: allocated (du) — on ZFS that is compressed, so for a
+ * target that doesn't compress (XFS, btrfs, a ZFS dataset without compression) each ZFS source counts with its
+ * snapshot's logicalreferenced/referenced ($scale). Also the apparent size (sparse files: their holes) and the
+ * data's own size (logical), for the page; the page sums the same way when sizes come in later.
+ */
+function rsSizesNeed(array $paths, array $sizes, array $scale, bool $compresses): array
+{
+    $alloc = $logical = $apparent = 0;
+    $measuring = false;
+    foreach ($paths as $p) {
+        $s = rsSizeOf($sizes, $p);
+        if ($s === null) {
+            $measuring = true;
+            continue;
+        }
+        $alloc += $s['bytes'];
+        $logical += (int) round($s['bytes'] * ($scale[$p] ?? 1.0));
+        $apparent += (int) ($s['apparent'] ?? $s['bytes']);
+    }
+    return ['need' => $measuring ? null : ($compresses ? $alloc : $logical), 'logical' => $measuring ? null : $logical, 'apparent' => $measuring ? null : $apparent,
+            'measuring' => $measuring, 'compresses' => $compresses, 'scale' => $scale ?: new stdClass(), 'path' => $paths[0] ?? '', 'paths' => $paths];
+}
+
+/** The ZFS dataset of a share on a pool (where Unraid puts something new in it), or null (not ZFS, not known) */
+function rsShareDataset(string $share, string $pool, array $ctx): ?string
+{
+    if ($pool === '' || $pool === 'array' || ($ctx['fs'][$pool] ?? '') !== 'zfs') {
+        return null;
+    }
+    return $ctx['zfs'][($ctx['mnt'] ?? '/mnt') . "/$pool/$share"] ?? null;
+}
+
+/** Does a dataset compress what is written into it? */
+function rsZfsCompresses(string $ds): bool
+{
+    if (isset($GLOBALS['rs']['compresses'])) {
+        return ($GLOBALS['rs']['compresses'])($ds);         // tests: no zfs
+    }
+    [$exit, $out] = run(['zfs', 'get', '-H', '-o', 'value', 'compression', $ds], 20);
+    return $exit === 0 && !in_array(trim($out), ['', 'off', '-'], true);
+}
+
+/**
+ * How much bigger the data of ZFS snapshots is than what they take compressed: logicalreferenced / referenced per
+ * snapshot (dataset@name), one zfs call; ≥ 1, missing when not known.
+ */
+function rsSnapRatios(array $snaps): array
+{
+    $snaps = array_values(array_filter($snaps, fn ($s) => is_string($s) && preg_match('/^[\w.: \/-]+@[\w.: -]+$/D', $s)));
+    if (!$snaps) {
+        return [];
+    }
+    if (isset($GLOBALS['rs']['ratios'])) {
+        return ($GLOBALS['rs']['ratios'])($snaps);           // tests: no zfs
+    }
+    [, $out] = run(array_merge(['zfs', 'get', '-Hp', '-o', 'name,property,value', 'referenced,logicalreferenced'], $snaps), 30);
+    $v = [];
+    foreach (rows($out) as $f) {
+        if (count($f) === 3 && ctype_digit($f[2])) {
+            $v[$f[0]][$f[1]] = (int) $f[2];
+        }
+    }
+    $out = [];
+    foreach ($v as $snap => $x) {
+        if (($x['referenced'] ?? 0) > 0 && isset($x['logicalreferenced'])) {
+            $out[$snap] = max(1.0, round($x['logicalreferenced'] / $x['referenced'], 3));
+        }
+    }
+    return $out;
+}
+
+/**
+ * The VMs whose disks (not CD-ROMs or floppies — read-only media) lie at or below one of these paths, however the
+ * path is written (/mnt/user/<share>/…, /mnt/user0/…, /mnt/<pool or disk>/<share>/…): name, libvirt's state, the
+ * disk. Every VM libvirt knows, also those shut off (the job checks again right before it replaces anything).
+ *
+ * @return list<array{name:string, state:string, path:string}>
+ */
+function rsVmsUsing(array $paths): array
+{
+    $keys = array_values(array_filter(array_map('rsShareKey', $paths)));
+    $out = [];
+    foreach ($keys ? rsVmDisks() : [] as $name => $vm) {
+        foreach ($vm['disks'] as $disk) {
+            $dk = rsShareKey($disk);
+            foreach ($dk === null ? [] : $keys as $k) {
+                if (under($dk, $k)) {
+                    $out[$name] = ['name' => (string) $name, 'state' => (string) $vm['state'], 'path' => $disk];
+                    continue 3;
+                }
+            }
+        }
+    }
+    return array_values($out);
+}
+
+/** A path in a share as <share>/<rel>, whichever way it is reached (the share, a pool, a disk), null outside the shares */
+function rsShareKey(string $path): ?string
+{
+    if (!preg_match('#^/mnt/([^/]+)/([^/]+)(/.*)?$#D', rtrim($path, '/'), $m) || in_array($m[1], ['disks', 'remotes', 'addons', 'rootshare'], true)) {
+        return null;
+    }
+    return $m[2] . ($m[3] ?? '');
+}
+
+/**
+ * Every VM libvirt knows with its state and the files of its disks (CD-ROMs and floppies left out, backing files of a
+ * snapshot chain included): name => {state, disks}. Empty while the VM service is off.
+ */
+function rsVmDisks(): array
+{
+    if (isset($GLOBALS['rs']['vm_disks'])) {
+        return ($GLOBALS['rs']['vm_disks'])();                // tests: no libvirt
+    }
+    $out = [];
+    foreach (rsVmStates() ?? [] as $name => $state) {
+        [$exit, $xml] = run(['virsh', 'dumpxml', (string) $name], 20);
+        $dom = $exit === 0 ? @simplexml_load_string($xml, 'SimpleXMLElement', LIBXML_NONET) : false;
+        $disks = [];
+        foreach ($dom ? $dom->xpath('/domain/devices/disk') ?: [] : [] as $d) {
+            if (in_array((string) $d['device'], ['cdrom', 'floppy'], true)) {
+                continue;
+            }
+            foreach ($d->xpath('.//source[@file]') ?: [] as $src) {
+                $disks[] = (string) $src['file'];
+            }
+        }
+        $out[(string) $name] = ['state' => (string) $state, 'disks' => array_values(array_unique($disks))];
+    }
+    return $out;
 }
 
 /**
@@ -2535,11 +2779,37 @@ function rsPlanPutback(array $r, string $stamp): array
         }
     }
     $vm = $orig['target']['vm'] ?? ($j['kind'] === 'vm' ? ($orig['target']['name'] ?? null) : null);
+    $blockedVm = [];
     if (is_string($vm)) {
         $states = rsVmStates();
         $st = $states === null ? null : ($states[$vm] ?? 'missing');
         if (!in_array($st, [null, 'shut off', 'missing'], true)) {
             $plan['blockers'][] = ['key' => 'restore_vm_running', 'params' => ['name' => $vm, 'state' => $st]];
+            $blockedVm[] = $vm;
+        }
+    }
+    // folders put back: never under a VM whose disks lie there and that runs — checked again right before (vms_off)
+    if ($j['kind'] === 'files' && $plan['steps']) {
+        $touched = [];
+        foreach ($undo as $s) {
+            foreach ([$s['do'] === 'aside' ? ($s['path'] ?? null) : null, $s['do'] === 'move' ? ($s['to'] ?? null) : null] as $x) {
+                if (is_string($x) && $x !== '') {
+                    $touched[] = $x;
+                }
+            }
+        }
+        $vms = $touched ? rsVmsUsing(array_values(array_unique($touched))) : [];
+        foreach ($vms as $v) {
+            if ($v['state'] !== 'shut off' && !in_array($v['name'], $blockedVm, true)) {
+                $plan['blockers'][] = ['key' => 'restore_vm_uses', 'params' => ['name' => $v['name'], 'state' => $v['state'], 'path' => $v['path']]];
+            }
+        }
+        if ($vms) {
+            array_unshift($plan['steps'], ['do' => 'vms_off', 'paths' => array_values(array_unique($touched)), 'names' => array_column($vms, 'name')]);
+            $off = array_values(array_map(fn ($v) => $v['name'], array_filter($vms, fn ($v) => $v['state'] === 'shut off')));
+            if ($off) {
+                $plan['notes'][] = ['key' => 'note.files_vms_off', 'params' => ['names' => implode(', ', $off)]];
+            }
         }
     }
     $now = rsContainersNow();
@@ -2789,6 +3059,7 @@ function rsStep(array &$j, int $i): array
         'undefine'  => rsDoVirsh($j, ['undefine', (string) $s['name'], '--keep-nvram', '--keep-tpm']),
         'autostart' => rsDoVirsh($j, ['autostart', (string) $s['name']]),
         'kopia'     => rsDoKopia($j, $i),
+        'vms_off'   => rsDoVmsOff($s),
         default     => ['state' => 'failed', 'detail' => "unknown step {$s['do']}"],
     };
 }
@@ -3467,7 +3738,9 @@ function rsDoCopy(array &$j, int $i): array
     }
     $log = rsDir($j['id']) . '/log.txt';
     $args = $file ? [$sources[0], $to] : array_merge(array_map(fn ($x) => "$x/", $sources), ["$to/"]);
-    $p = proc_open(array_merge(['rsync', '-aHX', '--numeric-ids', '--info=progress2', '--no-inc-recursive'], $args),
+    // --sparse: a VM disk's holes stay holes (without it a 108 GB vdisk holding 16 GB is written out in full on XFS or
+    // btrfs); a local copy is a whole-file copy, so it always works — never together with --inplace
+    $p = proc_open(array_merge(['rsync', '-aHX', '--sparse', '--numeric-ids', '--info=progress2', '--no-inc-recursive'], $args),
         [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', $log, 'a']], $pipes, '/', rsEnv());
     if (!is_resource($p)) {
         return rsFail('copy_failed', ['path' => $to]);
@@ -3544,6 +3817,19 @@ function rsDoPut(array &$j, array $s): array
 }
 
 // --------------------------------------------------------------------- VMs
+
+/**
+ * Right before a folder holding VM disks is replaced (or put back): no VM using it may run — he never stops a VM
+ * himself, so a VM started during the copy stops the restore here, before anything is replaced.
+ */
+function rsDoVmsOff(array $s): array
+{
+    $on = array_values(array_filter(rsVmsUsing((array) ($s['paths'] ?? [])), fn ($v) => $v['state'] !== 'shut off'));
+    if ($on) {
+        return rsFail('vm_running', ['names' => implode(', ', array_map(fn ($v) => "{$v['name']} ({$v['state']})", $on))]);
+    }
+    return ['state' => 'ok'];
+}
 
 /** A VM's definition as libvirt keeps it, put aside before another one is defined */
 function rsDoDumpXml(array &$j, array $s): array
@@ -3664,18 +3950,30 @@ function rsKopiaSources(array $state): array
     return array_values(array_unique($out));
 }
 
-/** `kopia snapshot list --json` as the page needs it, newest first */
+/**
+ * `kopia snapshot list --json` as the page needs it, newest first. What a snapshot holds is its root's summary
+ * (rootEntry.summ: files, dirs, size) — stats.fileCount counts only the files read anew in that run (cached ones not),
+ * 2 files for a night that changed little; it is only the fallback, with cachedFiles + nonCachedFiles before it.
+ */
 function rsKopiaParse(string $json): array
 {
     $out = [];
+    $int = fn (mixed $v): ?int => is_int($v) || (is_string($v) && ctype_digit($v)) ? (int) $v : null;
     foreach ((array) json_decode($json, true) as $s) {
         $id = is_array($s) ? (string) ($s['id'] ?? '') : '';
         if (!preg_match('/^[0-9a-f]{16,64}$/D', $id)) {
             continue;
         }
         $text = fn (mixed $v): string => is_string($v) ? mb_substr(trim((string) preg_replace('/[\x00-\x1f\x7f]+/', ' ', $v)), 0, 120) : '';
+        $summ = is_array($s['rootEntry']['summ'] ?? null) ? $s['rootEntry']['summ'] : [];
+        $st = is_array($s['stats'] ?? null) ? $s['stats'] : [];
+        $read = $int($st['cachedFiles'] ?? null) !== null && $int($st['nonCachedFiles'] ?? null) !== null
+            ? $int($st['cachedFiles']) + $int($st['nonCachedFiles']) : null;
         $out[] = ['id' => $id, 'time' => (int) (strtotime((string) ($s['startTime'] ?? '')) ?: 0), 'end' => (int) (strtotime((string) ($s['endTime'] ?? '')) ?: 0),
-                  'bytes' => (int) ($s['stats']['totalSize'] ?? 0), 'files' => (int) ($s['stats']['fileCount'] ?? 0),
+                  'bytes' => $int($summ['size'] ?? null) ?? $int($st['totalSize'] ?? null) ?? 0,
+                  'files' => $int($summ['files'] ?? null) ?? $read ?? $int($st['fileCount'] ?? null) ?? 0,
+                  'dirs' => $int($summ['dirs'] ?? null) ?? $int($st['dirCount'] ?? null),
+                  'failed' => $int($summ['numFailed'] ?? null) ?? $int($st['errorCount'] ?? null) ?? 0,
                   'description' => $text($s['description'] ?? ''), 'incomplete' => $text($s['incompleteReason'] ?? '')];
     }
     usort($out, fn ($a, $b) => $b['time'] <=> $a['time']);
@@ -3772,6 +4070,21 @@ function rsDuQueue(string $path): void
     rsSizesSave([]);
 }
 
+/**
+ * The du of a path: what it takes on disk (allocated blocks), or with $apparent the files' own sizes (a sparse VM disk:
+ * its full size). A folder is measured as "<path>/." — a ZFS snapshot's folder is mounted only when something is looked
+ * up inside it, and du -x would otherwise take the unmounted stub's device and skip all of it (1 KB for 108 GB).
+ */
+function rsDuCommand(string $path, bool $apparent): array
+{
+    $arg = is_dir($path) && !is_link($path) ? rtrim($path, '/') . '/.' : $path;
+    return array_merge(['nice', '-n', '10', 'du', '-s', '-B1', '-x'], $apparent ? ['--apparent-size'] : [], [$arg]);
+}
+
+/**
+ * Sizes in the background: per path two du runs one after the other — allocated, then apparent (the second one finds
+ * the metadata in the cache) — saved once both are there: {bytes, apparent, at, seconds}.
+ */
 function rsDuTick(): void
 {
     $du = &$GLOBALS['rs']['du'];
@@ -3779,6 +4092,14 @@ function rsDuTick(): void
         return;
     }
     $changed = null;
+    $open = function (string $path, bool $apparent): mixed {
+        $process = proc_open(rsDuCommand($path, $apparent), [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, '/');
+        if (!is_resource($process)) {
+            return null;
+        }
+        stream_set_blocking($pipes[1], false);
+        return ['process' => $process, 'out' => $pipes[1]];
+    };
     foreach ($du['running'] as $path => $job) {
         $chunk = (string) @stream_get_contents($job['out']);
         $du['running'][$path]['buffer'] .= $chunk;
@@ -3789,17 +4110,25 @@ function rsDuTick(): void
         $buffer = $du['running'][$path]['buffer'] . (string) @stream_get_contents($job['out']);
         fclose($job['out']);
         proc_close($job['process']);
-        $changed[$path] = ['bytes' => preg_match('/^(\d+)\s/', $buffer, $m) ? (int) $m[1] : null, 'at' => time(), 'seconds' => time() - $job['since']];
+        $bytes = preg_match('/^(\d+)\s/', $buffer, $m) ? (int) $m[1] : null;
+        if (empty($job['apparent']) && $bytes !== null) {
+            $next = $open((string) $path, true);
+            if ($next) {
+                $du['running'][$path] = $next + ['since' => $job['since'], 'buffer' => '', 'apparent' => true, 'bytes' => $bytes];
+                continue;
+            }
+        }
+        $alloc = empty($job['apparent']) ? $bytes : $job['bytes'];
+        $changed[$path] = ['bytes' => $alloc, 'apparent' => empty($job['apparent']) ? null : $bytes, 'at' => time(), 'seconds' => time() - $job['since']];
         unset($du['running'][$path]);
     }
     while (count($du['running']) < RS_DU_PARALLEL && $du['queue']) {
         $path = array_shift($du['queue']);
-        $process = proc_open(['nice', '-n', '10', 'du', '-s', '-B1', '-x', $path], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, '/');
-        if (!is_resource($process)) {
+        $job = $open($path, false);
+        if (!$job) {
             continue;
         }
-        stream_set_blocking($pipes[1], false);
-        $du['running'][$path] = ['process' => $process, 'out' => $pipes[1], 'since' => time(), 'buffer' => ''];
+        $du['running'][$path] = $job + ['since' => time(), 'buffer' => '', 'apparent' => false, 'bytes' => null];
         $changed ??= [];
     }
     if ($changed !== null) {
