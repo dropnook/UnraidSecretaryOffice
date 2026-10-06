@@ -393,15 +393,21 @@ Office.unlock = function unlock() {
     const input = pinInput('current-password');
     const msg = el('p', 'callout warn');
     msg.hidden = true;
-    box.append(input, msg);
+    // while this device waits after wrong tries: the time left, and the way out for whoever runs the server
+    const admin = el('p', 'role');
+    admin.hidden = true;
+    if (CONFIG.plugin) admin.append(t('auth.wait_admin'), ' ', el('code', '', PIN_SH + ' unblock'));
+    box.append(input, msg, admin);
+    let timer = 0;
     Office.dialog({
       title: t('auth.unlock_title'),
       body: box,
-      onClose: () => finish(false),
+      onClose: () => { clearInterval(timer); finish(false); },
       buttons: [
         { text: t('common.cancel') },
         { text: t('auth.unlock'), kind: '', act: async () => {
           const j = await postOnce('office.unlock', { pin: input.value });
+          clearInterval(timer);
           if (j.ok) {
             finish(true);
             if (lockedView) route();          // the office was hidden behind the PIN
@@ -409,6 +415,18 @@ Office.unlock = function unlock() {
           }
           msg.textContent = Office.errorText(j.error);
           msg.hidden = false;
+          const wait = !!(j.error && j.error.key === 'pin_wait');
+          admin.hidden = !(wait && CONFIG.plugin);
+          if (wait) {
+            const end = Date.now() + (Number(j.error.params && j.error.params.seconds) || 0) * 1000;
+            const show = () => {
+              const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+              msg.textContent = left ? t('auth.wait_left', { time: `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` }) : t('auth.wait_over');
+              if (!left) clearInterval(timer);
+            };
+            show();
+            timer = setInterval(show, 1000);
+          }
           input.select();
           return false;
         } },
@@ -416,6 +434,9 @@ Office.unlock = function unlock() {
     });
   });
 };
+
+/** In Unraid's terminal: unblock lifts the waits and keeps the PIN, reset forgets it (src/auth.php, officeAuthCli) */
+const PIN_SH = 'bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/pin.sh';
 
 function pinInput(autocomplete) {
   const input = el('input', 'input');
@@ -1184,7 +1205,10 @@ Office.help = function help() {
   item(t('help.start_title'), t(CONFIG.plugin ? 'help.start_text_plugin' : 'help.start_text'));
   item(t('help.languages_title'), t(CONFIG.in_unraid ? 'help.languages_text_plugin' : 'help.languages_text'), ' ', code('public/lang/<code>.json'), ', ',
     code('public/desks/<desk>/lang/<code>.json'), '.');
-  item(t('help.security_title'), t(CONFIG.plugin ? 'help.security_text_plugin' : 'help.security_text'));
+  if (CONFIG.plugin) {
+    item(t('help.security_title'), t('help.security_text_plugin'), el('br'), t('help.pin_plugin'), ' ', code(PIN_SH + ' unblock'),
+      el('br'), t('help.pin_reset_plugin'), ' ', code(PIN_SH + ' reset'));
+  } else item(t('help.security_title'), t('help.security_text'));
   box.appendChild(dl);
   Office.dialog({ title: t('help.title'), body: box, wide: true });
 };

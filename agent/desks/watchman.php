@@ -35,6 +35,12 @@ declare(strict_types=1);
  *               and the flash, as Unraid applies them) with SMB/NFS switched on
  *               in /boot/config/share.cfg: a share now open to guests (secure =
  *               they read, public = they read and write)
+ *   scheduled   what starts on its own as root (see "scheduled and
+ *               auto-starting" below): root's own crontab next to Unraid's — new
+ *               lines, lines in both (they run twice), the office's own lines
+ *               there, programs gone, with the syslog around the file's time as
+ *               evidence; the plugins' .cron files on the flash; User Scripts and
+ *               their schedules; atd's queue; Unraid's notification agents
  *
  * All of it lives in RAM or on the flash: no disk wakes up. What differs goes
  * into his watch book, to the team lead as 'checks' (recommended, one per
@@ -88,6 +94,16 @@ const WATCH_KINDS = [
     'flash_password'       => ['flash', true],
     'flash_ssh_key'        => ['flash', true],
     'share_public'         => ['share', true],
+    'cron_new'             => ['sched', true],
+    'cron_twice'           => ['sched', true],
+    'cron_office'          => ['sched', true],
+    'cron_dead'            => ['sched', false],
+    'cron_file'            => ['sched', false],
+    'cron_file_foreign'    => ['sched', true],
+    'script_new'           => ['sched', false],
+    'script_changed'       => ['sched', false],
+    'at_job'               => ['sched', true],
+    'notify_agent'         => ['sched', true],
 ];
 
 // syslog lines: Unraid's "Oct  6 08:54:00 Tower …" (or an ISO time, if rsyslog is set so)
@@ -132,6 +148,12 @@ function watchmanPaths(): array
         'sec_nfs'    => '/var/local/emhttp/sec_nfs.ini',
         'share_cfg'  => '/boot/config/share.cfg',
         'etc_passwd' => '/etc/passwd',
+        'crontabs'   => '/var/spool/cron/crontabs',
+        'cron_d'     => '/etc/cron.d',
+        'cron_files' => '/boot/config/plugins',
+        'userscripts' => '/boot/config/plugins/user.scripts',
+        'atjobs'     => '/var/spool/atjobs',
+        'agents'     => '/boot/config/plugins/dynamix/notifications/agents',
     ];
 }
 
@@ -381,6 +403,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         'plugins'    => watchmanPlugins($paths['plugins']),
         'flash'      => watchmanFlash($paths),
         'shares'     => watchmanShares($paths),
+        'sched'      => watchmanSched($paths, (array) ((readJson("$dir/seen.json") ?? [])['sched'] ?? []), $now),
     ];
 
     return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0): array {
@@ -408,6 +431,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             $b['flash'] = is_array($b['flash'] ?? null) ? $b['flash'] + ['go' => null, 'extra' => [], 'users' => [], 'pw' => [], 'keys' => []] : $seen['flash'];
             $b['containers'] = is_array($b['containers'] ?? null) ? $b['containers'] : null;
             $b['shares'] = is_array($b['shares'] ?? null) ? $b['shares'] : null;
+            $b['sched'] = is_array($b['sched'] ?? null) ? $b['sched'] : null;
             watchmanTeamLeadNotes($b, $book, is_array($old['seen']) ? $old['seen'] : $observed, $now, $acks);
             $added = array_merge(
                 watchmanLogins($b, $book, $st, $events, false),
@@ -415,6 +439,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                 watchmanPluginsCompare($b['plugins'], $seen['plugins'], $book, $now),
                 watchmanFlashCompare($b['flash'], $seen['flash'], $book, $now),
                 watchmanSharesCompare($b['shares'], $seen['shares'], $book, $now),
+                watchmanSchedCompare($b['sched'], $seen['sched'], $seen['plugins'], $book, $now),
             );
         }
         watchmanTidy($b, $st, $now);
@@ -442,7 +467,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
 function watchmanTakeOver(int $hired, array $events, array $seen, array $book, array $st, int $now): array
 {
     $b = ['hired' => $hired, 'time' => $now, 'ips' => [], 'fail_ips' => [], 'containers' => null, 'plugins' => [],
-          'flash' => $seen['flash'], 'shares' => null];
+          'flash' => $seen['flash'], 'shares' => null, 'sched' => null];
     $st['fails'] = [];
     $st['notified'] = [];
     $none = [];
@@ -454,6 +479,7 @@ function watchmanTakeOver(int $hired, array $events, array $seen, array $book, a
     if ($seen['shares'] !== null) {
         $b['shares'] = array_map(fn ($s) => $s + ['seen' => $now], $seen['shares']);
     }
+    watchmanSchedCompare($b['sched'], $seen['sched'] ?? null, $seen['plugins'], $none, $now);     // all of it normal
     foreach ($book as $i => $e) {
         if (watchmanOpen($e)) {
             $book[$i]['noted'] = $now;
@@ -1341,6 +1367,630 @@ function watchmanSharesCompare(?array &$known, ?array $seen, array &$book, int $
     return array_values(array_filter($added));
 }
 
+// ===================================================================== scheduled and auto-starting
+
+/*
+ * What starts on its own as root — where an intruder settles in (MITRE ATT&CK T1053) and where a
+ * plugin can quietly double the server's jobs. RAM and flash only; a file is read again only when
+ * its size or time moved (the last round's look, seen.json).
+ *
+ *   crontabs  root's own crontab (/var/spool/cron/crontabs/root: what `crontab -l` and `crontab -`
+ *             use) next to Unraid's /etc/cron.d/root (update_cron builds it from the .cron files
+ *             below). Unraid's crond reads both: a line in both runs twice. Reported: new lines,
+ *             lines that run twice, the office's own lines (they belong in its cron file only — an
+ *             old copy starts a second backup at its old time), lines whose program went with its
+ *             plugin. With the evidence: the file's time and what the syslog said around it (who
+ *             wrote it). New lines of other users' crontabs and /etc/cron.d's other files count too.
+ *             He never changes a crontab — the fix stands in the entry as information.
+ *   .cron     the plugins' cron files on the flash (what survives a reboot): a new file or new
+ *             lines; one in the folder of no installed plugin counts more (update_cron leaves it
+ *             out — until a plugin of that name comes)
+ *   scripts   User Scripts: a new script, its content or schedule changed
+ *   at        jobs waiting in atd's queue that aren't the office's own (hostLaunch() marks those)
+ *   agents    Unraid's notification agents: every file there runs as root with each notification.
+ *             New or changed; their content holds tokens — only a fingerprint is kept.
+ */
+const WATCH_CRON_OFFICE   = '/plugins/' . OFFICE_PLUGIN . '/scripts/job.sh';
+const WATCH_CRON_SAVE     = '/boot/config/crontab-root-before-cleanup.txt';
+const WATCH_SCHED_MAX     = 500;            // lines, files, scripts, jobs — each
+const WATCH_EVIDENCE_SPAN = 120;            // syslog lines this many seconds around the crontab's time …
+const WATCH_EVIDENCE_MAX  = 12;             // … at most so many, the closest
+const WATCH_EVIDENCE_LINE = '#/plugins/|\bplugins?\b|crontab|update_cron|crond|\batd\b|\batq\b|\.(?:sh|php|py|plg|cron)\b|user\.scripts|unraid-secretary-office#i';
+
+/** A short fingerprint */
+function watchmanHash(string $s): string
+{
+    return substr(sha1($s), 0, 12);
+}
+
+/** @return list<string> a crontab's job lines, whitespace normalised (no comments, empty lines, VAR=value) */
+function watchmanCronJobs(string $text): array
+{
+    $jobs = [];
+    foreach (explode("\n", $text) as $line) {
+        $line = trim((string) preg_replace('/\s+/', ' ', $line));
+        if ($line !== '' && $line[0] !== '#' && !preg_match('/^[A-Za-z_][A-Za-z0-9_]*\s?=/', $line)) {
+            $jobs[] = $line;
+        }
+    }
+    return $jobs;
+}
+
+/** A job line's command: what follows the five time fields (or @daily & co.) */
+function watchmanCronCommand(string $line): string
+{
+    return preg_match('/^(?:@\w+|\S+ \S+ \S+ \S+ \S+) (.+)$/', trim((string) preg_replace('/\s+/', ' ', $line)), $m) ? $m[1] : '';
+}
+
+/**
+ * The program a command starts, when it is an absolute path: its first word — or, behind an
+ * interpreter or a wrapper (bash, php, nice …), the script it runs. Null when it can't be told
+ * (a command name, `sh -c …`).
+ */
+function watchmanCronProgram(string $command): ?string
+{
+    preg_match_all('/"([^"]*)"|\'([^\']*)\'|(\S+)/', $command, $m, PREG_SET_ORDER | PREG_UNMATCHED_AS_NULL);
+    $runners = ['sh', 'bash', 'dash', 'php', 'php-cgi', 'python', 'python3', 'perl', 'nice', 'ionice', 'nohup', 'timeout', 'env', 'exec'];
+    foreach ($m as $t) {
+        $word = (string) ($t[1] ?? $t[2] ?? $t[3] ?? '');
+        if ($word === '' || preg_match('/^[A-Za-z_][A-Za-z0-9_]*=/', $word) || preg_match('/^\d+[smhd]?$/D', $word)) {
+            continue;                       // VAR=value, timeout's seconds
+        }
+        if ($word === '-c' || $word === '-r') {
+            return null;                    // inline code
+        }
+        if ($word[0] === '-' || in_array(basename($word), $runners, true)) {
+            continue;                       // an interpreter and its options
+        }
+        return str_starts_with($word, '/') ? $word : null;
+    }
+    return null;
+}
+
+/** The plugin whose program is gone (it lay in a plugin's folder), else null. Never under /mnt (a disk would wake). */
+function watchmanCronGone(string $path, ?callable $exists = null): ?string
+{
+    if (str_starts_with($path, '/mnt/') || str_contains($path, '/../') || !preg_match('#^[A-Za-z0-9_./+@-]{1,300}$#D', $path)
+        || !preg_match('#^(?:/usr/local/emhttp/plugins|/boot/config/plugins)/([A-Za-z0-9._+-]{1,100})/#', $path, $p)) {
+        return null;
+    }
+    return ($exists ?? 'file_exists')($path) ? null : $p[1];
+}
+
+/** Secrets out of a line that is shown: a URL's path and user, values of password/token/key settings, long tokens */
+function watchmanScrub(string $s): string
+{
+    $s = (string) preg_replace('#\b([a-z][a-z0-9+.-]{1,15}://)(?:[^\s/@\'"]*@)?([^\s/\'"?\#]+)[^\s\'"]*#i', '$1$2/…', $s);
+    $s = (string) preg_replace('/\b([\w.-]*(?:pass|pwd|token|secret|key|auth|api)[\w.-]*)(=|:\s*)("[^"]*"|\'[^\']*\'|\S+)/i', '$1$2…', $s);
+    $s = (string) preg_replace('/(\s(?:-u|--user)[\s=]+)\S+|(\s-p)(?=\S*[^A-Za-z\s])\S+/', '$1$2…', $s);    // curl -u user:pw, mysql -pSecret
+    return (string) preg_replace('/[A-Za-z0-9_+=-]{28,}/', '…', $s);
+}
+
+/** A job line, short and without secrets: its time fields, its command without redirections and without the plugins' folders in front */
+function watchmanCronShort(string $line): string
+{
+    $line = trim((string) preg_replace('/\s+/', ' ', $line));
+    $cmd = watchmanCronCommand($line);
+    $when = $cmd === '' ? '' : trim(substr($line, 0, strlen($line) - strlen($cmd)));
+    $cmd = $cmd === '' ? $line : $cmd;
+    $cmd = (string) preg_replace('/\s*(?:\d?>>?|&>>?)\s*\S+|\s+\d>&\d|\s*\|\s*logger\b.*$/', '', $cmd);
+    $cmd = str_replace(['/usr/local/emhttp/plugins/', '/boot/config/plugins/'], '', $cmd);
+    return mb_strimwidth(watchmanClean(trim($when . ' ' . watchmanScrub($cmd)), 400), 0, 110, '…');
+}
+
+/** @return array{lines:int, jobs:list<string>, _h:list<string>} lines (hash => short) as an entry's words */
+function watchmanJobs(array $lines): array
+{
+    return ['lines' => count($lines), 'jobs' => array_slice(array_values($lines), 0, WATCH_LIST_MAX), '_h' => array_keys($lines)];
+}
+
+/** What the office would type to undo it (never runs it): a copy of root's crontab to the flash first */
+function watchmanCronFix(string $kind, string $path = ''): string
+{
+    $save = 'crontab -l > ' . WATCH_CRON_SAVE . '; crontab -l | ';
+    return match ($kind) {
+        'cron_twice'  => $save . "grep -v -x -F -f <(grep -v '^#' /etc/cron.d/root | grep -v '^\\s*$') | crontab -",
+        'cron_office' => $save . "grep -v -F '" . WATCH_CRON_OFFICE . "' | crontab -",
+        'cron_dead'   => $save . "grep -v -F '$path' | crontab -",
+        default       => '',
+    };
+}
+
+/**
+ * Everything scheduled and auto-starting, as this round sees it; parts whose place isn't in $paths
+ * are null. $prev: the last round's look (a file whose size and time are the same isn't read again).
+ */
+function watchmanSched(array $paths, array $prev, int $now, ?callable $exists = null): array
+{
+    $crontab = watchmanCrontabs($paths, $exists);
+    if ($crontab !== null) {
+        $crontab['evidence'] = watchmanEvidence($paths['syslog'], $crontab['mtime'], $prev['crontab']['evidence'] ?? null, $now);
+    }
+    return [
+        'crontab' => $crontab,
+        'files'   => watchmanCronFiles($paths, (array) ($prev['files'] ?? [])),
+        'scripts' => watchmanUserScripts($paths, (array) ($prev['scripts'] ?? [])),
+        'at'      => watchmanAtJobs($paths, is_array($prev['at'] ?? null) ? $prev['at'] : null),
+        'agents'  => watchmanAgents($paths, (array) ($prev['agents'] ?? [])),
+    ];
+}
+
+/** The same file as the last round saw (size, time and change time alike)? Then it isn't read again. */
+function watchmanSameFile(?array $prev, array $st): bool
+{
+    return is_array($prev) && (int) ($prev['m'] ?? -1) === (int) $st['mtime'] && (int) ($prev['c'] ?? -1) === (int) $st['ctime']
+        && (int) ($prev['s'] ?? -1) === (int) $st['size'] && is_string($prev['h'] ?? null);
+}
+
+/** Is it a plain file (no link, no folder)? */
+function watchmanPlain(string $file): ?array
+{
+    $st = @lstat($file);
+    return $st && ($st['mode'] & 0170000) === 0100000 ? $st : null;
+}
+
+/**
+ * The crontabs crond reads besides Unraid's /etc/cron.d/root: root's own (and other users',
+ * /etc/cron.d's other files — their lines named by where they are) — against that one.
+ *
+ * @return array{mtime: ?int, lines: array<string,string>, twice: array<string,string>, office: array<string,string>,
+ *               dead: array<string, array{plugin: string, job: string}>}|null  lines by hash => short
+ */
+function watchmanCrontabs(array $paths, ?callable $exists = null): ?array
+{
+    if (!isset($paths['crontabs'], $paths['cron_d'])) {
+        return null;
+    }
+    $system = array_flip(watchmanCronJobs((string) @file_get_contents($paths['cron_d'] . '/root', false, null, 0, 1 << 20)));
+    $sources = [];
+    foreach (glob($paths['crontabs'] . '/*') ?: [] as $f) {
+        if (preg_match('/^[a-z_][a-z0-9_.-]{0,31}$/D', basename($f)) && basename($f) !== 'cron.update') {
+            $sources[] = [basename($f) === 'root' ? '' : basename($f) . ': ', $f, basename($f) === 'root'];
+        }
+    }
+    foreach (glob($paths['cron_d'] . '/*') ?: [] as $f) {
+        if (basename($f) !== 'root') {
+            $sources[] = ['cron.d/' . watchmanClean(basename($f), 60) . ': ', $f, false];
+        }
+    }
+    $out = ['mtime' => null, 'lines' => [], 'twice' => [], 'office' => [], 'dead' => []];
+    foreach ($sources as [$label, $file, $root]) {
+        $st = watchmanPlain($file);
+        if (!$st) {
+            continue;
+        }
+        if ($root) {
+            $out['mtime'] = (int) $st['mtime'];
+        }
+        foreach (watchmanCronJobs((string) @file_get_contents($file, false, null, 0, 1 << 20)) as $line) {
+            if (count($out['lines']) >= WATCH_SCHED_MAX) {
+                break 2;
+            }
+            $h = watchmanHash($label . $line);
+            $short = $label . watchmanCronShort($line);
+            $out['lines'][$h] = $short;
+            if (!$root) {
+                continue;
+            }
+            if (str_contains($line, WATCH_CRON_OFFICE)) {
+                $out['office'][$h] = $short;
+            } elseif (isset($system[$line])) {
+                $out['twice'][$h] = $short;
+            }
+            $program = watchmanCronProgram(watchmanCronCommand($line));
+            $plugin = $program === null ? null : watchmanCronGone($program, $exists);
+            if ($plugin !== null) {
+                $out['dead'][$program] = ['plugin' => $plugin, 'job' => $short];
+            }
+        }
+    }
+    return $out;
+}
+
+/**
+ * Who wrote root's crontab: the syslog lines around its time that name a plugin, a script or cron.
+ * Looked up again only when its time moved, or the last look was before the span after it ended.
+ *
+ * @return array{mtime: int, lines: list<string>, complete: bool}|null
+ */
+function watchmanEvidence(string $syslog, ?int $mtime, ?array $prev, int $now): ?array
+{
+    if ($mtime === null) {
+        return null;
+    }
+    if (is_array($prev) && (int) ($prev['mtime'] ?? -1) === $mtime && !empty($prev['complete'])) {
+        return $prev;
+    }
+    return ['mtime' => $mtime, 'lines' => watchmanSyslogAround($syslog, $mtime, $now), 'complete' => $now - $mtime > WATCH_EVIDENCE_SPAN + 30];
+}
+
+/**
+ * Syslog lines within WATCH_EVIDENCE_SPAN of $t (syslog.1, then syslog; found by halving, read
+ * from there at most 4 MB) that name a plugin, a script or cron — never a login line (a password may
+ * stand in it). The closest WATCH_EVIDENCE_MAX, by time, each as "HH:MM:SS process: text", scrubbed.
+ *
+ * @return list<string>
+ */
+function watchmanSyslogAround(string $syslog, int $t, int $now): array
+{
+    $hits = [];
+    foreach (["$syslog.1", $syslog] as $file) {
+        $h = @fopen($file, 'r');
+        if (!$h) {
+            continue;
+        }
+        $time = function (int $at) use ($h, $now): ?int {       // the time of the first whole line from $at
+            fseek($h, $at);
+            if ($at > 0) {
+                fgets($h);
+            }
+            for ($i = 0; $i < 5 && ($l = fgets($h)) !== false; $i++) {
+                $lt = watchmanLineTime($l, $now);
+                if ($lt !== null) {
+                    return $lt;
+                }
+            }
+            return null;
+        };
+        $lo = 0;
+        $hi = (int) (fstat($h)['size'] ?? 0);
+        while ($hi - $lo > 65536) {
+            $mid = intdiv($lo + $hi, 2);
+            $lt = $time($mid);
+            if ($lt === null || $lt >= $t - WATCH_EVIDENCE_SPAN) {
+                $hi = $mid;
+            } else {
+                $lo = $mid;
+            }
+        }
+        fseek($h, $lo);
+        if ($lo > 0) {
+            fgets($h);
+        }
+        for ($read = 0; $read < 4 << 20 && ($line = fgets($h)) !== false; $read += strlen($line)) {
+            $lt = watchmanLineTime($line, $now);
+            if ($lt === null || $lt < $t - WATCH_EVIDENCE_SPAN) {
+                continue;
+            }
+            if ($lt > $t + WATCH_EVIDENCE_SPAN) {
+                break;
+            }
+            if (!preg_match(WATCH_EVIDENCE_LINE, $line) || preg_match(WATCH_WEB, $line) || preg_match('/\ssshd[\w-]*(?:\[\d+\])?:/', $line)) {
+                continue;
+            }
+            $text = (string) preg_replace(['/^[A-Z][a-z]{2}\s+\d{1,2}\s+(\d\d:\d\d:\d\d)\s+\S+\s+/', '/^\d{4}-\d\d-\d\d[T ](\d\d:\d\d:\d\d)\S*\s+\S+\s+/'], '$1 ', rtrim($line));
+            $hits[] = [abs($lt - $t), $lt, mb_strimwidth(watchmanClean(watchmanScrub($text), 400), 0, 220, '…')];
+        }
+        fclose($h);
+    }
+    usort($hits, fn ($a, $b) => $a[0] <=> $b[0]);
+    $hits = array_slice($hits, 0, WATCH_EVIDENCE_MAX);
+    usort($hits, fn ($a, $b) => $a[1] <=> $b[1]);
+    return array_values(array_unique(array_column($hits, 2)));
+}
+
+/** The plugins' cron files on the flash: "<plugin>/<file>" => size, time, fingerprint, its lines (hash => short) */
+function watchmanCronFiles(array $paths, array $prev): ?array
+{
+    if (!isset($paths['cron_files'])) {
+        return null;
+    }
+    $out = [];
+    foreach (glob($paths['cron_files'] . '/*/*.cron') ?: [] as $file) {
+        $name = basename(dirname($file)) . '/' . basename($file);
+        $st = watchmanPlain($file);
+        if (!$st || count($out) >= WATCH_SCHED_MAX || !preg_match('#^[A-Za-z0-9._+-]{1,100}/[^/\x00-\x1F]{1,120}$#D', $name)) {
+            continue;
+        }
+        $p = $prev[$name] ?? null;
+        if (watchmanSameFile($p, $st) && is_array($p['lines'] ?? null)) {
+            $out[$name] = $p;
+            continue;
+        }
+        $text = (string) @file_get_contents($file, false, null, 0, 1 << 20);
+        $lines = [];
+        foreach (array_slice(watchmanCronJobs($text), 0, WATCH_SCHED_MAX) as $l) {
+            $lines[watchmanHash($l)] = watchmanCronShort($l);
+        }
+        $out[$name] = ['m' => (int) $st['mtime'], 'c' => (int) $st['ctime'], 's' => (int) $st['size'], 'h' => watchmanHash($text), 'lines' => $lines];
+    }
+    ksort($out);
+    return $out;
+}
+
+/** User Scripts: name => size, time, fingerprint of its script, its schedule (a cron line, or User Scripts' word: daily, start …) */
+function watchmanUserScripts(array $paths, array $prev): ?array
+{
+    if (!isset($paths['userscripts'])) {
+        return null;
+    }
+    $dir = $paths['userscripts'];
+    $schedule = [];
+    foreach ((array) json_decode((string) @file_get_contents("$dir/schedule.json", false, null, 0, 1 << 20), true) as $key => $s) {
+        if (is_string($key) && is_array($s)) {
+            $f = (string) ($s['frequency'] ?? 'disabled');
+            $schedule[basename(dirname($key))] = $f === 'custom' ? trim((string) ($s['custom'] ?? '')) : $f;
+        }
+    }
+    $out = [];
+    foreach (glob("$dir/scripts/*/script") ?: [] as $file) {
+        $folder = basename(dirname($file));
+        $name = watchmanClean($folder, 100);
+        $st = watchmanPlain($file);
+        if (!$st || count($out) >= WATCH_SCHED_MAX || $name === '') {
+            continue;
+        }
+        $cron = watchmanClean($schedule[$folder] ?? 'disabled', 60) ?: 'disabled';
+        $p = $prev[$name] ?? null;
+        $h = watchmanSameFile($p, $st) ? $p['h'] : watchmanHash((string) @file_get_contents($file, false, null, 0, 4 << 20));
+        $out[$name] = ['m' => (int) $st['mtime'], 'c' => (int) $st['ctime'], 's' => (int) $st['size'], 'h' => $h, 'cron' => $cron];
+    }
+    ksort($out);
+    return $out;
+}
+
+/**
+ * atd's queue: job file => whether it is the office's own (hostLaunch() marks it), when it is due,
+ * whose (uid), what it runs (its first command, without the environment at puts in front: that may
+ * hold secrets). Read again only when the folder changed.
+ */
+function watchmanAtJobs(array $paths, ?array $prev): ?array
+{
+    if (!isset($paths['atjobs'])) {
+        return null;
+    }
+    $st = @stat($paths['atjobs']);
+    if (!$st) {
+        return ['m' => null, 'jobs' => []];
+    }
+    if (is_array($prev) && ($prev['m'] ?? null) === (int) $st['mtime'] && is_array($prev['jobs'] ?? null)) {
+        return $prev;
+    }
+    $jobs = [];
+    foreach (@scandir($paths['atjobs']) ?: [] as $f) {
+        if (!preg_match('/^[a-zA-Z=][0-9a-f]{5}([0-9a-f]{8})$/D', $f, $m) || count($jobs) >= 200 || !watchmanPlain($paths['atjobs'] . "/$f")) {
+            continue;
+        }
+        $text = (string) @file_get_contents($paths['atjobs'] . "/$f", false, null, 0, 65536);
+        $ours = str_contains($text, "\n" . HOST_LAUNCH_MARK . "\n");
+        $jobs[$f] = ['ours' => $ours, 'when' => hexdec($m[1]) * 60, 'uid' => preg_match('/^# atrun uid=(\d+)/m', $text, $u) ? (int) $u[1] : null,
+                     'cmd' => $ours ? '' : watchmanAtCommand($text)];
+    }
+    ksort($jobs);
+    return ['m' => (int) $st['mtime'], 'jobs' => $jobs];
+}
+
+/** An at job's first command: after the "cd … || { … }" at puts in front (never the environment above it) */
+function watchmanAtCommand(string $text): string
+{
+    $lines = explode("\n", $text);
+    $start = null;
+    foreach ($lines as $i => $l) {
+        if (preg_match('/^cd\s.*\|\|\s*\{\s*$/', $l)) {
+            $start = $i;
+        } elseif ($start !== null && trim($l) === '}') {
+            $start = $i + 1;
+            break;
+        }
+    }
+    foreach (array_slice($lines, $start ?? count($lines)) as $l) {
+        $l = trim($l);
+        if ($l === '' || $l[0] === '#' || preg_match('/^\$\{SHELL[^}]*\}\s*<</', $l)) {
+            continue;
+        }
+        return mb_strimwidth(watchmanClean(watchmanScrub($l), 400), 0, 110, '…');
+    }
+    return '';
+}
+
+/** Unraid's notification agents (every file in their folder runs): name => size, time, a fingerprint (never the content: tokens) */
+function watchmanAgents(array $paths, array $prev): ?array
+{
+    if (!isset($paths['agents'])) {
+        return null;
+    }
+    $out = [];
+    foreach (@scandir($paths['agents']) ?: [] as $f) {
+        $file = $paths['agents'] . "/$f";
+        $st = @lstat($file);
+        if ($f === '.' || $f === '..' || !$st || count($out) >= 100) {
+            continue;
+        }
+        $name = watchmanClean($f, 80);
+        $p = $prev[$name] ?? null;
+        if (watchmanSameFile($p, $st)) {
+            $out[$name] = $p;
+            continue;
+        }
+        $what = is_link($file) ? 'link:' . (string) @readlink($file) : (string) @file_get_contents($file, false, null, 0, 1 << 20);
+        $out[$name] = ['m' => (int) $st['mtime'], 'c' => (int) $st['ctime'], 's' => (int) $st['size'], 'h' => substr(hash('sha256', 'uso-watchman:' . $what), 0, 16)];
+    }
+    ksort($out);
+    return $out;
+}
+
+/**
+ * Scheduled and auto-starting things against what is normal ($known: the baseline's part; a part
+ * it doesn't have yet is learned as it is now). What went is the new normal (back again, it is
+ * told again); $installed: the installed plugins (a .cron of none of them counts more).
+ *
+ * @return list<string>  the kinds of new entries
+ */
+function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, array &$book, int $now): array
+{
+    if ($seen === null) {
+        return [];
+    }
+    $known = is_array($known) ? $known : [];
+    $added = [];
+
+    $c = $seen['crontab'] ?? null;
+    if (is_array($c)) {
+        $k = $known['crontab'] ?? null;
+        if (!is_array($k)) {
+            $known['crontab'] = ['lines' => $c['lines'], 'twice' => $c['twice'], 'office' => $c['office'], 'dead' => array_map(fn ($d) => $d['plugin'], $c['dead'])];
+        } else {
+            $k += ['lines' => [], 'twice' => [], 'office' => [], 'dead' => []];
+            $ev = ['mtime' => $c['mtime'], 'evidence' => (array) ($c['evidence']['lines'] ?? [])];
+            $lists = [
+                'cron_office' => array_diff_key($c['office'], (array) $k['office']),
+                'cron_twice'  => array_diff_key($c['twice'], (array) $k['twice']),
+                'cron_new'    => array_diff_key($c['lines'], $c['twice'], $c['office'], (array) $k['lines']),
+            ];
+            foreach ($lists as $kind => $list) {
+                if ($list) {
+                    $added[] = watchmanSet($book, $kind, $kind, $now, watchmanJobs($list) + $ev);
+                }
+            }
+            foreach ($c['dead'] as $path => $d) {
+                if (!isset($k['dead'][$path])) {
+                    $added[] = watchmanSet($book, 'cron_dead', "cron_dead:$path", $now, ['path' => (string) $path, 'plugin' => $d['plugin'], 'job' => $d['job']]);
+                }
+            }
+            $known['crontab'] = ['lines' => array_intersect_key((array) $k['lines'], $c['lines']), 'twice' => array_intersect_key((array) $k['twice'], $c['twice']),
+                                 'office' => array_intersect_key((array) $k['office'], $c['office']), 'dead' => array_intersect_key((array) $k['dead'], $c['dead'])];
+        }
+    }
+
+    $files = $seen['files'] ?? null;
+    if (is_array($files)) {
+        if (!is_array($known['files'] ?? null)) {
+            $known['files'] = array_map(fn ($f) => ['h' => $f['h'], 'lines' => $f['lines']], $files);
+        } else {
+            foreach ($files as $name => $f) {
+                $k = $known['files'][$name] ?? null;
+                if ($k !== null && $k['h'] === $f['h']) {
+                    continue;
+                }
+                $new = $k === null ? $f['lines'] : array_diff_key($f['lines'], (array) $k['lines']);
+                if (!$new) {
+                    $known['files'][$name] = ['h' => $f['h'], 'lines' => $f['lines']];      // lines gone, or no lines at all: normal
+                    continue;
+                }
+                $plugin = (string) strtok((string) $name, '/');
+                $kind = $plugin === 'dynamix' || isset($installed[$plugin]) ? 'cron_file' : 'cron_file_foreign';
+                $added[] = watchmanSet($book, $kind, "$kind:$name", $now,
+                    ['file' => (string) $name, 'plugin' => $plugin, 'new' => $k === null, 'office' => $plugin === OFFICE_PLUGIN] + watchmanJobs($new) + ['_f' => $f['h']]);
+            }
+            $known['files'] = array_intersect_key($known['files'], $files);
+        }
+    }
+
+    $scripts = $seen['scripts'] ?? null;
+    if (is_array($scripts)) {
+        if (!is_array($known['scripts'] ?? null)) {
+            $known['scripts'] = array_map(fn ($s) => ['h' => $s['h'], 'cron' => $s['cron']], $scripts);
+        } else {
+            foreach ($scripts as $name => $s) {
+                $k = $known['scripts'][$name] ?? null;
+                $office = str_starts_with((string) $name, US_PREFIX);
+                if ($k === null) {
+                    $added[] = watchmanSet($book, 'script_new', "script_new:$name", $now, ['name' => (string) $name, 'cron' => $s['cron'], 'office' => $office, '_f' => $s['h']]);
+                    continue;
+                }
+                $content = $k['h'] !== $s['h'];
+                if (!$content && $k['cron'] === $s['cron']) {
+                    continue;
+                }
+                if (!$content && $s['cron'] === 'disabled') {
+                    $known['scripts'][$name]['cron'] = 'disabled';      // switched off: safer, normal
+                    continue;
+                }
+                $added[] = watchmanSet($book, 'script_changed', "script_changed:$name", $now,
+                    ['name' => (string) $name, 'content' => $content, 'cron' => $s['cron'], 'old' => (string) $k['cron'], 'office' => $office, '_f' => $s['h']]);
+            }
+            $known['scripts'] = array_intersect_key($known['scripts'], $scripts);
+        }
+    }
+
+    $at = $seen['at'] ?? null;
+    if (is_array($at)) {
+        $foreign = array_filter((array) $at['jobs'], fn ($j) => empty($j['ours']));
+        if (!is_array($known['at'] ?? null)) {
+            $known['at'] = array_fill_keys(array_keys($foreign), true);
+        } else {
+            foreach ($foreign as $f => $j) {
+                if (!isset($known['at'][$f])) {
+                    $added[] = watchmanSet($book, 'at_job', "at_job:$f", $now, ['job' => (string) $f, 'when' => (int) $j['when'], 'cmd' => (string) $j['cmd'], 'uid' => $j['uid']]);
+                }
+            }
+            $known['at'] = array_intersect_key($known['at'], $foreign);
+        }
+    }
+
+    $agents = $seen['agents'] ?? null;
+    if (is_array($agents)) {
+        if (!is_array($known['agents'] ?? null)) {
+            $known['agents'] = array_map(fn ($a) => $a['h'], $agents);
+        } else {
+            foreach ($agents as $name => $a) {
+                $k = $known['agents'][$name] ?? null;
+                if ($k !== $a['h']) {
+                    $added[] = watchmanSet($book, 'notify_agent', "notify_agent:$name", $now, ['name' => (string) $name, 'new' => $k === null, '_f' => $a['h']]);
+                }
+            }
+            $known['agents'] = array_intersect_key($known['agents'], $agents);
+        }
+    }
+    return array_values(array_filter($added));
+}
+
+/** «I know, thanks» on one of these kinds: what it names, as the last round saw it, becomes normal */
+function watchmanSchedAdopt(array &$b, string $kind, array $p, array $seen): void
+{
+    $s = (array) ($seen['sched'] ?? []);
+    $b['sched'] = is_array($b['sched'] ?? null) ? $b['sched'] : [];
+    $part = fn (string $k, array $empty) => is_array($b['sched'][$k] ?? null) ? $b['sched'][$k] : $empty;
+    $h = array_flip(array_map('strval', (array) ($p['_h'] ?? [])));
+    switch ($kind) {
+        case 'cron_new':
+        case 'cron_twice':
+        case 'cron_office':
+            $field = ['cron_new' => 'lines', 'cron_twice' => 'twice', 'cron_office' => 'office'][$kind];
+            $c = $part('crontab', ['lines' => [], 'twice' => [], 'office' => [], 'dead' => []]);
+            $c[$field] = (array) ($c[$field] ?? []) + array_intersect_key((array) ($s['crontab'][$field] ?? []), $h);
+            $b['sched']['crontab'] = $c;
+            break;
+        case 'cron_dead':
+            $path = (string) ($p['path'] ?? '');
+            if (isset($s['crontab']['dead'][$path])) {
+                $c = $part('crontab', ['lines' => [], 'twice' => [], 'office' => [], 'dead' => []]);
+                $c['dead'][$path] = (string) ($p['plugin'] ?? '');
+                $b['sched']['crontab'] = $c;
+            }
+            break;
+        case 'cron_file':
+        case 'cron_file_foreign':
+            $f = $s['files'][$p['file'] ?? ''] ?? null;
+            if (is_array($f)) {
+                $b['sched']['files'] = $part('files', []);
+                $b['sched']['files'][(string) $p['file']] = ['h' => $f['h'], 'lines' => $f['lines']];
+            }
+            break;
+        case 'script_new':
+        case 'script_changed':
+            $x = $s['scripts'][$p['name'] ?? ''] ?? null;
+            if (is_array($x)) {
+                $b['sched']['scripts'] = $part('scripts', []);
+                $b['sched']['scripts'][(string) $p['name']] = ['h' => $x['h'], 'cron' => $x['cron']];
+            }
+            break;
+        case 'at_job':
+            if (isset($s['at']['jobs'][$p['job'] ?? ''])) {
+                $b['sched']['at'] = $part('at', []);
+                $b['sched']['at'][(string) $p['job']] = true;
+            }
+            break;
+        case 'notify_agent':
+            $a = $s['agents'][$p['name'] ?? ''] ?? null;
+            if (is_array($a)) {
+                $b['sched']['agents'] = $part('agents', []);
+                $b['sched']['agents'][(string) $p['name']] = $a['h'];
+            }
+            break;
+    }
+}
+
 // ===================================================================== «I know, thanks»
 
 /**
@@ -1420,6 +2070,10 @@ function watchmanAdopt(array &$b, array $e, array $seen, int $now): void
             $b['shares'][$share] ??= ['smb' => 0, 'nfs' => 0, 'seen' => $now];
             $b['shares'][$share][$proto] = (int) ($seen['shares'][$share][$proto] ?? 0);
             break;
+        default:
+            if ((WATCH_KINDS[$kind][0] ?? '') === 'sched') {
+                watchmanSchedAdopt($b, $kind, $p, $seen);
+            }
     }
 }
 
@@ -1507,6 +2161,8 @@ function watchmanText(array $e): array
     $p = (array) ($e['p'] ?? []);
     $services = implode(', ', watchmanServiceNames((array) ($p['services'] ?? [])));
     $list = fn (string $k) => implode(', ', array_map('strval', (array) ($p[$k] ?? [])));
+    $few = array_map('strval', array_slice((array) ($p['jobs'] ?? []), 0, 3));
+    $jobs = implode(' · ', $few) . ((int) ($p['lines'] ?? 0) > count($few) ? ' · …' : '');
     return match ((string) $e['kind']) {
         'login_new_ip'   => ['ip' => (string) ($p['ip'] ?? ''), 'user' => $list('users') ?: '?', 'service' => $services],
         'login_failures' => ['ip' => (string) ($p['ip'] ?? ''), 'service' => $services],
@@ -1519,6 +2175,15 @@ function watchmanText(array $e): array
         'flash_user', 'flash_password' => ['user' => (string) ($p['user'] ?? '')],
         'flash_ssh_key'  => ['user' => (string) ($p['user'] ?? ''), 'key' => (string) ($p['comment'] ?? '') ?: substr((string) ($p['fp'] ?? ''), 0, 19)],
         'share_public'   => ['share' => (string) ($p['share'] ?? ''), 'proto' => strtoupper((string) ($p['proto'] ?? ''))],
+        'cron_new', 'cron_twice', 'cron_office'
+                         => ['lines' => (int) ($p['lines'] ?? 0), 'jobs' => $jobs, 'fix' => watchmanCronFix((string) $e['kind'])],
+        'cron_dead'      => ['path' => (string) ($p['path'] ?? ''), 'plugin' => (string) ($p['plugin'] ?? ''),
+                             'fix' => watchmanCronFix('cron_dead', (string) ($p['path'] ?? ''))],
+        'cron_file', 'cron_file_foreign'
+                         => ['file' => (string) ($p['file'] ?? ''), 'plugin' => (string) ($p['plugin'] ?? ''), 'lines' => (int) ($p['lines'] ?? 0), 'jobs' => $jobs],
+        'script_new', 'script_changed' => ['name' => (string) ($p['name'] ?? ''), 'cron' => (string) ($p['cron'] ?? '')],
+        'at_job'         => ['cmd' => (string) ($p['cmd'] ?? '') ?: '?', 'when' => date('Y-m-d H:i', (int) ($p['when'] ?? 0))],
+        'notify_agent'   => ['name' => (string) ($p['name'] ?? '')],
         'watch'          => array_map('intval', $p),
         default          => [],
     };
@@ -1791,5 +2456,32 @@ function watchmanSummary(array $b): array
         'flash'      => ['go' => is_array($f['go'] ?? null) ? ['lines' => count((array) $f['go']['lines'])] : null,
                          'extra' => $extra, 'users' => array_values((array) ($f['users'] ?? [])), 'keys' => $keys],
         'shares'     => $shares,
+        'sched'      => watchmanSchedSummary(is_array($b['sched'] ?? null) ? $b['sched'] : null),
+    ];
+}
+
+/** "What I keep an eye on" of what starts on its own: root's crontab lines, the .cron files, User Scripts, at, agents */
+function watchmanSchedSummary(?array $s): ?array
+{
+    if ($s === null) {
+        return null;
+    }
+    $c = is_array($s['crontab'] ?? null) ? $s['crontab'] : null;
+    $files = [];
+    foreach ((array) ($s['files'] ?? []) as $name => $f) {
+        $files[] = ['file' => (string) $name, 'lines' => count((array) ($f['lines'] ?? []))];
+    }
+    $scripts = [];
+    foreach ((array) ($s['scripts'] ?? []) as $name => $x) {
+        $scripts[] = ['name' => (string) $name, 'cron' => (string) ($x['cron'] ?? '')];
+    }
+    return [
+        'crontab' => $c === null ? null : array_slice(array_values(array_unique(array_merge(array_values((array) $c['lines']), array_values((array) $c['twice']),
+                                                                                         array_values((array) $c['office'])))), 0, 100),
+        'twice'   => $c === null ? 0 : count((array) $c['twice']) + count((array) $c['office']),
+        'files'   => is_array($s['files'] ?? null) ? $files : null,
+        'scripts' => is_array($s['scripts'] ?? null) ? $scripts : null,
+        'at'      => is_array($s['at'] ?? null) ? count($s['at']) : null,
+        'agents'  => is_array($s['agents'] ?? null) ? array_map('strval', array_keys($s['agents'])) : null,
     ];
 }

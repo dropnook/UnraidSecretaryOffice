@@ -2,7 +2,9 @@
    from normal. His page: the last round (when, the next one, what is open),
    the watch book (newest first; a row unfolds to its details; «I know,
    thanks» per entry and «Note all» — writes, so behind the PIN) and what he
-   keeps an eye on (what is normal, summarised). His rounds run on the server
+   keeps an eye on (what is normal, summarised; also what starts on its own:
+   crontabs, the plugins' .cron files, User Scripts, at, notification agents).
+   His rounds run on the server
    every five minutes, read only: agent/desks/watchman.php. Everything from his
    state goes into the page as text, never as HTML. */
 (() => {
@@ -163,6 +165,7 @@ function render() {
     [T('help.plugins'), T('help.plugins_text')],
     [T('help.flash'), T('help.flash_text')],
     [T('help.shares'), T('help.shares_text')],
+    [T('help.sched'), T('help.sched_text')],
     [T('help.notify'), T('help.notify_text')],
     [T('help.safe'), T('help.safe_text')],
   ]));
@@ -346,6 +349,30 @@ function flags(tokens) {
 
 const level = (n) => T('level.' + (n >= 2 ? 'public' : n === 1 ? 'secure' : 'none'));
 
+/** A User Scripts schedule: its word (daily, at the array's start …) or the cron line in words */
+const freq = (c) => (c && Office.has(`${ID}.freq.${c}`) ? T('freq.' + c) : fmt.cron(c || '') || '–');
+
+/** Lines as a small list (mono), "… and N more" when there were more */
+function lines(list, total) {
+  const box = el('div', 'wm-lines');
+  (list || []).forEach((x) => box.appendChild(el('div', 'mono', x)));
+  const more = (Number(total) || 0) - (list || []).length;
+  if (more > 0) box.appendChild(el('div', 'wm-note', T('detail.more', { n: more })));
+  return box;
+}
+
+/** A command for Unraid's terminal: shown, copied on a click — never run by the office */
+function fixBox(cmd) {
+  const box = el('div', 'wm-fix');
+  const code = el('code', 'mono', cmd);
+  const b = el('button', 'btn small plain', Office.t('common.copy'));
+  b.type = 'button';
+  b.dataset.own = '1';
+  b.onclick = () => Office.copy(cmd);
+  box.append(code, b, el('div', 'wm-note', T('detail.fix_note')));
+  return box;
+}
+
 function details(e) {
   const box = el('div', 'row-detail wm-detail');
   const dl = el('dl', 'kv');
@@ -388,9 +415,35 @@ function details(e) {
   } else if (e.group === 'share') {
     add(T('detail.share'), p.share);
     add(T('detail.access'), `${String(p.proto || '').toUpperCase()}: ${level(p.level === 'public' ? 2 : 1)}`);
+  } else if (e.group === 'sched') {
+    if (p.file) add(T('detail.cron_file'), '/boot/config/plugins/' + p.file + (p.new ? ` (${T('detail.file_new')})` : ''), true);
+    if (p.path) add(T('detail.program'), p.path, true);
+    if (p.plugin) add(T('detail.plugin'), p.plugin);
+    if (p.job) add(T('detail.job'), p.job, true);
+    if (p.jobs && p.jobs.length) add(T('detail.jobs'), lines(p.jobs, p.lines));
+    if (e.kind === 'script_new' || e.kind === 'script_changed') {
+      add(T('detail.script'), p.name);
+      add(T('detail.schedule'), freq(p.cron));
+      if (e.kind === 'script_changed' && p.old !== p.cron) add(T('detail.schedule_old'), freq(p.old));
+      if (e.kind === 'script_changed') add(T('detail.content'), T(p.content ? 'detail.content_changed' : 'detail.content_same'));
+    }
+    if (e.kind === 'at_job') {
+      add(T('detail.when'), fmt.date(p.when));
+      add(T('detail.command'), p.cmd || '?', true);
+      if (p.uid !== null && p.uid !== undefined) add(T('detail.uid'), String(p.uid));
+    }
+    if (e.kind === 'notify_agent') {
+      add(T('detail.agent'), p.name);
+      add(T('detail.content'), T(p.new ? 'detail.file_new' : 'detail.content_changed'));
+    }
+    if (p.mtime) add(T('detail.file_time'), fmt.date(p.mtime));
+    if (Array.isArray(p.evidence)) add(T('detail.evidence'), p.evidence.length ? lines(p.evidence) : T('detail.evidence_none'));
+    if (e.t && e.t.fix) add(T('detail.fix'), fixBox(e.t.fix));
   }
   box.appendChild(dl);
   const notes = [];
+  if (p.office && e.kind.startsWith('cron_file')) notes.push(T('detail.office_cron'));
+  if (p.office && e.kind.startsWith('script_')) notes.push(T('detail.office_script'));
   if (e.open) notes.push(T('adopt.' + e.kind));
   if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline'].includes(e.by) ? e.by : 'page'), { when: fmt.date(e.noted) }));
   if (e.told) notes.push(T('detail.told', { when: fmt.date(e.told) }));
@@ -480,6 +533,7 @@ function watchSection() {
   box.appendChild(group('shares', T('watch.shares'),
     !sh ? T('watch.shares_wait') : sh.open.length ? T('watch.shares_sum', { open: sh.open.length, count: sh.count }) : T('watch.shares_none'),
     sh ? sh.open.map((x) => item(x.share, [x.smb ? `SMB: ${level(x.smb)}` : '', x.nfs ? `NFS: ${level(x.nfs)}` : ''])) : []));
+  box.appendChild(schedGroup(w.sched));
   const label = () => {
     unfold.textContent = watchGroups.some((x) => !x.open()) ? T('unfold_all') : T('fold_all');
     unfold.hidden = !watchGroups.length;
@@ -493,6 +547,22 @@ function watchSection() {
   label();
   s.appendChild(box);
   return s;
+}
+
+/** What starts on its own: root's own crontab line by line, the .cron files, User Scripts, at, the notification agents */
+function schedGroup(s) {
+  if (!s) return group('sched', T('watch.sched'), T('watch.sched_wait'), []);
+  const rows = [];
+  // root's own lines as they are; another user's or /etc/cron.d's other files carry their place in front ("cron.d/x: …")
+  (s.crontab || []).forEach((x) => rows.push(item(x, [/^[\w.-]+(\/[^:]+)?: /.test(x) ? '' : T('watch.crontab')])));
+  if (s.twice) rows.push(item(T('watch.crontab'), [T('watch.crontab_twice', { n: s.twice })], null, true));
+  (s.files || []).forEach((x) => rows.push(item(x.file, ['.cron', T('watch.cron_lines', { n: x.lines })])));
+  (s.scripts || []).forEach((x) => rows.push(item(x.name, [T('watch.script'), freq(x.cron)])));
+  if (s.at) rows.push(item(T('watch.at'), [T('watch.at_sum', { n: s.at })], null, true));
+  (s.agents || []).forEach((x) => rows.push(item(x, [T('watch.agent')])));
+  const sum = T('watch.sched_sum', { lines: (s.crontab || []).length, files: (s.files || []).length,
+    scripts: (s.scripts || []).length, agents: (s.agents || []).length });
+  return group('sched', T('watch.sched'), sum, rows);
 }
 
 // ------------------------------------------------------------------ desk
