@@ -193,6 +193,8 @@
   "access.r": "lesen",
   "access_legend": "Zugriff per SMB. öffentlich: alle dürfen lesen und schreiben · geschützt: alle lesen, die Schreibliste schreibt · privat: nur Lese- und Schreibliste.",
   "not_exported_list": "Nicht per SMB freigegeben: {names}",
+  "watchman_sees": "Was sich hier ändert — ein neuer Benutzer, eine Freigabe für Gäste, wer wie viel zieht —, sieht der Nachtwächter:",
+  "watchman_sees_link": "sein Wachbuch",
   "smb_sessions": "SMB-Sitzungen",
   "session_count": {
     "zero": "niemand verbunden",
@@ -217,6 +219,8 @@
   },
   "cron_jobs": "⏰ Cronjobs",
   "cron_meta": "alles, was Cron ausführt, auch Unraids eigene Jobs",
+  "cron_gone": "Programm weg",
+  "cron_gone_title": "Sein Programm lag im Ordner des Plugins {plugin} und ist weg — eine übrig gebliebene Zeile",
   "sched.disabled": "aus",
   "sched.custom": "eigener Zeitplan",
   "sched.start": "beim Array-Start",
@@ -650,8 +654,6 @@
   "adv.never": "noch nie",
   "adv.to_share": "Share {name}",
   "adv.to_scheduler": "Scheduler",
-  "adv.to_access": "Management Access",
-  "adv.to_ftp": "FTP Server",
   "adv.to_docker": "Docker",
   "adv.to_disks": "Disk Settings",
   "adv.to_main": "Main",
@@ -659,8 +661,7 @@
   "adv.to_syslog": "Syslog Server",
   "adv.to_share_settings": "Global Share Settings",
   "adv.to_browse": "Browse {path}",
-  "adv.boot_grub": "Main → Boot-Pool → GRUB-Konfiguration",
-  "adv.boot_syslinux": "Main → Flash → Syslinux Configuration",
+  "adv.to_team_lead": "Zum Teamchef",
   "adv.system_array.title": "Auf dem Array: {names}",
   "adv.system_array.why": "Was Docker und die VMs selbst brauchen, gehört auf einen Pool (SSD/NVMe): Auf dem Array wird jeder Container und jede VM langsam, und die Disks kommen nie zur Ruhe. In den Einstellungen des Shares den primären Speicher auf einen Pool und den sekundären auf keinen setzen, dann den Mover die Dateien holen lassen (Docker und VMs gestoppt).",
   "adv.mover.title": {
@@ -700,20 +701,6 @@
     "one": "Ist mir halt aufgefallen: Dieser Share hat seine Daten auf seinem Pool, und der Mover holt zurück, was auf den sekundären Speicher übergelaufen ist. Ohne sekundären Speicher könnte er ein exklusiver Share sein — /mnt/user/… ein Link direkt auf den Pool, an Unraids FUSE-Schicht vorbei, spürbar schneller. Lohnt sich nur, wenn der Pool Platz für alles hat: Ohne sekundären Speicher heisst ein voller Pool ein voller Share. Wenn ja: den Mover laufen lassen, bis alles auf dem Pool ist, in den Einstellungen des Shares «Secondary storage» auf «None» setzen, löschen, was vom Share auf einem anderen Pool oder einer anderen Disk übrig ist (in Klammern; auch leere Ordner zählen), dann das Array stoppen und starten. Braucht «Permit exclusive shares» (Settings → Global Share Settings).",
     "other": "Ist mir halt aufgefallen: Diese Shares haben ihre Daten auf ihrem Pool, und der Mover holt zurück, was auf den sekundären Speicher übergelaufen ist. Ohne sekundären Speicher könnten sie exklusive Shares sein — /mnt/user/… ein Link direkt auf den Pool, an Unraids FUSE-Schicht vorbei, spürbar schneller. Lohnt sich nur, wenn der Pool Platz für alles hat: Ohne sekundären Speicher heisst ein voller Pool ein voller Share. Wenn ja: den Mover laufen lassen, bis alles auf dem Pool ist, in den Einstellungen des Shares «Secondary storage» auf «None» setzen, löschen, was vom Share auf einem anderen Pool oder einer anderen Disk übrig ist (in Klammern; auch leere Ordner zählen), dann das Array stoppen und starten. Braucht «Permit exclusive shares» (Settings → Global Share Settings)."
   },
-  "adv.public.title": {
-    "one": "Offen für alle im Netz: {names}",
-    "other": "{n} Shares offen für alle im Netz: {names}"
-  },
-  "adv.public.why": "«Public» heisst: Jeder in deinem Netz darf lesen, schreiben und löschen — jedes Gerät, jeder Gast, jeder verseuchte Laptop. Sicherheit auf «Secure» (alle lesen, ausgewählte schreiben) oder «Private» stellen und deinen Benutzern Zugriff geben.",
-  "adv.telnet.title": "Telnet ist an",
-  "adv.telnet.why": "Telnet schickt alles unverschlüsselt, auch das root-Passwort. SSH kann dasselbe, verschlüsselt. Telnet unter Management Access ausschalten.",
-  "adv.ftp.title": "Der FTP-Server ist an",
-  "adv.ftp.why": "FTP schickt Passwörter und Dateien unverschlüsselt. Brauchst du ihn nicht, ausschalten; für Dateien übers Netz sind SMB oder SFTP (kommt mit SSH) die bessere Wahl.",
-  "adv.privileged.title": {
-    "one": "{names} läuft privilegiert",
-    "other": "{n} Container laufen privilegiert: {names}"
-  },
-  "adv.privileged.why": "Ein privilegierter Container darf auf dem Server fast alles — in Ordnung für Werkzeuge, die es brauchen (Hardware, VPN, das Backup), einen zweiten Blick wert für alles andere. Auf der Docker-Seite: Edit → Privileged aus, und schauen, ob er noch läuft.",
   "adv.compose_build.title": {
     "one": "{names} baut sein Image selbst",
     "other": "{n} Stacks bauen ihr Image selbst: {names}"
@@ -722,6 +709,13 @@
     "one": "Sein Image wird hier aus einem Dockerfile gebaut («build:» in der Compose-Datei); keine Registry kennt es. «Update» und «Force Update» im Compose Manager holen zuerst die Images — das schlägt hier fehl und kann die Container als «Created» liegen lassen. Stattdessen neu bauen, im Terminal (Unraids >_ oben rechts): Das holt das neuere Basis-Image, baut neu und erstellt neu, was sich geändert hat.",
     "other": "Ihre Images werden hier aus einem Dockerfile gebaut («build:» in der Compose-Datei); keine Registry kennt sie. «Update» und «Force Update» im Compose Manager holen zuerst die Images — das schlägt hier fehl und kann die Container als «Created» liegen lassen. Stattdessen neu bauen, im Terminal (Unraids >_ oben rechts): Das holt das neuere Basis-Image, baut neu und erstellt neu, was sich geändert hat."
   },
+  "adv.cron_dead.title": {
+    "one": "Eine Cron-Zeile startet {names} — und das ist weg",
+    "other": "Cron-Zeilen starten {n} Programme, die weg sind: {names}"
+  },
+  "adv.cron_dead.why": "Sieh mal an — Überbleibsel: Das Plugin ({plugins}) ist weg, seine Zeile ist geblieben. crond versucht es jedes Mal und scheitert still. Harmlos, aber unordentlich — und verwirrend, wenn man sucht, was wann läuft. {how}",
+  "adv.cron_dead.own": "Sie stehen in roots eigener Crontab (crontab -l): Der Befehl unten entfernt sie im Terminal (Unraids >_ oben rechts) und legt vorher eine Kopie auf den Flash.",
+  "adv.cron_dead.system": "Zeilen in /etc/cron.d kommen von einem Plugin (Unraid baut seine eigene Crontab dort aus den .cron-Dateien der Plugins auf dem Flash): das Plugin neu installieren oder unter Plugins entfernen.",
   "adv.spindown_default.title": "Die Disks schlafen nie",
   "adv.spindown_default.why": "Die Standard-Wartezeit bis zum Abschalten steht auf «Never»: Jede Array-Disk dreht rund um die Uhr — Strom, Wärme und Verschleiss. 30 bis 60 Minuten sind ein guter Anfang; mit Pools für appdata und VMs ruhen die meisten Disks dann wirklich.",
   "adv.spindown_some.title": {
@@ -740,13 +734,6 @@
   "adv.ups.why": "Fällt der Strom aus, ist der Server einfach weg: Offene Dateien können kaputtgehen, danach läuft eine lange Paritätsprüfung. Eine kleine USV gibt ihm Zeit, sauber herunterzufahren (Settings → UPS Settings; für einen NUT-Server das NUT-Plugin).",
   "adv.syslog.title": "Nach einem Absturz ist das Protokoll weg",
   "adv.syslog.why": "Unraid hält sein Syslog im RAM — nach einem Absturz oder harten Reset weiss niemand mehr, was passiert ist, auch Frau Protokolli nicht. «Mirror syslog to flash» (für eine Weile, es nutzt den Stick ab) oder ein Syslog-Server (dieser hier: ein Share als lokaler Syslog-Ordner) bewahrt es auf.",
-  "adv.mitigations_off.title": "CPU-Schutz ausgeschaltet (mitigations=off)",
-  "adv.mitigations_off.why": "Dein {cpu} startet ohne die Schutzmassnahmen gegen Spectre-ähnliche Lücken; offen sind gerade: {open}. Das bringt ein paar Prozent Tempo (bei älteren Intel deutlich mehr, bei neueren CPUs und AMD weniger). Aus ist in Ordnung, wenn hier nur du und Programme laufen, denen du vertraust. An ist besser, sobald VMs oder Container Code ausführen, den du nicht kontrollierst, andere den Server nutzen oder Dienste aus dem Internet erreichbar sind. AMD ist auch betroffen — von eigenen Lücken (z. B. SRSO, Retbleed, TSA). Einschalten: «mitigations=off» aus der Boot-Konfiguration entfernen ({boot}), dann neu starten.",
-  "adv.vmscape.title": {
-    "one": "VMScape: eine VM könnte den Host auslesen",
-    "other": "VMScape: {n} VMs könnten den Host auslesen"
-  },
-  "adv.vmscape.why": "Diese Lücke von 2025 lässt einen Gast Speicher des VM-Prozesses auf dem Host (QEMU) lesen — genau das, wovor der ausgeschaltete Schutz bewahren würde. Bei VMs, die nur du nutzt, ist das wenig wichtig; bei VMs, die andere nutzen oder die fremde Software ausführen, den Schutz wieder einschalten.",
-  "adv.mitigations_on.title": "CPU-Schutz ist an",
-  "adv.mitigations_on.why": "Dein {cpu} läuft mit den Schutzmassnahmen gegen Spectre-ähnliche Lücken — die sichere Voreinstellung. Sie kostet ein paar Prozent Tempo, bei älteren Intel-CPUs mehr (viel I/O, viele VMs). Ausschalten («mitigations=off» in der Boot-Konfiguration: {boot}) lohnt sich nur, wenn auf dem Server nichts läuft, dem du nicht traust, und nichts aus dem Internet erreichbar ist. AMD braucht ihn auch: Es hat eigene Lücken (SRSO, Retbleed, TSA)."
+  "adv.security.title": "Sicherheit macht jetzt der Nachtwächter",
+  "adv.security.why": "Freigaben, die für alle offen sind, Telnet, FTP, privilegierte Container, der Schutz der CPU — das ist jetzt seine Abteilung, und er merkt auch, wenn sich etwas ändert. Nur: Er arbeitet noch nicht hier. Der Teamchef kann ihn einstellen. Unter uns: Ich würde es tun."
 }

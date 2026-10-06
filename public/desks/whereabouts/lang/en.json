@@ -193,6 +193,8 @@
   "access.r": "read",
   "access_legend": "Access via SMB. public: everybody may read and write · secure: everybody reads, the write list writes · private: only the read and write lists.",
   "not_exported_list": "Not exported via SMB: {names}",
+  "watchman_sees": "What changes here — a new user, a share opened to guests, who pulls how much — the night watchman sees:",
+  "watchman_sees_link": "his watch book",
   "smb_sessions": "SMB sessions",
   "session_count": {
     "zero": "nobody connected",
@@ -217,6 +219,8 @@
   },
   "cron_jobs": "⏰ Cron jobs",
   "cron_meta": "everything cron runs, incl. Unraid's own jobs",
+  "cron_gone": "program gone",
+  "cron_gone_title": "Its program lay in the folder of the plugin {plugin} and is gone — a leftover line",
   "sched.disabled": "disabled",
   "sched.custom": "custom",
   "sched.start": "at array start",
@@ -650,8 +654,6 @@
   "adv.never": "never",
   "adv.to_share": "Share {name}",
   "adv.to_scheduler": "Scheduler",
-  "adv.to_access": "Management Access",
-  "adv.to_ftp": "FTP Server",
   "adv.to_docker": "Docker",
   "adv.to_disks": "Disk Settings",
   "adv.to_main": "Main",
@@ -659,8 +661,7 @@
   "adv.to_syslog": "Syslog Server",
   "adv.to_share_settings": "Global Share Settings",
   "adv.to_browse": "Browse {path}",
-  "adv.boot_grub": "Main → boot pool → GRUB configuration",
-  "adv.boot_syslinux": "Main → Flash → Syslinux Configuration",
+  "adv.to_team_lead": "To the team lead",
   "adv.system_array.title": "On the array: {names}",
   "adv.system_array.why": "Docker's and the VMs' own things belong on a pool (SSD/NVMe): on the array every container and VM gets slow, and the disks never get to sleep. In the share's settings set the primary storage to a pool and the secondary to none, then let the mover bring the files over (with Docker and VMs stopped).",
   "adv.mover.title": {
@@ -700,20 +701,6 @@
     "one": "I couldn't help noticing: this share keeps its data on its pool, and the mover brings back whatever spilled over to the secondary storage. Without a secondary storage it could be an exclusive share — /mnt/user/… a link straight to the pool, past Unraid's FUSE layer, noticeably faster. Worth it only if the pool has room for all of it: without a secondary storage a full pool means a full share. If so: run the mover so everything is on the pool, set «Secondary storage» to «None» in the share's settings, delete what is left of the share on another pool or disk (in brackets; empty folders count too), then stop and start the array. Needs «Permit exclusive shares» (Settings → Global Share Settings).",
     "other": "I couldn't help noticing: these shares keep their data on their pool, and the mover brings back whatever spilled over to the secondary storage. Without a secondary storage they could be exclusive shares — /mnt/user/… a link straight to the pool, past Unraid's FUSE layer, noticeably faster. Worth it only if the pool has room for all of it: without a secondary storage a full pool means a full share. If so: run the mover so everything is on the pool, set «Secondary storage» to «None» in the share's settings, delete what is left of the share on another pool or disk (in brackets; empty folders count too), then stop and start the array. Needs «Permit exclusive shares» (Settings → Global Share Settings)."
   },
-  "adv.public.title": {
-    "one": "Open to everyone in the network: {names}",
-    "other": "{n} shares open to everyone in the network: {names}"
-  },
-  "adv.public.why": "«Public» means anyone in your network may read, write and delete — every device, every guest, every infected laptop. Set security to «Secure» (everyone reads, chosen users write) or «Private», and give your users access.",
-  "adv.telnet.title": "Telnet is on",
-  "adv.telnet.why": "Telnet sends everything unencrypted, the root password too. SSH does the same, encrypted. Switch Telnet off under Management Access.",
-  "adv.ftp.title": "The FTP server is on",
-  "adv.ftp.why": "FTP sends passwords and files unencrypted. If you don't need it, switch it off; for files over the network SMB or SFTP (comes with SSH) are the better choice.",
-  "adv.privileged.title": {
-    "one": "{names} runs privileged",
-    "other": "{n} containers run privileged: {names}"
-  },
-  "adv.privileged.why": "A privileged container may do nearly anything on the server — fine for tools that need it (hardware, VPN, the backup), worth a second look for everything else. On the Docker page: Edit → Privileged off, and see whether it still works.",
   "adv.compose_build.title": {
     "one": "{names} builds its own image",
     "other": "{n} stacks build their own image: {names}"
@@ -722,6 +709,13 @@
     "one": "Its image is built here from a Dockerfile («build:» in the compose file); no registry has it. Compose Manager's «Update» and «Force Update» pull the images first — that fails here and can leave the containers «Created». Rebuild it instead, in a terminal (Unraid's >_ at the top right): this fetches the newer base image, builds anew and recreates what changed.",
     "other": "Their images are built here from a Dockerfile («build:» in the compose file); no registry has them. Compose Manager's «Update» and «Force Update» pull the images first — that fails here and can leave the containers «Created». Rebuild them instead, in a terminal (Unraid's >_ at the top right): this fetches the newer base image, builds anew and recreates what changed."
   },
+  "adv.cron_dead.title": {
+    "one": "A cron line starts {names} — and that's gone",
+    "other": "Cron lines start {n} programs that are gone: {names}"
+  },
+  "adv.cron_dead.why": "Well, well — leftovers: the plugin ({plugins}) is gone, its line stayed. crond tries every time and fails quietly. Harmless, but untidy — and confusing when you look for what runs when. {how}",
+  "adv.cron_dead.own": "They are in root's own crontab (crontab -l): the command below removes them in a terminal (Unraid's >_ at the top right) and keeps a copy on the flash first.",
+  "adv.cron_dead.system": "Lines in /etc/cron.d come from a plugin (Unraid builds its own crontab there from the plugins' .cron files on the flash): reinstall that plugin, or remove it under Plugins.",
   "adv.spindown_default.title": "Disks never sleep",
   "adv.spindown_default.why": "The default spin down delay is «Never»: every array disk keeps spinning around the clock — power, heat and wear. 30 to 60 minutes is a good start; with pools for appdata and VMs most disks then really rest.",
   "adv.spindown_some.title": {
@@ -740,13 +734,6 @@
   "adv.ups.why": "When the power goes, the server simply stops: open files may break, afterwards Unraid runs a long parity check. A small UPS gives it time to shut down cleanly (Settings → UPS Settings; for a NUT server the NUT plugin).",
   "adv.syslog.title": "After a crash the log is gone",
   "adv.syslog.why": "Unraid keeps its syslog in RAM — after a crash or a hard reset nobody can read what happened, Ms. Protocolli included. «Mirror syslog to flash» (for a while, it wears the stick) or a syslog server (this one: a share as local syslog folder) keeps it.",
-  "adv.mitigations_off.title": "CPU protection switched off (mitigations=off)",
-  "adv.mitigations_off.why": "Your {cpu} boots without the protections against Spectre-like flaws; open now: {open}. That gives a few percent of speed (much more on older Intel, less on newer CPUs and AMD). Off is fine when only you and programs you trust run here. On is better as soon as VMs or containers run code you don't control, others use the server, or services are reachable from the internet. AMD is affected too — by its own flaws (e.g. SRSO, Retbleed, TSA). To switch on: remove «mitigations=off» in the boot configuration ({boot}), then reboot.",
-  "adv.vmscape.title": {
-    "one": "VMScape: a VM could read the host",
-    "other": "VMScape: {n} VMs could read the host"
-  },
-  "adv.vmscape.why": "This 2025 flaw lets a guest read memory of the host's VM process (QEMU) — exactly what the switched-off protection would cover. With VMs only you use it matters little; with VMs others use, or that run untrusted software, switch the protection back on.",
-  "adv.mitigations_on.title": "CPU protection is on",
-  "adv.mitigations_on.why": "Your {cpu} runs with the protections against Spectre-like flaws — the safe default. It costs a few percent of speed, on older Intel CPUs more (heavy I/O, many VMs). Switching it off («mitigations=off» in the boot configuration: {boot}) is only worth it when nothing on the server runs code you don't trust and nothing is reachable from the internet. AMD needs it too: it has its own flaws (SRSO, Retbleed, TSA)."
+  "adv.security.title": "Security is the night watchman's job now",
+  "adv.security.why": "Shares open to everyone, Telnet, FTP, privileged containers, the CPU's protection — that's his department now, and he notices when something changes, too. Only: he doesn't work here yet. The team lead can hire him. Between us: I would."
 }

@@ -193,6 +193,8 @@
   "access.r": "lettura",
   "access_legend": "Accesso via SMB. pubblico: tutti possono leggere e scrivere · sicuro: tutti leggono, chi è nella lista di scrittura scrive · privato: solo le liste di lettura e scrittura.",
   "not_exported_list": "Non esportate via SMB: {names}",
+  "watchman_sees": "Ciò che cambia qui — un nuovo utente, una condivisione aperta agli ospiti, chi scarica quanto — lo vede il guardiano notturno:",
+  "watchman_sees_link": "il suo registro di guardia",
   "smb_sessions": "Sessioni SMB",
   "session_count": {
     "zero": "nessuno connesso",
@@ -217,6 +219,8 @@
   },
   "cron_jobs": "⏰ Job cron",
   "cron_meta": "tutto ciò che esegue cron, compresi i job di Unraid stesso",
+  "cron_gone": "programma sparito",
+  "cron_gone_title": "Il suo programma stava nella cartella del plugin {plugin} e non c'è più — una riga rimasta",
   "sched.disabled": "disattivato",
   "sched.custom": "personalizzato",
   "sched.start": "all'avvio dell'array",
@@ -650,8 +654,6 @@
   "adv.never": "mai",
   "adv.to_share": "Condivisione {name}",
   "adv.to_scheduler": "Operazioni pianificate",
-  "adv.to_access": "Accesso e Sicurezza",
-  "adv.to_ftp": "FTP",
   "adv.to_docker": "Docker",
   "adv.to_disks": "Dischi",
   "adv.to_main": "Principale",
@@ -659,8 +661,7 @@
   "adv.to_syslog": "Server syslog",
   "adv.to_share_settings": "Condivisione",
   "adv.to_browse": "Sfoglia {path}",
-  "adv.boot_grub": "Principale → pool di avvio → configurazione GRUB",
-  "adv.boot_syslinux": "Principale → Unità Flash → Configurazione Syslinux",
+  "adv.to_team_lead": "Dal capoufficio",
   "adv.system_array.title": "Sull'array: {names}",
   "adv.system_array.why": "Ciò che serve a Docker e alle VM va su un pool (SSD/NVMe): sull'array ogni contenitore e ogni VM diventa lento, e i dischi non riposano mai. Nelle impostazioni della condivisione metti l'archiviazione primaria su un pool e quella secondaria su nessuna, poi lascia che il Mover porti i file (con Docker e VM fermi).",
   "adv.mover.title": {
@@ -700,20 +701,6 @@
     "one": "Non ho potuto fare a meno di notarlo: questa condivisione tiene i dati sul suo pool, e il Mover riporta indietro quello che è traboccato sull'archiviazione secondaria. Senza archiviazione secondaria potrebbe essere una condivisione esclusiva — /mnt/user/… un collegamento diretto al pool, saltando lo strato FUSE di Unraid, sensibilmente più veloce. Conviene solo se il pool ha posto per tutto: senza archiviazione secondaria un pool pieno vuol dire una condivisione piena. Se sì: lascia girare il Mover finché tutto è sul pool, nelle impostazioni della condivisione metti «Archiviazione Secondaria» su «Nessuna», elimina quello che resta della condivisione su un altro pool o disco (tra parentesi; contano anche le cartelle vuote), poi ferma e riavvia l'array. Serve «Consenti Condivisioni esclusive» (Impostazioni → Condivisione).",
     "other": "Non ho potuto fare a meno di notarlo: queste condivisioni tengono i dati sul loro pool, e il Mover riporta indietro quello che è traboccato sull'archiviazione secondaria. Senza archiviazione secondaria potrebbero essere condivisioni esclusive — /mnt/user/… un collegamento diretto al pool, saltando lo strato FUSE di Unraid, sensibilmente più veloce. Conviene solo se il pool ha posto per tutto: senza archiviazione secondaria un pool pieno vuol dire una condivisione piena. Se sì: lascia girare il Mover finché tutto è sul pool, nelle impostazioni della condivisione metti «Archiviazione Secondaria» su «Nessuna», elimina quello che resta della condivisione su un altro pool o disco (tra parentesi; contano anche le cartelle vuote), poi ferma e riavvia l'array. Serve «Consenti Condivisioni esclusive» (Impostazioni → Condivisione)."
   },
-  "adv.public.title": {
-    "one": "Aperta a tutti nella rete: {names}",
-    "other": "{n} condivisioni aperte a tutti nella rete: {names}"
-  },
-  "adv.public.why": "«Pubblico» vuol dire che chiunque nella tua rete può leggere, scrivere ed eliminare — ogni dispositivo, ogni ospite, ogni portatile infetto. Imposta la sicurezza su «Sicuro» (tutti leggono, gli utenti scelti scrivono) o «Privato», e dai l'accesso ai tuoi utenti.",
-  "adv.telnet.title": "Telnet è attivo",
-  "adv.telnet.why": "Telnet manda tutto in chiaro, anche la password di root. SSH fa lo stesso, cifrato. Disattiva Telnet in Accesso e Sicurezza.",
-  "adv.ftp.title": "Il server FTP è attivo",
-  "adv.ftp.why": "FTP manda password e file in chiaro. Se non ti serve, disattivalo; per i file in rete SMB o SFTP (viene con SSH) sono la scelta migliore.",
-  "adv.privileged.title": {
-    "one": "{names} gira in modalità privilegiata",
-    "other": "{n} contenitori girano in modalità privilegiata: {names}"
-  },
-  "adv.privileged.why": "Un contenitore privilegiato può fare quasi tutto sul server — va bene per strumenti che ne hanno bisogno (hardware, VPN, il backup), per tutto il resto merita una seconda occhiata. Nella pagina Docker: Modifica → Privilegiato disattivato, e guarda se funziona ancora.",
   "adv.compose_build.title": {
     "one": "{names} costruisce da sé la sua immagine",
     "other": "{n} stack costruiscono da sé la loro immagine: {names}"
@@ -722,6 +709,13 @@
     "one": "La sua immagine viene costruita qui da un Dockerfile («build:» nel file compose); nessun registry ce l'ha. «Update» e «Force Update» del Compose Manager scaricano prima le immagini — qui falliscono e possono lasciare i contenitori nello stato «Created». Ricostruiscila invece in un terminale (il >_ di Unraid in alto a destra): scarica l'immagine di base più recente, ricostruisce e ricrea ciò che è cambiato.",
     "other": "Le loro immagini vengono costruite qui da un Dockerfile («build:» nel file compose); nessun registry le ha. «Update» e «Force Update» del Compose Manager scaricano prima le immagini — qui falliscono e possono lasciare i contenitori nello stato «Created». Ricostruiscile invece in un terminale (il >_ di Unraid in alto a destra): scarica l'immagine di base più recente, ricostruisce e ricrea ciò che è cambiato."
   },
+  "adv.cron_dead.title": {
+    "one": "Una riga cron avvia {names} — che non c'è più",
+    "other": "Delle righe cron avviano {n} programmi che non ci sono più: {names}"
+  },
+  "adv.cron_dead.why": "Guarda un po' — avanzi: il plugin ({plugins}) non c'è più, la sua riga è rimasta. crond ci prova ogni volta e fallisce in silenzio. Innocuo, ma disordinato — e confonde quando cerchi cosa gira e quando. {how}",
+  "adv.cron_dead.own": "Sono nel crontab di root (crontab -l): il comando qui sotto le toglie in un terminale (il >_ di Unraid in alto a destra) e prima mette una copia sulla flash.",
+  "adv.cron_dead.system": "Le righe in /etc/cron.d vengono da un plugin (Unraid vi costruisce il suo crontab dai file .cron dei plugin sulla flash): reinstalla quel plugin, o rimuovilo in Plugin.",
   "adv.spindown_default.title": "I dischi non dormono mai",
   "adv.spindown_default.why": "Il ritardo spin down predefinito è «Mai»: ogni disco dell'array gira giorno e notte — corrente, calore e usura. Da 30 a 60 minuti è un buon inizio; con i pool per appdata e VM la maggior parte dei dischi poi riposa davvero.",
   "adv.spindown_some.title": {
@@ -740,13 +734,6 @@
   "adv.ups.why": "Quando va via la corrente, il server si spegne di colpo: i file aperti possono rovinarsi, e dopo Unraid fa un lungo controllo di parità. Un piccolo gruppo di continuità (UPS) gli dà il tempo di spegnersi in modo pulito (Impostazioni → Gruppo di continuità; per un server NUT il plugin NUT).",
   "adv.syslog.title": "Dopo un crash il log è perso",
   "adv.syslog.why": "Unraid tiene il suo syslog nella RAM — dopo un crash o un reset brutale nessuno può più leggere cosa è successo, nemmeno la signora Protocolli. «Copia 'syslog' sull'Unità Flash USB» (per un po', consuma la chiavetta) o un server syslog (questo stesso: una condivisione come cartella syslog locale) lo conserva.",
-  "adv.mitigations_off.title": "Protezione della CPU disattivata (mitigations=off)",
-  "adv.mitigations_off.why": "La tua {cpu} si avvia senza le protezioni contro le falle simili a Spectre; aperte in questo momento: {open}. Questo dà qualche punto percentuale di velocità (molto di più sugli Intel più vecchi, meno sulle CPU più recenti e su AMD). Disattivata va bene se qui girano solo tu e programmi di cui ti fidi. Attivata è meglio non appena VM o contenitori eseguono codice che non controlli, altri usano il server, o dei servizi sono raggiungibili da internet. Anche AMD è colpita — dalle sue falle (ad es. SRSO, Retbleed, TSA). Per attivarla: togli «mitigations=off» dalla configurazione di avvio ({boot}), poi riavvia.",
-  "adv.vmscape.title": {
-    "one": "VMScape: una VM potrebbe leggere l'host",
-    "other": "VMScape: {n} VM potrebbero leggere l'host"
-  },
-  "adv.vmscape.why": "Questa falla del 2025 permette a un guest di leggere la memoria del processo VM dell'host (QEMU) — proprio ciò da cui proteggerebbe la protezione disattivata. Con VM che usi solo tu conta poco; con VM usate da altri o che eseguono software non affidabile, riattiva la protezione.",
-  "adv.mitigations_on.title": "La protezione della CPU è attiva",
-  "adv.mitigations_on.why": "La tua {cpu} gira con le protezioni contro le falle simili a Spectre — l'impostazione predefinita sicura. Costa qualche punto percentuale di velocità, di più sulle CPU Intel più vecchie (molto I/O, molte VM). Disattivarla («mitigations=off» nella configurazione di avvio: {boot}) conviene solo se sul server non gira niente di cui non ti fidi e niente è raggiungibile da internet. Anche AMD ne ha bisogno: ha le sue falle (SRSO, Retbleed, TSA)."
+  "adv.security.title": "Della sicurezza ora si occupa il guardiano notturno",
+  "adv.security.why": "Condivisioni aperte a tutti, Telnet, FTP, contenitori privilegiati, la protezione della CPU — adesso è il suo reparto, e si accorge anche quando qualcosa cambia. Solo che non lavora ancora qui. Il capoufficio può assumerlo. Detto tra noi: io lo farei."
 }
