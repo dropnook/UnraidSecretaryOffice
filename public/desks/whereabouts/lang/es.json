@@ -680,6 +680,14 @@
     "other": "{n} contenedores se ejecutan con privilegios: {names}"
   },
   "adv.privileged.why": "Un contenedor privilegiado puede hacer casi de todo en el servidor — bien para herramientas que lo necesitan (hardware, VPN, la copia de seguridad), merece una segunda mirada para todo lo demás. En la página Docker: Editar → Acceso privilegiado desactivado, y mira si sigue funcionando.",
+  "adv.compose_build.title": {
+    "one": "{names} construye su propia imagen",
+    "other": "{n} stacks construyen su propia imagen: {names}"
+  },
+  "adv.compose_build.why": {
+    "one": "Su imagen se construye aquí a partir de un Dockerfile («build:» en el archivo compose); ningún registro la tiene. «Update» y «Force Update» del Compose Manager descargan primero las imágenes — aquí fallan y pueden dejar los contenedores en «Created». Mejor reconstrúyela en un terminal (el >_ de Unraid arriba a la derecha): descarga la imagen base más reciente, reconstruye y vuelve a crear lo que cambió.",
+    "other": "Sus imágenes se construyen aquí a partir de un Dockerfile («build:» en el archivo compose); ningún registro las tiene. «Update» y «Force Update» del Compose Manager descargan primero las imágenes — aquí fallan y pueden dejar los contenedores en «Created». Mejor reconstrúyelas en un terminal (el >_ de Unraid arriba a la derecha): descarga la imagen base más reciente, reconstruye y vuelve a crear lo que cambió."
+  },
   "adv.spindown_default.title": "Los discos nunca duermen",
   "adv.spindown_default.why": "El retardo por defecto para poner discos en reposo es «Nunca»: cada disco del array gira día y noche — consumo, calor y desgaste. De 30 a 60 minutos es un buen comienzo; con pools para appdata y las VMs, la mayoría de los discos descansan de verdad.",
   "adv.spindown_some.title": {

@@ -680,6 +680,14 @@
     "other": "{n} Container laufen privilegiert: {names}"
   },
   "adv.privileged.why": "Ein privilegierter Container darf auf dem Server fast alles — in Ordnung für Werkzeuge, die es brauchen (Hardware, VPN, das Backup), einen zweiten Blick wert für alles andere. Auf der Docker-Seite: Edit → Privileged aus, und schauen, ob er noch läuft.",
+  "adv.compose_build.title": {
+    "one": "{names} baut sein Image selbst",
+    "other": "{n} Stacks bauen ihr Image selbst: {names}"
+  },
+  "adv.compose_build.why": {
+    "one": "Sein Image wird hier aus einem Dockerfile gebaut («build:» in der Compose-Datei); keine Registry kennt es. «Update» und «Force Update» im Compose Manager holen zuerst die Images — das schlägt hier fehl und kann die Container als «Created» liegen lassen. Stattdessen neu bauen, im Terminal (Unraids >_ oben rechts): Das holt das neuere Basis-Image, baut neu und erstellt neu, was sich geändert hat.",
+    "other": "Ihre Images werden hier aus einem Dockerfile gebaut («build:» in der Compose-Datei); keine Registry kennt sie. «Update» und «Force Update» im Compose Manager holen zuerst die Images — das schlägt hier fehl und kann die Container als «Created» liegen lassen. Stattdessen neu bauen, im Terminal (Unraids >_ oben rechts): Das holt das neuere Basis-Image, baut neu und erstellt neu, was sich geändert hat."
+  },
   "adv.spindown_default.title": "Die Disks schlafen nie",
   "adv.spindown_default.why": "Die Standard-Wartezeit bis zum Abschalten steht auf «Never»: Jede Array-Disk dreht rund um die Uhr — Strom, Wärme und Verschleiss. 30 bis 60 Minuten sind ein guter Anfang; mit Pools für appdata und VMs ruhen die meisten Disks dann wirklich.",
   "adv.spindown_some.title": {

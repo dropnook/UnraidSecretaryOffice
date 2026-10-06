@@ -904,6 +904,16 @@ function testLogsTour(): void
     same("logs: desk.js LEVEL_NAMES are the agent's", $want, $names);
 }
 
+/** Ms. Whereabouts: which services of a compose file build their own image (her rebuild tip) */
+function testComposeBuilds(): void
+{
+    $yaml = "name: x\nservices:\n  db:\n    image: mariadb:11\n    environment:\n      build: no   # an env value, not a key of the service\n"
+          . "  app:\n    # Updates: docker compose build --pull\n    image: nextcloud-ocr:\${V}\n    build:\n      context: .\n"
+          . "  \"web\":\n    build: ./web\n  cron:\n    image: nextcloud-ocr:\${V}\nnetworks:\n  build:\n    driver: bridge\n";
+    same('compose builds: services with build:, nothing else', ['app', 'web'], waComposeBuilds($yaml));
+    same('compose builds: none', [], waComposeBuilds("services:\n  a:\n    image: x\n"));
+}
+
 /**
  * The night watchman: his login lines, bursts of failures, the syslog by
  * offset and rotation, rights and plugin sources, and a whole watch on copies
@@ -2212,7 +2222,7 @@ function testIconSquare(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testAdvisor', 'testLogsTour', 'testMetrics', 'testWatchman'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testAdvisor', 'testLogsTour', 'testMetrics', 'testWatchman', 'testComposeBuilds'],
           'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';

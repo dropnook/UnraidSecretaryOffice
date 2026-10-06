@@ -680,6 +680,14 @@
     "other": "{n} conteneurs tournent en mode privilégié : {names}"
   },
   "adv.privileged.why": "Un conteneur privilégié peut faire presque n'importe quoi sur le serveur — très bien pour les outils qui en ont besoin (matériel, VPN, la sauvegarde), à revoir pour tout le reste. Sur la page Docker : Modifier → Privilégié désactivé, et vois si ça marche encore.",
+  "adv.compose_build.title": {
+    "one": "{names} construit sa propre image",
+    "other": "{n} stacks construisent leur propre image : {names}"
+  },
+  "adv.compose_build.why": {
+    "one": "Son image est construite ici à partir d'un Dockerfile (« build: » dans le fichier compose) ; aucun registre ne l'a. « Update » et « Force Update » du Compose Manager téléchargent d'abord les images — ici, ça échoue et peut laisser les conteneurs « Created ». Reconstruis-la plutôt dans un terminal (le >_ d'Unraid en haut à droite) : ça récupère l'image de base plus récente, reconstruit et recrée ce qui a changé.",
+    "other": "Leurs images sont construites ici à partir d'un Dockerfile (« build: » dans le fichier compose) ; aucun registre ne les a. « Update » et « Force Update » du Compose Manager téléchargent d'abord les images — ici, ça échoue et peut laisser les conteneurs « Created ». Reconstruis-les plutôt dans un terminal (le >_ d'Unraid en haut à droite) : ça récupère l'image de base plus récente, reconstruit et recrée ce qui a changé."
+  },
   "adv.spindown_default.title": "Les disques ne dorment jamais",
   "adv.spindown_default.why": "Le délai d'arrêt des plateaux par défaut est « Jamais » : chaque disque de l'array tourne jour et nuit — électricité, chaleur et usure. 30 à 60 minutes, c'est un bon début ; avec des pools pour appdata et les VM, la plupart des disques se reposent alors vraiment.",
   "adv.spindown_some.title": {
