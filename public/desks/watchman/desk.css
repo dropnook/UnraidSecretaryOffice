@@ -17,6 +17,11 @@
 .wm-fix .wm-note{flex-basis:100%}
 .wm-notes{display:flex; flex-direction:column; gap:6px}
 .wm-notes .callout, .wm-notes .role{margin:0}
+/* how secure it stands: a tip, its link into Unraid and «I know, thanks» on the right (under it on a phone) */
+.row.wm-tip{grid-template-columns:minmax(0,1fr) auto; align-items:start}
+.wm-tip-acts{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; padding-top:2px}
+.wm-tip-known .row-name, .wm-tip-known .row-detail{color:var(--muted)}
+.wm-posture-none{margin:0 2px}
 /* what he keeps an eye on: groups that fold, small rows */
 .row.wm-item{padding-left:24px}
 .row.wm-item .row-name{font-size:12.5px}
@@ -26,6 +31,8 @@
 @media (max-width:640px){
   .row.wm-entry{grid-template-columns:minmax(0,1fr)}
   .row.wm-entry > .btn{justify-self:start}
+  .row.wm-tip{grid-template-columns:minmax(0,1fr)}
+  .wm-tip-acts{justify-content:flex-start}
   .row.wm-item{padding-left:14px}
   .wm-flow-note{padding-left:14px}
 }

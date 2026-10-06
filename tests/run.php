@@ -18,8 +18,10 @@ declare(strict_types=1);
  *            the Consultant's monitoring externals and his installs, Ms. Protocolli's tour,
  *            the night watchman's rounds, bursts, baseline and «I know, thanks», his watch over what
  *            starts on its own (crontabs, .cron files, User Scripts, at, notification agents), his
- *            data flow (ss, smbstatus, zfs written, containers' counters; learning, the unusual),
- *            job.sh's guard against a second start in the same minute, Ms. Whereabouts on exclusive shares)
+ *            data flow (ss, smbstatus, zfs written, containers' counters; learning, the unusual), his posture
+ *            tips (how secure it stands) and the link to Grafana,
+ *            job.sh's guard against a second start in the same minute, Ms. Whereabouts on exclusive shares
+ *            and on cron lines whose program is gone)
  *   hardening  the checks that keep requests, manifests, paths and links in
  *            bounds (safe writes, the mailbox, Ms. Dustdevil's
  *            manifests, Emby paths, anchored validators, the release link, the
@@ -1421,7 +1423,9 @@ function testWatchman(): void
         str_contains(implode("\n", $c), OFFICE_NOTIFY_EVENT . ': ' . officeNotifyText('watchman', 'notify.login_failures', ['n' => 1] + watchmanText($by['login_failures']), $lang)));
     $f = array_column(watchmanChecks($data), null, 'id');
     same('watch: the team lead gets one finding per kind, recommended, with the newest', [13, 'recommended', false, 1, '10.9.8.7'],
-        [count($f), $f['login_new_ip']['level'], $f['login_new_ip']['ok'], $f['login_new_ip']['params']['n'], $f['login_new_ip']['params']['ip']]);
+        [count($f) - 1, $f['login_new_ip']['level'], $f['login_new_ip']['ok'], $f['login_new_ip']['params']['n'], $f['login_new_ip']['params']['ip']]);
+    same('watch: and, good to know, how many security tips (Media open to everyone; privileged plex is only good to know)', ['hint', 1],
+        [$f['posture']['level'] ?? null, $f['posture']['params']['n'] ?? null]);
 
     // the same again, the burst going on: no new entry, nothing told again
     file_put_contents($paths['syslog'], $line($t + 30, 'sshd[7]: Failed password for root from 203.0.113.9 port 4999 ssh2'), FILE_APPEND);
@@ -1657,13 +1661,6 @@ function testWatchmanSched(): void
     // the pieces
     same('sched: job lines, normalised, without comments and settings', ['*/5 * * * * a b', '@daily c'],
         watchmanCronJobs("# x\nSHELL=/bin/sh\n*/5  *\t* * *  a   b\n\n@daily c\n"));
-    same('sched: the program behind an interpreter, none for inline code or a name', ['/usr/local/x/run.php', '/a/b.sh', null, null, '/x'],
-        [watchmanCronProgram('/usr/bin/php -q /usr/local/x/run.php arg'), watchmanCronProgram('nice -n 10 bash "/a/b.sh" x'),
-         watchmanCronProgram("sh -c 'rm -rf /'"), watchmanCronProgram('logger hello'), watchmanCronProgram('timeout 60 LANG=C /x')]);
-    $gone = fn (string $p) => false;
-    same('sched: a program gone with its plugin (never under /mnt)', ['vmbackup', null, null],
-        [watchmanCronGone('/usr/local/emhttp/plugins/vmbackup/runscript.php', $gone), watchmanCronGone('/mnt/user/x/y.sh', $gone),
-         watchmanCronGone('/usr/local/sbin/mdcmd', $gone)]);
     $short = watchmanCronShort('*/10 * * * * curl -s -u admin:hunter2 https://hc-ping.com/0123456789abcdef0123456789abcdef?x=1 PASSWORD=geheim > /dev/null 2>&1');
     check('sched: a line shown without its secrets', str_starts_with($short, '*/10 * * * * curl') && str_contains($short, 'hc-ping.com')
         && !preg_match('/hunter2|0123456789abcdef|geheim|dev\/null/', $short), $short);
@@ -1760,7 +1757,7 @@ function testWatchmanSched(): void
     touch("$src/agents/Discord.sh", $t);           // same size: the time tells it changed
     file_put_contents("$src/agents/Pushover.sh", "#!/bin/bash\nTOKEN='pushover-secret-token'\n");
     $r = watchmanRound($paths, $data, 1000, $now + 600, $docker, true, $acks);
-    same('sched: one entry for each thing that differs', ['at_job' => 1, 'cron_dead' => 1, 'cron_file' => 2, 'cron_file_foreign' => 1, 'cron_new' => 1,
+    same('sched: one entry for each thing that differs (a program gone with its plugin is Ms. Whereabouts\' now)', ['at_job' => 1, 'cron_file' => 2, 'cron_file_foreign' => 1, 'cron_new' => 1,
         'cron_office' => 1, 'cron_twice' => 1, 'notify_agent' => 2, 'script_changed' => 2, 'script_new' => 1], $open());
     $by = [];
     foreach (array_filter(watchmanLoad($data)['book'], 'watchmanOpen') as $e) {
@@ -1773,8 +1770,6 @@ function testWatchmanSched(): void
     same('sched: the office\'s own lines called out (the copy and the old one)', ['0 1 * * * bash unraid-secretary-office/scripts/job.sh backup',
         '0 2 * * * bash unraid-secretary-office/scripts/job.sh backup'], $by['cron_office'][0]['p']['jobs']);
     same('sched: the new lines, a token left out', ['*/10 * * * * curl -s https://hc-ping.com/…', '0 3 * * * gone-plugin-uso-test/run.sh'], $by['cron_new'][0]['p']['jobs']);
-    same('sched: a program gone with its plugin', ['/usr/local/emhttp/plugins/gone-plugin-uso-test/run.sh', 'gone-plugin-uso-test'],
-        [$by['cron_dead'][0]['p']['path'], $by['cron_dead'][0]['p']['plugin']]);
     $ev = $twice['p']['evidence'] ?? [];
     same('sched evidence: the file\'s time, the lines around it that name a plugin or cron — no login, nothing far off',
         [$t, [date('H:i:s', $t - 10) . " ool www[3899811]: /usr/local/emhttp/plugins/vmbackup/scripts/commands.sh 'update_user_script' 'default'",
@@ -1812,8 +1807,8 @@ function testWatchmanSched(): void
     $r = watchmanRound($paths, $data, 1000, $now + 1200, $docker, true, $acks);
     same('sched: noted — the same state reports nothing', [[], []], [$r['added'], $open()]);
     $b = watchmanLoad($data)['baseline']['sched'];
-    same('sched: noted is normal (doubled lines, the office\'s line, the gone program, the foreign .cron, the at job, the agent)', [2, 2, true, true, true, true],
-        [count($b['crontab']['twice']), count($b['crontab']['office']), isset($b['crontab']['dead']['/usr/local/emhttp/plugins/gone-plugin-uso-test/run.sh']),
+    same('sched: noted is normal (doubled lines, the office\'s line, the foreign .cron, the at job, the agent; no dead lines kept)', [2, 2, false, true, true, true],
+        [count($b['crontab']['twice']), count($b['crontab']['office']), isset($b['crontab']['dead']),
          isset($b['files']['evilplug/evil.cron']), isset($b['at']['a0000201c2b3b0']), isset($b['agents']['Pushover.sh'])]);
 
     // cleaned up by hand — normal; doubled again later — told again
@@ -3636,10 +3631,219 @@ function testIconSquare(): void
     @rmdir($tmp);
 }
 
+/**
+ * The night watchman's posture tips — how secure it stands now: shares open to everyone (a user share, a
+ * disk; the flash only «secure» is not), Telnet, Unraid's FTP server (left to Fix Common Problems once it
+ * has users), the CPU's protection off (with VMScape and VMs) or on, privileged containers. «I know, thanks»
+ * kept on the server, back when what it is about changes, forgotten when it goes; the team lead's hint;
+ * entries of a kind he no longer keeps (cron_dead) left out quietly; the data flow's link into Grafana — on
+ * copies in a temporary folder.
+ */
+function testWatchmanPosture(): void
+{
+    $now = strtotime('2026-10-06 12:00:00');
+    $tmp = sys_get_temp_dir() . '/office-tests-posture-' . getmypid();
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'vulns', 'extra', 'ssh'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+              'etc_passwd' => "$src/passwd", 'disks_ini' => "$src/disks.ini", 'ident' => "$src/ident.cfg", 'inetd' => "$src/inetd.conf",
+              'ftp_users' => "$src/vsftpd.user_list", 'cmdline' => "$src/cmdline", 'cpuinfo' => "$src/cpuinfo", 'cpu_vulns' => "$src/vulns",
+              'libvirt_sock' => "$src/libvirt-sock", 'virsh' => "$tmp/virsh"];
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['syslog'], '');
+    $sec = fn (string $more = '') => "[\"Media\"]\nexport=\"e\"\nsecurity=\"public\"\n[\"appdata\"]\nexport=\"e\"\nsecurity=\"private\"\n"
+        . "[\"disk1\"]\nexport=\"eh\"\nsecurity=\"public\"\n[\"flash\"]\nexport=\"e\"\nsecurity=\"secure\"\n[\"Old\"]\nexport=\"-\"\nsecurity=\"public\"\n$more";
+    file_put_contents($paths['sec'], $sec());
+    file_put_contents($paths['sec_nfs'], "[\"Media\"]\nexport=\"e\"\nsecurity=\"public\"\n");
+    file_put_contents($paths['share_cfg'], "shareSMBEnabled=\"yes\"\nshareNFSEnabled=\"yes\"\n");
+    file_put_contents($paths['disks_ini'], "[\"disk1\"]\nname=\"disk1\"\n[\"flash\"]\nname=\"flash\"\n");
+    file_put_contents($paths['ident'], "USE_TELNET=\"yes\"\nUSE_SSH=\"yes\"\n");
+    file_put_contents($paths['inetd'], "# Unraid's inetd\nftp     stream  tcp     nowait  root    /usr/sbin/tcpd  vsftpd\n");
+    file_put_contents($paths['cmdline'], "BOOT_IMAGE=/bzimage mitigations=off unraiduuid=1\n");
+    file_put_contents($paths['cpuinfo'], "vendor_id\t: GenuineIntel\nmodel name\t: Intel(R) Core(TM) Ultra 7 265K\n");
+    $vulns = fn (array $v) => array_map(fn ($f, $s) => file_put_contents("$src/vulns/$f", "$s\n"), array_keys($v), $v);
+    $vulns(['vmscape' => 'Vulnerable', 'spectre_v2' => 'Vulnerable; IBPB: disabled', 'meltdown' => 'Not affected', 'retbleed' => 'Mitigation: Enhanced IBRS']);
+    // libvirt: a stand-in virsh (`list --all --name`), failing while $src/virsh-fails is there
+    file_put_contents($paths['libvirt_sock'], '');
+    file_put_contents($paths['virsh'], "#!/bin/sh\n[ -e " . escapeshellarg("$src/virsh-fails") . " ] && exit 1\nprintf 'Win11\\n\\n'\n");
+    chmod($paths['virsh'], 0755);
+    $containers = ['vpn' => ['image' => 'wireguard', 'tokens' => ['--cap-add=NET_ADMIN', '--privileged']], 'web' => ['image' => 'nginx', 'tokens' => ['-p 80:80/tcp']]];
+    $docker = function () use (&$containers) {
+        return $containers;
+    };
+    $acks = "$tmp/acks.json";
+    $round = fn (int $t) => watchmanRound($paths, $data, 1000, $now + $t, $docker, false, $acks);
+    $tips = fn (int $t = 10) => array_column(watchmanPageState($data, $now + $t, false)['posture']['tips'] ?? [], null, 'id');
+
+    // his first round: how it stands is told right away (nothing of it is "normal")
+    same('posture: before his first round — nothing to show', null, watchmanPageState($data, $now, false)['posture']);
+    $round(0);
+    $t = $tips();
+    same('posture: his tips, in the order of his page', ['public', 'telnet', 'ftp', 'mitigations_off', 'vmscape', 'privileged'], array_keys($t));
+    same('posture: shares open to everyone — a user share (SMB, NFS) and a disk; the flash for reading only and one not exported are not',
+        [['names' => 'Media (SMB), Media (NFS), disk1 (SMB)', 'n' => 2], ['to' => 'share', 'name' => 'Media', 'path' => '/Shares/Share?name=Media'], 'advice'],
+        [$t['public']['p'], $t['public']['link'], $t['public']['level']]);
+    same('posture: links into Unraid — a disk\'s page, the boot device\'s for the flash',
+        ['/Shares/Disk?name=disk1', '/Main/Boot?name=flash', '/Shares/Share?name=My%20Share'],
+        [watchmanShareLink('disk1', ['disk1', 'flash']), watchmanShareLink('flash', []), watchmanShareLink('My Share', ['disk1'])]);
+    same('posture: Telnet, FTP — where to switch them off', ['/Settings/ManagementAccess', '/Settings/FTP'], [$t['telnet']['link']['path'], $t['ftp']['link']['path']]);
+    same('posture: the CPU — off, its open flaws (sorted), VMScape with a VM, where to switch it on',
+        [['cpu' => 'Intel(R) Core(TM) Ultra 7 265K', 'open' => ['spectre_v2', 'vmscape']], ['n' => 1], '/Settings/BootParameters'],
+        [$t['mitigations_off']['p'], $t['vmscape']['p'], $t['mitigations_off']['link']['path']]);
+    same('posture: a privileged container — good to know', [['names' => 'vpn', 'n' => 1], 'info'], [$t['privileged']['p'], $t['privileged']['level']]);
+    $page = watchmanPageState($data, $now + 10, false);
+    same('posture: on the page — nobody knows them yet, five of his advice open', [5, [false]], [$page['posture']['open'], array_values(array_unique(array_column($page['posture']['tips'], 'known')))]);
+    check('posture: no signatures on the page', !str_contains(json_encode($page['posture']), 'sig'));
+    $hint = array_column(watchmanChecks($data), null, 'id');
+    same('posture: the team lead hears it as good to know, next to "quiet"', [true, 'hint', null, 5, '#/watchman'],
+        [isset($hint['quiet']), $hint['posture']['level'] ?? null, array_key_exists('ok', $hint['posture'] ?? []) ? $hint['posture']['ok'] : 'x',
+         $hint['posture']['params']['n'] ?? null, $hint['posture']['link'] ?? null]);
+    same('posture: never in the watch book', ['watch'], array_column(watchmanLoad($data)['book'], 'kind'));
+
+    // «I know, thanks» — for every browser, on the server; the team lead hears one less
+    watchmanPostureAck('telnet', true, $data, $now + 20, false);
+    watchmanPostureAck('public', true, $data, $now + 21, false);
+    $page = watchmanPageState($data, $now + 30, false);
+    same('posture ack: known, counted no more', [true, true, false, 3], [$tips(30)['telnet']['known'], $tips(30)['public']['known'], $tips(30)['ftp']['known'], $page['posture']['open']]);
+    same('posture ack: the team lead\'s hint follows', 3, array_column(watchmanChecks($data), null, 'id')['posture']['params']['n'] ?? null);
+    $round(300);
+    same('posture: the next round, the same — still known', [true, true], [$tips(310)['telnet']['known'], $tips(310)['public']['known']]);
+    same('posture: VMs counted by libvirt (virsh list --all), never a look into libvirt.img', [1, null, 0],
+        [watchmanVms($paths), watchmanVms(['libvirt_sock' => $paths['libvirt_sock'], 'virsh' => "$tmp/none"]), watchmanVms(['libvirt_sock' => "$tmp/none", 'virsh' => 'virsh'])]);
+    touch("$src/virsh-fails");
+    $round(400);
+    same('posture: libvirt didn\'t answer — VMScape as the last round saw it', ['n' => 1], $tips(410)['vmscape']['p'] ?? null);
+    unlink("$src/virsh-fails");
+    unlink($paths['libvirt_sock']);
+    $round(500);
+    same('posture: the VM service off — no VM can run, no VMScape', false, isset($tips(510)['vmscape']));
+    file_put_contents($paths['libvirt_sock'], '');
+
+    // what it is about changes: back; gone: forgotten, and back as new when it returns
+    file_put_contents($paths['sec'], $sec("[\"Photos\"]\nexport=\"e\"\nsecurity=\"public\"\n"));
+    file_put_contents($paths['ident'], "USE_TELNET=\"no\"\n");
+    $round(600);
+    same('posture: another share opened — the tip is back; Telnet off — gone and forgotten',
+        [false, 3, false, ['public']], [$tips(610)['public']['known'], $tips(610)['public']['p']['n'], isset($tips(610)['telnet']),
+                                         array_keys((readJson("$data/posture.json") ?? [])['acks'] ?? [])]);
+    file_put_contents($paths['ident'], "USE_TELNET=\"yes\"\n");
+    $round(900);
+    same('posture: Telnet on again — told again', false, $tips(910)['telnet']['known'] ?? null);
+    watchmanPostureAck('telnet', true, $data, $now + 920, false);
+    watchmanPostureAck('telnet', false, $data, $now + 930, false);
+    same('posture: «Show again»', false, $tips(940)['telnet']['known']);
+
+    // FTP with users while Fix Common Problems is there: its check, he keeps quiet; the CPU protected: good to know
+    file_put_contents("$src/plugins/fix.common.problems.plg", "<PLUGIN name=\"fix.common.problems\" version=\"1\">\n");
+    file_put_contents($paths['ftp_users'], "benj\n");
+    file_put_contents($paths['cmdline'], "BOOT_IMAGE=/bzimage unraiduuid=1\n");
+    $vulns(['vmscape' => 'Mitigation: IBPB before exit to userspace', 'spectre_v2' => 'Mitigation: Enhanced IBRS']);
+    $containers['vpn']['tokens'] = ['--cap-add=NET_ADMIN'];
+    $round(1200);
+    same('posture: FTP left to Fix Common Problems, the CPU protected, no privileged container any more', ['public', 'telnet', 'mitigations_on'], array_keys($tips(1210)));
+    same('posture: the CPU on — which model, good to know', [['cpu' => 'Intel(R) Core(TM) Ultra 7 265K'], 'info'], [$tips(1210)['mitigations_on']['p'], $tips(1210)['mitigations_on']['level']]);
+    foreach ([['nothing', true, 'bad_request'], ['telnet', 'yes', 'bad_request'], ['vmscape', true, 'watch_tip_gone']] as [$id, $on, $want]) {
+        try {
+            watchmanPostureAck($id, $on, $data, $now + 1300, false);
+            check("posture ack refused: $id", false);
+        } catch (Problem $e) {
+            same("posture ack refused: $id", $want, $e->key);
+        }
+    }
+    same('posture ack: «Show again» of a tip that went is harmless', ['ok' => true], watchmanPostureAck('vmscape', false, $data, $now + 1300, false));
+
+    // the watch book: a kind he no longer keeps (cron_dead up to 1.28) is left out quietly
+    $book = readJson("$data/book.json") ?? [];
+    $book['entries'][] = watchmanEntry('cron_dead', 'cron_dead:/usr/local/emhttp/plugins/gone/run.sh', $now, ['path' => '/usr/local/emhttp/plugins/gone/run.sh', 'plugin' => 'gone']);
+    file_put_contents("$data/book.json", json_encode($book));
+    $d = watchmanLoad($data);
+    same('watch book: an old cron_dead entry is left out quietly — not open, not shown, nothing for the team lead', [false, false, false],
+        [in_array('cron_dead', array_column($d['book'], 'kind'), true), isset(watchmanOpenCounts($d['book'])['cron_dead']),
+         in_array('cron_dead', array_column(watchmanChecks($data), 'id'), true)]);
+    check('watch book: no cron_dead kind any more', !isset(WATCH_KINDS['cron_dead']));
+
+    // the data flow's history in Grafana: only where the consultant saw it with the office's dashboard
+    $adv = "$tmp/advisor.json";
+    $g = fn (array $grafana, string $webui = 'http://192.168.7.20:3000/', bool $running = true) => file_put_contents($adv, json_encode(
+        ['externals' => ['grafana' => ['kind' => 'container', 'there' => true, 'running' => $running, 'webui' => $webui, 'grafana' => $grafana]]]));
+    $link = fn () => watchmanPageState($data, $now, false, $adv)['grafana'];
+    $g(['points' => true, 'done' => true]);
+    same('grafana: the office\'s dashboard at the data flow\'s panels', ['flow_clients' => 'http://192.168.7.20:3000/d/unraid-secretary-office?viewPanel=50',
+        'flow_shares' => 'http://192.168.7.20:3000/d/unraid-secretary-office?viewPanel=51'], $link());
+    $g(['points' => true, 'done' => true], 'http://10.0.0.5:3000/grafana/?orgId=1');
+    same('grafana: under a sub path, without its query', 'http://10.0.0.5:3000/grafana/d/unraid-secretary-office?viewPanel=50', $link()['flow_clients'] ?? null);
+    $none = [];
+    foreach ([[['points' => true, 'done' => false]], [['points' => false, 'done' => true]], [['points' => true, 'done' => null]],
+              [['points' => true, 'done' => true], 'javascript:alert(1)'], [['points' => true, 'done' => true], 'http://x:3000/ "<b>'],
+              [['points' => true, 'done' => true], 'http://192.168.7.20:3000/', false]] as $case) {
+        $g(...$case);
+        $none[] = $link();
+    }
+    same('grafana: no link without the dashboard provisioned where Grafana reads it, while stopped, or with an odd address', array_fill(0, 6, null), $none);
+    same('grafana: no consultant\'s look — no link', null, watchmanPageState($data, $now, false, "$tmp/none.json")['grafana']);
+    $dash = json_decode((string) file_get_contents(OFFICE_DIR . '/monitoring/grafana-dashboard.json'), true) ?: [];
+    $exprs = [];
+    $walk = function (array $panels) use (&$walk, &$exprs): void {
+        foreach ($panels as $p) {
+            $exprs[(int) ($p['id'] ?? 0)] = implode(' ', array_column((array) ($p['targets'] ?? []), 'expr'));
+            $walk((array) ($p['panels'] ?? []));
+        }
+    };
+    $walk((array) ($dash['panels'] ?? []));
+    same('grafana: the dashboard the link names', ADVISOR_DASHBOARD_UID, $dash['uid'] ?? null);
+    foreach (['flow_clients' => 'uso_watchman_sent_bytes_total', 'flow_shares' => 'uso_watchman_written_bytes_total'] as $group => $metric) {
+        check("grafana: panel " . WATCH_GRAFANA_PANELS[$group] . " shows $metric ($group)", str_contains($exprs[WATCH_GRAFANA_PANELS[$group]] ?? '', $metric));
+    }
+
+    // every tip has its words, every link its label
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/watchman/lang/en.json'), true) ?: [];
+    foreach (array_keys(WATCH_POSTURE) as $id) {
+        check("watchman: texts for posture tip $id", isset($en["posture.$id.title"], $en["posture.$id.why"]));
+    }
+    foreach (['share', 'access', 'ftp', 'docker', 'boot'] as $to) {
+        check("watchman: link label posture.to_$to", isset($en["posture.to_$to"]));
+    }
+    @unlink(watchmanLockFile($data, 'book'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Ms. Whereabouts after the night watchman took security: her cron lines whose program went with its
+ * plugin (order, not security — the watchman no longer tells them), her tips that stayed, the ones that
+ * went to him, and the one that points to him while he isn't hired.
+ */
+function testWhereaboutsAfterWatchman(): void
+{
+    same('wa cron: the program behind an interpreter, none for inline code or a name', ['/usr/local/x/run.php', '/a/b.sh', null, null, '/x'],
+        [waCronProgram('/usr/bin/php -q /usr/local/x/run.php arg'), waCronProgram('nice -n 10 bash "/a/b.sh" x'),
+         waCronProgram("sh -c 'rm -rf /'"), waCronProgram('logger hello'), waCronProgram('timeout 60 LANG=C /x')]);
+    $gone = fn (string $p) => false;
+    same('wa cron: a program gone with its plugin (never under /mnt, never odd characters, never outside a plugin\'s folder)', ['vmbackup', 'oldplug', null, null, null],
+        [waCronGone('/usr/local/emhttp/plugins/vmbackup/runscript.php', $gone), waCronGone('/boot/config/plugins/oldplug/x.sh', $gone),
+         waCronGone('/mnt/user/x/y.sh', $gone), waCronGone('/usr/local/sbin/mdcmd', $gone), waCronGone("/usr/local/emhttp/plugins/x/a'b.sh", $gone)]);
+    same('wa cron: still there — nothing to say', null, waCronGone('/usr/local/emhttp/plugins/vmbackup/runscript.php', fn (string $p) => true));
+
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/whereabouts/desk.js');
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/whereabouts/lang/en.json'), true) ?: [];
+    foreach (array_keys(WATCH_POSTURE) as $id) {
+        check("whereabouts: security tip $id is the watchman's now", !str_contains($js, "add('$id',") && !isset($en["adv.$id.title"]));
+    }
+    foreach (['system_array', 'mover', 'compose_build', 'spindown_default', 'spindown_some', 'old_disks', 'parity', 'ups', 'syslog', 'cron_dead', 'security'] as $id) {
+        check("whereabouts: tip $id is hers", str_contains($js, "add('$id',") && isset($en["adv.$id.title"], $en["adv.$id.why"]));
+    }
+    $advice = waAdvice([], [], []);
+    same('whereabouts: her advice reads no security settings any more', [false, false, false], [isset($advice['telnet']), isset($advice['ftp']), isset($advice['cpu'])]);
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testJobGuard', 'testComposeBuilds', 'testExclusive'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testWhereaboutsAfterWatchman'],
           'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';

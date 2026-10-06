@@ -2,7 +2,9 @@
 declare(strict_types=1);
 
 /*
- * The Night Watchman — calm, factual, few words. He keeps a watch book and
+ * The Night Watchman — calm, factual, few words. The office's security
+ * department, in two parts: how secure the server stands now (his posture
+ * tips, see "how secure" below) and what changed — his watch book, which
  * tells only what is DIFFERENT from normal. Read only.
  *
  * When he is hired, his first round records what is normal now (the
@@ -38,9 +40,11 @@ declare(strict_types=1);
  *   scheduled   what starts on its own as root (see "scheduled and
  *               auto-starting" below): root's own crontab next to Unraid's — new
  *               lines, lines in both (they run twice), the office's own lines
- *               there, programs gone, with the syslog around the file's time as
- *               evidence; the plugins' .cron files on the flash; User Scripts and
- *               their schedules; atd's queue; Unraid's notification agents
+ *               there, with the syslog around the file's time as evidence; the
+ *               plugins' .cron files on the flash; User Scripts and their
+ *               schedules; atd's queue; Unraid's notification agents. (Lines whose
+ *               program went with its plugin are order, not security: Ms.
+ *               Whereabouts tells those.)
  *   data flow   who pulls how much (see "data flow" below): per client and file
  *               service (SMB, NFS, SSH, the WebGUI) the bytes the server sent,
  *               from the kernel's counters of the open connections (ss);
@@ -61,16 +65,28 @@ declare(strict_types=1);
  * that state the new normal. What gets safer (fewer rights, a share closed
  * again, a plugin removed) becomes normal by itself.
  *
- * Not Fix Common Problems' static checks: never "SSH is on" or "a weak
- * password", only changes.
+ * How secure (his posture tips, each round, from RAM and the flash): shares
+ * guests may read, write and delete, Telnet, Unraid's FTP server, the CPU's
+ * protection against Spectre-like flaws switched off (and VMScape with VMs) or
+ * on, privileged containers. Advice, not findings: never in the book, never a
+ * notification; «I know, thanks» on one is kept in posture.json (for every
+ * browser) until the tip goes or what it is about changes. The team lead gets
+ * one hint with how many there are. Where Ms. Whereabouts gave security tips
+ * before, she now points here.
+ *
+ * Not Fix Common Problems' static checks: never "SSH is on", "a weak
+ * password", "a plugin not known to Community Applications" or "the FTP
+ * server with users" — those are its own.
  *
  * data/watchman/: baseline.json (what is normal), book.json (the watch book,
  * at most WATCH_BOOK_MAX entries, noted ones for WATCH_BOOK_DAYS), state.json
  * (syslog position, recent failures, the last round, notifications — small,
  * the tick and the metrics read it), seen.json (what the last round saw, for
  * «I know, thanks»), flow.json (the data flow's hourly history, aggregated —
- * never per connection; the last round's counters stay in RAM). The page reads
- * data/watchman.json (watchmanPageState()).
+ * never per connection; the last round's counters stay in RAM), posture.json
+ * (his posture tips you know about). The page reads data/watchman.json
+ * (watchmanPageState()); with Grafana and the office's dashboard there (the
+ * consultant's look) it links his data flow's history in it.
  */
 
 const WATCH_EVERY        = 300;              // a round every 5 minutes
@@ -110,7 +126,6 @@ const WATCH_KINDS = [
     'cron_new'             => ['sched', true],
     'cron_twice'           => ['sched', true],
     'cron_office'          => ['sched', true],
-    'cron_dead'            => ['sched', false],
     'cron_file'            => ['sched', false],
     'cron_file_foreign'    => ['sched', true],
     'script_new'           => ['sched', false],
@@ -126,6 +141,22 @@ const WATCH_KINDS = [
     'smb_client'           => ['flow', false],
     'smb_hour'             => ['flow', false],
 ];
+
+/**
+ * His posture tips — how secure the server stands now (watchmanPosture()): id => level, in the order
+ * of his page. advice: he would change it; info: can be right as it is, as long as you know.
+ */
+const WATCH_POSTURE = [
+    'public'          => 'advice',
+    'telnet'          => 'advice',
+    'ftp'             => 'advice',
+    'mitigations_off' => 'advice',
+    'vmscape'         => 'advice',
+    'privileged'      => 'info',
+    'mitigations_on'  => 'info',
+];
+/** The office's dashboard in Grafana (monitoring/grafana-dashboard.json): the panel of a data flow group (tests check the ids) */
+const WATCH_GRAFANA_PANELS = ['flow_clients' => 50, 'flow_shares' => 51];
 
 // syslog lines: Unraid's "Oct  6 08:54:00 Tower …" (or an ISO time, if rsyslog is set so)
 const WATCH_TIME_SYSLOG = '/^([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d\d:\d\d:\d\d)\s/';
@@ -148,6 +179,7 @@ desk('watchman', [
         'ack'     => fn (array $r) => watchmanAck($r['id'] ?? null),
         'ack_all' => fn (array $r) => watchmanAck('*'),
         'notify_set' => fn (array $r) => watchmanNotifySet($r['on'] ?? null),
+        'posture_ack' => fn (array $r) => watchmanPostureAck($r['id'] ?? null, $r['on'] ?? null),
     ],
     'jobs'    => ['watchman-round' => fn (array $args) => watchmanRun()],
     'checks'  => fn (): array => watchmanChecks(),
@@ -177,6 +209,15 @@ function watchmanPaths(): array
         'agents'     => '/boot/config/plugins/dynamix/notifications/agents',
         'var_ini'    => '/var/local/emhttp/var.ini',
         'disks_ini'  => '/var/local/emhttp/disks.ini',
+        // how secure (watchmanPostureLook())
+        'ident'      => '/boot/config/ident.cfg',
+        'inetd'      => '/etc/inetd.conf',
+        'ftp_users'  => '/boot/config/vsftpd.user_list',
+        'cmdline'    => '/proc/cmdline',
+        'cpuinfo'    => '/proc/cpuinfo',
+        'cpu_vulns'  => '/sys/devices/system/cpu/vulnerabilities',
+        'libvirt_sock' => '/var/run/libvirt/libvirt-sock',
+        'virsh'      => 'virsh',
     ];
 }
 
@@ -194,14 +235,19 @@ function watchmanHiredSince(): ?int
 
 // ===================================================================== his files
 
-/** @return array{baseline: ?array, book: list<array>, state: array} */
+/**
+ * His files. Entries of a kind he no longer keeps (cron_dead up to 1.28: Ms. Whereabouts tells those now) are
+ * left out quietly — gone from every view, and from the file at the book's next write.
+ *
+ * @return array{baseline: ?array, book: list<array>, state: array}
+ */
 function watchmanLoad(?string $dir = null): array
 {
     $dir ??= watchmanDir();
     $book = readJson("$dir/book.json");
     $entries = [];
     foreach ((array) ($book['entries'] ?? []) as $e) {
-        if (is_array($e) && is_string($e['id'] ?? null) && is_string($e['kind'] ?? null)) {
+        if (is_array($e) && is_string($e['id'] ?? null) && is_string($e['kind'] ?? null) && (isset(WATCH_KINDS[$e['kind']]) || $e['kind'] === 'watch')) {
             $entries[] = $e;
         }
     }
@@ -216,7 +262,8 @@ function watchmanSave(string $dir, array $old, array $new): void
         @lchown($dir, FILE_UID);
         @lchgrp($dir, FILE_GID);
     }
-    foreach (['baseline' => 'baseline.json', 'book' => 'book.json', 'state' => 'state.json', 'seen' => 'seen.json', 'flow' => 'flow.json'] as $k => $file) {
+    foreach (['baseline' => 'baseline.json', 'book' => 'book.json', 'state' => 'state.json', 'seen' => 'seen.json', 'flow' => 'flow.json',
+              'posture' => 'posture.json'] as $k => $file) {
         if (!array_key_exists($k, $new) || $new[$k] === null || ($old[$k] ?? null) === $new[$k]) {
             continue;
         }
@@ -436,8 +483,9 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         'shares'     => watchmanShares($paths),
         'sched'      => watchmanSched($paths, (array) ((readJson("$dir/seen.json") ?? [])['sched'] ?? []), $now),
     ];
+    $facts = watchmanPostureLook($paths);
 
-    return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look): array {
+    return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts): array {
         $old = watchmanLoad($dir);
         $old['seen'] = readJson("$dir/seen.json");
         $old['flow'] = readJson("$dir/flow.json");
@@ -488,6 +536,10 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             writeAtomic(watchmanFlowCountersFile($dir), jsonEncode($counters), 0600, 0, 0);
             $st['flow'] = watchmanFlowTotals($flow);
         }
+        // how secure it stands: from what he sees now (what Docker or emhttp didn't answer: as the last round saw it)
+        $st['posture'] = ['time' => $now, 'tips' => watchmanPosture($facts, $observed, (array) ($st['posture']['tips'] ?? []))];
+        $old['posture'] = readJson("$dir/posture.json");
+        $known = watchmanPostureKnown($old['posture'], $st['posture']['tips']);
         watchmanTidy($b, $st, $now);
         $book = watchmanPrune($book, $now);
         if (!$fresh) {
@@ -499,7 +551,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $st['round'] = ['time' => $now, 'duration_ms' => (int) round((microtime(true) - $t0) * 1000), 'failed' => false,
                         'read' => $read['read'], 'skipped' => $read['skipped'], 'rotated' => $read['rotated'],
                         'docker' => $seen['containers'] !== null, 'shares' => $seen['shares'] !== null, 'flow' => $look !== null, 'added' => count($added)];
-        watchmanSave($dir, $old, ['baseline' => $b, 'book' => $book, 'state' => $st, 'seen' => $observed, 'flow' => $flow]);
+        watchmanSave($dir, $old, ['baseline' => $b, 'book' => $book, 'state' => $st, 'seen' => $observed, 'flow' => $flow, 'posture' => $known]);
         return ['fresh' => $fresh, 'added' => array_values($added), 'told' => $told, 'summary' => watchmanCounts($b)];
     });
 }
@@ -1414,6 +1466,256 @@ function watchmanSharesCompare(?array &$known, ?array $seen, array &$book, int $
     return array_values(array_filter($added));
 }
 
+// ===================================================================== how secure: his posture tips
+
+/*
+ * How secure the server stands now — not what changed, but what he would set differently, each with
+ * why and where in Unraid. Every round, from RAM and the flash only (the shares and the containers as
+ * the round saw them). A tip carries a signature of what it is about: one you said «I know, thanks» to
+ * comes back once that changes, and is forgotten once it goes. Advice, not findings: never in the book,
+ * never told to Unraid's notifications; the team lead gets one hint with how many there are.
+ * Left to Fix Common Problems (its own checks): a root password, a plugin not known to Community
+ * Applications, Unraid's FTP server once it has users — while FCP is installed it warns about that one,
+ * so he keeps quiet then.
+ */
+
+/**
+ * The facts his tips need beyond what a round sees anyway: Telnet (ident.cfg), Unraid's FTP server
+ * (inetd.conf) and whether Fix Common Problems warns about it already, the CPU's protection, how many VMs
+ * there are, and which names in sec.ini are disks, pools or the flash (for the link). A place missing
+ * from $paths stays null — not looked at.
+ */
+function watchmanPostureLook(array $paths): array
+{
+    $inetd = isset($paths['inetd']) ? (string) @file_get_contents($paths['inetd'], false, null, 0, 65536) : null;
+    $ftp = $inetd === null ? null : preg_match('/^\s*ftp\s/m', $inetd) === 1;
+    return [
+        'telnet'  => isset($paths['ident']) ? (readCfg($paths['ident'])['USE_TELNET'] ?? 'no') === 'yes' : null,
+        'ftp'     => $ftp,
+        // Fix Common Problems warns about the FTP server itself once it has users (FTPrunning()): then it is its check
+        'ftp_fcp' => $ftp === true && isset($paths['plugins'], $paths['ftp_users'])
+                     && is_file($paths['plugins'] . '/fix.common.problems.plg') && is_file($paths['ftp_users']),
+        'cpu'     => watchmanCpu($paths),
+        'vms'     => watchmanVms($paths),
+        'disks'   => isset($paths['disks_ini']) ? array_map('strval', array_keys(readCfg($paths['disks_ini'], true))) : [],
+    ];
+}
+
+/**
+ * How many VMs there are, from libvirt itself (`virsh list --all`: it keeps them in memory — never a look
+ * into libvirt.img, which may lie on the array). The VM service off: 0, no VM can run. Null when libvirt
+ * didn't answer (not looked: the last round's word stands).
+ */
+function watchmanVms(array $paths): ?int
+{
+    if (!isset($paths['libvirt_sock'], $paths['virsh'])) {
+        return null;
+    }
+    if (!file_exists($paths['libvirt_sock'])) {
+        return 0;
+    }
+    $virsh = str_contains($paths['virsh'], '/') ? $paths['virsh'] : bin($paths['virsh']);
+    if ($virsh === null) {
+        return null;
+    }
+    [$exit, $out] = run([$virsh, 'list', '--all', '--name'], 15);
+    return $exit === 0 ? count(array_filter(array_map('trim', explode("\n", $out)), fn ($n) => $n !== '')) : null;
+}
+
+/**
+ * The CPU's protection against speculative-execution flaws (Spectre & co.): switched off at boot
+ * (mitigations=off) or not, and per flaw what the kernel says — still open ("Vulnerable") or covered
+ * ("Mitigation: …"); the ones the CPU isn't affected by are left out. Null without the places.
+ */
+function watchmanCpu(array $paths): ?array
+{
+    if (!isset($paths['cmdline'], $paths['cpuinfo'], $paths['cpu_vulns'])) {
+        return null;
+    }
+    $cmdline = (string) @file_get_contents($paths['cmdline'], false, null, 0, 8192);
+    $info = (string) @file_get_contents($paths['cpuinfo'], false, null, 0, 65536);
+    $vendor = preg_match('/^vendor_id\s*:\s*(\S+)/m', $info, $m) ? $m[1] : '';
+    $open = $covered = [];
+    foreach (glob($paths['cpu_vulns'] . '/*') ?: [] as $file) {
+        $name = basename($file);
+        if (!preg_match('/^[a-z0-9_]{1,40}$/D', $name)) {
+            continue;
+        }
+        $state = trim((string) @file_get_contents($file, false, null, 0, 1024));
+        if (str_starts_with($state, 'Vulnerable')) {
+            $open[] = $name;
+        } elseif (str_starts_with($state, 'Mitigation')) {
+            $covered[] = $name;
+        }
+    }
+    sort($open);
+    sort($covered);
+    $model = preg_match('/^model name\s*:\s*(.+)$/m', $info, $m) ? watchmanClean(trim($m[1]), 80) : null;
+    return [
+        'vendor'  => match ($vendor) { 'GenuineIntel' => 'Intel', 'AuthenticAMD' => 'AMD', default => $vendor !== '' ? watchmanClean($vendor, 20) : null },
+        'model'   => $model,
+        'off'     => preg_match('/(^|\s)mitigations=off(\s|$)/', $cmdline) === 1,
+        'open'    => $open,
+        'covered' => $covered,
+    ];
+}
+
+/** At most a few names, and how many more ("a, b, c +2") — the same in every language */
+function watchmanNames(array $names, int $max = 5): string
+{
+    $names = array_values(array_map('strval', $names));
+    return implode(', ', array_slice($names, 0, $max)) . (count($names) > $max ? ' +' . (count($names) - $max) : '');
+}
+
+/** Where in Unraid a share's security is set: a user share's page, a disk's or a pool's, the boot device's for the flash */
+function watchmanShareLink(string $name, array $disks): string
+{
+    if ($name === 'flash') {
+        return '/Main/Boot?name=flash';
+    }
+    return (in_array($name, $disks, true) ? '/Shares/Disk?name=' : '/Shares/Share?name=') . rawurlencode($name);
+}
+
+/**
+ * His posture tips, as this round sees it ($f: watchmanPostureLook(), $seen: the round's look with the
+ * shares and containers; $prev: the last round's tips, for what libvirt didn't answer this time): id,
+ * level, the words' params (names, numbers — the page puts them into its language), a link into Unraid
+ * and a signature of what it is about. In the order of WATCH_POSTURE.
+ *
+ * @return list<array{id: string, level: string, p: array, link: ?array{to: string, path: string, name?: string}, sig: string}>
+ */
+function watchmanPosture(array $f, array $seen, array $prev = []): array
+{
+    $tips = [];
+    $add = function (string $id, array $p, string $about, ?array $link) use (&$tips): void {
+        $tips[$id] = ['id' => $id, 'level' => WATCH_POSTURE[$id], 'p' => $p, 'link' => $link, 'sig' => watchmanHash("$id|$about")];
+    };
+    // shares guests may read, write and delete (security «Public», exported) — user shares, disks, pools, the flash
+    $open = [];
+    foreach ((array) ($seen['shares'] ?? []) as $name => $s) {
+        foreach (['smb' => 'SMB', 'nfs' => 'NFS'] as $proto => $label) {
+            if ((int) ($s[$proto] ?? 0) >= 2) {
+                $open[] = [(string) $name, $label];
+            }
+        }
+    }
+    if ($open) {
+        $first = $open[0][0];
+        $add('public', ['names' => watchmanNames(array_map(fn ($x) => "{$x[0]} ({$x[1]})", $open)), 'n' => count(array_unique(array_column($open, 0)))],
+            implode(',', array_map(fn ($x) => "{$x[0]}:{$x[1]}", $open)),
+            ['to' => 'share', 'name' => $first, 'path' => watchmanShareLink($first, (array) ($f['disks'] ?? []))]);
+    }
+    if (!empty($f['telnet'])) {
+        $add('telnet', [], '', ['to' => 'access', 'path' => '/Settings/ManagementAccess']);
+    }
+    if (!empty($f['ftp']) && empty($f['ftp_fcp'])) {
+        $add('ftp', [], '', ['to' => 'ftp', 'path' => '/Settings/FTP']);
+    }
+    $cpu = is_array($f['cpu'] ?? null) ? $f['cpu'] : null;
+    $boot = ['to' => 'boot', 'path' => '/Settings/BootParameters'];
+    if ($cpu !== null && $cpu['off']) {
+        $add('mitigations_off', ['cpu' => $cpu['model'] ?? $cpu['vendor'] ?? 'CPU', 'open' => $cpu['open']], implode(',', $cpu['open']), $boot);
+        $vms = $f['vms'] ?? null;
+        foreach ($vms === null ? $prev : [] as $t) {
+            if (is_array($t) && ($t['id'] ?? null) === 'vmscape') {
+                $vms = (int) ($t['p']['n'] ?? 0);       // libvirt didn't answer: as the last round saw it
+            }
+        }
+        if (in_array('vmscape', $cpu['open'], true) && (int) $vms > 0) {
+            $add('vmscape', ['n' => (int) $vms], 'vmscape', $boot);
+        }
+    } elseif ($cpu !== null && $cpu['covered']) {
+        $add('mitigations_on', ['cpu' => $cpu['model'] ?? $cpu['vendor'] ?? 'CPU'], implode(',', $cpu['covered']), $boot);
+    }
+    $privileged = [];
+    foreach ((array) ($seen['containers'] ?? []) as $name => $c) {
+        if (in_array('--privileged', (array) ($c['tokens'] ?? []), true)) {
+            $privileged[] = (string) $name;
+        }
+    }
+    if ($privileged) {
+        $add('privileged', ['names' => watchmanNames($privileged), 'n' => count($privileged)], implode(',', $privileged), ['to' => 'docker', 'path' => '/Docker']);
+    }
+    return array_values(array_filter(array_map(fn ($id) => $tips[$id] ?? null, array_keys(WATCH_POSTURE))));
+}
+
+/**
+ * His «I know, thanks» on posture tips (posture.json), kept only for tips that are still there — one
+ * that went is forgotten, so it is told again when it comes back. Null: no file and nothing to keep.
+ */
+function watchmanPostureKnown(?array $file, array $tips): ?array
+{
+    $ids = array_column($tips, 'id');
+    $acks = [];
+    foreach ((array) ($file['acks'] ?? []) as $id => $a) {
+        if (in_array((string) $id, $ids, true) && is_array($a) && is_string($a['sig'] ?? null)) {
+            $acks[(string) $id] = ['sig' => $a['sig'], 'time' => (int) ($a['time'] ?? 0)];
+        }
+    }
+    return $file === null && !$acks ? null : ['acks' => $acks];
+}
+
+/** A tip you know about: thanked for, and still about the same */
+function watchmanPostureIsKnown(array $tip, ?array $file): bool
+{
+    return ($file['acks'][$tip['id']]['sig'] ?? null) === $tip['sig'];
+}
+
+/**
+ * «I know, thanks» on one of his posture tips ($on true) or «Show again» (false) — for every browser.
+ * Only a tip of his last round; what it is about is kept, so it comes back when that changes.
+ */
+function watchmanPostureAck(mixed $id, mixed $on, ?string $dir = null, ?int $now = null, bool $page = true): array
+{
+    if (!is_string($id) || !isset(WATCH_POSTURE[$id]) || !is_bool($on)) {
+        throw new Problem('bad_request');
+    }
+    $dir ??= watchmanDir();
+    $now ??= time();
+    watchmanLocked($dir, function () use ($dir, $id, $on, $now): void {
+        $d = watchmanLoad($dir);
+        $tip = null;
+        foreach ((array) ($d['state']['posture']['tips'] ?? []) as $t) {
+            if (is_array($t) && ($t['id'] ?? null) === $id && is_string($t['sig'] ?? null)) {
+                $tip = $t;
+            }
+        }
+        if ($tip === null && $on) {
+            throw new Problem('watch_tip_gone');
+        }
+        $old = readJson("$dir/posture.json");
+        $new = ['acks' => (array) ($old['acks'] ?? [])];
+        if ($on) {
+            $new['acks'][$id] = ['sig' => $tip['sig'], 'time' => $now];
+        } else {
+            unset($new['acks'][$id]);
+        }
+        watchmanSave($dir, ['posture' => $old], ['posture' => $new]);
+    });
+    if (!$page) {
+        return ['ok' => true];
+    }
+    logLine("Night watchman: posture tip $id " . ($on ? 'noted («I know, thanks»)' : 'shown again'));
+    return ['ok' => true, 'state' => watchmanPageState()];
+}
+
+/** What the page shows of his posture tips: each with whether you know it, how many of his advice are open */
+function watchmanPosturePage(?array $posture, ?array $file): ?array
+{
+    if (!is_array($posture) || !is_array($posture['tips'] ?? null)) {
+        return null;
+    }
+    $tips = [];
+    foreach ($posture['tips'] as $t) {
+        if (is_array($t) && isset(WATCH_POSTURE[$t['id'] ?? ''])) {
+            $tips[] = ['id' => $t['id'], 'level' => WATCH_POSTURE[$t['id']], 'p' => (array) ($t['p'] ?? []), 'link' => $t['link'] ?? null,
+                       'known' => watchmanPostureIsKnown($t, $file)];
+        }
+    }
+    return ['time' => (int) ($posture['time'] ?? 0), 'tips' => $tips,
+            'open' => count(array_filter($tips, fn ($t) => $t['level'] === 'advice' && !$t['known']))];
+}
+
 // ===================================================================== scheduled and auto-starting
 
 /*
@@ -1425,10 +1727,11 @@ function watchmanSharesCompare(?array &$known, ?array $seen, array &$book, int $
  *             use) next to Unraid's /etc/cron.d/root (update_cron builds it from the .cron files
  *             below). Unraid's crond reads both: a line in both runs twice. Reported: new lines,
  *             lines that run twice, the office's own lines (they belong in its cron file only — an
- *             old copy starts a second backup at its old time), lines whose program went with its
- *             plugin. With the evidence: the file's time and what the syslog said around it (who
- *             wrote it). New lines of other users' crontabs and /etc/cron.d's other files count too.
- *             He never changes a crontab — the fix stands in the entry as information.
+ *             old copy starts a second backup at its old time). With the evidence: the file's time
+ *             and what the syslog said around it (who wrote it). New lines of other users' crontabs
+ *             and /etc/cron.d's other files count too. Lines whose program went with its plugin are
+ *             Ms. Whereabouts' (order, not security). He never changes a crontab — the fix stands in
+ *             the entry as information.
  *   .cron     the plugins' cron files on the flash (what survives a reboot): a new file or new
  *             lines; one in the folder of no installed plugin counts more (update_cron leaves it
  *             out — until a plugin of that name comes)
@@ -1478,41 +1781,6 @@ function watchmanCronCommand(string $line): string
     return preg_match('/^(?:@\w+|\S+ \S+ \S+ \S+ \S+) (.+)$/', trim((string) preg_replace('/\s+/', ' ', $line)), $m) ? $m[1] : '';
 }
 
-/**
- * The program a command starts, when it is an absolute path: its first word — or, behind an
- * interpreter or a wrapper (bash, php, nice …), the script it runs. Null when it can't be told
- * (a command name, `sh -c …`).
- */
-function watchmanCronProgram(string $command): ?string
-{
-    preg_match_all('/"([^"]*)"|\'([^\']*)\'|(\S+)/', $command, $m, PREG_SET_ORDER | PREG_UNMATCHED_AS_NULL);
-    $runners = ['sh', 'bash', 'dash', 'php', 'php-cgi', 'python', 'python3', 'perl', 'nice', 'ionice', 'nohup', 'timeout', 'env', 'exec'];
-    foreach ($m as $t) {
-        $word = (string) ($t[1] ?? $t[2] ?? $t[3] ?? '');
-        if ($word === '' || preg_match('/^[A-Za-z_][A-Za-z0-9_]*=/', $word) || preg_match('/^\d+[smhd]?$/D', $word)) {
-            continue;                       // VAR=value, timeout's seconds
-        }
-        if ($word === '-c' || $word === '-r') {
-            return null;                    // inline code
-        }
-        if ($word[0] === '-' || in_array(basename($word), $runners, true)) {
-            continue;                       // an interpreter and its options
-        }
-        return str_starts_with($word, '/') ? $word : null;
-    }
-    return null;
-}
-
-/** The plugin whose program is gone (it lay in a plugin's folder), else null. Never under /mnt (a disk would wake). */
-function watchmanCronGone(string $path, ?callable $exists = null): ?string
-{
-    if (str_starts_with($path, '/mnt/') || str_contains($path, '/../') || !preg_match('#^[A-Za-z0-9_./+@-]{1,300}$#D', $path)
-        || !preg_match('#^(?:/usr/local/emhttp/plugins|/boot/config/plugins)/([A-Za-z0-9._+-]{1,100})/#', $path, $p)) {
-        return null;
-    }
-    return ($exists ?? 'file_exists')($path) ? null : $p[1];
-}
-
 /** Secrets out of a line that is shown: a URL's path and user, values of password/token/key settings, long tokens */
 function watchmanScrub(string $s): string
 {
@@ -1541,13 +1809,12 @@ function watchmanJobs(array $lines): array
 }
 
 /** What the office would type to undo it (never runs it): a copy of root's crontab to the flash first */
-function watchmanCronFix(string $kind, string $path = ''): string
+function watchmanCronFix(string $kind): string
 {
     $save = 'crontab -l > ' . WATCH_CRON_SAVE . '; crontab -l | ';
     return match ($kind) {
         'cron_twice'  => $save . "grep -v -x -F -f <(grep -v '^#' /etc/cron.d/root | grep -v '^\\s*$') | crontab -",
         'cron_office' => $save . "grep -v -F '" . WATCH_CRON_OFFICE . "' | crontab -",
-        'cron_dead'   => $save . "grep -v -F '$path' | crontab -",
         default       => '',
     };
 }
@@ -1556,9 +1823,9 @@ function watchmanCronFix(string $kind, string $path = ''): string
  * Everything scheduled and auto-starting, as this round sees it; parts whose place isn't in $paths
  * are null. $prev: the last round's look (a file whose size and time are the same isn't read again).
  */
-function watchmanSched(array $paths, array $prev, int $now, ?callable $exists = null): array
+function watchmanSched(array $paths, array $prev, int $now): array
 {
-    $crontab = watchmanCrontabs($paths, $exists);
+    $crontab = watchmanCrontabs($paths);
     if ($crontab !== null) {
         $crontab['evidence'] = watchmanEvidence($paths['syslog'], $crontab['mtime'], $prev['crontab']['evidence'] ?? null, $now);
     }
@@ -1589,10 +1856,10 @@ function watchmanPlain(string $file): ?array
  * The crontabs crond reads besides Unraid's /etc/cron.d/root: root's own (and other users',
  * /etc/cron.d's other files — their lines named by where they are) — against that one.
  *
- * @return array{mtime: ?int, lines: array<string,string>, twice: array<string,string>, office: array<string,string>,
- *               dead: array<string, array{plugin: string, job: string}>}|null  lines by hash => short
+ * @return array{mtime: ?int, lines: array<string,string>, twice: array<string,string>, office: array<string,string>}|null
+ *         lines by hash => short
  */
-function watchmanCrontabs(array $paths, ?callable $exists = null): ?array
+function watchmanCrontabs(array $paths): ?array
 {
     if (!isset($paths['crontabs'], $paths['cron_d'])) {
         return null;
@@ -1609,7 +1876,7 @@ function watchmanCrontabs(array $paths, ?callable $exists = null): ?array
             $sources[] = ['cron.d/' . watchmanClean(basename($f), 60) . ': ', $f, false];
         }
     }
-    $out = ['mtime' => null, 'lines' => [], 'twice' => [], 'office' => [], 'dead' => []];
+    $out = ['mtime' => null, 'lines' => [], 'twice' => [], 'office' => []];
     foreach ($sources as [$label, $file, $root]) {
         $st = watchmanPlain($file);
         if (!$st) {
@@ -1632,11 +1899,6 @@ function watchmanCrontabs(array $paths, ?callable $exists = null): ?array
                 $out['office'][$h] = $short;
             } elseif (isset($system[$line])) {
                 $out['twice'][$h] = $short;
-            }
-            $program = watchmanCronProgram(watchmanCronCommand($line));
-            $plugin = $program === null ? null : watchmanCronGone($program, $exists);
-            if ($plugin !== null) {
-                $out['dead'][$program] = ['plugin' => $plugin, 'job' => $short];
             }
         }
     }
@@ -1941,9 +2203,9 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
         if (!is_array($k)) {
             // jobs that run twice and stray copies of the office's own lines are never "normal": not
             // learned here, so the next round reports them even when they were there before he came
-            $known['crontab'] = ['lines' => $c['lines'], 'twice' => [], 'office' => [], 'dead' => array_map(fn ($d) => $d['plugin'], $c['dead'])];
+            $known['crontab'] = ['lines' => $c['lines'], 'twice' => [], 'office' => []];
         } else {
-            $k += ['lines' => [], 'twice' => [], 'office' => [], 'dead' => []];
+            $k += ['lines' => [], 'twice' => [], 'office' => []];
             $ev = ['mtime' => $c['mtime'], 'evidence' => (array) ($c['evidence']['lines'] ?? [])];
             $lists = [
                 'cron_office' => array_diff_key($c['office'], (array) $k['office']),
@@ -1955,13 +2217,9 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
                     $added[] = watchmanSet($book, $kind, $kind, $now, watchmanJobs($list) + $ev);
                 }
             }
-            foreach ($c['dead'] as $path => $d) {
-                if (!isset($k['dead'][$path])) {
-                    $added[] = watchmanSet($book, 'cron_dead', "cron_dead:$path", $now, ['path' => (string) $path, 'plugin' => $d['plugin'], 'job' => $d['job']]);
-                }
-            }
+            // (up to 1.28 also 'dead': lines whose program went with its plugin — Ms. Whereabouts' now; dropped here)
             $known['crontab'] = ['lines' => array_intersect_key((array) $k['lines'], $c['lines']), 'twice' => array_intersect_key((array) $k['twice'], $c['twice']),
-                                 'office' => array_intersect_key((array) $k['office'], $c['office']), 'dead' => array_intersect_key((array) $k['dead'], $c['dead'])];
+                                 'office' => array_intersect_key((array) $k['office'], $c['office'])];
         }
     }
 
@@ -2085,17 +2343,9 @@ function watchmanSchedAdopt(array &$b, string $kind, array $p, array $seen): voi
         case 'cron_twice':
         case 'cron_office':
             $field = ['cron_new' => 'lines', 'cron_twice' => 'twice', 'cron_office' => 'office'][$kind];
-            $c = $part('crontab', ['lines' => [], 'twice' => [], 'office' => [], 'dead' => []]);
+            $c = $part('crontab', ['lines' => [], 'twice' => [], 'office' => []]);
             $c[$field] = (array) ($c[$field] ?? []) + array_intersect_key((array) ($s['crontab'][$field] ?? []), $h);
             $b['sched']['crontab'] = $c;
-            break;
-        case 'cron_dead':
-            $path = (string) ($p['path'] ?? '');
-            if (isset($s['crontab']['dead'][$path])) {
-                $c = $part('crontab', ['lines' => [], 'twice' => [], 'office' => [], 'dead' => []]);
-                $c['dead'][$path] = (string) ($p['plugin'] ?? '');
-                $b['sched']['crontab'] = $c;
-            }
             break;
         case 'cron_file':
         case 'cron_file_foreign':
@@ -3431,8 +3681,6 @@ function watchmanText(array $e, ?string $lang = null): array
         'share_public'   => ['share' => (string) ($p['share'] ?? ''), 'proto' => strtoupper((string) ($p['proto'] ?? ''))],
         'cron_new', 'cron_twice', 'cron_office'
                          => ['lines' => (int) ($p['lines'] ?? 0), 'jobs' => $jobs, 'fix' => watchmanCronFix((string) $e['kind'])],
-        'cron_dead'      => ['path' => (string) ($p['path'] ?? ''), 'plugin' => (string) ($p['plugin'] ?? ''),
-                             'fix' => watchmanCronFix('cron_dead', (string) ($p['path'] ?? ''))],
         'cron_file', 'cron_file_foreign'
                          => ['file' => (string) ($p['file'] ?? ''), 'plugin' => (string) ($p['plugin'] ?? ''), 'lines' => (int) ($p['lines'] ?? 0), 'jobs' => $jobs],
         'script_new', 'script_changed' => ['name' => (string) ($p['name'] ?? ''), 'cron' => (string) ($p['cron'] ?? '')],
@@ -3558,13 +3806,23 @@ function watchmanFindings(array $book): array
     return $out;
 }
 
+/**
+ * For the team lead: his findings (one per kind with open entries, or "quiet"), and — good to know, never
+ * a finding — how many of his security advice (posture tips you haven't noted) there are.
+ */
 function watchmanChecks(?string $dir = null): array
 {
+    $dir ??= watchmanDir();
     $d = watchmanLoad($dir);
     if (!is_array($d['baseline'])) {
         return [];                  // his first round is still to come
     }
-    return watchmanFindings($d['book']) ?: [finding('quiet', 'recommended', true, [], '#/watchman')];
+    $out = watchmanFindings($d['book']) ?: [finding('quiet', 'recommended', true, [], '#/watchman')];
+    $posture = watchmanPosturePage($d['state']['posture'] ?? null, readJson("$dir/posture.json"));
+    if ($posture !== null && $posture['open'] > 0) {
+        $out[] = finding('posture', 'hint', null, ['n' => $posture['open']], '#/watchman');
+    }
+    return $out;
 }
 
 /**
@@ -3688,11 +3946,12 @@ function watchmanMetrics(?string $dir = null): array
 // ===================================================================== the page
 
 /**
- * What the page shows (data/watchman.json): the last and next round, the
- * watch book (newest first), what he keeps an eye on. Never the internals
- * (positions, hashes).
+ * What the page shows (data/watchman.json): the last and next round, how
+ * secure it stands (his posture tips), the watch book (newest first), what he
+ * keeps an eye on, and where Grafana keeps the data flow's history. Never the
+ * internals (positions, hashes). $grafana: the consultant's state file (tests).
  */
-function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = true): array
+function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = true, ?string $grafana = null): array
 {
     $dir ??= watchmanDir();
     $now ??= time();
@@ -3729,6 +3988,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         'book'     => $book,
         'watch'    => $onWatch ? watchmanSummary($b, readJson("$dir/seen.json")) : null,
         'flow'     => $onWatch ? watchmanFlowSummary(is_array($b['flow'] ?? null) ? $b['flow'] : null, readJson("$dir/flow.json"), $now) : null,
+        'posture'  => $onWatch ? watchmanPosturePage($st['posture'] ?? null, readJson("$dir/posture.json")) : null,
+        'grafana'  => $onWatch ? watchmanGrafana($grafana) : null,
         'notified' => $st['last_notify'] ?? null,
         'notify'   => ['on' => ($st['notify'] ?? true) !== false, 'available' => is_executable(OFFICE_NOTIFY_BIN)],
         'limits'   => ['every' => WATCH_EVERY, 'burst' => WATCH_FAIL_BURST, 'window' => WATCH_FAIL_WINDOW,
@@ -3738,6 +3999,20 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         writeAtomic(deskFile('watchman'), jsonEncode($state));
     }
     return $state;
+}
+
+/**
+ * The data flow's history in Grafana: the office's dashboard (uid unraid-secretary-office) at the panel
+ * of each group that has one — only when the consultant saw Grafana there with its web address and the
+ * office's dashboard provisioned (advisorGrafanaDashboard(): his state file, no docker call). A link,
+ * nothing embedded; without the consultant's desk, null.
+ *
+ * @return array<string, string>|null  group => address
+ */
+function watchmanGrafana(?string $file = null): ?array
+{
+    $url = function_exists('advisorGrafanaDashboard') ? advisorGrafanaDashboard($file) : null;
+    return $url === null ? null : array_map(fn (int $panel) => "$url?viewPanel=$panel", WATCH_GRAFANA_PANELS);
 }
 
 /**
