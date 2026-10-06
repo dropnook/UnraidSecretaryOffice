@@ -1349,7 +1349,15 @@ function previewView(p, sizes) {
   const sz = sizes || p.sizes;
   if (sz) {
     if (sz.measuring) box.appendChild(el('p', 'role rs-measuring', T('rd.measuring')));
-    else if (sz.need !== null && sz.need !== undefined) box.appendChild(el('p', 'role', T(sz.free !== null && sz.free !== undefined ? 'rd.sizes' : 'rd.size', { need: fmt.size(sz.need), free: fmt.size(sz.free || 0) })));
+    else if (sz.need !== null && sz.need !== undefined) {
+      const free = sz.free !== null && sz.free !== undefined;
+      box.appendChild(el('p', 'role', T(free ? 'rd.sizes' : 'rd.size', { need: fmt.size(sz.need), free: fmt.size(sz.free || 0) })));
+      // sparse files (a VM's disk): their files say much more than the data in them — the copy keeps the holes
+      const data = sz.logical || sz.need;
+      if (sz.apparent && sz.apparent > data * 1.5 && sz.apparent - data > 1073741824) {
+        box.appendChild(el('p', 'role', T('rd.sparse', { apparent: fmt.size(sz.apparent), data: fmt.size(data) })));
+      }
+    }
   }
   if ((p.after || []).length) box.appendChild(listBlock(T('rd.after'), p.after.map((a) => T(a.key, nice(a.params)))));
   if (p.kind !== 'config' && p.kind !== 'kopia') box.appendChild(el('p', 'role', T('rd.failstop')));
@@ -1361,6 +1369,7 @@ function momentView(m) {
   const wrap = el('div', 'rs-pv-part');
   const src = el('p', 'role rs-pv-src');
   src.append(T('rd.from'), ' ', el('strong', '', m.kopia ? T('rd.snap_kopia', { name: m.name }) : m.name), ' · ', date(m.time));
+  if (m.aside) src.append(' · ', T('rd.m_aside', { name: m.aside.split('/').pop() }));
   wrap.appendChild(src);
   const ul = el('ul', 'rs-pv-list');
   (m.parts || []).forEach((x) => {
@@ -1456,10 +1465,9 @@ async function restoreDialog(req, title) {
     if (mine !== seq || !plan || !Office.dialogOpen()) return;
     sizeMap = (j.ok && j.part && j.part.sizes) || {};
     if (req.kind === 'files' && plan.options && JSON.stringify((plan.options.entries || []).map((e) => entryBytes(e, sizeMap))) !== entrySig) options();
-    const paths = sizes ? (sizes.paths || (sizes.path ? [sizes.path] : [])) : [];
-    const got = paths.map((x) => sizeMap[x]);
-    if (sizes && sizes.measuring && got.length && got.every((g) => g && g.bytes !== null && g.bytes !== undefined)) {
-      sizes = { ...sizes, need: got.reduce((sum, g) => sum + g.bytes, 0), measuring: false };
+    const done = sizes && sizes.measuring ? sizesDone(sizes, sizeMap) : null;
+    if (done) {
+      sizes = done;
       if (sizes.free !== null && sizes.free !== undefined && sizes.need > sizes.free * 0.95) { await preview(); return; }    // the agent says it won't fit
       pv.innerHTML = '';
       pv.appendChild(previewView(plan, sizes));
@@ -1554,6 +1562,7 @@ function filesOptions(box, plan, ask, change, sizeMap, sleepers) {
 function momentLabel(m, o) {
   if (m.kopia) return `${date(m.time)} — ${T('rd.snap_kopia', { name: m.name })}`;
   const bits = [`${date(m.time)} — ${m.name}`];
+  if (m.aside) bits.push(T('rd.m_aside', { name: m.aside.split('/').pop() }));
   if (m.ours) bits.push(T('rd.snap_ours'));
   if ((o.parts || []).length > 1) bits.push(m.bases.length >= o.parts.length ? T('rd.m_all') : T('rd.m_some', { bases: m.bases.join(' + ') }));
   if (m.holds && !m.holds.length) bits.push(T('rd.m_empty'));
@@ -1585,7 +1594,7 @@ function entriesField(entries, plan, change, sizeMap) {
     c.onchange = () => { if (c.checked) chosen.add(e.name); else chosen.delete(e.name); send(); };
     const text = el('span', '', e.kind === 'file' ? e.name : `${e.name}/`);
     const bytes = entryBytes(e, sizeMap);
-    const meta = [bytes !== null ? fmt.size(bytes) : T('rd.item_measuring'), T(e.live ? 'rd.item_there' : 'rd.item_not_there')];
+    const meta = [bytes !== null ? fmt.size(bytes) : T('rd.item_measuring'), T(e.live ? 'rd.item_there' : e.empty ? 'rd.item_empty' : 'rd.item_not_there')];
     if (multi && (e.bases || []).length) meta.push(e.bases.join(' + '));
     text.appendChild(el('small', '', meta.join(' · ')));
     l.append(c, text);
@@ -1602,10 +1611,31 @@ function entryBytes(e, sizeMap) {
   let sum = 0;
   for (const x of paths) {
     const got = sizeMap[x];
-    if (!got || got.bytes === null || got.bytes === undefined) return null;
+    if (!measured(got)) return null;
     sum += got.bytes;
   }
   return sum;
+}
+
+/** A size the agent measured — with its apparent size (older entries came from a du that missed unmounted ZFS snapshots) */
+const measured = (g) => !!g && typeof g.bytes === 'number' && g.apparent !== undefined;
+
+/**
+ * The plan's sizes once every source is measured, summed like the agent does (rsSizesNeed): allocated; for a target that
+ * doesn't compress, each ZFS source scaled to its data's own size (sizes.scale); the apparent size for sparse files.
+ */
+function sizesDone(sizes, sizeMap) {
+  const paths = sizes.paths || (sizes.path ? [sizes.path] : []);
+  const got = paths.map((x) => sizeMap[x]);
+  if (!got.length || !got.every(measured)) return null;
+  const scale = sizes.scale || {};
+  let alloc = 0, logical = 0, apparent = 0;
+  got.forEach((g, i) => {
+    alloc += g.bytes;
+    logical += Math.round(g.bytes * (scale[paths[i]] || 1));
+    apparent += typeof g.apparent === 'number' ? g.apparent : g.bytes;
+  });
+  return { ...sizes, need: sizes.compresses ? alloc : logical, logical, apparent, measuring: false };
 }
 
 /** Step 6: which Kopia snapshot of a source — Kopia is asked first (seconds) — then the usual preview */
@@ -1626,6 +1656,8 @@ async function kopiaDialog(source, path) {
     main.appendChild(el('div', 'row-name', date(s.time)));
     const meta = el('div', 'row-meta');
     meta.append(el('span', '', fmt.size(s.bytes)), el('span', '', T('kr.files', { n: s.files })));
+    if (s.dirs !== null && s.dirs !== undefined) meta.appendChild(el('span', '', T('kr.dirs', { n: s.dirs })));
+    if (s.failed) meta.appendChild(chip(T('kr.failed', { n: s.failed }), 'warn', T('kr.failed_hint')));
     if (s.description) meta.appendChild(el('span', '', s.description));
     if (s.incomplete) meta.appendChild(chip(T('kr.incomplete'), 'warn', s.incomplete));
     main.appendChild(meta);
@@ -1695,7 +1727,9 @@ function journalDetail(r) {
     box.appendChild(ol);
     const aside = (j.aside || []);
     if (aside.length) box.appendChild(listBlock(T('rd.aside'), aside.map((a) => { const x = el('span'); x.append(copyCode(a.to), ' ← ', a.from.replace(/^(db|vm):/, '')); return x; })));
-    if ((j.after || r.after || []).length && ['ok', 'warnings'].includes(j.result || r.result)) box.appendChild(listBlock(T('rd.after'), (j.after || r.after).map((a) => T(a.key, nice(a.params)))));
+    const pb = r.putback && ['ok', 'warnings'].includes(r.putback.result) ? r.putback : null;
+    if (pb) box.appendChild(putBackView(pb));     // undone: what «Afterwards» said is over — where the restored state went instead
+    else if ((j.after || r.after || []).length && ['ok', 'warnings'].includes(j.result || r.result)) box.appendChild(listBlock(T('rd.after'), (j.after || r.after).map((a) => T(a.key, nice(a.params)))));
     if (log && log.length) box.appendChild(fold(T('j.log'), el('pre', 'code rs-j-log', log.join('\n'))));
     if (r.can_putback) {
       const p = el('div', 'rs-act');
@@ -1723,6 +1757,34 @@ function journalDetail(r) {
     }
   }
   return box;
+}
+
+/** A restore that was put back: when, where what it had restored went (<x>.putback-<time>), and its put back's own entry */
+function putBackView(pb) {
+  const part = el('div', 'rs-pv-part');
+  part.appendChild(el('div', 'rs-part-title', T('j.undone', { when: date(pb.finished) })));
+  if ((pb.aside || []).length) {
+    part.appendChild(el('div', 'role', T('j.undone_aside')));
+    const ul = el('ul', 'rs-pv-list');
+    pb.aside.forEach((a) => { const li = el('li'); li.append(copyCode(a.to), ' ← ', String(a.from).replace(/^(db|vm):/, '')); ul.appendChild(li); });
+    part.appendChild(ul);
+  } else part.appendChild(el('div', 'role', T('j.undone_nothing')));
+  const go = el('a', '', T('j.undone_entry'));
+  go.href = '#/restore';
+  go.dataset.own = '1';
+  go.onclick = (e) => { e.preventDefault(); openJournal(pb.id); };
+  const p = el('p', 'role');
+  p.appendChild(go);
+  part.appendChild(p);
+  return part;
+}
+
+/** «Journal» with one entry unfolded and in view */
+function openJournal(id) {
+  expanded.add('j:' + id);
+  pick('journal');
+  const r = view && view.body.querySelector(`[data-key="${CSS.escape('j:' + id)}"]`);
+  if (r) r.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
 // ------------------------------------------------------------------ desk
@@ -1754,8 +1816,8 @@ Office.desk({
   },
 });
 
-// tests/run.php runs the databases tile's logic under node
+// tests/run.php runs the databases tile's logic and the preview's sizes under node
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, dbGroups, dbName, dbRequest, earlierOf, tileLine };
+  globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone };
 }
 })();
