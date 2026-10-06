@@ -311,6 +311,8 @@ function testEmbyImport(): void
     symlink('embycache', "$fs/mnt/user/system/scripts/lnk");
     symlink('/etc/hostname', "$fs/mnt/user/system/scripts/badfile/embycache_settings.json");
     file_put_contents("$fs/mnt/user/system/scripts/notes.txt", 'x');
+    @mkdir("$fs/mnt/user/system/scripts/hardlink", 0700);
+    link("$fs/mnt/user/system/scripts/notes.txt", "$fs/mnt/user/system/scripts/hardlink/consolidate.ini");
     $jack = "$fs/mnt/cache/appdata/UnraidSecretaryOffice/data";
     $ctx = ['emby_dir' => "$jack/embycache", 'gather_dir' => "$jack/gather", 'tmp' => "$tmp/run", 'fs' => $fs,
             'pools' => ['/mnt/cache', '/mnt/hive', $pool], 'shares' => ['Filme', 'Serien', 'system', 'appdata', 'Sleepy'],
@@ -349,6 +351,7 @@ function testEmbyImport(): void
         same('import folder refused: ' . json_encode($path), $want, $err(fn () => embyImportFolder($path, $ctx)));
     }
     same('import: a file that is a link is refused', 'emby_import_file', $err(fn () => embyImportPlan('/mnt/user/system/scripts/badfile', '', $ctx)));
+    same('import: a file with a second hard link is refused', 'emby_import_file', $err(fn () => embyImportPlan('', '/mnt/user/system/scripts/hardlink', $ctx)));
     same('import: an empty folder has nothing', 'emby_import_none', $err(fn () => embyImportPlan('/mnt/user/Filme', '', $ctx)));
     same('import: no folder typed', 'emby_import_nothing', $err(fn () => embyImportFolders(['embycache' => ' ', 'gather' => ''])));
 

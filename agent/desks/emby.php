@@ -915,7 +915,7 @@ function embyImportShareBases(string $share, array $ctx): array
     return array_values(array_unique(array_map('strval', $bases)));
 }
 
-/** One of the known files in the old folder: a plain file (no link), at most $cap bytes; null when it isn't there */
+/** One of the known files in the old folder: a plain file of its own (no link, no second hard link), at most $cap bytes; null when it isn't there */
 function embyImportRead(string $dir, string $name, int $cap): ?string
 {
     $file = "$dir/$name";
@@ -924,7 +924,7 @@ function embyImportRead(string $dir, string $name, int $cap): ?string
     if (!$st) {
         return null;
     }
-    if (($st['mode'] & 0170000) !== 0100000) {
+    if (($st['mode'] & 0170000) !== 0100000 || $st['nlink'] !== 1) {
         throw new Problem('emby_import_file', ['file' => $name]);
     }
     if ($st['size'] > $cap) {
