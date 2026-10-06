@@ -116,6 +116,8 @@ const ADVISOR_LABEL = 'uso.installed-by';
 const ADVISOR_GRAFANA_DATA = '/var/lib/grafana';
 const ADVISOR_GRAFANA_PROV = ADVISOR_GRAFANA_DATA . '/provisioning';
 const ADVISOR_DS_UID       = 'uso-prometheus';
+/** Provisioning folders Grafana reads at every start and logs an error for when they are missing: made empty with the office's */
+const ADVISOR_GRAFANA_EMPTY = ['plugins', 'alerting'];
 /** The office's dashboard in Grafana's provisioning (kept current, advisorDashboardKeep()) and its uid; how often he looks */
 const ADVISOR_DASHBOARD_REL   = 'dashboards/uso/unraid-secretary-office.json';
 const ADVISOR_DASHBOARD_UID   = 'unraid-secretary-office';
@@ -846,8 +848,9 @@ function advisorInstallPrepare(string $id, array $r, array $env): array
         // the container runs as 99:100 (its --user) and writes into data/
         advisorDirs($env['appdata'], ['prometheus', 'prometheus/etc', 'prometheus/data'], $env['uid'], $env['gid']);
     } elseif ($id === 'grafana') {
-        advisorDirs($env['appdata'], ['grafana', 'grafana/provisioning', 'grafana/provisioning/datasources',
-                                      'grafana/provisioning/dashboards', 'grafana/provisioning/dashboards/uso'], $env['uid'], $env['gid']);
+        advisorDirs($env['appdata'], array_merge(['grafana', 'grafana/provisioning', 'grafana/provisioning/datasources',
+                                      'grafana/provisioning/dashboards', 'grafana/provisioning/dashboards/uso'],
+                                      array_map(fn ($d) => "grafana/provisioning/$d", ADVISOR_GRAFANA_EMPTY)), $env['uid'], $env['gid']);
     }
     foreach ($plan['files'] as $f) {
         if (advisorWriteIfAbsent($f['path'], $f['content'], $env['uid'], $env['gid'])) {
@@ -1072,8 +1075,9 @@ function advisorProvision(array $env): array
     }
     // the provisioning folder below its parent (the data folder or the mapped one), never through a link
     $base = dirname($plan['host']);
-    advisorDirs($base, [basename($plan['host']), basename($plan['host']) . '/datasources', basename($plan['host']) . '/dashboards',
-                        basename($plan['host']) . '/dashboards/uso'], $env['uid'], $env['gid']);
+    advisorDirs($base, array_merge([basename($plan['host']), basename($plan['host']) . '/datasources', basename($plan['host']) . '/dashboards',
+                        basename($plan['host']) . '/dashboards/uso'], array_map(fn ($d) => basename($plan['host']) . "/$d", ADVISOR_GRAFANA_EMPTY)),
+                $env['uid'], $env['gid']);
     $written = $kept = [];
     foreach ($plan['files'] as $f) {
         if (advisorWriteIfAbsent($f['path'], $f['content'], $env['uid'], $env['gid'])) {
