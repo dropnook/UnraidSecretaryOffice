@@ -75,6 +75,7 @@ const CL_FRESH_DAYS   = 30;                        // a folder changed since the
 const CL_MEASURE_TTL  = 6 * 3600;                  // a candidate's measurement must be this fresh to be put away
 const CL_FLASH_TTL    = 1800;                      // search the flash again after this
 const CL_PARALLEL     = 2;                         // background jobs at once (purges don't wait)
+const CL_LOCK_LOOK    = 5;                         // seconds between looks at the engine's lock from tick
 const CL_FOLDER_LIMIT = 2000;
 const CL_TEXT_MAX     = 256 * 1024;
 const CL_COMPOSE_FILES  = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'];
@@ -171,7 +172,10 @@ desk('cleanup', [
                                  || (readCfg('/boot/config/domain.cfg')['SERVICE'] ?? 'disable') === 'enable'
                                  ? fit(true, 'yes') : fit(false, 'nothing'),
     'start'   => fn () => clScan(),
-    'tick'    => fn () => clJobsTick(),
+    'tick'    => function (): void {
+        clJobsTick();
+        clBackupFlagTick();
+    },
     'checks'  => fn (): array => clChecks(),
     'metrics' => fn (): array => clMetrics(),
     'actions' => [
@@ -1949,7 +1953,7 @@ function clBuild(): array
             'cache_at'   => $cache['build']['at'] ?? null,
             'list'       => clDockerEntries($raw, $cache, $pending),
         ],
-        'backup_running' => backupScriptState()['running'],
+        'backup_running' => clBackupBusy(),
         'templates' => ['dir' => CL_TEMPLATES, 'list' => array_merge($templates, $raw['strays']),
                         'strays_at' => $cache['strays']['at'] ?? null, 'strays_searching' => $pending('strays:flash') || $pending('strays:pools'),
                         'strays_skipped' => $cache['strays']['skipped'] ?? 0, 'strays_skipped_dirs' => $cache['strays']['skipped_dirs'] ?? []],
@@ -2514,6 +2518,35 @@ function clRunTidy(string $path, string $root): void
 }
 
 // ===================================================================== actions
+
+/**
+ * Does somebody hold the engine's lock — a backup, a check, a dry run, the setup's plan or one of
+ * Mr. Restori's restores? Only /proc/locks (and the holder's note while it is held): cheap.
+ */
+function clBackupBusy(): bool
+{
+    return backupLockHolder() !== null;
+}
+
+/**
+ * Keeps her state's backup_running fresh between tours: every few seconds from tick a look at the
+ * engine's lock; when it changed, the state file gets the new value (nothing else is read anew) — so
+ * her buttons come back once a run is over, not at her next tour.
+ */
+function clBackupFlagTick(): void
+{
+    static $at = 0;
+    $state = &$GLOBALS['clState'];
+    if (!is_array($state) || time() - $at < CL_LOCK_LOOK) {
+        return;
+    }
+    $at = time();
+    $busy = clBackupBusy();
+    if ($busy !== (bool) ($state['backup_running'] ?? false)) {
+        $state['backup_running'] = $busy;
+        clWrite($state);
+    }
+}
 
 /** No changes while a backup runs (it may be reading what would move) */
 function clGuard(array $state): void
