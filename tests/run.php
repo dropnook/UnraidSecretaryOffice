@@ -775,7 +775,10 @@ function testRestoreJobs(): void
     $script = rsDbScript('dump', ['type' => 'mariadb', 'login' => 'user', 'user_var' => 'MARIADB_USER', 'password_var' => 'MARIADB_PASSWORD']);
     check('restore: the dump script names variables and takes the database as $1',
         str_contains($script, '-u"$MARIADB_USER" -p"$MARIADB_PASSWORD"') && str_contains($script, '--databases "$1"'), $script);
-    check('restore: the ready check of Postgres goes over TCP (not the init server on the socket)', str_contains(rsDbScript('ready', ['type' => 'postgres']), '-h 127.0.0.1'));
+    check('restore: a fresh cluster is ready over TCP (not the init server on the socket), a running one on the socket',
+        str_contains(rsDbScript('ready', ['type' => 'postgres', 'tcp' => true]), '-h 127.0.0.1') && !str_contains(rsDbScript('ready', ['type' => 'postgres']), '-h '));
+    check('restore: a database name from the dump never goes to psql -d (a connection string there)',
+        str_contains(rsDbScript('tables', ['type' => 'postgres']), 'PGDATABASE="$1"') && !str_contains(rsDbScript('tables', ['type' => 'postgres']), '-d '));
     try {
         rsDbScript('play', ['type' => 'postgres', 'user_var' => 'HOME; rm -rf /', 'password_var' => '']);
         check('restore: a variable not on the list is refused', false);

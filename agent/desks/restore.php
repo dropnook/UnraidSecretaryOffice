@@ -1375,7 +1375,7 @@ function rsPlanDbFor(array &$ctx, array $place, array $app, array $pkg, ?array $
         $steps[] = ['do' => 'aside', 'path' => $folder['path'], 'to' => $aside, 'dataset' => $ds, 'to_dataset' => $ds ? "$ds.aside-$stamp" : null];
         $steps[] = ['do' => 'fresh', 'path' => $folder['path'], 'like' => $aside, 'dataset' => $ds];
         $steps[] = ['do' => 'start', 'containers' => [$c], 'need' => true];
-        $steps[] = ['do' => 'ready'] + $base + ['timeout' => 300];
+        $steps[] = ['do' => 'ready', 'tcp' => true] + $base + ['timeout' => 300];
         $plan['aside'][] = ['what' => 'db_folder', 'from' => $folder['path'], 'to' => $aside];
         $free = rsFree($folder['place']);
         $plan['sizes'] = ['need' => rsGzSize($path) ?: null, 'free' => $free, 'measuring' => false, 'what' => 'db'];
@@ -2348,10 +2348,11 @@ function rsDbScript(string $what, array $s): string
             return match ($what) {
                 'dump'   => "$env exec pg_dumpall --clean --if-exists $who",
                 'play'   => "$env exec psql -X -q -o /dev/null $who -d postgres",     // results away, errors stay
-                // over TCP: during its first start the image's init runs a server on the socket only
-                'ready'  => "$env exec psql -X -q -tA -h 127.0.0.1 $who -d postgres -c 'select 1'",
+                // a fresh cluster over TCP: during its first start the image's init runs a server on the socket only
+                'ready'  => "$env exec psql -X -q -tA" . (!empty($s['tcp']) ? ' -h 127.0.0.1' : '') . " $who -d postgres -c 'select 1'",
                 'kick'   => "$env exec psql -X -q -tA $who -d postgres -c \"SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND backend_type = 'client backend'\"",
-                'tables' => "$env exec psql -X -q -tA $who -d \"\$1\" -c \"SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')\"",
+                // the name from the dump as PGDATABASE, never -d: psql reads a -d with "=" as a connection string
+                'tables' => "PGDATABASE=\"\$1\" $env exec psql -X -q -tA $who -c \"SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')\"",
                 default  => throw new Problem('command_failed', ['detail' => $what]),
             };
         case 'mariadb':
@@ -2699,6 +2700,10 @@ function rsDoVerify(array &$j, array $s): array
     $expect = array_filter($expect, fn ($n, $db) => $n > 0 && $db !== '' && !in_array($db, ['template0', 'template1'], true), ARRAY_FILTER_USE_BOTH);
     $seen = $empty = $differ = [];
     foreach ($expect as $db => $n) {
+        if (preg_match('#[=\x00-\x1f]|://#', (string) $db)) {
+            $differ[] = "$db: ?/$n";            // no plain name: not asked for
+            continue;
+        }
         [$exit, $out] = rsRun($j, ['docker', 'exec', $s['container'], 'sh', '-c', rsDbScript('tables', $s), 'sh', (string) $db], 120);
         $have = $exit === 0 && ctype_digit(trim($out)) ? (int) trim($out) : null;
         $seen[] = "$db: " . ($have ?? '?') . "/$n";
