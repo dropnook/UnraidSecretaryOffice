@@ -25,6 +25,14 @@
 .jo-part-why{font-weight:400; color:var(--muted); margin-left:8px; font-size:12.5px}
 .jo-part.off > .jo-form{opacity:.45}
 .jo-muted{opacity:.6}
+/* taking over an earlier install: the preview */
+.jo-imp{padding:10px 14px}
+.jo-imp-head{margin:12px 0 4px; font-weight:600; font-size:12.5px; color:var(--ink)}
+.jo-imp .kv{margin:4px 0 10px}
+.jo-imp .shortlist{max-height:200px; margin-bottom:8px}
+.jo-imp .warn-text, .jo-imp .shortlist li.jo-imp-warn{color:var(--warn)}
+.jo-imp .callout{margin:8px 0 4px}
+.jo-part-head .jo-part-why{overflow-wrap:anywhere; font-family:var(--mono); font-size:12px}
 /* the credit to helmi1987 under the tools' tiles */
 .jo-credit{margin:12px 0 0; max-width:980px; font-size:12.5px; line-height:1.5; color:var(--muted); overflow-wrap:anywhere}
 .jo-credit b{color:var(--ink2); font-weight:600}

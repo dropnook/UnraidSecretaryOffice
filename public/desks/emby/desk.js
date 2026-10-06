@@ -162,6 +162,8 @@ function render() {
   if (!state.configured) {
     const p = el('p', 'callout', T('notice.setup') + ' ');
     p.appendChild(button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
+    p.appendChild(document.createTextNode(' '));
+    p.appendChild(button(T('import.open'), 'small plain', importDialog));
     root.appendChild(p);
     root.appendChild(gatherSection());
     root.appendChild(historySection());
@@ -678,9 +680,11 @@ function renderSetup() {
   const root = view;
   root.innerHTML = '';
   const back = button(T('back'), 'plain', () => Office.go(`#/${ID}`));
-  const { head } = Office.deskHead(Office.desks.get(ID), { bubble: T('setup.bubble'), actions: [back] });
+  const bubble = T('setup.bubble') + (state && !state.configured ? ' ' + T('import.bubble') : '');
+  const { head } = Office.deskHead(Office.desks.get(ID), { bubble, actions: [back] });
   root.appendChild(head);
   root.appendChild(Office.pageHelp(ID + '-setup', [
+    [T('import.title'), T('import.help')],
     [T('setup.key'), T('setup.help_key')],
     [T('setup.mapping'), T('setup.help_mapping')],
     [T('setup.users'), T('setup.help_users')],
@@ -691,6 +695,7 @@ function renderSetup() {
   if (!state) return;
   if (!form) initForm();
   const connected = form.instances.some((i) => i.server);
+  if (!state.configured) root.appendChild(importSection());     // first thing for someone who ran the tools before
 
   // 1. servers
   const s1 = section(T('setup.server'), T('setup.server_sub'));
@@ -872,6 +877,190 @@ function renderSetup() {
   const foot = el('div', 'toolbar');
   foot.append(save, el('span', 'role', T(running() ? 'setup.save_running' : 'setup.save_hint')));
   root.appendChild(foot);
+  if (state.configured) root.appendChild(importSection());
+}
+
+// ------------------------------------------------------------------ taking over an earlier install
+/*
+ * Someone who ran helmi1987's EmbyCache or «Consolidate folders» before (from a User Script)
+ * types the folder of the old files; the agent reads them on the server (the API key never comes
+ * here), the preview says what would change, the import needs its token. Afterwards: switch the
+ * old User Script off yourself, start with a dry run, the copies of Jack's files are named.
+ */
+const importFolders = { embycache: '', gather: '' };
+
+function importSection() {
+  return section(T('import.title'), T('import.sub'), button(T('import.open'), 'small', importDialog));
+}
+
+function importDialog() {
+  const box = el('div');
+  box.appendChild(el('p', '', T('import.intro')));
+  const f = el('div', 'jo-form');
+  const a = input(importFolders.embycache, (x) => { importFolders.embycache = x; });
+  a.placeholder = '/mnt/user/system/scripts/embycache';
+  const b = input(importFolders.gather, (x) => { importFolders.gather = x; });
+  b.placeholder = '/mnt/user/system/scripts/consolidate';
+  f.append(field(T('import.folder_embycache'), a, T('import.folder_embycache_hint')), field(T('import.folder_gather'), b, T('import.folder_gather_hint')));
+  box.append(f, el('p', 'role', T('import.read_only')));
+  Office.dialog({ title: T('import.title'), body: box, wide: true,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('import.look'), kind: '', act: importLook }] });
+}
+
+async function importLook() {
+  const folders = { embycache: importFolders.embycache.trim(), gather: importFolders.gather.trim() };
+  const j = await Office.api.post(`${ID}.import_preview`, folders);
+  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
+  importPreview(j.preview, folders);
+  return true;
+}
+
+/** A value of the old or new settings, plainly */
+function importValue(v) {
+  if (v === null || v === undefined) return '–';
+  if (v === '') return T('import.empty');
+  if (Array.isArray(v)) return v.length ? v.join(' ') : T('import.empty');
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+}
+
+/** A short list: the key (mono) and a text beside it */
+function importList(items) {
+  const ul = el('ul', 'shortlist');
+  items.forEach(([k, text, cls]) => { const li = el('li', cls || '', k); if (text !== undefined) li.appendChild(el('span', '', text)); ul.appendChild(li); });
+  return ul;
+}
+
+function importHead(text) { return el('p', 'jo-imp-head', text); }
+
+/** What changes, what gets defaults, what Jack sets himself, what's left out — the same for both tools */
+function importLists(box, part, sameText) {
+  if (part.changes.length) {
+    box.append(importHead(T('import.changes')), importList(part.changes.map((c) => [c.key, T('import.old_new', { old: importValue(c.old), new: importValue(c.new) })])));
+  }
+  if (sameText) box.appendChild(el('p', 'role', sameText));
+  if (part.defaults && part.defaults.length) {
+    box.append(importHead(T('import.defaults')), importList(part.defaults.map((d) => [d.key,
+      d.old !== null && importValue(d.old) !== importValue(d.value) ? T('import.old_new', { old: importValue(d.old), new: importValue(d.value) }) : importValue(d.value)])));
+  }
+  if (part.jack.length) {
+    box.append(importHead(T('import.jack')), el('p', 'role', T('import.jack_sub')),
+      importList(part.jack.map((c) => [c.key, T('import.old_new', { old: importValue(c.old), new: importValue(c.new) })])));
+  }
+  if (part.dropped.length) box.appendChild(el('p', 'role', T('import.dropped', { keys: part.dropped.join(', ') })));
+}
+
+function importEmbyCache(p) {
+  const box = el('div', 'jo-imp');
+  const files = Object.entries(p.found).filter(([, on]) => on).map(([k]) => ({ settings: 'embycache_settings.json', exclude: 'embycache_exclude.txt', origin: 'embycache_origin.json' })[k]);
+  box.appendChild(el('p', 'role', files.length ? T('import.found', { files: files.join(', ') }) : T('import.found_none')));
+  if (p.blockers.length) box.appendChild(importList(p.blockers.map((b) => [T('import.block.' + b.key, b.params || {}), undefined, 'error'])));
+  p.instances.forEach((inst) => {
+    const kv = el('dl', 'kv');
+    kv.append(el('dt', '', T('import.server')), el('dd', '', `${inst.servername} · ${inst.url}`),
+      el('dt', '', T('import.key')), el('dd', inst.key === 'missing' ? 'warn-text' : '', T('import.key_' + inst.key)));
+    box.appendChild(kv);
+    if (inst.mappings.length) {
+      box.appendChild(importList(inst.mappings.map((m) => [m.from, m.to === '' ? T('import.map_skip')
+        : m.to + (m.there === false ? ' · ' + T('import.map_missing') : m.there === null ? ' · ' + T('import.map_asleep') : ''), m.there === false ? 'jo-imp-warn' : ''])));
+    }
+    if (inst.bad_mappings.length) box.appendChild(el('p', 'role', T('import.map_bad', { paths: inst.bad_mappings.join(', ') })));
+  });
+  if (p.users) {
+    const kv = el('dl', 'kv');
+    kv.append(el('dt', '', T('import.people')), el('dd', '', p.users.n ? T('import.people_n', { n: p.users.n }) : T('import.people_all')));
+    if (p.users.bad) kv.append(el('dt', '', ''), el('dd', '', T('import.people_bad', { n: p.users.bad })));
+    if (p.libraries) kv.append(el('dt', '', T('import.libraries')), el('dd', '', p.libraries.join(', ') || '–'));
+    box.appendChild(kv);
+  }
+  importLists(box, p, p.same ? T('import.same', { n: p.same }) : '');
+  if (p.exclude || p.origin) {
+    box.appendChild(importHead(T('import.on_pool')));
+    if (p.exclude) {
+      const kv = el('dl', 'kv');
+      kv.append(el('dt', '', T('import.list_old')), el('dd', '', String(p.exclude.ok)),
+        el('dt', '', T('import.list_new')), el('dd', '', String(p.exclude.ok - p.exclude.already)),
+        el('dt', '', T('import.list_after')), el('dd', '', String(p.exclude.total)));
+      if (p.exclude.bad) kv.append(el('dt', '', T('import.list_bad')), el('dd', 'warn-text', String(p.exclude.bad)));
+      box.appendChild(kv);
+      if (p.exclude.bad_sample.length) box.appendChild(importList(p.exclude.bad_sample.map((l) => [l, undefined, 'jo-imp-warn'])));
+    }
+    if (p.origin) {
+      const kv = el('dl', 'kv');
+      kv.append(el('dt', '', T('import.origin_old')), el('dd', '', String(p.origin.ok)),
+        el('dt', '', T('import.origin_after')), el('dd', '', String(p.origin.total)));
+      if (p.origin.bad) kv.append(el('dt', '', T('import.list_bad')), el('dd', 'warn-text', String(p.origin.bad)));
+      box.appendChild(kv);
+    }
+  }
+  (p.warnings || []).forEach((w) => box.appendChild(el('p', 'callout warn', T('import.warn.' + w.key, w.params || {}))));
+  return box;
+}
+
+function importGather(p) {
+  const box = el('div', 'jo-imp');
+  box.appendChild(el('p', 'role', p.found ? T('import.found', { files: 'consolidate.ini' }) : T('import.found_none_ini')));
+  if (!p.found) return box;
+  if (p.blockers.length) box.appendChild(importList(p.blockers.map((b) => [T('import.block.' + b.key, b.params || {}), undefined, 'error'])));
+  const kv = el('dl', 'kv');
+  kv.append(el('dt', '', T('import.shares')), el('dd', '', p.shares.join(', ') || '–'));
+  box.appendChild(kv);
+  if (p.dropped_shares.length) box.appendChild(importList(p.dropped_shares.map((d) => [d.path, T('import.share_why.' + d.why)])));
+  importLists(box, p, '');
+  if (p.strange) box.appendChild(el('p', 'role', T('import.strange', { n: p.strange })));
+  (p.warnings || []).forEach((w) => box.appendChild(el('p', 'callout warn', T('import.warn.' + w.key, w.params || {}))));
+  return box;
+}
+
+function importPart(title, folder, body) {
+  const part = el('div', 'box jo-part');
+  const head = el('div', 'jo-part-head', title);
+  head.appendChild(el('span', 'jo-part-why', folder));
+  part.append(head, body);
+  return part;
+}
+
+function importPreview(p, folders) {
+  const box = el('div');
+  box.appendChild(el('p', '', T('import.preview_bubble')));
+  if (p.embycache) box.appendChild(importPart('EmbyCache', p.embycache.folder, importEmbyCache(p.embycache)));
+  if (p.gather) box.appendChild(importPart(T('gather'), p.gather.folder, importGather(p.gather)));
+  if (p.running) box.appendChild(el('p', 'callout warn', T('errors.emby_running')));
+  else if (!p.ready) box.appendChild(el('p', 'callout warn', T('errors.emby_import_blocked')));
+  else box.appendChild(el('p', 'role', T('import.backup_note')));
+  const buttons = [{ text: Office.t('common.cancel') }];
+  if (p.ready && !p.running) buttons.push({ text: T('import.go'), kind: '', act: () => importGo(folders, p) });
+  Office.dialog({ title: T('import.preview_title'), body: box, wide: true, buttons });
+}
+
+async function importGo(folders, p) {
+  const j = await Office.api.post(`${ID}.import_apply`, { ...folders, token: p.token });
+  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
+  if (j.state) state = j.state;
+  form = null;
+  importDone(j.done);
+  return true;
+}
+
+function importDone(d) {
+  const box = el('div');
+  box.appendChild(el('p', '', T('import.done_bubble')));
+  const what = [];
+  if (d.settings) what.push(T('import.done_settings'));
+  if (d.exclude !== null) what.push(T('import.done_list', { n: d.exclude }));
+  if (d.origin !== null) what.push(T('import.done_origin', { n: d.origin }));
+  if (d.gather) what.push(T('import.done_gather'));
+  if (what.length) box.appendChild(importList(what.map((w) => [w])));
+  const still = (state.foreign || []).filter((f) => f.enabled);
+  box.appendChild(el('p', 'callout warn', T('import.done_switch_off') + (still.length ? ' ' + T('import.done_still', { where: still.map((f) => f.where).join(', ') }) : '')));
+  if (d.embycache) box.appendChild(el('p', 'callout', T('import.done_dry')));
+  if (d.backups.length) {
+    box.append(importHead(T('import.done_copies')), importList(d.backups.map((f) => [f])), el('p', 'role', T('import.done_undo', { stamp: d.stamp })));
+  } else {
+    box.appendChild(el('p', 'role', T('import.done_nothing_before')));
+  }
+  Office.dialog({ title: T('import.done_title'), body: box, wide: true,
+    buttons: [{ text: Office.t('common.close'), kind: '' }], onClose: () => Office.go(`#/${ID}`) });
 }
 
 function input(value, onchange) {
@@ -984,7 +1173,7 @@ Office.desk({
   poll() { if (page === 'main') load(false); },
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
   menu() {
-    const items = [{ text: T('menu.refresh'), act: () => load(true) }];
+    const items = [{ text: T('menu.refresh'), act: () => load(true) }, { text: T('import.title') + '…', act: importDialog }];
     if (state && state.configured) {
       items.push({ text: T('schedule_title.embycache'), act: () => scheduleDialog('embycache') });
       items.push({ text: T('schedule_title.gather'), act: () => scheduleDialog('gather') });
