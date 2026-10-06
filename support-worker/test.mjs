@@ -755,6 +755,57 @@ const waysEnv = {
   check('key records hold exactly key, date, via', values.every((v) => v === 'key,date,via'), values);
 }
 
+// ── the Unraid affiliate link ──
+{
+  const plain = await call('GET', `/?id=${SID}&lang=en`);
+  check('referral: hidden when empty', !plain.text.includes('id="referral"') && !plain.text.includes('sponsored'));
+  const h0 = await call('GET', '/api/health');
+  same('referral: health says none', false, h0.data.referral);
+  const LINK = 'https://unraid.net/pricing?via=benj&utm_source=uso';
+  const env = { ...waysEnv, UNRAID_REFERRAL_URL: LINK };
+  const words = { en: 'Affiliate link', de: 'Affiliate-Link', it: 'Link di affiliazione', fr: "Lien d'affiliation", es: 'Enlace de afiliado' };
+  for (const [lang, word] of Object.entries(words)) {
+    const p = await call('GET', `/?id=${SID}&lang=${lang}`, { env });
+    const card = (/<section class="card quiet" id="referral">([\s\S]*?)<\/section>/.exec(p.text) || [])[1] || '';
+    check(`referral (${lang}): rendered`, card !== '', lang);
+    check(`referral (${lang}): the link, sponsored, new tab`, card.includes(`<a href="${LINK.replace(/&/g, '&amp;')}" rel="sponsored noopener noreferrer" target="_blank">`));
+    check(`referral (${lang}): labelled «${word}»`, card.includes(`<span class="tag">${word}</span>`));
+    check(`referral (${lang}): no placeholders left`, !/\{[a-z_]+\}/.test(card));
+    check(`referral (${lang}): after the ways to give, before the footer`, p.text.indexOf('id="other"') < p.text.indexOf('id="referral"') && p.text.indexOf('id="referral"') < p.text.indexOf('<footer>'));
+  }
+  const en = await call('GET', `/?lang=en`, { env: { ...baseEnv, UNRAID_REFERRAL_URL: LINK } });
+  check('referral: the text says affiliate link and no extra cost', en.text.includes('This affiliate link supports the office at no extra cost to you.'));
+  check('referral: also without an ID and without other ways', en.text.includes('id="referral"'));
+  check('referral: no form, nothing pre-selected, no script of its own', !/id="referral"[\s\S]*?<(input|form|script|img)[\s\S]*?<\/section>/.test(en.text.split('<footer>')[0].slice(en.text.indexOf('id="referral"') - 40)));
+  same('referral: the CSP stays as it was', true, !/unsafe/.test(en.headers.get('content-security-policy')) && /frame-src https:\/\/\*\.paypal\.com https:\/\/\*\.paypalobjects\.com;/.test(en.headers.get('content-security-policy')));
+  const h1 = await call('GET', '/api/health', { env: { ...baseEnv, UNRAID_REFERRAL_URL: LINK } });
+  same('referral: health ok', [200, true, []], [h1.status, h1.data.referral, h1.data.problems]);
+  const sub = await call('GET', '/?lang=de', { env: { ...baseEnv, UNRAID_REFERRAL_URL: 'https://account.unraid.net/ref/abc' } });
+  check('referral: a subdomain of unraid.net is fine', sub.text.includes('href="https://account.unraid.net/ref/abc"'));
+  const bad = [
+    'http://unraid.net/?via=benj',
+    'https://unraid.net.evil.example/?via=benj',
+    'https://evilunraid.net/',
+    'https://unraid.network/',
+    'https://user:pw@unraid.net/',
+    'https://unraid.net:8443/',
+    'javascript:alert(1)//unraid.net',
+    '//unraid.net/x',
+    'https://unraid.net/ x',
+    'unraid.net/pricing',
+    'https://' + 'a'.repeat(600) + '.unraid.net/',
+  ];
+  for (const url of bad) {
+    const e = { ...baseEnv, UNRAID_REFERRAL_URL: url };
+    const h = await call('GET', '/api/health', { env: e });
+    same(`referral refused: ${url.slice(0, 50)}`, [503, false, ['UNRAID_REFERRAL_URL']], [h.status, h.data.referral, h.data.problems]);
+    const p = await call('GET', `/?id=${SID}`, { env: e });
+    check(`referral refused, not rendered: ${url.slice(0, 50)}`, p.status === 200 && !p.text.includes('id="referral"') && !p.text.includes('sponsored'));
+  }
+  const o = await call('POST', '/api/order', { body: { id: SID, amount: '5', currency: 'EUR' }, env: { ...baseEnv, UNRAID_REFERRAL_URL: 'http://evil.example' } });
+  same('referral refused: tips still work', 200, o.status);
+}
+
 // ── the rate limiting binding and the Cache API, when there ──
 {
   let asked = 0;

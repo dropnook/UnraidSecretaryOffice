@@ -27,6 +27,9 @@ BANK_NAME = ""                  # optional, e.g. the bank's name and town
 BTC_LIGHTNING = ""              # a Lightning address, name@domain
 BTC_ADDRESS = ""                # an on-chain address, bc1…
 
+# Optional — the Unraid Ambassadors (affiliate) link, https://…unraid.net/… only. Empty = not shown.
+UNRAID_REFERRAL_URL = ""
+
 [[kv_namespaces]]
 binding = "SUPPORT_KV"
 id = "REPLACE-WITH-THE-KV-NAMESPACE-ID"   # wrangler kv namespace create SUPPORT_KV

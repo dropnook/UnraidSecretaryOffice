@@ -26,6 +26,9 @@
  *                                 IBAN and holder are set (and valid)
  *   BTC_LIGHTNING         var, optional — a Lightning address (name@domain), shown with a QR code
  *   BTC_ADDRESS           var, optional — an on-chain address (bc1… / 1… / 3…), shown with a QR code
+ *   UNRAID_REFERRAL_URL   var, optional — Benj's Unraid Ambassadors (affiliate) link: https on
+ *                                 unraid.net or a subdomain only; shown, clearly labelled, after the
+ *                                 ways to give
  *   RATE_LIMITER          optional rate limiting binding (wrangler.toml only)
  *   SUPPORTER_PUBLIC_KEY  tests only — replaces the office's public key below. Leave it unset.
  *
@@ -140,6 +143,10 @@ const TEXT = {
     err_unknown_order: 'This order is unknown here (or too old).',
     err_bad_id: "The server ID isn't valid — open this page from the tip jar in your office.",
     err_bad_via: 'Please choose how you sent your tip.',
+    referral_text: 'Buying or upgrading an Unraid licence? This affiliate link supports the office at no extra cost to you.',
+    referral_link: 'Unraid licences on unraid.net',
+    referral_tag: 'Affiliate link',
+    referral_note: 'unraid.net sees that you came through this link — that is how the commission works. This page itself counts nothing.',
     err_generic: 'Something went wrong. If PayPal charged you, click «Check again» in a moment — your key appears as soon as the payment is confirmed.',
   },
   de: {
@@ -206,6 +213,10 @@ const TEXT = {
     err_unknown_order: 'Diese Bestellung ist hier unbekannt (oder zu alt).',
     err_bad_id: 'Die Server-ID ist ungültig — öffne diese Seite aus der Trinkgeldkasse in deinem Sekretariat.',
     err_bad_via: 'Bitte wähle, wie du dein Trinkgeld geschickt hast.',
+    referral_text: 'Kaufst du eine Unraid-Lizenz oder rüstest eine auf? Dieser Affiliate-Link unterstützt das Sekretariat, ohne dass es dich mehr kostet.',
+    referral_link: 'Unraid-Lizenzen auf unraid.net',
+    referral_tag: 'Affiliate-Link',
+    referral_note: 'unraid.net sieht, dass du über diesen Link kommst — so entsteht die Provision. Diese Seite selbst zählt nichts.',
     err_generic: 'Etwas ist schiefgegangen. Falls PayPal dich belastet hat, klick gleich auf «Nochmals prüfen» — dein Schlüssel erscheint, sobald die Zahlung bestätigt ist.',
   },
   it: {
@@ -272,6 +283,10 @@ const TEXT = {
     err_unknown_order: 'Questo ordine qui è sconosciuto (o troppo vecchio).',
     err_bad_id: "L'ID del server non è valido — apri questa pagina dal salvadanaio del tuo ufficio.",
     err_bad_via: 'Scegli come hai inviato la mancia.',
+    referral_text: 'Compri o aggiorni una licenza Unraid? Questo link di affiliazione sostiene l\'ufficio senza costi aggiuntivi per te.',
+    referral_link: 'Licenze Unraid su unraid.net',
+    referral_tag: 'Link di affiliazione',
+    referral_note: 'unraid.net vede che arrivi da questo link — è così che nasce la commissione. Questa pagina in sé non conta niente.',
     err_generic: 'Qualcosa è andato storto. Se PayPal ti ha addebitato, clicca tra poco su «Ricontrolla» — la chiave appare appena il pagamento è confermato.',
   },
   fr: {
@@ -338,6 +353,10 @@ const TEXT = {
     err_unknown_order: 'Cette commande est inconnue ici (ou trop ancienne).',
     err_bad_id: "L'ID du serveur n'est pas valide — ouvre cette page depuis la tirelire de ton bureau.",
     err_bad_via: 'Choisis comment tu as envoyé ton pourboire.',
+    referral_text: 'Tu achètes ou mets à niveau une licence Unraid ? Ce lien d\'affiliation soutient le bureau sans surcoût pour toi.',
+    referral_link: 'Licences Unraid sur unraid.net',
+    referral_tag: 'Lien d\'affiliation',
+    referral_note: 'unraid.net voit que tu arrives par ce lien — c\'est ainsi que naît la commission. Cette page elle-même ne compte rien.',
     err_generic: 'Quelque chose s\'est mal passé. Si PayPal t\'a débité, clique dans un instant sur « Vérifier à nouveau » — ta clé apparaît dès que le paiement est confirmé.',
   },
   es: {
@@ -404,6 +423,10 @@ const TEXT = {
     err_unknown_order: 'Este pedido es desconocido aquí (o demasiado antiguo).',
     err_bad_id: 'El ID del servidor no es válido — abre esta página desde el bote de propinas de tu oficina.',
     err_bad_via: 'Elige cómo enviaste tu propina.',
+    referral_text: '¿Vas a comprar o ampliar una licencia de Unraid? Este enlace de afiliado apoya a la oficina sin coste adicional para ti.',
+    referral_link: 'Licencias de Unraid en unraid.net',
+    referral_tag: 'Enlace de afiliado',
+    referral_note: 'unraid.net ve que llegas por este enlace — así se genera la comisión. Esta página en sí no cuenta nada.',
     err_generic: 'Algo ha salido mal. Si PayPal te ha cobrado, pulsa en un momento «Comprobar de nuevo» — tu clave aparece en cuanto se confirme el pago.',
   },
 };
@@ -925,6 +948,28 @@ function methods(env) {
   return out;
 }
 
+/**
+ * The Unraid affiliate link (Lime Technology's «Unraid Ambassadors»): https only, on unraid.net
+ * or a subdomain of it, no user, no port. undefined = not set; null = set but refused.
+ */
+function referral(env) {
+  const raw = setting(env, 'UNRAID_REFERRAL_URL');
+  if (raw === '') return undefined;
+  if (raw.length > 500 || /\s/.test(raw)) return null;
+  let url;
+  try {
+    url = new URL(raw);
+  } catch (e) {
+    return null;
+  }
+  const host = url.hostname;
+  if (url.protocol !== 'https:' || url.username !== '' || url.password !== '' || url.port !== ''
+      || !(host === 'unraid.net' || host.endsWith('.unraid.net'))) {
+    return null;
+  }
+  return url.href;
+}
+
 /** Is this way of giving offered on the page? */
 function viaOffered(env, via) {
   const m = methods(env);
@@ -940,11 +985,12 @@ async function problems(env) {
   if (!kv(env)) out.push('SUPPORT_KV');
   if (!(await signer(env))) out.push('SUPPORTER_KEY');
   out.push(...methods(env).problems);
+  if (referral(env) === null) out.push('UNRAID_REFERRAL_URL');
   return out;
 }
 
 async function ready(env) {
-  const missing = (await problems(env)).filter((p) => !/^(?:BANK|BTC)_/.test(p));
+  const missing = (await problems(env)).filter((p) => !/^(?:BANK_|BTC_|UNRAID_REFERRAL_URL$)/.test(p));
   if (missing.length) throw new Fail(503, 'server_config', `not ready: ${missing.join(', ')}`);
 }
 
@@ -955,6 +1001,7 @@ async function health(env) {
     ok: missing.length === 0,
     env: paypalEnv(env),
     methods: { paypal: paypalReady(env), bank: Boolean(m.bank), lightning: Boolean(m.lightning), onchain: Boolean(m.onchain) },
+    referral: Boolean(referral(env)),
     problems: missing,
   });
 }
@@ -1698,6 +1745,15 @@ async function page(request, env, ctx, url) {
   </section>`
     : '';
   const nothing = !paypalCard && !otherCard ? `<p class="notice warn">${esc(t.not_set_up)}</p>` : '';
+  const affiliate = referral(env);
+  const referralCard = affiliate
+    ? `<section class="card quiet" id="referral">
+    <p>${esc(t.referral_text)}</p>
+    <p><a href="${esc(affiliate)}" rel="sponsored noopener noreferrer" target="_blank">${esc(t.referral_link)}</a>
+      <span class="tag">${esc(t.referral_tag)}</span></p>
+    <p class="hint">${esc(t.referral_note)}</p>
+  </section>`
+    : '';
 
   const html = `<!doctype html>
 <html lang="${lang}">
@@ -1745,6 +1801,7 @@ async function page(request, env, ctx, url) {
   ${paypalCard}
   ${otherCard}
   ${nothing}
+  ${referralCard}
 
   <footer>
     <p>${esc(t.privacy)}</p>
@@ -1840,6 +1897,8 @@ input:focus,select:focus{border-color:var(--accent); outline:none}
 .coin-text{min-width:0; flex:1}
 .coin-text .label{margin:0 0 2px}
 .qr{width:132px; height:132px; flex:none; border-radius:6px; border:1px solid var(--line)}
+.card.quiet{background:transparent; font-size:14.5px}
+.tag{display:inline-block; font-size:12px; line-height:1.4; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:1px 9px; margin-left:4px; white-space:nowrap}
 footer{font-size:13px; color:var(--muted); text-align:center; margin-top:20px}
 footer p{margin:0 0 6px}
 :focus-visible{outline:2px solid var(--accent); outline-offset:2px}
