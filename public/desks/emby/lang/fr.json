@@ -415,7 +415,9 @@
     "one": "{n} réglage reste tel quel.",
     "other": "{n} réglages restent tels quels."
   },
-  "import.defaults": "Nouveaux dans ma version — ils reçoivent mes valeurs par défaut",
+  "import.defaults": "Absents de l'ancienne installation — nouveaux dans ma version",
+  "import.kept": "reste tel quel : {value}",
+  "import.jack_default": "ma valeur par défaut : {value}",
   "import.jack": "Ceux-là, je les règle moi-même",
   "import.jack_sub": "Ils appartiennent au bureau ou n'étaient pas valides ici (maintenant → après).",
   "import.empty": "(vide)",

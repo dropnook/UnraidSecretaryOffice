@@ -415,7 +415,9 @@
     "one": "{n} setting stays as it is.",
     "other": "{n} settings stay as they are."
   },
-  "import.defaults": "New in my version — they get my defaults",
+  "import.defaults": "Not in the old install — new in my version",
+  "import.kept": "stays as it is: {value}",
+  "import.jack_default": "my default: {value}",
   "import.jack": "I set these myself",
   "import.jack_sub": "They belong to the office or weren't valid here (now → afterwards).",
   "import.empty": "(empty)",

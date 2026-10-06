@@ -388,7 +388,7 @@ function testEmbyImport(): void
     @mkdir("$jack/gather", 0700, true);
     $mine = ['cache_path' => $pool, 'instances' => [['servername' => 'Emby', 'url' => 'http://192.168.7.10:8096', 'api_key' => $jackKey,
              'path_mappings' => ['/media/Filme' => '/mnt/user/Filme']]], 'min_free_percent' => 20, 'library_types' => ['Filme' => 'movies', 'Musik' => 'music'],
-             'cleanup_tool' => 'rsync'];
+             'cleanup_tool' => 'rsync', 'max_resume_movies' => 1];
     file_put_contents("$jack/embycache/embycache_settings.json", json_encode($mine, JSON_UNESCAPED_SLASHES));
     file_put_contents("$jack/embycache/embycache_exclude.txt", "$pool/Filme/Alien (1979)/Alien.mkv\n$pool/Filme/Jack Own/j.mkv\n");
     file_put_contents("$jack/embycache/embycache_origin.json", json_encode(["$pool/Filme/Jack Own/j.mkv" => 'disk3', "$pool/Filme/Alien (1979)/Alien.mkv" => 'disk4'], JSON_UNESCAPED_SLASHES));
@@ -405,9 +405,10 @@ function testEmbyImport(): void
     check('import preview: ready, with a token', $p['ready'] === true && strlen($p['token']) === 40);
     same('import preview: the key found (no value)', 'found', $e['instances'][0]['key']);
     same('import preview: keys this version doesn\'t know — names only', ['old_option', 'emby_token'], $e['dropped']);
-    $defaults = array_column($e['defaults'], 'key');
-    sort($defaults);
-    same('import preview: keys 7.3.0 added get its defaults', ['max_resume_movies', 'max_resume_series', 'return_to_origin'], $defaults);
+    // keys 7.2.1 didn't have: Jack's current value stays; without one, Jack's own default (max_resume_*: the old max_resume_items)
+    same('import preview: keys the old install lacks — Jack\'s value stays, else his default',
+        [['key' => 'max_resume_movies', 'kept' => true, 'value' => 1], ['key' => 'max_resume_series', 'kept' => false, 'value' => 8],
+         ['key' => 'return_to_origin', 'kept' => false, 'value' => true]], $e['defaults']);
     $jackSet = array_column($e['jack'], 'new', 'key');
     same('import preview: Jack\'s values for what runs or isn\'t valid', ['mover_bin' => '', 'rsync_args' => ['-aAX', '--numeric-ids']],
         array_intersect_key($jackSet, ['mover_bin' => 1, 'rsync_args' => 1]));
@@ -456,8 +457,9 @@ function testEmbyImport(): void
     same('import done: copies are root\'s only', '600', substr(sprintf('%o', fileperms($done['backups'][0])), -3));
     $s = json_decode((string) file_get_contents("$jack/embycache/embycache_settings.json"), true);
     same('import done: the old key stays on the server', $key, $s['instances'][0]['api_key'] ?? null);
-    same('import done: settings as shown', [$pool, 15, '', ['-aAX', '--numeric-ids'], true, '/mnt/user0', '2.5T', []],
-        [$s['cache_path'], $s['min_free_percent'], $s['mover_bin'], $s['rsync_args'], $s['return_to_origin'], $s['array_path'], $s['cache_budget'], $s['path_mappings']]);
+    same('import done: settings as shown', [$pool, 15, '', ['-aAX', '--numeric-ids'], true, '/mnt/user0', '2.5T', [], 1, 8, 'mover'],
+        [$s['cache_path'], $s['min_free_percent'], $s['mover_bin'], $s['rsync_args'], $s['return_to_origin'], $s['array_path'], $s['cache_budget'], $s['path_mappings'],
+         $s['max_resume_movies'], $s['max_resume_series'], $s['cleanup_tool']]);
     check('import done: unknown keys gone', !isset($s['old_option']) && !isset($s['emby_token']));
     same('import done: people with their budget', ['u1' => ['budget' => '300G'], 'u2' => [], 'u3' => []], $s['valid_users']);
     same('import done: library types kept where the name matches', ['Filme' => 'movies'], $s['library_types']);
@@ -471,6 +473,28 @@ function testEmbyImport(): void
     check('import done: the gather\'s ini is Jack\'s', str_contains($ini, "BASE_DIRS=('/mnt/user/Filme' '/mnt/user/Serien')\n") && str_contains($ini, "DRYRUN=true\n")
         && str_contains($ini, "MIN_FREE_GB=300\n") && str_contains($ini, "EXCLUDE_FILE='$jack/embycache/embycache_exclude.txt'\n"), $ini);
     same('import done: nothing left in the trial folder', [], glob("$tmp/run/*") ?: []);
+
+    // an older install without cleanup_tool / mover_debug_level: Jack's choices stay; a Jack without settings gets his own
+    // defaults (rsync back, as his setup page), never EmbyCache's original mover default
+    $older = $settings;
+    unset($older['cleanup_tool'], $older['mover_debug_level']);
+    file_put_contents("$dir/embycache_settings.json", json_encode($older, JSON_UNESCAPED_SLASHES));
+    $withJack = ['emby_dir' => "$tmp/jack2/embycache", 'gather_dir' => "$tmp/jack2/gather"] + $ctx;
+    @mkdir("$tmp/jack2/embycache", 0700, true);
+    file_put_contents("$tmp/jack2/embycache/embycache_settings.json", json_encode(['cache_path' => $pool, 'cleanup_tool' => 'rsync', 'mover_debug_level' => 1,
+        'max_resume_series' => 4, 'max_resume_movies' => null, 'mover_bin' => '/mnt/user/x.sh', 'array_path' => '/mnt/elsewhere'], JSON_UNESCAPED_SLASHES));
+    $d = array_column(embyImportPlan($old, '', $withJack)['preview']['embycache']['defaults'], null, 'key');
+    same('import, older install: Jack\'s own choices stay', [['cleanup_tool', true, 'rsync'], ['mover_debug_level', true, 1], ['max_resume_series', true, 4]],
+        array_map(fn ($k) => [$k, $d[$k]['kept'] ?? null, $d[$k]['value'] ?? null], ['cleanup_tool', 'mover_debug_level', 'max_resume_series']));
+    same('import, older install: a null of Jack\'s is no value — his default', [false, 8], [$d['max_resume_movies']['kept'] ?? null, $d['max_resume_movies']['value'] ?? null]);
+    $d = array_column(embyImportPlan($old, '', ['emby_dir' => "$tmp/nojack/embycache", 'gather_dir' => "$tmp/nojack/gather"] + $ctx)['preview']['embycache']['defaults'], null, 'key');
+    same('import, older install, Jack without settings: his defaults, not the original\'s mover', [['cleanup_tool', false, 'rsync'], ['mover_debug_level', false, 0]],
+        array_map(fn ($k) => [$k, $d[$k]['kept'] ?? null, $d[$k]['value'] ?? null], ['cleanup_tool', 'mover_debug_level']));
+    unset($older['mover_bin'], $older['array_path']);
+    file_put_contents("$dir/embycache_settings.json", json_encode($older, JSON_UNESCAPED_SLASHES));
+    $d = array_column(embyImportPlan($old, '', $withJack)['preview']['embycache']['defaults'], null, 'key');
+    same('import, older install: a strange mover_bin or Unraid path of Jack\'s never stays', [[false, ''], [false, '/mnt/user0']],
+        [[$d['mover_bin']['kept'] ?? null, $d['mover_bin']['value'] ?? null], [$d['array_path']['kept'] ?? null, $d['array_path']['value'] ?? null]]);
 
     // what stops it: a pool this server lacks, no key (and none of Jack's for that address), EmbyCache saying no
     $bad = $settings;

@@ -941,7 +941,7 @@ function importLists(box, part, sameText) {
   if (sameText) box.appendChild(el('p', 'role', sameText));
   if (part.defaults && part.defaults.length) {
     box.append(importHead(T('import.defaults')), importList(part.defaults.map((d) => [d.key,
-      d.old !== null && importValue(d.old) !== importValue(d.value) ? T('import.old_new', { old: importValue(d.old), new: importValue(d.value) }) : importValue(d.value)])));
+      T(d.kept ? 'import.kept' : 'import.jack_default', { value: importValue(d.value) })])));
   }
   if (part.jack.length) {
     box.append(importHead(T('import.jack')), el('p', 'role', T('import.jack_sub')),

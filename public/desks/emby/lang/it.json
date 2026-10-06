@@ -415,7 +415,9 @@
     "one": "{n} impostazione resta com'è.",
     "other": "{n} impostazioni restano come sono."
   },
-  "import.defaults": "Nuove nella mia versione — ricevono i miei valori predefiniti",
+  "import.defaults": "Non nella vecchia installazione — nuove nella mia versione",
+  "import.kept": "resta com'è: {value}",
+  "import.jack_default": "il mio valore predefinito: {value}",
   "import.jack": "Queste le imposto io",
   "import.jack_sub": "Appartengono all'ufficio o qui non erano valide (ora → dopo).",
   "import.empty": "(vuoto)",

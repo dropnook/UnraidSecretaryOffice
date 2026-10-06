@@ -415,7 +415,9 @@
     "one": "{n} Einstellung bleibt, wie sie ist.",
     "other": "{n} Einstellungen bleiben, wie sie sind."
   },
-  "import.defaults": "Neu in meiner Version — sie bekommen meine Standardwerte",
+  "import.defaults": "Nicht in der alten Installation — neu in meiner Version",
+  "import.kept": "bleibt, wie es ist: {value}",
+  "import.jack_default": "mein Standardwert: {value}",
   "import.jack": "Die setze ich selbst",
   "import.jack_sub": "Sie gehören dem Office oder waren hier nicht gültig (jetzt → danach).",
   "import.empty": "(leer)",

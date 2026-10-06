@@ -772,6 +772,12 @@ const EMBY_RSYNC_LONG   = ['--numeric-ids', '--sparse', '--hard-links', '--acls'
                            '--checksum', '--inplace', '--partial', '--progress', '--human-readable', '--times', '--perms', '--owner', '--group',
                            '--archive', '--verbose', '--quiet'];
 const EMBY_IMPORT_PCT   = ['min_free_percent', 'movie_share_percent'];
+// a key the old install doesn't have and Jack has no value for: what Jack's setup page would choose
+// (desk.js initForm()/saveSetup()), where it differs from EmbyCache's DEFAULTS; max_resume_movies/_series: max_resume_items
+const EMBY_JACK_DEFAULTS = ['cleanup_tool' => 'rsync', 'fill_tool' => 'rsync', 'array_source' => 'user0', 'return_to_origin' => true,
+                            'movie_mode' => 'folder', 'create_share_root' => false, 'mover_debug_level' => 0, 'number_episodes' => 3,
+                            'movie_share_percent' => 50, 'max_episodes_per_series' => 0, 'max_favorite_series' => 10, 'use_next_up' => true,
+                            'min_free_percent' => 20];
 const GATHER_IMPORT_KEYS = ['BASE_DIRS', 'MIN_FREE_GB', 'DUP_CHECK'];                     // what Jack's gather settings take over
 const GATHER_IMPORT_JACK = ['LOGFILE', 'ARRAY_PATTERN', 'CACHE_PATTERN', 'EXCLUDE_FILE', 'DRYRUN', 'CACHE_ONLY_TARGET', 'MOVE_CACHE'];  // Jack's own
 
@@ -1119,8 +1125,10 @@ function embyImportPathOk(string $path, string $cache, array $shares): bool
 
 /**
  * The old settings mapped onto EmbyCache's keys of the version that ships with the office: keys
- * it doesn't know are left out, keys it added get its defaults, values that aren't valid here or
- * belong to the office are Jack's. Fills the preview's lists; returns the settings to write.
+ * it doesn't know are left out; keys the old install doesn't have keep Jack's current value, or —
+ * when he has none — Jack's own default (EMBY_JACK_DEFAULTS, as his setup page would choose);
+ * values that aren't valid here or belong to the office are Jack's. Fills the preview's lists;
+ * returns the settings to write.
  */
 function embyImportSettings(array $old, array $ctx, ?array $current, array &$pv, array &$secrets): array
 {
@@ -1145,8 +1153,10 @@ function embyImportSettings(array $old, array $ctx, ?array $current, array &$pv,
             continue;
         }
         if (!array_key_exists($k, $old)) {
-            $cfg[$k] = $def;
-            $pv['defaults'][] = ['key' => $k, 'old' => $current !== null && array_key_exists($k, $current) ? embyImportShow($current[$k]) : null, 'value' => $def];
+            $mine = $current[$k] ?? null;
+            $kept = $mine !== null && !isset(EMBY_IMPORT_FIXED[$k]) && embyImportValueOk($k, $mine, $def);
+            $cfg[$k] = $kept ? $mine : embyImportJackDefault($k, $def, $old);
+            $pv['defaults'][] = ['key' => $k, 'kept' => $kept, 'value' => embyImportShow($cfg[$k])];
             continue;
         }
         $v = $old[$k];
@@ -1257,6 +1267,19 @@ function embyImportSettings(array $old, array $ctx, ?array $current, array &$pv,
         }
     }
     return $cfg;
+}
+
+/** Jack's own default for a key: what his setup page would choose, else EmbyCache's DEFAULTS */
+function embyImportJackDefault(string $key, mixed $def, array $old): mixed
+{
+    if (isset(EMBY_IMPORT_FIXED[$key])) {
+        return EMBY_IMPORT_FIXED[$key];
+    }
+    if (in_array($key, ['max_resume_movies', 'max_resume_series'], true)) {
+        $items = $old['max_resume_items'] ?? null;
+        return is_int($items) && $items >= 0 && $items <= 100000 ? $items : 10;
+    }
+    return array_key_exists($key, EMBY_JACK_DEFAULTS) ? EMBY_JACK_DEFAULTS[$key] : $def;
 }
 
 /** A value as the preview shows it (strings capped; lists and objects as JSON) */
