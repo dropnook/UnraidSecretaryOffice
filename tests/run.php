@@ -8,7 +8,7 @@ declare(strict_types=1);
  *
  * They change nothing on the server: what writes files works on copies in a
  * temporary folder. Three parts:
- *   logic    the tricky functions (cron, snapshot retention, Emby detection,
+ *   logic    the tricky functions (cron, snapshot retention and names, Emby detection,
  *            the gather's settings, User Scripts schedules, the plugin's cron file,
  *            the menu bar's label, reports to Unraid's notifications, the team
  *            lead's «I know, thanks» and the Dashboard tile,
@@ -89,7 +89,7 @@ function testRetention(): void
     $plan = ['id' => 'hourly', 'keep' => 24, 'max_days' => 0, 'recursive' => true];
     $doomed = snapPlanDoomed($plan, ['zfs:master/appdata'], $all, $now);
     same('retention keep 24 recursive', 12, count($doomed));
-    $foreign = array_filter($doomed, fn ($id) => !preg_match('/@auto-hourly-\d{8}-\d{4}$/', $id) || str_contains($id, 'master/other'));
+    $foreign = array_filter($doomed, fn ($id) => !preg_match('/@uso-plan-hourly-\d{8}-\d{4}$/', $id) || str_contains($id, 'master/other'));
     same('retention never touches other snapshots', [], array_values($foreign));
     $plan['recursive'] = false;
     same('retention keep 24 not recursive', 6, count(snapPlanDoomed($plan, ['zfs:master/appdata'], $all, $now)));
@@ -103,6 +103,131 @@ function testRetention(): void
     check('retention keeps the newest', !in_array('zfs:master/appdata@' . snapPlanName('hourly', $now), $one, true));
     check('plan name matches its pattern', (bool) preg_match(snapPlanPattern('hourly'), snapPlanName('hourly', $now)));
     check('pattern ignores a similar plan', !preg_match(snapPlanPattern('hourly'), 'auto-hourly2-20261001-0100'));
+    check('pattern ignores a similar plan (new name)', !preg_match(snapPlanPattern('hourly'), 'uso-plan-hourly2-20261001-0100'));
+}
+
+/**
+ * Names (engine 2.20): what the office makes is named uso-…; old names stay recognised and age out by
+ * their normal retention. Retention is destructive, so every pattern is pinned down exactly — in the
+ * office (backupSnapPrefixes, backupIsEngineSnap, Ms. Snapshotini's plans) and in the engine
+ * (lib/common.sh section 10), and both must agree.
+ */
+function testSnapshotNames(): void
+{
+    // the office: which prefixes are the engine's
+    $both = ['uso-backup-', 'unraidbackup-'];
+    same('names: no prefix set - the default and the old default', $both, backupSnapPrefixes(null));
+    same('names: the old default counts as the default', $both, backupSnapPrefixes('unraidbackup-'));
+    same('names: the new default', $both, backupSnapPrefixes('uso-backup-'));
+    same('names: a prefix of the user\'s own stays alone', ['nightly-'], backupSnapPrefixes('nightly-'));
+
+    // exactly <prefix>YYYYMMDD-HHMM - never anything looser
+    $cases = [
+        'uso-backup-20261006-0100'        => [true, false, false],     // [default prefixes, 'nightly-', as a plan "backup"]
+        'unraidbackup-20261005-1557'      => [true, false, false],
+        'nightly-20261006-0100'           => [false, true, false],
+        'uso-backup-20261006-0100-x'      => [false, false, false],
+        'unraidbackup-foo'                => [false, false, false],
+        'unraidbackup-20261006-0100x'     => [false, false, false],
+        'unraidbackup-2026100-0100'       => [false, false, false],
+        'xuso-backup-20261006-0100'       => [false, false, false],
+        "uso-backup-20261006-0100\n"      => [false, false, false],
+        'UNRAIDBACKUP-20261006-0100'      => [false, false, false],
+        'uso-plan-backup-20261006-0100'   => [false, false, true],
+        'auto-backup-20261006-0100'       => [false, false, true],
+        'uso-plan-backup-20261006-0100-x' => [false, false, false],
+        '20261006-0100'                   => [false, false, false],
+    ];
+    foreach ($cases as $name => [$def, $own, $plan]) {
+        same('names: engine\'s (defaults): ' . json_encode($name), $def, backupIsEngineSnap($name, $both));
+        same('names: engine\'s (own prefix): ' . json_encode($name), $own, backupIsEngineSnap($name, ['nightly-']));
+        same('names: plan "backup": ' . json_encode($name), $plan, (bool) preg_match(snapPlanPattern('backup'), $name));
+    }
+    same('names: btrfs folders are the engine\'s', [true, false], [backupIsEngineSnap('20261006-0100', $both, 'btrfs'), backupIsEngineSnap('20261006-0100', $both)]);
+    same('names: a plan "backup" makes uso-plan-backup-…', 'uso-plan-backup-20261006-0100', snapPlanName('backup', strtotime('2026-10-06 01:00')));
+    check('names: a plan\'s name is never the engine\'s', !backupIsEngineSnap(snapPlanName('backup', time()), $both));
+
+    // Ms. Snapshotini's retention: old and new names are one series; the engine's names are refused
+    $now = strtotime('2026-10-06 12:00:00');
+    $mk = fn (string $ds, string $name) => ['id' => "zfs:$ds@$name", 'fs' => 'zfs', 'ds' => $ds, 'vol' => "zfs:$ds", 'name' => $name, 'docker' => false];
+    $all = [$mk('mother/drop', 'auto-backup-20261006-0700'), $mk('mother/drop', 'auto-backup-20261006-0800'), $mk('mother/drop', 'auto-backup-20261006-0900'),
+            $mk('mother/drop', 'uso-plan-backup-20261006-1000'), $mk('mother/drop', 'uso-plan-backup-20261006-1100'), $mk('mother/drop', 'uso-plan-backup-20261006-1200'),
+            $mk('mother/drop', 'uso-backup-20261006-0100'), $mk('mother/drop', 'unraidbackup-20261005-2142'), $mk('mother/drop', 'uso-plan-backup-20261006-0100-x'),
+            $mk('mother/drop', 'uso-plan-backups-20261006-0100')];
+    $plan = ['id' => 'backup', 'keep' => 3, 'max_days' => 0, 'recursive' => false];
+    same('plan retention: old auto- and new uso-plan- names are one series, the oldest go',
+        ['zfs:mother/drop@auto-backup-20261006-0900', 'zfs:mother/drop@auto-backup-20261006-0800', 'zfs:mother/drop@auto-backup-20261006-0700'],
+        snapPlanDoomed($plan, ['zfs:mother/drop'], $all, $now, $both));
+    $plan['keep'] = 1;
+    $doomed = snapPlanDoomed($plan, ['zfs:mother/drop'], $all, $now, $both);
+    same('plan retention: keep 1 - only the plan\'s, never the engine\'s or look-alikes', 5, count($doomed));
+    check('plan retention: the newest stays', !in_array('zfs:mother/drop@uso-plan-backup-20261006-1200', $doomed, true));
+    same('plan retention: what matches the engine\'s (own) prefix is refused, even when it looks like a plan\'s - the rest is the series',
+        ['zfs:mother/drop@auto-backup-20261006-0800', 'zfs:mother/drop@auto-backup-20261006-0700'],
+        snapPlanDoomed($plan, ['zfs:mother/drop'], $all, $now, ['uso-plan-backup-']));
+    same('plan retention: the same for an old auto- look-alike', ['zfs:mother/drop@uso-plan-backup-20261006-1100', 'zfs:mother/drop@uso-plan-backup-20261006-1000'],
+        snapPlanDoomed($plan, ['zfs:mother/drop'], $all, $now, ['auto-backup-']));
+    $engineOnly = [$mk('mother/drop', 'uso-backup-20261006-0100'), $mk('mother/drop', 'unraidbackup-20261005-2142'), $mk('mother/drop', 'unraidbackup-20261005-1637')];
+    same('plan retention: a plan "backup" never takes the engine\'s snapshots', [], snapPlanDoomed($plan, ['zfs:mother/drop'], $engineOnly, $now, $both));
+
+    // the engine (bash): the same rule
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $tmp = sys_get_temp_dir() . '/office-tests-names-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    $sh = fn (string $script) => trim((string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/data; source $lib >/dev/null 2>&1; $script") . ' 2>&1'));
+    $resolve = fn (string $p) => $sh("snap_prefix_resolve " . escapeshellarg($p) . '; printf "%s|%s" "$SNAP_PREFIX" "${SNAP_PREFIXES[*]}"');
+    same('engine names: no prefix set', 'uso-backup-|uso-backup- unraidbackup-', $resolve(''));
+    same('engine names: the old default counts as the default', 'uso-backup-|uso-backup- unraidbackup-', $resolve('unraidbackup-'));
+    same('engine names: the new default', 'uso-backup-|uso-backup- unraidbackup-', $resolve('uso-backup-'));
+    same('engine names: a prefix of the user\'s own stays alone', 'nightly-|nightly-', $resolve('nightly-'));
+    foreach ([['snap_prefix = unraidbackup-', 'uso-backup-|unraidbackup-'], ['snap_prefix = uso-backup-', 'uso-backup-|uso-backup-'],
+              ['snap_prefix = nightly-', 'nightly-|nightly-'], ['', 'uso-backup-|']] as $i => [$line, $want]) {
+        file_put_contents("$tmp/s$i.ini", "[general]\n$line\n");
+        same("engine names: settings.ini '$line' - the name and what it says", $want, $sh("cfg_load $tmp/s$i.ini; apply_settings; printf '%s|%s' \"\$SNAP_PREFIX\" \"\$SNAP_PREFIX_SET\""));
+    }
+
+    // snap_filter and snap_is_ours against the office's backupIsEngineSnap, line by line
+    $lines = ['pool/a@uso-backup-20261006-0100', 'pool/a@unraidbackup-20261005-1557', 'pool/a@uso-backup-20261006-0100-x', 'pool/a@unraidbackup-foo',
+              'pool/a@uso-plan-backup-20261006-0100', 'pool/a@auto-backup-20261006-0100', 'pool/a@xuso-backup-20261006-0100',
+              'uso-backup-20261006-0100', 'pool/a', '@uso-backup-20261006-0100', 'pool/a@uso-backup-20261006-01000', 'pool/a@UNRAIDBACKUP-20261006-0100',
+              'pool/a@nightly-20261006-0100', 'pool/a@unraidbackup-20261006-0100 ', 'pool/a/b@uso-backup-20261006-0100'];
+    file_put_contents("$tmp/list", implode("\n", $lines) . "\n");
+    foreach (['', 'nightly-'] as $p) {
+        $prefixes = backupSnapPrefixes($p === '' ? null : $p);
+        $want = array_values(array_filter($lines, fn ($l) => preg_match('#^[^@\s]+@#', $l) && backupIsEngineSnap(substr($l, strpos($l, '@') + 1), $prefixes)));
+        same("engine names: snap_filter with " . ($p ?: 'the defaults') . ' - as the office sees it', implode("\n", $want),
+            $sh('snap_prefix_resolve ' . escapeshellarg($p) . "; snap_filter <$tmp/list"));
+    }
+    same('engine names: snap_filter (defaults)', "pool/a@uso-backup-20261006-0100\npool/a@unraidbackup-20261005-1557\npool/a/b@uso-backup-20261006-0100",
+        $sh("snap_prefix_resolve ''; snap_filter <$tmp/list"));
+    same('engine names: snap_filter (own prefix)', 'pool/a@nightly-20261006-0100', $sh("snap_prefix_resolve nightly-; snap_filter <$tmp/list"));
+
+    // the engine's ZFS retention: oldest first in, what goes out - only its own, old and new names one series
+    $series = ['pool/a@unraidbackup-20261001-0100', 'pool/a@auto-x-20261001-0200', 'pool/a@unraidbackup-20261002-0100', 'pool/a@unraidbackup-20261002-0100-keep',
+               'pool/a@uso-backup-20261003-0100', 'pool/a@manual-20261003-0900', 'pool/a@uso-backup-20261004-0100'];
+    file_put_contents("$tmp/series", implode("\n", $series) . "\n");
+    $prune = fn (string $prefix, string $ret) => str_replace("\n", ',', $sh('snap_prefix_resolve ' . escapeshellarg($prefix) . '; zfs_prune_select ' . escapeshellarg($ret) . " <$tmp/series"));
+    same('engine retention: keep 2 - the old names go first, nothing else', 'pool/a@unraidbackup-20261001-0100,pool/a@unraidbackup-20261002-0100', $prune('', '2 0 0'));
+    same('engine retention: the old default in settings.ini - the same', 'pool/a@unraidbackup-20261001-0100,pool/a@unraidbackup-20261002-0100', $prune('unraidbackup-', '2 0 0'));
+    same('engine retention: keep 0 - all of its own, still nothing else',
+        'pool/a@unraidbackup-20261001-0100,pool/a@unraidbackup-20261002-0100,pool/a@uso-backup-20261003-0100,pool/a@uso-backup-20261004-0100', $prune('', '0 0 0'));
+    same('engine retention: 7 4 6 keeps them all', '', $prune('', '7 4 6'));
+    same('engine retention: one per month keeps the newest of the month', 'pool/a@unraidbackup-20261001-0100,pool/a@unraidbackup-20261002-0100,pool/a@uso-backup-20261003-0100',
+        $prune('', '0 0 1'));
+    same('engine retention: an own prefix never touches the old default\'s', '', $prune('nightly-', '0 0 0'));
+    same('engine retention: a broken retention lets nothing go', '', $prune('', '7 x 6'));
+    same('engine retention: an empty retention lets nothing go', '', $prune('', ''));
+
+    // settings.ini: which prefixes will do
+    foreach (['uso-backup-' => 0, 'unraidbackup-' => 0, 'nightly_1-' => 0, 'a-b-c-' => 0, 'uso-plan-x-' => 1, 'uso-backup' => 1, 'Uso-' => 1, 'a--' => 1, '-a-' => 1, 'a.b-' => 1] as $p => $errors) {
+        file_put_contents("$tmp/v.ini", "[general]\nsnap_prefix = $p\n");
+        same("engine names: settings.ini snap_prefix = $p", (string) $errors, $sh("cfg_load $tmp/v.ini; cfg_validate >/dev/null; echo \${#CFG_ERRORS[@]}"));
+    }
+    foreach (['uso-backup-' => 0, 'nightly-' => 0, 'auto-' => 1, 'auto-daily-' => 1, 'uso-plan-x-' => 1, 'x' => 1] as $p => $bad) {
+        same("engine names: a new prefix $p", (string) $bad, $sh('snap_prefix_ok ' . escapeshellarg($p) . ' && echo 0 || echo 1'));
+    }
+    same('engine names: Kopia\'s description', 'uso-backup', $sh('printf %s "$UB_KOPIA_DESC"'));
+    exec('rm -rf ' . escapeshellarg($tmp));
 }
 
 function testEmby(): void
@@ -1574,7 +1699,7 @@ function testIconSquare(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify', 'testCaretakerAcks',
+$parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testAdvisor', 'testLogsTour'],
           'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean'],
           'strings' => ['testStrings']];
