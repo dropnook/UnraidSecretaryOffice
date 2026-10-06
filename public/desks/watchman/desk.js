@@ -3,8 +3,9 @@
    the watch book (newest first; a row unfolds to its details; «I know,
    thanks» per entry and «Note all») and what he
    keeps an eye on (what is normal, summarised; also what starts on its own:
-   crontabs, the plugins' .cron files, User Scripts, at, notification agents).
-   His rounds run on the server
+   crontabs, the plugins' .cron files, User Scripts, at, notification agents;
+   the data flow: who pulls how much, containers, what is written into ZFS
+   shares, SMB's users and machines). His rounds run on the server
    every five minutes, read only: agent/desks/watchman.php. Everything from his
    state goes into the page as text, never as HTML. */
 (() => {
@@ -166,6 +167,8 @@ function render() {
     [T('help.flash'), T('help.flash_text')],
     [T('help.shares'), T('help.shares_text')],
     [T('help.sched'), T('help.sched_text')],
+    [T('help.flow'), T('help.flow_text', flowLimits())],
+    [T('help.flow_not'), T('help.flow_not_text')],
     [T('help.notify'), T('help.notify_text')],
     [T('help.safe'), T('help.safe_text')],
   ]));
@@ -300,7 +303,7 @@ function entryRow(e) {
   const r = el('div', 'row nocheck wm-entry' + (watch ? ' wm-watch' : ' unfolds') + (e.open ? ' wm-open' : ''));
   r.dataset.id = e.id;
   const main = el('div', 'row-main');
-  const name = el('div', 'row-name text', T('entry.' + e.kind, { ...(e.t || {}), n: e.count }));
+  const name = el('div', 'row-name text', T('entry.' + e.kind, entryParams(e)));
   const meta = el('div', 'row-meta');
   if (watch) {
     meta.appendChild(chip(T('state.watch'), 'accent', T('state.watch_title')));
@@ -339,6 +342,37 @@ function entryRow(e) {
   if (unfolded.has(e.id)) set(true);
   return r;
 }
+
+/** An entry's words; the data flow's sizes, what is normal and the hours in this browser's language */
+function entryParams(e) {
+  const t = { ...(e.t || {}), n: e.count };
+  const p = e.p || {};
+  if (e.group !== 'flow') return t;
+  if (p.bytes !== undefined) t.size = fmt.size(p.bytes);
+  if (e.kind.startsWith('flow_')) t.usual = usualText(e.kind, p);
+  if (Array.isArray(p.hours)) t.hours = p.hours.map(hourName).join(', ');
+  return t;
+}
+
+/** "usually at most 1 GB per hour at this time" — or why it was told while still learning */
+function usualText(kind, p) {
+  if (p.learning) return kind === 'flow_written' ? T('flow.learning_share', { pct: p.pct || 0 }) : T('flow.learning', { size: fmt.size(p.limit || 0) });
+  return p.usual > 0 ? T('flow.usual', { size: fmt.size(p.usual) }) : T('flow.usual_none');
+}
+
+/** An hour of the week (Monday 0:00 = 0) as "Mon 03:00" in this browser's language */
+function hourName(h) {
+  const d = new Date(2024, 0, 1 + Math.floor(h / 24), h % 24);      // 1 January 2024 was a Monday
+  let day = '';
+  try { day = new Intl.DateTimeFormat(Office.locale, { weekday: 'short' }).format(d); } catch (err) { day = String(Math.floor(h / 24) + 1); }
+  return `${day} ${String(h % 24).padStart(2, '0')}:00`;
+}
+
+const flowLimits = () => {
+  const l = (state && state.flow && state.flow.limits) || {};
+  return { keep: l.keep || 14, factor: l.factor || 4, min: fmt.size(l.min || 2 * 1024 ** 3), learn: (state && state.flow && state.flow.learn) || 7,
+    new: fmt.size(l.new || 50 * 1024 ** 3), part: l.part || 20 };
+};
 
 /** docker run flags as small code chips */
 function flags(tokens) {
@@ -415,6 +449,23 @@ function details(e) {
   } else if (e.group === 'share') {
     add(T('detail.share'), p.share);
     add(T('detail.access'), `${String(p.proto || '').toUpperCase()}: ${level(p.level === 'public' ? 2 : 1)}`);
+  } else if (e.group === 'flow') {
+    if (p.ip) add(T('detail.ip'), p.ip, true);
+    if (p.machine) add(T('detail.machine'), p.machine);
+    if (p.user) add(T('detail.user'), p.user);
+    if (Array.isArray(p.users) && p.users.length) add(T('detail.users'), p.users.join(', '));
+    if (p.service) add(T('detail.services'), (e.t && e.t.service) || p.service);
+    if (p.name) add(T('detail.name'), p.name);
+    if (p.image) add(T('detail.image'), p.image, true);
+    if (p.share) add(T('detail.share'), p.share, true);
+    if (p.bytes !== undefined) {
+      add(T(e.kind === 'flow_written' ? 'detail.written' : e.kind === 'flow_container' ? 'detail.sent' : 'detail.pulled'),
+        T('detail.in_minutes', { size: fmt.size(p.bytes), minutes: p.minutes || 1 }));
+      if (e.kind === 'flow_written' && p.pct) add(T('detail.part'), `${fmt.number(p.pct)} %`);
+      if (!p.learning) add(T('detail.usual'), usualText(e.kind, p));
+      if (p.peak) add(T('detail.peak'), fmt.size(p.peak));
+    }
+    if (Array.isArray(p.hours) && p.hours.length) add(T('detail.hours'), p.hours.map(hourName).join(', '));
   } else if (e.group === 'sched') {
     if (p.file) add(T('detail.cron_file'), '/boot/config/plugins/' + p.file + (p.new ? ` (${T('detail.file_new')})` : ''), true);
     if (p.path) add(T('detail.program'), p.path, true);
@@ -442,6 +493,7 @@ function details(e) {
   }
   box.appendChild(dl);
   const notes = [];
+  if (e.group === 'flow' && p.learning) notes.push(T('detail.learning'));
   if (p.office && e.kind.startsWith('cron_file')) notes.push(T('detail.office_cron'));
   if (e.open) notes.push(T('adopt.' + e.kind));
   if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline'].includes(e.by) ? e.by : 'page'), { when: fmt.date(e.noted) }));
@@ -533,6 +585,7 @@ function watchSection() {
     !sh ? T('watch.shares_wait') : sh.open.length ? T('watch.shares_sum', { open: sh.open.length, count: sh.count }) : T('watch.shares_none'),
     sh ? sh.open.map((x) => item(x.share, [x.smb ? `SMB: ${level(x.smb)}` : '', x.nfs ? `NFS: ${level(x.nfs)}` : ''])) : []));
   box.appendChild(schedGroup(w.sched));
+  flowGroups(state.flow).forEach((g) => box.appendChild(g));
   const label = () => {
     unfold.textContent = watchGroups.some((x) => !x.open()) ? T('unfold_all') : T('fold_all');
     unfold.hidden = !watchGroups.length;
@@ -562,6 +615,77 @@ function schedGroup(s) {
   const sum = T('watch.sched_sum', { lines: (s.crontab || []).length, files: (s.files || []).length,
     scripts: (s.scripts || []).length, agents: (s.agents || []).length });
   return group('sched', T('watch.sched'), sum, rows);
+}
+
+// ------------------------------------------------------------------ data flow
+/** "learning: 2 of 7 days" on a row — only when it is behind the rest (it came later); nothing once learned */
+const learningText = (days, f) => (days === null || days === undefined || (days === f.days && f.days < f.learn) ? ''
+  : T('watch.flow_learning', { days, learn: f.learn || 7 }));
+/** A quiet line in a group: what can't be looked at here, and why */
+const note = (text) => el('p', 'wm-note wm-flow-note', text);
+const total = (list, k) => (list || []).reduce((a, x) => a + (Number(x[k]) || 0), 0);
+const serviceName = (s) => ({ smb: 'SMB', nfs: 'NFS', ssh: 'SSH', web: 'WebGUI' }[s] || s);
+
+/** "usually at most 1 GB per hour now", or what «I know, thanks» made normal */
+function usualRow(x) {
+  if (x.learning !== null && x.learning !== undefined) return '';
+  const n = Math.max(x.usual || 0, x.ack || 0);
+  return n > 0 ? T('watch.flow_usual', { size: fmt.size(n) }) : T('watch.flow_usual_none');
+}
+
+/** «What I keep an eye on» of the data flow: who pulls, containers, written into shares, SMB's users and machines */
+function flowGroups(f) {
+  if (!f) return [group('flow_clients', T('watch.flow_clients'), T('watch.flow_wait'), [])];
+  const can = f.can || {};
+  const overall = f.days < f.learn ? T('watch.flow_learning', { days: f.days, learn: f.learn }) : T('watch.flow_learned');
+  const out = [];
+
+  // who pulls: per client and service
+  const clients = [];
+  if (can.ss === false) clients.push(note(T('watch.flow_no_ss')));
+  (f.clients || []).forEach((x) => clients.push(item(x.name ? `${x.ip} · ${x.name}` : x.ip,
+    [serviceName(x.service), T('watch.flow_day', { size: fmt.size(x.day) }), usualRow(x), learningText(x.learning, f),
+      x.ack ? T('watch.flow_noted', { size: fmt.size(x.ack) }) : '', T('watch.last_seen', { when: fmt.relative(x.last) })])));
+  out.push(group('flow_clients', T('watch.flow_clients'),
+    T('watch.flow_clients_sum', { learning: overall, n: (f.clients || []).length, size: fmt.size(total(f.clients, 'day')) }), clients));
+
+  // containers: the top senders
+  const cts = [];
+  if (can.docker === false) cts.push(note(T('watch.flow_no_docker')));
+  (f.containers || []).forEach((x) => cts.push(item(x.name, [T('watch.flow_day', { size: fmt.size(x.day) }),
+    x.office ? T('watch.flow_office', { size: fmt.size(x.office) }) : '',
+    x.media ? T('watch.flow_media') : x.kopia ? T('watch.flow_kopia') : usualRow(x), learningText(x.learning, f),
+    x.with && x.with.length ? T('watch.flow_with', { names: x.with.join(', ') }) : ''])));
+  if (can.host && can.host.length) cts.push(item(can.host.join(', '), [T('watch.flow_host')]));
+  if (f.idle) cts.push(note(T('watch.flow_idle', { n: f.idle })));
+  out.push(group('flow_containers', T('watch.flow_containers'),
+    can.docker === false ? T('watch.flow_no_docker') : T('watch.flow_containers_sum', { size: fmt.size(total(f.containers, 'day')) }), cts));
+
+  // written into ZFS shares
+  const zfs = can.zfs;
+  const shares = [];
+  (f.shares || []).forEach((x) => shares.push(item(x.share, [T('watch.flow_day', { size: fmt.size(x.day) }),
+    x.office ? T('watch.flow_office', { size: fmt.size(x.office) }) : '',
+    x.snapshots ? (x.snap ? T('watch.flow_written_now', { when: fmt.relative(x.snap), size: fmt.size(x.written) }) : '') : T('watch.flow_nosnap'),
+    usualRow(x), learningText(x.learning, f)])));
+  if (zfs && zfs.asleep && zfs.asleep.length) shares.push(item(zfs.asleep.join(', '), [T('watch.flow_asleep')]));
+  const noShares = !zfs ? T('watch.flow_no_zfs') : !(f.shares || []).length && !(zfs.asleep || []).length ? T('watch.flow_no_zfs_shares') : '';
+  if (noShares) shares.push(note(noShares));
+  out.push(group('flow_shares', T('watch.flow_shares'),
+    noShares || T('watch.flow_shares_sum', { n: (f.shares || []).length, size: fmt.size(total(f.shares, 'day')) }), shares));
+
+  // SMB: users and machines
+  const smb = f.smb || { users: [], clients: [] };
+  const rows = [];
+  const smbState = can.smb === 'off' ? T('watch.flow_smb_off') : can.smb === null ? T('watch.flow_smb_none') : '';
+  if (smbState) rows.push(note(smbState));
+  if (smb.users.length) rows.push(item(T('watch.flow_smb_users_row'), [smb.users.join(', ')], null, true));
+  smb.clients.forEach((x) => rows.push(item(x.name ? `${x.ip} · ${x.name}` : x.ip,
+    [T('watch.flow_smb_hours', { n: x.hours }), learningText(x.learning, f), T('watch.last_seen', { when: fmt.relative(x.last) })])));
+  out.push(group('flow_smb', T('watch.flow_smb'), smbState || T('watch.flow_smb_sum', {
+    users: T('watch.flow_smb_users', { n: smb.users.length }), machines: T('watch.flow_smb_machines', { n: smb.clients.length }) }), rows));
+  if (can.office) out[0].querySelector('.group-meta').textContent += ' · ' + T('watch.flow_office_now');
+  return out;
 }
 
 // ------------------------------------------------------------------ desk
