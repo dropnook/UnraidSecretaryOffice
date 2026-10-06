@@ -6579,7 +6579,8 @@ function testWatchmanHost(): void
     chmod("$tmp/notify-stand-in", 0755);
     $t1 = watchmanChainsDue($cb, $cst, $now + 21000, true, 'en');
     $t2 = watchmanChainsDue($cb, $cst, $now + 21300, true, 'en');
-    same('chains: told once when it forms, not again', [[['kind' => 'chain', 'n' => 3, 'sent' => true]], []], [$t1, $t2]);
+    same('chains: told once when it forms, not again', [[['kind' => 'chain', 'n' => 1, 'sent' => true]], []], [$t1, $t2]);
+    same('chains: the minutes between when the first and the last came (not when seen again)', [$now, $now + 1500], [$ch[0]['first'], $ch[0]['last']]);
     check('chains: the message names it', str_contains((string) @file_get_contents("$tmp/notified"), '3 entries that may belong together'));
     $off = ['notify' => false];
     same('chains: with the reports off never told, also not later', [[], []],

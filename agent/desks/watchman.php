@@ -5443,7 +5443,7 @@ function watchmanChains(array $book, int $now): array
             continue;
         }
         $out[] = ['key' => (string) $c[0]['id'], 'ids' => array_column($c, 'id'), 'groups' => $groups,
-                  'first' => (int) $c[0]['time'], 'last' => max(array_map(fn ($e) => (int) $e['last'], $c))];
+                  'first' => (int) $c[0]['time'], 'last' => (int) end($c)['time']];      // first seen: when each came
     }
     return $out;
 }
@@ -5470,7 +5470,7 @@ function watchmanChainsDue(array $book, array &$st, int $now, bool $send, ?strin
         $sent = $send && watchmanChainSend(array_map(fn ($id) => $byId[$id], $c['ids']), $c, $lang ?? officeNotifyLang());
         $keep[$c['key']] = count($c['ids']);
         $st['notified']['chain'] = $now;
-        $told[] = ['kind' => 'chain', 'n' => count($c['ids']), 'sent' => $sent];
+        $told[] = ['kind' => 'chain', 'n' => 1, 'sent' => $sent];       // one chain (of count($c['ids']) entries)
     }
     $st['chains'] = $keep;
     return $told;
