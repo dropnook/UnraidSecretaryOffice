@@ -1,6 +1,15 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.19 - 2026-10-05
+# unraid-backup - backup.sh                       Version 2.20 - 2026-10-06
+#   2.20 A run that finds the lock busy (another run still going - a first Kopia upload takes longer
+#        than a day -, the setup, a restore) is never lost silently: it leaves status.json and
+#        everything else alone and says so in state/skipped.json, in history.jsonl ("result":
+#        "skipped", reason skipped_busy_<holder>) and, for a real backup, in a notification (warning);
+#        exit code 75. Whoever holds the lock notes it in state/lock-holder.json (backup.sh, setup.sh,
+#        Mr. Restori's restores). VMs with prepare = shutdown wait for one shared deadline (timeout
+#        from their shutdown request), not one timeout after the other, and get the request again every
+#        60 s (Windows swallows the first one). An app folder that is empty in the snapshot is a note in
+#        the log, not a warning
 #   2.19 Apps and VMs at "local + Kopia" are Kopia sources of their own ([app|vm "<name>"] kopia = yes):
 #        their folders and their package, joined read-only under <mount_root>/.apps|.vms/<name>, with
 #        their own retention; the shares leave those parts out. Apps first, then the shares, then the
@@ -171,7 +180,7 @@ case "$UB_MODE" in
     unmount) LOG_FILE="$UB_LOGS/unmount.log" ;;
 esac
 [[ "$DRY" == "1" && "$UB_MODE" == "backup" ]] && LOG_FILE="$UB_LOGS/dryrun-$TS.log"
-ln -sfn "$(basename "$LOG_FILE")" "$UB_LOGS/latest.log" 2>/dev/null
+# latest.log points at this run's log only once it has the lock (Start, at the end)
 
 STOPPED=()                  # containers actually stopped
 declare -A NC_ON=()         # Nextclouds whose maintenance mode WE switched on
@@ -252,6 +261,8 @@ save_restore_state() {
 declare -A VM_HELD=()     # name -> frozen | paused | shutdown
 declare -A VM_HELD_AT=()  # name -> since when (s)
 declare -a VM_TODO=()     # running VMs whose disks this run snapshots, prepare != none
+declare -A VM_SHUT_ASKED=()  # name -> 1: the shutdown request went through (vm_hold_begin)
+declare -A VM_SHUT_DOWN=()   # name -> 1: shut off in time (vm_shutdown_wait)
 
 vm_plan() {
     local n p
@@ -277,30 +288,55 @@ vm_hold_begin() { # the shutdowns, early: they take a while
     for n in "${VM_TODO[@]}"; do
         [[ "$(vm_prepare "$n")" == "shutdown" ]] || continue
         VM_HELD[$n]="shutdown"; VM_HELD_AT[$n]="$(date +%s)"; save_restore_state
-        if timeout 30 virsh shutdown "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': shutting down"
-        else warn "VM '$n' did not take the shutdown request"; fi
+        if timeout 30 virsh shutdown "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': shutting down"; VM_SHUT_ASKED[$n]=1
+        else warn "VM '$n' did not take the shutdown request - it is paused instead"; fi
     done
 }
 
+# The shutdowns were all requested together (vm_hold_begin), so they share one deadline: each VM
+# its request time + VM_SHUTDOWN_TIMEOUT, all polled in one loop - at most one timeout in all,
+# not one after the other. A VM that didn't take the request isn't waited for. While waiting, a VM
+# still running gets the request again every VM_SHUTDOWN_RETRY seconds: Windows swallows the first
+# ACPI power button event while idle with the display off (harmless while a guest shuts down).
+vm_shutdown_wait() {
+    local n now
+    local -a pending=() left=()
+    local -A last=() told=()
+    for n in "${VM_TODO[@]}"; do
+        [[ "$(vm_prepare "$n")" == "shutdown" && -n "${VM_SHUT_ASKED[$n]:-}" ]] && { pending+=( "$n" ); last[$n]="${VM_HELD_AT[$n]:-$(date +%s)}"; }
+    done
+    while (( ${#pending[@]} > 0 )); do
+        left=()
+        for n in "${pending[@]}"; do
+            if [[ "$(timeout 10 virsh domstate "$n" 2>/dev/null | head -1)" == "shut off" ]]; then
+                VM_SHUT_DOWN[$n]=1; log "  VM '$n': shut down"; continue
+            fi
+            now="$(date +%s)"
+            (( now < ${VM_HELD_AT[$n]:-$now} + VM_SHUTDOWN_TIMEOUT )) || continue
+            left+=( "$n" )
+            if (( now - ${last[$n]} >= VM_SHUTDOWN_RETRY )); then
+                last[$n]="$now"
+                timeout 30 virsh shutdown "$n" >/dev/null 2>>"$LOG_FILE" \
+                    && [[ -z "${told[$n]:-}" ]] && { told[$n]=1; log "  VM '$n': still running - asked again to shut down (every ${VM_SHUTDOWN_RETRY} s)"; }
+            fi
+        done
+        pending=( "${left[@]}" )
+        (( ${#pending[@]} > 0 )) && sleep 2
+    done
+    return 0
+}
+
 vm_hold() { # right before the snapshots
-    local n p t
+    local n p
+    vm_shutdown_wait
     for n in "${VM_TODO[@]}"; do
         p="$(vm_prepare "$n")"
-        case "$p" in
-            shutdown)
-                for (( t = 0; t < VM_SHUTDOWN_TIMEOUT; t += 2 )); do
-                    [[ "$(timeout 10 virsh domstate "$n" 2>/dev/null | head -1)" == "shut off" ]] && break
-                    sleep 2
-                done
-                if [[ "$(timeout 10 virsh domstate "$n" 2>/dev/null | head -1)" == "shut off" ]]; then
-                    log "  VM '$n': shut down"
-                    continue
-                fi
-                # never forced off: pause it instead, the guest decides about its own shutdown
-                warn "VM '$n' did not shut down within ${VM_SHUTDOWN_TIMEOUT} s - paused instead"
-                p="pause"
-                ;;
-        esac
+        if [[ "$p" == "shutdown" ]]; then
+            [[ -n "${VM_SHUT_DOWN[$n]:-}" ]] && continue
+            # never forced off: pause it instead, the guest decides about its own shutdown
+            [[ -n "${VM_SHUT_ASKED[$n]:-}" ]] && warn "VM '$n' did not shut down within ${VM_SHUTDOWN_TIMEOUT} s of the request - paused instead"
+            p="pause"
+        fi
         if [[ "$p" == "freeze" ]]; then
             VM_HELD[$n]="frozen"; VM_HELD_AT[$n]="$(date +%s)"; save_restore_state
             if timeout 60 virsh domfsfreeze "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': file systems frozen"; continue; fi
@@ -646,11 +682,13 @@ share_mount_points() { # mount points that must exist for a share
 # shares' mounted snapshots - and of whatever is mounted below them (child datasets)
 declare -A ITEM_MPS=()        # "kind:name" -> its mount points (lines)
 declare -A ITEM_PARTS=()      # "kind:name" -> how many of its parts are in
-item_bind() { # item_bind <key> <source> <target>
+item_bind() { # item_bind <key> <source> <target>  - 0 bound, 1 not there or failed, 2 empty
     local key="$1" src="$2" dst="$3" mp
     [[ -d "$src" ]] || return 1
-    # never an empty folder (a child dataset left out shows as one): Kopia would keep it as a state and age out the good ones
-    if [[ -z "$(ls -A "$src" 2>/dev/null)" ]]; then warn "Kopia source of ${key/:/ }: $src is empty in this run's snapshot - left out"; return 1; fi
+    # never an empty folder (a child dataset left out shows as one): Kopia would keep it as a state and
+    # age out the good ones. An app whose folder is simply empty (a tunnel with a token) is no problem:
+    # a note in the log, not a warning
+    if [[ -z "$(ls -A "$src" 2>/dev/null)" ]]; then log "  Kopia source of ${key/:/ }: $src is empty in this run's snapshot - nothing to back up there"; return 2; fi
     ro_bind "$src" "$dst" || { warn "Kopia source of ${key/:/ }: $src could not be bound"; return 1; }
     ITEM_MPS[$key]+="$dst"$'\n'
     # the binds are not recursive: the child datasets below the folder are bound one by one, the upper first
@@ -669,7 +707,7 @@ item_pkg() {
     printf -- '-'
 }
 mount_item() { # mount_item <kind> <name> <folder>
-    local t="$1" n="$2" f="$3" key="$1:$2" root sh rel b got
+    local t="$1" n="$2" f="$3" key="$1:$2" root sh rel b got empty rc
     root="$(item_hostpath "$t" "$f")"
     ITEM_MPS[$key]=""; ITEM_PARTS[$key]=0
     while IFS='|' read -r sh rel; do
@@ -677,16 +715,20 @@ mount_item() { # mount_item <kind> <name> <folder>
         if [[ -z "${SHARE_MOUNTED[$sh]:-}" ]]; then
             warn "Kopia source of $t '$n': share '$sh' is not mounted - $sh/$rel is left out"; continue
         fi
-        got=0
+        got=0; empty=0
         if [[ "${SHARE_MOUNTED[$sh]}" == "split" ]]; then
             while IFS='|' read -r b _; do
-                [[ -n "$b" ]] && item_bind "$key" "$MOUNT_ROOT/$sh/$b/$rel" "$root/$sh/$b/$rel" && got=1
+                [[ -n "$b" ]] || continue
+                item_bind "$key" "$MOUNT_ROOT/$sh/$b/$rel" "$root/$sh/$b/$rel"; rc=$?
+                if (( rc == 0 )); then got=1; elif (( rc == 2 )); then empty=1; fi
             done <<<"${INV_LOCS[$sh]:-}"
         else
-            item_bind "$key" "$MOUNT_ROOT/$sh/$rel" "$root/$sh/$rel" && got=1
+            item_bind "$key" "$MOUNT_ROOT/$sh/$rel" "$root/$sh/$rel"; rc=$?
+            if (( rc == 0 )); then got=1; elif (( rc == 2 )); then empty=1; fi
         fi
+        # an empty folder was said above, once
         if (( got )); then ITEM_PARTS[$key]=$(( ${ITEM_PARTS[$key]} + 1 ))
-        else warn "Kopia source of $t '$n': $sh/$rel is not in this run's snapshot"; fi
+        elif (( ! empty )); then warn "Kopia source of $t '$n': $sh/$rel is not in this run's snapshot"; fi
     done < <(kopia_item_parts "$t" "$n" "$(item_pkg "$t" "$n")")
     (( ${ITEM_PARTS[$key]} > 0 ))
 }
@@ -1917,21 +1959,73 @@ cleanup() {
     if [[ "$ST_ABORTED" == "yes" ]]; then status_finish aborted "signal"
     elif (( rc != 0 )); then status_finish failed "exit $rc"
     fi
+    ub_holder_clear
     exit "$rc"
 }
 on_signal() { ST_ABORTED="yes"; exit 143; }
 
+# The lock is busy: this run does not happen, and nobody may miss that. It touches nothing the run
+# going on uses - not status.json (that describes the run going on), not latest.log, no settings, no
+# mounts - and says so: state/skipped.json (every mode), a line in history.jsonl and a notification
+# (warning) for a real backup run - a check or dry run is only ever started by hand (the office, a
+# terminal), where this answer is seen right away. Exit code 75 (EX_TEMPFAIL: try again later), so a
+# caller can tell "busy" from "failed".
+skip_busy() {
+    local mode="backup" st phase="" current="" since="" why what
+    [[ "$UB_MODE" == "check" ]] && mode="check"
+    [[ "$DRY" == "1" && "$UB_MODE" == "backup" ]] && mode="dryrun"
+    ub_holder_read
+    # a run of this engine holds it: where it is (status.json describes that run - read, never written)
+    if [[ "$HOLDER_KIND" =~ ^(backup|check|dryrun)$ && -n "$HOLDER_RUN" ]]; then
+        st="$(jq -r --arg r "$HOLDER_RUN" 'select(.run == $r and .result == "running")
+            | [(.phase // "" | tostring), (.kopia.current // "" | tostring)] | map(gsub("[\u0000-\u001f]"; " ")) | join("\u001f")' \
+            "$UB_STATE/status.json" 2>/dev/null)"
+        IFS=$'\x1f' read -r phase current <<<"$st"
+    fi
+    status_skipped "$mode" "skipped_busy_$HOLDER_KIND" "$phase" "$current"
+    (( HOLDER_STARTED > 0 )) && since="$(date -d "@$HOLDER_STARTED" '+%Y-%m-%d %H:%M' 2>/dev/null)"
+    case "$HOLDER_KIND" in
+        backup|check|dryrun)
+            case "$HOLDER_KIND" in backup) what="the backup run" ;; check) what="a check" ;; *) what="a dry run" ;; esac
+            why="$what started ${since:-earlier} is still going"
+            if [[ "$phase" == "kopia" ]]; then why+=" (uploading to Kopia${current:+: $current})"
+            elif [[ -n "$phase" ]]; then why+=" (phase $phase)"; fi ;;
+        setup)   why="setup.sh${HOLDER_MODE:+ ($HOLDER_MODE)} is working right now" ;;
+        restore) why="a restore${HOLDER_WHAT:+ of $HOLDER_WHAT} is going on${since:+ (since $since)}" ;;
+        *)       why="another program holds the engine's lock ($UB_STATE/lock"
+                 (( HOLDER_PID > 0 )) && why+=", PID $HOLDER_PID"
+                 why+=")" ;;
+    esac
+    case "$mode" in
+        backup) echo "The backup run of $(date '+%Y-%m-%d %H:%M') was skipped: $why. The next run backs up as usual." ;;
+        check)  echo "The check was not started: $why." ;;
+        dryrun) echo "The dry run was not started: $why." ;;
+    esac
+    [[ "$mode" == "backup" ]] && ub_notify "Backup skipped" \
+        "The run of $(date '+%Y-%m-%d %H:%M') was skipped: $why. The next run backs up as usual." "warning"
+    exit 75
+}
+
 ##############################################################################
 # Start
 ##############################################################################
-exec 9>"$UB_STATE/lock"
+# The lock (flock on state/lock) is held by one run at a time - see lib/common.sh, "Who holds the
+# lock". Opened without truncating it: a run turned away must not touch it (the office reads the
+# start of the run holding it from its time); the one that gets it touches it.
+exec 9>>"$UB_STATE/lock"
 if [[ "$UB_MODE" == "unmount" ]]; then
+    ln -sfn "$(basename "$LOG_FILE")" "$UB_LOGS/latest.log" 2>/dev/null
     flock -w 10 9 || echo "$(_ts)  A run holds the lock - unmounting anyway" >>"$LOG_FILE"
 else
-    flock -n 9 || { echo "Another run (backup.sh or setup.sh) is active."; exit 1; }
-    if [[ "$UB_MODE" == "check" ]]; then status_init check
-    elif [[ "$DRY" == "1" ]]; then status_init dryrun
-    else status_init backup; fi
+    flock -n 9 || skip_busy
+    touch "$UB_STATE/lock"
+    if [[ "$UB_MODE" == "check" ]]; then ST_MODE="check"
+    elif [[ "$DRY" == "1" ]]; then ST_MODE="dryrun"
+    else ST_MODE="backup"; fi
+    ub_holder_write backup "$ST_MODE" "$TS" "$STARTED_AT"
+    trap ub_holder_clear EXIT
+    ln -sfn "$(basename "$LOG_FILE")" "$UB_LOGS/latest.log" 2>/dev/null
+    status_init "$ST_MODE"
 fi
 
 SETTINGS_OK="yes"
@@ -2025,7 +2119,7 @@ if [[ "$UB_MODE" == "check" ]]; then
     if (( $(drift_count error) > 0 || ERRORS > 0 )); then status_finish errors
     elif (( $(drift_count warn) > 0 || WARNINGS > 0 )); then status_finish warnings
     else status_finish ok; fi
-    trap - EXIT
+    trap ub_holder_clear EXIT
     exit 0
 fi
 
@@ -2097,7 +2191,7 @@ if [[ "$DRY" == "1" ]]; then
     if (( ERRORS > 0 )); then status_finish errors
     elif (( WARNINGS > 0 )); then status_finish warnings
     else status_finish ok; fi
-    trap - EXIT
+    trap ub_holder_clear EXIT
     exit 0
 fi
 

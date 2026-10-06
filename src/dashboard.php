@@ -5,7 +5,8 @@ declare(strict_types=1);
  * The office's tile on Unraid's Dashboard (plugin only): the messenger, the
  * team lead's traffic light (open points only — what the user noted with «I
  * know, thanks» doesn't count) and Mr. Backupsy's last and next run (or what
- * the engine is doing right now: a backup, a check, a dry run) — each row
+ * the engine is doing right now: a backup, a check, a dry run; a run skipped
+ * because the engine was busy, engine 2.20) — each row
  * a link into the office. Built from the desks' state files only (no request
  * to the agent, no disk wakes up); the tile asks api.php?a=dash again every
  * minute. Texts from the office's language files (dash.*): the language this
@@ -104,6 +105,31 @@ function officeDashBackupRunning(array $backup): string
     };
 }
 
+/**
+ * Mr. Backupsy's state on the tile: running, the newest run skipped because the engine was busy
+ * (engine 2.20 — as long as no run finished after it), else how the last run went
+ *
+ * @return array{0:string, 1:string, 2:?int}  key of its text, tone, the time to show (null: none)
+ */
+function officeDashBackupState(array $backup): array
+{
+    if (!empty($backup['running'])) {
+        return [officeDashBackupRunning($backup), 'orange', null];
+    }
+    $last = ($backup['history'] ?? [])[0] ?? null;
+    $lastTime = is_array($last) ? (int) (($last['finished'] ?? 0) ?: ($last['started'] ?? 0)) : 0;
+    $skip = ($backup['skips'] ?? [])[0] ?? null;
+    if (is_array($skip) && (int) ($skip['time'] ?? 0) > $lastTime) {
+        return ['backup.dash_skipped', 'orange', (int) $skip['time']];
+    }
+    if (is_array($last)) {
+        $result = (string) ($last['result'] ?? '');
+        return ['dash.bk_' . (in_array($result, ['ok', 'warnings'], true) ? $result : 'failed'),
+                match ($result) { 'ok' => 'green', 'warnings' => 'orange', default => 'red' }, $lastTime];
+    }
+    return ['dash.bk_none', 'orange', null];
+}
+
 /** The tile's rows as HTML (escaped) */
 function officeDashRows(string $lang): string
 {
@@ -140,17 +166,8 @@ function officeDashRows(string $lang): string
     // Mr. Backupsy: the last run and the next one
     $backup = isset($hired['backup']) ? officeReadJson(OFFICE_DATA . '/backup.json') : null;
     if ($backup) {
-        $last = ($backup['history'] ?? [])[0] ?? null;
-        if (!empty($backup['running'])) {
-            [$state, $tone] = [officeDashT($s, officeDashBackupRunning($backup)), 'orange'];
-        } elseif ($last) {
-            $result = (string) ($last['result'] ?? '');
-            $tone = match ($result) { 'ok' => 'green', 'warnings' => 'orange', default => 'red' };
-            $state = officeDashT($s, 'dash.bk_' . (in_array($result, ['ok', 'warnings'], true) ? $result : 'failed'))
-                . ' · ' . officeDashWhen($s, (int) ($last['finished'] ?? $last['started'] ?? 0), $lang);
-        } else {
-            [$state, $tone] = [officeDashT($s, 'dash.bk_none'), 'orange'];
-        }
+        [$key, $tone, $when] = officeDashBackupState($backup);
+        $state = officeDashT($s, $key) . ($when ? ' · ' . officeDashWhen($s, $when, $lang) : '');
         $schedule = (array) ($backup['schedule'] ?? []);
         $cron = (string) ($schedule['cron'] ?? $schedule['custom'] ?? '');
         $next = !empty($schedule['enabled']) && $cron !== '' ? officeDashNextDaily($cron) : null;

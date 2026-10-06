@@ -40,10 +40,109 @@ function backupScriptState(): array
     $state['settings'] = $general;
     if (flockHeld("$data/state/lock")) {
         $state['running'] = true;
-        $state['since'] = @filemtime("$data/state/lock") ?: null;   // "exec 9>" truncates it on every start
+        $state['since'] = @filemtime("$data/state/lock") ?: null;   // the one that takes the lock touches it (before 2.20: "exec 9>" truncated it)
         $state['step'] = lastLogStep("$data/logs/latest.log");
     }
     return $state;
+}
+
+/** Who may hold the engine's lock (engine 2.20): a run of the engine by its mode, the setup, a restore, anybody else */
+const BACKUP_HOLDERS = ['backup', 'check', 'dryrun', 'setup', 'restore', 'other'];
+
+/**
+ * Who holds the engine's lock (state/lock) right now — null while nobody does. Since engine 2.20
+ * whoever takes it notes itself in state/lock-holder.json (backup/README.md, "When the lock is
+ * busy"): backup.sh, setup.sh, Mr. Restori's restore jobs. The lock stays the truth; the note
+ * counts only while its pid lives — for backup.sh and setup.sh only while that pid runs the script.
+ * Without a note that counts, a run status.json calls running while its pid runs backup.sh is the
+ * holder (an engine before 2.20 writes no note); anybody else is "other".
+ *
+ * @return array{holder:string, mode:string, what:string, run:string, pid:int, started:int}|null
+ *         holder: backup | check | dryrun (a run of the engine, by its mode) | setup | restore | other
+ */
+function backupLockHolder(?string $data = null): ?array
+{
+    $data ??= BACKUP_DATA_DIR;
+    if (!flockHeld("$data/state/lock")) {
+        return null;
+    }
+    $holder = backupHolderNote(readJson("$data/state/lock-holder.json"));
+    if ($holder['pid'] === 0) {
+        $status = readJson("$data/state/status.json");
+        if (($status['result'] ?? '') === 'running') {
+            $fromStatus = backupHolderNote(['holder' => 'backup'] + array_intersect_key($status, ['mode' => 1, 'run' => 1, 'pid' => 1, 'started' => 1]));
+            if ($fromStatus['holder'] !== 'other') {
+                return $fromStatus;
+            }
+        }
+    }
+    return $holder;
+}
+
+/** What a lock-holder.json says, checked against the running processes (see backupLockHolder()) */
+function backupHolderNote(?array $note): array
+{
+    $out = ['holder' => 'other', 'mode' => '', 'what' => '', 'run' => '', 'pid' => 0, 'started' => 0];
+    $pid = is_int($note['pid'] ?? null) ? $note['pid'] : 0;
+    if ($pid <= 1 || !is_dir("/proc/$pid")) {
+        return $out;
+    }
+    $text = fn (mixed $v): string => is_string($v) ? mb_substr(trim((string) preg_replace('/[\x00-\x1f\x7f]+/', ' ', $v)), 0, 80) : '';
+    $holder = (string) ($note['holder'] ?? '');
+    $mode = $text($note['mode'] ?? '');
+    $script = ['backup' => 'backup.sh', 'setup' => 'setup.sh'][$holder] ?? null;
+    if ($script !== null) {
+        $runs = false;
+        foreach (array_slice(explode("\0", (string) @file_get_contents("/proc/$pid/cmdline")), 0, 4) as $arg) {
+            $runs = $runs || $arg === $script || str_ends_with($arg, "/$script");
+        }
+        if (!$runs) {
+            return $out;             // the pid lives on in another program: an old note
+        }
+    }
+    $out['holder'] = match ($holder) {
+        'backup'  => in_array($mode, ['check', 'dryrun'], true) ? $mode : 'backup',
+        'setup', 'restore' => $holder,
+        default   => 'other',
+    };
+    $out['mode'] = $mode;
+    $out['what'] = $text($note['what'] ?? '');
+    $out['run'] = is_string($note['run'] ?? null) && preg_match('/^\d{8}-\d{4}$/D', $note['run']) ? $note['run'] : '';
+    $out['pid'] = $pid;
+    $out['started'] = is_int($note['started'] ?? null) && $note['started'] > 0 ? $note['started'] : 0;
+    return $out;
+}
+
+/**
+ * A run that found the lock busy (engine 2.20: state/skipped.json, and the history.jsonl lines with
+ * "result": "skipped"), in the shape the office shows — null for anything else
+ *
+ * @return array{run:string, mode:string, time:int, reason:string, holder:array}|null
+ */
+function backupSkipRow(mixed $j): ?array
+{
+    if (!is_array($j) || ($j['result'] ?? '') !== 'skipped') {
+        return null;
+    }
+    $text = fn (mixed $v): string => is_string($v) ? mb_substr(trim((string) preg_replace('/[\x00-\x1f\x7f]+/', ' ', $v)), 0, 80) : '';
+    $h = is_array($j['holder'] ?? null) ? $j['holder'] : [];
+    $kind = in_array($h['kind'] ?? null, BACKUP_HOLDERS, true) ? $h['kind'] : 'other';
+    $run = fn (mixed $v): string => is_string($v) && preg_match('/^\d{8}-\d{4}$/D', $v) ? $v : '';
+    return [
+        'run'    => $run($j['run'] ?? null),
+        'mode'   => in_array($j['mode'] ?? null, ['backup', 'check', 'dryrun'], true) ? $j['mode'] : 'backup',
+        'time'   => (int) ($j['time'] ?? $j['started'] ?? 0),
+        'reason' => "skipped_busy_$kind",
+        'holder' => [
+            'kind'    => $kind,
+            'mode'    => $text($h['mode'] ?? ''),
+            'what'    => $text($h['what'] ?? ''),
+            'run'     => $run($h['run'] ?? null),
+            'started' => (int) ($h['started'] ?? 0),
+            'phase'   => $text($h['phase'] ?? ''),
+            'current' => $text($h['current'] ?? ''),
+        ],
+    ];
 }
 
 /**

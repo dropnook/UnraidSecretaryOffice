@@ -159,6 +159,16 @@ differ get a `_plugin` key or come from state (`schedule.via`).
   in the manifest (`own_backups`). The setup's step 4 has "Kopia per app and
   VM"; offered ignore rules are never preselected; data warnings (Nextcloud's
   data, Immich's uploads in a share backed up less than the app) on the app row.
+* **One run at a time, never lost silently (engine 2.20):** `state/lock` (flock) is held by
+  backup.sh, setup.sh and Mr. Restori's restores; whoever takes it opens it with `>>` (never
+  truncating), `touch`es it and writes `state/lock-holder.json` (`holder`, `mode`, `what`, `run`,
+  `pid`, `started` — backup/README.md "When the lock is busy"), trusted only while its pid lives
+  (`backupLockHolder()`; unknown = `other`). A backup.sh that finds it busy touches nothing of the
+  run going on (no status.json, no latest.log, nothing loaded or mounted) and writes `skipped.json`,
+  for a real backup also a `history.jsonl` line `"result": "skipped"` (reason `skipped_busy_<holder>`,
+  translated as `backup.message.<code>`) and a warning notification; exit 75. The office keeps skips
+  apart from runs (`state.skips` — history, estimates, the last run and the Dashboard's last run never
+  count them) and shows the newest skip while no run finished after it.
 * **Backups never live in appdata.** Dumps, archives and manifests go to a
   backup share of their own (`[general] dumps_share` → `<share>/unraid-backup`,
   in the office's share `UnraidSecretaryOffice` → `backup/`, one folder per desk;

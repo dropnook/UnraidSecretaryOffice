@@ -55,7 +55,7 @@ function chip(text, cls, title) {
   return c;
 }
 
-const RESULT_CHIP = { ok: 'ok', warnings: 'warn', errors: 'danger', failed: 'danger', aborted: 'warn', running: 'accent' };
+const RESULT_CHIP = { ok: 'ok', warnings: 'warn', errors: 'danger', failed: 'danger', aborted: 'warn', running: 'accent', skipped: 'warn' };
 function resultChip(result) {
   return chip(T('result.' + result), RESULT_CHIP[result] || '');
 }
@@ -103,6 +103,28 @@ function itemChip(it) {
 }
 
 const lastRun = () => (state && state.history && state.history[0]) || null;
+/**
+ * The newest backup run that was skipped because the lock was busy (engine 2.20: state.skips) — as long
+ * as no run finished or started after it. Skips are no runs: history, «last run» and estimates never see them.
+ */
+function newSkip() {
+  const k = ((state && state.skips) || [])[0];
+  if (!k) return null;
+  const last = lastRun();
+  if (last && (last.finished || last.started) >= k.time) return null;
+  const s = status();
+  if (live() && s && s.started > k.time) return null;
+  return k;
+}
+/** Why a run was skipped, in words: which run, and who had the lock (holder from lock-holder.json, its phase from status.json) */
+function skipText(k) {
+  const h = k.holder || {};
+  let why = 'skipped.why_' + (['backup', 'check', 'dryrun', 'setup', 'restore'].includes(h.kind) ? h.kind : 'other');
+  if (h.kind === 'backup' && h.phase === 'kopia' && h.current) why = 'skipped.why_backup_kopia';
+  if (h.kind === 'restore' && h.what) why = 'skipped.why_restore_what';
+  const text = T(why, { since: h.started ? fmt.date(h.started, true) : '…', source: srcLabel(h.current || ''), what: h.what || '' });
+  return T('skipped.frame_' + (['check', 'dryrun'].includes(k.mode) ? k.mode : 'backup'), { when: fmt.date(k.time, true), why: text });
+}
 /** The packages in the backup place (engine 2.18+), null before the first run that wrote some */
 const packages = () => {
   const pk = state && state.packages;
@@ -170,6 +192,7 @@ function bubbleText() {
     } else if (s) out.push(T('bubble.running_phase', { step: T('step.' + STEPS[p ? p.step : 0][0]) }));
     else out.push(T('bubble.running_old', { step: state.step || '…' }));
     if (p && p.eta) out.push(T(p.overdue ? 'bubble.eta_late' : 'bubble.eta', { time: fmt.time(p.eta) }));
+    if (newSkip()) out.push(T('bubble.skipped', { when: fmt.relative(newSkip().time) }));
     return out;
   }
   const last = lastRun();
@@ -183,6 +206,7 @@ function bubbleText() {
     const age = Date.now() / 1000 - (last.finished || last.started);
     if (age > 36 * 3600) out.push(T('bubble.old', { days: Math.floor(age / 86400) }));
   }
+  if (newSkip()) out.push(T('bubble.skipped', { when: fmt.relative(newSkip().time) }));
   if (state.schedule && state.schedule.script && !state.schedule.enabled) out.push(T('bubble.no_schedule'));
   const drift = (state.drift && state.drift.items || []).filter((d) => d.level !== 'info').length;
   if (drift) out.push(T('bubble.drift', { n: drift }));
@@ -263,6 +287,8 @@ function notices() {
   if (errors) callout(T('notice.drift_errors', { n: errors }), true);
   const last = lastRun();
   if (!live() && last && last.result === 'failed' && last.message === 'interrupted') callout(T('notice.interrupted'), true);
+  const skip = newSkip();
+  if (skip) callout(skipText(skip) + ' ' + T('skipped.next'), true);
   if (!live() && (state.mounted || []).length && !(state.settings && state.settings.keep_mounts)) {
     const b = button(T('unmount'), 'small plain', unmount);
     b.disabled = !canAct();
@@ -939,13 +965,35 @@ function protectionDetail(s, kopiaOn) {
   return box;
 }
 
+/** A backup run skipped because the lock was busy (engine 2.20): no log, no figures - its own chip and why */
+function skipRow(k) {
+  const row = el('div', 'row nocheck');
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', fmt.date(k.time, true)));
+  const meta = el('div', 'row-meta');
+  meta.appendChild(chip(T('result.skipped'), RESULT_CHIP.skipped, skipText(k)));
+  meta.appendChild(el('span', 'note', messageText(k.reason)));
+  main.appendChild(meta);
+  row.appendChild(main);
+  row.appendChild(el('div', 'bar thin bk-hbar'));
+  const fig = el('div', 'figures');
+  fig.append(el('b', '', '–'), el('span', '', ''));
+  row.appendChild(fig);
+  return row;
+}
+
 function historySection() {
   const runs = state.history || [];
+  const skips = state.skips || [];
   const box = section(T('history'), T('history_sub'));
-  if (!runs.length) { box.appendChild(el('p', 'empty', T('bubble.no_runs'))); return box; }
+  if (!runs.length && !skips.length) { box.appendChild(el('p', 'empty', T('bubble.no_runs'))); return box; }
   const list = el('div', 'box');
   const longest = Math.max(...runs.map((r) => (r.finished || r.started) - r.started), 1);
-  runs.slice(0, 20).forEach((r) => {
+  // the runs and, between them, the runs that were skipped - newest first
+  const rows = [...runs.slice(0, 20).map((r) => ({ t: r.started, r })), ...skips.map((skip) => ({ t: skip.time, skip }))]
+    .sort((a, b) => b.t - a.t).slice(0, 20);
+  rows.forEach(({ r, skip }) => {
+    if (skip) { list.appendChild(skipRow(skip)); return; }
     const row = el('div', 'row nocheck unfolds');
     row.onclick = () => showLog(r.log);           // the whole row opens the run's log
     const main = el('div', 'row-main');
@@ -1084,7 +1132,9 @@ async function startRun(mode) {
   const j = await Office.api.post(`${ID}.start`, { mode });
   if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
   if (j.state) state = j.state;
-  Office.toast(j.started ? T('started.' + mode) : T('started_pending'));
+  // something took the lock between the agent's look and the start: the engine skipped it and says why
+  if (j.skipped) Office.toast(skipText(j.skipped), true);
+  else Office.toast(j.started ? T('started.' + mode) : T('started_pending'));
   render();
   schedule();
   return true;
