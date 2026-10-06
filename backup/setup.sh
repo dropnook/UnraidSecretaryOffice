@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.19 - 2026-10-05
+# unraid-backup - setup.sh                        Version 2.20 - 2026-10-06
+#   2.20 Notes itself as the lock's holder in state/lock-holder.json while it runs (a backup run that
+#        finds the lock busy says why it was skipped); when the lock is busy it names who holds it,
+#        exit code 75
 #   2.19 [app "<name>"] and [vm "<name>"] kopia = yes, folder, kopia_retention, kopia_ignore: apps and VMs
 #        with a Kopia source of their own (backup.sh); their policies are written and compared like the
 #        shares' (kind app / vm), the shares leave their parts out. With --apply only the decisions
@@ -2083,6 +2086,7 @@ step_forget() {
 setup_end() {
     local rc=$?
     if (( rc == 0 )); then setup_status_write ok; else setup_status_write failed; fi
+    ub_holder_clear
 }
 
 # Lay decisions (JSON object key -> value or list) over the values so far:
@@ -2264,8 +2268,22 @@ plan_write() {
 ##############################################################################
 # Sequence
 ##############################################################################
-exec 9>"$UB_STATE/lock"
-flock -n 9 || { echo "backup.sh is running right now - start setup.sh later."; exit 1; }
+# The engine's lock (lib/common.sh, "Who holds the lock"): opened without truncating it - only the one
+# that gets it touches it and notes itself in state/lock-holder.json. Busy: say who has it, exit 75.
+exec 9>>"$UB_STATE/lock"
+if ! flock -n 9; then
+    ub_holder_read
+    case "$HOLDER_KIND" in
+        backup|check|dryrun) echo "backup.sh is running right now ($HOLDER_KIND$( (( HOLDER_STARTED > 0 )) && date -d "@$HOLDER_STARTED" '+, started %Y-%m-%d %H:%M')) - start setup.sh later." ;;
+        setup)   echo "Another setup.sh is running right now${HOLDER_MODE:+ ($HOLDER_MODE)} - start setup.sh later." ;;
+        restore) echo "A restore${HOLDER_WHAT:+ of $HOLDER_WHAT} is going on right now - start setup.sh later." ;;
+        *)       echo "Another program holds the engine's lock ($UB_STATE/lock) - start setup.sh later." ;;
+    esac
+    exit 75
+fi
+touch "$UB_STATE/lock"
+ub_holder_write setup "$MODE" "$TS" ""
+trap ub_holder_clear EXIT
 if [[ "$MODE" == "plan" || "$MODE" == "apply" || "$MODE" == "forget" ]]; then
     SETUP_STARTED="$(date +%s)"
     setup_status_write running

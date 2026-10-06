@@ -4,7 +4,7 @@ Part of the [Unraid Secretary Office](../README.md): Mr. Backupsy shows and cont
 
 A nightly backup for Unraid servers. It takes consistent **ZFS/btrfs snapshots** and **database dumps**, puts Nextcloud into **maintenance mode** for that, keeps a **package per app and VM** (templates or compose files, dumps, VM configuration) and — if you want — sends everything encrypted offsite with **Kopia**, an app or VM you choose as a Kopia source of its own with its own retention. Everything specific to your server lives in `settings.ini`, which `setup.sh` writes after asking you. The nightly run `backup.sh` reports every difference between the server and `settings.ini`, but never changes it on its own.
 
-Version **2.19** (5 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
+Version **2.20** (6 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
 
 ---
 
@@ -52,6 +52,8 @@ Replacing an existing backup script: `setup.sh` warns when other User Scripts al
 11  unmount, clean up (ZFS d/w/m, btrfs days + emergency brake, logs; once: the run folders of engines before 2.18), notification
 ```
 
+Only one run at a time: `backup.sh`, `setup.sh` and Mr. Restori's restores share a lock (`state/lock`). A run that finds it busy — the night before is still uploading to Kopia, the setup is looking at the server — doesn't happen, but is never lost silently: see [When the lock is busy](#when-the-lock-is-busy).
+
 If a run dies hard (crash, `kill -9`), the stopped containers and the Nextcloud maintenance mode are noted in `state/`. The next start of `backup.sh` or `setup.sh` restores both and says so. On a normal stop (Mr. Backupsy's *Stop the run*, User Scripts "Abort", SIGTERM) the `trap` does it right away.
 
 ## Files
@@ -67,7 +69,7 @@ If a run dies hard (crash, `kill -9`), the stopped containers and the Nextcloud 
 /mnt/user/appdata/UnraidSecretaryOffice/
 └── data/unraid-backup/     its data (not in git, root only: 0700)
     ├── settings.ini        written by setup.sh (may be edited by hand)
-    ├── state/              lock, status for the office, differences, notes
+    ├── state/              lock and who holds it, status for the office, differences, notes
     └── logs/               run-*.log per run, check-/dryrun-/setup-*.log, latest.log
 
 /mnt/user/UnraidSecretaryOffice/      the office's share: what the desks keep, one folder per desk
@@ -250,7 +252,7 @@ A VM's disks are files in a share (usually `domains`) and so in that share's sna
 | `shutdown` | shut down cleanly before, started again after | the safest, takes minutes; never forced off — if the guest doesn't shut down in 5 minutes it is paused instead |
 | `none` | keeps running | its disks are only crash-consistent |
 
-The setup proposes `freeze` where a guest agent answers (or is configured), `pause` otherwise. Shutdowns begin together with stopping the apps, freezing and pausing come right before the snapshots, and each VM is released right after the snapshot that holds its disks (ZFS first, btrfs after). A run killed in between (`state/vms`) is undone by the next start, like stopped containers. Each VM's package (`vms/<vm>/`: XML, NVRAM, TPM state) and the archive of all of libvirt.img (`server/libvirt.tar.gz`) are written after the VMs are held, so they match their disks in the snapshot.
+The setup proposes `freeze` where a guest agent answers (or is configured), `pause` otherwise. Shutdowns begin together with stopping the apps and share one deadline: each VM gets `UB_VM_SHUTDOWN_TIMEOUT` seconds (300) from its shutdown request, all are watched together — three VMs that ignore the request cost five minutes, not fifteen; whichever isn't off by then is paused (never forced off). Freezing and pausing come right before the snapshots, and each VM is released right after the snapshot that holds its disks (ZFS first, btrfs after). A run killed in between (`state/vms`) is undone by the next start, like stopped containers. Each VM's package (`vms/<vm>/`: XML, NVRAM, TPM state) and the archive of all of libvirt.img (`server/libvirt.tar.gz`) are written after the VMs are held, so they match their disks in the snapshot.
 
 On ZFS pools Unraid gives every VM folder a dataset of its own. Such a VM can be left out (`mode = off`) and can keep its snapshots longer or shorter than its share (`retention`). A VM whose disks share a dataset with the share or another VM always goes with the share's snapshot. A disk that is a whole device, or a file on a file system without snapshots, is not held by any snapshot — the setup and the nightly check say so.
 
@@ -320,6 +322,8 @@ What the setup never does: change container templates, connect Kopia to a reposi
 | `UB_NO_NOTIFY=1` | no Unraid notifications |
 | `backup.sh --about` | name, version, interface, code and data folder as JSON |
 
+Exit codes: `0` done (also with warnings), `1` failed or ended with errors, `2` unknown option, `75` not started because another run holds the lock (see below).
+
 ### Status for other programs
 
 For Mr. Backupsy in the office (and any other page), `backup.sh` writes its state with fixed English keys to `state/`. The texts in the log may change, these files don't; whoever reads them checks `interface` (currently `1`; 2.18 only added keys).
@@ -328,10 +332,40 @@ For Mr. Backupsy in the office (and any other page), `backup.sh` writes its stat
 |---|---|
 | `status.json` | the running or last finished run (check, dry run, backup): `mode`, `phase`, `result` (`running`, `ok`, `warnings`, `errors`, `failed`, `aborted`), `pid`, times, interruption, differences, the Kopia plan with the current source and the result per source (since 2.19 an app's or VM's own source is named `app:<name>` / `vm:<name>`, in the order apps, shares, VMs, flash), per VM what the run did (`vms`: `prepare`, `done`, seconds held, `snapshot`), and the packages (`packages`, since 2.18: `base`, `written` — false in a dry run —, `written_bytes`, counts `apps`, `vms`, `errors`, `warnings`, `stale`, `kept`, `old_runs` with `old_runs_action` = `removed` / `would_remove` / `kept`, and `list`: per package `kind` (app, vm, flash), `name`, `folder`, `type` (compose, template, container, vm), `result` (ok, warnings, errors, planned, stale), `files`, `bytes`, `kept`, `stale`, `run`). `dump_bytes` is what the run wrote into the packages |
 | `last-run.json` | the same for the last real backup run |
-| `history.jsonl` | one line per real backup run, the last 200 — `packages` without `list` |
+| `history.jsonl` | one line per real backup run, the last 200 — `packages` without `list`; since 2.20 also a skipped backup run (`result` = `skipped`, see below) — whoever computes durations, downtimes or "the last run" from it leaves those out |
+| `skipped.json` | since 2.20: the last run that could not take the lock (any mode, see below) |
+| `lock-holder.json` | since 2.20: who holds the lock right now (see below) |
 | `drift.json` | differences of the last check (`level`, `text`, since 2.18 `code` and `value` for the messages the office translates: `place_no_history`, `place_not_kopia`, `dumps_<problem>`), and per Kopia target whether its policy matches (`policies`: `kind` — `root`, `share`, `flash`, since 2.19 `app`, `vm` —, `share` (for kind share), `name` (since 2.19: the share, app or VM), `path`, `ok`, `skipped`, `differences` with `what`/`item`/`have`/`want`; `null` when not compared) |
 | `setup-plan.json` | the last plan of `setup.sh --plan` |
 | `setup-status.json` | progress and messages of `setup.sh --plan` / `--apply` |
+
+### When the lock is busy
+
+`state/lock` (an `flock`) is held by one run at a time. A run that can't take it — e.g. last night's run with a first Kopia upload of 2 TB is still going at 01:00 — **doesn't start, and leaves everything alone**: it loads no settings, mounts and pauses nothing, and never touches `status.json` (which describes the run going on) or `latest.log`. Instead it says so:
+
+- `state/skipped.json` — the last skipped attempt, any mode: `mode` (`backup`, `check`, `dryrun`), `run` (its own run id), `pid`, `time` (= `started` = `finished`), `result` = `skipped`, `reason` (= `message`) and `holder`: `kind`, `mode`, `what`, `run`, `pid`, `started` of the run holding the lock, and when that is a run of this engine its `phase` and `current` Kopia source (from its `status.json`, read only).
+- a line in `history.jsonl`, for a real backup run only — the same object (`errors`, `warnings`, `downtime_s` 0, no Kopia, no packages).
+- a notification (level `warning`), for a real backup run only: which run was skipped and why ("the backup run started 2026-10-06 01:00 is still going (uploading to Kopia: appdata)"). A check or dry run is only ever started by hand — by the office, which shows the answer right away, or in a terminal; they just say so on stdout and in `skipped.json`.
+- exit code `75` (EX_TEMPFAIL, "try again later") — cron and User Scripts don't care; a caller can tell "busy" from "failed". `setup.sh` answers a busy lock the same way (who holds it, exit 75) but writes no `skipped.json`.
+
+The next scheduled run backs up as usual. `reason` is a code the office translates (`backup.message.<code>`): `skipped_busy_backup`, `skipped_busy_check`, `skipped_busy_dryrun` (a run of this engine, by its mode), `skipped_busy_setup`, `skipped_busy_restore`, `skipped_busy_other` (anybody else, or nobody said who).
+
+**Who holds the lock — `state/lock-holder.json`.** Whoever takes the lock writes this note right after (a new file + `mv`, never by writing into the file) and removes it when done, if the note is still its own (same `pid`):
+
+```json
+{"holder": "backup", "mode": "backup", "what": "", "run": "20261006-0100", "pid": 168666, "started": 1791241202, "version": "2.20"}
+```
+
+| Key | |
+|---|---|
+| `holder` | a must: `backup` (backup.sh), `setup` (setup.sh), `restore` (Mr. Restori's restore jobs), any other short name for other holders |
+| `pid` | a must: the process that holds the lock while it runs (the script itself, not a short-lived child) |
+| `started` | unix seconds |
+| `mode` | backup.sh: `backup` / `check` / `dryrun`; setup.sh: `plan` / `apply` / `forget` / `check` / `kopia` / `interactive` / `auto` |
+| `what` | what it works on, e.g. the app a restore brings back |
+| `run` | backup.sh's run id `YYYYMMDD-HHMM` (setup.sh: its log's) |
+
+A restore job writes e.g. `{"holder": "restore", "what": "nextcloud", "pid": 4711, "started": 1791300000}`. The note is never trusted blindly — the lock itself stays the truth: it counts only while the lock is held and its `pid` lives (for `backup` and `setup`, only while that process runs `backup.sh` / `setup.sh`); a missing, stale or unknown note means holder `other`. Open the lock without truncating it (`exec 9>>state/lock`, not `9>`): opening must not change it; the holder `touch`es it once it has the lock (the office still reads a run's start from its time).
 
 Stopping: `SIGTERM` to the `pid` in `status.json` (Mr. Backupsy's *Stop the run* does that). The `trap` ends a running Kopia snapshot in the container cleanly (SIGINT), starts the stopped containers, switches maintenance mode off, unmounts and sets `result` to `aborted`.
 
@@ -436,6 +470,7 @@ So on every new server: *Set up…*, then a check and a dry run first.
 
 ## Versions
 
+- **2.20** – A run that finds the lock busy (the night before still uploading to Kopia, the setup, a restore) is never lost silently: it touches nothing of the run going on and says so in `state/skipped.json`, in `history.jsonl` (`result` `skipped`, reason `skipped_busy_<holder>`) and, for a real backup, in a notification (warning); exit code 75. Whoever holds the lock notes it in `state/lock-holder.json` — backup.sh, setup.sh, and the format is open for Mr. Restori's restores and others. VMs with `prepare = shutdown` share one deadline (the timeout from their shutdown request) instead of waiting one timeout after the other; a VM that refuses the request is paused right away. An app folder that is simply empty in the snapshot is a note in the log, no longer two warnings.
 - **2.19** – Kopia per app and VM: an app or VM at "local + Kopia" is a Kopia source of its own (`[app|vm "<name>"] kopia = yes`, `folder`, `kopia_retention`, `kopia_ignore`) — its folders and its package, joined read-only under `<mount_root>/.apps|.vms/<name>`, with its own retention; the shares leave those parts out, policies are written by the setup and compared every run (`drift.json` policies of kind `app` / `vm`, with a `name`), the Kopia phase goes apps, shares, VMs, flash. Same repository, so nothing already there is uploaded again; settings.ini without `[app]` sections behaves as before. Media servers that keep running get consistent copies of their SQLite databases in their package (backup API, checked, never on a sleeping disk, the last good copy kept). The apps' own backups (Emby's plugin, Jellyfin, Plex, Immich) are named in the manifest. The setup's plan names per container the media server, Kopia rules to offer for caches, transcodes, logs and thumbnails, and where Nextcloud and Immich keep their files.
 - **2.18** – Packages instead of run folders: per app (a compose project or a single container) and per VM a folder in the backup place with its small files — templates or compose files, `docker inspect` with the image digests, the database dumps, Nextcloud's config, the VM's XML, NVRAM and TPM state — overwritten every run, built aside and swapped in only when complete, before the snapshots; `server/` holds what belongs to no app (with `libvirt.tar.gz`), `flash/` the flash archive. A dump that failed or did not run keeps the last good one, and the package says from which run and which credentials made it. The history lies in the snapshots of the backup place's share: the setup proposes it as at least a local snapshot and refuses `off`, the run reports a share that can't take snapshots. Packages of apps and VMs left out are never deleted (`stale`). `keep_runs` is gone (accepted in old files); the first run clears away the old run folders once all its packages are in place. `status.json` and `last-run.json` gain `packages`, `drift.json` items a `code`.
 - **2.17** – `setup.sh --forget` starts the setup anew: `settings.ini`, the office's decisions and the last plan go to `state/reset-<time>/`; nothing backed up is touched (Mr. Backupsy: "Forget everything and start anew"). The share `domains` is proposed as a local snapshot (the VMs are held for it since 2.16) instead of off. `[docker] skip` lists apps the user does not want backed up: they keep running like `no_stop`, get no dump, and the office has Kopia leave their folders out. The plan lists the shares each container binds (`containers[].binds`). Datasets in Ms. Dustdevil's storeroom (`_UnraidSecretaryOffice-trash-*`) are never snapshotted.

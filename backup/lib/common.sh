@@ -19,7 +19,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.19"
+UB_VERSION="2.20"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry (was unraid-backup; the office moves it)
 # The office's own places. Nothing of ours directly in /mnt (Fix Common Problems rightly
@@ -1711,6 +1711,11 @@ drift_count() { local lvl="$1" n=0 l; for l in "${DRIFT[@]}"; do [[ "${l%%|*}" =
 #                    whether its policy matches settings.ini ("policies")
 #   since 2.18 status.json and last-run.json carry "packages" (what the run packed, see section 8);
 #   history.jsonl keeps only its counts (without "list")
+#   since 2.20:
+#   lock-holder.json who holds state/lock right now (whoever takes the lock writes it, see below)
+#   skipped.json     the last run that could not start because the lock was busy; a real backup run
+#                    that was skipped also gets a line in history.jsonl ("result": "skipped") - it
+#                    never touches status.json, which describes the run going on
 # Writing is never critical: if it fails, the backup carries on.
 UB_INTERFACE=1
 UB_HISTORY_MAX=200
@@ -1791,12 +1796,104 @@ status_finish() { # status_finish <result> [message]
     cp -f "$UB_STATE/status.json" "$UB_STATE/.last-run.json.$$" 2>/dev/null \
         && mv -f "$UB_STATE/.last-run.json.$$" "$UB_STATE/last-run.json" 2>/dev/null
     # a short line per run: the packages only as counts
-    {
-        tail -n $((UB_HISTORY_MAX - 1)) "$UB_STATE/history.jsonl" 2>/dev/null
-        jq -c 'if (.packages | type) == "object" then .packages |= del(.list) else . end' "$UB_STATE/status.json" 2>/dev/null \
-            || { cat "$UB_STATE/status.json"; echo; }
-    } >"$UB_STATE/.history.jsonl.$$" 2>/dev/null \
-        && mv -f "$UB_STATE/.history.jsonl.$$" "$UB_STATE/history.jsonl" 2>/dev/null
+    history_append "$(jq -c 'if (.packages | type) == "object" then .packages |= del(.list) else . end' "$UB_STATE/status.json" 2>/dev/null \
+        || tr -d '\n' <"$UB_STATE/status.json")"
+    return 0
+}
+
+# history_append <json line>: history.jsonl keeps the last UB_HISTORY_MAX lines. A skipped run (below) writes
+# while the run holding state/lock may finish - so both take a lock of their own first: an flock on the
+# state folder itself (no file of its own; state/lock is the runs' lock and must stay free here)
+history_append() {
+    [[ -n "$1" ]] || return 0
+    (
+        flock -w 10 8 || true
+        {
+            tail -n $((UB_HISTORY_MAX - 1)) "$UB_STATE/history.jsonl" 2>/dev/null
+            printf '%s\n' "$1"
+        } >"$UB_STATE/.history.jsonl.$$" 2>/dev/null \
+            && mv -f "$UB_STATE/.history.jsonl.$$" "$UB_STATE/history.jsonl" 2>/dev/null
+        rm -f "$UB_STATE/.history.jsonl.$$"
+    ) 8<"$UB_STATE"
+    return 0
+}
+
+# --- Who holds the lock (since 2.20) -------------------------------------------
+# state/lock is held (flock) by one run at a time: backup.sh, setup.sh, Mr. Restori's restore jobs,
+# anything else that must not run beside a backup. Whoever takes it writes state/lock-holder.json
+# (a new file + mv), and removes it again when done:
+#   {"holder": "backup" | "setup" | "restore" | <other name>, "mode": <its mode>, "what": <what it
+#    works on, e.g. the app a restore brings back>, "run": <run id>, "pid": <process holding the lock>,
+#    "started": <unix seconds>, "version": <engine version>}
+# backup.sh: mode backup | check | dryrun, run = its run id (YYYYMMDD-HHMM); setup.sh: mode plan |
+# apply | forget | check | kopia | interactive | auto. Only holder and pid are a must.
+# The note is never trusted blindly: the lock itself stays the truth, the note counts only while its
+# pid lives (and, for backup.sh and setup.sh, is that script). Unknown or missing = "other".
+ub_holder_write() { # ub_holder_write <holder> <mode> <run> <started>
+    local tmp="$UB_STATE/.lock-holder.json.$$"
+    if jq -nc --arg h "$1" --arg m "${2:-}" --arg r "${3:-}" --argjson pid "$$" --argjson started "${4:-$(date +%s)}" \
+            --arg v "$UB_VERSION" '{holder: $h, mode: $m, what: "", run: $r, pid: $pid, started: $started, version: $v}' >"$tmp" 2>/dev/null; then
+        mv -f "$tmp" "$UB_STATE/lock-holder.json" 2>/dev/null
+    fi
+    rm -f "$tmp"
+    return 0
+}
+# only our own note goes (another holder may already have written its own)
+ub_holder_clear() {
+    [[ "$(jq -r '.pid // empty' "$UB_STATE/lock-holder.json" 2>/dev/null)" == "$$" ]] && rm -f "$UB_STATE/lock-holder.json"
+    return 0
+}
+# ub_pid_runs <pid> <script name>: is that process running the script (bash <path>/<script> ...)?
+ub_pid_runs() {
+    local a
+    while IFS= read -r -d '' a; do
+        [[ "$a" == "$2" || "$a" == */"$2" ]] && return 0
+    done < <(head -c 4096 "/proc/$1/cmdline" 2>/dev/null)
+    return 1
+}
+# ub_holder_read: who holds the lock, from the note - sets HOLDER_KIND (backup | check | dryrun |
+# setup | restore | other), HOLDER_MODE, HOLDER_WHAT, HOLDER_RUN, HOLDER_PID, HOLDER_STARTED
+ub_holder_read() {
+    HOLDER_KIND="other"; HOLDER_MODE=""; HOLDER_WHAT=""; HOLDER_RUN=""; HOLDER_PID=0; HOLDER_STARTED=0
+    local line h m w r p t
+    [[ -s "$UB_STATE/lock-holder.json" ]] || return 0
+    line="$(jq -r 'def s: tostring | gsub("[\u0000-\u001f]"; " ") | .[:80];
+        [(.holder // "" | s), (.mode // "" | s), (.what // "" | s), (.run // "" | s), (.pid // 0 | s), (.started // 0 | s)]
+        | join("\u001f")' "$UB_STATE/lock-holder.json" 2>/dev/null)" || return 0
+    IFS=$'\x1f' read -r h m w r p t <<<"$line"
+    is_uint "$p" && (( p > 1 && p != $$ )) && kill -0 "$p" 2>/dev/null || return 0
+    case "$h" in
+        backup)  ub_pid_runs "$p" backup.sh || return 0
+                 case "$m" in check|dryrun) HOLDER_KIND="$m" ;; *) HOLDER_KIND="backup" ;; esac ;;
+        setup)   ub_pid_runs "$p" setup.sh || return 0; HOLDER_KIND="setup" ;;
+        restore) HOLDER_KIND="restore" ;;
+        *)       HOLDER_KIND="other" ;;
+    esac
+    HOLDER_MODE="$m"; HOLDER_WHAT="$w"; HOLDER_PID="$p"
+    [[ "$r" =~ ^[0-9]{8}-[0-9]{4}$ ]] && HOLDER_RUN="$r"
+    is_uint "$t" && HOLDER_STARTED="$t"
+    return 0
+}
+
+# status_skipped <mode> <reason> <holder's phase> <holder's current Kopia source>: a run that could
+# not take the lock - state/skipped.json (every mode), and for a real backup run a line in
+# history.jsonl. Shaped like a status line ("result": "skipped", "message" = the reason code), so a
+# reader of history.jsonl that doesn't know it sees a run without Kopia, errors or downtime.
+status_skipped() {
+    local tmp="$UB_STATE/.skipped.json.$$" now line
+    now="$(date +%s)"
+    line="$(jq -nc --argjson interface "$UB_INTERFACE" --arg name "$UB_NAME" --arg version "$UB_VERSION" \
+        --arg mode "$1" --arg run "${TS:-}" --argjson pid "$$" --argjson time "$now" --arg reason "$2" \
+        --arg kind "$HOLDER_KIND" --arg hmode "$HOLDER_MODE" --arg what "$HOLDER_WHAT" --arg hrun "$HOLDER_RUN" \
+        --argjson hpid "${HOLDER_PID:-0}" --argjson hstarted "${HOLDER_STARTED:-0}" --arg phase "${3:-}" --arg current "${4:-}" \
+        '{interface: $interface, name: $name, version: $version, mode: $mode, run: $run, pid: $pid,
+          time: $time, started: $time, finished: $time, result: "skipped", reason: $reason, message: $reason,
+          errors: 0, warnings: 0, downtime_s: 0,
+          holder: {kind: $kind, mode: $hmode, what: $what, run: $hrun, pid: $hpid, started: $hstarted,
+                   phase: $phase, current: $current}}' 2>/dev/null)" || return 0
+    if printf '%s\n' "$line" >"$tmp" 2>/dev/null; then mv -f "$tmp" "$UB_STATE/skipped.json" 2>/dev/null; fi
+    rm -f "$tmp"
+    [[ "$1" == "backup" ]] && history_append "$line"
     return 0
 }
 
