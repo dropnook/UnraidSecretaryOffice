@@ -717,7 +717,9 @@ function snapshotsBlock(folders, shares, owner) {
     const pc = Office.backupChip(f.protection);
     if (pc) title.append(' ', pc);
     if (!f.exists && !f.asleep) title.append(' ', chip(T('snaps.missing'), 'danger', T('snaps.missing_hint')));
-    if (owner && (f.snaps || f.asleep)) title.append(' ', restoreButton(T('files.button'), { kind: 'files', path: f.path }, T('rd.title.files', { what: f.path })));
+    // from a local snapshot, or from what Kopia brought back into its restore folder
+    const fromKopia = (state.restores || []).some((r) => r.kind === 'kopia' && ['ok', 'warnings'].includes(r.result));
+    if (owner && (f.snaps || f.asleep || fromKopia)) title.append(' ', restoreButton(T('files.button'), { kind: 'files', path: f.path }, T('rd.title.files', { what: f.path })));
     part.appendChild(title);
     if (f.containers && f.containers.length) part.appendChild(el('div', 'role', T('snaps.used_by', { names: f.containers.join(', ') })));
     (f.places || []).forEach((p) => {
