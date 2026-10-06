@@ -622,5 +622,12 @@
   "watch.door": "via d'ingresso",
   "watch.port": "porta",
   "help.siem": "A un SIEM",
-  "help.siem_text": "Con «Anche nel syslog» ogni nuova voce va nel syslog di Unraid come una riga — tag uso-watchman, JSON: id, tipo, gruppo, la tecnica ATT&CK, importante o no, preso atto da sé o no, l'ora, la voce in inglese. Impostazioni → Server Syslog → Server syslog remoto di Unraid inoltra il syslog a un SIEM (Wazuh, Graylog, Splunk, Elastic …), dove regole e dashboard fanno il resto. Niente impronte, niente righe di prova; al massimo 20 per giro."
+  "help.siem_text": "Con «Anche nel syslog» ogni nuova voce va nel syslog di Unraid come una riga — tag uso-watchman, JSON: id, tipo, gruppo, la tecnica ATT&CK, importante o no, preso atto da sé o no, l'ora, la voce in inglese. Impostazioni → Server Syslog → Server syslog remoto di Unraid inoltra il syslog a un SIEM (Wazuh, Graylog, Splunk, Elastic …), dove regole e dashboard fanno il resto. Niente impronte, niente righe di prova; al massimo 20 per giro.",
+  "chain_chip": "insieme",
+  "chain_title": "Una di {n} voci di tipo diverso arrivate a breve distanza — forse un solo incidente; vedi il riquadro in cima al registro di guardia.",
+  "chain.text": "Queste {n} voci sono arrivate in {minutes} minuti e sono di tipo diverso — forse vanno insieme:",
+  "chain.how": "Un accesso da un nuovo indirizzo e poco dopo un modo per restare (una riga cron, un plugin, una porta, un account), oppure snapshot spariti e molto scritto in una condivisione — così appaiono intrusioni e ransomware. Se sei stato tu: prendi atto delle voci, e il riquadro sparisce.",
+  "notify.chain": "Guardiano notturno: {n} voci che forse vanno insieme",
+  "help.chain": "Va insieme",
+  "help.chain_text": "Un Security Operations Center non guarda gli allarmi uno per uno: voci importanti di almeno due tipi diversi, ognuna entro un'ora da un'altra, possono essere un solo incidente — un accesso da un nuovo indirizzo e minuti dopo una nuova riga cron, snapshot spariti e molto scritto in una condivisione. Il registro di guardia le mostra insieme in cima, ogni voce porta «insieme», e le notifiche di Unraid ricevono un messaggio quando si forma una tale catena (oltre a quelli delle voci; al massimo uno all'ora). Prendere atto di una voce la toglie."
 }

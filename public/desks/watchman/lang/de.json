@@ -622,5 +622,12 @@
   "watch.door": "Weg herein",
   "watch.port": "Port",
   "help.siem": "An ein SIEM",
-  "help.siem_text": "Mit «Auch ins Syslog» geht jeder neue Eintrag als eine Zeile in Unraids Syslog — Tag uso-watchman, JSON: ID, Art, Gruppe, die ATT&CK-Technik, wichtig oder nicht, von selbst zur Kenntnis genommen oder nicht, die Zeit, der Eintrag auf Englisch. Unraids Settings → Syslog Server → Remote syslog server schickt das Syslog an ein SIEM (Wazuh, Graylog, Splunk, Elastic …), wo Regeln und Dashboards übernehmen. Keine Fingerabdrücke, keine Belegzeilen; höchstens 20 pro Rundgang."
+  "help.siem_text": "Mit «Auch ins Syslog» geht jeder neue Eintrag als eine Zeile in Unraids Syslog — Tag uso-watchman, JSON: ID, Art, Gruppe, die ATT&CK-Technik, wichtig oder nicht, von selbst zur Kenntnis genommen oder nicht, die Zeit, der Eintrag auf Englisch. Unraids Settings → Syslog Server → Remote syslog server schickt das Syslog an ein SIEM (Wazuh, Graylog, Splunk, Elastic …), wo Regeln und Dashboards übernehmen. Keine Fingerabdrücke, keine Belegzeilen; höchstens 20 pro Rundgang.",
+  "chain_chip": "zusammen",
+  "chain_title": "Einer von {n} Einträgen verschiedener Art, die kurz nacheinander kamen — vielleicht ein Vorfall; siehe den Kasten oben im Wachbuch.",
+  "chain.text": "Diese {n} Einträge kamen innerhalb von {minutes} Minuten und sind verschiedener Art — sie gehören womöglich zusammen:",
+  "chain.how": "Ein Login von einer neuen Adresse und kurz danach ein Weg zu bleiben (eine Cron-Zeile, ein Plugin, ein Port, ein Konto) oder Snapshots weg und viel in eine Freigabe geschrieben — so sehen Einbrüche und Ransomware aus. Warst du es: die Einträge zur Kenntnis nehmen, dann verschwindet der Kasten.",
+  "notify.chain": "Nachtwächter: {n} Einträge, die womöglich zusammengehören",
+  "help.chain": "Gehört zusammen",
+  "help.chain_text": "Ein Security Operations Center schaut Alarme nicht einzeln an: Wichtige Einträge von mindestens zwei verschiedenen Arten, jeder innerhalb einer Stunde nach einem anderen, sind womöglich ein Vorfall — ein Login von einer neuen Adresse und Minuten später eine neue Cron-Zeile, Snapshots weg und viel in eine Freigabe geschrieben. Das Wachbuch zeigt sie oben zusammen, jeder Eintrag trägt «zusammen», und Unraids Benachrichtigungen bekommen eine Nachricht, wenn sich so eine Kette bildet (neben denen der Einträge; höchstens eine pro Stunde). Einen Eintrag zur Kenntnis nehmen nimmt ihn heraus."
 }

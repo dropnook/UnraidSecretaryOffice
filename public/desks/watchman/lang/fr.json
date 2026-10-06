@@ -622,5 +622,12 @@
   "watch.door": "entrée",
   "watch.port": "port",
   "help.siem": "Vers un SIEM",
-  "help.siem_text": "Avec « Aussi dans le syslog », chaque nouvelle entrée va dans le syslog d'Unraid en une ligne — tag uso-watchman, JSON : id, type, groupe, la technique ATT&CK, importante ou non, notée de lui-même ou non, l'heure, l'entrée en anglais. Paramètres → Serveur Syslog → Serveur syslog distant d'Unraid envoie le syslog à un SIEM (Wazuh, Graylog, Splunk, Elastic …), où règles et tableaux de bord prennent le relais. Pas d'empreintes, pas de lignes de preuve ; au plus 20 par ronde."
+  "help.siem_text": "Avec « Aussi dans le syslog », chaque nouvelle entrée va dans le syslog d'Unraid en une ligne — tag uso-watchman, JSON : id, type, groupe, la technique ATT&CK, importante ou non, notée de lui-même ou non, l'heure, l'entrée en anglais. Paramètres → Serveur Syslog → Serveur syslog distant d'Unraid envoie le syslog à un SIEM (Wazuh, Graylog, Splunk, Elastic …), où règles et tableaux de bord prennent le relais. Pas d'empreintes, pas de lignes de preuve ; au plus 20 par ronde.",
+  "chain_chip": "ensemble",
+  "chain_title": "L'une de {n} entrées de types différents arrivées à peu d'intervalle — peut-être un seul incident ; voir l'encadré en haut de la main courante.",
+  "chain.text": "Ces {n} entrées sont arrivées en {minutes} minutes et sont de types différents — elles vont peut-être ensemble :",
+  "chain.how": "Une connexion depuis une nouvelle adresse et peu après un moyen de rester (une ligne cron, un plugin, un port, un compte), ou des snapshots disparus et beaucoup d'écritures dans un partage — c'est l'allure des intrusions et des rançongiciels. Si c'était toi : note les entrées, et l'encadré disparaît.",
+  "notify.chain": "Veilleur de nuit : {n} entrées qui vont peut-être ensemble",
+  "help.chain": "Va ensemble",
+  "help.chain_text": "Un Security Operations Center ne regarde pas les alertes une par une : des entrées importantes d'au moins deux types différents, chacune à moins d'une heure d'une autre, peuvent être un seul incident — une connexion depuis une nouvelle adresse et quelques minutes après une nouvelle ligne cron, des snapshots disparus et beaucoup d'écritures dans un partage. La main courante les montre ensemble en haut, chaque entrée porte « ensemble », et les notifications d'Unraid reçoivent un message quand une telle chaîne se forme (en plus de celles des entrées ; au plus une par heure). Noter une entrée la retire."
 }

@@ -622,5 +622,12 @@
   "watch.door": "way in",
   "watch.port": "port",
   "help.siem": "To a SIEM",
-  "help.siem_text": "With «Also to the syslog» each new entry goes to Unraid's syslog as one line — tag uso-watchman, JSON: id, kind, group, the ATT&CK technique, important or not, noted by himself or not, the time, the entry in English. Unraid's Settings → Syslog Server → Remote syslog server sends the syslog on to a SIEM (Wazuh, Graylog, Splunk, Elastic …), where rules and dashboards can take it from there. No hashes, no evidence lines; at most 20 a round."
+  "help.siem_text": "With «Also to the syslog» each new entry goes to Unraid's syslog as one line — tag uso-watchman, JSON: id, kind, group, the ATT&CK technique, important or not, noted by himself or not, the time, the entry in English. Unraid's Settings → Syslog Server → Remote syslog server sends the syslog on to a SIEM (Wazuh, Graylog, Splunk, Elastic …), where rules and dashboards can take it from there. No hashes, no evidence lines; at most 20 a round.",
+  "chain_chip": "together",
+  "chain_title": "One of {n} entries of different kinds that came close together — maybe one incident; see the box at the top of the watch book.",
+  "chain.text": "These {n} entries came within {minutes} minutes and are of different kinds — they may belong together:",
+  "chain.how": "A login from a new address and soon after a way to stay (a cron line, a plugin, a port, an account), or snapshots gone and much written into a share — that is how intrusions and ransomware look. If it was you: note the entries, and the box goes.",
+  "notify.chain": "Night watchman: {n} entries that may belong together",
+  "help.chain": "Belongs together",
+  "help.chain_text": "A security operations centre doesn't look at alarms one by one: important entries of at least two different kinds, each within an hour of another, may be one incident — a login from a new address and minutes later a new cron line, snapshots gone and much written into a share. The watch book shows them together at its top, each entry carries «together», and Unraid's notifications get one message when such a chain forms (besides the entries' own; at most one an hour). Noting an entry takes it out."
 }
