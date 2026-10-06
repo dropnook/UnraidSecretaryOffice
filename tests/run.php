@@ -4118,6 +4118,41 @@ function testAdvisor(): void
     same('advisor: textfile — /hostile is not under /host', [], advisorTextfileDirs(['--collector.textfile.directory=/hostile/x'], $root));
     same('advisor: textfile — on the host (the plugin), given twice', [ADVISOR_METRICS_DIR, '/var/lib/x'],
         advisorTextfileDirs(['--collector.textfile.directory="' . ADVISOR_METRICS_DIR . '/"', '--collector.textfile.directory=/var/lib/x'], null));
+
+    // «reads the office's folder» only while that folder is really there (a fresh Unraid had no /mnt/addons)
+    $tmp = hardeningTmp('advisor-metrics');
+    @mkdir("$tmp/metrics", 0755);
+    @symlink("$tmp/metrics", "$tmp/linked");
+    same('advisor: the office\'s folder - there, missing, a link', [true, false, false],
+        [advisorMetricsThere("$tmp/metrics"), advisorMetricsThere("$tmp/missing"), advisorMetricsThere("$tmp/linked")]);
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('advisor: textfile chip - node is missing here - skipped', true);
+    } else {
+        $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: {}, desk: () => {}, has: () => false };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const a = OFFICE_DESK_TESTS.advisor;
+const out = [];
+for (const there of [true, false, undefined]) {
+  a.setState({ metrics_dir: '/mnt/addons/UnraidSecretaryOffice/metrics', metrics_there: there });
+  out.push([true, false, null].map((textfile) => { const c = a.textfileChip({ textfile }); return c ? c.cls + ' ' + c.text : null; }));
+}
+a.setState({ metrics_dir: '/x', metrics_there: false });
+out.push(a.textfileChip({ textfile: true }).tip);
+console.log(JSON.stringify(out));
+JS;
+        file_put_contents("$tmp/t.js", $js);
+        $cmd = escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/advisor/desk.js') . ' 2>&1';
+        $r = json_decode((string) shell_exec($cmd), true);
+        same('advisor: textfile chip - reads the folder only while it is there; not set stays not set; an older state as before',
+            [['ok textfile_yes', 'warn textfile_no', null], ['warn textfile_nodir', 'warn textfile_no', null], ['ok textfile_yes', 'warn textfile_no', null],
+             'textfile_nodir_tip {"dir":"/x"}'], $r, is_array($r) ? '' : (string) shell_exec($cmd));
+    }
+    hardeningRm($tmp);
 }
 
 /** The Consultant installs: his templates, what he refuses, what he writes beforehand (only where nothing is), the facts he reads */

@@ -95,7 +95,9 @@
   "textfile_yes_tip": "Son textfile collector lit {dir} — c'est là que le secrétariat dépose ses chiffres.",
   "textfile_no": "dossier du secrétariat non réglé",
   "textfile_no_tip": "Il ne lit pas {dir} — les chiffres du secrétariat n'arriveraient pas jusqu'à Prometheus. « Installer à la main » montre comment : les Post Arguments pour le conteneur, la commande pour le plugin d'ich777.",
-  "help.textfile": "Node Exporter seulement : s'il lit le dossier où le secrétariat écrit ses chiffres (sinon en jaune « dossier du secrétariat non réglé »).",
+  "textfile_nodir": "dossier du secrétariat pas encore là",
+  "textfile_nodir_tip": "Il est réglé pour lire {dir} — mais ce dossier n'existe pas encore sur le serveur, il n'y a donc rien à lire. L'agent du secrétariat le crée dès qu'il tourne (il regarde chaque minute) ; s'il manque toujours, le journal de l'agent dit pourquoi.",
+  "help.textfile": "Node Exporter seulement : s'il lit le dossier où le secrétariat écrit ses chiffres (sinon en jaune « dossier du secrétariat non réglé », ou « dossier du secrétariat pas encore là » tant que le dossier lui-même manque sur le serveur).",
   "ip_unknown": "Le secrétariat n'a pas pu lire l'adresse du serveur : mets-la à la place de <server-ip> (Paramètres → Paramètres réseau l'indique).",
   "bubble.monitoring": {
     "one": "L'essentiel est sur place. Ton monitoring est à moitié construit : il manque encore {names} — comblons ce gap.",

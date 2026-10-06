@@ -95,7 +95,9 @@
   "textfile_yes_tip": "Its textfile collector reads {dir} — that's where the office puts its numbers.",
   "textfile_no": "office's folder not set",
   "textfile_no_tip": "It doesn't read {dir} — the office's numbers wouldn't reach Prometheus. «Install by hand» shows how: the Post Arguments for the container, the command for ich777's plugin.",
-  "help.textfile": "Node Exporter only: whether it reads the folder the office writes its numbers to (otherwise a yellow «office's folder not set»).",
+  "textfile_nodir": "office's folder not there yet",
+  "textfile_nodir_tip": "It is set to read {dir} — but that folder isn't on the server yet, so there is nothing to read. The office's agent makes it as soon as it runs (it looks every minute); if it stays missing, the agent's log says why.",
+  "help.textfile": "Node Exporter only: whether it reads the folder the office writes its numbers to (otherwise a yellow «office's folder not set», or «office's folder not there yet» while the folder itself is missing on the server).",
   "ip_unknown": "The office couldn't read the server's address: put it in place of <server-ip> (Settings → Network Settings shows it).",
   "bubble.monitoring": {
     "one": "The must-haves are on site. Your monitoring is half-built: {names} is still missing — let's close that gap.",

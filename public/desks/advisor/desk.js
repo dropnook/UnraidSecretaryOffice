@@ -206,10 +206,10 @@ function external(id, x) {
   else if (!x.there) meta.appendChild(el('span', 'chip danger', T('missing')));
   else if (x.kind === 'container' && !x.running) meta.appendChild(el('span', 'chip warn', T('stopped')));
   else meta.appendChild(el('span', 'chip ok', T('there')));
-  if (x.textfile === true || x.textfile === false) {     // the node exporter: does it read the office's folder?
-    const yes = x.textfile;
-    const chip = el('span', 'chip ' + (yes ? 'ok' : 'warn'), T(yes ? 'textfile_yes' : 'textfile_no'));
-    chip.title = T(yes ? 'textfile_yes_tip' : 'textfile_no_tip', { dir: state.metrics_dir || '' });
+  const tf = textfileChip(x);
+  if (tf) {                                              // the node exporter: does it read the office's folder?
+    const chip = el('span', 'chip ' + tf.cls, tf.text);
+    chip.title = tf.tip;
     meta.appendChild(chip);
   }
   const repo = x.kopia && x.kopia.repo;
@@ -307,6 +307,19 @@ function avatar(e, x) {
   img.onerror = () => { box.innerHTML = ''; box.textContent = e.icon; };
   box.appendChild(img);
   return box;
+}
+
+/**
+ * The node exporter's chip: whether its textfile collector reads the office's folder — «reads the
+ * office's folder» only while that folder is really there on the host (an older state without
+ * metrics_there counts as there); null for anything else
+ */
+function textfileChip(x) {
+  if (x.textfile !== true && x.textfile !== false) return null;
+  const dir = { dir: state.metrics_dir || '' };
+  if (!x.textfile) return { cls: 'warn', text: T('textfile_no'), tip: T('textfile_no_tip', dir) };
+  if (state.metrics_there === false) return { cls: 'warn', text: T('textfile_nodir'), tip: T('textfile_nodir_tip', dir) };
+  return { cls: 'ok', text: T('textfile_yes'), tip: T('textfile_yes_tip', dir) };
 }
 
 /**
@@ -1131,4 +1144,9 @@ Office.desk({
     return { bubble: bubbleText(), facts };
   },
 });
+
+// tests/run.php runs this under node (Unraid's own) - never set in a browser
+if (globalThis.OFFICE_DESK_TESTS) {
+  globalThis.OFFICE_DESK_TESTS.advisor = { setState: (s) => { state = s; }, textfileChip };
+}
 })();

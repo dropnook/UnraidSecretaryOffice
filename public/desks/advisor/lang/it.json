@@ -95,7 +95,9 @@
   "textfile_yes_tip": "Il suo textfile collector legge {dir} — è lì che la segreteria mette i suoi numeri.",
   "textfile_no": "cartella della segreteria non impostata",
   "textfile_no_tip": "Non legge {dir} — i numeri della segreteria non arriverebbero a Prometheus. «Installare a mano» mostra come: i Post Arguments per il contenitore, il comando per il plugin di ich777.",
-  "help.textfile": "Solo per il Node Exporter: se legge la cartella in cui la segreteria scrive i suoi numeri (altrimenti in giallo «cartella della segreteria non impostata»).",
+  "textfile_nodir": "cartella della segreteria non ancora presente",
+  "textfile_nodir_tip": "È impostato per leggere {dir} — ma quella cartella sul server non c'è ancora, quindi non c'è niente da leggere. L'agente della segreteria la crea appena è in funzione (controlla ogni minuto); se continua a mancare, il log dell'agente dice perché.",
+  "help.textfile": "Solo per il Node Exporter: se legge la cartella in cui la segreteria scrive i suoi numeri (altrimenti in giallo «cartella della segreteria non impostata», oppure «cartella della segreteria non ancora presente» finché la cartella stessa manca sul server).",
   "ip_unknown": "La segreteria non è riuscita a leggere l'indirizzo del server: mettilo al posto di <server-ip> (lo trovi in Impostazioni → Impostazioni di rete).",
   "bubble.monitoring": {
     "one": "L'indispensabile è in sede. Il tuo monitoraggio è a metà: manca ancora {names} — chiudiamo questo gap.",
