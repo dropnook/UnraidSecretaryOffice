@@ -24,7 +24,10 @@ declare(strict_types=1);
  * get OFFICE_GLOBAL_TRIES before everybody waits — so many addresses can't
  * guess on and on either.
  *
- * Forgot the PIN? Delete data/office/auth.json on the server.
+ * Waiting too long, or forgot the PIN? In Unraid's terminal (root only):
+ *   bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/pin.sh unblock|reset|status
+ * unblock lifts the waiting times and keeps the PIN, reset forgets it (like
+ * deleting data/office/auth.json); see officeAuthCli() at the end.
  */
 
 const OFFICE_UNLOCK_HOURS = 12;
@@ -54,17 +57,29 @@ function officeAuthRead(): array
 
 /**
  * Changes auth.json under a lock. $change gets the current data and returns
- * the new data (or null to leave it as it is).
+ * the new data (or null to leave it as it is). $keepOwner (root in a terminal,
+ * officeAuthCli()): the folder belongs to the web server's user, so what root
+ * creates there gets that owner — the new auth.json the old one's — and
+ * nothing in it is followed if it is a link.
  */
-function officeAuthUpdate(callable $change): array
+function officeAuthUpdate(callable $change, bool $keepOwner = false): array
 {
     $dir = dirname(officeAuthFile());
     if (!is_dir($dir) || !is_writable($dir)) {
         throw new AuthProblem('auth_storage', 503);
     }
+    if ($keepOwner && (is_link($dir) || is_link("$dir/.auth.lock") || is_link(officeAuthFile()))) {
+        throw new AuthProblem('auth_storage', 503);
+    }
+    $owner = $keepOwner ? @lstat($dir) : false;
+    $newLock = !file_exists("$dir/.auth.lock");
     $h = fopen("$dir/.auth.lock", 'c');
     if (!$h || !flock($h, LOCK_EX)) {
         throw new AuthProblem('auth_storage', 503);
+    }
+    if ($owner && $newLock) {
+        @lchown("$dir/.auth.lock", $owner['uid']);
+        @lchgrp("$dir/.auth.lock", $owner['gid']);
     }
     try {
         $data = officeAuthRead();
@@ -76,6 +91,11 @@ function officeAuthUpdate(callable $change): array
             $ok = $f && @chmod($tmp, 0600) && @fwrite($f, json_encode($new, JSON_UNESCAPED_SLASHES)) !== false;
             if ($f) {
                 fclose($f);
+            }
+            if ($ok && $owner) {
+                $was = @lstat(officeAuthFile());
+                $who = $was && ($was['mode'] & 0170000) === 0100000 ? $was : $owner;
+                $ok = @lchown($tmp, $who['uid']) && @lchgrp($tmp, $who['gid']);
             }
             if (!$ok || !@rename($tmp, officeAuthFile())) {
                 @unlink($tmp);
@@ -372,4 +392,113 @@ function officeSetPin(string $pin, string $current): array
         return ['ok' => true, 'auth' => officeAuthStatus(null)];
     }
     return ['ok' => true, 'auth' => officeAuthStatus(officeSetUnlockCookie($auth))];
+}
+
+// ===================================================================== in Unraid's terminal (scripts/pin.sh, root only)
+
+/*
+ * For whoever stands at the server — never reachable from the web (CLI only,
+ * pin.sh checks for root):
+ *   status   is a PIN set, does looking need it too, who waits how long
+ *   unblock  forgets the wrong tries and every waiting time; the PIN and its
+ *            secret stay, so browsers that are unlocked stay unlocked
+ *   reset    forgets the PIN — auth.json emptied, as removing the PIN in the
+ *            dialog does (or deleting the file): anyone who may open the
+ *            office may change things again, until a new PIN is set
+ * Same lock and file handling as the page; auth.json stays 0600 with its owner.
+ */
+function officeAuthCli(string $command, ?int $now = null): int
+{
+    if (PHP_SAPI !== 'cli') {
+        return 2;
+    }
+    $now ??= time();
+    if (!is_dir(OFFICE_DATA)) {
+        fwrite(STDERR, 'The data folder ' . OFFICE_DATA . " isn't there - is the array started?\n");
+        return 1;
+    }
+    try {
+        switch ($command) {
+            case 'status':
+                echo officeAuthDescribe(officeAuthRead(), $now);
+                return 0;
+            case 'unblock':
+                $r = officeAuthUnblock();
+                echo match (true) {
+                    !$r['pin']     => "No PIN is set - nobody waits.\n",
+                    !$r['changed'] => "Nobody was waiting - nothing changed.\n",
+                    default        => "Waiting times lifted: {$r['failures']} wrong tries forgotten, those of {$r['clients']} device(s) too.\n"
+                                    . "The PIN stays as it was; browsers that are unlocked stay unlocked.\n",
+                };
+                return 0;
+            case 'reset':
+                echo officeAuthReset()
+                    ? "PIN forgotten. Anyone who may open the office can change things again - set a new one in the office (its ... menu, PIN).\n"
+                    : "No PIN was set - nothing changed.\n";
+                return 0;
+        }
+    } catch (AuthProblem $e) {
+        fwrite(STDERR, 'Could not change ' . officeAuthFile() . " ({$e->key}).\n");
+        return 1;
+    }
+    fwrite(STDERR, "Usage: pin.sh status|unblock|reset\n");
+    return 2;
+}
+
+/** Forgets the wrong tries and every waiting time, keeps the PIN and its secret. @return array{pin: bool, changed: bool, failures: int, clients: int} */
+function officeAuthUnblock(): array
+{
+    $r = ['pin' => false, 'changed' => false, 'failures' => 0, 'clients' => 0];
+    if (!is_file(officeAuthFile())) {
+        return $r;
+    }
+    officeAuthUpdate(function (array $auth) use (&$r): ?array {
+        $r['pin'] = !empty($auth['pin_hash']);
+        $r['failures'] = (int) ($auth['failures'] ?? 0);
+        $r['clients'] = count((array) ($auth['clients'] ?? []));
+        $r['changed'] = $r['failures'] > 0 || $r['clients'] > 0 || (int) ($auth['wait_until'] ?? 0) > 0;
+        if (!$r['changed']) {
+            return null;
+        }
+        $auth['failures'] = 0;
+        $auth['wait_until'] = 0;
+        unset($auth['clients']);
+        return $auth;
+    }, true);
+    return $r;
+}
+
+/** Forgets the PIN (and with it "looking needs the PIN too" and every wait). @return bool whether there was one */
+function officeAuthReset(): bool
+{
+    $had = false;
+    if (is_file(officeAuthFile())) {
+        officeAuthUpdate(function (array $auth) use (&$had): ?array {
+            $had = !empty($auth['pin_hash']);
+            return $auth === [] ? null : [];
+        }, true);
+    }
+    return $had;
+}
+
+/** What status tells: PIN set?, looking protected?, the waits now */
+function officeAuthDescribe(array $auth, int $now): string
+{
+    if (empty($auth['pin_hash'])) {
+        return "PIN: not set - anyone who may open the office can change things.\n";
+    }
+    $left = fn (int $until): string => $until > $now ? sprintf('%d min %02d s', intdiv($until - $now, 60), ($until - $now) % 60) : '';
+    $out = "PIN: set" . (!empty($auth['read']) ? ' (looking needs it too)' : '') . "\n";
+    $all = (int) ($auth['wait_until'] ?? 0);
+    $out .= 'Wrong tries of all devices: ' . (int) ($auth['failures'] ?? 0) . ' of ' . OFFICE_GLOBAL_TRIES
+          . ($left($all) !== '' ? ' - everybody waits ' . $left($all) . ' more' : '') . "\n";
+    $clients = (array) ($auth['clients'] ?? []);
+    if (!$clients) {
+        return $out . "No device has wrong tries.\n";
+    }
+    foreach ($clients as $client => $c) {
+        $w = $left((int) ($c['w'] ?? 0));
+        $out .= sprintf("  %-28s %d wrong%s\n", (string) $client, (int) ($c['f'] ?? 0), $w !== '' ? ", waits $w more" : '');
+    }
+    return $out . "To lift the waiting times and keep the PIN: pin.sh unblock\n";
 }

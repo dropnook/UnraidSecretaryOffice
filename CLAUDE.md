@@ -92,6 +92,9 @@ differ get a `_plugin` key or come from state (`schedule.via`).
   read or measure; an open action asked to do more (`wake`: `OFFICE_PIN_FLAGS`) or listed in
   `OFFICE_PIN_ACTIONS` (backup's `setup_plan`) needs the PIN anyway. Wrong PINs count per client
   (address, IPv6 by /64), with a ceiling for all. Who may write is decided in `src/auth.php` only.
+  In Unraid's terminal `scripts/pin.sh unblock|reset|status` (root) runs `officeAuthCli()` there with
+  Unraid's PHP (bootstrap.php, so the same data folder, lock and file handling): unblock clears
+  `failures`/`wait_until`/`clients` only, reset empties auth.json; the file keeps 0600 and its owner.
 * **Checks for the caretaker:** a desk that needs plugins, containers or
   settings registers `'checks'` returning `finding()`s (agent/lib/house.php):
   `required` only when the desk really can't work without it, otherwise

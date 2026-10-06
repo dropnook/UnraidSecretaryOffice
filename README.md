@@ -215,7 +215,10 @@ them wait (longer each time) — the others aren't held up; only many wrong trie
 from many devices make everybody wait. Without the PIN one can still look, but
 not wake sleeping disks or start the backup setup's look at the server. In the same dialog, *Needed to look, too*
 hides everything — shares, paths, containers, logs — from browsers without
-the PIN. Forgot it? Delete `data/office/auth.json` in the data folder. All of
+the PIN. Waiting too long after wrong tries? In Unraid's terminal
+`bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/pin.sh unblock` lifts the waiting
+times and keeps the PIN (browsers that are unlocked stay unlocked); `… pin.sh reset` forgets the PIN
+(the same as deleting `data/office/auth.json` in the data folder); `… pin.sh status` shows both. All of
 this lives in `src/auth.php`.
 
 The agent can do what root can do on the host — that is what it is for — but
