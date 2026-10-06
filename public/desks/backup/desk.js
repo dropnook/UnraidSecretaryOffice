@@ -1218,7 +1218,7 @@ function chooseRun() {
     box.appendChild(label);
   });
   const est = state.estimates || {};
-  if (est.total) box.appendChild(el('p', 'callout', T('start_hint', { duration: fmt.duration(est.total) })));
+  if (est.total) box.appendChild(el('p', 'callout', T('start_hint', { duration: dur(est.total) })));
   Office.dialog({
     title: T('start_title'),
     body: box,
@@ -2775,7 +2775,7 @@ function scheduleDialog() {
     if (took && mode === 'daily' && /^\d\d:\d\d$/.test(time.value)) {
       const [h, m] = time.value.split(':').map(Number);
       const end = new Date(2000, 0, 1, h, m).getTime() / 1000 + took;
-      ends.textContent = T('schedule.duration', { duration: fmt.duration(took), end: fmt.time(end) });
+      ends.textContent = T('schedule.duration', { duration: dur(took), end: fmt.time(end) });
     }
   };
   time.oninput = update;
