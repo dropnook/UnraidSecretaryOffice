@@ -618,7 +618,7 @@
   "syslog_off": "Niente più voci nel syslog.",
   "watch.host": "Il server stesso",
   "watch.host_wait": "Dal suo prossimo giro.",
-  "watch.host_sum": "{ports} porte · {doors} vie d'ingresso · {procs} programmi da posti insoliti · {users} account",
+  "watch.host_sum": "porte: {ports} · vie d'ingresso: {doors} · programmi da posti insoliti: {procs} · account: {users}",
   "watch.door": "via d'ingresso",
   "watch.port": "porta",
   "help.siem": "A un SIEM",
