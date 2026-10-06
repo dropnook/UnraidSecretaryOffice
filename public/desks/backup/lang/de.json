@@ -216,6 +216,8 @@
   "check.office_keeps_running_how": "Das Backup hält für seine Snapshots {names} an, das Sekretariat ist dann ein paar Minuten weg. Bei Herrn Backupsi unter «Einrichten…» → Container auf «weiterlaufen lassen» stellen.",
   "setup_open": "Einrichten…",
   "notice.setup_running": "Das Setup schaut sich gerade den Server an.",
+  "notice.restoring": "Herr Restori holt gerade {what} zurück: Er hält die Sperre der Engine, also startet kein Lauf, keine Prüfung und keine Einrichtung, bis er fertig ist — ein geplanter Lauf wird übersprungen und sagt warum.",
+  "notice.restoring_go": "Zu Herrn Restori",
   "errors.setup_running": "Das Setup ist gerade beschäftigt — gleich nochmals versuchen.",
   "errors.setup_bad_decisions": "Diese Einstellungen lassen sich nicht übernehmen ({detail}). Server neu einlesen und nochmals versuchen.",
   "setup.back": "← Zurück",

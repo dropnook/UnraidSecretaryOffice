@@ -1949,7 +1949,8 @@ function clBuild(): array
             'cache_at'   => $cache['build']['at'] ?? null,
             'list'       => clDockerEntries($raw, $cache, $pending),
         ],
-        'backup_running' => backupScriptState()['running'],
+        'backup_running' => backupScriptState()['running'],          // the engine's lock is held (a run, its setup, or a restore)
+        'restore_running' => (backupLockHolder()['holder'] ?? '') === 'restore',   // Mr. Restori is bringing something back
         'templates' => ['dir' => CL_TEMPLATES, 'list' => array_merge($templates, $raw['strays']),
                         'strays_at' => $cache['strays']['at'] ?? null, 'strays_searching' => $pending('strays:flash') || $pending('strays:pools'),
                         'strays_skipped' => $cache['strays']['skipped'] ?? 0, 'strays_skipped_dirs' => $cache['strays']['skipped_dirs'] ?? []],
@@ -2515,9 +2516,12 @@ function clRunTidy(string $path, string $root): void
 
 // ===================================================================== actions
 
-/** No changes while a backup runs (it may be reading what would move) */
+/** No changes while a backup runs (it may be reading what would move) or Mr. Restori restores (he may be putting it back) */
 function clGuard(array $state): void
 {
+    if ((backupLockHolder()['holder'] ?? '') === 'restore') {
+        throw new Problem('cleanup_restore_running');
+    }
     if ($state['backup_running'] ?? false) {
         throw new Problem('cleanup_backup_running');
     }

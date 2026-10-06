@@ -219,6 +219,8 @@
   "check.office_keeps_running_how": "Per i suoi snapshot il backup ferma {names}, quindi la segreteria sparisce per qualche minuto. In «Configura…» dal signor Backupsi impostali su «lascia girare».",
   "setup_open": "Configura…",
   "notice.setup_running": "La configurazione sta guardando il server proprio ora.",
+  "notice.restoring": "Il signor Restori sta riportando indietro {what} proprio ora: tiene il blocco del motore, quindi nessun backup, controllo o configurazione parte finché non ha finito — un backup pianificato viene saltato e dice perché.",
+  "notice.restoring_go": "Dal signor Restori",
   "errors.setup_running": "La configurazione è occupata in questo momento — riprova tra un attimo.",
   "errors.setup_bad_decisions": "Queste impostazioni non si possono applicare ({detail}). Rileggi il server e riprova.",
   "setup.back": "← Indietro",

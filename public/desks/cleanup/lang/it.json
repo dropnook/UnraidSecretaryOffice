@@ -346,6 +346,7 @@
   "help.safe": "Attenzione",
   "help.safe_text": "Finché è in corso un backup non cambio niente. Rinomino e basta — dove non si può (un altro disco, un dataset a sé) rifiuto invece di copiare.",
   "errors.cleanup_backup_running": "È in corso un backup — aspetto che abbia finito.",
+  "errors.cleanup_restore_running": "Il signor Restori sta riportando indietro qualcosa — aspetto che abbia finito.",
   "errors.cleanup_docker_down": "Docker non risponde — senza di lui non tocco {name}.",
   "errors.cleanup_asleep": "{name} è su un disco in standby.",
   "errors.cleanup_no_compose": "{name} ha ancora contenitori che non posso fermare con docker compose.",

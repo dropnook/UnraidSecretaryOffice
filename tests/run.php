@@ -14,7 +14,8 @@ declare(strict_types=1);
  *            lead's «I know, thanks» and the Dashboard tile,
  *            Mr. Backupsy's packages and his Kopia per app and VM, a run skipped because
  *            the engine's lock was busy (and who holds it), Ms. Dustdevil's pictures,
- *            Mr. Restori's reader of the packages, the Consultant's monitoring externals, Ms. Protocolli's tour,
+ *            Mr. Restori's reader of the packages and his restores (steps, put back, the lock, a job on its own),
+ *            the Consultant's monitoring externals, Ms. Protocolli's tour,
  *            the night watchman's rounds, bursts, baseline and «I know, thanks»)
  *   hardening  the checks that keep requests, manifests, paths and links in
  *            bounds (PIN tries, safe writes, the mailbox, Ms. Dustdevil's
@@ -738,6 +739,195 @@ function testRestore(): void
     same('restore: share paths', [['appdata', 'nextcloud/db', null], ['appdata', 'x', 'master'], null, null, null, ['domains', '', null]],
         [rsSharePath('/mnt/user/appdata/nextcloud/db/', $ctx), rsSharePath('/mnt/master/appdata/x', $ctx), rsSharePath('/mnt/disks/ud/x', $ctx),
          rsSharePath('/mnt/user/appdata/../etc', $ctx), rsSharePath('/mnt/user/.hidden/x', $ctx), rsSharePath('/mnt/user/domains', $ctx)]);
+}
+
+/**
+ * Mr. Restori restores (steps 2-6): what a dump holds per database, the credentials only as variable names in
+ * the container's script, where things go aside (flash, next to it), clean paths, Kopia's list; the job's steps on
+ * a temporary folder (aside, put, move, fresh, copy — each recording how «Put back» undoes it) and the put back
+ * built from the journal; the engine's lock with his note; a whole job as its own process (done, and refused while
+ * the lock is held); interrupted journals; the Dashboard's row. Everything in a temporary folder.
+ */
+function testRestoreJobs(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rsjob-' . getmypid();
+    @mkdir("$tmp/data/unraid-backup/state", 0700, true);
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    $GLOBALS['rs']['ub_data'] = "$tmp/data/unraid-backup";
+
+    // what a dump holds: tables per database (pg_dumpall's \connect in its forms), complete lines only
+    $db = null;
+    $count = [];
+    rsDumpCount("\\connect template1\nCREATE TABLE x (\n\\connect zztest\nCREATE TABLE public.a (\nCREATE TABLE public.b (\n"
+        . "\\connect -reuse-previous=on \"dbname='o''brien'\"\nCREATE TABLE c (\n\\connect \"My \"\"DB\"\"\"\nCREATE TABLE d (\n-- CREATE TABLE not\n", $db, $count);
+    same('restore: tables per database from a dump', ['template1' => 1, 'zztest' => 2, "o'brien" => 1, 'My "DB"' => 1], $count);
+    file_put_contents("$tmp/d.sql.gz", gzencode(str_repeat("CREATE TABLE t (\n", 3)));
+    same('restore: a .gz\'s size from its trailer', 51, rsGzSize("$tmp/d.sql.gz"));
+    same('restore: tables of a dump read from the file', ['' => 3], rsDumpTables("$tmp/d.sql.gz"));
+
+    // credentials: only variable names, only known ones; the script never carries a value
+    same('restore: Postgres logs in with the package\'s variables', ['login' => 'user', 'user_var' => 'POSTGRES_USER', 'password_var' => 'POSTGRES_PASSWORD'],
+        rsLogin(['type' => 'postgres', 'user_var' => 'POSTGRES_USER', 'password_var' => 'POSTGRES_PASSWORD']));
+    same('restore: an unknown variable falls back to the image\'s', 'MARIADB_ROOT_PASSWORD', rsLogin(['type' => 'mariadb', 'login' => 'root', 'password_var' => 'PATH'])['password_var']);
+    same('restore: MariaDB as the app\'s user', ['login' => 'user', 'user_var' => 'MARIADB_USER', 'password_var' => 'MARIADB_PASSWORD'],
+        rsLogin(['type' => 'mariadb', 'login' => 'user', 'user_var' => 'MARIADB_USER', 'password_var' => 'MARIADB_PASSWORD']));
+    $script = rsDbScript('dump', ['type' => 'mariadb', 'login' => 'user', 'user_var' => 'MARIADB_USER', 'password_var' => 'MARIADB_PASSWORD']);
+    check('restore: the dump script names variables and takes the database as $1',
+        str_contains($script, '-u"$MARIADB_USER" -p"$MARIADB_PASSWORD"') && str_contains($script, '--databases "$1"'), $script);
+    check('restore: the ready check of Postgres goes over TCP (not the init server on the socket)', str_contains(rsDbScript('ready', ['type' => 'postgres']), '-h 127.0.0.1'));
+    try {
+        rsDbScript('play', ['type' => 'postgres', 'user_var' => 'HOME; rm -rf /', 'password_var' => '']);
+        check('restore: a variable not on the list is refused', false);
+    } catch (Problem) {
+        check('restore: a variable not on the list is refused', true);
+    }
+
+    // where what he replaces goes aside
+    same('restore: a template aside on the flash', '/x/aside/20261006-120000/plugins/dockerMan/templates-user/my-a.xml',
+        rsAsideFor('/boot/config/plugins/dockerMan/templates-user/my-a.xml', '20261006-120000', 'restored-aside', '/x/aside'));
+    same('restore: a file outside the flash goes aside next to it', '/mnt/user/appdata/x/compose.yaml.restored-aside-20261006-120000',
+        rsAsideFor('/mnt/user/appdata/x/compose.yaml', '20261006-120000'));
+    same('restore: clean paths', [true, false, false, false, false], array_map('rsCleanPath', ['/mnt/user/a/b.env', '/mnt/user/../etc', 'rel/x', "/a/b\n", '/a//b']));
+    same('restore: a stamp from the page only when it is plausible', ['20261006-120000' === rsStampOf(['stamp' => '20261006-120000']), 15],
+        [false, strlen(rsStampOf(['stamp' => "20261006-120000\n"]))]);
+
+    // Kopia's list: only real ids, newest first, texts cut
+    same('restore: Kopia\'s snapshots', [['abcdef0123456789abcdef0123456789', 2], ['0123456789abcdef0123456789abcdef', 1]],
+        array_map(fn ($s) => [$s['id'], $s['files']], rsKopiaParse(json_encode([
+            ['id' => '0123456789abcdef0123456789abcdef', 'startTime' => '2026-10-01T01:00:00Z', 'stats' => ['totalSize' => 5, 'fileCount' => 1]],
+            ['id' => '../bad', 'startTime' => '2026-10-03T01:00:00Z'],
+            ['id' => 'abcdef0123456789abcdef0123456789', 'startTime' => '2026-10-02T01:00:00Z', 'stats' => ['totalSize' => 7, 'fileCount' => 2], 'description' => "uso-backup\n20261002"],
+        ]))));
+
+    // templates and compose files: what differs or is missing, a compose file read elsewhere by its unique place
+    @mkdir("$tmp/pkg/compose", 0700, true);
+    @mkdir("$tmp/pkg/compose-files", 0700, true);
+    @mkdir("$tmp/live/tpl", 0700, true);
+    @mkdir("$tmp/live/cm/app", 0700, true);
+    @mkdir("$tmp/live/share", 0700, true);
+    file_put_contents("$tmp/pkg/my-app.xml", 'new');
+    file_put_contents("$tmp/live/tpl/my-app.xml", 'old');
+    file_put_contents("$tmp/pkg/compose/compose.yaml", 'same');
+    file_put_contents("$tmp/live/cm/app/compose.yaml", 'same');
+    file_put_contents("$tmp/pkg/compose/.env", 'A=1');
+    file_put_contents("$tmp/pkg/compose-files/compose.yaml", 'indirect');
+    $pkg = ['path' => "$tmp/pkg", 'templates' => ['my-app.xml'], 'containers' => [],
+            'compose' => ['project' => 'app', 'dir' => 'app', 'working_dir' => "$tmp/live/share", 'config_files' => ["$tmp/live/share/compose.yaml"], 'files' => ['compose.yaml', '.env']],
+            'files' => [['path' => 'compose-files/compose.yaml'], ['path' => 'compose-files/../x']]];
+    $items = rsConfigItems($pkg, "$tmp/live/cm", "$tmp/live/tpl");
+    same('restore: templates and compose files compared', [['template', 'differs'], ['compose', 'same'], ['compose', 'missing'], ['compose_file', 'missing']],
+        array_map(fn ($i) => [$i['what'], $i['now']], $items));
+    $plan = rsPlanConfigFor(['id' => 'app', 'name' => 'app'], $pkg, null, $items, '20261006-120000', "$tmp/flash");
+    same('restore: what differs goes aside next to it, the same stays', ['aside', 'put', 'put', 'put'], array_column($plan['steps'], 'do'));
+    same('restore: a file aside next to it', "$tmp/live/tpl/my-app.xml.restored-aside-20261006-120000", $plan['steps'][0]['to']);
+
+    // the job's steps on a temporary folder, each with how «Put back» undoes it
+    $id = '20261006-120000-ab12';
+    rsPrivateDir(rsData());
+    rsPrivateDir(rsDir($id));
+    $live = "$tmp/live";
+    file_put_contents("$live/db.sqlite", 'current');
+    chmod("$live/db.sqlite", 0640);
+    @mkdir("$tmp/snap/folder/sub", 0700, true);
+    file_put_contents("$tmp/snap/folder/sub/f.txt", 'from the snapshot');
+    @mkdir("$live/folder", 0755);
+    file_put_contents("$live/folder/f.txt", 'live');
+    $plan = rsPlanBase('files', 'zz', ['path' => "$live/folder"]);
+    $plan['steps'] = [
+        ['do' => 'aside', 'path' => "$live/db.sqlite", 'to' => "$live/db.sqlite.aside-20261006-120000", 'optional' => true],
+        ['do' => 'aside', 'path' => "$live/db.sqlite-wal", 'to' => "$live/db.sqlite-wal.aside-20261006-120000", 'optional' => true],
+        ['do' => 'put', 'from' => "$tmp/pkg/my-app.xml", 'to' => "$live/db.sqlite", 'mode' => 0600],
+        ['do' => 'copy', 'from' => "$tmp/snap/folder", 'to' => "$live/folder.restored-20261006-120000"],
+        ['do' => 'aside', 'path' => "$live/folder", 'to' => "$live/folder.aside-20261006-120000"],
+        ['do' => 'move', 'from' => "$live/folder.restored-20261006-120000", 'to' => "$live/folder"],
+        ['do' => 'put', 'from' => "$tmp/pkg/compose/.env", 'to' => "$live/new.env", 'mode' => 0600],
+    ];
+    $plan['stamp'] = '20261006-120000';
+    $j = rsJournalNew($id, $plan);
+    $states = [];
+    foreach (array_keys($j['steps']) as $i) {
+        $j['steps'][$i] = array_merge($j['steps'][$i], rsStep($j, $i));
+        $states[] = $j['steps'][$i]['state'];
+    }
+    same('restore: the steps ran', ['ok', 'skipped', 'ok', 'ok', 'ok', 'ok', 'ok'], $states);
+    clearstatcache();
+    same('restore: the copy took the old one\'s mode, the old one aside', ['new', 0640, 'current'],
+        [file_get_contents("$live/db.sqlite"), fileperms("$live/db.sqlite") & 0777, file_get_contents("$live/db.sqlite.aside-20261006-120000")]);
+    same('restore: the folder swapped in, the live one aside', ['from the snapshot', 'live'],
+        [@file_get_contents("$live/folder/sub/f.txt"), @file_get_contents("$live/folder.aside-20261006-120000/f.txt")]);
+    same('restore: never over something that is there', 'exists', rsStep($j, 2)['note'] ?? null);
+    $j['result'] = 'ok';
+    writeAtomic(rsDir($id) . '/plan.json', jsonEncode($plan), 0600, 0, 0);
+    rsJournalWrite($j);
+    same('restore: what was put aside is in the journal (the missing -wal not)', ["$live/db.sqlite", "$live/folder"], array_column($j['aside'], 'from'));
+
+    // «Put back»: from the journal, newest step first; what he restored goes aside itself
+    check('restore: it can be put back', rsCanPutback($j));
+    $back = rsPlanSeal(rsPlanPutback(['id' => $id], '20261006-130000'), '20261006-130000');
+    same('restore: the put back\'s steps', ['aside', 'aside', 'move', 'aside', 'move'], array_column($back['steps'], 'do'));
+    same('restore: nothing blocks the put back', [], $back['blockers']);
+    $p = rsJournalNew('20261006-130000-cd34', $back);
+    rsPrivateDir(rsDir($p['id']));
+    $states = [];
+    foreach (array_keys($p['steps']) as $i) {
+        $p['steps'][$i] = array_merge($p['steps'][$i], rsStep($p, $i));
+        $states[] = $p['steps'][$i]['state'];
+    }
+    same('restore: the put back ran', ['ok', 'ok', 'ok', 'ok', 'ok'], $states);
+    clearstatcache();
+    same('restore: everything as before, the restored aside', ['current', 'live', 'new', 'from the snapshot', false],
+        [@file_get_contents("$live/db.sqlite"), @file_get_contents("$live/folder/f.txt"), @file_get_contents("$live/db.sqlite.putback-20261006-130000"),
+         @file_get_contents("$live/folder.putback-20261006-130000/sub/f.txt"), file_exists("$live/new.env")]);
+    rsMarkPutback($id, $p['id'], 'ok');
+    check('restore: a restore put back can\'t be put back again', !rsCanPutback(rsJournal($id)));
+
+    // the engine's lock: his note while he holds it, the next one finds it busy, the note goes with him
+    $h = rsLockTake('zz-app', 'db');
+    same('restore: he holds the lock and says so', ['restore', 'zz-app'], [backupLockHolder(rsUbData())['holder'] ?? null, backupLockHolder(rsUbData())['what'] ?? null]);
+    $busy = rsLockTake('other', 'db');
+    same('restore: a second one finds it busy', 'restore', is_array($busy) ? $busy['holder'] : 'handle');
+    same('restore: nothing starts meanwhile', 'restore_busy_restore', rsBusy()['key'] ?? null);
+    rsLockRelease($h);
+    same('restore: the lock and his note are gone', [null, false], [backupLockHolder(rsUbData()), is_file(rsUbData() . '/state/lock-holder.json')]);
+
+    // a whole job as its own process (php agent.php job restore <id>), and refused while the lock is held
+    $run = function (string $jid) use ($tmp): int {
+        exec('OFFICE_DATA_DIR=' . escapeshellarg("$tmp/data") . ' ' . escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(OFFICE_DIR . '/agent/agent.php')
+            . ' job restore ' . escapeshellarg($jid) . ' 2>&1', $out, $code);
+        return $code;
+    };
+    file_put_contents("$live/one.txt", 'one');
+    $plan = rsPlanBase('config', 'zz-job', ['app' => 'zz']);
+    $plan['stamp'] = '20261006-140000';
+    $plan['steps'] = [['do' => 'aside', 'path' => "$live/one.txt", 'to' => "$live/one.txt.aside-20261006-140000"], ['do' => 'put', 'from' => "$tmp/pkg/my-app.xml", 'to' => "$live/one.txt"]];
+    $jid = rsLaunch($plan, false);
+    same('restore: a job runs on its own', [0, 'ok', 'new', 'one', false], [$run($jid), rsJournal($jid)['result'] ?? null, @file_get_contents("$live/one.txt"),
+        @file_get_contents("$live/one.txt.aside-20261006-140000"), is_file(rsUbData() . '/state/lock-holder.json')]);
+    same('restore: a job runs once', 1, $run($jid));
+    $h = rsLockTake('someone', 'test');
+    $plan['steps'] = [['do' => 'aside', 'path' => "$live/one.txt", 'to' => "$live/one.txt.aside-20261006-150000"]];
+    $plan['stamp'] = '20261006-150000';
+    $jid = rsLaunch($plan, false);
+    same('restore: refused while the lock is held — untouched, exit 75', [75, 'refused', 'restore_busy_restore', true],
+        [$run($jid), rsJournal($jid)['result'] ?? null, rsJournal($jid)['reason'] ?? null, is_file("$live/one.txt")]);
+    rsLockRelease($h);
+
+    // a journal whose job is gone was interrupted; the Dashboard shows a restore only while its heartbeat is fresh
+    $k = rsJournalNew('20261006-160000-ef56', $plan);
+    rsPrivateDir(rsDir($k['id']));
+    $k['result'] = 'running';
+    $k['pid'] = 4194305;
+    rsJournalWrite($k, false);
+    $rows = array_column(rsJournals(), 'result', 'id');
+    same('restore: a job that died is interrupted', 'interrupted', $rows[$k['id']] ?? null);
+    require_once OFFICE_DIR . '/src/dashboard.php';
+    same('dashboard: Mr. Restori while he restores', [true, false, false],
+        [officeDashRestoring(['result' => 'running', 'what' => 'x', 'heartbeat' => 1000], 1100), officeDashRestoring(['result' => 'running', 'what' => 'x', 'heartbeat' => 1000], 2000),
+         officeDashRestoring(['result' => 'ok', 'what' => 'x', 'heartbeat' => 1000], 1010)]);
+
+    unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file'], $GLOBALS['rs']['ub_data']);
+    exec('rm -rf ' . escapeshellarg($tmp));
 }
 
 /**
@@ -2179,7 +2369,7 @@ function testIconSquare(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testAdvisor', 'testLogsTour', 'testMetrics', 'testWatchman'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testLogsTour', 'testMetrics', 'testWatchman'],
           'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';

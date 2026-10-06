@@ -216,6 +216,8 @@
   "check.office_keeps_running_how": "The backup stops {names} for its snapshots, so the office is gone for a few minutes. In Mr. Backupsy's «Set up…» set them to «keep running».",
   "setup_open": "Set up…",
   "notice.setup_running": "The setup is looking at the server right now.",
+  "notice.restoring": "Mr. Restori is bringing {what} back right now: he holds the engine's lock, so no run, check or setup starts until he is done — a scheduled run is skipped and says why.",
+  "notice.restoring_go": "To Mr. Restori",
   "errors.setup_running": "The setup is busy right now — try again in a moment.",
   "errors.setup_bad_decisions": "These settings can't be applied ({detail}). Read the server again and retry.",
   "setup.back": "← Back",

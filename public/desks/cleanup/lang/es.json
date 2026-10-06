@@ -346,6 +346,7 @@
   "help.safe": "Cuidado",
   "help.safe_text": "Mientras se hace una copia de seguridad no cambio nada. Siempre me limito a renombrar — donde no es posible (otro disco, un dataset propio) me niego en lugar de copiar.",
   "errors.cleanup_backup_running": "Se está haciendo una copia de seguridad — espero a que termine.",
+  "errors.cleanup_restore_running": "El señor Restori está recuperando algo ahora mismo — espero hasta que termine.",
   "errors.cleanup_docker_down": "Docker no responde — sin él no toco {name}.",
   "errors.cleanup_asleep": "{name} está en un disco en reposo.",
   "errors.cleanup_no_compose": "{name} todavía tiene contenedores que no puedo detener con docker compose.",

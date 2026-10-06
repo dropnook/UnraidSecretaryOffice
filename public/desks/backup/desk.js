@@ -134,6 +134,8 @@ const packages = () => {
 const status = () => (state && state.status) || null;
 const live = () => !!(state && state.running);
 const canAct = () => !!(state && state.found && state.compatible && Office.agent.running);
+/** Mr. Restori holds the engine's lock (a restore of his): no run, check or setup meanwhile — the agent refuses too */
+const restoring = () => !!(state && state.holder && state.holder.holder === 'restore');
 
 /** Where the run is and when it will be done, from the durations of earlier runs */
 function progress() {
@@ -227,7 +229,7 @@ function render() {
       actions.push(button(T('check'), 'plain', () => startRun('check')));
       actions.push(button(T('start'), '', chooseRun));
     }
-    actions.forEach((b) => { b.disabled = !canAct() || !!(state.setup && state.setup.running); });
+    actions.forEach((b) => { b.disabled = !canAct() || !!(state.setup && state.setup.running) || (restoring() && !live()); });
   }
   const { head } = Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText().join(' ')), actions });
   root.appendChild(head);
@@ -278,6 +280,10 @@ function notices() {
   if (!state.compatible) callout(T('notice.too_old', { version: state.version || '?' }), true);
   if (state.setup && state.setup.running) {
     callout(T('notice.setup_running'), false, button(T('setup_open'), 'small plain', () => Office.go(`#/${ID}/setup`)));
+  }
+  if (restoring()) {
+    const go = Office.desks.has('restore') ? button(T('notice.restoring_go'), 'small plain', () => Office.go('#/restore')) : null;
+    callout(T('notice.restoring', { what: state.holder.what || '–' }), false, go);
   }
   if (!state.settings_found) callout(T('notice.no_settings'), true, button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
   const sc = state.schedule || {};

@@ -346,6 +346,7 @@
   "help.safe": "Vorsicht",
   "help.safe_text": "Solange ein Backup läuft, ändere ich nichts. Ich benenne immer nur um — wo das nicht geht (andere Platte, eigenes Dataset), lehne ich ab, statt zu kopieren.",
   "errors.cleanup_backup_running": "Gerade läuft ein Backup — ich warte, bis es fertig ist.",
+  "errors.cleanup_restore_running": "Herr Restori holt gerade etwas zurück — ich warte, bis er fertig ist.",
   "errors.cleanup_docker_down": "Docker antwortet nicht — ohne Docker fasse ich {name} nicht an.",
   "errors.cleanup_asleep": "{name} liegt auf einer schlafenden Disk.",
   "errors.cleanup_no_compose": "{name} hat noch Container, die ich nicht mit docker compose stoppen kann.",
