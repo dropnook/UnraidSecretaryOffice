@@ -11,7 +11,7 @@ const ID = 'emby';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
 const POLL = 3000;
-/** Where the two tools come from (helmi1987's repositories) — for the credit under the desk head */
+/** Where the two tools come from (helmi1987's repositories) — for the credit under the tools' tiles */
 const ORIGINS = [
   ['embycache-for-unraid', 'https://github.com/helmi1987/embycache-for-unraid'],
   ['media-disk-gather-for-unraid', 'https://github.com/helmi1987/media-disk-gather-for-unraid'],
@@ -148,7 +148,6 @@ function render() {
     [T('help.pool'), T('help.pool_text')],
     [T('help.schedule'), T('help.schedule_text')],
   ]));
-  root.appendChild(credit());
   if (!state) return;
 
   if (!state.emby.length) root.appendChild(el('p', 'callout warn', T('notice.no_emby')));
@@ -177,7 +176,7 @@ function render() {
   root.appendChild(toolSection());
 }
 
-/** A quiet line under the desk head: both tools are helmi1987's, and a share of the tips goes to him */
+/** A quiet line under the tools' tiles: both tools are helmi1987's, and a share of the tips goes to him */
 function credit() {
   const box = el('div', 'jo-credit');
   box.append(el('b', '', T('credit_title')), ' ', T('credit', { gather: T('gather') }), ' ');
@@ -365,6 +364,7 @@ function toolSection() {
   stat(stats, 'Python', state.python || T('none'), T('python_sub'), !state.python);
   s.appendChild(stats);
   if (state.old_clone) s.appendChild(el('p', 'callout', T('notice.old_clone')));
+  s.appendChild(credit());
   return s;
 }
 

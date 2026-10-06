@@ -25,9 +25,9 @@
 .jo-part-why{font-weight:400; color:var(--muted); margin-left:8px; font-size:12.5px}
 .jo-part.off > .jo-form{opacity:.45}
 .jo-muted{opacity:.6}
-/* the credit to helmi1987 under the desk head, lined up with "How to read this page" */
-.jo-credit{margin:-12px 0 0 74px; max-width:980px; font-size:12.5px; line-height:1.5; color:var(--muted); overflow-wrap:anywhere}
+/* the credit to helmi1987 under the tools' tiles */
+.jo-credit{margin:12px 0 0; max-width:980px; font-size:12.5px; line-height:1.5; color:var(--muted); overflow-wrap:anywhere}
 .jo-credit b{color:var(--ink2); font-weight:600}
 .jo-credit-links{display:inline-block; max-width:100%; margin-left:4px}
-@media (max-width:640px){ .jo-credit{margin-left:0} .jo-credit-links{margin-left:0} }
+@media (max-width:640px){ .jo-credit-links{margin-left:0} }
 }

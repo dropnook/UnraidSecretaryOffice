@@ -251,6 +251,17 @@ and the agent restarts itself (after `php -l`) when one of its files changes.
   `unraid-backup/` (the backup engine's settings, state and logs; root only)
   and Jack Emby's `embycache/` and `gather/`.
 
+## Support
+
+The office is free and complete — nothing is locked, now or later. If it is useful to you, a tip
+is welcome: the tip jar in the office (the Team Lead's *Tips & pay rise*) or
+[PayPal](https://paypal.me/vipermark2); a share goes to helmi1987 (see below). If the tips ever exceed what our work
+costs, we give the rest to animal shelters that urgently need financial support. With a tip you
+get a **supporter key** — the tip jar says how; it shows the server ID the key is made for.
+The key unlocks nothing — it just says thank you: the office stops reminding you of the tip jar
+and the Team Lead shows a small thank-you. Backups, restores and every desk work exactly the same
+with or without it.
+
 ## Thanks
 
 Jack Emby's two tools are the work of **[helmi1987](https://github.com/helmi1987)**:

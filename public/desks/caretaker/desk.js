@@ -6,7 +6,11 @@
    check.<id>_how. The agent part lives in agent/desks/caretaker.php.
    Recommendations and notes can be put aside («I know, thanks»): the agent
    keeps them (data/caretaker/acks.json) and marks them "acked" in its state,
-   each finding carries its "sig" — they move to «Noted» and count nowhere. */
+   each finding carries its "sig" — they move to «Noted» and count nowhere.
+   The supporter key (core.js Office.supporter, src/supporter.php) unlocks
+   nothing: with a valid one he shows a small thank-you at «The team»; without,
+   he asks once, friendly, a week after the office first ran here (a callout
+   under «The team», «Not now» at most twice more, «Don't ask again»). */
 (() => {
 'use strict';
 
@@ -117,6 +121,7 @@ function render() {
     [el('span', 'chip warn', T('not_yet')), T('help.not_yet')],
     [el('span', 'chip warn', T('unknown')), T('help.unknown')],
     [T('team'), T('help.team')],
+    [T('supporter_term'), T('help.supporter')],
     [deskChip(Office.desks.has('backup') ? 'backup' : ID), T('help.desk_text')],      // a real one, e.g. «💾 Herr Backupsi»
     [T('help.open'), T('help.open_text')],
     [T('check_again'), T('help.again')],
@@ -126,6 +131,7 @@ function render() {
 
   const g = groups();
   root.appendChild(teamSection());                  // who works here comes first
+  if (Office.supporter().ask) root.appendChild(askCallout());
   root.appendChild(officeSection());
   if (g.todo.length) root.appendChild(list('todo', T('todo_count', { n: g.todo.length }), T('todo_text'), g.todo));
   if (g.advice.length) root.appendChild(list('advice', T('advice_count', { n: g.advice.length }), T('advice_text'), g.advice));
@@ -335,6 +341,13 @@ function teamSection() {
   const all = staff();
   const open = all.filter((s) => !s.hired && s.ok);
   const extra = [];
+  const sup = Office.supporter();
+  if (sup.state === 'valid') {
+    // the supporter key's plate: a quiet thank-you, the name as text only
+    const plate = el('span', 'chip ok ct-supporter', T('supporter_plate', { name: sup.name }));
+    plate.title = T('supporter_plate_title', { date: Office.fmt.day(sup.date) });
+    extra.push(plate);
+  }
   const tip = el('button', 'btn small plain', T('tip_button'));
   tip.type = 'button';
   tip.title = T('tip_button_title');
@@ -355,6 +368,28 @@ function teamSection() {
   [...Office.desks.values()].filter((d) => d.training).forEach((d) => box.appendChild(trainingRow(d)));
   s.appendChild(box);
   return s;
+}
+
+/**
+ * His one friendly ask — a week after the office first ran here, never with a supporter key; not a
+ * dialog, a quiet callout on his page. The answer is kept on the server (data/office/supporter.json).
+ */
+function askCallout() {
+  const box = el('div', 'callout ct-ask');
+  box.dataset.ct = 'ask';
+  box.appendChild(el('p', '', T('ask_text')));
+  const acts = el('div', 'ct-ask-acts');
+  const add = (text, cls, act) => {
+    const b = el('button', cls, text);
+    b.type = 'button';
+    b.onclick = act;
+    acts.appendChild(b);
+  };
+  add(T('ask_tip'), 'btn small', async () => { await Office.supporterAsk('later'); Office.tipJar(); });
+  add(T('ask_later'), 'btn small plain', async () => { if (await Office.supporterAsk('later')) Office.toast(T('ask_later_done')); });
+  add(T('ask_never'), 'btn small plain', async () => { if (await Office.supporterAsk('never')) Office.toast(T('ask_never_done')); });
+  box.appendChild(acts);
+  return box;
 }
 
 function trainingRow(d) {
@@ -471,6 +506,7 @@ Office.desk({
   poll() { load(false); },
   started() { if (!state) load(false); },     // his badge shows on every page
   agentChanged() { if (view) render(); },
+  supporterChanged() { if (view) Office.keepInPlace(null, render); },     // a key entered or removed, his ask answered
   async reception() {
     if (!state) await load(false);
     if (alone()) {

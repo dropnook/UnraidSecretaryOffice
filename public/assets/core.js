@@ -729,20 +729,24 @@ function staffChanged(hired) {
   tabs();
 }
 
-/** "If they do their jobs well, they'd be glad of a tip!" — after hiring, unless switched off */
+/** "If they do their jobs well, they'd be glad of a tip!" — after hiring, unless switched off or thanked already (a supporter key) */
 function tipJar(ids) {
-  if (Office.store('tip.never') === '1') return;
+  if (Office.store('tip.never') === '1' || Office.supporter().state === 'valid') return;
   Office.tipJar(ids);
 }
-/** The tip jar itself — after hiring (ids), or asked for (no ids: the button at the caretaker's team) */
+/** The tip jar itself — after hiring (ids), or asked for (no ids: the button at the caretaker's team); with a valid supporter key it says thank you */
 Office.tipJar = function openTipJar(ids) {
+  const sup = Office.supporter();
+  const thanked = sup.state === 'valid';
   const names = (ids || []).map((id) => t(`${id}.name`));
   const box = el('div', 'tip-jar');
   box.appendChild(el('div', 'tip-jar-icon', '☕'));
   const text = el('div');
   const key = !ids ? 'office.tip_text_team' : ids.length > 1 ? 'office.tip_text_many' : 'office.tip_text';
-  text.appendChild(el('p', '', t(key, { names: names.join(', ') })));
+  text.appendChild(el('p', '', thanked ? t('office.supporter_thanks', { name: sup.name }) : t(key, { names: names.join(', ') })));
   text.appendChild(el('p', '', t('office.tip_credit')));     // a share goes to helmi1987, who wrote Jack Emby's tools
+  text.appendChild(el('p', '', t('office.tip_shelter')));    // what goes beyond our work goes to animal shelters (Benj)
+  text.appendChild(supporterPart(sup));
   const cb = el('input');
   cb.type = 'checkbox';
   if (ids) {                         // after hiring it may stop asking; asked for, it never nags
@@ -751,14 +755,136 @@ Office.tipJar = function openTipJar(ids) {
     text.appendChild(never);
   }
   box.appendChild(text);
-  const buttons = [{ text: t('office.tip_later'), act: () => { if (cb.checked) Office.store('tip.never', '1'); } }];
-  if (CONFIG.tip_url) {
-    buttons.push({ text: t('office.tip_give'), kind: '', act: () => {
-      if (cb.checked) Office.store('tip.never', '1');
-      window.open(CONFIG.tip_url, '_blank', 'noopener,noreferrer');
-    } });
+  const buttons = [{ text: t(thanked ? 'common.close' : 'office.tip_later'), act: () => { if (cb.checked) Office.store('tip.never', '1'); } }];
+  const give = (url) => () => {
+    if (cb.checked) Office.store('tip.never', '1');
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+  if (Office.safeHref(CONFIG.sponsor_url) && /^https:/.test(CONFIG.sponsor_url)) buttons.push({ text: t('office.tip_sponsor'), act: give(CONFIG.sponsor_url) });
+  const page = supportPage(sup);     // the support page shows the key right after the tip; else PayPal and the key by e-mail
+  if (page) buttons.push({ text: t('office.tip_give_page'), kind: thanked ? undefined : '', act: give(page) });
+  else if (CONFIG.tip_url) buttons.push({ text: t('office.tip_give'), kind: thanked ? undefined : '', act: give(CONFIG.tip_url) });
+  Office.dialog({ title: t(thanked ? 'office.supporter_thanks_title' : ids ? 'office.tip_title' : 'office.tip_title_team'), body: box, buttons });
+};
+
+// ------------------------------------------------------------------ supporter key
+/**
+ * The supporter key (src/supporter.php): a thank-you for a tip, it unlocks nothing — the office is free
+ * and complete. With a valid one the reminders stop (the tip jar after hiring, the team lead's ask) and
+ * the team lead shows a small thank-you. {id: this server's ID, state: none|valid|other|invalid,
+ * name, date, key_id, ask: the team lead asks now}
+ */
+Office.supporter = () => CONFIG.supporter || { id: null, state: 'none', ask: false };
+function supporterChanged(info) {
+  if (info) CONFIG.supporter = info;
+  if (Office.current && Office.current.supporterChanged) Office.current.supporterChanged();
+}
+const keyDay = (iso) => {
+  const d = new Date(`${iso}T12:00:00`);
+  return isNaN(d) ? iso : intl((l) => new Intl.DateTimeFormat(l, { day: '2-digit', month: '2-digit', year: 'numeric' })).format(d);
+};
+Office.fmt.day = keyDay;
+
+/** The support page (OFFICE_SUPPORT_URL) with this server's ID and the office's language, null while there is none */
+function supportPage(sup) {
+  if (typeof CONFIG.support_url !== 'string' || !/^https:\/\//i.test(CONFIG.support_url)) return null;
+  try {
+    const url = new URL(CONFIG.support_url);
+    if (sup.id) url.searchParams.set('id', sup.id);
+    url.searchParams.set('lang', Office.lang);
+    return url.href;
+  } catch (e) { return null; }
+}
+
+/** The tip jar's part about the key: this server's ID (for the support page or the tip's note) and «Enter key…» — or the key that is there */
+function supporterPart(sup) {
+  const part = el('div', 'tip-jar-key');
+  part.appendChild(el('div', 'field-title', t('office.supporter_title')));
+  if (sup.state === 'valid') {
+    part.appendChild(el('p', '', t('office.supporter_key_info', { id: sup.key_id, date: keyDay(sup.date) })));
+  } else {
+    if (sup.state === 'other') part.appendChild(el('p', 'callout warn', t('office.supporter_other', { id: sup.key_id, server: sup.id || '?' })));
+    if (sup.state === 'invalid') part.appendChild(el('p', 'callout warn', t('office.supporter_bad_saved')));
+    part.appendChild(el('p', '', t(!sup.id ? 'office.supporter_no_id' : supportPage(sup) ? 'office.supporter_text_page' : 'office.supporter_text')));
   }
-  Office.dialog({ title: t(ids ? 'office.tip_title' : 'office.tip_title_team'), body: box, buttons });
+  const line = el('div', 'toolbar');
+  const button = (text, cls, act) => {
+    const b = el('button', cls, text);
+    b.type = 'button';
+    b.onclick = act;
+    line.appendChild(b);
+  };
+  if (sup.id && sup.state !== 'valid') {
+    const id = el('code', '', sup.id);
+    id.title = t('office.supporter_id_title');
+    line.append(el('span', '', t('office.supporter_id')), id);
+    button(t('common.copy'), 'btn small plain', () => Office.copy(sup.id));
+    button(t('office.supporter_enter'), 'btn small plain', Office.supporterKeyDialog);
+  }
+  if (sup.state !== 'none') button(t('office.supporter_remove'), 'btn small danger plain', Office.supporterRemoveDialog);
+  if (line.childNodes.length) part.appendChild(line);
+  return part;
+}
+
+/** «Enter key…»: the office checks it (signature, this server) and keeps it in data/office/supporter.json */
+Office.supporterKeyDialog = function supporterKeyDialog() {
+  const sup = Office.supporter();
+  const box = el('div');
+  box.appendChild(el('p', '', t('office.supporter_enter_text')));
+  const field = el('div', 'field');
+  const input = el('input', 'input mono');
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.maxLength = 4000;
+  input.setAttribute('aria-label', t('office.supporter_title'));
+  field.appendChild(input);
+  if (sup.id) field.appendChild(el('small', '', t('office.supporter_for', { id: sup.id })));
+  box.appendChild(field);
+  const msg = el('p', 'callout warn');
+  msg.hidden = true;
+  box.appendChild(msg);
+  Office.dialog({
+    title: t('office.supporter_title'),
+    body: box,
+    buttons: [
+      { text: t('common.cancel') },
+      { text: t('office.supporter_save'), kind: '', act: async () => {
+        const key = input.value.trim();
+        if (!key) { msg.textContent = t('office.supporter_empty'); msg.hidden = false; input.focus(); return false; }
+        const j = await Office.api.post('office.supporter_set', { key });
+        if (!j.ok) { msg.textContent = Office.errorText(j.error); msg.hidden = false; return false; }
+        supporterChanged(j.supporter);
+        Office.toast(t('office.supporter_saved', { name: j.supporter.name || '' }));
+        return true;
+      } },
+    ],
+  });
+};
+
+/** «Remove key…»: nothing changes but the thank-you (and the reminders may come back) */
+Office.supporterRemoveDialog = function supporterRemoveDialog() {
+  Office.dialog({
+    title: t('office.supporter_remove_title'),
+    body: t('office.supporter_remove_text'),
+    buttons: [
+      { text: t('common.cancel') },
+      { text: t('office.supporter_remove_do'), kind: 'danger', act: async () => {
+        const j = await Office.api.post('office.supporter_remove', {});
+        if (!j.ok) { Office.toast(Office.errorText(j.error), true); return false; }
+        supporterChanged(j.supporter);
+        Office.toast(t('office.supporter_removed'));
+        return true;
+      } },
+    ],
+  });
+};
+
+/** The team lead's ask answered — 'later' (again in a month, at most twice more) or 'never'; kept on the server */
+Office.supporterAsk = async function supporterAsk(answer) {
+  const j = await Office.api.post('office.supporter_ask', { answer });
+  if (!j.ok) { Office.toast(Office.errorText(j.error), true); return false; }
+  supporterChanged(j.supporter);
+  return true;
 };
 
 /**

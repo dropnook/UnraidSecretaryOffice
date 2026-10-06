@@ -5242,12 +5242,230 @@ function testWhereaboutsAfterWatchman(): void
     same('whereabouts: her advice reads no security settings any more', [false, false, false], [isset($advice['telnet']), isset($advice['ftp']), isset($advice['cpu'])]);
 }
 
+/**
+ * The supporter key (src/supporter.php) — a thank-you that unlocks nothing: the server ID, the team
+ * lead's one ask, the file, and the office actions end to end through the web side (a process of its own).
+ * Keys are made with a throw-away key pair; only a fixed key made by tools/supporter-key.sh on the
+ * maintainer's Mac checks the real public key.
+ */
+function supporterTestKeys(string $dir): array
+{
+    $pair = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+    openssl_pkey_export($pair, $pem);
+    $old = umask(0077);
+    file_put_contents("$dir/private.pem", $pem);
+    umask($old);
+    file_put_contents("$dir/public.pem", openssl_pkey_get_details($pair)['key']);
+    $make = function (string $json, $key = null) use ($pair): string {
+        $head = 'USO1.' . officeB64url($json);
+        openssl_sign($head, $sig, $key ?? $pair, OPENSSL_ALGO_SHA256);
+        return $head . '.' . officeB64url($sig);
+    };
+    return [$make, "$dir/private.pem", "$dir/public.pem"];
+}
+
+function testSupporter(): void
+{
+    require_once OFFICE_DIR . '/src/supporter.php';
+    $tmp = hardeningTmp('supporter');
+
+    // the server ID: regGUID (flashGUID while it is empty), upper-cased, hashed — the GUID never shows
+    same('supporter: server ID of a GUID', 'FF81-6F6B-7F71-70E8', officeServerIdOf('0781-5583-A1B2-123456789012'));
+    same('supporter: server ID of a newer GUID (any letters)', '1FA2-6ACF-DA17-9166', officeServerIdOf('AB-CDEFGHJKLMNPQRSTUVWXYZ23'));
+    same('supporter: the GUID upper-cased first', 'FF81-6F6B-7F71-70E8', officeServerIdOf('0781-5583-a1b2-123456789012'));
+    $ini = function (string $text) use ($tmp): string {
+        file_put_contents("$tmp/var.ini", $text);
+        return "$tmp/var.ini";
+    };
+    same('supporter: regGUID first', '1FA2-6ACF-DA17-9166', officeServerId($ini("flashGUID=\"0781-5583-A1B2-123456789012\"\nregGUID=\"AB-CDEFGHJKLMNPQRSTUVWXYZ23\"\n")));
+    same('supporter: flashGUID while regGUID is empty', 'FF81-6F6B-7F71-70E8', officeServerId($ini("flashGUID=\"0781-5583-A1B2-123456789012\"\nregGUID=\"\"\n")));
+    same('supporter: no GUID, no ID', null, officeServerId($ini("regGUID=\"\"\n")));
+    same('supporter: an odd GUID, no ID', null, officeServerId($ini("regGUID=\"a/../b\"\n")));
+    same('supporter: no var.ini, no ID', null, officeServerId("$tmp/missing.ini"));
+
+    // the team lead's one ask: a week after the first sight, «Not now» at most twice more, never with a key
+    $day = 86400;
+    $t0 = 1790000000;
+    $data = ['first_seen' => $t0];
+    same('ask: not in the first week', false, officeSupporterAskDue($data, false, $t0 + 7 * $day - 1));
+    same('ask: after a week', true, officeSupporterAskDue($data, false, $t0 + 7 * $day));
+    same('ask: never with a valid key', false, officeSupporterAskDue($data, true, $t0 + 7 * $day));
+    same('ask: never without a first sight', false, officeSupporterAskDue([], false, $t0));
+    $now = $t0 + 8 * $day;
+    $asked = [];
+    for ($i = 0; $i < 4; $i++) {
+        $asked[] = officeSupporterAskDue($data, false, $now);
+        $data = officeSupporterAnswer($data, 'later', $now);
+        $asked[] = officeSupporterAskDue($data, false, $now + 29 * $day);
+        $now += 30 * $day;
+    }
+    same('ask: «Not now» asks again in 30 days, at most twice more', [true, false, true, false, true, false, false, false], $asked);
+    same('ask: «Don\'t ask again»', false, officeSupporterAskDue(officeSupporterAnswer(['first_seen' => $t0], 'never', $t0), false, $t0 + 100 * $day));
+
+    // the file: first_seen once, 0600, never through a link, nothing without data/office
+    $file = "$tmp/office/supporter.json";
+    same('store: no data/office yet — nothing', null, officeSupporterStore($file, fn (array $d): array => $d, $t0));
+    mkdir("$tmp/office", 0700);
+    file_put_contents("$tmp/victim", 'keep');
+    symlink("$tmp/victim", $file);
+    $stored = officeSupporterStore($file, fn (array $d): array => $d, $t0);
+    same('store: first sight stamped', $t0, $stored['first_seen'] ?? null);
+    check('store: the victim behind a link is untouched, the link replaced', file_get_contents("$tmp/victim") === 'keep' && !is_link($file) && is_file($file));
+    same('store: mode 0600', '600', substr(sprintf('%o', fileperms($file)), -3));
+    same('store: first sight kept', $t0, officeSupporterStore($file, fn (array $d): array => $d + ['x' => 1], $t0 + 99)['first_seen'] ?? null);
+    same('store: no temporary files left', [], glob("$tmp/office/.*.tmp") ?: []);
+
+    // the office actions through the web side, in a process of its own (bootstrap.php, the data folder in $tmp)
+    [$make, , $pub] = supporterTestKeys($tmp);
+    $server = officeServerId();             // this host's (read only); null where var.ini names no GUID
+    $payload = fn (string $id, string $name = 'Ana', string $date = '2026-10-06'): string => json_encode(['v' => 1, 'id' => $id, 'name' => $name, 'date' => $date], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $mine = $make($payload($server ?? '0000-0000-0000-0000', 'Ana Müller'));
+    $theirs = $make($payload($server === 'AAAA-AAAA-AAAA-AAAA' ? 'BBBB-BBBB-BBBB-BBBB' : 'AAAA-AAAA-AAAA-AAAA'));
+    @unlink($file);
+    $web = "$tmp/web.php";
+    file_put_contents($web, '<?php require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; $out = [officeSupporterPage()];'
+        . ' foreach (json_decode(stream_get_contents(STDIN), true) as [$a, $d]) { try { $out[] = officeSupporterAction($a, $d); }'
+        . ' catch (OfficeProblem $e) { $out[] = ["error" => $e->key, "params" => $e->params]; } } $out[] = officeSupporterPage(); echo json_encode($out);');
+    $steps = [['office.supporter_set', ['key' => 'USO1.nonsense.x']], ['office.supporter_set', ['key' => $theirs]],
+              ['office.supporter_set', ['key' => "  " . chunk_split($mine, 50, "\n")]], ['office.supporter_ask', ['answer' => 'maybe']],
+              ['office.supporter_ask', ['answer' => 'later']], ['office.supporter_remove', []], ['office.supporter_ask', ['answer' => 'never']]];
+    $webRun = function (array $steps) use ($web, $tmp, $pub): array {
+        $p = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => $tmp, 'OFFICE_SUPPORTER_PUBKEY' => $pub, 'PATH' => getenv('PATH')]);
+        fwrite($pipes[0], json_encode($steps));
+        fclose($pipes[0]);
+        $raw = (string) stream_get_contents($pipes[1]);
+        $err = (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return [json_decode($raw, true) ?: [], $raw . $err];
+    };
+    [$out, $raw] = $webRun(array_slice($steps, 0, 3));
+    check('web: the page stamps the first sight', ($out[0]['state'] ?? null) === 'none' && ($out[0]['ask'] ?? null) === false && ($out[0]['id'] ?? false) === $server, $raw);
+    same('web: a broken key refused', 'supporter_invalid', $out[1]['error'] ?? null);
+    same('web: a key for another server refused', $server === null ? 'supporter_no_id' : 'supporter_other_server', $out[2]['error'] ?? null);
+    if ($server !== null) {
+        same('web: a key for this server (broken over lines, as from a mail) taken', ['valid', 'Ana Müller', false], [$out[3]['supporter']['state'] ?? null, $out[3]['supporter']['name'] ?? null, $out[3]['supporter']['ask'] ?? null]);
+        $saved = json_decode((string) @file_get_contents($file), true) ?: [];
+        same('web: the key kept without whitespace', $mine, $saved['key'] ?? null);
+        same('web: the page sees it', ['valid', 'Ana Müller'], [$out[4]['state'] ?? null, $out[4]['name'] ?? null]);
+    }
+    [$out, $raw] = $webRun(array_slice($steps, 3));
+    same('web: an odd answer refused', 'bad_request', $out[1]['error'] ?? null);
+    same('web: «Not now», «Remove», «Don\'t ask again» answered', [true, 'none', false], [$out[2]['ok'] ?? null, $out[3]['supporter']['state'] ?? null, $out[4]['supporter']['ask'] ?? null]);
+    $saved = json_decode((string) @file_get_contents($file), true) ?: [];
+    same('web: only the key went, the answers stay', [false, true, 1, true], [isset($saved['key']), isset($saved['first_seen']), $saved['ask']['later'] ?? null, $saved['ask']['never'] ?? null]);
+    same('web: the file is 0600', '600', substr(sprintf('%o', @fileperms($file)), -3));
+    hardeningRm($tmp);
+}
+
+/** Supporter keys are checked strictly: the signature, the shape, anchored validators — and the real public key against the tool */
+function testSupporterKeys(): void
+{
+    require_once OFFICE_DIR . '/src/supporter.php';
+    $tmp = hardeningTmp('supporter-keys');
+    $id = 'ABCD-0123-4567-89EF';
+
+    // a key tools/supporter-key.sh made on the maintainer's Mac (for an ID no server has) — the real public key
+    $real = 'USO1.eyJ2IjoxLCJpZCI6IjAwMDAtMDAwMC0wMDAwLTAwMDEiLCJuYW1lIjoiVGVzdCBNw7xsbGVyIFwicXVvdGVcIiBcXCBiYWNrIiwiZGF0ZSI6IjIwMjYtMTAtMDYifQ'
+        . '.MEUCIQDtyMwC_Pr4iR191QINIXSWZccdtg4riRyv085omtdcmgIgbKhDsDK0Wk_jCKf8JU9fX9eh9T77JM-31UqrkDb-b6s';
+    putenv('OFFICE_SUPPORTER_PUBKEY');
+    same('key: one made by the tool, checked with the office\'s public key', ['state' => 'valid', 'id' => '0000-0000-0000-0001', 'name' => 'Test Müller "quote" \\ back', 'date' => '2026-10-06'],
+        officeSupporterCheck($real, '0000-0000-0000-0001'));
+
+    [$make, $private, $pub] = supporterTestKeys($tmp);
+    putenv("OFFICE_SUPPORTER_PUBKEY=$pub");
+    same('key: the real one is nothing to a test key pair', 'invalid', officeSupporterCheck($real, '0000-0000-0000-0001')['state']);
+    $json = fn (array $p): string => json_encode($p, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $ok = ['v' => 1, 'id' => $id, 'name' => 'Ana', 'date' => '2026-10-06'];
+    $key = $make($json($ok));
+    same('key: valid for this server', ['state' => 'valid', 'id' => $id, 'name' => 'Ana', 'date' => '2026-10-06'], officeSupporterCheck($key, $id));
+    same('key: for another server', 'other', officeSupporterCheck($key, 'ABCD-0123-4567-89EE')['state']);
+    same('key: without a server ID, for another one', 'other', officeSupporterCheck($key, null)['state']);
+    same('key: whitespace from a mail is fine', 'valid', officeSupporterCheck(" \n" . chunk_split($key, 40, "\r\n"), $id)['state']);
+    $sig = substr($key, strrpos($key, '.'));
+    $refused = [
+        'another payload under the signature' => 'USO1.' . officeB64url($json(array_replace($ok, ['name' => 'Eve']))) . $sig,
+        'another key pair' => (function () use ($make, $json, $ok) {
+            return $make($json($ok), openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']));
+        })(),
+        'USO2' => 'USO2' . substr($key, 4),
+        'padding' => $key . '=',
+        'a character outside base64url' => substr($key, 0, 10) . '+' . substr($key, 11),
+        'too long' => $key . str_repeat('A', 1000),
+        'no signature' => substr($key, 0, strrpos($key, '.')),
+        'a key more' => $make($json($ok + ['extra' => 1])),
+        'a key less' => $make($json(['v' => 1, 'id' => $id, 'name' => 'Ana'])),
+        'another order' => $make($json(['id' => $id, 'v' => 1, 'name' => 'Ana', 'date' => '2026-10-06'])),
+        'version 2' => $make($json(array_replace($ok, ['v' => 2]))),
+        'version as text' => $make($json(array_replace($ok, ['v' => '1']))),
+        'id in lower case' => $make($json(array_replace($ok, ['id' => strtolower($id)]))),
+        'id with a newline' => $make($json(array_replace($ok, ['id' => "$id\n"]))),
+        'name too long' => $make($json(array_replace($ok, ['name' => str_repeat('n', 61)]))),
+        'name with a newline' => $make($json(array_replace($ok, ['name' => "Ana\n"]))),
+        'name with a control character' => $make($json(array_replace($ok, ['name' => "A\x07na"]))),
+        'name with a line separator' => $make($json(array_replace($ok, ['name' => "A\u{2028}na"]))),
+        'name with a zero-width space' => $make($json(array_replace($ok, ['name' => "A\u{200B}na"]))),
+        'name with a space in front' => $make($json(array_replace($ok, ['name' => ' Ana']))),
+        'empty name' => $make($json(array_replace($ok, ['name' => '']))),
+        'name as a list' => $make($json(array_replace($ok, ['name' => ['Ana']]))),
+        'no such day' => $make($json(array_replace($ok, ['date' => '2026-02-30']))),
+        'date with a newline' => $make($json(array_replace($ok, ['date' => "2026-10-06\n"]))),
+        'not JSON' => $make('Ana'),
+        'nested' => $make('{"v":1,"id":"' . $id . '","name":{"a":"b"},"date":"2026-10-06"}'),
+    ];
+    foreach ($refused as $what => $bad) {
+        same("key refused: $what", 'invalid', officeSupporterCheck($bad, $id)['state']);
+    }
+    same('key: 60 characters of a name (not bytes)', 'valid', officeSupporterCheck($make($json(array_replace($ok, ['name' => str_repeat('ü', 60)]))), $id)['state']);
+    // the payload is checked as transmitted, never re-encoded: another JSON spelling of the same shape counts
+    same('key: JSON with spaces and \\u escapes', ['valid', 'Zü'], array_values(array_intersect_key(
+        officeSupporterCheck($make('{ "v": 1, "id": "' . $id . '", "name": "Z\\u00fc", "date": "2026-10-06" }'), $id), ['state' => 1, 'name' => 1])));
+    // DER only: WebCrypto's raw r||s (64 bytes) must be converted first
+    $der = (string) officeB64urlDecode(substr($key, strrpos($key, '.') + 1));
+    $rl = ord($der[3]);
+    $sl = ord($der[5 + $rl]);
+    $raw = str_pad(ltrim(substr($der, 4, $rl), "\0"), 32, "\0", STR_PAD_LEFT) . str_pad(ltrim(substr($der, 6 + $rl, $sl), "\0"), 32, "\0", STR_PAD_LEFT);
+    same('key: a raw r||s signature (not DER) refused', 'invalid', officeSupporterCheck(substr($key, 0, strrpos($key, '.') + 1) . officeB64url($raw), $id)['state']);
+    check('anchored: a server ID with a trailing newline refused', preg_match(OFFICE_SUPPORTER_ID, "$id\n") === 0);
+    check('anchored: a GUID with a trailing newline gives no ID', officeServerIdOf("0781-5583-A1B2-123456789012\n") === null);
+    check('anchored: a name with a trailing newline refused', !officeSupporterNameOk("Ana\n"));
+    same('base64url: only the canonical spelling', ['a', null, null, null], [officeB64urlDecode('YQ'), officeB64urlDecode('YR'), officeB64urlDecode('YQ=='), officeB64urlDecode('Y')]);
+
+    // the maintainer's tool (bash + openssl) with the test key pair: what it makes, PHP takes
+    $tool = OFFICE_DIR . '/tools/supporter-key.sh';
+    $env = ['USO_SUPPORTER_KEY' => $private, 'USO_SUPPORTER_PUB' => $pub, 'PATH' => getenv('PATH'), 'HOME' => $tmp, 'TMPDIR' => $tmp];
+    $run = function (array $args, array $env) use ($tool): array {
+        $p = proc_open(array_merge(['bash', $tool], $args), [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $env);
+        fclose($pipes[0]);
+        $out = (string) stream_get_contents($pipes[1]);
+        $err = (string) stream_get_contents($pipes[2]);
+        return [proc_close($p), trim($out), $err];
+    };
+    [$code, $made, $err] = $run([strtolower($id), 'Zoë "Z" O\'Neil \\ Co', '2028-02-29'], $env);
+    same('tool: a key made', 0, $code);
+    same('tool: PHP takes what the tool made', ['state' => 'valid', 'id' => $id, 'name' => 'Zoë "Z" O\'Neil \\ Co', 'date' => '2028-02-29'], officeSupporterCheck($made, $id));
+    [$c, $o] = $run(['--verify', $made, $id], $env);
+    same('tool: --verify', [0, 'signature: valid'], [$c, strtok($o, "\n")]);
+    same('tool: --verify for another server', 1, $run(['--verify', $made, 'ABCD-0123-4567-89EE'], $env)[0]);
+    same('tool: --verify of a broken key', 1, $run(['--verify', substr($made, 0, -2) . 'AA', $id], $env)[0]);
+    foreach (['a name with a tab' => [$id, "A\tB"], 'a name with a space in front' => [$id, ' Ana'], 'a name too long' => [$id, str_repeat('n', 61)],
+              'an odd ID' => ['ABCD-0123-4567', 'Ana'], 'no such day' => [$id, 'Ana', '2026-02-29'], 'a date with a newline' => [$id, 'Ana', "2026-10-06\n"]] as $what => $args) {
+        [$c, $o] = $run($args, $env);
+        check("tool refuses $what", $c !== 0 && $o === '', "exit $c: $o");
+    }
+    [$c, $o] = $run([$id, 'Ana'], ['USO_SUPPORTER_PUB' => ''] + $env);
+    check('tool: a private key that isn\'t the office\'s makes no key', $c !== 0 && $o === '', "exit $c: $o");
+    same('tool: leaves no temporary folder', [], glob("$tmp/uso-supporter.*") ?: []);
+    putenv('OFFICE_SUPPORTER_PUBKEY');
+    hardeningRm($tmp);
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
-                      'testWhereaboutsAfterWatchman'],
-          'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
+                      'testWhereaboutsAfterWatchman', 'testSupporter'],
+          'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
