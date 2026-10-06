@@ -106,6 +106,7 @@
   "office.fired": "{name} a été renvoyé(e).",
   "office.tip_title_team": "Pourboire & augmentation",
   "office.tip_text_team": "Content du travail de l'équipe ? Tout le monde apprécie un pourboire ou une petite augmentation — Jack Emby plus que tous, c'est quand même lui qui apporte le café.",
+  "office.tip_credit": "Une partie des pourboires va à helmi1987, qui a écrit les outils avec lesquels travaille Jack Emby : EmbyCache et « Regrouper les dossiers ».",
   "agent.array_stopped_title": "L'array est arrêté.",
   "agent.array_stopped_text": "Le secrétariat garde ses données dans appdata — il se remet au travail dès que l'array tourne.",
   "agent.no_data_title": "Le dossier de données du secrétariat manque.",

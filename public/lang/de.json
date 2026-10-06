@@ -106,6 +106,7 @@
   "office.fired": "{name} ist entlassen.",
   "office.tip_title_team": "Trinkgeld & Lohnerhöhung",
   "office.tip_text_team": "Gefällt dir, wie das Team arbeitet? Über ein Trinkgeld oder eine kleine Lohnerhöhung freuen sich alle — vor allem Jack Emby, der holt ja den Kaffee.",
+  "office.tip_credit": "Ein Teil des Trinkgelds geht an helmi1987 — er hat die Werkzeuge geschrieben, mit denen Jack Emby arbeitet: EmbyCache und «Ordner zusammenführen».",
   "agent.array_stopped_title": "Das Array ist gestoppt.",
   "agent.array_stopped_text": "Das Sekretariat hat seine Daten in appdata — es arbeitet wieder, sobald das Array läuft.",
   "agent.no_data_title": "Der Datenordner des Sekretariats fehlt.",
