@@ -121,9 +121,10 @@ function backupMetrics(?string $state = null): array
         $out[] = metricsGauge('uso_backup_last_success_timestamp_seconds', 'When the last real backup run that went well (ok or with warnings) ended', $success);
     }
 
-    // a run going on now: status.json says so and the engine holds its lock
+    // a run going on now: status.json says so, its process lives and the engine holds its lock (not a killed run's leftover)
     $status = metricsCached("$state/status.json", fn (string $f) => readJson($f));
-    $running = is_array($status) && ($status['result'] ?? '') === 'running' && flockHeld("$state/lock");
+    $running = is_array($status) && ($status['result'] ?? '') === 'running' && (int) ($status['pid'] ?? 0) > 1
+        && posix_kill((int) $status['pid'], 0) && flockHeld("$state/lock");
     $out[] = metricsGauge('uso_backup_running', 'Whether the backup engine is running now (a backup, a check or a dry run)', $running);
     if ($running) {
         $out[] = metricsGauge('uso_backup_current_phase', 'The run going on now: its mode and phase', [[['mode' => $word($status['mode'] ?? null), 'phase' => $word($status['phase'] ?? null)], 1]]);
