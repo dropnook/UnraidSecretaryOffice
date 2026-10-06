@@ -274,6 +274,7 @@
   "setup.sum_level.2": "Local + Kopia",
   "setup.apply_hint": "Mr. Backupsy checks everything again, keeps the previous settings.ini, writes the new one and — if Kopia is on — lines up Kopia's policies. The schedule stays as it is.",
   "setup.apply_hint_new": "Mr. Backupsy checks everything again, writes settings.ini and — if Kopia is on — Kopia's policies. No backup starts.",
+  "setup.apply_responsibility": "After the first runs, check that everything you need is really in the backup, and try a restore now and then — a backup can be faulty or incomplete, and your data stays your responsibility.",
   "setup.bar_changes": {
     "one": "1 change",
     "other": "{n} changes"
@@ -509,6 +510,7 @@
   "help.history": "The last runs with result, Kopia count and how long containers were stopped. A click on a run opens its log.",
   "help.drift": "New shares or containers since the setup, or settings that don't fit any more. Set up… takes them over.",
   "help.restore": "Where the local snapshots, Kopia and the packages are. Bringing things back — per app and VM, with ready-made commands — is Mr. Restori's job.",
+  "disclaimer": "No backup is a guarantee: a backup can be faulty or incomplete. You stay responsible for your data and your backup strategy — test a restore now and then and keep more than one copy (for example 3-2-1: three copies, on two kinds of storage, one of them off site).",
   "help.draft": "Nothing changes yet",
   "help.draft_text": "Everything here is a draft until you press Apply at the bottom; Discard goes back to what was read.",
   "help.replan": "Reads the server again — shares, containers, databases, Kopia — without changing anything.",
@@ -537,6 +539,8 @@
   "greet.3": "I do hope the power stays on today…",
   "greet.4": "I checked three times. Better safe than sorry.",
   "greet.5": "Is the array still there? … Phew.",
+  "greet.6": "Backups can go wrong, you know — I check everything three times, but please test a restore now and then. In the end your data is your responsibility …",
+  "greet.7": "One copy is no copy! Three copies, two kinds of storage, one far away — 3-2-1. Only then do I sleep well.",
   "fit.yes": "Mr. Backupsy is coming — he only asked three times whether Kopia (\"{kopia}\") is really there.",
   "fit.no_kopia": "Mr. Backupsy would come, but he's nervous: without Kopia he can't save anything offsite. You can install Kopia later — I'll tell you how.",
   "fit.no_cow": "Mr. Backupsy declined: without ZFS or btrfs he can't take snapshots. \"That makes me dizzy\", he said.",

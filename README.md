@@ -259,3 +259,9 @@ This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
 Foundation, either version 3 of the License, or (at your option) any later
 version. It is distributed WITHOUT ANY WARRANTY; see [LICENSE](LICENSE).
+
+**No warranty for your backups either.** Mr. Backupsy and the backup engine do their
+best, but a backup can be faulty or incomplete — a dump that failed, a share left
+out, a repository that can't be opened any more. You stay responsible for your data
+and your backup strategy: test a restore now and then, and keep more than one copy,
+for example 3-2-1 (three copies, on two kinds of storage, one of them off site).

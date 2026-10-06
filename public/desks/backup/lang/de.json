@@ -274,6 +274,7 @@
   "setup.sum_level.2": "Lokal + Kopia",
   "setup.apply_hint": "Herr Backupsi prüft alles nochmals, behält die bisherige settings.ini, schreibt die neue und gleicht — wenn Kopia an ist — Kopias Policies an. Der Zeitplan bleibt, wie er ist.",
   "setup.apply_hint_new": "Herr Backupsi prüft alles nochmals, schreibt die settings.ini und — wenn Kopia an ist — Kopias Policies. Ein Backup startet dabei nicht.",
+  "setup.apply_responsibility": "Prüf nach den ersten Läufen, ob wirklich alles im Backup ist, was du brauchst, und probier ab und zu eine Wiederherstellung aus — ein Backup kann fehlerhaft oder unvollständig sein, und deine Daten bleiben deine Verantwortung.",
   "setup.bar_changes": {
     "one": "1 Änderung",
     "other": "{n} Änderungen"
@@ -509,6 +510,7 @@
   "help.history": "Die letzten Läufe mit Ergebnis, Kopia-Zahl und wie lange Container standen. Ein Klick auf einen Lauf öffnet sein Protokoll.",
   "help.drift": "Neue Shares oder Container seit dem Setup, oder Einstellungen, die nicht mehr passen. «Einrichten…» übernimmt sie.",
   "help.restore": "Wo die lokalen Snapshots, Kopia und die Pakete sind. Das Zurückholen — pro App und VM, mit fertigen Befehlen — ist Herrn Restoris Sache.",
+  "disclaimer": "Kein Backup ist eine Garantie: Ein Backup kann fehlerhaft oder unvollständig sein. Für deine Daten und deine Backup-Strategie bleibst du selbst verantwortlich — probier ab und zu eine Wiederherstellung aus und halte mehr als eine Kopie (zum Beispiel 3-2-1: drei Kopien, auf zwei Arten von Speicher, eine davon ausser Haus).",
   "help.draft": "Noch ändert sich nichts",
   "help.draft_text": "Alles hier ist ein Entwurf, bis du unten auf Übernehmen drückst; Verwerfen geht zurück zum Eingelesenen.",
   "help.replan": "Liest den Server neu ein — Shares, Container, Datenbanken, Kopia — ohne etwas zu ändern.",
@@ -537,6 +539,8 @@
   "greet.3": "Hoffentlich bleibt heute der Strom an…",
   "greet.4": "Ich habe dreimal nachgeschaut. Sicher ist sicher.",
   "greet.5": "Ist das Array noch da? … Puh.",
+  "greet.6": "Backups können schiefgehen, weisst du — ich prüfe alles dreimal, aber probier bitte ab und zu eine Wiederherstellung aus. Am Ende sind deine Daten deine Verantwortung …",
+  "greet.7": "Eine Kopie ist keine Kopie! Drei Kopien, zwei Arten von Speicher, eine weit weg — 3-2-1. Nur so schlaf ich ruhig.",
   "fit.yes": "Herr Backupsi kommt — er hat nur dreimal gefragt, ob Kopia («{kopia}») auch wirklich da ist.",
   "fit.no_kopia": "Herr Backupsi würde kommen, ist aber nervös: Ohne Kopia kann er nichts ausser Haus sichern. Kopia kannst du später installieren — ich sage dir dann, wie.",
   "fit.no_cow": "Herr Backupsi hat abgesagt: Ohne ZFS oder btrfs kann er keine Snapshots machen. «Da wird mir schwindlig», hat er gesagt.",

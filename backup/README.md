@@ -501,6 +501,8 @@ Played through with and without Kopia, and switching it on again. Mount propagat
 
 So on every new server: *Set up…*, then a check and a dry run first.
 
+No warranty: a backup can be faulty or incomplete, and you stay responsible for your data and your backup strategy — test a restore now and then and keep more than one copy (e.g. 3-2-1: three copies, two kinds of storage, one off site). See the [license](../README.md#license).
+
 ## Versions
 
 - **2.22** – VMs with `prepare = shutdown` go down before anything stops: the run asks them and waits for them (one deadline, the request again every 60 s) while the apps still run, before Nextcloud's maintenance mode — the apps' interruption (`downtime_s`) no longer includes waiting for a VM. Freezing and pausing stay right before the snapshots, so does pausing a VM that wasn't off by its deadline (its `seconds` count from the pause; one that went off later is started again like the others). A run stopped while a VM goes down waits for it and starts it again. `status.json` has the phase `vm_shutdown`.

@@ -303,6 +303,8 @@ function render() {
   root.appendChild(historySection());
   if ((state.drift && state.drift.items || []).length) root.appendChild(driftSection());
   root.appendChild(restoreSection());
+  // quiet and plain: no backup is a guarantee, the data stays the user's responsibility
+  root.appendChild(el('p', 'bk-disclaimer', T('disclaimer')));
 }
 
 function missing() {
@@ -1485,6 +1487,7 @@ function setupApply() {
     }
   }
   box.appendChild(el('p', 'role', T(!setup.plan.have_settings ? 'setup.apply_hint_new' : 'setup.apply_hint')));
+  box.appendChild(el('p', 'role', T('setup.apply_responsibility')));
   Office.dialog({
     title: T('setup.apply_title'),
     body: box,

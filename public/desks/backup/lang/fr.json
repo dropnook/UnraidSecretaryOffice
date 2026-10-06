@@ -277,6 +277,7 @@
   "setup.sum_level.2": "Local + Kopia",
   "setup.apply_hint": "Monsieur Backupsi revérifie tout, garde l'ancien settings.ini, écrit le nouveau et — si Kopia est activé — aligne les politiques de Kopia. La planification reste telle quelle.",
   "setup.apply_hint_new": "Monsieur Backupsi revérifie tout, écrit settings.ini et — si Kopia est activé — les politiques de Kopia. Aucune sauvegarde ne démarre.",
+  "setup.apply_responsibility": "Après les premières exécutions, vérifie que tout ce dont tu as besoin est bien dans la sauvegarde, et teste une restauration de temps en temps — une sauvegarde peut être défectueuse ou incomplète, et tes données restent ta responsabilité.",
   "setup.bar_changes": {
     "one": "{n} changement",
     "other": "{n} changements"
@@ -515,6 +516,7 @@
   "help.history": "Les dernières exécutions avec le résultat, le compte Kopia et combien de temps les conteneurs ont été arrêtés. Un clic sur une exécution ouvre son journal.",
   "help.drift": "Nouveaux partages ou conteneurs depuis la configuration, ou réglages qui ne conviennent plus. Configurer… les reprend.",
   "help.restore": "Où sont les snapshots locaux, Kopia et les paquets. Ramener les choses — par appli et par VM, avec des commandes toutes prêtes — c'est le travail de Monsieur Restori.",
+  "disclaimer": "Aucune sauvegarde n'est une garantie : une sauvegarde peut être défectueuse ou incomplète. Tu restes responsable de tes données et de ta stratégie de sauvegarde — teste une restauration de temps en temps et garde plus d'une copie (par exemple 3-2-1 : trois copies, sur deux types de support, dont une hors site).",
   "help.draft": "Rien ne change encore",
   "help.draft_text": "Tout ici est un brouillon jusqu'à ce que tu appuies sur Appliquer en bas ; Abandonner revient à ce qui a été lu.",
   "help.replan": "Relit le serveur — partages, conteneurs, bases de données, Kopia — sans rien changer.",
@@ -543,6 +545,8 @@
   "greet.3": "J'espère vraiment qu'il n'y aura pas de coupure de courant aujourd'hui…",
   "greet.4": "J'ai vérifié trois fois. Deux précautions valent mieux qu'une.",
   "greet.5": "L'array est toujours là ? … Ouf.",
+  "greet.6": "Les sauvegardes peuvent rater, tu sais — je vérifie tout trois fois, mais teste une restauration de temps en temps, s'il te plaît. Au bout du compte, tes données sont ta responsabilité …",
+  "greet.7": "Une copie, ce n'est pas une copie ! Trois copies, deux types de support, une au loin — 3-2-1. Ce n'est qu'ainsi que je dors tranquille.",
   "fit.yes": "Monsieur Backupsi arrive — il a seulement demandé trois fois si Kopia (« {kopia} ») est vraiment là.",
   "fit.no_kopia": "Monsieur Backupsi viendrait bien, mais il est nerveux : sans Kopia, il ne peut rien mettre à l'abri hors du serveur. Tu peux installer Kopia plus tard — je te dirai comment.",
   "fit.no_cow": "Monsieur Backupsi a décliné : sans ZFS ni btrfs, il ne peut pas prendre de snapshots. « Ça me donne le tournis », a-t-il dit.",
