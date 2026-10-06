@@ -335,6 +335,7 @@
   "rd.wait_restore": "Une restauration est en cours — une à la fois.",
   "rd.snap": "Quel snapshot",
   "rd.snap_ours": "de Monsieur Backupsi",
+  "rd.snap_kopia": "ce que Kopia a ramené ({name})",
   "rd.way": "Comment",
   "rd.way_copy": "Le copier à côté du dossier",
   "rd.way_copy_hint": "<dossier>.restored-<heure> — rien n'est remplacé, rien ne s'arrête. Prends-y ce dont tu as besoin.",

@@ -335,6 +335,7 @@
   "rd.wait_restore": "A restore is going on — one at a time.",
   "rd.snap": "Which snapshot",
   "rd.snap_ours": "Mr. Backupsy's",
+  "rd.snap_kopia": "what Kopia brought back ({name})",
   "rd.way": "How",
   "rd.way_copy": "Copy it next to the folder",
   "rd.way_copy_hint": "<folder>.restored-<time> — nothing is replaced, nothing stops. Take what you need from it.",

@@ -1533,9 +1533,18 @@ function rsPlanFilesFor(string $path, string $snapId, string $mode, bool $wake, 
             $snaps[] = $s + ['base' => $p['base'], 'fs' => $p['fs']];
         }
     }
+    // what Kopia brought back into its restore folder (step 6) is a source too: next to the live folder's place
+    $home = array_values(array_filter($places, fn ($p) => $p['exists'] && !$p['asleep']))[0]
+        ?? array_values(array_filter($places, fn ($p) => !$p['asleep'] && is_dir(dirname($p['live']))))[0] ?? null;
+    if ($home) {
+        foreach (rsKopiaRestored($path, $ctx) as $k) {
+            $snaps[] = $k + ['base' => $home['base'], 'fs' => $home['fs']];
+        }
+    }
     usort($snaps, fn ($a, $b) => $b['time'] <=> $a['time']);
     $asleep = array_values(array_map(fn ($p) => $p['base'], array_filter($places, fn ($p) => $p['asleep'])));
-    $plan['options'] = ['snaps' => array_map(fn ($s) => ['id' => $s['id'], 'name' => $s['name'], 'time' => $s['time'], 'base' => $s['base'], 'ours' => $s['ours']], $snaps),
+    $plan['options'] = ['snaps' => array_map(fn ($s) => ['id' => $s['id'], 'name' => $s['name'], 'time' => $s['time'], 'base' => $s['base'], 'ours' => $s['ours'],
+                                                          'kopia' => !empty($s['kopia'])], $snaps),
                         'asleep' => $asleep, 'vm' => $owner['kind'] === 'vm'];
     $snap = null;
     foreach ($snaps as $s) {
@@ -1624,6 +1633,39 @@ function rsPlanFilesFor(string $path, string $snapId, string $mode, bool $wake, 
     }
     $plan['steps'] = $steps;
     return $plan;
+}
+
+/**
+ * Folders Kopia brought back (finished kopia restores of his) that hold this folder unit: a share's source
+ * holds it at <restored>/<folder>, an app's or VM's own source at <restored>/<share>/<folder>.
+ *
+ * @return list<array{id:string, name:string, time:int, path:string, ours:bool, kopia:bool}>
+ */
+function rsKopiaRestored(string $path, array $ctx): array
+{
+    $sp = rsSharePath($path, $ctx);
+    if (!$sp || $sp[1] === '') {
+        return [];
+    }
+    [$share, $rel] = $sp;
+    $out = [];
+    foreach (rsJournals() as $r) {
+        if ($r['kind'] !== 'kopia' || !in_array($r['result'], ['ok', 'warnings'], true)) {
+            continue;
+        }
+        $j = rsJournal($r['id']);
+        $host = (string) ($j['steps'][0]['host'] ?? '');
+        $source = (string) ($r['target']['source'] ?? '');
+        if ($host === '' || !rsCleanPath($host)) {
+            continue;
+        }
+        $cand = str_starts_with($source, '.') ? "$host/$share/$rel" : ($source === $share ? "$host/$rel" : null);
+        if ($cand !== null && is_dir($cand)) {
+            $time = (int) (readJson(rsDir($r['id']) . '/plan.json')['source']['time'] ?? 0) ?: (int) $r['finished'];
+            $out[] = ['id' => 'kopia:' . $r['id'], 'name' => 'Kopia ' . basename($host), 'time' => $time, 'path' => $cand, 'ours' => false, 'kopia' => true];
+        }
+    }
+    return $out;
 }
 
 /**

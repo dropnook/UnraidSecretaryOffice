@@ -1170,7 +1170,7 @@ function filesOptions(box, plan, ask, change) {
     sel.id = 'rs-snap';
     label.htmlFor = sel.id;
     o.snaps.forEach((s) => {
-      const op = el('option', '', `${date(s.time)} — ${s.name}${s.ours ? ' · ' + T('rd.snap_ours') : ''} (${s.base})`);
+      const op = el('option', '', s.kopia ? `${date(s.time)} — ${T('rd.snap_kopia', { name: s.name })}` : `${date(s.time)} — ${s.name}${s.ours ? ' · ' + T('rd.snap_ours') : ''} (${s.base})`);
       op.value = s.id;
       op.selected = s.id === plan.target.snap;
       sel.appendChild(op);

@@ -335,6 +335,7 @@
   "rd.wait_restore": "È in corso un ripristino — uno alla volta.",
   "rd.snap": "Quale snapshot",
   "rd.snap_ours": "del signor Backupsi",
+  "rd.snap_kopia": "ciò che Kopia ha ripristinato ({name})",
   "rd.way": "Come",
   "rd.way_copy": "Copiarlo accanto alla cartella",
   "rd.way_copy_hint": "<cartella>.restored-<ora> — non si sostituisce niente, non si ferma niente. Prendi ciò che ti serve.",

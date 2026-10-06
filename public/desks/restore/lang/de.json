@@ -335,6 +335,7 @@
   "rd.wait_restore": "Eine Rückholung ist im Gang — eine nach der anderen.",
   "rd.snap": "Welcher Snapshot",
   "rd.snap_ours": "von Herrn Backupsi",
+  "rd.snap_kopia": "was Kopia zurückgeholt hat ({name})",
   "rd.way": "Wie",
   "rd.way_copy": "Neben den Ordner kopieren",
   "rd.way_copy_hint": "<Ordner>.restored-<Zeit> — nichts wird ersetzt, nichts stoppt. Nimm daraus, was du brauchst.",
