@@ -802,8 +802,14 @@ function testRestoreJobs(): void
     same('restore: a file outside the flash goes aside next to it', '/mnt/user/appdata/x/compose.yaml.restored-aside-20261006-120000',
         rsAsideFor('/mnt/user/appdata/x/compose.yaml', '20261006-120000'));
     same('restore: clean paths', [true, false, false, false, false], array_map('rsCleanPath', ['/mnt/user/a/b.env', '/mnt/user/../etc', 'rel/x', "/a/b\n", '/a//b']));
-    same('restore: a stamp from the page only when it is plausible', ['20261006-120000' === rsStampOf(['stamp' => '20261006-120000']), 15],
-        [false, strlen(rsStampOf(['stamp' => "20261006-120000\n"]))]);
+    // relative to now, so the test doesn't depend on the time of day it runs
+    $recent = date('Ymd-His', time() - 60);
+    $future = date('Ymd-His', time() + 3600);
+    $old = date('Ymd-His', time() - 2 * 86400);
+    same('restore: a stamp from the page only when it is plausible',
+        [true, false, false, 15],
+        [rsStampOf(['stamp' => $recent]) === $recent, rsStampOf(['stamp' => $future]) === $future,
+         rsStampOf(['stamp' => $old]) === $old, strlen(rsStampOf(['stamp' => "$recent\n"]))]);
 
     // Kopia's list: only real ids, newest first, texts cut
     same('restore: Kopia\'s snapshots', [['abcdef0123456789abcdef0123456789', 2], ['0123456789abcdef0123456789abcdef', 1]],

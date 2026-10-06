@@ -1828,7 +1828,9 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
     if (is_array($c)) {
         $k = $known['crontab'] ?? null;
         if (!is_array($k)) {
-            $known['crontab'] = ['lines' => $c['lines'], 'twice' => $c['twice'], 'office' => $c['office'], 'dead' => array_map(fn ($d) => $d['plugin'], $c['dead'])];
+            // jobs that run twice and stray copies of the office's own lines are never "normal": not
+            // learned here, so the next round reports them even when they were there before he came
+            $known['crontab'] = ['lines' => $c['lines'], 'twice' => [], 'office' => [], 'dead' => array_map(fn ($d) => $d['plugin'], $c['dead'])];
         } else {
             $k += ['lines' => [], 'twice' => [], 'office' => [], 'dead' => []];
             $ev = ['mtime' => $c['mtime'], 'evidence' => (array) ($c['evidence']['lines'] ?? [])];
