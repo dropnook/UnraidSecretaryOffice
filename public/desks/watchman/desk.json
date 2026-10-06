@@ -1,0 +1,6 @@
+{
+  "order": 42,
+  "icon": "🏮",
+  "refresh_after": 120,
+  "open_actions": ["round"]
+}
