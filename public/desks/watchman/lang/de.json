@@ -190,7 +190,7 @@
   "notify.more": "… und {n} weitere",
   "notify.footer": "Der Nachtwächter führt alles in seinem Wachbuch im Sekretariat. «Weiss ich, danke» dort macht es zum neuen Normalfall. Ein Schalter dort schaltet diese Meldungen aus.",
   "watch.title": "Was ich im Auge behalte",
-  "watch.sub": "Was normal ist: was er sah, als er die Wache übernahm, und was du seither zur Kenntnis genommen hast. Was sicherer wird (weniger Rechte, eine geschlossene Freigabe), wird von selbst normal.",
+  "watch.sub": "Was normal ist: was er sah, als er die Wache übernahm, und was du seither zur Kenntnis genommen hast. Was sicherer wird (weniger Rechte, eine geschlossene Freigabe), wird von selbst normal. Gezählt und aufgelistet wird, was jetzt da ist: Was weg ist (ein Container, ein Plugin, eine Freigabe), fällt aus der Liste — er merkt es sich noch eine Weile, damit, was unverändert zurückkommt, keine Meldung ist.",
   "watch.none": "Das hält er auf seiner ersten Runde fest.",
   "watch.ips": "Bekannte Anmeldeadressen",
   "watch.ips_sum": {"one": "eine Adresse", "other": "{n} Adressen"},

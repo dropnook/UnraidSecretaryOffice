@@ -190,7 +190,7 @@
   "notify.more": "… y {n} más",
   "notify.footer": "El sereno lo guarda todo en su libro de guardia en la secretaría. «Ya lo sé, gracias» allí lo convierte en lo nuevo normal. Un interruptor allí apaga estos avisos.",
   "watch.title": "Lo que vigilo",
-  "watch.sub": "Lo que es normal: lo que vio al tomar la guardia y lo que anotaste desde entonces. Lo que se vuelve más seguro (menos derechos, un recurso compartido cerrado) pasa a ser normal por sí solo.",
+  "watch.sub": "Lo que es normal: lo que vio al tomar la guardia y lo que anotaste desde entonces. Lo que se vuelve más seguro (menos derechos, un recurso compartido cerrado) pasa a ser normal por sí solo. Se cuenta y se lista lo que hay ahora: lo que se fue (un contenedor, un plugin, un recurso compartido) sale de la lista — aún lo recuerda un tiempo, así que lo que vuelve tal como era no es noticia.",
   "watch.none": "Lo registra en su primera ronda.",
   "watch.ips": "Direcciones de acceso conocidas",
   "watch.ips_sum": {"one": "una dirección", "other": "{n} direcciones"},

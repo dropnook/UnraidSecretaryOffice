@@ -3325,7 +3325,7 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         'on_watch' => $onWatch ? (int) $b['time'] : null,
         'open'     => watchmanOpenCounts($d['book']),
         'book'     => $book,
-        'watch'    => $onWatch ? watchmanSummary($b) : null,
+        'watch'    => $onWatch ? watchmanSummary($b, readJson("$dir/seen.json")) : null,
         'flow'     => $onWatch ? watchmanFlowSummary(is_array($b['flow'] ?? null) ? $b['flow'] : null, readJson("$dir/flow.json"), $now) : null,
         'notified' => $st['last_notify'] ?? null,
         'notify'   => ['on' => ($st['notify'] ?? true) !== false, 'available' => is_executable(OFFICE_NOTIFY_BIN)],
@@ -3338,9 +3338,18 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
     return $state;
 }
 
-/** "What I keep an eye on": the baseline, summarised */
-function watchmanSummary(array $b): array
+/**
+ * "What I keep an eye on": the baseline, summarised — of the containers, plugins and shares only what
+ * is there now ($seen: what the last round saw). Gone ones stay in his memory for WATCH_FORGET, so
+ * one that comes back (a Compose Down and Up, an update, a reinstall) is compared with what it was,
+ * not reported as new; but they are no longer counted or listed.
+ */
+function watchmanSummary(array $b, ?array $seen = null): array
 {
+    $there = function (string $part) use ($b, $seen): array {
+        $known = is_array($b[$part] ?? null) ? $b[$part] : [];
+        return is_array($seen[$part] ?? null) ? array_intersect_key($known, $seen[$part]) : $known;
+    };
     $ips = [];
     foreach ((array) ($b['ips'] ?? []) as $ip => $k) {
         $ips[] = ['ip' => (string) $ip, 'first' => (int) ($k['first'] ?? 0), 'last' => (int) ($k['last'] ?? 0),
@@ -3356,15 +3365,16 @@ function watchmanSummary(array $b): array
     $containers = null;
     if (is_array($b['containers'] ?? null)) {
         $special = [];
-        foreach ($b['containers'] as $name => $c) {
+        $now = $there('containers');
+        foreach ($now as $name => $c) {
             if ((array) ($c['tokens'] ?? [])) {
                 $special[] = ['name' => (string) $name, 'tokens' => (array) $c['tokens'], 'rights' => watchmanRights((array) $c['tokens']) !== []];
             }
         }
-        $containers = ['count' => count($b['containers']), 'special' => $special];
+        $containers = ['count' => count($now), 'special' => $special];
     }
     $plugins = [];
-    foreach ((array) ($b['plugins'] ?? []) as $name => $p) {
+    foreach ($there('plugins') as $name => $p) {
         $plugins[] = ['name' => (string) $name, 'source' => (string) ($p['source'] ?? ''), 'version' => $p['version'] ?? null];
     }
     $f = (array) ($b['flash'] ?? []);
@@ -3381,12 +3391,13 @@ function watchmanSummary(array $b): array
     $shares = null;
     if (is_array($b['shares'] ?? null)) {
         $open = [];
-        foreach ($b['shares'] as $share => $s) {
+        $now = $there('shares');
+        foreach ($now as $share => $s) {
             if (($s['smb'] ?? 0) > 0 || ($s['nfs'] ?? 0) > 0) {
                 $open[] = ['share' => (string) $share, 'smb' => (int) ($s['smb'] ?? 0), 'nfs' => (int) ($s['nfs'] ?? 0)];
             }
         }
-        $shares = ['count' => count($b['shares']), 'open' => $open];
+        $shares = ['count' => count($now), 'open' => $open];
     }
     return [
         'ips'        => $ips,

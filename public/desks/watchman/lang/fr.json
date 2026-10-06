@@ -190,7 +190,7 @@
   "notify.more": "… et {n} de plus",
   "notify.footer": "Le veilleur de nuit garde tout dans sa main courante au secrétariat. « Je sais, merci » là-bas en fait la nouvelle normalité. Un interrupteur là-bas coupe ces signalements.",
   "watch.title": "Ce que je garde à l'œil",
-  "watch.sub": "Ce qui est normal : ce qu'il a vu en prenant la veille, et ce que tu as noté depuis. Ce qui devient plus sûr (moins de droits, un partage fermé) devient normal de lui-même.",
+  "watch.sub": "Ce qui est normal : ce qu'il a vu en prenant la veille, et ce que tu as noté depuis. Ce qui devient plus sûr (moins de droits, un partage fermé) devient normal de lui-même. Compté et listé : ce qui est là maintenant ; ce qui est parti (un conteneur, un plugin, un partage) quitte la liste — il s'en souvient encore un moment, si bien que ce qui revient tel quel n'est pas une nouvelle.",
   "watch.none": "Il l'enregistre à sa première ronde.",
   "watch.ips": "Adresses de connexion connues",
   "watch.ips_sum": {"one": "{n} adresse", "other": "{n} adresses"},

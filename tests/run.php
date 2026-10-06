@@ -1448,6 +1448,45 @@ function testWatchman(): void
 }
 
 /**
+ * What is gone (a container removed, a plugin uninstalled, a share deleted) leaves "What I keep an eye
+ * on" at once — counted is what is there — but he still remembers it: one that comes back the same is quiet
+ */
+function testWatchmanGone(): void
+{
+    $now = 1791280000;
+    $known = ['app' => ['tokens' => ['--privileged'], 'seen' => $now - 600], 'db' => ['tokens' => [], 'seen' => $now - 600]];
+    $book = [];
+    $added = watchmanContainersCompare($known, ['db' => ['image' => 'postgres', 'tokens' => []]], $book, $now);
+    same('watch gone: a container removed — nothing to tell, still remembered', [[], true], [$added, isset($known['app'])]);
+    $added = watchmanContainersCompare($known, ['db' => ['image' => 'postgres', 'tokens' => []], 'app' => ['image' => 'x', 'tokens' => ['--privileged']]], $book, $now + 600);
+    same('watch gone: back with the same rights — quiet', [[], []], [$added, $book]);
+    $added = watchmanContainersCompare($known, ['db' => ['image' => 'postgres', 'tokens' => []], 'app' => ['image' => 'x', 'tokens' => ['--privileged', '--network=host']]], $book, $now + 900);
+    same('watch gone: back with more — told', ['container_host'], $added);
+
+    $tmp = sys_get_temp_dir() . '/office-tests-gone-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    $b = ['hired' => 1000, 'time' => 1000, 'ips' => [], 'fail_ips' => [], 'flash' => ['go' => null, 'extra' => [], 'users' => ['root'], 'pw' => [], 'keys' => []],
+          'containers' => ['app' => ['tokens' => ['--privileged'], 'seen' => $now], 'db' => ['tokens' => ['-p 5432:5432/tcp'], 'seen' => $now], 'web' => ['tokens' => [], 'seen' => $now],
+                           'Grafana' => ['tokens' => ['-p 3000:3000/tcp'], 'seen' => $now - 900], 'zz-test' => ['tokens' => ['--privileged'], 'seen' => $now - 900]],
+          'plugins' => ['user.scripts' => ['source' => 'raw.githubusercontent.com/x', 'version' => '1', 'seen' => $now],
+                        'vmbackup' => ['source' => 'raw.githubusercontent.com/y', 'version' => '2', 'seen' => $now - 900]],
+          'shares' => ['Filme' => ['smb' => 2, 'nfs' => 0, 'seen' => $now], 'appdata' => ['smb' => 0, 'nfs' => 0, 'seen' => $now],
+                       'zz-test' => ['smb' => 2, 'nfs' => 0, 'seen' => $now - 900]],
+          'sched' => null];
+    file_put_contents("$tmp/baseline.json", json_encode($b));
+    file_put_contents("$tmp/seen.json", json_encode(['containers' => ['app' => [], 'db' => [], 'web' => []], 'plugins' => ['user.scripts' => []],
+                                                     'shares' => ['Filme' => [], 'appdata' => []]]));
+    $w = watchmanPageState($tmp, $now, false)['watch'];
+    same('watch gone: counted and listed is what is there now', [3, ['app', 'db'], ['user.scripts'], 2, ['Filme']],
+        [$w['containers']['count'], array_column($w['containers']['special'], 'name'), array_column($w['plugins'], 'name'), $w['shares']['count'],
+         array_column($w['shares']['open'], 'share')]);
+    @unlink("$tmp/seen.json");
+    $w = watchmanPageState($tmp, $now, false)['watch'];
+    same('watch gone: without the last round\'s look — his memory as it is', [5, 2, 3], [$w['containers']['count'], count($w['plugins']), $w['shares']['count']]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * The night watchman's watch over what starts on its own: root's own crontab next to Unraid's (new
  * lines, lines in both, the office's own lines, programs gone, the syslog as evidence), the plugins'
  * .cron files, User Scripts, atd's queue, the notification agents — all on copies in a temporary folder.
@@ -3261,7 +3300,7 @@ function testIconSquare(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanSched', 'testWatchmanFlow', 'testJobGuard', 'testComposeBuilds'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testAdvisor', 'testAdvisorInstall', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSched', 'testWatchmanFlow', 'testJobGuard', 'testComposeBuilds'],
           'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';

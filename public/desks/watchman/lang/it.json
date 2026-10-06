@@ -190,7 +190,7 @@
   "notify.more": "… e altri {n}",
   "notify.footer": "Il guardiano notturno tiene tutto nel suo registro di guardia nella segreteria. «Lo so, grazie» lì lo rende il nuovo normale. Un interruttore lì spegne queste segnalazioni.",
   "watch.title": "Ciò che tengo d'occhio",
-  "watch.sub": "Ciò che è normale: ciò che ha visto quando ha preso la guardia e ciò di cui hai preso atto da allora. Ciò che diventa più sicuro (meno diritti, una condivisione chiusa) diventa normale da sé.",
+  "watch.sub": "Ciò che è normale: ciò che ha visto quando ha preso la guardia e ciò di cui hai preso atto da allora. Ciò che diventa più sicuro (meno diritti, una condivisione chiusa) diventa normale da sé. Si conta e si elenca ciò che c'è adesso: ciò che se n'è andato (un contenitore, un plugin, una condivisione) esce dalla lista — se lo ricorda ancora per un po', così ciò che ritorna com'era non fa notizia.",
   "watch.none": "Lo registra al primo giro.",
   "watch.ips": "Indirizzi di accesso noti",
   "watch.ips_sum": {"one": "un indirizzo", "other": "{n} indirizzi"},

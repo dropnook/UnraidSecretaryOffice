@@ -190,7 +190,7 @@
   "notify.more": "… and {n} more",
   "notify.footer": "The night watchman keeps all of it in his watch book in the office. «I know, thanks» there makes it the new normal. A switch there turns these reports off.",
   "watch.title": "What I keep an eye on",
-  "watch.sub": "What is normal: what he saw when he took over the watch, and what you noted since. What gets safer (fewer rights, a share closed) becomes normal by itself.",
+  "watch.sub": "What is normal: what he saw when he took over the watch, and what you noted since. What gets safer (fewer rights, a share closed) becomes normal by itself. Counted and listed is what is there now: what went (a container, a plugin, a share) leaves the list — he still remembers it a while, so one that comes back as it was is no news.",
   "watch.none": "He records it on his first round.",
   "watch.ips": "Known login addresses",
   "watch.ips_sum": {"one": "one address", "other": "{n} addresses"},
