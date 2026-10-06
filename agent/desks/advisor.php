@@ -238,6 +238,7 @@ function advisorScan(): array
         $externals['nodeexporter']['textfile'] = advisorNodeTextfile($externals['nodeexporter'], null);
     }
     $state = ['time' => time(), 'gui' => houseGuiUrl(), 'ip' => $env['ip'], 'media' => $media, 'metrics_dir' => ADVISOR_METRICS_DIR,
+              'metrics_there' => advisorMetricsThere(),
               'dashboard' => ADVISOR_DASHBOARD_URL, 'prometheus_yml' => ADVISOR_PROMETHEUS_YML, 'externals' => $externals,
               'server' => hostname(), 'job' => advisorJob()];
     writeAtomic(deskFile('advisor'), jsonEncode($state));
@@ -399,6 +400,18 @@ function advisorNodeTextfile(array $x, ?array $inspect): ?bool
     }
     $mounts = array_map(fn ($m) => [(string) ($m['Source'] ?? ''), (string) ($m['Destination'] ?? '')], $inspect['Mounts'] ?? []);
     return in_array(ADVISOR_METRICS_DIR, advisorTextfileDirs(array_map('strval', $inspect['Args'] ?? []), $mounts), true);
+}
+
+/**
+ * Is the office's folder for its numbers really there on the host — a real folder, no link? Only then
+ * does «reads the office's folder» hold for a node exporter pointed at it (lib/metrics.php makes it,
+ * and /mnt/addons where nothing made it). $dir for the tests.
+ */
+function advisorMetricsThere(string $dir = ADVISOR_METRICS_DIR): bool
+{
+    clearstatcache(true, $dir);
+    $st = @lstat($dir);
+    return $st !== false && ($st['mode'] & 0170000) === 0040000;
 }
 
 /**

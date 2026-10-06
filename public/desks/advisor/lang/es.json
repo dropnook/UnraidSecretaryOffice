@@ -95,7 +95,9 @@
   "textfile_yes_tip": "Su textfile collector lee {dir} — ahí deja la secretaría sus números.",
   "textfile_no": "carpeta de la secretaría sin configurar",
   "textfile_no_tip": "No lee {dir} — los números de la secretaría no llegarían a Prometheus. «Instalar a mano» muestra cómo: los Post Arguments para el contenedor, el comando para el plugin de ich777.",
-  "help.textfile": "Solo en el Node Exporter: si lee la carpeta donde la secretaría escribe sus números (si no, en amarillo «carpeta de la secretaría sin configurar»).",
+  "textfile_nodir": "carpeta de la secretaría aún no existe",
+  "textfile_nodir_tip": "Está configurado para leer {dir} — pero esa carpeta aún no existe en el servidor, así que no hay nada que leer. El agente de la secretaría la crea en cuanto está en marcha (mira cada minuto); si sigue faltando, el registro del agente dice por qué.",
+  "help.textfile": "Solo en el Node Exporter: si lee la carpeta donde la secretaría escribe sus números (si no, en amarillo «carpeta de la secretaría sin configurar», o «carpeta de la secretaría aún no existe» mientras falte la propia carpeta en el servidor).",
   "ip_unknown": "La secretaría no pudo leer la dirección del servidor: ponla en lugar de <server-ip> (la ves en Configuración → Configuración de red).",
   "bubble.monitoring": {
     "one": "Lo imprescindible está en casa. Tu monitorización está a medias: todavía falta {names} — cerremos ese gap.",

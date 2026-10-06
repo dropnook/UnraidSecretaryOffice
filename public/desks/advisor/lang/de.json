@@ -93,9 +93,11 @@
   "help.later": "Noch nicht nötig — er nennt es nur, damit du weisst, was kommt. Nichts zu tun.",
   "textfile_yes": "liest den Ordner des Sekretariats",
   "textfile_yes_tip": "Sein Textfile-Collector liest {dir} — dort legt das Sekretariat seine Zahlen ab.",
-  "textfile_no": "Ordner des Sekretariats fehlt",
+  "textfile_no": "Ordner des Sekretariats nicht eingestellt",
   "textfile_no_tip": "Er liest {dir} nicht — die Zahlen des Sekretariats kämen nicht bei Prometheus an. «Von Hand installieren» zeigt, wie: die Post Arguments beim Container, der Befehl beim Plugin von ich777.",
-  "help.textfile": "Nur beim Node Exporter: ob er den Ordner liest, in den das Sekretariat seine Zahlen schreibt (sonst gelb «Ordner des Sekretariats fehlt»).",
+  "textfile_nodir": "Ordner des Sekretariats noch nicht da",
+  "textfile_nodir_tip": "Er ist auf {dir} eingestellt — aber diesen Ordner gibt es auf dem Server noch nicht, also gibt es nichts zu lesen. Der Agent des Sekretariats legt ihn an, sobald er läuft (er schaut jede Minute nach); fehlt er weiter, steht im Log des Agenten, warum.",
+  "help.textfile": "Nur beim Node Exporter: ob er den Ordner liest, in den das Sekretariat seine Zahlen schreibt (sonst gelb «Ordner des Sekretariats nicht eingestellt», oder «Ordner des Sekretariats noch nicht da», solange der Ordner selbst auf dem Server fehlt).",
   "ip_unknown": "Das Sekretariat konnte die Adresse des Servers nicht lesen: Setze sie anstelle von <server-ip> ein (steht unter Settings → Network Settings).",
   "bubble.monitoring": {
     "one": "Das Nötige ist im Haus. Dein Monitoring ist halb gebaut: {names} fehlt noch — lass uns die Lücke schliessen.",
