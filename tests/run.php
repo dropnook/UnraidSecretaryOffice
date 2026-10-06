@@ -6519,6 +6519,47 @@ function testWatchmanHost(): void
     watchmanOfficeNoteSchedule($book, 'x/x.cron', $now + 60, ['lines' => 1, 'office' => true]);
     same('office cron: an open entry about the file is closed as the line, a later change is a line of its own', [2, ['schedule', 'schedule'], [false, false]],
         [count($book), array_column($book, 'by'), array_map('watchmanOpen', $book)]);
+    // the ways in: ident.cfg, Connect, single sign-ons, WireGuard — never a key kept
+    file_put_contents("$tmp/ident.cfg", "USE_SSH=\"yes\"\nPORTSSH=\"22\"\nUSE_UPNP=\"no\"\n");
+    file_put_contents("$tmp/connect.json", '{"wanport":0,"dynamicRemoteAccessType":"DISABLED","username":"x"}');
+    file_put_contents("$tmp/oidc.json", '{"providers":[{"id":"unraid.net","name":"Unraid.net","clientId":"c","issuer":"https://account.unraid.net"}]}');
+    @mkdir("$tmp/wg", 0700);
+    $peer = fn () => base64_encode(random_bytes(32));
+    $p1 = $peer();
+    file_put_contents("$tmp/wg/wg0.conf", "[Interface]\nPrivateKey = " . base64_encode(random_bytes(32)) . "\nListenPort = 51820\n[Peer]\nPublicKey = $p1\nAllowedIPs = 10.253.0.2/32\n");
+    $dp = ['ident' => "$tmp/ident.cfg", 'connect' => "$tmp/connect.json", 'oidc' => "$tmp/oidc.json", 'wireguard' => "$tmp/wg"];
+    $doors = watchmanHostDoors($dp);
+    same('host doors: SSH, UPnP, Connect, a single sign-on, a tunnel with its peer', [['ssh', 'upnp', 'connect', 'oidc:unraid.net', 'wg:wg0'], [true, false, false, true, true], 1, 'account.unraid.net'],
+        [array_keys($doors), array_column($doors, 'on'), count($doors['wg:wg0']['peers']), $doors['oidc:unraid.net']['issuer']]);
+    check('host doors: no key, no client id kept', !str_contains(json_encode($doors), $p1) && !str_contains(json_encode($doors), 'PrivateKey') && !str_contains(json_encode($doors), '"c"'));
+    $kd = null;
+    $bk = [];
+    $hd = fn (array $d) => ['boot' => 'b1', 'logs' => null, 'users' => null, 'listen' => null, 'procs' => null, 'doors' => $d];
+    watchmanHostCompare($kd, $hd($doors), null, [], $bk, $now);
+    file_put_contents("$tmp/ident.cfg", "USE_SSH=\"yes\"\nPORTSSH=\"2222\"\nUSE_UPNP=\"yes\"\n");
+    file_put_contents("$tmp/wg/wg0.conf", "PublicKey = " . $p1 . "\nPublicKey = " . $peer() . "\n");
+    file_put_contents("$tmp/oidc.json", '{"providers":[]}');
+    same('host doors: SSH on another port, UPnP switched on, a new WireGuard peer — a provider gone is safer',
+        ['door_new', 'door_new', 'door_new'], watchmanHostCompare($kd, $hd(watchmanHostDoors($dp)), null, [], $bk, $now + 300));
+    same('host doors: what the entries say', [['ssh', 2222], ['upnp', null], ['wg', 1], false],
+        [[$bk[0]['p']['door'], $bk[0]['p']['port']], [$bk[1]['p']['door'], $bk[1]['p']['port']], [$bk[2]['p']['door'], $bk[2]['p']['new_peers']], isset($kd['doors']['oidc:unraid.net'])]);
+    same('host doors: in words (notifications)', ['SSH, port 2222', 'WireGuard tunnel wg0: 2 peers'],
+        [watchmanText($bk[0], 'en')['door'], officeNotifyText('watchman', 'door.wg', ['name' => 'wg0', 'n' => 2], 'en')]);
+    file_put_contents("$tmp/ident.cfg", "USE_SSH=\"no\"\nPORTSSH=\"2222\"\nUSE_UPNP=\"no\"\n");
+    $bk2 = [];
+    watchmanHostCompare($kd, $hd(watchmanHostDoors($dp)), null, [], $bk2, $now + 600);
+    same('host doors: closed again is normal by itself', [false, false], [$kd['doors']['ssh']['on'], $kd['doors']['upnp']['on']]);
+
+    // for a SIEM: one line of JSON, the technique, the words in English; the summary of what is normal
+    $line = watchmanSyslogLine($bk[0] + ['by' => null]);
+    $j = json_decode($line, true);
+    same('syslog: one line of JSON — kind, technique, important, the entry in English', [false, 'door_new', 'T1133', true, 'A new way in from outside: SSH, port 2222'],
+        [str_contains($line, "\n"), $j['kind'], $j['attack'], $j['important'], $j['text']]);
+    check('syslog: his own forwarded lines are never evidence', (bool) preg_match(WATCH_SYSLOG_OWN, 'Oct  7 01:00:00 Tower uso-watchman: {"v":1}'));
+    $sum = watchmanHostSummary(['users' => $u, 'listen' => ['tcp:9100' => 1], 'procs' => [], 'doors' => $kd['doors']], ['listen' => $l, 'procs' => []]);
+    same('host summary: the known ports with their program, the ways in that are open, how many accounts',
+        [[['key' => 'tcp:9100', 'prog' => 'node_exporter', 'port' => 9100, 'addr' => ['*']]], ['wg'], 4],
+        [$sum['listen'], array_column($sum['doors'], 'what'), $sum['users']]);
     same('attack: every kind has its technique, in ATT&CK\'s shape', [[], []],
         [array_values(array_diff(array_keys(WATCH_KINDS), array_keys(WATCH_ATTACK))),
          array_values(array_filter(WATCH_ATTACK, fn ($t) => !preg_match('/^T\d{4}(\.\d{3})?$/D', $t)))]);
