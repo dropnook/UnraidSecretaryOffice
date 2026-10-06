@@ -14,6 +14,9 @@
 #        from their shutdown request), not one timeout after the other, and get the request again every
 #        60 s (Windows swallows the first one). An app folder that is empty in the snapshot is a note in
 #        the log, not a warning
+#   2.20 An app whose compose services build their own image (build:) gets build/<service>/ in its
+#        package: the Dockerfile and the small files of the build context's folder (top level, <= 1 MB
+#        each, at most 100 files / 10 MB), unless compose/ holds them already
 #   2.19 Apps and VMs at "local + Kopia" are Kopia sources of their own ([app|vm "<name>"] kopia = yes):
 #        their folders and their package, joined read-only under <mount_root>/.apps|.vms/<name>, with
 #        their own retention; the shares leave those parts out. Apps first, then the shares, then the
@@ -1275,6 +1278,54 @@ pkg_copy_small() { # pkg_copy_small <file> <target dir>
     mkdir -p "$2" && cp -a "$1" "$2/" 2>>"$LOG_FILE"
 }
 
+# build/<service>/ of a compose app (since 2.20): per service with build: the small files of its build
+# context's folder (its top level, pkg_copy_small's rules, at most PKG_BUILD_FILES files and PKG_BUILD_BYTES
+# together) and its Dockerfile (at its place below the context, else by its name) - nothing that compose/
+# holds already (a context that is the Compose Manager's folder). A context that is no local folder (git,
+# a URL) or an inline Dockerfile: nothing to copy. A rebuild needs them: no registry has such an image.
+PKG_BUILD_FILES=100
+PKG_BUILD_BYTES=$(( 10 * 1048576 ))
+pkg_build_files() { # pkg_build_files <app folder> <project> <working dir> <Compose Manager dir> <package dir>
+    local f="$1" p="$2" wd="${3%/}" cm="${4%/}" A="$5" x svc ctx df rel T n bytes sz cut found=0
+    local -a cfgs=() args=()
+    IFS=',' read -r -a cfgs <<<"${PKG_PROJ_CFG[$p]:-}"
+    for x in "${cfgs[@]}"; do
+        [[ -f "$x" ]] || continue
+        args+=( -f "$x" )
+        grep -qE '^[[:space:]]+["'"'"']?build["'"'"']?[[:space:]]*:' "$x" 2>/dev/null && found=1
+    done
+    (( found )) || return 0
+    [[ -n "$wd" && -d "$wd" ]] && args+=( --project-directory "$wd" )
+    while IFS=$'\t' read -r svc ctx df; do
+        [[ -n "$svc" && "$ctx" == /* && -d "$ctx" ]] || continue
+        ctx="${ctx%/}"; [[ -n "$ctx" ]] || continue          # never the whole root
+        [[ "$df" == /* ]] || df="$ctx/$df"
+        T="$A/build/$(pkg_folder "$svc")"; n=0; bytes=0; cut=0
+        if [[ "$ctx" != "$cm" ]]; then
+            for x in "$ctx"/* "$ctx"/.[!.]*; do
+                [[ -f "$x" && ! -L "$x" ]] || continue
+                in_list "$x" "${cfgs[@]}" "$wd/.env" && continue       # in compose-files/ already
+                sz="$(stat -c %s "$x" 2>/dev/null || echo 0)"
+                if (( n >= PKG_BUILD_FILES || bytes + sz > PKG_BUILD_BYTES )); then cut=1; continue; fi
+                pkg_copy_small "$x" "$T" && { n=$(( n + 1 )); bytes=$(( bytes + sz )); }
+            done
+        fi
+        # the Dockerfile, where it isn't among them yet
+        if [[ -f "$df" && ! -L "$df" && ! ( "${df%/*}" == "$cm" && -n "$cm" ) ]]; then
+            rel="${df#"$ctx"/}"; [[ "$rel" == "$df" || "$rel" == *..* ]] && rel="${df##*/}"
+            [[ -e "$T/$rel" ]] || { pkg_copy_small "$df" "$T/$(dirname "$rel")" && n=$(( n + 1 )); }
+        fi
+        if (( cut )); then
+            log "  App '$p', service '$svc': only $n small files of its build context $ctx come into the package (at most $PKG_BUILD_FILES, $(( PKG_BUILD_BYTES / 1048576 )) MB)"
+        elif (( n )); then
+            log "  App '$p', service '$svc': $n files of its build context into build/${T##*/}/"
+        fi
+    done < <(timeout 30 docker compose -p "$p" "${args[@]}" config --format json 2>>"$LOG_FILE" \
+                | jq -r '.services // {} | to_entries[] | select(.value.build != null)
+                         | [.key, (.value.build.context // ""), (.value.build.dockerfile // "Dockerfile")] | map(gsub("[\t\n]"; " ")) | @tsv' 2>/dev/null)
+    return 0
+}
+
 # server/: what belongs to no app - the manifest of the runs before 2.18
 pkg_server() {
     local S="$PKG_STAGE/server" f c t d x
@@ -1378,6 +1429,7 @@ pkg_app_static() {
             [[ -n "$cm" && "$(dirname "$x")" == "$cm" ]] && continue
             pkg_copy_small "$x" "$A/compose-files"
         done
+        pkg_build_files "$f" "$p" "$wd" "$cm" "$A"
         if [[ ! -d "$A/compose" && ! -d "$A/compose-files" ]]; then
             warn "App '$p': no compose files found (neither in the Compose Manager nor where docker compose read them)"
             pkg_mark apps "$f" warnings
@@ -1501,7 +1553,7 @@ pkg_what() { # pkg_what <kind> <path>  - what a file of a package is
         app:db/*.stderr) echo error ;;
         app:db/sqlite_*) echo sqlite ;;
         app:db/*)        echo dump ;;
-        app:compose/*|app:compose-files/*) echo compose ;;
+        app:compose/*|app:compose-files/*|app:build/*) echo compose ;;
         app:nextcloud/*) echo nextcloud ;;
         app:my-*.xml)    echo template ;;
         vm:nvram/*)      echo nvram ;;

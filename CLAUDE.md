@@ -160,7 +160,9 @@ differ get a `_plugin` key or come from state (`schedule.via`).
   built in `.ub-stage-<run>` and swapped in before the snapshots, overwritten
   every run (a failed dump keeps the last good one). Their history lies in the
   snapshots of the backup place's share, which must be at least `snapshot`.
-  Packages are never deleted (stale ones stay). The office reads the manifests
+  Packages are never deleted (stale ones stay). A compose app whose services build their own image
+  gets `build/<service>/` (the Dockerfile and the build context's small top-level files, engine 2.20;
+  Compose Manager's update can't update such an image — it pulls first). The office reads the manifests
   as part of the engine's interface; restore commands use the credentials the
   manifest names (variable names, never values). Under `set -o pipefail` a
   `while … | jq … || fallback` loop must not end on `[[ … ]] && cmd` (use `if`).
