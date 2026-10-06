@@ -148,9 +148,16 @@ function firstUpload() {
 }
 const firstLeft = (u) => (u.left === null || u.left === undefined ? null : Math.max(0, u.left - (Date.now() / 1000 - u.time)));
 
-/** A first upload in words: Mr. Backupsy's bubble (bubble.first_*) or the run card's plain line (first.*) */
+/**
+ * A first upload in words: Mr. Backupsy's bubble (bubble.first_*) or the run card's plain line (first.*).
+ * The rate is what Kopia reads (rchar); what it really sent so far (wchar) follows on its own.
+ */
 function firstText(u, bubble) {
   const pre = bubble ? 'bubble.first_' : 'first.';
+  const sent = u.sent > 0 ? ' ' + T(pre + 'sent', { sent: fmt.size(u.sent) }) : '';
+  return firstWords(u, pre) + sent;
+}
+function firstWords(u, pre) {
   const share = srcLabel(u.source);
   if (u.size === null || u.size === undefined) return T(pre + 'nosize', { share });
   const size = fmt.size(u.size);

@@ -456,6 +456,7 @@ function testBackupFirstUpload(): void
         [backupKopiaPid('/backup-snapshots/Backups_statisch', '/Backups_statisch', $proc), backupKopiaPid(null, '/Backups_statisch', $proc),
          backupKopiaPid('/backup-snapshots/isos', '/isos', $proc)]);
     same('first upload: what it has read (rchar, not what it sent)', [2390370860668, null], [backupProcRead(4456, $proc), backupProcRead(3123, $proc)]);
+    same('first upload: read and sent in one look (rchar, wchar)', [[2390370860668, 1180491244705], [null, null]], [backupProcIo(4456, $proc), backupProcIo(3123, $proc)]);
     exec('rm -rf ' . escapeshellarg($proc));
 
     $zfs = "ripley/Backups_statisch@uso-backup-20261005-0100\t2355000000000\nripley/Backups_statisch@uso-backup-20261006-0100\t2355490998272\n"
@@ -465,14 +466,15 @@ function testBackupFirstUpload(): void
 
     // nostromo, 2026-10-06: Backups_statisch from 04:18:47; at 13:20 the snapshot (2.36 TB) was read past its size — done 13:27:58
     $c = ['source' => 'Backups_statisch', 'size' => 2355490998272, 'looks' => []];
-    [$c, $o] = backupUploadStep($c, 1791253127, 2390370860668, 1791285605);
+    [$c, $o] = backupUploadStep($c, 1791253127, 2390370860668, 1791285605, 1180491244705);
     same('first upload: the first look — the average since it started, any moment now', ['Backups_statisch', true, 73599694, 0, 1],
         [$o['source'], $o['first'], $o['rate'], $o['left'], count($c['looks'])]);
+    same('first upload: what it sent goes along to the page, the rate stays what it reads', [1180491244705, 2390370860668], [$o['sent'], $o['read']]);
     // a made-up one: 1 TB, 100 MB/s on average, 50 MB/s for the last minutes
     $t0 = 1000000;
     $c = ['source' => 'x', 'size' => 10 ** 12, 'looks' => []];
     [$c, $o] = backupUploadStep($c, $t0, 0, $t0 + 30);
-    same('first upload: too early for a rate', [null, null, 0], [$o['rate'], $o['left'], $o['read']]);
+    same('first upload: too early for a rate (nothing sent known)', [null, null, 0, null], [$o['rate'], $o['left'], $o['read'], $o['sent']]);
     [$c, $o] = backupUploadStep($c, $t0, 360 * 10 ** 9, $t0 + 3600);
     same('first upload: from the newest look before the last 15 minutes', [100840336, 6347], [$o['rate'], $o['left']]);
     [$c, $o] = backupUploadStep($c, $t0, 360 * 10 ** 9 + 300 * 50 * 10 ** 6, $t0 + 3900);
