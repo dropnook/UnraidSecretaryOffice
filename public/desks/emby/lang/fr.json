@@ -146,7 +146,7 @@
   "tool_embycache_sub": "de helmi1987, étendu ici : retour vers le disque d'origine",
   "tool_gather_sub": "« media-disk-gather » de helmi1987",
   "credit_title": "Big up à helmi1987 !",
-  "credit": "EmbyCache et « {gather} » sont son œuvre — moi, j'appuie juste sur les boutons. Merci ! Une partie des pourboires lui revient.",
+  "credit": "EmbyCache et « {gather} » sont son œuvre — moi, j'appuie juste sur les boutons. Merci ! Une partie des pourboires lui revient. Tous deux sous GPL-3.0.",
   "python_sub": "tout ce dont EmbyCache a besoin",
   "none": "manquant",
   "output_title.embycache": "Sortie d'EmbyCache",

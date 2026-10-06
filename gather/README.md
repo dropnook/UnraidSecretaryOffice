@@ -12,6 +12,11 @@
 > * Deep clean keeps an empty array folder when the same folder exists on a cache/pool: its
 >   content lies there right now and the folder shows which disk it belongs to.
 > * Not taken over: `setup_consolidate.sh` (Jack is the setup), the zip and the test suite.
+>
+> **Licence:** helmi1987's original is under the GNU GPL v3 — its
+> [LICENSE](https://github.com/helmi1987/media-disk-gather-for-unraid/blob/main/LICENSE) is the GPL v3
+> text, its README says «Copyright (C) 2026 helmi1987» and SPDX `GPL-3.0-or-later` (since 2026-10-06).
+> This modified copy is likewise GPL-3.0-or-later, as part of the office.
 
 # Unraid Media Consolidator & Cleaner (V11.0)
 
