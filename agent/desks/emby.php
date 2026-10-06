@@ -549,22 +549,37 @@ function embySave(mixed $in): array
         || ($cfg['array_disks_glob'] ?? '/mnt/disk[0-9]*') !== '/mnt/disk[0-9]*') {
         throw new Problem('emby_config', ['detail' => 'array_path / user_path / array_disks_glob']);
     }
+    embyWriteSettings($cfg);
+    if ($gather = embyGatherSettings()) {
+        embyWriteGatherIni($gather, $cfg);             // follows the pool
+    }
+    logLine('Jack Emby: EmbyCache settings saved');
+    return ['ok' => true, 'state' => embyScan()];
+}
+
+/**
+ * EmbyCache's settings file in $dir, written by its own save_config(). save_config() writes
+ * before load_config() checks: it writes a trial file (EMBYCACHE_CONFIG), and only once
+ * EmbyCache accepts it is that put in place. The request goes through a new 0600 file in $tmp
+ * (it holds the API key).
+ */
+function embyWriteSettings(array $cfg, string $dir = EMBY_DATA, string $tmp = RUN_DIR): void
+{
     if (!is_file(EMBY_APP . '/embycache_lib.py')) {
         throw new Problem('emby_missing_tool', ['path' => EMBY_APP]);
     }
-    embyDataDir(EMBY_DATA);
-    // save_config() writes before load_config() checks: let it write a trial file
-    // (EMBYCACHE_CONFIG) and only put that in place once EmbyCache accepts it
-    $file = RUN_DIR . '/emby-settings.' . getmypid() . '.json';
-    $trial = EMBY_DATA . '/.embycache_settings.trial.json';
-    @mkdir(RUN_DIR, 0700, true);
-    file_put_contents($file, json_encode($cfg, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
-    chmod($file, 0600);
+    embyDataDir($dir);
+    @mkdir($tmp, 0700, true);
+    $file = writeNewFile("$tmp/.emby-settings", json_encode($cfg, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 0600);
+    if ($file === null) {
+        throw new Problem('emby_config', ['detail' => "cannot write in $tmp"]);
+    }
+    $trial = "$dir/.embycache_settings.trial.json";
     @unlink($trial);
     $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import embycache_lib as l; '
         . 'l.save_config(json.load(open(sys.argv[2], encoding="utf-8"))); l.load_config()';
     try {
-        [$exit, , $err] = runEnv(['python3', '-c', $py, EMBY_APP, $file], embyPyEnv() + ['EMBYCACHE_CONFIG' => $trial], 30);
+        [$exit, , $err] = runEnv(['python3', '-c', $py, EMBY_APP, $file], ['EMBYCACHE_DIR' => $dir] + embyPyEnv() + ['EMBYCACHE_CONFIG' => $trial], 30);
     } finally {
         @unlink($file);
     }
@@ -574,12 +589,7 @@ function embySave(mixed $in): array
         throw new Problem('emby_config', ['detail' => (string) end($lines)]);
     }
     chmod($trial, 0600);
-    rename($trial, EMBY_DATA . '/embycache_settings.json');
-    if ($gather = embyGatherSettings()) {
-        embyWriteGatherIni($gather, $cfg);             // follows the pool
-    }
-    logLine('Jack Emby: EmbyCache settings saved');
-    return ['ok' => true, 'state' => embyScan()];
+    rename($trial, "$dir/embycache_settings.json");
 }
 
 /**
@@ -646,11 +656,11 @@ function embyGatherSave(mixed $in): array
     return ['ok' => true, 'state' => embyScan()];
 }
 
-/** The gather's settings, checked */
-function embyGatherCheck(mixed $in): array
+/** The gather's settings, checked ($all: the server's shares) */
+function embyGatherCheck(mixed $in, ?array $all = null): array
 {
     $in = is_array($in) ? $in : [];
-    $all = embyAllShares();
+    $all ??= embyAllShares();
     $shares = array_values(array_unique(array_filter((array) ($in['shares'] ?? []), fn ($s) => is_string($s) && in_array($s, $all, true))));
     if (!$shares) {
         throw new Problem('emby_gather_no_share');
@@ -663,20 +673,21 @@ function embyGatherCheck(mixed $in): array
     return ['shares' => $shares, 'min_free_gb' => (int) $min, 'dup_check' => $dup];
 }
 
-function embySaveGather(array $gather, array $emby): void
+function embySaveGather(array $gather, array $emby, string $gatherDir = GATHER_DATA, string $embyDir = EMBY_DATA): void
 {
-    embyDataDir(GATHER_DATA);
-    writeAtomic(GATHER_DATA . '/gather.json', jsonEncode($gather), 0600, 0, 0);
-    embyWriteGatherIni($gather, $emby);
+    embyDataDir($gatherDir);
+    writeAtomic("$gatherDir/gather.json", jsonEncode($gather), 0600, 0, 0);
+    embyWriteGatherIni($gather, $emby, $gatherDir, $embyDir);
 }
 
-/** consolidate.ini from Jack's settings (written again before every run, so it follows the pool) */
-function embyWriteGatherIni(array $gather, array $emby): void
+/** The pools the gather leaves alone: those of its shares, and EmbyCache's */
+function embyGatherPools(array $shares, array $emby, ?callable $shareCfg = null): array
 {
+    $shareCfg ??= fn (string $s): array => embyShareCfg($s);
     $pools = [];
-    foreach ($gather['shares'] as $share) {
+    foreach ($shares as $share) {
         foreach (['shareCachePool', 'shareCachePool2'] as $k) {
-            $p = (string) (embyShareCfg($share)[$k] ?? '');
+            $p = (string) ($shareCfg($share)[$k] ?? '');
             if ($p !== '') {
                 $pools[] = "/mnt/$p";
             }
@@ -685,8 +696,14 @@ function embyWriteGatherIni(array $gather, array $emby): void
     if (!empty($emby['cache_path'])) {
         $pools[] = rtrim((string) $emby['cache_path'], '/');
     }
-    $ini = embyGatherIni($gather, array_values(array_unique($pools)), GATHER_DATA . '/consolidate.log', EMBY_DATA . '/embycache_exclude.txt');
-    writeAtomic(GATHER_DATA . '/consolidate.ini', $ini, 0600, 0, 0);
+    return array_values(array_unique($pools));
+}
+
+/** consolidate.ini from Jack's settings (written again before every run, so it follows the pool) */
+function embyWriteGatherIni(array $gather, array $emby, string $gatherDir = GATHER_DATA, string $embyDir = EMBY_DATA): void
+{
+    $ini = embyGatherIni($gather, embyGatherPools($gather['shares'], $emby), "$gatherDir/consolidate.log", "$embyDir/embycache_exclude.txt");
+    writeAtomic("$gatherDir/consolidate.ini", $ini, 0600, 0, 0);
 }
 
 /**
