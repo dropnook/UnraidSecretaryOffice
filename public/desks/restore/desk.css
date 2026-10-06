@@ -38,6 +38,33 @@
 .rs-subhead{padding:7px 12px; background:var(--surface2); color:var(--ink); font-weight:650; font-size:13px; border-top:1px solid var(--line)}
 .rs-subhead:first-child{border-top:0}
 
+/* chips in labelled groups: what belongs to the package, what to the data */
+.rs-chipgroup{display:inline-flex; flex-wrap:wrap; align-items:center; gap:4px; padding-left:8px; border-left:1px solid var(--line)}
+.rs-chipgroup:first-of-type{padding-left:0; border-left:0}
+.rs-chiplabel{font-size:11px; font-weight:650; color:var(--muted); text-transform:none}
+.rs-act{margin:8px 0 2px; display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px}
+
+/* a restore's dialog: options, the preview, the confirmation */
+.rs-opts .field{margin-bottom:10px}
+.rs-opts select.input{max-width:100%}
+.rs-preview{display:flex; flex-direction:column; gap:6px; margin:6px 0 10px}
+.rs-preview p{margin:0}
+.rs-preview .callout{margin:0}
+.rs-pv-src code{overflow-wrap:anywhere}
+.rs-pv-part{margin-top:4px}
+.rs-pv-steps, .rs-pv-list{margin:4px 0 0; padding-left:22px; font-size:13px; color:var(--ink2)}
+.rs-pv-steps li, .rs-pv-list li{margin:3px 0; overflow-wrap:anywhere}
+.rs-measuring{color:var(--accent-ink)}
+.rs-confirm{margin-top:4px}
+
+/* the journal: steps with their state, progress, what they found */
+.rs-j-steps li{list-style-position:outside}
+.rs-j-steps .chip{vertical-align:baseline}
+.rs-j-pending, .rs-j-skipped{color:var(--muted)}
+.rs-bar{margin:4px 0 2px; max-width:420px}
+.rs-j-detail{margin:4px 0; font-size:11.5px; white-space:pre-wrap; max-height:160px; overflow:auto}
+.rs-j-log{font-size:11px; max-height:320px; overflow:auto; white-space:pre-wrap}
+
 /* on a phone a row's buttons go under its name instead of squeezing it */
 @media (max-width:640px){
   .row.nocheck:has(> .rs-right){grid-template-columns:minmax(0,1fr)}
@@ -45,5 +72,7 @@
   .rs-part{margin-left:0}
   .rs-how > *:not(summary){margin-left:6px}
   .rs-code{flex-direction:column; align-items:stretch}
+  .rs-chipgroup{padding-left:0; border-left:0}
+  .rs-pv-steps, .rs-pv-list{padding-left:18px}
 }
 }

@@ -219,6 +219,8 @@
   "check.office_keeps_running_how": "La sauvegarde arrête {names} pour ses snapshots, donc le secrétariat disparaît quelques minutes. Dans « Configurer… » chez Monsieur Backupsi, règle-les sur « continuer de tourner ».",
   "setup_open": "Configurer…",
   "notice.setup_running": "La configuration examine le serveur en ce moment.",
+  "notice.restoring": "Monsieur Restori ramène {what} en ce moment : il tient le verrou du moteur, donc aucune sauvegarde, vérification ou configuration ne démarre avant qu'il ait fini — une sauvegarde planifiée est sautée et dit pourquoi.",
+  "notice.restoring_go": "Vers Monsieur Restori",
   "errors.setup_running": "La configuration est occupée en ce moment — réessaie dans un instant.",
   "errors.setup_bad_decisions": "Ces réglages ne peuvent pas être appliqués ({detail}). Relis le serveur et réessaie.",
   "setup.back": "← Retour",

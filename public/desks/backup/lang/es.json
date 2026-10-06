@@ -219,6 +219,8 @@
   "check.office_keeps_running_how": "La copia de seguridad detiene {names} para sus instantáneas, así que la secretaría desaparece unos minutos. En «Configurar…» del señor Backupsi ponlos en «seguir funcionando».",
   "setup_open": "Configurar…",
   "notice.setup_running": "La configuración está examinando el servidor ahora mismo.",
+  "notice.restoring": "El señor Restori está recuperando {what} ahora mismo: tiene el bloqueo del motor, así que no empieza ninguna copia, comprobación ni configuración hasta que termine — una copia programada se omite y dice por qué.",
+  "notice.restoring_go": "Al señor Restori",
   "errors.setup_running": "La configuración está ocupada ahora mismo — inténtalo de nuevo en un momento.",
   "errors.setup_bad_decisions": "Estos ajustes no se pueden aplicar ({detail}). Vuelve a leer el servidor e inténtalo de nuevo.",
   "setup.back": "← Volver",

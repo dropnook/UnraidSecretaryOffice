@@ -9,7 +9,7 @@ declare(strict_types=1);
  * because the engine was busy, engine 2.20) — each row
  * a link into the office. Built from the desks' state files only (no request
  * to the agent, no disk wakes up); the tile asks api.php?a=dash again every
- * minute. Texts from the office's language files (dash.*): the language this
+ * minute. While Mr. Restori restores, a row of his says what. Texts from the office's language files (dash.*): the language this
  * browser chose in the office, else Unraid's when the office speaks it.
  */
 
@@ -130,6 +130,13 @@ function officeDashBackupState(array $backup): array
     return ['dash.bk_none', 'orange', null];
 }
 
+/** Is Mr. Restori restoring right now? His job file says so and its heartbeat is fresh (a killed job's isn't) */
+function officeDashRestoring(?array $job, ?int $now = null): bool
+{
+    return is_array($job) && in_array($job['result'] ?? '', ['queued', 'running'], true) && is_string($job['what'] ?? null)
+        && ($now ?? time()) - (int) ($job['heartbeat'] ?? 0) < 180;
+}
+
 /** The tile's rows as HTML (escaped) */
 function officeDashRows(string $lang): string
 {
@@ -174,6 +181,13 @@ function officeDashRows(string $lang): string
         $sub = empty($schedule['enabled']) ? officeDashT($s, 'dash.bk_no_schedule')
             : ($next ? officeDashT($s, 'dash.bk_next', ['when' => officeDashWhen($s, $next, $lang)]) : officeDashT($s, 'dash.bk_scheduled'));
         $out .= $row('backup', officeDashAsset('desks/backup/avatar.svg'), officeDashT($s, 'backup.name'), $state, $tone, $sub);
+    }
+
+    // Mr. Restori, only while he restores (his job file, as long as the job writes its heartbeat)
+    $job = isset($hired['restore']) ? officeReadJson(OFFICE_DATA . '/restore-job.json') : null;
+    if (officeDashRestoring($job)) {
+        $out .= $row('restore', officeDashAsset('desks/restore/avatar.svg'), officeDashT($s, 'restore.name'),
+            officeDashT($s, 'restore.dash_restoring', ['what' => (string) $job['what']]), 'orange');
     }
     return $out;
 }

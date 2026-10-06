@@ -19,6 +19,17 @@ declare(strict_types=1);
  *
  * Never on a sleeping disk: a share whose disk sleeps is not looked into (its snapshots are
  * named "asleep"), the backup place on a sleeping disk keeps what was read before.
+ *
+ * And he brings things back himself (steps 2-6): a database from its dump, a media server's
+ * database copies, templates and compose files, a folder from a local snapshot, a VM's
+ * configuration, a Kopia snapshot into a writable folder. Every restore is planned here against
+ * a fresh look at the server (rsPlan), shown as a preview, confirmed with the plan's token and
+ * handed to the host's atd as "php agent.php job restore <id>" (rsJob) — never a child of the
+ * agent. The job holds the engine's lock (state/lock: one restore at a time, no backup, check
+ * or setup meanwhile — a backup run then is skipped visibly, engine 2.20) and notes itself in
+ * state/lock-holder.json. Every step goes into data/restore/<id>/journal.json (+ log.txt), the
+ * page polls data/restore-job.json. What a restore replaces is put aside first, never deleted;
+ * «Put back» undoes a finished or failed restore from its journal, as a job of its own.
  */
 
 const RS_TEMPLATES    = '/boot/config/plugins/dockerMan/templates-user';
@@ -30,9 +41,39 @@ const RS_NOT_BASES    = ['user', 'user0', 'disks', 'remotes', 'addons', 'rootsha
 const RS_DB_TYPES     = ['mariadb', 'postgres', 'mongodb'];
 const RS_UUID         = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 
-define('RS_DATA', DATA_DIR . '/restore');
+// restoring
+const RS_ID_PATTERN   = '/^\d{8}-\d{6}-[0-9a-f]{4}$/D';      // a restore: <time>-<random>
+const RS_STAMP        = '/^\d{8}-\d{6}$/D';                   // the time in what he puts aside: <folder>.aside-<stamp>
+const RS_NAME_PATTERN = '/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/D';   // apps (package folders), containers, databases
+// the only variables a command in a database container may name (credentials stay in the container, never here)
+const RS_ENV_VARS     = ['MARIADB_ROOT_PASSWORD', 'MYSQL_ROOT_PASSWORD', 'MARIADB_USER', 'MARIADB_PASSWORD', 'MYSQL_USER', 'MYSQL_PASSWORD',
+                         'POSTGRES_USER', 'POSTGRES_PASSWORD', 'MONGO_INITDB_ROOT_USERNAME', 'MONGO_INITDB_ROOT_PASSWORD'];
+const RS_FLASH_ASIDE  = '/boot/config/_UnraidSecretaryOffice-restore';   // templates and compose files he replaces (flash)
+const RS_LIBVIRT_ASIDE = '_UnraidSecretaryOffice-restore';               // a VM's configuration he replaces, inside /etc/libvirt
+const RS_KEEP         = 60;          // journals listed (the folders stay)
+const RS_DU_PARALLEL  = 2;
 
-$GLOBALS['rs'] = ['state' => null];
+define('RS_DATA', DATA_DIR . '/restore');
+define('RS_JOB_FILE', DATA_DIR . '/restore-job.json');       // the running (or last) restore, polled by the page (api part "job")
+define('RS_SIZES_FILE', DATA_DIR . '/restore-sizes.json');   // sizes measured in the background (api part "sizes")
+
+$GLOBALS['rs'] = ['state' => null, 'du' => ['queue' => [], 'running' => []]];
+
+/** Where his restores, the job file and the engine's lock live — tests point them to a temporary folder */
+function rsData(): string
+{
+    return $GLOBALS['rs']['data'] ?? RS_DATA;
+}
+
+function rsJobFile(): string
+{
+    return $GLOBALS['rs']['job_file'] ?? RS_JOB_FILE;
+}
+
+function rsUbData(): string
+{
+    return $GLOBALS['rs']['ub_data'] ?? BACKUP_DATA_DIR;
+}
 
 desk('restore', [
     'fit'     => fn (): array => rsFit(),
@@ -40,10 +81,16 @@ desk('restore', [
         $GLOBALS['rs']['state'] = readJson(deskFile('restore'));
         rsScan();
     },
+    'tick'    => fn () => rsDuTick(),
     'actions' => [
-        'refresh'  => fn (array $r) => ['ok' => true, 'state' => rsScan()],
-        'versions' => fn (array $r) => rsVersions(textField($r, 'kind'), textField($r, 'id')),
+        'refresh'    => fn (array $r) => ['ok' => true, 'state' => rsScan()],
+        'versions'   => fn (array $r) => rsVersions(textField($r, 'kind'), textField($r, 'id')),
+        'preview'    => fn (array $r) => ['ok' => true, 'preview' => rsPlan($r)],
+        'start'      => fn (array $r) => rsStart($r),
+        'journal'    => fn (array $r) => rsJournalGet(textField($r, 'id')),
+        'kopia_list' => fn (array $r) => rsKopiaList(textField($r, 'source')),
     ],
+    'jobs'    => ['restore' => fn (array $args) => rsJob($args)],
 ]);
 
 // ===================================================================== the server, once per look
@@ -225,6 +272,7 @@ function rsEngine(array $settings): array
         'found'    => is_file(BACKUP_SCRIPT_DIR . '/backup.sh'),
         'settings' => is_file("$data/settings.ini"),
         'busy'     => flockHeld("$data/state/lock"),
+        'holder'   => backupLockHolder(),     // who holds it: a backup run, its check or dry run, the setup, one of his restores
         'kopia'    => $kopia,
         'kopia_container' => (string) backupSetting($settings, 'kopia', 'container', ''),
         'mount_root' => (string) backupSetting($settings, 'general', 'mount_root', '/mnt/addons/' . BACKUP_OFFICE_SHARE . '/snapshots'),
@@ -644,6 +692,8 @@ function rsScan(): array
         'flash'    => null,
         'run'      => null,
         'run_time' => null,
+        'running'  => rsRunningJob(),          // a restore of his going on now
+        'restores' => rsJournals(),            // his restores, newest first
     ];
     if ($place['asleep']) {
         // the backup place's disk sleeps: what was read before
@@ -658,6 +708,27 @@ function rsScan(): array
     $vmStates = rsVmStates();
     $kopiaShare = fn (string $share) => $engine['kopia'] && backupSetting($settings, "share|$share", 'mode', 'off') === 'kopia';
     $own = fn (string $kind, string $name) => $engine['kopia'] && backupSetting($settings, "$kind|$name", 'kopia', 'no') === 'yes';
+    /*
+     * Where Kopia has an app or a VM, and what each source holds of it (covers): its own source holds all of
+     * it (its folders and its package); otherwise its data goes with the shares of the folders Kopia takes
+     * (a folder Kopia leaves out stays only local), and its package with the backup place's share.
+     */
+    $sourcesOf = function (string $kind, string $name, string $id, array $folders, array $whole) use ($own, $kopiaShare, $kopiaLast, $place): array {
+        if ($own($kind, $name)) {
+            return [['source' => ".{$kind}s/$id", 'own' => true, 'covers' => 'all', 'last' => $kopiaLast["$kind:$name"] ?? null]];
+        }
+        $sources = [];
+        $data = array_merge(array_map(fn ($f) => $f['protection'] === 'offsite' ? (explode('/', $f['path'])[3] ?? '') : '', $folders), array_column($whole, 'share'));
+        foreach (array_unique(array_filter($data)) as $share) {
+            if ($kopiaShare($share)) {
+                $sources[] = ['source' => $share, 'own' => false, 'covers' => 'data', 'last' => $kopiaLast[$share] ?? null];
+            }
+        }
+        if ($place['share'] !== '' && $kopiaShare($place['share'])) {
+            $sources[] = ['source' => $place['share'], 'own' => false, 'covers' => 'package', 'last' => $kopiaLast[$place['share']] ?? null];
+        }
+        return $sources;
+    };
     foreach ($pk['apps'] ?? [] as $a) {
         [$folders, $whole] = rsAppFolders($a, $ctx);
         foreach ($a['containers'] as &$c) {
@@ -665,17 +736,7 @@ function rsScan(): array
             unset($c['binds']);
         }
         unset($c);
-        $sources = [];
-        if ($own('app', $a['name'])) {
-            $sources[] = ['source' => '.apps/' . $a['id'], 'own' => true, 'last' => $kopiaLast['app:' . $a['name']] ?? null];
-        }
-        // its folders go with their shares unless the app has a source of its own; whole shares it binds always do
-        $names = array_merge($sources ? [] : array_map(fn ($f) => explode('/', $f['path'])[3] ?? '', $folders), array_column($whole, 'share'));
-        foreach (array_unique(array_filter($names)) as $share) {
-            if ($kopiaShare($share)) {
-                $sources[] = ['source' => $share, 'own' => false, 'last' => $kopiaLast[$share] ?? null];
-            }
-        }
+        $sources = $sourcesOf('app', $a['name'], $a['id'], $folders, $whole);
         $a['templates'] = array_map(fn ($t) => ['file' => $t, 'now' => rsCompare("{$a['path']}/$t", RS_TEMPLATES . "/$t")], $a['templates']);
         if ($a['compose']) {
             $root = $state['compose_root'];
@@ -703,16 +764,7 @@ function rsScan(): array
         }
         $v['folders'] = array_map(fn ($p) => rsFolder($p, [], $ctx), array_keys($units));
         $v['state'] = $vmStates === null ? null : ($vmStates[$v['name']] ?? 'missing');
-        $sources = [];
-        if ($own('vm', $v['name'])) {
-            $sources[] = ['source' => '.vms/' . $v['id'], 'own' => true, 'last' => $kopiaLast['vm:' . $v['name']] ?? null];
-        }
-        foreach (array_unique(array_map(fn ($f) => explode('/', $f['path'])[3] ?? '', $v['folders'])) as $share) {
-            if ($share !== '' && $kopiaShare($share) && !$sources) {
-                $sources[] = ['source' => $share, 'own' => false, 'last' => $kopiaLast[$share] ?? null];
-            }
-        }
-        $v['kopia'] = $sources;
+        $v['kopia'] = $sourcesOf('vm', $v['name'], $v['id'], $v['folders'], []);
         unset($v['files']);
         $state['vms'][] = $v;
     }
@@ -793,6 +845,2378 @@ function rsVersionList(array $place, string $kind, string $id, string $currentRu
     }
     usort($out, fn ($a, $b) => $b['time'] <=> $a['time']);
     return $out;
+}
+
+// ===================================================================== restoring: journal and lock
+
+/** The folder of a restore: data/restore/<id> — the id checked */
+function rsDir(string $id): string
+{
+    if (!preg_match(RS_ID_PATTERN, $id)) {
+        throw new Problem('unknown_target', ['target' => $id]);
+    }
+    return rsData() . "/$id";
+}
+
+function rsJournal(string $id): ?array
+{
+    return readJson(rsDir($id) . '/journal.json');
+}
+
+/**
+ * Writes a journal (root only) and — for the restore going on — data/restore-job.json, which the
+ * page polls straight from disk (api part "job"): it names paths and containers, never a value.
+ */
+function rsJournalWrite(array &$j, bool $public = true): void
+{
+    $j['heartbeat'] = time();
+    writeAtomic(rsDir($j['id']) . '/journal.json', jsonEncode($j), 0600, 0, 0);
+    if ($public) {
+        writeAtomic(rsJobFile(), jsonEncode($j));
+    }
+}
+
+/** A line in a restore's log (data/restore/<id>/log.txt, root only) */
+function rsLog(string $id, string $line): void
+{
+    $file = rsDir($id) . '/log.txt';
+    if (is_link($file)) {
+        @unlink($file);
+    }
+    $new = !file_exists($file);
+    @file_put_contents($file, date('Y-m-d H:i:s') . '  ' . str_replace("\r", '', rtrim($line)) . "\n", FILE_APPEND);
+    if ($new) {
+        @chmod($file, 0600);
+    }
+}
+
+/** The folder data/restore and one restore's folder in it: root only, never through a link */
+function rsPrivateDir(string $dir): void
+{
+    if (is_link($dir) || (file_exists($dir) && !is_dir($dir))) {
+        throw new Problem('command_failed', ['detail' => "$dir is no folder"]);
+    }
+    if (!is_dir($dir) && !@mkdir($dir, 0700)) {
+        throw new Problem('command_failed', ['detail' => "cannot create $dir"]);
+    }
+    @chown($dir, 0);
+    @chgrp($dir, 0);
+    @chmod($dir, 0700);
+}
+
+/** The restore going on now — its job lives — or null */
+function rsRunningJob(): ?array
+{
+    $j = readJson(rsJobFile());
+    if (!$j || !is_string($j['id'] ?? null) || !in_array($j['result'] ?? '', ['queued', 'running'], true)) {
+        return null;
+    }
+    if ($j['result'] === 'queued') {
+        return time() - (int) ($j['created'] ?? 0) < 120 ? rsJobSummary($j) : null;
+    }
+    return rsJobAlive($j) ? rsJobSummary($j) : null;
+}
+
+function rsJobAlive(array $j): bool
+{
+    $pid = (int) ($j['pid'] ?? 0);
+    return $pid > 1 && str_contains((string) @file_get_contents("/proc/$pid/cmdline"), 'agent.php');
+}
+
+function rsJobSummary(array $j): array
+{
+    $steps = (array) ($j['steps'] ?? []);
+    $at = 0;
+    foreach ($steps as $i => $s) {
+        if (in_array($s['state'] ?? 'pending', ['running', 'ok', 'warning', 'failed'], true)) {
+            $at = $i + 1;
+        }
+    }
+    return ['id' => (string) $j['id'], 'kind' => (string) ($j['kind'] ?? ''), 'what' => (string) ($j['what'] ?? ''), 'result' => (string) ($j['result'] ?? ''),
+            'started' => $j['started'] ?? null, 'step' => $at, 'steps' => count($steps)];
+}
+
+/**
+ * His restores for the page, newest first: kind, what, when, how it went, what he put aside, and whether
+ * «Put back» can undo it. A journal still "running" whose job is gone was interrupted (a reboot): said so.
+ */
+function rsJournals(): array
+{
+    $ids = array_values(array_filter(@scandir(rsData(), SCANDIR_SORT_DESCENDING) ?: [], fn ($n) => (bool) preg_match(RS_ID_PATTERN, $n)));
+    $running = rsRunningJob();
+    $out = [];
+    foreach (array_slice($ids, 0, RS_KEEP) as $id) {
+        $j = readJson(rsData() . "/$id/journal.json");
+        if (!$j) {
+            continue;
+        }
+        if (in_array($j['result'] ?? '', ['queued', 'running'], true) && ($running['id'] ?? '') !== $id
+            && (($j['result'] === 'running' && !rsJobAlive($j)) || ($j['result'] === 'queued' && time() - (int) ($j['created'] ?? 0) > 120))) {
+            $j['result'] = 'interrupted';
+            $j['finished'] = $j['heartbeat'] ?? time();
+            try {
+                rsJournalWrite($j, false);
+            } catch (Throwable) {
+            }
+        }
+        $out[] = rsJournalRow($j);
+    }
+    return $out;
+}
+
+/** A journal as the page lists it */
+function rsJournalRow(array $j): array
+{
+    $failed = null;
+    foreach ((array) ($j['steps'] ?? []) as $i => $s) {
+        if (($s['state'] ?? '') === 'failed') {
+            $failed = ['n' => $i + 1, 'do' => (string) ($s['do'] ?? ''), 'note' => (string) ($s['note'] ?? ''), 'detail' => mb_substr((string) ($s['detail'] ?? ''), 0, 400)];
+        }
+    }
+    return [
+        'id'         => (string) $j['id'],
+        'kind'       => (string) ($j['kind'] ?? ''),
+        'what'       => (string) ($j['what'] ?? ''),
+        'method'     => $j['method'] ?? null,
+        'target'     => (array) ($j['target'] ?? []),
+        'created'    => (int) ($j['created'] ?? 0),
+        'started'    => $j['started'] ?? null,
+        'finished'   => $j['finished'] ?? null,
+        'result'     => (string) ($j['result'] ?? ''),
+        'reason'     => $j['reason'] ?? null,
+        'reason_params' => (array) ($j['reason_params'] ?? []),
+        'failed'     => $failed,
+        'aside'      => array_values((array) ($j['aside'] ?? [])),
+        'putback_of' => $j['putback_of'] ?? null,
+        'putback'    => $j['putback'] ?? null,
+        'can_putback' => rsCanPutback($j),
+        'after'      => (array) ($j['after'] ?? []),
+    ];
+}
+
+/** Can «Put back» undo this restore? Something of it was done and can be undone, and it wasn't put back yet */
+function rsCanPutback(array $j): bool
+{
+    if (in_array($j['kind'] ?? '', ['putback', 'kopia'], true) || !in_array($j['result'] ?? '', ['ok', 'warnings', 'failed', 'interrupted'], true)) {
+        return false;
+    }
+    if (is_array($j['putback'] ?? null) && !in_array($j['putback']['result'] ?? '', ['refused'], true)) {
+        return false;
+    }
+    return rsUndoSteps($j) !== [] || !empty($j['stopped']);
+}
+
+/** A journal for the page: its steps and the end of its log */
+function rsJournalGet(string $id): array
+{
+    $j = rsJournal($id);
+    if (!$j) {
+        throw new Problem('unknown_target', ['target' => $id]);
+    }
+    $log = @file(rsDir($id) . '/log.txt', FILE_IGNORE_NEW_LINES) ?: [];
+    return ['ok' => true, 'journal' => $j, 'row' => rsJournalRow($j), 'log' => array_slice($log, -300)];
+}
+
+/**
+ * The engine's lock (state/lock, engine 2.20), taken without waiting: opened for appending (never
+ * truncating, like the engine's >>), touched, and noted in state/lock-holder.json (a new file + rename).
+ * Busy: who holds it instead of a handle.
+ *
+ * @return resource|array
+ */
+function rsLockTake(string $what, string $mode): mixed
+{
+    $state = rsUbData() . '/state';
+    if (!is_dir($state)) {
+        @mkdir($state, 0700, true);
+    }
+    $file = "$state/lock";
+    $h = is_link($file) ? false : @fopen($file, 'a');
+    if (!$h) {
+        return ['holder' => 'other', 'what' => '', 'run' => ''];
+    }
+    if (!flock($h, LOCK_EX | LOCK_NB)) {
+        fclose($h);
+        return backupLockHolder(rsUbData()) ?? ['holder' => 'other', 'what' => '', 'run' => ''];
+    }
+    @touch($file);
+    writeAtomic("$state/lock-holder.json", jsonEncode(['holder' => 'restore', 'mode' => $mode, 'what' => $what,
+        'pid' => getmypid(), 'started' => time(), 'version' => AGENT_VERSION]), 0600, 0, 0);
+    return $h;
+}
+
+/** Gives the lock back; the note goes only while it is still his own (same pid) */
+function rsLockRelease(mixed $h): void
+{
+    $note = rsUbData() . '/state/lock-holder.json';
+    if ((int) (readJson($note)['pid'] ?? 0) === getmypid()) {
+        @unlink($note);
+    }
+    if (is_resource($h)) {
+        flock($h, LOCK_UN);
+        fclose($h);
+    }
+}
+
+/** Why no restore can start now — one at a time, never while the engine's lock is held — or null */
+function rsBusy(): ?array
+{
+    $run = rsRunningJob();
+    if ($run) {
+        return ['key' => 'restore_busy_restore', 'params' => ['what' => $run['what']]];
+    }
+    $h = backupLockHolder(rsUbData());
+    return $h ? ['key' => 'restore_busy_' . $h['holder'], 'params' => ['what' => $h['what'], 'run' => $h['run']]] : null;
+}
+
+// ===================================================================== restoring: the plans
+
+/** The time in the names of what he puts aside — the preview's, when the page sends it back (≤ a day old) */
+function rsStampOf(array $r): string
+{
+    $s = $r['stamp'] ?? null;
+    if (is_string($s) && preg_match(RS_STAMP, $s)) {
+        $t = DateTime::createFromFormat('Ymd-His', $s)?->getTimestamp();
+        if ($t && $t <= time() + 60 && $t >= time() - 86400) {
+            return $s;
+        }
+    }
+    return date('Ymd-His');
+}
+
+function rsPlanBase(string $kind, string $what, array $target): array
+{
+    return ['kind' => $kind, 'what' => $what, 'target' => $target, 'method' => null, 'steps' => [], 'blockers' => [], 'notes' => [],
+            'after' => [], 'aside' => [], 'stops' => [], 'downtime' => null, 'sizes' => null, 'options' => null,
+            'putback_pre' => [], 'putback_post' => [], 'putback_of' => null];
+}
+
+/**
+ * What a restore will do, from a fresh look at the server — every id and path checked against it. The
+ * preview shows it; the start builds it again and runs it only when its token is the one the user saw
+ * (same steps, same names of what goes aside) and nothing blocks it.
+ */
+function rsPlan(array $r): array
+{
+    $kind = textField($r, 'kind');
+    $stamp = rsStampOf($r);
+    $plan = match ($kind) {
+        'db'      => rsPlanDb($r, $stamp),
+        'sqlite'  => rsPlanSqlite($r, $stamp),
+        'files'   => rsPlanFiles($r, $stamp),
+        'config'  => rsPlanConfig($r, $stamp),
+        'vm'      => rsPlanVm($r, $stamp),
+        'kopia'   => rsPlanKopia($r, $stamp),
+        'putback' => rsPlanPutback($r, $stamp),
+        default   => throw new Problem('unknown_target', ['target' => $kind]),
+    };
+    return rsPlanSeal($plan, $stamp);
+}
+
+/** Who else holds the lock, and the token over what will be done */
+function rsPlanSeal(array $plan, string $stamp): array
+{
+    $plan['stamp'] = $stamp;
+    $busy = rsBusy();
+    if ($busy) {
+        array_unshift($plan['blockers'], $busy);
+    }
+    $plan['token'] = sha1(jsonEncode([$plan['kind'], $stamp, $plan['target'], $plan['steps']]));
+    return $plan;
+}
+
+/** An app and its package (tonight's, or an earlier night's from the backup place's snapshots: "version") */
+function rsPlanApp(array $r): array
+{
+    $id = textField($r, 'app');
+    [$settings, $ctx, $place] = rsPlanPlace();
+    $list = $place['found'] ? rsPackages($place['base'])['apps'] : [];
+    $app = array_values(array_filter($list, fn ($p) => $p['id'] === $id))[0] ?? null;
+    if (!$app) {
+        throw new Problem('unknown_target', ['target' => $id]);
+    }
+    [$pkg, $version] = rsPlanVersion($r, $place, 'app', $app);
+    return [$settings, $ctx, $place, $app, $pkg, $version];
+}
+
+/** The engine's settings, a fresh look at the server, the backup place — never on a sleeping disk */
+function rsPlanPlace(): array
+{
+    $settings = backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');
+    $ctx = rsContext($settings);
+    $place = rsPlace($settings, $ctx);
+    if ($place['asleep']) {
+        throw new Problem('restore_place_asleep');
+    }
+    return [$settings, $ctx, $place];
+}
+
+/** @return array{0: array, 1: ?array} the package to restore from, and the earlier night it comes from (null: tonight's) */
+function rsPlanVersion(array $r, array $place, string $kind, array $current): array
+{
+    $want = $r['version'] ?? null;
+    if (!is_string($want) || $want === '') {
+        return [$current, null];
+    }
+    foreach (rsVersionList($place, $kind, $current['id'], $current['run']) as $v) {
+        if ($v['snap'] === $want) {
+            $m = readJson("{$v['path']}/manifest.json");
+            if ($m) {
+                return [$kind === 'app' ? rsAppPackage($m, $current['id'], $v['path']) : rsVmPackage($m, $current['id'], $v['path']), $v];
+            }
+        }
+    }
+    throw new Problem('unknown_target', ['target' => $want]);
+}
+
+/** The containers on the server right now: name => running (not cached: a plan needs the truth) */
+function rsContainersNow(): array
+{
+    [$exit, $out] = run(['docker', 'ps', '-a', '--format', '{{.Names}}\t{{.State}}'], 20);
+    $all = [];
+    if ($exit === 0) {
+        foreach (rows($out) as $f) {
+            if (count($f) >= 2) {
+                $all[$f[0]] = $f[1] === 'running';
+            }
+        }
+    }
+    return $all;
+}
+
+/** The uncompressed size of a .gz (its trailer; exact below 4 GB), 0 when unknown */
+function rsGzSize(string $file): int
+{
+    $size = (int) @filesize($file);
+    $h = $size > 18 ? @fopen($file, 'rb') : false;
+    if (!$h) {
+        return 0;
+    }
+    fseek($h, -4, SEEK_END);
+    $isize = unpack('V', (string) fread($h, 4))[1] ?? 0;
+    fclose($h);
+    return $isize >= $size ? $isize : 0;          // a wrapped (> 4 GB) size is smaller than the file
+}
+
+/** Is a dataset's mountpoint inherited (so a rename moves it along)? */
+function rsZfsInherited(string $ds): bool
+{
+    [$exit, $out] = run(['zfs', 'get', '-H', '-o', 'source', 'mountpoint', $ds], 20);
+    $src = trim($out);
+    return $exit === 0 && ($src === 'default' || str_starts_with($src, 'inherited'));
+}
+
+/** Free bytes where a place lies: ZFS by its dataset, else the file system */
+function rsFree(array $place): ?int
+{
+    if (($place['dataset'] ?? null) !== null) {
+        [$exit, $out] = run(['zfs', 'list', '-Hp', '-o', 'avail', $place['dataset']], 20);
+        return $exit === 0 && ctype_digit(trim($out)) ? (int) trim($out) : null;
+    }
+    $free = @disk_free_space(dirname($place['live']));
+    return $free === false ? null : (int) $free;
+}
+
+/** The variables a dump of the package logs in with — names only, and only those of RS_ENV_VARS */
+function rsLogin(array $d): array
+{
+    $ok = fn (string $v): string => in_array($v, RS_ENV_VARS, true) ? $v : '';
+    return match ($d['type']) {
+        'postgres' => ['login' => 'user', 'user_var' => $ok($d['user_var'] ?? '') ?: 'POSTGRES_USER', 'password_var' => $ok($d['password_var'] ?? '') ?: 'POSTGRES_PASSWORD'],
+        'mariadb'  => ($d['login'] ?? '') === 'user' && $ok($d['user_var'] ?? '') !== '' && $ok($d['password_var'] ?? '') !== ''
+            ? ['login' => 'user', 'user_var' => $d['user_var'], 'password_var' => $d['password_var']]
+            : ['login' => 'root', 'user_var' => '', 'password_var' => $ok($d['password_var'] ?? '') ?: 'MARIADB_ROOT_PASSWORD'],
+        'mongodb'  => ($d['login'] ?? '') === 'none' ? ['login' => 'none', 'user_var' => '', 'password_var' => '']
+            : ['login' => 'root', 'user_var' => $ok($d['user_var'] ?? '') ?: 'MONGO_INITDB_ROOT_USERNAME', 'password_var' => $ok($d['password_var'] ?? '') ?: 'MONGO_INITDB_ROOT_PASSWORD'],
+        default    => throw new Problem('unknown_target', ['target' => (string) $d['type']]),
+    };
+}
+
+/**
+ * The host folder a Postgres container keeps its cluster in — the bind that holds PGDATA — as it lies
+ * on its pool or disk, for the fresh way: ['path', 'source', 'base', 'dataset' (its own dataset, or null)],
+ * or ['why' => inspect|inside|volume|share|asleep|spread|missing|inner|mountpoint] when there is none to
+ * put aside.
+ */
+function rsDbFolder(string $c, array &$ctx): array
+{
+    $inspect = houseInspect($c);
+    if (!$inspect) {
+        return ['why' => 'inspect'];
+    }
+    $pgdata = '/var/lib/postgresql/data';
+    foreach ((array) ($inspect['Config']['Env'] ?? []) as $e) {           // only PGDATA is looked at
+        if (is_string($e) && str_starts_with($e, 'PGDATA=') && str_starts_with(substr($e, 7), '/')) {
+            $pgdata = rtrim(substr($e, 7), '/');
+        }
+    }
+    $best = null;
+    foreach ((array) ($inspect['Mounts'] ?? []) as $m) {
+        $dst = rtrim((string) ($m['Destination'] ?? ''), '/');
+        if ($dst !== '' && under($pgdata, $dst) && ($best === null || strlen($dst) > strlen(rtrim((string) $best['Destination'], '/')))) {
+            $best = $m;
+        }
+    }
+    if (!$best) {
+        return ['why' => 'inside'];
+    }
+    if (($best['Type'] ?? '') !== 'bind') {
+        return ['why' => 'volume'];
+    }
+    $src = rtrim((string) ($best['Source'] ?? ''), '/');
+    $places = rsLocate($src, $ctx);
+    if (!$places) {
+        return ['why' => 'share', 'source' => $src];
+    }
+    if (array_filter($places, fn ($p) => $p['asleep'])) {
+        return ['why' => 'asleep', 'source' => $src];
+    }
+    $there = array_values(array_filter($places, fn ($p) => $p['exists']));
+    if (count($there) !== 1) {
+        return ['why' => $there ? 'spread' : 'missing', 'source' => $src];
+    }
+    $p = $there[0];
+    if ($p['inner']) {
+        return ['why' => 'inner', 'source' => $src];
+    }
+    $ds = null;
+    if ($p['own_dataset']) {
+        if (!rsZfsInherited((string) $p['dataset'])) {
+            return ['why' => 'mountpoint', 'source' => $src];
+        }
+        $ds = $p['dataset'];
+    }
+    return ['path' => $p['live'], 'source' => $src, 'base' => $p['base'], 'dataset' => $ds, 'fs' => $p['fs'], 'place' => $p];
+}
+
+/**
+ * Step 2 — a database back from its dump. First a safety dump of what the database holds now (into
+ * <backup place>/restore/<app>/<time>/), then the app's other containers stop (the database not).
+ *
+ * Postgres (the dumps are pg_dumpall of the whole cluster): the fresh way whenever the cluster's folder
+ * can be put aside — the database container stops, its folder goes aside as it is, it starts on an empty
+ * folder (initdb from its own environment), the dump goes in, then the app starts. That is how
+ * PostgreSQL wants a pg_dumpall played back (into a fresh cluster), it is the only way Immich documents,
+ * and the old cluster stays untouched aside: «Put back» swaps the folders back. pg_restore doesn't apply
+ * (the dumps are plain SQL); dropping and recreating in place is the fallback where the folder can't be put
+ * aside (a Docker volume, a folder spread over disks) — never for Immich.
+ * MariaDB/MySQL and MongoDB: in place (their dumps drop and recreate what they hold; MariaDB's users live
+ * outside the dumps, so a fresh server would lose them), the safety dump being the way back.
+ */
+function rsPlanDb(array $r, string $stamp): array
+{
+    [, $ctx, $place, $app, $pkg, $version] = rsPlanApp($r);
+    return rsPlanDbFor($ctx, $place, $app, $pkg, $version, textField($r, 'file'), $stamp);
+}
+
+/** The plan for one dump of a package (the place: its base; the app: id, name, nextcloud) */
+function rsPlanDbFor(array &$ctx, array $place, array $app, array $pkg, ?array $version, string $file, string $stamp): array
+{
+    $dump = array_values(array_filter($pkg['dumps'], fn ($d) => $d['file'] === $file))[0] ?? null;
+    if (!$dump || !preg_match(RS_NAME_PATTERN, $dump['container'])) {
+        throw new Problem('unknown_target', ['target' => $file]);
+    }
+    $c = $dump['container'];
+    $type = $dump['type'];
+    $path = "{$pkg['path']}/{$dump['file']}";
+    $plan = rsPlanBase('db', $app['name'], ['app' => $app['id'], 'file' => $file, 'version' => $version['snap'] ?? null, 'container' => $c, 'type' => $type]);
+    $plan['source'] = ['path' => $path, 'time' => $dump['time'], 'bytes' => $dump['bytes'], 'version' => $version['run_time'] ?? null];
+    if (!is_file($path)) {
+        $plan['blockers'][] = ['key' => 'restore_file_gone', 'params' => ['path' => $path]];
+        return $plan;
+    }
+    if ($type === 'mariadb' && !preg_match('/^[A-Za-z0-9_-]{1,64}$/D', (string) $dump['db'])) {
+        $plan['blockers'][] = ['key' => 'restore_db_name', 'params' => ['file' => $file]];
+        return $plan;
+    }
+    $now = rsContainersNow();
+    if (!isset($now[$c])) {
+        $plan['blockers'][] = ['key' => 'restore_container_missing', 'params' => ['container' => $c]];
+        return $plan;
+    }
+    $login = rsLogin($dump);
+    $immich = (bool) array_filter($pkg['containers'], fn ($x) => stripos($x['image'], 'immich') !== false);
+    $others = array_values(array_filter(array_column($pkg['containers'], 'name'), fn ($n) => $n !== $c && isset($now[$n]) && preg_match(RS_NAME_PATTERN, $n)));
+    $method = 'inplace';
+    $folder = null;
+    if ($type === 'postgres') {
+        $folder = rsDbFolder($c, $ctx);
+        if (isset($folder['path'])) {
+            $method = 'fresh';
+        } elseif ($immich) {
+            $plan['blockers'][] = ['key' => 'restore_immich_folder', 'params' => ['why' => $folder['why'], 'source' => $folder['source'] ?? '']];
+        } else {
+            $plan['notes'][] = ['key' => 'note.db_no_folder', 'params' => ['why' => $folder['why'], 'source' => $folder['source'] ?? '']];
+        }
+    }
+    $plan['method'] = $method;
+    $db = $type === 'mariadb' ? (string) $dump['db'] : null;
+    $safety = "{$place['base']}/restore/{$app['id']}/$stamp/" . basename($dump['file']);
+    $base = ['type' => $type, 'container' => $c, 'db' => $db] + $login;
+    $steps = [];
+    if (!$now[$c] && $method === 'inplace') {
+        $steps[] = ['do' => 'start', 'containers' => [$c], 'need' => true];
+        $steps[] = ['do' => 'ready'] + $base + ['timeout' => 180];
+        $plan['notes'][] = ['key' => 'note.db_start', 'params' => ['container' => $c]];
+    }
+    if ($now[$c] || $method === 'inplace') {
+        $steps[] = ['do' => 'dump', 'file' => $safety] + $base;
+        $plan['aside'][] = ['what' => 'safety_dump', 'from' => $c, 'to' => $safety];
+    } else {
+        $plan['notes'][] = ['key' => 'note.db_stopped', 'params' => ['container' => $c]];
+    }
+    if ($others) {
+        $steps[] = ['do' => 'stop', 'containers' => $others];
+    }
+    if ($method === 'fresh') {
+        $aside = "{$folder['path']}.aside-$stamp";
+        $ds = $folder['dataset'];
+        $steps[] = ['do' => 'stop', 'containers' => [$c]];
+        $steps[] = ['do' => 'aside', 'path' => $folder['path'], 'to' => $aside, 'dataset' => $ds, 'to_dataset' => $ds ? "$ds.aside-$stamp" : null];
+        $steps[] = ['do' => 'fresh', 'path' => $folder['path'], 'like' => $aside, 'dataset' => $ds];
+        $steps[] = ['do' => 'start', 'containers' => [$c], 'need' => true];
+        $steps[] = ['do' => 'ready', 'tcp' => true] + $base + ['timeout' => 300];
+        $plan['aside'][] = ['what' => 'db_folder', 'from' => $folder['path'], 'to' => $aside];
+        $free = rsFree($folder['place']);
+        $plan['sizes'] = ['need' => rsGzSize($path) ?: null, 'free' => $free, 'measuring' => false, 'what' => 'db'];
+        $plan['putback_pre'] = array_values(array_filter([$others ? ['do' => 'stop', 'containers' => $others] : null, ['do' => 'stop', 'containers' => [$c]]]));
+        $plan['putback_post'] = array_values(array_filter([['do' => 'start', 'containers' => [$c], 'need' => true], ['do' => 'ready'] + $base + ['timeout' => 300],
+                                                           $others ? ['do' => 'start', 'containers' => $others, 'only_stopped' => true] : null]));
+    } else {
+        $plan['putback_pre'] = array_values(array_filter([['do' => 'start', 'containers' => [$c], 'need' => true], ['do' => 'ready'] + $base + ['timeout' => 180],
+                                                          $others ? ['do' => 'stop', 'containers' => $others] : null]));
+        $plan['putback_post'] = $others ? [['do' => 'start', 'containers' => $others, 'only_stopped' => true]] : [];
+    }
+    $steps[] = ['do' => 'play', 'file' => $path, 'immich' => $immich, 'method' => $method, 'safety' => $safety,
+                'putback_file' => "{$place['base']}/restore/{$app['id']}/{T}/" . basename($dump['file'])] + $base;
+    $steps[] = ['do' => 'verify', 'file' => $path] + $base;
+    if ($others) {
+        $steps[] = ['do' => 'start', 'containers' => $others, 'only_stopped' => true];
+    }
+    $plan['steps'] = $steps;
+    $plan['stops'] = array_values(array_filter(array_merge($others, $method === 'fresh' ? [$c] : []), fn ($n) => $now[$n] ?? false));
+    $raw = rsGzSize($path) ?: $dump['bytes'] * 5;
+    $plan['downtime'] = (int) ($raw / ($type === 'postgres' ? 25e6 : 15e6)) + ($method === 'fresh' ? 60 : 20);
+    $plan['notes'][] = ['key' => 'note.method_' . ($method === 'fresh' ? 'fresh' : "inplace_$type"), 'params' => []];
+    if ($immich) {
+        $plan['notes'][] = ['key' => 'note.immich', 'params' => []];
+    }
+    if (!array_filter($pkg['containers'], fn ($x) => !in_array($x['db'], ['mariadb', 'postgres', 'mongodb', 'cache'], true))) {
+        $plan['notes'][] = ['key' => 'note.db_alone', 'params' => []];      // a database on its own: its apps are elsewhere
+    }
+    if ($version) {
+        $plan['notes'][] = ['key' => 'note.earlier', 'params' => ['when' => $version['run_time'] ?? $version['time']]];
+    }
+    if ($dump['kept']) {
+        $plan['notes'][] = ['key' => 'note.dump_kept', 'params' => ['when' => $dump['time']]];
+    }
+    if ($app['nextcloud']) {
+        $n = array_values(array_filter($app['nextcloud'], fn ($x) => $x['same_as'] === ''))[0] ?? $app['nextcloud'][0];
+        $plan['after'][] = ['key' => 'after.nextcloud', 'params' => ['container' => $n['container'], 'occ' => $n['occ'], 'user' => $n['user']]];
+    }
+    return $plan;
+}
+
+/**
+ * A media server's database copies (engine 2.19) — all copies of one server together: the server stops,
+ * each database and its -wal/-shm go aside next to it, the copy takes its place with the folder's owner,
+ * the server starts again if it ran.
+ */
+function rsPlanSqlite(array $r, string $stamp): array
+{
+    [, $ctx, , $app, $pkg, $version] = rsPlanApp($r);
+    return rsPlanSqliteFor($ctx, $app, $pkg, $version, textField($r, 'container'), $stamp);
+}
+
+function rsPlanSqliteFor(array &$ctx, array $app, array $pkg, ?array $version, string $c, string $stamp): array
+{
+    $copies = array_values(array_filter($pkg['sqlite'], fn ($q) => $q['container'] === $c));
+    if (!$copies || !preg_match(RS_NAME_PATTERN, $c)) {
+        throw new Problem('unknown_target', ['target' => $c]);
+    }
+    $plan = rsPlanBase('sqlite', $app['name'], ['app' => $app['id'], 'container' => $c, 'version' => $version['snap'] ?? null]);
+    $now = rsContainersNow();
+    if (!isset($now[$c])) {
+        $plan['blockers'][] = ['key' => 'restore_container_missing', 'params' => ['container' => $c]];
+        return $plan;
+    }
+    $steps = [['do' => 'stop', 'containers' => [$c]]];
+    foreach ($copies as $q) {
+        $from = "{$pkg['path']}/{$q['file']}";
+        $name = basename($q['source']);
+        if (!is_file($from) || !preg_match('/^[A-Za-z0-9_.-]+$/D', $name) || !rsSharePath($q['source'], $ctx)) {
+            $plan['blockers'][] = ['key' => 'restore_file_gone', 'params' => ['path' => $from]];
+            continue;
+        }
+        // where its folder really lies (a pool or a disk)
+        $dir = array_values(array_filter(rsLocate(dirname($q['source']), $ctx), fn ($p) => $p['exists'] || $p['asleep']));
+        if (count($dir) !== 1 || $dir[0]['asleep']) {
+            $plan['blockers'][] = ['key' => $dir && $dir[0]['asleep'] ? 'restore_asleep' : 'restore_folder_missing', 'params' => ['base' => $dir[0]['base'] ?? '', 'path' => dirname($q['source'])]];
+            continue;
+        }
+        $db = $dir[0]['live'] . "/$name";
+        foreach (['', '-wal', '-shm'] as $sfx) {
+            $steps[] = ['do' => 'aside', 'path' => "$db$sfx", 'to' => "$db$sfx.aside-$stamp", 'optional' => true];
+            if ($sfx === '' || file_exists("$db$sfx")) {
+                $plan['aside'][] = ['what' => 'file', 'from' => "$db$sfx", 'to' => "$db$sfx.aside-$stamp"];
+            }
+        }
+        $steps[] = ['do' => 'put', 'from' => $from, 'to' => $db, 'mode' => 0644, 'owner_like' => $dir[0]['live']];
+    }
+    $steps[] = ['do' => 'start', 'containers' => [$c], 'only_stopped' => true];
+    $plan['steps'] = $steps;
+    $plan['stops'] = $now[$c] ? [$c] : [];
+    $plan['downtime'] = 15;
+    $plan['putback_pre'] = [['do' => 'stop', 'containers' => [$c]]];
+    $plan['putback_post'] = [['do' => 'start', 'containers' => [$c], 'only_stopped' => true]];
+    if ($version) {
+        $plan['notes'][] = ['key' => 'note.earlier', 'params' => ['when' => $version['run_time'] ?? $version['time']]];
+    }
+    $plan['notes'][] = ['key' => 'note.sqlite', 'params' => []];
+    return $plan;
+}
+
+/** Which app or VM a folder unit belongs to (from a fresh look), or null */
+function rsUnitOwner(array $state, string $path): ?array
+{
+    foreach ($state['apps'] ?? [] as $a) {
+        foreach ($a['folders'] as $f) {
+            if ($f['path'] === $path) {
+                return ['kind' => 'app', 'name' => $a['name'], 'id' => $a['id'], 'vm_state' => null];
+            }
+        }
+    }
+    foreach ($state['vms'] ?? [] as $v) {
+        foreach ($v['folders'] as $f) {
+            if ($f['path'] === $path) {
+                return ['kind' => 'vm', 'name' => $v['name'], 'id' => $v['id'], 'vm_state' => $v['state']];
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * Step 4 — a folder of an app or VM from one of its local snapshots (ZFS .zfs/snapshot/<name>, btrfs
+ * <disk>/<snap dir>/<run>; the engine's, Ms. Snapshotini's, anybody's). Two ways: «copy» (default) puts
+ * the snapshot's state next to the live folder as <folder>.restored-<time> and replaces nothing; «swap»
+ * copies it there first (while everything runs), then stops what uses the folder, puts the live folder
+ * aside (<folder>.aside-<time>; a folder that is a ZFS dataset of its own is renamed with zfs rename,
+ * its copy made as a dataset too) and moves the copy into its place — the interruption is seconds.
+ * A sleeping disk is only read with the explicit wake option; the size is measured in the background.
+ */
+function rsPlanFiles(array $r, string $stamp): array
+{
+    $path = textField($r, 'path');
+    $state = rsScan();
+    $owner = rsUnitOwner($state, $path);
+    if (!$owner) {
+        throw new Problem('unknown_target', ['target' => $path]);
+    }
+    $settings = backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');
+    $ctx = rsContext($settings);
+    return rsPlanFilesFor($path, is_string($r['snap'] ?? null) ? $r['snap'] : '', ($r['mode'] ?? '') === 'swap' ? 'swap' : 'copy', !empty($r['wake']), $owner, $stamp, $ctx);
+}
+
+function rsPlanFilesFor(string $path, string $snapId, string $mode, bool $wake, array $owner, string $stamp, array &$ctx): array
+{
+    $plan = rsPlanBase('files', $owner['name'], ['path' => $path, 'snap' => $snapId, 'mode' => $mode, 'wake' => $wake,
+                                                 'owner' => $owner['kind'], 'id' => $owner['id']]);
+    $plan['method'] = $mode;
+    if ($wake) {
+        $ctx['asleep'] = [];                     // asked for: sleeping disks are read (and so woken)
+    }
+    $places = rsLocate($path, $ctx);
+    $snaps = [];
+    foreach ($places as $p) {
+        foreach ($p['snaps'] as $s) {
+            $snaps[] = $s + ['base' => $p['base'], 'fs' => $p['fs']];
+        }
+    }
+    // what Kopia brought back into its restore folder (step 6) is a source too: next to the live folder's place
+    $home = array_values(array_filter($places, fn ($p) => $p['exists'] && !$p['asleep']))[0]
+        ?? array_values(array_filter($places, fn ($p) => !$p['asleep'] && is_dir(dirname($p['live']))))[0] ?? null;
+    if ($home) {
+        foreach (rsKopiaRestored($path, $ctx) as $k) {
+            $snaps[] = $k + ['base' => $home['base'], 'fs' => $home['fs']];
+        }
+    }
+    usort($snaps, fn ($a, $b) => $b['time'] <=> $a['time']);
+    $asleep = array_values(array_map(fn ($p) => $p['base'], array_filter($places, fn ($p) => $p['asleep'])));
+    $plan['options'] = ['snaps' => array_map(fn ($s) => ['id' => $s['id'], 'name' => $s['name'], 'time' => $s['time'], 'base' => $s['base'], 'ours' => $s['ours'],
+                                                          'kopia' => !empty($s['kopia'])], $snaps),
+                        'asleep' => $asleep, 'vm' => $owner['kind'] === 'vm'];
+    $snap = null;
+    foreach ($snaps as $s) {
+        if ($snapId === '' ? $snap === null : $s['id'] === $snapId) {
+            $snap = $s;
+        }
+    }
+    if (!$snap) {
+        if ($snapId !== '' && !$asleep) {
+            throw new Problem('unknown_target', ['target' => $snapId]);
+        }
+        $plan['blockers'][] = $asleep ? ['key' => 'restore_asleep', 'params' => ['base' => implode(', ', $asleep)]] : ['key' => 'restore_no_snapshot', 'params' => []];
+        return $plan;
+    }
+    $plan['target']['snap'] = $snap['id'];
+    $place = array_values(array_filter($places, fn ($p) => $p['base'] === $snap['base']))[0];
+    $live = $place['live'];
+    $restored = "$live.restored-$stamp";
+    $asideP = "$live.aside-$stamp";
+    $plan['source'] = ['path' => $snap['path'], 'snap' => $snap['name'], 'time' => $snap['time'], 'base' => $snap['base']];
+    $ds = $rds = $ads = null;
+    if ($place['own_dataset'] && $place['exists']) {
+        if (rsZfsInherited((string) $place['dataset'])) {
+            $ds = $place['dataset'];
+            $rds = "$ds.restored-$stamp";
+            $ads = "$ds.aside-$stamp";
+        } elseif ($mode === 'swap') {
+            $plan['blockers'][] = ['key' => 'restore_swap_mountpoint', 'params' => ['dataset' => $place['dataset']]];
+        }
+    }
+    if ($place['inner']) {
+        if ($mode === 'swap') {
+            $plan['blockers'][] = ['key' => 'restore_swap_inner', 'params' => ['list' => implode(', ', $place['inner'])]];
+        } else {
+            $plan['notes'][] = ['key' => 'note.files_inner', 'params' => ['list' => implode(', ', $place['inner'])]];
+        }
+    }
+    if (count(array_filter($places, fn ($p) => $p['exists'])) > 1 || ($asleep && !in_array($snap['base'], $asleep, true))) {
+        $plan['notes'][] = ['key' => 'note.files_part', 'params' => ['base' => $snap['base']]];
+        if ($mode === 'swap') {
+            // only the part on that disk would be swapped: a folder of two states
+            $plan['blockers'][] = ['key' => 'restore_swap_spread', 'params' => ['base' => $snap['base']]];
+        }
+    }
+    if (file_exists($restored) || is_link($restored)) {
+        $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $restored]];
+    }
+    // the size of the snapshot's state (measured in the background) and the space next to the live folder
+    $sizes = rsSizes();
+    $need = $sizes[$snap['path']]['bytes'] ?? null;
+    if ($need === null) {
+        rsDuQueue($snap['path']);
+    }
+    $free = rsFree($place + ['dataset' => $place['dataset'] ?? null]);
+    $plan['sizes'] = ['need' => $need, 'free' => $free, 'measuring' => $need === null, 'path' => $snap['path'], 'what' => 'files'];
+    if ($need !== null && $free !== null && $need > $free * 0.95) {
+        $plan['blockers'][] = ['key' => 'restore_no_space', 'params' => ['need' => $need, 'free' => $free]];
+    }
+    $steps = [['do' => 'copy', 'from' => $snap['path'], 'to' => $restored, 'dataset' => $rds]];
+    $plan['notes'][] = ['key' => $mode === 'swap' ? 'note.files_swap' : 'note.files_copy', 'params' => []];
+    if ($mode === 'swap') {
+        if ($owner['kind'] === 'vm' && !in_array($owner['vm_state'], [null, 'shut off', 'missing'], true)) {
+            $plan['blockers'][] = ['key' => 'restore_vm_running', 'params' => ['name' => $owner['name'], 'state' => (string) $owner['vm_state']]];
+        }
+        [$users, $parents] = rsUsers(array_values(array_unique([$path, $live])));
+        if ($users) {
+            $steps[] = ['do' => 'stop', 'containers' => $users];
+        }
+        if ($place['exists']) {
+            $steps[] = ['do' => 'aside', 'path' => $live, 'to' => $asideP, 'dataset' => $ds, 'to_dataset' => $ads];
+            $plan['aside'][] = ['what' => 'folder', 'from' => $live, 'to' => $asideP];
+        }
+        $steps[] = ['do' => 'move', 'from' => $restored, 'to' => $live, 'dataset' => $rds, 'to_dataset' => $ds];
+        if ($users) {
+            $steps[] = ['do' => 'start', 'containers' => $users, 'only_stopped' => true];
+            $plan['putback_pre'] = [['do' => 'stop', 'containers' => $users]];
+            $plan['putback_post'] = [['do' => 'start', 'containers' => $users, 'only_stopped' => true]];
+        }
+        if ($parents) {
+            $plan['notes'][] = ['key' => 'note.files_parents', 'params' => ['names' => implode(', ', $parents)]];
+        }
+        $plan['stops'] = $users;
+        $plan['downtime'] = $users ? 20 : 0;
+        $plan['after'][] = ['key' => 'after.files_swap', 'params' => ['aside' => $asideP]];
+    } else {
+        $plan['after'][] = ['key' => 'after.files_copy', 'params' => ['path' => $restored]];
+    }
+    if ($owner['kind'] === 'vm') {
+        $plan['target']['vm'] = $owner['name'];
+    }
+    $plan['steps'] = $steps;
+    return $plan;
+}
+
+/**
+ * Folders Kopia brought back (finished kopia restores of his) that hold this folder unit: a share's source
+ * holds it at <restored>/<folder>, an app's or VM's own source at <restored>/<share>/<folder>.
+ *
+ * @return list<array{id:string, name:string, time:int, path:string, ours:bool, kopia:bool}>
+ */
+function rsKopiaRestored(string $path, array $ctx): array
+{
+    $sp = rsSharePath($path, $ctx);
+    if (!$sp || $sp[1] === '') {
+        return [];
+    }
+    [$share, $rel] = $sp;
+    $out = [];
+    foreach (rsJournals() as $r) {
+        if ($r['kind'] !== 'kopia' || !in_array($r['result'], ['ok', 'warnings'], true)) {
+            continue;
+        }
+        $j = rsJournal($r['id']);
+        $host = (string) ($j['steps'][0]['host'] ?? '');
+        $source = (string) ($r['target']['source'] ?? '');
+        if ($host === '' || !rsCleanPath($host)) {
+            continue;
+        }
+        $cand = str_starts_with($source, '.') ? "$host/$share/$rel" : ($source === $share ? "$host/$rel" : null);
+        if ($cand !== null && is_dir($cand)) {
+            $time = (int) (readJson(rsDir($r['id']) . '/plan.json')['source']['time'] ?? 0) ?: (int) $r['finished'];
+            $out[] = ['id' => 'kopia:' . $r['id'], 'name' => 'Kopia ' . basename($host), 'time' => $time, 'path' => $cand, 'ours' => false, 'kopia' => true];
+        }
+    }
+    return $out;
+}
+
+/**
+ * The running containers that bind one of these paths or something inside (they stop for a swap), and
+ * those that only bind a folder above it (they keep running, named in the preview).
+ *
+ * @return array{0: list<string>, 1: list<string>}
+ */
+function rsUsers(array $paths): array
+{
+    [$exit, $out] = run(['docker', 'ps', '-q'], 20);
+    $ids = array_values(array_filter(explode("\n", trim($out)), fn ($x) => (bool) preg_match('/^[0-9a-f]{6,64}$/D', $x)));
+    if ($exit !== 0 || !$ids) {
+        return [[], []];
+    }
+    [$exit, $out] = run(array_merge(['docker', 'inspect'], $ids), 30);
+    $users = $parents = [];
+    foreach ((array) json_decode($out, true) as $c) {
+        $name = ltrim((string) ($c['Name'] ?? ''), '/');
+        foreach ((array) ($c['Mounts'] ?? []) as $m) {
+            $src = rtrim((string) ($m['Source'] ?? ''), '/');
+            if (($m['Type'] ?? '') !== 'bind' || $src === '' || !preg_match(RS_NAME_PATTERN, $name)) {
+                continue;
+            }
+            foreach ($paths as $p) {
+                if (under($src, $p)) {
+                    $users[$name] = true;
+                } elseif (under($p, $src) && substr_count($src, '/') >= 3) {
+                    $parents[$name] = true;          // binds a share or a folder above it (not /mnt or /mnt/user)
+                }
+            }
+        }
+    }
+    return [array_keys($users), array_keys(array_diff_key($parents, $users))];
+}
+
+/** Where a file he replaces goes aside: on the flash into RS_FLASH_ASIDE/<stamp>/…, elsewhere next to it */
+function rsAsideFor(string $to, string $stamp, string $suffix = 'restored-aside', string $flashRoot = RS_FLASH_ASIDE): string
+{
+    if (under($to, '/boot/config')) {
+        return "$flashRoot/$stamp" . substr($to, strlen('/boot/config'));
+    }
+    if (under($to, '/boot')) {
+        return "$flashRoot/$stamp/boot" . substr($to, strlen('/boot'));
+    }
+    return "$to.$suffix-$stamp";
+}
+
+/** A clean absolute path (no . or .. parts, no control characters) */
+function rsCleanPath(string $p): bool
+{
+    return str_starts_with($p, '/') && !preg_match('#(^|/)\.\.?(/|$)|[\x00-\x1f\x7f]|//#', $p) && strlen($p) < 4096;
+}
+
+/**
+ * The files of a package that go back into place (step 3): the templates (my-*.xml) to Unraid's
+ * templates-user, the Compose Manager's project folder (compose files, .env, Dockerfile, its own small
+ * files), and compose files read elsewhere (an indirect stack: compose-files/, by their name where the
+ * manifest names exactly one place). Each with how it compares to what is there now.
+ *
+ * @return list<array{from:string, to:string, what:string, now:string}>
+ */
+function rsConfigItems(array $pkg, string $composeRoot, string $templates): array
+{
+    $items = [];
+    foreach ($pkg['templates'] as $t) {
+        $f = is_array($t) ? $t['file'] : $t;
+        if (preg_match('/^my-[^\/]+\.xml$/D', $f)) {
+            $items[] = ['from' => "{$pkg['path']}/$f", 'to' => "$templates/$f", 'what' => 'template'];
+        }
+    }
+    $cmp = $pkg['compose'] ?? null;
+    if ($cmp && $cmp['dir'] !== '' && preg_match(RS_NAME_PATTERN, $cmp['dir'])) {
+        foreach ($cmp['files'] as $f) {
+            if (preg_match('/^[^\/]+$/D', $f) && $f !== '.' && $f !== '..') {
+                $items[] = ['from' => "{$pkg['path']}/compose/$f", 'to' => "$composeRoot/{$cmp['dir']}/$f", 'what' => 'compose'];
+            }
+        }
+    }
+    if ($cmp) {
+        $known = array_merge($cmp['config_files'], $cmp['working_dir'] !== '' ? [rtrim($cmp['working_dir'], '/') . '/.env'] : []);
+        foreach ($pkg['files'] as $f) {
+            if (!str_starts_with($f['path'], 'compose-files/') || substr_count($f['path'], '/') !== 1) {
+                continue;
+            }
+            $name = substr($f['path'], 14);
+            $where = array_values(array_unique(array_filter($known, fn ($k) => basename($k) === $name && rsCleanPath($k))));
+            if (count($where) === 1 && !($cmp['dir'] !== '' && under($where[0], "$composeRoot/{$cmp['dir']}"))) {
+                $items[] = ['from' => "{$pkg['path']}/{$f['path']}", 'to' => $where[0], 'what' => 'compose_file'];
+            }
+        }
+    }
+    foreach ($items as &$it) {
+        $it['now'] = rsCompare($it['from'], $it['to']);
+    }
+    return $items;
+}
+
+/**
+ * Step 3 — templates and compose files back into place: only what is missing or differs; what is there
+ * goes aside first (on the flash into RS_FLASH_ASIDE/<time>/, elsewhere next to it as
+ * <file>.restored-aside-<time>). He never starts or recreates a container — the preview says what to click.
+ */
+function rsPlanConfig(array $r, string $stamp): array
+{
+    [, , , $app, $pkg, $version] = rsPlanApp($r);
+    return rsPlanConfigFor($app, $pkg, $version, rsConfigItems($pkg, rsComposeRoot(), RS_TEMPLATES), $stamp);
+}
+
+/** The plan for the files of a package (rsConfigItems()); on the flash what he replaces goes to $flashRoot */
+function rsPlanConfigFor(array $app, array $pkg, ?array $version, array $items, string $stamp, string $flashRoot = RS_FLASH_ASIDE): array
+{
+    $plan = rsPlanBase('config', $app['name'], ['app' => $app['id'], 'version' => $version['snap'] ?? null]);
+    $steps = [];
+    $same = [];
+    foreach ($items as $it) {
+        if ($it['now'] === 'same') {
+            $same[] = $it['to'];
+            continue;
+        }
+        if (!is_file($it['from']) || is_link($it['to']) || is_dir($it['to'])) {
+            $plan['blockers'][] = ['key' => 'restore_file_odd', 'params' => ['path' => $it['to']]];
+            continue;
+        }
+        if ($it['now'] === 'differs') {
+            $aside = rsAsideFor($it['to'], $stamp, 'restored-aside', $flashRoot);
+            $steps[] = ['do' => 'aside', 'path' => $it['to'], 'to' => $aside, 'putback_to' => rsAsideFor($it['to'], '{T}', 'putback', $flashRoot)];
+            $plan['aside'][] = ['what' => 'file', 'from' => $it['to'], 'to' => $aside];
+        }
+        $steps[] = ['do' => 'put', 'from' => $it['from'], 'to' => $it['to'], 'mode' => 0600, 'putback_to' => rsAsideFor($it['to'], '{T}', 'putback', $flashRoot)];
+    }
+    $plan['steps'] = $steps;
+    $plan['options'] = ['same' => $same, 'items' => array_map(fn ($it) => ['to' => $it['to'], 'what' => $it['what'], 'now' => $it['now']], $items)];
+    if (!$steps && !$plan['blockers']) {
+        $plan['blockers'][] = ['key' => 'restore_config_same', 'params' => []];
+    }
+    $now = rsContainersNow();
+    foreach ($pkg['containers'] as $c) {
+        if ($c['template'] !== '' && array_filter($items, fn ($it) => $it['what'] === 'template' && basename($it['to']) === $c['template'] && $it['now'] !== 'same')) {
+            $plan['after'][] = isset($now[$c['name']]) ? ['key' => 'after.tpl_apply', 'params' => ['container' => $c['name']]]
+                : ['key' => 'after.tpl_add', 'params' => ['container' => $c['name'], 'template' => $c['template']]];
+        }
+    }
+    if ($pkg['compose'] && array_filter($items, fn ($it) => $it['what'] !== 'template' && $it['now'] !== 'same')) {
+        $plan['after'][] = ['key' => 'after.compose_up', 'params' => ['project' => $pkg['compose']['project'] ?: $app['name']]];
+    }
+    if ($version) {
+        $plan['notes'][] = ['key' => 'note.earlier', 'params' => ['when' => $version['run_time'] ?? $version['time']]];
+    }
+    $plan['notes'][] = ['key' => 'note.config', 'params' => []];
+    return $plan;
+}
+
+/**
+ * Step 5 — a VM's configuration from its package: its XML (virsh define), UEFI variables and TPM state.
+ * Only while the VM is shut off (or gone) — he never forces anything off. What is there now goes aside
+ * inside libvirt.img (/etc/libvirt/_UnraidSecretaryOffice-restore/<time>/<vm>/); its disks come back
+ * as a folder from a snapshot (step 4), also only while it is shut off.
+ */
+function rsPlanVm(array $r, string $stamp): array
+{
+    $id = textField($r, 'vm');
+    [, , $place] = rsPlanPlace();
+    $list = $place['found'] ? rsPackages($place['base'])['vms'] : [];
+    $vm = array_values(array_filter($list, fn ($p) => $p['id'] === $id))[0] ?? null;
+    if (!$vm) {
+        throw new Problem('unknown_target', ['target' => $id]);
+    }
+    [$pkg, $version] = rsPlanVersion($r, $place, 'vm', $vm);
+    $plan = rsPlanBase('vm', $vm['name'], ['vm' => $id, 'name' => $vm['name'], 'version' => $version['snap'] ?? null]);
+    $states = rsVmStates();
+    if ($states === null) {
+        $plan['blockers'][] = ['key' => 'restore_vm_service_off', 'params' => []];
+        return $plan;
+    }
+    $now = $states[$vm['name']] ?? 'missing';
+    if (!in_array($now, ['shut off', 'missing'], true)) {
+        $plan['blockers'][] = ['key' => 'restore_vm_running', 'params' => ['name' => $vm['name'], 'state' => $now]];
+    }
+    if ($pkg['xml'] === '') {
+        $plan['blockers'][] = ['key' => 'restore_file_gone', 'params' => ['path' => "{$pkg['path']}/<vm>.xml"]];
+        return $plan;
+    }
+    $lv = RS_LIBVIRT;
+    $aside = "$lv/" . RS_LIBVIRT_ASIDE . "/$stamp/$id";
+    $back = "$lv/" . RS_LIBVIRT_ASIDE . "/{T}/$id";
+    $steps = [];
+    if ($now !== 'missing') {
+        $steps[] = ['do' => 'dumpxml', 'name' => $vm['name'], 'to' => "$aside/domain.xml"];
+        $plan['aside'][] = ['what' => 'xml', 'from' => $vm['name'], 'to' => "$aside/domain.xml"];
+    }
+    foreach ($pkg['nvram'] as $n) {
+        if (preg_match('/S\d{14}_VARS/', $n) || !preg_match('/^[A-Za-z0-9_.-]+$/D', $n)) {
+            continue;                                     // an Unraid VM snapshot's variables: only with its chain
+        }
+        $to = "$lv/qemu/nvram/$n";
+        if (file_exists($to)) {
+            $steps[] = ['do' => 'aside', 'path' => $to, 'to' => "$aside/nvram/$n", 'putback_to' => "$back/nvram/$n"];
+            $plan['aside'][] = ['what' => 'file', 'from' => $to, 'to' => "$aside/nvram/$n"];
+        }
+        $steps[] = ['do' => 'put', 'from' => "{$pkg['path']}/nvram/$n", 'to' => $to, 'mode' => 0644, 'putback_to' => "$back/nvram/$n"];
+    }
+    if ($pkg['tpm'] && $pkg['uuid'] !== '') {
+        $to = "$lv/qemu/swtpm/tpm-states/{$pkg['uuid']}";
+        if (file_exists($to)) {
+            $steps[] = ['do' => 'aside', 'path' => $to, 'to' => "$aside/tpm/{$pkg['uuid']}", 'putback_to' => "$back/tpm/{$pkg['uuid']}"];
+            $plan['aside'][] = ['what' => 'folder', 'from' => $to, 'to' => "$aside/tpm/{$pkg['uuid']}"];
+        }
+        $steps[] = ['do' => 'copy', 'from' => "{$pkg['path']}/tpm/{$pkg['uuid']}", 'to' => $to, 'replaces' => true, 'putback_to' => "$back/tpm/{$pkg['uuid']}"];
+    }
+    $steps[] = ['do' => 'define', 'xml' => "{$pkg['path']}/{$pkg['xml']}", 'name' => $vm['name']];
+    if ($pkg['autostart']) {
+        $steps[] = ['do' => 'autostart', 'name' => $vm['name']];
+    }
+    $plan['steps'] = $steps;
+    $plan['target']['vm_state'] = $now;
+    $disks = array_map(fn ($d) => $d['snapshot'] !== '' ? "{$d['source']} ({$d['snapshot']})" : $d['source'], $pkg['disks']);
+    if ($disks) {
+        $plan['after'][] = ['key' => 'after.vm_disks', 'params' => ['list' => implode(', ', $disks)]];
+    }
+    $plan['after'][] = ['key' => 'after.vm_start', 'params' => ['name' => $vm['name']]];
+    if ($pkg['hostdev']) {
+        $plan['notes'][] = ['key' => 'note.vm_hostdev', 'params' => ['n' => $pkg['hostdev']]];
+    }
+    if ($version) {
+        $plan['notes'][] = ['key' => 'note.earlier', 'params' => ['when' => $version['run_time'] ?? $version['time']]];
+    }
+    return $plan;
+}
+
+/**
+ * «Put back»: undoes a finished or failed restore from its journal — what each step recorded when it
+ * ran, newest first, between the restore's own handling of its containers (stop before, start after:
+ * those that ran before the put back, and those the restore had stopped). Itself a restore: what it
+ * replaces goes aside too (<x>.putback-<time>).
+ */
+function rsPlanPutback(array $r, string $stamp): array
+{
+    $id = textField($r, 'id');
+    $j = rsJournal($id);
+    $orig = readJson(rsDir($id) . '/plan.json');
+    if (!$j || !$orig) {
+        throw new Problem('unknown_target', ['target' => $id]);
+    }
+    $plan = rsPlanBase('putback', (string) $j['what'], ['id' => $id, 'of' => (string) $j['kind']]);
+    $plan['putback_of'] = $id;
+    if (!rsCanPutback($j)) {
+        $plan['blockers'][] = ['key' => is_array($j['putback'] ?? null) ? 'restore_putback_done' : 'restore_putback_not', 'params' => []];
+        return $plan;
+    }
+    $fill = function (mixed $v) use (&$fill, $stamp): mixed {
+        return is_array($v) ? array_map($fill, $v) : (is_string($v) ? str_replace('{T}', $stamp, $v) : $v);
+    };
+    $undo = $fill(rsUndoSteps($j));
+    $also = array_values((array) ($j['stopped'] ?? []));
+    $withAlso = fn (array $s): array => $s['do'] === 'start' && !empty($s['only_stopped']) ? $s + ['also' => $also] : $s;
+    if ($undo) {
+        $plan['steps'] = array_merge($fill((array) ($orig['putback_pre'] ?? [])), $undo, array_map($withAlso, $fill((array) ($orig['putback_post'] ?? []))));
+    } elseif ($also) {
+        $plan['steps'] = [['do' => 'start', 'containers' => $also, 'only_stopped' => true, 'also' => $also]];
+    }
+    foreach ($undo as $s) {
+        if ($s['do'] === 'move' && !file_exists($s['from']) && !rsDatasetExists($s['dataset'] ?? null)) {
+            $plan['blockers'][] = ['key' => 'restore_aside_gone', 'params' => ['path' => $s['from']]];
+        }
+        if ($s['do'] === 'play' && !is_file($s['file'])) {
+            $plan['blockers'][] = ['key' => 'restore_aside_gone', 'params' => ['path' => $s['file']]];
+        }
+        if ($s['do'] === 'aside') {
+            $plan['aside'][] = ['what' => 'putback', 'from' => $s['path'], 'to' => $s['to']];
+        }
+        if ($s['do'] === 'dump') {
+            $plan['aside'][] = ['what' => 'safety_dump', 'from' => $s['container'], 'to' => $s['file']];
+        }
+    }
+    $vm = $orig['target']['vm'] ?? ($j['kind'] === 'vm' ? ($orig['target']['name'] ?? null) : null);
+    if (is_string($vm)) {
+        $states = rsVmStates();
+        $st = $states === null ? null : ($states[$vm] ?? 'missing');
+        if (!in_array($st, [null, 'shut off', 'missing'], true)) {
+            $plan['blockers'][] = ['key' => 'restore_vm_running', 'params' => ['name' => $vm, 'state' => $st]];
+        }
+    }
+    $now = rsContainersNow();
+    $plan['stops'] = array_values(array_unique(array_merge(...array_map(fn ($s) => $s['do'] === 'stop' ? array_values(array_filter($s['containers'], fn ($n) => $now[$n] ?? false)) : [],
+        $plan['steps'] ?: [['do' => '']]))));
+    $plan['downtime'] = $plan['stops'] ? (int) ($orig['downtime'] ?? 30) : 0;
+    $plan['method'] = $orig['method'] ?? null;
+    if (!$plan['steps']) {
+        $plan['blockers'][] = ['key' => 'restore_putback_not', 'params' => []];
+    }
+    return $plan;
+}
+
+/** What a journal's steps recorded to undo them, newest first — a failed step too when it may have changed something */
+function rsUndoSteps(array $j): array
+{
+    $undo = [];
+    foreach (array_reverse((array) ($j['steps'] ?? [])) as $s) {
+        $u = (array) ($s['undo'] ?? []);
+        if ($u && in_array($s['state'] ?? '', ['ok', 'warning', 'failed', 'running'], true)) {
+            array_push($undo, ...$u);
+        }
+    }
+    return $undo;
+}
+
+function rsDatasetExists(?string $ds): bool
+{
+    return $ds !== null && $ds !== '' && run(['zfs', 'list', '-H', '-o', 'name', $ds], 20)[0] === 0;
+}
+
+// ===================================================================== restoring: starting one
+
+/**
+ * Starts a restore the user saw in the preview: the plan is built again from a fresh look, must carry
+ * the same token and nothing may block it; then its folder (data/restore/<id>, root only) gets the plan
+ * and a journal, and the host's atd runs the job.
+ */
+function rsStart(array $r): array
+{
+    $plan = rsPlan($r);
+    if (!hash_equals($plan['token'], textField($r, 'token'))) {
+        throw new Problem('restore_changed');
+    }
+    $id = rsLaunch($plan);
+    for ($i = 0; $i < 24; $i++) {
+        usleep(250000);
+        if ((rsJournal($id)['result'] ?? 'queued') !== 'queued') {
+            break;
+        }
+    }
+    return ['ok' => true, 'id' => $id, 'journal' => rsJournal($id), 'state' => rsScan()];
+}
+
+/** Writes a plan and its journal into a folder of its own (root only) and hands the job to the host's atd — the id; $run false: only written (tests) */
+function rsLaunch(array $plan, bool $run = true): string
+{
+    if ($plan['blockers']) {
+        throw new Problem($plan['blockers'][0]['key'], $plan['blockers'][0]['params'] ?? []);
+    }
+    if (!$plan['steps']) {
+        throw new Problem('restore_putback_not');
+    }
+    $id = $plan['stamp'] . '-' . bin2hex(random_bytes(2));
+    rsPrivateDir(rsData());
+    rsPrivateDir(rsDir($id));
+    writeAtomic(rsDir($id) . '/plan.json', jsonEncode($plan), 0600, 0, 0);
+    $j = rsJournalNew($id, $plan);
+    rsJournalWrite($j);
+    if ($plan['putback_of']) {
+        rsMarkPutback($plan['putback_of'], $id, 'queued');
+    }
+    if (!$run) {
+        return $id;
+    }
+    $agent = AS_PLUGIN ? OFFICE_DIR . '/agent/agent.php' : userSharePath(OFFICE_DIR . '/agent/agent.php');
+    try {
+        hostLaunch('restore-job', [PHP_BINARY, $agent, 'job', 'restore', $id]);
+    } catch (Problem $p) {
+        $j['result'] = 'refused';
+        $j['reason'] = $p->key;
+        $j['finished'] = time();
+        rsJournalWrite($j);
+        if ($plan['putback_of']) {
+            rsMarkPutback($plan['putback_of'], $id, 'refused');
+        }
+        throw $p;
+    }
+    logLine("Mr. Restori: started $id ({$plan['kind']}: {$plan['what']}) via at");
+    return $id;
+}
+
+/** A new journal from a plan: every step pending */
+function rsJournalNew(string $id, array $plan): array
+{
+    return [
+        'id'         => $id,
+        'kind'       => $plan['kind'],
+        'what'       => $plan['what'],
+        'target'     => $plan['target'],
+        'method'     => $plan['method'],
+        'created'    => time(),
+        'started'    => null,
+        'finished'   => null,
+        'pid'        => null,
+        'result'     => 'queued',
+        'reason'     => null,
+        'steps'      => array_map(fn ($s) => $s + ['state' => 'pending'], $plan['steps']),
+        'aside'      => [],
+        'stopped'    => [],
+        'safety'     => [],
+        'sizes'      => $plan['sizes'],
+        'downtime'   => $plan['downtime'],
+        'after'      => $plan['after'],
+        'putback_of' => $plan['putback_of'],
+        'putback'    => null,
+    ];
+}
+
+/** Notes on a restore that a put back of it started, and how that went */
+function rsMarkPutback(string $of, string $id, string $result): void
+{
+    $j = rsJournal($of);
+    if ($j) {
+        $j['putback'] = ['id' => $id, 'result' => $result];
+        rsJournalWrite($j, false);
+    }
+}
+
+// ===================================================================== restoring: the job
+
+/**
+ * "php agent.php job restore <id>" — run by the host's atd (rsStart), never as a child of the agent.
+ * Takes the engine's lock or says who holds it (refused, exit 75 like the engine), then runs the plan's
+ * steps one by one, journaling each. At the first step that fails it stops and touches nothing more:
+ * «Put back» undoes what was done (each step recorded how).
+ */
+function rsJob(array $args): int
+{
+    $id = (string) ($args[0] ?? '');
+    if (!preg_match(RS_ID_PATTERN, $id)) {
+        fwrite(STDERR, "restore: no such restore\n");
+        return 2;
+    }
+    $j = rsJournal($id);
+    $plan = readJson(rsDir($id) . '/plan.json');
+    if (!$j || !$plan || ($j['result'] ?? '') !== 'queued') {
+        fwrite(STDERR, "restore $id: nothing to do\n");
+        return 1;
+    }
+    $lock = rsLockTake((string) $j['what'], (string) $j['kind']);
+    if (!is_resource($lock)) {
+        $j['result'] = 'refused';
+        $j['reason'] = 'restore_busy_' . (in_array($lock['holder'] ?? '', BACKUP_HOLDERS, true) ? $lock['holder'] : 'other');
+        $j['reason_params'] = ['what' => (string) ($lock['what'] ?? ''), 'run' => (string) ($lock['run'] ?? '')];
+        $j['finished'] = time();
+        rsJournalWrite($j);
+        if ($j['putback_of']) {
+            rsMarkPutback($j['putback_of'], $id, 'refused');
+        }
+        rsLog($id, "Refused: the engine's lock is held ({$j['reason']})");
+        return 75;
+    }
+    $GLOBALS['rsStop'] = false;
+    if (function_exists('pcntl_async_signals')) {
+        pcntl_async_signals(true);
+        foreach ([SIGTERM, SIGINT, SIGHUP] as $sig) {
+            pcntl_signal($sig, function (): void { $GLOBALS['rsStop'] = true; });
+        }
+    }
+    $j['result'] = 'running';
+    $j['started'] = time();
+    $j['pid'] = getmypid();
+    rsJournalWrite($j);
+    if ($j['putback_of']) {
+        rsMarkPutback($j['putback_of'], $id, 'running');
+    }
+    rsLog($id, "Restore $id ({$j['kind']}: {$j['what']}), " . count($j['steps']) . ' steps');
+    $failed = $warn = false;
+    try {
+        foreach (array_keys($j['steps']) as $i) {
+            if ($failed || $GLOBALS['rsStop']) {
+                $j['steps'][$i]['state'] = 'skipped';
+                continue;
+            }
+            $j['steps'][$i]['state'] = 'running';
+            $j['steps'][$i]['started'] = time();
+            rsJournalWrite($j);
+            rsLog($id, sprintf('Step %d/%d: %s', $i + 1, count($j['steps']), rsStepLine($j['steps'][$i])));
+            try {
+                $res = rsStep($j, $i);
+            } catch (Throwable $e) {
+                $res = ['state' => 'failed', 'detail' => $e->getMessage()];
+            }
+            $j['steps'][$i] = array_merge($j['steps'][$i], $res, ['finished' => time()]);
+            rsLog($id, "  -> {$res['state']}" . (($res['detail'] ?? '') !== '' ? ': ' . mb_substr((string) $res['detail'], 0, 600) : ''));
+            $failed = $res['state'] === 'failed';
+            $warn = $warn || $res['state'] === 'warning';
+            rsJournalWrite($j);
+        }
+    } finally {
+        $stopped = $GLOBALS['rsStop'];
+        $j['result'] = $failed || $stopped ? 'failed' : ($warn ? 'warnings' : 'ok');
+        if ($stopped) {
+            $j['reason'] = 'restore_stopped';
+        }
+        $j['finished'] = time();
+        rsJournalWrite($j);
+        if ($j['putback_of']) {
+            rsMarkPutback($j['putback_of'], $id, $j['result']);
+        }
+        rsLockRelease($lock);
+        rsLog($id, "Done: {$j['result']}");
+    }
+    logLine("Mr. Restori: $id ({$j['kind']}: {$j['what']}) - {$j['result']}");
+    return $j['result'] === 'failed' ? 1 : 0;
+}
+
+/** A step in one line, for the log */
+function rsStepLine(array $s): string
+{
+    $parts = [$s['do']];
+    foreach (['containers', 'container', 'path', 'from', 'to', 'file', 'name', 'xml'] as $k) {
+        if (isset($s[$k]) && $s[$k] !== '' && $s[$k] !== null) {
+            $parts[] = "$k=" . (is_array($s[$k]) ? implode(',', $s[$k]) : (string) $s[$k]);
+        }
+    }
+    return implode(' ', $parts);
+}
+
+function rsStep(array &$j, int $i): array
+{
+    $s = $j['steps'][$i];
+    return match ($s['do']) {
+        'stop'      => rsDoStop($j, $s),
+        'start'     => rsDoStart($j, $s),
+        'dump'      => rsDoDump($j, $s),
+        'ready'     => rsDoReady($j, $s),
+        'play'      => rsDoPlay($j, $i),
+        'verify'    => rsDoVerify($j, $s),
+        'aside'     => rsDoAside($j, $s),
+        'move'      => rsDoMove($j, $s),
+        'fresh'     => rsDoFresh($j, $s),
+        'copy'      => rsDoCopy($j, $i),
+        'put'       => rsDoPut($j, $s),
+        'dumpxml'   => rsDoDumpXml($j, $s),
+        'define'    => rsDoDefine($j, $s),
+        'undefine'  => rsDoVirsh($j, ['undefine', (string) $s['name'], '--keep-nvram', '--keep-tpm']),
+        'autostart' => rsDoVirsh($j, ['autostart', (string) $s['name']]),
+        'kopia'     => rsDoKopia($j, $i),
+        default     => ['state' => 'failed', 'detail' => "unknown step {$s['do']}"],
+    };
+}
+
+function rsEnv(): array
+{
+    return ['PATH' => '/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin', 'LC_ALL' => 'C', 'HOME' => '/root'];
+}
+
+/** A command of a step; what it says on stderr (and a failure) goes into the restore's log */
+function rsRun(array $j, array $cmd, int $timeout = 120): array
+{
+    [$exit, $out, $err] = run($cmd, $timeout);
+    if ($exit !== 0 || trim($err) !== '') {
+        $short = implode(' ', array_map(fn ($a) => strlen((string) $a) > 100 ? substr((string) $a, 0, 97) . '...' : (string) $a, $cmd));
+        rsLog($j['id'], "  $short -> exit $exit" . (trim($err) !== '' ? ': ' . mb_substr(trim($err), 0, 2000) : ''));
+    }
+    return [$exit, $out, $err];
+}
+
+function rsFail(string $note, array $params = [], string $detail = ''): array
+{
+    return ['state' => 'failed', 'note' => $note, 'params' => $params, 'detail' => $detail];
+}
+
+function rsIsRunning(string $c): bool
+{
+    [$exit, $out] = run(['docker', 'inspect', '-f', '{{.State.Running}}', $c], 20);
+    return $exit === 0 && trim($out) === 'true';
+}
+
+/** Folders on the way to a file he writes: root only when he makes them */
+function rsMkdirs(string $dir): bool
+{
+    return is_dir($dir) || @mkdir($dir, 0700, true);
+}
+
+/**
+ * Is a place free for something new? Nothing there — or, for a dataset, the empty folder its old
+ * mountpoint may leave behind (ZFS mounts over an empty folder).
+ */
+function rsFreePlace(string $path, bool $dataset = false): bool
+{
+    clearstatcache(true, $path);
+    if (is_link($path)) {
+        return false;
+    }
+    if (!file_exists($path)) {
+        return true;
+    }
+    return $dataset && is_dir($path) && count(@scandir($path) ?: ['x', 'y', 'z']) === 2;
+}
+
+/** Was something put aside from this path in this restore? */
+function rsAsideOf(array $j, string $path): ?array
+{
+    foreach (array_reverse((array) $j['aside']) as $a) {
+        if (($a['from'] ?? '') === $path) {
+            return $a;
+        }
+    }
+    return null;
+}
+
+/** Writes the heartbeat (and progress) every few seconds while a long step runs; true when asked to stop */
+function rsBeat(array &$j, ?int $i = null, ?array $progress = null): bool
+{
+    static $last = 0;
+    if ($i !== null && $progress !== null) {
+        $j['steps'][$i]['progress'] = $progress;
+    }
+    if (time() - $last >= 2) {
+        $last = time();
+        rsJournalWrite($j);
+    }
+    return !empty($GLOBALS['rsStop']);
+}
+
+// --------------------------------------------------------------------- containers
+
+/** Stops the running ones (docker stop: SIGTERM, 60 s); notes which ran, so they start again */
+function rsDoStop(array &$j, array $s): array
+{
+    $stopped = [];
+    foreach ((array) $s['containers'] as $c) {
+        if (!rsIsRunning($c)) {
+            continue;
+        }
+        [$exit, , $err] = rsRun($j, ['docker', 'stop', '-t', '60', $c], 150);
+        if ($exit !== 0) {
+            return rsFail('stop_failed', ['container' => $c], trim($err)) + ['stopped' => $stopped];
+        }
+        $stopped[] = $c;
+        if (!in_array($c, $j['stopped'], true)) {
+            $j['stopped'][] = $c;
+        }
+        rsBeat($j);
+    }
+    return ['state' => 'ok', 'stopped' => $stopped];
+}
+
+/** Starts them — with only_stopped just those this restore stopped (and those named in "also": a put back's) */
+function rsDoStart(array &$j, array $s): array
+{
+    $want = (array) $s['containers'];
+    if (!empty($s['only_stopped'])) {
+        $want = array_values(array_filter($want, fn ($c) => in_array($c, $j['stopped'], true) || in_array($c, (array) ($s['also'] ?? []), true)));
+    }
+    $started = $bad = [];
+    $detail = '';
+    foreach ($want as $c) {
+        if (rsIsRunning($c)) {
+            continue;
+        }
+        [$exit, , $err] = rsRun($j, ['docker', 'start', $c], 120);
+        if ($exit !== 0) {
+            $bad[] = $c;
+            $detail = trim($err);
+            continue;
+        }
+        $started[] = $c;
+    }
+    if ($bad) {
+        return ['state' => !empty($s['need']) ? 'failed' : 'warning', 'note' => 'start_failed', 'params' => ['containers' => implode(', ', $bad)],
+                'detail' => $detail, 'started' => $started];
+    }
+    return ['state' => 'ok', 'started' => $started];
+}
+
+// --------------------------------------------------------------------- databases
+
+/**
+ * The script run inside a database container (sh -c): fixed text and variable names from RS_ENV_VARS —
+ * the values never leave the container; a database's name comes as $1.
+ */
+function rsDbScript(string $what, array $s): string
+{
+    $u = (string) ($s['user_var'] ?? '');
+    $p = (string) ($s['password_var'] ?? '');
+    foreach ([$u, $p] as $v) {
+        if ($v !== '' && !in_array($v, RS_ENV_VARS, true)) {
+            throw new Problem('command_failed', ['detail' => 'variable name']);
+        }
+    }
+    switch ($s['type']) {
+        case 'postgres':
+            $env = 'PGPASSWORD="${' . ($p ?: 'POSTGRES_PASSWORD') . ':-}"';
+            $who = '-U "${' . ($u ?: 'POSTGRES_USER') . ':-postgres}"';
+            return match ($what) {
+                'dump'   => "$env exec pg_dumpall --clean --if-exists $who",
+                'play'   => "$env exec psql -X -q -o /dev/null $who -d postgres",     // results away, errors stay
+                // a fresh cluster over TCP: during its first start the image's init runs a server on the socket only
+                'ready'  => "$env exec psql -X -q -tA" . (!empty($s['tcp']) ? ' -h 127.0.0.1' : '') . " $who -d postgres -c 'select 1'",
+                'kick'   => "$env exec psql -X -q -tA $who -d postgres -c \"SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND backend_type = 'client backend'\"",
+                // the name from the dump as PGDATABASE, never -d: psql reads a -d with "=" as a connection string
+                'tables' => "PGDATABASE=\"\$1\" $env exec psql -X -q -tA $who -c \"SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')\"",
+                default  => throw new Problem('command_failed', ['detail' => $what]),
+            };
+        case 'mariadb':
+            $who = ($s['login'] ?? '') === 'user' ? "-u\"\$$u\" -p\"\$$p\"" : '-uroot -p"$' . ($p ?: 'MARIADB_ROOT_PASSWORD') . '"';
+            $cli = 'B=mariadb; command -v mariadb >/dev/null 2>&1 || B=mysql; ';
+            return match ($what) {
+                'dump'   => 'B=mariadb-dump; command -v mariadb-dump >/dev/null 2>&1 || B=mysqldump; exec "$B" ' . $who
+                            . ' --single-transaction --quick --hex-blob ' . (($s['login'] ?? '') === 'user' ? '--triggers' : '--routines --triggers --events')
+                            . ' --default-character-set=utf8mb4 --add-drop-database --databases "$1"',
+                'play'   => $cli . 'exec "$B" ' . $who,
+                'ready'  => $cli . 'exec "$B" ' . $who . " -N -B -e 'SELECT 1'",
+                'tables' => $cli . 'exec "$B" ' . $who . " -N -B -e \"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '\$1' AND table_type = 'BASE TABLE'\"",
+                default  => throw new Problem('command_failed', ['detail' => $what]),
+            };
+        case 'mongodb':
+            $who = ($s['login'] ?? '') === 'none' ? '' : " --username \"\$$u\" --password \"\$$p\" --authenticationDatabase admin";
+            return match ($what) {
+                'dump'  => "exec mongodump --quiet --archive --gzip$who",
+                'play'  => "exec mongorestore --quiet --drop --archive --gzip$who",
+                'ready' => 'exit 0',
+                default => throw new Problem('command_failed', ['detail' => $what]),
+            };
+    }
+    throw new Problem('command_failed', ['detail' => (string) $s['type']]);
+}
+
+/** Waits for processes; heartbeat meanwhile; ends them when the job is asked to stop. @return list<int> exit codes */
+function rsWait(array &$j, array $procs, ?int $i = null, ?callable $progress = null): array
+{
+    $codes = array_fill(0, count($procs), -1);
+    $open = array_keys($procs);
+    $prog = null;
+    while ($open) {
+        foreach ($open as $k => $n) {
+            $st = proc_get_status($procs[$n]);
+            if (!$st['running']) {
+                $codes[$n] = $st['exitcode'];
+                $prog = $progress ? $progress() : null;        // what it said last, before proc_close() frees its pipes
+                proc_close($procs[$n]);
+                unset($open[$k]);
+            }
+        }
+        $prog = $open && $progress ? $progress() : $prog;
+        if ($open && rsBeat($j, $i, $prog)) {
+            foreach ($open as $n) {
+                proc_terminate($procs[$n]);
+            }
+        }
+        if ($open) {
+            usleep(200000);
+        }
+    }
+    return $codes;
+}
+
+/**
+ * A command's output into a new file, through a filter (gzip) or straight. Its stderr goes to the log.
+ * Never over an existing file.
+ */
+function rsPipe(array &$j, array $cmd, ?array $filter, string $outFile): bool
+{
+    $log = rsDir($j['id']) . '/log.txt';
+    $old = umask(0077);
+    $out = @fopen($outFile, 'x');
+    umask($old);
+    if (!$out) {
+        return false;
+    }
+    $p1 = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => $filter ? ['pipe', 'w'] : $out, 2 => ['file', $log, 'a']], $pp1, '/', rsEnv());
+    if (!is_resource($p1)) {
+        fclose($out);
+        return false;
+    }
+    $procs = [$p1];
+    if ($filter) {
+        $p2 = proc_open($filter, [0 => $pp1[1], 1 => $out, 2 => ['file', $log, 'a']], $pp2, '/', rsEnv());
+        fclose($pp1[1]);
+        if (!is_resource($p2)) {
+            proc_terminate($p1);
+            proc_close($p1);
+            fclose($out);
+            return false;
+        }
+        $procs[] = $p2;
+    }
+    fclose($out);
+    $codes = rsWait($j, $procs);
+    return !array_filter($codes, fn ($c) => $c !== 0) && empty($GLOBALS['rsStop']);
+}
+
+/** The end of a .gz (it reads through: gzip -t first) — for the closing line of a dump */
+function rsGzTail(string $file, int $bytes = 8192): ?string
+{
+    if (run(['gzip', '-t', $file], 7200)[0] !== 0) {
+        return null;
+    }
+    $h = @gzopen($file, 'rb');
+    if (!$h) {
+        return null;
+    }
+    $tail = '';
+    while (!gzeof($h)) {
+        $chunk = gzread($h, 1 << 20);
+        if ($chunk === false || $chunk === '') {
+            break;
+        }
+        $tail = substr($tail . $chunk, -$bytes);
+    }
+    gzclose($h);
+    return $tail;
+}
+
+/** The safety dump: what the database holds now, made like the engine makes its dumps, checked like them */
+function rsDoDump(array &$j, array $s): array
+{
+    $file = $s['file'];
+    if (file_exists($file) || is_link($file)) {
+        return rsFail('exists', ['path' => $file]);
+    }
+    if (!rsMkdirs(dirname($file))) {
+        return rsFail('mkdir_failed', ['path' => dirname($file)]);
+    }
+    $cmd = ['docker', 'exec', $s['container'], 'sh', '-c', rsDbScript('dump', $s), 'sh'];
+    if ($s['type'] === 'mariadb') {
+        $cmd[] = (string) $s['db'];
+    }
+    $ok = rsPipe($j, $cmd, $s['type'] === 'mongodb' ? null : ['gzip', '-6'], $file);
+    $size = (int) @filesize($file);
+    if ($ok && $s['type'] !== 'mongodb') {
+        $tail = rsGzTail($file);
+        $ok = $tail !== null && str_contains($tail, $s['type'] === 'postgres' ? 'PostgreSQL database cluster dump complete' : 'Dump completed');
+    }
+    if (!$ok || $size === 0) {
+        if (is_file($file)) {
+            @rename($file, "$file.incomplete");          // kept, but never taken for a good one
+        }
+        return rsFail('dump_failed', ['container' => $s['container']]);
+    }
+    $j['safety'][$s['container']] = $file;
+    $j['aside'][] = ['from' => 'db:' . $s['container'], 'to' => $file, 'what' => 'safety_dump'];
+    return ['state' => 'ok', 'bytes' => $size];
+}
+
+/** Until the database answers (after its first start an image may take a while to set itself up) */
+function rsDoReady(array &$j, array $s): array
+{
+    $script = rsDbScript('ready', $s);
+    $t0 = time();
+    $until = $t0 + max(10, (int) ($s['timeout'] ?? 180));
+    do {
+        [$exit, $out] = run(['docker', 'exec', $s['container'], 'sh', '-c', $script], 30);
+        if ($exit === 0 && ($s['type'] === 'mongodb' || trim($out) === '1')) {
+            return ['state' => 'ok', 'seconds' => time() - $t0];
+        }
+        if (rsBeat($j)) {
+            break;
+        }
+        sleep(2);
+    } while (time() < $until);
+    return rsFail('not_ready', ['container' => $s['container'], 'seconds' => time() - $t0]);
+}
+
+/**
+ * What a dump holds per database: the CREATE TABLE lines per database — Postgres by its \connect lines
+ * (pg_dumpall: "\connect -reuse-previous=on "dbname='x'"", older ones "\connect x"), MariaDB one database.
+ * Fed with complete lines.
+ */
+function rsDumpCount(string $lines, ?string &$db, array &$count): void
+{
+    if (!preg_match_all('/^(\\\\connect\s+.*|CREATE TABLE .*)$/m', $lines, $m)) {
+        return;
+    }
+    foreach ($m[1] as $line) {
+        if ($line[0] === '\\') {
+            $arg = trim((string) preg_replace('/^\\\\connect\s+(?:-reuse-previous=on\s+)?/', '', $line));
+            if (preg_match('/^"dbname=\'((?:[^\']|\'\')*)\'"$/D', $arg, $x)) {
+                $db = str_replace("''", "'", $x[1]);
+            } elseif (preg_match('/^"((?:[^"]|"")*)"$/D', $arg, $x)) {
+                $db = str_replace('""', '"', $x[1]);
+            } else {
+                $db = $arg;
+            }
+            continue;
+        }
+        $key = $db ?? '';
+        $count[$key] = ($count[$key] ?? 0) + 1;
+    }
+}
+
+/**
+ * Plays a dump into its container: streamed from the .gz into docker exec -i (for Immich through its
+ * documented replacement of the search_path line, done here line by line instead of sed). Postgres in
+ * place first ends the other connections (the dump drops and recreates each database). Counts the
+ * tables per database on the way for the check. In place, with a safety dump made, it records how
+ * «Put back» plays that one back — also when it fails (the database may be half restored).
+ */
+function rsDoPlay(array &$j, int $i): array
+{
+    $s = $j['steps'][$i];
+    $c = $s['container'];
+    $file = $s['file'];
+    if (!is_file($file)) {
+        return rsFail('gone', ['path' => $file]);
+    }
+    $undo = [];
+    $safety = $j['safety'][$c] ?? null;
+    if (($s['method'] ?? '') !== 'fresh' && is_string($safety) && is_file($safety) && ($s['putback_file'] ?? '') !== '') {
+        $login = array_intersect_key($s, array_flip(['type', 'container', 'db', 'login', 'user_var', 'password_var']));
+        $undo = [
+            ['do' => 'dump', 'file' => $s['putback_file']] + $login,
+            ['do' => 'play', 'file' => $safety, 'immich' => false, 'method' => 'inplace', 'safety' => '', 'putback_file' => ''] + $login,
+            ['do' => 'verify', 'file' => $safety] + $login,
+        ];
+    }
+    if ($s['type'] === 'postgres' && ($s['method'] ?? '') !== 'fresh') {
+        rsRun($j, ['docker', 'exec', $c, 'sh', '-c', rsDbScript('kick', $s)], 60);
+    }
+    $log = rsDir($j['id']) . '/log.txt';
+    clearstatcache(true, $log);
+    $before = (int) @filesize($log);
+    $gz = $s['type'] !== 'mongodb';
+    $in = $gz ? @gzopen($file, 'rb') : @fopen($file, 'rb');
+    if (!$in) {
+        return rsFail('gone', ['path' => $file]) + ['undo' => $undo];
+    }
+    $total = $gz ? rsGzSize($file) : (int) filesize($file);
+    $p = proc_open(['docker', 'exec', '-i', $c, 'sh', '-c', rsDbScript('play', $s), 'sh'],
+        [0 => ['pipe', 'r'], 1 => ['file', $log, 'a'], 2 => ['file', $log, 'a']], $pipes, '/', rsEnv());
+    if (!is_resource($p)) {
+        $gz ? gzclose($in) : fclose($in);
+        return rsFail('play_failed', ['container' => $c]) + ['undo' => $undo];
+    }
+    $from = "SELECT pg_catalog.set_config('search_path', '', false);";
+    $to = "SELECT pg_catalog.set_config('search_path', 'public, pg_catalog', true);";
+    $done = 0;
+    $carry = '';
+    $db = null;
+    $count = [];
+    $broken = false;
+    while (true) {
+        $data = $gz ? gzread($in, 1 << 20) : fread($in, 1 << 20);
+        $end = $data === false || $data === '';
+        if (!$end) {
+            $done += strlen($data);
+        }
+        if ($gz) {
+            // whole lines only (the replacement and the count work on lines); the rest waits for the next block
+            $data = $carry . ($end ? '' : $data);
+            $nl = $end ? strlen($data) - 1 : strrpos($data, "\n");
+            if ($nl === false) {
+                $carry = $data;
+                continue;
+            }
+            $block = substr($data, 0, $nl + 1);
+            $carry = substr($data, $nl + 1);
+            if (!empty($s['immich'])) {
+                $block = str_replace($from, $to, $block);
+            }
+            rsDumpCount($block, $db, $count);
+        } else {
+            $block = $end ? '' : $data;
+        }
+        while ($block !== '') {
+            $n = @fwrite($pipes[0], $block);
+            if ($n === false || $n === 0) {
+                $broken = true;
+                break 2;
+            }
+            $block = (string) substr($block, $n);
+        }
+        if ($end) {
+            break;
+        }
+        if (rsBeat($j, $i, ['done' => $done, 'total' => $total])) {
+            $broken = true;
+            break;
+        }
+    }
+    @fclose($pipes[0]);
+    $gz ? gzclose($in) : fclose($in);
+    $exit = rsWait($j, [$p])[0];
+    $j['steps'][$i]['progress'] = ['done' => $done, 'total' => $total];
+    if ($gz) {
+        $j['expect'][$file] = $count;
+    }
+    // what the client said: errors that only say something already exists are expected (pg_dumpall into a cluster)
+    $said = (string) @file_get_contents($log, false, null, $before);
+    $errors = array_values(array_filter(explode("\n", $said), fn ($l) => str_contains($l, 'ERROR') || str_contains($l, 'error')));
+    $real = array_values(array_filter($errors, fn ($l) => !preg_match('/already exists|current user cannot be dropped|cannot drop the currently open database/', $l)));
+    $detail = implode("\n", array_slice($real, 0, 6));
+    if ($broken || $exit !== 0) {
+        return rsFail('play_failed', ['container' => $c, 'exit' => $exit], $detail) + ['undo' => $undo, 'errors' => count($real)];
+    }
+    if ($real) {
+        return ['state' => 'warning', 'note' => 'play_errors', 'params' => ['n' => count($real)], 'detail' => $detail, 'undo' => $undo, 'errors' => count($real)];
+    }
+    return ['state' => 'ok', 'undo' => $undo, 'errors' => 0, 'expected' => count($errors)];
+}
+
+/** Counts a dump's tables per database (when the play didn't already) */
+function rsDumpTables(string $file): ?array
+{
+    $h = @gzopen($file, 'rb');
+    if (!$h) {
+        return null;
+    }
+    $carry = '';
+    $db = null;
+    $count = [];
+    while (!gzeof($h)) {
+        $data = gzread($h, 1 << 20);
+        if ($data === false || $data === '') {
+            break;
+        }
+        $data = $carry . $data;
+        $nl = strrpos($data, "\n");
+        if ($nl === false) {
+            $carry = $data;
+            continue;
+        }
+        rsDumpCount(substr($data, 0, $nl + 1), $db, $count);
+        $carry = substr($data, $nl + 1);
+    }
+    rsDumpCount($carry, $db, $count);
+    gzclose($h);
+    return $count;
+}
+
+/**
+ * Checks the database against its dump: per database as many tables as the dump creates. None where
+ * the dump had some: failed; another number: a warning (unlogged or foreign tables count differently).
+ */
+function rsDoVerify(array &$j, array $s): array
+{
+    if ($s['type'] === 'mongodb') {
+        return ['state' => 'ok', 'note' => 'verify_none'];
+    }
+    $expect = $j['expect'][$s['file']] ?? rsDumpTables($s['file']);
+    if ($expect === null) {
+        return ['state' => 'warning', 'note' => 'verify_unread'];
+    }
+    if ($s['type'] === 'mariadb') {
+        $expect = [(string) $s['db'] => array_sum($expect)];
+    }
+    $expect = array_filter($expect, fn ($n, $db) => $n > 0 && $db !== '' && !in_array($db, ['template0', 'template1'], true), ARRAY_FILTER_USE_BOTH);
+    $seen = $empty = $differ = [];
+    foreach ($expect as $db => $n) {
+        if (preg_match('#[=\x00-\x1f]|://#', (string) $db)) {
+            $differ[] = "$db: ?/$n";            // no plain name: not asked for
+            continue;
+        }
+        [$exit, $out] = rsRun($j, ['docker', 'exec', $s['container'], 'sh', '-c', rsDbScript('tables', $s), 'sh', (string) $db], 120);
+        $have = $exit === 0 && ctype_digit(trim($out)) ? (int) trim($out) : null;
+        $seen[] = "$db: " . ($have ?? '?') . "/$n";
+        if (!$have) {
+            $empty[] = "$db: " . ($have ?? '?') . "/$n";
+        } elseif ($have !== $n) {
+            $differ[] = "$db: $have/$n";
+        }
+    }
+    $params = ['tables' => implode(', ', $seen)];
+    if ($empty) {
+        return rsFail('verify_empty', ['tables' => implode(', ', $empty)]);
+    }
+    return $differ ? ['state' => 'warning', 'note' => 'verify_differs', 'params' => ['tables' => implode(', ', $differ)]]
+        : ['state' => 'ok', 'note' => 'verify_ok', 'params' => $params];
+}
+
+// --------------------------------------------------------------------- files, folders, datasets
+
+/** A dataset's local settings worth keeping on a new one beside it (recordsize, compression …) */
+function rsZfsCreate(array $j, string $ds, ?string $like): bool
+{
+    $opts = [];
+    if ($like !== null && $like !== '') {
+        [$exit, $out] = run(['zfs', 'get', '-H', '-s', 'local', '-o', 'property,value',
+            'recordsize,compression,atime,xattr,logbias,sync,primarycache,secondarycache,acltype,aclinherit,dnodesize,special_small_blocks', $like], 20);
+        foreach ($exit === 0 ? rows($out) : [] as $f) {
+            if (count($f) === 2 && preg_match('/^[a-z_]+$/D', $f[0]) && preg_match('/^[A-Za-z0-9._-]+$/D', $f[1])) {
+                array_push($opts, '-o', "$f[0]=$f[1]");
+            }
+        }
+    }
+    return rsRun($j, array_merge(['zfs', 'create'], $opts, [$ds]), 60)[0] === 0;
+}
+
+/**
+ * Puts something aside: renamed on the same file system (a dataset with zfs rename, its snapshots go
+ * along) — never copied and deleted. Records how «Put back» brings it back: whatever is at its place
+ * then goes aside itself (<x>.putback-<time>), and this goes back.
+ */
+function rsDoAside(array &$j, array $s): array
+{
+    $from = $s['path'];
+    $to = $s['to'];
+    $ds = $s['dataset'] ?? null;
+    $tds = $s['to_dataset'] ?? null;
+    $isDs = $ds !== null && $tds !== null && rsDatasetExists($ds);
+    clearstatcache();
+    if (!$isDs && !file_exists($from) && !is_link($from)) {
+        return !empty($s['optional']) ? ['state' => 'skipped', 'note' => 'nothing_there'] : rsFail('gone', ['path' => $from]);
+    }
+    if (!rsFreePlace($to, $isDs) || ($isDs && rsDatasetExists($tds))) {
+        return rsFail('exists', ['path' => $to]);
+    }
+    if ($isDs) {
+        [$exit, , $err] = rsRun($j, ['zfs', 'rename', $ds, $tds], 300);
+        if ($exit !== 0) {
+            return rsFail('rename_failed', ['path' => $from], trim($err));
+        }
+    } else {
+        if (!rsMkdirs(dirname($to))) {
+            return rsFail('mkdir_failed', ['path' => dirname($to)]);
+        }
+        if (!@rename($from, $to)) {
+            return rsFail('rename_failed', ['path' => $from], (string) (error_get_last()['message'] ?? ''));
+        }
+    }
+    $j['aside'][] = ['from' => $from, 'to' => $to, 'dataset' => $isDs ? $ds : null, 'to_dataset' => $isDs ? $tds : null];
+    $back = ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : "$from.putback-{T}";
+    return ['state' => 'ok', 'undo' => [
+        ['do' => 'aside', 'path' => $from, 'to' => $back, 'dataset' => $isDs ? $ds : null, 'to_dataset' => $isDs ? "$ds.putback-{T}" : null, 'optional' => true],
+        ['do' => 'move', 'from' => $to, 'to' => $from, 'dataset' => $isDs ? $tds : null, 'to_dataset' => $isDs ? $ds : null],
+    ]];
+}
+
+/** Moves something into a place that is free (a restored copy into the live folder's place, an aside back) */
+function rsDoMove(array &$j, array $s): array
+{
+    $from = $s['from'];
+    $to = $s['to'];
+    $fds = $s['dataset'] ?? null;
+    $tds = $s['to_dataset'] ?? null;
+    $isDs = $fds !== null && $tds !== null && rsDatasetExists($fds);
+    clearstatcache();
+    if (!$isDs && !file_exists($from)) {
+        return rsFail('gone', ['path' => $from]);
+    }
+    if (!rsFreePlace($to, $isDs) || ($isDs && rsDatasetExists($tds))) {
+        return rsFail('exists', ['path' => $to]);
+    }
+    if ($isDs) {
+        [$exit, , $err] = rsRun($j, ['zfs', 'rename', $fds, $tds], 300);
+        if ($exit !== 0) {
+            return rsFail('rename_failed', ['path' => $from], trim($err));
+        }
+    } elseif (!@rename($from, $to)) {
+        return rsFail('rename_failed', ['path' => $from], (string) (error_get_last()['message'] ?? ''));
+    }
+    // something new where nothing was put aside in this restore: «Put back» puts it aside
+    $undo = rsAsideOf($j, $to) ? [] : [['do' => 'aside', 'path' => $to, 'to' => "$to.putback-{T}", 'dataset' => $isDs ? $tds : null,
+                                         'to_dataset' => $isDs ? "$tds.putback-{T}" : null, 'optional' => true]];
+    return ['state' => 'ok', 'undo' => $undo];
+}
+
+/** An empty folder (or dataset) where one was put aside, with its owner and mode (a database starts afresh in it) */
+function rsDoFresh(array &$j, array $s): array
+{
+    $path = $s['path'];
+    $ds = $s['dataset'] ?? null;
+    if (!rsFreePlace($path, $ds !== null)) {
+        return rsFail('exists', ['path' => $path]);
+    }
+    $like = rsAsideOf($j, $path);
+    if ($ds !== null) {
+        if (rsDatasetExists($ds) || !rsZfsCreate($j, $ds, $like['to_dataset'] ?? null) || !is_dir($path)) {
+            return rsFail('mkdir_failed', ['path' => $path]);
+        }
+    } elseif (!is_dir($path) && !@mkdir($path, 0700)) {
+        return rsFail('mkdir_failed', ['path' => $path]);
+    }
+    $st = @stat((string) ($s['like'] ?? ''));
+    if ($st) {
+        @chown($path, $st['uid']);
+        @chgrp($path, $st['gid']);
+        @chmod($path, $st['mode'] & 07777);
+    }
+    $undo = $like ? [] : [['do' => 'aside', 'path' => $path, 'to' => "$path.putback-{T}", 'dataset' => $ds, 'to_dataset' => $ds ? "$ds.putback-{T}" : null, 'optional' => true]];
+    return ['state' => 'ok', 'undo' => $undo];
+}
+
+/**
+ * Copies a folder (a snapshot's state, a package's TPM state) to a new place with rsync — owners,
+ * modes, times, hard links and extended attributes kept; its progress in the journal. As a dataset of
+ * its own when the folder it stands in for is one (with that one's local settings).
+ */
+function rsDoCopy(array &$j, int $i): array
+{
+    $s = $j['steps'][$i];
+    $from = rtrim($s['from'], '/');
+    $to = $s['to'];
+    $ds = $s['dataset'] ?? null;
+    clearstatcache();
+    if (!is_dir($from)) {
+        return rsFail('gone', ['path' => $from]);
+    }
+    if (!rsFreePlace($to, $ds !== null)) {
+        return rsFail('exists', ['path' => $to]);
+    }
+    if ($ds !== null) {
+        $like = preg_replace('/\.restored-\d{8}-\d{6}$/D', '', $ds);
+        if (rsDatasetExists($ds) || !rsZfsCreate($j, $ds, rsDatasetExists($like) ? $like : null) || !is_dir($to)) {
+            return rsFail('mkdir_failed', ['path' => $to]);
+        }
+    } elseif (!rsMkdirs(dirname($to)) || !@mkdir($to, 0700)) {
+        return rsFail('mkdir_failed', ['path' => $to]);
+    }
+    $log = rsDir($j['id']) . '/log.txt';
+    $p = proc_open(['rsync', '-aHX', '--numeric-ids', '--info=progress2', '--no-inc-recursive', "$from/", "$to/"],
+        [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', $log, 'a']], $pipes, '/', rsEnv());
+    if (!is_resource($p)) {
+        return rsFail('copy_failed', ['path' => $to]);
+    }
+    stream_set_blocking($pipes[1], false);
+    $total = (int) ($j['sizes']['need'] ?? 0) ?: null;
+    $prog = ['done' => 0, 'total' => $total, 'percent' => null];
+    $buf = '';
+    $read = function () use ($pipes, &$buf, &$prog): array {
+        $chunk = is_resource($pipes[1]) ? (string) @fread($pipes[1], 65536) : '';
+        if ($chunk !== '') {
+            $buf = substr($buf . $chunk, -4096);
+            $parts = preg_split('/[\r\n]+/', trim($buf)) ?: [];
+            if (preg_match('/^\s*([\d,.]+)\s+(\d+)%/', (string) end($parts), $m)) {
+                $prog['done'] = (int) str_replace([',', '.'], '', $m[1]);
+                $prog['percent'] = (int) $m[2];
+            }
+        }
+        return $prog;
+    };
+    $exit = rsWait($j, [$p], $i, $read)[0];
+    $j['steps'][$i]['progress'] = $prog;
+    $undo = !empty($s['replaces']) && !rsAsideOf($j, $to)
+        ? [['do' => 'aside', 'path' => $to, 'to' => ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : "$to.putback-{T}", 'optional' => true]] : [];
+    if ($exit === 24) {
+        return ['state' => 'warning', 'note' => 'copy_vanished', 'undo' => $undo];
+    }
+    if ($exit !== 0) {
+        return rsFail('copy_failed', ['path' => $to, 'exit' => $exit], 'rsync exit ' . $exit) + ['undo' => $undo];
+    }
+    return ['state' => 'ok', 'undo' => $undo];
+}
+
+/**
+ * A file from a package into its place (which is free: what was there went aside first) — through a new
+ * file beside it and a rename, never through a link. Owner and mode like what was there before, the
+ * owner of its folder where asked (a media server's database), else root.
+ */
+function rsDoPut(array &$j, array $s): array
+{
+    $from = $s['from'];
+    $to = $s['to'];
+    clearstatcache();
+    if (!is_file($from) || is_link($from)) {
+        return rsFail('gone', ['path' => $from]);
+    }
+    if (file_exists($to) || is_link($to)) {
+        return rsFail('exists', ['path' => $to]);
+    }
+    if (!rsMkdirs(dirname($to))) {
+        return rsFail('mkdir_failed', ['path' => dirname($to)]);
+    }
+    $tmp = dirname($to) . '/.' . basename($to) . '.uso-' . bin2hex(random_bytes(4));
+    $old = umask(0077);
+    $ok = @copy($from, $tmp);
+    umask($old);
+    if (!$ok) {
+        @unlink($tmp);
+        return rsFail('copy_failed', ['path' => $to]);
+    }
+    $aside = rsAsideOf($j, $to);
+    $was = $aside ? @stat($aside['to']) : false;
+    $own = ($s['owner_like'] ?? '') !== '' ? @stat($s['owner_like']) : $was;
+    @chown($tmp, $own ? $own['uid'] : 0);
+    @chgrp($tmp, $own ? $own['gid'] : 0);
+    @chmod($tmp, $was ? ($was['mode'] & 0777) : (int) ($s['mode'] ?? 0600));
+    @touch($tmp, (int) @filemtime($from));
+    if (!@rename($tmp, $to)) {
+        @unlink($tmp);
+        return rsFail('rename_failed', ['path' => $to]);
+    }
+    $undo = $aside ? [] : [['do' => 'aside', 'path' => $to, 'to' => ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : "$to.putback-{T}", 'optional' => true]];
+    return ['state' => 'ok', 'undo' => $undo];
+}
+
+// --------------------------------------------------------------------- VMs
+
+/** A VM's definition as libvirt keeps it, put aside before another one is defined */
+function rsDoDumpXml(array &$j, array $s): array
+{
+    [$exit, $out, $err] = rsRun($j, ['virsh', 'dumpxml', '--inactive', '--security-info', (string) $s['name']], 60);
+    if ($exit !== 0 || !str_contains($out, '<domain')) {
+        return rsFail('virsh_failed', ['name' => $s['name']], trim($err));
+    }
+    $to = $s['to'];
+    if (file_exists($to) || is_link($to) || !rsMkdirs(dirname($to))) {
+        return rsFail('exists', ['path' => $to]);
+    }
+    $old = umask(0077);
+    $h = @fopen($to, 'x');
+    umask($old);
+    if (!$h || fwrite($h, $out) !== strlen($out)) {
+        return rsFail('copy_failed', ['path' => $to]);
+    }
+    fclose($h);
+    $j['aside'][] = ['from' => 'vm:' . $s['name'], 'to' => $to, 'what' => 'xml'];
+    $j['xml_aside'][(string) $s['name']] = $to;
+    return ['state' => 'ok'];
+}
+
+/** virsh define: «Put back» defines the one put aside again, or removes the definition when there was none */
+function rsDoDefine(array &$j, array $s): array
+{
+    $res = rsDoVirsh($j, ['define', (string) $s['xml']]);
+    $name = (string) $s['name'];
+    $res['undo'] = isset($j['xml_aside'][$name]) ? [['do' => 'define', 'xml' => $j['xml_aside'][$name], 'name' => $name]] : [['do' => 'undefine', 'name' => $name]];
+    return $res;
+}
+
+function rsDoVirsh(array &$j, array $args): array
+{
+    [$exit, , $err] = rsRun($j, array_merge(['virsh'], $args), 60);
+    return $exit === 0 ? ['state' => 'ok'] : rsFail('virsh_failed', ['name' => (string) ($args[1] ?? '')], trim($err));
+}
+
+// --------------------------------------------------------------------- Kopia
+
+/** A Kopia snapshot into the writable folder of the Kopia container — its output as progress */
+function rsDoKopia(array &$j, int $i): array
+{
+    $s = $j['steps'][$i];
+    clearstatcache();
+    if (file_exists($s['host']) || is_link($s['host'])) {
+        return rsFail('exists', ['path' => $s['host']]);
+    }
+    $log = rsDir($j['id']) . '/log.txt';
+    $p = proc_open(rsKopiaCmd((string) $s['container'], (int) ($s['uid'] ?? 0), ['snapshot', 'restore', (string) $s['snapshot'], (string) $s['dest']]),
+        [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, '/', rsEnv());
+    if (!is_resource($p)) {
+        return rsFail('kopia_failed', ['snapshot' => $s['snapshot']]);
+    }
+    stream_set_blocking($pipes[1], false);
+    stream_set_blocking($pipes[2], false);
+    $line = '';
+    $read = function () use ($pipes, &$line, $log): array {
+        foreach ([1, 2] as $n) {
+            $chunk = is_resource($pipes[$n]) ? (string) @fread($pipes[$n], 65536) : '';
+            if ($chunk !== '') {
+                @file_put_contents($log, str_replace("\r", "\n", $chunk), FILE_APPEND);
+                $parts = preg_split('/[\r\n]+/', trim($chunk)) ?: [];
+                $last = trim((string) end($parts));
+                if ($last !== '') {
+                    $line = mb_substr($last, 0, 200);
+                }
+            }
+        }
+        return ['line' => $line];
+    };
+    $exit = rsWait($j, [$p], $i, $read)[0];
+    $j['steps'][$i]['progress'] = ['line' => $line];
+    return $exit === 0 ? ['state' => 'ok'] : rsFail('kopia_failed', ['snapshot' => $s['snapshot'], 'exit' => $exit], $line);
+}
+
+/**
+ * Kopia inside its container always as the user its server runs as (like the engine's kopia_x): a call as
+ * root next to a server of another user leaves root-owned cache folders the server can't open any more.
+ */
+function rsKopiaUid(string $container): int
+{
+    [$exit, $out] = run(['docker', 'top', $container, '-eo', 'pid,uid,args'], 20);
+    foreach ($exit === 0 ? explode("\n", $out) : [] as $line) {
+        if (preg_match('#^\s*\d+\s+(\d+)\s+(?:\S*/)?kopia\s+server\b#', $line, $m)) {
+            return (int) $m[1];
+        }
+    }
+    [$exit, $out] = run(['docker', 'exec', $container, 'sh', '-c', 'stat -c %u "${KOPIA_CONFIG_PATH:-$HOME/.config/kopia/repository.config}"'], 20);
+    return $exit === 0 && ctype_digit(trim($out)) ? (int) trim($out) : 0;
+}
+
+/** docker exec of a kopia command as that user */
+function rsKopiaCmd(string $container, int $uid, array $args): array
+{
+    return array_merge(['docker', 'exec', '-u', (string) $uid], $uid !== 0 ? ['-e', 'HOME=/tmp'] : [], [$container, 'kopia'], $args);
+}
+
+/** The Kopia sources Mr. Restori offers: shares that go to Kopia, apps and VMs with a source of their own (relative to the root) */
+function rsKopiaSources(array $state): array
+{
+    $out = [];
+    foreach ((array) ($state['shares'] ?? []) as $s) {
+        if (($s['mode'] ?? '') === 'kopia' && empty($s['flash']) && preg_match('/^[\w .-]+$/D', (string) $s['name'])) {
+            $out[] = (string) $s['name'];
+        }
+    }
+    foreach (['apps', 'vms'] as $k) {
+        foreach ((array) ($state[$k] ?? []) as $x) {
+            foreach ((array) ($x['kopia'] ?? []) as $src) {
+                if (!empty($src['own'])) {
+                    $out[] = (string) $src['source'];
+                }
+            }
+        }
+    }
+    return array_values(array_unique($out));
+}
+
+/** `kopia snapshot list --json` as the page needs it, newest first */
+function rsKopiaParse(string $json): array
+{
+    $out = [];
+    foreach ((array) json_decode($json, true) as $s) {
+        $id = is_array($s) ? (string) ($s['id'] ?? '') : '';
+        if (!preg_match('/^[0-9a-f]{16,64}$/D', $id)) {
+            continue;
+        }
+        $text = fn (mixed $v): string => is_string($v) ? mb_substr(trim((string) preg_replace('/[\x00-\x1f\x7f]+/', ' ', $v)), 0, 120) : '';
+        $out[] = ['id' => $id, 'time' => (int) (strtotime((string) ($s['startTime'] ?? '')) ?: 0), 'end' => (int) (strtotime((string) ($s['endTime'] ?? '')) ?: 0),
+                  'bytes' => (int) ($s['stats']['totalSize'] ?? 0), 'files' => (int) ($s['stats']['fileCount'] ?? 0),
+                  'description' => $text($s['description'] ?? ''), 'incomplete' => $text($s['incompleteReason'] ?? '')];
+    }
+    usort($out, fn ($a, $b) => $b['time'] <=> $a['time']);
+    return $out;
+}
+
+/** The Kopia container and the snapshots of one source (it asks the repository: seconds) */
+function rsKopiaSnapshots(array $k, string $source): array
+{
+    if (!$k['container'] || !$k['running']) {
+        throw new Problem($k['container'] ? 'restore_kopia_stopped' : 'restore_kopia_none', ['name' => (string) $k['container']]);
+    }
+    if (!$k['root']) {
+        throw new Problem('restore_kopia_root');
+    }
+    [$exit, $out, $err] = run(rsKopiaCmd($k['container'], rsKopiaUid($k['container']), ['--no-progress', 'snapshot', 'list', "{$k['root']}/$source", '--json']), 180);
+    if ($exit !== 0) {
+        throw new Problem('restore_kopia_list', ['detail' => mb_substr(trim($err), 0, 300)]);
+    }
+    return rsKopiaParse($out);
+}
+
+function rsKopiaList(string $source): array
+{
+    $state = $GLOBALS['rs']['state'] ?? rsScan();
+    if (!in_array($source, rsKopiaSources($state), true)) {
+        throw new Problem('unknown_target', ['target' => $source]);
+    }
+    return ['ok' => true, 'source' => $source, 'snapshots' => array_slice(rsKopiaSnapshots($state['kopia'], $source), 0, 200)];
+}
+
+/**
+ * Step 6 — a Kopia snapshot into the Kopia container's writable restore folder (the engine's mapping is
+ * read-only by design; without such a folder the preview says how to add one in Unraid's template —
+ * he never changes the container): <folder>/<source>-<time>/. From there a folder goes back by hand, or
+ * — next — with step 4's copy or swap.
+ */
+function rsPlanKopia(array $r, string $stamp): array
+{
+    $source = textField($r, 'source');
+    $snapshot = textField($r, 'snapshot');
+    $state = rsScan();
+    if (!in_array($source, rsKopiaSources($state), true) || !preg_match('/^[0-9a-f]{16,64}$/D', $snapshot)) {
+        throw new Problem('unknown_target', ['target' => "$source $snapshot"]);
+    }
+    $k = $state['kopia'];
+    $plan = rsPlanBase('kopia', ltrim($source, '.'), ['source' => $source, 'snapshot' => $snapshot]);
+    if (!$k['restore']) {
+        $plan['blockers'][] = ['key' => 'restore_kopia_no_mapping', 'params' => ['name' => (string) $k['container']]];
+        return $plan;
+    }
+    $snaps = rsKopiaSnapshots($k, $source);
+    $snap = array_values(array_filter($snaps, fn ($x) => $x['id'] === $snapshot))[0] ?? null;
+    if (!$snap) {
+        throw new Problem('unknown_target', ['target' => $snapshot]);
+    }
+    $name = trim((string) preg_replace('/[^A-Za-z0-9_.-]+/', '_', ltrim($source, '.')), '_.') ?: 'restore';
+    $host = rtrim($k['restore']['source'], '/') . "/$name-$stamp";
+    $dest = rtrim($k['restore']['dest'], '/') . "/$name-$stamp";
+    if (!rsCleanPath($host) || !rsCleanPath($dest)) {
+        throw new Problem('unknown_target', ['target' => $host]);
+    }
+    if (file_exists($host)) {
+        $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $host]];
+    }
+    $free = @disk_free_space($k['restore']['source']);
+    $plan['sizes'] = ['need' => $snap['bytes'] ?: null, 'free' => $free === false ? null : (int) $free, 'measuring' => false, 'what' => 'kopia'];
+    if ($snap['bytes'] && $free !== false && $snap['bytes'] > $free * 0.95) {
+        $plan['blockers'][] = ['key' => 'restore_no_space', 'params' => ['need' => $snap['bytes'], 'free' => (int) $free]];
+    }
+    $plan['source'] = ['path' => "{$k['root']}/$source", 'time' => $snap['time'], 'bytes' => $snap['bytes'], 'files' => $snap['files']];
+    $plan['steps'] = [['do' => 'kopia', 'container' => $k['container'], 'uid' => rsKopiaUid($k['container']), 'snapshot' => $snapshot, 'dest' => $dest, 'host' => $host,
+                       'source' => "{$k['root']}/$source"]];
+    $plan['notes'][] = ['key' => 'note.kopia', 'params' => []];
+    $plan['after'][] = ['key' => 'after.kopia', 'params' => ['path' => $host]];
+    return $plan;
+}
+
+// ===================================================================== restoring: sizes in the background
+
+function rsSizes(): array
+{
+    return (array) (readJson(RS_SIZES_FILE)['sizes'] ?? []);
+}
+
+/** Measures a path in the background (du in the agent's tick) — only paths a plan checked */
+function rsDuQueue(string $path): void
+{
+    $du = &$GLOBALS['rs']['du'];
+    if (isset($du['running'][$path]) || in_array($path, $du['queue'], true)) {
+        return;
+    }
+    $du['queue'][] = $path;
+    rsSizesSave([]);
+}
+
+function rsDuTick(): void
+{
+    $du = &$GLOBALS['rs']['du'];
+    if (!$du['running'] && !$du['queue']) {
+        return;
+    }
+    $changed = null;
+    foreach ($du['running'] as $path => $job) {
+        $chunk = (string) @stream_get_contents($job['out']);
+        $du['running'][$path]['buffer'] .= $chunk;
+        $st = proc_get_status($job['process']);
+        if ($st['running']) {
+            continue;
+        }
+        $buffer = $du['running'][$path]['buffer'] . (string) @stream_get_contents($job['out']);
+        fclose($job['out']);
+        proc_close($job['process']);
+        $changed[$path] = ['bytes' => preg_match('/^(\d+)\s/', $buffer, $m) ? (int) $m[1] : null, 'at' => time(), 'seconds' => time() - $job['since']];
+        unset($du['running'][$path]);
+    }
+    while (count($du['running']) < RS_DU_PARALLEL && $du['queue']) {
+        $path = array_shift($du['queue']);
+        $process = proc_open(['nice', '-n', '10', 'du', '-s', '-B1', '-x', $path], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, '/');
+        if (!is_resource($process)) {
+            continue;
+        }
+        stream_set_blocking($pipes[1], false);
+        $du['running'][$path] = ['process' => $process, 'out' => $pipes[1], 'since' => time(), 'buffer' => ''];
+        $changed ??= [];
+    }
+    if ($changed !== null) {
+        rsSizesSave($changed);
+    }
+}
+
+function rsSizesSave(array $changed): void
+{
+    $sizes = rsSizes();
+    foreach ($changed as $path => $v) {
+        $sizes[$path] = $v;
+    }
+    if (count($sizes) > 200) {
+        uasort($sizes, fn ($a, $b) => ($b['at'] ?? 0) <=> ($a['at'] ?? 0));
+        $sizes = array_slice($sizes, 0, 200, true);
+    }
+    writeAtomic(RS_SIZES_FILE, jsonEncode(['sizes' => $sizes ?: new stdClass(), 'queue' => array_values($GLOBALS['rs']['du']['queue']),
+                                           'running' => array_keys($GLOBALS['rs']['du']['running'])]));
 }
 
 // ===================================================================== hiring

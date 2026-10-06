@@ -346,6 +346,7 @@
   "help.safe": "Careful",
   "help.safe_text": "While a backup runs I change nothing. I only ever rename — where that isn't possible (another disk, a dataset of its own) I refuse instead of copying.",
   "errors.cleanup_backup_running": "A backup is running — I'll wait until it's done.",
+  "errors.cleanup_restore_running": "Mr. Restori is bringing something back right now — I'll wait until he's done.",
   "errors.cleanup_docker_down": "Docker doesn't answer — I won't touch {name} without it.",
   "errors.cleanup_asleep": "{name} is on a sleeping disk.",
   "errors.cleanup_no_compose": "{name} still has containers that I can't stop with docker compose.",
