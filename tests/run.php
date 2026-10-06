@@ -2964,9 +2964,36 @@ function testLeftovers(): void
         [$f['bytes'], $f['snaps'], $f['parts'][0]['snaps'], $f['files'], $f['newest']]);
     $f = clFolderEntries($list, [], [], 'domain', true, true, $cache, fn () => false)[0];
     same('domains: without ZFS\'s word what find counted', [98304, 0], [$f['bytes'], $f['snaps']]);
-    foreach (['snaps.chip', 'snaps.chip_text', 'snaps.of', 'snaps.of_run'] as $k) {
+    foreach (['snaps.chip', 'snaps.chip_text', 'snaps.of', 'snaps.of_run', 'lo.since_made', 'lo.d.made'] as $k) {
         check("cleanup: words for $k", isset($en[$k]));
     }
+
+    // what his journals name is his room's only — exactly by path, never by a name's pattern
+    $los = [['path' => '/mnt/user/appdata/prometheus.restored-20261007-000716', 'parts' => [['path' => '/mnt/master/appdata/prometheus.restored-20261007-000716']]],
+            ['path' => '/mnt/master/domains/Win.aside-20261006-175854', 'parts' => []]];
+    $folders = ['files' => 2, 'list' => [
+        ['name' => 'prometheus.restored-20261007-000716', 'parts' => [['path' => '/mnt/master/appdata/prometheus.restored-20261007-000716'], ['path' => '/mnt/disk1/appdata/prometheus.restored-20261007-000716']]],
+        ['name' => 'grafana.restored-20261007-000716', 'parts' => [['path' => '/mnt/master/appdata/grafana.restored-20261007-000716']]],
+        ['name' => 'prometheus', 'parts' => [['path' => '/mnt/master/appdata/prometheus']]]]];
+    $kept = clWithoutLeftovers($folders, $los, 'appdata');
+    same('his leftovers: out of the appdata room (all its parts), a look-alike nobody named and the rest stay',
+        [['grafana.restored-20261007-000716', 'prometheus'], 2], [array_column($kept['list'], 'name'), $kept['files']]);
+    $dom = clWithoutLeftovers(['list' => [['name' => 'Win.aside-20261006-175854', 'parts' => [['path' => '/mnt/master/domains/Win.aside-20261006-175854'],
+                                                                                         ['path' => '/mnt/hive/domains/Win.aside-20261006-175854']]]]], $los, 'domains');
+    same('his leftovers: a pool path takes out that part only', [['/mnt/hive/domains/Win.aside-20261006-175854']], array_map(fn ($f) => array_column($f['parts'], 'path'), $dom['list']));
+    same('his leftovers: none named, nothing taken out', $folders, clWithoutLeftovers($folders, [], 'appdata'));
+
+    // a restore finished after her last look: the page looks again (his job file's time, never while the lock is held)
+    $tmp = hardeningTmp('restore-newer');
+    $GLOBALS['clRestoreJob'] = "$tmp/restore-job.json";
+    same('restore newer: no job file, or never looked', [null, null], [clRestoreNewer(time() - 60, false), clRestoreNewer(null, false)]);
+    file_put_contents("$tmp/restore-job.json", '{}');
+    $t = time() - 10;
+    touch("$tmp/restore-job.json", $t);
+    same('restore newer: after her look / before it / while the lock is held', [$t, null, null],
+        [clRestoreNewer($t - 50, false), clRestoreNewer($t + 5, false), clRestoreNewer($t - 50, true)]);
+    unset($GLOBALS['clRestoreJob']);
+    hardeningRm($tmp);
 }
 
 function testComposeBuilds(): void

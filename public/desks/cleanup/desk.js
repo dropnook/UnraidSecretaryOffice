@@ -43,6 +43,7 @@ const ROOMS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'ic
 const POLL_MS = 3000;
 
 let state = null;
+let lookedAgain = false;      // looked again this visit because Mr. Restori finished something since her last look
 let view = null;
 let section = SECTIONS.includes(Office.store('cleanup.section')) ? Office.store('cleanup.section') : '';   // '' = none open
 let folded = Office.storeJson('cleanup.folded') || {};
@@ -59,6 +60,11 @@ async function load(fresh) {
   const j = await Office.api.get({ a: 'state', desk: ID, ...(fresh ? { fresh: 1 } : {}) });
   if (j.ok && j.state && j.state.docker && typeof j.state.docker === 'object') setState(j.state);
   else if (view) render();
+  // Mr. Restori finished a restore after her last look: she looks again by herself (once per visit) — his leftovers show
+  if (view && !fresh && !lookedAgain && state && state.restore_newer && Office.agent.running) {
+    lookedAgain = true;
+    return load(true);
+  }
   return j;
 }
 
@@ -182,6 +188,7 @@ Office.desk({
 
   mount(root) {
     view = build(root);
+    lookedAgain = false;
     render();
     load(false);
   },
@@ -1306,6 +1313,9 @@ function restoreGroup(items) {
   return box;
 }
 
+/** What he made next to the live one (a restored copy, safety dumps) — never put aside */
+const made = (e) => ['restored', 'safety'].includes(e.what);
+
 function leftoverMeta(e, meta, figures) {
   meta.appendChild(chip(T('lo.what.' + e.what), '', T('lo.what.' + e.what + '_text')));
   if (e.category === 'way_back') meta.appendChild(chip(T('lo.way_back'), 'warn', T('lo.way_back_text')));
@@ -1314,7 +1324,7 @@ function leftoverMeta(e, meta, figures) {
   if (e.parts.some((p) => p.dataset)) meta.appendChild(chip(T('zfs'), 'quiet', T('zfs_text', { name: e.parts.map((p) => p.dataset).filter(Boolean).join(', ') })));
   const sc = snapsChip(e);
   if (sc) meta.appendChild(sc);
-  meta.appendChild(el('span', '', T('lo.since', { when: fmt.relative(e.time) })));
+  meta.appendChild(el('span', '', T(made(e) ? 'lo.since_made' : 'lo.since', { when: fmt.relative(e.time) })));
   sizeFigures(e, figures, '');
 }
 
@@ -1324,7 +1334,7 @@ function leftoverDetail(e) {
   box.appendChild(kv([
     [T('d.where'), e.parts.length ? lines(e.parts.map((p) => p.path + (p.dataset ? `  (${T('d.dataset', { name: p.dataset })})` : ''))) : e.path, true],
     [T('lo.d.restore'), `${restoreName(r)} · ${r.id}`],
-    [T('lo.d.aside'), when(e.time)],
+    [T(made(e) ? 'lo.d.made' : 'lo.d.aside'), when(e.time)],
     [T('d.size'), e.bytes !== null && e.bytes !== undefined ? fmt.size(e.bytes) + snapsOf(e) : (e.measuring ? T('measuring') : T('d.not_measured'))],
   ]));
   box.appendChild(el('p', 'role', T('lo.what.' + e.what + '_text')));

@@ -256,9 +256,10 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         'templates' => clTemplates($docker),
         'stacks'    => clStacks($docker, $cache),
         'strays'    => clStrays($cache, $docker),
-        'appdata'   => $places['appdata'] + ['folders' => clShareFolders($places['appdata'])],
-        'domains'   => $places['domains'] + ['folders' => $vms['enabled'] ? clShareFolders($places['domains']) : ['list' => [], 'files' => 0]],
-        'isos'      => $places['isos'] + ['files' => $vms['enabled'] ? clMediaFiles($places['isos']) : []],
+        'appdata'   => $places['appdata'] + ['folders' => clWithoutLeftovers(clShareFolders($places['appdata']), $leftovers['list'], $places['appdata']['share'])],
+        'domains'   => $places['domains'] + ['folders' => $vms['enabled'] ? clWithoutLeftovers(clShareFolders($places['domains']), $leftovers['list'], $places['domains']['share'])
+                                                                         : ['list' => [], 'files' => 0]],
+        'isos'      => $places['isos'] + ['files' => $vms['enabled'] ? clWithoutLeftovers(['list' => clMediaFiles($places['isos'])], $leftovers['list'], $places['isos']['share'])['list'] : []],
         'compose'   => clForeignCompose($docker),
         'scripts'   => clUserScripts(),
         'vms'       => $vms,
@@ -267,7 +268,8 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         'trash'     => clTrashRuns($places, $vms, $leftovers['trash']),
     ];
     $raw['icons'] = clIcons($docker, $raw['stacks']);
-    $raw['zfs_space'] = clZfsSpace(clRawDatasets($raw));     // what a dataset holds with its snapshots (find sees only the live files)
+    $raw['zfs_space'] = clZfsSpace(clRawDatasets($raw));
+    $raw['at'] = time();                                     // when she last looked (a clBuild() after a measurement is no new look)     // what a dataset holds with its snapshots (find sees only the live files)
     clSaveCache($cache);
     $GLOBALS['clRaw'] = $raw;
 
@@ -1868,6 +1870,37 @@ function clZfsSpace(array $names, ?callable $zfs = null): array
     return $out;
 }
 
+/**
+ * What one of Mr. Restori's journals names belongs to his room only («Mr. Restori's leftovers»): left out of her other
+ * rooms (appdata, domains, isos) — matched exactly by path (the path his journal names, through /mnt/user or a pool,
+ * and each part she found of it), never by a name's pattern. $folders: ['list' => [{name, parts: [{path …}]}], …].
+ */
+function clWithoutLeftovers(array $folders, array $leftovers, string $share): array
+{
+    $paths = [];
+    foreach ($leftovers as $e) {
+        $paths[$e['path']] = true;
+        foreach ($e['parts'] as $p) {
+            $paths[$p['path']] = true;
+        }
+    }
+    if (!$paths) {
+        return $folders;
+    }
+    $list = [];
+    foreach ($folders['list'] as $f) {
+        if (isset($paths["/mnt/user/$share/{$f['name']}"]) || isset($paths["/mnt/user0/$share/{$f['name']}"])) {
+            continue;
+        }
+        $f['parts'] = array_values(array_filter($f['parts'], fn ($p) => !isset($paths[$p['path']])));
+        if ($f['parts']) {
+            $list[] = $f;
+        }
+    }
+    $folders['list'] = $list;
+    return $folders;
+}
+
 /** First-level folders of a share, over all places it lives on */
 function clShareFolders(array $share): array
 {
@@ -2354,6 +2387,8 @@ function clBuild(): array
         ],
         'backup_running' => clBackupBusy(),
         'restore_running' => (backupLockHolder()['holder'] ?? '') === 'restore',   // Mr. Restori is bringing something back
+        'looked'    => $raw['at'] ?? null,                   // her last look at the server (time: this state's, also after a measurement)
+        'restore_newer' => clRestoreNewer($raw['at'] ?? null, clBackupBusy()),     // a restore finished since: the page looks again
         'templates' => ['dir' => CL_TEMPLATES, 'list' => array_merge($templates, $raw['strays']),
                         'strays_at' => $cache['strays']['at'] ?? null, 'strays_searching' => $pending('strays:flash') || $pending('strays:pools'),
                         'strays_skipped' => $cache['strays']['skipped'] ?? 0, 'strays_skipped_dirs' => $cache['strays']['skipped_dirs'] ?? []],
@@ -2942,7 +2977,8 @@ function clBackupBusy(): bool
 /**
  * Keeps her state's backup_running fresh between tours: every few seconds from tick a look at the
  * engine's lock; when it changed, the state file gets the new value (nothing else is read anew) — so
- * her buttons come back once a run is over, not at her next tour.
+ * her buttons come back once a run is over, not at her next tour. Likewise restore_running, and
+ * restore_newer: Mr. Restori finished something after her last look (clRestoreNewer()).
  */
 function clBackupFlagTick(): void
 {
@@ -2952,11 +2988,39 @@ function clBackupFlagTick(): void
         return;
     }
     $at = time();
-    $busy = clBackupBusy();
-    if ($busy !== (bool) ($state['backup_running'] ?? false)) {
-        $state['backup_running'] = $busy;
-        clWrite($state);
+    $holder = backupLockHolder();
+    $flags = ['backup_running' => $holder !== null, 'restore_running' => ($holder['holder'] ?? '') === 'restore',
+              'restore_newer' => clRestoreNewer($state['looked'] ?? null, $holder !== null)];
+    $changed = false;
+    foreach ($flags as $k => $v) {
+        if (($state[$k] ?? null) !== $v) {
+            $state[$k] = $v;
+            $changed = true;
+        }
     }
+    if ($changed) {
+        clWrite($state);           // nothing else is read anew
+    }
+}
+
+function clRestoreJobFile(): string
+{
+    return $GLOBALS['clRestoreJob'] ?? DATA_DIR . '/restore-job.json';
+}
+
+/**
+ * Mr. Restori finished a restore (or a «Put back») after her last look: the time his job file was last written (he
+ * writes it at every step and at the end), else null — then her page looks again by itself when it opens, so his
+ * leftovers show without a «Tour». A stat only; nothing while the engine's lock is held (his restore still going).
+ */
+function clRestoreNewer(?int $looked, bool $busy): ?int
+{
+    if ($busy || $looked === null) {
+        return null;
+    }
+    clearstatcache(true, clRestoreJobFile());
+    $t = (int) (@filemtime(clRestoreJobFile()) ?: 0);
+    return $t > $looked ? $t : null;
 }
 
 /** No changes while a backup runs (it may be reading what would move) or Mr. Restori restores (he may be putting it back) */
