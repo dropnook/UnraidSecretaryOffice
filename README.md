@@ -134,8 +134,8 @@ admin/admin before it can be reached from outside.
 
 ## Installation
 
-Requirements: **Unraid 7.3 or newer** (built and tested on 7.3.2). **Unraid 8 is not
-supported** for now — the plugin refuses to install there; support follows
+Requirements: **Unraid 7.3.2 or a newer 7.x** (built and tested on 7.3.2; older versions are
+refused at install). **Unraid 8 is not supported** for now — the plugin refuses to install there; support follows
 once it is released and tested.
 
 1. In *Apps* (Community Applications) search for **Secretary Office** and
