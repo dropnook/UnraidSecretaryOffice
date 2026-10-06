@@ -6378,6 +6378,148 @@ function testWatchmanPosture(): void
  * released not by Ms. Snapshotini is snap_hold_released; a pool asleep is never "gone"; «I know, thanks»
  * teaches a series
  */
+/**
+ * The night watchman's look at the host (SOC, 1.30): listeners from ss, accounts in RAM, logs emptied outside their
+ * rotation, programs from scratch folders (a stand-in /proc of links), the office's own schedule lines, ATT&CK ids.
+ */
+function testWatchmanHost(): void
+{
+    $now = strtotime('2026-10-07 01:00:00');
+    // ss -H -tlnp as on nostromo: Docker's forwarders, the VMs' consoles, loopback and a dynamic port
+    $ss = "LISTEN 0 4096 0.0.0.0:9100 0.0.0.0:* users:((\"node_exporter\",pid=11,fd=3))\n"
+        . "LISTEN 0 4096 [::]:9100 [::]:* users:((\"node_exporter\",pid=11,fd=4))\n"
+        . "LISTEN 0 128 0.0.0.0%br0:3702 0.0.0.0:* users:((\"wsdd2\",pid=12,fd=5))\n"
+        . "LISTEN 0 4096 0.0.0.0:2283 0.0.0.0:* users:((\"docker-proxy\",pid=13,fd=4))\n"
+        . "LISTEN 0 1 0.0.0.0:5900 0.0.0.0:* users:((\"qemu-system-x86\",pid=14,fd=30))\n"
+        . "LISTEN 0 64 127.0.0.1:631 0.0.0.0:* users:((\"cupsd\",pid=15,fd=7))\n"
+        . "LISTEN 0 64 192.168.7.20:41234 0.0.0.0:* users:((\"rpc.statd\",pid=16,fd=8))\n"
+        . "LISTEN 0 64 [::1]:25 [::]:* users:((\"sendmail\",pid=17,fd=9))\n";
+    $l = watchmanListenParse($ss, 32768);
+    same('host listen: Docker, VM consoles and loopback left out; a dynamic port counts by program',
+        ['rpc.statd:*', 'tcp:3702', 'tcp:9100'], array_keys($l));
+    same('host listen: addresses, all as *; the program', [['*'], 'node_exporter', null, ['192.168.7.20']],
+        [$l['tcp:9100']['addr'], $l['tcp:9100']['prog'], $l['rpc.statd:*']['port'], $l['rpc.statd:*']['addr']]);
+    same('host listen: Samba names another process of its own next time — the same port, nothing new', ['tcp:445'],
+        array_keys(watchmanListenParse("LISTEN 0 50 0.0.0.0:445 0.0.0.0:* users:((\"smbd-scavenger\",pid=3,fd=37),(\"smbd\",pid=2,fd=37))\n", 32768)));
+
+    $tmp = sys_get_temp_dir() . '/office-tests-host-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    // accounts: the shell field, the password's state (never the hash)
+    file_put_contents("$tmp/passwd", "root:x:0:0:root:/root:/bin/bash\nbin:x:1:1:bin:/bin:/bin/false\nbenj:x:1000:100::/:/bin/false\nnobody:x:99:100::/:\n");
+    file_put_contents("$tmp/shadow", 'root:$6$aa$bb:1::::::' . "\nbin:*:1::::::\nbenj:\$6\$cc\$dd:1::::::\nnobody:!:1::::::\n");
+    $u = watchmanHostUsers(['etc_passwd' => "$tmp/passwd", 'etc_shadow' => "$tmp/shadow"]);
+    same('host users: uid, login shell (an empty field is /bin/sh), the password only as a state',
+        ['root' => [0, true, 'hash'], 'bin' => [1, false, 'locked'], 'benj' => [1000, false, 'hash'], 'nobody' => [99, true, 'locked']],
+        array_map(fn ($x) => [$x['uid'], $x['shell'], $x['pw']], $u));
+    check('host users: no hash kept', !str_contains(json_encode($u), '$6$'));
+
+    // logs: inode and size, the rotated copies, logrotate's date
+    file_put_contents("$tmp/syslog", str_repeat("line\n", 100));
+    file_put_contents("$tmp/logrotate.status", "logrotate state -- version 2\n\"$tmp/syslog\" 2026-10-6-4:30:0\n");
+    $logs = fn () => watchmanHostLogs(['syslog' => "$tmp/syslog"], "$tmp/logrotate.status");
+    $host = fn (array $lg, ?array $users = null, ?array $listen = null, ?array $procs = null, string $boot = 'b1') =>
+        ['boot' => $boot, 'logs' => $lg, 'users' => $users ?? $u, 'listen' => $listen, 'procs' => $procs];
+    $known = null;
+    $book = [];
+    $flash = ['root', 'benj'];
+    $first = $host($logs());
+    same('host: the first look reports nothing and knows it all', [[], ['root', 'bin', 'benj', 'nobody']],
+        [watchmanHostCompare($known, $first, null, $flash, $book, $now), array_keys($known['users'])]);
+    file_put_contents("$tmp/syslog", "short\n");
+    $cut = $host($logs());
+    same('host log: the same file, smaller — emptied', ['log_cleared'], watchmanHostCompare($known, $cut, $first, $flash, $book, $now + 300));
+    same('host log: what the entry says', [['cut'], 1], [$book[0]['p']['how'], $book[0]['count']]);
+    $book = [];
+    rename("$tmp/syslog", "$tmp/syslog.1");
+    file_put_contents("$tmp/syslog", "new\n");
+    $rot = $host($logs());
+    same('host log: renamed to .1 and a new one — a rotation, nothing', [], watchmanHostCompare($known, $rot, $cut, $flash, $book, $now + 600));
+    unlink("$tmp/syslog.1");
+    unlink("$tmp/syslog");
+    file_put_contents("$tmp/syslog", "again\n");
+    $repl = $host($logs());
+    same('host log: a new file, the old one nowhere — replaced', ['log_cleared'], watchmanHostCompare($known, $repl, $rot, $flash, $book, $now + 900));
+    $book = [];
+    file_put_contents("$tmp/syslog", "x\n");
+    unlink("$tmp/syslog");
+    file_put_contents("$tmp/syslog", "y\n");
+    file_put_contents("$tmp/logrotate.status", "logrotate state -- version 2\n\"$tmp/syslog\" 2026-10-7-1:15:0\n");
+    same('host log: logrotate\'s new date explains a new file', [], watchmanHostCompare($known, $host($logs()), $repl, $flash, $book, $now + 1200));
+    file_put_contents("$tmp/syslog", '');
+    same('host log: after a reboot (another boot id) nothing is compared', [],
+        watchmanHostCompare($known, $host($logs(), boot: 'b2'), $host($logs()), $flash, $book, $now + 1500));
+
+    // accounts later: in RAM only, a second root, a system account that may log in
+    $u2 = $u;
+    $u2['backdoor'] = ['uid' => 0, 'shell' => true, 'pw' => 'none'];
+    $u2['bin'] = ['uid' => 1, 'shell' => true, 'pw' => 'locked'];
+    $u2['joe'] = ['uid' => 1001, 'shell' => false, 'pw' => 'hash'];      // made under Users: on the flash too
+    $book = [];
+    $r = watchmanHostCompare($known, $host($logs(), $u2), null, array_merge($flash, ['joe']), $book, $now + 1800);
+    $by = array_column(array_map(fn ($e) => [$e['p']['user'], $e['p']['why']], $book), 1, 0);
+    same('host users: in RAM only and a second root; a system account with a login shell; a flash user is the flash watch\'s',
+        [['user_ram', 'user_ram'], ['bin' => ['shell'], 'backdoor' => ['new', 'uid0']], true],
+        [$r, $by, isset($known['users']['joe'])]);
+    $u3 = $u2;
+    $u3['bin']['shell'] = false;
+    unset($u3['backdoor']);
+    $book2 = [];
+    watchmanHostCompare($known, $host($logs(), $u3), null, array_merge($flash, ['joe']), $book2, $now + 2100);
+    same('host users: safer again (no login shell) is normal by itself', false, $known['users']['bin']['shell']);
+
+    // ports and programs: new later, adopted with «I know, thanks»
+    $book = [];
+    $l2 = $l + ['tcp:4444' => ['prog' => 'nc', 'port' => 4444, 'addr' => ['*']]];
+    same('host listen: the first look at the ports knows them all', [], watchmanHostCompare($known, $host($logs(), $u3, $l), null, $flash, $book, $now + 2400));
+    same('host listen: a program on a port it never used', ['listen_new'], watchmanHostCompare($known, $host($logs(), $u3, $l2), null, $flash, $book, $now + 2700));
+    $b = ['host' => $known];
+    watchmanAdopt($b, array_values(array_filter($book, fn ($e) => $e['kind'] === 'listen_new'))[0], ['host' => ['listen' => $l2]], $now + 3000);
+    $book = [];
+    same('host listen: «I know, thanks» makes it normal', [], watchmanHostCompare($b['host'], $host($logs(), $u3, $l2), null, $flash, $book, $now + 3300));
+
+    // a stand-in /proc: links readlink() reads; the server's mount namespace is 1's
+    $proc = "$tmp/proc";
+    $mk = function (int $pid, string $exe, string $mnt, string $pidns, string $comm) use ($proc) {
+        @mkdir("$proc/$pid/ns", 0700, true);
+        symlink($exe, "$proc/$pid/exe");
+        symlink($mnt, "$proc/$pid/ns/mnt");
+        symlink($pidns, "$proc/$pid/ns/pid");
+        file_put_contents("$proc/$pid/comm", "$comm\n");
+    };
+    $mk(1, '/sbin/init', 'mnt:[1]', 'pid:[1]', 'init');
+    $mk(100, '/usr/bin/php (deleted)', 'mnt:[1]', 'pid:[1]', 'php');                      // replaced by an update: no news
+    $mk(101, '/tmp/.x/kworkerd', 'mnt:[1]', 'pid:[1]', 'kworkerd');
+    $mk(102, '/memfd:payload (deleted)', 'mnt:[1]', 'pid:[1]', 'payload');
+    $mk(103, '/memfd:runc_cloned:/proc/self/exe (deleted)', 'mnt:[1]', 'pid:[1]', 'runc:[1:CHILD]');
+    $mk(200, '/usr/bin/bash', 'mnt:[7]', 'pid:[9]', 'bash');                              // virtual-dsm's main process
+    $mk(201, '/run/host.bin', 'mnt:[7]', 'pid:[9]', 'host.bin');
+    $mk(300, '/tmp/app', 'mnt:[8]', 'pid:[10]', 'app');                                   // a namespace of no container known
+    $mk(400, '/tmp/.mount_firefogY32OL/firefox-bin', 'mnt:[1]', 'pid:[1]', 'firefox-bin');   // Unraid's GUI mode: an AppImage
+    @mkdir("$proc/self", 0700);
+    $p = watchmanHostProcs($proc, ['virtual-dsm' => ['pid' => 200]]);
+    same('host procs: scratch folders, hidden folders, memory — on the server or in a container; runc\'s copy and an updated binary are none',
+        ['ct:?:/tmp/app', 'ct:virtual-dsm:/run/host.bin', 'host:/memfd:payload', 'host:/tmp/.mount_firefo*/firefox-bin', 'host:/tmp/.x/kworkerd'], array_keys($p));
+    same('host procs: what a program picks anew at every start is * in his memory, the entry keeps the real path',
+        ['/tmp/.mount_firefoXy12Ab/firefox-bin', '/tmp/*/run.sh', '/tmp/build/go-build', '/usr/bin/x'],
+        [$p['host:/tmp/.mount_firefo*/firefox-bin']['exe'] === '/tmp/.mount_firefogY32OL/firefox-bin' ? '/tmp/.mount_firefoXy12Ab/firefox-bin' : '?',
+         watchmanOddKey('/tmp/tmp.aB3dE9/run.sh'), watchmanOddKey('/tmp/build/go-build'), watchmanOddKey('/usr/bin/x')]);
+    same('host procs: Docker didn\'t answer — not looked at (a container\'s program would seem new)', null, watchmanHostProcs($proc, null));
+    same('host procs: the program and where', ['kworkerd', null, 'virtual-dsm'], [$p['host:/tmp/.x/kworkerd']['prog'], $p['host:/tmp/.x/kworkerd']['where'],
+        $p['ct:virtual-dsm:/run/host.bin']['where']]);
+
+    // the office's own schedule lines; ATT&CK
+    same('office cron: its own line, and what is not', [true, true, false, false, false], [
+        watchmanOfficeCronLine('0 3 * * * ' . officeJobCommand('backup')),
+        watchmanOfficeCronLine('*/5 * * * * ' . officeJobCommand('snapshots')),
+        watchmanOfficeCronLine('0 3 * * * ' . officeJobCommand('backup') . '; curl x | sh'),
+        watchmanOfficeCronLine('0 3 * * * bash /tmp/job.sh backup > /dev/null 2>&1'),
+        watchmanOfficeCronLine('@reboot root ' . officeJobCommand('backup'))]);
+    same('attack: every kind has its technique, in ATT&CK\'s shape', [[], []],
+        [array_values(array_diff(array_keys(WATCH_KINDS), array_keys(WATCH_ATTACK))),
+         array_values(array_filter(WATCH_ATTACK, fn ($t) => !preg_match('/^T\d{4}(\.\d{3})?$/D', $t)))]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testWatchmanSnaps(): void
 {
     $now = strtotime('2026-10-06 12:00:00');
@@ -6803,7 +6945,7 @@ function testSupporterKeys(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];
