@@ -10,4 +10,9 @@
 .ct-acts{display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end}
 .ct-noted .row-name, .ct-noted .row-detail{color:var(--muted)}
 @media (max-width:640px){ .row.ct-finding{grid-template-columns:minmax(0,1fr)} .ct-acts{justify-content:flex-start} }
+/* his one ask for a tip (askCallout): text, then its buttons; the supporter plate at «The team» */
+.ct-ask{display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; margin:0}
+.ct-ask p{margin:0; flex:1 1 320px; min-width:0}
+.ct-ask-acts{display:flex; gap:8px; flex-wrap:wrap}
+.ct-supporter{overflow-wrap:anywhere}
 }

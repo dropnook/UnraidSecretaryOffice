@@ -17,6 +17,11 @@ declare(strict_types=1);
 const OFFICE_VERSION = '1.28.1';
 // where the tip jar leads after hiring someone ('' = no button, only the thank-you)
 const OFFICE_TIP_URL = 'https://paypal.me/vipermark2';
+// the support page (PayPal checkout that shows the supporter key right after the tip, and again for a lost one):
+// set, the tip jar's main button opens <url>?id=<server ID>&lang=<language> instead of OFFICE_TIP_URL ('' = not yet)
+const OFFICE_SUPPORT_URL = '';
+// GitHub Sponsors in the tip jar ('' = no button; set once the maintainer's Sponsors profile is active)
+const OFFICE_SPONSOR_URL = '';
 
 require __DIR__ . '/place.php';
 
@@ -49,6 +54,7 @@ final class OfficeProblem extends RuntimeException
 require __DIR__ . '/mailbox.php';
 require __DIR__ . '/desks.php';
 require __DIR__ . '/staff.php';
+require __DIR__ . '/supporter.php';
 
 /** (not readJsonFile: Community Applications and Fix Common Problems have one of that name) */
 function officeReadJson(string $file): ?array

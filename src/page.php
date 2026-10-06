@@ -39,6 +39,9 @@ function officePageConfig(): array
         'languages' => officeLanguages(),
         'stamp'     => officeStringsStamp(),
         'tip_url'   => OFFICE_TIP_URL,
+        'support_url' => OFFICE_SUPPORT_URL,
+        'sponsor_url' => OFFICE_SPONSOR_URL,
+        'supporter' => officeSupporterPage(),     // the supporter key: a thank-you, it unlocks nothing (supporter.php)
         'base'      => officeWebBase(),
         'reception_icon' => officeAsset('assets/reception.svg'),
     ];
