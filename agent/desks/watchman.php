@@ -637,6 +637,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $book = watchmanPrune($book, $now);
         if (!$fresh) {
             $told = watchmanNotifyDue($book, $st, $now, $notify);
+            $told = array_merge($told, watchmanChainsDue($book, $st, $now, $notify));
         }
         $st['hired'] = $hired;
         $st['syslog'] = $pos;
@@ -5396,6 +5397,101 @@ function watchmanSyslogSet(mixed $on, ?string $dir = null, bool $page = true): a
     return ['ok' => true, 'state' => watchmanPageState()];
 }
 
+/*
+ * What may belong together (a SOC's correlation): important entries not noted yet, of at least two different
+ * groups, each first seen within WATCH_CHAIN_WINDOW of another, that are a way in and something else (a login from a
+ * new address and, minutes later, a new cron line or a program listening on a new port) or damage of two sorts
+ * (snapshots gone and much written into a share, logs emptied). Each entry is
+ * still told by its own kind; a chain is told once more when it forms (one notification, its entries in words).
+ * Noting an entry takes it out of every chain.
+ */
+const WATCH_CHAIN_WINDOW = 3600;            // first seen this close to another entry of the chain
+const WATCH_CHAIN_KEEP   = 7 * 86400;       // entries older than this start no chain
+// a chain is a way in and something else (a login from a new address, then a cron line), or damage of two sorts (snapshots
+// gone and much written) — a plugin installed (its plugin, cron file and port at once) alone is none
+const WATCH_CHAIN_ACCESS = ['login_new_ip', 'login_failures', 'smb_user', 'door_new'];
+const WATCH_CHAIN_IMPACT = ['snap_gone' => 'snap', 'snap_hold_released' => 'snap', 'flow_written' => 'flow', 'flow_gone' => 'flow', 'log_cleared' => 'log'];
+
+/**
+ * The chains in the book now: list of [key (its first entry's id), ids (oldest first), groups, first, last].
+ * @return list<array{key: string, ids: list<string>, groups: list<string>, first: int, last: int}>
+ */
+function watchmanChains(array $book, int $now): array
+{
+    $list = array_values(array_filter($book, fn ($e) => watchmanOpen($e) && (WATCH_KINDS[$e['kind']][1] ?? false)
+        && (int) $e['time'] >= $now - WATCH_CHAIN_KEEP));
+    usort($list, fn ($a, $b) => [(int) $a['time'], $a['id']] <=> [(int) $b['time'], $b['id']]);
+    $chains = [];
+    $cur = [];
+    foreach ($list as $e) {
+        if ($cur && (int) $e['time'] - (int) end($cur)['time'] > WATCH_CHAIN_WINDOW) {
+            $chains[] = $cur;
+            $cur = [];
+        }
+        $cur[] = $e;
+    }
+    if ($cur) {
+        $chains[] = $cur;
+    }
+    $out = [];
+    foreach ($chains as $c) {
+        $groups = array_values(array_unique(array_map(fn ($e) => WATCH_KINDS[$e['kind']][0], $c)));
+        $access = array_filter($c, fn ($e) => in_array($e['kind'], WATCH_CHAIN_ACCESS, true));
+        $other = array_filter($c, fn ($e) => !in_array($e['kind'], WATCH_CHAIN_ACCESS, true));
+        $impact = array_unique(array_filter(array_map(fn ($e) => WATCH_CHAIN_IMPACT[$e['kind']] ?? null, $c)));
+        if (count($groups) < 2 || (!($access && $other) && count($impact) < 2)) {
+            continue;
+        }
+        $out[] = ['key' => (string) $c[0]['id'], 'ids' => array_column($c, 'id'), 'groups' => $groups,
+                  'first' => (int) $c[0]['time'], 'last' => max(array_map(fn ($e) => (int) $e['last'], $c))];
+    }
+    return $out;
+}
+
+/**
+ * A chain that formed (or grew) since the last round: one notification (the notify switch counts; at most one an
+ * hour, like a kind) — state.json chains: key → how many entries were told.
+ * @return list<array{kind: string, n: int, sent: bool}>
+ */
+function watchmanChainsDue(array $book, array &$st, int $now, bool $send, ?string $lang = null): array
+{
+    $chains = watchmanChains($book, $now);
+    $known = (array) ($st['chains'] ?? []);
+    $keep = [];
+    $told = [];
+    $on = ($st['notify'] ?? true) !== false;
+    foreach ($chains as $c) {
+        $was = (int) ($known[$c['key']] ?? 0);
+        $keep[$c['key']] = max($was, $on ? 0 : count($c['ids']));      // switched off: never told later
+        if (!$on || count($c['ids']) <= $was || $now - (int) ($st['notified']['chain'] ?? 0) < WATCH_NOTIFY_QUIET) {
+            continue;
+        }
+        $byId = array_column($book, null, 'id');
+        $sent = $send && watchmanChainSend(array_map(fn ($id) => $byId[$id], $c['ids']), $c, $lang ?? officeNotifyLang());
+        $keep[$c['key']] = count($c['ids']);
+        $st['notified']['chain'] = $now;
+        $told[] = ['kind' => 'chain', 'n' => count($c['ids']), 'sent' => $sent];
+    }
+    $st['chains'] = $keep;
+    return $told;
+}
+
+function watchmanChainSend(array $entries, array $c, string $lang): bool
+{
+    $lines = [];
+    foreach (array_slice($entries, 0, 10) as $e) {
+        $lines[] = '• ' . date('H:i', (int) $e['time']) . ' ' . officeNotifyText('watchman', "entry.{$e['kind']}", ['n' => (int) $e['count']] + watchmanText($e, $lang), $lang);
+    }
+    $params = ['n' => count($entries), 'minutes' => max(1, (int) round(($c['last'] - $c['first']) / 60))];
+    return officeNotify(
+        officeNotifyText('watchman', 'notify.chain', $params, $lang),
+        officeNotifyText('watchman', 'chain.text', $params, $lang),
+        'warning',
+        implode("\n", $lines) . "\n\n" . officeNotifyText('watchman', 'notify.footer', [], $lang),
+        officeNotifyLink('#/watchman'),
+    );
+}
+
 /** One notification for a kind: the bell's line, the newest in its words, each entry with its time */
 function watchmanNotifySend(string $kind, array $entries, string $lang): bool
 {
@@ -5504,6 +5600,7 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         'notified' => $st['last_notify'] ?? null,
         'notify'   => ['on' => ($st['notify'] ?? true) !== false, 'available' => is_executable(OFFICE_NOTIFY_BIN)],
         'syslog'   => ['on' => !empty($st['syslog'])],
+        'chains'   => array_map(fn ($c) => array_diff_key($c, ['key' => 1]), watchmanChains($d['book'], $now)),
         'limits'   => ['every' => WATCH_EVERY, 'burst' => WATCH_FAIL_BURST, 'window' => WATCH_FAIL_WINDOW,
                        'quiet' => WATCH_NOTIFY_QUIET, 'keep' => WATCH_BOOK_MAX, 'days' => WATCH_BOOK_DAYS],
     ];

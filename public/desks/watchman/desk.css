@@ -12,6 +12,11 @@
 /* an entry's MITRE ATT&CK technique: a chip that is a link (a new tab) */
 a.chip.wm-attack{text-decoration:none; font-family:var(--mono); font-size:11.5px; cursor:pointer}
 a.chip.wm-attack:hover{text-decoration:underline}
+/* entries that may belong together */
+.wm-chain{margin:0 0 8px}
+.wm-chain p{margin:0}
+.wm-chain-list{margin:6px 0 4px; padding-left:18px}
+.wm-chain-list li{overflow-wrap:anywhere}
 /* scheduled things: lines, the syslog then, a command to copy (never run) */
 .wm-lines{display:flex; flex-direction:column; gap:2px; min-width:0}
 .wm-lines .mono, .wm-fix code{overflow-wrap:anywhere; white-space:pre-wrap}

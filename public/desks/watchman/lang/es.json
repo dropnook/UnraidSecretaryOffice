@@ -622,5 +622,12 @@
   "watch.door": "entrada",
   "watch.port": "puerto",
   "help.siem": "A un SIEM",
-  "help.siem_text": "Con «También al syslog» cada nueva entrada va al syslog de Unraid como una línea — etiqueta uso-watchman, JSON: id, tipo, grupo, la técnica ATT&CK, importante o no, anotada por sí mismo o no, la hora, la entrada en inglés. Ajustes → Servidor Syslog → Servidor syslog remoto de Unraid envía el syslog a un SIEM (Wazuh, Graylog, Splunk, Elastic …), donde reglas y paneles se encargan del resto. Sin huellas, sin líneas de prueba; como mucho 20 por ronda."
+  "help.siem_text": "Con «También al syslog» cada nueva entrada va al syslog de Unraid como una línea — etiqueta uso-watchman, JSON: id, tipo, grupo, la técnica ATT&CK, importante o no, anotada por sí mismo o no, la hora, la entrada en inglés. Ajustes → Servidor Syslog → Servidor syslog remoto de Unraid envía el syslog a un SIEM (Wazuh, Graylog, Splunk, Elastic …), donde reglas y paneles se encargan del resto. Sin huellas, sin líneas de prueba; como mucho 20 por ronda.",
+  "chain_chip": "juntas",
+  "chain_title": "Una de {n} entradas de distinto tipo llegadas en poco tiempo — quizá un solo incidente; mira el recuadro arriba del libro de guardia.",
+  "chain.text": "Estas {n} entradas llegaron en {minutes} minutos y son de distinto tipo — quizá van juntas:",
+  "chain.how": "Un inicio de sesión desde una dirección nueva y poco después una forma de quedarse (una línea de cron, un plugin, un puerto, una cuenta), o instantáneas desaparecidas y mucho escrito en un recurso compartido — así se ven las intrusiones y el ransomware. Si fuiste tú: anota las entradas y el recuadro desaparece.",
+  "notify.chain": "Sereno: {n} entradas que quizá van juntas",
+  "help.chain": "Va junto",
+  "help.chain_text": "Un Security Operations Center no mira las alertas una a una: entradas importantes de al menos dos tipos distintos, cada una a menos de una hora de otra, pueden ser un solo incidente — un inicio de sesión desde una dirección nueva y minutos después una nueva línea de cron, instantáneas desaparecidas y mucho escrito en un recurso compartido. El libro de guardia las muestra juntas arriba, cada entrada lleva «juntas», y las notificaciones de Unraid reciben un mensaje cuando se forma una cadena así (además de los de las entradas; como mucho uno por hora). Anotar una entrada la saca."
 }

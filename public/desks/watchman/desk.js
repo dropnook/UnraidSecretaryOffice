@@ -196,6 +196,7 @@ function render() {
     [T('help.host_not'), T('help.host_not_text')],
     [T('help.attack'), T('help.attack_text')],
     [T('help.siem'), T('help.siem_text')],
+    [T('help.chain'), T('help.chain_text')],
     [T('help.grafana'), T('help.grafana_text')],
     [T('help.notify'), T('help.notify_text')],
     [T('help.safe'), T('help.safe_text')],
@@ -414,6 +415,7 @@ function bookSection() {
     box.innerHTML = '';
     bookRows = [];
     const list = (state.book || []).filter((e) => !onlyOpen || e.open);
+    (state.chains || []).forEach((c) => box.appendChild(chainCallout(c)));
     list.slice(0, shown).forEach((e) => box.appendChild(entryRow(e)));
     if (!list.length) box.appendChild(el('p', 'empty', onlyOpen ? T('book.empty_open') : T('book.empty')));
     if (list.length > shown) {
@@ -435,6 +437,21 @@ function bookSection() {
   return s;
 }
 
+/** Entries that may belong together (a SOC's correlation): what came within how many minutes, oldest first */
+function chainCallout(c) {
+  const box = el('div', 'callout warn wm-chain');
+  const minutes = Math.max(1, Math.round((c.last - c.first) / 60));
+  box.appendChild(el('p', '', T('chain.text', { n: c.ids.length, minutes })));
+  const byId = new Map((state.book || []).map((e) => [e.id, e]));
+  const ul = el('ul', 'wm-chain-list');
+  c.ids.map((id) => byId.get(id)).filter(Boolean).forEach((e) => {
+    ul.appendChild(el('li', '', `${fmt.time(e.time)} · ${T('group.' + e.group)} · ${T('entry.' + e.kind, entryParams(e))}`));
+  });
+  box.appendChild(ul);
+  box.appendChild(el('p', 'wm-note', T('chain.how')));
+  return box;
+}
+
 /** One entry: what, when, noted or not; a click unfolds its details */
 function entryRow(e) {
   const watch = e.kind === 'watch';
@@ -451,6 +468,8 @@ function entryRow(e) {
     meta.appendChild(chip(T('group.' + e.group), '', T('group_title.' + e.group)));
     const tech = attackLink(e.attack);
     if (tech) meta.appendChild(tech);
+    const chain = (state.chains || []).find((c) => c.ids.includes(e.id));
+    if (chain) meta.appendChild(chip(T('chain_chip'), 'warn', T('chain_title', { n: chain.ids.length })));
   }
   const when = el('span', '', fmt.date(e.last));
   when.dataset.tip = fmt.relative(e.last);
