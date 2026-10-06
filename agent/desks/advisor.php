@@ -164,7 +164,10 @@ const ADVISOR_LOCK_MIN  = 7;
 const ADVISOR_LOCK_MAX  = 365;
 
 desk('advisor', [
-    'start'   => fn () => advisorScan(),
+    'start'   => function () {
+        advisorPreparedRestore();       // a form he prepared shortly before the agent restarted: still looked after
+        return advisorScan();
+    },
     'fit'     => fn () => fit(true, 'yes'),
     'tick'    => fn () => advisorTick(),
     'actions' => [
@@ -298,6 +301,28 @@ function advisorRelookDue(array $w, array $containers, int $now): string
         return 'scan';
     }
     return $now - (int) ($w['at'] ?? 0) > ADVISOR_RELOOK_FOR ? 'stop' : 'wait';
+}
+
+/**
+ * After an agent restart (a deploy, a plugin update): the newest form he prepared within ADVISOR_RELOOK_FOR, from
+ * his root-only record — so his tick still looks whether the container came (advisorRelookDue()).
+ */
+function advisorPreparedRestore(?int $now = null): void
+{
+    $now ??= time();
+    $file = advisorRecordFile();
+    clearstatcache();
+    $st = @lstat($file);
+    if (!$st || ($st['mode'] & 0170000) !== 0100000 || $st['uid'] !== 0 || ($st['mode'] & 0077) || $st['nlink'] !== 1 || $st['size'] > 65536) {
+        return;
+    }
+    foreach (array_reverse((array) ((readJson($file) ?? [])['installs'] ?? [])) as $r) {
+        if (is_array($r) && ($r['kind'] ?? null) === 'container' && is_string($r['id'] ?? null) && isset(ADVISOR_EXTERNALS[$r['id']])
+            && is_int($r['t'] ?? null) && $r['t'] <= $now + 60 && $now - $r['t'] <= ADVISOR_RELOOK_FOR) {
+            $GLOBALS['advisorPrepared'] = ['id' => $r['id'], 'at' => $r['t']];
+            return;
+        }
+    }
 }
 
 /** His record: where it lies (tests set $GLOBALS['advisorRecordFile']) */

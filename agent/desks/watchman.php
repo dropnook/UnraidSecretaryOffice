@@ -652,7 +652,8 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         watchmanSave($dir, $old, ['baseline' => $b, 'book' => $book, 'state' => $st, 'seen' => $observed, 'flow' => $flow, 'posture' => $known,
                                   'snaps' => $snapRes['known'] ?? null]);
         if (!$fresh && !empty($st['syslog']) && isset($paths['logger'])) {
-            watchmanSyslogForward((string) $paths['logger'], array_values(array_filter($book, fn ($e) => !isset($before[$e['id']]) && $e['kind'] !== 'watch')));
+            watchmanSyslogForward((string) $paths['logger'], array_values(array_filter($book, fn ($e) => !isset($before[$e['id']]) && $e['kind'] !== 'watch')),
+                array_values(array_filter($told, fn ($t) => $t['kind'] === 'chain')));
         }
         return ['fresh' => $fresh, 'added' => array_values($added), 'told' => $told, 'summary' => watchmanCounts($b)];
     });
@@ -1920,10 +1921,11 @@ function watchmanHostProcs(string $proc, ?array $containers): ?array
         if (@readlink("$proc/$pid/ns/mnt") !== $init) {
             if ($pidns === null) {
                 $pidns = [];
+                $hostPid = @readlink("$proc/1/ns/pid");
                 foreach ((array) $containers as $name => $c) {
                     $main = (int) ($c['pid'] ?? 0);
                     $ns = $main > 1 ? @readlink("$proc/$main/ns/pid") : false;
-                    if ($ns !== false) {
+                    if ($ns !== false && $ns !== $hostPid) {        // --pid=host: the server's own namespace is no container's
                         $pidns[$ns] ??= (string) $name;
                     }
                 }
@@ -2120,6 +2122,11 @@ function watchmanHostCompare(?array &$known, ?array $seen, ?array $prev, array $
         foreach ($seen[$part] as $key => $x) {
             if (isset($known[$part][$key])) {
                 $known[$part][$key] = $now;
+                continue;
+            }
+            // a program from an odd place counts once the round before saw it too: a container restarted between his
+            // look at Docker and at /proc (the backup does that) would show for one round as no container's (ct:?)
+            if ($part === 'procs' && !isset($prev['procs'][$key])) {
                 continue;
             }
             $added[] = watchmanSet($book, $kind, "$kind:$key", $now, $x + ['key' => (string) $key]);
@@ -5386,11 +5393,22 @@ function watchmanSyslogLine(array $e): string
         'time' => date('c', (int) ($e['time'] ?? time())), 'text' => mb_strimwidth(watchmanClean($text, 1200), 0, 700, '…')]);
 }
 
-function watchmanSyslogForward(string $logger, array $entries): void
+function watchmanSyslogForward(string $logger, array $entries, array $chains = []): void
 {
     foreach (array_slice($entries, 0, WATCH_SYSLOG_MAX) as $e) {
         run([$logger, '-t', 'uso-watchman', '-p', 'user.notice', '--', watchmanSyslogLine($e)], 5);
     }
+    foreach ($chains as $c) {               // a chain that formed: the incident, with the ids of its entries
+        run([$logger, '-t', 'uso-watchman', '-p', 'user.warning', '--', watchmanSyslogChainLine($c)], 5);
+    }
+}
+
+/** A chain for a SIEM: its entries' ids and groups, in English words */
+function watchmanSyslogChainLine(array $c): string
+{
+    $ids = array_values(array_map('strval', (array) ($c['ids'] ?? [])));
+    return jsonEncode(['v' => 1, 'kind' => 'chain', 'ids' => array_slice($ids, 0, 20), 'groups' => array_values((array) ($c['groups'] ?? [])),
+        'important' => true, 'time' => date('c'), 'text' => officeNotifyText('watchman', 'notify.chain', ['n' => count($ids)], 'en')]);
 }
 
 /** The switch on his page: also write the book's new entries to the syslog, for a SIEM — default off */
@@ -5476,17 +5494,17 @@ function watchmanChainsDue(array $book, array &$st, int $now, bool $send, ?strin
     $keep = [];
     $told = [];
     $on = ($st['notify'] ?? true) !== false;
+    $byId = array_column($book, null, 'id');
     foreach ($chains as $c) {
         $was = (int) ($known[$c['key']] ?? 0);
         $keep[$c['key']] = max($was, $on ? 0 : count($c['ids']));      // switched off: never told later
         if (!$on || count($c['ids']) <= $was || $now - (int) ($st['notified']['chain'] ?? 0) < WATCH_NOTIFY_QUIET) {
             continue;
         }
-        $byId = array_column($book, null, 'id');
         $sent = $send && watchmanChainSend(array_map(fn ($id) => $byId[$id], $c['ids']), $c, $lang ?? officeNotifyLang());
         $keep[$c['key']] = count($c['ids']);
         $st['notified']['chain'] = $now;
-        $told[] = ['kind' => 'chain', 'n' => 1, 'sent' => $sent];       // one chain (of count($c['ids']) entries)
+        $told[] = ['kind' => 'chain', 'n' => 1, 'sent' => $sent, 'ids' => $c['ids'], 'groups' => $c['groups']];     // one chain (of count($c['ids']) entries)
     }
     $st['chains'] = $keep;
     return $told;
