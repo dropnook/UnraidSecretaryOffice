@@ -6297,6 +6297,13 @@ function testWatchmanPosture(): void
     watchmanPostureAck('telnet', true, $data, $now + 920, false);
     watchmanPostureAck('telnet', false, $data, $now + 930, false);
     same('posture: «Show again»', false, $tips(940)['telnet']['known']);
+    // UPnP on (advice), Unraid Connect's remote access on (good to know) — both from the flash
+    file_put_contents($paths['ident'], "USE_TELNET=\"yes\"\nUSE_UPNP=\"yes\"\n");
+    file_put_contents("$src/connect.json", '{"dynamicRemoteAccessType":"STATIC","wanport":44321,"username":"x"}');
+    watchmanRound($paths + ['connect' => "$src/connect.json"], $data, 1000, $now + 950, $docker, false, $acks);
+    same('posture: UPnP on — advice; the WebGUI reachable from the internet — good to know, with its type and port',
+        ['advice', 'info', ['type' => 'STATIC', 'port' => '44321']], [$tips(960)['upnp']['level'] ?? null, $tips(960)['remote_access']['level'] ?? null, $tips(960)['remote_access']['p'] ?? null]);
+    file_put_contents($paths['ident'], "USE_TELNET=\"yes\"\n");
 
     // FTP with users while Fix Common Problems is there: its check, he keeps quiet; the CPU protected: good to know
     file_put_contents("$src/plugins/fix.common.problems.plg", "<PLUGIN name=\"fix.common.problems\" version=\"1\">\n");
