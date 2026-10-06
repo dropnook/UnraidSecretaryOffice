@@ -455,11 +455,16 @@ function rsLocate(string $path, array &$ctx): array
                 }
             }
             // a dataset of its own he put aside (<folder>.aside-<time>, zfs rename) took its snapshots along: still
-            // offered for this folder, as what they are — found by their mountpoint next to it
+            // offered for this folder, as what they are — found by their mountpoint next to it. Only those taken
+            // before it went aside: later ones (a backup run snapshots it too) hold the leftover, not the folder
             $aside = [];
             foreach ($ctx['zfs'] as $mp => $ads) {
-                if (preg_match('/^' . preg_quote($live, '/') . '\.aside-\d{8}-\d{6}$/D', (string) $mp)) {
+                if (preg_match('/^' . preg_quote($live, '/') . '\.aside-(\d{8}-\d{6})$/D', (string) $mp, $am)) {
+                    $asideAt = DateTimeImmutable::createFromFormat('!Ymd-His', $am[1]);
                     foreach (array_reverse($ctx['snaps'][$ads] ?? []) as $s) {
+                        if ($asideAt && $s['time'] > $asideAt->getTimestamp()) {
+                            continue;
+                        }
                         $aside[] = ['id' => "$ads@{$s['name']}", 'name' => $s['name'], 'time' => $s['time'], 'path' => "$mp/.zfs/snapshot/{$s['name']}",
                                     'ours' => backupIsEngineSnap($s['name'], $ctx['prefixes']), 'aside' => (string) $mp];
                     }
@@ -467,7 +472,8 @@ function rsLocate(string $path, array &$ctx): array
             }
             if ($aside) {
                 $p['snaps'] = array_merge($p['snaps'], $aside);
-                usort($p['snaps'], fn ($a, $b) => $b['time'] <=> $a['time']);
+                // newest first; at the same time the folder's own snapshot before the one of the folder put aside
+                usort($p['snaps'], fn ($a, $b) => [$b['time'], isset($a['aside'])] <=> [$a['time'], isset($b['aside'])]);
                 $p['snaps'] = array_slice($p['snaps'], 0, RS_SNAPS_MAX);
             }
         } elseif ($p['fs'] === 'btrfs') {

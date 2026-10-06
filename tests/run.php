@@ -2031,6 +2031,13 @@ function testRestoreFindings(): void
         [array_column($p['options']['moments'], 'id'), $p['options']['moments'][0]['aside'] ?? null, $p['target']['snap'], $p['target']['mode'],
          $p['steps'][0]['sources'] ?? null, in_array('note.files_from_aside', array_column($p['notes'], 'key'), true)]);
     same('restore findings: counted for the folder\'s row', 1, rsFolder('/mnt/user/domains/VM2', [], $c)['snaps']);
+    // a backup run after it went aside snapshots the leftover too: that one holds no state of the folder — never offered
+    $put("$aside/.zfs/snapshot/uso-backup-20261006-1828/leftover.txt", 'empty leftover');
+    $c = $ctx;
+    $c['snaps']['zz-master/domains/VM2.aside-20261006-175854'][] = ['name' => 'uso-backup-20261006-1828', 'time' => (int) strtotime('2026-10-06 18:31')];
+    same('restore findings: a snapshot of the folder put aside taken after it went aside is left out',
+        [[$mid], 1], [array_column(rsPlanFilesFor('/mnt/user/domains/VM2', '', '', false, $owner2, $stamp, $c)['options']['moments'], 'id'),
+                      rsFolder('/mnt/user/domains/VM2', [], $c)['snaps']]);
 
     // 1: du sees an unmounted ZFS snapshot (it looks inside: <path>/.), allocated and apparent of a sparse file
     same('restore findings: du looks inside a folder, apparent on request',
