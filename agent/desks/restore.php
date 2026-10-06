@@ -4158,19 +4158,28 @@ function rsSizesSave(array $changed): void
 
 // ===================================================================== hiring
 
-/** Suits a server whose backups he can bring back: packages in the backup place, or local snapshots */
-function rsFit(): array
+/**
+ * Whether he suits this server, saying what is really there (the team lead asks every few minutes: state files and the
+ * mount table only): Mr. Backupsy's packages (his last look, or the engine's last real run when it wrote packages after
+ * it — last-run.json), Mr. Backupsy set up but no packages yet, or nothing yet where ZFS/btrfs lets Mr. Backupsy work
+ * (worth hiring together with him). Without packages his page has nothing to show — snapshots alone are no reason.
+ */
+function rsFit(?array $state = null, ?array $lastRun = null, ?array $settings = null, ?array $fs = null): array
 {
-    $settings = backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');
+    $settings ??= backupReadSettings(rsUbData() . '/settings.ini');
+    $state ??= $GLOBALS['rs']['state'] ?? null;
+    $lastRun ??= readJson(rsUbData() . '/state/last-run.json');
     $base = backupDumpsPath((string) backupSetting($settings, 'general', 'dumps_share', ''));
-    $state = $GLOBALS['rs']['state'] ?? null;
     $n = count($state['apps'] ?? []) + count($state['vms'] ?? []);
-    if ($base !== null && $n) {
-        return fit(true, 'packages', ['n' => $n]);
+    // he looks at the agent's start and when asked: a real run that wrote packages since then counts too
+    $pk = is_array($lastRun['packages'] ?? null) ? $lastRun['packages'] : [];
+    if (!empty($pk['written']) && (int) ($lastRun['finished'] ?? 0) > (int) ($state['time'] ?? 0)) {
+        $n = max($n, (int) ($pk['apps'] ?? 0) + (int) ($pk['vms'] ?? 0));
     }
-    $fs = houseSnapshotFilesystems();
-    if ($fs['zfs'] || $fs['btrfs']) {
-        return fit(true, 'snapshots', ['places' => implode(', ', array_merge($fs['zfs'], $fs['btrfs']))]);
+    if ($base !== null) {
+        return $n ? fit(true, 'packages', ['n' => $n]) : fit(true, 'no_packages');
     }
-    return fit(false, 'nothing');
+    // Mr. Backupsy not set up yet: nothing to bring back — but where he can work, the two come together
+    $fs ??= houseSnapshotFilesystems();
+    return $fs['zfs'] || $fs['btrfs'] ? fit(true, 'with_backup') : fit(false, 'nothing');
 }

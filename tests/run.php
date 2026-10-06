@@ -1792,6 +1792,25 @@ function testRestore(): void
     same('restore: share paths', [['appdata', 'nextcloud/db', null], ['appdata', 'x', 'master'], null, null, null, ['domains', '', null]],
         [rsSharePath('/mnt/user/appdata/nextcloud/db/', $ctx), rsSharePath('/mnt/master/appdata/x', $ctx), rsSharePath('/mnt/disks/ud/x', $ctx),
          rsSharePath('/mnt/user/appdata/../etc', $ctx), rsSharePath('/mnt/user/.hidden/x', $ctx), rsSharePath('/mnt/user/domains', $ctx)]);
+
+    // whether he suits the server says what is really there (a fresh server: no package, no snapshot yet)
+    $set = ['general' => ['dumps_share' => ['UnraidSecretaryOffice']]];
+    $cow = ['zfs' => ['master'], 'btrfs' => []];
+    $fitOf = fn (array $f) => [$f['ok'], $f['why'], $f['params']['n'] ?? null];
+    $ran = fn (int $finished, bool $written) => ['finished' => $finished, 'packages' => ['written' => $written, 'apps' => 25, 'vms' => 3]];
+    same('restore fit: the packages of his last look', [true, 'packages', 2],
+        $fitOf(rsFit(['time' => 100, 'apps' => [['id' => 'a']], 'vms' => [['id' => 'v']]], [], $set, $cow)));
+    same('restore fit: a real run wrote packages after his last look', [true, 'packages', 28], $fitOf(rsFit(['time' => 100, 'apps' => []], $ran(200, true), $set, $cow)));
+    same('restore fit: set up, no packages yet (none written, or before his look)', [[true, 'no_packages', null], [true, 'no_packages', null], [true, 'no_packages', null]],
+        [$fitOf(rsFit(['time' => 100, 'apps' => []], $ran(200, false), $set, $cow)), $fitOf(rsFit(['time' => 300, 'apps' => []], $ran(200, true), $set, $cow)),
+         $fitOf(rsFit(['time' => 300], [], $set, ['zfs' => [], 'btrfs' => []]))]);
+    same('restore fit: a fresh server with ZFS — nothing yet, worth hiring with Mr. Backupsy (never «snapshots»)', [true, 'with_backup', null],
+        $fitOf(rsFit(['time' => 0], [], [], $cow)));
+    same('restore fit: neither packages nor ZFS/btrfs', [false, 'nothing', null], $fitOf(rsFit(['time' => 0], [], [], ['zfs' => [], 'btrfs' => []])));
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/restore/lang/en.json'), true) ?: [];
+    foreach (['packages', 'no_packages', 'with_backup', 'nothing'] as $why) {
+        check("restore fit: words for $why", isset($en["fit.$why"]));
+    }
 }
 
 /**
