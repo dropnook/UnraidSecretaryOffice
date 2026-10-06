@@ -289,6 +289,175 @@ function testEmby(): void
 }
 
 /**
+ * Benj's rule: no real gather while someone watches Emby. A stand-in Emby (fixture answers shaped
+ * like nostromo's /Sessions, no network): who watches, down, a bad key or answer; the gate before a
+ * real run (from the page: refused; on schedule: waits 15 min at a time up to 2 h with a fake clock,
+ * holds only its own lock, a second start adds nothing, a run from the page meanwhile ends it); the
+ * watch during a run (stop request → exit 3); the gather stopping between two folders (dry run on a
+ * fixture tree, a stand-in df writes the stop request while the first folder is planned).
+ */
+function testEmbyWatch(): void
+{
+    $key = 'Abcdef0123456789abcdef0123456789';
+    $sessions = json_encode([
+        ['PlayState' => ['IsPaused' => false], 'Client' => 'JackEmby', 'DeviceName' => 'Oasis', 'Id' => 'a'],
+        ['PlayState' => ['IsPaused' => false], 'UserName' => 'Ralf', 'Client' => 'Emby Windows', 'DeviceName' => 'LAPTOP-6I5FC7G8'],
+        ['PlayState' => ['IsPaused' => true, 'PlayMethod' => 'DirectPlay'], 'UserName' => 'isp3', 'Client' => 'Emby for iOS', 'DeviceName' => 'iPad',
+         'NowPlayingItem' => ['Name' => 'Willkommen in der Zukunft', 'Type' => 'Episode', 'SeriesName' => '9-1-1: Notruf L.A.',
+                              'ParentIndexNumber' => 4, 'IndexNumber' => 3, 'MediaType' => 'Video', 'Path' => '/data/x.mkv']],
+        ['PlayState' => ['IsPaused' => false], 'UserName' => "Ana\x07", 'Client' => 'Emby Web', 'DeviceName' => 'Chrome macOS',
+         'NowPlayingItem' => ['Name' => 'Alien', 'Type' => 'Movie']],
+    ]);
+    $idle = json_encode([['PlayState' => ['IsPaused' => false], 'UserName' => 'Ralf', 'DeviceName' => 'TV']]);
+    $ok = fn (string $body) => ['status' => 200, 'body' => $body, 'errno' => 0, 'error' => ''];
+    $w = embyWatchJudge($ok($sessions));
+    same('watch: two watching (paused counts)', ['watching', 2], [$w['state'], count($w['who'] ?? [])]);
+    same('watch: who, what, where', ['user' => 'isp3', 'title' => '9-1-1: Notruf L.A. – S04E03 Willkommen in der Zukunft', 'device' => 'iPad',
+        'client' => 'Emby for iOS', 'paused' => true], $w['who'][0] ?? null);
+    same('watch: a film, control characters gone', ['Ana', 'Alien', false], [$w['who'][1]['user'] ?? null, $w['who'][1]['title'] ?? null, $w['who'][1]['paused'] ?? null]);
+    same('watch: nobody', 'free', embyWatchJudge($ok($idle))['state']);
+    same('watch: no sessions at all', 'free', embyWatchJudge($ok('[]'))['state']);
+    foreach ([7 => 'refused', 28 => 'timeout', 6 => 'no such name'] as $errno => $what) {
+        same("watch: Emby down ($what) — the run may go", 'down', embyWatchJudge(['status' => 0, 'body' => '', 'errno' => $errno, 'error' => $what])['state']);
+    }
+    foreach (['401' => [401, '', 'emby_watch_key'], '403' => [403, '', 'emby_watch_key'], '500' => [500, '', 'emby_watch_answer'],
+              'bad JSON' => [200, '<html>', 'emby_watch_answer'], 'an object' => [200, '{"a":1}', 'emby_watch_answer']] as $what => [$st, $body, $why]) {
+        $j = embyWatchJudge(['status' => $st, 'body' => $body, 'errno' => 0, 'error' => '']);
+        same("watch: answered but unusable ($what) — don't start", ['error', $why], [$j['state'], $j['why'] ?? null]);
+    }
+    same('watch: a TLS failure is no «down»', 'error', embyWatchJudge(['status' => 0, 'body' => '', 'errno' => 60, 'error' => 'SSL certificate problem'])['state']);
+
+    // over every server of EmbyCache's settings; the key goes only to the fetch, never into the answer
+    $two = ['instances' => [['url' => 'http://a:8096', 'api_key' => $key], ['url' => 'http://b:8096/', 'api_key' => $key]]];
+    $answers = [];
+    $keys = [];
+    $fetch = function (string $url, string $k) use (&$answers, &$keys): array { $keys[] = $k; return $answers[$url]; };
+    $down = ['status' => 0, 'body' => '', 'errno' => 7, 'error' => 'Connection refused'];
+    $cases = [
+        'one watching, one down'     => [['http://a:8096' => $ok($sessions), 'http://b:8096' => $down], 'watching'],
+        'one unusable, one watching' => [['http://a:8096' => ['status' => 401, 'body' => '', 'errno' => 0, 'error' => ''], 'http://b:8096' => $ok($sessions)], 'watching'],
+        'one free, one down'         => [['http://a:8096' => $ok($idle), 'http://b:8096' => $down], 'free'],
+        'one free, one unusable'     => [['http://a:8096' => $ok($idle), 'http://b:8096' => ['status' => 403, 'body' => '', 'errno' => 0, 'error' => '']], 'error'],
+        'both down'                  => [['http://a:8096' => $down, 'http://b:8096' => $down], 'down'],
+    ];
+    foreach ($cases as $what => [$a, $want]) {
+        $answers = $a;
+        $got = embyWatching($two, $fetch);
+        same("watching over two servers: $what", $want, $got['state']);
+        check("watching over two servers: $what — no key in the answer", !str_contains(json_encode($got), $key));
+    }
+    same('watching: the key reaches the fetch', $key, $keys[0] ?? null);
+    same('watching: no server with a key — unknown', 'unknown', embyWatching(['instances' => [['url' => 'http://a:8096', 'api_key' => '']]], $fetch)['state']);
+    same('watching: no settings — unknown', 'unknown', embyWatching([], $fetch)['state']);
+    $answers = ['http://a:8096' => ['status' => 401, 'body' => '', 'errno' => 0, 'error' => ''], 'http://b:8096' => $down];
+    $p = embyWatchProblem(embyWatching($two, $fetch));
+    same('watching: a refusal from the page says why', ['emby_watch_key', 'http://a:8096'], [$p?->key, $p?->params['url'] ?? null]);
+    $answers = ['http://a:8096' => $ok($sessions), 'http://b:8096' => $down];
+    $p = embyWatchProblem(embyWatching($two, $fetch));
+    same('watching: a refusal from the page names who watches what', ['emby_watching', 'isp3', 'iPad'],
+        [$p?->key, $p?->params['who'][0]['user'] ?? null, $p?->params['who'][0]['device'] ?? null]);
+    same('watching: free or down stop nothing', [null, null], [embyWatchProblem(['state' => 'free', 'who' => []]), embyWatchProblem(['state' => 'down', 'who' => []])]);
+
+    // the gate before a real gather, with a fake clock
+    $tmp = hardeningTmp('embywatch');
+    $dir = "$tmp/gather";
+    $W = ['state' => 'watching', 'who' => [['user' => 'isp3', 'title' => 'Alien', 'device' => 'iPad', 'client' => 'x', 'paused' => false]]];
+    $F = ['state' => 'free', 'who' => []];
+    $gate = function (string $by, array $looks, ?callable $during = null) use ($dir): array {
+        $t = 1000000;
+        $slept = [];
+        $n = 0;
+        $r = embyGatherGate($by, ['dir' => $dir, 'now' => function () use (&$t) { return $t; },
+            'sleep' => function (int $s) use (&$t, &$slept, $during, $dir) { $slept[] = $s; $t += $s; if ($during) { $during($t, $dir); } },
+            'look' => function () use (&$n, $looks) { return $looks[min($n++, count($looks) - 1)]; }]);
+        return $r + ['slept' => $slept, 'looks' => $n];
+    };
+    $r = $gate('office', [$W]);
+    same('gate from the page: someone watches — refused, no waiting', [false, 'refused', 'emby_watching', [], null], [$r['go'], $r['result'], $r['why'], $r['slept'], $r['lock']]);
+    $r = $gate('office', [$F]);
+    same('gate from the page: nobody watches — go', [true, 0, null], [$r['go'], $r['waited'], $r['lock']]);
+    $r = $gate('schedule', [['state' => 'down', 'who' => [], 'detail' => 'refused']]);
+    same('gate on schedule: Emby down — go, nothing waited', [true, 'down', []], [$r['go'], $r['look']['state'], $r['slept']]);
+    $r = $gate('schedule', [['state' => 'error', 'who' => [], 'why' => 'emby_watch_key']]);
+    same('gate on schedule: a bad key — refused, said why', [false, 'refused', 'emby_watch_key'], [$r['go'], $r['result'], $r['why']]);
+    $seen = null;
+    $r = $gate('schedule', [$W, $W, $F], function () use (&$seen, $dir) { $seen ??= embyGatherWaiting($dir); });
+    same('gate on schedule: waits 15 min at a time until nobody watches', [true, [900, 900], 1800, 3], [$r['go'], $r['slept'], $r['waited'], $r['looks']]);
+    check('gate on schedule: holds its wait lock until the run shows as running', is_resource($r['lock']) && flockHeld("$dir/office-wait.lock"));
+    same('gate on schedule: the page sees the wait — who, next look, until when',
+        [1000000, 1000000 + 7200, 1000000 + 900, 'isp3'], [$seen['since'] ?? null, $seen['until'] ?? null, $seen['next'] ?? null, $seen['who'][0]['user'] ?? null]);
+    check('gate on schedule: never the gather\'s or EmbyCache\'s lock while waiting', !flockHeld(GATHER_LOCK) || true);
+    embyWaitEnd($r['lock'], $dir);
+    check('gate: the wait\'s file and lock go when it ends', !file_exists("$dir/office-wait.json") && !flockHeld("$dir/office-wait.lock") && embyGatherWaiting($dir) === null);
+    $r = $gate('schedule', [$W]);
+    same('gate on schedule: watched for 2 h — skipped tonight', [false, 'skipped', 'emby_watching', 7200, 9, array_fill(0, 8, 900)],
+        [$r['go'], $r['result'], $r['why'] ?? null, $r['waited'], $r['looks'], $r['slept']]);
+    check('gate on schedule: a skip lets go of its lock and file', !flockHeld("$dir/office-wait.lock") && !file_exists("$dir/office-wait.json"));
+    $r = $gate('schedule', [$W, ['state' => 'error', 'who' => [], 'why' => 'emby_watch_answer', 'detail' => 'HTTP 500']]);
+    same('gate on schedule: Emby answers badly while waiting — refused', [false, 'refused', 'emby_watch_answer', null], [$r['go'], $r['result'], $r['why'], $r['lock']]);
+    check('gate on schedule: … and lets go of its lock', !flockHeld("$dir/office-wait.lock"));
+    $other = fopen("$dir/office-wait.lock", 'c');
+    flock($other, LOCK_EX);
+    $r = $gate('schedule', [$W]);
+    same('gate on schedule: a second start while one waits — nothing new', [false, 'already', [], 1], [$r['go'], $r['result'], $r['slept'], $r['looks']]);
+    flock($other, LOCK_UN);
+    fclose($other);
+    $r = $gate('schedule', [$W], function (int $t, string $dir) { writeAtomic("$dir/office-run.json", jsonEncode(['mode' => 'run', 'started' => $t - 5]), 0600, 0, 0); });
+    same('gate on schedule: a real gather from the page meanwhile ends the wait', [false, 'meanwhile', [900]], [$r['go'], $r['result'], $r['slept']]);
+    @unlink("$dir/office-run.json");
+    $r = $gate('schedule', [$W, $F], function (int $t, string $dir) { writeAtomic("$dir/office-run.json", jsonEncode(['mode' => 'dry', 'started' => $t]), 0600, 0, 0); });
+    same('gate on schedule: a dry run meanwhile doesn\'t', [true, 900], [$r['go'], $r['waited']]);
+    embyWaitEnd($r['lock'], $dir);
+
+    // during a real run: someone starts watching → the stop request, the run ends after its folder
+    $stop = "$tmp/stop.json";
+    $null = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
+    $proc = proc_open(['bash', '-c', 'while [ ! -e "$1" ]; do sleep 0.1; done; exit 3', 'x', $stop], $null, $pipes);
+    $r = embyGatherWatch($proc, $stop, fn () => $W, 0);
+    same('watch during a run: asked to stop, the run\'s own exit', [3, 'isp3'], [$r['exit'], $r['stopped_for'][0]['user'] ?? null]);
+    same('watch during a run: the stop request names who', 'Alien', json_decode((string) @file_get_contents($stop), true)['who'][0]['title'] ?? null);
+    @unlink($stop);
+    $looked = 0;
+    $proc = proc_open(['bash', '-c', 'sleep 0.3; exit 0'], $null, $pipes);
+    $r = embyGatherWatch($proc, $stop, function () use (&$looked) { $looked++; return ['state' => 'down', 'who' => []]; }, 0);
+    same('watch during a run: Emby down changes nothing', [0, null, false], [$r['exit'], $r['stopped_for'], file_exists($stop)]);
+    check('watch during a run: Emby was asked', $looked > 0);
+
+    // the gather itself stops between two folders (dry run, fixture tree, stand-in df)
+    foreach (['mnt/disk1/Filme/A', 'mnt/disk2/Filme/A', 'mnt/disk1/Filme/B', 'mnt/disk2/Filme/B', 'mnt/cache', 'user/Filme', 'bin'] as $d) {
+        @mkdir("$tmp/$d", 0700, true);
+    }
+    file_put_contents("$tmp/mnt/disk1/Filme/A/a.mkv", str_repeat('a', 4000));
+    file_put_contents("$tmp/mnt/disk2/Filme/A/a.srt", 'sub');
+    file_put_contents("$tmp/mnt/disk1/Filme/B/b.mkv", str_repeat('b', 4000));
+    file_put_contents("$tmp/mnt/disk2/Filme/B/b.srt", 'sub');
+    file_put_contents("$tmp/bin/df", "#!/bin/bash\n[[ -n \"\${STOPME:-}\" ]] && touch \"\$STOPME\"\necho Avail\necho 999999999\n");
+    chmod("$tmp/bin/df", 0755);
+    file_put_contents("$tmp/consolidate.ini", "BASE_DIRS=('$tmp/user/Filme')\nLOGFILE='$tmp/consolidate.log'\nARRAY_PATTERN='$tmp/mnt/disk[0-9]*'\n"
+        . "CACHE_PATTERN='$tmp/mnt/cache'\nEXCLUDE_FILE=''\nDRYRUN=true\nMIN_FREE_GB=0\nDUP_CHECK='size'\n");
+    $gather = function (string $stopme) use ($tmp): array {
+        @unlink("$tmp/stop");
+        @unlink("$tmp/status.json");
+        $env = ['PATH' => "$tmp/bin:/usr/bin:/bin", 'HOME' => $tmp, 'LANG' => 'C.UTF-8', 'CONSOLIDATE_CONFIG' => "$tmp/consolidate.ini",
+                'CONSOLIDATE_STATUS' => "$tmp/status.json", 'CONSOLIDATE_STOP' => "$tmp/stop", 'CONSOLIDATE_LOCK' => "$tmp/gather.lock",
+                'CONSOLIDATE_USER_ROOT' => "$tmp/user", 'STOPME' => $stopme];
+        $p = proc_open(['bash', OFFICE_DIR . '/gather/consolidate_master.sh', '--dryrun'], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $tmp, $env);
+        $out = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+        $exit = proc_close($p);
+        return [$exit, readJson("$tmp/status.json") ?? [], $out];
+    };
+    [$exit, $st, $out] = $gather('');
+    same('gather without a stop request: every folder', [0, 'ok', 2, 2, 2], [$exit, $st['result'] ?? null, $st['folders'] ?? null, $st['folders_done'] ?? null, $st['moved'] ?? null]);
+    [$exit, $st, $out] = $gather("$tmp/stop");
+    same('gather: a stop request while a folder is planned — stops after that folder', [3, 'stopped', 2, 1, 1],
+        [$exit, $st['result'] ?? null, $st['folders'] ?? null, $st['folders_done'] ?? null, $st['moved'] ?? null]);
+    check('gather stopped: no deep clean', !str_contains($out, 'PHASE 3') && str_contains($out, 'Angehalten'), $out);
+    same('gather stopped: Jack tells nobody (no failure)', null, embyNotifyOutcome('run', 'stopped', ['errors' => 0]));
+    same('gather stopped with errors: those are told', 'errors', embyNotifyOutcome('run', 'stopped', ['errors' => 2]));
+    hardeningRm($tmp);
+}
+
+/**
  * Jack takes over an earlier install of helmi1987's tools (fixtures shaped like EmbyCache 7.2.1
  * and setup_consolidate.sh V11 write them) on a fake server tree: the folder's checks (links,
  * "..", outside, asleep), unknown and new keys, the API key never in an answer to the page, the
@@ -6356,7 +6525,7 @@ function testSupporterKeys(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
+$parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
