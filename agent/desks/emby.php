@@ -1146,7 +1146,7 @@ function embyImportSettings(array $old, array $ctx, ?array $current, array &$pv,
         }
         if (!array_key_exists($k, $old)) {
             $cfg[$k] = $def;
-            $pv['defaults'][] = ['key' => $k, 'value' => $def];
+            $pv['defaults'][] = ['key' => $k, 'old' => $current !== null && array_key_exists($k, $current) ? embyImportShow($current[$k]) : null, 'value' => $def];
             continue;
         }
         $v = $old[$k];
@@ -1245,9 +1245,10 @@ function embyImportSettings(array $old, array $ctx, ?array $current, array &$pv,
     // what kind each library is: only the office's overview — kept from Jack's own where the name matches
     $cfg['library_types'] = array_intersect_key(is_array($current['library_types'] ?? null) ? $current['library_types'] : [], array_flip($cfg['libraries']));
 
+    $listed = array_merge(['instances', 'path_mappings', 'valid_users', 'library_types', 'libraries'], array_column($pv['defaults'], 'key'), array_column($pv['jack'], 'key'));
     foreach ($cfg as $k => $v) {
-        if (in_array($k, ['instances', 'path_mappings', 'valid_users', 'library_types'], true)) {
-            continue;
+        if (in_array($k, $listed, true)) {
+            continue;                                  // shown with the servers, people, defaults or Jack's own
         }
         if ($current !== null && array_key_exists($k, $current) && $current[$k] === $v) {
             $pv['same']++;
