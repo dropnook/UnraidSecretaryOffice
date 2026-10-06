@@ -52,5 +52,6 @@
 .wa-advice-acts{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; padding-top:2px}
 .wa-advice-known .row-name, .wa-advice-known .row-detail{color:var(--muted)}
 .wa-advice-none{margin:0 2px}
+.wa-advice-cmd{margin-top:6px; padding:6px 8px; border-radius:6px; background:var(--surface2); font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; user-select:all}
 @media (max-width:640px){ .row.wa-advice{grid-template-columns:minmax(0,1fr)} .wa-advice-acts{justify-content:flex-start} }
 }

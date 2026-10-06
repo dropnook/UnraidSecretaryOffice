@@ -289,7 +289,7 @@ function advice() {
   const a = state && state.advice;
   if (!a) return [];
   const out = [];
-  const add = (id, level, params, link, sig) => out.push({ id, level, params, link, sig: `${id}|${sig ?? ''}` });
+  const add = (id, level, params, link, sig, cmds) => out.push({ id, level, params, link, sig: `${id}|${sig ?? ''}`, cmds });
   const shares = state.shares || [];
 
   const onArray = shares.filter((s) => (a.system_shares || []).includes(s.name) && (s.storage.primary === 'array' || s.storage.secondary === 'array'));
@@ -312,6 +312,18 @@ function advice() {
 
   const privileged = (state.containers || []).filter((c) => c.privileged).map((c) => c.name);
   if (privileged.length) add('privileged', 'info', { names: listNames(privileged), n: privileged.length }, { path: '/Docker', text: T('adv.to_docker') }, privileged.join(','));
+
+  // stacks that build their own image: Compose Manager's (Force) Update only pulls — a rebuild in a terminal instead
+  const built = (state.compose || []).filter((p) => p.builds && p.folder);
+  if (built.length) {
+    const label = (p) => {
+      const images = [...new Set((state.containers || []).filter((c) => c.compose && c.compose.project === p.project
+        && (!p.build.length || p.build.includes(c.compose.service))).map((c) => c.image))];
+      return images.length ? `${p.name} (${images.join(', ')})` : p.name;
+    };
+    add('compose_build', 'info', { names: listNames(built.map(label), 3), n: built.length }, { path: '/Docker', text: T('adv.to_docker') },
+      built.map((p) => `${p.project}:${p.build.join('+')}`).join(','), built.map(rebuildCommand));
+  }
 
   const sp = a.spindown || {};
   if (sp.default === '0') add('spindown_default', 'advice', {}, { path: '/Settings/DiskSettings', text: T('adv.to_disks') });
@@ -339,6 +351,13 @@ function advice() {
       { path: '/Main', text: T('adv.to_main') }, cpu.covered.join(','));
   }
   return out;
+}
+
+/** The rebuild of a stack that builds its own image, run in its folder: build --pull for those services, then up -d */
+function rebuildCommand(p) {
+  const sh = (x) => (/^[A-Za-z0-9_\/.,:@%+=-]+$/.test(x) ? x : `'${x.replace(/'/g, `'\\''`)}'`);
+  const dc = `docker compose -p ${sh(p.project)}${p.env_file ? ` --env-file ${sh(p.env_file)}` : ''}`;
+  return `cd ${sh(p.folder)} && ${dc} build --pull${p.build.map((x) => ' ' + sh(x)).join('')} && ${dc} up -d`;
 }
 
 function adviceHidden() {
@@ -383,6 +402,7 @@ function adviceRow(x, known) {
   meta.appendChild(chip);
   main.appendChild(meta);
   main.appendChild(el('div', 'row-detail', T(`adv.${x.id}.why`, x.params)));
+  if (x.cmds && x.cmds.length) main.appendChild(el('div', 'mono wa-advice-cmd', x.cmds.join('\n')));
   r.appendChild(main);
   const acts = el('div', 'wa-advice-acts');
   if (x.link) {

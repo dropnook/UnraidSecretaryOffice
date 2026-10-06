@@ -796,6 +796,39 @@ function testLogsTour(): void
     check('logs kind: another message is another kind', $kind('Oct  5 01:02:03 Tower sshd[1]: error: connect_to 127.0.0.1 port 18080: failed.')
         !== $kind('Oct  5 01:02:03 Tower sshd[1]: Read error from remote host 127.0.0.1 port 18080: Connection reset by peer'));
 
+    // ... nor do file names and paths: quoted, absolute (also with spaces), relative, Samba's "for <name> with NT_STATUS_…"
+    $samePairs = [
+        'Samba inherit_new_acl' => ['Oct  5 12:00:00 Tower smbd[12]:   open_file_ntcreate: inherit_new_acl failed for Fotos/2024/IMG_0001.jpg with NT_STATUS_ACCESS_DENIED',
+                                    'Oct  5 12:30:00 Tower smbd[99]:   open_file_ntcreate: inherit_new_acl failed for Dokumente/Steuer 2025/Beleg Nr. 7.pdf with NT_STATUS_ACCESS_DENIED'],
+        'Samba [file]'          => ['Oct  5 12:00:00 Tower smbd[12]:   streams_xattr_pwrite: Write to xattr [user.DosStream.WofCompressedData:$DATA] on file [Windows/System32/fr-FR/wmerror.dll.mui] exceeds maximum',
+                                    'Oct  5 12:00:01 Tower smbd[12]:   streams_xattr_pwrite: Write to xattr [user.DosStream.WofCompressedData:$DATA] on file [Windows/SysWOW64/ErrorDetails.dll] exceeds maximum'],
+        'quoted path'           => ['Oct  4 23:21:47 Tower nginx: 2026/10/04 23:21:47 [error] 1#1: *1 open() "/usr/local/emhttp/a/question.png" failed (2: No such file or directory), request: "GET /a/question.png HTTP/1.1", referrer: "http://192.168.7.59/Dashboard"',
+                                    'Oct  4 23:21:48 Tower nginx: 2026/10/04 23:21:48 [error] 1#1: *2 open() "/usr/local/emhttp/b/c/logo.svg" failed (2: No such file or directory), request: "GET /b/c/logo.svg?v=3 HTTP/1.1", referrer: "http://tower.local/Docker"'],
+        'quoted file name'      => ["[05-Oct-2026 08:24:47 Europe/Berlin] PHP Warning:  file_get_contents('state.json'): Failed to open stream",
+                                    "[05-Oct-2026 08:24:48 Europe/Berlin] PHP Warning:  file_get_contents('/tmp/other folder/x.json'): Failed to open stream"],
+        'absolute path'         => ["Oct  5 03:40:01 Tower move: create_parent: /mnt/master/Serien/Gabby's.Dollhouse.(2019)/Season.04 error: No space left on device",
+                                    'Oct  5 03:40:02 Tower move: create_parent: /mnt/master/Serien/Slow.Horses/Season.01 error: No space left on device'],
+        'absolute with spaces'  => ['Oct  5 03:40:01 Tower move: move: /mnt/cache/Filme/Der Name der Rose (1986)/Der Name der Rose.mkv No space left on device',
+                                    'Oct  5 03:40:02 Tower move: move: /mnt/cache/Serien/Slow.Horses/Season.04/Slow.Horses.-.S04E01.mkv No space left on device'],
+    ];
+    foreach ($samePairs as $what => [$a, $b]) {
+        same("logs kind: $what", $kind($a), $kind($b));
+    }
+    $otherPairs = [
+        'Samba: another status' => ['Oct  5 12:00:00 Tower smbd[12]:   inherit_new_acl failed for a/b.txt with NT_STATUS_ACCESS_DENIED',
+                                    'Oct  5 12:00:00 Tower smbd[12]:   inherit_new_acl failed for a/b.txt with NT_STATUS_DISK_FULL'],
+        'quoted words'          => ['time="2026-10-05T20:00:00Z" level=warning msg="cleanup failed"', 'time="2026-10-05T20:00:00Z" level=warning msg="restore failed"'],
+        'the words after a path' => ['Oct  5 03:40:01 Tower move: create_parent: /mnt/a/b error: No space left on device',
+                                    'Oct  5 03:40:01 Tower move: create_parent: /mnt/a/b error: Read-only file system'],
+    ];
+    foreach ($otherPairs as $what => [$a, $b]) {
+        check("logs kind: $what stays apart", $kind($a) !== $kind($b), $kind($a));
+    }
+    same('logs kind: dates, HTTP/1.1, I/O and a lone slash are no paths', 'on 2026/10/04 via HTTP/1.1: I/O error, files / folders',
+        logsNormalizePaths('on 2026/10/04 via HTTP/1.1: I/O error, files / folders'));
+    same('logs kind: a quoted message stays', 'msg="Database locked, sleeping then retrying" [error] "HTTP/3 skipped"',
+        logsNormalizePaths('msg="Database locked, sleeping then retrying" [error] "HTTP/3 skipped"'));
+
     // times at the start of a line
     $times = [
         '2026-10-05 20:52:37.064+0000: 268179: error : x' => '2026-10-05 22:52:37',
@@ -869,6 +902,16 @@ function testLogsTour(): void
     ksort($names);
     ksort($want);
     same("logs: desk.js LEVEL_NAMES are the agent's", $want, $names);
+}
+
+/** Ms. Whereabouts: which services of a compose file build their own image (her rebuild tip) */
+function testComposeBuilds(): void
+{
+    $yaml = "name: x\nservices:\n  db:\n    image: mariadb:11\n    environment:\n      build: no   # an env value, not a key of the service\n"
+          . "  app:\n    # Updates: docker compose build --pull\n    image: nextcloud-ocr:\${V}\n    build:\n      context: .\n"
+          . "  \"web\":\n    build: ./web\n  cron:\n    image: nextcloud-ocr:\${V}\nnetworks:\n  build:\n    driver: bridge\n";
+    same('compose builds: services with build:, nothing else', ['app', 'web'], waComposeBuilds($yaml));
+    same('compose builds: none', [], waComposeBuilds("services:\n  a:\n    image: x\n"));
 }
 
 /**
@@ -1111,6 +1154,29 @@ function testWatchman(): void
     $m = watchmanMetrics($data);
     same('watch metrics: open per kind, the last round', ['uso_watchman_open_findings', count(WATCH_KINDS), 1, 'uso_watchman_last_round_timestamp_seconds', $now + 300 + 600 + WATCH_NOTIFY_QUIET],
         [$m[0]['name'], count($m[0]['samples']), array_column(array_map(fn ($s) => [$s[0]['kind'], $s[1]], $m[0]['samples']), 1, 0)['login_failures'], $m[1]['name'], $m[1]['samples'][0][1]]);
+
+    // the switch (like the team lead's): off — nothing told, and what came meanwhile stays untold once it is on again
+    $book2 = [watchmanEntry('flash_user', 'flash_user:zed', $now, ['user' => 'zed'])];
+    $st2 = ['notify' => false];
+    $before = count($calls());
+    $t2 = watchmanNotifyDue($book2, $st2, $now + 99999, true, 'en');
+    same('watch switch off: nothing told, the entry muted', [[], $before, true, null], [$t2, count($calls()), !empty($book2[0]['muted']), $book2[0]['told'] ?? null]);
+    $st2['notify'] = true;
+    $t2 = watchmanNotifyDue($book2, $st2, $now + 99999 + 60, true, 'en');
+    same('watch switch on again: what came meanwhile stays untold', [[], $before], [$t2, count($calls())]);
+    $book2[] = watchmanEntry('flash_user', 'flash_user:amy', $now, ['user' => 'amy']);
+    $t2 = watchmanNotifyDue($book2, $st2, $now + 99999 + 120, true, 'en');
+    same('watch switch on: what is new is told', [[['kind' => 'flash_user', 'n' => 1, 'sent' => true]], $before + 1], [$t2, count($calls())]);
+    same('watch switch: on by default', true, watchmanPageState($data, $now + 5000, false)['notify']['on']);
+    watchmanNotifySet(false, $data, false);
+    same('watch switch: kept in his state, the page sees it', [false, false], [watchmanLoad($data)['state']['notify'] ?? null, watchmanPageState($data, $now + 5000, false)['notify']['on']]);
+    watchmanNotifySet(true, $data, false);
+    try {
+        watchmanNotifySet('yes', $data, false);
+        check('watch switch: only true or false', false);
+    } catch (Problem $e) {
+        same('watch switch: only true or false', 'bad_request', $e->key);
+    }
 
     // hired anew: a new look at what is normal, what was open is closed
     $r = watchmanRound($paths, $data, 2000, $now + 9000, $docker, true, $acks);
@@ -1871,6 +1937,8 @@ function testPinTries(): void
         }
     }
     require_once OFFICE_DIR . '/src/auth.php';
+    $addrBefore = $_SERVER['REMOTE_ADDR'] ?? null;
+    $_SERVER['REMOTE_ADDR'] = '192.168.7.50';
     officeSetPin('2468', '');
     same('PIN set', 'pin', officeAuthMode());
     same('auth.json only for its owner', '600', substr(sprintf('%o', fileperms(officeAuthFile())), -3));
@@ -1892,6 +1960,48 @@ function testPinTries(): void
         $key = $e->key;
     }
     same('while waiting even the right PIN waits', 'pin_wait', $key);
+
+    // per client: the one who guessed waits, the others don't (IPv6 by its /64, IPv4 mapped into IPv6 as IPv4)
+    $try = function (string $addr, string $pin): string {
+        $_SERVER['REMOTE_ADDR'] = $addr;
+        try {
+            officeUnlock($pin);
+            return 'unlocked';
+        } catch (AuthProblem $e) {
+            return $e->key;
+        }
+    };
+    same('PIN per client: another client is not kept waiting', 'unlocked', $try('192.168.7.51', '2468'));
+    same('PIN per client: the one who guessed still waits', ['pin_wait', 'pin_wait'], [$try('192.168.7.50', '2468'), $try('::ffff:192.168.7.50', '2468')]);
+    $six = [];
+    foreach (range(1, OFFICE_FREE_TRIES) as $i) {
+        $six[] = $try("2001:db8::$i", '0000');
+    }
+    same('PIN per client: IPv6 addresses of one /64 are one client', array_merge(array_fill(0, OFFICE_FREE_TRIES, 'pin_wrong'), ['pin_wait']),
+        array_merge($six, [$try('2001:db8::99', '2468')]));
+    same('PIN per client: another /64 is another client', 'pin_wrong', $try('2001:db8:0:1::1', '0000'));
+    same('PIN per client: a right PIN starts that client anew', ['unlocked', 'pin_wrong'], [$try('192.168.7.52', '2468'), $try('192.168.7.52', '0000')]);
+
+    // all clients together: after OFFICE_GLOBAL_TRIES everybody waits — many addresses can't guess on and on
+    $keys = [];
+    for ($i = 0; count($keys) < OFFICE_GLOBAL_TRIES + 5; $i++) {
+        $keys[] = $try('10.0.' . intdiv($i, 3) . '.' . ($i % 3 + 1), '0000');
+    }
+    check('PIN for all: every client waits after the tries of all', in_array('pin_wait', $keys, true)
+        && (int) (officeAuthRead()['failures'] ?? 0) >= OFFICE_GLOBAL_TRIES, json_encode(array_count_values($keys)));
+    same('PIN for all: a fresh client waits too', 'pin_wait', $try('172.16.0.1', '2468'));
+    check('PIN per client: only so many clients kept', count((array) (officeAuthRead()['clients'] ?? [])) <= OFFICE_CLIENTS_MAX);
+
+    // open actions that do more than read or measure need the PIN
+    same('PIN for open actions: setup plan and waking disks', [true, true, false, false],
+        [officeOpenNeedsPin('backup.setup_plan', []), officeOpenNeedsPin('snapshot.scan', ['wake' => true]),
+         officeOpenNeedsPin('snapshot.scan', ['wake' => false]), officeOpenNeedsPin('cleanup.measure', ['ids' => ['x']])]);
+
+    if ($addrBefore === null) {
+        unset($_SERVER['REMOTE_ADDR']);
+    } else {
+        $_SERVER['REMOTE_ADDR'] = $addrBefore;
+    }
     same('no temporary files left', [], glob("$dir/office/.auth.*.tmp") ?: []);
     hardeningRm($dir);
 }
@@ -2179,7 +2289,7 @@ function testIconSquare(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testUserScripts', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testAdvisor', 'testLogsTour', 'testMetrics', 'testWatchman'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testAdvisor', 'testLogsTour', 'testMetrics', 'testWatchman', 'testComposeBuilds'],
           'hardening' => ['testPinTries', 'testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';

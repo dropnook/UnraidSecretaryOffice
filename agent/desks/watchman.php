@@ -110,6 +110,7 @@ desk('watchman', [
         'round'   => fn (array $r) => watchmanRoundNow(),
         'ack'     => fn (array $r) => watchmanAck($r['id'] ?? null),
         'ack_all' => fn (array $r) => watchmanAck('*'),
+        'notify_set' => fn (array $r) => watchmanNotifySet($r['on'] ?? null),
     ],
     'jobs'    => ['watchman-round' => fn (array $args) => watchmanRun()],
     'checks'  => fn (): array => watchmanChecks(),
@@ -1583,15 +1584,22 @@ function watchmanChecks(?string $dir = null): array
 function watchmanNotifyDue(array &$book, array &$st, int $now, bool $send, ?string $lang = null): array
 {
     $told = [];
+    $on = ($st['notify'] ?? true) !== false;
     foreach (WATCH_KINDS as $kind => [, $important]) {
         if (!$important) {
             continue;
         }
         $new = [];
         foreach ($book as $i => $e) {
-            if ($e['kind'] === $kind && watchmanOpen($e) && empty($e['told'])) {
+            if ($e['kind'] === $kind && watchmanOpen($e) && empty($e['told']) && empty($e['muted'])) {
                 $new[] = $i;
             }
+        }
+        if (!$on) {
+            foreach ($new as $i) {
+                $book[$i]['muted'] = $now;      // switched off: never told, also not once switched on again
+            }
+            continue;
         }
         if (!$new || $now - (int) ($st['notified'][$kind] ?? 0) < WATCH_NOTIFY_QUIET) {
             continue;
@@ -1607,6 +1615,26 @@ function watchmanNotifyDue(array &$book, array &$st, int $now, bool $send, ?stri
         $st['last_notify'] = ['time' => $now, 'items' => $told];
     }
     return $told;
+}
+
+/** The switch on his page (like the team lead's): report to Unraid's notifications or not — default on */
+function watchmanNotifySet(mixed $on, ?string $dir = null, bool $page = true): array
+{
+    if (!is_bool($on)) {
+        throw new Problem('bad_request');
+    }
+    $dir ??= watchmanDir();
+    watchmanLocked($dir, function () use ($dir, $on): void {
+        $d = watchmanLoad($dir);
+        $st = $d['state'];
+        $st['notify'] = $on;
+        watchmanSave($dir, $d, ['state' => $st]);
+    });
+    if (!$page) {
+        return ['ok' => true];
+    }
+    logLine("Night watchman: reports to Unraid's notifications " . ($on ? 'on' : 'off'));
+    return ['ok' => true, 'state' => watchmanPageState()];
 }
 
 /** One notification for a kind: the bell's line, the newest in its words, each entry with its time */
@@ -1673,7 +1701,7 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
                    'time' => (int) $e['time'], 'last' => (int) $e['last'], 'count' => (int) $e['count'],
                    'open' => watchmanOpen($e), 't' => watchmanText($e),
                    'p' => array_filter((array) ($e['p'] ?? []), fn ($k) => !str_starts_with((string) $k, '_'), ARRAY_FILTER_USE_KEY),
-                   'noted' => $e['noted'] ?? null, 'by' => $e['by'] ?? null, 'told' => $e['told'] ?? null];
+                   'noted' => $e['noted'] ?? null, 'by' => $e['by'] ?? null, 'told' => $e['told'] ?? null, 'muted' => $e['muted'] ?? null];
     }
     usort($book, fn ($x, $y) => [$y['last'], $y['time']] <=> [$x['last'], $x['time']]);
     $onWatch = is_array($b) && $since !== null && (int) ($b['hired'] ?? -1) === $since;
@@ -1695,6 +1723,7 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         'book'     => $book,
         'watch'    => $onWatch ? watchmanSummary($b) : null,
         'notified' => $st['last_notify'] ?? null,
+        'notify'   => ['on' => ($st['notify'] ?? true) !== false, 'available' => is_executable(OFFICE_NOTIFY_BIN)],
         'limits'   => ['every' => WATCH_EVERY, 'burst' => WATCH_FAIL_BURST, 'window' => WATCH_FAIL_WINDOW,
                        'quiet' => WATCH_NOTIFY_QUIET, 'keep' => WATCH_BOOK_MAX, 'days' => WATCH_BOOK_DAYS],
     ];

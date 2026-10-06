@@ -864,14 +864,14 @@ function logsLineTime(string $line): array
 }
 
 /**
- * The line as she compares it: without its leading time; UUIDs, MAC and IP
- * addresses, hex ids, and then every number replaced by a placeholder;
- * lower case, spaces squeezed, the first 240 characters. Lines that only
- * differ there are one kind.
+ * The line as she compares it: without its leading time; file names and paths
+ * (logsNormalizePaths()), UUIDs, MAC and IP addresses, hex ids, and then every
+ * number replaced by a placeholder; lower case, spaces squeezed, the first 240
+ * characters. Lines that only differ there are one kind.
  */
 function logsNormalize(string $line, int $prefix = 0): string
 {
-    $s = substr($line, $prefix);
+    $s = logsNormalizePaths(substr($line, $prefix));
     $s = preg_replace([
         '/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i',     // UUIDs
         '/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/i',                                     // MAC addresses
@@ -883,6 +883,59 @@ function logsNormalize(string $line, int $prefix = 0): string
         '/\s+/',
     ], ['<uuid>', '<mac>', '<ip>', '<ip>', '<hex>', '<hex>', '#', ' '], $s) ?? $s;
     return substr(strtolower(trim($s)), 0, 240);
+}
+
+/**
+ * File names and paths as one placeholder, so lines that only name another file are one kind:
+ * addresses with a scheme (http://…), quoted ones ("…", '…', […], `…`, “…”, ‘…’, «…») when what is
+ * inside looks like a path or a file name (starts like a path; a slash and no space, or a slash and a
+ * file ending; name.ext), absolute paths outside quotes — with the words up to their last slash and a
+ * file name with an ending, as names may hold spaces (/mnt/user/My Film (2020)/My Film.mkv) —, relative ones with a slash
+ * (Windows/System32/x.dll; not HTTP/1.1, dates or I/O) and Samba's "… for <name> with NT_STATUS_…".
+ */
+function logsNormalizePaths(string $s): string
+{
+    $p = '<path>';
+    $s = preg_replace('~(?<=\bfor ).+?(?= with NT_STATUS_[A-Z_]+)~', $p, $s) ?? $s;            // Samba
+    $s = preg_replace('~\b[a-z][a-z0-9+.-]{1,15}://[^\s"\'<>\[\]]+~i', $p, $s) ?? $s;          // URLs
+    $s = preg_replace_callback('~"([^"\n]{1,1000})"|(?<![\w\'])\'([^\'\n]{1,1000})\'(?![\w\'])|\[([^\[\]\n]{1,1000})\]|`([^`\n]{1,1000})`'
+        . '|\xe2\x80\x9c(.{1,1000}?)\xe2\x80\x9d|\xe2\x80\x98(.{1,1000}?)\xe2\x80\x99|\xc2\xab(.{1,1000}?)\xc2\xbb~',
+        function (array $m) use ($p): string {
+            $inner = implode('', array_slice($m, 1));       // the one group that matched
+            return logsLooksLikePath($inner) ? str_replace($inner, $p, $m[0]) : $m[0];
+        }, $s) ?? $s;
+    // absolute: with the words up to the last one with a slash, until a word with a colon (the message goes on
+    // there), and then a file name of a few words with an ending (/mnt/cache/Filme/Der Name der Rose.mkv)
+    $s = preg_replace_callback('~(?<![^\s=(:,])/(?=[^\s/])[^\s"<>]*(?:(?:\s+[^\s"<>:/]+)*\s+[^\s"<>:]*/[^\s"<>]*)*'
+        . '(?:(?:\s+[^\s"<>:/]+){0,5}?\s+[^\s"<>:/]+\.[a-z][a-z0-9]{1,4}(?=[\s:,;)]|$))?~i',
+        fn (array $m): string => $p . logsTrailing($m[0]), $s) ?? $s;
+    // relative: a word with a slash, letters before and after its last slash, at least 4 characters
+    return preg_replace_callback('~(?<![^\s=(:,])[^\s"<>/\[\]]+/[^\s"<>]+~', function (array $m) use ($p): string {
+        $tail = logsTrailing($m[0]);
+        $word = substr($m[0], 0, strlen($m[0]) - strlen($tail));
+        $cut = (int) strrpos($word, '/');
+        return strlen($word) >= 4 && preg_match('~[a-z]~i', substr($word, $cut + 1)) && preg_match('~[a-z]~i', substr($word, 0, $cut))
+            ? $p . $tail : $m[0];
+    }, $s) ?? $s;
+}
+
+/** Does what stands in quotes look like a path or a file name? Starts like one, or a slash and no space, or a slash and a file ending, or name.ext */
+function logsLooksLikePath(string $c): bool
+{
+    if (preg_match('~^(?:[a-z]:[\\\\/]|\~?/|\.\.?/)~i', $c)) {
+        return true;
+    }
+    $ext = '\.[a-z0-9]*[a-z][a-z0-9]*$';
+    if (str_contains(strtr($c, '\\', '/'), '/') && preg_match('~[a-z]~i', $c)) {
+        return !preg_match('~\s~', $c) || preg_match("~$ext~i", $c);
+    }
+    return (bool) preg_match('~^[^\s/\\\\]+\.[a-z][a-z0-9]{0,5}$~i', $c);
+}
+
+/** The punctuation a path doesn't end with (the sentence's: "…/x.mkv:", "(/x)") */
+function logsTrailing(string $s): string
+{
+    return preg_match('~[.,:;)\]\']+$~', $s, $m) ? $m[0] : '';
 }
 
 /**

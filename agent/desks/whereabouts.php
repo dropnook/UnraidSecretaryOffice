@@ -486,13 +486,16 @@ function waComposeProjects(array $containers): array
                 $files[] = "$where/$f";
             }
         }
-        // host paths mentioned in the compose files (also when the stack is down)
-        $paths = [];
+        // host paths mentioned in the compose files (also when the stack is down); services whose image is
+        // built here (build:) — Compose Manager's update only pulls, so they need a rebuild
+        $paths = $build = [];
         foreach ($files as $f) {
-            preg_match_all('#(?<![\w$}])(/mnt/[^\s:"\'\#,\]]+)#', (string) @file_get_contents($f), $m);
+            $text = (string) @file_get_contents($f);
+            preg_match_all('#(?<![\w$}])(/mnt/[^\s:"\'\#,\]]+)#', $text, $m);
             foreach ($m[1] as $p) {
                 $paths[rtrim($p, '/')] = true;
             }
+            $build = array_merge($build, waComposeBuilds($text));
         }
         $members = [];
         foreach ($containers as $c) {
@@ -500,11 +503,16 @@ function waComposeProjects(array $containers): array
                 $members[] = ['name' => $c['name'], 'state' => $c['state']];
             }
         }
+        $envPath = trim((string) @file_get_contents("$dir/envpath"));
         $projects[] = [
             'name'       => $name,
             'project'    => $project,
             'dir'        => $dir,
+            'folder'     => $where,
             'files'      => $files,
+            'build'      => array_values(array_unique($build)),
+            'builds'     => $build || trim((string) @file_get_contents("$dir/has_build")) === '1',   // Compose Manager's own note
+            'env_file'   => $envPath !== '' && is_file($envPath) ? $envPath : null,
             'env'        => is_file("$where/.env"),
             'autostart'  => trim((string) @file_get_contents("$dir/autostart")) === 'true',
             'containers' => $members,
@@ -512,6 +520,45 @@ function waComposeProjects(array $containers): array
         ];
     }
     return $projects;
+}
+
+/**
+ * The services of a compose file that build their image (a key build: in the service) — a plain look at the
+ * indentation, no YAML parser: top-level services:, its children are the services, their keys one level deeper.
+ *
+ * @return list<string>
+ */
+function waComposeBuilds(string $text): array
+{
+    $out = [];
+    $inServices = false;
+    $svcIndent = $keyIndent = null;
+    $svc = null;
+    foreach (preg_split('/\R/', $text) ?: [] as $line) {
+        if (trim($line) === '' || preg_match('/^\s*#/', $line)) {
+            continue;
+        }
+        $indent = strlen($line) - strlen(ltrim($line, ' '));
+        if ($indent === 0) {
+            $inServices = (bool) preg_match('/^services:\s*(#.*)?$/', $line);
+            $svcIndent = $svc = null;
+            continue;
+        }
+        if (!$inServices) {
+            continue;
+        }
+        $svcIndent ??= $indent;
+        if ($indent === $svcIndent) {
+            $svc = preg_match('/^\s*["\']?([A-Za-z0-9][A-Za-z0-9._-]*)["\']?:\s*(#.*)?$/D', $line, $m) ? $m[1] : null;
+            $keyIndent = null;
+        } elseif ($svc !== null && $indent > $svcIndent) {
+            $keyIndent ??= $indent;
+            if ($indent === $keyIndent && preg_match('/^\s*["\']?build["\']?\s*:/', $line)) {
+                $out[$svc] = true;
+            }
+        }
+    }
+    return array_keys($out);
 }
 
 function waTemplates(array $containers): array

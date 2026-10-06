@@ -15,7 +15,14 @@ declare(strict_types=1);
  * officeAuthMode() and officeUnlocked() are the only places that decide.
  *
  * Desks name the actions anybody may call ("open_actions" in desk.json,
- * plus "refresh"); everything else needs an unlocked browser.
+ * plus "refresh"); everything else needs an unlocked browser — and so do the
+ * open actions that do more than read or measure (OFFICE_PIN_ACTIONS, and any
+ * asked to wake sleeping disks: OFFICE_PIN_FLAGS).
+ *
+ * Wrong PINs are counted per client (its address; IPv6 by its /64): after
+ * OFFICE_FREE_TRIES that client waits, the others don't. All clients together
+ * get OFFICE_GLOBAL_TRIES before everybody waits — so many addresses can't
+ * guess on and on either.
  *
  * Forgot the PIN? Delete data/office/auth.json on the server.
  */
@@ -24,14 +31,22 @@ const OFFICE_UNLOCK_HOURS = 12;
 const OFFICE_COOKIE       = 'office_unlock';
 const OFFICE_PIN_MIN      = 4;
 const OFFICE_PIN_MAX      = 64;
-const OFFICE_FREE_TRIES   = 5;      // then waiting time doubles from 30 s, up to 15 min
+const OFFICE_FREE_TRIES   = 5;      // per client; then its waiting time doubles from 30 s, up to 15 min
+const OFFICE_GLOBAL_TRIES = 30;     // all clients together; then everybody waits the same way
+const OFFICE_CLIENTS_MAX  = 64;     // clients with wrong tries kept (the oldest go first) …
+const OFFICE_CLIENTS_KEEP = 86400;  // … and not longer than a day after their last wrong try
+// open actions (desk.json) that still need the PIN: they do more than read or measure —
+// setup.sh --plan holds the engine's lock for a while (a backup starting then is skipped)
+const OFFICE_PIN_ACTIONS  = ['backup.setup_plan'];
+// … and any open action asked to do more by one of these request fields (wake: spin up sleeping disks)
+const OFFICE_PIN_FLAGS    = ['wake'];
 
 function officeAuthFile(): string
 {
     return OFFICE_DATA . '/office/auth.json';
 }
 
-/** @return array{pin_hash?:string, secret?:string, failures?:int, wait_until?:int} */
+/** @return array{pin_hash?:string, secret?:string, failures?:int, wait_until?:int, clients?:array<string, array{f:int, w:int, t:int}>, read?:bool} */
 function officeAuthRead(): array
 {
     return officeReadJson(officeAuthFile()) ?? [];
@@ -154,17 +169,49 @@ function officeMayRead(): void
     }
 }
 
-/** May this request run $action ("<desk>.<name>")? Throws if not. */
-function officeMayWrite(string $action): void
+/**
+ * May this request run $action ("<desk>.<name>") with $data (the request's fields; null: read from this
+ * request's body)? Throws if not.
+ */
+function officeMayWrite(string $action, ?array $data = null): void
 {
     [$desk, $name] = explode('.', $action, 2);
-    if ($name === 'refresh' || in_array($name, officeDesks()[$desk]['open_actions'] ?? [], true)) {
+    $open = $name === 'refresh' || in_array($name, officeDesks()[$desk]['open_actions'] ?? [], true);
+    if ($open && $name !== 'refresh' && officeOpenNeedsPin($action, $data ?? officeRequestData())) {
+        $open = false;
+    }
+    if ($open) {
         officeMayRead();                 // reading actions: open, unless reading needs the PIN too
         return;
     }
     if (officeUnlocked() === null) {
         throw new AuthProblem('pin_required', 401);
     }
+}
+
+/** An open action that does more than read or measure this time (OFFICE_PIN_ACTIONS, OFFICE_PIN_FLAGS) */
+function officeOpenNeedsPin(string $action, array $data): bool
+{
+    if (in_array($action, OFFICE_PIN_ACTIONS, true)) {
+        return true;
+    }
+    foreach (OFFICE_PIN_FLAGS as $flag) {
+        if (!empty($data[$flag])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** The fields of this POST (the same body api.php reads: JSON, at most 1 MiB, depth 16) */
+function officeRequestData(): array
+{
+    static $data = null;
+    if ($data === null) {
+        $d = json_decode((string) @file_get_contents('php://input', false, null, 0, 1 << 20), true, 16);
+        $data = is_array($d) ? $d : [];
+    }
+    return $data;
 }
 
 // ===================================================================== office.* actions (handled here, not by the agent)
@@ -215,15 +262,10 @@ function officeUnlock(string $pin): array
             $ok = true;
             return null;
         }
-        $wait = (int) ($auth['wait_until'] ?? 0) - time();
-        if ($wait > 0) {
-            throw new AuthProblem('pin_wait', 429, ['seconds' => $wait]);
-        }
+        officeAuthWait($auth);
         if (password_verify($pin, $auth['pin_hash'])) {
             $ok = true;
-            $auth['failures'] = 0;
-            $auth['wait_until'] = 0;
-            return $auth;
+            return officeAuthRight($auth);
         }
         return officeAuthFailed($auth);
     });
@@ -234,18 +276,69 @@ function officeUnlock(string $pin): array
     return ['ok' => true, 'auth' => officeAuthStatus($until)];
 }
 
+/** Who is asking: the client's address (IPv6 by its /64 — one device has many), else "unknown" */
+function officeAuthClient(): string
+{
+    $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        return $ip;
+    }
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+        $bin = (string) inet_pton($ip);
+        $mapped = substr($bin, 0, 12) === "\0\0\0\0\0\0\0\0\0\0\xff\xff";
+        return $mapped ? (string) inet_ntop(substr($bin, 12)) : (string) inet_ntop(substr($bin, 0, 8) . str_repeat("\0", 8)) . "/64";
+    }
+    return 'unknown';
+}
+
+/** Waiting time for this client (its own, or everybody's)? Throws pin_wait then. */
+function officeAuthWait(array $auth): void
+{
+    $client = $auth['clients'][officeAuthClient()] ?? [];
+    $wait = max((int) ($auth['wait_until'] ?? 0), (int) ($client['w'] ?? 0)) - time();
+    if ($wait > 0) {
+        throw new AuthProblem('pin_wait', 429, ['seconds' => $wait]);
+    }
+}
+
+/** The right PIN: this client's count and the count of all start anew */
+function officeAuthRight(array $auth): array
+{
+    unset($auth['clients'][officeAuthClient()]);
+    $auth['failures'] = 0;
+    $auth['wait_until'] = 0;
+    if (empty($auth['clients'])) {
+        unset($auth['clients']);
+    }
+    return $auth;
+}
+
 /**
  * One more wrong PIN — wherever it was typed (unlocking, or as the current PIN
- * when changing or removing it): after OFFICE_FREE_TRIES the waiting time
- * doubles from 30 s, up to 15 minutes. Only a right PIN resets the count.
+ * when changing or removing it): after OFFICE_FREE_TRIES of this client its
+ * waiting time doubles from 30 s, up to 15 minutes; after OFFICE_GLOBAL_TRIES
+ * of all clients together everybody's does. Only a right PIN resets the counts.
  */
 function officeAuthFailed(array $auth): array
 {
+    $now = time();
+    $wait = fn (int $over): int => $now + min(900, 30 * 2 ** min(10, $over));
     $failures = (int) ($auth['failures'] ?? 0) + 1;
     $auth['failures'] = $failures;
-    if ($failures >= OFFICE_FREE_TRIES) {
-        $auth['wait_until'] = time() + min(900, 30 * 2 ** min(10, $failures - OFFICE_FREE_TRIES));
+    if ($failures >= OFFICE_GLOBAL_TRIES) {
+        $auth['wait_until'] = $wait($failures - OFFICE_GLOBAL_TRIES);
     }
+    $clients = [];
+    foreach ((array) ($auth['clients'] ?? []) as $k => $c) {
+        if (is_array($c) && $now - (int) ($c['t'] ?? 0) < OFFICE_CLIENTS_KEEP) {
+            $clients[(string) $k] = ['f' => (int) ($c['f'] ?? 0), 'w' => (int) ($c['w'] ?? 0), 't' => (int) ($c['t'] ?? 0)];
+        }
+    }
+    $me = officeAuthClient();
+    $f = ($clients[$me]['f'] ?? 0) + 1;
+    $clients[$me] = ['f' => $f, 'w' => $f >= OFFICE_FREE_TRIES ? $wait($f - OFFICE_FREE_TRIES) : 0, 't' => $now];
+    uasort($clients, fn ($a, $b) => $b['t'] <=> $a['t']);
+    $auth['clients'] = array_slice($clients, 0, OFFICE_CLIENTS_MAX, true);
     return $auth;
 }
 
@@ -258,10 +351,7 @@ function officeSetPin(string $pin, string $current): array
     $wrong = false;
     $auth = officeAuthUpdate(function (array $auth) use ($pin, $current, &$wrong): array {
         if (!empty($auth['pin_hash'])) {
-            $wait = (int) ($auth['wait_until'] ?? 0) - time();
-            if ($wait > 0) {
-                throw new AuthProblem('pin_wait', 429, ['seconds' => $wait]);
-            }
+            officeAuthWait($auth);
             if (!password_verify($current, $auth['pin_hash'])) {
                 // counts like a wrong PIN at unlocking: this is no way around the waiting time
                 $wrong = true;

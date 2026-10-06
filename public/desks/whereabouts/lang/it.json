@@ -680,6 +680,14 @@
     "other": "{n} contenitori girano in modalità privilegiata: {names}"
   },
   "adv.privileged.why": "Un contenitore privilegiato può fare quasi tutto sul server — va bene per strumenti che ne hanno bisogno (hardware, VPN, il backup), per tutto il resto merita una seconda occhiata. Nella pagina Docker: Modifica → Privilegiato disattivato, e guarda se funziona ancora.",
+  "adv.compose_build.title": {
+    "one": "{names} costruisce da sé la sua immagine",
+    "other": "{n} stack costruiscono da sé la loro immagine: {names}"
+  },
+  "adv.compose_build.why": {
+    "one": "La sua immagine viene costruita qui da un Dockerfile («build:» nel file compose); nessun registry ce l'ha. «Update» e «Force Update» del Compose Manager scaricano prima le immagini — qui falliscono e possono lasciare i contenitori nello stato «Created». Ricostruiscila invece in un terminale (il >_ di Unraid in alto a destra): scarica l'immagine di base più recente, ricostruisce e ricrea ciò che è cambiato.",
+    "other": "Le loro immagini vengono costruite qui da un Dockerfile («build:» nel file compose); nessun registry le ha. «Update» e «Force Update» del Compose Manager scaricano prima le immagini — qui falliscono e possono lasciare i contenitori nello stato «Created». Ricostruiscile invece in un terminale (il >_ di Unraid in alto a destra): scarica l'immagine di base più recente, ricostruisce e ricrea ciò che è cambiato."
+  },
   "adv.spindown_default.title": "I dischi non dormono mai",
   "adv.spindown_default.why": "Il ritardo spin down predefinito è «Mai»: ogni disco dell'array gira giorno e notte — corrente, calore e usura. Da 30 a 60 minuti è un buon inizio; con i pool per appdata e VM la maggior parte dei dischi poi riposa davvero.",
   "adv.spindown_some.title": {

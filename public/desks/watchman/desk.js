@@ -183,7 +183,7 @@ function stat(label, value, sub, cls, tip) {
 function roundSection() {
   const s = el('section', 'section');
   const r = state.round || {};
-  s.appendChild(Office.sectionHead(T('round.title'), T('round.sub'), running() ? el('span', 'hint', T('stat.running')) : null));
+  s.appendChild(Office.sectionHead(T('round.title'), T('round.sub'), running() ? el('span', 'hint', T('stat.running')) : null, notifySwitch()));
   const stats = el('div', 'stats');
   stats.appendChild(stat(T('stat.last'), r.last ? fmt.relative(r.last) : T('stat.never'),
     r.last ? fmt.date(r.last) + (r.duration_ms ? ' · ' + T('stat.took', { ms: r.duration_ms }) : '') : ''));
@@ -203,8 +203,35 @@ function roundSection() {
   if (state.on_watch && r.shares === false) notes.appendChild(el('p', 'role', T('round.no_shares')));
   const told = state.notified;
   if (told && told.time) notes.appendChild(el('p', 'role', T('round.notified', { when: fmt.relative(told.time), n: (told.items || []).length })));
+  if (state.notify && state.notify.available === false) notes.appendChild(el('p', 'role', T('notify_missing')));
   if (notes.children.length) s.appendChild(notes);
   return s;
+}
+
+/** Reports to Unraid's notifications: on (default) or off — like the team lead's switch */
+function notifySwitch() {
+  const label = el('label', 'switch');
+  const cb = el('input');
+  cb.type = 'checkbox';
+  cb.checked = !state.notify || state.notify.on !== false;
+  cb.disabled = !Office.agent.running || !hired();
+  label.append(cb, el('span', '', T('notify_switch')));
+  label.title = T('help.notify_text');
+  cb.onchange = async () => {
+    cb.disabled = true;
+    const on = cb.checked;
+    const j = await Office.api.post(`${ID}.notify_set`, { on });
+    if (!j.ok) {
+      cb.checked = !on;
+      cb.disabled = false;
+      Office.toast(Office.errorText(j.error, ID), true);
+      return;
+    }
+    if (j.state) state = j.state;
+    if (view) Office.keepInPlace(null, render);
+    Office.toast(T(on ? 'notify_on' : 'notify_off'));
+  };
+  return label;
 }
 
 // ------------------------------------------------------------------ the watch book
@@ -367,6 +394,7 @@ function details(e) {
   if (e.open) notes.push(T('adopt.' + e.kind));
   if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline'].includes(e.by) ? e.by : 'page'), { when: fmt.date(e.noted) }));
   if (e.told) notes.push(T('detail.told', { when: fmt.date(e.told) }));
+  else if (e.muted && e.tell) notes.push(T('detail.muted'));
   else if (e.open) notes.push(T(e.tell ? 'detail.not_told' : 'detail.book_only'));
   notes.forEach((n) => box.appendChild(el('p', 'wm-note', n)));
   return box;
@@ -446,7 +474,8 @@ function watchSection() {
   ];
   if (f.keys.length) f.keys.forEach((k) => flash.push(item(T('watch.keys'), [k.user, [k.type, k.comment].filter(Boolean).join(' '), k.fp], null, true)));
   else flash.push(item(T('watch.keys'), [T('watch.keys_none')], null, true));
-  box.appendChild(group('flash', T('watch.flash'), T('watch.flash_sum', { extra: f.extra.length, users: f.users.length, keys: f.keys.length }), flash));
+  box.appendChild(group('flash', T('watch.flash'), T('watch.flash_sum', { extra: f.extra.length,
+    users: T('watch.flash_users', { n: f.users.length }), keys: T('watch.flash_keys', { n: f.keys.length }) }), flash));
   const sh = w.shares;
   box.appendChild(group('shares', T('watch.shares'),
     !sh ? T('watch.shares_wait') : sh.open.length ? T('watch.shares_sum', { open: sh.open.length, count: sh.count }) : T('watch.shares_none'),

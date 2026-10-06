@@ -680,6 +680,14 @@
     "other": "{n} containers run privileged: {names}"
   },
   "adv.privileged.why": "A privileged container may do nearly anything on the server — fine for tools that need it (hardware, VPN, the backup), worth a second look for everything else. On the Docker page: Edit → Privileged off, and see whether it still works.",
+  "adv.compose_build.title": {
+    "one": "{names} builds its own image",
+    "other": "{n} stacks build their own image: {names}"
+  },
+  "adv.compose_build.why": {
+    "one": "Its image is built here from a Dockerfile («build:» in the compose file); no registry has it. Compose Manager's «Update» and «Force Update» pull the images first — that fails here and can leave the containers «Created». Rebuild it instead, in a terminal (Unraid's >_ at the top right): this fetches the newer base image, builds anew and recreates what changed.",
+    "other": "Their images are built here from a Dockerfile («build:» in the compose file); no registry has them. Compose Manager's «Update» and «Force Update» pull the images first — that fails here and can leave the containers «Created». Rebuild them instead, in a terminal (Unraid's >_ at the top right): this fetches the newer base image, builds anew and recreates what changed."
+  },
   "adv.spindown_default.title": "Disks never sleep",
   "adv.spindown_default.why": "The default spin down delay is «Never»: every array disk keeps spinning around the clock — power, heat and wear. 30 to 60 minutes is a good start; with pools for appdata and VMs most disks then really rest.",
   "adv.spindown_some.title": {
