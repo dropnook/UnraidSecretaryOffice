@@ -11,8 +11,8 @@
 const ID = 'restore';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
-const SECTIONS = ['apps', 'vms', 'kopia', 'journal', 'move'];
-const ICONS = { apps: '📦', vms: '🖥️', kopia: '☁️', journal: '📓', move: '🚚' };
+const SECTIONS = ['apps', 'vms', 'dbs', 'kopia', 'journal', 'move'];
+const ICONS = { apps: '📦', vms: '🖥️', dbs: '🗄️', kopia: '☁️', journal: '📓', move: '🚚' };
 const HOLDERS = ['backup', 'check', 'dryrun', 'setup', 'restore', 'other'];
 const JOB_POLL = 2000;
 const TPL = '/boot/config/plugins/dockerMan/templates-user';
@@ -275,6 +275,7 @@ function render() {
   root.appendChild(Office.pageHelp(ID, [
     [T('help.tiles'), T('help.tiles_text')],
     [T('help.row'), T('help.row_text')],
+    [T('help.dbs'), T('help.dbs_text')],
     [T('help.package'), T('help.package_text')],
     [T('help.snapshots'), T('help.snapshots_text')],
     [T('help.kopia'), T('help.kopia_text')],
@@ -328,6 +329,14 @@ function tileLine(sec) {
     const gone = vms().filter((v) => v.state === 'missing').length;
     return [T('tile.vms_line', { n: vms().length }), gone ? T('tile.gone', { n: gone }) : ''];
   }
+  if (sec === 'dbs') {
+    const all = dbGroups().flatMap((g) => g.items);
+    const dumps = all.filter((x) => x.kind === 'db').length;
+    const copies = all.reduce((s, x) => s + (x.kind === 'sqlite' ? x.copies.length : 0), 0);
+    if (!dumps && !copies) return [T('tile.dbs_none'), ''];
+    const t = Math.max(0, ...all.map((x) => x.time || 0));
+    return [[dumps ? T('tile.dbs_dumps', { n: dumps }) : '', copies ? T('tile.dbs_copies', { n: copies }) : ''].filter(Boolean).join(' · '), t ? fmt.relative(t) : ''];
+  }
   if (sec === 'journal') {
     const run = runningJob();
     if (run) return [T('tile.journal_running', { what: run.what }), T('tile.journal_step', { n: run.step, total: run.steps })];
@@ -372,6 +381,7 @@ function renderSection() {
   shown = [];
   if (section === 'apps') body.appendChild(appsSection());
   else if (section === 'vms') body.appendChild(vmsSection());
+  else if (section === 'dbs') body.appendChild(dbsSection());
   else if (section === 'kopia') body.appendChild(kopiaSection());
   else if (section === 'journal') body.appendChild(journalSection());
   else if (section === 'move') body.appendChild(moveSection());
@@ -387,14 +397,16 @@ function unfoldAll() {
   return b;
 }
 
-/** A row that unfolds to its details when clicked anywhere but its own buttons, links and fields */
-function unfoldingRow(key, name, meta, detail) {
+/** A row that unfolds to its details when clicked anywhere but its own buttons, links and fields (right: its own buttons) */
+function unfoldingRow(key, name, meta, detail, right) {
   const r = el('div', 'row nocheck unfolds rs-row');
+  r.dataset.key = key;
   const main = el('div', 'row-main');
   const n = el('div', 'row-name text', name);
   n.title = T('details');
   main.append(n, meta);
   r.appendChild(main);
+  if (right) r.appendChild(right);
   let box = null;
   const set = (open) => {
     if (!open && box) { box.remove(); box = null; expanded.delete(key); r.classList.remove('open'); }
@@ -573,10 +585,9 @@ function immichSteps(a) {
 }
 
 /** Nextcloud: maintenance mode around the restore; clients told about an older state afterwards */
-function nextcloudSteps(a) {
+function nextcloudSteps(a, d = a.dumps[0]) {
   const n = a.nextcloud.find((x) => !x.same_as) || a.nextcloud[0];
   const occ = (cmd) => `docker exec -u ${n.user} ${n.container} php ${n.occ} ${cmd}`;
-  const d = a.dumps[0];
   return fold(T('nc.title', { name: a.name }),
     rstep(T('nc.s1'), null, occ('maintenance:mode --on')),
     rstep(T('nc.s2'), T('nc.s2_text'), d ? dumpCommand(`${a.path}/${d.file}`, d, false) : null),
@@ -603,8 +614,7 @@ function sqlitePart(a) {
     if (x.kept) meta.appendChild(chip(T('sq.kept'), 'warn', T('sq.kept_hint')));
     main.appendChild(meta);
     row.appendChild(main);
-    const dir = x.source.slice(0, x.source.lastIndexOf('/'));
-    const cmd = `docker stop ${x.container} && cp ${q(a.path + '/' + x.file)} ${q(x.source)} && chown --reference=${q(dir)} ${q(x.source)} && chmod 0644 ${q(x.source)} && rm -f ${q(x.source + '-wal')} ${q(x.source + '-shm')} && docker start ${x.container}`;
+    const cmd = sqliteCommand(a, [x]);
     const right = el('div', 'rs-right');
     const b = button(T('copy_command'), 'small plain', () => Office.copy(cmd));
     b.title = cmd;
@@ -620,6 +630,16 @@ function sqlitePart(a) {
   });
   part.appendChild(el('p', 'role', T('sq.after')));
   return part;
+}
+
+/** Copies of one media server back by hand: the server stops, each copy over its database (-wal/-shm go), the server starts */
+function sqliteCommand(a, copies) {
+  const c = copies[0].container;
+  const each = copies.map((x) => {
+    const dir = x.source.slice(0, x.source.lastIndexOf('/'));
+    return `cp ${q(a.path + '/' + x.file)} ${q(x.source)} && chown --reference=${q(dir)} ${q(x.source)} && chmod 0644 ${q(x.source)} && rm -f ${q(x.source + '-wal')} ${q(x.source + '-shm')}`;
+  });
+  return [`docker stop ${c}`, ...each, `docker start ${c}`].join(' && ');
 }
 
 /** A file of the package next to its place on the server: the same, different, or missing there */
@@ -665,6 +685,23 @@ function composePart(a) {
   return part;
 }
 
+/**
+ * Earlier nights' packages of an app or VM, from the snapshots of the backup place's share: asked once for the
+ * page and shared by every part that shows them (the app's row, the databases tile)
+ */
+function versionsOf(kind, p) {
+  const key = `${kind}:${p.id}`;
+  const have = versions.get(key);
+  if (have && !have.error) return have.wait || Promise.resolve(have);
+  const wait = Office.api.post(`${ID}.versions`, { kind, id: p.id }).then((j) => {
+    const v = j.ok ? { list: j.versions } : { error: j.error };
+    versions.set(key, v);
+    return v;
+  });
+  versions.set(key, { loading: true, wait });
+  return wait;
+}
+
 /** Earlier nights' packages, from the snapshots of the backup place's share - read when opened */
 function earlierPart(kind, p) {
   const key = `${kind}:${p.id}`;
@@ -686,13 +723,16 @@ function earlierPart(kind, p) {
       main.appendChild(el('div', 'row-name text', T('earlier.from', { when: date(x.run_time) })));
       const meta = el('div', 'row-meta');
       meta.appendChild(el('span', '', T('earlier.snap', { when: date(x.time) })));
-      if (x.dumps.length) meta.appendChild(el('span', '', x.dumps.map((d) => `${d.file.split('/').pop()} (${fmt.size(d.bytes)}, ${date(d.time)})`).join(', ')));
+      const dbs = [...x.dumps, ...(x.sqlite || [])];
+      if (dbs.length) meta.appendChild(el('span', '', dbs.map((d) => `${d.file.split('/').pop()} (${fmt.size(d.bytes)}, ${date(d.time)})`).join(', ')));
       meta.appendChild(copyCode(x.path));
       main.appendChild(meta);
       row.appendChild(main);
       const items = kind === 'app'
         ? [...x.dumps.map((d) => ({ text: T('earlier.restore_dump', { file: d.file.split('/').pop() }),
                                      act: () => restoreDialog({ kind: 'db', app: p.id, file: d.file, version: x.snap }, T('rd.title.db', { what: p.name, file: d.file.split('/').pop() })) })),
+           ...[...new Set((x.sqlite || []).map((c) => c.container))].map((c) => ({ text: T('earlier.restore_sqlite', { name: c }),
+                                     act: () => restoreDialog({ kind: 'sqlite', app: p.id, container: c, version: x.snap }, T('rd.title.sqlite', { what: c })) })),
            { text: T('earlier.restore_config'), act: () => restoreDialog({ kind: 'config', app: p.id, version: x.snap }, T('rd.title.config', { what: p.name })) }]
         : [{ text: T('earlier.restore_vm'), act: () => restoreDialog({ kind: 'vm', vm: p.id, version: x.snap }, T('rd.title.vm', { what: p.name })) }];
       const right = el('div', 'rs-right');
@@ -706,12 +746,8 @@ function earlierPart(kind, p) {
   };
   det.ontoggle = async () => {
     if (!det.open) return;
-    if (!versions.has(key) || versions.get(key).error) {
-      versions.set(key, { loading: true });
-      show();
-      const j = await Office.api.post(`${ID}.versions`, { kind, id: p.id });
-      versions.set(key, j.ok ? { list: j.versions } : { error: j.error });
-    }
+    show();
+    await versionsOf(kind, p);
     show();
   };
   return det;
@@ -942,6 +978,176 @@ function vmCommands(v) {
     how.append(el('p', 'role', T('vm.snaps')), codeBlock(more.join('\n')));
   }
   return how;
+}
+
+// ------------------------------------------------------------------ databases
+/**
+ * Every database dump and media server's database copy in the apps' packages, per app, as the packages list them.
+ * A dump is one entry (MariaDB: one database; Postgres and MongoDB: the whole server); the SQLite copies of one
+ * container are one entry — they go back together (kind sqlite restores all of them).
+ */
+function dbGroups() {
+  return apps().map((a) => {
+    const items = (a.dumps || []).map((d) => ({ kind: 'db', key: `db:${a.id}:${d.file}`, engine: d.type === 'mariadb' && d.client === 'mysql' ? 'mysql' : d.type,
+      db: d.db || null, file: d.file, container: d.container, bytes: d.bytes || 0, time: d.time || null, kept: !!d.kept, dump: d }));
+    const servers = new Map();
+    (a.sqlite || []).forEach((x) => { if (!servers.has(x.container)) servers.set(x.container, []); servers.get(x.container).push(x); });
+    servers.forEach((copies, c) => items.push({ kind: 'sqlite', key: `sq:${a.id}:${c}`, engine: 'sqlite', container: c, copies,
+      bytes: copies.reduce((s, x) => s + (x.bytes || 0), 0), time: Math.max(0, ...copies.map((x) => x.time || 0)) || null,
+      kept: copies.some((x) => x.kept), checked: copies.every((x) => x.check === 'ok') }));
+    return { app: a, items };
+  }).filter((g) => g.items.length);
+}
+
+/** An entry as the list names it: the engine and the database (a whole server's dump: all databases; SQLite: the files) */
+function dbName(x) {
+  const name = x.kind === 'sqlite' ? x.copies.map((c) => c.source.split('/').pop()).join(', ') : x.db || T('dbs.all');
+  return T('dbs.name', { engine: T('dbs.engine.' + x.engine), name });
+}
+
+/** What «Restore…» asks for: the existing plans (db: one dump; sqlite: all copies of one server), optionally an earlier night's */
+const dbRequest = (a, x, version) => ({ ...(x.kind === 'db' ? { kind: 'db', app: a.id, file: x.file } : { kind: 'sqlite', app: a.id, container: x.container }),
+  ...(version ? { version } : {}) });
+const dbTitle = (a, x) => (x.kind === 'db' ? T('rd.title.db', { what: a.name, file: x.file.split('/').pop() }) : T('rd.title.sqlite', { what: x.container }));
+
+/** An entry's signature: the night(s) its files come from — an earlier night with the same is the same copy */
+const dbSig = (files) => files.map((f) => `${f.file}@${f.time || 0}`).sort().join(',');
+
+/**
+ * The earlier nights' copies of one entry, from the package's versions (newest snapshot first): each night's copy
+ * once, never the one listed (a snapshot taken after a night without a new dump holds the same)
+ */
+function earlierOf(list, x) {
+  const seen = new Set([dbSig(x.kind === 'db' ? [x] : x.copies)]);
+  const out = [];
+  (list || []).forEach((v) => {
+    const files = x.kind === 'db' ? (v.dumps || []).filter((d) => d.file === x.file) : (v.sqlite || []).filter((c) => c.container === x.container);
+    const sig = dbSig(files);
+    if (!files.length || seen.has(sig)) return;
+    seen.add(sig);
+    out.push({ snap: v.snap, snap_time: v.time, time: Math.max(0, ...files.map((f) => f.time || 0)) || null, bytes: files.reduce((s, f) => s + (f.bytes || 0), 0),
+      path: x.kind === 'db' ? `${v.path}/${x.file}` : `${v.path}/db` });
+  });
+  return out;
+}
+
+function dbsSection() {
+  const groups = dbGroups();
+  const n = groups.reduce((s, g) => s + g.items.length, 0);
+  const s = sectionBox(T('dbs'), T('dbs_sub'), n > 1 ? unfoldAll() : null);
+  if (!groups.length) { s.appendChild(el('p', 'empty', apps().length || state.place.found ? T('dbs_none') : T('apps_no_packages'))); return s; }
+  const box = el('div', 'box');
+  groups.forEach((g) => {
+    box.appendChild(dbHead(g.app));
+    g.items.forEach((x) => box.appendChild(dbRow(g.app, x)));
+  });
+  s.appendChild(box);
+  return s;
+}
+
+/** The app as a tinted subheading: its name, gone or stale, and the way to its own row */
+function dbHead(a) {
+  const h = el('div', 'rs-subhead rs-dbhead');
+  h.appendChild(el('span', '', a.name));
+  if (!a.present) h.appendChild(chip(T('chip.gone'), 'danger', T('chip.gone_hint')));
+  if (a.stale) h.appendChild(chip(T('result.stale'), 'warn', T('chip.stale_hint', { when: date(a.time) })));
+  const go = el('a', 'rs-dbhead-link', T('dbs.to_app'));
+  go.href = '#/restore';
+  go.onclick = (e) => { e.preventDefault(); openApp(a.id); };
+  h.appendChild(go);
+  return h;
+}
+
+/** «Apps» with the app's row unfolded and in view */
+function openApp(id) {
+  expanded.add('app:' + id);
+  pick('apps');
+  const r = view.body.querySelector(`[data-key="${CSS.escape('app:' + id)}"]`);
+  if (r) r.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+/** One dump, or one media server's copies: container, size, the night, where the package is kept; «Restore…» */
+function dbRow(a, x) {
+  const meta = el('div', 'row-meta');
+  const ct = a.containers.find((c) => c.name === x.container);
+  meta.appendChild(ct ? containerChips([ct]) : el('span', 'mono', x.container));
+  meta.append(el('span', '', fmt.size(x.bytes)), el('span', '', date(x.time)));
+  if (x.kept) meta.appendChild(x.kind === 'db' ? chip(T('db.kept'), 'warn', T('db.kept_hint')) : chip(T('sq.kept'), 'warn', T('sq.kept_hint')));
+  if (x.kind === 'sqlite') meta.appendChild(x.checked ? chip(T('sq.checked'), 'ok', T('sq.checked_hint')) : chip(T('sq.unchecked'), '', T('sq.unchecked_hint')));
+  const kept = Office.backupChip(a.package_protection);
+  if (kept) meta.appendChild(kept);
+  const right = el('div', 'rs-right');
+  right.appendChild(restoreButton(T('db.button'), dbRequest(a, x), dbTitle(a, x)));
+  const r = unfoldingRow(x.key, dbName(x), meta, () => dbDetail(a, x), right);
+  r.classList.add('rs-dbrow');
+  return r;
+}
+
+/** An entry unfolded: its files in the package, the way by hand (the app's own for Immich and Nextcloud), earlier nights */
+function dbDetail(a, x) {
+  const box = el('div');
+  if (x.kind === 'db') {
+    const ct = a.containers.find((c) => c.name === x.container);
+    box.appendChild(dl([
+      [T('dbs.d_file'), copyCode(`${a.path}/${x.file}`), ' · ', fmt.size(x.bytes), ' · ', date(x.time)],
+      ct ? [T('dbs.d_image'), chip(ct.image, 'quiet rs-img', T('db.image_hint', { digest: ct.digest || '–' }))] : null,
+    ]));
+    if (a.immich && x.engine === 'postgres') box.appendChild(immichSteps(a));
+    else if ((a.nextcloud || []).length) box.appendChild(nextcloudSteps(a, x.dump));
+    else {
+      const cmd = dumpCommand(`${a.path}/${x.file}`, x.dump, false);
+      if (cmd) box.appendChild(fold(T('dbs.by_hand'), el('p', 'role', T('dbs.by_hand_text')), codeBlock(cmd), x.engine === 'postgres' ? el('p', 'role', T('db.pg_role')) : null));
+    }
+  } else {
+    const files = el('div', 'rs-files');
+    x.copies.forEach((c) => {
+      const line = el('div', 'rs-file');
+      line.append(copyCode(`${a.path}/${c.file}`), el('span', '', fmt.size(c.bytes || 0)), el('span', 'role', T('dbs.goes_to', { path: c.source })));
+      files.appendChild(line);
+    });
+    box.appendChild(dl([[T('dbs.d_copies'), files]]));
+    box.appendChild(fold(T('dbs.by_hand'), el('p', 'role', T('sq.text')), codeBlock(sqliteCommand(a, x.copies))));
+  }
+  box.appendChild(earlierDbPart(a, x));
+  return box;
+}
+
+/** Earlier nights of one entry, from the snapshots of the backup place (read when opened), each with «Restore…» */
+function earlierDbPart(a, x) {
+  const det = el('details', 'rs-how');
+  det.appendChild(el('summary', '', T('earlier.title', { n: state.place.snaps || 0 })));
+  const out = el('div');
+  det.appendChild(out);
+  const show = () => {
+    out.innerHTML = '';
+    const v = versions.get('app:' + a.id);
+    if (!v || v.loading) { out.appendChild(el('p', 'role', Office.t('common.loading'))); return; }
+    if (v.error) { out.appendChild(el('p', 'role', Office.errorText(v.error, ID))); return; }
+    const list = earlierOf(v.list, x);
+    if (!list.length) { out.appendChild(el('p', 'role', T('dbs.earlier_none'))); return; }
+    const rows = el('div', 'box');
+    list.forEach((e) => {
+      const row = el('div', 'row nocheck');
+      const main = el('div', 'row-main');
+      main.appendChild(el('div', 'row-name text', T(x.kind === 'db' ? 'dbs.earlier_dump' : 'dbs.earlier_copies', { when: date(e.time) })));
+      const meta = el('div', 'row-meta');
+      meta.append(el('span', '', fmt.size(e.bytes)), el('span', '', T('earlier.snap', { when: date(e.snap_time) })), copyCode(e.path));
+      main.appendChild(meta);
+      row.appendChild(main);
+      const right = el('div', 'rs-right');
+      right.appendChild(restoreButton(T('db.button'), dbRequest(a, x, e.snap), dbTitle(a, x)));
+      row.appendChild(right);
+      rows.appendChild(row);
+    });
+    out.appendChild(rows);
+  };
+  det.ontoggle = async () => {
+    if (!det.open) return;
+    show();
+    await versionsOf('app', a);
+    show();
+  };
+  return det;
 }
 
 // ------------------------------------------------------------------ Kopia
@@ -1547,4 +1753,9 @@ Office.desk({
     return { bubble: bubbleText(), facts };
   },
 });
+
+// tests/run.php runs the databases tile's logic under node
+if (globalThis.OFFICE_DESK_TESTS) {
+  globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, dbGroups, dbName, dbRequest, earlierOf, tileLine };
+}
 })();
