@@ -107,7 +107,7 @@
   "open.nodeexporter_plugin": "To the Plugins page",
   "install.nodeexporter.1": "In Apps search for «Node Exporter» and take «Node-Exporter» — the official image ({image}). It runs in the network «host» (port 9100) and sees the server read-only under /host; leave that as it comes.",
   "install.nodeexporter.2": "Before Apply: switch to «Advanced View» (top right) and replace «Post Arguments» with the line below — the template's own arguments plus, at the end, the office's folder {dir} (seen from inside as /host{dir}). No extra path needed.",
-  "install.nodeexporter.3": "Without Apps: Docker → Add Container: Repository {image}, Network Type «Host», Extra Parameters --pid=host, a path / → /host with Access Mode «Read Only - Slave», Post Arguments as below.",
+  "install.nodeexporter.3": "Without Apps: Docker → Add Container: Repository {image}, Network Type «Host», Extra Parameters --pid=host, a path / → /host with Access Mode «Read Only» (just that: Docker makes it «rslave» by itself; «Read Only - Slave» is refused for /), Post Arguments as below.",
   "install.nodeexporter.4": "Apply. Check: {check} shows a long page of numbers.",
   "install.nodeexporter.5": "The office's agent creates the folder {dir} and writes its numbers there once a minute (a few KB). It lives in RAM: after a reboot the agent creates it again — until then the exporter notes in its log that the folder is missing, harmless.",
   "install.nodeexporter.6": "Already have ich777's plugin «Prometheus Node Exporter»? It does the same job — no container needed. It takes its start options from a file on the flash: the command below (Unraid's terminal, >_ top right) puts the office's folder in there and restarts it. It replaces start options you may have set there.",

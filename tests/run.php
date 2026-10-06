@@ -2649,6 +2649,18 @@ function testAdvisor(): void
 /** The Consultant installs: his templates, what he refuses, what he writes beforehand (only where nothing is), the facts he reads */
 function testAdvisorInstall(): void
 {
+    // the provisioned dashboard keeps Grafana's value mappings as objects ("0", "1" … keys) and has its data source
+    $src = __DIR__ . '/../monitoring/grafana-dashboard.json';
+    $out = advisorDashboardJson($src);
+    $objects = function (string $json): int {
+        preg_match_all('/"options":\s*\{/', $json, $m);
+        return count($m[0]);
+    };
+    same('advisor dashboard: mappings stay objects, data source filled in', [$objects((string) file_get_contents($src)), false],
+        [$objects((string) $out), str_contains((string) $out, '${DS_PROMETHEUS}')]);
+    // Unraid's exclusive shares: only /mnt/user/<share> → /mnt/<pool>/<share> is followed; other paths stay
+    same('advisor: a path outside /mnt/user stays', '/tmp/x/y', advisorUnraidPath('/tmp/x/y'));
+    same('advisor: a share that is no link stays', '/mnt/user/zz-uso-no-such-share/a', advisorUnraidPath('/mnt/user/zz-uso-no-such-share/a'));
     $tmp = hardeningTmp('advisor-install');
     mkdir("$tmp/appdata");
     mkdir("$tmp/tu");
@@ -2676,7 +2688,9 @@ function testAdvisorInstall(): void
     same('advisor kopia: the WebUI password masked and empty', [true, ''], [$k['PASSWORD']['mask'], $k['PASSWORD']['value']]);
     $n = advisorTemplate('nodeexporter', $env);
     check('advisor node exporter: reads the office\'s folder', in_array(ADVISOR_METRICS_DIR, advisorTextfileDirs(preg_split('/\s+/', $n['post']), [['/', '/host']]), true));
-    same('advisor node exporter: the host read-only', 'ro,slave', $byTarget($n)['/host']['mode']);
+    // a plain "ro" path: Docker picks rslave by itself for a source that holds its root; asked for
+    // explicitly ("slave", "rslave") it refuses on Unraid, whose / is a private mount
+    same('advisor node exporter: the host read-only, nothing explicit', ['ro', '--pid=host'], [$byTarget($n)['/host']['mode'], $n['extra']]);
     $g = $byTarget(advisorTemplate('grafana', $env));
     same('advisor grafana: provisioning inside its appdata', ADVISOR_GRAFANA_PROV, $g['GF_PATHS_PROVISIONING']['value']);
     same('advisor grafana: the admin password masked and empty', [true, ''], [$g['GF_SECURITY_ADMIN_PASSWORD']['mask'], $g['GF_SECURITY_ADMIN_PASSWORD']['value']]);
