@@ -193,7 +193,7 @@
   "access.r": "lesen",
   "access_legend": "Zugriff per SMB. öffentlich: alle dürfen lesen und schreiben · geschützt: alle lesen, die Schreibliste schreibt · privat: nur Lese- und Schreibliste.",
   "not_exported_list": "Nicht per SMB freigegeben: {names}",
-  "watchman_sees": "Was sich hier ändert — ein neuer Benutzer, eine Freigabe für Gäste, wer wie viel zieht —, sieht der Nachtwächter:",
+  "watchman_sees": "Was sich hier ändert — ein neuer Benutzer, ein Share für Gäste, wer wie viel zieht —, sieht der Nachtwächter:",
   "watchman_sees_link": "sein Wachbuch",
   "smb_sessions": "SMB-Sitzungen",
   "session_count": {
@@ -735,5 +735,5 @@
   "adv.syslog.title": "Nach einem Absturz ist das Protokoll weg",
   "adv.syslog.why": "Unraid hält sein Syslog im RAM — nach einem Absturz oder harten Reset weiss niemand mehr, was passiert ist, auch Frau Protokolli nicht. «Mirror syslog to flash» (für eine Weile, es nutzt den Stick ab) oder ein Syslog-Server (dieser hier: ein Share als lokaler Syslog-Ordner) bewahrt es auf.",
   "adv.security.title": "Sicherheit macht jetzt der Nachtwächter",
-  "adv.security.why": "Freigaben, die für alle offen sind, Telnet, FTP, privilegierte Container, der Schutz der CPU — das ist jetzt seine Abteilung, und er merkt auch, wenn sich etwas ändert. Nur: Er arbeitet noch nicht hier. Der Teamchef kann ihn einstellen. Unter uns: Ich würde es tun."
+  "adv.security.why": "Shares, die für alle offen sind, Telnet, FTP, privilegierte Container, der Schutz der CPU — das ist jetzt seine Abteilung, und er merkt auch, wenn sich etwas ändert. Nur: Er arbeitet noch nicht hier. Der Teamchef kann ihn einstellen. Unter uns: Ich würde es tun."
 }
