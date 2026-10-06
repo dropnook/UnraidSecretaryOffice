@@ -363,7 +363,7 @@ function dashboard() {
   const main = el('div', 'row-main');
   main.appendChild(el('div', 'row-name text', T('dashboard.name')));
   main.appendChild(el('div', 'row-detail', T('dashboard.what')));
-  if (provisioned) main.appendChild(el('div', 'row-detail', T('dashboard.provisioned')));
+  main.appendChild(el('div', 'row-detail', T(provisioned ? 'dashboard.provisioned' : 'dashboard.import_hint')));
   if (!g.by_consultant) main.appendChild(el('div', 'row-detail ad-careful', T('dashboard.admin')));
   row.appendChild(main);
   const inGrafana = provisioned && g.webui ? Office.safeHref(String(g.webui).replace(/\/+$/, '') + '/d/unraid-secretary-office') : null;
