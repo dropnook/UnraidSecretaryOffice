@@ -22,6 +22,11 @@ declare(strict_types=1);
  *   docker     dangling and unused images, volumes without a container,
  *              the build cache — Docker can't rename these, so they can
  *              only be removed for good (images can be pulled again)
+ *   leftovers  what Mr. Restori left next to what he brought back (he never
+ *              deletes either): <name>.aside-<time>, .restored-<time>,
+ *              .putback-<time>, <file>.restored-aside-<time>, his folders on
+ *              the flash and in libvirt.img, the safety dumps in the backup
+ *              place — found from his journals, never by scanning disks
  *   icons      containers without a picture on Unraid's Docker page and
  *              Dashboard (none set, or one Unraid can't load): she finds a
  *              logo (pictures on this server named like the app, Community
@@ -63,7 +68,7 @@ const CL_LEGACY       = '_zumloeschen';            // trash of the old unraid-cl
 // folder in a trash run => kind of what is in it
 const CL_KINDS        = ['templates' => 'template', 'compose' => 'stack', 'appdata' => 'appdata', 'vms' => 'domain', 'isos' => 'iso',
                          'nvram' => 'nvram', 'tpm' => 'tpm', 'snapshotdb' => 'snapshotdb', 'strays' => 'stray', 'userscripts' => 'userscript',
-                         'icons' => 'icon'];
+                         'icons' => 'icon', 'restore' => 'leftover'];
 const CL_US_SCRIPTS   = US_DIR . '/scripts';
 const CL_US_TMP       = '/tmp/user.scripts';         // running markers and last outputs (RAM: since the reboot)
 const CL_STRAY_TTL    = 6 * 3600;                  // look for stray templates again after this (or when asked)
@@ -77,6 +82,12 @@ const CL_FLASH_TTL    = 1800;                      // search the flash again aft
 const CL_PARALLEL     = 2;                         // background jobs at once (purges don't wait)
 const CL_LOCK_LOOK    = 5;                         // seconds between looks at the engine's lock from tick
 const CL_FOLDER_LIMIT = 2000;
+// Mr. Restori's leftovers: his journals (DATA_DIR/restore/<id>/journal.json, root only) say what he put aside
+const CL_RESTORE_ID     = '/^(\d{8}-\d{6})-[0-9a-f]{4}$/D';      // a restore: <time>-<random>; the time is in all he leaves
+const CL_RESTORE_MAX    = 200;                                   // journals read, newest first
+const CL_RESTORE_ASIDE  = '_UnraidSecretaryOffice-restore';      // his folder on the flash and in libvirt.img
+const CL_LEFTOVER_NAME  = '/\.(aside|restored|putback|restored-aside)-(\d{8}-\d{6})$/D';
+const CL_SAFETY_DUMPS   = '#^/mnt/[^/]+/[^/]+/(?:backup|unraid-backup)/restore/[^/\x00-\x1f]+/(\d{8}-\d{6})$#D';   // <backup place>/restore/<app>/<time>
 const CL_TEXT_MAX     = 256 * 1024;
 const CL_COMPOSE_FILES  = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'];
 const CL_OVERRIDE_FILES = ['compose.override.yaml', 'compose.override.yml', 'docker-compose.override.yaml', 'docker-compose.override.yml'];
@@ -223,7 +234,10 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         'isos'    => $domain['MEDIADIR'] ?? '/mnt/user/isos/',
     ];
     $places = array_map(fn ($path) => clSharePlaces($path, $roots, $asleep), $settings);
-    $sleeping = array_values(array_unique(array_merge(...array_column($places, 'asleep'))));
+    $GLOBALS['clCtx'] = ['roots' => $roots, 'asleep' => $asleep];
+    $vms = clVmFacts();
+    $leftovers = clLeftovers($vms['ok']);       // Mr. Restori's, from his journals
+    $sleeping = array_values(array_unique(array_merge(array_merge(...array_column($places, 'asleep')), $leftovers['asleep'])));
     if ($wake && $sleeping) {
         $woken = clWake($sleeping);
         $asleep = sleepingDisks();
@@ -231,11 +245,11 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
             $asleep[$name] = false;            // Unraid's bookkeeping lags behind
         }
         $places = array_map(fn ($path) => clSharePlaces($path, $roots, $asleep), $settings);
+        $GLOBALS['clCtx'] = ['roots' => $roots, 'asleep' => $asleep];
+        $leftovers = clLeftovers($vms['ok']);
     }
-    $GLOBALS['clCtx'] = ['roots' => $roots, 'asleep' => $asleep];
 
     $docker = clDocker();
-    $vms = clVmFacts();
     $cache = clCache();
     $raw = [
         'docker'    => $docker,
@@ -249,7 +263,8 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         'scripts'   => clUserScripts(),
         'vms'       => $vms,
         'libvirt'   => clLibvirtOrphans($vms),
-        'trash'     => clTrashRuns($places, $vms),
+        'leftovers' => $leftovers,
+        'trash'     => clTrashRuns($places, $vms, $leftovers['trash']),
     ];
     $raw['icons'] = clIcons($docker, $raw['stacks']);
     clSaveCache($cache);
@@ -298,6 +313,13 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         foreach ($state['docker']['list'] as $e) {
             if ($e['kind'] === 'volume' && $e['category'] !== 'used' && $e['path']) {
                 clMeasureQueue($e['path'], CL_MEASURE_TTL);
+            }
+        }
+        foreach ($state['leftovers']['list'] as $e) {
+            foreach ($e['parts'] as $p) {
+                if (!$p['file']) {
+                    clMeasureQueue($p['path'], CL_MEASURE_TTL);
+                }
             }
         }
         foreach ($state['trash']['runs'] as $run) {
@@ -1824,6 +1846,290 @@ function clShareFolders(array $share): array
     return ['list' => array_values($folders), 'files' => $files];
 }
 
+// --------------------------------------------------------------------- Mr. Restori's leftovers
+
+/**
+ * Mr. Restori's journals, newest first (at most CL_RESTORE_MAX): only from his own folder (a real folder of
+ * root's that nobody else may write in) and only his own files (plain, root's) — she renames the paths in
+ * them, so a journal anybody could have written would lead her anywhere. Read again only when changed.
+ *
+ * @return list<array> the journals (each carries its id)
+ */
+function clRestoreJournals(?string $dir = null): array
+{
+    $dir ??= $GLOBALS['clRestoreDir'] ?? DATA_DIR . '/restore';
+    $own = function (string $p, int $type): ?array {
+        $st = @lstat($p);
+        return $st && ($st['mode'] & 0170000) === $type && $st['uid'] === 0 && !($st['mode'] & 0022) ? $st : null;
+    };
+    clearstatcache();
+    if (!$own($dir, 0040000)) {
+        return [];
+    }
+    $ids = array_slice(array_values(array_filter(@scandir($dir, SCANDIR_SORT_DESCENDING) ?: [], fn ($n) => (bool) preg_match(CL_RESTORE_ID, $n))), 0, CL_RESTORE_MAX);
+    $cache = $GLOBALS['clJournals'] ?? [];        // id => [stamp of the file, journal]
+    $out = [];
+    foreach ($ids as $id) {
+        $st = $own("$dir/$id", 0040000) ? $own("$dir/$id/journal.json", 0100000) : null;
+        if (!$st) {
+            continue;
+        }
+        $key = $st['mtime'] . ':' . $st['size'] . ':' . $st['ino'];
+        if (($cache[$id][0] ?? null) !== $key) {
+            $j = readJson("$dir/$id/journal.json");
+            $cache[$id] = [$key, is_array($j) && ($j['id'] ?? null) === $id ? $j : null];
+        }
+        if ($cache[$id][1] !== null) {
+            $out[] = $cache[$id][1];
+        }
+    }
+    $GLOBALS['clJournals'] = array_intersect_key($cache, array_flip($ids));
+    return $out;
+}
+
+/** Could Mr. Restori's «Put back» still undo this restore (his rsCanPutback(), in short)? Then what he put aside is his way back */
+function clRestoreUndoable(array $j): bool
+{
+    if (in_array($j['kind'] ?? '', ['putback', 'kopia'], true)
+        || !in_array($j['result'] ?? '', ['ok', 'warnings', 'failed', 'interrupted', 'running', 'queued'], true)) {
+        return false;
+    }
+    return !(is_array($j['putback'] ?? null) && ($j['putback']['result'] ?? '') !== 'refused');
+}
+
+/**
+ * What one restore left, from its journal — only paths of exactly the shapes he writes, with this restore's own
+ * time: what a step put aside (<name>.aside-<time>, .putback-<time>, <file>.restored-aside-<time>, the time's
+ * folder of his on the flash or in libvirt.img), a copy next to the live one (<name>.restored-<time>; after a
+ * swap it is the live one, gone from there) and the folder of the safety dumps. Never a guess by name.
+ *
+ * @return list<array{path: string, dataset: ?string, what: string, back: bool}>  back: his «Put back» needs it
+ */
+function clLeftoverUnits(array $j): array
+{
+    if (!preg_match(CL_RESTORE_ID, (string) ($j['id'] ?? ''), $m)) {
+        return [];
+    }
+    $stamp = $m[1];
+    $undoable = clRestoreUndoable($j);
+    $units = [];
+    $add = function (string $path, ?string $ds, string $what, bool $back) use (&$units): void {
+        if (clTrashPathOk($path) && !isset($units[$path])) {
+            $units[$path] = ['path' => $path, 'dataset' => $ds, 'what' => $what, 'back' => $back];
+        }
+    };
+    $dataset = fn (mixed $ds, string $path): ?string => is_string($ds) && clZfsNameOk($ds) && basename($ds) === basename($path) ? $ds : null;
+    foreach ((array) ($j['aside'] ?? []) as $a) {
+        $to = is_array($a) && is_string($a['to'] ?? null) && !str_contains($a['to'], '{') ? $a['to'] : '';
+        if ($to === '') {
+            continue;
+        }
+        if (($a['what'] ?? '') === 'safety_dump') {
+            if (preg_match(CL_SAFETY_DUMPS, dirname($to), $x) && $x[1] === $stamp) {
+                $add(dirname($to), null, 'safety', $undoable);       // «Put back» plays the dump back
+            }
+            continue;
+        }
+        foreach (['flash' => CL_FLASH, 'libvirt' => CL_LIBVIRT] as $what => $base) {
+            if (str_starts_with($to, "$base/" . CL_RESTORE_ASIDE . "/$stamp/")) {
+                $add("$base/" . CL_RESTORE_ASIDE . "/$stamp", null, $what, $undoable);
+                continue 2;
+            }
+        }
+        if (str_starts_with($to, '/mnt/') && preg_match(CL_LEFTOVER_NAME, $to, $x) && $x[2] === $stamp && $x[1] !== 'restored') {
+            $what = ['aside' => 'aside', 'putback' => 'putback', 'restored-aside' => 'file_aside'][$x[1]];
+            $add($to, $dataset($a['to_dataset'] ?? null, $to), $what, $undoable && $what !== 'putback');
+        }
+    }
+    foreach ((array) ($j['steps'] ?? []) as $st) {
+        $to = is_array($st) && ($st['do'] ?? '') === 'copy' && is_string($st['to'] ?? null) ? $st['to'] : '';
+        if (str_starts_with($to, '/mnt/') && preg_match(CL_LEFTOVER_NAME, $to, $x) && $x[1] === 'restored' && $x[2] === $stamp) {
+            $add($to, $dataset($st['dataset'] ?? null, $to), 'restored', false);
+        }
+    }
+    return array_values($units);
+}
+
+/** Is this one of the places Mr. Restori leaves things (the shapes clLeftoverUnits() takes)? For putting one back */
+function clLeftoverShape(string $path): bool
+{
+    return clTrashPathOk($path) && (preg_match('#^(?:' . preg_quote(CL_FLASH, '#') . '|' . preg_quote(CL_LIBVIRT, '#') . ')/' . CL_RESTORE_ASIDE . '/\d{8}-\d{6}$#D', $path)
+        || preg_match(CL_SAFETY_DUMPS, $path) || (str_starts_with($path, '/mnt/') && preg_match(CL_LEFTOVER_NAME, $path)));
+}
+
+/** The pools and array disks that may hold a share: [awake ones that have its folder, sleeping ones that might] */
+function clShareRootsOf(string $share): array
+{
+    $ctx = $GLOBALS['clCtx'];
+    $cfg = clShareCfg($share);
+    $use = $cfg['shareUseCache'] ?? 'no';
+    $pools = $use === 'no' ? [] : array_filter([$cfg['shareCachePool'] ?? '', $cfg['shareCachePool2'] ?? '']);
+    $array = $use === 'no' || ($use !== 'only' && ($cfg['shareCachePool2'] ?? '') === '');
+    $awake = $asleep = [];
+    foreach ($ctx['roots'] as $name => $r) {
+        $name = (string) $name;
+        if (clPoolAsleep($name, $ctx['asleep'])) {
+            if ($r['kind'] === 'disk' ? $array : in_array($name, $pools, true)) {
+                $asleep[] = $name;
+            }
+        } elseif (is_dir("/mnt/$name/$share")) {
+            $awake[] = $name;
+        }
+    }
+    return [$awake, $asleep];
+}
+
+/**
+ * Her storeroom for something at $path: inside its share, on the very filesystem of the folder it lies in —
+ * the share's top on that pool or disk, or a dataset of its own inside the share; never above the share (a
+ * folder at a disk's top would be a share of its own). Null when its folder isn't there.
+ */
+function clLeftoverTrash(string $path, string $shareTop): ?string
+{
+    $dir = dirname($path);
+    $dev = @stat($dir)['dev'] ?? null;
+    if ($dev === null || !under($dir, $shareTop)) {
+        return null;
+    }
+    while ($dir !== $shareTop && (@stat(dirname($dir))['dev'] ?? null) === $dev) {
+        $dir = dirname($dir);
+    }
+    return "$dir/" . CL_TRASH;
+}
+
+/**
+ * Where a leftover is now — its parts, each on its own pool or disk (through /mnt/user it may lie on several) —
+ * looked at cheaply: never on a sleeping disk (they are named instead), libvirt.img only while mounted. Also the
+ * storerooms such a thing goes into, so her runs there are found again after it was put away.
+ *
+ * @param array<string, array> $mounts mount point => mountTable() entry
+ * @return array{parts: list<array>, asleep: list<string>, why: ?string, trash: list<string>, known: bool}
+ */
+function clLeftoverPlace(array $u, bool $libvirt, array $mounts): array
+{
+    $path = $u['path'];
+    $out = ['parts' => [], 'asleep' => [], 'why' => null, 'trash' => [], 'known' => true];
+    $part = function (string $root, string $p, ?string $ds, string $trash): array {
+        $file = is_link($p) || !is_dir($p);
+        return ['root' => $root, 'path' => $p, 'dataset' => $ds, 'trash' => $trash, 'file' => $file,
+                'bytes' => $file ? (is_link($p) ? 0 : (int) (@stat($p)['blocks'] ?? 0) * 512) : null];
+    };
+    foreach (['flash' => CL_FLASH, 'libvirt' => CL_LIBVIRT] as $where => $base) {
+        if (!str_starts_with($path, "$base/")) {
+            continue;
+        }
+        if ($where === 'libvirt' && !$libvirt) {
+            return ['why' => 'vm_off'] + $out;        // libvirt.img isn't mounted: can't look
+        }
+        $out['trash'][] = "$base/" . CL_TRASH;
+        if (file_exists($path) || is_link($path)) {
+            $out['parts'][] = $part($where, $path, null, "$base/" . CL_TRASH);
+        }
+        return $out;
+    }
+    $ctx = $GLOBALS['clCtx'];
+    if (!preg_match('#^/mnt/([^/]+)/([^/]+)/(.+)$#', $path, $m)) {
+        return ['known' => false] + $out;
+    }
+    if ($m[1] === 'user' || $m[1] === 'user0') {
+        [$awake, $out['asleep']] = clShareRootsOf($m[2]);
+    } elseif (isset($ctx['roots'][$m[1]])) {
+        [$awake, $out['asleep']] = clPoolAsleep($m[1], $ctx['asleep']) ? [[], [$m[1]]] : [[$m[1]], []];
+    } else {
+        return ['known' => false] + $out;
+    }
+    foreach ($awake as $root) {
+        $top = "/mnt/$root/{$m[2]}";
+        $p = "$top/{$m[3]}";
+        $trash = clLeftoverTrash($p, $top);
+        if ($trash === null) {
+            continue;                                 // its folder isn't on this pool or disk
+        }
+        $out['trash'][] = $trash;
+        if (!file_exists($p) && !is_link($p)) {
+            continue;
+        }
+        $ds = null;
+        if (isset($mounts[$p])) {
+            // a filesystem of its own: only a ZFS dataset named like it moves, with zfs rename next to the storeroom
+            $ds = $mounts[$p]['fs'] === 'zfs' ? $mounts[$p]['source'] : null;
+            if ($ds === null || basename($ds) !== basename($p) || !clZfsMovable($ds, dirname($ds))) {
+                $out['why'] ??= 'dataset';
+            }
+        } elseif (!is_link($p) && (@stat($p)['dev'] ?? null) !== (@stat(dirname($trash))['dev'] ?? null)) {
+            $out['why'] ??= 'own_fs';
+        }
+        $out['parts'][] = $part($root, $p, $ds, $trash);
+    }
+    if ($out['asleep']) {
+        $out['why'] ??= 'asleep';
+    }
+    return $out;
+}
+
+/**
+ * Mr. Restori's leftovers, newest restore first: every one his journals name that is still there (or can't be
+ * looked at — asleep, libvirt.img not mounted), with its parts. 'restores': how many journals; 'trash': the
+ * storerooms such things go into; 'asleep': the sleeping disks she didn't look at.
+ */
+function clLeftovers(bool $libvirt): array
+{
+    $mounts = [];
+    foreach (mountTable() as $m) {
+        $mounts[$m['mount']] = $m;
+    }
+    $journals = clRestoreJournals();
+    $out = ['restores' => count($journals), 'list' => [], 'trash' => [], 'asleep' => []];
+    $seen = [];
+    foreach ($journals as $j) {
+        $restore = ['id' => (string) $j['id'], 'kind' => (string) ($j['kind'] ?? ''), 'what' => (string) ($j['what'] ?? ''),
+                    'time' => (int) ($j['created'] ?? 0), 'result' => (string) ($j['result'] ?? ''),
+                    'undone' => is_array($j['putback'] ?? null) && in_array($j['putback']['result'] ?? '', ['ok', 'warnings'], true)];
+        foreach (clLeftoverUnits($j) as $u) {
+            if (isset($seen[$u['path']])) {
+                continue;
+            }
+            $seen[$u['path']] = true;
+            $at = clLeftoverPlace($u, $libvirt, $mounts);
+            foreach ($at['trash'] as $t) {
+                $out['trash'][$t] = true;
+            }
+            if (!$at['known'] || (!$at['parts'] && !$at['asleep'] && $at['why'] !== 'vm_off')) {
+                continue;                             // gone: put back, put away or removed
+            }
+            $out['asleep'] = array_merge($out['asleep'], $at['asleep']);
+            $there = $at['parts'] ? true : null;
+            $out['list'][] = [
+                'id'       => 'leftover:' . substr(sha1($u['path']), 0, 20),
+                'kind'     => 'leftover',
+                'what'     => $u['what'],
+                'name'     => basename($u['path']),
+                'path'     => $u['path'],
+                'restore'  => $restore,
+                'time'     => clStampTime(substr($restore['id'], 0, 15), $u['path']),
+                'parts'    => $at['parts'],
+                'asleep'   => $at['asleep'],
+                'exists'   => $there,
+                'category' => $there === null ? 'unknown' : ($u['back'] ? 'way_back' : 'leftover'),
+                'why'      => $at['why'],
+                'force'    => $u['back'],
+                'used_by'  => [],
+                'notes'    => [],
+            ];
+        }
+    }
+    $out['trash'] = array_keys($out['trash']);
+    $out['asleep'] = array_values(array_unique($out['asleep']));
+    return $out;
+}
+
+/** Back from the storeroom: only to where Mr. Restori leaves things, on the storeroom's own filesystem */
+function clLeftoverHome(string $from, string $runRoot): string
+{
+    $base = dirname($runRoot);
+    return clLeftoverShape($from) && under($from, $base) && $from !== $base ? dirname($from) : '';
+}
+
 // ===================================================================== build
 
 /** Everything the page shows, from the last tour plus what the background work found */
@@ -1932,6 +2238,24 @@ function clBuild(): array
     }
     usort($runs, fn ($a, $b) => $b['time'] <=> $a['time']);
 
+    // Mr. Restori's leftovers: sizes as measured in the background (files at once)
+    $leftovers = [];
+    foreach ($raw['leftovers']['list'] ?? [] as $e) {
+        $bytes = 0;
+        $e['measuring'] = false;
+        foreach ($e['parts'] as &$p) {
+            if (!$p['file']) {
+                $size = $cache['sizes'][$p['path']] ?? null;
+                $p['bytes'] = $size && empty($size['error']) ? $size['bytes'] : null;
+                $e['measuring'] = $e['measuring'] || $pending('measure:' . $p['path']);
+            }
+            $bytes = $bytes === null || $p['bytes'] === null ? null : $bytes + $p['bytes'];
+        }
+        unset($p);
+        $e['bytes'] = $e['parts'] ? $bytes : null;
+        $leftovers[] = $e;
+    }
+
     $keys = array_keys($jobs['running'] + $jobs['queue']);
     $state = [
         'time'      => time(),
@@ -1970,6 +2294,7 @@ function clBuild(): array
             'complete' => $vmComplete,
             'list'     => $vmItems,
         ],
+        'leftovers' => ['restores' => (int) ($raw['leftovers']['restores'] ?? 0), 'asleep' => $raw['leftovers']['asleep'] ?? [], 'list' => $leftovers],
         'trash'     => ['runs' => $runs, 'bytes' => $trashBytes],
         'icons'     => clIconState($raw['icons'] ?? [], $cache, $pending),
         'jobs'      => [
@@ -2239,7 +2564,7 @@ function clWrite(array $state): void
  * The trash folders: the flash (templates, stacks there), next to a compose
  * root elsewhere, in appdata, domains and isos on each pool, and in libvirt.img
  */
-function clTrashRoots(array $places, array $vms): array
+function clTrashRoots(array $places, array $vms, array $extra = []): array
 {
     $roots = [CL_FLASH . '/' . CL_TRASH => 'flash'];
     $compose = clComposeRoot();
@@ -2253,6 +2578,10 @@ function clTrashRoots(array $places, array $vms): array
     }
     if ($vms['ok']) {
         $roots[CL_LIBVIRT . '/' . CL_TRASH] = 'libvirt';
+    }
+    // Mr. Restori's leftovers go into the storeroom on their own filesystem, in their share (clLeftoverTrash())
+    foreach ($extra as $root) {
+        $roots[$root] ??= 'share';
     }
     // stray templates go into the storeroom of whatever share they lie in
     $ctx = $GLOBALS['clCtx'];
@@ -2302,7 +2631,7 @@ function clTrashAsOk(string $as, string $kind, string $stamp): bool
     if (str_starts_with($as, '@')) {
         $ds = substr($as, 1);
         return clZfsNameOk($ds) && str_contains($ds, '/') && str_starts_with(basename($ds), CL_TRASH . '-' . $stamp . '-')
-            && in_array($kind, ['appdata', 'domain', 'iso'], true);
+            && in_array($kind, ['appdata', 'domain', 'iso', 'leftover'], true);
     }
     if ($as === '' || strlen($as) > 4096 || preg_match('/[\x00-\x1f\x7f]/', $as)) {
         return false;
@@ -2313,7 +2642,7 @@ function clTrashAsOk(string $as, string $kind, string $stamp): bool
             return false;
         }
     }
-    $deep = in_array($parts[0], ['strays', 'icons'], true);
+    $deep = in_array($parts[0], ['strays', 'icons', 'restore'], true);
     return (CL_KINDS[$parts[0]] ?? null) === $kind && count($parts) === ($deep ? 3 : 2);
 }
 
@@ -2363,14 +2692,14 @@ function clRunPathOk(string $runPath, string $as): bool
     return true;
 }
 
-function clTrashRuns(array $places, array $vms): array
+function clTrashRuns(array $places, array $vms, array $extra = []): array
 {
     $runs = [];
     $datasets = [];
     foreach (mountTable() as $m) {
         $datasets[$m['source']] = $m['mount'];
     }
-    foreach (clTrashRoots($places, $vms) as $root => $where) {
+    foreach (clTrashRoots($places, $vms, $extra) as $root => $where) {
         if (!is_dir($root) || is_link($root)) {
             continue;
         }
@@ -2495,7 +2824,7 @@ function clManifestWrite(array $run): void
 /** Removes a run folder that holds nothing any more (and its trash root, if empty) */
 function clRunTidy(string $path, string $root): void
 {
-    foreach (array_merge(glob("$path/strays/*", GLOB_ONLYDIR) ?: [], glob("$path/icons/*", GLOB_ONLYDIR) ?: []) as $d) {
+    foreach (array_merge(glob("$path/strays/*", GLOB_ONLYDIR) ?: [], glob("$path/icons/*", GLOB_ONLYDIR) ?: [], glob("$path/restore/*", GLOB_ONLYDIR) ?: []) as $d) {
         @rmdir($d);
     }
     foreach (array_keys(CL_KINDS) as $dir) {
@@ -2558,7 +2887,7 @@ function clIndex(array $state): array
     foreach (array_merge($state['templates']['list'], $state['stacks']['list'], $state['scripts']['list']) as $e) {
         $all[$e['id']] = $e;
     }
-    foreach (array_merge($state['appdata']['list'], $state['vms']['list']) as $f) {
+    foreach (array_merge($state['appdata']['list'], $state['vms']['list'], $state['leftovers']['list'] ?? []) as $f) {
         $all[$f['id']] = $f;
     }
     return $all;
@@ -2580,6 +2909,7 @@ function clPark(array $ids, bool $force): array
                 'asleep'        => new Problem('cleanup_asleep', $p),
                 'no_compose'    => new Problem('cleanup_no_compose', $p),
                 'dataset'       => new Problem('cleanup_dataset', $p),
+                'own_fs'        => new Problem('cleanup_own_fs', $p),
                 'checking'      => new Problem('cleanup_checking', $p),
                 'vm_off'        => new Problem('cleanup_vm_off', $p),
                 'in_unraid'     => new Problem('cleanup_in_unraid', $p),
@@ -2633,6 +2963,22 @@ function clPark(array $ids, bool $force): array
                 $as = clStrayAs($e['path']);
                 clMove($e['path'], $runs[$r]['path'] . "/$as");
                 $runs[$r]['items'][] = ['kind' => 'stray', 'name' => $e['file'], 'label' => $e['name'], 'from' => $e['path'], 'as' => $as];
+            } elseif ($e['kind'] === 'leftover') {
+                // Mr. Restori's: each part into the storeroom on its own filesystem, a dataset next to it (zfs rename)
+                foreach ($e['parts'] as $p) {
+                    $r = $run($p['trash']);
+                    if ($p['dataset']) {
+                        $to = dirname($p['dataset']) . '/' . CL_TRASH . '-' . $runs[$r]['stamp'] . '-' . basename($p['dataset']);
+                        clZfsRename($p['dataset'], $to, $p['path']);
+                        $as = "@$to";
+                    } else {
+                        $as = 'restore/' . substr(md5(dirname($p['path'])), 0, 8) . '/' . basename($p['path']);
+                        clMove($p['path'], $runs[$r]['path'] . "/$as");
+                    }
+                    $runs[$r]['items'][] = ['kind' => 'leftover', 'name' => $e['name'], 'label' => $e['restore']['id'], 'from' => $p['path'],
+                                            'as' => $as, 'dataset' => $p['dataset'], 'bytes' => $p['bytes']];
+                    clManifestWrite($runs[$r]);
+                }
             } elseif (in_array($e['kind'], ['nvram', 'tpm', 'snapshotdb'], true)) {
                 $r = $run(CL_LIBVIRT . '/' . CL_TRASH);
                 $as = $e['kind'] . '/' . $e['name'];
@@ -2807,6 +3153,7 @@ function clRestore(array $ids): array
             'tpm'        => CL_LIBVIRT . '/qemu/swtpm/tpm-states',
             'snapshotdb' => CL_LIBVIRT . '/qemu/snapshotdb',
             'userscript' => CL_US_SCRIPTS,
+            'leftover'   => clLeftoverHome($it['from'], $run['root']),
             'icon'       => clIconHome($it['from'], $state['stacks']['root']),
             'stray'      => preg_match('#/my-[^/]+\.xml$#', $it['from'])
                             && under($it['from'], under($run['root'], '/boot') ? '/boot' : dirname($run['root'])) ? dirname($it['from']) : '',
@@ -2974,7 +3321,7 @@ function clMeasure(array $ids): array
 {
     $state = $GLOBALS['clState'] ?? clScan();
     $paths = [];
-    foreach (array_merge($state['appdata']['list'], $state['vms']['list']) as $f) {
+    foreach (array_merge($state['appdata']['list'], $state['vms']['list'], $state['leftovers']['list'] ?? []) as $f) {
         if (in_array($f['id'], $ids, true)) {
             foreach ($f['parts'] ?? [] as $p) {
                 if (empty($p['file'])) {

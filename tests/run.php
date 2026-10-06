@@ -2233,6 +2233,96 @@ function testLogsTour(): void
 }
 
 /** Ms. Whereabouts: which services of a compose file build their own image (her rebuild tip) */
+/**
+ * Ms. Dustdevil's room for Mr. Restori's leftovers: what his journals say he put aside (only in exactly his
+ * shapes, with the restore's own time), what his «Put back» still needs, his journals only from his own
+ * folder, her storeroom on the leftover's own filesystem, and the way back from it.
+ */
+function testLeftovers(): void
+{
+    $u = fn (array $j) => array_map(fn ($x) => [$x['path'], $x['dataset'], $x['what'], $x['back']], clLeftoverUnits($j));
+    // shapes as on nostromo (data/restore/<id>/journal.json)
+    same('leftovers: a copy next to the live one', [['/mnt/hive/drop/shares.restored-20261006-150008', null, 'restored', false]],
+        $u(['id' => '20261006-150008-2814', 'kind' => 'files', 'result' => 'ok', 'putback' => null, 'aside' => [],
+            'steps' => [['do' => 'copy', 'to' => '/mnt/hive/drop/shares.restored-20261006-150008', 'dataset' => null]]]));
+    $vm = 'master/domains/Win.aside-20261006-175854';
+    same('leftovers: a swap — the live one aside (a dataset, his way back), the copy (moved into place: existence decides)',
+        [['/mnt/master/domains/Win.aside-20261006-175854', $vm, 'aside', true], ['/mnt/master/domains/Win.restored-20261006-175854', 'master/domains/Win.restored-20261006-175854', 'restored', false]],
+        $u(['id' => '20261006-175854-9b26', 'kind' => 'files', 'result' => 'ok', 'putback' => null,
+            'steps' => [['do' => 'copy', 'to' => '/mnt/master/domains/Win.restored-20261006-175854', 'dataset' => 'master/domains/Win.restored-20261006-175854'],
+                        ['do' => 'aside', 'path' => '/mnt/master/domains/Win', 'to' => '/mnt/master/domains/Win.aside-20261006-175854']],
+            'aside' => [['from' => '/mnt/master/domains/Win', 'to' => '/mnt/master/domains/Win.aside-20261006-175854', 'dataset' => 'master/domains/Win', 'to_dataset' => $vm]]]));
+    same('leftovers: a database put back already — its safety dumps\' folder and the folder aside are no way back any more',
+        [['/mnt/user/UnraidSecretaryOffice/backup/restore/zz/20261006-172818', null, 'safety', false], ['/mnt/master/appdata/zz/pg.aside-20261006-172818', null, 'aside', false]],
+        $u(['id' => '20261006-172818-56e7', 'kind' => 'db', 'result' => 'ok', 'putback' => ['id' => '20261006-173611-d33f', 'result' => 'ok'], 'steps' => [],
+            'aside' => [['from' => 'db:zz-pg', 'to' => '/mnt/user/UnraidSecretaryOffice/backup/restore/zz/20261006-172818/postgres_zz-pg.sql.gz', 'what' => 'safety_dump'],
+                        ['from' => 'db:zz-mdb', 'to' => '/mnt/user/UnraidSecretaryOffice/backup/restore/zz/20261006-172818/mariadb_zz.sql.gz', 'what' => 'safety_dump'],
+                        ['from' => '/mnt/master/appdata/zz/pg', 'to' => '/mnt/master/appdata/zz/pg.aside-20261006-172818', 'dataset' => null, 'to_dataset' => null]]]));
+    same('leftovers: what «Put back» set aside', [['/mnt/master/appdata/zz/pg.putback-20261006-173611', null, 'putback', false]],
+        $u(['id' => '20261006-173611-d33f', 'kind' => 'putback', 'result' => 'ok', 'putback' => null, 'steps' => [],
+            'aside' => [['from' => '/mnt/master/appdata/zz/pg', 'to' => '/mnt/master/appdata/zz/pg.putback-20261006-173611', 'dataset' => null, 'to_dataset' => null]]]));
+    same('leftovers: templates on the flash (one folder for the time), a compose file elsewhere, a VM\'s configuration',
+        [['/boot/config/_UnraidSecretaryOffice-restore/20261007-090000', null, 'flash', true], ['/mnt/user/appdata/x/compose.yml.restored-aside-20261007-090000', null, 'file_aside', true],
+         ['/etc/libvirt/_UnraidSecretaryOffice-restore/20261007-090000', null, 'libvirt', true]],
+        $u(['id' => '20261007-090000-0a1b', 'kind' => 'config', 'result' => 'failed', 'putback' => ['result' => 'refused'], 'steps' => [],
+            'aside' => [['from' => '/boot/config/plugins/dockerMan/templates-user/my-a.xml', 'to' => '/boot/config/_UnraidSecretaryOffice-restore/20261007-090000/plugins/dockerMan/templates-user/my-a.xml'],
+                        ['from' => '/boot/config/plugins/compose.manager/projects/x/compose.yaml', 'to' => '/boot/config/_UnraidSecretaryOffice-restore/20261007-090000/plugins/compose.manager/projects/x/compose.yaml'],
+                        ['from' => '/mnt/user/appdata/x/compose.yml', 'to' => '/mnt/user/appdata/x/compose.yml.restored-aside-20261007-090000'],
+                        ['from' => 'vm:Win', 'to' => '/etc/libvirt/_UnraidSecretaryOffice-restore/20261007-090000/Win/domain.xml', 'what' => 'xml']]]));
+    same('leftovers: never another shape — another time, none, unfilled, outside /mnt, «..», a dump elsewhere, a dataset of another name', [['/mnt/a/b/ok.aside-20261007-090000', null, 'aside', false]],
+        $u(['id' => '20261007-090000-0a1b', 'kind' => 'db', 'result' => 'refused', 'steps' => [['do' => 'copy', 'to' => '/mnt/a/b/c.restored-20261001-000000']],
+            'aside' => [['to' => '/mnt/a/b/c.aside-20261001-000000'], ['to' => '/mnt/a/b/c'], ['to' => '/mnt/a/b/c.aside-{T}'], ['to' => '/tmp/c.aside-20261007-090000'],
+                        ['to' => '/mnt/a/../b/c.aside-20261007-090000'], ['to' => '/mnt/a/b/x.sql.gz', 'what' => 'safety_dump'], ['to' => "/mnt/a/b/c.aside-20261007-090000\n"],
+                        ['to' => '/mnt/a/b/ok.aside-20261007-090000', 'to_dataset' => 'a/b/other'], ['to' => '/boot/config/_UnraidSecretaryOffice-restore/20261001-000000/x']]]));
+    same('leftovers: what «Put back» can still undo', [true, true, false, false, false, true],
+        array_map('clRestoreUndoable', [['kind' => 'db', 'result' => 'ok'], ['kind' => 'files', 'result' => 'interrupted', 'putback' => ['result' => 'refused']],
+            ['kind' => 'db', 'result' => 'ok', 'putback' => ['result' => 'failed']], ['kind' => 'putback', 'result' => 'ok'], ['kind' => 'kopia', 'result' => 'ok'],
+            ['kind' => 'vm', 'result' => 'warnings']]));
+
+    // his journals: only from his own folder, only his own files
+    $tmp = hardeningTmp('leftovers');
+    $dir = "$tmp/restore";
+    $journal = function (string $id, array $j, int $uid = 0) use ($dir): void {
+        @mkdir("$dir/$id", 0700, true);
+        file_put_contents("$dir/$id/journal.json", json_encode(['id' => $id] + $j));
+        chmod("$dir/$id/journal.json", 0600);
+        chown("$dir/$id/journal.json", $uid);
+    };
+    $journal('20261006-150008-2814', ['kind' => 'files']);
+    $journal('20261006-160000-aaaa', ['kind' => 'db'], 99);
+    $journal('20261006-170000-bbbb', ['kind' => 'db', 'id' => 'x']);
+    $journal('not-a-restore', ['kind' => 'db']);
+    file_put_contents("$dir/20261006-170000-bbbb/journal.json", json_encode(['id' => '20261006-999999-ffff', 'kind' => 'db']));
+    chmod($dir, 0700);
+    same('journals: only his own (root\'s, its own id), newest first', ['20261006-150008-2814'], array_column(clRestoreJournals($dir), 'id'));
+    chmod($dir, 0777);
+    same('journals: a folder others may write in — none', [], clRestoreJournals($dir));
+    unset($GLOBALS['clJournals']);
+
+    // her storeroom on the leftover's own filesystem, inside its share; the way back only to his places
+    $top = "$tmp/mnt/pool/share";
+    mkdir("$top/app/db", 0755, true);
+    same('storeroom: at the share\'s top on the same filesystem', "$top/" . CL_TRASH, clLeftoverTrash("$top/app/db/pg.aside-20261006-172818", $top));
+    same('storeroom: never outside the share, nothing where its folder is gone', [null, null],
+        [clLeftoverTrash("$tmp/mnt/pool/other/x.aside-20261006-172818", $top), clLeftoverTrash("$top/gone/x.aside-20261006-172818", $top)]);
+    same('way back: to where he leaves things, on the storeroom\'s own filesystem', ['/mnt/hive/drop', '/boot/config/' . CL_RESTORE_ASIDE, '', '', ''],
+        [clLeftoverHome('/mnt/hive/drop/shares.restored-20261006-150008', '/mnt/hive/drop/' . CL_TRASH),
+         clLeftoverHome('/boot/config/' . CL_RESTORE_ASIDE . '/20261006-150008', '/boot/config/' . CL_TRASH),
+         clLeftoverHome('/mnt/hive/drop/shares', '/mnt/hive/drop/' . CL_TRASH),
+         clLeftoverHome('/mnt/hive/other/shares.restored-20261006-150008', '/mnt/hive/drop/' . CL_TRASH),
+         clLeftoverHome('/etc/libvirt/' . CL_RESTORE_ASIDE . '/20261006-150008', '/boot/config/' . CL_TRASH)]);
+    hardeningRm($tmp);
+
+    // the page's words for every kind of leftover and restore
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/lang/en.json'), true) ?: [];
+    foreach (['aside', 'putback', 'restored', 'file_aside', 'flash', 'libvirt', 'safety'] as $w) {
+        check("leftovers: words for $w", isset($en["lo.what.$w"], $en["lo.what.{$w}_text"]));
+    }
+    foreach (['db', 'sqlite', 'files', 'config', 'vm', 'kopia', 'putback'] as $k) {
+        check("leftovers: words for a restore of kind $k", isset($en["lo.kind.$k"]));
+    }
+}
+
 function testComposeBuilds(): void
 {
     $yaml = "name: x\nservices:\n  db:\n    image: mariadb:11\n    environment:\n      build: no   # an env value, not a key of the service\n"
@@ -4452,14 +4542,16 @@ function testTrashManifest(): void
     $st = '20261005-120000';
     foreach ([['templates/my-app.xml', 'template'], ['compose/stack', 'stack'], ['appdata/foo', 'appdata'], ['vms/win11', 'domain'],
               ['strays/0a1b2c3d/my-x.xml', 'stray'], ['icons/0a1b2c3d/compose.override.yaml', 'icon'], ['nvram/abc_VARS.fd', 'nvram'],
-              ["@cache/appdata/_UnraidSecretaryOffice-trash-$st-foo", 'appdata']] as [$as, $kind]) {
+              ["@cache/appdata/_UnraidSecretaryOffice-trash-$st-foo", 'appdata'], ['restore/0a1b2c3d/pg.aside-20261006-172818', 'leftover'],
+              ["@master/domains/_UnraidSecretaryOffice-trash-$st-Win.aside-20261006-175854", 'leftover']] as [$as, $kind]) {
         check("manifest as accepted: $as", clTrashAsOk($as, $kind, $st));
     }
     foreach ([['../../../../boot/config/super.dat', 'template'], ['templates/../../x', 'template'], ['templates/./x', 'template'],
               ['/boot/config/go', 'template'], ['templates//x', 'template'], ['appdata/foo', 'template'], ['templates/a/b', 'template'],
               ['strays/x', 'stray'], ["templates/x\ny", 'template'], ['', 'template'], ['@cache/appdata', 'appdata'],
               ['@cache/appdata/_UnraidSecretaryOffice-trash-20990101-000000-foo', 'appdata'], ["@cache/appdata/_UnraidSecretaryOffice-trash-$st-foo", 'template'],
-              ["@cache/../x/_UnraidSecretaryOffice-trash-$st-foo", 'appdata'], ['@cache', 'appdata']] as [$as, $kind]) {
+              ["@cache/../x/_UnraidSecretaryOffice-trash-$st-foo", 'appdata'], ['@cache', 'appdata'], ['restore/pg.aside-20261006-172818', 'leftover'],
+              ['restore/0a1b2c3d/pg.aside-20261006-172818', 'appdata'], ['appdata/foo', 'leftover']] as [$as, $kind]) {
         check('manifest as refused: ' . json_encode($as) . " ($kind)", !clTrashAsOk($as, $kind, $st));
     }
     check('manifest from: an absolute path', clTrashPathOk('/mnt/cache/appdata/foo'));
@@ -5617,7 +5709,7 @@ function testSupporterKeys(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
-                      'testWhereaboutsAfterWatchman', 'testSupporter'],
+                      'testWhereaboutsAfterWatchman', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
