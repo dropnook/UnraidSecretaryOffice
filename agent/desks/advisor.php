@@ -126,6 +126,12 @@ const ADVISOR_DASHBOARD_EVERY = 3600;
 const ADVISOR_PLUGIN_BIN = '/usr/local/sbin/plugin';
 const ADVISOR_JOB        = RUN_DIR . '/advisor-plugin';
 const ADVISOR_JOB_SCRIPT = '"$1" install "$2" >"$3" 2>&1; echo $? >"$4"';
+/** After he prepared Unraid's form: whether the container came, looked at this often for so long (his tick; then his scan once) */
+const ADVISOR_RELOOK_EVERY = 20;
+const ADVISOR_RELOOK_FOR   = 1800;
+/** His record of what he installed (data/advisor/installs.json, root only) — the night watchman reads it: the office's own doing */
+const ADVISOR_RECORD_MAX  = 20;
+const ADVISOR_RECORD_DAYS = 30;
 
 /** Prometheus' minimal configuration: itself and the Node Exporter, every 60 s ({ip} = the server) */
 const ADVISOR_PROMETHEUS_YML = <<<'YML'
@@ -253,7 +259,17 @@ function advisorScan(): array
  */
 function advisorTick(): void
 {
-    static $last = 0, $dash = 0;
+    static $last = 0, $dash = 0, $relook = 0;
+    if (isset($GLOBALS['advisorPrepared']) && time() - $relook >= ADVISOR_RELOOK_EVERY) {
+        $relook = time();
+        $due = advisorRelookDue($GLOBALS['advisorPrepared'], houseContainers(), time());
+        if ($due !== 'wait') {
+            unset($GLOBALS['advisorPrepared']);
+        }
+        if ($due === 'scan') {
+            advisorScan();          // the container is there: his page says so without waiting for its next look
+        }
+    }
     if (time() - $last < 60) {
         return;
     }
@@ -267,6 +283,71 @@ function advisorTick(): void
             advisorDashboardCurrent(advisorGrafanaInfo($found, $inspect));
         }
     }
+}
+
+/**
+ * After he prepared Unraid's form for $w['id'] (at $w['at']): scan — a container of that kind is there now
+ * (by image or name, like his scan finds it); stop — not within ADVISOR_RELOOK_FOR; wait otherwise.
+ */
+function advisorRelookDue(array $w, array $containers, int $now): string
+{
+    if (!isset(ADVISOR_EXTERNALS[$w['id'] ?? ''])) {
+        return 'stop';
+    }
+    if (advisorFindContainer(ADVISOR_EXTERNALS[$w['id']], $containers) !== null) {
+        return 'scan';
+    }
+    return $now - (int) ($w['at'] ?? 0) > ADVISOR_RELOOK_FOR ? 'stop' : 'wait';
+}
+
+/** His record: where it lies (tests set $GLOBALS['advisorRecordFile']) */
+function advisorRecordFile(): string
+{
+    return $GLOBALS['advisorRecordFile'] ?? DATA_DIR . '/advisor/installs.json';
+}
+
+/**
+ * Notes what he installs — a plugin (`plugin install <url>`: kind plugin, its name and address) or a
+ * container whose form he prepared (kind container, its name and image) — with the time, so the night
+ * watchman knows it as the office's own doing (watchmanOfficeLook()). Root only: the folder 0700 and the
+ * file 0600 of root's (writeAtomic(): a new file, renamed into place); a folder others own or may write
+ * is made root's again, a file others could have written is not read (the record begins anew). The
+ * newest ADVISOR_RECORD_MAX within ADVISOR_RECORD_DAYS. False when it can't be written (logged).
+ */
+function advisorRecord(array $entry, ?int $now = null): bool
+{
+    $file = advisorRecordFile();
+    $dir = dirname($file);
+    $now ??= time();
+    clearstatcache();
+    $st = @lstat($dir);
+    if (!$st && @mkdir($dir, 0700)) {
+        clearstatcache();
+        $st = @lstat($dir);
+    }
+    if ($st && ($st['mode'] & 0170000) === 0040000 && ($st['uid'] !== 0 || $st['gid'] !== 0 || ($st['mode'] & 0077))) {
+        @lchown($dir, 0);
+        @lchgrp($dir, 0);
+        @chmod($dir, 0700);
+        clearstatcache();
+        $st = @lstat($dir);
+    }
+    if (!$st || ($st['mode'] & 0170000) !== 0040000 || $st['uid'] !== 0 || ($st['mode'] & 0077)) {
+        logLine("Consultant: could not write his record $file");
+        return false;
+    }
+    $f = @lstat($file);
+    $old = $f && ($f['mode'] & 0170000) === 0100000 && $f['uid'] === 0 && !($f['mode'] & 0077) && $f['nlink'] === 1 && $f['size'] <= 65536
+        ? (array) ((readJson($file) ?? [])['installs'] ?? []) : [];
+    $keep = array_values(array_filter($old, fn ($r) => is_array($r) && is_int($r['t'] ?? null) && $r['t'] > $now - ADVISOR_RECORD_DAYS * 86400 && $r['t'] <= $now + 60));
+    $keep[] = ['t' => $now] + $entry;
+    try {
+        writeAtomic($file, jsonEncode(['installs' => array_slice($keep, -ADVISOR_RECORD_MAX)]), 0600, 0, 0);
+    } catch (Throwable) {
+        logLine("Consultant: could not write his record $file");
+        return false;
+    }
+    return true;
 }
 
 /**
@@ -868,6 +949,8 @@ function advisorInstallPrepare(string $id, array $r, array $env): array
         throw new Problem('ad_write', ['path' => $file]);
     }
     logLine("Consultant: prepared Unraid's form for {$plan['name']}" . ($written ? ' (wrote ' . implode(', ', $written) . ')' : ''));
+    advisorRecord(['kind' => 'container', 'id' => $id, 'name' => $plan['name'], 'image' => $plan['template']['repository']]);
+    $GLOBALS['advisorPrepared'] = ['id' => $id, 'at' => time()];      // his tick looks whether it came (advisorRelookDue())
     return ['ok' => true, 'url' => ADVISOR_ADD_CONTAINER . $file, 'name' => $plan['name'], 'written' => $written, 'kept' => $kept];
 }
 
@@ -1115,6 +1198,7 @@ function advisorPluginInstall(string $id): array
         @unlink(ADVISOR_JOB . $ext);
     }
     writeAtomic(ADVISOR_JOB . '.json', jsonEncode(['id' => $id, 'plugin' => $how['plugin'], 'url' => $how['plg'], 'started' => time()]), 0600, 0, 0);
+    advisorRecord(['kind' => 'plugin', 'id' => $id, 'name' => $how['plugin'], 'url' => $how['plg']]);     // before the job: the night watchman knows it as the office's
     hostLaunch('advisor-plugin', ['/bin/sh', '-c', ADVISOR_JOB_SCRIPT, 'sh', ADVISOR_PLUGIN_BIN, $how['plg'], ADVISOR_JOB . '.out', ADVISOR_JOB . '.done']);
     logLine("Consultant: installing the plugin {$how['plugin']} from {$how['plg']} (via at)");
     return ['ok' => true, 'job' => advisorJob()];
