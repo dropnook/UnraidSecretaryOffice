@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.21 - 2026-10-06
+# unraid-backup - setup.sh                        Version 2.22 - 2026-10-06
+#   2.22 (backup.sh only: VMs with prepare = shutdown go down before anything stops - the apps no
+#        longer wait for them)
 #   2.21 New things stay local and keep running until you decide: per share that goes to Kopia the
 #        top-level folders that exist are recorded as kopia_known (the first time all of them, later
 #        what was known plus what you send to Kopia; a share with a sleeping disk gets its first record

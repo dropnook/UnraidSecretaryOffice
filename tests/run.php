@@ -14,7 +14,8 @@ declare(strict_types=1);
  *            lead's «I know, thanks» and the Dashboard tile,
  *            Mr. Backupsy's packages and his Kopia per app and VM, new things that stay local until
  *            decided (engine and setup on a fixture server, the setup's logic under node), a run skipped because
- *            the engine's lock was busy (and who holds it), Ms. Dustdevil's pictures,
+ *            the engine's lock was busy (and who holds it), the order around VMs that shut down (backup.sh
+ *            on a fixture server), Ms. Dustdevil's pictures,
  *            Mr. Restori's reader of the packages and his restores (steps, put back, the lock, a job on its own;
  *            a share on several pools: moments, the union, targets on the share, missing and empty shares),
  *            the Consultant's monitoring externals and his installs, Ms. Protocolli's tour,
@@ -902,6 +903,250 @@ SH);
     $setup("--apply=$tmp/dec.json");
     $ini = (string) @file_get_contents("$data/settings.ini");
     check('setup apply: a container that came after the plan stays new (keeps running, not known)', !str_contains($ini, 'known = late') && str_contains($ini, 'no_stop = late'), $ini);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Engine 2.22: VMs with prepare = shutdown go down before anything stops. backup.sh runs on a fixture
+ * server — stand-ins for docker, zfs, zpool, btrfs, virsh, mount and notify on PATH, its data, the
+ * shares and the backup place in a temporary folder (no Kopia, no notification, nothing real is
+ * stopped, snapshotted or started): the order of what it did (one events file the stand-ins write),
+ * downtime_s, status.json vms and state/vms — a VM that shuts down, one that ignores the request
+ * (paused right before the snapshot), one that goes off late (while the apps stopped: started again,
+ * not paused), a VM paused as before; a run without such VMs; a run stopped while a VM goes down (it
+ * waits for it and starts it again); a run killed then (the next start starts it).
+ */
+function testBackupVmOrder(): void
+{
+    if (posix_getuid() !== 0) {
+        check('vm order: backup.sh runs as root only — not run here', true);
+        return;
+    }
+    $tmp = sys_get_temp_dir() . '/office-tests-vmorder-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    $pool = "$mnt/master";
+    $fake = "$tmp/fake";
+    $data = "$tmp/data/unraid-backup";
+    $vms = ['vmshut', 'vmdeaf', 'vmlate', 'vmpause', 'vmslow'];
+    foreach (["$tmp/bin", "$fake/vm", "$fake/ct", "$data/state", "$tmp/boot/config/shares", "$mnt/user/UnraidSecretaryOffice", "$pool/appdata/c1",
+              "$pool/UnraidSecretaryOffice/backup", "$tmp/stage"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    foreach ($vms as $v) {
+        @mkdir("$pool/domains/$v", 0700, true);
+        touch("$pool/domains/$v/vdisk1.img");
+    }
+    foreach (['appdata', 'domains', 'UnraidSecretaryOffice'] as $n) {
+        touch("$tmp/boot/config/shares/$n.cfg");
+    }
+    file_put_contents("$fake/mounts", "master $pool zfs rw 0 0\nmaster/appdata $pool/appdata zfs rw 0 0\nmaster/domains $pool/domains zfs rw 0 0\n"
+        . "master/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\nshfs $mnt/user fuse.shfs rw 0 0\n");
+    $z = fn ($n, $mp) => "$n\t$mp\ton\t" . crc32($n) . "\t1000\t-\n";
+    file_put_contents("$fake/zfs.txt", $z('master', $pool) . $z('master/appdata', "$pool/appdata") . $z('master/domains', "$pool/domains")
+        . $z('master/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice"));
+    file_put_contents("$fake/inspect.json", json_encode([['Name' => '/c1', 'Id' => 'id1', 'Config' => ['Image' => 'nginx', 'Env' => [], 'Labels' => new stdClass()],
+        'State' => ['Running' => true], 'HostConfig' => ['NetworkMode' => 'bridge'],
+        'Mounts' => [['Type' => 'bind', 'Source' => "$mnt/user/appdata/c1", 'Destination' => '/config', 'RW' => true]]]]));
+    // the stand-ins note what changes something, with the second it happened: "<time> <what>"
+    file_put_contents("$tmp/bin/docker", <<<'SH'
+#!/bin/bash
+ev() { echo "$(date +%s) $*" >>"$FAKE/events"; }
+st() { cat "$FAKE/ct/$1" 2>/dev/null || echo running; }
+case "$1" in
+  info|version) exit 0 ;;
+  ps) [[ "$*" == *q* ]] && echo id1 || printf 'c1\tnginx\tUp\n'; exit 0 ;;
+  inspect)
+    shift
+    if [[ "$1" == -f ]]; then
+      case "$2" in
+        *Health*) [[ "$(st "$3")" == running ]] && echo "true " || echo "false " ;;
+        *State.Running*) [[ "$(st "$3")" == running ]] && echo true || echo false ;;
+      esac
+      exit 0
+    fi
+    [[ "$1" == --format ]] && { echo "/c1  nginx  sha256:1"; exit 0; }
+    cat "$FAKE/inspect.json"; exit 0 ;;
+  stop) shift; while [[ "$1" == -* ]]; do shift 2; done
+        for c in "$@"; do echo stopped >"$FAKE/ct/$c"; ev "docker stop $c"; done; exit 0 ;;
+  start) shift; for c in "$@"; do echo running >"$FAKE/ct/$c"; ev "docker start $c"; done; exit 0 ;;
+esac
+exit 1
+SH);
+    // VMs: how each answers a shutdown request ($FAKE/vm/<name>.how): obey (off at once), deaf (never),
+    // late (off once the apps were stopped), slow (off 3 s after the request)
+    file_put_contents("$tmp/bin/virsh", <<<'SH'
+#!/bin/bash
+ev() { echo "$(date +%s) $*" >>"$FAKE/events"; }
+V="$FAKE/vm"; n="${2:-}"
+[[ "$2" == --* ]] && n="${@: -1}"
+state() {
+  local s; s="$(cat "$V/$n.state" 2>/dev/null || echo running)"
+  if [[ "$s" == running && -e "$V/$n.asked" ]]; then
+    case "$(cat "$V/$n.how" 2>/dev/null)" in
+      late) grep -q 'docker stop' "$FAKE/events" 2>/dev/null && s="shut off" ;;
+      slow) (( $(date +%s) - $(cat "$V/$n.asked") >= 3 )) && s="shut off" ;;
+    esac
+    [[ "$s" == "shut off" ]] && echo "$s" >"$V/$n.state"
+  fi
+  echo "$s"
+}
+case "$1" in
+  list) cat "$FAKE/vms"; exit 0 ;;
+  domstate) state; exit 0 ;;
+  dominfo) echo "Autostart:      disable"; exit 0 ;;
+  dumpxml) echo "<domain><name>$n</name><uuid>uuid-$n</uuid></domain>"; exit 0 ;;
+  domblklist) printf 'Type Device Target Source\n----\nfile disk vdisk1 %s\n' "$MNT/user/domains/$n/vdisk1.img"; exit 0 ;;
+  qemu-agent-command|domfsfreeze) exit 1 ;;
+  shutdown) ev "virsh shutdown $n"; [[ -e "$V/$n.asked" ]] || date +%s >"$V/$n.asked"
+            [[ "$(cat "$V/$n.how" 2>/dev/null)" == obey ]] && echo "shut off" >"$V/$n.state"; exit 0 ;;
+  suspend) [[ "$(state)" == running ]] || exit 1; echo paused >"$V/$n.state"; ev "virsh suspend $n"; exit 0 ;;
+  resume) echo running >"$V/$n.state"; ev "virsh resume $n"; exit 0 ;;
+  start) [[ "$(state)" == "shut off" ]] || exit 1; echo running >"$V/$n.state"; rm -f "$V/$n.asked"; ev "virsh start $n"; exit 0 ;;
+esac
+exit 0
+SH);
+    file_put_contents("$tmp/bin/zfs", "#!/bin/bash\ncase \"\$*\" in *'-t filesystem'*) cat \"\$FAKE/zfs.txt\" ;; snapshot*) echo \"\$(date +%s) zfs \$*\" >>\"\$FAKE/events\" ;; esac\nexit 0\n");
+    foreach (['zpool', 'btrfs', 'umount'] as $b) {
+        file_put_contents("$tmp/bin/$b", "#!/bin/bash\nexit 0\n");
+    }
+    file_put_contents("$tmp/bin/mount", "#!/bin/bash\nexit 1\n");
+    file_put_contents("$tmp/bin/mountpoint", "#!/bin/bash\n[[ \"\${@: -1}\" == */user ]]\n");
+    file_put_contents("$tmp/bin/notify", "#!/bin/bash\necho \"\$*\" >>\"\$FAKE/notify.log\"\n");
+    foreach (glob("$tmp/bin/*") as $f) {
+        chmod($f, 0755);
+    }
+    $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares UB_STAGE=$tmp/stage"
+         . " UB_DISKS_INI=$fake/disks.ini UB_MOUNTS_FILE=$fake/mounts UB_NOTIFY_BIN=$tmp/bin/notify UB_NO_NOTIFY=1 FAKE=$fake MNT=$mnt"
+         . ' UB_VM_SHUTDOWN_TIMEOUT=4 UB_VM_SHUTDOWN_RETRY=2';
+    $settings = function (array $prep) use ($mnt, $data): void {
+        $ini = "[general]\nserver = Test\nmount_root = $mnt/addons/UnraidSecretaryOffice/snapshots\nview_root = $mnt/addons/UnraidSecretaryOffice/btrfs-snap\n"
+             . "snap_prefix = uso-backup-\ndumps_share = UnraidSecretaryOffice\nmin_free_gb = 0\n[docker]\nstop = all\nknown = c1\n[flash]\nmode = off\n"
+             . "[libvirt]\nmode = off\n[kopia]\nenabled = no\n[share \"appdata\"]\nmode = snapshot\n[share \"domains\"]\nmode = snapshot\n"
+             . "[share \"UnraidSecretaryOffice\"]\nmode = snapshot\n";
+        foreach ($prep as $vm => $p) {
+            $ini .= "[vm \"$vm\"]\nmode = snapshot\nprepare = $p\n";
+        }
+        file_put_contents("$data/settings.ini", $ini);
+    };
+    // a fresh night: every VM and the container running, nothing noted
+    $night = function (array $how) use ($fake, $data, $vms): void {
+        // the logs too: a run in the same minute writes to the same run-<minute>.log
+        exec('rm -rf ' . escapeshellarg("$fake/vm") . ' ' . escapeshellarg("$fake/ct") . ' ' . escapeshellarg("$fake/events") . ' ' . escapeshellarg("$data/logs"));
+        @mkdir("$fake/vm", 0700, true);
+        @mkdir("$fake/ct", 0700, true);
+        foreach ($how as $vm => $h) {
+            file_put_contents("$fake/vm/$vm.how", $h);
+        }
+        file_put_contents("$fake/vms", implode("\n", array_keys($how)) . "\n");
+        @unlink("$data/state/status.json");
+    };
+    $events = function () use ($fake): array {
+        $out = [];
+        foreach (file("$fake/events", FILE_IGNORE_NEW_LINES) ?: [] as $l) {
+            [$t, $what] = explode(' ', $l, 2) + [1 => ''];
+            $out[] = [(int) $t, preg_replace('/^zfs snapshot .*/', 'zfs snapshot', $what)];
+        }
+        return $out;
+    };
+    $at = function (array $ev, string $what, bool $last = false): ?int {
+        $found = null;
+        foreach ($ev as $i => [, $w]) {
+            if ($w === $what) {
+                $found = $i;
+                if (!$last) {
+                    break;
+                }
+            }
+        }
+        return $found;
+    };
+    $run = fn (string $args = '') => (string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null") . ' 2>&1');
+    $log = fn () => (string) @file_get_contents("$data/logs/latest.log");
+    $status = fn () => json_decode((string) @file_get_contents("$data/state/status.json"), true) ?: [];
+
+    // --- a night with a VM that shuts down, one that ignores it, one that goes off late, one paused
+    $settings(['vmshut' => 'shutdown', 'vmdeaf' => 'shutdown', 'vmlate' => 'shutdown', 'vmpause' => 'pause']);
+    $night(['vmshut' => 'obey', 'vmdeaf' => 'deaf', 'vmlate' => 'late', 'vmpause' => 'obey']);
+    $out = $run();
+    $ev = $events();
+    $s = $status();
+    $l = $log();
+    $names = array_column($ev, 1);
+    $stop = $at($ev, 'docker stop c1');
+    $snap = $at($ev, 'zfs snapshot');
+    check('vm order: the run went through', in_array($s['result'] ?? '', ['ok', 'warnings'], true) && $stop !== null && $snap !== null, $out . $l);
+    check('vm order: every shutdown request (and the repeated one) before the first app stops',
+        $stop !== null && $at($ev, 'virsh shutdown vmdeaf', true) < $stop && $at($ev, 'virsh shutdown vmshut') < $stop && $at($ev, 'virsh shutdown vmlate', true) < $stop
+        && count(array_keys($names, 'virsh shutdown vmdeaf', true)) >= 2, json_encode($names));
+    check('vm order: the apps stop only once the deadline passed — they never waited for a VM',
+        $stop !== null && $ev[$stop][0] - $ev[$at($ev, 'virsh shutdown vmshut')][0] >= 4, json_encode($ev));
+    $start = $at($ev, 'docker start c1');
+    check('vm order: downtime_s is the apps\' stop only (from their stop to their start, not the VMs\' wait)',
+        $start !== null && $stop !== null && ($s['downtime_s'] ?? -1) >= 0 && ($s['downtime_s'] ?? 99) <= $ev[$start][0] - $ev[$stop][0] + 1 && ($s['downtime_s'] ?? 99) < 4,
+        json_encode([$s['downtime_s'] ?? null, $ev]));
+    check('vm order: the VM that ignored its shutdown and the one to pause are paused after the apps, right before the snapshot',
+        $stop !== null && $snap !== null && $stop < $at($ev, 'virsh suspend vmdeaf') && $at($ev, 'virsh suspend vmdeaf') < $snap
+        && $stop < $at($ev, 'virsh suspend vmpause') && $at($ev, 'virsh suspend vmpause') < $snap, json_encode($names));
+    check('vm order: the one off late is not paused, nor the one shut down', !in_array('virsh suspend vmlate', $names, true) && !in_array('virsh suspend vmshut', $names, true), json_encode($names));
+    check('vm order: after the snapshot all are back, before the apps start',
+        $snap !== null && $start !== null && $snap < $at($ev, 'virsh start vmshut') && $at($ev, 'virsh start vmshut') < $start
+        && $snap < $at($ev, 'virsh start vmlate') && $snap < $at($ev, 'virsh resume vmdeaf') && $snap < $at($ev, 'virsh resume vmpause'), json_encode($names));
+    $byVm = array_column($s['vms'] ?? [], null, 'name');
+    same('vm order: status.json vms — what was done with each',
+        [['shutdown', 'shutdown'], ['shutdown', 'paused'], ['shutdown', 'shutdown'], ['pause', 'paused']],
+        array_map(fn ($v) => [$byVm[$v]['prepare'] ?? null, $byVm[$v]['done'] ?? null], ['vmshut', 'vmdeaf', 'vmlate', 'vmpause']));
+    check('vm order: seconds held — a shutdown from its request, the ignored one from its pause',
+        ($byVm['vmshut']['seconds'] ?? 0) >= 4 && ($byVm['vmdeaf']['seconds'] ?? 99) < 4, json_encode($s['vms'] ?? null));
+    $pos = fn (string $needle) => ($p = strpos($l, $needle)) === false ? null : $p;
+    $order = [$pos('VMs: shutting down 3 before anything stops'), $pos("VM 'vmshut': shut down"), $pos("WARNING: VM 'vmdeaf' did not shut down within 4 s"),
+              $pos('Nextcloud ...'), $pos('Pausing apps: 1'), $pos("VM 'vmdeaf': paused"), $pos("VM 'vmlate': shut down (after its deadline)"), $pos('Creating snapshots')];
+    $sorted = $order;
+    sort($sorted);
+    check('vm order: the log tells it in that order', !in_array(null, $order, true) && $order === $sorted, json_encode($order) . "\n" . $l);
+    check('vm order: nothing left in state/vms', !file_exists("$data/state/vms"));
+
+    // --- a night without a VM to shut down: no wait, no line, the same order as before
+    $settings(['vmpause' => 'pause']);
+    $night(['vmpause' => 'obey']);
+    $run();
+    $ev = $events();
+    $names = array_column($ev, 1);
+    $l = $log();
+    check('vm order: no VM to shut down — no request, no line, the apps stop and the VM is paused before the snapshot',
+        !preg_grep('/^virsh shutdown/', $names) && !str_contains($l, 'shutting down') && $at($ev, 'docker stop c1') !== null
+        && $at($ev, 'docker stop c1') < $at($ev, 'virsh suspend vmpause') && $at($ev, 'virsh suspend vmpause') < $at($ev, 'zfs snapshot'), json_encode($names) . $l);
+
+    // --- stopped while a VM goes down: the run waits until it is off and starts it again; nothing else was stopped
+    $settings(['vmslow' => 'shutdown']);
+    $night(['vmslow' => 'slow']);
+    $p = proc_open(['bash', '-c', "$env; exec bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' </dev/null >/dev/null 2>&1'], [], $pipes);
+    $pid = proc_get_status($p)['pid'];
+    for ($i = 0; $i < 150 && !str_contains((string) @file_get_contents("$fake/events"), 'virsh shutdown vmslow'); $i++) {
+        usleep(100000);
+    }
+    $phase = $status()['phase'] ?? '';
+    posix_kill($pid, SIGTERM);
+    for ($i = 0; $i < 150 && proc_get_status($p)['running']; $i++) {
+        usleep(100000);
+    }
+    proc_close($p);
+    $ev = $events();
+    $names = array_column($ev, 1);
+    $s = $status();
+    $l = $log();
+    same('vm order: stopped in the VMs\' shutdown — the phase', 'vm_shutdown', $phase);
+    check('vm order: stopped while it goes down — waited for it, started again, no app stopped',
+        $names === ['virsh shutdown vmslow', 'virsh start vmslow'] && str_contains($l, 'Waiting for 1 VM(s) going down'), json_encode($names) . $l);
+    same('vm order: stopped — aborted, no downtime, nothing noted', ['aborted', 0, false], [$s['result'] ?? null, $s['downtime_s'] ?? null, file_exists("$data/state/vms")]);
+
+    // --- killed while it goes down (kill -9): state/vms names it; the next start starts it once it is off
+    $night(['vmslow' => 'slow']);
+    file_put_contents("$data/state/vms", "vmslow|shutdown\n");
+    file_put_contents("$fake/vm/vmslow.state", "shut off\n");
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; LOG_FILE=$tmp/recover.log; recover_interrupted_run") . ' 2>&1');
+    same('vm order: killed — the next start starts it again', [['virsh start vmslow'], false], [array_column($events(), 1), file_exists("$data/state/vms")]);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -4845,7 +5090,7 @@ function testWhereaboutsAfterWatchman(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupSkip', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman'],
           'hardening' => ['testSafeWrites', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets'],
           'strings' => ['testStrings']];

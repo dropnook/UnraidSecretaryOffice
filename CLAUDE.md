@@ -197,6 +197,13 @@ installed plugin (see the checklist).
 * **What the engine pruned (engine 2.21):** `state/pruned.json` lists per real run the snapshots its retention destroyed
   (`runs: [{run, time, zfs: [dataset@name], btrfs: [path]}]`, the last 30 runs within 30 days, lists capped) — for the
   night watchman, who never parses the engine's logs.
+* **VMs that shut down go first (engine 2.22):** `[vm] prepare = shutdown` VMs are asked and waited for (`vm_shutdowns`:
+  `vm_hold_begin` + `vm_shutdown_wait`, one deadline `UB_VM_SHUTDOWN_TIMEOUT` from the request) before Nextcloud's
+  maintenance mode and the apps stop — `downtime_s` (first app stopped → all started) never includes that wait; status
+  phase `vm_shutdown` (desk.js STEPS: step `dumps`). `vm_hold`, right before the snapshots, only freezes and pauses — also
+  a VM not off by its deadline (its `seconds` from the pause); one that went off late stays off and is started like the
+  others. A run stopped during the wait waits for the VMs still going down (`vm_shutdown_wait abort`) and starts them.
+  `testBackupVmOrder` runs backup.sh on a fixture server (stand-ins on PATH, an events file) — extend it for changes there.
 * **One run at a time, never lost silently (engine 2.20):** `state/lock` (flock) is held by
   backup.sh, setup.sh and Mr. Restori's restores; whoever takes it opens it with `>>` (never
   truncating), `touch`es it and writes `state/lock-holder.json` (`holder`, `mode`, `what`, `run`,
