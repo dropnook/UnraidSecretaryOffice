@@ -109,14 +109,40 @@ function snapshotOfMount(array $m, array $btrfsDisks): ?string
     return null;
 }
 
+/** Unraid's bookkeeping of the disks (tests point it elsewhere) */
+function disksIniFile(): string
+{
+    return $GLOBALS['disksIni'] ?? '/var/local/emhttp/disks.ini';
+}
+
 /** Disk name => asleep? From Unraid's own bookkeeping, without asking the disk. */
 function sleepingDisks(): array
 {
     $result = [];
-    foreach (readCfg('/var/local/emhttp/disks.ini', true) as $section => $values) {
+    foreach (readCfg(disksIniFile(), true) as $section => $values) {
         $result[(string) ($values['name'] ?? $section)] = ($values['spundown'] ?? '0') === '1';
     }
     return $result;
+}
+
+/**
+ * Pools and disks sorted by sleep: of the names given (ZFS pools from `zpool list`, the bases under /mnt …),
+ * which are awake and which sleep (baseAsleep: a pool sleeps when any of its disks does). A name disks.ini
+ * doesn't know (a pool imported by hand) counts as awake — nobody keeps its disks asleep. Shared by Ms.
+ * Snapshotini and Mr. Restori, who list ZFS datasets and snapshots only on the awake ones.
+ *
+ * @param list<string>             $names
+ * @param array<string, bool>|null $asleep  sleepingDisks() (read when null)
+ * @return array{awake: list<string>, asleep: list<string>}
+ */
+function poolsBySleep(array $names, ?array $asleep = null): array
+{
+    $asleep ??= sleepingDisks();
+    $out = ['awake' => [], 'asleep' => []];
+    foreach ($names as $name) {
+        $out[baseAsleep((string) $name, $asleep) ? 'asleep' : 'awake'][] = (string) $name;
+    }
+    return $out;
 }
 
 /** Does a disk or pool sleep? A pool sleeps when any of its disks does (cache, cache2 …). */

@@ -4,7 +4,9 @@ declare(strict_types=1);
 /*
  * Ms. Snapshot — keeps track of every snapshot on the server.
  *
- *   ZFS     all pools; Docker's image layers are recognised and left alone
+ *   ZFS     the awake pools (a pool sleeps when any of its disks does — it is never asked, it keeps what
+ *           she last saw of it, marked asleep; the page's «wake» lists it too); Docker's image layers are
+ *           recognised and left alone
  *   btrfs   array disks and pools (snapshots in <disk>/.btrfs-snap like the
  *           unraid-backup script); sleeping disks are only read on request
  *   VMs     Unraid's own snapshot list (snapshotdb) plus libvirt — read only
@@ -54,11 +56,12 @@ desk('snapshot', [
         'scan'     => fn (array $r) => snapshotScanRequest(!empty($r['wake'])),
         'estimate' => fn (array $r) => ['ok' => true] + snapshotEstimate(idList($r, 'ids')),
         'create'   => fn (array $r) => snapshotCreate($r),
-        'delete'   => fn (array $r) => snapshotDelete(idList($r, 'ids'), !empty($r['unmount'])),
-        'rename'   => fn (array $r) => snapshotRename(textField($r, 'id'), textField($r, 'name')),
-        'hold'     => fn (array $r) => snapshotHold(textField($r, 'id'), true),
-        'release'  => fn (array $r) => snapshotHold(textField($r, 'id'), false),
-        'unmount'  => fn (array $r) => snapshotUnmountRequest(textField($r, 'id')),
+        // on a sleeping pool only with `wake` (the page asks for it explicitly) — never woken on her own
+        'delete'   => fn (array $r) => snapshotDelete(idList($r, 'ids'), !empty($r['unmount']), !empty($r['wake'])),
+        'rename'   => fn (array $r) => snapshotRename(textField($r, 'id'), textField($r, 'name'), !empty($r['wake'])),
+        'hold'     => fn (array $r) => snapshotHold(textField($r, 'id'), true, !empty($r['wake'])),
+        'release'  => fn (array $r) => snapshotHold(textField($r, 'id'), false, !empty($r['wake'])),
+        'unmount'  => fn (array $r) => snapshotUnmountRequest(textField($r, 'id'), !empty($r['wake'])),
         'plan_save'   => fn (array $r) => snapPlanSave($r['plan'] ?? null),
         'plan_toggle' => fn (array $r) => snapPlanToggle(textField($r, 'id'), !empty($r['enabled'])),
         'plan_delete' => fn (array $r) => snapPlanDelete(textField($r, 'id')),
@@ -160,8 +163,9 @@ function snapshotMetricsPools(?array $s): ?array
 // ===================================================================== scanning
 
 /**
- * Reads ZFS and VMs every time. btrfs only when asked: the disks have to be
- * read for that, and sleeping array disks would wake up.
+ * Reads ZFS (the awake pools — a sleeping pool keeps its last list) and VMs every time. btrfs only when
+ * asked: the disks have to be read for that, and sleeping array disks would wake up. $wake: the sleeping
+ * pools and disks too — only ever because the user asked for it.
  *
  * @param list<string> $btrfsOnly  read just these mounts (after a change there)
  */
@@ -170,7 +174,7 @@ function snapshotScan(bool $readBtrfs, bool $wake = false, array $btrfsOnly = []
     $t0 = microtime(true);
     $old = $GLOBALS['snapshot'];
 
-    $zfs = snapshotReadZfs();
+    $zfs = snapshotReadZfs($old, $wake);
     $vm = snapshotReadVms();
     $btrfs = snapshotBtrfsPart($old['btrfs'] ?? null, $readBtrfs, $wake, $btrfsOnly);
 
@@ -206,9 +210,23 @@ function snapshotScanRequest(bool $wake): array
     $after = snapshotVisibleIds($state);
     $new = array_values(array_diff($after, $before));
     $gone = array_values(array_diff($before, $after));
-    logLine(sprintf('Snapshot scan%s: %d snapshots, %d new, %d gone, %d ms',
-        $wake ? ' (waking disks)' : '', count($after), count($new), count($gone), $state['duration_ms']));
+    $asleep = snapshotPoolsAsleep($state);
+    logLine(sprintf('Snapshot scan%s: %d snapshots, %d new, %d gone, %d ms%s',
+        $wake ? ' (waking disks)' : '', count($after), count($new), count($gone), $state['duration_ms'],
+        $asleep ? ' — asleep, kept as last seen: ' . implode(', ', $asleep) : ''));
     return ['ok' => true, 'state' => $state, 'new' => $new, 'gone' => $gone];
+}
+
+/** The ZFS pools a state shows as they were last seen — asleep, not asked (names) */
+function snapshotPoolsAsleep(?array $state): array
+{
+    $out = [];
+    foreach ((array) ($state['zfs']['pools'] ?? []) as $p) {
+        if (is_array($p) && !empty($p['asleep']) && is_string($p['name'] ?? null)) {
+            $out[] = $p['name'];
+        }
+    }
+    return $out;
 }
 
 /** Snapshot ids without Docker's layers */
@@ -242,27 +260,56 @@ function snapshotIndex(array $state): array
 
 // --------------------------------------------------------------------- ZFS
 
-function snapshotReadZfs(): array
+/**
+ * ZFS: the pools (`zpool list` — the kernel's own bookkeeping, no disk asked), then the datasets and
+ * snapshots of the AWAKE pools only (`zfs list … -r <pool>`; disks.ini says which sleep, a pool sleeps when
+ * any of its disks does, `poolsBySleep()`). A sleeping pool is never asked: whether zfs would read its disks
+ * depends on what the ARC still holds, and the office never risks waking one. It keeps what she last saw of
+ * it ($old: her last scan — at her start the state file): its datasets and snapshots as they were, each
+ * marked `asleep`, the pool `asleep` with `looked` = when that was (null: not looked at since the agent
+ * started — its lists are then empty, which is «not known», not «none»). $wake lists the sleeping pools too —
+ * only ever because the user asked for it. $host: stand-ins, tests only — `zfs`, `zpool` (paths), `docker`
+ * (null: Docker isn't asked).
+ */
+function snapshotReadZfs(?array $old = null, bool $wake = false, ?array $host = null): array
 {
-    $zfs = bin('zfs');
-    $zpool = bin('zpool');
-    $empty = ['available' => false, 'pools' => [], 'volumes' => [], 'snapshots' => [], 'docker_parent' => null, 'docker_datasets' => 0];
+    $host ??= $GLOBALS['snapshotHost'] ?? [];
+    $zfs = $host['zfs'] ?? bin('zfs');
+    $zpool = $host['zpool'] ?? bin('zpool');
+    $empty = ['available' => false, 'pools' => [], 'asleep' => [], 'volumes' => [], 'snapshots' => [], 'docker_parent' => null, 'docker_datasets' => 0];
     if (!$zfs || !$zpool) {
         return $empty;
     }
 
-    $r = runAll([
-        'pools' => [$zpool, 'list', '-Hp', '-o', 'name,size,alloc,free,cap,health,frag'],
-        'ds'    => [$zfs, 'list', '-Hp', '-t', 'filesystem,volume', '-o', 'name,type,used,avail,refer,usedbysnapshots,mountpoint'],
-        'snaps' => [$zfs, 'list', '-Hp', '-t', 'snapshot', '-o', 'name,guid,creation,used,refer,written,userrefs,clones'],
-    ], 90);
-    foreach ($r as $part => [$exit, , $err]) {
-        if ($exit !== 0) {
-            throw new Problem('command_failed', ['detail' => "zfs list ($part): " . trim($err)]);
+    [$exit, $out, $err] = run([$zpool, 'list', '-Hp', '-o', 'name,size,alloc,free,cap,health,frag'], 90);
+    if ($exit !== 0) {
+        throw new Problem('command_failed', ['detail' => 'zpool list: ' . trim($err)]);
+    }
+    $poolRows = [];
+    foreach (rows($out) as $f) {
+        if (count($f) >= 7 && preg_match('/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/D', $f[0])) {
+            $poolRows[$f[0]] = $f;
+        }
+    }
+    $split = poolsBySleep(array_keys($poolRows));
+    $look = $wake ? array_keys($poolRows) : $split['awake'];
+    $kept = $wake ? [] : $split['asleep'];
+    $keptSet = array_flip($kept);
+
+    $r = ['ds' => [0, '', ''], 'snaps' => [0, '', '']];
+    if ($look) {
+        $r = runAll([
+            'ds'    => [$zfs, 'list', '-Hp', '-t', 'filesystem,volume', '-o', 'name,type,used,avail,refer,usedbysnapshots,mountpoint', '-r', ...$look],
+            'snaps' => [$zfs, 'list', '-Hp', '-t', 'snapshot', '-o', 'name,guid,creation,used,refer,written,userrefs,clones', '-r', ...$look],
+        ], 90);
+        foreach ($r as $part => [$exit, , $err]) {
+            if ($exit !== 0) {
+                throw new Problem('command_failed', ['detail' => "zfs list ($part): " . trim($err)]);
+            }
         }
     }
 
-    $parent = snapshotDockerParent();
+    $parent = snapshotDockerParent($host);
 
     $volumes = [];
     $dockerDatasets = [];
@@ -338,6 +385,30 @@ function snapshotReadZfs(): array
         }
     }
 
+    // the sleeping pools: what she last saw of them, as it was (never asked now)
+    $oldPools = [];
+    foreach ((array) ($old['zfs']['pools'] ?? []) as $p) {
+        if (is_array($p) && is_string($p['name'] ?? null)) {
+            $oldPools[$p['name']] = $p;
+        }
+    }
+    if ($kept) {
+        foreach ((array) ($old['zfs']['volumes'] ?? []) as $v) {
+            if (is_array($v) && is_string($v['name'] ?? null) && isset($keptSet[$v['pool'] ?? '']) && !isset($volumes[$v['name']])) {
+                $v['asleep'] = true;
+                $volumes[$v['name']] = $v;
+            }
+        }
+        foreach ((array) ($old['zfs']['snapshots'] ?? []) as $s) {
+            if (is_array($s) && is_string($s['id'] ?? null) && str_starts_with($s['id'], 'zfs:') && isset($keptSet[$s['pool'] ?? ''])
+                && !isset($snaps[substr($s['id'], 4)])) {
+                $s['asleep'] = true;
+                $s['holds'] = array_values(array_filter((array) ($s['holds'] ?? []), 'is_string'));
+                $snaps[substr($s['id'], 4)] = $s;
+            }
+        }
+    }
+
     $count = $dockerCount = [];
     foreach ($snaps as $s) {
         if ($s['docker']) {
@@ -346,13 +417,19 @@ function snapshotReadZfs(): array
             $count[$s['pool']] = ($count[$s['pool']] ?? 0) + 1;
         }
     }
+    $now = time();
     $pools = [];
-    foreach (rows($r['pools'][1]) as $f) {
-        if (count($f) < 7) {
-            continue;
-        }
-        [$name, $size, $alloc, $free, $cap, $health, $frag] = $f;
+    foreach ($poolRows as $name => $f) {
+        [, $size, $alloc, $free, $cap, $health, $frag] = $f;
         $root = $volumes[$name] ?? null;
+        $sleeping = isset($keptSet[$name]);
+        $was = $oldPools[$name] ?? null;
+        // when a sleeping pool was last looked at: carried along (a state from before 1.33 has no `looked` — her scan's time then)
+        $looked = $now;
+        if ($sleeping) {
+            $looked = $was === null ? null : (array_key_exists('looked', $was) ? $was['looked'] : ($old['time'] ?? null));
+            $looked = is_int($looked) && $looked > 0 ? $looked : null;
+        }
         $pools[] = [
             'name'     => $name,
             'size'     => num($size),
@@ -363,15 +440,18 @@ function snapshotReadZfs(): array
             'frag'     => $frag === '-' ? null : num($frag),
             'used'     => $root['used'] ?? null,     // usable space, parity excluded
             'avail'    => $root['avail'] ?? null,
-            'snapused' => $poolSnapUsed[$name] ?? 0,
+            'snapused' => $sleeping ? (int) ($was['snapused'] ?? 0) : ($poolSnapUsed[$name] ?? 0),
             'count'    => $count[$name] ?? 0,
             'docker'   => $dockerCount[$name] ?? 0,
+            'asleep'   => $sleeping,
+            'looked'   => $looked,
         ];
     }
 
     return [
         'available'       => true,
         'pools'           => $pools,
+        'asleep'          => $kept,
         'volumes'         => array_values($volumes),
         'snapshots'       => array_values($snaps),
         'docker_parent'   => $parent,
@@ -379,10 +459,10 @@ function snapshotReadZfs(): array
     ];
 }
 
-/** Docker's zfs storage driver keeps every image layer as its own dataset. */
-function snapshotDockerParent(): ?string
+/** Docker's zfs storage driver keeps every image layer as its own dataset. ($host: tests — `docker` null: not asked) */
+function snapshotDockerParent(?array $host = null): ?string
 {
-    $docker = bin('docker');
+    $docker = array_key_exists('docker', $host ?? []) ? $host['docker'] : bin('docker');
     if ($docker && file_exists('/var/run/docker.sock')) {
         [$exit, $out] = run([$docker, 'info', '--format', '{{json .DriverStatus}}'], 15);
         if ($exit === 0) {
@@ -834,17 +914,18 @@ function snapshotUnmount(array $s): array
     return $done;
 }
 
-function snapshotUnmountRequest(string $id): array
+function snapshotUnmountRequest(string $id, bool $wake = false): array
 {
-    $s = snapshotIndex(snapshotScan(false))[$id] ?? null;
+    $s = snapshotIndex(snapshotScan(false, $wake))[$id] ?? null;
     if (!$s) {
         throw new Problem('snapshot_gone', ['name' => snapshotShortId($id)]);
     }
+    snapshotRefuseAsleep($s);
     $done = snapshotUnmount($s);
     if (!$done) {
         throw new Problem('not_mounted');
     }
-    return ['ok' => true, 'unmounted' => $done, 'state' => snapshotScan(false)];
+    return ['ok' => true, 'unmounted' => $done, 'state' => snapshotScan(false, $wake)];
 }
 
 // ===================================================================== actions
@@ -858,6 +939,18 @@ function snapshotCheckName(string $name): void
 {
     if (!preg_match(SNAPSHOT_NAME, $name)) {
         throw new Problem('invalid_name');
+    }
+}
+
+/**
+ * A snapshot she only knows as last seen — its pool sleeps (the scan before the action was asked without
+ * `wake`): nothing is done to it. Deleting, renaming, holding would wake the pool; the page asks for that
+ * explicitly and sends `wake`, which lists the pool fresh first (then nothing is marked asleep any more).
+ */
+function snapshotRefuseAsleep(array $s): void
+{
+    if (!empty($s['asleep'])) {
+        throw new Problem('pool_asleep', ['name' => snapshotShortId((string) ($s['id'] ?? '')), 'pool' => (string) ($s['pool'] ?? '')]);
     }
 }
 
@@ -877,19 +970,22 @@ function snapshotBtrfsMountsOf(array $ids): array
     return array_keys($mounts);
 }
 
-/** What would deleting free up? (zfs destroy -n, changes nothing) */
+/** What would deleting free up? (zfs destroy -n, changes nothing; a snapshot on a sleeping pool isn't asked — `asleep` counts them) */
 function snapshotEstimate(array $ids): array
 {
-    $zfs = bin('zfs');
+    $zfs = $GLOBALS['snapshotHost']['zfs'] ?? bin('zfs');
     $index = snapshotIndex($GLOBALS['snapshot'] ?? []);
     $perDataset = [];
     $unknown = 0;
+    $asleep = 0;
     foreach ($ids as $id) {
         $s = $index[$id] ?? null;
         if (!$s || $s['docker'] || $s['holds']) {
             continue;
         }
-        if ($s['fs'] === 'zfs') {
+        if (!empty($s['asleep'])) {
+            $asleep++;                              // its pool sleeps: not even a dry run touches it
+        } elseif ($s['fs'] === 'zfs') {
             $perDataset[$s['ds']][] = $s['name'];
         } else {
             $unknown++;
@@ -901,14 +997,14 @@ function snapshotEstimate(array $ids): array
     }
     $bytes = 0;
     $failed = 0;
-    foreach (runAll($commands, 60) as [$exit, $out]) {
+    foreach ($commands ? runAll($commands, 60) : [] as [$exit, $out]) {
         if ($exit === 0 && preg_match('/^reclaim\t(\d+)/m', $out, $m)) {
             $bytes += (int) $m[1];
         } else {
             $failed++;
         }
     }
-    return ['bytes' => $bytes, 'unknown' => $unknown, 'failed' => $failed];
+    return ['bytes' => $bytes, 'unknown' => $unknown, 'failed' => $failed, 'asleep' => $asleep];
 }
 
 function snapshotCreate(array $r): array
@@ -918,8 +1014,9 @@ function snapshotCreate(array $r): array
     $targets = idList($r, 'targets');
     $recursive = !empty($r['recursive']);
     $hold = !empty($r['hold']);
+    $wake = !empty($r['wake']);                   // a target on a sleeping pool: listed fresh first (the page and the plans say so)
 
-    $state = snapshotScan(false);
+    $state = snapshotScan(false, $wake);
     $volumes = [];
     foreach ($state['zfs']['volumes'] as $v) {
         $volumes[$v['id']] = $v;
@@ -992,15 +1089,16 @@ function snapshotCreate(array $r): array
         $created[] = "btrfs:$target";
     }
 
-    $state = snapshotScan(false, false, $btrfsTargets);
+    $state = snapshotScan(false, $wake, $btrfsTargets);
     return ['ok' => true, 'created' => $created, 'failures' => $failures, 'state' => $state];
 }
 
-function snapshotDelete(array $ids, bool $unmount = false): array
+/** $wake: the sleeping pools are listed fresh first (asked for on the page) — without it a snapshot on one is refused (`pool_asleep`) */
+function snapshotDelete(array $ids, bool $unmount = false, bool $wake = false): array
 {
     // read btrfs targets fresh, so only what really exists gets deleted
     $mounts = snapshotBtrfsMountsOf($ids);
-    $index = snapshotIndex(snapshotScan(false, false, $mounts));
+    $index = snapshotIndex(snapshotScan(false, $wake, $mounts));
 
     $failures = [];
     $perDataset = [];
@@ -1010,6 +1108,8 @@ function snapshotDelete(array $ids, bool $unmount = false): array
         $short = snapshotShortId($id);
         if (!$s) {
             $failures[] = ['key' => 'snapshot_gone', 'params' => ['name' => $short]];
+        } elseif (!empty($s['asleep'])) {
+            $failures[] = ['key' => 'pool_asleep', 'params' => ['name' => $short, 'pool' => (string) $s['pool']]];
         } elseif ($s['docker']) {
             $failures[] = ['key' => 'docker_layer', 'params' => ['name' => $short]];
         } elseif ($s['fs'] === 'vm') {
@@ -1066,25 +1166,26 @@ function snapshotDelete(array $ids, bool $unmount = false): array
         }
     }
 
-    $state = snapshotScan(false, false, $mounts);
+    $state = snapshotScan(false, $wake, $mounts);
     $still = snapshotIndex($state);
     $deleted = [];
     foreach ($ids as $id) {
-        if (isset($index[$id]) && !isset($still[$id])) {
+        if (isset($index[$id]) && empty($index[$id]['asleep']) && !isset($still[$id])) {
             $deleted[] = $id;
         }
     }
     return ['ok' => true, 'deleted' => $deleted, 'failures' => $failures, 'state' => $state];
 }
 
-function snapshotRename(string $id, string $new): array
+function snapshotRename(string $id, string $new, bool $wake = false): array
 {
     snapshotCheckName($new);
     $mounts = snapshotBtrfsMountsOf([$id]);
-    $s = snapshotIndex(snapshotScan(false, false, $mounts))[$id] ?? null;
+    $s = snapshotIndex(snapshotScan(false, $wake, $mounts))[$id] ?? null;
     if (!$s) {
         throw new Problem('snapshot_gone', ['name' => snapshotShortId($id)]);
     }
+    snapshotRefuseAsleep($s);
     if ($s['docker'] || $s['fs'] === 'vm') {
         throw new Problem('cannot_rename');
     }
@@ -1113,15 +1214,16 @@ function snapshotRename(string $id, string $new): array
     }
     snapshotRecord(['do' => 'renamed', 'where' => $s['ds'], 'from' => $s['name'], 'to' => $new]);
     logLine("Renamed: {$s['ds']} {$s['name']} → $new");
-    return ['ok' => true, 'id' => $newId, 'state' => snapshotScan(false, false, $mounts)];
+    return ['ok' => true, 'id' => $newId, 'state' => snapshotScan(false, $wake, $mounts)];
 }
 
-function snapshotHold(string $id, bool $on): array
+function snapshotHold(string $id, bool $on, bool $wake = false): array
 {
-    $s = snapshotIndex(snapshotScan(false))[$id] ?? null;
+    $s = snapshotIndex(snapshotScan(false, $wake))[$id] ?? null;
     if (!$s || $s['fs'] !== 'zfs' || $s['docker']) {
         throw new Problem('hold_zfs_only');
     }
+    snapshotRefuseAsleep($s);
     $full = "{$s['ds']}@{$s['name']}";
     $ours = array_values(array_intersect($s['holds'], SNAPSHOT_HOLD_TAGS));
     if ($on && $ours) {
@@ -1143,7 +1245,7 @@ function snapshotHold(string $id, bool $on): array
         snapshotRecord(['do' => 'released', 'ds' => $s['ds'], 'name' => $s['name']]);
     }
     logLine(($on ? 'Held: ' : 'Released: ') . $full);
-    return ['ok' => true, 'state' => snapshotScan(false)];
+    return ['ok' => true, 'state' => snapshotScan(false, $wake)];
 }
 
 // ===================================================================== her record of what she removed
