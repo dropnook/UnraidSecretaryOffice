@@ -867,6 +867,10 @@ function drillEnv(array $j, array $plan): array
 function drillStep(array &$j, int $i, array &$env): array
 {
     $s = $j['steps'][$i];
+    // the backup place fell asleep since the plan: its packages are not looked at (never woken), never «failed»
+    if (!empty($env['place']['asleep']) && !isset($GLOBALS['drill']['base']) && in_array($s['do'], ['package', 'dump', 'sqlite'], true)) {
+        return ['state' => 'asleep', 'code' => 'asleep', 'level' => 0, 'copy' => 'package'];
+    }
     return match ($s['do']) {
         'package' => drillDoPackage($s, $env),
         'dump'    => drillDoDump($j, $i, $env),
@@ -1102,6 +1106,9 @@ function drillDoDump(array &$j, int $i, array &$env): array
     $out = ['level' => 0, 'copy' => 'package', 'run' => (string) $s['run'], 'state_time' => rsRunTime((string) $s['dump_run']), 'params' => ['container' => $s['container']]];
     $pkgFile = "{$env['base']}/apps/{$s['id']}/{$s['file']}";
     $local = drillLocal($pkgFile, (string) $s['run'], $env['ctx']);
+    if ($local['state'] === 'asleep') {
+        return ['state' => 'asleep', 'code' => 'asleep'] + $out;
+    }
     $file = $local['state'] === 'found' ? $local['path'] : $pkgFile;
     if ($local['state'] === 'found') {
         $out['copy'] = 'snapshot';
@@ -1373,6 +1380,9 @@ function drillDoSqlite(array &$j, array $s, array &$env): array
     $file = $local['state'] === 'found' ? $local['path'] : $pkgFile;
     $out = ['level' => 0, 'copy' => $local['state'] === 'found' ? 'snapshot' : 'package', 'run' => (string) $s['run'],
             'state_time' => rsRunTime((string) $s['run']), 'params' => ['file' => basename((string) $s['file'])]];
+    if ($local['state'] === 'asleep') {
+        return ['state' => 'asleep', 'code' => 'asleep'] + $out;
+    }
     if (!is_file($file)) {
         return ['state' => 'failed', 'code' => 'package_file_missing', 'params' => ['file' => $s['file']]] + $out;
     }

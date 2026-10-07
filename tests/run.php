@@ -11514,6 +11514,9 @@ function testRestoreDrill(): void
     unlink("$base/vms/Lin/nvram/9b3e9c65-84b4-2410-470b-8f719c38ea29_VARS.fd");
     same('drill package: a file of the manifest missing', ['failed', 'package_file_missing'], array_values(array_intersect_key($pkg('vm', 'Lin'), ['state' => 1, 'code' => 1])));
     same('drill package: no manifest — failed', 'manifest_unreadable', $pkg('app', 'nothing')['code']);
+    $sj = ['steps' => [['do' => 'dump', 'kind' => 'app', 'id' => 'zz', 'name' => 'zz']]];
+    $senv = ['place' => ['asleep' => true]] + $penv;
+    same('drill package: the backup place fell asleep since the plan — «asleep», nothing read', 'asleep', drillStep($sj, 0, $senv)['state']);
 
     // ---- SQLite (L1): integrity, user_version, the main table — through the sqlite3 command, read only
     if (bin('sqlite3')) {
