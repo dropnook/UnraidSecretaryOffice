@@ -435,5 +435,12 @@
     "one": "Sveglia 1 disco in standby",
     "other": "Sveglia {n} dischi in standby"
   },
-  "wake_title": "Solo per questo giro: sveglia i dischi btrfs in standby e legge anche i loro snapshot. Senza spunta li lascio dormire e mostro quello che sapevo di loro l'ultima volta. Unraid li rimette in standby dopo il suo tempo di attesa."
+  "wake_title": "Solo per questo giro: sveglia i dischi btrfs in standby e legge anche i loro snapshot. Senza spunta li lascio dormire e mostro quello che sapevo di loro l'ultima volta. Unraid li rimette in standby dopo il suo tempo di attesa.",
+  "plan.result.gone": "destinazioni sparite",
+  "plan.gone": "destinazione sparita",
+  "plan.gone_title": "Sparite dal {since}: {targets} (eliminate o rinominate?). Salto ciò che è sparito e prendo il resto — elimina la pianificazione o scegli un'altra destinazione in «Modifica…».",
+  "notify.plan_gone_subject": "Pianificazione «{plan}»: destinazione sparita",
+  "notify.plan_gone": "Signora Snapshotini: la pianificazione «{plan}» non trova più {targets} (eliminata o rinominata?). Salto ciò che è sparito e prendo il resto — elimina la pianificazione o scegli un'altra destinazione nella mia pagina.",
+  "check.plan_target_gone": "Pianificazione «{plan}»: la sua destinazione {target} è sparita",
+  "check.plan_target_gone_how": "Elimina la pianificazione o scegli un'altra destinazione dalla signora Snapshotini (Pianificazioni → Modifica…)."
 }

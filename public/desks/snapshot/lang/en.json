@@ -435,5 +435,12 @@
     "one": "Wake 1 sleeping disk",
     "other": "Wake {n} sleeping disks"
   },
-  "wake_title": "Only for this tour: wakes the sleeping btrfs disks and reads their snapshots too. Unticked, I let them sleep and show what I last knew about them. Unraid puts them back to sleep after its delay."
+  "wake_title": "Only for this tour: wakes the sleeping btrfs disks and reads their snapshots too. Unticked, I let them sleep and show what I last knew about them. Unraid puts them back to sleep after its delay.",
+  "plan.result.gone": "targets gone",
+  "plan.gone": "target gone",
+  "plan.gone_title": "Gone since {since}: {targets} (deleted or renamed?). I skip what is gone and take the rest — delete the schedule or choose another target under \"Edit…\".",
+  "notify.plan_gone_subject": "Schedule \"{plan}\": target gone",
+  "notify.plan_gone": "Ms. Snapshotini: the schedule \"{plan}\" can't find {targets} any more (deleted or renamed?). I skip what is gone and take the rest — delete the schedule or choose another target on my page.",
+  "check.plan_target_gone": "Schedule \"{plan}\": its target {target} is gone",
+  "check.plan_target_gone_how": "Delete the schedule or choose another target on Ms. Snapshotini's page (Schedules → Edit…)."
 }

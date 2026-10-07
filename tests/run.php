@@ -124,6 +124,133 @@ function testRetention(): void
 }
 
 /**
+ * A schedule whose target is gone (Benj deleted the share drop on 2026-10-07: its hourly plan warned
+ * every hour): no failure of a run — it takes what exists, skips what is gone and remembers it; told
+ * once per target (a further one again, one that comes back is forgotten and told again should it go
+ * once more); a plan with only gone targets creates nothing; real failures warn as before; the team
+ * lead's finding. snapPlanRun() with stand-ins for the server, a stand-in notify, the files in a tmp folder.
+ */
+function testPlanGone(): void
+{
+    $tmp = hardeningTmp('plangone');
+    $log = "$tmp/notified";
+    file_put_contents("$tmp/notify", "#!/bin/bash\nfor a in \"\$@\"; do printf '%s\\x1f' \"\$a\"; done >> " . escapeshellarg($log) . "\necho >> " . escapeshellarg($log) . "\n");
+    chmod("$tmp/notify", 0755);
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    $GLOBALS['snapPlanFile'] = "$tmp/plans.json";
+    $GLOBALS['snapPlanStateFile'] = "$tmp/state.json";
+    $calls = function () use ($log): array {
+        $out = [];
+        foreach (array_filter(explode("\n", (string) @file_get_contents($log))) as $line) {
+            $args = explode("\x1f", rtrim($line, "\x1f"));
+            $o = [];
+            for ($i = 0; $i + 1 < count($args); $i += 2) {
+                $o[$args[$i]] = $args[$i + 1];
+            }
+            $out[] = $o;
+        }
+        return $out;
+    };
+    $last = fn () => $calls()[count($calls()) - 1] ?? [];
+
+    // the server as the plan sees it (what the stand-ins answer): datasets on hive, and whether mother/drop still exists
+    $vol = fn (string $ds) => ['id' => "zfs:$ds", 'fs' => 'zfs', 'pool' => explode('/', $ds)[0], 'name' => $ds, 'mount' => "/mnt/$ds"];
+    $volumes = [$vol('hive/appdata'), $vol('hive/system')];
+    $taken = [];
+    $fail = [];
+    $host = [
+        'scan'   => function (array $btrfsOnly = []) use (&$volumes): array {
+            return ['zfs' => ['volumes' => $volumes, 'snapshots' => []], 'btrfs' => ['devices' => [], 'snapshots' => []], 'vm' => ['snapshots' => []]];
+        },
+        'asleep' => fn (): array => ['cache' => false],
+        'create' => function (array $r) use (&$taken, &$fail): array {
+            $taken[] = $r['targets'];
+            return ['created' => $fail ? [] : array_map(fn ($t) => "$t@{$r['name']}", $r['targets']), 'failures' => $fail];
+        },
+        'delete' => fn (array $ids): array => ['deleted' => [], 'failures' => []],
+    ];
+    $base = ['recursive' => false, 'cron' => '0 * * * *', 'keep' => 24, 'max_days' => 0, 'skip_asleep' => false, 'enabled' => true, 'since' => 1];
+    $three = ['id' => 'three', 'label' => 'Three places', 'targets' => ['zfs:hive/appdata', 'zfs:hive/system', 'zfs:mother/drop']] + $base;
+    $drop = ['id' => 'drop', 'label' => 'Only drop', 'targets' => ['zfs:mother/drop']] + $base;
+    $t0 = strtotime('2026-10-07 14:00:00');
+
+    // sorting the targets: what exists is taken, what sleeps is skipped only when the plan says so, the rest is gone
+    $scan = $host['scan']();
+    same('gone: targets sorted — take, skipped, gone', ['take' => ['zfs:hive/appdata', 'zfs:hive/system'], 'skipped' => [], 'gone' => ['zfs:mother/drop']],
+        snapPlanTargets($three, $scan, ['hive' => true]));
+    same('gone: a sleeping pool is skipped when the plan says so', ['take' => [], 'skipped' => ['zfs:hive/appdata', 'zfs:hive/system'], 'gone' => ['zfs:mother/drop']],
+        snapPlanTargets(['skip_asleep' => true] + $three, $scan, ['hive' => true]));
+    same('gone: remembered with its first time, a further one is new, one back is forgotten',
+        ['gone' => ['zfs:a' => 100, 'zfs:c' => 500], 'new' => ['zfs:c']], snapPlanGone(['zfs:a' => 100, 'zfs:b' => 200], ['zfs:a', 'zfs:c'], 500));
+    same('gone: junk in the state file is not a gone target', ['zfs:x' => 7], snapPlanGoneOf(['gone' => ['zfs:x' => 7, 'zfs:y' => 'junk', '' => 3, 5 => 6]]));
+
+    // a run with one target gone: the others are taken, no failure, remembered, told once
+    $st = snapPlanRun($three, $t0, $host);
+    same('gone run: takes what exists, ok, no failure', [[['zfs:hive/appdata', 'zfs:hive/system']], 'ok', [], 2], [$taken, $st['result'], $st['detail'], $st['created']]);
+    same('gone run: the gone target remembered with since when', ['zfs:mother/drop' => $t0], $st['gone']);
+    $n = $calls();
+    same('gone run: told once — a warning naming the schedule and the target, not the failure text',
+        [1, 'warning', true, true, false],
+        [count($n), $n[0]['-i'] ?? null, str_contains($n[0]['-s'] ?? '', 'Three places'), str_contains($n[0]['-d'] ?? '', 'mother/drop'), str_contains($n[0]['-d'] ?? '', 'problem(s)')]);
+    check('gone run: the notification leads to her page', str_ends_with($n[0]['-l'] ?? '', '#/snapshot'));
+    $st = snapPlanRun($three, $t0 + 3600, $host);
+    same('gone run: the next run says nothing more, the time it was first missed stays', [1, $t0, 'ok', 2], [count($calls()), $st['gone']['zfs:mother/drop'], $st['result'], count($taken)]);
+
+    // a further target going gone is told again — naming only the new one
+    $volumes = [$vol('hive/appdata')];
+    $st = snapPlanRun($three, $t0 + 7200, $host);
+    same('gone run: a further target gone — remembered beside the first (in the plan\'s order)', ['zfs:hive/system' => $t0 + 7200, 'zfs:mother/drop' => $t0], $st['gone']);
+    same('gone run: told again, for the new one only', [2, true, false], [count($calls()), str_contains($last()['-d'] ?? '', 'hive/system'), str_contains($last()['-d'] ?? '', 'mother/drop')]);
+    same('gone run: still a snapshot of what exists', ['zfs:hive/appdata'], $taken[count($taken) - 1]);
+
+    // the targets come back: forgotten — and told again when one goes once more
+    $volumes = [$vol('hive/appdata'), $vol('hive/system'), $vol('mother/drop')];
+    $st = snapPlanRun($three, $t0 + 10800, $host);
+    same('gone run: targets back — forgotten, all taken, nothing told', [false, 'ok', 3, 2], [array_key_exists('gone', $st), $st['result'], $st['created'], count($calls())]);
+    $volumes = [$vol('hive/appdata'), $vol('hive/system')];
+    $st = snapPlanRun($three, $t0 + 14400, $host);
+    same('gone run: gone once more — told again, from now', [3, ['zfs:mother/drop' => $t0 + 14400]], [count($calls()), $st['gone']]);
+
+    // a plan whose only target is gone: creates nothing, result gone, told once
+    $before = count($taken);
+    $st = snapPlanRun($drop, $t0 + 14400, $host);
+    same('gone run: only gone targets — nothing created, result gone, told once', ['gone', 0, $before, 4, ['zfs:mother/drop' => $t0 + 14400]],
+        [$st['result'], $st['created'], count($taken), count($calls()), $st['gone']]);
+    $st = snapPlanRun($drop, $t0 + 18000, $host);
+    same('gone run: and quiet from then on', ['gone', 4], [$st['result'], count($calls())]);
+
+    // a real failure keeps today's warning — every run
+    $fail = [['key' => 'create_failed', 'params' => ['target' => 'hive', 'detail' => 'zfs refused']]];
+    $st = snapPlanRun($three, $t0 + 18000, $host);
+    same('gone run: a real failure is still a failure, warned as before', ['failed', ['create_failed'], 5, true, ['zfs:mother/drop' => $t0 + 14400]],
+        [$st['result'], array_column($st['detail'], 'key'), count($calls()), str_contains($last()['-d'] ?? '', 'problem(s)'), $st['gone']]);
+    $fail = [];
+
+    // the team lead: one recommended finding per active plan and gone target; a paused plan says nothing; the failed run as before
+    snapPlanSaveAll([$three, $drop, ['id' => 'paused', 'label' => 'Paused', 'targets' => ['zfs:mother/drop'], 'enabled' => false] + $base]);
+    $states = snapPlanStates();
+    $states['paused'] = ['last_run' => $t0, 'result' => 'gone', 'gone' => ['zfs:mother/drop' => $t0]];
+    $findings = array_map(fn ($f) => [$f['id'], $f['level'], $f['ok'], $f['params']], snapPlanFindings(snapPlans(), $states, ['script' => true, 'enabled' => true]));
+    same('gone check: the team lead hears of every gone target of an active plan, recommended',
+        [['plans_runner', 'required', true, []],
+         ['plan_failed', 'recommended', false, ['name' => 'Three places']],
+         ['plan_target_gone', 'recommended', false, ['plan' => 'Three places', 'target' => 'mother/drop']],
+         ['plan_target_gone', 'recommended', false, ['plan' => 'Only drop', 'target' => 'mother/drop']]], $findings);
+    $public = snapPlansPublic($host['scan']());
+    same('gone page: the plan carries what is gone and since when', [['zfs:mother/drop' => $t0 + 14400], ['zfs:mother/drop' => $t0 + 14400], []],
+        array_column($public['plans'], 'gone'));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        $text = officeNotifyText('snapshot', 'notify.plan_gone', ['plan' => 'Hourly', 'targets' => 'mother/drop'], $lang);
+        check("gone text ($lang): names the schedule and the target", str_contains($text, 'Hourly') && str_contains($text, 'mother/drop') && !str_contains($text, '{'));
+    }
+
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    unset($GLOBALS['snapPlanFile'], $GLOBALS['snapPlanStateFile']);
+    hardeningRm($tmp);
+}
+
+/**
  * Names (engine 2.20): what the office makes is named uso-…; old names stay recognised and age out by
  * their normal retention. Retention is destructive, so every pattern is pinned down exactly — in the
  * office (backupSnapPrefixes, backupIsEngineSnap, Ms. Snapshotini's plans) and in the engine
@@ -8297,7 +8424,7 @@ function testSupporterKeys(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman', 'testWhereaboutsVmStop', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],

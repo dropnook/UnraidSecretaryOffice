@@ -435,5 +435,12 @@
     "one": "Réveiller {n} disque endormi",
     "other": "Réveiller {n} disques endormis"
   },
-  "wake_title": "Seulement pour cette tournée : réveille les disques btrfs endormis et lit aussi leurs snapshots. Décoché, je les laisse dormir et je montre ce que je savais d'eux en dernier. Unraid les rendort après son délai."
+  "wake_title": "Seulement pour cette tournée : réveille les disques btrfs endormis et lit aussi leurs snapshots. Décoché, je les laisse dormir et je montre ce que je savais d'eux en dernier. Unraid les rendort après son délai.",
+  "plan.result.gone": "cibles disparues",
+  "plan.gone": "cible disparue",
+  "plan.gone_title": "Disparu depuis le {since} : {targets} (supprimé ou renommé ?). J'ignore ce qui a disparu et prends le reste — supprime la planification ou choisis une autre cible sous « Modifier… ».",
+  "notify.plan_gone_subject": "Planification « {plan} » : cible disparue",
+  "notify.plan_gone": "Madame Snapshotini : la planification « {plan} » ne trouve plus {targets} (supprimé ou renommé ?). J'ignore ce qui a disparu et prends le reste — supprime la planification ou choisis une autre cible sur ma page.",
+  "check.plan_target_gone": "Planification « {plan} » : sa cible {target} a disparu",
+  "check.plan_target_gone_how": "Supprime la planification ou choisis une autre cible chez Madame Snapshotini (Planifications → Modifier…)."
 }
