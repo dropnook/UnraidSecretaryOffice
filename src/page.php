@@ -36,6 +36,7 @@ function officePageConfig(): array
         'version'   => OFFICE_VERSION,
         'host'      => (string) ($info['host'] ?? 'Unraid'),
         'desks'     => array_values($desks),
+        'staff_order' => officeStaffOrder(),     // every desk's id in the user's order (staff.php): the reception's cards, the tabs
         'languages' => officeLanguages(),
         'stamp'     => officeStringsStamp(),
         'tip_url'   => OFFICE_TIP_URL,

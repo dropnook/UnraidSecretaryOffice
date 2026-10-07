@@ -7,7 +7,12 @@ declare(strict_types=1);
  * a language. Adding a secretary or a language means adding files.
  */
 
-/** @return array<string, array{id:string, order:int, reception_order:int, icon:string, refresh_after:int, css:bool, always:bool, training:bool}> */
+/**
+ * Every desk, in desk.json's order ("order", then the id) — the order of a fresh office; the user may set another one
+ * at the reception (staff.php officeStaffOrder()).
+ *
+ * @return array<string, array{id:string, order:int, icon:string, refresh_after:int, css:bool, always:bool, training:bool}>
+ */
 function officeDesks(): array
 {
     static $desks = null;
@@ -24,7 +29,6 @@ function officeDesks(): array
         $desks[$id] = [
             'id'            => $id,
             'order'         => (int) ($meta['order'] ?? 100),
-            'reception_order' => (int) ($meta['reception_order'] ?? $meta['order'] ?? 100),   // place at the reception, if different
             'icon'          => (string) ($meta['icon'] ?? '•'),
             'refresh_after' => (int) ($meta['refresh_after'] ?? 300),
             'css'           => is_file(dirname($file) . '/desk.css'),
