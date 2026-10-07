@@ -215,5 +215,8 @@
   "fit.yes": "Madame Protocolli viendrait volontiers : « Je ne sais rien faire, mais je sais tout lire à voix haute ! »",
   "errors.logs_unknown": "Ce journal n'existe pas (plus).",
   "errors.logs_unreadable": "Ce journal ne peut pas être lu pour l'instant. {detail}",
-  "errors.logs_tour_failed": "Ma tournée n'a pas pu démarrer."
+  "errors.logs_tour_failed": "Ma tournée n'a pas pu démarrer.",
+  "source.partner_door": "Porte des partenaires (ce que les secrétariats partenaires ont demandé)",
+  "source.partner_door_old": "Porte des partenaires — journal précédent",
+  "source.partner_door_ram": "Porte des partenaires — pendant que l'array était arrêté"
 }
