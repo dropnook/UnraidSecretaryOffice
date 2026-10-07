@@ -92,6 +92,8 @@
   "help.start_text": "The plugin starts the messenger itself: when it is installed, at boot and whenever the array starts. If the dot stays red while the array runs, look into his log (⋯ → Messenger's log) or reinstall the plugin under ⟦Plugins⟧.",
   "help.languages_title": "Languages",
   "help.languages_text": "The office speaks your browser's language if a translation exists, otherwise English; ⋯ → Language picks another one for this browser. Unraid's own menus and buttons it names read as Unraid shows them, in the language Unraid runs in; the notifications speak the language the office was last used in. Adding a language means adding JSON files:",
+  "help.theme_title": "Dark or light",
+  "help.theme_text": "At the reception, Auto · Dark · Light sets how the office looks in this browser: Auto follows Unraid's theme; Dark and Light give the office's own area the look of Unraid's black or white theme — Unraid's header, menu and its tile on the Dashboard keep Unraid's theme. Kept in this browser, like the language.",
   "help.security_title": "Security",
   "help.security_text": "The office is part of Unraid's web UI: only who is logged in to Unraid gets in, and every change carries Unraid's security token. Whoever is logged in to Unraid can do anything on the server anyway — so log out on devices others use. The office adds previews and confirmations against mistakes, not a second lock. The messenger can do what root can do on the host, but he only accepts the actions the desks define and checks every request.",
   "help.order_title": "The order of the team",
@@ -195,6 +197,13 @@
   "office.language_text": "Applies to this browser only.",
   "office.language_browser": "Like this browser ({name})",
   "office.language_use": "Use",
+  "office.theme_title": "Look of the office",
+  "office.theme_auto": "Auto",
+  "office.theme_auto_title": "Automatic: follows Unraid's theme (now {theme}).",
+  "office.theme_dark": "Dark",
+  "office.theme_dark_title": "The office dark, whatever Unraid's theme — in this browser only.",
+  "office.theme_light": "Light",
+  "office.theme_light_title": "The office light, whatever Unraid's theme — in this browser only.",
   "errors.logged_out": "Your Unraid session has ended — please log in again.",
   "errors.stale_page": "Unraid rejected the request: the page is out of date (the server was restarted?). Reload it and try again."
 }

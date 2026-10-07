@@ -1073,6 +1073,8 @@ async function reception(root) {
   const text = el('div', 'deskhead-text');
   text.append(el('h1', '', t('office.welcome', { host: CONFIG.host })), el('div', 'role', t('office.reception_role')));
   head.appendChild(text);
+  // theme-switch: Automatic · Dark · Light on the right (theme-switch.js, only while OFFICE_THEME_SWITCH is on)
+  if (Office.theme) { const acts = el('div', 'deskhead-actions'); acts.appendChild(Office.theme.control()); head.appendChild(acts); }
   root.appendChild(head);
   if (noData()) return;                     // nobody's state without the data folder: the notice above says why
 
@@ -1134,7 +1136,7 @@ function arrangeable(head, grid, cards) {
   const start = el('button', 'btn small plain', t('office.order_change'));
   start.type = 'button';
   start.title = t('office.order_change_title');
-  const acts = el('div', 'deskhead-actions');
+  const acts = $('.deskhead-actions', head) || el('div', 'deskhead-actions');   // beside the theme switch, if any
   acts.appendChild(start);
   head.appendChild(acts);
 
@@ -1415,6 +1417,7 @@ Office.help = function help() {
   item(t('help.start_title'), t('help.start_text'));
   item(t('help.languages_title'), t('help.languages_text'), ' ', code('public/lang/<code>.json'), ', ',
     code('public/desks/<desk>/lang/<code>.json'), '.');
+  if (Office.theme) item(t('help.theme_title'), t('help.theme_text'));      // theme-switch
   item(t('help.security_title'), t('help.security_text'));
   box.appendChild(dl);
   Office.dialog({ title: t('help.title'), body: box, wide: true });

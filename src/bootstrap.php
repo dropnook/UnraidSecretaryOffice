@@ -22,6 +22,10 @@ const OFFICE_TIP_URL = 'https://paypal.me/vipermark2';
 const OFFICE_SUPPORT_URL = '';
 // GitHub Sponsors in the tip jar ('' = no button; set once the maintainer's Sponsors profile is active)
 const OFFICE_SPONSOR_URL = '';
+// the theme switch at the reception — Automatic (Unraid's theme) · Dark · Light, per browser (an experiment, Benj
+// 2026-10-07): false = nothing of it shows or loads (public/assets/theme-switch.css and .js, the lines in page.php
+// and core.js marked «theme-switch»); CLAUDE.md «Theme switch» says how to remove it for good
+const OFFICE_THEME_SWITCH = true;
 
 require __DIR__ . '/place.php';
 require_once __DIR__ . '/words.php';      // Unraid's own words in the texts (shared with the agent)
