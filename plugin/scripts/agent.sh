@@ -293,12 +293,17 @@ backup_recover() {
 
 # Array stopping: the backup engine's read-only snapshot mounts under /mnt/addons left between runs
 # ([general] keep_mounts = yes keeps them until the next run; a run killed hard leaves them too) would
-# keep a pool from unmounting - released now (backup.sh --unmount), at most 10 s. A run going on releases
-# its own the moment it sees the stop (engine 2.24): only when nobody holds the engine's lock. Never
-# blocks the stop: nothing of ours mounted - nothing done (one look at /proc/mounts). latest.log stays the
-# last run's (UB_KEEP_LATEST): the office and Ms. Protocolli keep showing that run, not this unmount.
+# keep a pool from unmounting - released now (backup.sh --unmount), at most 10 s, never blocking the stop:
+# nothing of ours mounted - nothing done (one look at /proc/mounts). Who holds the engine's lock decides
+# (its note state/lock-holder.json): a LIVE backup.sh run, check or dry run releases everything under the
+# engine's mount roots itself on its way out of a stopping array (engine 2.25, whatever it mounted) - left
+# to it, after 2 s for it to end (it may be just past its last look at the array). Anyone else - nobody,
+# the setup, a restore, a --recover, a note whose pid is gone or isn't backup.sh, an orphan of a killed run
+# (a docker exec that inherited the lock) - mounts nothing there: released without the lock (UB_ARRAY_STOP:
+# no wait for it, busy mounts detached lazily). latest.log stays the last run's (UB_KEEP_LATEST): the office
+# and Ms. Protocolli keep showing that run, not this unmount.
 backup_release() {
-    local ub ini lock roots
+    local ub ini lock roots note holder mode pid
     [[ -f "$DIR/backup/backup.sh" ]] || return 0
     ub="$(data_dir)/unraid-backup"; ini="$ub/settings.ini"; lock="$ub/state/lock"
     [[ -f "$ini" ]] || return 0
@@ -311,12 +316,21 @@ backup_release() {
         { for (i = 1; i <= n; i++) if (r[i] != "" && index($2, r[i] "/") == 1) found = 1 }
         END { exit !found }' "$PROC_MOUNTS" 2>/dev/null || return 0
     if [[ -e "$lock" ]] && ! flock -n "$lock" true 2>/dev/null; then
-        return 0                # a run holds it: it unmounts itself
+        note=$(head -c 4096 "$ub/state/lock-holder.json" 2>/dev/null | tr -d '\n')
+        holder=$(sed -n 's/.*"holder": *"\([^"]*\)".*/\1/p' <<<"$note")
+        mode=$(sed -n 's/.*"mode": *"\([^"]*\)".*/\1/p' <<<"$note")
+        pid=$(sed -n 's/.*"pid": *\([0-9][0-9]*\).*/\1/p' <<<"$note")
+        if [[ "$holder" == backup && "$mode" =~ ^(backup|check|dryrun)$ && "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null \
+           && tr '\0' '\n' <"/proc/$pid/cmdline" 2>/dev/null | grep -qE '(^|/)backup\.sh$' \
+           && ! flock -w 2 "$lock" true 2>/dev/null; then
+            echo "$(date '+%F %T') array stopping: a backup $mode run (PID $pid) holds the engine's lock - it releases the engine's mounts itself" >>"$LOG"
+            return 0
+        fi
     fi
-    if UB_DATA="$ub" UB_KEEP_LATEST=1 timeout -k 2 8 bash "$DIR/backup/backup.sh" --unmount >/dev/null 2>&1; then
+    if UB_DATA="$ub" UB_KEEP_LATEST=1 UB_ARRAY_STOP=1 timeout -k 1 7 bash "$DIR/backup/backup.sh" --unmount >/dev/null 2>&1; then
         echo "$(date '+%F %T') array stopping: the backup engine's snapshot mounts released" >>"$LOG"
     else
-        echo "$(date '+%F %T') array stopping: backup.sh --unmount did not end within 10 s (see its logs/unmount.log)" >>"$LOG"
+        echo "$(date '+%F %T') array stopping: backup.sh --unmount did not end within 8 s (see its logs/unmount.log)" >>"$LOG"
     fi
 }
 

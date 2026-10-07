@@ -1830,7 +1830,7 @@ case "\$1" in
         shift; [[ "\$1" == --no-progress ]] && shift
         case "\$1 \${2:-}" in
           "repository status") cat "\$FAKE/repo.json" ;;
-          "policy list") echo '[]' ;;
+          "policy list") echo '[]'; flip policy ;;
           "snapshot list") cat "\$FAKE/snaplist.json" 2>/dev/null || echo '[]' ;;
           "snapshot create")
             cp="\$3"; n=\$(( \$(cat "\$FAKE/kopia.n" 2>/dev/null || echo 0) + 1 )); echo "\$n" >"\$FAKE/kopia.n"
@@ -1896,7 +1896,14 @@ t="${@: -1}"; s="${@: -2:1}"; mkdir -p "$t"
 [[ "$*" == *--bind* ]] && exit 0
 echo "$s $t fake ro 0 0" >>"$FAKE/mounts"
 SH);
-    file_put_contents("$tmp/bin/umount", "#!/bin/bash\nawk -v t=\"\${@: -1}\" '\$2 != t' \"\$FAKE/mounts\" >\"\$FAKE/mounts.new\" && mv \"\$FAKE/mounts.new\" \"\$FAKE/mounts\"\n");
+    // a mount listed in $FAKE/busy refuses a normal umount (a Kopia that didn't end) - umount -l detaches it (noted)
+    file_put_contents("$tmp/bin/umount", <<<'SH'
+#!/bin/bash
+t="${@: -1}"
+if [[ "$1" == -l ]]; then echo "$(date +%s) umount -l $t" >>"$FAKE/events"
+elif grep -qxF -- "$t" "$FAKE/busy" 2>/dev/null; then echo "umount: $t: target is busy." >&2; exit 32; fi
+awk -v t="$t" '$2 != t' "$FAKE/mounts" >"$FAKE/mounts.new" && mv "$FAKE/mounts.new" "$FAKE/mounts"
+SH);
     foreach (['zpool', 'btrfs'] as $b) {
         file_put_contents("$tmp/bin/$b", "#!/bin/bash\nexit 0\n");
     }
@@ -1920,7 +1927,7 @@ SH);
     // a fresh night: everything running, the array started, two old snapshots the retention lets go, nothing noted
     $night = function (string $stopAt = '') use ($fake, $data, $mounts0): void {
         exec('rm -rf ' . escapeshellarg("$fake/vm") . ' ' . escapeshellarg("$fake/ct") . ' ' . escapeshellarg("$data/logs"));
-        foreach (['events', 'notify.log', 'kopia.n', 'kopia.top', 'nc.maint', 'stop-at'] as $f) {
+        foreach (['events', 'notify.log', 'kopia.n', 'kopia.top', 'nc.maint', 'stop-at', 'busy'] as $f) {
             @unlink("$fake/$f");
         }
         foreach (['status.json', 'stopped', 'maintenance', 'vms'] as $f) {
@@ -2148,6 +2155,39 @@ SH);
     same('unmount: from the array-stop hook latest.log stays the run\'s, by hand it is unmount.log', [true, $runLog, 'unmount.log'],
         [str_starts_with((string) $runLog, 'run-'), $kept, @readlink("$data/logs/latest.log")]);
 
+    // --- engine 2.25: whatever ends in a stopping array leaves nothing of the engine mounted - not only what it mounted
+    // itself: keep_mounts' mounts of an earlier run, a killed run's, a layer in its staging area; a busy one (a Kopia that
+    // didn't end) is detached (umount -l) after the normal attempt. The plugin's array-stop hook leaves this to a live run.
+    $engine = fn () => array_values(array_filter(file("$fake/mounts", FILE_IGNORE_NEW_LINES) ?: [], fn ($l) => str_contains($l, " $root/") || str_contains($l, " $tmp/stage/")));
+    $leftover = "master/appdata@uso-backup-1 $root/appdata fake ro 0 0\nmaster/docs@uso-backup-1 $root/docs fake ro 0 0\n"
+        . "master/docs@uso-backup-1 $tmp/stage/layers/master_docs fake ro 0 0\n";
+    $night();
+    file_put_contents("$fake/mounts", $mounts0 . $leftover);
+    file_put_contents("$fake/busy", "$root/docs\n");
+    file_put_contents("$fake/var.ini", "fsState=\"Stopping\"\n");
+    [$code, , $out] = $run('--check');
+    same('array stop: a check ended by the stop (it mounts nothing) releases what an earlier run left mounted - the busy one detached',
+        [3, [], ["umount -l $root/docs"]], [$code, $engine(), $names()]);
+    check('array stop: the detached mount is said in the log', str_contains($log(), "$root/docs was busy - detached (umount -l)"), $log());
+    $night('policy');
+    file_put_contents("$fake/mounts", $mounts0 . $leftover);
+    [$code, , $out] = $run('--check');
+    same('array stop: a check that ends normally while the array is being stopped (past its last look) releases them too',
+        [0, 'check', true, []], [$code, $status()['mode'] ?? null, str_contains((string) file_get_contents("$fake/var.ini"), 'Stopping'), $engine()]);
+    $night();
+    file_put_contents("$fake/mounts", $mounts0 . $leftover);
+    file_put_contents("$fake/busy", "$root/docs\n");
+    $lk = fopen("$data/state/lock", 'c');
+    flock($lk, LOCK_EX);
+    $t0 = microtime(true);
+    $unmount('UB_KEEP_LATEST=1 UB_ARRAY_STOP=1');
+    $took = microtime(true) - $t0;
+    flock($lk, LOCK_UN);
+    fclose($lk);
+    same('unmount from the array-stop hook (UB_ARRAY_STOP=1): the lock held - not waited for, the busy mount detached at once, nothing of the engine left',
+        [true, [], ["umount -l $root/docs"]], [$took < 2, $engine(), $names()]);
+    check('unmount from the array-stop hook: its log says why it didn\'t wait', str_contains((string) @file_get_contents("$data/logs/unmount.log"), 'without waiting for the lock'));
+
     // --- engine 2.25: backup.sh --recover
     $rec = function (string $extra = '') use ($env): array {
         $out = (string) shell_exec('bash -c ' . escapeshellarg("$env UB_RECOVER_LOOK=1 $extra; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " --recover </dev/null; echo \"exit=\$?\"") . ' 2>&1');
@@ -2321,7 +2361,7 @@ function testAgentBackupHooks(): void
     }
     file_put_contents("$tmp/bin/at", "#!/bin/bash\necho \"\$*\" >>" . escapeshellarg("$tmp/at.calls") . "\ncp \"\$3\" " . escapeshellarg("$tmp/at.job") . "\n");
     chmod("$tmp/bin/at", 0755);
-    file_put_contents("$tmp/plugin/backup/backup.sh", "echo \"\$UB_DATA \${UB_KEEP_LATEST:-} \$*\" >>" . escapeshellarg("$tmp/backup.calls") . "\n");
+    file_put_contents("$tmp/plugin/backup/backup.sh", "echo \"\$UB_DATA \${UB_KEEP_LATEST:-} \${UB_ARRAY_STOP:-} \$*\" >>" . escapeshellarg("$tmp/backup.calls") . "\n");
     $agent = escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh');
     $call = function (string $fn) use ($tmp, $agent, $data): string {
         $pre = 'PATH=' . escapeshellarg("$tmp/bin") . ":\$PATH; source $agent; DIR=" . escapeshellarg("$tmp/plugin") . '; RUN=' . escapeshellarg("$tmp/run")
@@ -2341,7 +2381,7 @@ function testAgentBackupHooks(): void
     $job = explode("\n", $read('at.job'));
     same('hooks: the job carries the office\'s mark (the same as hostLaunch()\'s) on its own line', ['#!/bin/sh', HOST_LAUNCH_MARK], array_slice($job, 0, 2));
     exec('sh ' . escapeshellarg("$tmp/at.job"), $o, $rc);
-    same('hooks: the job runs backup.sh --recover with the engine\'s data folder (quoted)', [0, "$ub  --recover\n"], [$rc, $read('backup.calls')]);
+    same('hooks: the job runs backup.sh --recover with the engine\'s data folder (quoted)', [0, "$ub   --recover\n"], [$rc, $read('backup.calls')]);
     file_put_contents("$tmp/atjobs/a0000101c2b3a4", "#!/bin/sh\n# atrun uid=0 gid=0\n# mail root 0\numask 22\ncd / || {\n\t exit 1\n}\n" . $read('at.job'));
     same('hooks: the night watchman takes the at job for the office\'s', true, watchmanAtJobs(['atjobs' => "$tmp/atjobs"], null)['jobs']['a0000101c2b3a4']['ours'] ?? null);
     @unlink("$tmp/backup.calls");
@@ -2355,19 +2395,77 @@ function testAgentBackupHooks(): void
     $call('backup_release');
     same('hooks: stopping, a mount under another section\'s «mount_root» is none of the engine\'s', '', $read('backup.calls'));
     file_put_contents("$tmp/mounts", "master /mnt/master zfs rw 0 0\nmaster/appdata@uso-backup-1 $tmp/snaps/appdata zfs ro 0 0\n");
+    $call('backup_release');
+    same('hooks: stopping, its snapshot mounted (keep_mounts) and the lock free - backup.sh --unmount with its data folder, latest.log left alone, '
+        . 'not waiting for the lock (UB_ARRAY_STOP)', "$ub 1 1 --unmount\n", $read('backup.calls'));
+    @unlink("$tmp/backup.calls");
+    // the lock held: who holds it decides (its note). A live backup.sh run, check or dry run releases the engine's mounts
+    // itself on its way out of a stopping array (engine 2.25); anyone else mounts nothing there - released without the lock
+    @mkdir("$tmp/engine", 0700, true);
+    $holderNote = fn (string $holder, string $mode, int $pid) => file_put_contents("$ub/state/lock-holder.json",
+        json_encode(['holder' => $holder, 'mode' => $mode, 'what' => '', 'run' => '20261007-0100', 'pid' => $pid, 'started' => time(), 'version' => '2.25']));
+    // a stand-in run: backup.sh (by its name) holding the engine's lock for $1 seconds
+    file_put_contents("$tmp/engine/backup.sh", 'exec 9>>"$LOCK"; flock 9; sleep "$1"' . "\n");
+    $holding = function (int $secs) use ($tmp, $ub): array {
+        $p = proc_open(['bash', '-c', 'LOCK="$1" exec bash "$2" "$3"', 'x', "$ub/state/lock", "$tmp/engine/backup.sh", (string) $secs],
+            [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+        for ($i = 0; $i < 50; $i++) {
+            exec('flock -n ' . escapeshellarg("$ub/state/lock") . ' true', $o, $rc);
+            if ($rc !== 0) {
+                break;
+            }
+            usleep(100000);
+        }
+        return [$p, proc_get_status($p)['pid']];
+    };
+    $release = function () use ($call): float {
+        $t0 = microtime(true);
+        $call('backup_release');
+        return microtime(true) - $t0;
+    };
+    [$p, $pid] = $holding(30);
+    $holderNote('backup', 'backup', $pid);
+    $took = $release();
+    same('hooks: stopping, a live backup run holds the lock - left to it (it releases everything itself), after 2 s for it to end',
+        ['', true], [$read('backup.calls'), $took >= 1.9 && $took < 5]);
+    check('hooks: stopping, the run left to it is said in the log', str_contains($read('agent.log'), "a backup backup run (PID $pid) holds the engine's lock"), $read('agent.log'));
+    foreach ([['setup', 'plan', 'the setup'], ['restore', 'apply', 'a restore'], ['backup', 'recover', 'a --recover']] as [$h, $m, $who]) {
+        $holderNote($h, $m, $pid);
+        $took = $release();
+        same("hooks: stopping, $who holds the lock - released without it, at once", ["$ub 1 1 --unmount\n", true], [$read('backup.calls'), $took < 2]);
+        @unlink("$tmp/backup.calls");
+    }
+    exec('pkill -KILL -P ' . $pid);         // its sleep holds the lock too
+    proc_terminate($p, SIGKILL);
+    proc_close($p);
+    // a killed run's orphan holds the lock (the note's pid is gone): released without it
     $lk = fopen("$ub/state/lock", 'c');
     flock($lk, LOCK_EX);
-    $call('backup_release');
+    $holderNote('backup', 'backup', 999999999);
+    $release();
+    same('hooks: stopping, the lock held but the note\'s pid gone (a killed run\'s orphan) - released without the lock', "$ub 1 1 --unmount\n", $read('backup.calls'));
+    @unlink("$tmp/backup.calls");
+    $holderNote('backup', 'backup', getmypid());
+    $release();
+    same('hooks: stopping, the note\'s pid runs something else than backup.sh - released without the lock', "$ub 1 1 --unmount\n", $read('backup.calls'));
+    @unlink("$tmp/backup.calls");
+    @unlink("$ub/state/lock-holder.json");
+    $release();
+    same('hooks: stopping, the lock held without a note - released without it', "$ub 1 1 --unmount\n", $read('backup.calls'));
+    @unlink("$tmp/backup.calls");
     flock($lk, LOCK_UN);
     fclose($lk);
-    same('hooks: stopping, a run holds the lock - it unmounts itself, backup.sh not called', '', $read('backup.calls'));
-    $call('backup_release');
-    same('hooks: stopping, its snapshot mounted (keep_mounts) and the lock free - backup.sh --unmount with its data folder, latest.log left alone',
-        "$ub 1 --unmount\n", $read('backup.calls'));
+    // a live run just past its last look at the array: it ends within the 2 s - released after all
+    [$p, $pid] = $holding(1);
+    $holderNote('backup', 'check', $pid);
+    $release();
+    proc_close($p);
+    same('hooks: stopping, the live run ends within 2 s (past its last look) - released after it', "$ub 1 1 --unmount\n", $read('backup.calls'));
     @unlink("$tmp/backup.calls");
+    @unlink("$ub/state/lock-holder.json");
     file_put_contents("$tmp/mounts", "unraid-backup-stage $tmp/stage tmpfs rw 0 0\nmaster/appdata@uso-backup-1 $tmp/stage/layers/master_appdata zfs ro 0 0\n");
     $call('backup_release');
-    same('hooks: stopping, a layer in its staging area mounted - released too', "$ub 1 --unmount\n", $read('backup.calls'));
+    same('hooks: stopping, a layer in its staging area mounted - released too', "$ub 1 1 --unmount\n", $read('backup.calls'));
     @unlink("$tmp/backup.calls");
     file_put_contents("$tmp/mounts", "unraid-backup-stage $tmp/stage tmpfs rw 0 0\n");
     $call('backup_release');
@@ -2376,7 +2474,8 @@ function testAgentBackupHooks(): void
     file_put_contents("$tmp/mounts", "master/appdata@uso-backup-1 $tmp/snaps/appdata zfs ro 0 0\n");
     $t0 = microtime(true);
     $call('backup_release');
-    check('hooks: stopping, a hanging unmount is cut off - the array stop waits at most 10 s', microtime(true) - $t0 < 12, (string) (microtime(true) - $t0));
+    check('hooks: stopping, a hanging unmount is cut off after 8 s - with the 2 s for a live run, the array stop waits at most 10 s',
+        microtime(true) - $t0 < 9, (string) (microtime(true) - $t0));
     check('hooks: agent.sh writes the mark exactly like hostLaunch()', str_contains((string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh'), "HOST_LAUNCH_MARK='" . HOST_LAUNCH_MARK . "'"));
     exec('rm -rf ' . escapeshellarg($tmp));
 }

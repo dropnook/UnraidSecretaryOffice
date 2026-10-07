@@ -177,6 +177,8 @@
 #   UB_NO_NOTIFY=1                 no Unraid notifications
 #   UB_KEEP_LATEST=1               --unmount: leave logs/latest.log at the last run's log
 #                                  (the plugin's array-stop hook, 2.25)
+#   UB_ARRAY_STOP=1                --unmount: the array is being stopped - don't wait for the
+#                                  lock, detach busy mounts (umount -l) at once (the hook, 2.25)
 #                     --about      name, version and interface as JSON
 #   UB_DATA=/path                  another data folder (default <office>/data/unraid-backup)
 #   UB_SETTINGS=/path/settings.ini another settings file
@@ -627,36 +629,58 @@ restore_service() {
 ##############################################################################
 # Mounts
 ##############################################################################
-umount_tree() { # umount_tree <root>  - deepest first; 1 if something stayed mounted
-    local root="$1" mp rc=0
+# umount_tree <root> [lazy|now]  - deepest first; 1 if something stayed mounted
+#   lazy  the array is being stopped (2.25): what is still busy after the normal attempt (a Kopia in the container
+#         that didn't end, an orphan of a killed run) is detached (umount -l) - the mount point goes at once, the
+#         file system once its last user lets go (Docker ends the container in the stop), so the pool can go
+#   now   the same without the second try 2 s later (the plugin's array-stop hook: --unmount with UB_ARRAY_STOP=1,
+#         a few seconds in all)
+umount_tree() {
+    local root="$1" how="${2:-}" mp rc=0
     while IFS= read -r mp; do
         [[ -z "$mp" ]] && continue
-        if ! umount "$mp" 2>/dev/null; then
+        umount "$mp" 2>/dev/null && continue
+        if [[ "$how" != "now" ]]; then
             sleep 2
-            umount "$mp" 2>>"$LOG_FILE" || { warn "Could not unmount $mp (busy?)"; rc=1; continue; }
+            umount "$mp" 2>>"$LOG_FILE" && continue
         fi
+        if [[ -n "$how" ]] && umount -l "$mp" 2>>"$LOG_FILE"; then
+            log "  $mp was busy - detached (umount -l): it is gone once its last user lets go"
+            continue
+        fi
+        warn "Could not unmount $mp (busy?)"; rc=1
     done < <(mounts_below "$root")
     [[ -d "$root" ]] && find "$root" -xdev -mindepth 1 -depth -type d -empty -delete 2>/dev/null
     return $rc
 }
 
-unmount_all() {
-    local rc=0
+unmount_all() { # unmount_all [lazy|now]  - everything of the engine: <mount_root>, <view_root>, its staging area
+    local rc=0 how="${1:-}"
     if [[ -n "$(mounts_below "$MOUNT_ROOT")" ]]; then
         log "Unmounting snapshots under $MOUNT_ROOT ..."
-        umount_tree "$MOUNT_ROOT" || rc=1
+        umount_tree "$MOUNT_ROOT" "$how" || rc=1
     fi
     # Only symlinks belong in <view_root> - mounts there (e.g. from an
     # earlier script) would hold disks and are released
     if [[ -n "$(mounts_below "$VIEW_ROOT")" ]]; then
         log "Releasing old bind mounts under $VIEW_ROOT ..."
-        umount_tree "$VIEW_ROOT" || rc=1
+        umount_tree "$VIEW_ROOT" "$how" || rc=1
     fi
     if [[ -n "$(mounts_below "$UB_STAGE")" ]]; then
-        umount_tree "$UB_STAGE" || rc=1
+        umount_tree "$UB_STAGE" "$how" || rc=1
     fi
     MOUNTED="no"; LAYER_MNT=(); SHARE_MOUNTED=()
     return $rc
+}
+
+# The way out of every run holding the lock (2.25): while the array is being stopped nothing of the engine stays
+# mounted - neither what this run mounted nor what keep_mounts or a killed run left. The plugin's array-stop hook
+# (agent.sh backup_release) leaves the engine's mounts to a live backup run, check or dry run: this is where it
+# keeps that promise, whatever MOUNTED says. The cleanup trap does the same (cleanup); a check or dry run that
+# ends normally comes through here.
+run_exit() {
+    [[ -n "${MOUNT_ROOT:-}" ]] && array_stopping && unmount_all lazy
+    ub_holder_clear
 }
 
 # Before 2.14 mount_root and view_root were folders directly in /mnt (backup-snapshots,
@@ -2256,8 +2280,12 @@ cleanup() {
             [[ -n "${STOP_AT:-}" && "${DOWNTIME:-0}" == 0 ]] && DOWNTIME=$(( $(date +%s) - STOP_AT ))
         fi
     fi
-    # an array stop: always (keep_mounts too) - a mount of ours would keep the pool from unmounting
-    if [[ "$MOUNTED" == "yes" && ( "$KEEP_MOUNTS" != "yes" || "$ARRAY_STOP" == "yes" ) ]]; then
+    # an array stop (also one this run ends normally in): everything under the engine's mount roots, whatever this
+    # run mounted - keep_mounts, a killed run's leftovers (the plugin's array-stop hook leaves them to a live run,
+    # 2.25); a mount of ours would keep the pool from unmounting - busy ones are detached (umount -l)
+    if [[ "$ARRAY_STOP" == "yes" ]] || array_stopping; then
+        unmount_all lazy
+    elif [[ "$MOUNTED" == "yes" && "$KEEP_MOUNTS" != "yes" ]]; then
         unmount_all
     fi
     if [[ "$ARRAY_STOP" == "yes" && "$ST_RESULT" == "running" ]]; then
@@ -2352,7 +2380,14 @@ if [[ "$UB_MODE" == "unmount" ]]; then
     # by hand (the office's «Unmount», a terminal) its log is the newest; from the plugin's array-stop hook
     # (UB_KEEP_LATEST=1, 2.25) latest.log stays the last run's - for the office and Ms. Protocolli
     [[ "${UB_KEEP_LATEST:-0}" == "1" ]] || ln -sfn "$(basename "$LOG_FILE")" "$UB_LOGS/latest.log" 2>/dev/null
-    flock -w 10 9 || echo "$(_ts)  A run holds the lock - unmounting anyway" >>"$LOG_FILE"
+    if [[ "${UB_ARRAY_STOP:-0}" == "1" ]]; then
+        # the plugin's array-stop hook (2.25) calls it only when no live run of this engine holds the lock (that one
+        # releases everything itself, run_exit/cleanup): whoever holds it then - the setup, a restore, a --recover, an
+        # orphan of a killed run that inherited the lock - mounts nothing there. Never waited for: the stop goes on
+        echo "$(_ts)  The array is being stopped - releasing the engine's mounts without waiting for the lock" >>"$LOG_FILE"
+    else
+        flock -w 10 9 || echo "$(_ts)  A run holds the lock - unmounting anyway" >>"$LOG_FILE"
+    fi
 elif [[ "$UB_MODE" == "recover" ]]; then
     # busy: whoever holds it is a run (or the setup) that brings the notes back at its own start - quietly,
     # no skipped.json, no notification, status.json untouched (it describes that run)
@@ -2369,7 +2404,7 @@ else
     elif [[ "$DRY" == "1" ]]; then ST_MODE="dryrun"
     else ST_MODE="backup"; fi
     ub_holder_write backup "$ST_MODE" "$TS" "$STARTED_AT"
-    trap ub_holder_clear EXIT
+    trap run_exit EXIT          # an array stop meanwhile: nothing of the engine stays mounted
     ln -sfn "$(basename "$LOG_FILE")" "$UB_LOGS/latest.log" 2>/dev/null
     status_init "$ST_MODE"
 fi
@@ -2403,9 +2438,11 @@ SETTINGS_OK="yes"
 load_settings || { SETTINGS_OK="no"; apply_settings; }
 
 if [[ "$UB_MODE" == "unmount" ]]; then
-    # Must also work with a missing or broken settings.ini
-    log "Unmount requested."
-    if unmount_all; then log "Everything unmounted."; else log "Not everything could be unmounted."; fi
+    # Must also work with a missing or broken settings.ini. UB_ARRAY_STOP=1 (the plugin's array-stop hook, 2.25):
+    # bounded - busy mounts are detached at once (umount -l), no second try
+    log "Unmount requested$([[ "${UB_ARRAY_STOP:-0}" == "1" ]] && echo " (the array is being stopped)")."
+    if [[ "${UB_ARRAY_STOP:-0}" == "1" ]]; then unmount_all now; else unmount_all; fi \
+        && log "Everything unmounted." || log "Not everything could be unmounted."
     exit 0
 fi
 
@@ -2497,7 +2534,7 @@ if [[ "$UB_MODE" == "check" ]]; then
     if (( $(drift_count error) > 0 || ERRORS > 0 )); then status_finish errors
     elif (( $(drift_count warn) > 0 || WARNINGS > 0 )); then status_finish warnings
     else status_finish ok; fi
-    trap ub_holder_clear EXIT
+    trap run_exit EXIT
     exit 0
 fi
 
@@ -2586,7 +2623,7 @@ if [[ "$DRY" == "1" ]]; then
     if (( ERRORS > 0 )); then status_finish errors
     elif (( WARNINGS > 0 )); then status_finish warnings
     else status_finish ok; fi
-    trap ub_holder_clear EXIT
+    trap run_exit EXIT
     exit 0
 fi
 
