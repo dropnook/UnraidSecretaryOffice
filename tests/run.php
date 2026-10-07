@@ -8269,6 +8269,21 @@ function testWhereDesk(): void
     check('where desk: her look and her measuring stay quiet (no spinner)', (bool) preg_match('/const QUIET = .*where_refresh.*where_measure/', $core));
     check('where desk: both parts on her page', str_contains($js, "part(T('part.where')") && str_contains($js, "part(T('part.tidy')"));
 
+    // links to her page name the part they mean (her rooms are «Tidying up», far below «Where is what»)
+    $links = [];
+    foreach (array_merge(glob(OFFICE_DIR . '/agent/desks/*.php') ?: [], glob(OFFICE_DIR . '/agent/lib/*.php') ?: [], glob(OFFICE_DIR . '/src/*.php') ?: [],
+                         glob(OFFICE_DIR . '/public/assets/*.js') ?: [], glob(OFFICE_DIR . '/public/desks/*/desk.js') ?: []) as $f) {
+        preg_match_all("~#/cleanup(?:/([a-z]*))?(?=['\"`])~", (string) file_get_contents($f), $m);
+        foreach ($m[1] as $part) {
+            if (!in_array($part, ['where', 'tidy'], true)) {
+                $links[] = basename($f) . ": #/cleanup" . ($part !== '' ? "/$part" : '');
+            }
+        }
+    }
+    same('where desk: every link to her page names its part (where, tidy)', [], $links);
+    $care = (string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php');
+    check('where desk: the team lead\'s icon_loop leads to her rooms', str_contains($care, "? '#/cleanup/tidy' : 'docker'"));
+
     // nobody names her any more: the office's and every desk's texts, the Dashboard tile
     $names = '/Whereabouts|Wasistwo|Dovè|Saitout|Dondestá/u';
     $files = array_merge(glob(OFFICE_DIR . '/public/lang/*.json') ?: [], glob(OFFICE_DIR . '/public/desks/*/lang/*.json') ?: [], [OFFICE_DIR . '/src/dashboard.php']);
