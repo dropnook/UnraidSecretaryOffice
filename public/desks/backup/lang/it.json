@@ -460,7 +460,7 @@
   "setup.g_prefix_hint": "Vengono eliminati solo gli snapshot con questo prefisso — quelli di altri strumenti restano. Con il predefinito uso-backup-, quelli più vecchi chiamati unraidbackup-… seguono la stessa conservazione.",
   "setup.g_btrfs_days": "Snapshot btrfs conservati (giorni)",
   "setup.g_btrfs_free": "Freno d'emergenza btrfs (GB liberi)",
-  "setup.g_btrfs_free_hint": "Sotto questa soglia gli snapshot btrfs più vecchi vengono eliminati in anticipo.",
+  "setup.g_btrfs_free_hint": "Sotto questa soglia gli snapshot btrfs più vecchi vengono eliminati in anticipo — al massimo un decimo del disco (0 = spento).",
   "setup.g_btrfs_all": "Snapshot di tutti i dischi btrfs dell'array (per sfogliarli), anche senza condivisioni con backup",
   "setup.g_btrfs_all_wake": {"one": "Così {names} viene svegliato ogni notte per il suo snapshot, anche se dorme — lascialo spento se deve dormire tutta la notte.", "other": "Così i {n} dischi ({names}) vengono svegliati ogni notte per i loro snapshot, anche quelli che dormono — lascialo spento se devono dormire tutta la notte."},
   "setup.g_flash": "Dispositivo di avvio (chiavetta USB)",

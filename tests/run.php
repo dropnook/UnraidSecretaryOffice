@@ -975,6 +975,9 @@ function testBackupPackages(): void
         . ' $T/vms/.ub-old-20261006-0200-v $T/.ub-stage-20261006-0200/apps/a; touch $T/apps/a/new; pkg_recover $T >/dev/null;'
         . ' printf "apps:%s|vms:%s|left:%s" "$(ls $T/apps | paste -sd" " -)" "$(ls $T/vms)" "$(ls -A $T | grep -c "^\.ub-")"; [ -e $T/apps/a/new ] || echo " lost"'));
     exec('rm -rf ' . $t);
+    same('engine 2.23: the btrfs brake scales with the disk (min_free_gb, at most a tenth, at least 1 GB, 0 = off)', '150|2|1|0|300|1',
+        $sh('BTRFS_MIN_FREE_GB=150; a=$(brake_floor_gb 22000); b=$(brake_floor_gb 24); c=$(brake_floor_gb 5); BTRFS_MIN_FREE_GB=0; d=$(brake_floor_gb 22000);'
+        . ' BTRFS_MIN_FREE_GB=300; e=$(brake_floor_gb 22000); BTRFS_MIN_FREE_GB=150; f=$(brake_floor_gb x); printf "%s|%s|%s|%s|%s|%s" $a $b $c $d $e $f'));
 }
 
 /**

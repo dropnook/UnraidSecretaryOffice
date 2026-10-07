@@ -4,7 +4,7 @@ Part of the [Unraid Secretary Office](../README.md): Mr. Backupsy shows and cont
 
 A nightly backup for Unraid servers. It takes consistent **ZFS/btrfs snapshots** and **database dumps**, puts Nextcloud into **maintenance mode** for that, keeps a **package per app and VM** (templates or compose files, dumps, VM configuration) and — if you want — sends everything encrypted offsite with **Kopia**, an app or VM you choose as a Kopia source of its own with its own retention. Everything specific to your server lives in `settings.ini`, which `setup.sh` writes after asking you. The nightly run `backup.sh` reports every difference between the server and `settings.ini`, but never changes it on its own. **What is new stays local and keeps running until you decide** (since 2.21): a new folder in a share that goes to Kopia stays in the local snapshots only, a new container isn't stopped — see [New things stay local](#new-things-stay-local-since-221).
 
-Version **2.22** (6 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
+Version **2.23** (7 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
 
 ---
 
@@ -435,7 +435,7 @@ The same message doesn't come every night: it is repeated when something changes
 | `dumps_share` | the backup place's share (the packages, see above); its snapshots keep their history |
 | `keep_mounts` | `yes` = snapshots stay mounted until the next run (then also a User Script "At Stopping of Array" with `backup.sh --unmount`) |
 | `[zfs] retention` | `d w m`: daily, weekly, monthly |
-| `[btrfs] keep_days`, `min_free_gb`, `snapshot_all` | retention, emergency brake, snapshot all array disks |
+| `[btrfs] keep_days`, `min_free_gb`, `snapshot_all` | retention, emergency brake (at most a tenth of the disk, `0` = off), snapshot all array disks |
 | `[drift] ignore`, `remind_days` | share patterns not reported, reminder interval |
 | `[docker] stop`, `no_stop`, `known` | `all`/`none`, exceptions, known containers |
 | `[flash] mode` | `snapshot` (only /boot on ZFS) / `tar` (archive in `flash/`) / `off` |
@@ -505,6 +505,7 @@ No warranty: a backup can be faulty or incomplete, and you stay responsible for 
 
 ## Versions
 
+- **2.23** – The btrfs emergency brake scales with the disk: below `[btrfs] min_free_gb` free — but at most a tenth of the disk, at least 1 GB (`0` switches it off) — the oldest snapshots of the engine go early, each with a warning. A disk with none of ours left to release is a line in the log only (a full disk is what Unraid's own disk warnings are for); before, small disks warned and notified at every run.
 - **2.22** – VMs with `prepare = shutdown` go down before anything stops: the run asks them and waits for them (one deadline, the request again every 60 s) while the apps still run, before Nextcloud's maintenance mode — the apps' interruption (`downtime_s`) no longer includes waiting for a VM. Freezing and pausing stay right before the snapshots, so does pausing a VM that wasn't off by its deadline (its `seconds` count from the pause; one that went off later is started again like the others). A run stopped while a VM goes down waits for it and starts it again. `status.json` has the phase `vm_shutdown`.
 - **2.21** – `state/pruned.json`: the snapshots the retention destroyed, run by run (the last 30 runs within 30 days).
 - **2.21** – New things stay local and keep running until you decide. A share that goes to Kopia records its top-level folders when the setup is applied (`kopia_known`); a folder that appears later and that nobody decided about stays in the local snapshots only — the run leaves it out of the share's Kopia policy right before the upload, takes the rule away again once it is decided or gone, and says so (log, `status.json` `new_local`, `state/new-local.json`, drift note `new_waiting`, one notification when first seen). Containers that came after the last setup keep running during the run, and the setup proposes them so (and VMs without settings as not held). The setup lists the new folders per share (`waiting`) and asks about them in a terminal. A share without `kopia_known` works as before until the setup is applied once.

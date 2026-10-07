@@ -22,7 +22,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.22"
+UB_VERSION="2.23"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -627,6 +627,19 @@ inv_measure() {
         total=$(( total + bytes ))
     done <<<"${INV_LOCS[$s]:-}"
     to_gb "$total"
+}
+
+# --- The btrfs emergency brake (2.23) ---------------------------------------
+# [btrfs] min_free_gb is meant for big array disks: below it the oldest snapshots go early. On a small
+# disk (a 24 GB test disk, a 250 GB SSD) that number may be more than the disk can ever have free, so
+# the floor is at most a tenth of the disk (at least 1 GB); 0 switches the brake off.
+brake_floor_gb() { # brake_floor_gb <size in GB>  -> the free GB below which the oldest snapshots go
+    local size="${1:-0}" tenth
+    [[ "$size" =~ ^[0-9]+$ ]] || size=0
+    (( ${BTRFS_MIN_FREE_GB:-0} > 0 )) || { printf '0'; return; }
+    tenth=$(( size / 10 )); (( tenth < 1 )) && tenth=1
+    (( BTRFS_MIN_FREE_GB < tenth )) && tenth=$BTRFS_MIN_FREE_GB
+    printf '%s' "$tenth"
 }
 
 # --- Sleeping disks (since 2.19) -------------------------------------------
