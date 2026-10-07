@@ -2248,16 +2248,26 @@ uri_escape() {
 # run after run from Kopia's checkpoints, no longer holds back everything queued behind it. (Up to 2.24: the
 # apps, the shares in settings.ini's order, the VMs, the flash last - on 2026-10-07 a 2.3 TB first upload of
 # one share kept the flash, appdata and the VMs from Kopia for days.)
-# The size a source is expected to have, from what is cheap and reliable: its newest complete Kopia snapshot
-# (KSIZE, kopia_sizes_load - what Kopia really reads, its ignore rules applied), else the inventory - ZFS's
-# referenced for a share that is a dataset of its own (INV_BYTES), the VM's disk files (VM_BYTES). An unknown
-# size goes last; equal sizes and the unknown keep their order (the shares as settings.ini lists them, then
-# the VMs).
+# The size a source is expected to have, from what is cheap and reliable: the size of its newest complete
+# Kopia snapshot (KSIZE, kopia_sizes_load - what Kopia read then, its ignore rules applied) and the server's
+# (ZFS's referenced for a share that is a dataset of its own, INV_BYTES; the VM's disk files, VM_BYTES) -
+# the LARGER of the two when both are known, either alone when only one is. Kopia's alone can be stale: a share
+# whose folders were all ignored until the setup changed has a tiny complete snapshot while its first real
+# upload of terabytes is still going on in checkpoints (nostromo's Backups, 2026-10-07) - by Kopia's size it
+# would go first. The server's overestimates a share with big ignored parts, which only moves it later. An
+# unknown size goes last; equal sizes and the unknown keep their order (the shares as settings.ini lists
+# them, then the VMs).
 # kopia_order  -> lines "name|kind|item|folder|bytes|from" in the order they go:
 #   name    as status.json names it (kopia.planned): flash, app:<name>, <share>, vm:<name>
 #   kind    flash | app | share | vm;   item: the share's, app's or VM's name;   folder: an app's or VM's source
 #   bytes   the size it is expected to have ("" = unknown; none for the flash and the apps - their place is fixed)
-#   from    kopia | inventory | "" (unknown)
+#   from    kopia | inventory (whichever was larger) | "" (unknown)
+# kopia_expect <Kopia's bytes> <the server's bytes>  -> "bytes|from": the larger known one ("|" = unknown)
+kopia_expect() {
+    if is_uint "$1" && { ! is_uint "$2" || (( $1 >= $2 )); }; then printf '%s|kopia' "$1"
+    elif is_uint "$2"; then printf '%s|inventory' "$2"
+    else printf '|'; fi
+}
 kopia_order() {
     local it t n f s cp b from i=0
     [[ "${PLAN_FLASH:-}" == "snapshot" ]] && printf 'flash|flash||||\n'
@@ -2267,17 +2277,15 @@ kopia_order() {
     done
     {
         for s in "${PLAN_KOPIA[@]}"; do
-            b=""; from=""
-            if cp="$(k_path "$(share_kopia_hostpath "$s")" 2>/dev/null)" && is_uint "${KSIZE[$cp]:-}"; then b="${KSIZE[$cp]}"; from="kopia"
-            elif is_uint "${INV_BYTES[$s]:-}"; then b="${INV_BYTES[$s]}"; from="inventory"; fi
+            cp="$(k_path "$(share_kopia_hostpath "$s")" 2>/dev/null)" || cp=""
+            IFS='|' read -r b from <<<"$(kopia_expect "${cp:+${KSIZE[$cp]:-}}" "${INV_BYTES[$s]:-}")"
             i=$((i+1)); printf '%d\t%s\t%d\t%s|share|%s||%s|%s\n' "$([[ -n "$from" ]] && echo 0 || echo 1)" "${b:-0}" "$i" "$s" "$s" "$b" "$from"
         done
         for it in "${PLAN_KITEMS[@]}"; do
             IFS='|' read -r t n f <<<"$it"
             [[ "$t" == "vm" ]] || continue
-            b=""; from=""
-            if cp="$(k_path "$(item_hostpath vm "$f")" 2>/dev/null)" && is_uint "${KSIZE[$cp]:-}"; then b="${KSIZE[$cp]}"; from="kopia"
-            elif is_uint "${VM_BYTES[$n]:-}"; then b="${VM_BYTES[$n]}"; from="inventory"; fi
+            cp="$(k_path "$(item_hostpath vm "$f")" 2>/dev/null)" || cp=""
+            IFS='|' read -r b from <<<"$(kopia_expect "${cp:+${KSIZE[$cp]:-}}" "${VM_BYTES[$n]:-}")"
             i=$((i+1)); printf '%d\t%s\t%d\tvm:%s|vm|%s|%s|%s|%s\n' "$([[ -n "$from" ]] && echo 0 || echo 1)" "${b:-0}" "$i" "$n" "$n" "$f" "$b" "$from"
         done
     } | LC_ALL=C sort -t $'\t' -k1,1n -k2,2n -k3,3n | cut -f4-

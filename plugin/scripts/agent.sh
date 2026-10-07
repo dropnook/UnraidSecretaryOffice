@@ -295,7 +295,8 @@ backup_recover() {
 # ([general] keep_mounts = yes keeps them until the next run; a run killed hard leaves them too) would
 # keep a pool from unmounting - released now (backup.sh --unmount), at most 10 s. A run going on releases
 # its own the moment it sees the stop (engine 2.24): only when nobody holds the engine's lock. Never
-# blocks the stop: nothing of ours mounted - nothing done (one look at /proc/mounts).
+# blocks the stop: nothing of ours mounted - nothing done (one look at /proc/mounts). latest.log stays the
+# last run's (UB_KEEP_LATEST): the office and Ms. Protocolli keep showing that run, not this unmount.
 backup_release() {
     local ub ini lock roots
     [[ -f "$DIR/backup/backup.sh" ]] || return 0
@@ -312,7 +313,7 @@ backup_release() {
     if [[ -e "$lock" ]] && ! flock -n "$lock" true 2>/dev/null; then
         return 0                # a run holds it: it unmounts itself
     fi
-    if UB_DATA="$ub" timeout -k 2 8 bash "$DIR/backup/backup.sh" --unmount >/dev/null 2>&1; then
+    if UB_DATA="$ub" UB_KEEP_LATEST=1 timeout -k 2 8 bash "$DIR/backup/backup.sh" --unmount >/dev/null 2>&1; then
         echo "$(date '+%F %T') array stopping: the backup engine's snapshot mounts released" >>"$LOG"
     else
         echo "$(date '+%F %T') array stopping: backup.sh --unmount did not end within 10 s (see its logs/unmount.log)" >>"$LOG"

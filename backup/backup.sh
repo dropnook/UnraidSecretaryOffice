@@ -10,9 +10,10 @@
 #        alone (no run: its log is logs/recover.log). A run that finds a recover holding the lock waits
 #        for it instead of skipping the night. A note stays while Docker (libvirt) doesn't answer.
 #        The Kopia phase goes small and important first: the flash, the apps' own sources, then the
-#        shares and the VMs' own sources by their expected size, smallest first (the newest complete
-#        Kopia snapshot's size, else ZFS's referenced or the VM's disk files; unknown last) - a first
-#        upload of terabytes no longer holds back everything behind it for days
+#        shares and the VMs' own sources by their expected size, smallest first (the larger of the
+#        newest complete Kopia snapshot's size and ZFS's referenced or the VM's disk files; unknown
+#        last) - a first upload of terabytes no longer holds back everything behind it for days. At the
+#        array stop the plugin runs --unmount with UB_KEEP_LATEST=1: latest.log stays the last run's
 #   2.24 The run notices the array being stopped (var.ini fsState Stopping - minutes before Unraid
 #        stops the VMs and Docker) at its safe points and every few seconds while Kopia uploads, and
 #        ends at once: the Kopia snapshot going on is interrupted inside the container (Kopia keeps
@@ -174,6 +175,8 @@
 #                     leave maintenance mode ON afterwards (applies to all
 #                     Nextclouds and overrides settings.ini)
 #   UB_NO_NOTIFY=1                 no Unraid notifications
+#   UB_KEEP_LATEST=1               --unmount: leave logs/latest.log at the last run's log
+#                                  (the plugin's array-stop hook, 2.25)
 #                     --about      name, version and interface as JSON
 #   UB_DATA=/path                  another data folder (default <office>/data/unraid-backup)
 #   UB_SETTINGS=/path/settings.ini another settings file
@@ -2346,7 +2349,9 @@ recover_holds() { ub_holder_read; [[ "$HOLDER_KIND" == "backup" && "$HOLDER_MODE
 # start of the run holding it from its time); the one that gets it touches it.
 exec 9>>"$UB_STATE/lock"
 if [[ "$UB_MODE" == "unmount" ]]; then
-    ln -sfn "$(basename "$LOG_FILE")" "$UB_LOGS/latest.log" 2>/dev/null
+    # by hand (the office's «Unmount», a terminal) its log is the newest; from the plugin's array-stop hook
+    # (UB_KEEP_LATEST=1, 2.25) latest.log stays the last run's - for the office and Ms. Protocolli
+    [[ "${UB_KEEP_LATEST:-0}" == "1" ]] || ln -sfn "$(basename "$LOG_FILE")" "$UB_LOGS/latest.log" 2>/dev/null
     flock -w 10 9 || echo "$(_ts)  A run holds the lock - unmounting anyway" >>"$LOG_FILE"
 elif [[ "$UB_MODE" == "recover" ]]; then
     # busy: whoever holds it is a run (or the setup) that brings the notes back at its own start - quietly,
@@ -2567,7 +2572,7 @@ if [[ "$KOPIA_OK" == "yes" && "$SKIPK" != "1" ]]; then
         esac
     done
     log "  Kopia order:      ${ko_line:-none}"
-    log "                    (shares and VMs the smallest first - the newest complete Kopia snapshot's size; * the server's: ZFS, the VM's disks; ? unknown, last)"
+    log "                    (shares and VMs the smallest first - the larger of the newest complete Kopia snapshot's size and the server's, * = the server's (ZFS, the VM's disks); ? unknown, last)"
 fi
 status_write
 
