@@ -18,11 +18,12 @@
 #  10. Snapshot names  the engine's ZFS snapshots: prefixes, exact matching, retention (since 2.20); what its
 #                      retention removed, state/pruned.json (since 2.21)
 #  11. New things      what is new stays local and keeps running until the user decided (since 2.21)
+#  12. Partners        units sent to partner offices by zfs send through their door (since 2.27)
 ###############################################################################
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.26"
+UB_VERSION="2.27"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -241,7 +242,7 @@ sec_display() { if [[ "$1" == *"|"* ]]; then printf '[%s "%s"]' "${1%%|*}" "${1#
 
 declare -gA UB_SCHEMA=(
     # keep_runs: before 2.18 the number of run folders kept - accepted in old files, ignored
-    [general]="server mount_root view_root snap_prefix btrfs_snap_dir keep_runs keep_logs min_free_gb keep_mounts notify_success dumps_share"
+    [general]="server mount_root view_root snap_prefix btrfs_snap_dir keep_runs keep_logs min_free_gb keep_mounts notify_success dumps_share partner_place"
     [zfs]="retention"
     [btrfs]="keep_days min_free_gb snapshot_all"
     [drift]="ignore remind_days"
@@ -252,10 +253,12 @@ declare -gA UB_SCHEMA=(
     [nextcloud]="preexisting_maintenance"
     [dump]="type"
     # kopia_known (since 2.21): the top-level folders that go to Kopia (section 11)
-    [share]="mode method retention kopia_retention kopia_ignore kopia_known exclude_dataset id locations note"
+    [share]="mode method retention kopia_retention kopia_ignore kopia_known exclude_dataset id locations note partner"
     # kopia, folder, kopia_retention, kopia_ignore (since 2.19): a Kopia source of its own (section 9)
-    [vm]="mode prepare retention kopia folder kopia_retention kopia_ignore"
+    [vm]="mode prepare retention kopia folder kopia_retention kopia_ignore partner"
     [app]="kopia folder kopia_retention kopia_ignore"
+    # since 2.27 (section 12): a partner office the run sends to, and per share/VM/the backup place the partners it goes to
+    [partner]="name address port rate_mbit"
 )
 
 # Checks sections, keys and values. Errors go into CFG_ERRORS.
@@ -340,6 +343,24 @@ cfg_validate() {
                 item_folder_ok "$f" || CFG_ERRORS+=( "[$t \"$n\"] folder = '$f' is invalid (<share>/<folder> inside the share, without .. and without a leading /)" )
             done < <(cfg_list "$t|$n|folder")
         done < <(cfg_names "$t")
+    done
+    # partners (section 12): only the format here - a partner named without a [partner] section (the partnership ended,
+    # the setup not applied since) is skipped by the run, never an error that stops it
+    while IFS= read -r n; do
+        [[ -z "$n" ]] && continue
+        partner_id_ok "$n" || CFG_ERRORS+=( "[partner \"$n\"]: the id is 8 hex digits (lower case)" )
+        _val "partner|$n|name"      '^[A-Za-z0-9._-]{1,40}$'        "letters, digits, . _ -, at most 40"
+        _val "partner|$n|address"   '^[A-Za-z0-9][A-Za-z0-9._:-]{0,252}$' "an IP address or a host name"
+        _val "partner|$n|port"      '^[0-9]{1,5}$'                  "a port number"
+        _val "partner|$n|rate_mbit" '^[0-9]+$'                      "Mbit/s, 0 = unlimited"
+        [[ -n "$(cfg "partner|$n|address")" ]] || CFG_ERRORS+=( "[partner \"$n\"] without address" )
+    done < <(cfg_names partner)
+    local pk
+    for k in "${!CFG[@]}"; do
+        [[ "$k" =~ ^(share\|.+\|partner|vm\|.+\|partner|general\|partner_place)$ ]] || continue
+        while IFS= read -r pk; do
+            [[ -z "$pk" ]] || partner_id_ok "$pk" || CFG_ERRORS+=( "${k##*|} = '$pk' in $(sec_display "${k%|*}") is invalid (a partner's id: 8 hex digits)" )
+        done < <(cfg_list "$k")
     done
     unset -f _val
     [[ ${#CFG_ERRORS[@]} -eq 0 ]]
@@ -2042,6 +2063,10 @@ drift_count() { local lvl="$1" n=0 l; for l in "${DRIFT[@]}"; do [[ "${l%%|*}" =
 #   "array_stopping" (a code - the office translates backup.message.array_stopping), a history.jsonl
 #   line like any run; "kopia" carries "skipped" (the planned sources it didn't do - not failed: the
 #   next run does them) and "interrupted" (the source whose upload was interrupted, null if none)
+#   since 2.27 "partner" (section 12; null when the run sends to no partner): partners [{id, name}], planned
+#   [{id, unit}], current {id, unit, since, bytes} | null, done [{id, unit, snap, from, bytes, seconds, mbit, resumed}],
+#   skipped [{id, unit, why}], failed [{id, unit, why}], interrupted {id, unit} | null; and the counts partner_ok,
+#   partner_failed, partner_skipped at the top (history.jsonl keeps partner without planned/current)
 # Writing is never critical: if it fails, the backup carries on.
 UB_INTERFACE=1
 UB_HISTORY_MAX=200
@@ -2085,6 +2110,8 @@ status_json() {
     local vms
     vms="$(printf '%s\n' "${ST_VMS[@]}" | jq -R 'select(length > 0) | split("|")
         | {name: .[0], prepare: .[1], done: .[2], seconds: ((.[3] // "0") | tonumber), snapshot: (.[4] == "1")}' | jq -sc .)" || vms='[]'
+    local partner
+    partner="$(partner_status_json)" || partner="null"
     jq -nc \
         --arg name "$UB_NAME" --arg version "$UB_VERSION" --argjson interface "$UB_INTERFACE" \
         --arg mode "$ST_MODE" --arg run "${TS:-}" --argjson pid "$$" \
@@ -2098,11 +2125,13 @@ status_json() {
         --arg current "$ST_KOPIA_CUR" --argjson current_since "$ST_KOPIA_CUR_T" --argjson vms "${vms:-[]}" \
         --argjson skipped "${skipped:-[]}" --arg interrupted "$ST_KOPIA_INTERRUPTED" \
         --argjson packages "${ST_PACKAGES:-null}" --argjson new_local "${ST_NEW_LOCAL:-null}" \
+        --argjson partner "${partner:-null}" --argjson p_ok "${#ST_PARTNER_DONE[@]}" --argjson p_failed "${#ST_PARTNER_FAILED[@]}" \
+        --argjson p_skipped "${#ST_PARTNER_SKIPPED[@]}" \
         '{interface: $interface, name: $name, version: $version, mode: $mode, run: $run, pid: $pid,
           started: $started, updated: $updated, finished: $finished, phase: $phase, result: $result,
           message: $message, errors: $errors, warnings: $warnings, downtime_s: $downtime,
           snapshot: $snapshot, dump_bytes: $dump_bytes, log: $log, drift: $drift, vms: $vms, packages: $packages,
-          new_local: $new_local,
+          new_local: $new_local, partner: $partner, partner_ok: $p_ok, partner_failed: $p_failed, partner_skipped: $p_skipped,
           kopia: {enabled: ($kopia_enabled | ascii_downcase | test("^(yes|ja|1|true)$")), state: $kopia_ok,
                   planned: $planned, current: (if $current == "" then null else $current end),
                   current_since: (if $current == "" then null else $current_since end), done: $done,
@@ -2124,13 +2153,14 @@ status_finish() { # status_finish <result> [message]
     [[ "$ST_ACTIVE" == "yes" ]] || return 0
     [[ "$ST_RESULT" == "running" ]] || return 0      # already finished
     ST_RESULT="$1"; ST_MESSAGE="${2:-$ST_MESSAGE}"; ST_FINISHED="$(date +%s)"
-    ST_PHASE="done"; ST_KOPIA_CUR=""
+    ST_PHASE="done"; ST_KOPIA_CUR=""; ST_PARTNER_CUR=""
     status_write
     [[ "$ST_MODE" == "backup" ]] || return 0
     cp -f "$UB_STATE/status.json" "$UB_STATE/.last-run.json.$$" 2>/dev/null \
         && mv -f "$UB_STATE/.last-run.json.$$" "$UB_STATE/last-run.json" 2>/dev/null
     # a short line per run: the packages only as counts
-    history_append "$(jq -c 'if (.packages | type) == "object" then .packages |= del(.list) else . end' "$UB_STATE/status.json" 2>/dev/null \
+    history_append "$(jq -c 'if (.packages | type) == "object" then .packages |= del(.list) else . end
+        | if (.partner | type) == "object" then .partner |= del(.planned, .current) else . end' "$UB_STATE/status.json" 2>/dev/null \
         || tr -d '\n' <"$UB_STATE/status.json")"
     return 0
 }
@@ -2973,5 +3003,205 @@ new_local_run() {
         # Unraid's notify keeps one notification per event and second: the run's own report comes later
         [[ "${UB_NO_NOTIFY:-0}" == "1" ]] || sleep 1
     fi
+    return 0
+}
+
+##############################################################################
+# 12. Partners (since 2.27)
+##############################################################################
+# Two offices can be partners - never master and slave, never an automatic failover. The Team Lead pairs them
+# (data/partner/pairs.json, a key pair per pair on the flash, the partner's door: ssh with a forced command that
+# knows a handful of verbs). Each night, right after the snapshots and the apps' restart and before Kopia's long
+# upload, the phase "partner" (backup.sh) sends the run's ZFS snapshots of the units the setup ticked to each
+# partner - incremental `zfs send` over that door, always encrypted (ssh), the partner keeps the copy with its own
+# retention and quota; the sender can never delete anything there. ZFS only: no rsync, a unit that isn't one
+# dataset of its own is "not covered", said so.
+#   [partner "<id>"]  name, address, port, rate_mbit (Mbit/s, 0 = unlimited) - the Team Lead's agreement; the setup
+#                     writes it from pairs.json. Never a secret: the private key and the partner's known_hosts are
+#                     files derived from the id, <UB_PARTNER_DIR>/<id>.key and <id>.known (the flash folder)
+#   [share "<s>"]   partner = <id>  (repeatable)   unit share:<s>
+#   [vm "<v>"]      partner = <id>  (repeatable)   unit vm:<v>
+#   [general]       partner_place = <id> (repeatable)  unit place - the backup place's dataset
+# The door's verbs the engine uses: ping, list <unit>, resume <unit>, recv <unit> <snap> [<from>|-t].
+# Whatever crosses as a word is checked here first: units by partner_unit_name_ok, snapshots by UB_PARTNER_SNAP_RE.
+UB_PARTNER_DIR="${UB_PARTNER_DIR:-$UB_BOOT/config/plugins/unraid-secretary-office/partners}"
+UB_PARTNER_PAIRS="${UB_PARTNER_PAIRS:-$(dirname "$UB_DATA")/partner/pairs.json}"   # the Team Lead's pairs (setup.sh reads it)
+UB_PARTNER_ASK="${UB_PARTNER_ASK:-60}"           # seconds for a short question to the door (ping, list, resume)
+UB_PARTNER_NIGHTS="${UB_PARTNER_NIGHTS:-3}"      # unreachable so many nights in a row: a warning (once a day)
+UB_PARTNER_SNAP_RE='^uso-backup-[0-9]{8}-[0-9]{4}$'   # the only snapshot names the door accepts
+UB_PARTNER_BOOKMARK="uso-partner-"               # <dataset>#uso-partner-<id>: the last snapshot sent to that partner
+
+partner_id_ok()        { [[ "$1" =~ ^[0-9a-f]{8}$ ]]; }
+partner_unit_name_ok() { [[ "$1" =~ ^[A-Za-z0-9._-]{1,64}$ && "$1" != .* ]]; }   # one word through the door, a dataset name there
+
+# partner_ids  -> the partners settings.ini names ([partner "<id>"] with a valid id), in its order
+partner_ids() { local id; while IFS= read -r id; do partner_id_ok "$id" && printf '%s\n' "$id"; done < <(cfg_names partner); return 0; }
+partner_name() { cfg "partner|$1|name" "$1"; }
+
+# partner_units <id>  -> the units ticked for that partner: place first, then the shares and the VMs in settings.ini's order
+partner_units() {
+    local id="$1" n
+    cfg_list "general|partner_place" | grep -Fxq -- "$id" && echo place
+    while IFS= read -r n; do
+        [[ -n "$n" ]] || continue
+        if cfg_list "share|$n|partner" | grep -Fxq -- "$id"; then echo "share:$n"; fi
+    done < <(cfg_names share)
+    while IFS= read -r n; do
+        [[ -n "$n" ]] || continue
+        if cfg_list "vm|$n|partner" | grep -Fxq -- "$id"; then echo "vm:$n"; fi
+    done < <(cfg_names vm)
+    return 0
+}
+
+# partner_vm_ds <dataset>  -> 0 when it is (or lies below) a VM's own dataset
+partner_vm_ds() {
+    local n d
+    for n in "${VM_NAMES[@]}"; do
+        while IFS= read -r d; do [[ -n "$d" && ( "$1" == "$d" || "$1" == "$d/"* ) ]] && return 0; done <<<"${VM_OWN_DS[$n]:-}"
+    done
+    return 1
+}
+
+# partner_unit_dataset <unit>  -> 0 and PU_DS = the dataset that travels, or 1 and PU_WHY:
+#   name         the name can't travel as one word through the door ([A-Za-z0-9._-], at most 64)
+#   no_dataset   not on ZFS (XFS/btrfs, an array disk), gone, locked - or a VM sharing its dataset
+#   not_dataset  a folder in a dataset (e.g. in a pool's root dataset), not a dataset of its own
+#   split        on several pools/disks; a VM with disks in several datasets
+#   children     a share with child datasets other than its VMs' own (zfs send without -R would leave them out)
+# Inventory (inv_scan), VMs (vm_load) and the backup place (DUMPS_SHARE) must be loaded.
+partner_unit_dataset() {
+    local u="$1" s="" b m layer sub ds mp own n
+    local -a locs=() excl=()
+    PU_DS=""; PU_WHY=""
+    case "$u" in
+        place)   s="${DUMPS_SHARE:-}"; [[ -n "$s" ]] || { PU_WHY="no_dataset"; return 1; } ;;
+        share:*) s="${u#share:}"; partner_unit_name_ok "$s" || { PU_WHY="name"; return 1; } ;;
+        vm:*)
+            s="${u#vm:}"
+            partner_unit_name_ok "$s" || { PU_WHY="name"; return 1; }
+            own="$(sed '/^$/d' <<<"${VM_OWN_DS[$s]:-}")"
+            n=0; [[ -n "$own" ]] && n="$(wc -l <<<"$own")"
+            (( n == 0 )) && { PU_WHY="no_dataset"; return 1; }
+            (( n > 1 ))  && { PU_WHY="split"; return 1; }
+            PU_DS="$own"; return 0 ;;
+        *)       PU_WHY="name"; return 1 ;;
+    esac
+    inv_has_share "$s" && [[ "${INV_METHOD[$s]}" != "none" ]] || { PU_WHY="no_dataset"; return 1; }
+    mapfile -t locs < <(sed '/^$/d' <<<"${INV_LOCS[$s]}")
+    (( ${#locs[@]} > 1 )) && { PU_WHY="split"; return 1; }
+    IFS='|' read -r b m layer sub <<<"${locs[0]:-}"
+    [[ "$m" == "zfs" && -n "$layer" ]] || { PU_WHY="no_dataset"; return 1; }
+    [[ -z "$sub" ]] || { PU_WHY="not_dataset"; return 1; }
+    mapfile -t excl < <(cfg_list "share|$s|exclude_dataset")
+    while IFS='|' read -r b ds mp; do
+        [[ -z "$ds" ]] && continue
+        [[ "${ds##*/}" == _UnraidSecretaryOffice-trash* ]] && continue          # Ms. Dustdevil's storeroom: never backed up
+        partner_vm_ds "$ds" && continue                                          # a VM's own dataset is a unit of its own
+        in_list "$ds" "${excl[@]}" || _parent_excluded "$ds" "${excl[@]}" && continue
+        PU_WHY="children"; return 1
+    done <<<"${INV_CHILDREN[$s]:-}"
+    PU_DS="$layer"
+    return 0
+}
+
+# partner_ssh_cmd <id>  -> PSSH: the ssh call to that partner's door - the one place for its options (plan 3.5):
+# the pair's own key only, never a password or agent, the pinned host keys only, a fast AEAD cipher, no compression
+# (zfs send -c sends compressed blocks), a dead link noticed within two minutes
+partner_ssh_cmd() {
+    PSSH=( ssh -i "$UB_PARTNER_DIR/$1.key" -o IdentitiesOnly=yes -o BatchMode=yes
+           -o "UserKnownHostsFile=$UB_PARTNER_DIR/$1.known" -o StrictHostKeyChecking=yes
+           -o Ciphers=aes128-gcm@openssh.com,aes256-gcm@openssh.com,chacha20-poly1305@openssh.com -o Compression=no
+           -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=4
+           -p "$(cfg "partner|$1|port" 22)" "root@$(cfg "partner|$1|address")" )
+}
+# partner_ssh <id> <verb> [words...]  - the door's verb and its words as one command line (each word checked before)
+partner_ssh() { local id="$1"; shift; partner_ssh_cmd "$id"; "${PSSH[@]}" "$*"; }
+
+# partner_ask <id> <verb> [words...]  - a short question (ping, list, resume): PA_JSON = the door's answer (its first JSON
+# line on stdout, "" without one); returns 0 answered, 255 unreachable (ssh: no connection, the host key, the key refused -
+# or no answer within UB_PARTNER_ASK s), else ssh's exit code. ssh's own words go to the log.
+partner_ask() {
+    local id="$1" out rc e
+    shift
+    PA_JSON=""
+    partner_ssh_cmd "$id"
+    e="$(mktemp "${TMPDIR:-/tmp}/uso-partner-ask.XXXXXX")" || return 1
+    out="$(timeout "$UB_PARTNER_ASK" "${PSSH[@]}" "$*" </dev/null 2>"$e")"; rc=$?
+    (( rc == 124 )) && { printf 'no answer within %s s\n' "$UB_PARTNER_ASK" >>"$e"; rc=255; }
+    if (( rc != 0 )) && [[ -s "$e" ]]; then log "    ($(partner_name "$id") $1: $(head -c 300 "$e" | tr '\n' ' ' | tr -d '\r'))"; fi
+    rm -f "$e"
+    # one JSON line (the door's contract) - else, should it print its answer over several lines, the whole of it
+    PA_JSON="$(printf '%s\n' "$out" | jq -R -c 'fromjson? | select(type == "object")' 2>/dev/null | head -n 1)"
+    [[ -n "$PA_JSON" ]] || PA_JSON="$(printf '%s\n' "$out" | jq -c 'select(type == "object")' 2>/dev/null | head -n 1)"
+    return "$rc"
+}
+
+# partner_why_ok <code>  -> the code when it looks like one of the door's (lower case, _), else "refused"
+partner_why_ok() { if [[ "$1" =~ ^[a-z_]{1,40}$ ]]; then printf '%s' "$1"; else printf 'refused'; fi; }
+
+# The Team Lead's pairs (contract: plan 3.2, data/partner/pairs.json, {"v": 1, "pairs": [...]}) - read by setup.sh to
+# propose the [partner] sections; trusted only in exactly that shape. A pair the office sends to has "my_key".
+# partner_pairs_load -> 0 and PAIRS (lines "id|name|address|port|rate_mbit"), 1 when the file is missing or not as expected
+partner_pairs_load() {
+    PAIRS=()
+    local f="$UB_PARTNER_PAIRS"
+    [[ -f "$f" && ! -L "$f" && -r "$f" ]] || return 1
+    jq -e '.v == 1 and (.pairs | type) == "array"' "$f" >/dev/null 2>&1 || return 1
+    mapfile -t PAIRS < <(jq -r '.pairs[]
+        | select(type == "object" and (.id | type) == "string" and (.id | test("^[0-9a-f]{8}$"))
+                 and (.name | type) == "string" and (.name | test("^[A-Za-z0-9._-]{1,40}$"))
+                 and (.address | type) == "string" and (.address | test("^[A-Za-z0-9][A-Za-z0-9._:-]{0,252}$"))
+                 and (.port | type) == "number" and .port >= 1 and .port <= 65535 and .port == (.port | floor)
+                 and (.my_key | type) == "string")
+        | [.id, .name, .address, (.port | tostring),
+           ((.send.rate_mbit // 0) | if type == "number" and . >= 0 then floor else 0 end | tostring)] | join("|")' "$f" 2>/dev/null)
+    return 0
+}
+
+# --- What the phase did, for status.json (section 7) ---------------------------
+ST_PARTNER_IDS=()         # "id|name" of the partners this run sends to (empty: "partner": null)
+ST_PARTNER_PLAN=()        # "id|unit" in the phase's order
+ST_PARTNER_CUR=""         # "id|unit" being sent
+ST_PARTNER_CUR_T=0
+ST_PARTNER_CUR_BYTES=0    # what left so far (pv's count, every 10 s)
+ST_PARTNER_DONE=()        # "id|unit|snap|from|bytes|seconds|resumed(1/0)"
+ST_PARTNER_SKIPPED=()     # "id|unit|why"
+ST_PARTNER_FAILED=()      # "id|unit|why"
+ST_PARTNER_INTERRUPTED="" # "id|unit": the transfer an array stop (or a stop by hand) ended - resumed by the next run
+
+partner_status_json() {
+    (( ${#ST_PARTNER_IDS[@]} )) || { echo null; return 0; }
+    local ids plan done_ sk fl
+    ids="$(printf '%s\n' "${ST_PARTNER_IDS[@]}" | jq -R 'select(length > 0) | split("|") | {id: .[0], name: .[1]}' | jq -sc .)" || ids='[]'
+    plan="$(printf '%s\n' "${ST_PARTNER_PLAN[@]}" | jq -R 'select(length > 0) | split("|") | {id: .[0], unit: .[1]}' | jq -sc .)" || plan='[]'
+    done_="$(printf '%s\n' "${ST_PARTNER_DONE[@]}" | jq -R 'select(length > 0) | split("|")
+        | {id: .[0], unit: .[1], snap: .[2], from: (if .[3] == "" then null else .[3] end), bytes: (.[4] | tonumber),
+           seconds: (.[5] | tonumber), resumed: (.[6] == "1")}
+        | .mbit = (if .seconds > 0 then ((.bytes * 8 / .seconds / 1000000 * 10 | round) / 10) else null end)' | jq -sc .)" || done_='[]'
+    sk="$(printf '%s\n' "${ST_PARTNER_SKIPPED[@]}" | jq -R 'select(length > 0) | split("|") | {id: .[0], unit: .[1], why: .[2]}' | jq -sc .)" || sk='[]'
+    fl="$(printf '%s\n' "${ST_PARTNER_FAILED[@]}" | jq -R 'select(length > 0) | split("|") | {id: .[0], unit: .[1], why: .[2]}' | jq -sc .)" || fl='[]'
+    jq -nc --argjson partners "${ids:-[]}" --argjson planned "${plan:-[]}" --argjson done "${done_:-[]}" \
+        --argjson skipped "${sk:-[]}" --argjson failed "${fl:-[]}" --arg cur "$ST_PARTNER_CUR" --argjson since "${ST_PARTNER_CUR_T:-0}" \
+        --argjson bytes "${ST_PARTNER_CUR_BYTES:-0}" --arg intr "$ST_PARTNER_INTERRUPTED" \
+        '{partners: $partners, planned: $planned,
+          current: (if $cur == "" then null else ($cur | split("|") | {id: .[0], unit: .[1], since: $since, bytes: $bytes}) end),
+          done: $done, skipped: $skipped, failed: $failed,
+          interrupted: (if $intr == "" then null else ($intr | split("|") | {id: .[0], unit: .[1]}) end)}'
+}
+
+# --- What the phase keeps between runs (state/, root only) ---------------------
+# partner-sent.json  {"<id>": {"<unit>": {"snap", "dataset", "time"}}} - the last snapshot each partner got of each unit:
+#                    with the bookmark <dataset>#uso-partner-<id> it is the base of the next incremental send even when
+#                    the engine's retention destroyed that snapshot here
+# partner-skips.json {"<id>": {"nights", "first", "last_day", "warned", "quota_warned", "window_warned"}} - nights in a row
+#                    unreachable, and the day each warning was last said (once a day)
+partner_state_get() { # partner_state_get <file> <jq path, e.g. .["id"]["unit"].snap>
+    jq -r "($2) // empty" "$UB_STATE/$1" 2>/dev/null
+}
+partner_state_set() { # partner_state_set <file> <jq filter with $v> <value as JSON>
+    local f="$UB_STATE/$1" tmp="$UB_STATE/.$1.$$"
+    { if [[ -s "$f" ]] && jq -e 'type == "object"' "$f" >/dev/null 2>&1; then cat "$f"; else echo '{}'; fi; } \
+        | jq -c --argjson v "$3" "$2" >"$tmp" 2>/dev/null && [[ -s "$tmp" ]] && mv -f "$tmp" "$f"
+    rm -f "$tmp"
     return 0
 }

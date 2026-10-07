@@ -1,6 +1,12 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.26 - 2026-10-07
+# unraid-backup - setup.sh                        Version 2.27 - 2026-10-08
+#   2.27 Partner offices: the [partner "<id>"] sections come from the Team Lead's pairs (data/partner/
+#        pairs.json - the pairs this office sends to; without the file they stay as settings.ini has
+#        them), the units' keys ([share|vm] partner = <id>, [general] partner_place = <id>) from the
+#        decisions, kept only for a partner that exists and a unit that is one dataset of its own. The
+#        plan lists partners[] (never connects) and per share/VM partner, partner_ok, partner_why;
+#        --forget keeps the [partner] sections for the next setup (state/partners-kept.ini).
 #   2.26 The plan carries per VM what its disk files take (bytes, allocated blocks) and what they are
 #        (apparent: a sparse vdisk's full virtual size - what Kopia reads at a first upload, holes as
 #        zeros); backup.sh orders the VMs' Kopia sources by the latter.
@@ -414,6 +420,13 @@ TXT
         local e; for e in "${CFG_ERRORS[@]}"; do wrn "settings.ini: $e"; done
     else
         CFG=(); CFG_SECTIONS=(); CFG_ERRORS=()
+        # the partner offices --forget kept (2.27): only their [partner] sections
+        if [[ -f "$UB_STATE/partners-kept.ini" && ! -L "$UB_STATE/partners-kept.ini" ]] && cfg_load "$UB_STATE/partners-kept.ini"; then
+            local pk
+            for pk in "${!CFG[@]}"; do [[ "$pk" == partner\|* ]] || unset "CFG[$pk]"; done
+            local -a psecs=(); for pk in "${CFG_SECTIONS[@]}"; do [[ "$pk" == partner\|* ]] && psecs+=( "$pk" ); done
+            CFG_SECTIONS=( "${psecs[@]}" ); CFG_ERRORS=()
+        fi
         apply_settings
         hint "No settings.ini yet - the proposals come from the system"
     fi
@@ -1516,6 +1529,81 @@ TXT
 }
 
 ##############################################################################
+# Step 5c: partners (since 2.27)
+##############################################################################
+# The [partner "<id>"] sections are the Team Lead's agreement, never the setup's choice: taken from its pairs
+# (data/partner/pairs.json, the pairs this office sends to - partner_pairs_load), or, without that file, as
+# settings.ini (or the sections --forget kept) has them. The units - [share|vm "<n>"] partner = <id>, [general]
+# partner_place = <id> - are the user's, from the decisions; kept only for a partner that exists, a unit that is one
+# dataset of its own (partner_unit_dataset) and that the run snapshots (not off).
+declare -A PARTNER_OKU=() PARTNER_WHYU=()     # unit -> yes/no, why not (the plan's partner_ok / partner_why)
+PARTNER_SOURCE="none"                         # pairs | settings | none
+step_partners() {
+    local id k u n s line nm addr port rate keep
+    local -A pair=()
+    PARTNER_OKU=(); PARTNER_WHYU=()
+    for k in "${!P[@]}"; do [[ "$k" == partner\|* ]] && unset "P[$k]"; done
+    if partner_pairs_load; then
+        PARTNER_SOURCE="pairs"
+        for line in "${PAIRS[@]}"; do
+            IFS='|' read -r id nm addr port rate <<<"$line"
+            [[ -n "${pair[$id]:-}" ]] && continue
+            pair[$id]=1
+            pset "partner|$id|name" "$nm"; pset "partner|$id|address" "$addr"
+            pset "partner|$id|port" "$port"; pset "partner|$id|rate_mbit" "$rate"
+        done
+        while IFS= read -r id; do
+            [[ -n "$id" && -z "${pair[$id]:-}" ]] && hint "Partner '$(old "partner|$id|name" "$id")' ($id) is no longer paired at the Team Lead - its section and its units go"
+        done < <(old_names partner)
+    else
+        while IFS= read -r id; do
+            partner_id_ok "$id" || continue
+            pair[$id]=1
+            for k in name address port rate_mbit; do [[ -n "${OLD[partner|$id|$k]+x}" ]] && P[partner|$id|$k]="${OLD[partner|$id|$k]}"; done
+        done < <(old_names partner)
+        (( ${#pair[@]} )) && PARTNER_SOURCE="settings"
+    fi
+    _apply_P
+    # keep_ids <key> <unit> <off 1/0>: the key's partners that exist - none for a unit that can't travel or is off
+    keep_ids() {
+        local key="$1" unit="$2" off="$3" v out=""
+        [[ -n "${OLD[$key]+x}" || -n "${P[$key]+x}" ]] || return 0
+        while IFS= read -r v; do
+            [[ -n "$v" ]] || continue
+            if [[ -z "${pair[$v]:-}" ]]; then continue
+            elif [[ "${PARTNER_OKU[$unit]}" != "yes" ]]; then hint "${unit}: not one dataset of its own (${PARTNER_WHYU[$unit]}) - it can't go to partner $(pget "partner|$v|name" "$v")"; continue
+            elif [[ "$off" == 1 ]]; then hint "${unit}: not backed up (off) - nothing of it goes to partner $(pget "partner|$v|name" "$v")"; continue; fi
+            grep -Fxq -- "$v" <<<"$out" || out+="$v"$'\n'
+        done < <(if [[ -n "${OLD[$key]+x}" ]]; then printf '%s\n' "${OLD[$key]}"; else printf '%s\n' "${P[$key]}"; fi)
+        if [[ -n "$out" ]]; then P[$key]="${out%$'\n'}"; else unset "P[$key]"; fi
+    }
+    for s in "${SH[@]}"; do
+        if partner_unit_dataset "share:$s"; then PARTNER_OKU[share:$s]="yes"; else PARTNER_OKU[share:$s]="no"; PARTNER_WHYU[share:$s]="$PU_WHY"; fi
+        keep_ids "share|$s|partner" "share:$s" "$([[ "$(pget "share|$s|mode" off)" == off ]] && echo 1 || echo 0)"
+    done
+    for n in "${VM_NAMES[@]}"; do
+        if partner_unit_dataset "vm:$n"; then PARTNER_OKU[vm:$n]="yes"; else PARTNER_OKU[vm:$n]="no"; PARTNER_WHYU[vm:$n]="$PU_WHY"; fi
+        s="$(vm_share_mode "$n")"
+        keep_ids "vm|$n|partner" "vm:$n" "$([[ "$(pget "vm|$n|mode" snapshot)" == off || "${s:-off}" == off ]] && echo 1 || echo 0)"
+    done
+    if partner_unit_dataset place; then PARTNER_OKU[place]="yes"; else PARTNER_OKU[place]="no"; PARTNER_WHYU[place]="$PU_WHY"; fi
+    keep_ids "general|partner_place" place 0
+    unset -f keep_ids
+    _apply_P
+    (( ${#pair[@]} )) || return 0
+    sub "Partners"
+    for id in "${!pair[@]}"; do
+        local units
+        units="$(partner_units "$id" | paste -sd' ')"
+        say "  $(pget "partner|$id|name" "$id") ($id, $(pget "partner|$id|address"):$(pget "partner|$id|port" 22)$( (( $(pget "partner|$id|rate_mbit" 0) > 0 )) && echo ", at most $(pget "partner|$id|rate_mbit") Mbit/s")): ${units:-nothing yet}"
+        [[ -f "$UB_PARTNER_DIR/$id.key" ]] || wrn "Partner $(pget "partner|$id|name" "$id"): its key is missing ($UB_PARTNER_DIR/$id.key) - pair anew at the Team Lead"
+    done
+    hint "What goes to a partner is ticked per share and VM in Mr. Backupsy's setup («also to <partner>»); only ZFS datasets of their own travel"
+    [[ "${PARTNER_OKU[place]}" == "yes" ]] || hint "The backup place is not a dataset of its own (${PARTNER_WHYU[place]}) - it can't go to a partner"
+    return 0
+}
+
+##############################################################################
 # Step 6: Kopia
 ##############################################################################
 KOPIA_MAIN=-1          # index of the mapping that covers mount_root
@@ -1755,6 +1843,10 @@ settings_render() {
         w_kv keep_mounts "$(pget "general|keep_mounts")"
         w_c "Notification on success too (yes/no)"
         w_kv notify_success "$(pget "general|notify_success")"
+        if [[ -n "$(plist "general|partner_place")" ]]; then
+            w_c "The backup place's dataset goes to these partners too (the id of a [partner] section, several times)"
+            w_list partner_place "general|partner_place"
+        fi
         echo
         echo "[zfs]"
         w_c "Local ZFS snapshots: daily weekly monthly (can be overridden per share)"
@@ -1807,6 +1899,25 @@ settings_render() {
         w_kv compression "$(pget "kopia|compression")"
         w_c "Ignore rules for all sources"
         w_list ignore "kopia|ignore"
+        local first_partner="yes"
+        while IFS= read -r n; do
+            [[ -z "$n" ]] && continue
+            if [[ "$first_partner" == "yes" ]]; then
+                first_partner="no"
+                echo
+                echo "# --- Partner offices (the Team Lead's pairs) ----------------------------------"
+                w_c "Each night the run sends its ZFS snapshots of the shares, VMs and the backup place that name a"
+                w_c "partner (partner = <id>) to that office, through its door (ssh). The key and known_hosts are"
+                w_c "$UB_PARTNER_DIR/<id>.key and <id>.known - never in this file."
+                w_c "name, address, port: the partner office as paired; rate_mbit: at most so many Mbit/s, 0 = unlimited"
+            fi
+            echo
+            echo "[partner \"$n\"]"
+            w_kv name "$(pget "partner|$n|name" "$n")"
+            w_kv address "$(pget "partner|$n|address")"
+            w_kv port "$(pget "partner|$n|port" 22)"
+            w_kv rate_mbit "$(pget "partner|$n|rate_mbit" 0)"
+        done < <(printf '%s\n' "${!P[@]}" | sed -n 's/^partner|\([0-9a-f]\{8\}\)|address$/\1/p' | LC_ALL=C sort)
         while IFS= read -r n; do
             [[ -z "$n" ]] && continue
             echo
@@ -1845,6 +1956,7 @@ settings_render() {
                 [[ -n "$(pget "vm|$n|kopia_retention")" ]] && w_kv kopia_retention "$(pget "vm|$n|kopia_retention")"
                 w_list kopia_ignore "vm|$n|kopia_ignore"
             fi
+            w_list partner "vm|$n|partner"
         done < <(printf '%s\n' "${!P[@]}" | sed -n 's/^vm|\(.*\)|mode$/\1/p' | sort)
         local first_app="yes"
         while IFS= read -r n; do
@@ -1877,6 +1989,7 @@ settings_render() {
         w_c "kopia_known      a top-level folder that goes to Kopia (several times; empty = none yet) - a folder"
         w_c "                 neither known nor ignored is new: only local until you decide (* or no line: every folder goes)"
         w_c "exclude_dataset  child dataset neither snapshotted nor backed up (several times)"
+        w_c "partner          its dataset goes to that partner office too (a [partner] id, several times)"
         w_c "id, locations    from setup.sh - spot renames and moves"
         for s in "${SH[@]}"; do
             [[ "${WHY[$s]:-}" == "no longer exists"* ]] && continue
@@ -1899,6 +2012,7 @@ settings_render() {
                 else echo "kopia_known ="; fi
             fi
             w_list exclude_dataset "share|$s|exclude_dataset"
+            w_list partner "share|$s|partner"
             inv_has_share "$s" && [[ "${INV_METHOD[$s]}" != "none" ]] && {
                 w_kv id "${INV_ID[$s]}"
                 w_kv locations "$(inv_locnames "$s")"
@@ -1943,6 +2057,7 @@ write_settings() {
     fi
     mv "$tmp" "$UB_SETTINGS"
     WRITTEN="yes"
+    rm -f "$UB_STATE/partners-kept.ini"            # the partner sections --forget kept are in settings.ini again
     # the backup place changed: the next run moves the dumps so far (state/dumps-previous)
     local was now
     was="$(dumps_path "$ORIG_DUMPS_SHARE")"; now="$(dumps_path "$(pget "general|dumps_share")")"
@@ -2192,6 +2307,13 @@ step_forget() {
         say "Nothing changed."; return 0
     fi
     mkdir -m 700 -p "$dir" || { bad "Cannot create $dir"; return 1; }
+    # the [partner] sections are the Team Lead's agreement, not the setup's: they stay for the next setup (2.27)
+    if [[ -f "$UB_SETTINGS" ]] && grep -q '^\[partner "' "$UB_SETTINGS"; then
+        awk '/^\[/ { keep = ($0 ~ /^\[partner "[0-9a-f]{8}"\]$/) } keep' "$UB_SETTINGS" >"$UB_STATE/.partners-kept.ini.$$" \
+            && chmod 600 "$UB_STATE/.partners-kept.ini.$$" && mv -f "$UB_STATE/.partners-kept.ini.$$" "$UB_STATE/partners-kept.ini" \
+            && hint "The partner offices stay (state/partners-kept.ini) - the next setup takes them up again; only the units ticked for them start anew"
+        rm -f "$UB_STATE/.partners-kept.ini.$$"
+    fi
     for f in "$UB_SETTINGS" "$UB_STATE/setup-decisions.json" "$UB_STATE/setup-plan.json"; do
         [[ -e "$f" ]] || continue
         mv -f "$f" "$dir/" || { bad "Cannot move $f to $dir"; return 1; }
@@ -2293,7 +2415,7 @@ container_data() {
 # key<US>value lines -> JSON object; lists (ignore, no_stop, ...) as arrays
 plan_kv() {
     jq -Rn '[inputs | select(length > 0) | index("\u001f") as $i | {key: .[0:$i], value: .[$i + 1:]}]
-            | map(if (.key | test("\\|(ignore|no_stop|known|skip|kopia_ignore|kopia_known|exclude_dataset|tar_exclude|folder)$"))
+            | map(if (.key | test("\\|(ignore|no_stop|known|skip|kopia_ignore|kopia_known|exclude_dataset|tar_exclude|folder|partner|partner_place)$"))
                   then .value |= (split("\u001e") | map(select(length > 0))) else . end) | from_entries'
 }
 
@@ -2352,6 +2474,35 @@ plan_write() {
                    | .own = (.own | split("\u001e") | map(select(length > 0)))
                    | .disks = (.disks | split("\u001e") | map(select(length > 0) | split("|")
                         | {target: .[0], source: .[1], base: .[2], fs: .[3], dataset: .[4], share: .[5]})))')" || vms='[]'
+    # partners (2.27): who this office sends to (from the agreement, never asked over the network: reachable stays null)
+    # and per unit whether it can travel - one dataset of its own (PARTNER_OKU / PARTNER_WHYU from step_partners)
+    local partners pu
+    partners="$(for k in "${!P[@]}"; do if [[ "$k" =~ ^partner\|([0-9a-f]{8})\|address$ ]]; then printf '%s\n' "${BASH_REMATCH[1]}"; fi; done | LC_ALL=C sort \
+        | while IFS= read -r n; do
+            printf '%s\x1f' "$n" "$(pget "partner|$n|name" "$n")" "$(pget "partner|$n|address")" "$(pget "partner|$n|port" 22)" \
+                "$(pget "partner|$n|rate_mbit" 0)" "$([[ -f "$UB_PARTNER_DIR/$n.key" && -f "$UB_PARTNER_DIR/$n.known" ]] && echo 1)"
+            echo
+        done | us_json id name address port rate_mbit key \
+        | jq --arg src "$PARTNER_SOURCE" 'map(select(.id != "") | .port = (.port | tonumber? // 22) | .rate_mbit = (.rate_mbit | tonumber? // 0)
+                | .key = (.key == "1") | .reachable = null | .source = $src)')" || partners='[]'
+    pu="$(for k in "${!PARTNER_OKU[@]}"; do printf '%s\x1f%s\x1f%s\n' "$k" "${PARTNER_OKU[$k]}" "${PARTNER_WHYU[$k]:-}"; done | us_json unit ok why \
+        | jq 'map(select(.unit != "") | {key: .unit, value: {ok: (.ok == "yes"), why: (if .why == "" then null else .why end)}}) | from_entries')" || pu='{}'
+    local plist_json
+    plist_json() { plist "$1" | jq -R . | jq -sc .; }
+    shares="$(jq -c --argjson pu "$pu" --arg place "$(pget "general|dumps_share")" \
+        --argjson ids "$(for s in "${SH[@]}"; do printf '%s\x1f%s\n' "$s" "$(plist "share|$s|partner" | paste -sd' ')"; done | us_json name ids | jq -c 'map({key: .name, value: (.ids | split(" ") | map(select(length > 0)))}) | from_entries')" \
+        'map(.name as $n | .partner = ($ids[$n] // []) | .partner_ok = ($pu["share:" + $n].ok // false)
+             | .partner_why = (if ($pu["share:" + $n].ok // false) then null else ($pu["share:" + $n].why // "no_dataset") end)
+             | .place = ($n == $place))' <<<"$shares")" || shares="[]"
+    vms="$(jq -c --argjson pu "$pu" \
+        --argjson ids "$(for n in "${VM_NAMES[@]}"; do printf '%s\x1f%s\n' "$n" "$(plist "vm|$n|partner" | paste -sd' ')"; done | us_json name ids | jq -c 'map(select(.name != "") | {key: .name, value: (.ids | split(" ") | map(select(length > 0)))}) | from_entries')" \
+        'map(.name as $n | .partner = ($ids[$n] // []) | .partner_ok = ($pu["vm:" + $n].ok // false)
+             | .partner_why = (if ($pu["vm:" + $n].ok // false) then null else ($pu["vm:" + $n].why // "no_dataset") end))' <<<"${vms:-[]}")" || vms="[]"
+    local place_partner
+    place_partner="$(jq -nc --arg share "$(pget "general|dumps_share")" --argjson ids "$(plist_json "general|partner_place")" --argjson pu "$pu" \
+        '{share: $share, partner: $ids, partner_ok: ($pu.place.ok // false), partner_why: (if ($pu.place.ok // false) then null else ($pu.place.why // "no_dataset") end)}')" \
+        || place_partner="null"
+    unset -f plist_json
     dbs="$(printf '%s\n' "${DB_ROWS[@]}" | us_json container stack type detected where \
          | jq 'map(select(.container != "") | .dumpable = (.type | test("^(mariadb|postgres|mongodb)$")))')"
     miss="$(printf '%s\n' "${DB_MISSING[@]}" | us_json stack service image type | jq 'map(select(.stack != ""))')"
@@ -2375,10 +2526,11 @@ plan_write() {
         --arg k_connected "${KOPIA_CONNECTED:-no}" --arg k_id "${KOPIA_ID:-}" --arg k_version "${KOPIA_VERSION:-}" \
         --arg k_storage "${KOPIA_STORAGE:-}" --arg k_host "${KOPIA_HOST:-}" --arg k_uid "${KOPIA_SERVER_UID:-}" \
         --argjson k_sources "$srcs" --arg mount_root "$MOUNT_ROOT" \
+        --argjson partners "${partners:-[]}" --argjson place_partner "${place_partner:-null}" \
         '{interface: $interface, version: $version, time: $time, have_settings: ($have == "yes"),
           sizes_measured: ($size_timeout != "0"), P: $P, O: $O, pending: $pending, shares: $shares, containers: $containers,
           databases: $databases, missing_databases: $missing, nextcloud: $nextcloud,
-          vms: $vms, vm_service: ($vm_service == "yes"),
+          vms: $vms, vm_service: ($vm_service == "yes"), partners: $partners, place_partner: $place_partner,
           bases: $bases, flash: {dataset: $flash_ds, fs: $flash_fs}, mount_root: $mount_root,
           kopia: {enabled: ($k_enabled == "yes"), container: $k_container,
                   candidates: ($k_cands | split("\u001e") | map(select(length > 0))),
@@ -2443,6 +2595,7 @@ case "$MODE" in
         STEP_ID=vms;         step_vms
         STEP_ID=databases;   step_databases
         STEP_ID=general;     step_general
+        STEP_ID=partners;    step_partners
         STEP_ID=kopia;       step_kopia || true
         STEP_ID=sources;     step_kopia_sources
         STEP_ID=plan;        plan_write ;;
@@ -2455,6 +2608,7 @@ case "$MODE" in
         STEP_ID=vms;         step_vms
         STEP_ID=databases;   step_databases
         STEP_ID=general;     step_general
+        STEP_ID=partners;    step_partners
         STEP_ID=kopia;       step_kopia || true
         STEP_ID=write
         hdr "Writing"

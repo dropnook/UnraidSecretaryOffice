@@ -18,9 +18,12 @@ const STEPS = [
   ['prepare', ['start', 'inventory']],
   ['dumps', ['vm_shutdown', 'maintenance', 'manifest', 'stopping_apps', 'dumps']],     // vm_shutdown: engine 2.22, before anything stops
   ['snapshots', ['stopping', 'vms', 'snapshots', 'starting']],
+  ['partner', ['partner']],                                // engine 2.27: to the partner offices, before Kopia (shown only in a run that has partners)
   ['kopia', ['mounting', 'kopia']],
   ['finish', ['unmounting', 'cleanup', 'aborting', 'done']],
 ];
+
+const KOPIA_STEP = STEPS.findIndex(([n]) => n === 'kopia');
 
 let state = null;
 let view = null;
@@ -97,6 +100,22 @@ function srcLabel(name) {
   if (m) return T('src.' + m[1], { name: m[2] });
   return name === 'flash' ? T('flash') : name;
 }
+/** A unit that goes to a partner office (engine 2.27): the backup place, share:<name>, vm:<name> */
+function unitLabel(u) {
+  if (u === 'place') return T('partner.unit_place');
+  const m = /^(share|vm):(.*)$/.exec(u || '');
+  return m ? (m[1] === 'vm' ? T('src.vm', { name: m[2] }) : m[2]) : (u || '');
+}
+/** A partner's name: as the run names it (status.json partner.partners), else as settings.ini does (state.partners) */
+function partnerName(id, run) {
+  const p = ((run && run.partners) || []).find((x) => x.id === id) || ((state && state.partners) || []).find((x) => x.id === id);
+  return p ? p.name : id;
+}
+/** Why a unit didn't go to a partner, in a few words (the engine's code when no text knows it) */
+const partnerWhyShort = (w) => (Office.has(`${ID}.partner.why_short.${w}`) ? T('partner.why_short.' + w) : w);
+/** How many units a run's partner phase has done with so far (sent, skipped, failed) */
+const partnerDoneCount = (p) => ((p && p.done) || []).length + ((p && p.skipped) || []).length + ((p && p.failed) || []).length;
+
 /** The own Kopia source of an app or VM (state.items), if it has one */
 const itemOf = (kind, name) => (state && state.items || []).find((i) => i.kind === kind && i.name === name) || null;
 /** A chip for an app's or VM's own Kopia source: when Kopia last had it */
@@ -219,12 +238,12 @@ function progress() {
     return e;
   };
 
-  if (step < 3) {
+  if (step < KOPIA_STEP) {
     if (est.before) remaining += Math.max(0, est.before - (now - s.started));
     else if (!planned.length && est.total) remaining += Math.max(0, est.total - (now - s.started));
     else known = false;
     planned.forEach((n) => { remaining += sourceLeft(n); });
-  } else if (step === 3) {
+  } else if (step === KOPIA_STEP) {
     planned.filter((n) => !done.has(n)).forEach((n) => { remaining += sourceLeft(n); });
   }
   const elapsed = now - s.started;
@@ -252,6 +271,10 @@ function bubbleText() {
       out.push(T('bubble.running_kopia', { share: srcLabel(s.kopia.current), n: s.kopia.done.length + 1, total: s.kopia.planned.length }));
       if (p && p.first) out.push(firstText(p.first, true));
     } else if (s && s.phase === 'vm_shutdown') out.push(T('bubble.running_vm_shutdown'));
+    else if (s && s.phase === 'partner' && s.partner && s.partner.current) {
+      const pc = s.partner.current;
+      out.push(T('partner.bubble', { unit: unitLabel(pc.unit), name: partnerName(pc.id, s.partner), n: partnerDoneCount(s.partner) + 1, total: (s.partner.planned || []).length }));
+    }
     else if (s) out.push(T('bubble.running_phase', { step: T('step.' + STEPS[p ? p.step : 0][0]) }));
     else out.push(T('bubble.running_old', { step: state.step || '…' }));
     if (p && p.eta) out.push(T(p.overdue ? 'bubble.eta_late' : 'bubble.eta', { time: fmt.time(p.eta) }));
@@ -398,15 +421,16 @@ function notices() {
 }
 
 /** Under the steps: the stretch in which apps and VMs are held - before, now, done */
-function holdBracket(s, p) {
-  const from = STEPS.findIndex(([n]) => n === 'dumps');
-  const to = STEPS.findIndex(([n]) => n === 'snapshots');
+function holdBracket(s, p, shown) {
+  const from = shown.findIndex(([n]) => n === 'dumps');
+  const to = shown.findIndex(([n]) => n === 'snapshots');
   const held = ((state.paused || {}).stopped || []).length;
   let cls = '';
   let text = T('hold.before');
   if (s.downtime_s) { cls = 'done'; text = T('hold.done', { duration: fmt.duration(s.downtime_s) }); }
   else if (p.step >= from) { cls = 'now'; text = held ? T('hold.now', { n: held }) : T('hold.now_none'); }
   const row = el('div', 'bk-hold');
+  row.style.gridTemplateColumns = `repeat(${shown.length}, minmax(0, 1fr))`;
   const span = el('div', 'bk-hold-span ' + cls, text);
   span.style.gridColumn = `${from + 1} / ${to + 2}`;
   row.appendChild(span);
@@ -433,13 +457,15 @@ function runningCard() {
   }
 
   const steps = el('ol', 'bk-steps');
-  STEPS.forEach(([name], i) => {
+  // the partners' step only in a run that sends to partners (engine 2.27)
+  const shown = STEPS.map(([name], i) => [name, i]).filter(([name]) => name !== 'partner' || s.partner);
+  shown.forEach(([name, i]) => {
     const li = el('li', i < p.step ? 'done' : i === p.step ? 'current' : '', T('step.' + name));
     if (name === 'kopia' && !p.planned.length) li.classList.add('skipped');
     steps.appendChild(li);
   });
   card.appendChild(steps);
-  card.appendChild(holdBracket(s, p));
+  card.appendChild(holdBracket(s, p, shown));
 
   if (p.percent !== null) {
     // the bar says itself how far and how long still
@@ -457,6 +483,11 @@ function runningCard() {
   if (s.packages && s.packages.written) line.append(' · ', T('pk.run_packed', { apps: s.packages.apps, vms: s.packages.vms }));
   card.appendChild(line);
   if (s.phase === 'vm_shutdown') card.appendChild(el('div', 'card-line', T('vm_shutdown_now')));
+  if (s.phase === 'partner' && s.partner && s.partner.current) {
+    const pc = s.partner.current;
+    card.appendChild(el('div', 'card-line', T('partner.now', { name: partnerName(pc.id, s.partner), unit: unitLabel(pc.unit), size: fmt.size(pc.bytes || 0),
+      n: partnerDoneCount(s.partner), total: (s.partner.planned || []).length })));
+  }
   if (p.first) card.appendChild(el('div', 'card-line', firstText(p.first, false)));
 
   // what is paused right now: stopped containers, Nextcloud in maintenance mode
@@ -634,6 +665,31 @@ function overviewTiles() {
       const g = view && view.querySelector('.bk-protect tr.bk-group');
       if (g) g.scrollIntoView({ block: 'start', behavior: 'smooth' });
     }));
+  }
+  // the partner offices (engine 2.27): per partner the last run that sent to it - what went, how much, how fast,
+  // what was skipped or failed and why; while a run sends to it, what it sends now
+  const partners = state.partners || [];
+  if (partners.length) {
+    const t = el('div', 'stat bk-ptile');
+    let alert = false;
+    t.append(el('div', 'stat-label', T('partner.tile')), el('div', 'stat-value', partners.map((p) => p.name).join(', ')));
+    partners.forEach((p) => {
+      const l = p.last;
+      const parts = [];
+      if (p.current) parts.push(T('partner.tile_now', { name: p.name, unit: unitLabel(p.current.unit), size: fmt.size(p.current.bytes || 0) }));
+      else if (!l) parts.push(T('partner.tile_never', { name: p.name, n: p.units.length }));
+      else {
+        parts.push(l.sent ? T('partner.tile_sent', { name: p.name, n: l.sent, size: fmt.size(l.bytes), mbit: fmt.number(l.mbit || 0, 1), when: fmt.relative(l.time) })
+          : T('partner.tile_none', { name: p.name, when: fmt.relative(l.time) }));
+        const whys = [...new Set(l.skipped.map((x) => x.why))];
+        if (l.skipped.length) parts.push(T('partner.tile_skipped', { n: l.skipped.length, why: whys.map((w) => partnerWhyShort(w)).join(', ') }));
+        if (l.failed.length) parts.push(T('partner.tile_failed', { n: l.failed.length, why: [...new Set(l.failed.map((x) => partnerWhyShort(x.why)))].join(', ') }));
+        if (l.failed.length || whys.some((w) => !['array_stopping', 'signal'].includes(w))) alert = true;
+      }
+      t.appendChild(el('div', 'stat-sub', parts.join(' · ')));
+    });
+    if (alert) t.classList.add('alert');
+    tiles.push(t);
   }
   const flash = set.flash || 'off';
   const fl = (state.shares || []).find((x) => x.flash);
@@ -1535,7 +1591,8 @@ function setupApply() {
   } else {
     // what really changes in settings.ini - against the saved file, not against proposals
     const saved = setupSaved();
-    const changes = setupChanges(saved, setup.draft);
+    // the units' partner lists have their own group below («To partners»)
+    const changes = setupChanges(saved, setup.draft).filter((k) => !/^(share\|.+\|partner|vm\|.+\|partner|general\|partner_place)$/.test(k));
     box.appendChild(el('p', '', changes.length ? T('setup.apply_text', { n: changes.length }) : T('setup.apply_none')));
     if (changes.length) {
       const ul = el('ul', 'shortlist');
@@ -1558,6 +1615,18 @@ function setupApply() {
       });
       box.appendChild(ul);
     }
+  }
+  // engine 2.27: what goes to each partner office
+  const pl = (setup.plan.partners || []).length ? partnerApplyLines() : [];
+  if (pl.length) {
+    box.appendChild(el('p', '', T('partner.apply_group')));
+    const ul = el('ul', 'shortlist');
+    pl.forEach(([name, how]) => {
+      const li = el('li', '', name);
+      li.appendChild(el('span', '', how));
+      ul.appendChild(li);
+    });
+    box.appendChild(ul);
   }
   box.appendChild(el('p', 'role', T(!setup.plan.have_settings ? 'setup.apply_hint_new' : 'setup.apply_hint')));
   box.appendChild(el('p', 'role', T('setup.apply_responsibility')));
@@ -1614,6 +1683,7 @@ function setupNewLines() {
 
 function changeLabel(k) {
   const p = k.split('|');
+  if (p[0] === 'partner') return T('partner.ch_section', { name: partnerName(p[1], setup.plan) || p[1], key: p[2] });
   if (p[0] === 'share') return T('setup.ch_share', { share: p[1], key: T('setup.key.' + p[2]) });
   if (p[0] === 'app') return T('setup.ch_app', { name: p[1], key: Office.has(`${ID}.setup.key.item_${p[2]}`) ? T('setup.key.item_' + p[2]) : p[2] });
   if (p[0] === 'vm' && Office.has(`${ID}.setup.key.item_${p[2]}`)) return T('setup.ch_vm', { name: p[1], key: T('setup.key.item_' + p[2]) });
@@ -2181,6 +2251,71 @@ function appliedCard(run) {
   return box;
 }
 
+/**
+ * «also to <partner>» (engine 2.27): a toggle per partner this office sends to (the plan's partners[], from the Team
+ * Lead's pairs) for a share's, a VM's or the backup place's partner list `key` - several allowed. Only a ZFS dataset of
+ * its own travels: `ok` false disables them with the engine's reason; `off` (not backed up) disables them too.
+ */
+function partnerChips(key, ok, why, off) {
+  const partners = (setup.plan && setup.plan.partners) || [];
+  if (!partners.length) return null;
+  const wrap = el('div', 'bk-partners');
+  const on = dget(key, []) || [];
+  partners.forEach((p) => {
+    const sel = on.includes(p.id) && ok && !off;
+    const b = el('button', 'chip bk-pchip' + (sel ? ' accent' : ''), (sel ? '✓ ' : '+ ') + T('partner.also', { name: p.name }));
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(sel));
+    if (!ok) { b.disabled = true; b.title = T('partner.why.' + (why || 'no_dataset')); }
+    else if (off) { b.disabled = true; b.title = T('partner.off_hint'); }
+    else b.title = T(sel ? 'partner.also_on_hint' : 'partner.also_hint', { name: p.name });
+    b.onclick = () => {
+      const now = dget(key, []) || [];
+      dset(key, now.includes(p.id) ? now.filter((x) => x !== p.id) : [...now, p.id]);
+      Office.keepInPlace(b, () => renderSetup());
+    };
+    wrap.appendChild(b);
+  });
+  return wrap;
+}
+
+/** The units the draft sends to a partner, as Apply will write them: ticked, a dataset of its own, backed up */
+function partnerUnits(draft, id) {
+  const plan = setup.plan;
+  const mine = draft === setup.draft;
+  const out = [];
+  const place = draft['general|dumps_share'] || '';
+  const placeRow = plan.shares.find((x) => x.name === place);
+  if ((draft['general|partner_place'] || []).includes(id) && placeRow && placeRow.partner_ok) out.push('place');
+  plan.shares.forEach((x) => {
+    if (x.name !== place && x.partner_ok && (draft[`share|${x.name}|partner`] || []).includes(id) && (draft[`share|${x.name}|mode`] || 'off') !== 'off') out.push('share:' + x.name);
+  });
+  (plan.vms || []).forEach((v) => {
+    const on = mine ? levelOf('vm:' + v.name) > 0 : (draft[`vm|${v.name}|mode`] || 'snapshot') !== 'off';
+    if (v.partner_ok && on && (draft[`vm|${v.name}|partner`] || []).includes(id)) out.push('vm:' + v.name);
+  });
+  return out;
+}
+
+/** The apply dialog's group «To partners»: per partner what goes there - and what is new or no longer, against the saved settings */
+function partnerApplyLines() {
+  const partners = setup.plan.partners || [];
+  const saved = setup.plan.have_settings ? setupSaved() : null;
+  return partners.map((p) => {
+    const now = partnerUnits(setup.draft, p.id);
+    let text = now.length ? now.map(unitLabel).join(', ') : T('partner.apply_none');
+    if (saved) {
+      const before = partnerUnits(saved, p.id);
+      const plus = now.filter((u) => !before.includes(u));
+      const minus = before.filter((u) => !now.includes(u));
+      const diff = [plus.length ? T('partner.apply_added', { list: plus.map(unitLabel).join(', ') }) : '',
+        minus.length ? T('partner.apply_removed', { list: minus.map(unitLabel).join(', ') }) : ''].filter(Boolean).join(' · ');
+      if (diff) text += ` (${diff})`;
+    }
+    return [T('partner.apply_to', { name: p.name }), text];
+  });
+}
+
 function setupKopia(plan) {
   const k = plan.kopia;
   const s = setupSection(T('setup.kopia'), T('setup.kopia_sub'));
@@ -2190,6 +2325,20 @@ function setupKopia(plan) {
   basics.appendChild(field(flashLabel(plan), selectInput('flash|mode', flashOpts, (o) => T('setup.flash.' + o)),
     plan.flash.dataset ? T('setup.g_flash_zfs', { ds: plan.flash.dataset }) : T('setup.g_flash_other', { fs: plan.flash.fs || '?' })));
   s.appendChild(basics);
+  // engine 2.27: the partner offices this office sends to (paired at the Team Lead) - and the backup place to them too
+  if ((plan.partners || []).length) {
+    const line = el('p', 'role bk-partners-line', T('partner.setup_line', { names: plan.partners.map((p) => p.name + (p.key ? '' : ` (${T('partner.no_key')})`)).join(', ') }));
+    s.appendChild(line);
+    const ds = dget('general|dumps_share', '');
+    const row = plan.shares.find((x) => x.name === ds);
+    if (row) {
+      const chips = partnerChips('general|partner_place', row.partner_ok, row.partner_why, dget(`share|${ds}|mode`, 'off') === 'off');
+      if (chips) {
+        chips.prepend(el('span', 'role', T('partner.place')));
+        s.appendChild(chips);
+      }
+    }
+  }
   s.appendChild(placeGuide(plan));
   const on = dget('kopia|enabled') === 'yes';
   s.appendChild(checkbox(T('setup.kopia_on'), on, (v) => {
@@ -2283,6 +2432,11 @@ function setupShares(plan) {
       modeCell.appendChild(sel);
     } else {
       modeCell.appendChild(chip(T('setup.gone'), 'warn'));
+    }
+    if (sh.exists) {
+      const isPlace = sh.name === dget('general|dumps_share', '');
+      const pc = partnerChips(isPlace ? 'general|partner_place' : `share|${sh.name}|partner`, !!sh.partner_ok, sh.partner_why, dget(`share|${sh.name}|mode`, 'off') === 'off');
+      if (pc) modeCell.appendChild(pc);
     }
     tr.appendChild(modeCell);
     const why = el('td', 'bk-why', lock ? T('setup.lock', { list: lock.why.join(', ') }) : shareWhy(sh));
@@ -2755,6 +2909,8 @@ function setupVms(plan) {
     if (l === 0 && !x.own && x.shares.some((sh) => dget(`share|${sh}|mode`, 'off') !== 'off')) {
       main.appendChild(el('div', 'row-meta', T('setup.vm_off_shared', { share: x.shares.join(', ') })));
     }
+    const pc = partnerChips(k('partner'), !!v.partner_ok, v.partner_why, l === 0);
+    if (pc) main.appendChild(pc);
     row.appendChild(main);
 
     const right = el('div', 'bk-right');

@@ -2552,6 +2552,553 @@ SH);
  * shares and the VMs' own sources by their expected size (the newest complete Kopia snapshot's, else the server's), unknown
  * last; and where those sizes come from (kopia_sizes_load: one «snapshot list», a stand-in docker on PATH).
  */
+/**
+ * Engine 2.27: the phase «partner» - backup.sh on a fixture server like testBackupVmOrder (Kopia off): stand-ins for
+ * docker, virsh, zfs (datasets, snapshots, bookmarks and `zfs send` kept in files), mbuffer, pv (counts what passes) and
+ * ssh - the partner's door: it notes every call's options and command, answers ping/resume/list on stdout and recv's two
+ * JSON lines on stderr, reads the stream, refuses, fails, stays silent or hangs when told by a control file, and keeps a
+ * resume token when it is ended mid-transfer. A full send, incremental from the snapshot both have, the bookmark when it is
+ * gone here, need_full, a resume token, the refusals, unreachable (the third night warns, once a day), a timeout,
+ * recv_failed, the array stop mid-send (interrupted, then resumed), the rate (pv -L), the ssh options, status.json /
+ * history / last-run; then setup.sh --plan (partners[], partner_ok/why), --apply (the keys written), --forget (the
+ * sections kept) and --about.
+ */
+function testBackupPartnerPhase(): void
+{
+    if (posix_getuid() !== 0) {
+        check('partner phase: backup.sh runs as root only — not run here', true);
+        return;
+    }
+    $tmp = sys_get_temp_dir() . '/office-tests-partner-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    $pool = "$mnt/master";
+    $fake = "$tmp/fake";
+    $data = "$tmp/data/unraid-backup";
+    $pdir = "$tmp/partners";
+    $id = 'a1b2c3d4';
+    foreach (["$tmp/bin", "$fake/recv", "$data/state", "$tmp/boot/config/shares", "$mnt/user", "$pool/appdata/c1", "$pool/docs", "$pool/rootfolder", "$pool/split",
+              "$mnt/disk1/split", "$mnt/disk1/arr", "$pool/UnraidSecretaryOffice/backup", "$pool/domains/vm1", "$pdir", "$tmp/stage", "$tmp/data/partner"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    touch("$pool/domains/vm1/vdisk1.img");
+    touch("$pdir/$id.key");
+    touch("$pdir/$id.known");
+    foreach (['appdata', 'docs', 'rootfolder', 'split', 'arr', 'domains', 'UnraidSecretaryOffice'] as $n) {
+        touch("$tmp/boot/config/shares/$n.cfg");
+    }
+    file_put_contents("$fake/mounts", "master $pool zfs rw 0 0\nmaster/appdata $pool/appdata zfs rw 0 0\nmaster/docs $pool/docs zfs rw 0 0\n"
+        . "master/domains $pool/domains zfs rw 0 0\nmaster/domains/vm1 $pool/domains/vm1 zfs rw 0 0\nmaster/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\n"
+        . "/dev/md1p1 $mnt/disk1 xfs rw 0 0\nshfs $mnt/user fuse.shfs rw 0 0\n");
+    $z = fn ($n, $mp, $ref) => "$n\t$mp\ton\t" . crc32($n) . "\t$ref\t-\n";
+    // sizes: the place 10, docs 300, vm1 900, appdata 5000 - the order is place, docs, vm1, appdata
+    file_put_contents("$fake/zfs.txt", $z('master', $pool, 1) . $z('master/appdata', "$pool/appdata", 5000) . $z('master/docs', "$pool/docs", 300)
+        . $z('master/domains', "$pool/domains", 20) . $z('master/domains/vm1', "$pool/domains/vm1", 900) . $z('master/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 10));
+    file_put_contents("$fake/inspect.json", json_encode([['Name' => '/c1', 'Id' => 'id1', 'Config' => ['Image' => 'nginx', 'Env' => [], 'Labels' => new stdClass()],
+        'State' => ['Running' => true], 'HostConfig' => ['NetworkMode' => 'bridge'],
+        'Mounts' => [['Type' => 'bind', 'Source' => "$mnt/user/appdata/c1", 'Destination' => '/config', 'RW' => true]]]]));
+    file_put_contents("$tmp/bin/docker", <<<'SH'
+#!/bin/bash
+case "$1" in
+  info|version) exit 0 ;;
+  ps) [[ "$*" == *q* ]] && echo id1 || printf 'c1\tnginx\tUp\n'; exit 0 ;;
+  compose) exit 1 ;;
+  inspect)
+    shift
+    if [[ "$1" == -f ]]; then
+      case "$2" in *Health*) echo "true " ;; *State.Running*) echo true ;; esac
+      exit 0
+    fi
+    [[ "$1" == --format ]] && { echo "/c1  nginx  sha256:1"; exit 0; }
+    cat "$FAKE/inspect.json"; exit 0 ;;
+  stop|start) exit 0 ;;
+esac
+exit 1
+SH);
+    file_put_contents("$tmp/bin/virsh", <<<'SH'
+#!/bin/bash
+n="${2:-}"; [[ "$2" == --* ]] && n="${@: -1}"
+case "$1" in
+  list) echo vm1 ;;
+  domstate) echo running ;;
+  dominfo) echo "Autostart:      disable" ;;
+  dumpxml) echo "<domain><name>$n</name><uuid>uuid-$n</uuid></domain>" ;;
+  domblklist) printf 'Type Device Target Source\n----\nfile disk vdisk1 %s\n' "$MNT/user/domains/$n/vdisk1.img" ;;
+  qemu-agent-command|domfsfreeze) exit 1 ;;
+esac
+exit 0
+SH);
+    // zfs: datasets from zfs.txt; snapshots, bookmarks in files; send writes 100000 bytes (or, told so, slowly and forever
+    // after beginning the array stop); send -nv -t names the token's snapshot ($FAKE/token.toname)
+    file_put_contents("$tmp/bin/zfs", <<<'SH'
+#!/bin/bash
+ev() { echo "$(date +%s) $*" >>"$FAKE/events"; }
+case "$1" in
+  list)
+    if [[ "$*" == *'-t filesystem'* ]]; then cat "$FAKE/zfs.txt"
+    elif [[ "$*" == *'-t bookmark'* ]]; then grep -qxF -- "${@: -1}" "$FAKE/bookmarks.txt" 2>/dev/null && echo "${@: -1}" || exit 1
+    elif [[ "$*" == *'-t snapshot'* ]]; then
+      if [[ "$*" == *'-d 1'* ]]; then grep "^${@: -1}@" "$FAKE/snaps.txt"; else cat "$FAKE/snaps.txt"; fi
+    fi ;;
+  snapshot) shift; printf '%s\n' "$@" >>"$FAKE/snaps.txt"; ev "zfs snapshot" ;;
+  bookmark) echo "$3" >>"$FAKE/bookmarks.txt"; ev "zfs bookmark $2 $3" ;;
+  destroy) if [[ "$2" == *#* ]]; then f=bookmarks; else f=snaps; fi
+           grep -vxF -- "$2" "$FAKE/$f.txt" >"$FAKE/$f.new" 2>/dev/null; mv "$FAKE/$f.new" "$FAKE/$f.txt"; ev "zfs destroy $2" ;;
+  send)
+    if [[ "$2" == -nv ]]; then printf 'resume token contents:\nnvlist version: 0\n\ttoname = %s\n' "$(cat "$FAKE/token.toname" 2>/dev/null)" >&2; exit 0; fi
+    ev "zfs $*"
+    if [[ -e "$FAKE/send.slow" ]]; then
+      echo 'fsState="Stopping"' >"$FAKE/var.ini"; ev "array stopping"
+      while :; do head -c 4096 /dev/zero; sleep 0.2; done
+    fi
+    head -c 100000 /dev/zero ;;
+esac
+exit 0
+SH);
+    file_put_contents("$tmp/bin/mbuffer", "#!/bin/bash\necho \"\$(date +%s) mbuffer \$*\" >>\"\$FAKE/events\"\nexec cat\n");
+    // pv: what passes, counted - its last line on stderr is the count, like pv -n -b
+    file_put_contents("$tmp/bin/pv", "#!/bin/bash\necho \"\$(date +%s) pv \$*\" >>\"\$FAKE/events\"\nt=\"\$FAKE/pv.\$\$\"; tee \"\$t\"; stat -c %s \"\$t\" >&2; rm -f \"\$t\"\n");
+    // ssh = the partner's door (plan 3.4): control files door.down (no connection), door.hang (no answer), door.array,
+    // refuse (the first line refuses with that why), needfull (no base for an incremental send), recvfail
+    file_put_contents("$tmp/bin/ssh", <<<'SH'
+#!/bin/bash
+ev() { echo "$(date +%s) $*" >>"$FAKE/events"; }
+printf '%s\n' "$*" >>"$FAKE/ssh.args"
+cmd="${@: -1}"
+read -r verb unit snap from <<<"$cmd"
+u="${unit//:/-}"
+ev "ssh $cmd"
+if [[ -e "$FAKE/door.down" ]]; then echo "ssh: connect to host 10.0.0.9 port 2222: Connection refused" >&2; exit 255; fi
+if [[ -e "$FAKE/door.hang" ]]; then sleep 20; exit 0; fi
+case "$verb" in
+  ping) echo "{\"ok\":true,\"v\":\"1.35.0\",\"pair\":\"a1b2c3d4\",\"array\":\"$(cat "$FAKE/door.array" 2>/dev/null || echo started)\",\"night\":true,\"time\":$(date +%s)}" ;;
+  resume) if [[ -s "$FAKE/token.$u" ]]; then echo "{\"ok\":true,\"token\":\"$(cat "$FAKE/token.$u")\"}"; else echo '{"ok":true,"token":null}'; fi ;;
+  list) if [[ -e "$FAKE/listrefuse" ]]; then echo '{"ok":false,"why":"unknown_unit"}'; exit 1
+        elif [[ -s "$FAKE/recv/$u" ]]; then jq -c -Rn '{ok: true, snaps: [inputs | select(length > 0) | {name: ., used: 1, referenced: 2, creation: 3}]}' <"$FAKE/recv/$u"
+        else echo '{"ok":true,"snaps":[]}'; fi ;;
+  recv)
+    if [[ -s "$FAKE/refuse" ]]; then echo "{\"ok\":false,\"why\":\"$(cat "$FAKE/refuse")\"}" >&2; exit 1; fi
+    if [[ -n "$from" && "$from" != -t ]] && { [[ -e "$FAKE/needfull" ]] || ! grep -qxF -- "$from" "$FAKE/recv/$u" 2>/dev/null; }; then
+      echo '{"ok":false,"why":"need_full"}' >&2; exit 1
+    fi
+    echo '{"ok":true}' >&2
+    trap 'echo "1-0123abcd-token" >"$FAKE/token.$u"; ev "door interrupted $unit"; exit 143' TERM
+    cat <&0 >"$FAKE/in.$u" & wait $!
+    n=$(stat -c %s "$FAKE/in.$u")
+    if [[ -e "$FAKE/recvfail" ]]; then echo '{"ok":false,"why":"recv_failed","detail":"cannot receive incremental stream"}' >&2; exit 1; fi
+    [[ "$from" == -t ]] && rm -f "$FAKE/token.$u"
+    echo "$snap" >>"$FAKE/recv/$u"
+    echo "{\"ok\":true,\"bytes\":$n,\"seconds\":0}" >&2 ;;
+  *) echo '{"ok":false,"why":"unknown_verb"}'; exit 1 ;;
+esac
+exit 0
+SH);
+    foreach (['zpool', 'btrfs', 'umount'] as $b) {
+        file_put_contents("$tmp/bin/$b", "#!/bin/bash\nexit 0\n");
+    }
+    file_put_contents("$tmp/bin/mount", "#!/bin/bash\nexit 1\n");
+    file_put_contents("$tmp/bin/mountpoint", "#!/bin/bash\n[[ \"\${@: -1}\" == */user ]]\n");
+    file_put_contents("$tmp/bin/notify", "#!/bin/bash\na=\"\$*\"; printf '%s\\n' \"\${a//\$'\\n'/ | }\" >>\"\$FAKE/notify.log\"\n");
+    foreach (glob("$tmp/bin/*") as $f) {
+        chmod($f, 0755);
+    }
+    $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares UB_STAGE=$tmp/stage"
+         . " UB_DISKS_INI=$fake/disks.ini UB_MOUNTS_FILE=$fake/mounts UB_NOTIFY_BIN=$tmp/bin/notify UB_VAR_INI=$fake/var.ini FAKE=$fake MNT=$mnt"
+         . " UB_PARTNER_DIR=$pdir UB_ARRAY_LOOK=1 UB_PARTNER_ASK=3";
+    $settings = function (int $rate = 0) use ($mnt, $data, $id): void {
+        file_put_contents("$data/settings.ini", "[general]\nserver = Test\nmount_root = $mnt/addons/UnraidSecretaryOffice/snapshots\nview_root = $mnt/addons/UnraidSecretaryOffice/btrfs-snap\n"
+            . "snap_prefix = uso-backup-\ndumps_share = UnraidSecretaryOffice\nmin_free_gb = 0\npartner_place = $id\n[docker]\nstop = all\nknown = c1\n[flash]\nmode = off\n"
+            . "[libvirt]\nmode = off\n[kopia]\nenabled = no\n[partner \"$id\"]\nname = vault\naddress = 10.0.0.9\nport = 2222\nrate_mbit = $rate\n"
+            . "[share \"appdata\"]\nmode = snapshot\npartner = $id\n[share \"docs\"]\nmode = snapshot\npartner = $id\n[share \"rootfolder\"]\nmode = snapshot\npartner = $id\n"
+            . "[share \"split\"]\nmode = off\n[share \"arr\"]\nmode = off\n[share \"domains\"]\nmode = snapshot\n[share \"UnraidSecretaryOffice\"]\nmode = snapshot\n"
+            . "[vm \"vm1\"]\nmode = snapshot\nprepare = none\npartner = $id\n");
+    };
+    // a fresh night: the partner holds what $recv says, the server the snapshots $snaps, nothing else noted
+    $night = function (array $recv = [], array $snaps = [], array $bookmarks = []) use ($fake, $data): void {
+        exec('rm -rf ' . escapeshellarg("$fake/recv") . ' ' . escapeshellarg("$data/logs"));
+        @mkdir("$fake/recv", 0700, true);
+        foreach (glob("$fake/{events,ssh.args,notify.log,refuse,needfull,recvfail,listrefuse,send.slow,door.*,token.*,in.*}", GLOB_BRACE) ?: [] as $f) {
+            @unlink($f);
+        }
+        foreach ($recv as $unit => $list) {
+            file_put_contents("$fake/recv/" . str_replace(':', '-', $unit), implode("\n", $list) . "\n");
+        }
+        file_put_contents("$fake/snaps.txt", $snaps ? implode("\n", $snaps) . "\n" : '');
+        file_put_contents("$fake/bookmarks.txt", $bookmarks ? implode("\n", $bookmarks) . "\n" : '');
+        file_put_contents("$fake/var.ini", "mdState=\"STARTED\"\nfsState=\"Started\"\n");
+        @unlink("$data/state/status.json");
+    };
+    $run = function (string $args = '') use ($env): array {
+        $out = (string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null; echo \"exit=\$?\"") . ' 2>&1');
+        preg_match('/exit=(\d+)\s*$/', $out, $m);
+        return [(int) ($m[1] ?? -1), $out];
+    };
+    $names = function () use ($fake): array {
+        return array_map(fn ($l) => explode(' ', $l, 2)[1] ?? '', @file("$fake/events", FILE_IGNORE_NEW_LINES) ?: []);
+    };
+    $ssh = fn () => array_values(array_filter($names(), fn ($n) => str_starts_with($n, 'ssh ')));
+    $status = fn () => json_decode((string) @file_get_contents("$data/state/status.json"), true) ?: [];
+    $log = fn () => (string) @file_get_contents("$data/logs/latest.log");
+    $byUnit = fn (array $list) => array_column($list, null, 'unit');
+    $v = fn (?array $a, string $k) => is_array($a) && array_key_exists($k, $a) ? $a[$k] : 'missing';     // a key that may hold null
+    $old1 = 'uso-backup-20260101-0100';
+    $old2 = 'uso-backup-20260102-0100';
+
+    // --- a first night: the partner holds nothing - every unit whole, in its order, a bookmark each
+    $settings();
+    $night();
+    [$rc, $out] = $run();
+    $s = $status();
+    $l = $log();
+    $snap = $s['snapshot'] ?? '?';
+    $p = $s['partner'] ?? [];
+    same('partner phase: a first night - every unit whole, the place first, then by size (docs, vm1, appdata)',
+        ["ssh ping", "ssh resume place", "ssh list place", "ssh recv place $snap", "ssh resume share:docs", "ssh list share:docs", "ssh recv share:docs $snap",
+         "ssh resume vm:vm1", "ssh list vm:vm1", "ssh recv vm:vm1 $snap", "ssh resume share:appdata", "ssh list share:appdata", "ssh recv share:appdata $snap"], $ssh(), $out . $l);
+    check('partner phase: zfs send -L -c of the run\'s snapshot, no -i (whole), never -s (that is --skip-missing)',
+        in_array("zfs send -L -c master/UnraidSecretaryOffice@$snap", $names(), true) && in_array("zfs send -L -c master/domains/vm1@$snap", $names(), true)
+        && !preg_grep('/^zfs send .*-s /', $names()), json_encode($names()));
+    check('partner phase: mbuffer and pv in the pipe (pv without -L: no rate)', in_array('mbuffer -q -s 128k -m 256M', $names(), true) && in_array('pv -n -b -i 10', $names(), true), json_encode($names()));
+    check('partner phase: the bookmark of the last snapshot sent, per dataset (the old one destroyed first)',
+        in_array("zfs bookmark master/appdata@$snap master/appdata#uso-partner-$id", $names(), true) && in_array("zfs destroy master/appdata#uso-partner-$id", $names(), true)
+        && in_array("master/docs#uso-partner-$id", file("$fake/bookmarks.txt", FILE_IGNORE_NEW_LINES) ?: [], true), json_encode($names()));
+    $args = (string) @file_get_contents("$fake/ssh.args");
+    $first = explode("\n", $args)[0];
+    same('partner phase: the ssh options exactly as the plan (3.5)',
+        "-i $pdir/$id.key -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile=$pdir/$id.known -o StrictHostKeyChecking=yes "
+        . '-o Ciphers=aes128-gcm@openssh.com,aes256-gcm@openssh.com,chacha20-poly1305@openssh.com -o Compression=no -o ConnectTimeout=15 -o ServerAliveInterval=30 '
+        . '-o ServerAliveCountMax=4 -p 2222 root@10.0.0.9 ping', $first);
+    same('partner phase: status.json partner - partners, planned (the place, by size, the one not covered last), skipped',
+        [[['id' => $id, 'name' => 'vault']], ['place', 'share:docs', 'vm:vm1', 'share:appdata', 'share:rootfolder'], [['id' => $id, 'unit' => 'share:rootfolder', 'why' => 'not_dataset']], [], null, null],
+        [$p['partners'] ?? null, array_column($p['planned'] ?? [], 'unit'), $p['skipped'] ?? null, $p['failed'] ?? null, $v($p, 'current'), $v($p, 'interrupted')], json_encode($p));
+    $d = $byUnit($p['done'] ?? []);
+    same('partner phase: done - per unit snap, from (null: whole), bytes (what left, pv\'s count), seconds, Mbit/s',
+        [$snap, null, 100000, true, true, false], [$d['share:appdata']['snap'] ?? null, $v($d['share:appdata'] ?? null, 'from'), $d['share:appdata']['bytes'] ?? null,
+         is_int($d['share:appdata']['seconds'] ?? null), array_key_exists('mbit', $d['share:appdata'] ?? []), $d['share:appdata']['resumed'] ?? null], json_encode($p['done'] ?? null));
+    same('partner phase: the counts in status.json, last-run.json, last-run and history', [4, 0, 1, 4, "partner_ok=4\npartner_failed=0\npartner_skipped=1", 4, false],
+        [$s['partner_ok'] ?? null, $s['partner_failed'] ?? null, $s['partner_skipped'] ?? null,
+         json_decode((string) @file_get_contents("$data/state/last-run.json"), true)['partner_ok'] ?? null,
+         implode("\n", preg_grep('/^partner_/', file("$data/state/last-run", FILE_IGNORE_NEW_LINES) ?: [])),
+         json_decode((string) (array_slice(file("$data/state/history.jsonl", FILE_IGNORE_NEW_LINES) ?: [''], -1)[0]), true)['partner_ok'] ?? null,
+         array_key_exists('planned', json_decode((string) (array_slice(file("$data/state/history.jsonl", FILE_IGNORE_NEW_LINES) ?: [''], -1)[0]), true)['partner'] ?? [])]);
+    check('partner phase: the run went through, no warning about the partner; the log names the plan and the phase',
+        $rc === 0 && !str_contains($l, 'WARNING: Partner') && str_contains($l, 'Partner:          vault <- place') && str_contains($l, 'Partners: 4 sent')
+        && str_contains($l, 'share:rootfolder: not covered (not_dataset)'), $out . $l);
+    $sent = json_decode((string) @file_get_contents("$data/state/partner-sent.json"), true) ?: [];
+    same('partner phase: partner-sent.json - the last snapshot each unit got', [$snap, 'master/docs'], [$sent[$id]['share:docs']['snap'] ?? null, $sent[$id]['share:docs']['dataset'] ?? null]);
+    $ord = array_values(array_filter($names(), fn ($n) => in_array($n, ['ssh ping', 'zfs snapshot'], true) || str_starts_with($n, 'ssh recv place')));
+    same('partner phase: after the snapshots (the apps are back) - Kopia\'s phase would come after', ['zfs snapshot', 'ssh ping', "ssh recv place $snap"], $ord);
+
+    // --- incremental: the snapshot both have; gone here but bookmarked; need_full; a rate
+    $settings(8);
+    file_put_contents("$data/state/partner-sent.json", json_encode([$id => ['share:docs' => ['snap' => $old2, 'dataset' => 'master/docs', 'time' => 1]]]));
+    $night(['share:appdata' => [$old1], 'share:docs' => [$old2], 'vm:vm1' => [$old1]], ["master/appdata@$old1", "master/domains/vm1@$old1"],
+        ["master/docs#uso-partner-$id"]);
+    [$rc, $out] = $run();
+    $n = $names();
+    check('partner phase: incremental from the snapshot both have', in_array("zfs send -L -c -i master/appdata@$old1 master/appdata@$snap", $n, true)
+        && in_array("ssh recv share:appdata $snap $old1", $n, true), json_encode($n) . $out);
+    check('partner phase: gone here, bookmarked - zfs send -i <bookmark>, the door gets the snapshot\'s name', in_array("zfs send -L -c -i master/docs#uso-partner-$id master/docs@$snap", $n, true)
+        && in_array("ssh recv share:docs $snap $old2", $n, true), json_encode($n));
+    check('partner phase: a rate - pv -L in bytes/s (8 Mbit/s = 1000000)', in_array('pv -n -b -i 10 -L 1000000', $n, true), json_encode($n));
+    $d = $byUnit($status()['partner']['done'] ?? []);
+    same('partner phase: done - from the snapshot both had, from the bookmark\'s snapshot, whole', [$old1, $old2, null], [$d['share:appdata']['from'] ?? null, $d['share:docs']['from'] ?? null, $v($d['place'] ?? null, 'from')]);
+
+    // --- need_full: the partner has no base for it - sent whole right after
+    $settings();
+    $night(['share:appdata' => [$old1]], ["master/appdata@$old1"]);
+    touch("$fake/needfull");
+    $run();
+    $r = array_values(preg_grep('/^ssh recv share:appdata/', $names()));
+    same('partner phase: need_full - the same snapshot whole right after', ["ssh recv share:appdata $snap $old1", "ssh recv share:appdata $snap"], $r);
+    same('partner phase: need_full - done, from null', [null, 0], [$v($byUnit($status()['partner']['done'] ?? [])['share:appdata'] ?? null, 'from'), $status()['partner_failed'] ?? null]);
+
+    // --- a door that gives no list (a unit it never received): sent whole, the recv's answer counts
+    $night();
+    touch("$fake/listrefuse");
+    $run();
+    same('partner phase: no list - sent whole anyway, nothing skipped for it', [4, 0], [$status()['partner_ok'] ?? null, $status()['partner_failed'] ?? null]);
+    @unlink("$fake/listrefuse");
+
+    // --- a resume token: the interrupted transfer first (zfs send -t), then this night's from it
+    $night(['share:appdata' => []], ["master/appdata@$old1"]);
+    file_put_contents("$fake/token.share-appdata", '1-0123abcd-token');
+    file_put_contents("$fake/token.toname", "master/appdata@$old1");
+    $run();
+    $n = $names();
+    $r = array_values(preg_grep('/^ssh recv share:appdata/', $n));
+    same('partner phase: a resume token - continued (recv … -t), then incremental from it', ["ssh recv share:appdata $old1 -t", "ssh recv share:appdata $snap $old1"], $r, json_encode($n));
+    check('partner phase: the resumed stream is zfs send -t <token>', in_array('zfs send -t 1-0123abcd-token', $n, true), json_encode($n));
+    $done = array_values(array_filter($status()['partner']['done'] ?? [], fn ($x) => $x['unit'] === 'share:appdata'));
+    same('partner phase: done twice - the resumed one marked', [[$old1, true], [$snap, false]], array_map(fn ($x) => [$x['snap'], $x['resumed']], $done));
+
+    // --- refusals: the partner's window, its quota (a warning once a day), asleep (no warning)
+    foreach (['refused_window', 'refused_quota', 'refused_asleep'] as $why) {
+        @unlink("$data/state/partner-skips.json");
+        $night();
+        file_put_contents("$fake/refuse", $why);
+        $run();
+        $s = $status();
+        $l = $log();
+        same("partner phase: $why - every unit skipped with it, none failed",
+            [[$why], 0, 0], [array_values(array_unique(array_column(array_filter($s['partner']['skipped'] ?? [], fn ($x) => $x['unit'] !== 'share:rootfolder'), 'why'))),
+             $s['partner_failed'] ?? null, $s['partner_ok'] ?? null]);
+        same("partner phase: $why - warnings", $why === 'refused_asleep' ? 0 : 1, substr_count($l, 'WARNING: Partner vault refused'), $l);
+        if ($why === 'refused_quota') {
+            $night();
+            file_put_contents("$fake/refuse", $why);
+            $run();
+            same('partner phase: refused_quota again the same day - no second warning', 0, substr_count($log(), 'WARNING: Partner vault refused'));
+        }
+    }
+
+    // --- unreachable: skipped, no warning the first nights; the third night in a row warns, once a day
+    @unlink("$data/state/partner-skips.json");
+    $night();
+    touch("$fake/door.down");
+    [$rc, $out] = $run();
+    $s = $status();
+    $l = $log();
+    same('partner phase: unreachable - only the ping, every unit skipped (unreachable), no warning, the run ok',
+        [['ssh ping'], ['unreachable'], 0, 0, false],
+        [$ssh(), array_values(array_unique(array_column(array_filter($s['partner']['skipped'] ?? [], fn ($x) => $x['unit'] !== 'share:rootfolder'), 'why'))),
+         $s['partner_failed'] ?? null, $rc, str_contains($l, 'WARNING: Partner')], $out . $l);
+    $sk = json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [];
+    same('partner phase: partner-skips.json counts the night', [1, date('Y-m-d')], [$sk[$id]['nights'] ?? null, $sk[$id]['last_day'] ?? null]);
+    $run();
+    same('partner phase: unreachable twice the same day - still one night', 1, (json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null);
+    $sk[$id]['nights'] = 2;
+    $sk[$id]['last_day'] = date('Y-m-d', time() - 86400);
+    file_put_contents("$data/state/partner-skips.json", json_encode($sk));
+    $run();
+    same('partner phase: the third night in a row - one warning (partner_unreachable)', 1, substr_count($log(), 'WARNING: Partner vault has not answered for 3 nights'), $log());
+    exec('rm -rf ' . escapeshellarg("$data/logs"));         // a run in the same minute writes to the same log
+    $run();
+    $got = [substr_count($log(), 'WARNING: Partner vault has not answered'), (json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null];
+    check('partner phase: … said once a day', $got === [0, 3], json_encode($got) . (string) @file_get_contents("$data/state/partner-skips.json") . $log());
+    $night();
+    $run();
+    same('partner phase: it answers again - the nights start anew', 0, (json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null);
+
+    // --- no answer in time (a door that hangs): unreachable too
+    $night();
+    touch("$fake/door.hang");
+    $t0 = microtime(true);
+    $run();
+    $took = microtime(true) - $t0;
+    same('partner phase: no answer within UB_PARTNER_ASK - unreachable', ['unreachable'],
+        array_values(array_unique(array_column(array_filter($status()['partner']['skipped'] ?? [], fn ($x) => $x['unit'] !== 'share:rootfolder'), 'why'))));
+    check('partner phase: … without waiting for it (3 s, not 20)', $took < 18, (string) $took);
+    @unlink("$fake/door.hang");
+
+    // --- its array stopped: skipped, said so
+    $night();
+    file_put_contents("$fake/door.array", 'stopped');
+    $run();
+    same('partner phase: the partner\'s array is stopped - skipped (array_stopped)', ['array_stopped'],
+        array_values(array_unique(array_column(array_filter($status()['partner']['skipped'] ?? [], fn ($x) => $x['unit'] !== 'share:rootfolder'), 'why'))));
+
+    // --- recv_failed: failed, a warning each
+    $night();
+    touch("$fake/recvfail");
+    [$rc, $out] = $run();
+    $s = $status();
+    same('partner phase: recv_failed - failed, a warning each, the run ends with warnings',
+        [4, ['recv_failed'], 4, 'warnings', 0], [count($s['partner']['failed'] ?? []), array_values(array_unique(array_column($s['partner']['failed'] ?? [], 'why'))),
+         substr_count($log(), 'WARNING: Partner vault: '), $s['result'] ?? null, $s['partner_ok'] ?? null], $out . $log());
+    check('partner phase: recv_failed - no bookmark moved', !preg_grep('/^zfs bookmark/', $names()), json_encode($names()));
+
+    // --- the array stop mid-send: interrupted (the door keeps a token), the rest skipped, never failed
+    $night();
+    touch("$fake/send.slow");
+    [$rc, $out] = $run();
+    $s = $status();
+    $p = $s['partner'] ?? [];
+    same('partner phase: the array stop mid-send - aborted (array_stopping), exit 3, the transfer interrupted, the rest skipped, none failed',
+        ['aborted', 'array_stopping', 3, ['id' => $id, 'unit' => 'place'], ['array_stopping'], []],
+        [$s['result'] ?? null, $s['message'] ?? null, $rc, $p['interrupted'] ?? null,
+         array_values(array_unique(array_column(array_filter($p['skipped'] ?? [], fn ($x) => $x['unit'] !== 'share:rootfolder'), 'why'))), $p['failed'] ?? null], $out . $log());
+    check('partner phase: the array stop - the door saw the stream end and kept its token', in_array('door interrupted place', $names(), true)
+        && trim((string) @file_get_contents("$fake/token.place")) === '1-0123abcd-token', json_encode($names()));
+    $left = [];
+    foreach (glob('/proc/[0-9]*/cmdline') ?: [] as $f) {
+        $c = str_replace("\0", ' ', (string) @file_get_contents($f));
+        if (str_contains($c, "$tmp/bin/")) {
+            $left[] = $c;
+        }
+    }
+    same('partner phase: the array stop - nothing of the pipe left running', [], $left);
+    // the next night: the interrupted transfer continues first
+    $stopSnap = $s['snapshot'] ?? '';
+    $token = (string) @file_get_contents("$fake/token.place");
+    $night([], ["master/UnraidSecretaryOffice@$stopSnap"]);
+    file_put_contents("$fake/token.place", $token);
+    file_put_contents("$fake/token.toname", "master/UnraidSecretaryOffice@$stopSnap");
+    $run();
+    $r = array_values(preg_grep('/^ssh recv place/', $names()));
+    check('partner phase: after the array stop - the next run continues the interrupted transfer (recv … -t)', ($r[0] ?? '') === "ssh recv place $stopSnap -t"
+        && array_filter($status()['partner']['done'] ?? [], fn ($x) => $x['unit'] === 'place' && $x['resumed'] === true && $x['snap'] === $stopSnap), json_encode($r));
+
+    // --- a dry run: the plan in the log, nothing sent
+    $night();
+    $run('--dry-run');
+    check('partner phase: a dry run sends nothing, names the plan', $ssh() === [] && str_contains($log(), 'Partner:          vault <- place'), $log());
+    // the key gone (the pair ended at the Team Lead): skipped, said so
+    $night();
+    rename("$pdir/$id.key", "$pdir/$id.key.away");
+    $run();
+    same('partner phase: no key - nothing asked, skipped (no_key)', [[], ['no_key']], [$ssh(),
+        array_values(array_unique(array_column(array_filter($status()['partner']['skipped'] ?? [], fn ($x) => $x['unit'] !== 'share:rootfolder'), 'why')))]);
+    rename("$pdir/$id.key.away", "$pdir/$id.key");
+    // no partner at all: partner null, nothing asked
+    file_put_contents("$data/settings.ini", preg_replace('/^partner(_place)? = .*\n/m', '', (string) file_get_contents("$data/settings.ini")));
+    $night();
+    $run();
+    same('partner phase: no unit for a partner - "partner": null, nothing asked', [null, [], 0], [$v($status(), 'partner'), $ssh(), $status()['partner_ok'] ?? null]);
+
+    // --- --about keeps interface 1
+    $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
+    same('partner phase: --about - interface 1, version 2.27', [1, '2.27'], [$about['interface'] ?? null, $about['version'] ?? null]);
+
+    // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
+    $settings(0);
+    file_put_contents("$tmp/data/partner/pairs.json", json_encode(['v' => 1, 'pairs' => [
+        ['id' => $id, 'name' => 'vault', 'address' => '10.0.0.9', 'port' => 2222, 'host_keys' => ['SHA256:x'], 'my_key' => 'SHA256:y', 'their_key' => null,
+         'send' => ['units' => [], 'rate_mbit' => 50], 'receive' => null, 'trust' => 'mine'],
+        ['id' => 'ffff0000', 'name' => 'receiver-only', 'address' => '10.0.0.10', 'port' => 22, 'my_key' => null, 'their_key' => 'SHA256:z'],
+        ['id' => 'BAD', 'name' => 'x', 'address' => '1.2.3.4', 'port' => 22, 'my_key' => 'SHA256:q']]]));
+    $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
+    $night();
+    $out = $setup('--plan');
+    $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    same('setup plan: partners[] - the pairs this office sends to, from pairs.json (no connection: reachable null)',
+        [['id' => $id, 'name' => 'vault', 'address' => '10.0.0.9', 'port' => 2222, 'rate_mbit' => 50, 'key' => true, 'reachable' => null, 'source' => 'pairs']], $plan['partners'] ?? null, $out);
+    check('setup plan: never asked the door', $ssh() === [], json_encode($ssh()));
+    $sh = array_column($plan['shares'] ?? [], null, 'name');
+    same('setup plan: per share partner, partner_ok, partner_why (a dataset of its own; a folder in the pool\'s root; on a pool and a disk; only on XFS)',
+        [[[$id], true, null], [[], false, 'not_dataset'], [[], false, 'split'], [[], false, 'no_dataset'], [true, true]],
+        [[$sh['appdata']['partner'] ?? null, $sh['appdata']['partner_ok'] ?? null, $v($sh['appdata'] ?? null, 'partner_why')],
+         [$sh['rootfolder']['partner'] ?? null, $sh['rootfolder']['partner_ok'] ?? null, $sh['rootfolder']['partner_why'] ?? null],
+         [$sh['split']['partner'] ?? null, $sh['split']['partner_ok'] ?? null, $sh['split']['partner_why'] ?? null],
+         [$sh['arr']['partner'] ?? null, $sh['arr']['partner_ok'] ?? null, $sh['arr']['partner_why'] ?? null],
+         [$sh['domains']['partner_ok'] ?? null, $sh['UnraidSecretaryOffice']['place'] ?? null]], json_encode($plan['shares'] ?? null));
+    $vm = array_column($plan['vms'] ?? [], null, 'name');
+    same('setup plan: the VM in a dataset of its own can go; the place too', [[$id], true, null, ['share' => 'UnraidSecretaryOffice', 'partner' => [$id], 'partner_ok' => true, 'partner_why' => null]],
+        [$vm['vm1']['partner'] ?? null, $vm['vm1']['partner_ok'] ?? null, $v($vm['vm1'] ?? null, 'partner_why'), $plan['place_partner'] ?? null]);
+    same('setup plan: P has the partner\'s section from the pairs (its rate) and the units as lists; the one not covered dropped',
+        ['vault', '10.0.0.9', '2222', '50', [$id], [$id], null], [$plan['P']["partner|$id|name"] ?? null, $plan['P']["partner|$id|address"] ?? null, $plan['P']["partner|$id|port"] ?? null,
+         $plan['P']["partner|$id|rate_mbit"] ?? null, $plan['P']['share|appdata|partner'] ?? null, $plan['P']['general|partner_place'] ?? null, $plan['P']['share|rootfolder|partner'] ?? null]);
+    // apply: the user ticks docs off and arr on (can't travel), the rest as planned
+    $dec = $plan['P'];
+    $dec['share|docs|partner'] = [];
+    $dec['share|arr|partner'] = [$id];
+    $dec['vm|vm1|partner'] = [$id, 'ffff0000'];
+    file_put_contents("$tmp/dec.json", json_encode($dec + ['_retire_sources' => 'no']));
+    $out = $setup("--apply=$tmp/dec.json");
+    $ini = (string) @file_get_contents("$data/settings.ini");
+    check('setup apply: the [partner] section written from the pairs, the units\' keys as decided (only what can travel, only partners there are)',
+        str_contains($ini, "[partner \"$id\"]\nname = vault\naddress = 10.0.0.9\nport = 2222\nrate_mbit = 50\n") && str_contains($ini, "partner_place = $id\n")
+        && (bool) preg_match('/\[share "appdata"\][^\[]*\npartner = ' . $id . '\n/', $ini) && !preg_match('/\[share "docs"\][^\[]*partner =/', $ini)
+        && !preg_match('/\[share "arr"\][^\[]*partner =/', $ini) && (bool) preg_match('/\[vm "vm1"\][^\[]*\npartner = ' . $id . '\n/', $ini)
+        && !str_contains($ini, 'ffff0000') && !str_contains($ini, 'receiver-only'), $ini . $out);
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    same('setup apply: the settings written load without errors', '0', trim((string) shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; cfg_load $data/settings.ini; cfg_validate >/dev/null; echo \${#CFG_ERRORS[@]}"))));
+    // the pair ended at the Team Lead: its section and its units go at the next Apply
+    file_put_contents("$tmp/data/partner/pairs.json", json_encode(['v' => 1, 'pairs' => []]));
+    $setup('--plan');
+    $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    same('setup plan: a pair ended - no partners, no units', [[], null, null], [$plan['partners'] ?? null, $plan['P']["partner|$id|name"] ?? null, $plan['P']['share|appdata|partner'] ?? null]);
+    // without pairs.json: the sections as settings.ini has them; --forget keeps them for the next setup
+    unlink("$tmp/data/partner/pairs.json");
+    $setup('--plan');
+    $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    same('setup plan: no pairs file - the sections as settings.ini has them', [$id, 'settings'], [$plan['partners'][0]['id'] ?? null, $plan['partners'][0]['source'] ?? null]);
+    $out = $setup('--forget --yes');
+    $kept = (string) @file_get_contents("$data/state/partners-kept.ini");
+    check('setup forget: the [partner] sections kept (state/partners-kept.ini), nothing else of settings.ini', !file_exists("$data/settings.ini")
+        && str_contains($kept, "[partner \"$id\"]") && str_contains($kept, 'address = 10.0.0.9') && !str_contains($kept, '[share'), $kept . $out);
+    $setup('--plan');
+    $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    same('setup forget: the next plan has the partner again, no unit ticked', [$id, 'vault', null], [$plan['partners'][0]['id'] ?? null, $plan['partners'][0]['name'] ?? null, $plan['P']['share|appdata|partner'] ?? null]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Engine 2.27 in the office: Mr. Backupsy reads the partner phase - settings.ini's partners and their units, a run's
+ * partner block per partner (status.json / history), the last transfer per partner for the overview tile, what the
+ * setup's Apply accepts (only the plan's partners), the Dashboard's line while a run sends to a partner.
+ */
+function testBackupPartnerOffice(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-partneroffice-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    file_put_contents("$tmp/settings.ini", "[general]\ndumps_share = UnraidSecretaryOffice\npartner_place = a1b2c3d4\n[partner \"a1b2c3d4\"]\nname = vault\naddress = 10.0.0.9\nport = 2222\nrate_mbit = 50\n"
+        . "[partner \"bad\"]\nname = x\n[share \"appdata\"]\nmode = snapshot\npartner = a1b2c3d4\n[share \"docs\"]\nmode = snapshot\n[vm \"Debian\"]\nmode = snapshot\npartner = a1b2c3d4\n");
+    $s = backupReadSettings("$tmp/settings.ini");
+    same('partner office: the partners settings.ini sends to, with their units (a section without an 8-hex id left out)',
+        [['id' => 'a1b2c3d4', 'name' => 'vault', 'address' => '10.0.0.9', 'port' => 2222, 'rate_mbit' => 50, 'units' => ['place', 'share:appdata', 'vm:Debian']]],
+        backupPartnersFromSettings($s));
+    $block = ['partners' => [['id' => 'a1b2c3d4', 'name' => 'vault'], ['id' => 'zz', 'name' => 'forged']],
+        'planned' => [['id' => 'a1b2c3d4', 'unit' => 'place'], ['id' => 'a1b2c3d4', 'unit' => 'share:appdata'], ['id' => 'a1b2c3d4', 'unit' => 'vm:Debian']],
+        'current' => null,
+        'done' => [['id' => 'a1b2c3d4', 'unit' => 'place', 'snap' => 'uso-backup-20261008-0200', 'from' => null, 'bytes' => 1000000, 'seconds' => 2, 'mbit' => 4, 'resumed' => false],
+                   ['id' => 'a1b2c3d4', 'unit' => 'share:appdata', 'snap' => 'uso-backup-20261008-0200', 'from' => 'uso-backup-20261007-0200', 'bytes' => 3000000, 'seconds' => 0, 'mbit' => null, 'resumed' => true],
+                   ['id' => 'zz', 'unit' => 'x', 'bytes' => 5]],
+        'skipped' => [['id' => 'a1b2c3d4', 'unit' => 'vm:Debian', 'why' => 'refused_quota']], 'failed' => [], 'interrupted' => null];
+    $r = backupPartnerRun($block);
+    same('partner office: a run\'s partner block per partner - sent, bytes, seconds, Mbit/s, skipped (only partners the run names)',
+        [1, 'a1b2c3d4', 2, 4000000, 2, 16.0, [['unit' => 'vm:Debian', 'why' => 'refused_quota']], true, null],
+        [count($r ?? []), $r[0]['id'] ?? null, $r[0]['sent'] ?? null, $r[0]['bytes'] ?? null, $r[0]['seconds'] ?? null, $r[0]['mbit'] ?? null, $r[0]['skipped'] ?? null,
+         $r[0]['units'][1]['resumed'] ?? null, array_key_exists('from', $r[0]['units'][0] ?? []) ? $r[0]['units'][0]['from'] : 'missing']);
+    same('partner office: no partner block - null', [null, null], [backupPartnerRun(null), backupPartnerRun(['planned' => []])]);
+    $line = ['run' => '20261008-0200', 'started' => 1000, 'finished' => 1500, 'result' => 'ok', 'partner' => $block, 'kopia' => ['done' => []]];
+    $hist = "$tmp/history.jsonl";
+    file_put_contents($hist, json_encode(['run' => '20261007-0200', 'started' => 500, 'finished' => 600, 'result' => 'ok', 'partner' => null]) . "\n" . json_encode($line) . "\n");
+    $history = backupHistory([], null, $skips, $hist);
+    $p = backupPartners($s, $history);
+    same('partner office: the overview tile - the last run that sent to the partner', ['vault', '20261008-0200', 1500, 2, null],
+        [$p[0]['name'] ?? null, $p[0]['last']['run'] ?? null, $p[0]['last']['time'] ?? null, $p[0]['last']['sent'] ?? null, array_key_exists('current', $p[0] ?? []) ? $p[0]['current'] : 'missing']);
+    $p = backupPartners($s, $history, ['partner' => ['current' => ['id' => 'a1b2c3d4', 'unit' => 'share:appdata', 'since' => 1600, 'bytes' => 12884901888]]]);
+    same('partner office: while a run sends to it - what and how much so far', ['unit' => 'share:appdata', 'since' => 1600, 'bytes' => 12884901888], $p[0]['current'] ?? null);
+    // the Dashboard's line during the phase - the web side's code, in a process of its own (bootstrap.php)
+    $dash = function (array $backup) use ($tmp): mixed {
+        $code = 'require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; require_once ' . var_export(OFFICE_DIR . '/src/dashboard.php', true) . ';'
+            . ' $s = ["backup.partner.dash" => "to {name}: {unit} {size}", "backup.partner.unit_place" => "backup place"];'
+            . ' echo json_encode(["line" => officeDashBackupPartner($s, json_decode(' . var_export(json_encode($backup), true) . ', true))]);';
+        $p = proc_open(['php', '-r', $code], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
+        $out = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        $j = json_decode(substr($out, (int) strpos($out, '{"line"')), true);
+        return is_array($j) ? $j['line'] : $out;
+    };
+    $running = ['running' => true, 'status' => ['phase' => 'partner', 'partner' => ['partners' => [['id' => 'a1b2c3d4', 'name' => 'vault']],
+        'current' => ['id' => 'a1b2c3d4', 'unit' => 'share:appdata', 'since' => 1, 'bytes' => 12884901888]]]];
+    same('partner office: the Dashboard - «to vault: appdata 12 GB» while it sends', 'to vault: appdata 12 GB', $dash($running));
+    $running['status']['partner']['current']['unit'] = 'place';
+    $running['status']['partner']['current']['bytes'] = 0;
+    same('partner office: the Dashboard - the backup place, nothing counted yet', 'to vault: backup place 0 B', $dash($running));
+    $running['status']['phase'] = 'kopia';
+    same('partner office: the Dashboard - no line in another phase', null, $dash($running));
+    // every text the desk names for a partner's reason exists in English (the engine's codes)
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/backup/lang/en.json'), true);
+    $codes = ['unreachable', 'refused_quota', 'refused_window', 'refused_asleep', 'array_stopped', 'no_key', 'no_ssh', 'snap_prefix', 'not_dataset', 'split', 'no_dataset',
+              'children', 'name', 'not_snapshotted', 'array_stopping', 'signal', 'recv_failed', 'send_failed', 'link_lost', 'no_answer', 'need_full', 'refused'];
+    same('partner office: a short text for every reason the engine gives', [], array_values(array_filter($codes, fn ($c) => !isset($en["partner.why_short.$c"]))));
+    same('partner office: a long text for every reason a unit can\'t travel', [], array_values(array_filter(['not_dataset', 'split', 'no_dataset', 'children', 'name'], fn ($c) => !isset($en["partner.why.$c"]))));
+    $engine = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh') . file_get_contents(OFFICE_DIR . '/backup/lib/common.sh');
+    $why = [];
+    foreach (['/partner_(?:skip|fail) "\$id" "\$u" ([a-z_]+)/', '/PARTNER_DOWN\[\$id\]="([a-z_]+)"/', '/\bwhy="([a-z_]+)"/', '/PS_WHY="([a-z_]+)"/',
+              '/PARTNER_CANT\+=\( "\$id\|\$u\|([a-z_]+)"/', '/partner_rest_skipped ([a-z_]+)/', '/PU_WHY="([a-z_]+)"/'] as $re) {
+        preg_match_all($re, $engine, $m);
+        $why = array_merge($why, $m[1]);
+    }
+    $why = array_values(array_unique($why));
+    check('partner office: the engine\'s codes found', count($why) >= 12, json_encode($why));
+    same('partner office: the codes the engine skips and fails with all have a text', [], array_values(array_filter($why, fn ($c) => !isset($en["partner.why_short.$c"]))));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testBackupKopiaOrder(): void
 {
     $tmp = sys_get_temp_dir() . '/office-tests-korder-' . getmypid();
@@ -12076,7 +12623,7 @@ function testPartnerRelease(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor'],
           'strings' => ['testStrings', 'testUnraidWords']];

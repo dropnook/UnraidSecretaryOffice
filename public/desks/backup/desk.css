@@ -163,4 +163,13 @@
 .bk-preset-dialog .callout{margin-bottom:10px}
 .bk-preset-wrap .bk-preset-common{margin:8px 0 4px; font-size:12.5px; line-height:1.45}
 .dialog.wide:has(.bk-preset-dialog){width:min(1080px,100%)}
+/* partner offices (engine 2.27): «also to <partner>» toggles on the setup's rows, the overview tile */
+.bk-partners{display:flex; flex-wrap:wrap; gap:4px 6px; align-items:center; margin-top:4px}
+.bk-partners .role{font-size:12px}
+.bk-pchip{font:inherit; font-size:10.5px; line-height:17px; cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis}
+.bk-pchip:disabled{cursor:default; opacity:.55}
+.bk-pchip:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+.bk-partners-line{margin:6px 0 0}
+.bk-ptile .stat-value{overflow-wrap:anywhere}
+.bk-ptile .stat-sub + .stat-sub{margin-top:2px}
 }

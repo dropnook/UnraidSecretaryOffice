@@ -381,3 +381,82 @@ function backupProtection(string $path, int $depth = 0, ?array $settings = null)
     }
     return 'offsite';
 }
+
+/**
+ * Engine 2.27: the partner offices settings.ini sends to - [partner "<id>"] name, address, port, rate_mbit - and per
+ * partner its units (place, share:<s>, vm:<v>: [general] partner_place, [share|vm "<n>"] partner = <id>).
+ *
+ * @return list<array{id:string, name:string, address:string, port:int, rate_mbit:int, units:list<string>}>
+ */
+function backupPartnersFromSettings(array $s): array
+{
+    $out = [];
+    foreach (array_keys($s) as $sec) {
+        if (!preg_match('/^partner\|([0-9a-f]{8})$/D', (string) $sec, $m)) {
+            continue;
+        }
+        $id = $m[1];
+        $units = in_array($id, $s['general']['partner_place'] ?? [], true) ? ['place'] : [];
+        foreach ($s as $k => $keys) {
+            if (preg_match('/^(share|vm)\|(.+)$/D', (string) $k, $mm) && in_array($id, $keys['partner'] ?? [], true)) {
+                $units[] = "$mm[1]:$mm[2]";
+            }
+        }
+        $out[] = ['id' => $id, 'name' => (string) backupSetting($s, $sec, 'name', $id), 'address' => (string) backupSetting($s, $sec, 'address', ''),
+                  'port' => (int) backupSetting($s, $sec, 'port', '22'), 'rate_mbit' => (int) backupSetting($s, $sec, 'rate_mbit', '0'), 'units' => $units];
+    }
+    return $out;
+}
+
+/**
+ * Engine 2.27: a run's partner phase (status.json / a history line "partner") per partner - what went, how much, how
+ * fast, what didn't and why. Only the engine's shape is taken; anything else is null.
+ *
+ * @return ?list<array{id:string, name:string, sent:int, bytes:int, seconds:int, mbit:?float, units:list<array>, skipped:list<array>, failed:list<array>, interrupted:?string}>
+ */
+function backupPartnerRun(mixed $p): ?array
+{
+    if (!is_array($p) || !is_array($p['partners'] ?? null)) {
+        return null;
+    }
+    $str = fn ($v) => is_string($v) ? substr(preg_replace('/[\x00-\x1f]/', '', $v), 0, 120) : '';
+    $by = [];
+    foreach ($p['partners'] as $x) {
+        $id = $str($x['id'] ?? null);
+        if (preg_match('/^[0-9a-f]{8}$/D', $id)) {
+            $by[$id] = ['id' => $id, 'name' => $str($x['name'] ?? null) ?: $id, 'sent' => 0, 'bytes' => 0, 'seconds' => 0, 'mbit' => null,
+                        'units' => [], 'skipped' => [], 'failed' => [], 'interrupted' => null];
+        }
+    }
+    foreach ((array) ($p['done'] ?? []) as $d) {
+        $id = $str($d['id'] ?? null);
+        if (!isset($by[$id]) || !is_array($d)) {
+            continue;
+        }
+        $b = max(0, (int) ($d['bytes'] ?? 0));
+        $sec = max(0, (int) ($d['seconds'] ?? 0));
+        $by[$id]['sent']++;
+        $by[$id]['bytes'] += $b;
+        $by[$id]['seconds'] += $sec;
+        $by[$id]['units'][] = ['unit' => $str($d['unit'] ?? null), 'snap' => $str($d['snap'] ?? null), 'from' => is_string($d['from'] ?? null) ? $str($d['from']) : null,
+                               'bytes' => $b, 'seconds' => $sec, 'resumed' => !empty($d['resumed'])];
+    }
+    foreach (['skipped', 'failed'] as $kind) {
+        foreach ((array) ($p[$kind] ?? []) as $d) {
+            $id = is_array($d) ? $str($d['id'] ?? null) : '';
+            if (isset($by[$id])) {
+                $by[$id][$kind][] = ['unit' => $str($d['unit'] ?? null), 'why' => $str($d['why'] ?? null)];
+            }
+        }
+    }
+    $i = $p['interrupted'] ?? null;
+    if (is_array($i) && isset($by[$str($i['id'] ?? null)])) {
+        $by[$str($i['id'])]['interrupted'] = $str($i['unit'] ?? null);
+    }
+    foreach ($by as &$x) {
+        // the rate of what went, over the seconds it took (a transfer under a second counts as one)
+        $x['mbit'] = $x['sent'] ? round($x['bytes'] * 8 / max(1, $x['seconds']) / 1e6, 1) : null;
+    }
+    unset($x);
+    return array_values($by);
+}
