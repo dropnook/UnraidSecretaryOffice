@@ -78,6 +78,9 @@ Unraid's theme (an experiment; `OFFICE_THEME_SWITCH` in `src/bootstrap.php` swit
 * When the data folder lies in an exclusive share (`/mnt/user/appdata` is then
   Unraid's link to its pool), the office reaches it on the pool directly,
   past Unraid's user share layer — many times faster for every look.
+* The page's answers (`api.php`: the desks' states, the texts) go out
+  gzip-compressed, a fifth of the bytes — what counts over a VPN or Unraid
+  Connect (Unraid's web server compresses only its scripts and styles).
 * The agent starts with the array and stops within seconds when the array
   stops — it never holds it up. While the array is stopped, the page says so,
   and the Night Watchman's night shift keeps watch from RAM and the flash only

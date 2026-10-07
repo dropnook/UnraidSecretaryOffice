@@ -10359,6 +10359,159 @@ function officeDeskPartsOf(string $desk): array
 }
 
 /**
+ * Compressed answers (Benj 2026-10-07, perf report lever 6): src/api.php apiSend() — an answer of 1 KB and more goes out
+ * gzip-compressed when the browser takes gzip (Accept-Encoding and its weights), as it is when small or not asked for;
+ * `Vary` on every big one, the Content-Length of what went out. The answers themselves under php-cgi (Unraid ships it;
+ * skipped where it is missing): the API's own entry with a query, a stand-in for php-fpm's fastcgi_finish_request()
+ * that notes what had gone out when it was called — a stale state's answer is complete, compressed and its length said
+ * before the look; the strings keep their day of cache; an error answer and the messenger's are small and plain.
+ */
+function testApiGzip(): void
+{
+    require_once OFFICE_DIR . '/src/api.php';
+    foreach (['gzip' => true, 'gzip, deflate, br' => true, 'br;q=1.0, gzip;q=0.8, *;q=0.1' => true, 'x-gzip' => true, 'GZIP' => true,
+              '' => false, 'deflate, br' => false, 'gzip;q=0' => false, 'gzip; q=0.000' => false, 'identity' => false, 'gzipped' => false] as $accept => $want) {
+        same("api gzip: Accept-Encoding «$accept»", $want, apiGzipWanted($accept));
+    }
+    $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
+    same('api gzip: every answer goes out through apiSend() — answer() and answerThenLook()', 2, substr_count($api, 'apiSend(apiJson($data))'));
+    check('api gzip: … before php-fpm\'s hand-over', strpos($api, 'apiSend(apiJson($data))') < strpos($api, 'fastcgi_finish_request();'));
+
+    $cgi = trim((string) shell_exec('command -v php-cgi 2>/dev/null')) ?: (is_executable('/usr/bin/php-cgi') ? '/usr/bin/php-cgi' : '');
+    if ($cgi === '') {
+        check('api gzip: php-cgi is missing here - the answers themselves not tried', true);
+        return;
+    }
+    $tmp = hardeningTmp('apigzip');
+    mkdir("$tmp/plugin/src", 0700, true);
+    foreach (glob(OFFICE_DIR . '/src/*.php') ?: [] as $f) {
+        copy($f, "$tmp/plugin/src/" . basename($f));
+    }
+    foreach (['desks', 'lang'] as $d) {
+        symlink(OFFICE_WEB . "/$d", "$tmp/plugin/$d");
+    }
+    mkdir("$tmp/data/mailbox", 0700, true);
+    mkdir("$tmp/data/office", 0700, true);
+    mkdir("$tmp/run", 0700);
+    file_put_contents("$tmp/data/office/staff.json", json_encode(['hired' => ['snapshot' => 1]]));
+    file_put_contents("$tmp/data/agent.json", json_encode(['running' => true, 'version' => AGENT_VERSION, 'pid' => 4242, 'started' => 1000, 'host' => 'test', 'desks' => []]));
+    $pad = str_repeat('the same words over and over, as a state is full of ', 80);       // ≈ 4 KB, worth compressing
+    $state = fn (int $age, string $mark) => file_put_contents("$tmp/data/snapshot.json", json_encode(['time' => time() - $age, 'mark' => $mark, 'pad' => $pad]));
+    // the API's own entry; php-fpm's hand-over stood in for: what had gone out when it was called goes to stderr
+    file_put_contents("$tmp/web.php", '<?php function fastcgi_finish_request(): void { flush(); $e = fopen("php://stderr", "w");'
+        . ' fwrite($e, json_encode(["sent" => headers_sent(), "headers" => headers_list()])); fclose($e); }'
+        . ' require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . '; require ' . var_export("$tmp/plugin/src/api.php", true) . '; api_main();');
+    $open = function (string $query, ?string $accept) use ($cgi, $tmp): array {
+        // CGI as from a web server (REDIRECT_STATUS); no SCRIPT_NAME — php-cgi would look for the script by that name instead
+        $env = ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => "$tmp/run", 'PATH' => getenv('PATH'), 'REDIRECT_STATUS' => '1',
+                'SCRIPT_FILENAME' => "$tmp/web.php", 'REQUEST_URI' => "/api.php?$query", 'REQUEST_METHOD' => 'GET', 'QUERY_STRING' => $query];
+        if ($accept !== null) {
+            $env['HTTP_ACCEPT_ENCODING'] = $accept;
+        }
+        $p = proc_open([$cgi], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $env);
+        return [$p, $pipes, ''];
+    };
+    // the CGI answer taken apart: status, headers (lower-case names), the body as it went out, and the hand-over's note
+    $parse = function (string $raw, string $err): array {
+        $cut = (int) strpos($raw, "\r\n\r\n");
+        $headers = [];
+        foreach (explode("\r\n", substr($raw, 0, $cut)) as $line) {
+            [$k, $v] = array_map('trim', explode(':', $line, 2) + [1 => '']);
+            $headers[strtolower($k)] = $v;
+        }
+        $body = substr($raw, $cut + 4);
+        $note = json_decode($err, true);
+        return ['status' => $headers['status'] ?? '200', 'headers' => $headers, 'body' => $body, 'json' => json_decode(strlen($body) > 2 && $body[0] === "\x1f" ? (string) @gzdecode($body) : $body, true),
+                'gz' => str_starts_with($body, "\x1f\x8b"), 'length' => $headers['content-length'] ?? null, 'bytes' => strlen($body), 'note' => is_array($note) ? $note : $err, 'raw' => $raw];
+    };
+    $close = function (array $h) use ($parse): array {
+        [$p, $pipes, $first] = $h;
+        $raw = $first . (string) stream_get_contents($pipes[1]);
+        $err = (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return $parse($raw, $err);
+    };
+    $ask = fn (string $query, ?string $accept) => $close($open($query, $accept));
+    $requests = fn (): array => array_map(fn ($f) => json_decode((string) file_get_contents($f), true)['action'] ?? '?', glob("$tmp/data/mailbox/*.request") ?: []);
+    // the agent: the next request (≤ 3 s), its look written to the state file like a desk's refresh, then answered
+    $play = function (string $mark) use ($tmp, $pad): ?string {
+        for ($i = 0, $req = null; $i < 60 && $req === null; $i++) {
+            usleep(50000);
+            $req = (glob("$tmp/data/mailbox/*.request") ?: [null])[0];
+        }
+        if ($req === null) {
+            return null;
+        }
+        $action = json_decode((string) file_get_contents($req), true)['action'] ?? '?';
+        unlink($req);
+        $new = ['time' => time(), 'mark' => $mark, 'pad' => $pad];
+        file_put_contents("$tmp/data/snapshot.json", json_encode($new));
+        file_put_contents(substr($req, 0, -strlen('.request')) . '.response', json_encode(['ok' => true, 'state' => $new]));
+        return $action;
+    };
+
+    // a big answer, the browser takes gzip: compressed, said so, its length the compressed one; a fifth of the bytes
+    $state(10, 'young');
+    $r = $ask('a=state&desk=snapshot&stored=1', 'gzip, deflate, br');
+    same('api gzip: a big answer compressed when the browser takes gzip', ['gzip', 'Accept-Encoding', true, 'young', true],
+        [$r['headers']['content-encoding'] ?? null, $r['headers']['vary'] ?? null, $r['gz'], $r['json']['state']['mark'] ?? $r['raw'], $r['json']['ok'] ?? null]);
+    same('api gzip: … the Content-Length of what went out', (string) $r['bytes'], $r['length']);
+    check('api gzip: … well under half the bytes (' . $r['bytes'] . ' of ' . strlen($pad) . '+)', $r['bytes'] < strlen($pad) / 2);
+    same('api gzip: … the JSON type and no cache kept', ['application/json; charset=utf-8', 'no-store'], [$r['headers']['content-type'] ?? null, $r['headers']['cache-control'] ?? null]);
+    // the same without the word, or with gzip refused: as it is — Vary still, so a cache keeps one per encoding
+    foreach ([null, 'identity', 'gzip;q=0', 'deflate'] as $accept) {
+        $r = $ask('a=state&desk=snapshot&stored=1', $accept);
+        same('api gzip: as it is for Accept-Encoding ' . json_encode($accept), [null, 'Accept-Encoding', false, 'young', (string) $r['bytes']],
+            [$r['headers']['content-encoding'] ?? null, $r['headers']['vary'] ?? null, $r['gz'], $r['json']['state']['mark'] ?? $r['raw'], $r['length']]);
+        check('api gzip: … all the bytes', $r['bytes'] > strlen($pad) && str_ends_with($r['body'], '}'));
+    }
+    // small answers (the messenger alone, an error) go out as they are, no Vary — nothing to gain
+    $r = $ask('a=agent', 'gzip');
+    same('api gzip: a small answer as it is, no Vary', ['200', null, null, false, true, (string) $r['bytes']],
+        [$r['status'], $r['headers']['content-encoding'] ?? null, $r['headers']['vary'] ?? null, $r['gz'], $r['json']['agent']['running'] ?? $r['raw'], $r['length']]);
+    $r = $ask('a=nothing', 'gzip');
+    same('api gzip: an error answer plain, its status kept', ['404 Not Found', null, 'bad_request', (string) $r['bytes']], [$r['status'], $r['headers']['content-encoding'] ?? null, $r['json']['error']['key'] ?? $r['raw'], $r['length']]);
+    // the strings: compressed, their day of cache kept (the URL carries a stamp), Vary beside it
+    $r = $ask('a=strings&lang=de', 'gzip');
+    same('api gzip: the strings compressed, cached a day, Vary', ['gzip', 'public, max-age=86400', 'Accept-Encoding', 'de'],
+        [$r['headers']['content-encoding'] ?? null, $r['headers']['cache-control'] ?? null, $r['headers']['vary'] ?? null, $r['json']['lang'] ?? $r['raw']]);
+    check('api gzip: … all of them (' . count($r['json']['strings'] ?? []) . ' strings in ' . $r['bytes'] . ' bytes)', count($r['json']['strings'] ?? []) > 500 && (string) $r['bytes'] === $r['length']);
+
+    // show first, then look: a stale state's answer is complete and compressed before php-fpm's hand-over — the look after it
+    $state(1800, 'old');
+    $h = $open('a=state&desk=snapshot', 'gzip');
+    stream_set_blocking($h[1][1], false);
+    stream_set_blocking($h[1][2], false);
+    $first = $note = '';
+    for ($i = 0; $i < 60 && ($note === '' || !preg_match('/content-length: (\d+)/i', $first, $m) || strlen($first) < strpos($first, "\r\n\r\n") + 4 + (int) $m[1]); $i++) {
+        usleep(50000);
+        $first .= (string) fread($h[1][1], 1 << 20);
+        $note .= (string) fread($h[1][2], 65536);
+    }
+    $h[2] = $first;
+    $r = $parse($first, $note);
+    same('api gzip: a stale state at once, compressed, the look under way', ['gzip', true, 'old', true, true, (string) $r['bytes']],
+        [$r['headers']['content-encoding'] ?? null, $r['gz'], $r['json']['state']['mark'] ?? $r['raw'], $r['json']['stale'] ?? null, $r['json']['refreshing'] ?? null, $r['length']]);
+    $sentHeaders = array_map('strtolower', is_array($r['note']) ? $r['note']['headers'] ?? [] : []);
+    check('api gzip: … at the hand-over the body was out, Content-Encoding and the compressed Content-Length with it',
+        is_array($r['note']) && ($r['note']['sent'] ?? false) === true && in_array('content-encoding: gzip', $sentHeaders, true) && in_array('content-length: ' . $r['bytes'], $sentHeaders, true),
+        json_encode($r['note']));
+    usleep(300000);
+    check('api gzip: … the look still waits for the agent after the answer', $requests() === ['snapshot.refresh'] && (proc_get_status($h[0])['running'] ?? false));
+    same('api gzip: … the agent answers the desk\'s refresh', 'snapshot.refresh', $play('looked'));
+    $r = $close($h);
+    same('api gzip: … nothing more went out after the answer', (string) $r['bytes'], $r['length']);
+    // the same as it is when the browser doesn't take gzip
+    $state(1800, 'old');
+    $h = $open('a=state&desk=snapshot', null);
+    same('api gzip: a stale state plain too', 'snapshot.refresh', $play('plain'));
+    $r = $close($h);
+    same('api gzip: … complete, its length said, the look after it', [null, false, 'old', true, (string) $r['bytes'], true],
+        [$r['headers']['content-encoding'] ?? null, $r['gz'], $r['json']['state']['mark'] ?? $r['raw'], $r['json']['refreshing'] ?? null, $r['length'], in_array('content-length: ' . $r['bytes'], array_map('strtolower', is_array($r['note']) ? $r['note']['headers'] ?? [] : []), true)]);
+    hardeningRm($tmp);
+}
+
+/**
  * The page's side of «show first, then look» (core.js Office.loadState() / Office.freshState()), run by node on a stand-in
  * page with a stand-in fetch (skipped where node is missing): the reception asks as stored, the same question on its way
  * once (the reception and started() together); the desk shown gets its kept state at once and the new look (`wait`)
@@ -10561,7 +10714,7 @@ function testUnraidWords(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testApiGzip', 'testLookPage'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings', 'testUnraidWords']];
 $only = $argv[1] ?? '';
