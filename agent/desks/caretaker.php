@@ -32,6 +32,11 @@ const CARETAKER_ACK_DRIFT     = ['days', 'size'];    // params that change by th
 const CARETAKER_ACK_KEEP      = 30 * 86400;          // a noted point that hasn't turned up for this long is forgotten
 const CARETAKER_ACK_SEEN      = 86400;               // "still there" is written down at most once a day
 const CARETAKER_PROM_ASK      = 300;                 // Prometheus is asked at most this often (the page refreshes every 5 minutes)
+// Unraid's own API (7.2+): a node service on a Unix socket; its notification bell and parts of Unraid's web UI need it
+const CARETAKER_API_RC        = '/etc/rc.d/rc.unraid-api';      // there: the API belongs to this Unraid
+const CARETAKER_API_SOCK      = '/var/run/unraid-api.sock';
+const CARETAKER_API_WAIT_MS   = 2000;                // it answers in 0.5–3 ms; nothing within 2 s is no answer
+const CARETAKER_API_QUERY     = '{"query":"{ isSSOEnabled }"}';    // a question the API answers without a key (the login page asks it)
 
 desk('caretaker', [
     'start'   => fn () => caretakerScan(),
@@ -467,6 +472,11 @@ function caretakerChecks(): array
     if ($mail && $subject !== '' && stripos($subject, hostname()) === false) {
         $out[] = finding('mail_subject', 'hint', false, ['subject' => $subject, 'host' => hostname()], 'notifications');
     }
+    // Unraid's own API service: its notification bell (the office's reports show there too) and parts of its web UI need it
+    $api = caretakerApiUp();
+    if ($api !== null) {
+        $out[] = finding('api_down', 'recommended', $api, [], 'management');
+    }
 
     // Unraid 7.3.2: a container without a picture makes its Docker page and Dashboard flood /var/log
     if (function_exists('cleanupIconLoopRisk')) {
@@ -496,6 +506,49 @@ function caretakerChecks(): array
     }
     array_push($out, ...caretakerMonitoringChecks());
     return $out;
+}
+
+/**
+ * Is Unraid's API service running? One question it answers without a key — `isSSOEnabled`, which Unraid's login page
+ * asks too — straight over its Unix socket (PHP's curl in-process: no key, no header but the content type, no nginx,
+ * no network; ~2 ms, at most CARETAKER_API_WAIT_MS). Never in the night shift (the team lead's checks run in the agent
+ * only). Null: no API on this Unraid (before 7.2 without the Connect plugin) or no curl — nothing to say.
+ */
+function caretakerApiUp(string $sock = CARETAKER_API_SOCK, string $rc = CARETAKER_API_RC, int $waitMs = CARETAKER_API_WAIT_MS): ?bool
+{
+    if (!is_file($rc) || !function_exists('curl_init')) {
+        return null;
+    }
+    clearstatcache(true, $sock);
+    $st = @lstat($sock);
+    if (!$st || ($st['mode'] & 0170000) !== 0140000) {
+        return false;                       // no socket: the service isn't there
+    }
+    $body = '';
+    $c = curl_init('http://localhost/graphql');
+    curl_setopt_array($c, [
+        CURLOPT_UNIX_SOCKET_PATH => $sock,
+        CURLOPT_POST              => true,
+        CURLOPT_POSTFIELDS        => CARETAKER_API_QUERY,
+        CURLOPT_HTTPHEADER        => ['Content-Type: application/json'],
+        CURLOPT_FOLLOWLOCATION    => false,
+        CURLOPT_PROXY             => '',
+        CURLOPT_NOPROXY           => '*',
+        CURLOPT_CONNECTTIMEOUT_MS => min(1000, $waitMs),
+        CURLOPT_TIMEOUT_MS        => $waitMs,
+        CURLOPT_WRITEFUNCTION     => function ($c, string $chunk) use (&$body): int {
+            if (strlen($body) > 65536) {
+                return 0;                   // far more than the answer is: stop reading (no JSON then)
+            }
+            $body .= $chunk;
+            return strlen($chunk);
+        },
+    ]);
+    curl_exec($c);
+    $status = (int) curl_getinfo($c, CURLINFO_RESPONSE_CODE);
+    unset($c);
+    $j = $status === 200 ? json_decode($body, true) : null;
+    return is_array($j) && is_bool($j['data']['isSSOEnabled'] ?? null);
 }
 
 // ===================================================================== monitoring
