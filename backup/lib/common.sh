@@ -22,7 +22,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.24"
+UB_VERSION="2.25"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -461,17 +461,18 @@ zfs_load() {
 #   INV_LAYOUT[s]             single | overlay | split | live | none
 #   INV_ID[s]                 zfs:<guid> or ino:<base>:<inode>  (for renames)
 #   INV_GB[s]                 size in GB if ZFS knows it at once, else empty
+#   INV_BYTES[s]              the same in bytes (since 2.25: the Kopia order, kopia_order)
 #   INV_NOTE[s]               notes (one line per note)
 declare -ga INV_BASES=() INV_SHARES=()
 declare -gA INV_BASE_PATH=() INV_BASE_FS=() INV_BASE_KIND=() INV_BASE_SRC=()
-declare -gA INV_LOCS=() INV_CHILDREN=() INV_METHOD=() INV_LAYOUT=() INV_ID=() INV_GB=() INV_NOTE=()
+declare -gA INV_LOCS=() INV_CHILDREN=() INV_METHOD=() INV_LAYOUT=() INV_ID=() INV_GB=() INV_BYTES=() INV_NOTE=()
 
 inv_scan() {
     mounts_load
     zfs_load
     INV_BASES=(); INV_SHARES=()
     INV_BASE_PATH=(); INV_BASE_FS=(); INV_BASE_KIND=(); INV_BASE_SRC=()
-    INV_LOCS=(); INV_CHILDREN=(); INV_METHOD=(); INV_LAYOUT=(); INV_ID=(); INV_GB=(); INV_NOTE=()
+    INV_LOCS=(); INV_CHILDREN=(); INV_METHOD=(); INV_LAYOUT=(); INV_ID=(); INV_GB=(); INV_BYTES=(); INV_NOTE=()
 
     local i t fs name
     local -a pools=() disks=()
@@ -515,7 +516,7 @@ inv_scan() {
     local p mi mt msrc mfs m layer sub ino n ds cmp nloc anylive anychild
     local -i refsum
     for s in "${INV_SHARES[@]}"; do
-        INV_LOCS[$s]=""; INV_CHILDREN[$s]=""; INV_NOTE[$s]=""; INV_ID[$s]=""; INV_GB[$s]=""
+        INV_LOCS[$s]=""; INV_CHILDREN[$s]=""; INV_NOTE[$s]=""; INV_ID[$s]=""; INV_GB[$s]=""; INV_BYTES[$s]=""
         nloc=0; anylive=0; anychild=0; refsum=0
         local gb_known=1
         for b in "${INV_BASES[@]}"; do
@@ -589,7 +590,7 @@ inv_scan() {
             elif (( anychild )); then INV_LAYOUT[$s]="split"
             else INV_LAYOUT[$s]="overlay"; fi
         fi
-        (( gb_known && nloc > 0 )) && INV_GB[$s]="$(to_gb "$refsum")"
+        (( gb_known && nloc > 0 )) && { INV_GB[$s]="$(to_gb "$refsum")"; INV_BYTES[$s]="$refsum"; }
     done
 }
 
@@ -910,21 +911,23 @@ is_kopia_image() { [[ "${1,,}" == *kopia* ]]; }
 #                        block (a whole device) | live (no snapshots there) | missing | none (no disk)
 #   VM_OWN_DS[n]         its own datasets, one per line - empty if a disk shares its dataset
 #                        with the share or another VM (then it can't be left out or kept apart)
+#   VM_BYTES[n]          what its disk files take on their pool or disk (allocated blocks - a sparse
+#                        vdisk counts what it holds), "" when it has none (since 2.25: the Kopia order)
 declare -ga VM_NAMES=()
-declare -gA VM_STATE=() VM_AUTOSTART=() VM_AGENT=() VM_HOSTDEV=() VM_TPM=() VM_DISKS=() VM_SNAP=() VM_OWN_DS=()
+declare -gA VM_STATE=() VM_AUTOSTART=() VM_AGENT=() VM_HOSTDEV=() VM_TPM=() VM_DISKS=() VM_SNAP=() VM_OWN_DS=() VM_BYTES=()
 VM_SERVICE="no"
 VM_SHUTDOWN_TIMEOUT="${UB_VM_SHUTDOWN_TIMEOUT:-300}"   # from the request; backup.sh waits for it before anything stops (2.22)
 VM_SHUTDOWN_RETRY="${UB_VM_SHUTDOWN_RETRY:-60}"     # the shutdown request again every so many seconds (Windows swallows the first one)
 
 vm_load() {
-    VM_NAMES=(); VM_STATE=(); VM_AUTOSTART=(); VM_AGENT=(); VM_HOSTDEV=(); VM_TPM=(); VM_DISKS=(); VM_SNAP=(); VM_OWN_DS=()
+    VM_NAMES=(); VM_STATE=(); VM_AUTOSTART=(); VM_AGENT=(); VM_HOSTDEV=(); VM_TPM=(); VM_DISKS=(); VM_SNAP=(); VM_OWN_DS=(); VM_BYTES=()
     VM_SERVICE="no"
     command -v virsh >/dev/null 2>&1 || return 0
     local names
     names="$(timeout 20 virsh list --all --name 2>/dev/null)" || return 0
     VM_SERVICE="yes"
     mapfile -t VM_NAMES < <(sed '/^[[:space:]]*$/d' <<<"$names")
-    local n xml type dev target src p b fs ds share snap
+    local n xml type dev target src p b fs ds share snap blk bsz
     local -A ds_users=()
     for n in "${VM_NAMES[@]}"; do
         VM_STATE[$n]="$(timeout 10 virsh domstate "$n" 2>/dev/null | head -1)"
@@ -937,7 +940,7 @@ vm_load() {
             if timeout 5 virsh qemu-agent-command "$n" '{"execute":"guest-ping"}' >/dev/null 2>&1; then VM_AGENT[$n]="yes"; else VM_AGENT[$n]="no"; fi
         elif grep -q 'org.qemu.guest_agent.0' <<<"$xml"; then VM_AGENT[$n]="channel"
         else VM_AGENT[$n]="none"; fi
-        VM_DISKS[$n]=""; snap="yes"
+        VM_DISKS[$n]=""; VM_BYTES[$n]=""; snap="yes"
         while read -r type dev target src; do
             [[ "$dev" == "disk" ]] || continue
             b=""; fs=""; ds=""; share=""
@@ -961,6 +964,10 @@ vm_load() {
                 else
                     b=""
                     local x; for x in "${INV_BASES[@]}"; do [[ "$p" == "${INV_BASE_PATH[$x]}/"* ]] && { b="$x"; break; }; done
+                    # its size: the file was just looked at on its pool or disk (no FUSE, nothing woken)
+                    if [[ -f "$p" ]] && read -r blk bsz < <(stat -c '%b %B' -- "$p" 2>/dev/null) && is_uint "$blk" && is_uint "$bsz"; then
+                        VM_BYTES[$n]=$(( ${VM_BYTES[$n]:-0} + blk * bsz ))
+                    fi
                     mount_of "$p"
                     fs="${MT_FSTYPE[$MO_IDX]:-}"
                     case "$fs" in
@@ -1289,6 +1296,27 @@ kopia_policies_load() {
     jq -e 'type=="array"' >/dev/null 2>&1 <<<"$KP_JSON" || KP_JSON="[]"
 }
 
+# The size of each source's newest complete Kopia snapshot of this identity (since 2.25, for the Kopia order:
+# kopia_order) -> KSIZE[<container path>] = bytes. One "snapshot list" (metadata only - Kopia keeps the
+# manifests in its index); checkpoints of an interrupted upload are no snapshot ("incomplete") and don't
+# count. At most UB_KOPIA_LIST_TIMEOUT s; whatever goes wrong leaves KSIZE empty (then the inventory's sizes).
+declare -gA KSIZE=()
+kopia_sizes_load() {
+    KSIZE=()
+    [[ "$KOPIA_CONNECTED" == "yes" && -n "$KOPIA_USER" && -n "$KOPIA_HOST" ]] || return 0
+    local e=() p b
+    [[ "$KOPIA_RUN_UID" != "0" ]] && e=( -e HOME=/tmp )
+    while IFS=$'\t' read -r p b; do
+        [[ -n "$p" ]] && is_uint "$b" && KSIZE[$p]="$b"
+    done < <(timeout "${UB_KOPIA_LIST_TIMEOUT:-60}" docker exec -u "$KOPIA_RUN_UID" "${e[@]}" "$KOPIA_CONTAINER" \
+                 kopia --no-progress snapshot list --all --json -n 1 2>/dev/null \
+             | jq -r --arg u "$KOPIA_USER" --arg h "$KOPIA_HOST" '
+                 [.[]? | select(.source.userName == $u and .source.host == $h and ((.incompleteReason // "") == ""))]
+                 | group_by(.source.path)[] | max_by(.startTime // "")
+                 | [.source.path, ((.stats.totalSize // .rootEntry.summ.size // "") | tostring)] | @tsv' 2>/dev/null)
+    return 0
+}
+
 # Host path under which Kopia reads a share - always <mount_root>/<share>,
 # also for "live" (then a read-only bind of /mnt/user/<share>)
 share_kopia_hostpath() { printf '%s' "$MOUNT_ROOT/$1"; }
@@ -1434,18 +1462,43 @@ kopia_probe_propagation() {
     [[ "$res" == "ub-$$" ]]
 }
 
-# If an earlier run was killed hard (kill -9, crash), state/ lists
-# the containers it had stopped and the Nextclouds it had put into
-# maintenance mode. Both are brought back here.
+# The notes an interrupted run left in state/ (stopped containers, Nextclouds in maintenance mode,
+# held VMs) - read without the lock only to see whether there is anything to do (backup.sh --recover);
+# acting on them needs the lock (a run going on writes its own notes there).
+recover_notes() { [[ -s "$UB_STATE/stopped" || -s "$UB_STATE/maintenance" || -s "$UB_STATE/vms" ]]; }
+# Does Docker (libvirt) answer? Without, a container (VM) would look "not stopped" and its note be lost.
+ub_docker_answers()  { timeout 20 docker version --format '{{.Server.Version}}' >/dev/null 2>&1; }
+ub_libvirt_answers() { timeout 20 virsh list --name >/dev/null 2>&1; }
+
+# If an earlier run was killed hard (kill -9, crash) - or, since 2.24, ended by an array stop -
+# state/ lists the containers it had stopped, the Nextclouds it had put into maintenance mode and
+# the VMs it held. All are brought back here: at the start of backup.sh and setup.sh, and since 2.25
+# right after the array start (backup.sh --recover, started by the plugin's event/started).
 # Call only while holding the lock (then no other run is going).
 # Never into a stopping array (2.24): the notes stay for the first run after the array start.
+# Since 2.25 a note stays too while Docker (libvirt) doesn't answer - before, its containers (VMs)
+# looked running and the note went. After an array stop the notification is a normal one: that is
+# expected, nothing went wrong - the last real run (last-run.json; only real runs write notes) ended
+# with array_stopping and noted them before it finished (a later run's notes would be newer).
 recover_interrupted_run() {
-    local n occ u list=""
-    if array_stopping && [[ -s "$UB_STATE/stopped" || -s "$UB_STATE/maintenance" || -s "$UB_STATE/vms" ]]; then
+    local n occ u list="" level="warning" why="An earlier run was aborted" docker_ok=1 fin f
+    if array_stopping && recover_notes; then
         log "The array is being stopped - what an earlier run left stopped stays so (state/stopped, maintenance, vms) until a run after the array start"
         return 0
     fi
-    if [[ -s "$UB_STATE/stopped" ]]; then
+    recover_notes || return 0
+    if [[ "$(jq -r '"\(.result)|\(.message)"' "$UB_STATE/last-run.json" 2>/dev/null)" == "aborted|array_stopping" ]]; then
+        fin="$(jq -r '.finished // 0' "$UB_STATE/last-run.json" 2>/dev/null)"; is_uint "$fin" || fin=0
+        level="normal"; why="The run the array stop ended left things for after the array start"
+        for f in stopped maintenance vms; do
+            [[ -e "$UB_STATE/$f" ]] && (( $(stat -c %Y "$UB_STATE/$f" 2>/dev/null || echo 0) > fin + 2 )) && { level="warning"; why="An earlier run was aborted"; }
+        done
+    fi
+    if [[ -s "$UB_STATE/stopped" || -s "$UB_STATE/maintenance" ]] && ! ub_docker_answers; then
+        docker_ok=0
+        warn "Docker does not answer - what an earlier run left stopped (state/stopped, maintenance) stays noted for the next start"
+    fi
+    if (( docker_ok )) && [[ -s "$UB_STATE/stopped" ]]; then
         while IFS= read -r n; do
             [[ -z "$n" ]] && continue
             [[ "$(docker inspect -f '{{.State.Running}}' "$n" 2>/dev/null)" == "false" ]] || continue
@@ -1453,7 +1506,7 @@ recover_interrupted_run() {
         done <"$UB_STATE/stopped"
         rm -f "$UB_STATE/stopped"
     fi
-    if [[ -s "$UB_STATE/maintenance" ]]; then
+    if (( docker_ok )) && [[ -s "$UB_STATE/maintenance" ]]; then
         sleep 5
         while IFS= read -r n; do
             [[ -z "$n" ]] && continue
@@ -1468,7 +1521,9 @@ recover_interrupted_run() {
         rm -f "$UB_STATE/maintenance"
     fi
     # VMs the run froze, paused or shut down (lines "name|frozen|paused|shutdown")
-    if [[ -s "$UB_STATE/vms" ]] && command -v virsh >/dev/null 2>&1; then
+    if [[ -s "$UB_STATE/vms" ]] && command -v virsh >/dev/null 2>&1 && ! ub_libvirt_answers; then
+        warn "libvirt does not answer - the VMs an earlier run held (state/vms) stay noted for the next start"
+    elif [[ -s "$UB_STATE/vms" ]] && command -v virsh >/dev/null 2>&1; then
         local how st
         while IFS='|' read -r n how; do
             [[ -z "$n" ]] && continue
@@ -1482,8 +1537,9 @@ recover_interrupted_run() {
         rm -f "$UB_STATE/vms"
     fi
     if [[ -n "$list" ]]; then
-        warn "An earlier run was aborted - restored: $list"
-        ub_notify "Aborted run repaired" "Started again or reset: $list" "warning"
+        list="${list% }"
+        if [[ "$level" == "warning" ]]; then warn "$why - restored: $list"; else log "$why - restored: $list"; fi
+        ub_notify "Aborted run repaired" "$why. Started again or reset: $list" "$level"
     fi
     return 0
 }
@@ -1901,8 +1957,9 @@ history_append() {
 #   {"holder": "backup" | "setup" | "restore" | <other name>, "mode": <its mode>, "what": <what it
 #    works on, e.g. the app a restore brings back>, "run": <run id>, "pid": <process holding the lock>,
 #    "started": <unix seconds>, "version": <engine version>}
-# backup.sh: mode backup | check | dryrun, run = its run id (YYYYMMDD-HHMM); setup.sh: mode plan |
-# apply | forget | check | kopia | interactive | auto. Only holder and pid are a must.
+# backup.sh: mode backup | check | dryrun | recover (2.25: no run - a run waits for it), run = its run id
+# (YYYYMMDD-HHMM); setup.sh: mode plan | apply | forget | check | kopia | interactive | auto. Only holder
+# and pid are a must.
 # The note is never trusted blindly: the lock itself stays the truth, the note counts only while its
 # pid lives (and, for backup.sh and setup.sh, is that script). Unknown or missing = "other" - unless
 # status.json names a running run whose pid runs backup.sh (an engine before 2.20 writes no note).
@@ -2182,6 +2239,49 @@ uri_escape() {
         case "$ch" in [A-Za-z0-9/._~-]) out+="$ch" ;; *) out+="$(printf '%%%02X' "'$ch")" ;; esac
     done
     printf '%s' "$out"
+}
+
+# --- The order of the Kopia phase (since 2.25) ---------------------------------
+# Small and important first: the flash (what a new server needs first, a few MB), then the apps' own
+# sources in their order (small, and what a restore needs first), then the shares and the VMs' own sources
+# together, the smallest first - so a first upload of terabytes, which takes a day or more and is continued
+# run after run from Kopia's checkpoints, no longer holds back everything queued behind it. (Up to 2.24: the
+# apps, the shares in settings.ini's order, the VMs, the flash last - on 2026-10-07 a 2.3 TB first upload of
+# one share kept the flash, appdata and the VMs from Kopia for days.)
+# The size a source is expected to have, from what is cheap and reliable: its newest complete Kopia snapshot
+# (KSIZE, kopia_sizes_load - what Kopia really reads, its ignore rules applied), else the inventory - ZFS's
+# referenced for a share that is a dataset of its own (INV_BYTES), the VM's disk files (VM_BYTES). An unknown
+# size goes last; equal sizes and the unknown keep their order (the shares as settings.ini lists them, then
+# the VMs).
+# kopia_order  -> lines "name|kind|item|folder|bytes|from" in the order they go:
+#   name    as status.json names it (kopia.planned): flash, app:<name>, <share>, vm:<name>
+#   kind    flash | app | share | vm;   item: the share's, app's or VM's name;   folder: an app's or VM's source
+#   bytes   the size it is expected to have ("" = unknown; none for the flash and the apps - their place is fixed)
+#   from    kopia | inventory | "" (unknown)
+kopia_order() {
+    local it t n f s cp b from i=0
+    [[ "${PLAN_FLASH:-}" == "snapshot" ]] && printf 'flash|flash||||\n'
+    for it in "${PLAN_KITEMS[@]}"; do
+        IFS='|' read -r t n f <<<"$it"
+        [[ "$t" == "app" ]] && printf 'app:%s|app|%s|%s||\n' "$n" "$n" "$f"
+    done
+    {
+        for s in "${PLAN_KOPIA[@]}"; do
+            b=""; from=""
+            if cp="$(k_path "$(share_kopia_hostpath "$s")" 2>/dev/null)" && is_uint "${KSIZE[$cp]:-}"; then b="${KSIZE[$cp]}"; from="kopia"
+            elif is_uint "${INV_BYTES[$s]:-}"; then b="${INV_BYTES[$s]}"; from="inventory"; fi
+            i=$((i+1)); printf '%d\t%s\t%d\t%s|share|%s||%s|%s\n' "$([[ -n "$from" ]] && echo 0 || echo 1)" "${b:-0}" "$i" "$s" "$s" "$b" "$from"
+        done
+        for it in "${PLAN_KITEMS[@]}"; do
+            IFS='|' read -r t n f <<<"$it"
+            [[ "$t" == "vm" ]] || continue
+            b=""; from=""
+            if cp="$(k_path "$(item_hostpath vm "$f")" 2>/dev/null)" && is_uint "${KSIZE[$cp]:-}"; then b="${KSIZE[$cp]}"; from="kopia"
+            elif is_uint "${VM_BYTES[$n]:-}"; then b="${VM_BYTES[$n]}"; from="inventory"; fi
+            i=$((i+1)); printf '%d\t%s\t%d\tvm:%s|vm|%s|%s|%s|%s\n' "$([[ -n "$from" ]] && echo 0 || echo 1)" "${b:-0}" "$i" "$n" "$n" "$f" "$b" "$from"
+        done
+    } | LC_ALL=C sort -t $'\t' -k1,1n -k2,2n -k3,3n | cut -f4-
+    return 0
 }
 
 ##############################################################################
