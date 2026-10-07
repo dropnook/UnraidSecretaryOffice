@@ -226,6 +226,8 @@
   "check.kopia_how": "Installa Kopia da App (ad es. imagegenius/kopia), collegalo una volta al tuo repository nella KopiaUI, poi rileggi il server in «Configura…» dal signor Backupsi.",
   "check.kopia_running": "Il contenitore Kopia «{name}» è in esecuzione",
   "check.kopia_running_how": "Avvialo dalla pagina Docker.",
+  "check.kopia_autostart": "Il contenitore Kopia «{name}» parte da solo",
+  "check.kopia_autostart_how": "Non è nell'avvio automatico: dopo un riavvio o un arresto dell'array Kopia resta spento, e il prossimo backup va senza Kopia. Nella pagina Docker attiva «Avvio automatico» per «{name}» — per un contenitore di uno stack Compose, l'avvio automatico dello stack nell'elenco di Compose Manager sotto i contenitori.",
   "check.kopia_root": "Kopia gira come root (PUID 0)",
   "check.kopia_root_how": "Imposta PUID e PGID a 0 nel template di «{name}» (ora {puid}) — altrimenti dal backup manca tutto ciò che solo il proprietario può leggere.",
   "check.kopia_mapping": "«{name}» vede {path} in sola lettura con «Slave»",

@@ -1712,6 +1712,10 @@ function backupChecks(): array
             $ok = $mapping && empty($mapping['RW']) && in_array($mapping['Propagation'] ?? '', ['slave', 'rslave'], true);
             $out[] = finding('kopia_mapping', $level, $ok, ['name' => $name, 'path' => $root,
                 'now' => $mapping ? (($mapping['RW'] ? 'rw' : 'ro') . ',' . ($mapping['Propagation'] ?: 'private')) : '–'], 'docker');
+            $auto = backupKopiaAutostart($summary, $name, $inspect);
+            if ($auto !== null) {
+                $out[] = $auto;
+            }
         }
         if ($kopiaOn) {
             // the engine finds out whether the repository answers; we read its last word
@@ -1768,6 +1772,36 @@ function backupChecks(): array
     }
 
     return $out;
+}
+
+/**
+ * Whether the Kopia container comes back by itself after a reboot or an array stop: Unraid stops every container
+ * at the array stop and, when Docker comes up again, starts only what is on its autostart list — a Kopia left off
+ * makes the next run skip the whole offsite part, and `kopia_running` only notices it afterwards (nostromo,
+ * 2026-10-07). A template container: a line in Unraid's autostart file, or Docker's own restart policy "always"
+ * (Docker starts those itself when it comes up; "unless-stopped" doesn't — Unraid stopped it); a Compose stack's
+ * container: Compose Manager's autostart of that stack. A must like `kopia_running`: without it the offsite backup
+ * ends silently at the next reboot. The office only warns — it never starts Kopia itself (Benj's decision).
+ *
+ * @param array $summary  backupSettingsSummary(): only while Kopia is on, and only for the container the settings name
+ * @param array $inspect  docker inspect of that container
+ * @return ?array  the finding, or null: Kopia off, another container, or a stack Compose Manager doesn't know
+ *                 (nothing the office knows starts it — then nothing is said)
+ */
+function backupKopiaAutostart(array $summary, string $name, array $inspect, string $autostartFile = HOUSE_AUTOSTART, ?string $composeRoot = null): ?array
+{
+    if (empty($summary['kopia_enabled']) || $name !== ($summary['kopia_container'] ?? null)) {
+        return null;
+    }
+    if (($inspect['HostConfig']['RestartPolicy']['Name'] ?? '') === 'always') {
+        $auto = true;
+    } else {
+        $project = $inspect['Config']['Labels']['com.docker.compose.project'] ?? null;
+        $auto = is_string($project) && $project !== ''
+            ? houseComposeAutostart($project, $composeRoot)
+            : isset(houseAutostart($autostartFile)[$name]);
+    }
+    return $auto === null ? null : finding('kopia_autostart', 'required', $auto, ['name' => $name], 'docker');
 }
 
 // ===================================================================== setup (setup.sh --plan / --apply)

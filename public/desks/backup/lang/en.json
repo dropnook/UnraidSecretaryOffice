@@ -223,6 +223,8 @@
   "check.kopia_how": "Install Kopia from Apps (e.g. imagegenius/kopia), connect it to your repository once in the KopiaUI, then read the server again in Mr. Backupsy's «Set up…».",
   "check.kopia_running": "Kopia container «{name}» is running",
   "check.kopia_running_how": "Start it on the Docker page.",
+  "check.kopia_autostart": "Kopia container «{name}» starts by itself",
+  "check.kopia_autostart_how": "It isn't on autostart: after a reboot or an array stop Kopia stays off, and the next backup goes without Kopia. On the Docker page switch on «Autostart» for «{name}» — for a container of a Compose stack, the stack's autostart in Compose Manager's list below the containers.",
   "check.kopia_root": "Kopia runs as root (PUID 0)",
   "check.kopia_root_how": "Set PUID and PGID to 0 in the template of «{name}» (now {puid}) — otherwise everything only its owner may read is missing from the backup.",
   "check.kopia_mapping": "«{name}» sees {path} read-only with «Slave»",
