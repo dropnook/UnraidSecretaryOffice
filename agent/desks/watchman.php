@@ -799,7 +799,7 @@ function watchmanNightBegin(array $paths, string $night, int $now, string $ram =
         if (!is_array($e) || !is_string($e['id'] ?? null) || !preg_match(WATCH_ID, $e['id']) || !isset(WATCH_KINDS[$e['kind'] ?? ''])) {
             continue;
         }
-        $e = ['key' => '', 'time' => $now, 'last' => $now, 'count' => 1, 'p' => [], 'told' => null] + $e;
+        $e += ['key' => '', 'time' => $now, 'last' => $now, 'count' => 1, 'p' => [], 'told' => null];
         $e['noted'] = null;
         $e['by'] = null;
         // as the day's book had it: what the night adds is told apart at the handover
