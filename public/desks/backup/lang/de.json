@@ -1040,7 +1040,7 @@
   "setup.preset.kopia_unknown": {"one": "Von 1 Share kenne ich die Grösse noch nicht: {list}.", "other": "Von {n} Shares kenne ich die Grösse noch nicht: {list}."},
   "setup.preset.kopia_time": "Bei {speed} Upload dauert das etwa {time} — so lange lädt die erste Sicherung hoch, und die Nächte dazwischen werden übersprungen: bis dahin keine neuen Snapshots.",
   "setup.preset.kopia_time_least": "Bei {speed} Upload dauert das mindestens {time} — so lange lädt die erste Sicherung hoch, und die Nächte dazwischen werden übersprungen: bis dahin keine neuen Snapshots.",
-  "setup.preset.kopia_cost": "Dein Speicheranbieter verrechnet diesen Platz möglicherweise jeden Monat, manchmal auch das Herunterladen — schau dir den Preis vor dem Übernehmen an (ein eigener zweiter Server oder MinIO kostet nichts extra). Filme und Fotos werden kaum kleiner.",
+  "setup.preset.kopia_cost": "Dein Speicheranbieter verrechnet diesen Platz möglicherweise jeden Monat, manchmal auch das Herunterladen — schau dir den Preis vor dem Übernehmen an (oder alternativ betreibst du deinen eigenen S3-Server auf einem entfernten Unraid-Server von dir). Filme und Fotos werden kaum kleiner.",
   "setup.preset.kept": "Bleibt, wie es ist: {list}.",
   "setup.preset.keep.system": "{name} (Docker-Image und libvirt)",
   "setup.preset.keep.kopia_workdir": "{name} (Kopias eigener Ordner)",

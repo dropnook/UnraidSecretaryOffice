@@ -1061,7 +1061,7 @@
   "setup.preset.kopia_unknown": {"one": "{n} partage dont je ne connais pas encore la taille : {list}.", "other": "{n} partages dont je ne connais pas encore la taille : {list}."},
   "setup.preset.kopia_time": "À {speed} d'envoi, cela prend environ {time} — la première sauvegarde envoie pendant tout ce temps, et les nuits entre-temps sont sautées : pas de nouveaux snapshots avant la fin.",
   "setup.preset.kopia_time_least": "À {speed} d'envoi, cela prend au moins {time} — la première sauvegarde envoie pendant tout ce temps, et les nuits entre-temps sont sautées : pas de nouveaux snapshots avant la fin.",
-  "setup.preset.kopia_cost": "Ton fournisseur de stockage peut facturer cet espace chaque mois, parfois aussi le téléchargement — regarde le prix avant d'appliquer (ton propre second serveur ou MinIO ne coûte rien de plus). Les films et les photos ne rétrécissent presque pas.",
+  "setup.preset.kopia_cost": "Ton fournisseur de stockage peut facturer cet espace chaque mois, parfois aussi le téléchargement — regarde le prix avant d'appliquer (ou tu fais tourner ton propre serveur S3 sur un de tes serveurs Unraid distants). Les films et les photos ne rétrécissent presque pas.",
   "setup.preset.kept": "Reste tel quel : {list}.",
   "setup.preset.keep.system": "{name} (image Docker et libvirt)",
   "setup.preset.keep.kopia_workdir": "{name} (dossier propre à Kopia)",
