@@ -22,7 +22,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.25"
+UB_VERSION="2.26"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -947,22 +947,26 @@ is_kopia_image() { [[ "${1,,}" == *kopia* ]]; }
 #   VM_OWN_DS[n]         its own datasets, one per line - empty if a disk shares its dataset
 #                        with the share or another VM (then it can't be left out or kept apart)
 #   VM_BYTES[n]          what its disk files take on their pool or disk (allocated blocks - a sparse
-#                        vdisk counts what it holds), "" when it has none (since 2.25: the Kopia order)
+#                        vdisk counts what it holds), "" when it has none (since 2.25)
+#   VM_APPARENT[n]       the same files' own sizes (stat %s: a sparse vdisk's full virtual size, holes
+#                        included), "" when it has none - what Kopia reads at a first upload, so since
+#                        2.26 the Kopia order goes by it (on 2026-10-07 a 1.6 TB vdisk holding 21 GB
+#                        cost Kopia 2 TB of reading: the holes come as zeros); the setup's plan carries both
 declare -ga VM_NAMES=()
-declare -gA VM_STATE=() VM_AUTOSTART=() VM_AGENT=() VM_HOSTDEV=() VM_TPM=() VM_DISKS=() VM_SNAP=() VM_OWN_DS=() VM_BYTES=()
+declare -gA VM_STATE=() VM_AUTOSTART=() VM_AGENT=() VM_HOSTDEV=() VM_TPM=() VM_DISKS=() VM_SNAP=() VM_OWN_DS=() VM_BYTES=() VM_APPARENT=()
 VM_SERVICE="no"
 VM_SHUTDOWN_TIMEOUT="${UB_VM_SHUTDOWN_TIMEOUT:-300}"   # from the request; backup.sh waits for it before anything stops (2.22)
 VM_SHUTDOWN_RETRY="${UB_VM_SHUTDOWN_RETRY:-60}"     # the shutdown request again every so many seconds (Windows swallows the first one)
 
 vm_load() {
-    VM_NAMES=(); VM_STATE=(); VM_AUTOSTART=(); VM_AGENT=(); VM_HOSTDEV=(); VM_TPM=(); VM_DISKS=(); VM_SNAP=(); VM_OWN_DS=(); VM_BYTES=()
+    VM_NAMES=(); VM_STATE=(); VM_AUTOSTART=(); VM_AGENT=(); VM_HOSTDEV=(); VM_TPM=(); VM_DISKS=(); VM_SNAP=(); VM_OWN_DS=(); VM_BYTES=(); VM_APPARENT=()
     VM_SERVICE="no"
     command -v virsh >/dev/null 2>&1 || return 0
     local names
     names="$(timeout 20 virsh list --all --name 2>/dev/null)" || return 0
     VM_SERVICE="yes"
     mapfile -t VM_NAMES < <(sed '/^[[:space:]]*$/d' <<<"$names")
-    local n xml type dev target src p b fs ds share snap blk bsz
+    local n xml type dev target src p b fs ds share snap blk bsz app
     local -A ds_users=()
     for n in "${VM_NAMES[@]}"; do
         VM_STATE[$n]="$(timeout 10 virsh domstate "$n" 2>/dev/null | head -1)"
@@ -975,7 +979,7 @@ vm_load() {
             if timeout 5 virsh qemu-agent-command "$n" '{"execute":"guest-ping"}' >/dev/null 2>&1; then VM_AGENT[$n]="yes"; else VM_AGENT[$n]="no"; fi
         elif grep -q 'org.qemu.guest_agent.0' <<<"$xml"; then VM_AGENT[$n]="channel"
         else VM_AGENT[$n]="none"; fi
-        VM_DISKS[$n]=""; VM_BYTES[$n]=""; snap="yes"
+        VM_DISKS[$n]=""; VM_BYTES[$n]=""; VM_APPARENT[$n]=""; snap="yes"
         while read -r type dev target src; do
             [[ "$dev" == "disk" ]] || continue
             b=""; fs=""; ds=""; share=""
@@ -999,9 +1003,11 @@ vm_load() {
                 else
                     b=""
                     local x; for x in "${INV_BASES[@]}"; do [[ "$p" == "${INV_BASE_PATH[$x]}/"* ]] && { b="$x"; break; }; done
-                    # its size: the file was just looked at on its pool or disk (no FUSE, nothing woken)
-                    if [[ -f "$p" ]] && read -r blk bsz < <(stat -c '%b %B' -- "$p" 2>/dev/null) && is_uint "$blk" && is_uint "$bsz"; then
+                    # its size: the file was just looked at on its pool or disk (no FUSE, nothing woken) -
+                    # what it takes (allocated blocks) and what it is (apparent: what Kopia reads, holes too)
+                    if [[ -f "$p" ]] && read -r blk bsz app < <(stat -c '%b %B %s' -- "$p" 2>/dev/null) && is_uint "$blk" && is_uint "$bsz" && is_uint "$app"; then
                         VM_BYTES[$n]=$(( ${VM_BYTES[$n]:-0} + blk * bsz ))
+                        VM_APPARENT[$n]=$(( ${VM_APPARENT[$n]:-0} + app ))
                     fi
                     mount_of "$p"
                     fs="${MT_FSTYPE[$MO_IDX]:-}"
@@ -2447,7 +2453,10 @@ uri_escape() {
 # The size a source is expected to have, from what is cheap and reliable: Kopia's (KSIZE, kopia_sizes_load - the
 # size of its newest complete snapshot, what Kopia read then with its ignore rules applied, or of a newer checkpoint
 # when that is larger) and the server's (ZFS's referenced for a share that is a dataset of its own, INV_BYTES; the
-# VM's disk files, VM_BYTES) - the LARGER of the two when both are known, either alone when only one is. A complete
+# VM's disk files' own sizes, VM_APPARENT - since 2.26: Kopia reads a sparse vdisk whole, its holes as zeros, so a
+# 1.6 TB vdisk holding 21 GB is 1.6 TB of reading at its first upload (nostromo's Windows11_Gaming, 2026-10-07:
+# 382 GB by its snapshot, 2 TB read in 2.7 h); up to 2.25 the allocated blocks, VM_BYTES, put such a VM far too
+# early) - the LARGER of the two when both are known, either alone when only one is. A complete
 # snapshot alone can be stale: a share whose folders were all ignored until the setup changed has a tiny complete
 # snapshot while its first real upload of terabytes is still going on in checkpoints (nostromo's Backups,
 # 2026-10-07) - by that size it would go first; the checkpoint (or ZFS) says better. The server's overestimates a
@@ -2482,7 +2491,7 @@ kopia_order() {
             IFS='|' read -r t n f <<<"$it"
             [[ "$t" == "vm" ]] || continue
             cp="$(k_path "$(item_hostpath vm "$f")" 2>/dev/null)" || cp=""
-            IFS='|' read -r b from <<<"$(kopia_expect "${cp:+${KSIZE[$cp]:-}}" "${VM_BYTES[$n]:-}")"
+            IFS='|' read -r b from <<<"$(kopia_expect "${cp:+${KSIZE[$cp]:-}}" "${VM_APPARENT[$n]:-}")"
             i=$((i+1)); printf '%d\t%s\t%d\tvm:%s|vm|%s|%s|%s|%s\n' "$([[ -n "$from" ]] && echo 0 || echo 1)" "${b:-0}" "$i" "$n" "$n" "$f" "$b" "$from"
         done
     } | LC_ALL=C sort -t $'\t' -k1,1n -k2,2n -k3,3n | cut -f4-
