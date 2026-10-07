@@ -51,7 +51,8 @@ picks another one for your browser. Adding a language means adding JSON files.
   essentials at a glance: whether the messenger (the agent) is in, the
   Team Lead's traffic light (open points only — what you noted with *I know,
   thanks* doesn't count), and Mr. Backupsy's last and next run (or whether
-  he is backing up, checking or on a dry run right now).
+  he is backing up, checking or on a dry run right now) and, while the array is
+  stopped, the Night Watchman's night shift.
 * The page only shows things. The **agent**, a small service of the plugin,
   does the work on the host. It only accepts the actions the desks define and
   checks every request against a fresh look at the system. Commands run
@@ -63,7 +64,8 @@ picks another one for your browser. Adding a language means adding JSON files.
   stops — it never holds it up. While the array is stopped, the page says so,
   and the Night Watchman's night shift keeps watch from RAM and the flash only
   (also after a boot until the array is started, e.g. while an encrypted array
-  waits for its key).
+  waits for its key) — the page and the Dashboard tile show since when, his
+  rounds and whether something new came up; the other desks wait for the array.
 * Long jobs that must outlive the agent (a backup run takes hours) are handed
   to the host's `atd`.
 * Sleeping disks are not woken up unless you ask (e.g. "Wake & scan", measuring

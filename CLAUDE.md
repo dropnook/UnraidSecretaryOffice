@@ -29,7 +29,15 @@ refreshed by `api.php?a=dash` every minute while in view). The agent is a servic
 by `event/stopping`) on the host. While the array isn't started (after a stop; from boot until
 the first start — an encrypted array waits for its key) `agent.sh` runs the night watchman's
 **night shift** instead (`php agent.php nightshift`, RAM and flash only; never both at once — see
-the watchman's row); the event scripts call `agent.sh array stopping|started`. The data folder is `DATA_DIR` from
+the watchman's row); the event scripts call `agent.sh array stopping|started`. While it is on, the page and the
+Dashboard tile say so (2026-10-07): `agentInfo()['night']` from `officeNightShift()` (src/mailbox.php) — the pid in
+`WATCH_NIGHT_LOCK` living as `agent.php nightshift` (never the lock itself: the night shift's non-blocking lock at its
+start must not meet a look from the web) and `WATCH_NIGHT_DIR/state.json` `night` (`since`, `rounds`, `new` = open
+entries new in the night, counted by `watchmanRound()`), RAM only; no state (no mirror, no round yet) = nothing said.
+The page gets `CONFIG.agent` at once: a calm `notice info night` with his lantern, «Night shift» and an orange dot by
+the messenger's word; without the data folder only the reception (no desks, no tabs, no «not hired» toast, the address
+kept), which looks again every minute (`api.php?a=agent`) and reloads once the folder is back. The tile: a row of his
+(since, rounds, what is new; orange when something is). The data folder is `DATA_DIR` from
 `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cfg`
 (default `<appdata>/UnraidSecretaryOffice/data`; `OFFICE_DATA_DIR` overrides it —
 the tests use the repository's `data/`, and `OFFICE_WEB` its `public/`).
@@ -55,7 +63,8 @@ installed plugin (see the checklist).
 * **The web side never touches the host** (even though Unraid's php-fpm runs as
   root). Everything that needs zfs, docker, /boot/config, /proc etc. goes
   through the agent (`Office.api.post('<desk>.<action>')` → `agent/desks/<desk>.php`).
-  One exception: secrets the user types for the agent (the Consultant's Kopia
+  Exceptions: while the agent is gone (the array stopped) the web side reads the night shift's RAM state itself
+  (`officeNightShift()`, see «How it runs»); and secrets the user types for the agent (the Consultant's Kopia
   setup) never go into the mailbox (it lies on the pool) — `apiSecretStash()` (src/api.php)
   puts them into a 0600 file in `officeInboxDir()` (`/var/run/unraid-secretary-office/inbox`,
   RAM), the request carries only its name, the agent reads and removes it at once
