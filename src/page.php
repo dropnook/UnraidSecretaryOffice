@@ -55,8 +55,12 @@ function officePageConfig(): array
     $config['menu_max'] = OFFICE_MENU_MAX;
     $config['menu_page'] = basename(OFFICE_MENU_PAGE, '.page');
     $config['menu_place'] = officeMenuPlace();
-    // Unraid's language (de_DE …, '' = English): the office follows it unless the browser chose another
-    $config['unraid_lang'] = strtolower(strtok((string) ($GLOBALS['locale'] ?? ''), '_-') ?: 'en');
+    // the office speaks the browser's language (core.js); Unraid's language (de_DE …, '' = English) only decides how
+    // Unraid's own labels in the texts read — its words for them (src/words.php, lang/unraid/<code>.json)
+    $config['unraid_lang'] = officeUnraidLang();
+    $config['unraid_words'] = (object) officeUnraidWords($config['unraid_lang'], OFFICE_PUBLIC);
+    // the language the notifications speak (the one the office was last used in): the page says when it shows another
+    $config['lang_seen'] = officeLangRemembered();
     return $config;
 }
 

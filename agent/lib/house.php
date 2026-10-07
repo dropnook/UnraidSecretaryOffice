@@ -222,6 +222,9 @@ const OFFICE_NOTIFY_EVENT = 'Unraid Secretary Office';
 // the backup engine (RAM; see officeNotify())
 const OFFICE_NOTIFY_STAMP = RUN_DIR . '/notify.second';
 const OFFICE_NOTIFY_LOCK_WAIT = 10;     // seconds waited at most for another's notification to end — then it goes anyway
+// the language the office was last used in (written by the page, src/desks.php) — and its copy in RAM for the night shift
+define('OFFICE_LANG_FILE', OFFICE_PRIVATE . '/lang.json');
+const OFFICE_NOTIFY_LANG_RAM = RUN_DIR . '/notify.lang';
 
 /**
  * Sends one notification. $level normal|warning|alert; $message the long
@@ -314,20 +317,75 @@ function officeNotifyLink(string $hash = ''): string
     return officeMenuUrl(officeMenuPlace()) . $hash;
 }
 
-/** Unraid's language (Settings → Display settings), when the office speaks it — otherwise English */
-function officeNotifyLang(string $cfg = '/boot/config/plugins/dynamix/dynamix.cfg'): string
+/**
+ * The language of the notifications: the one the office was last used in (the page keeps it in data/office/lang.json,
+ * src/desks.php officeLangRemember()), else Unraid's (Settings → Display Settings) when the office speaks it, else
+ * English. The night shift opens nothing under /mnt: it reads the copy in RAM the agent keeps (officeNotifyLangKeep()) —
+ * none after a reboot, then Unraid's.
+ */
+function officeNotifyLang(string $cfg = OFFICE_UNRAID_CFG, ?string $seen = null): string
 {
-    $locale = (string) (readCfg($cfg, true)['display']['locale'] ?? '');
-    $code = strtolower((string) strtok($locale, '_-'));
-    return preg_match('/^[a-z]{2,3}$/', $code) && is_file(OFFICE_WEB . "/lang/$code.json") ? $code : 'en';
+    $lang = officeNotifyLangSeen($seen ?? (NIGHT_MODE ? OFFICE_NOTIFY_LANG_RAM : OFFICE_LANG_FILE));
+    if ($lang !== null) {
+        return $lang;
+    }
+    $code = officeUnraidLang($cfg);
+    return officeNotifyLangOk($code) ? $code : 'en';
+}
+
+/** A language the office speaks (a file in lang/) */
+function officeNotifyLangOk(string $code): bool
+{
+    return preg_match('/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/D', $code) === 1 && is_file(OFFICE_WEB . "/lang/$code.json");
+}
+
+/** The language kept in lang.json (or its copy in RAM), null when there is none the office speaks */
+function officeNotifyLangSeen(string $file): ?string
+{
+    clearstatcache(true, $file);
+    if (is_link($file) || !is_file($file) || (int) @filesize($file) > 4096) {
+        return null;
+    }
+    $lang = (readJson($file) ?? [])['lang'] ?? null;
+    return is_string($lang) && officeNotifyLangOk($lang) ? $lang : null;
+}
+
+/**
+ * The agent, once a minute: the language the office was last used in into RAM, for the night shift (which never
+ * opens the data folder). Read only when lang.json changed, written only when it differs; gone with lang.json.
+ */
+function officeNotifyLangKeep(string $file = OFFICE_LANG_FILE, string $ram = OFFICE_NOTIFY_LANG_RAM): void
+{
+    static $stamp = [];
+    clearstatcache(true, $file);
+    $now = (string) @filemtime($file) . ':' . (string) @filesize($file);
+    if (($stamp[$file] ?? null) === $now && ($now === ':' || is_file($ram))) {
+        return;
+    }
+    $stamp[$file] = $now;
+    $lang = officeNotifyLangSeen($file);
+    if ($lang === null) {
+        if (is_file($ram) && !is_link($ram)) {
+            @unlink($ram);
+        }
+        return;
+    }
+    if (officeNotifyLangSeen($ram) !== $lang && is_dir(dirname($ram))) {
+        try {
+            writeAtomic($ram, jsonEncode(['lang' => $lang]), 0600, 0, 0);
+        } catch (Throwable $e) {
+            logLine('Could not keep the language for the night shift: ' . $e->getMessage());
+        }
+    }
 }
 
 /**
  * A text for a notification from a desk's language file ('' = the office's
  * own): in $lang, else English, else ''. {placeholders} from $params, plurals
- * ({"one": …, "other": …}) by $params['n'].
+ * ({"one": …, "other": …}) by $params['n']; Unraid's labels (⟦Settings⟧, src/words.php)
+ * as Unraid shows them in the language it runs in — $unraid, else Unraid's own.
  */
-function officeNotifyText(string $desk, string $key, array $params = [], string $lang = 'en'): string
+function officeNotifyText(string $desk, string $key, array $params = [], string $lang = 'en', ?string $unraid = null): string
 {
     if ($desk !== '' && !preg_match('/^[a-z][a-z0-9_-]*$/', $desk)) {
         return '';
@@ -346,8 +404,8 @@ function officeNotifyText(string $desk, string $key, array $params = [], string 
     if (is_array($text)) {
         $text = (($params['n'] ?? null) === 1 ? ($text['one'] ?? null) : null) ?? $text['other'] ?? '';
     }
-    return (string) preg_replace_callback('/\{(\w+)\}/', fn ($m) => array_key_exists($m[1], $params) ? (string) $params[$m[1]] : $m[0],
-        is_string($text) ? $text : '');
+    $text = officeUnraidResolve(is_string($text) ? $text : '', officeUnraidWords($unraid ?? officeUnraidLang(), OFFICE_WEB));
+    return (string) preg_replace_callback('/\{(\w+)\}/', fn ($m) => array_key_exists($m[1], $params) ? (string) $params[$m[1]] : $m[0], $text);
 }
 
 // ===================================================================== cron

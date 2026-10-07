@@ -5801,10 +5801,10 @@ function testNotify(): void
     same('notify: switched off — quiet', 2, count($calls()));
     same('notify: switched off — the page knows', false, caretakerNotifyPublic(readJson($file) ?? [])['on']);
 
-    // Unraid's language, when the office speaks it
+    // no language the office was last used in (data/office/lang.json): Unraid's, when the office speaks it
     foreach (['de_DE' => 'de', 'fr_FR' => 'fr', 'pt_BR' => 'en', '' => 'en', '../x' => 'en'] as $locale => $want) {
         file_put_contents("$tmp/dynamix.cfg", "[display]\nlocale=\"$locale\"\n[notify]\nalert=\"1\"\n");
-        same("notify language for locale '$locale'", $want, officeNotifyLang("$tmp/dynamix.cfg"));
+        same("notify language for locale '$locale'", $want, officeNotifyLang("$tmp/dynamix.cfg", "$tmp/no-lang.json"));
     }
     same('notify text: plural and placeholder', '3 neue Dinge zu erledigen', officeNotifyText('caretaker', 'notify.subject', ['n' => 3], 'de'));
     same('notify text: unknown key', '', officeNotifyText('caretaker', 'notify.nothing', [], 'de'));
@@ -9172,13 +9172,214 @@ function testSupporterKeys(): void
     hardeningRm($tmp);
 }
 
+// ===================================================================== the office's language, Unraid's words
+
+/**
+ * The office speaks the browser's language (core.js browserLanguage(), officeBrowserLang() for the server; ⋯ → Language
+ * still wins); Unraid's labels in the texts (⟦Settings⟧, src/words.php) read as Unraid shows them in the language it
+ * runs in; the notifications speak the language the office was last used in (data/office/lang.json, its copy in RAM
+ * for the night shift), else Unraid's.
+ */
+function testOfficeLanguage(): void
+{
+    $tmp = hardeningTmp('lang');
+
+    // Unraid's language: its locale, read from dynamix.cfg line by line (an odd line elsewhere doesn't cost it)
+    same('unraid lang: from locales', ['de', 'en', 'en', 'pt'], array_map('officeUnraidLangOf', ['de_DE', '', '../x', 'pt_BR']));
+    file_put_contents("$tmp/dynamix.cfg", "[confirm]\nodd line \" = \"a\"b\n[display]\ndate=\"%c\"\nlocale=\"fr_FR\"\n");
+    same('unraid lang: read from dynamix.cfg', 'fr', officeUnraidLang("$tmp/dynamix.cfg"));
+    file_put_contents("$tmp/dynamix.cfg", "[display]\nlocale=\"\"\n");
+    same('unraid lang: read again — empty is English', 'en', officeUnraidLang("$tmp/dynamix.cfg"));
+    same('unraid lang: no file is English', 'en', officeUnraidLang("$tmp/none.cfg"));
+
+    // Unraid's words: a dictionary per language, none for English or an unknown one; _meta is no word
+    $de = officeUnraidWords('de', OFFICE_WEB);
+    same('unraid words: German', ['Einstellungen', 'Benutzer-Dienstprogramme'], [$de['Settings'] ?? null, $de['User Utilities'] ?? null]);
+    check('unraid words: _meta left out', !isset($de['_meta']));
+    same('unraid words: none for English, an unknown or an odd language', [[], [], []],
+        [officeUnraidWords('en', OFFICE_WEB), officeUnraidWords('xx', OFFICE_WEB), officeUnraidWords('../de', OFFICE_WEB)]);
+    same('unraid words: resolved', 'Öffne Einstellungen → Benutzer-Dienstprogramme → Fix Common Problems',
+        officeUnraidResolve('Öffne ⟦Settings⟧ → ⟦User Utilities⟧ → Fix Common Problems', $de));
+    same('unraid words: a label without an entry stays as written, placeholders stay', 'Main → {name} → Nowhere',
+        officeUnraidResolve('⟦Main⟧ → {name} → ⟦Nowhere⟧', ['Settings' => 'Einstellungen']));
+    same('unraid words: English Unraid — the labels as written', 'Settings → User Utilities', officeUnraidResolve('⟦Settings⟧ → ⟦User Utilities⟧', []));
+
+    // the notifications: the text in the office's language, Unraid's labels in Unraid's
+    check('notify text: German office, English Unraid',
+        str_starts_with(officeNotifyText('caretaker', 'check.notifications_how', [], 'de', 'en'), 'Unter Settings → Notification Settings für'));
+    check('notify text: German office, German Unraid',
+        str_starts_with(officeNotifyText('caretaker', 'check.notifications_how', [], 'de', 'de'), 'Unter Einstellungen → Benachrichtigungs-Einstellungen für'));
+    check('notify text: English office, French Unraid',
+        str_contains(officeNotifyText('caretaker', 'check.notifications_how', [], 'en', 'fr'), 'under Réglages → Paramètres de notification —'));
+    check('notify text: no label left marked', !str_contains(officeNotifyText('caretaker', 'check.mail_subject_how', [], 'it', 'es'), '⟦'));
+
+    // their language: the one the office was last used in, else Unraid's; only one the office speaks, never through a link
+    file_put_contents("$tmp/dynamix.cfg", "[display]\nlocale=\"de_DE\"\n");
+    same('notify lang: none kept — Unraid\'s', 'de', officeNotifyLang("$tmp/dynamix.cfg", "$tmp/lang.json"));
+    file_put_contents("$tmp/lang.json", json_encode(['lang' => 'it', 'time' => 1]));
+    same('notify lang: the one the office was last used in', 'it', officeNotifyLang("$tmp/dynamix.cfg", "$tmp/lang.json"));
+    foreach (['xx', '../../lang/en', 7] as $odd) {
+        file_put_contents("$tmp/lang.json", json_encode(['lang' => $odd]));
+        same('notify lang: one the office doesn\'t speak — Unraid\'s: ' . json_encode($odd), 'de', officeNotifyLang("$tmp/dynamix.cfg", "$tmp/lang.json"));
+    }
+    unlink("$tmp/lang.json");
+    file_put_contents("$tmp/elsewhere.json", json_encode(['lang' => 'fr']));
+    symlink("$tmp/elsewhere.json", "$tmp/lang.json");
+    same('notify lang: a link is not taken', 'de', officeNotifyLang("$tmp/dynamix.cfg", "$tmp/lang.json"));
+    unlink("$tmp/lang.json");
+
+    // the night shift opens nothing under /mnt: the agent keeps a copy in RAM, the night reads that
+    file_put_contents("$tmp/lang.json", json_encode(['lang' => 'es', 'time' => 2]));
+    officeNotifyLangKeep("$tmp/lang.json", "$tmp/notify.lang");
+    same('night shift: the language copied for it', 'es', officeNotifyLangSeen("$tmp/notify.lang"));
+    same('night shift: speaks it', 'es', officeNotifyLang("$tmp/dynamix.cfg", "$tmp/notify.lang"));
+    $inode = fileinode("$tmp/notify.lang");
+    officeNotifyLangKeep("$tmp/lang.json", "$tmp/notify.lang");
+    same('night shift: the copy is written only when it changes', $inode, fileinode("$tmp/notify.lang"));
+    file_put_contents("$tmp/lang.json", json_encode(['lang' => 'fr', 'time' => 33]));
+    officeNotifyLangKeep("$tmp/lang.json", "$tmp/notify.lang");
+    same('night shift: a new language copied', 'fr', officeNotifyLangSeen("$tmp/notify.lang"));
+    unlink("$tmp/lang.json");
+    officeNotifyLangKeep("$tmp/lang.json", "$tmp/notify.lang");
+    check('night shift: no language kept — no copy', !file_exists("$tmp/notify.lang"));
+    $house = (string) file_get_contents(OFFICE_DIR . '/agent/lib/house.php');
+    check('night shift: reads the RAM copy, never the data folder', str_contains($house, 'NIGHT_MODE ? OFFICE_NOTIFY_LANG_RAM : OFFICE_LANG_FILE'));
+    check('agent: keeps the copy fresh once a minute', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/agent.php'), 'officeNotifyLangKeep();'));
+    check('agent: restarts when src/words.php changes', in_array(OFFICE_DIR . '/src/words.php', codeFiles(), true));
+
+    // the web side, in a process of its own on a copy laid out like the plugin (src/ beside the web files): the
+    // browser's language by its header, the tile, office.lang, the page's config
+    @mkdir("$tmp/data/office", 0700, true);
+    @mkdir("$tmp/plugin/src", 0700, true);
+    foreach (glob(OFFICE_DIR . '/src/*.php') ?: [] as $f) {
+        copy($f, "$tmp/plugin/src/" . basename($f));
+    }
+    foreach (['assets', 'desks', 'lang'] as $d) {
+        @symlink(OFFICE_WEB . "/$d", "$tmp/plugin/$d");
+    }
+    $accept = ['de-CH,de;q=0.9,en;q=0.8', 'rm,fr;q=0.5', 'en-US,en;q=0.9', 'pt-BR', '', '*', 'fr;q=0.2, it;q=0.9', 'xx, ES', 'de;q=0, en;q=0.1', 'zh-Hant-TW, de'];
+    file_put_contents("$tmp/web.php", '<?php foreach (["bootstrap", "page", "dashboard", "api"] as $f) { require ' . var_export("$tmp/plugin/src", true) . ' . "/$f.php"; }'
+        . ' $out = ["accept" => array_map(fn ($a) => officeBrowserLang($a, ["de", "en", "es", "fr", "it"]), json_decode($argv[1], true))];'
+        . ' $out["dash"] = [officeDashLang("fr", "de-CH"), officeDashLang("xx", "de-CH,de;q=0.9"), officeDashLang(null, ""), officeDashLang("", "rm, it;q=0.5")];'
+        . ' $out["seen0"] = officeLangRemembered();'
+        . ' $try = function (array $d) { try { return officeLangRemember($d)["lang"]; } catch (OfficeProblem $e) { return $e->key; } };'
+        . ' $out["remember"] = [$try(["lang" => "it"]), $try(["lang" => "xx"]), $try(["lang" => ["it"]]), $try([])];'
+        . ' $out["seen1"] = officeLangRemembered();'
+        . ' $out["mode"] = substr(sprintf("%o", fileperms(officeLangFile())), -3);'
+        . ' $GLOBALS["locale"] = "de_DE"; $c = officePageConfig();'
+        . ' $out["config"] = [$c["unraid_lang"], $c["unraid_words"]->Settings ?? null, $c["lang_seen"]];'
+        . ' $out["dashT"] = officeDashT(["k" => "⟦Main⟧ → {x}"], "k", ["x" => "⟦y⟧"]);'
+        . ' $GLOBALS["locale"] = ""; $out["en"] = [officePageConfig()["unraid_words"], officeDashT(["k" => "⟦Main⟧"], "k")];'
+        . ' echo json_encode($out, JSON_UNESCAPED_UNICODE);');
+    $p = proc_open([PHP_BINARY, "$tmp/web.php", json_encode($accept)], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+        ['OFFICE_DATA_DIR' => "$tmp/data", 'PATH' => getenv('PATH')]);
+    $raw = (string) stream_get_contents($pipes[1]);
+    $err = trim((string) stream_get_contents($pipes[2]));
+    proc_close($p);
+    $out = json_decode($raw, true) ?? [];
+    same('web: no warnings', '', $err);
+    same('browser language by Accept-Language', ['de', 'fr', 'en', null, null, null, 'it', 'es', 'en', 'de'], $out['accept'] ?? null);
+    same('dashboard tile: the one asked for, else the browser\'s, else English', ['fr', 'de', 'en', 'it'], $out['dash'] ?? null);
+    same('office.lang: nothing kept yet', [true, null], [array_key_exists('seen0', $out), $out['seen0'] ?? null]);
+    same('office.lang: a language the office speaks is kept, nothing else', ['it', 'bad_request', 'bad_request', 'bad_request'], $out['remember'] ?? null);
+    same('office.lang: kept', 'it', $out['seen1'] ?? null);
+    same('office.lang: a plain file the agent reads', '644', $out['mode'] ?? null);
+    same('page: Unraid\'s language and its words, the language kept', ['de', 'Einstellungen', 'it'], $out['config'] ?? null);
+    same('dashboard: Unraid\'s labels in Unraid\'s words, placeholders not touched', 'Start → ⟦y⟧', $out['dashT'] ?? null);
+    same('page: no words for an English Unraid (an object for the page)', [[], 'Main'], $out['en'] ?? null);
+    check('page: unraid_words is an object', str_contains($raw, '"en":[{}'), $raw);
+
+    // the page: the browser's language unless one was chosen here; Unraid's labels in t(); it tells the server quietly
+    $core = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
+    check('page: the language chosen here, else the browser\'s (navigator.languages)',
+        preg_match('/function pickLanguage\(\) \{[^}]*Office\.store\(\'lang\'\)[^}]*return browserLanguage\(codes\);\s*\}/', $core) === 1
+        && str_contains($core, 'navigator.languages'));
+    check('page: Unraid\'s language doesn\'t pick the office\'s', !str_contains($core, 'codes.includes(CONFIG.unraid_lang)'));
+    check('page: t() puts in Unraid\'s words before the placeholders', preg_match('/s = unraidWords\(String\(s\)\);\s*if \(!params\) return s;/', $core) === 1);
+    check('page: tells the server its language, quietly', str_contains($core, "Office.api.post('office.lang'") && preg_match('/const QUIET = .*\|lang\)\$\//', $core) === 1);
+    check('dashboard tile: picks like the page', str_contains((string) file_get_contents(OFFICE_DIR . '/src/dashboard.php'), 'navigator.languages'));
+    hardeningRm($tmp);
+}
+
+/** The ⟦labels⟧ of a text, sorted (with repeats) */
+function langTokens(string $s): array
+{
+    preg_match_all('/⟦([^⟦⟧]+)⟧/u', $s, $m);
+    $found = $m[1];
+    sort($found);
+    return $found;
+}
+
+/**
+ * Unraid's labels in the texts: well-formed (⟦label⟧, no placeholder inside), the same labels in every language as in
+ * English (every form of a plural like English's «other»), and every dictionary (lang/unraid/<code>.json, from Unraid's
+ * language packs) has each label the texts use — and none they don't.
+ */
+function testUnraidWords(): void
+{
+    $pub = OFFICE_DIR . '/public';
+    $dicts = [];
+    foreach (glob("$pub/lang/unraid/*.json") ?: [] as $file) {
+        $code = basename($file, '.json');
+        $d = json_decode((string) file_get_contents($file), true);
+        check("unraid words $code: names its language pack and commit", is_array($d) && is_string($d['_meta']['pack'] ?? null)
+            && str_starts_with($d['_meta']['pack'], 'https://github.com/unraid/lang-') && preg_match('/^[0-9a-f]{40}$/D', (string) ($d['_meta']['commit'] ?? '')) === 1);
+        $d = is_array($d) ? $d : [];
+        unset($d['_meta']);
+        same("unraid words $code: label => word, plain texts", [], array_keys(array_filter($d,
+            fn ($v, $k) => !is_string($k) || !is_string($v) || trim($v) === '' || preg_match('/[⟦⟧{}<>]/u', $k . $v) === 1, ARRAY_FILTER_USE_BOTH)));
+        $dicts[$code] = $d;
+    }
+    ksort($dicts);
+    same('unraid words: a dictionary for every language the office speaks besides English', ['de', 'es', 'fr', 'it'], array_keys($dicts));
+
+    $sets = ['office' => "$pub/lang"];
+    foreach (glob("$pub/desks/*/lang") ?: [] as $dir) {
+        $sets[basename(dirname($dir))] = $dir;
+    }
+    $used = [];
+    foreach ($sets as $where => $dir) {
+        $en = langFile("$dir/en.json");
+        foreach (glob("$dir/*.json") ?: [] as $file) {
+            $code = basename($file, '.json');
+            $bad = $diff = [];
+            foreach (langFile($file) as $k => $v) {
+                $want = isset($en[$k]) ? langTokens((string) (is_array($en[$k]) ? ($en[$k]['other'] ?? '') : $en[$k])) : null;
+                foreach (is_array($v) ? $v : [$v] as $form) {
+                    if (!is_string($form)) {
+                        continue;
+                    }
+                    if (preg_match('/[⟦⟧]/u', (string) preg_replace('/⟦[^⟦⟧{}]+⟧/u', '', $form))) {
+                        $bad[] = $k;
+                    }
+                    if ($want !== null && langTokens($form) !== $want) {
+                        $diff[] = $k;
+                    }
+                    if ($code === 'en') {
+                        foreach (langTokens($form) as $label) {
+                            $used[$label] = true;
+                        }
+                    }
+                }
+            }
+            same("$where/$code: Unraid's labels well-formed (⟦label⟧)", [], array_values(array_unique($bad)));
+            same("$where/$code: Unraid's labels like English", [], array_values(array_unique($diff)));
+        }
+    }
+    check('unraid words: the texts use them', count($used) > 50, (string) count($used));
+    foreach ($dicts as $code => $d) {
+        same("unraid words $code: every label the texts use", [], array_values(array_diff(array_keys($used), array_keys($d))));
+        same("unraid words $code: no label the texts don't use", [], array_values(array_diff(array_keys($d), array_keys($used))));
+    }
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
-          'strings' => ['testStrings']];
+          'strings' => ['testStrings', 'testUnraidWords']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
     if ($only === '' || $only === $name) {

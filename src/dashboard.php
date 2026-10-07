@@ -10,30 +10,33 @@ declare(strict_types=1);
  * night watchman's night shift (since when, its rounds, what is new) — each row
  * a link into the office. Built from the desks' state files only (no request
  * to the agent, no disk wakes up); the tile asks api.php?a=dash again every
- * minute. While Mr. Restori restores, a row of his says what. Texts from the office's language files (dash.*): the language this
- * browser chose in the office, else Unraid's when the office speaks it.
+ * minute. While Mr. Restori restores, a row of his says what. Texts from the office's language files (dash.*) in the
+ * office's language — the browser's (like the page: the one chosen in ⋯ → Language, else the browser's own), Unraid's
+ * labels in them in Unraid's words (src/words.php).
  */
 
-/** The language for the tile: the one asked for if the office has it, else Unraid's, else English */
-function officeDashLang(?string $want = null): string
+/**
+ * The language for the tile: the one asked for (the tile's script: chosen for this browser, else the browser's) if the
+ * office has it, else the browser's by its Accept-Language header, else English
+ */
+function officeDashLang(?string $want = null, ?string $accept = null): string
 {
     $codes = array_column(officeLanguages(), 'code');
-    foreach ([$want, strtolower(strtok((string) ($GLOBALS['locale'] ?? ''), '_-') ?: '')] as $code) {
-        if ($code && in_array($code, $codes, true)) {
-            return $code;
-        }
+    if ($want !== null && in_array($want, $codes, true)) {
+        return $want;
     }
-    return 'en';
+    return officeBrowserLang($accept ?? (string) ($_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? ''), $codes) ?? 'en';
 }
 
-/** A string with {placeholders}; plurals as {one, other} by n */
+/** A string with {placeholders}; plurals as {one, other} by n; Unraid's labels (⟦…⟧) as Unraid shows them */
 function officeDashT(array $strings, string $key, array $params = []): string
 {
     $s = $strings[$key] ?? $key;
     if (is_array($s)) {
         $s = (($params['n'] ?? 0) === 1 ? ($s['one'] ?? null) : null) ?? $s['other'] ?? '';
     }
-    return (string) preg_replace_callback('/\{(\w+)\}/', fn ($m) => (string) ($params[$m[1]] ?? $m[0]), (string) $s);
+    $s = officeUnraidResolve((string) $s, officeUnraidWords(officeUnraidLang(), OFFICE_PUBLIC));
+    return (string) preg_replace_callback('/\{(\w+)\}/', fn ($m) => (string) ($params[$m[1]] ?? $m[0]), $s);
 }
 
 /** "today 12:26", "yesterday 02:00", "tomorrow 02:00", else the date */
@@ -224,6 +227,7 @@ function officeDashRows(string $lang): string
 function officeDashTile(): string
 {
     $lang = officeDashLang();
+    $codes = array_column(officeLanguages(), 'code');
     $s = officeStrings($lang);
     $h = static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES);
     $name = officeMenuName();
@@ -248,11 +252,16 @@ function officeDashTile(): string
         . '#db-sso .sso-dash-name small{opacity:.7;font-size:.92em}'
         . '#db-sso .sso-dash-state{margin-left:auto;text-align:right}'
         . '</style>'
-        // the language this browser chose in the office (⋯ → Language) wins over Unraid's
-        . '<script>(function(){var lang=' . json_encode($lang) . ',own=null;try{own=localStorage.getItem("office.lang");}catch(e){}'
-        . 'var u=' . json_encode($api) . '+encodeURIComponent(own||lang);'
+        // the office's language like the page's (core.js pickLanguage()): the one this browser chose in the office
+        // (⋯ → Language), else the first of the browser's languages the office speaks, else English
+        . '<script>(function(){var lang=' . json_encode($lang) . ',codes=' . json_encode($codes) . ',own=null,i,j;'
+        . 'try{own=localStorage.getItem("office.lang");}catch(e){}'
+        . 'if(codes.indexOf(own)<0){own=null;var t=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language||""];'
+        . 'for(i=0;i<t.length&&!own;i++){var x=String(t[i]||"").toLowerCase(),m=x.split("-")[0];'
+        . 'for(j=0;j<codes.length&&!own;j++){if(codes[j].toLowerCase()===x)own=codes[j];}if(!own&&codes.indexOf(m)>=0)own=m;}}'
+        . 'own=own||"en";var u=' . json_encode($api) . '+encodeURIComponent(own);'
         . 'function load(){fetch(u,{cache:"no-store"}).then(function(r){return r.json();}).then(function(j){var b=document.getElementById("sso-dash");if(b&&j&&j.ok)b.innerHTML=j.html;}).catch(function(){});}'
-        // the first time always (another language); then every minute while the page is in view, and when it comes back
-        . 'if(own&&own!==lang)load();setInterval(function(){if(!document.hidden)load();},60000);'
+        // the first time when the server guessed another language; then every minute while the page is in view, and when it comes back
+        . 'if(own!==lang)load();setInterval(function(){if(!document.hidden)load();},60000);'
         . 'document.addEventListener("visibilitychange",function(){if(!document.hidden)load();});})();</script>';
 }
