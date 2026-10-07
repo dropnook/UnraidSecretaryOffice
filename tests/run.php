@@ -28,7 +28,8 @@ declare(strict_types=1);
  *            tips (how secure it stands) and the link to Grafana,
  *            job.sh's guard against a second start in the same minute, Ms. Dustdevil's «Where is what» on
  *            exclusive shares and on cron lines whose program is gone, and her taking over Ms. Whereabouts
- *            (the state files, the staff list, the old addresses, the page's parts))
+ *            (the state files, the staff list, the old addresses, the page's parts), the staff's order
+ *            (office.staff_order, the default order))
  *   hardening  the checks that keep requests, manifests, paths and links in
  *            bounds (safe writes, the mailbox — and a request a restarting agent dropped —, Ms. Snapshotini's record of what she removed, Ms. Dustdevil's
  *            manifests, Emby paths, anchored validators, the release link, the
@@ -8323,6 +8324,119 @@ function testStaffMerged(): void
 }
 
 /**
+ * The staff's order (Benj, 2026-10-07: «Change the order» at the reception): kept in staff.json "order" through
+ * office.staff_order (src/staff.php) — the team lead first and never moved, ids of desks that are gone dropped, the
+ * desks it doesn't name after the named ones in desk.json's order, a desk that went into another one at the earlier
+ * place; the page gets it as CONFIG.staff_order. A fresh office shows Ms. Dustdevil right after the team lead, where
+ * Ms. Whereabouts was.
+ */
+function testStaffOrder(): void
+{
+    require_once OFFICE_DIR . '/src/staff.php';
+    // desk.json's order: what a fresh office shows
+    $meta = [];
+    foreach (glob(OFFICE_DIR . '/public/desks/*/desk.json') ?: [] as $f) {
+        $meta[basename(dirname($f))] = json_decode((string) file_get_contents($f), true) ?: [];
+    }
+    uksort($meta, fn ($a, $b) => [(int) ($meta[$a]['order'] ?? 100), $a] <=> [(int) ($meta[$b]['order'] ?? 100), $b]);
+    $default = array_keys($meta);
+    same('staff order: a fresh office — the team lead, then Ms. Dustdevil (where Ms. Whereabouts was, order 20)',
+        [['caretaker', 'cleanup'], 20], [array_slice($default, 0, 2), $meta['cleanup']['order'] ?? null]);
+    check('staff order: no desk.json places a desk differently at the reception any more',
+        !array_filter($meta, fn ($m) => array_key_exists('reception_order', $m)));
+
+    $desks = ['caretaker' => ['always' => true], 'cleanup' => [], 'backup' => [], 'restore' => [], 'snapshot' => [], 'logs' => []];
+    same('staff order: none set — desk.json\'s', ['caretaker', 'cleanup', 'backup', 'restore', 'snapshot', 'logs'], officeStaffOrderOf([], $desks));
+    same('staff order: the user\'s, the rest after it in desk.json\'s order', ['caretaker', 'logs', 'backup', 'cleanup', 'restore', 'snapshot'],
+        officeStaffOrderOf(['order' => ['logs', 'backup']], $desks));
+    same('staff order: unknown ids and odd entries dropped, each once, the team lead stays first',
+        ['caretaker', 'backup', 'logs', 'cleanup', 'restore', 'snapshot'],
+        officeStaffOrderOf(['order' => ['ghost', 'backup', 'caretaker', 'backup', 'logs', 7, null, ['x'], "logs\n"]], $desks));
+    same('staff order: an "order" that isn\'t a list counts for nothing', officeStaffOrderOf([], $desks), officeStaffOrderOf(['order' => 'backup'], $desks));
+    same('staff order: a desk that went into another one counts as that one, at the earlier place',
+        ['caretaker', 'cleanup', 'backup', 'restore', 'snapshot', 'logs'], officeStaffOrderOf(['order' => ['whereabouts', 'backup', 'cleanup']], $desks));
+    same('staff order: … also when the old one is the later', ['caretaker', 'cleanup', 'backup', 'restore', 'snapshot', 'logs'],
+        officeStaffOrderOf(['order' => ['cleanup', 'backup', 'whereabouts']], $desks));
+    same('staff merged: the order too — whereabouts becomes cleanup at the earlier place, the rest untouched',
+        ['backup', 'cleanup', 'ghost', 'logs'], officeStaffMerged(['hired' => ['backup' => 1], 'order' => ['backup', 'whereabouts', 'ghost', 'logs', 'cleanup']], $desks)['order'] ?? null);
+    same('staff merged: only in the order (no longer hired) — rewritten as well, hired as it was',
+        [['backup' => 1], ['cleanup']], array_values(array_intersect_key(officeStaffMerged(['hired' => ['backup' => 1], 'order' => ['whereabouts']], $desks) ?? [], ['hired' => 1, 'order' => 1])));
+    same('staff merged: an order without a merged desk is left alone', null, officeStaffMerged(['hired' => ['cleanup' => 1], 'order' => ['logs', 'cleanup']], $desks));
+    same('staff merged: hired whereabouts keeps the order as it is', ['logs'], officeStaffMerged(['hired' => ['whereabouts' => 3], 'order' => ['logs']], $desks)['order'] ?? null);
+
+    $core = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
+    $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
+    check('staff order: the API takes office.staff_order, the page sends it, the tabs and the reception follow the order',
+        str_contains($api, "\$action === 'office.staff_order'") && str_contains($core, "Office.api.post('office.staff_order'")
+        && str_contains($core, 'for (const d of Office.staffInOrder()) add(') && str_contains($core, 'for (const desk of Office.staffInOrder())')
+        && !str_contains($core, 'reception_order'));
+    check('staff order: the team lead\'s «The team» follows it', str_contains((string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/desk.js'), 'Office.deskRank(a.id) - Office.deskRank(b.id)'));
+
+    // the office action through the web side, in a process of its own: a plugin's layout (src/ beside the web files,
+    // the repository's desks and languages), the data folder in $tmp
+    $tmp = hardeningTmp('staff-order');
+    mkdir("$tmp/plugin/src", 0700, true);
+    foreach (glob(OFFICE_DIR . '/src/*.php') ?: [] as $f) {
+        copy($f, "$tmp/plugin/src/" . basename($f));
+    }
+    symlink(OFFICE_DIR . '/public/desks', "$tmp/plugin/desks");
+    symlink(OFFICE_DIR . '/public/lang', "$tmp/plugin/lang");
+    mkdir("$tmp/data/office", 0700, true);
+    $file = "$tmp/data/office/staff.json";
+    file_put_contents($file, json_encode(['hired' => ['backup' => 5, 'whereabouts' => 7, 'logs' => 8], 'order' => ['logs', 'whereabouts', 'backup']]));
+    $web = "$tmp/web.php";
+    file_put_contents($web, '<?php require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . '; require ' . var_export("$tmp/plugin/src/page.php", true) . ';'
+        . ' $out = [officeStaffOrder()]; foreach (json_decode(stream_get_contents(STDIN), true) as [$a, $d]) { try {'
+        . ' $out[] = $a === "office.staff_order" ? officeStaffOrderAction($d) : ($a === "page" ? ["order" => officePageConfig()["staff_order"]] : officeStaffAction($a, $d)); }'
+        . ' catch (OfficeProblem $e) { $out[] = ["error" => $e->key, "params" => $e->params]; } $out[] = json_decode((string) @file_get_contents('
+        . var_export($file, true) . '), true); } echo json_encode($out);');
+    $webRun = function (array $steps, string $data) use ($web): array {
+        $p = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => $data, 'PATH' => getenv('PATH')]);
+        fwrite($pipes[0], json_encode($steps));
+        fclose($pipes[0]);
+        $raw = (string) stream_get_contents($pipes[1]);
+        $err = (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return [json_decode($raw, true) ?: [], $raw . $err];
+    };
+    $rest = fn (array $first): array => array_values(array_unique(array_merge(['caretaker'], $first, $default)));
+    [$out, $raw] = $webRun([
+        ['office.staff_order', ['order' => ['backup', 'cleanup', 'logs']]],
+        ['office.staff_order', ['order' => ['ghost', 'caretaker', 'logs', 'logs', 'whereabouts', '../x', 'backup']]],
+        ['office.staff_order', ['order' => ['a' => 'backup']]],
+        ['office.staff_order', ['order' => ['backup', 7]]],
+        ['office.staff_order', ['order' => array_fill(0, OFFICE_ORDER_MAX + 1, 'backup')]],
+        ['office.staff_order', []],
+        ['office.hire', ['desks' => ['emby']]],
+        ['office.fire', ['desk' => 'logs']],
+        ['page', []],
+        ['office.staff_order', ['order' => []]],
+        ['page', []],
+    ], "$tmp/data");
+    same('staff order web: read — whereabouts is cleanup now, in the order at her place', $rest(['logs', 'cleanup', 'backup']), $out[0] ?? $raw);
+    same('staff order web: a valid order kept, the answer every desk\'s', [$rest(['backup', 'cleanup', 'logs']), ['backup', 'cleanup', 'logs']],
+        [$out[1]['order'] ?? $raw, $out[2]['order'] ?? null]);
+    same('staff order web: the hired list as it was, merged once', ['backup' => 5, 'logs' => 8, 'cleanup' => 7], $out[2]['hired'] ?? null);
+    same('staff order web: unknown ids dropped, the team lead never in it, each once, the merged desk as the one that took over',
+        [$rest(['logs', 'cleanup', 'backup']), ['logs', 'cleanup', 'backup']], [$out[3]['order'] ?? $raw, $out[4]['order'] ?? null]);
+    same('staff order web: no list, a number in it, too long, nothing sent — refused, the file unchanged',
+        [['bad_request', ['logs', 'cleanup', 'backup']], ['bad_request', ['logs', 'cleanup', 'backup']], ['bad_request', ['logs', 'cleanup', 'backup']], ['missing_field', ['logs', 'cleanup', 'backup']]],
+        [[$out[5]['error'] ?? null, $out[6]['order'] ?? null], [$out[7]['error'] ?? null, $out[8]['order'] ?? null], [$out[9]['error'] ?? null, $out[10]['order'] ?? null], [$out[11]['error'] ?? null, $out[12]['order'] ?? null]]);
+    same('staff order web: hiring and letting go keep the order', [['logs', 'cleanup', 'backup'], ['logs', 'cleanup', 'backup']], [$out[14]['order'] ?? $raw, $out[16]['order'] ?? null]);
+    same('staff order web: the page gets it (CONFIG.staff_order)', $rest(['logs', 'cleanup', 'backup']), $out[17]['order'] ?? $raw);
+    same('staff order web: «As at the start» — no order kept, desk.json\'s again', [$default, false, $default],
+        [$out[19]['order'] ?? $raw, array_key_exists('order', $out[20] ?? ['order' => 1]), $out[21]['order'] ?? null]);
+    same('staff order web: mode and no temporary files', ['644', []], [substr(sprintf('%o', fileperms($file)), -3),
+        array_values(array_filter(scandir("$tmp/data/office") ?: [], fn ($n) => str_ends_with($n, '.tmp')))]);
+    // without data/office (the agent makes it): said, nothing written
+    mkdir("$tmp/none", 0700);
+    [$out, $raw] = $webRun([['office.staff_order', ['order' => ['backup']]]], "$tmp/none");
+    same('staff order web: no data/office — office_storage, nothing written', ['office_storage', $default, []], [$out[1]['error'] ?? $raw, $out[0] ?? null, array_values(array_diff(scandir("$tmp/none") ?: [], ['.', '..']))]);
+    hardeningRm($tmp);
+}
+
+/**
  * Old addresses of a desk that went into another one lead to the part of the page that took it over
  * (core.js movedDesk(), under node): #/whereabouts… → #/cleanup/where; nothing else is touched.
  */
@@ -8575,7 +8689,7 @@ function testSupporterKeys(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testStaffMerged', 'testMovedDesk', 'testSupporter', 'testLeftovers'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';

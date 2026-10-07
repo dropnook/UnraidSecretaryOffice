@@ -110,7 +110,7 @@
   "hired": "Bienvenue : {names}",
   "fit.yes": "{name} viendrait volontiers.",
   "fit.no": "{name} ne convient pas à ce serveur.",
-  "help.team": "Qui travaille au secrétariat. Je demande à chacun s'il convient à ton serveur — ceux qui ne conviennent pas déclinent. Embaucher montre le bureau à l'accueil et dans les onglets ; renvoyer le masque à nouveau sans rien supprimer.",
+  "help.team": "Qui travaille au secrétariat. Je demande à chacun s'il convient à ton serveur — ceux qui ne conviennent pas déclinent. Embaucher montre le bureau à l'accueil et dans les onglets ; renvoyer le masque à nouveau sans rien supprimer. Ceux qui travaillent ici viennent d'abord, dans l'ordre choisi à l'accueil.",
   "help.supporter": "Le secrétariat est gratuit et complet — rien n'est jamais verrouillé. Un pourboire est bienvenu, et il s'accompagne d'une clé de soutien (la cagnotte explique comment). Elle ne débloque rien ; elle arrête seulement les rappels et affiche un petit merci à côté de « Pourboire & augmentation ».",
   "tip_button": "☕ Pourboire & augmentation",
   "tip_button_title": "L'équipe serait ravie d'un pourboire (PayPal)",

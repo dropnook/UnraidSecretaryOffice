@@ -195,7 +195,7 @@ function loggedOut(r) {
 // page until it is answered: Unraid's own (div.spinner.fixed, the animated logo
 // every Unraid page has; ours only if a page lacks it). Reads that poll or run
 // beside the page (a log being followed, an estimate) stay quiet.
-const QUIET = /\.(read|output|log|estimate|detail|measure|where_refresh|where_measure)$/;
+const QUIET = /\.(read|output|log|estimate|detail|measure|where_refresh|where_measure|staff_order)$/;
 let busyCount = 0, busyTimer = null;
 function busyEl() {
   const unraid = document.querySelector('div.spinner.fixed');
@@ -524,6 +524,22 @@ Office.desk = function registerDesk(desk) {
 };
 
 /**
+ * The staff's order (src/staff.php, data/office/staff.json "order", the same in every browser): every desk's id — the
+ * team lead first, then the order the user set at the reception («Change the order»), then the rest by desk.json's
+ * order. The reception's cards, the tabs and the team lead's «The team» follow it.
+ */
+let staffOrder = Array.isArray(CONFIG.staff_order) ? CONFIG.staff_order.slice() : [];
+/** A desk's place in the staff's order (one it doesn't name: after all of them, by desk.json's order) */
+Office.deskRank = function deskRank(id) {
+  const i = staffOrder.indexOf(id);
+  if (i >= 0) return i;
+  const d = Office.desks.get(id) || CONFIG.desks.find((x) => x.id === id) || {};
+  return staffOrder.length + 1000 + (d.order ?? 0);
+};
+/** The desks that work here, in the staff's order */
+Office.staffInOrder = () => [...Office.desks.values()].filter((d) => d.hired).sort((a, b) => Office.deskRank(a.id) - Office.deskRank(b.id));
+
+/**
  * Desks that went into another one: their old addresses lead to the part of the page that took them over
  * (2026-10: Ms. Whereabouts' work is Ms. Dustdevil's «Where is what»). The address as it should be, or null.
  */
@@ -586,7 +602,7 @@ function tabs() {
   };
   add('#/', '', t('office.reception'), !Office.current);
   // without the data folder (the array stopped) nobody's state is there: only the reception, which says why
-  if (!noData()) for (const d of Office.desks.values()) if (d.hired) add(`#/${d.id}`, d.id, t(`${d.id}.name`), Office.current === d);
+  if (!noData()) for (const d of Office.staffInOrder()) add(`#/${d.id}`, d.id, t(`${d.id}.name`), Office.current === d);
   // on a phone the tabs scroll sideways in their row: the current one in view (only the row moves, not the page)
   if (current && nav.scrollWidth > nav.clientWidth) {
     nav.scrollLeft = Math.max(0, current.offsetLeft - nav.offsetLeft - (nav.clientWidth - current.offsetWidth) / 2);
@@ -1016,6 +1032,7 @@ Office.deskHead = function deskHead(desk, { bubble, actions, page, pageSub }) {
 
 // ------------------------------------------------------------------ reception
 async function reception(root) {
+  Office.selbar(null);                      // a reception drawn anew is never still arranging
   const head = el('div', 'deskhead');
   head.appendChild(Office.avatar(''));
   const text = el('div', 'deskhead-text');
@@ -1026,9 +1043,11 @@ async function reception(root) {
 
   const grid = el('div', 'reception');
   root.appendChild(grid);
-  const order = [...Office.desks.values()].filter((d) => d.hired).sort((a, b) => (a.reception_order ?? a.order ?? 0) - (b.reception_order ?? b.order ?? 0));
-  for (const desk of order) {
+  const cards = new Map();
+  for (const desk of Office.staffInOrder()) {
     const card = el('div', 'desk-card');
+    card.dataset.desk = desk.id;
+    cards.set(desk.id, card);
     const top = el('div', 'desk-card-head');
     const name = el('div');
     name.append(el('h2', '', t(`${desk.id}.name`)), el('div', 'role', t(`${desk.id}.role`)));
@@ -1061,6 +1080,154 @@ async function reception(root) {
     } else {
       bubble.textContent = t('office.no_news');
     }
+  }
+  arrangeable(head, grid, cards);
+}
+
+/**
+ * «Change the order» at the reception: the user puts the staff in the order they like — the reception's cards,
+ * the tabs and the team lead's «The team» follow it (Office.deskRank), kept on the server for every browser
+ * (office.staff_order, src/staff.php). While arranging, the cards are small (name and role) and carry ▲ / ▼;
+ * the team lead stays first (he leads the team, his card says so); the selection bar at the bottom has «As at
+ * the start» and «Done». Every move is saved at once (the last one wins, never two at a time); the moved card
+ * stays where it is on screen (Office.keepInPlace).
+ */
+function arrangeable(head, grid, cards) {
+  const all = () => [...cards.keys()];
+  const movable = () => all().filter((id) => !Office.desks.get(id).always);
+  if (movable().length < 2) return;           // the team lead and one more: nothing to put in order
+  const start = el('button', 'btn small plain', t('office.order_change'));
+  start.type = 'button';
+  start.title = t('office.order_change_title');
+  const acts = el('div', 'deskhead-actions');
+  acts.appendChild(start);
+  head.appendChild(acts);
+
+  // every card gets its line for arranging (shown only then): ▲ / ▼, the team lead a word why he stays first
+  const moves = new Map();
+  for (const [id, card] of cards) {
+    const line = el('div', 'desk-card-move');
+    if (Office.desks.get(id).always) {
+      const chip = el('span', 'chip quiet', t('office.order_lead'));
+      chip.title = t('office.order_lead_title', { name: t(`${id}.name`) });
+      line.appendChild(chip);
+    } else {
+      const button = (glyph, label, step) => {
+        const b = el('button', 'btn small plain', `${glyph} ${label}`);
+        b.type = 'button';
+        b.setAttribute('aria-label', `${t(`${id}.name`)}: ${label}`);
+        b.onclick = () => move(id, step, b);
+        line.appendChild(b);
+        return b;
+      };
+      moves.set(id, { up: button('▲', t('office.order_up'), -1), down: button('▼', t('office.order_down'), 1) });
+    }
+    card.appendChild(line);
+  }
+
+  const byRank = (a, b) => Office.deskRank(a) - Office.deskRank(b);
+  /** they stand as a fresh office has them (desk.json's order): «As at the start» has nothing to do */
+  const isDefault = () => {
+    const now = movable().sort(byRank);
+    return now.join() === CONFIG.desks.map((d) => d.id).filter((id) => now.includes(id)).join();
+  };
+  /** the cards in the staff's order, ▲ / ▼ only where there is somewhere to go */
+  const place = () => {
+    const ids = all().sort(byRank);
+    ids.forEach((id, i) => { if (grid.children[i] !== cards.get(id)) grid.insertBefore(cards.get(id), grid.children[i] || null); });
+    const free = ids.filter((id) => moves.has(id));
+    free.forEach((id, i) => { moves.get(id).up.disabled = i === 0; moves.get(id).down.disabled = i === free.length - 1; });
+  };
+  /** what stays where it is when the cards change size: the card just moved while all of it is in view (above the
+      bar), else the first card that begins in view (or the one reaching into it from above) */
+  const seen = (c) => { const r = c.getBoundingClientRect(); return r.bottom > 0 && r.top < window.innerHeight; };
+  const inView = () => {
+    const bar = $('.selbar', ROOT);
+    const bottom = bar ? bar.getBoundingClientRect().top : window.innerHeight;
+    const whole = moved && moved.getBoundingClientRect();
+    if (whole && whole.top >= 0 && whole.bottom <= bottom) return moved;
+    return [...grid.children].find((c) => { const top = c.getBoundingClientRect().top; return top >= 0 && top < bottom; })
+      || [...grid.children].find(seen) || grid;
+  };
+  let moved = null;
+  const mark = (card) => { if (moved) moved.classList.remove('moved'); moved = card; if (card) card.classList.add('moved'); };
+  const bar = () => Office.selbar({
+    title: t('office.order_title'),
+    sub: t('office.order_hint', { name: t(`${all().find((id) => Office.desks.get(id).always) || 'caretaker'}.name`) }),
+    buttons: [
+      { text: t('office.order_default'), kind: 'plain', disabled: isDefault(), act: reset },
+      { text: t('office.order_done'), act: done },
+    ],
+  });
+
+  function open() {
+    Office.hideTip();
+    Office.keepInPlace(inView(), () => { grid.classList.add('arranging'); start.hidden = true; place(); });
+    bar();
+  }
+  function done() {
+    Office.hideTip();
+    Office.keepInPlace(inView(), () => { grid.classList.remove('arranging'); start.hidden = false; mark(null); });
+    Office.selbar(null);
+  }
+  /** one step forward (-1) or back (+1) among the desks that can move */
+  function move(id, step, b) {
+    const ids = movable().sort(byRank);
+    const i = ids.indexOf(id);
+    const j = i + step;
+    if (i < 0 || j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    const card = cards.get(id);
+    const focused = document.activeElement === b;
+    setStaffOrder(ids);
+    Office.keepInPlace(card, place);
+    mark(card);
+    // the keyboard keeps its place: on the same button, or at the end of the line on the other one
+    if (focused) (b.disabled ? moves.get(id)[step < 0 ? 'down' : 'up'] : b).focus({ preventScroll: true });
+    bar();
+    saveStaffOrder(ids);
+  }
+  /** «As at the start»: desk.json's order again (staff.json without "order") */
+  function reset() {
+    setStaffOrder([]);
+    Office.keepInPlace(inView(), place);
+    bar();
+    saveStaffOrder([]);
+  }
+  start.onclick = open;
+}
+
+/** The staff's order in this page at once (the movable ids as the user put them; [] = desk.json's) — the tabs follow */
+function setStaffOrder(ids) {
+  const always = CONFIG.desks.filter((d) => d.always).map((d) => d.id);
+  staffOrder = [...always, ...ids, ...CONFIG.desks.map((d) => d.id).filter((id) => !always.includes(id) && !ids.includes(id))];
+  tabs();
+}
+
+/** Keeps the order on the server (office.staff_order): one request at a time, only the newest order goes after it */
+let orderSending = false, orderNext = null, orderKept = staffOrder.slice();
+async function saveStaffOrder(ids) {
+  orderNext = ids;
+  if (orderSending) return;
+  orderSending = true;
+  try {
+    while (orderNext) {
+      const send = orderNext;
+      orderNext = null;
+      const j = await Office.api.post('office.staff_order', { order: send });
+      if (!j.ok || !Array.isArray(j.order)) {
+        // not kept: back to the order the server has, the reception drawn anew (no longer arranging)
+        orderNext = null;
+        staffOrder = orderKept.slice();
+        Office.toast(Office.errorText(j.error), true);
+        if (!Office.current) route(); else tabs();
+        return;
+      }
+      orderKept = j.order;
+      if (!orderNext) { staffOrder = j.order.slice(); tabs(); }
+    }
+  } finally {
+    orderSending = false;
   }
 }
 
@@ -1206,6 +1373,7 @@ Office.help = function help() {
   };
   const code = (s) => el('code', '', s);
   item(t('help.office_title'), t('help.office_text'));
+  item(t('help.order_title'), t('help.order_text'));
   item(t('help.agent_title'), t('help.agent_text'));
   item(t('help.dot_title'), t('help.dot_text'));
   item(t('help.start_title'), t('help.start_text'));
