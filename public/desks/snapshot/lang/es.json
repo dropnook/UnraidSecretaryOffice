@@ -435,5 +435,12 @@
     "one": "Despertar 1 disco en reposo",
     "other": "Despertar {n} discos en reposo"
   },
-  "wake_title": "Solo para esta ronda: despierta los discos btrfs en reposo y lee también sus instantáneas. Sin marcar, los dejo dormir y muestro lo último que sabía de ellos. Unraid los vuelve a poner en reposo tras su retardo."
+  "wake_title": "Solo para esta ronda: despierta los discos btrfs en reposo y lee también sus instantáneas. Sin marcar, los dejo dormir y muestro lo último que sabía de ellos. Unraid los vuelve a poner en reposo tras su retardo.",
+  "plan.result.gone": "destinos desaparecidos",
+  "plan.gone": "destino desaparecido",
+  "plan.gone_title": "Desaparecido desde {since}: {targets} (¿borrado o renombrado?). Omito lo que desapareció y tomo el resto — borra la programación o elige otro destino en «Editar…».",
+  "notify.plan_gone_subject": "Programación «{plan}»: destino desaparecido",
+  "notify.plan_gone": "Señora Snapshotini: la programación «{plan}» ya no encuentra {targets} (¿borrado o renombrado?). Omito lo que desapareció y tomo el resto — borra la programación o elige otro destino en mi página.",
+  "check.plan_target_gone": "Programación «{plan}»: su destino {target} ha desaparecido",
+  "check.plan_target_gone_how": "Borra la programación o elige otro destino en la página de la señora Snapshotini (Programaciones → Editar…)."
 }

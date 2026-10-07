@@ -435,5 +435,12 @@
     "one": "1 schlafende Disk wecken",
     "other": "{n} schlafende Disks wecken"
   },
-  "wake_title": "Nur für diesen Rundgang: weckt die schlafenden btrfs-Disks und liest auch ihre Snapshots. Ohne Haken lasse ich sie schlafen und zeige, was ich zuletzt von ihnen wusste. Unraid legt sie nach seiner Wartezeit wieder schlafen."
+  "wake_title": "Nur für diesen Rundgang: weckt die schlafenden btrfs-Disks und liest auch ihre Snapshots. Ohne Haken lasse ich sie schlafen und zeige, was ich zuletzt von ihnen wusste. Unraid legt sie nach seiner Wartezeit wieder schlafen.",
+  "plan.result.gone": "Ziele weg",
+  "plan.gone": "Ziel weg",
+  "plan.gone_title": "Seit {since} weg: {targets} (gelöscht oder umbenannt?). Was weg ist, überspringe ich und nehme den Rest — lösche den Zeitplan oder wähle unter «Bearbeiten…» ein anderes Ziel.",
+  "notify.plan_gone_subject": "Zeitplan «{plan}»: Ziel weg",
+  "notify.plan_gone": "Frau Snapshotini: Der Zeitplan «{plan}» findet {targets} nicht mehr (gelöscht oder umbenannt?). Was weg ist, überspringe ich und nehme den Rest — lösche den Zeitplan oder wähle auf meiner Seite ein anderes Ziel.",
+  "check.plan_target_gone": "Zeitplan «{plan}»: sein Ziel {target} ist weg",
+  "check.plan_target_gone_how": "Lösche den Zeitplan oder wähle bei Frau Snapshotini ein anderes Ziel (Zeitpläne → Bearbeiten…)."
 }
