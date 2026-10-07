@@ -473,9 +473,8 @@ function caretakerChecks(): array
         $out[] = finding('mail_subject', 'hint', false, ['subject' => $subject, 'host' => hostname()], 'notifications');
     }
     // Unraid's own API service: its notification bell (the office's reports show there too) and parts of its web UI need it
-    $api = caretakerApiUp();
-    if ($api !== null) {
-        $out[] = finding('api_down', 'recommended', $api, [], 'management');
+    if ($api = caretakerApiFinding(caretakerApiUp())) {
+        $out[] = $api;
     }
 
     // Unraid 7.3.2: a container without a picture makes its Docker page and Dashboard flood /var/log
@@ -506,6 +505,15 @@ function caretakerChecks(): array
     }
     array_push($out, ...caretakerMonitoringChecks());
     return $out;
+}
+
+/**
+ * Recommended, not required: the office works without the API — but Unraid's own bell, where the office's reports show
+ * too, doesn't (mail and push agents still go: Unraid's notify script sends those itself). Null: nothing to say.
+ */
+function caretakerApiFinding(?bool $up): ?array
+{
+    return $up === null ? null : finding('api_down', 'recommended', $up, [], 'management');
 }
 
 /**

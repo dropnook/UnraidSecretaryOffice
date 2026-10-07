@@ -8918,6 +8918,268 @@ function testWatchmanBoot(): void
 }
 
 /**
+ * Unraid's API as a door (2026-10-07): the watchman reads the API's key files — only id, name, roles, permissions, never
+ * the key's value — a new key or more rights for one is an important entry (T1098), a key revoked is normal by itself,
+ * api.json's sandbox, extra origins and Unraid.net logins are doors; the first look after the update is his baseline;
+ * an ADMIN key is a posture tip. The secret of a fixture key must never reach the book, the state, what he saw, the
+ * page, the mirror (RAM and flash), the night shift's files, a notification or the SIEM line.
+ */
+function testWatchmanApiDoor(): void
+{
+    $now = strtotime('2026-10-07 15:00:00');
+    $tmp = hardeningTmp('apidoor');
+    $src = "$tmp/src";
+    $day = "$tmp/data/watchman";
+    $night = "$tmp/run/nightshift";
+    foreach (['plugins', 'extra', 'ssh/root', 'keys', 'proc', 'flash', 'run'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    @mkdir("$tmp/flash", 0700, true);
+    @mkdir("$tmp/run", 0700, true);
+    $ram = "$tmp/run/watchman-mirror.json";
+    $flashMirror = "$tmp/flash/watchman-mirror.json";
+    $boot = 'cccccccc-0000-4000-8000-000000000001';
+    file_put_contents("$tmp/boot_id", "$boot\n");
+    file_put_contents("$tmp/stat", "cpu  1 2 3\nbtime " . ($now - 86400) . "\nprocesses 9\n");
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'etc_passwd' => "$src/passwd", 'boot_id' => "$tmp/boot_id", 'stat' => "$tmp/stat",
+              'proc' => "$src/proc", 'ident' => "$src/ident.cfg", 'api_keys' => "$src/keys", 'api_cfg' => "$src/api.json", 'logger' => "$tmp/logger"];
+    file_put_contents($paths['syslog'], '');
+    file_put_contents($paths['ident'], "USE_SSH=\"yes\"\nPORTSSH=\"22\"\nUSE_UPNP=\"no\"\n");     // the doors are read with Unraid's identity (watchmanHostDoors())
+    file_put_contents($paths['go'], "#!/bin/bash\n/usr/local/sbin/emhttp &\n");
+    file_put_contents($paths['passwd'], "root:x:0:0:Console and webGui login account:/root:/bin/bash\n");
+    file_put_contents($paths['shadow'], 'root:$6$aa$bb:20000:0:99999:7:::' . "\n");
+    // stand-ins for Unraid's notify and logger: they write down what they were given
+    file_put_contents("$tmp/notify", "#!/bin/bash\nfor a in \"\$@\"; do printf '%s\\x1f' \"\$a\"; done >> " . escapeshellarg("$tmp/notified") . "\necho >> " . escapeshellarg("$tmp/notified") . "\n");
+    file_put_contents("$tmp/logger", "#!/bin/bash\nprintf '%s\\n' \"\$*\" >> " . escapeshellarg("$tmp/syslogged") . "\n");
+    chmod("$tmp/notify", 0755);
+    chmod("$tmp/logger", 0755);
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    $docker = fn () => [];
+    $acks = "$tmp/acks.json";
+
+    // the API's key files as its CLI writes them (sorted keys) — each with a made-up 64-hex value that must never leave them
+    $secrets = [];
+    $key = function (string $file, string $id, string $name, array $roles, array $perms, array $extra = []) use ($src, &$secrets): void {
+        $secret = bin2hex(random_bytes(32));
+        $secrets[] = $secret;
+        $k = ['createdAt' => '2026-10-07T13:00:00.000Z', 'description' => "made for $name", 'id' => $id, 'key' => $secret, 'name' => $name,
+              'permissions' => $perms, 'roles' => $roles] + $extra;
+        ksort($k);
+        file_put_contents("$src/keys/$file", json_encode($k, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    };
+    $id1 = 'aaaaaaaa-1111-4111-8111-000000000001';
+    $id2 = 'aaaaaaaa-2222-4222-8222-000000000002';
+    $id3 = 'aaaaaaaa-3333-4333-8333-000000000003';
+    $key("$id1.json", $id1, 'Home Assistant', ['viewer'], [['resource' => 'DOCKER', 'actions' => ['read']]], ['token' => 'tok-' . bin2hex(random_bytes(8))]);
+    $secrets[] = json_decode((string) file_get_contents("$src/keys/$id1.json"), true)['token'];
+    file_put_contents("$src/keys/notes.txt", 'not a key');
+    file_put_contents("$src/keys/broken.json", '{"id": "../../x", "key": "' . bin2hex(random_bytes(32)) . '", "name": "x"}');
+    $secrets[] = json_decode((string) file_get_contents("$src/keys/broken.json"), true)['key'];
+    symlink("$src/keys/$id1.json", "$src/keys/link.json");
+    $cfgSecret = 'cfg-' . bin2hex(random_bytes(12));
+    $secrets[] = $cfgSecret;
+    $apiCfg = fn (array $c) => file_put_contents($paths['api_cfg'], json_encode($c + ['version' => '4.37.5', 'plugins' => ['unraid-api-plugin-connect'], 'apiSecret' => $cfgSecret]));
+    $apiCfg(['extraOrigins' => [], 'sandbox' => false, 'ssoSubIds' => []]);
+
+    // one file, as little of it as says something
+    $k1 = watchmanApiKeyRead("$src/keys/$id1.json");
+    same('api key: id, name, roles in upper case, the permission as the API reads it, not all-powerful',
+        [$id1, 'Home Assistant', ['VIEWER'], 1, ['DOCKER:READ_ANY'], false, ['id', 'name', 'roles', 'perm', 'perms', 'rights', 'full']],
+        [$k1['id'] ?? null, $k1['name'] ?? null, $k1['roles'] ?? null, $k1['perms'] ?? null, $k1['rights'] ?? null, $k1['full'] ?? null, array_keys((array) $k1)]);
+    same('api key: legacy actions normalised like the API, unknown ones dropped', ['READ_ANY', 'READ_OWN', 'UPDATE_ANY', 'DELETE_ANY', null, '*'],
+        array_map('watchmanApiAction', ['read', 'read:own', 'UPDATE_ANY', 'delete', 'fly', '*']));
+    same('api key: all-powerful — ADMIN, any resource (*), or the right to make or change keys and permissions', [true, true, true, true, false],
+        [watchmanApiFull(['ADMIN'], []), watchmanApiFull([], ['*:READ_ANY']), watchmanApiFull([], ['API_KEY:CREATE_ANY']), watchmanApiFull([], ['PERMISSION:UPDATE_OWN']),
+         watchmanApiFull(['VIEWER', 'CONNECT'], ['API_KEY:READ_ANY', 'DOCKER:UPDATE_ANY'])]);
+    $look = watchmanApiKeys($paths, []);
+    same('api keys: only key files in the API\'s shape; a link, a bad id, another file left out', [[$id1], ["$id1.json", 'broken.json']],
+        [array_keys($look['keys']), array_keys($look['files'])]);
+    $prev = $look['files'];
+    $prev["$id1.json"]['k']['name'] = 'as the last round saw it';
+    same('api keys: a file the same as the last round saw is not read again', 'as the last round saw it',
+        watchmanApiKeys($paths, $prev)['keys'][$id1]['name'] ?? null);
+    $prev["$id1.json"]['k']['id'] = '../x';
+    same('api keys: a kept look not in its shape is read anew', 'Home Assistant', watchmanApiKeys($paths, $prev)['keys'][$id1]['name'] ?? null);
+    same('api keys: no place, not looked at', null, watchmanApiKeys(array_diff_key($paths, ['api_keys' => 1]), []));
+    same('api doors: the sandbox off, no Unraid.net logins; nothing else of the file', [['api_sandbox', 'api_sso'], [false, false]],
+        [array_keys(watchmanApiDoors($paths['api_cfg'])), array_column(watchmanApiDoors($paths['api_cfg']), 'on')]);
+
+    // hired: his first round knows the key and the API's settings
+    $r = watchmanRound($paths, $day, 1000, $now, $docker, true, $acks);
+    $b = watchmanLoad($day)['baseline'];
+    same('api: the first round is the baseline', [true, [], [$id1], false],
+        [$r['fresh'], $r['added'], array_keys((array) ($b['host']['api'] ?? [])), $b['host']['doors']['api_sandbox']['on'] ?? null]);
+    watchmanSyslogSet(true, $day, false);
+
+    // a new ADMIN key, more rights for the first, the sandbox on, another origin, an Unraid.net account
+    $key("$id2.json", $id2, 'Remote tool', ['admin'], []);
+    $key("$id1.json", $id1, 'Home Assistant', ['VIEWER'], [['resource' => 'DOCKER', 'actions' => ['READ_ANY', 'UPDATE_ANY']]]);
+    $apiCfg(['extraOrigins' => ['https://ha.example.com:8123/some/path'], 'sandbox' => true, 'ssoSubIds' => ['sub-' . bin2hex(random_bytes(4))]]);
+    $r = watchmanRound($paths, $day, 1000, $now + 300, $docker, true, $acks);
+    $d = watchmanLoad($day);
+    $open = array_column(array_values(array_filter($d['book'], 'watchmanOpen')), null, 'key');
+    $kinds = $r['added'];
+    sort($kinds);
+    same('api: a new key, more rights for one, three doors opened', [['api_key_changed', 'api_key_new', 'door_new', 'door_new', 'door_new'],
+        ["api_key_new:$id2", "api_key_changed:$id1", 'door_new:api_sandbox', 'door_new:api_origin:https://ha.example.com:8123', 'door_new:api_sso']],
+        [$kinds, array_values(array_intersect(["api_key_new:$id2", "api_key_changed:$id1", 'door_new:api_sandbox', 'door_new:api_origin:https://ha.example.com:8123',
+            'door_new:api_sso'], array_keys($open)))]);
+    $new = $open["api_key_new:$id2"]['p'] ?? [];
+    $chg = $open["api_key_changed:$id1"]['p'] ?? [];
+    same('api: what the entries keep — name, roles, permissions, all-powerful; before', [['Remote tool', ['ADMIN'], 0, true], [2, 1, ['DOCKER:READ_ANY', 'DOCKER:UPDATE_ANY'], ['VIEWER']]],
+        [[$new['name'] ?? null, $new['roles'] ?? null, $new['perms'] ?? null, $new['full'] ?? null], [$chg['perms'] ?? null, $chg['old_perms'] ?? null, $chg['rights'] ?? null, $chg['old_roles'] ?? null]]);
+    same('api: group host, important, ATT&CK T1098', [['host', true], ['host', true], 'T1098', 'T1098'],
+        [WATCH_KINDS['api_key_new'], WATCH_KINDS['api_key_changed'], WATCH_ATTACK['api_key_new'], WATCH_ATTACK['api_key_changed']]);
+    same('api: in words', ['A new key for Unraid\'s API: Remote tool (roles: ADMIN; permissions: 0)',
+        'A new way in from outside: Unraid\'s API answers web pages of https://ha.example.com:8123 too (with a logged-in browser\'s session)'],
+        [officeNotifyText('watchman', 'entry.api_key_new', watchmanText($open["api_key_new:$id2"]), 'en'),
+         officeNotifyText('watchman', 'entry.door_new', watchmanText($open['door_new:api_origin:https://ha.example.com:8123'], 'en'), 'en')]);
+    $tips = array_column((array) ($d['state']['posture']['tips'] ?? []), null, 'id');
+    same('api posture: a key that can do everything — advice, with Unraid\'s page for its keys', ['advice', 'Remote tool', 1, '/Settings/ManagementAccess'],
+        [$tips['api_admin']['level'] ?? null, $tips['api_admin']['p']['names'] ?? null, $tips['api_admin']['p']['n'] ?? null, $tips['api_admin']['link']['path'] ?? null]);
+    $checks = array_column(watchmanChecks($day), null, 'id');
+    same('api: the team lead hears of both kinds and of the advice', ['recommended', 'recommended', 'hint'],
+        [$checks['api_key_new']['level'] ?? null, $checks['api_key_changed']['level'] ?? null, $checks['posture']['level'] ?? null]);
+    $syslogged = (string) @file_get_contents("$tmp/syslogged");
+    check('api: the SIEM line carries the kind and the technique', str_contains($syslogged, '"kind":"api_key_new"') && str_contains($syslogged, '"attack":"T1098"'));
+    check('api: told to Unraid\'s notifications', str_contains((string) @file_get_contents("$tmp/notified"), 'Remote tool'));
+    $ps = watchmanPageState($day, $now + 300, false);
+    same('api: «What I keep an eye on» — the keys he knows by name and roles', [[['name' => 'Home Assistant', 'roles' => ['VIEWER'], 'perms' => 1, 'full' => false]]],
+        [$ps['watch']['host']['api'] ?? null]);
+
+    // the mirror for the night shift (RAM and flash) — and the night: a key made while the array is stopped
+    watchmanMirrorWrite($day, $ram, $flashMirror, $now + 300, $boot);
+    $key("$id3.json", $id3, 'Night key', ['VIEWER'], []);
+    $nr = watchmanNightRound($paths, $night, $now + 600, true, fn () => [], $ram, $flashMirror, $boot);
+    $nopen = array_column(array_values(array_filter(watchmanLoad($night)['book'], 'watchmanOpen')), null, 'key');
+    same('api night: the night shift sees a new key too (flash only)', [['hired' => 1000, 'from' => 'ram'], true], [$nr['begun'] ?? null, isset($nopen["api_key_new:$id3"])]);
+
+    // nothing of a key's value (nor any other field of the files) anywhere
+    $everything = $syslogged . (string) @file_get_contents("$tmp/notified") . json_encode($ps) . (string) @file_get_contents($ram) . (string) @file_get_contents($flashMirror);
+    foreach ([$day, $night] as $dir) {
+        foreach (glob("$dir/*") ?: [] as $f) {
+            $everything .= (string) @file_get_contents($f);
+        }
+    }
+    $everything .= json_encode(watchmanChecks($day)) . json_encode(watchmanApiKeys($paths, []));
+    check('api: no key value, no other field of the files — book, state, seen, page, checks, mirror (RAM, flash), the night, notifications, SIEM',
+        !array_filter($secrets, fn ($s) => str_contains($everything, $s)) && !str_contains($everything, 'made for ') && !str_contains($everything, 'createdAt')
+        && !str_contains($everything, 'apiSecret'));
+    check('api: the flash mirror — the known keys by name, open entries without their words', str_contains((string) file_get_contents($flashMirror), 'Remote tool') === false
+        && str_contains((string) file_get_contents($flashMirror), 'Home Assistant') && str_contains((string) file_get_contents($flashMirror), "api_key_new:$id2"));
+    hardeningRm($night);
+
+    // «I know, thanks»: the new key is wanted; fewer roles, a rename — normal by themselves; revoked — safer; back — told again
+    @unlink("$src/keys/$id3.json");
+    watchmanAck($open["api_key_new:$id2"]['id'], $day, $now + 700, false);
+    same('api: «I know, thanks» — the next round is quiet', [], watchmanRound($paths, $day, 1000, $now + 900, $docker, false, $acks)['added']);
+    $key("$id2.json", $id2, 'Remote tool (renamed)', [], [['resource' => 'DOCKER', 'actions' => ['READ_ANY']]]);
+    same('api: other permissions for a known key are told even with fewer roles (a fingerprint can\'t tell fewer)', ['api_key_changed'],
+        watchmanRound($paths, $day, 1000, $now + 1200, $docker, false, $acks)['added']);
+    watchmanAck('*', $day, $now + 1300, false);
+    $key("$id2.json", $id2, 'Remote tool (renamed again)', [], [['resource' => 'DOCKER', 'actions' => ['READ_ANY']]]);
+    same('api: renamed only — normal by itself', [[], 'Remote tool (renamed again)'],
+        [watchmanRound($paths, $day, 1000, $now + 1500, $docker, false, $acks)['added'], watchmanLoad($day)['baseline']['host']['api'][$id2]['name'] ?? null]);
+    $key("$id1.json", $id1, 'Home Assistant', [], [['resource' => 'DOCKER', 'actions' => ['READ_ANY', 'UPDATE_ANY']]]);
+    same('api: a role taken away (the permissions the same) — safer, normal by itself', [[], []],
+        [watchmanRound($paths, $day, 1000, $now + 1800, $docker, false, $acks)['added'], watchmanLoad($day)['baseline']['host']['api'][$id1]['roles'] ?? null]);
+    same('api posture: no key can do everything any more — the advice is gone', false,
+        in_array('api_admin', array_column((array) (watchmanLoad($day)['state']['posture']['tips'] ?? []), 'id'), true));
+    rename("$src/keys/$id2.json", "$tmp/$id2.json");
+    same('api: a key revoked — safer, gone from what he knows', [[], false],
+        [watchmanRound($paths, $day, 1000, $now + 2100, $docker, false, $acks)['added'], isset(watchmanLoad($day)['baseline']['host']['api'][$id2])]);
+    rename("$tmp/$id2.json", "$src/keys/$id2.json");
+    same('api: back again — told again', ['api_key_new'], watchmanRound($paths, $day, 1000, $now + 2400, $docker, false, $acks)['added']);
+
+    // a baseline of before this update: his first look at the API is normal — keys and the doors its settings open
+    $d = watchmanLoad($day);
+    $b = $d['baseline'];
+    unset($b['host']['api']);
+    foreach (array_keys((array) $b['host']['doors']) as $k) {
+        if (str_starts_with((string) $k, 'api_')) {
+            unset($b['host']['doors'][$k]);
+        }
+    }
+    writeAtomic("$day/baseline.json", jsonEncode($b));
+    $key("$id3.json", $id3, 'Made before the update', ['ADMIN'], []);
+    $apiCfg(['extraOrigins' => ['https://other.example.com'], 'sandbox' => true, 'ssoSubIds' => ['sub-x']]);
+    same('api: after the update the first look is normal', [[], true, true],
+        [watchmanRound($paths, $day, 1000, $now + 2700, $docker, false, $acks)['added'], isset(watchmanLoad($day)['baseline']['host']['api'][$id3]),
+         isset(watchmanLoad($day)['baseline']['host']['doors']['api_origin:https://other.example.com'])]);
+    $apiCfg(['extraOrigins' => ['https://other.example.com'], 'sandbox' => true, 'ssoSubIds' => ['sub-x', 'sub-y']]);
+    same('api: then another Unraid.net account is a door like a WireGuard peer', [['door_new'], 1],
+        [watchmanRound($paths, $day, 1000, $now + 3000, $docker, false, $acks)['added'],
+         (array_values(array_filter(watchmanLoad($day)['book'], fn ($e) => watchmanOpen($e) && $e['key'] === 'door_new:api_sso'))[0]['p']['new_peers'] ?? null)]);
+
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    @unlink(watchmanLockFile($day, 'book'));
+    @unlink(watchmanLockFile($day, 'round'));
+    hardeningRm($tmp);
+}
+
+/**
+ * The team lead's look at Unraid's API service: one keyless question over its socket (PHP's curl, ~2 ms), against a
+ * stand-in API that writes down what it was asked — no key, no other header; no answer, an error, no socket: not running.
+ */
+function testCaretakerApi(): void
+{
+    $tmp = hardeningTmp('apiup');
+    $rc = "$tmp/rc.unraid-api";
+    $sock = "$tmp/api.sock";
+    same('api check: no API on this Unraid — nothing to say', null, caretakerApiUp($sock, $rc));
+    file_put_contents($rc, "#!/bin/bash\n");
+    same('api check: no socket — not running', false, caretakerApiUp($sock, $rc));
+    file_put_contents($sock, '');
+    same('api check: a plain file where the socket belongs — not running', false, caretakerApiUp($sock, $rc));
+    @unlink($sock);
+    // a stand-in for the API: one connection, the request written down, then its answer (or none)
+    file_put_contents("$tmp/api.php", '<?php
+[, $sock, $reply, $log] = $argv;
+$s = stream_socket_server("unix://$sock", $e, $es);
+echo "ready\n";
+$c = $s ? @stream_socket_accept($s, 10) : false;
+if ($c) {
+    stream_set_timeout($c, 3);
+    $req = "";
+    while (!str_contains($req, "\r\n\r\n") && !feof($c)) { $req .= (string) fread($c, 8192); }
+    $need = preg_match("/content-length:\s*(\d+)/i", $req, $m) ? (int) $m[1] : 0;
+    while (strlen(substr($req, strpos($req, "\r\n\r\n") + 4)) < $need && !feof($c)) { $req .= (string) fread($c, 8192); }
+    file_put_contents($log, $req);
+    if ($reply === "silent") { sleep(1); } else {
+        fwrite($c, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " . strlen($reply) . "\r\nConnection: close\r\n\r\n" . $reply);
+    }
+    fclose($c);
+}
+');
+    $ask = function (string $reply, int $waitMs = 2000) use ($tmp, $sock, $rc): array {
+        @unlink($sock);
+        @unlink("$tmp/request");
+        $p = proc_open([PHP_BINARY, "$tmp/api.php", $sock, $reply, "$tmp/request"], [1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'a']], $pipes);
+        fgets($pipes[1]);
+        $t = microtime(true);
+        $up = caretakerApiUp($sock, $rc, $waitMs);
+        $ms = (microtime(true) - $t) * 1000;
+        fclose($pipes[1]);
+        proc_close($p);
+        return [$up, (string) @file_get_contents("$tmp/request"), $ms];
+    };
+    [$up, $req] = $ask('{"data":{"isSSOEnabled":false}}');
+    same('api check: it answers — running', true, $up);
+    check('api check: one keyless question — POST /graphql, isSSOEnabled, no key, no cookie, no token',
+        str_starts_with($req, "POST /graphql HTTP/1.1\r\n") && str_ends_with($req, "\r\n\r\n" . CARETAKER_API_QUERY)
+        && !preg_match('/^(?:x-api-key|cookie|authorization|x-csrf-token|x-local-session):/mi', $req), $req);
+    same('api check: an error instead of the answer — not running', false, $ask('{"errors":[{"message":"Graphql is offline."}]}')[0]);
+    [$up, , $ms] = $ask('silent', 300);
+    check('api check: no answer within its time — not running, and it waited no longer', $up === false && $ms < 1500, (string) round($ms));
+    same('api check: the finding the team lead shows — recommended, a link to Management Access; none without the API',
+        [['api_down', 'recommended', false, 'management'], null], [array_values(array_intersect_key(caretakerApiFinding(false), ['id' => 1, 'level' => 1, 'ok' => 1, 'link' => 1])),
+         caretakerApiFinding(null)]);
+    hardeningRm($tmp);
+}
+
+/**
  * The night shift on the office's page and on the Dashboard tile while the array is stopped: officeNightShift()
  * (src/mailbox.php) reads RAM only — the pid in its lock (a living `agent.php nightshift`; it never takes the lock, so
  * the night shift's own non-blocking lock at its start never meets it) and its state — and the web side without its
@@ -10560,7 +10822,7 @@ function testUnraidWords(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testWatchmanApiDoor', 'testCaretakerApi', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings', 'testUnraidWords']];
