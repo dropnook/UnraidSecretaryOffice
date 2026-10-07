@@ -1,6 +1,17 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.26 - 2026-10-07
+# unraid-backup - backup.sh                       Version 2.27 - 2026-10-08
+#   2.27 Partner offices: the phase "partner" - right after the snapshots and the apps' restart, before
+#        Kopia - sends this run's ZFS snapshots of the units the setup ticked ([share|vm] partner = <id>,
+#        [general] partner_place = <id>; [partner "<id>"] name, address, port, rate_mbit) to each partner
+#        through its door (ssh, the pair's own key and pinned host key, AES-GCM, no compression): zfs send
+#        incremental from the newest snapshot both have (or the bookmark <ds>#uso-partner-<id> of the last
+#        one sent, once the retention took that snapshot here), whole when there is none; mbuffer between,
+#        pv for the rate and the bytes; an interrupted transfer continues from its resume token. The
+#        backup place first, then the shares and VMs by size. Unreachable: skipped, a warning only from the
+#        third night in a row; the partner's window/quota: skipped, a warning once a day; a failed receive:
+#        a warning. The array stop ends the phase like Kopia's (interrupted, never failed). status.json
+#        "partner", partner_ok/failed/skipped in status.json, last-run and history
 #   2.26 The Kopia order reckons a VM's own source by its disk files' own sizes (VM_APPARENT: a sparse
 #        vdisk's full virtual size), not by their allocated blocks: Kopia reads a sparse file whole, its
 #        holes as zeros - on 2026-10-07 a 1.6 TB vdisk holding 21 GB was 2 TB of reading at its first
@@ -151,6 +162,8 @@
 #    8. ZFS snapshots (atomic per pool) and btrfs snapshots - they hold this
 #       run's packages too
 #    9. Start containers, maintenance mode off  -> the downtime ends here
+#    9b. Partners (2.27): this run's ZFS snapshots of the ticked units to each partner office -
+#       zfs send through its door (ssh), incremental where both have a snapshot in common
 #   10. Mount the snapshots per share under <mount_root>/<share> (read-only), and
 #       join each app's and VM's own source under <mount_root>/.apps|.vms/<name>
 #   11. Kopia backs up the flash, the apps, then every share from <mount_root>/<share>
@@ -273,6 +286,8 @@ DOWNTIME=0                  # the apps' downtime (downtime_s): from stopping the
 SNAP_NAME=""
 KOPIA_PID=""                # running Kopia snapshot (background, see kopia_one)
 KOPIA_CP=""
+PARTNER_PID=""              # the transfer to a partner going on: a subshell running zfs send | mbuffer | pv | ssh (2.27)
+PARTNER_TMP=""              # its files (the door's answers, pv's count), in RAM
 ARRAY_STOP="no"             # the array is being stopped: the run ends at once, starts nothing (2.24, array_stop_check)
 CLEANUP_ARMED="no"          # the cleanup trap is set (from then on an array stop ends the run through it)
 UB_ARRAY_LOOK="${UB_ARRAY_LOOK:-5}"   # seconds between looks at var.ini while Kopia uploads
@@ -2191,6 +2206,7 @@ array_stop_report() { # a few lines for the notification
     local l list="" n
     echo "The run of $(date -d "@$STARTED_AT" '+%Y-%m-%d %H:%M' 2>/dev/null) ended at once when the array stop began (phase ${ARRAY_STOP_PHASE:-?}), after $(dur_h $(( $(date +%s) - STARTED_AT )))."
     (( ${#ST_KOPIA_PLAN[@]} )) && echo "Kopia: $(( ${#ST_KOPIA_PLAN[@]} - ${#ST_KOPIA_SKIPPED[@]} )) of ${#ST_KOPIA_PLAN[@]} sources done${ST_KOPIA_INTERRUPTED:+, $ST_KOPIA_INTERRUPTED interrupted (Kopia keeps what it uploaded)}; skipped until the next run: ${#ST_KOPIA_SKIPPED[@]}"
+    (( ${#ST_PARTNER_PLAN[@]} )) && echo "Partners: ${#ST_PARTNER_DONE[@]} of ${#ST_PARTNER_PLAN[@]} sent${ST_PARTNER_INTERRUPTED:+, ${ST_PARTNER_INTERRUPTED#*|} interrupted (the partner keeps what came; the next run continues it)}"
     for l in "${!VM_HELD[@]}"; do list+="${list:+, }VM $l"; done
     for n in "${STOPPED[@]}"; do list+="${list:+, }$n"; done
     for n in "${!NC_ON[@]}"; do list+="${list:+, }maintenance mode of $n"; done
@@ -2247,6 +2263,33 @@ kopia_stop() {
     KOPIA_PID=""
 }
 
+# Ending a transfer to a partner (2.27): SIGTERM to the whole pipe - zfs send, mbuffer, pv and the ssh client; the
+# partner's door sees the stream end, and its zfs recv -s keeps what came as a resume token (the next run continues
+# with zfs send -t). The subshell and every process below it, children first found, all signalled at once.
+partner_tree() { local c; for c in $(pgrep -P "$1" 2>/dev/null); do partner_tree "$c"; done; printf '%s\n' "$1"; }
+partner_stop() {
+    [[ -n "$PARTNER_PID" ]] || return 0
+    local pids t
+    log "Ending the transfer to the partner ..."
+    pids="$(partner_tree "$PARTNER_PID" | paste -sd' ')"
+    # shellcheck disable=SC2086  # a list of pids
+    kill -TERM $pids 2>/dev/null
+    for t in $(seq 1 10); do kill -0 "$PARTNER_PID" 2>/dev/null || break; sleep 1; done
+    if kill -0 "$PARTNER_PID" 2>/dev/null; then
+        pids="$(partner_tree "$PARTNER_PID" | paste -sd' ')"
+        # shellcheck disable=SC2086
+        kill -KILL $pids 2>/dev/null
+    fi
+    wait "$PARTNER_PID" 2>/dev/null
+    PARTNER_PID=""
+    ST_PARTNER_CUR=""; ST_PARTNER_CUR_BYTES=0
+}
+# The planned transfers not done when the run ends early: skipped (the array stop, a stop by hand), never failed
+partner_rest_skipped() { # partner_rest_skipped <why>
+    local p
+    for p in "${ST_PARTNER_PLAN[@]}"; do partner_done_has "$p" || ST_PARTNER_SKIPPED+=( "$p|$1" ); done
+}
+
 cleanup() {
     local rc=$? ar_pruned
     [[ "$CLEANUP_DONE" == "yes" ]] && exit "$rc"
@@ -2258,12 +2301,16 @@ cleanup() {
     fi
     if [[ "$ARRAY_STOP" == "yes" ]]; then
         [[ -n "$KOPIA_PID" ]] && ST_KOPIA_INTERRUPTED="$ST_KOPIA_CUR"
+        [[ -n "$PARTNER_PID" ]] && ST_PARTNER_INTERRUPTED="$ST_PARTNER_CUR"
         status_phase "aborting"
     elif [[ "$ST_ABORTED" == "yes" ]]; then
         warn "Run aborted (signal)"
+        [[ -n "$PARTNER_PID" ]] && ST_PARTNER_INTERRUPTED="$ST_PARTNER_CUR"
         status_phase "aborting"
     fi
     kopia_stop
+    partner_stop
+    [[ -n "$PARTNER_TMP" ]] && rm -rf "$PARTNER_TMP"
     # a package half swapped in goes back, the stage goes (the packages of the last run stay)
     [[ -n "$PKG_STAGE" && "$PKG_COMMITTED" != "yes" ]] && pkg_recover "$UB_DUMPS" >/dev/null
     if [[ "$ARRAY_STOP" == "yes" ]]; then
@@ -2294,6 +2341,7 @@ cleanup() {
         # stopped in the middle of its retention: what it destroyed until then still goes into pruned.json
         (( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )) && pruned_write
         array_stop_kopia
+        partner_rest_skipped array_stopping
         status_finish aborted "array_stopping"
         if [[ -n "$PRUNED_DONE" ]]; then ar_pruned="retention done ($PRUNED_DONE removed)"
         elif (( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )); then ar_pruned="retention stopped midway"
@@ -2301,7 +2349,7 @@ cleanup() {
         log "Backup stopped because the array is being stopped - $ar_pruned, nothing started; the next run continues."
         array_stop_notify
         rc=3
-    elif [[ "$ST_ABORTED" == "yes" ]]; then status_finish aborted "signal"
+    elif [[ "$ST_ABORTED" == "yes" ]]; then partner_rest_skipped signal; status_finish aborted "signal"
     elif (( rc != 0 )); then status_finish failed "exit $rc"
     fi
     ub_holder_clear
@@ -2374,6 +2422,341 @@ recover_wait() {
 }
 # Does a --recover hold the lock? (its note: holder backup, mode recover - and its pid runs backup.sh)
 recover_holds() { ub_holder_read; [[ "$HOLDER_KIND" == "backup" && "$HOLDER_MODE" == "recover" ]]; }
+
+##############################################################################
+# Partners (2.27)
+##############################################################################
+# After the snapshots and the apps' restart, before Kopia (a LAN or tunnel transfer ends in minutes to hours, Kopia's
+# first upload can take days): per partner ([partner "<id>"], lib/common.sh section 12) its units - the backup place
+# first, then the shares and VMs by size, the smallest first (ZFS's referenced: what zfs send moves - a sparse vdisk's
+# holes are no blocks) - each as this run's snapshot of its dataset through the partner's door:
+#   resume <unit>  a transfer an array stop or a lost link interrupted continues first (zfs send -t <token>)
+#   list <unit>    what the partner holds -> the newest uso-backup-* both have = the base of an incremental send; gone
+#                  here (the retention) but bookmarked (<dataset>#uso-partner-<id>, the last one sent) -> -i <bookmark>;
+#                  none -> a full send (said in the status: "from": null)
+#   recv <unit> <snap> [<from>]  zfs send -L -c [-i <base>] <ds>@<snap> | mbuffer | pv | ssh - the door answers one JSON
+#                  line on stderr before it reads (admitted or refused: refused_window, refused_quota, refused_asleep,
+#                  need_full -> a full send, ...) and one after (bytes, seconds, or recv_failed)
+# then the bookmark moves to the snapshot sent. A partner that doesn't answer: every unit skipped (unreachable), a
+# warning only from the UB_PARTNER_NIGHTS-th night in a row (once a day, state/partner-skips.json). The array stop
+# ends the phase like Kopia's (partner_stop: SIGTERM to the pipe; the receiver's zfs recv -s keeps a resume token):
+# partner.interrupted, the rest skipped - never failed. (zfs send never gets -s: that is --skip-missing, only with -R.)
+PARTNER_ORDER=()            # "id|unit|dataset|bytes" - the phase's transfers in their order (partner_plan)
+PARTNER_CANT=()             # "id|unit|why" - ticked, but it can't travel (skipped at once, said in the plan)
+declare -A PARTNER_DOWN=()  # id -> why every unit of that partner is skipped (unreachable, no_key, ...)
+
+partner_plan() {
+    local id u ds b
+    local -a units=() rows=()
+    local -A seen=()
+    PARTNER_ORDER=(); PARTNER_CANT=(); ST_PARTNER_IDS=(); ST_PARTNER_PLAN=()
+    while IFS= read -r id; do
+        [[ -n "$id" ]] || continue
+        mapfile -t units < <(partner_units "$id")
+        (( ${#units[@]} )) || continue
+        ST_PARTNER_IDS+=( "$id|$(partner_name "$id")" )
+        rows=(); seen=()
+        for u in "${units[@]}"; do
+            if ! partner_unit_dataset "$u"; then PARTNER_CANT+=( "$id|$u|$PU_WHY" ); continue; fi
+            ds="$PU_DS"
+            # the backup place's share ticked as a share too: one transfer (place)
+            [[ -n "${seen[$ds]:-}" ]] && { log "  Partner $(partner_name "$id"): $u is the same dataset as ${seen[$ds]} - sent once"; continue; }
+            seen[$ds]="$u"
+            if ! in_list "$ds" "${PLAN_ZFS[@]}"; then PARTNER_CANT+=( "$id|$u|not_snapshotted" ); continue; fi
+            b="${ZDS_REF[$ds]:-}"
+            if [[ "$u" == place ]]; then rows+=( "0|$u|$ds|${b:-0}" )
+            elif is_uint "$b"; then rows+=( "1|$u|$ds|$b" )
+            else rows+=( "2|$u|$ds|0" ); fi
+        done
+        while IFS='|' read -r _ u ds b; do
+            [[ -n "$u" ]] || continue
+            PARTNER_ORDER+=( "$id|$u|$ds|$b" ); ST_PARTNER_PLAN+=( "$id|$u" )
+        done < <(printf '%s\n' "${rows[@]}" | sed '/^$/d' | sort -t'|' -s -k1,1n -k4,4n)
+        for u in "${PARTNER_CANT[@]}"; do [[ "$u" == "$id|"* ]] && ST_PARTNER_PLAN+=( "$(cut -d'|' -f1,2 <<<"$u")" ); done
+    done < <(partner_ids)
+    # a partner named for a unit without a [partner] section: the partnership ended, the setup not applied since
+    local k pk
+    for k in "${!CFG[@]}"; do
+        [[ "$k" =~ ^(share\|.+\|partner|vm\|.+\|partner|general\|partner_place)$ ]] || continue
+        while IFS= read -r pk; do
+            [[ -n "$pk" ]] && ! cfg_has "partner|$pk" && log "  Partner $pk is named in $(sec_display "${k%|*}") but has no [partner \"$pk\"] section - left out (Set up... > Apply)"
+        done < <(cfg_list "$k")
+    done
+    return 0
+}
+
+partner_done_has() { # partner_done_has <id|unit>  -> 0 when that unit has a result in this run
+    local l
+    for l in "${ST_PARTNER_DONE[@]}" "${ST_PARTNER_SKIPPED[@]}" "${ST_PARTNER_FAILED[@]}"; do [[ "$l" == "$1|"* ]] && return 0; done
+    [[ "$ST_PARTNER_INTERRUPTED" == "$1" ]]
+}
+partner_skip() { # partner_skip <id> <unit> <why>
+    ST_PARTNER_SKIPPED+=( "$1|$2|$3" ); status_write
+}
+partner_fail() { # partner_fail <id> <unit> <why> <text>
+    ST_PARTNER_FAILED+=( "$1|$2|$3" )
+    warn "Partner $(partner_name "$1"): $2 not sent - $4"
+    status_write
+}
+partner_mbit() { awk -v b="${1:-0}" -v s="${2:-0}" 'BEGIN { if (s < 1) s = 1; printf "%.1f", b * 8 / s / 1000000 }'; }
+
+# partner_bookmark <id> <dataset> <snap>: the bookmark of the last snapshot sent to that partner moves to <snap>
+partner_bookmark() {
+    local bm="$2#$UB_PARTNER_BOOKMARK$1"
+    zfs destroy "$bm" >/dev/null 2>&1
+    zfs bookmark "$2@$3" "$bm" 2>>"$LOG_FILE" \
+        || warn "Partner $(partner_name "$1"): bookmark $bm could not be set - the next transfer of $2 needs a snapshot both still have"
+    partner_state_set partner-sent.json '.[$v.id][$v.unit] = {snap: $v.snap, dataset: $v.ds, time: $v.time}' \
+        "$(jq -nc --arg id "$1" --arg unit "$PS_UNIT" --arg snap "$3" --arg ds "$2" --argjson time "$(date +%s)" \
+            '{id: $id, unit: $unit, snap: $snap, ds: $ds, time: $time}')"
+}
+
+# partner_send <id> <unit> <dataset> <snap> <from> <base> [<resume token>]  - one transfer through the door
+#   <from>: the base snapshot's name for the door ("" = full), <base>: what zfs send -i gets (<ds>@<from> or the bookmark)
+# returns 0 sent (PS_BYTES, PS_SECS), 1 failed (said), 2 need_full, 3 refused (skipped, PS_WHY), 4 unreachable
+PS_BYTES=0; PS_SECS=0; PS_WHY=""; PS_UNIT=""
+partner_send() {
+    local id="$1" u="$2" ds="$3" snap="$4" from="$5" base="$6" token="${7:-}" name words rate t0 w got rc
+    local errf pvf psf d1 d2 ok1 ok2 why detail send_rc ssh_rc last_write=0 b
+    local -a send=() rcs=() door=()
+    name="$(partner_name "$id")"
+    PS_BYTES=0; PS_SECS=0; PS_WHY=""; PS_UNIT="$u"
+    errf="$PARTNER_TMP/door"; pvf="$PARTNER_TMP/pv"; psf="$PARTNER_TMP/rc"
+    : >"$errf"; : >"$pvf"; rm -f "$psf"
+    if [[ -n "$token" ]]; then
+        send=( zfs send -t "$token" ); words="recv $u $snap -t"
+    else
+        send=( zfs send -L -c ); [[ -n "$base" ]] && send+=( -i "$base" ); send+=( "$ds@$snap" )
+        words="recv $u $snap${from:+ $from}"
+    fi
+    rate="$(cfg "partner|$id|rate_mbit" 0)"; is_uint "$rate" || rate=0
+    if (( rate > 0 )) && ! command -v pv >/dev/null 2>&1; then log "    (pv is missing - the rate of $rate Mbit/s can't be kept)"; fi
+    if [[ -n "$token" ]]; then log "  $u -> $name: continuing the interrupted transfer of $snap"
+    elif [[ "$base" == *"#"* ]]; then log "  $u -> $name: $snap, incremental from $from (by the bookmark ${base#*#} - $from is gone here)"
+    elif [[ -n "$from" ]]; then log "  $u -> $name: $snap, incremental from $from"
+    else log "  $u -> $name: $snap, whole (the partner has no snapshot in common with it)"; fi
+    t0="$(date +%s)"
+    ST_PARTNER_CUR="$id|$u"; ST_PARTNER_CUR_T="$t0"; ST_PARTNER_CUR_BYTES=0; status_write
+    # four stages, always: zfs send | mbuffer (or cat) | pv (or cat) | ssh - their exit codes into $psf; the subshell in
+    # the background (wait below looks at the array between) - partner_stop ends its whole tree
+    (
+        "${send[@]}" 2>>"$LOG_FILE" \
+          | { if command -v mbuffer >/dev/null 2>&1; then exec mbuffer -q -s 128k -m 256M 2>>"$LOG_FILE"; else exec cat; fi; } \
+          | { if command -v pv >/dev/null 2>&1; then
+                if (( rate > 0 )); then exec pv -n -b -i 10 -L "$(( rate * 125000 ))" 2>"$pvf"; else exec pv -n -b -i 10 2>"$pvf"; fi
+              else exec cat; fi; } \
+          | { partner_ssh_cmd "$id"; exec "${PSSH[@]}" "$words" >/dev/null 2>"$errf"; }
+        printf '%s\n' "${PIPESTATUS[@]}" >"$psf"
+    ) 9>&- </dev/null &
+    PARTNER_PID=$!
+    while :; do
+        array_stop_check "sending $u to $name"
+        sleep "$UB_ARRAY_LOOK" 9>&- &
+        w=$!; got=""
+        wait -n -p got "$PARTNER_PID" "$w"
+        [[ "$got" == "$PARTNER_PID" ]] && break
+        if [[ "$got" != "$w" ]]; then                    # neither (a bash without wait -p): the sleep's time
+            wait "$w" 2>/dev/null
+            kill -0 "$PARTNER_PID" 2>/dev/null || { wait "$PARTNER_PID"; break; }
+        fi
+        # what left so far (pv counts every 10 s) - status.json at most every 30 s
+        b="$(tail -n 1 "$pvf" 2>/dev/null | tr -dc '0-9')"
+        if is_uint "$b" && (( $(date +%s) - last_write >= 30 )); then ST_PARTNER_CUR_BYTES="$b"; last_write="$(date +%s)"; status_write; fi
+    done
+    kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+    PARTNER_PID=""
+    PS_SECS=$(( $(date +%s) - t0 ))
+    mapfile -t rcs <"$psf" 2>/dev/null
+    send_rc="${rcs[0]:-1}"; ssh_rc="${rcs[3]:-255}"
+    # the door's two lines (stderr; ssh's own words may stand between them)
+    mapfile -t door < <(jq -R -c 'fromjson? | select(type == "object" and has("ok"))' "$errf" 2>/dev/null)
+    d1="${door[0]:-}"; d2="${door[1]:-}"
+    ok1="$(jq -r '.ok' <<<"$d1" 2>/dev/null)"; ok2="$(jq -r '.ok' <<<"$d2" 2>/dev/null)"
+    b="$(tail -n 1 "$pvf" 2>/dev/null | tr -dc '0-9')"
+    if is_uint "$b"; then PS_BYTES="$b"
+    else b="$(jq -r '.bytes // empty' <<<"$d2" 2>/dev/null)"; is_uint "$b" && PS_BYTES="$b"; fi
+    ST_PARTNER_CUR=""; ST_PARTNER_CUR_BYTES=0
+    # it ended badly just as the array stop began: interrupted by the stop, not failed
+    if [[ "$ok2" != "true" ]] && array_stopping; then ST_PARTNER_INTERRUPTED="$id|$u"; array_stop_check "the transfer of $u ended"; fi
+    if [[ -z "$d1" ]]; then
+        if (( ssh_rc == 255 )); then
+            [[ -s "$errf" ]] && log "    ($name: $(head -c 300 "$errf" | tr '\n' ' ' | tr -d '\r'))"
+            return 4
+        fi
+        PS_WHY="no_answer"; partner_fail "$id" "$u" no_answer "the door gave no answer (ssh exit code $ssh_rc)"; return 1
+    fi
+    if [[ "$ok1" != "true" ]]; then
+        why="$(partner_why_ok "$(jq -r '.why // ""' <<<"$d1" 2>/dev/null)")"; PS_WHY="$why"
+        case "$why" in
+            need_full) log "    $name has no base for it (need_full) - sending it whole"; return 2 ;;
+            refused_window|refused_quota|refused_asleep) log "    $name: not now ($why)"; return 3 ;;
+        esac
+        partner_fail "$id" "$u" "$why" "$name refused it ($why)"; return 1
+    fi
+    if [[ "$ok2" == "true" && "$send_rc" == 0 ]]; then
+        log "    sent: $(human "$PS_BYTES") in $(dur_h "$PS_SECS") - $(partner_mbit "$PS_BYTES" "$PS_SECS") Mbit/s"
+        return 0
+    fi
+    if [[ "$ok2" == "false" ]]; then
+        why="$(partner_why_ok "$(jq -r '.why // "recv_failed"' <<<"$d2" 2>/dev/null)")"
+        detail="$(jq -r '.detail // ""' <<<"$d2" 2>/dev/null | tr -d '\000-\037' | head -c 300)"
+        PS_WHY="$why"; partner_fail "$id" "$u" "$why" "$name could not receive it ($why${detail:+: $detail})"; return 1
+    fi
+    if [[ "$send_rc" != 0 ]]; then PS_WHY="send_failed"; partner_fail "$id" "$u" send_failed "zfs send ended with exit code $send_rc"; return 1; fi
+    PS_WHY="link_lost"
+    partner_fail "$id" "$u" link_lost "the link to $name was lost during the transfer (ssh exit code $ssh_rc) - the next run continues it"
+    return 1
+}
+
+# partner_unit <id> <unit> <dataset>: resume what was interrupted, find the base, send this run's snapshot
+partner_unit() {
+    local id="$1" u="$2" ds="$3" name token toname snap common="" from="" base="" r recorded theirs mine s
+    local -a ours=()
+    local -A have=()
+    name="$(partner_name "$id")"
+    PS_UNIT="$u"
+    # 1. an interrupted transfer first: its receiver kept a token (zfs recv -s)
+    partner_ask "$id" resume "$u"; r=$?
+    (( r == 255 )) && { PARTNER_DOWN[$id]="unreachable"; return 0; }
+    token="$(jq -r '.token // empty' <<<"$PA_JSON" 2>/dev/null)"
+    if [[ -n "$token" ]]; then
+        if [[ ! "$token" =~ ^[0-9a-zA-Z-]{1,8192}$ ]]; then log "    $name: a resume token not in the shape of one - not used"
+        else
+            toname="$(zfs send -nv -t "$token" 2>&1 | sed -n 's/^[[:space:]]*toname = //p' | head -n 1)"
+            snap="${toname#*@}"
+            if [[ "${toname%%@*}" == "$ds" && "$snap" =~ $UB_PARTNER_SNAP_RE ]]; then
+                partner_send "$id" "$u" "$ds" "$snap" "" "" "$token"; r=$?
+                case "$r" in
+                    0) ST_PARTNER_DONE+=( "$id|$u|$snap||$PS_BYTES|$PS_SECS|1" ); partner_bookmark "$id" "$ds" "$snap"; status_write ;;
+                    3) partner_skip "$id" "$u" "$PS_WHY"; partner_refused "$id" "$PS_WHY"; return 0 ;;
+                    4) PARTNER_DOWN[$id]="unreachable"; return 0 ;;
+                    *) return 0 ;;
+                esac
+                [[ "$snap" == "$SNAP_NAME" ]] && return 0
+            else
+                log "    $name holds an interrupted transfer of ${toname:-a snapshot gone here} - it can't be continued; sending anew"
+            fi
+        fi
+    fi
+    # 2. what the partner holds of it - the base of an incremental send
+    partner_ask "$id" list "$u"; r=$?
+    (( r == 255 )) && { PARTNER_DOWN[$id]="unreachable"; return 0; }
+    if [[ "$(jq -r '.ok' <<<"$PA_JSON" 2>/dev/null)" == "false" ]]; then
+        s="$(partner_why_ok "$(jq -r '.why // ""' <<<"$PA_JSON" 2>/dev/null)")"
+        partner_skip "$id" "$u" "$s"; log "    $name: $u refused ($s)"; partner_refused "$id" "$s"; return 0
+    fi
+    while IFS= read -r s; do [[ "$s" =~ $UB_PARTNER_SNAP_RE ]] && have[$s]=1; done < <(jq -r '(.snaps // .snapshots // [])[]
+        | (if type == "object" then (.name // "") else . end) | tostring | sub("^.*@"; "")' <<<"$PA_JSON" 2>/dev/null)
+    if [[ -n "${have[$SNAP_NAME]:-}" ]]; then
+        log "  $u -> $name: $SNAP_NAME is there already"
+        ST_PARTNER_DONE+=( "$id|$u|$SNAP_NAME|$SNAP_NAME|0|0|0" ); partner_bookmark "$id" "$ds" "$SNAP_NAME"; status_write; return 0
+    fi
+    mapfile -t ours < <(zfs list -H -o name -t snapshot -s createtxg -d 1 "$ds" 2>/dev/null | sed -n "s|^$(printf '%s' "$ds" | sed 's/[]\/$*.^[]/\\&/g')@||p")
+    for s in "${ours[@]}"; do
+        [[ "$s" =~ $UB_PARTNER_SNAP_RE && "$s" != "$SNAP_NAME" && -n "${have[$s]:-}" ]] && common="$s"
+    done
+    if [[ -n "$common" ]]; then from="$common"; base="$ds@$common"
+    else
+        # gone here (the retention), but the partner still has the last one sent and its bookmark is here
+        recorded="$(partner_state_get partner-sent.json ".[\"$id\"][\"$u\"].snap")"
+        if [[ -n "$recorded" && -n "${have[$recorded]:-}" ]] && zfs list -H -o name -t bookmark "$ds#$UB_PARTNER_BOOKMARK$id" >/dev/null 2>&1; then
+            from="$recorded"; base="$ds#$UB_PARTNER_BOOKMARK$id"
+        fi
+    fi
+    # 3. this run's snapshot - whole, should the partner have no base for it
+    partner_send "$id" "$u" "$ds" "$SNAP_NAME" "$from" "$base"; r=$?
+    if (( r == 2 )) && [[ -n "$from" ]]; then from=""; base=""; partner_send "$id" "$u" "$ds" "$SNAP_NAME" "" ""; r=$?; fi
+    case "$r" in
+        0) ST_PARTNER_DONE+=( "$id|$u|$SNAP_NAME|$from|$PS_BYTES|$PS_SECS|0" ); partner_bookmark "$id" "$ds" "$SNAP_NAME"; status_write ;;
+        2) partner_fail "$id" "$u" need_full "$name asks for a full transfer, and a full one was refused too" ;;
+        3) partner_skip "$id" "$u" "$PS_WHY"; partner_refused "$id" "$PS_WHY" ;;
+        4) PARTNER_DOWN[$id]="unreachable" ;;
+    esac
+    return 0
+}
+
+# A refusal the partner's user can change (its window, its quota): a warning once a day per partner
+partner_refused() { # partner_refused <id> <why>
+    local key today
+    case "$2" in refused_quota) key="quota_warned" ;; refused_window) key="window_warned" ;; *) return 0 ;; esac
+    today="$(date +%F)"
+    [[ " ${PARTNER_TOLD[$1]:-} " == *" $2 "* ]] && return 0
+    PARTNER_TOLD[$1]+=" $2"
+    if [[ "$(partner_state_get partner-skips.json ".[\"$1\"].$key")" != "$today" ]]; then
+        case "$2" in
+            refused_quota)  warn "Partner $(partner_name "$1") refused: its quota for this server is full - it keeps the copies it has; ask its owner for more room" ;;
+            refused_window) warn "Partner $(partner_name "$1") refused: outside its receiving window - the run sends again next night (the window is its owner's setting)" ;;
+        esac
+        partner_state_set partner-skips.json ".[\$v.id].$key = \$v.day" "$(jq -nc --arg id "$1" --arg day "$today" '{id: $id, day: $day}')"
+    fi
+}
+declare -A PARTNER_TOLD=()
+
+# partner_nights <id> <unreachable 1/0>: nights in a row without an answer; the UB_PARTNER_NIGHTS-th one warns (once a day)
+partner_nights() {
+    local id="$1" today n first warned
+    today="$(date +%F)"
+    if [[ "$2" != 1 ]]; then
+        partner_state_set partner-skips.json '.[$v] |= ((. // {}) | .nights = 0 | del(.first, .last_day))' "$(jq -nc --arg v "$id" '$v')"
+        return 0
+    fi
+    n="$(partner_state_get partner-skips.json ".[\"$id\"].nights")"; is_uint "$n" || n=0
+    first="$(partner_state_get partner-skips.json ".[\"$id\"].first")"; is_uint "$first" || first="$(date +%s)"
+    [[ "$(partner_state_get partner-skips.json ".[\"$id\"].last_day")" == "$today" ]] || n=$(( n + 1 ))
+    warned="$(partner_state_get partner-skips.json ".[\"$id\"].warned")"
+    if (( n >= UB_PARTNER_NIGHTS )) && [[ "$warned" != "$today" ]]; then
+        warn "Partner $(partner_name "$id") has not answered for $n nights in a row (since $(date -d "@$first" '+%Y-%m-%d' 2>/dev/null)) - nothing went there; is its server on, its office running, the way there open? (partner_unreachable)"
+        warned="$today"
+    elif (( n > 0 )); then
+        log "  Partner $(partner_name "$id") did not answer ($n night(s) in a row) - nothing sent; a warning from the ${UB_PARTNER_NIGHTS}th night on"
+    fi
+    partner_state_set partner-skips.json '.[$v.id] |= ((. // {}) + {nights: $v.n, first: $v.first, last_day: $v.day, warned: $v.warned})' \
+        "$(jq -nc --arg id "$id" --argjson n "$n" --argjson first "$first" --arg day "$today" --arg warned "$warned" \
+            '{id: $id, n: $n, first: $first, day: $day, warned: $warned}')"
+}
+
+partner_phase() {
+    local line row id u ds b name why key
+    next_phase "partner"
+    PARTNER_TMP="$(mktemp -d "${TMPDIR:-/tmp}/uso-partner.XXXXXX")" || { err "Partners: no temporary folder - nothing sent"; return 0; }
+    for line in "${ST_PARTNER_IDS[@]}"; do
+        id="${line%%|*}"; name="$(partner_name "$id")"
+        log "Partner $name ($id, $(cfg "partner|$id|address"):$(cfg "partner|$id|port" 22)) ..."
+        why=""
+        key="$UB_PARTNER_DIR/$id.key"
+        if [[ "$SNAP_PREFIX" != "$UB_SNAP_PREFIX" ]]; then why="snap_prefix"; log "  the snapshots are called $SNAP_PREFIX... - a partner's door takes only $UB_SNAP_PREFIX..."
+        elif [[ ! -f "$key" || -L "$key" || ! -f "$UB_PARTNER_DIR/$id.known" || -L "$UB_PARTNER_DIR/$id.known" ]]; then
+            why="no_key"; log "  its key or known_hosts is missing ($UB_PARTNER_DIR/$id.key, .known) - pair anew at the Team Lead"
+        elif ! command -v ssh >/dev/null 2>&1; then why="no_ssh"; log "  ssh is missing"
+        else
+            partner_ask "$id" ping
+            if (( $? == 255 )); then why="unreachable"
+            elif [[ "$(jq -r '.array // ""' <<<"$PA_JSON" 2>/dev/null)" == "stopped" ]]; then why="array_stopped"; log "  its array is stopped - nothing can be received now"
+            fi
+        fi
+        [[ -n "$why" ]] && PARTNER_DOWN[$id]="$why"
+        for u in "${PARTNER_CANT[@]}"; do
+            [[ "$u" == "$id|"* ]] || continue
+            IFS='|' read -r _ u why <<<"$u"
+            log "  $u: not covered ($why)"
+            partner_skip "$id" "$u" "$why"
+        done
+        for row in "${PARTNER_ORDER[@]}"; do
+            IFS='|' read -r b u ds _ <<<"$row"
+            [[ "$b" == "$id" ]] || continue
+            array_stop_check "before sending $u to $name"
+            if [[ -n "${PARTNER_DOWN[$id]:-}" ]]; then partner_skip "$id" "$u" "${PARTNER_DOWN[$id]}"; continue; fi
+            partner_unit "$id" "$u" "$ds"
+            [[ "${PARTNER_DOWN[$id]:-}" == "unreachable" ]] && ! partner_done_has "$id|$u" && partner_skip "$id" "$u" unreachable
+        done
+        if [[ "${PARTNER_DOWN[$id]:-}" == "unreachable" ]]; then partner_nights "$id" 1; else partner_nights "$id" 0; fi
+    done
+    rm -rf "$PARTNER_TMP"; PARTNER_TMP=""
+    local nd=0 nb=0
+    for line in "${ST_PARTNER_DONE[@]}"; do IFS='|' read -r _ _ _ _ b _ <<<"$line"; nd=$((nd+1)); nb=$(( nb + b )); done
+    log "Partners: $nd sent ($(human "$nb")), ${#ST_PARTNER_SKIPPED[@]} skipped, ${#ST_PARTNER_FAILED[@]} failed"
+    status_write
+}
 
 ##############################################################################
 # Start
@@ -2619,6 +3002,20 @@ if [[ "$KOPIA_OK" == "yes" && "$SKIPK" != "1" ]]; then
     log "  Kopia order:      ${ko_line:-none}"
     log "                    (shares and VMs the smallest first - the larger of Kopia's size (its newest complete snapshot, or a newer checkpoint when larger) and the server's, * = the server's (ZFS; a VM's disk files whole - a sparse vdisk's holes are read too); ? unknown, last)"
 fi
+# partners (2.27): per partner its units in the phase's order - the backup place, then by size (ZFS's referenced)
+partner_plan
+for pl in "${ST_PARTNER_IDS[@]}"; do
+    pl_id="${pl%%|*}"; pl_line=""
+    for po in "${PARTNER_ORDER[@]}"; do
+        IFS='|' read -r po_id po_u po_ds po_b <<<"$po"
+        [[ "$po_id" == "$pl_id" ]] && pl_line+="${pl_line:+, }$po_u ($po_ds$( (( po_b > 0 )) && echo ", $(human "$po_b")"))"
+    done
+    for po in "${PARTNER_CANT[@]}"; do
+        IFS='|' read -r po_id po_u po_why <<<"$po"
+        [[ "$po_id" == "$pl_id" ]] && pl_line+="${pl_line:+, }$po_u (not covered: $po_why)"
+    done
+    log "  Partner:          $(partner_name "$pl_id") <- ${pl_line:-nothing}${SNAP_NAME:+ ($SNAP_NAME)}"
+done
 status_write
 
 if [[ "$DRY" == "1" ]]; then
@@ -2725,6 +3122,9 @@ status_write
 log "Normal operation restored - downtime ${DOWNTIME} s"
 array_stop_check "after the restart"
 for base in "${PLAN_BTRFS[@]}"; do [[ -z "${BTRFS_NEED[$base]:-}" ]] && btrfs_snap "$base" "after the restart"; done
+
+# --- Partners (2.27): this run's snapshots to the partner offices, before Kopia's long upload ---
+(( ${#ST_PARTNER_PLAN[@]} )) && partner_phase
 
 # --- Mounting (only when Kopia really runs this time) -----------------------
 if [[ "$KOPIA_OK" == "yes" && "$SKIPK" != "1" ]]; then
@@ -2906,6 +3306,9 @@ RUN_SIZE="$(human "$ST_DUMP_BYTES")"
     echo "warnings=$WARNINGS"
     echo "kopia_ok=$KOPIA_DONE"
     echo "kopia_failed=$KOPIA_FAILED"
+    echo "partner_ok=${#ST_PARTNER_DONE[@]}"
+    echo "partner_failed=${#ST_PARTNER_FAILED[@]}"
+    echo "partner_skipped=${#ST_PARTNER_SKIPPED[@]}"
     echo "drift=$(drift_count warn)/$(drift_count error)"
     echo "log=$LOG_FILE"
 } >"$UB_STATE/last-run"
@@ -2935,6 +3338,21 @@ run_report() {
         if [[ "$ok" == "1" ]]; then list+="${list:+, }$n $(dur_h "$secs")"; else list+="${list:+, }$n FAILED"; fi
     done
     [[ -n "$list" ]] && echo "Kopia: $list"
+    local id b secs2 nb why
+    for l in "${ST_PARTNER_IDS[@]}"; do
+        id="${l%%|*}"; list=""; nb=0; secs2=0
+        for p in "${ST_PARTNER_DONE[@]}"; do
+            IFS='|' read -r n d _ _ b secs _ <<<"$p"
+            [[ "$n" == "$id" ]] || continue
+            list+="${list:+, }${d#*:}"; nb=$(( nb + b )); secs2=$(( secs2 + secs ))
+        done
+        [[ -n "$list" ]] && list="$list - $(human "$nb"), $(partner_mbit "$nb" "$secs2") Mbit/s"
+        for p in "${ST_PARTNER_SKIPPED[@]}" "${ST_PARTNER_FAILED[@]}"; do
+            IFS='|' read -r n d why <<<"$p"
+            [[ "$n" == "$id" ]] && list+="${list:+; }${d#*:} not sent ($why)"
+        done
+        echo "To $(partner_name "$id"): ${list:-nothing}"
+    done
     list=""
     for l in "${NEW_LIST[@]}"; do IFS=$'\x1f' read -r n p _ <<<"$l"; list+="${list:+, }$n/$p"; done
     [[ -n "$list" ]] && echo "New, only local until you decide: $list"
@@ -2943,6 +3361,7 @@ run_report() {
     echo "Log: $LOG_FILE"
 }
 SUMMARY="duration ${TOTAL}s, downtime ${DOWNTIME}s, ${KSUM}, packages ${RUN_SIZE}"
+(( ${#ST_PARTNER_PLAN[@]} )) && SUMMARY+=", partners ${#ST_PARTNER_DONE[@]} sent/${#ST_PARTNER_FAILED[@]} failed/${#ST_PARTNER_SKIPPED[@]} skipped"
 if (( ERRORS > 0 )); then status_finish errors
 elif (( WARNINGS > 0 )); then status_finish warnings
 else status_finish ok; fi
