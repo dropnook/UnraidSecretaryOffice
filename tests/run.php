@@ -11589,6 +11589,40 @@ function testRestoreDrill(): void
     proc_terminate($sleeper);
     proc_close($sleeper);
 
+    // ---- the page's tile and words, under node (drill.js alone, desk.js's helpers as stand-ins)
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node !== '') {
+        file_put_contents("$tmp/drill-page.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, has: () => true, errorText: (e) => 'error ' + e.key,
+  api: { get: async () => ({ ok: true, part: null }) }, agent: { running: true } };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const fmt = { size: (b) => b + ' B', date: (t) => 'D' + t, relative: (t) => 'R' + t, time: (t) => 'T' + t, duration: (s) => s + 's' };
+Office.restoreDrill.init({ T, fmt, date: fmt.date, tiles: () => {}, redraw: () => {}, shown: () => true });
+const d = OFFICE_DESK_TESTS.drill;
+const out = { none: d.tileLine() };
+d.setCert({ interface: 1, last: { result: 'passed', proven: 31, failed: 0, ended: 100 } });
+out.passed = d.tileLine();
+d.setCert({ interface: 1, last: { result: 'failed', proven: 30, failed: 2, ended: 100 } });
+out.failed = d.tileLine();
+d.setJob({ result: 'running', steps: [{ state: 'ok' }, { state: 'running' }, { state: 'pending' }] });
+out.running = d.tileLine();
+out.code = d.codeText('too_big_for_ram', { need: 3, budget: 2, container: 'x' });
+out.reasons = [d.reasonText('array_stopping'), d.reasonText('drill_parity')];
+console.log(JSON.stringify(out));
+JS);
+        $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/drill-page.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/restore/drill.js') . ' 2>&1');
+        $o = json_decode($raw, true);
+        same('drill page: the tile — none yet, passed, failed, practising (step n of all)', [
+            ['drill.tile_none', ''], ['drill.tile_passed {"n":31,"failed":0}', 'R100'], ['drill.tile_failed {"n":30,"failed":2}', 'R100'],
+            ['drill.tile_running', 'drill.tile_step {"n":2,"total":3}']],
+            is_array($o) ? [$o['none'], $o['passed'], $o['failed'], $o['running']] : $raw);
+        same('drill page: a code\'s words with its sizes made readable; a stop of its own, a refusal', ['drill.code.too_big_for_ram {"need":"3 B","budget":"2 B","container":"x"}',
+            ['drill.code.array_stopping {}', 'error drill_parity']], is_array($o) ? [$o['code'], $o['reasons']] : $raw);
+    }
+
     // ---- the strings: every text the drill asks for, in English (the five languages are compared by testStrings)
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'), true) ?: [];
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/restore/drill.js');

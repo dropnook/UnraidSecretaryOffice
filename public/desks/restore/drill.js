@@ -287,7 +287,7 @@ function history() {
 
 /** Why a drill ended early or didn't start: a stop of its own (deadline, array, from outside) or a refusal */
 function reasonText(key) {
-  return ['deadline', 'stopped', 'array_stopping', 'budget'].includes(key) ? codeText(key, {}) : Office.errorText({ key, params: {} }, ID);
+  return ['deadline', 'stopped', 'array_stopping', 'budget', 'drill_error'].includes(key) ? codeText(key, {}) : Office.errorText({ key, params: {} }, ID);
 }
 
 function journalDetail(d) {
@@ -476,6 +476,6 @@ Office.restoreDrill = {
   stop() { clearTimeout(timer); timer = null; },
 };
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.drill = { nice, codeText, setCert: (c) => { cert = c; }, setJob: (j) => { job = j; }, tileLine };
+  globalThis.OFFICE_DESK_TESTS.drill = { nice, codeText, reasonText, setCert: (c) => { cert = c; }, setJob: (j) => { job = j; }, tileLine };
 }
 })();
