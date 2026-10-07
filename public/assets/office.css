@@ -75,6 +75,7 @@
 .dot{width:9px; height:9px; border-radius:50%; background:var(--muted); flex:none; transition:background .2s}
 .dot.on{background:var(--good)}
 .dot.off{background:var(--danger)}
+.dot.night{background:var(--accent)}
 .desk-tabs{display:flex; gap:4px; flex-wrap:wrap; min-width:0}
 .desk-tabs a{
   display:inline-flex; align-items:center; gap:7px;
@@ -105,6 +106,7 @@
 .agent-state{display:inline-flex; align-items:center; gap:7px; padding:3px 4px; border:0; background:none; font:inherit; font-size:12.5px; color:var(--muted); cursor:pointer; white-space:nowrap}
 .agent-state:hover{color:var(--ink)}
 .agent-state.off{color:var(--danger); font-weight:600}
+.agent-state.night{color:var(--accent-ink); font-weight:600}
 @media (max-width:640px){ .agent-state.on .agent-label{display:none} }
 
 .notice{
@@ -113,6 +115,9 @@
   border-left:3px solid var(--danger); border-radius:0 var(--radius) var(--radius) 0; padding:8px 12px;
 }
 .notice.info{color:var(--accent-ink); background:var(--accent-soft); border-left-color:var(--accent)}
+/* the array stopped, the night watchman's night shift on (core.js setAgent): calm, with his lantern */
+.notice.night{display:flex; align-items:center; gap:10px; color:var(--ink)}
+.notice.night img.desk-icon{width:26px; height:26px}
 .notice a{color:inherit; font-weight:600}
 .notice strong{font-weight:650}
 &.in-unraid .notice{margin:12px 0 0}

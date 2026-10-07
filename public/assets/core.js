@@ -285,20 +285,31 @@ Office.errorText = function errorText(error, desk) {
 // ------------------------------------------------------------------ agent status
 Office.setAgent = function setAgent(info) {
   Office.agent = info || { running: false };
+  // the array isn't started: the night watchman's night shift keeps watch (src/mailbox.php officeNightShift(), RAM only)
+  const night = !Office.agent.running && Office.agent.night ? Office.agent.night : null;
   const dot = $('#sso-dot');
-  dot.className = 'dot ' + (Office.agent.running ? 'on' : 'off');
-  dot.title = Office.agent.running ? t('agent.running', { version: Office.agent.version || '?' }) : t('agent.away');
+  dot.className = 'dot ' + (Office.agent.running ? 'on' : night ? 'night' : 'off');
+  dot.title = Office.agent.running ? t('agent.running', { version: Office.agent.version || '?' }) : night ? nightText(night) : t('agent.away');
   // a word next to the dot: what runs, or what doesn't
   const state = $('#sso-state');
   const no = Office.agent.no_data;
-  state.className = 'agent-state ' + (Office.agent.running ? 'on' : 'off');
-  $('#sso-state-label').textContent = t(Office.agent.running ? 'agent.label_on'
+  state.className = 'agent-state ' + (Office.agent.running ? 'on' : night ? 'night' : 'off');
+  $('#sso-state-label').textContent = t(Office.agent.running ? 'agent.label_on' : night ? 'agent.label_night'
     : no ? (no.array !== 'Started' ? 'agent.label_array' : 'agent.label_no_data') : 'agent.label_off');
   state.title = dot.title;
   dot.removeAttribute('title');
   const notice = $('#sso-notice');
   if (Office.agent.running) {
     if (notice.dataset.kind === 'agent') { notice.hidden = true; notice.dataset.kind = ''; }
+  } else if (night) {
+    // calm: nothing is wrong, the office waits for the array and he keeps watch meanwhile
+    notice.innerHTML = '';
+    notice.className = 'notice info night';
+    notice.dataset.kind = 'agent';
+    const text = el('span');
+    text.append(el('strong', '', t('agent.array_stopped_title')), ' ', nightText(night));
+    notice.append(Office.deskIcon('watchman'), text);
+    notice.hidden = false;
   } else if (Office.agent.no_data) {
     // the data folder lies in appdata and comes with the array
     const stopped = Office.agent.no_data.array !== 'Started';
@@ -322,6 +333,29 @@ Office.setAgent = function setAgent(info) {
   if (Office.current && Office.current.agentChanged) Office.current.agentChanged();
   footer();
 };
+
+/** "The night watchman has been on night shift since 09:18 (12 rounds, 1 new entry) …" — {since, rounds, new} */
+function nightText(night) {
+  const today = Office.fmt.dayKey(night.since) === Office.fmt.dayKey(Date.now() / 1000);
+  const facts = [];
+  if (night.rounds > 0) facts.push(t('agent.night_rounds', { n: night.rounds }));
+  facts.push(night.new > 0 ? t('agent.night_new', { n: night.new }) : t('agent.night_nothing'));
+  return t('agent.night_text', { since: today ? Office.fmt.time(night.since) : Office.fmt.date(night.since), facts: facts.join(', ') });
+}
+
+/**
+ * Without the data folder (the array stopped) the desks have nothing to show — their state and who works here lie
+ * in it. The reception says why (the notice) and looks again every minute; once the folder is back a page that began
+ * without it loads anew (who works here was unknown), the reception shows its desks again.
+ */
+const noData = () => !Office.agent.running && !!Office.agent.no_data;
+const startedWithoutData = () => !!(CONFIG.agent && CONFIG.agent.no_data && !CONFIG.agent.running);
+async function agentLook() {
+  const j = await Office.api.get({ a: 'agent' }).catch(() => null);
+  if (!j || !j.ok || !j.agent || j.agent.no_data) return;
+  if (startedWithoutData()) location.reload();
+  else if (!Office.current && !$('#sso-desk .reception')) route();
+}
 
 // ------------------------------------------------------------------ toasts, copy
 Office.toast = function toast(text, warn) {
@@ -494,7 +528,8 @@ function route() {
   const id = parts[0] || '';
   const sub = parts.slice(1).join('/');
   let next = Office.desks.get(id) || null;
-  if (next && !next.hired) {               // not working here (yet): the caretaker knows who could come
+  if (noData()) next = null;               // the array stopped: the reception says why (the address stays for later)
+  else if (next && !next.hired) {          // not working here (yet): the caretaker knows who could come
     Office.toast(t('office.not_hired', { name: t(`${next.id}.name`) }));
     history.replaceState(null, '', '#/caretaker');
     next = Office.desks.get('caretaker') || null;
@@ -538,7 +573,8 @@ function tabs() {
     nav.appendChild(a);
   };
   add('#/', '', t('office.reception'), !Office.current);
-  for (const d of Office.desks.values()) if (d.hired) add(`#/${d.id}`, d.id, t(`${d.id}.name`), Office.current === d);
+  // without the data folder (the array stopped) nobody's state is there: only the reception, which says why
+  if (!noData()) for (const d of Office.desks.values()) if (d.hired) add(`#/${d.id}`, d.id, t(`${d.id}.name`), Office.current === d);
   // on a phone the tabs scroll sideways in their row: the current one in view (only the row moves, not the page)
   if (current && nav.scrollWidth > nav.clientWidth) {
     nav.scrollLeft = Math.max(0, current.offsetLeft - nav.offsetLeft - (nav.clientWidth - current.offsetWidth) / 2);
@@ -974,6 +1010,7 @@ async function reception(root) {
   text.append(el('h1', '', t('office.welcome', { host: CONFIG.host })), el('div', 'role', t('office.reception_role')));
   head.appendChild(text);
   root.appendChild(head);
+  if (noData()) return;                     // nobody's state without the data folder: the notice above says why
 
   const grid = el('div', 'reception');
   root.appendChild(grid);
@@ -1199,6 +1236,7 @@ function footer() {
 // ------------------------------------------------------------------ start
 async function start() {
   await loadStrings(pickLanguage());
+  if (CONFIG.agent) Office.setAgent(CONFIG.agent);      // the array stopped, the night shift: said before any desk asks
   footer();
   $('#sso-more').onclick = officeMenu;
   $('#sso-state').onclick = Office.help;
@@ -1212,9 +1250,12 @@ async function start() {
   setInterval(() => {
     if (document.hidden || Office.dialogOpen() || Office.menuOpen()) return;
     if (Office.current && Office.current.poll) Office.current.poll();
+    else if (!Office.agent.running) agentLook();      // the reception: is the messenger back, how is the night shift
   }, POLL);
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && Office.current && Office.current.poll && !Office.dialogOpen()) Office.current.poll();
+    if (document.hidden || Office.dialogOpen()) return;
+    if (Office.current && Office.current.poll) Office.current.poll();
+    else if (!Office.agent.running) agentLook();
   });
 }
 
