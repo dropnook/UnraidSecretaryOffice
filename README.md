@@ -70,7 +70,14 @@ Unraid's theme (an experiment; `OFFICE_THEME_SWITCH` in `src/bootstrap.php` swit
   without a shell.
 * Page and agent talk through a mailbox folder. Deliberately no unix socket:
   a bound socket in the pool would keep it busy and Unraid could not stop the
-  array.
+  array. After dropping a request the page rings the agent's doorbell (a pipe
+  in RAM), so the agent looks at once — a request costs a few milliseconds on
+  top of the agent's own work. The agent's sign of life (the green dot) lives
+  in RAM too: nothing of the office lands on the pool every few seconds, so a
+  pool of hard disks can spin down.
+* When the data folder lies in an exclusive share (`/mnt/user/appdata` is then
+  Unraid's link to its pool), the office reaches it on the pool directly,
+  past Unraid's user share layer — many times faster for every look.
 * The agent starts with the array and stops within seconds when the array
   stops — it never holds it up. While the array is stopped, the page says so,
   and the Night Watchman's night shift keeps watch from RAM and the flash only
@@ -92,6 +99,7 @@ Where things are:
 | The look at the agent every 5 minutes | `…/agent-watch.cron` next to it |
 | The Night Watchman's baseline for his night shift after a reboot (addresses, names, fingerprints — no passwords; rewritten at most once an hour) | `…/watchman-mirror.json` next to it; in RAM `/var/run/unraid-secretary-office/` |
 | State, logs, the backup engine's settings | `appdata/UnraidSecretaryOffice/data/` (comes with the array) |
+| The agent's sign of life, its doorbell, locks (RAM, root only) | `/var/run/unraid-secretary-office/` |
 | Mr. Backupsy's packages per app and VM (templates, compose files, database dumps, VM configurations) | the share `UnraidSecretaryOffice`, one folder per desk (`backup/`); their history in that share's snapshots |
 | Snapshot mounts for Kopia | `/mnt/addons/UnraidSecretaryOffice/` |
 | The office's numbers for Prometheus (a few KB, rewritten every minute) | `/mnt/addons/UnraidSecretaryOffice/metrics/` |

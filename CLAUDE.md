@@ -41,7 +41,14 @@ kept), which looks again every minute (`api.php?a=agent`) and reloads once the f
 (since, rounds, what is new; orange when something is). The data folder is `DATA_DIR` from
 `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cfg`
 (default `<appdata>/UnraidSecretaryOffice/data`; `OFFICE_DATA_DIR` overrides it —
-the tests use the repository's `data/`, and `OFFICE_WEB` its `public/`).
+the tests use the repository's `data/`, and `OFFICE_WEB` its `public/`). When it lies in an **exclusive share** the
+agent and the web side read and write it on the pool directly (`DATA_DIR` / `OFFICE_DATA` = `officeUnraidPath()` of the
+path as set, past shfs: 4 instead of 200 µs per look on nostromo); `DATA_DIR_USER` / `OFFICE_DATA_USER` keep the path
+as set for what the user reads and what other programs get (the engine's `UB_DATA`; `dataPathUser()`). The agent decides
+at its start (= every array start, where Unraid decides exclusivity; never in the night shift) and looks again every
+minute (`dataWayLook()`: changed twice in a row → it restarts in place). The office's folder in RAM is
+`officeRunDir()` (src/place.php, `/var/run/unraid-secretary-office`, the agent's `RUN_DIR`; `OFFICE_RUN_DIR` for the
+tests — they never touch the live one, see the checklist).
 Development: a git clone anywhere, `plugin/dev-sync.sh` puts it into the
 installed plugin (see the checklist).
 
@@ -71,6 +78,15 @@ installed plugin (see the checklist).
   puts them into a 0600 file in `officeInboxDir()` (`/var/run/unraid-secretary-office/inbox`,
   RAM), the request carries only its name, the agent reads and removes it at once
   (`advisorSecretTake()`). Only actions in `OFFICE_SECRET_ACTIONS` may carry a `secret`.
+  In the agent's RAM folder the web side also reads the agent's heartbeat (`agentRecord()`) and **rings its
+  doorbell** after dropping a request (2026-10-07): one byte into the FIFO `RUN_DIR/doorbell` the agent makes at every
+  start (`doorbellOpen()`: anew, 0600, its own, never through a link) and waits on between its rounds (`agentNap()`,
+  `stream_select()` with the round's 150 ms as the limit) — `agentRing()` (src/mailbox.php) writes only such a FIFO
+  (lstat, then fstat of the handle: the same inode; opened read+write so it never waits for a reader, non-blocking: no
+  doorbell, no reader, a full one — nothing happens, the agent's next round finds the request). Of the agent's files
+  it writes that one only (its own there: the look locks, see «Show first, then look»); never a signal, never a
+  process. It then looks for the answer after 2, 4 and 8 ms, then every 10 ms
+  for two seconds, then every 50 ms: a request costs ~2 ms on top of the agent's own work instead of ~100.
 * **Agent safety:** commands via `run()`/`runAll()` (array form, no shell). Every
   action re-reads the current state and validates ids against it. Errors are
   `throw new Problem('key', [...])`; the UI translates `errors.<key>`
@@ -90,7 +106,7 @@ installed plugin (see the checklist).
   `/mnt/addons/UnraidSecretaryOffice/…` (the place for add-on mounts, RAM — see Server facts),
   data the desks keep to the share `UnraidSecretaryOffice/<desk>/`.
 * **Never block the array stop:** no sockets or open files in the pool; the agent
-  keeps nothing open there. The night shift (runs while the array is stopped) never opens
+  keeps nothing open there (its doorbell and heartbeat lie in RAM, `RUN_DIR`). The night shift (runs while the array is stopped) never opens
   anything under `/mnt`: cwd `/`, its files in `RUN_DIR/nightshift`, paths from `watchmanNightPaths()`.
 * **Keep `tick` functions cheap** — they run every ~150 ms. Long work (like `du`)
   runs as a background process polled from `tick` (see the sizes of Ms. Dustdevil's «Where is what»).
@@ -145,9 +161,14 @@ installed plugin (see the checklist).
   switch `notify_set`) — so checks must stay cheap and must not wake disks:
   when the disk/pool behind a path sleeps, return `ok = null` (not looked).
   `agent-watch.cron` (written by `agent.sh start`, removed with the
-  plugin) runs `job.sh watch` every 5 min: agent.json older than 70 s for 10 min
-  with the array started → one alert, and a normal notification when it is back. The night
-  shift never touches agent.json and runs only while the array isn't started (the watch looks at
+  plugin) runs `job.sh watch` every 5 min: the agent's heartbeat older than 70 s for 10 min
+  with the array started → one alert, and a normal notification when it is back. **The heartbeat lives in RAM**
+  (2026-10-07): `RUN_DIR/agent.json` (running, pid, start, version, desks — `writeInfo()`; its mtime the pulse every
+  20 s, `agentPulse()`, never through a link); the data folder's `agent.json` is written only when its content
+  changes (start, stop), so nothing of the agent lands on the pool every 20 s (an appdata pool of HDDs may sleep). The
+  web side (`agentRecord()`: `agentInfo()`, the tile, `askAgent()`'s restart check) takes the newer of the two (an
+  agent up to 1.32 touched only the data folder's); the watch reads the RAM copy and looks under /mnt only when it is
+  stale. The night shift never touches either and runs only while the array isn't started (the watch looks at
   nothing then), so neither the watch nor the Dashboard tile takes it for the agent.
 * **Jobs that must outlive the agent** (backup runs) go through the host's
   `atd` (`backupLaunch()` in agent/desks/backup.php), never as a child of the
@@ -573,8 +594,9 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   enough to prevent it). emhttpd decides at array start; shares.ini says `exclusive="yes|no"`, never why (Ms.
   Dustdevil's `waExclusive()`, agent/lib/where.php). On nostromo most pool shares are (appdata, system, domains …). Code that refuses
   links must allow exactly this one — `/mnt/user/<share>` → `../<pool>/<share>` or `/mnt/<pool>/<share>`, the same
-  share name, a real folder there, like `advisorUnraidPath()` in agent/desks/advisor.php; `realpath()` gives the pool
-  path, `is_dir()` follows the link, `lstat()`/`is_link()` don't.
+  share name, a real folder there: `officeUnraidPath()` in src/place.php, the one helper (the data folder of the agent
+  and the web side, the Consultant, Ms. Dustdevil); `realpath()` gives the pool path, `is_dir()` follows the link,
+  `lstat()`/`is_link()` don't. Going through `/mnt/user` costs shfs (FUSE) even then: about 50× the pool path per look.
 
 * **shfs across pools (7.3.2, tried on drop: hive + mother):** a `rename()` through `/mnt/user/<share>/…` renames the folder
   on every pool and disk that has it (no copy) — put aside and put back work for a folder spread over two pools; a folder made
@@ -806,7 +828,10 @@ When more than one Claude chat works on the office, one of them is the
 3. Tests on the host: `php tests/run.php` (logic: cron, snapshot retention,
    Emby detection, the plugin's cron file — on copies; strings: `en`/`de`/`it`/`fr`/`es`
    keys identical, every language against English, every T('…'), check and error text exists).
-   Must end with 0 failed.
+   Must end with 0 failed. They have a RAM folder of their own (`OFFICE_RUN_DIR`; a process a test starts with an
+   environment of its own gets `'OFFICE_RUN_DIR' => TESTS_RUN_DIR`) and, as root with `unshare`, run in a mount
+   namespace of their own whose `/var/run/unraid-secretary-office` is an empty folder of theirs — the live agent's
+   locks, heartbeat and doorbell are never met; `testLiveRunUntouched()` fails if anything landed there.
 4. On a server that runs the plugin, `bash plugin/dev-sync.sh` on the host puts
    the working copy into the plugin (RAM, until reboot/update; leaves backup/
    alone while a run is active). The agent restarts itself when its files change (agent/, and src/place.php it shares with the web side) — watch `data/agent.log`
@@ -824,7 +849,7 @@ When more than one Claude chat works on the office, one of them is the
 ## Layout
 
 ```
-agent/agent.php          loop, mailbox, desk loading, self-restart
+agent/agent.php          loop, mailbox and its doorbell, heartbeat, desk loading, self-restart
 agent/lib/*.php          shared helpers (util: run, writeAtomic, readCfg, Problem;
                          mounts; backupscript; house: plugins, containers, finding)
 agent/desks/<id>.php     one desk each: desk('<id>', [...])

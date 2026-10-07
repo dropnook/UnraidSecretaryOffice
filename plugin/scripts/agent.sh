@@ -25,10 +25,12 @@
 # busy). The supervisor restarts the agent if it dies. Jobs that must outlive
 # the agent (backup runs) go through atd and are not touched.
 #
-# "watch" looks from outside: the agent touches agent.json in its data folder
-# every 20 seconds (the page's green dot). Has it not for more than 10 minutes
-# while the array is started, Unraid's notifications hear of it (alert), once
-# per outage, and once more (normal) when it is back. The marks are in RAM.
+# "watch" looks from outside: the agent touches its heartbeat in RAM ($RUN/agent.json)
+# every 20 seconds (the page's green dot; an agent up to 1.32 touched agent.json in
+# its data folder - the newer counts). Has it not for more than 10 minutes while
+# the array is started, Unraid's notifications hear of it (alert), once per outage,
+# and once more (normal) when it is back. The marks are in RAM. A fresh heartbeat
+# is all it reads: nothing under /mnt then.
 # "start" puts the watch into the crontab (agent-watch.cron on the flash).
 #
 # Started through bash (event/started, event/stopping, the .plg, cron), never run directly.
@@ -249,19 +251,23 @@ tell() {
 }
 
 watch() {
-    local now data pulse since minutes
+    local now data pulse old since minutes
     now=$(date +%s)
     # only while the array is started (without it the agent waits, on purpose); that time doesn't count
     if ! array_started; then
         rm -f "$WATCH_DOWN"
         return 0
     fi
-    data=$(data_dir)
-    if [[ ! -d "$data" ]]; then           # no data folder (yet): the page says why
-        rm -f "$WATCH_DOWN"
-        return 0
+    pulse=$(stat -c %Y "$RUN/agent.json" 2>/dev/null || echo 0)     # the heartbeat in RAM
+    if (( now - pulse > 70 )); then
+        data=$(data_dir)
+        if [[ ! -d "$data" ]]; then           # no data folder (yet): the page says why
+            rm -f "$WATCH_DOWN"
+            return 0
+        fi
+        old=$(stat -c %Y "$data/agent.json" 2>/dev/null || echo 0)  # an agent up to 1.32 touched this one
+        (( old > pulse )) && pulse=$old
     fi
-    pulse=$(stat -c %Y "$data/agent.json" 2>/dev/null || echo 0)
     mkdir -p "$RUN" && chmod 700 "$RUN"
     if (( now - pulse <= 70 )); then     # checked in (every 20 s) - the page's green dot says the same
         if [[ -e "$WATCH_TOLD" ]]; then
