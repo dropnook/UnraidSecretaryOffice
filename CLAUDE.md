@@ -53,8 +53,8 @@ installed plugin (see the checklist).
   must always have the same keys — a new UI string needs all five; any other language may
   leave keys out (English fills in) but never has keys `en` lacks, and
   placeholders `{…}` and plurals match `en` (tests/run.php checks it). Unraid
-  menu paths follow Unraid's language packs (github.com/unraid/lang-it_IT,
-  lang-fr_FR, lang-es_ES). French `one` covers 0 and 1 (Intl): write `{n}` in
+  menu paths follow Unraid's language packs (github.com/unraid/lang-de_DE,
+  lang-it_IT, lang-fr_FR, lang-es_ES; see «Words»). French `one` covers 0 and 1 (Intl): write `{n}` in
   French one-forms where 0 can occur.
   Never hard-code UI text in JS or PHP.
 * **No build step, no dependencies.** Plain PHP 8.4 (Unraid's own PHP runs both
@@ -397,7 +397,7 @@ it *il* backup).
 
 | Thing | en | de | it | fr | es | Desk |
 |---|---|---|---|---|---|---|
-| a desk's look around (button) | Tour | Rundgang | Giro | Tournée | Ronda | every desk |
+| a desk's look around (button) · its toast | Tour · Tour done | Rundgang · Rundgang fertig | Giro · Giro finito | Tournée · Tournée terminée | Ronda · Ronda terminada | every desk (Mr. Restori's too) |
 | the watchman's round (every 5 min) | round | der Rundgang, die Rundgänge | il giro, i giri | la ronde | la ronda | watchman, office |
 | his button · his section | A round now · The last round | Jetzt Rundgang machen · Der letzte Rundgang | Un giro adesso · L'ultimo giro | Une ronde maintenant · La dernière ronde | Una ronda ahora · La última ronda | watchman |
 | his book | watch book | das Wachbuch | il registro di guardia | la main courante | el libro de guardia | watchman, advisor |
@@ -412,10 +412,32 @@ it *il* backup).
 | per app / VM | package | das Paket | il pacchetto | le paquet | el paquete | backup, restore |
 | ZFS/btrfs/VM | snapshot | der Snapshot | lo snapshot | le snapshot | la instantánea | all |
 | the offsite copy | Kopia | Kopia | Kopia | Kopia | Kopia | backup, restore, advisor |
+| the office (the whole) | the office | das Sekretariat (not Büro) | la segreteria (not ufficio) | le secrétariat (a *bureau* is a desk) | la secretaría (not oficina) | all |
+| the agent | the messenger | der Hausbote | il fattorino | le coursier | el mensajero | all; only the office's help adds «(agent)» |
+| Mr. Backupsy's setup | the setup · «Set up…» · Apply | die Einrichtung · «Einrichten…» · Übernehmen | la configurazione · «Configura…» · Applica | la configuration · «Configurer…» · Appliquer | la configuración · «Configurar…» · Aplicar | backup and all who point to it |
+| a restore | restore, bring back | die Rückholung, zurückholen (a dump: zurückspielen) | il ripristino | la restauration | la restauración | restore and all who speak of it |
+| Jack Emby's run (EmbyCache, the gather) | run · real run · dry run | der Lauf · echter Lauf · Probelauf | l'esecuzione · esecuzione vera · prova a secco | l'exécution · exécution réelle · essai à blanc | la ejecución · ejecución real · simulación | emby, watchman |
+| Ms. Snapshotini's plans · a plan's run | schedule · run | der Zeitplan · der Lauf | la pianificazione · l'esecuzione | la planification · l'exécution | la programación · la ejecución | snapshot |
+| a ZFS hold | Hold · held · Release hold | Schützen · geschützt · Schutz aufheben | Proteggi · protetto · Togli la protezione | Protéger · protégé · Lever la protection | Proteger · protegida · Quitar la protección | snapshot, watchman |
+| an Unraid share | share | der Share (masculine) | la condivisione | le partage | el recurso compartido | all |
+| an array/pool disk | disk | die Disk (not Platte) | il disco | le disque | el disco | all |
+| /boot | the flash | der Flash | l'unità flash | la flash | el flash | all; a physical USB stick stays a stick |
+| a Docker template | template | das Template (not Vorlage) | il template | le modèle | la plantilla | all |
+| a log | log | das Protokoll (not Log) | il log | le journal | el registro | all; it *registro* is the watch book |
+| Unraid's bell | notifications | die Benachrichtigungen (what a desk sends there: eine Meldung) | le notifiche | les notifications | las notificaciones | all |
+| ZFS dataset · Emby's key | dataset · API key | das Dataset · der API-Schlüssel | il dataset · la chiave API | le dataset · la clé API | el dataset · la clave API | all |
 
 German «Backup» stays for the whole and for what is kept (im Backup, Backups gehören nicht in appdata, Backup-Ablage,
-Backup-Engine); one run is a «Sicherung». «Lauf» / esecuzione / exécution / ejecución stay for Jack Emby's runs
-(EmbyCache, the gather: «echter Lauf», «Probelauf») and Ms. Snapshotini's plan runs — they back nothing up.
+Backup-Engine; «Eingerichtete Backups»); one run is a «Sicherung». «Lauf» / esecuzione / exécution / ejecución stay for
+Jack Emby's runs and Ms. Snapshotini's plan runs — they back nothing up, and «Lauf» pairs with «Probelauf».
+**Unraid's own words:** menu paths and labels the texts quote follow Unraid's language pack of that language — German
+too (lang-de_DE: Einstellungen, Start, Werkzeuge, Freigaben → Freigabe hinzufügen, Container hinzufügen, Bearbeiten →
+Anwenden, Benutzer-Dienstprogramme, Verwaltungszugriff, Aufgabenplanung, Zugriffsrechte «Nur Lesen - sekundär», Quelle
+(Repository) …), so a quoted label can differ from the office's own word (Unraid's «Freigaben», «Datenträger», «Vorlage»
+vs. Share, Disk, Template). One name per tile where a pack has two (it «Accesso e Sicurezza», fr «Gestion des Accès», es
+«Ajustes de Acceso»). Labels Unraid leaves untranslated (Boot Parameters, Read/Write, User templates) and plugins' own
+pages stay as they appear; prose naming «das Dashboard» stays. Titles in running text are small in it/es («il signor
+Restori», «la señora Snapshotini»), capitalised in fr («Monsieur Restori»).
 
 ## UI conventions (every desk looks and behaves the same)
 
