@@ -1061,7 +1061,7 @@
   "setup.preset.kopia_unknown": {"one": "De 1 recurso compartido aún no conozco el tamaño: {list}.", "other": "De {n} recursos compartidos aún no conozco el tamaño: {list}."},
   "setup.preset.kopia_time": "A {speed} de subida tarda unos {time} — la primera copia sube durante todo ese tiempo, y las noches mientras tanto se saltan: no hay instantáneas nuevas hasta que termine.",
   "setup.preset.kopia_time_least": "A {speed} de subida tarda al menos {time} — la primera copia sube durante todo ese tiempo, y las noches mientras tanto se saltan: no hay instantáneas nuevas hasta que termine.",
-  "setup.preset.kopia_cost": "Tu proveedor de almacenamiento cobra ese espacio cada mes, a menudo también la descarga — mira el precio antes de aplicar. Las películas y las fotos apenas se reducen.",
+  "setup.preset.kopia_cost": "Tu proveedor de almacenamiento puede cobrar ese espacio cada mes, a veces también la descarga — mira el precio antes de aplicar (tu propio segundo servidor o MinIO no cuesta nada extra). Las películas y las fotos apenas se reducen.",
   "setup.preset.kept": "Se queda como está: {list}.",
   "setup.preset.keep.system": "{name} (imagen de Docker y libvirt)",
   "setup.preset.keep.kopia_workdir": "{name} (carpeta propia de Kopia)",

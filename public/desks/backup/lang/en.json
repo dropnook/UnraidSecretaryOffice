@@ -1040,7 +1040,7 @@
   "setup.preset.kopia_unknown": {"one": "1 share whose size I don't know yet: {list}.", "other": "{n} shares whose size I don't know yet: {list}."},
   "setup.preset.kopia_time": "At {speed} upload that takes about {time} — the first run uploads that long, and the nights meanwhile are skipped: no new snapshots until it is done.",
   "setup.preset.kopia_time_least": "At {speed} upload that takes at least {time} — the first run uploads that long, and the nights meanwhile are skipped: no new snapshots until it is done.",
-  "setup.preset.kopia_cost": "Your storage provider charges for that space every month, and often for downloading it again — check the price before you apply. Films and photos hardly shrink.",
+  "setup.preset.kopia_cost": "Your storage provider may charge for that space every month, and sometimes for downloading it again — check the price before you apply (your own second server or MinIO costs nothing extra). Films and photos hardly shrink.",
   "setup.preset.kept": "Stays as it is: {list}.",
   "setup.preset.keep.system": "{name} (Docker image and libvirt)",
   "setup.preset.keep.kopia_workdir": "{name} (Kopia's own folder)",
