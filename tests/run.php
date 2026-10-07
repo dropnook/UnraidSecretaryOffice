@@ -3009,6 +3009,220 @@ JS;
 }
 
 /**
+ * «Where to start» (Benj, 2026-10-07): the setup's three starts under node - «auto» is the plan as today, «local»
+ * every share, app and VM local with Kopia off, «kopia» all of them local + Kopia; what the engine never backs up on
+ * its own stays as the plan says (the system share, Kopia's own folder, Time Machine targets, drift.ignore, a VM it
+ * can't snapshot), media servers keep running, an app that ran only because nothing of it was backed up is held as
+ * the engine proposes, the user's Kopia ignore rules stay; a row changed by hand marks the draft; a new plan keeps the
+ * start for what was there and the user's changes, and what came later stays local and running; the first upload
+ * to Kopia with its sizes; whether «local + Kopia» can start at all. Plus: every text a start asks for exists.
+ */
+function testBackupPresets(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true);
+    preg_match("/const PRESETS = \\[([^\\]]*)\\]/", $js, $m);
+    $kinds = preg_match_all("/'([a-z]+)'/", $m[1] ?? '', $k) ? $k[1] : [];
+    preg_match("/const PRESET_KEEP = \\[([^\\]]*)\\]/", $js, $m);
+    $keeps = preg_match_all("/'([a-z_]+)'/", $m[1] ?? '', $k) ? [...$k[1], 'vm_cannot'] : [];
+    same('presets: the three starts', ['auto', 'local', 'kopia'], $kinds);
+    $want = [...array_map(fn ($x) => "setup.preset.$x", $kinds), 'setup.preset.auto_new', 'setup.preset.auto_have', 'setup.preset.local_text',
+        'setup.preset.kopia_text', 'setup.preset.replace', 'setup.preset.replace_new', 'setup.preset.kopia_time', 'setup.preset.kopia_time_least',
+        ...array_map(fn ($x) => "setup.preset.keep.$x", $keeps)];
+    same('presets: every name, text and reason a start asks for exists', [], array_values(array_filter($want, fn ($x) => !isset($en[$x]))));
+
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('presets: setup page - node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('backup-presets');
+    $sh = fn (string $name, ?int $gb, array $more = []) => $more + ['name' => $name, 'exists' => true, 'why' => 'previous', 'method' => 'snap', 'gb' => $gb,
+        'folders' => [], 'waiting' => [], 'notes' => [], 'children' => []];
+    $ct = fn (string $name, string $why, array $binds, array $more = []) => $more + ['name' => $name, 'image' => "some/$name", 'why' => $why, 'previous' => true,
+        'running' => true, 'media' => '', 'kopia' => false, 'volumes' => [],
+        'binds' => array_map(fn ($b) => ['share' => explode('/', $b, 2)[0], 'path' => explode('/', $b, 2)[1] ?? '', 'rw' => true], $binds)];
+    $plan = [
+        'time' => 1000, 'have_settings' => true, 'mount_root' => '/mnt/addons/UnraidSecretaryOffice/snapshots',
+        'P' => ['kopia|enabled' => 'yes', 'kopia|container' => 'kopia', 'general|dumps_share' => 'UnraidSecretaryOffice', 'flash|mode' => 'off', 'libvirt|mode' => 'off',
+                'zfs|retention' => '7 4 3', 'drift|ignore' => ['scr*'],
+                'docker|known' => ['c1', 'c2', 'c3', 'emby', 'skipme', 'dsm', 'tm', 'kopia'], 'docker|no_stop' => ['dsm', 'tm', 'skipme', 'newapp'], 'docker|skip' => ['skipme'],
+                'share|appdata|mode' => 'kopia', 'share|appdata|kopia_ignore' => ['/kopia/', '/cache/'], 'share|appdata|kopia_known' => ['/c1/', '/c2/', '/c3/', '/emby/'],
+                'share|UnraidSecretaryOffice|mode' => 'kopia', 'share|domains|mode' => 'snapshot', 'share|system|mode' => 'snapshot', 'share|kopia_tmp|mode' => 'off',
+                'share|tm_janine|mode' => 'off', 'share|Backups_TimeMachine|mode' => 'off', 'share|scratch|mode' => 'off', 'share|Filme|mode' => 'off',
+                'share|photos|mode' => 'snapshot',
+                'vm|vm1|mode' => 'snapshot', 'vm|vm1|prepare' => 'pause', 'vm|vm2|mode' => 'snapshot', 'vm|vm2|prepare' => 'none',
+                'vm|vm3|mode' => 'off', 'vm|vm3|prepare' => 'none'],
+        'O' => ['kopia|enabled' => 'yes', 'share|appdata|mode' => 'kopia', 'share|UnraidSecretaryOffice|mode' => 'kopia', 'share|domains|mode' => 'snapshot',
+                'share|system|mode' => 'snapshot', 'share|Filme|mode' => 'off', 'share|photos|mode' => 'snapshot'],
+        'shares' => [
+            $sh('appdata', 100, ['folders' => [['dir' => 'c1', 'container' => 'c1'], ['dir' => 'c2', 'container' => 'c2'], ['dir' => 'c3', 'container' => 'c3'],
+                ['dir' => 'emby', 'container' => 'emby'], ['dir' => 'skipme', 'container' => 'skipme'], ['dir' => 'newapp', 'container' => 'newapp']],
+                'waiting' => [['dir' => 'loose', 'bytes' => 5, 'first_seen' => 900]]]),
+            $sh('UnraidSecretaryOffice', 1), $sh('domains', 200), $sh('system', 30), $sh('kopia_tmp', 0), $sh('tm_janine', 500), $sh('Backups_TimeMachine', null, ['method' => 'none']),
+            $sh('scratch', 10), $sh('Filme', 3000), $sh('photos', null), $sh('gone', null, ['exists' => false])],
+        'containers' => [
+            $ct('c1', 'writes', ['appdata/c1']), $ct('c2', 'writes', ['appdata/c2']), $ct('c3', 'writes', ['appdata/c3']),
+            $ct('emby', 'writes', ['appdata/emby', 'Filme'], ['media' => 'emby', 'image' => 'emby/embyserver']),
+            $ct('skipme', 'writes', ['appdata/skipme']),
+            $ct('dsm', 'no_data', ['Filme/dsm']),
+            $ct('tm', 'no_data', ['tm_janine'], ['image' => 'mbentley/timemachine']),
+            $ct('newapp', 'new', ['appdata/newapp'], ['previous' => false]),
+            $ct('kopia', 'kopia', [], ['kopia' => true])],
+        'vms' => [
+            ['name' => 'vm1', 'why' => 'previous', 'agent' => 'no', 'snap' => 'yes', 'own' => ['master/domains/vm1'], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/vm1/vdisk1.img']]],
+            ['name' => 'vm2', 'why' => 'previous', 'agent' => 'no', 'snap' => 'no_snapshot', 'own' => [], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/vm2/vdisk1.img']]],
+            ['name' => 'vm3', 'why' => 'previous', 'agent' => 'yes', 'snap' => 'yes', 'own' => ['master/domains/vm3'], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/vm3/vdisk1.img']]]],
+        'databases' => [], 'nextcloud' => [], 'missing_databases' => [], 'bases' => [['name' => 'master', 'fs' => 'zfs', 'kind' => 'pool']], 'flash' => ['dataset' => '', 'fs' => 'vfat'],
+        'kopia' => ['container' => 'kopia', 'candidates' => ['kopia'], 'problem' => null, 'mappings' => [
+            ['source' => '/mnt/addons/UnraidSecretaryOffice/snapshots', 'target' => '/uso', 'rw' => false, 'main' => true],
+            ['source' => '/mnt/user/kopia_tmp', 'target' => '/cache', 'rw' => true, 'main' => false],
+            ['source' => '/mnt/user/appdata/kopia', 'target' => '/config', 'rw' => true, 'main' => false]]],
+    ];
+    // a new plan later: a container came meanwhile
+    $later = $plan;
+    $later['time'] = 2000;
+    $later['containers'][] = $ct('later', 'new', ['appdata/later'], ['previous' => false]);
+    $later['P']['docker|no_stop'][] = 'later';             // new: keeps running until decided (setup.sh)
+    $later['shares'][0]['folders'][] = ['dir' => 'later', 'container' => 'later'];
+    // a new server: nothing set up, a big share the engine leaves off, a container that ran because its data was off
+    $fresh = ['time' => 1000, 'have_settings' => false, 'mount_root' => '/mnt/addons/UnraidSecretaryOffice/snapshots',
+        'P' => ['kopia|enabled' => 'yes', 'general|dumps_share' => 'UnraidSecretaryOffice', 'flash|mode' => 'snapshot', 'docker|no_stop' => ['dsm'], 'docker|skip' => [],
+                'share|appdata|mode' => 'kopia', 'share|UnraidSecretaryOffice|mode' => 'kopia', 'share|Filme|mode' => 'off', 'share|system|mode' => 'off'],
+        'O' => [],
+        'shares' => [$sh('appdata', 100, ['why' => 'big_container', 'folders' => [['dir' => 'c1', 'container' => 'c1'], ['dir' => 'c2', 'container' => 'c2'], ['dir' => 'c3', 'container' => 'c3']]]),
+                     $sh('UnraidSecretaryOffice', 1, ['why' => 'new']), $sh('Filme', 3000, ['why' => 'big']), $sh('system', 30, ['why' => 'system'])],
+        'containers' => [$ct('c1', 'writes', ['appdata/c1']), $ct('c2', 'writes', ['appdata/c2']), $ct('c3', 'writes', ['appdata/c3']), $ct('dsm', 'no_data', ['Filme'])],
+        'vms' => [], 'databases' => [], 'nextcloud' => [], 'missing_databases' => [], 'bases' => [['name' => 'master', 'fs' => 'zfs', 'kind' => 'pool']],
+        'flash' => ['dataset' => 'flash/boot', 'fs' => 'zfs'], 'kopia' => ['container' => 'kopia', 'candidates' => ['kopia'], 'problem' => null, 'mappings' => []]];
+    file_put_contents("$tmp/plan.json", json_encode($plan));
+    file_put_contents("$tmp/later.json", json_encode($later));
+    file_put_contents("$tmp/fresh.json", json_encode($fresh));
+    $test = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now', duration: (s) => Math.round(s) + ' s' },
+  desk: () => {}, selbar: () => {}, has: () => false };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const S = b.setup;
+const read = (i) => JSON.parse(fs.readFileSync(process.argv[i], 'utf8'));
+const snap = () => JSON.stringify({ draft: S.draft, levels: S.levels, held: S.held });
+const SH = ['appdata', 'UnraidSecretaryOffice', 'domains', 'system', 'kopia_tmp', 'tm_janine', 'Backups_TimeMachine', 'scratch', 'Filme', 'photos', 'gone'];
+const look = () => ({
+  kopia: S.draft['kopia|enabled'], levels: { ...S.levels }, held: { ...S.held },
+  modes: Object.fromEntries(SH.map((n) => [n, S.draft[`share|${n}|mode`] ?? null])),
+  flash: S.draft['flash|mode'], libvirt: S.draft['libvirt|mode'], ignore: S.draft['share|appdata|kopia_ignore'], known: S.draft['share|appdata|kopia_known'],
+  skip: S.draft['docker|skip'], noStop: [...(S.draft['docker|no_stop'] || [])].sort(),
+  items: ['app|c1|kopia', 'app|emby|kopia', 'app|newapp|kopia', 'vm|vm1|kopia', 'vm|vm2|kopia'].map((k) => S.draft[k] ?? null),
+  vm3: [S.draft['vm|vm3|mode'], S.draft['vm|vm3|prepare']],
+  changed: b.presetChanged(), start: b.presetStartText(),
+});
+const out = {};
+S.plan = read(3);
+b.setupDraftFromPlan();                         // what the page shows first: my proposal
+const plain = snap();
+b.presetChoose('auto');
+out.auto = [snap() === plain, b.presetChanged(), b.presetStartText()];
+out.keep = S.plan.shares.map((sh) => b.presetKeep(sh, S.plan));
+out.cardUpload = b.firstUpload(b.presetKopiaMode);      // what card C says before it is chosen
+b.presetChoose('local');
+out.local = look();
+S.levels['app:ct:c2'] = 0;                      // a row changed by hand
+b.setupDerive();
+out.localEdited = [b.presetChanged(), b.presetStartText()];
+b.presetChoose('kopia');
+out.kopia = look();
+out.upload = b.firstUpload(b.draftMode);
+out.kept = b.presetKeptList();
+// a row changed by hand, then a new plan (a tour): the start stays for what was there, the change stays, the newcomer stays local and running
+S.levels['app:ct:c1'] = 1;
+b.setupDerive();
+S.plan = read(4);
+b.setupDraftKeep();
+out.replan = { levels: [S.levels['app:ct:c1'], S.levels['app:ct:c3'], S.levels['app:ct:later'], S.levels['app:ct:newapp']], held: S.held['ct:later'],
+  later: S.draft['app|later|kopia'] ?? null, changed: b.presetChanged() };
+b.setupDraftFromPlan();                         // «Discard»: back to the start
+out.discard = [S.levels['app:ct:c1'], S.levels['app:ct:later'], b.presetChanged()];
+b.presetForget();
+b.setupDraftFromPlan();
+out.forgot = [S.draft['kopia|enabled'], S.levels['app:ct:c1'], S.levels['app:ct:skipme'], S.draft['share|Filme|mode']];
+// can «local + Kopia» start?
+const k = (kopia, P) => b.presetKopiaState({ ...S.plan, kopia: { ...S.plan.kopia, ...kopia }, P: { ...S.plan.P, ...(P || {}) } });
+out.kstate = [k({}), k({ container: '', candidates: [] }), k({}, { 'kopia|enabled': 'no' }), k({ problem: 'no_repo' }), k({ problem: 'no_shares' })];
+// a new server
+S.plan = read(5);
+b.presetForget();
+b.setupDraftFromPlan();
+out.freshAuto = [S.draft['share|appdata|mode'], S.draft['share|Filme|mode'], S.held['ct:dsm'], S.levels['app:ct:c1']];
+b.presetChoose('kopia');
+out.freshKopia = [S.draft['share|appdata|mode'], S.draft['share|Filme|mode'], S.draft['share|system|mode'], S.held['ct:dsm'], S.levels['app:ct:c1'], S.draft['flash|mode'],
+  b.firstUpload(b.draftMode)];
+b.presetChoose('local');
+out.freshLocal = [S.draft['kopia|enabled'], S.draft['share|appdata|mode'], S.draft['share|Filme|mode'], S.draft['share|system|mode'], S.held['ct:dsm']];
+console.log(JSON.stringify(out));
+JS;
+    file_put_contents("$tmp/t.js", $test);
+    $cmd = escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
+        . escapeshellarg("$tmp/plan.json") . ' ' . escapeshellarg("$tmp/later.json") . ' ' . escapeshellarg("$tmp/fresh.json") . ' 2>&1';
+    $r = json_decode((string) shell_exec($cmd), true);
+    if (!is_array($r)) {
+        check('presets: setup page ran under node', false, (string) shell_exec($cmd));
+        hardeningRm($tmp);
+        return;
+    }
+    same('presets: «Automatic» is the plan as today, nothing changed by hand', [true, false, 'setup.preset.start {"name":"setup.preset.auto"}'], $r['auto']);
+    same('presets: what stays as the engine says - system by name, Kopia\'s own folder by its mapping, Time Machine by its container and by name, drift.ignore',
+        [null, null, null, 'system', 'kopia_workdir', 'timemachine', 'timemachine', 'drift_ignore', null, null, null], $r['keep']);
+    $all = fn (int $l) => ['app:ct:c1' => $l, 'app:ct:c2' => $l, 'app:ct:c3' => $l, 'app:ct:emby' => $l, 'app:ct:skipme' => $l, 'app:ct:dsm' => $l, 'app:ct:tm' => $l, 'app:ct:newapp' => $l,
+        'vm:vm1' => $l, 'vm:vm2' => 0, 'vm:vm3' => $l];
+    $ks = function (array $a): array {
+        ksort($a);
+        return $a;
+    };
+    $kept = ['system' => 'snapshot', 'kopia_tmp' => 'off', 'tm_janine' => 'off', 'Backups_TimeMachine' => 'off', 'scratch' => 'off', 'gone' => null];
+    $L = $r['local'];
+    same('presets: «Everything local only» - Kopia off, every app and VM local (a VM that can\'t be snapshotted stays)', ['no', $ks($all(1))], [$L['kopia'], $ks($L['levels'])]);
+    same('presets: «Everything local only» - every share local, what the engine keeps stays as the plan says, a gone one untouched',
+        $ks(['appdata' => 'snapshot', 'UnraidSecretaryOffice' => 'snapshot', 'domains' => 'snapshot', 'Filme' => 'snapshot', 'photos' => 'snapshot'] + $kept), $ks($L['modes']));
+    same('presets: holds - the media server runs, the app that wasn\'t backed up and the one whose data was off stop now, the Time Machine one (its share kept) and the new one keep running',
+        $ks(['ct:emby' => 'run', 'ct:skipme' => 'stop', 'ct:dsm' => 'stop', 'ct:tm' => 'run', 'ct:newapp' => 'run', 'ct:c1' => 'stop']),
+        $ks(array_intersect_key($L['held'], ['ct:emby' => 1, 'ct:skipme' => 1, 'ct:dsm' => 1, 'ct:tm' => 1, 'ct:newapp' => 1, 'ct:c1' => 1])));
+    same('presets: «Everything local only» - nothing skipped, the flash and the VMs\' configurations along, the user\'s ignore rules stay',
+        [[], ['emby', 'newapp', 'tm'], 'tar', 'tar', ['/kopia/', '/cache/']], [$L['skip'], $L['noStop'], $L['flash'], $L['libvirt'], array_values(array_intersect($L['ignore'] ?? [], ['/kopia/', '/cache/']))]);
+    same('presets: a VM of its own that was «not» (kept running) is held again, like a click on its row (freeze: its guest agent answers)', ['snapshot', 'freeze'], $L['vm3']);
+    same('presets: right after choosing nothing is «changed by you»', [false, 'setup.preset.start {"name":"setup.preset.local"}'], [$L['changed'], $L['start']]);
+    same('presets: a row changed by hand marks the draft', [true, 'setup.preset.start {"name":"setup.preset.local"} · setup.preset.changed'], $r['localEdited']);
+    $K = $r['kopia'];
+    same('presets: «Everything local + Kopia» - Kopia on, every app and VM local + Kopia (also the one changed before: the start replaces it)', ['yes', $ks($all(2))], [$K['kopia'], $ks($K['levels'])]);
+    same('presets: «Everything local + Kopia» - every share to Kopia, what the engine keeps stays',
+        $ks(['appdata' => 'kopia', 'UnraidSecretaryOffice' => 'kopia', 'domains' => 'kopia', 'Filme' => 'kopia', 'photos' => 'kopia'] + $kept), $ks($K['modes']));
+    same('presets: «Everything local + Kopia» - apps and the VM as Kopia sources of their own, the VM it can\'t snapshot not',
+        ['yes', 'yes', 'yes', 'yes', null], $K['items']);
+    same('presets: «Everything local + Kopia» - the user\'s ignore rules stay (Kopia\'s own folder, /cache/), no app folder left out, the new folder nobody owns goes along',
+        [['/kopia/', '/cache/'], true], [$K['ignore'], in_array('/loose/', $K['known'] ?? [], true)]);
+    same('presets: the first upload - the shares new to Kopia, sizes known and not (card and draft agree)',
+        ['bytes' => (200 + 3000) * 1073741824, 'shares' => ['domains', 'Filme', 'photos'], 'unknown' => ['photos']], $r['upload']);
+    same('presets: card C says the same before it is chosen', $r['upload'], $r['cardUpload']);
+    same('presets: what every start leaves as it is', ['setup.preset.keep.system {"name":"system"}', 'setup.preset.keep.kopia_workdir {"name":"kopia_tmp"}',
+        'setup.preset.keep.timemachine {"name":"tm_janine"}', 'setup.preset.keep.timemachine {"name":"Backups_TimeMachine"}',
+        'setup.preset.keep.drift_ignore {"name":"scratch"}', 'setup.preset.keep.vm_cannot {"name":"vm2"}'], $r['kept']);
+    same('presets: a new plan - the start stays for what was there, the change by hand stays, what came later stays local and running',
+        ['levels' => [1, 2, 1, 2], 'held' => 'run', 'later' => null, 'changed' => true], $r['replan']);
+    same('presets: «Discard» goes back to the start (not to my proposal), the newcomer still local', [2, 1, false], $r['discard']);
+    same('presets: without a start the plan as it is again', ['yes', 2, 0, 'off'], $r['forgot']);
+    same('presets: can «local + Kopia» start - yes; no container; Kopia off so far (not looked at); not connected; «no share yet» is no problem for it', [
+        ['ok' => true, 'why' => null], ['ok' => false, 'why' => 'none'], ['ok' => true, 'why' => 'unchecked'], ['ok' => true, 'why' => 'problem', 'problem' => 'no_repo'],
+        ['ok' => true, 'why' => null]], $r['kstate']);
+    same('presets: a new server, my proposal - nothing to Kopia unasked, the big share off, its container running', ['snapshot', 'off', 'run', 1], $r['freshAuto']);
+    same('presets: a new server, «local + Kopia» - every share (the big one too) to Kopia, the system share stays off, the container now stops, all of it a first upload',
+        ['kopia', 'kopia', 'off', 'stop', 2, 'snapshot', ['bytes' => (100 + 1 + 3000) * 1073741824, 'shares' => ['appdata', 'UnraidSecretaryOffice', 'Filme'], 'unknown' => []]], $r['freshKopia']);
+    same('presets: a new server, «local only»', ['no', 'snapshot', 'snapshot', 'off', 'stop'], $r['freshLocal']);
+    hardeningRm($tmp);
+}
+
+/**
  * Engine 2.20: a run that finds the lock busy is skipped, never silent — the engine's helpers (the holder
  * note, skipped.json, the history line, the history's own lock) on a temporary data folder, and the
  * office's side: who holds the lock, skips kept apart from the runs (history, estimates, the last run),
@@ -9376,7 +9590,7 @@ function testUnraidWords(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings', 'testUnraidWords']];
