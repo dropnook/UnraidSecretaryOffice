@@ -195,7 +195,7 @@ function loggedOut(r) {
 // page until it is answered: Unraid's own (div.spinner.fixed, the animated logo
 // every Unraid page has; ours only if a page lacks it). Reads that poll or run
 // beside the page (a log being followed, an estimate) stay quiet.
-const QUIET = /\.(read|output|log|estimate|detail|measure)$/;
+const QUIET = /\.(read|output|log|estimate|detail|measure|where_refresh|where_measure)$/;
 let busyCount = 0, busyTimer = null;
 function busyEl() {
   const unraid = document.querySelector('div.spinner.fixed');
@@ -523,7 +523,19 @@ Office.desk = function registerDesk(desk) {
   Office.desks.set(desk.id, { ...meta, ...desk });
 };
 
+/**
+ * Desks that went into another one: their old addresses lead to the part of the page that took them over
+ * (2026-10: Ms. Whereabouts' work is Ms. Dustdevil's «Where is what»). The address as it should be, or null.
+ */
+const MOVED_DESKS = { whereabouts: 'cleanup/where' };
+function movedDesk(hash, known) {
+  const id = (hash.replace(/^#\/?/, '') || '').split('/')[0];
+  return Object.prototype.hasOwnProperty.call(MOVED_DESKS, id) && !known(id) ? `#/${MOVED_DESKS[id]}` : null;
+}
+
 function route() {
+  const moved = movedDesk(location.hash, (id) => Office.desks.has(id));
+  if (moved) history.replaceState(null, '', moved);
   const parts = (location.hash.replace(/^#\/?/, '') || '').split('/');
   const id = parts[0] || '';
   const sub = parts.slice(1).join('/');
