@@ -1530,8 +1530,9 @@ function backupCheckReady(): string
 /** Hands a backup engine command to the host's atd (see hostLaunch()) */
 function backupLaunch(array $args, array $env = []): void
 {
-    // always say where its data lies: the folder the office reads (the engine would find the plugin's DATA_DIR itself)
-    hostLaunch('backup-job', array_merge(['/bin/bash'], $args), ['UB_DATA' => BACKUP_DATA_DIR] + $env);
+    // always say where its data lies: the folder the office reads, as the user set it (the engine would find the
+    // plugin's DATA_DIR itself — the same path, never the pool path the agent may use)
+    hostLaunch('backup-job', array_merge(['/bin/bash'], $args), ['UB_DATA' => BACKUP_DATA_DIR_USER] + $env);
 }
 
 function backupStart(string $mode): array

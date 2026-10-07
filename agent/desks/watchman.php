@@ -381,11 +381,11 @@ function watchmanSave(string $dir, array $old, array $new): void
     }
 }
 
-/** A lock of his own in RAM (one per data folder, so a test never waits for the real one) */
+/** A lock of his own in RAM (one per data folder, so a test never waits for the real one; named by its path as the user set it) */
 function watchmanLockFile(string $dir, string $what): string
 {
     @mkdir(RUN_DIR, 0700, true);
-    return RUN_DIR . "/watchman-$what-" . substr(md5($dir), 0, 8) . '.lock';
+    return RUN_DIR . "/watchman-$what-" . substr(md5(dataPathUser($dir)), 0, 8) . '.lock';
 }
 
 /** Runs $fn while holding his book (a round's merge, «I know, thanks»): a few milliseconds each */
@@ -3860,7 +3860,7 @@ const WATCH_STOREROOM     = '_UnraidSecretaryOffice-trash';     // Ms. Dustdevil
 function watchmanFlowCountersFile(string $dir): string
 {
     @mkdir(RUN_DIR, 0700, true);
-    return RUN_DIR . '/watchman-flow-' . substr(md5($dir), 0, 8) . '.json';
+    return RUN_DIR . '/watchman-flow-' . substr(md5(dataPathUser($dir)), 0, 8) . '.json';
 }
 
 /** The last round's counters, or null (none, or too old to diff against) */

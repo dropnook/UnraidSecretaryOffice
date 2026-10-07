@@ -54,12 +54,18 @@ const ARRAY_RUNNING = ['Started', 'Formatting', 'Clearing'];
 define('OFFICE_DIR', dirname(__DIR__));
 // the web files (desks/<id>/desk.json, lang/ …) lie at the top of the plugin's folder; the tests set the repository's public/
 defined('OFFICE_WEB') || define('OFFICE_WEB', OFFICE_DIR);
-define('DATA_DIR', rtrim(getenv('OFFICE_DATA_DIR') ?: officePluginDataDir(), '/'));
+// the night shift keeps nothing under /mnt: its log lies in RAM next to its book
+define('NIGHT_MODE', PHP_SAPI === 'cli' && !defined('AGENT_LIBRARY_ONLY') && ($argv[1] ?? '') === 'nightshift');
+// The data folder as the user set it (DATA_DIR in the plugin's .cfg, usually /mnt/user/appdata/…): what the user
+// sees and what other programs get (the backup engine's UB_DATA, Ms. Dustdevil's «Where is what»). The agent itself
+// reads and writes DATA_DIR: the same folder, on its pool directly when it lies in an exclusive share
+// (officeUnraidPath() — past shfs; decided at every start = every array start, looked at again every minute,
+// dataWayLook()). The night shift never looks under /mnt.
+define('DATA_DIR_USER', rtrim(getenv('OFFICE_DATA_DIR') ?: officePluginDataDir(), '/'));
+define('DATA_DIR', NIGHT_MODE ? DATA_DIR_USER : officeUnraidPath(DATA_DIR_USER));
 define('MAILBOX', DATA_DIR . '/mailbox');
 define('OFFICE_PRIVATE', DATA_DIR . '/office');
 define('AGENT_INFO', DATA_DIR . '/agent.json');
-// the night shift keeps nothing under /mnt: its log lies in RAM next to its book
-define('NIGHT_MODE', PHP_SAPI === 'cli' && !defined('AGENT_LIBRARY_ONLY') && ($argv[1] ?? '') === 'nightshift');
 define('AGENT_LOG', NIGHT_MODE ? RUN_DIR . '/nightshift/nightshift.log' : DATA_DIR . '/agent.log');
 
 require __DIR__ . '/lib/util.php';
@@ -248,6 +254,9 @@ function serve(): int
         if (!is_dir(DATA_DIR) && !makeDataDir()) {     // array stopped: wait until it is back
             $ready = false;
             sleep(5);
+            if (arrayRunning() && ($way = dataWayLook()) !== null) {
+                restartInPlace($lock, "The data folder is reached another way now ($way)");
+            }
             continue;
         }
         if (!$ready) {
@@ -276,6 +285,9 @@ function serve(): int
             cleanUpMailbox();
             officeNotifyLangKeep();     // the office's language into RAM, for the night shift's notifications (lib/house.php)
             $lastCleanup = $now;
+            if (($way = dataWayLook()) !== null) {
+                restartInPlace($lock, "The data folder is reached another way now ($way)");
+            }
         }
         if ($now - $lastLook >= 3) {
             $lastLook = $now;
@@ -283,11 +295,7 @@ function serve(): int
             if ($new !== $code) {
                 $code = $new;
                 if (codeIsValid()) {
-                    logLine('Agent code changed — restarting');
-                    flock($lock, LOCK_UN);
-                    fclose($lock);
-                    pcntl_exec('/bin/sh', ['-c', 'exec "$@"' . closeInheritedFds(), 'sh', PHP_BINARY, __FILE__, 'run']);
-                    exit(1);
+                    restartInPlace($lock, 'Agent code changed');
                 }
             }
         }
@@ -302,6 +310,34 @@ function serve(): int
     fclose($lock);
     @unlink(PID_FILE);
     return 0;
+}
+
+/** Starts this agent anew in its own process (its pid stays): new code, or another way to its data folder */
+function restartInPlace($lock, string $why): never
+{
+    logLine("$why — restarting");
+    flock($lock, LOCK_UN);
+    fclose($lock);
+    pcntl_exec('/bin/sh', ['-c', 'exec "$@"' . closeInheritedFds(), 'sh', PHP_BINARY, __FILE__, 'run']);
+    exit(1);
+}
+
+/**
+ * Is the data folder reached another way than at the start? Exclusivity changes only with the array stopped, and
+ * the agent starts anew at every array start — so normally never; but should an agent outlive an array stop (or the
+ * share's link change under it), the way it decided at its start (DATA_DIR: on the pool past shfs, or through
+ * /mnt/user) is looked at again every minute (one lstat and a readlink, officeUnraidPath()). Said only when seen
+ * twice in a row (a minute apart), so a passing hiccup of shfs never restarts it: "<then> → <now>", else null.
+ */
+function dataWayLook(): ?string
+{
+    $now = officeUnraidPath(DATA_DIR_USER);
+    if ($now === DATA_DIR) {
+        $GLOBALS['dataWayOff'] = 0;
+        return null;
+    }
+    $GLOBALS['dataWayOff'] = ($GLOBALS['dataWayOff'] ?? 0) + 1;
+    return $GLOBALS['dataWayOff'] >= 2 ? DATA_DIR . ' → ' . $now : null;
 }
 
 /**

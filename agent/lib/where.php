@@ -319,7 +319,7 @@ function waShares(array $roots, array $asleep, array $datasets, array $consumers
         $pool2 = $cfg['shareCachePool2'] ?? $i['cachePool2'] ?? '';
         $exclusive = ($i['exclusive'] ?? '') === 'yes';
         $userPath = "/mnt/user/$name";
-        $real = $exclusive ? (@realpath($userPath) ?: $userPath) : null;
+        $real = $exclusive ? officeUnraidPath($userPath) : null;     // on its pool (Unraid's link, src/place.php)
 
         // where its data may lie
         $primary = in_array($useCache, ['only', 'yes', 'prefer'], true) && $pool !== '' ? $pool : 'array';
@@ -1001,9 +1001,10 @@ function waLocations(array $vms, array $cron): array
 
     $groups[] = ['id' => 'office', 'items' => array_values(array_filter([
         $item('office_dir', OFFICE_DIR),
-        $item('office_data', DATA_DIR),
-        is_dir(BACKUP_DATA_DIR) ? $item('backup_data', BACKUP_DATA_DIR) : null,
-        is_dir(BACKUP_DATA_DIR . '/dumps') ? $item('backup_dumps', BACKUP_DATA_DIR . '/dumps', ['glob' => '[0-9]*']) : null,
+        // the data folder as the user set it (the agent may reach it on its pool directly: DATA_DIR)
+        $item('office_data', DATA_DIR_USER),
+        is_dir(BACKUP_DATA_DIR) ? $item('backup_data', DATA_DIR_USER . '/unraid-backup') : null,
+        is_dir(BACKUP_DATA_DIR . '/dumps') ? $item('backup_dumps', DATA_DIR_USER . '/unraid-backup/dumps', ['glob' => '[0-9]*']) : null,
     ]))];
     return $groups;
 }
@@ -1104,11 +1105,11 @@ function waPathExists(string $path, array $roots, array $asleep): ?bool
         return null;
     }
     if ($m[1] === 'user') {
-        $link = @readlink("/mnt/user/{$m[2]}");     // exclusive shares are symlinks to their pool
-        if ($link === false || !preg_match('#^\.\./([^/]+)/#', $link . '/', $p) || ($asleep[$p[1]] ?? false)) {
+        $real = officeUnraidPath($path);            // an exclusive share: Unraid's link to its pool (src/place.php)
+        if ($real === $path || !preg_match('#^/mnt/([^/]+)/#', $real, $p) || ($asleep[$p[1]] ?? false)) {
             return null;
         }
-        return file_exists($path);
+        return file_exists($real);
     }
     if (($roots[$m[1]]['kind'] ?? '') === 'pool' && !($asleep[$m[1]] ?? false)) {
         return file_exists($path);

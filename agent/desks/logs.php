@@ -198,7 +198,7 @@ function logsScan(): array
     $list = [];
     foreach (logsSources() as $id => $src) {
         $list[] = ['id' => $id, 'group' => $src['group'], 'label' => $src['label'], 'param' => $src['param'],
-                   'path' => $src['kind'] === 'file' ? $src['target'] : null,
+                   'path' => $src['kind'] === 'file' ? dataPathUser($src['target']) : null,     // the data folder as the user set it
                    'size' => $src['kind'] === 'file' ? (int) @filesize($src['target']) : null,
                    'time' => $src['kind'] === 'file' ? (@filemtime($src['target']) ?: null) : null];
     }

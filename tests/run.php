@@ -4697,6 +4697,78 @@ function testComposeBuilds(): void
  * disk), which Unraid refuses for no reason she can see, and which only their
  * secondary storage keeps from it — from the tour's shares only (fixtures).
  */
+/**
+ * The data folder over the pool for an exclusive share (src/place.php officeUnraidPath(), the one helper of the agent, the
+ * Consultant, Ms. Dustdevil and the web side): exactly Unraid's link /mnt/user/<share> → ../<pool>/<share> (or
+ * /mnt/<pool>/<share>), the same share name, a real folder there, is followed — nothing else. On a /mnt of the tests'
+ * own. Then the agent and the web side in processes of their own with a data folder in /mnt/user/appdata (looked at
+ * only, nothing is written there): both reach it the same way, the agent tells the engine and the user the path as
+ * the user set it, and the night watchman's names in RAM stay what they were.
+ */
+function testUnraidPath(): void
+{
+    $tmp = hardeningTmp('unraidpath');
+    $mnt = "$tmp/mnt";
+    foreach (['cache/appdata/UnraidSecretaryOffice', 'cache/system', 'cache/media', 'disk1/media', 'user0', 'cache/notdir', 'user'] as $d) {
+        @mkdir("$mnt/$d", 0755, true);
+    }
+    rmdir("$mnt/cache/notdir");
+    file_put_contents("$mnt/cache/notdir", 'x');
+    symlink('../cache/appdata', "$mnt/user/appdata");           // Unraid's shape
+    symlink("$mnt/cache/system", "$mnt/user/system");           // the absolute shape
+    mkdir("$mnt/user/media");                                   // not exclusive: shfs' own folder
+    symlink('../cache/system', "$mnt/user/other");              // another share's name
+    symlink('../user0/x', "$mnt/user/x");                       // not a pool
+    symlink('../cache/notdir', "$mnt/user/notdir");             // no folder there
+    symlink('../cache/gone', "$mnt/user/gone");                 // nothing there
+    symlink('../cache/appdata/UnraidSecretaryOffice', "$mnt/user/deep");      // deeper than <pool>/<share>
+    mkdir("$mnt/cache/linked");
+    symlink('../cache/appdata', "$mnt/cache/linked2");
+    symlink('../cache/linked2', "$mnt/user/linked2");           // the pool's folder a link itself
+    $u = fn (string $p) => officeUnraidPath($p, $mnt);
+    same('unraid path: Unraid\'s link followed, the rest kept', "$mnt/cache/appdata/UnraidSecretaryOffice/data", $u("$mnt/user/appdata/UnraidSecretaryOffice/data"));
+    same('unraid path: the share itself', "$mnt/cache/appdata", $u("$mnt/user/appdata"));
+    same('unraid path: the absolute shape too', "$mnt/cache/system/x", $u("$mnt/user/system/x"));
+    foreach (['not exclusive' => "$mnt/user/media/a", 'another share\'s name' => "$mnt/user/other/a", 'not a pool' => "$mnt/user/x/a",
+              'no folder there' => "$mnt/user/notdir/a", 'nothing there' => "$mnt/user/gone/a", 'deeper' => "$mnt/user/deep/a",
+              'the pool\'s folder a link' => "$mnt/user/linked2/a", 'no share' => "$mnt/user", 'missing share' => "$mnt/user/none/a",
+              'outside /mnt/user' => "$mnt/cache/appdata/a", 'user0' => "$mnt/user0/appdata"] as $what => $p) {
+        same("unraid path: $what — kept", $p, $u($p));
+    }
+    same('unraid path: the real /mnt by default — a path outside it kept', '/tmp/x', officeUnraidPath('/tmp/x'));
+
+    // the agent and the web side with a data folder in /mnt/user/appdata (only looked at): the same way, and as the user set it
+    $user = '/mnt/user/appdata/zz-uso-tests-' . getmypid() . '/data';
+    $want = officeUnraidPath($user);
+    $run = function (string $code) use ($user): array {
+        $p = proc_open([PHP_BINARY, '-r', $code], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => $user, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
+        $out = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return json_decode(substr($out, (int) strpos($out, '{')), true) ?: ['raw' => $out];
+    };
+    $agent = $run('define("AGENT_LIBRARY_ONLY", 1); require ' . var_export(OFFICE_DIR . '/agent/agent.php', true) . ';'
+        . ' echo json_encode(["data" => DATA_DIR, "user" => DATA_DIR_USER, "mailbox" => MAILBOX, "engine" => BACKUP_DATA_DIR_USER,'
+        . ' "shown" => dataPathUser(DATA_DIR . "/agent.log"), "other" => dataPathUser("/tmp/x"), "way" => dataWayLook(),'
+        . ' "lock" => basename(watchmanLockFile(DATA_DIR . "/watchman", "book")), "flow" => basename(watchmanFlowCountersFile(DATA_DIR . "/watchman"))]);');
+    $web = $run('require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; echo json_encode(["data" => OFFICE_DATA, "user" => OFFICE_DATA_USER]);');
+    same('data folder: the agent reaches it like officeUnraidPath() — on the pool when appdata is exclusive here', [$want, $user, "$want/mailbox"],
+        [$agent['data'] ?? $agent, $agent['user'] ?? null, $agent['mailbox'] ?? null]);
+    same('data folder: the web side the same way', [$want, $user], [$web['data'] ?? $web, $web['user'] ?? null]);
+    same('data folder: the engine and the user get the path as set, other paths stay', ["$user/unraid-backup", "$user/agent.log", '/tmp/x'],
+        [$agent['engine'] ?? null, $agent['shown'] ?? null, $agent['other'] ?? null]);
+    same('data folder: the way as at the start — no restart', [true, null], [array_key_exists('way', $agent), $agent['way'] ?? null]);
+    same('data folder: the night watchman\'s names in RAM made from the path as set (the same either way)',
+        ['watchman-book-' . substr(md5("$user/watchman"), 0, 8) . '.lock', 'watchman-flow-' . substr(md5("$user/watchman"), 0, 8) . '.json'],
+        [$agent['lock'] ?? null, $agent['flow'] ?? null]);
+    check('data folder: nothing was made in /mnt/user/appdata', !file_exists(dirname($user)));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/agent.php');
+    check('data folder: the night shift never looks under /mnt for it', str_contains($src, "define('DATA_DIR', NIGHT_MODE ? DATA_DIR_USER : officeUnraidPath(DATA_DIR_USER));"));
+    check('data folder: Ms. Dustdevil and the Consultant use the one helper', !preg_match('/readlink\("\/mnt\/user|realpath\(\$userPath/', (string) file_get_contents(OFFICE_DIR . '/agent/lib/where.php'))
+        && !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/advisor.php'), 'function advisorUnraidPath'));
+    hardeningRm($tmp);
+}
+
 function testExclusive(): void
 {
     $roots = ['disk1' => ['fs' => 'xfs', 'kind' => 'disk'], 'disk2' => ['fs' => 'xfs', 'kind' => 'disk'],
@@ -6524,9 +6596,9 @@ function testAdvisorInstall(): void
     advisorDashboardCurrent(['running' => true] + $g);
     same('advisor dashboard current: Grafana running — the office\'s dashboard of this version', advisorDashboardJson(ADVISOR_DASHBOARD_FILE), file_get_contents($file));
     exec('rm -rf ' . escapeshellarg($keep));
-    // Unraid's exclusive shares: only /mnt/user/<share> → /mnt/<pool>/<share> is followed; other paths stay
-    same('advisor: a path outside /mnt/user stays', '/tmp/x/y', advisorUnraidPath('/tmp/x/y'));
-    same('advisor: a share that is no link stays', '/mnt/user/zz-uso-no-such-share/a', advisorUnraidPath('/mnt/user/zz-uso-no-such-share/a'));
+    // Unraid's exclusive shares: only /mnt/user/<share> → /mnt/<pool>/<share> is followed (officeUnraidPath(), testUnraidPath()); other paths stay
+    same('advisor: a path outside /mnt/user stays', '/tmp/x/y', officeUnraidPath('/tmp/x/y'));
+    same('advisor: a share that is no link stays', '/mnt/user/zz-uso-no-such-share/a', officeUnraidPath('/mnt/user/zz-uso-no-such-share/a'));
     $tmp = hardeningTmp('advisor-install');
     $GLOBALS['advisorRecordFile'] = "$tmp/record/installs.json";       // his record of what he prepared: never the test copy's data
     mkdir("$tmp/appdata");
@@ -9784,7 +9856,7 @@ function testUnraidWords(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings', 'testUnraidWords']];

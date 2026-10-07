@@ -386,7 +386,7 @@ function advisorDashboardCurrent(array $g): void
     if (empty($g['running']) || $g['host'] === null || !is_file(ADVISOR_DASHBOARD_FILE)) {
         return;
     }
-    $path = advisorUnraidPath($g['host'] . '/' . ADVISOR_DASHBOARD_REL);
+    $path = officeUnraidPath($g['host'] . '/' . ADVISOR_DASHBOARD_REL);
     clearstatcache(true, $path);
     $st = @lstat($path);
     $src = @stat(ADVISOR_DASHBOARD_FILE);
@@ -980,31 +980,6 @@ function advisorInstallPrepare(string $id, array $r, array $env): array
 }
 
 /**
- * Unraid's exclusive shares (a share on one pool only): /mnt/user/<share> is then a symlink to
- * /mnt/<pool>/<share> (nostromo's appdata). That one link — Unraid's own, exactly this shape, the
- * same share name, a real folder behind it — is followed: the path comes back on the pool. Any
- * other link stays refused by the callers (nothing of his is written through one).
- */
-function advisorUnraidPath(string $path): string
-{
-    if (!preg_match('#^/mnt/user/([^/]+)(/.*)?$#D', $path, $m)) {
-        return $path;
-    }
-    $share = "/mnt/user/{$m[1]}";
-    clearstatcache(true, $share);
-    if (!is_link($share)) {
-        return $path;
-    }
-    $to = (string) @readlink($share);
-    if (!preg_match('#^(?:\.\./|/mnt/)([^/]+)/([^/]+)/?$#D', $to, $t) || $t[2] !== $m[1] || in_array($t[1], ['user', 'user0', 'addons', 'remotes', 'disks', 'rootshare'], true)) {
-        return $path;
-    }
-    $real = "/mnt/{$t[1]}/{$m[1]}";
-    $st = @lstat($real);
-    return ($st && ($st['mode'] & 0170000) === 0040000) ? $real . ($m[2] ?? '') : $path;
-}
-
-/**
  * Creates the folders $subs below $base (which must exist) where missing —
  * 0755, nobody:users like Unraid makes a container's paths — and refuses
  * when one of them (or $base) is a link: nothing of his is written through
@@ -1012,7 +987,7 @@ function advisorUnraidPath(string $path): string
  */
 function advisorDirs(string $base, array $subs, int $uid, int $gid): void
 {
-    $base = advisorUnraidPath($base);
+    $base = officeUnraidPath($base);
     clearstatcache();
     $st = @lstat($base);
     if (!$st || ($st['mode'] & 0170000) !== 0040000) {
@@ -1041,7 +1016,7 @@ function advisorDirs(string $base, array $subs, int $uid, int $gid): void
  */
 function advisorWriteIfAbsent(string $path, string $content, int $uid, int $gid): bool
 {
-    $path = advisorUnraidPath($path);
+    $path = officeUnraidPath($path);
     clearstatcache(true, $path);
     if (file_exists($path) || is_link($path)) {
         return false;

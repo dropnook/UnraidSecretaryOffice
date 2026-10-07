@@ -27,7 +27,7 @@ function agentInfo(): array
     if (!$info['running'] && !is_dir(OFFICE_DATA)) {
         // the data folder comes with the array: say why nobody answers
         $var = @parse_ini_file('/var/local/emhttp/var.ini') ?: [];
-        $info['no_data'] = ['array' => (string) ($var['fsState'] ?? ''), 'dir' => OFFICE_DATA];
+        $info['no_data'] = ['array' => (string) ($var['fsState'] ?? ''), 'dir' => OFFICE_DATA_USER];
     }
     unset($info['night']);
     if (!$info['running'] && ($night = officeNightShift()) !== null) {
