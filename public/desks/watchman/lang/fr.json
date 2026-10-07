@@ -109,6 +109,7 @@
   "noted.baseline": "Fermé le {when}, quand il a repris la veille à zéro.",
   "noted.auto": "Noté de lui-même le {when} : User Scripts lance un script « en arrière-plan » via atd — rien à signaler.",
   "noted.office": "Noté de lui-même le {when} : le bureau l'a installé lui-même (le consultant) — rien à signaler.",
+  "noted.unraid": "Noté de lui-même le {when} : la tâche d'Unraid lui-même après un démarrage de l'array (reload_services) — rien à signaler.",
   "group.login": "Connexion",
   "group.container": "Conteneur",
   "group.plugin": "Plugin",

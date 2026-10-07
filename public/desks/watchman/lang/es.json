@@ -109,6 +109,7 @@
   "noted.baseline": "Cerrado el {when}, cuando volvió a tomar la guardia desde cero.",
   "noted.auto": "Anotado por sí mismo el {when}: User Scripts inicia un script «en segundo plano» a través de atd — nada que contar.",
   "noted.office": "Anotado por sí mismo el {when}: lo instaló la propia oficina (el consultor) — nada que contar.",
+  "noted.unraid": "Anotado por sí mismo el {when}: la tarea del propio Unraid tras un inicio del array (reload_services) — nada que contar.",
   "group.login": "Acceso",
   "group.container": "Contenedor",
   "group.plugin": "Plugin",

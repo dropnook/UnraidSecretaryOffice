@@ -746,7 +746,7 @@ function details(e) {
   if (e.group === 'flow' && p.learning) notes.push(T('detail.learning'));
   if (p.office && e.kind.startsWith('cron_file')) notes.push(T('detail.office_cron'));
   if (e.open) notes.push(T('adopt.' + e.kind));
-  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'schedule', 'array'].includes(e.by) ? e.by : 'page'), { when: fmt.date(e.noted) }));
+  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'schedule', 'array', 'unraid'].includes(e.by) ? e.by : 'page'), { when: fmt.date(e.noted) }));
   if (e.told) notes.push(T('detail.told', { when: fmt.date(e.told) }));
   else if (e.muted && e.tell) notes.push(T('detail.muted'));
   else if (e.open) notes.push(T(e.tell ? 'detail.not_told' : 'detail.book_only'));

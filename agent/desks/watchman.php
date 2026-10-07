@@ -3361,7 +3361,8 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
         $text = (string) @file_get_contents($paths['atjobs'] . "/$f", false, null, 0, 65536);
         $ours = str_contains($text, "\n" . HOST_LAUNCH_MARK . "\n");
         $jobs[$f] = ['ours' => $ours, 'when' => hexdec($m[1]) * 60, 'uid' => preg_match('/^# atrun uid=(\d+)/m', $text, $u) ? (int) $u[1] : null,
-                     'cmd' => $ours ? '' : watchmanAtCommand($text), 'us' => $ours ? null : watchmanAtUserScript($text, $paths['userscripts'] ?? null)];
+                     'cmd' => $ours ? '' : watchmanAtCommand($text), 'us' => $ours ? null : watchmanAtUserScript($text, $paths['userscripts'] ?? null)]
+                   + (!$ours && watchmanAtUnraid($text) ? ['unraid' => true] : []);
     }
     ksort($jobs);
     return ['m' => (int) $st['mtime'], 'jobs' => $jobs];
@@ -3379,6 +3380,40 @@ function watchmanAtUserScript(string $text, ?string $dir): ?string
     if ($dir === null) {
         return null;
     }
+    $cmd = watchmanAtOnlyCommand($text);
+    $head = WATCH_US_LAUNCHER . ' ' . WATCH_US_TMP;
+    if ($cmd === null || !str_starts_with($cmd, $head) || !str_ends_with($cmd, '/script')) {
+        return null;
+    }
+    $name = substr($cmd, strlen($head), -strlen('/script'));
+    if ($name === '' || $name === '.' || $name === '..' || strlen($name) > 200 || !mb_check_encoding($name, 'UTF-8')
+        || preg_match('/[\x00-\x1F\x7F\/;&|`$<>()\\\\\'"*?\[\]{}~#!]/', $name) || !is_file("$dir/scripts/$name/script")) {
+        return null;
+    }
+    return $name;
+}
+
+/**
+ * Unraid's own at job: after an array start (or a network change) emhttp queues `sleep N;
+ * /usr/local/emhttp/webGui/scripts/reload_services` — exactly that one command, as root, with an
+ * environment that runs nothing else (watchmanAtOnlyCommand()). Never news.
+ */
+const WATCH_AT_UNRAID = '#^sleep [0-9]{1,3}; /usr/local/emhttp/webGui/scripts/reload_services$#D';
+
+function watchmanAtUnraid(string $text): bool
+{
+    $cmd = watchmanAtOnlyCommand($text);
+    return $cmd !== null && preg_match(WATCH_AT_UNRAID, $cmd) === 1 && preg_match('/^# atrun uid=0 /m', $text) === 1;
+}
+
+/**
+ * The one command an at job runs, when that is all it does and its environment can't make it run
+ * something else (no LD_PRELOAD and the like, PATH and SHELL only the system's: at runs the commands
+ * with $SHELL) — else null. At's head (#!/bin/sh, # atrun …, umask, NAME=value; export NAME, the
+ * `cd … || { … }`) and its optional `${SHELL:-/bin/sh} << 'marcinDELIMITER…'` wrapper are left out.
+ */
+function watchmanAtOnlyCommand(string $text): ?string
+{
     $lines = explode("\n", rtrim($text, "\n"));
     $n = count($lines);
     // the head at writes: #!/bin/sh, # atrun …, # mail …, umask, the environment as NAME=value; export NAME
@@ -3410,16 +3445,7 @@ function watchmanAtUserScript(string $text, ?string $dir): ?string
             $cmds[] = $l;
         }
     }
-    $head = WATCH_US_LAUNCHER . ' ' . WATCH_US_TMP;
-    if (count($cmds) !== 1 || !str_starts_with($cmds[0], $head) || !str_ends_with($cmds[0], '/script')) {
-        return null;
-    }
-    $name = substr($cmds[0], strlen($head), -strlen('/script'));
-    if ($name === '' || $name === '.' || $name === '..' || strlen($name) > 200 || !mb_check_encoding($name, 'UTF-8')
-        || preg_match('/[\x00-\x1F\x7F\/;&|`$<>()\\\\\'"*?\[\]{}~#!]/', $name) || !is_file("$dir/scripts/$name/script")) {
-        return null;
-    }
-    return $name;
+    return count($cmds) === 1 ? $cmds[0] : null;
 }
 
 /** An at job's first command: after the "cd … || { … }" at puts in front (never the environment above it) */
@@ -3580,7 +3606,9 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
 
     $at = $seen['at'] ?? null;
     if (is_array($at)) {
-        $foreign = array_filter((array) $at['jobs'], fn ($j) => empty($j['ours']));
+        // the office's own (hostLaunch()) and Unraid's own (reload_services after an array start) are never news
+        $foreign = array_filter((array) $at['jobs'], fn ($j) => empty($j['ours']) && empty($j['unraid']));
+        watchmanAtUnraidClose($book, $now);
         foreach ($foreign as $f => $j) {
             if (is_string($j['us'] ?? null) && $j['us'] !== '') {
                 unset($foreign[$f]);
@@ -3621,6 +3649,17 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
  * told, nothing for the team lead) — once per job, which keeps its number while atd runs it
  * (a<number> waiting, =<number> running).
  */
+/** Entries up to 1.30 that were only Unraid's own reload_services job: closed, noted by himself (`by` unraid) */
+function watchmanAtUnraidClose(array &$book, int $now): void
+{
+    foreach ($book as $i => $e) {
+        if (($e['kind'] ?? '') === 'at_job' && watchmanOpen($e) && preg_match(WATCH_AT_UNRAID, (string) ($e['p']['cmd'] ?? '')) && ($e['p']['uid'] ?? null) === 0) {
+            $book[$i]['noted'] = $now;
+            $book[$i]['by'] = 'unraid';
+        }
+    }
+}
+
 function watchmanAtUserScriptNote(array &$book, string $job, array $j, int $now): void
 {
     $key = 'at_userscript:' . substr($job, 1);

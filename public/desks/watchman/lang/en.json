@@ -109,6 +109,7 @@
   "noted.baseline": "Closed on {when}, when he took over the watch anew.",
   "noted.auto": "Noted by himself on {when}: User Scripts starts a script «in the background» through atd — nothing to tell.",
   "noted.office": "Noted by himself on {when}: the office installed it itself (the consultant) — nothing to tell.",
+  "noted.unraid": "Noted by himself on {when}: Unraid's own job after an array start (reload_services) — nothing to tell.",
   "group.login": "Login",
   "group.container": "Container",
   "group.plugin": "Plugin",

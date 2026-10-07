@@ -109,6 +109,7 @@
   "noted.baseline": "Geschlossen am {when}, als er die Wache neu übernahm.",
   "noted.auto": "Von selbst zur Kenntnis genommen am {when}: User Scripts startet ein Script «im Hintergrund» über atd — nichts zu melden.",
   "noted.office": "Von selbst zur Kenntnis genommen am {when}: Das hat das Büro selbst installiert (der Berater) — nichts zu melden.",
+  "noted.unraid": "Von selbst zur Kenntnis genommen am {when}: Unraids eigener Job nach einem Array-Start (reload_services) — nichts zu melden.",
   "group.login": "Anmeldung",
   "group.container": "Container",
   "group.plugin": "Plugin",

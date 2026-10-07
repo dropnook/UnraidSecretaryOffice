@@ -109,6 +109,7 @@
   "noted.baseline": "Chiuso il {when}, quando ha ripreso la guardia da capo.",
   "noted.auto": "Preso atto da sé il {when}: User Scripts avvia uno script «in background» tramite atd — niente da segnalare.",
   "noted.office": "Preso atto da sé il {when}: l'ha installato l'ufficio stesso (il consulente) — niente da segnalare.",
+  "noted.unraid": "Preso atto da sé il {when}: il job di Unraid stesso dopo un avvio dell'array (reload_services) — niente da segnalare.",
   "group.login": "Accesso",
   "group.container": "Container",
   "group.plugin": "Plugin",
