@@ -722,8 +722,9 @@ function waVm(string $name, string $state, int $snapshots, array $roots, array $
             $readable = waPathExists($src, $roots, $asleep) === true;      // never wake a sleeping disk for this
             $disks[] = ['device' => $attr($d, 'device') ?? 'disk', 'source' => $src, 'target' => $attr($d->target, 'dev'),
                         'bus' => $attr($d->target, 'bus'), 'format' => $attr($d->driver, 'type'),
-                        'bytes' => $readable ? (int) @filesize($src) : null, 'backup' => backupProtection($src),
-                        'chain' => $readable && $attr($d->driver, 'type') === 'qcow2' ? waBackingChain($src) : []];
+                        'backup' => backupProtection($src),
+                        'chain' => $readable && $attr($d->driver, 'type') === 'qcow2' ? waBackingChain($src) : []]
+                       + ($readable ? waFileSizes($src) : ['bytes' => null, 'allocated' => null, 'sparse' => false]);
         }
     }
     $nets = [];
@@ -830,14 +831,54 @@ function waBackingChain(string $file): array
             break;
         }
         $next = $name[0] === '/' ? $name : dirname($file) . '/' . $name;
-        $chain[] = ['path' => $next, 'exists' => file_exists($next), 'bytes' => is_file($next) ? (int) @filesize($next) : null,
-                    'backup' => backupProtection($next)];
+        $chain[] = ['path' => $next, 'exists' => file_exists($next), 'backup' => backupProtection($next)]
+                 + (is_file($next) ? waFileSizes($next) : ['bytes' => null, 'allocated' => null, 'sparse' => false]);
         $file = $next;
         if (!is_file($file)) {
             break;
         }
     }
     return $chain;
+}
+
+/** A sparse disk file is far bigger than what it holds when its apparent size is at least this many times the allocated … */
+const WA_SPARSE_RATIO = 4;
+/** … and the difference at least this much (200 GB): below that the holes cost Kopia minutes once, not hours */
+const WA_SPARSE_GAP = 200 * 1000 * 1000 * 1000;
+
+/**
+ * A VM disk file's two sizes: what it is (`bytes`, st_size — a sparse vdisk's full virtual size, what
+ * Kopia reads at its first upload, the holes as zeros) and what it takes on its pool or disk
+ * (`allocated`, st_blocks × 512; on ZFS after compression, which only makes the gap larger), and
+ * whether the gap is worth a word (`sparse`, waSparseDisk()). One stat, never a read; the caller
+ * makes sure the file lies on an awake disk.
+ *
+ * @return array{bytes: ?int, allocated: ?int, sparse: bool}
+ */
+function waFileSizes(string $file): array
+{
+    $st = @stat($file);
+    if ($st === false) {
+        return ['bytes' => null, 'allocated' => null, 'sparse' => false];
+    }
+    $bytes = (int) $st['size'];
+    $allocated = isset($st['blocks']) && (int) $st['blocks'] >= 0 ? (int) $st['blocks'] * 512 : null;
+    return ['bytes' => $bytes, 'allocated' => $allocated, 'sparse' => waSparseDisk($bytes, $allocated)];
+}
+
+/**
+ * Is a disk file far bigger than what it holds — big enough that Kopia's first upload of it (the
+ * holes read as zeros: a 1.6 TB vdisk holding 21 GB was 2.7 hours on nostromo, 2026-10-07) is worth
+ * Ms. Dustdevil's word? Apparent at least WA_SPARSE_RATIO times the allocated size AND the gap at
+ * least WA_SPARSE_GAP: a 250 GB vdisk half used is normal (an hour at most, once), a 1.6 TB one
+ * holding 21 GB isn't. Either size unknown: no.
+ */
+function waSparseDisk(?int $apparent, ?int $allocated): bool
+{
+    if ($apparent === null || $allocated === null || $apparent <= 0) {
+        return false;
+    }
+    return $apparent >= WA_SPARSE_RATIO * max(1, $allocated) && $apparent - $allocated >= WA_SPARSE_GAP;
 }
 
 /**

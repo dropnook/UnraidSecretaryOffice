@@ -1342,6 +1342,7 @@
   "where.vm.disk": "Disco {target} ({bus}, {format})",
   "where.vm.overlay": "Este disco es un overlay de una instantánea de VM — solo funciona junto con el archivo o los archivos de abajo.",
   "where.vm.base": "Base {n}",
+  "where.vm.sparse": "Archivo disperso: {used} usados de {virtual} — en la primera subida Kopia lo lee entero, una vez.",
   "where.vm.move_hint": "Para mover esta VM a otro servidor necesitas todos estos archivos.",
   "where.vm.tpm_hint": "Sin el estado del TPM Windows sigue arrancando, pero BitLocker pide su clave de recuperación y los PIN de Windows Hello desaparecen.",
   "where.vm.config_local": "XML, NVRAM y estado del TPM solo tienen copia local, no con Kopia. El señor Backupsi puede archivarlos con los volcados (Configurar… → Configuración de VMs).",
@@ -1492,6 +1493,7 @@
   "where.adv.to_browse": "⟦Browse⟧ {path}",
   "where.adv.to_team_lead": "Al jefe de equipo",
   "where.adv.to_vm_settings": "⟦VM Manager⟧",
+  "where.adv.to_vms": "⟦VMs⟧",
   "where.adv.system_array.title": "En el array: {names}",
   "where.adv.system_array.why": "Las cosas propias de Docker y de las VMs deben estar en un pool (SSD/NVMe): en el array cada contenedor y cada VM va lento, y los discos nunca pueden dormir. En los ajustes del recurso compartido pon el almacenamiento primario en un pool y el secundario en ninguno, y luego deja que el Mover traslade los archivos (con Docker y las VMs detenidos).",
   "where.adv.mover.title": {
@@ -1577,6 +1579,9 @@
     "one": "Vaya, vaya — cuando el array se detiene, Unraid pide a cada VM que se apague y espera hasta {timeout} s (⟦Settings⟧ → ⟦VM Manager⟧ → «⟦VM shutdown time-out⟧»); lo que siga en marcha después se apaga de golpe, como tirar del enchufe — lo no guardado se pierde y Windows revisa su disco en el siguiente arranque. En esta no responde ningún agente invitado, así que la petición de Unraid es el botón de encendido — y un Windows inactivo con la pantalla apagada suele ignorarlo: la parada del array espera los {timeout} s enteros para nada, y luego el enchufe. Lo que ayuda, en Windows: el QEMU Guest Agent (en la ISO virtio-win: guest-agent\\qemu-ga-x86_64.msi) — Unraid le pregunta entonces a él, y Windows escucha; o en sus opciones de energía «Apagar la pantalla: Nunca» y «Cuando presione el botón de inicio/apagado: Apagar». Un tiempo de espera más largo no ayuda contra eso — solo alarga la espera; y debe quedar por debajo del tiempo de espera de apagado de los discos ({disk} s, ⟦Settings⟧ → ⟦Disk Settings⟧ → «⟦Shutdown time-out⟧»).",
     "other": "Vaya, vaya — cuando el array se detiene, Unraid pide a cada VM que se apague y espera hasta {timeout} s (⟦Settings⟧ → ⟦VM Manager⟧ → «⟦VM shutdown time-out⟧»); lo que siga en marcha después se apaga de golpe, como tirar del enchufe — lo no guardado se pierde y Windows revisa su disco en el siguiente arranque. En estas no responde ningún agente invitado, así que la petición de Unraid es el botón de encendido — y un Windows inactivo con la pantalla apagada suele ignorarlo: la parada del array espera los {timeout} s enteros para nada, y luego el enchufe. Lo que ayuda, en Windows: el QEMU Guest Agent (en la ISO virtio-win: guest-agent\\qemu-ga-x86_64.msi) — Unraid le pregunta entonces a él, y Windows escucha; o en sus opciones de energía «Apagar la pantalla: Nunca» y «Cuando presione el botón de inicio/apagado: Apagar». Un tiempo de espera más largo no ayuda contra eso — solo alarga la espera; y debe quedar por debajo del tiempo de espera de apagado de los discos ({disk} s, ⟦Settings⟧ → ⟦Disk Settings⟧ → «⟦Shutdown time-out⟧»)."
   },
+  "where.adv.vm_sparse.disk": "{vm}: {file} — disco virtual de {virtual}, {used} usados",
+  "where.adv.vm_sparse.title": {"one": "Un disco de VM mucho mayor que lo que contiene: {names}", "other": "{n} discos de VM mucho mayores que lo que contienen: {names}"},
+  "where.adv.vm_sparse.why": "Vaya, vaya — {example}. En el servidor no cuesta nada: es un archivo disperso (sparse), la parte vacía no se guarda. Pero en la primera subida Kopia lee el archivo entero, la parte vacía como ceros — horas para nada (un disco de 1,6 TB con 21 GB dentro: casi tres horas a 200 MB/s); las copias siguientes saltan el archivo mientras no cambie. Un disco virtual más pequeño, o un disco qcow2 que el invitado recorte (discard='unmap' en el disco del XML de la VM, luego TRIM dentro del invitado), mantiene el archivo del tamaño de su contenido. A las instantáneas locales les da igual en ambos casos.",
   "where.adv.security.title": "De la seguridad se ocupa ahora el sereno",
   "where.adv.security.why": "Recursos compartidos abiertos a todos, Telnet, FTP, contenedores privilegiados, la protección de la CPU — ahora es su departamento, y además se da cuenta cuando algo cambia. Solo que todavía no trabaja aquí. El jefe de equipo puede contratarlo. Si me preguntas: yo lo haría."
 }

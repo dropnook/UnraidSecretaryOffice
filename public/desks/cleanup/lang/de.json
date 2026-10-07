@@ -1342,6 +1342,7 @@
   "where.vm.disk": "Disk {target} ({bus}, {format})",
   "where.vm.overlay": "Diese Disk ist ein Overlay aus einem VM-Snapshot — sie funktioniert nur zusammen mit der Datei bzw. den Dateien darunter.",
   "where.vm.base": "Basis {n}",
+  "where.vm.sparse": "Dünn belegt: {used} von {virtual} belegt — Kopia liest beim ersten Upload alles, einmal.",
   "where.vm.move_hint": "Für einen Umzug dieser VM auf einen anderen Server brauchst du alle diese Dateien.",
   "where.vm.tpm_hint": "Ohne den TPM-Zustand startet Windows zwar, aber BitLocker verlangt den Wiederherstellungsschlüssel und Windows-Hello-PINs sind weg.",
   "where.vm.config_local": "XML, NVRAM und TPM-Zustand werden nur lokal gesichert, nicht mit Kopia. Herr Backupsi kann sie mit den Dumps archivieren (Einrichten… → VM-Konfiguration).",
@@ -1492,6 +1493,7 @@
   "where.adv.to_browse": "⟦Browse⟧ {path}",
   "where.adv.to_team_lead": "Zum Teamchef",
   "where.adv.to_vm_settings": "⟦VM Manager⟧",
+  "where.adv.to_vms": "⟦VMs⟧",
   "where.adv.system_array.title": "Auf dem Array: {names}",
   "where.adv.system_array.why": "Was Docker und die VMs selbst brauchen, gehört auf einen Pool (SSD/NVMe): Auf dem Array wird jeder Container und jede VM langsam, und die Disks kommen nie zur Ruhe. In den Einstellungen des Shares den primären Speicher auf einen Pool und den sekundären auf keinen setzen, dann den Mover die Dateien holen lassen (Docker und VMs gestoppt).",
   "where.adv.mover.title": {
@@ -1577,6 +1579,9 @@
     "one": "Sieh mal an — wenn das Array stoppt, bittet Unraid jede VM herunterzufahren und wartet bis zu {timeout} s (⟦Settings⟧ → ⟦VM Manager⟧ → «⟦VM shutdown time-out⟧»); was dann noch läuft, wird hart ausgeschaltet, wie Stecker ziehen — Ungespeichertes ist weg, und Windows prüft beim nächsten Start seine Disk. In dieser antwortet kein Gast-Agent, also ist Unraids Bitte der Netzschalter — und ein Windows im Leerlauf mit ausgeschaltetem Bildschirm überhört den gern: Der Array-Stopp wartet die ganzen {timeout} s umsonst, dann kommt der Stecker. Was hilft, in Windows: der QEMU Guest Agent (auf der virtio-win-ISO: guest-agent\\qemu-ga-x86_64.msi) — dann fragt Unraid ihn, und Windows hört zu; oder in den Energieoptionen «Bildschirm ausschalten: Nie» und «Beim Drücken des Netzschalters: Herunterfahren». Ein längerer Timeout hilft dagegen nicht — das Warten wird nur länger; und er muss unter dem Timeout der Disks beim Herunterfahren bleiben ({disk} s, ⟦Settings⟧ → ⟦Disk Settings⟧ → «⟦Shutdown time-out⟧»).",
     "other": "Sieh mal an — wenn das Array stoppt, bittet Unraid jede VM herunterzufahren und wartet bis zu {timeout} s (⟦Settings⟧ → ⟦VM Manager⟧ → «⟦VM shutdown time-out⟧»); was dann noch läuft, wird hart ausgeschaltet, wie Stecker ziehen — Ungespeichertes ist weg, und Windows prüft beim nächsten Start seine Disk. In diesen antwortet kein Gast-Agent, also ist Unraids Bitte der Netzschalter — und ein Windows im Leerlauf mit ausgeschaltetem Bildschirm überhört den gern: Der Array-Stopp wartet die ganzen {timeout} s umsonst, dann kommt der Stecker. Was hilft, in Windows: der QEMU Guest Agent (auf der virtio-win-ISO: guest-agent\\qemu-ga-x86_64.msi) — dann fragt Unraid ihn, und Windows hört zu; oder in den Energieoptionen «Bildschirm ausschalten: Nie» und «Beim Drücken des Netzschalters: Herunterfahren». Ein längerer Timeout hilft dagegen nicht — das Warten wird nur länger; und er muss unter dem Timeout der Disks beim Herunterfahren bleiben ({disk} s, ⟦Settings⟧ → ⟦Disk Settings⟧ → «⟦Shutdown time-out⟧»)."
   },
+  "where.adv.vm_sparse.disk": "{vm}: {file} — {virtual} virtuelle Disk, {used} belegt",
+  "where.adv.vm_sparse.title": {"one": "Eine VM-Disk, viel grösser als ihr Inhalt: {names}", "other": "{n} VM-Disks, viel grösser als ihr Inhalt: {names}"},
+  "where.adv.vm_sparse.why": "Sieh mal an — {example}. Auf dem Server kostet das nichts: eine dünn belegte Datei (sparse), der leere Teil wird nicht gespeichert. Aber Kopia liest beim ersten Upload die ganze Datei, den leeren Teil als Nullen — Stunden für nichts (eine 1,6-TB-Disk mit 21 GB Inhalt: fast drei Stunden bei 200 MB/s); spätere Sicherungen überspringen die Datei, solange sie sich nicht ändert. Eine kleinere virtuelle Disk, oder eine qcow2-Disk, die der Gast trimmt (discard='unmap' an der Disk im XML der VM, dann TRIM im Gast), hält die Datei so gross wie ihren Inhalt. Den lokalen Snapshots ist beides egal.",
   "where.adv.security.title": "Sicherheit macht jetzt der Nachtwächter",
   "where.adv.security.why": "Shares, die für alle offen sind, Telnet, FTP, privilegierte Container, der Schutz der CPU — das ist jetzt seine Abteilung, und er merkt auch, wenn sich etwas ändert. Nur: Er arbeitet noch nicht hier. Der Teamchef kann ihn einstellen. Wenn du mich fragst: Ich würde es tun."
 }
