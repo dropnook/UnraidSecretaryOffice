@@ -211,7 +211,7 @@
   "help.space": "/var/log",
   "help.space_text": "Un piccolo disco RAM (128 MB su Unraid) per i log di Unraid — quando è pieno, lì non si può più scrivere niente. Sopra il 60 % lo dico al capoufficio, sopra l'80 % finisce nel suo «Ancora da fare». I log dei container stanno altrove, nella cartella di Docker; quanto possono crescere si imposta in Impostazioni → Docker → «Rotazione file Log di Docker».",
   "check.varlog": "/var/log ha spazio (ora {used} di {total}, {pct} %)",
-  "check.varlog_how": "/var/log è un piccolo disco RAM per i log di Unraid. Quando è pieno non si registra più niente — e quello che va storto allora non lascia traccia. Il giro della Signora Protocolli mostra quali file lì sono i più grandi e quanto in fretta crescono; di solito un programma scrive la stessa riga di continuo — correggilo o fermalo. Un singolo file si svuota in un terminale con truncate -s 0 <file>; un riavvio svuota /var/log.",
+  "check.varlog_how": "/var/log è un piccolo disco RAM per i log di Unraid. Quando è pieno non si registra più niente — e quello che va storto allora non lascia traccia. Il giro della signora Protocolli mostra quali file lì sono i più grandi e quanto in fretta crescono; di solito un programma scrive la stessa riga di continuo — correggilo o fermalo. Un singolo file si svuota in un terminale con truncate -s 0 <file>; un riavvio svuota /var/log.",
   "fit.yes": "La signora Protocolli viene volentieri: «Non so fare niente, ma so leggere tutto ad alta voce!»",
   "errors.logs_unknown": "Questo log non esiste (più).",
   "errors.logs_unreadable": "Questo log non si può leggere in questo momento. {detail}",

@@ -211,7 +211,7 @@
   "help.space": "/var/log",
   "help.space_text": "Un pequeño disco RAM (128 MB en Unraid) para los registros de Unraid — cuando está lleno, ya no se puede escribir nada ahí. Por encima del 60 % se lo digo al jefe de equipo; por encima del 80 % pasa a su «Pendiente». Los registros de los contenedores están en otro sitio, en la carpeta de Docker; cuánto pueden crecer se ajusta en Ajustes → Docker → «Rotación del registro de Docker».",
   "check.varlog": "/var/log tiene espacio (ahora {used} de {total}, {pct} %)",
-  "check.varlog_how": "/var/log es un pequeño disco RAM para los registros de Unraid. Cuando está lleno ya no se registra nada — y lo que falle entonces no deja rastro. La ronda de la Señora Protocoli muestra qué archivos son ahí los más grandes y lo rápido que crecen; normalmente un programa escribe la misma línea una y otra vez — corrígelo o detenlo. Un solo archivo se vacía en una terminal con truncate -s 0 <archivo>; un reinicio vacía /var/log.",
+  "check.varlog_how": "/var/log es un pequeño disco RAM para los registros de Unraid. Cuando está lleno ya no se registra nada — y lo que falle entonces no deja rastro. La ronda de la señora Protocoli muestra qué archivos son ahí los más grandes y lo rápido que crecen; normalmente un programa escribe la misma línea una y otra vez — corrígelo o detenlo. Un solo archivo se vacía en una terminal con truncate -s 0 <archivo>; un reinicio vacía /var/log.",
   "fit.yes": "A la señora Protocoli le encantaría venir: «No sé hacer nada, ¡pero sé leerlo todo en voz alta!»",
   "errors.logs_unknown": "Este registro no existe (ya).",
   "errors.logs_unreadable": "Ahora mismo no se puede leer este registro. {detail}",

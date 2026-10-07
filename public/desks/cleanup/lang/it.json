@@ -787,11 +787,11 @@
   "errors.cleanup_icon_changed": "{path} è stato modificato da quando ho impostato l'immagine — rimettere il vecchio annullerebbe quella modifica, quindi lo lascio così.",
   "errors.cleanup_icon_fallback_not_needed": "Nessun sostituto necessario — Unraid ha il suo question.png, oppure questa versione non ne ha bisogno.",
   "errors.cleanup_icon_fallback_failed": "Impossibile mettere un sostituto in {path}.",
-  "section.leftovers": "Gli avanzi del Signor Restori",
-  "section.leftovers_sub": "Quello che il Signor Restori ha lasciato accanto a ciò che ha ripristinato — nemmeno lui butta mai via niente. Per ripristino, direttamente dai suoi giornali.",
+  "section.leftovers": "Gli avanzi del signor Restori",
+  "section.leftovers_sub": "Quello che il signor Restori ha lasciato accanto a ciò che ha ripristinato — nemmeno lui butta mai via niente. Per ripristino, direttamente dai suoi giornali.",
   "lo.where": {
-    "one": "Dal giornale del Signor Restori di 1 ripristino — guardo solo dove dice di aver messo qualcosa, mai su un disco in standby.",
-    "other": "Dai giornali del Signor Restori di {n} ripristini — guardo solo dove dice di aver messo qualcosa, mai su un disco in standby."
+    "one": "Dal giornale del signor Restori di 1 ripristino — guardo solo dove dice di aver messo qualcosa, mai su un disco in standby.",
+    "other": "Dai giornali del signor Restori di {n} ripristini — guardo solo dove dice di aver messo qualcosa, mai su un disco in standby."
   },
   "lo.journal": "I suoi ripristini →",
   "lo.kind.db": "Database di {what}",
@@ -802,7 +802,7 @@
   "lo.kind.kopia": "{what} da Kopia",
   "lo.kind.putback": "Rimesso a posto: {what}",
   "lo.undone": "rimesso a posto",
-  "lo.undone_text": "Il Signor Restori ha già rimesso a posto questo ripristino — quello che ne resta non gli serve più.",
+  "lo.undone_text": "Il signor Restori ha già rimesso a posto questo ripristino — quello che ne resta non gli serve più.",
   "lo.what.aside": "messo da parte",
   "lo.what.aside_text": "Quello che c'era prima del ripristino — l'ha rinominato da parte (<nome>.aside-<ora>) invece di cancellarlo.",
   "lo.what.putback": "da parte al «Rimetti a posto»",
@@ -818,7 +818,7 @@
   "lo.what.safety": "dump di sicurezza",
   "lo.what.safety_text": "I dump del database che ha fatto subito prima del ripristino, nel deposito dei backup (restore/<app>/<ora>/).",
   "lo.way_back": "la sua via del ritorno",
-  "lo.way_back_text": "Il «Rimetti a posto» di questo ripristino del Signor Restori ne ha ancora bisogno. Nel mio ripostiglio non lo trova — rimettilo prima a posto da lì, se vuoi annullare il ripristino.",
+  "lo.way_back_text": "Il «Rimetti a posto» di questo ripristino del signor Restori ne ha ancora bisogno. Nel mio ripostiglio non lo trova — rimettilo prima a posto da lì, se vuoi annullare il ripristino.",
   "lo.unknown": "non posso guardare",
   "lo.unknown_text": "Sta dove adesso non posso guardare (un disco in standby, o libvirt.img mentre il servizio VM è spento).",
   "lo.since": "messo da parte {when}",
@@ -839,19 +839,19 @@
     "one": "Questo va nel mio ripostiglio:",
     "other": "Queste {n} cose vanno nel mio ripostiglio:"
   },
-  "park.in_use_leftovers": "Ancora la via del ritorno del Signor Restori: {names}. Il suo «Rimetti a posto» di quei ripristini non li troverà finché non li rimetti a posto dal mio ripostiglio.",
+  "park.in_use_leftovers": "Ancora la via del ritorno del signor Restori: {names}. Il suo «Rimetti a posto» di quei ripristini non li troverà finché non li rimetti a posto dal mio ripostiglio.",
   "park.where_leftovers": "Ognuno resta sul suo pool o disco, in _UnraidSecretaryOffice-trash della sua condivisione (quello che sta sull'unità flash o in libvirt.img va nel mio ripostiglio lì); i dataset vengono rinominati lì accanto. Solo rinominati, non si copia niente — puoi rimettere a posto in qualsiasi momento, finché non svuoti il ripostiglio.",
-  "empty.leftovers": "Il Signor Restori non ha lasciato niente in giro. Che uomo ordinato!",
+  "empty.leftovers": "Il signor Restori non ha lasciato niente in giro. Che uomo ordinato!",
   "bubble.leftovers": {
-    "one": "1 avanzo del Signor Restori ({size})",
-    "other": "{n} avanzi del Signor Restori ({size})"
+    "one": "1 avanzo del signor Restori ({size})",
+    "other": "{n} avanzi del signor Restori ({size})"
   },
   "fact.leftovers": {
-    "one": "1 avanzo del Signor Restori · {size}",
-    "other": "{n} avanzi del Signor Restori · {size}"
+    "one": "1 avanzo del signor Restori · {size}",
+    "other": "{n} avanzi del signor Restori · {size}"
   },
-  "help.leftovers_text": "Nemmeno il Signor Restori cancella mai niente: quello che un ripristino sostituisce lo rinomina da parte (.aside-<ora>, al «Rimetti a posto» .putback-<ora>), una copia finisce accanto a quella viva (.restored-<ora>), i file sull'unità flash e in libvirt.img vanno nelle sue cartelle _UnraidSecretaryOffice-restore, e dei database fa dei dump di sicurezza. Tutta polvere — ma non si sa mai: io lo metto solo nel mio ripostiglio. Lo trovo nei suoi giornali, mai cercando sui dischi. Quello che il suo «Rimetti a posto» richiede ancora è segnato come «la sua via del ritorno».",
-  "item.leftover": "avanzo del Signor Restori",
+  "help.leftovers_text": "Nemmeno il signor Restori cancella mai niente: quello che un ripristino sostituisce lo rinomina da parte (.aside-<ora>, al «Rimetti a posto» .putback-<ora>), una copia finisce accanto a quella viva (.restored-<ora>), i file sull'unità flash e in libvirt.img vanno nelle sue cartelle _UnraidSecretaryOffice-restore, e dei database fa dei dump di sicurezza. Tutta polvere — ma non si sa mai: io lo metto solo nel mio ripostiglio. Lo trovo nei suoi giornali, mai cercando sui dischi. Quello che il suo «Rimetti a posto» richiede ancora è segnato come «la sua via del ritorno».",
+  "item.leftover": "avanzo del signor Restori",
   "where.bubble.no_tour": "Non sono ancora passata in ogni angolo — un giro dura pochi secondi, poi saprò dove sta tutto.",
   "where.bubble.no_data": "Non riesco a raggiungere il server e non ho ancora niente da mostrare.",
   "where.bubble.summary": "Conosco ogni angolo: {shares} condivisioni, {containers} contenitori e {scripts} user script — e la polvere in ognuno.",
