@@ -97,7 +97,17 @@ declare(strict_types=1);
  * what the office removed, the position in its log). The page reads data/watchman.json
  * (watchmanPageState()); with Grafana and the office's dashboard there (the
  * consultant's look) it links his data flow's history in it.
+ *
+ * Partner offices (stage 2 of briefs/uso-partner-zfs-plan.md, agent/lib/partnerlook.php — the door and the pairing are
+ * the Team Lead's): the office's own line in authorized_keys (uso-partner:<id>, exactly as the pairing writes it, the
+ * pair's key, written right at the pairing) is noted by himself; a known pair's line changed is `door_changed`; the
+ * pair's key from another address or its address with another key `door_key_moved`; three refusals at the door within a
+ * minute `door_refused`; the door's transfers and the sender's phase `partner` are the office's own in the data flow,
+ * what the door's retention destroyed (data/partner/deletes.jsonl) no `snap_gone`; posture tips for a door wider than
+ * the office made it, a door line of no pair, a pair facing the internet, plain copies going to a «friend».
  */
+
+require_once __DIR__ . '/../lib/partnerlook.php';
 
 const WATCH_EVERY        = 300;              // a round every 5 minutes
 const WATCH_LOOK         = 20;               // the tick looks whether one is due this often (seconds)
@@ -119,6 +129,10 @@ const WATCH_CODE_HOSTS   = ['github.com', 'raw.githubusercontent.com', 'gitlab.c
 const WATCH_OFFICE_PLUGIN = 900;             // a plugin he installed: its link in /var/log/plugins (and a cron.d file of its name) this soon after his job started
 const WATCH_OFFICE_FORM   = 7200;            // a container from Unraid's form he prepared: created this soon after
 const WATCH_OFFICE_KEEP   = 7 * 86400;       // his records older than this are left out
+// partner offices (agent/lib/partnerlook.php)
+const WATCH_PARTNER_PAIRED = 900;            // the office's line in authorized_keys: written this soon after the pair's `paired`
+const WATCH_REFUSED_BURST  = 3;              // refusals at the door from one pair …
+const WATCH_REFUSED_WINDOW = 60;             // … within a minute: door_refused
 
 /** Every kind of entry: its group, and whether it goes to Unraid's notifications right away */
 const WATCH_KINDS = [
@@ -166,6 +180,10 @@ const WATCH_KINDS = [
     'array_stop'           => ['array', false],     // the array was stopped: a plain line, noted by himself (watchmanArrayLines())
     'array_start'          => ['array', false],     // the array was started: likewise
     'server_boot'          => ['array', false],     // the server was started (a new boot id): likewise (watchmanBootLine())
+    'partner_paired'       => ['partner', false],   // the office's own door line for a pair, written at the pairing: noted by himself (by office)
+    'door_changed'         => ['partner', true],    // a known pair's door line changed (another from=, no restrict, another command or key)
+    'door_key_moved'       => ['partner', true],    // a pair's key from another address, or a pair's address with another key
+    'door_refused'         => ['partner', true],    // three or more refusals at the door within a minute from one pair
 ];
 
 /**
@@ -194,6 +212,9 @@ const WATCH_ATTACK = [
     'array_stop' => 'T1489', 'array_start' => 'T1489',
     // a reboot: System Shutdown/Reboot
     'server_boot' => 'T1529',
+    // the partner door: a key in authorized_keys (SSH Authorized Keys) — the office's own written at the pairing, or one
+    // changed; the pair's key used from elsewhere is a valid account's use; refusals are someone trying the door (SSH)
+    'partner_paired' => 'T1098.004', 'door_changed' => 'T1098.004', 'door_key_moved' => 'T1078', 'door_refused' => 'T1021.004',
 ];
 
 /**
@@ -209,8 +230,12 @@ const WATCH_POSTURE = [
     'api_admin'       => 'advice',
     'mitigations_off' => 'advice',
     'vmscape'         => 'advice',
+    'partner_wide'    => 'advice',     // a partner's door line without restrict or from= (wider than the office made it)
+    'partner_unknown' => 'advice',     // a uso-partner line for a pair the office doesn't know
+    'partner_public'  => 'advice',     // a pair whose address faces the internet
     'remote_access'   => 'info',
     'privileged'      => 'info',
+    'partner_friend'  => 'info',       // plain copies going to a partner marked «a friend»
     'mitigations_on'  => 'info',
 ];
 /** The office's dashboard in Grafana (monitoring/grafana-dashboard.json): the panel of a data flow group (tests check the ids) */
@@ -318,6 +343,10 @@ function watchmanPaths(): array
         'logger'     => 'logger',
         // array stops and starts (event/stopping, event/started → scripts/agent.sh array …): lines in the book
         'array_events' => WATCH_ARRAY_EVENTS,
+        // partner offices (agent/lib/partnerlook.php): the pairs (root only), the door's records in RAM, its records in the data folder
+        'partner_pairs' => DATA_DIR . '/partner/pairs.json',
+        'partner_run'   => RUN_DIR . '/partner',
+        'partner_data'  => DATA_DIR . '/partner',
     ];
 }
 
@@ -636,14 +665,14 @@ function watchmanMirrorKeep(string $dir): void
  * what was told stays told; an entry open in the day's book is only brought up to date) and reads the
  * syslog on from the night's place: nothing told twice, nothing lost.
  */
-const WATCH_BUMP_KINDS = ['login_new_ip', 'login_failures', 'log_cleared'];     // entries that count up (watchmanBump()); the others hold a state
+const WATCH_BUMP_KINDS = ['login_new_ip', 'login_failures', 'log_cleared', 'door_key_moved', 'door_refused'];     // entries that count up (watchmanBump()); the others hold a state
 
 /** Where the night shift reads: what lies in the pool or needs the array is left out (missing parts: not looked at) */
 function watchmanNightPaths(): array
 {
     // libvirt is left alone too (while the array stops it shuts the VMs down; his VM count for a posture tip keeps the day's word)
     return array_diff_key(watchmanPaths(), array_flip(['office_installs', 'zfs', 'zpool', 'mnt', 'agent_log', 'snap_record', 'engine',
-        'sec', 'sec_nfs', 'share_cfg', 'libvirt_sock', 'virsh']));
+        'sec', 'sec_nfs', 'share_cfg', 'libvirt_sock', 'virsh', 'partner_pairs', 'partner_data']));
 }
 
 /** This boot's id: the RAM mirror and a position in the syslog belong to one boot */
@@ -679,7 +708,7 @@ function watchmanMirror(array $d, string $boot, int $now, bool $flash): array
     $b = (array) ($d['baseline'] ?? []);
     $st = (array) ($d['state'] ?? []);
     $base = ['hired' => (int) ($b['hired'] ?? 0), 'time' => (int) ($b['time'] ?? 0)];
-    foreach (['ips', 'fail_ips', 'plugins', 'flash', 'sched', 'host'] as $k) {
+    foreach (['ips', 'fail_ips', 'plugins', 'flash', 'sched', 'host', 'partner'] as $k) {
         $base[$k] = is_array($b[$k] ?? null) ? $b[$k] : null;
     }
     $open = [];
@@ -1181,6 +1210,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         'shares'     => watchmanShares($paths),
         'sched'      => watchmanSched($paths, (array) ($prevSeen['sched'] ?? []), $now),
         'host'       => $host,
+        'partner'    => watchmanPartnerLook($paths),
     ];
     $office = watchmanOfficeLook($paths, $now);
     $facts = watchmanPostureLook($paths);
@@ -1206,6 +1236,9 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         if ($observed['shares'] === null) {
             $observed['shares'] = $old['seen']['shares'] ?? null;
         }
+        if (is_array($observed['partner']) && $observed['partner']['pairs'] === null) {
+            $observed['partner']['pairs'] = $old['seen']['partner']['pairs'] ?? null;    // the pairs not looked at (the night): as the last round saw them
+        }
         $observed['host'] = watchmanHostObserved($seen['host'], $old['seen']['host'] ?? null);
         $added = $told = [];
         $before = array_flip(array_column($book, 'id'));
@@ -1222,8 +1255,15 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             $b['sched'] = is_array($b['sched'] ?? null) ? $b['sched'] : null;
             $b['snaps'] = is_array($b['snaps'] ?? null) ? $b['snaps'] : ['series' => []];
             watchmanTeamLeadNotes($b, $book, is_array($old['seen']) ? $old['seen'] : $observed, $now, $acks);
+            // partner doors: the office's own new line is noted (and its key known) before the flash watch looks at the keys
+            $b['partner'] = watchmanPartnerBase($b['partner'] ?? null);
+            watchmanPartnerAdopt($b, $seen['partner'], $book, $now, (array) ($seen['flash']['keys']['root'] ?? []));
+            $doors = watchmanPartnerDoors($b['partner'], $seen['partner']);
+            if (is_array($seen['partner']['pairs'] ?? null)) {
+                $b['partner']['pairs'] = $doors;            // for the night shift, which can't read the pairs
+            }
             $added = array_merge(
-                watchmanLogins($b, $book, $st, $events, false),
+                watchmanLogins($b, $book, $st, $events, false, $doors),
                 watchmanContainersCompare($b['containers'], $seen['containers'], $book, $now, $office),
                 watchmanPluginsCompare($b['plugins'], $seen['plugins'], $book, $now, $office),
                 watchmanFlashCompare($b['flash'], $seen['flash'], $book, $now),
@@ -1231,6 +1271,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                 watchmanSchedCompare($b['sched'], $seen['sched'], $seen['plugins'], $book, $now, $office),
                 watchmanHostCompare($b['host'], $seen['host'], is_array($old['seen']) ? ($old['seen']['host'] ?? null) : null,
                     (array) ($seen['flash']['users'] ?? []), $book, $now),
+                watchmanPartnerCompare($b, $seen['partner'], $book, $st, $now),
             );
         }
         $flow = null;
@@ -1316,7 +1357,14 @@ function watchmanTakeOver(int $hired, array $events, array $seen, array $book, a
     $st['fails'] = [];
     $st['notified'] = [];
     $none = [];
-    watchmanLogins($b, $none, $st, $events, true);
+    // the partner doors as they are: the office's lines, the pairs, the refusals so far — all normal
+    $b['partner'] = watchmanPartnerBase(null);
+    foreach ((array) ($seen['partner']['lines'] ?? []) as $id => $l) {
+        $b['partner']['lines'][$id] = watchmanPartnerLineKeep($l);
+    }
+    $b['partner']['pairs'] = watchmanPartnerDoors($b['partner'], $seen['partner'] ?? null);
+    $st['partner_refused'] = array_map(fn ($r) => (int) max([0, ...$r['times']]), (array) ($seen['partner']['refused'] ?? []));
+    watchmanLogins($b, $none, $st, $events, true, $b['partner']['pairs']);
     if ($seen['containers'] !== null) {
         $b['containers'] = array_map(fn ($c) => ['tokens' => $c['tokens'], 'seen' => $now], $seen['containers']);
     }
@@ -1594,6 +1642,10 @@ function watchmanParseLine(string $line, array $known, int $now): ?array
         $ev = ['ok' => $ok, 'service' => 'web', 'user' => $m[2], 'ip' => $m[3]];
     } elseif (preg_match(WATCH_SSH_OK, $line, $m)) {
         $ev = ['ok' => true, 'service' => 'ssh:' . strtolower($m[1]), 'user' => $m[2], 'ip' => $m[3]];
+        // the key's fingerprint (sshd: "… ssh2: ED25519 SHA256:…"): a partner's door knows its key (watchmanLogins())
+        if (preg_match('# ssh2: [A-Z0-9-]{2,30} (SHA256:[A-Za-z0-9+/]{43})(?:\s|$)#', $line, $k)) {
+            $ev['fp'] = $k[1];
+        }
     } elseif (preg_match(WATCH_SSH_FAIL, $line, $m)) {
         if ($m[2] !== '') {
             return null;
@@ -1695,13 +1747,29 @@ function watchmanFailStep(array &$fails, array $ev, int $burst = WATCH_FAIL_BURS
  * doesn't know, a burst from one that isn't known for failing.
  * @return list<string>  the kinds of new entries
  */
-function watchmanLogins(array &$b, array &$book, array &$st, array $events, bool $learn): array
+function watchmanLogins(array &$b, array &$book, array &$st, array $events, bool $learn, array $doors = []): array
 {
     $added = [];
     $st['fails'] = (array) ($st['fails'] ?? []);
     foreach ($events as $ev) {
         $ip = $ev['ip'];
         $time = (int) $ev['time'];
+        if ($ev['ok'] && $doors && ($door = watchmanPartnerLogin($doors, $ip, $ev['fp'] ?? null)) !== null) {
+            // a partner's door: its key from its address is the office's own; its key elsewhere, or its address with
+            // another key, is door_key_moved — unless that pair of address and key was noted («I know, thanks»)
+            if ($door['ok']) {
+                continue;
+            }
+            $seen = $ip . '|' . ($ev['fp'] ?? '');
+            if ($learn) {
+                $b['partner']['logins'][$seen] = $time;
+            } elseif (!isset($b['partner']['logins'][$seen])) {
+                $added[] = watchmanBump($book, 'door_key_moved', "door_key_moved:{$door['id']}:$ip", $time, 1,
+                    ['id' => $door['id'], 'name' => $door['name'], 'ip' => $ip, 'fp' => (string) ($ev['fp'] ?? ''), 'how' => $door['how'],
+                     'ips' => $door['ips'], 'users' => array_values(array_filter([$ev['user']]))]);
+                continue;
+            }
+        }
         if ($ev['ok']) {
             if ($learn || isset($b['ips'][$ip])) {
                 $k = $b['ips'][$ip] ?? ['first' => $time, 'last' => $time, 'users' => [], 'services' => []];
@@ -2020,6 +2088,251 @@ function watchmanOfficeNote(array &$book, string $kind, string $key, int $now, a
     $e['noted'] = $now;
     $e['by'] = 'office';
     $book[] = $e;
+}
+
+// ===================================================================== partner offices: the door
+
+/*
+ * A partner office knocks at this server's sshd with its pair's key; the line the pairing wrote into root's
+ * authorized_keys (`restrict,from="<its address>",command="…/partner-door.sh <id>" ssh-ed25519 … uso-partner:<id>`)
+ * lets it run nothing but the door (agent/partner-door.php). He knows that door from what the pairing and the door
+ * leave behind (agent/lib/partnerlook.php — never a key, never the pairing's files changed):
+ *
+ *   the line   the office's own, written at the pairing (exactly partnerDoorLine()'s shape, the pair's key, its address
+ *              in from=, the file written within WATCH_PARTNER_PAIRED of `paired`): its key adopted, one line noted by
+ *              himself (`by` office); any other new line stays news (the flash watch's new key). A known pair's line
+ *              changed — another from=, restrict gone, another command, key or option — is door_changed; taken out
+ *              (the partnership ended) is normal.
+ *   logins     sshd's "Accepted publickey … from <ip> … SHA256:<fp>": the pair's key from its address is the door at
+ *              work; its key from another address, or its address with another key, is door_key_moved.
+ *   refusals   the door's refused-<id>.json: WATCH_REFUSED_BURST within WATCH_REFUSED_WINDOW is door_refused.
+ *   data flow  while the door receives (and the round after), the SSH bytes of the pairs' addresses and what is written
+ *              into <pool>/UnraidSecretaryOffice-partners are the office's own; the sender's phase `partner` likewise.
+ *   snapshots  what the door's retention destroyed (deletes.jsonl) is no snap_gone.
+ */
+
+/**
+ * The partner door as this round sees it, outside the book's lock — RAM, the flash and the pairs file, no zfs, no ssh:
+ * the office's lines in root's authorized_keys (and the file's time), the pairs (null: not looked at — the night shift
+ * has no data folder), the door's transfers going on, its refusals. Null: no SSH keys looked at.
+ */
+function watchmanPartnerLook(array $paths): ?array
+{
+    if (!isset($paths['ssh'])) {
+        return null;
+    }
+    $file = $paths['ssh'] . '/root/authorized_keys';
+    clearstatcache(true, $file);
+    $st = @stat($file);
+    $run = $paths['partner_run'] ?? null;
+    return [
+        'lines'   => partnerLookLines($file),
+        'mtime'   => $st ? (int) $st['mtime'] : null,
+        'pairs'   => isset($paths['partner_pairs']) ? partnerLookPairs((string) $paths['partner_pairs']) : null,
+        'doors'   => $run !== null ? partnerLookDoors((string) $run) : [],
+        'refused' => $run !== null ? partnerLookRefused((string) $run) : [],
+    ];
+}
+
+/** His baseline of the partner doors: the lines he knows, the pairs as the last day round saw them, address|key pairs noted */
+function watchmanPartnerBase(mixed $b): array
+{
+    $b = is_array($b) ? $b : [];
+    return ['lines' => (array) ($b['lines'] ?? []), 'pairs' => (array) ($b['pairs'] ?? []), 'logins' => (array) ($b['logins'] ?? [])];
+}
+
+/** What he keeps of a line: what it allows and a hash of it — never the key */
+function watchmanPartnerLineKeep(array $l): array
+{
+    return ['fp' => $l['fp'] ?? null, 'h' => (string) ($l['h'] ?? ''), 'restrict' => (bool) ($l['restrict'] ?? false), 'from' => $l['from'] ?? null,
+            'command' => $l['command'] ?? null, 'others' => array_values((array) ($l['others'] ?? []))];
+}
+
+/**
+ * The office's own line for a pair: exactly as the pairing writes it (partnerDoorLine()), once, the pair's key, its
+ * address in from= (an IP address as it is; a host name: what it was resolved to — IP addresses only), and the file
+ * written within WATCH_PARTNER_PAIRED after the pair was stored (the pairing stores the pair, then writes the line).
+ */
+function watchmanPartnerOwnLine(array $l, array $pair, ?int $mtime): bool
+{
+    $from = (string) ($l['from'] ?? '');
+    $ips = partnerLookFromIps($from);
+    return !empty($l['exact']) && empty($l['twice']) && ($pair['fp'] ?? null) !== null && ($l['fp'] ?? null) === $pair['fp']
+        && $ips && count($ips) === count(explode(',', $from)) && ((array) $pair['ips'] === [] || $ips === array_values((array) $pair['ips']))
+        && $mtime !== null && $mtime >= (int) $pair['paired'] - 5 && $mtime <= (int) $pair['paired'] + WATCH_PARTNER_PAIRED;
+}
+
+/**
+ * Before the flash watch compares the keys: a new line that is the office's own (watchmanPartnerOwnLine()) is adopted —
+ * its key and the line — and noted by himself (`by` office, «partner <name> paired»); a line whose key he knows already
+ * (a baseline from before this watch, «I know, thanks» on the key) is known with it. Anything else stays news.
+ */
+function watchmanPartnerAdopt(array &$b, ?array $seen, array &$book, int $now, array $seenKeys = []): void
+{
+    if ($seen === null) {
+        return;
+    }
+    $b['partner'] = watchmanPartnerBase($b['partner'] ?? null);
+    foreach ((array) $seen['lines'] as $id => $l) {
+        $id = (string) $id;
+        $fp = $l['fp'] ?? null;
+        if (isset($b['partner']['lines'][$id]) || !is_string($fp)) {
+            continue;
+        }
+        if (isset($b['flash']['keys']['root'][$fp])) {
+            $b['partner']['lines'][$id] = watchmanPartnerLineKeep($l);
+            continue;
+        }
+        $pair = is_array($seen['pairs'] ?? null) ? ($seen['pairs'][$id] ?? null) : null;
+        if (!is_array($pair) || !watchmanPartnerOwnLine($l, $pair, $seen['mtime'] ?? null)) {
+            continue;
+        }
+        $b['flash']['keys']['root'][$fp] = $seenKeys[$fp] ?? ['type' => 'ssh-ed25519', 'comment' => "uso-partner:$id"];
+        $b['partner']['lines'][$id] = watchmanPartnerLineKeep($l);
+        $e = watchmanEntry('partner_paired', "partner_paired:$id", $now, ['id' => $id, 'name' => (string) $pair['name'], 'address' => (string) $pair['address'],
+            'from' => (string) $l['from'], 'fp' => $fp, 'installed_by' => 'teamlead']);
+        $e['noted'] = $now;
+        $e['by'] = 'office';
+        $book[] = $e;
+    }
+}
+
+/**
+ * The pairs whose door is here (they send to this office: their key is in my authorized_keys) with the addresses they
+ * come from — the pair's address, and what the line he knows names in from= (a host name resolved at the pairing).
+ * Not looked at (the night): as the last day round saw them.
+ *
+ * @return array<string, array{id: string, name: string, ips: list<string>, fp: string}>
+ */
+function watchmanPartnerDoors(array $known, ?array $seen): array
+{
+    if (!is_array($seen['pairs'] ?? null)) {
+        return (array) ($known['pairs'] ?? []);
+    }
+    $out = [];
+    foreach ($seen['pairs'] as $id => $p) {
+        if (!is_string($p['fp'] ?? null)) {
+            continue;
+        }
+        $ips = array_values(array_unique(array_merge((array) $p['ips'], partnerLookFromIps($known['lines'][$id]['from'] ?? null))));
+        $out[(string) $id] = ['id' => (string) $id, 'name' => (string) $p['name'], 'ips' => $ips, 'fp' => $p['fp']];
+    }
+    return $out;
+}
+
+/**
+ * A successful SSH login against the partner doors: null — none of theirs (a password, an address and key no pair
+ * has); ok — a pair's key from its address; else which pair and how it differs (`address`: its key from elsewhere,
+ * `key`: its address with another key).
+ */
+function watchmanPartnerLogin(array $doors, string $ip, ?string $fp): ?array
+{
+    if ($fp === null) {
+        return null;
+    }
+    foreach ($doors as $d) {
+        if (($d['fp'] ?? null) === $fp && (array) $d['ips']) {
+            return in_array($ip, (array) $d['ips'], true) ? ['ok' => true]
+                : ['ok' => false, 'id' => (string) $d['id'], 'name' => (string) $d['name'], 'how' => 'address', 'ips' => array_values((array) $d['ips'])];
+        }
+    }
+    foreach ($doors as $d) {
+        if (in_array($ip, (array) $d['ips'], true)) {
+            return ['ok' => false, 'id' => (string) $d['id'], 'name' => (string) $d['name'], 'how' => 'key', 'ips' => array_values((array) $d['ips'])];
+        }
+    }
+    return null;
+}
+
+/**
+ * After the flash watch: a known pair's line changed (door_changed — what changed, the from= then and now; only
+ * `restrict` added is safer and adopts itself), one taken out is forgotten (the partnership ended); the door's
+ * refusals (door_refused: WATCH_REFUSED_BURST within WATCH_REFUSED_WINDOW, one of them new since the last round).
+ *
+ * @return list<string>  the kinds of new entries
+ */
+function watchmanPartnerCompare(array &$b, ?array $seen, array &$book, array &$st, int $now): array
+{
+    if ($seen === null) {
+        return [];
+    }
+    $b['partner'] = watchmanPartnerBase($b['partner'] ?? null);
+    $name = fn (string $id): string => (string) ($seen['pairs'][$id]['name'] ?? $b['partner']['pairs'][$id]['name'] ?? $id);
+    $added = [];
+    foreach ($b['partner']['lines'] as $id => $k) {
+        $id = (string) $id;
+        $l = $seen['lines'][$id] ?? null;
+        if ($l === null) {
+            unset($b['partner']['lines'][$id]);
+            continue;
+        }
+        if ($l['h'] === ($k['h'] ?? null)) {
+            continue;
+        }
+        $what = [];
+        foreach (['from' => 'from', 'restrict' => 'restrict', 'command' => 'command', 'fp' => 'key', 'others' => 'options'] as $f => $w) {
+            if (($l[$f] ?? null) !== ($k[$f] ?? null)) {
+                $what[] = $w;
+            }
+        }
+        if (!$what || ($what === ['restrict'] && $l['restrict'])) {
+            $b['partner']['lines'][$id] = watchmanPartnerLineKeep($l);       // the same (spacing), or narrower: normal
+            continue;
+        }
+        $added[] = watchmanSet($book, 'door_changed', "door_changed:$id", $now, ['id' => $id, 'name' => $name($id), 'what' => $what,
+            'from' => $l['from'], 'from_old' => $k['from'] ?? null, 'restrict' => (bool) $l['restrict'],
+            'command' => ($l['command'] ?? null) === PARTNER_DOOR . " $id", 'others' => array_slice((array) $l['others'], 0, WATCH_LIST_MAX)]);
+    }
+
+    $st['partner_refused'] = (array) ($st['partner_refused'] ?? []);
+    foreach ((array) $seen['refused'] as $id => $r) {
+        $id = (string) $id;
+        $times = array_values(array_filter((array) $r['times'], 'is_int'));
+        $last = (int) ($st['partner_refused'][$id] ?? 0);
+        $new = array_values(array_filter($times, fn ($t) => $t > $last));
+        if (!$new) {
+            continue;
+        }
+        $st['partner_refused'][$id] = max($times);
+        $burst = 0;
+        foreach ($new as $t) {
+            $burst = max($burst, count(array_filter($times, fn ($x) => $x <= $t && $x > $t - WATCH_REFUSED_WINDOW)));
+        }
+        if ($burst >= WATCH_REFUSED_BURST) {
+            $added[] = watchmanBump($book, 'door_refused', "door_refused:$id", max($new), count($new),
+                ['id' => $id, 'name' => $name($id), 'why' => array_values(array_filter([(string) $r['last']])), 'known' => isset($seen['pairs'][$id]) || isset($b['partner']['pairs'][$id])]);
+        }
+    }
+    foreach (array_keys($st['partner_refused']) as $id) {
+        if (!isset($seen['refused'][$id]) && (int) $st['partner_refused'][$id] < $now - 2 * 3600) {
+            unset($st['partner_refused'][$id]);         // the door keeps an hour of them: long gone
+        }
+    }
+    return array_values(array_filter($added));
+}
+
+/** «What I keep an eye on» of the partner doors: the pairs by name with whether their line is there, lines of no pair */
+function watchmanPartnerSummary(?array $known, ?array $seen): ?array
+{
+    if ($seen === null) {
+        return null;
+    }
+    $pairs = is_array($seen['pairs'] ?? null) ? $seen['pairs'] : null;
+    $out = [];
+    foreach ((array) $pairs as $id => $p) {
+        $l = $seen['lines'][$id] ?? null;
+        $out[] = ['id' => (string) $id, 'name' => (string) $p['name'], 'address' => (string) $p['address'], 'door' => is_string($p['fp'] ?? null),
+                  'line' => $l === null ? 'missing' : (isset($known['lines'][$id]) && ($known['lines'][$id]['h'] ?? '') === $l['h'] ? 'ok' : 'changed'),
+                  'sends' => (bool) $p['sends'], 'receives' => (bool) $p['receives'], 'trust' => (string) $p['trust']];
+    }
+    $strays = [];
+    foreach ((array) $seen['lines'] as $id => $l) {
+        if ($pairs !== null && !isset($pairs[$id])) {
+            $strays[] = (string) $id;
+        }
+    }
+    return ['pairs' => $out, 'looked' => $pairs !== null, 'strays' => $strays,
+            'transfers' => count((array) ($seen['doors'] ?? []))];
 }
 
 // ===================================================================== plugins
@@ -3225,6 +3538,41 @@ function watchmanPosture(array $f, array $seen, array $prev = []): array
     if ($privileged) {
         $add('privileged', ['names' => watchmanNames($privileged), 'n' => count($privileged)], implode(',', $privileged), ['to' => 'docker', 'path' => '/Docker']);
     }
+    // partner doors (the Team Lead's partner offices): the lines in authorized_keys, the pairs (not looked at: no tip of theirs)
+    $partner = is_array($seen['partner'] ?? null) ? $seen['partner'] : null;
+    $lead = ['to' => 'caretaker', 'path' => '#/caretaker'];
+    $pairs = is_array($partner['pairs'] ?? null) ? $partner['pairs'] : null;
+    $pairName = fn (string $id): string => (string) ($pairs[$id]['name'] ?? $id);
+    $wide = $unknown = [];
+    foreach ((array) ($partner['lines'] ?? []) as $id => $l) {
+        if (empty($l['restrict']) || ($l['from'] ?? null) === null) {
+            $wide[(string) $id] = $pairName((string) $id) . ' (' . implode(', ', array_merge(empty($l['restrict']) ? ['restrict'] : [], ($l['from'] ?? null) === null ? ['from='] : [])) . ')';
+        }
+        if ($pairs !== null && !isset($pairs[$id])) {
+            $unknown[] = (string) $id;
+        }
+    }
+    if ($wide) {
+        $add('partner_wide', ['names' => watchmanNames(array_values($wide)), 'n' => count($wide)], implode(',', array_keys($wide)) . '|' . implode(',', $wide), $lead);
+    }
+    if ($unknown) {
+        $add('partner_unknown', ['names' => watchmanNames(array_map(fn ($id) => "uso-partner:$id", $unknown)), 'n' => count($unknown)], implode(',', $unknown), $lead);
+    }
+    $public = $friend = [];
+    foreach ((array) $pairs as $id => $p) {
+        if (!empty($p['public'])) {
+            $public[(string) $id] = "{$p['name']} ({$p['address']})";
+        }
+        if (($p['trust'] ?? '') === 'friend' && !empty($p['sends'])) {
+            $friend[(string) $id] = (string) $p['name'];
+        }
+    }
+    if ($public) {
+        $add('partner_public', ['names' => watchmanNames(array_values($public)), 'n' => count($public)], implode(',', $public), $lead);
+    }
+    if ($friend) {
+        $add('partner_friend', ['names' => watchmanNames(array_values($friend)), 'n' => count($friend)], implode(',', array_keys($friend)), $lead);
+    }
     return array_values(array_filter(array_map(fn ($id) => $tips[$id] ?? null, array_keys(WATCH_POSTURE))));
 }
 
@@ -4193,7 +4541,30 @@ function watchmanFlowLook(array $paths, ?array $containers): array
     return ['conns' => $conns, 'smb' => $smb, 'containers' => $cts, 'zfs' => watchmanFlowZfs($paths), 'nfs' => ($var['shareNFSEnabled'] ?? 'no') === 'yes',
             'holder' => $holder['holder'] ?? null, 'kopia' => $kopia !== '' ? $kopia : null,
             'office_shares' => array_values(array_unique(array_filter([BACKUP_OFFICE_SHARE, $place]))),
-            'disks' => watchmanFlowDisks($paths, $snapDirs), 'moving' => watchmanFlowMovers($paths['proc'] ?? '/proc')];
+            'disks' => watchmanFlowDisks($paths, $snapDirs), 'moving' => watchmanFlowMovers($paths['proc'] ?? '/proc'),
+            'partner' => watchmanFlowPartner($paths, $holder['holder'] ?? null)];
+}
+
+/**
+ * The partner offices in the data flow (agent/lib/partnerlook.php): the pairs' addresses (and what their door lines name
+ * in from=), whether the door receives now (RUN_DIR/partner/door-*.json), when it last received (received/<id>.json),
+ * whether this office sends now (the engine's lock held by a backup whose status.json says phase `partner`).
+ *
+ * @return array{ips: list<string>, door: bool, received: int, sending: bool}
+ */
+function watchmanFlowPartner(array $paths, ?string $holder): array
+{
+    $ips = [];
+    if (isset($paths['partner_pairs'])) {
+        $lines = isset($paths['ssh']) ? partnerLookLines($paths['ssh'] . '/root/authorized_keys') : [];
+        foreach (partnerLookPairs((string) $paths['partner_pairs']) as $id => $p) {
+            $ips = array_merge($ips, $p['ips'], partnerLookFromIps($lines[$id]['from'] ?? null));
+        }
+    }
+    $received = isset($paths['partner_data']) ? partnerLookReceived($paths['partner_data'] . '/received') : [];
+    $status = $holder === 'backup' && isset($paths['engine']) ? readJson($paths['engine'] . '/state/status.json') : null;
+    return ['ips' => array_values(array_unique($ips)), 'door' => isset($paths['partner_run']) && partnerLookDoors((string) $paths['partner_run']) !== [],
+            'received' => $received ? max($received) : 0, 'sending' => ($status['phase'] ?? null) === 'partner'];
 }
 
 /**
@@ -4621,7 +4992,13 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
     $prevTime = $prev === null ? null : (int) $prev['time'];
     $ack = fn (string $key): int => (int) ($bf['ack'][$key]['bytes'] ?? 0);
     $added = [];
-    $next = ['time' => $now, 'conns' => null, 'cts' => null, 'ds' => null, 'smb' => null, 'ref' => null, 'disks' => null, 'moving' => null];
+    $next = ['time' => $now, 'conns' => null, 'cts' => null, 'ds' => null, 'smb' => null, 'ref' => null, 'disks' => null, 'moving' => null,
+             'door' => !empty($look['partner']['door'])];
+    // the partner door at work — receiving now, at the last round, or a receive finished since: what it wrote into the
+    // partners' place and the pairs' SSH bytes are the office's own; so are they while this office sends (phase partner)
+    $pl = is_array($look['partner'] ?? null) ? $look['partner'] : [];
+    $door = !empty($pl['door']) || !empty($prev['door']) || ($prevTime !== null && (int) ($pl['received'] ?? 0) >= $prevTime - 60);
+    $pairIps = $door || !empty($pl['sending']) ? array_flip(array_map('strval', (array) ($pl['ips'] ?? []))) : [];
     $active = null;                 // who moved data over SMB, NFS or SSH this round (for what vanished), null: can't be told
 
     // SMB: users, machines, the hours they start sessions
@@ -4707,11 +5084,15 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
             }
             $flow['totals']['sent'][$svc] = (int) ($flow['totals']['sent'][$svc] ?? 0) + $d;
             $s = is_array($flow['clients'][$key] ?? null) ? $flow['clients'][$key] : watchmanFlowSeries($now);
-            watchmanFlowAdd($s, $d, $now, $prevTime, false);
+            $mine = $svc === 'ssh' && isset($pairIps[$ip]);         // a partner office through its door
+            watchmanFlowAdd($s, $d, $now, $prevTime, $mine);
             if (isset($names[$ip])) {
                 $s['name'] = $names[$ip];
             }
             $flow['clients'][$key] = $s;
+            if ($mine) {
+                continue;
+            }
             $j = watchmanFlowJudge($s, $d, $now, $ack("flow_client:$key"), WATCH_FLOW_MIN, WATCH_FLOW_NEW);
             $added[] = watchmanFlowNote($book, 'flow_client', "flow_client:$key", $now, $s['run'], (int) ($s['h'][intdiv($now, 3600)] ?? 0), $j,
                 ['ip' => $ip, 'service' => $svc, 'machine' => (string) ($s['name'] ?? '')]);
@@ -4813,6 +5194,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
             if ($a['d'] > 0) {
                 $flow['totals']['written'][$share] = (int) ($flow['totals']['written'][$share] ?? 0) + $a['d'];
                 $mine = $office && ($restore || isset($officeShares[explode('/', (string) $share, 2)[1]]));      // the engine's packages and dumps, a restore
+                $mine = $mine || ($door && explode('/', (string) $share, 2)[1] === PARTNER_PARENT);           // a partner's copies, received by the door
                 watchmanFlowAdd($s, $a['d'], $now, $prevTime, $mine);
                 if (!$mine) {
                     $clear = max(WATCH_FLOW_WRITE, (int) ($a['u'] * WATCH_FLOW_PART));
@@ -4837,10 +5219,11 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
     }
     $whoNow = ['clients' => $active ?? [], 'users' => array_slice(array_keys($users), 0, WATCH_LIST_MAX),
                'from' => $active === null ? null : ($active ? 'clients' : 'server')];
-    $gone = function (string $key, int $loss, int $size, array $who) use (&$flow, &$added, &$book, $now, $prevTime, $expected, $whoNow, $ack): void {
+    $gone = function (string $key, int $loss, int $size, array $who) use (&$flow, &$added, &$book, $now, $prevTime, $expected, $whoNow, $ack, $door): void {
         if (!isset($flow['gone'][$key]) && count($flow['gone']) >= WATCH_FLOW_SHARES) {
             return;
         }
+        $expected = $expected || ($door && $key === 'share:' . PARTNER_PARENT);      // a receive brings the sender's deletions along
         $s = is_array($flow['gone'][$key] ?? null) ? $flow['gone'][$key] : watchmanFlowSeries($now);
         $s = $who + $s;
         $s['size'] = $size;
@@ -4938,7 +5321,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
         }
     }
 
-    foreach (['conns', 'cts', 'ds', 'smb', 'ref', 'disks', 'moving'] as $part) {
+    foreach (['conns', 'cts', 'ds', 'smb', 'ref', 'disks', 'moving'] as $part) {   // 'door' is this round's word, never carried
         if ($next[$part] === null) {
             $next[$part] = $prev[$part] ?? null;       // not looked at this time: the last counters stay (counted on next time)
         }
@@ -5190,6 +5573,13 @@ function watchmanSnaps(array $paths, ?array $known, array $series, int $now): ar
         $events = ['d' => [], 'r' => [], 'm' => []];
     }
     $office = watchmanSnapOfficeMerge((array) ($known['office'] ?? []), $events, $now);
+    // what the partner door's retention destroyed of the copies it keeps (data/partner/deletes.jsonl, root only)
+    $partnerPos = is_array($known['partner'] ?? null) ? $known['partner'] : null;
+    $partner = isset($paths['partner_data']) ? watchmanPartnerDeletes($paths['partner_data'] . '/deletes.jsonl', $partnerPos, $known === null) : null;
+    if ($partner !== null) {
+        [$partnerEvents, $partnerPos] = $partner;
+    }
+    $office['p'] = watchmanSnapPartnerMerge((array) ($known['office']['p'] ?? []), $partnerEvents ?? [], $now);
     $runs = isset($paths['engine']) ? watchmanEngineRuns($paths['engine']) : [];
     $diff = watchmanSnapDiff($known, $look, $office, $runs, $prefixes, $now);
     $office = $diff['office'];
@@ -5204,7 +5594,7 @@ function watchmanSnaps(array $paths, ?array $known, array $series, int $now): ar
     foreach ($diff['released'] as $g) {
         $released[] = $g + watchmanSnapEvidence($paths, $g, $now, 'release|destroy');
     }
-    $diff['known'] += ['office' => $office, 'log' => $pos, 'record' => $recPos];
+    $diff['known'] += ['office' => $office, 'log' => $pos, 'record' => $recPos, 'partner' => $partnerPos];
     $count = fn (array $lists) => array_map('count', $lists);
     return ['known' => $diff['known'], 'gone' => $gone, 'released' => $released, 'summary' => [
         'time'     => $now,
@@ -5473,6 +5863,82 @@ function watchmanSnapRecord(string $file, ?array $pos, bool $fresh): ?array
     return [$ev, ['ino' => (int) $st['ino'], 'size' => $end]];
 }
 
+/**
+ * What the partner door's retention destroyed (data/partner/deletes.jsonl — agent/partner-door.php appends a line
+ * `{t, pair, dataset, snaps: [uso-backup-…]}` before it destroys them; .1 beyond 1 MB): trusted only while its folder
+ * and the file are root's own and closed to others, only datasets under a pool's UnraidSecretaryOffice-partners and
+ * only the engine's snapshot names — the door destroys nothing else. Read by offset (inode), like Ms. Snapshotini's
+ * record; his first look starts at its end. Null: not trusted (nothing of it counts).
+ *
+ * @return array{0: array<string, int>, 1: ?array}|null  "<dataset>@<snapshot>" => time, the position
+ */
+function watchmanPartnerDeletes(string $file, ?array $pos, bool $fresh): ?array
+{
+    $own = function (string $path, bool $dir): ?array {
+        $st = @lstat($path);
+        return $st && ($st['mode'] & 0170000) === ($dir ? 0040000 : 0100000) && $st['uid'] === 0 && !($st['mode'] & 0077)
+            && ($dir || $st['nlink'] === 1) ? $st : null;
+    };
+    clearstatcache();
+    if ($own(dirname($file), true) === null) {
+        return null;
+    }
+    $st = $own($file, false);
+    if ($st === null) {
+        return file_exists($file) || is_link($file) ? null : [[], $pos];       // nothing destroyed so far
+    }
+    $ev = [];
+    $read = function (string $path, int $from) use (&$ev): int {
+        $h = @fopen($path, 'r');
+        if (!$h) {
+            return $from;
+        }
+        $size = (int) (fstat($h)['size'] ?? 0);
+        $start = max($from, $size - WATCH_SNAP_LOG_MAX);
+        fseek($h, $start);
+        if ($start > $from && $start > 0) {
+            fgets($h);
+        }
+        $at = (int) ftell($h);
+        while (($line = fgets($h)) !== false && str_ends_with($line, "\n")) {
+            $at += strlen($line);
+            $e = json_decode($line, true);
+            $ds = is_array($e) ? ($e['dataset'] ?? null) : null;
+            if (!is_int($e['t'] ?? null) || !is_string($ds) || preg_match('/[\x00-\x1F@,]/', $ds) || ($d = partnerLookDataset($ds)) === null
+                || $d['id'] === null || $d['trash'] || !is_array($e['snaps'] ?? null)) {
+                continue;
+            }
+            foreach ($e['snaps'] as $n) {
+                if (is_string($n) && preg_match(PARTNER_SNAP_RE, $n)) {
+                    $ev["$ds@$n"] = $e['t'];
+                }
+            }
+        }
+        fclose($h);
+        return $at;
+    };
+    if ($pos === null && $fresh) {
+        return [[], ['ino' => (int) $st['ino'], 'size' => (int) $st['size']]];
+    }
+    $from = 0;
+    if ($pos !== null && (int) ($pos['ino'] ?? -1) === (int) $st['ino'] && (int) ($pos['size'] ?? PHP_INT_MAX) <= (int) $st['size']) {
+        $from = (int) $pos['size'];
+    } elseif ($pos !== null && ($old = $own("$file.1", false)) !== null && (int) $old['ino'] === (int) ($pos['ino'] ?? -1)
+              && (int) ($pos['size'] ?? PHP_INT_MAX) <= (int) $old['size']) {
+        $read("$file.1", (int) $pos['size']);
+    }
+    $end = $read($file, $from);
+    return [$ev, ['ino' => (int) $st['ino'], 'size' => $end]];
+}
+
+/** What the partner door destroyed, remembered like the office's own removals (WATCH_SNAP_OFFICE, at most WATCH_SNAP_OFFICE_N) */
+function watchmanSnapPartnerMerge(array $old, array $new, int $now): array
+{
+    $list = array_filter($new + $old, fn ($t) => is_int($t) && $t >= $now - WATCH_SNAP_OFFICE);
+    arsort($list);
+    return array_slice($list, 0, WATCH_SNAP_OFFICE_N, true);
+}
+
 /** Two rounds' worth of what the office removed, as one */
 function watchmanSnapEventsAdd(array $a, array $b): array
 {
@@ -5662,6 +6128,9 @@ function watchmanSnapWhy(string $fs, string $id, string $ds, string $name, array
 {
     if (isset($office['d'][$id])) {
         return 'office';
+    }
+    if (isset($office['p'][$id])) {
+        return 'partner';               // the partner door's retention on a partner's copies
     }
     if (str_contains($ds, WATCH_STOREROOM)) {
         return 'storeroom';
@@ -5929,6 +6398,26 @@ function watchmanAdopt(array &$b, array $e, array $seen, int $now): void
                 $b['host']['api'][(string) $p['id']] = $k;
             }
             break;
+        case 'door_changed':
+            // the pair's line as it is now is wanted (a change after this is told again)
+            $l = $seen['partner']['lines'][$p['id'] ?? ''] ?? null;
+            if (is_array($l)) {
+                $b['partner'] = watchmanPartnerBase($b['partner'] ?? null);
+                $b['partner']['lines'][(string) $p['id']] = watchmanPartnerLineKeep($l);
+            }
+            break;
+        case 'door_key_moved':
+            // this address with this key is fine (another pair of them is told again); the address a known login address
+            if (is_string($p['ip'] ?? null)) {
+                $b['partner'] = watchmanPartnerBase($b['partner'] ?? null);
+                $b['partner']['logins'][$p['ip'] . '|' . (string) ($p['fp'] ?? '')] = $now;
+                $k = $b['ips'][$p['ip']] ?? ['first' => (int) $e['time'], 'last' => 0, 'users' => [], 'services' => []];
+                $k['last'] = max((int) $k['last'], (int) $e['last']);
+                $k['users'] = watchmanMerge(['x' => (array) $k['users']], ['x' => (array) ($p['users'] ?? [])])['x'];
+                $k['services'] = watchmanMerge(['x' => (array) $k['services']], ['x' => ['ssh:publickey']])['x'];
+                $b['ips'][$p['ip']] = $k;
+            }
+            break;
         case 'listen_new':
         case 'proc_odd':
             $part = $kind === 'listen_new' ? 'listen' : 'procs';
@@ -6117,6 +6606,12 @@ function watchmanText(array $e, ?string $lang = null): array
         'api_key_new', 'api_key_changed'
                          => ['name' => (string) ($p['name'] ?? ''), 'roles' => $list('roles') ?: '–', 'perms' => (int) ($p['perms'] ?? 0)],
         'array_stop', 'array_start', 'server_boot' => ['who' => watchmanArrayWho((array) ($p['logins'] ?? []))],
+        'partner_paired' => ['name' => (string) ($p['name'] ?? ''), 'address' => (string) ($p['address'] ?? '')],
+        'door_changed'   => ['name' => (string) ($p['name'] ?? ''), 'what' => $lang === null ? '' : implode(', ', array_map(
+                                 fn ($w) => officeNotifyText('watchman', 'door_what.' . (in_array($w, ['from', 'restrict', 'command', 'key', 'options'], true) ? $w : 'options'), [], $lang),
+                                 (array) ($p['what'] ?? [])))],
+        'door_key_moved' => ['name' => (string) ($p['name'] ?? ''), 'ip' => (string) ($p['ip'] ?? '')],
+        'door_refused'   => ['name' => (string) ($p['name'] ?? '')],
         'watch'          => array_map('intval', $p),
         default          => [],
     };
@@ -6385,7 +6880,7 @@ const WATCH_CHAIN_WINDOW = 3600;            // first seen this close to another 
 const WATCH_CHAIN_KEEP   = 7 * 86400;       // entries older than this start no chain
 // a chain is a way in and something else (a login from a new address, then a cron line), or damage of two sorts (snapshots
 // gone and much written) — a plugin installed (its plugin, cron file and port at once) alone is none
-const WATCH_CHAIN_ACCESS = ['login_new_ip', 'login_failures', 'smb_user', 'door_new'];
+const WATCH_CHAIN_ACCESS = ['login_new_ip', 'login_failures', 'smb_user', 'door_new', 'door_key_moved', 'door_refused'];
 const WATCH_CHAIN_IMPACT = ['snap_gone' => 'snap', 'snap_hold_released' => 'snap', 'flow_written' => 'flow', 'flow_gone' => 'flow', 'log_cleared' => 'log'];
 
 /**
@@ -6674,6 +7169,7 @@ function watchmanSummary(array $b, ?array $seen = null): array
         'shares'     => $shares,
         'sched'      => watchmanSchedSummary(is_array($b['sched'] ?? null) ? $b['sched'] : null),
         'host'       => watchmanHostSummary(is_array($b['host'] ?? null) ? $b['host'] : null, is_array($seen['host'] ?? null) ? $seen['host'] : null),
+        'partner'    => watchmanPartnerSummary(is_array($b['partner'] ?? null) ? $b['partner'] : null, is_array($seen['partner'] ?? null) ? $seen['partner'] : null),
     ];
 }
 
