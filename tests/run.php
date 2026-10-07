@@ -3027,7 +3027,8 @@ function testBackupPresets(): void
     $keeps = preg_match_all("/'([a-z_]+)'/", $m[1] ?? '', $k) ? [...$k[1], 'vm_cannot'] : [];
     same('presets: the three starts', ['auto', 'local', 'kopia'], $kinds);
     $want = [...array_map(fn ($x) => "setup.preset.$x", $kinds), 'setup.preset.auto_new', 'setup.preset.auto_have', 'setup.preset.local_text',
-        'setup.preset.kopia_text', ...array_map(fn ($x) => "setup.preset.keep.$x", $keeps)];
+        'setup.preset.kopia_text', 'setup.preset.replace', 'setup.preset.replace_new', 'setup.preset.kopia_time', 'setup.preset.kopia_time_least',
+        ...array_map(fn ($x) => "setup.preset.keep.$x", $keeps)];
     same('presets: every name, text and reason a start asks for exists', [], array_values(array_filter($want, fn ($x) => !isset($en[$x]))));
 
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
@@ -3050,7 +3051,8 @@ function testBackupPresets(): void
                 'share|UnraidSecretaryOffice|mode' => 'kopia', 'share|domains|mode' => 'snapshot', 'share|system|mode' => 'snapshot', 'share|kopia_tmp|mode' => 'off',
                 'share|tm_janine|mode' => 'off', 'share|Backups_TimeMachine|mode' => 'off', 'share|scratch|mode' => 'off', 'share|Filme|mode' => 'off',
                 'share|photos|mode' => 'snapshot',
-                'vm|vm1|mode' => 'snapshot', 'vm|vm1|prepare' => 'pause', 'vm|vm2|mode' => 'snapshot', 'vm|vm2|prepare' => 'none'],
+                'vm|vm1|mode' => 'snapshot', 'vm|vm1|prepare' => 'pause', 'vm|vm2|mode' => 'snapshot', 'vm|vm2|prepare' => 'none',
+                'vm|vm3|mode' => 'off', 'vm|vm3|prepare' => 'none'],
         'O' => ['kopia|enabled' => 'yes', 'share|appdata|mode' => 'kopia', 'share|UnraidSecretaryOffice|mode' => 'kopia', 'share|domains|mode' => 'snapshot',
                 'share|system|mode' => 'snapshot', 'share|Filme|mode' => 'off', 'share|photos|mode' => 'snapshot'],
         'shares' => [
@@ -3069,7 +3071,8 @@ function testBackupPresets(): void
             $ct('kopia', 'kopia', [], ['kopia' => true])],
         'vms' => [
             ['name' => 'vm1', 'why' => 'previous', 'agent' => 'no', 'snap' => 'yes', 'own' => ['master/domains/vm1'], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/vm1/vdisk1.img']]],
-            ['name' => 'vm2', 'why' => 'previous', 'agent' => 'no', 'snap' => 'no_snapshot', 'own' => [], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/vm2/vdisk1.img']]]],
+            ['name' => 'vm2', 'why' => 'previous', 'agent' => 'no', 'snap' => 'no_snapshot', 'own' => [], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/vm2/vdisk1.img']]],
+            ['name' => 'vm3', 'why' => 'previous', 'agent' => 'yes', 'snap' => 'yes', 'own' => ['master/domains/vm3'], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/vm3/vdisk1.img']]]],
         'databases' => [], 'nextcloud' => [], 'missing_databases' => [], 'bases' => [['name' => 'master', 'fs' => 'zfs', 'kind' => 'pool']], 'flash' => ['dataset' => '', 'fs' => 'vfat'],
         'kopia' => ['container' => 'kopia', 'candidates' => ['kopia'], 'problem' => null, 'mappings' => [
             ['source' => '/mnt/addons/UnraidSecretaryOffice/snapshots', 'target' => '/uso', 'rw' => false, 'main' => true],
@@ -3113,6 +3116,7 @@ const look = () => ({
   flash: S.draft['flash|mode'], libvirt: S.draft['libvirt|mode'], ignore: S.draft['share|appdata|kopia_ignore'], known: S.draft['share|appdata|kopia_known'],
   skip: S.draft['docker|skip'], noStop: [...(S.draft['docker|no_stop'] || [])].sort(),
   items: ['app|c1|kopia', 'app|emby|kopia', 'app|newapp|kopia', 'vm|vm1|kopia', 'vm|vm2|kopia'].map((k) => S.draft[k] ?? null),
+  vm3: [S.draft['vm|vm3|mode'], S.draft['vm|vm3|prepare']],
   changed: b.presetChanged(), start: b.presetStartText(),
 });
 const out = {};
@@ -3172,7 +3176,7 @@ JS;
     same('presets: what stays as the engine says - system by name, Kopia\'s own folder by its mapping, Time Machine by its container and by name, drift.ignore',
         [null, null, null, 'system', 'kopia_workdir', 'timemachine', 'timemachine', 'drift_ignore', null, null, null], $r['keep']);
     $all = fn (int $l) => ['app:ct:c1' => $l, 'app:ct:c2' => $l, 'app:ct:c3' => $l, 'app:ct:emby' => $l, 'app:ct:skipme' => $l, 'app:ct:dsm' => $l, 'app:ct:tm' => $l, 'app:ct:newapp' => $l,
-        'vm:vm1' => $l, 'vm:vm2' => 0];
+        'vm:vm1' => $l, 'vm:vm2' => 0, 'vm:vm3' => $l];
     $ks = function (array $a): array {
         ksort($a);
         return $a;
@@ -3187,6 +3191,7 @@ JS;
         $ks(array_intersect_key($L['held'], ['ct:emby' => 1, 'ct:skipme' => 1, 'ct:dsm' => 1, 'ct:tm' => 1, 'ct:newapp' => 1, 'ct:c1' => 1])));
     same('presets: «Everything local only» - nothing skipped, the flash and the VMs\' configurations along, the user\'s ignore rules stay',
         [[], ['emby', 'newapp', 'tm'], 'tar', 'tar', ['/kopia/', '/cache/']], [$L['skip'], $L['noStop'], $L['flash'], $L['libvirt'], array_values(array_intersect($L['ignore'] ?? [], ['/kopia/', '/cache/']))]);
+    same('presets: a VM of its own that was «not» (kept running) is held again, like a click on its row (freeze: its guest agent answers)', ['snapshot', 'freeze'], $L['vm3']);
     same('presets: right after choosing nothing is «changed by you»', [false, 'setup.preset.start {"name":"setup.preset.local"}'], [$L['changed'], $L['start']]);
     same('presets: a row changed by hand marks the draft', [true, 'setup.preset.start {"name":"setup.preset.local"} · setup.preset.changed'], $r['localEdited']);
     $K = $r['kopia'];

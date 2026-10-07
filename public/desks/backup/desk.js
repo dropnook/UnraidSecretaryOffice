@@ -1743,7 +1743,12 @@ function presetApply(kind, items) {
   if (kind === 'local') Object.keys(setup.draft).forEach((k) => { if (/^share\|.+\|mode$/.test(k) && setup.draft[k] === 'kopia') setup.draft[k] = 'snapshot'; });
   const before = { ...setup.levels };
   m.apps.forEach((a) => { if (has('app:' + a.id)) setup.levels['app:' + a.id] = lv; });
-  m.vms.forEach((x) => { if (has('vm:' + x.name) && !presetVmKeep(x)) setup.levels['vm:' + x.name] = lv; });
+  m.vms.forEach((x) => {
+    if (!has('vm:' + x.name) || presetVmKeep(x)) return;
+    // from «not» up: freeze or pause proposed again, like a click on its row (a VM of its own kept running at «not»)
+    if (!before['vm:' + x.name]) dset(`vm|${x.name}|prepare`, undefined);
+    setup.levels['vm:' + x.name] = lv;
+  });
   plan.shares.forEach((sh) => {
     if (sh.exists && has('share:' + sh.name) && !presetKeep(sh, plan)) dset(`share|${sh.name}|mode`, LV[lv]);
   });
@@ -1841,7 +1846,7 @@ function kopiaHelpLink() {
   return a;
 }
 
-/** A card's honest notes: what a start doesn't protect against, what it costs, what stays as it is */
+/** A card's honest notes: what a start doesn't protect against, what it needs and costs */
 function presetNotes(kind, kst, measure) {
   const plan = setup.plan;
   const out = [];
@@ -1870,14 +1875,20 @@ function presetNotes(kind, kst, measure) {
       out.push(box);
     }
   }
-  const kept = presetKeptList();
-  if (kept.length) note(T('setup.preset.kept', { list: kept.join(', ') }));
-  if (setup.model.apps.some((a) => a.members.some((n) => (plan.containers.find((c) => c.name === n) || {}).media))) note(T('setup.preset.media'));
-  if (plan.have_settings) note(T('setup.preset.new_later'));
   return out;
 }
 
-/** The three starts as cards, a radio group: `current` marked, a click or Enter picks one (`onPick(kind, card)`) */
+/** Under the cards, once for every start: what stays as it is, media servers, what comes later */
+function presetCommon() {
+  const plan = setup.plan;
+  const kept = presetKeptList();
+  const text = [kept.length ? T('setup.preset.kept', { list: kept.join(', ') }) : '',
+    setup.model.apps.some((a) => a.members.some((n) => (plan.containers.find((c) => c.name === n) || {}).media)) ? T('setup.preset.media') : '',
+    plan.have_settings ? T('setup.preset.new_later') : ''].filter(Boolean).join(' ');
+  return text ? el('p', 'role bk-preset-common', text) : null;
+}
+
+/** The three starts as cards, a radio group: `current` marked, a click or Enter picks one (`onPick(kind, card)`); below them what holds for all */
 function presetCards(current, onPick, measure) {
   const plan = setup.plan;
   const g = el('div', 'bk-presets');
@@ -1911,7 +1922,11 @@ function presetCards(current, onPick, measure) {
     };
     g.appendChild(c);
   });
-  return g;
+  const wrap = el('div', 'bk-preset-wrap');
+  wrap.appendChild(g);
+  const common = presetCommon();
+  if (common) wrap.appendChild(common);
+  return wrap;
 }
 
 /** A card picked on the page: a new server without changes starts at once, otherwise it asks first */
@@ -1925,7 +1940,7 @@ function presetPick(kind, card) {
   if (!setup.plan.have_settings && !presetChanged()) { go(); return; }
   Office.dialog({
     title: T('setup.preset.confirm_title'),
-    body: T('setup.preset.replace'),
+    body: T(setup.plan.have_settings ? 'setup.preset.replace' : 'setup.preset.replace_new'),
     buttons: [{ text: Office.t('common.cancel') }, { text: T('setup.preset.confirm_go'), kind: '', act: () => { go(); return true; } }],
   });
 }
@@ -1940,14 +1955,15 @@ function presetSection() {
 
 /** With settings applied: which start the draft came from (once one was chosen), and a first upload to Kopia */
 function presetStartLine() {
-  if (!setup.preset || !setup.draft) return [];
-  const out = [el('p', 'role bk-start', presetStartText())];
+  if (!setup.preset || !setup.draft) return null;
+  const out = el('div', 'bk-start');
+  out.appendChild(el('p', 'role', presetStartText()));
   if (setup.preset === 'kopia') {
     const lines = uploadLines(firstUpload(draftMode), true);
     if (lines.length) {
       const box = el('div', 'callout bk-upload');
       lines.forEach((l) => box.appendChild(l));
-      out.push(box);
+      out.appendChild(box);
     }
   }
   return out;
@@ -2097,8 +2113,8 @@ function renderSetup() {
   if (!setup.plan) { setupBar(); return; }
 
   const plan = setup.plan;
-  if (!plan.have_settings) root.appendChild(presetSection());      // a new server: where to start, the three cards
-  else presetStartLine().forEach((x) => root.appendChild(x));      // set up: which start the draft came from, if one was chosen
+  const start = plan.have_settings ? presetStartLine() : presetSection();   // a new server: where to start, the three cards;
+  if (start) root.appendChild(start);                                       // set up: which start the draft came from, once chosen
   root.appendChild(setupKopia(plan));          // 0 basics: where backups go, Kopia, the flash
   root.appendChild(setupVms(plan));            // 1
   root.appendChild(setupApps(plan));           // 2

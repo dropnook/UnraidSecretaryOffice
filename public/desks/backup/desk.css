@@ -158,6 +158,9 @@
 .bk-upload .bk-upload-size{font-weight:650; color:var(--ink)}
 .bk-upload .btn{margin-left:4px; vertical-align:baseline}
 .callout.bk-upload .bk-upload-size{color:inherit}
-.bk-start{margin:0 0 10px; font-size:13px}
+.bk-start p.role{margin:0 0 8px}
+.bk-start .callout{margin:0}
 .bk-preset-dialog .callout{margin-bottom:10px}
+.bk-preset-wrap .bk-preset-common{margin:8px 0 4px; font-size:12.5px; line-height:1.45}
+.dialog.wide:has(.bk-preset-dialog){width:min(1080px,100%)}
 }
