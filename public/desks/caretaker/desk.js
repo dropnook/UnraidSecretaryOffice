@@ -25,6 +25,21 @@ let view = null;
 let showDone = false;
 let showNoted = false;
 
+// «Partner offices» lives in partner.js beside this file (loaded once; its version mark: this file's and the strings')
+const ME = document.currentScript && document.currentScript.src;
+Office.ctPartnerLoaded = () => {
+  Office.ctPartner.use({
+    took(partners) { if (state) state.partners = partners; if (view) Office.keepInPlace(null, render); },
+    reload: () => load(true),
+  });
+  if (view) Office.keepInPlace(null, render);
+};
+if (ME && !Office.ctPartner) {
+  const s = document.createElement('script');
+  s.src = ME.replace(/desk\.js(\?.*)?$/, (m, q) => `partner.js${q || '?'}-${encodeURIComponent(String(Office.config.stamp || ''))}`);
+  (document.currentScript.parentNode || document.head).appendChild(s);
+}
+
 /** His state: as kept at once, a new look following on his page (core.js Office.loadState()); fresh waits for a new look */
 async function load(fresh) {
   return Office.loadState(ID, { fresh }, took);
@@ -131,6 +146,7 @@ function render() {
     [T('help.open'), T('help.open_text')],
     [T('check_again'), T('help.again')],
     [T('notify_title'), T('help.notify')],
+    [T('partner.title'), T('partner.help')],
   ]));
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
 
@@ -148,6 +164,7 @@ function render() {
     root.appendChild(ok);
   }
   root.appendChild(notifySection());
+  if (Office.ctPartner) root.appendChild(Office.ctPartner.section(state));    // partner.js
   if (g.hints.length) root.appendChild(list('hints', T('hints_count', { n: g.hints.length }), T('hints_text'), g.hints));
   root.appendChild(doneSection(g.done));
   if (g.noted.length) root.appendChild(notedSection(g.noted));       // put aside: folded, at the end

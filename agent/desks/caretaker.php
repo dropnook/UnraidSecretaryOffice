@@ -38,6 +38,9 @@ const CARETAKER_API_SOCK      = '/var/run/unraid-api.sock';
 const CARETAKER_API_WAIT_MS   = 2000;                // it answers in 0.5–3 ms; nothing within 2 s is no answer
 const CARETAKER_API_QUERY     = '{"query":"{ isSSOEnabled }"}';    // a question the API answers without a key (the login page asks it)
 
+// partner offices (agent/lib/partner.php): pairing, cards, the mutual watch — the door is agent/partner-door.php
+require_once dirname(__DIR__) . '/lib/partner.php';
+
 desk('caretaker', [
     'start'   => fn () => caretakerScan(),
     'tick'    => fn () => caretakerTick(),
@@ -48,7 +51,14 @@ desk('caretaker', [
         'notify_set'    => fn (array $r) => caretakerNotifySet($r['on'] ?? null),
         'ack'           => fn (array $r) => caretakerAck($r['sig'] ?? null, true),
         'unack'         => fn (array $r) => caretakerAck($r['sig'] ?? null, false),
+        'partner_add'    => fn (array $r) => partner_add($r),
+        'partner_accept' => fn (array $r) => partner_accept($r),
+        'partner_finish' => fn (array $r) => partner_finish($r),
+        'partner_end'    => fn (array $r) => partner_end($r),
+        'partner_state'  => fn (array $r) => partner_state($r),
+        'partner_ping'   => fn (array $r) => partner_ping($r),
     ],
+    'jobs'    => ['partner-ping' => fn (array $args) => caretakerPartnerWatch()],
     'checks'  => fn () => caretakerChecks(),
     'metrics' => fn (): array => caretakerMetrics(readJson(deskFile('caretaker')), staffHired()),
 ]);
@@ -100,6 +110,7 @@ function caretakerScan(bool $checkUpdate = false): array
         'office'      => $office,
         'hired'       => $hired,
         'notify'      => caretakerNotifyPublic($notify),
+        'partners'    => caretakerPartners(),
     ];
     writeAtomic(deskFile('caretaker'), jsonEncode($state));
     $GLOBALS['ctLastScan'] = time();
@@ -125,6 +136,7 @@ function caretakerTick(): void
         $GLOBALS['ctWatchLook'] = $now;
         caretakerWatchCron();
     }
+    caretakerPartnerTick($now);
     if ($now - (int) ($GLOBALS['started'] ?? 0) >= CARETAKER_TOUR_AFTER && $now - (int) ($GLOBALS['ctLastScan'] ?? 0) >= CARETAKER_TOUR_EVERY) {
         $GLOBALS['ctLastScan'] = $now;          // a tour that fails isn't tried again every minute
         caretakerScan();
@@ -504,6 +516,7 @@ function caretakerChecks(): array
         }
     }
     array_push($out, ...caretakerMonitoringChecks());
+    array_push($out, ...caretakerPartnerFindings());
     return $out;
 }
 
@@ -557,6 +570,92 @@ function caretakerApiUp(string $sock = CARETAKER_API_SOCK, string $rc = CARETAKE
     unset($c);
     $j = $status === 200 ? json_decode($body, true) : null;
     return is_array($j) && is_bool($j['data']['isSSOEnabled'] ?? null);
+}
+
+// ===================================================================== partner offices
+
+/** His state's `partners`: the cards (agent/lib/partner.php partnerPublic(): files only, never a key or a block) */
+function caretakerPartners(): array
+{
+    try {
+        return partnerPublic();
+    } catch (Throwable $e) {
+        logLine('Partner offices: the cards failed: ' . $e->getMessage());
+        return ['pairs' => [], 'pending' => [], 'silent_after' => PARTNER_SILENT_AFTER];
+    }
+}
+
+/**
+ * Every 15 minutes the mutual watch (php agent.php job partner-ping, handed to atd — never here in the tick): only
+ * while there are pairs, only when state.json is older than that (one stat each), and not again within 15 minutes
+ * of the last start (a job that fails to write would be started every minute otherwise).
+ */
+function caretakerPartnerTick(int $now): void
+{
+    if ($now - (int) ($GLOBALS['ctPartnerLaunch'] ?? 0) < PARTNER_PING_EVERY) {
+        return;
+    }
+    clearstatcache();
+    if (!is_file(partnerDir() . '/pairs.json') || $now - (int) @filemtime(partnerDir() . '/state.json') < PARTNER_PING_EVERY) {
+        return;
+    }
+    $GLOBALS['ctPartnerLaunch'] = $now;
+    try {
+        hostLaunch('partner-ping', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'partner-ping']);
+    } catch (Throwable $e) {
+        logLine('Partner offices: the mutual watch could not be started: ' . $e->getMessage());
+    }
+}
+
+/**
+ * The mutual watch's job (one at a time: its lock in RAM): every partner asked, the answers kept; a silent one told to
+ * Unraid's notifications (warning) once per silence and again every 24 h — unless «I know, thanks» was said to his
+ * finding partner_silent (the same sig as on his page).
+ */
+function caretakerPartnerWatch(): int
+{
+    if (!partnerDirReady(partnerRunDir())) {
+        return 1;
+    }
+    $lock = @fopen(partnerRunDir() . '/ping.lock', 'c');
+    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
+        return 0;
+    }
+    $acks = caretakerAckRead(caretakerAckFile());
+    $finding = fn (array $p, array $e) => finding('partner_silent', 'recommended', false, partnerSilentParams($p, $e), '#/caretaker');
+    partnerWatch(
+        fn (array $p, array $e) => isset($acks[caretakerAckSig('caretaker', $finding($p, $e))]),
+        function (array $p, array $e) {
+            $lang = officeNotifyLang();
+            $params = partnerSilentParams($p, $e);
+            $sent = officeNotify(
+                officeNotifyText('caretaker', 'notify.partner_silent_subject', $params, $lang),
+                officeNotifyText('caretaker', 'notify.partner_silent_description', $params, $lang),
+                'warning',
+                officeNotifyText('caretaker', 'notify.partner_silent_message', $params, $lang),
+                officeNotifyLink('#/caretaker'),
+            );
+            logLine("Partner offices: {$p['name']} ({$p['id']}) is silent since {$params['since']} — " . ($sent ? 'told' : 'could not tell') . " Unraid's notifications");
+            return $sent;
+        },
+    );
+    flock($lock, LOCK_UN);
+    fclose($lock);
+    return 0;
+}
+
+/** partner_silent per pair (recommended; in place while it answers): from the files only */
+function caretakerPartnerFindings(): array
+{
+    $out = [];
+    $state = partnerStateRead();
+    $now = time();
+    foreach (partnerPairs() as $p) {
+        $e = is_array($state['pairs'][$p['id']] ?? null) ? $state['pairs'][$p['id']] : [];
+        $silent = partnerSilent($p, $e, $now);
+        $out[] = finding('partner_silent', 'recommended', !$silent, $silent ? partnerSilentParams($p, $e) : ['name' => $p['name'], 'pair' => $p['id']], '#/caretaker');
+    }
+    return $out;
 }
 
 // ===================================================================== monitoring
