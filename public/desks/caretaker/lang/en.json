@@ -364,5 +364,10 @@
   "errors.partner_receive": "Please check: {field}",
   "errors.partner_known": "{name} is already a partner of this office.",
   "errors.partner_unresolved": "{address} can't be resolved to an IP address — the door needs one. Use the partner's IP address.",
-  "errors.partner_nothing": "Neither side would send anything — nothing to pair for."
+  "errors.partner_nothing": "Neither side would send anything — nothing to pair for.",
+  "partner.tailnet_offline": "Also offline in the tailnet — the server itself seems to be away.",
+  "partner.tailnet_online": "In the tailnet, but its office doesn't answer — is its array stopped, the plugin gone, SSH switched off?",
+  "partner.last_transfer": "Last transfer {size} at {mbit} Mbit/s",
+  "notify.partner_tailnet_offline": "Tailscale says: {name} is offline in the tailnet as well.",
+  "notify.partner_tailnet_online": "Tailscale says: {name} is online in the tailnet — only its office doesn't answer."
 }

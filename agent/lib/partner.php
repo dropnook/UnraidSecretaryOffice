@@ -559,7 +559,7 @@ function partnerBlockDecode(mixed $text, string $kind): array
     }
     $raw = base64_decode($text, true);
     $b = $raw === false ? null : json_decode($raw, true, 6);
-    if (!is_array($b)) {
+    if (!is_array($b) || array_is_list($b)) {
         throw $bad('block');
     }
     $keys = $kind === 'A' ? ['v', 'block', 'id', 'name', 'address', 'port', 'host_keys', 'pub_key', 'trust', 'units']
@@ -986,6 +986,7 @@ function partnerStateEntry(array $old, ?array $ask, array $pair): array
         'answer'     => isset($old['answer']) && is_array($old['answer']) ? $old['answer'] : null,
         'status'     => isset($old['status']) && is_array($old['status']) ? $old['status'] : null,
         'told'       => isset($old['told']) && is_array($old['told']) ? $old['told'] : null,
+        'tailnet'    => isset($old['tailnet']) && is_bool($old['tailnet']) ? $old['tailnet'] : null,
     ];
     if ($ask !== null) {
         $entry['last_try'] = $ask['time'];
@@ -1025,10 +1026,16 @@ function partnerWatch(callable $muted, callable $tell, ?int $now = null): array
     $pairs = partnerPairs();
     $state = partnerStateRead();
     $next = ['pairs' => []];
+    $tailnet = false;           // asked once, only when someone is silent
     foreach ($pairs as $p) {
         $old = is_array($state['pairs'][$p['id']] ?? null) ? $state['pairs'][$p['id']] : [];
         $entry = partnerStateEntry($old, partnerAsk($p), $p);
+        $entry['tailnet'] = null;
         if (partnerSilent($p, $entry, $now)) {
+            if ($tailnet === false) {
+                $tailnet = partnerTailnet();
+            }
+            $entry['tailnet'] = partnerTailnetSays($tailnet, $p['address']);
             $since = partnerLastHeard($p, $entry) ?? $p['paired'];
             $told = $entry['told'];
             $due = !is_array($told) || ($told['since'] ?? null) !== $since || $now - (int) ($told['at'] ?? 0) >= PARTNER_NOTIFY_AGAIN;
@@ -1057,17 +1064,58 @@ function partnerReceived(string $id): ?array
     return is_array($j['units'] ?? null) ? $j : null;
 }
 
-/** The engine's last throughput to a pair (status.json partner.done, engine 2.27) — null before */
-function partnerLastMbit(string $id): ?float
+/** The engine's last transfer to a pair (state/status.json partner.done, engine 2.27): bytes and Mbit/s — null before */
+function partnerLastTransfer(string $id): ?array
 {
-    $s = readJson(BACKUP_DATA_DIR . '/status.json');
-    $mbit = null;
+    $s = readJson(BACKUP_DATA_DIR . '/state/status.json');
+    $last = null;
     foreach ((array) ($s['partner']['done'] ?? []) as $d) {
         if (is_array($d) && ($d['id'] ?? null) === $id && is_numeric($d['mbit'] ?? null)) {
-            $mbit = (float) $d['mbit'];
+            $last = ['bytes' => is_int($d['bytes'] ?? null) ? $d['bytes'] : null, 'mbit' => (float) $d['mbit']];
         }
     }
-    return $mbit;
+    return $last;
+}
+
+/**
+ * Tailscale's second opinion on a silent partner (where its plugin is): `tailscale status --json`, the peers by their
+ * Tailscale addresses and DNS names → online. Null: no Tailscale, or it didn't answer.
+ *
+ * @return array<string, bool>|null
+ */
+function partnerTailnet(): ?array
+{
+    $bin = partnerBin('tailscale');
+    if ($bin === null) {
+        return null;
+    }
+    [$exit, $out] = run([$bin, 'status', '--json'], 10);
+    $j = $exit === 0 ? json_decode($out, true, 16) : null;
+    if (!is_array($j) || !is_array($j['Peer'] ?? null)) {
+        return null;
+    }
+    $map = [];
+    foreach ($j['Peer'] as $peer) {
+        if (!is_array($peer) || !is_bool($peer['Online'] ?? null)) {
+            continue;
+        }
+        foreach (array_merge((array) ($peer['TailscaleIPs'] ?? []), [rtrim((string) ($peer['DNSName'] ?? ''), '.'), (string) ($peer['HostName'] ?? '')]) as $name) {
+            if (is_string($name) && $name !== '') {
+                $map[strtolower($name)] = $peer['Online'];
+            }
+        }
+    }
+    return $map;
+}
+
+/** The tailnet's word on a pair's address: true online, false offline, null not in a tailnet (or no Tailscale) */
+function partnerTailnetSays(?array $tailnet, string $address): ?bool
+{
+    if ($tailnet === null) {
+        return null;
+    }
+    $a = strtolower($address);
+    return $tailnet[$a] ?? $tailnet[explode('.', $a)[0]] ?? null;
 }
 
 /** The pending offers (pending.json), those older than a week gone with their keys */
@@ -1143,13 +1191,14 @@ function partnerPublic(): array
             'night'      => is_array($answer) ? (bool) ($answer['night'] ?? false) : null,
             'version'    => is_array($answer) ? ($answer['v'] ?? null) : null,
             'silent'     => partnerSilent($p, $e, $now),
+            'tailnet'    => $e['tailnet'] ?? null,
             'sends'      => $p['my_key'] !== null,
             'send_units' => $p['send']['units'],
             'receive'    => $p['receive'],
             'door'       => $door,
             'they_keep'  => $e['status'] ?? null,
             'i_keep'     => $got,
-            'mbit_last'  => partnerLastMbit($p['id']),
+            'last_transfer' => partnerLastTransfer($p['id']),
         ];
     }
     return ['pairs' => $cards, 'pending' => array_map(fn ($o) => ['id' => $o['id'], 'created' => $o['created'], 'address' => $o['address'],

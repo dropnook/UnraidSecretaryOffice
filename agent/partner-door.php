@@ -34,6 +34,9 @@ if (PHP_SAPI !== 'cli') {
 }
 chdir('/');
 umask(0077);
+// the server's time zone (the receiving window is local time): its environment is empty, like agent.php's start
+$zone = preg_replace('#^.*/zoneinfo/#', '', (string) @readlink('/etc/localtime'));
+date_default_timezone_set(in_array($zone, timezone_identifiers_list(), true) ? $zone : 'UTC');
 
 const DOOR_VAR_INI = '/var/local/emhttp/var.ini';
 const DOOR_ARRAY_RUNNING = ['Started', 'Formatting', 'Clearing'];      // one definition with agent.php's ARRAY_RUNNING
@@ -118,7 +121,7 @@ function doorRefuse(string $id, string $why, bool $err = false, array $more = []
         $times = array_values(array_filter((array) ($old['times'] ?? []), fn ($t) => is_int($t) && $t > doorNow() - DOOR_REFUSED_KEEP));
         $times[] = doorNow();
         try {
-            writeAtomic($file, jsonEncode(['pair' => $id, 'times' => array_slice($times, -50), 'last' => $why]), 0600, 0, 0);
+            writeAtomic($file, jsonEncode(['pair' => $id, 'times' => array_slice($times, -200), 'last' => $why]), 0600, 0, 0);
         } catch (Throwable $e) {
         }
     }

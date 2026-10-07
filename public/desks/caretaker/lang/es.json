@@ -364,5 +364,10 @@
   "errors.partner_receive": "Revisa por favor: {field}",
   "errors.partner_known": "{name} ya es socio de esta secretaría.",
   "errors.partner_unresolved": "{address} no se resuelve en ninguna dirección IP — la puerta necesita una. Usa la dirección IP del socio.",
-  "errors.partner_nothing": "Ninguno de los dos lados enviaría nada — no hay nada que emparejar."
+  "errors.partner_nothing": "Ninguno de los dos lados enviaría nada — no hay nada que emparejar.",
+  "partner.tailnet_offline": "También desconectado en la tailnet — parece que el propio servidor no está.",
+  "partner.tailnet_online": "Está en la tailnet, pero su secretaría no responde — ¿array detenido, plugin quitado, SSH apagado?",
+  "partner.last_transfer": "Última transferencia {size} a {mbit} Mbit/s",
+  "notify.partner_tailnet_offline": "Tailscale dice: {name} también está desconectado en la tailnet.",
+  "notify.partner_tailnet_online": "Tailscale dice: {name} está conectado en la tailnet — solo su secretaría no responde."
 }

@@ -124,7 +124,9 @@ function card(x) {
     if (tk.quota && (tk.quota.bytes || tk.quota.used_bytes)) main.appendChild(quotaBar(tk.quota.used_bytes || 0, tk.quota.bytes));
     if (tk.last_run && tk.last_run.time) main.appendChild(el('div', 'row-detail', T('partner.their_last_run', { when: fmt.relative(tk.last_run.time), result: tk.last_run.result || '?' })));
   }
-  if (x.mbit_last) main.appendChild(el('div', 'row-detail', T('partner.mbit', { mbit: fmt.number(x.mbit_last, 0) })));
+  if (x.silent && x.tailnet !== null && x.tailnet !== undefined) main.appendChild(el('div', 'row-detail', T(x.tailnet ? 'partner.tailnet_online' : 'partner.tailnet_offline')));
+  const lt = x.last_transfer;
+  if (lt && lt.mbit) main.appendChild(el('div', 'row-detail', lt.bytes ? T('partner.last_transfer', { size: fmt.size(lt.bytes), mbit: fmt.number(lt.mbit, 0) }) : T('partner.mbit', { mbit: fmt.number(lt.mbit, 0) })));
 
   // what I keep of theirs
   const keep = el('div', 'row-detail');

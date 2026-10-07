@@ -364,5 +364,10 @@
   "errors.partner_receive": "Vérifie s'il te plaît : {field}",
   "errors.partner_known": "{name} est déjà partenaire de ce secrétariat.",
   "errors.partner_unresolved": "{address} ne se résout en aucune adresse IP — la porte en a besoin. Prends l'adresse IP du partenaire.",
-  "errors.partner_nothing": "Aucun des deux côtés n'enverrait rien — il n'y a rien à appairer."
+  "errors.partner_nothing": "Aucun des deux côtés n'enverrait rien — il n'y a rien à appairer.",
+  "partner.tailnet_offline": "Hors ligne aussi dans le tailnet — le serveur lui-même semble absent.",
+  "partner.tailnet_online": "Présent dans le tailnet, mais son secrétariat ne répond pas — array arrêté, plugin enlevé, SSH désactivé ?",
+  "partner.last_transfer": "Dernier transfert {size} à {mbit} Mbit/s",
+  "notify.partner_tailnet_offline": "Tailscale dit : {name} est hors ligne aussi dans le tailnet.",
+  "notify.partner_tailnet_online": "Tailscale dit : {name} est en ligne dans le tailnet — seul son secrétariat ne répond pas."
 }

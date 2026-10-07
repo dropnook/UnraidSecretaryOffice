@@ -628,11 +628,12 @@ function caretakerPartnerWatch(): int
         function (array $p, array $e) {
             $lang = officeNotifyLang();
             $params = partnerSilentParams($p, $e);
+            $tailnet = ($e['tailnet'] ?? null) === null ? '' : "\n" . officeNotifyText('caretaker', $e['tailnet'] ? 'notify.partner_tailnet_online' : 'notify.partner_tailnet_offline', $params, $lang);
             $sent = officeNotify(
                 officeNotifyText('caretaker', 'notify.partner_silent_subject', $params, $lang),
                 officeNotifyText('caretaker', 'notify.partner_silent_description', $params, $lang),
                 'warning',
-                officeNotifyText('caretaker', 'notify.partner_silent_message', $params, $lang),
+                officeNotifyText('caretaker', 'notify.partner_silent_message', $params, $lang) . $tailnet,
                 officeNotifyLink('#/caretaker'),
             );
             logLine("Partner offices: {$p['name']} ({$p['id']}) is silent since {$params['since']} — " . ($sent ? 'told' : 'could not tell') . " Unraid's notifications");

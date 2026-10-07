@@ -364,5 +364,10 @@
   "errors.partner_receive": "Bitte prüfen: {field}",
   "errors.partner_known": "{name} ist schon Partner dieses Sekretariats.",
   "errors.partner_unresolved": "{address} lässt sich in keine IP-Adresse auflösen — die Tür braucht eine. Nimm die IP-Adresse des Partners.",
-  "errors.partner_nothing": "Keine der beiden Seiten würde etwas schicken — es gibt nichts zu verbinden."
+  "errors.partner_nothing": "Keine der beiden Seiten würde etwas schicken — es gibt nichts zu verbinden.",
+  "partner.tailnet_offline": "Auch im Tailnet offline — der Server selbst scheint weg zu sein.",
+  "partner.tailnet_online": "Im Tailnet da, aber sein Sekretariat antwortet nicht — Array gestoppt, Plugin weg, SSH ausgeschaltet?",
+  "partner.last_transfer": "Letzte Übertragung {size} mit {mbit} Mbit/s",
+  "notify.partner_tailnet_offline": "Tailscale sagt: {name} ist auch im Tailnet offline.",
+  "notify.partner_tailnet_online": "Tailscale sagt: {name} ist im Tailnet online — nur sein Sekretariat antwortet nicht."
 }
