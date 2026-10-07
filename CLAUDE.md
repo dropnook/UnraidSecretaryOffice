@@ -619,6 +619,12 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   to every PHP run, also CLI) chdir's to `/usr/local/emhttp`, sets the time
   zone and ends every POST without the right `csrf_token` (field or header
   `X-CSRF-Token`, value in `/var/local/emhttp/var.ini`) with an empty 200.
+  nginx compresses only `.js/.css/.woff` (`gzip off` for `.php`, 7.3.2) and PHP has `zlib.output_compression`
+  and `output_buffering` off — so the API compresses its own answers (`apiSend()`, src/api.php, 2026-10-07): ≥ 1 KB
+  and `Accept-Encoding: gzip` → gzip level 1 with `Content-Encoding`, `Vary: Accept-Encoding` and the Content-Length
+  of what goes out, complete BEFORE `fastcgi_finish_request()` (the stale-state answer of answerThenLook()); −80 %
+  of the reception's bytes (876 → 166 KB on nostromo), the strings 465 → 155 KB, ≈ 1.5 ms per 300 KB. Every answer
+  goes through `answer()`/`answerThenLook()` — never echo JSON elsewhere. Tests: `testApiGzip()` under `php-cgi`.
 * **Plugin manager:** `.plg` versions compared with `strcmp`, `min`/`max` with
   `version_compare`; a `Run` script failing (exit ≠ 0) aborts the install.
   Every installed plugin is installed again at each boot (before the array).

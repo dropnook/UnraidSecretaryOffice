@@ -28,6 +28,8 @@ declare(strict_types=1);
  * a CORS preflight, which never succeeds here — and an Origin, if any, of
  * this host. Whoever is logged in to Unraid is root anyway; the desks add
  * previews and confirmations against mistakes, not a second lock.
+ *
+ * Answers of 1 KB and more go out gzip-compressed when the browser takes gzip (apiSend()).
  */
 
 function api_main(): void
@@ -292,8 +294,8 @@ function apiLookWait(string $key, float $seconds): void
 
 /**
  * Answer a state or part; a look left for later (apiLook() `later`) runs once the browser has the answer: php-fpm hands
- * it over with fastcgi_finish_request(), other servers (php -S) are told its length and to close — the PHP process
- * then waits for the agent and lets go of the look's lock.
+ * it over with fastcgi_finish_request() (complete and compressed by then, apiSend()), other servers (php -S) are told
+ * to close after its length — the PHP process then waits for the agent and lets go of the look's lock.
  */
 function answerThenLook(array $data): never
 {
@@ -304,16 +306,16 @@ function answerThenLook(array $data): never
     }
     ignore_user_abort(true);
     set_time_limit(60);
-    $body = apiJson($data);
     http_response_code(200);
     header('Content-Type: application/json; charset=utf-8');
-    if (function_exists('fastcgi_finish_request')) {
-        echo $body;
+    $fpm = function_exists('fastcgi_finish_request');
+    if (!$fpm) {
+        header('Connection: close');
+    }
+    apiSend(apiJson($data));          // complete, compressed, its length said — before php-fpm hands it over
+    if ($fpm) {
         fastcgi_finish_request();
     } else {
-        header('Content-Length: ' . strlen($body));
-        header('Connection: close');
-        echo $body;
         flush();
     }
     try {
@@ -408,13 +410,59 @@ function answer(array $data, int $status = 200): never
 {
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
-    echo apiJson($data);
+    apiSend(apiJson($data));
     exit;
 }
 
 function apiJson(array $data): string
 {
     return (string) json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+}
+
+/** Answers below this many bytes go out as they are: gzip would gain little for a round of zlib and two headers */
+const API_GZIP_MIN = 1024;
+/** zlib's level: 1 takes four fifths off a state in ≈ 1.5 ms per 300 KB (nostromo); 6 another tenth for 2.5× the time */
+const API_GZIP_LEVEL = 1;
+
+/**
+ * Send an answer's bytes (Benj 2026-10-07, perf report lever 6): gzip-compressed when the browser takes it
+ * (apiGzipWanted()) and the body is worth it (≥ API_GZIP_MIN) — −80…85 % of the bytes, what counts over a VPN or
+ * Unraid Connect (the reception's states ≈ 1 MB → 0.2 MB, the strings 465 → 155 KB). Compressed before anything goes
+ * out and sent with its Content-Length, so answerThenLook() hands php-fpm a complete answer (fastcgi_finish_request());
+ * `Vary` on every answer big enough, whichever way it went (a cache keeps one per encoding). Unraid's nginx
+ * compresses only .js/.css/.woff (`gzip off` for .php) and its PHP has zlib.output_compression off — were either on,
+ * nothing is compressed twice here; something out already (never, with display_errors off): as it is.
+ */
+function apiSend(string $body): void
+{
+    if (headers_sent()) {
+        echo $body;
+        return;
+    }
+    $twice = (bool) ini_get('zlib.output_compression') || in_array('ob_gzhandler', ob_list_handlers(), true);
+    if (strlen($body) >= API_GZIP_MIN && !$twice) {
+        header('Vary: Accept-Encoding');
+        $packed = apiGzipWanted() ? gzencode($body, API_GZIP_LEVEL) : false;
+        if ($packed !== false) {
+            header('Content-Encoding: gzip');
+            $body = $packed;
+        }
+    }
+    header('Content-Length: ' . strlen($body));
+    echo $body;
+}
+
+/** Does the browser take gzip? Accept-Encoding lists codings, each with a weight (`gzip, br;q=0.8`; `q=0` = not that one) */
+function apiGzipWanted(?string $accept = null): bool
+{
+    $accept ??= (string) ($_SERVER['HTTP_ACCEPT_ENCODING'] ?? '');
+    foreach (explode(',', strtolower($accept)) as $coding) {
+        [$name, $weight] = array_map('trim', explode(';', $coding, 2) + [1 => '']);
+        if ($name === 'gzip' || $name === 'x-gzip') {
+            return !preg_match('/^q\s*=\s*0(\.0{0,3})?$/D', $weight);
+        }
+    }
+    return false;
 }
 
 /** The rows of the office's tile on Unraid's Dashboard (src/dashboard.php), for its refresh every minute */
