@@ -11077,10 +11077,555 @@ function testUnraidWords(): void
     }
 }
 
+/**
+ * Mr. Restori's drill (agent/desks/restore-drill.php): the one gate for throwaway containers against nostromo-shaped
+ * manifests (tests/fixtures/restore-drill, selected keys, values scrubbed — the «never» list of the concept's 3.1), the
+ * qcow2 header parser on crafted headers and a VM disk chain in a fake snapshot, the deadline guard and what blocks a
+ * drill, the journal and the sweeper (orphans only by name prefix, label and id pattern; a docker stand-in), the
+ * certificate's shape and its result rules, the Team Lead's checks, the automatic start's rules, the Kopia sample and
+ * its compare with the local snapshot (stand-ins for docker and kopia), a whole job in-process (packages only),
+ * agent.sh's drill_release, the strings. Everything in a temporary folder; nothing is started.
+ */
+function testRestoreDrill(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-drill-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    @mkdir("$tmp/data/unraid-backup/state", 0700, true);
+    $saved = [$GLOBALS['drill'] ?? [], $GLOBALS['rs']['data'] ?? null, $GLOBALS['rs']['job_file'] ?? null, $GLOBALS['rs']['ub_data'] ?? null, $GLOBALS['rs']['var_ini'] ?? null];
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    $GLOBALS['rs']['ub_data'] = "$tmp/data/unraid-backup";
+    $GLOBALS['rs']['var_ini'] = "$tmp/var.ini";
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\nmdResyncPos=\"0\"\n");
+    $GLOBALS['drill'] = ['data' => "$tmp/data/restore-drill", 'cert' => "$tmp/data/restore-drill.json", 'job_file' => "$tmp/data/restore-drill-job.json",
+                         'var_ini' => "$tmp/var.ini", 'run_dir' => "$tmp/run", 'ram' => 4 << 30, 'next_backup' => null];
+    @mkdir("$tmp/run", 0700, true);
+    $fix = OFFICE_DIR . '/tests/fixtures/restore-drill';
+    $man = fn (string $f) => json_decode((string) file_get_contents("$fix/$f.json"), true);
+
+    // ---- the one gate: every docker run argument list, against nostromo's database containers
+    $id = '20261101-041200-ab12';
+    $seen = [];
+    foreach (['immich', 'nextcloud', 'zz-uso-test-db'] as $app) {
+        $m = $man("app-$app");
+        $m = json_decode(str_replace('=scrubbed"', '=SECRET-SENTINEL"', json_encode($m)), true);     // what a password would be
+        foreach (rsAppPackage($m, $app, '/x')['containers'] as $n => $pc) {
+            if (!in_array($pc['db'], ['postgres', 'mariadb', 'mongodb'], true)) {
+                continue;
+            }
+            $c = drillContainerOf($m, $pc['name']);
+            $args = drillContainerArgs($c, $pc['db'], DRILL_PREFIX . "$id-$n", $id, 2 << 30, 'drill-own-pw');
+            $flat = implode(' ', $args);
+            $seen[$pc['name']] = $args;
+            check("drill gate $pc[name]: keeps to the «never» list", drillArgsSafe($args), $flat);
+            check("drill gate $pc[name]: no value of the app's environment, no app label, no port, no bind, no device, no privilege",
+                !str_contains($flat, 'SECRET-SENTINEL') && !str_contains($flat, 'com.docker.compose') && !preg_match('/ (-p|-v|--mount|--device|--privileged|--cap-add|--volumes-from) /', " $flat "), $flat);
+            same("drill gate $pc[name]: network none, once", ['--network', 'none'], array_slice($args, array_search('--network', $args, true), 2));
+            check("drill gate $pc[name]: the image by its id from the manifest, never a tag (no pull)", in_array($c['image_id'], $args, true) && !in_array($pc['image'], $args, true));
+            check("drill gate $pc[name]: its label, limits, no restart, small logs, no new privileges",
+                in_array("uso.drill=$id", $args, true) && in_array('uso.installed-by=restori-drill', $args, true) && in_array('--memory', $args, true)
+                && in_array('--pids-limit', $args, true) && in_array('no-new-privileges', $args, true) && in_array('max-size=10m', $args, true)
+                && ($args[array_search('--restart', $args, true) + 1] ?? '') === 'no');
+            $tmpfs = array_values(array_map(fn ($i) => explode(':', $args[$i + 1])[0], array_keys($args, '--tmpfs', true)));
+            same("drill gate $pc[name]: its data and every volume of the image on tmpfs (no anonymous volume)",
+                $pc['db'] === 'postgres' ? ['/var/lib/postgresql/data'] : ['/var/lib/mysql'], $tmpfs);
+        }
+    }
+    $names = array_keys($seen);
+    sort($names);
+    same('drill gate: nostromo\'s four database containers', ['immich_postgres', 'nextcloud-db', 'zz-uso-test-db-mdb', 'zz-uso-test-db-pg'], $names);
+    $im = $seen['immich_postgres'] ?? [];
+    check('drill gate: Immich keeps its entrypoint and its config (vchord preload), its initdb arguments, trust login',
+        ($im[array_search('--entrypoint', $im, true) + 1] ?? '') === '/usr/local/bin/immich-docker-entrypoint.sh'
+        && in_array('config_file=/etc/postgresql/postgresql.conf', $im, true) && in_array('POSTGRES_INITDB_ARGS=--data-checksums', $im, true)
+        && in_array('POSTGRES_HOST_AUTH_METHOD=trust', $im, true) && in_array('--shm-size', $im, true), implode(' ', $im));
+    $md = $seen['nextcloud-db'] ?? [];
+    check('drill gate: MariaDB with its own root password, room for big rows, its command kept',
+        in_array('MARIADB_ROOT_PASSWORD=drill-own-pw', $md, true) && in_array('--max-allowed-packet=1G', $md, true)
+        && in_array('--transaction-isolation=READ-COMMITTED', $md, true) && !preg_grep('/^MARIADB_(USER|PASSWORD|DATABASE)=/', $md), implode(' ', $md));
+    $c = drillContainerOf($man('app-immich'), 'immich_postgres');
+    same('drill gate: the environment taken is only what shapes the server', ['POSTGRES_INITDB_ARGS', 'LANG', 'PGDATA', 'DB_STORAGE_TYPE'], array_keys($c['env']));
+    $bad = [
+        'a port'           => [...$im, '-p', '5432:5432'],
+        'another network'  => array_map(fn ($a) => $a === 'none' ? 'host' : $a, $im),
+        'a second network' => [...$im, '--network=bridge'],
+        'a bind'           => [...$im, '-v', '/mnt/user/appdata/immich/postgres:/x'],
+        'an app password'  => [...$im, '-e', 'POSTGRES_PASSWORD=x'],
+        'an app label'     => [...$im, '--label', 'com.docker.compose.project=immich'],
+        'privileged'       => [...$im, '--privileged'],
+        'no label'         => array_values(array_filter($im, fn ($a) => !str_starts_with($a, 'uso.drill='))),
+    ];
+    foreach ($bad as $what => $args) {
+        check("drill gate: refused with $what", !drillArgsSafe($args));
+    }
+    foreach (['another drill\'s name' => [DRILL_PREFIX . '20261101-041200-ffff-1', $c], 'no image id' => [DRILL_PREFIX . "$id-1", ['image_id' => ''] + $c]] as $what => [$name, $cc]) {
+        try {
+            drillContainerArgs($cc, 'postgres', $name, $id, 1 << 30, 'x');
+            check("drill gate: the builder refuses $what", false);
+        } catch (Problem) {
+            check("drill gate: the builder refuses $what", true);
+        }
+    }
+    $u = drillContainerOf(['containers' => [['name' => 'pg', 'image_id' => 'sha256:' . str_repeat('a', 64), 'inspect' => ['Config' => ['User' => '999:998', 'Volumes' => ['/data' => [], '/../etc' => []]]]]]], 'pg');
+    $ua = drillContainerArgs($u, 'postgres', DRILL_PREFIX . "$id-2", $id, 1 << 30, 'x');
+    check('drill gate: a numeric user runs as itself and owns its tmpfs; a volume path with .. is dropped',
+        in_array('999:998', $ua, true) && (bool) preg_grep('#^/var/lib/postgresql/data:rw,size=\d+m,uid=999,gid=998$#', $ua) && !preg_grep('#/\.\./#', $ua), implode(' ', $ua));
+
+    // ---- qcow2 headers and raw disks, read here
+    $qhead = function (int $version, string $backing, ?string $fmt) {
+        $h = "QFI\xfb" . pack('N', $version) . pack('J', 0) . pack('N', 0) . pack('N', 16) . pack('J', 100 << 30) . str_repeat("\0", 104 - 32);
+        if ($version >= 3) {
+            $h = substr_replace($h, pack('N', 104), 100, 4);
+        }
+        $ext = $fmt !== null ? pack('N', 0xE2792ACA) . pack('N', strlen($fmt)) . str_pad($fmt, (strlen($fmt) + 7) & ~7, "\0") : '';
+        $ext .= pack('NN', 0, 0);
+        $off = ($version >= 3 ? 104 : 72) + strlen($ext);
+        $h = substr($h, 0, $version >= 3 ? 104 : 72) . $ext;
+        if ($backing !== '') {
+            $h = substr_replace($h, pack('J', $off), 8, 8);
+            $h = substr_replace($h, pack('N', strlen($backing)), 16, 4);
+            $h .= $backing;
+        }
+        return $h;
+    };
+    same('drill qcow2: v3 with a backing file and its format', ['version' => 3, 'size' => 100 << 30, 'backing' => 'vdisk2.img', 'backing_format' => 'raw'],
+        drillQcow2($qhead(3, 'vdisk2.img', 'raw')));
+    same('drill qcow2: v2 with an absolute backing path', '/mnt/user/domains/Win/base.qcow2', drillQcow2($qhead(2, '/mnt/user/domains/Win/base.qcow2', null))['backing'] ?? null);
+    same('drill qcow2: no backing file', [null, null], array_values(array_intersect_key(drillQcow2($qhead(3, '', null)) ?? [], ['backing' => 1, 'backing_format' => 1])));
+    $far = $qhead(3, '', null);
+    $far = substr_replace($far, pack('J', 1 << 20), 8, 8);
+    $far = substr_replace($far, pack('N', 12), 16, 4);
+    same('drill qcow2: a backing name beyond what was read is «there, unreadable here»', '', drillQcow2($far)['backing'] ?? null);
+    same('drill qcow2: not a qcow2, a version it doesn\'t know', [null, null], [drillQcow2(str_repeat("\0", 512)), drillQcow2("QFI\xfb" . pack('N', 9) . str_repeat("\0", 100))]);
+    $mbr = str_repeat("\0", 510) . "\x55\xAA" . str_repeat("\0", 4096);
+    $gpt = str_repeat("\0", 512) . 'EFI PART' . str_repeat("\0", 4000);
+    $gpt4k = str_repeat("\0", 4096) . 'EFI PART' . str_repeat("\0", 100);
+    same('drill raw disks: MBR, GPT (512 and 4K sectors), nothing, something', ['mbr', 'gpt', 'gpt', 'empty', 'data'],
+        [drillRawLook($mbr), drillRawLook($gpt), drillRawLook($gpt4k), drillRawLook(str_repeat("\0", 8192)), drillRawLook(str_repeat("\0", 100) . 'x')]);
+
+    // ---- a VM disk chain in a run's snapshot (a fake pool: master, its dataset domains with one snapshot of run 20261101-0300)
+    $snap = "$tmp/mnt/master/domains/.zfs/snapshot/uso-backup-20261101-0300";
+    @mkdir("$snap/Win", 0700, true);
+    @mkdir("$snap/Lin", 0700, true);
+    @mkdir("$snap/Empty", 0700, true);
+    @mkdir("$tmp/mnt/master/isos", 0700, true);
+    file_put_contents("$snap/Win/vdisk2.S1qcow2", $qhead(3, 'vdisk2.img', 'raw'));
+    file_put_contents("$snap/Win/vdisk2.img", $mbr);
+    file_put_contents("$snap/Lin/top.qcow2", $qhead(3, '/mnt/master/isos/base.img', 'raw'));
+    file_put_contents("$snap/Empty/vdisk1.img", str_repeat("\0", 2 << 20));
+    $ctx = ['fs' => ['master' => 'zfs'], 'zfs' => ["$tmp/mnt/master/domains" => 'master/domains', "$tmp/mnt/master" => 'master'],
+            'snaps' => ['master/domains' => [['name' => 'uso-backup-20261101-0300', 'time' => 1793500000]]], 'asleep' => [], 'prefixes' => ['uso-backup-'],
+            'btrfs_dir' => '.btrfs-snap', 'mnt' => "$tmp/mnt", 'settings' => [], 'cfg' => [], 'zfs_kept' => []];
+    $env = ['ctx' => $ctx];
+    $disk = function (string $src, ?int $bytes = null) use (&$env): array {
+        return drillDoVmDisk(['source' => $src, 'snapshot' => 'master/domains@uso-backup-20261101-0300', 'run' => '20261101-0300', 'target' => 'hdc', 'bytes' => $bytes], $env);
+    };
+    $r = $disk('/mnt/master/domains/Win/vdisk2.S1qcow2');
+    same('drill VM disk: an overlay over its base, both in the snapshot, the base with a partition table — proven (L1, local)',
+        ['ok', 'vm_chain_ok', 1, 'snapshot', 2, 'mbr'], [$r['state'], $r['code'], $r['level'], $r['copy'], $r['params']['chain'] ?? null, $r['params']['look'] ?? null]);
+    $r = $disk('/mnt/master/domains/Lin/top.qcow2');
+    same('drill VM disk: a backing file outside the run\'s snapshot — failed', ['failed', 'vm_chain_outside', '/mnt/master/isos/base.img'], [$r['state'], $r['code'], $r['params']['file'] ?? null]);
+    same('drill VM disk: not in the snapshot — failed', ['failed', 'vm_disk_missing'], array_values(array_intersect_key($disk('/mnt/master/domains/Gone/x.img'), ['state' => 1, 'code' => 1])));
+    same('drill VM disk: all zero — a warning, not a failure', ['warning', 'vm_disk_empty'], array_values(array_intersect_key($disk('/mnt/master/domains/Empty/vdisk1.img'), ['state' => 1, 'code' => 1])));
+    same('drill VM disk: another size than the manifest — a warning', ['warning', 'vm_disk_size'], array_values(array_intersect_key($disk('/mnt/master/domains/Win/vdisk2.S1qcow2', 12345), ['state' => 1, 'code' => 1])));
+    same('drill VM disk: no snapshot of the run — not checked', 'not_checked', drillDoVmDisk(['source' => '/mnt/master/domains/Win/x', 'snapshot' => '', 'run' => '20261101-0300', 'target' => 'hdc', 'bytes' => null], $env)['state']);
+    $env['ctx']['asleep'] = ['master' => true];
+    same('drill VM disk: its pool asleep — «asleep», never woken, never failed', ['asleep', 'asleep'], array_values(array_intersect_key($disk('/mnt/master/domains/Win/vdisk2.S1qcow2'), ['state' => 1, 'code' => 1])));
+    // nostromo's VM manifests read as he reads them: the disk, its snapshot of the run
+    $win = rsVmPackage($man('vm-Windows11_Gaming'), 'Windows11_Gaming', '/x');
+    same('drill VM disk: nostromo\'s Windows11_Gaming — its overlay and the snapshot holding it', ['/mnt/user/domains/Windows11_Gaming/vdisk2.S20260801195224qcow2',
+        'master/domains/Windows11_Gaming@uso-backup-20261007-1052'], [$win['disks'][0]['source'] ?? null, $win['disks'][0]['snapshot'] ?? null]);
+
+    // ---- what blocks a drill, the deadline guard
+    $now = 1793500000;
+    same('drill deadline: its budget, or ≥ 15 min before the next backup', [$now + DRILL_BUDGET_TOTAL, $now + 3600 - DRILL_DEADLINE_GAP, $now + DRILL_BUDGET_TOTAL],
+        [drillDeadline($now, null), drillDeadline($now, $now + 3600), drillDeadline($now, $now + 86400)]);
+    same('drill blocker: nothing blocks it', null, drillBlocker(600, $now + 86400, $now));
+    same('drill blocker: the next backup in 30 min, 20 min of work — refused', 'drill_deadline', drillBlocker(1200, $now + 1800, $now)['key'] ?? null);
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\nmdResyncPos=\"995596\"\n");
+    same('drill blocker: a parity check or rebuild running', 'drill_parity', drillBlocker(60, null, $now)['key'] ?? null);
+    file_put_contents("$tmp/var.ini", "fsState=\"Stopped\"\nmdResyncPos=\"0\"\n");
+    same('drill blocker: the array not started', 'drill_array', drillBlocker(60, null, $now)['key'] ?? null);
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\nmdResyncPos=\"0\"\n");
+    $h = rsLockTake('zz', 'db');
+    same('drill blocker: the engine\'s lock held (a restore) — one at a time', 'restore_busy_restore', drillBlocker(60, null, $now)['key'] ?? null);
+    rsLockRelease($h);
+    same('drill RAM: a quarter of MemAvailable, at most 8 GB', [1 << 30, DRILL_RAM_MAX], (function () {
+        $keep = $GLOBALS['drill']['ram'];
+        unset($GLOBALS['drill']['ram']);
+        $r = [drillRamBudget("MemTotal: 9 kB\nMemAvailable:    4194304 kB\n"), drillRamBudget("MemAvailable: 99999999 kB\n")];
+        $GLOBALS['drill']['ram'] = $keep;
+        return $r;
+    })());
+    same('drill RAM: a dump needs its uncompressed size × 3 plus the server', 300 * 3 + (DRILL_SERVER_RAM), drillDumpNeed(['isize' => 300, 'bytes' => 9]));
+
+    // ---- the automatic drill: after a nightly run that went well, in the window, monthly or weekly, once packages are 7 days old
+    $set = ['schedule' => 'monthly', 'kopia_mb' => 1024, 'live_catalog' => true, 'live_sqlite' => true];
+    $night = strtotime('2026-11-03 03:40:00');
+    $run = ['mode' => 'backup', 'result' => 'ok', 'run' => '20261103-0200', 'started' => $night - 6000, 'finished' => $night - 600];
+    $old = $night - 30 * 86400;
+    same('drill due: monthly, the first good night of the month', 'monthly', drillDue($set, $run, null, null, $old, $night));
+    same('drill due: not again this month', null, drillDue($set, $run, ['last' => ['started' => strtotime('2026-11-02 03:00')]], null, $old, $night));
+    same('drill due: a drill last month counts not', 'monthly', drillDue($set, $run, ['last' => ['started' => strtotime('2026-10-30 03:00')]], null, $old, $night));
+    same('drill due: never twice after the same run (a refused one waits for the next)', null, drillDue($set, $run, null, ['run' => '20261103-0200'], $old, $night));
+    same('drill due: not after a failed run, a dry run, outside the window, long after the run, off, packages younger than 7 days', [null, null, null, null, null, null], [
+        drillDue($set, ['result' => 'failed'] + $run, null, null, $old, $night), drillDue($set, ['mode' => 'dryrun'] + $run, null, null, $old, $night),
+        drillDue($set, $run, null, null, $old, strtotime('2026-11-03 07:10')), drillDue($set, ['finished' => $night - 7 * 3600] + $run, null, null, $old, $night),
+        drillDue(['schedule' => 'off'] + $set, $run, null, null, $old, $night), drillDue($set, $run, null, null, $night - 3 * 86400, $night)]);
+    same('drill due: weekly — 7 days after the last', ['weekly', null], [drillDue(['schedule' => 'weekly'] + $set, $run, ['last' => ['started' => $night - 8 * 86400]], null, $old, $night),
+        drillDue(['schedule' => 'weekly'] + $set, $run, ['last' => ['started' => $night - 3 * 86400]], null, $old, $night)]);
+    same('drill due: «with warnings» counts as a run that went well', 'monthly', drillDue($set, ['result' => 'warnings'] + $run, null, null, $old, $night));
+
+    // ---- the settings: each field only when sent, only in its shape
+    drillSet(['schedule' => 'weekly', 'kopia_mb' => 0]);
+    same('drill settings: kept (root only), defaults for the rest', ['weekly', 0, true, true, '0600'],
+        [...array_values(drillSettings()), substr(sprintf('%o', fileperms("$tmp/data/restore-drill/settings.json")), -4)]);
+    foreach ([['schedule' => 'daily'], ['kopia_mb' => '5'], ['live_sqlite' => 'yes'], ['kopia_mb' => -1]] as $bad) {
+        try {
+            drillSet($bad);
+            check('drill settings: refused ' . json_encode($bad), false);
+        } catch (Problem) {
+            check('drill settings: refused ' . json_encode($bad), true);
+        }
+    }
+
+    // ---- a docker stand-in: containers in a file ("name label"), every call logged
+    $dock = "$tmp/docker";
+    file_put_contents("$tmp/containers", '');
+    file_put_contents($dock, "#!/bin/sh\n" . 'echo "$*" >>' . escapeshellarg("$tmp/docker.log") . "\n"
+        . 'C=' . escapeshellarg("$tmp/containers") . '; K=' . escapeshellarg("$tmp/kopia") . "\n"
+        . 'for a in "$@"; do last="$a"; done' . "\n"
+        . 'case "$1" in' . "\n"
+        . '  ps) cut -d" " -f1 "$C" ;;' . "\n"
+        . '  inspect) grep -q "^$last " "$C" || exit 1; grep "^$last " "$C" | cut -d" " -f2 ;;' . "\n"
+        . '  rm) grep -v "^$last " "$C" >"$C.t"; mv "$C.t" "$C" ;;' . "\n"
+        . '  exec) prev=""; obj=""; list=""; for a in "$@"; do [ "$prev" = show ] && obj="$a"; [ "$prev" = list ] && list=1; prev="$a"; done' . "\n"
+        . '        if [ -n "$obj" ]; then cat "$K/$obj" 2>/dev/null || exit 1; elif [ -n "$list" ]; then cat "$K/list.json"; fi ;;' . "\n"
+        . "esac\nexit 0\n");
+    chmod($dock, 0755);
+    $GLOBALS['drill']['docker'] = $dock;
+
+    // ---- the journal and the sweeper
+    $a = '20261101-030000-aaaa';
+    $b = '20261101-040000-bbbb';
+    rsPrivateDir("$tmp/data/restore-drill");
+    foreach ([$a, $b] as $jid) {
+        rsPrivateDir(drillDir($jid));
+    }
+    $ja = drillJournalNew($a, ['scope' => 'monthly', 'deadline' => $now, 'steps' => [['do' => 'dump', 'kind' => 'app', 'id' => 'x', 'name' => 'x']]]);
+    $ja['result'] = 'running';
+    $ja['pid'] = 4194305;                  // gone
+    $ja['made'] = [['kind' => 'container', 'name' => DRILL_PREFIX . "$a-0", 'gone' => false, 't' => 1]];
+    drillJournalWrite($ja, false);
+    file_put_contents("$tmp/containers", implode("\n", [
+        DRILL_PREFIX . "$a-0 $a",                                   // the interrupted drill's own
+        DRILL_PREFIX . '20261020-030000-cccc-1 20261020-030000-cccc', // an orphan without a journal, all three marks match
+        DRILL_PREFIX . '20261020-030000-dddd-1 someone-else',        // the label names another: not ours
+        'immich_postgres 20261020-030000-eeee',                      // not a drill's name
+        DRILL_PREFIX . "$b-2 $b",                                    // the drill going on now
+    ]) . "\n");
+    $removed = drillSweep($b, true);
+    sort($removed);
+    same('drill sweeper: the interrupted drill\'s throwaway and an orphan whose name, label and id say it is a drill\'s — never anything else, never the drill going on',
+        [DRILL_PREFIX . '20261020-030000-cccc-1', DRILL_PREFIX . "$a-0"], $removed);
+    same('drill sweeper: what stays', ['uso-drill-20261020-030000-dddd-1', 'immich_postgres', "uso-drill-$b-2"],
+        array_map(fn ($l) => explode(' ', $l)[0], array_values(array_filter(explode("\n", (string) file_get_contents("$tmp/containers"))))));
+    $after = drillJournal($a);
+    same('drill sweeper: the journal says interrupted, its throwaway gone', ['interrupted', true], [$after['result'] ?? null, $after['made'][0]['gone'] ?? null]);
+    same('drill sweeper: the job file of the page untouched by an old journal', false, is_file("$tmp/data/restore-drill-job.json"));
+    file_put_contents("$tmp/docker.log", '');
+    drillSweep(null, false);
+    same('drill sweeper: hourly with every journal closed — no docker call', '', (string) file_get_contents("$tmp/docker.log"));
+    // the record for the night watchman: written before each create, root only, newest 50 within 7 days
+    $jr = drillJournalNew($b, ['scope' => 'now', 'deadline' => $now, 'steps' => []]);
+    for ($i = 0; $i < 55; $i++) {
+        drillMade($jr, ['kind' => 'container', 'name' => DRILL_PREFIX . "$b-$i", 'image' => 'sha256:' . str_repeat('b', 64)]);
+    }
+    $rec = readJson("$tmp/data/restore-drill/record.json");
+    same('drill record: the newest 50, in the watchman\'s shape, root only', [50, DRILL_PREFIX . "$b-54", ['t', 'kind', 'name', 'image', 'id'], '0600'],
+        [count($rec['made'] ?? []), end($rec['made'])['name'] ?? null, array_keys($rec['made'][0] ?? []), substr(sprintf('%o', fileperms("$tmp/data/restore-drill/record.json")), -4)]);
+    same('drill journal: «made» written before the create', DRILL_PREFIX . "$b-0", drillJournal($b)['made'][0]['name'] ?? null);
+
+    // ---- the certificate: passed = nothing failed (warnings, «not checked» and asleep said, never hidden)
+    $step = fn (string $do, string $of, string $name, string $state, int $level, string $copy, ?int $t, array $params = [], string $code = 'x') =>
+        ['do' => $do, 'kind' => $of, 'id' => $name, 'name' => $name, 'state' => $state, 'level' => $level, 'copy' => $copy, 'state_time' => $t, 'code' => $code,
+         'params' => $params, 'finished' => $now, 'run' => '20261101-0300'];
+    $jc = ['id' => $a, 'scope' => 'monthly', 'started' => $now - 600, 'finished' => $now, 'egress' => 4096, 'result' => 'passed', 'reason' => null, 'steps' => [
+        $step('package', 'app', 'immich', 'ok', 1, 'package', $now - 3000),
+        $step('dump', 'app', 'immich', 'warning', 2, 'snapshot', $now - 3600, ['seconds' => 384], 'extensions_missing'),
+        $step('kopia', 'app', 'immich', 'ok', 1, 'kopia', $now - 90000),
+        $step('sqlite', 'app', 'EmbyServer', 'not_checked', 0, 'snapshot', null, [], 'sqlite_unchecked'),
+        $step('vmdisk', 'vm', 'Win', 'asleep', 0, 'snapshot', null, [], 'asleep'),
+        ['do' => 'kopia', 'kind' => 'share', 'id' => 'appdata', 'name' => 'appdata', 'state' => 'skipped'],
+    ]];
+    $cert = drillCertWrite($jc, ['place' => ['share' => 'UnraidSecretaryOffice']]);
+    same('drill certificate: interface 1, the last drill, when it last passed', [1, 'passed', $now, 5, 4096],
+        [$cert['interface'] ?? null, $cert['last']['result'] ?? null, $cert['last_passed'] ?? null, $cert['last']['items'] ?? null, $cert['last']['egress'] ?? null]);
+    same('drill certificate: counted — proven, warnings, failed, not checked, asleep', [2, 1, 0, 1, 1],
+        [$cert['last']['proven'], $cert['last']['warnings'], $cert['last']['failed'], $cert['last']['not_checked'], $cert['last']['asleep']]);
+    same('drill certificate: per item kind, level, copy, result, code (a skipped step is no item)', [['dump', 2, 'snapshot', 'warning', 'extensions_missing']],
+        array_values(array_map(fn ($it) => [$it['kind'], $it['level'], $it['copy'], $it['result'], $it['code']], array_filter($cert['items'], fn ($it) => $it['kind'] === 'dump'))));
+    $lose = array_column($cert['lose'], null, 'id');
+    same('drill certificate: what would come back — the oldest proven part locally, Kopia\'s own, how long the dump took', [$now - 3600, $now - 90000, 384, 2],
+        [$lose['immich']['local'] ?? null, $lose['immich']['kopia'] ?? null, $lose['immich']['played'] ?? null, $lose['immich']['best'] ?? null]);
+    same('drill certificate: the file in exactly that shape for the page (api part «drill»)', $cert, drillCertificate());
+    $jf = ['id' => $b, 'result' => 'failed', 'started' => $now, 'finished' => $now + 60] + $jc;
+    $jf['steps'][0]['state'] = 'failed';
+    $cert = drillCertWrite($jf, null);
+    same('drill certificate: a failed drill replaces the items, «last passed» stays', ['failed', $now, 1, [$b, $a]],
+        [$cert['last']['result'], $cert['last_passed'], $cert['last']['failed'], array_column($cert['history'], 'id')]);
+    $ab = ['id' => '20261102-030000-abab', 'result' => 'aborted', 'reason' => 'array_stopping', 'started' => $now, 'finished' => $now + 5] + $jc;
+    $cert = drillCertWrite($ab, null);
+    same('drill certificate: an aborted drill joins the history only (what was proven stays)', ['failed', $b, 'aborted', 'array_stopping'],
+        [$cert['last']['result'], $cert['last']['id'], $cert['history'][0]['result'], $cert['history'][0]['reason']]);
+
+    // ---- the Team Lead, the Dashboard, Mr. Backupsy's line, the metrics
+    $ok = fn (array $f) => array_map(fn ($x) => [$x['id'], $x['ok']], $f);
+    same('drill checks: packages younger than 30 days — no drill asked for yet', [], $ok(drillChecks([], $now - 10 * 86400, $now)));
+    same('drill checks: no drill ever, packages 40 days old — recommended, open', [['drill', false]], $ok(drillChecks([], $now - 40 * 86400, $now)));
+    $passed = ['interface' => 1, 'last' => ['result' => 'passed', 'ended' => $now - 86400], 'last_passed' => $now - 86400, 'items' => []];
+    same('drill checks: passed yesterday', [['drill', true], ['drill_failed', true]], $ok(drillChecks($passed, $now - 400 * 86400, $now)));
+    same('drill checks: passed 70 days ago — overdue', [['drill', false], ['drill_failed', true]],
+        $ok(drillChecks(['last_passed' => $now - 70 * 86400, 'last' => ['result' => 'passed']] + $passed, $now - 400 * 86400, $now)));
+    $f = drillChecks($cert, $now - 400 * 86400, $now);
+    same('drill checks: the last drill failed — its items named (a new failure: a new «I know, thanks»)', [false, 'immich'], [$f[1]['ok'] ?? null, $f[1]['params']['items'] ?? null]);
+    check('drill checks: links to his «Drill»', ($f[0]['link'] ?? '') === '#/restore/drill');
+    require_once OFFICE_DIR . '/src/dashboard.php';
+    same('dashboard: the drill — passed, failed, overdue, none before the first one, an aborted one never', [
+        ['restore.dash_drill_passed', 'green', $now - 86400], ['restore.dash_drill_failed', 'orange', $now], ['restore.dash_drill_overdue', 'plain', $now - 70 * 86400], null, null],
+        [officeDashDrill($passed, $now), officeDashDrill(['last' => ['result' => 'failed', 'ended' => $now]] + $passed, $now),
+         officeDashDrill(['last_passed' => $now - 70 * 86400] + $passed, $now), officeDashDrill(null, $now), officeDashDrill(['last' => ['result' => 'aborted']] + $passed, $now)]);
+    $line = backupDrillLine($cert) ?? [];
+    same('Mr. Backupsy\'s line: from the certificate only — how it went, proven of all, what failed', ['failed', 1, 5, ['immich']],
+        [$line['result'] ?? null, $line['proven'] ?? null, $line['total'] ?? null, $line['failed'] ?? null]);
+    same('Mr. Backupsy\'s line: none without a certificate', null, backupDrillLine(['interface' => 1]));
+    $fam = array_column(drillMetrics(), null, 'name');
+    same('drill metrics: the four families, from the certificate', ['uso_restore_drill_last_timestamp_seconds', 'uso_restore_drill_last_passed_timestamp_seconds',
+        'uso_restore_drill_items', 'uso_restore_drill_downloaded_bytes'], array_keys($fam));
+    same('drill metrics: items by result', ['ok' => 1, 'warning' => 1, 'failed' => 1, 'not_checked' => 1, 'asleep' => 1],
+        array_combine(array_map(fn ($s) => $s[0]['result'], $fam['uso_restore_drill_items']['samples'] ?? []), array_map(fn ($s) => $s[1], $fam['uso_restore_drill_items']['samples'] ?? [])));
+
+    // ---- Kopia: its list, a directory object, the sample streamed back and compared with the local snapshot
+    $k = drillKopiaParse(json_encode([
+        ['id' => 'aaaaaaaaaaaaaaaa1111', 'startTime' => '2026-11-01T02:10:00Z', 'description' => 'uso-backup 20261101-0200', 'incompleteReason' => '',
+         'rootEntry' => ['obj' => 'k0123456789abcdef0123456789abcdef', 'summ' => ['size' => 99, 'files' => 3, 'numFailed' => 0]]],
+        ['id' => 'bbbbbbbbbbbbbbbb2222', 'startTime' => '2026-11-02T02:10:00Z', 'description' => 'x', 'incompleteReason' => 'checkpoint',
+         'rootEntry' => ['obj' => '../etc', 'summ' => ['size' => 1]]],
+    ]));
+    same('drill Kopia: the list — newest first, its root object (only in its shape), the run from the description', [['checkpoint', null, null], ['', 'k0123456789abcdef0123456789abcdef', '20261101-0200']],
+        array_map(fn ($s) => [$s['incomplete'], $s['obj'], $s['run']], $k));
+    same('drill Kopia: a directory object\'s entries — only names, types and objects in their shape', [['db', 'd', 'k' . str_repeat('1', 32), null], ['a.gz', 'f', str_repeat('2', 32), 7]],
+        array_map('array_values', drillKopiaEntries(json_encode(['stream' => 'kopia:directory', 'entries' => [
+            ['name' => 'db', 'type' => 'd', 'obj' => 'k' . str_repeat('1', 32)], ['name' => 'a.gz', 'type' => 'f', 'obj' => str_repeat('2', 32), 'size' => '7'],
+            ['name' => '../x', 'type' => 'f', 'obj' => str_repeat('3', 32)], ['name' => 's', 'type' => 's', 'obj' => str_repeat('4', 32)], ['name' => 'y', 'type' => 'f', 'obj' => '$(rm)']]]))));
+    // a source of its own: <share>/<folder>/apps/<app>/… in Kopia; the same package in the local snapshot of the backup place (pool ripley)
+    @mkdir("$tmp/kopia", 0700, true);
+    $o = fn (string $n) => (str_starts_with($n, 'd') ? 'k' : '') . str_pad(dechex(crc32($n)), 32, '0', STR_PAD_LEFT);
+    $dir = fn (array $entries) => json_encode(['stream' => 'kopia:directory', 'entries' => $entries]);
+    $kfile = function (string $name, string $content) use ($o, $tmp): array {
+        file_put_contents("$tmp/kopia/" . $o("f:$name"), $content);
+        return ['name' => basename($name), 'type' => 'f', 'obj' => $o("f:$name"), 'size' => (string) strlen($content)];
+    };
+    $dump = gzencode("CREATE TABLE t (\n-- PostgreSQL database cluster dump complete\n");
+    $tree = ['dROOT' => [['name' => 'UnraidSecretaryOffice', 'type' => 'd', 'obj' => $o('dUSO')]], 'dUSO' => [['name' => 'backup', 'type' => 'd', 'obj' => $o('dBK')]],
+             'dBK' => [['name' => 'apps', 'type' => 'd', 'obj' => $o('dAPPS')]], 'dAPPS' => [['name' => 'immich', 'type' => 'd', 'obj' => $o('dIM')]],
+             'dIM' => [$kfile('compose.yaml', 'services: {}'), ['name' => 'db', 'type' => 'd', 'obj' => $o('dDB')]], 'dDB' => [$kfile('db/pg.sql.gz', $dump)]];
+    foreach ($tree as $n => $entries) {
+        file_put_contents("$tmp/kopia/" . $o($n), $dir($entries));
+    }
+    $local = "$tmp/mnt/ripley/UnraidSecretaryOffice/.zfs/snapshot/uso-backup-20261101-0200/backup/apps/immich";
+    @mkdir("$local/db", 0700, true);
+    file_put_contents("$local/compose.yaml", 'services: {}');
+    file_put_contents("$local/db/pg.sql.gz", $dump);
+    $kctx = ['fs' => ['ripley' => 'zfs'], 'zfs' => ["$tmp/mnt/ripley/UnraidSecretaryOffice" => 'ripley/UnraidSecretaryOffice'],
+             'snaps' => ['ripley/UnraidSecretaryOffice' => [['name' => 'uso-backup-20261101-0200', 'time' => 1793500000]]], 'asleep' => [], 'prefixes' => ['uso-backup-'],
+             'btrfs_dir' => '.btrfs-snap', 'mnt' => "$tmp/mnt", 'settings' => [], 'zfs_kept' => [],
+             'cfg' => ['UnraidSecretaryOffice' => ['shareUseCache' => 'only', 'shareCachePool' => 'ripley']]];
+    $kj = drillJournalNew('20261101-050000-cdcd', ['scope' => 'now', 'deadline' => time() + 3600, 'steps' => [['do' => 'kopia', 'kind' => 'app', 'id' => 'immich', 'name' => 'immich', 'source' => '.apps/immich']]]);
+    rsPrivateDir(drillDir($kj['id']));
+    $GLOBALS['rs']['data'] = "$tmp/data/restore-drill";            // the job's own helpers write into the drill's folder
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-drill-job.json";
+    $kenv = ['kopia' => ['container' => 'kopia', 'running' => true, 'root' => '/uso'], 'uid' => 0, 'base' => '/mnt/user/UnraidSecretaryOffice/backup', 'ctx' => $kctx,
+             'kopia_left' => 1 << 20, 'kopia_until' => time() + 600, 'shares' => 0];
+    $sample = drillKopiaSample($kj, $kj['steps'][0], ['obj' => $o('dROOT'), 'run' => '20261101-0200'], $kenv);
+    same('drill Kopia sample: its whole package streamed back (the dump first), compared with the local snapshot of the run — the same',
+        [2, 2, null, strlen($dump) + 12], [$sample['files'], $sample['compared'], $sample['differs'], $sample['bytes']]);
+    check('drill Kopia sample: a fresh cache and log folder of the drill\'s own, no content logs into the repository',
+        str_contains((string) file_get_contents("$tmp/docker.log"), "KOPIA_CACHE_DIRECTORY=/tmp/uso-drill-{$kj['id']}/cache")
+        && str_contains((string) file_get_contents("$tmp/docker.log"), '--disable-content-log'));
+    file_put_contents("$local/db/pg.sql.gz", gzencode('something else'));
+    $kenv['kopia_left'] = 1 << 20;
+    $sample = drillKopiaSample($kj, $kj['steps'][0], ['obj' => $o('dROOT'), 'run' => '20261101-0200'], $kenv);
+    same('drill Kopia sample: what went up differs from the local snapshot — named', 'UnraidSecretaryOffice/backup/apps/immich/db/pg.sql.gz', $sample['differs']);
+    $kenv['kopia_left'] = 20;
+    $sample = drillKopiaSample($kj, $kj['steps'][0], ['obj' => $o('dROOT'), 'run' => '20261101-0200'], $kenv);
+    same('drill Kopia sample: within what Kopia may still download — the dump left out, the small file read', [1, 12], [$sample['files'], $sample['bytes']]);
+    $kenv['kopia_left'] = 1 << 20;
+    $kenv['ctx']['asleep'] = ['ripley' => true];
+    $sample = drillKopiaSample($kj, $kj['steps'][0], ['obj' => $o('dROOT'), 'run' => '20261101-0200'], $kenv);
+    same('drill Kopia sample: the local snapshot asleep — read back from Kopia, not compared, never woken', [2, 0, 2], [$sample['files'], $sample['compared'], $sample['asleep']]);
+    // the whole step: list (newest complete), structure, sample
+    file_put_contents("$tmp/kopia/list.json", json_encode([['id' => str_repeat('c', 20), 'startTime' => date('c', time() - 3600), 'description' => 'uso-backup 20261101-0200',
+        'incompleteReason' => '', 'rootEntry' => ['obj' => $o('dROOT'), 'summ' => ['size' => 99, 'files' => 3, 'numFailed' => 0]]]]));
+    $kenv['ctx']['asleep'] = [];
+    file_put_contents("$local/db/pg.sql.gz", $dump);
+    $kenv['kopia_left'] = 1 << 20;
+    $kj['made'] = [];
+    $r = drillDoKopia($kj, 0, $kenv);
+    same('drill Kopia step: listed, verified, sampled and compared — L1 from Kopia', ['ok', 'kopia_ok', 1, 'kopia', 'ok', 2], [$r['state'], $r['code'], $r['level'], $r['copy'],
+        $r['params']['verify'] ?? null, $r['params']['compared'] ?? null]);
+    same('drill Kopia step: its temporary folder in the container written down before it is made', ['kopia_tmp', "/tmp/uso-drill-{$kj['id']}"],
+        [$kj['made'][0]['kind'] ?? null, $kj['made'][0]['name'] ?? null]);
+    $noKopia = ['kopia' => null] + $kenv;
+    same('drill Kopia step: Kopia not reachable — not checked, never failed', 'not_checked', drillDoKopia($kj, 0, $noKopia)['state']);
+
+    // ---- packages (L1), on a fake backup place
+    $base = "$tmp/place";
+    @mkdir("$base/apps/zz/db", 0700, true);
+    @mkdir("$base/vms/Lin/nvram", 0700, true);
+    @mkdir("$base/server", 0700, true);
+    file_put_contents("$base/apps/zz/db/postgres_zz-pg.sql.gz", $dump);
+    file_put_contents("$base/apps/zz/my-zz.xml", '<?xml version="1.0"?><Container><Name>zz</Name></Container>');
+    $files = [['path' => 'db/postgres_zz-pg.sql.gz', 'bytes' => strlen($dump), 'run' => '20261101-0200', 'what' => 'dump', 'container' => 'zz-pg'],
+              ['path' => 'my-zz.xml', 'bytes' => (int) filesize("$base/apps/zz/my-zz.xml"), 'run' => '20261101-0200', 'what' => 'template', 'container' => '']];
+    file_put_contents("$base/apps/zz/manifest.json", json_encode(['name' => 'zz', 'type' => 'template', 'run' => '20261101-0200', 'files' => $files,
+        'dumps' => [['container' => 'zz-pg', 'type' => 'postgres']], 'containers' => [['name' => 'zz-pg', 'image' => 'postgres:16']]]));
+    file_put_contents("$base/vms/Lin/Lin.xml", '<domain><name>Lin</name><uuid>9b3e9c65-84b4-2410-470b-8f719c38ea29</uuid></domain>');
+    file_put_contents("$base/vms/Lin/nvram/9b3e9c65-84b4-2410-470b-8f719c38ea29_VARS.fd", 'vars');
+    file_put_contents("$base/vms/Lin/manifest.json", json_encode(['name' => 'Lin', 'run' => '20261101-0200', 'xml' => 'Lin.xml', 'uuid' => '9b3e9c65-84b4-2410-470b-8f719c38ea29',
+        'files' => [['path' => 'Lin.xml', 'bytes' => (int) filesize("$base/vms/Lin/Lin.xml"), 'what' => 'xml'],
+                    ['path' => 'nvram/9b3e9c65-84b4-2410-470b-8f719c38ea29_VARS.fd', 'bytes' => 4, 'what' => 'nvram']]]));
+    file_put_contents("$base/server/run.json", json_encode(['run' => '20261101-0200', 'files' => []]));
+    $penv = ['base' => $base, 'pk' => rsPackages($base)];
+    $pkg = function (string $kind, string $pid) use (&$penv): array {
+        return drillDoPackage(['kind' => $kind, 'id' => $pid, 'name' => $pid, 'stale' => false], $penv);
+    };
+    $r = $pkg('app', 'zz');
+    same('drill package: every file there with its size, the dump with its closing line, the template readable — L1', ['ok', 'package_ok', 1, 'package', 2],
+        [$r['state'], $r['code'], $r['level'], $r['copy'], $r['params']['files'] ?? null]);
+    same('drill package: a VM — its XML naming it, its NVRAM', ['ok', 1], [$pkg('vm', 'Lin')['state'], $pkg('vm', 'Lin')['level']]);
+    file_put_contents("$base/apps/zz/db/postgres_zz-pg.sql.gz", gzencode("CREATE TABLE t (\n"));
+    $r = $pkg('app', 'zz');
+    same('drill package: a dump of another size — failed, named', ['failed', 'package_size_differs', 'db/postgres_zz-pg.sql.gz'], [$r['state'], $r['code'], $r['params']['file'] ?? null]);
+    $files[0]['bytes'] = (int) filesize("$base/apps/zz/db/postgres_zz-pg.sql.gz");
+    file_put_contents("$base/apps/zz/manifest.json", json_encode(['name' => 'zz', 'type' => 'template', 'run' => '20261101-0200', 'files' => $files, 'containers' => []]));
+    $penv['pk'] = rsPackages($base);
+    same('drill package: a dump without its closing line — incomplete', 'dump_incomplete', $pkg('app', 'zz')['code']);
+    unlink("$base/vms/Lin/nvram/9b3e9c65-84b4-2410-470b-8f719c38ea29_VARS.fd");
+    same('drill package: a file of the manifest missing', ['failed', 'package_file_missing'], array_values(array_intersect_key($pkg('vm', 'Lin'), ['state' => 1, 'code' => 1])));
+    same('drill package: no manifest — failed', 'manifest_unreadable', $pkg('app', 'nothing')['code']);
+
+    // ---- a whole job in-process: packages only (no container, no Kopia) — lock, marker, journal, certificate, one warning on a failure
+    file_put_contents("$tmp/data/unraid-backup/settings.ini", "[general]\ndumps_share = UnraidSecretaryOffice\n[kopia]\nenabled = no\n");
+    file_put_contents("$base/vms/Lin/nvram/9b3e9c65-84b4-2410-470b-8f719c38ea29_VARS.fd", 'vars');
+    file_put_contents("$base/apps/zz/db/postgres_zz-pg.sql.gz", $dump);
+    $files[0]['bytes'] = strlen($dump);
+    file_put_contents("$base/apps/zz/manifest.json", json_encode(['name' => 'zz', 'type' => 'template', 'run' => '20261101-0200', 'files' => $files, 'containers' => []]));
+    $GLOBALS['drill']['base'] = $base;
+    $GLOBALS['drill']['next_backup'] = null;
+    $notify = "$tmp/notify";
+    file_put_contents($notify, "#!/bin/sh\nfor a in \"\$@\"; do printf '%s\\n' \"\$a\"; done >>" . escapeshellarg("$tmp/notify.log") . "\n");
+    chmod($notify, 0755);
+    $beforeNotify = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$notify");
+    putenv("OFFICE_NOTIFY_STAMP=$tmp/notify.stamp");
+    $plan = ['kind' => 'drill', 'scope' => 'now', 'what' => 'now', 'stamp' => '20261103-034000', 'deadline' => time() + 3600, 'blockers' => [], 'steps' => [
+        ['do' => 'package', 'kind' => 'app', 'id' => 'zz', 'name' => 'zz', 'run' => '20261101-0200', 'stale' => false],
+        ['do' => 'package', 'kind' => 'vm', 'id' => 'Lin', 'name' => 'Lin', 'run' => '20261101-0200', 'stale' => false],
+        ['do' => 'package', 'kind' => 'app', 'id' => 'gone', 'name' => 'gone', 'run' => '20261101-0200', 'stale' => false]]];
+    $jid = drillLaunch($plan, false);
+    $h = rsLockTake('someone', 'test');
+    same('drill job: refused while the engine\'s lock is held — exit 75, nothing touched', [75, 'refused', 'restore_busy_restore'],
+        [drillJob([$jid]), drillJournal($jid)['result'] ?? null, drillJournal($jid)['reason'] ?? null]);
+    rsLockRelease($h);
+    $jid = drillLaunch(['stamp' => '20261103-034100'] + $plan, false);
+    $code = drillJob([$jid]);
+    if (function_exists('pcntl_signal')) {
+        foreach ([SIGTERM, SIGINT, SIGHUP] as $sig) {
+            pcntl_signal($sig, SIG_DFL);
+        }
+    }
+    $jj = drillJournal($jid);
+    same('drill job: ran its steps, ended «failed» (one package gone), exit 1', [1, 'failed', ['ok', 'ok', 'failed']], [$code, $jj['result'] ?? null, array_column($jj['steps'] ?? [], 'state')]);
+    same('drill job: the lock given back, its note gone, the RAM marker gone', [null, false, false],
+        [backupLockHolder(rsUbData()), is_file(rsUbData() . '/state/lock-holder.json'), is_file("$tmp/run/drill.open")]);
+    $cert = drillCertificate();
+    same('drill job: the certificate says so, with its history', ['failed', $jid, 3], [$cert['last']['result'] ?? null, $cert['last']['id'] ?? null, $cert['last']['items'] ?? null]);
+    $told = (string) @file_get_contents("$tmp/notify.log");
+    check('drill job: one warning to Unraid\'s notifications, naming what failed', substr_count($told, 'Unraid Secretary Office: ') === 1 && str_contains($told, "warning\n")
+        && str_contains($told, 'gone'), $told);
+    putenv($beforeNotify === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$beforeNotify");
+    putenv('OFFICE_NOTIFY_STAMP');
+
+    // ---- agent.sh's drill_release: only with a marker, only a pid running agent.php, the drill's throwaways by label
+    @mkdir("$tmp/bin", 0700, true);
+    copy($dock, "$tmp/bin/docker");
+    chmod("$tmp/bin/docker", 0755);
+    $agent = escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh');
+    $release = fn () => trim((string) shell_exec('bash -c ' . escapeshellarg('PATH=' . escapeshellarg("$tmp/bin") . ":\$PATH; source $agent; RUN=" . escapeshellarg("$tmp/run")
+        . '; LOG=' . escapeshellarg("$tmp/agent.log") . '; drill_release') . ' 2>&1'));
+    file_put_contents("$tmp/docker.log", '');
+    $release();
+    same('drill_release: no marker — nothing, not even a docker call', '', (string) file_get_contents("$tmp/docker.log"));
+    $sleeper = proc_open(['sleep', '30'], [], $pp);
+    file_put_contents("$tmp/run/drill.open", proc_get_status($sleeper)['pid'] . " $jid\n");
+    $release();
+    check('drill_release: a marker — the throwaways by their label, never a process that isn\'t agent.php, the marker gone',
+        str_contains((string) file_get_contents("$tmp/docker.log"), 'ps -aq --filter label=uso.drill') && proc_get_status($sleeper)['running'] && !is_file("$tmp/run/drill.open"));
+    proc_terminate($sleeper);
+    proc_close($sleeper);
+
+    // ---- the strings: every text the drill asks for, in English (the five languages are compared by testStrings)
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'), true) ?: [];
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/restore/drill.js');
+    preg_match_all("/(?<![.\\w])T\\(\\s*'([a-z0-9_.]+)'\\s*[,)]/", $js, $m);
+    foreach (array_unique($m[1]) as $key) {
+        check("drill.js asks for restore.$key", isset($en[$key]));
+    }
+    $php = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-drill.php');
+    preg_match_all("/'code' => '([a-z_]+)'|\\\$code = '([a-z_]+)'|\\['(?:failed|warning)', '([a-z_]+)'\\]/", $php, $m, PREG_SET_ORDER);
+    // his restore's notes taken as codes, his stops, and the codes chosen by a condition
+    $codes = ['verify_ok', 'play_failed', 'play_errors', 'verify_empty', 'verify_differs', 'verify_unread', 'verify_none', 'deadline', 'stopped', 'array_stopping', 'budget',
+              'vm_disk_size', 'vm_chain_ok', 'vm_disk_empty', 'vm_disk_missing', 'vm_chain_outside', 'kopia_none', 'kopia_incomplete', 'kopia_old', 'kopia_sample_failed',
+              'extensions_missing', 'db_missing_in_dump', 'dump_old', 'sqlite_ok', 'sqlite_foreign', 'kopia_ok', 'package_ok'];
+    foreach ($m as $x) {
+        foreach (array_slice($x, 1) as $c) {
+            if ($c !== '' && !in_array($c, DRILL_RESULTS, true)) {
+                $codes[] = $c;
+            }
+        }
+    }
+    foreach (array_unique($codes) as $c) {
+        check("drill: a text for its code $c", isset($en["drill.code.$c"]));
+    }
+    foreach (['result' => ['passed', 'failed', 'aborted', 'refused', 'interrupted', 'queued', 'running'], 'state' => [...DRILL_RESULTS, 'skipped', 'pending', 'running'],
+              'kind' => DRILL_STEP_KINDS, 'copy' => ['package', 'local', 'kopia'], 'scope' => ['monthly', 'weekly', 'now'], 'sched' => DRILL_SCHEDULES,
+              'set' => [...DRILL_SCHEDULES, 'live_catalog', 'live_sqlite'], 'pv' => DRILL_STEP_KINDS, 'level_hint' => ['0', '1', '2'],
+              'copy_hint' => ['package', 'local', 'kopia'], 'done' => ['passed', 'failed', 'other']] as $group => $names) {
+        foreach ($names as $n) {
+            check("drill: a text for drill.$group.$n", isset($en["drill.$group.$n"]));
+        }
+    }
+    foreach (['drill_array', 'drill_parity', 'drill_running', 'drill_deadline', 'drill_nothing', 'restore_array_stopping'] as $e) {
+        check("drill: a text for errors.$e", isset($en["errors.$e"]));
+    }
+
+    $GLOBALS['drill'] = $saved[0];
+    [, $GLOBALS['rs']['data'], $GLOBALS['rs']['job_file'], $GLOBALS['rs']['ub_data'], $GLOBALS['rs']['var_ini']] = $saved;
+    foreach (['data', 'job_file', 'ub_data', 'var_ini'] as $kk) {
+        if ($GLOBALS['rs'][$kk] === null) {
+            unset($GLOBALS['rs'][$kk]);
+        }
+    }
+    $GLOBALS['rsStop'] = false;
+    unset($GLOBALS['rsDeadline'], $GLOBALS['rsDeadlineWhy'], $GLOBALS['rsStopWhy']);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings', 'testUnraidWords']];

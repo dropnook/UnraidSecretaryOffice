@@ -842,8 +842,9 @@ function drillEnv(array $j, array $plan): array
     $settings = backupReadSettings(rsUbData() . '/settings.ini');
     $ctx = rsContext($settings);
     $place = rsPlace($settings, $ctx);
-    $base = $place['base'];
-    $pk = $place['found'] ? rsPackages($base) : ['apps' => [], 'vms' => [], 'server' => null, 'flash' => null, 'run' => null];
+    $base = $GLOBALS['drill']['base'] ?? $place['base'];          // tests: a backup place of their own
+    $pk = $base !== null && ($place['found'] || isset($GLOBALS['drill']['base'])) ? rsPackages($base)
+        : ['apps' => [], 'vms' => [], 'server' => null, 'flash' => null, 'run' => null];
     $engine = rsEngine($settings);
     $kopia = $engine['kopia'] ? rsKopia($engine, $settings) : null;
     return ['settings' => $settings, 'ctx' => $ctx, 'place' => $place, 'base' => $base, 'pk' => $pk, 'kopia' => $kopia, 'uid' => null,
@@ -931,14 +932,22 @@ function drillDoPackage(array $s, array &$env): array
     $results = [$r['state']];
     $params = ['package' => $s['name'], 'files' => $r['files'], 'bytes' => $r['bytes']] + $r['params'];
     $code = $r['code'];
+    // what it found: the first failure names the item, a warning never hides a failure
+    $found = function (string $state, string $c) use (&$results, &$code): bool {
+        $take = $code === 'package_ok' || ($state === 'failed' && drillWorst($results) !== 'failed');
+        if ($take) {
+            $code = $c;
+        }
+        $results[] = $state;
+        return $take;                 // its details go with it only when it names the item
+    };
     $run = rsStr($m['run'] ?? '');
     $stateTime = rsRunTime($run);
     if ($s['kind'] === 'app') {
         $p = array_values(array_filter($pk['apps'], fn ($a) => $a['id'] === $s['id']))[0] ?? null;
         foreach ($p['dumps'] ?? [] as $d) {
             if ($d['kept']) {           // the newest dump failed: the one kept is older than the package
-                $results[] = 'warning';
-                $code = $code === 'package_ok' ? 'dump_old' : $code;
+                $found('warning', 'dump_old');
                 $params['dump_run'] = $d['run'];
                 $params['dump_time'] = $d['time'];
                 $stateTime = min($stateTime ?? PHP_INT_MAX, (int) $d['time']) ?: $stateTime;
@@ -946,39 +955,37 @@ function drillDoPackage(array $s, array &$env): array
         }
         foreach ($p['templates'] ?? [] as $t) {
             if (!drillXmlOk("$dir/$t")) {
-                $results[] = 'failed';
-                $code = 'xml_unreadable';
-                $params['file'] = $t;
+                if ($found('failed', 'xml_unreadable')) {
+                    $params['file'] = $t;
+                }
             }
         }
     } elseif ($s['kind'] === 'vm') {
         $p = array_values(array_filter($pk['vms'], fn ($v) => $v['id'] === $s['id']))[0] ?? null;
         $x = $p && $p['xml'] !== '' ? drillXmlOk("$dir/{$p['xml']}") : null;
         if (!$x) {
-            $results[] = 'failed';
-            $code = 'xml_unreadable';
-            $params['file'] = (string) ($p['xml'] ?? '') ?: 'xml';
+            if ($found('failed', 'xml_unreadable')) {
+                $params['file'] = (string) ($p['xml'] ?? '') ?: 'xml';
+            }
         } elseif ((string) $x->getElementsByTagName('name')->item(0)?->textContent !== $s['name']
             || ($p['uuid'] !== '' && strtolower(trim((string) $x->getElementsByTagName('uuid')->item(0)?->textContent)) !== $p['uuid'])) {
-            $results[] = 'warning';
-            $code = 'xml_differs';
+            $found('warning', 'xml_differs');
         } elseif ($x->getElementsByTagName('tpm')->length && !$p['tpm']) {
-            $results[] = 'warning';
-            $code = 'tpm_missing';
+            $found('warning', 'tpm_missing');
         }
         foreach ($p['nvram'] ?? [] as $n) {
             if ((int) @filesize("$dir/nvram/$n") === 0) {
-                $results[] = 'failed';
-                $code = 'nvram_empty';
-                $params['file'] = "nvram/$n";
+                if ($found('failed', 'nvram_empty')) {
+                    $params['file'] = "nvram/$n";
+                }
             }
         }
     } elseif ($s['kind'] === 'server' && is_file("$dir/libvirt.tar.gz")) {
         $list = drillTarList("$dir/libvirt.tar.gz");
         if ($list === null) {
-            $results[] = 'failed';
-            $code = 'archive_unreadable';
-            $params['file'] = 'libvirt.tar.gz';
+            if ($found('failed', 'archive_unreadable')) {
+                $params['file'] = 'libvirt.tar.gz';
+            }
         } else {
             $missing = [];
             foreach ($pk['vms'] as $v) {
@@ -987,21 +994,20 @@ function drillDoPackage(array $s, array &$env): array
                 }
             }
             if ($missing) {
-                $results[] = 'warning';
-                $code = 'libvirt_vm_missing';
-                $params['names'] = implode(', ', $missing);
+                if ($found('warning', 'libvirt_vm_missing')) {
+                    $params['names'] = implode(', ', $missing);
+                }
             }
             $params['entries'] = count($list);
         }
     } elseif ($s['kind'] === 'flash' && is_file("$dir/flash.tar.gz")) {
         $list = drillTarList("$dir/flash.tar.gz");
         if ($list === null) {
-            $results[] = 'failed';
-            $code = 'archive_unreadable';
-            $params['file'] = 'flash.tar.gz';
+            if ($found('failed', 'archive_unreadable')) {
+                $params['file'] = 'flash.tar.gz';
+            }
         } elseif (!preg_grep('#(^|/)config/ident\.cfg$#', $list)) {
-            $results[] = 'warning';
-            $code = 'flash_incomplete';
+            $found('warning', 'flash_incomplete');
         } else {
             $params['entries'] = count($list);
         }

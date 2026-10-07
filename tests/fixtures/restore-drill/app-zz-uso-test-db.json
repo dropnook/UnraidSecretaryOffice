@@ -1,0 +1,198 @@
+{
+  "name": "zz-uso-test-db",
+  "type": "compose",
+  "run": "20261006-2036",
+  "result": "ok",
+  "interface": 1,
+  "engine": "2.22",
+  "kind": "app",
+  "folder": "zz-uso-test-db",
+  "files": [
+    {
+      "path": "compose-files/compose.yaml",
+      "bytes": 759,
+      "run": "20261006-2036",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "db/mariadb_zz-uso-test-db-mdb_usotest.sql.gz",
+      "bytes": 1405,
+      "run": "20261006-2036",
+      "what": "dump",
+      "container": "zz-uso-test-db-mdb"
+    },
+    {
+      "path": "db/postgres_zz-uso-test-db-pg.sql.gz",
+      "bytes": 2124,
+      "run": "20261006-2036",
+      "what": "dump",
+      "container": "zz-uso-test-db-pg"
+    }
+  ],
+  "dumps": [
+    {
+      "container": "zz-uso-test-db-mdb",
+      "type": "mariadb",
+      "state": "ok",
+      "login": "root",
+      "user_var": "",
+      "password_var": "MARIADB_ROOT_PASSWORD",
+      "client": "mariadb"
+    },
+    {
+      "container": "zz-uso-test-db-pg",
+      "type": "postgres",
+      "state": "ok",
+      "login": "user",
+      "user_var": "POSTGRES_USER",
+      "password_var": "POSTGRES_PASSWORD",
+      "client": "psql"
+    }
+  ],
+  "sqlite": [],
+  "own_backups": [],
+  "compose": {
+    "project": "zz-uso-test-db",
+    "manager_dir": null,
+    "working_dir": "/boot/x",
+    "config_files": []
+  },
+  "containers": [
+    {
+      "name": "zz-uso-test-db-mdb",
+      "image": "mariadb:11",
+      "image_id": "sha256:53ef799caed285438d88678b529b4ff24406d4788f47ab8a74bb2212c707899a",
+      "digests": [],
+      "service": "mdb",
+      "running": true,
+      "inspect": {
+        "Config": {
+          "Env": [
+            "MARIADB_USER=scrubbed",
+            "MARIADB_PASSWORD=scrubbed",
+            "MARIADB_ROOT_PASSWORD=scrubbed",
+            "MARIADB_DATABASE=scrubbed",
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "GOSU_VERSION=1.19",
+            "LANG=C.UTF-8",
+            "MARIADB_VERSION=1:11.8.9+maria~ubu2404"
+          ],
+          "Labels": {
+            "com.docker.compose.config-hash": "scrubbed",
+            "com.docker.compose.container-number": "scrubbed",
+            "com.docker.compose.depends_on": "scrubbed",
+            "com.docker.compose.image": "scrubbed",
+            "com.docker.compose.oneoff": "scrubbed",
+            "com.docker.compose.project": "scrubbed",
+            "com.docker.compose.project.config_files": "scrubbed",
+            "com.docker.compose.project.working_dir": "scrubbed",
+            "com.docker.compose.service": "scrubbed",
+            "com.docker.compose.version": "scrubbed",
+            "org.opencontainers.image.authors": "scrubbed",
+            "org.opencontainers.image.base.name": "scrubbed",
+            "org.opencontainers.image.description": "scrubbed",
+            "org.opencontainers.image.documentation": "scrubbed",
+            "org.opencontainers.image.licenses": "scrubbed",
+            "org.opencontainers.image.source": "scrubbed",
+            "org.opencontainers.image.title": "scrubbed",
+            "org.opencontainers.image.url": "scrubbed",
+            "org.opencontainers.image.vendor": "scrubbed",
+            "org.opencontainers.image.version": "scrubbed"
+          },
+          "Entrypoint": [
+            "docker-entrypoint.sh"
+          ],
+          "Cmd": [
+            "mariadbd"
+          ],
+          "User": "",
+          "Volumes": {
+            "/var/lib/mysql": {}
+          },
+          "Image": "mariadb:11"
+        },
+        "Mounts": [
+          {
+            "Type": "bind",
+            "Source": "/mnt/user/appdata/zz-uso-test-db/mdb",
+            "Destination": "/var/lib/mysql",
+            "RW": true
+          }
+        ],
+        "HostConfig": {
+          "NetworkMode": "zz-uso-test-db_default",
+          "PortBindings": {},
+          "Privileged": false,
+          "CapAdd": null,
+          "Devices": null,
+          "ShmSize": 67108864
+        }
+      }
+    },
+    {
+      "name": "zz-uso-test-db-pg",
+      "image": "postgres:16-alpine",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "digests": [],
+      "service": "pg",
+      "running": true,
+      "inspect": {
+        "Config": {
+          "Env": [
+            "POSTGRES_USER=scrubbed",
+            "POSTGRES_PASSWORD=scrubbed",
+            "POSTGRES_DB=scrubbed",
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "GOSU_VERSION=1.19",
+            "LANG=en_US.utf8",
+            "PG_MAJOR=16",
+            "PG_VERSION=16.15",
+            "PG_SHA256=scrubbed",
+            "DOCKER_PG_LLVM_DEPS=scrubbed",
+            "PGDATA=/var/lib/postgresql/data"
+          ],
+          "Labels": {
+            "com.docker.compose.config-hash": "scrubbed",
+            "com.docker.compose.container-number": "scrubbed",
+            "com.docker.compose.depends_on": "scrubbed",
+            "com.docker.compose.image": "scrubbed",
+            "com.docker.compose.oneoff": "scrubbed",
+            "com.docker.compose.project": "scrubbed",
+            "com.docker.compose.project.config_files": "scrubbed",
+            "com.docker.compose.project.working_dir": "scrubbed",
+            "com.docker.compose.service": "scrubbed",
+            "com.docker.compose.version": "scrubbed"
+          },
+          "Entrypoint": [
+            "docker-entrypoint.sh"
+          ],
+          "Cmd": [
+            "postgres"
+          ],
+          "User": "",
+          "Volumes": {
+            "/var/lib/postgresql/data": {}
+          },
+          "Image": "postgres:16-alpine"
+        },
+        "Mounts": [
+          {
+            "Type": "bind",
+            "Source": "/mnt/user/appdata/zz-uso-test-db/pg",
+            "Destination": "/var/lib/postgresql/data",
+            "RW": true
+          }
+        ],
+        "HostConfig": {
+          "NetworkMode": "zz-uso-test-db_default",
+          "PortBindings": {},
+          "Privileged": false,
+          "CapAdd": null,
+          "Devices": null,
+          "ShmSize": 67108864
+        }
+      }
+    }
+  ]
+}

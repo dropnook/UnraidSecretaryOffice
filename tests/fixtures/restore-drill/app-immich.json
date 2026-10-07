@@ -1,0 +1,465 @@
+{
+  "name": "immich",
+  "type": "compose",
+  "run": "20261007-1052",
+  "result": "ok",
+  "interface": 1,
+  "engine": "2.24",
+  "kind": "app",
+  "folder": "immich",
+  "files": [
+    {
+      "path": "compose/.env",
+      "bytes": 1072,
+      "run": "20261007-1052",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "compose/autostart",
+      "bytes": 4,
+      "run": "20261007-1052",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "compose/docker-compose.override.yml",
+      "bytes": 1126,
+      "run": "20261007-1052",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "compose/docker-compose.yml",
+      "bytes": 2906,
+      "run": "20261007-1052",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "compose/has_build",
+      "bytes": 1,
+      "run": "20261007-1052",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "compose/icon_url",
+      "bytes": 103,
+      "run": "20261007-1052",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "compose/name",
+      "bytes": 6,
+      "run": "20261007-1052",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "compose/project_name",
+      "bytes": 6,
+      "run": "20261007-1052",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "compose/services",
+      "bytes": 62,
+      "run": "20261007-1052",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "compose/services_cache_mode",
+      "bytes": 15,
+      "run": "20261007-1052",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "db/postgres_immich_postgres.sql.gz",
+      "bytes": 117504934,
+      "run": "20261007-1052",
+      "what": "dump",
+      "container": "immich_postgres"
+    }
+  ],
+  "dumps": [
+    {
+      "container": "immich_postgres",
+      "type": "postgres",
+      "state": "ok",
+      "login": "user",
+      "user_var": "POSTGRES_USER",
+      "password_var": "POSTGRES_PASSWORD",
+      "client": "psql"
+    }
+  ],
+  "sqlite": [],
+  "own_backups": [
+    {
+      "kind": "immich",
+      "container": "immich_server",
+      "path": "/mnt/user/Backups/x",
+      "files": 14,
+      "newest": 1791331211,
+      "asleep": false
+    }
+  ],
+  "compose": {
+    "project": "immich",
+    "manager_dir": "immich",
+    "working_dir": "/boot/x",
+    "config_files": []
+  },
+  "containers": [
+    {
+      "name": "immich_server",
+      "image": "ghcr.io/immich-app/immich-server:v3",
+      "image_id": "sha256:b1a1cc8cac12989dcfe0d61535afcbbae552f76c3cd38ab66e10c66457720800",
+      "digests": [],
+      "service": "immich-server",
+      "running": true,
+      "inspect": {
+        "Config": {
+          "Env": [
+            "IMMICH_VERSION=scrubbed",
+            "DB_PASSWORD=scrubbed",
+            "DB_USERNAME=scrubbed",
+            "DB_DATABASE_NAME=scrubbed",
+            "TZ=Europe/Zurich",
+            "UPLOAD_LOCATION=scrubbed",
+            "DB_DATA_LOCATION=scrubbed",
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/src/app/server/bin",
+            "NODE_VERSION=scrubbed",
+            "YARN_VERSION=scrubbed",
+            "LD_LIBRARY_PATH=scrubbed",
+            "XDG_DATA_DIRS=scrubbed",
+            "NODE_ENV=scrubbed",
+            "NVIDIA_DRIVER_CAPABILITIES=scrubbed",
+            "NVIDIA_VISIBLE_DEVICES=scrubbed",
+            "IMMICH_BUILD=scrubbed",
+            "IMMICH_BUILD_URL=scrubbed",
+            "IMMICH_BUILD_IMAGE=scrubbed",
+            "IMMICH_BUILD_IMAGE_URL=scrubbed",
+            "IMMICH_REPOSITORY=scrubbed",
+            "IMMICH_REPOSITORY_URL=scrubbed",
+            "IMMICH_SOURCE_REF=scrubbed",
+            "IMMICH_SOURCE_COMMIT=scrubbed",
+            "IMMICH_SOURCE_URL=scrubbed"
+          ],
+          "Labels": {
+            "com.docker.compose.config-hash": "scrubbed",
+            "com.docker.compose.container-number": "scrubbed",
+            "com.docker.compose.depends_on": "scrubbed",
+            "com.docker.compose.image": "scrubbed",
+            "com.docker.compose.oneoff": "scrubbed",
+            "com.docker.compose.project": "scrubbed",
+            "com.docker.compose.project.config_files": "scrubbed",
+            "com.docker.compose.project.environment_file": "scrubbed",
+            "com.docker.compose.project.working_dir": "scrubbed",
+            "com.docker.compose.replace": "scrubbed",
+            "com.docker.compose.service": "scrubbed",
+            "com.docker.compose.version": "scrubbed",
+            "net.unraid.docker.icon": "scrubbed",
+            "net.unraid.docker.managed": "scrubbed",
+            "net.unraid.docker.shell": "scrubbed",
+            "net.unraid.docker.webui": "scrubbed",
+            "org.opencontainers.image.created": "scrubbed",
+            "org.opencontainers.image.description": "scrubbed",
+            "org.opencontainers.image.licenses": "scrubbed",
+            "org.opencontainers.image.revision": "scrubbed",
+            "org.opencontainers.image.source": "scrubbed",
+            "org.opencontainers.image.title": "scrubbed",
+            "org.opencontainers.image.url": "scrubbed",
+            "org.opencontainers.image.version": "scrubbed"
+          },
+          "Entrypoint": [
+            "tini",
+            "--",
+            "/bin/bash",
+            "-c"
+          ],
+          "Cmd": [
+            "start.sh"
+          ],
+          "User": "",
+          "Volumes": {
+            "/data": {}
+          },
+          "Image": "ghcr.io/immich-app/immich-server:v3"
+        },
+        "Mounts": [
+          {
+            "Type": "bind",
+            "Source": "/mnt/user/appdata/immich/library",
+            "Destination": "/data",
+            "RW": true
+          }
+        ],
+        "HostConfig": {
+          "NetworkMode": "immich_default",
+          "PortBindings": {
+            "2283/tcp": [
+              {
+                "HostIp": "",
+                "HostPort": "1"
+              }
+            ]
+          },
+          "Privileged": false,
+          "CapAdd": null,
+          "Devices": [
+            {
+              "PathOnHost": "/dev/dri",
+              "PathInContainer": "/dev/dri",
+              "CgroupPermissions": "rwm"
+            }
+          ],
+          "ShmSize": 67108864
+        }
+      }
+    },
+    {
+      "name": "immich_redis",
+      "image": "docker.io/valkey/valkey:9@sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d",
+      "image_id": "sha256:c439a6b7b7dfe74b25d78f9e5d27fbaeb761f676de82eb1a154c5b719a8cfb3e",
+      "digests": [],
+      "service": "redis",
+      "running": true,
+      "inspect": {
+        "Config": {
+          "Env": [
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "VALKEY_VERSION=scrubbed"
+          ],
+          "Labels": {
+            "com.docker.compose.config-hash": "scrubbed",
+            "com.docker.compose.container-number": "scrubbed",
+            "com.docker.compose.depends_on": "scrubbed",
+            "com.docker.compose.image": "scrubbed",
+            "com.docker.compose.oneoff": "scrubbed",
+            "com.docker.compose.project": "scrubbed",
+            "com.docker.compose.project.config_files": "scrubbed",
+            "com.docker.compose.project.environment_file": "scrubbed",
+            "com.docker.compose.project.working_dir": "scrubbed",
+            "com.docker.compose.replace": "scrubbed",
+            "com.docker.compose.service": "scrubbed",
+            "com.docker.compose.version": "scrubbed",
+            "net.unraid.docker.icon": "scrubbed",
+            "net.unraid.docker.managed": "scrubbed",
+            "net.unraid.docker.shell": "scrubbed",
+            "net.unraid.docker.webui": "scrubbed",
+            "org.opencontainers.image.source": "scrubbed"
+          },
+          "Entrypoint": [
+            "tini",
+            "--",
+            "docker-entrypoint.sh"
+          ],
+          "Cmd": [
+            "valkey-server"
+          ],
+          "User": "",
+          "Volumes": null,
+          "Image": "docker.io/valkey/valkey:9@sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d"
+        },
+        "Mounts": [],
+        "HostConfig": {
+          "NetworkMode": "immich_default",
+          "PortBindings": {},
+          "Privileged": false,
+          "CapAdd": null,
+          "Devices": null,
+          "ShmSize": 67108864
+        }
+      }
+    },
+    {
+      "name": "immich_machine_learning",
+      "image": "ghcr.io/immich-app/immich-machine-learning:v3",
+      "image_id": "sha256:c53e2e5c4e9467ae83344fa9e67f2a99014a45f98c4d0b3b2f24afa5f46e97e3",
+      "digests": [],
+      "service": "immich-machine-learning",
+      "running": true,
+      "inspect": {
+        "Config": {
+          "Env": [
+            "DB_DATABASE_NAME=scrubbed",
+            "UPLOAD_LOCATION=scrubbed",
+            "DB_DATA_LOCATION=scrubbed",
+            "IMMICH_VERSION=scrubbed",
+            "DB_PASSWORD=scrubbed",
+            "DB_USERNAME=scrubbed",
+            "PATH=/opt/venv/bin:/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "LANG=C.UTF-8",
+            "GPG_KEY=scrubbed",
+            "PYTHON_VERSION=scrubbed",
+            "PYTHON_SHA256=scrubbed",
+            "LD_PRELOAD=scrubbed",
+            "MACHINE_LEARNING_MODEL_ARENA=scrubbed",
+            "TRANSFORMERS_CACHE=scrubbed",
+            "PYTHONDONTWRITEBYTECODE=scrubbed",
+            "PYTHONUNBUFFERED=scrubbed",
+            "PYTHONPATH=scrubbed",
+            "DEVICE=scrubbed",
+            "VIRTUAL_ENV=scrubbed",
+            "MACHINE_LEARNING_CACHE_FOLDER=scrubbed",
+            "IMMICH_BUILD=scrubbed",
+            "IMMICH_BUILD_URL=scrubbed",
+            "IMMICH_BUILD_IMAGE=scrubbed",
+            "IMMICH_BUILD_IMAGE_URL=scrubbed",
+            "IMMICH_REPOSITORY=scrubbed",
+            "IMMICH_REPOSITORY_URL=scrubbed",
+            "IMMICH_SOURCE_REF=scrubbed",
+            "IMMICH_SOURCE_COMMIT=scrubbed",
+            "IMMICH_SOURCE_URL=scrubbed",
+            "HF_HOME=scrubbed"
+          ],
+          "Labels": {
+            "com.docker.compose.config-hash": "scrubbed",
+            "com.docker.compose.container-number": "scrubbed",
+            "com.docker.compose.depends_on": "scrubbed",
+            "com.docker.compose.image": "scrubbed",
+            "com.docker.compose.oneoff": "scrubbed",
+            "com.docker.compose.project": "scrubbed",
+            "com.docker.compose.project.config_files": "scrubbed",
+            "com.docker.compose.project.environment_file": "scrubbed",
+            "com.docker.compose.project.working_dir": "scrubbed",
+            "com.docker.compose.replace": "scrubbed",
+            "com.docker.compose.service": "scrubbed",
+            "com.docker.compose.version": "scrubbed",
+            "net.unraid.docker.icon": "scrubbed",
+            "net.unraid.docker.managed": "scrubbed",
+            "net.unraid.docker.shell": "scrubbed",
+            "net.unraid.docker.webui": "scrubbed",
+            "org.opencontainers.image.created": "scrubbed",
+            "org.opencontainers.image.description": "scrubbed",
+            "org.opencontainers.image.licenses": "scrubbed",
+            "org.opencontainers.image.revision": "scrubbed",
+            "org.opencontainers.image.source": "scrubbed",
+            "org.opencontainers.image.title": "scrubbed",
+            "org.opencontainers.image.url": "scrubbed",
+            "org.opencontainers.image.version": "scrubbed"
+          },
+          "Entrypoint": [
+            "tini",
+            "--"
+          ],
+          "Cmd": [
+            "python",
+            "-m",
+            "immich_ml"
+          ],
+          "User": "",
+          "Volumes": null,
+          "Image": "ghcr.io/immich-app/immich-machine-learning:v3"
+        },
+        "Mounts": [
+          {
+            "Type": "volume",
+            "Source": "/var/lib/docker/volumes/immich_model-cache/_data",
+            "Destination": "/cache",
+            "RW": true
+          }
+        ],
+        "HostConfig": {
+          "NetworkMode": "immich_default",
+          "PortBindings": {},
+          "Privileged": false,
+          "CapAdd": null,
+          "Devices": [
+            {
+              "PathOnHost": "/dev/dri",
+              "PathInContainer": "/dev/dri",
+              "CgroupPermissions": "rwm"
+            }
+          ],
+          "ShmSize": 67108864
+        }
+      }
+    },
+    {
+      "name": "immich_postgres",
+      "image": "ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23",
+      "image_id": "sha256:178719aeb38df6f0ce8edc1d8320008379fcf04eb3444e76419cc98d9861e331",
+      "digests": [],
+      "service": "database",
+      "running": true,
+      "inspect": {
+        "Config": {
+          "Env": [
+            "POSTGRES_DB=scrubbed",
+            "POSTGRES_INITDB_ARGS=--data-checksums",
+            "POSTGRES_PASSWORD=scrubbed",
+            "POSTGRES_USER=scrubbed",
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/lib/postgresql/14/bin",
+            "GOSU_VERSION=1.17",
+            "LANG=en_US.utf8",
+            "PG_MAJOR=14",
+            "PG_VERSION=14.19-1.pgdg12+1",
+            "PGDATA=/var/lib/postgresql/data",
+            "DB_STORAGE_TYPE=SSD"
+          ],
+          "Labels": {
+            "com.docker.compose.config-hash": "scrubbed",
+            "com.docker.compose.container-number": "scrubbed",
+            "com.docker.compose.depends_on": "scrubbed",
+            "com.docker.compose.image": "scrubbed",
+            "com.docker.compose.oneoff": "scrubbed",
+            "com.docker.compose.project": "scrubbed",
+            "com.docker.compose.project.config_files": "scrubbed",
+            "com.docker.compose.project.environment_file": "scrubbed",
+            "com.docker.compose.project.working_dir": "scrubbed",
+            "com.docker.compose.replace": "scrubbed",
+            "com.docker.compose.service": "scrubbed",
+            "com.docker.compose.version": "scrubbed",
+            "net.unraid.docker.icon": "scrubbed",
+            "net.unraid.docker.managed": "scrubbed",
+            "net.unraid.docker.shell": "scrubbed",
+            "net.unraid.docker.webui": "scrubbed",
+            "org.opencontainers.image.created": "scrubbed",
+            "org.opencontainers.image.description": "scrubbed",
+            "org.opencontainers.image.licenses": "scrubbed",
+            "org.opencontainers.image.revision": "scrubbed",
+            "org.opencontainers.image.source": "scrubbed",
+            "org.opencontainers.image.title": "scrubbed",
+            "org.opencontainers.image.url": "scrubbed",
+            "org.opencontainers.image.version": "scrubbed"
+          },
+          "Entrypoint": [
+            "/usr/local/bin/immich-docker-entrypoint.sh"
+          ],
+          "Cmd": [
+            "postgres",
+            "-c",
+            "config_file=/etc/postgresql/postgresql.conf"
+          ],
+          "User": "",
+          "Volumes": {
+            "/var/lib/postgresql/data": {}
+          },
+          "Image": "ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23"
+        },
+        "Mounts": [
+          {
+            "Type": "bind",
+            "Source": "/mnt/user/appdata/immich/postgres",
+            "Destination": "/var/lib/postgresql/data",
+            "RW": true
+          }
+        ],
+        "HostConfig": {
+          "NetworkMode": "immich_default",
+          "PortBindings": {},
+          "Privileged": false,
+          "CapAdd": null,
+          "Devices": null,
+          "ShmSize": 134217728
+        }
+      }
+    }
+  ]
+}
