@@ -376,7 +376,11 @@ units against the agreement, snapshots exactly `uso-backup-YYYYMMDD-HHMM`; `recv
 the chain (`need_full`, `need_incremental`, `exists`, `resume_first`), one per pair (flock `RUN_DIR/partner/<id>.lock`),
 `mbuffer -q -s 128k -m 256M` → `zfs recv -s -u` into `<pool>/UnraidSecretaryOffice-partners/<id>/<unit ':'→'-'>` (parents
 `mountpoint=none canmount=off`, quota on `<id>`; the first receive `-o mountpoint=legacy -o canmount=noauto -o readonly=on
--x sharesmb -x sharenfs`, never `-F`), JSON on stderr before and after, registered in `RUN_DIR/partner/door-<pid>.json`;
+-x sharesmb -x sharenfs`, later and resumed ones `-x mountpoint -x canmount -x sharesmb -x sharenfs` (a descendant a stream
+brought could never carry its own mountpoint into the next boot; a resumed first receive gets the three properties set
+after), never `-F`; the target is always `<ds>@<snap>` — ZFS then refuses a multi-snapshot stream (`-R`, `-I`: «cannot
+specify snapshot name for multi-snapshot stream», tried on a throwaway pool), so the sender sends `-i`), JSON on stderr
+before and after (`resumable` when a token was left), registered in `RUN_DIR/partner/door-<pid>.json`;
 afterwards the receiver's retention (`partnerRetentionSelect()`: the engine's `zfs_prune_select()`, only `uso-backup-*`,
 never the newest, never held) recorded in `data/partner/deletes.jsonl` and `received/<id>.json`. Refusals: a line in
 `data/partner/door.log` (RAM when the data folder is away) and their times in `RUN_DIR/partner/refused-<id>.json` (the
