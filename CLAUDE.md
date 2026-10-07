@@ -362,6 +362,34 @@ becario (tu / tú). Greetings are lang keys
 `greet.1…n` (`Office.greet` / `Office.withGreeting`); chatty bubbles may carry
 character, warnings and errors stay plain and clear.
 
+## Words (glossary)
+
+The same thing has the same word on every desk and in every text that speaks of it (Benj, 2026-10-07: «Rundgang»,
+not «Runde»; for Mr. Backupsy «Sicherung», not «Lauf»). Grammar follows the word (de *der* Rundgang, *die* Sicherung;
+it *il* backup).
+
+| Thing | en | de | it | fr | es | Desk |
+|---|---|---|---|---|---|---|
+| a desk's look around (button) | Tour | Rundgang | Giro | Tournée | Ronda | every desk |
+| the watchman's round (every 5 min) | round | der Rundgang, die Rundgänge | il giro, i giri | la ronde | la ronda | watchman, office |
+| his button · his section | A round now · The last round | Jetzt Rundgang machen · Der letzte Rundgang | Un giro adesso · L'ultimo giro | Une ronde maintenant · La dernière ronde | Una ronda ahora · La última ronda | watchman |
+| his book | watch book | das Wachbuch | il registro di guardia | la main courante | el libro de guardia | watchman, advisor |
+| while the array is stopped | night shift | die Nachtschicht | il turno di notte | le service de nuit | el turno de noche | watchman, office |
+| a backup run | run | die Sicherung, die Sicherungen | il backup, i backup | la sauvegarde | la copia de seguridad (short: la copia) | backup and all who speak of it |
+| … in use | Start a run · last / next run · Stop the run · stopped | Sicherung starten · die letzte / nächste Sicherung · Sicherung abbrechen · abgebrochen | Avvia un backup · l'ultimo / il prossimo backup · Interrompi il backup · interrotto | Lancer une sauvegarde · la dernière / prochaine sauvegarde · Arrêter la sauvegarde · arrêtée | Iniciar una copia · la última / próxima copia · Detener la copia · detenida | backup, office (Dashboard) |
+| the nightly one | the nightly backup | die nächtliche Sicherung | il backup notturno | la sauvegarde nocturne | la copia nocturna | backup, advisor |
+| the check (mode `check`, the «Tour» button) | tour | der Rundgang | il giro | la tournée | la ronda | backup, restore |
+| dry run | dry run | der Probelauf | la prova a secco | l'essai à blanc | la simulación | backup, restore, emby |
+| backup.sh and co. | the (backup) engine | die (Backup-)Engine | il motore (di backup) | le moteur (de sauvegarde) | el motor (de copias) | backup, restore, watchman |
+| where packages go | backup place | die Backup-Ablage | il deposito dei backup | l'emplacement des sauvegardes | el lugar de las copias | backup, restore, watchman |
+| per app / VM | package | das Paket | il pacchetto | le paquet | el paquete | backup, restore |
+| ZFS/btrfs/VM | snapshot | der Snapshot | lo snapshot | le snapshot | la instantánea | all |
+| the offsite copy | Kopia | Kopia | Kopia | Kopia | Kopia | backup, restore, advisor |
+
+German «Backup» stays for the whole and for what is kept (im Backup, Backups gehören nicht in appdata, Backup-Ablage,
+Backup-Engine); one run is a «Sicherung». «Lauf» / esecuzione / exécution / ejecución stay for Jack Emby's runs
+(EmbyCache, the gather: «echter Lauf», «Probelauf») and Ms. Snapshotini's plan runs — they back nothing up.
+
 ## UI conventions (every desk looks and behaves the same)
 
 * **Inside Unraid:** everything the office shows lives in `#sso` (src/page.php);
