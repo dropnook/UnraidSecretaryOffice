@@ -359,9 +359,14 @@ file, told by the caretaker). The caretaker suggests whom to hire; hiring
 the desk in the tabs and at the reception, firing hides it again — data and
 whatever it set up on the server stay (`fire_note` says what keeps running).
 Unhired desks get no write actions (`not_hired`) and their checks don't count.
-**Order** (Benj, 2026-10-07): «Change the order» at the reception (core.js `arrangeable()`: small cards with ▲ / ▼, the
-team lead's card says why he stays first, the selection bar has «As at the start» and «Done»; every move saved at once —
-`office.staff_order`, one request at a time, the newest after it, quiet; `Office.keepInPlace` on the moved card). Kept
+**Order** (Benj, 2026-10-07): «Change the order» at the reception (core.js `arrangeable()`: small cards in a row with big
+▲ / ▼ buttons (`.order-arrow`, 44 px, the words as `data-tip` and `aria-label`, ▲ off on the first movable card, ▼ on
+the last, the keyboard stays on the arrow it pressed), the team lead's card says why he stays first; the head's button
+turns into «✓ Done» (filled) with «As at the start» before it and a hint under the welcome — every move saved at once,
+so nothing to apply — `office.staff_order`, one request at a time, the newest after it, quiet; `Office.keepInPlace`
+on the moved card. The selection bar at the bottom (the same two buttons) only while «✓ Done» in the head is scrolled
+out of view — an IntersectionObserver on it, Unraid's sticky `#menu` and `--under` as margins — so a phone with many
+desks always has them in reach and never two «✓ Done» on screen; without the observer the bar stays). Kept
 in staff.json `"order"` (src/staff.php: ids of existing desks, never an `always` one, each once; `[]` = none);
 `officeStaffOrderOf()` = the `always` desks, then that list, then the rest by desk.json's `order` (someone newly hired
 joins at the end); `OFFICE_DESKS_MERGED` applies to it too (the one that took over at the earlier place). The page gets
