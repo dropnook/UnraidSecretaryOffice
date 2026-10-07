@@ -8,9 +8,9 @@
 #   job.sh gather      Jack Emby: the media gather (folders together on one disk)
 #   job.sh watch       is the agent at work? (agent-watch.cron, written by scripts/agent.sh)
 #
-# Only while the array is started: the office's data lies in appdata, and
-# nothing may land in /mnt while it is a bare RAM folder. The watch looks
-# itself (a stopped array resets its count).
+# Only while the array is started (agent.sh's array_started): the office's data
+# lies in appdata, and nothing may land in /mnt while it is a bare RAM folder.
+# The watch looks itself (a stopped array resets its count).
 #
 # Once per job and minute: Unraid's crond reads root's own crontab as well as
 # /etc/cron.d/root, so a line that is in both (or twice in one) starts a job
@@ -39,7 +39,9 @@ fi
 exec 9>&-          # not into the job: it would hold the lock for hours
 
 [[ "$1" == watch ]] && exec bash "$DIR/scripts/agent.sh" watch
-grep -q '^fsState="Started"' /var/local/emhttp/var.ini 2>/dev/null || exit 0
+# the array runs - agent.sh's array_started (Started, and Unraid's "Started, formatting/clearing": the engine
+# backs up while a new disk is cleared for hours); sourced, agent.sh only defines
+source "$DIR/scripts/agent.sh" 2>/dev/null && array_started || exit 0
 
 case "$1" in
     backup)    exec bash "$DIR/backup/backup.sh" ;;

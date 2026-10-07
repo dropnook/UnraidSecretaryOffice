@@ -54,6 +54,12 @@ WATCH_AFTER=600                   # seconds without a sign of life before Unraid
 HOST_LAUNCH_MARK='# written by the Unraid Secretary Office agent'
 PROC_MOUNTS=/proc/mounts
 BACKUP_STAGE=/run/unraid-backup-stage   # the backup engine's private staging area (UB_STAGE in backup/lib/common.sh)
+VAR_INI=/var/local/emhttp/var.ini
+# The array runs: "Started" - and Unraid's "Started, formatting/clearing" (fsState Formatting, Clearing: a new
+# disk is formatted or cleared for hours while the array runs). One definition: agent.php's ARRAY_RUNNING says the
+# same, the backup engine counts them as started too (lib/common.sh array_stopping(): only Stopping and Stopped
+# end a run) - tests/run.php compares all three; job.sh uses array_started from here.
+ARRAY_RUNNING='Started|Formatting|Clearing'
 
 supervisor_pid() {
     local pid
@@ -62,7 +68,7 @@ supervisor_pid() {
 }
 
 array_started() {
-    grep -q '^fsState="Started"' /var/local/emhttp/var.ini 2>/dev/null
+    grep -qE "^fsState=\"($ARRAY_RUNNING)\"" "$VAR_INI" 2>/dev/null
 }
 
 supervise() {
@@ -226,7 +232,7 @@ watch() {
     local now data pulse since minutes
     now=$(date +%s)
     # only while the array is started (without it the agent waits, on purpose); that time doesn't count
-    if ! grep -q '^fsState="Started"' /var/local/emhttp/var.ini 2>/dev/null; then
+    if ! array_started; then
         rm -f "$WATCH_DOWN"
         return 0
     fi

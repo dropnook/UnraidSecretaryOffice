@@ -2477,6 +2477,26 @@ function testAgentBackupHooks(): void
     check('hooks: stopping, a hanging unmount is cut off after 8 s - with the 2 s for a live run, the array stop waits at most 10 s',
         microtime(true) - $t0 < 9, (string) (microtime(true) - $t0));
     check('hooks: agent.sh writes the mark exactly like hostLaunch()', str_contains((string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh'), "HOST_LAUNCH_MARK='" . HOST_LAUNCH_MARK . "'"));
+
+    // one definition of «the array runs»: agent.sh (which starts the agent or the night shift; job.sh uses it), agent.php
+    // (the night shift hands over, the data folder is made) and the engine (only Stopping and Stopped end a run) agree -
+    // a disk cleared for hours (Clearing) runs the agent, not the night shift
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $got = [];
+    foreach (['Started', 'Formatting', 'Clearing', 'Starting', 'Stopping', 'Stopped', ''] as $fs) {
+        file_put_contents("$tmp/var.ini", "mdState=\"STARTED\"\nfsState=\"$fs\"\n");
+        $sh = $call('VAR_INI=' . escapeshellarg("$tmp/var.ini") . '; array_started && echo 1 || echo 0');
+        $engine = trim((string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/ub UB_VAR_INI=$tmp/var.ini; source $lib >/dev/null 2>&1; array_stopping && echo stop || echo -") . ' 2>&1'));
+        $got[$fs === '' ? '(none)' : $fs] = [$sh, arrayRunning("$tmp/var.ini") ? '1' : '0', $engine];
+    }
+    same('array states: agent.sh, agent.php and the engine agree - Formatting and Clearing run, Starting and none are neither',
+        ['Started' => ['1', '1', '-'], 'Formatting' => ['1', '1', '-'], 'Clearing' => ['1', '1', '-'], 'Starting' => ['0', '0', '-'],
+         'Stopping' => ['0', '0', 'stop'], 'Stopped' => ['0', '0', 'stop'], '(none)' => ['0', '0', '-']], $got);
+    check('array states: job.sh asks agent.sh\'s array_started', (bool) preg_match('/^source "\$DIR\/scripts\/agent\.sh" 2>\/dev\/null && array_started \|\| exit 0$/m',
+        (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh')));
+    $all = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh') . file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh') . file_get_contents(OFFICE_DIR . '/agent/agent.php');
+    check('array states: no other spelling of «started» left in agent.sh, job.sh, agent.php', !str_contains($all, 'fsState="Started"') && !str_contains($all, "=== 'Started'")
+        && !str_contains($all, "!== 'Started'"));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
