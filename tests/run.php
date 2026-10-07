@@ -1602,6 +1602,9 @@ SH);
  * A normal run first (the fixture works: Kopia, maintenance mode, VMs, pruning), then the stop during the
  * Kopia phase, between pausing the apps and the snapshots, at Nextcloud's maintenance mode and at the run's
  * start; then the first run after the array start; then the office reading such a run.
+ * Engine 2.25 on the same fixture: the Kopia order (small and important first, by expected size) in a real run,
+ * and backup.sh --recover - nothing noted, the array being stopped, the lock busy, what a stopped run left
+ * brought back right after the array start, Docker silent, a run waiting for a recover instead of skipping.
  */
 function testBackupArrayStop(): void
 {
@@ -1648,7 +1651,7 @@ ev() { echo "\$(date +%s) \$*" >>"\$FAKE/events"; }
 $flip
 st() { cat "\$FAKE/ct/\$1" 2>/dev/null || echo running; }
 case "\$1" in
-  info|version) exit 0 ;;
+  info|version) [[ -e "\$FAKE/docker.down" ]] && exit 1; exit 0 ;;
   ps) printf 'id-c1\\nid-nc\\nid-kopia\\n'; exit 0 ;;
   compose) exit 1 ;;
   top)
@@ -1701,7 +1704,7 @@ case "\$1" in
         case "\$1 \${2:-}" in
           "repository status") cat "\$FAKE/repo.json" ;;
           "policy list") echo '[]' ;;
-          "snapshot list") echo '[]' ;;
+          "snapshot list") cat "\$FAKE/snaplist.json" 2>/dev/null || echo '[]' ;;
           "snapshot create")
             cp="\$3"; n=\$(( \$(cat "\$FAKE/kopia.n" 2>/dev/null || echo 0) + 1 )); echo "\$n" >"\$FAKE/kopia.n"
             ev "kopia start \$cp"
@@ -1910,6 +1913,9 @@ SH);
     check('array stop, the next run: starts the containers and the VM again, Nextcloud out of maintenance mode, then backs up',
         array_slice($n, 0, 4) === ['docker start c1', 'docker start nc', 'occ maintenance off', 'virsh start vmshut']
         && in_array($s['result'] ?? '', ['ok', 'warnings'], true) && !is_file("$data/state/stopped") && !is_file("$data/state/vms"), json_encode($n) . $log());
+    $rep = array_values(preg_grep('/Aborted run repaired/', $notes()));
+    check('array stop, the next run: «Aborted run repaired» is a normal notification (engine 2.25 - expected after an array stop), no warning counted',
+        count($rep) === 1 && str_contains($rep[0], '-i normal') && !str_contains($log(), 'WARNING: The run the array stop ended'), json_encode($notes()));
 
     // --- at Nextcloud's maintenance mode: its container still runs - the mode goes off at once, nothing stopped
     $night('maintenance');
@@ -1972,6 +1978,261 @@ SH);
         $bk[$fam['name']] = $fam['samples'];
     }
     same('metrics: the skipped sources counted apart, none failed', [[['result' => 'ok'], 1], [['result' => 'failed'], 0], [['result' => 'skipped'], 2]], $bk['uso_backup_last_kopia_sources'] ?? null);
+
+    // --- engine 2.25: the Kopia order. An app (c1) and a VM (vmpause) with sources of their own; sizes: appdata 3 GB by
+    // ZFS but 500 B by Kopia's newest complete snapshot (its ignore rules), docs 1000 B and the backup place 50 MB by ZFS,
+    // the VM's 1 MB disk file; a Kopia checkpoint (incomplete) and another identity's snapshot don't count
+    file_put_contents("$data/settings.ini", "[app \"c1\"]\nkopia = yes\nfolder = appdata/c1\n[vm \"vmpause\"]\nkopia = yes\nfolder = domains/vmpause\n", FILE_APPEND);
+    $zs = fn ($n, $mp, $ref) => "$n\t$mp\ton\t" . crc32($n) . "\t$ref\t-\n";
+    file_put_contents("$fake/zfs.txt", $zs('master', $pool, 1) . $zs('master/appdata', "$pool/appdata", 3000000000) . $zs('master/docs', "$pool/docs", 1000)
+        . $zs('master/domains', "$pool/domains", 7) . $zs('master/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 50000000));
+    $ksnap = fn ($path, $size, $start, $more = []) => ['source' => ['host' => 'kopia', 'userName' => 'root', 'path' => $path], 'startTime' => $start,
+        'stats' => ['totalSize' => $size]] + $more;
+    file_put_contents("$fake/snaplist.json", json_encode([$ksnap('/uso/appdata', 9000000000, '2026-10-01T01:00:00Z'), $ksnap('/uso/appdata', 500, '2026-10-06T01:00:00Z'),
+        $ksnap('/uso/docs', 1, '2026-10-07T01:00:00Z', ['incompleteReason' => 'checkpoint']),
+        ['source' => ['host' => 'other', 'userName' => 'root', 'path' => '/uso/UnraidSecretaryOffice'], 'startTime' => '2026-10-06T01:00:00Z', 'stats' => ['totalSize' => 1]]]));
+    file_put_contents("$pool/domains/vmpause/vdisk1.img", str_repeat("\x5a", 1 << 20));
+    // the fixture mounts nothing for real: what the sources of their own bind lies ready in the share's mount point
+    foreach (["$root/appdata/c1" => 'config.xml', "$root/domains/vmpause" => 'vdisk1.img'] as $dir => $file) {
+        @mkdir($dir, 0700, true);
+        file_put_contents("$dir/$file", 'x');
+    }
+    $night();
+    [$code, , $out] = $run();
+    $s = $status();
+    $want = ['app:c1', 'appdata', 'docs', 'vm:vmpause', 'UnraidSecretaryOffice'];
+    same('kopia order: status.json planned - the app first, then shares and the VM by size (Kopia\'s own first), the backup place last', $want, $s['kopia']['planned'] ?? null);
+    same('kopia order: uploaded in that order', ['/uso/.apps/c1', '/uso/appdata', '/uso/docs', '/uso/.vms/vmpause', '/uso/UnraidSecretaryOffice'],
+        array_values(array_map(fn ($w) => substr($w, strlen('kopia start ')), preg_grep('/^kopia start /', $names()))));
+    same('kopia order: done in that order', $want, array_column($s['kopia']['done'] ?? [], 'name'));
+    check('kopia order: the plan says it once, with the sizes and where they come from',
+        (bool) preg_match('/Kopia order: +app:c1, appdata 500B, docs 1000B\*, vm:vmpause [0-9.]+MB?\*, UnraidSecretaryOffice [0-9.]+MB?\*\n/', $log()) && substr_count($log(), 'Kopia order:') === 1, $log());
+    @unlink("$fake/snaplist.json");
+
+    // --- engine 2.25: backup.sh --recover
+    $rec = function (string $extra = '') use ($env): array {
+        $out = (string) shell_exec('bash -c ' . escapeshellarg("$env UB_RECOVER_LOOK=1 $extra; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " --recover </dev/null; echo \"exit=\$?\"") . ' 2>&1');
+        preg_match('/exit=(\d+)\s*$/', $out, $m);
+        return [(int) ($m[1] ?? -1), $out];
+    };
+    $sums = fn () => array_map(fn ($f) => @md5_file("$data/state/$f") ?: null, ['status.json', 'last-run.json', 'history.jsonl', 'skipped.json']);
+    $noted = fn () => array_map(fn ($f) => (string) @file_get_contents("$data/state/$f"), ['stopped', 'maintenance', 'vms']);
+    $recLog = fn () => (string) @file_get_contents("$data/logs/recover.log");
+    $fresh = function () use ($fake): void {
+        foreach (['events', 'notify.log', 'docker.down'] as $f) {
+            @unlink("$fake/$f");
+        }
+    };
+    // nothing noted (a run that went well): nothing done, nothing written
+    $fresh();
+    $before = $sums();
+    [$code, $out] = $rec();
+    same('recover: nothing noted - exit 0, nothing done, no log, no lock note, the run\'s files untouched', [0, [], false, false, $before],
+        [$code, $names(), is_file("$data/logs/recover.log"), is_file("$data/state/lock-holder.json"), $sums()]);
+    // the array being stopped: not now
+    file_put_contents("$data/state/stopped", "c1\n");
+    file_put_contents("$fake/ct/c1", "stopped\n");
+    file_put_contents("$fake/var.ini", "fsState=\"Stopping\"\n");
+    [$code, $out] = $rec();
+    same('recover: the array being stopped - exit 3, nothing started, the note kept, nothing written', [3, [], "c1\n", false, $before],
+        [$code, $names(), $noted()[0], is_file("$data/logs/recover.log"), $sums()]);
+    file_put_contents("$fake/var.ini", "fsState=\"Started\"\n");
+    // the lock busy: a run holds it (it brings the notes back itself) - quietly
+    $lk = fopen("$data/state/lock", 'c');
+    flock($lk, LOCK_EX);
+    $t0 = microtime(true);
+    [$code, $out] = $rec();
+    $took = microtime(true) - $t0;
+    flock($lk, LOCK_UN);
+    fclose($lk);
+    same('recover: the lock busy - exit 75 at once, nothing started, the note kept, no notification, nothing written',
+        [75, true, [], "c1\n", [], false, $before], [$code, $took < 5, $names(), $noted()[0], $notes(), is_file("$data/logs/recover.log"), $sums()]);
+
+    // what a run the array stop ended left: brought back right after the array start
+    $night('suspend');
+    $run();
+    same('recover: the stopped run left its notes', ["c1\nnc\n", "nc\n", "vmshut|shutdown\n"], $noted());
+    file_put_contents("$fake/var.ini", "fsState=\"Started\"\n");
+    @unlink("$fake/stop-at");
+    $fresh();
+    $before = $sums();
+    $latest = @readlink("$data/logs/latest.log");
+    [$code, $out] = $rec();
+    same('recover: after the array start - the containers and the VM started, Nextcloud out of maintenance mode, exit 0',
+        [0, ['docker start c1', 'docker start nc', 'occ maintenance off', 'virsh start vmshut']], [$code, $names()]);
+    same('recover: the notes gone, the lock free, its note gone', [['', '', ''], true, false], [$noted(), $lockFree(), is_file("$data/state/lock-holder.json")]);
+    same('recover: no run - status.json, last-run.json, history.jsonl, skipped.json untouched, latest.log still the run\'s', [$before, $latest],
+        [$sums(), @readlink("$data/logs/latest.log")]);
+    $nt = $notes();
+    check('recover: one notification «Aborted run repaired», normal after an array stop, naming what came back', count($nt) === 1 && str_contains($nt[0], '-i normal')
+        && str_contains($nt[0], 'Aborted run repaired') && str_contains($nt[0], 'c1 nc maintenance mode nc off VM vmshut started'), json_encode($nt));
+    check('recover: its log says what was noted and that it is done', str_contains($recLog(), "- recover ") && str_contains($recLog(), 'containers c1 nc; maintenance mode nc; VMs vmshut')
+        && str_contains($recLog(), 'Done - nothing is noted any more'), $recLog());
+
+    // Docker silent: the containers' note stays (before 2.25 it went - the container looked running), the VM comes back
+    $night();
+    touch("$fake/docker.down");
+    file_put_contents("$data/state/stopped", "c1\n");
+    file_put_contents("$fake/ct/c1", "stopped\n");
+    file_put_contents("$data/state/vms", "vmshut|shutdown\n");
+    file_put_contents("$fake/vm/vmshut.state", "shut off\n");
+    touch("$data/state/vms", time() + 60);          // a later run's notes (killed): newer than the run the array stop ended
+    [$code, $out] = $rec('UB_RECOVER_WAIT=2');
+    same('recover: Docker silent - exit 1, the containers\' note kept, the VM started all the same', [1, ['virsh start vmshut'], ["c1\n", '', '']], [$code, $names(), $noted()]);
+    check('recover: Docker silent - said in its log', str_contains($recLog(), 'Docker did not answer within 2 s') && str_contains($recLog(), 'stays noted for the next start'), $recLog());
+    $nt = $notes();
+    check('recover: notes newer than the run the array stop ended (a crash) - the notification is a warning', count($nt) === 1 && str_contains($nt[0], '-i warning')
+        && str_contains($nt[0], 'An earlier run was aborted'), json_encode($nt));
+
+    // a run that finds a recover holding the lock waits for it instead of skipping the night
+    $night();
+    touch("$fake/docker.down");
+    file_put_contents("$data/state/stopped", "c1\n");
+    file_put_contents("$fake/ct/c1", "stopped\n");
+    @unlink("$data/state/skipped.json");
+    $bg = fn (string $what) => proc_open(['bash', '-c', "$env $what </dev/null >/dev/null 2>&1"], [], $pipes);
+    $recP = $bg('UB_RECOVER_LOOK=1 UB_RECOVER_WAIT=30; exec bash ' . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --recover');
+    for ($i = 0; $i < 50 && (json_decode((string) @file_get_contents("$data/state/lock-holder.json"), true)['mode'] ?? '') !== 'recover'; $i++) {
+        usleep(100000);
+    }
+    $chkP = $bg('UB_RECOVER_LOCK_WAIT=60; exec bash ' . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --check');
+    usleep(1500000);
+    $waiting = proc_get_status($chkP)['running'] && !is_file("$data/state/status.json") && !is_file("$data/state/skipped.json");
+    @unlink("$fake/docker.down");
+    $codes = [];
+    foreach (['recover' => $recP, 'check' => $chkP] as $k => $p) {
+        for ($i = 0; $i < 600 && ($st = proc_get_status($p))['running']; $i++) {
+            usleep(100000);
+        }
+        $codes[$k] = $st['running'] ? null : $st['exitcode'];
+        proc_close($p);
+    }
+    $s = $status();
+    same('recover: a check started meanwhile waits for it, then runs - not skipped',
+        [true, ['recover' => 0, 'check' => 0], 'check', true, false, ['docker start c1']],
+        [$waiting, $codes, $s['mode'] ?? null, in_array($s['result'] ?? '', ['ok', 'warnings', 'errors'], true), is_file("$data/state/skipped.json"), $names()]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Engine 2.25: the order of the Kopia phase (kopia_order) - the flash first, the apps' own sources in their order, then the
+ * shares and the VMs' own sources by their expected size (the newest complete Kopia snapshot's, else the server's), unknown
+ * last; and where those sizes come from (kopia_sizes_load: one «snapshot list», a stand-in docker on PATH).
+ */
+function testBackupKopiaOrder(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-korder-' . getmypid();
+    @mkdir("$tmp/bin", 0700, true);
+    file_put_contents("$tmp/settings.ini", "[general]\ndumps_share = UnraidSecretaryOffice\nmount_root = /mnt/addons/UnraidSecretaryOffice/snapshots\n[kopia]\nenabled = yes\n");
+    $ksnap = fn ($path, $size, $start, $more = []) => ['source' => ['host' => 'kopia', 'userName' => 'root', 'path' => $path], 'startTime' => $start,
+        'stats' => ['totalSize' => $size]] + $more;
+    file_put_contents("$tmp/list.json", json_encode([
+        $ksnap('/uso/appdata', 9000000000, '2026-10-01T01:00:00Z'), $ksnap('/uso/appdata', 5000000000, '2026-10-06T01:00:00Z'),
+        $ksnap('/uso/Backups', 10, '2026-10-07T03:00:00Z', ['incompleteReason' => 'checkpoint']),
+        ['source' => ['host' => 'other', 'userName' => 'root', 'path' => '/uso/isos'], 'startTime' => '2026-10-06T01:00:00Z', 'stats' => ['totalSize' => 1]],
+        ['source' => ['host' => 'kopia', 'userName' => 'root', 'path' => '/uso/.vms/Debian'], 'startTime' => '2026-10-06T01:00:00Z', 'rootEntry' => ['summ' => ['size' => 7]]]]));
+    file_put_contents("$tmp/bin/docker", "#!/bin/bash\n[[ \"\$*\" == *'snapshot list --all --json -n 1'* ]] && cat $tmp/list.json\n");
+    chmod("$tmp/bin/docker", 0755);
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $sh = function (string $script) use ($lib, $tmp): string {
+        $pre = "PATH=$tmp/bin:\$PATH UB_DATA=$tmp/data; source $lib >/dev/null 2>&1; cfg_load $tmp/settings.ini; apply_settings;"
+             . ' KM_SRC=(/mnt/addons/UnraidSecretaryOffice/snapshots); KM_DST=(/uso); KM_RW=(false); KM_PROP=(rslave);'
+             . ' PLAN_FLASH=snapshot; PLAN_KOPIA=(isos appdata docs Backups scripts);'
+             . ' PLAN_KITEMS=("app|nextcloud|nextcloud" "app|immich|immich" "vm|Win 11|Win_11" "vm|Debian|Debian" "vm|Tiny|Tiny");'
+             . ' INV_BYTES=([appdata]=40000000000 [docs]=1000000000 [Backups]=2300000000000 [scripts]=1000000000);'
+             . ' VM_BYTES=(["Win 11"]=380000000000 [Tiny]=4000000000);';
+        return trim((string) shell_exec('bash -c ' . escapeshellarg("$pre $script") . ' 2>&1'));
+    };
+    same('kopia order: the newest complete snapshot of this identity per source - no checkpoint, no other identity; rootEntry\'s size when stats lack',
+        "/uso/.vms/Debian=7 /uso/appdata=5000000000",
+        $sh('KOPIA_CONNECTED=yes KOPIA_USER=root KOPIA_HOST=kopia KOPIA_RUN_UID=0 KOPIA_CONTAINER=kopia; kopia_sizes_load;'
+            . ' for k in $(printf "%s\n" "${!KSIZE[@]}" | sort); do printf "%s=%s " "$k" "${KSIZE[$k]}"; done'));
+    same('kopia order: no sizes from Kopia while it isn\'t connected', '0', $sh('KOPIA_CONNECTED=no; kopia_sizes_load; echo ${#KSIZE[@]}'));
+    same('kopia order: the flash, the apps in their order, then shares and VMs the smallest first (Kopia\'s size before the server\'s), unknown last in their order',
+        "flash|flash||||\napp:nextcloud|app|nextcloud|nextcloud||\napp:immich|app|immich|immich||\n"
+        . "vm:Debian|vm|Debian|Debian|7|kopia\ndocs|share|docs||1000000000|inventory\nscripts|share|scripts||1000000000|inventory\n"
+        . "vm:Tiny|vm|Tiny|Tiny|4000000000|inventory\nappdata|share|appdata||5000000000|kopia\nvm:Win 11|vm|Win 11|Win_11|380000000000|inventory\n"
+        . "Backups|share|Backups||2300000000000|inventory\nisos|share|isos|||",
+        $sh('KOPIA_CONNECTED=yes KOPIA_USER=root KOPIA_HOST=kopia KOPIA_RUN_UID=0 KOPIA_CONTAINER=kopia; kopia_sizes_load; kopia_order'));
+    same('kopia order: without the flash\'s snapshot no flash; without sizes the shares, then the VMs, as listed',
+        "app:nextcloud\napp:immich\nisos\nappdata\ndocs\nBackups\nscripts\nvm:Win 11\nvm:Debian\nvm:Tiny",
+        $sh('PLAN_FLASH=tar; INV_BYTES=(); VM_BYTES=(); kopia_order | cut -d"|" -f1'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * The plugin's array hooks for the backup engine (agent.sh, engine 2.25): at the array start a backup.sh --recover handed to
+ * atd when a stopped run left notes (with the office's mark, so the night watchman knows it), at the array stop the
+ * engine's mounts left between runs released (backup.sh --unmount) unless a run holds the lock or nothing is mounted.
+ * agent.sh sourced with its paths pointed at a test folder; at and backup.sh are stand-ins - nothing reaches atd or a mount.
+ */
+function testAgentBackupHooks(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-agenthooks-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $data = "$tmp/da'ta";              // a quote in the path: the job quotes it
+    $ub = "$data/unraid-backup";
+    foreach (["$tmp/bin", "$tmp/plugin/backup", "$tmp/run", "$ub/state", "$tmp/atjobs"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    file_put_contents("$tmp/bin/at", "#!/bin/bash\necho \"\$*\" >>" . escapeshellarg("$tmp/at.calls") . "\ncp \"\$3\" " . escapeshellarg("$tmp/at.job") . "\n");
+    chmod("$tmp/bin/at", 0755);
+    file_put_contents("$tmp/plugin/backup/backup.sh", "echo \"\$UB_DATA \$*\" >>" . escapeshellarg("$tmp/backup.calls") . "\n");
+    $agent = escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh');
+    $call = function (string $fn) use ($tmp, $agent, $data): string {
+        $pre = 'PATH=' . escapeshellarg("$tmp/bin") . ":\$PATH; source $agent; DIR=" . escapeshellarg("$tmp/plugin") . '; RUN=' . escapeshellarg("$tmp/run")
+             . '; LOG=' . escapeshellarg("$tmp/agent.log") . '; PROC_MOUNTS=' . escapeshellarg("$tmp/mounts") . '; BACKUP_STAGE=' . escapeshellarg("$tmp/stage")
+             . '; data_dir() { echo ' . escapeshellarg($data) . '; };';
+        return trim((string) shell_exec('bash -c ' . escapeshellarg("$pre $fn") . ' 2>&1'));
+    };
+    $read = fn (string $f) => (string) @file_get_contents("$tmp/$f");
+
+    // array started
+    same('hooks: sourcing agent.sh does nothing but define', '', $call(''));
+    $call('backup_recover');
+    same('hooks: started, nothing noted - nothing handed to atd', '', $read('at.calls'));
+    file_put_contents("$ub/state/vms", "vm1|shutdown\n");
+    $call('backup_recover');
+    same('hooks: started, a note - handed to atd now, never mailed', "-M -f $tmp/run/backup-recover.sh now\n", $read('at.calls'));
+    $job = explode("\n", $read('at.job'));
+    same('hooks: the job carries the office\'s mark (the same as hostLaunch()\'s) on its own line', ['#!/bin/sh', HOST_LAUNCH_MARK], array_slice($job, 0, 2));
+    exec('sh ' . escapeshellarg("$tmp/at.job"), $o, $rc);
+    same('hooks: the job runs backup.sh --recover with the engine\'s data folder (quoted)', [0, "$ub --recover\n"], [$rc, $read('backup.calls')]);
+    file_put_contents("$tmp/atjobs/a0000101c2b3a4", "#!/bin/sh\n# atrun uid=0 gid=0\n# mail root 0\numask 22\ncd / || {\n\t exit 1\n}\n" . $read('at.job'));
+    same('hooks: the night watchman takes the at job for the office\'s', true, watchmanAtJobs(['atjobs' => "$tmp/atjobs"], null)['jobs']['a0000101c2b3a4']['ours'] ?? null);
+    @unlink("$tmp/backup.calls");
+
+    // array stopping
+    file_put_contents("$ub/settings.ini", "[general]\nmount_root = $tmp/snaps\nkeep_mounts = yes\n[share \"x\"]\nmount_root = $tmp/elsewhere\n");
+    file_put_contents("$tmp/mounts", "master /mnt/master zfs rw 0 0\n");
+    $call('backup_release');
+    same('hooks: stopping, nothing of the engine mounted - backup.sh not called', '', $read('backup.calls'));
+    file_put_contents("$tmp/mounts", "master /mnt/master zfs rw 0 0\nmaster/appdata@uso-backup-1 $tmp/elsewhere/appdata zfs ro 0 0\n");
+    $call('backup_release');
+    same('hooks: stopping, a mount under another section\'s «mount_root» is none of the engine\'s', '', $read('backup.calls'));
+    file_put_contents("$tmp/mounts", "master /mnt/master zfs rw 0 0\nmaster/appdata@uso-backup-1 $tmp/snaps/appdata zfs ro 0 0\n");
+    $lk = fopen("$ub/state/lock", 'c');
+    flock($lk, LOCK_EX);
+    $call('backup_release');
+    flock($lk, LOCK_UN);
+    fclose($lk);
+    same('hooks: stopping, a run holds the lock - it unmounts itself, backup.sh not called', '', $read('backup.calls'));
+    $call('backup_release');
+    same('hooks: stopping, its snapshot mounted (keep_mounts) and the lock free - backup.sh --unmount with its data folder', "$ub --unmount\n", $read('backup.calls'));
+    @unlink("$tmp/backup.calls");
+    file_put_contents("$tmp/mounts", "unraid-backup-stage $tmp/stage tmpfs rw 0 0\nmaster/appdata@uso-backup-1 $tmp/stage/layers/master_appdata zfs ro 0 0\n");
+    $call('backup_release');
+    same('hooks: stopping, a layer in its staging area mounted - released too', "$ub --unmount\n", $read('backup.calls'));
+    @unlink("$tmp/backup.calls");
+    file_put_contents("$tmp/mounts", "unraid-backup-stage $tmp/stage tmpfs rw 0 0\n");
+    $call('backup_release');
+    same('hooks: stopping, only the staging area itself (a tmpfs for the boot) - nothing to do', '', $read('backup.calls'));
+    file_put_contents("$tmp/plugin/backup/backup.sh", "sleep 30\n");
+    file_put_contents("$tmp/mounts", "master/appdata@uso-backup-1 $tmp/snaps/appdata zfs ro 0 0\n");
+    $t0 = microtime(true);
+    $call('backup_release');
+    check('hooks: stopping, a hanging unmount is cut off - the array stop waits at most 10 s', microtime(true) - $t0 < 12, (string) (microtime(true) - $t0));
+    check('hooks: agent.sh writes the mark exactly like hostLaunch()', str_contains((string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh'), "HOST_LAUNCH_MARK='" . HOST_LAUNCH_MARK . "'"));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -7691,7 +7952,7 @@ function testSupporterKeys(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman', 'testWhereaboutsVmStop', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];
