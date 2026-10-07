@@ -303,7 +303,7 @@
   "move.s7_never": "Nie blind kopieren: Die Disk-Zuordnung (super.dat), der Lizenzschlüssel (*.key) und die Netzwerk-Einstellungen (network.cfg) gehören zum alten Server.",
   "move.s7_official": "Ein ganzer Flash kommt nur auf dem offiziellen Weg zurück: Unraids Flash-Backup (ein .zip, oder das in Unraid Connect) mit dem Unraid USB Flash Creator auf einen Stick geschrieben. Aus der Kopie des Sekretariats nur einzelne Stücke nehmen — Plugin-Einstellungen, die go-Datei, User Scripts.",
   "move.s8": "8. Das Sekretariat",
-  "move.s8_text": "Das Plugin Secretary Office installieren. Sein Datenordner kommt mit appdata zurück (Einstellungen, Verlauf, Herrn Backupsis settings.ini); danach Herr Backupsi → «Einrichten…» → Anwenden, damit alles zum neuen Server passt.",
+  "move.s8_text": "Das Plugin Secretary Office installieren. Sein Datenordner kommt mit appdata zurück (Einstellungen, Verlauf, Herrn Backupsis settings.ini); danach Herr Backupsi → «Einrichten…» → Übernehmen, damit alles zum neuen Server passt.",
   "fact.apps": {"one": "1 App kann zurückkommen (Pakete vom {when})", "other": "{n} Apps können zurückkommen (Pakete vom {when})"},
   "fact.vms": {"one": "1 VM kann zurückkommen", "other": "{n} VMs können zurückkommen"},
   "fact.kopia": "Kennt den Weg aus Kopia heraus",
