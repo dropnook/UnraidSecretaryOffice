@@ -1342,6 +1342,7 @@
   "where.vm.disk": "Disco {target} ({bus}, {format})",
   "where.vm.overlay": "Questo disco è un overlay di uno snapshot della VM — funziona solo insieme al file o ai file qui sotto.",
   "where.vm.base": "Base {n}",
+  "where.vm.sparse": "File sparso: {used} usati di {virtual} — al primo upload Kopia lo legge tutto, una volta.",
   "where.vm.move_hint": "Per spostare questa VM su un altro server ti servono tutti questi file.",
   "where.vm.tpm_hint": "Senza lo stato del TPM Windows parte lo stesso, ma BitLocker chiede la chiave di ripristino e i PIN di Windows Hello sono persi.",
   "where.vm.config_local": "XML, NVRAM e stato del TPM hanno solo un backup locale, non con Kopia. Il signor Backupsi può archiviarli insieme ai dump (Configura… → Configurazione delle VM).",
@@ -1492,6 +1493,7 @@
   "where.adv.to_browse": "⟦Browse⟧ {path}",
   "where.adv.to_team_lead": "Dal capoufficio",
   "where.adv.to_vm_settings": "⟦VM Manager⟧",
+  "where.adv.to_vms": "⟦VMs⟧",
   "where.adv.system_array.title": "Sull'array: {names}",
   "where.adv.system_array.why": "Ciò che serve a Docker e alle VM va su un pool (SSD/NVMe): sull'array ogni contenitore e ogni VM diventa lento, e i dischi non riposano mai. Nelle impostazioni della condivisione metti l'archiviazione primaria su un pool e quella secondaria su nessuna, poi lascia che il Mover porti i file (con Docker e VM fermi).",
   "where.adv.mover.title": {
@@ -1577,6 +1579,9 @@
     "one": "Guarda un po' — quando l'array si ferma, Unraid chiede a ogni VM di spegnersi e aspetta fino a {timeout} s (⟦Settings⟧ → ⟦VM Manager⟧ → «⟦VM shutdown time-out⟧»); quello che gira ancora dopo viene spento di colpo, come staccare la spina — il lavoro non salvato è perso e Windows controlla il suo disco al prossimo avvio. In questa non risponde nessun agente guest, quindi la richiesta di Unraid è il pulsante di accensione — e un Windows inattivo con lo schermo spento tende a ignorarlo: l'arresto dell'array aspetta tutti i {timeout} s per niente, poi la spina. Cosa aiuta, in Windows: il QEMU Guest Agent (sull'ISO virtio-win: guest-agent\\qemu-ga-x86_64.msi) — Unraid allora chiede a lui, e Windows ascolta; oppure nelle opzioni risparmio energia «Disattiva schermo: Mai» e «Quando viene premuto il pulsante di alimentazione: Arresta il sistema». Un timeout più lungo non aiuta contro questo — l'attesa si allunga soltanto; e deve restare sotto il timeout di spegnimento dei dischi ({disk} s, ⟦Settings⟧ → ⟦Disk Settings⟧ → «⟦Shutdown time-out⟧»).",
     "other": "Guarda un po' — quando l'array si ferma, Unraid chiede a ogni VM di spegnersi e aspetta fino a {timeout} s (⟦Settings⟧ → ⟦VM Manager⟧ → «⟦VM shutdown time-out⟧»); quello che gira ancora dopo viene spento di colpo, come staccare la spina — il lavoro non salvato è perso e Windows controlla il suo disco al prossimo avvio. In queste non risponde nessun agente guest, quindi la richiesta di Unraid è il pulsante di accensione — e un Windows inattivo con lo schermo spento tende a ignorarlo: l'arresto dell'array aspetta tutti i {timeout} s per niente, poi la spina. Cosa aiuta, in Windows: il QEMU Guest Agent (sull'ISO virtio-win: guest-agent\\qemu-ga-x86_64.msi) — Unraid allora chiede a lui, e Windows ascolta; oppure nelle opzioni risparmio energia «Disattiva schermo: Mai» e «Quando viene premuto il pulsante di alimentazione: Arresta il sistema». Un timeout più lungo non aiuta contro questo — l'attesa si allunga soltanto; e deve restare sotto il timeout di spegnimento dei dischi ({disk} s, ⟦Settings⟧ → ⟦Disk Settings⟧ → «⟦Shutdown time-out⟧»)."
   },
+  "where.adv.vm_sparse.disk": "{vm}: {file} — disco virtuale da {virtual}, {used} usati",
+  "where.adv.vm_sparse.title": {"one": "Un disco VM molto più grande di ciò che contiene: {names}", "other": "{n} dischi VM molto più grandi di ciò che contengono: {names}"},
+  "where.adv.vm_sparse.why": "Guarda un po' — {example}. Sul server non costa nulla: è un file sparso, la parte vuota non viene salvata. Ma al primo upload Kopia legge tutto il file, la parte vuota come zeri — ore per niente (un disco da 1,6 TB con 21 GB dentro: quasi tre ore a 200 MB/s); i backup successivi saltano il file finché non cambia. Un disco virtuale più piccolo, o un disco qcow2 che l'ospite trimma (discard='unmap' sul disco nell'XML della VM, poi TRIM dentro l'ospite), tiene il file grande quanto il suo contenuto. Agli snapshot locali non importa in nessun caso.",
   "where.adv.security.title": "Della sicurezza ora si occupa il guardiano notturno",
   "where.adv.security.why": "Condivisioni aperte a tutti, Telnet, FTP, contenitori privilegiati, la protezione della CPU — adesso è il suo reparto, e si accorge anche quando qualcosa cambia. Solo che non lavora ancora qui. Il capoufficio può assumerlo. Se lo chiedi a me: io lo farei."
 }

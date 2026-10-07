@@ -2138,6 +2138,22 @@ function advice() {
       { path: '/Settings/VMSettings', text: T('where.adv.to_vm_settings') }, names.join(','));
   }
 
+  // VM disk files far bigger than what they hold (waSparseDisk(): apparent ≥ 4× allocated and ≥ 200 GB more — a 1.6 TB
+  // vdisk holding 21 GB): Kopia reads such a file whole at its first upload, the holes as zeros, hours for nothing. Advice
+  // while one of them goes to Kopia (its disk's protection), otherwise good to know; the signature is the file and its
+  // virtual size (a disk made smaller or replaced brings the tip back, the used part growing doesn't)
+  const sparse = [];
+  (state.vms || []).forEach((v) => (v.disks || []).forEach((d) => {
+    [d, ...(d.chain || [])].forEach((f) => {
+      if (f.sparse) sparse.push({ vm: v.name, path: f.source || f.path || '', bytes: f.bytes, used: f.allocated || 0, offsite: f.backup === 'offsite' });
+    });
+  }));
+  if (sparse.length) {
+    const files = sparse.map((f) => T('where.adv.vm_sparse.disk', { vm: f.vm, file: f.path.split('/').pop(), virtual: fmt.size(f.bytes), used: fmt.size(f.used) }));
+    add('vm_sparse', sparse.some((f) => f.offsite) ? 'advice' : 'info', { names: listNames(files, 3), n: sparse.length, example: files[0] },
+      { path: '/VMs', text: T('where.adv.to_vms') }, sparse.map((f) => `${f.vm}:${f.path}:${f.bytes}`).join(','));
+  }
+
   // security advice is the night watchman's — while he doesn't work here, she says where it went
   if (Office.desks.has('watchman') && !watchmanHired()) add('security', 'info', {}, { path: '#/caretaker', text: T('where.adv.to_team_lead') });
   return out;
@@ -2910,12 +2926,15 @@ function vmDetail(v) {
   if (v.xml) files.appendChild(pathLine(T('where.vm.xml'), v.xml, { backup: v.config_backup }));
   if (v.nvram) files.appendChild(pathLine(T('where.vm.nvram'), v.nvram, { backup: v.config_backup, note: v.nvram_copies ? T('where.vm.nvram_copies', { n: v.nvram_copies }) : '' }));
   if (v.tpm) files.appendChild(pathLine(T('where.vm.tpm_state'), v.tpm.state || T('where.vm.tpm_none'), { backup: v.tpm.state ? v.config_backup : null, missing: !v.tpm.state }));
+  // a sparse disk file far bigger than what it holds says so (waFileSizes(): bytes = what it is, allocated = what it takes)
+  const sparseNote = (f) => (f.sparse ? T('where.vm.sparse', { used: fmt.size(f.allocated || 0), virtual: fmt.size(f.bytes) }) : '');
   (v.disks || []).forEach((d) => {
     const chain = d.chain || [];
     files.appendChild(pathLine(d.device === 'cdrom' ? T('where.vm.iso', { target: d.target || '' }) : T('where.vm.disk', { target: d.target || '', bus: d.bus || '', format: d.format || '' }),
-      d.source, { backup: d.backup, figure: d.bytes ? fmt.size(d.bytes) : '', note: chain.length ? T('where.vm.overlay', { n: chain.length }) : '' }));
+      d.source, { backup: d.backup, figure: d.bytes ? fmt.size(d.bytes) : '',
+        note: [chain.length ? T('where.vm.overlay', { n: chain.length }) : '', sparseNote(d)].filter(Boolean).join(' ') }));
     chain.forEach((c, i) => files.appendChild(pathLine(T('where.vm.base', { n: i + 1 }), c.path,
-      { backup: c.backup, figure: c.bytes ? fmt.size(c.bytes) : '', missing: !c.exists })));
+      { backup: c.backup, figure: c.bytes ? fmt.size(c.bytes) : '', missing: !c.exists, note: sparseNote(c) })));
   });
   box.appendChild(files);
   const advice = [T('where.vm.move_hint')];

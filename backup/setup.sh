@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.25 - 2026-10-07
+# unraid-backup - setup.sh                        Version 2.26 - 2026-10-07
+#   2.26 The plan carries per VM what its disk files take (bytes, allocated blocks) and what they are
+#        (apparent: a sparse vdisk's full virtual size - what Kopia reads at a first upload, holes as
+#        zeros); backup.sh orders the VMs' Kopia sources by the latter.
 #   2.25 (backup.sh only: --recover brings back what an interrupted run left right after the array
 #        start; the Kopia phase goes small and important first. Here too: an interrupted run's notes
 #        keep exactly what didn't come back - Docker or libvirt silent, a container or VM that doesn't
@@ -2338,11 +2341,14 @@ plan_write() {
     vms="$(for n in "${VM_NAMES[@]}"; do
         printf '%s\x1f' "$n" "${VM_STATE[$n]:-}" "${VM_AUTOSTART[$n]:-}" "${VM_AGENT[$n]:-}" "${VM_HOSTDEV[$n]:-0}" "${VM_TPM[$n]:-}" \
             "${VM_SNAP[$n]:-}" "$(printf '%s' "${VM_OWN_DS[$n]:-}" | tr '\n' $'\x1e')" "$(printf '%s' "${VM_DISKS[$n]:-}" | tr '\n' $'\x1e')" \
-            "${VM_WHY[$n]:-}" "$(vm_share_mode "$n")" "$(old_has "vm|$n" && echo 1)"
+            "${VM_WHY[$n]:-}" "$(vm_share_mode "$n")" "$(old_has "vm|$n" && echo 1)" "${VM_BYTES[$n]:-}" "${VM_APPARENT[$n]:-}"
         echo
-    done | us_json name state autostart agent hostdev tpm snap own disks why share_mode previous \
+    done | us_json name state autostart agent hostdev tpm snap own disks why share_mode previous bytes apparent \
          | jq 'map(select(.name != "") | .hostdev = ((.hostdev // "0") | tonumber) | .tpm = (.tpm == "yes") | .autostart = (.autostart == "yes")
                    | .previous = (.previous == "1")
+                   # since 2.26: what its disk files take (allocated) and what they are (apparent - what Kopia reads at a first upload)
+                   | .bytes = (if (.bytes // "") == "" then null else (.bytes | tonumber) end)
+                   | .apparent = (if (.apparent // "") == "" then null else (.apparent | tonumber) end)
                    | .own = (.own | split("\u001e") | map(select(length > 0)))
                    | .disks = (.disks | split("\u001e") | map(select(length > 0) | split("|")
                         | {target: .[0], source: .[1], base: .[2], fs: .[3], dataset: .[4], share: .[5]})))')" || vms='[]'

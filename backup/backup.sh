@@ -1,6 +1,11 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.25 - 2026-10-07
+# unraid-backup - backup.sh                       Version 2.26 - 2026-10-07
+#   2.26 The Kopia order reckons a VM's own source by its disk files' own sizes (VM_APPARENT: a sparse
+#        vdisk's full virtual size), not by their allocated blocks: Kopia reads a sparse file whole, its
+#        holes as zeros - on 2026-10-07 a 1.6 TB vdisk holding 21 GB was 2 TB of reading at its first
+#        upload (2.7 h), its VM sorted as a small source. The setup's plan carries both sizes per VM
+#        (bytes, apparent) so the office can say what a VM's first upload really reads.
 #   2.25 backup.sh --recover: what a run left stopped, in maintenance mode or held (state/stopped,
 #        maintenance, vms - an array stop leaves them for after the array start) is brought back right
 #        after the array start - the plugin's event/started hands it to atd when such a note exists -,
@@ -2612,7 +2617,7 @@ if [[ "$KOPIA_OK" == "yes" && "$SKIPK" != "1" ]]; then
         esac
     done
     log "  Kopia order:      ${ko_line:-none}"
-    log "                    (shares and VMs the smallest first - the larger of Kopia's size (its newest complete snapshot, or a newer checkpoint when larger) and the server's, * = the server's (ZFS, the VM's disks); ? unknown, last)"
+    log "                    (shares and VMs the smallest first - the larger of Kopia's size (its newest complete snapshot, or a newer checkpoint when larger) and the server's, * = the server's (ZFS; a VM's disk files whole - a sparse vdisk's holes are read too); ? unknown, last)"
 fi
 status_write
 
