@@ -534,7 +534,9 @@ character, warnings and errors stay plain and clear.
   once more; the old sources keep their history under the old names until removed in Kopia); a new
   repository (bucket) starts every source with a full upload — no dedup across repositories.
 * Unraid's `notify` names a notification `<event>-<second>`: a second one with
-  the same event in the same second is dropped. Line breaks in `-m` are a
+  the same event in the same second is dropped — the second its script reads the clock, somewhere in
+  our call: `officeNotify()` starts the next one only after the second the last call ended in
+  (the night shift lost one of three sent in a row, 2026-10-07). Line breaks in `-m` are a
   literal `\n`; never a real newline in `-d`.
 * The plugin manager registers a plugin (`/var/log/plugins` symlink) only after
   its install script: `update_cron` run during a fresh install doesn't pick up

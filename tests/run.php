@@ -4886,6 +4886,22 @@ function testNotify(): void
         return $out;
     };
 
+    // Unraid names a notification after the second its script reads the clock: a stand-in that does so late in its
+    // run (like Unraid's, ~0.4 s) — three sent in a row must land in three different seconds, none overwritten
+    $slow = "$tmp/notify-slow";
+    $secs = "$tmp/seconds";
+    file_put_contents($slow, "#!/bin/bash\nsleep 0.4\ndate +%s >> " . escapeshellarg($secs) . "\n");
+    chmod($slow, 0755);
+    putenv("OFFICE_NOTIFY_BIN=$slow");
+    usleep((int) ((1 - fmod(microtime(true), 1)) * 1e6) + 750000);      // start late in a second: the first one's clock
+                                                                         // falls into the next, where the second one starts
+    foreach (['a', 'b', 'c'] as $s) {
+        officeNotify($s, $s);
+    }
+    $got = array_filter(explode("\n", (string) @file_get_contents($secs)));
+    same('notify: three in a row, three different seconds (none overwritten)', 3, count(array_unique($got)));
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+
     // which findings are red: required and known to be missing, one key per thing
     $f = fn (string $id, string $level, ?bool $ok, array $p = []) => finding($id, $level, $ok, $p);
     $red = caretakerRed(['backup' => [$f('setup', 'required', true), $f('schedule', 'required', false), $f('kopia_repo', 'required', null),

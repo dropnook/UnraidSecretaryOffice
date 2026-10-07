@@ -242,12 +242,14 @@ function officeNotify(string $subject, string $description, string $level = 'nor
     if ($link !== null && $link !== '') {
         $args = [...$args, '-l', $link];
     }
-    // Unraid names a notification after its event and second: a second one within the same second would be lost
-    if (time() === $last) {
+    // Unraid names a notification after its event and the second its script reads the clock — somewhere between
+    // our call's start and its end: one more in that second would overwrite it (the night shift lost one of three
+    // sent in a row on 2026-10-07). $last is the second the last call ENDED in; a new one starts only after it.
+    if (time() <= $last) {
         usleep((int) ((1 - fmod(microtime(true), 1)) * 1e6) + 10000);
     }
-    $last = time();
     [$exit] = hostNet($args, 30);
+    $last = time();
     return $exit === 0;
 }
 
