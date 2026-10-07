@@ -484,7 +484,9 @@ function watchmanTick(): void
     $started = (int) ($GLOBALS['wmStarted'] ?? 0);
     $due = $now - max((int) ($st['round']['time'] ?? 0), $started) >= WATCH_EVERY;
     $anew = (int) ($st['hired'] ?? -1) !== $since && $now - $started >= 60;     // just hired (again): his first round right away
-    if ($due || $anew) {
+    // the array was started after a night shift: its entries into the book right away (a stat; never while it is still on)
+    $night = $now - $started >= 60 && is_file(WATCH_NIGHT_DIR . '/book.json') && !watchmanNightOn();
+    if ($due || $anew || $night) {
         watchmanStart();
     }
 }
@@ -621,8 +623,9 @@ const WATCH_BUMP_KINDS = ['login_new_ip', 'login_failures', 'log_cleared'];     
 /** Where the night shift reads: what lies in the pool or needs the array is left out (missing parts: not looked at) */
 function watchmanNightPaths(): array
 {
+    // libvirt is left alone too (while the array stops it shuts the VMs down; his VM count for a posture tip keeps the day's word)
     return array_diff_key(watchmanPaths(), array_flip(['office_installs', 'zfs', 'zpool', 'mnt', 'agent_log', 'snap_record', 'engine',
-        'sec', 'sec_nfs', 'share_cfg']));
+        'sec', 'sec_nfs', 'share_cfg', 'libvirt_sock', 'virsh']));
 }
 
 /** This boot's id: the RAM mirror and a position in the syslog belong to one boot */
