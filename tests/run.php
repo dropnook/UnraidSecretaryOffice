@@ -7144,6 +7144,13 @@ function testWatchmanNight(): void
     $nst = watchmanLoad($night)['state'];
     $syslogEnd = filesize($paths['syslog']);
     same('night: the syslog read on from the day\'s place', $syslogEnd, $nst['syslog']['size'] ?? null);
+    // what the office's page and the Dashboard tile say meanwhile (officeNightShift()): its rounds, what is new in it and open
+    // (the go line and the new address — not the day's open entry it only counted on, not the array's line he noted himself)
+    same('night: its rounds and what is new in it', [$t + 60, 1, 2], [$nst['night']['since'] ?? null, $nst['night']['rounds'] ?? null, $nst['night']['new'] ?? null]);
+    watchmanNightRound($nightPaths, $night, $t + 360, false, fn () => [], $ram, $flash, $boot1);
+    same('night: a second round counted, nothing more new', [$t + 60, 2, 2], array_values(array_intersect_key(watchmanLoad($night)['state']['night'] ?? [],
+        ['since' => 1, 'rounds' => 1, 'new' => 1])));
+    $nst = watchmanLoad($night)['state'];
 
     // never two of them: while the night shift holds its lock, the day waits
     $h = fopen($lock, 'c');
@@ -7170,6 +7177,7 @@ function testWatchmanNight(): void
     same('handover: the syslog\'s place and what was told taken over; the night\'s files gone', [$syslogEnd, true, []],
         [$d['state']['syslog']['size'] ?? null, isset($d['state']['notified']['flash_go']), array_values(array_filter(WATCH_NIGHT_FILES, fn ($f) => is_file("$night/$f")))]);
     same('handover: nothing left to take over', null, watchmanNightHandover($day, $night, $t + 601, $lock));
+    same('handover: the day\'s night says from, until, which mirror — no counts of its own', ['since', 'until', 'from'], array_keys($d['state']['night'] ?? []));
 
     // the agent's next round: the array's start, the login after the night's last round — once
     file_put_contents($paths['array_events'], ($t + 550) . " start\n", FILE_APPEND);
@@ -7198,6 +7206,7 @@ function testWatchmanNight(): void
     file_put_contents($paths['shadow'], 'root:$6$zz$yy:20000:0:99999:7:::' . "\n");     // changed while it was off: the agent's to find
     $r = watchmanNightRound($nightPaths, $night, $boot + 60, false, fn () => [], $ram, $flash, $boot2);
     $nb = watchmanLoad($night)['book'];
+    same('reboot: a new night counts anew', [$boot + 60, 1], [watchmanLoad($night)['state']['night']['since'] ?? null, watchmanLoad($night)['state']['night']['rounds'] ?? null]);
     same('reboot: begun from the flash, this boot\'s syslog from its start; a password the first look stands for',
         [['hired' => 1000, 'from' => 'flash'], true, false],
         [$r['begun'] ?? null, in_array('login_new_ip:10.0.0.123', $openKeys($nb), true), in_array('flash_password:root', $openKeys($nb), true)]);

@@ -1210,6 +1210,12 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                         'read' => $read['read'], 'skipped' => $read['skipped'], 'rotated' => $read['rotated'],
                         'docker' => $seen['containers'] !== null, 'shares' => $seen['shares'] !== null, 'flow' => $look !== null,
                         'snaps' => $snapRes !== null, 'added' => count($added)];
+        if (is_array($st['night'] ?? null) && !isset($st['night']['until'])) {
+            // the night shift's own state (the day's `night` has `until`): its rounds and what is new in it and open — the
+            // office's page and the Dashboard tile say so while the array is stopped (officeNightShift() in src/mailbox.php)
+            $st['night']['rounds'] = (int) ($st['night']['rounds'] ?? 0) + 1;
+            $st['night']['new'] = count(array_filter($book, fn ($e) => watchmanOpen($e) && !isset($e['stub'])));
+        }
         $old['snaps'] = $snapKnown;
         watchmanSave($dir, $old, ['baseline' => $b, 'book' => $book, 'state' => $st, 'seen' => $observed, 'flow' => $flow, 'posture' => $known,
                                   'snaps' => $snapRes['known'] ?? null]);
