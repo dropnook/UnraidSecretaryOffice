@@ -1077,5 +1077,8 @@
   "left.maintenance": "{name} im Wartungsmodus",
   "stat.last_array_stop": "{when} · Array-Stopp",
   "stat.kopia_skipped": {"one": "1 wartet auf die nächste Sicherung (Array-Stopp)", "other": "{n} warten auf die nächste Sicherung (Array-Stopp)"},
-  "kopia_skipped_count": {"one": "1 ausgelassen (Array-Stopp)", "other": "{n} ausgelassen (Array-Stopp)"}
+  "kopia_skipped_count": {"one": "1 ausgelassen (Array-Stopp)", "other": "{n} ausgelassen (Array-Stopp)"},
+  "drill.line_passed": "Rückholung bewiesen am {when}: {proven} von {total} — Herrn Restoris Übung war bestanden.",
+  "drill.line_failed": "Rückhol-Übung am {when}: {names} kam nicht zurück.",
+  "drill.line_go": "Zur Übung"
 }

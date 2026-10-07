@@ -68,6 +68,9 @@ define('RS_SIZES_FILE', DATA_DIR . '/restore-sizes.json');   // sizes measured i
 
 $GLOBALS['rs'] = ['state' => null, 'du' => ['queue' => [], 'running' => []]];
 
+// his drill (the restore drill, stage 1): functions only, in a file of its own — the agent's desk glob has loaded it already
+require_once __DIR__ . '/restore-drill.php';
+
 function rsSizesFile(): string
 {
     return $GLOBALS['rs']['sizes_file'] ?? RS_SIZES_FILE;
@@ -105,8 +108,18 @@ desk('restore', [
     'start'   => function (): void {
         $GLOBALS['rs']['state'] = readJson(deskFile('restore'));
         rsScan();
+        try {
+            drillSweep(drillRunning()['id'] ?? null, true);     // what a drill left (a crash, a reboot): gone at every agent start
+        } catch (Throwable $e) {
+            logLine('Mr. Restori: the drill\'s sweeper: ' . $e->getMessage());
+        }
     },
-    'tick'    => fn () => rsDuTick(),
+    'tick'    => function (): void {
+        rsDuTick();
+        drillTick();
+    },
+    'checks'  => fn (): array => drillChecks(),
+    'metrics' => fn (): array => drillMetrics(),
     'actions' => [
         'refresh'    => fn (array $r) => ['ok' => true, 'state' => rsScan()],
         'versions'   => fn (array $r) => rsVersions(textField($r, 'kind'), textField($r, 'id')),
@@ -114,8 +127,12 @@ desk('restore', [
         'start'      => fn (array $r) => rsStart($r),
         'journal'    => fn (array $r) => rsJournalGet(textField($r, 'id')),
         'kopia_list' => fn (array $r) => rsKopiaList(textField($r, 'source')),
+        'drill_state' => fn (array $r) => drillState($r),
+        'drill_plan'  => fn (array $r) => drillPlan($r),
+        'drill_start' => fn (array $r) => drillStart($r),
+        'drill_set'   => fn (array $r) => drillSet($r),
     ],
-    'jobs'    => ['restore' => fn (array $args) => rsJob($args)],
+    'jobs'    => ['restore' => fn (array $args) => rsJob($args), 'restore-drill' => fn (array $args) => drillJob($args)],
 ]);
 
 // ===================================================================== the server, once per look
@@ -3087,12 +3104,14 @@ function rsJob(array $args): int
         return 75;
     }
     $GLOBALS['rsStop'] = false;
+    $GLOBALS['rsStopWhy'] = null;
     if (function_exists('pcntl_async_signals')) {
         pcntl_async_signals(true);
         foreach ([SIGTERM, SIGINT, SIGHUP] as $sig) {
             pcntl_signal($sig, function (): void { $GLOBALS['rsStop'] = true; });
         }
     }
+    drillMarker('restore', $id);          // agent.sh's drill_release ends it at the array stop (its lock file lies on the pool)
     $j['result'] = 'running';
     $j['started'] = time();
     $j['pid'] = getmypid();
@@ -3127,7 +3146,7 @@ function rsJob(array $args): int
         $stopped = $GLOBALS['rsStop'];
         $j['result'] = $failed || $stopped ? 'failed' : ($warn ? 'warnings' : 'ok');
         if ($stopped) {
-            $j['reason'] = 'restore_stopped';
+            $j['reason'] = ($GLOBALS['rsStopWhy'] ?? null) === 'array_stopping' ? 'restore_array_stopping' : 'restore_stopped';
         }
         $j['finished'] = time();
         rsJournalWrite($j);
@@ -3135,6 +3154,7 @@ function rsJob(array $args): int
             rsMarkPutback($j['putback_of'], $id, $j['result']);
         }
         rsLockRelease($lock);
+        drillMarker('restore', null);
         rsLog($id, "Done: {$j['result']}");
     }
     logLine("Mr. Restori: $id ({$j['kind']}: {$j['what']}) - {$j['result']}");
@@ -3248,8 +3268,23 @@ function rsBeat(array &$j, ?int $i = null, ?array $progress = null): bool
     if (time() - $last >= 2) {
         $last = time();
         rsJournalWrite($j);
+        // the array is being stopped: end at once (the job holds the engine's lock file open on the pool) — and a
+        // deadline the job set (the drill's: ≥ 15 min before the next backup; a step's own budget)
+        if (rsArrayStopping()) {
+            $GLOBALS['rsStop'] = true;
+            $GLOBALS['rsStopWhy'] ??= 'array_stopping';
+        } elseif (!empty($GLOBALS['rsDeadline']) && time() >= (int) $GLOBALS['rsDeadline']) {
+            $GLOBALS['rsStop'] = true;
+            $GLOBALS['rsStopWhy'] ??= (string) ($GLOBALS['rsDeadlineWhy'] ?? 'deadline');
+        }
     }
     return !empty($GLOBALS['rsStop']);
+}
+
+/** var.ini says the array is being stopped (Stopping, Stopped — like the engine's array_stopping()) */
+function rsArrayStopping(): bool
+{
+    return in_array((string) (readCfg($GLOBALS['rs']['var_ini'] ?? '/var/local/emhttp/var.ini')['fsState'] ?? ''), ['Stopping', 'Stopped'], true);
 }
 
 // --------------------------------------------------------------------- containers
@@ -3327,6 +3362,7 @@ function rsDbScript(string $what, array $s): string
                 'play'   => "$env exec psql -X -q -o /dev/null $who -d postgres",     // results away, errors stay
                 // a fresh cluster over TCP: during its first start the image's init runs a server on the socket only
                 'ready'  => "$env exec psql -X -q -tA" . (!empty($s['tcp']) ? ' -h 127.0.0.1' : '') . " $who -d postgres -c 'select 1'",
+                'databases' => "$env exec psql -X -q -tA $who -d postgres -c 'SELECT datname FROM pg_database WHERE NOT datistemplate'",
                 'kick'   => "$env exec psql -X -q -tA $who -d postgres -c \"SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND backend_type = 'client backend'\"",
                 // the name from the dump as PGDATABASE, never -d: psql reads a -d with "=" as a connection string
                 'tables' => "PGDATABASE=\"\$1\" $env exec psql -X -q -tA $who -c \"SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')\"",
@@ -3340,7 +3376,9 @@ function rsDbScript(string $what, array $s): string
                             . ' --single-transaction --quick --hex-blob ' . (($s['login'] ?? '') === 'user' ? '--triggers' : '--routines --triggers --events')
                             . ' --default-character-set=utf8mb4 --add-drop-database --databases "$1"',
                 'play'   => $cli . 'exec "$B" ' . $who,
-                'ready'  => $cli . 'exec "$B" ' . $who . " -N -B -e 'SELECT 1'",
+                // a fresh server over TCP: during its first start the image's init runs one with skip-networking
+                'ready'  => $cli . 'exec "$B" ' . (!empty($s['tcp']) ? '-h127.0.0.1 --protocol=TCP ' : '') . $who . " -N -B -e 'SELECT 1'",
+                'databases' => $cli . 'exec "$B" ' . $who . " -N -B -e 'SHOW DATABASES'",
                 'tables' => $cli . 'exec "$B" ' . $who . " -N -B -e \"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '\$1' AND table_type = 'BASE TABLE'\"",
                 default  => throw new Problem('command_failed', ['detail' => $what]),
             };

@@ -8161,6 +8161,9 @@ function testStrings(): void
         $sources[basename($file, '.php')][] = $file;
     }
     $sources['snapshot'][] = OFFICE_DIR . '/agent/lib/snapshotplans.php';
+    // Mr. Restori's drill lives in a file of its own beside his desk (agent/desks/restore-drill.php)
+    $sources['restore'] = array_merge($sources['restore'] ?? [], $sources['restore-drill'] ?? []);
+    unset($sources['restore-drill']);
     foreach ($sources as $desk => $files) {
         foreach ($files as $file) {
             preg_match_all("/\\bfinding\\(\\s*'([a-z0-9_]+)'/", (string) file_get_contents($file), $m);

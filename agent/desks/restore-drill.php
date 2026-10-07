@@ -1,0 +1,2276 @@
+<?php
+declare(strict_types=1);
+
+/*
+ * Mr. Restori's drill (stage 1 of the restore drill concept, 2026-10): now and then — monthly after the first
+ * nightly backup run that went well, or when asked («Practise now…») — he proves that what Mr. Backupsy keeps
+ * really comes back, on throwaway objects only, and writes a certificate per app and VM: which level is proven
+ * (L0 there · L1 readable and complete · L2 restorable), from which copy (the package now, the local snapshot of
+ * a run, Kopia), when, and what didn't work and why.
+ *
+ *   packages   L1  every app, VM, server/ and flash/: each file of the manifest there with its size, .gz intact,
+ *                  dumps with their closing line, XML readable, NVRAM and TPM there, the archives listed — and
+ *                  how old the newest good dump really is
+ *   dumps      L2  Postgres, MariaDB, MongoDB from the local snapshot of the package's run, played into a
+ *                  throwaway container of the same image id (--network none, data on tmpfs, its own random or
+ *                  trust login, limits) with Mr. Restori's own play and check (rsDoReady/rsDoPlay/rsDoVerify)
+ *   SQLite     L1  a media server's copies from the local snapshot: integrity_check, user_version and the main
+ *                  table against the live database (read only, switchable)
+ *   VM disks   L1  from the run's snapshot: the file there, a qcow2 chain complete inside the snapshot (the header
+ *                  read here, never qemu-img following paths into live files), a raw disk not all zero
+ *   Kopia      L0  the newest snapshot per source (age, complete, failed files), its structure (snapshot verify)
+ *              L1  a sample streamed back through `kopia show` (a fresh cache: from the bucket, not the local cache)
+ *                  hashed here and compared with the same file in the local snapshot it was read from
+ *
+ * Never: a port, a network, a bind of anything of the app, a Docker volume, the app's labels or passwords, a pull,
+ * --privileged, devices; never a write to the app, its folders or Kopia's repository; never a sleeping disk woken
+ * ("asleep" is no failure). Every docker run argument list comes from drillContainerArgs() (the tests assert the
+ * «never» list against nostromo-shaped manifests).
+ *
+ * The job: atd (`php agent.php job restore-drill <id>`), the engine's lock as {holder: restore, mode: drill},
+ * a journal like his restores (data/restore-drill/<id>/: plan.json, journal.json, log.txt, root only) with a
+ * list "made" — each throwaway written there before it is created — and a sweeper (drillSweep) at its start and
+ * end, at every agent start and hourly in the tick. It ends itself ≥ 15 min before the next scheduled backup, at
+ * once when the array stops (rsBeat looks every 2 s; agent.sh's drill_release on top) and on SIGTERM.
+ * The certificate: data/restore-drill.json (interface 1) — Mr. Backupsy's line, the Dashboard's row, the Team
+ * Lead's checks and the metrics read only this file. data/restore-drill/record.json lists what the drill created
+ * for the night watchman (his adoption follows in stage 2).
+ *
+ * Functions only — loaded by restore.php (and by the agent's desk glob, which comes first: nothing at the top
+ * level may use restore.php's constants).
+ */
+
+const DRILL_ID_PATTERN     = '/^\d{8}-\d{6}-[0-9a-f]{4}$/D';          // like a restore's: <time>-<random>
+const DRILL_PREFIX         = 'uso-drill-';                            // every throwaway: uso-drill-<id>-<n>
+const DRILL_CONTAINER      = '/^uso-drill-(\d{8}-\d{6}-[0-9a-f]{4})-(\d{1,3})$/D';
+const DRILL_LABEL          = 'uso.drill';                             // = <id>
+const DRILL_LABEL_BY       = 'uso.installed-by';
+const DRILL_BY             = 'restori-drill';
+const DRILL_SCHEDULES      = ['monthly', 'weekly', 'off'];
+const DRILL_RESULTS        = ['ok', 'warning', 'failed', 'not_checked', 'asleep'];
+const DRILL_KEEP           = 12;              // drills in the certificate's history and on his page
+const DRILL_RECORD_KEEP    = 50;              // record.json: the newest 50 …
+const DRILL_RECORD_DAYS    = 7;               // … within 7 days
+const DRILL_DEADLINE_GAP   = 900;             // ends ≥ 15 min before the next scheduled backup run
+const DRILL_BUDGET_TOTAL   = 5400;            // a whole drill: 90 min at most
+const DRILL_BUDGET_PLAY    = 1800;            // one dump played
+const DRILL_BUDGET_READY   = 180;             // a throwaway answering
+const DRILL_BUDGET_SQLITE  = 600;             // one integrity_check
+const DRILL_BUDGET_KOPIA   = 1800;            // all Kopia steps together
+const DRILL_KOPIA_MB       = 1024;            // what Kopia may download per drill (setting)
+const DRILL_KOPIA_SAMPLES  = 3;               // files sampled per share source
+const DRILL_KOPIA_LOOKS    = 40;              // directories looked into per share source while sampling
+const DRILL_RAM_SHARE      = 0.25;            // of MemAvailable …
+const DRILL_RAM_MAX        = 8 << 30;         // … at most 8 GB
+const DRILL_SERVER_RAM     = 512 << 20;       // what a database server takes besides its data
+const DRILL_DUMP_FACTOR    = 3;               // the data on tmpfs: the dump's uncompressed size × 3 (indexes, WAL)
+const DRILL_WINDOW         = [0, 7];          // the automatic drill starts between 00:00 and 07:00
+const DRILL_AFTER_RUN      = 6 * 3600;        // … within 6 h after a nightly run ended ok or with warnings
+const DRILL_OVERDUE_DAYS   = 60;              // the Team Lead: no passed drill for 60 days …
+const DRILL_CHECK_DAYS     = 30;              // … once packages exist for 30 days
+const DRILL_AUTO_DAYS      = 7;               // the automatic drill once packages exist for 7 days
+const DRILL_SWEEP_EVERY    = 3600;
+const DRILL_TICK_EVERY     = 60;
+const DRILL_LOG_LINE       = 200;             // a client's line in the log: cut (it may quote row data)
+// what a throwaway takes from the app's container environment: only what shapes the server, never a login
+const DRILL_ENV_KEEP       = ['PGDATA', 'POSTGRES_INITDB_ARGS', 'DB_STORAGE_TYPE', 'LANG', 'LC_ALL'];
+// the main table of a media server's library (rows against the live database)
+const DRILL_SQLITE_TABLES  = ['MediaItems', 'TypedBaseItems', 'BaseItems', 'metadata_items'];
+const DRILL_STEP_KINDS     = ['package', 'dump', 'sqlite', 'vmdisk', 'kopia'];
+
+define('DRILL_DATA', DATA_DIR . '/restore-drill');
+define('DRILL_CERT', DATA_DIR . '/restore-drill.json');           // the certificate (api part "drill")
+define('DRILL_JOB', DATA_DIR . '/restore-drill-job.json');        // the drill going on, polled by the page (api part "drill-job")
+
+$GLOBALS['drill'] ??= [];
+
+// ===================================================================== places (tests point them elsewhere)
+
+function drillData(): string
+{
+    return $GLOBALS['drill']['data'] ?? DRILL_DATA;
+}
+
+function drillCertFile(): string
+{
+    return $GLOBALS['drill']['cert'] ?? DRILL_CERT;
+}
+
+function drillJobFile(): string
+{
+    return $GLOBALS['drill']['job_file'] ?? DRILL_JOB;
+}
+
+function drillDir(string $id): string
+{
+    if (!preg_match(DRILL_ID_PATTERN, $id)) {
+        throw new Problem('unknown_target', ['target' => $id]);
+    }
+    return drillData() . "/$id";
+}
+
+/** The marker in RAM agent.sh's drill_release looks at during the array stop: "<pid> <id>" ($kind drill or restore) */
+function drillMarkerFile(string $kind = 'drill'): string
+{
+    return ($GLOBALS['drill']['run_dir'] ?? RUN_DIR) . "/$kind.open";
+}
+
+function drillMarker(string $kind, ?string $id): void
+{
+    $file = drillMarkerFile($kind);
+    if ($id === null) {
+        @unlink($file);
+        return;
+    }
+    if (is_dir(dirname($file))) {
+        try {
+            writeAtomic($file, getmypid() . " $id\n", 0600, 0, 0);
+        } catch (Throwable) {
+        }
+    }
+}
+
+/** docker, or the tests' stand-in */
+function drillCmd(array $cmd): array
+{
+    if (($cmd[0] ?? '') === 'docker' && isset($GLOBALS['drill']['docker'])) {
+        $cmd[0] = $GLOBALS['drill']['docker'];
+    }
+    return $cmd;
+}
+
+function drillNow(): int
+{
+    return $GLOBALS['drill']['now'] ?? time();
+}
+
+// ===================================================================== settings
+
+/** His drill settings (Benj may change the defaults — the coordinator's decisions 1, 3 and 4) */
+function drillSettings(): array
+{
+    $def = ['schedule' => 'monthly', 'kopia_mb' => DRILL_KOPIA_MB, 'live_catalog' => true, 'live_sqlite' => true];
+    $f = readJson(drillData() . '/settings.json') ?? [];
+    return [
+        'schedule'     => in_array($f['schedule'] ?? null, DRILL_SCHEDULES, true) ? $f['schedule'] : $def['schedule'],
+        'kopia_mb'     => is_int($f['kopia_mb'] ?? null) && $f['kopia_mb'] >= 0 && $f['kopia_mb'] <= 102400 ? $f['kopia_mb'] : $def['kopia_mb'],
+        'live_catalog' => is_bool($f['live_catalog'] ?? null) ? $f['live_catalog'] : $def['live_catalog'],
+        'live_sqlite'  => is_bool($f['live_sqlite'] ?? null) ? $f['live_sqlite'] : $def['live_sqlite'],
+    ];
+}
+
+/** «Drill» settings from his page: each field only when sent */
+function drillSet(array $r): array
+{
+    $s = drillSettings();
+    if (array_key_exists('schedule', $r)) {
+        if (!in_array($r['schedule'], DRILL_SCHEDULES, true)) {
+            throw new Problem('unknown_target', ['target' => (string) (is_scalar($r['schedule']) ? $r['schedule'] : '?')]);
+        }
+        $s['schedule'] = $r['schedule'];
+    }
+    if (array_key_exists('kopia_mb', $r)) {
+        $mb = $r['kopia_mb'];
+        if (!is_int($mb) || $mb < 0 || $mb > 102400) {
+            throw new Problem('unknown_target', ['target' => 'kopia_mb']);
+        }
+        $s['kopia_mb'] = $mb;
+    }
+    foreach (['live_catalog', 'live_sqlite'] as $k) {
+        if (array_key_exists($k, $r)) {
+            if (!is_bool($r[$k])) {
+                throw new Problem('unknown_target', ['target' => $k]);
+            }
+            $s[$k] = $r[$k];
+        }
+    }
+    rsPrivateDir(drillData());
+    writeAtomic(drillData() . '/settings.json', jsonEncode($s), 0600, 0, 0);
+    return drillState([]);
+}
+
+// ===================================================================== the server, cheaply
+
+function drillVarIni(): array
+{
+    return readCfg($GLOBALS['drill']['var_ini'] ?? '/var/local/emhttp/var.ini');
+}
+
+/** A parity check or rebuild going on (var.ini mdResyncPos) */
+function drillParity(?array $var = null): bool
+{
+    $var ??= drillVarIni();
+    return (int) ($var['mdResyncPos'] ?? 0) > 0;
+}
+
+/** RAM the drill may use: 25 % of MemAvailable, at most 8 GB */
+function drillRamBudget(?string $meminfo = null): int
+{
+    if (isset($GLOBALS['drill']['ram'])) {
+        return (int) $GLOBALS['drill']['ram'];
+    }
+    $text = $meminfo ?? (string) @file_get_contents('/proc/meminfo');
+    $avail = preg_match('/^MemAvailable:\s+(\d+)\s+kB/m', $text, $m) ? (int) $m[1] * 1024 : 0;
+    return (int) min(DRILL_RAM_MAX, floor($avail * DRILL_RAM_SHARE));
+}
+
+/** The next scheduled backup run (the plugin's cron file), or null */
+function drillNextBackup(?int $now = null): ?int
+{
+    if (array_key_exists('next_backup', $GLOBALS['drill'])) {
+        return $GLOBALS['drill']['next_backup'];
+    }
+    $cron = officeJobSchedule('backup')['custom'] ?? null;
+    return is_string($cron) && $cron !== '' ? cronNext($cron, $now ?? drillNow()) : null;
+}
+
+/**
+ * When a drill starting now must end: its whole budget, and ≥ 15 min before the next scheduled backup (the
+ * backup comes first: a run meeting the drill's lock would be skipped)
+ */
+function drillDeadline(int $now, ?int $nextBackup): int
+{
+    $end = $now + DRILL_BUDGET_TOTAL;
+    return $nextBackup !== null ? min($end, $nextBackup - DRILL_DEADLINE_GAP) : $end;
+}
+
+/** Since when packages exist: the engine's oldest history line (cheap: its first line) */
+function drillPackagesSince(): ?int
+{
+    $h = @fopen(rsUbData() . '/state/history.jsonl', 'r');
+    if (!$h) {
+        return null;
+    }
+    $since = null;
+    for ($i = 0; $i < 50 && ($line = fgets($h, 1 << 20)) !== false; $i++) {
+        $j = json_decode($line, true);
+        if (is_array($j) && is_int($j['started'] ?? null) && $j['started'] > 0) {
+            $since = $j['started'];
+            break;
+        }
+    }
+    fclose($h);
+    return $since;
+}
+
+// ===================================================================== the throwaway: one gate
+
+/**
+ * A container of the manifest in exactly the shape the engine writes it (docker inspect, trusted only where it is
+ * what we expect): image id, entrypoint, command, user, the volumes of the image, the shaping environment.
+ */
+function drillContainerOf(array $manifest, string $name): ?array
+{
+    foreach ((array) ($manifest['containers'] ?? []) as $c) {
+        if (!is_array($c) || ($c['name'] ?? null) !== $name) {
+            continue;
+        }
+        $cfg = is_array($c['inspect']['Config'] ?? null) ? $c['inspect']['Config'] : [];
+        $list = fn (mixed $v): array => is_array($v) && array_is_list($v) && !array_filter($v, fn ($x) => !is_string($x)) ? $v : [];
+        $env = [];
+        foreach ($list($cfg['Env'] ?? null) as $e) {
+            [$k, $v] = array_pad(explode('=', $e, 2), 2, '');
+            if (in_array($k, DRILL_ENV_KEEP, true) && !preg_match('/[\x00-\x1f]/', $v)) {
+                $env[$k] = $v;
+            }
+        }
+        $vols = [];
+        foreach (is_array($cfg['Volumes'] ?? null) ? array_keys($cfg['Volumes']) : [] as $v) {
+            if (is_string($v) && preg_match('#^/[A-Za-z0-9_./-]{1,200}$#D', $v) && !str_contains("/$v/", '/../')) {
+                $vols[] = rtrim($v, '/');
+            }
+        }
+        $id = is_string($c['image_id'] ?? null) ? strtolower($c['image_id']) : '';
+        $shm = $c['inspect']['HostConfig']['ShmSize'] ?? null;
+        return [
+            'name'       => $name,
+            'image'      => is_string($c['image'] ?? null) ? $c['image'] : '',
+            'image_id'   => preg_match('/^sha256:[0-9a-f]{64}$/D', $id) ? $id : '',
+            'entrypoint' => $list($cfg['Entrypoint'] ?? null),
+            'cmd'        => $list($cfg['Cmd'] ?? null),
+            'user'       => is_string($cfg['User'] ?? null) && preg_match('/^\d{1,10}(:\d{1,10})?$/D', $cfg['User']) ? $cfg['User'] : '',
+            'env'        => $env,
+            'volumes'    => array_values(array_unique($vols)),
+            'shm'        => is_int($shm) && $shm > 0 ? min($shm, 1 << 30) : 0,
+        ];
+    }
+    return null;
+}
+
+/** Where a database image keeps its data (each gets a tmpfs; so does every volume the image declares) */
+function drillDataDir(string $type, array $c): string
+{
+    return match ($type) {
+        'postgres' => rtrim($c['env']['PGDATA'] ?? '', '/') ?: '/var/lib/postgresql/data',
+        'mariadb'  => '/var/lib/mysql',
+        'mongodb'  => '/data/db',
+        default    => '/data',
+    };
+}
+
+/**
+ * Every argument of a throwaway's `docker run` — the one gate. In: the app's container as drillContainerOf() read
+ * it, its database type, the throwaway's name (uso-drill-<id>-<n>) and id, its memory (bytes), its own password.
+ * Out: never a port, a network but none, a bind, a volume, a device, a capability, --privileged, an app label or
+ * an app login; always the label uso.drill=<id>, limits, no restart, small logs, no new privileges, the image by id.
+ */
+function drillContainerArgs(array $c, string $type, string $name, string $id, int $memory, string $password): array
+{
+    if (!preg_match(DRILL_CONTAINER, $name, $m) || $m[1] !== $id || $c['image_id'] === '' || !in_array($type, ['postgres', 'mariadb', 'mongodb'], true)) {
+        throw new Problem('command_failed', ['detail' => 'throwaway']);
+    }
+    $mb = max(256, intdiv($memory, 1 << 20));
+    $tmpfs = max(128, $mb - intdiv(DRILL_SERVER_RAM, 1 << 20));
+    [$uid, $gid] = $c['user'] !== '' ? array_map('intval', array_pad(explode(':', $c['user']), 2, explode(':', $c['user'])[0])) : [null, null];
+    $owner = $uid !== null ? ",uid=$uid,gid=$gid" : '';
+    $args = ['docker', 'run', '-d', '--name', $name,
+        '--label', DRILL_LABEL . "=$id", '--label', DRILL_LABEL_BY . '=' . DRILL_BY,
+        '--label', 'net.unraid.docker.icon=file://' . OFFICE_DIR . '/images/' . OFFICE_PLUGIN . '.png',
+        '--network', 'none', '--restart', 'no',
+        '--memory', "{$mb}m", '--memory-swap', "{$mb}m", '--cpus', '2', '--pids-limit', '512',
+        '--log-driver', 'json-file', '--log-opt', 'max-size=10m', '--log-opt', 'max-file=1',
+        '--security-opt', 'no-new-privileges'];
+    if ($c['shm'] > 0) {
+        $args = [...$args, '--shm-size', (string) $c['shm']];
+    }
+    // the data on tmpfs (in RAM, counted in --memory) — and every volume the image declares, or Docker would make an
+    // anonymous volume of its own for it
+    $dirs = array_values(array_unique([drillDataDir($type, $c), ...$c['volumes']]));
+    foreach ($dirs as $i => $dir) {
+        $args = [...$args, '--tmpfs', $dir . ':rw,size=' . ($i === 0 ? $tmpfs : 64) . "m$owner"];
+    }
+    if ($uid !== null) {
+        $args = [...$args, '--user', "$uid:$gid"];
+    }
+    foreach ($c['env'] as $k => $v) {
+        $args = [...$args, '-e', "$k=$v"];
+    }
+    $args = [...$args, ...match ($type) {
+        'postgres' => ['-e', 'POSTGRES_HOST_AUTH_METHOD=trust'],
+        'mariadb'  => ['-e', "MARIADB_ROOT_PASSWORD=$password", '-e', "MYSQL_ROOT_PASSWORD=$password"],
+        'mongodb'  => [],
+    }];
+    $ep = $c['entrypoint'];
+    if ($ep) {
+        $args = [...$args, '--entrypoint', $ep[0]];
+    }
+    $args[] = $c['image_id'];
+    $cmd = [...array_slice($ep, 1), ...$c['cmd']];
+    // MariaDB: room for the dump's biggest rows (the image's entrypoint passes options on to the server)
+    if ($type === 'mariadb' && (!$c['cmd'] || str_starts_with($c['cmd'][0], '-') || in_array(basename($c['cmd'][0]), ['mariadbd', 'mysqld'], true))) {
+        $cmd[] = '--max-allowed-packet=1G';
+    }
+    return [...$args, ...$cmd];
+}
+
+/** Does an argument list keep to the «never» list? (the tests, and the job before every run as a second look) */
+function drillArgsSafe(array $args): bool
+{
+    $s = implode("\x1f", $args);
+    if (preg_match('/\x1f(-p|--publish|--publish-all|-P|-v|--volume|--mount|--device|--cap-add|--privileged|--volumes-from|--pid|--ipc|--userns|--add-host|--link|--pull)(=|\x1f)/', "\x1f$s\x1f")) {
+        return false;
+    }
+    if (preg_match('/com\.docker\.compose\.|net\.unraid\.docker\.managed/', $s)) {
+        return false;
+    }
+    $net = array_keys($args, '--network', true);
+    if (count($net) !== 1 || ($args[$net[0] + 1] ?? '') !== 'none') {
+        return false;
+    }
+    foreach ($args as $i => $a) {
+        if ($a === '-e' && preg_match('/^(\w+)=/', (string) ($args[$i + 1] ?? ''), $m)
+            && !in_array($m[1], [...DRILL_ENV_KEEP, 'POSTGRES_HOST_AUTH_METHOD', 'MARIADB_ROOT_PASSWORD', 'MYSQL_ROOT_PASSWORD'], true)) {
+            return false;
+        }
+    }
+    if (preg_grep('/^--net(work)?=|^--net$/D', $args)) {
+        return false;
+    }
+    return (bool) preg_grep('/^' . preg_quote(DRILL_LABEL, '/') . '=\d{8}-\d{6}-[0-9a-f]{4}$/D', $args)
+        && in_array('no-new-privileges', $args, true) && (bool) preg_grep('/^sha256:[0-9a-f]{64}$/D', $args);
+}
+
+// ===================================================================== the plan and its preview
+
+/** The engine's lock, the array, a parity check, the deadline: why no drill can start now (or null) */
+function drillBlocker(int $estimate, ?int $nextBackup, int $now): ?array
+{
+    $var = drillVarIni();
+    if ($var && !in_array((string) ($var['fsState'] ?? ''), ARRAY_RUNNING, true)) {
+        return ['key' => 'drill_array', 'params' => []];
+    }
+    if (drillParity($var)) {
+        return ['key' => 'drill_parity', 'params' => []];
+    }
+    $run = drillRunning();
+    if ($run) {
+        return ['key' => 'drill_running', 'params' => []];
+    }
+    $busy = rsBusy();
+    if ($busy) {
+        return $busy;
+    }
+    if ($nextBackup !== null && $now + min($estimate, DRILL_BUDGET_TOTAL) > $nextBackup - DRILL_DEADLINE_GAP) {
+        return ['key' => 'drill_deadline', 'params' => ['time' => $nextBackup]];
+    }
+    return null;
+}
+
+/**
+ * What a drill would prove, from a fresh look at the server (the backup place's packages, the engine's settings,
+ * Kopia's container): one step per package, dump, SQLite copy, VM disk and Kopia source — and the preview's facts.
+ */
+function drillPlanBuild(string $scope): array
+{
+    [$settings, $ctx, $place] = rsPlanPlace();
+    $set = drillSettings();
+    $pk = $place['found'] ? rsPackages($place['base']) : ['apps' => [], 'vms' => [], 'server' => null, 'flash' => null, 'run' => null];
+    $engine = rsEngine($settings);
+    $steps = [];
+    $live = [];
+    foreach ($pk['apps'] as $a) {
+        $steps[] = ['do' => 'package', 'kind' => 'app', 'id' => $a['id'], 'name' => $a['name'], 'run' => $a['run'], 'stale' => $a['stale']];
+        foreach ($a['dumps'] as $d) {
+            $file = "{$a['path']}/{$d['file']}";
+            $steps[] = ['do' => 'dump', 'kind' => 'app', 'id' => $a['id'], 'name' => $a['name'], 'container' => $d['container'], 'type' => $d['type'],
+                        'file' => $d['file'], 'run' => $a['run'], 'dump_run' => $d['run'], 'db' => $d['db'], 'isize' => rsGzSize($file),
+                        'bytes' => $d['bytes'], 'immich' => (bool) array_filter($a['containers'], fn ($c) => stripos($c['image'], 'immich') !== false)] + rsLogin($d);
+            if ($set['live_catalog']) {
+                $live[] = ['what' => 'catalog', 'name' => $d['container']];
+            }
+        }
+        foreach ($a['sqlite'] as $q) {
+            $steps[] = ['do' => 'sqlite', 'kind' => 'app', 'id' => $a['id'], 'name' => $a['name'], 'container' => $q['container'], 'file' => $q['file'],
+                        'source' => $q['source'], 'run' => $a['run'], 'bytes' => $q['bytes']];
+            if ($set['live_sqlite'] && $q['source'] !== '') {
+                $live[] = ['what' => 'sqlite', 'name' => $q['source']];
+            }
+        }
+    }
+    foreach ($pk['vms'] as $v) {
+        $steps[] = ['do' => 'package', 'kind' => 'vm', 'id' => $v['id'], 'name' => $v['name'], 'run' => $v['run'], 'stale' => $v['stale']];
+        foreach ($v['disks'] as $d) {
+            if ($d['source'] !== '') {
+                $steps[] = ['do' => 'vmdisk', 'kind' => 'vm', 'id' => $v['id'], 'name' => $v['name'], 'target' => $d['target'], 'source' => $d['source'],
+                            'snapshot' => $d['snapshot'], 'run' => $v['run'], 'bytes' => $d['bytes']];
+            }
+        }
+    }
+    if ($pk['server']) {
+        $steps[] = ['do' => 'package', 'kind' => 'server', 'id' => 'server', 'name' => 'server', 'run' => (string) ($pk['run'] ?? ''), 'stale' => false];
+    }
+    if ($pk['flash']) {
+        $steps[] = ['do' => 'package', 'kind' => 'flash', 'id' => 'flash', 'name' => 'flash', 'run' => (string) ($pk['run'] ?? ''), 'stale' => false];
+    }
+    // Kopia: the apps' and VMs' own sources first (their whole package is the sample), then the shares
+    $kopia = null;
+    if ($engine['kopia']) {
+        $k = rsKopia($engine, $settings);
+        $kopia = ['container' => $k['container'], 'running' => $k['running'], 'root' => $k['root']];
+        foreach (['app' => $pk['apps'], 'vm' => $pk['vms']] as $kind => $list) {
+            foreach ($list as $x) {
+                if (backupSetting($settings, "$kind|{$x['name']}", 'kopia', 'no') === 'yes') {
+                    $steps[] = ['do' => 'kopia', 'kind' => $kind, 'id' => $x['id'], 'name' => $x['name'], 'source' => ".{$kind}s/{$x['id']}"];
+                }
+            }
+        }
+        foreach ($settings as $key => $_) {
+            if (str_starts_with((string) $key, 'share|') && backupSetting($settings, (string) $key, 'mode', 'off') === 'kopia') {
+                $share = substr((string) $key, 6);
+                if (preg_match('/^[\w .-]+$/D', $share)) {
+                    $steps[] = ['do' => 'kopia', 'kind' => 'share', 'id' => $share, 'name' => $share, 'source' => $share];
+                }
+            }
+        }
+    }
+    $estimate = 0;
+    $ram = drillRamBudget();
+    $asleep = [];
+    foreach ($steps as $s) {
+        $estimate += drillEstimate($s, $set);
+    }
+    foreach ($place['places'] as $p) {
+        if ($p['asleep']) {
+            $asleep[] = $p['base'];
+        }
+    }
+    foreach ($pk['vms'] as $v) {
+        foreach ($v['disks'] as $d) {
+            foreach (rsLocate($d['source'], $ctx) as $p) {
+                if ($p['asleep']) {
+                    $asleep[] = $p['base'];
+                }
+            }
+        }
+    }
+    $now = drillNow();
+    $next = drillNextBackup($now);
+    $plan = [
+        'kind'     => 'drill',
+        'scope'    => $scope,
+        'what'     => $scope,
+        'steps'    => $steps,
+        'counts'   => array_count_values(array_column($steps, 'do')) + array_fill_keys(DRILL_STEP_KINDS, 0),
+        'estimate' => min($estimate, DRILL_BUDGET_TOTAL),
+        'ram'      => $ram,
+        'kopia'    => $kopia,
+        'kopia_mb' => $set['kopia_mb'],
+        'live'     => $live,
+        'asleep'   => array_values(array_unique($asleep)),
+        'too_big'  => array_values(array_map(fn ($s) => ['name' => $s['container'], 'need' => drillDumpNeed($s)],
+                          array_filter($steps, fn ($s) => $s['do'] === 'dump' && $s['type'] !== 'mongodb' && drillDumpNeed($s) > $ram))),
+        'next_backup' => $next,
+        'deadline' => drillDeadline($now, $next),
+        'blockers' => [],
+    ];
+    if (!$steps) {
+        $plan['blockers'][] = ['key' => 'drill_nothing', 'params' => []];
+    }
+    $b = drillBlocker($plan['estimate'], $next, $now);
+    if ($b) {
+        array_unshift($plan['blockers'], $b);
+    }
+    return $plan;
+}
+
+/** Seconds a step takes, roughly (the preview, the deadline) */
+function drillEstimate(array $s, array $set): int
+{
+    return match ($s['do']) {
+        'package' => 3,
+        'dump'    => 60 + intdiv((int) ($s['isize'] ?: $s['bytes'] * 8), 1 << 20),            // ~1 MB/s with indexes
+        'sqlite'  => 5 + intdiv((int) $s['bytes'], 200 << 20),
+        'vmdisk'  => 2,
+        'kopia'   => 120 + ($s['kind'] === 'share' ? 30 : intdiv($set['kopia_mb'], 20)),
+        default   => 5,
+    };
+}
+
+/** RAM a dump needs in its throwaway: its uncompressed size × 3 plus the server */
+function drillDumpNeed(array $s): int
+{
+    $size = (int) ($s['isize'] ?? 0) ?: (int) ($s['bytes'] ?? 0) * 8;
+    return $size * DRILL_DUMP_FACTOR + DRILL_SERVER_RAM;
+}
+
+/** The preview: the plan sealed with a stamp and a token over what will be done */
+function drillPlan(array $r): array
+{
+    $plan = drillPlanBuild('now');
+    $stamp = rsStampOf($r);
+    $plan['stamp'] = $stamp;
+    $plan['token'] = sha1(jsonEncode([$stamp, $plan['steps']]));
+    return ['ok' => true, 'preview' => $plan];
+}
+
+/** «Practise now…» confirmed: the plan again, the same token, then the job */
+function drillStart(array $r): array
+{
+    $plan = drillPlan($r)['preview'];
+    if (!hash_equals($plan['token'], textField($r, 'token'))) {
+        throw new Problem('restore_changed');
+    }
+    $id = drillLaunch($plan);
+    return ['ok' => true, 'id' => $id, 'state' => drillState([])];
+}
+
+/** Writes the plan and its journal (root only) and hands the job to atd — the id; $run false: only written (tests) */
+function drillLaunch(array $plan, bool $run = true): string
+{
+    if ($plan['blockers']) {
+        throw new Problem($plan['blockers'][0]['key'], $plan['blockers'][0]['params'] ?? []);
+    }
+    $id = ($plan['stamp'] ?? date('Ymd-His', drillNow())) . '-' . bin2hex(random_bytes(2));
+    rsPrivateDir(drillData());
+    rsPrivateDir(drillDir($id));
+    writeAtomic(drillDir($id) . '/plan.json', jsonEncode($plan), 0600, 0, 0);
+    $j = drillJournalNew($id, $plan);
+    drillJournalWrite($j);
+    if (!$run) {
+        return $id;
+    }
+    try {
+        hostLaunch('restore-drill', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'restore-drill', $id]);
+    } catch (Problem $p) {
+        $j['result'] = 'refused';
+        $j['reason'] = $p->key;
+        $j['finished'] = drillNow();
+        drillJournalWrite($j);
+        throw $p;
+    }
+    logLine("Mr. Restori: drill $id ({$plan['scope']}, " . count($plan['steps']) . ' steps) started via at');
+    return $id;
+}
+
+function drillJournalNew(string $id, array $plan): array
+{
+    return [
+        'id'       => $id,
+        'kind'     => 'drill',
+        'what'     => $plan['scope'],
+        'scope'    => $plan['scope'],
+        'created'  => drillNow(),
+        'started'  => null,
+        'finished' => null,
+        'pid'      => null,
+        'result'   => 'queued',
+        'reason'   => null,
+        'deadline' => $plan['deadline'],
+        'steps'    => array_map(fn ($s) => $s + ['state' => 'pending'], $plan['steps']),
+        'made'     => [],
+        'egress'   => 0,
+        'aside'    => [], 'stopped' => [], 'safety' => [],          // rs* step helpers expect them
+    ];
+}
+
+/** A drill's journal (root only) and, while it is the newest, the job file the page polls */
+function drillJournalWrite(array &$j, bool $public = true): void
+{
+    $j['heartbeat'] = time();
+    writeAtomic(drillDir($j['id']) . '/journal.json', jsonEncode($j), 0600, 0, 0);
+    if ($public) {
+        writeAtomic(drillJobFile(), jsonEncode(drillJobView($j)));
+    }
+}
+
+/** The job file: the journal without what the page doesn't need (paths of the made objects stay in the journal) */
+function drillJobView(array $j): array
+{
+    $v = array_intersect_key($j, array_flip(['id', 'kind', 'what', 'scope', 'created', 'started', 'finished', 'pid', 'result', 'reason', 'deadline', 'egress', 'heartbeat']));
+    $v['steps'] = array_map(fn ($s) => array_intersect_key($s, array_flip(['do', 'kind', 'id', 'name', 'container', 'type', 'file', 'source', 'target',
+        'state', 'level', 'copy', 'code', 'params', 'seconds', 'state_time', 'progress', 'started', 'finished'])), (array) ($j['steps'] ?? []));
+    return $v;
+}
+
+function drillJournal(string $id): ?array
+{
+    return readJson(drillDir($id) . '/journal.json');
+}
+
+/** The drill going on now — its job lives — or null */
+function drillRunning(): ?array
+{
+    $j = readJson(drillJobFile());
+    if (!$j || !is_string($j['id'] ?? null) || !in_array($j['result'] ?? '', ['queued', 'running'], true)) {
+        return null;
+    }
+    if ($j['result'] === 'queued') {
+        return time() - (int) ($j['created'] ?? 0) < 120 ? $j : null;
+    }
+    return rsJobAlive($j) ? $j : null;
+}
+
+/** His drills for the page, newest first (a journal "running" whose job is gone was interrupted) */
+function drillJournals(): array
+{
+    $ids = array_values(array_filter(@scandir(drillData(), SCANDIR_SORT_DESCENDING) ?: [], fn ($n) => (bool) preg_match(DRILL_ID_PATTERN, $n)));
+    $out = [];
+    foreach (array_slice($ids, 0, DRILL_KEEP) as $id) {
+        $j = drillJournal($id);
+        if (!$j) {
+            continue;
+        }
+        $counts = array_fill_keys([...DRILL_RESULTS, 'skipped', 'pending'], 0);
+        foreach ((array) ($j['steps'] ?? []) as $s) {
+            $st = (string) ($s['state'] ?? 'pending');
+            $counts[$st] = ($counts[$st] ?? 0) + 1;
+        }
+        $out[] = ['id' => $id, 'scope' => (string) ($j['scope'] ?? ''), 'created' => (int) ($j['created'] ?? 0), 'started' => $j['started'] ?? null,
+                  'finished' => $j['finished'] ?? null, 'result' => (string) ($j['result'] ?? ''), 'reason' => $j['reason'] ?? null, 'counts' => $counts,
+                  'egress' => (int) ($j['egress'] ?? 0)];
+    }
+    return $out;
+}
+
+/** What his page shows of the drill: settings, the certificate, his drills, the one going on, when the next comes */
+function drillState(array $r): array
+{
+    $out = ['ok' => true, 'settings' => drillSettings(), 'certificate' => drillCertificate(), 'running' => drillRunning() ? drillJobView(drillRunning()) : null,
+            'drills' => drillJournals(), 'ram' => drillRamBudget(), 'next_backup' => drillNextBackup(), 'packages_since' => drillPackagesSince(),
+            'auto' => readJson(drillData() . '/auto.json')];
+    $id = $r['id'] ?? null;
+    if (is_string($id) && $id !== '') {
+        $j = drillJournal($id);
+        if (!$j) {
+            throw new Problem('unknown_target', ['target' => $id]);
+        }
+        $log = @file(drillDir($id) . '/log.txt', FILE_IGNORE_NEW_LINES) ?: [];
+        $out['journal'] = drillJobView($j);
+        $out['log'] = array_slice($log, -300);
+    }
+    return $out;
+}
+
+// ===================================================================== the job
+
+/**
+ * "php agent.php job restore-drill <id>" — run by the host's atd (drillLaunch), never as a child of the agent.
+ * Takes the engine's lock as {holder: restore, mode: drill} or is refused (busy — exit 75, nothing touched), sweeps
+ * what an earlier drill may have left, proves step by step, cleans up after itself whatever happens, writes the
+ * certificate and — on a failure — one warning to Unraid's notifications.
+ */
+function drillJob(array $args): int
+{
+    $id = (string) ($args[0] ?? '');
+    if (!preg_match(DRILL_ID_PATTERN, $id)) {
+        fwrite(STDERR, "restore-drill: no such drill\n");
+        return 2;
+    }
+    // his restore helpers (journal, log, heartbeat) write into the drill's folder in this process
+    $GLOBALS['rs']['data'] = drillData();
+    $GLOBALS['rs']['job_file'] = drillJobFile();
+    $j = drillJournal($id);
+    $plan = readJson(drillDir($id) . '/plan.json');
+    if (!$j || !$plan || ($j['result'] ?? '') !== 'queued') {
+        fwrite(STDERR, "restore-drill $id: nothing to do\n");
+        return 1;
+    }
+    $refuse = function (string $reason, array $params = []) use (&$j, $id): int {
+        $j['result'] = 'refused';
+        $j['reason'] = $reason;
+        $j['reason_params'] = $params;
+        $j['finished'] = time();
+        drillJournalWrite($j);
+        rsLog($id, "Refused: $reason");
+        drillCertHistory($j);
+        return 75;
+    };
+    $var = drillVarIni();
+    if ($var && !in_array((string) ($var['fsState'] ?? ''), ARRAY_RUNNING, true)) {
+        return $refuse('drill_array');
+    }
+    if (drillParity($var)) {
+        return $refuse('drill_parity');
+    }
+    if (time() >= (int) $j['deadline'] - 60) {
+        return $refuse('drill_deadline', ['time' => drillNextBackup()]);
+    }
+    $lock = rsLockTake('drill', 'drill');
+    if (!is_resource($lock)) {
+        return $refuse('restore_busy_' . (in_array($lock['holder'] ?? '', BACKUP_HOLDERS, true) ? $lock['holder'] : 'other'),
+            ['what' => (string) ($lock['what'] ?? ''), 'run' => (string) ($lock['run'] ?? '')]);
+    }
+    $GLOBALS['rsStop'] = false;
+    $GLOBALS['rsStopWhy'] = null;
+    $GLOBALS['rsDeadline'] = (int) $j['deadline'];
+    $GLOBALS['rsDeadlineWhy'] = 'deadline';
+    if (function_exists('pcntl_async_signals')) {
+        pcntl_async_signals(true);
+        foreach ([SIGTERM, SIGINT, SIGHUP] as $sig) {
+            pcntl_signal($sig, function (): void {
+                $GLOBALS['rsStop'] = true;
+                $GLOBALS['rsStopWhy'] ??= 'stopped';
+            });
+        }
+    }
+    drillMarker('drill', $id);
+    $j['result'] = 'running';
+    $j['started'] = time();
+    $j['pid'] = getmypid();
+    drillJournalWrite($j);
+    rsLog($id, "Drill $id ({$j['scope']}), " . count($j['steps']) . ' steps, until ' . date('H:i', (int) $j['deadline']));
+    $env = null;
+    try {
+        drillSweep($id, true);
+        $env = drillEnv($j, $plan);
+        foreach (array_keys($j['steps']) as $i) {
+            if (!empty($GLOBALS['rsStop'])) {
+                $j['steps'][$i]['state'] = 'skipped';
+                continue;
+            }
+            $j['steps'][$i]['state'] = 'running';
+            $j['steps'][$i]['started'] = time();
+            drillJournalWrite($j);
+            rsLog($id, sprintf('Step %d/%d: %s %s', $i + 1, count($j['steps']), $j['steps'][$i]['do'], drillStepName($j['steps'][$i])));
+            $t0 = microtime(true);
+            try {
+                $res = drillStep($j, $i, $env);
+            } catch (Throwable $e) {
+                $res = ['state' => 'failed', 'code' => 'drill_error', 'detail' => mb_substr($e->getMessage(), 0, 400)];
+            }
+            // stopped from outside (the array, the deadline, SIGTERM) while the step ran: it proved nothing
+            if (!empty($GLOBALS['rsStop']) && in_array($res['state'], ['failed', 'not_checked'], true)) {
+                $res = ['state' => 'skipped', 'code' => (string) $GLOBALS['rsStopWhy']];
+            }
+            $res['seconds'] ??= (int) round(microtime(true) - $t0);
+            $j['steps'][$i] = array_merge($j['steps'][$i], $res, ['finished' => time()]);
+            rsLog($id, "  -> {$res['state']}" . (($res['code'] ?? '') !== '' ? " ({$res['code']})" : '')
+                . (($res['detail'] ?? '') !== '' ? ': ' . mb_substr((string) $res['detail'], 0, 600) : ''));
+            drillJournalWrite($j);
+        }
+    } finally {
+        // the array is being stopped: the lock file (on the pool) let go first, only the throwaways removed — the rest
+        // (Kopia's temporary folder, the sweeper's look) waits for the next agent start
+        $fast = ($GLOBALS['rsStopWhy'] ?? '') === 'array_stopping';
+        if ($fast) {
+            rsLockRelease($lock);
+        }
+        drillCleanup($j, $env, true, $fast);
+        $stopped = !empty($GLOBALS['rsStop']);
+        $failed = (bool) array_filter($j['steps'], fn ($s) => ($s['state'] ?? '') === 'failed');
+        $j['result'] = $stopped ? 'aborted' : ($failed ? 'failed' : 'passed');
+        $j['reason'] = $stopped ? (string) ($GLOBALS['rsStopWhy'] ?? 'stopped') : null;
+        $j['finished'] = time();
+        drillJournalWrite($j);
+        if (!$fast) {
+            try {
+                drillSweep($id, true);
+            } catch (Throwable) {
+            }
+            rsLockRelease($lock);
+        }
+        drillMarker('drill', null);
+        rsLog($id, "Done: {$j['result']}" . ($j['reason'] ? " ({$j['reason']})" : ''));
+        drillCertWrite($j, $env);
+        if ($j['result'] === 'failed') {
+            drillNotify($j);
+        }
+    }
+    logLine("Mr. Restori: drill $id - {$j['result']}" . ($j['reason'] ? " ({$j['reason']})" : ''));
+    return $j['result'] === 'failed' ? 1 : 0;
+}
+
+/** A step's subject, for the log */
+function drillStepName(array $s): string
+{
+    return trim($s['name'] . ' ' . ($s['container'] ?? $s['file'] ?? $s['target'] ?? $s['source'] ?? ''));
+}
+
+/** What every step needs, read once: the engine's settings, the server's look, the packages, Kopia */
+function drillEnv(array $j, array $plan): array
+{
+    $settings = backupReadSettings(rsUbData() . '/settings.ini');
+    $ctx = rsContext($settings);
+    $place = rsPlace($settings, $ctx);
+    $base = $place['base'];
+    $pk = $place['found'] ? rsPackages($base) : ['apps' => [], 'vms' => [], 'server' => null, 'flash' => null, 'run' => null];
+    $engine = rsEngine($settings);
+    $kopia = $engine['kopia'] ? rsKopia($engine, $settings) : null;
+    return ['settings' => $settings, 'ctx' => $ctx, 'place' => $place, 'base' => $base, 'pk' => $pk, 'kopia' => $kopia, 'uid' => null,
+            'set' => drillSettings(), 'ram' => drillRamBudget(), 'kopia_left' => drillSettings()['kopia_mb'] << 20,
+            'kopia_until' => null, 'shares' => (int) count(array_filter($plan['steps'], fn ($s) => $s['do'] === 'kopia' && $s['kind'] === 'share')),
+            'kopia_times' => []];
+}
+
+function drillStep(array &$j, int $i, array &$env): array
+{
+    $s = $j['steps'][$i];
+    return match ($s['do']) {
+        'package' => drillDoPackage($s, $env),
+        'dump'    => drillDoDump($j, $i, $env),
+        'sqlite'  => drillDoSqlite($j, $s, $env),
+        'vmdisk'  => drillDoVmDisk($s, $env),
+        'kopia'   => drillDoKopia($j, $i, $env),
+        default   => ['state' => 'failed', 'code' => 'drill_error', 'detail' => "unknown step {$s['do']}"],
+    };
+}
+
+/** The worst of several results: failed > warning > not_checked > asleep > ok */
+function drillWorst(array $results): string
+{
+    foreach (['failed', 'warning', 'not_checked', 'asleep'] as $r) {
+        if (in_array($r, $results, true)) {
+            return $r;
+        }
+    }
+    return 'ok';
+}
+
+// --------------------------------------------------------------------- where a file lies in the run's snapshot
+
+/**
+ * The same file in the local snapshot of a run (the engine's, all pools and disks of a share at once): found (its
+ * path), asleep (a part of the share sleeps — never woken, never «missing»), or missing.
+ *
+ * @return array{state: string, path?: string, snap?: string}
+ */
+function drillLocal(string $path, string $run, array &$ctx): array
+{
+    if (!preg_match('/^\d{8}-\d{4}$/D', $run)) {
+        return ['state' => 'missing'];
+    }
+    $asleep = false;
+    foreach (rsLocate($path, $ctx) as $p) {
+        if ($p['asleep']) {
+            $asleep = true;
+            continue;
+        }
+        foreach ($p['snaps'] as $s) {
+            if (rsMomentKey($s) === "run:$run") {
+                clearstatcache(true, $s['path']);
+                if (is_file($s['path']) && !is_link($s['path'])) {
+                    return ['state' => 'found', 'path' => $s['path'], 'snap' => (string) $s['id']];
+                }
+                break;
+            }
+        }
+    }
+    return ['state' => $asleep ? 'asleep' : 'missing'];
+}
+
+// --------------------------------------------------------------------- packages (L1)
+
+/** A package: every file of its manifest there with its size, .gz intact, dumps with their closing line, XML readable */
+function drillDoPackage(array $s, array &$env): array
+{
+    $pk = $env['pk'];
+    $base = (string) $env['base'];
+    $dir = match ($s['kind']) {
+        'app'    => "$base/apps/{$s['id']}",
+        'vm'     => "$base/vms/{$s['id']}",
+        'server' => "$base/server",
+        'flash'  => "$base/flash",
+        default  => '',
+    };
+    $mfile = $s['kind'] === 'server' ? "$dir/run.json" : "$dir/manifest.json";
+    $m = readJson($mfile);
+    if (!$m) {
+        return ['state' => 'failed', 'code' => 'manifest_unreadable', 'level' => 0, 'copy' => 'package', 'params' => ['package' => $s['name']]];
+    }
+    $r = drillPackageFiles($dir, rsFiles($m));
+    $results = [$r['state']];
+    $params = ['package' => $s['name'], 'files' => $r['files'], 'bytes' => $r['bytes']] + $r['params'];
+    $code = $r['code'];
+    $run = rsStr($m['run'] ?? '');
+    $stateTime = rsRunTime($run);
+    if ($s['kind'] === 'app') {
+        $p = array_values(array_filter($pk['apps'], fn ($a) => $a['id'] === $s['id']))[0] ?? null;
+        foreach ($p['dumps'] ?? [] as $d) {
+            if ($d['kept']) {           // the newest dump failed: the one kept is older than the package
+                $results[] = 'warning';
+                $code = $code === 'package_ok' ? 'dump_old' : $code;
+                $params['dump_run'] = $d['run'];
+                $params['dump_time'] = $d['time'];
+                $stateTime = min($stateTime ?? PHP_INT_MAX, (int) $d['time']) ?: $stateTime;
+            }
+        }
+        foreach ($p['templates'] ?? [] as $t) {
+            if (!drillXmlOk("$dir/$t")) {
+                $results[] = 'failed';
+                $code = 'xml_unreadable';
+                $params['file'] = $t;
+            }
+        }
+    } elseif ($s['kind'] === 'vm') {
+        $p = array_values(array_filter($pk['vms'], fn ($v) => $v['id'] === $s['id']))[0] ?? null;
+        $x = $p && $p['xml'] !== '' ? drillXmlOk("$dir/{$p['xml']}") : null;
+        if (!$x) {
+            $results[] = 'failed';
+            $code = 'xml_unreadable';
+            $params['file'] = (string) ($p['xml'] ?? '') ?: 'xml';
+        } elseif ((string) $x->getElementsByTagName('name')->item(0)?->textContent !== $s['name']
+            || ($p['uuid'] !== '' && strtolower(trim((string) $x->getElementsByTagName('uuid')->item(0)?->textContent)) !== $p['uuid'])) {
+            $results[] = 'warning';
+            $code = 'xml_differs';
+        } elseif ($x->getElementsByTagName('tpm')->length && !$p['tpm']) {
+            $results[] = 'warning';
+            $code = 'tpm_missing';
+        }
+        foreach ($p['nvram'] ?? [] as $n) {
+            if ((int) @filesize("$dir/nvram/$n") === 0) {
+                $results[] = 'failed';
+                $code = 'nvram_empty';
+                $params['file'] = "nvram/$n";
+            }
+        }
+    } elseif ($s['kind'] === 'server' && is_file("$dir/libvirt.tar.gz")) {
+        $list = drillTarList("$dir/libvirt.tar.gz");
+        if ($list === null) {
+            $results[] = 'failed';
+            $code = 'archive_unreadable';
+            $params['file'] = 'libvirt.tar.gz';
+        } else {
+            $missing = [];
+            foreach ($pk['vms'] as $v) {
+                if (!$v['stale'] && !preg_grep('#(^|/)qemu/' . preg_quote($v['name'], '#') . '\.xml$#', $list)) {
+                    $missing[] = $v['name'];
+                }
+            }
+            if ($missing) {
+                $results[] = 'warning';
+                $code = 'libvirt_vm_missing';
+                $params['names'] = implode(', ', $missing);
+            }
+            $params['entries'] = count($list);
+        }
+    } elseif ($s['kind'] === 'flash' && is_file("$dir/flash.tar.gz")) {
+        $list = drillTarList("$dir/flash.tar.gz");
+        if ($list === null) {
+            $results[] = 'failed';
+            $code = 'archive_unreadable';
+            $params['file'] = 'flash.tar.gz';
+        } elseif (!preg_grep('#(^|/)config/ident\.cfg$#', $list)) {
+            $results[] = 'warning';
+            $code = 'flash_incomplete';
+        } else {
+            $params['entries'] = count($list);
+        }
+    }
+    $state = drillWorst($results);
+    return ['state' => $state, 'level' => $state === 'failed' ? 0 : 1, 'copy' => 'package', 'code' => $state === 'ok' ? 'package_ok' : $code,
+            'params' => $params + ['run' => $run, 'stale' => !empty($s['stale'])], 'run' => $run, 'state_time' => $stateTime];
+}
+
+/**
+ * The files of a manifest against the folder: there, the size the manifest says, a .gz intact (a dump: its closing
+ * line too). Paths come from rsFiles() (no "..").
+ */
+function drillPackageFiles(string $dir, array $files): array
+{
+    $out = ['state' => 'ok', 'code' => 'package_ok', 'params' => [], 'files' => 0, 'bytes' => 0];
+    foreach ($files as $f) {
+        if ($f['what'] === 'error') {
+            continue;
+        }
+        $path = "$dir/{$f['path']}";
+        clearstatcache(true, $path);
+        if (!is_file($path) || is_link($path)) {
+            return ['state' => 'failed', 'code' => 'package_file_missing', 'params' => ['file' => $f['path']]] + $out;
+        }
+        $size = (int) filesize($path);
+        if ($size !== $f['bytes']) {
+            return ['state' => 'failed', 'code' => 'package_size_differs', 'params' => ['file' => $f['path'], 'have' => $size, 'want' => $f['bytes']]] + $out;
+        }
+        $out['files']++;
+        $out['bytes'] += $size;
+        if (str_ends_with($f['path'], '.gz')) {
+            if ($f['what'] === 'dump' && preg_match('#^db/(postgres|mariadb)_#', $f['path'], $x)) {
+                $tail = rsGzTail($path);
+                if ($tail === null) {
+                    return ['state' => 'failed', 'code' => 'gzip_broken', 'params' => ['file' => $f['path']]] + $out;
+                }
+                if (!str_contains($tail, $x[1] === 'postgres' ? 'PostgreSQL database cluster dump complete' : 'Dump completed')) {
+                    return ['state' => 'failed', 'code' => 'dump_incomplete', 'params' => ['file' => $f['path']]] + $out;
+                }
+            } elseif (run(['gzip', '-t', $path], 1800)[0] !== 0) {
+                return ['state' => 'failed', 'code' => 'gzip_broken', 'params' => ['file' => $f['path']]] + $out;
+            }
+        }
+    }
+    return $out;
+}
+
+/** An XML file (≤ 1 MB) read without the network or entities — the document, or null */
+function drillXmlOk(string $file): ?DOMDocument
+{
+    $size = @filesize($file);
+    if (!is_file($file) || is_link($file) || !$size || $size > (1 << 20)) {
+        return null;
+    }
+    $doc = new DOMDocument();
+    $old = libxml_use_internal_errors(true);
+    $ok = $doc->loadXML((string) file_get_contents($file), LIBXML_NONET);
+    libxml_clear_errors();
+    libxml_use_internal_errors($old);
+    return $ok && $doc->documentElement ? $doc : null;
+}
+
+/** The names in a .tar.gz, or null when it can't be read */
+function drillTarList(string $file): ?array
+{
+    [$exit, $out] = run(['tar', '-tzf', $file], 300);
+    return $exit === 0 ? array_values(array_filter(explode("\n", $out), 'strlen')) : null;
+}
+
+// --------------------------------------------------------------------- dumps (L2)
+
+/**
+ * A dump played into a throwaway of the same image: from the local snapshot of the package's run (else the
+ * package now), ready over 127.0.0.1, played and checked with his restore's own functions, extensions counted,
+ * the live database's list of databases against the dump's (read only, switchable) — and the throwaway gone again.
+ */
+function drillDoDump(array &$j, int $i, array &$env): array
+{
+    $s = $j['steps'][$i];
+    $out = ['level' => 0, 'copy' => 'package', 'run' => (string) $s['run'], 'state_time' => rsRunTime((string) $s['dump_run']), 'params' => ['container' => $s['container']]];
+    $pkgFile = "{$env['base']}/apps/{$s['id']}/{$s['file']}";
+    $local = drillLocal($pkgFile, (string) $s['run'], $env['ctx']);
+    $file = $local['state'] === 'found' ? $local['path'] : $pkgFile;
+    if ($local['state'] === 'found') {
+        $out['copy'] = 'snapshot';
+    }
+    if (!is_file($file)) {
+        return ['state' => 'failed', 'code' => 'package_file_missing', 'params' => ['file' => $s['file']]] + $out;
+    }
+    $m = readJson("{$env['base']}/apps/{$s['id']}/manifest.json") ?? [];
+    $c = drillContainerOf($m, (string) $s['container']);
+    if (!$c || $c['image_id'] === '') {
+        return ['state' => 'not_checked', 'code' => 'image_unknown'] + $out;
+    }
+    [$exit] = run(drillCmd(['docker', 'image', 'inspect', '--format', '{{.Id}}', $c['image_id']]), 30);
+    if ($exit !== 0) {
+        return ['state' => 'not_checked', 'code' => 'image_missing', 'params' => ['container' => $s['container'], 'image' => $c['image']]] + $out;
+    }
+    $isize = rsGzSize($file);
+    $need = drillDumpNeed(['isize' => $isize, 'bytes' => (int) @filesize($file)]);
+    $ram = min($env['ram'], drillRamBudget());
+    if ($s['type'] !== 'mongodb' && $need > $ram) {
+        return ['state' => 'not_checked', 'code' => 'too_big_for_ram', 'params' => ['container' => $s['container'], 'need' => $need, 'budget' => $ram]] + $out;
+    }
+    if (time() + drillEstimate($s + ['isize' => $isize], $env['set']) > (int) $j['deadline']) {
+        return ['state' => 'not_checked', 'code' => 'budget', 'params' => ['container' => $s['container']]] + $out;
+    }
+    $name = DRILL_PREFIX . "{$j['id']}-$i";
+    $args = drillContainerArgs($c, (string) $s['type'], $name, $j['id'], min($ram, max($need, 1 << 30)), bin2hex(random_bytes(16)));
+    if (!drillArgsSafe($args)) {
+        return ['state' => 'failed', 'code' => 'drill_error', 'detail' => 'throwaway arguments refused'] + $out;
+    }
+    // written down before it exists: the sweeper finds it whatever happens next
+    drillMade($j, ['kind' => 'container', 'name' => $name, 'image' => $c['image_id']]);
+    try {
+        [$exit, , $err] = run(drillCmd($args), 120);
+        if ($exit !== 0) {
+            return ['state' => 'failed', 'code' => 'throwaway_failed', 'detail' => drillCut($err)] + $out;
+        }
+        return drillPlayCheck($j, $i, $env, $s, $name, $file, $out);
+    } finally {
+        // gone right after its step: its RAM is free for the next one
+        foreach ($j['made'] as $n => $x) {
+            if (($x['name'] ?? '') === $name && empty($x['gone'])) {
+                $j['made'][$n]['gone'] = drillRemoveContainer($name, $j['id']);
+            }
+        }
+        $j['steps'][$i] = array_merge($j['steps'][$i], array_intersect_key($s, $j['steps'][$i]));     // its own fields again, not the throwaway's
+        unset($j['steps'][$i]['progress'], $j['steps'][$i]['tcp'], $j['steps'][$i]['timeout'], $j['steps'][$i]['method']);
+    }
+}
+
+/**
+ * The throwaway answers, the dump is played and checked — his restore's own functions (rsDoReady over 127.0.0.1,
+ * rsDoPlay streamed with its own budget: over it «not checked», never failed; rsDoVerify) — then the extensions and
+ * the live database's list of databases.
+ */
+function drillPlayCheck(array &$j, int $i, array &$env, array $s, string $name, string $file, array $out): array
+{
+    $login = match ($s['type']) {
+        'postgres' => ['login' => 'user', 'user_var' => 'POSTGRES_USER', 'password_var' => 'POSTGRES_PASSWORD'],
+        'mariadb'  => ['login' => 'root', 'user_var' => '', 'password_var' => 'MARIADB_ROOT_PASSWORD'],
+        default    => ['login' => 'none', 'user_var' => '', 'password_var' => ''],
+    };
+    $step = ['container' => $name, 'type' => $s['type'], 'file' => $file, 'db' => $s['db'], 'immich' => !empty($s['immich']), 'method' => 'fresh',
+             'tcp' => true, 'timeout' => DRILL_BUDGET_READY] + $login;
+    $ready = $s['type'] === 'mongodb' ? drillMongoReady($j, $name) : rsDoReady($j, $step);
+    if ($ready['state'] !== 'ok') {
+        return ['state' => 'failed', 'code' => 'not_ready', 'detail' => drillContainerTail($name)] + $out;
+    }
+    $j['steps'][$i] = array_merge($j['steps'][$i], $step);
+    $before = [$GLOBALS['rsDeadline'] ?? null, $GLOBALS['rsDeadlineWhy'] ?? null];
+    $GLOBALS['rsDeadline'] = min((int) $j['deadline'], time() + DRILL_BUDGET_PLAY);
+    $GLOBALS['rsDeadlineWhy'] = $GLOBALS['rsDeadline'] < (int) $j['deadline'] ? 'budget' : 'deadline';
+    $t0 = time();
+    try {
+        $play = rsDoPlay($j, $i);
+    } finally {
+        [$GLOBALS['rsDeadline'], $GLOBALS['rsDeadlineWhy']] = $before;
+    }
+    $seconds = time() - $t0;
+    if (!empty($GLOBALS['rsStop']) && ($GLOBALS['rsStopWhy'] ?? '') === 'budget') {
+        $GLOBALS['rsStop'] = false;
+        $GLOBALS['rsStopWhy'] = null;
+        return ['state' => 'not_checked', 'code' => 'budget', 'params' => ['container' => $s['container']]] + $out;
+    }
+    $results = [$play['state']];
+    $params = ['container' => $s['container'], 'seconds' => $seconds];
+    $code = $play['state'] === 'ok' ? 'verify_ok' : (string) ($play['note'] ?? 'play_failed');
+    $detail = drillCut((string) ($play['detail'] ?? ''));
+    if ($play['state'] !== 'failed') {
+        $verify = rsDoVerify($j, $step);
+        $results[] = $verify['state'];
+        if ($verify['state'] !== 'ok') {
+            $code = (string) ($verify['note'] ?? 'verify_empty');
+        }
+        $params += (array) ($verify['params'] ?? []);
+        if ($s['type'] === 'postgres') {
+            $ext = drillExtensions($name, $file);
+            $params['extensions'] = $ext['have'];
+            if ($ext['missing']) {
+                $results[] = 'warning';
+                $code = $code === 'verify_ok' ? 'extensions_missing' : $code;
+                $params['missing'] = implode(', ', $ext['missing']);
+            }
+        }
+        if ($env['set']['live_catalog'] && in_array($s['type'], ['postgres', 'mariadb'], true)) {
+            $lost = drillLiveCatalog($s, $file);
+            if ($lost) {
+                $results[] = 'warning';
+                $code = $code === 'verify_ok' ? 'db_missing_in_dump' : $code;
+                $params['dbs'] = implode(', ', $lost);
+            }
+        }
+    }
+    $state = drillWorst($results);
+    return ['state' => $state, 'code' => $code, 'params' => $params, 'detail' => $detail, 'seconds' => $seconds,
+            'level' => $state === 'failed' ? 1 : 2] + $out;
+}
+
+
+/** MongoDB answers (the throwaway has no login: mongorestore needs none) */
+function drillMongoReady(array &$j, string $name): array
+{
+    $until = time() + DRILL_BUDGET_READY;
+    $script = 'B=mongosh; command -v mongosh >/dev/null 2>&1 || B=mongo; exec "$B" --quiet --host 127.0.0.1 --eval "db.adminCommand({ping: 1}).ok"';
+    do {
+        [$exit, $out] = run(drillCmd(['docker', 'exec', $name, 'sh', '-c', $script]), 30);
+        if ($exit === 0 && trim($out) === '1') {
+            return ['state' => 'ok'];
+        }
+        if (rsBeat($j)) {
+            break;
+        }
+        sleep(2);
+    } while (time() < $until);
+    return ['state' => 'failed'];
+}
+
+/** The end of a throwaway's own log (why it didn't come up), cut */
+function drillContainerTail(string $name): string
+{
+    [, $out, $err] = run(drillCmd(['docker', 'logs', '--tail', '15', $name]), 20);
+    return drillCut(trim($out . "\n" . $err));
+}
+
+/** A client's words for the log and the journal: lines cut (they may quote row data), at most 12 */
+function drillCut(string $text): string
+{
+    $lines = array_slice(array_filter(explode("\n", str_replace("\r", '', $text)), fn ($l) => trim($l) !== ''), -12);
+    return implode("\n", array_map(fn ($l) => mb_substr($l, 0, DRILL_LOG_LINE), $lines));
+}
+
+/**
+ * The dump's extensions per database (CREATE EXTENSION lines, \connect for the database) against what the
+ * throwaway has now; plpgsql is every cluster's own.
+ *
+ * @return array{have: int, missing: list<string>}
+ */
+function drillExtensions(string $container, string $file): array
+{
+    $want = drillDumpFacts($file)['ext'];
+    $missing = [];
+    $have = 0;
+    foreach ($want as $db => $exts) {
+        if (preg_match('#[=\x00-\x1f]|://#', (string) $db) || $db === '') {
+            continue;
+        }
+        [$exit, $out] = run(drillCmd(['docker', 'exec', $container, 'sh', '-c', 'PGDATABASE="$1" exec psql -X -q -tA -U postgres -c "SELECT extname FROM pg_extension"', 'sh', (string) $db]), 60);
+        $got = $exit === 0 ? array_filter(array_map('trim', explode("\n", $out))) : [];
+        $have += count($got);
+        foreach ($exts as $e) {
+            if (!in_array($e, $got, true)) {
+                $missing[] = "$db.$e";
+            }
+        }
+    }
+    return ['have' => $have, 'missing' => $missing];
+}
+
+/**
+ * What a Postgres dump holds besides its tables: the databases it connects to (pg_dumpall's \connect) and the
+ * extensions it creates in each.
+ *
+ * @return array{dbs: list<string>, ext: array<string, list<string>>}
+ */
+function drillDumpFacts(string $file): array
+{
+    $h = @gzopen($file, 'rb');
+    if (!$h) {
+        return ['dbs' => [], 'ext' => []];
+    }
+    $db = '';
+    $out = ['dbs' => [], 'ext' => []];
+    $carry = '';
+    while (!gzeof($h)) {
+        $data = gzread($h, 1 << 20);
+        if ($data === false || $data === '') {
+            break;
+        }
+        $data = $carry . $data;
+        $nl = strrpos($data, "\n");
+        if ($nl === false) {
+            $carry = $data;
+            continue;
+        }
+        drillExtLines(substr($data, 0, $nl + 1), $db, $out);
+        $carry = substr($data, $nl + 1);
+    }
+    drillExtLines($carry, $db, $out);
+    gzclose($h);
+    return $out;
+}
+
+function drillExtLines(string $lines, string &$db, array &$out): void
+{
+    if (!preg_match_all('/^(\\\\connect\s+.*|CREATE EXTENSION (?:IF NOT EXISTS )?"?([A-Za-z0-9_-]+)"?.*)$/m', $lines, $m, PREG_SET_ORDER)) {
+        return;
+    }
+    foreach ($m as $x) {
+        if ($x[1][0] === '\\') {
+            $count = [];
+            $cur = $db === '' ? null : $db;
+            rsDumpCount($x[1] . "\n", $cur, $count);
+            $db = (string) $cur;
+            if ($db !== '' && !in_array($db, $out['dbs'], true)) {
+                $out['dbs'][] = $db;
+            }
+            continue;
+        }
+        if ($x[2] !== 'plpgsql' && !in_array($x[2], $out['ext'][$db] ?? [], true)) {
+            $out['ext'][$db][] = $x[2];
+        }
+    }
+}
+
+/**
+ * The live database's databases (one read-only catalog query in the app's own container, its variables as names
+ * only — like his restores) against the dump's: a database the dump doesn't hold would be lost. Nothing when the
+ * container doesn't run or doesn't answer.
+ *
+ * @return list<string>  databases the dump misses
+ */
+function drillLiveCatalog(array $s, string $file): array
+{
+    if (!rsIsRunning((string) $s['container'])) {
+        return [];
+    }
+    $sys = ['information_schema', 'mysql', 'performance_schema', 'sys', 'postgres', 'template0', 'template1'];
+    try {
+        $script = rsDbScript('databases', $s);           // variable names only (RS_ENV_VARS), the values stay in the container
+        [$exit, $out] = run(drillCmd(['docker', 'exec', (string) $s['container'], 'sh', '-c', $script]), 30);
+    } catch (Throwable) {
+        return [];
+    }
+    $have = $s['type'] === 'postgres' ? drillDumpFacts($file)['dbs'] : [(string) $s['db']];
+    if ($exit !== 0) {
+        return [];
+    }
+    $live = array_values(array_filter(array_map('trim', explode("\n", $out)), fn ($n) => $n !== '' && !in_array($n, $sys, true)));
+    return array_values(array_diff($live, $have));
+}
+
+// --------------------------------------------------------------------- SQLite (L1)
+
+/** A media server's copy from the run's snapshot: integrity_check, user_version, its main table against the live one */
+function drillDoSqlite(array &$j, array $s, array &$env): array
+{
+    $pkgFile = "{$env['base']}/apps/{$s['id']}/{$s['file']}";
+    $local = drillLocal($pkgFile, (string) $s['run'], $env['ctx']);
+    $file = $local['state'] === 'found' ? $local['path'] : $pkgFile;
+    $out = ['level' => 0, 'copy' => $local['state'] === 'found' ? 'snapshot' : 'package', 'run' => (string) $s['run'],
+            'state_time' => rsRunTime((string) $s['run']), 'params' => ['file' => basename((string) $s['file'])]];
+    if (!is_file($file)) {
+        return ['state' => 'failed', 'code' => 'package_file_missing', 'params' => ['file' => $s['file']]] + $out;
+    }
+    $copy = drillSqliteLook("file:" . drillUriPath($file) . '?mode=ro&immutable=1', true);
+    if ($copy['error'] !== null) {
+        return ['state' => 'not_checked', 'code' => 'sqlite_unchecked', 'detail' => drillCut($copy['error'])] + $out;
+    }
+    if ($copy['integrity'] !== 'ok') {
+        return ['state' => 'failed', 'code' => 'sqlite_corrupt', 'detail' => drillCut($copy['integrity'])] + $out;
+    }
+    $params = $out['params'] + ['version' => $copy['version'], 'table' => $copy['table'], 'rows' => $copy['rows']];
+    $state = 'ok';
+    $code = 'sqlite_ok';
+    $live = null;
+    if ($env['set']['live_sqlite'] && $s['source'] !== '' && str_starts_with((string) $s['source'], '/mnt/')) {
+        $asleep = (bool) array_filter(rsLocate((string) $s['source'], $env['ctx']), fn ($p) => $p['asleep']);
+        if (!$asleep && is_file((string) $s['source'])) {
+            $live = drillSqliteLook('file:' . drillUriPath((string) $s['source']) . '?mode=ro', false);
+        }
+    }
+    if ($live && $live['error'] === null) {
+        $params['live_version'] = $live['version'];
+        $params['live_rows'] = $live['rows'];
+        if ($copy['table'] !== null && $live['rows'] !== null && $copy['rows'] !== null && $live['rows'] > 0 && $copy['rows'] === 0) {
+            [$state, $code] = ['failed', 'sqlite_foreign'];
+        } elseif ($live['version'] !== null && $copy['version'] !== null && $live['version'] !== $copy['version']) {
+            [$state, $code] = ['warning', 'sqlite_version_differs'];
+        } elseif ($live['rows'] !== null && $copy['rows'] !== null && $copy['rows'] < $live['rows'] / 2) {
+            [$state, $code] = ['warning', 'sqlite_rows_differ'];
+        }
+    }
+    return ['state' => $state, 'code' => $code, 'params' => $params, 'level' => $state === 'failed' ? 0 : 1] + $out;
+}
+
+/** A path in an SQLite URI: each part percent-encoded (?, # and % mean something there) */
+function drillUriPath(string $path): string
+{
+    return implode('/', array_map('rawurlencode', explode('/', $path)));
+}
+
+/**
+ * One look into an SQLite database through the sqlite3 command (its own process: a big library takes seconds, the
+ * budget is a timeout): integrity_check (copies only), user_version, the main table's rows.
+ *
+ * @return array{error: ?string, integrity: ?string, version: ?int, table: ?string, rows: ?int}
+ */
+function drillSqliteLook(string $uri, bool $integrity): array
+{
+    $bin = $GLOBALS['drill']['sqlite3'] ?? 'sqlite3';
+    $in = implode(',', array_map(fn ($t) => "'$t'", DRILL_SQLITE_TABLES));
+    $sql = ($integrity ? 'PRAGMA integrity_check;' : "SELECT 'ok';") . "\nPRAGMA user_version;\nSELECT name FROM sqlite_master WHERE type = 'table' AND name IN ($in) LIMIT 1;";
+    [$exit, $out, $err] = run([$bin, '-bail', $uri, $sql], $integrity ? DRILL_BUDGET_SQLITE : 30);
+    if ($exit !== 0) {
+        return ['error' => trim($err) ?: "exit $exit", 'integrity' => null, 'version' => null, 'table' => null, 'rows' => null];
+    }
+    $lines = array_values(array_filter(array_map('trim', explode("\n", $out)), 'strlen'));
+    $table = isset($lines[2]) && in_array($lines[2], DRILL_SQLITE_TABLES, true) ? $lines[2] : null;
+    // integrity_check names every problem on a line of its own: everything before user_version
+    $integ = $lines[0] ?? '';
+    $version = null;
+    foreach ($lines as $k => $l) {
+        if ($k > 0 && ctype_digit($l)) {
+            $version = (int) $l;
+            if ($k > 1) {
+                $integ = implode("\n", array_slice($lines, 0, $k));
+            }
+            $table = isset($lines[$k + 1]) && in_array($lines[$k + 1], DRILL_SQLITE_TABLES, true) ? $lines[$k + 1] : null;
+            break;
+        }
+    }
+    $rows = null;
+    if ($table !== null) {
+        [$exit, $out] = run([$bin, $uri, "SELECT count(*) FROM \"$table\";"], $integrity ? DRILL_BUDGET_SQLITE : 60);
+        $rows = $exit === 0 && ctype_digit(trim($out)) ? (int) trim($out) : null;
+    }
+    return ['error' => null, 'integrity' => $integ, 'version' => $version, 'table' => $table, 'rows' => $rows];
+}
+
+// --------------------------------------------------------------------- VM disks (L1)
+
+/**
+ * The header of a qcow2 image, read here (never qemu-img: it would follow a backing path into live files):
+ * version, virtual size, backing file and its format (the header extension 0xE2792ACA). Null: no qcow2.
+ *
+ * @return array{version:int, size:int, backing:?string, backing_format:?string}|null
+ */
+function drillQcow2(string $head): ?array
+{
+    if (strlen($head) < 72 || substr($head, 0, 4) !== "QFI\xfb") {
+        return null;
+    }
+    $u32 = fn (int $o): int => (int) unpack('N', substr($head, $o, 4))[1];
+    $u64 = fn (int $o): int => (int) unpack('J', substr($head, $o, 8))[1];
+    $version = $u32(4);
+    if ($version < 2 || $version > 3) {
+        return null;
+    }
+    $boff = $u64(8);
+    $blen = $u32(16);
+    $backing = null;
+    if ($boff > 0 && $blen > 0) {
+        if ($blen > 1023 || $boff + $blen > strlen($head)) {
+            return ['version' => $version, 'size' => $u64(24), 'backing' => '', 'backing_format' => null];      // there, but unreadable here
+        }
+        $backing = substr($head, $boff, $blen);
+    }
+    $fmt = null;
+    $o = $version >= 3 && strlen($head) >= 104 ? $u32(100) : 72;
+    for ($n = 0; $n < 64 && $o + 8 <= strlen($head); $n++) {
+        $type = $u32($o);
+        $len = $u32($o + 4);
+        if ($type === 0 || $len > 65536) {
+            break;
+        }
+        if ($type === 0xE2792ACA) {
+            $fmt = rtrim(substr($head, $o + 8, $len), "\0");
+        }
+        $o += 8 + (($len + 7) & ~7);
+    }
+    return ['version' => $version, 'size' => $u64(24), 'backing' => $backing, 'backing_format' => $fmt];
+}
+
+/** Does a raw disk carry a partition table (MBR 55AA, GPT «EFI PART» at 512 or 4096) — or anything at all? */
+function drillRawLook(string $head): string
+{
+    if (strlen($head) >= 520 && substr($head, 512, 8) === 'EFI PART' || strlen($head) >= 4104 && substr($head, 4096, 8) === 'EFI PART') {
+        return 'gpt';
+    }
+    if (strlen($head) >= 512 && substr($head, 510, 2) === "\x55\xAA") {
+        return 'mbr';
+    }
+    return trim($head, "\0") === '' ? 'empty' : 'data';
+}
+
+/**
+ * A VM disk in the run's snapshot: there with its size, a qcow2 chain whose every backing file lies in a snapshot of
+ * the same run, the base not all zero. A sleeping part: «asleep», never woken.
+ */
+function drillDoVmDisk(array $s, array &$env): array
+{
+    $out = ['level' => 0, 'copy' => 'snapshot', 'run' => (string) $s['run'], 'state_time' => rsRunTime((string) $s['run']),
+            'params' => ['disk' => basename((string) $s['source']), 'target' => $s['target']]];
+    if ((string) $s['snapshot'] === '') {
+        return ['state' => 'not_checked', 'code' => 'vm_no_snapshot'] + $out;
+    }
+    $l = drillLocal((string) $s['source'], (string) $s['run'], $env['ctx']);
+    if ($l['state'] === 'asleep') {
+        return ['state' => 'asleep', 'code' => 'asleep'] + $out;
+    }
+    if ($l['state'] !== 'found') {
+        return ['state' => 'failed', 'code' => 'vm_disk_missing', 'params' => $out['params'] + ['file' => $s['source']]] + $out;
+    }
+    $file = $l['path'];
+    $size = $s['bytes'] !== null && (int) @filesize($file) !== (int) $s['bytes'];
+    $ok = fn (array $extra) => ['state' => $size ? 'warning' : 'ok', 'code' => $size ? 'vm_disk_size' : 'vm_chain_ok', 'params' => $out['params'] + $extra, 'level' => 1] + $out;
+    for ($depth = 1; $depth <= 8; $depth++) {
+        $h = @fopen($file, 'rb');
+        if (!$h) {
+            return ['state' => 'failed', 'code' => 'vm_disk_missing', 'params' => $out['params'] + ['file' => basename($file)]] + $out;
+        }
+        $head = (string) fread($h, 65536);
+        $q = drillQcow2($head);
+        if ($q === null) {
+            // raw: the end of the chain — a partition table, or at least something in its first MiB
+            $look = drillRawLook($head);
+            if ($look === 'empty') {
+                $look = trim((string) fread($h, (1 << 20) - 65536), "\0") === '' ? 'empty' : 'data';
+            }
+            fclose($h);
+            if ($look === 'empty') {
+                return ['state' => 'warning', 'code' => 'vm_disk_empty', 'params' => $out['params'] + ['chain' => $depth], 'level' => 1] + $out;
+            }
+            return $ok(['chain' => $depth, 'look' => $look]);
+        }
+        fclose($h);
+        if ($q['backing'] === null) {
+            return $ok(['chain' => $depth]);
+        }
+        $b = $q['backing'];
+        if ($b === '' || preg_match('/[\x00-\x1f]/', $b) || str_contains("/$b/", '/../')) {
+            return ['state' => 'failed', 'code' => 'vm_chain_outside', 'params' => $out['params'] + ['file' => '?']] + $out;
+        }
+        if (str_starts_with($b, '/')) {
+            // a path as the VM sees it: the same file in this run's snapshot (another dataset of it too), else outside
+            $l = drillLocal($b, (string) $s['run'], $env['ctx']);
+            if ($l['state'] === 'asleep') {
+                return ['state' => 'asleep', 'code' => 'asleep'] + $out;
+            }
+            if ($l['state'] !== 'found') {
+                return ['state' => 'failed', 'code' => 'vm_chain_outside', 'params' => $out['params'] + ['file' => $b]] + $out;
+            }
+            $file = $l['path'];
+        } else {
+            // relative: next to this file, inside the same snapshot
+            $file = dirname($file) . '/' . $b;
+            clearstatcache(true, $file);
+            if (!is_file($file) || is_link($file)) {
+                return ['state' => 'failed', 'code' => 'vm_chain_outside', 'params' => $out['params'] + ['file' => $b]] + $out;
+            }
+        }
+    }
+    return ['state' => 'failed', 'code' => 'vm_chain_outside', 'params' => $out['params'] + ['file' => basename($file)]] + $out;
+}
+
+
+// --------------------------------------------------------------------- Kopia (L0, structure, L1 sample)
+
+/** A kopia command inside its container as the server's user, with a fresh cache and log folder of the drill's own */
+function drillKopiaCmd(string $container, int $uid, string $id, array $args): array
+{
+    $tmp = "/tmp/uso-drill-$id";
+    return ['docker', 'exec', '-u', (string) $uid, '-e', "KOPIA_CACHE_DIRECTORY=$tmp/cache", '-e', "KOPIA_LOG_DIR=$tmp/logs",
+            ...($uid !== 0 ? ['-e', 'HOME=/tmp'] : []), $container, 'kopia', ...$args, '--log-dir', "$tmp/logs", '--disable-content-log'];
+}
+
+/**
+ * A command whose output is read as it comes, with the heartbeat, the array-stop watch and the deadline (rsBeat) —
+ * and a byte limit for stdout ($limit; over it: ended). $chunk gets every piece of stdout instead of keeping it.
+ *
+ * @return array{0:int, 1:string, 2:string, 3:bool}  exit code, stdout (unless $chunk), stderr, ended by us
+ */
+function drillExec(array &$j, array $cmd, int $timeout, int $limit = 33554432, ?callable $chunk = null): array
+{
+    $p = proc_open(drillCmd($cmd), [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, '/', rsEnv());
+    if (!is_resource($p)) {
+        return [127, '', 'could not start', false];
+    }
+    stream_set_blocking($pipes[1], false);
+    stream_set_blocking($pipes[2], false);
+    $out = $err = '';
+    $bytes = 0;
+    $until = time() + $timeout;
+    $ended = false;
+    while (true) {
+        $read = array_values(array_filter([$pipes[1], $pipes[2]], fn ($x) => !feof($x)));
+        if (!$read) {
+            break;
+        }
+        $w = $e = null;
+        @stream_select($read, $w, $e, 0, 200000);
+        $o = (string) @fread($pipes[1], 1 << 20);
+        if ($o !== '') {
+            $bytes += strlen($o);
+            if ($chunk) {
+                $chunk($o);
+            } else {
+                $out .= $o;
+            }
+        }
+        $err .= (string) @fread($pipes[2], 65536);
+        if (strlen($err) > 65536) {
+            $err = substr($err, -65536);
+        }
+        if ($bytes > $limit || time() > $until || rsBeat($j)) {
+            $ended = true;
+            break;
+        }
+    }
+    if ($ended) {
+        proc_terminate($p);
+        usleep(200000);
+        proc_terminate($p, 9);
+    }
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $code = proc_close($p);
+    return [$ended ? 124 : $code, $out, $err, $ended];
+}
+
+/** What Kopia knows of a source, newest first, with each snapshot's root object and run (description "uso-backup <run>") */
+function drillKopiaParse(string $json): array
+{
+    $byId = [];
+    foreach ((array) json_decode($json, true) as $s) {
+        if (is_array($s) && is_string($s['id'] ?? null)) {
+            $obj = $s['rootEntry']['obj'] ?? null;
+            $byId[$s['id']] = is_string($obj) && preg_match('/^[A-Za-z0-9]{1,8}[0-9a-f]{16,128}$/D', $obj) ? $obj : null;
+        }
+    }
+    $out = [];
+    foreach (rsKopiaParse($json) as $s) {
+        $s['obj'] = $byId[$s['id']] ?? null;
+        $s['run'] = preg_match('/\b(\d{8}-\d{4})\b/', $s['description'], $m) ? $m[1] : null;
+        $out[] = $s;
+    }
+    return $out;
+}
+
+/** A Kopia directory object's entries ({name, type d|f|s, size, obj}) — only in that shape */
+function drillKopiaEntries(string $json): array
+{
+    $d = json_decode($json, true);
+    $out = [];
+    foreach (is_array($d['entries'] ?? null) ? $d['entries'] : [] as $e) {
+        if (!is_array($e) || !is_string($e['name'] ?? null) || !in_array($e['type'] ?? '', ['d', 'f'], true) || !is_string($e['obj'] ?? null)
+            || !preg_match('/^[A-Za-z0-9]{0,8}[0-9a-f]{16,128}$/D', $e['obj']) || $e['name'] === '' || str_contains($e['name'], '/') || in_array($e['name'], ['.', '..'], true)) {
+            continue;
+        }
+        $size = $e['size'] ?? null;
+        $out[] = ['name' => $e['name'], 'type' => $e['type'], 'obj' => $e['obj'],
+                  'size' => is_int($size) ? $size : (is_string($size) && ctype_digit($size) ? (int) $size : null)];
+    }
+    return $out;
+}
+
+/**
+ * A Kopia source: its newest snapshot (L0: there, complete, no failed files, its age), its structure (snapshot
+ * verify, metadata only), and a sample (L1): files of the newest complete snapshot streamed back with a fresh cache
+ * — for an app's or VM's own source its package, for a share a few random files — hashed here and compared with the
+ * same file in the local snapshot of the run Kopia read it from.
+ */
+function drillDoKopia(array &$j, int $i, array &$env): array
+{
+    $s = $j['steps'][$i];
+    $out = ['level' => 0, 'copy' => 'kopia', 'params' => ['source' => $s['source']]];
+    $k = $env['kopia'];
+    if (!$k || !$k['container'] || !$k['running'] || !$k['root']) {
+        return ['state' => 'not_checked', 'code' => 'kopia_unavailable', 'params' => ['source' => $s['source'], 'name' => (string) ($k['container'] ?? '')]] + $out;
+    }
+    $env['kopia_until'] ??= min((int) $j['deadline'], time() + DRILL_BUDGET_KOPIA);
+    if (time() >= $env['kopia_until']) {
+        return ['state' => 'not_checked', 'code' => 'budget'] + $out;
+    }
+    $env['uid'] ??= rsKopiaUid($k['container']);
+    if (!array_filter($j['made'], fn ($x) => ($x['kind'] ?? '') === 'kopia_tmp')) {
+        drillMade($j, ['kind' => 'kopia_tmp', 'name' => "/tmp/uso-drill-{$j['id']}", 'container' => $k['container'], 'uid' => $env['uid']]);
+    }
+    $path = "{$k['root']}/{$s['source']}";
+    [$exit, $json, $err] = drillExec($j, drillKopiaCmd($k['container'], $env['uid'], $j['id'], ['--no-progress', 'snapshot', 'list', $path, '--json']),
+        max(30, min(300, $env['kopia_until'] - time())));
+    if ($exit !== 0) {
+        return ['state' => !empty($GLOBALS['rsStop']) ? 'skipped' : 'failed', 'code' => 'kopia_list_failed', 'detail' => drillCut($err)] + $out;
+    }
+    $snaps = drillKopiaParse($json);
+    $complete = array_values(array_filter($snaps, fn ($x) => $x['incomplete'] === ''));
+    if (!$complete) {
+        return ['state' => 'warning', 'code' => $snaps ? 'kopia_incomplete' : 'kopia_none'] + $out;
+    }
+    $newest = $complete[0];
+    $results = [];
+    $code = 'kopia_ok';
+    $params = ['source' => $s['source'], 'files' => $newest['files'], 'bytes' => $newest['bytes'], 'time' => $newest['time'], 'run' => $newest['run']];
+    $env['kopia_times'][$s['source']] = $newest['time'];
+    if ($snaps[0]['incomplete'] !== '') {
+        $results[] = 'warning';
+        $code = 'kopia_incomplete';
+    }
+    if ($newest['failed'] > 0) {
+        $results[] = 'warning';
+        $code = 'kopia_failed_files';
+        $params['failed'] = $newest['failed'];
+    }
+    // older than the last backup run that went to Kopia? (a source that stopped going there)
+    $lastRun = readJson(rsUbData() . '/state/last-run.json');
+    if (is_int($lastRun['started'] ?? null) && $newest['time'] < $lastRun['started'] - 3 * 86400) {
+        $results[] = 'warning';
+        $code = $code === 'kopia_ok' ? 'kopia_old' : $code;
+    }
+    // structure: every content of the snapshots in the index (metadata only, no download of files)
+    [$exit, , $err, $ended] = drillExec($j, drillKopiaCmd($k['container'], $env['uid'], $j['id'],
+        ['snapshot', 'verify', "--sources=$path", '--max-errors=10', '--verify-files-percent=0']), max(30, $env['kopia_until'] - time()));
+    if ($ended && !empty($GLOBALS['rsStop'])) {
+        return ['state' => 'skipped', 'code' => (string) $GLOBALS['rsStopWhy']] + $out;
+    }
+    if ($ended) {
+        $params['verify'] = 'budget';
+    } elseif ($exit !== 0) {
+        return ['state' => 'failed', 'code' => 'kopia_verify_failed', 'params' => $params, 'detail' => drillCut($err), 'level' => 0, 'state_time' => $newest['time']] + $out;
+    } else {
+        $params['verify'] = 'ok';
+    }
+    // the sample
+    $sample = $newest['obj'] !== null ? drillKopiaSample($j, $s, $newest, $env) : ['files' => 0, 'bytes' => 0, 'compared' => 0, 'asleep' => 0, 'differs' => null, 'missing' => 0];
+    $j['egress'] = (int) ($j['egress'] ?? 0) + $sample['bytes'];
+    $params += ['sampled' => $sample['files'], 'sample_bytes' => $sample['bytes'], 'compared' => $sample['compared'], 'local_asleep' => $sample['asleep']];
+    if ($sample['differs'] !== null) {
+        return ['state' => 'failed', 'code' => 'kopia_differs', 'params' => $params + ['path' => $sample['differs']], 'level' => 0, 'state_time' => $newest['time']] + $out;
+    }
+    if (!empty($sample['error'])) {
+        $results[] = 'warning';
+        $code = $code === 'kopia_ok' ? 'kopia_sample_failed' : $code;
+    }
+    $state = drillWorst($results);
+    return ['state' => $state, 'code' => $code, 'params' => $params, 'level' => $sample['files'] > 0 ? 1 : 0, 'state_time' => $newest['time'],
+            'run' => (string) $newest['run']] + $out;
+}
+
+/**
+ * Files of a Kopia snapshot to stream back: for an app's or VM's own source its package (in the source as
+ * <share>/<folder>/apps|vms/<id>/ — the dumps and copies first), for a share a few random files found by walking
+ * down; within what Kopia may still download in this drill. Each is hashed while it streams (nothing on a disk) and
+ * compared with the same file in the local snapshot of the run.
+ */
+function drillKopiaSample(array &$j, array $s, array $snap, array &$env): array
+{
+    $k = $env['kopia'];
+    $res = ['files' => 0, 'bytes' => 0, 'compared' => 0, 'asleep' => 0, 'differs' => null, 'missing' => 0, 'error' => false];
+    $show = fn (string $obj, int $limit) => drillExec($j, drillKopiaCmd($k['container'], $env['uid'], $j['id'], ['show', $obj]), 120, $limit);
+    $dirOf = function (string $obj) use ($show): ?array {
+        [$exit, $json] = $show($obj, 32 << 20);
+        return $exit === 0 ? drillKopiaEntries($json) : null;
+    };
+    $files = [];                    // [rel path, obj, size]
+    if ($s['kind'] !== 'share') {
+        $base = (string) $env['base'];
+        if (!preg_match('#^/mnt/user/([^/]+)/(.+)$#', $base, $m)) {
+            return $res;
+        }
+        $walk = [$m[1], ...explode('/', $m[2]), "{$s['kind']}s", $s['id']];
+        $obj = $snap['obj'];
+        foreach ($walk as $name) {
+            $entries = $dirOf($obj);
+            $hit = array_values(array_filter($entries ?? [], fn ($e) => $e['name'] === $name && $e['type'] === 'd'))[0] ?? null;
+            if (!$hit) {
+                $res['error'] = $entries === null;
+                return $res;
+            }
+            $obj = $hit['obj'];
+        }
+        $stack = [[implode('/', $walk), $obj, 0]];
+        while ($stack && count($files) < 200) {
+            [$rel, $o, $depth] = array_shift($stack);
+            foreach ($dirOf($o) ?? [] as $e) {
+                if ($e['type'] === 'd' && $depth < 4) {
+                    $stack[] = ["$rel/{$e['name']}", $e['obj'], $depth + 1];
+                } elseif ($e['type'] === 'f') {
+                    $files[] = ["$rel/{$e['name']}", $e['obj'], $e['size']];
+                }
+            }
+        }
+        usort($files, fn ($a, $b) => [!str_contains($a[0], '/db/'), $a[0]] <=> [!str_contains($b[0], '/db/'), $b[0]]);
+    } else {
+        // a few random files of at least 1 KB: walk down from the top, a random entry at each level
+        $looks = 0;
+        $left = max(0, $env['kopia_left']);
+        $per = $env['shares'] > 0 ? intdiv($left, max(1, $env['shares'])) : $left;
+        for ($n = 0; $n < DRILL_KOPIA_SAMPLES * 3 && count($files) < DRILL_KOPIA_SAMPLES && $looks < DRILL_KOPIA_LOOKS; $n++) {
+            $obj = $snap['obj'];
+            $rel = $s['source'];
+            for ($depth = 0; $depth < 8 && $looks < DRILL_KOPIA_LOOKS; $depth++) {
+                $entries = $dirOf($obj);
+                $looks++;
+                if (!$entries) {
+                    break;
+                }
+                $pick = $entries[random_int(0, count($entries) - 1)];
+                $fileOk = fn ($e) => $e['type'] === 'f' && ($e['size'] ?? 0) >= 1024 && ($e['size'] ?? PHP_INT_MAX) <= $per;
+                $candidates = array_values(array_filter($entries, $fileOk));
+                if ($candidates && ($depth > 0 || $pick['type'] === 'f')) {
+                    $f = $candidates[random_int(0, count($candidates) - 1)];
+                    if (!in_array($f['obj'], array_column($files, 1), true)) {
+                        $files[] = ["$rel/{$f['name']}", $f['obj'], $f['size']];
+                    }
+                    break;
+                }
+                $dirs = array_values(array_filter($entries, fn ($e) => $e['type'] === 'd'));
+                if (!$dirs) {
+                    break;
+                }
+                $d = $dirs[random_int(0, count($dirs) - 1)];
+                $obj = $d['obj'];
+                $rel .= "/{$d['name']}";
+            }
+        }
+    }
+    foreach ($files as [$rel, $obj, $size]) {
+        if (!empty($GLOBALS['rsStop']) || time() >= $env['kopia_until']) {
+            break;
+        }
+        if ($size !== null && $size > $env['kopia_left']) {
+            continue;
+        }
+        $ctx = hash_init('sha256');
+        $got = 0;
+        [$exit, , $err] = drillExec($j, drillKopiaCmd($k['container'], $env['uid'], $j['id'], ['show', $obj]), max(30, $env['kopia_until'] - time()),
+            $size !== null ? $size + 1 : $env['kopia_left'], function (string $data) use ($ctx, &$got): void {
+                hash_update($ctx, $data);
+                $got += strlen($data);
+            });
+        $env['kopia_left'] -= $got;
+        $res['bytes'] += $got;
+        if ($exit !== 0 || ($size !== null && $got !== $size)) {
+            $res['error'] = true;
+            rsLog($j['id'], "  kopia show $rel: exit $exit, $got bytes" . (trim($err) !== '' ? ': ' . drillCut($err) : ''));
+            continue;
+        }
+        $res['files']++;
+        $sum = hash_final($ctx);
+        // the same file in the local snapshot it was read from (<share>/<path> — a share split over its parts: <share>/<base>/<path>)
+        $local = $snap['run'] !== null ? drillKopiaLocal($rel, (string) $snap['run'], $env['ctx']) : null;
+        if (!$local || $local['state'] === 'missing') {
+            $res['missing']++;
+            continue;
+        }
+        if ($local['state'] === 'asleep') {
+            $res['asleep']++;
+            continue;
+        }
+        $res['compared']++;
+        if (!hash_equals($sum, (string) hash_file('sha256', $local['path']))) {
+            $res['differs'] = $rel;
+            rsLog($j['id'], "  $rel: Kopia's copy differs from the local snapshot ({$local['snap']})");
+            break;
+        }
+    }
+    return $res;
+}
+
+/**
+ * A file of a Kopia source in the local snapshot of a run: <share>/<path> — a share the engine mounted split over its
+ * parts is <share>/<base>/<path> in Kopia (tried first when the second part names a pool or disk; never a look
+ * through /mnt/user: it could wake a disk)
+ */
+function drillKopiaLocal(string $rel, string $run, array &$ctx): ?array
+{
+    $parts = explode('/', $rel);
+    $share = array_shift($parts);
+    if ($share === null || $share === '' || !$parts) {
+        return null;
+    }
+    if (count($parts) > 1 && isset($ctx['fs'][$parts[0]])) {
+        $l = drillLocal("/mnt/{$parts[0]}/$share/" . implode('/', array_slice($parts, 1)), $run, $ctx);
+        if ($l['state'] !== 'missing') {
+            return $l;
+        }
+    }
+    return drillLocal("/mnt/user/$share/" . implode('/', $parts), $run, $ctx);
+}
+
+// --------------------------------------------------------------------- what the drill made, and cleaning up
+
+/** Written down BEFORE it is created: in the journal (the sweeper) and in record.json (the night watchman) */
+function drillMade(array &$j, array $what): void
+{
+    $j['made'][] = $what + ['t' => time(), 'gone' => false];
+    drillJournalWrite($j);
+    if (($what['kind'] ?? '') === 'container') {
+        drillRecord(['t' => time(), 'kind' => 'container', 'name' => (string) $what['name'], 'image' => (string) ($what['image'] ?? ''), 'id' => $j['id']]);
+    }
+}
+
+/** data/restore-drill/record.json: what drills created (root only, the newest 50 within 7 days) */
+function drillRecord(array $entry): void
+{
+    $file = drillData() . '/record.json';
+    $list = (array) ((readJson($file) ?? [])['made'] ?? []);
+    $list = array_values(array_filter($list, fn ($e) => is_array($e) && is_int($e['t'] ?? null) && $e['t'] > time() - DRILL_RECORD_DAYS * 86400));
+    $list[] = $entry;
+    writeAtomic($file, jsonEncode(['made' => array_slice($list, -DRILL_RECORD_KEEP)]), 0600, 0, 0);
+}
+
+/** The drill's own throwaways and Kopia's temporary folder gone — whatever happened */
+function drillCleanup(array &$j, ?array $env, bool $public = true, bool $fast = false): void
+{
+    foreach ($j['made'] as $n => $x) {
+        if (!empty($x['gone']) || ($fast && ($x['kind'] ?? '') !== 'container')) {
+            continue;
+        }
+        if ($x['kind'] === 'container' && preg_match(DRILL_CONTAINER, (string) $x['name'], $m) && $m[1] === $j['id']) {
+            $gone = drillRemoveContainer((string) $x['name'], $j['id']);
+        } elseif ($x['kind'] === 'kopia_tmp' && $x['name'] === "/tmp/uso-drill-{$j['id']}" && preg_match('/^[\w.-]+$/D', (string) ($x['container'] ?? ''))) {
+            if (!empty($GLOBALS['rsStop'])) {
+                run(drillCmd(['docker', 'exec', (string) $x['container'], 'pkill', '-INT', '-f', "uso-drill-{$j['id']}"]), 15);
+            }
+            [$exit] = run(drillCmd(['docker', 'exec', '-u', (string) (int) ($x['uid'] ?? 0), (string) $x['container'], 'rm', '-rf', '--', (string) $x['name']]), 60);
+            $gone = $exit === 0;
+        } else {
+            continue;
+        }
+        $j['made'][$n]['gone'] = $gone;
+    }
+    try {
+        drillJournalWrite($j, $public);
+    } catch (Throwable) {
+    }
+}
+
+/** A throwaway removed — only one that is exactly ours: its name and its label name the same drill */
+function drillRemoveContainer(string $name, string $id): bool
+{
+    if (!preg_match(DRILL_CONTAINER, $name, $m) || $m[1] !== $id) {
+        return false;
+    }
+    [$exit, $out] = run(drillCmd(['docker', 'inspect', '--format', '{{index .Config.Labels "' . DRILL_LABEL . '"}}', $name]), 20);
+    if ($exit !== 0) {
+        return true;                         // not there (any more)
+    }
+    if (trim($out) !== $id) {
+        return false;                        // not ours: never touched
+    }
+    return run(drillCmd(['docker', 'rm', '-f', '-v', $name]), 60)[0] === 0;
+}
+
+/**
+ * The sweeper: journals of drills whose job is gone (a crash, a reboot) — what they made goes, the journal says
+ * «interrupted»; with $deep also every container with the drill's label whose name, label and id pattern all say
+ * it is a drill's (never the one going on now, never anything else). Cheap without $deep: the journal folder only.
+ */
+function drillSweep(?string $current = null, bool $deep = false): array
+{
+    $removed = [];
+    $open = false;
+    foreach (array_slice(array_values(array_filter(@scandir(drillData(), SCANDIR_SORT_DESCENDING) ?: [], fn ($n) => (bool) preg_match(DRILL_ID_PATTERN, $n))), 0, 60) as $id) {
+        if ($id === $current) {
+            continue;
+        }
+        $j = drillJournal($id);
+        if (!$j) {
+            continue;
+        }
+        $live = in_array($j['result'] ?? '', ['queued', 'running'], true);
+        if ($live && (($j['result'] === 'running' && rsJobAlive($j)) || ($j['result'] === 'queued' && time() - (int) ($j['created'] ?? 0) < 120))) {
+            continue;                        // going on right now
+        }
+        $left = array_filter((array) ($j['made'] ?? []), fn ($x) => is_array($x) && empty($x['gone']));
+        if (!$live && !$left) {
+            continue;
+        }
+        $open = true;
+        drillCleanup($j, null, false);
+        foreach ($j['made'] as $x) {
+            if (!empty($x['gone']) && ($x['kind'] ?? '') === 'container') {
+                $removed[] = (string) $x['name'];
+            }
+        }
+        if ($live) {
+            $j['result'] = 'interrupted';
+            $j['finished'] = $j['heartbeat'] ?? time();
+            try {
+                drillJournalWrite($j, false);
+            } catch (Throwable) {
+            }
+            drillCertHistory($j);
+        }
+    }
+    if ($deep || $open) {
+        $running = drillRunning();
+        [$exit, $out] = run(drillCmd(['docker', 'ps', '-a', '--filter', 'label=' . DRILL_LABEL, '--format', '{{.Names}}']), 20);
+        foreach ($exit === 0 ? array_filter(explode("\n", trim($out))) : [] as $name) {
+            if (preg_match(DRILL_CONTAINER, $name, $m) && $m[1] !== $current && $m[1] !== ($running['id'] ?? null) && drillRemoveContainer($name, $m[1])) {
+                $removed[] = $name;
+            }
+        }
+    }
+    $removed = array_values(array_unique($removed));
+    if ($removed) {
+        logLine('Mr. Restori: the drill\'s sweeper removed ' . implode(', ', $removed));
+    }
+    return $removed;
+}
+
+// ===================================================================== the certificate
+
+function drillCertificate(): ?array
+{
+    $c = readJson(drillCertFile());
+    return $c && ($c['interface'] ?? 0) === 1 ? $c : null;
+}
+
+/** The certificate's items from a drill's steps: per step what was proven, from which copy, how it went */
+function drillCertItems(array $j): array
+{
+    $items = [];
+    foreach ((array) $j['steps'] as $s) {
+        if (!in_array($s['state'] ?? '', DRILL_RESULTS, true)) {
+            continue;
+        }
+        $items[] = ['kind' => $s['do'], 'of' => $s['kind'], 'id' => $s['id'], 'name' => $s['name'],
+                    'what' => (string) ($s['container'] ?? $s['target'] ?? $s['source'] ?? (isset($s['file']) ? basename((string) $s['file']) : '')),
+                    'level' => (int) ($s['level'] ?? 0), 'copy' => (string) ($s['copy'] ?? ''), 'run' => (string) ($s['run'] ?? ''),
+                    'state_time' => isset($s['state_time']) ? (int) $s['state_time'] : null, 'result' => $s['state'], 'code' => (string) ($s['code'] ?? ''),
+                    'params' => (array) ($s['params'] ?? []), 'seconds' => (int) ($s['seconds'] ?? 0), 'at' => (int) ($s['finished'] ?? 0)];
+    }
+    return $items;
+}
+
+/**
+ * «What you would lose» per app and VM: the newest state proven locally (its dumps' run, else its package's) and in
+ * Kopia (its own source, else the backup place's share that carries its package)
+ */
+function drillCertLose(array $items, string $placeShare): array
+{
+    $out = [];
+    foreach ($items as $it) {
+        if (!in_array($it['of'], ['app', 'vm'], true)) {
+            continue;
+        }
+        $key = "{$it['of']}:{$it['id']}";
+        $out[$key] ??= ['kind' => $it['of'], 'id' => $it['id'], 'name' => $it['name'], 'local' => null, 'kopia' => null, 'best' => 0, 'played' => null];
+        $ok = in_array($it['result'], ['ok', 'warning'], true);
+        if ($ok && in_array($it['kind'], ['dump', 'sqlite', 'package', 'vmdisk'], true) && $it['state_time']) {
+            // the oldest part sets what comes back: a dump kept from an earlier night is older than the package
+            $out[$key]['local'] = $out[$key]['local'] === null ? $it['state_time'] : min($out[$key]['local'], $it['state_time']);
+        }
+        if ($ok && $it['kind'] === 'kopia' && $it['state_time']) {
+            $out[$key]['kopia'] = $it['state_time'];
+        }
+        if ($ok && $it['kind'] === 'dump') {
+            $out[$key]['played'] = (int) ($out[$key]['played'] ?? 0) + (int) ($it['params']['seconds'] ?? $it['seconds']);
+        }
+        if ($ok) {
+            $out[$key]['best'] = max($out[$key]['best'], $it['level']);
+        }
+    }
+    // the package goes to Kopia with the backup place's share
+    $share = array_values(array_filter($items, fn ($it) => $it['kind'] === 'kopia' && $it['of'] === 'share' && $it['id'] === $placeShare
+        && in_array($it['result'], ['ok', 'warning'], true)))[0] ?? null;
+    foreach ($out as $k => $v) {
+        if ($v['kopia'] === null && $share) {
+            $out[$k]['kopia'] = $share['state_time'];
+        }
+    }
+    return array_values($out);
+}
+
+/** The newest drills in the certificate's history (also a refused or interrupted one) */
+function drillCertHistory(array $j, ?array $cert = null): array
+{
+    $cert ??= drillCertificate() ?? ['interface' => 1, 'last' => null, 'last_passed' => null, 'items' => [], 'lose' => [], 'history' => []];
+    $row = ['id' => $j['id'], 'scope' => (string) ($j['scope'] ?? ''), 'started' => $j['started'] ?? null, 'ended' => $j['finished'] ?? null,
+            'result' => (string) $j['result'], 'reason' => $j['reason'] ?? null] + drillCounts((array) $j['steps']);
+    $hist = array_values(array_filter((array) ($cert['history'] ?? []), fn ($h) => is_array($h) && ($h['id'] ?? '') !== $j['id']));
+    array_unshift($hist, $row);
+    $cert['history'] = array_slice($hist, 0, DRILL_KEEP);
+    $cert['updated'] = time();
+    try {
+        writeAtomic(drillCertFile(), jsonEncode($cert));
+    } catch (Throwable) {
+    }
+    return $cert;
+}
+
+function drillCounts(array $steps): array
+{
+    $c = ['proven' => 0, 'warnings' => 0, 'failed' => 0, 'not_checked' => 0, 'asleep' => 0];
+    foreach ($steps as $s) {
+        match ($s['state'] ?? '') {
+            'ok'          => $c['proven']++,
+            'warning'     => $c['warnings']++,
+            'failed'      => $c['failed']++,
+            'not_checked' => $c['not_checked']++,
+            'asleep'      => $c['asleep']++,
+            default       => null,
+        };
+    }
+    return $c;
+}
+
+/**
+ * The certificate after a drill: a drill that ran to its end (passed: nothing failed — warnings and «not checked»
+ * are said, never hidden; or failed) replaces the items; an aborted one (array stop, deadline, stopped) only joins
+ * the history — what was proven before stays.
+ */
+function drillCertWrite(array $j, ?array $env): array
+{
+    $cert = drillCertificate() ?? ['interface' => 1, 'last' => null, 'last_passed' => null, 'items' => [], 'lose' => [], 'history' => []];
+    if (in_array($j['result'], ['passed', 'failed'], true)) {
+        $items = drillCertItems($j);
+        $cert['last'] = ['id' => $j['id'], 'started' => $j['started'], 'ended' => $j['finished'], 'result' => $j['result'], 'scope' => (string) $j['scope'],
+                         'egress' => (int) ($j['egress'] ?? 0), 'items' => count($items)] + drillCounts((array) $j['steps']);
+        if ($j['result'] === 'passed') {
+            $cert['last_passed'] = $j['finished'];
+        }
+        $cert['items'] = $items;
+        $cert['lose'] = drillCertLose($items, (string) ($env['place']['share'] ?? ''));
+    }
+    return drillCertHistory($j, $cert);
+}
+
+/** A drill that failed: one warning, naming what failed (codes and names only, never row data) */
+function drillNotify(array $j): void
+{
+    $lang = officeNotifyLang();
+    $failed = array_values(array_filter((array) $j['steps'], fn ($s) => ($s['state'] ?? '') === 'failed'));
+    $names = array_values(array_unique(array_map(fn ($s) => (string) $s['name'], $failed)));
+    $lines = [];
+    foreach (array_slice($failed, 0, 8) as $s) {
+        $key = 'drill.code.' . (string) ($s['code'] ?? 'drill_error');
+        $lines[] = $s['name'] . ': ' . (officeNotifyText('restore', $key, drillTextParams((array) ($s['params'] ?? [])), $lang) ?: (string) ($s['code'] ?? ''));
+    }
+    officeNotify(officeNotifyText('restore', 'notify.drill_failed', ['n' => count($failed)], $lang),
+        officeNotifyText('restore', 'notify.drill_failed_text', ['names' => implode(', ', array_slice($names, 0, 6)), 'n' => count($names)], $lang),
+        'warning', implode("\n", $lines), officeNotifyLink('restore/drill'));
+}
+
+/** Params as texts take them: scalars only */
+function drillTextParams(array $p): array
+{
+    return array_filter($p, 'is_scalar');
+}
+
+// ===================================================================== on its own: the night after the backup
+
+/**
+ * Is a drill due now? After a nightly backup run that ended ok or with warnings (last-run.json, within 6 h), inside
+ * the window (00:00–07:00), monthly (none passed or failed this month yet) or weekly (none in 7 days), once packages
+ * exist for 7 days — and only one try per backup run (a drill refused or ended early waits for the next one).
+ * Returns the scope or null.
+ */
+function drillDue(array $set, ?array $lastRun, ?array $cert, ?array $auto, ?int $since, int $now): ?string
+{
+    if ($set['schedule'] === 'off' || !$lastRun || ($lastRun['mode'] ?? '') !== 'backup' || !in_array($lastRun['result'] ?? '', ['ok', 'warnings'], true)) {
+        return null;
+    }
+    $finished = (int) ($lastRun['finished'] ?? 0);
+    if ($finished <= 0 || $now - $finished > DRILL_AFTER_RUN || $now < $finished) {
+        return null;
+    }
+    $hour = (int) date('G', $now);
+    if ($hour < DRILL_WINDOW[0] || $hour >= DRILL_WINDOW[1]) {
+        return null;
+    }
+    if ($since === null || $now - $since < DRILL_AUTO_DAYS * 86400) {
+        return null;
+    }
+    if (($auto['run'] ?? null) === ($lastRun['run'] ?? '')) {
+        return null;                         // tried after this run already
+    }
+    $last = (int) ($cert['last']['started'] ?? 0);
+    if ($set['schedule'] === 'monthly' && $last >= (int) mktime(0, 0, 0, (int) date('n', $now), 1, (int) date('Y', $now))) {
+        return null;
+    }
+    if ($set['schedule'] === 'weekly' && $now - $last < 7 * 86400 - 6 * 3600) {
+        return null;
+    }
+    return $set['schedule'];
+}
+
+/** His tick: cheap — once a minute whether a drill is due, once an hour the sweeper's look at the journal folder */
+function drillTick(): void
+{
+    static $looked = 0, $swept = 0;
+    $now = time();
+    if ($now - $looked < DRILL_TICK_EVERY) {
+        return;
+    }
+    $looked = $now;
+    if ($now - $swept >= DRILL_SWEEP_EVERY) {
+        $swept = $now;
+        try {
+            drillSweep(drillRunning()['id'] ?? null, false);
+        } catch (Throwable $e) {
+            logLine('Mr. Restori: the drill\'s sweeper: ' . $e->getMessage());
+        }
+    }
+    $lastRun = readJson(rsUbData() . '/state/last-run.json');
+    $auto = readJson(drillData() . '/auto.json');
+    $scope = drillDue(drillSettings(), $lastRun, drillCertificate(), $auto, drillPackagesSince(), $now);
+    if ($scope === null) {
+        return;
+    }
+    $note = ['run' => (string) ($lastRun['run'] ?? ''), 'at' => $now, 'id' => null, 'refused' => null];
+    try {
+        $plan = drillPlanBuild($scope);
+        $plan['stamp'] = date('Ymd-His', $now);
+        if ($plan['blockers']) {
+            $note['refused'] = $plan['blockers'][0]['key'];
+            // busy or a parity check: tried again after the next run; too close to the next backup: the same
+        } else {
+            $note['id'] = drillLaunch($plan);
+        }
+    } catch (Throwable $e) {
+        $note['refused'] = $e instanceof Problem ? $e->key : 'drill_error';
+        logLine('Mr. Restori: the drill could not start: ' . $e->getMessage());
+    }
+    try {
+        rsPrivateDir(drillData());
+        writeAtomic(drillData() . '/auto.json', jsonEncode($note), 0600, 0, 0);
+    } catch (Throwable) {
+    }
+}
+
+// ===================================================================== the Team Lead, the tile, Mr. Backupsy, Prometheus
+
+/**
+ * The Team Lead: a passed drill within 60 days (only once packages exist for 30 days) — and a failed drill not
+ * passed since (its failing items in the params: noting it with «I know, thanks» lasts until they change)
+ */
+function drillChecks(?array $cert = null, ?int $since = null, ?int $now = null): array
+{
+    $cert ??= drillCertificate();
+    $since ??= drillPackagesSince();
+    $now ??= time();
+    $out = [];
+    if ($since !== null && $now - $since >= DRILL_CHECK_DAYS * 86400) {
+        $passed = (int) ($cert['last_passed'] ?? 0);
+        $out[] = finding('drill', 'recommended', $passed > 0 && $now - $passed <= DRILL_OVERDUE_DAYS * 86400,
+            ['days' => $passed > 0 ? intdiv($now - $passed, 86400) : 0, 'never' => $passed === 0 ? 1 : 0], '#/restore/drill');
+    }
+    if (is_array($cert['last'] ?? null)) {
+        $failed = ($cert['last']['result'] ?? '') === 'failed';
+        $names = array_values(array_unique(array_map(fn ($it) => (string) $it['name'],
+            array_filter((array) ($cert['items'] ?? []), fn ($it) => is_array($it) && ($it['result'] ?? '') === 'failed'))));
+        $out[] = finding('drill_failed', 'recommended', !$failed, ['items' => implode(', ', array_slice($names, 0, 6))], '#/restore/drill');
+    }
+    return $out;
+}
+
+/** His numbers for Prometheus — from the certificate only */
+function drillMetrics(): array
+{
+    $cert = metricsCached(drillCertFile(), fn () => drillCertificate());
+    if (!$cert) {
+        return [];
+    }
+    $by = array_fill_keys(DRILL_RESULTS, 0);
+    foreach ((array) ($cert['items'] ?? []) as $it) {
+        if (is_array($it) && isset($by[$it['result'] ?? ''])) {
+            $by[$it['result']]++;
+        }
+    }
+    return [
+        metricsGauge('uso_restore_drill_last_timestamp_seconds', 'When the last complete restore drill ended', (int) ($cert['last']['ended'] ?? 0)),
+        metricsGauge('uso_restore_drill_last_passed_timestamp_seconds', 'When the last restore drill that passed ended', (int) ($cert['last_passed'] ?? 0)),
+        metricsGauge('uso_restore_drill_items', 'Items of the last restore drill by result', array_map(fn ($r, $n) => [['result' => $r], $n], array_keys($by), $by)),
+        metricsGauge('uso_restore_drill_downloaded_bytes', 'Bytes the last restore drill read back from Kopia', (int) ($cert['last']['egress'] ?? 0)),
+    ];
+}

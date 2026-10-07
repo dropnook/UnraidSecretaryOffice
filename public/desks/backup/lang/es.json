@@ -1098,5 +1098,8 @@
   "left.maintenance": "{name} en modo mantenimiento",
   "stat.last_array_stop": "{when} · parada del array",
   "stat.kopia_skipped": {"one": "1 espera la próxima copia (parada del array)", "other": "{n} esperan la próxima copia (parada del array)"},
-  "kopia_skipped_count": {"one": "1 omitida (parada del array)", "other": "{n} omitidas (parada del array)"}
+  "kopia_skipped_count": {"one": "1 omitida (parada del array)", "other": "{n} omitidas (parada del array)"},
+  "drill.line_passed": "Restauración demostrada el {when}: {proven} de {total} — el simulacro del señor Restori se superó.",
+  "drill.line_failed": "Simulacro de restauración del {when}: {names} no volvió.",
+  "drill.line_go": "Al simulacro"
 }

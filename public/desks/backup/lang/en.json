@@ -1077,5 +1077,8 @@
   "left.maintenance": "{name} in maintenance mode",
   "stat.last_array_stop": "{when} · array stop",
   "stat.kopia_skipped": {"one": "1 waits for the next run (array stop)", "other": "{n} wait for the next run (array stop)"},
-  "kopia_skipped_count": {"one": "1 skipped (array stop)", "other": "{n} skipped (array stop)"}
+  "kopia_skipped_count": {"one": "1 skipped (array stop)", "other": "{n} skipped (array stop)"},
+  "drill.line_passed": "Restore proven {when}: {proven} of {total} — Mr. Restori's drill passed.",
+  "drill.line_failed": "Restore drill {when}: {names} didn't come back.",
+  "drill.line_go": "To the drill"
 }
