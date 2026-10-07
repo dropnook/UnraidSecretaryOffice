@@ -25,8 +25,9 @@ the ⋯ menu → `caretaker.menu_name`, kept as `MENU_NAME`/`MENU_PLACE` in the
 on Unraid's Dashboard (src/dashboard.php: the messenger, the caretaker's
 traffic light, Mr. Backupsy's last/next run — from the state files only,
 refreshed by `api.php?a=dash` every minute while in view). The agent is a service
-(`scripts/agent.sh`, started by `event/started` and at install/boot while the array runs, stopped
-by `event/stopping`) on the host. While the array isn't started (after a stop; from boot until
+(`scripts/agent.sh`, started by `event/started` and at install/boot while the array runs — fsState `Started`,
+`Formatting` or `Clearing`: `ARRAY_RUNNING` in agent.sh and agent.php, one definition with the engine's, a test compares
+them; job.sh asks agent.sh's `array_started` — stopped by `event/stopping`) on the host. While the array isn't started (after a stop; from boot until
 the first start — an encrypted array waits for its key) `agent.sh` runs the night watchman's
 **night shift** instead (`php agent.php nightshift`, RAM and flash only; never both at once — see
 the watchman's row); the event scripts call `agent.sh array stopping|started`. While it is on, the page and the
@@ -130,7 +131,11 @@ installed plugin (see the checklist).
   for something to fix, `alert` only when something is at risk now (failed
   runs, agent gone); texts via `officeNotifyText()` in Unraid's language
   (`officeNotifyLang()`), keys `notify.*` in the desk's lang file; tests set
-  `OFFICE_NOTIFY_BIN` to a stand-in. The caretaker runs every hired desk's
+  `OFFICE_NOTIFY_BIN` to a stand-in (and `OFFICE_NOTIFY_STAMP` to a stamp of their own — with a stand-in and none
+  named the RAM stamp is never touched). The agent, the night shift, agent.sh (`tell`) and the engine (`ub_notify`)
+  take turns through one stamp in RAM (`OFFICE_NOTIFY_STAMP` = `RUN_DIR/notify.second`, engine `UB_NOTIFY_STAMP`):
+  the second the last call ended in, under its flock held through the call (≤ 10 s waited, then it goes anyway; the
+  notify script never inherits it) — see Server facts. The caretaker runs every hired desk's
   `checks` every 30 min even without a browser (in the agent's tick) and
   reports new red findings once after 30 min (`data/caretaker/notify.json`,
   switch `notify_set`) — so checks must stay cheap and must not wake disks:
@@ -224,10 +229,13 @@ installed plugin (see the checklist).
   others. A run stopped during the wait waits for the VMs still going down (`vm_shutdown_wait abort`) and starts them.
   `testBackupVmOrder` runs backup.sh on a fixture server (stand-ins on PATH, an events file) — extend it for changes there.
 * **The array stop ends a run at once (engine 2.24):** var.ini `fsState` Stopping/Stopped (`array_stopping()`, `UB_VAR_INI`;
-  Formatting/Clearing count as started) is looked at every phase (`next_phase`), before packages, dumps, Kopia sources and
+  Formatting/Clearing count as started — so do agent.sh and agent.php, `ARRAY_RUNNING`) is looked at every phase (`next_phase`), before packages, dumps, Kopia sources and
   pruning, while waiting for VMs/containers and every `UB_ARRAY_LOOK` s while Kopia uploads (`wait -n` beside a sleep). Then:
   SIGINT to the kopia process in the container (`kopia_stop`), `kopia.skipped`/`interrupted` (never failed), no prune, no
-  snapshot/dump, mounts (keep_mounts too), lock and note released; nothing started into the stopping array — stopped
+  snapshot/dump, lock and note released; **mounts (2.25): everything under mount_root, view_root and `UB_STAGE`, whatever
+  `MOUNTED` says** (keep_mounts, a killed run's) — `cleanup` on the stop path, and `run_exit` / `cleanup` for any run,
+  check or dry run that ends normally in a stopping array — busy ones `umount -l` after the normal try (`umount_tree
+  lazy`; a Kopia that didn't end in 60 s); a stop noticed after `pruned_write` says what pruned.json says (`PRUNED_DONE`); nothing started into the stopping array — stopped
   containers and shut-down VMs stay noted for the next run (`recover_interrupted_run` also waits while the array stops), frozen/
   paused VMs released, a running Nextcloud out of maintenance. `aborted` + `array_stopping`, one normal notification, exit 3; the
   office shows a stopped run (orange, `backup.message.array_stopping`), never a failure. `testBackupArrayStop` (perl stands in for kopia).
@@ -235,14 +243,24 @@ installed plugin (see the checklist).
   to atd (`backup_recover`: a job file with `HOST_LAUNCH_MARK` like hostLaunch(), so the watchman knows it) only when
   `state/stopped|maintenance|vms` exist — a stat or three, emhttp waits. `--recover` takes the lock without waiting (busy → exit 75,
   quietly: no skipped.json, no notification), nothing into a stopping array (exit 3), waits ≤ `UB_RECOVER_WAIT` for Docker/libvirt,
-  runs `recover_interrupted_run` (keeps a note while its service doesn't answer; «Aborted run repaired» normal after an array stop),
+  runs `recover_interrupted_run` (lib/common.sh, also at a run's and setup.sh's start: each note rewritten with exactly what
+  didn't come back — `note_write`; containers network → database → app like `restore_service`, each tier `wait_ready`
+  (`recover_containers`, tiers from `docker_load`); a Nextcloud's container waited for, `UB_NC_RUN_WAIT`, else its note
+  stays, gone = note goes with a warning; VM service off (domain.cfg `SERVICE="disable"`, `ub_vm_service_off`) = the VMs'
+  note goes and `recover_wait` skips libvirt; «Aborted run repaired» normal after an array stop, «… not fully repaired»
+  warning naming what didn't),
   is **no run**: no status.json/last-run/history line, latest.log untouched, log `logs/recover.log`; lock note `holder backup, mode
   recover` — backupScan() doesn't count it as running, a run that meets it waits (`UB_RECOVER_LOCK_WAIT`) instead of skipping.
-  `agent.sh array stopping` runs `UB_KEEP_LATEST=1 backup.sh --unmount` (≤ 10 s, `backup_release`; latest.log stays the last
-  run's) when something of the engine is mounted (keep_mounts) and no run holds the lock. **Kopia order:** `kopia_order` (lib/common.sh) — flash, the apps' own sources, then shares
-  and VMs' own sources by expected size (the LARGER of the newest complete Kopia snapshot `kopia_sizes_load` and `INV_BYTES` /
-  `VM_BYTES` — Kopia's alone can be stale after a setup change; unknown last); `kopia.planned` and the phase follow it. Tests: `testBackupKopiaOrder`, `testAgentBackupHooks` (agent.sh sourced, stand-ins),
-  the end of `testBackupArrayStop`.
+  `agent.sh array stopping` (`backup_release`, ≤ 10 s) acts when something of the engine is mounted: the lock held by a LIVE
+  backup.sh backup/check/dryrun (lock-holder.json, pid running backup.sh) — left to it, after `flock -w 2`; anyone else
+  (none, setup, restore, recover, a dead pid, a killed run's orphan holding fd 9) — `UB_KEEP_LATEST=1 UB_ARRAY_STOP=1
+  backup.sh --unmount` (no wait for the lock, `umount_tree now`; latest.log stays the last run's). **Kopia order:**
+  `kopia_order` (lib/common.sh) — flash, the apps' own sources, then shares and VMs' own sources by expected size (the
+  LARGER of Kopia's — `kopia_sizes_load`: the newest complete snapshot, or a newer checkpoint when larger; one `snapshot
+  list --all --json` without `-n`, Kopia's JSON lists incomplete ones too — and `INV_BYTES` / `VM_BYTES`; unknown last);
+  `kopia.planned` and the phase follow it. Tests: `testBackupKopiaOrder`, `testAgentBackupHooks` (agent.sh sourced,
+  stand-ins; also the array states agent.sh/agent.php/engine agree), `testBackupRecoverNotes` (recover_interrupted_run
+  sourced, stand-ins), the end of `testBackupArrayStop`.
 * **One run at a time, never lost silently (engine 2.20):** `state/lock` (flock) is held by
   backup.sh, setup.sh and Mr. Restori's restores; whoever takes it opens it with `>>` (never
   truncating), `touch`es it and writes `state/lock-holder.json` (`holder`, `mode`, `what`, `run`,
@@ -557,7 +575,8 @@ character, warnings and errors stay plain and clear.
 * Unraid's `notify` names a notification `<event>-<second>`: a second one with
   the same event in the same second is dropped — the second its script reads the clock, somewhere in
   our call: `officeNotify()` starts the next one only after the second the last call ended in
-  (the night shift lost one of three sent in a row, 2026-10-07). Line breaks in `-m` are a
+  (the night shift lost one of three sent in a row, 2026-10-07) — across processes since 1.31 (a stamp in RAM shared
+  with agent.sh and the engine, which all send as «Unraid Secretary Office»). Line breaks in `-m` are a
   literal `\n`; never a real newline in `-d`.
 * The plugin manager registers a plugin (`/var/log/plugins` symlink) only after
   its install script: `update_cron` run during a fresh install doesn't pick up

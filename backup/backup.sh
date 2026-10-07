@@ -12,8 +12,16 @@
 #        The Kopia phase goes small and important first: the flash, the apps' own sources, then the
 #        shares and the VMs' own sources by their expected size, smallest first (the larger of the
 #        newest complete Kopia snapshot's size and ZFS's referenced or the VM's disk files; unknown
-#        last) - a first upload of terabytes no longer holds back everything behind it for days. At the
-#        array stop the plugin runs --unmount with UB_KEEP_LATEST=1: latest.log stays the last run's
+#        last; a newer Kopia checkpoint counts as a lower bound) - a first upload of terabytes no longer
+#        holds back everything behind it for days. At the array stop nothing of the engine stays
+#        mounted, whoever holds the lock: a run, check or dry run ending in a stopping array releases
+#        everything under its mount roots, whatever it mounted (keep_mounts, a killed run's), busy ones
+#        lazily (umount -l); the plugin runs --unmount with UB_ARRAY_STOP=1 (no wait for the lock) unless
+#        a live run holds it, and UB_KEEP_LATEST=1: latest.log stays the last run's. The notes of an
+#        interrupted run keep exactly what didn't come back; its containers start network first, then
+#        databases, then apps; a Nextcloud's container is waited for; with the VM service off the VMs'
+#        note goes; «Aborted run not fully repaired» (warning) says what didn't come back. The
+#        notifications take turns with the office's (a stamp in RAM): one second, one notification
 #   2.24 The run notices the array being stopped (var.ini fsState Stopping - minutes before Unraid
 #        stops the VMs and Docker) at its safe points and every few seconds while Kopia uploads, and
 #        ends at once: the Kopia snapshot going on is interrupted inside the container (Kopia keeps

@@ -2378,7 +2378,9 @@ function testBackupKopiaOrder(): void
 /**
  * The plugin's array hooks for the backup engine (agent.sh, engine 2.25): at the array start a backup.sh --recover handed to
  * atd when a stopped run left notes (with the office's mark, so the night watchman knows it), at the array stop the
- * engine's mounts left between runs released (backup.sh --unmount) unless a run holds the lock or nothing is mounted.
+ * engine's mounts left between runs released (UB_ARRAY_STOP=1 backup.sh --unmount, no wait for the lock) unless nothing is
+ * mounted or a live backup.sh run, check or dry run holds the lock (it releases them itself) - the setup, a restore, a
+ * --recover, a dead pid, no note don't count. And «the array runs» means the same in agent.sh, agent.php and the engine.
  * agent.sh sourced with its paths pointed at a test folder; at and backup.sh are stand-ins - nothing reaches atd or a mount.
  */
 function testAgentBackupHooks(): void
