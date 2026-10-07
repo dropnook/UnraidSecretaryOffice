@@ -1605,7 +1605,9 @@ function embyImportBackup(string $dir, array $names, string $stamp): array
  * files across the array disks and wakes every one of them. Before each real run he asks every
  * Emby server of EmbyCache's settings for its /Sessions (the key stays in this process: PHP's
  * curl, a header in memory — never a command line, a log or the page's state). A session with a
- * NowPlayingItem (also paused) = someone watches. Emby that doesn't answer (refused, timeout) =
+ * NowPlayingItem (also paused) = someone watches — with its LastActivityDate (`seen`), so the page
+ * can show a session left behind (a device asleep with a film paused, hours ago) and how to end it
+ * in Emby. Emby that doesn't answer (refused, timeout) =
  * down: the run may go, said in the log. Emby that answers but not usably (401/403, another
  * status, no JSON) = don't start, say why. Dry runs are never asked about.
  */
@@ -1647,7 +1649,8 @@ function embyWatchFetch(string $url, string $key, int $timeout = EMBY_WATCH_TIME
 }
 
 /**
- * One server's answer, judged: free | watching (who) | down | error (why: emby_watch_key, emby_watch_answer).
+ * One server's answer, judged: free | watching (who: user, title, device, client, paused, seen) | down |
+ * error (why: emby_watch_key, emby_watch_answer).
  *
  * @param array{status: int, body: string, errno: int, error: string} $r
  */
@@ -1687,9 +1690,28 @@ function embyWatchJudge(array $r): array
         }
         $who[] = ['user' => embyWatchText((string) ($s['UserName'] ?? '')), 'title' => $title,
                   'device' => embyWatchText((string) ($s['DeviceName'] ?? '')), 'client' => embyWatchText((string) ($s['Client'] ?? '')),
-                  'paused' => !empty($s['PlayState']['IsPaused'])];
+                  'paused' => !empty($s['PlayState']['IsPaused']), 'seen' => embyWatchSeen($s['LastActivityDate'] ?? null)];
     }
     return $who ? ['state' => 'watching', 'who' => array_slice($who, 0, EMBY_WATCH_SHOWN)] : ['state' => 'free'];
+}
+
+/**
+ * When Emby last heard from a session (its LastActivityDate, e.g. «2026-10-06T21:37:12.8805824Z»)
+ * as a Unix time, or null: a device that went to sleep with a film paused stays «watching» for hours
+ * — the page says how long ago that was. Only a full date with its zone counts; Emby's empty date
+ * (year 1) is none; a clock ahead of ours is now. For the page and the list of runs, not the log.
+ */
+function embyWatchSeen(mixed $date, ?int $now = null): ?int
+{
+    if (!is_string($date) || !preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:?\d{2})$/D', $date)) {
+        return null;
+    }
+    // PHP's parser takes microseconds at most: Emby's seven digits of a second are cut to six
+    $t = strtotime((string) preg_replace('/(\.\d{6})\d+/', '$1', $date));
+    if ($t === false || $t < 946684800) {
+        return null;
+    }
+    return min($t, $now ?? time());
 }
 
 /** A name from Emby as plain, short text (no control characters) */
@@ -1894,7 +1916,8 @@ function embyGatherWatch($proc, string $stopFile, ?callable $look = null, int $e
  * Starts a run from the page: through the host's atd as "php agent.php job
  * <tool> <mode> --office", so it lives on without the agent. A real gather
  * first asks Emby who watches (Benj's rule) — no override: whoever really
- * wants it stops the Emby service himself.
+ * wants it ends that session in Emby (its dashboard's Stop, or on the device)
+ * or stops the Emby service himself.
  */
 function embyStart(string $tool, string $mode): array
 {

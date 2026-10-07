@@ -305,6 +305,7 @@ function testEmbyWatch(): void
         ['PlayState' => ['IsPaused' => false], 'Client' => 'JackEmby', 'DeviceName' => 'Oasis', 'Id' => 'a'],
         ['PlayState' => ['IsPaused' => false], 'UserName' => 'Ralf', 'Client' => 'Emby Windows', 'DeviceName' => 'LAPTOP-6I5FC7G8'],
         ['PlayState' => ['IsPaused' => true, 'PlayMethod' => 'DirectPlay'], 'UserName' => 'isp3', 'Client' => 'Emby for iOS', 'DeviceName' => 'iPad',
+         'LastActivityDate' => '2026-10-06T21:37:12.8805824Z',
          'NowPlayingItem' => ['Name' => 'Willkommen in der Zukunft', 'Type' => 'Episode', 'SeriesName' => '9-1-1: Notruf L.A.',
                               'ParentIndexNumber' => 4, 'IndexNumber' => 3, 'MediaType' => 'Video', 'Path' => '/data/x.mkv']],
         ['PlayState' => ['IsPaused' => false], 'UserName' => "Ana\x07", 'Client' => 'Emby Web', 'DeviceName' => 'Chrome macOS',
@@ -314,9 +315,18 @@ function testEmbyWatch(): void
     $ok = fn (string $body) => ['status' => 200, 'body' => $body, 'errno' => 0, 'error' => ''];
     $w = embyWatchJudge($ok($sessions));
     same('watch: two watching (paused counts)', ['watching', 2], [$w['state'], count($w['who'] ?? [])]);
-    same('watch: who, what, where', ['user' => 'isp3', 'title' => '9-1-1: Notruf L.A. – S04E03 Willkommen in der Zukunft', 'device' => 'iPad',
-        'client' => 'Emby for iOS', 'paused' => true], $w['who'][0] ?? null);
-    same('watch: a film, control characters gone', ['Ana', 'Alien', false], [$w['who'][1]['user'] ?? null, $w['who'][1]['title'] ?? null, $w['who'][1]['paused'] ?? null]);
+    same('watch: who, what, where, when Emby last heard from it (Emby\'s seven digits of a second)', ['user' => 'isp3', 'title' => '9-1-1: Notruf L.A. – S04E03 Willkommen in der Zukunft', 'device' => 'iPad',
+        'client' => 'Emby for iOS', 'paused' => true, 'seen' => gmmktime(21, 37, 12, 10, 6, 2026)], $w['who'][0] ?? null);
+    same('watch: a film, control characters gone, no last activity', ['Ana', 'Alien', false, null],
+        [$w['who'][1]['user'] ?? null, $w['who'][1]['title'] ?? null, $w['who'][1]['paused'] ?? null, array_key_exists('seen', $w['who'][1] ?? []) ? $w['who'][1]['seen'] : 'missing']);
+    // a session left behind (isp3's iPad, 2026-10-06 23:37 local, still «paused» ten hours later): its last activity as a time
+    $now = gmmktime(8, 0, 0, 10, 7, 2026);
+    same('watch: last activity — zones, fractions, none, odd ones', [gmmktime(21, 37, 12, 10, 6, 2026), gmmktime(21, 37, 12, 10, 6, 2026),
+        gmmktime(21, 37, 12, 10, 6, 2026), null, null, null, null, null, $now],
+        [embyWatchSeen('2026-10-06T21:37:12Z', $now), embyWatchSeen('2026-10-06T23:37:12.123+02:00', $now), embyWatchSeen('2026-10-06T21:37:12.123456789Z', $now),
+         embyWatchSeen('0001-01-01T00:00:00.0000000Z', $now), embyWatchSeen('2026-10-06T21:37:12', $now), embyWatchSeen('2026-10-06 21:37:12Z', $now),
+         embyWatchSeen("2026-10-06T21:37:12Z\n", $now), embyWatchSeen(1791322632, $now), embyWatchSeen('2026-10-07T09:00:00Z', $now)]);
+    check('watch: the last activity stays out of the office\'s log line', !str_contains(embyWatchersLine($w['who']), '2026') && !str_contains(embyWatchersLine($w['who']), (string) gmmktime(21, 37, 12, 10, 6, 2026)));
     same('watch: nobody', 'free', embyWatchJudge($ok($idle))['state']);
     same('watch: no sessions at all', 'free', embyWatchJudge($ok('[]'))['state']);
     foreach ([7 => 'refused', 28 => 'timeout', 6 => 'no such name'] as $errno => $what) {

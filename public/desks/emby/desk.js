@@ -88,16 +88,24 @@ function schedText(sc) {
   return sc.frequency === 'custom' ? fmt.cron(sc.custom) : sc.frequency;
 }
 
-/** «isp3 watches … on iPad» — who watches what on which device (Emby's sessions, as the agent judged them) */
-function watcherText(w) {
-  return T(w.paused ? 'watch.who_paused' : 'watch.who', { user: w.user || T('watch.someone'), title: w.title || '?', device: w.device || w.client || '?' });
+/**
+ * «isp3 watches … on iPad · last activity 10 hours ago» — who watches what on which device (Emby's
+ * sessions, as the agent judged them) and when Emby last heard from it (`seen`): a device that went to
+ * sleep with a film paused stays «watching» for hours. Now: how long ago; in the list of runs (`past`): when.
+ */
+function watcherText(w, past) {
+  const text = T(w.paused ? 'watch.who_paused' : 'watch.who', { user: w.user || T('watch.someone'), title: w.title || '?', device: w.device || w.client || '?' });
+  if (!w.seen) return text;
+  return `${text} · ${past ? T('watch.seen_at', { date: fmt.date(w.seen) }) : T('watch.seen', { ago: fmt.relative(w.seen) })}`;
 }
-function watchList(who) {
+function watchList(who, past) {
   const ul = el('ul', 'shortlist');
-  (who || []).forEach((w) => ul.appendChild(el('li', '', watcherText(w))));
+  (who || []).forEach((w) => ul.appendChild(el('li', '', watcherText(w, past))));
   return ul;
 }
-const whoText = (who) => (who && who.length ? ' — ' + who.map(watcherText).join('; ') : '');
+const whoText = (who) => (who && who.length ? ' — ' + who.map((w) => watcherText(w, true)).join('; ') : '');
+/** The gentler way than stopping Emby: end the session left behind in Emby's dashboard, or on the device; `then` what follows */
+const endSessionText = (then) => T('watch.end_session') + (then ? ' ' + T(then) : '');
 
 /** An error line inside a dialog: a refusal stays readable there (the dialog stays open) instead of a passing toast */
 function errorLine() {
@@ -109,7 +117,9 @@ function errorLine() {
 function showError(box, error) {
   box.innerHTML = '';
   box.appendChild(el('div', '', Office.errorText(error, ID)));
-  if (error && error.key === 'emby_watching') box.append(watchList((error.params || {}).who), el('div', '', T('watch.no_override')));
+  if (error && error.key === 'emby_watching') {
+    box.append(watchList((error.params || {}).who), el('p', '', T('watch.no_override')), el('p', '', endSessionText('watch.end_then_start')));
+  }
   box.style.display = '';
   box.scrollIntoView({ block: 'nearest' });
 }
@@ -314,13 +324,15 @@ function gatherSection() {
   if (!g.ready) s.appendChild(el('p', 'callout', T('gather_first')));
   if (g.waiting) {
     const c = el('div', 'callout');
-    c.append(el('div', '', T('gather_waiting', { next: fmt.time(g.waiting.next), until: fmt.time(g.waiting.until) })), watchList(g.waiting.who));
+    c.append(el('div', '', T('gather_waiting', { next: fmt.time(g.waiting.next), until: fmt.time(g.waiting.until) })), watchList(g.waiting.who),
+      el('div', '', endSessionText('watch.end_then_wait')));
     s.appendChild(c);
   } else {
     const lastRun = (state.history || []).find((r) => r.tool === 'gather' && r.mode === 'run');
     if (lastRun && lastRun.result === 'skipped') {
       const c = el('div', 'callout');
-      c.append(el('div', '', T('gather_skipped', { date: fmt.date(lastRun.started) })), watchList(lastRun.who));
+      c.append(el('div', '', T('gather_skipped', { date: fmt.date(lastRun.started) })), watchList(lastRun.who, true),
+        el('div', '', T('gather_skipped_again') + ' ' + endSessionText()));
       s.appendChild(c);
     }
   }

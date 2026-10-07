@@ -489,7 +489,12 @@
   "watch.who": "{user} ve {title} en {device}",
   "watch.who_paused": "{user} tiene {title} en pausa en {device}",
   "watch.someone": "Alguien",
-  "watch.no_override": "No hay forma de saltárselo: si de verdad tiene que ser ahora, detén tú mismo el contenedor de Emby (Docker) y vuelve a iniciar.",
+  "watch.no_override": "No hay forma de saltárselo — en pausa también cuenta como ver.",
+  "watch.end_session": "A menudo es una sesión olvidada: un dispositivo que se durmió con algo en pausa sigue «viendo» en Emby durante horas (mira su última actividad). Puedes cerrarla en Emby: «Gestionar Emby Server» (el engranaje arriba) → «Panel de control» → bajo «Reproduciendo ahora» la tarjeta del dispositivo → ■ «Detener» (aparece mientras Emby aún llega al dispositivo) — o abre la app en ese dispositivo y detén allí la reproducción.",
+  "watch.end_then_start": "Luego vuelve a iniciar. Solo si eso no basta: detén tú mismo el contenedor de Emby (Docker).",
+  "watch.end_then_wait": "Una vez cerrada, arranco en mi próxima mirada.",
+  "watch.seen": "última actividad {ago}",
+  "watch.seen_at": "última actividad el {date}",
   "watch_note.down": "Emby no respondió — iniciado igualmente",
   "watch_note.unknown": "ningún servidor Emby al que preguntar — iniciado igualmente",
   "watch_note.waited": "esperó {min} min a que Emby estuviera libre",
@@ -499,8 +504,9 @@
   "gather_skipped_summary": "omitido — alguien vio Emby durante {min} min",
   "gather_waiting": "Alguien está viendo Emby — la ejecución programada espera. Vuelvo a mirar a las {next}, como mucho hasta las {until}; luego se omite esta noche.",
   "gather_skipped": "La ejecución programada del {date} se omitió: alguien vio Emby durante dos horas.",
+  "gather_skipped_again": "Una sesión olvidada hace esperar también a la ejecución de esta noche.",
   "gather_run_watch": "Primero pregunto a Emby: mientras alguien mira, no inicio.",
   "bubble.gather_waiting": "Alguien está viendo Emby — la agrupación espera a que termine. ¡Primero la noche de cine!",
   "help.watch": "Mientras alguien mira",
-  "help.watch_text": "Un «Agrupar» real nunca empieza mientras alguien ve Emby (también en pausa). Iniciado aquí: te digo quién ve qué y no inicio. Programado: vuelvo a mirar cada 15 minutos, como mucho dos horas — luego esa noche se omite. Si alguien empieza a mirar durante una ejecución, paro después de la carpeta en la que estoy. Si Emby no responde en absoluto, la ejecución sigue; si responde pero no puedo leerlo (clave API), no. Las simulaciones siempre van."
+  "help.watch_text": "Un «Agrupar» real nunca empieza mientras alguien ve Emby (también en pausa). Iniciado aquí: te digo quién ve qué y no inicio. Programado: vuelvo a mirar cada 15 minutos, como mucho dos horas — luego esa noche se omite. Si alguien empieza a mirar durante una ejecución, paro después de la carpeta en la que estoy. Si Emby no responde en absoluto, la ejecución sigue; si responde pero no puedo leerlo (clave API), no. Las simulaciones siempre van. Una sesión olvidada (un dispositivo dormido con algo en pausa) se reconoce por su última actividad — ciérrala en el panel de control de Emby (Reproduciendo ahora → Detener) o en la app de ese dispositivo."
 }
