@@ -7052,7 +7052,9 @@ function testWatchmanNight(): void
     @mkdir("$tmp/run", 0700, true);
     $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
               'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
-              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd", 'array_events' => "$tmp/run/array-events", 'boot_id' => "$tmp/boot_id"];
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd", 'array_events' => "$tmp/run/array-events", 'boot_id' => "$tmp/boot_id",
+              'stat' => "$tmp/stat"];
+    file_put_contents("$tmp/stat", "cpu  1 2 3\nbtime " . ($now - 86400) . "\nprocesses 9\n");
     $boot1 = 'aaaaaaaa-0000-4000-8000-000000000001';
     $boot2 = 'aaaaaaaa-0000-4000-8000-000000000002';
     file_put_contents("$tmp/boot_id", "$boot1\n");
@@ -7201,12 +7203,21 @@ function testWatchmanNight(): void
     watchmanMirrorWrite($day, $ram, $flash, $t + 960, $boot1);
     file_put_contents("$tmp/boot_id", "$boot2\n");
     $boot = $t + 3600;
+    file_put_contents("$tmp/stat", "cpu  1 2 3\nbtime $boot\nprocesses 9\n");
     file_put_contents($paths['syslog'], $line($boot + 10, 'webgui: Successful login user root from 192.168.7.10')
         . $line($boot + 20, 'webgui: Successful login user root from 10.0.0.123'));
     file_put_contents($paths['shadow'], 'root:$6$zz$yy:20000:0:99999:7:::' . "\n");     // changed while it was off: the agent's to find
     $r = watchmanNightRound($nightPaths, $night, $boot + 60, false, fn () => [], $ram, $flash, $boot2);
     $nb = watchmanLoad($night)['book'];
     same('reboot: a new night counts anew', [$boot + 60, 1], [watchmanLoad($night)['state']['night']['since'] ?? null, watchmanLoad($night)['state']['night']['rounds'] ?? null]);
+    // the reboot left no array line (its clock lay in RAM): the night shift books the server's start, at the kernel's btime
+    $sb = array_values(array_filter($nb, fn ($e) => $e['kind'] === 'server_boot'));
+    same('reboot: the night books the server\'s start — once, a plain line at its btime, with who logged in then',
+        [1, "server_boot:$boot2", $boot, 'array', true, ['192.168.7.10', '10.0.0.123'], 'T1529', false],
+        [count($sb), $sb[0]['key'] ?? null, $sb[0]['time'] ?? null, $sb[0]['by'] ?? null, !empty($sb[0]['noted']),
+         array_column($sb[0]['p']['logins'] ?? [], 'ip'), WATCH_ATTACK['server_boot'], WATCH_KINDS['server_boot'][1]]);
+    watchmanNightRound($nightPaths, $night, $boot + 90, false, fn () => [], $ram, $flash, $boot2);
+    same('reboot: the night\'s next round — still once', 1, count(array_filter(watchmanLoad($night)['book'], fn ($e) => $e['kind'] === 'server_boot')));
     same('reboot: begun from the flash, this boot\'s syslog from its start; a password the first look stands for',
         [['hired' => 1000, 'from' => 'flash'], true, false],
         [$r['begun'] ?? null, in_array('login_new_ip:10.0.0.123', $openKeys($nb), true), in_array('flash_password:root', $openKeys($nb), true)]);
@@ -7214,6 +7225,9 @@ function testWatchmanNight(): void
     watchmanNightHandover($day, $night, $boot + 120, $lock);
     watchmanRound($paths, $day, 1000, $boot + 180, $docker, false, $acks);
     check('reboot: the changed password is the agent\'s find after the start', in_array('flash_password:root', $openKeys(watchmanLoad($day)['book']), true));
+    $sb = array_values(array_filter(watchmanLoad($day)['book'], fn ($e) => $e['kind'] === 'server_boot'));
+    same('reboot: the night\'s line of the server\'s start taken over — the day books it no second time', [1, true, $boot2],
+        [count($sb), !empty($sb[0]['night']), watchmanLoad($day)['state']['boot_seen'] ?? null]);
 
     // no mirror: no night shift, nothing written
     hardeningRm($night);
@@ -7237,6 +7251,92 @@ function testWatchmanNight(): void
         @unlink(watchmanLockFile($dir, 'book'));
         @unlink(watchmanLockFile($dir, 'round'));
     }
+    hardeningRm($tmp);
+}
+
+/**
+ * A reboot leaves no array line (agent.sh's array events lie in RAM): a round that sees another boot id than the one
+ * he kept books «the server was started» — once per boot, never at his first round after hiring (the night shift's
+ * part and the handover: testWatchmanNight).
+ */
+function testWatchmanBoot(): void
+{
+    $now = strtotime('2026-10-07 12:00:00');
+    $tmp = hardeningTmp('watchboot');
+    $src = "$tmp/src";
+    $day = "$tmp/data/watchman";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+              'etc_passwd' => "$src/passwd", 'boot_id' => "$tmp/boot_id", 'stat' => "$tmp/stat"];
+    $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
+    file_put_contents($paths['syslog'], $line($now - 60, 'webgui: Successful login user root from 192.168.7.10'));
+    file_put_contents($paths['go'], "#!/bin/bash\n/usr/local/sbin/emhttp &\n");
+    file_put_contents($paths['passwd'], "root:x:0:0:Console and webGui login account:/root:/bin/bash\n");
+    file_put_contents($paths['shadow'], 'root:$6$aa$bb:20000:0:99999:7:::' . "\n");
+    foreach (['sec', 'sec_nfs', 'share_cfg'] as $k) {
+        file_put_contents($paths[$k], '');
+    }
+    $docker = fn () => [];
+    $acks = "$tmp/acks.json";
+    $bootA = 'bbbbbbbb-0000-4000-8000-00000000000a';
+    $bootB = 'bbbbbbbb-0000-4000-8000-00000000000b';
+    $bootC = 'bbbbbbbb-0000-4000-8000-00000000000c';
+    $boots = fn () => array_values(array_filter(watchmanLoad($day)['book'], fn ($e) => $e['kind'] === 'server_boot'));
+    $setBoot = function (string $id, int $btime) use ($tmp): void {
+        file_put_contents("$tmp/boot_id", "$id\n");
+        file_put_contents("$tmp/stat", "cpu  1 2 3\nbtime $btime\nprocesses 9\n");
+    };
+
+    // an earlier hiring kept boot A; hired anew in boot B: his first round takes over — no line, only remembered
+    $setBoot($bootA, $now - 86400);
+    watchmanRound($paths, $day, 900, $now - 3600, $docker, false, $acks);
+    $setBoot($bootB, $now - 600);
+    watchmanRound($paths, $day, 1000, $now, $docker, false, $acks);
+    same('boot: never at his first round after hiring (another boot than the old hiring\'s)', [0, $bootB], [count($boots()), watchmanLoad($day)['state']['boot_seen'] ?? null]);
+    watchmanRound($paths, $day, 1000, $now + 300, $docker, false, $acks);
+    same('boot: the same boot — none', 0, count($boots()));
+
+    // a reboot: the next round books the start once, at the kernel's btime, with who logged in around then
+    $up = $now + 900;
+    $setBoot($bootC, $up);
+    file_put_contents($paths['syslog'], $line($up + 40, 'webgui: Successful login user root from 192.168.7.10')
+        . $line($up + 50, 'sshd-session[7]: Accepted publickey for root from 192.168.7.20 port 2 ssh2: x'));
+    $r = watchmanRound($paths, $day, 1000, $up + 120, $docker, false, $acks);
+    $b = $boots();
+    same('boot: a new boot id — one plain line at its btime, noted by himself, who logged in around then (the new address apart)',
+        [1, "server_boot:$bootC", $up, 'array', true, ['192.168.7.10', '192.168.7.20'], ['login_new_ip'], $bootC],
+        [count($b), $b[0]['key'] ?? null, $b[0]['time'] ?? null, $b[0]['by'] ?? null, !empty($b[0]['noted']), array_column($b[0]['p']['logins'] ?? [], 'ip'),
+         $r['added'], watchmanLoad($day)['state']['boot_seen'] ?? null]);
+    same('boot: never told, never on the team lead\'s list', [[], []],
+        [array_values(array_filter(watchmanChecks($day), fn ($f) => $f['id'] === 'server_boot')), array_values(array_filter(array_keys(watchmanOpenCounts(watchmanLoad($day)['book'])), fn ($k) => $k === 'server_boot'))]);
+    watchmanRound($paths, $day, 1000, $up + 420, $docker, false, $acks);
+    same('boot: the same boot again — still one', 1, count($boots()));
+    same('boot: its words', 'The server was started — logged in around then: root@192.168.7.10 (WebGUI), root@192.168.7.20 (SSH (publickey))',
+        officeNotifyText('watchman', 'entry.server_boot', watchmanText($boots()[0]), 'en'));
+
+    // a state of before 1.31 (no boot_seen): the syslog position's boot tells; unknown — only remembered
+    $st = watchmanLoad($day)['state'];
+    unset($st['boot_seen']);
+    writeAtomic("$day/state.json", jsonEncode($st));
+    $setBoot($bootA, $up + 3600);
+    watchmanRound($paths, $day, 1000, $up + 3700, $docker, false, $acks);
+    same('boot: an older state — the syslog position\'s boot tells', [2, "server_boot:$bootA"], [count($boots()), $boots()[1]['key'] ?? null]);
+    $st = watchmanLoad($day)['state'];
+    unset($st['boot_seen'], $st['syslog']['boot']);
+    writeAtomic("$day/state.json", jsonEncode($st));
+    $setBoot($bootB, $up + 7200);
+    watchmanRound($paths, $day, 1000, $up + 7300, $docker, false, $acks);
+    same('boot: nothing known of the boot before — only remembered', [2, $bootB], [count($boots()), watchmanLoad($day)['state']['boot_seen'] ?? null]);
+    same('boot: btime read only in its shape', [1700000000, null, null],
+        [watchmanBootTime((function () use ($tmp): string { file_put_contents("$tmp/s1", "cpu 1\nbtime 1700000000\n"); return "$tmp/s1"; })()),
+         watchmanBootTime((function () use ($tmp): string { file_put_contents("$tmp/s2", "xbtime 1700000000\nbtime 17x\n"); return "$tmp/s2"; })()),
+         watchmanBootTime("$tmp/none")]);
+
+    @unlink(watchmanLockFile($day, 'book'));
+    @unlink(watchmanLockFile($day, 'round'));
     hardeningRm($tmp);
 }
 
@@ -7839,7 +7939,7 @@ function testSupporterKeys(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman', 'testWhereaboutsVmStop', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];
