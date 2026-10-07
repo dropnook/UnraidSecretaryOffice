@@ -9,6 +9,7 @@ declare(strict_types=1);
  * GET  ?a=strings&lang=<code>         all UI strings of a language
  * GET  ?a=log                         tail of the agent log
  * GET  ?a=dash&lang=<code>            the rows of the tile on Unraid's Dashboard (dashboard.php)
+ * GET  ?a=agent                       the messenger alone (agentInfo(): the array stopped, the night shift)
  * POST {"a": "<desk>.<action>", ...}  a request for the agent; it checks everything
  * POST {"a": "office.hire|fire"}       who works here (see staff.php)
  * POST {"a": "office.supporter_set|supporter_remove|supporter_ask"}   the supporter key (supporter.php)
@@ -36,6 +37,7 @@ function api_main(): void
                 'strings' => apiStrings((string) ($_GET['lang'] ?? 'en')),
                 'log'     => answer(['ok' => true, 'lines' => apiLogTail(400)]),
                 'dash'    => apiDash((string) ($_GET['lang'] ?? '')),
+                'agent'   => answer(['ok' => true, 'agent' => agentInfo()]),
                 default   => answer(['ok' => false, 'error' => ['key' => 'bad_request']], 404),
             };
         }

@@ -29,7 +29,45 @@ function agentInfo(): array
         $var = @parse_ini_file('/var/local/emhttp/var.ini') ?: [];
         $info['no_data'] = ['array' => (string) ($var['fsState'] ?? ''), 'dir' => OFFICE_DATA];
     }
+    unset($info['night']);
+    if (!$info['running'] && ($night = officeNightShift()) !== null) {
+        $info['night'] = $night;        // the array isn't started: the night watchman keeps watch from RAM and the flash
+    }
     return $info;
+}
+
+/** The office's folder in RAM (the agent's RUN_DIR, root only); OFFICE_RUN_DIR for the tests */
+function officeRunDir(): string
+{
+    return rtrim(getenv('OFFICE_RUN_DIR') ?: '/var/run/unraid-secretary-office', '/');
+}
+
+/**
+ * The night watchman's night shift (`php agent.php nightshift`, while the array isn't started — agent/agent.php
+ * nightShift(), watchmanNightRound()): on while the process that holds its lock (WATCH_NIGHT_LOCK, which carries its
+ * pid) lives, and keeping watch once its first round wrote its state (WATCH_NIGHT_DIR/state.json: `night` with since,
+ * rounds, new — what is new in the night and open). RAM only, nothing under /mnt. Never takes the lock itself: the
+ * night shift's own non-blocking lock at its start must never meet a look from here.
+ *
+ * @return array{since: int, rounds: int, new: int, last: ?int}|null  null: off (no lock; its process ended, the lock stays
+ *                                                                     behind; its pid now another process's) or no watch
+ *                                                                     (no mirror, no round yet: no state)
+ */
+function officeNightShift(?string $run = null): ?array
+{
+    $run ??= officeRunDir();
+    $pid = trim((string) @file_get_contents("$run/nightshift.lock", false, null, 0, 16));
+    if (!preg_match('/^[1-9][0-9]{0,9}$/D', $pid) || !str_contains((string) @file_get_contents("/proc/$pid/cmdline", false, null, 0, 4096), "agent.php\0nightshift")) {
+        return null;
+    }
+    $st = officeReadJson("$run/nightshift/state.json");
+    $night = $st['night'] ?? null;
+    if (!is_array($night) || (int) ($st['hired'] ?? 0) <= 0 || (int) ($night['since'] ?? 0) <= 0 || isset($night['until'])) {
+        return null;
+    }
+    $last = (int) ($st['round']['time'] ?? 0);
+    return ['since' => (int) $night['since'], 'rounds' => max(0, (int) ($night['rounds'] ?? 0)), 'new' => max(0, (int) ($night['new'] ?? 0)),
+            'last' => $last > 0 ? $last : null];
 }
 
 function askAgent(string $action, array $data = [], float $wait = 20.0): array

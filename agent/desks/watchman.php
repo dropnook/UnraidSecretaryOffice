@@ -160,6 +160,7 @@ const WATCH_KINDS = [
     'door_new'             => ['host', true],       // a new way in from outside: SSH on or on another port, UPnP, Connect's remote access, a single sign-on, a WireGuard peer
     'array_stop'           => ['array', false],     // the array was stopped: a plain line, noted by himself (watchmanArrayLines())
     'array_start'          => ['array', false],     // the array was started: likewise
+    'server_boot'          => ['array', false],     // the server was started (a new boot id): likewise (watchmanBootLine())
 ];
 
 /**
@@ -182,6 +183,8 @@ const WATCH_ATTACK = [
     'log_cleared' => 'T1070.002', 'user_ram' => 'T1136.001', 'listen_new' => 'T1133', 'proc_odd' => 'T1105', 'door_new' => 'T1133',
     // an array stopped is a service stopped (T1489 Service Stop); started again is its other end — the same technique, so a SIEM finds both
     'array_stop' => 'T1489', 'array_start' => 'T1489',
+    // a reboot: System Shutdown/Reboot
+    'server_boot' => 'T1529',
 ];
 
 /**
@@ -292,6 +295,7 @@ function watchmanPaths(): array
         'logs'       => WATCH_HOST_LOGS,
         'logrotate'  => '/var/lib/logrotate.status',
         'boot_id'    => '/proc/sys/kernel/random/boot_id',
+        'stat'       => '/proc/stat',             // btime: when the server was started (watchmanBootLine())
         'port_range' => '/proc/sys/net/ipv4/ip_local_port_range',
         'ss'         => 'ss',
         'connect'    => '/boot/config/plugins/dynamix.my.servers/configs/connect.json',
@@ -820,6 +824,8 @@ function watchmanNightBegin(array $paths, string $night, int $now, string $ram =
               'syslog' => $from === 'ram' && is_array($st['syslog'] ?? null) ? $st['syslog'] : ['ino' => -1, 'size' => 0],
               'fails' => $from === 'ram' ? (array) ($st['fails'] ?? []) : [], 'logins' => $from === 'ram' ? (array) ($st['logins'] ?? []) : [],
               'array_seen' => (int) ($st['array_seen'] ?? 0), 'last_notify' => $st['last_notify'] ?? null,
+              // the boot the mirror was written in: from the flash after a reboot another one — his first round books the start
+              'boot_seen' => (string) $m['boot'],
               'night' => ['since' => $now, 'from' => $from]];
     $seen = $from === 'ram' && is_array($m['seen'] ?? null) ? array_filter($m['seen'], 'is_array') : [];
     foreach (['baseline.json' => $b, 'state.json' => $state, 'seen.json' => $seen, 'book.json' => ['entries' => $book]] as $file => $data) {
@@ -960,7 +966,7 @@ function watchmanNightInto(array $x, array $e, int $more, ?string $p): array
     return $x;
 }
 
-/** The night's state into the day's: the syslog's place, the failures followed, when each kind was told, chains, logins, array lines */
+/** The night's state into the day's: the syslog's place, the failures followed, when each kind was told, chains, logins, array lines, the boot seen */
 function watchmanNightState(array $day, array $n, int $now): array
 {
     if (is_array($n['syslog'] ?? null)) {
@@ -979,6 +985,9 @@ function watchmanNightState(array $day, array $n, int $now): array
     }
     $day['logins'] = watchmanRecentLogins(array_merge((array) ($day['logins'] ?? []), (array) ($n['logins'] ?? [])), [], $now);
     $day['array_seen'] = max((int) ($day['array_seen'] ?? 0), (int) ($n['array_seen'] ?? 0));
+    if (is_string($n['boot_seen'] ?? null) && $n['boot_seen'] !== '') {
+        $day['boot_seen'] = $n['boot_seen'];        // the night booked the server's start: never again by the day
+    }
     if (is_array($n['night'] ?? null)) {
         $day['night'] = ['since' => (int) ($n['night']['since'] ?? 0), 'until' => $now, 'from' => (string) ($n['night']['from'] ?? '')];
     }
@@ -1044,10 +1053,7 @@ function watchmanArrayLines(array &$book, array &$st, string $file, int $now): a
             continue;
         }
         $kind = $what === 'stop' ? 'array_stop' : 'array_start';
-        $logins = array_values(array_filter((array) ($st['logins'] ?? []),
-            fn ($l) => (int) ($l['t'] ?? 0) >= $t - WATCH_ARRAY_BEFORE && (int) ($l['t'] ?? 0) <= $t + WATCH_ARRAY_AFTER));
-        usort($logins, fn ($a, $b) => $a['t'] <=> $b['t']);
-        $e = watchmanEntry($kind, "$kind:$t", $t, ['logins' => array_slice($logins, -WATCH_LIST_MAX)]);
+        $e = watchmanEntry($kind, "$kind:$t", $t, ['logins' => watchmanLoginsAround($st, $t)]);
         $e['noted'] = $now;
         $e['by'] = 'array';
         $book[] = $e;
@@ -1056,6 +1062,51 @@ function watchmanArrayLines(array &$book, array &$st, string $file, int $now): a
     }
     $st['array_seen'] = $seen;
     return $added;
+}
+
+/** The WebGUI/SSH logins he remembers (state.json logins) from WATCH_ARRAY_BEFORE before $t to WATCH_ARRAY_AFTER after it, oldest first */
+function watchmanLoginsAround(array $st, int $t): array
+{
+    $logins = array_values(array_filter((array) ($st['logins'] ?? []),
+        fn ($l) => is_array($l) && (int) ($l['t'] ?? 0) >= $t - WATCH_ARRAY_BEFORE && (int) ($l['t'] ?? 0) <= $t + WATCH_ARRAY_AFTER));
+    usort($logins, fn ($a, $b) => $a['t'] <=> $b['t']);
+    return array_slice($logins, -WATCH_LIST_MAX);
+}
+
+/** When the server was started: the kernel's btime in /proc/stat, or null */
+function watchmanBootTime(string $stat = '/proc/stat'): ?int
+{
+    return preg_match('/^btime (\d{9,11})$/m', (string) @file_get_contents($stat, false, null, 0, 65536), $m) ? (int) $m[1] : null;
+}
+
+/**
+ * The server was started since his last round — another boot id than the one he kept (`boot_seen`; up to 1.30 the
+ * syslog position's): a plain line in the book, noted by himself (`by` array) like the array's — when ($btime, else
+ * now), and who had logged in around then. A reboot leaves no array_stop line (the event scripts' clock lies in RAM),
+ * so this one says the server went down and came up. Once per boot id (its key); the night shift books it at its first
+ * round after a boot and the handover carries `boot_seen`, so the day never books it again. Unknown before (an old
+ * state, no boot id): nothing — only remembered.
+ *
+ * @return list<string>  the kinds written
+ */
+function watchmanBootLine(array &$book, array $st, string $boot, ?int $btime, int $now): array
+{
+    $before = is_string($st['boot_seen'] ?? null) ? $st['boot_seen'] : (is_string($st['syslog']['boot'] ?? null) ? $st['syslog']['boot'] : '');
+    if ($boot === '' || $before === '' || $before === $boot) {
+        return [];
+    }
+    $key = "server_boot:$boot";
+    foreach ($book as $e) {
+        if (($e['key'] ?? '') === $key) {
+            return [];
+        }
+    }
+    $t = $btime !== null && $btime > 0 && $btime <= $now + 60 ? $btime : $now;
+    $e = watchmanEntry('server_boot', $key, $t, ['logins' => watchmanLoginsAround($st, $t)]);
+    $e['noted'] = $now;
+    $e['by'] = 'array';
+    $book[] = $e;
+    return ['server_boot'];
 }
 
 /** Who had logged in around an array stop or start, in names: "root@192.168.7.125 (WebGUI)" … or – */
@@ -1121,8 +1172,10 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     $snapKnown = $snaps ? readJson("$dir/snaps.json") : null;
     $snapRes = $snaps ? watchmanSnaps($paths, $fresh ? null : $snapKnown, $fresh ? [] : (array) ($snap['baseline']['snaps']['series'] ?? []), $now) : null;
 
+    $btime = $boot !== '' && isset($paths['stat']) ? watchmanBootTime((string) $paths['stat']) : null;
+
     return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes,
-                                               $office, $paths): array {
+                                               $office, $paths, $boot, $btime): array {
         $old = watchmanLoad($dir);
         $old['seen'] = readJson("$dir/seen.json");
         $old['flow'] = readJson("$dir/flow.json");
@@ -1188,6 +1241,13 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         }
         // the logins of the last half hour (for the array's lines); an array stopped or started since the last round: a plain line
         $st['logins'] = watchmanRecentLogins((array) ($st['logins'] ?? []), $events, $now);
+        // the server started since the last round (a reboot leaves no array line: WATCH_ARRAY_EVENTS lies in RAM) — never at his first
+        if (!$fresh) {
+            watchmanBootLine($book, $st, $boot, $btime, $now);
+        }
+        if ($boot !== '') {
+            $st['boot_seen'] = $boot;
+        }
         if ($fresh) {
             $st['array_seen'] = max((int) ($st['array_seen'] ?? 0), $now);     // what came before he took over isn't his
         } elseif (isset($paths['array_events'])) {
@@ -1210,6 +1270,12 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                         'read' => $read['read'], 'skipped' => $read['skipped'], 'rotated' => $read['rotated'],
                         'docker' => $seen['containers'] !== null, 'shares' => $seen['shares'] !== null, 'flow' => $look !== null,
                         'snaps' => $snapRes !== null, 'added' => count($added)];
+        if (is_array($st['night'] ?? null) && !isset($st['night']['until'])) {
+            // the night shift's own state (the day's `night` has `until`): its rounds and what is new in it and open — the
+            // office's page and the Dashboard tile say so while the array is stopped (officeNightShift() in src/mailbox.php)
+            $st['night']['rounds'] = (int) ($st['night']['rounds'] ?? 0) + 1;
+            $st['night']['new'] = count(array_filter($book, fn ($e) => watchmanOpen($e) && !isset($e['stub'])));
+        }
         $old['snaps'] = $snapKnown;
         watchmanSave($dir, $old, ['baseline' => $b, 'book' => $book, 'state' => $st, 'seen' => $observed, 'flow' => $flow, 'posture' => $known,
                                   'snaps' => $snapRes['known'] ?? null]);
@@ -5782,7 +5848,7 @@ function watchmanText(array $e, ?string $lang = null): array
                              'where' => ($p['where'] ?? null) === null
                                  ? ($lang === null ? '' : officeNotifyText('watchman', 'where.host', [], $lang)) : (string) $p['where']],
         'door_new'       => ['door' => watchmanDoorWords($p, $lang), 'name' => (string) ($p['name'] ?? '')],
-        'array_stop', 'array_start' => ['who' => watchmanArrayWho((array) ($p['logins'] ?? []))],
+        'array_stop', 'array_start', 'server_boot' => ['who' => watchmanArrayWho((array) ($p['logins'] ?? []))],
         'watch'          => array_map('intval', $p),
         default          => [],
     };

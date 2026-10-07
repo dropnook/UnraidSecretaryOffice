@@ -7132,7 +7132,9 @@ function testWatchmanNight(): void
     @mkdir("$tmp/run", 0700, true);
     $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
               'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
-              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd", 'array_events' => "$tmp/run/array-events", 'boot_id' => "$tmp/boot_id"];
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd", 'array_events' => "$tmp/run/array-events", 'boot_id' => "$tmp/boot_id",
+              'stat' => "$tmp/stat"];
+    file_put_contents("$tmp/stat", "cpu  1 2 3\nbtime " . ($now - 86400) . "\nprocesses 9\n");
     $boot1 = 'aaaaaaaa-0000-4000-8000-000000000001';
     $boot2 = 'aaaaaaaa-0000-4000-8000-000000000002';
     file_put_contents("$tmp/boot_id", "$boot1\n");
@@ -7224,6 +7226,13 @@ function testWatchmanNight(): void
     $nst = watchmanLoad($night)['state'];
     $syslogEnd = filesize($paths['syslog']);
     same('night: the syslog read on from the day\'s place', $syslogEnd, $nst['syslog']['size'] ?? null);
+    // what the office's page and the Dashboard tile say meanwhile (officeNightShift()): its rounds, what is new in it and open
+    // (the go line and the new address — not the day's open entry it only counted on, not the array's line he noted himself)
+    same('night: its rounds and what is new in it', [$t + 60, 1, 2], [$nst['night']['since'] ?? null, $nst['night']['rounds'] ?? null, $nst['night']['new'] ?? null]);
+    watchmanNightRound($nightPaths, $night, $t + 360, false, fn () => [], $ram, $flash, $boot1);
+    same('night: a second round counted, nothing more new', [$t + 60, 2, 2], array_values(array_intersect_key(watchmanLoad($night)['state']['night'] ?? [],
+        ['since' => 1, 'rounds' => 1, 'new' => 1])));
+    $nst = watchmanLoad($night)['state'];
 
     // never two of them: while the night shift holds its lock, the day waits
     $h = fopen($lock, 'c');
@@ -7250,6 +7259,7 @@ function testWatchmanNight(): void
     same('handover: the syslog\'s place and what was told taken over; the night\'s files gone', [$syslogEnd, true, []],
         [$d['state']['syslog']['size'] ?? null, isset($d['state']['notified']['flash_go']), array_values(array_filter(WATCH_NIGHT_FILES, fn ($f) => is_file("$night/$f")))]);
     same('handover: nothing left to take over', null, watchmanNightHandover($day, $night, $t + 601, $lock));
+    same('handover: the day\'s night says from, until, which mirror — no counts of its own', ['since', 'until', 'from'], array_keys($d['state']['night'] ?? []));
 
     // the agent's next round: the array's start, the login after the night's last round — once
     file_put_contents($paths['array_events'], ($t + 550) . " start\n", FILE_APPEND);
@@ -7273,11 +7283,21 @@ function testWatchmanNight(): void
     watchmanMirrorWrite($day, $ram, $flash, $t + 960, $boot1);
     file_put_contents("$tmp/boot_id", "$boot2\n");
     $boot = $t + 3600;
+    file_put_contents("$tmp/stat", "cpu  1 2 3\nbtime $boot\nprocesses 9\n");
     file_put_contents($paths['syslog'], $line($boot + 10, 'webgui: Successful login user root from 192.168.7.10')
         . $line($boot + 20, 'webgui: Successful login user root from 10.0.0.123'));
     file_put_contents($paths['shadow'], 'root:$6$zz$yy:20000:0:99999:7:::' . "\n");     // changed while it was off: the agent's to find
     $r = watchmanNightRound($nightPaths, $night, $boot + 60, false, fn () => [], $ram, $flash, $boot2);
     $nb = watchmanLoad($night)['book'];
+    same('reboot: a new night counts anew', [$boot + 60, 1], [watchmanLoad($night)['state']['night']['since'] ?? null, watchmanLoad($night)['state']['night']['rounds'] ?? null]);
+    // the reboot left no array line (its clock lay in RAM): the night shift books the server's start, at the kernel's btime
+    $sb = array_values(array_filter($nb, fn ($e) => $e['kind'] === 'server_boot'));
+    same('reboot: the night books the server\'s start — once, a plain line at its btime, with who logged in then',
+        [1, "server_boot:$boot2", $boot, 'array', true, ['192.168.7.10', '10.0.0.123'], 'T1529', false],
+        [count($sb), $sb[0]['key'] ?? null, $sb[0]['time'] ?? null, $sb[0]['by'] ?? null, !empty($sb[0]['noted']),
+         array_column($sb[0]['p']['logins'] ?? [], 'ip'), WATCH_ATTACK['server_boot'], WATCH_KINDS['server_boot'][1]]);
+    watchmanNightRound($nightPaths, $night, $boot + 90, false, fn () => [], $ram, $flash, $boot2);
+    same('reboot: the night\'s next round — still once', 1, count(array_filter(watchmanLoad($night)['book'], fn ($e) => $e['kind'] === 'server_boot')));
     same('reboot: begun from the flash, this boot\'s syslog from its start; a password the first look stands for',
         [['hired' => 1000, 'from' => 'flash'], true, false],
         [$r['begun'] ?? null, in_array('login_new_ip:10.0.0.123', $openKeys($nb), true), in_array('flash_password:root', $openKeys($nb), true)]);
@@ -7285,6 +7305,9 @@ function testWatchmanNight(): void
     watchmanNightHandover($day, $night, $boot + 120, $lock);
     watchmanRound($paths, $day, 1000, $boot + 180, $docker, false, $acks);
     check('reboot: the changed password is the agent\'s find after the start', in_array('flash_password:root', $openKeys(watchmanLoad($day)['book']), true));
+    $sb = array_values(array_filter(watchmanLoad($day)['book'], fn ($e) => $e['kind'] === 'server_boot'));
+    same('reboot: the night\'s line of the server\'s start taken over — the day books it no second time', [1, true, $boot2],
+        [count($sb), !empty($sb[0]['night']), watchmanLoad($day)['state']['boot_seen'] ?? null]);
 
     // no mirror: no night shift, nothing written
     hardeningRm($night);
@@ -7308,6 +7331,231 @@ function testWatchmanNight(): void
         @unlink(watchmanLockFile($dir, 'book'));
         @unlink(watchmanLockFile($dir, 'round'));
     }
+    hardeningRm($tmp);
+}
+
+/**
+ * A reboot leaves no array line (agent.sh's array events lie in RAM): a round that sees another boot id than the one
+ * he kept books «the server was started» — once per boot, never at his first round after hiring (the night shift's
+ * part and the handover: testWatchmanNight).
+ */
+function testWatchmanBoot(): void
+{
+    $now = strtotime('2026-10-07 12:00:00');
+    $tmp = hardeningTmp('watchboot');
+    $src = "$tmp/src";
+    $day = "$tmp/data/watchman";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+              'etc_passwd' => "$src/passwd", 'boot_id' => "$tmp/boot_id", 'stat' => "$tmp/stat"];
+    $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
+    file_put_contents($paths['syslog'], $line($now - 60, 'webgui: Successful login user root from 192.168.7.10'));
+    file_put_contents($paths['go'], "#!/bin/bash\n/usr/local/sbin/emhttp &\n");
+    file_put_contents($paths['passwd'], "root:x:0:0:Console and webGui login account:/root:/bin/bash\n");
+    file_put_contents($paths['shadow'], 'root:$6$aa$bb:20000:0:99999:7:::' . "\n");
+    foreach (['sec', 'sec_nfs', 'share_cfg'] as $k) {
+        file_put_contents($paths[$k], '');
+    }
+    $docker = fn () => [];
+    $acks = "$tmp/acks.json";
+    $bootA = 'bbbbbbbb-0000-4000-8000-00000000000a';
+    $bootB = 'bbbbbbbb-0000-4000-8000-00000000000b';
+    $bootC = 'bbbbbbbb-0000-4000-8000-00000000000c';
+    $boots = fn () => array_values(array_filter(watchmanLoad($day)['book'], fn ($e) => $e['kind'] === 'server_boot'));
+    $setBoot = function (string $id, int $btime) use ($tmp): void {
+        file_put_contents("$tmp/boot_id", "$id\n");
+        file_put_contents("$tmp/stat", "cpu  1 2 3\nbtime $btime\nprocesses 9\n");
+    };
+
+    // an earlier hiring kept boot A; hired anew in boot B: his first round takes over — no line, only remembered
+    $setBoot($bootA, $now - 86400);
+    watchmanRound($paths, $day, 900, $now - 3600, $docker, false, $acks);
+    $setBoot($bootB, $now - 600);
+    watchmanRound($paths, $day, 1000, $now, $docker, false, $acks);
+    same('boot: never at his first round after hiring (another boot than the old hiring\'s)', [0, $bootB], [count($boots()), watchmanLoad($day)['state']['boot_seen'] ?? null]);
+    watchmanRound($paths, $day, 1000, $now + 300, $docker, false, $acks);
+    same('boot: the same boot — none', 0, count($boots()));
+
+    // a reboot: the next round books the start once, at the kernel's btime, with who logged in around then
+    $up = $now + 900;
+    $setBoot($bootC, $up);
+    file_put_contents($paths['syslog'], $line($up + 40, 'webgui: Successful login user root from 192.168.7.10')
+        . $line($up + 50, 'sshd-session[7]: Accepted publickey for root from 192.168.7.20 port 2 ssh2: x'));
+    $r = watchmanRound($paths, $day, 1000, $up + 120, $docker, false, $acks);
+    $b = $boots();
+    same('boot: a new boot id — one plain line at its btime, noted by himself, who logged in around then (the new address apart)',
+        [1, "server_boot:$bootC", $up, 'array', true, ['192.168.7.10', '192.168.7.20'], ['login_new_ip'], $bootC],
+        [count($b), $b[0]['key'] ?? null, $b[0]['time'] ?? null, $b[0]['by'] ?? null, !empty($b[0]['noted']), array_column($b[0]['p']['logins'] ?? [], 'ip'),
+         $r['added'], watchmanLoad($day)['state']['boot_seen'] ?? null]);
+    same('boot: never told, never on the team lead\'s list', [[], []],
+        [array_values(array_filter(watchmanChecks($day), fn ($f) => $f['id'] === 'server_boot')), array_values(array_filter(array_keys(watchmanOpenCounts(watchmanLoad($day)['book'])), fn ($k) => $k === 'server_boot'))]);
+    watchmanRound($paths, $day, 1000, $up + 420, $docker, false, $acks);
+    same('boot: the same boot again — still one', 1, count($boots()));
+    same('boot: its words', 'The server was started — logged in around then: root@192.168.7.10 (WebGUI), root@192.168.7.20 (SSH (publickey))',
+        officeNotifyText('watchman', 'entry.server_boot', watchmanText($boots()[0]), 'en'));
+
+    // a state of before 1.31 (no boot_seen): the syslog position's boot tells; unknown — only remembered
+    $st = watchmanLoad($day)['state'];
+    unset($st['boot_seen']);
+    writeAtomic("$day/state.json", jsonEncode($st));
+    $setBoot($bootA, $up + 3600);
+    watchmanRound($paths, $day, 1000, $up + 3700, $docker, false, $acks);
+    same('boot: an older state — the syslog position\'s boot tells', [2, "server_boot:$bootA"], [count($boots()), $boots()[1]['key'] ?? null]);
+    $st = watchmanLoad($day)['state'];
+    unset($st['boot_seen'], $st['syslog']['boot']);
+    writeAtomic("$day/state.json", jsonEncode($st));
+    $setBoot($bootB, $up + 7200);
+    watchmanRound($paths, $day, 1000, $up + 7300, $docker, false, $acks);
+    same('boot: nothing known of the boot before — only remembered', [2, $bootB], [count($boots()), watchmanLoad($day)['state']['boot_seen'] ?? null]);
+    same('boot: btime read only in its shape', [1700000000, null, null],
+        [watchmanBootTime((function () use ($tmp): string { file_put_contents("$tmp/s1", "cpu 1\nbtime 1700000000\n"); return "$tmp/s1"; })()),
+         watchmanBootTime((function () use ($tmp): string { file_put_contents("$tmp/s2", "xbtime 1700000000\nbtime 17x\n"); return "$tmp/s2"; })()),
+         watchmanBootTime("$tmp/none")]);
+
+    @unlink(watchmanLockFile($day, 'book'));
+    @unlink(watchmanLockFile($day, 'round'));
+    hardeningRm($tmp);
+}
+
+/**
+ * The night shift on the office's page and on the Dashboard tile while the array is stopped: officeNightShift()
+ * (src/mailbox.php) reads RAM only — the pid in its lock (a living `agent.php nightshift`; it never takes the lock, so
+ * the night shift's own non-blocking lock at its start never meets it) and its state — and the web side without its
+ * data folder (the array stopped) answers without a warning. In a process of its own (bootstrap.php) on a copy laid
+ * out like the plugin (src/ beside the web files).
+ */
+function testNightUi(): void
+{
+    $tmp = hardeningTmp('nightui');
+    $now = time();
+    @mkdir("$tmp/plugin/src", 0700, true);
+    foreach (glob(OFFICE_DIR . '/src/*.php') ?: [] as $f) {
+        copy($f, "$tmp/plugin/src/" . basename($f));
+    }
+    foreach (['assets', 'desks', 'lang'] as $d) {
+        @symlink(OFFICE_WEB . "/$d", "$tmp/plugin/$d");
+    }
+    // a night shift: a process whose command line is `… agent.php nightshift` (a stand-in that only waits); one that ended
+    file_put_contents("$tmp/agent.php", "<?php sleep(60);\n");
+    $quiet = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
+    $shift = proc_open([PHP_BINARY, "$tmp/agent.php", 'nightshift'], $quiet, $pipes);
+    $pid = (int) (proc_get_status($shift)['pid'] ?? 0);
+    for ($i = 0; $i < 60 && !str_contains((string) @file_get_contents("/proc/$pid/cmdline"), 'nightshift'); $i++) {
+        usleep(50000);
+    }
+    $ended = proc_open([PHP_BINARY, "$tmp/agent.php", 'nightshift', 'x'], $quiet, $pipes);
+    $gone = (int) (proc_get_status($ended)['pid'] ?? 0);
+    proc_terminate($ended);
+    proc_close($ended);
+
+    $since = $now - 120;
+    $state = ['hired' => 1000, 'night' => ['since' => $since, 'from' => 'ram', 'rounds' => 7, 'new' => 1], 'round' => ['time' => $now - 60]];
+    $runs = [
+        'on'        => [$pid, $state],
+        'quiet'     => [$pid, ['night' => ['since' => $since, 'from' => 'flash', 'rounds' => 1, 'new' => 0]] + $state],
+        'old'       => [$pid, ['night' => ['since' => $since, 'from' => 'ram']] + $state],      // a night shift of an older agent: no counts
+        'off'       => [null, $state],                  // no lock: no night shift since the boot
+        'stale'     => [$gone, $state],                 // a stale lock: its process ended (the agent took over)
+        'other'     => [getmypid(), $state],            // its pid now another process's
+        'junk'      => ["$pid\n1", $state],
+        'no_mirror' => [$pid, null],                    // on, but no mirror (not hired, no round yet): no state, it ends at once
+        'day'       => [$pid, ['night' => ['since' => 1, 'until' => 2, 'from' => 'ram']] + $state],     // the day's, after a handover
+        'unhired'   => [$pid, ['hired' => 0] + $state],
+    ];
+    foreach ($runs as $name => [$lockPid, $st]) {
+        @mkdir("$tmp/run-$name/nightshift", 0700, true);
+        if ($lockPid !== null) {
+            file_put_contents("$tmp/run-$name/nightshift.lock", (string) $lockPid);
+        }
+        if ($st !== null) {
+            file_put_contents("$tmp/run-$name/nightshift/state.json", json_encode($st));
+        }
+    }
+    // an agent at work: its data folder with a fresh agent.json and the mailbox
+    @mkdir("$tmp/data/mailbox", 0700, true);
+    file_put_contents("$tmp/data/agent.json", json_encode(['running' => true, 'version' => AGENT_VERSION, 'pid' => 4242, 'started' => $now, 'host' => 'test']));
+
+    $plugin = var_export("$tmp/plugin/src", true);
+    file_put_contents("$tmp/web.php", '<?php foreach (["bootstrap", "page", "dashboard", "api"] as $f) { require ' . $plugin . ' . "/$f.php"; }'
+        . ' date_default_timezone_set("Europe/Zurich"); error_reporting(E_ALL);'
+        . ' set_error_handler(function (int $no, string $s, string $file, int $line): bool { if (error_reporting() & $no) { fwrite(STDERR, "PHP: $s ($file:$line)\n"); } return true; });'
+        . ' if ($argv[1] === "read") { $out = []; foreach (json_decode($argv[2], true) as $n) { $out[$n] = officeNightShift(' . var_export($tmp, true) . ' . "/run-$n"); }'
+        . ' echo json_encode($out); exit; }'
+        . ' if ($argv[1] === "api") { $_SERVER["REQUEST_METHOD"] = "GET"; $_GET = ["a" => $argv[2], "lang" => "en", "desk" => $argv[3] ?? ""]; api_main(); }'
+        . ' echo json_encode(["agent" => agentInfo(), "config" => officePageConfig()["agent"], "en" => officeDashRows("en"), "de" => officeDashRows("de"),'
+        . ' "fr" => officeDashRows("fr")]);');
+    $web = function (array $args, string $run, string $data = 'missing') use ($tmp): array {
+        $p = proc_open(array_merge([PHP_BINARY, "$tmp/web.php"], $args), [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => "$tmp/$data", 'OFFICE_RUN_DIR' => "$tmp/run-$run", 'PATH' => getenv('PATH')]);
+        $out = (string) stream_get_contents($pipes[1]);
+        $err = (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return [json_decode($out, true), trim($err), $out];
+    };
+
+    [$read, $err, $raw] = $web(['read', json_encode(array_keys($runs))], 'on');
+    same('night ui: on — since when, its rounds, what is new, the last round', ['since' => $since, 'rounds' => 7, 'new' => 1, 'last' => $now - 60], $read['on'] ?? $raw);
+    same('night ui: on, nothing new yet; an older agent\'s state without counts', [[1, 0], [0, 0]],
+        [[$read['quiet']['rounds'] ?? null, $read['quiet']['new'] ?? null], [$read['old']['rounds'] ?? null, $read['old']['new'] ?? null]]);
+    same('night ui: off — no lock, a stale lock, another process\'s pid, junk, no mirror, the day\'s state, not hired',
+        array_fill_keys(['off', 'stale', 'other', 'junk', 'no_mirror', 'day', 'unhired'], null),
+        array_intersect_key($read ?? [], array_flip(['off', 'stale', 'other', 'junk', 'no_mirror', 'day', 'unhired'])));
+    same('night ui: read without a word', '', $err);
+    same('night ui: the lock left as it was (never taken, never written)', (string) $pid, (string) file_get_contents("$tmp/run-on/nightshift.lock"));
+
+    // the array stopped (no data folder), the night shift on: the page knows at once, the tile has its line
+    [$o, $err, $raw] = $web(['web'], 'on');
+    same('night ui: no data folder, night shift on — no warning', '', $err);
+    same('night ui: the agent\'s info carries it, the page gets it at once', [false, true, $read['on'], $read['on']],
+        [$o['agent']['running'] ?? null, isset($o['agent']['no_data']), $o['agent']['night'] ?? null, $o['config']['night'] ?? null]);
+    $at = date('Y-m-d', $since) === date('Y-m-d', $now) ? date('H:i', $since) : null;      // else «yesterday 23:59» (a run just after midnight)
+    $en = (string) ($o['en'] ?? '');
+    check('night ui: the tile — the messenger says the array, his line with since, rounds and what is new',
+        str_contains($en, 'Array stopped') && str_contains($en, 'desks/watchman/avatar.svg') && str_contains($en, 'The Night Watchman')
+        && ($at === null || str_contains($en, "Night shift since $at")) && str_contains($en, '7 rounds, 1 new entry') && str_contains($en, 'orange-text'), $raw);
+    check('night ui: the tile in German and French', str_contains((string) ($o['de'] ?? ''), '7 Runden, 1 neuer Eintrag') && str_contains((string) ($o['de'] ?? ''), 'Der Nachtwächter')
+        && str_contains((string) ($o['fr'] ?? ''), '7 rondes, 1 nouvelle entrée'), $raw);
+    check('night ui: the tile links to the office\'s reception', (bool) preg_match('~<a class="sso-dash-row" href="[^"]*#/"><img class="sso-dash-icon" src="[^"]*desks/watchman/avatar\.svg~', $en), $en);
+    [$o, , $raw] = $web(['web'], 'quiet');
+    check('night ui: nothing new — calm', str_contains((string) ($o['en'] ?? ''), '1 round, nothing new') && !str_contains((string) ($o['en'] ?? ''), '1 new'), $raw);
+    [$o, , $raw] = $web(['web'], 'old');
+    check('night ui: no counts (an older agent) — only what is new', str_contains((string) ($o['en'] ?? ''), '<small>nothing new</small>'), $raw);
+
+    // off (the night shift ended, its lock stays behind): nothing about it, no warning
+    [$o, $err, $raw] = $web(['web'], 'stale');
+    same('night ui: a stale lock — nothing on the page or the tile, no warning', [false, false, false, ''],
+        [isset($o['agent']['night']), isset($o['config']['night']), str_contains((string) ($o['en'] ?? ''), 'watchman'), $err]);
+    // the agent at work (the array started): never the night's line, even while a night shift still lives
+    [$o, $err, $raw] = $web(['web'], 'on', 'data');
+    same('night ui: the agent at work — no night line', [true, false, false, true, ''],
+        [$o['agent']['running'] ?? null, isset($o['agent']['night']), str_contains((string) ($o['en'] ?? ''), 'watchman'),
+         str_contains((string) ($o['en'] ?? ''), 'Messenger is in'), $err]);
+
+    // the API: ?a=agent for the reception's look every minute, ?a=dash for the tile
+    [$o, $err, $raw] = $web(['api', 'agent'], 'on');
+    same('night ui: api agent', [true, $read['on'], ''], [$o['ok'] ?? null, $o['agent']['night'] ?? null, $err]);
+    [$o, $err, $raw] = $web(['api', 'dash'], 'on');
+    check('night ui: api dash', ($o['ok'] ?? null) === true && str_contains((string) ($o['html'] ?? ''), '7 rounds, 1 new entry') && $err === '', $raw . $err);
+    [$o, $err, $raw] = $web(['api', 'state', 'caretaker'], 'on');
+    same('night ui: a desk\'s state without the data folder — none, the night in the agent\'s info, no warning', [true, null, true, ''],
+        [$o['ok'] ?? null, $o['state'] ?? null, isset($o['agent']['night']), $err]);
+
+    // every text the tile asks for exists (officeDashT … '<key>')
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/lang/en.json'), true) ?: [];
+    foreach (glob(OFFICE_WEB . '/desks/*/lang/en.json') ?: [] as $file) {
+        foreach (json_decode((string) file_get_contents($file), true) ?: [] as $k => $v) {
+            $en[basename(dirname($file, 2)) . ".$k"] = $v;
+        }
+    }
+    preg_match_all("/officeDashT\\(\\\$s(?:trings)?, '([a-z0-9_.]+)'/", (string) file_get_contents(OFFICE_DIR . '/src/dashboard.php'), $m);
+    $missing = array_values(array_filter(array_unique($m[1]), fn ($k) => !isset($en[$k])));
+    check('dashboard.php: every text it asks for exists (' . count(array_unique($m[1])) . ')', $missing === [] && count($m[1]) > 10, json_encode($missing));
+
+    proc_terminate($shift);
+    proc_close($shift);
     hardeningRm($tmp);
 }
 
@@ -7771,7 +8019,7 @@ function testSupporterKeys(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman', 'testWhereaboutsVmStop', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];

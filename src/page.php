@@ -44,6 +44,7 @@ function officePageConfig(): array
         'supporter' => officeSupporterPage(),     // the supporter key: a thank-you, it unlocks nothing (supporter.php)
         'base'      => officeWebBase(),
         'reception_icon' => officeAsset('assets/reception.svg'),
+        'agent'     => $info,       // the messenger, or why nobody answers (the array stopped, the night shift): said at once
     ];
     $var = @parse_ini_file('/var/local/emhttp/var.ini') ?: [];
     $config['csrf'] = (string) ($var['csrf_token'] ?? '');
