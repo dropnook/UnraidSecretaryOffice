@@ -14,7 +14,8 @@
 #                      comes (stopping) or the other way round (started); at the
 #                      stop the backup engine's mounts left between runs go, at the
 #                      start what a backup run the stop ended left stopped comes
-#                      back (backup.sh --unmount / --recover, engine 2.25)
+#                      back (backup.sh --unmount / --recover, engine 2.25); a partner's
+#                      transfer through the door ends at the stop (partner_release)
 #   agent.sh nightshift  the night shift alone (php agent.php nightshift: RAM and
 #                      flash only - nothing under /mnt; it ends by itself without
 #                      the night watchman's mirror, when the array is started or
@@ -366,6 +367,39 @@ backup_release() {
     fi
 }
 
+# Array stopping: a partner's transfer coming in through the door (agent/partner-door.php recv, the forced command
+# of a pair's line in authorized_keys) keeps a dataset of the pool busy - ended now: SIGTERM to every door process
+# registered in $RUN/partner/door-<pid>.json whose cmdline is partner-door.php, and to its zfs recv / mbuffer named
+# there (by their cmdline too), waited for at most 5 s; zfs recv -s keeps its resume token, the partner's next run
+# goes on from there. The records go. Nothing registered - nothing done (a glob in RAM).
+partner_release() {
+    local f pid k kids left=0 waited=0
+    local -a pids=()
+    for f in "$RUN"/partner/door-*.json; do
+        [[ -f "$f" && ! -L "$f" ]] || continue
+        pid=${f##*/door-}; pid=${pid%.json}
+        if [[ "$pid" =~ ^[0-9]+$ ]] && tr '\0' '\n' <"/proc/$pid/cmdline" 2>/dev/null | grep -q 'partner-door\.php$'; then
+            pids+=("$pid")
+            kids=$(head -c 4096 "$f" 2>/dev/null | sed -n 's/.*"children":\[\([0-9,]*\)\].*/\1/p')
+            for k in ${kids//,/ }; do
+                [[ "$k" =~ ^[0-9]+$ ]] && tr '\0' '\n' <"/proc/$k/cmdline" 2>/dev/null | head -n 1 | grep -qE '(^|/)(zfs|mbuffer)$' && pids+=("$k")
+            done
+        fi
+        rm -f "$f"
+    done
+    (( ${#pids[@]} )) || return 0
+    kill -TERM "${pids[@]}" 2>/dev/null
+    while (( waited < 50 )); do
+        left=0
+        for pid in "${pids[@]}"; do kill -0 "$pid" 2>/dev/null && left=1; done
+        (( left )) || break
+        sleep 0.1
+        waited=$((waited + 1))
+    done
+    echo "$(date '+%F %T') array stopping: a partner's transfer ended (${#pids[@]} process(es) of the door)$( (( left )) && echo ' - still running after 5 s')" >>"$LOG"
+    return 0
+}
+
 # array stopping|started (the event scripts): a line for the night watchman's book (RAM, the newest 50), then the shift change
 array_event() {
     local what
@@ -379,6 +413,7 @@ array_event() {
     tail -n 50 "$ARRAY_EVENTS" >"$ARRAY_EVENTS.tmp" 2>/dev/null && mv -f "$ARRAY_EVENTS.tmp" "$ARRAY_EVENTS"
     if [[ "$what" == stop ]]; then
         stop                # the agent and whatever it started: nothing may keep a pool busy
+        partner_release     # a partner's transfer coming in through the door - nor that
         backup_release      # the backup engine's mounts left between runs (keep_mounts) - nor those
         night_start         # RAM and flash only
     else

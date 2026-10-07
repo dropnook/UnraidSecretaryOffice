@@ -11110,12 +11110,975 @@ function testUnraidWords(): void
     }
 }
 
+// ===================================================================== partner offices
+
+/** A well-formed ed25519 public key (random — never a real one) */
+function partnerTestKey(string $comment = ''): string
+{
+    return 'ssh-ed25519 ' . base64_encode("\0\0\0\x0bssh-ed25519\0\0\0\x20" . random_bytes(32)) . ($comment !== '' ? " $comment" : '');
+}
+
+/**
+ * Stand-ins for zfs, zpool, mbuffer and ssh (one PHP script, by its name): every call recorded in calls.log beside
+ * it, ZFS's state in zfs.json beside it (run() gives a child no environment of ours). ssh plays sshd too: the host
+ * key must be pinned in the pair's known_hosts, the client's key must have a line in the target's authorized_keys —
+ * that line's forced command (the pair id) runs agent/partner-door.php with the target's environment (targets.json).
+ */
+function partnerTestBin(string $dir, array $zfs, array $targets = []): void
+{
+    @mkdir($dir, 0700, true);
+    $script = '#!' . PHP_BINARY . "\n" . <<<'PHP'
+<?php
+$dir = __DIR__;
+$me = basename($argv[0]);
+$a = array_slice($argv, 1);
+file_put_contents("$dir/calls.log", json_encode(array_merge([$me], $a)) . "\n", FILE_APPEND | LOCK_EX);
+if ($me === 'mbuffer') {
+    stream_copy_to_stream(STDIN, STDOUT);
+    exit(0);
+}
+if ($me === 'ssh') {
+    $key = $known = $port = $dest = $remote = null;
+    for ($i = 0; $i < count($a); $i++) {
+        if ($a[$i] === '-i') { $key = $a[++$i]; }
+        elseif ($a[$i] === '-o') { $o = $a[++$i]; if (str_starts_with($o, 'UserKnownHostsFile=')) { $known = substr($o, 19); } }
+        elseif ($a[$i] === '-p') { $port = $a[++$i]; }
+        elseif ($dest === null) { $dest = $a[$i]; }
+        else { $remote = $a[$i]; }
+    }
+    $t = (json_decode((string) @file_get_contents("$dir/targets.json"), true) ?: [])[$dest] ?? null;
+    if (!$t) { fwrite(STDERR, "ssh: connect to host: Connection refused\n"); exit(255); }
+    $host = substr($dest, 5);
+    $name = $port === '22' ? $host : "[$host]:$port";
+    $hk = implode(' ', array_slice(explode(' ', trim((string) file_get_contents($t['host_key']))), 0, 2));
+    if (!in_array("$name $hk", array_map('trim', @file((string) $known) ?: []), true)) { fwrite(STDERR, "Host key verification failed.\n"); exit(255); }
+    $pub = implode(' ', array_slice(explode(' ', trim((string) @file_get_contents("$key.pub"))), 0, 2));
+    foreach (@file($t['auth_keys']) ?: [] as $line) {
+        if (str_contains($line, " $pub ") && preg_match('/^restrict,from="([^"]*)",command="[^" ]* ([0-9a-f]{8})" /', $line, $m)) {
+            $p = proc_open([$t['php'], $t['door'], $m[2]], [0 => STDIN, 1 => STDOUT, 2 => STDERR], $pp, '/',
+                $t['env'] + ['SSH_ORIGINAL_COMMAND' => (string) $remote, 'SSH_CONNECTION' => "{$m[1]} 50000 $host $port"]);
+            exit(proc_close($p));
+        }
+    }
+    fwrite(STDERR, "root@$host: Permission denied (publickey).\n");
+    exit(255);
+}
+$h = fopen("$dir/zfs.json", 'c+');
+flock($h, LOCK_EX);
+$st = json_decode((string) stream_get_contents($h), true) ?: [];
+$st += ['pools' => [], 'ds' => [], 'snaps' => []];
+$save = function () use (&$st, $h) { ftruncate($h, 0); rewind($h); fwrite($h, json_encode($st)); fflush($h); };
+$no = function (string $what) { fwrite(STDERR, "cannot open '$what': dataset does not exist\n"); exit(1); };
+if ($me === 'zpool') {
+    echo implode("\n", $st['pools']) . "\n";
+    exit(0);
+}
+$bytes = function (string $v): int { return preg_match('/^(\d+)G$/', $v, $m) ? (int) $m[1] * 1024 ** 3 : (int) $v; };
+$used = function (string $ds) use (&$st, &$used): int {
+    $u = (int) ($st['ds'][$ds]['used'] ?? 0);
+    foreach ($st['snaps'] as $n => $s) { if (str_starts_with($n, "$ds@")) { $u += (int) $s['used']; } }
+    foreach (array_keys($st['ds']) as $c) { if (str_starts_with($c, "$ds/") && substr_count($c, '/') === substr_count($ds, '/') + 1) { $u += $used($c); } }
+    return $u;
+};
+$cmd = $a[0] ?? '';
+$rest = [];
+$o = [];
+$x = [];
+$f = [];
+for ($i = 1; $i < count($a); $i++) {
+    if ($a[$i] === '-o' && $cmd !== 'list' && $cmd !== 'get') { $o[] = $a[++$i]; }
+    elseif ($a[$i] === '-x') { $x[] = $a[++$i]; }
+    elseif (in_array($a[$i], ['-o', '-t', '-s', '-d'], true) && ($cmd === 'list' || $cmd === 'get')) { $f[$a[$i]] = $a[++$i]; }
+    elseif ($a[$i][0] === '-') { $f[$a[$i]] = true; }
+    else { $rest[] = $a[$i]; }
+}
+switch ($cmd) {
+    case 'list':
+        if (($f['-t'] ?? '') === 'snapshot') {
+            $ds = $rest[0];
+            if (!isset($st['ds'][$ds])) { $no($ds); }
+            $rows = [];
+            foreach ($st['snaps'] as $n => $s) {
+                if (str_starts_with($n, "$ds@")) { $rows[] = [$s['creation'], "$n\t{$s['userrefs']}\t{$s['used']}\t{$s['used']}\t{$s['creation']}"]; }
+            }
+            sort($rows);
+            foreach ($rows as $r) { echo $r[1] . "\n"; }
+            exit(0);
+        }
+        if (($f['-o'] ?? '') === 'name,avail') {
+            foreach ($rest as $p) { echo "$p\t" . ($st['avail'][$p] ?? 1000000000000) . "\n"; }
+            exit(0);
+        }
+        foreach (array_keys($st['ds']) as $n) {
+            foreach ($rest as $p) { if ($n === $p || str_starts_with($n, "$p/")) { echo "$n\n"; } }
+        }
+        exit(0);
+    case 'get':
+        [$props, $target] = $rest;
+        $snap = str_contains($target, '@');
+        if ($snap ? !isset($st['snaps'][$target]) : !isset($st['ds'][$target])) { $no($target); }
+        foreach (explode(',', $props) as $p) {
+            $v = match ($p) {
+                'type' => $snap ? 'snapshot' : 'filesystem',
+                'used' => $snap ? $st['snaps'][$target]['used'] : $used($target),
+                'quota' => $st['ds'][$target]['quota'] ?? 0,
+                'receive_resume_token' => $st['ds'][$target]['token'] ?? '-',
+                'available' => $st['avail'][$target] ?? 1000000000000,
+                'written' => $snap ? $st['snaps'][$target]['written'] : 0,
+                default => '-',
+            };
+            echo "$p\t$v\n";
+        }
+        exit(0);
+    case 'create':
+        $ds = $rest[0];
+        $parent = substr($ds, 0, (int) strrpos($ds, '/'));
+        if (!isset($st['ds'][$parent])) { fwrite(STDERR, "cannot create '$ds': parent does not exist\n"); exit(1); }
+        $st['ds'][$ds] = ['used' => 0, 'props' => $o];
+        foreach ($o as $kv) { if (str_starts_with($kv, 'quota=')) { $st['ds'][$ds]['quota'] = $bytes(substr($kv, 6)); } }
+        $save();
+        exit(0);
+    case 'set':
+        [$kv, $ds] = $rest;
+        if (!isset($st['ds'][$ds])) { $no($ds); }
+        if (str_starts_with($kv, 'quota=')) {
+            $st['ds'][$ds]['quota'] = substr($kv, 6) === 'none' ? 0 : $bytes(substr($kv, 6));
+        } else {
+            $st['ds'][$ds]['props'][] = $kv;
+        }
+        $save();
+        exit(0);
+    case 'destroy':
+        $t = $rest[0];
+        if (!isset($st['snaps'][$t])) { $no($t); }
+        if ($st['snaps'][$t]['userrefs'] > 0) { fwrite(STDERR, "cannot destroy snapshot $t: dataset is busy\n"); exit(1); }
+        unset($st['snaps'][$t]);
+        $save();
+        exit(0);
+    case 'recv':
+        $data = (string) stream_get_contents(STDIN);
+        $t = end($rest);
+        [$ds, $snap] = explode('@', $t) + [1 => null];
+        $parent = substr($ds, 0, (int) strrpos($ds, '/'));
+        if (!isset($st['ds'][$parent])) { fwrite(STDERR, "cannot receive: parent does not exist\n"); exit(1); }
+        if (str_starts_with($data, 'FAIL')) { fwrite(STDERR, "cannot receive incremental stream: invalid backup stream\n"); exit(1); }
+        if (str_starts_with($data, 'INTERRUPT')) {
+            $st['ds'][$ds] = ($st['ds'][$ds] ?? ['used' => 0, 'props' => $o]) + [];
+            $st['ds'][$ds]['token'] = '1-abcdef0123-c8-789c0123456789';
+            $save();
+            fwrite(STDERR, "cannot receive new filesystem stream: checksum mismatch or incomplete stream.\nPartially received snapshot is saved.\n");
+            exit(1);
+        }
+        $snap ??= preg_match('/SNAP:(\S+)/', $data, $m) ? $m[1] : 'uso-backup-19990101-0000';
+        $st['ds'][$ds] = ($st['ds'][$ds] ?? ['used' => 0, 'props' => $o, 'x' => $x]);
+        unset($st['ds'][$ds]['token']);
+        $st['seq'] = ($st['seq'] ?? 1000) + 1;
+        $st['snaps']["$ds@$snap"] = ['userrefs' => 0, 'used' => strlen($data), 'written' => strlen($data), 'creation' => $st['seq']];
+        $save();
+        exit(0);
+}
+fwrite(STDERR, "stand-in: unknown $cmd\n");
+exit(2);
+PHP;
+    foreach (['zfs', 'zpool', 'mbuffer', 'ssh'] as $n) {
+        file_put_contents("$dir/$n", $script);
+        chmod("$dir/$n", 0755);
+    }
+    if (is_executable('/usr/bin/ssh-keygen')) {
+        @symlink('/usr/bin/ssh-keygen', "$dir/ssh-keygen");
+    }
+    file_put_contents("$dir/zfs.json", json_encode($zfs));
+    file_put_contents("$dir/targets.json", json_encode($targets));
+    @unlink("$dir/calls.log");
+}
+
+/** @return list<list<string>> the stand-ins' calls since the last look (calls.log emptied) */
+function partnerTestCalls(string $bin): array
+{
+    $calls = array_values(array_filter(array_map(fn ($l) => json_decode($l, true), @file("$bin/calls.log") ?: [])));
+    @unlink("$bin/calls.log");
+    return $calls;
+}
+
+/** An office for the partner tests: its data folder, RAM folder, flash folder, authorized_keys, host key, stand-ins */
+function partnerTestOffice(string $root, string $pool = 'tank'): array
+{
+    foreach (['data/unraid-backup/state', 'run', 'flash', 'ssh', 'bin'] as $d) {
+        @mkdir("$root/$d", 0700, true);
+    }
+    file_put_contents("$root/host.pub", partnerTestKey('root@' . basename($root)) . "\n");
+    file_put_contents("$root/var.ini", "NAME=\"x\"\nfsState=\"Started\"\n");
+    file_put_contents("$root/disks.ini", "[\"$pool\"]\nname=\"$pool\"\nspundown=\"0\"\n");
+    return ['root' => $root, 'bin' => "$root/bin", 'data' => "$root/data", 'run' => "$root/run", 'flash' => "$root/flash",
+            'keys' => "$root/ssh/authorized_keys", 'host' => "$root/host.pub",
+            'env' => ['OFFICE_DATA_DIR' => "$root/data", 'OFFICE_RUN_DIR' => "$root/run", 'OFFICE_PARTNER_FLASH' => "$root/flash",
+                      'OFFICE_PARTNER_AUTH_KEYS' => "$root/ssh/authorized_keys", 'OFFICE_PARTNER_HOST_KEY' => "$root/host.pub",
+                      'OFFICE_PARTNER_BIN' => "$root/bin", 'OFFICE_VAR_INI' => "$root/var.ini", 'OFFICE_DISKS_INI' => "$root/disks.ini",
+                      'PATH' => (string) getenv('PATH')]];
+}
+
+/** The agent's functions in a process of their own, as that office: the closure's body, its value back as JSON */
+function partnerTestAs(array $office, string $code): mixed
+{
+    $php = 'define("AGENT_LIBRARY_ONLY", 1); define("OFFICE_WEB", ' . var_export(OFFICE_DIR . '/public', true) . '); require ' . var_export(OFFICE_DIR . '/agent/agent.php', true) . ';'
+         . ' $GLOBALS["disksIni"] = getenv("OFFICE_DISKS_INI"); try { $r = (function () { ' . $code . ' })(); }'
+         . ' catch (Problem $e) { $r = ["problem" => $e->key, "params" => $e->params]; } echo "\n@@@" . json_encode($r);';
+    $p = proc_open([PHP_BINARY, '-r', $php], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, '/', $office['env']);
+    $out = (string) stream_get_contents($pipes[1]);
+    $err = (string) stream_get_contents($pipes[2]);
+    proc_close($p);
+    $at = strrpos($out, "\n@@@");
+    return $at === false ? ['raw' => $out . $err] : json_decode(substr($out, $at + 4), true);
+}
+
+/** The door as sshd starts it: the pair id from the line, the request in SSH_ORIGINAL_COMMAND, the stream on stdin */
+function partnerTestDoor(array $office, string $cmd, string $stdin = '', string $id = 'a1b2c3d4', array $env = []): array
+{
+    $p = proc_open([PHP_BINARY, OFFICE_DIR . '/agent/partner-door.php', $id], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, '/',
+        $env + $office['env'] + ['SSH_ORIGINAL_COMMAND' => $cmd, 'SSH_CONNECTION' => '192.168.77.1 50000 192.168.77.2 22']);
+    fwrite($pipes[0], $stdin);
+    fclose($pipes[0]);
+    $out = (string) stream_get_contents($pipes[1]);
+    $err = (string) stream_get_contents($pipes[2]);
+    $code = proc_close($p);
+    $lines = fn ($t) => array_values(array_filter(array_map(fn ($l) => json_decode($l, true), explode("\n", trim($t)))));
+    return ['exit' => $code, 'out' => $lines($out), 'err' => $lines($err), 'raw' => $out . $err];
+}
+
+function testPartnerPairing(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('partner pairing: root only (the pairs file is root\'s) — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('partner-pairing');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+
+    // ---- keys, fingerprints, addresses
+    $k = partnerTestKey();
+    same('partner: a key normalised (comment off)', $k, partnerKeyNorm("$k root@x"));
+    same('partner: a comment never comes along', $k, partnerKeyNorm("$k evil\"comment"));
+    foreach (['ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ', "$k\nssh-ed25519 x", substr($k, 0, -1), $k . 'A', 'ssh-ed25519  ' . substr($k, 12), "$k two words",
+              'ssh-ed25519 ' . base64_encode("\0\0\0\x0bssh-ed25519\0\0\0\x20" . random_bytes(31)) . 'AA'] as $bad) {
+        same('partner: not a key — ' . substr(json_encode($bad), 0, 40), null, partnerKeyNorm($bad));
+    }
+    file_put_contents("$tmp/k.pub", "$k test\n");
+    if (is_executable('/usr/bin/ssh-keygen')) {
+        $fp = preg_match('/ (SHA256:\S+) /', (string) shell_exec('/usr/bin/ssh-keygen -lf ' . escapeshellarg("$tmp/k.pub")), $m) ? $m[1] : '?';
+        same('partner: the fingerprint is ssh-keygen\'s', $fp, partnerFingerprint($k));
+    }
+    foreach (['192.168.7.20', '10.0.0.5', '172.16.3.4', '100.101.102.103', '127.0.0.1', 'fd00::1', 'fd7a:115c:a1e0::1', 'nostromo', 'nostromo.local', 'nas.tail1234.ts.net'] as $a) {
+        check("partner: private address $a", partnerAddressValid($a) && partnerAddressPrivate($a));
+    }
+    foreach (['8.8.8.8', '172.32.0.1', '100.128.0.1', '2001:db8::1', 'example.com', 'nas.ts.net.evil.com'] as $a) {
+        check("partner: public address $a (valid, a warning)", partnerAddressValid($a) && !partnerAddressPrivate($a));
+    }
+    foreach (['', '1.2.3.4;id', '-oProxyCommand=x', 'fe80::1', 'fe80::1%br0', '::', '0.0.0.0', 'a b', 'host/x', '[fd00::1]', 'nostromo.', '123', "x\n", str_repeat('a', 64)] as $a) {
+        check('partner: no address ' . json_encode($a), !partnerAddressValid($a));
+    }
+    same('partner: from= for an IP is the IP', '192.168.7.20', partnerFromList('192.168.7.20'));
+
+    // ---- known_hosts: the full key under the name ssh looks up
+    same('partner: known_hosts for port 22', "192.168.7.20 $k\n", partnerKnownText('192.168.7.20', 22, [$k, 'junk']));
+    same('partner: known_hosts for another port', "[192.168.7.20]:2222 $k\n", partnerKnownText('192.168.7.20', 2222, ["$k comment"]));
+    same('partner: known_hosts IPv6, another port', "[fd00::1]:2222 $k\n", partnerKnownText('fd00::1', 2222, [$k]));
+
+    // ---- the ssh call: exactly the plan's options
+    $pair = partnerTestPair('a1b2c3d4', ['my_key' => partnerFingerprint($k)]);
+    $args = partnerSshArgs($pair, 'ping');
+    same('partner: the client call (plan §3.5)', ['-i', partnerFlashDir() . '/a1b2c3d4.key', '-o', 'UserKnownHostsFile=' . partnerFlashDir() . '/a1b2c3d4.known',
+        '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
+        '-o', 'Ciphers=aes128-gcm@openssh.com,aes256-gcm@openssh.com,chacha20-poly1305@openssh.com', '-o', 'Compression=no',
+        '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=4', '-p', '22', 'root@192.168.77.2', 'ping'], array_slice($args, 1));
+    same('partner: the client call refuses words outside the door\'s language', [2, '', 'bad word'], partnerSsh($pair, 'ping;id'));
+    same('partner: … and a path', [2, '', 'bad word'], partnerSsh($pair, 'list', ['/etc/shadow']));
+
+    // ---- the blocks, field by field
+    $host = [partnerTestKey()];
+    $a = ['v' => 1, 'block' => 'A', 'id' => 'a1b2c3d4', 'name' => 'nostromo', 'address' => '192.168.77.1', 'port' => 22, 'host_keys' => $host,
+          'pub_key' => $k, 'trust' => 'mine', 'units' => ['share:appdata', 'vm:Debian_Helmi', 'place']];
+    $enc = fn (array $b) => base64_encode(json_encode($b));
+    same('partner: BLOCK-A back as made', $a, partnerBlockDecode(partnerBlockEncode($a), 'A'));
+    same('partner: BLOCK-A pasted with line breaks and spaces', $a, partnerBlockDecode(" \n" . chunk_split(partnerBlockEncode($a), 40, "\r\n") . "\n", 'A'));
+    $refused = function (mixed $text, string $kind) {
+        try {
+            partnerBlockDecode($text, $kind);
+            return 'taken';
+        } catch (Problem $e) {
+            return $e->key . ':' . ($e->params['field'] ?? '');
+        }
+    };
+    $cases = [
+        'block' => [null, '', '!!!', base64_encode('[1,2]'), base64_encode('"x"'), str_repeat('A', PARTNER_BLOCK_MAX + 4)],
+        'kind' => [$enc(['block' => 'B'] + $a), $enc(array_diff_key($a, ['block' => 1]))],
+        'fields' => [$enc($a + ['extra' => 1]), $enc(array_diff_key($a, ['trust' => 1]))],
+        'v' => [$enc(['v' => 2] + $a), $enc(['v' => '1'] + $a)],
+        'id' => [$enc(['id' => 'A1B2C3D4'] + $a), $enc(['id' => 'a1b2c3d'] + $a), $enc(['id' => "a1b2c3d4\n"] + $a), $enc(['id' => '../x'] + $a)],
+        'name' => [$enc(['name' => 'my server'] + $a), $enc(['name' => str_repeat('x', 41)] + $a), $enc(['name' => 'a;b'] + $a), $enc(['name' => ''] + $a)],
+        'address' => [$enc(['address' => '1.2.3.4;id'] + $a), $enc(['address' => '-oProxyCommand=sh'] + $a), $enc(['address' => 'fe80::1'] + $a)],
+        'port' => [$enc(['port' => 0] + $a), $enc(['port' => 70000] + $a), $enc(['port' => '22'] + $a)],
+        'host_keys' => [$enc(['host_keys' => []] + $a), $enc(['host_keys' => 'x'] + $a), $enc(['host_keys' => ['ssh-rsa AAAA']] + $a),
+                        $enc(['host_keys' => ["$k comment"]] + $a), $enc(['host_keys' => ['a' => $k]] + $a), $enc(['host_keys' => array_fill(0, 5, $k)] + $a)],
+        'pub_key' => [$enc(['pub_key' => null] + $a), $enc(['pub_key' => 'ssh-ed25519 AAAA'] + $a), $enc(['pub_key' => $host[0]] + $a), $enc(['pub_key' => "$k x"] + $a)],
+        'trust' => [$enc(['trust' => 'stranger'] + $a), $enc(['trust' => null] + $a)],
+        'units' => [$enc(['units' => ['share:../etc']] + $a), $enc(['units' => ['share:a b']] + $a), $enc(['units' => ['vm:']] + $a), $enc(['units' => ['place', 'place']] + $a),
+                    $enc(['units' => ['/mnt/user/appdata']] + $a), $enc(['units' => ['share:appdata;id']] + $a), $enc(['units' => array_map(fn ($i) => "share:s$i", range(1, 65))] + $a),
+                    $enc(['units' => 'place'] + $a), $enc(['units' => ["share:appdata\n"]] + $a)],
+    ];
+    foreach ($cases as $field => $list) {
+        foreach ($list as $i => $text) {
+            same("partner: BLOCK-A refused — $field #$i", "partner_block:$field", $refused($text, 'A'));
+        }
+    }
+    $recv = ['pool' => 'tank', 'quota_gb' => 500, 'retention' => '7 4 6', 'window' => '00:00-07:00', 'wake' => true, 'units' => ['share:appdata']];
+    $b = ['v' => 1, 'block' => 'B', 'id' => 'a1b2c3d4', 'name' => 'vault', 'address' => '100.64.0.9', 'port' => 2222, 'host_keys' => [partnerTestKey()],
+          'pub_key' => partnerTestKey(), 'receive' => $recv, 'units' => ['share:media']];
+    same('partner: BLOCK-B back as made', $b, partnerBlockDecode(partnerBlockEncode($b), 'B'));
+    same('partner: BLOCK-B of one that sends nothing', ['pub_key' => null, 'units' => []] + $b, partnerBlockDecode($enc(['pub_key' => null, 'units' => []] + $b), 'B'));
+    same('partner: BLOCK-B of one that keeps nothing', ['receive' => null] + $b, partnerBlockDecode($enc(['receive' => null] + $b), 'B'));
+    $bcases = [
+        'kind' => [$enc(['block' => 'A'] + $b)],
+        'fields' => [$enc(['trust' => 'mine'] + $b)],
+        'units' => [$enc(['pub_key' => null] + $b), $enc(['units' => []] + $b)],
+        'receive' => [$enc(['receive' => ['pool' => 'tank;id'] + $recv] + $b), $enc(['receive' => ['quota_gb' => -1] + $recv] + $b), $enc(['receive' => ['quota_gb' => '5'] + $recv] + $b),
+                      $enc(['receive' => ['retention' => '7 4'] + $recv] + $b), $enc(['receive' => ['retention' => "7 4 6\n"] + $recv] + $b), $enc(['receive' => ['window' => '24:00-07:00'] + $recv] + $b),
+                      $enc(['receive' => ['wake' => 'yes'] + $recv] + $b), $enc(['receive' => ['units' => []] + $recv] + $b), $enc(['receive' => $recv + ['extra' => 1]] + $b),
+                      $enc(['receive' => 'all'] + $b)],
+    ];
+    foreach ($bcases as $field => $list) {
+        foreach ($list as $i => $text) {
+            same("partner: BLOCK-B refused — $field #$i", "partner_block:$field", $refused($text, 'B'));
+        }
+    }
+
+    // ---- the safety code: six digits, the same from both sides' inputs, another for any other key
+    $code = partnerSafetyCode($a['pub_key'], $b['pub_key'], $a['host_keys'], $b['host_keys']);
+    check('partner: the safety code is six digits', preg_match('/^\d{6}$/D', $code) === 1, $code);
+    same('partner: the safety code from the same inputs', $code, partnerSafetyCode($a['pub_key'], $b['pub_key'], $a['host_keys'], $b['host_keys']));
+    check('partner: another key — another code', $code !== partnerSafetyCode($a['pub_key'], partnerTestKey(), $a['host_keys'], $b['host_keys'])
+        && $code !== partnerSafetyCode($a['pub_key'], $b['pub_key'], [partnerTestKey()], $b['host_keys']) && $code !== partnerSafetyCode($a['pub_key'], null, $a['host_keys'], $b['host_keys']));
+
+    // ---- pairs.json: read back only in exactly its shape, only as root's own file
+    $file = "$tmp/p/pairs.json";
+    $good = partnerTestPair('a1b2c3d4');
+    partnerPairsWrite([$good], $file);
+    same('partner: pairs.json read back', [$good], partnerPairs($file));
+    same('partner: pairs.json root only', [0700, 0600], [fileperms("$tmp/p") & 0777, fileperms($file) & 0777]);
+    $write = function (array $pairs) use ($file) {
+        file_put_contents($file, json_encode(['v' => 1, 'pairs' => $pairs]));
+        chmod($file, 0600);
+    };
+    $bad = [
+        'an extra field' => $good + ['command' => 'id'],
+        'a field missing' => array_diff_key($good, ['trust' => 1]),
+        'a path as id' => ['id' => '../../x'] + $good,
+        'a pool with a slash' => ['receive' => ['pool' => 'tank/x'] + $good['receive']] + $good,
+        'a unit with a path' => ['receive' => ['units' => ['share:../x']] + $good['receive']] + $good,
+        'a window that isn\'t one' => ['receive' => ['window' => '00:00-07:00;id'] + $good['receive']] + $good,
+        'receiving without their key' => ['their_key' => null] + $good,
+        'sending without my key' => ['my_key' => null] + $good,
+        'a port as text' => ['port' => '22'] + $good,
+        'a fingerprint that isn\'t one' => ['host_keys' => ['MD5:aa']] + $good,
+        'an answer of another shape' => ['last_answer' => ['array' => 'started', 'night' => false, 'v' => '1.0.0', 'x' => 1]] + $good,
+    ];
+    foreach ($bad as $what => $p) {
+        $write([$p]);
+        same("partner: pairs.json — $what: no pair", [], partnerPairs($file));
+    }
+    $other = partnerTestPair('b2c3d4e5');
+    $write([$good, ['id' => 'zzz'] + $good, $other, $good]);
+    same('partner: pairs.json — only the pairs in shape, each id once', ['a1b2c3d4', 'b2c3d4e5'], array_column(partnerPairs($file), 'id'));
+    $write([$good]);
+    chmod($file, 0644);
+    same('partner: pairs.json others may read: no pair', [], partnerPairs($file));
+    chmod($file, 0600);
+    chown($file, 99);
+    same('partner: pairs.json not root\'s: no pair', [], partnerPairs($file));
+    chown($file, 0);
+    rename($file, "$file.real");
+    symlink("$file.real", $file);
+    same('partner: pairs.json a link: no pair', [], partnerPairs($file));
+    unlink($file);
+    rename("$file.real", $file);
+    chmod("$tmp/p", 0777);
+    same('partner: pairs.json in a folder others may write: no pair', [], partnerPairs($file));
+    chmod("$tmp/p", 0700);
+    $write([['v' => 1]]);
+    file_put_contents($file, json_encode(['v' => 2, 'pairs' => [$good]]));
+    same('partner: pairs.json of another version: no pair', [], partnerPairs($file));
+    try {
+        partnerPairsWrite([['id' => 'x'] + $good], $file);
+        check('partner: a pair out of shape is never written', false);
+    } catch (Problem $e) {
+        same('partner: a pair out of shape is never written', 'partner_shape', $e->key);
+    }
+
+    // ---- the window, the retention
+    $at = fn (string $hm) => strtotime("2026-10-07 $hm");
+    foreach ([['00:00-07:00', '03:00', true], ['00:00-07:00', '07:00', false], ['00:00-07:00', '12:00', false], ['22:00-06:00', '23:30', true],
+              ['22:00-06:00', '05:59', true], ['22:00-06:00', '06:00', false], ['22:00-06:00', '21:59', false], ['00:00-00:00', '15:00', true], ['12:00-12:00', '03:00', true],
+              ['bogus', '03:00', false]] as [$w, $t, $open]) {
+        same("partner: window $w at $t", $open, partnerWindowOpen($w, $at($t)));
+    }
+    $snaps = [];
+    foreach (['20261001-0200', '20261002-0200', '20261003-0200', '20261004-0200', '20261005-0200', '20260915-0200', '20260820-0200'] as $s) {
+        $snaps["uso-backup-$s"] = 0;
+    }
+    $snaps['manual-keep'] = 0;
+    $snaps['uso-plan-hourly-20261001-0100'] = 0;
+    $snaps['unraidbackup-20261001-0200'] = 0;
+    $snaps['uso-backup-20261001-0200x'] = 0;
+    same('partner: retention 2 0 0 — the newest two stay, only the engine\'s exact names go', ['uso-backup-20260820-0200', 'uso-backup-20260915-0200', 'uso-backup-20261001-0200',
+        'uso-backup-20261002-0200', 'uso-backup-20261003-0200'], partnerRetentionSelect($snaps, '2 0 0'));
+    same('partner: retention 0 0 0 — never the newest', 6, count(partnerRetentionSelect($snaps, '0 0 0')));
+    check('partner: retention 0 0 0 — the newest stays', !in_array('uso-backup-20261005-0200', partnerRetentionSelect($snaps, '0 0 0'), true));
+    $held = ['uso-backup-20261003-0200' => 1] + $snaps;
+    check('partner: retention — never one with a hold', !in_array('uso-backup-20261003-0200', partnerRetentionSelect($held, '1 0 0'), true));
+    same('partner: retention 1 0 3 — the newest of each of three months', ['uso-backup-20261001-0200', 'uso-backup-20261002-0200', 'uso-backup-20261003-0200', 'uso-backup-20261004-0200'],
+        partnerRetentionSelect($snaps, '1 0 3'));
+    same('partner: retention 1 2 0 — the newest of two weeks', ['uso-backup-20260820-0200', 'uso-backup-20260915-0200', 'uso-backup-20261001-0200', 'uso-backup-20261002-0200',
+        'uso-backup-20261003-0200'], partnerRetentionSelect($snaps, '1 2 0'));
+    same('partner: retention not three numbers — nothing goes', [], partnerRetentionSelect($snaps, '7 4'));
+
+    // ---- the whole pairing, two offices (A offers, B accepts and sends too), ssh played by a stand-in
+    $A = partnerTestOffice("$tmp/A");
+    $B = partnerTestOffice("$tmp/B", 'vault');
+    file_put_contents("$A[data]/unraid-backup/state/setup-plan.json", json_encode(['bases' => [['name' => 'tank', 'fs' => 'zfs', 'kind' => 'pool'], ['name' => 'disk1', 'fs' => 'xfs', 'kind' => 'disk']],
+        'shares' => [['name' => 'appdata', 'layout' => 'single', 'locations' => 'tank'], ['name' => 'Media', 'layout' => 'overlay', 'locations' => 'tank, disk1'],
+                     ['name' => 'isos', 'layout' => 'single', 'locations' => 'disk1'], ['name' => 'UnraidSecretaryOffice', 'layout' => 'single', 'locations' => 'tank']],
+        'vms' => [['name' => 'Debian_Helmi', 'own' => ['tank/domains/Debian_Helmi']], ['name' => 'Win 11', 'own' => ['tank/domains/Win 11']], ['name' => 'old', 'own' => []]]]));
+    file_put_contents("$A[data]/unraid-backup/settings.ini", "[general]\ndumps_share = UnraidSecretaryOffice\n");
+    file_put_contents("$B[data]/unraid-backup/state/setup-plan.json", json_encode(['bases' => [['name' => 'vault', 'fs' => 'zfs', 'kind' => 'pool']],
+        'shares' => [['name' => 'media', 'layout' => 'single', 'locations' => 'vault']], 'vms' => []]));
+    $dsOf = fn (array $names) => array_fill_keys($names, ['used' => 0]);
+    $target = fn (array $o) => ['php' => PHP_BINARY, 'door' => OFFICE_DIR . '/agent/partner-door.php', 'host_key' => $o['host'], 'auth_keys' => $o['keys'],
+                                'env' => array_diff_key($o['env'], ['PATH' => 1]) + ['PATH' => '/usr/bin:/bin']];
+    partnerTestBin($A['bin'], ['pools' => ['tank'], 'ds' => $dsOf(['tank', 'tank/appdata', 'tank/domains', 'tank/domains/Debian_Helmi', 'tank/domains/Win 11', 'tank/UnraidSecretaryOffice'])],
+        ['root@192.168.77.2' => $target($B)]);
+    partnerTestBin($B['bin'], ['pools' => ['vault'], 'ds' => $dsOf(['vault', 'vault/media'])], ['root@192.168.77.1' => $target($A)]);
+    $benj = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBenjBenjBenjBenjBenjBenjBenjBenjBenjBenj benj@MacBook\n# a comment\n";
+    file_put_contents($B['keys'], $benj);
+
+    $look = partnerTestAs($A, 'return partner_add(["step" => "look"]);');
+    $units = array_column($look['units'] ?? [], 'why', 'id');
+    same('pairing: A\'s units from the engine\'s plan — datasets of their own only', ['place' => null, 'share:Media' => 'not_dataset', 'share:appdata' => null, 'share:isos' => 'not_dataset',
+        'vm:Debian_Helmi' => null, 'vm:Win 11' => 'name', 'vm:old' => 'not_dataset'], $units);
+    same('pairing: A\'s look has its host key and its name', [true, partnerMyName()], [$look['host_key'] ?? null, $look['name'] ?? null]);
+    $made = partnerTestAs($A, 'return partner_add(["step" => "do", "address" => "192.168.77.1", "port" => 22, "trust" => "family", "units" => ["share:appdata", "place"]]);');
+    $id = (string) ($made['id'] ?? '');
+    check('pairing: A made an offer with a new id', preg_match(PARTNER_ID_RE, $id) === 1, json_encode($made));
+    check('pairing: A\'s key on its flash, 0600', is_file("$A[flash]/$id.key") && (fileperms("$A[flash]/$id.key") & 0777) === 0600);
+    same('pairing: a unit that isn\'t a dataset is refused', 'partner_unit',
+        partnerTestAs($A, 'return partner_add(["step" => "do", "address" => "192.168.77.1", "port" => 22, "trust" => "mine", "units" => ["share:Media"]]);')['problem'] ?? null);
+    same('pairing: an address that isn\'t one is refused', 'partner_address',
+        partnerTestAs($A, 'return partner_add(["step" => "do", "address" => "1.2.3.4 -oProxyCommand=x", "port" => 22, "trust" => "mine", "units" => []]);')['problem'] ?? null);
+    $blockA = (string) ($made['block'] ?? '');
+    $again = partnerTestAs($A, 'return partner_add(["step" => "show", "id" => ' . var_export($id, true) . ']);');
+    same('pairing: the offer\'s block shown again', $blockA, $again['block'] ?? null);
+    $stateA = partnerTestAs($A, 'return partnerPublic();');
+    same('pairing: the pending offer on A\'s page — without its block or key', [['id' => $id, 'units' => ['share:appdata', 'place'], 'trust' => 'family']],
+        array_map(fn ($o) => array_intersect_key($o, array_flip(['id', 'units', 'trust'])), $stateA['pending'] ?? []));
+    check('pairing: nothing of a key or a block in A\'s cards', !str_contains(json_encode($stateA), 'ssh-ed25519') && !str_contains(json_encode($stateA), substr($blockA, 0, 40)));
+
+    $lookB = partnerTestAs($B, 'return partner_accept(["step" => "look", "block" => ' . var_export($blockA, true) . ']);');
+    same('pairing: B sees what A is', ['id' => $id, 'name' => partnerMyName(), 'address' => '192.168.77.1', 'units' => ['share:appdata', 'place'], 'trust' => 'family'],
+        array_intersect_key($lookB['partner'] ?? [], array_flip(['id', 'name', 'address', 'units', 'trust'])));
+    same('pairing: B\'s pools', [['name' => 'vault', 'free' => 1000000000000, 'asleep' => false]], $lookB['pools'] ?? null);
+    $pubA = trim((string) file_get_contents("$A[flash]/$id.key.pub"));
+    $pubA = implode(' ', array_slice(explode(' ', $pubA), 0, 2));
+    $line = "restrict,from=\"192.168.77.1\",command=\"" . PARTNER_DOOR . " $id\" $pubA uso-partner:$id";
+    same('pairing: the line B would write', $line, $lookB['line'] ?? null);
+    check('pairing: B wrote nothing at the look', file_get_contents($B['keys']) === $benj && !is_file("$B[data]/partner/pairs.json"));
+    $doB = ['step' => 'do', 'block' => $blockA, 'confirm' => true, 'address' => '192.168.77.2', 'port' => 22, 'trust' => 'family', 'send_too' => true, 'units' => ['share:media'],
+            'receive' => ['pool' => 'vault', 'quota_gb' => 10, 'retention' => '7 4 6', 'window' => '00:00-00:00', 'wake' => false, 'units' => ['share:appdata', 'place', 'share:system']]];
+    same('pairing: B refuses without the confirmation', 'bad_request', partnerTestAs($B, 'return partner_accept(' . var_export(['confirm' => false] + $doB, true) . ');')['problem'] ?? null);
+    same('pairing: B refuses a pool it hasn\'t', 'partner_receive', partnerTestAs($B, 'return partner_accept(' . var_export(['receive' => ['pool' => 'tank'] + $doB['receive']] + $doB, true) . ');')['problem'] ?? null);
+    $accepted = partnerTestAs($B, 'return partner_accept(' . var_export($doB, true) . ');');
+    $codeB = (string) ($accepted['code'] ?? '');
+    check('pairing: B answers with BLOCK-B and a code', preg_match('/^\d{6}$/D', $codeB) === 1 && ($accepted['block'] ?? '') !== '', json_encode($accepted));
+    same('pairing: B\'s authorized_keys — A\'s line added, Benj\'s lines byte for byte', $benj . $line . "\n", file_get_contents($B['keys']));
+    $pairB = partnerTestAs($B, 'return partnerPairs();')[0] ?? [];
+    same('pairing: B keeps of A only what A offers', ['share:appdata', 'place'], $pairB['receive']['units'] ?? null);
+    same('pairing: B\'s pair', [$id, '192.168.77.1', partnerFingerprint($pubA), ['share:media'], 'family'],
+        [$pairB['id'] ?? null, $pairB['address'] ?? null, $pairB['their_key'] ?? null, $pairB['send']['units'] ?? null, $pairB['trust'] ?? null]);
+    same('pairing: B pinned A\'s host key for sending', '192.168.77.1 ' . implode(' ', array_slice(explode(' ', trim(file_get_contents($A['host']))), 0, 2)) . "\n",
+        @file_get_contents("$B[flash]/$id.known"));
+    same('pairing: B accepts a block only once', 'partner_known', partnerTestAs($B, 'return partner_accept(' . var_export($doB, true) . ');')['problem'] ?? null);
+
+    $lookA = partnerTestAs($A, 'return partner_finish(["step" => "look", "block" => ' . var_export((string) $accepted['block'], true) . ']);');
+    same('pairing: the safety code — the same on both pages', $codeB, $lookA['code'] ?? null);
+    $forged = partnerBlockDecode((string) $accepted['block'], 'B');
+    $forged['pub_key'] = partnerTestKey();
+    same('pairing: a forged answer shows another code', true, ($codeB !== (partnerTestAs($A, 'return partner_finish(["step" => "look", "block" => ' . var_export(partnerBlockEncode($forged), true) . ']);')['code'] ?? $codeB)));
+    same('pairing: «They match» needs the code shown', 'bad_request', partnerTestAs($A, 'return partner_finish(["step" => "do", "confirm" => true, "code" => "000000", "block" => '
+        . var_export((string) $accepted['block'], true) . ', "receive" => null]);')['problem'] ?? null);
+    $done = partnerTestAs($A, 'return partner_finish(["step" => "do", "confirm" => true, "code" => ' . var_export($codeB, true) . ', "block" => '
+        . var_export((string) $accepted['block'], true) . ', "receive" => ["pool" => "tank", "quota_gb" => 0, "retention" => "3 2 1", "window" => "22:00-06:00", "wake" => true, "units" => ["share:media"]]]);');
+    same('pairing: A pinged B through B\'s door at once', ['reachable' => true, 'why' => null, 'array' => 'started'], $done['ask'] ?? $done);
+    $pairA = partnerTestAs($A, 'return partnerPairs();')[0] ?? [];
+    same('pairing: A sends what B keeps, keeps what B sends', [['share:appdata', 'place'], ['share:media'], 'family', partnerMyName()],
+        [$pairA['send']['units'] ?? null, $pairA['receive']['units'] ?? null, $pairA['trust'] ?? null, $pairA['name'] ?? null]);
+    check('pairing: A heard B (last_heard, last_answer)', ($pairA['last_heard'] ?? 0) > 0 && ($pairA['last_answer']['array'] ?? null) === 'started');
+    same('pairing: A\'s known_hosts is B\'s host key', '192.168.77.2 ' . implode(' ', array_slice(explode(' ', trim(file_get_contents($B['host']))), 0, 2)) . "\n",
+        @file_get_contents("$A[flash]/$id.known"));
+    $origB = partnerBlockDecode((string) $accepted['block'], 'B');
+    same('pairing: A wrote B\'s line (A keeps what B sends)', partnerDoorLine($id, '192.168.77.2', (string) $origB['pub_key']) . "\n", @file_get_contents($A['keys']));
+    same('pairing: the offer is gone', [], partnerTestAs($A, 'return partnerPending();'));
+    $cardA = partnerTestAs($A, 'return partnerPublic();')['pairs'][0] ?? [];
+    same('pairing: A\'s card', [true, false, 'open', 'started', ['share:appdata', 'place']],
+        [$cardA['reachable'] ?? null, $cardA['silent'] ?? null, $cardA['door'] ?? null, $cardA['array'] ?? null, $cardA['send_units'] ?? null]);
+    $pingB = partnerTestAs($B, 'return partner_ping(["id" => ' . var_export($id, true) . ']);');
+    same('pairing: B pings A through A\'s door', true, $pingB['ask']['reachable'] ?? null);
+    $calls = partnerTestCalls($A['bin']);
+    check('pairing: A\'s ssh calls carried its key and its known_hosts only', $calls && !array_filter($calls, fn ($c) => $c[0] === 'ssh'
+        && !(in_array("$A[flash]/$id.key", $c, true) && in_array("UserKnownHostsFile=$A[flash]/$id.known", $c, true))));
+
+    // a door line edited by hand — the card says so; a missing one too
+    $keysB = (string) file_get_contents($B['keys']);
+    file_put_contents($B['keys'], str_replace('restrict,', '', $keysB));
+    same('pairing: a line without restrict — «door changed»', 'changed', partnerTestAs($B, 'return partnerPublic();')['pairs'][0]['door'] ?? null);
+    file_put_contents($B['keys'], $benj);
+    same('pairing: the line gone — «door closed»', 'closed', partnerTestAs($B, 'return partnerPublic();')['pairs'][0]['door'] ?? null);
+    file_put_contents($B['keys'], $keysB);
+
+    // a host key that changed: never trusted
+    file_put_contents($B['host'], partnerTestKey('root@new') . "\n");
+    same('pairing: B reinstalled (another host key) — A refuses it', ['reachable' => false, 'why' => 'host_key', 'array' => null],
+        partnerTestAs($A, 'return partner_ping(["id" => ' . var_export($id, true) . ']);')['ask'] ?? null);
+
+    // the end: B's line off A, A's key and pin off the flash, the pair gone; B's copies, B's line for A stay
+    $ended = partnerTestAs($A, 'return partner_end(["id" => ' . var_export($id, true) . ']);');
+    same('pairing: ended on A', [[], false, false, false], [$ended['partners']['pairs'] ?? null, is_file("$A[flash]/$id.key"), is_file("$A[flash]/$id.known"),
+        str_contains((string) @file_get_contents($A['keys']), "uso-partner:$id")]);
+    partnerTestAs($B, 'return partner_end(["id" => ' . var_export($id, true) . ']);');
+    same('pairing: ended on B — Benj\'s lines stay byte for byte', $benj, file_get_contents($B['keys']));
+    same('pairing: ending what is gone', 'partner_unknown', partnerTestAs($B, 'return partner_end(["id" => ' . var_export($id, true) . ']);')['problem'] ?? null);
+
+    // one office paired with itself (the coordinator's test on one server): its own offer pasted under «Accept a partner…»
+    $C = partnerTestOffice("$tmp/C");
+    file_put_contents("$C[data]/unraid-backup/state/setup-plan.json", json_encode(['bases' => [['name' => 'tank', 'fs' => 'zfs', 'kind' => 'pool']],
+        'shares' => [['name' => 'appdata', 'layout' => 'single', 'locations' => 'tank']], 'vms' => []]));
+    partnerTestBin($C['bin'], ['pools' => ['tank'], 'ds' => $dsOf(['tank', 'tank/appdata'])], ['root@192.168.77.3' => $target($C)]);
+    $offer = partnerTestAs($C, 'return partner_add(["step" => "do", "address" => "192.168.77.3", "port" => 22, "trust" => "mine", "units" => ["share:appdata"]]);');
+    $sid = (string) ($offer['id'] ?? '');
+    $self = partnerTestAs($C, 'return partner_accept(["step" => "look", "block" => ' . var_export((string) ($offer['block'] ?? ''), true) . ']);');
+    same('self-pairing: its own offer is recognised', [true, ['share:appdata']], [$self['self'] ?? null, $self['partner']['units'] ?? null]);
+    $selfDone = partnerTestAs($C, 'return partner_accept(["step" => "do", "confirm" => true, "block" => ' . var_export((string) ($offer['block'] ?? ''), true)
+        . ', "receive" => ["pool" => "tank", "quota_gb" => 0, "retention" => "7 4 6", "window" => "00:00-00:00", "wake" => false, "units" => ["share:appdata"]]]);');
+    same('self-pairing: paired, and its own door answers', [true, true], [$selfDone['self'] ?? null, $selfDone['ask']['reachable'] ?? null]);
+    $sp = partnerTestAs($C, 'return partnerPairs();')[0] ?? [];
+    same('self-pairing: one pair that sends and keeps with the same key', [$sid, true, ['share:appdata'], ['share:appdata']],
+        [$sp['id'] ?? null, ($sp['my_key'] ?? 1) === ($sp['their_key'] ?? 2), $sp['send']['units'] ?? null, $sp['receive']['units'] ?? null]);
+    $cpub = implode(' ', array_slice(explode(' ', trim((string) file_get_contents("$C[flash]/$sid.key.pub"))), 0, 2));
+    same('self-pairing: its line', partnerDoorLine($sid, '192.168.77.3', $cpub) . "\n", @file_get_contents($C['keys']));
+    same('self-pairing: no offer left', [], partnerTestAs($C, 'return partnerPending();'));
+    $r = partnerTestDoor($C, 'recv share:appdata uso-backup-20261007-0200', 'self-stream', $sid);
+    same('self-pairing: a receive into its own pool', [0, 'tank/' . PARTNER_PARENT . "/$sid/share-appdata@uso-backup-20261007-0200"],
+        [$r['exit'], array_key_last(json_decode((string) file_get_contents("$C[bin]/zfs.json"), true)['snaps'] ?? []) ?? null]);
+    partnerTestAs($C, 'return partner_end(["id" => ' . var_export($sid, true) . ']);');
+    same('self-pairing: ended — line, key and pin gone', ['', false, false], [(string) @file_get_contents($C['keys']), is_file("$C[flash]/$sid.key"), is_file("$C[flash]/$sid.known")]);
+
+    // the strings partner.js asks for (desk.js's are checked by testStrings)
+    $en = langFile(OFFICE_DIR . '/public/desks/caretaker/lang/en.json');
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/partner.js');
+    preg_match_all("/(?<![.\\w])T\\(\\s*'([a-z0-9_.]+)'\\s*[,)]/", $js, $m);
+    preg_match_all("/'(partner\\.[a-z0-9_.]+)'/", $js, $m2);
+    $keys = array_unique(array_merge($m[1], $m2[1]));
+    foreach ($keys as $key) {
+        if (str_ends_with($key, '.') || str_ends_with($key, '_')) {
+            continue;
+        }
+        check("caretaker/partner.js asks for caretaker.$key", isset($en[$key]));
+    }
+    foreach (array_merge(array_map(fn ($t) => "partner.trust.$t", PARTNER_TRUST), array_map(fn ($t) => "partner.trust_tip.$t", PARTNER_TRUST),
+                         array_map(fn ($w) => "partner.why.$w", ['unreachable', 'timeout', 'host_key', 'denied', 'bad_answer']),
+                         array_map(fn ($w) => "partner.unit_why.$w", ['not_dataset', 'name', 'asleep']),
+                         ['partner.door_closed', 'partner.door_changed', 'partner.door_closed_tip', 'partner.door_changed_tip']) as $key) {
+        check("caretaker/partner.js asks for caretaker.$key", isset($en[$key]));
+    }
+    preg_match_all("/Office\\.errorText\\(\\{ key: '([a-z_]+)'/", $js, $m);
+    foreach (array_unique($m[1]) as $key) {
+        check("caretaker/partner.js asks for caretaker.errors.$key", isset($en["errors.$key"]));
+    }
+    hardeningRm($tmp);
+}
+
+/** A pair of pairs.json for the tests: receiving share:appdata and vm:Debian_Helmi on tank, sending too */
+function partnerTestPair(string $id, array $over = []): array
+{
+    $k = partnerTestKey();
+    return $over + ['id' => $id, 'name' => 'nostromo', 'address' => '192.168.77.2', 'port' => 22, 'host_keys' => [partnerFingerprint(partnerTestKey())],
+        'my_key' => partnerFingerprint(partnerTestKey()), 'their_key' => partnerFingerprint($k), 'send' => ['units' => ['share:media'], 'rate_mbit' => 0],
+        'receive' => ['pool' => 'tank', 'quota_gb' => 10, 'retention' => '2 0 0', 'window' => '00:00-00:00', 'wake' => false, 'units' => ['share:appdata', 'vm:Debian_Helmi']],
+        'trust' => 'mine', 'paired' => time() - 60, 'last_heard' => null, 'last_answer' => null];
+}
+
+function testPartnerDoor(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('partner door: root only — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('partner-door');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $B = partnerTestOffice("$tmp/B");
+    $id = 'a1b2c3d4';
+    $zfs0 = ['pools' => ['tank'], 'ds' => ['tank' => ['used' => 0]]];
+    partnerTestBin($B['bin'], $zfs0);
+    $pairsFile = "$B[data]/partner/pairs.json";
+    partnerPairsWrite([partnerTestPair($id), partnerTestPair('b2c3d4e5', ['their_key' => null, 'receive' => null])], $pairsFile);
+    $zfs = fn () => json_decode((string) file_get_contents("$B[bin]/zfs.json"), true);
+    $ds = 'tank/' . PARTNER_PARENT . "/$id/share-appdata";
+    $refusedTimes = fn (string $pid = 'a1b2c3d4') => count((array) (json_decode((string) @file_get_contents("$B[run]/partner/refused-$pid.json"), true)['times'] ?? []));
+    $log = fn () => (string) @file_get_contents("$B[data]/partner/door.log");
+
+    // ---- ping: RAM and the flash only — it answers with the data folder away and the array stopped, and makes nothing there
+    $r = partnerTestDoor($B, 'ping');
+    same('door: ping answers', [0, ['ok' => true, 'v' => AGENT_VERSION, 'pair' => $id, 'array' => 'started', 'night' => false]],
+        [$r['exit'], array_diff_key($r['out'][0] ?? [], ['time' => 1])]);
+    check('door: ping — the knock noted in RAM (heard-<id>)', is_file("$B[run]/partner/heard-$id"));
+    same('door: ping — no zfs, nothing logged', [[], ''], [partnerTestCalls($B['bin']), $log()]);
+    file_put_contents("$tmp/stopped.ini", "fsState=\"Stopped\"\n");
+    $away = "$tmp/nowhere/data";
+    $r = partnerTestDoor($B, 'ping', '', $id, ['OFFICE_VAR_INI' => "$tmp/stopped.ini", 'OFFICE_DATA_DIR' => $away]);
+    same('door: ping while the array is stopped', [0, 'stopped'], [$r['exit'], $r['out'][0]['array'] ?? null]);
+    check('door: ping touched nothing of the data folder', !file_exists("$tmp/nowhere"));
+    $r = partnerTestDoor($B, 'status', '', $id, ['OFFICE_VAR_INI' => "$tmp/stopped.ini"]);
+    same('door: status while the array is stopped', [1, ['ok' => false, 'why' => 'array_stopped']], [$r['exit'], $r['out'][0] ?? null]);
+    check('door: … its refusal logged in RAM, not in the data folder', str_contains((string) @file_get_contents("$B[run]/partner/door.log"), 'refused array_stopped') && $log() === '');
+
+    // ---- recv: the first one, full
+    $r = partnerTestDoor($B, 'recv share:appdata uso-backup-20261001-0200', 'stream-1');
+    same('door: recv — ok before, ok after (stderr), exit 0', [0, [['ok' => true], ['ok' => true, 'bytes' => 8]]],
+        [$r['exit'], array_map(fn ($j) => array_diff_key($j, ['seconds' => 1]), $r['err'])]);
+    $calls = partnerTestCalls($B['bin']);
+    $named = fn (string $verb) => array_values(array_filter($calls, fn ($c) => ($c[1] ?? '') === $verb && $c[0] === 'zfs'));
+    same('door: the parents — never mounted, the quota on the pair\'s', [
+        ['zfs', 'create', '-o', 'mountpoint=none', '-o', 'canmount=off', 'tank/' . PARTNER_PARENT],
+        ['zfs', 'create', '-o', 'mountpoint=none', '-o', 'canmount=off', '-o', 'quota=10G', 'tank/' . PARTNER_PARENT . "/$id"]], $named('create'));
+    same('door: the first receive — legacy, noauto, read-only, not shared, never -F', [['zfs', 'recv', '-s', '-u', '-o', 'mountpoint=legacy', '-o', 'canmount=noauto', '-o', 'readonly=on',
+        '-x', 'sharesmb', '-x', 'sharenfs', "$ds@uso-backup-20261001-0200"]], $named('recv'));
+    same('door: the stream through mbuffer', [['mbuffer', '-q', '-s', '128k', '-m', '256M']], array_values(array_filter($calls, fn ($c) => $c[0] === 'mbuffer')));
+    $got = json_decode((string) @file_get_contents("$B[data]/partner/received/$id.json"), true);
+    same('door: received/<id>.json', ['uso-backup-20261001-0200', 8, 1], [$got['units']['share:appdata']['snap'] ?? null, $got['units']['share:appdata']['bytes'] ?? null,
+        $got['units']['share:appdata']['snaps'] ?? null]);
+    same('door: received/<id>.json root only', 0600, fileperms("$B[data]/partner/received/$id.json") & 0777);
+    same('door: no record of a running transfer left', [], glob("$B[run]/partner/door-*.json"));
+    check('door: the transfer in its log', str_contains($log(), "recv share:appdata uso-backup-20261001-0200 (full)") && str_contains($log(), 'done: 8 bytes'));
+
+    // ---- incremental, then the retention (2 0 0: the newest two; one held stays)
+    $r = partnerTestDoor($B, 'recv share:appdata uso-backup-20261002-0200 uso-backup-20261001-0200', 'stream-22');
+    same('door: an incremental receive', 0, $r['exit']);
+    same('door: the incremental — no -o, the stream\'s mountpoint/canmount/shares left out', [['zfs', 'recv', '-s', '-u', '-x', 'mountpoint', '-x', 'canmount', '-x', 'sharesmb', '-x', 'sharenfs', "$ds@uso-backup-20261002-0200"]],
+        array_values(array_filter(partnerTestCalls($B['bin']), fn ($c) => ($c[1] ?? '') === 'recv')));
+    $st = $zfs();
+    $st['snaps']["$ds@uso-backup-20260901-0200"] = ['userrefs' => 1, 'used' => 1, 'written' => 1, 'creation' => 1];
+    $st['snaps']["$ds@manual-by-hand"] = ['userrefs' => 0, 'used' => 1, 'written' => 1, 'creation' => 2];
+    file_put_contents("$B[bin]/zfs.json", json_encode($st));
+    $r = partnerTestDoor($B, 'recv share:appdata uso-backup-20261003-0200 uso-backup-20261002-0200', 'stream-333');
+    same('door: the next receive', 0, $r['exit']);
+    $destroyed = array_values(array_filter(partnerTestCalls($B['bin']), fn ($c) => ($c[1] ?? '') === 'destroy'));
+    same('door: the retention — the oldest of its own let go, the held one and one not of the engine stay', [['zfs', 'destroy', "$ds@uso-backup-20261001-0200"]], $destroyed);
+    $rec = array_map(fn ($l) => json_decode($l, true), file("$B[data]/partner/deletes.jsonl") ?: []);
+    same('door: deletes.jsonl says what went', [[$id, $ds, ['uso-backup-20261001-0200']]], array_map(fn ($e) => [$e['pair'], $e['dataset'], $e['snaps']], $rec));
+    same('door: deletes.jsonl root only', 0600, fileperms("$B[data]/partner/deletes.jsonl") & 0777);
+    check('door: the newest always stays', isset($zfs()['snaps']["$ds@uso-backup-20261003-0200"], $zfs()['snaps']["$ds@uso-backup-20261002-0200"]));
+
+    // ---- list, resume, quota, status
+    $r = partnerTestDoor($B, 'list share:appdata');
+    same('door: list — the engine\'s snapshots kept of that unit', ['uso-backup-20260901-0200', 'uso-backup-20261002-0200', 'uso-backup-20261003-0200'],
+        array_column($r['out'][0]['snaps'] ?? [], 'name'));
+    same('door: list of a unit not received yet', [0, []], [partnerTestDoor($B, 'list vm:Debian_Helmi')['exit'], partnerTestDoor($B, 'list vm:Debian_Helmi')['out'][0]['snaps'] ?? null]);
+    same('door: resume — no token', ['ok' => true, 'token' => null], partnerTestDoor($B, 'resume share:appdata')['out'][0] ?? null);
+    same('door: quota', ['ok' => true, 'bytes' => 10 * 1024 ** 3, 'used_bytes' => 21], partnerTestDoor($B, 'quota')['out'][0] ?? null);
+    file_put_contents("$B[data]/caretaker.json", json_encode(['hired' => ['caretaker'], 'checks' => ['caretaker' => [['level' => 'required', 'ok' => false], ['level' => 'recommended', 'ok' => false],
+        ['level' => 'recommended', 'ok' => false, 'acked' => true], ['level' => 'hint', 'ok' => null]], 'backup' => [['level' => 'required', 'ok' => false]]]]));
+    $s = partnerTestDoor($B, 'status')['out'][0] ?? [];
+    same('door: status — the public summary', [true, 'started', AGENT_VERSION, ['must' => 1, 'recommended' => 1], ['bytes' => 10 * 1024 ** 3, 'used_bytes' => 21],
+        ['uso-backup-20260901-0200', 'uso-backup-20261002-0200', 'uso-backup-20261003-0200']],
+        [$s['ok'] ?? null, $s['array'] ?? null, $s['version'] ?? null, $s['lead'] ?? null, array_intersect_key((array) ($s['quota'] ?? []), ['used_bytes' => 1, 'bytes' => 1]),
+         $s['units']['share:appdata']['snaps'] ?? null]);
+
+    // ---- the chain's refusals
+    same('door: from a snapshot it hasn\'t — need_full', ['ok' => false, 'why' => 'need_full'],
+        partnerTestDoor($B, 'recv share:appdata uso-backup-20261004-0200 uso-backup-20260101-0200', 'x')['err'][0] ?? null);
+    same('door: a full stream onto what is there — need_incremental', 'need_incremental',
+        partnerTestDoor($B, 'recv share:appdata uso-backup-20261004-0200', 'x')['err'][0]['why'] ?? null);
+    same('door: a snapshot it has — exists', 'exists', partnerTestDoor($B, 'recv share:appdata uso-backup-20261003-0200 uso-backup-20261002-0200', 'x')['err'][0]['why'] ?? null);
+    same('door: -t without a token — no_token', 'no_token', partnerTestDoor($B, 'recv share:appdata uso-backup-20261004-0200 -t', 'x')['err'][0]['why'] ?? null);
+    $r = partnerTestDoor($B, 'recv vm:Debian_Helmi uso-backup-20261003-0200', 'INTERRUPT');
+    same('door: an interrupted receive says so — and that it can be resumed', [1, 'recv_failed', true], [$r['exit'], $r['err'][1]['why'] ?? null, $r['err'][1]['resumable'] ?? null]);
+    $vmds = 'tank/' . PARTNER_PARENT . "/$id/vm-Debian_Helmi";
+    same('door: resume — its token', ['ok' => true, 'token' => '1-abcdef0123-c8-789c0123456789'], partnerTestDoor($B, 'resume vm:Debian_Helmi')['out'][0] ?? null);
+    same('door: a new stream while a receive waits to be resumed — resume_first', 'resume_first', partnerTestDoor($B, 'recv vm:Debian_Helmi uso-backup-20261004-0200', 'x')['err'][0]['why'] ?? null);
+    partnerTestCalls($B['bin']);
+    $r = partnerTestDoor($B, 'recv vm:Debian_Helmi uso-backup-20261003-0200 -t', 'SNAP:uso-backup-20261003-0200');
+    $calls = partnerTestCalls($B['bin']);
+    same('door: the resumed receive', [0, [['zfs', 'recv', '-s', '-u', '-x', 'mountpoint', '-x', 'canmount', '-x', 'sharesmb', '-x', 'sharenfs', $vmds]]],
+        [$r['exit'], array_values(array_filter($calls, fn ($c) => ($c[1] ?? '') === 'recv'))]);
+    same('door: … then its properties set as a first receive\'s', [['zfs', 'set', 'canmount=noauto', $vmds], ['zfs', 'set', 'mountpoint=legacy', $vmds], ['zfs', 'set', 'readonly=on', $vmds]],
+        array_values(array_filter($calls, fn ($c) => ($c[1] ?? '') === 'set')));
+    $r = partnerTestDoor($B, 'recv share:appdata uso-backup-20261004-0200 uso-backup-20261003-0200', 'FAIL');
+    same('door: a receive zfs refuses', [1, ['ok' => true], 'recv_failed'], [$r['exit'], $r['err'][0] ?? null, $r['err'][1]['why'] ?? null]);
+    check('door: … its detail said, received/ not moved on', str_contains((string) ($r['err'][1]['detail'] ?? ''), 'invalid backup stream')
+        && (json_decode((string) file_get_contents("$B[data]/partner/received/$id.json"), true)['units']['share:appdata']['snap'] ?? '') === 'uso-backup-20261003-0200');
+
+    // ---- the agreement: window, quota, a sleeping pool, one transfer at a time
+    $pairs = fn (array $over) => partnerPairsWrite([partnerTestPair($id, ['receive' => $over + partnerTestPair($id)['receive']]),
+        partnerTestPair('b2c3d4e5', ['their_key' => null, 'receive' => null])], $pairsFile);
+    $pairs(['window' => '00:00-07:00']);
+    same('door: the window closed — refused_window', ['ok' => false, 'why' => 'refused_window', 'window' => '00:00-07:00'],
+        partnerTestDoor($B, 'recv share:appdata uso-backup-20261004-0200 uso-backup-20261003-0200', 'x', $id, ['OFFICE_PARTNER_NOW' => (string) strtotime('2026-10-07 12:00')])['err'][0] ?? null);
+    $pairs(['window' => '22:00-06:00']);
+    same('door: the window open across midnight', 0,
+        partnerTestDoor($B, 'recv share:appdata uso-backup-20261004-0200 uso-backup-20261003-0200', 'w4', $id, ['OFFICE_PARTNER_NOW' => (string) strtotime('2026-10-07 23:00')])['exit']);
+    $pairs(['quota_gb' => 1]);
+    $st = $zfs();
+    $st['ds']["tank/" . PARTNER_PARENT . "/$id"]['used'] = 1024 ** 3;
+    file_put_contents("$B[bin]/zfs.json", json_encode($st));
+    partnerTestCalls($B['bin']);
+    same('door: the quota full — refused_quota', 'refused_quota', partnerTestDoor($B, 'recv share:appdata uso-backup-20261005-0200 uso-backup-20261004-0200', 'x')['err'][0]['why'] ?? null);
+    check('door: … and the pair\'s quota set to the agreement', in_array(['zfs', 'set', 'quota=1G', 'tank/' . PARTNER_PARENT . "/$id"], partnerTestCalls($B['bin']), true));
+    $st['ds']["tank/" . PARTNER_PARENT . "/$id"]['used'] = 0;
+    file_put_contents("$B[bin]/zfs.json", json_encode($st));
+    $pairs([]);
+    file_put_contents("$tmp/asleep.ini", "[\"tank\"]\nname=\"tank\"\nspundown=\"1\"\n");
+    same('door: the pool asleep, no wake — refused_asleep', 'refused_asleep',
+        partnerTestDoor($B, 'recv share:appdata uso-backup-20261005-0200 uso-backup-20261004-0200', 'x', $id, ['OFFICE_DISKS_INI' => "$tmp/asleep.ini"])['err'][0]['why'] ?? null);
+    same('door: … list too', 'refused_asleep', partnerTestDoor($B, 'list share:appdata', '', $id, ['OFFICE_DISKS_INI' => "$tmp/asleep.ini"])['out'][0]['why'] ?? null);
+    $pairs(['wake' => true]);
+    same('door: the pool asleep, wake agreed — it goes', 0,
+        partnerTestDoor($B, 'recv share:appdata uso-backup-20261005-0200 uso-backup-20261004-0200', 'five', $id, ['OFFICE_DISKS_INI' => "$tmp/asleep.ini"])['exit']);
+    @mkdir("$B[run]/partner", 0700, true);
+    $hold = fopen("$B[run]/partner/$id.lock", 'c');
+    flock($hold, LOCK_EX);
+    same('door: a second transfer while one runs — busy', 'busy', partnerTestDoor($B, 'recv share:appdata uso-backup-20261006-0200 uso-backup-20261005-0200', 'x')['err'][0]['why'] ?? null);
+    same('door: … reading goes on meanwhile', 0, partnerTestDoor($B, 'list share:appdata')['exit']);
+    flock($hold, LOCK_UN);
+    fclose($hold);
+    same('door: a pair that receives nothing here', 'not_receiving', partnerTestDoor($B, 'list share:appdata', '', 'b2c3d4e5')['out'][0]['why'] ?? null);
+    same('door: … its ping and status work', [0, 0], [partnerTestDoor($B, 'ping', '', 'b2c3d4e5')['exit'], partnerTestDoor($B, 'status', '', 'b2c3d4e5')['exit']]);
+    same('door: send-back — not yet', ['ok' => false, 'why' => 'not_yet'], partnerTestDoor($B, 'send-back share:appdata uso-backup-20261004-0200')['out'][0] ?? null);
+
+    // ---- everything else: refused, logged, counted — and nothing of zfs ran
+    partnerTestCalls($B['bin']);
+    $before = $refusedTimes();
+    $bad = [
+        '' => 'malformed', 'ping ' => 'malformed', ' ping' => 'malformed', 'ping  ping' => 'malformed', "ping\n" => 'malformed', "ping\nid" => 'malformed', "ping\tx" => 'malformed',
+        'ping;id' => 'malformed', 'ping|id' => 'malformed', 'ping&&id' => 'malformed', '$(id)' => 'malformed', '`id`' => 'malformed', 'ping > /tmp/x' => 'malformed',
+        'status x' => 'malformed', 'ping x' => 'malformed', 'list' => 'malformed', 'list share:appdata x' => 'malformed', 'recv share:appdata' => 'malformed',
+        'recv share:appdata uso-backup-20261005-0200 uso-backup-20261004-0200 -t' => 'malformed', 'a b c d e f' => 'malformed', str_repeat('p', 300) => 'malformed',
+        'zfs destroy -r tank' => 'unknown_verb', 'sh' => 'unknown_verb', 'bash -c id' => 'unknown_verb', 'rsync --server . /' => 'malformed', 'scp -t /root' => 'malformed',
+        'internal-sftp' => 'unknown_verb', 'PING' => 'unknown_verb', 'destroy share:appdata' => 'unknown_verb',
+        'recv -F share:appdata uso-backup-20261005-0200' => 'bad_unit', 'recv share:appdata uso-backup-20261005-0200 -F' => 'bad_snap',
+        'recv share:appdata -F uso-backup-20261005-0200' => 'bad_snap', 'recv share:../../etc uso-backup-20261005-0200' => 'malformed',
+        'recv share:..passwd uso-backup-20261005-0200' => 'bad_unit', 'recv share:x..y uso-backup-20261005-0200' => 'unit_not_agreed', 'recv tank/x uso-backup-20261005-0200' => 'malformed', 'recv share:appdata@x uso-backup-20261005-0200' => 'malformed',
+        'recv share uso-backup-20261005-0200' => 'bad_unit', 'recv share: uso-backup-20261005-0200' => 'bad_unit', 'recv share:-appdata uso-backup-20261005-0200' => 'bad_unit',
+        'recv share:appdata uso-backup-2026100-0200' => 'bad_snap', 'recv share:appdata uso-backup-20261005-0200x' => 'bad_snap', 'recv share:appdata unraidbackup-20261005-0200' => 'bad_snap',
+        'recv share:appdata uso-plan-hourly-20261005-0200' => 'bad_snap', 'recv share:appdata uso-backup-20261005-0200 manual' => 'bad_snap', 'recv share:appdata -t uso-backup-20261005-0200' => 'bad_snap',
+        'recv share:system uso-backup-20261005-0200' => 'unit_not_agreed', 'recv vm:Other uso-backup-20261005-0200' => 'unit_not_agreed', 'list place' => 'unit_not_agreed',
+        'list share:system' => 'unit_not_agreed', 'resume /tank' => 'malformed', 'resume share:a;b' => 'malformed', 'send-back share:appdata ../x' => 'malformed',
+        "recv share:appdata uso-backup-20261005-0200\n" => 'malformed',
+    ];
+    foreach ($bad as $cmd => $why) {
+        $r = partnerTestDoor($B, $cmd, 'stream');
+        $said = array_merge($r['out'], $r['err']);
+        same('door: refused — ' . json_encode(substr($cmd, 0, 70)), [true, $why], [$r['exit'] !== 0, $said[0]['why'] ?? $r['raw']]);
+    }
+    $calls = partnerTestCalls($B['bin']);
+    same('door: none of those ran zfs recv, create, destroy, set or mbuffer', [], array_values(array_filter($calls, fn ($c) => $c[0] === 'mbuffer' || in_array($c[1] ?? '', ['recv', 'create', 'destroy', 'set'], true))));
+    same('door: every refusal counted for the night watchman', count($bad), $refusedTimes() - $before);
+    check('door: every refusal logged, control characters made harmless', substr_count($log(), 'refused ') >= count($bad) && !preg_match('/[\x00-\x08\x0b-\x1f]/', $log())
+        && count(explode("\n", trim($log()))) === count(array_filter(explode("\n", trim($log())))));
+    foreach (['', '../x', 'a1b2c3d', 'A1B2C3D4', "a1b2c3d4\n", 'a1b2c3d4 b'] as $who) {
+        $r = partnerTestDoor($B, 'ping', '', $who);
+        same('door: no pair from the line ' . json_encode($who), [1, 'no_pair'], [$r['exit'], $r['out'][0]['why'] ?? null]);
+    }
+    same('door: a pair that isn\'t in pairs.json', 'no_pair', partnerTestDoor($B, 'status', '', 'ffffffff')['out'][0]['why'] ?? null);
+    same('door: refusals counted only under a pair id\'s own shape', [], array_values(array_filter(array_map('basename', glob("$B[run]/partner/refused-*") ?: []),
+        fn ($f) => !preg_match('/^refused-[0-9a-f]{8}\.json$/D', $f))));
+
+    // ---- the authorized_keys writer: only the office's marked lines, every other byte stays, never through a link
+    $ak = "$tmp/ak/authorized_keys";
+    @mkdir(dirname($ak), 0700, true);
+    $benj = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBenjBenjBenjBenjBenjBenjBenjBenjBenjBenj benj@MacBook\r\n# keep me\n\nssh-rsa AAAAB3Nza uso-partner:a1b2c3d4-not-ours\n"
+          . 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOther uso-partner:a1b2c3d4 trailing';      // no newline at the end, not ours (not the last word)
+    file_put_contents($ak, $benj);
+    $l1 = partnerDoorLine('a1b2c3d4', '192.168.77.1', partnerTestKey());
+    $l2 = partnerDoorLine('b2c3d4e5', '192.168.77.9', partnerTestKey());
+    check('authorized_keys: a line added', partnerAuthKeysEdit('a1b2c3d4', $l1, $ak));
+    same('authorized_keys: every other byte as it was, the line at the end', "$benj\n$l1\n", file_get_contents($ak));
+    same('authorized_keys: 0600', 0600, fileperms($ak) & 0777);
+    check('authorized_keys: the same again — nothing written', !partnerAuthKeysEdit('a1b2c3d4', $l1, $ak));
+    partnerAuthKeysEdit('b2c3d4e5', $l2, $ak);
+    $l1b = partnerDoorLine('a1b2c3d4', '192.168.77.5', partnerTestKey());
+    partnerAuthKeysEdit('a1b2c3d4', $l1b, $ak);
+    same('authorized_keys: a pair\'s line replaced, the other pair\'s stays', "$benj\n$l2\n$l1b\n", file_get_contents($ak));
+    same('authorized_keys: its line read back', $l1b, partnerAuthKeysLine('a1b2c3d4', $ak));
+    partnerAuthKeysEdit('a1b2c3d4', null, $ak);
+    same('authorized_keys: a pair\'s line removed', "$benj\n$l2\n", file_get_contents($ak));
+    check('authorized_keys: removed again — nothing written', !partnerAuthKeysEdit('a1b2c3d4', null, $ak));
+    $plg = (string) file_get_contents(OFFICE_DIR . '/plugin/unraid-secretary-office.plg');
+    $strip = preg_match("/php -r '(umask\\(077\\);.*?)' \"\\\$keys\"/s", $plg, $m) ? $m[1] : '';
+    check('authorized_keys: the .plg\'s remove has its one-liner', $strip !== '');
+    exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($strip) . ' ' . escapeshellarg($ak));
+    same('authorized_keys: the .plg\'s remove takes every line of the office\'s, nothing else', $benj . "\n", file_get_contents($ak));
+    same('authorized_keys: … the same as partnerAuthKeysStrip()', partnerAuthKeysStrip("$benj\n$l2\n"), file_get_contents($ak));
+    foreach (["x\nssh-ed25519 AAAA uso-partner:a1b2c3d4", 'ssh-ed25519 AAAA benj@mac', 'ssh-ed25519 AAAA uso-partner:b2c3d4e5'] as $i => $evil) {
+        try {
+            partnerAuthKeysEdit('a1b2c3d4', $evil, $ak);
+            check("authorized_keys: a line of another shape refused #$i", false);
+        } catch (Problem $e) {
+            same("authorized_keys: a line of another shape refused #$i", 'partner_shape', $e->key);
+        }
+    }
+    file_put_contents("$tmp/victim", 'victim');
+    unlink($ak);
+    symlink("$tmp/victim", $ak);
+    try {
+        partnerAuthKeysEdit('a1b2c3d4', $l1, $ak);
+        check('authorized_keys: a link refused', false);
+    } catch (Problem $e) {
+        same('authorized_keys: a link refused, its target untouched', ['partner_authkeys_link', 'victim'], [$e->key, file_get_contents("$tmp/victim")]);
+    }
+    unlink($ak);
+    rename(dirname($ak), "$tmp/ak-real");
+    symlink("$tmp/ak-real", dirname($ak));
+    try {
+        partnerAuthKeysEdit('a1b2c3d4', $l1, $ak);
+        check('authorized_keys: a linked folder refused', false);
+    } catch (Problem $e) {
+        same('authorized_keys: a linked folder refused', 'partner_authkeys_link', $e->key);
+    }
+    hardeningRm($tmp);
+}
+
+/** The mutual watch: silent partners told once per silence, again every 24 h, not when noted; the finding */
+function testPartnerWatch(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('partner watch: root only — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('partner-watch');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $A = partnerTestOffice("$tmp/A");
+    partnerTestBin($A['bin'], ['pools' => ['tank'], 'ds' => ['tank' => ['used' => 0]]]);
+    file_put_contents("$tmp/notify", "#!/bin/sh\nprintf '%s\\n' \"\$*\" >>" . escapeshellarg("$tmp/notify.log") . "\n");
+    chmod("$tmp/notify", 0755);
+    $A['env'] += ['OFFICE_NOTIFY_BIN' => "$tmp/notify", 'OFFICE_NOTIFY_STAMP' => "$tmp/notify.stamp"];
+    // a pair that only receives here (no key of mine there): heard of only when it knocks; paired 7 h ago
+    $pair = partnerTestPair('a1b2c3d4', ['my_key' => null, 'send' => ['units' => [], 'rate_mbit' => 0], 'paired' => time() - 7 * 3600, 'name' => 'vault', 'address' => '100.64.0.9']);
+    // Tailscale's second opinion: the partner's address is a peer that is offline too
+    file_put_contents("$A[bin]/tailscale", "#!/bin/sh\necho '" . json_encode(['Self' => ['Online' => true], 'Peer' => ['nodekey:1' => ['HostName' => 'vault',
+        'DNSName' => 'vault.tail1234.ts.net.', 'TailscaleIPs' => ['100.64.0.9', 'fd7a:115c:a1e0::9'], 'Online' => false]]]) . "'\n");
+    chmod("$A[bin]/tailscale", 0755);
+    partnerPairsWrite([$pair], "$A[data]/partner/pairs.json");
+    $told = fn () => count(array_filter(explode("\n", (string) @file_get_contents("$tmp/notify.log"))));
+    $watch = fn () => partnerTestAs($A, 'return caretakerPartnerWatch();');
+    same('watch: the job runs', 0, $watch());
+    same('watch: a silent partner told once', 1, $told());
+    check('watch: … as a warning naming it', str_contains((string) file_get_contents("$tmp/notify.log"), '-i warning') && str_contains((string) file_get_contents("$tmp/notify.log"), 'vault'));
+    check('watch: … with Tailscale\'s word: offline in the tailnet too', str_contains((string) file_get_contents("$tmp/notify.log"), 'offline in the tailnet as well'));
+    same('watch: the card says so', false, partnerTestAs($A, 'return partnerPublic()["pairs"][0]["tailnet"];'));
+    same('watch: the tailnet by address and by name', [false, false, null, null], [partnerTailnetSays(['100.64.0.9' => false, 'vault.tail1234.ts.net' => false], '100.64.0.9'),
+        partnerTailnetSays(['vault.tail1234.ts.net' => false], 'VAULT.tail1234.ts.net'), partnerTailnetSays(['x' => true], '100.64.0.9'), partnerTailnetSays(null, 'x')]);
+    $watch();
+    same('watch: … not again in the same silence', 1, $told());
+    $f = partnerTestAs($A, 'return caretakerPartnerFindings();');
+    same('watch: the finding partner_silent (recommended, not in place)', [['partner_silent', 'recommended', false, 'vault', 'no']],
+        array_map(fn ($x) => [$x['id'], $x['level'], $x['ok'], $x['params']['name'] ?? null, $x['params']['heard'] ?? null], $f));
+    // 24 h later (told 25 h ago): told again
+    $st = json_decode((string) file_get_contents("$A[data]/partner/state.json"), true);
+    $st['pairs']['a1b2c3d4']['told']['at'] -= 25 * 3600;
+    partnerWritePrivate("$A[data]/partner/state.json", $st);
+    $watch();
+    same('watch: told again after 24 h', 2, $told());
+    // «I know, thanks» on the finding mutes this silence
+    $sig = partnerTestAs($A, '$f = caretakerPartnerFindings()[0]; return caretakerAckSig("caretaker", $f);');
+    @mkdir("$A[data]/caretaker", 0755, true);
+    file_put_contents("$A[data]/caretaker/acks.json", json_encode(['acks' => [$sig => ['desk' => 'caretaker', 'id' => 'partner_silent', 'time' => time(), 'seen' => time()]]]));
+    $st = json_decode((string) file_get_contents("$A[data]/partner/state.json"), true);
+    $st['pairs']['a1b2c3d4']['told']['at'] -= 25 * 3600;
+    partnerWritePrivate("$A[data]/partner/state.json", $st);
+    $watch();
+    same('watch: noted («I know, thanks») — not told', 2, $told());
+    // it knocks at the door: heard, not silent, the silence forgotten
+    @mkdir("$A[run]/partner", 0700, true);
+    touch("$A[run]/partner/heard-a1b2c3d4");
+    $watch();
+    $f = partnerTestAs($A, 'return caretakerPartnerFindings();');
+    same('watch: heard at the door — in place', [true], array_column($f, 'ok'));
+    $e = json_decode((string) file_get_contents("$A[data]/partner/state.json"), true)['pairs']['a1b2c3d4'] ?? [];
+    same('watch: … the silence forgotten', [true, null], [array_key_exists('told', $e), $e['told'] ?? null]);
+    $card = partnerTestAs($A, 'return partnerPublic()["pairs"][0];');
+    same('watch: the card — heard, not silent, no ping of its own', [false, true, null, false], [$card['silent'] ?? null, array_key_exists('reachable', $card), $card['reachable'] ?? null, $card['sends'] ?? null]);
+    // one at a time
+    $lock = fopen("$A[run]/partner/ping.lock", 'c');
+    flock($lock, LOCK_EX);
+    touch("$A[run]/partner/heard-a1b2c3d4", time() - 8 * 3600);
+    @unlink("$tmp/notify.log");
+    $watch();
+    same('watch: a second job while one runs does nothing', 0, $told());
+    flock($lock, LOCK_UN);
+    fclose($lock);
+    // a pair I send to: the ping goes through ssh — unreachable is said, the watch goes on
+    partnerPairsWrite([partnerTestPair('b2c3d4e5', ['address' => '192.168.77.99'])], "$A[data]/partner/pairs.json");
+    file_put_contents("$A[flash]/b2c3d4e5.key", 'x');
+    file_put_contents("$A[flash]/b2c3d4e5.known", 'x');
+    $watch();
+    $e = json_decode((string) file_get_contents("$A[data]/partner/state.json"), true)['pairs']['b2c3d4e5'] ?? [];
+    same('watch: a partner that doesn\'t answer', [false, 'unreachable'], [$e['reachable'] ?? null, $e['why'] ?? null]);
+    hardeningRm($tmp);
+}
+
+/** agent.sh partner_release at the array stop: the door's registered processes end, the records go */
+function testPartnerRelease(): void
+{
+    $tmp = hardeningTmp('partner-release');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    @mkdir("$tmp/run/partner", 0700, true);
+    @mkdir("$tmp/agent", 0700, true);
+    @mkdir("$tmp/sbin", 0700, true);
+    file_put_contents("$tmp/agent/partner-door.php", "trap 'exit 0' TERM\nsleep 30 & wait\n");
+    $start = function (array $cmd) {
+        $p = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+        usleep(100000);
+        return $p;
+    };
+    $door = $start(['/bin/bash', "$tmp/agent/partner-door.php"]);
+    $zfs = $start(['/bin/bash', '-c', 'exec -a /usr/sbin/zfs /bin/sleep 30']);       // a process called zfs
+    $other = $start(['/bin/sleep', '30']);
+    $pid = fn ($p) => proc_get_status($p)['pid'];
+    file_put_contents("$tmp/run/partner/door-{$pid($door)}.json", json_encode(['pid' => $pid($door), 'children' => [$pid($zfs), $pid($other)]]));
+    file_put_contents("$tmp/run/partner/door-{$pid($other)}.json", json_encode(['pid' => $pid($other), 'children' => []]));    // not a door: left alone
+    $agent = escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh');
+    $t0 = microtime(true);
+    $out = trim((string) shell_exec('bash -c ' . escapeshellarg("source $agent; RUN=" . escapeshellarg("$tmp/run") . '; LOG=' . escapeshellarg("$tmp/agent.log") . '; partner_release; echo "rc=$?"') . ' 2>&1'));
+    $took = microtime(true) - $t0;
+    usleep(200000);
+    same('partner release: ends without a word', 'rc=0', $out);
+    same('partner release: the door and its zfs recv ended, anything else left alone', [false, false, true],
+        [proc_get_status($door)['running'], proc_get_status($zfs)['running'], proc_get_status($other)['running']]);
+    check('partner release: within 5 s', $took < 5.5, (string) round($took, 1));
+    same('partner release: the records gone', [], glob("$tmp/run/partner/door-*.json"));
+    check('partner release: said in the log', str_contains((string) @file_get_contents("$tmp/agent.log"), 'array stopping: a partner\'s transfer ended (2 process(es) of the door)'));
+    proc_terminate($other);
+    foreach ([$door, $zfs, $other] as $p) {
+        proc_close($p);
+    }
+    $out = trim((string) shell_exec('bash -c ' . escapeshellarg("source $agent; RUN=" . escapeshellarg("$tmp/run") . '; LOG=' . escapeshellarg("$tmp/agent2.log") . '; partner_release; echo "rc=$?"') . ' 2>&1'));
+    same('partner release: nothing registered — nothing done, nothing said', ['rc=0', false], [$out, is_file("$tmp/agent2.log")]);
+    check('partner release: called at the array stop, beside backup_release', (bool) preg_match('/partner_release[^\n]*\n\s*backup_release/', (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh')));
+    hardeningRm($tmp);
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi'],
-          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease'],
+          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor'],
           'strings' => ['testStrings', 'testUnraidWords']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {

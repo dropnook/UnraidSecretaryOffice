@@ -15,4 +15,19 @@
 .ct-ask p{margin:0; flex:1 1 320px; min-width:0}
 .ct-ask-acts{display:flex; gap:8px; flex-wrap:wrap}
 .ct-supporter{overflow-wrap:anywhere}
+/* partner offices (partner.js) */
+.row.ct-partner{grid-template-columns:minmax(0,1fr) auto}
+.ct-partner .row-detail strong{color:var(--ink); font-weight:650}
+.ct-pq{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:6px; font-size:12.5px; color:var(--muted)}
+.ct-pq-bar{flex:0 1 220px; min-width:120px; height:7px; border-radius:4px; background:var(--surface2); border:1px solid var(--line); overflow:hidden}
+.ct-pq-fill{height:100%; background:var(--accent)}
+.ct-pq-fill.full{background:var(--danger)}
+.ct-pret{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+.ct-pret .input{width:auto; flex:0 1 110px; min-width:0}
+.ct-pret-part{display:flex; align-items:center; gap:6px; font-size:13px; color:var(--ink2)}
+.ct-pret-part .input{flex:0 0 72px}
+pre.code.ct-pblock{user-select:all; max-height:30vh; word-break:break-all}
+.ct-ppaste{width:100%; resize:vertical; word-break:break-all}
+.ct-pcode{font:650 30px/1.2 var(--mono); letter-spacing:.08em; color:var(--ink); text-align:center; padding:10px 0 14px; font-variant-numeric:tabular-nums}
+@media (max-width:640px){ .row.ct-partner{grid-template-columns:minmax(0,1fr)} }
 }
