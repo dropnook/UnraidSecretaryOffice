@@ -2641,9 +2641,11 @@ partner_unit() {
     # 2. what the partner holds of it - the base of an incremental send
     partner_ask "$id" list "$u"; r=$?
     (( r == 255 )) && { PARTNER_DOWN[$id]="unreachable"; return 0; }
+    # a list it won't give (a unit it never received, whatever its door says then): nothing in common - the recv below
+    # gets the door's real answer (a refusal comes before a byte is read)
     if [[ "$(jq -r '.ok' <<<"$PA_JSON" 2>/dev/null)" == "false" ]]; then
-        s="$(partner_why_ok "$(jq -r '.why // ""' <<<"$PA_JSON" 2>/dev/null)")"
-        partner_skip "$id" "$u" "$s"; log "    $name: $u refused ($s)"; partner_refused "$id" "$s"; return 0
+        log "    $name: no list of $u ($(partner_why_ok "$(jq -r '.why // ""' <<<"$PA_JSON" 2>/dev/null)")) - nothing in common"
+        PA_JSON=""
     fi
     while IFS= read -r s; do [[ "$s" =~ $UB_PARTNER_SNAP_RE ]] && have[$s]=1; done < <(jq -r '(.snaps // .snapshots // [])[]
         | (if type == "object" then (.name // "") else . end) | tostring | sub("^.*@"; "")' <<<"$PA_JSON" 2>/dev/null)

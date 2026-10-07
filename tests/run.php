@@ -2673,7 +2673,8 @@ if [[ -e "$FAKE/door.hang" ]]; then sleep 20; exit 0; fi
 case "$verb" in
   ping) echo "{\"ok\":true,\"v\":\"1.35.0\",\"pair\":\"a1b2c3d4\",\"array\":\"$(cat "$FAKE/door.array" 2>/dev/null || echo started)\",\"night\":true,\"time\":$(date +%s)}" ;;
   resume) if [[ -s "$FAKE/token.$u" ]]; then echo "{\"ok\":true,\"token\":\"$(cat "$FAKE/token.$u")\"}"; else echo '{"ok":true,"token":null}'; fi ;;
-  list) if [[ -s "$FAKE/recv/$u" ]]; then jq -c -Rn '{ok: true, snaps: [inputs | select(length > 0) | {name: ., used: 1, referenced: 2, creation: 3}]}' <"$FAKE/recv/$u"
+  list) if [[ -e "$FAKE/listrefuse" ]]; then echo '{"ok":false,"why":"unknown_unit"}'; exit 1
+        elif [[ -s "$FAKE/recv/$u" ]]; then jq -c -Rn '{ok: true, snaps: [inputs | select(length > 0) | {name: ., used: 1, referenced: 2, creation: 3}]}' <"$FAKE/recv/$u"
         else echo '{"ok":true,"snaps":[]}'; fi ;;
   recv)
     if [[ -s "$FAKE/refuse" ]]; then echo "{\"ok\":false,\"why\":\"$(cat "$FAKE/refuse")\"}" >&2; exit 1; fi
@@ -2716,7 +2717,7 @@ SH);
     $night = function (array $recv = [], array $snaps = [], array $bookmarks = []) use ($fake, $data): void {
         exec('rm -rf ' . escapeshellarg("$fake/recv") . ' ' . escapeshellarg("$data/logs"));
         @mkdir("$fake/recv", 0700, true);
-        foreach (glob("$fake/{events,ssh.args,notify.log,refuse,needfull,recvfail,send.slow,door.*,token.*,in.*}", GLOB_BRACE) ?: [] as $f) {
+        foreach (glob("$fake/{events,ssh.args,notify.log,refuse,needfull,recvfail,listrefuse,send.slow,door.*,token.*,in.*}", GLOB_BRACE) ?: [] as $f) {
             @unlink($f);
         }
         foreach ($recv as $unit => $list) {
@@ -2811,6 +2812,13 @@ SH);
     $r = array_values(preg_grep('/^ssh recv share:appdata/', $names()));
     same('partner phase: need_full - the same snapshot whole right after', ["ssh recv share:appdata $snap $old1", "ssh recv share:appdata $snap"], $r);
     same('partner phase: need_full - done, from null', [null, 0], [$v($byUnit($status()['partner']['done'] ?? [])['share:appdata'] ?? null, 'from'), $status()['partner_failed'] ?? null]);
+
+    // --- a door that gives no list (a unit it never received): sent whole, the recv's answer counts
+    $night();
+    touch("$fake/listrefuse");
+    $run();
+    same('partner phase: no list - sent whole anyway, nothing skipped for it', [4, 0], [$status()['partner_ok'] ?? null, $status()['partner_failed'] ?? null]);
+    @unlink("$fake/listrefuse");
 
     // --- a resume token: the interrupted transfer first (zfs send -t), then this night's from it
     $night(['share:appdata' => []], ["master/appdata@$old1"]);
