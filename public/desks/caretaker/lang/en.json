@@ -2,7 +2,7 @@
   "name": "The Team Lead",
   "role": "Leads the team — whom to hire, what the office needs from your server, and what's left for you to do",
   "visit": "Visit the team lead",
-  "bubble.loading": "One moment, I'm doing my round…",
+  "bubble.loading": "One moment, I'm on my tour…",
   "bubble.all_good": "Everything's in place — nothing for you to do.",
   "bubble.todo": {
     "one": "There's one thing you still need to do yourself.",
