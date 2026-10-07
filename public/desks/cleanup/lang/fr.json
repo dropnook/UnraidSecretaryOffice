@@ -1560,8 +1560,8 @@
   "where.adv.old_disks.why": "Plus d'environ 5 ans d'heures de fonctionnement. Pas un défaut — mais le moment de garder un œil sur SMART, d'avoir un disque de rechange sous la main et de s'assurer que ce qu'il contient est sauvegardé.",
   "where.adv.no_parity.title": "L'array tourne sans parité",
   "where.adv.no_parity.why": {
-    "one": "Si son disque de données lâche, ce qui s'y trouve est perdu — et rien ne te prévient avant. Un disque de parité (au moins aussi grand que le plus grand disque de données) reconstruit un disque défaillant. Main → arrête l'array → mets un disque dans l'emplacement de parité → démarre : Unraid construit la parité (des heures, l'array reste utilisable).",
-    "other": "Si l'un des {n} disques de données lâche, ce qui s'y trouve est perdu — et rien ne te prévient avant. Un disque de parité (au moins aussi grand que le plus grand disque de données) reconstruit un disque défaillant. Main → arrête l'array → mets un disque dans l'emplacement de parité → démarre : Unraid construit la parité (des heures, l'array reste utilisable)."
+    "one": "Si son disque de données lâche, ce qui s'y trouve est perdu — et rien ne te prévient avant. Un disque de parité (au moins aussi grand que le plus grand disque de données) reconstruit un disque défaillant. Principal → arrête l'array → mets un disque dans l'emplacement de parité → démarre : Unraid construit la parité (des heures, l'array reste utilisable).",
+    "other": "Si l'un des {n} disques de données lâche, ce qui s'y trouve est perdu — et rien ne te prévient avant. Un disque de parité (au moins aussi grand que le plus grand disque de données) reconstruit un disque défaillant. Principal → arrête l'array → mets un disque dans l'emplacement de parité → démarre : Unraid construit la parité (des heures, l'array reste utilisable)."
   },
   "where.adv.parity.title": "Dernier contrôle de parité : {when}",
   "where.adv.parity.why": "Un contrôle régulier (mensuel ou trimestriel) trouve les secteurs défectueux avant qu'un disque ne lâche et que tu aies besoin de la parité. Réglages → Planificateur → Contrôle de la parité, à une heure où personne n'a besoin du serveur.",

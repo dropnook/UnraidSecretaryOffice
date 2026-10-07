@@ -1560,8 +1560,8 @@
   "where.adv.old_disks.why": "Más de unos 5 años de horas de funcionamiento. No es un fallo — pero es el momento de vigilar el SMART, tener un disco de repuesto a mano y asegurarse de que lo que contiene tiene copia de seguridad.",
   "where.adv.no_parity.title": "El array funciona sin paridad",
   "where.adv.no_parity.why": {
-    "one": "Si su disco de datos falla, lo que hay en él se pierde — y nada te avisa antes. Un disco de paridad (al menos tan grande como el disco de datos más grande) reconstruye un disco averiado. Main → detén el array → pon un disco en la ranura de paridad → inicia: Unraid construye la paridad (horas, el array sigue utilizable).",
-    "other": "Si falla uno de los {n} discos de datos, lo que hay en él se pierde — y nada te avisa antes. Un disco de paridad (al menos tan grande como el disco de datos más grande) reconstruye un disco averiado. Main → detén el array → pon un disco en la ranura de paridad → inicia: Unraid construye la paridad (horas, el array sigue utilizable)."
+    "one": "Si su disco de datos falla, lo que hay en él se pierde — y nada te avisa antes. Un disco de paridad (al menos tan grande como el disco de datos más grande) reconstruye un disco averiado. Principal → detén el array → pon un disco en la ranura de paridad → inicia: Unraid construye la paridad (horas, el array sigue utilizable).",
+    "other": "Si falla uno de los {n} discos de datos, lo que hay en él se pierde — y nada te avisa antes. Un disco de paridad (al menos tan grande como el disco de datos más grande) reconstruye un disco averiado. Principal → detén el array → pon un disco en la ranura de paridad → inicia: Unraid construye la paridad (horas, el array sigue utilizable)."
   },
   "where.adv.parity.title": "Última comprobación de paridad: {when}",
   "where.adv.parity.why": "Una comprobación regular (mensual o trimestral) encuentra los sectores defectuosos antes de que un disco falle y necesites la paridad. Ajustes → Tareas Programadas → Comprobación de Paridad, a una hora en que nadie necesite el servidor.",
