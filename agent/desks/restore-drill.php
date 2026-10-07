@@ -435,7 +435,7 @@ function drillPlanBuild(string $scope): array
             $steps[] = ['do' => 'dump', 'kind' => 'app', 'id' => $a['id'], 'name' => $a['name'], 'container' => $d['container'], 'type' => $d['type'],
                         'file' => $d['file'], 'run' => $a['run'], 'dump_run' => $d['run'], 'db' => $d['db'], 'isize' => rsGzSize($file),
                         'bytes' => $d['bytes'], 'immich' => (bool) array_filter($a['containers'], fn ($c) => stripos($c['image'], 'immich') !== false)] + rsLogin($d);
-            if ($set['live_catalog']) {
+            if ($set['live_catalog'] && $d['type'] !== 'mongodb') {
                 $live[] = ['what' => 'catalog', 'name' => $d['container']];
             }
         }
@@ -675,8 +675,12 @@ function drillJournals(): array
             $st = (string) ($s['state'] ?? 'pending');
             $counts[$st] = ($counts[$st] ?? 0) + 1;
         }
+        $result = (string) ($j['result'] ?? '');
+        if (($result === 'running' && !rsJobAlive($j)) || ($result === 'queued' && time() - (int) ($j['created'] ?? 0) > 120)) {
+            $result = 'interrupted';            // its job is gone (the sweeper writes it down within the hour)
+        }
         $out[] = ['id' => $id, 'scope' => (string) ($j['scope'] ?? ''), 'created' => (int) ($j['created'] ?? 0), 'started' => $j['started'] ?? null,
-                  'finished' => $j['finished'] ?? null, 'result' => (string) ($j['result'] ?? ''), 'reason' => $j['reason'] ?? null, 'counts' => $counts,
+                  'finished' => $j['finished'] ?? null, 'result' => $result, 'reason' => $j['reason'] ?? null, 'counts' => $counts,
                   'egress' => (int) ($j['egress'] ?? 0)];
     }
     return $out;
@@ -773,6 +777,13 @@ function drillJob(array $args): int
     try {
         drillSweep($id, true);
         $env = drillEnv($j, $plan);
+    } catch (Throwable $e) {
+        // nothing proven, nothing to blame on the backups: the drill itself couldn't look — ended, said so
+        $GLOBALS['rsStop'] = true;
+        $GLOBALS['rsStopWhy'] = 'drill_error';
+        rsLog($id, 'The drill could not look at the server: ' . mb_substr($e->getMessage(), 0, 400));
+    }
+    try {
         foreach (array_keys($j['steps']) as $i) {
             if (!empty($GLOBALS['rsStop'])) {
                 $j['steps'][$i]['state'] = 'skipped';
@@ -1797,7 +1808,8 @@ function drillKopiaSample(array &$j, array $s, array $snap, array &$env): array
         // a few random files of at least 1 KB: walk down from the top, a random entry at each level
         $looks = 0;
         $left = max(0, $env['kopia_left']);
-        $per = $env['shares'] > 0 ? intdiv($left, max(1, $env['shares'])) : $left;
+        // what is left shared by the shares still to come, one file at most 64 MB (several small proofs beat one big one)
+        $per = min(64 << 20, $env['shares'] > 0 ? intdiv($left, max(1, $env['shares'])) : $left);
         for ($n = 0; $n < DRILL_KOPIA_SAMPLES * 3 && count($files) < DRILL_KOPIA_SAMPLES && $looks < DRILL_KOPIA_LOOKS; $n++) {
             $obj = $snap['obj'];
             $rel = $s['source'];

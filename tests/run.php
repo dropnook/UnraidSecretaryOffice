@@ -11515,6 +11515,20 @@ function testRestoreDrill(): void
     same('drill package: a file of the manifest missing', ['failed', 'package_file_missing'], array_values(array_intersect_key($pkg('vm', 'Lin'), ['state' => 1, 'code' => 1])));
     same('drill package: no manifest — failed', 'manifest_unreadable', $pkg('app', 'nothing')['code']);
 
+    // ---- SQLite (L1): integrity, user_version, the main table — through the sqlite3 command, read only
+    if (bin('sqlite3')) {
+        $db = "$tmp/lib ?#%.db";                 // characters an SQLite URI must have encoded
+        exec('sqlite3 ' . escapeshellarg($db) . ' ' . escapeshellarg('PRAGMA user_version = 7; CREATE TABLE MediaItems (id INTEGER); INSERT INTO MediaItems VALUES (1), (2), (3);'));
+        $look = drillSqliteLook('file:' . drillUriPath($db) . '?mode=ro&immutable=1', true);
+        same('drill SQLite: a copy read through its URI — intact, its version, the main table and its rows', [null, 'ok', 7, 'MediaItems', 3],
+            [$look['error'], $look['integrity'], $look['version'], $look['table'], $look['rows']]);
+        $look = drillSqliteLook('file:' . drillUriPath($db) . '?mode=ro', false);
+        same('drill SQLite: the live database, without integrity_check', [null, 7, 3], [$look['error'], $look['version'], $look['rows']]);
+        file_put_contents("$tmp/broken.db", 'SQLite format 3' . str_repeat("\x07", 3000));
+        check('drill SQLite: a damaged file — not «ok»', drillSqliteLook('file:' . drillUriPath("$tmp/broken.db") . '?mode=ro&immutable=1', true)['integrity'] !== 'ok');
+        check('drill SQLite: nothing written next to it (no -wal, -shm, -journal)', !file_exists("$db-wal") && !file_exists("$db-shm") && !file_exists("$db-journal"));
+    }
+
     // ---- a whole job in-process: packages only (no container, no Kopia) — lock, marker, journal, certificate, one warning on a failure
     file_put_contents("$tmp/data/unraid-backup/settings.ini", "[general]\ndumps_share = UnraidSecretaryOffice\n[kopia]\nenabled = no\n");
     file_put_contents("$base/vms/Lin/nvram/9b3e9c65-84b4-2410-470b-8f719c38ea29_VARS.fd", 'vars');
