@@ -26,10 +26,7 @@
   },
   "scan": "Giro",
   "scan_title": "Cerca di nuovo gli snapshot su tutti i pool, i dischi e le VM",
-  "scan_wake": {
-    "one": "Giro e sveglia {n} disco",
-    "other": "Giro e sveglia {n} dischi"
-  },
+  "scan_wake": "Giro e sveglia {names}",
   "scan_now": "Fai un giro ora",
   "new": "Nuovo snapshot",
   "new_from_here": "Nuovo snapshot di questo",
@@ -338,7 +335,7 @@
   "help.sources_text": "Chi l'ha creato: il motore di backup (il signor Backupsi), Docker, una VM, a mano, o un altro strumento.",
   "help.docker": "I layer delle immagini di Docker stesso (ZFS) — centinaia, gestiti da Docker. Nascosti se non li attivi, qui mai eliminabili.",
   "help.scan": "Giro · Sveglia & giro",
-  "help.scan_text": "Il giro rilegge tutti i pool, i dischi e le VM — i dischi dell'array in standby vengono lasciati in pace. «Sveglia & giro» li sveglia apposta.",
+  "help.scan_text": "Il giro rilegge i pool, i dischi e le VM svegli — i dischi dell'array e i pool ZFS in standby vengono lasciati in pace (un pool in standby mostra quello che ho visto l'ultima volta). «Sveglia & giro» li sveglia apposta.",
   "visit": "Dalla signora Snapshotini",
   "greet.1": "Buongiorno!",
   "greet.2": "Ciao, bello!",
@@ -431,11 +428,44 @@
   "plan.dow.6": "sabato",
   "plan.dow.0": "domenica",
   "wake": "Sveglia i dischi in standby",
-  "wake_n": {
-    "one": "Sveglia 1 disco in standby",
-    "other": "Sveglia {n} dischi in standby"
+  "wake_n": "Sveglia {names}",
+  "wake_title": "Solo per questo giro: sveglia i dischi btrfs e i pool ZFS in standby e legge anche i loro snapshot. Senza spunta li lascio dormire e mostro quello che sapevo di loro l'ultima volta. Unraid li rimette in standby dopo il suo tempo di attesa.",
+  "bubble.pools_asleep": {
+    "one": "Il pool {names} dorme — mostro quello che ne ho visto l'ultima volta e non gli chiedo nulla.",
+    "other": "I pool {names} dormono — mostro quello che ne ho visto l'ultima volta e non chiedo loro nulla."
   },
-  "wake_title": "Solo per questo giro: sveglia i dischi btrfs in standby e legge anche i loro snapshot. Senza spunta li lascio dormire e mostro quello che sapevo di loro l'ultima volta. Unraid li rimette in standby dopo il suo tempo di attesa.",
+  "scan_pools_kept": {
+    "one": "{n} pool in standby come visto l'ultima volta",
+    "other": "{n} pool in standby come visti l'ultima volta"
+  },
+  "as_of": "al {when}",
+  "pool_asleep_chip": "pool in standby",
+  "pool_asleep_chip_title": "Il pool {pool} dorme — così l'ho visto l'ultima volta ({when}). Eliminare, rinominare o proteggere lo sveglierebbe: chiedo prima.",
+  "pool_asleep_title": "{pool} dorme — mostro quello che ne ho visto l'ultima volta ({when}). Metti la spunta «Sveglia i dischi in standby» e avvia un giro per leggerlo adesso.",
+  "pool_asleep_never": "{pool} dorme e da quando il fattorino è partito non ci ho guardato — i suoi snapshot non li conosco. Metti la spunta «Sveglia i dischi in standby» e avvia un giro per leggerlo.",
+  "help.pool_asleep": "Il suo pool ZFS dorme (uno dei suoi dischi lo fa) — mostro quello che ne ho visto l'ultima volta e non gli chiedo nulla. Eliminare, rinominare o proteggere un tale snapshot ti chiede prima di svegliare il pool.",
+  "delete.asleep": {
+    "one": "{n} di questi sta su un pool in standby ({pools}).",
+    "other": "{n} di questi stanno su un pool in standby ({pools})."
+  },
+  "delete.asleep_text": "Eliminarli lo sveglierebbe. Senza spunta quelli restano, il resto va.",
+  "delete.wake": "Sveglia {pools} ed elimina anche quelli",
+  "delete.asleep_unknown": {
+    "one": "{n} su un pool in standby, senza stima",
+    "other": "{n} su un pool in standby, senza stima"
+  },
+  "rename.asleep": "{ds} sta sul pool {pool}, che dorme — rinominare lo sveglia.",
+  "rename.wake": "Sveglia {pool} per questo",
+  "wake_for.title": "Svegliare {pool}?",
+  "wake_for.text": "{name} sta sul pool {pool}, che dorme — questo lo sveglierebbe.",
+  "wake_for.note": "Solo se lo vuoi davvero — di mia iniziativa non sveglio nessun pool.",
+  "wake_for.confirm": "Sveglia e {what}",
+  "unmount.asleep": "Il pool {pool} dorme — smontare lo sveglia.",
+  "unmount.wake": "Sveglia & smonta",
+  "p.pool_asleep": "Pool",
+  "p.pool_asleep_value": "dorme — visto così l'ultima volta, {when}",
+  "p.pool_asleep_hint": "A un pool in standby non chiedo nulla. Metti la spunta «Sveglia i dischi in standby» e avvia un giro per leggerlo.",
+  "errors.pool_asleep": "{name}: il suo pool {pool} dorme — sveglialo prima (di mia iniziativa non lo faccio mai).",
   "plan.result.gone": "destinazioni sparite",
   "plan.gone": "destinazione sparita",
   "plan.gone_title": "Sparite dal {since}: {targets} (eliminate o rinominate?). Salto ciò che è sparito e prendo il resto — elimina la pianificazione o scegli un'altra destinazione in «Modifica…».",

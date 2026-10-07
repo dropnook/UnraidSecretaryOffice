@@ -5,4 +5,5 @@
 .sp-when{display:flex; flex-wrap:wrap; gap:0 16px}
 .sp-when > .field{flex:1 1 180px; min-width:0}
 .sp-plans-empty{margin:0}
+.card.asleep .card-name, .card.asleep .card-line{color:var(--muted)}   /* a ZFS pool asleep: shown as she last saw it */
 }
