@@ -8694,6 +8694,22 @@ function testWhereDesk(): void
     check('where desk: her look and her measuring stay quiet (no spinner)', (bool) preg_match('/const QUIET = .*where_refresh.*where_measure/', $core));
     check('where desk: both parts on her page', str_contains($js, "part(T('part.where')") && str_contains($js, "part(T('part.tidy')"));
 
+    // her look is kept fresh by the API (apiPart(): the server's clock, the short wait), not by the page's clock:
+    // desk.json names the part and its action (officeDeskParts()), the page only reads the part — no Date.now()
+    // against the look's time, no where_refresh of its own that the normal action path would park for minutes
+    require_once OFFICE_DIR . '/src/desks.php';
+    $meta = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.json'), true);
+    same('where desk: the API keeps her look fresh (desk.json parts)', ['where' => ['refresh_after' => 600, 'action' => 'where_refresh']], officeDeskParts($meta['parts'] ?? null));
+    same('where desk: only well-formed part rules count', ['ok' => ['refresh_after' => 5, 'action' => 'look']],
+        officeDeskParts(['ok' => ['refresh_after' => 5, 'action' => 'look'], 'Bad' => ['refresh_after' => 5, 'action' => 'look'], 'x' => ['refresh_after' => '5', 'action' => 'look'],
+                         'y' => ['refresh_after' => 0, 'action' => 'look'], 'z' => ['refresh_after' => 5, 'action' => 'a.b'], 'w' => 'look', 7 => ['refresh_after' => 5, 'action' => 'look']]));
+    same('where desk: … and none without any', [[], []], [officeDeskParts(null), officeDeskParts('where')]);
+    check('where desk: the page reads her look with fresh, never by its own clock',
+        str_contains($js, "part: 'where', fresh:") && !preg_match('/Date\.now\(\)[^\n]*state\.time/', $js) && !str_contains($js, '.where_refresh`'));
+    $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
+    check('where desk: the API asks for the action desk.json names, with the short wait, hired desks only',
+        (bool) preg_match('/askAgent\("\$desk\.\{\$rule\[\'action\'\]\}", \[\], 10\)/', $api) && str_contains($api, "officeIsHired(\$desk) && (\$fresh || \$age > \$rule['refresh_after'])"));
+
     // links to her page name the part they mean (her rooms are «Tidying up», far below «Where is what»)
     $links = [];
     foreach (array_merge(glob(OFFICE_DIR . '/agent/desks/*.php') ?: [], glob(OFFICE_DIR . '/agent/lib/*.php') ?: [], glob(OFFICE_DIR . '/src/*.php') ?: [],

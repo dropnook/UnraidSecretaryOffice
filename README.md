@@ -221,7 +221,9 @@ desk('cleaner', [
 
 Her state goes to `data/<id>.json` (`writeAtomic(deskFile('cleaner'), …)`); the
 office serves it at `api.php?a=state&desk=cleaner` and asks for `cleaner.refresh`
-when it is older than `refresh_after`. Errors are thrown as
+when it is older than `refresh_after`. An extra state file `data/<id>-<part>.json`
+(`?a=part&desk=<id>&part=<part>`) is kept fresh the same way when desk.json names it:
+`"parts": {"<part>": {"refresh_after": 600, "action": "<action>"}}`. Errors are thrown as
 `new Problem('key', [...])` and translated in the UI (`errors.<key>`).
 
 A desk can also tell the team lead what it needs (`'checks' => fn () => [...]`,
