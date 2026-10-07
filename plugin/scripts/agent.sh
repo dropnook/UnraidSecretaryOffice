@@ -1,12 +1,21 @@
 #!/bin/bash
 # Unraid Secretary Office - the agent as a service of the plugin.
 #
-#   agent.sh start     start it (if it isn't running yet)
-#   agent.sh stop      stop it, quickly: the array may be waiting (emhttp runs
-#                      event scripts and waits for them)
+#   agent.sh start     start it (if it isn't running yet) - while the array isn't
+#                      started (at boot, before an encrypted array gets its key) the
+#                      night watchman's night shift instead
+#   agent.sh stop      stop it (and the night shift), quickly: the array may be
+#                      waiting (emhttp runs event scripts and waits for them)
 #   agent.sh restart
 #   agent.sh status
 #   agent.sh watch     is the agent at work? (cron, every 5 minutes: job.sh watch)
+#   agent.sh array stopping|started   from the event scripts: a line for the night
+#                      watchman's book, then the agent goes and the night shift
+#                      comes (stopping) or the other way round (started)
+#   agent.sh nightshift  the night shift alone (php agent.php nightshift: RAM and
+#                      flash only - nothing under /mnt; it ends by itself without
+#                      the night watchman's mirror, when the array is started or
+#                      the agent runs)
 #
 # "start" leaves a small supervisor behind (its own session, so "stop" can end
 # everything the agent started - a du measuring a share would keep the pool
@@ -27,6 +36,9 @@ FLASH=/boot/config/plugins/$PLUGIN
 RUN=/var/run/$PLUGIN
 SUPERVISOR=$RUN/supervisor.pid
 STOPPING=$RUN/stopping
+NIGHT_SUPERVISOR=$RUN/nightshift-supervisor.pid
+NIGHT_STOPPING=$RUN/nightshift-stopping
+ARRAY_EVENTS=$RUN/array-events  # "<time> stop|start" - the night watchman's array lines (WATCH_ARRAY_EVENTS)
 LOG=/var/log/$PLUGIN.log          # only what the agent can't put into its own log (RAM)
 NOTIFY=/usr/local/emhttp/webGui/scripts/notify
 WATCH_CRON=$FLASH/agent-watch.cron
@@ -37,8 +49,12 @@ WATCH_AFTER=600                   # seconds without a sign of life before Unraid
 
 supervisor_pid() {
     local pid
-    pid="$(cat "$SUPERVISOR" 2>/dev/null)"
+    pid="$(cat "${1:-$SUPERVISOR}" 2>/dev/null)"
     [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && grep -qa 'agent.sh' "/proc/$pid/cmdline" 2>/dev/null && echo "$pid"
+}
+
+array_started() {
+    grep -q '^fsState="Started"' /var/local/emhttp/var.ini 2>/dev/null
 }
 
 supervise() {
@@ -60,8 +76,69 @@ supervise() {
     rm -f "$SUPERVISOR" "$STOPPING"
 }
 
+# The night shift's supervisor (its own session, like the agent's): starts php agent.php nightshift again
+# if it fails; an exit 0 means done (the array is started, the agent runs, or there is nothing to watch).
+night_supervise() {
+    cd / || exit 1
+    echo $$ > "$NIGHT_SUPERVISOR"
+    local child= code=0
+    trap 'touch "$NIGHT_STOPPING"; [[ -n "$child" ]] && kill -TERM "$child" 2>/dev/null' TERM INT HUP
+    while [[ ! -e "$NIGHT_STOPPING" ]]; do
+        php "$DIR/agent/agent.php" nightshift </dev/null >>"$LOG" 2>&1 &
+        child=$!
+        wait "$child"
+        code=$?
+        while kill -0 "$child" 2>/dev/null; do wait "$child"; code=$?; done    # wait returns early on a signal
+        child=
+        [[ -e "$NIGHT_STOPPING" || "$code" -eq 0 ]] && break
+        echo "$(date '+%F %T') night shift ended ($code) - starting it again in 30 s" >>"$LOG"
+        sleep 30 &
+        wait $!
+    done
+    rm -f "$NIGHT_SUPERVISOR" "$NIGHT_STOPPING"
+}
+
+night_start() {
+    if [[ -n "$(supervisor_pid "$NIGHT_SUPERVISOR")" ]]; then
+        echo "The night shift is on already."
+        return 0
+    fi
+    mkdir -p "$RUN" && chmod 700 "$RUN"
+    rm -f "$NIGHT_STOPPING"
+    setsid bash "$DIR/scripts/agent.sh" night-supervise </dev/null >/dev/null 2>&1 &
+    echo "Night shift started."
+}
+
+# quickly: at the array's start emhttp waits for event/started
+night_stop() {
+    local pid i
+    pid="$(supervisor_pid "$NIGHT_SUPERVISOR")"
+    [[ -z "$pid" ]] && return 0
+    touch "$NIGHT_STOPPING"
+    kill -TERM "$pid" 2>/dev/null
+    for ((i = 0; i < 20; i++)); do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.5
+    done
+    pkill -TERM -s "$pid" 2>/dev/null
+    sleep 0.2
+    pkill -KILL -s "$pid" 2>/dev/null
+    rm -f "$NIGHT_SUPERVISOR" "$NIGHT_STOPPING"
+    echo "Night shift ended."
+}
+
+# start: never the agent and the night shift at once - the array decides which
 start() {
     watch_cron
+    night_stop
+    if ! array_started; then
+        night_start
+        return 0
+    fi
+    agent_start
+}
+
+agent_start() {
     if [[ -n "$(supervisor_pid)" ]]; then
         echo "The agent is already running."
         return 0
@@ -75,6 +152,11 @@ start() {
 }
 
 stop() {
+    night_stop
+    agent_stop
+}
+
+agent_stop() {
     local pid i
     pid="$(supervisor_pid)"
     if [[ -z "$pid" ]]; then
@@ -175,12 +257,37 @@ watch() {
     echo "$(date '+%F %T') watch: the agent hasn't checked in for $minutes minutes - Unraid's notifications told" >>"$LOG"
 }
 
+# array stopping|started (the event scripts): a line for the night watchman's book (RAM, the newest 50), then the shift change
+array_event() {
+    local what
+    case "$1" in
+        stopping) what=stop ;;
+        started)  what=start ;;
+        *) echo "Usage: bash $0 array stopping|started"; return 2 ;;
+    esac
+    mkdir -p "$RUN" && chmod 700 "$RUN"
+    echo "$(date +%s) $what" >>"$ARRAY_EVENTS"
+    tail -n 50 "$ARRAY_EVENTS" >"$ARRAY_EVENTS.tmp" 2>/dev/null && mv -f "$ARRAY_EVENTS.tmp" "$ARRAY_EVENTS"
+    if [[ "$what" == stop ]]; then
+        stop                # the agent and whatever it started: nothing may keep a pool busy
+        night_start         # RAM and flash only
+    else
+        watch_cron
+        night_stop          # first: never two of them
+        agent_start
+    fi
+}
+
 case "$1" in
     start)     start ;;
     stop)      stop ;;
     restart)   stop; start ;;
-    status)    if [[ -n "$(supervisor_pid)" ]]; then echo "The agent is running."; else echo "The agent is not running."; exit 3; fi ;;
+    status)    [[ -n "$(supervisor_pid "$NIGHT_SUPERVISOR")" ]] && echo "The night shift is on (the array isn't started)."
+               if [[ -n "$(supervisor_pid)" ]]; then echo "The agent is running."; else echo "The agent is not running."; exit 3; fi ;;
     supervise) supervise ;;
+    night-supervise) night_supervise ;;
+    nightshift) night_start ;;
+    array)     array_event "$2" ;;
     watch)     watch ;;
-    *)         echo "Usage: bash $0 start|stop|restart|status|watch"; exit 2 ;;
+    *)         echo "Usage: bash $0 start|stop|restart|status|watch|array stopping|started|nightshift"; exit 2 ;;
 esac

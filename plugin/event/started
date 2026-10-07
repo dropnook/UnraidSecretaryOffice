@@ -1,4 +1,6 @@
 #!/bin/bash
-# The array runs (end of cmdStart): the office's agent starts working.
-bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/agent.sh start >/dev/null 2>&1
+# The array runs (end of cmdStart): the night shift ends (if it was on), the
+# office's agent starts working and takes the night's entries into the night
+# watchman's book. The array's start becomes a line in his book.
+bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/agent.sh array started >/dev/null 2>&1
 exit 0

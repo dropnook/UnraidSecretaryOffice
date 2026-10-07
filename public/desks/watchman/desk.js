@@ -197,6 +197,7 @@ function render() {
     [T('help.attack'), T('help.attack_text')],
     [T('help.siem'), T('help.siem_text')],
     [T('help.chain'), T('help.chain_text')],
+    [T('help.night'), T('help.night_text')],
     [T('help.grafana'), T('help.grafana_text')],
     [T('help.notify'), T('help.notify_text')],
     [T('help.safe'), T('help.safe_text')],
@@ -239,6 +240,11 @@ function roundSection() {
   const told = state.notified;
   if (told && told.time) notes.appendChild(el('p', 'role', T('round.notified', { when: fmt.relative(told.time), n: (told.items || []).length })));
   if (state.notify && state.notify.available === false) notes.appendChild(el('p', 'role', T('notify_missing')));
+  const night = state.night;
+  if (night && night.until) {
+    notes.appendChild(el('p', 'role', T('round.night', { from: fmt.date(night.since), until: fmt.date(night.until) })
+      + (night.from === 'flash' ? ' ' + T('round.night_flash') : '')));
+  }
   if (notes.children.length) s.appendChild(notes);
   return s;
 }
@@ -470,6 +476,7 @@ function entryRow(e) {
     if (tech) meta.appendChild(tech);
     const chain = (state.chains || []).find((c) => c.ids.includes(e.id));
     if (chain) meta.appendChild(chip(T('chain_chip'), 'warn', T('chain_title', { n: chain.ids.length })));
+    if (e.night) meta.appendChild(chip(T('state.night'), 'accent', T('state.night_title')));
   }
   const when = el('span', '', fmt.date(e.last));
   when.dataset.tip = fmt.relative(e.last);
@@ -621,7 +628,12 @@ function details(e) {
   add(T('detail.first'), fmt.date(e.time));
   if (e.last !== e.time) add(T('detail.last'), fmt.date(e.last));
   if (e.count > 1 && e.group !== 'snap') add(T('detail.count'), T('times', { n: e.count }));
-  if (e.group === 'login') {
+  if (e.group === 'array') {
+    // who had logged in around then (the syslog never says who clicked)
+    const who = (p.logins || []).map((l) => `${fmt.time(l.t)} · ${l.user ? l.user + '@' : ''}${l.ip} · ${loginService(l.service)}`);
+    add(T('detail.logins'), who.length ? lines(who) : T('detail.logins_none'));
+    if (who.length) dl.lastChild.title = T('detail.logins_how');
+  } else if (e.group === 'login') {
     add(T('detail.ip'), p.ip, true);
     const users = (p.users || []).join(', ');
     add(T('detail.users'), [users, p.unknown ? T('detail.unknown', { n: p.unknown }) : ''].filter(Boolean).join(' · '));
@@ -734,7 +746,7 @@ function details(e) {
   if (e.group === 'flow' && p.learning) notes.push(T('detail.learning'));
   if (p.office && e.kind.startsWith('cron_file')) notes.push(T('detail.office_cron'));
   if (e.open) notes.push(T('adopt.' + e.kind));
-  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'schedule'].includes(e.by) ? e.by : 'page'), { when: fmt.date(e.noted) }));
+  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'schedule', 'array'].includes(e.by) ? e.by : 'page'), { when: fmt.date(e.noted) }));
   if (e.told) notes.push(T('detail.told', { when: fmt.date(e.told) }));
   else if (e.muted && e.tell) notes.push(T('detail.muted'));
   else if (e.open) notes.push(T(e.tell ? 'detail.not_told' : 'detail.book_only'));
@@ -892,6 +904,8 @@ const learningText = (days, f) => (days === null || days === undefined || (days 
 const note = (text) => el('p', 'wm-note wm-flow-note', text);
 const total = (list, k) => (list || []).reduce((a, x) => a + (Number(x[k]) || 0), 0);
 const serviceName = (s) => ({ smb: 'SMB', nfs: 'NFS', ssh: 'SSH', web: 'WebGUI' }[s] || s);
+/** A login's service as the agent names it (watchmanServiceName()): WebGUI, SSH (publickey) */
+const loginService = (s) => (s === 'web' ? 'WebGUI' : String(s || '').startsWith('ssh:') ? `SSH (${String(s).slice(4)})` : 'SSH');
 
 /** "usually at most 1 GB per hour now", or what «I know, thanks» made normal */
 function usualRow(x) {

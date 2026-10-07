@@ -20,6 +20,8 @@ declare(strict_types=1);
  * the pool busy and Unraid could not stop the array any more.
  *
  *   php agent.php run       run in the foreground (what agent.sh does)
+ *   php agent.php nightshift   the night watchman's night shift while the array is stopped (agent.sh nightshift):
+ *                           RAM and flash only, never the data folder (watchmanNightRound() in desks/watchman.php)
  *   php agent.php status    is an agent running?
  *   php agent.php job snapshot-plans   run the snapshot schedules that are due (the plugin's cron file, via scripts/job.sh)
  *   php agent.php job <name> [args]    a job a desk registers ('jobs' in desk()), e.g. embycache, gather
@@ -49,7 +51,9 @@ define('DATA_DIR', rtrim(getenv('OFFICE_DATA_DIR') ?: officePluginDataDir(), '/'
 define('MAILBOX', DATA_DIR . '/mailbox');
 define('OFFICE_PRIVATE', DATA_DIR . '/office');
 define('AGENT_INFO', DATA_DIR . '/agent.json');
-define('AGENT_LOG', DATA_DIR . '/agent.log');
+// the night shift keeps nothing under /mnt: its log lies in RAM next to its book
+define('NIGHT_MODE', PHP_SAPI === 'cli' && !defined('AGENT_LIBRARY_ONLY') && ($argv[1] ?? '') === 'nightshift');
+define('AGENT_LOG', NIGHT_MODE ? RUN_DIR . '/nightshift/nightshift.log' : DATA_DIR . '/agent.log');
 
 require __DIR__ . '/lib/util.php';
 require __DIR__ . '/lib/mounts.php';
@@ -83,12 +87,14 @@ function main(array $argv): int
             }
             fwrite(STDERR, "Usage: php agent.php job snapshot-plans|<a desk's job>\n");
             return 2;
+        case 'nightshift':
+            return nightShift();
         case 'status':
             $pid = runningAgent();
             echo $pid ? "Agent is running (PID $pid).\n" : "Agent is not running.\n";
             return $pid ? 0 : 3;
     }
-    fwrite(STDERR, "Usage: php agent.php run|status|job <name>\n");
+    fwrite(STDERR, "Usage: php agent.php run|nightshift|status|job <name>\n");
     return 2;
 }
 
@@ -99,6 +105,95 @@ function runningAgent(): ?int
         return null;
     }
     return str_contains((string) @file_get_contents("/proc/$pid/cmdline"), 'agent.php') ? $pid : null;
+}
+
+// ===================================================================== the night shift
+
+/**
+ * The night watchman's night shift (scripts/agent.sh nightshift): while the array isn't started — after an
+ * array stop, and from boot until the first start — a round of his RAM and flash parts every WATCH_EVERY
+ * (watchmanNightRound()). cwd /, nothing open under /mnt, its book and log in WATCH_NIGHT_DIR (RAM, 0700).
+ * Ends when the array is started or the agent runs (never two of them: WATCH_NIGHT_LOCK), at SIGTERM
+ * (agent.sh stops it before the agent starts), and at once without a mirror (he isn't hired, or had no
+ * round yet): exit 0 — the supervisor in agent.sh doesn't start it again then.
+ */
+function nightShift(): int
+{
+    chdir('/');
+    umask(0077);
+    @mkdir(WATCH_NIGHT_DIR, 0700, true);
+    @chmod(WATCH_NIGHT_DIR, 0700);
+    $lock = @fopen(WATCH_NIGHT_LOCK, 'c+');
+    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
+        fwrite(STDERR, "The night shift is on already.\n");
+        return 0;
+    }
+    ftruncate($lock, 0);
+    fwrite($lock, (string) getmypid());
+    fflush($lock);
+    $stop = false;
+    pcntl_async_signals(true);
+    foreach ([SIGTERM, SIGINT, SIGHUP] as $signal) {
+        pcntl_signal($signal, function () use (&$stop) { $stop = true; });
+    }
+    @proc_nice(10);
+    $why = null;
+    $next = 0;
+    $rounds = 0;
+    while (!$stop) {
+        clearstatcache();
+        $agent = runningAgent();
+        if ($agent !== null && $agent !== getmypid()) {
+            $why = 'the agent is at work';
+            break;
+        }
+        if ((readCfg('/var/local/emhttp/var.ini')['fsState'] ?? '') === 'Started') {
+            $why = 'the array is started — the agent takes over';
+            break;
+        }
+        if (time() >= $next) {
+            $next = time() + WATCH_EVERY;
+            try {
+                $r = watchmanNightRound(watchmanNightPaths());
+                if ($r === null) {
+                    $why = 'no mirror of his baseline (the night watchman isn\'t hired, or had no round yet) — no night shift';
+                    break;
+                }
+                $rounds++;
+                if ($r['begun'] ?? null) {
+                    nightLog("Night shift begins (the night watchman's baseline from the mirror in " . ($r['begun']['from'] === 'ram' ? 'RAM' : 'the flash') . ')');
+                }
+                if ($r['added']) {
+                    $kinds = array_count_values($r['added']);
+                    nightLog(count($r['added']) . ' new in the night\'s book (' . implode(', ', array_map(fn ($k, $n) => "$k×$n", array_keys($kinds), $kinds)) . ')');
+                }
+                foreach ($r['told'] as $t) {
+                    nightLog("Unraid's notifications " . ($t['sent'] ? 'told' : 'could not be told') . " about {$t['n']} × {$t['kind']}");
+                }
+            } catch (Throwable $e) {
+                nightLog('Round failed: ' . $e->getMessage() . ' (' . basename($e->getFile()) . ':' . $e->getLine() . ')');
+            }
+        }
+        sleep(1);
+    }
+    nightLog('Night shift ends' . ($why !== null ? " ($why)" : '') . " after $rounds round" . ($rounds === 1 ? '' : 's'));
+    flock($lock, LOCK_UN);
+    fclose($lock);
+    return 0;
+}
+
+/** A line in the night shift's own log (RAM: WATCH_NIGHT_DIR/nightshift.log, the newest 256 KB) */
+function nightLog(string $text): void
+{
+    $log = WATCH_NIGHT_DIR . '/nightshift.log';
+    clearstatcache(true, $log);
+    if (is_link($log)) {
+        @unlink($log);
+    }
+    if (@filesize($log) > 256 * 1024) {
+        @rename($log, "$log.1");
+    }
+    @file_put_contents($log, date('Y-m-d H:i:s') . '  ' . str_replace(["\r", "\n"], ['', ' | '], trim($text)) . "\n", FILE_APPEND);
 }
 
 // ===================================================================== service
