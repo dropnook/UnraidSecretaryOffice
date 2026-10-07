@@ -5349,7 +5349,7 @@ function testNotify(): void
     same('notify: subject in Unraid\'s language', 'Unraid Secretary Office: Etwas Neues zu erledigen', $c[0]['-s'] ?? null);
     same('notify: event as the engine\'s', 'Unraid Secretary Office', $c[0]['-e'] ?? null);
     same('notify: a warning', 'warning', $c[0]['-i'] ?? null);
-    check('notify: what is missing in the bell', str_contains($c[0]['-d'] ?? '', 'Herr Backupsi — Ein nächtliches Backup ist geplant'), $c[0]['-d'] ?? '');
+    check('notify: what is missing in the bell', str_contains($c[0]['-d'] ?? '', 'Herr Backupsi — Eine nächtliche Sicherung ist geplant'), $c[0]['-d'] ?? '');
     check('notify: long text with what to do, lines as Unraid\'s \n', str_contains($c[0]['-m'] ?? '', 'Herr Backupsi → Zeitplan')
         && str_contains($c[0]['-m'] ?? '', '\n') && !str_contains($c[0]['-m'] ?? '', "\n"), $c[0]['-m'] ?? '');
     $page = caretakerNotifyPublic(readJson($file) ?? []);
@@ -7922,7 +7922,7 @@ function testNightUi(): void
     check('night ui: the tile — the messenger says the array, his line with since, rounds and what is new',
         str_contains($en, 'Array stopped') && str_contains($en, 'desks/watchman/avatar.svg') && str_contains($en, 'The Night Watchman')
         && ($at === null || str_contains($en, "Night shift since $at")) && str_contains($en, '7 rounds, 1 new entry') && str_contains($en, 'orange-text'), $raw);
-    check('night ui: the tile in German and French', str_contains((string) ($o['de'] ?? ''), '7 Runden, 1 neuer Eintrag') && str_contains((string) ($o['de'] ?? ''), 'Der Nachtwächter')
+    check('night ui: the tile in German and French', str_contains((string) ($o['de'] ?? ''), '7 Rundgänge, 1 neuer Eintrag') && str_contains((string) ($o['de'] ?? ''), 'Der Nachtwächter')
         && str_contains((string) ($o['fr'] ?? ''), '7 rondes, 1 nouvelle entrée'), $raw);
     check('night ui: the tile links to the office\'s reception', (bool) preg_match('~<a class="sso-dash-row" href="[^"]*#/"><img class="sso-dash-icon" src="[^"]*desks/watchman/avatar\.svg~', $en), $en);
     [$o, , $raw] = $web(['web'], 'quiet');

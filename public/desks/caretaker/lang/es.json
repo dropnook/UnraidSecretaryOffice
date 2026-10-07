@@ -156,7 +156,7 @@
     "other": "{n} cosas nuevas — espero a ver si se quedan"
   },
   "notify_missing": "El script de notificaciones de Unraid no está — no puedo avisar de nada.",
-  "help.notify": "Lo que se pone rojo en «Pendiente» también va a las notificaciones de Unraid (campana, correo, push) — una vez, tras media hora, para que un pequeño tropiezo como el arranque del array o el reinicio de Docker no haga ruido. El interruptor lo desactiva. Las ejecuciones fallidas las avisan el señor Backupsi y los demás por sí mismos.",
+  "help.notify": "Lo que se pone rojo en «Pendiente» también va a las notificaciones de Unraid (campana, correo, push) — una vez, tras media hora, para que un pequeño tropiezo como el arranque del array o el reinicio de Docker no haga ruido. El interruptor lo desactiva. Las copias de seguridad fallidas y similares las avisan el señor Backupsi y los demás por sí mismos.",
   "notify.subject": {
     "one": "Algo nuevo que hacer",
     "other": "{n} cosas nuevas que hacer"
