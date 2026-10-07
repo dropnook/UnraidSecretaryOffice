@@ -414,21 +414,32 @@ function officeJobSetSchedule(string $job, ?string $cron, string $file = OFFICE_
 
 // ===================================================================== staff
 
+// desks that went into another one: old id => the desk that does their work now — the same as
+// OFFICE_DESKS_MERGED in src/staff.php, which rewrites staff.json once (tests compare the two)
+const STAFF_MERGED = ['whereabouts' => 'cleanup'];        // 2026-10: Ms. Whereabouts' work is Ms. Dustdevil's
+
 /**
  * The desks that work in the office: data/office/staff.json (written by the
- * web part, see src/staff.php) plus those that are always there.
+ * web part, see src/staff.php) plus those that are always there. A desk that
+ * went into another one counts as that one until the web part rewrote the list.
  *
  * @return list<string>
  */
 function staffHired(): array
 {
-    $hired = array_keys((array) ((readJson(DATA_DIR . '/office/staff.json') ?? [])['hired'] ?? []));
+    $hired = staffMergedIds(array_keys((array) ((readJson(DATA_DIR . '/office/staff.json') ?? [])['hired'] ?? [])), desks());
     foreach (array_keys(desks()) as $id) {
         if (!empty(readJson(OFFICE_WEB . "/desks/$id/desk.json")['always'])) {
             $hired[] = $id;
         }
     }
     return array_values(array_unique(array_filter($hired, fn ($id) => is_string($id) && isset(desks()[$id]))));
+}
+
+/** Hired ids with each desk that went into another one (and is gone) as that one — STAFF_MERGED */
+function staffMergedIds(array $ids, array $desks): array
+{
+    return array_map(fn ($id) => is_string($id) && !isset($desks[$id]) && isset(STAFF_MERGED[$id]) ? STAFF_MERGED[$id] : $id, $ids);
 }
 
 /**

@@ -2,9 +2,15 @@
 declare(strict_types=1);
 
 /*
- * Ms. Dustdevil — clears away what nobody uses any more.
+ * Ms. Dustdevil — knows every corner of the server and clears away what nobody uses any more.
  *
- * What she looks at, best tidied in this order:
+ * Her page has two parts. «Where is what» (agent/lib/where.php, up to 1.30 Ms. Whereabouts' desk):
+ * shares, folders, containers, compose, VMs, disks, users and access, SMB/NFS, user scripts and cron,
+ * backups, notices, plugins, «where things are» with their backup protection and her advice «If I
+ * were you …» — read only, its own files (cleanup-where.json, cleanup-where-sizes.json), actions
+ * where_refresh / where_scan / where_measure / where_sizes, its du jobs in her tick.
+ *
+ * «Tidying up» — what she looks at, best tidied in this order:
  *   templates  my-*.xml in dockerMan's templates-user without a container;
  *              and stray my-*.xml elsewhere on the flash or the pools, which
  *              Unraid never reads (copies, older versions, or ones to take over)
@@ -173,19 +179,32 @@ const CL_ICON_SIDE    = '/(^|[-_.])(machine[-_.]?learning|ml|worker)([-_.]|$)/i'
 const CL_WEAK = '#^(history/|plugins-removed/|[^/]+\.plg$|plugins/[^/]+\.plg$|plugins/dockerMan/(buildx|templates|template-repos|images)/'
               . '|plugins/dynamix\.my\.servers/configs/docker\.organizer\.json$|plugins/compose\.manager/containers\.cache\.json$)#';
 
+require_once __DIR__ . '/../lib/where.php';
+
+const CL_WHERE_DEBOUNCE = 60;      // «where_refresh»: a look younger than this is fresh enough (several tabs ask at once)
+
 $GLOBALS['clState'] = null;
 $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => []];
 $GLOBALS['clJobs'] = ['queue' => [], 'running' => []];
 $GLOBALS['clPurgeTries'] = [];
 
 desk('cleanup', [
+    // she knows where everything is on every server; without Docker and VMs there's just nothing to sweep up
     'fit'     => fn (): array => (readCfg('/boot/config/docker.cfg')['DOCKER_ENABLED'] ?? 'no') === 'yes'
                                  || (readCfg('/boot/config/domain.cfg')['SERVICE'] ?? 'disable') === 'enable'
-                                 ? fit(true, 'yes') : fit(false, 'nothing'),
-    'start'   => fn () => clScan(),
+                                 ? fit(true, 'yes') : fit(true, 'where'),
+    'start'   => function (): void {
+        try {
+            whereStart();
+        } catch (Throwable $e) {
+            logLine('cleanup: «where is what» failed at the start: ' . $e->getMessage());
+        }
+        clScan();
+    },
     'tick'    => function (): void {
         clJobsTick();
         clBackupFlagTick();
+        whereJobsTick();          // du of «where is what», asked for on her page
     },
     'checks'  => fn (): array => clChecks(),
     'metrics' => fn (): array => clMetrics(),
@@ -201,6 +220,11 @@ desk('cleanup', [
         'remove'  => fn (array $r) => clRemove(idList($r, 'ids')),
         'icons'   => fn (array $r) => clIconsApply(clIconItems($r)),
         'icon_fallback' => fn (array $r) => clIconFallback(),
+        // «Where is what»: her look at the whole server (agent/lib/where.php)
+        'where_refresh' => fn (array $r) => ['ok' => true, 'state' => whereFresh(CL_WHERE_DEBOUNCE)],
+        'where_scan'    => fn (array $r) => ['ok' => true, 'state' => whereTour(!empty($r['wake']))],
+        'where_measure' => fn (array $r) => whereMeasure(idList($r, 'paths')),
+        'where_sizes'   => fn (array $r) => ['ok' => true, 'sizes' => whereSizes()],
     ],
 ]);
 
@@ -1005,7 +1029,7 @@ function clUserScripts(): array
         if ($description === '' && preg_match('/^#\s*description=(.*)$/m', $text, $m)) {
             $description = trim($m[1]);
         }
-        // paths it names, comments left out (the same rule Ms. Whereabouts follows)
+        // paths it names, comments left out (the same rule her «where is what» follows, waUserScripts())
         preg_match_all('#(?<![\w$}])(/(?:mnt|boot)/[^\s"\'`;|&<>(){}$]+)#', preg_replace('/^\s*#.*$/m', '', $text), $pm);
         $paths = [];
         foreach (array_slice(array_unique(array_map(fn ($p) => rtrim($p, '/.,;:'), $pm[1])), 0, 40) as $p) {
@@ -4242,9 +4266,9 @@ function clChecks(): array
         $oldest = min(array_column($old, 'time'));
         $bytes = array_sum(array_map(fn ($r) => (int) $r['bytes'], $old));
         $out[] = finding('trash_old', 'recommended', false,
-            ['n' => count($old), 'days' => intdiv(time() - $oldest, 86400), 'size' => clHuman($bytes)], '#/cleanup');
+            ['n' => count($old), 'days' => intdiv(time() - $oldest, 86400), 'size' => clHuman($bytes)], '#/cleanup/tidy');      // her storeroom is in «Tidying up»
     } else {
-        $out[] = finding('trash_old', 'recommended', true, ['n' => 0, 'days' => 0, 'size' => ''], '#/cleanup');
+        $out[] = finding('trash_old', 'recommended', true, ['n' => 0, 'days' => 0, 'size' => ''], '#/cleanup/tidy');
     }
     return $out;
 }

@@ -2,16 +2,24 @@
 declare(strict_types=1);
 
 /*
- * Ms. Whereabouts — knows where everything is and what is going on.
+ * Where is what — Ms. Dustdevil's knowledge of the server (agent/desks/cleanup.php
+ * loads it; she has to know where everything lies, or she couldn't tidy up).
+ * Up to 1.30 this was a desk of its own, Ms. Whereabouts; the `wa…` names stay.
  *
- * One tour (scan) reads Unraid's configuration and the running system:
+ * One look (whereScan) reads Unraid's configuration and the running system:
  * shares and where they live, the first folder level of pool shares, Docker
  * containers (templates and compose), compose projects, VMs, users and their
  * share access, SMB/NFS, user scripts and cron jobs, places that look like
- * backups, plugins. It only reads; nothing is changed.
+ * backups, plugins, disks, the licence, Unraid's notifications, and what the
+ * advice «If I were you …» needs. It only reads; nothing is changed.
  *
- * She never wakes sleeping disks on her own. Folder sizes (du) are measured
+ * It never wakes sleeping disks on its own. Folder sizes (du) are measured
  * in the background and only when asked; ZFS datasets are known instantly.
+ *
+ * Files: DATA_DIR/cleanup-where.json (the state, served as the part «where»)
+ * and cleanup-where-sizes.json (what du measured, the part «where-sizes»);
+ * whereTakeOver() takes over Ms. Whereabouts' whereabouts.json and
+ * whereabouts-sizes.json once.
  */
 
 const WA_SHARES_DIR   = '/boot/config/shares';
@@ -30,39 +38,109 @@ const WA_FOLDER_LIMIT = 500;     // first-level entries per share
 const WA_SCRIPT_BYTES = 8192;    // how much of each user script to show
 const WA_DU_PARALLEL  = 2;
 
-$GLOBALS['whereabouts'] = null;
+const WHERE_FILE       = 'cleanup-where.json';         // in DATA_DIR: the part «where» of Ms. Dustdevil's page
+const WHERE_SIZES_FILE = 'cleanup-where-sizes.json';   // the part «where-sizes»
+const WHERE_OLD_FILES  = ['whereabouts.json' => WHERE_FILE, 'whereabouts-sizes.json' => WHERE_SIZES_FILE];   // Ms. Whereabouts' (up to 1.30)
+const WHERE_OLD_MAX    = 16 << 20;                     // an old file larger than this isn't hers
+
+$GLOBALS['where'] = null;
 $GLOBALS['waJobs'] = ['queue' => [], 'running' => []];
 
-desk('whereabouts', [
-    'fit'     => fn (): array => fit(true, 'yes'),
-    'start' => function (): void {
-        $GLOBALS['whereabouts'] = readJson(deskFile('whereabouts'));
-        whereaboutsScan();
-    },
-    'tick' => fn () => whereaboutsJobsTick(),
-    'actions' => [
-        'refresh' => fn (array $r) => ['ok' => true, 'state' => whereaboutsScan()],
-        'scan'    => function (array $r): array {
-            $wake = !empty($r['wake']) ? waWakeDisks() : null;
-            $woken = $wake['woken'] ?? null;
-            $state = whereaboutsScan($wake !== null);
-            logLine(sprintf('Whereabouts tour: %d shares, %d containers, %d scripts, %d ms%s',
-                count($state['shares']), count($state['containers']), count($state['scripts']), $state['duration_ms'],
-                $wake !== null ? sprintf(' (woke %d disks first%s)', count($woken),
-                    $wake['failed'] ? ', did not answer: ' . implode(', ', $wake['failed']) : '') : ''));
-            $state['woken'] = $woken;
-            $state['wake_failed'] = $wake['failed'] ?? [];
-            return ['ok' => true, 'state' => $state];
-        },
-        'measure' => fn (array $r) => whereaboutsMeasure(idList($r, 'paths')),
-        'sizes'   => fn (array $r) => ['ok' => true, 'sizes' => whereaboutsSizes()],
-    ],
-]);
+function whereStateFile(): string
+{
+    return DATA_DIR . '/' . WHERE_FILE;
+}
+
+/** At the agent's start: Ms. Whereabouts' files taken over once, her last state read, then a fresh look */
+function whereStart(): void
+{
+    try {
+        $done = whereTakeOver(DATA_DIR);
+    } catch (Throwable $e) {
+        $done = ['not yet — ' . $e->getMessage() . ' (again at the next start)'];      // the old files stay
+    }
+    if ($done) {
+        logLine('Dustdevil took over Ms. Whereabouts\' files: ' . implode(', ', $done));
+    }
+    $GLOBALS['where'] = readJson(whereStateFile());
+    whereScan();
+}
+
+/**
+ * Up to 1.30 Ms. Whereabouts kept her state in whereabouts.json and what du measured in
+ * whereabouts-sizes.json; they are Ms. Dustdevil's now (WHERE_OLD_FILES). Once: an old file is read
+ * only as a plain file of the data folder (never through a link, never a huge one), written to its
+ * new name with writeAtomic() and removed. The state goes over only while the new one isn't there
+ * (it is read anew at the start anyway); the measured sizes are never lost — merged, what was measured
+ * later wins. An old file that isn't JSON stays where it is (said in the log by the caller's list).
+ *
+ * @return list<string> what was done, for the log ("whereabouts.json → cleanup-where.json")
+ */
+function whereTakeOver(string $dir): array
+{
+    $done = [];
+    foreach (WHERE_OLD_FILES as $old => $new) {
+        $from = "$dir/$old";
+        $to = "$dir/$new";
+        clearstatcache(true, $from);
+        $st = @lstat($from);
+        if ($st === false) {
+            continue;
+        }
+        if (($st['mode'] & 0170000) !== 0100000 || $st['size'] > WHERE_OLD_MAX) {
+            $done[] = "$old left alone (no plain file)";
+            continue;
+        }
+        $data = json_decode((string) @file_get_contents($from), true);
+        if (!is_array($data)) {
+            $done[] = "$old left alone (no JSON)";
+            continue;
+        }
+        $now = readJson($to);
+        if ($new === WHERE_SIZES_FILE) {
+            $sizes = [];
+            foreach ([(array) ($data['sizes'] ?? []), (array) ($now['sizes'] ?? [])] as $list) {
+                foreach ($list as $path => $size) {
+                    if (is_string($path) && is_array($size) && (int) ($size['at'] ?? 0) >= (int) ($sizes[$path]['at'] ?? -1)) {
+                        $sizes[$path] = $size;
+                    }
+                }
+            }
+            writeAtomic($to, jsonEncode(['sizes' => $sizes, 'queue' => [], 'running' => []]));
+        } elseif ($now === null) {
+            writeAtomic($to, jsonEncode($data));
+        }
+        @unlink($from);
+        $done[] = "$old → $new";
+    }
+    return $done;
+}
+
+/** Her look again when the last one is older than $age seconds (or there is none) — the page's «where_refresh» */
+function whereFresh(int $age): array
+{
+    $state = $GLOBALS['where'] ?? null;
+    return is_array($state) && time() - (int) ($state['time'] ?? 0) < $age ? $state : whereScan();
+}
+
+/** The tour of «Where is what», on request — with «wake» every sleeping disk first */
+function whereTour(bool $wake): array
+{
+    $woken = $wake ? waWakeDisks() : null;
+    $state = whereScan($woken !== null);
+    logLine(sprintf('Dustdevil looked where everything is: %d shares, %d containers, %d scripts, %d ms%s',
+        count($state['shares']), count($state['containers']), count($state['scripts']), $state['duration_ms'],
+        $woken !== null ? sprintf(' (woke %d disks first%s)', count($woken['woken']),
+            $woken['failed'] ? ', did not answer: ' . implode(', ', $woken['failed']) : '') : ''));
+    $state['woken'] = $woken['woken'] ?? null;
+    $state['wake_failed'] = $woken['failed'] ?? [];
+    return $state;
+}
 
 // ===================================================================== tour
 
 /** @param bool $awake the disks were just woken up: read everything, Unraid's spin state lags behind */
-function whereaboutsScan(bool $awake = false): array
+function whereScan(bool $awake = false): array
 {
     $t0 = microtime(true);
     $roots = waStorageRoots();
@@ -146,8 +224,8 @@ function whereaboutsScan(bool $awake = false): array
         'advice'      => waAdvice($shares, $roots, $asleep),
     ];
     $state['duration_ms'] = (int) round((microtime(true) - $t0) * 1000);
-    $GLOBALS['whereabouts'] = $state;
-    writeAtomic(deskFile('whereabouts'), jsonEncode($state));
+    $GLOBALS['where'] = $state;
+    writeAtomic(whereStateFile(), jsonEncode($state));
     return $state;
 }
 
@@ -1259,7 +1337,7 @@ function waBackups(array $containers, array $scripts, array $backupScript): arra
 // --------------------------------------------------------------------- advice ("If I were you …")
 
 /**
- * What Ms. Whereabouts needs for her advice beyond what the tour knows
+ * What Ms. Dustdevil needs for her advice beyond what the tour knows
  * anyway: a few of Unraid's settings, read from its own files only (no disk
  * wakes up). The page turns these and the rest of the state into tips —
  * operational ones; security advice (shares open to everyone, Telnet, FTP,
@@ -1748,14 +1826,14 @@ function waSystem(array $containers, array $vms, array $scripts, array $backupSc
 
 // ===================================================================== sizes (du in the background)
 
-function whereaboutsSizesFile(): string
+function whereSizesFile(): string
 {
-    return DATA_DIR . '/whereabouts-sizes.json';
+    return DATA_DIR . '/' . WHERE_SIZES_FILE;
 }
 
-function whereaboutsSizes(): array
+function whereSizes(): array
 {
-    $saved = readJson(whereaboutsSizesFile()) ?? [];
+    $saved = readJson(whereSizesFile()) ?? [];
     return [
         'sizes'   => $saved['sizes'] ?? [],
         'queue'   => array_values($GLOBALS['waJobs']['queue']),
@@ -1764,10 +1842,10 @@ function whereaboutsSizes(): array
 }
 
 /** Paths that may be measured: shares and folders from the last tour */
-function whereaboutsMeasurable(): array
+function whereMeasurable(): array
 {
     $allowed = [];
-    $state = $GLOBALS['whereabouts'] ?? [];
+    $state = $GLOBALS['where'] ?? [];
     foreach ($state['shares'] ?? [] as $s) {
         $allowed[$s['measure']] = true;
     }
@@ -1779,9 +1857,9 @@ function whereaboutsMeasurable(): array
     return $allowed;
 }
 
-function whereaboutsMeasure(array $paths): array
+function whereMeasure(array $paths): array
 {
-    $allowed = whereaboutsMeasurable();
+    $allowed = whereMeasurable();
     foreach ($paths as $path) {
         if (!isset($allowed[$path])) {
             throw new Problem('unknown_target', ['target' => $path]);
@@ -1792,11 +1870,11 @@ function whereaboutsMeasure(array $paths): array
             $GLOBALS['waJobs']['queue'][] = $path;
         }
     }
-    whereaboutsSaveSizes(null);
-    return ['ok' => true, 'sizes' => whereaboutsSizes()];
+    whereSaveSizes(null);
+    return ['ok' => true, 'sizes' => whereSizes()];
 }
 
-function whereaboutsJobsTick(): void
+function whereJobsTick(): void
 {
     $jobs = &$GLOBALS['waJobs'];
     $changed = null;
@@ -1831,18 +1909,18 @@ function whereaboutsJobsTick(): void
         $changed ??= [];
     }
     if ($changed !== null) {
-        whereaboutsSaveSizes($changed);
+        whereSaveSizes($changed);
     }
 }
 
-function whereaboutsSaveSizes(?array $changed): void
+function whereSaveSizes(?array $changed): void
 {
-    $saved = readJson(whereaboutsSizesFile()) ?? [];
+    $saved = readJson(whereSizesFile()) ?? [];
     $sizes = $saved['sizes'] ?? [];
     foreach ($changed ?? [] as $path => $size) {
         $sizes[$path] = $size;
     }
-    writeAtomic(whereaboutsSizesFile(), jsonEncode([
+    writeAtomic(whereSizesFile(), jsonEncode([
         'sizes'   => $sizes,
         'queue'   => array_values($GLOBALS['waJobs']['queue']),
         'running' => array_keys($GLOBALS['waJobs']['running']),

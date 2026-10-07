@@ -26,8 +26,9 @@ declare(strict_types=1);
  *            starts on its own (crontabs, .cron files, User Scripts, at, notification agents), his
  *            data flow (ss, smbstatus, zfs written, containers' counters; learning, the unusual), his posture
  *            tips (how secure it stands) and the link to Grafana,
- *            job.sh's guard against a second start in the same minute, Ms. Whereabouts on exclusive shares
- *            and on cron lines whose program is gone)
+ *            job.sh's guard against a second start in the same minute, Ms. Dustdevil's «Where is what» on
+ *            exclusive shares and on cron lines whose program is gone, and her taking over Ms. Whereabouts
+ *            (the state files, the staff list, the old addresses, the page's parts))
  *   hardening  the checks that keep requests, manifests, paths and links in
  *            bounds (safe writes, the mailbox — and a request a restarting agent dropped —, Ms. Snapshotini's record of what she removed, Ms. Dustdevil's
  *            manifests, Emby paths, anchored validators, the release link, the
@@ -3886,7 +3887,7 @@ function testLogsTour(): void
     same("logs: desk.js LEVEL_NAMES are the agent's", $want, $names);
 }
 
-/** Ms. Whereabouts: which services of a compose file build their own image (her rebuild tip) */
+/** Ms. Dustdevil's «Where is what»: which services of a compose file build their own image (her rebuild tip) */
 /**
  * Ms. Dustdevil's room for Mr. Restori's leftovers: what his journals say he put aside (only in exactly his
  * shapes, with the restore's own time), what his «Put back» still needs, his journals only from his own
@@ -4055,7 +4056,7 @@ function testComposeBuilds(): void
 }
 
 /**
- * Ms. Whereabouts on exclusive shares: which shares would become exclusive once
+ * Ms. Dustdevil's «Where is what» on exclusive shares: which shares would become exclusive once
  * «Permit exclusive shares» is on, which can't (a folder on another pool or
  * disk), which Unraid refuses for no reason she can see, and which only their
  * secondary storage keeps from it — from the tour's shares only (fixtures).
@@ -4125,11 +4126,11 @@ function testExclusive(): void
     same('exclusive: a numeric share name stays a string', ['2024'], waExclusive([$numeric], $roots, [], [])['ready']);
 
     // the page builds four tips from it: each needs its title and why (the other languages are compared to English)
-    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/whereabouts/lang/en.json'), true);
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/lang/en.json'), true);
     foreach (['exclusive_off', 'exclusive_elsewhere', 'exclusive_unclear', 'exclusive_overflow'] as $id) {
-        check("whereabouts: texts for tip $id", isset($en["adv.$id.title"], $en["adv.$id.why"]));
-        check("whereabouts: tip $id is built in desk.js",
-            str_contains((string) file_get_contents(OFFICE_DIR . '/public/desks/whereabouts/desk.js'), "add('$id',"));
+        check("where: texts for tip $id", isset($en["where.adv.$id.title"], $en["where.adv.$id.why"]));
+        check("where: tip $id is built in desk.js",
+            str_contains((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.js'), "add('$id',"));
     }
 }
 
@@ -4664,7 +4665,7 @@ function testWatchmanSched(): void
     touch("$src/agents/Discord.sh", $t);           // same size: the time tells it changed
     file_put_contents("$src/agents/Pushover.sh", "#!/bin/bash\nTOKEN='pushover-secret-token'\n");
     $r = watchmanRound($paths, $data, 1000, $now + 600, $docker, true, $acks);
-    same('sched: one entry for each thing that differs (a program gone with its plugin is Ms. Whereabouts\' now)', ['at_job' => 1, 'cron_file' => 2, 'cron_file_foreign' => 1, 'cron_new' => 1,
+    same('sched: one entry for each thing that differs (a program gone with its plugin is Ms. Dustdevil\'s now)', ['at_job' => 1, 'cron_file' => 2, 'cron_file_foreign' => 1, 'cron_new' => 1,
         'cron_office' => 1, 'cron_twice' => 1, 'notify_agent' => 2, 'script_changed' => 2, 'script_new' => 1], $open());
     $by = [];
     foreach (array_filter(watchmanLoad($data)['book'], 'watchmanOpen') as $e) {
@@ -8142,11 +8143,12 @@ function testWatchmanSnaps(): void
 }
 
 /**
- * Ms. Whereabouts after the night watchman took security: her cron lines whose program went with its
- * plugin (order, not security — the watchman no longer tells them), her tips that stayed, the ones that
- * went to him, and the one that points to him while he isn't hired.
+ * «Where is what» (Ms. Whereabouts' up to 1.30, Ms. Dustdevil's now) after the night watchman took
+ * security: her cron lines whose program went with its plugin (order, not security — the watchman no
+ * longer tells them), her tips that stayed, the ones that went to him, and the one that points to him
+ * while he isn't hired.
  */
-function testWhereaboutsAfterWatchman(): void
+function testWhereAfterWatchman(): void
 {
     same('wa cron: the program behind an interpreter, none for inline code or a name', ['/usr/local/x/run.php', '/a/b.sh', null, null, '/x'],
         [waCronProgram('/usr/bin/php -q /usr/local/x/run.php arg'), waCronProgram('nice -n 10 bash "/a/b.sh" x'),
@@ -8157,25 +8159,25 @@ function testWhereaboutsAfterWatchman(): void
          waCronGone('/mnt/user/x/y.sh', $gone), waCronGone('/usr/local/sbin/mdcmd', $gone), waCronGone("/usr/local/emhttp/plugins/x/a'b.sh", $gone)]);
     same('wa cron: still there — nothing to say', null, waCronGone('/usr/local/emhttp/plugins/vmbackup/runscript.php', fn (string $p) => true));
 
-    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/whereabouts/desk.js');
-    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/whereabouts/lang/en.json'), true) ?: [];
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.js');
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/lang/en.json'), true) ?: [];
     foreach (array_keys(WATCH_POSTURE) as $id) {
-        check("whereabouts: security tip $id is the watchman's now", !str_contains($js, "add('$id',") && !isset($en["adv.$id.title"]));
+        check("where: security tip $id is the watchman's now", !str_contains($js, "add('$id',") && !isset($en["where.adv.$id.title"]));
     }
-    foreach (['system_array', 'mover', 'compose_build', 'spindown_default', 'spindown_some', 'old_disks', 'parity', 'ups', 'syslog', 'cron_dead', 'security'] as $id) {
-        check("whereabouts: tip $id is hers", str_contains($js, "add('$id',") && isset($en["adv.$id.title"], $en["adv.$id.why"]));
+    foreach (['system_array', 'mover', 'compose_build', 'spindown_default', 'spindown_some', 'old_disks', 'no_parity', 'parity', 'ups', 'syslog', 'cron_dead', 'vm_windows', 'security'] as $id) {
+        check("where: tip $id is hers", str_contains($js, "add('$id',") && isset($en["where.adv.$id.title"], $en["where.adv.$id.why"]));
     }
     $advice = waAdvice([], [], []);
-    same('whereabouts: her advice reads no security settings any more', [false, false, false], [isset($advice['telnet']), isset($advice['ftp']), isset($advice['cpu'])]);
+    same('where: her advice reads no security settings any more', [false, false, false], [isset($advice['telnet']), isset($advice['ftp']), isset($advice['cpu'])]);
 }
 
 /**
- * Ms. Whereabouts' tip about Windows VMs at the array stop (Benj, 2026-10-07: the array stop waited
+ * Ms. Dustdevil's tip about Windows VMs at the array stop (Ms. Whereabouts' up to 1.30; Benj, 2026-10-07: the array stop waited
  * domain.cfg's TIMEOUT="180" for an idle Windows 11 that ignored the power button, then Unraid switched
  * it off hard): the VM shutdown and disk shutdown time-outs as Unraid reads them, and whether the guest
  * agent answers — from libvirt's status file of a running VM (RAM), the shape nostromo's has.
  */
-function testWhereaboutsVmStop(): void
+function testWhereVmStop(): void
 {
     same('wa vm stop: the time-outs as set', ['timeout' => 180, 'disk_timeout' => 400], waVmStop(['TIMEOUT' => '180'], ['shutdownTimeout' => '400']));
     same('wa vm stop: empty or odd — Unraid\'s defaults (60 s, 90 s)', [['timeout' => 60, 'disk_timeout' => 90], ['timeout' => 60, 'disk_timeout' => 90]],
@@ -8198,10 +8200,157 @@ function testWhereaboutsVmStop(): void
         [waVmAgent('Win11', $tmp), waVmAgent('Linked', $tmp), waVmAgent('../' . basename($tmp) . '/Win11', $tmp), waVmAgent('.hidden', $tmp), waVmAgent('Gone', $tmp)]);
     hardeningRm($tmp);
 
-    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/whereabouts/desk.js');
-    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/whereabouts/lang/en.json'), true) ?: [];
-    check('whereabouts: the Windows VM tip is hers, with the current time-outs', str_contains($js, "add('vm_windows',") && isset($en['adv.vm_windows.title'], $en['adv.vm_windows.why'])
-        && str_contains($en['adv.vm_windows.why']['other'] ?? '', '{timeout}') && str_contains($en['adv.vm_windows.why']['other'] ?? '', '{disk}'));
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.js');
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/lang/en.json'), true) ?: [];
+    check('where: the Windows VM tip is hers, with the current time-outs', str_contains($js, "add('vm_windows',") && isset($en['where.adv.vm_windows.title'], $en['where.adv.vm_windows.why'])
+        && str_contains($en['where.adv.vm_windows.why']['other'] ?? '', '{timeout}') && str_contains($en['where.adv.vm_windows.why']['other'] ?? '', '{disk}'));
+}
+
+/**
+ * Ms. Dustdevil takes over Ms. Whereabouts' files once (2026-10): her state (only while the new one isn't there),
+ * what du measured (merged — what was measured later wins, never lost), only plain JSON files of the folder; then
+ * the old ones are gone and a second start does nothing.
+ */
+function testWhereTakeOver(): void
+{
+    $tmp = hardeningTmp('where-takeover');
+    $state = ['time' => 100, 'shares' => [['name' => 'appdata']], 'containers' => [], 'scripts' => []];
+    file_put_contents("$tmp/whereabouts.json", json_encode($state));
+    file_put_contents("$tmp/whereabouts-sizes.json", json_encode(['sizes' => [
+        '/mnt/user/a' => ['bytes' => 1, 'at' => 100], '/mnt/user/b' => ['bytes' => 2, 'at' => 200]], 'queue' => ['/mnt/user/q'], 'running' => ['/mnt/user/r']]));
+    file_put_contents("$tmp/cleanup-where-sizes.json", json_encode(['sizes' => [
+        '/mnt/user/b' => ['bytes' => 22, 'at' => 300], '/mnt/user/c' => ['bytes' => 3, 'at' => 50]], 'queue' => [], 'running' => []]));
+    $done = whereTakeOver($tmp);
+    same('where takeover: both files', ['whereabouts.json → cleanup-where.json', 'whereabouts-sizes.json → cleanup-where-sizes.json'], $done);
+    same('where takeover: the old files are gone', [false, false], [file_exists("$tmp/whereabouts.json"), file_exists("$tmp/whereabouts-sizes.json")]);
+    same('where takeover: her state as it was', $state, json_decode((string) file_get_contents("$tmp/cleanup-where.json"), true));
+    $sizes = json_decode((string) file_get_contents("$tmp/cleanup-where-sizes.json"), true);
+    same('where takeover: every size kept, the later measurement wins, no old jobs', [1, 22, 3, [], []],
+        [$sizes['sizes']['/mnt/user/a']['bytes'] ?? null, $sizes['sizes']['/mnt/user/b']['bytes'] ?? null, $sizes['sizes']['/mnt/user/c']['bytes'] ?? null,
+         $sizes['queue'] ?? null, $sizes['running'] ?? null]);
+    same('where takeover: once', [], whereTakeOver($tmp));
+    same('where takeover: no temporary files left', [], array_values(array_filter(scandir($tmp) ?: [], fn ($n) => str_ends_with($n, '.tmp'))));
+
+    // a newer state of hers stays; an old one that is a link or no JSON is left alone
+    file_put_contents("$tmp/whereabouts.json", json_encode(['time' => 1]));
+    whereTakeOver($tmp);
+    same('where takeover: her own newer state stays', 100, json_decode((string) file_get_contents("$tmp/cleanup-where.json"), true)['time'] ?? null);
+    file_put_contents("$tmp/elsewhere.json", json_encode(['sizes' => ['/x' => ['bytes' => 9, 'at' => 999]]]));
+    symlink("$tmp/elsewhere.json", "$tmp/whereabouts-sizes.json");
+    same('where takeover: a link is no file of hers', ['whereabouts-sizes.json left alone (no plain file)'], whereTakeOver($tmp));
+    unlink("$tmp/whereabouts-sizes.json");
+    file_put_contents("$tmp/whereabouts-sizes.json", 'not json');
+    same('where takeover: no JSON — left alone', ['whereabouts-sizes.json left alone (no JSON)'], whereTakeOver($tmp));
+    same('where takeover: nothing from the link went in', false, isset(json_decode((string) file_get_contents("$tmp/cleanup-where-sizes.json"), true)['sizes']['/x']));
+    hardeningRm($tmp);
+}
+
+/**
+ * Ms. Whereabouts is no desk any more: Ms. Dustdevil has her actions, her tick work and her fit (every server — she
+ * knows where everything is; without Docker and VMs there's just nothing to sweep up), the page asks for exactly
+ * those actions and parts, and no text of the office names Ms. Whereabouts any more.
+ */
+function testWhereDesk(): void
+{
+    check('where desk: no desk whereabouts (agent, web)', !isset(desks()['whereabouts']) && !is_dir(OFFICE_DIR . '/public/desks/whereabouts')
+        && !is_file(OFFICE_DIR . '/agent/desks/whereabouts.php'));
+    $actions = array_keys(desks()['cleanup']['actions'] ?? []);
+    same('where desk: Ms. Dustdevil has her actions', [], array_values(array_diff(['where_refresh', 'where_scan', 'where_measure', 'where_sizes'], $actions)));
+    $fit = (desks()['cleanup']['fit'])();
+    check('where desk: Ms. Dustdevil fits every server', $fit['ok'] === true && in_array($fit['why'], ['yes', 'where'], true));
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.js');
+    preg_match_all('/\$\{ID\}\.(where_[a-z_]+)`/', $js, $m);
+    same('where desk: the page asks only for her actions', [], array_values(array_diff(array_unique($m[1]), $actions)));
+    preg_match_all("/part: '([a-z-]+)'/", $js, $m);
+    $parts = array_map(fn ($p) => "cleanup-$p.json", array_values(array_unique($m[1])));      // the API's data/<desk>-<part>.json
+    sort($parts);
+    same('where desk: the parts the page reads are her files', [WHERE_SIZES_FILE, WHERE_FILE], $parts);
+    $core = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
+    check('where desk: her look and her measuring stay quiet (no spinner)', (bool) preg_match('/const QUIET = .*where_refresh.*where_measure/', $core));
+    check('where desk: both parts on her page', str_contains($js, "part(T('part.where')") && str_contains($js, "part(T('part.tidy')"));
+
+    // nobody names her any more: the office's and every desk's texts, the Dashboard tile
+    $names = '/Whereabouts|Wasistwo|Dovè|Saitout|Dondestá/u';
+    $files = array_merge(glob(OFFICE_DIR . '/public/lang/*.json') ?: [], glob(OFFICE_DIR . '/public/desks/*/lang/*.json') ?: [], [OFFICE_DIR . '/src/dashboard.php']);
+    $named = array_values(array_filter($files, fn ($f) => preg_match($names, (string) file_get_contents($f)) === 1));
+    same('where desk: no text names Ms. Whereabouts any more', [], array_map(fn ($f) => substr($f, strlen(OFFICE_DIR) + 1), $named));
+}
+
+/**
+ * The staff list: a server that had Ms. Whereabouts hired has Ms. Dustdevil hired (since the earlier of the two),
+ * Ms. Whereabouts gone from the list — rewritten once by the web side (src/staff.php, under its lock, new file +
+ * rename); until then the agent counts her as Ms. Dustdevil.
+ */
+function testStaffMerged(): void
+{
+    require_once OFFICE_DIR . '/src/staff.php';
+    same('staff merged: the agent\'s list and the web side\'s are the same', OFFICE_DESKS_MERGED, STAFF_MERGED);
+    $desks = ['backup' => [], 'cleanup' => [], 'caretaker' => []];
+    same('staff merged: whereabouts becomes cleanup, since the earlier', ['backup' => 5, 'cleanup' => 7],
+        officeStaffMerged(['hired' => ['backup' => 5, 'whereabouts' => 7, 'cleanup' => 9]], $desks)['hired'] ?? null);
+    same('staff merged: cleanup hired earlier keeps its time', ['cleanup' => 3], officeStaffMerged(['hired' => ['whereabouts' => 7, 'cleanup' => 3]], $desks)['hired'] ?? null);
+    same('staff merged: only whereabouts hired', ['backup' => 5, 'cleanup' => 7], officeStaffMerged(['hired' => ['backup' => 5, 'whereabouts' => 7]], $desks)['hired'] ?? null);
+    same('staff merged: nothing to do', [null, null], [officeStaffMerged(['hired' => ['cleanup' => 1]], $desks), officeStaffMerged([], $desks)]);
+    same('staff merged: not while whereabouts is still a desk, nor without cleanup', [null, null],
+        [officeStaffMerged(['hired' => ['whereabouts' => 7]], $desks + ['whereabouts' => []]), officeStaffMerged(['hired' => ['whereabouts' => 7]], ['backup' => []])]);
+    same('staff merged: the agent counts her as Ms. Dustdevil until then', ['backup', 'cleanup', 'cleanup'],
+        staffMergedIds(['backup', 'whereabouts', 'cleanup'], $desks));
+    same('staff merged: the agent leaves a desk that is there alone', ['whereabouts'], staffMergedIds(['whereabouts'], ['whereabouts' => []]));
+
+    // the web side rewrites staff.json once (a process of its own: bootstrap.php, the data folder in $tmp)
+    $tmp = hardeningTmp('staff-merged');
+    mkdir("$tmp/office", 0700);
+    $file = "$tmp/office/staff.json";
+    file_put_contents($file, json_encode(['hired' => ['backup' => 5, 'whereabouts' => 7, 'watchman' => 8], 'other' => 'kept']));
+    $web = "$tmp/web.php";
+    file_put_contents($web, '<?php require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . ';'
+        . ' $desks = ["backup" => [], "cleanup" => [], "watchman" => []]; $f = ' . var_export($file, true) . ';'
+        . ' echo json_encode([officeStaffMigrate($f, $desks), officeStaffMigrate($f, $desks)]);');
+    $run = function () use ($web, $tmp): array {
+        $p = proc_open([PHP_BINARY, $web], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => $tmp, 'PATH' => getenv('PATH')]);
+        $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return [json_decode($raw, true), $raw];
+    };
+    [$out, $raw] = $run();
+    $saved = json_decode((string) file_get_contents($file), true);
+    same('staff migrate: written once — whereabouts is cleanup now, the rest as it was', ['hired' => ['backup' => 5, 'watchman' => 8, 'cleanup' => 7], 'other' => 'kept'], $saved);
+    same('staff migrate: the second time changes nothing', $saved, $out[1] ?? $raw);
+    same('staff migrate: mode and no temporary files', ['644', []], [substr(sprintf('%o', fileperms($file)), -3),
+        array_values(array_filter(scandir("$tmp/office") ?: [], fn ($n) => str_ends_with($n, '.tmp')))]);
+    hardeningRm($tmp);
+}
+
+/**
+ * Old addresses of a desk that went into another one lead to the part of the page that took it over
+ * (core.js movedDesk(), under node): #/whereabouts… → #/cleanup/where; nothing else is touched.
+ */
+function testMovedDesk(): void
+{
+    require_once OFFICE_DIR . '/src/staff.php';
+    $core = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
+    check('moved desk: core.js knows Ms. Whereabouts\' old address', (bool) preg_match("/const MOVED_DESKS = \\{ whereabouts: 'cleanup\\/where' \\};/", $core));
+    foreach (OFFICE_DESKS_MERGED as $old => $new) {
+        check("moved desk: $old leads to $new's page", str_contains($core, "$old: '$new/"));
+    }
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('moved desk: node is missing here - skipped', true);
+        return;
+    }
+    if (!preg_match('/^const MOVED_DESKS = .*?\n^function movedDesk\(.*?\n\}\n/sm', $core, $m)) {
+        check('moved desk: movedDesk() found in core.js', false);
+        return;
+    }
+    $tmp = hardeningTmp('moved-desk');
+    file_put_contents("$tmp/t.js", $m[0] . "\nconst known = (id) => ['cleanup', 'backup'].includes(id);\n"
+        . "console.log(JSON.stringify(['#/whereabouts', '#/whereabouts/x/y', '#whereabouts', '#/cleanup', '#/backup/setup', '#/', '', '#/constructor', '#/toString']"
+        . ".map((h) => movedDesk(h, known)).concat([movedDesk('#/whereabouts', () => true)])));\n");
+    $out = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' 2>&1'), true);
+    same('moved desk: old addresses lead to «Where is what», the rest stays, not while the old desk is there',
+        ['#/cleanup/where', '#/cleanup/where', '#/cleanup/where', null, null, null, null, null, null, null], $out);
+    hardeningRm($tmp);
 }
 
 /**
@@ -8426,7 +8575,7 @@ function testSupporterKeys(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
-                      'testWhereaboutsAfterWatchman', 'testWhereaboutsVmStop', 'testSupporter', 'testLeftovers'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testStaffMerged', 'testMovedDesk', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';

@@ -44,7 +44,7 @@ declare(strict_types=1);
  *               plugins' .cron files on the flash; User Scripts and their
  *               schedules; atd's queue; Unraid's notification agents. (Lines whose
  *               program went with its plugin are order, not security: Ms.
- *               Whereabouts tells those.)
+ *               Dustdevil tells those, in her «Where is what».)
  *   data flow   who pulls how much (see "data flow" below): per client and file
  *               service (SMB, NFS, SSH, the WebGUI) the bytes the server sent,
  *               from the kernel's counters of the open connections (ss);
@@ -77,8 +77,8 @@ declare(strict_types=1);
  * on, privileged containers. Advice, not findings: never in the book, never a
  * notification; «I know, thanks» on one is kept in posture.json (for every
  * browser) until the tip goes or what it is about changes. The team lead gets
- * one hint with how many there are. Where Ms. Whereabouts gave security tips
- * before, she now points here.
+ * one hint with how many there are. Where Ms. Whereabouts (up to 1.30; now Ms.
+ * Dustdevil's «Where is what») gave security tips before, she now points here.
  *
  * Not Fix Common Problems' static checks: never "SSH is on", "a weak
  * password", "a plugin not known to Community Applications" or "the FTP
@@ -322,7 +322,7 @@ function watchmanHiredSince(): ?int
 // ===================================================================== his files
 
 /**
- * His files. Entries of a kind he no longer keeps (cron_dead up to 1.28: Ms. Whereabouts tells those now) and
+ * His files. Entries of a kind he no longer keeps (cron_dead up to 1.28: Ms. Dustdevil tells those now) and
  * the false alarms about dcron's reload signal (up to 1.29, watchmanCronSignalEntry()) are left out quietly —
  * gone from every view, and from the file at the book's next write.
  *
@@ -3061,7 +3061,7 @@ function watchmanPosturePage(?array $posture, ?array $file): ?array
  *             old copy starts a second backup at its old time). With the evidence: the file's time
  *             and what the syslog said around it (who wrote it). New lines of other users' crontabs
  *             and /etc/cron.d's other files count too. Lines whose program went with its plugin are
- *             Ms. Whereabouts' (order, not security). He never changes a crontab — the fix stands in
+ *             Ms. Dustdevil's (order, not security). He never changes a crontab — the fix stands in
  *             the entry as information.
  *   .cron     the plugins' cron files on the flash (what survives a reboot): a new file or new
  *             lines; one in the folder of no installed plugin counts more (update_cron leaves it
@@ -3608,7 +3608,7 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
                     $added[] = watchmanSet($book, $kind, $kind, $now, watchmanJobs($list) + $ev);
                 }
             }
-            // (up to 1.28 also 'dead': lines whose program went with its plugin — Ms. Whereabouts' now; dropped here)
+            // (up to 1.28 also 'dead': lines whose program went with its plugin — Ms. Dustdevil's now; dropped here)
             $known['crontab'] = ['lines' => array_intersect_key((array) $k['lines'], $c['lines']), 'twice' => array_intersect_key((array) $k['twice'], $c['twice']),
                                  'office' => array_intersect_key((array) $k['office'], $c['office'])];
         }

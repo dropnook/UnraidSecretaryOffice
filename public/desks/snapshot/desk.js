@@ -221,7 +221,7 @@ function build(root) {
   scanBtn.append(el('span', 'spin'), T('scan'));
   scanBtn.title = T('scan_title');
   scanBtn.onclick = () => scan(!!(view && view.wake.checked));
-  // wake the sleeping disks for this scan — off unless switched on, never remembered (like Ms. Whereabouts' tour)
+  // wake the sleeping disks for this scan — off unless switched on, never remembered (like Ms. Dustdevil's tour)
   const wakeLabel = el('label', 'switch');
   const wake = el('input');
   wake.type = 'checkbox';

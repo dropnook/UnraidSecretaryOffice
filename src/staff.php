@@ -12,7 +12,14 @@ declare(strict_types=1);
  * nightly backup, say) keeps running until you switch it off there.
  *
  * data/office/staff.json: {"hired": {"<desk>": <since>, …}}
+ *
+ * A desk that went into another one (OFFICE_DESKS_MERGED) is replaced by that one in the list —
+ * hired since the earlier of the two —, once, the first time the list is read afterwards.
  */
+
+// desks that went into another one: old id => the desk that does their work now
+// (the agent's STAFF_MERGED in agent/lib/house.php is the same, until the list is rewritten here)
+const OFFICE_DESKS_MERGED = ['whereabouts' => 'cleanup'];     // 2026-10: Ms. Whereabouts' work is Ms. Dustdevil's
 
 function officeStaffFile(): string
 {
@@ -23,7 +30,11 @@ function officeStaffFile(): string
 function officeHired(): array
 {
     $hired = [];
-    foreach ((array) ((officeReadJson(officeStaffFile()) ?? [])['hired'] ?? []) as $id => $since) {
+    $staff = officeReadJson(officeStaffFile()) ?? [];
+    if (officeStaffMerged($staff, officeDesks()) !== null) {
+        $staff = officeStaffMigrate(officeStaffFile(), officeDesks()) ?? officeStaffMerged($staff, officeDesks());
+    }
+    foreach ((array) ($staff['hired'] ?? []) as $id => $since) {
         if (is_string($id) && isset(officeDesks()[$id]) && !officeDesks()[$id]['training']) {
             $hired[$id] = (int) $since;
         }
@@ -61,17 +72,8 @@ function officeStaffAction(string $action, array $data): array
             throw new OfficeProblem('in_training', 400, ['desk' => $id]);
         }
     }
-    $file = officeStaffFile();
-    $dir = dirname($file);
-    if (!is_dir($dir) || !is_writable($dir)) {
-        throw new OfficeProblem('office_storage', 503);
-    }
-    $h = fopen("$dir/.staff.lock", 'c');
-    if (!$h || !flock($h, LOCK_EX)) {
-        throw new OfficeProblem('office_storage', 503);
-    }
-    try {
-        $staff = officeReadJson($file) ?? [];
+    officeStaffChange(officeStaffFile(), function (array $staff) use ($ids, $action, $desks): array {
+        $staff = officeStaffMerged($staff, $desks) ?? $staff;
         $hired = (array) ($staff['hired'] ?? []);
         foreach ($ids as $id) {
             if ($action === 'office.hire') {
@@ -80,15 +82,77 @@ function officeStaffAction(string $action, array $data): array
                 unset($hired[$id]);
             }
         }
-        $staff['hired'] = (object) $hired;
-        $tmp = "$dir/.staff." . bin2hex(random_bytes(4)) . '.tmp';
-        if (@file_put_contents($tmp, json_encode($staff, JSON_UNESCAPED_SLASHES)) === false || !@rename($tmp, $file)) {
-            @unlink($tmp);
+        $staff['hired'] = $hired;
+        return $staff;
+    });
+    return ['ok' => true, 'hired' => array_keys(officeHired())];
+}
+
+/**
+ * Reads, changes and writes staff.json under its lock (new file + rename, officeWriteAtomic()).
+ * Throws office_storage when its folder (data/office, made by the agent) isn't there or writable.
+ *
+ * @param callable(array): array $change  the list as read => the list to write
+ */
+function officeStaffChange(string $file, callable $change): array
+{
+    $dir = dirname($file);
+    clearstatcache(true, $dir);
+    if (is_link($dir) || !is_dir($dir) || !is_writable($dir)) {
+        throw new OfficeProblem('office_storage', 503);
+    }
+    $h = @fopen("$dir/.staff.lock", 'c');
+    if (!$h || !flock($h, LOCK_EX)) {
+        throw new OfficeProblem('office_storage', 503);
+    }
+    try {
+        $staff = $change(officeReadJson($file) ?? []);
+        $staff['hired'] = (object) (array) ($staff['hired'] ?? []);
+        if (!officeWriteAtomic($file, (string) json_encode($staff, JSON_UNESCAPED_SLASHES), 0644)) {
             throw new OfficeProblem('office_storage', 503);
         }
     } finally {
         flock($h, LOCK_UN);
         fclose($h);
     }
-    return ['ok' => true, 'hired' => array_keys(officeHired())];
+    return $staff;
+}
+
+/**
+ * The staff list with every desk that went into another one (OFFICE_DESKS_MERGED) replaced by that
+ * one — hired since the earlier of the two —, or null when there is nothing to replace. Only while the
+ * old desk is gone and the one that took over exists.
+ *
+ * @param array $desks officeDesks()
+ */
+function officeStaffMerged(array $staff, array $desks): ?array
+{
+    $hired = (array) ($staff['hired'] ?? []);
+    $changed = false;
+    foreach (OFFICE_DESKS_MERGED as $old => $new) {
+        if (!array_key_exists($old, $hired) || isset($desks[$old]) || !isset($desks[$new])) {
+            continue;
+        }
+        $since = (int) $hired[$old];
+        $hired[$new] = array_key_exists($new, $hired) ? min((int) $hired[$new], $since) : $since;
+        unset($hired[$old]);
+        $changed = true;
+    }
+    if (!$changed) {
+        return null;
+    }
+    $staff['hired'] = $hired;
+    return $staff;
+}
+
+/** Rewrites staff.json with the merged desks, once; the list written, or null when it couldn't (read as merged anyway) */
+function officeStaffMigrate(string $file, array $desks): ?array
+{
+    try {
+        $staff = officeStaffChange($file, fn (array $staff): array => officeStaffMerged($staff, $desks) ?? $staff);
+    } catch (OfficeProblem) {
+        return null;
+    }
+    $staff['hired'] = (array) $staff['hired'];
+    return $staff;
 }
