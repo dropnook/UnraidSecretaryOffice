@@ -899,7 +899,7 @@
   "where.stat.nobody": "nobody connected",
   "where.stat.scripts": "User scripts",
   "where.stat.none_running": "none running",
-  "where.stat.backup": "Backup script",
+  "where.stat.backup": "Backup engine",
   "where.stat.backup_running": "running",
   "where.stat.backup_idle": "idle",
   "where.stat.since": "since {time}",
