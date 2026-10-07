@@ -92,6 +92,8 @@
   "help.start_text": "El plugin inicia el mensajero por sí mismo: al instalarse, al arrancar y cada vez que se inicia el array. Si el punto sigue rojo con el array en marcha, mira su registro (⋯ → Registro del mensajero) o reinstala el plugin en ⟦Plugins⟧.",
   "help.languages_title": "Idiomas",
   "help.languages_text": "La secretaría habla el idioma de tu navegador si existe una traducción, si no, inglés; ⋯ → Idioma elige otro para este navegador. Los menús y botones propios de Unraid que nombra aparecen como los muestra Unraid, en el idioma en que funciona Unraid; las notificaciones hablan el idioma en que se usó la secretaría por última vez. Añadir un idioma es añadir archivos JSON:",
+  "help.theme_title": "Oscuro o claro",
+  "help.theme_text": "En la recepción, Auto · Oscuro · Claro decide cómo se ve la secretaría en este navegador: Auto sigue el tema de Unraid; Oscuro y Claro dan a la zona de la secretaría el aspecto del tema negro o blanco de Unraid — la cabecera, el menú y su mosaico en el Dashboard conservan el tema de Unraid. Se guarda en este navegador, como el idioma.",
   "help.security_title": "Seguridad",
   "help.security_text": "La secretaría forma parte de la interfaz web de Unraid: solo entra quien ha iniciado sesión en Unraid, y cada cambio lleva el token de seguridad de Unraid. Quien ha iniciado sesión en Unraid puede hacer de todos modos cualquier cosa en el servidor — así que cierra la sesión en los dispositivos que usan otros. La secretaría añade vistas previas y confirmaciones contra los errores, no un segundo candado. El mensajero puede hacer en el host todo lo que puede hacer root, pero solo acepta las acciones que definen los escritorios y comprueba cada petición.",
   "help.order_title": "El orden del equipo",
@@ -201,6 +203,13 @@
   "office.language_text": "Solo se aplica a este navegador.",
   "office.language_browser": "Como este navegador ({name})",
   "office.language_use": "Usar",
+  "office.theme_title": "Aspecto de la secretaría",
+  "office.theme_auto": "Auto",
+  "office.theme_auto_title": "Automático: sigue el tema de Unraid (ahora {theme}).",
+  "office.theme_dark": "Oscuro",
+  "office.theme_dark_title": "La secretaría en oscuro, sea cual sea el tema de Unraid — solo en este navegador.",
+  "office.theme_light": "Claro",
+  "office.theme_light_title": "La secretaría en claro, sea cual sea el tema de Unraid — solo en este navegador.",
   "errors.logged_out": "Tu sesión de Unraid ha terminado — vuelve a iniciar sesión, por favor.",
   "errors.stale_page": "Unraid rechazó la petición: la página está desactualizada (¿se reinició el servidor?). Recárgala e inténtalo de nuevo."
 }

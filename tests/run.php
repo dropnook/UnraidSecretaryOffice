@@ -9515,6 +9515,137 @@ function testOfficeLanguage(): void
     hardeningRm($tmp);
 }
 
+/**
+ * The theme switch at the reception (Automatic · Dark · Light; an experiment, 2026-10-07): one constant,
+ * OFFICE_THEME_SWITCH — on, the page loads theme-switch.css and .js, sets data-theme on #sso before the first paint
+ * and tells core.js (CONFIG.theme_switch); off, nothing of it is in the page. The forced looks are Unraid's own black
+ * and white themes: every theme variable the office's stylesheets use is set for Dark and for Light, the same names in
+ * both, with the values of Unraid's theme files where they are at hand (the host's webGui/styles/themes). The strings
+ * the switch asks for exist in every language.
+ */
+function testThemeSwitch(): void
+{
+    $tmp = hardeningTmp('theme');
+    @mkdir("$tmp/data/office", 0700, true);
+    @mkdir("$tmp/plugin/src", 0700, true);
+    foreach (glob(OFFICE_DIR . '/src/*.php') ?: [] as $f) {
+        copy($f, "$tmp/plugin/src/" . basename($f));
+    }
+    foreach (['assets', 'desks', 'lang'] as $d) {
+        @symlink(OFFICE_WEB . "/$d", "$tmp/plugin/$d");
+    }
+    $bootstrap = (string) file_get_contents(OFFICE_DIR . '/src/bootstrap.php');
+    check('theme switch: one bool constant in bootstrap.php', preg_match_all('/^const OFFICE_THEME_SWITCH = (?:true|false);$/m', $bootstrap) === 1);
+
+    // the page as the plugin shows it (a process of its own on a copy laid out like the plugin), the constant on and off
+    $page = function (bool $on) use ($tmp, $bootstrap): array {
+        file_put_contents("$tmp/plugin/src/bootstrap.php",
+            preg_replace('/^const OFFICE_THEME_SWITCH = (?:true|false);$/m', 'const OFFICE_THEME_SWITCH = ' . ($on ? 'true' : 'false') . ';', $bootstrap, 1));
+        file_put_contents("$tmp/web.php", '<?php define("OFFICE_IN_UNRAID", true); foreach (["bootstrap", "page"] as $f) { require ' . var_export("$tmp/plugin/src", true) . ' . "/$f.php"; }'
+            . ' $out = ["flag" => OFFICE_THEME_SWITCH, "config" => officePageConfig()["theme_switch"] ?? null];'
+            . ' ob_start(); officeStyles(); $out["styles"] = ob_get_clean();'
+            . ' ob_start(); officeBody(officePageConfig()); $out["body"] = ob_get_clean();'
+            . ' echo json_encode($out, JSON_UNESCAPED_UNICODE);');
+        $p = proc_open([PHP_BINARY, "$tmp/web.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => "$tmp/data", 'PATH' => getenv('PATH')]);
+        $raw = (string) stream_get_contents($pipes[1]);
+        $err = trim((string) stream_get_contents($pipes[2]));
+        proc_close($p);
+        same('theme switch page (' . ($on ? 'on' : 'off') . '): no warnings', '', $err);
+        return json_decode($raw, true) ?? [];
+    };
+    $on = $page(true);
+    same('theme switch on: the constant and the page\'s config', [true, true], [$on['flag'] ?? null, $on['config'] ?? null]);
+    check('theme switch on: theme-switch.css right after office.css', preg_match('#assets/office\.css\?v=\d+">\s*<link rel="stylesheet" href="[^"]*assets/theme-switch\.css\?v=#', (string) ($on['styles'] ?? '')) === 1);
+    check('theme switch on: data-theme set before the first paint, right inside #sso',
+        preg_match('#<div class="sso in-unraid" id="sso">\s*<script>[^<]*localStorage\.getItem\(\'office\.theme\'\)[^<]*setAttribute\(\'data-theme\'[^<]*</script>\s*<header#', (string) ($on['body'] ?? '')) === 1);
+    check('theme switch on: theme-switch.js after core.js', preg_match('#assets/core\.js\?v=\d+"></script>\s*<script src="[^"]*assets/theme-switch\.js\?v=#', (string) ($on['body'] ?? '')) === 1);
+    $off = $page(false);
+    same('theme switch off: the constant and the page\'s config', [false, false], [$off['flag'] ?? null, $off['config'] ?? null]);
+    check('theme switch off: nothing of it in the page', !str_contains((string) ($off['styles'] ?? ''), 'theme-switch')
+        && !str_contains((string) ($off['body'] ?? ''), 'theme-switch') && !str_contains((string) ($off['body'] ?? ''), 'office.theme'));
+    same('page.php: the switch in four places, each behind the constant', 4, substr_count((string) file_get_contents(OFFICE_DIR . '/src/page.php'), 'OFFICE_THEME_SWITCH'));
+    hardeningRm($tmp);
+
+    // the stylesheet: Unraid's theme variables for Dark and for Light — every one the office's stylesheets use, the same
+    // names in both, the values of Unraid's own black.css and white.css where they are at hand
+    $css = (string) file_get_contents(OFFICE_WEB . '/assets/theme-switch.css');
+    $declarations = function (string $block): array {
+        preg_match_all('/(--[a-z0-9-]+)\s*:\s*([^;]+);/i', $block, $m, PREG_SET_ORDER);
+        $vars = [];
+        foreach ($m as $d) {
+            $vars[$d[1]] = trim((string) preg_replace('/\s+/', ' ', $d[2]));
+        }
+        return $vars;
+    };
+    $block = function (string $theme) use ($css, $declarations): array {
+        return preg_match('/#sso\[data-theme=' . $theme . '\]\s*\{(.*?)\}/s', $css, $m) ? $declarations($m[1]) : [];
+    };
+    $dark = $block('dark');
+    $light = $block('light');
+    check('theme switch css: a block for Dark and one for Light', count($dark) > 40 && count($light) > 40);
+    check('theme switch css: color-scheme follows the forced look', preg_match('/#sso\[data-theme=dark\]\s*\{[^}]*color-scheme:dark/', $css) === 1
+        && preg_match('/#sso\[data-theme=light\]\s*\{[^}]*color-scheme:light/', $css) === 1);
+    $own = fn (array $vars) => array_filter(array_keys($vars), fn ($k) => !str_starts_with($k, '--dynamix-'));
+    same('theme switch css: the same variables for Dark and Light', [], array_values(array_merge(array_diff($own($dark), $own($light)), array_diff($own($light), $own($dark)))));
+    $themeDir = '/usr/local/emhttp/webGui/styles/themes';
+    foreach (['dark' => ['black', $dark], 'light' => ['white', $light]] as $forced => [$unraid, $ours]) {
+        $file = "$themeDir/$unraid.css";
+        if (!is_readable($file)) {
+            continue;       // not on the host: the names below stand in
+        }
+        $theirs = $declarations((string) file_get_contents($file));
+        // a theme-specific shade (--theme-black--mild-gray-700) is written out in the office's copy
+        $resolve = fn (string $v) => (string) preg_replace_callback('/var\((--theme-[a-z]+--[a-z0-9-]+)\)/', fn ($m) => $theirs[$m[1]] ?? $m[0], $v);
+        $differ = $missing = [];
+        foreach ($theirs as $name => $value) {
+            if (str_starts_with($name, '--theme-') || str_starts_with($name, '--dynamix-')) {
+                continue;
+            }
+            if (!isset($ours[$name])) {
+                $missing[] = $name;
+            } elseif ($ours[$name] !== $resolve($value)) {
+                $differ[] = "$name: {$ours[$name]} vs " . $resolve($value);
+            }
+        }
+        same("theme switch css: every variable of Unraid's $unraid theme set for $forced", [], $missing);
+        same("theme switch css: $forced with the values of Unraid's $unraid.css", [], $differ);
+    }
+    // every theme variable the office's stylesheets use (not the palette: --gray-500, --orange-200 … are the same in every theme)
+    $used = [];
+    foreach (array_merge([OFFICE_WEB . '/assets/office.css'], glob(OFFICE_WEB . '/desks/*/desk.css') ?: []) as $f) {
+        preg_match_all('/var\((--[a-z0-9-]+)/i', (string) file_get_contents($f), $m);
+        $used = array_merge($used, $m[1]);
+    }
+    $themeVars = is_readable("$themeDir/black.css") ? array_keys($declarations((string) file_get_contents("$themeDir/black.css")))
+        : ['--text-color', '--background-color', '--mild-background-color', '--brand-orange', '--button-text-color', '--button-border', '--button-background',
+           '--button-background-size', '--hover-button-text-color', '--hover-button-background', '--hover-button-border', '--title-header-background-color', '--table-border-color'];
+    $office = array_values(array_unique(array_filter($used, fn ($v) => in_array($v, $themeVars, true) && !str_starts_with($v, '--theme-'))));
+    check('theme switch css: the office uses Unraid\'s theme variables', count($office) >= 10, (string) count($office));
+    same('theme switch css: every one the office uses is set for Dark', [], array_values(array_diff($office, array_keys($dark))));
+    same('theme switch css: every one the office uses is set for Light', [], array_values(array_diff($office, array_keys($light))));
+    preg_match_all('/^[^\s\/@}][^{]*\{/m', $css, $m);     // every rule at the top level (the nested ones sit under #sso{ … })
+    check('theme switch css: rules only under #sso', count($m[0]) >= 4, (string) count($m[0]));
+    same('theme switch css: nothing leaks into Unraid\'s page', [], array_values(array_filter($m[0], fn ($sel) => !str_contains($sel, '#sso'))));
+
+    // the script and its strings: in every language, and the hooks core.js keeps for it
+    $js = (string) file_get_contents(OFFICE_WEB . '/assets/theme-switch.js');
+    preg_match_all("/(?<![.\\w])t\\(\\s*'([a-z0-9_.]+)'\\s*[,)]/", $js, $m);
+    $keys = array_merge($m[1], ['office.theme_title', 'office.theme_auto', 'office.theme_auto_title', 'office.theme_dark', 'office.theme_dark_title',
+        'office.theme_light', 'office.theme_light_title', 'help.theme_title', 'help.theme_text']);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $lang = langFile(OFFICE_WEB . "/lang/$code.json");
+        same("theme switch strings: $code has every one", [], array_values(array_diff(array_unique($keys), array_keys($lang))));
+    }
+    check('theme switch js: the choice kept per browser under office., the attribute on #sso', str_contains($js, "Office.store('theme'") && str_contains($js, 'ROOT.dataset.theme = v'));
+    check('theme switch js: a radio group the keyboard can work', str_contains($js, "setAttribute('role', 'radiogroup')") && str_contains($js, "setAttribute('role', 'radio')") && str_contains($js, 'ArrowRight'));
+    check('theme switch js: loads nothing while the flag is off', str_contains($js, 'if (!Office || !Office.config.theme_switch) return;'));
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    same('core.js: the hooks for the switch (reception, help), each marked theme-switch', 3, substr_count($core, 'theme-switch'));
+    check('core.js: the switch at the reception only while the script is there', str_contains($core, 'if (Office.theme) { const acts = el(\'div\', \'deskhead-actions\'); acts.appendChild(Office.theme.control());'));
+    check('core.js: the help line only while the script is there', str_contains($core, "if (Office.theme) item(t('help.theme_title'), t('help.theme_text'));"));
+}
+
 /** The ⟦labels⟧ of a text, sorted (with repeats) */
 function langTokens(string $s): array
 {
@@ -9591,7 +9722,7 @@ function testUnraidWords(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings', 'testUnraidWords']];
 $only = $argv[1] ?? '';

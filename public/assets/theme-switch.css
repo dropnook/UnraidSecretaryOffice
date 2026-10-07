@@ -1,0 +1,212 @@
+/* Unraid Secretary Office — the theme switch at the reception: Automatic · Dark · Light
+   (an experiment, Benj 2026-10-07; it may go again).
+
+   Loaded only while OFFICE_THEME_SWITCH (src/bootstrap.php) is true, together with theme-switch.js.
+   Nothing here applies without a choice: in Automatic #sso carries no data-theme and the office
+   looks as Unraid's theme makes it (office.css). Dark or Light sets, on the office's own element,
+   the variables Unraid's theme files set on :root — the values of Unraid 7.3.2's own black.css and
+   white.css (webGui/styles/themes/, copied as they are; the palette they point to, --gray-100 …,
+   is the same in every theme) — so the forced look is exactly Unraid's black or white theme, and
+   every colour office.css and the desks mix from them (--ink, --surface, the buttons, title bars,
+   tabs, chips, dialogs, menus, tips) follows by itself. Only the office's area changes: Unraid's
+   header, menu, footer and its Dashboard tile keep Unraid's theme — that's intended.
+
+   Switching off: OFFICE_THEME_SWITCH = false — nothing of this shows or loads.
+   Removing: delete this file and theme-switch.js, the OFFICE_THEME_SWITCH lines in src/bootstrap.php
+   and src/page.php, the lines marked «theme-switch» in core.js, the office.theme_* and help.theme_*
+   strings, testThemeSwitch in tests/run.php, the paragraph in CLAUDE.md. */
+
+/* ------------------------------------------------------------ forced Dark: Unraid's black theme */
+#sso[data-theme=dark]{
+  color-scheme:dark;                 /* native scrollbars, selects and checkboxes inside the office */
+  --gray-400:#909090;                /* the palette's value (the azure theme changes it on :root) */
+
+  --text-color:var(--gray-100);
+  --blockquote-text-color:var(--gray-800);
+  --alt-text-color:var(--gray-500);
+  --disabled-text-color:var(--gray-500);
+  --inverse-text-color:var(--gray-900);
+  --link-text-color:var(--blue-800);
+
+  --background-color:var(--gray-900);
+  --opac-background-color:var(--gray-895);
+  --mild-background-color:#262626;   /* black.css: --theme-black--mild-gray-700 */
+  --usage-bar-background-color:var(--gray-600);
+  --usage-bar-used-background-color:var(--gray-500);
+  --usage-disk-background-color:var(--gray-700);
+  --inverse-background-color:var(--gray-100);
+  --radio-background-color:var(--gray-700);
+  --dashboard-background-color:var(--gray-700);
+  --dashboard-title-action-color:var(--white-opacity-30);
+  --dashboard-icon-color:var(--mild-background-color);
+
+  --border-color:var(--gray-600);
+  --disabled-border-color:var(--gray-500);
+  --input-border-color:var(--gray-200);
+  --disabled-input-border-color:var(--gray-500);
+  --textarea-border-color:var(--gray-400);
+  --inverse-border-color:var(--white-opacity-25);
+  --table-border-color:var(--gray-700);
+  --table-background-color:var(--gray-800);
+  --table-header-background-color:var(--gray-800);
+  --hover-table-row-background-color:var(--white-opacity-05);
+
+  --footer-text:var(--text-color);
+  --footer-background-color:var(--mild-background-color);
+
+  --small-shadow:0 0 3px var(--gray-700);
+  --hr-color:var(--gray-800);
+
+  --checkbox-color:var(--gray-500);
+  --checkbox-hover-color:var(--gray-600);
+
+  --brand-orange:var(--orange-500);
+  --brand-red:var(--red-800);
+
+  --header-text-color:var(--customer-header-text-color, var(--inverse-text-color));
+  --header-background-color:var(--custom-header-background-color, var(--gray-100));
+
+  --title-header-background-color:var(--mild-background-color);
+
+  --scrollbar-color:var(--gray-300);
+  --scrollbar-hover-color:var(--gray-200);
+
+  --bg-opacity-10:var(--black-opacity-10);
+  --bg-opacity-30:var(--black-opacity-30);
+
+  --button-text-color:var(--brand-orange);
+  --button-border:none;
+  --button-background:linear-gradient(90deg, var(--brand-red) 0, var(--brand-orange)) 0 0 no-repeat,
+      linear-gradient(90deg, var(--brand-red) 0, var(--brand-orange)) 0 100% no-repeat,
+      linear-gradient(0deg, var(--brand-red) 0, var(--brand-red)) 0 100% no-repeat,
+      linear-gradient(0deg, var(--brand-orange) 0, var(--brand-orange)) 100% 100% no-repeat;
+  --button-background-size:100% 2px, 100% 2px, 2px 100%, 2px 100%;
+
+  --hover-button-border:var(--blue-700);
+  --hover-button-text-color:var(--white);
+  --hover-button-background:linear-gradient(90deg,var(--brand-red) 0,var(--brand-orange));
+
+  --input-bg-color:transparent;
+  --focus-input-bg-color:var(--mild-background-color);
+
+  --shade-bg-color:var(--gray-800);
+
+  --dynamix-filetree-bg-color:var(--gray-900);
+}
+
+/* ------------------------------------------------------------ forced Light: Unraid's white theme */
+#sso[data-theme=light]{
+  color-scheme:light;
+  --gray-400:#909090;
+
+  --text-color:var(--gray-900);
+  --blockquote-text-color:var(--gray-800);
+  --alt-text-color:var(--gray-400);
+  --disabled-text-color:var(--gray-500);
+  --inverse-text-color:var(--gray-100);
+  --link-text-color:var(--blue-800);
+
+  --background-color:var(--gray-100);
+  --opac-background-color:var(--gray-895);
+  --mild-background-color:#f7f9f9;   /* white.css: --theme-white--mild-gray-100 */
+  --usage-bar-background-color:var(--gray-500);
+  --usage-bar-used-background-color:var(--gray-400);
+  --usage-disk-background-color:var(--gray-200);
+  --inverse-background-color:var(--gray-900);
+  --radio-background-color:var(--gray-200);
+  --dashboard-background-color:var(--gray-700);
+  --dashboard-title-action-color:var(--black-opacity-30);
+  --dashboard-icon-color:var(--mild-background-color);
+
+  --border-color:var(--gray-200);
+  --disabled-border-color:var(--gray-500);
+  --input-border-color:var(--black);
+  --disabled-input-border-color:var(--gray-400);
+  --textarea-border-color:var(--gray-400);
+  --inverse-border-color:var(--gray-000);
+  --table-border-color:var(--gray-200);
+  --table-background-color:var(--gray-150);
+  --table-header-background-color:var(--gray-150);
+  --hover-table-row-background-color:var(--black-opacity-05);
+
+  --footer-text:var(--text-color);
+  --footer-background-color:var(--gray-200);
+
+  --small-shadow:0 0 3px var(--gray-700);
+  --hr-color:var(--gray-300);
+
+  --checkbox-color:var(--gray-200);
+  --checkbox-hover-color:var(--gray-300);
+
+  --brand-orange:var(--orange-500);
+  --brand-red:var(--red-800);
+
+  --header-text-color:var(--customer-header-text-color, var(--inverse-text-color));
+  --header-background-color:var(--custom-header-background-color, var(--gray-900));
+
+  --title-header-background-color:var(--gray-150);
+
+  --scrollbar-color:var(--gray-400);
+  --scrollbar-hover-color:var(--gray-500);
+
+  --bg-opacity-10:var(--white-opacity-10);
+  --bg-opacity-30:var(--white-opacity-30);
+
+  --button-text-color:var(--brand-orange);
+  --button-border:none;
+  --button-background:linear-gradient(90deg, var(--brand-red) 0, var(--brand-orange)) 0 0 no-repeat,
+      linear-gradient(90deg, var(--brand-red) 0, var(--brand-orange)) 0 100% no-repeat,
+      linear-gradient(0deg, var(--brand-red) 0, var(--brand-red)) 0 100% no-repeat,
+      linear-gradient(0deg, var(--brand-orange) 0, var(--brand-orange)) 100% 100% no-repeat;
+  --button-background-size:100% 2px, 100% 2px, 2px 100%, 2px 100%;
+
+  --hover-button-border:var(--blue-700);
+  --hover-button-text-color:var(--white);
+  --hover-button-background:linear-gradient(90deg,var(--brand-red) 0,var(--brand-orange));
+
+  --input-bg-color:transparent;
+  --focus-input-bg-color:var(--gray-150);
+
+  --shade-bg-color:var(--gray-150);
+
+  --dynamix-ui-dropdownchecklist-color:var(--black);
+  --dynamix-ui-dropdownchecklist-color-alt1:var(--gray-150);
+  --dynamix-ui-dropdownchecklist-color-alt2:var(--gray-400);
+  --dynamix-sweet-alert-text-color:var(--black);
+  --dynamix-sweet-alert-icon-bg-color:var(--gray-100);
+  --dynamix-tablesorter-thead-row-border-color:var(--gray-200);
+  --dynamix-tablesorter-thead-th-text-color:var(--black);
+  --dynamix-tablesorter-thead-th-bg-color:var(--gray-150);
+  --dynamix-tablesorter-tbody-row-alt-bg-color:var(--gray-150);
+  --dynamix-tablesorter-tbody-row-bg-color:var(--gray-100);
+  --dynamix-tablesorter-tbody-row-border-color:var(--gray-200);
+  --dynamix-select-box-shadow:0 2px 0 var(--orange-500), inset 0 -1px var(--gray-100);
+  --dynamix-select-disabled-bg-color:var(--gray-150);
+  --dynamix-select-disabled-border-color:var(--gray-500);
+  --dynamix-select-disabled-color:var(--black);
+}
+
+/* ------------------------------------------------------------ the office's area under a forced theme */
+/* The page's background is Unraid's (body); the office paints its own in its theme's colour, as a
+   rounded box in the room Unraid's content area leaves around it (#displaybox: 1rem). */
+#sso[data-theme]{background:var(--bg); padding:6px 14px 14px; border-radius:8px}
+@media (max-width:820px){ #sso[data-theme]{padding:4px 10px 10px; border-radius:6px} }
+
+/* Unraid's sidebar themes (azure, gray) frame the office's buttons with --button-border (office.css
+   .Theme--sidebar rules: there it is a colour). Under a forced theme the black/white look applies — no
+   frame, the gradient from --button-background draws it (--button-border is "none" then). */
+.Theme--sidebar #sso.in-unraid[data-theme] .btn:not(.danger){border:var(--button-border)}
+.Theme--sidebar #sso.in-unraid[data-theme] .btn:not(.plain):not(.danger){font-weight:600}
+.Theme--sidebar #sso.in-unraid[data-theme] .btn:not(.danger):hover:not(:disabled){border:var(--button-border)}
+
+/* ------------------------------------------------------------ the switch itself (theme-switch.js) */
+/* a segmented control like office.css's .seg (it carries that class too): three radios with an icon
+   and a word, the chosen one in the accent's shade */
+#sso{
+  .theme-switch{flex:none}
+  .theme-switch button{display:inline-flex; align-items:center; gap:6px; padding:4px 10px}
+  .theme-switch button[aria-checked=true]{background:var(--accent-soft); color:var(--accent-ink); font-weight:600}
+  .theme-switch button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px; border-radius:0}
+  .theme-switch svg{width:15px; height:15px; flex:none; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round}
+  .theme-switch svg .fill{fill:currentColor; stroke:none}
+}

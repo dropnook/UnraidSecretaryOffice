@@ -46,6 +46,7 @@ function officePageConfig(): array
         'base'      => officeWebBase(),
         'reception_icon' => officeAsset('assets/reception.svg'),
         'agent'     => $info,       // the messenger, or why nobody answers (the array stopped, the night shift): said at once
+        'theme_switch' => OFFICE_THEME_SWITCH,   // theme-switch: the switch at the reception (theme-switch.js)
     ];
     $var = @parse_ini_file('/var/local/emhttp/var.ini') ?: [];
     $config['csrf'] = (string) ($var['csrf_token'] ?? '');
@@ -75,6 +76,9 @@ function officeStyles(): void
 {
     $h = static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES);
     echo '<link rel="stylesheet" href="' . $h(officeAsset('assets/office.css')) . '">' . "\n";
+    if (OFFICE_THEME_SWITCH) {      // theme-switch: forced Dark / Light inside #sso, right after the office's own rules
+        echo '<link rel="stylesheet" href="' . $h(officeAsset('assets/theme-switch.css')) . '">' . "\n";
+    }
     foreach (officeDesks() as $id => $d) {
         if ($d['css']) {
             echo '<link rel="stylesheet" href="' . $h(officeAsset("desks/$id/desk.css")) . '">' . "\n";
@@ -92,6 +96,10 @@ function officeBody(array $config): void
     $h = static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES);
     ?>
 <div class="sso in-unraid" id="sso">
+<?php if (OFFICE_THEME_SWITCH): ?>
+<script>/* theme-switch: the look kept in this browser, set before the first paint (theme-switch.js keeps it up to date) */
+(function(){try{var t=localStorage.getItem('office.theme');if(t==='dark'||t==='light'){document.getElementById('sso').setAttribute('data-theme',t)}}catch(e){}})()</script>
+<?php endif; ?>
 
 <header class="topbar">
   <nav class="desk-tabs" id="sso-tabs" aria-label="Desks"></nav>
@@ -122,6 +130,9 @@ function officeBody(array $config): void
 </div>
 <script id="sso-config" type="application/json"><?= $json ?></script>
 <script src="<?= $h(officeAsset('assets/core.js')) ?>"></script>
+<?php if (OFFICE_THEME_SWITCH): ?>
+<script src="<?= $h(officeAsset('assets/theme-switch.js')) ?>"></script>
+<?php endif; ?>
 <?php foreach (officeDesks() as $id => $d): ?>
 <script src="<?= $h(officeAsset("desks/$id/desk.js")) ?>"></script>
 <?php endforeach; ?>

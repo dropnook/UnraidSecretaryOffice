@@ -92,6 +92,8 @@
   "help.start_text": "Das Plugin startet den Hausboten selbst: bei der Installation, beim Booten und bei jedem Array-Start. Bleibt der Punkt rot, obwohl das Array läuft, schau in sein Protokoll (⋯ → Protokoll des Hausboten) oder installiere das Plugin unter ⟦Plugins⟧ neu.",
   "help.languages_title": "Sprachen",
   "help.languages_text": "Das Sekretariat spricht die Sprache deines Browsers, sofern es eine Übersetzung gibt, sonst Englisch; unter ⋯ → Sprache wählst du eine andere für diesen Browser. Unraids eigene Menüs und Knöpfe, die es nennt, stehen so da, wie Unraid sie zeigt — in der Sprache, in der Unraid läuft; die Benachrichtigungen sprechen die Sprache, in der das Sekretariat zuletzt benutzt wurde. Eine Sprache kommt mit JSON-Dateien dazu:",
+  "help.theme_title": "Dunkel oder hell",
+  "help.theme_text": "Am Empfang stellt Auto · Dunkel · Hell ein, wie das Sekretariat in diesem Browser aussieht: Auto folgt Unraids Einstellung; Dunkel und Hell geben dem Bereich des Sekretariats das Aussehen von Unraids schwarzem oder weissem Design — Unraids Kopfzeile, Menü und seine Kachel auf dem Dashboard behalten Unraids Einstellung. Gilt nur für diesen Browser, wie die Sprache.",
   "help.security_title": "Sicherheit",
   "help.security_text": "Das Sekretariat gehört zu Unraids Weboberfläche: Hinein kommt nur, wer bei Unraid angemeldet ist, und jede Änderung trägt Unraids Sicherheits-Token. Wer bei Unraid angemeldet ist, kann auf dem Server ohnehin alles — melde dich also auf Geräten ab, die auch andere benutzen. Das Sekretariat fügt Vorschauen und Rückfragen gegen Versehen hinzu, kein zweites Schloss. Der Hausbote kann auf dem Server, was root kann, nimmt aber nur die Aufträge an, die die Schreibtische festlegen, und prüft jeden einzelnen.",
   "help.order_title": "Die Reihenfolge des Teams",
@@ -195,6 +197,13 @@
   "office.language_text": "Gilt nur für diesen Browser.",
   "office.language_browser": "Wie dieser Browser ({name})",
   "office.language_use": "Übernehmen",
+  "office.theme_title": "Aussehen des Sekretariats",
+  "office.theme_auto": "Auto",
+  "office.theme_auto_title": "Automatisch: so wie Unraid eingestellt ist (zurzeit {theme}).",
+  "office.theme_dark": "Dunkel",
+  "office.theme_dark_title": "Das Sekretariat dunkel, egal wie Unraid eingestellt ist — nur in diesem Browser.",
+  "office.theme_light": "Hell",
+  "office.theme_light_title": "Das Sekretariat hell, egal wie Unraid eingestellt ist — nur in diesem Browser.",
   "errors.logged_out": "Deine Anmeldung bei Unraid ist abgelaufen — bitte melde dich neu an.",
   "errors.stale_page": "Unraid hat die Anfrage abgelehnt: Die Seite ist veraltet (Server neu gestartet?). Lade sie neu und versuch es noch einmal."
 }

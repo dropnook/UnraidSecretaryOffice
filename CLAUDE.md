@@ -475,6 +475,23 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   black, white, azure and gray all work — never a hard-coded colour. Buttons,
   tabs and section title bars look like Unraid's (the `.in-unraid` rules; `#sso`
   always carries that class).
+* **Theme switch (an experiment, Benj 2026-10-07 — may go again):** at the reception, right of the head, a segmented
+  control Auto · Dark · Light (`public/assets/theme-switch.js`: `Office.theme.get/set/control()`, a radio group the arrow
+  keys work; kept per browser as `Office.store` `theme` = localStorage `office.theme`, none = Auto). Auto = no
+  `data-theme` on `#sso`, the office as Unraid's theme makes it. Dark / Light = `#sso[data-theme=dark|light]`:
+  `public/assets/theme-switch.css` sets Unraid's own theme variables (`--text-color`, `--background-color`,
+  `--button-background` … — the values of Unraid 7.3.2's `webGui/styles/themes/black.css` / `white.css`, copied as they
+  are) on the office's element, so everything office.css and the desks mix from them follows by itself; `color-scheme`
+  for native controls; the office paints its own background as a rounded box in Unraid's content area — Unraid's header,
+  menu, footer and the Dashboard tile keep Unraid's theme, that's intended. src/page.php sets the attribute before the
+  first paint (an inline script right inside `#sso`, from the same localStorage key). **Switching it off:**
+  `OFFICE_THEME_SWITCH = false` in src/bootstrap.php — nothing of it shows or loads (the four places in page.php sit
+  behind the constant, core.js asks `if (Office.theme)`). **Removing it for good:** delete theme-switch.css and .js, the
+  constant, the four `theme-switch` places in src/page.php, the two `theme-switch` hooks in core.js (the reception's
+  actions, the help line — `arrangeable()` then makes its own `.deskhead-actions` as before), the strings `office.theme_*`
+  and `help.theme_*` in the five lang files, `testThemeSwitch` in tests/run.php, the README paragraph and this bullet.
+  `testThemeSwitch` checks the page with the constant on and off, the stylesheet's variables against Unraid's theme files
+  on the host (every one the office uses, the same names for Dark and Light, Unraid's values) and the strings.
 * **Head:** `Office.deskHead(...)`, then right after it
   `Office.pageHelp(ID, [[term, text], …])` — "How to read this page", folded
   by default, remembered per desk. Explanations of labels, buttons and tiles go

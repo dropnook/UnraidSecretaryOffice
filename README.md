@@ -37,6 +37,11 @@ buttons read as Unraid shows them, in the language Unraid runs in — a German o
 on an English Unraid says «Settings → User Utilities». Adding a language means adding
 JSON files.
 
+Dark or light: the office takes Unraid's theme (black, white, azure, gray). The switch
+*Auto · Dark · Light* at the reception forces the look of Unraid's black or white theme on
+the office's own area for your browser — Unraid's header, menu and the Dashboard tile keep
+Unraid's theme (an experiment; `OFFICE_THEME_SWITCH` in `src/bootstrap.php` switches it off).
+
 ## How it works
 
 ```

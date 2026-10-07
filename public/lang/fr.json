@@ -92,6 +92,8 @@
   "help.start_text": "Le plugin démarre lui-même le coursier : à l'installation, au démarrage et chaque fois que l'array démarre. Si le point reste rouge alors que l'array tourne, regarde son journal (⋯ → Journal du coursier) ou réinstalle le plugin sous ⟦Plugins⟧.",
   "help.languages_title": "Langues",
   "help.languages_text": "Le secrétariat parle la langue de ton navigateur si une traduction existe, sinon l'anglais ; ⋯ → Langue en choisit une autre pour ce navigateur. Les menus et boutons d'Unraid qu'il cite s'affichent comme Unraid les montre, dans la langue dans laquelle tourne Unraid ; les notifications parlent la langue dans laquelle le secrétariat a été utilisé en dernier. Ajouter une langue, c'est ajouter des fichiers JSON :",
+  "help.theme_title": "Sombre ou clair",
+  "help.theme_text": "À l'accueil, Auto · Sombre · Clair règle l'apparence du secrétariat dans ce navigateur : Auto suit le thème d'Unraid ; Sombre et Clair donnent à la zone du secrétariat l'apparence du thème noir ou blanc d'Unraid — l'en-tête, le menu et sa tuile sur le Tableau de bord gardent le thème d'Unraid. Gardé dans ce navigateur, comme la langue.",
   "help.security_title": "Sécurité",
   "help.security_text": "Le secrétariat fait partie de l'interface web d'Unraid : seul qui est connecté à Unraid y entre, et chaque modification porte le jeton de sécurité d'Unraid. Qui est connecté à Unraid peut de toute façon tout faire sur le serveur — déconnecte-toi donc sur les appareils que d'autres utilisent. Le secrétariat ajoute des aperçus et des confirmations contre les erreurs, pas une deuxième serrure. Le coursier peut faire tout ce que root peut faire sur l'hôte, mais il n'accepte que les actions que les bureaux définissent et vérifie chaque demande.",
   "help.order_title": "L'ordre de l'équipe",
@@ -201,6 +203,13 @@
   "office.language_text": "S'applique à ce navigateur seulement.",
   "office.language_browser": "Comme ce navigateur ({name})",
   "office.language_use": "Utiliser",
+  "office.theme_title": "Apparence du secrétariat",
+  "office.theme_auto": "Auto",
+  "office.theme_auto_title": "Automatique : suit le thème d'Unraid (actuellement {theme}).",
+  "office.theme_dark": "Sombre",
+  "office.theme_dark_title": "Le secrétariat en sombre, quel que soit le thème d'Unraid — dans ce navigateur seulement.",
+  "office.theme_light": "Clair",
+  "office.theme_light_title": "Le secrétariat en clair, quel que soit le thème d'Unraid — dans ce navigateur seulement.",
   "errors.logged_out": "Ta session Unraid a pris fin — reconnecte-toi, s'il te plaît.",
   "errors.stale_page": "Unraid a refusé la demande : la page n'est plus à jour (le serveur a redémarré ?). Recharge-la et réessaie."
 }
