@@ -1980,8 +1980,9 @@ SH);
     same('metrics: the skipped sources counted apart, none failed', [[['result' => 'ok'], 1], [['result' => 'failed'], 0], [['result' => 'skipped'], 2]], $bk['uso_backup_last_kopia_sources'] ?? null);
 
     // --- engine 2.25: the Kopia order. An app (c1) and a VM (vmpause) with sources of their own; sizes: appdata 3 GB by
-    // ZFS but 500 B by Kopia's newest complete snapshot (its ignore rules), docs 1000 B and the backup place 50 MB by ZFS,
-    // the VM's 1 MB disk file; a Kopia checkpoint (incomplete) and another identity's snapshot don't count
+    // ZFS but a stale 500 B complete Kopia snapshot (its first real upload still in checkpoints) - goes by ZFS; docs 1000 B
+    // by ZFS but 2 MB by Kopia (compressed on the pool) - goes by Kopia; the backup place 50 MB by ZFS, the VM's 1 MB disk
+    // file; a Kopia checkpoint (incomplete) and another identity's snapshot don't count
     file_put_contents("$data/settings.ini", "[app \"c1\"]\nkopia = yes\nfolder = appdata/c1\n[vm \"vmpause\"]\nkopia = yes\nfolder = domains/vmpause\n", FILE_APPEND);
     $zs = fn ($n, $mp, $ref) => "$n\t$mp\ton\t" . crc32($n) . "\t$ref\t-\n";
     file_put_contents("$fake/zfs.txt", $zs('master', $pool, 1) . $zs('master/appdata', "$pool/appdata", 3000000000) . $zs('master/docs', "$pool/docs", 1000)
@@ -1989,7 +1990,7 @@ SH);
     $ksnap = fn ($path, $size, $start, $more = []) => ['source' => ['host' => 'kopia', 'userName' => 'root', 'path' => $path], 'startTime' => $start,
         'stats' => ['totalSize' => $size]] + $more;
     file_put_contents("$fake/snaplist.json", json_encode([$ksnap('/uso/appdata', 9000000000, '2026-10-01T01:00:00Z'), $ksnap('/uso/appdata', 500, '2026-10-06T01:00:00Z'),
-        $ksnap('/uso/docs', 1, '2026-10-07T01:00:00Z', ['incompleteReason' => 'checkpoint']),
+        $ksnap('/uso/docs', 2000000, '2026-10-06T01:00:00Z'), $ksnap('/uso/docs', 1, '2026-10-07T01:00:00Z', ['incompleteReason' => 'checkpoint']),
         ['source' => ['host' => 'other', 'userName' => 'root', 'path' => '/uso/UnraidSecretaryOffice'], 'startTime' => '2026-10-06T01:00:00Z', 'stats' => ['totalSize' => 1]]]));
     file_put_contents("$pool/domains/vmpause/vdisk1.img", str_repeat("\x5a", 1 << 20));
     // the fixture mounts nothing for real: what the sources of their own bind lies ready in the share's mount point
@@ -2000,14 +2001,25 @@ SH);
     $night();
     [$code, , $out] = $run();
     $s = $status();
-    $want = ['app:c1', 'appdata', 'docs', 'vm:vmpause', 'UnraidSecretaryOffice'];
-    same('kopia order: status.json planned - the app first, then shares and the VM by size (Kopia\'s own first), the backup place last', $want, $s['kopia']['planned'] ?? null);
-    same('kopia order: uploaded in that order', ['/uso/.apps/c1', '/uso/appdata', '/uso/docs', '/uso/.vms/vmpause', '/uso/UnraidSecretaryOffice'],
+    $want = ['app:c1', 'vm:vmpause', 'docs', 'UnraidSecretaryOffice', 'appdata'];
+    same('kopia order: status.json planned - the app first, then shares and the VM by the larger size, appdata (stale tiny Kopia snapshot, 3 GB by ZFS) last',
+        $want, $s['kopia']['planned'] ?? null);
+    same('kopia order: uploaded in that order', ['/uso/.apps/c1', '/uso/.vms/vmpause', '/uso/docs', '/uso/UnraidSecretaryOffice', '/uso/appdata'],
         array_values(array_map(fn ($w) => substr($w, strlen('kopia start ')), preg_grep('/^kopia start /', $names()))));
     same('kopia order: done in that order', $want, array_column($s['kopia']['done'] ?? [], 'name'));
     check('kopia order: the plan says it once, with the sizes and where they come from',
-        (bool) preg_match('/Kopia order: +app:c1, appdata 500B, docs 1000B\*, vm:vmpause [0-9.]+MB?\*, UnraidSecretaryOffice [0-9.]+MB?\*\n/', $log()) && substr_count($log(), 'Kopia order:') === 1, $log());
+        (bool) preg_match('/Kopia order: +app:c1, vm:vmpause [0-9.]+MB?\*, docs [0-9.]+MB, UnraidSecretaryOffice [0-9.]+MB?\*, appdata [0-9.]+GB\*\n/', $log())
+        && substr_count($log(), 'Kopia order:') === 1, $log());
     @unlink("$fake/snaplist.json");
+
+    // --unmount from the plugin's array-stop hook (UB_KEEP_LATEST=1) leaves latest.log at the run's log; by hand it points to unmount.log
+    $runLog = @readlink("$data/logs/latest.log");
+    $unmount = fn (string $extra) => shell_exec('bash -c ' . escapeshellarg("$env $extra; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --unmount </dev/null >/dev/null 2>&1'));
+    $unmount('UB_KEEP_LATEST=1');
+    $kept = @readlink("$data/logs/latest.log");
+    $unmount('');
+    same('unmount: from the array-stop hook latest.log stays the run\'s, by hand it is unmount.log', [true, $runLog, 'unmount.log'],
+        [str_starts_with((string) $runLog, 'run-'), $kept, @readlink("$data/logs/latest.log")]);
 
     // --- engine 2.25: backup.sh --recover
     $rec = function (string $extra = '') use ($env): array {
@@ -2128,7 +2140,9 @@ function testBackupKopiaOrder(): void
         'stats' => ['totalSize' => $size]] + $more;
     file_put_contents("$tmp/list.json", json_encode([
         $ksnap('/uso/appdata', 9000000000, '2026-10-01T01:00:00Z'), $ksnap('/uso/appdata', 5000000000, '2026-10-06T01:00:00Z'),
+        $ksnap('/uso/Backups', 1000, '2026-10-05T01:00:00Z'),       // complete but stale: all of it was ignored before the setup changed
         $ksnap('/uso/Backups', 10, '2026-10-07T03:00:00Z', ['incompleteReason' => 'checkpoint']),
+        $ksnap('/uso/scripts', 3000000000, '2026-10-06T01:00:00Z'),
         ['source' => ['host' => 'other', 'userName' => 'root', 'path' => '/uso/isos'], 'startTime' => '2026-10-06T01:00:00Z', 'stats' => ['totalSize' => 1]],
         ['source' => ['host' => 'kopia', 'userName' => 'root', 'path' => '/uso/.vms/Debian'], 'startTime' => '2026-10-06T01:00:00Z', 'rootEntry' => ['summ' => ['size' => 7]]]]));
     file_put_contents("$tmp/bin/docker", "#!/bin/bash\n[[ \"\$*\" == *'snapshot list --all --json -n 1'* ]] && cat $tmp/list.json\n");
@@ -2144,16 +2158,19 @@ function testBackupKopiaOrder(): void
         return trim((string) shell_exec('bash -c ' . escapeshellarg("$pre $script") . ' 2>&1'));
     };
     same('kopia order: the newest complete snapshot of this identity per source - no checkpoint, no other identity; rootEntry\'s size when stats lack',
-        "/uso/.vms/Debian=7 /uso/appdata=5000000000",
+        "/uso/.vms/Debian=7 /uso/Backups=1000 /uso/appdata=5000000000 /uso/scripts=3000000000",
         $sh('KOPIA_CONNECTED=yes KOPIA_USER=root KOPIA_HOST=kopia KOPIA_RUN_UID=0 KOPIA_CONTAINER=kopia; kopia_sizes_load;'
-            . ' for k in $(printf "%s\n" "${!KSIZE[@]}" | sort); do printf "%s=%s " "$k" "${KSIZE[$k]}"; done'));
+            . ' for k in $(printf "%s\n" "${!KSIZE[@]}" | LC_ALL=C sort); do printf "%s=%s " "$k" "${KSIZE[$k]}"; done'));
     same('kopia order: no sizes from Kopia while it isn\'t connected', '0', $sh('KOPIA_CONNECTED=no; kopia_sizes_load; echo ${#KSIZE[@]}'));
-    same('kopia order: the flash, the apps in their order, then shares and VMs the smallest first (Kopia\'s size before the server\'s), unknown last in their order',
+    same('kopia order: the flash, the apps in their order, then shares and VMs the smallest first - by the larger of Kopia\'s and the server\'s size '
+        . '(a stale tiny Kopia snapshot of a huge share goes by the server\'s), either alone when only one is known, unknown last in their order',
         "flash|flash||||\napp:nextcloud|app|nextcloud|nextcloud||\napp:immich|app|immich|immich||\n"
-        . "vm:Debian|vm|Debian|Debian|7|kopia\ndocs|share|docs||1000000000|inventory\nscripts|share|scripts||1000000000|inventory\n"
-        . "vm:Tiny|vm|Tiny|Tiny|4000000000|inventory\nappdata|share|appdata||5000000000|kopia\nvm:Win 11|vm|Win 11|Win_11|380000000000|inventory\n"
+        . "vm:Debian|vm|Debian|Debian|7|kopia\ndocs|share|docs||1000000000|inventory\nscripts|share|scripts||3000000000|kopia\n"
+        . "vm:Tiny|vm|Tiny|Tiny|4000000000|inventory\nappdata|share|appdata||40000000000|inventory\nvm:Win 11|vm|Win 11|Win_11|380000000000|inventory\n"
         . "Backups|share|Backups||2300000000000|inventory\nisos|share|isos|||",
         $sh('KOPIA_CONNECTED=yes KOPIA_USER=root KOPIA_HOST=kopia KOPIA_RUN_UID=0 KOPIA_CONTAINER=kopia; kopia_sizes_load; kopia_order'));
+    same('kopia order: the larger size wins, equal goes to Kopia\'s', ['5|kopia', '7|inventory', '4|kopia', '9|inventory', '|'],
+        explode(' ', $sh('for a in "5 4" "3 7" "4 4" "x 9" "x x"; do set -- $a; [[ $1 == x ]] && set -- "" "$2"; [[ $2 == x ]] && set -- "$1" ""; printf "%s " "$(kopia_expect "$1" "$2")"; done')));
     same('kopia order: without the flash\'s snapshot no flash; without sizes the shares, then the VMs, as listed',
         "app:nextcloud\napp:immich\nisos\nappdata\ndocs\nBackups\nscripts\nvm:Win 11\nvm:Debian\nvm:Tiny",
         $sh('PLAN_FLASH=tar; INV_BYTES=(); VM_BYTES=(); kopia_order | cut -d"|" -f1'));
@@ -2177,7 +2194,7 @@ function testAgentBackupHooks(): void
     }
     file_put_contents("$tmp/bin/at", "#!/bin/bash\necho \"\$*\" >>" . escapeshellarg("$tmp/at.calls") . "\ncp \"\$3\" " . escapeshellarg("$tmp/at.job") . "\n");
     chmod("$tmp/bin/at", 0755);
-    file_put_contents("$tmp/plugin/backup/backup.sh", "echo \"\$UB_DATA \$*\" >>" . escapeshellarg("$tmp/backup.calls") . "\n");
+    file_put_contents("$tmp/plugin/backup/backup.sh", "echo \"\$UB_DATA \${UB_KEEP_LATEST:-} \$*\" >>" . escapeshellarg("$tmp/backup.calls") . "\n");
     $agent = escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh');
     $call = function (string $fn) use ($tmp, $agent, $data): string {
         $pre = 'PATH=' . escapeshellarg("$tmp/bin") . ":\$PATH; source $agent; DIR=" . escapeshellarg("$tmp/plugin") . '; RUN=' . escapeshellarg("$tmp/run")
@@ -2197,7 +2214,7 @@ function testAgentBackupHooks(): void
     $job = explode("\n", $read('at.job'));
     same('hooks: the job carries the office\'s mark (the same as hostLaunch()\'s) on its own line', ['#!/bin/sh', HOST_LAUNCH_MARK], array_slice($job, 0, 2));
     exec('sh ' . escapeshellarg("$tmp/at.job"), $o, $rc);
-    same('hooks: the job runs backup.sh --recover with the engine\'s data folder (quoted)', [0, "$ub --recover\n"], [$rc, $read('backup.calls')]);
+    same('hooks: the job runs backup.sh --recover with the engine\'s data folder (quoted)', [0, "$ub  --recover\n"], [$rc, $read('backup.calls')]);
     file_put_contents("$tmp/atjobs/a0000101c2b3a4", "#!/bin/sh\n# atrun uid=0 gid=0\n# mail root 0\numask 22\ncd / || {\n\t exit 1\n}\n" . $read('at.job'));
     same('hooks: the night watchman takes the at job for the office\'s', true, watchmanAtJobs(['atjobs' => "$tmp/atjobs"], null)['jobs']['a0000101c2b3a4']['ours'] ?? null);
     @unlink("$tmp/backup.calls");
@@ -2218,11 +2235,12 @@ function testAgentBackupHooks(): void
     fclose($lk);
     same('hooks: stopping, a run holds the lock - it unmounts itself, backup.sh not called', '', $read('backup.calls'));
     $call('backup_release');
-    same('hooks: stopping, its snapshot mounted (keep_mounts) and the lock free - backup.sh --unmount with its data folder', "$ub --unmount\n", $read('backup.calls'));
+    same('hooks: stopping, its snapshot mounted (keep_mounts) and the lock free - backup.sh --unmount with its data folder, latest.log left alone',
+        "$ub 1 --unmount\n", $read('backup.calls'));
     @unlink("$tmp/backup.calls");
     file_put_contents("$tmp/mounts", "unraid-backup-stage $tmp/stage tmpfs rw 0 0\nmaster/appdata@uso-backup-1 $tmp/stage/layers/master_appdata zfs ro 0 0\n");
     $call('backup_release');
-    same('hooks: stopping, a layer in its staging area mounted - released too', "$ub --unmount\n", $read('backup.calls'));
+    same('hooks: stopping, a layer in its staging area mounted - released too', "$ub 1 --unmount\n", $read('backup.calls'));
     @unlink("$tmp/backup.calls");
     file_put_contents("$tmp/mounts", "unraid-backup-stage $tmp/stage tmpfs rw 0 0\n");
     $call('backup_release');
