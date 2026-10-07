@@ -1,0 +1,191 @@
+{
+  "name": "EmbyServer",
+  "type": "template",
+  "run": "20261007-1052",
+  "result": "ok",
+  "interface": 1,
+  "engine": "2.24",
+  "kind": "app",
+  "folder": "EmbyServer",
+  "files": [
+    {
+      "path": "db/sqlite_EmbyServer_authentication.db",
+      "bytes": 159744,
+      "run": "20261007-1052",
+      "what": "sqlite",
+      "container": "EmbyServer"
+    },
+    {
+      "path": "db/sqlite_EmbyServer_library.db",
+      "bytes": 415182848,
+      "run": "20261007-1052",
+      "what": "sqlite",
+      "container": "EmbyServer"
+    },
+    {
+      "path": "db/sqlite_EmbyServer_users.db",
+      "bytes": 40960,
+      "run": "20261007-1052",
+      "what": "sqlite",
+      "container": "EmbyServer"
+    },
+    {
+      "path": "my-EmbyServer.xml",
+      "bytes": 3315,
+      "run": "20261007-1052",
+      "what": "template",
+      "container": ""
+    }
+  ],
+  "dumps": [],
+  "sqlite": [
+    {
+      "container": "EmbyServer",
+      "file": "db/sqlite_EmbyServer_library.db",
+      "source": "/mnt/user/appdata/EmbyServer/data/library.db",
+      "path": "/config/data/library.db",
+      "check": "ok",
+      "present": true
+    },
+    {
+      "container": "EmbyServer",
+      "file": "db/sqlite_EmbyServer_users.db",
+      "source": "/mnt/user/appdata/EmbyServer/data/users.db",
+      "path": "/config/data/users.db",
+      "check": "ok",
+      "present": true
+    },
+    {
+      "container": "EmbyServer",
+      "file": "db/sqlite_EmbyServer_authentication.db",
+      "source": "/mnt/user/appdata/EmbyServer/data/authentication.db",
+      "path": "/config/data/authentication.db",
+      "check": "ok",
+      "present": true
+    }
+  ],
+  "own_backups": [
+    {
+      "kind": "emby",
+      "container": "EmbyServer",
+      "path": "/mnt/user/Backups/x",
+      "files": 0,
+      "newest": 0,
+      "asleep": false
+    }
+  ],
+  "compose": null,
+  "containers": [
+    {
+      "name": "EmbyServer",
+      "image": "emby/embyserver:latest",
+      "image_id": "sha256:5fd43a34a84f5e854ba58a9e4f7640d036da1ad6664682038226a3736d04eb8c",
+      "digests": [],
+      "service": null,
+      "running": true,
+      "inspect": {
+        "Config": {
+          "Env": [
+            "HOST_HOSTNAME=scrubbed",
+            "HOST_CONTAINERNAME=scrubbed",
+            "TCP_PORT_8096=scrubbed",
+            "UID=scrubbed",
+            "GID=scrubbed",
+            "GIDLIST=scrubbed",
+            "TZ=Europe/Berlin",
+            "HOST_OS=scrubbed",
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "LANG=en_US.UTF-8",
+            "HOME=scrubbed",
+            "AMDGPU_IDS_PATH=scrubbed",
+            "FONTCONFIG_PATH=scrubbed",
+            "LD_LIBRARY_PATH=scrubbed",
+            "LIBVA_DRIVERS_PATH=scrubbed",
+            "OCL_ICD_VENDORS=scrubbed",
+            "PCI_IDS_PATH=scrubbed",
+            "SSL_CERT_FILE=scrubbed",
+            "VK_DRIVER_FILES=scrubbed",
+            "VK_LAYER_PATH=scrubbed",
+            "VK_IMPLICIT_LAYER_PATH=scrubbed",
+            "PUID=scrubbed",
+            "PGID=scrubbed",
+            "UMASK=scrubbed",
+            "NVIDIA_VISIBLE_DEVICES=scrubbed",
+            "NVIDIA_DRIVER_CAPABILITIES=scrubbed",
+            "IGNORE_VAAPI_ENABLED_FLAG=scrubbed",
+            "XDG_CACHE_HOME=scrubbed",
+            "NEOReadDebugKeys=scrubbed",
+            "OverrideGpuAddressSpace=scrubbed"
+          ],
+          "Labels": {
+            "maintainer": "scrubbed",
+            "net.unraid.docker.icon": "scrubbed",
+            "net.unraid.docker.managed": "scrubbed",
+            "net.unraid.docker.webui": "scrubbed"
+          },
+          "Entrypoint": [
+            "/init"
+          ],
+          "Cmd": null,
+          "User": "",
+          "Volumes": {
+            "/config": {}
+          },
+          "Image": "emby/embyserver:latest"
+        },
+        "Mounts": [
+          {
+            "Type": "bind",
+            "Source": "/mnt/user/appdata/EmbyServer",
+            "Destination": "/config",
+            "RW": true
+          },
+          {
+            "Type": "bind",
+            "Source": "/mnt/user/Filme",
+            "Destination": "/data/Filme",
+            "RW": true
+          },
+          {
+            "Type": "bind",
+            "Source": "/mnt/user/Mediathek",
+            "Destination": "/data/Mediathek",
+            "RW": true
+          },
+          {
+            "Type": "bind",
+            "Source": "/mnt/user/Serien",
+            "Destination": "/data/Serien",
+            "RW": true
+          },
+          {
+            "Type": "bind",
+            "Source": "/mnt/user/Backups/EmbyServer",
+            "Destination": "/data/backup",
+            "RW": true
+          },
+          {
+            "Type": "bind",
+            "Source": "/dev/shm",
+            "Destination": "/dev/shm",
+            "RW": true
+          }
+        ],
+        "HostConfig": {
+          "NetworkMode": "br0",
+          "PortBindings": {},
+          "Privileged": false,
+          "CapAdd": null,
+          "Devices": [
+            {
+              "PathOnHost": "/dev/dri",
+              "PathInContainer": "/dev/dri",
+              "CgroupPermissions": "rwm"
+            }
+          ],
+          "ShmSize": 67108864
+        }
+      }
+    }
+  ]
+}

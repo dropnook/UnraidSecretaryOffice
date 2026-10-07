@@ -1150,5 +1150,9 @@
   "partner.why_short.link_lost": "conexión perdida",
   "partner.why_short.no_answer": "sin respuesta",
   "partner.why_short.need_full": "ninguna instantánea en común",
-  "partner.why_short.refused": "rechazado"
+  "partner.why_short.refused": "rechazado",
+  "drill.line_passed": "Restauración demostrada el {when}: {proven} de {total} — el simulacro del señor Restori se superó.",
+  "drill.line_failed": "Simulacro de restauración del {when}: {names} no volvió.",
+  "drill.line_go": "Al simulacro",
+  "notice.drilling": "El señor Restori está practicando una restauración con copias (su simulacro): tiene el bloqueo del motor, así que no empieza ninguna copia, ronda ni configuración hasta que termine — acaba mucho antes de la próxima copia programada."
 }

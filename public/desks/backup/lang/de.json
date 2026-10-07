@@ -1129,5 +1129,9 @@
   "partner.why_short.link_lost": "Verbindung verloren",
   "partner.why_short.no_answer": "keine Antwort",
   "partner.why_short.need_full": "kein gemeinsamer Snapshot",
-  "partner.why_short.refused": "abgelehnt"
+  "partner.why_short.refused": "abgelehnt",
+  "drill.line_passed": "Rückholung bewiesen am {when}: {proven} von {total} — Herrn Restoris Übung war bestanden.",
+  "drill.line_failed": "Rückhol-Übung am {when}: {names} kam nicht zurück.",
+  "drill.line_go": "Zur Übung",
+  "notice.drilling": "Herr Restori übt gerade eine Rückholung an Kopien (seine Übung): Er hält die Sperre der Engine, also beginnt keine Sicherung, kein Rundgang und keine Einrichtung, bis er fertig ist — er hört lange vor der nächsten geplanten Sicherung auf."
 }

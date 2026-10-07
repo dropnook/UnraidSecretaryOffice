@@ -1,0 +1,444 @@
+{
+  "name": "nextcloud",
+  "type": "compose",
+  "run": "20261007-1052",
+  "result": "ok",
+  "interface": 1,
+  "engine": "2.24",
+  "kind": "app",
+  "folder": "nextcloud",
+  "files": [
+    {
+      "path": "compose/.env",
+      "bytes": 2679,
+      "run": "20261007-1052",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "compose/Dockerfile",
+      "bytes": 1342,
+      "run": "20261007-1052",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "compose/autostart",
+      "bytes": 4,
+      "run": "20261007-1052",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "compose/compose.override.yaml",
+      "bytes": 1006,
+      "run": "20261007-1052",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "compose/compose.yaml",
+      "bytes": 4752,
+      "run": "20261007-1052",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "compose/has_build",
+      "bytes": 1,
+      "run": "20261007-1052",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "compose/name",
+      "bytes": 9,
+      "run": "20261007-1052",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "compose/project_name",
+      "bytes": 9,
+      "run": "20261007-1052",
+      "what": "compose",
+      "container": ""
+    },
+    {
+      "path": "db/mariadb_nextcloud-db_nextcloud.sql.gz",
+      "bytes": 21135611,
+      "run": "20261007-1052",
+      "what": "dump",
+      "container": "nextcloud-db"
+    },
+    {
+      "path": "nextcloud/nextcloud-app_config.php",
+      "bytes": 2033,
+      "run": "20261007-1052",
+      "what": "nextcloud",
+      "container": ""
+    },
+    {
+      "path": "nextcloud/nextcloud-app_occ-app-list.txt",
+      "bytes": 1623,
+      "run": "20261007-1052",
+      "what": "nextcloud",
+      "container": ""
+    },
+    {
+      "path": "nextcloud/nextcloud-app_occ-config-list-system.txt",
+      "bytes": 1919,
+      "run": "20261007-1052",
+      "what": "nextcloud",
+      "container": ""
+    },
+    {
+      "path": "nextcloud/nextcloud-app_occ-files_external-list.txt",
+      "bytes": 325,
+      "run": "20261007-1052",
+      "what": "nextcloud",
+      "container": ""
+    },
+    {
+      "path": "nextcloud/nextcloud-app_occ-status.txt",
+      "bytes": 184,
+      "run": "20261007-1052",
+      "what": "nextcloud",
+      "container": ""
+    },
+    {
+      "path": "nextcloud/nextcloud-app_occ-user-list.txt",
+      "bytes": 148,
+      "run": "20261007-1052",
+      "what": "nextcloud",
+      "container": ""
+    }
+  ],
+  "dumps": [
+    {
+      "container": "nextcloud-db",
+      "type": "mariadb",
+      "state": "ok",
+      "login": "user",
+      "user_var": "MARIADB_USER",
+      "password_var": "MARIADB_PASSWORD",
+      "client": "mariadb"
+    }
+  ],
+  "sqlite": [],
+  "own_backups": [],
+  "compose": {
+    "project": "nextcloud",
+    "manager_dir": "nextcloud",
+    "working_dir": "/boot/x",
+    "config_files": []
+  },
+  "containers": [
+    {
+      "name": "nextcloud-cron",
+      "image": "nextcloud-ocr:34",
+      "image_id": "sha256:8051b6763aaa0d842f0c790a2591fabc95160c631875553f498bf45fd0b84425",
+      "digests": [],
+      "service": "cron",
+      "running": true,
+      "inspect": {
+        "Config": {
+          "Env": [
+            "TZ=Europe/Zurich",
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "PHPIZE_DEPS=scrubbed",
+            "PHP_INI_DIR=scrubbed",
+            "APACHE_CONFDIR=scrubbed",
+            "APACHE_ENVVARS=scrubbed",
+            "PHP_CFLAGS=scrubbed",
+            "PHP_CPPFLAGS=scrubbed",
+            "PHP_LDFLAGS=scrubbed",
+            "GPG_KEYS=scrubbed",
+            "PHP_VERSION=scrubbed",
+            "PHP_URL=scrubbed",
+            "PHP_ASC_URL=scrubbed",
+            "PHP_SHA256=scrubbed",
+            "PHP_MEMORY_LIMIT=scrubbed",
+            "PHP_UPLOAD_LIMIT=scrubbed",
+            "PHP_OPCACHE_MEMORY_CONSUMPTION=scrubbed",
+            "APACHE_BODY_LIMIT=scrubbed",
+            "NEXTCLOUD_VERSION=scrubbed"
+          ],
+          "Labels": {
+            "com.docker.compose.config-hash": "scrubbed",
+            "com.docker.compose.container-number": "scrubbed",
+            "com.docker.compose.depends_on": "scrubbed",
+            "com.docker.compose.image": "scrubbed",
+            "com.docker.compose.oneoff": "scrubbed",
+            "com.docker.compose.project": "scrubbed",
+            "com.docker.compose.project.config_files": "scrubbed",
+            "com.docker.compose.project.environment_file": "scrubbed",
+            "com.docker.compose.project.working_dir": "scrubbed",
+            "com.docker.compose.replace": "scrubbed",
+            "com.docker.compose.service": "scrubbed",
+            "com.docker.compose.version": "scrubbed",
+            "net.unraid.docker.icon": "scrubbed",
+            "net.unraid.docker.managed": "scrubbed"
+          },
+          "Entrypoint": [
+            "/cron.sh"
+          ],
+          "Cmd": null,
+          "User": "",
+          "Volumes": {
+            "/var/www/html": {}
+          },
+          "Image": "nextcloud-ocr:34"
+        },
+        "Mounts": [
+          {
+            "Type": "bind",
+            "Source": "/mnt/user/appdata/nextcloud/html",
+            "Destination": "/var/www/html",
+            "RW": true
+          },
+          {
+            "Type": "bind",
+            "Source": "/mnt/user/nextcloud_data",
+            "Destination": "/var/www/html/data",
+            "RW": true
+          }
+        ],
+        "HostConfig": {
+          "NetworkMode": "nextcloud_backend",
+          "PortBindings": {},
+          "Privileged": false,
+          "CapAdd": null,
+          "Devices": null,
+          "ShmSize": 67108864
+        }
+      }
+    },
+    {
+      "name": "nextcloud-app",
+      "image": "nextcloud-ocr:34",
+      "image_id": "sha256:8051b6763aaa0d842f0c790a2591fabc95160c631875553f498bf45fd0b84425",
+      "digests": [],
+      "service": "app",
+      "running": true,
+      "inspect": {
+        "Config": {
+          "Env": [
+            "MYSQL_USER=scrubbed",
+            "OVERWRITEHOST=scrubbed",
+            "MYSQL_PASSWORD=scrubbed",
+            "PHP_UPLOAD_LIMIT=scrubbed",
+            "OVERWRITEPROTOCOL=scrubbed",
+            "OVERWRITECLIURL=scrubbed",
+            "REDIS_HOST=scrubbed",
+            "MYSQL_HOST=scrubbed",
+            "PHP_MEMORY_LIMIT=scrubbed",
+            "TRUSTED_PROXIES=scrubbed",
+            "NEXTCLOUD_TRUSTED_DOMAINS=scrubbed",
+            "TZ=Europe/Zurich",
+            "MYSQL_DATABASE=scrubbed",
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "PHPIZE_DEPS=scrubbed",
+            "PHP_INI_DIR=scrubbed",
+            "APACHE_CONFDIR=scrubbed",
+            "APACHE_ENVVARS=scrubbed",
+            "PHP_CFLAGS=scrubbed",
+            "PHP_CPPFLAGS=scrubbed",
+            "PHP_LDFLAGS=scrubbed",
+            "GPG_KEYS=scrubbed",
+            "PHP_VERSION=scrubbed",
+            "PHP_URL=scrubbed",
+            "PHP_ASC_URL=scrubbed",
+            "PHP_SHA256=scrubbed",
+            "PHP_OPCACHE_MEMORY_CONSUMPTION=scrubbed",
+            "APACHE_BODY_LIMIT=scrubbed",
+            "NEXTCLOUD_VERSION=scrubbed"
+          ],
+          "Labels": {
+            "com.docker.compose.config-hash": "scrubbed",
+            "com.docker.compose.container-number": "scrubbed",
+            "com.docker.compose.depends_on": "scrubbed",
+            "com.docker.compose.image": "scrubbed",
+            "com.docker.compose.oneoff": "scrubbed",
+            "com.docker.compose.project": "scrubbed",
+            "com.docker.compose.project.config_files": "scrubbed",
+            "com.docker.compose.project.environment_file": "scrubbed",
+            "com.docker.compose.project.working_dir": "scrubbed",
+            "com.docker.compose.replace": "scrubbed",
+            "com.docker.compose.service": "scrubbed",
+            "com.docker.compose.version": "scrubbed",
+            "net.unraid.docker.icon": "scrubbed",
+            "net.unraid.docker.managed": "scrubbed"
+          },
+          "Entrypoint": [
+            "/entrypoint.sh"
+          ],
+          "Cmd": [
+            "apache2-foreground"
+          ],
+          "User": "",
+          "Volumes": {
+            "/var/www/html": {}
+          },
+          "Image": "nextcloud-ocr:34"
+        },
+        "Mounts": [
+          {
+            "Type": "bind",
+            "Source": "/mnt/user/appdata/nextcloud/html",
+            "Destination": "/var/www/html",
+            "RW": true
+          },
+          {
+            "Type": "bind",
+            "Source": "/mnt/user/nextcloud_data",
+            "Destination": "/var/www/html/data",
+            "RW": true
+          }
+        ],
+        "HostConfig": {
+          "NetworkMode": "nextcloud_backend",
+          "PortBindings": {},
+          "Privileged": false,
+          "CapAdd": null,
+          "Devices": null,
+          "ShmSize": 67108864
+        }
+      }
+    },
+    {
+      "name": "nextcloud-db",
+      "image": "mariadb:11.4",
+      "image_id": "sha256:ab3dff582d246358b6f6a1f6212f29ac64609fad883eb3dcfb0a89f6f7d0700e",
+      "digests": [],
+      "service": "db",
+      "running": true,
+      "inspect": {
+        "Config": {
+          "Env": [
+            "MARIADB_PASSWORD=scrubbed",
+            "MARIADB_RANDOM_ROOT_PASSWORD=scrubbed",
+            "MARIADB_AUTO_UPGRADE=scrubbed",
+            "TZ=Europe/Zurich",
+            "MARIADB_DATABASE=scrubbed",
+            "MARIADB_USER=scrubbed",
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "GOSU_VERSION=1.19",
+            "LANG=C.UTF-8",
+            "MARIADB_VERSION=1:11.4.13+maria~ubu2404"
+          ],
+          "Labels": {
+            "com.docker.compose.config-hash": "scrubbed",
+            "com.docker.compose.container-number": "scrubbed",
+            "com.docker.compose.depends_on": "scrubbed",
+            "com.docker.compose.image": "scrubbed",
+            "com.docker.compose.oneoff": "scrubbed",
+            "com.docker.compose.project": "scrubbed",
+            "com.docker.compose.project.config_files": "scrubbed",
+            "com.docker.compose.project.environment_file": "scrubbed",
+            "com.docker.compose.project.working_dir": "scrubbed",
+            "com.docker.compose.replace": "scrubbed",
+            "com.docker.compose.service": "scrubbed",
+            "com.docker.compose.version": "scrubbed",
+            "net.unraid.docker.icon": "scrubbed",
+            "net.unraid.docker.managed": "scrubbed",
+            "org.opencontainers.image.authors": "scrubbed",
+            "org.opencontainers.image.base.name": "scrubbed",
+            "org.opencontainers.image.description": "scrubbed",
+            "org.opencontainers.image.documentation": "scrubbed",
+            "org.opencontainers.image.licenses": "scrubbed",
+            "org.opencontainers.image.source": "scrubbed",
+            "org.opencontainers.image.title": "scrubbed",
+            "org.opencontainers.image.url": "scrubbed",
+            "org.opencontainers.image.vendor": "scrubbed",
+            "org.opencontainers.image.version": "scrubbed"
+          },
+          "Entrypoint": [
+            "docker-entrypoint.sh"
+          ],
+          "Cmd": [
+            "--transaction-isolation=READ-COMMITTED"
+          ],
+          "User": "",
+          "Volumes": {
+            "/var/lib/mysql": {}
+          },
+          "Image": "mariadb:11.4"
+        },
+        "Mounts": [
+          {
+            "Type": "bind",
+            "Source": "/mnt/user/appdata/nextcloud/db",
+            "Destination": "/var/lib/mysql",
+            "RW": true
+          }
+        ],
+        "HostConfig": {
+          "NetworkMode": "nextcloud_backend",
+          "PortBindings": {},
+          "Privileged": false,
+          "CapAdd": null,
+          "Devices": null,
+          "ShmSize": 67108864
+        }
+      }
+    },
+    {
+      "name": "nextcloud-redis",
+      "image": "redis:8-alpine",
+      "image_id": "sha256:15f5a4aad4c3ba34b9874ddbc7f755b469dbd7b8a9e88c12690c52ef6c72465c",
+      "digests": [],
+      "service": "redis",
+      "running": true,
+      "inspect": {
+        "Config": {
+          "Env": [
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "REDIS_VERSION=scrubbed"
+          ],
+          "Labels": {
+            "com.docker.compose.config-hash": "scrubbed",
+            "com.docker.compose.container-number": "scrubbed",
+            "com.docker.compose.depends_on": "scrubbed",
+            "com.docker.compose.image": "scrubbed",
+            "com.docker.compose.oneoff": "scrubbed",
+            "com.docker.compose.project": "scrubbed",
+            "com.docker.compose.project.config_files": "scrubbed",
+            "com.docker.compose.project.environment_file": "scrubbed",
+            "com.docker.compose.project.working_dir": "scrubbed",
+            "com.docker.compose.replace": "scrubbed",
+            "com.docker.compose.service": "scrubbed",
+            "com.docker.compose.version": "scrubbed",
+            "net.unraid.docker.icon": "scrubbed",
+            "net.unraid.docker.managed": "scrubbed"
+          },
+          "Entrypoint": [
+            "docker-entrypoint.sh"
+          ],
+          "Cmd": [
+            "redis-server"
+          ],
+          "User": "",
+          "Volumes": null,
+          "Image": "redis:8-alpine"
+        },
+        "Mounts": [
+          {
+            "Type": "bind",
+            "Source": "/mnt/user/appdata/nextcloud/redis",
+            "Destination": "/data",
+            "RW": true
+          }
+        ],
+        "HostConfig": {
+          "NetworkMode": "nextcloud_backend",
+          "PortBindings": {},
+          "Privileged": false,
+          "CapAdd": null,
+          "Devices": null,
+          "ShmSize": 67108864
+        }
+      }
+    }
+  ]
+}

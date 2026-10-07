@@ -1129,5 +1129,9 @@
   "partner.why_short.link_lost": "link lost",
   "partner.why_short.no_answer": "no answer",
   "partner.why_short.need_full": "no common snapshot",
-  "partner.why_short.refused": "refused"
+  "partner.why_short.refused": "refused",
+  "drill.line_passed": "Restore proven {when}: {proven} of {total} — Mr. Restori's drill passed.",
+  "drill.line_failed": "Restore drill {when}: {names} didn't come back.",
+  "drill.line_go": "To the drill",
+  "notice.drilling": "Mr. Restori is practising a restore on copies right now (his drill): he holds the engine's lock, so no run, tour or setup starts until he is done — he ends well before the next scheduled run."
 }

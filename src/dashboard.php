@@ -191,6 +191,25 @@ function officeDashRestoring(?array $job, ?int $now = null): bool
         && ($now ?? time()) - (int) ($job['heartbeat'] ?? 0) < 180;
 }
 
+/**
+ * Mr. Restori's drill on the tile (its certificate, data/restore-drill.json, only — no row before the first drill):
+ * passed (green), failed (orange), overdue — no passed drill for 60 days (plain)
+ *
+ * @return array{0:string, 1:string, 2:int}|null  key of its text, tone, the time to show
+ */
+function officeDashDrill(?array $cert, ?int $now = null): ?array
+{
+    $last = is_array($cert) && ($cert['interface'] ?? 0) === 1 && is_array($cert['last'] ?? null) ? $cert['last'] : null;
+    if (!$last || !in_array($last['result'] ?? '', ['passed', 'failed'], true)) {
+        return null;
+    }
+    $passed = (int) ($cert['last_passed'] ?? 0);
+    if ($last['result'] === 'failed') {
+        return ['restore.dash_drill_failed', 'orange', (int) ($last['ended'] ?? 0)];
+    }
+    return ($now ?? time()) - $passed > 60 * 86400 ? ['restore.dash_drill_overdue', 'plain', $passed] : ['restore.dash_drill_passed', 'green', $passed];
+}
+
 /** The tile's rows as HTML (escaped) */
 function officeDashRows(string $lang): string
 {
@@ -248,6 +267,10 @@ function officeDashRows(string $lang): string
     if (officeDashRestoring($job)) {
         $out .= $row('restore', officeDashAsset('desks/restore/avatar.svg'), officeDashT($s, 'restore.name'),
             officeDashT($s, 'restore.dash_restoring', ['what' => (string) $job['what']]), 'orange');
+    } elseif ($drill = officeDashDrill(isset($hired['restore']) ? officeReadJson(OFFICE_DATA . '/restore-drill.json') : null)) {
+        // otherwise his drill: the last one's result (no row before the first drill)
+        $out .= $row('restore/drill', officeDashAsset('desks/restore/avatar.svg'), officeDashT($s, 'restore.name'),
+            officeDashT($s, $drill[0], ['when' => officeDashWhen($s, $drill[2], $lang)]), $drill[1]);
     }
     return $out;
 }

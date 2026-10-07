@@ -11,8 +11,9 @@
 const ID = 'restore';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
-const SECTIONS = ['apps', 'vms', 'dbs', 'kopia', 'journal', 'move'];
-const ICONS = { apps: '📦', vms: '🖥️', dbs: '🗄️', kopia: '☁️', journal: '📓', move: '🚚' };
+const SECTIONS = ['apps', 'vms', 'dbs', 'kopia', 'journal', 'move', 'drill'];
+const ICONS = { apps: '📦', vms: '🖥️', dbs: '🗄️', kopia: '☁️', journal: '📓', move: '🚚', drill: '🧪' };
+const SELF = (typeof document !== 'undefined' && document.currentScript && document.currentScript.src) || '';     // drill.js lies next to this file
 const HOLDERS = ['backup', 'check', 'dryrun', 'setup', 'restore', 'other'];
 const JOB_POLL = 2000;
 const TPL = '/boot/config/plugins/dockerMan/templates-user';
@@ -223,6 +224,7 @@ function runningJob() {
 function otherHolder() {
   const h = engine().holder;
   if (!h || runningJob()) return null;
+  if (h.holder === 'restore' && h.mode === 'drill') return 'drill';      // my own drill, on copies
   return HOLDERS.includes(h.holder) ? h.holder : 'other';
 }
 
@@ -286,6 +288,7 @@ function render() {
     [T('help.chips'), T('help.chips_text')],
     [T('help.restoring'), T('help.restoring_text')],
     [T('help.journal'), T('help.journal_text')],
+    [T('help.drill'), T('help.drill_text')],
   ]));
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
   const notes = el('div', 'rs-notices');
@@ -350,6 +353,7 @@ function tileLine(sec) {
     const t = Math.max(0, ...(state.shares || []).map((s) => s.last || 0), ...apps().map((a) => kopiaNewest(a.kopia)), ...vms().map((v) => kopiaNewest(v.kopia)));
     return [kopia().container ? T('tile.kopia_on', { name: kopia().container }) : T('tile.kopia_missing'), t ? fmt.relative(t) : ''];
   }
+  if (sec === 'drill') return Office.restoreDrill ? Office.restoreDrill.tileLine() : [T('drill.tile_none'), ''];
   return [T('tile.move_line'), ''];
 }
 
@@ -375,6 +379,7 @@ function pick(sec) {
   section = sec;
   Office.store('restore.section', sec);
   Office.keepInPlace(view.tiles, () => { renderTiles(); renderSection(); });
+  if (sec === 'drill' && Office.restoreDrill) Office.restoreDrill.refresh();
 }
 
 function renderSection() {
@@ -387,6 +392,7 @@ function renderSection() {
   else if (section === 'kopia') body.appendChild(kopiaSection());
   else if (section === 'journal') body.appendChild(journalSection());
   else if (section === 'move') body.appendChild(moveSection());
+  else if (section === 'drill') body.appendChild(Office.restoreDrill ? Office.restoreDrill.section() : el('p', 'empty', Office.t('common.loading')));
 }
 
 /** "Unfold all" / "Fold all" for the rows of a list */
@@ -466,6 +472,8 @@ function appRow(a) {
   meta.appendChild(el('span', '', T('type.' + (a.type || 'container'))));
   if (!a.present) meta.appendChild(chip(T('chip.gone'), 'danger', T('chip.gone_hint')));
   rowChips(meta, a, a.dumps.length ? [chip(T('chip.dumps', { n: a.dumps.length }), '', T('chip.dumps_hint'))] : [], []);
+  const drilled = Office.restoreDrill && Office.restoreDrill.appChip('app', a.id);
+  if (drilled) meta.appendChild(drilled);
   return unfoldingRow('app:' + a.id, a.name, meta, () => appDetail(a));
 }
 
@@ -927,6 +935,8 @@ function vmRow(v) {
   const meta = el('div', 'row-meta');
   meta.appendChild(vmStateChip(v));
   rowChips(meta, v, v.tpm ? [chip(T('vm.tpm'), 'quiet', T('vm.tpm_hint'))] : [], []);
+  const drilled = Office.restoreDrill && Office.restoreDrill.appChip('vm', v.id);
+  if (drilled) meta.appendChild(drilled);
   return unfoldingRow('vm:' + v.id, v.name, meta, () => vmDetail(v));
 }
 
@@ -1798,15 +1808,40 @@ function openJournal(id) {
 }
 
 // ------------------------------------------------------------------ desk
+// ------------------------------------------------------------------ the drill (drill.js, next to this file)
+/** drill.js gets the helpers it shares with this page; it says when it has something new to show */
+function drillHelpers() {
+  const redraw = (all) => {
+    if (!view || !view.tiles) return;
+    Office.keepInPlace(view.tiles, () => { renderTiles(); if (all && section === 'drill') renderSection(); });
+  };
+  return { T, fmt, date, chip, button, sectionBox, unfoldingRow, fold, listBlock, redraw: () => redraw(true), tiles: () => redraw(false), shown: () => !!view };
+}
+function loadDrill() {
+  if (Office.restoreDrill || !SELF) return;
+  const s = document.createElement('script');
+  s.src = SELF.replace(/desk\.js(\?[^#]*)?$/, 'drill.js$1');
+  s.onload = () => {
+    if (!Office.restoreDrill) return;
+    Office.restoreDrill.init(drillHelpers());
+    if (view && section === 'drill') Office.restoreDrill.refresh();
+  };
+  (document.currentScript && document.currentScript.parentNode || document.body || document.head).appendChild(s);
+}
+loadDrill();
+
 Office.desk({
   id: ID,
-  async mount(root) {
+  /** sub: «drill» (#/restore/drill — the Team Lead's and Mr. Backupsy's links) — that section open */
+  async mount(root, sub) {
     view = root;
+    if (sub === 'drill') { section = 'drill'; Office.store('restore.section', section); }
     render();
+    if (section === 'drill' && Office.restoreDrill) Office.restoreDrill.refresh();
     await load(false);
     pollJob();             // a restore started elsewhere shows at once
   },
-  unmount() { view = null; clearTimeout(jobTimer); jobTimer = null; },
+  unmount() { view = null; clearTimeout(jobTimer); jobTimer = null; if (Office.restoreDrill) Office.restoreDrill.stop(); },
   poll() { load(false); },
   // every answer carries the agent's info: draw anew only when it comes or goes (the buttons depend on it) — not on
   // each answer, which would fold what is open (earlier nights asked for when a fold opens)

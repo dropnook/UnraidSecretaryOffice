@@ -388,8 +388,9 @@ function notices() {
     callout(T('notice.setup_running'), false, button(T('setup_open'), 'small plain', () => Office.go(`#/${ID}/setup`)));
   }
   if (restoring()) {
-    const go = Office.desks.has('restore') ? button(T('notice.restoring_go'), 'small plain', () => Office.go('#/restore')) : null;
-    callout(T('notice.restoring', { what: state.holder.what || '–' }), false, go);
+    const drill = state.holder.mode === 'drill';          // Mr. Restori's drill: practising on copies, not bringing anything back
+    const go = Office.desks.has('restore') ? button(T('notice.restoring_go'), 'small plain', () => Office.go(drill ? '#/restore/drill' : '#/restore')) : null;
+    callout(drill ? T('notice.drilling') : T('notice.restoring', { what: state.holder.what || '–' }), false, go);
   }
   if (!state.settings_found) callout(T('notice.no_settings'), true, button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
   const sc = state.schedule || {};
@@ -1249,6 +1250,17 @@ function restoreSection() {
   if (pk) item(T('restore.pk'), T('restore.pk_text', { path: pk.base }));
   box.appendChild(dl);
   const restori = Office.desks.get('restore');
+  // Mr. Restori's drill: whether restoring was proven lately (his certificate, one line)
+  const dr = state.drill;
+  if (dr && restori && restori.hired) {
+    const line = el('p', dr.result === 'failed' ? 'callout warn' : 'role');
+    line.append(dr.result === 'failed' ? T('drill.line_failed', { when: fmt.date(dr.ended), names: (dr.failed || []).join(', ') || '–' })
+      : T('drill.line_passed', { when: fmt.date(dr.ended), proven: dr.proven, total: dr.total }), ' ');
+    const go = el('a', '', T('drill.line_go'));
+    go.href = '#/restore/drill';
+    line.appendChild(go);
+    box.appendChild(line);
+  }
   const p = el('p', 'callout');
   if (restori && restori.hired) {
     p.append(T('restore.restori'), ' ');

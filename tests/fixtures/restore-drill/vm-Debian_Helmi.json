@@ -1,0 +1,41 @@
+{
+  "name": "Debian_Helmi",
+  "run": "20261007-1052",
+  "result": "ok",
+  "uuid": "9b3e9c65-84b4-2410-470b-8f719c38ea29",
+  "xml": "Debian_Helmi.xml",
+  "autostart": true,
+  "prepare": "shutdown",
+  "disks": [
+    {
+      "target": "hdc",
+      "source": "/mnt/user/domains/Debian_Helmi/vdisk1.img",
+      "base": "master",
+      "fs": "zfs",
+      "dataset": "master/domains",
+      "share": "domains",
+      "bytes": 107374182400,
+      "snapshot": "master/domains@uso-backup-20261007-1052"
+    }
+  ],
+  "files": [
+    {
+      "path": "Debian_Helmi.xml",
+      "bytes": 6298,
+      "run": "20261007-1052",
+      "what": "xml",
+      "container": ""
+    },
+    {
+      "path": "nvram/9b3e9c65-84b4-2410-470b-8f719c38ea29_VARS-pure-efi.fd",
+      "bytes": 131072,
+      "run": "20261007-1052",
+      "what": "nvram",
+      "container": ""
+    }
+  ],
+  "interface": 1,
+  "engine": "2.24",
+  "kind": "vm",
+  "folder": "Debian_Helmi"
+}
