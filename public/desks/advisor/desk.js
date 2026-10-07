@@ -76,14 +76,16 @@ chown -R 99:100 $P`,
   loki: { icon: '📜', open: '/Docker', install: null, desk: null, copy: {} },
 };
 
-// S3 providers for Kopia's repository: an example endpoint each (only a placeholder, never filled in)
+// S3 providers for Kopia's repository: an example endpoint each (only a placeholder, never filled in); versitygw: a second
+// Unraid's tunnel address (the Consultant's guide). minio isn't offered any more (its community edition was archived in
+// 2026-04) but keeps its name for repositories set up with it
 const PROVIDERS = {
   s3: 's3.example.com', aws: 's3.amazonaws.com', b2: 's3.eu-central-003.backblazeb2.com', r2: '<account>.r2.cloudflarestorage.com',
   mega: 's3.eu-central-1.s4.mega.io', wasabi: 's3.eu-central-1.wasabisys.com', hetzner: 'fsn1.your-objectstorage.com',
-  idrive: '<region>.idrivee2-<n>.com', minio: 'minio.lan:9000',
+  idrive: '<region>.idrivee2-<n>.com', versitygw: '100.x.y.z:7070',
 };
 const PROVIDER_NAMES = { aws: 'Amazon S3', b2: 'Backblaze B2', r2: 'Cloudflare R2', mega: 'MEGA S4', wasabi: 'Wasabi',
-  hetzner: 'Hetzner Object Storage', idrive: 'IDrive e2', minio: 'MinIO' };
+  hetzner: 'Hetzner Object Storage', idrive: 'IDrive e2', versitygw: 'versitygw', minio: 'MinIO' };
 
 let state = null;
 let view = null;
@@ -361,31 +363,65 @@ function howto(id, x) {
   });
   if (Object.values(values).some((v) => v.includes('<server-ip>'))) box.appendChild(el('div', 'ad-note', T('ip_unknown')));
   det.appendChild(box);
-  if (id === 'kopia') det.appendChild(lockGuide());
+  if (id === 'kopia') det.append(lockGuide(), partnerGuide());
   return det;
 }
 
-/** Kopia by hand: ransomware protection with S3 Object Lock — what, why, who offers it, how, the price, after an attack */
+/**
+ * Kopia by hand: ransomware protection with S3 Object Lock — what, why, who offers it, how, the price, after an attack;
+ * then versitygw as your own S3 server on a second Unraid (the container by hand, TLS, a user and a bucket per repository)
+ */
 const LOCK_COPIES = {
   create: 'kopia repository create s3 --bucket=<bucket> --endpoint=<endpoint> --access-key=<access key> --secret-access-key=<secret key> --retention-mode=COMPLIANCE --retention-period=30d',
   extend: 'kopia maintenance set --extend-object-locks=true',
   check: 'kopia repository status',
 };
-function lockGuide() {
-  const box = el('div', 'ad-lock-guide');
-  box.appendChild(el('div', 'field-title', T('lock.title')));
-  for (let i = 1; Office.has(`${ID}.lock.${i}`); i++) box.appendChild(el('p', 'ad-lock-p', T(`lock.${i}`, { days: 30 })));
-  const copies = el('div', 'ad-copies');
-  Object.entries(LOCK_COPIES).forEach(([key, value]) => {
+// on the second server, in Unraid's terminal there: a user who sees only his buckets, his bucket born with Object Lock
+const VGW_ADMIN = 'docker exec versitygw versitygw admin --access <root key> --secret <root secret> --endpoint-url http://<address>:7070';
+const VGW_COPIES = {
+  vgw_user: `${VGW_ADMIN} create-user --access <bucket key> --secret <bucket secret> --role user`,
+  vgw_bucket: `${VGW_ADMIN} create-bucket --bucket <bucket> --owner <bucket key> --object-lock-enabled-for-bucket`,
+};
+/** A guide's paragraphs: the lang keys <prefix>.1, <prefix>.2 … as long as they exist */
+function paragraphs(box, prefix, params) {
+  for (let i = 1; Office.has(`${ID}.${prefix}.${i}`); i++) box.appendChild(el('p', 'ad-lock-p', T(`${prefix}.${i}`, params)));
+}
+/** Command lines to copy, each labelled by copy.<prefix>.<key> */
+function copyLines(copies, prefix) {
+  const box = el('div', 'ad-copies');
+  Object.entries(copies).forEach(([key, value]) => {
     const line = el('div', 'ad-copy');
     const b = el('button', 'btn small plain', Office.t('common.copy'));
     b.type = 'button';
     b.onclick = () => Office.copy(value);
-    line.append(el('span', 'ad-copy-label', T(`copy.lock.${key}`)), el('code', '', value), b);
-    copies.appendChild(line);
+    line.append(el('span', 'ad-copy-label', T(`copy.${prefix}.${key}`)), el('code', '', value), b);
+    box.appendChild(line);
   });
-  box.appendChild(copies);
-  box.appendChild(callout(T('lock.minio'), true));
+  return box;
+}
+function lockGuide() {
+  const box = el('div', 'ad-lock-guide');
+  box.appendChild(el('div', 'field-title', T('lock.title')));
+  paragraphs(box, 'lock', { days: 30 });
+  box.appendChild(copyLines(LOCK_COPIES, 'lock'));
+  box.appendChild(el('div', 'field-title', T('lock.vgw_title')));
+  paragraphs(box, 'lock.vgw');
+  box.appendChild(copyLines(VGW_COPIES, 'lock'));
+  box.appendChild(callout(T('lock.vgw_warn'), true));
+  return box;
+}
+
+/**
+ * Kopia by hand: encrypted Kopia to a partner's server — the idea (the partner holds only encrypted blocks, the password
+ * stays here), the steps (versitygw at the partner's, a tunnel — WireGuard recommended, Tailscale the easy one, never
+ * built by the office —, the assistant with the partner's address), the first upload in the LAN, the honest limits
+ * (his uptime, root at his place, 3-2-1), the ZFS partner service as the other way
+ */
+function partnerGuide() {
+  const box = el('div', 'ad-lock-guide');
+  box.appendChild(el('div', 'field-title', T('partner.title')));
+  paragraphs(box, 'partner');
+  box.appendChild(callout(T('partner.warn'), true));
   return box;
 }
 
