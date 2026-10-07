@@ -369,5 +369,9 @@
   "partner.tailnet_online": "In the tailnet, but its office doesn't answer — is its array stopped, the plugin gone, SSH switched off?",
   "partner.last_transfer": "Last transfer {size} at {mbit} Mbit/s",
   "notify.partner_tailnet_offline": "Tailscale says: {name} is offline in the tailnet as well.",
-  "notify.partner_tailnet_online": "Tailscale says: {name} is online in the tailnet — only its office doesn't answer."
+  "notify.partner_tailnet_online": "Tailscale says: {name} is online in the tailnet — only its office doesn't answer.",
+  "partner.self_title": "Pair this office with itself",
+  "partner.self_text": "This is this office's own block: it pairs with itself — a test on one server. It sends to {address} and keeps the copies in a dataset of its own on the pool you choose. Another server is the real thing.",
+  "partner.self_done": "Paired with itself — the door answers.",
+  "partner.self_silent": "Paired with itself, but the door doesn't answer: {why}"
 }

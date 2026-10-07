@@ -369,5 +369,9 @@
   "partner.tailnet_online": "Nella tailnet c'è, ma la sua segreteria non risponde — array fermo, plugin tolto, SSH spento?",
   "partner.last_transfer": "Ultimo trasferimento {size} a {mbit} Mbit/s",
   "notify.partner_tailnet_offline": "Tailscale dice: {name} è offline anche nella tailnet.",
-  "notify.partner_tailnet_online": "Tailscale dice: {name} è online nella tailnet — solo la sua segreteria non risponde."
+  "notify.partner_tailnet_online": "Tailscale dice: {name} è online nella tailnet — solo la sua segreteria non risponde.",
+  "partner.self_title": "Abbina questa segreteria con se stessa",
+  "partner.self_text": "Questo è il blocco di questa segreteria: si abbina con se stessa — una prova su un solo server. Manda a {address} e conserva le copie in un dataset proprio sul pool che scegli. Quello vero è con un altro server.",
+  "partner.self_done": "Abbinata con se stessa — la porta risponde.",
+  "partner.self_silent": "Abbinata con se stessa, ma la porta non risponde: {why}"
 }

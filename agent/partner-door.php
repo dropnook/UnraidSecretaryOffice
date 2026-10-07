@@ -395,13 +395,19 @@ function doorRecv(array $pair, string $unit, string $snap, ?string $from): int
     $zfs = partnerBin('zfs') ?? 'zfs';
     $cmd = [$zfs, 'recv', '-s', '-u'];
     if (!$resume && $from === null) {
-        // the first receive: never mounted, never shared, read-only — legacy: shfs and Unraid never see it
+        // the first receive: never mounted, never shared, read-only — legacy: shfs and Unraid never see it (with a -R
+        // stream its descendants inherit mountpoint=legacy too)
         array_push($cmd, '-o', 'mountpoint=legacy', '-o', 'canmount=noauto', '-o', 'readonly=on', '-x', 'sharesmb', '-x', 'sharenfs');
+    } else {
+        // later ones change nothing of that: the stream's own mountpoint/canmount/shares are left out — for the dataset
+        // (its local values win anyway) and for any descendant a -R stream would bring (else a mountpoint=/etc there
+        // would be mounted at the next boot)
+        array_push($cmd, '-x', 'mountpoint', '-x', 'canmount', '-x', 'sharesmb', '-x', 'sharenfs');
     }
     $cmd[] = $resume ? $ds : "$ds@$snap";
 
     doorSay(['ok' => true], true);
-    doorLog($id, "recv $unit $snap" . ($from !== null ? " from $from" : ' (full)') . " → $ds");
+    doorLog($id, "recv $unit $snap" . ($resume ? ' (resumed)' : ($from !== null ? " from $from" : ' (full)')) . " -> $ds");
     $env = ['PATH' => '/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin', 'LC_ALL' => 'C', 'HOME' => '/root'];
     $t0 = microtime(true);
     $mb = null;
@@ -464,10 +470,17 @@ function doorRecv(array $pair, string $unit, string $snap, ?string $from): int
     @unlink($record);
     $seconds = (int) round(microtime(true) - $t0);
     if ($code !== 0 || $stopped) {
-        $detail = substr(trim((string) preg_replace('/[^\x20-\x7e\n]/', '?', $errText)), -400);
+        $detail = substr(trim((string) preg_replace('/[^\x20-\x7e\n]/', '?', $errText)), 0, 400);
+        $token = doorZfsGet($ds, 'receive_resume_token')['receive_resume_token'] ?? '-';
         doorLog($id, "recv $unit $snap failed" . ($stopped ? ' (stopped)' : '') . ': ' . str_replace("\n", ' | ', $detail));
-        doorSay(['ok' => false, 'why' => $stopped ? 'stopped' : 'recv_failed', 'detail' => $detail], true);
+        doorSay(['ok' => false, 'why' => $stopped ? 'stopped' : 'recv_failed', 'detail' => $detail, 'resumable' => $token !== '-' && $token !== ''], true);
         return 1;
+    }
+    if ($resume) {
+        // a resumed first receive never got its -o: set them now (canmount first — nothing is mounted on the way)
+        foreach (['canmount=noauto', 'mountpoint=legacy', 'readonly=on'] as $prop) {
+            run([$zfs, 'set', $prop, $ds], 60);
+        }
     }
     $bytes = num(doorZfsGet("$ds@$snap", 'written')['written'] ?? '');
     $kept = doorRetention($pair, $ds);

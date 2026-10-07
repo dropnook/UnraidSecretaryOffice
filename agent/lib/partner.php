@@ -1328,6 +1328,11 @@ function partnerBlockFacts(array $b): array
 function partner_accept(array $r): array
 {
     $a = partnerBlockDecode($r['block'] ?? null, 'A');
+    foreach (partnerPending(true) as $o) {
+        if ($o['id'] === $a['id'] && $o['pub_key'] === $a['pub_key']) {
+            return partnerAcceptSelf($a, $o, $r);       // this office's own offer: a pairing with itself (a test)
+        }
+    }
     if (partnerPair($a['id']) !== null || in_array($a['id'], array_column(partnerPending(), 'id'), true)) {
         throw new Problem('partner_known', ['name' => $a['name']]);
     }
@@ -1404,6 +1409,50 @@ function partner_accept(array $r): array
         'host_keys' => $host, 'pub_key' => $myPub, 'receive' => $receive, 'units' => $myUnits]);
     return ['ok' => true, 'block' => $block, 'code' => partnerSafetyCode($a['pub_key'], $myPub, $a['host_keys'], $host),
             'public' => !partnerAddressPrivate($address), 'partners' => partnerPublic()];
+}
+
+/**
+ * This office's own BLOCK-A pasted under «Accept a partner…»: it pairs with itself — for a test on one server (the
+ * coordinator's self-pairing, the throughput of the path). One pair: my offer's key sends, and the same key's line lets
+ * it in (from= the offer's own address); its host key pinned at that address. No BLOCK-B, no code: nobody is in
+ * between. Look: what the dialog needs; do: stored, the line written, a ping.
+ */
+function partnerAcceptSelf(array $a, array $offer, array $r): array
+{
+    $from = partnerFromList($a['address']);
+    if (($r['step'] ?? 'look') === 'look') {
+        return ['ok' => true, 'self' => true, 'partner' => partnerBlockFacts($a), 'pools' => partnerPools(), 'defaults' => PARTNER_DEFAULTS,
+                'line' => $from !== null ? partnerDoorLine($a['id'], $from, $a['pub_key']) : null, 'units' => [], 'addresses' => [], 'port' => $a['port'],
+                'name' => partnerMyName(), 'host_key' => partnerHostKeys() !== []];
+    }
+    if (($r['step'] ?? '') !== 'do' || ($r['confirm'] ?? null) !== true) {
+        throw new Problem('bad_request');
+    }
+    if (!$a['units']) {
+        throw new Problem('partner_nothing');
+    }
+    $receive = partnerReceiveFrom($r['receive'] ?? null, partnerPools(), $a['units']);
+    if ($from === null) {
+        throw new Problem('partner_unresolved', ['address' => $a['address']]);
+    }
+    $fp = (string) partnerFingerprint($offer['pub_key']);
+    $pairs = partnerPairs();
+    $pair = ['id' => $a['id'], 'name' => partnerMyName(), 'address' => $a['address'], 'port' => $a['port'],
+             'host_keys' => array_values(array_map('partnerFingerprint', $offer['host_keys'])), 'my_key' => $fp, 'their_key' => $fp,
+             'send' => ['units' => array_values(array_intersect($offer['units'], $receive['units'])), 'rate_mbit' => 0],
+             'receive' => $receive, 'trust' => 'mine', 'paired' => time(), 'last_heard' => null, 'last_answer' => null];
+    try {
+        partnerKnownWrite($a['id'], $a['address'], $a['port'], $offer['host_keys']);
+        partnerPairsWrite(array_merge($pairs, [$pair]));
+        partnerAuthKeysEdit($a['id'], partnerDoorLine($a['id'], $from, $offer['pub_key']));
+    } catch (Throwable $e) {
+        partnerPairsWrite($pairs);
+        @unlink(partnerKnownFile($a['id']));
+        throw $e;
+    }
+    partnerWritePrivate(partnerDir() . '/pending.json', ['offers' => array_values(array_filter(partnerPending(), fn ($o) => $o['id'] !== $a['id']))]);
+    partnerLog("paired with itself ({$a['id']}, {$a['address']}:{$a['port']}) — a test: the line in authorized_keys, its own host key pinned");
+    return ['ok' => true, 'self' => true, 'ask' => partnerAskAndKeep($a['id']), 'partners' => partnerPublic()];
 }
 
 /**

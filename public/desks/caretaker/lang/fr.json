@@ -369,5 +369,9 @@
   "partner.tailnet_online": "Présent dans le tailnet, mais son secrétariat ne répond pas — array arrêté, plugin enlevé, SSH désactivé ?",
   "partner.last_transfer": "Dernier transfert {size} à {mbit} Mbit/s",
   "notify.partner_tailnet_offline": "Tailscale dit : {name} est hors ligne aussi dans le tailnet.",
-  "notify.partner_tailnet_online": "Tailscale dit : {name} est en ligne dans le tailnet — seul son secrétariat ne répond pas."
+  "notify.partner_tailnet_online": "Tailscale dit : {name} est en ligne dans le tailnet — seul son secrétariat ne répond pas.",
+  "partner.self_title": "Appairer ce secrétariat avec lui-même",
+  "partner.self_text": "C'est le bloc de ce secrétariat : il s'appaire avec lui-même — un essai sur un seul serveur. Il envoie à {address} et garde les copies dans un dataset à part sur le pool choisi. Le vrai, c'est avec un autre serveur.",
+  "partner.self_done": "Appairé avec lui-même — la porte répond.",
+  "partner.self_silent": "Appairé avec lui-même, mais la porte ne répond pas : {why}"
 }

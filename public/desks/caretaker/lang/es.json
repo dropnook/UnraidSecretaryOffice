@@ -369,5 +369,9 @@
   "partner.tailnet_online": "Está en la tailnet, pero su secretaría no responde — ¿array detenido, plugin quitado, SSH apagado?",
   "partner.last_transfer": "Última transferencia {size} a {mbit} Mbit/s",
   "notify.partner_tailnet_offline": "Tailscale dice: {name} también está desconectado en la tailnet.",
-  "notify.partner_tailnet_online": "Tailscale dice: {name} está conectado en la tailnet — solo su secretaría no responde."
+  "notify.partner_tailnet_online": "Tailscale dice: {name} está conectado en la tailnet — solo su secretaría no responde.",
+  "partner.self_title": "Emparejar esta secretaría consigo misma",
+  "partner.self_text": "Este es el bloque de esta secretaría: se empareja consigo misma — una prueba en un solo servidor. Envía a {address} y guarda las copias en un dataset propio en el pool que elijas. Lo de verdad es con otro servidor.",
+  "partner.self_done": "Emparejada consigo misma — la puerta responde.",
+  "partner.self_silent": "Emparejada consigo misma, pero la puerta no responde: {why}"
 }

@@ -369,5 +369,9 @@
   "partner.tailnet_online": "Im Tailnet da, aber sein Sekretariat antwortet nicht — Array gestoppt, Plugin weg, SSH ausgeschaltet?",
   "partner.last_transfer": "Letzte Übertragung {size} mit {mbit} Mbit/s",
   "notify.partner_tailnet_offline": "Tailscale sagt: {name} ist auch im Tailnet offline.",
-  "notify.partner_tailnet_online": "Tailscale sagt: {name} ist im Tailnet online — nur sein Sekretariat antwortet nicht."
+  "notify.partner_tailnet_online": "Tailscale sagt: {name} ist im Tailnet online — nur sein Sekretariat antwortet nicht.",
+  "partner.self_title": "Dieses Sekretariat mit sich selbst verbinden",
+  "partner.self_text": "Das ist der eigene Block dieses Sekretariats: es verbindet sich mit sich selbst — ein Test auf einem Server. Es schickt an {address} und bewahrt die Kopien in einem eigenen Dataset auf dem gewählten Pool auf. Richtig ist es erst mit einem anderen Server.",
+  "partner.self_done": "Mit sich selbst verbunden — die Tür antwortet.",
+  "partner.self_silent": "Mit sich selbst verbunden, aber die Tür antwortet nicht: {why}"
 }

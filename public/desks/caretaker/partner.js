@@ -455,6 +455,7 @@ function partnerFacts(p) {
 
 function acceptSettings(block, j) {
   const p = j.partner;
+  if (j.self) { acceptSelf(block, j); return; }
   const box = el('div');
   box.appendChild(el('p', '', T('partner.accept_look', { name: p.name })));
   box.appendChild(partnerFacts(p));
@@ -518,6 +519,32 @@ function acceptConfirm(req, j) {
       const r = await Office.api.post(`${ID}.partner_accept`, req);
       if (!took(r)) return false;
       blockDialog(T('partner.block_b_title'), r.block, T('partner.block_b_text', { name: p.name }), r.public, r.code);
+      return true;
+    } }],
+  });
+}
+
+/** This office's own block pasted: it pairs with itself — a test on one server (no second block, no code) */
+function acceptSelf(block, j) {
+  const p = j.partner;
+  const box = el('div');
+  box.appendChild(el('p', 'callout', T('partner.self_text', { address: `${p.address}:${p.port}` })));
+  const recv = receivePicker(p.units, j.pools, j.defaults);
+  box.appendChild(recv.node);
+  if (!j.pools.length) box.appendChild(el('p', 'callout warn', T('partner.no_pools')));
+  const line = j.line ? linePart(j.line, p.name) : null;
+  if (line) box.appendChild(line.node);
+  Office.dialog({
+    title: T('partner.self_title'),
+    body: box,
+    wide: true,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('partner.write_and_pair'), kind: '', act: async () => {
+      if (!line) { Office.toast(Office.errorText({ key: 'partner_unresolved', params: { address: p.address } }, ID), true); return false; }
+      if (!line.ok()) { Office.toast(T('partner.line_read_first'), true); return false; }
+      const r = await Office.api.post(`${ID}.partner_accept`, { step: 'do', block, confirm: true, receive: recv.value() });
+      if (!took(r)) return false;
+      const a = r.ask;
+      Office.toast(a && a.reachable ? T('partner.self_done') : T('partner.self_silent', { why: T('partner.why.' + ((a && a.why) || 'unreachable')) }), !(a && a.reachable));
       return true;
     } }],
   });

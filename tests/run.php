@@ -11205,7 +11205,11 @@ switch ($cmd) {
     case 'set':
         [$kv, $ds] = $rest;
         if (!isset($st['ds'][$ds])) { $no($ds); }
-        $st['ds'][$ds]['quota'] = substr($kv, 6) === 'none' ? 0 : $bytes(substr($kv, 6));
+        if (str_starts_with($kv, 'quota=')) {
+            $st['ds'][$ds]['quota'] = substr($kv, 6) === 'none' ? 0 : $bytes(substr($kv, 6));
+        } else {
+            $st['ds'][$ds]['props'][] = $kv;
+        }
         $save();
         exit(0);
     case 'destroy':
@@ -11614,6 +11618,30 @@ function testPartnerPairing(): void
     same('pairing: ended on B — Benj\'s lines stay byte for byte', $benj, file_get_contents($B['keys']));
     same('pairing: ending what is gone', 'partner_unknown', partnerTestAs($B, 'return partner_end(["id" => ' . var_export($id, true) . ']);')['problem'] ?? null);
 
+    // one office paired with itself (the coordinator's test on one server): its own offer pasted under «Accept a partner…»
+    $C = partnerTestOffice("$tmp/C");
+    file_put_contents("$C[data]/unraid-backup/state/setup-plan.json", json_encode(['bases' => [['name' => 'tank', 'fs' => 'zfs', 'kind' => 'pool']],
+        'shares' => [['name' => 'appdata', 'layout' => 'single', 'locations' => 'tank']], 'vms' => []]));
+    partnerTestBin($C['bin'], ['pools' => ['tank'], 'ds' => $dsOf(['tank', 'tank/appdata'])], ['root@192.168.77.3' => $target($C)]);
+    $offer = partnerTestAs($C, 'return partner_add(["step" => "do", "address" => "192.168.77.3", "port" => 22, "trust" => "mine", "units" => ["share:appdata"]]);');
+    $sid = (string) ($offer['id'] ?? '');
+    $self = partnerTestAs($C, 'return partner_accept(["step" => "look", "block" => ' . var_export((string) ($offer['block'] ?? ''), true) . ']);');
+    same('self-pairing: its own offer is recognised', [true, ['share:appdata']], [$self['self'] ?? null, $self['partner']['units'] ?? null]);
+    $selfDone = partnerTestAs($C, 'return partner_accept(["step" => "do", "confirm" => true, "block" => ' . var_export((string) ($offer['block'] ?? ''), true)
+        . ', "receive" => ["pool" => "tank", "quota_gb" => 0, "retention" => "7 4 6", "window" => "00:00-00:00", "wake" => false, "units" => ["share:appdata"]]]);');
+    same('self-pairing: paired, and its own door answers', [true, true], [$selfDone['self'] ?? null, $selfDone['ask']['reachable'] ?? null]);
+    $sp = partnerTestAs($C, 'return partnerPairs();')[0] ?? [];
+    same('self-pairing: one pair that sends and keeps with the same key', [$sid, true, ['share:appdata'], ['share:appdata']],
+        [$sp['id'] ?? null, ($sp['my_key'] ?? 1) === ($sp['their_key'] ?? 2), $sp['send']['units'] ?? null, $sp['receive']['units'] ?? null]);
+    $cpub = implode(' ', array_slice(explode(' ', trim((string) file_get_contents("$C[flash]/$sid.key.pub"))), 0, 2));
+    same('self-pairing: its line', partnerDoorLine($sid, '192.168.77.3', $cpub) . "\n", @file_get_contents($C['keys']));
+    same('self-pairing: no offer left', [], partnerTestAs($C, 'return partnerPending();'));
+    $r = partnerTestDoor($C, 'recv share:appdata uso-backup-20261007-0200', 'self-stream', $sid);
+    same('self-pairing: a receive into its own pool', [0, 'tank/' . PARTNER_PARENT . "/$sid/share-appdata@uso-backup-20261007-0200"],
+        [$r['exit'], array_key_last(json_decode((string) file_get_contents("$C[bin]/zfs.json"), true)['snaps'] ?? []) ?? null]);
+    partnerTestAs($C, 'return partner_end(["id" => ' . var_export($sid, true) . ']);');
+    same('self-pairing: ended — line, key and pin gone', ['', false, false], [(string) @file_get_contents($C['keys']), is_file("$C[flash]/$sid.key"), is_file("$C[flash]/$sid.known")]);
+
     // the strings partner.js asks for (desk.js's are checked by testStrings)
     $en = langFile(OFFICE_DIR . '/public/desks/caretaker/lang/en.json');
     $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/partner.js');
@@ -11705,7 +11733,7 @@ function testPartnerDoor(): void
     // ---- incremental, then the retention (2 0 0: the newest two; one held stays)
     $r = partnerTestDoor($B, 'recv share:appdata uso-backup-20261002-0200 uso-backup-20261001-0200', 'stream-22');
     same('door: an incremental receive', 0, $r['exit']);
-    same('door: the incremental — no -o, no -x', [['zfs', 'recv', '-s', '-u', "$ds@uso-backup-20261002-0200"]],
+    same('door: the incremental — no -o, the stream\'s mountpoint/canmount/shares left out', [['zfs', 'recv', '-s', '-u', '-x', 'mountpoint', '-x', 'canmount', '-x', 'sharesmb', '-x', 'sharenfs', "$ds@uso-backup-20261002-0200"]],
         array_values(array_filter(partnerTestCalls($B['bin']), fn ($c) => ($c[1] ?? '') === 'recv')));
     $st = $zfs();
     $st['snaps']["$ds@uso-backup-20260901-0200"] = ['userrefs' => 1, 'used' => 1, 'written' => 1, 'creation' => 1];
@@ -11743,13 +11771,17 @@ function testPartnerDoor(): void
     same('door: a snapshot it has — exists', 'exists', partnerTestDoor($B, 'recv share:appdata uso-backup-20261003-0200 uso-backup-20261002-0200', 'x')['err'][0]['why'] ?? null);
     same('door: -t without a token — no_token', 'no_token', partnerTestDoor($B, 'recv share:appdata uso-backup-20261004-0200 -t', 'x')['err'][0]['why'] ?? null);
     $r = partnerTestDoor($B, 'recv vm:Debian_Helmi uso-backup-20261003-0200', 'INTERRUPT');
-    same('door: an interrupted receive says so', [1, 'recv_failed'], [$r['exit'], $r['err'][1]['why'] ?? null]);
+    same('door: an interrupted receive says so — and that it can be resumed', [1, 'recv_failed', true], [$r['exit'], $r['err'][1]['why'] ?? null, $r['err'][1]['resumable'] ?? null]);
     $vmds = 'tank/' . PARTNER_PARENT . "/$id/vm-Debian_Helmi";
     same('door: resume — its token', ['ok' => true, 'token' => '1-abcdef0123-c8-789c0123456789'], partnerTestDoor($B, 'resume vm:Debian_Helmi')['out'][0] ?? null);
     same('door: a new stream while a receive waits to be resumed — resume_first', 'resume_first', partnerTestDoor($B, 'recv vm:Debian_Helmi uso-backup-20261004-0200', 'x')['err'][0]['why'] ?? null);
     partnerTestCalls($B['bin']);
     $r = partnerTestDoor($B, 'recv vm:Debian_Helmi uso-backup-20261003-0200 -t', 'SNAP:uso-backup-20261003-0200');
-    same('door: the resumed receive', [0, [['zfs', 'recv', '-s', '-u', $vmds]]], [$r['exit'], array_values(array_filter(partnerTestCalls($B['bin']), fn ($c) => ($c[1] ?? '') === 'recv'))]);
+    $calls = partnerTestCalls($B['bin']);
+    same('door: the resumed receive', [0, [['zfs', 'recv', '-s', '-u', '-x', 'mountpoint', '-x', 'canmount', '-x', 'sharesmb', '-x', 'sharenfs', $vmds]]],
+        [$r['exit'], array_values(array_filter($calls, fn ($c) => ($c[1] ?? '') === 'recv'))]);
+    same('door: … then its properties set as a first receive\'s', [['zfs', 'set', 'canmount=noauto', $vmds], ['zfs', 'set', 'mountpoint=legacy', $vmds], ['zfs', 'set', 'readonly=on', $vmds]],
+        array_values(array_filter($calls, fn ($c) => ($c[1] ?? '') === 'set')));
     $r = partnerTestDoor($B, 'recv share:appdata uso-backup-20261004-0200 uso-backup-20261003-0200', 'FAIL');
     same('door: a receive zfs refuses', [1, ['ok' => true], 'recv_failed'], [$r['exit'], $r['err'][0] ?? null, $r['err'][1]['why'] ?? null]);
     check('door: … its detail said, received/ not moved on', str_contains((string) ($r['err'][1]['detail'] ?? ''), 'invalid backup stream')
