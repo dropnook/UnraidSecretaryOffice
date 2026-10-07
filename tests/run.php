@@ -2481,6 +2481,209 @@ function testAgentBackupHooks(): void
 }
 
 /**
+ * Engine 2.25: what an interrupted run left noted comes back as a run would bring it back (recover_interrupted_run, lib/common.sh,
+ * sourced with stand-ins for docker, virsh and notify): the containers network first, then databases, then apps (an app on
+ * --network container:<vpn> doesn't start before its provider); a note keeps exactly what didn't come back and the notification
+ * says so (a warning); a Nextcloud's container is waited for before occ is asked - one that never runs keeps its note, one that
+ * is gone is told; with Unraid's VM service switched off the VMs' note goes and --recover doesn't wait for libvirt.
+ */
+function testBackupRecoverNotes(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-recover-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $fake = "$tmp/fake";
+    $state = "$tmp/data/unraid-backup/state";
+    foreach (["$tmp/bin", "$fake/ct", "$fake/vm", $state, "$tmp/boot/config"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    $ct = fn ($name, $img, $net = 'bridge', $env = []) => ['Name' => "/$name", 'Id' => "id-$name", 'Config' => ['Image' => $img, 'Env' => $env, 'Labels' => new stdClass()],
+        'State' => ['Running' => false], 'HostConfig' => ['NetworkMode' => $net], 'Mounts' => []];
+    // web uses vpn's network (by its id), pg is a database by its image, nc a Nextcloud, app2 an app nobody noted
+    file_put_contents("$fake/inspect.json", json_encode([$ct('web', 'nginx', 'container:id-vpn'), $ct('pg', 'postgres:16'), $ct('vpn', 'gluetun'),
+        $ct('nc', 'nextcloud'), $ct('app2', 'nginx')]));
+    file_put_contents("$tmp/bin/docker", <<<'SH'
+#!/bin/bash
+ev() { echo "$*" >>"$FAKE/events"; }
+st() { if [[ -e "$FAKE/ct/$1" ]]; then cat "$FAKE/ct/$1"; else echo gone; fi; }
+case "$1" in
+  version|info) [[ -e "$FAKE/docker.down" ]] && exit 1; exit 0 ;;
+  ps) jq -r '.[].Id' "$FAKE/inspect.json"; exit 0 ;;
+  inspect)
+    shift
+    if [[ "$1" == -f ]]; then
+      s="$(st "$3")"; [[ "$s" == gone ]] && { echo "Error: No such object: $3" >&2; exit 1; }
+      case "$2" in
+        *Health*) [[ "$s" == running ]] && echo "true " || echo "false " ;;
+        *) [[ "$s" == running ]] && echo true || echo false ;;
+      esac
+      exit 0
+    fi
+    cat "$FAKE/inspect.json"; exit 0 ;;
+  start)
+    shift
+    for c in "$@"; do
+      grep -qxF "$c" "$FAKE/fail-start" 2>/dev/null && { echo "Error response from daemon: $c failed" >&2; exit 1; }
+      p="$(cat "$FAKE/needs.$c" 2>/dev/null)"
+      [[ -n "$p" && "$(st "$p")" != running ]] && { echo "Error response from daemon: cannot join network of a non running container: $p" >&2; exit 1; }
+      echo running >"$FAKE/ct/$c"; ev "docker start $c"
+    done
+    exit 0 ;;
+  exec)
+    shift
+    while [[ "$1" == -* ]]; do case "$1" in -u|-e) shift 2 ;; *) shift ;; esac; done
+    c="$1"; shift
+    [[ "$(st "$c")" == running ]] || { echo "Error response from daemon: container $c is not running" >&2; exit 1; }
+    case "$1" in
+      test) [[ "$3" == /var/www/html/occ ]]; exit ;;
+      stat) echo www-data; exit 0 ;;
+      php) shift 2
+           case "$*" in
+             status) exit 0 ;;
+             "maintenance:mode --off") ev "occ maintenance off $c"; exit 0 ;;
+           esac ;;
+    esac
+    exit 1 ;;
+esac
+exit 1
+SH);
+    file_put_contents("$tmp/bin/virsh", <<<'SH'
+#!/bin/bash
+ev() { echo "$*" >>"$FAKE/events"; }
+n="${@: -1}"
+case "$1" in
+  list) [[ -e "$FAKE/libvirt.down" ]] && exit 1; exit 0 ;;
+  domstate) [[ -e "$FAKE/vm/$n" ]] || exit 1; cat "$FAKE/vm/$n"; exit 0 ;;
+  start) grep -qxF "$n" "$FAKE/fail-vm" 2>/dev/null && exit 1; echo running >"$FAKE/vm/$n"; ev "virsh start $n"; exit 0 ;;
+  resume) echo running >"$FAKE/vm/$n"; ev "virsh resume $n"; exit 0 ;;
+  domfsthaw) ev "virsh thaw $n"; exit 0 ;;
+esac
+exit 1
+SH);
+    file_put_contents("$tmp/bin/notify", "#!/bin/bash\nprintf '%s\\n' \"\$*\" >>\"\$FAKE/notify.log\"\n");
+    foreach (glob("$tmp/bin/*") as $f) {
+        chmod($f, 0755);
+    }
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\n");
+    $env = "export PATH=$tmp/bin:\$PATH FAKE=$fake UB_DATA=$tmp/data/unraid-backup UB_BOOT=$tmp/boot UB_VAR_INI=$tmp/var.ini UB_NOTIFY_BIN=$tmp/bin/notify"
+         . ' UB_RECOVER_READY=4 UB_NC_RUN_WAIT=2';
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    // a fresh start: the containers and VMs as given ("running", "stopped"; not given = gone), the notes as given
+    $setup = function (array $cts, array $vms, array $notes, array $extra = []) use ($tmp, $fake, $state): void {
+        exec('rm -rf ' . escapeshellarg("$fake/ct") . ' ' . escapeshellarg("$fake/vm"));
+        @mkdir("$fake/ct", 0700, true);
+        @mkdir("$fake/vm", 0700, true);
+        foreach (glob("$fake/*") as $f) {
+            if (is_file($f) && basename($f) !== 'inspect.json') {
+                unlink($f);
+            }
+        }
+        foreach ($cts as $n => $s) {
+            file_put_contents("$fake/ct/$n", "$s\n");
+        }
+        foreach ($vms as $n => $s) {
+            file_put_contents("$fake/vm/$n", "$s\n");
+        }
+        foreach (['stopped', 'maintenance', 'vms'] as $f) {
+            @unlink("$state/$f");
+        }
+        foreach ($notes as $f => $lines) {
+            file_put_contents("$state/$f", implode("\n", $lines) . "\n");
+        }
+        foreach ($extra as $f => $content) {
+            file_put_contents("$fake/$f", $content);
+        }
+        @unlink("$tmp/boot/config/domain.cfg");
+        @unlink("$tmp/r.log");
+    };
+    $recover = function (string $before = '') use ($env, $lib, $tmp): string {
+        return trim((string) shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; LOG_FILE=$tmp/r.log; $before recover_interrupted_run >/dev/null; echo \"\$ERRORS \$WARNINGS\"") . ' 2>&1'));
+    };
+    $events = fn () => array_values(array_filter(explode("\n", (string) @file_get_contents("$fake/events"))));
+    $notes = fn () => array_values(array_filter(explode("\n", (string) @file_get_contents("$fake/notify.log"))));
+    $noted = fn () => array_map(fn ($f) => (string) @file_get_contents("$state/$f"), ['stopped', 'maintenance', 'vms']);
+    $rlog = fn () => (string) @file_get_contents("$tmp/r.log");
+    $all = ['web' => 'stopped', 'pg' => 'stopped', 'vpn' => 'stopped', 'nc' => 'running', 'app2' => 'running'];
+
+    // the note in the order the run stopped them (apps, databases, network): started network first, then the database, then the app
+    $setup($all, [], ['stopped' => ['web', 'pg', 'vpn']], ['needs.web' => 'vpn']);
+    $counts = $recover();
+    same('recover: the containers in a run\'s order - the network container, the database, then the app on its network',
+        [['docker start vpn', 'docker start pg', 'docker start web'], ['', '', ''], '0 1'], [$events(), $noted(), $counts]);
+    $nt = $notes();
+    check('recover: all back - «Aborted run repaired» (a warning after a crash), naming them', count($nt) === 1 && str_contains($nt[0], 'Aborted run repaired')
+        && str_contains($nt[0], '-i warning') && str_contains($nt[0], 'vpn pg web'), json_encode($nt));
+
+    // one doesn't start: only it stays noted, the others came back; the notification is a warning that says so
+    $setup($all, [], ['stopped' => ['web', 'pg', 'vpn']], ['needs.web' => 'vpn', 'fail-start' => "pg\n"]);
+    $counts = $recover();
+    same('recover: a container that doesn\'t start - only it stays noted, the rest came back, an error counted',
+        [['docker start vpn', 'docker start web'], ["pg\n", '', ''], '1'], [$events(), $noted(), explode(' ', $counts)[0]]);
+    $nt = $notes();
+    check('recover: not all back - «Aborted run not fully repaired», a warning naming what stays noted and what came back', count($nt) === 1
+        && str_contains($nt[0], 'Aborted run not fully repaired') && str_contains($nt[0], '-i warning')
+        && str_contains($nt[0], 'containers not started (still noted): pg') && str_contains($nt[0], 'Started again or reset: vpn web'), json_encode($nt));
+    // running already (Unraid's autostart) or gone: nothing to start, nothing left noted
+    $setup(['web' => 'running', 'vpn' => 'running'], [], ['stopped' => ['web', 'old', 'vpn']]);
+    $recover();
+    same('recover: running already or gone - nothing started, the note goes, no notification', [[], ['', '', ''], []], [$events(), $noted(), $notes()]);
+
+    // Nextcloud: in maintenance mode, its container stopped and never running - waited for, then the note stays (a warning)
+    $setup(['nc' => 'stopped'], [], ['maintenance' => ['nc']]);
+    $t0 = microtime(true);
+    $recover();
+    $took = microtime(true) - $t0;
+    same('recover: a Nextcloud whose container doesn\'t run - waited for (UB_NC_RUN_WAIT), its maintenance note kept, occ never asked',
+        [[], ['', "nc\n", ''], true], [$events(), $noted(), $took >= 1.9 && $took < 10]);
+    $nt = $notes();
+    check('recover: the maintenance note kept - the notification says so (a warning)', count($nt) === 1 && str_contains($nt[0], '-i warning')
+        && str_contains($nt[0], 'maintenance mode still on (still noted): nc'), json_encode($nt));
+    check('recover: and the log', str_contains($rlog(), "Nextcloud 'nc' is not running - its maintenance mode stays on"), $rlog());
+    // its container comes up a moment later (Unraid's autostart): waited for, then the maintenance mode goes off
+    $setup(['nc' => 'stopped'], [], ['maintenance' => ['nc']]);
+    $recover('(sleep 1; echo running >"$FAKE/ct/nc") & UB_NC_RUN_WAIT=8;');
+    same('recover: a Nextcloud whose container runs a moment later - waited for, maintenance off, the note gone',
+        [['occ maintenance off nc'], ['', '', '']], [$events(), $noted()]);
+    // stopped by the run too: started first (an app), then out of maintenance mode
+    $setup(['nc' => 'stopped'] + $all, [], ['stopped' => ['nc'], 'maintenance' => ['nc']]);
+    $recover();
+    same('recover: a Nextcloud the run stopped - started, then out of maintenance mode', [['docker start nc', 'occ maintenance off nc'], ['', '', '']], [$events(), $noted()]);
+    // gone: nothing can reach it here - the note goes, the warning says to look by hand
+    $setup([], [], ['maintenance' => ['ncold']]);
+    $recover();
+    $nt = $notes();
+    check('recover: a Nextcloud that is gone - the note goes, the notification says to check it by hand', $noted()[1] === '' && count($nt) === 1
+        && str_contains($nt[0], '-i warning') && str_contains($nt[0], 'Nextcloud ncold is gone (check its maintenance mode by hand)'), json_encode($nt));
+
+    // VMs: the one that doesn't start stays noted; a frozen one Unraid shut down meanwhile has nothing to undo
+    $setup([], ['vm1' => 'shut off', 'vm2' => 'shut off', 'vm3' => 'shut off', 'vm4' => 'paused'],
+        ['vms' => ['vm1|shutdown', 'vm2|shutdown', 'vm3|frozen', 'vm4|paused']], ['fail-vm' => "vm2\n"]);
+    $recover();
+    same('recover: VMs - started, resumed; the one that doesn\'t start stays noted, a frozen one shut off meanwhile is done with',
+        [['virsh start vm1', 'virsh resume vm4'], ['', '', "vm2|shutdown\n"]], [$events(), $noted()]);
+    check('recover: the VM not back is in the warning', str_contains(implode("\n", $notes()), 'VMs not back (still noted): vm2'), json_encode($notes()));
+    // Unraid's VM service switched off: the VMs' note goes with a line in the log - nothing could start them, libvirt never answers
+    $setup([], [], ['vms' => ['vm1|shutdown']], ['libvirt.down' => '']);
+    file_put_contents("$tmp/boot/config/domain.cfg", "SERVICE=\"disable\"\nIMAGE_FILE=\"/mnt/user/system/libvirt/libvirt.img\"\n");
+    $counts = $recover();
+    same('recover: the VM service switched off - the VMs\' note goes, no warning, no notification', [['', '', ''], '0 0', []], [$noted(), $counts, $notes()]);
+    check('recover: the VM service switched off - said in the log', str_contains($rlog(), "Unraid's VM service is switched off - the VMs an earlier run held (vm1) can't be started"), $rlog());
+    // the VM service on but libvirt silent: the note stays (as before)
+    $setup([], [], ['vms' => ['vm1|shutdown']], ['libvirt.down' => '']);
+    file_put_contents("$tmp/boot/config/domain.cfg", "SERVICE=\"enable\"\n");
+    $recover();
+    same('recover: the VM service on, libvirt silent - the note stays', "vm1|shutdown\n", $noted()[2]);
+    if (posix_getuid() === 0) {
+        // --recover right after the array start with the VM service off: not waiting for libvirt (it never answers)
+        $setup([], [], ['vms' => ['vm1|shutdown']], ['libvirt.down' => '']);
+        file_put_contents("$tmp/boot/config/domain.cfg", "SERVICE=\"disable\"\n");
+        $t0 = microtime(true);
+        exec('bash -c ' . escapeshellarg("$env UB_RECOVER_WAIT=30 UB_RECOVER_LOOK=1; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --recover </dev/null >/dev/null 2>&1'), $o, $code);
+        same('recover: --recover with the VM service off - no wait for libvirt, the note gone, exit 0', [0, true, ''], [$code, microtime(true) - $t0 < 5, $noted()[2]]);
+    }
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * Engine 2.21 in the office: what waits for a decision (backupWaiting - folders decided since drop out, apps by
  * compose project, VMs without settings), a new folder's protection (only local), and the setup assistant's
  * logic run by node (Unraid ships it; skipped where it is missing): new apps and VMs at most local and kept
@@ -8524,7 +8727,7 @@ function testSupporterKeys(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman', 'testWhereaboutsVmStop', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];

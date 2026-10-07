@@ -560,22 +560,7 @@ stop_tier() { # stop_tier <name...>
     save_restore_state
 }
 
-wait_ready() { # wait_ready <seconds> <name...>
-    local limit="$1" t=0 n st all; shift
-    [[ $# -eq 0 ]] && return 0
-    while (( t < limit )); do
-        array_stopping && return 1           # Docker is about to stop them all
-        all=1
-        for n in "$@"; do
-            st="$(docker inspect -f '{{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$n" 2>/dev/null)"
-            [[ "$st" == "true " || "$st" == "true healthy" ]] || { all=0; break; }
-        done
-        (( all )) && return 0
-        sleep 2; t=$((t+2))
-    done
-    return 1
-}
-
+# wait_ready <seconds> <name...>: lib/common.sh (a --recover starts noted containers the same way, 2.25)
 restore_service() {
     local tier n started c i out
     if [[ ${#STOPPED[@]} -gt 0 ]]; then
@@ -2349,10 +2334,11 @@ skip_busy() {
 # --recover (2.25): Docker - and libvirt, when a VM is noted - answers? Asked every UB_RECOVER_LOOK s, at most
 # UB_RECOVER_WAIT s (right after the array start they may still be coming up); 1 when the array is being
 # stopped meanwhile. A service still silent then: recover_interrupted_run keeps its notes for the next run.
+# libvirt never answers while Unraid's VM service is switched off: not waited for (the VMs' note goes then).
 recover_wait() {
     local until=$(( $(date +%s) + UB_RECOVER_WAIT )) docker=0 virt=0 told=0
     [[ -s "$UB_STATE/stopped" || -s "$UB_STATE/maintenance" ]] && docker=1
-    [[ -s "$UB_STATE/vms" ]] && command -v virsh >/dev/null 2>&1 && virt=1
+    [[ -s "$UB_STATE/vms" ]] && command -v virsh >/dev/null 2>&1 && ! ub_vm_service_off && virt=1
     while :; do
         array_stopping && return 1
         (( docker )) && ub_docker_answers && docker=0
@@ -2414,9 +2400,11 @@ fi
 # interrupted run left stopped, in maintenance mode or held - the array stop leaves it so (2.24) - comes
 # back now instead of with the next run, often the next night. Needs no settings.ini. Writes no status.json,
 # last-run.json or history line - it is no backup run, and the office keeps showing the run that left the
-# notes; recover_interrupted_run sends its notification ("Aborted run repaired"), recover.log keeps the rest.
+# notes; recover_interrupted_run sends its notification ("Aborted run repaired", or "... not fully repaired" - a
+# warning naming what didn't come back), recover.log keeps the rest.
 # Exit 0 done (nothing left noted), 1 something stays noted (a service didn't answer, a container or VM
-# didn't start - the next run tries again), 3 the array is being stopped, 75 the lock is busy.
+# didn't start, a Nextcloud's container didn't run - the next run tries again), 3 the array is being stopped,
+# 75 the lock is busy.
 if [[ "$UB_MODE" == "recover" ]]; then
     log "===================== $UB_NAME $UB_VERSION - recover $TS ====================="
     rn=()
@@ -2430,7 +2418,7 @@ if [[ "$UB_MODE" == "recover" ]]; then
         log "Not all of it came back$( (( ERRORS > 0 )) && echo " ($ERRORS error(s))") - what is still noted is tried again by the next run."
         exit 1
     fi
-    log "Done - nothing is noted any more."
+    log "Done - nothing is noted any more$( (( WARNINGS > 0 )) && echo " ($WARNINGS warning(s) - see above)")."
     exit 0
 fi
 
