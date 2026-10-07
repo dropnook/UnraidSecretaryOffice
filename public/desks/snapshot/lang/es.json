@@ -439,6 +439,7 @@
   "plan.result.gone": "destinos desaparecidos",
   "plan.gone": "destino desaparecido",
   "plan.gone_title": "Desaparecido desde {since}: {targets} (¿borrado o renombrado?). Omito lo que desapareció y tomo el resto — borra la programación o elige otro destino en «Editar…».",
+  "plan.gone_left_out": "Ya no existe (¿borrado o renombrado?), se omite al guardar: {targets}. Elige otro destino o simplemente guarda.",
   "notify.plan_gone_subject": "Programación «{plan}»: destino desaparecido",
   "notify.plan_gone": "Señora Snapshotini: la programación «{plan}» ya no encuentra {targets} (¿borrado o renombrado?). Omito lo que desapareció y tomo el resto — borra la programación o elige otro destino en mi página.",
   "check.plan_target_gone": "Programación «{plan}»: su destino {target} ha desaparecido",

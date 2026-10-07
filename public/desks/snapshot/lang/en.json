@@ -439,6 +439,7 @@
   "plan.result.gone": "targets gone",
   "plan.gone": "target gone",
   "plan.gone_title": "Gone since {since}: {targets} (deleted or renamed?). I skip what is gone and take the rest — delete the schedule or choose another target under \"Edit…\".",
+  "plan.gone_left_out": "Not there any more (deleted or renamed?), left out when you save: {targets}. Choose another target or just save.",
   "notify.plan_gone_subject": "Schedule \"{plan}\": target gone",
   "notify.plan_gone": "Ms. Snapshotini: the schedule \"{plan}\" can't find {targets} any more (deleted or renamed?). I skip what is gone and take the rest — delete the schedule or choose another target on my page.",
   "check.plan_target_gone": "Schedule \"{plan}\": its target {target} is gone",

@@ -5,7 +5,8 @@ declare(strict_types=1);
  * JSON API for the office.
  *
  * GET  ?a=state&desk=<id>[&fresh=1]   a desk's last state (refreshed when stale)
- * GET  ?a=part&desk=<id>&part=<name>  an extra state file data/<id>-<name>.json
+ * GET  ?a=part&desk=<id>&part=<name>[&fresh=1]  an extra state file data/<id>-<name>.json (refreshed when stale,
+ *                                     where desk.json "parts" says how — officeDeskParts())
  * GET  ?a=strings&lang=<code>         all UI strings of a language
  * GET  ?a=log                         tail of the agent log
  * GET  ?a=dash&lang=<code>            the rows of the tile on Unraid's Dashboard (dashboard.php)
@@ -34,7 +35,7 @@ function api_main(): void
         if ($method === 'GET') {
             match ((string) ($_GET['a'] ?? '')) {
                 'state'   => answer(apiState((string) ($_GET['desk'] ?? ''), !empty($_GET['fresh']))),
-                'part'    => answer(apiPart((string) ($_GET['desk'] ?? ''), (string) ($_GET['part'] ?? ''))),
+                'part'    => answer(apiPart((string) ($_GET['desk'] ?? ''), (string) ($_GET['part'] ?? ''), !empty($_GET['fresh']))),
                 'strings' => apiStrings((string) ($_GET['lang'] ?? 'en')),
                 'log'     => answer(['ok' => true, 'lines' => apiLogTail(400)]),
                 'dash'    => apiDash((string) ($_GET['lang'] ?? '')),
@@ -124,12 +125,34 @@ function apiState(string $desk, bool $fresh): array
     return ['ok' => true, 'agent' => $agent, 'state' => $state];
 }
 
-function apiPart(string $desk, string $part): array
+/**
+ * An extra state part; one desk.json names under "parts" is read anew by the agent when older than its
+ * refresh_after — like apiState(): the server's clock (never the browser's), the short wait (a long job
+ * going on: the last part will do), hired desks only.
+ */
+function apiPart(string $desk, string $part, bool $fresh = false): array
 {
-    if (!isset(officeDesks()[$desk]) || !preg_match('/^[a-z][a-z0-9_-]{0,31}$/D', $part)) {
+    $desks = officeDesks();
+    if (!isset($desks[$desk]) || !preg_match('/^[a-z][a-z0-9_-]{0,31}$/D', $part)) {
         return ['ok' => false, 'error' => ['key' => 'bad_request']];
     }
-    return ['ok' => true, 'agent' => agentInfo(), 'part' => officeReadJson(OFFICE_DATA . "/$desk-$part.json")];
+    $agent = agentInfo();
+    $state = officeReadJson(OFFICE_DATA . "/$desk-$part.json");
+    $rule = $desks[$desk]['parts'][$part] ?? null;
+    $age = $state ? time() - (int) ($state['time'] ?? 0) : PHP_INT_MAX;
+    if ($rule !== null && $agent['running'] && officeIsHired($desk) && ($fresh || $age > $rule['refresh_after'])) {
+        try {
+            $r = askAgent("$desk.{$rule['action']}", [], 10);
+            if (!empty($r['ok']) && is_array($r['state'] ?? null)) {
+                $state = $r['state'];
+            }
+        } catch (AgentAway) {
+            $agent['running'] = false;
+        } catch (AgentBusy | AgentRestarted) {
+            // busy with something longer, or restarted meanwhile — the last part will do
+        }
+    }
+    return ['ok' => true, 'agent' => $agent, 'part' => $state];
 }
 
 function apiStrings(string $code): never

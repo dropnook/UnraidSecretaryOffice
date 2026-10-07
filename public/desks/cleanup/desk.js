@@ -1732,7 +1732,6 @@ function purgeDialog(runs) {
    notifications, plugins. Read only. The agent part: agent/lib/where.php — the state is the part «where»
    (data/cleanup-where.json), what du measured the part «where-sizes». Her texts: lang keys where.* */
 const Where = (() => {
-const WHERE_REFRESH = 600;     // seconds: an older look is read again when the page is opened (the agent's start looks too)
 const SECTIONS = ['shares', 'folders', 'docker', 'vms', 'disks', 'access', 'network', 'scripts', 'backups', 'notices', 'plugins'];
 const STORE = 'cleanup.where.';
 
@@ -1758,16 +1757,16 @@ let shown = [];          // rows of the current section that can unfold: { open(
 let hooks = { changed: () => {}, search: () => {} };   // the page's: the bubble and the wake switch anew; set the filter
 
 // ------------------------------------------------------------------ loading
-/** Her last look (the part «where»); read again when it is older than WHERE_REFRESH, or when asked */
+/**
+ * Her last look (the part «where»). The server reads it again when it is older than desk.json's
+ * `parts.where.refresh_after` (600 s — its own clock, never the browser's; the short wait, so a long job
+ * of the messenger never parks this request for minutes), or when asked (`fresh`); the agent's start looks too.
+ */
 async function load(fresh) {
   try {
-    const j = await Office.api.get({ a: 'part', desk: ID, part: 'where' });
+    const j = await Office.api.get({ a: 'part', desk: ID, part: 'where', fresh: fresh ? 1 : 0 });
     if (j.ok && j.part && Array.isArray(j.part.shares)) state = j.part;
   } catch (e) { /* keep what we have */ }
-  if ((fresh || !state || Date.now() / 1000 - (state.time || 0) > WHERE_REFRESH) && Office.agent.running) {
-    const j = await Office.api.post(`${ID}.where_refresh`, {});
-    if (j.ok && j.state) state = j.state;
-  }
   await loadSizes();
   if (view) render();
   hooks.changed();

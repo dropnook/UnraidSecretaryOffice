@@ -1,5 +1,8 @@
 {
   "order": 20,
   "icon": "🧹",
-  "refresh_after": 300
+  "refresh_after": 300,
+  "parts": {
+    "where": { "refresh_after": 600, "action": "where_refresh" }
+  }
 }

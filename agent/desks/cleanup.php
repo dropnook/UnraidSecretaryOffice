@@ -201,11 +201,7 @@ desk('cleanup', [
         }
         clScan();
     },
-    'tick'    => function (): void {
-        clJobsTick();
-        clBackupFlagTick();
-        whereJobsTick();          // du of «where is what», asked for on her page
-    },
+    'tick'    => fn () => clTickEach(clTickParts()),
     'checks'  => fn (): array => clChecks(),
     'metrics' => fn (): array => clMetrics(),
     'actions' => [
@@ -227,6 +223,43 @@ desk('cleanup', [
         'where_sizes'   => fn (array $r) => ['ok' => true, 'sizes' => whereSizes()],
     ],
 ]);
+
+/**
+ * The parts of her tick (every ~150 ms, each cheap): her own jobs, the backup flag, and the du jobs of «where is
+ * what» asked for on her page — each on its own (clTickEach), so one that throws doesn't stop the others
+ *
+ * @return array<string, callable(): void>
+ */
+function clTickParts(): array
+{
+    return ['jobs' => 'clJobsTick', 'backup' => 'clBackupFlagTick', 'where' => 'whereJobsTick'];
+}
+
+/**
+ * Runs every part; one that throws is said once in the log (every tick would fill it) and again only after
+ * it worked once more — the others go on. The agent's loop does the same for every desk's tick.
+ *
+ * @param array<string, callable(): void> $parts
+ */
+function clTickEach(array $parts): void
+{
+    $failed = &$GLOBALS['clTickFailed'];
+    $failed ??= [];
+    foreach ($parts as $name => $part) {
+        try {
+            $part();
+            if (isset($failed[$name])) {
+                unset($failed[$name]);
+                logLine("cleanup: tick $name works again");
+            }
+        } catch (Throwable $e) {
+            if (!isset($failed[$name])) {
+                $failed[$name] = true;
+                logLine("cleanup: tick $name failed: " . $e->getMessage());
+            }
+        }
+    }
+}
 
 /** Her numbers for Prometheus (lib/metrics.php, once a minute): what lies in her storeroom, as of her last look */
 function clMetrics(): array

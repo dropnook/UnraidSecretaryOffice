@@ -242,6 +242,42 @@ function testPlanGone(): void
     $public = snapPlansPublic($host['scan']());
     same('gone page: the plan carries what is gone and since when', [['zfs:mother/drop' => $t0 + 14400], ['zfs:mother/drop' => $t0 + 14400], []],
         array_column($public['plans'], 'gone'));
+
+    // Prometheus: a plan whose every target is gone creates nothing — not ok, counted as failing like failed and partly;
+    // the paused plan isn't counted at all (the state file holds three: failed, drop: gone)
+    $fam = array_column(snapshotMetrics("$tmp/no-state.json"), null, 'name');
+    same('gone metrics: failed and gone count as failing, the paused plan not at all', [2, [[['plan' => 'three'], false], [['plan' => 'drop'], false]]],
+        [$fam['uso_snapshot_plans_failing']['samples'][0][1] ?? null, $fam['uso_snapshot_plan_ok']['samples'] ?? null]);
+    $states['drop']['result'] = 'ok';
+    writeAtomic(snapPlanStateFile(), jsonEncode($states));
+    $fam = array_column(snapshotMetrics("$tmp/no-state.json"), null, 'name');
+    same('gone metrics: a plan back to ok is ok again', [1, [[['plan' => 'three'], false], [['plan' => 'drop'], true]]],
+        [$fam['uso_snapshot_plans_failing']['samples'][0][1] ?? null, $fam['uso_snapshot_plan_ok']['samples'] ?? null]);
+
+    // saving a plan: a target it had that is gone now is dropped (the page can't even show it, so «choose another
+    // target» must work without it); one nobody knows that the plan didn't have stays refused; none left = no targets
+    $known = ['zfs:hive/appdata' => true, 'zfs:hive/system' => true];
+    same('gone save: the gone target the plan had is dropped, the rest kept in the page\'s order',
+        ['targets' => ['zfs:hive/system', 'zfs:hive/appdata'], 'dropped' => ['zfs:mother/drop']],
+        snapPlanSaveTargets(['zfs:hive/system', 'zfs:mother/drop', 'zfs:hive/appdata', 'zfs:hive/system'], $known, $three['targets']));
+    same('gone save: a plan without a gone target is saved as sent', ['targets' => ['zfs:hive/appdata'], 'dropped' => []],
+        snapPlanSaveTargets(['zfs:hive/appdata'], $known, $three['targets']));
+    foreach ([['new plan', []], ['a plan that never had it', ['zfs:hive/appdata']]] as [$case, $before]) {
+        try {
+            snapPlanSaveTargets(['zfs:hive/appdata', 'zfs:mother/drop'], $known, $before);
+            check("gone save: an unknown target is refused ($case)", false);
+        } catch (Problem $p) {
+            same("gone save: an unknown target is refused ($case)", ['unknown_target', ['target' => 'zfs:mother/drop']], [$p->key, $p->params]);
+        }
+    }
+    foreach ([['only the gone one', ['zfs:mother/drop']], ['nothing', []], ['junk', [5, null]]] as [$case, $sent]) {
+        try {
+            snapPlanSaveTargets($sent, $known, $drop['targets']);
+            check("gone save: no target left is refused ($case)", false);
+        } catch (Problem $p) {
+            same("gone save: no target left is refused ($case)", 'plan_no_targets', $p->key);
+        }
+    }
     foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
         $text = officeNotifyText('snapshot', 'notify.plan_gone', ['plan' => 'Hourly', 'targets' => 'mother/drop'], $lang);
         check("gone text ($lang): names the schedule and the target", str_contains($text, 'Hourly') && str_contains($text, 'mother/drop') && !str_contains($text, '{'));
@@ -8658,6 +8694,22 @@ function testWhereDesk(): void
     check('where desk: her look and her measuring stay quiet (no spinner)', (bool) preg_match('/const QUIET = .*where_refresh.*where_measure/', $core));
     check('where desk: both parts on her page', str_contains($js, "part(T('part.where')") && str_contains($js, "part(T('part.tidy')"));
 
+    // her look is kept fresh by the API (apiPart(): the server's clock, the short wait), not by the page's clock:
+    // desk.json names the part and its action (officeDeskParts()), the page only reads the part — no Date.now()
+    // against the look's time, no where_refresh of its own that the normal action path would park for minutes
+    require_once OFFICE_DIR . '/src/desks.php';
+    $meta = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.json'), true);
+    same('where desk: the API keeps her look fresh (desk.json parts)', ['where' => ['refresh_after' => 600, 'action' => 'where_refresh']], officeDeskParts($meta['parts'] ?? null));
+    same('where desk: only well-formed part rules count', ['ok' => ['refresh_after' => 5, 'action' => 'look']],
+        officeDeskParts(['ok' => ['refresh_after' => 5, 'action' => 'look'], 'Bad' => ['refresh_after' => 5, 'action' => 'look'], 'x' => ['refresh_after' => '5', 'action' => 'look'],
+                         'y' => ['refresh_after' => 0, 'action' => 'look'], 'z' => ['refresh_after' => 5, 'action' => 'a.b'], 'w' => 'look', 7 => ['refresh_after' => 5, 'action' => 'look']]));
+    same('where desk: … and none without any', [[], []], [officeDeskParts(null), officeDeskParts('where')]);
+    check('where desk: the page reads her look with fresh, never by its own clock',
+        str_contains($js, "part: 'where', fresh:") && !preg_match('/Date\.now\(\)[^\n]*state\.time/', $js) && !str_contains($js, '.where_refresh`'));
+    $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
+    check('where desk: the API asks for the action desk.json names, with the short wait, hired desks only',
+        (bool) preg_match('/askAgent\("\$desk\.\{\$rule\[\'action\'\]\}", \[\], 10\)/', $api) && str_contains($api, "officeIsHired(\$desk) && (\$fresh || \$age > \$rule['refresh_after'])"));
+
     // links to her page name the part they mean (her rooms are «Tidying up», far below «Where is what»)
     $links = [];
     foreach (array_merge(glob(OFFICE_DIR . '/agent/desks/*.php') ?: [], glob(OFFICE_DIR . '/agent/lib/*.php') ?: [], glob(OFFICE_DIR . '/src/*.php') ?: [],
@@ -8678,6 +8730,38 @@ function testWhereDesk(): void
     $files = array_merge(glob(OFFICE_DIR . '/public/lang/*.json') ?: [], glob(OFFICE_DIR . '/public/desks/*/lang/*.json') ?: [], [OFFICE_DIR . '/src/dashboard.php']);
     $named = array_values(array_filter($files, fn ($f) => preg_match($names, (string) file_get_contents($f)) === 1));
     same('where desk: no text names Ms. Whereabouts any more', [], array_map(fn ($f) => substr($f, strlen(OFFICE_DIR) + 1), $named));
+}
+
+/**
+ * Ms. Dustdevil's tick: three parts, each on its own — one that throws (an exception in her jobs) doesn't stop
+ * the du jobs of «where is what»; said once in the log, again only after it worked once more
+ */
+function testCleanupTick(): void
+{
+    same('cleanup tick: her parts, in order', ['jobs' => 'clJobsTick', 'backup' => 'clBackupFlagTick', 'where' => 'whereJobsTick'], clTickParts());
+    same('cleanup tick: each a function', [], array_keys(array_filter(clTickParts(), fn ($f) => !is_callable($f))));
+    $ran = [];
+    $boom = true;
+    $parts = ['a' => function () use (&$ran): void { $ran[] = 'a'; },
+              'b' => function () use (&$boom): void { if ($boom) { throw new RuntimeException('boom'); } },
+              'c' => function () use (&$ran): void { $ran[] = 'c'; }];
+    $GLOBALS['clTickFailed'] = [];
+    $log = AGENT_LOG;
+    $before = is_file($log) ? (int) filesize($log) : 0;
+    clTickEach($parts);
+    same('cleanup tick: one part throwing stops nobody else', ['a', 'c'], $ran);
+    same('cleanup tick: noted', ['b' => true], $GLOBALS['clTickFailed']);
+    clTickEach($parts);
+    same('cleanup tick: still noted, the others ran again', [['b' => true], ['a', 'c', 'a', 'c']], [$GLOBALS['clTickFailed'], $ran]);
+    $boom = false;
+    clTickEach($parts);
+    same('cleanup tick: works again — forgotten (said again should it fail once more)', [], $GLOBALS['clTickFailed']);
+    if (is_dir(DATA_DIR)) {
+        $lines = substr((string) file_get_contents($log), $before);
+        same('cleanup tick: said once in the log, and once when it works again', [1, 1],
+            [substr_count($lines, 'cleanup: tick b failed: boom'), substr_count($lines, 'cleanup: tick b works again')]);
+    }
+    unset($GLOBALS['clTickFailed']);
 }
 
 /**
@@ -9092,7 +9176,7 @@ function testSupporterKeys(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';

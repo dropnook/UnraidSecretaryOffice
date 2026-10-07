@@ -439,6 +439,7 @@
   "plan.result.gone": "cibles disparues",
   "plan.gone": "cible disparue",
   "plan.gone_title": "Disparu depuis le {since} : {targets} (supprimé ou renommé ?). J'ignore ce qui a disparu et prends le reste — supprime la planification ou choisis une autre cible sous « Modifier… ».",
+  "plan.gone_left_out": "N'existe plus (supprimé ou renommé ?), laissé de côté à l'enregistrement : {targets}. Choisis une autre cible ou enregistre simplement.",
   "notify.plan_gone_subject": "Planification « {plan} » : cible disparue",
   "notify.plan_gone": "Madame Snapshotini : la planification « {plan} » ne trouve plus {targets} (supprimé ou renommé ?). J'ignore ce qui a disparu et prends le reste — supprime la planification ou choisis une autre cible sur ma page.",
   "check.plan_target_gone": "Planification « {plan} » : sa cible {target} a disparu",
