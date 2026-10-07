@@ -105,6 +105,8 @@ function itemChip(it) {
 }
 
 const lastRun = () => (state && state.history && state.history[0]) || null;
+/** A run that ended because the array was being stopped (engine 2.24): stopped on purpose, nothing lost — never a failure */
+const arrayStopped = (r) => !!(r && r.result === 'aborted' && r.message === 'array_stopping');
 /**
  * The newest backup run that was skipped because the lock was busy (engine 2.20: state.skips) — as long
  * as no run finished or started after it. Skips are no runs: history, «last run» and estimates never see them.
@@ -261,6 +263,7 @@ function bubbleText() {
     const ok = k.filter((x) => x.ok).length;
     const when = fmt.relative(last.finished || last.started);
     if (last.result === 'ok') out.push(k.length ? T('bubble.last_ok_kopia', { when, ok, total: k.length }) : T('bubble.last_ok', { when }));
+    else if (arrayStopped(last)) out.push(T('bubble.last_array_stop', { when }));
     else out.push(T('bubble.last_' + last.result, { when, errors: last.errors, warnings: last.warnings, n: last.result === 'errors' ? last.errors : last.warnings }));
     const age = Date.now() / 1000 - (last.finished || last.started);
     if (age > 36 * 3600) out.push(T('bubble.old', { days: Math.floor(age / 86400) }));
@@ -370,6 +373,13 @@ function notices() {
   if (errors) callout(T('notice.drift_errors', { n: errors }), true);
   const last = lastRun();
   if (!live() && last && last.result === 'failed' && last.message === 'interrupted') callout(T('notice.interrupted'), true);
+  if (!live() && arrayStopped(last)) {
+    const left = state.left || {};
+    const list = [...(left.stopped || []), ...(left.vms || []).map((name) => T('left.vm', { name })), ...(left.maintenance || []).map((name) => T('left.maintenance', { name }))];
+    const n = (last.kopia_skipped || []).length;
+    callout(T('notice.array_stop', { when: fmt.date(last.started, true) }) + (n ? ' ' + T('notice.array_stop_kopia', { n }) : '')
+      + (list.length ? ' ' + T('notice.array_stop_left', { list: list.join(', ') }) : ''), false);
+  }
   const skip = newSkip();
   if (skip) callout(skipText(skip) + ' ' + T('skipped.next'), true);
   if (waitingCount() && state.settings_found) {
@@ -511,7 +521,8 @@ function summary() {
   if (last) {
     const k = last.kopia || [];
     const okCount = k.filter((x) => x.ok).length;
-    const st = stat(T('stat.last'), T('result.' + last.result), fmt.date(last.started, true), last.result !== 'ok');
+    const st = stat(T('stat.last'), T('result.' + last.result), arrayStopped(last) ? T('stat.last_array_stop', { when: fmt.date(last.started, true) }) : fmt.date(last.started, true),
+      last.result !== 'ok' && !arrayStopped(last));
     stats.appendChild(st);
     stats.appendChild(stat(T('stat.duration'), last.finished ? fmt.duration(last.finished - last.started) : '–',
       T('stat.downtime', { duration: fmt.duration(last.downtime || 0) })));
@@ -557,6 +568,7 @@ function overviewTiles() {
     const withKopia = (state.history || []).find((r) => (r.kopia || []).length);
     const k = (withKopia && withKopia.kopia) || [];
     const okCount = k.filter((x) => x.ok).length;
+    const skipped = ((withKopia && withKopia.kopia_skipped) || []).length;     // an array stop ended that run: they wait for the next one
     const kc = c && c.kopia;
     const st = status();
     const repoNo = st && st.kopia && st.kopia.state === 'no';
@@ -566,10 +578,11 @@ function overviewTiles() {
     if (kc) sub.push(!kc.exists ? T('stat.kopia_missing_ct', { name: kc.name }) : kc.running ? T('stat.kopia_running', { name: kc.name }) : T('stat.kopia_stopped', { name: kc.name }));
     if (repoNo) sub.push(T('stat.kopia_repo_problem'));
     if (pol) sub.push(bad ? T('stat.kopia_policies_bad', { n: bad }) : T('stat.kopia_policies_ok'));
-    const value = k.length ? `${okCount} / ${k.length}` : '–';
+    const value = k.length ? `${okCount} / ${k.length + skipped}` : '–';
     const trouble = (kc && (!kc.exists || !kc.running)) || repoNo || bad > 0 || (k.length && okCount !== k.length);
     if (k.length && okCount !== k.length) sub.unshift(T('stat.kopia_missing', { n: k.length - okCount }));
     else if (withKopia) sub.unshift(T('stat.kopia_when', { when: fmt.relative(withKopia.started) }));
+    if (skipped) sub.unshift(T('stat.kopia_skipped', { n: skipped }));
     tiles.push(stat(T('stat.kopia'), value, sub.join(' · '), !!trouble));
   }
   if (c && c.total) {
@@ -1096,7 +1109,9 @@ function historySection() {
     const meta = el('div', 'row-meta');
     meta.appendChild(resultChip(r.result));
     const k = r.kopia || [];
-    if (k.length) meta.appendChild(el('span', '', T('kopia_count', { ok: k.filter((x) => x.ok).length, total: k.length })));
+    const ks = (r.kopia_skipped || []).length;
+    if (k.length || ks) meta.appendChild(el('span', '', T('kopia_count', { ok: k.filter((x) => x.ok).length, total: k.length + ks })));
+    if (ks) meta.appendChild(el('span', '', T('kopia_skipped_count', { n: ks })));
     if (r.downtime) meta.appendChild(el('span', '', T('downtime_short', { duration: fmt.duration(r.downtime) })));
     if (r.packages && (r.packages.apps || r.packages.vms)) meta.appendChild(el('span', '', T('pk.history', { apps: r.packages.apps, vms: r.packages.vms })));
     if (r.errors || r.warnings) meta.appendChild(el('span', '', T('counts', { errors: r.errors, warnings: r.warnings })));

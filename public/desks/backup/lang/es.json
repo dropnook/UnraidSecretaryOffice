@@ -517,7 +517,7 @@
   "help.run": "Una copia de seguridad, paso a paso",
   "help.run_text": "Echar un vistazo → volcados de bases de datos (primero se apagan las VMs, mientras las apps siguen funcionando; luego se detienen las apps, para que volcados y archivos cuadren) → instantáneas (contenedores detenidos unos minutos) → Kopia → recoger. La llave bajo los pasos muestra cuándo se detienen las apps y las VMs. «Terminará hacia» y «última» salen de la duración de ejecuciones anteriores — salvo una fuente que va a Kopia por primera vez: esa se calcula por su tamaño y la velocidad a la que Kopia la lee ahora.",
   "help.results": "OK · avisos · errores · omitida",
-  "help.results_text": "Cómo terminó una ejecución; «sin terminar» significa que se paró de forma inesperada (reinicio, proceso matado), «detenida» que la detuviste tú, «omitida» que no arrancó porque otra ejecución, la configuración o una restauración tenía todavía el motor — no cambió nada, y la próxima ejecución hace la copia como siempre. El registro cuenta los detalles.",
+  "help.results_text": "Cómo terminó una ejecución; «sin terminar» significa que se paró de forma inesperada (reinicio, proceso matado), «detenida» que la detuviste tú, «omitida» que no arrancó porque otra ejecución, la configuración o una restauración tenía todavía el motor — no cambió nada, y la próxima ejecución hace la copia como siempre. El registro cuenta los detalles. «detenida» con «parada del array» quiere decir que terminó a propósito cuando se estaba parando el array — no se ha perdido nada, y la próxima ejecución continúa.",
   "help.protection": "¿Está todo protegido?",
   "help.protection_text": "Cada recurso compartido con cómo lo protege la copia de seguridad — las mismas etiquetas que en toda la secretaría:",
   "help.buttons": "Ronda · Hacer copia ahora · Detener",
@@ -1041,5 +1041,16 @@
   "setup.key.kopia_known": "carpetas que van a Kopia",
   "help.new": "Novedades",
   "help.new_text": "Lo que llegó después de la última configuración — una VM, una app, una carpeta en un recurso compartido que va a Kopia — lleva la marca «nuevo — decide tú» y aparece primero. Hasta que apliques, solo se guarda en local y sigue funcionando; nunca lo mando a Kopia ni lo detengo sin preguntar. Aplicar lo muestra aparte bajo «Nuevo».",
-  "setup.known_all": "cada carpeta, también las nuevas — una colección (muchísimas carpetas en la raíz)"
+  "setup.known_all": "cada carpeta, también las nuevas — una colección (muchísimas carpetas en la raíz)",
+  "message.array_stopping": "detenida por la parada del array — nada perdido, la próxima ejecución continúa",
+  "dash_array_stop": "Detenida por la parada del array",
+  "bubble.last_array_stop": "La última copia {when} se detuvo cuando se paró el array — a propósito: lo he comprobado tres veces, no se ha perdido nada. La próxima ejecución sigue donde estaba Kopia.",
+  "notice.array_stop": "La última ejecución ({when}) terminó en el acto cuando se estaba parando el array — a propósito, no se ha perdido nada: no se ha podado nada, y la próxima ejecución hace la copia como siempre y sigue la subida a Kopia donde estaba.",
+  "notice.array_stop_kopia": {"one": "Una fuente de Kopia la espera.", "other": "{n} fuentes de Kopia la esperan."},
+  "notice.array_stop_left": "Dejados como los encontró la parada — la próxima ejecución los recupera, salvo que el arranque automático de Unraid ya lo haya hecho: {list}.",
+  "left.vm": "VM {name}",
+  "left.maintenance": "{name} en modo mantenimiento",
+  "stat.last_array_stop": "{when} · parada del array",
+  "stat.kopia_skipped": {"one": "1 espera la próxima ejecución (parada del array)", "other": "{n} esperan la próxima ejecución (parada del array)"},
+  "kopia_skipped_count": {"one": "1 omitida (parada del array)", "other": "{n} omitidas (parada del array)"}
 }

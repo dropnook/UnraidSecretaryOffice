@@ -511,7 +511,7 @@
   "help.run": "A backup run, step by step",
   "help.run_text": "Look around → database dumps (VMs that shut down go first, while the apps still run; then the apps stop, so dumps and files match) → snapshots (containers stopped for a few minutes) → Kopia → tidy up. The bracket under the steps shows when apps and VMs are held. «Done at about» and «last» come from the durations of earlier runs — except a source going to Kopia for the first time: that one is reckoned from its size and how fast Kopia reads it now.",
   "help.results": "OK · warnings · errors · skipped",
-  "help.results_text": "How a run ended; «not finished» means it stopped unexpectedly (restart, killed), «stopped» that you stopped it, «skipped» that it didn't start because another run, the setup or a restore still had the engine — it changed nothing, and the next run backs up as usual. The log tells the details.",
+  "help.results_text": "How a run ended; «not finished» means it stopped unexpectedly (restart, killed), «stopped» that you stopped it, «skipped» that it didn't start because another run, the setup or a restore still had the engine — it changed nothing, and the next run backs up as usual. The log tells the details. «stopped» with «array stop» means it ended on purpose when the array was being stopped — nothing is lost, and the next run continues.",
   "help.protection": "Is everything protected?",
   "help.protection_text": "Every share with how the backup protects it — the same labels as everywhere in the office:",
   "help.buttons": "Tour · Back up now · Stop",
@@ -1020,5 +1020,16 @@
   "setup.key.kopia_known": "folders that go to Kopia",
   "help.new": "New things",
   "help.new_text": "Whatever came after the last setup — a VM, an app, a folder in a share that goes to Kopia — is marked «new — please decide» and listed first. Until you apply, it is backed up only locally and keeps running; I never send it to Kopia or stop it unasked. Apply lists it separately under «New».",
-  "setup.known_all": "every folder, new ones too — a collection (very many folders at its top)"
+  "setup.known_all": "every folder, new ones too — a collection (very many folders at its top)",
+  "message.array_stopping": "stopped for the array stop — nothing lost, the next run continues",
+  "dash_array_stop": "Stopped for the array stop",
+  "bubble.last_array_stop": "The last backup {when} stopped when the array was stopped — on purpose: I checked three times, nothing is lost. The next run carries on where Kopia was.",
+  "notice.array_stop": "The last run ({when}) ended at once when the array was being stopped — on purpose, nothing is lost: nothing was pruned, and the next run backs up as usual and continues the Kopia upload where it was.",
+  "notice.array_stop_kopia": {"one": "One Kopia source waits for it.", "other": "{n} Kopia sources wait for it."},
+  "notice.array_stop_left": "Left as the stop found them — the next run brings them back unless Unraid's autostart already did: {list}.",
+  "left.vm": "VM {name}",
+  "left.maintenance": "{name} in maintenance mode",
+  "stat.last_array_stop": "{when} · array stop",
+  "stat.kopia_skipped": {"one": "1 waits for the next run (array stop)", "other": "{n} wait for the next run (array stop)"},
+  "kopia_skipped_count": {"one": "1 skipped (array stop)", "other": "{n} skipped (array stop)"}
 }

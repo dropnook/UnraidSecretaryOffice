@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.23 - 2026-10-07
+# unraid-backup - setup.sh                        Version 2.24 - 2026-10-07
+#   2.24 (backup.sh only: a run notices the array being stopped and ends at once, cleanly; the
+#        notes of an interrupted run are never acted on while the array is being stopped - here too)
 #   2.23 (backup.sh only: the btrfs emergency brake scales with the disk)
 #   2.22 (backup.sh only: VMs with prepare = shutdown go down before anything stops - the apps no
 #        longer wait for them)

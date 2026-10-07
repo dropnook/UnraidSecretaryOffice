@@ -517,7 +517,7 @@
   "help.run": "Une sauvegarde, étape par étape",
   "help.run_text": "Faire le tour → dumps de bases de données (d'abord les VM s'éteignent, pendant que les applis tournent encore ; puis les applis sont arrêtées, pour que dumps et fichiers correspondent) → snapshots (conteneurs arrêtés quelques minutes) → Kopia → ranger. L'accolade sous les étapes montre quand les applis et les VM sont en pause. « Terminé vers » et « dernière » viennent des durées des exécutions précédentes — sauf pour une source envoyée à Kopia pour la première fois : elle est calculée d'après sa taille et la vitesse à laquelle Kopia la lit maintenant.",
   "help.results": "OK · avertissements · erreurs · sautée",
-  "help.results_text": "Comment une exécution s'est terminée ; « pas terminé » signifie qu'elle s'est arrêtée de façon inattendue (redémarrage, processus tué), « arrêté » que tu l'as arrêtée, « sautée » qu'elle n'a pas démarré parce qu'une autre exécution, la configuration ou une restauration tenait encore le moteur — elle n'a rien changé, et la prochaine exécution sauvegarde comme d'habitude. Le journal donne les détails.",
+  "help.results_text": "Comment une exécution s'est terminée ; « pas terminé » signifie qu'elle s'est arrêtée de façon inattendue (redémarrage, processus tué), « arrêté » que tu l'as arrêtée, « sautée » qu'elle n'a pas démarré parce qu'une autre exécution, la configuration ou une restauration tenait encore le moteur — elle n'a rien changé, et la prochaine exécution sauvegarde comme d'habitude. Le journal donne les détails. «arrêté» avec «arrêt de l'array» veut dire qu'elle s'est arrêtée exprès quand l'array a été arrêté — rien n'est perdu, et la prochaine exécution continue.",
   "help.protection": "Tout est-il protégé ?",
   "help.protection_text": "Chaque partage avec la façon dont la sauvegarde le protège — les mêmes étiquettes que partout dans le secrétariat :",
   "help.buttons": "Tournée · Sauvegarder maintenant · Arrêter",
@@ -1041,5 +1041,16 @@
   "setup.key.kopia_known": "dossiers qui vont vers Kopia",
   "help.new": "Nouveautés",
   "help.new_text": "Ce qui est arrivé après la dernière configuration — une VM, une appli, un dossier dans un partage qui va vers Kopia — est marqué « nouveau — à toi de décider » et listé en premier. Tant que tu n'appliques pas, c'est sauvegardé seulement en local et ça continue de tourner ; je ne l'envoie jamais vers Kopia ni ne l'arrête sans te demander. Appliquer le liste à part sous « Nouveau ».",
-  "setup.known_all": "chaque dossier, les nouveaux aussi — une collection (de très nombreux dossiers à la racine)"
+  "setup.known_all": "chaque dossier, les nouveaux aussi — une collection (de très nombreux dossiers à la racine)",
+  "message.array_stopping": "arrêtée pour l'arrêt de l'array — rien de perdu, la prochaine exécution continue",
+  "dash_array_stop": "Arrêtée pour l'arrêt de l'array",
+  "bubble.last_array_stop": "La dernière sauvegarde {when} s'est arrêtée quand l'array a été arrêté — exprès : j'ai vérifié trois fois, rien n'est perdu. La prochaine exécution reprend là où en était Kopia.",
+  "notice.array_stop": "La dernière exécution ({when}) s'est arrêtée aussitôt quand l'array a été arrêté — exprès, rien n'est perdu : rien n'a été élagué, et la prochaine exécution sauvegarde comme d'habitude et reprend l'envoi à Kopia là où il en était.",
+  "notice.array_stop_kopia": {"one": "{n} source Kopia l'attend.", "other": "{n} sources Kopia l'attendent."},
+  "notice.array_stop_left": "Laissés tels que l'arrêt les a trouvés — la prochaine exécution les rétablit, sauf si le démarrage automatique d'Unraid l'a déjà fait : {list}.",
+  "left.vm": "VM {name}",
+  "left.maintenance": "{name} en mode maintenance",
+  "stat.last_array_stop": "{when} · arrêt de l'array",
+  "stat.kopia_skipped": {"one": "{n} attend la prochaine exécution (arrêt de l'array)", "other": "{n} attendent la prochaine exécution (arrêt de l'array)"},
+  "kopia_skipped_count": {"one": "{n} sautée (arrêt de l'array)", "other": "{n} sautées (arrêt de l'array)"}
 }

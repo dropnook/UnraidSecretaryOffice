@@ -208,6 +208,14 @@ installed plugin (see the checklist).
   a VM not off by its deadline (its `seconds` from the pause); one that went off late stays off and is started like the
   others. A run stopped during the wait waits for the VMs still going down (`vm_shutdown_wait abort`) and starts them.
   `testBackupVmOrder` runs backup.sh on a fixture server (stand-ins on PATH, an events file) — extend it for changes there.
+* **The array stop ends a run at once (engine 2.24):** var.ini `fsState` Stopping/Stopped (`array_stopping()`, `UB_VAR_INI`;
+  Formatting/Clearing count as started) is looked at every phase (`next_phase`), before packages, dumps, Kopia sources and
+  pruning, while waiting for VMs/containers and every `UB_ARRAY_LOOK` s while Kopia uploads (`wait -n` beside a sleep). Then:
+  SIGINT to the kopia process in the container (`kopia_stop`), `kopia.skipped`/`interrupted` (never failed), no prune, no
+  snapshot/dump, mounts (keep_mounts too), lock and note released; nothing started into the stopping array — stopped
+  containers and shut-down VMs stay noted for the next run (`recover_interrupted_run` also waits while the array stops), frozen/
+  paused VMs released, a running Nextcloud out of maintenance. `aborted` + `array_stopping`, one normal notification, exit 3; the
+  office shows a stopped run (orange, `backup.message.array_stopping`), never a failure. `testBackupArrayStop` (perl stands in for kopia).
 * **One run at a time, never lost silently (engine 2.20):** `state/lock` (flock) is held by
   backup.sh, setup.sh and Mr. Restori's restores; whoever takes it opens it with `>>` (never
   truncating), `touch`es it and writes `state/lock-holder.json` (`holder`, `mode`, `what`, `run`,
