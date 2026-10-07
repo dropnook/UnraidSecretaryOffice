@@ -33,4 +33,66 @@
   .row.cl-trash-row > div:last-child:empty{display:none}
   .cl-trash-row .cl-acts{justify-content:flex-start}
 }
+/* the page's two parts: «Where is what» and «Tidying up» */
+.cl-part{display:flex; flex-direction:column; gap:22px; min-width:0}
+.cl-part + .cl-part{margin-top:8px; padding-top:20px; border-top:2px solid var(--line2)}
+@media (max-width:640px){ .cl-part{gap:18px} }
+.cl-part-head{display:flex; flex-direction:column; gap:3px}
+.cl-part-title{font-size:18px; font-weight:700; color:var(--ink); line-height:1.25}
+.cl-part-sub{margin:0; font-size:13px; color:var(--ink2); max-width:80ch}
+/* «Where is what» (up to 1.30 Ms. Whereabouts' page; its classes clw-) */
+.row.unfolds .row-detail{cursor:auto}
+.row.open{background:color-mix(in srgb, var(--surface2) 45%, var(--surface))}
+.clw-unfold{justify-content:flex-end; padding:0}
+
+.clw-places .card{gap:6px}
+.clw-place-icon{font-size:17px; line-height:1}
+.clw-ellipsis{font-size:12px; color:var(--ink2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.clw-place{padding:4px 0}
+.clw-place-intro{margin:10px 14px 6px; font-size:13px; color:var(--ink2)}
+.clw-path{display:grid; grid-template-columns:minmax(0,1fr) 92px 118px 86px; align-items:center; gap:12px; padding:8px 14px; border-top:1px solid var(--line)}
+.clw-col-fig{text-align:right; font-size:12.5px; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap}
+.clw-col-bk{text-align:center}
+.clw-path .clw-copy{justify-self:end}
+.clw-paths .clw-path:first-child{border-top:0}
+.clw-paths{border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); margin:4px 0 10px}
+.clw-path.missing .mono{color:var(--muted); text-decoration:line-through}
+.clw-path-text{flex:1; min-width:0}
+.clw-path-label{font-size:12.5px; font-weight:600; color:var(--ink)}
+.clw-path-text .mono{font-size:12px; color:var(--ink2); overflow-wrap:anywhere}
+.clw-path-note{font-size:12px; color:var(--muted); margin-top:2px}
+.clw-files{margin:0 14px 8px}
+.clw-files summary{cursor:pointer; font-size:12.5px; color:var(--accent)}
+.clw-file-list{white-space:pre-line; font-size:12px; color:var(--ink2); padding:6px 0 2px}
+.clw-stack{display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; padding:8px 14px; margin-top:6px; border-top:1px solid var(--line2); border-bottom:1px solid var(--line2); background:var(--surface2); font-size:13.5px}
+.clw-stack strong{font-weight:700; color:var(--ink)}
+.clw-path.clw-in-stack{padding-left:30px}
+.clw-indent{margin:4px 14px 10px}
+.clw-sub{font-size:11.5px; font-weight:650; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:12px 0 4px}
+@media (max-width:640px){
+  .clw-path{grid-template-columns:minmax(0,1fr) auto auto; row-gap:6px}
+  .clw-path .clw-path-text{grid-column:1 / -1}
+  .clw-col-fig{text-align:left}
+}
+
+.clw-wake{font-size:12.5px}
+
+.clw-sections{grid-template-columns:repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap:10px}
+.clw-section{padding:10px 12px 9px; gap:5px}
+.clw-section .card-name{font-size:14px}
+.clw-count{margin-left:auto; font-size:13px; font-weight:650; color:var(--muted); font-variant-numeric:tabular-nums}
+.clw-section.active .clw-count{color:var(--accent-ink)}
+.clw-section .card-figures{font-size:11.5px; line-height:1.4; justify-content:flex-start}
+.clw-look{margin-left:auto}
+.clw-look + .clw-count{margin-left:6px}
+.clw-section .card-name{white-space:normal; overflow:visible; line-height:1.25}
+.clw-stack + .clw-path{border-top:0}
+.clw-bad{color:var(--danger); font-weight:600}
+/* "If I were you …" */
+.row.clw-advice{grid-template-columns:minmax(0,1fr) auto; align-items:start}
+.clw-advice-acts{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; padding-top:2px}
+.clw-advice-known .row-name, .clw-advice-known .row-detail{color:var(--muted)}
+.clw-advice-none{margin:0 2px}
+.clw-advice-cmd{margin-top:6px; padding:6px 8px; border-radius:6px; background:var(--surface2); font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; user-select:all}
+@media (max-width:640px){ .row.clw-advice{grid-template-columns:minmax(0,1fr)} .clw-advice-acts{justify-content:flex-start} }
 }
