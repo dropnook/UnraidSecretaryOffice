@@ -31,9 +31,11 @@ declare(strict_types=1);
  *            (the state files, the staff list, the old addresses, the page's parts), the staff's order
  *            (office.staff_order, the default order))
  *   hardening  the checks that keep requests, manifests, paths and links in
- *            bounds (safe writes, the mailbox — and a request a restarting agent dropped —, Ms. Snapshotini's record of what she removed, Ms. Dustdevil's
+ *            bounds (safe writes, the mailbox — and a request a restarting agent dropped —, the agent's
+ *            doorbell and heartbeat in RAM, Ms. Snapshotini's record of what she removed, Ms. Dustdevil's
  *            manifests, Emby paths, anchored validators, the release link, the
- *            Consultant's secrets for Kopia: RAM only, never in a file, log or ps)
+ *            Consultant's secrets for Kopia: RAM only, never in a file, log or ps; and, last of all, that no
+ *            test touched the live agent's RAM folder)
  *   strings  German and English have the same keys, Italian has every English
  *            key, no language has keys English lacks, placeholders and plurals
  *            match English, and every text the code asks for exists (desk.js,
@@ -41,10 +43,40 @@ declare(strict_types=1);
  * Exit code 0 when everything passes.
  */
 
+/*
+ * The live agent's folder in RAM is never the tests': they run with a RAM folder of their own (OFFICE_RUN_DIR — RUN_DIR,
+ * the web side's officeRunDir(), and every process started from here that inherits the environment; the ones started
+ * with an environment of their own name it). On the server (root, util-linux unshare) the run goes on in a mount
+ * namespace of its own whose /var/run/unraid-secretary-office is an empty folder of the tests' (a bind mount nobody
+ * else sees, gone with the run): a test that still reaches for the live folder writes there instead, and
+ * testLiveRunUntouched() fails. The live agent never sees any of it.
+ */
+const TESTS_LIVE_RUN = '/var/run/unraid-secretary-office';
+if (getenv('OFFICE_TESTS_GUARD') === false && PHP_OS_FAMILY === 'Linux' && function_exists('posix_geteuid') && posix_geteuid() === 0
+    && is_dir(TESTS_LIVE_RUN) && !is_link(TESTS_LIVE_RUN) && is_executable('/usr/bin/unshare')) {
+    $guard = sys_get_temp_dir() . '/office-tests-guard-' . getmypid();
+    @mkdir($guard, 0700);
+    putenv("OFFICE_TESTS_GUARD=$guard");
+    $p = proc_open(array_merge(['/usr/bin/unshare', '--mount', '--propagation', 'private', '--', '/bin/sh', '-c',
+        'g=$1; l=$2; shift 2; mount --bind "$g" "$l" 2>/dev/null || exit 97; exec "$@"', 'sh', $guard, TESTS_LIVE_RUN, PHP_BINARY, __FILE__],
+        array_slice($argv, 1)), [0 => STDIN, 1 => STDOUT, 2 => STDERR], $pipes);
+    $code = is_resource($p) ? proc_close($p) : 97;
+    exec('rm -rf ' . escapeshellarg($guard));       // the namespace (and its mount) ended with the run
+    if ($code !== 97) {
+        exit($code);
+    }
+    putenv('OFFICE_TESTS_GUARD');                   // no namespace here: the run goes on without the guard
+    fwrite(STDERR, "(no mount namespace of the tests' own — the live RAM folder is not guarded)\n");
+}
+
 define('AGENT_LIBRARY_ONLY', 1);
 // the repository, not the plugin's folder: the web files in public/, a data folder of its own (never the plugin's DATA_DIR)
 define('OFFICE_WEB', dirname(__DIR__) . '/public');
 putenv('OFFICE_DATA_DIR=' . dirname(__DIR__) . '/data');
+// a RAM folder of the tests' own (removed at the end of the run)
+define('TESTS_RUN_DIR', sys_get_temp_dir() . '/office-tests-run-' . getmypid());
+@mkdir(TESTS_RUN_DIR, 0700, true);
+putenv('OFFICE_RUN_DIR=' . TESTS_RUN_DIR);
 require dirname(__DIR__) . '/agent/agent.php';
 date_default_timezone_set('Europe/Zurich');
 
@@ -4820,6 +4852,78 @@ function testComposeBuilds(): void
  * disk), which Unraid refuses for no reason she can see, and which only their
  * secondary storage keeps from it — from the tour's shares only (fixtures).
  */
+/**
+ * The data folder over the pool for an exclusive share (src/place.php officeUnraidPath(), the one helper of the agent, the
+ * Consultant, Ms. Dustdevil and the web side): exactly Unraid's link /mnt/user/<share> → ../<pool>/<share> (or
+ * /mnt/<pool>/<share>), the same share name, a real folder there, is followed — nothing else. On a /mnt of the tests'
+ * own. Then the agent and the web side in processes of their own with a data folder in /mnt/user/appdata (looked at
+ * only, nothing is written there): both reach it the same way, the agent tells the engine and the user the path as
+ * the user set it, and the night watchman's names in RAM stay what they were.
+ */
+function testUnraidPath(): void
+{
+    $tmp = hardeningTmp('unraidpath');
+    $mnt = "$tmp/mnt";
+    foreach (['cache/appdata/UnraidSecretaryOffice', 'cache/system', 'cache/media', 'disk1/media', 'user0', 'cache/notdir', 'user'] as $d) {
+        @mkdir("$mnt/$d", 0755, true);
+    }
+    rmdir("$mnt/cache/notdir");
+    file_put_contents("$mnt/cache/notdir", 'x');
+    symlink('../cache/appdata', "$mnt/user/appdata");           // Unraid's shape
+    symlink("$mnt/cache/system", "$mnt/user/system");           // the absolute shape
+    mkdir("$mnt/user/media");                                   // not exclusive: shfs' own folder
+    symlink('../cache/system', "$mnt/user/other");              // another share's name
+    symlink('../user0/x', "$mnt/user/x");                       // not a pool
+    symlink('../cache/notdir', "$mnt/user/notdir");             // no folder there
+    symlink('../cache/gone', "$mnt/user/gone");                 // nothing there
+    symlink('../cache/appdata/UnraidSecretaryOffice', "$mnt/user/deep");      // deeper than <pool>/<share>
+    mkdir("$mnt/cache/linked");
+    symlink('../cache/appdata', "$mnt/cache/linked2");
+    symlink('../cache/linked2', "$mnt/user/linked2");           // the pool's folder a link itself
+    $u = fn (string $p) => officeUnraidPath($p, $mnt);
+    same('unraid path: Unraid\'s link followed, the rest kept', "$mnt/cache/appdata/UnraidSecretaryOffice/data", $u("$mnt/user/appdata/UnraidSecretaryOffice/data"));
+    same('unraid path: the share itself', "$mnt/cache/appdata", $u("$mnt/user/appdata"));
+    same('unraid path: the absolute shape too', "$mnt/cache/system/x", $u("$mnt/user/system/x"));
+    foreach (['not exclusive' => "$mnt/user/media/a", 'another share\'s name' => "$mnt/user/other/a", 'not a pool' => "$mnt/user/x/a",
+              'no folder there' => "$mnt/user/notdir/a", 'nothing there' => "$mnt/user/gone/a", 'deeper' => "$mnt/user/deep/a",
+              'the pool\'s folder a link' => "$mnt/user/linked2/a", 'no share' => "$mnt/user", 'missing share' => "$mnt/user/none/a",
+              'outside /mnt/user' => "$mnt/cache/appdata/a", 'user0' => "$mnt/user0/appdata"] as $what => $p) {
+        same("unraid path: $what — kept", $p, $u($p));
+    }
+    same('unraid path: the real /mnt by default — a path outside it kept', '/tmp/x', officeUnraidPath('/tmp/x'));
+
+    // the agent and the web side with a data folder in /mnt/user/appdata (only looked at): the same way, and as the user set it
+    $user = '/mnt/user/appdata/zz-uso-tests-' . getmypid() . '/data';
+    $want = officeUnraidPath($user);
+    $run = function (string $code) use ($user): array {
+        $p = proc_open([PHP_BINARY, '-r', $code], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => $user, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
+        $out = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return json_decode(substr($out, (int) strpos($out, '{')), true) ?: ['raw' => $out];
+    };
+    $agent = $run('define("AGENT_LIBRARY_ONLY", 1); require ' . var_export(OFFICE_DIR . '/agent/agent.php', true) . ';'
+        . ' echo json_encode(["data" => DATA_DIR, "user" => DATA_DIR_USER, "mailbox" => MAILBOX, "engine" => BACKUP_DATA_DIR_USER,'
+        . ' "shown" => dataPathUser(DATA_DIR . "/agent.log"), "other" => dataPathUser("/tmp/x"), "way" => dataWayLook(),'
+        . ' "lock" => basename(watchmanLockFile(DATA_DIR . "/watchman", "book")), "flow" => basename(watchmanFlowCountersFile(DATA_DIR . "/watchman"))]);');
+    $web = $run('require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; echo json_encode(["data" => OFFICE_DATA, "user" => OFFICE_DATA_USER]);');
+    same('data folder: the agent reaches it like officeUnraidPath() — on the pool when appdata is exclusive here', [$want, $user, "$want/mailbox"],
+        [$agent['data'] ?? $agent, $agent['user'] ?? null, $agent['mailbox'] ?? null]);
+    same('data folder: the web side the same way', [$want, $user], [$web['data'] ?? $web, $web['user'] ?? null]);
+    same('data folder: the engine and the user get the path as set, other paths stay', ["$user/unraid-backup", "$user/agent.log", '/tmp/x'],
+        [$agent['engine'] ?? null, $agent['shown'] ?? null, $agent['other'] ?? null]);
+    same('data folder: the way as at the start — no restart', [true, null], [array_key_exists('way', $agent), $agent['way'] ?? null]);
+    same('data folder: the night watchman\'s names in RAM made from the path as set (the same either way)',
+        ['watchman-book-' . substr(md5("$user/watchman"), 0, 8) . '.lock', 'watchman-flow-' . substr(md5("$user/watchman"), 0, 8) . '.json'],
+        [$agent['lock'] ?? null, $agent['flow'] ?? null]);
+    check('data folder: nothing was made in /mnt/user/appdata', !file_exists(dirname($user)));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/agent.php');
+    check('data folder: the night shift never looks under /mnt for it', str_contains($src, "define('DATA_DIR', NIGHT_MODE ? DATA_DIR_USER : officeUnraidPath(DATA_DIR_USER));"));
+    check('data folder: Ms. Dustdevil and the Consultant use the one helper', !preg_match('/readlink\("\/mnt\/user|realpath\(\$userPath/', (string) file_get_contents(OFFICE_DIR . '/agent/lib/where.php'))
+        && !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/advisor.php'), 'function advisorUnraidPath'));
+    hardeningRm($tmp);
+}
+
 function testExclusive(): void
 {
     $roots = ['disk1' => ['fs' => 'xfs', 'kind' => 'disk'], 'disk2' => ['fs' => 'xfs', 'kind' => 'disk'],
@@ -6647,9 +6751,9 @@ function testAdvisorInstall(): void
     advisorDashboardCurrent(['running' => true] + $g);
     same('advisor dashboard current: Grafana running — the office\'s dashboard of this version', advisorDashboardJson(ADVISOR_DASHBOARD_FILE), file_get_contents($file));
     exec('rm -rf ' . escapeshellarg($keep));
-    // Unraid's exclusive shares: only /mnt/user/<share> → /mnt/<pool>/<share> is followed; other paths stay
-    same('advisor: a path outside /mnt/user stays', '/tmp/x/y', advisorUnraidPath('/tmp/x/y'));
-    same('advisor: a share that is no link stays', '/mnt/user/zz-uso-no-such-share/a', advisorUnraidPath('/mnt/user/zz-uso-no-such-share/a'));
+    // Unraid's exclusive shares: only /mnt/user/<share> → /mnt/<pool>/<share> is followed (officeUnraidPath(), testUnraidPath()); other paths stay
+    same('advisor: a path outside /mnt/user stays', '/tmp/x/y', officeUnraidPath('/tmp/x/y'));
+    same('advisor: a share that is no link stays', '/mnt/user/zz-uso-no-such-share/a', officeUnraidPath('/mnt/user/zz-uso-no-such-share/a'));
     $tmp = hardeningTmp('advisor-install');
     $GLOBALS['advisorRecordFile'] = "$tmp/record/installs.json";       // his record of what he prepared: never the test copy's data
     mkdir("$tmp/appdata");
@@ -7170,73 +7274,267 @@ function testSafeWrites(): void
 }
 
 /**
- * The page waits for an answer while the agent restarts (a deploy) or stops: askAgent() notices it in
- * agent.json (pid and start time, running) and says so at once — never a wait of ten minutes. The web
- * side in a process of its own (bootstrap.php, the data folder in a temporary folder); this one plays
- * the agent.
+ * The page waits for an answer while the agent restarts (a deploy) or stops: askAgent() notices it in the agent's
+ * heartbeat (pid and start time, running) and says so at once — never a wait of ten minutes. The web side in a process
+ * of its own (bootstrap.php, the data folder in a temporary folder); this one plays the agent: once with its heartbeat
+ * in RAM (agent.json in the RAM folder), once as an agent up to 1.32 (agent.json in the data folder only).
  */
 function testAgentRestarted(): void
 {
     $tmp = hardeningTmp('restarted');
     mkdir("$tmp/mailbox", 0770);
-    $info = fn (int $started, bool $running = true) => file_put_contents("$tmp/agent.json",
-        json_encode(['running' => $running, 'version' => AGENT_VERSION, 'pid' => 4242, 'started' => $started, 'host' => 'test', 'desks' => []]));
     $web = "$tmp/web.php";
     file_put_contents($web, '<?php require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; $t = microtime(true);'
         . ' try { $out = askAgent("x.y", [], 8); } catch (Throwable $e) { $out = get_class($e); }'
         . ' echo json_encode(["out" => $out, "s" => round(microtime(true) - $t, 1)]);');
-    // the web side asks; $agent(request file) plays the agent once the request is there
-    $ask = function (callable $agent) use ($web, $tmp): array {
-        $p = proc_open([PHP_BINARY, $web], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['OFFICE_DATA_DIR' => $tmp, 'PATH' => getenv('PATH')]);
-        $request = null;
-        for ($i = 0; $i < 60 && $request === null; $i++) {
-            usleep(50000);
-            $request = (glob("$tmp/mailbox/*.request") ?: [null])[0];
-        }
-        if ($request !== null) {
-            $agent($request);
-        }
-        $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+    foreach (['ram' => "$tmp/run-ram/agent.json", 'data' => "$tmp/agent.json"] as $where => $file) {
+        @mkdir("$tmp/run-$where", 0700);
+        $info = fn (int $started, bool $running = true) => file_put_contents($file,
+            json_encode(['running' => $running, 'version' => AGENT_VERSION, 'pid' => 4242, 'started' => $started, 'host' => 'test', 'desks' => []]));
+        // the web side asks; $agent(request file) plays the agent once the request is there
+        $ask = function (callable $agent) use ($web, $tmp, $where): array {
+            $p = proc_open([PHP_BINARY, $web], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+                ['OFFICE_DATA_DIR' => $tmp, 'OFFICE_RUN_DIR' => "$tmp/run-$where", 'PATH' => getenv('PATH')]);
+            $request = null;
+            for ($i = 0; $i < 60 && $request === null; $i++) {
+                usleep(50000);
+                $request = (glob("$tmp/mailbox/*.request") ?: [null])[0];
+            }
+            if ($request !== null) {
+                $agent($request);
+            }
+            $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+            proc_close($p);
+            return (json_decode(substr($raw, (int) strpos($raw, '{')), true) ?: []) + ['raw' => $raw];
+        };
+        $answer = fn (string $request, array $a) => file_put_contents(substr($request, 0, -strlen('.request')) . '.response', json_encode($a)) && unlink($request);
+
+        $info(1000);
+        $r = $ask(fn (string $req) => $answer($req, ['ok' => true, 'n' => 1]));
+        same("restart ($where): an answer as always", ['ok' => true, 'n' => 1], $r['out'] ?? $r['raw']);
+
+        // a deploy: the new agent empties the mailbox when it starts, then writes its heartbeat
+        $r = $ask(function (string $req) use ($info): void {
+            unlink($req);
+            $info(1001);
+        });
+        check("restart ($where): the request emptied away by a new agent is told at once", ($r['out'] ?? '') === 'AgentRestarted' && ($r['s'] ?? 99) < 3, $r['raw']);
+
+        // the new agent came before the request (it was not emptied away): it answers, nothing is told
+        $info(1002);
+        $r = $ask(function (string $req) use ($info, $answer): void {
+            $info(1003);
+            usleep(1200000);                    // the web side sees the new agent while the request is still there
+            $answer($req, ['ok' => true, 'n' => 2]);
+        });
+        same("restart ($where): a request the new agent still finds is answered", ['ok' => true, 'n' => 2], $r['out'] ?? $r['raw']);
+
+        // stopped (array stop, plugin update): a request still waiting is taken back and told
+        $info(1004);
+        $r = $ask(fn () => $info(1004, false));
+        check("restart ($where): a stopped agent is told at once", ($r['out'] ?? '') === 'AgentRestarted' && ($r['s'] ?? 99) < 3, $r['raw']);
+        same("restart ($where): its request taken back", [], glob("$tmp/mailbox/*.request") ?: []);
+
+        // a restart in place keeps the pid — the start time tells
+        $info(1005);
+        $r = $ask(function (string $req) use ($info): void {
+            unlink($req);                       // picked up, then the agent restarted itself before answering
+            usleep(300000);
+            $info(1006);
+        });
+        same("restart ($where): in place (same pid, new start time) is told too", 'AgentRestarted', $r['out'] ?? $r['raw']);
+        @unlink($file);
+    }
+    hardeningRm($tmp);
+}
+
+/**
+ * The agent's heartbeat lives in RAM (agent.json in RUN_DIR, its mtime the pulse every 20 s): nothing of the agent lands
+ * on the pool every 20 s any more, so an appdata pool of HDDs may sleep. writeInfo() writes the data folder's copy only
+ * when its content changes (start, stop); agentPulse() moves the RAM copy's mtime, never through a link. The web side's
+ * agentInfo() and agent.sh's watch read the RAM copy — the data folder's only as long as it is newer (an agent up to
+ * 1.32); the watch doesn't look under /mnt at all while the heartbeat is fresh. The agent and the web side in processes
+ * of their own, agent.sh sourced with its paths in a test folder and a stand-in for Unraid's notify.
+ */
+function testHeartbeat(): void
+{
+    $tmp = hardeningTmp('heartbeat');
+    $data = "$tmp/data";
+    $run = "$tmp/run";
+    @mkdir("$data/mailbox", 0700, true);
+    @mkdir($run, 0700, true);
+    $php = function (string $code) use ($data, $run): array {
+        $p = proc_open([PHP_BINARY, '-r', $code], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => $data, 'OFFICE_RUN_DIR' => $run, 'PATH' => getenv('PATH')]);
+        $out = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
         proc_close($p);
-        return (json_decode(substr($raw, (int) strpos($raw, '{')), true) ?: []) + ['raw' => $raw];
+        return json_decode(substr($out, (int) strpos($out, '{')), true) ?: ['raw' => $out];
     };
-    $answer = fn (string $request, array $a) => file_put_contents(substr($request, 0, -strlen('.request')) . '.response', json_encode($a)) && unlink($request);
+    $agent = 'define("AGENT_LIBRARY_ONLY", 1); require ' . var_export(OFFICE_DIR . '/agent/agent.php', true) . '; ';
 
-    $info(1000);
-    $r = $ask(fn (string $req) => $answer($req, ['ok' => true, 'n' => 1]));
-    same('restart: an answer as always', ['ok' => true, 'n' => 1], $r['out'] ?? $r['raw']);
+    // one agent (one pid, one start time): started, a pulse 50 s later, stopped, a link where its heartbeat belongs
+    $r = $php($agent . '$look = fn ($f) => ($st = @lstat($f)) ? [$st["ino"], $st["mtime"]] : null; $o = ["hb" => AGENT_HEARTBEAT];'
+        . ' writeInfo(true); $o["ram"] = json_decode((string) file_get_contents(AGENT_HEARTBEAT), true);'
+        . ' $o["same"] = file_get_contents(AGENT_HEARTBEAT) === file_get_contents(AGENT_INFO);'
+        . ' touch(AGENT_HEARTBEAT, time() - 50); touch(AGENT_INFO, time() - 50); clearstatcache(); $before = $look(AGENT_INFO);'
+        . ' agentPulse(); writeInfo(true); clearstatcache(); $o["pulse"] = [filemtime(AGENT_HEARTBEAT) >= time() - 2, $look(AGENT_INFO) === $before];'
+        . ' writeInfo(false); $o["stopped"] = [json_decode((string) file_get_contents(AGENT_HEARTBEAT), true)["running"] ?? null,'
+        . ' json_decode((string) file_get_contents(AGENT_INFO), true)["running"] ?? null];'
+        . ' $victim = dirname(DATA_DIR) . "/victim"; file_put_contents($victim, "x"); touch($victim, 1000000000);'
+        . ' unlink(AGENT_HEARTBEAT); symlink($victim, AGENT_HEARTBEAT); agentPulse(); clearstatcache();'
+        . ' $o["link"] = [filemtime($victim), is_link(AGENT_HEARTBEAT), file_get_contents($victim), is_file(AGENT_HEARTBEAT)];'
+        . ' echo json_encode($o);');
+    same('heartbeat: in RAM', "$run/agent.json", $r['hb'] ?? $r);
+    same('heartbeat: who is at work, in RAM and in the data folder alike', [true, AGENT_VERSION, true],
+        [$r['ram']['running'] ?? null, $r['ram']['version'] ?? null, $r['same'] ?? null]);
+    same('heartbeat: the pulse moves the RAM copy only — the data folder\'s stays as it was', [true, true], $r['pulse'] ?? null);
+    same('heartbeat: stopped — said in both', [false, false], $r['stopped'] ?? null);
+    same('heartbeat: a link in its place is never touched through — a file of its own instead', [1000000000, false, 'x', true], $r['link'] ?? null);
 
-    // a deploy: the new agent empties the mailbox when it starts, then writes agent.json
-    $r = $ask(function (string $req) use ($info): void {
-        unlink($req);
-        $info(1001);
-    });
-    check('restart: the request emptied away by a new agent is told at once', ($r['out'] ?? '') === 'AgentRestarted' && ($r['s'] ?? 99) < 3, $r['raw']);
+    // the web side: the newer of the two counts
+    $web = fn () => $php('require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; $i = agentInfo(); echo json_encode(["running" => $i["running"], "pid" => $i["pid"] ?? null]);');
+    $write = fn (string $f, int $pid, int $age) => file_put_contents($f, json_encode(['running' => true, 'pid' => $pid, 'started' => 1])) && touch($f, time() - $age);
+    $write("$run/agent.json", 11, 5);
+    $write("$data/agent.json", 22, 500);
+    same('heartbeat: the page reads the RAM copy', ['running' => true, 'pid' => 11], $web());
+    $write("$run/agent.json", 11, 500);
+    $write("$data/agent.json", 22, 5);
+    same('heartbeat: an agent up to 1.32 (the data folder\'s copy newer) still counts', ['running' => true, 'pid' => 22], $web());
+    $write("$data/agent.json", 22, 100);
+    same('heartbeat: both older than 70 s — not at work', ['running' => false, 'pid' => 22], $web());
+    unlink("$data/agent.json");
+    $write("$run/agent.json", 11, 1);
+    same('heartbeat: the RAM copy alone', ['running' => true, 'pid' => 11], $web());
 
-    // the new agent came before the request (it was not emptied away): it answers, nothing is told
-    $info(1002);
-    $r = $ask(function (string $req) use ($info, $answer): void {
-        $info(1003);
-        usleep(1200000);                    // the web side sees the new agent while the request is still there
-        $answer($req, ['ok' => true, 'n' => 2]);
-    });
-    same('restart: a request the new agent still finds is answered', ['ok' => true, 'n' => 2], $r['out'] ?? $r['raw']);
+    // agent.sh watch: the RAM copy first; the data folder only when it is stale
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\n");
+    file_put_contents("$tmp/notify", "#!/bin/bash\necho \"\$*\" >> " . escapeshellarg("$tmp/told") . "\n");
+    chmod("$tmp/notify", 0755);
+    $sh = escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh');
+    $watch = function () use ($sh, $tmp, $run, $data): void {
+        shell_exec('bash -c ' . escapeshellarg("source $sh; RUN=" . escapeshellarg($run) . '; VAR_INI=' . escapeshellarg("$tmp/var.ini")
+            . '; NOTIFY=' . escapeshellarg("$tmp/notify") . '; FLASH=' . escapeshellarg("$tmp/flash") . '; LOG=' . escapeshellarg("$tmp/log")
+            . '; WATCH_DOWN=$RUN/watch-down; WATCH_TOLD=$RUN/watch-told; data_dir() { echo x >> ' . escapeshellarg("$tmp/asked") . '; echo '
+            . escapeshellarg($data) . '; }; watch') . ' 2>&1');
+    };
+    $watch();
+    same('watch: a fresh heartbeat in RAM — fine, and nothing under /mnt asked', [false, false], [file_exists("$run/watch-down"), file_exists("$tmp/asked")]);
+    $write("$run/agent.json", 11, 500);
+    $write("$data/agent.json", 22, 5);
+    $watch();
+    same('watch: an agent up to 1.32 (its data folder\'s copy fresh) — fine', [false, true], [file_exists("$run/watch-down"), file_exists("$tmp/asked")]);
+    $write("$data/agent.json", 22, 500);
+    $watch();
+    check('watch: both stale — the ten minutes start', is_file("$run/watch-down") && !file_exists("$tmp/told"));
+    file_put_contents("$run/watch-down", (string) (time() - 700));
+    $watch();
+    check('watch: away for ten minutes — Unraid hears of it once', str_contains((string) @file_get_contents("$tmp/told"), 'Agent not running') && is_file("$run/watch-told"));
+    $write("$run/agent.json", 11, 1);
+    $watch();
+    check('watch: the heartbeat back — told, the marks gone', str_contains((string) @file_get_contents("$tmp/told"), 'Agent running again')
+        && !file_exists("$run/watch-down") && !file_exists("$run/watch-told"));
+    hardeningRm($tmp);
+}
 
-    // stopped (array stop, plugin update): a request still waiting is taken back and told
-    $info(1004);
-    $r = $ask(fn () => $info(1004, false));
-    check('restart: a stopped agent is told at once', ($r['out'] ?? '') === 'AgentRestarted' && ($r['s'] ?? 99) < 3, $r['raw']);
-    same('restart: its request taken back', [], glob("$tmp/mailbox/*.request") ?: []);
+/**
+ * The doorbell (lever 3 of the performance report, 2026-10-07): a request waited ~100 ms on average in the mailbox (the
+ * agent napped 150 ms between rounds, the page looked for the answer every 50 ms). Now the agent waits on a FIFO in its
+ * RAM folder and the web side rings it after dropping a request — writing that one file only, never a signal. The
+ * agent makes it anew at every start (an old one, a file or a link there go — never written through), 0600, its own;
+ * the web side rings only such a FIFO (not through a link, not one others may open, not another user's), never waits
+ * (no reader, a full one) and never makes one. Then the round trip: the agent's mailbox and nap against the web side's
+ * askAgent(), with the doorbell and without (then as before). Processes of their own, a RAM folder of the test's.
+ */
+function testDoorbell(): void
+{
+    $tmp = hardeningTmp('doorbell');
+    $run = "$tmp/run";
+    $data = "$tmp/data";
+    @mkdir($run, 0700, true);
+    @mkdir($data, 0755, true);
+    $env = ['OFFICE_DATA_DIR' => $data, 'OFFICE_RUN_DIR' => $run, 'PATH' => getenv('PATH')];
+    $php = function (string $code, array $args = []) use ($env): array {
+        $p = proc_open(array_merge([PHP_BINARY, '-r', $code], $args), [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $env);
+        $out = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return json_decode(substr($out, (int) strpos($out, '{')), true) ?: ['raw' => $out];
+    };
+    $agent = 'define("AGENT_LIBRARY_ONLY", 1); require ' . var_export(OFFICE_DIR . '/agent/agent.php', true) . '; ';
+    $web = 'require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; ';
+    $bell = "$run/doorbell";
 
-    // a restart in place keeps the pid — the start time tells
-    $info(1005);
-    $r = $ask(function (string $req) use ($info): void {
-        unlink($req);                       // picked up, then the agent restarted itself before answering
-        usleep(300000);
-        $info(1006);
-    });
-    same('restart: in place (same pid, new start time) is told too', 'AgentRestarted', $r['out'] ?? $r['raw']);
+    // the agent's side: made anew, whatever lay there; its own FIFO, 0600; a nap ends at the ring or at its time
+    file_put_contents("$tmp/victim", 'v');
+    symlink("$tmp/victim", $bell);
+    $r = $php($agent . '$o = []; $b = doorbellOpen(); clearstatcache(); $st = lstat(DOORBELL);'
+        . ' $o["made"] = [is_resource($b), ($st["mode"] & 0170000) === 0010000, $st["mode"] & 0777, $st["uid"] === posix_geteuid(), DOORBELL];'
+        . ' $t = microtime(true); $o["quiet"] = [agentNap($b, $t + 0.2), microtime(true) - $t >= 0.15];'
+        . ' $w = fopen(DOORBELL, "r+"); fwrite($w, str_repeat("x", 100)); fclose($w);'
+        . ' $t = microtime(true); $o["rung"] = [agentNap($b, $t + 3), microtime(true) - $t < 0.5];'
+        . ' $t = microtime(true); $o["read away"] = [agentNap($b, $t + 0.2), microtime(true) - $t >= 0.15];'
+        . ' $o["file"] = (function () { $b = null; file_put_contents("' . $tmp . '/plain", "p"); @unlink(DOORBELL); rename("' . $tmp . '/plain", DOORBELL); $b = doorbellOpen(); clearstatcache(); return [is_resource($b), (lstat(DOORBELL)["mode"] & 0170000) === 0010000]; })();'
+        . ' $b2 = doorbellOpen(); clearstatcache(); $ino = lstat(DOORBELL)["ino"]; doorbellClose($b); clearstatcache(); $o["not its own"] = file_exists(DOORBELL) && lstat(DOORBELL)["ino"] === $ino;'
+        . ' doorbellClose($b2); clearstatcache(); $o["closed"] = file_exists(DOORBELL) || is_link(DOORBELL);'
+        . ' echo json_encode($o);');
+    same('doorbell: made anew over a link — a FIFO of its own, 0600, in the RAM folder', [true, true, 0600, true, $bell], $r['made'] ?? $r);
+    same('doorbell: the link\'s target untouched', 'v', file_get_contents("$tmp/victim"));
+    same('doorbell: unrung, the nap lasts its time', [false, true], $r['quiet'] ?? null);
+    same('doorbell: a ring ends the nap at once', [true, true], $r['rung'] ?? null);
+    same('doorbell: what rang is read away (the next nap lasts its time)', [false, true], $r['read away'] ?? null);
+    same('doorbell: a plain file in its place is replaced', [true, true], $r['file'] ?? null);
+    check('doorbell: at the stop only its own goes', ($r['not its own'] ?? null) === true && ($r['closed'] ?? null) === false);
+
+    // the web side's ring: only a FIFO of its own user others can't open, never through a link, never waiting, never making one
+    $ring = fn (string $setup = '') => $php($web . $setup . ' $t = microtime(true); $ok = agentRing(); echo json_encode(["ok" => $ok, "s" => microtime(true) - $t]);');
+    $r = $ring();
+    same('ring: no doorbell — nothing, and none made', [false, false], [$r['ok'] ?? null, file_exists($bell) || is_link($bell)]);
+    file_put_contents($bell, 'keep');
+    $r = $ring();
+    same('ring: a plain file — not written', [false, 'keep'], [$r['ok'] ?? null, file_get_contents($bell)]);
+    unlink($bell);
+    posix_mkfifo("$tmp/fifo", 0600);
+    symlink("$tmp/fifo", $bell);
+    $r = $ring('$h = fopen(' . var_export("$tmp/fifo", true) . ', "r+"); stream_set_blocking($h, false);');
+    same('ring: a link to a FIFO — not followed', false, $r['ok'] ?? null);
+    unlink($bell);
+    posix_mkfifo($bell, 0600);
+    chmod($bell, 0622);
+    same('ring: a FIFO others may write — refused', false, $ring()['ok'] ?? null);
+    chmod($bell, 0600);
+    chown($bell, 65534);
+    same('ring: another user\'s FIFO — refused', false, $ring()['ok'] ?? null);
+    chown($bell, posix_geteuid());
+    $r = $ring();
+    check('ring: the agent\'s FIFO with nobody reading — rung, without waiting', ($r['ok'] ?? null) === true && ($r['s'] ?? 9) < 0.5, json_encode($r));
+    $r = $ring('$h = fopen(' . var_export($bell, true) . ', "r+"); stream_set_blocking($h, false); while (@fwrite($h, str_repeat("x", 4096))) {}');
+    check('ring: a full one (an agent that doesn\'t read) — left as it is, without waiting', ($r['ok'] ?? null) === false && ($r['s'] ?? 9) < 0.5, json_encode($r));
+    unlink($bell);
+
+    // the round trip: the agent's mailbox and nap against askAgent() — with the doorbell, and without (as before)
+    $loop = $agent . '@mkdir(DATA_DIR, 0755, true); mailboxEnsure(); writeInfo(true); $b = $argv[1] === "bell" ? doorbellOpen() : null;'
+        . ' $end = microtime(true) + 8; $next = 0.0; while (microtime(true) < $end && !file_exists(DATA_DIR . "/stop")) {'
+        . ' clearstatcache(); processMailbox(); if (microtime(true) >= $next) { $next = microtime(true) + TICK_US / 1e6; } agentNap($b, $next); }'
+        . ' doorbellClose($b); echo json_encode(["done" => true]);';
+    $ask = $web . '$t = []; for ($i = 0; $i < 12; $i++) { usleep(random_int(0, 150000)); $a = microtime(true);'
+        . ' $r = askAgent("office.ping", [], 5); $t[] = empty($r["ok"]) ? 9999 : (microtime(true) - $a) * 1000; } sort($t);'
+        . ' echo json_encode(["median" => $t[6], "max" => $t[11], "ring" => agentRing()]);';
+    foreach (['bell' => 60, 'none' => 200] as $how => $high) {
+        @unlink("$data/stop");
+        $p = proc_open([PHP_BINARY, '-r', $loop, $how], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $env);
+        for ($i = 0; $i < 100 && !is_dir("$data/mailbox"); $i++) {
+            usleep(20000);
+        }
+        usleep(200000);
+        $r = $php($ask);
+        touch("$data/stop");
+        proc_close($p);
+        check("round trip ($how): answered, the median under $high ms", is_numeric($r['median'] ?? null)
+            && $r['median'] < $high && $r['max'] < $high + 150, json_encode($r));
+        same("round trip ($how): the doorbell " . ($how === 'bell' ? 'there while the agent runs' : 'never made by the web side'),
+            $how === 'bell', $r['ring'] ?? null);
+        hardeningRm("$data/mailbox");
+    }
+    same('doorbell: gone with the agent', false, file_exists($bell));
     hardeningRm($tmp);
 }
 
@@ -7519,7 +7817,7 @@ function testAdvisorSecrets(): void
     $web = "$tmp/web.php";
     file_put_contents($web, '<?php require ' . var_export(OFFICE_DIR . '/src/place.php', true) . '; require '
         . var_export(OFFICE_DIR . '/src/api.php', true) . '; echo apiSecretStash("advisor.kopia_repo", json_decode(stream_get_contents(STDIN), true));');
-    $p = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, ['OFFICE_INBOX_DIR' => $inbox, 'PATH' => getenv('PATH')]);
+    $p = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, ['OFFICE_INBOX_DIR' => $inbox, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
     fwrite($pipes[0], json_encode($secrets));
     fclose($pipes[0]);
     $ref = trim((string) stream_get_contents($pipes[1]));
@@ -7527,7 +7825,7 @@ function testAdvisorSecrets(): void
     proc_close($p);
     $st = @lstat("$inbox/$ref.secret");
     check('secret e2e: the web side left a 0600 file in the inbox', $st !== false && ($st['mode'] & 0777) === 0600, $webErr);
-    $refused = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes2, null, ['OFFICE_INBOX_DIR' => $inbox]);
+    $refused = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes2, null, ['OFFICE_INBOX_DIR' => $inbox, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR]);
     fwrite($pipes2[0], json_encode(['password' => ['nested']]));
     fclose($pipes2[0]);
     check('secret e2e: the web side refuses odd shapes', str_contains((string) stream_get_contents($pipes2[1]), 'bad_request'));
@@ -9164,7 +9462,7 @@ function testStaffMerged(): void
         . ' echo json_encode([officeStaffMigrate($f, $desks), officeStaffMigrate($f, $desks)]);');
     $run = function () use ($web, $tmp): array {
         $p = proc_open([PHP_BINARY, $web], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['OFFICE_DATA_DIR' => $tmp, 'PATH' => getenv('PATH')]);
+            ['OFFICE_DATA_DIR' => $tmp, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
         $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
         proc_close($p);
         return [json_decode($raw, true), $raw];
@@ -9247,7 +9545,7 @@ function testStaffOrder(): void
         . var_export($file, true) . '), true); } echo json_encode($out);');
     $webRun = function (array $steps, string $data) use ($web): array {
         $p = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['OFFICE_DATA_DIR' => $data, 'PATH' => getenv('PATH')]);
+            ['OFFICE_DATA_DIR' => $data, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
         fwrite($pipes[0], json_encode($steps));
         fclose($pipes[0]);
         $raw = (string) stream_get_contents($pipes[1]);
@@ -9411,7 +9709,7 @@ function testSupporter(): void
               ['office.supporter_ask', ['answer' => 'later']], ['office.supporter_remove', []], ['office.supporter_ask', ['answer' => 'never']]];
     $webRun = function (array $steps) use ($web, $tmp, $pub): array {
         $p = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['OFFICE_DATA_DIR' => $tmp, 'OFFICE_SUPPORTER_PUBKEY' => $pub, 'PATH' => getenv('PATH')]);
+            ['OFFICE_DATA_DIR' => $tmp, 'OFFICE_SUPPORTER_PUBKEY' => $pub, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
         fwrite($pipes[0], json_encode($steps));
         fclose($pipes[0]);
         $raw = (string) stream_get_contents($pipes[1]);
@@ -9640,7 +9938,7 @@ function testOfficeLanguage(): void
         . ' $GLOBALS["locale"] = ""; $out["en"] = [officePageConfig()["unraid_words"], officeDashT(["k" => "⟦Main⟧"], "k")];'
         . ' echo json_encode($out, JSON_UNESCAPED_UNICODE);');
     $p = proc_open([PHP_BINARY, "$tmp/web.php", json_encode($accept)], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-        ['OFFICE_DATA_DIR' => "$tmp/data", 'PATH' => getenv('PATH')]);
+        ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
     $raw = (string) stream_get_contents($pipes[1]);
     $err = trim((string) stream_get_contents($pipes[2]));
     proc_close($p);
@@ -9701,7 +9999,7 @@ function testThemeSwitch(): void
             . ' ob_start(); officeBody(officePageConfig()); $out["body"] = ob_get_clean();'
             . ' echo json_encode($out, JSON_UNESCAPED_UNICODE);');
         $p = proc_open([PHP_BINARY, "$tmp/web.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['OFFICE_DATA_DIR' => "$tmp/data", 'PATH' => getenv('PATH')]);
+            ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
         $raw = (string) stream_get_contents($pipes[1]);
         $err = trim((string) stream_get_contents($pipes[2]));
         proc_close($p);
@@ -9798,6 +10096,39 @@ function testThemeSwitch(): void
     same('core.js: the hooks for the switch (reception, help), each marked theme-switch', 3, substr_count($core, 'theme-switch'));
     check('core.js: the switch at the reception only while the script is there', str_contains($core, 'if (Office.theme) { const acts = el(\'div\', \'deskhead-actions\'); acts.appendChild(Office.theme.control());'));
     check('core.js: the help line only while the script is there', str_contains($core, "if (Office.theme) item(t('help.theme_title'), t('help.theme_text'));"));
+}
+
+/**
+ * The tests never touch the live agent's RAM folder (/var/run/unraid-secretary-office: its locks, the night shift's
+ * state, the doorbell, the heartbeat): every RAM path of the agent and the web side lies in the tests' own folder
+ * (OFFICE_RUN_DIR), no PHP file but src/place.php names the live folder, and — on the server, where the run goes on in
+ * a mount namespace whose live folder is an empty one of the tests' (see the top of this file) — nothing at all landed
+ * there during the whole run, whatever process put it there.
+ */
+function testLiveRunUntouched(): void
+{
+    $own = TESTS_RUN_DIR;
+    same('live run folder: RUN_DIR is the tests\' own', $own, RUN_DIR);
+    same('live run folder: the web side\'s too', $own, officeRunDir());
+    $paths = ['PID_FILE' => PID_FILE, 'inbox' => officeInboxDir(), 'WATCH_NIGHT_DIR' => WATCH_NIGHT_DIR, 'WATCH_NIGHT_LOCK' => WATCH_NIGHT_LOCK,
+              'WATCH_MIRROR_RAM' => WATCH_MIRROR_RAM, 'WATCH_ARRAY_EVENTS' => WATCH_ARRAY_EVENTS, 'OFFICE_NOTIFY_LANG_RAM' => OFFICE_NOTIFY_LANG_RAM,
+              'ADVISOR_PREPARED_DIR' => ADVISOR_PREPARED_DIR, 'ADVISOR_JOB' => ADVISOR_JOB, 'AGENT_HEARTBEAT' => AGENT_HEARTBEAT, 'DOORBELL' => DOORBELL];
+    same('live run folder: every RAM path of the agent in the tests\' own', [], array_keys(array_filter($paths, fn ($p) => !str_starts_with($p, "$own/"))));
+    $named = [];
+    foreach (array_merge(glob(OFFICE_DIR . '/agent/*.php') ?: [], glob(OFFICE_DIR . '/agent/*/*.php') ?: [], glob(OFFICE_DIR . '/src/*.php') ?: []) as $f) {
+        if (str_contains((string) file_get_contents($f), TESTS_LIVE_RUN) && basename($f) !== 'place.php') {
+            $named[] = substr($f, strlen(OFFICE_DIR) + 1);
+        }
+    }
+    same('live run folder: named only by src/place.php (officeRunDir()) — everything else derives from it', [], $named);
+    $guard = getenv('OFFICE_TESTS_GUARD');
+    if ($guard === false) {
+        return;         // not on the server (or no namespace): the checks above only
+    }
+    $live = @stat(TESTS_LIVE_RUN);
+    $mine = @stat($guard);
+    check('live run folder: the run went on with the tests\' empty folder in its place', $live && $mine && $live['dev'] === $mine['dev'] && $live['ino'] === $mine['ino']);
+    same('live run folder: no test wrote into it', [], array_values(array_diff(scandir(TESTS_LIVE_RUN) ?: [], ['.', '..'])));
 }
 
 /**
@@ -10185,9 +10516,9 @@ function testUnraidWords(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage'],
-          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
+          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings', 'testUnraidWords']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
@@ -10197,6 +10528,8 @@ foreach ($parts as $name => $fns) {
         }
     }
 }
+testLiveRunUntouched();         // last: nothing of all the above reached the live agent's RAM folder
+exec('rm -rf ' . escapeshellarg(TESTS_RUN_DIR));
 $fail = $GLOBALS['results']['fail'];
 foreach ($fail as $f) {
     echo "FAIL  $f\n";

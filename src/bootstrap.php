@@ -31,7 +31,11 @@ require __DIR__ . '/place.php';
 require_once __DIR__ . '/words.php';      // Unraid's own words in the texts (shared with the agent)
 
 define('OFFICE_PUBLIC', dirname(__DIR__));      // the web files: next to src/ in the plugin's folder
-define('OFFICE_DATA', rtrim(getenv('OFFICE_DATA_DIR') ?: officePluginDataDir(), '/'));
+// the data folder as the user set it (usually /mnt/user/appdata/…, what the page names), and where the web side
+// reads and writes it: on its pool directly when it lies in an exclusive share (officeUnraidPath(), past shfs —
+// looked at anew with every request: one lstat and a readlink)
+define('OFFICE_DATA_USER', rtrim(getenv('OFFICE_DATA_DIR') ?: officePluginDataDir(), '/'));
+define('OFFICE_DATA', officeUnraidPath(OFFICE_DATA_USER));
 
 // inside Unraid's own page (SecretaryOffice.page) the office leaves Unraid's settings alone
 defined('OFFICE_IN_UNRAID') || define('OFFICE_IN_UNRAID', false);

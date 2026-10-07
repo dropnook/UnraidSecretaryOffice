@@ -31,11 +31,17 @@ declare(strict_types=1);
  *
  * Environment (tests only):
  *   OFFICE_DATA_DIR            another data folder than the plugin's DATA_DIR
+ *   OFFICE_RUN_DIR             another folder in RAM than the office's (RUN_DIR, see officeRunDir())
  */
 
+require dirname(__DIR__) . '/src/place.php';
+require_once dirname(__DIR__) . '/src/words.php';     // Unraid's own words in the texts (shared with the web side)
+
 const AGENT_VERSION = '1.32.0';
-const RUN_DIR       = '/var/run/unraid-secretary-office';
+define('RUN_DIR', officeRunDir());          // RAM, root only (0700); the web side's officeRunDir()
 const PID_FILE      = RUN_DIR . '/agent.pid';
+const AGENT_HEARTBEAT = RUN_DIR . '/agent.json';     // who is at work; its mtime is the pulse (writeInfo(), agentPulse())
+const DOORBELL      = RUN_DIR . '/doorbell';   // a FIFO the web side rings after dropping a request (doorbellOpen(), agentNap())
 const TICK_US       = 150000;
 const LOG_MAX       = 512 * 1024;
 const FILE_UID      = 99;    // nobody:users, like everything else in appdata
@@ -47,18 +53,21 @@ const WEB_UID       = 0;     // the web server's user: Unraid's php-fpm runs as 
 // only Stopping and Stopped end a run); tests/run.php compares them.
 const ARRAY_RUNNING = ['Started', 'Formatting', 'Clearing'];
 
-require dirname(__DIR__) . '/src/place.php';
-require_once dirname(__DIR__) . '/src/words.php';     // Unraid's own words in the texts (shared with the web side)
-
 define('OFFICE_DIR', dirname(__DIR__));
 // the web files (desks/<id>/desk.json, lang/ …) lie at the top of the plugin's folder; the tests set the repository's public/
 defined('OFFICE_WEB') || define('OFFICE_WEB', OFFICE_DIR);
-define('DATA_DIR', rtrim(getenv('OFFICE_DATA_DIR') ?: officePluginDataDir(), '/'));
+// the night shift keeps nothing under /mnt: its log lies in RAM next to its book
+define('NIGHT_MODE', PHP_SAPI === 'cli' && !defined('AGENT_LIBRARY_ONLY') && ($argv[1] ?? '') === 'nightshift');
+// The data folder as the user set it (DATA_DIR in the plugin's .cfg, usually /mnt/user/appdata/…): what the user
+// sees and what other programs get (the backup engine's UB_DATA, Ms. Dustdevil's «Where is what»). The agent itself
+// reads and writes DATA_DIR: the same folder, on its pool directly when it lies in an exclusive share
+// (officeUnraidPath() — past shfs; decided at every start = every array start, looked at again every minute,
+// dataWayLook()). The night shift never looks under /mnt.
+define('DATA_DIR_USER', rtrim(getenv('OFFICE_DATA_DIR') ?: officePluginDataDir(), '/'));
+define('DATA_DIR', NIGHT_MODE ? DATA_DIR_USER : officeUnraidPath(DATA_DIR_USER));
 define('MAILBOX', DATA_DIR . '/mailbox');
 define('OFFICE_PRIVATE', DATA_DIR . '/office');
 define('AGENT_INFO', DATA_DIR . '/agent.json');
-// the night shift keeps nothing under /mnt: its log lies in RAM next to its book
-define('NIGHT_MODE', PHP_SAPI === 'cli' && !defined('AGENT_LIBRARY_ONLY') && ($argv[1] ?? '') === 'nightshift');
 define('AGENT_LOG', NIGHT_MODE ? RUN_DIR . '/nightshift/nightshift.log' : DATA_DIR . '/agent.log');
 
 require __DIR__ . '/lib/util.php';
@@ -241,12 +250,17 @@ function serve(): int
     $code = codeStamp();
     $ready = false;
     $lastPulse = $lastLook = $lastCleanup = 0;
+    $bell = doorbellOpen();
+    $nextTick = 0.0;
 
     while (!$stop) {
         clearstatcache();
         if (!is_dir(DATA_DIR) && !makeDataDir()) {     // array stopped: wait until it is back
             $ready = false;
             sleep(5);
+            if (arrayRunning() && ($way = dataWayLook()) !== null) {
+                restartInPlace($lock, "The data folder is reached another way now ($way)");
+            }
             continue;
         }
         if (!$ready) {
@@ -255,6 +269,12 @@ function serve(): int
         }
 
         processMailbox();
+        // the rest of the round as ever — 150 ms after the last one ended —, however often the doorbell wakes the
+        // agent in between
+        if (microtime(true) < $nextTick) {
+            agentNap($bell, $nextTick);
+            continue;
+        }
         foreach (desks() as $id => $desk) {
             if ($desk['tick']) {
                 try {
@@ -268,13 +288,16 @@ function serve(): int
 
         $now = time();
         if ($now - $lastPulse >= 20) {
-            @touch(AGENT_INFO);
+            agentPulse();
             $lastPulse = $now;
         }
         if ($now - $lastCleanup >= 60) {
             cleanUpMailbox();
             officeNotifyLangKeep();     // the office's language into RAM, for the night shift's notifications (lib/house.php)
             $lastCleanup = $now;
+            if (($way = dataWayLook()) !== null) {
+                restartInPlace($lock, "The data folder is reached another way now ($way)");
+            }
         }
         if ($now - $lastLook >= 3) {
             $lastLook = $now;
@@ -282,25 +305,126 @@ function serve(): int
             if ($new !== $code) {
                 $code = $new;
                 if (codeIsValid()) {
-                    logLine('Agent code changed — restarting');
-                    flock($lock, LOCK_UN);
-                    fclose($lock);
-                    pcntl_exec('/bin/sh', ['-c', 'exec "$@"' . closeInheritedFds(), 'sh', PHP_BINARY, __FILE__, 'run']);
-                    exit(1);
+                    restartInPlace($lock, 'Agent code changed');
                 }
             }
         }
-        usleep(TICK_US);
+        $nextTick = microtime(true) + TICK_US / 1e6;
+        agentNap($bell, $nextTick);     // until the next round — or the doorbell, whichever comes first
     }
 
     logLine('Agent stopped');
-    if (is_dir(DATA_DIR)) {
-        writeInfo(false);
-    }
+    writeInfo(false);
+    doorbellClose($bell);
     flock($lock, LOCK_UN);
     fclose($lock);
     @unlink(PID_FILE);
     return 0;
+}
+
+/**
+ * The doorbell: a FIFO in RUN_DIR (RAM, root only), so a request in the mailbox is picked up at once instead of at
+ * the agent's next round (on average 100 ms later: the agent napped 150 ms between rounds, the page looked for the
+ * answer every 50 ms). The web side writes a byte after dropping a request (src/mailbox.php agentRing()); the agent
+ * waits on it between its rounds with the round's time as the limit (agentNap()) — no ring, no doorbell: as before.
+ * Made anew at every start: whatever lies there goes (an old doorbell — a FIFO keeps no bytes once nobody has it
+ * open —, a file, a link), then mkfifo 0600 with umask 077. Opened for reading and writing (never waits for a writer,
+ * never sees an end), non-blocking, unbuffered — and only when the open handle is exactly the FIFO just made (lstat,
+ * then fstat: the same inode, the agent's own). Nothing in the pool: the array stop never waits for it.
+ *
+ * @return resource|null  null: no doorbell (logged) — the agent looks every 150 ms, the page waits that much longer
+ */
+function doorbellOpen()
+{
+    @mkdir(RUN_DIR, 0700, true);
+    clearstatcache(true, DOORBELL);
+    if (@lstat(DOORBELL) !== false && !@unlink(DOORBELL)) {
+        logLine('The doorbell ' . DOORBELL . ' could not be made anew — requests wait for the next round (≤ 150 ms)');
+        return null;
+    }
+    $old = umask(0077);
+    $made = function_exists('posix_mkfifo') && @posix_mkfifo(DOORBELL, 0600);
+    umask($old);
+    clearstatcache(true, DOORBELL);
+    $st = $made ? @lstat(DOORBELL) : false;
+    $bell = $st && ($st['mode'] & 0170000) === 0010000 && $st['uid'] === posix_geteuid() ? @fopen(DOORBELL, 'r+') : false;
+    $fs = $bell ? @fstat($bell) : false;
+    if (!$fs || $fs['dev'] !== $st['dev'] || $fs['ino'] !== $st['ino'] || !stream_set_blocking($bell, false)) {
+        if ($bell) {
+            fclose($bell);
+        }
+        logLine('No doorbell at ' . DOORBELL . ' — requests wait for the next round (≤ 150 ms)');
+        return null;
+    }
+    stream_set_read_buffer($bell, 0);
+    return $bell;
+}
+
+/** At the stop: the doorbell goes (a page that rings now rings nobody — and nothing waits for an answer then) */
+function doorbellClose($bell): void
+{
+    if (!is_resource($bell)) {
+        return;
+    }
+    $fs = @fstat($bell);
+    clearstatcache(true, DOORBELL);
+    $st = @lstat(DOORBELL);
+    fclose($bell);
+    if ($fs && $st && $st['dev'] === $fs['dev'] && $st['ino'] === $fs['ino']) {
+        @unlink(DOORBELL);              // only its own: never another agent's
+    }
+}
+
+/**
+ * Waits until $until (microtime) or until the doorbell rings, whichever comes first; what rang is read away (the
+ * bytes mean nothing but «look now»). A signal ends the wait too (the loop then looks at its stop flag). Without a
+ * doorbell: a plain nap. True when it rang.
+ */
+function agentNap($bell, float $until): bool
+{
+    $us = (int) max(0, ($until - microtime(true)) * 1e6);
+    if (!is_resource($bell)) {
+        if ($us > 0) {
+            usleep($us);
+        }
+        return false;
+    }
+    $read = [$bell];
+    $w = $e = null;
+    if (@stream_select($read, $w, $e, intdiv($us, 1000000), $us % 1000000) < 1) {
+        return false;
+    }
+    for ($i = 0; $i < 16 && ($bytes = @fread($bell, 4096)) !== false && $bytes !== ''; $i++) {
+    }
+    return true;
+}
+
+/** Starts this agent anew in its own process (its pid stays): new code, or another way to its data folder */
+function restartInPlace($lock, string $why): never
+{
+    logLine("$why — restarting");
+    flock($lock, LOCK_UN);
+    fclose($lock);
+    pcntl_exec('/bin/sh', ['-c', 'exec "$@"' . closeInheritedFds(), 'sh', PHP_BINARY, __FILE__, 'run']);
+    exit(1);
+}
+
+/**
+ * Is the data folder reached another way than at the start? Exclusivity changes only with the array stopped, and
+ * the agent starts anew at every array start — so normally never; but should an agent outlive an array stop (or the
+ * share's link change under it), the way it decided at its start (DATA_DIR: on the pool past shfs, or through
+ * /mnt/user) is looked at again every minute (one lstat and a readlink, officeUnraidPath()). Said only when seen
+ * twice in a row (a minute apart), so a passing hiccup of shfs never restarts it: "<then> → <now>", else null.
+ */
+function dataWayLook(): ?string
+{
+    $now = officeUnraidPath(DATA_DIR_USER);
+    if ($now === DATA_DIR) {
+        $GLOBALS['dataWayOff'] = 0;
+        return null;
+    }
+    $GLOBALS['dataWayOff'] = ($GLOBALS['dataWayOff'] ?? 0) + 1;
+    return $GLOBALS['dataWayOff'] >= 2 ? DATA_DIR . ' → ' . $now : null;
 }
 
 /**
@@ -412,16 +536,46 @@ function mailboxEnsure(): bool
     return $GLOBALS['mailboxOk'] = $ok;
 }
 
+/**
+ * Who is at work — running, version, pid, start time, host, desks: in RAM (AGENT_HEARTBEAT; its mtime is the pulse,
+ * agentPulse() — the page's green dot, the web side's agentInfo() and askAgent(), agent.sh's watch) and in the data
+ * folder (AGENT_INFO, for whoever looks there), that one written only when its content changes: at the start and the
+ * stop, never by the pulse — nothing of the agent lands on the pool every 20 s, an appdata pool of HDDs may sleep.
+ */
 function writeInfo(bool $running): void
 {
-    writeAtomic(AGENT_INFO, jsonEncode([
+    $info = jsonEncode([
         'running' => $running,
         'version' => AGENT_VERSION,
         'pid'     => getmypid(),
         'started' => $GLOBALS['started'],
         'host'    => hostname(),
         'desks'   => array_keys(desks()),
-    ]));
+    ]);
+    try {
+        @mkdir(RUN_DIR, 0700, true);
+        writeAtomic(AGENT_HEARTBEAT, $info, 0644, 0, 0);
+    } catch (Throwable $e) {
+        logLine('The heartbeat in RAM could not be written: ' . $e->getMessage());
+    }
+    clearstatcache(true, AGENT_INFO);
+    if (is_dir(DATA_DIR) && @file_get_contents(AGENT_INFO, false, null, 0, 65536) !== $info) {
+        try {
+            writeAtomic(AGENT_INFO, $info);
+        } catch (Throwable $e) {
+            logLine('agent.json could not be written: ' . $e->getMessage());
+        }
+    }
+}
+
+/** The pulse, every 20 s: the heartbeat's mtime in RAM (a plain file only — never touched through a link; else written anew) */
+function agentPulse(): void
+{
+    clearstatcache(true, AGENT_HEARTBEAT);
+    $st = @lstat(AGENT_HEARTBEAT);
+    if (!$st || ($st['mode'] & 0170000) !== 0100000 || !@touch(AGENT_HEARTBEAT)) {
+        writeInfo(true);
+    }
 }
 
 /** All agent files (and src/place.php, src/words.php, shared with the web side), so any change triggers a restart */

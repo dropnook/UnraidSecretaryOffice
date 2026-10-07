@@ -53,6 +53,16 @@ function deskFile(string $desk): string
     return DATA_DIR . "/$desk.json";
 }
 
+/**
+ * A path in the data folder as the user set it (DATA_DIR_USER, usually /mnt/user/…) — the same whether the agent
+ * reaches the folder on its pool (DATA_DIR, an exclusive share) or through shfs: for names made from a path that
+ * must not change with that (the night watchman's locks and counters in RAM) and for what the user reads.
+ */
+function dataPathUser(string $path): string
+{
+    return DATA_DIR !== DATA_DIR_USER && under($path, DATA_DIR) ? DATA_DIR_USER . substr($path, strlen(DATA_DIR)) : $path;
+}
+
 function readJson(string $file): ?array
 {
     $data = json_decode((string) @file_get_contents($file), true);
