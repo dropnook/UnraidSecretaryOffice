@@ -2756,6 +2756,18 @@ function clPartnerRunDir(): string
 }
 
 /**
+ * Where a partner's dataset put away goes back (never mounted, so its «from» is /mnt/<its name>): next to where it
+ * was, only as <pool>/UnraidSecretaryOffice-partners/<pair> — anything else in a manifest has no way back ('').
+ */
+function clPartnerHome(array $it): string
+{
+    $ds = $it['dataset'] ?? null;
+    $d = is_string($ds) ? partnerLookDataset($ds) : null;
+    return $d !== null && !$d['trash'] && $d['id'] !== null && $d['unit'] === null && clZfsNameOk($ds) && ($it['from'] ?? null) === "/mnt/$ds"
+        ? dirname("/mnt/$ds") : '';
+}
+
+/**
  * What ended partnerships left (agent/lib/partnerlook.php): on the awake ZFS pools, every
  * <pool>/UnraidSecretaryOffice-partners/<pair> whose pair is gone from data/partner/pairs.json — a leftover of her
  * room «partners», its size ZFS's `used` (its units and their snapshots), `why` transfer while the door receives for
@@ -3448,9 +3460,7 @@ function clRestore(array $ids): array
             'snapshotdb' => CL_LIBVIRT . '/qemu/snapshotdb',
             'userscript' => CL_US_SCRIPTS,
             'leftover'   => clLeftoverHome($it['from'], $run['root']),
-            // a partner's dataset (never mounted): back next to where it was, only under a pool's partners' place
-            'partner'    => is_string($it['dataset']) && ($d = partnerLookDataset($it['dataset'])) !== null && !$d['trash'] && $d['id'] !== null
-                            && $d['unit'] === null && $it['from'] === '/mnt/' . $it['dataset'] ? dirname($it['from']) : '',
+            'partner'    => clPartnerHome($it),
             'icon'       => clIconHome($it['from'], $state['stacks']['root']),
             'stray'      => preg_match('#/my-[^/]+\.xml$#', $it['from'])
                             && under($it['from'], under($run['root'], '/boot') ? '/boot' : dirname($run['root'])) ? dirname($it['from']) : '',

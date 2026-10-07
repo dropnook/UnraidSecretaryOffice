@@ -133,6 +133,8 @@ const WATCH_OFFICE_KEEP   = 7 * 86400;       // his records older than this are 
 const WATCH_PARTNER_PAIRED = 900;            // the office's line in authorized_keys: written this soon after the pair's `paired`
 const WATCH_REFUSED_BURST  = 3;              // refusals at the door from one pair …
 const WATCH_REFUSED_WINDOW = 60;             // … within a minute: door_refused
+const WATCH_DOOR_WHAT = ['from' => 'door_what.from', 'restrict' => 'door_what.restrict', 'command' => 'door_what.command', 'key' => 'door_what.key',
+                         'options' => 'door_what.options'];      // what of a door line changed, in words
 
 /** Every kind of entry: its group, and whether it goes to Unraid's notifications right away */
 const WATCH_KINDS = [
@@ -2299,7 +2301,9 @@ function watchmanPartnerCompare(array &$b, ?array $seen, array &$book, array &$s
             $burst = max($burst, count(array_filter($times, fn ($x) => $x <= $t && $x > $t - WATCH_REFUSED_WINDOW)));
         }
         if ($burst >= WATCH_REFUSED_BURST) {
-            $added[] = watchmanBump($book, 'door_refused', "door_refused:$id", max($new), count($new),
+            // a new entry counts the burst's refusals; an open one counts on with the new ones
+            $open = array_filter($book, fn ($e) => ($e['key'] ?? '') === "door_refused:$id" && watchmanOpen($e));
+            $added[] = watchmanBump($book, 'door_refused', "door_refused:$id", max($new), $open ? count($new) : max($burst, count($new)),
                 ['id' => $id, 'name' => $name($id), 'why' => array_values(array_filter([(string) $r['last']])), 'known' => isset($seen['pairs'][$id]) || isset($b['partner']['pairs'][$id])]);
         }
     }
@@ -6608,8 +6612,7 @@ function watchmanText(array $e, ?string $lang = null): array
         'array_stop', 'array_start', 'server_boot' => ['who' => watchmanArrayWho((array) ($p['logins'] ?? []))],
         'partner_paired' => ['name' => (string) ($p['name'] ?? ''), 'address' => (string) ($p['address'] ?? '')],
         'door_changed'   => ['name' => (string) ($p['name'] ?? ''), 'what' => $lang === null ? '' : implode(', ', array_map(
-                                 fn ($w) => officeNotifyText('watchman', 'door_what.' . (in_array($w, ['from', 'restrict', 'command', 'key', 'options'], true) ? $w : 'options'), [], $lang),
-                                 (array) ($p['what'] ?? [])))],
+                                 fn ($w) => officeNotifyText('watchman', WATCH_DOOR_WHAT[$w] ?? 'door_what.options', [], $lang), (array) ($p['what'] ?? [])))],
         'door_key_moved' => ['name' => (string) ($p['name'] ?? ''), 'ip' => (string) ($p['ip'] ?? '')],
         'door_refused'   => ['name' => (string) ($p['name'] ?? '')],
         'watch'          => array_map('intval', $p),
