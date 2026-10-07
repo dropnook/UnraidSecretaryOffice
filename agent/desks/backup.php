@@ -191,9 +191,11 @@ function backupScan(): array
     $settings = backupReadSettings("$data/settings.ini");
     $setup = backupSetupStatus();
     // the lock is shared with setup.sh and Mr. Restori's restores: while they hold it, no backup is running
-    // (an unknown holder - an engine before 2.20 writes no note - still counts as a run)
+    // (an unknown holder - an engine before 2.20 writes no note - still counts as a run); nor while
+    // backup.sh --recover brings back what a stopped run left, right after the array start (engine 2.25)
     $holder = backupLockHolder();
-    $running = $holder !== null && !$setup['running'] && !in_array($holder['holder'], ['setup', 'restore'], true);
+    $running = $holder !== null && !$setup['running'] && !in_array($holder['holder'], ['setup', 'restore'], true)
+        && !($holder['holder'] === 'backup' && $holder['mode'] === 'recover');
     $status = readJson("$data/state/status.json");
     if ($status && ($status['interface'] ?? 0) < BACKUP_INTERFACE) {
         $status = null;
