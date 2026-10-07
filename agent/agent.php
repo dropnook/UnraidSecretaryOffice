@@ -48,6 +48,7 @@ const WEB_UID       = 0;     // the web server's user: Unraid's php-fpm runs as 
 const ARRAY_RUNNING = ['Started', 'Formatting', 'Clearing'];
 
 require dirname(__DIR__) . '/src/place.php';
+require_once dirname(__DIR__) . '/src/words.php';     // Unraid's own words in the texts (shared with the web side)
 
 define('OFFICE_DIR', dirname(__DIR__));
 // the web files (desks/<id>/desk.json, lang/ …) lie at the top of the plugin's folder; the tests set the repository's public/
@@ -272,6 +273,7 @@ function serve(): int
         }
         if ($now - $lastCleanup >= 60) {
             cleanUpMailbox();
+            officeNotifyLangKeep();     // the office's language into RAM, for the night shift's notifications (lib/house.php)
             $lastCleanup = $now;
         }
         if ($now - $lastLook >= 3) {
@@ -422,11 +424,11 @@ function writeInfo(bool $running): void
     ]));
 }
 
-/** All agent files (and src/place.php, shared with the web side), so any change triggers a restart */
+/** All agent files (and src/place.php, src/words.php, shared with the web side), so any change triggers a restart */
 function codeFiles(): array
 {
     $files = array_merge(glob(__DIR__ . '/*.php') ?: [], glob(__DIR__ . '/lib/*.php') ?: [], glob(__DIR__ . '/desks/*.php') ?: [],
-        [dirname(__DIR__) . '/src/place.php']);
+        [dirname(__DIR__) . '/src/place.php', dirname(__DIR__) . '/src/words.php']);
     sort($files);
     return $files;
 }

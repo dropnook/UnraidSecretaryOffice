@@ -61,7 +61,14 @@ Office.storeJson = function storeJson(key, value) {
 // ------------------------------------------------------------------ i18n
 let plural = null;
 
-/** t('key', {n: 3, name: 'x'}) — plurals as {one, other, …}, placeholders as {name} */
+// Unraid's own labels in the texts, ⟦Settings⟧ → ⟦User Utilities⟧, as Unraid shows them in the language it runs in
+// (CONFIG.unraid_lang) — whatever the office speaks: CONFIG.unraid_words from lang/unraid/<code>.json (src/words.php);
+// English, and a label without an entry, stay as written
+const UNRAID_WORDS = CONFIG.unraid_words && typeof CONFIG.unraid_words === 'object' ? CONFIG.unraid_words : {};
+const unraidWords = (s) => (s.indexOf('⟦') < 0 ? s
+  : s.replace(/⟦([^⟦⟧]+)⟧/g, (m, label) => (typeof UNRAID_WORDS[label] === 'string' && UNRAID_WORDS[label]) || label));
+
+/** t('key', {n: 3, name: 'x'}) — plurals as {one, other, …}, placeholders as {name}, Unraid's labels in Unraid's words */
 function t(key, params) {
   let s = Office.strings[key];
   if (s === undefined || s === null) return key;   // visible on purpose: missing strings get noticed
@@ -71,6 +78,7 @@ function t(key, params) {
     try { cat = plural.select(n); } catch (e) { /* unknown locale */ }
     s = s[n === 0 && s.zero !== undefined ? 'zero' : cat] ?? s.other ?? '';
   }
+  s = unraidWords(String(s));
   if (!params) return s;
   return s.replace(/\{(\w+)\}/g, (m, k) => {
     if (params[k] === undefined || params[k] === null) return m;
@@ -81,11 +89,38 @@ Office.t = t;
 Office.scope = (desk) => (key, params) => t(`${desk}.${key}`, params);
 Office.has = (key) => Office.strings[key] !== undefined;
 
+/**
+ * The browser's language: the first of navigator.languages the office speaks (de-CH → de), else English.
+ * Unraid's own language only decides how its labels read (CONFIG.unraid_words). The Dashboard tile (src/dashboard.php)
+ * and the server (officeBrowserLang(), Accept-Language) pick by the same rule.
+ */
+function browserLanguage(codes) {
+  const tags = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || ''];
+  for (const tag of tags) {
+    const want = String(tag || '').toLowerCase();
+    const exact = codes.find((c) => c.toLowerCase() === want);
+    if (exact) return exact;
+    if (codes.includes(want.split('-')[0])) return want.split('-')[0];
+  }
+  return 'en';
+}
+
+/** The language chosen for this browser (⋯ → Language), else the browser's */
 function pickLanguage() {
   const codes = CONFIG.languages.map((l) => l.code);
   const saved = Office.store('lang');
   if (saved && codes.includes(saved)) return saved;
-  return codes.includes(CONFIG.unraid_lang) ? CONFIG.unraid_lang : 'en';   // like Unraid
+  return browserLanguage(codes);
+}
+
+/**
+ * The notifications (made on the server, no browser there) speak the language the office was last used in: the page
+ * tells the server when it shows another one than the server keeps (data/office/lang.json, CONFIG.lang_seen).
+ */
+function rememberLanguage() {
+  if (CONFIG.lang_seen === Office.lang) return;
+  CONFIG.lang_seen = Office.lang;
+  Office.api.post('office.lang', { lang: Office.lang });
 }
 
 async function loadStrings(code) {
@@ -195,7 +230,7 @@ function loggedOut(r) {
 // page until it is answered: Unraid's own (div.spinner.fixed, the animated logo
 // every Unraid page has; ours only if a page lacks it). Reads that poll or run
 // beside the page (a log being followed, an estimate) stay quiet.
-const QUIET = /\.(read|output|log|estimate|detail|measure|where_refresh|where_measure|staff_order)$/;
+const QUIET = /\.(read|output|log|estimate|detail|measure|where_refresh|where_measure|staff_order|lang)$/;
 let busyCount = 0, busyTimer = null;
 function busyEl() {
   const unraid = document.querySelector('div.spinner.fixed');
@@ -1312,7 +1347,7 @@ function menuNameDialog() {
   input.onfocus = input.oninput = () => { own.checked = true; };
 }
 
-/** Which language: like Unraid (or this device), or one chosen for this browser */
+/** Which language: like this browser, or one chosen for it */
 function languageDialog() {
   const box = el('div');
   box.appendChild(el('p', '', t('office.language_text')));
@@ -1329,8 +1364,8 @@ function languageDialog() {
     box.appendChild(l);
     radios.push(r);
   };
-  const like = CONFIG.languages.find((l) => l.code === CONFIG.unraid_lang);
-  option('', t('office.language_unraid', { name: like ? like.name : 'English' }));
+  const like = CONFIG.languages.find((l) => l.code === browserLanguage(CONFIG.languages.map((x) => x.code)));
+  option('', t('office.language_browser', { name: like ? like.name : 'English' }));
   CONFIG.languages.forEach((l) => option(l.code, l.name));
   Office.dialog({
     title: t('office.language_title'),
@@ -1341,6 +1376,7 @@ function languageDialog() {
         const value = (radios.find((r) => r.checked) || {}).value || '';
         Office.store('lang', value || null);
         await loadStrings(pickLanguage());
+        rememberLanguage();
         Office.setAgent(Office.agent);
         route();
         return true;
@@ -1416,6 +1452,7 @@ function footer() {
 // ------------------------------------------------------------------ start
 async function start() {
   await loadStrings(pickLanguage());
+  rememberLanguage();
   if (CONFIG.agent) Office.setAgent(CONFIG.agent);      // the array stopped, the night shift: said before any desk asks
   footer();
   $('#sso-more').onclick = officeMenu;

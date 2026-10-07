@@ -107,3 +107,82 @@ function officeStringsStamp(): int
     }
     return $stamp;
 }
+
+/**
+ * The browser's language from its Accept-Language header: the first (by weight, then order) the office speaks — exact
+ * (pt-br) or by its main part (de-CH → de) —, null when none. The page takes navigator.languages by the same rule
+ * (core.js browserLanguage()); this is for what the server shows before any script runs (the Dashboard tile).
+ *
+ * @param list<string> $codes
+ */
+function officeBrowserLang(string $accept, array $codes): ?string
+{
+    $tags = [];
+    foreach (array_slice(explode(',', $accept), 0, 32) as $i => $part) {
+        $bits = array_map('trim', explode(';', $part));
+        $tag = strtolower($bits[0]);
+        $q = 1.0;
+        foreach (array_slice($bits, 1) as $bit) {
+            if (preg_match('/^q\s*=\s*([01](?:\.\d{0,3})?)$/D', $bit, $m)) {
+                $q = (float) $m[1];
+            }
+        }
+        if ($q > 0 && preg_match('/^[a-z]{1,8}(-[a-z0-9]{1,8})*$/D', $tag)) {
+            $tags[] = [$q, -$i, $tag];
+        }
+    }
+    rsort($tags);
+    $known = [];
+    foreach ($codes as $code) {
+        $known[strtolower($code)] = $code;
+    }
+    foreach ($tags as [, , $tag]) {
+        $main = explode('-', $tag)[0];
+        if (isset($known[$tag]) || isset($known[$main])) {
+            return $known[$tag] ?? $known[$main];
+        }
+    }
+    return null;
+}
+
+/** Where the language the office was last used in is kept: the notifications speak it (agent/lib/house.php officeNotifyLang()) */
+function officeLangFile(): string
+{
+    return OFFICE_DATA . '/office/lang.json';
+}
+
+/** The language kept there, null when none (or not one the office speaks) */
+function officeLangRemembered(?string $file = null): ?string
+{
+    $file ??= officeLangFile();
+    clearstatcache(true, $file);
+    if (is_link($file) || !is_file($file) || (int) @filesize($file) > 4096) {
+        return null;
+    }
+    $lang = (officeReadJson($file) ?? [])['lang'] ?? null;
+    return is_string($lang) && in_array($lang, array_column(officeLanguages(), 'code'), true) ? $lang : null;
+}
+
+/**
+ * office.lang {lang}: the page shows the office in this language (chosen in ⋯ → Language, or the browser's) — kept
+ * in data/office/lang.json for the notifications, which the server makes without a browser. Only a language the
+ * office speaks; written (new file + rename) only when it changes.
+ */
+function officeLangRemember(array $data, ?string $file = null): array
+{
+    $lang = $data['lang'] ?? null;
+    if (!is_string($lang) || !in_array($lang, array_column(officeLanguages(), 'code'), true)) {
+        throw new OfficeProblem('bad_request');
+    }
+    $file ??= officeLangFile();
+    $dir = dirname($file);
+    clearstatcache(true, $dir);
+    if (is_link($dir) || !is_dir($dir) || !is_writable($dir)) {
+        throw new OfficeProblem('office_storage', 503);
+    }
+    if (officeLangRemembered($file) !== $lang
+        && !officeWriteAtomic($file, (string) json_encode(['lang' => $lang, 'time' => time()]), 0644)) {
+        throw new OfficeProblem('office_storage', 503);
+    }
+    return ['ok' => true, 'lang' => $lang];
+}

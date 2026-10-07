@@ -12,7 +12,7 @@
   "fit.yes": "Frau Putzteufel krempelt schon die Ärmel hoch: «Ich kenne jeden Winkel deines Servers — und wo ein Winkel ist, ist auch Staub!»",
   "fire_note": "Was in ihrer Abstellkammer liegt, bleibt dort, bis du sie leerst — in den Ordnern _UnraidSecretaryOffice-trash auf dem Flash und in appdata. Die Bilder, die sie aufgehängt hat, bleiben auch.",
   "check.docker": "Docker läuft (Frau Putzteufel vergleicht Templates, Stacks und Ordner mit den Containern)",
-  "check.docker_how": "Starte Docker unter Einstellungen → Docker. Ohne Antwort von Docker sähe jedes Template ungenutzt aus — darum ändert sie dann nichts.",
+  "check.docker_how": "Starte Docker unter ⟦Settings⟧ → ⟦Docker⟧. Ohne Antwort von Docker sähe jedes Template ungenutzt aus — darum ändert sie dann nichts.",
   "check.trash_old": "In Frau Putzteufels Abstellkammer wartet nichts länger als 30 Tage",
   "check.trash_old_how": {
     "one": "Ein Posten ({size}) liegt seit {days} Tagen in ihrer Abstellkammer. Wenn alles noch läuft, leere ihn.",
@@ -28,7 +28,7 @@
   "part.tidy": "Aufräumen",
   "part.tidy_sub": "Was niemand mehr braucht. Weggeworfen wird nichts gleich — erst kommt es in meine Abstellkammer. Man weiss ja nie.",
   "section.templates": "Docker-Templates",
-  "section.templates_sub": "Die XML-Dateien, aus denen Unraids Docker-Seite Container erstellt. Eines ohne Container erscheint unter «Vorherige Apps».",
+  "section.templates_sub": "Die XML-Dateien, aus denen Unraids Docker-Seite Container erstellt. Eines ohne Container erscheint unter «⟦Previous Apps⟧».",
   "section.stacks": "Compose-Stacks",
   "section.stacks_sub": "Die Stacks im Compose Manager — und ob sie noch Container haben.",
   "section.appdata": "appdata-Ordner",
@@ -535,7 +535,7 @@
   "cat.templates.stray_older_text": "Unraids Ordner hat eine neuere Fassung davon",
   "cat.templates.stray_copy": "Verirrt — identische Kopie",
   "cat.templates.stray_copy_text": "Dieselbe Datei liegt in Unraids Ordner",
-  "stray.only_here_text": "Unraid liest Templates nur aus seinem eigenen Ordner — dieses erscheint weder unter «Container hinzufügen» noch unter «Vorherige Apps». Übernehmen oder wegstellen.",
+  "stray.only_here_text": "Unraid liest Templates nur aus seinem eigenen Ordner — dieses erscheint weder unter «⟦Add Container⟧» noch unter «⟦Previous Apps⟧». Übernehmen oder wegstellen.",
   "stray.newer_text": "Diese Datei ist neuer als die in Unraids Ordner. Wenn sie die richtige ist, übernimm sie — Unraids Fassung kommt in meine Abstellkammer.",
   "stray.name_exists_text": "Unraids Ordner hat schon ein Template mit diesem <Name> (unter einem anderen Dateinamen). Diese Kopie bewirkt nichts.",
   "stray.older_text": "Unraids Ordner hat eine neuere Fassung. Diese Kopie bewirkt nichts.",
@@ -552,7 +552,7 @@
   "d.canonical": "In Unraids Ordner",
   "install.button": "Übernehmen…",
   "install.title": "{file} übernehmen?",
-  "install.text": "Ich kopiere {file} in Unraids Ordner {dir}, damit es unter «Container hinzufügen» und «Vorherige Apps» erscheint.",
+  "install.text": "Ich kopiere {file} in Unraids Ordner {dir}, damit es unter «⟦Add Container⟧» und «⟦Previous Apps⟧» erscheint.",
   "install.replace": "Unraids aktuelle Fassung ({path}) kommt zuerst in meine Abstellkammer.",
   "install.after": "Danach kommt die verirrte Datei ({path}) ebenfalls in meine Abstellkammer. Du kannst alles zurücklegen.",
   "install.go": "Übernehmen",
@@ -583,11 +583,11 @@
   },
   "vmdef.missing_text": "Die Disk-Dateien, auf die diese VM zeigt, gibt es nicht (mehr).",
   "vmdef.text": "Diese VM ist in Unraid noch eingerichtet, aber ihre Disk-Dateien sind weg — sie kann nicht starten. Brauchst du sie nicht mehr, entferne sie auf Unraids VM-Seite (VM entfernen): Das nimmt auch NVRAM und TPM-Zustand mit. VM-Definitionen fasse ich selbst nicht an.",
-  "vmdef.open": "Unraids VM-Seite öffnen",
+  "vmdef.open": "Unraids ⟦VMs⟧-Seite öffnen",
   "d.disks": "Disks",
   "d.cdroms": "CD / ISO",
   "why.in_unraid": "in Unraid entfernen",
-  "why.in_unraid_text": "VMs werden auf Unraids VM-Seite entfernt — ihre Definitionen fasse ich nicht an.",
+  "why.in_unraid_text": "VMs werden auf Unraids ⟦VMs⟧-Seite entfernt — ihre Definitionen fasse ich nicht an.",
   "item.vmdef": "VM-Definition",
   "errors.cleanup_in_unraid": "{name} ist eine VM — entferne sie auf Unraids VM-Seite.",
   "filter_on": "Achtung, Filter ist gesetzt: «{query}» — es wird nicht alles gezeigt.",
@@ -710,7 +710,7 @@
   "pic.where": "Unraid nimmt das Bild eines Containers aus seinem Template, sonst aus seinem Label net.unraid.docker.icon. Ich suche Bilder auf diesem Server, die wie die App heissen (Unraids Ordner dockerMan/images), Logos in Community Applications auf diesem Server, in einer Tabelle bekannter Images und über den Namen des Images (die offene Sammlung dashboard-icons) — ich biete nur Bilder an, die laden. Oder lade in den Details ein eigenes hoch.",
   "pic.checking_all": "Ich prüfe, ob die Bilder laden…",
   "pic.ca_at": "Liste von Community Applications von {when}.",
-  "pic.no_ca": "Die Liste von Community Applications ist nicht da (sie kommt, wenn die Apps-Seite geöffnet wird) — weniger Logos zur Auswahl.",
+  "pic.no_ca": "Die Liste von Community Applications ist nicht da (sie kommt, wenn die ⟦Apps⟧-Seite geöffnet wird) — weniger Logos zur Auswahl.",
   "src.local": "seine eigene Datei",
   "src.local_text": "Das eingetragene Bild liegt auf diesem Server ({detail}) — nur file:// fehlte.",
   "src.ca": "Community Applications",
@@ -1245,7 +1245,7 @@
     "one": "1 Template (XML)",
     "other": "{n} Templates (XML)"
   },
-  "where.place.docker_intro": "Container von Unraids Docker-Seite sind durch ein XML-Template auf dem Flash beschrieben — eine Textdatei mit Image, Ordnern, Ports und Variablen. Daraus wieder anlegen (Apps → Vorherige Apps), und der Container ist mit allen Einstellungen zurück. Seine Daten liegen in appdata.",
+  "where.place.docker_intro": "Container von Unraids Docker-Seite sind durch ein XML-Template auf dem Flash beschrieben — eine Textdatei mit Image, Ordnern, Ports und Variablen. Daraus wieder anlegen (⟦Apps⟧ → ⟦Previous Apps⟧), und der Container ist mit allen Einstellungen zurück. Seine Daten liegen in appdata.",
   "where.place.compose": "Compose-Stacks",
   "where.place.compose_sub": {
     "one": "1 Stack",
@@ -1362,11 +1362,11 @@
   "where.boot.internal": "Alles, was Unraid über sich weiss, liegt in /boot/config auf der internen Boot-Disk {devices}.",
   "where.boot.other": "Alles, was Unraid über sich weiss, liegt in /boot/config ({fs}).",
   "where.boot.restore": "Zurückholen: Unraid frisch auf ein Boot-Medium installieren (Unraid USB Creator oder Unraids eigener Installer), dann den Ordner config zurückkopieren — Array, Shares, Docker-Templates, Plugins und die Lizenzdatei kommen damit zurück.",
-  "where.boot.degraded": "Der Boot-Pool {pool} ist nicht gesund ({state}) — auf der Seite «Start» prüfen.",
+  "where.boot.degraded": "Der Boot-Pool {pool} ist nicht gesund ({state}) — auf der Seite «⟦Main⟧» prüfen.",
   "where.boot.single": "Der Boot-Pool hat nur eine Disk — fällt sie aus, startet Unraid erst wieder nach dem Zurückholen.",
-  "where.boot.license_tpm": "Die Lizenz ({file}) hängt am TPM dieses Mainboards: Mit demselben Mainboard musst du nichts übertragen. Erst ein neues Mainboard braucht eine Lizenzübertragung (Werkzeuge → Lizenz).",
-  "where.boot.license_flash": "Die Lizenz ({file}) hängt an der GUID des Boot-Sticks ({guid}): Bei einem neuen Stick auf dessen GUID übertragen (Werkzeuge → Lizenz).",
-  "where.boot.license_other": "Die Lizenz ({file}) gehört zu einer GUID, die weder die dieses Sticks noch die dieses TPM ist — unter Werkzeuge → Lizenz prüfen.",
+  "where.boot.license_tpm": "Die Lizenz ({file}) hängt am TPM dieses Mainboards: Mit demselben Mainboard musst du nichts übertragen. Erst ein neues Mainboard braucht eine Lizenzübertragung (⟦Tools⟧ → ⟦Registration⟧).",
+  "where.boot.license_flash": "Die Lizenz ({file}) hängt an der GUID des Boot-Sticks ({guid}): Bei einem neuen Stick auf dessen GUID übertragen (⟦Tools⟧ → ⟦Registration⟧).",
+  "where.boot.license_other": "Die Lizenz ({file}) gehört zu einer GUID, die weder die dieses Sticks noch die dieses TPM ist — unter ⟦Tools⟧ → ⟦Registration⟧ prüfen.",
   "where.help.tiles": "Kacheln unter «Wo liegt was»",
   "where.help.tiles_text": "Jede Kachel ist ein Ort mit Dateien, auf die es ankommt. Ihr Label zeigt den schwächsten Schutz darin (das Systemprotokoll im RAM und Dockers Image-Daten zählen nicht — die entstehen ohnehin neu). Ein Klick öffnet die Pfade mit Umfang und Schutz.",
   "where.help.copy": "Kopieren",
@@ -1482,44 +1482,44 @@
   "where.adv.years": "Jahre",
   "where.adv.never": "noch nie",
   "where.adv.to_share": "Share {name}",
-  "where.adv.to_scheduler": "Aufgabenplanung",
-  "where.adv.to_docker": "Docker",
-  "where.adv.to_disks": "Datenträger-Einstellungen",
-  "where.adv.to_main": "Start",
-  "where.adv.to_ups": "USV-Einstellungen",
-  "where.adv.to_syslog": "Systemprotokoll-Server",
-  "where.adv.to_share_settings": "Globale Freigabeeinstellungen",
-  "where.adv.to_browse": "Durchsuchen {path}",
+  "where.adv.to_scheduler": "⟦Scheduler⟧",
+  "where.adv.to_docker": "⟦Docker⟧",
+  "where.adv.to_disks": "⟦Disk Settings⟧",
+  "where.adv.to_main": "⟦Main⟧",
+  "where.adv.to_ups": "⟦UPS Settings⟧",
+  "where.adv.to_syslog": "⟦Syslog Server⟧",
+  "where.adv.to_share_settings": "⟦Global Share Settings⟧",
+  "where.adv.to_browse": "⟦Browse⟧ {path}",
   "where.adv.to_team_lead": "Zum Teamchef",
-  "where.adv.to_vm_settings": "VM-Manager",
+  "where.adv.to_vm_settings": "⟦VM Manager⟧",
   "where.adv.system_array.title": "Auf dem Array: {names}",
   "where.adv.system_array.why": "Was Docker und die VMs selbst brauchen, gehört auf einen Pool (SSD/NVMe): Auf dem Array wird jeder Container und jede VM langsam, und die Disks kommen nie zur Ruhe. In den Einstellungen des Shares den primären Speicher auf einen Pool und den sekundären auf keinen setzen, dann den Mover die Dateien holen lassen (Docker und VMs gestoppt).",
   "where.adv.mover.title": {
     "one": "Der Mover hat keinen Zeitplan — {names} verlässt sich auf ihn",
     "other": "Der Mover hat keinen Zeitplan — {n} Shares verlassen sich auf ihn: {names}"
   },
-  "where.adv.mover.why": "Diese Shares schreiben zuerst auf einen Pool, und der Mover soll die Dateien aufs Array bringen (oder zurück). Ohne Zeitplan läuft er nur, wenn man ihn von Hand startet — der Pool läuft voll. Einstellungen → Aufgabenplanung → Mover-Einstellungen. (Startet etwas anderes den Mover für dich: «Weiss ich, danke».)",
+  "where.adv.mover.why": "Diese Shares schreiben zuerst auf einen Pool, und der Mover soll die Dateien aufs Array bringen (oder zurück). Ohne Zeitplan läuft er nur, wenn man ihn von Hand startet — der Pool läuft voll. ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧. (Startet etwas anderes den Mover für dich: «Weiss ich, danke».)",
   "where.adv.exclusive_also": "auch auf {where}",
   "where.adv.exclusive_off.title": {
     "one": "Exklusive Shares sind aus — {names} käme in Frage",
     "other": "Exklusive Shares sind aus — {n} Shares kämen in Frage: {names}"
   },
   "where.adv.exclusive_off.why": {
-    "one": "Psst — dieser Share liegt auf einem einzigen Pool und sonst nirgends, und trotzdem quetscht sich jedes Byte unter /mnt/user durch Unraids FUSE-Schicht (shfs). Als exklusiver Share wird /mnt/user/… ein Link direkt auf den Pool, Lesen und Schreiben gehen an dieser Schicht vorbei — spürbar schneller, vor allem bei vielen kleinen Dateien. Pfade von Docker und VMs wie /mnt/user/appdata funktionieren weiter: Sie gehen durch den Link. Die Einstellung lässt sich nur bei gestopptem Array ändern (Docker und VMs stoppen mit): Start → Array-Vorgang → Stoppen, dann Einstellungen → Globale Freigabeeinstellungen → «Exklusive Freigaben erlauben»: Ja → Anwenden, und das Array wieder starten. Unraid entscheidet beim Start des Arrays — ein Share mit einem Ordner auch auf einer anderen Disk oder einem anderen Pool bleibt, wie er ist. (Bei exklusiven Shares ignoriert Unraid «Minimaler freier Speicher».)",
-    "other": "Psst — diese Shares liegen auf einem einzigen Pool und sonst nirgends, und trotzdem quetscht sich jedes Byte unter /mnt/user durch Unraids FUSE-Schicht (shfs). Als exklusive Shares wird /mnt/user/… ein Link direkt auf den Pool, Lesen und Schreiben gehen an dieser Schicht vorbei — spürbar schneller, vor allem bei vielen kleinen Dateien. Pfade von Docker und VMs wie /mnt/user/appdata funktionieren weiter: Sie gehen durch den Link. Die Einstellung lässt sich nur bei gestopptem Array ändern (Docker und VMs stoppen mit): Start → Array-Vorgang → Stoppen, dann Einstellungen → Globale Freigabeeinstellungen → «Exklusive Freigaben erlauben»: Ja → Anwenden, und das Array wieder starten. Unraid entscheidet beim Start des Arrays — ein Share mit einem Ordner auch auf einer anderen Disk oder einem anderen Pool bleibt, wie er ist. (Bei exklusiven Shares ignoriert Unraid «Minimaler freier Speicher».)"
+    "one": "Psst — dieser Share liegt auf einem einzigen Pool und sonst nirgends, und trotzdem quetscht sich jedes Byte unter /mnt/user durch Unraids FUSE-Schicht (shfs). Als exklusiver Share wird /mnt/user/… ein Link direkt auf den Pool, Lesen und Schreiben gehen an dieser Schicht vorbei — spürbar schneller, vor allem bei vielen kleinen Dateien. Pfade von Docker und VMs wie /mnt/user/appdata funktionieren weiter: Sie gehen durch den Link. Die Einstellung lässt sich nur bei gestopptem Array ändern (Docker und VMs stoppen mit): ⟦Main⟧ → ⟦Array Operation⟧ → ⟦Stop⟧, dann ⟦Settings⟧ → ⟦Global Share Settings⟧ → «⟦Permit exclusive shares⟧»: ⟦Yes⟧ → ⟦Apply⟧, und das Array wieder starten. Unraid entscheidet beim Start des Arrays — ein Share mit einem Ordner auch auf einer anderen Disk oder einem anderen Pool bleibt, wie er ist. (Bei exklusiven Shares ignoriert Unraid «⟦Minimum free space⟧».)",
+    "other": "Psst — diese Shares liegen auf einem einzigen Pool und sonst nirgends, und trotzdem quetscht sich jedes Byte unter /mnt/user durch Unraids FUSE-Schicht (shfs). Als exklusive Shares wird /mnt/user/… ein Link direkt auf den Pool, Lesen und Schreiben gehen an dieser Schicht vorbei — spürbar schneller, vor allem bei vielen kleinen Dateien. Pfade von Docker und VMs wie /mnt/user/appdata funktionieren weiter: Sie gehen durch den Link. Die Einstellung lässt sich nur bei gestopptem Array ändern (Docker und VMs stoppen mit): ⟦Main⟧ → ⟦Array Operation⟧ → ⟦Stop⟧, dann ⟦Settings⟧ → ⟦Global Share Settings⟧ → «⟦Permit exclusive shares⟧»: ⟦Yes⟧ → ⟦Apply⟧, und das Array wieder starten. Unraid entscheidet beim Start des Arrays — ein Share mit einem Ordner auch auf einer anderen Disk oder einem anderen Pool bleibt, wie er ist. (Bei exklusiven Shares ignoriert Unraid «⟦Minimum free space⟧».)"
   },
   "where.adv.exclusive_elsewhere.title": {
     "one": "{names} kann nicht exklusiv sein",
     "other": "{n} Shares können nicht exklusiv sein: {names}"
   },
-  "where.adv.exclusive_elsewhere.why": "Sieh mal an — ein gleichnamiger Ordner auf einem anderen Pool oder einer anderen Disk (in Klammern). Schon der, auch leer, hält Unraid davon ab, den Share direkt auf seinen Pool zu verlinken: Er bleibt in der langsameren FUSE-Schicht. Was in diesem Ordner liegt, gehört zum Share: auf den Pool des Shares verschieben (Unraids Dateimanager: Durchsuchen) oder den Ordner löschen, wenn er leer ist. Dann das Array einmal stoppen und starten (Start → Array-Vorgang) — Unraid entscheidet beim Start. Fix Common Problems meldet solche Ordner ebenfalls — lass es nach dem Aufräumen nochmals prüfen (Einstellungen → Benutzer-Dienstprogramme → Fix Common Problems → Neu prüfen).",
+  "where.adv.exclusive_elsewhere.why": "Sieh mal an — ein gleichnamiger Ordner auf einem anderen Pool oder einer anderen Disk (in Klammern). Schon der, auch leer, hält Unraid davon ab, den Share direkt auf seinen Pool zu verlinken: Er bleibt in der langsameren FUSE-Schicht. Was in diesem Ordner liegt, gehört zum Share: auf den Pool des Shares verschieben (Unraids Dateimanager: ⟦Browse⟧) oder den Ordner löschen, wenn er leer ist. Dann das Array einmal stoppen und starten (⟦Main⟧ → ⟦Array Operation⟧) — Unraid entscheidet beim Start. Fix Common Problems meldet solche Ordner ebenfalls — lass es nach dem Aufräumen nochmals prüfen (⟦Settings⟧ → ⟦User Utilities⟧ → Fix Common Problems → Neu prüfen).",
   "where.adv.exclusive_unclear.title": {
     "one": "{names} ist nicht exklusiv — und ich sehe nicht, warum",
     "other": "{n} Shares sind nicht exklusiv — und ich sehe nicht, warum: {names}"
   },
   "where.adv.exclusive_unclear.why": {
-    "one": "Also das ist mir ein Rätsel: Nach seinen Einstellungen käme er in Frage, ich sehe seinen Ordner nur auf seinem eigenen Pool, und trotzdem sagt Unraid «Exklusiver Zugriff: Nein». {maybe} Unraid entscheidet beim Start des Arrays: Ist das geklärt, das Array stoppen und starten (Start → Array-Vorgang).",
-    "other": "Also das ist mir ein Rätsel: Nach ihren Einstellungen kämen sie in Frage, ich sehe ihren Ordner nur auf ihrem eigenen Pool, und trotzdem sagt Unraid «Exklusiver Zugriff: Nein». {maybe} Unraid entscheidet beim Start des Arrays: Ist das geklärt, das Array stoppen und starten (Start → Array-Vorgang)."
+    "one": "Also das ist mir ein Rätsel: Nach seinen Einstellungen käme er in Frage, ich sehe seinen Ordner nur auf seinem eigenen Pool, und trotzdem sagt Unraid «⟦Exclusive access⟧: ⟦No⟧». {maybe} Unraid entscheidet beim Start des Arrays: Ist das geklärt, das Array stoppen und starten (⟦Main⟧ → ⟦Array Operation⟧).",
+    "other": "Also das ist mir ein Rätsel: Nach ihren Einstellungen kämen sie in Frage, ich sehe ihren Ordner nur auf ihrem eigenen Pool, und trotzdem sagt Unraid «⟦Exclusive access⟧: ⟦No⟧». {maybe} Unraid entscheidet beim Start des Arrays: Ist das geklärt, das Array stoppen und starten (⟦Main⟧ → ⟦Array Operation⟧)."
   },
   "where.adv.exclusive_unclear.asleep": "Vielleicht liegt ein gleichnamiger Ordner auf einer Disk, in die ich nicht geschaut habe, weil sie schlief ({disks}) — schau dort nach und verschiebe ihn auf den Pool.",
   "where.adv.exclusive_unclear.awake": "Vielleicht haben sich die Einstellungen nach dem Start des Arrays geändert.",
@@ -1528,8 +1528,8 @@
     "other": "{n} Shares könnten exklusiv sein — wäre da nicht der sekundäre Speicher: {names}"
   },
   "where.adv.exclusive_overflow.why": {
-    "one": "Ist mir halt aufgefallen: Dieser Share hat seine Daten auf seinem Pool, und der Mover holt zurück, was auf den sekundären Speicher übergelaufen ist. Ohne sekundären Speicher könnte er ein exklusiver Share sein — /mnt/user/… ein Link direkt auf den Pool, an Unraids FUSE-Schicht vorbei, spürbar schneller. Lohnt sich nur, wenn der Pool Platz für alles hat: Ohne sekundären Speicher heisst ein voller Pool ein voller Share. Wenn ja: den Mover laufen lassen, bis alles auf dem Pool ist, in den Einstellungen des Shares «Sekundärer Speicher» auf «Keine» setzen, löschen, was vom Share auf einem anderen Pool oder einer anderen Disk übrig ist (in Klammern; auch leere Ordner zählen), dann das Array stoppen und starten. Braucht «Exklusive Freigaben erlauben» (Einstellungen → Globale Freigabeeinstellungen).",
-    "other": "Ist mir halt aufgefallen: Diese Shares haben ihre Daten auf ihrem Pool, und der Mover holt zurück, was auf den sekundären Speicher übergelaufen ist. Ohne sekundären Speicher könnten sie exklusive Shares sein — /mnt/user/… ein Link direkt auf den Pool, an Unraids FUSE-Schicht vorbei, spürbar schneller. Lohnt sich nur, wenn der Pool Platz für alles hat: Ohne sekundären Speicher heisst ein voller Pool ein voller Share. Wenn ja: den Mover laufen lassen, bis alles auf dem Pool ist, in den Einstellungen des Shares «Sekundärer Speicher» auf «Keine» setzen, löschen, was vom Share auf einem anderen Pool oder einer anderen Disk übrig ist (in Klammern; auch leere Ordner zählen), dann das Array stoppen und starten. Braucht «Exklusive Freigaben erlauben» (Einstellungen → Globale Freigabeeinstellungen)."
+    "one": "Ist mir halt aufgefallen: Dieser Share hat seine Daten auf seinem Pool, und der Mover holt zurück, was auf den sekundären Speicher übergelaufen ist. Ohne sekundären Speicher könnte er ein exklusiver Share sein — /mnt/user/… ein Link direkt auf den Pool, an Unraids FUSE-Schicht vorbei, spürbar schneller. Lohnt sich nur, wenn der Pool Platz für alles hat: Ohne sekundären Speicher heisst ein voller Pool ein voller Share. Wenn ja: den Mover laufen lassen, bis alles auf dem Pool ist, in den Einstellungen des Shares «⟦Secondary storage⟧» auf «⟦None⟧» setzen, löschen, was vom Share auf einem anderen Pool oder einer anderen Disk übrig ist (in Klammern; auch leere Ordner zählen), dann das Array stoppen und starten. Braucht «⟦Permit exclusive shares⟧» (⟦Settings⟧ → ⟦Global Share Settings⟧).",
+    "other": "Ist mir halt aufgefallen: Diese Shares haben ihre Daten auf ihrem Pool, und der Mover holt zurück, was auf den sekundären Speicher übergelaufen ist. Ohne sekundären Speicher könnten sie exklusive Shares sein — /mnt/user/… ein Link direkt auf den Pool, an Unraids FUSE-Schicht vorbei, spürbar schneller. Lohnt sich nur, wenn der Pool Platz für alles hat: Ohne sekundären Speicher heisst ein voller Pool ein voller Share. Wenn ja: den Mover laufen lassen, bis alles auf dem Pool ist, in den Einstellungen des Shares «⟦Secondary storage⟧» auf «⟦None⟧» setzen, löschen, was vom Share auf einem anderen Pool oder einer anderen Disk übrig ist (in Klammern; auch leere Ordner zählen), dann das Array stoppen und starten. Braucht «⟦Permit exclusive shares⟧» (⟦Settings⟧ → ⟦Global Share Settings⟧)."
   },
   "where.adv.compose_build.title": {
     "one": "{names} baut sein Image selbst",
@@ -1545,14 +1545,14 @@
   },
   "where.adv.cron_dead.why": "Sieh mal an — Überbleibsel: Das Plugin ({plugins}) ist weg, seine Zeile ist geblieben. crond versucht es jedes Mal und scheitert still. Harmlos, aber unordentlich — und verwirrend, wenn man sucht, was wann läuft. {how}",
   "where.adv.cron_dead.own": "Sie stehen in roots eigener Crontab (crontab -l): Der Befehl unten entfernt sie im Terminal (Unraids >_ oben rechts) und legt vorher eine Kopie auf den Flash.",
-  "where.adv.cron_dead.system": "Zeilen in /etc/cron.d kommen von einem Plugin (Unraid baut seine eigene Crontab dort aus den .cron-Dateien der Plugins auf dem Flash): das Plugin neu installieren oder unter Plugins entfernen.",
+  "where.adv.cron_dead.system": "Zeilen in /etc/cron.d kommen von einem Plugin (Unraid baut seine eigene Crontab dort aus den .cron-Dateien der Plugins auf dem Flash): das Plugin neu installieren oder unter ⟦Plugins⟧ entfernen.",
   "where.adv.spindown_default.title": "Die Disks schlafen nie",
-  "where.adv.spindown_default.why": "Die Standard-Wartezeit bis zum Abschalten steht auf «Nie»: Jede Array-Disk dreht rund um die Uhr — Strom, Wärme und Verschleiss. 30 bis 60 Minuten sind ein guter Anfang; mit Pools für appdata und VMs ruhen die meisten Disks dann wirklich.",
+  "where.adv.spindown_default.why": "Die Einstellung «⟦Default spin down delay⟧» steht auf «⟦Never⟧»: Jede Array-Disk dreht rund um die Uhr — Strom, Wärme und Verschleiss. 30 bis 60 Minuten sind ein guter Anfang; mit Pools für appdata und VMs ruhen die meisten Disks dann wirklich.",
   "where.adv.spindown_some.title": {
     "one": "Eine Disk schläft nie",
     "other": "{n} Disks schlafen nie"
   },
-  "where.adv.spindown_some.why": "Einzeln auf «Nie» gestellt. In Ordnung für eine Disk, die ohnehin ständig arbeitet — sonst kostet es nur Strom und Verschleiss. Einstellung: die Disk auf der Seite «Start» anklicken.",
+  "where.adv.spindown_some.why": "Einzeln auf «⟦Never⟧» gestellt. In Ordnung für eine Disk, die ohnehin ständig arbeitet — sonst kostet es nur Strom und Verschleiss. Einstellung: die Disk auf der Seite «⟦Main⟧» anklicken.",
   "where.adv.old_disks.title": {
     "one": "Eine alte Dame: {names}",
     "other": "{n} alte Damen: {names}"
@@ -1560,22 +1560,22 @@
   "where.adv.old_disks.why": "Mehr als etwa 5 Jahre Betriebsstunden. Kein Fehler — aber Zeit, SMART im Auge zu behalten, eine Ersatzdisk bereitzuhaben und sicher zu sein, dass gesichert ist, was darauf liegt.",
   "where.adv.no_parity.title": "Das Array läuft ohne Parität",
   "where.adv.no_parity.why": {
-    "one": "Fällt seine Daten-Disk aus, ist weg, was darauf liegt — und nichts warnt dich vorher. Eine Paritäts-Disk (mindestens so gross wie die grösste Daten-Disk) baut eine ausgefallene Disk wieder auf. Start → Array stoppen → eine Disk in den Paritäts-Slot → starten: Unraid baut die Parität (Stunden, das Array bleibt nutzbar).",
-    "other": "Fällt eine der {n} Daten-Disks aus, ist weg, was darauf liegt — und nichts warnt dich vorher. Eine Paritäts-Disk (mindestens so gross wie die grösste Daten-Disk) baut eine ausgefallene Disk wieder auf. Start → Array stoppen → eine Disk in den Paritäts-Slot → starten: Unraid baut die Parität (Stunden, das Array bleibt nutzbar)."
+    "one": "Fällt seine Daten-Disk aus, ist weg, was darauf liegt — und nichts warnt dich vorher. Eine Paritäts-Disk (mindestens so gross wie die grösste Daten-Disk) baut eine ausgefallene Disk wieder auf. ⟦Main⟧ → Array stoppen → eine Disk in den Paritäts-Slot → starten: Unraid baut die Parität (Stunden, das Array bleibt nutzbar).",
+    "other": "Fällt eine der {n} Daten-Disks aus, ist weg, was darauf liegt — und nichts warnt dich vorher. Eine Paritäts-Disk (mindestens so gross wie die grösste Daten-Disk) baut eine ausgefallene Disk wieder auf. ⟦Main⟧ → Array stoppen → eine Disk in den Paritäts-Slot → starten: Unraid baut die Parität (Stunden, das Array bleibt nutzbar)."
   },
   "where.adv.parity.title": "Letzte Paritätsprüfung: {when}",
-  "where.adv.parity.why": "Eine regelmässige Prüfung (monatlich oder vierteljährlich) findet schlechte Sektoren, bevor eine Disk ausfällt und du die Parität brauchst. Einstellungen → Aufgabenplanung → Paritätsprüfung, zu einer Zeit, in der niemand den Server braucht.",
+  "where.adv.parity.why": "Eine regelmässige Prüfung (monatlich oder vierteljährlich) findet schlechte Sektoren, bevor eine Disk ausfällt und du die Parität brauchst. ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Parity Check⟧, zu einer Zeit, in der niemand den Server braucht.",
   "where.adv.ups.title": "Keine USV",
-  "where.adv.ups.why": "Fällt der Strom aus, ist der Server einfach weg: Offene Dateien können kaputtgehen, danach läuft eine lange Paritätsprüfung. Eine kleine USV gibt ihm Zeit, sauber herunterzufahren (Einstellungen → USV-Einstellungen; für einen NUT-Server das NUT-Plugin).",
+  "where.adv.ups.why": "Fällt der Strom aus, ist der Server einfach weg: Offene Dateien können kaputtgehen, danach läuft eine lange Paritätsprüfung. Eine kleine USV gibt ihm Zeit, sauber herunterzufahren (⟦Settings⟧ → ⟦UPS Settings⟧; für einen NUT-Server das NUT-Plugin).",
   "where.adv.syslog.title": "Nach einem Absturz ist das Protokoll weg",
-  "where.adv.syslog.why": "Unraid hält sein Syslog im RAM — nach einem Absturz oder harten Reset weiss niemand mehr, was passiert ist, auch Frau Protokolli nicht. «Systemprotokoll auf Flash-Datenträger spiegeln» (für eine Weile, es nutzt den Stick ab) oder ein Syslog-Server (dieser hier: ein Share als lokaler Syslog-Ordner) bewahrt es auf.",
+  "where.adv.syslog.why": "Unraid hält sein Syslog im RAM — nach einem Absturz oder harten Reset weiss niemand mehr, was passiert ist, auch Frau Protokolli nicht. «⟦Mirror syslog to flash⟧» (für eine Weile, es nutzt den Stick ab) oder ein Syslog-Server (dieser hier: ein Share als lokaler Syslog-Ordner) bewahrt es auf.",
   "where.adv.vm_windows.title": {
     "one": "Eine Windows-VM kann den Array-Stopp aufhalten: {names}",
     "other": "{n} Windows-VMs können den Array-Stopp aufhalten: {names}"
   },
   "where.adv.vm_windows.why": {
-    "one": "Sieh mal an — wenn das Array stoppt, bittet Unraid jede VM herunterzufahren und wartet bis zu {timeout} s (Einstellungen → VM-Manager → «Timeout für das Herunterfahren einer VM»); was dann noch läuft, wird hart ausgeschaltet, wie Stecker ziehen — Ungespeichertes ist weg, und Windows prüft beim nächsten Start seine Disk. In dieser antwortet kein Gast-Agent, also ist Unraids Bitte der Netzschalter — und ein Windows im Leerlauf mit ausgeschaltetem Bildschirm überhört den gern: Der Array-Stopp wartet die ganzen {timeout} s umsonst, dann kommt der Stecker. Was hilft, in Windows: der QEMU Guest Agent (auf der virtio-win-ISO: guest-agent\\qemu-ga-x86_64.msi) — dann fragt Unraid ihn, und Windows hört zu; oder in den Energieoptionen «Bildschirm ausschalten: Nie» und «Beim Drücken des Netzschalters: Herunterfahren». Ein längerer Timeout hilft dagegen nicht — das Warten wird nur länger; und er muss unter dem Timeout der Disks beim Herunterfahren bleiben ({disk} s, Einstellungen → Datenträger-Einstellungen → «Timeout beim Herunterfahren»).",
-    "other": "Sieh mal an — wenn das Array stoppt, bittet Unraid jede VM herunterzufahren und wartet bis zu {timeout} s (Einstellungen → VM-Manager → «Timeout für das Herunterfahren einer VM»); was dann noch läuft, wird hart ausgeschaltet, wie Stecker ziehen — Ungespeichertes ist weg, und Windows prüft beim nächsten Start seine Disk. In diesen antwortet kein Gast-Agent, also ist Unraids Bitte der Netzschalter — und ein Windows im Leerlauf mit ausgeschaltetem Bildschirm überhört den gern: Der Array-Stopp wartet die ganzen {timeout} s umsonst, dann kommt der Stecker. Was hilft, in Windows: der QEMU Guest Agent (auf der virtio-win-ISO: guest-agent\\qemu-ga-x86_64.msi) — dann fragt Unraid ihn, und Windows hört zu; oder in den Energieoptionen «Bildschirm ausschalten: Nie» und «Beim Drücken des Netzschalters: Herunterfahren». Ein längerer Timeout hilft dagegen nicht — das Warten wird nur länger; und er muss unter dem Timeout der Disks beim Herunterfahren bleiben ({disk} s, Einstellungen → Datenträger-Einstellungen → «Timeout beim Herunterfahren»)."
+    "one": "Sieh mal an — wenn das Array stoppt, bittet Unraid jede VM herunterzufahren und wartet bis zu {timeout} s (⟦Settings⟧ → ⟦VM Manager⟧ → «⟦VM shutdown time-out⟧»); was dann noch läuft, wird hart ausgeschaltet, wie Stecker ziehen — Ungespeichertes ist weg, und Windows prüft beim nächsten Start seine Disk. In dieser antwortet kein Gast-Agent, also ist Unraids Bitte der Netzschalter — und ein Windows im Leerlauf mit ausgeschaltetem Bildschirm überhört den gern: Der Array-Stopp wartet die ganzen {timeout} s umsonst, dann kommt der Stecker. Was hilft, in Windows: der QEMU Guest Agent (auf der virtio-win-ISO: guest-agent\\qemu-ga-x86_64.msi) — dann fragt Unraid ihn, und Windows hört zu; oder in den Energieoptionen «Bildschirm ausschalten: Nie» und «Beim Drücken des Netzschalters: Herunterfahren». Ein längerer Timeout hilft dagegen nicht — das Warten wird nur länger; und er muss unter dem Timeout der Disks beim Herunterfahren bleiben ({disk} s, ⟦Settings⟧ → ⟦Disk Settings⟧ → «⟦Shutdown time-out⟧»).",
+    "other": "Sieh mal an — wenn das Array stoppt, bittet Unraid jede VM herunterzufahren und wartet bis zu {timeout} s (⟦Settings⟧ → ⟦VM Manager⟧ → «⟦VM shutdown time-out⟧»); was dann noch läuft, wird hart ausgeschaltet, wie Stecker ziehen — Ungespeichertes ist weg, und Windows prüft beim nächsten Start seine Disk. In diesen antwortet kein Gast-Agent, also ist Unraids Bitte der Netzschalter — und ein Windows im Leerlauf mit ausgeschaltetem Bildschirm überhört den gern: Der Array-Stopp wartet die ganzen {timeout} s umsonst, dann kommt der Stecker. Was hilft, in Windows: der QEMU Guest Agent (auf der virtio-win-ISO: guest-agent\\qemu-ga-x86_64.msi) — dann fragt Unraid ihn, und Windows hört zu; oder in den Energieoptionen «Bildschirm ausschalten: Nie» und «Beim Drücken des Netzschalters: Herunterfahren». Ein längerer Timeout hilft dagegen nicht — das Warten wird nur länger; und er muss unter dem Timeout der Disks beim Herunterfahren bleiben ({disk} s, ⟦Settings⟧ → ⟦Disk Settings⟧ → «⟦Shutdown time-out⟧»)."
   },
   "where.adv.security.title": "Sicherheit macht jetzt der Nachtwächter",
   "where.adv.security.why": "Shares, die für alle offen sind, Telnet, FTP, privilegierte Container, der Schutz der CPU — das ist jetzt seine Abteilung, und er merkt auch, wenn sich etwas ändert. Nur: Er arbeitet noch nicht hier. Der Teamchef kann ihn einstellen. Wenn du mich fragst: Ich würde es tun."

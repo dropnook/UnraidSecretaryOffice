@@ -24,6 +24,7 @@ const OFFICE_SUPPORT_URL = '';
 const OFFICE_SPONSOR_URL = '';
 
 require __DIR__ . '/place.php';
+require_once __DIR__ . '/words.php';      // Unraid's own words in the texts (shared with the agent)
 
 define('OFFICE_PUBLIC', dirname(__DIR__));      // the web files: next to src/ in the plugin's folder
 define('OFFICE_DATA', rtrim(getenv('OFFICE_DATA_DIR') ?: officePluginDataDir(), '/'));

@@ -12,7 +12,7 @@
   "fit.yes": "La signora Spolverina si sta già rimboccando le maniche: «Conosco ogni angolo del tuo server — e dove c'è un angolo, c'è polvere!»",
   "fire_note": "Ciò che c'è nel suo ripostiglio resta lì finché non lo svuoti — nelle cartelle _UnraidSecretaryOffice-trash sull'unità flash e in appdata. Anche le immagini che ha appeso restano.",
   "check.docker": "Docker è in esecuzione (la signora Spolverina confronta template, stack e cartelle con i contenitori)",
-  "check.docker_how": "Avvia Docker in Impostazioni → Docker. Senza una risposta da Docker ogni template sembrerebbe inutilizzato — per questo allora lei non cambia niente.",
+  "check.docker_how": "Avvia Docker in ⟦Settings⟧ → ⟦Docker⟧. Senza una risposta da Docker ogni template sembrerebbe inutilizzato — per questo allora lei non cambia niente.",
   "check.trash_old": "Niente aspetta nel ripostiglio della signora Spolverina da più di 30 giorni",
   "check.trash_old_how": {
     "one": "Un lotto ({size}) è nel suo ripostiglio da {days} giorni. Se tutto funziona ancora, svuotalo.",
@@ -28,7 +28,7 @@
   "part.tidy": "Mettere in ordine",
   "part.tidy_sub": "Ciò che nessuno usa più. Non si butta via niente subito — prima va nel mio ripostiglio. Non si sa mai.",
   "section.templates": "Template Docker",
-  "section.templates_sub": "I file XML da cui la pagina Docker di Unraid crea i contenitori. Uno senza contenitore compare in «App precedenti».",
+  "section.templates_sub": "I file XML da cui la pagina Docker di Unraid crea i contenitori. Uno senza contenitore compare in «⟦Previous Apps⟧».",
   "section.stacks": "Stack Compose",
   "section.stacks_sub": "Gli stack nel Compose Manager — e se hanno ancora contenitori.",
   "section.appdata": "Cartelle di appdata",
@@ -535,7 +535,7 @@
   "cat.templates.stray_older_text": "La cartella di Unraid ne ha una versione più recente",
   "cat.templates.stray_copy": "Smarrito — copia identica",
   "cat.templates.stray_copy_text": "Lo stesso file è nella cartella di Unraid",
-  "stray.only_here_text": "Unraid legge i template solo dalla sua cartella — questo non compare né in «Aggiungi Contenitore» né in «App precedenti». Adottalo o mettilo via.",
+  "stray.only_here_text": "Unraid legge i template solo dalla sua cartella — questo non compare né in «⟦Add Container⟧» né in «⟦Previous Apps⟧». Adottalo o mettilo via.",
   "stray.newer_text": "Questo file è più recente di quello nella cartella di Unraid. Se è quello giusto, adottalo — la versione di Unraid va nel mio ripostiglio.",
   "stray.name_exists_text": "La cartella di Unraid ha già un template con questo <Name> (con un altro nome di file). Questa copia non serve a niente.",
   "stray.older_text": "La cartella di Unraid ha una versione più recente. Questa copia non serve a niente.",
@@ -552,7 +552,7 @@
   "d.canonical": "Nella cartella di Unraid",
   "install.button": "Adotta…",
   "install.title": "Adottare {file}?",
-  "install.text": "Copio {file} nella cartella di Unraid {dir}, così compare in «Aggiungi Contenitore» e «App precedenti».",
+  "install.text": "Copio {file} nella cartella di Unraid {dir}, così compare in «⟦Add Container⟧» e «⟦Previous Apps⟧».",
   "install.replace": "Prima la versione attuale di Unraid ({path}) va nel mio ripostiglio.",
   "install.after": "Poi anche il file smarrito ({path}) va nel mio ripostiglio. Puoi rimettere a posto tutto.",
   "install.go": "Adotta",
@@ -583,11 +583,11 @@
   },
   "vmdef.missing_text": "I file dei dischi a cui punta questa VM non esistono (più).",
   "vmdef.text": "Questa VM è ancora configurata in Unraid, ma i file dei suoi dischi sono spariti — non può partire. Se non ti serve più, rimuovila dalla pagina VM di Unraid (Rimuovi VM): così se ne vanno anche la NVRAM e lo stato del TPM. Le definizioni delle VM non le tocco io.",
-  "vmdef.open": "Apri la pagina VM di Unraid",
+  "vmdef.open": "Apri la pagina ⟦VMs⟧ di Unraid",
   "d.disks": "Dischi",
   "d.cdroms": "CD / ISO",
   "why.in_unraid": "rimuovi in Unraid",
-  "why.in_unraid_text": "Le VM si rimuovono dalla pagina VM di Unraid — le loro definizioni non le tocco.",
+  "why.in_unraid_text": "Le VM si rimuovono dalla pagina ⟦VMs⟧ di Unraid — le loro definizioni non le tocco.",
   "item.vmdef": "definizione della VM",
   "errors.cleanup_in_unraid": "{name} è una VM — rimuovila dalla pagina VM di Unraid.",
   "filter_on": "Attenzione, c'è un filtro: «{query}» — non viene mostrato tutto.",
@@ -710,7 +710,7 @@
   "pic.where": "Unraid prende l'immagine di un contenitore dal suo template, altrimenti dalla sua etichetta net.unraid.docker.icon. Cerco immagini su questo server che si chiamano come l'app (la cartella dockerMan/images di Unraid), loghi in Community Applications su questo server, in una tabella di immagini note e dal nome dell'immagine (la raccolta aperta dashboard-icons) — offro solo immagini che si caricano. Oppure caricane una tua nei dettagli.",
   "pic.checking_all": "Controllo se le immagini si caricano…",
   "pic.ca_at": "Elenco di Community Applications del {when}.",
-  "pic.no_ca": "L'elenco di Community Applications non c'è (arriva quando si apre la sua pagina App) — meno loghi tra cui scegliere.",
+  "pic.no_ca": "L'elenco di Community Applications non c'è (arriva quando si apre la sua pagina ⟦Apps⟧) — meno loghi tra cui scegliere.",
   "src.local": "il suo file",
   "src.local_text": "L'immagine a cui era impostato sta su questo server ({detail}) — mancava solo file://.",
   "src.ca": "Community Applications",
@@ -1245,7 +1245,7 @@
     "one": "1 template (XML)",
     "other": "{n} template (XML)"
   },
-  "where.place.docker_intro": "I contenitori della pagina Docker di Unraid sono descritti da un template XML sull'unità flash — un file di testo con immagine, cartelle, porte e variabili. Ricrea il contenitore da lì (App → App precedenti) ed è di nuovo al suo posto con tutte le impostazioni. I suoi dati stanno in appdata.",
+  "where.place.docker_intro": "I contenitori della pagina Docker di Unraid sono descritti da un template XML sull'unità flash — un file di testo con immagine, cartelle, porte e variabili. Ricrea il contenitore da lì (⟦Apps⟧ → ⟦Previous Apps⟧) ed è di nuovo al suo posto con tutte le impostazioni. I suoi dati stanno in appdata.",
   "where.place.compose": "Stack Compose",
   "where.place.compose_sub": {
     "one": "1 stack",
@@ -1362,11 +1362,11 @@
   "where.boot.internal": "Tutto ciò che Unraid sa di sé sta in /boot/config sul disco di avvio interno {devices}.",
   "where.boot.other": "Tutto ciò che Unraid sa di sé sta in /boot/config ({fs}).",
   "where.boot.restore": "Per riaverlo: installa Unraid da zero su un dispositivo di avvio (Unraid USB Creator o l'installer di Unraid stesso), poi ricopia la cartella config — array, condivisioni, template Docker, plugin e il file della chiave di licenza tornano con lei.",
-  "where.boot.degraded": "Il pool di avvio {pool} non è in buona salute ({state}) — controllalo nella pagina Principale.",
+  "where.boot.degraded": "Il pool di avvio {pool} non è in buona salute ({state}) — controllalo nella pagina ⟦Main⟧.",
   "where.boot.single": "Il pool di avvio ha un solo disco — se si guasta, Unraid non parte finché non l'hai ripristinato.",
-  "where.boot.license_tpm": "La licenza ({file}) è legata al TPM di questa scheda madre: con la stessa scheda madre non c'è niente da trasferire. Solo una nuova scheda madre richiede un trasferimento della licenza (Strumenti → Registrazione).",
-  "where.boot.license_flash": "La licenza ({file}) è legata al GUID della chiavetta di avvio ({guid}): con una nuova chiavetta, trasferiscila al nuovo GUID (Strumenti → Registrazione).",
-  "where.boot.license_other": "La licenza ({file}) appartiene a un GUID che non è né quello di questa chiavetta né quello di questo TPM — controlla in Strumenti → Registrazione.",
+  "where.boot.license_tpm": "La licenza ({file}) è legata al TPM di questa scheda madre: con la stessa scheda madre non c'è niente da trasferire. Solo una nuova scheda madre richiede un trasferimento della licenza (⟦Tools⟧ → ⟦Registration⟧).",
+  "where.boot.license_flash": "La licenza ({file}) è legata al GUID della chiavetta di avvio ({guid}): con una nuova chiavetta, trasferiscila al nuovo GUID (⟦Tools⟧ → ⟦Registration⟧).",
+  "where.boot.license_other": "La licenza ({file}) appartiene a un GUID che non è né quello di questa chiavetta né quello di questo TPM — controlla in ⟦Tools⟧ → ⟦Registration⟧.",
   "where.help.tiles": "Riquadri sotto «Dov'è cosa»",
   "where.help.tiles_text": "Ogni riquadro è un posto con file che contano. La sua etichetta mostra la protezione più debole tra questi (il log di sistema nella RAM e i dati delle immagini Docker non contano — si ricostruiscono comunque). Un clic apre i percorsi con dimensione e protezione.",
   "where.help.copy": "Copia",
@@ -1482,44 +1482,44 @@
   "where.adv.years": "anni",
   "where.adv.never": "mai",
   "where.adv.to_share": "Condivisione {name}",
-  "where.adv.to_scheduler": "Operazioni pianificate",
-  "where.adv.to_docker": "Docker",
-  "where.adv.to_disks": "Dischi",
-  "where.adv.to_main": "Principale",
-  "where.adv.to_ups": "Gruppo di continuità",
-  "where.adv.to_syslog": "Server syslog",
-  "where.adv.to_share_settings": "Condivisione",
-  "where.adv.to_browse": "Sfoglia {path}",
+  "where.adv.to_scheduler": "⟦Scheduler⟧",
+  "where.adv.to_docker": "⟦Docker⟧",
+  "where.adv.to_disks": "⟦Disk Settings⟧",
+  "where.adv.to_main": "⟦Main⟧",
+  "where.adv.to_ups": "⟦UPS Settings⟧",
+  "where.adv.to_syslog": "⟦Syslog Server⟧",
+  "where.adv.to_share_settings": "⟦Global Share Settings⟧",
+  "where.adv.to_browse": "⟦Browse⟧ {path}",
   "where.adv.to_team_lead": "Dal capoufficio",
-  "where.adv.to_vm_settings": "Gestione Macchine Virtuali",
+  "where.adv.to_vm_settings": "⟦VM Manager⟧",
   "where.adv.system_array.title": "Sull'array: {names}",
   "where.adv.system_array.why": "Ciò che serve a Docker e alle VM va su un pool (SSD/NVMe): sull'array ogni contenitore e ogni VM diventa lento, e i dischi non riposano mai. Nelle impostazioni della condivisione metti l'archiviazione primaria su un pool e quella secondaria su nessuna, poi lascia che il Mover porti i file (con Docker e VM fermi).",
   "where.adv.mover.title": {
     "one": "Il Mover non ha una pianificazione — {names} conta su di lui",
     "other": "Il Mover non ha una pianificazione — {n} condivisioni contano su di lui: {names}"
   },
-  "where.adv.mover.why": "Queste condivisioni scrivono prima su un pool e il Mover dovrebbe portare i file sull'array (o indietro). Senza pianificazione parte solo se lo avvii a mano — e il pool si riempie. Impostazioni → Operazioni pianificate → Impostazioni Mover. (Se il Mover lo avvia qualcos'altro per te: «Lo so, grazie».)",
+  "where.adv.mover.why": "Queste condivisioni scrivono prima su un pool e il Mover dovrebbe portare i file sull'array (o indietro). Senza pianificazione parte solo se lo avvii a mano — e il pool si riempie. ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧. (Se il Mover lo avvia qualcos'altro per te: «Lo so, grazie».)",
   "where.adv.exclusive_also": "anche su {where}",
   "where.adv.exclusive_off.title": {
     "one": "Le condivisioni esclusive sono spente — {names} potrebbe esserlo",
     "other": "Le condivisioni esclusive sono spente — {n} condivisioni potrebbero esserlo: {names}"
   },
   "where.adv.exclusive_off.why": {
-    "one": "Psst — questa condivisione sta su un solo pool e da nessun'altra parte, eppure ogni byte passa a fatica per lo strato FUSE di Unraid (shfs) sotto /mnt/user. Come condivisione esclusiva /mnt/user/… diventa un collegamento diretto al pool, e letture e scritture saltano quello strato — sensibilmente più veloce, soprattutto con tanti file piccoli. I percorsi di Docker e delle VM come /mnt/user/appdata continuano a funzionare: passano per il collegamento. L'impostazione si cambia solo con l'array fermo (Docker e VM si fermano con lui): Principale → Operazioni Array → Ferma, poi Impostazioni → Condivisione → «Consenti Condivisioni esclusive»: Sì → Applica, e riavvia l'array. Unraid decide all'avvio dell'array — una condivisione che ha una cartella anche su un altro disco o pool resta com'è. (Per le condivisioni esclusive Unraid ignora lo «Spazio libero minimo».)",
-    "other": "Psst — queste condivisioni stanno su un solo pool e da nessun'altra parte, eppure ogni byte passa a fatica per lo strato FUSE di Unraid (shfs) sotto /mnt/user. Come condivisioni esclusive /mnt/user/… diventa un collegamento diretto al pool, e letture e scritture saltano quello strato — sensibilmente più veloce, soprattutto con tanti file piccoli. I percorsi di Docker e delle VM come /mnt/user/appdata continuano a funzionare: passano per il collegamento. L'impostazione si cambia solo con l'array fermo (Docker e VM si fermano con lui): Principale → Operazioni Array → Ferma, poi Impostazioni → Condivisione → «Consenti Condivisioni esclusive»: Sì → Applica, e riavvia l'array. Unraid decide all'avvio dell'array — una condivisione che ha una cartella anche su un altro disco o pool resta com'è. (Per le condivisioni esclusive Unraid ignora lo «Spazio libero minimo».)"
+    "one": "Psst — questa condivisione sta su un solo pool e da nessun'altra parte, eppure ogni byte passa a fatica per lo strato FUSE di Unraid (shfs) sotto /mnt/user. Come condivisione esclusiva /mnt/user/… diventa un collegamento diretto al pool, e letture e scritture saltano quello strato — sensibilmente più veloce, soprattutto con tanti file piccoli. I percorsi di Docker e delle VM come /mnt/user/appdata continuano a funzionare: passano per il collegamento. L'impostazione si cambia solo con l'array fermo (Docker e VM si fermano con lui): ⟦Main⟧ → ⟦Array Operation⟧ → ⟦Stop⟧, poi ⟦Settings⟧ → ⟦Global Share Settings⟧ → «⟦Permit exclusive shares⟧»: ⟦Yes⟧ → ⟦Apply⟧, e riavvia l'array. Unraid decide all'avvio dell'array — una condivisione che ha una cartella anche su un altro disco o pool resta com'è. (Per le condivisioni esclusive Unraid ignora lo «⟦Minimum free space⟧».)",
+    "other": "Psst — queste condivisioni stanno su un solo pool e da nessun'altra parte, eppure ogni byte passa a fatica per lo strato FUSE di Unraid (shfs) sotto /mnt/user. Come condivisioni esclusive /mnt/user/… diventa un collegamento diretto al pool, e letture e scritture saltano quello strato — sensibilmente più veloce, soprattutto con tanti file piccoli. I percorsi di Docker e delle VM come /mnt/user/appdata continuano a funzionare: passano per il collegamento. L'impostazione si cambia solo con l'array fermo (Docker e VM si fermano con lui): ⟦Main⟧ → ⟦Array Operation⟧ → ⟦Stop⟧, poi ⟦Settings⟧ → ⟦Global Share Settings⟧ → «⟦Permit exclusive shares⟧»: ⟦Yes⟧ → ⟦Apply⟧, e riavvia l'array. Unraid decide all'avvio dell'array — una condivisione che ha una cartella anche su un altro disco o pool resta com'è. (Per le condivisioni esclusive Unraid ignora lo «⟦Minimum free space⟧».)"
   },
   "where.adv.exclusive_elsewhere.title": {
     "one": "{names} non può essere esclusiva",
     "other": "{n} condivisioni non possono essere esclusive: {names}"
   },
-  "where.adv.exclusive_elsewhere.why": "Guarda un po' — una cartella con lo stesso nome su un altro pool o disco (tra parentesi). Basta quella, anche vuota, perché Unraid non colleghi la condivisione direttamente al suo pool: resta nel più lento strato FUSE. Quello che c'è in quella cartella fa parte della condivisione: spostalo sul pool della condivisione (il file manager di Unraid: Sfoglia), oppure elimina la cartella se è vuota. Poi ferma e riavvia l'array una volta (Principale → Operazioni Array) — Unraid decide all'avvio. Anche Fix Common Problems segnala queste cartelle — fagli ricontrollare dopo aver fatto ordine (Impostazioni → Impostazioni Plugin → Fix Common Problems → Rescan).",
+  "where.adv.exclusive_elsewhere.why": "Guarda un po' — una cartella con lo stesso nome su un altro pool o disco (tra parentesi). Basta quella, anche vuota, perché Unraid non colleghi la condivisione direttamente al suo pool: resta nel più lento strato FUSE. Quello che c'è in quella cartella fa parte della condivisione: spostalo sul pool della condivisione (il file manager di Unraid: ⟦Browse⟧), oppure elimina la cartella se è vuota. Poi ferma e riavvia l'array una volta (⟦Main⟧ → ⟦Array Operation⟧) — Unraid decide all'avvio. Anche Fix Common Problems segnala queste cartelle — fagli ricontrollare dopo aver fatto ordine (⟦Settings⟧ → ⟦User Utilities⟧ → Fix Common Problems → Rescan).",
   "where.adv.exclusive_unclear.title": {
     "one": "{names} non è esclusiva — e non capisco perché",
     "other": "{n} condivisioni non sono esclusive — e non capisco perché: {names}"
   },
   "where.adv.exclusive_unclear.why": {
-    "one": "Questo sì che è un mistero: per le sue impostazioni andrebbe bene, vedo la sua cartella solo sul suo pool, eppure Unraid dice «Accesso Esclusivo: No». {maybe} Unraid decide all'avvio dell'array: chiarito questo, ferma e riavvia l'array (Principale → Operazioni Array).",
-    "other": "Questo sì che è un mistero: per le loro impostazioni andrebbero bene, vedo la loro cartella solo sul loro pool, eppure Unraid dice «Accesso Esclusivo: No». {maybe} Unraid decide all'avvio dell'array: chiarito questo, ferma e riavvia l'array (Principale → Operazioni Array)."
+    "one": "Questo sì che è un mistero: per le sue impostazioni andrebbe bene, vedo la sua cartella solo sul suo pool, eppure Unraid dice «⟦Exclusive access⟧: ⟦No⟧». {maybe} Unraid decide all'avvio dell'array: chiarito questo, ferma e riavvia l'array (⟦Main⟧ → ⟦Array Operation⟧).",
+    "other": "Questo sì che è un mistero: per le loro impostazioni andrebbero bene, vedo la loro cartella solo sul loro pool, eppure Unraid dice «⟦Exclusive access⟧: ⟦No⟧». {maybe} Unraid decide all'avvio dell'array: chiarito questo, ferma e riavvia l'array (⟦Main⟧ → ⟦Array Operation⟧)."
   },
   "where.adv.exclusive_unclear.asleep": "Forse una cartella con lo stesso nome sta su un disco in cui non ho guardato perché dormiva ({disks}) — dai un'occhiata lì e spostala sul pool.",
   "where.adv.exclusive_unclear.awake": "Forse le impostazioni sono cambiate dopo l'avvio dell'array.",
@@ -1528,8 +1528,8 @@
     "other": "{n} condivisioni potrebbero essere esclusive — se non fosse per l'archiviazione secondaria: {names}"
   },
   "where.adv.exclusive_overflow.why": {
-    "one": "Non ho potuto fare a meno di notarlo: questa condivisione tiene i dati sul suo pool, e il Mover riporta indietro quello che è traboccato sull'archiviazione secondaria. Senza archiviazione secondaria potrebbe essere una condivisione esclusiva — /mnt/user/… un collegamento diretto al pool, saltando lo strato FUSE di Unraid, sensibilmente più veloce. Conviene solo se il pool ha posto per tutto: senza archiviazione secondaria un pool pieno vuol dire una condivisione piena. Se sì: lascia girare il Mover finché tutto è sul pool, nelle impostazioni della condivisione metti «Archiviazione Secondaria» su «Nessuna», elimina quello che resta della condivisione su un altro pool o disco (tra parentesi; contano anche le cartelle vuote), poi ferma e riavvia l'array. Serve «Consenti Condivisioni esclusive» (Impostazioni → Condivisione).",
-    "other": "Non ho potuto fare a meno di notarlo: queste condivisioni tengono i dati sul loro pool, e il Mover riporta indietro quello che è traboccato sull'archiviazione secondaria. Senza archiviazione secondaria potrebbero essere condivisioni esclusive — /mnt/user/… un collegamento diretto al pool, saltando lo strato FUSE di Unraid, sensibilmente più veloce. Conviene solo se il pool ha posto per tutto: senza archiviazione secondaria un pool pieno vuol dire una condivisione piena. Se sì: lascia girare il Mover finché tutto è sul pool, nelle impostazioni della condivisione metti «Archiviazione Secondaria» su «Nessuna», elimina quello che resta della condivisione su un altro pool o disco (tra parentesi; contano anche le cartelle vuote), poi ferma e riavvia l'array. Serve «Consenti Condivisioni esclusive» (Impostazioni → Condivisione)."
+    "one": "Non ho potuto fare a meno di notarlo: questa condivisione tiene i dati sul suo pool, e il Mover riporta indietro quello che è traboccato sull'archiviazione secondaria. Senza archiviazione secondaria potrebbe essere una condivisione esclusiva — /mnt/user/… un collegamento diretto al pool, saltando lo strato FUSE di Unraid, sensibilmente più veloce. Conviene solo se il pool ha posto per tutto: senza archiviazione secondaria un pool pieno vuol dire una condivisione piena. Se sì: lascia girare il Mover finché tutto è sul pool, nelle impostazioni della condivisione metti «⟦Secondary storage⟧» su «⟦None⟧», elimina quello che resta della condivisione su un altro pool o disco (tra parentesi; contano anche le cartelle vuote), poi ferma e riavvia l'array. Serve «⟦Permit exclusive shares⟧» (⟦Settings⟧ → ⟦Global Share Settings⟧).",
+    "other": "Non ho potuto fare a meno di notarlo: queste condivisioni tengono i dati sul loro pool, e il Mover riporta indietro quello che è traboccato sull'archiviazione secondaria. Senza archiviazione secondaria potrebbero essere condivisioni esclusive — /mnt/user/… un collegamento diretto al pool, saltando lo strato FUSE di Unraid, sensibilmente più veloce. Conviene solo se il pool ha posto per tutto: senza archiviazione secondaria un pool pieno vuol dire una condivisione piena. Se sì: lascia girare il Mover finché tutto è sul pool, nelle impostazioni della condivisione metti «⟦Secondary storage⟧» su «⟦None⟧», elimina quello che resta della condivisione su un altro pool o disco (tra parentesi; contano anche le cartelle vuote), poi ferma e riavvia l'array. Serve «⟦Permit exclusive shares⟧» (⟦Settings⟧ → ⟦Global Share Settings⟧)."
   },
   "where.adv.compose_build.title": {
     "one": "{names} costruisce da sé la sua immagine",
@@ -1545,14 +1545,14 @@
   },
   "where.adv.cron_dead.why": "Guarda un po' — avanzi: il plugin ({plugins}) non c'è più, la sua riga è rimasta. crond ci prova ogni volta e fallisce in silenzio. Innocuo, ma disordinato — e confonde quando cerchi cosa gira e quando. {how}",
   "where.adv.cron_dead.own": "Sono nel crontab di root (crontab -l): il comando qui sotto le toglie in un terminale (il >_ di Unraid in alto a destra) e prima mette una copia sull'unità flash.",
-  "where.adv.cron_dead.system": "Le righe in /etc/cron.d vengono da un plugin (Unraid vi costruisce il suo crontab dai file .cron dei plugin sull'unità flash): reinstalla quel plugin, o rimuovilo in Plugin.",
+  "where.adv.cron_dead.system": "Le righe in /etc/cron.d vengono da un plugin (Unraid vi costruisce il suo crontab dai file .cron dei plugin sull'unità flash): reinstalla quel plugin, o rimuovilo in ⟦Plugins⟧.",
   "where.adv.spindown_default.title": "I dischi non dormono mai",
-  "where.adv.spindown_default.why": "Il ritardo spin down predefinito è «Mai»: ogni disco dell'array gira giorno e notte — corrente, calore e usura. Da 30 a 60 minuti è un buon inizio; con i pool per appdata e VM la maggior parte dei dischi poi riposa davvero.",
+  "where.adv.spindown_default.why": "L'impostazione «⟦Default spin down delay⟧» è su «⟦Never⟧»: ogni disco dell'array gira giorno e notte — corrente, calore e usura. Da 30 a 60 minuti è un buon inizio; con i pool per appdata e VM la maggior parte dei dischi poi riposa davvero.",
   "where.adv.spindown_some.title": {
     "one": "Un disco non dorme mai",
     "other": "{n} dischi non dormono mai"
   },
-  "where.adv.spindown_some.why": "Impostati singolarmente su «Mai». Va bene per un disco che lavora comunque di continuo — altrimenti costa solo corrente e usura. Impostazione: clicca sul disco in Principale.",
+  "where.adv.spindown_some.why": "Impostati singolarmente su «⟦Never⟧». Va bene per un disco che lavora comunque di continuo — altrimenti costa solo corrente e usura. Impostazione: clicca sul disco in ⟦Main⟧.",
   "where.adv.old_disks.title": {
     "one": "Una vecchia signora: {names}",
     "other": "{n} vecchie signore: {names}"
@@ -1560,22 +1560,22 @@
   "where.adv.old_disks.why": "Più di circa 5 anni di ore di funzionamento. Non è un guasto — ma è il momento di tenere d'occhio lo SMART, avere un disco di riserva a portata di mano e assicurarsi che ciò che c'è sopra abbia un backup.",
   "where.adv.no_parity.title": "L'array gira senza parità",
   "where.adv.no_parity.why": {
-    "one": "Se il suo disco dati si guasta, ciò che c'è sopra è perso — e niente ti avvisa prima. Un disco di parità (grande almeno quanto il disco dati più grande) ricostruisce un disco guasto. Principale → ferma l'array → metti un disco nello slot di parità → avvia: Unraid costruisce la parità (ore, l'array resta utilizzabile).",
-    "other": "Se uno dei {n} dischi dati si guasta, ciò che c'è sopra è perso — e niente ti avvisa prima. Un disco di parità (grande almeno quanto il disco dati più grande) ricostruisce un disco guasto. Principale → ferma l'array → metti un disco nello slot di parità → avvia: Unraid costruisce la parità (ore, l'array resta utilizzabile)."
+    "one": "Se il suo disco dati si guasta, ciò che c'è sopra è perso — e niente ti avvisa prima. Un disco di parità (grande almeno quanto il disco dati più grande) ricostruisce un disco guasto. ⟦Main⟧ → ferma l'array → metti un disco nello slot di parità → avvia: Unraid costruisce la parità (ore, l'array resta utilizzabile).",
+    "other": "Se uno dei {n} dischi dati si guasta, ciò che c'è sopra è perso — e niente ti avvisa prima. Un disco di parità (grande almeno quanto il disco dati più grande) ricostruisce un disco guasto. ⟦Main⟧ → ferma l'array → metti un disco nello slot di parità → avvia: Unraid costruisce la parità (ore, l'array resta utilizzabile)."
   },
   "where.adv.parity.title": "Ultimo controllo di parità: {when}",
-  "where.adv.parity.why": "Un controllo regolare (mensile o trimestrale) trova i settori difettosi prima che un disco si guasti e ti serva la parità. Impostazioni → Operazioni pianificate → Controllo di Parità, a un'ora in cui nessuno ha bisogno del server.",
+  "where.adv.parity.why": "Un controllo regolare (mensile o trimestrale) trova i settori difettosi prima che un disco si guasti e ti serva la parità. ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Parity Check⟧, a un'ora in cui nessuno ha bisogno del server.",
   "where.adv.ups.title": "Nessun UPS",
-  "where.adv.ups.why": "Quando va via la corrente, il server si spegne di colpo: i file aperti possono rovinarsi, e dopo Unraid fa un lungo controllo di parità. Un piccolo gruppo di continuità (UPS) gli dà il tempo di spegnersi in modo pulito (Impostazioni → Gruppo di continuità; per un server NUT il plugin NUT).",
+  "where.adv.ups.why": "Quando va via la corrente, il server si spegne di colpo: i file aperti possono rovinarsi, e dopo Unraid fa un lungo controllo di parità. Un piccolo gruppo di continuità (UPS) gli dà il tempo di spegnersi in modo pulito (⟦Settings⟧ → ⟦UPS Settings⟧; per un server NUT il plugin NUT).",
   "where.adv.syslog.title": "Dopo un crash il log è perso",
-  "where.adv.syslog.why": "Unraid tiene il suo syslog nella RAM — dopo un crash o un reset brutale nessuno può più leggere cosa è successo, nemmeno la signora Protocolli. «Copia 'syslog' sull'Unità Flash USB» (per un po', consuma la chiavetta) o un server syslog (questo stesso: una condivisione come cartella syslog locale) lo conserva.",
+  "where.adv.syslog.why": "Unraid tiene il suo syslog nella RAM — dopo un crash o un reset brutale nessuno può più leggere cosa è successo, nemmeno la signora Protocolli. «⟦Mirror syslog to flash⟧» (per un po', consuma la chiavetta) o un server syslog (questo stesso: una condivisione come cartella syslog locale) lo conserva.",
   "where.adv.vm_windows.title": {
     "one": "Una VM Windows può trattenere l'arresto dell'array: {names}",
     "other": "{n} VM Windows possono trattenere l'arresto dell'array: {names}"
   },
   "where.adv.vm_windows.why": {
-    "one": "Guarda un po' — quando l'array si ferma, Unraid chiede a ogni VM di spegnersi e aspetta fino a {timeout} s (Impostazioni → Gestione Macchine Virtuali → «Timeout Spegnimento Macchine Virtuali»); quello che gira ancora dopo viene spento di colpo, come staccare la spina — il lavoro non salvato è perso e Windows controlla il suo disco al prossimo avvio. In questa non risponde nessun agente guest, quindi la richiesta di Unraid è il pulsante di accensione — e un Windows inattivo con lo schermo spento tende a ignorarlo: l'arresto dell'array aspetta tutti i {timeout} s per niente, poi la spina. Cosa aiuta, in Windows: il QEMU Guest Agent (sull'ISO virtio-win: guest-agent\\qemu-ga-x86_64.msi) — Unraid allora chiede a lui, e Windows ascolta; oppure nelle opzioni risparmio energia «Disattiva schermo: Mai» e «Quando viene premuto il pulsante di alimentazione: Arresta il sistema». Un timeout più lungo non aiuta contro questo — l'attesa si allunga soltanto; e deve restare sotto il timeout di spegnimento dei dischi ({disk} s, Impostazioni → Dischi → «Timeout di spegnimento»).",
-    "other": "Guarda un po' — quando l'array si ferma, Unraid chiede a ogni VM di spegnersi e aspetta fino a {timeout} s (Impostazioni → Gestione Macchine Virtuali → «Timeout Spegnimento Macchine Virtuali»); quello che gira ancora dopo viene spento di colpo, come staccare la spina — il lavoro non salvato è perso e Windows controlla il suo disco al prossimo avvio. In queste non risponde nessun agente guest, quindi la richiesta di Unraid è il pulsante di accensione — e un Windows inattivo con lo schermo spento tende a ignorarlo: l'arresto dell'array aspetta tutti i {timeout} s per niente, poi la spina. Cosa aiuta, in Windows: il QEMU Guest Agent (sull'ISO virtio-win: guest-agent\\qemu-ga-x86_64.msi) — Unraid allora chiede a lui, e Windows ascolta; oppure nelle opzioni risparmio energia «Disattiva schermo: Mai» e «Quando viene premuto il pulsante di alimentazione: Arresta il sistema». Un timeout più lungo non aiuta contro questo — l'attesa si allunga soltanto; e deve restare sotto il timeout di spegnimento dei dischi ({disk} s, Impostazioni → Dischi → «Timeout di spegnimento»)."
+    "one": "Guarda un po' — quando l'array si ferma, Unraid chiede a ogni VM di spegnersi e aspetta fino a {timeout} s (⟦Settings⟧ → ⟦VM Manager⟧ → «⟦VM shutdown time-out⟧»); quello che gira ancora dopo viene spento di colpo, come staccare la spina — il lavoro non salvato è perso e Windows controlla il suo disco al prossimo avvio. In questa non risponde nessun agente guest, quindi la richiesta di Unraid è il pulsante di accensione — e un Windows inattivo con lo schermo spento tende a ignorarlo: l'arresto dell'array aspetta tutti i {timeout} s per niente, poi la spina. Cosa aiuta, in Windows: il QEMU Guest Agent (sull'ISO virtio-win: guest-agent\\qemu-ga-x86_64.msi) — Unraid allora chiede a lui, e Windows ascolta; oppure nelle opzioni risparmio energia «Disattiva schermo: Mai» e «Quando viene premuto il pulsante di alimentazione: Arresta il sistema». Un timeout più lungo non aiuta contro questo — l'attesa si allunga soltanto; e deve restare sotto il timeout di spegnimento dei dischi ({disk} s, ⟦Settings⟧ → ⟦Disk Settings⟧ → «⟦Shutdown time-out⟧»).",
+    "other": "Guarda un po' — quando l'array si ferma, Unraid chiede a ogni VM di spegnersi e aspetta fino a {timeout} s (⟦Settings⟧ → ⟦VM Manager⟧ → «⟦VM shutdown time-out⟧»); quello che gira ancora dopo viene spento di colpo, come staccare la spina — il lavoro non salvato è perso e Windows controlla il suo disco al prossimo avvio. In queste non risponde nessun agente guest, quindi la richiesta di Unraid è il pulsante di accensione — e un Windows inattivo con lo schermo spento tende a ignorarlo: l'arresto dell'array aspetta tutti i {timeout} s per niente, poi la spina. Cosa aiuta, in Windows: il QEMU Guest Agent (sull'ISO virtio-win: guest-agent\\qemu-ga-x86_64.msi) — Unraid allora chiede a lui, e Windows ascolta; oppure nelle opzioni risparmio energia «Disattiva schermo: Mai» e «Quando viene premuto il pulsante di alimentazione: Arresta il sistema». Un timeout più lungo non aiuta contro questo — l'attesa si allunga soltanto; e deve restare sotto il timeout di spegnimento dei dischi ({disk} s, ⟦Settings⟧ → ⟦Disk Settings⟧ → «⟦Shutdown time-out⟧»)."
   },
   "where.adv.security.title": "Della sicurezza ora si occupa il guardiano notturno",
   "where.adv.security.why": "Condivisioni aperte a tutti, Telnet, FTP, contenitori privilegiati, la protezione della CPU — adesso è il suo reparto, e si accorge anche quando qualcosa cambia. Solo che non lavora ancora qui. Il capoufficio può assumerlo. Se lo chiedi a me: io lo farei."

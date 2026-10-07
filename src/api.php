@@ -9,12 +9,13 @@ declare(strict_types=1);
  *                                     where desk.json "parts" says how — officeDeskParts())
  * GET  ?a=strings&lang=<code>         all UI strings of a language
  * GET  ?a=log                         tail of the agent log
- * GET  ?a=dash&lang=<code>            the rows of the tile on Unraid's Dashboard (dashboard.php)
+ * GET  ?a=dash&lang=<code>            the rows of the tile on Unraid's Dashboard (dashboard.php), in the browser's language
  * GET  ?a=agent                       the messenger alone (agentInfo(): the array stopped, the night shift)
  * POST {"a": "<desk>.<action>", ...}  a request for the agent; it checks everything
  * POST {"a": "office.hire|fire"}       who works here (see staff.php)
  * POST {"a": "office.staff_order", "order": [desk, …]}   in which order (the reception's cards, the tabs; staff.php)
  * POST {"a": "office.supporter_set|supporter_remove|supporter_ask"}   the supporter key (supporter.php)
+ * POST {"a": "office.lang", "lang": <code>}   the language the page shows, for the notifications (desks.php)
  *
  * Who may use it is Unraid's business: everything under /plugins/… is behind
  * its login (nginx auth_request), and every POST needs its csrf_token
@@ -58,6 +59,9 @@ function api_main(): void
         }
         if (in_array($action, OFFICE_SUPPORTER_ACTIONS, true)) {
             answer(officeSupporterAction($action, $data));
+        }
+        if ($action === 'office.lang') {
+            answer(officeLangRemember($data));
         }
         if (!preg_match('/^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_]*$/D', $action) || !isset(officeDesks()[explode('.', $action)[0]])) {
             answer(['ok' => false, 'error' => ['key' => 'unknown_action', 'params' => ['action' => $action]]], 400);
