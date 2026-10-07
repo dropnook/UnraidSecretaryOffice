@@ -815,5 +815,7 @@
   "check.drill_failed_how": "It failed for: {items}. Mr. Restori's «Drill» says what and where to fix it; then «Practise now…».",
   "dash_drill_passed": "drill ✓ {when}",
   "dash_drill_failed": "drill failed · {when}",
-  "dash_drill_overdue": "drill overdue · {when}"
+  "dash_drill_overdue": "drill overdue · {when}",
+  "notice.busy_drill": "My drill holds the engine's lock right now — I bring nothing back until it is done (it ends well before the next backup).",
+  "bubble.busy_drill": "I'm practising on copies right now — real restores wait until I'm done."
 }

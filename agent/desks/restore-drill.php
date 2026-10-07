@@ -2207,11 +2207,16 @@ function drillTick(): void
             logLine('Mr. Restori: the drill\'s sweeper: ' . $e->getMessage());
         }
     }
+    // outside the window nothing is read at all; inside it a few small files, once a minute
+    $hour = (int) date('G', $now);
+    if ($hour < DRILL_WINDOW[0] || $hour >= DRILL_WINDOW[1]) {
+        return;
+    }
     $lastRun = readJson(rsUbData() . '/state/last-run.json');
     $auto = readJson(drillData() . '/auto.json');
     $scope = drillDue(drillSettings(), $lastRun, drillCertificate(), $auto, drillPackagesSince(), $now);
-    if ($scope === null) {
-        return;
+    if ($scope === null || !in_array('restore', staffHired(), true)) {
+        return;                              // not due — or he isn't hired (then he does nothing on his own)
     }
     $note = ['run' => (string) ($lastRun['run'] ?? ''), 'at' => $now, 'id' => null, 'refused' => null];
     try {

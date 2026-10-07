@@ -1101,5 +1101,6 @@
   "kopia_skipped_count": {"one": "{n} sautée (arrêt de l'array)", "other": "{n} sautées (arrêt de l'array)"},
   "drill.line_passed": "Restauration prouvée le {when} : {proven} sur {total} — l'exercice de Monsieur Restori a réussi.",
   "drill.line_failed": "Exercice de restauration du {when} : {names} n'est pas revenu.",
-  "drill.line_go": "Vers l'exercice"
+  "drill.line_go": "Vers l'exercice",
+  "notice.drilling": "Monsieur Restori s'exerce en ce moment à une restauration sur des copies (son exercice) : il tient le verrou du moteur, donc aucune sauvegarde, tournée ou configuration ne démarre avant qu'il ait fini — il s'arrête bien avant la prochaine sauvegarde planifiée."
 }

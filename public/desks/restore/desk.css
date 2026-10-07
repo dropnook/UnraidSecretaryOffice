@@ -79,6 +79,15 @@
 .rs-j-detail{margin:4px 0; font-size:11.5px; white-space:pre-wrap; max-height:160px; overflow:auto}
 .rs-j-log{font-size:11px; max-height:320px; overflow:auto; white-space:pre-wrap}
 
+/* the drill: the one going on, the last one's line, per app the levels proven, its drills */
+.rs-dr-run{display:flex; flex-wrap:wrap; align-items:center; gap:4px 6px}
+.rs-dr-run .rs-bar{flex-basis:100%}
+.rs-dr-head p{margin:6px 0}
+.rs-dr-bad{margin:6px 0 10px}
+.rs-dr-rows{margin-top:8px}
+.rs-dr-items code{overflow-wrap:anywhere}
+.rs-dr-hist{margin-top:16px}
+
 /* on a phone a row's buttons go under its name instead of squeezing it */
 @media (max-width:640px){
   .row.nocheck:has(> .rs-right){grid-template-columns:minmax(0,1fr)}

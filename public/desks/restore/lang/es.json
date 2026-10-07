@@ -815,5 +815,7 @@
   "check.drill_failed_how": "No superado por: {items}. El «Simulacro» del señor Restori dice qué arreglar y dónde; luego «Practicar ahora…».",
   "dash_drill_passed": "simulacro ✓ {when}",
   "dash_drill_failed": "simulacro fallido · {when}",
-  "dash_drill_overdue": "simulacro atrasado · {when}"
+  "dash_drill_overdue": "simulacro atrasado · {when}",
+  "notice.busy_drill": "Mi simulacro tiene ahora el bloqueo del motor — no traigo nada de vuelta hasta que termine (termina mucho antes de la próxima copia).",
+  "bubble.busy_drill": "Estoy practicando con copias — las restauraciones de verdad esperan a que termine."
 }

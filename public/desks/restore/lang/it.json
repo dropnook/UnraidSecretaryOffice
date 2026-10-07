@@ -815,5 +815,7 @@
   "check.drill_failed_how": "Non superata per: {items}. L'«Esercitazione» del signor Restori dice cosa sistemare e dove; poi «Esercitati ora…».",
   "dash_drill_passed": "esercitazione ✓ {when}",
   "dash_drill_failed": "esercitazione fallita · {when}",
-  "dash_drill_overdue": "esercitazione in ritardo · {when}"
+  "dash_drill_overdue": "esercitazione in ritardo · {when}",
+  "notice.busy_drill": "La mia esercitazione tiene ora il blocco del motore — non riporto indietro niente finché non ha finito (finisce molto prima del prossimo backup).",
+  "bubble.busy_drill": "Mi sto esercitando su copie — i ripristini veri aspettano finché non ho finito."
 }

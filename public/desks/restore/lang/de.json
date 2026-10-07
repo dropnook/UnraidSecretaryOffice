@@ -815,5 +815,7 @@
   "check.drill_failed_how": "Nicht bestanden für: {items}. Herrn Restoris «Übung» sagt, was und wo es zu beheben ist; dann «Jetzt üben…».",
   "dash_drill_passed": "Übung ✓ {when}",
   "dash_drill_failed": "Übung nicht bestanden · {when}",
-  "dash_drill_overdue": "Übung überfällig · {when}"
+  "dash_drill_overdue": "Übung überfällig · {when}",
+  "notice.busy_drill": "Meine Übung hält gerade die Sperre der Engine — ich hole nichts zurück, bis sie fertig ist (sie endet lange vor der nächsten Sicherung).",
+  "bubble.busy_drill": "Ich übe gerade an Kopien — echte Rückholungen warten, bis ich fertig bin."
 }

@@ -224,6 +224,7 @@ function runningJob() {
 function otherHolder() {
   const h = engine().holder;
   if (!h || runningJob()) return null;
+  if (h.holder === 'restore' && h.mode === 'drill') return 'drill';      // my own drill, on copies
   return HOLDERS.includes(h.holder) ? h.holder : 'other';
 }
 

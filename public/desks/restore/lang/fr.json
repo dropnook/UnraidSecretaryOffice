@@ -815,5 +815,7 @@
   "check.drill_failed_how": "Échoué pour : {items}. L'« Exercice » de Monsieur Restori dit quoi corriger et où ; puis « S'exercer maintenant… ».",
   "dash_drill_passed": "exercice ✓ {when}",
   "dash_drill_failed": "exercice échoué · {when}",
-  "dash_drill_overdue": "exercice en retard · {when}"
+  "dash_drill_overdue": "exercice en retard · {when}",
+  "notice.busy_drill": "Mon exercice tient en ce moment le verrou du moteur — je ne ramène rien avant qu'il ait fini (il se termine bien avant la prochaine sauvegarde).",
+  "bubble.busy_drill": "Je m'exerce en ce moment sur des copies — les vraies restaurations attendent que j'aie fini."
 }
