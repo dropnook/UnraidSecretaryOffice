@@ -54,6 +54,12 @@ WATCH_AFTER=600                   # seconds without a sign of life before Unraid
 HOST_LAUNCH_MARK='# written by the Unraid Secretary Office agent'
 PROC_MOUNTS=/proc/mounts
 BACKUP_STAGE=/run/unraid-backup-stage   # the backup engine's private staging area (UB_STAGE in backup/lib/common.sh)
+VAR_INI=/var/local/emhttp/var.ini
+# The array runs: "Started" - and Unraid's "Started, formatting/clearing" (fsState Formatting, Clearing: a new
+# disk is formatted or cleared for hours while the array runs). One definition: agent.php's ARRAY_RUNNING says the
+# same, the backup engine counts them as started too (lib/common.sh array_stopping(): only Stopping and Stopped
+# end a run) - tests/run.php compares all three; job.sh uses array_started from here.
+ARRAY_RUNNING='Started|Formatting|Clearing'
 
 supervisor_pid() {
     local pid
@@ -62,7 +68,7 @@ supervisor_pid() {
 }
 
 array_started() {
-    grep -q '^fsState="Started"' /var/local/emhttp/var.ini 2>/dev/null
+    grep -qE "^fsState=\"($ARRAY_RUNNING)\"" "$VAR_INI" 2>/dev/null
 }
 
 supervise() {
@@ -211,14 +217,34 @@ data_dir() {
     echo "${d%/}"
 }
 
-# tell <subject> <short text> <normal|warning|alert> [long text] - like the engine's ub_notify; a click opens the office
+# tell <subject> <short text> <normal|warning|alert> [long text] - like the engine's ub_notify; a click opens the office.
+# Unraid names a notification <event>-<second>: one more with the same event in that second overwrites it. The agent,
+# its night shift and the backup engine send with the same event - all take turns through one stamp in RAM
+# ($RUN/notify.second: the second the last call ended in, under its flock held through the call - at most 10 s
+# waited, then it goes anyway); a call starts only after that second. No RAM folder: no guard.
 tell() {
-    local place link=/SecretaryOffice
+    local place link=/SecretaryOffice stamp="$RUN/notify.second" fd="" last now
     [[ -x "$NOTIFY" ]] || return 0
     place=$(sed -n 's/^MENU_PLACE="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$FLASH/$PLUGIN.cfg" 2>/dev/null | tail -n 1)
     [[ "$place" == settings ]] && link=/Settings/SecretaryOffice
     local args=( -e "Unraid Secretary Office" -s "Unraid Secretary Office: $1" -d "$2" -i "$3" -l "$link" )
     [[ -n "${4:-}" ]] && args+=( -m "$4" )
+    if [[ -d "$RUN" && ! -L "$stamp" ]] && { exec {fd}>>"$stamp"; } 2>/dev/null; then
+        if flock -w 10 "$fd" 2>/dev/null; then
+            last=$(head -c 32 "$stamp" 2>/dev/null | tr -dc '0-9')
+            now=$(date +%s%N)
+            # still in that second: wait until just past it (at most ~1 s)
+            if [[ "$last" =~ ^[0-9]+$ && "$now" =~ ^[0-9]{10,}$ ]] && (( ${now:0:${#now}-9} <= last )); then
+                now=$(( 1010000 - 10#${now:${#now}-9} / 1000 ))
+                sleep "$(( now / 1000000 )).$(printf '%06d' $(( now % 1000000 )))"
+            fi
+            timeout 60 "$NOTIFY" "${args[@]}" >/dev/null 2>&1 {fd}>&-
+            date +%s >"$stamp" 2>/dev/null
+            exec {fd}>&-
+            return 0
+        fi
+        exec {fd}>&-
+    fi
     timeout 60 "$NOTIFY" "${args[@]}" >/dev/null 2>&1 || true
 }
 
@@ -226,7 +252,7 @@ watch() {
     local now data pulse since minutes
     now=$(date +%s)
     # only while the array is started (without it the agent waits, on purpose); that time doesn't count
-    if ! grep -q '^fsState="Started"' /var/local/emhttp/var.ini 2>/dev/null; then
+    if ! array_started; then
         rm -f "$WATCH_DOWN"
         return 0
     fi
@@ -293,12 +319,17 @@ backup_recover() {
 
 # Array stopping: the backup engine's read-only snapshot mounts under /mnt/addons left between runs
 # ([general] keep_mounts = yes keeps them until the next run; a run killed hard leaves them too) would
-# keep a pool from unmounting - released now (backup.sh --unmount), at most 10 s. A run going on releases
-# its own the moment it sees the stop (engine 2.24): only when nobody holds the engine's lock. Never
-# blocks the stop: nothing of ours mounted - nothing done (one look at /proc/mounts). latest.log stays the
-# last run's (UB_KEEP_LATEST): the office and Ms. Protocolli keep showing that run, not this unmount.
+# keep a pool from unmounting - released now (backup.sh --unmount), at most 10 s, never blocking the stop:
+# nothing of ours mounted - nothing done (one look at /proc/mounts). Who holds the engine's lock decides
+# (its note state/lock-holder.json): a LIVE backup.sh run, check or dry run releases everything under the
+# engine's mount roots itself on its way out of a stopping array (engine 2.25, whatever it mounted) - left
+# to it, after 2 s for it to end (it may be just past its last look at the array). Anyone else - nobody,
+# the setup, a restore, a --recover, a note whose pid is gone or isn't backup.sh, an orphan of a killed run
+# (a docker exec that inherited the lock) - mounts nothing there: released without the lock (UB_ARRAY_STOP:
+# no wait for it, busy mounts detached lazily). latest.log stays the last run's (UB_KEEP_LATEST): the office
+# and Ms. Protocolli keep showing that run, not this unmount.
 backup_release() {
-    local ub ini lock roots
+    local ub ini lock roots note holder mode pid
     [[ -f "$DIR/backup/backup.sh" ]] || return 0
     ub="$(data_dir)/unraid-backup"; ini="$ub/settings.ini"; lock="$ub/state/lock"
     [[ -f "$ini" ]] || return 0
@@ -311,12 +342,21 @@ backup_release() {
         { for (i = 1; i <= n; i++) if (r[i] != "" && index($2, r[i] "/") == 1) found = 1 }
         END { exit !found }' "$PROC_MOUNTS" 2>/dev/null || return 0
     if [[ -e "$lock" ]] && ! flock -n "$lock" true 2>/dev/null; then
-        return 0                # a run holds it: it unmounts itself
+        note=$(head -c 4096 "$ub/state/lock-holder.json" 2>/dev/null | tr -d '\n')
+        holder=$(sed -n 's/.*"holder": *"\([^"]*\)".*/\1/p' <<<"$note")
+        mode=$(sed -n 's/.*"mode": *"\([^"]*\)".*/\1/p' <<<"$note")
+        pid=$(sed -n 's/.*"pid": *\([0-9][0-9]*\).*/\1/p' <<<"$note")
+        if [[ "$holder" == backup && "$mode" =~ ^(backup|check|dryrun)$ && "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null \
+           && tr '\0' '\n' <"/proc/$pid/cmdline" 2>/dev/null | grep -qE '(^|/)backup\.sh$' \
+           && ! flock -w 2 "$lock" true 2>/dev/null; then
+            echo "$(date '+%F %T') array stopping: a backup $mode run (PID $pid) holds the engine's lock - it releases the engine's mounts itself" >>"$LOG"
+            return 0
+        fi
     fi
-    if UB_DATA="$ub" UB_KEEP_LATEST=1 timeout -k 2 8 bash "$DIR/backup/backup.sh" --unmount >/dev/null 2>&1; then
+    if UB_DATA="$ub" UB_KEEP_LATEST=1 UB_ARRAY_STOP=1 timeout -k 1 7 bash "$DIR/backup/backup.sh" --unmount >/dev/null 2>&1; then
         echo "$(date '+%F %T') array stopping: the backup engine's snapshot mounts released" >>"$LOG"
     else
-        echo "$(date '+%F %T') array stopping: backup.sh --unmount did not end within 10 s (see its logs/unmount.log)" >>"$LOG"
+        echo "$(date '+%F %T') array stopping: backup.sh --unmount did not end within 8 s (see its logs/unmount.log)" >>"$LOG"
     fi
 }
 

@@ -12,8 +12,16 @@
 #        The Kopia phase goes small and important first: the flash, the apps' own sources, then the
 #        shares and the VMs' own sources by their expected size, smallest first (the larger of the
 #        newest complete Kopia snapshot's size and ZFS's referenced or the VM's disk files; unknown
-#        last) - a first upload of terabytes no longer holds back everything behind it for days. At the
-#        array stop the plugin runs --unmount with UB_KEEP_LATEST=1: latest.log stays the last run's
+#        last; a newer Kopia checkpoint counts as a lower bound) - a first upload of terabytes no longer
+#        holds back everything behind it for days. At the array stop nothing of the engine stays
+#        mounted, whoever holds the lock: a run, check or dry run ending in a stopping array releases
+#        everything under its mount roots, whatever it mounted (keep_mounts, a killed run's), busy ones
+#        lazily (umount -l); the plugin runs --unmount with UB_ARRAY_STOP=1 (no wait for the lock) unless
+#        a live run holds it, and UB_KEEP_LATEST=1: latest.log stays the last run's. The notes of an
+#        interrupted run keep exactly what didn't come back; its containers start network first, then
+#        databases, then apps; a Nextcloud's container is waited for; with the VM service off the VMs'
+#        note goes; «Aborted run not fully repaired» (warning) says what didn't come back. The
+#        notifications take turns with the office's (a stamp in RAM): one second, one notification
 #   2.24 The run notices the array being stopped (var.ini fsState Stopping - minutes before Unraid
 #        stops the VMs and Docker) at its safe points and every few seconds while Kopia uploads, and
 #        ends at once: the Kopia snapshot going on is interrupted inside the container (Kopia keeps
@@ -177,6 +185,8 @@
 #   UB_NO_NOTIFY=1                 no Unraid notifications
 #   UB_KEEP_LATEST=1               --unmount: leave logs/latest.log at the last run's log
 #                                  (the plugin's array-stop hook, 2.25)
+#   UB_ARRAY_STOP=1                --unmount: the array is being stopped - don't wait for the
+#                                  lock, detach busy mounts (umount -l) at once (the hook, 2.25)
 #                     --about      name, version and interface as JSON
 #   UB_DATA=/path                  another data folder (default <office>/data/unraid-backup)
 #   UB_SETTINGS=/path/settings.ini another settings file
@@ -558,22 +568,7 @@ stop_tier() { # stop_tier <name...>
     save_restore_state
 }
 
-wait_ready() { # wait_ready <seconds> <name...>
-    local limit="$1" t=0 n st all; shift
-    [[ $# -eq 0 ]] && return 0
-    while (( t < limit )); do
-        array_stopping && return 1           # Docker is about to stop them all
-        all=1
-        for n in "$@"; do
-            st="$(docker inspect -f '{{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$n" 2>/dev/null)"
-            [[ "$st" == "true " || "$st" == "true healthy" ]] || { all=0; break; }
-        done
-        (( all )) && return 0
-        sleep 2; t=$((t+2))
-    done
-    return 1
-}
-
+# wait_ready <seconds> <name...>: lib/common.sh (a --recover starts noted containers the same way, 2.25)
 restore_service() {
     local tier n started c i out
     if [[ ${#STOPPED[@]} -gt 0 ]]; then
@@ -627,36 +622,58 @@ restore_service() {
 ##############################################################################
 # Mounts
 ##############################################################################
-umount_tree() { # umount_tree <root>  - deepest first; 1 if something stayed mounted
-    local root="$1" mp rc=0
+# umount_tree <root> [lazy|now]  - deepest first; 1 if something stayed mounted
+#   lazy  the array is being stopped (2.25): what is still busy after the normal attempt (a Kopia in the container
+#         that didn't end, an orphan of a killed run) is detached (umount -l) - the mount point goes at once, the
+#         file system once its last user lets go (Docker ends the container in the stop), so the pool can go
+#   now   the same without the second try 2 s later (the plugin's array-stop hook: --unmount with UB_ARRAY_STOP=1,
+#         a few seconds in all)
+umount_tree() {
+    local root="$1" how="${2:-}" mp rc=0
     while IFS= read -r mp; do
         [[ -z "$mp" ]] && continue
-        if ! umount "$mp" 2>/dev/null; then
+        umount "$mp" 2>/dev/null && continue
+        if [[ "$how" != "now" ]]; then
             sleep 2
-            umount "$mp" 2>>"$LOG_FILE" || { warn "Could not unmount $mp (busy?)"; rc=1; continue; }
+            umount "$mp" 2>>"$LOG_FILE" && continue
         fi
+        if [[ -n "$how" ]] && umount -l "$mp" 2>>"$LOG_FILE"; then
+            log "  $mp was busy - detached (umount -l): it is gone once its last user lets go"
+            continue
+        fi
+        warn "Could not unmount $mp (busy?)"; rc=1
     done < <(mounts_below "$root")
     [[ -d "$root" ]] && find "$root" -xdev -mindepth 1 -depth -type d -empty -delete 2>/dev/null
     return $rc
 }
 
-unmount_all() {
-    local rc=0
+unmount_all() { # unmount_all [lazy|now]  - everything of the engine: <mount_root>, <view_root>, its staging area
+    local rc=0 how="${1:-}"
     if [[ -n "$(mounts_below "$MOUNT_ROOT")" ]]; then
         log "Unmounting snapshots under $MOUNT_ROOT ..."
-        umount_tree "$MOUNT_ROOT" || rc=1
+        umount_tree "$MOUNT_ROOT" "$how" || rc=1
     fi
     # Only symlinks belong in <view_root> - mounts there (e.g. from an
     # earlier script) would hold disks and are released
     if [[ -n "$(mounts_below "$VIEW_ROOT")" ]]; then
         log "Releasing old bind mounts under $VIEW_ROOT ..."
-        umount_tree "$VIEW_ROOT" || rc=1
+        umount_tree "$VIEW_ROOT" "$how" || rc=1
     fi
     if [[ -n "$(mounts_below "$UB_STAGE")" ]]; then
-        umount_tree "$UB_STAGE" || rc=1
+        umount_tree "$UB_STAGE" "$how" || rc=1
     fi
     MOUNTED="no"; LAYER_MNT=(); SHARE_MOUNTED=()
     return $rc
+}
+
+# The way out of every run holding the lock (2.25): while the array is being stopped nothing of the engine stays
+# mounted - neither what this run mounted nor what keep_mounts or a killed run left. The plugin's array-stop hook
+# (agent.sh backup_release) leaves the engine's mounts to a live backup run, check or dry run: this is where it
+# keeps that promise, whatever MOUNTED says. The cleanup trap does the same (cleanup); a check or dry run that
+# ends normally comes through here.
+run_exit() {
+    [[ -n "${MOUNT_ROOT:-}" ]] && array_stopping && unmount_all lazy
+    ub_holder_clear
 }
 
 # Before 2.14 mount_root and view_root were folders directly in /mnt (backup-snapshots,
@@ -2107,6 +2124,7 @@ report_drift() {
 # with the stage, the last good packages stay) - rather than snapshotting while Unraid is about to stop
 # Docker and unmount the pools; the next run takes the night's backup.
 ARRAY_STOP_PHASE=""         # where the run was when it saw the array being stopped
+PRUNED_DONE=""              # the retention is done: how many snapshots it removed (in pruned.json; "" = not done)
 
 next_phase() { array_stop_check; status_phase "$1"; }
 
@@ -2172,7 +2190,10 @@ array_stop_report() { # a few lines for the notification
     for n in "${STOPPED[@]}"; do list+="${list:+, }$n"; done
     for n in "${!NC_ON[@]}"; do list+="${list:+, }maintenance mode of $n"; done
     [[ -n "$list" ]] && echo "Left as the stop found them - brought back right after the array start: $list"
-    if (( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )); then echo "Its retention had removed $(( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )) snapshot(s) when the stop began; the rest waits for the next run. Log: $LOG_FILE"
+    if [[ -n "$PRUNED_DONE" ]]; then
+        if (( PRUNED_DONE > 0 )); then echo "Its retention was done when the stop began: $PRUNED_DONE snapshot(s) removed (state/pruned.json). Log: $LOG_FILE"
+        else echo "Its retention was done when the stop began - there was nothing to prune. Log: $LOG_FILE"; fi
+    elif (( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )); then echo "Its retention had removed $(( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )) snapshot(s) when the stop began; the rest waits for the next run. Log: $LOG_FILE"
     else echo "No snapshots were pruned. Log: $LOG_FILE"; fi
 }
 array_stop_notify() {
@@ -2222,7 +2243,7 @@ kopia_stop() {
 }
 
 cleanup() {
-    local rc=$?
+    local rc=$? ar_pruned
     [[ "$CLEANUP_DONE" == "yes" ]] && exit "$rc"
     CLEANUP_DONE="yes"
     # ending for another reason (a signal, a failure) while the array is being stopped: then that is the stop
@@ -2256,8 +2277,12 @@ cleanup() {
             [[ -n "${STOP_AT:-}" && "${DOWNTIME:-0}" == 0 ]] && DOWNTIME=$(( $(date +%s) - STOP_AT ))
         fi
     fi
-    # an array stop: always (keep_mounts too) - a mount of ours would keep the pool from unmounting
-    if [[ "$MOUNTED" == "yes" && ( "$KEEP_MOUNTS" != "yes" || "$ARRAY_STOP" == "yes" ) ]]; then
+    # an array stop (also one this run ends normally in): everything under the engine's mount roots, whatever this
+    # run mounted - keep_mounts, a killed run's leftovers (the plugin's array-stop hook leaves them to a live run,
+    # 2.25); a mount of ours would keep the pool from unmounting - busy ones are detached (umount -l)
+    if [[ "$ARRAY_STOP" == "yes" ]] || array_stopping; then
+        unmount_all lazy
+    elif [[ "$MOUNTED" == "yes" && "$KEEP_MOUNTS" != "yes" ]]; then
         unmount_all
     fi
     if [[ "$ARRAY_STOP" == "yes" && "$ST_RESULT" == "running" ]]; then
@@ -2265,7 +2290,10 @@ cleanup() {
         (( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )) && pruned_write
         array_stop_kopia
         status_finish aborted "array_stopping"
-        log "Backup stopped because the array is being stopped - $( (( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )) && echo "retention stopped midway" || echo "nothing pruned"), nothing started; the next run continues."
+        if [[ -n "$PRUNED_DONE" ]]; then ar_pruned="retention done ($PRUNED_DONE removed)"
+        elif (( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )); then ar_pruned="retention stopped midway"
+        else ar_pruned="nothing pruned"; fi
+        log "Backup stopped because the array is being stopped - $ar_pruned, nothing started; the next run continues."
         array_stop_notify
         rc=3
     elif [[ "$ST_ABORTED" == "yes" ]]; then status_finish aborted "signal"
@@ -2321,10 +2349,11 @@ skip_busy() {
 # --recover (2.25): Docker - and libvirt, when a VM is noted - answers? Asked every UB_RECOVER_LOOK s, at most
 # UB_RECOVER_WAIT s (right after the array start they may still be coming up); 1 when the array is being
 # stopped meanwhile. A service still silent then: recover_interrupted_run keeps its notes for the next run.
+# libvirt never answers while Unraid's VM service is switched off: not waited for (the VMs' note goes then).
 recover_wait() {
     local until=$(( $(date +%s) + UB_RECOVER_WAIT )) docker=0 virt=0 told=0
     [[ -s "$UB_STATE/stopped" || -s "$UB_STATE/maintenance" ]] && docker=1
-    [[ -s "$UB_STATE/vms" ]] && command -v virsh >/dev/null 2>&1 && virt=1
+    [[ -s "$UB_STATE/vms" ]] && command -v virsh >/dev/null 2>&1 && ! ub_vm_service_off && virt=1
     while :; do
         array_stopping && return 1
         (( docker )) && ub_docker_answers && docker=0
@@ -2352,7 +2381,14 @@ if [[ "$UB_MODE" == "unmount" ]]; then
     # by hand (the office's «Unmount», a terminal) its log is the newest; from the plugin's array-stop hook
     # (UB_KEEP_LATEST=1, 2.25) latest.log stays the last run's - for the office and Ms. Protocolli
     [[ "${UB_KEEP_LATEST:-0}" == "1" ]] || ln -sfn "$(basename "$LOG_FILE")" "$UB_LOGS/latest.log" 2>/dev/null
-    flock -w 10 9 || echo "$(_ts)  A run holds the lock - unmounting anyway" >>"$LOG_FILE"
+    if [[ "${UB_ARRAY_STOP:-0}" == "1" ]]; then
+        # the plugin's array-stop hook (2.25) calls it only when no live run of this engine holds the lock (that one
+        # releases everything itself, run_exit/cleanup): whoever holds it then - the setup, a restore, a --recover, an
+        # orphan of a killed run that inherited the lock - mounts nothing there. Never waited for: the stop goes on
+        echo "$(_ts)  The array is being stopped - releasing the engine's mounts without waiting for the lock" >>"$LOG_FILE"
+    else
+        flock -w 10 9 || echo "$(_ts)  A run holds the lock - unmounting anyway" >>"$LOG_FILE"
+    fi
 elif [[ "$UB_MODE" == "recover" ]]; then
     # busy: whoever holds it is a run (or the setup) that brings the notes back at its own start - quietly,
     # no skipped.json, no notification, status.json untouched (it describes that run)
@@ -2369,7 +2405,7 @@ else
     elif [[ "$DRY" == "1" ]]; then ST_MODE="dryrun"
     else ST_MODE="backup"; fi
     ub_holder_write backup "$ST_MODE" "$TS" "$STARTED_AT"
-    trap ub_holder_clear EXIT
+    trap run_exit EXIT          # an array stop meanwhile: nothing of the engine stays mounted
     ln -sfn "$(basename "$LOG_FILE")" "$UB_LOGS/latest.log" 2>/dev/null
     status_init "$ST_MODE"
 fi
@@ -2379,9 +2415,11 @@ fi
 # interrupted run left stopped, in maintenance mode or held - the array stop leaves it so (2.24) - comes
 # back now instead of with the next run, often the next night. Needs no settings.ini. Writes no status.json,
 # last-run.json or history line - it is no backup run, and the office keeps showing the run that left the
-# notes; recover_interrupted_run sends its notification ("Aborted run repaired"), recover.log keeps the rest.
+# notes; recover_interrupted_run sends its notification ("Aborted run repaired", or "... not fully repaired" - a
+# warning naming what didn't come back), recover.log keeps the rest.
 # Exit 0 done (nothing left noted), 1 something stays noted (a service didn't answer, a container or VM
-# didn't start - the next run tries again), 3 the array is being stopped, 75 the lock is busy.
+# didn't start, a Nextcloud's container didn't run - the next run tries again), 3 the array is being stopped,
+# 75 the lock is busy.
 if [[ "$UB_MODE" == "recover" ]]; then
     log "===================== $UB_NAME $UB_VERSION - recover $TS ====================="
     rn=()
@@ -2395,7 +2433,7 @@ if [[ "$UB_MODE" == "recover" ]]; then
         log "Not all of it came back$( (( ERRORS > 0 )) && echo " ($ERRORS error(s))") - what is still noted is tried again by the next run."
         exit 1
     fi
-    log "Done - nothing is noted any more."
+    log "Done - nothing is noted any more$( (( WARNINGS > 0 )) && echo " ($WARNINGS warning(s) - see above)")."
     exit 0
 fi
 
@@ -2403,9 +2441,11 @@ SETTINGS_OK="yes"
 load_settings || { SETTINGS_OK="no"; apply_settings; }
 
 if [[ "$UB_MODE" == "unmount" ]]; then
-    # Must also work with a missing or broken settings.ini
-    log "Unmount requested."
-    if unmount_all; then log "Everything unmounted."; else log "Not everything could be unmounted."; fi
+    # Must also work with a missing or broken settings.ini. UB_ARRAY_STOP=1 (the plugin's array-stop hook, 2.25):
+    # bounded - busy mounts are detached at once (umount -l), no second try
+    log "Unmount requested$([[ "${UB_ARRAY_STOP:-0}" == "1" ]] && echo " (the array is being stopped)")."
+    if [[ "${UB_ARRAY_STOP:-0}" == "1" ]]; then unmount_all now; else unmount_all; fi \
+        && log "Everything unmounted." || log "Not everything could be unmounted."
     exit 0
 fi
 
@@ -2497,7 +2537,7 @@ if [[ "$UB_MODE" == "check" ]]; then
     if (( $(drift_count error) > 0 || ERRORS > 0 )); then status_finish errors
     elif (( $(drift_count warn) > 0 || WARNINGS > 0 )); then status_finish warnings
     else status_finish ok; fi
-    trap ub_holder_clear EXIT
+    trap run_exit EXIT
     exit 0
 fi
 
@@ -2572,7 +2612,7 @@ if [[ "$KOPIA_OK" == "yes" && "$SKIPK" != "1" ]]; then
         esac
     done
     log "  Kopia order:      ${ko_line:-none}"
-    log "                    (shares and VMs the smallest first - the larger of the newest complete Kopia snapshot's size and the server's, * = the server's (ZFS, the VM's disks); ? unknown, last)"
+    log "                    (shares and VMs the smallest first - the larger of Kopia's size (its newest complete snapshot, or a newer checkpoint when larger) and the server's, * = the server's (ZFS, the VM's disks); ? unknown, last)"
 fi
 status_write
 
@@ -2586,7 +2626,7 @@ if [[ "$DRY" == "1" ]]; then
     if (( ERRORS > 0 )); then status_finish errors
     elif (( WARNINGS > 0 )); then status_finish warnings
     else status_finish ok; fi
-    trap ub_holder_clear EXIT
+    trap run_exit EXIT
     exit 0
 fi
 
@@ -2844,6 +2884,7 @@ fi
 array_stop_check "while pruning"
 command -v btrfs >/dev/null 2>&1 && prune_btrfs
 pruned_write                         # what the retention removed, for whoever watches the server (state/pruned.json)
+PRUNED_DONE=$(( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} ))   # an array stop from here on says what pruned.json says
 PRUNED_ZFS=(); PRUNED_BTRFS=()       # written (an array stop from here on adds nothing twice)
 array_stop_check "while cleaning up"
 prune_files

@@ -41,6 +41,11 @@ const LOG_MAX       = 512 * 1024;
 const FILE_UID      = 99;    // nobody:users, like everything else in appdata
 const FILE_GID      = 100;
 const WEB_UID       = 0;     // the web server's user: Unraid's php-fpm runs as root
+// The array runs: Started — and Unraid's «Started, formatting/clearing» (fsState Formatting, Clearing: a new disk is
+// formatted or cleared for hours while the array runs). One definition with scripts/agent.sh (ARRAY_RUNNING,
+// array_started — which starts the agent or the night shift) and the backup engine (lib/common.sh array_stopping():
+// only Stopping and Stopped end a run); tests/run.php compares them.
+const ARRAY_RUNNING = ['Started', 'Formatting', 'Clearing'];
 
 require dirname(__DIR__) . '/src/place.php';
 
@@ -147,7 +152,7 @@ function nightShift(): int
             $why = 'the agent is at work';
             break;
         }
-        if ((readCfg('/var/local/emhttp/var.ini')['fsState'] ?? '') === 'Started') {
+        if (arrayRunning()) {
             $why = 'the array is started — the agent takes over';
             break;
         }
@@ -180,6 +185,12 @@ function nightShift(): int
     flock($lock, LOCK_UN);
     fclose($lock);
     return 0;
+}
+
+/** Does the array run (ARRAY_RUNNING)? var.ini's fsState — another file for the tests */
+function arrayRunning(string $varIni = '/var/local/emhttp/var.ini'): bool
+{
+    return in_array((string) (readCfg($varIni)['fsState'] ?? ''), ARRAY_RUNNING, true);
 }
 
 /** A line in the night shift's own log (RAM: WATCH_NIGHT_DIR/nightshift.log, the newest 256 KB) */
@@ -296,7 +307,7 @@ function serve(): int
  */
 function makeDataDir(): bool
 {
-    if ((readCfg('/var/local/emhttp/var.ini')['fsState'] ?? '') !== 'Started') {
+    if (!arrayRunning()) {
         return false;
     }
     $appdata = dirname(DATA_DIR, 2);         // <appdata>/UnraidSecretaryOffice/data

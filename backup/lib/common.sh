@@ -104,13 +104,48 @@ ub_data_dirs() {
     return 0
 }
 
+# Unraid names a notification <event>-<second> - the second its notify script reads the clock, somewhere in our call - and
+# one more with the same event in that second overwrites it. The engine, the office's agent and its night shift
+# (officeNotify() in agent/lib/house.php) and the plugin's agent.sh (tell) send with the same event, so they share one
+# guard (2.25): the stamp UB_NOTIFY_STAMP in RAM - the plugin's /var/run/unraid-secretary-office/notify.second - holds the
+# second the last call ended in; under its flock (held through the call, so they take turns; at most 10 s waited, then
+# the call goes anyway) a call starts only after that second. Without the folder (a copy outside the plugin): this
+# process's own guard (UB_NOTIFY_LAST). The notify script never inherits the lock.
+UB_NOTIFY_STAMP="${UB_NOTIFY_STAMP-$(ub_is_plugin && echo /var/run/unraid-secretary-office/notify.second)}"
+UB_NOTIFY_LAST=0
+ub_notify_after() { # ub_notify_after <second>  - returns once the clock is past that second (at most ~1 s)
+    local now us
+    now="$(date +%s%N)"
+    [[ "$now" =~ ^[0-9]{10,}$ ]] || { (( $(date +%s) <= $1 )) && sleep 1; return 0; }
+    (( ${now:0:${#now}-9} <= $1 )) || return 0
+    us=$(( 1010000 - 10#${now:${#now}-9} / 1000 ))
+    sleep "$(( us / 1000000 )).$(printf '%06d' $(( us % 1000000 )))"
+}
 ub_notify() {
     [[ "${UB_NO_NOTIFY:-0}" == "1" ]] && return 0
     [[ -x "$UB_NOTIFY_BIN" ]] || return 0
     # Unraid puts the server's name in front of the subject itself
-    local args=( -e "Unraid Secretary Office" -s "Unraid Secretary Office: $1" -d "$2" -i "${3:-normal}" )
+    local args=( -e "Unraid Secretary Office" -s "Unraid Secretary Office: $1" -d "$2" -i "${3:-normal}" ) st="$UB_NOTIFY_STAMP" fd="" last
     [[ -n "${4:-}" ]] && args+=( -m "$4" )
-    "$UB_NOTIFY_BIN" "${args[@]}" >/dev/null 2>&1 || true
+    if [[ -n "$st" && -d "${st%/*}" && ! -L "$st" ]] && { exec {fd}>>"$st"; } 2>/dev/null; then
+        if flock -w 10 "$fd" 2>/dev/null; then
+            last="$(head -c 32 "$st" 2>/dev/null | tr -dc '0-9')"
+            is_uint "$last" && (( last > UB_NOTIFY_LAST )) && UB_NOTIFY_LAST="$last"
+        else
+            exec {fd}>&-; fd=""
+        fi
+    fi
+    ub_notify_after "$UB_NOTIFY_LAST"
+    if [[ -n "$fd" ]]; then
+        "$UB_NOTIFY_BIN" "${args[@]}" >/dev/null 2>&1 {fd}>&-
+        UB_NOTIFY_LAST="$(date +%s)"
+        printf '%s\n' "$UB_NOTIFY_LAST" >"$st" 2>/dev/null
+        exec {fd}>&-
+    else
+        "$UB_NOTIFY_BIN" "${args[@]}" >/dev/null 2>&1
+        UB_NOTIFY_LAST="$(date +%s)"
+    fi
+    return 0
 }
 
 is_yes() { [[ "${1,,}" == "yes" || "${1,,}" == "ja" || "$1" == "1" || "${1,,}" == "true" ]]; }
@@ -1296,10 +1331,15 @@ kopia_policies_load() {
     jq -e 'type=="array"' >/dev/null 2>&1 <<<"$KP_JSON" || KP_JSON="[]"
 }
 
-# The size of each source's newest complete Kopia snapshot of this identity (since 2.25, for the Kopia order:
-# kopia_order) -> KSIZE[<container path>] = bytes. One "snapshot list" (metadata only - Kopia keeps the
-# manifests in its index); checkpoints of an interrupted upload are no snapshot ("incomplete") and don't
-# count. At most UB_KOPIA_LIST_TIMEOUT s; whatever goes wrong leaves KSIZE empty (then the inventory's sizes).
+# The size each source is expected to have, from Kopia (since 2.25, for the Kopia order: kopia_order) -> KSIZE[<container
+# path>] = bytes: the size of its newest complete snapshot of this identity - or, when larger, of a newer incomplete one
+# (a checkpoint of an upload interrupted or still going on, run after run: a lower bound of what the source holds). A share
+# whose folders were all left out until the setup changed has a tiny complete snapshot while its first real upload of
+# terabytes is still in checkpoints - where the server knows no size of its own (an array share on XFS or btrfs, a folder
+# in a pool's root dataset) only the checkpoint says it is huge. One "snapshot list" (metadata only - Kopia keeps the
+# manifests in its index); its JSON lists the incomplete ones too, and with -n 1 a newer checkpoint would hide the complete
+# snapshot, so all are listed and picked here. At most UB_KOPIA_LIST_TIMEOUT s; whatever goes wrong leaves KSIZE empty
+# (then the inventory's sizes).
 declare -gA KSIZE=()
 kopia_sizes_load() {
     KSIZE=()
@@ -1309,11 +1349,17 @@ kopia_sizes_load() {
     while IFS=$'\t' read -r p b; do
         [[ -n "$p" ]] && is_uint "$b" && KSIZE[$p]="$b"
     done < <(timeout "${UB_KOPIA_LIST_TIMEOUT:-60}" docker exec -u "$KOPIA_RUN_UID" "${e[@]}" "$KOPIA_CONTAINER" \
-                 kopia --no-progress snapshot list --all --json -n 1 2>/dev/null \
+                 kopia --no-progress snapshot list --all --json 2>/dev/null \
              | jq -r --arg u "$KOPIA_USER" --arg h "$KOPIA_HOST" '
-                 [.[]? | select(.source.userName == $u and .source.host == $h and ((.incompleteReason // "") == ""))]
-                 | group_by(.source.path)[] | max_by(.startTime // "")
-                 | [.source.path, ((.stats.totalSize // .rootEntry.summ.size // "") | tostring)] | @tsv' 2>/dev/null)
+                 def size: (.stats.totalSize // .rootEntry.summ.size // null) | if type == "number" then floor else null end;
+                 [.[]? | select(.source.userName == $u and .source.host == $h)]
+                 | group_by(.source.path)[] as $g
+                 | ($g | map(select((.incompleteReason // "") == "")) | max_by(.startTime // "")) as $c
+                 | ($g | map(select((.incompleteReason // "") != "" and ((.startTime // "") > ($c.startTime // ""))))
+                       | max_by(.startTime // "")) as $i
+                 | ([$c, $i] | map(select(. != null) | size) | map(select(. != null)) | max) as $b
+                 | select($b != null)
+                 | [$g[0].source.path, ($b | tostring)] | @tsv' 2>/dev/null)
     return 0
 }
 
@@ -1469,6 +1515,40 @@ recover_notes() { [[ -s "$UB_STATE/stopped" || -s "$UB_STATE/maintenance" || -s 
 # Does Docker (libvirt) answer? Without, a container (VM) would look "not stopped" and its note be lost.
 ub_docker_answers()  { timeout 20 docker version --format '{{.Server.Version}}' >/dev/null 2>&1; }
 ub_libvirt_answers() { timeout 20 virsh list --name >/dev/null 2>&1; }
+# Unraid's VM service switched off (Settings > VM Manager > Enable VMs: No, domain.cfg SERVICE="disable"): no libvirt
+# to answer, no VM to start (2.25). A missing domain.cfg is never taken for off.
+ub_vm_service_off() { grep -qE '^SERVICE="?disable"?[[:space:]]*$' "$UB_BOOT/config/domain.cfg" 2>/dev/null; }
+
+UB_RECOVER_READY="${UB_RECOVER_READY:-120}"   # noted containers started again: seconds a tier may take to run ("healthy")
+UB_NC_RUN_WAIT="${UB_NC_RUN_WAIT:-120}"       # a noted Nextcloud: seconds its container may take to run before its note stays
+
+# wait_ready <seconds> <name...>: the containers run (and are "healthy" where they have a health check)? 1 after
+# <seconds>, or at once when the array is being stopped (Docker is about to stop them all)
+wait_ready() {
+    local limit="$1" t=0 n st all; shift
+    [[ $# -eq 0 ]] && return 0
+    while (( t < limit )); do
+        array_stopping && return 1
+        all=1
+        for n in "$@"; do
+            st="$(docker inspect -f '{{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$n" 2>/dev/null)"
+            [[ "$st" == "true " || "$st" == "true healthy" ]] || { all=0; break; }
+        done
+        (( all )) && return 0
+        sleep 2; t=$((t+2))
+    done
+    return 1
+}
+
+# note_write <file> <line...>: what of a note still waits, as a new file + mv; no line left - the note goes
+note_write() {
+    local f="$1" tmp; shift
+    if (( $# == 0 )); then rm -f "$f"; return 0; fi
+    tmp="${f%/*}/.${f##*/}.$$"
+    if printf '%s\n' "$@" >"$tmp" 2>/dev/null && mv -f "$tmp" "$f"; then return 0; fi
+    rm -f "$tmp"
+    return 1
+}
 
 # If an earlier run was killed hard (kill -9, crash) - or, since 2.24, ended by an array stop -
 # state/ lists the containers it had stopped, the Nextclouds it had put into maintenance mode and
@@ -1476,12 +1556,20 @@ ub_libvirt_answers() { timeout 20 virsh list --name >/dev/null 2>&1; }
 # right after the array start (backup.sh --recover, started by the plugin's event/started).
 # Call only while holding the lock (then no other run is going).
 # Never into a stopping array (2.24): the notes stay for the first run after the array start.
-# Since 2.25 a note stays too while Docker (libvirt) doesn't answer - before, its containers (VMs)
-# looked running and the note went. After an array stop the notification is a normal one: that is
-# expected, nothing went wrong - the last real run (last-run.json; only real runs write notes) ended
-# with array_stopping and noted them before it finished (a later run's notes would be newer).
+# Since 2.25:
+#   - a note keeps exactly what didn't come back - a service that doesn't answer (Docker, libvirt), a container
+#     or VM that doesn't start, a Nextcloud whose container doesn't run -, rewritten, so the next start tries
+#     that again (and only that); what is back, running already or gone leaves it
+#   - the containers come back in the order a run starts them (restore_service): network containers, then
+#     databases, each tier waited for, then the apps (recover_containers)
+#   - a Nextcloud's container is waited for before occ is asked (recover_maintenance)
+#   - with Unraid's VM service switched off the VMs' note goes (nothing can start them)
+#   - the notification: «Aborted run repaired» when all came back - normal after an array stop (expected,
+#     nothing went wrong: the last real run - last-run.json; only real runs write notes - ended with
+#     array_stopping and noted them before it finished; a later run's notes would be newer), a warning
+#     after a crash -; «Aborted run not fully repaired» (warning) naming what didn't
 recover_interrupted_run() {
-    local n occ u list="" level="warning" why="An earlier run was aborted" docker_ok=1 fin f
+    local list="" stay="" level="warning" why="An earlier run was aborted" fin f
     if array_stopping && recover_notes; then
         log "The array is being stopped - what an earlier run left stopped stays so (state/stopped, maintenance, vms) until a run after the array start"
         return 0
@@ -1494,54 +1582,162 @@ recover_interrupted_run() {
             [[ -e "$UB_STATE/$f" ]] && (( $(stat -c %Y "$UB_STATE/$f" 2>/dev/null || echo 0) > fin + 2 )) && { level="warning"; why="An earlier run was aborted"; }
         done
     fi
-    if [[ -s "$UB_STATE/stopped" || -s "$UB_STATE/maintenance" ]] && ! ub_docker_answers; then
-        docker_ok=0
-        warn "Docker does not answer - what an earlier run left stopped (state/stopped, maintenance) stays noted for the next start"
-    fi
-    if (( docker_ok )) && [[ -s "$UB_STATE/stopped" ]]; then
-        while IFS= read -r n; do
-            [[ -z "$n" ]] && continue
-            [[ "$(docker inspect -f '{{.State.Running}}' "$n" 2>/dev/null)" == "false" ]] || continue
-            if docker start "$n" >/dev/null 2>&1; then list+="$n "; else err "Container '$n' (from the aborted run) does not start"; fi
-        done <"$UB_STATE/stopped"
-        rm -f "$UB_STATE/stopped"
-    fi
-    if (( docker_ok )) && [[ -s "$UB_STATE/maintenance" ]]; then
-        sleep 5
-        while IFS= read -r n; do
-            [[ -z "$n" ]] && continue
-            for occ in /var/www/html/occ /app/www/public/occ /config/www/nextcloud/occ /var/www/nextcloud/occ; do
-                docker exec "$n" test -f "$occ" 2>/dev/null || continue
-                u="$(docker exec "$n" stat -c %U "$occ" 2>/dev/null)"; [[ -z "$u" || "$u" == root || "$u" == UNKNOWN ]] && u="www-data"
-                docker exec -u "$u" "$n" php "$occ" maintenance:mode --off >/dev/null 2>&1 \
-                    && list+="maintenance mode $n off " || err "Maintenance mode of '$n' could not be switched off"
-                break
-            done
-        done <"$UB_STATE/maintenance"
-        rm -f "$UB_STATE/maintenance"
-    fi
-    # VMs the run froze, paused or shut down (lines "name|frozen|paused|shutdown")
-    if [[ -s "$UB_STATE/vms" ]] && command -v virsh >/dev/null 2>&1 && ! ub_libvirt_answers; then
-        warn "libvirt does not answer - the VMs an earlier run held (state/vms) stay noted for the next start"
-    elif [[ -s "$UB_STATE/vms" ]] && command -v virsh >/dev/null 2>&1; then
-        local how st
-        while IFS='|' read -r n how; do
-            [[ -z "$n" ]] && continue
-            st="$(timeout 10 virsh domstate "$n" 2>/dev/null | head -1)"
-            case "$how" in
-                frozen)   timeout 30 virsh domfsthaw "$n" >/dev/null 2>&1 && list+="VM $n thawed " ;;
-                paused)   [[ "$st" == "paused" ]] && { timeout 30 virsh resume "$n" >/dev/null 2>&1 && list+="VM $n resumed " || err "VM '$n' (from the aborted run) does not resume"; } ;;
-                shutdown) [[ "$st" == "shut off" ]] && { timeout 60 virsh start "$n" >/dev/null 2>&1 && list+="VM $n started " || err "VM '$n' (from the aborted run) does not start"; } ;;
-            esac
-        done <"$UB_STATE/vms"
+    if [[ -s "$UB_STATE/vms" ]] && ub_vm_service_off; then
+        log "Unraid's VM service is switched off - the VMs an earlier run held ($(cut -d'|' -f1 "$UB_STATE/vms" | paste -sd' ' -)) can't be started; their note (state/vms) goes"
         rm -f "$UB_STATE/vms"
     fi
-    if [[ -n "$list" ]]; then
-        list="${list% }"
+    if [[ -s "$UB_STATE/stopped" || -s "$UB_STATE/maintenance" ]]; then
+        if ub_docker_answers; then
+            [[ -s "$UB_STATE/stopped" ]] && recover_containers
+            [[ -s "$UB_STATE/maintenance" ]] && recover_maintenance
+        else
+            warn "Docker does not answer - what an earlier run left stopped (state/stopped, maintenance) stays noted for the next start"
+            stay+="${stay:+; }Docker did not answer - still noted: $(cat "$UB_STATE/stopped" "$UB_STATE/maintenance" 2>/dev/null | sed '/^$/d' | awk '!s[$0]++' | paste -sd' ' -)"
+        fi
+    fi
+    # VMs the run froze, paused or shut down (lines "name|frozen|paused|shutdown")
+    if [[ -s "$UB_STATE/vms" ]] && command -v virsh >/dev/null 2>&1; then
+        if ub_libvirt_answers; then
+            recover_vms
+        else
+            warn "libvirt does not answer - the VMs an earlier run held (state/vms) stay noted for the next start"
+            stay+="${stay:+; }libvirt did not answer - still noted: VMs $(cut -d'|' -f1 "$UB_STATE/vms" | paste -sd' ' -)"
+        fi
+    fi
+    list="${list% }"
+    if [[ -n "$stay" ]]; then
+        log "$why - not all of it came back${list:+ (restored: $list)}: $stay"
+        ub_notify "Aborted run not fully repaired" "$why. ${list:+Started again or reset: $list. }Not brought back: $stay. What is still noted, the next run tries again." "warning"
+    elif [[ -n "$list" ]]; then
         if [[ "$level" == "warning" ]]; then warn "$why - restored: $list"; else log "$why - restored: $list"; fi
         ub_notify "Aborted run repaired" "$why. Started again or reset: $list" "$level"
     fi
     return 0
+}
+
+# recover_containers (recover_interrupted_run): state/stopped lists them in the order the run stopped them (apps,
+# databases, network) - they start the other way round, like a run's restore_service: the network containers first
+# (an app on --network container:<vpn> fails to start before its provider), then the databases, each tier waited for
+# (running, "healthy", at most UB_RECOVER_READY s), then the apps. Which tier: from docker inspect of all containers
+# (who provides another's network; a database by image, environment or port - or a [dump] section, when settings.ini
+# is loaded). Running already (Unraid's autostart) or gone: nothing to do. Adds to the caller's list and stay.
+recover_containers() {
+    local -a names=() net=() db=() app=() keep=() started=() tier=()
+    local -A provider=()
+    local n prov t
+    mapfile -t names < <(sed '/^$/d' "$UB_STATE/stopped" | awk '!s[$0]++')
+    docker_load
+    for n in "${CT_NAMES[@]}"; do
+        [[ "${CT_NET[$n]}" == container:* ]] || continue
+        prov="$(ct_resolve "${CT_NET[$n]#container:}")" && provider[$prov]=1
+    done
+    for n in "${names[@]}"; do
+        if [[ -n "${provider[$n]:-}" ]]; then net+=( "$n" )
+        elif in_list "$n" $(cfg_names dump) || [[ -n "$(ct_db_type "$n")" ]]; then db+=( "$n" )
+        else app+=( "$n" ); fi
+    done
+    for t in network database app; do
+        case "$t" in
+            network)  tier=( "${net[@]}" ) ;;
+            database) tier=( "${db[@]}" ) ;;
+            app)      tier=( "${app[@]}" ) ;;
+        esac
+        started=()
+        for n in "${tier[@]}"; do
+            if array_stopping; then keep+=( "$n" ); continue; fi
+            case "$(docker inspect -f '{{.State.Running}}' "$n" 2>/dev/null)" in
+                true)  ;;
+                false) if docker start "$n" >/dev/null 2>>"${LOG_FILE:-/dev/null}"; then started+=( "$n" ); list+="$n "
+                       else err "Container '$n' (from the aborted run) does not start - it stays noted (state/stopped)"; keep+=( "$n" ); fi ;;
+                *)     log "  Container '$n' (from the aborted run) is gone - nothing to start" ;;
+            esac
+        done
+        if [[ "$t" != app && ${#started[@]} -gt 0 ]] && ! wait_ready "$UB_RECOVER_READY" "${started[@]}" && ! array_stopping; then
+            warn "Not all $t containers started again are ready after ${UB_RECOVER_READY} s (${started[*]}) - starting the next ones anyway"
+        fi
+    done
+    (( ${#keep[@]} )) && stay+="${stay:+; }containers not started (still noted): ${keep[*]}"
+    note_write "$UB_STATE/stopped" "${keep[@]}"
+}
+
+# recover_maintenance (recover_interrupted_run): each Nextcloud of state/maintenance out of maintenance mode - occ needs
+# its container running: one just started above, or one Unraid's autostart is still starting, so it is waited for (at
+# most UB_NC_RUN_WAIT s), then occ until it answers (a container just started needs a moment). One whose container never
+# runs, or whose occ isn't found or refuses, keeps its note (warning); one that is gone (no such container) can't be
+# reached here at all - its note goes, the warning says to check it by hand. Adds to the caller's list and stay.
+recover_maintenance() {
+    local -a keep=() names=()
+    local n st t f occ u i out
+    mapfile -t names < <(sed '/^$/d' "$UB_STATE/maintenance" | awk '!s[$0]++')
+    for n in "${names[@]}"; do
+        if array_stopping; then keep+=( "$n" ); continue; fi
+        st="$(docker inspect -f '{{.State.Running}}' "$n" 2>/dev/null)"
+        if [[ -z "$st" ]]; then
+            warn "Nextcloud '$n' (put into maintenance mode by the aborted run) is gone - if its data serves another container now, switch its maintenance mode off by hand (occ maintenance:mode --off)"
+            stay+="${stay:+; }Nextcloud $n is gone (check its maintenance mode by hand)"
+            continue
+        fi
+        t=0
+        while [[ "$st" != "true" ]] && (( t < UB_NC_RUN_WAIT )) && ! array_stopping; do
+            (( t )) || log "  Nextcloud '$n': waiting for its container to run (at most ${UB_NC_RUN_WAIT} s) ..."
+            sleep 2; t=$((t+2))
+            st="$(docker inspect -f '{{.State.Running}}' "$n" 2>/dev/null)"
+        done
+        if [[ "$st" != "true" ]]; then
+            array_stopping || warn "Nextcloud '$n' is not running - its maintenance mode stays on, noted (state/maintenance) for the next start"
+            keep+=( "$n" ); continue
+        fi
+        occ=""
+        for f in /var/www/html/occ /app/www/public/occ /config/www/nextcloud/occ /var/www/nextcloud/occ; do
+            docker exec "$n" test -f "$f" 2>/dev/null && { occ="$f"; break; }
+        done
+        if [[ -z "$occ" ]]; then
+            warn "Nextcloud '$n': occ not found - its maintenance mode stays on, noted (state/maintenance)"
+            keep+=( "$n" ); continue
+        fi
+        u="$(docker exec "$n" stat -c %U "$occ" 2>/dev/null)"; [[ -z "$u" || "$u" == root || "$u" == UNKNOWN ]] && u="www-data"
+        for (( i = 0; i < 30; i++ )); do
+            docker exec -u "$u" "$n" php "$occ" status >/dev/null 2>&1 && break
+            array_stopping && break
+            sleep 2
+        done
+        if out="$(docker exec -u "$u" "$n" php "$occ" maintenance:mode --off 2>&1)"; then
+            list+="maintenance mode $n off "
+        else
+            while IFS= read -r f; do [[ -n "${f//[[:space:]]/}" ]] && log "    occ: ${f%$'\r'}"; done < <(head -20 <<<"$out")
+            err "Maintenance mode of '$n' could not be switched off - it stays noted (state/maintenance)"
+            keep+=( "$n" )
+        fi
+    done
+    (( ${#keep[@]} )) && stay+="${stay:+; }maintenance mode still on (still noted): ${keep[*]}"
+    note_write "$UB_STATE/maintenance" "${keep[@]}"
+}
+
+# recover_vms (recover_interrupted_run): each VM of state/vms back as it was - thawed (while it runs), resumed (while
+# paused), started (while shut off); in any other state (Unraid shut it down, its autostart started it) or gone there is
+# nothing to undo. One that doesn't thaw, resume or start keeps its line. Adds to the caller's list and stay.
+recover_vms() {
+    local -a keep=()
+    local n how st
+    while IFS='|' read -r n how; do
+        [[ -z "$n" ]] && continue
+        if array_stopping; then keep+=( "$n|$how" ); continue; fi
+        st="$(timeout 10 virsh domstate "$n" 2>/dev/null | head -1)"
+        if [[ -z "$st" ]]; then log "  VM '$n' (from the aborted run) is gone - nothing to do"; continue; fi
+        case "$how" in
+            frozen)   [[ "$st" == "running" ]] || continue
+                      if timeout 30 virsh domfsthaw "$n" >/dev/null 2>&1; then list+="VM $n thawed "
+                      else err "VM '$n' (from the aborted run) could not be thawed - it stays noted (state/vms)"; keep+=( "$n|$how" ); fi ;;
+            paused)   [[ "$st" == "paused" ]] || continue
+                      if timeout 30 virsh resume "$n" >/dev/null 2>&1; then list+="VM $n resumed "
+                      else err "VM '$n' (from the aborted run) does not resume - it stays noted (state/vms)"; keep+=( "$n|$how" ); fi ;;
+            shutdown) [[ "$st" == "shut off" ]] || continue
+                      if timeout 60 virsh start "$n" >/dev/null 2>&1; then list+="VM $n started "
+                      else err "VM '$n' (from the aborted run) does not start - it stays noted (state/vms)"; keep+=( "$n|$how" ); fi ;;
+        esac
+    done <"$UB_STATE/vms"
+    (( ${#keep[@]} )) && stay+="${stay:+; }VMs not back (still noted): $(printf '%s\n' "${keep[@]}" | cut -d'|' -f1 | paste -sd' ' -)"
+    note_write "$UB_STATE/vms" "${keep[@]}"
 }
 
 ##############################################################################
@@ -2248,13 +2444,14 @@ uri_escape() {
 # run after run from Kopia's checkpoints, no longer holds back everything queued behind it. (Up to 2.24: the
 # apps, the shares in settings.ini's order, the VMs, the flash last - on 2026-10-07 a 2.3 TB first upload of
 # one share kept the flash, appdata and the VMs from Kopia for days.)
-# The size a source is expected to have, from what is cheap and reliable: the size of its newest complete
-# Kopia snapshot (KSIZE, kopia_sizes_load - what Kopia read then, its ignore rules applied) and the server's
-# (ZFS's referenced for a share that is a dataset of its own, INV_BYTES; the VM's disk files, VM_BYTES) -
-# the LARGER of the two when both are known, either alone when only one is. Kopia's alone can be stale: a share
-# whose folders were all ignored until the setup changed has a tiny complete snapshot while its first real
-# upload of terabytes is still going on in checkpoints (nostromo's Backups, 2026-10-07) - by Kopia's size it
-# would go first. The server's overestimates a share with big ignored parts, which only moves it later. An
+# The size a source is expected to have, from what is cheap and reliable: Kopia's (KSIZE, kopia_sizes_load - the
+# size of its newest complete snapshot, what Kopia read then with its ignore rules applied, or of a newer checkpoint
+# when that is larger) and the server's (ZFS's referenced for a share that is a dataset of its own, INV_BYTES; the
+# VM's disk files, VM_BYTES) - the LARGER of the two when both are known, either alone when only one is. A complete
+# snapshot alone can be stale: a share whose folders were all ignored until the setup changed has a tiny complete
+# snapshot while its first real upload of terabytes is still going on in checkpoints (nostromo's Backups,
+# 2026-10-07) - by that size it would go first; the checkpoint (or ZFS) says better. The server's overestimates a
+# share with big ignored parts, which only moves it later. An
 # unknown size goes last; equal sizes and the unknown keep their order (the shares as settings.ini lists
 # them, then the VMs).
 # kopia_order  -> lines "name|kind|item|folder|bytes|from" in the order they go:

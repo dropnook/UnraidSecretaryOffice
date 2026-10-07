@@ -3,7 +3,10 @@
 # unraid-backup - setup.sh                        Version 2.25 - 2026-10-07
 #   2.25 (backup.sh only: --recover brings back what an interrupted run left right after the array
 #        start; the Kopia phase goes small and important first. Here too: an interrupted run's notes
-#        stay while Docker or libvirt doesn't answer)
+#        keep exactly what didn't come back - Docker or libvirt silent, a container or VM that doesn't
+#        start, a Nextcloud whose container doesn't run -, its containers start network first, then
+#        databases, then apps, a warning names what didn't come back; with the VM service off the VMs'
+#        note goes; the notifications take turns with the office's)
 #   2.24 (backup.sh only: a run notices the array being stopped and ends at once, cleanly; the
 #        notes of an interrupted run are never acted on while the array is being stopped - here too)
 #   2.23 (backup.sh only: the btrfs emergency brake scales with the disk)
