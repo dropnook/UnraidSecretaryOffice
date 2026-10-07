@@ -88,11 +88,13 @@ const PROVIDER_NAMES = { aws: 'Amazon S3', b2: 'Backblaze B2', r2: 'Cloudflare R
 let state = null;
 let view = null;
 
+/** His state: as kept at once, a new look following on his page (core.js Office.loadState()); fresh waits for a new look */
 async function load(fresh) {
-  const j = await Office.api.get({ a: 'state', desk: ID, ...(fresh ? { fresh: 1 } : {}) });
+  return Office.loadState(ID, { fresh }, took);
+}
+function took(j) {
   if (j.ok && j.state) state = j.state;
   if (view) render();
-  return j;
 }
 
 const externals = () => Object.entries((state && state.externals) || {}).filter(([id]) => EXTERNALS[id]);
@@ -142,7 +144,8 @@ function offerButton(text, onclick, why) {
   b.type = 'button';
   b.disabled = !Office.agent.running || !hired() || !!why;
   if (why) b.title = why;
-  b.onclick = onclick;
+  // what he offers rests on his last look: a fresh one first (never on a stale one), the offer read from it again
+  b.onclick = async () => { if (await Office.freshState(ID)) onclick(); };
   return b;
 }
 
@@ -275,12 +278,12 @@ function external(id, x) {
   if (link) acts.appendChild(link);
   // his own offer comes second: the manual way stays the first
   if (!x.there && x.offer === true) {
-    acts.appendChild(job ? offerButton(T('installing'), () => jobDialog(state.job)) : offerButton(T('do.plugin'), () => pluginDialog(id, x)));
+    acts.appendChild(job ? offerButton(T('installing'), () => jobDialog(state.job)) : offerButton(T('do.plugin'), () => { const now = (state.externals || {})[id]; if (now && !now.there) pluginDialog(id, now); }));
   } else if (!x.there && x.offer && x.offer.template) {
     acts.appendChild(offerButton(T('do.container'), () => containerDialog(id), x.offer.refuse ? Office.errorText(x.offer.refuse, ID) : null));
   }
   if (id === 'kopia' && x.there && repo && repo.connected === false) {
-    acts.appendChild(offerButton(T('do.kopia_repo'), () => kopiaIntro(x)));
+    acts.appendChild(offerButton(T('do.kopia_repo'), () => { const now = (state.externals || {})[id]; if (now && now.there) kopiaIntro(now); }));
   }
   if (id === 'grafana' && x.there && prov && prov.host && !(prov.done && prov.points)) {
     acts.appendChild(offerButton(T('do.grafana_prov'), () => provisionDialog()));

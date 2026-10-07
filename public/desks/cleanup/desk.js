@@ -59,17 +59,26 @@ let timer = null;
 let query = '';             // the page's filter (her «Where is what» searches with it, her rooms filter by it): every word must appear
 
 // ------------------------------------------------------------------ loading
+/** Her rooms: as kept at once, a new look following on her page (core.js Office.loadState()); fresh waits for a new look */
 async function load(fresh) {
-  const j = await Office.api.get({ a: 'state', desk: ID, ...(fresh ? { fresh: 1 } : {}) });
+  return Office.loadState(ID, { fresh }, took);
+}
+function took(j) {
   if (j.ok && j.state && j.state.docker && typeof j.state.docker === 'object') setState(j.state);
   else if (view) render();
   // Mr. Restori finished a restore after her last look: she looks again by herself (once per visit) — his leftovers show
-  if (view && !fresh && !lookedAgain && state && state.restore_newer && Office.agent.running) {
+  if (view && !lookedAgain && j.ok && !j.refreshing && state && state.restore_newer && Office.agent.running) {
     lookedAgain = true;
-    return load(true);
+    load(true);
   }
-  return j;
 }
+
+/*
+ * What she puts aside, removes or empties for good starts from a fresh look at her rooms (Office.freshState(), never a
+ * stale list): the selection is what is still there (setState() drops the rest), single things are looked up again.
+ */
+const fresh = () => Office.freshState(ID);
+const trashRun = (id) => ((state && state.trash.runs) || []).find((r) => r.id === id) || null;
 
 function setState(s) {
   state = s;
@@ -248,6 +257,7 @@ function build(root) {
   v.search.spellcheck = false;
   v.search.value = query;
   v.search.style.minWidth = '220px';
+  v.search.dataset.keep = '1';          // built once: typing here never holds up a new look (core.js calm())
   v.search.oninput = () => setQuery(v.search.value);
   // wake the sleeping disks for this tour — off unless switched on, never remembered
   v.wakeLabel = el('label', 'switch clw-wake');
@@ -806,7 +816,10 @@ function strayDetail(t) {
   return box;
 }
 
-function installDialog(t) {
+async function installDialog(t) {
+  if (!(await fresh())) return;
+  t = entries('templates').find((x) => x.id === t.id);
+  if (!t) return;
   const box = el('div');
   box.appendChild(el('p', '', T('install.text', { file: t.file, dir: state.templates.dir })));
   if (t.canonical && t.loc === 'newer') box.appendChild(el('p', 'callout', T('install.replace', { path: t.canonical })));
@@ -1247,7 +1260,7 @@ function iconsInfo() {
 }
 
 async function fallback(button) {
-  if (busy) return;
+  if (busy || !(await fresh())) return;
   busy = true;
   button.disabled = true;
   const j = await Office.api.post(`${ID}.icon_fallback`, {});
@@ -1257,7 +1270,8 @@ async function fallback(button) {
   Office.toast(T('loop.done'));
 }
 
-function iconsDialog() {
+async function iconsDialog() {
+  if (!(await fresh())) return;
   const list = entries('icons').filter((e) => selection.has(e.id) && selectable(e));
   if (!list.length) return;
   const box = el('div');
@@ -1487,7 +1501,8 @@ function shortlist(list) {
   return ul;
 }
 
-function parkDialog() {
+async function parkDialog() {
+  if (!(await fresh())) return;
   const sec = section;
   const list = entries(sec).filter((e) => selection.has(e.id));
   if (!list.length) return;
@@ -1520,7 +1535,8 @@ function parkDialog() {
 }
 
 /** Docker's leftovers: no storeroom, removed for good */
-function removeDialog() {
+async function removeDialog() {
+  if (!(await fresh())) return;
   const list = entries('docker').filter((e) => selection.has(e.id));
   if (!list.length) return;
   const box = el('div');
@@ -1660,7 +1676,9 @@ function trashRow(run, it) {
 }
 
 async function restore(it, button) {
-  if (busy) return;
+  if (busy || !(await fresh())) return;
+  it = ((state.trash.runs || []).flatMap((r) => r.items)).find((x) => x.id === it.id && x.present) || null;
+  if (!it) return;
   busy = true;
   button.disabled = true;
   const j = await Office.api.post(`${ID}.restore`, { ids: [it.id] });
@@ -1672,7 +1690,10 @@ async function restore(it, button) {
   setState(j.state);
 }
 
-function purgeDialog(runs) {
+async function purgeDialog(runs) {
+  if (!(await fresh())) return;
+  runs = runs.map((r) => trashRun(r.id)).filter((r) => r && !r.purging);
+  if (!runs.length) return;
   const items = runs.flatMap((r) => r.items);
   const bytes = runs.reduce((a, r) => a + (r.bytes || 0), 0);
   const known = runs.every((r) => r.bytes !== null);
@@ -1758,18 +1779,24 @@ let hooks = { changed: () => {}, search: () => {} };   // the page's: the bubble
 
 // ------------------------------------------------------------------ loading
 /**
- * Her last look (the part «where»). The server reads it again when it is older than desk.json's
- * `parts.where.refresh_after` (600 s — its own clock, never the browser's; the short wait, so a long job
- * of the messenger never parks this request for minutes), or when asked (`fresh`); the agent's start looks too.
+ * Her last look (the part «where»), as kept at once (core.js Office.loadState(), src/api.php apiLook()). The server
+ * looks again when it is older than desk.json's `parts.where.refresh_after` (600 s — its own clock, never the
+ * browser's; the short wait, so a long job of the messenger never parks this request for minutes) — in the background
+ * while her page is shown, the new look following —, or when asked (`fresh`); the agent's start looks too.
  */
 async function load(fresh) {
-  try {
-    const j = await Office.api.get({ a: 'part', desk: ID, part: 'where', fresh: fresh ? 1 : 0 });
-    if (j.ok && j.part && Array.isArray(j.part.shares)) state = j.part;
-  } catch (e) { /* keep what we have */ }
+  const j = await Office.loadState(ID, { part: 'where', fresh }, took);
   await loadSizes();
   if (view) render();
   hooks.changed();
+  return j;
+}
+function took(j, later) {
+  if (j.ok && j.part && Array.isArray(j.part.shares)) state = j.part;
+  if (later) {            // the new look that followed: drawn here (load() draws the first one after the sizes)
+    if (view) render();
+    hooks.changed();
+  }
 }
 
 async function loadSizes() {

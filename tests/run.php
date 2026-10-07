@@ -8918,11 +8918,12 @@ function testWhereDesk(): void
         officeDeskParts(['ok' => ['refresh_after' => 5, 'action' => 'look'], 'Bad' => ['refresh_after' => 5, 'action' => 'look'], 'x' => ['refresh_after' => '5', 'action' => 'look'],
                          'y' => ['refresh_after' => 0, 'action' => 'look'], 'z' => ['refresh_after' => 5, 'action' => 'a.b'], 'w' => 'look', 7 => ['refresh_after' => 5, 'action' => 'look']]));
     same('where desk: … and none without any', [[], []], [officeDeskParts(null), officeDeskParts('where')]);
-    check('where desk: the page reads her look with fresh, never by its own clock',
-        str_contains($js, "part: 'where', fresh:") && !preg_match('/Date\.now\(\)[^\n]*state\.time/', $js) && !str_contains($js, '.where_refresh`'));
+    check('where desk: the page reads her look through Office.loadState() (fresh when asked), never by its own clock',
+        str_contains($js, "Office.loadState(ID, { part: 'where', fresh }") && !preg_match('/Date\.now\(\)[^\n]*state\.time/', $js) && !str_contains($js, '.where_refresh`'));
     $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
-    check('where desk: the API asks for the action desk.json names, with the short wait, hired desks only',
-        (bool) preg_match('/askAgent\("\$desk\.\{\$rule\[\'action\'\]\}", \[\], 10\)/', $api) && str_contains($api, "officeIsHired(\$desk) && (\$fresh || \$age > \$rule['refresh_after'])"));
+    check('where desk: the API looks with the action desk.json names (apiLook(), the short wait), hired desks only',
+        str_contains($api, "apiLook(\$file, \"\$desk.{\$rule['action']}\", \$rule['refresh_after'], \"\$desk.\$part\", \$look)")
+        && str_contains($api, "if (\$rule === null || !officeIsHired(\$desk)) {") && str_contains($api, 'askAgent($action, [], 10)'));
 
     // links to her page name the part they mean (her rooms are «Tidying up», far below «Where is what»)
     $links = [];
@@ -9646,6 +9647,316 @@ function testThemeSwitch(): void
     check('core.js: the help line only while the script is there', str_contains($core, "if (Office.theme) item(t('help.theme_title'), t('help.theme_text'));"));
 }
 
+/**
+ * Show first, then look (Benj 2026-10-07, perf report levers 1 and 2): src/api.php apiLook() through the web side, in a
+ * process of its own (a plugin's layout, the data and RAM folders in $tmp); this one plays the agent. A fresh state is
+ * answered as it is; a stale one at once with `stale`/`refreshing`, its look left for after the answer (one per state at
+ * a time — a second ask meanwhile only says `refreshing`); `wait` waits for that look; `fresh` asks and waits; `stored`
+ * (the reception, the badges) never asks the agent; the agent away: as it is; parts the same, unhired ones as plain files.
+ */
+function testApiLook(): void
+{
+    $tmp = hardeningTmp('apilook');
+    mkdir("$tmp/plugin/src", 0700, true);
+    foreach (glob(OFFICE_DIR . '/src/*.php') ?: [] as $f) {
+        copy($f, "$tmp/plugin/src/" . basename($f));
+    }
+    foreach (['desks', 'lang'] as $d) {
+        symlink(OFFICE_WEB . "/$d", "$tmp/plugin/$d");
+    }
+    mkdir("$tmp/data/mailbox", 0700, true);
+    mkdir("$tmp/data/office", 0700, true);
+    mkdir("$tmp/run", 0700);
+    file_put_contents("$tmp/data/office/staff.json", json_encode(['hired' => ['snapshot' => 1, 'cleanup' => 2]]));
+    $agent = fn (bool $running = true) => file_put_contents("$tmp/data/agent.json",
+        json_encode(['running' => $running, 'version' => AGENT_VERSION, 'pid' => 4242, 'started' => 1000, 'host' => 'test', 'desks' => []]));
+    $state = fn (string $file, int $age, string $mark) => file_put_contents("$tmp/data/$file", json_encode(['time' => time() - $age, 'mark' => $mark]));
+    $requests = fn (): array => array_map(fn ($f) => json_decode((string) file_get_contents($f), true)['action'] ?? '?', glob("$tmp/data/mailbox/*.request") ?: []);
+    file_put_contents("$tmp/web.php", '<?php require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . '; require ' . var_export("$tmp/plugin/src/api.php", true) . ';'
+        . ' $s = json_decode($argv[1], true); $t = microtime(true);'
+        . ' if (isset($s["modes"])) { echo json_encode(["modes" => array_map("apiLookMode", $s["modes"])]); exit; }'
+        . ' $r = $s["part"] !== null ? apiPart($s["desk"], $s["part"], $s["look"]) : apiState($s["desk"], $s["look"]);'
+        . ' if (!empty($s["then"])) { answerThenLook($r); }'
+        . ' $r["later"] = isset($r["later"]); $r["s"] = round(microtime(true) - $t, 2); echo json_encode($r);');
+    // the web side asks (a process of its own) while $play() answers as the agent
+    $open = function (array $s) use ($tmp): array {
+        $p = proc_open([PHP_BINARY, "$tmp/web.php", json_encode($s + ['part' => null, 'look' => ''])],
+            [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => "$tmp/run", 'PATH' => getenv('PATH')]);
+        return [$p, $pipes];
+    };
+    $close = function (array $h): array {
+        [$p, $pipes] = $h;
+        $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return (json_decode(substr($raw, (int) strpos($raw, '{')), true) ?: []) + ['raw' => $raw];
+    };
+    $ask = fn (array $s): array => $close($open($s));
+    // the agent: the next request (≤ 3 s), its look written to the state file like a desk's refresh, then answered
+    $play = function (string $file, string $mark, float $after = 0.0) use ($tmp): ?string {
+        for ($i = 0, $req = null; $i < 60 && $req === null; $i++) {
+            usleep(50000);
+            $req = (glob("$tmp/data/mailbox/*.request") ?: [null])[0];
+        }
+        if ($req === null) {
+            return null;
+        }
+        $action = json_decode((string) file_get_contents($req), true)['action'] ?? '?';
+        unlink($req);
+        usleep((int) ($after * 1e6));
+        $new = ['time' => time(), 'mark' => $mark];
+        file_put_contents("$tmp/data/$file", json_encode($new));
+        file_put_contents(substr($req, 0, -strlen('.request')) . '.response', json_encode(['ok' => true, 'state' => $new]));
+        return $action;
+    };
+    $agent();
+
+    // fresh enough (younger than refresh_after 60): as it is, no look
+    $state('snapshot.json', 10, 'young');
+    $r = $ask(['desk' => 'snapshot']);
+    same('api look: a fresh state as it is', ['young', false, false, false, 60], [$r['state']['mark'] ?? $r['raw'], $r['stale'] ?? null, $r['refreshing'] ?? null, $r['later'] ?? null, $r['refresh_after'] ?? null]);
+    check('api look: … its age by the server\'s clock', ($r['age'] ?? -1) >= 10 && $r['age'] <= 12);
+    same('api look: … and no request for the agent', [], $requests());
+
+    // stale, from the reception (stored): as it is, said so, never a request
+    $state('snapshot.json', 1800, 'old');
+    $r = $ask(['desk' => 'snapshot', 'look' => 'stored']);
+    same('api look: the reception (stored) gets the stale state, told so, no look', ['old', true, false, false],
+        [$r['state']['mark'] ?? $r['raw'], $r['stale'] ?? null, $r['refreshing'] ?? null, $r['later'] ?? null]);
+    same('api look: … and no request for the agent', [], $requests());
+    $r = $ask(['desk' => 'cleanup', 'part' => 'where', 'look' => 'stored']);
+    same('api look: a part as stored too (none kept: null, stale)', [null, true, false, []], [array_key_exists('part', $r) ? $r['part'] : 'x', $r['stale'] ?? null, $r['refreshing'] ?? null, $requests()]);
+
+    // stale, her page: answered at once — the look comes after the answer, the browser has it first
+    $h = $open(['desk' => 'snapshot', 'then' => true]);
+    stream_set_blocking($h[1][1], false);
+    $first = '';
+    for ($i = 0; $i < 60 && !str_ends_with($first, '}'); $i++) {
+        usleep(50000);
+        $first .= (string) fread($h[1][1], 65536);
+    }
+    $a = json_decode($first, true) ?: [];
+    same('api look: a stale state at once, the look under way', ['old', true, true], [$a['state']['mark'] ?? $first, $a['stale'] ?? null, $a['refreshing'] ?? null]);
+    usleep(200000);
+    check('api look: … the answer out while the look still waits for the agent (after the answer, in the same process)',
+        $requests() === ['snapshot.refresh'] && (proc_get_status($h[0])['running'] ?? false));
+    // meanwhile a second page (another tab): no second look, only «under way»
+    usleep(300000);
+    $r = $ask(['desk' => 'snapshot']);
+    same('api look: one look at a time — a second ask meanwhile only says refreshing', ['old', true, true, false],
+        [$r['state']['mark'] ?? $r['raw'], $r['stale'] ?? null, $r['refreshing'] ?? null, $r['later'] ?? null]);
+    same('api look: … one request for the agent, the desk\'s refresh', ['snapshot.refresh'], $requests());
+    // the page's second ask waits for that look; the agent answers
+    $w = $open(['desk' => 'snapshot', 'look' => 'wait']);
+    same('api look: the background look asks the desk\'s refresh', 'snapshot.refresh', $play('snapshot.json', 'looked', 0.4));
+    $r = $close($w);
+    same('api look: wait gets the new look once it is there', ['looked', false, false, false], [$r['state']['mark'] ?? $r['raw'], $r['stale'] ?? null, $r['refreshing'] ?? null, $r['later'] ?? null]);
+    $close($h);
+    $lock = fopen("$tmp/run/look-snapshot.lock", 'c');
+    check('api look: … the look\'s lock let go (RAM, never the pool)', $lock && flock($lock, LOCK_EX | LOCK_NB) && !glob("$tmp/data/*.lock"));
+    if ($lock) {
+        fclose($lock);
+    }
+    same('api look: … nothing left in the mailbox', [], array_values(array_diff(scandir("$tmp/data/mailbox") ?: [], ['.', '..'])));
+    $r = $ask(['desk' => 'snapshot', 'look' => 'wait']);
+    check('api look: wait with no look under way answers at once, never starts one', ($r['s'] ?? 9) < 1 && $requests() === [] && ($r['state']['mark'] ?? '') === 'looked');
+
+    // fresh (the Tour / «Look again»): asks and waits, as before
+    $h = $open(['desk' => 'snapshot', 'look' => 'fresh']);
+    same('api look: fresh asks the agent', 'snapshot.refresh', $play('snapshot.json', 'again'));
+    $r = $close($h);
+    same('api look: … and waits for the new state', ['again', false, false], [$r['state']['mark'] ?? $r['raw'], $r['stale'] ?? null, $r['later'] ?? null]);
+
+    // nothing kept yet: nothing to show, so it waits for the look (as before)
+    @unlink("$tmp/data/snapshot.json");
+    $h = $open(['desk' => 'snapshot']);
+    same('api look: no state yet — the look is waited for', 'snapshot.refresh', $play('snapshot.json', 'first'));
+    $r = $close($h);
+    same('api look: … and answered', ['first', false], [$r['state']['mark'] ?? $r['raw'], $r['refreshing'] ?? null]);
+
+    // a part desk.json names (her «Where is what», 600 s): the same, with its own action and lock
+    $state('cleanup-where.json', 1200, 'old where');
+    $r = $ask(['desk' => 'cleanup', 'part' => 'where']);
+    same('api look: a stale part at once, its look left for after the answer', ['old where', true, true, true, 600],
+        [$r['part']['mark'] ?? $r['raw'], $r['stale'] ?? null, $r['refreshing'] ?? null, $r['later'] ?? null, $r['refresh_after'] ?? null]);
+    same('api look: … (the answer only: nothing asked yet)', [], $requests());
+    $h = $open(['desk' => 'cleanup', 'part' => 'where', 'then' => true]);
+    same('api look: the part\'s look asks the action desk.json names', 'cleanup.where_refresh', $play('cleanup-where.json', 'new where'));
+    $close($h);
+    same('api look: … its own lock', true, is_file("$tmp/run/look-cleanup.where.lock"));
+    $state('cleanup-where.json', 1200, 'old where');
+    file_put_contents("$tmp/data/office/staff.json", json_encode(['hired' => ['snapshot' => 1]]));
+    $r = $ask(['desk' => 'cleanup', 'part' => 'where']);
+    same('api look: a part of a desk not hired: a plain file, never a look', ['old where', false, []], [$r['part']['mark'] ?? $r['raw'], array_key_exists('stale', $r), $requests()]);
+    $r = $ask(['desk' => 'restore', 'part' => 'job']);
+    same('api look: a part desk.json doesn\'t name: a plain file', [null, false], [array_key_exists('part', $r) ? $r['part'] : 'x', array_key_exists('refreshing', $r)]);
+
+    // the agent away (the array stopping, a crash): as it is, said stale, nothing dropped into the mailbox
+    $state('snapshot.json', 1800, 'old');
+    $agent(false);
+    $r = $ask(['desk' => 'snapshot']);
+    same('api look: the agent away — as it is, stale, no look', ['old', true, false, false, []],
+        [$r['state']['mark'] ?? $r['raw'], $r['stale'] ?? null, $r['refreshing'] ?? null, $r['later'] ?? null, $requests()]);
+    same('api look: unknown desk refused', 'unknown_desk', $ask(['desk' => 'nobody'])['error']['key'] ?? null);
+    $r = $ask(['modes' => [[], ['fresh' => '1'], ['wait' => '1'], ['stored' => '1'], ['fresh' => '0', 'stored' => '1'], ['fresh' => '0']]]);
+    same('api look: the modes from the query', ['', 'fresh', 'wait', 'stored', 'stored', ''], $r['modes'] ?? $r['raw']);
+
+    // the page: only the desk shown looks, everyone else (the reception's cards, the badges) reads as stored
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    check('api look: core.js asks stored unless the desk is shown, fresh when asked',
+        str_contains($core, "const how = fresh ? 'fresh' : Office.current && Office.current.id === desk ? '' : 'stored';"));
+    $direct = [];
+    foreach (glob(OFFICE_WEB . '/desks/*/desk.js') ?: [] as $f) {
+        if (preg_match("/a: 'state'/", (string) file_get_contents($f))) {
+            $direct[] = basename(dirname($f));
+        }
+        if (preg_match_all("/a: 'part', desk: ID, part: '([a-z-]+)'/", (string) file_get_contents($f), $m)) {
+            foreach ($m[1] as $part) {
+                if (isset(officeDeskPartsOf(basename(dirname($f)))[$part])) {
+                    $direct[] = basename(dirname($f)) . "/$part";
+                }
+            }
+        }
+    }
+    same('api look: every desk reads its state (and the parts that are looked after) through Office.loadState()', [], $direct);
+    hardeningRm($tmp);
+}
+
+/** desk.json "parts" of a desk (src/desks.php officeDeskParts()) */
+function officeDeskPartsOf(string $desk): array
+{
+    require_once OFFICE_DIR . '/src/desks.php';
+    $meta = json_decode((string) @file_get_contents(OFFICE_WEB . "/desks/$desk/desk.json"), true);
+    return officeDeskParts(is_array($meta) ? ($meta['parts'] ?? null) : null);
+}
+
+/**
+ * The page's side of «show first, then look» (core.js Office.loadState() / Office.freshState()), run by node on a stand-in
+ * page with a stand-in fetch (skipped where node is missing): the reception asks as stored, the same question on its way
+ * once (the reception and started() together); the desk shown gets its kept state at once and the new look (`wait`)
+ * after it — handed over only once no dialog is open; an answer older than what is shown is dropped; actions ask for a
+ * fresh state first (none needed, a fresh look, the look under way handed over at once) and are refused without one.
+ */
+function testLookPage(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('look page: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('lookpage');
+    file_put_contents("$tmp/t.js", <<<'JS'
+// core.js's show-first-then-look under node: a stand-in page (no DOM worth the name) and a stand-in fetch
+const fs = require('fs');
+const mk = () => ({ style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [],
+  classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {},
+  setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
+  querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+  getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0 }), focus() {}, select() {} });
+globalThis.window = globalThis;
+globalThis.innerHeight = 800; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+globalThis.navigator = { languages: ['en'] };
+globalThis.history = { replaceState() {} };
+globalThis.location = { hash: '', reload() {} };
+const CONFIG = { desks: [{ id: 'snapshot', refresh_after: 60 }], languages: [{ code: 'en' }], base: '', staff_order: [] };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : mk()),
+  querySelector: () => mk(), querySelectorAll: () => [], createElement: () => mk(), addEventListener() {},
+  documentElement: { scrollHeight: 0 }, activeElement: null, hidden: false, body: mk() };
+const calls = [];
+let answers = {};
+globalThis.fetch = async (url) => {
+  calls.push(String(url).replace(/^api\.php\?/, ''));
+  let a = { ok: false };
+  for (const [k, v] of Object.entries(answers)) if (new RegExp(k).test(url)) { a = v; break; }
+  if (typeof a === 'function') a = await a();
+  return { redirected: false, url, ok: true, status: 200, json: async () => a, text: async () => JSON.stringify(a) };
+};
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const O = globalThis.Office;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const later = (ms, a) => () => sleep(ms).then(() => a);
+const ans = (time, age, refreshing) => ({ ok: true, state: { time }, age, stale: age > 60, refreshing: !!refreshing, refresh_after: 60 });
+const out = {};
+(async () => {
+  const got = [];
+  const took = (j, l) => got.push([j.state && j.state.time, !!l]);
+  // the reception: stored, the same question twice on its way = one request, both get it
+  O.current = null;
+  answers = { 'stored=1': later(30, ans(100, 2000)) };
+  calls.length = 0;
+  await Promise.all([O.loadState('snapshot', {}, took), O.loadState('snapshot', {}, took)]);
+  out.reception = { calls: calls.slice(), got: got.splice(0) };
+  // her page: at once (the very state the page has: nothing to draw), the new look follows (wait) and is handed over
+  O.current = { id: 'snapshot' };
+  answers = { 'wait=1': later(80, ans(200, 0)), 'desk=snapshot$': ans(100, 2010, true) };
+  calls.length = 0;
+  await O.loadState('snapshot', {}, took);
+  out.firstDrawn = got.splice(0);
+  await sleep(250);
+  out.page = { calls: calls.slice(), got: got.splice(0) };
+  // a dialog open: the new look waits for it to close
+  answers = { 'wait=1': later(20, ans(300, 0)), 'desk=snapshot$': ans(200, 700, true) };
+  O.dialogOpen = () => true;
+  await O.loadState('snapshot', {}, took);
+  await sleep(500);
+  out.whileDialog = got.splice(0);
+  O.dialogOpen = () => false;
+  await sleep(400);
+  out.afterDialog = got.splice(0);
+  // an answer older than what is shown is dropped
+  answers = { 'desk=snapshot$': ans(250, 10) };
+  await O.loadState('snapshot', {}, took);
+  out.older = got.splice(0);
+  // fresh: nothing to ask
+  calls.length = 0;
+  out.freshOk = [await O.freshState('snapshot'), calls.slice()];
+  // stale (time went by): a fresh look first
+  answers = { 'desk=snapshot$': ans(300, 500), 'fresh=1': later(20, ans(400, 0)) };
+  await O.loadState('snapshot', {}, took);
+  got.splice(0);
+  calls.length = 0;
+  out.freshAsked = [await O.freshState('snapshot'), calls.slice(), got.splice(0)];
+  // a look under way: handed over at once, even with a dialog open (the user asked for it)
+  answers = { 'desk=snapshot$': ans(400, 500, true), 'wait=1': later(100, ans(500, 0)) };
+  O.dialogOpen = () => true;
+  await O.loadState('snapshot', {}, took);
+  calls.length = 0;
+  out.pendingTaken = [await O.freshState('snapshot'), calls.slice(), got.splice(0)];
+  O.dialogOpen = () => false;
+  await sleep(400);
+  out.pendingTwice = got.splice(0);
+  // no fresh look to be had (the agent busy or away): refused, never on the stale list
+  answers = { 'desk=snapshot$': ans(500, 900), 'fresh=1': ans(500, 900) };
+  await O.loadState('snapshot', {}, took);
+  got.splice(0);
+  out.refused = await O.freshState('snapshot');
+  console.log(JSON.stringify(out));
+  process.exit(0);
+})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
+    $r = json_decode($raw, true);
+    if (!is_array($r) || isset($r['error'])) {
+        check('look page: ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('look page: the reception asks as stored, the same question once, both get the answer',
+        [['a=state&desk=snapshot&stored=1'], [[100, false], [100, false]]], [$r['reception']['calls'], $r['reception']['got']]);
+    same('look page: her page — the state she has and the look under way: nothing drawn twice', [], $r['firstDrawn']);
+    same('look page: … the new look asked for (wait) and handed over', [['a=state&desk=snapshot', 'a=state&desk=snapshot&wait=1'], [[200, true]]],
+        [$r['page']['calls'], $r['page']['got']]);
+    same('look page: a dialog open — the new look waits for it to close', [[], [[300, true]]], [$r['whileDialog'], $r['afterDialog']]);
+    same('look page: an answer older than what is shown is dropped', [], $r['older']);
+    same('look page: an action on a fresh state asks nothing', [true, []], $r['freshOk']);
+    same('look page: an action on a stale state waits for a fresh look', [true, ['a=state&desk=snapshot&fresh=1'], [[400, false]]], $r['freshAsked']);
+    same('look page: … the look under way handed over at once (a dialog open or not), once', [[true, [], [[500, true]]], []], [$r['pendingTaken'], $r['pendingTwice']]);
+    same('look page: no fresh look to be had — refused (never on a stale list)', false, $r['refused']);
+    hardeningRm($tmp);
+}
+
 /** The ⟦labels⟧ of a text, sorted (with repeats) */
 function langTokens(string $s): array
 {
@@ -9722,7 +10033,7 @@ function testUnraidWords(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings', 'testUnraidWords']];
 $only = $argv[1] ?? '';

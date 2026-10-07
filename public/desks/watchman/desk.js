@@ -47,14 +47,15 @@ const running = () => !!(state && state.round && state.round.running);
 const hired = () => !!(Office.desks.get(ID) || {}).hired;
 
 // ------------------------------------------------------------------ loading
+/** His state: as kept at once, a new look following on his page (core.js Office.loadState()); fresh waits for a new look */
 async function load(fresh) {
-  let j = { ok: false };
-  try { j = await Office.api.get({ a: 'state', desk: ID, ...(fresh ? { fresh: 1 } : {}) }); } catch (e) { /* keep what we have */ }
+  return Office.loadState(ID, { fresh }, took);
+}
+function took(j) {
   if (j.ok && j.state) state = j.state;
   mood();
   if (view) Office.keepInPlace(null, render);
   follow();
-  return j;
 }
 
 /** His picture: the lantern — with a mark while something in the book is not noted */
@@ -105,7 +106,8 @@ async function ack(e, b) {
   Office.toast(T('acked'));
 }
 
-function ackAll() {
+async function ackAll() {
+  if (!(await Office.freshState(ID))) return;      // «all» means what is in his book now: never a stale look at it
   const n = openCount();
   if (!n || !Office.agent.running) return;
   Office.dialog({
