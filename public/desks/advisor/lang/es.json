@@ -15,7 +15,7 @@
     "other": "{names} todavía no están aquí. Abajo: para qué sirven, cómo traerlos — o lo hago yo por ti."
   },
   "look_again": "Ronda",
-  "looked": "Revisado de nuevo.",
+  "looked": "Ronda terminada.",
   "looked_at": "Revisado {when}.",
   "externals": "Personal externo",
   "externals_sub": "No los hace la secretaría, pero depende de ellos. Instálalos a mano — o déjame a mí: con el gestor de plugins de Unraid y su formulario «Agregar Contenedor», siempre primero con una vista previa.",

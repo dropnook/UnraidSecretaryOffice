@@ -20,7 +20,7 @@
   },
   "scan": "Ronda",
   "scan_title": "Volver a recorrer todo el servidor: dónde está todo y qué hay tirado",
-  "scan_done": "He echado un vistazo ({ms} ms).",
+  "scan_done": "Ronda terminada en {ms} ms.",
   "rooms": "Dónde ordeno",
   "rooms_sub": "Mejor en este orden: plantillas, stacks y luego appdata — una carpeta solo queda libre cuando ya no la nombra ninguna plantilla ni ninguna stack.",
   "part.where": "Qué está dónde",
@@ -1388,8 +1388,8 @@
   },
   "where.wake_title": "Solo para esta ronda: despierta todos los discos en reposo a la vez y lo lee todo — dónde están de verdad los recursos compartidos, si existen las rutas del array, los discos de VM que haya allí. Unraid los vuelve a poner en reposo tras su retardo.",
   "where.tour_done_woken": {
-    "one": "He echado un vistazo ({ms} ms) — 1 disco despertado.",
-    "other": "He echado un vistazo ({ms} ms) — {n} discos despertados."
+    "one": "Ronda terminada en {ms} ms — 1 disco despertado.",
+    "other": "Ronda terminada en {ms} ms — {n} discos despertados."
   },
   "where.details_title": "Todo en detalle",
   "where.details_hint": "elige un mosaico — independiente de «Dónde están las cosas»",

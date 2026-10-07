@@ -15,7 +15,7 @@
     "other": "{names} aren't here yet. Below: what they're good for, how to get them in — or I do it for you."
   },
   "look_again": "Tour",
-  "looked": "Looked again.",
+  "looked": "Tour done.",
   "looked_at": "Looked {when}.",
   "externals": "External staff",
   "externals_sub": "Not made by the office, but it relies on them. Install them by hand — or let me: through Unraid's own plugin manager and «Add Container» form, always with a preview first.",

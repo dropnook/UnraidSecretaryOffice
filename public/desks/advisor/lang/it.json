@@ -15,7 +15,7 @@
     "other": "{names} non sono ancora in sede. Qui sotto: a cosa servono, come portarli in casa — oppure lo faccio io per te."
   },
   "look_again": "Giro",
-  "looked": "Ricontrollato.",
+  "looked": "Giro finito.",
   "looked_at": "Controllato {when}.",
   "externals": "Collaboratori esterni",
   "externals_sub": "Non li ha fatti la segreteria, ma conta su di loro. Installali a mano — oppure lascia fare a me: con il gestore dei plugin di Unraid e il suo modulo «Aggiungi Contenitore», sempre prima con un'anteprima.",

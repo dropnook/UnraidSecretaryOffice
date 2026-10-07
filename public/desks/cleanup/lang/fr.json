@@ -20,7 +20,7 @@
   },
   "scan": "Tournée",
   "scan_title": "Refaire le tour de tout le serveur : où tout se trouve et ce qui traîne",
-  "scan_done": "J'ai fait le tour ({ms} ms).",
+  "scan_done": "Tournée terminée en {ms} ms.",
   "rooms": "Où je range",
   "rooms_sub": "De préférence dans cet ordre : modèles, stacks, puis appdata — un dossier ne devient libre qu'une fois qu'aucun modèle ni aucune stack ne le nomme plus.",
   "part.where": "Où est quoi",
@@ -1388,8 +1388,8 @@
   },
   "where.wake_title": "Pour cette tournée seulement : réveille tous les disques endormis d'un coup et lit tout — où se trouvent vraiment les partages, si les chemins sur l'array existent, les disques de VM là-bas. Unraid arrête de nouveau leurs plateaux après son délai.",
   "where.tour_done_woken": {
-    "one": "J'ai fait le tour ({ms} ms) — {n} disque réveillé.",
-    "other": "J'ai fait le tour ({ms} ms) — {n} disques réveillés."
+    "one": "Tournée terminée en {ms} ms — {n} disque réveillé.",
+    "other": "Tournée terminée en {ms} ms — {n} disques réveillés."
   },
   "where.details_title": "Tout en détail",
   "where.details_hint": "choisis une tuile — indépendamment de « Où se trouvent les choses »",

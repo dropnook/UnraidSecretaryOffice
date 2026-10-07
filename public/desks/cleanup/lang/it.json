@@ -20,7 +20,7 @@
   },
   "scan": "Giro",
   "scan_title": "Ripercorri tutto il server: dove sta tutto e cosa c'è in giro",
-  "scan_done": "Ho dato un'occhiata ({ms} ms).",
+  "scan_done": "Giro finito in {ms} ms.",
   "rooms": "Dove pulisco",
   "rooms_sub": "Meglio in quest'ordine: template, stack, poi appdata — una cartella si libera solo quando nessun template e nessuno stack la nomina più.",
   "part.where": "Cosa sta dove",
@@ -1388,8 +1388,8 @@
   },
   "where.wake_title": "Solo per questo giro: sveglia tutti i dischi in standby insieme e legge tutto — dove stanno davvero le condivisioni, se i percorsi sull'array esistono, i dischi delle VM che stanno lì. Unraid li rimette in standby dopo il suo ritardo.",
   "where.tour_done_woken": {
-    "one": "Ho dato un'occhiata ({ms} ms) — 1 disco svegliato.",
-    "other": "Ho dato un'occhiata ({ms} ms) — {n} dischi svegliati."
+    "one": "Giro finito in {ms} ms — 1 disco svegliato.",
+    "other": "Giro finito in {ms} ms — {n} dischi svegliati."
   },
   "where.details_title": "Tutto nel dettaglio",
   "where.details_hint": "scegli un riquadro — indipendente da «Dov'è cosa»",

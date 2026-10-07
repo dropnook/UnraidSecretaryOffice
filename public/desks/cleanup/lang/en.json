@@ -20,7 +20,7 @@
   },
   "scan": "Tour",
   "scan_title": "Look around the whole server again: where everything is, and what lies around",
-  "scan_done": "Looked around ({ms} ms).",
+  "scan_done": "Tour done in {ms} ms.",
   "rooms": "Where I tidy",
   "rooms_sub": "Best in this order: templates, stacks, then appdata — a folder only becomes free once no template or stack names it any more.",
   "part.where": "Where is what",
@@ -1388,8 +1388,8 @@
   },
   "where.wake_title": "For this tour only: wakes every sleeping disk at once and reads everything — where shares really are, whether paths on the array exist, VM disks there. Unraid spins them down again after its delay.",
   "where.tour_done_woken": {
-    "one": "Looked around ({ms} ms) — 1 disk woken.",
-    "other": "Looked around ({ms} ms) — {n} disks woken."
+    "one": "Tour done in {ms} ms — 1 disk woken.",
+    "other": "Tour done in {ms} ms — {n} disks woken."
   },
   "where.details_title": "Everything in detail",
   "where.details_hint": "pick a tile — independent of «Where things are»",

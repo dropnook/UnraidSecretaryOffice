@@ -17,7 +17,7 @@
     "other": "Ich habe {n} Empfehlungen für dich."
   },
   "check_again": "Rundgang",
-  "checked": "Geprüft",
+  "checked": "Rundgang fertig",
   "checked_at": "Geprüft {when}",
   "todo": "Noch zu tun",
   "todo_text": "Ohne das kann ein Schreibtisch seine Arbeit (teilweise) nicht machen. Das kannst nur du erledigen — in Unraid selbst.",

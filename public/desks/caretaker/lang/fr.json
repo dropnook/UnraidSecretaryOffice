@@ -17,7 +17,7 @@
     "other": "J'ai {n} recommandations pour toi."
   },
   "check_again": "Tournée",
-  "checked": "Vérifié",
+  "checked": "Tournée terminée",
   "checked_at": "Vérifié {when}",
   "todo": "Encore à faire",
   "todo_text": "Sans cela, un bureau ne peut pas faire (une partie de) son travail. Toi seul peux le faire — dans Unraid lui-même.",

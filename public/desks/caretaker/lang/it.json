@@ -17,7 +17,7 @@
     "other": "Ho {n} consigli per te."
   },
   "check_again": "Giro",
-  "checked": "Controllato",
+  "checked": "Giro finito",
   "checked_at": "Controllato {when}",
   "todo": "Ancora da fare",
   "todo_text": "Senza queste cose una scrivania non può fare il suo lavoro (o una parte). Puoi farle solo tu — in Unraid stesso.",

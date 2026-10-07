@@ -17,7 +17,7 @@
     "other": "I have {n} recommendations for you."
   },
   "check_again": "Tour",
-  "checked": "Checked",
+  "checked": "Tour done",
   "checked_at": "Checked {when}",
   "todo": "Still to do",
   "todo_text": "Without these, a desk can't do (part of) its job. Only you can do them — in Unraid itself.",

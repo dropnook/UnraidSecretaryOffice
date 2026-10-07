@@ -17,7 +17,7 @@
     "other": "Tengo {n} recomendaciones para ti."
   },
   "check_again": "Ronda",
-  "checked": "Revisado",
+  "checked": "Ronda terminada",
   "checked_at": "Revisado {when}",
   "todo": "Pendiente",
   "todo_text": "Sin esto, un escritorio no puede hacer (parte de) su trabajo. Solo tú puedes hacerlo — en el propio Unraid.",

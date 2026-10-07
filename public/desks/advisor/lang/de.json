@@ -15,7 +15,7 @@
     "other": "{names} sind noch nicht im Haus. Unten steht, wofür sie gut sind und wie du sie holst — oder ich erledige das für dich."
   },
   "look_again": "Rundgang",
-  "looked": "Nochmals geschaut.",
+  "looked": "Rundgang fertig.",
   "looked_at": "Geschaut {when}.",
   "externals": "Externe Mitarbeitende",
   "externals_sub": "Nicht vom Sekretariat gebaut, aber es verlässt sich auf sie. Installier sie von Hand — oder lass mich: über Unraids eigenen Plugin-Manager und das Formular «Add Container», immer zuerst mit Vorschau.",

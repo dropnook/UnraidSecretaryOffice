@@ -15,7 +15,7 @@
     "other": "{names} ne sont pas encore là. Ci-dessous : à quoi ils servent, comment les faire venir — ou je m'en occupe pour toi."
   },
   "look_again": "Tournée",
-  "looked": "Regardé à nouveau.",
+  "looked": "Tournée terminée.",
   "looked_at": "Regardé {when}.",
   "externals": "Personnel externe",
   "externals_sub": "Pas faits par le secrétariat, mais il compte dessus. Installe-les à la main — ou laisse-moi faire : avec le gestionnaire de plugins d'Unraid et son formulaire « Ajouter Conteneur », toujours avec un aperçu d'abord.",

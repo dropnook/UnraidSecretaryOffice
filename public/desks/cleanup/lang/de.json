@@ -20,7 +20,7 @@
   },
   "scan": "Rundgang",
   "scan_title": "Den ganzen Server nochmals ablaufen: wo alles liegt und was herumliegt",
-  "scan_done": "Umgeschaut ({ms} ms).",
+  "scan_done": "Rundgang fertig in {ms} ms.",
   "rooms": "Wo ich putze",
   "rooms_sub": "Am besten in dieser Reihenfolge: Templates, Stacks, dann appdata — ein Ordner wird erst frei, wenn ihn kein Template und kein Stack mehr nennt.",
   "part.where": "Wo ist was",
@@ -1388,8 +1388,8 @@
   },
   "where.wake_title": "Nur für diesen Rundgang: weckt alle schlafenden Disks gleichzeitig und liest alles — wo Shares wirklich liegen, ob Pfade auf dem Array existieren, VM-Disks dort. Unraid legt sie nach seiner Wartezeit wieder schlafen.",
   "where.tour_done_woken": {
-    "one": "Umgeschaut ({ms} ms) — 1 Disk geweckt.",
-    "other": "Umgeschaut ({ms} ms) — {n} Disks geweckt."
+    "one": "Rundgang fertig in {ms} ms — 1 Disk geweckt.",
+    "other": "Rundgang fertig in {ms} ms — {n} Disks geweckt."
   },
   "where.details_title": "Alles im Detail",
   "where.details_hint": "Kachel wählen — unabhängig von «Wo liegt was»",
