@@ -473,7 +473,7 @@ function caretakerChecks(): array
         $loop = cleanupIconLoopRisk();
         if ($loop['affected']) {
             $out[] = finding('icon_loop', 'recommended', !$loop['risk'], ['version' => $loop['version'], 'n' => $loop['containers']],
-                in_array('cleanup', staffHired(), true) ? '#/cleanup' : 'docker');
+                in_array('cleanup', staffHired(), true) ? '#/cleanup/tidy' : 'docker');      // her rooms: «Tidying up»
         }
     }
 
