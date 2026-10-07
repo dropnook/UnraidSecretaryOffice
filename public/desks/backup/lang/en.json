@@ -1026,7 +1026,7 @@
   "bubble.last_array_stop": "The last backup {when} stopped when the array was stopped — on purpose: I checked three times, nothing is lost. The next run carries on where Kopia was.",
   "notice.array_stop": "The last run ({when}) ended at once when the array was being stopped — on purpose, nothing is lost: nothing was pruned, and the next run backs up as usual and continues the Kopia upload where it was.",
   "notice.array_stop_kopia": {"one": "One Kopia source waits for it.", "other": "{n} Kopia sources wait for it."},
-  "notice.array_stop_left": "Left as the stop found them — the next run brings them back unless Unraid's autostart already did: {list}.",
+  "notice.array_stop_left": "Left as the stop found them — they come back right after the array start, at the latest with the next run, unless Unraid's autostart already did: {list}.",
   "left.vm": "VM {name}",
   "left.maintenance": "{name} in maintenance mode",
   "stat.last_array_stop": "{when} · array stop",

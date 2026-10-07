@@ -1047,7 +1047,7 @@
   "bubble.last_array_stop": "La dernière sauvegarde {when} s'est arrêtée quand l'array a été arrêté — exprès : j'ai vérifié trois fois, rien n'est perdu. La prochaine exécution reprend là où en était Kopia.",
   "notice.array_stop": "La dernière exécution ({when}) s'est arrêtée aussitôt quand l'array a été arrêté — exprès, rien n'est perdu : rien n'a été élagué, et la prochaine exécution sauvegarde comme d'habitude et reprend l'envoi à Kopia là où il en était.",
   "notice.array_stop_kopia": {"one": "{n} source Kopia l'attend.", "other": "{n} sources Kopia l'attendent."},
-  "notice.array_stop_left": "Laissés tels que l'arrêt les a trouvés — la prochaine exécution les rétablit, sauf si le démarrage automatique d'Unraid l'a déjà fait : {list}.",
+  "notice.array_stop_left": "Laissés tels que l'arrêt les a trouvés — ils reviennent juste après le démarrage de l'array, au plus tard avec la prochaine exécution, sauf si le démarrage automatique d'Unraid l'a déjà fait : {list}.",
   "left.vm": "VM {name}",
   "left.maintenance": "{name} en mode maintenance",
   "stat.last_array_stop": "{when} · arrêt de l'array",

@@ -229,10 +229,10 @@ installed plugin (see the checklist).
   runs `recover_interrupted_run` (keeps a note while its service doesn't answer; «Aborted run repaired» normal after an array stop),
   is **no run**: no status.json/last-run/history line, latest.log untouched, log `logs/recover.log`; lock note `holder backup, mode
   recover` — backupScan() doesn't count it as running, a run that meets it waits (`UB_RECOVER_LOCK_WAIT`) instead of skipping.
-  `agent.sh array stopping` runs `backup.sh --unmount` (≤ 10 s, `backup_release`) when something of the engine is mounted
-  (keep_mounts) and no run holds the lock. **Kopia order:** `kopia_order` (lib/common.sh) — flash, the apps' own sources, then shares
-  and VMs' own sources by expected size (newest complete Kopia snapshot `kopia_sizes_load`, else `INV_BYTES` / `VM_BYTES`; unknown
-  last); `kopia.planned` and the phase follow it. Tests: `testBackupKopiaOrder`, `testAgentBackupHooks` (agent.sh sourced, stand-ins),
+  `agent.sh array stopping` runs `UB_KEEP_LATEST=1 backup.sh --unmount` (≤ 10 s, `backup_release`; latest.log stays the last
+  run's) when something of the engine is mounted (keep_mounts) and no run holds the lock. **Kopia order:** `kopia_order` (lib/common.sh) — flash, the apps' own sources, then shares
+  and VMs' own sources by expected size (the LARGER of the newest complete Kopia snapshot `kopia_sizes_load` and `INV_BYTES` /
+  `VM_BYTES` — Kopia's alone can be stale after a setup change; unknown last); `kopia.planned` and the phase follow it. Tests: `testBackupKopiaOrder`, `testAgentBackupHooks` (agent.sh sourced, stand-ins),
   the end of `testBackupArrayStop`.
 * **One run at a time, never lost silently (engine 2.20):** `state/lock` (flock) is held by
   backup.sh, setup.sh and Mr. Restori's restores; whoever takes it opens it with `>>` (never
