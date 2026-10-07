@@ -243,27 +243,20 @@ function snapPlanSave(mixed $in): array
     foreach ($state['btrfs']['devices'] as $d) {
         $known["btrfs:{$d['mount']}"] = true;
     }
-    $targets = array_values(array_unique(array_filter((array) ($in['targets'] ?? []), 'is_string')));
-    if (!$targets) {
-        throw new Problem('plan_no_targets');
-    }
-    foreach ($targets as $t) {
-        if (!isset($known[$t])) {
-            throw new Problem('unknown_target', ['target' => $t]);
-        }
-    }
-    $keep = (int) ($in['keep'] ?? 0);
-    $days = (int) ($in['max_days'] ?? 0);
-    if ($keep < 1 || $keep > SNAPPLAN_KEEP || $days < 0 || $days > 3650) {
-        throw new Problem('plan_bad_keep');
-    }
-
     $old = [];
     foreach ($plans as $p) {
         if ($p['id'] === $id) {
             $old = $p;
         }
     }
+    $sorted = snapPlanSaveTargets((array) ($in['targets'] ?? []), $known, array_values(array_filter((array) ($old['targets'] ?? []), 'is_string')));
+    $targets = $sorted['targets'];
+    $keep = (int) ($in['keep'] ?? 0);
+    $days = (int) ($in['max_days'] ?? 0);
+    if ($keep < 1 || $keep > SNAPPLAN_KEEP || $days < 0 || $days > 3650) {
+        throw new Problem('plan_bad_keep');
+    }
+
     $plan = [
         'id'          => $id,
         'label'       => $label,
@@ -293,8 +286,37 @@ function snapPlanSave(mixed $in): array
         }
     }
     snapPlanRunner();
-    logLine("Ms. Snapshotini: plan $id saved ($cron, keep $keep" . ($days ? ", max $days days" : '') . ')');
-    return ['ok' => true, 'id' => $id, 'state' => snapshotScan(false)];
+    logLine("Ms. Snapshotini: plan $id saved ($cron, keep $keep" . ($days ? ", max $days days" : '')
+        . ($sorted['dropped'] ? '; gone and dropped: ' . implode(', ', $sorted['dropped']) : '') . ')');
+    return ['ok' => true, 'id' => $id, 'dropped' => $sorted['dropped'], 'state' => snapshotScan(false)];
+}
+
+/**
+ * The targets a saved plan keeps. A target the plan had before and that is gone now (the share deleted, the
+ * dataset renamed — the page can't even show it any more) is dropped quietly: «choose another target» must be
+ * possible. A target nobody knows that the plan didn't have is refused (a stale page, a typo); none left:
+ * plan_no_targets.
+ *
+ * @param array<string, true> $known  what exists now: zfs:<dataset>, btrfs:<mount>
+ * @param list<string> $before        the plan's targets as saved (none for a new plan)
+ * @return array{targets: list<string>, dropped: list<string>}
+ */
+function snapPlanSaveTargets(array $sent, array $known, array $before): array
+{
+    $targets = $dropped = [];
+    foreach (array_unique(array_filter($sent, 'is_string')) as $t) {
+        if (isset($known[$t])) {
+            $targets[] = $t;
+        } elseif (in_array($t, $before, true)) {
+            $dropped[] = $t;
+        } else {
+            throw new Problem('unknown_target', ['target' => $t]);
+        }
+    }
+    if (!$targets) {
+        throw new Problem('plan_no_targets');
+    }
+    return ['targets' => $targets, 'dropped' => $dropped];
 }
 
 function snapPlanToggle(string $id, bool $on): array

@@ -1204,7 +1204,11 @@ function planDelete(p) {
 /** New or changed schedule: what, when, how many to keep */
 function planDialog(p) {
   if (!state) return;
-  const chosen = new Set(p ? p.targets : []);
+  // a target that is gone (the share deleted, the dataset renamed) can't be shown by the picker, so it can't be unticked:
+  // the selection starts without it and the dialog says so — the plan loses it when saved (the agent drops it too)
+  const have = new Set(targets().map((v) => v.id));
+  const gone = p ? p.targets.filter((t) => !have.has(t)) : [];
+  const chosen = new Set(p ? p.targets.filter((t) => have.has(t)) : []);
   const box = el('div', 'sp-plan-form');
   const field = (label, input, hint) => {
     const f = el('div', 'field');
@@ -1273,6 +1277,7 @@ function planDialog(p) {
   recursive.input.checked = p ? !!p.recursive : true;
   const picker = targetPicker(chosen, recursive.input, () => {});
   box.appendChild(picker.field);
+  if (gone.length) box.appendChild(el('p', 'callout warn', T('plan.gone_left_out', { targets: gone.map((t) => t.replace(/^(zfs|btrfs):/, '')).join(', ') })));
   const asleep = check(T('plan.skip_asleep'), T('plan.skip_asleep_hint'));
   asleep.input.checked = p ? !!p.skip_asleep : true;
   box.append(recursive.label, asleep.label);

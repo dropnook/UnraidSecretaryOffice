@@ -242,6 +242,42 @@ function testPlanGone(): void
     $public = snapPlansPublic($host['scan']());
     same('gone page: the plan carries what is gone and since when', [['zfs:mother/drop' => $t0 + 14400], ['zfs:mother/drop' => $t0 + 14400], []],
         array_column($public['plans'], 'gone'));
+
+    // Prometheus: a plan whose every target is gone creates nothing — not ok, counted as failing like failed and partly;
+    // the paused plan isn't counted at all (the state file holds three: failed, drop: gone)
+    $fam = array_column(snapshotMetrics("$tmp/no-state.json"), null, 'name');
+    same('gone metrics: failed and gone count as failing, the paused plan not at all', [2, [[['plan' => 'three'], false], [['plan' => 'drop'], false]]],
+        [$fam['uso_snapshot_plans_failing']['samples'][0][1] ?? null, $fam['uso_snapshot_plan_ok']['samples'] ?? null]);
+    $states['drop']['result'] = 'ok';
+    writeAtomic(snapPlanStateFile(), jsonEncode($states));
+    $fam = array_column(snapshotMetrics("$tmp/no-state.json"), null, 'name');
+    same('gone metrics: a plan back to ok is ok again', [1, [[['plan' => 'three'], false], [['plan' => 'drop'], true]]],
+        [$fam['uso_snapshot_plans_failing']['samples'][0][1] ?? null, $fam['uso_snapshot_plan_ok']['samples'] ?? null]);
+
+    // saving a plan: a target it had that is gone now is dropped (the page can't even show it, so «choose another
+    // target» must work without it); one nobody knows that the plan didn't have stays refused; none left = no targets
+    $known = ['zfs:hive/appdata' => true, 'zfs:hive/system' => true];
+    same('gone save: the gone target the plan had is dropped, the rest kept in the page\'s order',
+        ['targets' => ['zfs:hive/system', 'zfs:hive/appdata'], 'dropped' => ['zfs:mother/drop']],
+        snapPlanSaveTargets(['zfs:hive/system', 'zfs:mother/drop', 'zfs:hive/appdata', 'zfs:hive/system'], $known, $three['targets']));
+    same('gone save: a plan without a gone target is saved as sent', ['targets' => ['zfs:hive/appdata'], 'dropped' => []],
+        snapPlanSaveTargets(['zfs:hive/appdata'], $known, $three['targets']));
+    foreach ([['new plan', []], ['a plan that never had it', ['zfs:hive/appdata']]] as [$case, $before]) {
+        try {
+            snapPlanSaveTargets(['zfs:hive/appdata', 'zfs:mother/drop'], $known, $before);
+            check("gone save: an unknown target is refused ($case)", false);
+        } catch (Problem $p) {
+            same("gone save: an unknown target is refused ($case)", ['unknown_target', ['target' => 'zfs:mother/drop']], [$p->key, $p->params]);
+        }
+    }
+    foreach ([['only the gone one', ['zfs:mother/drop']], ['nothing', []], ['junk', [5, null]]] as [$case, $sent]) {
+        try {
+            snapPlanSaveTargets($sent, $known, $drop['targets']);
+            check("gone save: no target left is refused ($case)", false);
+        } catch (Problem $p) {
+            same("gone save: no target left is refused ($case)", 'plan_no_targets', $p->key);
+        }
+    }
     foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
         $text = officeNotifyText('snapshot', 'notify.plan_gone', ['plan' => 'Hourly', 'targets' => 'mother/drop'], $lang);
         check("gone text ($lang): names the schedule and the target", str_contains($text, 'Hourly') && str_contains($text, 'mother/drop') && !str_contains($text, '{'));

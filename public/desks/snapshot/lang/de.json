@@ -439,6 +439,7 @@
   "plan.result.gone": "Ziele weg",
   "plan.gone": "Ziel weg",
   "plan.gone_title": "Seit {since} weg: {targets} (gelöscht oder umbenannt?). Was weg ist, überspringe ich und nehme den Rest — lösche den Zeitplan oder wähle unter «Bearbeiten…» ein anderes Ziel.",
+  "plan.gone_left_out": "Nicht mehr da (gelöscht oder umbenannt?), beim Speichern weggelassen: {targets}. Wähle ein anderes Ziel oder speichere einfach.",
   "notify.plan_gone_subject": "Zeitplan «{plan}»: Ziel weg",
   "notify.plan_gone": "Frau Snapshotini: Der Zeitplan «{plan}» findet {targets} nicht mehr (gelöscht oder umbenannt?). Was weg ist, überspringe ich und nehme den Rest — lösche den Zeitplan oder wähle auf meiner Seite ein anderes Ziel.",
   "check.plan_target_gone": "Zeitplan «{plan}»: sein Ziel {target} ist weg",

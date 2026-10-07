@@ -104,13 +104,14 @@ function snapshotMetrics(?string $file = null): array
             if (!isset($st['result'])) {
                 continue;                       // not run yet
             }
-            $bad = in_array($st['result'], ['failed', 'partly'], true);
+            // gone = every target of the plan is gone: the run creates nothing, so it is no good run either
+            $bad = in_array($st['result'], ['failed', 'partly', 'gone'], true);
             $failing += (int) $bad;
             $ok[] = [['plan' => $p['id']], !$bad];
             $when[] = [['plan' => $p['id']], (int) ($st['last_run'] ?? 0)];
         }
-        $out[] = metricsGauge('uso_snapshot_plans_failing', 'Active snapshot plans whose last run failed or only partly worked', $failing);
-        $out[] = metricsGauge('uso_snapshot_plan_ok', 'Whether an active snapshot plan\'s last run worked (1) or had problems (0)', $ok);
+        $out[] = metricsGauge('uso_snapshot_plans_failing', 'Active snapshot plans whose last run failed, only partly worked or found every target gone', $failing);
+        $out[] = metricsGauge('uso_snapshot_plan_ok', 'Whether an active snapshot plan\'s last run worked (1) or had problems (0: failed, partly, every target gone)', $ok);
         $out[] = metricsGauge('uso_snapshot_plan_last_run_timestamp_seconds', 'When an active snapshot plan last ran', $when);
     }
     return $out;
