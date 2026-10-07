@@ -52,9 +52,10 @@ installed plugin (see the checklist).
   `public/desks/<id>/lang/<code>.json` (desk). `en`, `de`, `it`, `fr` and `es`
   must always have the same keys — a new UI string needs all five; any other language may
   leave keys out (English fills in) but never has keys `en` lacks, and
-  placeholders `{…}` and plurals match `en` (tests/run.php checks it). Unraid
-  menu paths follow Unraid's language packs (github.com/unraid/lang-de_DE,
-  lang-it_IT, lang-fr_FR, lang-es_ES; see «Words»). French `one` covers 0 and 1 (Intl): write `{n}` in
+  placeholders `{…}` and plurals match `en` (tests/run.php checks it). The office speaks
+  the browser's language (Benj, 2026-10-07: many keep Unraid in English); Unraid's own
+  labels in the texts are marked `⟦English label⟧` and read in the language Unraid runs in
+  (see «Words»). French `one` covers 0 and 1 (Intl): write `{n}` in
   French one-forms where 0 can occur.
   Never hard-code UI text in JS or PHP.
 * **No build step, no dependencies.** Plain PHP 8.4 (Unraid's own PHP runs both
@@ -129,8 +130,11 @@ installed plugin (see the checklist).
 * **Notifications** to Unraid only through `officeNotify()` (agent/lib/house.php):
   event and subject prefix `Unraid Secretary Office` like the engine; `warning`
   for something to fix, `alert` only when something is at risk now (failed
-  runs, agent gone); texts via `officeNotifyText()` in Unraid's language
-  (`officeNotifyLang()`), keys `notify.*` in the desk's lang file; tests set
+  runs, agent gone); texts via `officeNotifyText()` in the language the office was last used in
+  (`officeNotifyLang()`: `data/office/lang.json`, which the page writes with `office.lang` when it shows
+  another language than kept; the night shift reads its copy in RAM, `RUN_DIR/notify.lang`, kept by the agent's
+  `officeNotifyLangKeep()` once a minute — none, e.g. after a reboot: Unraid's language), Unraid's labels in them
+  in Unraid's language; keys `notify.*` in the desk's lang file; tests set
   `OFFICE_NOTIFY_BIN` to a stand-in (and `OFFICE_NOTIFY_STAMP` to a stamp of their own — with a stand-in and none
   named the RAM stamp is never touched). The agent, the night shift, agent.sh (`tell`) and the engine (`ub_notify`)
   take turns through one stamp in RAM (`OFFICE_NOTIFY_STAMP` = `RUN_DIR/notify.second`, engine `UB_NOTIFY_STAMP`):
@@ -430,14 +434,27 @@ it *il* backup).
 German «Backup» stays for the whole and for what is kept (im Backup, Backups gehören nicht in appdata, Backup-Ablage,
 Backup-Engine; «Eingerichtete Backups»); one run is a «Sicherung». «Lauf» / esecuzione / exécution / ejecución stay for
 Jack Emby's runs and Ms. Snapshotini's plan runs — they back nothing up, and «Lauf» pairs with «Probelauf».
-**Unraid's own words:** menu paths and labels the texts quote follow Unraid's language pack of that language — German
-too (lang-de_DE: Einstellungen, Start, Werkzeuge, Freigaben → Freigabe hinzufügen, Container hinzufügen, Bearbeiten →
-Anwenden, Benutzer-Dienstprogramme, Verwaltungszugriff, Aufgabenplanung, Zugriffsrechte «Nur Lesen - sekundär», Quelle
-(Repository) …), so a quoted label can differ from the office's own word (Unraid's «Freigaben», «Datenträger», «Vorlage»
-vs. Share, Disk, Template). One name per tile where a pack has two (it «Accesso e Sicurezza», fr «Gestion des Accès», es
-«Ajustes de Acceso»). Labels Unraid leaves untranslated (Boot Parameters, Read/Write, User templates) and plugins' own
-pages stay as they appear; prose naming «das Dashboard» stays. Titles in running text are small in it/es («il signor
-Restori», «la señora Snapshotini»), capitalised in fr («Monsieur Restori»).
+**Unraid's own words (Benj, 2026-10-07):** the office speaks the browser's language, Unraid may run in another one. Every
+label of Unraid's own UI a text names so the user finds it — menu tabs, Settings/Tools tiles, buttons, form fields and
+their values, in paths (`⟦Settings⟧ → ⟦User Utilities⟧ → Fix Common Problems`), quotes («⟦Read Only - Slave⟧») and «the
+⟦Main⟧ page» — is a token `⟦English label⟧`, the label exactly as English Unraid shows it, in **all five** languages. It
+reads as Unraid shows it in the language Unraid runs in (dynamix.cfg `[display] locale`, `unraid_lang`), whatever the
+office speaks: a German office on an English Unraid says «Öffne Settings → User Utilities → Fix Common Problems», on a
+German Unraid «Öffne Einstellungen → Benutzer-Dienstprogramme → …». Resolved by core.js `t()` (`CONFIG.unraid_words`),
+`officeNotifyText()` and `officeDashT()` through src/words.php (shared with the agent); `⟦ ⟧` never clashes with
+`{placeholders}`, a placeholder never goes inside a token. Dictionaries: `public/lang/unraid/<code>.json` (de, it, fr,
+es; English needs none), English label → the word of Unraid's language pack (github.com/unraid/lang-de_DE, lang-it_IT,
+lang-fr_FR, lang-es_ES; `_meta` names pack and commit), taken from the file of the page where Unraid shows it (Settings
+tiles: settings.txt, the Add Container form: docker.txt, the menu bar: translations.txt …) — so it can differ from the
+office's own word (Unraid's «Freigaben», «Vorlage» vs. Share, Template) and keeps the pack's quirks (es Key «Licencia»).
+A label the pack leaves in English maps to itself (Boot Parameters). Not tokens: labels of other software and of plugins
+no pack translates (Fix Common Problems, User Scripts, Compose Manager, Viewers Suite, Emby, Kopia, Grafana), the office's
+own words (Mr. Backupsy's «Set up…» → Apply), values Unraid never translates (User templates, the network types bridge/
+host) and prose about the Docker page or the Dashboard. **Adding a label:** write `⟦label⟧` in all five languages (the
+same labels per text; words around it that still read when the label stays English — «the setting «⟦X⟧»», not an article
+glued to it), then add it to each dictionary from that pack — tests/run.php `testUnraidWords` checks every language
+against English and every dictionary against the texts (none missing, none unused). Titles in running text are small in
+it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («Monsieur Restori»).
 
 ## UI conventions (every desk looks and behaves the same)
 
@@ -449,8 +466,9 @@ Restori», «la señora Snapshotini»), capitalised in fr («Monsieur Restori»)
   Don't use Unraid's `unapi` class (it switches on Tailwind utilities like
   `.grid`). Dialogs, menus, the selection bar and tips are appended to `#sso`,
   never to `body`. Links into Unraid's own pages (`/Docker`, `/Plugins` …) open in
-  the same tab, like Unraid's own. The office
-  follows Unraid's language (`unraid_lang`; ⋯ → Language per browser).
+  the same tab, like Unraid's own. The office speaks the browser's language
+  (`navigator.languages`, the first it has; ⋯ → Language per browser, `Office.store` `lang`); Unraid's labels in
+  its texts follow Unraid's language (`unraid_lang`, `unraid_words`; «Words»).
   Buttons inside Unraid: its theme's frame, plain letters (no capitals).
   Colours are tokens (`--ink`, `--surface` …) mixed from Unraid's theme
   variables (`--text-color`, `--background-color`, `--button-background` …), so
@@ -774,7 +792,9 @@ agent/agent.php          loop, mailbox, desk loading, self-restart
 agent/lib/*.php          shared helpers (util: run, writeAtomic, readCfg, Problem;
                          mounts; backupscript; house: plugins, containers, finding)
 agent/desks/<id>.php     one desk each: desk('<id>', [...])
-src/*.php                web side: bootstrap, mailbox client, desk/lang discovery, staff, API, page, Dashboard tile
+src/*.php                web side: bootstrap, mailbox client, desk/lang discovery, staff, API, page, Dashboard tile;
+                         words.php (Unraid's labels in Unraid's language) shared with the agent
+public/lang/unraid/      Unraid's words per language (from Unraid's language packs) for the ⟦label⟧ tokens
 public/assets/core.js    Office: i18n, routing, reception, API, dialog, menu, toast, fmt,
                          deskHead, pageHelp, sectionHead, backupChip
 public/desks/<id>/       desk.json, desk.js, lang/*.json (and desk.css, avatar.svg)

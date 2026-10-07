@@ -30,9 +30,12 @@ office's own order.
 
 More desks can join: each one is a module (see below).
 
-The office speaks English, German, Italian, French and Spanish and follows
-Unraid's language (English where it doesn't speak Unraid's); *⋯ → Language*
-picks another one for your browser. Adding a language means adding JSON files.
+The office speaks English, German, Italian, French and Spanish — your browser's
+language (English where it doesn't speak yours); *⋯ → Language* picks another one
+for your browser. Where it tells you what to click in Unraid, Unraid's menus and
+buttons read as Unraid shows them, in the language Unraid runs in — a German office
+on an English Unraid says «Settings → User Utilities». Adding a language means adding
+JSON files.
 
 ## How it works
 
@@ -128,8 +131,10 @@ as the event *Unraid Secretary Office*:
 * **The plugin**: the agent hasn't checked in for more than 10 minutes while
   the array runs (alert), and once it is back (normal).
 
-The Team Lead, Jack Emby and the Night Watchman write in Unraid's language (English where the
-office doesn't speak it); the engine and the plugin's look at the agent in English.
+The Team Lead, Jack Emby and the Night Watchman write in the language the office was last used in
+(the page tells the server, `data/office/lang.json`; until then Unraid's language, English where the
+office doesn't speak it), Unraid's menus in them in Unraid's language; the engine and the plugin's look
+at the agent in English.
 
 ## Monitoring
 
@@ -240,7 +245,11 @@ Copy `public/lang/en.json` to `public/lang/<code>.json` and translate it
 (set `_meta.name` and `_meta.locale`), and do the same for each desk's
 `lang/en.json`. Anything not translated falls back to English. Plurals use
 `{"one": …, "other": …}` (and whatever categories your language has),
-dates and "3 hours ago" come from the browser.
+dates and "3 hours ago" come from the browser. Unraid's own labels stay as tokens
+`⟦Settings⟧` (the English label, exactly as in `en.json`): the office shows them
+as Unraid does in the language Unraid runs in, from `public/lang/unraid/<code>.json`
+— taken from Unraid's language pack (github.com/unraid/lang-…); a language Unraid
+runs in without such a file shows them in English. Details in CLAUDE.md, «Words».
 
 ## Development
 
