@@ -102,7 +102,9 @@ as the event *Unraid Secretary Office*:
   that stopped at once because the array was being stopped — nothing lost,
   the next run continues the Kopia upload (normal), and what such a run left
   stopped brought back right after the array start (normal).
-* **Ms. Snapshotini**: a schedule had problems (warning).
+* **Ms. Snapshotini**: a schedule had problems (warning); a schedule's target is gone — the
+  share deleted, the dataset renamed — once per target (warning): the runs take the targets that
+  exist, skip the gone ones and never warn again for those; the team lead lists it under *Recommended*.
 * **Jack Emby**: a real EmbyCache or consolidating run failed or had
   problems (warning) — reports and trial runs stay quiet.
 * **The Team Lead**: something new under *Still to do* that has stayed for

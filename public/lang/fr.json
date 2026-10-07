@@ -160,7 +160,7 @@
   "dash.bk_warnings": "Avec des avertissements",
   "dash.bk_failed": "Échoué",
   "dash.bk_running": "Sauvegarde en cours",
-  "dash.bk_checking": "Vérification en cours",
+  "dash.bk_checking": "Tournée en cours",
   "dash.bk_dryrun": "Essai à blanc en cours",
   "dash.bk_none": "Pas encore de sauvegarde",
   "dash.bk_next": "Prochaine : {when}",

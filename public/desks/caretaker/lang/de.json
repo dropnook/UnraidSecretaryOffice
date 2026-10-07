@@ -156,7 +156,7 @@
     "other": "{n} neue Sachen — ich schaue, ob sie bleiben"
   },
   "notify_missing": "Unraids Benachrichtigungs-Skript fehlt — ich kann nichts melden.",
-  "help.notify": "Was unter «Noch zu erledigen» rot wird, geht auch an Unraids Benachrichtigungen (Glocke, Mail, Push) — einmal, nach einer halben Stunde, damit ein kurzer Schluckauf wie der Array-Start oder ein Docker-Neustart still bleibt. Der Schalter stellt es ab. Fehlgeschlagene Läufe melden Herr Backupsi und die anderen selbst.",
+  "help.notify": "Was unter «Noch zu erledigen» rot wird, geht auch an Unraids Benachrichtigungen (Glocke, Mail, Push) — einmal, nach einer halben Stunde, damit ein kurzer Schluckauf wie der Array-Start oder ein Docker-Neustart still bleibt. Der Schalter stellt es ab. Fehlgeschlagene Sicherungen und Ähnliches melden Herr Backupsi und die anderen selbst.",
   "notify.subject": {
     "one": "Etwas Neues zu erledigen",
     "other": "{n} neue Dinge zu erledigen"

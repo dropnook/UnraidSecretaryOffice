@@ -156,7 +156,7 @@
     "other": "{n} nouvelles choses — j'attends de voir si elles restent"
   },
   "notify_missing": "Le script de notification d'Unraid n'est pas là — je ne peux rien signaler.",
-  "help.notify": "Ce qui devient rouge sous « Encore à faire » part aussi aux notifications d'Unraid (cloche, mail, push) — une fois, après une demi-heure, pour qu'un petit hoquet comme le démarrage de l'array ou le redémarrage de Docker reste silencieux. L'interrupteur le désactive. Les exécutions échouées sont signalées par Monsieur Backupsi et les autres eux-mêmes.",
+  "help.notify": "Ce qui devient rouge sous « Encore à faire » part aussi aux notifications d'Unraid (cloche, mail, push) — une fois, après une demi-heure, pour qu'un petit hoquet comme le démarrage de l'array ou le redémarrage de Docker reste silencieux. L'interrupteur le désactive. Les sauvegardes échouées et le reste sont signalés par Monsieur Backupsi et les autres eux-mêmes.",
   "notify.subject": {
     "one": "{n} nouvelle chose à faire",
     "other": "{n} nouvelles choses à faire"

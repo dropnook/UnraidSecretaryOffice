@@ -1125,11 +1125,17 @@ function planRow(p) {
   meta.appendChild(el('span', '', fmt.cron(p.cron)));
   meta.appendChild(el('span', '', T('plan.keeps', { n: p.keep }) + (p.max_days ? ' · ' + T('plan.max_days', { n: p.max_days }) : '')));
   meta.appendChild(el('span', '', p.targets.map((t) => t.replace(/^(zfs|btrfs):/, '')).join(', ') + (p.recursive ? ' ' + T('plan.with_children') : '')));
+  const gone = Object.keys(p.gone || {});        // targets the runs can't find any more (since when), told once
+  if (gone.length) {
+    const chip = el('span', 'chip warn', T('plan.gone'));
+    chip.title = T('plan.gone_title', { targets: gone.map((t) => t.replace(/^(zfs|btrfs):/, '')).join(', '), since: fmt.date(Math.min(...gone.map((t) => p.gone[t]))) });
+    meta.appendChild(chip);
+  }
   main.appendChild(meta);
   const when = el('div', 'row-meta');
   if (p.enabled && p.next) when.appendChild(el('span', '', T('plan.next', { when: fmt.relative(p.next) })));
   if (p.result) {
-    const chip = el('span', 'chip ' + ({ ok: 'ok', skipped: 'quiet', partly: 'warn', failed: 'danger' }[p.result] || ''), T('plan.result.' + p.result));
+    const chip = el('span', 'chip ' + ({ ok: 'ok', skipped: 'quiet', gone: 'quiet', partly: 'warn', failed: 'danger' }[p.result] || ''), T('plan.result.' + p.result));
     const lines = [T('plan.last', { when: fmt.date(p.last_run) }), T('plan.made', { created: p.created, deleted: p.deleted })];
     if ((p.skipped || []).length) lines.push(T('plan.skipped', { targets: p.skipped.map((t) => t.replace(/^(zfs|btrfs):/, '')).join(', ') }));
     (p.detail || []).forEach((f) => lines.push(Office.errorText(f, ID)));

@@ -22,7 +22,13 @@ declare(strict_types=1);
  * saved and switches it off when no plan is active any more.
  *
  * data/snapshot-plans.json        {"plans": [ … ]}
- * data/snapshot-plans-state.json  {"<plan>": {last_run, result, …}}
+ * data/snapshot-plans-state.json  {"<plan>": {last_run, result, detail, created, deleted, skipped, gone}}
+ *
+ * A target that isn't there any more (the share deleted, the dataset renamed) is no failure of every
+ * run: the run takes the targets that exist, skips the gone ones and remembers them in the plan's state
+ * (`gone`: target => since when) — told once (a warning) when a target is first seen gone, again only for
+ * a further target; one that comes back is forgotten. A plan whose targets are all gone creates nothing
+ * (result `gone`). The team lead hears it as a recommended finding (`plan_target_gone`).
  */
 
 const SNAPPLAN_CRON    = '*/5 * * * *';
@@ -32,12 +38,12 @@ const SNAPPLAN_ID      = '/^[a-z0-9][a-z0-9-]{0,23}$/D';
 
 function snapPlanFile(): string
 {
-    return DATA_DIR . '/snapshot-plans.json';
+    return $GLOBALS['snapPlanFile'] ?? DATA_DIR . '/snapshot-plans.json';           // the global: tests only
 }
 
 function snapPlanStateFile(): string
 {
-    return DATA_DIR . '/snapshot-plans-state.json';
+    return $GLOBALS['snapPlanStateFile'] ?? DATA_DIR . '/snapshot-plans-state.json';
 }
 
 /** @return list<array> */
@@ -49,6 +55,24 @@ function snapPlans(): array
 function snapPlanStates(): array
 {
     return readJson(snapPlanStateFile()) ?? [];
+}
+
+/** What a plan's state remembers as gone: target => since when (checked — the file lies on the pool) */
+function snapPlanGoneOf(array $state): array
+{
+    $out = [];
+    foreach (is_array($state['gone'] ?? null) ? $state['gone'] : [] as $target => $since) {
+        if (is_string($target) && $target !== '' && is_int($since)) {
+            $out[$target] = $since;
+        }
+    }
+    return $out;
+}
+
+/** A target as the page and the texts name it: without its zfs:/btrfs: prefix */
+function snapPlanTargetLabel(string $target): string
+{
+    return (string) preg_replace('/^(?:zfs|btrfs):/', '', $target);
 }
 
 function snapPlanSaveAll(array $plans): void
@@ -167,6 +191,7 @@ function snapPlansPublic(?array $scan): array
             'created'  => $st['created'] ?? 0,
             'deleted'  => $st['deleted'] ?? 0,
             'skipped'  => $st['skipped'] ?? [],
+            'gone'     => snapPlanGoneOf($st),
             'count'    => $count,
             'bytes'    => $bytes,
         ];
@@ -259,6 +284,13 @@ function snapPlanSave(mixed $in): array
         $states = snapPlanStates();
         $states[$id] = ['last_run' => time()];
         writeAtomic(snapPlanStateFile(), jsonEncode($states));
+    } else {
+        // every target was just found: nothing is gone any more (one that goes again is told again)
+        $states = snapPlanStates();
+        if (isset($states[$id]['gone'])) {
+            unset($states[$id]['gone']);
+            writeAtomic(snapPlanStateFile(), jsonEncode($states));
+        }
     }
     snapPlanRunner();
     logLine("Ms. Snapshotini: plan $id saved ($cron, keep $keep" . ($days ? ", max $days days" : '') . ')');
@@ -342,61 +374,92 @@ function snapPlansRunDue(): int
     return 0;
 }
 
-/** One run of a plan: snapshots, then retention of exactly this plan's snapshots */
-function snapPlanRun(array $plan, int $now): array
+/**
+ * A plan's targets sorted by what the scan knows: those to take now, those skipped because their disk
+ * sleeps (and the plan says so), those that aren't there any more.
+ *
+ * @param array<string, bool> $asleep  disk name => asleep (sleepingDisks())
+ * @return array{take: list<string>, skipped: list<string>, gone: list<string>}
+ */
+function snapPlanTargets(array $plan, array $state, array $asleep): array
 {
-    $id = $plan['id'];
-    $state = snapshotScan(false);
     $volumes = [];
-    foreach ($state['zfs']['volumes'] as $v) {
+    foreach ($state['zfs']['volumes'] ?? [] as $v) {
         $volumes[$v['id']] = $v;
     }
     $devices = [];
-    foreach ($state['btrfs']['devices'] as $d) {
+    foreach ($state['btrfs']['devices'] ?? [] as $d) {
         $devices["btrfs:{$d['mount']}"] = $d;
     }
-    $asleep = sleepingDisks();
-    $poolAsleep = function (string $pool) use ($asleep): bool {
-        foreach ($asleep as $name => $sleeping) {
-            if ($sleeping && preg_match('/^' . preg_quote($pool, '/') . '\d*$/', (string) $name)) {
-                return true;
-            }
-        }
-        return false;
-    };
-
-    $take = [];
-    $skipped = [];
-    $missing = [];
+    $out = ['take' => [], 'skipped' => [], 'gone' => []];
     foreach ($plan['targets'] as $t) {
         if (isset($volumes[$t])) {
-            $sleeping = $poolAsleep($volumes[$t]['pool']);
+            $sleeping = baseAsleep((string) $volumes[$t]['pool'], $asleep);
         } elseif (isset($devices[$t])) {
             $sleeping = (bool) $devices[$t]['asleep'];
         } else {
-            $missing[] = $t;
+            $out['gone'][] = $t;
             continue;
         }
-        if ($sleeping && !empty($plan['skip_asleep'])) {
-            $skipped[] = $t;
+        $out[$sleeping && !empty($plan['skip_asleep']) ? 'skipped' : 'take'][] = $t;
+    }
+    return $out;
+}
+
+/**
+ * What the plan remembers as gone after this run — and which targets are gone for the first time (those
+ * are told). A target keeps the time it was first missed; one that is back is forgotten, so it is told
+ * again should it go once more.
+ *
+ * @param array<string, int> $before  target => since, from the plan's state
+ * @param list<string>       $gone    the targets missed in this run
+ * @return array{gone: array<string, int>, new: list<string>}
+ */
+function snapPlanGone(array $before, array $gone, int $now): array
+{
+    $out = ['gone' => [], 'new' => []];
+    foreach ($gone as $t) {
+        if (isset($before[$t])) {
+            $out['gone'][$t] = $before[$t];
         } else {
-            $take[] = $t;
+            $out['gone'][$t] = $now;
+            $out['new'][] = $t;
         }
+    }
+    return $out;
+}
+
+/**
+ * One run of a plan: snapshots, then retention of exactly this plan's snapshots.
+ *
+ * @param array|null $host  stand-ins for what touches the server (tests only): scan(array $btrfsOnly), asleep(),
+ *                          create(array $request), delete(array $ids) — as snapshotScan(false, false, …),
+ *                          sleepingDisks(), snapshotCreate() and snapshotDelete(…, false) answer
+ */
+function snapPlanRun(array $plan, int $now, ?array $host = null): array
+{
+    $id = $plan['id'];
+    $scan = $host['scan'] ?? fn (array $btrfsOnly = []): array => snapshotScan(false, false, $btrfsOnly);
+    $create = $host['create'] ?? fn (array $r): array => snapshotCreate($r);
+    $delete = $host['delete'] ?? fn (array $ids): array => snapshotDelete($ids, false);
+
+    $state = $scan();
+    ['take' => $take, 'skipped' => $skipped, 'gone' => $gone] = snapPlanTargets($plan, $state, ($host['asleep'] ?? 'sleepingDisks')());
+    $devices = [];
+    foreach ($state['btrfs']['devices'] ?? [] as $d) {
+        $devices["btrfs:{$d['mount']}"] = $d;
     }
 
     $failures = [];
     $created = [];
     if ($take) {
         try {
-            $r = snapshotCreate(['name' => snapPlanName($id, $now), 'targets' => $take, 'recursive' => !empty($plan['recursive'])]);
+            $r = $create(['name' => snapPlanName($id, $now), 'targets' => $take, 'recursive' => !empty($plan['recursive'])]);
             $created = $r['created'] ?? [];
             $failures = $r['failures'] ?? [];
         } catch (Problem $p) {
             $failures[] = ['key' => $p->key, 'params' => $p->params];
         }
-    }
-    foreach ($missing as $t) {
-        $failures[] = ['key' => 'unknown_target', 'params' => ['target' => $t]];
     }
 
     // retention: only this plan's snapshots, only on what was taken now (sleeping disks stay asleep)
@@ -408,10 +471,9 @@ function snapPlanRun(array $plan, int $now): array
                 $btrfsMounts[] = $devices[$t]['mount'];
             }
         }
-        $fresh = snapshotScan(false, false, $btrfsMounts);
-        $doomed = snapPlanDoomed($plan, $take, snapshotAll($fresh), $now);
+        $doomed = snapPlanDoomed($plan, $take, snapshotAll($scan($btrfsMounts)), $now);
         if ($doomed) {
-            $r = snapshotDelete($doomed, false);
+            $r = $delete($doomed);
             $deleted = count($r['deleted'] ?? []);
             foreach ($r['failures'] ?? [] as $f) {
                 if ($f['key'] !== 'held') {        // a snapshot someone holds stays on purpose
@@ -421,16 +483,27 @@ function snapPlanRun(array $plan, int $now): array
         }
     }
 
-    $result = $failures ? ($created ? 'partly' : 'failed') : ($take ? 'ok' : 'skipped');
+    // a target that is gone is no failure of this run: taken note of, told once (below)
     $states = snapPlanStates();
+    $remembered = snapPlanGone(snapPlanGoneOf(is_array($states[$id] ?? null) ? $states[$id] : []), $gone, $now);
+    $result = $failures ? ($created ? 'partly' : 'failed') : ($take ? 'ok' : ($skipped || !$gone ? 'skipped' : 'gone'));
     $states[$id] = ['last_run' => $now, 'result' => $result, 'detail' => array_slice($failures, 0, 5),
-                    'created' => count($created), 'deleted' => $deleted, 'skipped' => $skipped];
+                    'created' => count($created), 'deleted' => $deleted, 'skipped' => $skipped]
+                 + ($remembered['gone'] ? ['gone' => $remembered['gone']] : []);
     writeAtomic(snapPlanStateFile(), jsonEncode($states));
-    logLine(sprintf('Ms. Snapshotini: plan %s — %d created, %d removed%s%s', $id, count($created), $deleted,
-        $skipped ? ', skipped (asleep): ' . implode(', ', $skipped) : '', $failures ? ', ' . count($failures) . ' problem(s)' : ''));
+    logLine(sprintf('Ms. Snapshotini: plan %s — %d created, %d removed%s%s%s', $id, count($created), $deleted,
+        $skipped ? ', skipped (asleep): ' . implode(', ', $skipped) : '',
+        $gone ? ', gone: ' . implode(', ', $gone) . ($remembered['new'] ? '' : ' (known)') : '',
+        $failures ? ', ' . count($failures) . ' problem(s)' : ''));
     if ($failures) {
         officeNotify("Snapshot plan $id", "Ms. Snapshotini: plan \"{$plan['label']}\" had " . count($failures) . ' problem(s) — see the office.',
             'warning', '', officeNotifyLink('#/snapshot'));
+    }
+    if ($remembered['new']) {
+        $lang = officeNotifyLang();
+        $params = ['plan' => (string) $plan['label'], 'targets' => implode(', ', array_map('snapPlanTargetLabel', $remembered['new']))];
+        officeNotify(officeNotifyText('snapshot', 'notify.plan_gone_subject', $params, $lang),
+            officeNotifyText('snapshot', 'notify.plan_gone', $params, $lang), 'warning', '', officeNotifyLink('#/snapshot'));
     }
     return $states[$id];
 }
@@ -511,20 +584,7 @@ function snapPlanRunNow(string $id): array
 
 function snapPlanChecks(): array
 {
-    $out = [];
-    $plans = snapPlans();
-    $active = array_filter($plans, fn ($p) => !empty($p['enabled']));
-    if ($active) {
-        $runner = officeJobSchedule('snapshots');
-        $out[] = finding('plans_runner', 'required', $runner['script'] && $runner['enabled'], [], '#/snapshot');
-        $states = snapPlanStates();
-        foreach ($active as $p) {
-            $st = $states[$p['id']] ?? [];
-            if (in_array($st['result'] ?? '', ['failed', 'partly'], true)) {
-                $out[] = finding('plan_failed', 'recommended', false, ['name' => $p['label']], '#/snapshot');
-            }
-        }
-    }
+    $out = snapPlanFindings(snapPlans(), snapPlanStates());
     // other snapshot schedulers: worth knowing, so nothing runs twice
     foreach (housePlugins() as $pl) {
         if (preg_match('/sanoid|auto.?snap|znapzend|snapshot/i', $pl['name'])) {
@@ -534,6 +594,31 @@ function snapPlanChecks(): array
     foreach (houseContainers() as $c) {
         if (preg_match('/sanoid|znapzend|zfs-auto-snap/i', $c['name'] . ' ' . $c['image'])) {
             $out[] = finding('other_snapshot_tool', 'hint', null, ['name' => $c['name']], 'docker');
+        }
+    }
+    return $out;
+}
+
+/**
+ * The findings about the active plans themselves, from their files only: the runner's cron line, a
+ * last run that failed, targets gone (one per plan and target — the team lead's «I know, thanks» is
+ * keyed by the params). $runner stands in for officeJobSchedule('snapshots') in the tests.
+ */
+function snapPlanFindings(array $plans, array $states, ?array $runner = null): array
+{
+    $out = [];
+    $active = array_filter($plans, fn ($p) => !empty($p['enabled']));
+    if ($active) {
+        $runner ??= officeJobSchedule('snapshots');
+        $out[] = finding('plans_runner', 'required', $runner['script'] && $runner['enabled'], [], '#/snapshot');
+        foreach ($active as $p) {
+            $st = is_array($states[$p['id']] ?? null) ? $states[$p['id']] : [];
+            if (in_array($st['result'] ?? '', ['failed', 'partly'], true)) {
+                $out[] = finding('plan_failed', 'recommended', false, ['name' => $p['label']], '#/snapshot');
+            }
+            foreach (array_keys(snapPlanGoneOf($st)) as $t) {
+                $out[] = finding('plan_target_gone', 'recommended', false, ['plan' => $p['label'], 'target' => snapPlanTargetLabel($t)], '#/snapshot');
+            }
         }
     }
     return $out;
