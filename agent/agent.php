@@ -41,6 +41,7 @@ const AGENT_VERSION = '1.32.0';
 define('RUN_DIR', officeRunDir());          // RAM, root only (0700); the web side's officeRunDir()
 const PID_FILE      = RUN_DIR . '/agent.pid';
 const AGENT_HEARTBEAT = RUN_DIR . '/agent.json';     // who is at work; its mtime is the pulse (writeInfo(), agentPulse())
+const DOORBELL      = RUN_DIR . '/doorbell';   // a FIFO the web side rings after dropping a request (doorbellOpen(), agentNap())
 const TICK_US       = 150000;
 const LOG_MAX       = 512 * 1024;
 const FILE_UID      = 99;    // nobody:users, like everything else in appdata
@@ -249,6 +250,8 @@ function serve(): int
     $code = codeStamp();
     $ready = false;
     $lastPulse = $lastLook = $lastCleanup = 0;
+    $bell = doorbellOpen();
+    $nextTick = 0.0;
 
     while (!$stop) {
         clearstatcache();
@@ -266,6 +269,12 @@ function serve(): int
         }
 
         processMailbox();
+        // the rest of the round as ever — 150 ms after the last one ended —, however often the doorbell wakes the
+        // agent in between
+        if (microtime(true) < $nextTick) {
+            agentNap($bell, $nextTick);
+            continue;
+        }
         foreach (desks() as $id => $desk) {
             if ($desk['tick']) {
                 try {
@@ -300,15 +309,94 @@ function serve(): int
                 }
             }
         }
-        usleep(TICK_US);
+        $nextTick = microtime(true) + TICK_US / 1e6;
+        agentNap($bell, $nextTick);     // until the next round — or the doorbell, whichever comes first
     }
 
     logLine('Agent stopped');
     writeInfo(false);
+    doorbellClose($bell);
     flock($lock, LOCK_UN);
     fclose($lock);
     @unlink(PID_FILE);
     return 0;
+}
+
+/**
+ * The doorbell: a FIFO in RUN_DIR (RAM, root only), so a request in the mailbox is picked up at once instead of at
+ * the agent's next round (on average 100 ms later: the agent napped 150 ms between rounds, the page looked for the
+ * answer every 50 ms). The web side writes a byte after dropping a request (src/mailbox.php agentRing()); the agent
+ * waits on it between its rounds with the round's time as the limit (agentNap()) — no ring, no doorbell: as before.
+ * Made anew at every start: whatever lies there goes (an old doorbell — a FIFO keeps no bytes once nobody has it
+ * open —, a file, a link), then mkfifo 0600 with umask 077. Opened for reading and writing (never waits for a writer,
+ * never sees an end), non-blocking, unbuffered — and only when the open handle is exactly the FIFO just made (lstat,
+ * then fstat: the same inode, the agent's own). Nothing in the pool: the array stop never waits for it.
+ *
+ * @return resource|null  null: no doorbell (logged) — the agent looks every 150 ms, the page waits that much longer
+ */
+function doorbellOpen()
+{
+    @mkdir(RUN_DIR, 0700, true);
+    clearstatcache(true, DOORBELL);
+    if (@lstat(DOORBELL) !== false && !@unlink(DOORBELL)) {
+        logLine('The doorbell ' . DOORBELL . ' could not be made anew — requests wait for the next round (≤ 150 ms)');
+        return null;
+    }
+    $old = umask(0077);
+    $made = function_exists('posix_mkfifo') && @posix_mkfifo(DOORBELL, 0600);
+    umask($old);
+    clearstatcache(true, DOORBELL);
+    $st = $made ? @lstat(DOORBELL) : false;
+    $bell = $st && ($st['mode'] & 0170000) === 0010000 && $st['uid'] === posix_geteuid() ? @fopen(DOORBELL, 'r+') : false;
+    $fs = $bell ? @fstat($bell) : false;
+    if (!$fs || $fs['dev'] !== $st['dev'] || $fs['ino'] !== $st['ino'] || !stream_set_blocking($bell, false)) {
+        if ($bell) {
+            fclose($bell);
+        }
+        logLine('No doorbell at ' . DOORBELL . ' — requests wait for the next round (≤ 150 ms)');
+        return null;
+    }
+    stream_set_read_buffer($bell, 0);
+    return $bell;
+}
+
+/** At the stop: the doorbell goes (a page that rings now rings nobody — and nothing waits for an answer then) */
+function doorbellClose($bell): void
+{
+    if (!is_resource($bell)) {
+        return;
+    }
+    $fs = @fstat($bell);
+    clearstatcache(true, DOORBELL);
+    $st = @lstat(DOORBELL);
+    fclose($bell);
+    if ($fs && $st && $st['dev'] === $fs['dev'] && $st['ino'] === $fs['ino']) {
+        @unlink(DOORBELL);              // only its own: never another agent's
+    }
+}
+
+/**
+ * Waits until $until (microtime) or until the doorbell rings, whichever comes first; what rang is read away (the
+ * bytes mean nothing but «look now»). A signal ends the wait too (the loop then looks at its stop flag). Without a
+ * doorbell: a plain nap. True when it rang.
+ */
+function agentNap($bell, float $until): bool
+{
+    $us = (int) max(0, ($until - microtime(true)) * 1e6);
+    if (!is_resource($bell)) {
+        if ($us > 0) {
+            usleep($us);
+        }
+        return false;
+    }
+    $read = [$bell];
+    $w = $e = null;
+    if (@stream_select($read, $w, $e, intdiv($us, 1000000), $us % 1000000) < 1) {
+        return false;
+    }
+    for ($i = 0; $i < 16 && ($bytes = @fread($bell, 4096)) !== false && $bytes !== ''; $i++) {
+    }
+    return true;
 }
 
 /** Starts this agent anew in its own process (its pid stays): new code, or another way to its data folder */

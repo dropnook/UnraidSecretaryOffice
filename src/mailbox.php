@@ -6,8 +6,9 @@ declare(strict_types=1);
  *
  * The web side never calls zfs, docker & co. itself, even though Unraid's
  * php-fpm runs as root: it leaves that to the agent. It drops a request
- * into data/mailbox/ (<id>.request), the agent picks it up within ~150 ms
- * and puts <id>.response next to it.
+ * into data/mailbox/ (<id>.request) and rings the agent's doorbell (a FIFO
+ * in its RAM folder: agentRing()); the agent picks the request up at once
+ * (without the doorbell within ~150 ms) and puts <id>.response next to it.
  */
 
 final class AgentAway extends RuntimeException {}
@@ -100,20 +101,26 @@ function askAgent(string $action, array $data = [], float $wait = 20.0): array
         @unlink($tmp);
         throw new AgentAway('mailbox_write');
     }
+    agentRing();
 
-    $deadline = microtime(true) + $wait;
-    $picked = false;
-    $round = 0;
-    while (microtime(true) < $deadline) {
-        usleep(50000);
+    // the answer: the agent starts at once, a state it has at hand is there in a few ms — looked for after 2 ms, 4 ms,
+    // then every 10 ms for the first two seconds, then every 50 ms (one stat each, on the pool directly for an
+    // exclusive share)
+    $start = microtime(true);
+    $deadline = $start + $wait;
+    $nextLook = $start + 0.5;
+    $pause = 2000;
+    while (($t = microtime(true)) < $deadline) {
+        usleep($pause);
+        $pause = $t - $start < 2 ? min(10000, $pause * 2) : 50000;
         clearstatcache();
         if (is_file($response)) {
             return agentAnswer($response);
         }
-        $picked = $picked || !is_file($request);
-        if ($who !== null && ++$round % 10 === 0) {
+        if ($who !== null && microtime(true) >= $nextLook) {
             // every half second: still the same agent? A new one empties the mailbox when it starts
             // (setUp()), a stopped one answers nothing more — what was waiting is lost
+            $nextLook = microtime(true) + 0.5;
             $now = agentIdentity(agentRecord()[0]);
             if ($now === null || ($now['id'] === $who['id'] && ($now['running'] || !$who['running']))) {
                 continue;
@@ -134,10 +141,37 @@ function askAgent(string $action, array $data = [], float $wait = 20.0): array
             throw new AgentRestarted('restarted');
         }
     }
-    if (!$picked && @unlink($request)) {
-        throw new AgentAway('not_picked_up');
+    if (@unlink($request)) {
+        throw new AgentAway('not_picked_up');      // still there: nobody took it (taken, it is gone — unlink fails)
     }
     throw new AgentBusy('still_working');
+}
+
+/**
+ * Rings the agent's doorbell after a request was dropped, so it looks at once instead of at its next round (≤ 150 ms):
+ * one byte into the FIFO the agent made in its RAM folder (agent/agent.php doorbellOpen()). The web side writes that
+ * file and nothing else — never a signal, never a process. Only a FIFO of the web server's own user (root, like the
+ * agent) that nobody else may open, never through a link (lstat, then the open handle's fstat: the same inode);
+ * opened for reading and writing, so it never waits for a reader, and written non-blocking — no doorbell, no agent
+ * reading it, a full one: nothing happens, the agent's next round finds the request as before.
+ */
+function agentRing(?string $bell = null): bool
+{
+    $bell ??= officeRunDir() . '/doorbell';
+    clearstatcache(true, $bell);
+    $st = @lstat($bell);
+    $me = function_exists('posix_geteuid') ? posix_geteuid() : 0;
+    if (!$st || ($st['mode'] & 0170000) !== 0010000 || $st['uid'] !== $me || ($st['mode'] & 0077)) {
+        return false;
+    }
+    $h = @fopen($bell, 'r+');
+    if (!$h) {
+        return false;
+    }
+    $fs = @fstat($h);
+    $ok = $fs && $fs['dev'] === $st['dev'] && $fs['ino'] === $st['ino'] && stream_set_blocking($h, false) && @fwrite($h, "\n") === 1;
+    fclose($h);
+    return $ok;
 }
 
 /**

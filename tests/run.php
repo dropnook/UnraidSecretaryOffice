@@ -7282,6 +7282,108 @@ function testHeartbeat(): void
 }
 
 /**
+ * The doorbell (lever 3 of the performance report, 2026-10-07): a request waited ~100 ms on average in the mailbox (the
+ * agent napped 150 ms between rounds, the page looked for the answer every 50 ms). Now the agent waits on a FIFO in its
+ * RAM folder and the web side rings it after dropping a request — writing that one file only, never a signal. The
+ * agent makes it anew at every start (an old one, a file or a link there go — never written through), 0600, its own;
+ * the web side rings only such a FIFO (not through a link, not one others may open, not another user's), never waits
+ * (no reader, a full one) and never makes one. Then the round trip: the agent's mailbox and nap against the web side's
+ * askAgent(), with the doorbell and without (then as before). Processes of their own, a RAM folder of the test's.
+ */
+function testDoorbell(): void
+{
+    $tmp = hardeningTmp('doorbell');
+    $run = "$tmp/run";
+    $data = "$tmp/data";
+    @mkdir($run, 0700, true);
+    @mkdir($data, 0755, true);
+    $env = ['OFFICE_DATA_DIR' => $data, 'OFFICE_RUN_DIR' => $run, 'PATH' => getenv('PATH')];
+    $php = function (string $code, array $args = []) use ($env): array {
+        $p = proc_open(array_merge([PHP_BINARY, '-r', $code], $args), [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $env);
+        $out = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return json_decode(substr($out, (int) strpos($out, '{')), true) ?: ['raw' => $out];
+    };
+    $agent = 'define("AGENT_LIBRARY_ONLY", 1); require ' . var_export(OFFICE_DIR . '/agent/agent.php', true) . '; ';
+    $web = 'require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; ';
+    $bell = "$run/doorbell";
+
+    // the agent's side: made anew, whatever lay there; its own FIFO, 0600; a nap ends at the ring or at its time
+    file_put_contents("$tmp/victim", 'v');
+    symlink("$tmp/victim", $bell);
+    $r = $php($agent . '$o = []; $b = doorbellOpen(); clearstatcache(); $st = lstat(DOORBELL);'
+        . ' $o["made"] = [is_resource($b), ($st["mode"] & 0170000) === 0010000, $st["mode"] & 0777, $st["uid"] === posix_geteuid(), DOORBELL];'
+        . ' $t = microtime(true); $o["quiet"] = [agentNap($b, $t + 0.2), microtime(true) - $t >= 0.15];'
+        . ' $w = fopen(DOORBELL, "r+"); fwrite($w, str_repeat("x", 100)); fclose($w);'
+        . ' $t = microtime(true); $o["rung"] = [agentNap($b, $t + 3), microtime(true) - $t < 0.5];'
+        . ' $t = microtime(true); $o["read away"] = [agentNap($b, $t + 0.2), microtime(true) - $t >= 0.15];'
+        . ' $o["file"] = (function () { $b = null; file_put_contents("' . $tmp . '/plain", "p"); @unlink(DOORBELL); rename("' . $tmp . '/plain", DOORBELL); $b = doorbellOpen(); clearstatcache(); return [is_resource($b), (lstat(DOORBELL)["mode"] & 0170000) === 0010000]; })();'
+        . ' $b2 = doorbellOpen(); clearstatcache(); $ino = lstat(DOORBELL)["ino"]; doorbellClose($b); clearstatcache(); $o["not its own"] = file_exists(DOORBELL) && lstat(DOORBELL)["ino"] === $ino;'
+        . ' doorbellClose($b2); clearstatcache(); $o["closed"] = file_exists(DOORBELL) || is_link(DOORBELL);'
+        . ' echo json_encode($o);');
+    same('doorbell: made anew over a link — a FIFO of its own, 0600, in the RAM folder', [true, true, 0600, true, $bell], $r['made'] ?? $r);
+    same('doorbell: the link\'s target untouched', 'v', file_get_contents("$tmp/victim"));
+    same('doorbell: unrung, the nap lasts its time', [false, true], $r['quiet'] ?? null);
+    same('doorbell: a ring ends the nap at once', [true, true], $r['rung'] ?? null);
+    same('doorbell: what rang is read away (the next nap lasts its time)', [false, true], $r['read away'] ?? null);
+    same('doorbell: a plain file in its place is replaced', [true, true], $r['file'] ?? null);
+    check('doorbell: at the stop only its own goes', ($r['not its own'] ?? null) === true && ($r['closed'] ?? null) === false);
+
+    // the web side's ring: only a FIFO of its own user others can't open, never through a link, never waiting, never making one
+    $ring = fn (string $setup = '') => $php($web . $setup . ' $t = microtime(true); $ok = agentRing(); echo json_encode(["ok" => $ok, "s" => microtime(true) - $t]);');
+    $r = $ring();
+    same('ring: no doorbell — nothing, and none made', [false, false], [$r['ok'] ?? null, file_exists($bell) || is_link($bell)]);
+    file_put_contents($bell, 'keep');
+    $r = $ring();
+    same('ring: a plain file — not written', [false, 'keep'], [$r['ok'] ?? null, file_get_contents($bell)]);
+    unlink($bell);
+    posix_mkfifo("$tmp/fifo", 0600);
+    symlink("$tmp/fifo", $bell);
+    $r = $ring('$h = fopen(' . var_export("$tmp/fifo", true) . ', "r+"); stream_set_blocking($h, false);');
+    same('ring: a link to a FIFO — not followed', false, $r['ok'] ?? null);
+    unlink($bell);
+    posix_mkfifo($bell, 0600);
+    chmod($bell, 0622);
+    same('ring: a FIFO others may write — refused', false, $ring()['ok'] ?? null);
+    chmod($bell, 0600);
+    chown($bell, 65534);
+    same('ring: another user\'s FIFO — refused', false, $ring()['ok'] ?? null);
+    chown($bell, posix_geteuid());
+    $r = $ring();
+    check('ring: the agent\'s FIFO with nobody reading — rung, without waiting', ($r['ok'] ?? null) === true && ($r['s'] ?? 9) < 0.5, json_encode($r));
+    $r = $ring('$h = fopen(' . var_export($bell, true) . ', "r+"); stream_set_blocking($h, false); while (@fwrite($h, str_repeat("x", 4096))) {}');
+    check('ring: a full one (an agent that doesn\'t read) — left as it is, without waiting', ($r['ok'] ?? null) === false && ($r['s'] ?? 9) < 0.5, json_encode($r));
+    unlink($bell);
+
+    // the round trip: the agent's mailbox and nap against askAgent() — with the doorbell, and without (as before)
+    $loop = $agent . '@mkdir(DATA_DIR, 0755, true); mailboxEnsure(); writeInfo(true); $b = $argv[1] === "bell" ? doorbellOpen() : null;'
+        . ' $end = microtime(true) + 8; $next = 0.0; while (microtime(true) < $end && !file_exists(DATA_DIR . "/stop")) {'
+        . ' clearstatcache(); processMailbox(); if (microtime(true) >= $next) { $next = microtime(true) + TICK_US / 1e6; } agentNap($b, $next); }'
+        . ' doorbellClose($b); echo json_encode(["done" => true]);';
+    $ask = $web . '$t = []; for ($i = 0; $i < 12; $i++) { usleep(random_int(0, 150000)); $a = microtime(true);'
+        . ' $r = askAgent("office.ping", [], 5); $t[] = empty($r["ok"]) ? 9999 : (microtime(true) - $a) * 1000; } sort($t);'
+        . ' echo json_encode(["median" => $t[6], "max" => $t[11], "ring" => agentRing()]);';
+    foreach (['bell' => 60, 'none' => 200] as $how => $high) {
+        @unlink("$data/stop");
+        $p = proc_open([PHP_BINARY, '-r', $loop, $how], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $env);
+        for ($i = 0; $i < 100 && !is_dir("$data/mailbox"); $i++) {
+            usleep(20000);
+        }
+        usleep(200000);
+        $r = $php($ask);
+        touch("$data/stop");
+        proc_close($p);
+        check("round trip ($how): answered, the median under $high ms", is_numeric($r['median'] ?? null)
+            && $r['median'] < $high && $r['max'] < $high + 150, json_encode($r));
+        same("round trip ($how): the doorbell " . ($how === 'bell' ? 'there while the agent runs' : 'never made by the web side'),
+            $how === 'bell', $r['ring'] ?? null);
+        hardeningRm("$data/mailbox");
+    }
+    same('doorbell: gone with the agent', false, file_exists($bell));
+    hardeningRm($tmp);
+}
+
+/**
  * Ms. Snapshotini's record of what she removed (data/snapshot/deletes.jsonl, root only) and how the night
  * watchman reads it: it beats her lines in the office's log, which the web server's user may write — those
  * count only until the record is there.
@@ -9854,7 +9956,7 @@ function testLiveRunUntouched(): void
     same('live run folder: the web side\'s too', $own, officeRunDir());
     $paths = ['PID_FILE' => PID_FILE, 'inbox' => officeInboxDir(), 'WATCH_NIGHT_DIR' => WATCH_NIGHT_DIR, 'WATCH_NIGHT_LOCK' => WATCH_NIGHT_LOCK,
               'WATCH_MIRROR_RAM' => WATCH_MIRROR_RAM, 'WATCH_ARRAY_EVENTS' => WATCH_ARRAY_EVENTS, 'OFFICE_NOTIFY_LANG_RAM' => OFFICE_NOTIFY_LANG_RAM,
-              'ADVISOR_PREPARED_DIR' => ADVISOR_PREPARED_DIR, 'ADVISOR_JOB' => ADVISOR_JOB];
+              'ADVISOR_PREPARED_DIR' => ADVISOR_PREPARED_DIR, 'ADVISOR_JOB' => ADVISOR_JOB, 'AGENT_HEARTBEAT' => AGENT_HEARTBEAT, 'DOORBELL' => DOORBELL];
     same('live run folder: every RAM path of the agent in the tests\' own', [], array_keys(array_filter($paths, fn ($p) => !str_starts_with($p, "$own/"))));
     $named = [];
     foreach (array_merge(glob(OFFICE_DIR . '/agent/*.php') ?: [], glob(OFFICE_DIR . '/agent/*/*.php') ?: [], glob(OFFICE_DIR . '/src/*.php') ?: []) as $f) {
@@ -9950,7 +10052,7 @@ function testUnraidWords(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch'],
-          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
+          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings', 'testUnraidWords']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
