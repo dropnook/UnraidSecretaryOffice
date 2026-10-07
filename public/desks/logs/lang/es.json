@@ -215,5 +215,8 @@
   "fit.yes": "A la señora Protocoli le encantaría venir: «No sé hacer nada, ¡pero sé leerlo todo en voz alta!»",
   "errors.logs_unknown": "Este registro no existe (ya).",
   "errors.logs_unreadable": "Ahora mismo no se puede leer este registro. {detail}",
-  "errors.logs_tour_failed": "Mi ronda no pudo empezar."
+  "errors.logs_tour_failed": "Mi ronda no pudo empezar.",
+  "source.partner_door": "Puerta de socios (lo que pidieron las secretarías asociadas)",
+  "source.partner_door_old": "Puerta de socios — registro anterior",
+  "source.partner_door_ram": "Puerta de socios — mientras el array estaba detenido"
 }

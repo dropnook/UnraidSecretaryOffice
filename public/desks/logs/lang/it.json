@@ -215,5 +215,8 @@
   "fit.yes": "La signora Protocolli viene volentieri: «Non so fare niente, ma so leggere tutto ad alta voce!»",
   "errors.logs_unknown": "Questo log non esiste (più).",
   "errors.logs_unreadable": "Questo log non si può leggere in questo momento. {detail}",
-  "errors.logs_tour_failed": "Il mio giro non è potuto partire."
+  "errors.logs_tour_failed": "Il mio giro non è potuto partire.",
+  "source.partner_door": "Porta del partner (cosa hanno chiesto le segreterie partner)",
+  "source.partner_door_old": "Porta del partner — log precedente",
+  "source.partner_door_ram": "Porta del partner — mentre l'array era fermo"
 }

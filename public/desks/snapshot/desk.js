@@ -84,6 +84,8 @@ function asleepTitle(s) {
 function source(s) {
   if (s.docker) return { key: 'docker', label: T('source.docker') };
   if (s.fs === 'vm') return { key: 'vm', label: T('source.vm') };
+  // a partner office's copy (received by the door) — its uso-backup-* names are the partner's engine's, not ours
+  if (s.partner) return { key: 'partner:' + (s.partner.id || ''), label: partnerLabel(s.partner), partner: true };
   // the engine's first: what matches its names is never a schedule's (her retention leaves it alone too)
   if (fromBackup(s)) return { key: 'backup', label: T('source.backup') };
   const plan = planOf(s);
@@ -98,8 +100,17 @@ function source(s) {
 }
 
 function sourceChip(src) {
-  return src.key === 'backup' ? 'chip accent' : src.key === 'manual' ? 'chip warn' : src.plan ? 'chip ok' : 'chip';
+  return src.key === 'backup' ? 'chip accent' : src.key === 'manual' ? 'chip warn' : src.plan ? 'chip ok' : src.partner ? 'chip outline' : 'chip';
 }
+
+/** «partner's copy (vault)» — or, its pair gone, a leftover; the partners' place itself */
+function partnerLabel(p) {
+  if (p.place) return T('partner.place');
+  const name = p.name || p.id || '?';
+  return p.gone ? T('partner.left', { name }) : T('partner.copy', { name });
+}
+/** A partner's copy she keeps her hands off: its pair is still there (the door's retention keeps them) */
+function partnerLocked(x) { return !!(x && x.partner && !x.partner.gone); }
 
 /**
  * Made by the backup engine: exactly <prefix>YYYYMMDD-HHMM for one of its prefixes (uso-backup-, and the older
@@ -125,12 +136,13 @@ function usedByBackup(s) { return backupRunning() && (s.mounts || []).some((m) =
 function ourHold(s) { return (s.holds || []).some((h) => OUR_HOLDS.includes(h)); }
 
 function deletable(s) {
-  return s.fs !== 'vm' && !s.docker && !(s.holds && s.holds.length) && !(s.clones && s.clones.length) && !usedByBackup(s);
+  return s.fs !== 'vm' && !s.docker && !(s.holds && s.holds.length) && !(s.clones && s.clones.length) && !usedByBackup(s) && !partnerLocked(s);
 }
 
 function whyNot(s) {
   if (s.docker) return T('why.docker');
   if (s.fs === 'vm') return T('why.vm');
+  if (partnerLocked(s)) return T('why.partner', { name: s.partner.name || s.partner.id || '' });
   if (usedByBackup(s)) return T('why.backup');
   if (s.holds && s.holds.length) return T('why.held');
   if (s.clones && s.clones.length) return T('why.clones', { clones: s.clones.join(', ') });
@@ -163,7 +175,7 @@ function runOf(s) {
 
 function targets() {
   const r = [];
-  for (const v of state?.zfs?.volumes || []) r.push(v);
+  for (const v of state?.zfs?.volumes || []) if (!partnerLocked(v)) r.push(v);      // a partner's copies are never her targets
   for (const d of state?.btrfs?.devices || []) {
     r.push({ id: 'btrfs:' + d.mount, fs: 'btrfs', pool: d.name, name: d.mount, used: d.size - d.free, asleep: d.asleep, children: 0 });
   }
@@ -272,6 +284,7 @@ function build(root) {
     [el('span', 'chip outline', '📌 ' + T('used_by_backup')), T('help.backup')],
     [el('span', 'chip quiet', '💤 ' + T('disk_asleep')), T('help.asleep')],
     [el('span', 'chip quiet', '💤 ' + T('pool_asleep_chip')), T('help.pool_asleep')],
+    [el('span', 'chip outline', T('partner.chip')), T('help.partner')],
     [T('plans'), T('help.plans')],
     [T('help.sources'), T('help.sources_text')],
     [T('docker_layers'), T('help.docker')],
@@ -689,8 +702,9 @@ function buildGroup(g) {
     head.appendChild(timeline(g.items));
     const plus = el('button', 'group-plus', '+');
     plus.type = 'button';
-    plus.title = T('new_from_here');
-    plus.disabled = !Office.agent.running;
+    const vol = (state.zfs.volumes || []).find((x) => x.id === g.vol);
+    plus.title = partnerLocked(vol) ? T('partner.no_target') : T('new_from_here');
+    plus.disabled = !Office.agent.running || partnerLocked(vol);
     plus.onclick = (e) => { e.stopPropagation(); createDialog([g.vol]); };
     head.appendChild(plus);
   }
@@ -781,7 +795,9 @@ function buildRow(s) {
   if (s.t) when.title = fmt.date(s.t, true);
   meta.appendChild(when);
   const src = source(s);
-  meta.appendChild(el('span', sourceChip(src), src.label));
+  const srcChip = el('span', sourceChip(src), src.label);
+  if (src.partner) srcChip.title = T(s.partner.gone ? 'partner.left_title' : 'partner.copy_title', { name: s.partner.name || s.partner.id || '' });
+  meta.appendChild(srcChip);
   if (s.holds && s.holds.length) {
     const c = el('span', 'chip solid', '🔒 ' + T('held'));
     c.title = 'Hold: ' + s.holds.join(', ');
@@ -856,6 +872,10 @@ function rowMenu(s) {
     } });
   }
   if (s.path) items.push({ text: Office.t('common.copy_path'), act: () => Office.copy(s.path) });
+  if (partnerLocked(s)) {
+    items.push({ text: T('partner.hands_off'), disabled: true });       // the door's retention keeps these
+    return items;
+  }
   if (s.fs === 'zfs' && !s.docker) {
     if (ourHold(s)) items.push({ text: T('release'), act: () => hold(s, false), disabled: !on });
     else if (s.holds && s.holds.length) items.push({ text: T('held_by', { holds: s.holds.join(', ') }), disabled: true });

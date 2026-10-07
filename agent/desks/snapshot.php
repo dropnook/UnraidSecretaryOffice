@@ -15,7 +15,14 @@ declare(strict_types=1);
  * and estimate how much space a deletion frees, and take snapshots on a
  * schedule with a simple retention (lib/snapshotplans.php). Every request is checked
  * against a fresh scan; commands run without a shell.
+ *
+ * A partner office's copies (<pool>/UnraidSecretaryOffice-partners/<pair>/<unit>, received by the partner door —
+ * agent/lib/partnerlook.php) carry `partner` {id, name, gone}: shown as «partner's copy», never a target of hers
+ * (create, schedules: partner_dataset), never deleted, renamed, held or released (partner_copy) — the door's own
+ * retention keeps them — unless the pair is gone from the pairs (then they are leftovers, Ms. Dustdevil's room).
  */
+
+require_once __DIR__ . '/../lib/partnerlook.php';
 
 const SNAPSHOT_HOLD_TAG   = 'unraid-secretary-office';
 const SNAPSHOT_HOLD_TAGS  = ['unraid-secretary-office', 'snapshots-webseite'];   // ours, incl. the old name
@@ -174,7 +181,7 @@ function snapshotScan(bool $readBtrfs, bool $wake = false, array $btrfsOnly = []
     $t0 = microtime(true);
     $old = $GLOBALS['snapshot'];
 
-    $zfs = snapshotReadZfs($old, $wake);
+    $zfs = snapshotPartnerMark(snapshotReadZfs($old, $wake));
     $vm = snapshotReadVms();
     $btrfs = snapshotBtrfsPart($old['btrfs'] ?? null, $readBtrfs, $wake, $btrfsOnly);
 
@@ -930,6 +937,52 @@ function snapshotUnmountRequest(string $id, bool $wake = false): array
 
 // ===================================================================== actions
 
+/**
+ * A partner office's copies among her ZFS datasets and snapshots (under <pool>/UnraidSecretaryOffice-partners): each
+ * gets `partner` = {id, name (the pair's, null: none), gone (no pair of that id any more — a leftover), place (the
+ * partners' place itself)}. $pairs: the pairs file (tests: `$GLOBALS['snapshotPartnerPairs']`).
+ */
+function snapshotPartnerMark(array $zfs, ?string $pairs = null): array
+{
+    $file = $pairs ?? ($GLOBALS['snapshotPartnerPairs'] ?? null);
+    $known = null;
+    $mark = function (string $name) use (&$known, $file): ?array {
+        $d = partnerLookDataset($name);
+        if ($d === null) {
+            return null;
+        }
+        $known ??= partnerLookPairs($file);
+        if ($d['id'] === null && !$d['trash']) {
+            return ['id' => null, 'name' => null, 'gone' => $known === [], 'place' => true];
+        }
+        $pair = !$d['trash'] && $d['id'] !== null ? ($known[$d['id']] ?? null) : null;
+        return ['id' => $d['id'], 'name' => $pair['name'] ?? null, 'gone' => $pair === null, 'place' => false];
+    };
+    foreach (['volumes' => 'name', 'snapshots' => 'ds'] as $list => $field) {
+        foreach ((array) ($zfs[$list] ?? []) as $i => $x) {
+            if (is_array($x) && is_string($x[$field] ?? null) && ($p = $mark($x[$field])) !== null) {
+                $zfs[$list][$i]['partner'] = $p;
+            }
+        }
+    }
+    return $zfs;
+}
+
+/** A partner's copy she keeps her hands off (its pair is still there) */
+function snapshotPartnerLocked(array $x): bool
+{
+    return is_array($x['partner'] ?? null) && empty($x['partner']['gone']);
+}
+
+/** Refuses an action on a partner's copy: the door's retention keeps those (a leftover of an ended pair is no longer locked) */
+function snapshotRefusePartner(array $s): void
+{
+    if (snapshotPartnerLocked($s)) {
+        throw new Problem('partner_copy', ['name' => snapshotShortId((string) ($s['id'] ?? '')),
+            'partner' => (string) ($s['partner']['name'] ?? $s['partner']['id'] ?? PARTNER_PARENT)]);
+    }
+}
+
 function snapshotShortId(string $id): string
 {
     return (string) preg_replace('/^[a-z]+:/', '', $id);
@@ -980,8 +1033,8 @@ function snapshotEstimate(array $ids): array
     $asleep = 0;
     foreach ($ids as $id) {
         $s = $index[$id] ?? null;
-        if (!$s || $s['docker'] || $s['holds']) {
-            continue;
+        if (!$s || $s['docker'] || $s['holds'] || snapshotPartnerLocked($s)) {
+            continue;                               // a partner's copy isn't hers to delete
         }
         if (!empty($s['asleep'])) {
             $asleep++;                              // its pool sleeps: not even a dry run touches it
@@ -1031,11 +1084,15 @@ function snapshotCreate(array $r): array
     foreach ($targets as $id) {
         if (isset($volumes[$id])) {
             $v = $volumes[$id];
+            if (snapshotPartnerLocked($v)) {
+                // a snapshot of her own on a partner's copy would stop the next receive (zfs recv refuses a target changed since)
+                throw new Problem('partner_dataset', ['target' => $v['name'], 'partner' => (string) ($v['partner']['name'] ?? $v['partner']['id'] ?? PARTNER_PARENT)]);
+            }
             $zfsPerPool[$v['pool']][$v['name']] = true;
             if ($recursive) {
                 foreach ($volumes as $w) {
-                    if (str_starts_with($w['name'], $v['name'] . '/')) {
-                        $zfsPerPool[$w['pool']][$w['name']] = true;   // Docker's layers aren't in $volumes at all
+                    if (str_starts_with($w['name'], $v['name'] . '/') && !snapshotPartnerLocked($w)) {
+                        $zfsPerPool[$w['pool']][$w['name']] = true;   // Docker's layers aren't in $volumes at all; a partner's copies never
                     }
                 }
             }
@@ -1114,6 +1171,8 @@ function snapshotDelete(array $ids, bool $unmount = false, bool $wake = false): 
             $failures[] = ['key' => 'docker_layer', 'params' => ['name' => $short]];
         } elseif ($s['fs'] === 'vm') {
             $failures[] = ['key' => 'vm_managed_by_unraid', 'params' => ['name' => $short]];
+        } elseif (snapshotPartnerLocked($s)) {
+            $failures[] = ['key' => 'partner_copy', 'params' => ['name' => $short, 'partner' => (string) ($s['partner']['name'] ?? $s['partner']['id'] ?? PARTNER_PARENT)]];
         } elseif ($s['holds']) {
             $failures[] = ['key' => 'held', 'params' => ['name' => $short, 'holds' => implode(', ', $s['holds'])]];
         } elseif ($s['clones']) {
@@ -1186,6 +1245,7 @@ function snapshotRename(string $id, string $new, bool $wake = false): array
         throw new Problem('snapshot_gone', ['name' => snapshotShortId($id)]);
     }
     snapshotRefuseAsleep($s);
+    snapshotRefusePartner($s);
     if ($s['docker'] || $s['fs'] === 'vm') {
         throw new Problem('cannot_rename');
     }
@@ -1224,6 +1284,7 @@ function snapshotHold(string $id, bool $on, bool $wake = false): array
         throw new Problem('hold_zfs_only');
     }
     snapshotRefuseAsleep($s);
+    snapshotRefusePartner($s);
     $full = "{$s['ds']}@{$s['name']}";
     $ours = array_values(array_intersect($s['holds'], SNAPSHOT_HOLD_TAGS));
     if ($on && $ours) {

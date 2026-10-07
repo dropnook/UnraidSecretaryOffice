@@ -215,5 +215,8 @@
   "fit.yes": "Ms. Protocolli would love to come: \"I can't do anything, but I can read everything out!\"",
   "errors.logs_unknown": "This log doesn't exist (any more).",
   "errors.logs_unreadable": "This log can't be read right now. {detail}",
-  "errors.logs_tour_failed": "My tour couldn't be started."
+  "errors.logs_tour_failed": "My tour couldn't be started.",
+  "source.partner_door": "Partner door (what partner offices asked for)",
+  "source.partner_door_old": "Partner door — older log",
+  "source.partner_door_ram": "Partner door — while the array was stopped"
 }

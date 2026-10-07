@@ -22,6 +22,8 @@ declare(strict_types=1);
  * whereabouts-sizes.json once.
  */
 
+require_once __DIR__ . '/partnerlook.php';      // the partners' places (waPartners())
+
 const WA_SHARES_DIR   = '/boot/config/shares';
 const WA_SHARES_INI   = '/var/local/emhttp/shares.ini';
 const WA_VAR_INI      = '/var/local/emhttp/var.ini';
@@ -216,6 +218,7 @@ function whereScan(bool $awake = false): array
         'scripts'     => $scripts,
         'cron'        => $cron,
         'backups'     => $backups,
+        'partners'    => waPartners($awake),
         'plugins'     => waPlugins(),
         'health'      => waHealth(),
         'license'     => waLicense(),
@@ -269,6 +272,47 @@ function waStorageRoots(): array
     }
     ksort($roots, SORT_NATURAL);
     return $roots;
+}
+
+/**
+ * The partners' places (agent/lib/partnerlook.php): per awake ZFS pool its <pool>/UnraidSecretaryOffice-partners with
+ * what each pair's copies take there (with their snapshots), the pair's name, or that its partnership has ended (a
+ * leftover of «Tidying up»), and how many of them lie in her storeroom; the sleeping pools named, never asked.
+ * $woken: every disk was just woken (a tour with «wake»). Tests: `$GLOBALS['waPartnerHost']` (pools, zfs, pairs).
+ *
+ * @return array{places: list<array>, asleep: list<string>}
+ */
+function waPartners(bool $woken = false): array
+{
+    $host = $GLOBALS['waPartnerHost'] ?? [];
+    if (isset($host['pools'])) {
+        [$awake, $asleep] = $host['pools'];
+    } else {
+        $names = [];
+        $zpool = bin('zpool');
+        [$exit, $out] = $zpool ? run([$zpool, 'list', '-H', '-o', 'name'], 30) : [1, ''];
+        foreach ($exit === 0 ? rows($out) : [] as $f) {
+            if (preg_match(PARTNER_POOL_RE, $f[0] ?? '')) {
+                $names[] = $f[0];
+            }
+        }
+        $split = $woken ? ['awake' => $names, 'asleep' => []] : poolsBySleep($names);
+        [$awake, $asleep] = [$split['awake'], $split['asleep']];
+    }
+    $pairs = partnerLookPairs($host['pairs'] ?? null);
+    $places = [];
+    foreach (partnerLookPlaces($awake, $host['zfs'] ?? null) ?? [] as $pool => $pl) {
+        $ids = [];
+        foreach ($pl['ids'] as $id => $x) {
+            $units = array_map('partnerLookUnit', array_map('strval', array_keys($x['units'])));
+            sort($units);
+            $ids[] = ['id' => (string) $id, 'name' => $pairs[$id]['name'] ?? null, 'gone' => !isset($pairs[$id]), 'used' => $x['used'],
+                      'snaps' => $x['snaps'], 'units' => $units];
+        }
+        usort($ids, fn ($a, $b) => $b['used'] <=> $a['used']);
+        $places[] = ['pool' => (string) $pool, 'dataset' => $pl['dataset'], 'used' => $pl['used'], 'pairs' => $ids, 'stored' => count($pl['trash'])];
+    }
+    return ['places' => $places, 'asleep' => array_values($asleep)];
 }
 
 /** dataset name => [used, refer, mountpoint] */

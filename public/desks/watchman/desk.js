@@ -537,6 +537,7 @@ function entryParams(e) {
   const p = e.p || {};
   if (e.kind === 'proc_odd') t.where = p.where || T('where.host');
   if (e.kind === 'door_new') t.door = doorWords(p);
+  if (e.kind === 'door_changed') t.what = doorWhat(p.what);
   if (e.group !== 'flow') return t;
   if (p.bytes !== undefined) t.size = fmt.size(p.bytes);
   if (e.kind.startsWith('flow_')) t.usual = usualText(e.kind, p);
@@ -544,6 +545,9 @@ function entryParams(e) {
   if (Array.isArray(p.hours)) t.hours = p.hours.map(hourName).join(', ');
   return t;
 }
+
+/** What of a partner's door line changed (agent: watchmanPartnerCompare()), in words */
+const doorWhat = (list) => (list || []).map((w) => T('door_what.' + (['from', 'restrict', 'command', 'key', 'options'].includes(w) ? w : 'options'))).join(', ');
 
 /** What else an entry of vanished data says (agent: watchmanGoneMore()): its snapshots, who moved data then, a whole disk, pools asleep */
 function goneMore(p) {
@@ -722,6 +726,30 @@ function details(e) {
       add(T('detail.permissions'), (p.rights || []).length ? lines(p.rights, p.perms) : T('detail.roles_none'));
       if (p.full) add(T('detail.api_full'), T('detail.api_full_text'));
     }
+  } else if (e.group === 'partner') {
+    // a partner office's door (the Team Lead's pairing): never a key, only its fingerprint and addresses
+    add(T('detail.partner'), p.name || p.id);
+    if (e.kind === 'partner_paired') {
+      add(T('detail.address'), p.address, true);
+      add(T('detail.from'), p.from, true);
+      add(T('detail.fingerprint'), p.fp, true);
+    } else if (e.kind === 'door_changed') {
+      add(T('detail.changed'), doorWhat(p.what));
+      add(T('detail.from'), p.from || T('detail.from_none'), !!p.from);
+      if (p.from_old !== p.from) add(T('detail.from_old'), p.from_old || T('detail.from_none'), !!p.from_old);
+      add(T('detail.restrict'), T(p.restrict ? 'detail.restrict_on' : 'detail.restrict_off'));
+      add(T('detail.command'), T(p.command ? 'detail.command_door' : 'detail.command_other'));
+      if ((p.others || []).length) add(T('detail.options'), p.others.join(', '), true);
+    } else if (e.kind === 'door_key_moved') {
+      add(T('detail.ip'), p.ip, true);
+      add(T('detail.how'), T(p.how === 'key' ? 'detail.moved_key' : 'detail.moved_address'));
+      add(T('detail.partner_ips'), (p.ips || []).join(', '), true);
+      add(T('detail.fingerprint'), p.fp, true);
+      if ((p.users || []).length) add(T('detail.user'), p.users.join(', '));
+    } else if (e.kind === 'door_refused') {
+      add(T('detail.refused_why'), (p.why || []).join(', '), true);
+      if (!p.known) add(T('detail.partner_unknown'), T('detail.partner_unknown_text'));
+    }
   } else if (e.group === 'sched') {
     if (p.file) add(T('detail.cron_file'), '/boot/config/plugins/' + p.file + (p.new ? ` (${T('detail.file_new')})` : ''), true);
     if (p.plugin) add(T('detail.plugin'), p.plugin);
@@ -755,7 +783,8 @@ function details(e) {
   if (e.group === 'flow' && p.learning) notes.push(T('detail.learning'));
   if (p.office && e.kind.startsWith('cron_file')) notes.push(T('detail.office_cron'));
   if (e.open) notes.push(T('adopt.' + e.kind));
-  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'schedule', 'array', 'unraid'].includes(e.by) ? e.by : 'page'), { when: fmt.date(e.noted) }));
+  const by = e.by === 'office' && e.kind === 'partner_paired' ? 'office_partner' : e.by;
+  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'schedule', 'array', 'unraid'].includes(by) ? by : 'page'), { when: fmt.date(e.noted) }));
   if (e.told) notes.push(T('detail.told', { when: fmt.date(e.told) }));
   else if (e.muted && e.tell) notes.push(T('detail.muted'));
   else if (e.open) notes.push(T(e.tell ? 'detail.not_told' : 'detail.book_only'));
@@ -845,6 +874,7 @@ function watchSection() {
     sh ? sh.open.map((x) => item(x.share, [x.smb ? `SMB: ${level(x.smb)}` : '', x.nfs ? `NFS: ${level(x.nfs)}` : ''])) : []));
   box.appendChild(schedGroup(w.sched));
   box.appendChild(hostGroup(w.host));
+  if (w.partner && (w.partner.pairs.length || w.partner.strays.length)) box.appendChild(partnerGroup(w.partner));
   box.appendChild(snapGroup(state.snaps));
   flowGroups(state.flow).forEach((g) => box.appendChild(g));
   const label = () => {
@@ -891,6 +921,19 @@ function hostGroup(h) {
   h.procs.forEach((x) => rows.push(item(x.exe, [x.prog, x.where || T('where.host')])));
   return group('host', T('watch.host'), T('watch.host_sum', { ports: h.listen.length, doors: h.doors.length, keys: (h.api || []).length,
     procs: h.procs.length, users: h.users }), rows);
+}
+
+/** The partner offices' doors: per pair whether its line is there as the office wrote it; lines of no pair */
+function partnerGroup(x) {
+  const rows = [];
+  x.pairs.forEach((p) => rows.push(item(p.name, [
+    p.address,
+    !p.door ? T('watch.partner_no_door') : T('watch.partner_line_' + (['ok', 'changed', 'missing'].includes(p.line) ? p.line : 'missing')),
+    [p.receives ? T('watch.partner_receives') : '', p.sends ? T('watch.partner_sends') : ''].filter(Boolean).join(' · '),
+  ])));
+  x.strays.forEach((id) => rows.push(item(`uso-partner:${id}`, [T('watch.partner_stray')], null, true)));
+  const sum = T('watch.partner_sum', { n: x.pairs.length }) + (x.transfers ? ' · ' + T('watch.partner_transfers', { n: x.transfers }) : '');
+  return group('partner', T('watch.partner'), sum, rows);
 }
 
 /** The snapshots he follows: per pool and disk how many, which sleep (compared once awake), the series you taught him */

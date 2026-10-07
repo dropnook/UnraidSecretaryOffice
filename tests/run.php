@@ -13290,10 +13290,430 @@ JS);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+// ===================================================================== partner offices, stage 2: the other desks
+
+/** A syslog line of sshd's at time $t (Unraid's «Oct  8 12:00:00 Tower …») */
+function partner2SshLine(int $t, string $ip, ?string $fp, string $how = 'publickey'): string
+{
+    return date('M', $t) . ' ' . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t)
+        . " Tower sshd-session[4711]: Accepted $how for root from $ip port 50001 ssh2" . ($fp !== null ? ": ED25519 $fp" : '') . "\n";
+}
+
+/**
+ * The night watchman and the partner door: the office's own line noted by himself, other lines news, a known pair's
+ * line changed, the pair's key from elsewhere and its address with another key, refusals, the door's transfers in
+ * the data flow, what its retention destroyed, the posture tips, «What I keep an eye on» — and nothing of a key in
+ * his files
+ */
+function testWatchmanPartner(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('watchman partner: root only (the pairs file is root\'s) — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('watch-partner');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['crontabs', 'cron.d', 'logplugins', 'atjobs', 'agents', 'extra', 'ssh/root', 'flash', 'prun'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/logplugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+              'etc_passwd' => "$src/passwd", 'crontabs' => "$src/crontabs", 'cron_d' => "$src/cron.d", 'cron_files' => "$src/flash",
+              'userscripts' => "$src/flash/user.scripts", 'atjobs' => "$src/atjobs", 'agents' => "$src/agents",
+              'partner_pairs' => "$src/pdata/pairs.json", 'partner_run' => "$src/prun", 'partner_data' => "$src/pdata"];
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n");
+    file_put_contents($paths['syslog'], '');
+    file_put_contents("$src/cron.d/root", "*/1 * * * * /usr/local/emhttp/plugins/dynamix/scripts/monitor &> /dev/null\n");
+    file_put_contents("$src/crontabs/root", "# nothing\n");
+    $keys = "$src/ssh/root/authorized_keys";
+    $benj = partnerTestKey('benj@mac');
+    $fpBenj = partnerFingerprint($benj);
+    file_put_contents($keys, "$benj\n");
+    $docker = fn () => [];
+    $acks = "$tmp/acks.json";
+    $now = time();
+    $round = fn (int $t) => watchmanRound($paths, $data, 1000, $t, $docker, false, $acks);
+    $open = fn () => array_values(array_filter(watchmanLoad($data)['book'], 'watchmanOpen'));
+    $openKeys = function () use ($open): array {
+        $k = array_column($open(), 'key');
+        sort($k);
+        return $k;
+    };
+    $tips = fn () => array_column((array) (watchmanLoad($data)['state']['posture']['tips'] ?? []), 'id');
+    $round($now - 600);                                  // his first round: the baseline
+
+    // ---- the pairing: the pair stored, then its line written (the Team Lead's order) — the office's own, noted by himself
+    $kA = partnerTestKey();
+    $fpA = partnerFingerprint($kA);
+    $pairA = partnerTestPair('a1b2c3d4', ['name' => 'vault', 'address' => '192.168.77.2', 'their_key' => $fpA, 'paired' => $now - 100, 'trust' => 'friend']);
+    partnerPairsWrite([$pairA], $paths['partner_pairs']);
+    $lineA = partnerDoorLine('a1b2c3d4', '192.168.77.2', $kA);
+    file_put_contents($keys, "$benj\n$lineA\n");
+    touch($keys, $now - 98);
+    $r = $round($now);
+    $paired = array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => $e['kind'] === 'partner_paired'));
+    same('watch partner: the office\'s own door line — one line, noted by himself (by office), never open',
+        [1, 'office', false, 'vault', 'teamlead', [], []],
+        [count($paired), $paired[0]['by'] ?? null, isset($paired[0]) && watchmanOpen($paired[0]), $paired[0]['p']['name'] ?? null,
+         $paired[0]['p']['installed_by'] ?? null, $r['added'], $openKeys()]);
+    same('watch partner: … in words', 'Partner vault paired — its door in authorized_keys (192.168.77.2)',
+        officeNotifyText('watchman', 'entry.partner_paired', watchmanText($paired[0] ?? [], 'en'), 'en'));
+    same('watch partner: … its key and its line known', [true, true],
+        [isset(watchmanLoad($data)['baseline']['flash']['keys']['root'][$fpA]), isset(watchmanLoad($data)['baseline']['partner']['lines']['a1b2c3d4'])]);
+    $r = $round($now + 60);
+    same('watch partner: the next round — nothing new, no second note', [[], 1],
+        [$r['added'], count(array_filter(watchmanLoad($data)['book'], fn ($e) => $e['kind'] === 'partner_paired'))]);
+    same('watch partner: a friend gets plain copies — a posture tip (info), linking the Team Lead', [true, 'info', '#/caretaker'],
+        [in_array('partner_friend', $tips(), true), WATCH_POSTURE['partner_friend'],
+         array_column((array) watchmanLoad($data)['state']['posture']['tips'], null, 'id')['partner_friend']['link']['path'] ?? null]);
+
+    // ---- a line of no pair, and one written long after its pair was stored: news (the flash watch's new key)
+    $kB = partnerTestKey();
+    $kC = partnerTestKey();
+    $pairC = partnerTestPair('c3d4e5f6', ['name' => 'aunt', 'address' => '192.168.77.3', 'their_key' => partnerFingerprint($kC), 'paired' => $now - 7200, 'trust' => 'family']);
+    partnerPairsWrite([$pairA, $pairC], $paths['partner_pairs']);
+    file_put_contents($keys, "$benj\n$lineA\n" . partnerDoorLine('b2c3d4e5', '10.1.1.1', $kB) . "\n" . partnerDoorLine('c3d4e5f6', '192.168.77.3', $kC) . "\n");
+    touch($keys, $now + 290);
+    $r = $round($now + 300);
+    same('watch partner: a door of no pair and a line written long after its pairing stay news — new keys, told by the flash watch',
+        (function (array $k) { sort($k); return $k; })(['flash_ssh_key:root:' . partnerFingerprint($kB), 'flash_ssh_key:root:' . partnerFingerprint($kC)]), $openKeys());
+    same('watch partner: … and a door of no pair is a posture tip (advice)', [true, 'advice'], [in_array('partner_unknown', $tips(), true), WATCH_POSTURE['partner_unknown']]);
+    watchmanAck('*', $data, $now + 310, false);
+    // a pair whose address faces the internet
+    $pairD = partnerTestPair('d4e5f6a7', ['name' => 'far', 'address' => '203.0.113.7', 'their_key' => null, 'receive' => null]);
+    partnerPairsWrite([$pairA, $pairC, $pairD], $paths['partner_pairs']);
+    $round($now + 400);
+    same('watch partner: a pair facing the internet — a posture tip (advice)', true, in_array('partner_public', $tips(), true));
+
+    // ---- a known pair's line changed: restrict gone (and «I know, thanks» makes it the new normal)
+    $edit = function (string $from, string $to) use (&$lineA, $keys): void {
+        $new = str_replace($from, $to, $lineA);
+        file_put_contents($keys, str_replace($lineA, $new, (string) file_get_contents($keys)));
+        $lineA = $new;
+    };
+    $edit('restrict,from=', 'from=');
+    $r = $round($now + 600);
+    $e = array_column($open(), null, 'kind')['door_changed'] ?? [];
+    same('watch partner: a known pair\'s line changed — door_changed (important), what changed', [['door_changed'], ['restrict'], false, true, true],
+        [$r['added'], $e['p']['what'] ?? null, $e['p']['restrict'] ?? null, $e['p']['command'] ?? null, WATCH_KINDS['door_changed'][1]]);
+    same('watch partner: … in words (German)', 'Die Tür von Partner vault wurde geändert: restrict fehlt',
+        officeNotifyText('watchman', 'entry.door_changed', watchmanText($e, 'de'), 'de'));
+    same('watch partner: … the door is wider than the office made it — a posture tip', true, in_array('partner_wide', $tips(), true));
+    watchmanAck($e['id'] ?? '', $data, $now + 610, false);
+    $r = $round($now + 900);
+    same('watch partner: noted — the line as it is now is normal', [], $r['added']);
+    $edit('from="192.168.77.2"', 'restrict,from="192.168.77.2"');
+    $r = $round($now + 1200);
+    same('watch partner: restrict back alone — safer, normal by itself', [], $r['added']);
+    $edit('from="192.168.77.2"', 'from="192.168.77.99"');
+    $r = $round($now + 1500);
+    same('watch partner: another from= — door_changed again', [['door_changed'], ['from'], '192.168.77.99', '192.168.77.2'],
+        [$r['added'], array_column($open(), null, 'kind')['door_changed']['p']['what'] ?? null,
+         array_column($open(), null, 'kind')['door_changed']['p']['from'] ?? null, array_column($open(), null, 'kind')['door_changed']['p']['from_old'] ?? null]);
+    $edit('from="192.168.77.99"', 'from="192.168.77.2"');
+    $round($now + 1550);
+    watchmanAck('*', $data, $now + 1560, false);
+    $r = $round($now + 1600);
+    same('watch partner: back as it was and noted — quiet', [], $r['added']);
+
+    // ---- logins: the pair's key from its address is the door at work; its key elsewhere, its address with another key
+    $t = $now + 1650;
+    file_put_contents($paths['syslog'], partner2SshLine($t, '192.168.77.2', $fpA) . partner2SshLine($t + 1, '10.0.0.66', $fpA)
+        . partner2SshLine($t + 2, '192.168.77.2', $fpBenj), FILE_APPEND);
+    $r = $round($now + 1800);
+    $moved = array_column(array_filter($open(), fn ($x) => $x['kind'] === 'door_key_moved'), null, 'key');
+    ksort($moved);
+    same('watch partner: logins — its key from its address nothing; from elsewhere and its address with another key: door_key_moved, no login_new_ip',
+        [['door_key_moved', 'door_key_moved'], ['door_key_moved:a1b2c3d4:10.0.0.66' => 'address', 'door_key_moved:a1b2c3d4:192.168.77.2' => 'key'], 'T1078'],
+        [$r['added'], array_map(fn ($x) => $x['p']['how'], $moved), WATCH_ATTACK['door_key_moved']]);
+    same('watch partner: … in words', 'A login at partner vault\'s door that doesn\'t fit: 10.0.0.66',
+        officeNotifyText('watchman', 'entry.door_key_moved', watchmanText($moved['door_key_moved:a1b2c3d4:10.0.0.66'] ?? [], 'en'), 'en'));
+    watchmanAck($moved['door_key_moved:a1b2c3d4:10.0.0.66']['id'] ?? '', $data, $now + 1810, false);
+    file_put_contents($paths['syslog'], partner2SshLine($now + 1850, '10.0.0.66', $fpA) . partner2SshLine($now + 1851, '192.168.77.2', $fpA), FILE_APPEND);
+    $r = $round($now + 2100);
+    same('watch partner: noted — that address with that key is fine now', [], $r['added']);
+
+    // ---- refusals at the door: three within a minute from one pair
+    $refused = fn (array $times) => file_put_contents("$src/prun/refused-a1b2c3d4.json", json_encode(['pair' => 'a1b2c3d4', 'times' => $times, 'last' => 'unknown_verb']));
+    $t = $now + 2300;
+    $refused([$t - 50, $t - 20]);
+    $r = $round($t);
+    same('watch partner: two refusals — nothing', [], $r['added']);
+    $refused([$t - 50, $t - 20, $t + 10, $t + 30]);
+    $r = $round($t + 300);
+    $e = array_column($open(), null, 'kind')['door_refused'] ?? [];
+    same('watch partner: three within a minute — door_refused (important), counting the burst', [['door_refused'], 3, ['unknown_verb'], true],
+        [$r['added'], $e['count'] ?? null, $e['p']['why'] ?? null, WATCH_KINDS['door_refused'][1]]);
+    $r = $round($t + 600);
+    same('watch partner: the same refusals again — nothing new', [[], 3], [$r['added'], array_column($open(), null, 'kind')['door_refused']['count'] ?? null]);
+
+    // ---- «What I keep an eye on», and nothing of a key anywhere in his files
+    $sum = watchmanSummary(watchmanLoad($data)['baseline'], readJson("$data/seen.json"))['partner'] ?? [];
+    $pairs = array_column((array) ($sum['pairs'] ?? []), null, 'id');
+    same('watch partner: what he keeps an eye on — the pairs by name, their door there or not, a door of no pair', [['vault', 'ok', true], ['far', false], ['b2c3d4e5']],
+        [[$pairs['a1b2c3d4']['name'] ?? null, $pairs['a1b2c3d4']['line'] ?? null, $pairs['a1b2c3d4']['door'] ?? null], [$pairs['d4e5f6a7']['name'] ?? null, $pairs['d4e5f6a7']['door'] ?? null],
+         $sum['strays'] ?? null]);
+    $blob = '';
+    foreach (glob("$data/*") ?: [] as $f) {
+        $blob .= (string) @file_get_contents($f);
+    }
+    $blob .= jsonEncode(watchmanMirror(['baseline' => watchmanLoad($data)['baseline'], 'state' => [], 'book' => []], 'boot', $now, true));
+    same('watch partner: no key\'s value in his files or the mirror — fingerprints only', [false, false, false, true],
+        [str_contains($blob, substr($kA, 12)), str_contains($blob, substr($kB, 12)), str_contains($blob, substr($benj, 12, 68)), str_contains($blob, $fpA)]);
+    same('watch partner: the night shift gets the doors from the mirror', ['a1b2c3d4', 'c3d4e5f6'],
+        array_keys((array) (watchmanMirror(['baseline' => watchmanLoad($data)['baseline'], 'state' => [], 'book' => []], 'boot', $now, true)['baseline']['partner']['pairs'] ?? [])));
+
+    // ---- what the door's retention destroyed: no snap_gone (its record, root only, read by offset)
+    $del = "$src/pdata/deletes.jsonl";
+    same('watch partner deletes: none yet', [[], null], watchmanPartnerDeletes($del, null, false));
+    $ds = 'tank/' . PARTNER_PARENT . '/a1b2c3d4/share-appdata';
+    file_put_contents($del, json_encode(['t' => $now, 'pair' => 'a1b2c3d4', 'dataset' => $ds, 'snaps' => ['uso-backup-20261001-0200', 'not-the-engine']]) . "\n"
+        . json_encode(['t' => $now, 'pair' => 'a1b2c3d4', 'dataset' => 'tank/appdata', 'snaps' => ['uso-backup-20261001-0200']]) . "\n");
+    chmod($del, 0600);
+    [$ev, $pos] = watchmanPartnerDeletes($del, null, false) ?? [[], null];
+    same('watch partner deletes: only the engine\'s names, only under the partners\' place', ["$ds@uso-backup-20261001-0200" => $now], $ev);
+    same('watch partner deletes: read on from where he stopped', [], watchmanPartnerDeletes($del, $pos, false)[0] ?? null);
+    same('watch partner deletes: his first look starts at its end', [], watchmanPartnerDeletes($del, null, true)[0] ?? null);
+    chmod($del, 0644);
+    same('watch partner deletes: a record others may read or write is no record', null, watchmanPartnerDeletes($del, null, false));
+    chmod($del, 0600);
+    $known = ['zfs' => ['tank' => ['time' => $now - 300, 's' => ["$ds@uso-backup-20261001-0200" => '111:0', 'tank/data@mine' => '222:0']]]];
+    $look = ['zfs' => ['pools' => ['tank'], 'snaps' => ['tank' => ["$ds@uso-backup-20261002-0200" => ['333', 0]]], 'asleep' => [], 'capped' => []], 'btrfs' => null];
+    $diff = watchmanSnapDiff($known, $look, ['d' => [], 'r' => [], 'm' => [], 'p' => $ev], [], ['uso-backup-'], $now);
+    same('watch partner snaps: what the door destroyed is expected, anything else still gone', [['partner' => 1], ['tank/data@mine']],
+        [$diff['expected'], array_column($diff['gone'][0]['list'] ?? [], 'name')]);
+
+    // ---- the data flow: the door at work is the office's own
+    $gb = 1024 ** 3;
+    $t0 = strtotime('2026-10-05 10:02:00');
+    $lookF = fn (array $o) => $o + ['conns' => [], 'smb' => ['on' => true, 'sessions' => []], 'containers' => null, 'nfs' => false, 'holder' => null,
+                                    'kopia' => 'kopia', 'office_shares' => ['UnraidSecretaryOffice']];
+    $zfs = fn (int $w) => ['datasets' => ['tank' => ['w' => 1, 'u' => 900 * $gb, 's' => null], 'tank/' . PARTNER_PARENT => ['w' => 0, 'u' => 20 * $gb, 's' => null],
+        "tank/" . PARTNER_PARENT . "/a1b2c3d4/share-appdata" => ['w' => $w, 'u' => 20 * $gb, 's' => 1000]], 'pools' => ['tank'], 'asleep' => []];
+    $conn = fn (int $sent) => ['local' => '192.0.2.20', 'lport' => 22, 'peer' => '192.168.77.2', 'pport' => 50000, 'service' => 'ssh', 'sent' => $sent, 'rcvd' => 0];
+    $door = fn (bool $on) => ['ips' => ['192.168.77.2'], 'door' => $on, 'received' => 0, 'sending' => false];
+    $bf = null;
+    $book = [];
+    [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $lookF(['zfs' => $zfs(0), 'conns' => [$conn(0)], 'partner' => $door(false)]), $book, $t0);
+    [$added, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $lookF(['zfs' => $zfs(15 * $gb), 'conns' => [$conn(60 * $gb)], 'partner' => $door(true)]), $book, $t0 + 300);
+    $h = intdiv($t0 + 300, 3600);
+    same('watch partner flow: while the door receives — its writes into the partners\' place and the pair\'s SSH are the office\'s own',
+        [[], [$h => 15 * $gb], [$h => 60 * $gb]], [$added, $flow['shares']['tank/' . PARTNER_PARENT]['o'] ?? null, $flow['clients']['192.168.77.2|ssh']['o'] ?? null]);
+    [$added, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $lookF(['zfs' => $zfs(30 * $gb), 'conns' => [$conn(120 * $gb)], 'partner' => $door(false)]), $book, $t0 + 600);
+    same('watch partner flow: the round after (it ran at the last one) — still its own', [], $added);
+    [$added, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $lookF(['zfs' => $zfs(45 * $gb), 'conns' => [$conn(180 * $gb)], 'partner' => $door(false)]), $book, $t0 + 900);
+    sort($added);
+    same('watch partner flow: nobody receives — the same is told', ['flow_client', 'flow_written'], $added);
+    $sending = ['ips' => ['192.168.77.2'], 'door' => false, 'received' => 0, 'sending' => true];
+    $book = [];
+    [$added] = watchmanFlowCompare($bf, $flow, $cnt, $lookF(['zfs' => $zfs(45 * $gb), 'conns' => [$conn(240 * $gb)], 'partner' => $sending]), $book, $t0 + 1200);
+    same('watch partner flow: while this office sends (phase partner) the pair\'s SSH is its own', [], $added);
+
+    // ---- texts
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/watchman/lang/en.json'), true) ?: [];
+    check('watch partner: the page can say it', isset($en['group.partner'], $en['noted.office_partner'], $en['watch.partner'], $en['posture.to_caretaker'], $en['door_what.restrict']));
+    @unlink(watchmanLockFile($data, 'book'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Ms. Snapshotini and a partner's copies: the chip's data, never a target, never deleted, renamed, held — unless the
+ * pair is gone; her plans' retention leaves them out
+ */
+function testSnapshotPartner(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('snapshot partner: root only (the pairs file is root\'s) — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('snap-partner');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $pairs = "$tmp/partner/pairs.json";
+    partnerPairsWrite([partnerTestPair('a1b2c3d4', ['name' => 'vault'])], $pairs);
+    $P = PARTNER_PARENT;
+    file_put_contents("$tmp/zfs-ds.txt", "tank\tfilesystem\t1000\t9000\t100\t50\t/mnt/tank\ntank/appdata\tfilesystem\t500\t9000\t400\t100\t/mnt/tank/appdata\n"
+        . "tank/$P\tfilesystem\t300\t9000\t96\t0\tnone\ntank/$P/a1b2c3d4\tfilesystem\t200\t9000\t96\t0\tnone\n"
+        . "tank/$P/a1b2c3d4/share-appdata\tfilesystem\t200\t9000\t150\t50\tlegacy\ntank/$P/deadbeef\tfilesystem\t100\t9000\t96\t0\tnone\n"
+        . "tank/$P/deadbeef/vm-old\tfilesystem\t100\t9000\t90\t10\tlegacy\n");
+    file_put_contents("$tmp/zfs-snaps.txt", "tank/appdata@uso-backup-20261001-0200\t11\t1700000000\t10\t400\t5\t0\t-\n"
+        . "tank/$P/a1b2c3d4/share-appdata@uso-backup-20261001-0200\t12\t1700000000\t10\t150\t5\t0\t-\n"
+        . "tank/$P/a1b2c3d4/share-appdata@uso-plan-hourly-20261001-0300\t13\t1700003600\t10\t150\t5\t0\t-\n"
+        . "tank/$P/deadbeef/vm-old@uso-backup-20260901-0200\t14\t1690000000\t10\t90\t5\t0\t-\n");
+    file_put_contents("$tmp/zpool.txt", "tank\t8000000\t5000000\t3000000\t62\tONLINE\t16\n");
+    file_put_contents("$tmp/disks.ini", "[\"tank\"]\nname=\"tank\"\ntype=\"Cache\"\nfsType=\"zfs\"\nspundown=\"0\"\n");
+    file_put_contents("$tmp/zfs", "#!/bin/sh\nprintf '%s\\n' \"\$*\" >> " . escapeshellarg("$tmp/zfs-args.txt") . "\ncase \"\$1\" in\n  list)\n    file=snaps\n"
+        . "    for a in \"\$@\"; do [ \"\$a\" = filesystem,volume ] && file=ds; done\n    cat " . escapeshellarg($tmp) . "/zfs-\$file.txt\n    exit 0;;\nesac\nexit 0\n");
+    file_put_contents("$tmp/zpool", "#!/bin/sh\n[ \"\$1\" = list ] && cat " . escapeshellarg("$tmp/zpool.txt") . "\nexit 0\n");
+    chmod("$tmp/zfs", 0755);
+    chmod("$tmp/zpool", 0755);
+    $iniBefore = $GLOBALS['disksIni'] ?? null;
+    $GLOBALS['disksIni'] = "$tmp/disks.ini";
+    $GLOBALS['snapshotHost'] = ['zfs' => "$tmp/zfs", 'zpool' => "$tmp/zpool", 'docker' => null];
+    $GLOBALS['snapshotPartnerPairs'] = $pairs;
+
+    $z = snapshotPartnerMark(snapshotReadZfs(null, false), $pairs);
+    $vol = array_column($z['volumes'], 'partner', 'name');
+    same('snapshot partner: datasets under the partners\' place carry the pair — its name, or gone; the place itself; others nothing', [
+        ['id' => null, 'name' => null, 'gone' => false, 'place' => true], ['id' => 'a1b2c3d4', 'name' => 'vault', 'gone' => false, 'place' => false],
+        ['id' => 'deadbeef', 'name' => null, 'gone' => true, 'place' => false], false],
+        [$vol["tank/$P"] ?? null, $vol["tank/$P/a1b2c3d4/share-appdata"] ?? null, $vol["tank/$P/deadbeef/vm-old"] ?? null, isset($vol['tank/appdata'])]);
+    $snap = array_column($z['snapshots'], null, 'id');
+    $copy = $snap["zfs:tank/$P/a1b2c3d4/share-appdata@uso-backup-20261001-0200"] ?? [];
+    $left = $snap["zfs:tank/$P/deadbeef/vm-old@uso-backup-20260901-0200"] ?? [];
+    same('snapshot partner: a copy of a pair of today is locked, a leftover of an ended one is not, hers never', [true, false, false],
+        [snapshotPartnerLocked($copy), snapshotPartnerLocked($left), snapshotPartnerLocked($snap['zfs:tank/appdata@uso-backup-20261001-0200'] ?? [])]);
+
+    $GLOBALS['snapshot'] = ['zfs' => $z, 'btrfs' => ['devices' => [], 'snapshots' => []], 'vm' => ['snapshots' => []]];
+    foreach (['rename' => fn () => snapshotRename($copy['id'], 'mine'), 'hold' => fn () => snapshotHold($copy['id'], true),
+              'release' => fn () => snapshotHold($copy['id'], false)] as $what => $fn) {
+        try {
+            $fn();
+            check("snapshot partner: $what refused", false);
+        } catch (Problem $p) {
+            same("snapshot partner: $what refused — partner_copy, naming the pair", ['partner_copy', 'vault'], [$p->key, $p->params['partner'] ?? null]);
+        }
+    }
+    @unlink("$tmp/zfs-args.txt");
+    $r = snapshotDelete([$copy['id']]);
+    same('snapshot partner: delete refused (a failure, nothing destroyed)', [['partner_copy'], [], false],
+        [array_column($r['failures'], 'key'), $r['deleted'], str_contains((string) @file_get_contents("$tmp/zfs-args.txt"), 'destroy')]);
+    same('snapshot partner: the estimate leaves it out', 0, snapshotEstimate([$copy['id']])['bytes']);
+    try {
+        snapshotCreate(['name' => 'manual-1', 'targets' => ["zfs:tank/$P/a1b2c3d4/share-appdata"]]);
+        check('snapshot partner: create on a partner\'s copy refused', false);
+    } catch (Problem $p) {
+        same('snapshot partner: create on a partner\'s copy refused — partner_dataset', ['partner_dataset', "tank/$P/a1b2c3d4/share-appdata"], [$p->key, $p->params['target'] ?? null]);
+    }
+    same('snapshot partner: create never ran zfs snapshot', [], preg_grep('/^snapshot /', explode("\n", (string) @file_get_contents("$tmp/zfs-args.txt"))));
+    $planFile = $GLOBALS['snapPlanFile'] ?? null;
+    $GLOBALS['snapPlanFile'] = "$tmp/plans.json";
+    try {
+        snapPlanSave(['label' => 'Partner', 'cron' => '0 * * * *', 'targets' => ["zfs:tank/$P/a1b2c3d4/share-appdata"], 'keep' => 3]);
+        check('snapshot partner: a schedule on a partner\'s copy refused', false);
+    } catch (Problem $p) {
+        same('snapshot partner: a schedule on a partner\'s copy refused — partner_dataset, nothing saved', ['partner_dataset', false], [$p->key, is_file("$tmp/plans.json")]);
+    }
+    if ($planFile === null) {
+        unset($GLOBALS['snapPlanFile']);
+    } else {
+        $GLOBALS['snapPlanFile'] = $planFile;
+    }
+    $plan = ['id' => 'hourly', 'targets' => ['zfs:tank'], 'recursive' => true, 'keep' => 1, 'max_days' => 0];
+    $doomed = snapPlanDoomed($plan, ['zfs:tank'], snapshotAll($GLOBALS['snapshot']), time(), ['uso-backup-']);
+    same('snapshot partner: her plan\'s retention never touches a partner\'s copy (even named like her plan, under a recursive target)', [], $doomed);
+    // a leftover of an ended pair: hers again (Ms. Dustdevil may put the dataset away, she may delete its snapshots)
+    snapshotRefusePartner($left);
+    check('snapshot partner: a leftover of an ended pair is not refused', true);
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/snapshot/lang/en.json'), true) ?: [];
+    check('snapshot partner: the page can say it', isset($en['partner.copy'], $en['partner.left'], $en['errors.partner_copy'], $en['errors.partner_dataset'], $en['why.partner'], $en['help.partner']));
+    same('snapshot partner: the chip says «partner\'s copy» (de «Kopie des Partners»)', ["partner's copy: vault", 'Kopie des Partners: vault'],
+        [officeNotifyText('snapshot', 'partner.copy', ['name' => 'vault'], 'en'), officeNotifyText('snapshot', 'partner.copy', ['name' => 'vault'], 'de')]);
+    $GLOBALS['snapshot'] = null;
+    unset($GLOBALS['snapshotHost'], $GLOBALS['snapshotPartnerPairs']);
+    if ($iniBefore === null) {
+        unset($GLOBALS['disksIni']);
+    } else {
+        $GLOBALS['disksIni'] = $iniBefore;
+    }
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/** Ms. Dustdevil and what partners left: the leftovers of ended pairs, never while the door receives, her storeroom's shape, «Where is what» */
+function testCleanupPartner(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('cleanup partner: root only (the pairs file is root\'s) — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('clean-partner');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    @mkdir("$tmp/run", 0700, true);
+    $pairs = "$tmp/partner/pairs.json";
+    partnerPairsWrite([partnerTestPair('a1b2c3d4', ['name' => 'vault'])], $pairs);
+    $P = PARTNER_PARENT;
+    $asked = [];
+    $zfs = function (array $args) use (&$asked, $P): array {
+        $asked[] = implode(' ', $args);
+        return [0, "tank\t9000\t0\ntank/appdata\t500\t100\ntank/$P\t3000\t0\ntank/$P/a1b2c3d4\t1000\t0\ntank/$P/a1b2c3d4/share-appdata\t1000\t300\n"
+            . "tank/$P/deadbeef\t1500\t0\ntank/$P/deadbeef/share-media\t1000\t200\ntank/$P/deadbeef/vm-Debian\t500\t50\ntank/$P/cafe0001\t400\t0\n"
+            . "tank/$P/_UnraidSecretaryOffice-trash-20261008-101010-feed0002\t77\t7\ntank/$P/not-an-id\t1\t0\n"];
+    };
+    file_put_contents("$tmp/run/door-" . getmypid() . '.json', json_encode(['pid' => getmypid(), 'pair' => 'cafe0001', 'unit' => 'share:x', 'dataset' => "tank/$P/cafe0001/share-x", 'since' => time()]));
+    $host = ['pools' => [['tank'], ['cold']], 'zfs' => $zfs, 'pairs' => $pairs, 'run' => "$tmp/run", 'alive' => fn (int $pid) => $pid === getmypid()];
+    $r = clPartners($host);
+    $list = array_column($r['list'], null, 'name');
+    ksort($list);
+    same('cleanup partner: the copies of ended pairs are leftovers — sized by zfs, their units; a pair of today\'s are not; asked only the awake pools',
+        [['cafe0001', 'deadbeef'], [1500, 250, ['share:media', 'vm:Debian'], "tank/$P/deadbeef", 'leftover', null], ['list -Hp -t filesystem -o name,used,usedbysnapshots -d 3 tank'], ['cold']],
+        [array_keys($list), [$list['deadbeef']['bytes'] ?? null, $list['deadbeef']['snaps'] ?? null, $list['deadbeef']['units'] ?? null, $list['deadbeef']['dataset'] ?? null,
+         $list['deadbeef']['category'] ?? null, $list['deadbeef']['why'] ?? null], $asked, $r['asleep']]);
+    same('cleanup partner: never while the door receives for that pair', 'transfer', $list['cafe0001']['why'] ?? null);
+    same('cleanup partner: every dataset of the place is known (her storeroom\'s parked one too — never mounted)', [true, true, false],
+        [isset($r['there']["tank/$P/_UnraidSecretaryOffice-trash-20261008-101010-feed0002"]), isset($r['there']["tank/$P/a1b2c3d4"]), isset($r['there']["tank/$P/a1b2c3d4/share-appdata"])]);
+    same('cleanup partner: her storeroom\'s manifest — a partner\'s dataset only as <pool>/…-partners/<her name for it>', [true, false, false, false],
+        [clTrashAsOk("@tank/$P/_UnraidSecretaryOffice-trash-20261008-101010-deadbeef", 'partner', '20261008-101010'),
+         clTrashAsOk('@tank/appdata/_UnraidSecretaryOffice-trash-20261008-101010-deadbeef', 'partner', '20261008-101010'),
+         clTrashAsOk("@tank/$P/deadbeef/_UnraidSecretaryOffice-trash-20261008-101010-x", 'partner', '20261008-101010'),
+         clTrashAsOk("@tank/$P/_UnraidSecretaryOffice-trash-20261008-101010-deadbeef", 'appdata', '20261007-000000')]);
+    same('cleanup partner: back only to where it was, under the partners\' place', ["/mnt/tank/$P", '', ''],
+        [clPartnerHome(['dataset' => "tank/$P/deadbeef", 'from' => "/mnt/tank/$P/deadbeef"]), clPartnerHome(['dataset' => 'tank/appdata', 'from' => '/mnt/tank/appdata']),
+         clPartnerHome(['dataset' => "tank/$P/deadbeef", 'from' => '/mnt/tank/elsewhere'])]);
+    // «Where is what»: the partners' places with sizes per pair
+    $GLOBALS['waPartnerHost'] = ['pools' => [['tank'], ['cold']], 'zfs' => $zfs, 'pairs' => $pairs];
+    $w = waPartners();
+    unset($GLOBALS['waPartnerHost']);
+    $byId = array_column($w['places'][0]['pairs'] ?? [], null, 'id');
+    same('cleanup where: the partners\' place per pool — its size, per pair name or ended, sizes, units; what lies in her storeroom; pools asleep',
+        ["tank/$P", 3000, ['vault', false, 1000, ['share:appdata']], [null, true, 1500], 1, ['cold']],
+        [$w['places'][0]['dataset'] ?? null, $w['places'][0]['used'] ?? null,
+         [$byId['a1b2c3d4']['name'] ?? null, $byId['a1b2c3d4']['gone'] ?? null, $byId['a1b2c3d4']['used'] ?? null, $byId['a1b2c3d4']['units'] ?? null],
+         [array_key_exists('name', $byId['deadbeef'] ?? []) ? $byId['deadbeef']['name'] : 'x', $byId['deadbeef']['gone'] ?? null, $byId['deadbeef']['used'] ?? null],
+         $w['places'][0]['stored'] ?? null, $w['asleep']]);
+    same('cleanup partner: a sleeping pool only — nothing asked', [[], 1], (function () use ($pairs, &$asked) {
+        $asked = [];
+        $none = function (array $a) use (&$asked) { $asked[] = $a; return [0, '']; };
+        return [clPartners(['pools' => [[], ['tank']], 'zfs' => $none, 'pairs' => $pairs, 'run' => '/nonexistent'])['list'], count($asked) + 1];
+    })());
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/cleanup/lang/en.json'), true) ?: [];
+    check('cleanup partner: the page can say it', isset($en['section.partners'], $en['cat.partners.leftover'], $en['park.text_partners'], $en['park.where_partners'],
+        $en['item.partner'], $en['why.transfer'], $en['errors.cleanup_partner_transfer'], $en['where.partners.title'], $en['fact.partners'], $en['bubble.partners']));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/** Ms. Protocolli reads the partner door's log (ids only, never paths): the data folder's, its older part, what it logged in RAM */
+function testLogsPartner(): void
+{
+    $made = [];
+    foreach ([DATA_DIR . '/partner/door.log', RUN_DIR . '/partner/door.log'] as $f) {
+        if (!is_dir(dirname($f))) {
+            @mkdir(dirname($f), 0700, true);
+            $made[] = dirname($f);
+        }
+        if (!is_file($f)) {
+            file_put_contents($f, "2026-10-08 00:14:11  2ec7accd 192.168.7.111 refused unknown_verb: rm -rf\n");
+            $made[] = $f;
+        }
+    }
+    $s = logsSources();
+    same('logs partner: the door\'s log and what it logged in RAM — the office\'s, files, labelled', [['office', 'partner_door', 'file'], ['office', 'partner_door_ram', 'file'], false],
+        [[$s['partner:door']['group'] ?? null, $s['partner:door']['label'] ?? null, $s['partner:door']['kind'] ?? null],
+         [$s['partner:door-ram']['group'] ?? null, $s['partner:door-ram']['label'] ?? null, $s['partner:door-ram']['kind'] ?? null], isset($s['partner:door.1'])]);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/logs/lang/$lang.json"), true) ?: [];
+        check("logs partner: the source names ($lang)", isset($l['source.partner_door'], $l['source.partner_door_old'], $l['source.partner_door_ram']));
+    }
+    foreach (array_reverse($made) as $x) {
+        is_dir($x) ? @rmdir($x) : @unlink($x);
+    }
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testWatchmanPartner', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor'],
           'strings' => ['testStrings', 'testUnraidWords']];

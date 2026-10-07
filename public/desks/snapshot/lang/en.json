@@ -473,5 +473,17 @@
   "notify.plan_gone_subject": "Schedule \"{plan}\": target gone",
   "notify.plan_gone": "Ms. Snapshotini: the schedule \"{plan}\" can't find {targets} any more (deleted or renamed?). I skip what is gone and take the rest — delete the schedule or choose another target on my page.",
   "check.plan_target_gone": "Schedule \"{plan}\": its target {target} is gone",
-  "check.plan_target_gone_how": "Delete the schedule or choose another target on Ms. Snapshotini's page (Schedules → Edit…)."
+  "check.plan_target_gone_how": "Delete the schedule or choose another target on Ms. Snapshotini's page (Schedules → Edit…).",
+  "partner.chip": "partner's copy",
+  "partner.copy": "partner's copy: {name}",
+  "partner.left": "partner's copy: {name} — partnership ended",
+  "partner.place": "partners' place",
+  "partner.copy_title": "Partner {name} keeps its copies here — received through the door, kept by the door's own retention. Hands off: a snapshot of mine on it would stop the next transfer.",
+  "partner.left_title": "The partnership with {name} has ended — what it left here is a leftover: Ms. Dustdevil puts it away, or delete it here.",
+  "partner.hands_off": "A partner's copy — the door keeps it",
+  "partner.no_target": "A partner's copy — never a target of mine",
+  "help.partner": "Snapshots of a partner office, received through its door into <pool>/UnraidSecretaryOffice-partners. Their names are the partner's backup engine's; the door's retention keeps them, not me — I don't delete, rename or hold them, and they are never a target of my schedules. Once the partnership has ended they are leftovers (Ms. Dustdevil's «Tidying up»).",
+  "why.partner": "A copy of partner {name} — the door's retention keeps it",
+  "errors.partner_copy": "{name} is a copy of partner {partner} — the door's retention keeps those, not me.",
+  "errors.partner_dataset": "{target} holds the copies of partner {partner} — never a target of mine: a snapshot of mine there would stop the next transfer."
 }

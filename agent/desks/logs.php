@@ -159,6 +159,11 @@ function logsSources(): array
     $file('embycache', 'office', 'embycache', DATA_DIR . '/embycache/logs/embycache.log');
     $file('embycache-run', 'office', 'embycache_run', DATA_DIR . '/embycache/office-output.txt');
     $file('gather', 'office', 'gather', DATA_DIR . '/gather/consolidate.log');
+    // the partner door (agent/partner-door.php, agent/lib/partner.php partnerAppend()): its log, the older part, and what
+    // it logged in RAM while the array was stopped
+    $file('partner:door', 'office', 'partner_door', DATA_DIR . '/partner/door.log');
+    $file('partner:door.1', 'office', 'partner_door_old', DATA_DIR . '/partner/door.log.1');
+    $file('partner:door-ram', 'office', 'partner_door_ram', RUN_DIR . '/partner/door.log');
 
     // Unraid
     $file('syslog', 'unraid', 'syslog', '/var/log/syslog');

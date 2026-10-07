@@ -473,5 +473,17 @@
   "notify.plan_gone_subject": "Programación «{plan}»: destino desaparecido",
   "notify.plan_gone": "Señora Snapshotini: la programación «{plan}» ya no encuentra {targets} (¿borrado o renombrado?). Omito lo que desapareció y tomo el resto — borra la programación o elige otro destino en mi página.",
   "check.plan_target_gone": "Programación «{plan}»: su destino {target} ha desaparecido",
-  "check.plan_target_gone_how": "Borra la programación o elige otro destino en la página de la señora Snapshotini (Programaciones → Editar…)."
+  "check.plan_target_gone_how": "Borra la programación o elige otro destino en la página de la señora Snapshotini (Programaciones → Editar…).",
+  "partner.chip": "copia del socio",
+  "partner.copy": "copia del socio: {name}",
+  "partner.left": "copia del socio: {name} — asociación terminada",
+  "partner.place": "lugar de los socios",
+  "partner.copy_title": "El socio {name} guarda aquí sus copias — recibidas por la puerta, conservadas según la retención de la puerta. No tocar: una instantánea mía encima detendría la próxima transferencia.",
+  "partner.left_title": "La asociación con {name} ha terminado — lo que dejó aquí es un resto: la señora Plumero lo guarda, o bórralo aquí.",
+  "partner.hands_off": "Copia de un socio — de eso se ocupa la puerta",
+  "partner.no_target": "Copia de un socio — nunca un destino mío",
+  "help.partner": "Instantáneas de una secretaría asociada, recibidas por su puerta en <pool>/UnraidSecretaryOffice-partners. Sus nombres son los del motor de copias del socio; las conserva la retención de la puerta, no yo — no las borro, no las renombro ni las protejo, y nunca son destino de mis programaciones. Terminada la asociación son restos («Ordenar» de la señora Plumero).",
+  "why.partner": "Una copia del socio {name} — la conserva la retención de la puerta",
+  "errors.partner_copy": "{name} es una copia del socio {partner} — esas las conserva la retención de la puerta, no yo.",
+  "errors.partner_dataset": "{target} guarda las copias del socio {partner} — nunca un destino mío: una instantánea mía allí detendría la próxima transferencia."
 }

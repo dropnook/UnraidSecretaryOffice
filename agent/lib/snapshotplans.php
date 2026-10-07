@@ -238,6 +238,9 @@ function snapPlanSave(mixed $in): array
     $state = snapshotScan(false);
     $known = [];
     foreach ($state['zfs']['volumes'] as $v) {
+        if (snapshotPartnerLocked($v) && in_array($v['id'], (array) ($in['targets'] ?? []), true)) {
+            throw new Problem('partner_dataset', ['target' => $v['name'], 'partner' => (string) ($v['partner']['name'] ?? $v['partner']['id'] ?? '')]);
+        }
         $known[$v['id']] = true;
     }
     foreach ($state['btrfs']['devices'] as $d) {
@@ -577,8 +580,8 @@ function snapPlanDoomed(array $plan, array $take, array $all, int $now, ?array $
     $groups = [];
     foreach ($all as $s) {
         if (!empty($s['docker']) || ($s['fs'] ?? '') === 'vm' || !preg_match($pattern, (string) $s['name'])
-            || backupIsEngineSnap((string) $s['name'], $engine, (string) ($s['fs'] ?? 'zfs'))) {
-            continue;
+            || backupIsEngineSnap((string) $s['name'], $engine, (string) ($s['fs'] ?? 'zfs')) || !empty($s['partner'])) {
+            continue;                       // the engine's, a partner's copies (the door's retention keeps those): never a plan's
         }
         $mine = isset($volumes[$s['vol'] ?? '']);
         if (!$mine && !empty($plan['recursive']) && $s['fs'] === 'zfs') {

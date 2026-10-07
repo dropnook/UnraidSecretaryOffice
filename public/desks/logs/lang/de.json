@@ -215,5 +215,8 @@
   "fit.yes": "Frau Protokolli kommt gern: «Ich kann zwar nichts, aber vorlesen kann ich alles!»",
   "errors.logs_unknown": "Dieses Protokoll gibt es nicht (mehr).",
   "errors.logs_unreadable": "Dieses Protokoll lässt sich gerade nicht lesen. {detail}",
-  "errors.logs_tour_failed": "Mein Rundgang liess sich nicht starten."
+  "errors.logs_tour_failed": "Mein Rundgang liess sich nicht starten.",
+  "source.partner_door": "Partner-Tür (was Partner-Sekretariate verlangten)",
+  "source.partner_door_old": "Partner-Tür — älteres Protokoll",
+  "source.partner_door_ram": "Partner-Tür — während das Array gestoppt war"
 }
