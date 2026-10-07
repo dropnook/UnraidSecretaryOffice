@@ -6844,6 +6844,41 @@ function testWhereaboutsAfterWatchman(): void
 }
 
 /**
+ * Ms. Whereabouts' tip about Windows VMs at the array stop (Benj, 2026-10-07: the array stop waited
+ * domain.cfg's TIMEOUT="180" for an idle Windows 11 that ignored the power button, then Unraid switched
+ * it off hard): the VM shutdown and disk shutdown time-outs as Unraid reads them, and whether the guest
+ * agent answers — from libvirt's status file of a running VM (RAM), the shape nostromo's has.
+ */
+function testWhereaboutsVmStop(): void
+{
+    same('wa vm stop: the time-outs as set', ['timeout' => 180, 'disk_timeout' => 400], waVmStop(['TIMEOUT' => '180'], ['shutdownTimeout' => '400']));
+    same('wa vm stop: empty or odd — Unraid\'s defaults (60 s, 90 s)', [['timeout' => 60, 'disk_timeout' => 90], ['timeout' => 60, 'disk_timeout' => 90]],
+        [waVmStop([], []), waVmStop(['TIMEOUT' => '-5'], ['shutdownTimeout' => "90\n; rm"])]);
+
+    $status = fn (string $channel) => "<domstatus state='running' reason='booted' pid='3046851'>\n  <monitor path='/var/lib/libvirt/qemu/domain-3/monitor.sock' type='unix'/>\n"
+        . "  <domain type='kvm' id='3'>\n    <name>Windows_11_Tom_1</name>\n    <metadata>\n      <vmtemplate xmlns=\"http://unraid\" name=\"Windows 11\" os=\"windowstpm\"/>\n    </metadata>\n"
+        . "    <devices>\n      <channel type='unix'>\n        <source mode='bind' path='/run/libvirt/qemu/channel/3-Windows_11_Tom_1/org.qemu.guest_agent.0'/>\n"
+        . "        $channel\n        <alias name='channel0'/>\n      </channel>\n    </devices>\n  </domain>\n</domstatus>\n";
+    same('wa vm agent: the guest agent answers / doesn\'t / no state yet / no channel / unreadable', ['connected', 'disconnected', 'disconnected', 'none', null, null],
+        [waVmAgentState($status("<target type='virtio' name='org.qemu.guest_agent.0' state='connected'/>")),
+         waVmAgentState($status("<target type='virtio' name='org.qemu.guest_agent.0' state='disconnected'/>")),
+         waVmAgentState($status("<target type='virtio' name='org.qemu.guest_agent.0'/>")),
+         waVmAgentState($status("<target type='virtio' name='org.qemu.spice.0' state='connected'/>")),
+         waVmAgentState('<domstatus'), waVmAgentState('')]);
+    $tmp = hardeningTmp('wavmstop');
+    file_put_contents("$tmp/Win11.xml", $status("<target type='virtio' name='org.qemu.guest_agent.0' state='connected'/>"));
+    symlink("$tmp/Win11.xml", "$tmp/Linked.xml");
+    same('wa vm agent: by the VM\'s name — not a link, no path in the name, nothing when there is no file', ['connected', null, null, null, null],
+        [waVmAgent('Win11', $tmp), waVmAgent('Linked', $tmp), waVmAgent('../' . basename($tmp) . '/Win11', $tmp), waVmAgent('.hidden', $tmp), waVmAgent('Gone', $tmp)]);
+    hardeningRm($tmp);
+
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/whereabouts/desk.js');
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/whereabouts/lang/en.json'), true) ?: [];
+    check('whereabouts: the Windows VM tip is hers, with the current time-outs', str_contains($js, "add('vm_windows',") && isset($en['adv.vm_windows.title'], $en['adv.vm_windows.why'])
+        && str_contains($en['adv.vm_windows.why']['other'] ?? '', '{timeout}') && str_contains($en['adv.vm_windows.why']['other'] ?? '', '{disk}'));
+}
+
+/**
  * The supporter key (src/supporter.php) — a thank-you that unlocks nothing: the server ID, the team
  * lead's one ask, the file, and the office actions end to end through the web side (a process of its own).
  * Keys are made with a throw-away key pair; only a fixed key made by tools/supporter-key.sh on the
@@ -7065,7 +7100,7 @@ function testSupporterKeys(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
-                      'testWhereaboutsAfterWatchman', 'testSupporter', 'testLeftovers'],
+                      'testWhereaboutsAfterWatchman', 'testWhereaboutsVmStop', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';

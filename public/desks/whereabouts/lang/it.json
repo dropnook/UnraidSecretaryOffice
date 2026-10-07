@@ -662,6 +662,7 @@
   "adv.to_share_settings": "Condivisione",
   "adv.to_browse": "Sfoglia {path}",
   "adv.to_team_lead": "Dal capoufficio",
+  "adv.to_vm_settings": "Gestione Macchine Virtuali",
   "adv.system_array.title": "Sull'array: {names}",
   "adv.system_array.why": "Ciò che serve a Docker e alle VM va su un pool (SSD/NVMe): sull'array ogni contenitore e ogni VM diventa lento, e i dischi non riposano mai. Nelle impostazioni della condivisione metti l'archiviazione primaria su un pool e quella secondaria su nessuna, poi lascia che il Mover porti i file (con Docker e VM fermi).",
   "adv.mover.title": {
@@ -736,6 +737,14 @@
   "adv.ups.why": "Quando va via la corrente, il server si spegne di colpo: i file aperti possono rovinarsi, e dopo Unraid fa un lungo controllo di parità. Un piccolo gruppo di continuità (UPS) gli dà il tempo di spegnersi in modo pulito (Impostazioni → Gruppo di continuità; per un server NUT il plugin NUT).",
   "adv.syslog.title": "Dopo un crash il log è perso",
   "adv.syslog.why": "Unraid tiene il suo syslog nella RAM — dopo un crash o un reset brutale nessuno può più leggere cosa è successo, nemmeno la signora Protocolli. «Copia 'syslog' sull'Unità Flash USB» (per un po', consuma la chiavetta) o un server syslog (questo stesso: una condivisione come cartella syslog locale) lo conserva.",
+  "adv.vm_windows.title": {
+    "one": "Una VM Windows può trattenere l'arresto dell'array: {names}",
+    "other": "{n} VM Windows possono trattenere l'arresto dell'array: {names}"
+  },
+  "adv.vm_windows.why": {
+    "one": "Guarda un po' — quando l'array si ferma, Unraid chiede a ogni VM di spegnersi e aspetta fino a {timeout} s (Impostazioni → Gestione Macchine Virtuali → «Timeout Spegnimento Macchine Virtuali»); quello che gira ancora dopo viene spento di colpo, come staccare la spina — il lavoro non salvato è perso e Windows controlla il suo disco al prossimo avvio. In questa non risponde nessun agente guest, quindi la richiesta di Unraid è il pulsante di accensione — e un Windows inattivo con lo schermo spento tende a ignorarlo: l'arresto dell'array aspetta tutti i {timeout} s per niente, poi la spina. Cosa aiuta, in Windows: il QEMU Guest Agent (sull'ISO virtio-win: guest-agent\\qemu-ga-x86_64.msi) — Unraid allora chiede a lui, e Windows ascolta; oppure nelle opzioni risparmio energia «Disattiva schermo: Mai» e «Quando viene premuto il pulsante di alimentazione: Arresta il sistema». Un timeout più lungo non aiuta contro questo — l'attesa si allunga soltanto; e deve restare sotto il timeout di spegnimento dei dischi ({disk} s, Impostazioni → Dischi → «Timeout di spegnimento»).",
+    "other": "Guarda un po' — quando l'array si ferma, Unraid chiede a ogni VM di spegnersi e aspetta fino a {timeout} s (Impostazioni → Gestione Macchine Virtuali → «Timeout Spegnimento Macchine Virtuali»); quello che gira ancora dopo viene spento di colpo, come staccare la spina — il lavoro non salvato è perso e Windows controlla il suo disco al prossimo avvio. In queste non risponde nessun agente guest, quindi la richiesta di Unraid è il pulsante di accensione — e un Windows inattivo con lo schermo spento tende a ignorarlo: l'arresto dell'array aspetta tutti i {timeout} s per niente, poi la spina. Cosa aiuta, in Windows: il QEMU Guest Agent (sull'ISO virtio-win: guest-agent\\qemu-ga-x86_64.msi) — Unraid allora chiede a lui, e Windows ascolta; oppure nelle opzioni risparmio energia «Disattiva schermo: Mai» e «Quando viene premuto il pulsante di alimentazione: Arresta il sistema». Un timeout più lungo non aiuta contro questo — l'attesa si allunga soltanto; e deve restare sotto il timeout di spegnimento dei dischi ({disk} s, Impostazioni → Dischi → «Timeout di spegnimento»)."
+  },
   "adv.security.title": "Della sicurezza ora si occupa il guardiano notturno",
   "adv.security.why": "Condivisioni aperte a tutti, Telnet, FTP, contenitori privilegiati, la protezione della CPU — adesso è il suo reparto, e si accorge anche quando qualcosa cambia. Solo che non lavora ancora qui. Il capoufficio può assumerlo. Detto tra noi: io lo farei."
 }

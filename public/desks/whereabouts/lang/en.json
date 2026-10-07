@@ -662,6 +662,7 @@
   "adv.to_share_settings": "Global Share Settings",
   "adv.to_browse": "Browse {path}",
   "adv.to_team_lead": "To the team lead",
+  "adv.to_vm_settings": "VM Manager",
   "adv.system_array.title": "On the array: {names}",
   "adv.system_array.why": "Docker's and the VMs' own things belong on a pool (SSD/NVMe): on the array every container and VM gets slow, and the disks never get to sleep. In the share's settings set the primary storage to a pool and the secondary to none, then let the mover bring the files over (with Docker and VMs stopped).",
   "adv.mover.title": {
@@ -736,6 +737,14 @@
   "adv.ups.why": "When the power goes, the server simply stops: open files may break, afterwards Unraid runs a long parity check. A small UPS gives it time to shut down cleanly (Settings → UPS Settings; for a NUT server the NUT plugin).",
   "adv.syslog.title": "After a crash the log is gone",
   "adv.syslog.why": "Unraid keeps its syslog in RAM — after a crash or a hard reset nobody can read what happened, Ms. Protocolli included. «Mirror syslog to flash» (for a while, it wears the stick) or a syslog server (this one: a share as local syslog folder) keeps it.",
+  "adv.vm_windows.title": {
+    "one": "A Windows VM can hold up the array stop: {names}",
+    "other": "{n} Windows VMs can hold up the array stop: {names}"
+  },
+  "adv.vm_windows.why": {
+    "one": "Well, well — when the array stops, Unraid asks every VM to shut down and waits up to {timeout} s (Settings → VM Manager → «VM shutdown time-out»); whatever still runs then is switched off hard, like pulling the plug — unsaved work is gone, and Windows checks its disk at the next start. No guest agent answers in this one, so Unraid's request is the power button — and an idle Windows with its display off likes to ignore it: the array stop waits the whole {timeout} s for nothing, then comes the plug. What helps, in Windows: the QEMU Guest Agent (on the virtio-win ISO: guest-agent\\qemu-ga-x86_64.msi) — Unraid then asks the agent, and Windows listens; or in its power options «Turn off the display: Never» and «When I press the power button: Shut down». A longer time-out doesn't help against that — the wait only gets longer; and it has to stay below the disks' shutdown time-out ({disk} s, Settings → Disk Settings → «Shutdown time-out»).",
+    "other": "Well, well — when the array stops, Unraid asks every VM to shut down and waits up to {timeout} s (Settings → VM Manager → «VM shutdown time-out»); whatever still runs then is switched off hard, like pulling the plug — unsaved work is gone, and Windows checks its disk at the next start. No guest agent answers in these, so Unraid's request is the power button — and an idle Windows with its display off likes to ignore it: the array stop waits the whole {timeout} s for nothing, then comes the plug. What helps, in Windows: the QEMU Guest Agent (on the virtio-win ISO: guest-agent\\qemu-ga-x86_64.msi) — Unraid then asks the agent, and Windows listens; or in its power options «Turn off the display: Never» and «When I press the power button: Shut down». A longer time-out doesn't help against that — the wait only gets longer; and it has to stay below the disks' shutdown time-out ({disk} s, Settings → Disk Settings → «Shutdown time-out»)."
+  },
   "adv.security.title": "Security is the night watchman's job now",
   "adv.security.why": "Shares open to everyone, Telnet, FTP, privileged containers, the CPU's protection — that's his department now, and he notices when something changes, too. Only: he doesn't work here yet. The team lead can hire him. Between us: I would."
 }

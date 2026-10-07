@@ -25,6 +25,7 @@ const WA_SCRIPTS_JSON = '/boot/config/plugins/user.scripts/schedule.json';
 const WA_SCRIPTS_TMP  = '/tmp/user.scripts';
 const WA_PLUGINS      = '/boot/config/plugins';
 const WA_LIBVIRT      = '/etc/libvirt';          // libvirt.img is mounted here while the VM service runs
+const WA_LIBVIRT_RUN  = '/var/run/libvirt/qemu'; // libvirt's status of each running VM (RAM): the live XML, the guest agent's channel state
 const WA_FOLDER_LIMIT = 500;     // first-level entries per share
 const WA_SCRIPT_BYTES = 8192;    // how much of each user script to show
 const WA_DU_PARALLEL  = 2;
@@ -689,7 +690,41 @@ function waVm(string $name, string $state, int $snapshots, array $roots, array $
         'graphics'    => $vnc,
         'snapshots'   => $snapshots,
         'config_backup' => backupProtection(WA_LIBVIRT),
+        'agent'       => $state === 'running' ? waVmAgent($name) : null,
     ];
+}
+
+/**
+ * Whether the QEMU guest agent answers inside a running VM: libvirt's status file in RAM
+ * (WA_LIBVIRT_RUN/<name>.xml, the live XML — what `virsh dumpxml` shows) has its channel's
+ * state. While it is connected, Unraid's `virsh shutdown` at the array stop goes through the
+ * agent; otherwise it is the ACPI power button, which an idle Windows with its display off
+ * likes to ignore. connected | disconnected | none (no agent channel) | null (not known).
+ */
+function waVmAgent(string $name, string $dir = WA_LIBVIRT_RUN): ?string
+{
+    if ($name === '' || str_contains($name, '/') || $name[0] === '.') {
+        return null;
+    }
+    $file = "$dir/$name.xml";
+    if (!is_file($file) || is_link($file) || (int) @filesize($file) > 1024 * 1024) {
+        return null;
+    }
+    return waVmAgentState((string) @file_get_contents($file));
+}
+
+/** The guest agent's channel state in a VM's live (status) XML: connected | disconnected | none, null when unreadable */
+function waVmAgentState(string $xml): ?string
+{
+    $dom = $xml !== '' ? @simplexml_load_string($xml, 'SimpleXMLElement', LIBXML_NONET) : false;
+    if (!$dom) {
+        return null;
+    }
+    $state = 'none';
+    foreach ($dom->xpath('//*[local-name()="channel"]/*[local-name()="target"][@name="org.qemu.guest_agent.0"]') ?: [] as $t) {
+        $state = (string) ($t['state'] ?? '') === 'connected' ? 'connected' : 'disconnected';
+    }
+    return $state;
 }
 
 /**
@@ -1263,7 +1298,23 @@ function waAdvice(array $shares, array $roots, array $asleep): array
         // kept after a crash: mirrored to the flash or sent to a syslog server (this one's own share too)
         'syslog_kept'    => ($syslog['syslog_flash'] ?? '') !== '' || trim((string) ($syslog['remote_server'] ?? '')) !== '',
         'exclusive'      => waExclusive($shares, $roots, $asleep, $share),
+        'vm_stop'        => waVmStop($domain, readCfg(WA_VAR_INI)),
     ];
+}
+
+/**
+ * How the array stop treats VMs (/etc/rc.d/rc.libvirt): each running VM is asked to shut down
+ * (`virsh shutdown` — the guest agent when it answers, else the ACPI power button), then Unraid
+ * waits up to the VM shutdown time-out (domain.cfg TIMEOUT, Settings → VM Manager; empty = 60 s)
+ * and switches off hard (`virsh destroy`) what still runs. The disk shutdown time-out (var.ini
+ * shutdownTimeout, Settings → Disk Settings; empty = 90 s) must stay above it.
+ *
+ * @return array{timeout: int, disk_timeout: int}
+ */
+function waVmStop(array $domain, array $var): array
+{
+    $n = fn ($v, int $default): int => preg_match('/^\d{1,6}$/D', trim((string) $v)) && (int) $v > 0 ? (int) $v : $default;
+    return ['timeout' => $n($domain['TIMEOUT'] ?? '', 60), 'disk_timeout' => $n($var['shutdownTimeout'] ?? '', 90)];
 }
 
 /**
