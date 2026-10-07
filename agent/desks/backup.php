@@ -235,6 +235,7 @@ function backupScan(): array
         'vms'        => $vms = backupVms($settings),
         'waiting'    => backupWaiting($settings, $vms),   // new folders, apps and VMs waiting for a decision (engine 2.21)
         'containers' => backupContainers($settings),
+        'partners'   => backupPartners($settings, $history, $running ? $status : null),   // engine 2.27: the last transfer per partner
         'dumps'      => backupDumps(),           // run folders of engines before 2.18, until the first 2.18 run cleared them
         'packages'   => backupPackages($settings),
         'schedule'   => backupSchedule(),
@@ -246,6 +247,33 @@ function backupScan(): array
     $GLOBALS['backup'] = $state;
     writeAtomic(deskFile('backup'), jsonEncode($state));
     return $state;
+}
+
+/**
+ * Engine 2.27: the partner offices settings.ini sends to, each with its units and the last run that had it (from the
+ * history, newest first: what went, how much, how fast, what was skipped or failed and why) - and, while a run sends
+ * to it, what it sends now (status.json partner.current: the unit, since, bytes so far)
+ */
+function backupPartners(array $settings, array $history, ?array $status = null): array
+{
+    $out = [];
+    $cur = is_array($status['partner']['current'] ?? null) ? $status['partner']['current'] : null;
+    foreach (backupPartnersFromSettings($settings) as $p) {
+        $last = null;
+        foreach ($history as $run) {
+            foreach ($run['partner'] ?? [] as $x) {
+                if ($x['id'] === $p['id']) {
+                    $last = $x + ['run' => $run['run'], 'time' => $run['finished'] ?: $run['started']];
+                    break 2;
+                }
+            }
+        }
+        $p['last'] = $last;
+        $p['current'] = $cur && ($cur['id'] ?? '') === $p['id'] ? ['unit' => (string) ($cur['unit'] ?? ''), 'since' => (int) ($cur['since'] ?? 0),
+                                                                    'bytes' => (int) ($cur['bytes'] ?? 0)] : null;
+        $out[] = $p;
+    }
+    return $out;
 }
 
 /** Name, version and interface of the script ("backup.sh --about", since 2.5) */
@@ -591,6 +619,8 @@ function backupRunFromStatus(array $j): array
         'kopia_skipped' => array_values(array_filter((array) ($j['kopia']['skipped'] ?? []), fn ($n) => is_string($n) && $n !== '')),
         'kopia_interrupted' => is_string($j['kopia']['interrupted'] ?? null) && $j['kopia']['interrupted'] !== '' ? $j['kopia']['interrupted'] : null,
         'kopia_first' => null,
+        // engine 2.27: the partner phase per partner (null: the run sent to no partner)
+        'partner'    => backupPartnerRun($j['partner'] ?? null),
         'log'        => (string) ($j['log'] ?? ''),
         'version'    => (string) ($j['version'] ?? ''),
         'source'     => 'status',
@@ -2101,6 +2131,7 @@ function backupSetupApply(mixed $decisions): array
     $dbs = array_column(array_filter($plan['databases'] ?? [], fn ($d) => !empty($d['dumpable'])), 'container');
     $ncs = array_merge(...array_map(fn ($n) => $n['members'] ?? [], $plan['nextcloud'] ?? []) ?: [[]]);
     $vms = array_column($plan['vms'] ?? [], 'name');
+    $partners = array_values(array_filter(array_column(array_filter($plan['partners'] ?? [], 'is_array'), 'id'), fn ($id) => is_string($id) && preg_match('/^[0-9a-f]{8}$/D', $id)));
     // apps as the office groups them: a compose project, or a single container
     $apps = array_values(array_unique(array_map(fn ($c) => (string) (($c['project'] ?? '') !== '' ? $c['project'] : ($c['name'] ?? '')), $plan['containers'] ?? [])));
     $clean = [];
@@ -2112,7 +2143,11 @@ function backupSetupApply(mixed $decisions): array
             || (preg_match('/^nextcloud\|(.+)\|preexisting_maintenance$/D', $key, $m) && in_array($m[1], $ncs, true))
             || (preg_match('/^vm\|(.+)\|(mode|prepare|retention)$/D', $key, $m) && in_array($m[1], $vms, true))
             || (preg_match('/^vm\|(.+)\|([a-z_]+)$/D', $key, $m) && in_array($m[1], $vms, true) && in_array($m[2], BACKUP_ITEM_KEYS, true))
-            || (preg_match('/^app\|(.+)\|([a-z_]+)$/D', $key, $m) && in_array($m[1], $apps, true) && in_array($m[2], BACKUP_ITEM_KEYS, true));
+            || (preg_match('/^app\|(.+)\|([a-z_]+)$/D', $key, $m) && in_array($m[1], $apps, true) && in_array($m[2], BACKUP_ITEM_KEYS, true))
+            // engine 2.27: the partners a unit goes to - a list of the plan's partners only
+            || ((preg_match('/^(share|vm)\|(.+)\|partner$/D', $key, $m) && in_array($m[2], $m[1] === 'share' ? $shares : $vms, true)
+                 || $key === 'general|partner_place')
+                && is_array($value) && !array_diff($value, $partners));
         $plain = fn ($v) => is_string($v) && strlen($v) <= 500 && !preg_match('/[\x00-\x1f]/', $v);
         $valid = $plain($value) || (is_array($value) && array_is_list($value) && count($value) <= 1000 && !in_array(false, array_map($plain, $value), true));
         if (!$ok || !$valid) {

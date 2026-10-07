@@ -156,6 +156,34 @@ function officeDashBackupState(array $backup): array
     return ['dash.bk_none', 'orange', null];
 }
 
+/**
+ * Engine 2.27: while a run sends to a partner office, what and how much so far (status.json partner.current) - the
+ * line under Mr. Backupsy's name, «to vault: appdata 12 GB»; null at any other time
+ */
+function officeDashBackupPartner(array $strings, array $backup): ?string
+{
+    $status = (array) ($backup['status'] ?? []);
+    $cur = $status['partner']['current'] ?? null;
+    if (empty($backup['running']) || ($status['phase'] ?? '') !== 'partner' || !is_array($cur)) {
+        return null;
+    }
+    $id = (string) ($cur['id'] ?? '');
+    $name = $id;
+    foreach ((array) ($status['partner']['partners'] ?? []) as $p) {
+        if (is_array($p) && ($p['id'] ?? '') === $id) {
+            $name = (string) ($p['name'] ?? $id);
+        }
+    }
+    $unit = (string) ($cur['unit'] ?? '');
+    $unit = $unit === 'place' ? officeDashT($strings, 'backup.partner.unit_place') : (string) preg_replace('/^(share|vm):/', '', $unit);
+    $bytes = max(0, (int) ($cur['bytes'] ?? 0));
+    $units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    $i = $bytes > 0 ? min((int) floor(log($bytes, 1024)), count($units) - 1) : 0;
+    $v = $bytes / (1024 ** $i);
+    $size = ($i === 0 ? (string) $bytes : number_format($v, $v < 10 ? 1 : 0)) . ' ' . $units[$i];
+    return officeDashT($strings, 'backup.partner.dash', ['name' => $name, 'unit' => $unit, 'size' => $size]);
+}
+
 /** Is Mr. Restori restoring right now? His job file says so and its heartbeat is fresh (a killed job's isn't) */
 function officeDashRestoring(?array $job, ?int $now = null): bool
 {
@@ -211,6 +239,7 @@ function officeDashRows(string $lang): string
         $next = !empty($schedule['enabled']) && $cron !== '' ? officeDashNextDaily($cron) : null;
         $sub = empty($schedule['enabled']) ? officeDashT($s, 'dash.bk_no_schedule')
             : ($next ? officeDashT($s, 'dash.bk_next', ['when' => officeDashWhen($s, $next, $lang)]) : officeDashT($s, 'dash.bk_scheduled'));
+        $sub = officeDashBackupPartner($s, $backup) ?? $sub;          // sending to a partner office right now (engine 2.27)
         $out .= $row('backup', officeDashAsset('desks/backup/avatar.svg'), officeDashT($s, 'backup.name'), $state, $tone, $sub);
     }
 

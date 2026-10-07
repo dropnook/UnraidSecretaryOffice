@@ -2929,7 +2929,7 @@ SH);
     $run();
     $r = array_values(preg_grep('/^ssh recv place/', $names()));
     check('partner phase: after the array stop - the next run continues the interrupted transfer (recv … -t)', ($r[0] ?? '') === "ssh recv place $stopSnap -t"
-        && ($byUnit($status()['partner']['done'] ?? [])['place']['resumed'] ?? false) === true, json_encode($r));
+        && array_filter($status()['partner']['done'] ?? [], fn ($x) => $x['unit'] === 'place' && $x['resumed'] === true && $x['snap'] === $stopSnap), json_encode($r));
 
     // --- a dry run: the plan in the log, nothing sent
     $night();
@@ -3012,6 +3012,82 @@ SH);
     $setup('--plan');
     $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
     same('setup forget: the next plan has the partner again, no unit ticked', [$id, 'vault', null], [$plan['partners'][0]['id'] ?? null, $plan['partners'][0]['name'] ?? null, $plan['P']['share|appdata|partner'] ?? null]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Engine 2.27 in the office: Mr. Backupsy reads the partner phase - settings.ini's partners and their units, a run's
+ * partner block per partner (status.json / history), the last transfer per partner for the overview tile, what the
+ * setup's Apply accepts (only the plan's partners), the Dashboard's line while a run sends to a partner.
+ */
+function testBackupPartnerOffice(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-partneroffice-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    file_put_contents("$tmp/settings.ini", "[general]\ndumps_share = UnraidSecretaryOffice\npartner_place = a1b2c3d4\n[partner \"a1b2c3d4\"]\nname = vault\naddress = 10.0.0.9\nport = 2222\nrate_mbit = 50\n"
+        . "[partner \"bad\"]\nname = x\n[share \"appdata\"]\nmode = snapshot\npartner = a1b2c3d4\n[share \"docs\"]\nmode = snapshot\n[vm \"Debian\"]\nmode = snapshot\npartner = a1b2c3d4\n");
+    $s = backupReadSettings("$tmp/settings.ini");
+    same('partner office: the partners settings.ini sends to, with their units (a section without an 8-hex id left out)',
+        [['id' => 'a1b2c3d4', 'name' => 'vault', 'address' => '10.0.0.9', 'port' => 2222, 'rate_mbit' => 50, 'units' => ['place', 'share:appdata', 'vm:Debian']]],
+        backupPartnersFromSettings($s));
+    $block = ['partners' => [['id' => 'a1b2c3d4', 'name' => 'vault'], ['id' => 'zz', 'name' => 'forged']],
+        'planned' => [['id' => 'a1b2c3d4', 'unit' => 'place'], ['id' => 'a1b2c3d4', 'unit' => 'share:appdata'], ['id' => 'a1b2c3d4', 'unit' => 'vm:Debian']],
+        'current' => null,
+        'done' => [['id' => 'a1b2c3d4', 'unit' => 'place', 'snap' => 'uso-backup-20261008-0200', 'from' => null, 'bytes' => 1000000, 'seconds' => 2, 'mbit' => 4, 'resumed' => false],
+                   ['id' => 'a1b2c3d4', 'unit' => 'share:appdata', 'snap' => 'uso-backup-20261008-0200', 'from' => 'uso-backup-20261007-0200', 'bytes' => 3000000, 'seconds' => 0, 'mbit' => null, 'resumed' => true],
+                   ['id' => 'zz', 'unit' => 'x', 'bytes' => 5]],
+        'skipped' => [['id' => 'a1b2c3d4', 'unit' => 'vm:Debian', 'why' => 'refused_quota']], 'failed' => [], 'interrupted' => null];
+    $r = backupPartnerRun($block);
+    same('partner office: a run\'s partner block per partner - sent, bytes, seconds, Mbit/s, skipped (only partners the run names)',
+        [1, 'a1b2c3d4', 2, 4000000, 2, 16.0, [['unit' => 'vm:Debian', 'why' => 'refused_quota']], true, null],
+        [count($r ?? []), $r[0]['id'] ?? null, $r[0]['sent'] ?? null, $r[0]['bytes'] ?? null, $r[0]['seconds'] ?? null, $r[0]['mbit'] ?? null, $r[0]['skipped'] ?? null,
+         $r[0]['units'][1]['resumed'] ?? null, array_key_exists('from', $r[0]['units'][0] ?? []) ? $r[0]['units'][0]['from'] : 'missing']);
+    same('partner office: no partner block - null', [null, null], [backupPartnerRun(null), backupPartnerRun(['planned' => []])]);
+    $line = ['run' => '20261008-0200', 'started' => 1000, 'finished' => 1500, 'result' => 'ok', 'partner' => $block, 'kopia' => ['done' => []]];
+    $hist = "$tmp/history.jsonl";
+    file_put_contents($hist, json_encode(['run' => '20261007-0200', 'started' => 500, 'finished' => 600, 'result' => 'ok', 'partner' => null]) . "\n" . json_encode($line) . "\n");
+    $history = backupHistory([], null, $skips, $hist);
+    $p = backupPartners($s, $history);
+    same('partner office: the overview tile - the last run that sent to the partner', ['vault', '20261008-0200', 1500, 2, null],
+        [$p[0]['name'] ?? null, $p[0]['last']['run'] ?? null, $p[0]['last']['time'] ?? null, $p[0]['last']['sent'] ?? null, array_key_exists('current', $p[0] ?? []) ? $p[0]['current'] : 'missing']);
+    $p = backupPartners($s, $history, ['partner' => ['current' => ['id' => 'a1b2c3d4', 'unit' => 'share:appdata', 'since' => 1600, 'bytes' => 12884901888]]]);
+    same('partner office: while a run sends to it - what and how much so far', ['unit' => 'share:appdata', 'since' => 1600, 'bytes' => 12884901888], $p[0]['current'] ?? null);
+    // the Dashboard's line during the phase - the web side's code, in a process of its own (bootstrap.php)
+    $dash = function (array $backup) use ($tmp): mixed {
+        $code = 'require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; require_once ' . var_export(OFFICE_DIR . '/src/dashboard.php', true) . ';'
+            . ' $s = ["backup.partner.dash" => "to {name}: {unit} {size}", "backup.partner.unit_place" => "backup place"];'
+            . ' echo json_encode(["line" => officeDashBackupPartner($s, json_decode(' . var_export(json_encode($backup), true) . ', true))]);';
+        $p = proc_open(['php', '-r', $code], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
+        $out = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        $j = json_decode(substr($out, (int) strpos($out, '{"line"')), true);
+        return is_array($j) ? $j['line'] : $out;
+    };
+    $running = ['running' => true, 'status' => ['phase' => 'partner', 'partner' => ['partners' => [['id' => 'a1b2c3d4', 'name' => 'vault']],
+        'current' => ['id' => 'a1b2c3d4', 'unit' => 'share:appdata', 'since' => 1, 'bytes' => 12884901888]]]];
+    same('partner office: the Dashboard - «to vault: appdata 12 GB» while it sends', 'to vault: appdata 12 GB', $dash($running));
+    $running['status']['partner']['current']['unit'] = 'place';
+    $running['status']['partner']['current']['bytes'] = 0;
+    same('partner office: the Dashboard - the backup place, nothing counted yet', 'to vault: backup place 0 B', $dash($running));
+    $running['status']['phase'] = 'kopia';
+    same('partner office: the Dashboard - no line in another phase', null, $dash($running));
+    // every text the desk names for a partner's reason exists in English (the engine's codes)
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/backup/lang/en.json'), true);
+    $codes = ['unreachable', 'refused_quota', 'refused_window', 'refused_asleep', 'array_stopped', 'no_key', 'no_ssh', 'snap_prefix', 'not_dataset', 'split', 'no_dataset',
+              'children', 'name', 'not_snapshotted', 'array_stopping', 'signal', 'recv_failed', 'send_failed', 'link_lost', 'no_answer', 'need_full', 'refused'];
+    same('partner office: a short text for every reason the engine gives', [], array_values(array_filter($codes, fn ($c) => !isset($en["partner.why_short.$c"]))));
+    same('partner office: a long text for every reason a unit can\'t travel', [], array_values(array_filter(['not_dataset', 'split', 'no_dataset', 'children', 'name'], fn ($c) => !isset($en["partner.why.$c"]))));
+    $engine = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh') . file_get_contents(OFFICE_DIR . '/backup/lib/common.sh');
+    $why = [];
+    foreach (['/partner_(?:skip|fail) "\$id" "\$u" ([a-z_]+)/', '/PARTNER_DOWN\[\$id\]="([a-z_]+)"/', '/\bwhy="([a-z_]+)"/', '/PS_WHY="([a-z_]+)"/',
+              '/PARTNER_CANT\+=\( "\$id\|\$u\|([a-z_]+)"/', '/partner_rest_skipped ([a-z_]+)/', '/PU_WHY="([a-z_]+)"/'] as $re) {
+        preg_match_all($re, $engine, $m);
+        $why = array_merge($why, $m[1]);
+    }
+    $why = array_values(array_unique($why));
+    check('partner office: the engine\'s codes found', count($why) >= 12, json_encode($why));
+    same('partner office: the codes the engine skips and fails with all have a text', [], array_values(array_filter($why, fn ($c) => !isset($en["partner.why_short.$c"]))));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -11540,7 +11616,7 @@ function testUnraidWords(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupPartnerPhase', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings', 'testUnraidWords']];
