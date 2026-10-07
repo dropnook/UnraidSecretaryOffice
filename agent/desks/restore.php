@@ -3268,8 +3268,20 @@ function rsBeat(array &$j, ?int $i = null, ?array $progress = null): bool
     if (time() - $last >= 2) {
         $last = time();
         rsJournalWrite($j);
-        // the array is being stopped: end at once (the job holds the engine's lock file open on the pool) — and a
-        // deadline the job set (the drill's: ≥ 15 min before the next backup; a step's own budget)
+    }
+    return rsWatch();
+}
+
+/**
+ * Asked to stop? SIGTERM (the job's handler), the array being stopped — end at once: the job holds the engine's lock
+ * file open on the pool —, or a deadline the job set (the drill's: ≥ 15 min before the next backup; a step's own
+ * budget). var.ini is read at most every 2 s.
+ */
+function rsWatch(): bool
+{
+    static $looked = 0;
+    if (empty($GLOBALS['rsStop']) && time() - $looked >= 2) {
+        $looked = time();
         if (rsArrayStopping()) {
             $GLOBALS['rsStop'] = true;
             $GLOBALS['rsStopWhy'] ??= 'array_stopping';

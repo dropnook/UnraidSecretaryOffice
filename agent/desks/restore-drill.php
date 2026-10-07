@@ -1056,19 +1056,84 @@ function drillPackageFiles(string $dir, array $files): array
         $out['bytes'] += $size;
         if (str_ends_with($f['path'], '.gz')) {
             if ($f['what'] === 'dump' && preg_match('#^db/(postgres|mariadb)_#', $f['path'], $x)) {
-                $tail = rsGzTail($path);
+                $tail = drillGzTail($path);
                 if ($tail === null) {
                     return ['state' => 'failed', 'code' => 'gzip_broken', 'params' => ['file' => $f['path']]] + $out;
                 }
                 if (!str_contains($tail, $x[1] === 'postgres' ? 'PostgreSQL database cluster dump complete' : 'Dump completed')) {
                     return ['state' => 'failed', 'code' => 'dump_incomplete', 'params' => ['file' => $f['path']]] + $out;
                 }
-            } elseif (run(['gzip', '-t', $path], 1800)[0] !== 0) {
+            } elseif (drillRunStoppable(['gzip', '-t', $path], 1800)[0] !== 0) {
                 return ['state' => 'failed', 'code' => 'gzip_broken', 'params' => ['file' => $f['path']]] + $out;
             }
         }
     }
     return $out;
+}
+
+/**
+ * A command that may take long (gzip -t, tar -tzf, an integrity_check) — ended at once when the job is asked to stop
+ * (rsWatch(): SIGTERM, the array stopping, the deadline): the job must never hold the pool busy.
+ *
+ * @return array{0:int, 1:string, 2:string}  exit code (124: ended), stdout, stderr
+ */
+function drillRunStoppable(array $cmd, int $timeout): array
+{
+    $p = proc_open(drillCmd($cmd), [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, '/', rsEnv());
+    if (!is_resource($p)) {
+        return [127, '', 'could not start ' . ($cmd[0] ?? '?')];
+    }
+    stream_set_blocking($pipes[1], false);
+    stream_set_blocking($pipes[2], false);
+    $out = $err = '';
+    $until = microtime(true) + $timeout;
+    $ended = false;
+    while (!feof($pipes[1]) || !feof($pipes[2])) {
+        $read = array_values(array_filter([$pipes[1], $pipes[2]], fn ($x) => !feof($x)));
+        $w = $e = null;
+        @stream_select($read, $w, $e, 0, 200000);
+        $out .= (string) @fread($pipes[1], 1 << 20);
+        $err .= (string) @fread($pipes[2], 65536);
+        if (strlen($out) > (32 << 20)) {
+            $out = substr($out, -(32 << 20));
+        }
+        if (microtime(true) > $until || rsWatch()) {
+            $ended = true;
+            break;
+        }
+    }
+    if ($ended) {
+        proc_terminate($p);
+        usleep(100000);
+        proc_terminate($p, 9);
+    }
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $code = proc_close($p);
+    return [$ended ? 124 : $code, $out, $err];
+}
+
+/** The end of a .gz after gzip -t — both stoppable — for a dump's closing line; null when damaged or stopped */
+function drillGzTail(string $file, int $bytes = 8192): ?string
+{
+    if (drillRunStoppable(['gzip', '-t', $file], 7200)[0] !== 0) {
+        return null;
+    }
+    $h = @gzopen($file, 'rb');
+    if (!$h) {
+        return null;
+    }
+    $tail = '';
+    while (!gzeof($h)) {
+        $chunk = gzread($h, 1 << 20);
+        if ($chunk === false || $chunk === '' || rsWatch()) {
+            break;
+        }
+        $tail = substr($tail . $chunk, -$bytes);
+    }
+    $whole = gzeof($h);
+    gzclose($h);
+    return $whole ? $tail : null;
 }
 
 /** An XML file (≤ 1 MB) read without the network or entities — the document, or null */
@@ -1089,7 +1154,7 @@ function drillXmlOk(string $file): ?DOMDocument
 /** The names in a .tar.gz, or null when it can't be read */
 function drillTarList(string $file): ?array
 {
-    [$exit, $out] = run(['tar', '-tzf', $file], 300);
+    [$exit, $out] = drillRunStoppable(['tar', '-tzf', $file], 300);
     return $exit === 0 ? array_values(array_filter(explode("\n", $out), 'strlen')) : null;
 }
 
@@ -1304,7 +1369,7 @@ function drillDumpFacts(string $file): array
     $carry = '';
     while (!gzeof($h)) {
         $data = gzread($h, 1 << 20);
-        if ($data === false || $data === '') {
+        if ($data === false || $data === '' || rsWatch()) {
             break;
         }
         $data = $carry . $data;
@@ -1434,7 +1499,7 @@ function drillSqliteLook(string $uri, bool $integrity): array
     $bin = $GLOBALS['drill']['sqlite3'] ?? 'sqlite3';
     $in = implode(',', array_map(fn ($t) => "'$t'", DRILL_SQLITE_TABLES));
     $sql = ($integrity ? 'PRAGMA integrity_check;' : "SELECT 'ok';") . "\nPRAGMA user_version;\nSELECT name FROM sqlite_master WHERE type = 'table' AND name IN ($in) LIMIT 1;";
-    [$exit, $out, $err] = run([$bin, '-bail', $uri, $sql], $integrity ? DRILL_BUDGET_SQLITE : 30);
+    [$exit, $out, $err] = drillRunStoppable([$bin, '-bail', $uri, $sql], $integrity ? DRILL_BUDGET_SQLITE : 30);
     if ($exit !== 0) {
         return ['error' => trim($err) ?: "exit $exit", 'integrity' => null, 'version' => null, 'table' => null, 'rows' => null];
     }
@@ -1455,7 +1520,7 @@ function drillSqliteLook(string $uri, bool $integrity): array
     }
     $rows = null;
     if ($table !== null) {
-        [$exit, $out] = run([$bin, $uri, "SELECT count(*) FROM \"$table\";"], $integrity ? DRILL_BUDGET_SQLITE : 60);
+        [$exit, $out] = drillRunStoppable([$bin, $uri, "SELECT count(*) FROM \"$table\";"], $integrity ? DRILL_BUDGET_SQLITE : 60);
         $rows = $exit === 0 && ctype_digit(trim($out)) ? (int) trim($out) : null;
     }
     return ['error' => null, 'integrity' => $integ, 'version' => $version, 'table' => $table, 'rows' => $rows];

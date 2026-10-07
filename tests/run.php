@@ -11532,6 +11532,17 @@ function testRestoreDrill(): void
         check('drill SQLite: nothing written next to it (no -wal, -shm, -journal)', !file_exists("$db-wal") && !file_exists("$db-shm") && !file_exists("$db-journal"));
     }
 
+    // ---- a long command ends at once when the array is being stopped (the job must never hold the pool busy)
+    file_put_contents("$tmp/var.ini", "fsState=\"Stopping\"\n");
+    $t0 = microtime(true);
+    $r = drillRunStoppable(['sleep', '20'], 60);
+    same('drill: a long command ended by the array stop — within seconds, said why', [124, true, 'array_stopping'],
+        [$r[0], microtime(true) - $t0 < 5, $GLOBALS['rsStopWhy'] ?? null]);
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\nmdResyncPos=\"0\"\n");
+    $GLOBALS['rsStop'] = false;
+    $GLOBALS['rsStopWhy'] = null;
+    same('drill: … and runs to its end otherwise', [0, "x\n"], array_slice(drillRunStoppable(['echo', 'x'], 10), 0, 2));
+
     // ---- a whole job in-process: packages only (no container, no Kopia) — lock, marker, journal, certificate, one warning on a failure
     file_put_contents("$tmp/data/unraid-backup/settings.ini", "[general]\ndumps_share = UnraidSecretaryOffice\n[kopia]\nenabled = no\n");
     file_put_contents("$base/vms/Lin/nvram/9b3e9c65-84b4-2410-470b-8f719c38ea29_VARS.fd", 'vars');
