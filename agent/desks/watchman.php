@@ -470,7 +470,12 @@ function watchmanTick(): void
     if ($since === null) {
         if (empty($GLOBALS['wmMirrorGone'])) {
             $GLOBALS['wmMirrorGone'] = true;
-            watchmanMirrorDrop();       // let go: no night shift any more
+            watchmanMirrorDrop();       // let go: no night shift any more, and nothing of a night to take over
+            if (!watchmanNightOn()) {
+                foreach (WATCH_NIGHT_FILES as $f) {
+                    @unlink(WATCH_NIGHT_DIR . "/$f");
+                }
+            }
         }
         return;
     }
@@ -877,8 +882,8 @@ function watchmanNightHandover(string $dir, string $night = WATCH_NIGHT_DIR, ?in
     $n = watchmanLoad($night);
     $res = watchmanLocked($dir, function () use ($dir, $n, $now): array {
         $d = watchmanLoad($dir);
-        if (!is_array($d['baseline'])) {
-            return ['new' => 0, 'updated' => 0];        // not on watch here (let go meanwhile): the night is dropped
+        if (!is_array($d['baseline']) || (int) ($d['baseline']['hired'] ?? -1) !== (int) ($n['baseline']['hired'] ?? -2)) {
+            return ['new' => 0, 'updated' => 0];        // not on watch here, or since another hiring: the night is dropped
         }
         [$book, $new, $updated] = watchmanNightMerge($d['book'], $n['book'], $now);
         $st = watchmanNightState($d['state'], $n['state'], $now);
