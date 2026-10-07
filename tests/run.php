@@ -1742,7 +1742,9 @@ case "$1" in
         elif [[ "$*" == *'-t filesystem'* ]]; then cat "$FAKE/zfs.txt"; fi
         exit 0 ;;
   snapshot) shift; printf '%s\n' "$@" >>"$FAKE/snaps.txt"; ev "zfs snapshot"; exit 0 ;;
-  destroy) grep -vxF -- "$2" "$FAKE/snaps.txt" >"$FAKE/snaps.new"; mv "$FAKE/snaps.new" "$FAKE/snaps.txt"; ev "zfs destroy $2"; exit 0 ;;
+  destroy) grep -vxF -- "$2" "$FAKE/snaps.txt" >"$FAKE/snaps.new"; mv "$FAKE/snaps.new" "$FAKE/snaps.txt"; ev "zfs destroy $2"
+           [[ "$(cat "$FAKE/stop-at" 2>/dev/null)" == destroy ]] && { echo 'fsState="Stopping"' >"$FAKE/var.ini"; ev "array stopping"; }
+           exit 0 ;;
 esac
 exit 0
 SH);
@@ -1907,6 +1909,19 @@ SH);
     same('array stop at the maintenance mode: aborted, array_stopping', ['aborted', 'array_stopping'], [$s['result'] ?? null, $s['message'] ?? null]);
     check('array stop at the maintenance mode: switched off again, no container stopped, nothing noted',
         in_array('occ maintenance off', $n, true) && !preg_grep('/^docker stop/', $n) && !is_file("$data/state/maintenance") && !is_file("$data/state/stopped"), json_encode($n));
+
+    // --- in the middle of the retention: what it destroyed until then goes into pruned.json, the rest waits
+    $night('destroy');
+    file_put_contents("$fake/snaps.txt", "master/appdata@uso-backup-20200101-0100\nmaster/docs@uso-backup-20200101-0100\n");
+    $before = $prunedRuns();
+    [$code] = $run();
+    $s = $status();
+    $pr = json_decode((string) @file_get_contents("$data/state/pruned.json"), true)['runs'] ?? [];
+    $nt = $notes();
+    same('array stop while pruning: aborted, the first dataset\'s snapshot gone and noted in pruned.json, the second dataset left',
+        ['aborted', 'array_stopping', $before + 1, ['master/appdata@uso-backup-20200101-0100'], false],
+        [$s['result'] ?? null, $s['message'] ?? null, count($pr), end($pr)['zfs'] ?? null, in_array('zfs destroy master/docs@uso-backup-20200101-0100', $names(), true)]);
+    check('array stop while pruning: the notification says so', count($nt) === 1 && str_contains($nt[0], 'retention had removed 1 snapshot(s)'), json_encode($nt));
 
     // --- already stopping when the run starts: it touches nothing - an earlier run's notes stay for after the array start
     $night();

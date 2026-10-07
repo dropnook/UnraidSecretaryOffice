@@ -2141,7 +2141,8 @@ array_stop_report() { # a few lines for the notification
     for n in "${STOPPED[@]}"; do list+="${list:+, }$n"; done
     for n in "${!NC_ON[@]}"; do list+="${list:+, }maintenance mode of $n"; done
     [[ -n "$list" ]] && echo "Left as the stop found them, for the next run: $list"
-    echo "No snapshots were pruned. Log: $LOG_FILE"
+    if (( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )); then echo "Its retention had removed $(( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )) snapshot(s) when the stop began; the rest waits for the next run. Log: $LOG_FILE"
+    else echo "No snapshots were pruned. Log: $LOG_FILE"; fi
 }
 array_stop_notify() {
     [[ "$ST_MODE" == "backup" ]] || return 0           # a check or dry run is started by hand: its answer is seen there
@@ -2229,9 +2230,11 @@ cleanup() {
         unmount_all
     fi
     if [[ "$ARRAY_STOP" == "yes" && "$ST_RESULT" == "running" ]]; then
+        # stopped in the middle of its retention: what it destroyed until then still goes into pruned.json
+        (( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )) && pruned_write
         array_stop_kopia
         status_finish aborted "array_stopping"
-        log "Backup stopped because the array is being stopped - nothing pruned, nothing started; the next run continues."
+        log "Backup stopped because the array is being stopped - $( (( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )) && echo "retention stopped midway" || echo "nothing pruned"), nothing started; the next run continues."
         array_stop_notify
         rc=3
     elif [[ "$ST_ABORTED" == "yes" ]]; then status_finish aborted "signal"
@@ -2733,6 +2736,8 @@ fi
 array_stop_check "while pruning"
 command -v btrfs >/dev/null 2>&1 && prune_btrfs
 pruned_write                         # what the retention removed, for whoever watches the server (state/pruned.json)
+PRUNED_ZFS=(); PRUNED_BTRFS=()       # written (an array stop from here on adds nothing twice)
+array_stop_check "while cleaning up"
 prune_files
 
 # --- Finishing --------------------------------------------------------------
