@@ -26,10 +26,7 @@
   },
   "scan": "Rundgang",
   "scan_title": "Alle Pools, Disks und VMs neu nach Snapshots durchsuchen",
-  "scan_wake": {
-    "one": "Rundgang mit Aufwecken ({n} Disk)",
-    "other": "Rundgang mit Aufwecken ({n} Disks)"
-  },
+  "scan_wake": "Rundgang und {names} wecken",
   "scan_now": "Jetzt Rundgang machen",
   "new": "Neuer Snapshot",
   "new_from_here": "Neuer Snapshot hiervon",
@@ -338,7 +335,7 @@
   "help.sources_text": "Wer ihn gemacht hat: die Backup-Engine (Herr Backupsi), Docker, eine VM, von Hand oder ein anderes Werkzeug.",
   "help.docker": "Dockers eigene Image-Ebenen (ZFS) — Hunderte davon, von Docker verwaltet. Ausgeblendet, ausser eingeschaltet; hier nie löschbar.",
   "help.scan": "Rundgang · Aufwecken & Rundgang",
-  "help.scan_text": "Der Rundgang liest alle Pools, Disks und VMs neu — schlafende Array-Disks bleiben in Ruhe. «Aufwecken & Rundgang» weckt sie absichtlich.",
+  "help.scan_text": "Der Rundgang liest die wachen Pools, Disks und VMs neu — schlafende Array-Disks und schlafende ZFS-Pools bleiben in Ruhe (ein schlafender Pool zeigt, was ich zuletzt von ihm gesehen habe). «Aufwecken & Rundgang» weckt sie absichtlich.",
   "visit": "Zu Frau Snapshotini",
   "greet.1": "Buongiorno!",
   "greet.2": "Ciao, bello!",
@@ -431,11 +428,44 @@
   "plan.dow.6": "Samstag",
   "plan.dow.0": "Sonntag",
   "wake": "Schlafende Disks wecken",
-  "wake_n": {
-    "one": "1 schlafende Disk wecken",
-    "other": "{n} schlafende Disks wecken"
+  "wake_n": "{names} wecken",
+  "wake_title": "Nur für diesen Rundgang: weckt die schlafenden btrfs-Disks und ZFS-Pools und liest auch ihre Snapshots. Ohne Haken lasse ich sie schlafen und zeige, was ich zuletzt von ihnen wusste. Unraid legt sie nach seiner Wartezeit wieder schlafen.",
+  "bubble.pools_asleep": {
+    "one": "Der Pool {names} schläft — ich zeige, was ich zuletzt von ihm gesehen habe, und frage ihn nichts.",
+    "other": "Die Pools {names} schlafen — ich zeige, was ich zuletzt von ihnen gesehen habe, und frage sie nichts."
   },
-  "wake_title": "Nur für diesen Rundgang: weckt die schlafenden btrfs-Disks und liest auch ihre Snapshots. Ohne Haken lasse ich sie schlafen und zeige, was ich zuletzt von ihnen wusste. Unraid legt sie nach seiner Wartezeit wieder schlafen.",
+  "scan_pools_kept": {
+    "one": "{n} schlafender Pool wie zuletzt gesehen",
+    "other": "{n} schlafende Pools wie zuletzt gesehen"
+  },
+  "as_of": "Stand {when}",
+  "pool_asleep_chip": "Pool schläft",
+  "pool_asleep_chip_title": "Der Pool {pool} schläft — so habe ich ihn zuletzt gesehen ({when}). Löschen, Umbenennen oder Schützen würde ihn wecken: Ich frage vorher.",
+  "pool_asleep_title": "{pool} schläft — ich zeige, was ich zuletzt von ihm gesehen habe ({when}). Setz den Haken «Schlafende Disks wecken» und starte einen Rundgang, um ihn jetzt zu lesen.",
+  "pool_asleep_never": "{pool} schläft, und seit dem Start des Hausboten habe ich nicht hineingeschaut — seine Snapshots kenne ich nicht. Setz den Haken «Schlafende Disks wecken» und starte einen Rundgang, um ihn zu lesen.",
+  "help.pool_asleep": "Sein ZFS-Pool schläft (eine seiner Disks tut es) — ich zeige, was ich zuletzt von ihm gesehen habe, und frage ihn nichts. Löschen, Umbenennen oder Schützen eines solchen Snapshots fragt dich erst, ob der Pool geweckt werden soll.",
+  "delete.asleep": {
+    "one": "{n} davon liegt auf einem schlafenden Pool ({pools}).",
+    "other": "{n} davon liegen auf einem schlafenden Pool ({pools})."
+  },
+  "delete.asleep_text": "Löschen würde ihn wecken. Ohne Haken bleiben diese, der Rest geht.",
+  "delete.wake": "{pools} wecken und diese mit löschen",
+  "delete.asleep_unknown": {
+    "one": "{n} auf einem schlafenden Pool, nicht geschätzt",
+    "other": "{n} auf einem schlafenden Pool, nicht geschätzt"
+  },
+  "rename.asleep": "{ds} liegt auf dem Pool {pool}, der schläft — Umbenennen weckt ihn.",
+  "rename.wake": "{pool} dafür wecken",
+  "wake_for.title": "{pool} wecken?",
+  "wake_for.text": "{name} liegt auf dem Pool {pool}, der schläft — das würde ihn wecken.",
+  "wake_for.note": "Nur, wenn du es wirklich willst — von mir aus wecke ich keinen Pool.",
+  "wake_for.confirm": "Wecken und {what}",
+  "unmount.asleep": "Der Pool {pool} schläft — Aushängen weckt ihn.",
+  "unmount.wake": "Wecken & aushängen",
+  "p.pool_asleep": "Pool",
+  "p.pool_asleep_value": "schläft — so zuletzt gesehen, {when}",
+  "p.pool_asleep_hint": "Einen schlafenden Pool frage ich nichts. Setz den Haken «Schlafende Disks wecken» und starte einen Rundgang, um ihn zu lesen.",
+  "errors.pool_asleep": "{name}: sein Pool {pool} schläft — weck ihn erst (von mir aus tue ich das nie).",
   "plan.result.gone": "Ziele weg",
   "plan.gone": "Ziel weg",
   "plan.gone_title": "Seit {since} weg: {targets} (gelöscht oder umbenannt?). Was weg ist, überspringe ich und nehme den Rest — lösche den Zeitplan oder wähle unter «Bearbeiten…» ein anderes Ziel.",

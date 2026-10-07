@@ -154,6 +154,8 @@
   "snaps.zero_hint": "Aquí ninguna instantánea la contiene ({fs}).",
   "snaps.asleep": "duerme",
   "snaps.asleep_hint": "Este disco duerme — no he mirado dentro.",
+  "snaps.kept": {"one": "a {when}: {n} instantánea", "other": "a {when}: {n} instantáneas"},
+  "snaps.kept_hint": "Lo último que vi de este pool, el {when}, antes de que entrara en reposo (la instantánea más reciente entonces: {newest}) — en un pool en reposo no miro. Una restauración desde él necesita «despertar».",
   "snaps.own_ds": "dataset propio",
   "snaps.own_ds_hint": "La carpeta es un dataset ZFS propio: sus instantáneas son solo suyas.",
   "snaps.inner": {"one": "1 dataset dentro", "other": "{n} datasets dentro"},

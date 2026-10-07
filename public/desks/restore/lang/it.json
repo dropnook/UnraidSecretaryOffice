@@ -154,6 +154,8 @@
   "snaps.zero_hint": "Qui nessuno snapshot la contiene ({fs}).",
   "snaps.asleep": "dorme",
   "snaps.asleep_hint": "Questo disco dorme — non ci ho guardato dentro.",
+  "snaps.kept": {"one": "al {when}: {n} snapshot", "other": "al {when}: {n} snapshot"},
+  "snaps.kept_hint": "Quello che ho visto di questo pool l'ultima volta, il {when}, prima che andasse in standby (lo snapshot più recente allora: {newest}) — in un pool in standby non guardo. Un ripristino da lì richiede «sveglia».",
   "snaps.own_ds": "dataset proprio",
   "snaps.own_ds_hint": "La cartella è un dataset ZFS a sé: i suoi snapshot appartengono solo a lei.",
   "snaps.inner": {"one": "1 dataset all'interno", "other": "{n} dataset all'interno"},
