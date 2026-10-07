@@ -158,6 +158,8 @@ const WATCH_KINDS = [
     'listen_new'           => ['host', true],       // a program of the server listens on a network port it never used
     'proc_odd'             => ['host', true],       // a program runs from a scratch folder (/tmp, /dev/shm …) or from memory
     'door_new'             => ['host', true],       // a new way in from outside: SSH on or on another port, UPnP, Connect's remote access, a single sign-on, a WireGuard peer
+    'array_stop'           => ['array', false],     // the array was stopped: a plain line, noted by himself (watchmanArrayLines())
+    'array_start'          => ['array', false],     // the array was started: likewise
 ];
 
 /**
@@ -178,6 +180,8 @@ const WATCH_ATTACK = [
     'smb_user' => 'T1021.002', 'smb_client' => 'T1021.002', 'smb_hour' => 'T1021.002',
     'snap_gone' => 'T1490', 'snap_hold_released' => 'T1490',
     'log_cleared' => 'T1070.002', 'user_ram' => 'T1136.001', 'listen_new' => 'T1133', 'proc_odd' => 'T1105', 'door_new' => 'T1133',
+    // an array stopped is a service stopped (T1489 Service Stop); started again is its other end — the same technique, so a SIEM finds both
+    'array_stop' => 'T1489', 'array_start' => 'T1489',
 ];
 
 /**
@@ -210,6 +214,19 @@ const WATCH_SSH_INVALID = '/\ssshd[\w-]*(?:\[\d+\])?:\s+Invalid user (.*) from (
 // docker inspect: name, image, HostConfig and mounts as JSON (tabs and newlines inside are escaped), the main process (data flow)
 // and the consultant's label (ADVISOR_LABEL: he prepared Unraid's form) and when it was created — what the office installed itself
 const WATCH_INSPECT     = "{{json .Name}}\t{{json .Config.Image}}\t{{json .HostConfig}}\t{{json .Mounts}}\t{{.State.Pid}}\t{{json (index .Config.Labels \"uso.installed-by\")}}\t{{json .Created}}";
+
+// the night shift (agent.php nightshift, watchmanNightRound()): while the array is stopped, and from boot until the first array
+// start (an encrypted array waits for its key), he keeps the RAM and flash parts of his watch — nothing under /mnt, no data folder
+const WATCH_NIGHT_DIR    = RUN_DIR . '/nightshift';             // the night's book, state and log (RAM, root only)
+const WATCH_NIGHT_LOCK   = RUN_DIR . '/nightshift.lock';        // held while the night shift is on: never two of them, never with the agent
+const WATCH_NIGHT_FILES  = ['baseline.json', 'book.json', 'state.json', 'seen.json', 'posture.json'];
+const WATCH_MIRROR_RAM   = RUN_DIR . '/watchman-mirror.json';   // what the night shift needs, after every round (RAM, for an array stop)
+const WATCH_MIRROR_FLASH = '/boot/config/plugins/' . OFFICE_PLUGIN . '/watchman-mirror.json';  // the same for a reboot, without secrets
+const WATCH_MIRROR_EVERY = 3600;                                // the flash mirror at most once an hour (the flash wears), only when it changed
+const WATCH_ARRAY_EVENTS = RUN_DIR . '/array-events';           // "<time> stop|start" lines (scripts/agent.sh array …, from the event scripts)
+const WATCH_ARRAY_BEFORE = 1800;                                // logins this long before an array stop or start …
+const WATCH_ARRAY_AFTER  = 300;                                 // … and this long after it are named in its line
+const WATCH_LOGINS_MAX   = 30;                                  // successful logins remembered for those lines (state.json logins)
 
 desk('watchman', [
     'fit'     => fn (): array => fit(true, 'yes'),
@@ -281,6 +298,8 @@ function watchmanPaths(): array
         'oidc'       => '/boot/config/plugins/dynamix.my.servers/configs/oidc.json',
         'wireguard'  => '/boot/config/wireguard',
         'logger'     => 'logger',
+        // array stops and starts (event/stopping, event/started → scripts/agent.sh array …): lines in the book
+        'array_events' => WATCH_ARRAY_EVENTS,
     ];
 }
 
@@ -316,7 +335,21 @@ function watchmanLoad(?string $dir = null): array
             $entries[] = $e;
         }
     }
-    return ['baseline' => readJson("$dir/baseline.json"), 'book' => $entries, 'state' => readJson("$dir/state.json") ?? []];
+    return ['baseline' => readJson("$dir/baseline.json"), 'book' => $entries, 'state' => watchmanStateFix(readJson("$dir/state.json") ?? [])];
+}
+
+/**
+ * Up to 1.30 the SIEM switch (syslog_set) and the syslog's read position shared the key `syslog`: the switch
+ * overwrote the position (the next round failed on it) and a position counted as «on». The switch is `siem`
+ * now; a switch found under `syslog` moves there, and the syslog is read on from its end.
+ */
+function watchmanStateFix(array $st): array
+{
+    if (array_key_exists('syslog', $st) && !is_array($st['syslog']) && $st['syslog'] !== null) {
+        $st['siem'] ??= (bool) $st['syslog'];
+        $st['syslog'] = null;
+    }
+    return $st;
 }
 
 /** A false alarm up to 1.29: «new» lines that were only dcron's reload signal (WATCH_CRON_SIGNAL, its text the user's name) */
@@ -435,13 +468,25 @@ function watchmanTick(): void
     }
     $since = watchmanHiredSince();
     if ($since === null) {
+        if (empty($GLOBALS['wmMirrorGone'])) {
+            $GLOBALS['wmMirrorGone'] = true;
+            watchmanMirrorDrop();       // let go: no night shift any more, and nothing of a night to take over
+            if (!watchmanNightOn()) {
+                foreach (WATCH_NIGHT_FILES as $f) {
+                    @unlink(WATCH_NIGHT_DIR . "/$f");
+                }
+            }
+        }
         return;
     }
+    $GLOBALS['wmMirrorGone'] = false;
     $st = readJson(watchmanDir() . '/state.json') ?? [];
     $started = (int) ($GLOBALS['wmStarted'] ?? 0);
     $due = $now - max((int) ($st['round']['time'] ?? 0), $started) >= WATCH_EVERY;
     $anew = (int) ($st['hired'] ?? -1) !== $since && $now - $started >= 60;     // just hired (again): his first round right away
-    if ($due || $anew) {
+    // the array was started after a night shift: its entries into the book right away (a stat; never while it is still on)
+    $night = $now - $started >= 60 && is_file(WATCH_NIGHT_DIR . '/book.json') && !watchmanNightOn();
+    if ($due || $anew || $night) {
         watchmanStart();
     }
 }
@@ -491,6 +536,15 @@ function watchmanRun(): int
         return 0;               // another round is on its way
     }
     try {
+        // the array was stopped: first what the night shift saw, and its place in the syslog (never while it is still on)
+        $night = watchmanNightHandover($dir);
+        if (!empty($night['busy'])) {
+            logLine('Night watchman: the night shift is still on — his round waits for it');
+            return 0;
+        }
+        if ($night !== null) {
+            logLine("Night watchman: took over from the night shift — {$night['new']} new in the watch book, {$night['updated']} brought up to date");
+        }
         $r = watchmanRound(watchmanPaths(), $dir, $since, flow: fn (?array $containers): array => watchmanFlowLook(watchmanPaths(), $containers), snaps: true);
     } catch (Throwable $e) {
         logLine('Night watchman: round failed: ' . $e->getMessage());
@@ -518,8 +572,500 @@ function watchmanRun(): int
     foreach ($r['told'] as $t) {
         logLine("Night watchman: Unraid's notifications " . ($t['sent'] ? 'told' : 'could not be told') . " about {$t['n']} × {$t['kind']}");
     }
+    watchmanMirrorKeep($dir);
     watchmanPageState();
     return 0;
+}
+
+/** The night shift's mirror after a change (a round, «I know, thanks», a switch) — a failure is logged, never in the way */
+function watchmanMirrorKeep(string $dir): void
+{
+    try {
+        if (watchmanMirrorWrite($dir) === 'flash') {
+            logLine('Night watchman: his baseline for the night shift written to the flash (' . WATCH_MIRROR_FLASH . ')');
+        }
+    } catch (Throwable $e) {
+        logLine('Night watchman: could not write his mirror for the night shift: ' . $e->getMessage());
+    }
+}
+
+// ===================================================================== the night shift
+
+/*
+ * While the array is stopped — and from boot until the first array start: an encrypted array waits for its
+ * key while the WebGUI and SSH are already reachable — the office's agent is gone (its data folder lies on
+ * the pool, which is unmounted then; the office never keeps a pool busy). The night shift keeps his watch:
+ * `php agent.php nightshift`, started by scripts/agent.sh in a session of its own (event/stopping; at boot by
+ * the .plg), cwd /, nothing open under /mnt — its book, state and log in RAM (WATCH_NIGHT_DIR, 0700). Every
+ * WATCH_EVERY a round of what lives in RAM or on the flash: logins (the syslog), the flash (go, extra, users,
+ * passwords, keys), plugins, what starts on its own, the host (logs, accounts, ports, programs, ways in),
+ * posture, the array's stop and start. Not looked at: containers (Docker is down — a program from an odd
+ * place is the server's then; while Docker is still or again up, programs aren't looked at), the shares'
+ * exports, the data flow, snapshots.
+ *
+ * His baseline comes from a mirror the agent writes after every round (watchmanMirrorWrite()): in RAM for an
+ * array stop (all of it, with the syslog's position and what the last round saw), on the flash for a reboot
+ * (only when it changed, at most once an hour; hashes, addresses and names only — no fingerprint of a
+ * password, no words of a crontab line, no position: the flash is vfat, whoever reads the flash share reads
+ * it). No mirror (never a round since he was hired, or not hired — the mirror goes when he is let go): no
+ * night shift, it says so in its log and ends. With the flash mirror the night's first look stands for the
+ * passwords: a change before it is found by the agent's first round after the start, against its own book.
+ *
+ * It reports like the day watch: the same important kinds, per kind once an hour (the mirror carries when
+ * each was told), the notify switch, Unraid's language (from the flash, as always). At the array start
+ * (event/started → agent.sh start: the night shift ends first) the agent's next round takes the night's
+ * entries into the book on the pool (watchmanNightHandover(): `night` = seen while the array was stopped;
+ * what was told stays told; an entry open in the day's book is only brought up to date) and reads the
+ * syslog on from the night's place: nothing told twice, nothing lost.
+ */
+const WATCH_BUMP_KINDS = ['login_new_ip', 'login_failures', 'log_cleared'];     // entries that count up (watchmanBump()); the others hold a state
+
+/** Where the night shift reads: what lies in the pool or needs the array is left out (missing parts: not looked at) */
+function watchmanNightPaths(): array
+{
+    // libvirt is left alone too (while the array stops it shuts the VMs down; his VM count for a posture tip keeps the day's word)
+    return array_diff_key(watchmanPaths(), array_flip(['office_installs', 'zfs', 'zpool', 'mnt', 'agent_log', 'snap_record', 'engine',
+        'sec', 'sec_nfs', 'share_cfg', 'libvirt_sock', 'virsh']));
+}
+
+/** This boot's id: the RAM mirror and a position in the syslog belong to one boot */
+function watchmanBootId(string $file = '/proc/sys/kernel/random/boot_id'): string
+{
+    $id = trim((string) @file_get_contents($file, false, null, 0, 64));
+    return preg_match('/^[0-9a-f-]{8,64}$/D', $id) ? $id : '';
+}
+
+/** Is the night shift on? It holds its lock for as long as it runs */
+function watchmanNightOn(string $lock = WATCH_NIGHT_LOCK): bool
+{
+    $h = @fopen($lock, 'c');
+    if (!$h) {
+        return false;
+    }
+    $free = flock($h, LOCK_SH | LOCK_NB);
+    if ($free) {
+        flock($h, LOCK_UN);
+    }
+    fclose($h);
+    return !$free;
+}
+
+/**
+ * What the night shift needs from his files ($d: baseline, state, seen, book). $flash: what still says something
+ * after a reboot and is no secret — the baseline without the passwords' fingerprints, crontab lines by their
+ * hashes only, no times that move every round; the open entries by kind and key; when each kind was told; the
+ * switches. Without $flash: all of it, with the syslog's position, the failures and what the last round saw.
+ */
+function watchmanMirror(array $d, string $boot, int $now, bool $flash): array
+{
+    $b = (array) ($d['baseline'] ?? []);
+    $st = (array) ($d['state'] ?? []);
+    $base = ['hired' => (int) ($b['hired'] ?? 0), 'time' => (int) ($b['time'] ?? 0)];
+    foreach (['ips', 'fail_ips', 'plugins', 'flash', 'sched', 'host'] as $k) {
+        $base[$k] = is_array($b[$k] ?? null) ? $b[$k] : null;
+    }
+    $open = [];
+    foreach ((array) ($d['book'] ?? []) as $e) {
+        if (watchmanOpen($e)) {
+            $open[] = $flash ? ['id' => (string) $e['id'], 'kind' => (string) $e['kind'], 'key' => (string) ($e['key'] ?? ''), 'time' => (int) $e['time'],
+                                'last' => (int) $e['last'], 'count' => (int) $e['count'], 'told' => $e['told'] ?? null, 'muted' => $e['muted'] ?? null]
+                             : $e;
+        }
+    }
+    $m = ['v' => 1, 'boot' => $boot, 'time' => $now, 'baseline' => $base, 'open' => $open,
+          'state' => ['notify' => ($st['notify'] ?? true) !== false, 'siem' => !empty($st['siem']), 'notified' => (array) ($st['notified'] ?? []),
+                      'chains' => (array) ($st['chains'] ?? [])]];
+    if (!$flash) {
+        $seen = (array) ($d['seen'] ?? []);
+        $m['state'] += ['syslog' => is_array($st['syslog'] ?? null) ? $st['syslog'] : null, 'fails' => (array) ($st['fails'] ?? []),
+                        'logins' => (array) ($st['logins'] ?? []), 'array_seen' => (int) ($st['array_seen'] ?? 0), 'last_notify' => $st['last_notify'] ?? null];
+        $m['seen'] = ['sched' => $seen['sched'] ?? null, 'host' => $seen['host'] ?? null];
+        return $m;
+    }
+    $mb = &$m['baseline'];
+    if (is_array($mb['ips'])) {
+        $mb['ips'] = array_map(fn ($k) => ['first' => 0, 'last' => 0, 'users' => (array) ($k['users'] ?? []), 'services' => (array) ($k['services'] ?? [])], $mb['ips']);
+    }
+    if (is_array($mb['fail_ips'])) {
+        $mb['fail_ips'] = array_map(fn () => ['since' => 0, 'last' => 0, 'n' => 0, 'quiet' => 0], $mb['fail_ips']);
+    }
+    if (is_array($mb['plugins'])) {
+        $mb['plugins'] = array_map(fn ($p) => array_diff_key((array) $p, ['seen' => 1]), $mb['plugins']);
+    }
+    if (is_array($mb['flash'])) {
+        unset($mb['flash']['pw']);          // a fingerprint of a password's hash stays in RAM
+    }
+    if (is_array($mb['sched'])) {
+        $hashes = fn ($lines) => array_map(fn () => '', (array) $lines);
+        foreach (['lines', 'twice', 'office'] as $k) {
+            if (is_array($mb['sched']['crontab'][$k] ?? null)) {
+                $mb['sched']['crontab'][$k] = $hashes($mb['sched']['crontab'][$k]);
+            }
+        }
+        if (is_array($mb['sched']['files'] ?? null)) {
+            $mb['sched']['files'] = array_map(fn ($f) => ['h' => (string) ($f['h'] ?? ''), 'lines' => $hashes($f['lines'] ?? [])], $mb['sched']['files']);
+        }
+    }
+    if (is_array($mb['host'])) {
+        foreach (['listen', 'procs'] as $k) {
+            if (is_array($mb['host'][$k] ?? null)) {
+                $mb['host'][$k] = array_map(fn () => 0, $mb['host'][$k]);
+            }
+        }
+    }
+    unset($mb);
+    return $m;
+}
+
+/** A mirror in exactly the shape watchmanMirror() writes it (the flash's may have been edited by anyone who can write the flash share) */
+function watchmanMirrorOk(mixed $m): bool
+{
+    return is_array($m) && ($m['v'] ?? null) === 1 && is_array($m['baseline'] ?? null) && is_int($m['baseline']['hired'] ?? null)
+        && $m['baseline']['hired'] > 0 && is_array($m['state'] ?? null) && is_array($m['open'] ?? null) && is_string($m['boot'] ?? null);
+}
+
+/**
+ * After a round (and «I know, thanks», a switch on his page): the mirror for the night shift — in RAM always, on the
+ * flash when it changed and its last write there is WATCH_MIRROR_EVERY old (else at a round after that). No
+ * baseline (not on watch): both go.
+ *
+ * @return string  what was written: ram, flash, none
+ */
+function watchmanMirrorWrite(string $dir, string $ram = WATCH_MIRROR_RAM, ?string $flash = WATCH_MIRROR_FLASH, ?int $now = null, ?string $boot = null): string
+{
+    $now ??= time();
+    $d = watchmanLoad($dir);
+    if (!is_array($d['baseline'])) {
+        watchmanMirrorDrop($ram, $flash);
+        return 'none';
+    }
+    $d['seen'] = readJson("$dir/seen.json");
+    $boot ??= watchmanBootId();
+    @mkdir(dirname($ram), 0700, true);
+    writeAtomic($ram, jsonEncode(watchmanMirror($d, $boot, $now, false)), 0600, 0, 0);
+    if ($flash === null || !is_dir(dirname($flash))) {
+        return 'ram';
+    }
+    $m = watchmanMirror($d, $boot, $now, true);
+    $sum = substr(hash('sha256', jsonEncode(array_diff_key($m, ['time' => 1, 'boot' => 1]))), 0, 32);
+    clearstatcache(true, $flash);
+    $old = readJson($flash);
+    if (($old['sum'] ?? null) === $sum) {
+        return 'ram';
+    }
+    $mtime = @filemtime($flash);
+    if (is_array($old) && $mtime !== false && $now >= $mtime && $now - $mtime < WATCH_MIRROR_EVERY) {
+        return 'ram';                       // changed, but the flash wears: at a round after the hour
+    }
+    writeAtomic($flash, jsonEncode($m + ['sum' => $sum]), 0600, 0, 0);
+    return 'flash';
+}
+
+/** Not on watch any more: no mirror, nothing of a night left */
+function watchmanMirrorDrop(string $ram = WATCH_MIRROR_RAM, ?string $flash = WATCH_MIRROR_FLASH): void
+{
+    foreach (array_filter([$ram, $flash]) as $f) {
+        if (is_file($f)) {
+            @unlink($f);
+        }
+    }
+}
+
+/**
+ * The night's first round: his files in RAM from the mirror — the RAM one when it is of this boot (an array stop),
+ * else the flash one (a reboot: this boot's syslog from its start, the passwords and the ports as the first look
+ * sees them). Null: no mirror — no night shift.
+ *
+ * @return array{hired: int, from: string}|null
+ */
+function watchmanNightBegin(array $paths, string $night, int $now, string $ram = WATCH_MIRROR_RAM, ?string $flash = WATCH_MIRROR_FLASH, ?string $boot = null): ?array
+{
+    $boot ??= watchmanBootId();
+    $from = 'ram';
+    $m = readJson($ram);
+    if (!watchmanMirrorOk($m) || $boot === '' || $m['boot'] !== $boot) {
+        $from = 'flash';
+        $m = $flash !== null ? readJson($flash) : null;
+        if (!watchmanMirrorOk($m)) {
+            return null;
+        }
+    }
+    $b = $m['baseline'];
+    $st = $m['state'];
+    if ($from === 'flash') {
+        if (is_array($b['flash'] ?? null)) {
+            $b['flash']['pw'] = watchmanFlash($paths)['pw'];
+        }
+        foreach (['listen', 'procs'] as $k) {
+            if (is_array($b['host'][$k] ?? null)) {
+                $b['host'][$k] = array_map(fn () => $now, $b['host'][$k]);
+            }
+        }
+    }
+    $book = [];
+    foreach ($m['open'] as $e) {
+        if (!is_array($e) || !is_string($e['id'] ?? null) || !preg_match(WATCH_ID, $e['id']) || !isset(WATCH_KINDS[$e['kind'] ?? ''])) {
+            continue;
+        }
+        $e += ['key' => '', 'time' => $now, 'last' => $now, 'count' => 1, 'p' => [], 'told' => null];
+        $e['noted'] = null;
+        $e['by'] = null;
+        // as the day's book had it: what the night adds is told apart at the handover
+        $e['stub'] = ['count' => (int) $e['count'], 'last' => (int) $e['last'], 'p' => $from === 'ram'];
+        $book[] = $e;
+    }
+    $state = ['hired' => $b['hired'], 'notify' => ($st['notify'] ?? true) !== false, 'siem' => !empty($st['siem']),
+              'notified' => (array) ($st['notified'] ?? []), 'chains' => (array) ($st['chains'] ?? []),
+              // a reboot: this boot's syslog from its start (its id differs from the position's)
+              'syslog' => $from === 'ram' && is_array($st['syslog'] ?? null) ? $st['syslog'] : ['ino' => -1, 'size' => 0],
+              'fails' => $from === 'ram' ? (array) ($st['fails'] ?? []) : [], 'logins' => $from === 'ram' ? (array) ($st['logins'] ?? []) : [],
+              'array_seen' => (int) ($st['array_seen'] ?? 0), 'last_notify' => $st['last_notify'] ?? null,
+              'night' => ['since' => $now, 'from' => $from]];
+    $seen = $from === 'ram' && is_array($m['seen'] ?? null) ? array_filter($m['seen'], 'is_array') : [];
+    foreach (['baseline.json' => $b, 'state.json' => $state, 'seen.json' => $seen, 'book.json' => ['entries' => $book]] as $file => $data) {
+        writeAtomic("$night/$file", jsonEncode($data), 0600, 0, 0);
+    }
+    @unlink("$night/posture.json");
+    return ['hired' => $b['hired'], 'from' => $from];
+}
+
+/** Docker during the night: down — no container runs, a program from an odd place is the server's; still or again up — not looked at */
+function watchmanNightDocker(string $pidFile = '/var/run/dockerd.pid'): ?array
+{
+    $pid = (int) @file_get_contents($pidFile, false, null, 0, 32);
+    return $pid > 1 && @posix_kill($pid, 0) ? null : [];
+}
+
+/**
+ * One round of the night shift in $night: his RAM and flash parts against the mirror's baseline. Null: no mirror —
+ * no night shift. $docker: what Docker answers (the tests); by default nothing while it is down.
+ *
+ * @return array{fresh: bool, added: list<string>, told: list<array>, summary: array, begun: ?array}|null
+ */
+function watchmanNightRound(array $paths, string $night = WATCH_NIGHT_DIR, ?int $now = null, bool $notify = true, ?callable $docker = null,
+                            string $ram = WATCH_MIRROR_RAM, ?string $flash = WATCH_MIRROR_FLASH, ?string $boot = null): ?array
+{
+    $now ??= time();
+    if (!is_dir($night) && !@mkdir($night, 0700, true)) {
+        throw new RuntimeException("cannot make $night");
+    }
+    $b = readJson("$night/baseline.json");
+    $begun = null;
+    if (!is_array($b) || (int) ($b['hired'] ?? 0) <= 0) {
+        $begun = watchmanNightBegin($paths, $night, $now, $ram, $flash, $boot);
+        if ($begun === null) {
+            return null;
+        }
+        $b = readJson("$night/baseline.json") ?? [];
+    }
+    // the team lead's notes lie in the pool: none in the night
+    $r = watchmanRound($paths, $night, (int) ($b['hired'] ?? 0), $now, $docker ?? fn (): ?array => watchmanNightDocker(), $notify, "$night/no-acks.json");
+    return $r + ['begun' => $begun];
+}
+
+/**
+ * The array is started and the agent back: the night's book goes into his on the pool — new entries with `night`
+ * (seen while the array was stopped; a line that was new in the night and is open in the day's book under the same
+ * key brings that one up to date), what the night added to entries open since the day (counts, the newest words);
+ * what was told stays told — and he reads the syslog on from the night's place (also the failures followed, when each
+ * kind was told, the logins of the last half hour). The night's files go afterwards. Never while the night shift is on.
+ *
+ * @return array{busy?: bool, new?: int, updated?: int}|null  null: no night to take over
+ */
+function watchmanNightHandover(string $dir, string $night = WATCH_NIGHT_DIR, ?int $now = null, string $lock = WATCH_NIGHT_LOCK): ?array
+{
+    $now ??= time();
+    clearstatcache();
+    if (!is_file("$night/book.json") && !is_file("$night/state.json")) {
+        return null;
+    }
+    if (watchmanNightOn($lock)) {
+        return ['busy' => true];
+    }
+    $n = watchmanLoad($night);
+    $res = watchmanLocked($dir, function () use ($dir, $n, $now): array {
+        $d = watchmanLoad($dir);
+        if (!is_array($d['baseline']) || (int) ($d['baseline']['hired'] ?? -1) !== (int) ($n['baseline']['hired'] ?? -2)) {
+            return ['new' => 0, 'updated' => 0];        // not on watch here, or since another hiring: the night is dropped
+        }
+        [$book, $new, $updated] = watchmanNightMerge($d['book'], $n['book'], $now);
+        $st = watchmanNightState($d['state'], $n['state'], $now);
+        $st['open'] = watchmanOpenCounts($book);
+        watchmanSave($dir, $d, ['book' => $book, 'state' => $st]);
+        return ['new' => $new, 'updated' => $updated];
+    });
+    foreach (WATCH_NIGHT_FILES as $f) {
+        @unlink("$night/$f");
+    }
+    return $res;
+}
+
+/** @return array{0: list<array>, 1: int, 2: int}  the day's book with the night's entries, how many new, how many brought up to date */
+function watchmanNightMerge(array $book, array $night, int $now): array
+{
+    $new = $updated = 0;
+    $at = fn (callable $match): ?int => array_key_first(array_filter($book, $match));
+    foreach ($night as $e) {
+        if (($e['kind'] ?? '') === 'watch' || !isset(WATCH_KINDS[$e['kind'] ?? ''])) {
+            continue;
+        }
+        $stub = is_array($e['stub'] ?? null) ? $e['stub'] : null;
+        unset($e['stub']);
+        if ($stub !== null) {
+            // open in the day's book when the night began: only what the night added to it
+            $i = $at(fn ($x) => $x['id'] === $e['id']);
+            if ($i === null || !watchmanOpen($book[$i])) {
+                continue;                   // noted or gone meanwhile: the night's word on it is no news
+            }
+            $more = max(0, (int) $e['count'] - (int) $stub['count']);
+            $changed = $more > 0 || (int) $e['last'] > (int) $stub['last'];
+            $before = $book[$i];
+            $book[$i] = watchmanNightInto($book[$i], $e, $more, $changed ? ($stub['p'] ? 'take' : null) : 'keep');
+            $updated += $book[$i] !== $before ? 1 : 0;
+            continue;
+        }
+        $i = ($e['key'] ?? '') === '' ? null : $at(fn ($x) => ($x['key'] ?? '') === $e['key'] && watchmanOpen($x));
+        if ($i !== null && watchmanOpen($e)) {
+            $book[$i] = watchmanNightInto($book[$i], $e, (int) $e['count'], null);
+            $updated++;
+            continue;
+        }
+        $e['night'] = 1;
+        $book[] = $e;
+        $new++;
+    }
+    return [watchmanPrune($book, $now), $new, $updated];
+}
+
+/**
+ * The night's word on an entry of the day's book: $more counted on, first and last seen, what was told or muted;
+ * the words ($p): 'take' the night's (it began with the day's), 'keep' the day's, null joined (an entry that counts
+ * up) or the night's (a state, it is newer)
+ */
+function watchmanNightInto(array $x, array $e, int $more, ?string $p): array
+{
+    $x['count'] = (int) $x['count'] + $more;
+    $x['time'] = min((int) $x['time'], (int) $e['time']);
+    $x['last'] = max((int) $x['last'], (int) $e['last']);
+    if ($p === 'take' || ($p === null && !in_array($x['kind'], WATCH_BUMP_KINDS, true))) {
+        $x['p'] = (array) ($e['p'] ?? []);
+    } elseif ($p === null) {
+        $x['p'] = watchmanMerge((array) ($x['p'] ?? []), (array) ($e['p'] ?? []));
+    }
+    foreach (['told', 'muted'] as $k) {
+        if (empty($x[$k]) && !empty($e[$k])) {
+            $x[$k] = (int) $e[$k];
+        }
+    }
+    return $x;
+}
+
+/** The night's state into the day's: the syslog's place, the failures followed, when each kind was told, chains, logins, array lines */
+function watchmanNightState(array $day, array $n, int $now): array
+{
+    if (is_array($n['syslog'] ?? null)) {
+        $day['syslog'] = $n['syslog'];
+    }
+    if (is_array($n['fails'] ?? null)) {
+        $day['fails'] = $n['fails'];
+    }
+    foreach (['notified', 'chains'] as $part) {
+        foreach ((array) ($n[$part] ?? []) as $k => $v) {
+            $day[$part][$k] = max((int) ($day[$part][$k] ?? 0), (int) $v);
+        }
+    }
+    if ((int) ($n['last_notify']['time'] ?? 0) > (int) ($day['last_notify']['time'] ?? 0)) {
+        $day['last_notify'] = $n['last_notify'];
+    }
+    $day['logins'] = watchmanRecentLogins(array_merge((array) ($day['logins'] ?? []), (array) ($n['logins'] ?? [])), [], $now);
+    $day['array_seen'] = max((int) ($day['array_seen'] ?? 0), (int) ($n['array_seen'] ?? 0));
+    if (is_array($n['night'] ?? null)) {
+        $day['night'] = ['since' => (int) ($n['night']['since'] ?? 0), 'until' => $now, 'from' => (string) ($n['night']['from'] ?? '')];
+    }
+    return $day;
+}
+
+// ===================================================================== the array: stopped, started
+
+/**
+ * The successful logins of the last WATCH_ARRAY_BEFORE (and a round), one per address, user and service with its
+ * newest time — what an array line names. $events: a round's login events; $old: the list so far.
+ *
+ * @return list<array{t: int, ip: string, user: ?string, service: string}>
+ */
+function watchmanRecentLogins(array $old, array $events, int $now): array
+{
+    $list = $old;
+    foreach ($events as $ev) {
+        if (!empty($ev['ok'])) {
+            $list[] = ['t' => (int) $ev['time'], 'ip' => $ev['ip'], 'user' => $ev['user'], 'service' => $ev['service']];
+        }
+    }
+    $by = [];
+    foreach ($list as $l) {
+        $t = (int) ($l['t'] ?? 0);
+        if (!is_array($l) || !is_string($l['ip'] ?? null) || $t < $now - WATCH_ARRAY_BEFORE - WATCH_EVERY || $t > $now + 60) {
+            continue;
+        }
+        $user = is_string($l['user'] ?? null) ? $l['user'] : null;
+        $k = $l['ip'] . '|' . $user . '|' . (string) ($l['service'] ?? '');
+        if (!isset($by[$k]) || $by[$k]['t'] < $t) {
+            $by[$k] = ['t' => $t, 'ip' => (string) $l['ip'], 'user' => $user, 'service' => (string) ($l['service'] ?? '')];
+        }
+    }
+    usort($by, fn ($a, $b) => $b['t'] <=> $a['t']);
+    return array_slice(array_values($by), 0, WATCH_LOGINS_MAX);
+}
+
+/** The array's stops and starts the event scripts noted ("<time> stop|start", agent.sh array), oldest first */
+function watchmanArrayEvents(string $file): array
+{
+    $out = [];
+    foreach (array_slice(explode("\n", (string) @file_get_contents($file, false, null, 0, 65536)), -100) as $line) {
+        if (preg_match('/^(\d{9,11}) (stop|start)$/D', trim($line), $m)) {
+            $out[] = [(int) $m[1], $m[2]];
+        }
+    }
+    usort($out, fn ($a, $b) => $a[0] <=> $b[0]);
+    return $out;
+}
+
+/**
+ * The array stopped or started since the last line: a plain line in the book each (noted by himself, `by` array) —
+ * when, and who had logged in to the WebGUI or by SSH around then, as the syslog says (it doesn't say who clicked).
+ * @return list<string>  the kinds written
+ */
+function watchmanArrayLines(array &$book, array &$st, string $file, int $now): array
+{
+    $seen = (int) ($st['array_seen'] ?? 0);
+    $added = [];
+    foreach (watchmanArrayEvents($file) as [$t, $what]) {
+        if ($t <= $seen || $t > $now + 60) {
+            continue;
+        }
+        $kind = $what === 'stop' ? 'array_stop' : 'array_start';
+        $logins = array_values(array_filter((array) ($st['logins'] ?? []),
+            fn ($l) => (int) ($l['t'] ?? 0) >= $t - WATCH_ARRAY_BEFORE && (int) ($l['t'] ?? 0) <= $t + WATCH_ARRAY_AFTER));
+        usort($logins, fn ($a, $b) => $a['t'] <=> $b['t']);
+        $e = watchmanEntry($kind, "$kind:$t", $t, ['logins' => array_slice($logins, -WATCH_LIST_MAX)]);
+        $e['noted'] = $now;
+        $e['by'] = 'array';
+        $book[] = $e;
+        $added[] = $kind;
+        $seen = $t;
+    }
+    $st['array_seen'] = $seen;
+    return $added;
+}
+
+/** Who had logged in around an array stop or start, in names: "root@192.168.7.125 (WebGUI)" … or – */
+function watchmanArrayWho(array $logins): string
+{
+    $out = [];
+    foreach ($logins as $l) {
+        $out[] = (is_string($l['user'] ?? null) ? $l['user'] . '@' : '') . (string) ($l['ip'] ?? '?') . ' (' . watchmanServiceName((string) ($l['service'] ?? '')) . ')';
+    }
+    return $out ? implode(', ', array_values(array_unique($out))) : '–';
 }
 
 // ===================================================================== a round
@@ -545,7 +1091,16 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     $snap = watchmanLoad($dir);
     $fresh = !is_array($snap['baseline']) || (int) ($snap['baseline']['hired'] ?? -1) !== $hired;
     $known = watchmanKnownUsers($paths['etc_passwd']);
-    [$events, $pos, $read] = watchmanReadLogins($paths['syslog'], $fresh ? null : ($snap['state']['syslog'] ?? null), $fresh, $known, $now);
+    // a position of another boot (the syslog is new at every boot, an inode may come again): this boot's syslog from its start
+    $boot = isset($paths['boot_id']) ? watchmanBootId((string) $paths['boot_id']) : '';
+    $from = $fresh ? null : ($snap['state']['syslog'] ?? null);
+    if (is_array($from) && $boot !== '' && isset($from['boot']) && $from['boot'] !== $boot) {
+        $from = ['ino' => -1, 'size' => 0];
+    }
+    [$events, $pos, $read] = watchmanReadLogins($paths['syslog'], $from, $fresh, $known, $now);
+    if (is_array($pos) && $boot !== '') {
+        $pos['boot'] = $boot;
+    }
     $containers = $docker ? $docker() : watchmanContainers();
     $look = $flow ? $flow($containers) : null;
     $host = watchmanHost($paths, $containers);          // with the containers' main processes (whose programs run where)
@@ -631,6 +1186,13 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             }
             $st['snaps'] = $snapRes['summary'];
         }
+        // the logins of the last half hour (for the array's lines); an array stopped or started since the last round: a plain line
+        $st['logins'] = watchmanRecentLogins((array) ($st['logins'] ?? []), $events, $now);
+        if ($fresh) {
+            $st['array_seen'] = max((int) ($st['array_seen'] ?? 0), $now);     // what came before he took over isn't his
+        } elseif (isset($paths['array_events'])) {
+            watchmanArrayLines($book, $st, (string) $paths['array_events'], $now);
+        }
         // how secure it stands: from what he sees now (what Docker or emhttp didn't answer: as the last round saw it)
         $st['posture'] = ['time' => $now, 'tips' => watchmanPosture($facts, $observed, (array) ($st['posture']['tips'] ?? []))];
         $old['posture'] = readJson("$dir/posture.json");
@@ -651,7 +1213,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $old['snaps'] = $snapKnown;
         watchmanSave($dir, $old, ['baseline' => $b, 'book' => $book, 'state' => $st, 'seen' => $observed, 'flow' => $flow, 'posture' => $known,
                                   'snaps' => $snapRes['known'] ?? null]);
-        if (!$fresh && !empty($st['syslog']) && isset($paths['logger'])) {
+        if (!$fresh && !empty($st['siem']) && isset($paths['logger'])) {
             watchmanSyslogForward((string) $paths['logger'], array_values(array_filter($book, fn ($e) => !isset($before[$e['id']]) && $e['kind'] !== 'watch')),
                 array_values(array_filter($told, fn ($t) => $t['kind'] === 'chain')));
         }
@@ -1652,6 +2214,9 @@ function watchmanFlashCompare(array &$known, array $seen, array &$book, int $now
  */
 function watchmanShares(array $paths): ?array
 {
+    if (!isset($paths['sec'], $paths['sec_nfs'], $paths['share_cfg'])) {
+        return null;                // not looked at (the night shift: no shares are exported while the array is stopped)
+    }
     $smb = readCfg($paths['sec'], true);
     if (!$smb) {
         return null;
@@ -5087,6 +5652,7 @@ function watchmanAck(mixed $id, ?string $dir = null, ?int $now = null, bool $pag
     }
     if ($noted) {
         logLine('Night watchman: ' . count($noted) . ' noted («I know, thanks»): ' . implode(', ', array_unique($noted)));
+        watchmanMirrorKeep($dir);
     }
     return ['ok' => true, 'noted' => count($noted), 'state' => watchmanPageState()];
 }
@@ -5177,6 +5743,7 @@ function watchmanText(array $e, ?string $lang = null): array
                              'where' => ($p['where'] ?? null) === null
                                  ? ($lang === null ? '' : officeNotifyText('watchman', 'where.host', [], $lang)) : (string) $p['where']],
         'door_new'       => ['door' => watchmanDoorWords($p, $lang), 'name' => (string) ($p['name'] ?? '')],
+        'array_stop', 'array_start' => ['who' => watchmanArrayWho((array) ($p['logins'] ?? []))],
         'watch'          => array_map('intval', $p),
         default          => [],
     };
@@ -5372,6 +5939,7 @@ function watchmanNotifySet(mixed $on, ?string $dir = null, bool $page = true): a
         return ['ok' => true];
     }
     logLine("Night watchman: reports to Unraid's notifications " . ($on ? 'on' : 'off'));
+    watchmanMirrorKeep($dir);
     return ['ok' => true, 'state' => watchmanPageState()];
 }
 
@@ -5421,13 +5989,14 @@ function watchmanSyslogSet(mixed $on, ?string $dir = null, bool $page = true): a
     watchmanLocked($dir, function () use ($dir, $on): void {
         $d = watchmanLoad($dir);
         $st = $d['state'];
-        $st['syslog'] = $on;
+        $st['siem'] = $on;
         watchmanSave($dir, $d, ['state' => $st]);
     });
     if (!$page) {
         return ['ok' => true];
     }
     logLine('Night watchman: new entries to the syslog (for a SIEM) ' . ($on ? 'on' : 'off'));
+    watchmanMirrorKeep($dir);
     return ['ok' => true, 'state' => watchmanPageState()];
 }
 
@@ -5606,7 +6175,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
                    'time' => (int) $e['time'], 'last' => (int) $e['last'], 'count' => (int) $e['count'],
                    'open' => watchmanOpen($e), 't' => watchmanText($e),
                    'p' => array_filter((array) ($e['p'] ?? []), fn ($k) => !str_starts_with((string) $k, '_'), ARRAY_FILTER_USE_KEY),
-                   'noted' => $e['noted'] ?? null, 'by' => $e['by'] ?? null, 'told' => $e['told'] ?? null, 'muted' => $e['muted'] ?? null];
+                   'noted' => $e['noted'] ?? null, 'by' => $e['by'] ?? null, 'told' => $e['told'] ?? null, 'muted' => $e['muted'] ?? null,
+                   'night' => !empty($e['night'])];
     }
     usort($book, fn ($x, $y) => [$y['last'], $y['time']] <=> [$x['last'], $x['time']]);
     $onWatch = is_array($b) && $since !== null && (int) ($b['hired'] ?? -1) === $since;
@@ -5633,8 +6203,10 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         'grafana'  => $onWatch ? watchmanGrafana($grafana) : null,
         'notified' => $st['last_notify'] ?? null,
         'notify'   => ['on' => ($st['notify'] ?? true) !== false, 'available' => is_executable(OFFICE_NOTIFY_BIN)],
-        'syslog'   => ['on' => !empty($st['syslog'])],
+        'syslog'   => ['on' => !empty($st['siem'])],
         'chains'   => array_map(fn ($c) => array_diff_key($c, ['key' => 1]), watchmanChains($d['book'], $now)),
+        // the last night shift (the array stopped, or from boot to the array's start): from, until, from which mirror
+        'night'    => is_array($st['night'] ?? null) && isset($st['night']['until']) ? array_map(fn ($v) => is_int($v) ? $v : (string) $v, $st['night']) : null,
         'limits'   => ['every' => WATCH_EVERY, 'burst' => WATCH_FAIL_BURST, 'window' => WATCH_FAIL_WINDOW,
                        'quiet' => WATCH_NOTIFY_QUIET, 'keep' => WATCH_BOOK_MAX, 'days' => WATCH_BOOK_DAYS],
     ];

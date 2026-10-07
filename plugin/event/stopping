@@ -1,5 +1,7 @@
 #!/bin/bash
 # The array is about to stop (start of cmdStop): stop the agent and whatever it
-# started, so nothing keeps a pool busy. Takes at most ~11 s.
-bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/agent.sh stop >/dev/null 2>&1
+# started, so nothing keeps a pool busy (at most ~11 s), and let the night
+# watchman's night shift watch in the meantime (RAM and flash only, nothing
+# under /mnt). The array's stop becomes a line in his book.
+bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/agent.sh array stopping >/dev/null 2>&1
 exit 0

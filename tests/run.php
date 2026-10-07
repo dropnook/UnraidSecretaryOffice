@@ -7021,6 +7021,207 @@ function testWatchmanHost(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/**
+ * The night shift: a round in RAM only from the mirror (never the data folder), the mirror in RAM and on the flash
+ * (throttled, no secrets), the array's lines, the lock, the handover at the array's start (the syslog's place, no
+ * entry twice, nothing lost)
+ */
+function testWatchmanNight(): void
+{
+    $now = strtotime('2026-10-07 09:00:00');
+    $tmp = sys_get_temp_dir() . '/office-tests-night-' . getmypid();
+    $src = "$tmp/src";
+    $day = "$tmp/data/watchman";
+    $night = "$tmp/run/nightshift";
+    $ram = "$tmp/run/watchman-mirror.json";
+    $flash = "$tmp/flash/watchman-mirror.json";
+    $lock = "$tmp/run/nightshift.lock";
+    foreach (['plugins', 'extra', 'ssh/root', 'flash', 'run'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    @mkdir("$tmp/flash", 0700, true);
+    @mkdir("$tmp/run", 0700, true);
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd", 'array_events' => "$tmp/run/array-events", 'boot_id' => "$tmp/boot_id"];
+    $boot1 = 'aaaaaaaa-0000-4000-8000-000000000001';
+    $boot2 = 'aaaaaaaa-0000-4000-8000-000000000002';
+    file_put_contents("$tmp/boot_id", "$boot1\n");
+    // the night's places: as watchmanNightPaths() leaves them (no shares' exports)
+    $nightPaths = array_diff_key($paths, array_flip(['sec', 'sec_nfs', 'share_cfg']));
+    $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
+    file_put_contents($paths['syslog'], $line($now - 7200, 'webgui: Successful login user root from 192.168.7.10'));
+    file_put_contents("$src/plugins/ca.plg", "<PLUGIN name=\"ca\" version=\"1\" pluginURL=\"https://raw.githubusercontent.com/unraid/ca/master/ca.plg\">\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n/usr/local/sbin/emhttp &\n");
+    file_put_contents($paths['passwd'], "root:x:0:0:Console and webGui login account:/root:/bin/bash\n");
+    file_put_contents($paths['shadow'], 'root:$6$aa$bb:20000:0:99999:7:::' . "\n");
+    file_put_contents($paths['sec'], "[\"appdata\"]\nexport=\"e\"\nsecurity=\"private\"\n");
+    file_put_contents($paths['sec_nfs'], '');
+    file_put_contents($paths['share_cfg'], "shareSMBEnabled=\"yes\"\n");
+    $docker = fn () => ['plex' => ['image' => 'plex', 'tokens' => ['-p 32400:32400/tcp']]];
+    $acks = "$tmp/acks.json";
+    $notified = "$tmp/notified";
+    file_put_contents("$tmp/notify", "#!/bin/bash\nfor a in \"\$@\"; do printf '%s\\x1f' \"\$a\"; done >> " . escapeshellarg($notified) . "\necho >> " . escapeshellarg($notified) . "\n");
+    chmod("$tmp/notify", 0755);
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    $calls = fn () => array_values(array_filter(explode("\n", (string) @file_get_contents($notified))));
+    $openKeys = fn (array $book) => array_column(array_values(array_filter($book, 'watchmanOpen')), 'key');
+
+    // the day: he takes over, then a login from a new address (told)
+    watchmanRound($paths, $day, 1000, $now, $docker, true, $acks);
+    file_put_contents($paths['syslog'], $line($now + 200, 'webgui: Successful login user root from 10.0.0.5'), FILE_APPEND);
+    watchmanRound($paths, $day, 1000, $now + 300, $docker, true, $acks);
+    same('night: the day told the new address', [['login_new_ip:10.0.0.5'], 1], [$openKeys(watchmanLoad($day)['book']), count($calls())]);
+
+    // the mirror: RAM all of it, the flash without secrets and only when changed, at most once an hour
+    same('night mirror: first write goes to the flash too', 'flash', watchmanMirrorWrite($day, $ram, $flash, $now + 300, $boot1));
+    touch($flash, $now + 300);
+    $m = readJson($ram);
+    $f = (string) file_get_contents($flash);
+    same('night mirror (RAM): baseline, the syslog\'s place with its boot, the open entry', [1000, true, 'boot1', ['login_new_ip:10.0.0.5']],
+        [$m['baseline']['hired'], is_array($m['state']['syslog']), ($m['state']['syslog']['boot'] ?? null) === $boot1 ? 'boot1' : null, array_column($m['open'], 'key')]);
+    $pw = (string) (watchmanLoad($day)['baseline']['flash']['pw']['root'] ?? 'none');
+    check('night mirror (flash): no password fingerprint, no password field, no syslog place, no failures',
+        !str_contains($f, $pw) && !str_contains($f, '$6$') && !array_key_exists('syslog', json_decode($f, true)['state']) && !str_contains($f, '"fails"'));
+    check('night mirror (RAM and flash): root only', (fileperms($ram) & 0777) === 0600 && (fileperms($flash) & 0777) === 0600);
+    same('night mirror: unchanged — the flash is left alone', 'ram', watchmanMirrorWrite($day, $ram, $flash, $now + 900, $boot1));
+    file_put_contents("$src/plugins/new.plg", "<PLUGIN name=\"new\" version=\"1\" pluginURL=\"https://example.com/new.plg\">\n");
+    watchmanRound($paths, $day, 1000, $now + 1000, $docker, true, $acks);
+    $flashBefore = (string) file_get_contents($flash);
+    same('night mirror: changed within the hour — RAM only', ['ram', $flashBefore], [watchmanMirrorWrite($day, $ram, $flash, $now + 1000, $boot1), (string) file_get_contents($flash)]);
+    touch($flash, $now - 3700);
+    same('night mirror: changed and an hour old — the flash too', 'flash', watchmanMirrorWrite($day, $ram, $flash, $now + 1000, $boot1));
+    same('night mirror: the plugin\'s entry is open in it', ['login_new_ip:10.0.0.5', 'plugin_new:new'], array_column(readJson($flash)['open'], 'key'));
+    $sentDay = count($calls());
+
+    // the array stops: the night shift from the RAM mirror — never the data folder
+    $t = $now + 1100;
+    file_put_contents($paths['array_events'], "$t stop\n");
+    file_put_contents($paths['syslog'], $line($t - 60, 'webgui: Successful login user root from 192.168.7.10')
+        . $line($t + 30, 'webgui: Successful login user root from 10.0.0.5')           // the open one again: counted there
+        . $line($t + 40, 'sshd-session[9]: Accepted publickey for root from 10.0.0.77 port 1 ssh2: x'), FILE_APPEND);
+    file_put_contents($paths['go'], "curl x | bash\n", FILE_APPEND);
+    $listing = function (string $dir): array {
+        $out = [];
+        foreach (is_dir($dir) ? new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS)) : [] as $file) {
+            $out[(string) $file] = [$file->getSize(), $file->getMTime()];
+        }
+        ksort($out);
+        return $out;
+    };
+    $dataBefore = $listing(DATA_DIR);
+    $dayBefore = $listing($day);
+    check('night paths: nothing under /mnt or the data folder', !array_filter(watchmanNightPaths(),
+        fn ($p) => is_string($p) && (str_starts_with($p, '/mnt') || str_starts_with($p, DATA_DIR))), json_encode(watchmanNightPaths()));
+    same('night paths: no shares, no snapshots, no data flow, no office record', [], array_values(array_intersect(array_keys(watchmanNightPaths()),
+        ['sec', 'sec_nfs', 'share_cfg', 'zfs', 'zpool', 'mnt', 'agent_log', 'snap_record', 'engine', 'office_installs'])));
+    $r = watchmanNightRound($nightPaths, $night, $t + 60, true, fn () => [], $ram, $flash, $boot1);
+    same('night: begun from the RAM mirror', ['hired' => 1000, 'from' => 'ram'], $r['begun'] ?? null);
+    same('night: neither the data folder nor the day\'s files touched', [$dataBefore, $dayBefore], [$listing(DATA_DIR), $listing($day)]);
+    $nb = watchmanLoad($night)['book'];
+    $byKey = array_column($nb, null, 'key');
+    same('night: a new address and go — new; the open one only counted on', [['flash_go', 'login_new_ip:10.0.0.77'], 2],
+        [(function (array $k): array { sort($k); return $k; })(array_values(array_diff($openKeys($nb), ['login_new_ip:10.0.0.5', 'plugin_new:new']))),
+         $byKey['login_new_ip:10.0.0.5']['count'] ?? null]);
+    $stop = $byKey["array_stop:$t"] ?? [];
+    same('night: the array\'s stop as a plain line, noted by himself, with who had logged in around then',
+        ['array_stop', 'array', ['192.168.7.10', '10.0.0.5', '10.0.0.77'], 'T1489', false],
+        [$stop['kind'] ?? null, $stop['by'] ?? null, array_column($stop['p']['logins'] ?? [], 'ip'), WATCH_ATTACK['array_stop'], WATCH_KINDS['array_stop'][1]]);
+    $sent = array_slice($calls(), $sentDay);
+    // login_new_ip was told at +300: still within its quiet hour (the mirror carries it); go is a new kind
+    same('night: told like the day — the same kinds, the same quiet hour', [1, true, false],
+        [count($sent), str_contains($sent[0] ?? '', 'flash') || str_contains($sent[0] ?? '', 'go'), str_contains(implode('', $sent), '10.0.0.77')]);
+    $nst = watchmanLoad($night)['state'];
+    $syslogEnd = filesize($paths['syslog']);
+    same('night: the syslog read on from the day\'s place', $syslogEnd, $nst['syslog']['size'] ?? null);
+
+    // never two of them: while the night shift holds its lock, the day waits
+    $h = fopen($lock, 'c');
+    flock($h, LOCK_EX);
+    same('night lock: on', [true, ['busy' => true]], [watchmanNightOn($lock), watchmanNightHandover($day, $night, $t + 600, $lock)]);
+    flock($h, LOCK_UN);
+    fclose($h);
+    check('night lock: off', !watchmanNightOn($lock));
+
+    // the array starts: the agent takes the night over — the syslog's place, the entries once, the open one counted on
+    file_put_contents($paths['syslog'], $line($t + 500, 'webgui: Successful login user root from 10.0.0.99'), FILE_APPEND);     // after the night's last round
+    $dayBook = watchmanLoad($day)['book'];
+    $before = array_column($dayBook, null, 'key');
+    $h = watchmanNightHandover($day, $night, $t + 600, $lock);
+    same('handover: new and brought up to date', ['new' => 3, 'updated' => 1], $h);
+    $d = watchmanLoad($day);
+    $byKey = array_column($d['book'], null, 'key');
+    same('handover: the night\'s entries carry «night», the stop line too', [true, true, true, false],
+        [!empty($byKey['flash_go']['night']), !empty($byKey['login_new_ip:10.0.0.77']['night']), !empty($byKey["array_stop:$t"]['night']),
+         !empty($byKey['login_new_ip:10.0.0.5']['night'])]);
+    same('handover: the open entry counted on, still told once', [(int) $before['login_new_ip:10.0.0.5']['count'] + 1, $before['login_new_ip:10.0.0.5']['told']],
+        [$byKey['login_new_ip:10.0.0.5']['count'], $byKey['login_new_ip:10.0.0.5']['told']]);
+    same('handover: no key open twice', count($openKeys($d['book'])), count(array_unique($openKeys($d['book']))));
+    same('handover: the syslog\'s place and what was told taken over; the night\'s files gone', [$syslogEnd, true, []],
+        [$d['state']['syslog']['size'] ?? null, isset($d['state']['notified']['flash_go']), array_values(array_filter(WATCH_NIGHT_FILES, fn ($f) => is_file("$night/$f")))]);
+    same('handover: nothing left to take over', null, watchmanNightHandover($day, $night, $t + 601, $lock));
+
+    // the agent's next round: the array's start, the login after the night's last round — once
+    file_put_contents($paths['array_events'], ($t + 550) . " start\n", FILE_APPEND);
+    $sentBefore = count($calls());
+    $r = watchmanRound($paths, $day, 1000, $t + 660, $docker, true, $acks);
+    $d = watchmanLoad($day);
+    $byKey = array_column($d['book'], null, 'key');
+    same('after the night: nothing lost — the login after its last round is new, the start is a line',
+        [['login_new_ip'], 'array', ['192.168.7.10', '10.0.0.5', '10.0.0.77', '10.0.0.99']],
+        [$r['added'], $byKey['array_start:' . ($t + 550)]['by'] ?? null, array_column($byKey['array_start:' . ($t + 550)]['p']['logins'] ?? [], 'ip')]);
+    same('after the night: nothing twice', [[], 1, 1], [watchmanRound($paths, $day, 1000, $t + 960, $docker, true, $acks)['added'],
+        count(array_filter($d['book'], fn ($e) => $e['kind'] === 'array_stop')), count(array_filter($d['book'], fn ($e) => $e['kind'] === 'array_start'))]);
+    check('after the night: the page shows the chip and the night', (function () use ($day, $t): bool {
+        $ps = watchmanPageState($day, $t + 960, false);
+        return (bool) array_filter($ps['book'], fn ($e) => $e['night']) && ($ps['night']['from'] ?? null) === 'ram' && ($ps['night']['until'] ?? 0) > 0;
+    })());
+
+    // a reboot: no RAM mirror of this boot — the flash's; this boot's syslog from its start, passwords from the first look
+    watchmanMirrorWrite($day, $ram, $flash, $t + 960, $boot1);
+    touch($flash, $t - 7200);
+    watchmanMirrorWrite($day, $ram, $flash, $t + 960, $boot1);
+    file_put_contents("$tmp/boot_id", "$boot2\n");
+    $boot = $t + 3600;
+    file_put_contents($paths['syslog'], $line($boot + 10, 'webgui: Successful login user root from 192.168.7.10')
+        . $line($boot + 20, 'webgui: Successful login user root from 10.0.0.123'));
+    file_put_contents($paths['shadow'], 'root:$6$zz$yy:20000:0:99999:7:::' . "\n");     // changed while it was off: the agent's to find
+    $r = watchmanNightRound($nightPaths, $night, $boot + 60, false, fn () => [], $ram, $flash, $boot2);
+    $nb = watchmanLoad($night)['book'];
+    same('reboot: begun from the flash, this boot\'s syslog from its start; a password the first look stands for',
+        [['hired' => 1000, 'from' => 'flash'], true, false],
+        [$r['begun'] ?? null, in_array('login_new_ip:10.0.0.123', $openKeys($nb), true), in_array('flash_password:root', $openKeys($nb), true)]);
+    // and the agent, after the handover, still finds the password against its own book
+    watchmanNightHandover($day, $night, $boot + 120, $lock);
+    watchmanRound($paths, $day, 1000, $boot + 180, $docker, false, $acks);
+    check('reboot: the changed password is the agent\'s find after the start', in_array('flash_password:root', $openKeys(watchmanLoad($day)['book']), true));
+
+    // no mirror: no night shift, nothing written
+    hardeningRm($night);
+    same('night: without a mirror none', [null, false], [watchmanNightRound($nightPaths, $night, $boot, false, fn () => [], "$tmp/none.json", "$tmp/none2.json", $boot2),
+        is_file("$night/book.json")]);
+    // let go: the mirrors go
+    hardeningRm($day);
+    same('night mirror: not on watch — both gone', ['none', false, false], [watchmanMirrorWrite($day, $ram, $flash, $boot), is_file($ram), is_file($flash)]);
+
+    // the SIEM switch had shared the syslog's place up to 1.30
+    same('state: an old SIEM switch moves to siem, the place is read anew', [['syslog' => null, 'siem' => true], ['syslog' => ['ino' => 1, 'size' => 2]]],
+        [watchmanStateFix(['syslog' => true]), watchmanStateFix(['syslog' => ['ino' => 1, 'size' => 2]])]);
+    same('array events: only their shape, oldest first', [[5, 'x'], [[1700000000, 'stop'], [1700000100, 'start']]],
+        [[5, 'x'], watchmanArrayEvents((function () use ($tmp): string {
+            file_put_contents("$tmp/ev", "1700000100 start\nrm -rf /\n1700000000 stop\n1700000000 stop now\n");
+            return "$tmp/ev";
+        })())]);
+
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    foreach ([$day, $night] as $dir) {
+        @unlink(watchmanLockFile($dir, 'book'));
+        @unlink(watchmanLockFile($dir, 'round'));
+    }
+    hardeningRm($tmp);
+}
+
 function testWatchmanSnaps(): void
 {
     $now = strtotime('2026-10-06 12:00:00');
@@ -7481,7 +7682,7 @@ function testSupporterKeys(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman', 'testWhereaboutsVmStop', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];
