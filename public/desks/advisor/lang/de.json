@@ -159,7 +159,7 @@
   "ext.loki.name": "Loki",
   "ext.loki.what": "Wie Prometheus, aber für Protokollzeilen: sammelt sie vom Server und seinen Containern, durchsuchbar in Grafana. Für später — fürs Wachbuch des Nachtwächters. Open Source (AGPL).",
   "open.loki": "Zur Docker-Seite",
-  "install.loki.1": "Noch nicht: Das Sekretariat braucht Loki heute nicht. Sobald der Nachtwächter (noch in der Rekrutierung) sein Wachbuch führt, folgt hier die Anleitung — jetzt installiert, kostet es nur RAM. Das parken wir.",
+  "install.loki.1": "Noch nicht: Das Sekretariat braucht Loki heute nicht. Der Nachtwächter führt sein Wachbuch im Sekretariat selbst; Langzeit-Logs in Loki kommen später — jetzt installiert, kostet es nur RAM. Das parken wir.",
   "check.fcp": "Fix Common Problems ist installiert",
   "check.fcp_how": "Apps → «Fix Common Problems» suchen → Install. Der Berater erklärt, wofür es gut ist und wie man es von Hand installiert.",
   "check.streamviewer": "Stream Viewer zeigt, was auf {media} läuft",

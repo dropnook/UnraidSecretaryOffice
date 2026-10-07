@@ -159,7 +159,7 @@
   "ext.loki.name": "Loki",
   "ext.loki.what": "Come Prometheus, ma per le righe di log: le raccoglie dal server e dai suoi contenitori, cercabili in Grafana. Per più avanti — per il registro di guardia del guardiano notturno. Open source (AGPL).",
   "open.loki": "Alla pagina Docker",
-  "install.loki.1": "Non ancora: oggi la segreteria non usa Loki. Quando il guardiano notturno (ancora in fase di recruiting) terrà il suo registro di guardia, qui arriveranno i passi — installato adesso costerebbe solo RAM. Lo parcheggiamo.",
+  "install.loki.1": "Non ancora: oggi la segreteria non usa Loki. Il guardiano notturno tiene il suo registro di guardia nella segreteria stessa; i log a lungo termine in Loki verranno più avanti — installato adesso costerebbe solo RAM. Lo parcheggiamo.",
   "check.fcp": "Fix Common Problems è installato",
   "check.fcp_how": "App → cerca «Fix Common Problems» → Installa. Il consulente spiega a cosa serve e come installarlo a mano.",
   "check.streamviewer": "Stream Viewer mostra cosa è in riproduzione su {media}",

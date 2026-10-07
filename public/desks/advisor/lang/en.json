@@ -159,7 +159,7 @@
   "ext.loki.name": "Loki",
   "ext.loki.what": "Like Prometheus, but for log lines: collects them from the server and its containers, searchable in Grafana. For later — for the night watchman's log book. Open source (AGPL).",
   "open.loki": "To the Docker page",
-  "install.loki.1": "Not yet: the office doesn't use Loki today. Once the night watchman (still being recruited) keeps his log book, the step by step follows here — installed now, it would only cost RAM. Let's park that.",
+  "install.loki.1": "Not yet: the office doesn't use Loki today. The night watchman keeps his watch book in the office itself; long-term logs in Loki come later — installed now, it would only cost RAM. Let's park that.",
   "check.fcp": "Fix Common Problems is installed",
   "check.fcp_how": "Apps → search «Fix Common Problems» → Install. The Consultant explains what it is good for and how to install it by hand.",
   "check.streamviewer": "Stream Viewer shows what's playing on {media}",

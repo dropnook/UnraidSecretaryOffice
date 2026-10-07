@@ -159,7 +159,7 @@
   "ext.loki.name": "Loki",
   "ext.loki.what": "Comme Prometheus, mais pour les lignes de journal : les collecte depuis le serveur et ses conteneurs, consultables dans Grafana. Pour plus tard — pour la main courante du veilleur de nuit. Open source (AGPL).",
   "open.loki": "Vers la page Docker",
-  "install.loki.1": "Pas encore : le secrétariat n'utilise pas Loki aujourd'hui. Dès que le veilleur de nuit (encore en recrutement) tiendra sa main courante, les étapes suivront ici — installé maintenant, il ne coûterait que de la RAM. On le met au parking.",
+  "install.loki.1": "Pas encore : le secrétariat n'utilise pas Loki aujourd'hui. Le veilleur de nuit tient sa main courante dans le secrétariat même ; les journaux à long terme dans Loki viendront plus tard — installé maintenant, il ne coûterait que de la RAM. On le met au parking.",
   "check.fcp": "Fix Common Problems est installé",
   "check.fcp_how": "Applis → chercher « Fix Common Problems » → Installer. Le consultant explique à quoi il sert et comment l'installer à la main.",
   "check.streamviewer": "Stream Viewer montre ce qui passe sur {media}",

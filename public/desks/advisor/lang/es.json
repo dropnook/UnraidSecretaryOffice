@@ -159,7 +159,7 @@
   "ext.loki.name": "Loki",
   "ext.loki.what": "Como Prometheus, pero para líneas de registro: las recoge del servidor y sus contenedores, consultables en Grafana. Para más adelante — para el libro de guardia del sereno. Código abierto (AGPL).",
   "open.loki": "A la página de Docker",
-  "install.loki.1": "Todavía no: hoy la secretaría no usa Loki. En cuanto el sereno (aún en selección) lleve su libro de guardia, aquí llegarán los pasos — instalado ahora solo costaría RAM. Lo aparcamos.",
+  "install.loki.1": "Todavía no: hoy la secretaría no usa Loki. El sereno lleva su libro de guardia en la propia secretaría; los registros a largo plazo en Loki llegarán más adelante — instalado ahora solo costaría RAM. Lo aparcamos.",
   "check.fcp": "Fix Common Problems está instalado",
   "check.fcp_how": "Apps → buscar «Fix Common Problems» → Instalar. El consultor explica para qué sirve y cómo instalarlo a mano.",
   "check.streamviewer": "Stream Viewer muestra lo que se reproduce en {media}",
