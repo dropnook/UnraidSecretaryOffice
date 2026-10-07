@@ -17,7 +17,8 @@
 const ID = 'caretaker';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
-const LINKS = { plugins: '/Plugins', apps: '/Apps', docker: '/Docker', userscripts: '/Settings/Userscripts', notifications: '/Settings/Notifications', settings: '/Settings' };
+const LINKS = { plugins: '/Plugins', apps: '/Apps', docker: '/Docker', userscripts: '/Settings/Userscripts', notifications: '/Settings/Notifications', settings: '/Settings',
+  management: '/Settings/ManagementAccess' };
 
 let state = null;
 let view = null;

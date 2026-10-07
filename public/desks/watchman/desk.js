@@ -713,7 +713,14 @@ function details(e) {
       add(T('detail.runs_in'), p.where || T('where.host'));
     } else if (e.kind === 'door_new') {
       add(T('detail.door'), doorWords(p));
-      if (p.door === 'wg') add(T('detail.peers'), T('detail.peers_n', { n: p.peers || 0, new: p.new_peers || 0 }));
+      if (p.door === 'wg' || p.door === 'api_sso') add(T('detail.peers'), T('detail.peers_n', { n: p.peers || 0, new: p.new_peers || 0 }));
+    } else if (e.kind === 'api_key_new' || e.kind === 'api_key_changed') {
+      // Unraid's API: the key's name, roles and permissions as its file says — never its value (the agent never keeps it)
+      add(T('detail.api_key'), p.name);
+      add(T('detail.roles'), (p.roles || []).join(', ') || T('detail.roles_none'));
+      if (e.kind === 'api_key_changed') add(T('detail.roles_old'), (p.old_roles || []).join(', ') || T('detail.roles_none'));
+      add(T('detail.permissions'), (p.rights || []).length ? lines(p.rights, p.perms) : T('detail.roles_none'));
+      if (p.full) add(T('detail.api_full'), T('detail.api_full_text'));
     }
   } else if (e.group === 'sched') {
     if (p.file) add(T('detail.cron_file'), '/boot/config/plugins/' + p.file + (p.new ? ` (${T('detail.file_new')})` : ''), true);
@@ -876,10 +883,14 @@ function hostGroup(h) {
   if (!h) return group('host', T('watch.host'), T('watch.host_wait'), []);
   const rows = [];
   h.doors.forEach((d) => rows.push(item(doorWords(d), [T('watch.door')], null, true)));
+  // Unraid's API keys: name and roles (never more of them)
+  (h.api || []).forEach((k) => rows.push(item(k.name, [T('watch.api_key'), (k.roles || []).join(', ') || T('detail.roles_none'),
+    k.full ? T('watch.api_full') : ''])));
   h.listen.forEach((l) => rows.push(item(l.port === null || l.port === undefined ? `${l.prog} (${T('detail.port_dynamic')})` : `${l.port} · ${l.prog}`,
     [T('watch.port'), (l.addr || []).map((a) => (a === '*' ? T('detail.addr_all') : a)).join(', ')])));
   h.procs.forEach((x) => rows.push(item(x.exe, [x.prog, x.where || T('where.host')])));
-  return group('host', T('watch.host'), T('watch.host_sum', { ports: h.listen.length, doors: h.doors.length, procs: h.procs.length, users: h.users }), rows);
+  return group('host', T('watch.host'), T('watch.host_sum', { ports: h.listen.length, doors: h.doors.length, keys: (h.api || []).length,
+    procs: h.procs.length, users: h.users }), rows);
 }
 
 /** The snapshots he follows: per pool and disk how many, which sleep (compared once awake), the series you taught him */

@@ -61,6 +61,8 @@ declare(strict_types=1);
  *               gone without the office removing them (Ms. Snapshotini's log, the
  *               engine's retention during its run, renamed, the storeroom), a hold
  *               released not by Ms. Snapshotini — what an attacker does first
+ *   API keys    Unraid's own API (see "Unraid's API as a door"): a new key or more rights for one (from its store
+ *               on the flash — never the key's value, he never asks the API), the doors its settings open
  *
  * All of it lives in RAM or on the flash: no disk wakes up. What differs goes
  * into his watch book, to the team lead as 'checks' (recommended, one per
@@ -72,7 +74,8 @@ declare(strict_types=1);
  *
  * How secure (his posture tips, each round, from RAM and the flash): the flash
  * exported to guests (also only for reading: password hashes and SSH keys lie
- * there), shares guests may read, write and delete, Telnet, Unraid's FTP server, the CPU's
+ * there), shares guests may read, write and delete, Telnet, Unraid's FTP server, an
+ * API key that can do everything (ADMIN, or it may make itself one), the CPU's
  * protection against Spectre-like flaws switched off (and VMScape with VMs) or
  * on, privileged containers. Advice, not findings: never in the book, never a
  * notification; «I know, thanks» on one is kept in posture.json (for every
@@ -157,7 +160,9 @@ const WATCH_KINDS = [
     'user_ram'             => ['host', true],       // an account in RAM the flash doesn't have, a second root, a login shell or password for a system account
     'listen_new'           => ['host', true],       // a program of the server listens on a network port it never used
     'proc_odd'             => ['host', true],       // a program runs from a scratch folder (/tmp, /dev/shm …) or from memory
-    'door_new'             => ['host', true],       // a new way in from outside: SSH on or on another port, UPnP, Connect's remote access, a single sign-on, a WireGuard peer
+    'door_new'             => ['host', true],       // a new way in from outside: SSH on or on another port, UPnP, Connect's remote access, a single sign-on, a WireGuard peer, the API's sandbox, origins, Unraid.net logins
+    'api_key_new'          => ['host', true],       // a new key for Unraid's API (its name, roles, permissions — never its value; watchmanApiKeys())
+    'api_key_changed'      => ['host', true],       // an API key's roles or permissions changed (fewer roles alone: safer, normal by itself)
     'array_stop'           => ['array', false],     // the array was stopped: a plain line, noted by himself (watchmanArrayLines())
     'array_start'          => ['array', false],     // the array was started: likewise
     'server_boot'          => ['array', false],     // the server was started (a new boot id): likewise (watchmanBootLine())
@@ -181,6 +186,10 @@ const WATCH_ATTACK = [
     'smb_user' => 'T1021.002', 'smb_client' => 'T1021.002', 'smb_hour' => 'T1021.002',
     'snap_gone' => 'T1490', 'snap_hold_released' => 'T1490',
     'log_cleared' => 'T1070.002', 'user_ram' => 'T1136.001', 'listen_new' => 'T1133', 'proc_odd' => 'T1105', 'door_new' => 'T1133',
+    // an API key is a credential added to the server's API (or more rights given to one) to keep a way in: Account Manipulation
+    // (its sub-technique .001 is for cloud accounts, so the parent is the nearest); T1078 Valid Accounts would be its use, which
+    // he can't see — he never asks the API
+    'api_key_new' => 'T1098', 'api_key_changed' => 'T1098',
     // an array stopped is a service stopped (T1489 Service Stop); started again is its other end — the same technique, so a SIEM finds both
     'array_stop' => 'T1489', 'array_start' => 'T1489',
     // a reboot: System Shutdown/Reboot
@@ -197,6 +206,7 @@ const WATCH_POSTURE = [
     'telnet'          => 'advice',
     'upnp'            => 'advice',
     'ftp'             => 'advice',
+    'api_admin'       => 'advice',
     'mitigations_off' => 'advice',
     'vmscape'         => 'advice',
     'remote_access'   => 'info',
@@ -301,6 +311,10 @@ function watchmanPaths(): array
         'connect'    => '/boot/config/plugins/dynamix.my.servers/configs/connect.json',
         'oidc'       => '/boot/config/plugins/dynamix.my.servers/configs/oidc.json',
         'wireguard'  => '/boot/config/wireguard',
+        // Unraid's own API (7.2+) as a door: its keys (never their values) and the doors its settings open (watchmanApiKeys(),
+        // watchmanHostDoors()) — both on the flash, both or neither
+        'api_keys'   => '/boot/config/plugins/dynamix.my.servers/keys',
+        'api_cfg'    => '/boot/config/plugins/dynamix.my.servers/configs/api.json',
         'logger'     => 'logger',
         // array stops and starts (event/stopping, event/started → scripts/agent.sh array …): lines in the book
         'array_events' => WATCH_ARRAY_EVENTS,
@@ -1154,7 +1168,9 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     }
     $containers = $docker ? $docker() : watchmanContainers();
     $look = $flow ? $flow($containers) : null;
-    $host = watchmanHost($paths, $containers);          // with the containers' main processes (whose programs run where)
+    $prevSeen = readJson("$dir/seen.json") ?? [];      // the last round's look: a file the same as then isn't read again
+    // with the containers' main processes (whose programs run where)
+    $host = watchmanHost($paths, $containers, is_array($prevSeen['host'] ?? null) ? $prevSeen['host'] : null);
     if (is_array($containers)) {
         $containers = array_map(fn ($c) => array_diff_key((array) $c, ['pid' => true]), $containers);     // the process is the data flow's only
     }
@@ -1163,7 +1179,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         'plugins'    => watchmanPlugins($paths['plugins']),
         'flash'      => watchmanFlash($paths),
         'shares'     => watchmanShares($paths),
-        'sched'      => watchmanSched($paths, (array) ((readJson("$dir/seen.json") ?? [])['sched'] ?? []), $now),
+        'sched'      => watchmanSched($paths, (array) ($prevSeen['sched'] ?? []), $now),
         'host'       => $host,
     ];
     $office = watchmanOfficeLook($paths, $now);
@@ -2362,14 +2378,16 @@ const WATCH_LISTEN_SKIP = '/^(?:docker-proxy|qemu-system-.*)$/D';
 
 /**
  * The host as this round sees it — null parts were not looked at ($paths without them: the tests' older copies).
- * $containers: name => [pid …] (the main process: a program's container is found by its PID namespace).
+ * $containers: name => [pid …] (the main process: a program's container is found by its PID namespace). $prev: what
+ * the last round saw of the host (an API key file the same as then isn't read again).
  */
-function watchmanHost(array $paths, ?array $containers): ?array
+function watchmanHost(array $paths, ?array $containers, ?array $prev = null): ?array
 {
     if (!isset($paths['proc'])) {
         return null;
     }
     $boot = isset($paths['boot_id']) ? trim((string) @file_get_contents($paths['boot_id'], false, null, 0, 64)) : '';
+    $api = watchmanApiKeys($paths, is_array($prev['api_files'] ?? null) ? $prev['api_files'] : []);
     return [
         'boot'   => $boot !== '' ? $boot : null,
         'logs'   => isset($paths['logs']) ? watchmanHostLogs((array) $paths['logs'], $paths['logrotate'] ?? null) : null,
@@ -2377,6 +2395,8 @@ function watchmanHost(array $paths, ?array $containers): ?array
         'listen' => watchmanHostListen($paths),
         'procs'  => watchmanHostProcs((string) $paths['proc'], $containers),
         'doors'  => watchmanHostDoors($paths),
+        'api'    => $api['keys'] ?? null,
+        'api_files' => $api['files'] ?? null,
     ];
 }
 
@@ -2386,7 +2406,7 @@ function watchmanHostObserved(?array $seen, ?array $old): ?array
     if ($seen === null) {
         return $old;
     }
-    foreach (['logs', 'users', 'listen', 'procs', 'doors'] as $k) {
+    foreach (['logs', 'users', 'listen', 'procs', 'doors', 'api', 'api_files'] as $k) {
         if (($seen[$k] ?? null) === null && is_array($old[$k] ?? null) && ($k !== 'logs' || ($old['boot'] ?? null) === $seen['boot'])) {
             $seen[$k] = $old[$k];
         }
@@ -2628,7 +2648,205 @@ function watchmanHostDoors(array $paths): ?array
         sort($peers);
         $out["wg:$tunnel"] = ['what' => 'wg', 'name' => $tunnel, 'on' => true, 'peers' => array_values(array_unique($peers))];
     }
+    return $out + (isset($paths['api_cfg']) ? watchmanApiDoors((string) $paths['api_cfg']) : []);
+}
+
+// ===================================================================== Unraid's API as a door
+
+/*
+ * Unraid's own API (7.2+: a node service, GraphQL on /var/run/unraid-api.sock; nginx hands /graphql to it without
+ * Unraid's login in front — the API checks a browser's session or an API key itself). Its keys are its locks: whoever
+ * holds one reaches the API from the network with that key's rights (an ADMIN key: what root can in the web UI). He
+ * watches them like his other doors, from the flash only, never asking the API: a new key, more rights for one (both
+ * important), a key revoked is the new normal by itself; an ADMIN key (or one that can make itself one) is a posture tip.
+ * Of each key file he keeps only its id, name, roles and a fingerprint of its permissions with a few of them in words —
+ * never the key's value (not even a hash of it): the file is read, those fields taken, the rest dropped at once; a file
+ * the same as the last round's isn't read again. Of the API's settings (configs/api.json) only the three that open
+ * doors: the developer sandbox, extra origins, Unraid.net accounts that may log in — door_new like his other doors.
+ */
+const WATCH_API_KEY_MAX   = 64 * 1024;      // a key file is a few hundred bytes; a bigger one isn't read
+const WATCH_API_KEYS_MAX  = 200;            // key files looked at
+const WATCH_API_PERMS_MAX = 300;            // permissions per key (30 resources × 8 actions is all there is)
+const WATCH_API_ID        = '/^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/D';      // the API's ids are UUIDs
+const WATCH_API_VERBS     = ['create', 'read', 'update', 'delete'];
+
+/**
+ * The API's keys in its store (a file per key; the API itself loads every name containing ".json"), stat first: a
+ * file whose size and times are as the last round saw ($prev: file => m, c, s, h, k) isn't read again. Plain files
+ * only (a link is never followed). Null: not looked at ($paths without the place).
+ *
+ * @return array{keys: array<string, array>, files: array<string, array>}|null  keys by id (watchmanApiKeyRead())
+ */
+function watchmanApiKeys(array $paths, array $prev): ?array
+{
+    if (!isset($paths['api_keys'])) {
+        return null;
+    }
+    $dir = (string) $paths['api_keys'];
+    $keys = $files = [];
+    clearstatcache();
+    foreach (is_dir($dir) ? (@scandir($dir) ?: []) : [] as $f) {
+        if (!str_contains($f, '.json') || count($files) >= WATCH_API_KEYS_MAX) {
+            continue;
+        }
+        $st = watchmanPlain("$dir/$f");
+        if ($st === null) {
+            continue;
+        }
+        $name = watchmanClean($f, 120);
+        $p = $prev[$name] ?? null;
+        $kept = is_array($p) && array_key_exists('k', $p)
+            && ($p['k'] === null || (is_array($p['k']) && is_string($p['k']['id'] ?? null) && preg_match(WATCH_API_ID, $p['k']['id'])));
+        if ($kept && watchmanSameFile($p, $st)) {
+            $k = $p['k'];
+        } else {
+            $k = $st['size'] <= WATCH_API_KEY_MAX ? watchmanApiKeyRead("$dir/$f") : null;
+        }
+        $files[$name] = ['m' => (int) $st['mtime'], 'c' => (int) $st['ctime'], 's' => (int) $st['size'],
+                         'h' => $k === null ? '-' : watchmanHash('api-key:' . jsonEncode($k)), 'k' => $k];
+        if ($k !== null && !isset($keys[$k['id']])) {
+            $keys[$k['id']] = $k;
+        }
+    }
+    ksort($keys);
+    ksort($files);
+    return ['keys' => $keys, 'files' => $files];
+}
+
+/**
+ * One key file, as little of it as says something: id, name, roles (as the API reads them: upper case), its
+ * permissions as a set (RESOURCE:ACTION, the API's legacy forms normalised like normalizeLegacyAction()) — kept as a
+ * fingerprint, their number, the first few in words — and whether it can do everything. The file's text and
+ * everything else in it (the key's value above all) are dropped right after the four fields are taken. Null: not a
+ * key in the API's shape (the API wouldn't load it either).
+ *
+ * @return array{id: string, name: string, roles: list<string>, perm: string, perms: int, rights: list<string>, full: bool}|null
+ */
+function watchmanApiKeyRead(string $file): ?array
+{
+    $raw = @file_get_contents($file, false, null, 0, WATCH_API_KEY_MAX + 1);
+    $j = is_string($raw) && strlen($raw) <= WATCH_API_KEY_MAX ? json_decode($raw, true) : null;
+    $raw = null;                            // the file's text — with the key's value — gone at once
+    $f = is_array($j) ? array_intersect_key($j, ['id' => 1, 'name' => 1, 'roles' => 1, 'permissions' => 1]) : [];
+    $j = null;                              // likewise everything but the four fields
+    $id = $f['id'] ?? null;
+    $name = is_string($f['name'] ?? null) ? watchmanClean($f['name'], 60) : '';
+    if (!is_string($id) || !preg_match(WATCH_API_ID, $id) || $name === '') {
+        return null;
+    }
+    $roles = [];
+    foreach (is_array($f['roles'] ?? null) ? $f['roles'] : [] as $r) {
+        $r = is_string($r) ? strtoupper(trim($r)) : '';
+        if (preg_match('/^[A-Z_]{1,32}$/D', $r) && count($roles) < 10) {
+            $roles[] = $r;
+        }
+    }
+    $roles = array_values(array_unique($roles));
+    sort($roles);
+    $set = [];
+    foreach (is_array($f['permissions'] ?? null) ? $f['permissions'] : [] as $p) {
+        $res = is_array($p) && is_string($p['resource'] ?? null) ? strtoupper(trim($p['resource'])) : '';
+        if (!preg_match('/^(?:[A-Z][A-Z_]{0,39}|\*)$/D', $res)) {
+            continue;
+        }
+        foreach (is_array($p['actions'] ?? null) ? $p['actions'] : [] as $a) {
+            $a = is_string($a) ? watchmanApiAction($a) : null;
+            if ($a !== null && count($set) < WATCH_API_PERMS_MAX) {
+                $set["$res:$a"] = true;
+            }
+        }
+    }
+    $set = array_keys($set);
+    sort($set);
+    return ['id' => $id, 'name' => $name, 'roles' => $roles, 'perm' => watchmanHash('api-perms:' . implode(',', $set)), 'perms' => count($set),
+            'rights' => array_slice($set, 0, WATCH_LIST_MAX), 'full' => watchmanApiFull($roles, $set)];
+}
+
+/** An action as the API reads it (normalizeLegacyAction()): "read" → READ_ANY, "read:own" → READ_OWN, "READ_ANY" stays; null: none */
+function watchmanApiAction(string $a): ?string
+{
+    $a = strtolower(trim($a));
+    if ($a === '*') {
+        return '*';
+    }
+    if (!str_contains($a, ':')) {
+        $a = str_contains($a, '_') ? preg_replace('/_/', ':', $a, 1) : (in_array($a, WATCH_API_VERBS, true) ? "$a:any" : $a);
+    }
+    return preg_match('/^(create|read|update|delete):(any|own)$/D', (string) $a, $m) ? strtoupper("{$m[1]}_{$m[2]}") : null;
+}
+
+/**
+ * Can this key do everything? The ADMIN role (casbin: *:*), any permission on every resource (*), or the right to
+ * make or change API keys and permissions — such a key can give itself ADMIN (the API's create and addRole ask only
+ * for API_KEY create/update).
+ */
+function watchmanApiFull(array $roles, array $set): bool
+{
+    if (in_array('ADMIN', $roles, true)) {
+        return true;
+    }
+    foreach ($set as $p) {
+        if (str_starts_with($p, '*:') || preg_match('/^(?:API_KEY|PERMISSION):(?:CREATE_|UPDATE_|\*)/', $p)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * The doors the API's own settings open (configs/api.json — only these three fields are taken): the developer
+ * sandbox (the GraphQL playground and the schema for anyone who reaches /graphql), extra origins (other web pages
+ * may call the API with a logged-in browser's session), Unraid.net accounts that may log in to the WebGUI
+ * (ssoSubIds: a fingerprint of each, like a WireGuard peer). Nothing when the file isn't there.
+ *
+ * @return array<string, array{what: string, name: string, on: bool, peers?: list<string>}>
+ */
+function watchmanApiDoors(string $file): array
+{
+    if (watchmanPlain($file) === null) {
+        return [];
+    }
+    $j = readJson($file);
+    $cfg = is_array($j) ? array_intersect_key($j, ['sandbox' => 1, 'extraOrigins' => 1, 'ssoSubIds' => 1]) : [];
+    $j = null;
+    if (!$cfg) {
+        return [];
+    }
+    $out = ['api_sandbox' => ['what' => 'api_sandbox', 'name' => 'GraphQL sandbox', 'on' => ($cfg['sandbox'] ?? false) === true]];
+    foreach (array_slice(is_array($cfg['extraOrigins'] ?? null) ? $cfg['extraOrigins'] : [], 0, 20) as $o) {
+        $u = is_string($o) ? parse_url(trim($o)) : false;
+        $host = is_array($u) ? strtolower((string) ($u['host'] ?? '')) : '';
+        if ($host === '' || !preg_match('/^[a-z0-9.:\[\]_-]{1,200}$/D', $host)) {
+            continue;
+        }
+        $origin = strtolower((string) ($u['scheme'] ?? 'http')) . '://' . $host . (isset($u['port']) ? ':' . (int) $u['port'] : '');
+        $origin = watchmanClean($origin, 120);
+        $out["api_origin:$origin"] = ['what' => 'api_origin', 'name' => $origin, 'on' => true];
+    }
+    $subs = [];
+    foreach (array_slice(is_array($cfg['ssoSubIds'] ?? null) ? $cfg['ssoSubIds'] : [], 0, 200) as $s) {
+        if (is_string($s) && trim($s) !== '') {
+            $subs[] = watchmanHash('api-sso:' . trim($s));
+        }
+    }
+    $subs = array_values(array_unique($subs));
+    sort($subs);
+    $out['api_sso'] = ['what' => 'api_sso', 'name' => 'Unraid.net', 'on' => $subs !== [], 'peers' => $subs];
     return $out;
+}
+
+/** An API key's words in an entry: its name, roles, how many permissions and the first few, whether it can do everything */
+function watchmanApiKeyWords(array $k): array
+{
+    return ['id' => (string) $k['id'], 'name' => (string) $k['name'], 'roles' => array_values((array) ($k['roles'] ?? [])),
+            'perms' => (int) ($k['perms'] ?? 0), 'rights' => array_values((array) ($k['rights'] ?? [])), 'full' => !empty($k['full'])];
+}
+
+/** More than before: a role it didn't have, or other permissions (a fingerprint can't tell fewer from different — told) */
+function watchmanApiKeyGrew(array $was, array $now): bool
+{
+    return array_diff((array) ($now['roles'] ?? []), (array) ($was['roles'] ?? [])) !== [] || ($now['perm'] ?? '') !== ($was['perm'] ?? '')
+        || (!empty($now['full']) && empty($was['full']));
 }
 
 /**
@@ -2717,12 +2935,20 @@ function watchmanHostCompare(?array &$known, ?array $seen, ?array $prev, array $
         }
         $known['users'] = $knownUsers;
     }
+    // Unraid's API came to his watch in 1.34: the first look at its keys and at the doors its settings open is normal
+    // (a baseline of before, or a mirror of before for the night shift) — like his first look at anything
+    $apiFirst = !$first && is_array($seen['api'] ?? null) && !is_array($known['api'] ?? null);
     // the ways in: one opened (switched on, another port, another type, a new single sign-on, a new tunnel or peer) is new;
     // one closed or a peer gone is the new normal by itself
     if (is_array($seen['doors'] ?? null)) {
         if ($first || !is_array($known['doors'] ?? null)) {
             $known['doors'] = $seen['doors'];
         } else {
+            foreach ($apiFirst ? $seen['doors'] : [] as $key => $d) {
+                if (str_starts_with((string) $key, 'api_')) {
+                    $known['doors'][$key] = $d;
+                }
+            }
             foreach ($seen['doors'] as $key => $d) {
                 $k = $known['doors'][$key] ?? null;
                 $opened = $d['on'] && ($k === null || !$k['on'] || ($d['port'] ?? null) !== ($k['port'] ?? null)
@@ -2738,6 +2964,27 @@ function watchmanHostCompare(?array &$known, ?array $seen, ?array $prev, array $
             }
             foreach (array_diff_key($known['doors'], $seen['doors']) as $key => $_) {
                 unset($known['doors'][$key]);       // gone (a tunnel removed, a provider dropped): safer
+            }
+        }
+    }
+    // the API's keys: a new one, or more rights for one, is an entry; one revoked, renamed or with fewer roles is normal by itself
+    if (is_array($seen['api'] ?? null)) {
+        if ($first || $apiFirst) {
+            $known['api'] = $seen['api'];
+        } else {
+            foreach ($seen['api'] as $id => $k) {
+                $was = $known['api'][$id] ?? null;
+                if (!is_array($was)) {
+                    $added[] = watchmanSet($book, 'api_key_new', "api_key_new:$id", $now, watchmanApiKeyWords($k));
+                } elseif (watchmanApiKeyGrew($was, $k)) {
+                    $added[] = watchmanSet($book, 'api_key_changed', "api_key_changed:$id", $now, watchmanApiKeyWords($k)
+                        + ['old_roles' => array_values((array) ($was['roles'] ?? [])), 'old_perms' => (int) ($was['perms'] ?? 0)]);
+                } else {
+                    $known['api'][$id] = $k;
+                }
+            }
+            foreach (array_diff_key($known['api'], $seen['api']) as $id => $_) {
+                unset($known['api'][$id]);          // revoked: safer
             }
         }
     }
@@ -2941,6 +3188,17 @@ function watchmanPosture(array $f, array $seen, array $prev = []): array
     }
     if (!empty($f['ftp']) && empty($f['ftp_fcp'])) {
         $add('ftp', [], '', ['to' => 'ftp', 'path' => '/Settings/FTP']);
+    }
+    // an API key that can do everything (ADMIN, or it may make itself one): Unraid keeps its keys under Management Access → API Keys
+    $full = [];
+    foreach ((array) ($seen['host']['api'] ?? []) as $id => $k) {
+        if (is_array($k) && !empty($k['full'])) {
+            $full[(string) $id] = (string) ($k['name'] ?? $id);
+        }
+    }
+    if ($full) {
+        $add('api_admin', ['names' => watchmanNames(array_values($full)), 'n' => count($full)], implode(',', array_keys($full)),
+            ['to' => 'access', 'path' => '/Settings/ManagementAccess']);
     }
     $cpu = is_array($f['cpu'] ?? null) ? $f['cpu'] : null;
     $boot = ['to' => 'boot', 'path' => '/Settings/BootParameters'];
@@ -5663,6 +5921,14 @@ function watchmanAdopt(array &$b, array $e, array $seen, int $now): void
                 $b['host']['doors'][(string) $p['key']] = $d;
             }
             break;
+        case 'api_key_new':
+        case 'api_key_changed':
+            // this key with the rights it has now is wanted (more later is told again)
+            $k = $seen['host']['api'][$p['id'] ?? ''] ?? null;
+            if (is_array($k) && is_array($b['host']['api'] ?? null)) {
+                $b['host']['api'][(string) $p['id']] = $k;
+            }
+            break;
         case 'listen_new':
         case 'proc_odd':
             $part = $kind === 'listen_new' ? 'listen' : 'procs';
@@ -5848,6 +6114,8 @@ function watchmanText(array $e, ?string $lang = null): array
                              'where' => ($p['where'] ?? null) === null
                                  ? ($lang === null ? '' : officeNotifyText('watchman', 'where.host', [], $lang)) : (string) $p['where']],
         'door_new'       => ['door' => watchmanDoorWords($p, $lang), 'name' => (string) ($p['name'] ?? '')],
+        'api_key_new', 'api_key_changed'
+                         => ['name' => (string) ($p['name'] ?? ''), 'roles' => $list('roles') ?: '–', 'perms' => (int) ($p['perms'] ?? 0)],
         'array_stop', 'array_start', 'server_boot' => ['who' => watchmanArrayWho((array) ($p['logins'] ?? []))],
         'watch'          => array_map('intval', $p),
         default          => [],
@@ -5860,7 +6128,7 @@ function watchmanDoorWords(array $p, ?string $lang): string
     if ($lang === null) {
         return '';
     }
-    $what = in_array($p['door'] ?? null, ['ssh', 'upnp', 'connect', 'oidc', 'wg'], true) ? $p['door'] : 'ssh';
+    $what = in_array($p['door'] ?? null, ['ssh', 'upnp', 'connect', 'oidc', 'wg', 'api_sandbox', 'api_origin', 'api_sso'], true) ? $p['door'] : 'ssh';
     return officeNotifyText('watchman', "door.$what", ['name' => (string) ($p['name'] ?? ''),
         'port' => (string) ($p['port'] ?? '–'), 'issuer' => (string) ($p['issuer'] ?? ''), 'n' => (int) ($p['new_peers'] ?? 0)], $lang);
 }
@@ -6431,7 +6699,19 @@ function watchmanHostSummary(?array $h, ?array $seen): ?array
                         'peers' => count((array) ($d['peers'] ?? []))];
         }
     }
-    return ['listen' => $listen, 'procs' => $procs, 'doors' => $doors, 'users' => count((array) ($h['users'] ?? []))];
+    // Unraid's API keys as he knows them and they are there now: names and roles (never more of them)
+    $api = null;
+    if (is_array($h['api'] ?? null)) {
+        $api = [];
+        foreach (array_intersect_key($h['api'], is_array($seen['api'] ?? null) ? $seen['api'] : $h['api']) as $k) {
+            if (is_array($k)) {
+                $api[] = ['name' => (string) ($k['name'] ?? ''), 'roles' => array_values((array) ($k['roles'] ?? [])), 'perms' => (int) ($k['perms'] ?? 0),
+                          'full' => !empty($k['full'])];
+            }
+        }
+        usort($api, fn ($a, $b) => strcasecmp($a['name'], $b['name']));
+    }
+    return ['listen' => $listen, 'procs' => $procs, 'doors' => $doors, 'users' => count((array) ($h['users'] ?? [])), 'api' => $api];
 }
 
 /** "What I keep an eye on" of what starts on its own: root's crontab lines, the .cron files, User Scripts, at, agents */
