@@ -27,10 +27,21 @@ let groupRefs = [];
 let view = null;                   // DOM of the mounted desk
 
 // ------------------------------------------------------------------ loading
+/** Her state: as kept at once, a new look following on her page (core.js Office.loadState()); refresh waits for a new look */
 async function load(refresh) {
-  const j = await Office.api.get({ a: 'state', desk: ID, ...(refresh ? { fresh: 1 } : {}) });
-  if (j.ok) setState(j.state);
-  return j;
+  return Office.loadState(ID, { fresh: refresh }, (j) => { if (j.ok) setState(j.state); });
+}
+
+/*
+ * Selecting means deleting: what she does to a snapshot or a schedule starts from a fresh look (Office.freshState(),
+ * never a stale list) — the snapshot or plan as it is now, null when it is gone (her list shows that already).
+ */
+async function freshSnap(s) {
+  return (await Office.freshState(ID)) ? index.get(s.id) || null : null;
+}
+async function freshPlan(p) {
+  if (!(await Office.freshState(ID))) return null;
+  return p ? (state?.plans?.plans || []).find((x) => x.id === p.id) || null : undefined;
 }
 
 function setState(s) {
@@ -314,9 +325,10 @@ function build(root) {
   v.search.placeholder = Office.t('common.filter');
   v.search.autocomplete = 'off';
   v.search.spellcheck = false;
+  v.search.dataset.keep = '1';         // built once: typing here never holds up a new look (core.js calm())
   v.search.oninput = () => renderList();
   v.source = el('select', 'picker');
-  v.source.setAttribute('aria-label', T('source.label'));
+  v.source.setAttribute('aria-label', T('source.label'));     // its options are made anew with every state: no data-keep
   v.source.onchange = () => renderList();
   v.dockerSwitch = el('label', 'switch');
   v.dockerBox = el('input');
@@ -960,6 +972,8 @@ function askWakeFor(s, what, go) {
 }
 
 async function hold(s, on, wake) {
+  s = await freshSnap(s);
+  if (!s) return;
   if (s.asleep && !wake) { askWakeFor(s, on ? T('hold') : T('release'), () => hold(s, on, true)); return; }
   setBusy(true);
   const j = await Office.api.post(`${ID}.${on ? 'hold' : 'release'}`, { id: s.id, wake: !!wake });
@@ -980,7 +994,9 @@ function keepName(s) {
  * delete it every night and logs an error each time. Renaming takes it out
  * of the script's clean-up quietly.
  */
-function askHold(s) {
+async function askHold(s) {
+  s = await freshSnap(s);
+  if (!s) return;
   if (source(s).key !== 'backup') { hold(s, true); return; }
   const suggestion = keepName(s);
   const mounted = fixedMounts(s).length > 0;
@@ -1003,7 +1019,9 @@ function askHold(s) {
   if (mounted) d.buttons[2].disabled = true;
 }
 
-function renameDialog(s, suggestion) {
+async function renameDialog(s, suggestion) {
+  s = await freshSnap(s);
+  if (!s) return;
   const box = el('div');
   const field = el('div', 'field');
   const label = el('label', '', T('rename.new_name'));
@@ -1054,7 +1072,8 @@ function renameDialog(s, suggestion) {
   }
 }
 
-function askDelete(ids) {
+async function askDelete(ids) {
+  if (!(await Office.freshState(ID))) return;
   const list = ids.map((id) => index.get(id)).filter((s) => s && deletable(s));
   if (!list.length) return;
   const n = list.length;
@@ -1136,7 +1155,9 @@ async function remove(ids, unmount, wake) {
   if ((j.failures || []).length) Office.showErrors(n ? T('delete.partly') : T('delete.failed'), j.failures, ID);
 }
 
-function askUnmount(s) {
+async function askUnmount(s) {
+  s = await freshSnap(s);
+  if (!s) return;
   const box = el('div');
   box.appendChild(el('p', '', T('unmount.intro', { name: `${s.ds}@${s.name}` })));
   const ul = el('ul', 'shortlist');
@@ -1255,6 +1276,8 @@ function planMenu(p) {
 }
 
 async function planRunNow(p) {
+  p = await freshPlan(p);
+  if (!p) return;
   Office.toast(T('plan.running', { name: p.label }));
   const j = await Office.api.post(`${ID}.plan_run`, { id: p.id });
   if (!j.ok) { failed(j); return; }
@@ -1265,13 +1288,17 @@ async function planRunNow(p) {
 }
 
 async function planToggle(p) {
+  p = await freshPlan(p);
+  if (!p) return;
   const j = await Office.api.post(`${ID}.plan_toggle`, { id: p.id, enabled: !p.enabled });
   if (!j.ok) { failed(j); return; }
   setState(j.state);
   Office.toast(p.enabled ? T('plan.paused_now', { name: p.label }) : T('plan.resumed', { name: p.label }));
 }
 
-function planDelete(p) {
+async function planDelete(p) {
+  p = await freshPlan(p);
+  if (!p) return;
   Office.dialog({
     title: T('plan.delete_title', { name: p.label }),
     body: el('p', '', T('plan.delete_text', { n: p.count })),
@@ -1288,8 +1315,10 @@ function planDelete(p) {
 }
 
 /** New or changed schedule: what, when, how many to keep */
-function planDialog(p) {
-  if (!state) return;
+async function planDialog(p) {
+  p = await freshPlan(p);
+  if (p === null || !state) return;     // gone meanwhile (undefined: a new one)
+  p = p || null;
   // a target that is gone (the share deleted, the dataset renamed) can't be shown by the picker, so it can't be unticked:
   // the selection starts without it and the dialog says so — the plan loses it when saved (the agent drops it too)
   const have = new Set(targets().map((v) => v.id));
@@ -1482,7 +1511,8 @@ function targetPicker(chosen, recursive, onCount) {
   return { field: targetField, draw, byId };
 }
 
-function createDialog(preselected) {
+async function createDialog(preselected) {
+  if (!(await Office.freshState(ID))) return;      // her picker shows what is there now
   if (!state) return;
   const chosen = new Set(preselected || []);
   const box = el('div');

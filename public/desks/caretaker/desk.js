@@ -24,12 +24,14 @@ let view = null;
 let showDone = false;
 let showNoted = false;
 
+/** His state: as kept at once, a new look following on his page (core.js Office.loadState()); fresh waits for a new look */
 async function load(fresh) {
-  const j = await Office.api.get({ a: 'state', desk: ID, ...(fresh ? { fresh: 1 } : {}) });
+  return Office.loadState(ID, { fresh }, took);
+}
+function took(j) {
   if (j.ok && j.state) state = j.state;
   if (view) render();
   mood();
-  return j;
 }
 
 /** His picture says how the house is: a green check, a yellow (advice) or a red (to do) exclamation mark */

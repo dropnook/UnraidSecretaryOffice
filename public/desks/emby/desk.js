@@ -23,11 +23,13 @@ let page = 'main';            // main | setup
 let outTimer = null;
 
 // ------------------------------------------------------------------ loading
+/** His state: as kept at once, a new look following on his page (core.js Office.loadState()); fresh waits for a new look */
 async function load(fresh) {
-  const j = await Office.api.get({ a: 'state', desk: ID, ...(fresh ? { fresh: 1 } : {}) });
+  return Office.loadState(ID, { fresh }, took);
+}
+function took(j) {
   if (j.ok && j.state) state = j.state;
   if (view && page === 'main') render();
-  return j;
 }
 
 async function act(action, data, okText) {
@@ -447,7 +449,9 @@ function radioList(name, options, current, onchange) {
   return box;
 }
 
-function chooseRun() {
+// the dialogs that act on his state (a run, the gather's settings, a schedule) open only on a fresh look (Office.freshState())
+async function chooseRun() {
+  if (!(await Office.freshState(ID))) return;
   let mode = 'dry';
   const ready = state.gather.ready;
   const box = radioList('jo-mode', [
@@ -461,7 +465,8 @@ function chooseRun() {
   });
 }
 
-function gatherRunDialog() {
+async function gatherRunDialog() {
+  if (!(await Office.freshState(ID))) return;
   const body = el('div');
   const err = errorLine();
   body.append(el('p', '', T('gather_run_text', { shares: state.gather.settings.shares.join(', ') })), el('p', 'callout', T('gather_run_wake')),
@@ -481,7 +486,8 @@ function gatherRunDialog() {
 }
 
 /** Which shares to consolidate (only those on the array), free space per disk, what counts as a duplicate */
-function gatherSettingsDialog() {
+async function gatherSettingsDialog() {
+  if (!(await Office.freshState(ID))) return;
   const cur = state.gather.settings;
   const onArray = Object.entries(state.share_info).filter(([, i]) => i.use === 'no' || (i.use === 'yes' && !i.secondary));
   const chosen = new Set(cur ? cur.shares : (state.shares || []).filter((x) => ['ok', 'array_only'].includes(x.fit)).map((x) => x.share));
@@ -552,7 +558,8 @@ async function showLog(tool) {
  * When a tool runs on its own. EmbyCache: every hour or every few hours;
  * the gather: once a week or every night. Or a cron expression, or not at all.
  */
-function scheduleDialog(job) {
+async function scheduleDialog(job) {
+  if (!(await Office.freshState(ID))) return;
   const sc = state.schedules[job] || {};
   const ready = job === 'gather' ? !!(state.gather.settings && state.gather.settings.shares.length) : state.configured;
   if (!ready) {
@@ -1231,6 +1238,8 @@ Office.desk({
     page = sub === 'setup' ? 'setup' : 'main';
     if (page === 'setup') {
       if (!state) await load(false);
+      await Office.freshState(ID);      // the form starts from his settings: from a fresh look, never a stale one
+      if (view !== root || page !== 'setup') return;
       renderSetup();
       return;
     }

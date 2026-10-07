@@ -73,11 +73,13 @@ function level(line) {
 }
 
 // ------------------------------------------------------------------ loading
+/** Her state: as kept at once, a new look following on her page (core.js Office.loadState()); fresh waits for a new look */
 async function load(fresh) {
-  const j = await Office.api.get({ a: 'state', desk: ID, ...(fresh ? { fresh: 1 } : {}) });
+  return Office.loadState(ID, { fresh }, took);
+}
+function took(j) {
   if (j.ok && j.state) state = j.state;
   if (view) { renderHead(); fillSources(); renderTiles(); }
-  return j;
 }
 
 /** Her last tour; while one runs, look again every 1.5 s */
@@ -206,6 +208,7 @@ function build(root) {
   v.find.type = 'search';
   v.find.placeholder = T('find_log');
   v.find.spellcheck = false;
+  v.find.dataset.keep = '1';          // built once: typing here never holds up a new look (core.js calm())
   v.find.oninput = renderList;
   v.find.onkeydown = (e) => {
     if (e.key === 'Escape') { closePicker(); v.source.focus(); }
@@ -221,6 +224,7 @@ function build(root) {
   v.star.onclick = toggleFav;
   v.lines = el('select', 'picker');
   v.lines.setAttribute('aria-label', T('lines_label'));
+  v.lines.dataset.keep = '1';
   LINE_CHOICES.forEach((n) => v.lines.appendChild(new Option(T('lines', { n }), String(n))));
   v.lines.value = String(opts.lines);
   v.lines.onchange = () => { opts.lines = Number(v.lines.value); Office.store('logs.lines', String(opts.lines)); restart(); };
@@ -228,6 +232,7 @@ function build(root) {
   v.query.type = 'search';
   v.query.placeholder = T('filter');
   v.query.spellcheck = false;
+  v.query.dataset.keep = '1';
   v.query.oninput = () => { opts.query = v.query.value; renderLines(false); };
   const sw = (key, text, onchange) => {
     const label = el('label', 'switch');

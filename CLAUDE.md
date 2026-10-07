@@ -492,6 +492,20 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   and `help.theme_*` in the five lang files, `testThemeSwitch` in tests/run.php, the README paragraph and this bullet.
   `testThemeSwitch` checks the page with the constant on and off, the stylesheet's variables against Unraid's theme files
   on the host (every one the office uses, the same names for Dark and Light, Unraid's values) and the strings.
+* **Show first, then look (Benj, 2026-10-07 — perf report levers 1 and 2):** a desk's state (and a part desk.json
+  names) comes through `Office.loadState(id, {fresh, part}, took)` (core.js), never `Office.api.get({a: 'state'})`:
+  `api.php` answers at once with what is kept (`apiLook()`: `age`, `stale` = older than refresh_after, `refreshing`
+  while the agent looks again in the background — after the answer went out, `fastcgi_finish_request()`; one look per
+  state at a time, its lock `look-<desk>[.<part>].lock` in `RUN_DIR`); the page then asks with `wait` and hands the new
+  look to `took(j, true)` inside `Office.keepInPlace` once the user is calm (`Office.calm()`: no dialog or menu, no click
+  under way, nobody typing in a field the next render builds anew — fields built once, like a desk's filter, carry
+  `data-keep`); an answer older than what is shown is dropped. Only the desk shown looks: the reception's cards and the
+  badges (`started()`) read `stored` (no agent call; the same question on its way is asked once, so each desk once per
+  page start), a card older than 15 min (or its refresh_after) says «As of …» quietly (`office.as_of`), a desk's head
+  too while no new look came within 1.5 s. `fresh` (Tour, «Look again», live views) waits for the look as before.
+  **Actions on what a page shows** (a selection to delete, a plan's targets, «all», a run, a settings form) start with
+  `await Office.freshState(id)` and look the thing up again by id — false (said: `office.stale_refused`) means no fresh
+  look could be had: never act on a stale list. Tests: `testApiLook`, `testLookPage` (core.js under node).
 * **Head:** `Office.deskHead(...)`, then right after it
   `Office.pageHelp(ID, [[term, text], …])` — "How to read this page", folded
   by default, remembered per desk. Explanations of labels, buttons and tiles go

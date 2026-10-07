@@ -31,13 +31,15 @@ const journalShown = new Map();               // id -> {box, fill, fail}: the jo
 let agentWas = null;                          // the agent running when the page was drawn last
 
 // ------------------------------------------------------------------ loading
+/** His state: as kept at once, a new look following on his page (core.js Office.loadState()); fresh waits for a new look */
 async function load(fresh) {
   if (fresh) journals.forEach((v, id) => { if (v.error) journals.delete(id); });   // a journal that failed to load is asked again
-  const j = await Office.api.get({ a: 'state', desk: ID, ...(fresh ? { fresh: 1 } : {}) });
+  return Office.loadState(ID, { fresh }, took);
+}
+function took(j) {
   if (j.ok && j.state) state = j.state;
   if (view) render();
   if (state && state.running && !jobTimer) pollJob();
-  return j;
 }
 
 /** While a restore runs: its notice, the tiles and the open section anew — the page stays where it is */
@@ -1398,6 +1400,7 @@ function momentView(m) {
  * again and runs it only when it is still the same.
  */
 async function restoreDialog(req, title) {
+  if (!(await Office.freshState(ID))) return;      // what comes back rests on his look: a fresh one (the preview looks again too)
   const body = el('div', 'rs-dlg');
   const opts = el('div', 'rs-opts');
   const pv = el('div');

@@ -28,12 +28,14 @@ let page = 'main';             // 'main' or 'setup' (#/backup/setup)
 let liveTimer = null;
 
 // ------------------------------------------------------------------ loading
+/** His state: as kept at once, a new look following on his page (core.js Office.loadState()); fresh waits for a new look */
 async function load(fresh) {
-  const j = await Office.api.get({ a: 'state', desk: ID, ...(fresh ? { fresh: 1 } : {}) });
+  return Office.loadState(ID, { fresh }, took);
+}
+function took(j) {
   if (j.ok && j.state) state = j.state;
   if (view && page === 'main') render();
   schedule();
-  return j;
 }
 
 /** While a run is going on, look every few seconds */
@@ -1214,7 +1216,9 @@ function copyCode(text) {
 }
 
 // ------------------------------------------------------------------ actions
-function chooseRun() {
+// what starts, stops or changes something opens only on a fresh look at his state (Office.freshState()), never a stale one
+async function chooseRun() {
+  if (!(await Office.freshState(ID))) return;
   const box = el('div');
   let mode = 'backup';
   const kopia = state.settings && state.settings.kopia_enabled;
@@ -1242,6 +1246,7 @@ function chooseRun() {
 }
 
 async function startRun(mode) {
+  if (!(await Office.freshState(ID))) return false;
   const j = await Office.api.post(`${ID}.start`, { mode });
   if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
   if (j.state) state = j.state;
@@ -1253,7 +1258,8 @@ async function startRun(mode) {
   return true;
 }
 
-function abortRun() {
+async function abortRun() {
+  if (!(await Office.freshState(ID))) return;
   const s = status();
   const mode = runMode();
   const box = el('div');
@@ -1282,6 +1288,7 @@ function abortRun() {
 }
 
 async function unmount() {
+  if (!(await Office.freshState(ID))) return;
   const j = await Office.api.post(`${ID}.unmount`, {});
   if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return; }
   if (j.state) state = j.state;
@@ -3104,7 +3111,8 @@ function typicalDuration() {
 }
 
 /** When the nightly run starts: every night at a time, a cron expression of your own, or not at all */
-function scheduleDialog() {
+async function scheduleDialog() {
+  if (!(await Office.freshState(ID))) return;
   const sc = (state && state.schedule) || {};
   if (!sc.script) {
     Office.dialog({
