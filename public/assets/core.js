@@ -1407,7 +1407,7 @@ function footer() {
   f.append(el('span', '', `Unraid Secretary Office v${CONFIG.version}`));
   if (Office.agent.version) f.append(el('span', '', t('agent.version', { version: Office.agent.version })));
   const a = el('a', '', 'GitHub');
-  a.href = 'https://github.com/vipermark2/UnraidSecretaryOffice';
+  a.href = 'https://github.com/dropnook/UnraidSecretaryOffice';
   a.target = '_blank';
   a.rel = 'noopener noreferrer';
   f.append(a);

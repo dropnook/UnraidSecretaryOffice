@@ -9,7 +9,7 @@ declare(strict_types=1);
  * there.
  */
 
-const OFFICE_REPO        = 'vipermark2/UnraidSecretaryOffice';
+const OFFICE_REPO        = 'dropnook/UnraidSecretaryOffice';
 const OFFICE_RELEASE_API = 'https://api.github.com/repos/' . OFFICE_REPO . '/releases/latest';
 const OFFICE_CHECK_EVERY = 86400;
 

@@ -160,7 +160,7 @@ once it is released and tested.
 1. In *Apps* (Community Applications) search for **Secretary Office** and
    install it. Or by hand: *Plugins → Install Plugin*, paste
    ```
-   https://github.com/vipermark2/UnraidSecretaryOffice/releases/latest/download/unraid-secretary-office.plg
+   https://github.com/dropnook/UnraidSecretaryOffice/releases/latest/download/unraid-secretary-office.plg
    ```
 2. Open it: *Sekretariat* in Unraid's menu bar (between Apps and Tools).
    The Team Lead welcomes you and suggests whom to hire. For backups:
