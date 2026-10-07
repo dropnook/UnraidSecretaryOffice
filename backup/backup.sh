@@ -2116,6 +2116,7 @@ report_drift() {
 # with the stage, the last good packages stay) - rather than snapshotting while Unraid is about to stop
 # Docker and unmount the pools; the next run takes the night's backup.
 ARRAY_STOP_PHASE=""         # where the run was when it saw the array being stopped
+PRUNED_DONE=""              # the retention is done: how many snapshots it removed (in pruned.json; "" = not done)
 
 next_phase() { array_stop_check; status_phase "$1"; }
 
@@ -2181,7 +2182,10 @@ array_stop_report() { # a few lines for the notification
     for n in "${STOPPED[@]}"; do list+="${list:+, }$n"; done
     for n in "${!NC_ON[@]}"; do list+="${list:+, }maintenance mode of $n"; done
     [[ -n "$list" ]] && echo "Left as the stop found them - brought back right after the array start: $list"
-    if (( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )); then echo "Its retention had removed $(( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )) snapshot(s) when the stop began; the rest waits for the next run. Log: $LOG_FILE"
+    if [[ -n "$PRUNED_DONE" ]]; then
+        if (( PRUNED_DONE > 0 )); then echo "Its retention was done when the stop began: $PRUNED_DONE snapshot(s) removed (state/pruned.json). Log: $LOG_FILE"
+        else echo "Its retention was done when the stop began - there was nothing to prune. Log: $LOG_FILE"; fi
+    elif (( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )); then echo "Its retention had removed $(( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )) snapshot(s) when the stop began; the rest waits for the next run. Log: $LOG_FILE"
     else echo "No snapshots were pruned. Log: $LOG_FILE"; fi
 }
 array_stop_notify() {
@@ -2231,7 +2235,7 @@ kopia_stop() {
 }
 
 cleanup() {
-    local rc=$?
+    local rc=$? ar_pruned
     [[ "$CLEANUP_DONE" == "yes" ]] && exit "$rc"
     CLEANUP_DONE="yes"
     # ending for another reason (a signal, a failure) while the array is being stopped: then that is the stop
@@ -2278,7 +2282,10 @@ cleanup() {
         (( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )) && pruned_write
         array_stop_kopia
         status_finish aborted "array_stopping"
-        log "Backup stopped because the array is being stopped - $( (( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )) && echo "retention stopped midway" || echo "nothing pruned"), nothing started; the next run continues."
+        if [[ -n "$PRUNED_DONE" ]]; then ar_pruned="retention done ($PRUNED_DONE removed)"
+        elif (( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )); then ar_pruned="retention stopped midway"
+        else ar_pruned="nothing pruned"; fi
+        log "Backup stopped because the array is being stopped - $ar_pruned, nothing started; the next run continues."
         array_stop_notify
         rc=3
     elif [[ "$ST_ABORTED" == "yes" ]]; then status_finish aborted "signal"
@@ -2869,6 +2876,7 @@ fi
 array_stop_check "while pruning"
 command -v btrfs >/dev/null 2>&1 && prune_btrfs
 pruned_write                         # what the retention removed, for whoever watches the server (state/pruned.json)
+PRUNED_DONE=$(( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} ))   # an array stop from here on says what pruned.json says
 PRUNED_ZFS=(); PRUNED_BTRFS=()       # written (an array stop from here on adds nothing twice)
 array_stop_check "while cleaning up"
 prune_files

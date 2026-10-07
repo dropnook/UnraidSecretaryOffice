@@ -1904,9 +1904,16 @@ if [[ "$1" == -l ]]; then echo "$(date +%s) umount -l $t" >>"$FAKE/events"
 elif grep -qxF -- "$t" "$FAKE/busy" 2>/dev/null; then echo "umount: $t: target is busy." >&2; exit 32; fi
 awk -v t="$t" '$2 != t' "$FAKE/mounts" >"$FAKE/mounts.new" && mv "$FAKE/mounts.new" "$FAKE/mounts"
 SH);
-    foreach (['zpool', 'btrfs'] as $b) {
-        file_put_contents("$tmp/bin/$b", "#!/bin/bash\nexit 0\n");
-    }
+    file_put_contents("$tmp/bin/zpool", "#!/bin/bash\nexit 0\n");
+    // btrfs: a snapshot deleted is noted (and gone); $FAKE/stop-at "btrfs" begins the array stop there - past the ZFS retention
+    file_put_contents("$tmp/bin/btrfs", <<<'SH'
+#!/bin/bash
+if [[ "$1 $2" == "subvolume delete" ]]; then
+  rm -rf -- "${@: -1}"; echo "$(date +%s) btrfs delete ${@: -1}" >>"$FAKE/events"
+  [[ "$(cat "$FAKE/stop-at" 2>/dev/null)" == btrfs ]] && { echo 'fsState="Stopping"' >"$FAKE/var.ini"; echo "$(date +%s) array stopping" >>"$FAKE/events"; }
+fi
+exit 0
+SH);
     file_put_contents("$tmp/bin/mountpoint", "#!/bin/bash\n[[ \"\${@: -1}\" == */user ]]\n");
     // one line per notification (the long text's line breaks as " | ")
     file_put_contents("$tmp/bin/notify", <<<'SH'
@@ -2072,6 +2079,23 @@ SH);
         ['aborted', 'array_stopping', $before + 1, ['master/appdata@uso-backup-20200101-0100'], false],
         [$s['result'] ?? null, $s['message'] ?? null, count($pr), end($pr)['zfs'] ?? null, in_array('zfs destroy master/docs@uso-backup-20200101-0100', $names(), true)]);
     check('array stop while pruning: the notification says so', count($nt) === 1 && str_contains($nt[0], 'retention had removed 1 snapshot(s)'), json_encode($nt));
+    // --- past its retention (a btrfs disk's old snapshot the last it removed), noticed «while cleaning up»: pruned.json has the
+    // run's entry, and the notification says what it says - never «No snapshots were pruned»
+    $night('btrfs');
+    file_put_contents("$fake/mounts", $mounts0 . "/dev/md9p1 $mnt/disk9 btrfs rw 0 0\n");
+    @mkdir("$mnt/disk9/.btrfs-snap/20200101-0100", 0700, true);
+    $before = $prunedRuns();
+    [$code] = $run();
+    $s = $status();
+    $pr = json_decode((string) @file_get_contents("$data/state/pruned.json"), true)['runs'] ?? [];
+    $last = end($pr) ?: [];
+    $nt = $notes();
+    same('array stop after the retention: aborted, its entry in pruned.json - the two old ZFS snapshots and the btrfs one',
+        ['aborted', 'array_stopping', $before + 1, 2, ["$mnt/disk9/.btrfs-snap/20200101-0100"]],
+        [$s['result'] ?? null, $s['message'] ?? null, count($pr), count($last['zfs'] ?? []), $last['btrfs'] ?? null]);
+    check('array stop after the retention: the notification says the retention was done and how many it removed, like pruned.json',
+        count($nt) === 1 && str_contains($nt[0], 'retention was done when the stop began: 3 snapshot(s) removed') && !str_contains($nt[0], 'No snapshots were pruned'), json_encode($nt));
+    check('array stop after the retention: the log says so too', str_contains($log(), 'retention done (3 removed)'), $log());
 
     // --- already stopping when the run starts: it touches nothing - an earlier run's notes stay for after the array start
     $night();
