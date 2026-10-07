@@ -2317,6 +2317,70 @@ function testBackupSkip(): void
 }
 
 /**
+ * Mr. Backupsy's check that the Kopia container comes back by itself after a reboot or an array stop (nostromo,
+ * 2026-10-07: a Kopia off Unraid's autostart list stayed off after an array stop, the night's run went without its
+ * offsite part and `kopia_running` noticed it only afterwards): Unraid's autostart file (`name` or `name delay`),
+ * Docker's own restart policy, Compose Manager's autostart of a stack; nothing while Kopia is off in the settings,
+ * for another container than the settings name, or for a stack Compose Manager doesn't know.
+ */
+function testBackupKopiaAutostart(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-kopiaauto-' . getmypid();
+    $compose = "$tmp/compose";
+    @mkdir("$compose/backup", 0700, true);
+    @mkdir("$compose/media", 0700, true);
+    @mkdir("$compose/old", 0700, true);
+    @mkdir("$compose/bare", 0700, true);
+    $list = "$tmp/unraid-autostart";
+
+    // Unraid's list as the Docker page writes it: a name, or a name and the seconds to wait after it
+    file_put_contents($list, "EmbyServer\nkopia 30\n\nbitcoind\n");
+    same('kopia autostart: Unraid\'s list, with the delay', ['EmbyServer' => 0, 'kopia' => 30, 'bitcoind' => 0], houseAutostart($list));
+    same('kopia autostart: no file, an empty list', [], houseAutostart("$tmp/none"));
+
+    $summary = ['kopia_enabled' => true, 'kopia_container' => 'kopia'];
+    $inspect = fn (string $restart = 'no', ?string $project = null) => ['HostConfig' => ['RestartPolicy' => ['Name' => $restart]],
+        'Config' => ['Labels' => $project === null ? [] : ['com.docker.compose.project' => $project]]];
+    $f = fn (array $s, string $name, array $i, ?string $file = null) => backupKopiaAutostart($s, $name, $i, $file ?? $list, $compose);
+
+    $r = $f($summary, 'kopia', $inspect());
+    same('kopia autostart: on the list with a delay — a finding in order, a must like kopia_running, on the Docker page',
+        ['kopia_autostart', 'required', true, ['name' => 'kopia'], 'docker'], [$r['id'], $r['level'], $r['ok'], $r['params'], $r['link']]);
+    file_put_contents($list, "EmbyServer\nkopia\n");
+    same('kopia autostart: on the list without a delay', true, $f($summary, 'kopia', $inspect())['ok']);
+    file_put_contents($list, "EmbyServer\nkopia2 10\nbitcoind\n");
+    same('kopia autostart: missing from the list — red', false, $f($summary, 'kopia', $inspect())['ok']);
+    same('kopia autostart: a name that only begins like it doesn\'t count', false, isset(houseAutostart($list)['kopia']));
+    same('kopia autostart: no list at all — red', false, $f($summary, 'kopia', $inspect(), "$tmp/none")['ok']);
+    same('kopia autostart: Docker\'s restart policy "always" brings it back itself', true, $f($summary, 'kopia', $inspect('always'))['ok']);
+    same('kopia autostart: "unless-stopped" doesn\'t — Unraid stopped it', false, $f($summary, 'kopia', $inspect('unless-stopped'))['ok']);
+    file_put_contents($list, "EmbyServer\nkopia 30\n");
+    same('kopia autostart: nothing while Kopia is off in the settings', null, $f(['kopia_enabled' => false, 'kopia_container' => 'kopia'], 'kopia', $inspect()));
+    same('kopia autostart: only the container the settings name', null, $f($summary, 'kopia-old', $inspect()));
+    same('kopia autostart: no container named in the settings — nothing', null, $f(['kopia_enabled' => true, 'kopia_container' => null], 'kopia', $inspect()));
+
+    // a container of a Compose stack: Compose Manager's autostart of that stack decides, never Unraid's list
+    file_put_contents("$compose/backup/project_name", "backup\n");
+    file_put_contents("$compose/backup/name", "Backup\n");
+    file_put_contents("$compose/backup/autostart", 'true');
+    file_put_contents("$compose/media/project_name", "media\n");
+    file_put_contents("$compose/media/autostart", "false\n");
+    file_put_contents("$compose/old/name", "Old-Stack\n");                      // an older folder: no project_name yet
+    file_put_contents("$compose/old/autostart", 'true');
+    same('compose autostart: the stack is on', true, houseComposeAutostart('backup', $compose));
+    same('compose autostart: the stack is off', false, houseComposeAutostart('media', $compose));
+    same('compose autostart: a stack Compose Manager doesn\'t know', null, houseComposeAutostart('other', $compose));
+    same('compose autostart: an older folder goes by its name, as compose lower-cases it', true, houseComposeAutostart('old-stack', $compose));
+    same('compose autostart: a folder without the file is off', false, houseComposeAutostart('bare', $compose));
+    same('compose autostart: no projects folder — nothing known', null, houseComposeAutostart('backup', "$tmp/nowhere"));
+    same('kopia autostart: in a stack that starts by itself (not on Unraid\'s list)', true, $f($summary, 'kopia', $inspect('no', 'backup'), "$tmp/none")['ok']);
+    same('kopia autostart: in a stack that doesn\'t — red, though a line of that name is on Unraid\'s list', false, $f($summary, 'kopia', $inspect('unless-stopped', 'media'))['ok']);
+    same('kopia autostart: in a stack nobody the office knows starts — no finding', null, $f($summary, 'kopia', $inspect('no', 'other')));
+    same('kopia autostart: "always" in a stack that doesn\'t start — Docker brings it back', true, $f($summary, 'kopia', $inspect('always', 'media'))['ok']);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * Mr. Restori: his own reader of the packages (dumps with their database and the credentials' variable
  * names, the folders a container binds, templates, compose files, stale packages), share paths, database types.
  */
@@ -7691,7 +7755,7 @@ function testSupporterKeys(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman', 'testWhereaboutsVmStop', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];

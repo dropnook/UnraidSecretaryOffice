@@ -78,6 +78,60 @@ function houseInspect(string $name): ?array
     return is_array($j[0] ?? null) ? $j[0] : null;
 }
 
+const HOUSE_AUTOSTART        = '/var/lib/docker/unraid-autostart';                  // Unraid's Docker autostart list (RAM, in docker.img's folder)
+const HOUSE_COMPOSE_CFG      = '/boot/config/plugins/compose.manager/compose.manager.cfg';
+const HOUSE_COMPOSE_PROJECTS = '/boot/config/plugins/compose.manager/projects';     // Compose Manager's PROJECTS_FOLDER by default
+
+/**
+ * Unraid's Docker autostart list: what rc.docker starts, in this order, whenever Docker comes up (after a boot or
+ * an array start — every container was stopped at the array stop). One line per template container, `name` or
+ * `name delay` (the seconds Unraid waits after starting it; the Docker page's Autostart switch writes it).
+ *
+ * @return array<string, int> container name => delay in seconds
+ */
+function houseAutostart(string $file = HOUSE_AUTOSTART): array
+{
+    $list = [];
+    foreach (@file($file, FILE_IGNORE_NEW_LINES) ?: [] as $line) {
+        $parts = preg_split('/\s+/', trim($line)) ?: [];
+        if (($parts[0] ?? '') !== '') {
+            $list[$parts[0]] = (int) ($parts[1] ?? 0);
+        }
+    }
+    return $list;
+}
+
+/**
+ * Whether Compose Manager brings a stack up by itself when Docker starts (its docker_started event runs
+ * `compose up` for every stack whose folder under PROJECTS_FOLDER has `autostart` = true): the folder whose
+ * `project_name` — the containers' label com.docker.compose.project — is $project (older folders only have
+ * `name`). null = Compose Manager doesn't know that stack, or isn't installed: nothing the office knows starts it.
+ *
+ * @param string|null $root  the projects folder (tests); null = Compose Manager's own setting
+ */
+function houseComposeAutostart(string $project, ?string $root = null): ?bool
+{
+    if ($root === null) {
+        if (!housePlugin('compose.manager')) {
+            return null;
+        }
+        $root = (string) (readCfg(HOUSE_COMPOSE_CFG)['PROJECTS_FOLDER'] ?? '');
+        if ($root === '' || $root[0] !== '/') {
+            $root = HOUSE_COMPOSE_PROJECTS;
+        }
+    }
+    foreach (glob(rtrim($root, '/') . '/*', GLOB_ONLYDIR) ?: [] as $dir) {
+        $name = trim((string) @file_get_contents("$dir/project_name"));
+        if ($name === '') {
+            $name = trim((string) @file_get_contents("$dir/name")) ?: basename($dir);
+        }
+        if (strcasecmp($name, $project) === 0) {                 // compose lower-cases a project's name
+            return trim((string) @file_get_contents("$dir/autostart")) === 'true';
+        }
+    }
+    return null;
+}
+
 /** The address of Unraid's own web UI (from Unraid's config), e.g. for the server's IP in a ready-made config */
 function houseGuiUrl(): ?string
 {
