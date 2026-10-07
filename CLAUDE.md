@@ -85,7 +85,7 @@ installed plugin (see the checklist).
   (lstat, then fstat of the handle: the same inode; opened read+write so it never waits for a reader, non-blocking: no
   doorbell, no reader, a full one — nothing happens, the agent's next round finds the request). Of the agent's files
   it writes that one only (its own there: the look locks, see «Show first, then look»); never a signal, never a
-  process. It then looks for the answer after 2 ms, 4 ms, every 10 ms
+  process. It then looks for the answer after 2, 4 and 8 ms, then every 10 ms
   for two seconds, then every 50 ms: a request costs ~2 ms on top of the agent's own work instead of ~100.
 * **Agent safety:** commands via `run()`/`runAll()` (array form, no shell). Every
   action re-reads the current state and validates ids against it. Errors are

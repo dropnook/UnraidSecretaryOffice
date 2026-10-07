@@ -103,8 +103,8 @@ function askAgent(string $action, array $data = [], float $wait = 20.0): array
     }
     agentRing();
 
-    // the answer: the agent starts at once, a state it has at hand is there in a few ms — looked for after 2 ms, 4 ms,
-    // then every 10 ms for the first two seconds, then every 50 ms (one stat each, on the pool directly for an
+    // the answer: the agent starts at once, a state it has at hand is there in a few ms — looked for after 2, 4 and
+    // 8 ms, then every 10 ms for the first two seconds, then every 50 ms (one stat each, on the pool directly for an
     // exclusive share)
     $start = microtime(true);
     $deadline = $start + $wait;
@@ -149,8 +149,8 @@ function askAgent(string $action, array $data = [], float $wait = 20.0): array
 
 /**
  * Rings the agent's doorbell after a request was dropped, so it looks at once instead of at its next round (≤ 150 ms):
- * one byte into the FIFO the agent made in its RAM folder (agent/agent.php doorbellOpen()). The web side writes that
- * file and nothing else — never a signal, never a process. Only a FIFO of the web server's own user (root, like the
+ * one byte into the FIFO the agent made in its RAM folder (agent/agent.php doorbellOpen()). Of the agent's files the
+ * web side writes that one only — never a signal, never a process. Only a FIFO of the web server's own user (root, like the
  * agent) that nobody else may open, never through a link (lstat, then the open handle's fstat: the same inode);
  * opened for reading and writing, so it never waits for a reader, and written non-blocking — no doorbell, no agent
  * reading it, a full one: nothing happens, the agent's next round finds the request as before.
