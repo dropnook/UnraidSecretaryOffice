@@ -241,11 +241,33 @@ function backupScan(): array
         'logs'       => array_values(array_map(fn ($l) => ['name' => $l['name'], 'kind' => $l['kind'], 'time' => $l['time'], 'size' => $l['size']], $logs)),
         'mounted'    => backupMounted(backupSetting($settings, 'general', 'mount_root')),
         'setup'      => $setup,
+        'drill'      => backupDrillLine(),       // Mr. Restori's drill: one line from its certificate
     ];
     $state['found'] = true;
     $GLOBALS['backup'] = $state;
     writeAtomic(deskFile('backup'), jsonEncode($state));
     return $state;
+}
+
+/**
+ * Mr. Restori's restore drill as Mr. Backupsy's one line shows it — read from its certificate (data/restore-drill.json,
+ * interface 1) only: how the last complete drill went, when, how many items it proved of how many, what failed
+ */
+function backupDrillLine(?array $cert = null): ?array
+{
+    $cert ??= readJson(DATA_DIR . '/restore-drill.json');
+    $last = ($cert['interface'] ?? 0) === 1 && is_array($cert['last'] ?? null) ? $cert['last'] : null;
+    if (!$last || !in_array($last['result'] ?? '', ['passed', 'failed'], true)) {
+        return null;
+    }
+    $failed = [];
+    foreach ((array) ($cert['items'] ?? []) as $it) {
+        if (is_array($it) && ($it['result'] ?? '') === 'failed' && is_string($it['name'] ?? null)) {
+            $failed[$it['name']] = true;
+        }
+    }
+    return ['result' => $last['result'], 'ended' => (int) ($last['ended'] ?? 0), 'proven' => (int) ($last['proven'] ?? 0),
+            'total' => (int) ($last['items'] ?? 0), 'failed' => array_slice(array_keys($failed), 0, 4)];
 }
 
 /** Name, version and interface of the script ("backup.sh --about", since 2.5) */
