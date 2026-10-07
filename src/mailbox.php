@@ -15,13 +15,31 @@ final class AgentBusy extends RuntimeException {}
 /** The agent restarted (or stopped) while a request waited: what it hadn't answered is lost */
 final class AgentRestarted extends RuntimeException {}
 
-/** Is the agent alive? It touches agent.json every 20 seconds. */
+/**
+ * Who is at work, and since when it gave a sign of life: the agent's heartbeat in RAM (agent.json in officeRunDir(),
+ * touched every 20 seconds; agent/agent.php writeInfo()) — or its copy in the data folder, which an older agent (up to
+ * 1.32) touched instead: the newer of the two counts (a deploy's first seconds, a downgrade).
+ *
+ * @return array{0: ?array, 1: int}  its content (null: unreadable) and its mtime (0: none)
+ */
+function agentRecord(): array
+{
+    $best = [null, 0];
+    foreach ([officeRunDir() . '/agent.json', OFFICE_DATA . '/agent.json'] as $file) {
+        clearstatcache(true, $file);
+        $pulse = (int) @filemtime($file);
+        if ($pulse > $best[1]) {
+            $best = [officeReadJson($file), $pulse];
+        }
+    }
+    return $best;
+}
+
+/** Is the agent alive? Its heartbeat is at most 70 s old (agentRecord()) and its mailbox there. */
 function agentInfo(): array
 {
-    $file = OFFICE_DATA . '/agent.json';
-    clearstatcache(true, $file);
-    $info = officeReadJson($file) ?? [];
-    $pulse = (int) @filemtime($file);
+    [$info, $pulse] = agentRecord();
+    $info ??= [];
     $info['pulse'] = $pulse ?: null;
     $info['running'] = !empty($info['running']) && $pulse > time() - 70 && is_dir(OFFICE_DATA . '/mailbox');
     if (!$info['running'] && !is_dir(OFFICE_DATA)) {
@@ -75,8 +93,8 @@ function askAgent(string $action, array $data = [], float $wait = 20.0): array
     $request = "$mailbox/$id.request";
     $response = "$mailbox/$id.response";
 
-    // who will answer: the agent of agent.json (pid and start time) — read before the request is there
-    $who = agentIdentity(officeReadJson(OFFICE_DATA . '/agent.json'));
+    // who will answer: the agent of the heartbeat (pid and start time) — read before the request is there
+    $who = agentIdentity(agentRecord()[0]);
     $raw = json_encode(['action' => $action] + $data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if (@file_put_contents($tmp, $raw) === false || !@rename($tmp, $request)) {
         @unlink($tmp);
@@ -96,7 +114,7 @@ function askAgent(string $action, array $data = [], float $wait = 20.0): array
         if ($who !== null && ++$round % 10 === 0) {
             // every half second: still the same agent? A new one empties the mailbox when it starts
             // (setUp()), a stopped one answers nothing more — what was waiting is lost
-            $now = agentIdentity(officeReadJson(OFFICE_DATA . '/agent.json'));
+            $now = agentIdentity(agentRecord()[0]);
             if ($now === null || ($now['id'] === $who['id'] && ($now['running'] || !$who['running']))) {
                 continue;
             }
@@ -106,7 +124,7 @@ function askAgent(string $action, array $data = [], float $wait = 20.0): array
             }
             if (is_file($request)) {
                 if ($now['id'] !== $who['id'] && $now['running']) {
-                    $who = $now;        // came after the new one emptied its mailbox (agent.json is written after that): it answers
+                    $who = $now;        // came after the new one emptied its mailbox (its heartbeat is written after that): it answers
                     continue;
                 }
                 if (!@unlink($request)) {
@@ -123,7 +141,7 @@ function askAgent(string $action, array $data = [], float $wait = 20.0): array
 }
 
 /**
- * Which agent process wrote agent.json — its pid and start time (a restart in place keeps the pid,
+ * Which agent process wrote the heartbeat — its pid and start time (a restart in place keeps the pid,
  * never the start time) — and whether it said it runs; null when it can't tell.
  *
  * @return array{id: string, running: bool}|null

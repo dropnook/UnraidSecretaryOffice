@@ -7119,73 +7119,165 @@ function testSafeWrites(): void
 }
 
 /**
- * The page waits for an answer while the agent restarts (a deploy) or stops: askAgent() notices it in
- * agent.json (pid and start time, running) and says so at once — never a wait of ten minutes. The web
- * side in a process of its own (bootstrap.php, the data folder in a temporary folder); this one plays
- * the agent.
+ * The page waits for an answer while the agent restarts (a deploy) or stops: askAgent() notices it in the agent's
+ * heartbeat (pid and start time, running) and says so at once — never a wait of ten minutes. The web side in a process
+ * of its own (bootstrap.php, the data folder in a temporary folder); this one plays the agent: once with its heartbeat
+ * in RAM (agent.json in the RAM folder), once as an agent up to 1.32 (agent.json in the data folder only).
  */
 function testAgentRestarted(): void
 {
     $tmp = hardeningTmp('restarted');
     mkdir("$tmp/mailbox", 0770);
-    $info = fn (int $started, bool $running = true) => file_put_contents("$tmp/agent.json",
-        json_encode(['running' => $running, 'version' => AGENT_VERSION, 'pid' => 4242, 'started' => $started, 'host' => 'test', 'desks' => []]));
     $web = "$tmp/web.php";
     file_put_contents($web, '<?php require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; $t = microtime(true);'
         . ' try { $out = askAgent("x.y", [], 8); } catch (Throwable $e) { $out = get_class($e); }'
         . ' echo json_encode(["out" => $out, "s" => round(microtime(true) - $t, 1)]);');
-    // the web side asks; $agent(request file) plays the agent once the request is there
-    $ask = function (callable $agent) use ($web, $tmp): array {
-        $p = proc_open([PHP_BINARY, $web], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['OFFICE_DATA_DIR' => $tmp, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
-        $request = null;
-        for ($i = 0; $i < 60 && $request === null; $i++) {
-            usleep(50000);
-            $request = (glob("$tmp/mailbox/*.request") ?: [null])[0];
-        }
-        if ($request !== null) {
-            $agent($request);
-        }
-        $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+    foreach (['ram' => "$tmp/run-ram/agent.json", 'data' => "$tmp/agent.json"] as $where => $file) {
+        @mkdir("$tmp/run-$where", 0700);
+        $info = fn (int $started, bool $running = true) => file_put_contents($file,
+            json_encode(['running' => $running, 'version' => AGENT_VERSION, 'pid' => 4242, 'started' => $started, 'host' => 'test', 'desks' => []]));
+        // the web side asks; $agent(request file) plays the agent once the request is there
+        $ask = function (callable $agent) use ($web, $tmp, $where): array {
+            $p = proc_open([PHP_BINARY, $web], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+                ['OFFICE_DATA_DIR' => $tmp, 'OFFICE_RUN_DIR' => "$tmp/run-$where", 'PATH' => getenv('PATH')]);
+            $request = null;
+            for ($i = 0; $i < 60 && $request === null; $i++) {
+                usleep(50000);
+                $request = (glob("$tmp/mailbox/*.request") ?: [null])[0];
+            }
+            if ($request !== null) {
+                $agent($request);
+            }
+            $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+            proc_close($p);
+            return (json_decode(substr($raw, (int) strpos($raw, '{')), true) ?: []) + ['raw' => $raw];
+        };
+        $answer = fn (string $request, array $a) => file_put_contents(substr($request, 0, -strlen('.request')) . '.response', json_encode($a)) && unlink($request);
+
+        $info(1000);
+        $r = $ask(fn (string $req) => $answer($req, ['ok' => true, 'n' => 1]));
+        same("restart ($where): an answer as always", ['ok' => true, 'n' => 1], $r['out'] ?? $r['raw']);
+
+        // a deploy: the new agent empties the mailbox when it starts, then writes its heartbeat
+        $r = $ask(function (string $req) use ($info): void {
+            unlink($req);
+            $info(1001);
+        });
+        check("restart ($where): the request emptied away by a new agent is told at once", ($r['out'] ?? '') === 'AgentRestarted' && ($r['s'] ?? 99) < 3, $r['raw']);
+
+        // the new agent came before the request (it was not emptied away): it answers, nothing is told
+        $info(1002);
+        $r = $ask(function (string $req) use ($info, $answer): void {
+            $info(1003);
+            usleep(1200000);                    // the web side sees the new agent while the request is still there
+            $answer($req, ['ok' => true, 'n' => 2]);
+        });
+        same("restart ($where): a request the new agent still finds is answered", ['ok' => true, 'n' => 2], $r['out'] ?? $r['raw']);
+
+        // stopped (array stop, plugin update): a request still waiting is taken back and told
+        $info(1004);
+        $r = $ask(fn () => $info(1004, false));
+        check("restart ($where): a stopped agent is told at once", ($r['out'] ?? '') === 'AgentRestarted' && ($r['s'] ?? 99) < 3, $r['raw']);
+        same("restart ($where): its request taken back", [], glob("$tmp/mailbox/*.request") ?: []);
+
+        // a restart in place keeps the pid — the start time tells
+        $info(1005);
+        $r = $ask(function (string $req) use ($info): void {
+            unlink($req);                       // picked up, then the agent restarted itself before answering
+            usleep(300000);
+            $info(1006);
+        });
+        same("restart ($where): in place (same pid, new start time) is told too", 'AgentRestarted', $r['out'] ?? $r['raw']);
+        @unlink($file);
+    }
+    hardeningRm($tmp);
+}
+
+/**
+ * The agent's heartbeat lives in RAM (agent.json in RUN_DIR, its mtime the pulse every 20 s): nothing of the agent lands
+ * on the pool every 20 s any more, so an appdata pool of HDDs may sleep. writeInfo() writes the data folder's copy only
+ * when its content changes (start, stop); agentPulse() moves the RAM copy's mtime, never through a link. The web side's
+ * agentInfo() and agent.sh's watch read the RAM copy — the data folder's only as long as it is newer (an agent up to
+ * 1.32); the watch doesn't look under /mnt at all while the heartbeat is fresh. The agent and the web side in processes
+ * of their own, agent.sh sourced with its paths in a test folder and a stand-in for Unraid's notify.
+ */
+function testHeartbeat(): void
+{
+    $tmp = hardeningTmp('heartbeat');
+    $data = "$tmp/data";
+    $run = "$tmp/run";
+    @mkdir("$data/mailbox", 0700, true);
+    @mkdir($run, 0700, true);
+    $php = function (string $code) use ($data, $run): array {
+        $p = proc_open([PHP_BINARY, '-r', $code], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => $data, 'OFFICE_RUN_DIR' => $run, 'PATH' => getenv('PATH')]);
+        $out = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
         proc_close($p);
-        return (json_decode(substr($raw, (int) strpos($raw, '{')), true) ?: []) + ['raw' => $raw];
+        return json_decode(substr($out, (int) strpos($out, '{')), true) ?: ['raw' => $out];
     };
-    $answer = fn (string $request, array $a) => file_put_contents(substr($request, 0, -strlen('.request')) . '.response', json_encode($a)) && unlink($request);
+    $agent = 'define("AGENT_LIBRARY_ONLY", 1); require ' . var_export(OFFICE_DIR . '/agent/agent.php', true) . '; ';
 
-    $info(1000);
-    $r = $ask(fn (string $req) => $answer($req, ['ok' => true, 'n' => 1]));
-    same('restart: an answer as always', ['ok' => true, 'n' => 1], $r['out'] ?? $r['raw']);
+    // one agent (one pid, one start time): started, a pulse 50 s later, stopped, a link where its heartbeat belongs
+    $r = $php($agent . '$look = fn ($f) => ($st = @lstat($f)) ? [$st["ino"], $st["mtime"]] : null; $o = ["hb" => AGENT_HEARTBEAT];'
+        . ' writeInfo(true); $o["ram"] = json_decode((string) file_get_contents(AGENT_HEARTBEAT), true);'
+        . ' $o["same"] = file_get_contents(AGENT_HEARTBEAT) === file_get_contents(AGENT_INFO);'
+        . ' touch(AGENT_HEARTBEAT, time() - 50); touch(AGENT_INFO, time() - 50); clearstatcache(); $before = $look(AGENT_INFO);'
+        . ' agentPulse(); writeInfo(true); clearstatcache(); $o["pulse"] = [filemtime(AGENT_HEARTBEAT) >= time() - 2, $look(AGENT_INFO) === $before];'
+        . ' writeInfo(false); $o["stopped"] = [json_decode((string) file_get_contents(AGENT_HEARTBEAT), true)["running"] ?? null,'
+        . ' json_decode((string) file_get_contents(AGENT_INFO), true)["running"] ?? null];'
+        . ' $victim = dirname(DATA_DIR) . "/victim"; file_put_contents($victim, "x"); touch($victim, 1000000000);'
+        . ' unlink(AGENT_HEARTBEAT); symlink($victim, AGENT_HEARTBEAT); agentPulse(); clearstatcache();'
+        . ' $o["link"] = [filemtime($victim), is_link(AGENT_HEARTBEAT), file_get_contents($victim), is_file(AGENT_HEARTBEAT)];'
+        . ' echo json_encode($o);');
+    same('heartbeat: in RAM', "$run/agent.json", $r['hb'] ?? $r);
+    same('heartbeat: who is at work, in RAM and in the data folder alike', [true, AGENT_VERSION, true],
+        [$r['ram']['running'] ?? null, $r['ram']['version'] ?? null, $r['same'] ?? null]);
+    same('heartbeat: the pulse moves the RAM copy only — the data folder\'s stays as it was', [true, true], $r['pulse'] ?? null);
+    same('heartbeat: stopped — said in both', [false, false], $r['stopped'] ?? null);
+    same('heartbeat: a link in its place is never touched through — a file of its own instead', [1000000000, false, 'x', true], $r['link'] ?? null);
 
-    // a deploy: the new agent empties the mailbox when it starts, then writes agent.json
-    $r = $ask(function (string $req) use ($info): void {
-        unlink($req);
-        $info(1001);
-    });
-    check('restart: the request emptied away by a new agent is told at once', ($r['out'] ?? '') === 'AgentRestarted' && ($r['s'] ?? 99) < 3, $r['raw']);
+    // the web side: the newer of the two counts
+    $web = fn () => $php('require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; $i = agentInfo(); echo json_encode(["running" => $i["running"], "pid" => $i["pid"] ?? null]);');
+    $write = fn (string $f, int $pid, int $age) => file_put_contents($f, json_encode(['running' => true, 'pid' => $pid, 'started' => 1])) && touch($f, time() - $age);
+    $write("$run/agent.json", 11, 5);
+    $write("$data/agent.json", 22, 500);
+    same('heartbeat: the page reads the RAM copy', ['running' => true, 'pid' => 11], $web());
+    $write("$run/agent.json", 11, 500);
+    $write("$data/agent.json", 22, 5);
+    same('heartbeat: an agent up to 1.32 (the data folder\'s copy newer) still counts', ['running' => true, 'pid' => 22], $web());
+    $write("$data/agent.json", 22, 100);
+    same('heartbeat: both older than 70 s — not at work', ['running' => false, 'pid' => 22], $web());
+    unlink("$data/agent.json");
+    $write("$run/agent.json", 11, 1);
+    same('heartbeat: the RAM copy alone', ['running' => true, 'pid' => 11], $web());
 
-    // the new agent came before the request (it was not emptied away): it answers, nothing is told
-    $info(1002);
-    $r = $ask(function (string $req) use ($info, $answer): void {
-        $info(1003);
-        usleep(1200000);                    // the web side sees the new agent while the request is still there
-        $answer($req, ['ok' => true, 'n' => 2]);
-    });
-    same('restart: a request the new agent still finds is answered', ['ok' => true, 'n' => 2], $r['out'] ?? $r['raw']);
-
-    // stopped (array stop, plugin update): a request still waiting is taken back and told
-    $info(1004);
-    $r = $ask(fn () => $info(1004, false));
-    check('restart: a stopped agent is told at once', ($r['out'] ?? '') === 'AgentRestarted' && ($r['s'] ?? 99) < 3, $r['raw']);
-    same('restart: its request taken back', [], glob("$tmp/mailbox/*.request") ?: []);
-
-    // a restart in place keeps the pid — the start time tells
-    $info(1005);
-    $r = $ask(function (string $req) use ($info): void {
-        unlink($req);                       // picked up, then the agent restarted itself before answering
-        usleep(300000);
-        $info(1006);
-    });
-    same('restart: in place (same pid, new start time) is told too', 'AgentRestarted', $r['out'] ?? $r['raw']);
+    // agent.sh watch: the RAM copy first; the data folder only when it is stale
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\n");
+    file_put_contents("$tmp/notify", "#!/bin/bash\necho \"\$*\" >> " . escapeshellarg("$tmp/told") . "\n");
+    chmod("$tmp/notify", 0755);
+    $sh = escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh');
+    $watch = function () use ($sh, $tmp, $run, $data): void {
+        shell_exec('bash -c ' . escapeshellarg("source $sh; RUN=" . escapeshellarg($run) . '; VAR_INI=' . escapeshellarg("$tmp/var.ini")
+            . '; NOTIFY=' . escapeshellarg("$tmp/notify") . '; FLASH=' . escapeshellarg("$tmp/flash") . '; LOG=' . escapeshellarg("$tmp/log")
+            . '; WATCH_DOWN=$RUN/watch-down; WATCH_TOLD=$RUN/watch-told; data_dir() { echo x >> ' . escapeshellarg("$tmp/asked") . '; echo '
+            . escapeshellarg($data) . '; }; watch') . ' 2>&1');
+    };
+    $watch();
+    same('watch: a fresh heartbeat in RAM — fine, and nothing under /mnt asked', [false, false], [file_exists("$run/watch-down"), file_exists("$tmp/asked")]);
+    $write("$run/agent.json", 11, 500);
+    $write("$data/agent.json", 22, 5);
+    $watch();
+    same('watch: an agent up to 1.32 (its data folder\'s copy fresh) — fine', [false, true], [file_exists("$run/watch-down"), file_exists("$tmp/asked")]);
+    $write("$data/agent.json", 22, 500);
+    $watch();
+    check('watch: both stale — the ten minutes start', is_file("$run/watch-down") && !file_exists("$tmp/told"));
+    file_put_contents("$run/watch-down", (string) (time() - 700));
+    $watch();
+    check('watch: away for ten minutes — Unraid hears of it once', str_contains((string) @file_get_contents("$tmp/told"), 'Agent not running') && is_file("$run/watch-told"));
+    $write("$run/agent.json", 11, 1);
+    $watch();
+    check('watch: the heartbeat back — told, the marks gone', str_contains((string) @file_get_contents("$tmp/told"), 'Agent running again')
+        && !file_exists("$run/watch-down") && !file_exists("$run/watch-told"));
     hardeningRm($tmp);
 }
 
@@ -9858,7 +9950,7 @@ function testUnraidWords(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch'],
-          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
+          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings', 'testUnraidWords']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {

@@ -40,6 +40,7 @@ require_once dirname(__DIR__) . '/src/words.php';     // Unraid's own words in t
 const AGENT_VERSION = '1.32.0';
 define('RUN_DIR', officeRunDir());          // RAM, root only (0700); the web side's officeRunDir()
 const PID_FILE      = RUN_DIR . '/agent.pid';
+const AGENT_HEARTBEAT = RUN_DIR . '/agent.json';     // who is at work; its mtime is the pulse (writeInfo(), agentPulse())
 const TICK_US       = 150000;
 const LOG_MAX       = 512 * 1024;
 const FILE_UID      = 99;    // nobody:users, like everything else in appdata
@@ -278,7 +279,7 @@ function serve(): int
 
         $now = time();
         if ($now - $lastPulse >= 20) {
-            @touch(AGENT_INFO);
+            agentPulse();
             $lastPulse = $now;
         }
         if ($now - $lastCleanup >= 60) {
@@ -303,9 +304,7 @@ function serve(): int
     }
 
     logLine('Agent stopped');
-    if (is_dir(DATA_DIR)) {
-        writeInfo(false);
-    }
+    writeInfo(false);
     flock($lock, LOCK_UN);
     fclose($lock);
     @unlink(PID_FILE);
@@ -449,16 +448,46 @@ function mailboxEnsure(): bool
     return $GLOBALS['mailboxOk'] = $ok;
 }
 
+/**
+ * Who is at work — running, version, pid, start time, host, desks: in RAM (AGENT_HEARTBEAT; its mtime is the pulse,
+ * agentPulse() — the page's green dot, the web side's agentInfo() and askAgent(), agent.sh's watch) and in the data
+ * folder (AGENT_INFO, for whoever looks there), that one written only when its content changes: at the start and the
+ * stop, never by the pulse — nothing of the agent lands on the pool every 20 s, an appdata pool of HDDs may sleep.
+ */
 function writeInfo(bool $running): void
 {
-    writeAtomic(AGENT_INFO, jsonEncode([
+    $info = jsonEncode([
         'running' => $running,
         'version' => AGENT_VERSION,
         'pid'     => getmypid(),
         'started' => $GLOBALS['started'],
         'host'    => hostname(),
         'desks'   => array_keys(desks()),
-    ]));
+    ]);
+    try {
+        @mkdir(RUN_DIR, 0700, true);
+        writeAtomic(AGENT_HEARTBEAT, $info, 0644, 0, 0);
+    } catch (Throwable $e) {
+        logLine('The heartbeat in RAM could not be written: ' . $e->getMessage());
+    }
+    clearstatcache(true, AGENT_INFO);
+    if (is_dir(DATA_DIR) && @file_get_contents(AGENT_INFO, false, null, 0, 65536) !== $info) {
+        try {
+            writeAtomic(AGENT_INFO, $info);
+        } catch (Throwable $e) {
+            logLine('agent.json could not be written: ' . $e->getMessage());
+        }
+    }
+}
+
+/** The pulse, every 20 s: the heartbeat's mtime in RAM (a plain file only — never touched through a link; else written anew) */
+function agentPulse(): void
+{
+    clearstatcache(true, AGENT_HEARTBEAT);
+    $st = @lstat(AGENT_HEARTBEAT);
+    if (!$st || ($st['mode'] & 0170000) !== 0100000 || !@touch(AGENT_HEARTBEAT)) {
+        writeInfo(true);
+    }
 }
 
 /** All agent files (and src/place.php, src/words.php, shared with the web side), so any change triggers a restart */
