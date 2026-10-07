@@ -179,9 +179,10 @@ function testPlanGone(): void
 
     // sorting the targets: what exists is taken, what sleeps is skipped only when the plan says so, the rest is gone
     $scan = $host['scan']();
-    same('gone: targets sorted — take, skipped, gone', ['take' => ['zfs:hive/appdata', 'zfs:hive/system'], 'skipped' => [], 'gone' => ['zfs:mother/drop']],
+    same('gone: targets sorted — take, skipped, gone (and which of the taken ones sleep: the create wakes them, as the plan says)',
+        ['take' => ['zfs:hive/appdata', 'zfs:hive/system'], 'skipped' => [], 'gone' => ['zfs:mother/drop'], 'wake' => ['zfs:hive/appdata', 'zfs:hive/system']],
         snapPlanTargets($three, $scan, ['hive' => true]));
-    same('gone: a sleeping pool is skipped when the plan says so', ['take' => [], 'skipped' => ['zfs:hive/appdata', 'zfs:hive/system'], 'gone' => ['zfs:mother/drop']],
+    same('gone: a sleeping pool is skipped when the plan says so', ['take' => [], 'skipped' => ['zfs:hive/appdata', 'zfs:hive/system'], 'gone' => ['zfs:mother/drop'], 'wake' => []],
         snapPlanTargets(['skip_asleep' => true] + $three, $scan, ['hive' => true]));
     same('gone: remembered with its first time, a further one is new, one back is forgotten',
         ['gone' => ['zfs:a' => 100, 'zfs:c' => 500], 'new' => ['zfs:c']], snapPlanGone(['zfs:a' => 100, 'zfs:b' => 200], ['zfs:a', 'zfs:c'], 500));
@@ -285,6 +286,158 @@ function testPlanGone(): void
 
     putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
     unset($GLOBALS['snapPlanFile'], $GLOBALS['snapPlanStateFile']);
+    hardeningRm($tmp);
+}
+
+/**
+ * Sleeping ZFS pools (2026-10-07): Ms. Snapshotini and Mr. Restori list datasets and snapshots only on the awake
+ * pools (`zfs list … -r <pool>`; disks.ini says which sleep, a pool sleeps when any of its disks does) — a sleeping
+ * pool is never asked, it keeps what was last seen of it, marked asleep with when that was; «wake» lists it too.
+ * Her actions on such a snapshot refuse without `wake`; a plan's target on a sleeping pool nobody listed is asleep,
+ * not gone. Stand-ins for zfs, zpool and disks.ini in a temporary folder.
+ */
+function testSleepingPools(): void
+{
+    $tmp = hardeningTmp('sleepsnap');
+    $args = "$tmp/zfs-args.txt";
+    $ini = function (bool $hiveAsleep) use ($tmp): void {
+        $x = $hiveAsleep ? '1' : '0';
+        file_put_contents("$tmp/disks.ini", "[\"master\"]\nname=\"master\"\ntype=\"Cache\"\nfsType=\"luks:zfs\"\nspundown=\"0\"\n[\"master2\"]\nname=\"master2\"\ntype=\"Cache\"\nspundown=\"0\"\n"
+            . "[\"hive\"]\nname=\"hive\"\ntype=\"Cache\"\nfsType=\"zfs\"\nspundown=\"0\"\n[\"hive2\"]\nname=\"hive2\"\ntype=\"Cache\"\nspundown=\"$x\"\n"
+            . "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"luks:btrfs\"\nspundown=\"0\"\n[\"flash\"]\nname=\"flash\"\ntype=\"Boot\"\nfsType=\"zfs\"\nspundown=\"0\"\n");
+    };
+    file_put_contents("$tmp/zfs-ds.txt", "master\tfilesystem\t1000\t9000\t100\t50\t/mnt/master\nmaster/appdata\tfilesystem\t500\t9000\t400\t100\t/mnt/master/appdata\n"
+        . "hive\tfilesystem\t2000\t8000\t100\t0\t/mnt/hive\nhive/media\tfilesystem\t1500\t8000\t1400\t300\t/mnt/hive/media\nflash\tfilesystem\t10\t90\t10\t0\t/boot\n");
+    file_put_contents("$tmp/zfs-snaps.txt", "master/appdata@a\t11\t1700000000\t10\t400\t5\t0\t-\nmaster/appdata@b\t12\t1700003600\t10\t400\t5\t0\t-\n"
+        . "hive/media@h1\t21\t1700000000\t20\t1400\t0\t0\t-\nhive/media@h2\t22\t1700007200\t20\t1400\t0\t1\t-\nflash/cfg@f\t31\t1700000000\t1\t10\t0\t0\t-\n");
+    file_put_contents("$tmp/zpool.txt", "master\t8000000\t5000000\t3000000\t62\tONLINE\t16\nhive\t60000000\t600000\t59400000\t1\tONLINE\t0\nflash\t100\t10\t90\t10\tONLINE\t1\n");
+    // zfs lists only the pools named after -r (the columns asked for), answers holds with nothing, a dry destroy with a reclaim line
+    file_put_contents("$tmp/zfs", "#!/bin/sh\nprintf '%s\\n' \"\$*\" >> " . escapeshellarg($args) . "\ncase \"\$1\" in\n  list)\n    file=snaps; cols=; prev=\n"
+        . "    for a in \"\$@\"; do [ \"\$a\" = filesystem,volume ] && file=ds; [ \"\$a\" = filesystem ] && file=ds; [ \"\$prev\" = -o ] && cols=\$a; prev=\$a; done\n"
+        . "    case \$cols in name,mountpoint) cut=1,7;; name,creation) cut=1,3;; *) cut=1-;; esac\n    seen=0\n"
+        . "    for a in \"\$@\"; do [ \$seen = 1 ] && grep -E \"^\$a[/@\t]\" " . escapeshellarg($tmp) . "/zfs-\$file.txt | cut -f\$cut; [ \"\$a\" = -r ] && seen=1; done\n    exit 0;;\n"
+        . "  destroy) printf 'reclaim\\t1000\\n';;\nesac\nexit 0\n");
+    file_put_contents("$tmp/zpool", "#!/bin/sh\n[ \"\$1\" = list ] && cat " . escapeshellarg("$tmp/zpool.txt") . "\nexit 0\n");
+    chmod("$tmp/zfs", 0755);
+    chmod("$tmp/zpool", 0755);
+    $GLOBALS['disksIni'] = "$tmp/disks.ini";
+    $GLOBALS['snapshotHost'] = ['zfs' => "$tmp/zfs", 'zpool' => "$tmp/zpool", 'docker' => null];
+    $asked = function () use ($args): array {
+        $lines = array_values(array_filter(explode("\n", (string) @file_get_contents($args))));
+        @unlink($args);
+        return array_map(fn ($l) => preg_replace('/^list .* -r /', 'list -r ', $l), $lines);
+    };
+    $poolsOf = fn (array $z) => array_map(fn ($p) => [$p['name'], $p['asleep'], $p['count']], $z['pools']);
+    $names = fn (array $list) => array_map(fn ($x) => $x['id'] . (!empty($x['asleep']) ? ' (asleep)' : ''), $list);
+
+    // the shared helper: a pool sleeps when any of its disks does; a name disks.ini doesn't know is awake
+    $ini(true);
+    same('sleeping pools: sorted by disks.ini — hive sleeps through hive2, master and the boot pool are awake, an unknown pool counts as awake',
+        ['awake' => ['master', 'flash', 'ud'], 'asleep' => ['hive']], poolsBySleep(['master', 'hive', 'flash', 'ud']));
+
+    // Ms. Snapshotini, nothing known yet and hive asleep: zfs is asked for master and flash only; hive is there, asleep, never looked at
+    $z = snapshotReadZfs(null, false);
+    same('Snapshotini: zfs asked for the awake pools only (datasets and snapshots)', ['list -r master flash', 'list -r master flash'], $asked());
+    same('Snapshotini: the sleeping pool is listed as asleep, never looked at, without snapshots; the others as before',
+        [[['master', false, 2], ['hive', true, 0], ['flash', false, 1]], ['hive'], null, 'zfs:master/appdata@a', 'zfs:master/appdata@b', 'zfs:flash/cfg@f'],
+        [$poolsOf($z), $z['asleep'], $z['pools'][1]['looked'], ...array_column($z['snapshots'], 'id')]);
+    same('Snapshotini: no dataset of the sleeping pool either', ['zfs:master', 'zfs:master/appdata', 'zfs:flash'], array_column($z['volumes'], 'id'));
+    check('Snapshotini: the awake pools carry when they were looked at', is_int($z['pools'][0]['looked']) && $z['pools'][0]['looked'] > 0);
+
+    // hive awake: everything listed; then asleep again — hive keeps what she saw, marked asleep with when that was; nothing asked of it
+    $ini(false);
+    $all = ['time' => 1700000000, 'zfs' => snapshotReadZfs(null, false)];
+    same('Snapshotini: all pools awake — all listed', [['list -r master hive flash', 'list -r master hive flash', 'holds -H hive/media@h2'], [['master', false, 2], ['hive', false, 2], ['flash', false, 1]]],
+        [$asked(), $poolsOf($all['zfs'])]);
+    $ini(true);
+    $z = snapshotReadZfs($all, false);
+    same('Snapshotini: hive asleep again — zfs asked for master and flash only, hive keeps its list as last seen, each snapshot marked',
+        [['list -r master flash', 'list -r master flash'], [['master', false, 2], ['hive', true, 2], ['flash', false, 1]],
+         ['zfs:master/appdata@a', 'zfs:master/appdata@b', 'zfs:flash/cfg@f', 'zfs:hive/media@h1 (asleep)', 'zfs:hive/media@h2 (asleep)'],
+         ['zfs:master', 'zfs:master/appdata', 'zfs:flash', 'zfs:hive (asleep)', 'zfs:hive/media (asleep)']],
+        [$asked(), $poolsOf($z), $names($z['snapshots']), $names($z['volumes'])]);
+    same('Snapshotini: the sleeping pool says when it was last looked at, and keeps what its snapshots held', [$all['zfs']['pools'][1]['looked'], 300],
+        [$z['pools'][1]['looked'], $z['pools'][1]['snapused']]);
+    $old = $all;
+    unset($old['zfs']['pools'][1]['looked']);
+    same('Snapshotini: a state from before (no `looked` yet) — the scan\'s time stands in', 1700000000, snapshotReadZfs($old, false)['pools'][1]['looked']);
+    $asked();
+    $z2 = snapshotReadZfs($z, true);
+    same('Snapshotini: «wake» — the sleeping pool is listed too, nothing is asleep any more', [['list -r master hive flash', 'list -r master hive flash', 'holds -H hive/media@h2'], [['master', false, 2], ['hive', false, 2], ['flash', false, 1]], []],
+        [$asked(), $poolsOf($z2), $z2['asleep']]);
+    same('Snapshotini: the names of the pools asleep, for the log', ['hive'], snapshotPoolsAsleep(['zfs' => $z]));
+
+    // her actions: the estimate leaves a sleeping pool's snapshot out (counted), delete/rename/hold refuse it without «wake»
+    $GLOBALS['snapshot'] = ['zfs' => $z, 'btrfs' => ['devices' => [], 'snapshots' => []], 'vm' => ['snapshots' => []]];
+    $e = snapshotEstimate(['zfs:master/appdata@a', 'zfs:hive/media@h1', 'zfs:nobody@x']);
+    same('Snapshotini: the estimate asks zfs only about the awake pool\'s snapshot, counts the sleeping one',
+        [['destroy -nvp master/appdata@a'], 1000, 1, 0], [$asked(), $e['bytes'], $e['asleep'], $e['unknown']]);
+    $index = snapshotIndex($GLOBALS['snapshot']);
+    try {
+        snapshotRefuseAsleep($index['zfs:hive/media@h1']);
+        check('Snapshotini: a snapshot on a sleeping pool is refused', false);
+    } catch (Problem $p) {
+        same('Snapshotini: a snapshot on a sleeping pool is refused — naming it and its pool', ['pool_asleep', ['name' => 'hive/media@h1', 'pool' => 'hive']], [$p->key, $p->params]);
+    }
+    snapshotRefuseAsleep($index['zfs:master/appdata@a']);
+    check('Snapshotini: one on an awake pool passes', true);
+    $GLOBALS['snapshot'] = null;
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/snapshot/lang/en.json'), true) ?: [];
+    check('Snapshotini: the page can say it', isset($en['errors.pool_asleep'], $en['pool_asleep_chip'], $en['delete.wake'], $en['rename.wake'], $en['wake_for.confirm']));
+
+    // her plans: a target on a sleeping pool that was never listed is asleep (skipped when the plan says so, else taken with a wake), not gone
+    $state = ['zfs' => ['pools' => [['name' => 'hive', 'asleep' => true]], 'volumes' => []], 'btrfs' => ['devices' => []]];
+    $plan = ['targets' => ['zfs:hive/appdata', 'zfs:gone/x'], 'skip_asleep' => true];
+    same('plans: a target on a sleeping, never listed pool is skipped, not gone', ['take' => [], 'skipped' => ['zfs:hive/appdata'], 'gone' => ['zfs:gone/x'], 'wake' => []],
+        snapPlanTargets($plan, $state, ['hive' => false, 'hive2' => true]));
+    same('plans: … and taken with a wake when the plan takes sleeping targets', ['take' => ['zfs:hive/appdata'], 'skipped' => [], 'gone' => ['zfs:gone/x'], 'wake' => ['zfs:hive/appdata']],
+        snapPlanTargets(['skip_asleep' => false] + $plan, $state, ['hive' => false, 'hive2' => true]));
+    same('plans: on an awake pool a target nobody lists is gone', ['take' => [], 'skipped' => [], 'gone' => ['zfs:hive/appdata', 'zfs:gone/x'], 'wake' => []],
+        snapPlanTargets($plan, $state, ['hive' => false, 'hive2' => false]));
+
+    // Mr. Restori: his look lists the awake pools only; a sleeping pool keeps its list in his file, rsLocate names what he last saw
+    $GLOBALS['rs']['fs'] = ['master' => 'zfs', 'hive' => 'zfs', 'disk1' => 'btrfs'];
+    $GLOBALS['rs']['zfs_bin'] = "$tmp/zfs";
+    $GLOBALS['rs']['kept_file'] = "$tmp/restore-zfs.json";
+    $ini(true);
+    $ctx = rsContext([]);
+    same('Restori: zfs asked for the awake pool only, the sleeping one named, never looked at yet',
+        [['list -r master', 'list -r master'], ['/mnt/master' => 'master', '/mnt/master/appdata' => 'master/appdata'], ['master/appdata'], ['hive' => null], null],
+        [$asked(), $ctx['zfs'], array_keys($ctx['snaps']), $ctx['pools_asleep'], rsKeptLook('/mnt/hive/media/x', 'hive', $ctx)]);
+    $ini(false);
+    $ctx = rsContext([]);
+    rsKeptWrite($ctx['zfs_kept']);
+    same('Restori: all awake — both listed, his file keeps both', [['list -r master hive', 'list -r master hive'], ['master', 'hive'], []],
+        [$asked(), array_keys((readJson("$tmp/restore-zfs.json") ?? [])['pools'] ?? []), $ctx['pools_asleep']]);
+    $ini(true);
+    $ctx = rsContext([]);
+    $kept = rsKeptLook('/mnt/hive/media/films', 'hive', $ctx);
+    same('Restori: hive asleep again — only master live; hive as last seen from his file: the dataset holding the path, its snapshots then, as of when',
+        [['list -r master', 'list -r master'], ['master/appdata'], true, ['hive/media', 2, 1700007200], true, ['hive', 0], 'master'],
+        [$asked(), array_keys($ctx['snaps']), is_int($ctx['pools_asleep']['hive'] ?? null), [$kept['dataset'], $kept['count'], $kept['newest']], $kept['looked'] === $ctx['pools_asleep']['hive'],
+         [rsKeptLook('/mnt/hive/other', 'hive', $ctx)['dataset'], rsKeptLook('/mnt/hive/other', 'hive', $ctx)['count']], rsKeptLook('/mnt/master/x', 'master', $ctx)['dataset'] ?? null]);
+    // «wake» ticked and the pool answered (rsWake marks its disks awake): listed fresh into the live lists
+    foreach (array_keys($ctx['asleep']) as $n) {
+        $ctx['asleep'][$n] = false;
+    }
+    rsContextZfs($ctx, ['hive']);
+    same('Restori: after a wake the pool is listed into the live lists', [['list -r hive', 'list -r hive'], ['master/appdata', 'hive/media'], 'hive/media', []],
+        [$asked(), array_keys($ctx['snaps']), $ctx['zfs']['/mnt/hive/media'] ?? null, $ctx['pools_asleep']]);
+    // his file is trusted only in his shape
+    file_put_contents("$tmp/restore-zfs.json", json_encode(['pools' => ['hive' => ['looked' => 'soon', 'mounts' => ['/etc' => 'hive/x', '/mnt/hive' => 'other/ds', '/mnt/hive/ok' => 'hive/ok'], 'snaps' => ['hive/ok' => [['a', 1], ['b', 'x'], 'junk']]]]]));
+    $ctx = rsContext([]);
+    $asked();
+    same('Restori: junk in his file is left out, an odd `looked` means never looked (nothing said of the pool then)', [null, ['hive/ok' => [['a', 1]]], ['/mnt/hive/ok' => 'hive/ok'], null],
+        [$ctx['pools_asleep']['hive'], $ctx['zfs_kept']['hive']['snaps'], $ctx['zfs_kept']['hive']['mounts'], rsKeptLook('/mnt/hive/ok', 'hive', $ctx)]);
+    file_put_contents("$tmp/restore-zfs.json", json_encode(['pools' => ['hive' => ['looked' => 1700000500, 'mounts' => ['/etc' => 'hive/x', '/mnt/hive' => 'other/ds', '/mnt/hive/ok' => 'hive/ok'], 'snaps' => ['hive/ok' => [['a', 1], ['b', 'x'], 'junk'], 'other/ds' => [['c', 2]]]]]]));
+    $ctx = rsContext([]);
+    $asked();
+    same('Restori: only mounts under /mnt of that pool and well-formed snapshots are taken', [['/mnt/hive/ok' => 'hive/ok'], ['hive/ok' => [['a', 1]]], ['dataset' => 'hive/ok', 'count' => 1, 'newest' => 1, 'looked' => 1700000500]],
+        [$ctx['zfs_kept']['hive']['mounts'], $ctx['zfs_kept']['hive']['snaps'], rsKeptLook('/mnt/hive/ok/sub', 'hive', $ctx)]);
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'), true) ?: [];
+    check('Restori: the page can say it', isset($en['snaps.kept'], $en['snaps.kept_hint']));
+
+    unset($GLOBALS['disksIni'], $GLOBALS['snapshotHost'], $GLOBALS['rs']['fs'], $GLOBALS['rs']['zfs_bin'], $GLOBALS['rs']['kept_file']);
     hardeningRm($tmp);
 }
 
@@ -9720,7 +9873,7 @@ function testUnraidWords(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
