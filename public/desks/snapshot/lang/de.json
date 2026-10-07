@@ -200,7 +200,7 @@
     "other": "{n} sind eingehängt"
   },
   "delete.mounted_text": "— wird vor dem Löschen ausgehängt, samt allem, was darauf aufbaut:",
-  "delete.note": "Die Dateien im laufenden System bleiben, wie sie sind. Weg ist nur der eingefrorene Stand — wiederherstellen lässt er sich danach nicht mehr.",
+  "delete.note": "Die Dateien im laufenden System bleiben, wie sie sind. Weg ist nur der eingefrorene Stand — zurückholen lässt er sich danach nicht mehr.",
   "delete.confirm": {
     "one": "Löschen",
     "other": "{n} löschen"
@@ -327,10 +327,10 @@
   "help.select": "Auswählen und löschen",
   "help.select_text": "Snapshots oder eine ganze Gruppe anhaken; die Leiste unten zeigt, wie viel Platz das Löschen frei machen würde — eine Schätzung von ZFS, bevor etwas passiert. Gelöscht wird erst nach deiner Bestätigung.",
   "help.name": "Name",
-  "help.name_text": "Öffnet die Eigenschaften: Dataset, Zeit, Grösse, Holds, wo er eingehängt ist.",
+  "help.name_text": "Öffnet die Eigenschaften: Dataset, Zeit, Grösse, Schutz, wo er eingehängt ist.",
   "help.menu": "⋯",
-  "help.menu_text": "Eigenschaften, auswählen, umbenennen, halten oder freigeben, aushängen, Pfad kopieren, löschen.",
-  "help.held": "Gehalten (ZFS-Hold): lässt sich nicht löschen — weder hier noch von einem Werkzeug — bis der Hold aufgehoben ist.",
+  "help.menu_text": "Eigenschaften, auswählen, umbenennen, schützen oder den Schutz aufheben, aushängen, Pfad kopieren, löschen.",
+  "help.held": "Geschützt (ZFS-Hold): lässt sich nicht löschen — weder hier noch von einem Werkzeug — bis der Schutz aufgehoben ist.",
   "help.mounted": "Irgendwo eingehängt: Beim Löschen wird er auf Wunsch vorher ausgehängt.",
   "help.backup": "Die Sicherung von Herrn Backupsi benutzt ihn gerade (Kopia liest daraus) — Finger weg, bis sie fertig ist.",
   "help.asleep": "In der Mount-Tabelle gesehen, während seine Disk schläft — die Disk wird dafür nicht geweckt.",
