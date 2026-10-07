@@ -154,8 +154,13 @@ YML;
 const ADVISOR_KOPIA_SH = 'IFS= read -r KOPIA_PASSWORD || exit 64; IFS= read -r AWS_ACCESS_KEY_ID || exit 64; '
     . 'IFS= read -r AWS_SECRET_ACCESS_KEY || exit 64; export KOPIA_PASSWORD AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; '
     . 'exec kopia repository "$@"';
-/** S3 providers offered in the page (only remembered for the recovery sheet; Kopia takes endpoint and region) */
-const ADVISOR_S3_PROVIDERS = ['s3', 'aws', 'b2', 'r2', 'mega', 'wasabi', 'hetzner', 'idrive', 'minio'];
+/**
+ * S3 providers offered in the page (only remembered for the recovery sheet; Kopia takes endpoint and region).
+ * versitygw (2026-10): the recommended S3 server on a second Unraid — its posix backend answers the Object Lock probe like
+ * AWS (200 Enabled / 404 ObjectLockConfigurationNotFoundError; briefs/versitygw-findings.md); minio stays accepted for
+ * repositories set up with it, the page doesn't offer it any more (its community edition was archived in 2026-04)
+ */
+const ADVISOR_S3_PROVIDERS = ['s3', 'aws', 'b2', 'r2', 'mega', 'wasabi', 'hetzner', 'idrive', 'versitygw', 'minio'];
 /** Providers that don't offer S3 Object Lock — said plainly also when the bucket's answer is unclear */
 const ADVISOR_NO_LOCK = ['mega'];
 /** Object Lock: the days offered (default), the least (a week — and Kopia's full maintenance must run a day more often), the most */
