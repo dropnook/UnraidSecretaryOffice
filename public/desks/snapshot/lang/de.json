@@ -473,5 +473,17 @@
   "notify.plan_gone_subject": "Zeitplan «{plan}»: Ziel weg",
   "notify.plan_gone": "Frau Snapshotini: Der Zeitplan «{plan}» findet {targets} nicht mehr (gelöscht oder umbenannt?). Was weg ist, überspringe ich und nehme den Rest — lösche den Zeitplan oder wähle auf meiner Seite ein anderes Ziel.",
   "check.plan_target_gone": "Zeitplan «{plan}»: sein Ziel {target} ist weg",
-  "check.plan_target_gone_how": "Lösche den Zeitplan oder wähle bei Frau Snapshotini ein anderes Ziel (Zeitpläne → Bearbeiten…)."
+  "check.plan_target_gone_how": "Lösche den Zeitplan oder wähle bei Frau Snapshotini ein anderes Ziel (Zeitpläne → Bearbeiten…).",
+  "partner.chip": "Kopie des Partners",
+  "partner.copy": "Kopie des Partners: {name}",
+  "partner.left": "Kopie des Partners: {name} — Partnerschaft beendet",
+  "partner.place": "Ablage der Partner",
+  "partner.copy_title": "Partner {name} hält hier seine Kopien — durch die Tür empfangen, behalten nach der Aufbewahrung der Tür. Finger weg: Ein Snapshot von mir darauf würde die nächste Übertragung stoppen.",
+  "partner.left_title": "Die Partnerschaft mit {name} ist beendet — was er hier liess, ist ein Überbleibsel: Frau Putzteufel räumt es weg, oder lösch es hier.",
+  "partner.hands_off": "Kopie eines Partners — die Tür kümmert sich darum",
+  "partner.no_target": "Kopie eines Partners — nie ein Ziel von mir",
+  "help.partner": "Snapshots eines Partner-Sekretariats, durch seine Tür nach <pool>/UnraidSecretaryOffice-partners empfangen. Ihre Namen sind die der Backup-Engine des Partners; die Aufbewahrung der Tür behält sie, nicht ich — ich lösche, benenne oder schütze sie nicht, und sie sind nie ein Ziel meiner Zeitpläne. Ist die Partnerschaft beendet, sind sie Überbleibsel («Aufräumen» bei Frau Putzteufel).",
+  "why.partner": "Eine Kopie von Partner {name} — die Aufbewahrung der Tür behält sie",
+  "errors.partner_copy": "{name} ist eine Kopie von Partner {partner} — die behält die Aufbewahrung der Tür, nicht ich.",
+  "errors.partner_dataset": "{target} hält die Kopien von Partner {partner} — nie ein Ziel von mir: Ein Snapshot von mir dort würde die nächste Übertragung stoppen."
 }

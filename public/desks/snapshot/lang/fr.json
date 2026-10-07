@@ -473,5 +473,17 @@
   "notify.plan_gone_subject": "Planification « {plan} » : cible disparue",
   "notify.plan_gone": "Madame Snapshotini : la planification « {plan} » ne trouve plus {targets} (supprimé ou renommé ?). J'ignore ce qui a disparu et prends le reste — supprime la planification ou choisis une autre cible sur ma page.",
   "check.plan_target_gone": "Planification « {plan} » : sa cible {target} a disparu",
-  "check.plan_target_gone_how": "Supprime la planification ou choisis une autre cible chez Madame Snapshotini (Planifications → Modifier…)."
+  "check.plan_target_gone_how": "Supprime la planification ou choisis une autre cible chez Madame Snapshotini (Planifications → Modifier…).",
+  "partner.chip": "copie du partenaire",
+  "partner.copy": "copie du partenaire : {name}",
+  "partner.left": "copie du partenaire : {name} — partenariat terminé",
+  "partner.place": "emplacement des partenaires",
+  "partner.copy_title": "Le partenaire {name} garde ici ses copies — reçues par la porte, conservées selon la rétention de la porte. Pas touche : un snapshot de moi dessus arrêterait le prochain transfert.",
+  "partner.left_title": "Le partenariat avec {name} est terminé — ce qu'il a laissé ici est un reste : Madame Plumeau le range, ou supprime-le ici.",
+  "partner.hands_off": "Copie d'un partenaire — la porte s'en occupe",
+  "partner.no_target": "Copie d'un partenaire — jamais une de mes cibles",
+  "help.partner": "Snapshots d'un secrétariat partenaire, reçus par sa porte dans <pool>/UnraidSecretaryOffice-partners. Leurs noms sont ceux du moteur de sauvegarde du partenaire ; c'est la rétention de la porte qui les garde, pas moi — je ne les supprime, ne les renomme ni ne les protège, et ils ne sont jamais la cible de mes planifications. Une fois le partenariat terminé, ce sont des restes (« Le rangement » chez Madame Plumeau).",
+  "why.partner": "Une copie du partenaire {name} — la rétention de la porte la garde",
+  "errors.partner_copy": "{name} est une copie du partenaire {partner} — c'est la rétention de la porte qui les garde, pas moi.",
+  "errors.partner_dataset": "{target} contient les copies du partenaire {partner} — jamais une de mes cibles : un snapshot de moi là arrêterait le prochain transfert."
 }
