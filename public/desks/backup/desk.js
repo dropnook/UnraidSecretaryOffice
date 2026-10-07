@@ -1314,7 +1314,8 @@ async function showLog(name, follow) {
 const SETUP_POLL = 2000;
 const LIST_KEY = /\|(ignore|no_stop|known|skip|kopia_ignore|kopia_known|exclude_dataset|tar_exclude|folder)$/;
 let setup = { plan: null, draft: null, status: null, run: null, applied: null, open: new Set(), retire: true, asked: false, focus: null,
-  model: null, levels: {}, held: {}, deps: new Set(), locks: {}, itemKeep: {} };
+  model: null, levels: {}, held: {}, deps: new Set(), locks: {}, itemKeep: {},
+  preset: null, presetItems: null };      // the start the draft came from (auto | local | kopia) and what was there then
 let setupTimer = null;
 
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -1339,7 +1340,9 @@ function setupDraftFromPlan() {
   setupDerive();
   // new folders that no app or VM owns: proposed "only local" - Kopia only when the user says so (engine 2.21)
   waitingFolders().forEach((w) => { if (!w.owner && waitChoice(w) === null) waitSet(w, 'local'); });
-  setup.base = clone(setup.draft);         // what the assistant proposes, before the user clicks
+  // a start the user chose («Where to start»): its levels for what was there when it was chosen
+  presetApply(setup.preset, setup.presetItems);
+  setup.base = clone(setup.draft);         // what the assistant proposes (or the chosen start), before the user clicks
   setup.baseLevels = { ...setup.levels };
   setup.baseHeld = { ...setup.held };
 }
@@ -1463,6 +1466,7 @@ async function setupLoad() {
       setup.plan = null;                     // the old plan went aside with the settings
       setup.draft = null;
       setup.applied = null;
+      presetForget();                        // a new server again: «Where to start» from the top
       if (page === 'setup') renderSetup();
       load(true);
       setup.asked = false;                   // look at the server as if it were new
@@ -1477,6 +1481,7 @@ async function setupLoad() {
     setup.applied = j.run;
     if (j.run && j.run.result === 'ok') {
       Office.toast(T('setup.applied'));
+      presetForget();                        // applied: the saved settings are the start from now on
       setup.plan = { ...setup.plan, P: clone(setup.draft), pending: [] };   // until the new plan is in
       setupBar();
       // look again (the plan should now show no changes), then check against the new settings
@@ -1649,6 +1654,350 @@ function setupForget() {
   });
 }
 
+// ---- where to start (Benj, 2026-10-07): three starts that fill the draft - my own proposals, everything local
+// only, everything local + Kopia. A start sets the levels and share modes the way a click on every row would;
+// setupDerive() does the rest as always, every row stays the user's to change, and nothing counts before Apply.
+const PRESETS = ['auto', 'local', 'kopia'];
+/** The plan's reasons for a share the engine never backs up on its own (setup.sh share_propose()) */
+const PRESET_KEEP = ['system', 'name_bad', 'kopia_workdir', 'timemachine', 'drift_ignore', 'domains'];
+/** A Kopia container's own working folders (setup.sh kopia_workdir()) */
+const KOPIA_WORKDIR = /^\/(config|cache|logs|tmp|backups|repo|repository|app\/config|app\/cache|app\/logs)(\/|$)/;
+const UPLOAD_MBIT = 100;          // the upload speed a first upload to Kopia is reckoned at
+
+/** A drift.ignore glob (bash's [[ name == $glob ]]) */
+function globMatch(glob, name) {
+  try {
+    const re = String(glob).replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.').replace(/\[!/g, '[^');
+    return new RegExp(`^${re}$`).test(name);
+  } catch (e) {
+    return false;
+  }
+}
+
+/** The share a path is as a whole (a Kopia mapping's source): /mnt/user/<share>, /mnt/<pool or disk>/<share> */
+function wholeShareOf(path, plan) {
+  const m = /^\/mnt\/([^/]+)\/([^/]+)\/?$/.exec(path || '');
+  if (!m) return null;
+  return ['user', 'user0', ...(plan.bases || []).map((b) => b.name)].includes(m[1]) ? m[2] : null;
+}
+
+/**
+ * Why a share keeps what the plan says under every start: what the engine never backs up on its own - the system
+ * share (Docker image, libvirt), a name it can't use, the Kopia container's own folders, a Time Machine target,
+ * drift.ignore, VM disks without snapshots. From the plan's reason, or - for settings made earlier, «as before» -
+ * the way the engine finds it (setup.sh share_propose(), timemachine_reason(), kopia_workdir())
+ */
+function presetKeep(sh, plan) {
+  if (PRESET_KEEP.includes(sh.why)) return sh.why;
+  const name = sh.name;
+  if (name === 'system') return 'system';
+  if (/[@:"|\n]/.test(name)) return 'name_bad';
+  if (((plan.kopia || {}).mappings || []).some((mp) => !mp.main && KOPIA_WORKDIR.test(mp.target || '') && wholeShareOf(mp.source, plan) === name)) return 'kopia_workdir';
+  if (/time[ _-]?machine/i.test(name)
+      || (plan.containers || []).some((c) => /time-?machine/i.test(c.image || '') && (c.binds || []).some((b) => b.share === name))) return 'timemachine';
+  if (((plan.P || {})['drift|ignore'] || []).some((g) => globMatch(g, name))) return 'drift_ignore';
+  if (name === 'domains' && sh.method !== 'snap') return 'domains';
+  return null;
+}
+/** A VM the engine can't snapshot (its disks lie where no snapshot reaches) keeps what the plan says */
+const presetVmKeep = (x) => (x.v.snap && x.v.snap !== 'yes' ? 'vm_cannot' : null);
+
+/** What a start covers: what is on the page when it is chosen - whatever comes later follows «new things stay local» */
+function presetItemKeys() {
+  const plan = setup.plan;
+  return new Set([...setup.model.apps.map((a) => 'app:' + a.id), ...setup.model.vms.map((x) => 'vm:' + x.name),
+    ...plan.shares.map((sh) => 'share:' + sh.name),
+    ...plan.shares.flatMap((sh) => (sh.waiting || []).map((w) => `wait:${sh.name}/${w.dir}`))]);
+}
+
+/**
+ * How an app is held under a start: media servers keep running (Benj's rule); an app that ran only because nothing
+ * of it was backed up (not backed up at all, or its data only in shares that were off) is held as the engine
+ * proposes - stopped when it now writes into what is backed up, Docker volumes too; all others as the plan says
+ */
+function presetHold(a, before) {
+  const cts = a.members.map((n) => setup.plan.containers.find((c) => c.name === n)).filter(Boolean);
+  if (cts.some((c) => c.media)) return 'run';
+  const idle = before === 0 || (setup.held[a.id] === 'run' && cts.length > 0 && cts.every((c) => c.why === 'no_data'));
+  if (!idle) return setup.held[a.id];
+  const writes = cts.some((c) => (c.volumes || []).length > 0
+    || (c.binds || []).some((b) => b.rw && b.share.toLowerCase() !== 'system' && dget(`share|${b.share}|mode`, 'off') !== 'off'));
+  return writes ? 'stop' : 'run';
+}
+
+/**
+ * Fills the draft from a start: «local» puts every share, app and VM at local and Kopia off; «kopia» all of them at
+ * local + Kopia (and a new folder nobody owns along). What the engine never backs up on its own stays as the plan
+ * says (presetKeep, VMs it can't snapshot); the Kopia container and the office's own aren't apps; the backup place,
+ * the user's Kopia ignore rules and setupDerive()'s rules stay; the flash and the VMs' configurations are backed up
+ * too. `items`: only these (what was there when the start was chosen), null = everything. «auto» = the plan as it is.
+ */
+function presetApply(kind, items) {
+  if (kind !== 'local' && kind !== 'kopia') return;
+  const m = setup.model;
+  const plan = setup.plan;
+  const has = (k) => !items || items.has(k);
+  const lv = kind === 'kopia' ? 2 : 1;
+  dset('kopia|enabled', kind === 'kopia' ? 'yes' : 'no');
+  // Kopia off: what went there stays local (like unticking «Back up with Kopia»)
+  if (kind === 'local') Object.keys(setup.draft).forEach((k) => { if (/^share\|.+\|mode$/.test(k) && setup.draft[k] === 'kopia') setup.draft[k] = 'snapshot'; });
+  const before = { ...setup.levels };
+  m.apps.forEach((a) => { if (has('app:' + a.id)) setup.levels['app:' + a.id] = lv; });
+  m.vms.forEach((x) => {
+    if (!has('vm:' + x.name) || presetVmKeep(x)) return;
+    // from «not» up: freeze or pause proposed again, like a click on its row (a VM of its own kept running at «not»)
+    if (!before['vm:' + x.name]) dset(`vm|${x.name}|prepare`, undefined);
+    setup.levels['vm:' + x.name] = lv;
+  });
+  plan.shares.forEach((sh) => {
+    if (sh.exists && has('share:' + sh.name) && !presetKeep(sh, plan)) dset(`share|${sh.name}|mode`, LV[lv]);
+  });
+  if (dget('flash|mode', 'off') === 'off') dset('flash|mode', plan.flash && plan.flash.dataset ? 'snapshot' : 'tar');
+  if (dget('libvirt|mode') === 'off') dset('libvirt|mode', 'tar');
+  setupDerive();
+  m.apps.forEach((a) => { if (has('app:' + a.id)) setup.held[a.id] = presetHold(a, before['app:' + a.id] ?? 0); });
+  setupDerive();
+  if (kind === 'kopia') waitingFolders().forEach((w) => { if (!w.owner && has(`wait:${w.share}/${w.dir}`)) waitSet(w, 'kopia'); });
+}
+
+/** The draft anew from a start: what the user chose in the draft goes, nothing applied changes */
+function presetChoose(kind) {
+  setup.preset = PRESETS.includes(kind) ? kind : null;
+  setup.presetItems = null;
+  setupDraftFromPlan();
+  setup.presetItems = presetItemKeys();
+}
+function presetForget() {
+  setup.preset = null;
+  setup.presetItems = null;
+}
+/** A start of the user's that isn't my proposal: what it changes is the user's */
+const presetChosen = () => setup.preset === 'local' || setup.preset === 'kopia';
+/** Something changed by hand since the start (or since my proposal) */
+const presetChanged = () => !!(setup.draft && setup.base) && setupEdits().length > 0;
+const presetStartText = () => [T('setup.preset.start', { name: T('setup.preset.' + (setup.preset || 'auto')) }),
+  presetChanged() ? T('setup.preset.changed') : ''].filter(Boolean).join(' · ');
+
+/** Whether «local + Kopia» can start here: not without a Kopia container; otherwise what isn't ready yet */
+function presetKopiaState(plan) {
+  const k = plan.kopia || {};
+  if (!k.container && !(k.candidates || []).length) return { ok: false, why: 'none' };
+  if ((plan.P || {})['kopia|enabled'] !== 'yes') return { ok: true, why: 'unchecked' };      // off so far: never looked at
+  if (k.problem && !['off', 'no_shares'].includes(k.problem)) return { ok: true, why: 'problem', problem: k.problem };
+  return { ok: true, why: null };
+}
+
+/**
+ * What goes to Kopia for the first time: the shares going there (`modeOf`) that didn't before - on a new server all
+ * of them -, with their sizes as far as the plan knows them (a share on the array only after «Measure sizes»)
+ */
+function firstUpload(modeOf) {
+  const plan = setup.plan;
+  const O = plan.have_settings && (plan.O || {})['kopia|enabled'] === 'yes' ? plan.O : {};
+  const out = { bytes: 0, shares: [], unknown: [] };
+  plan.shares.forEach((sh) => {
+    if (!sh.exists || modeOf(sh) !== 'kopia' || O[`share|${sh.name}|mode`] === 'kopia') return;
+    out.shares.push(sh.name);
+    if (sh.gb === null || sh.gb === undefined || sh.gb < 0) out.unknown.push(sh.name);
+    else out.bytes += sh.gb * 1073741824;
+  });
+  return out;
+}
+/** «local + Kopia» before it is chosen: every share the engine doesn't keep */
+const presetKopiaMode = (sh) => (presetKeep(sh, setup.plan) ? (setup.plan.P || {})[`share|${sh.name}|mode`] : 'kopia');
+const draftMode = (sh) => dget(`share|${sh.name}|mode`, 'off');
+
+/** The first upload in words: how much, what isn't measured, how long at 100 Mbit/s, what it costs */
+function uploadLines(up, measure) {
+  const out = [];
+  if (!up.shares.length) return out;
+  out.push(el('div', 'bk-upload-size', T('setup.preset.kopia_size', { n: up.shares.length, size: fmt.size(up.bytes) })));
+  if (up.unknown.length) {
+    const list = up.unknown.length > 6 ? `${up.unknown.slice(0, 6).join(', ')} …` : up.unknown.join(', ');
+    const line = el('div', '', T('setup.preset.kopia_unknown', { n: up.unknown.length, list }));
+    if (measure && canPlan() && !(setup.status && setup.status.running)) line.append(' ', button(T('setup.measure'), 'small plain', () => setupPlan(true)));
+    out.push(line);
+  }
+  if (up.bytes > 0) {
+    const time = fmt.duration(up.bytes * 8 / (UPLOAD_MBIT * 1e6));
+    out.push(el('div', '', T(up.unknown.length ? 'setup.preset.kopia_time_least' : 'setup.preset.kopia_time', { time, speed: `${UPLOAD_MBIT} Mbit/s` })));
+  }
+  out.push(el('div', '', T('setup.preset.kopia_cost')));
+  return out;
+}
+
+/** What every start leaves as it is: the shares the engine keeps, the VMs it can't snapshot */
+function presetKeptList() {
+  const plan = setup.plan;
+  const out = plan.shares.filter((sh) => sh.exists).map((sh) => [sh.name, presetKeep(sh, plan)]).filter(([, w]) => w)
+    .map(([name, w]) => T('setup.preset.keep.' + w, { name }));
+  (setup.model ? setup.model.vms : []).forEach((x) => {
+    const w = presetVmKeep(x);
+    if (w) out.push(T('setup.preset.keep.' + w, { name: x.name }));
+  });
+  return out;
+}
+
+/** Where to read up on Kopia: the Consultant (he sets a container and its repository up), else the team lead */
+function kopiaHelpLink() {
+  const adv = Office.desks.get('advisor');
+  const a = el('a', '', T(adv && adv.hired ? 'setup.preset.kopia_advisor' : 'setup.k_caretaker'));
+  a.href = adv && adv.hired ? '#/advisor' : '#/caretaker';
+  return a;
+}
+
+/** A card's honest notes: what a start doesn't protect against, what it needs and costs */
+function presetNotes(kind, kst, measure) {
+  const plan = setup.plan;
+  const out = [];
+  const note = (text, cls) => {
+    const p = el('p', 'bk-preset-note' + (cls ? ' ' + cls : ''), text);
+    out.push(p);
+    return p;
+  };
+  if (kind === 'auto') return out;
+  if (kind === 'local') note(T('setup.preset.local_note'), 'warn');
+  if (kind === 'kopia') {
+    if (!kst.ok) {
+      note(T('setup.preset.kopia_none'), 'warn').append(' ', kopiaHelpLink());
+      return out;
+    }
+    note(T('setup.preset.kopia_repo'));
+    if (kst.why === 'problem') {
+      const problem = T('setup.k_problem.' + kst.problem, { name: plan.kopia.container || 'kopia', root: plan.mount_root });
+      note(T('setup.preset.kopia_not_ready', { problem }), 'warn').append(' ', kopiaHelpLink());
+    }
+    if (kst.why === 'unchecked') note(T('setup.kopia_recheck'));
+    const lines = uploadLines(firstUpload(setup.preset === 'kopia' ? draftMode : presetKopiaMode), measure);
+    if (lines.length) {
+      const box = el('div', 'bk-preset-note bk-upload');
+      lines.forEach((l) => box.appendChild(l));
+      out.push(box);
+    }
+  }
+  return out;
+}
+
+/** Under the cards, once for every start: what stays as it is, media servers, what comes later */
+function presetCommon() {
+  const plan = setup.plan;
+  const kept = presetKeptList();
+  const text = [kept.length ? T('setup.preset.kept', { list: kept.join(', ') }) : '',
+    setup.model.apps.some((a) => a.members.some((n) => (plan.containers.find((c) => c.name === n) || {}).media)) ? T('setup.preset.media') : '',
+    plan.have_settings ? T('setup.preset.new_later') : ''].filter(Boolean).join(' ');
+  return text ? el('p', 'role bk-preset-common', text) : null;
+}
+
+/** The three starts as cards, a radio group: `current` marked, a click or Enter picks one (`onPick(kind, card)`); below them what holds for all */
+function presetCards(current, onPick, measure) {
+  const plan = setup.plan;
+  const g = el('div', 'bk-presets');
+  g.setAttribute('role', 'radiogroup');
+  g.setAttribute('aria-label', T('setup.preset.title'));
+  const busy = !!(setup.status && setup.status.running);
+  const kst = presetKopiaState(plan);
+  PRESETS.forEach((kind) => {
+    const on = kind === current;
+    const off = busy || (kind === 'kopia' && !kst.ok);
+    const c = el('div', 'bk-preset' + (on ? ' on' : '') + (off ? ' off' : ''));
+    c.dataset.preset = kind;
+    c.setAttribute('role', 'radio');
+    c.setAttribute('aria-checked', String(on));
+    if (off) c.setAttribute('aria-disabled', 'true');
+    else c.tabIndex = 0;
+    const head = el('div', 'bk-preset-head');
+    head.appendChild(el('strong', '', T('setup.preset.' + kind)));
+    if (on) head.appendChild(chip(T('setup.preset.chosen'), 'accent'));
+    if (on && kind === (setup.preset || 'auto') && presetChanged()) head.appendChild(chip(T('setup.preset.changed'), 'quiet'));
+    c.appendChild(head);
+    c.appendChild(el('p', '', T(kind !== 'auto' ? `setup.preset.${kind}_text` : plan.have_settings ? 'setup.preset.auto_have' : 'setup.preset.auto_new')));
+    presetNotes(kind, kst, measure).forEach((n) => c.appendChild(n));
+    const pick = (e) => {
+      if (off || (e && e.target && e.target.closest && e.target.closest('a, button'))) return;   // its links and buttons keep their click
+      onPick(kind, c);
+    };
+    c.onclick = pick;
+    c.onkeydown = (e) => {
+      if ((e.key === 'Enter' || e.key === ' ') && e.target === c) { e.preventDefault(); pick(e); }
+    };
+    g.appendChild(c);
+  });
+  const wrap = el('div', 'bk-preset-wrap');
+  wrap.appendChild(g);
+  const common = presetCommon();
+  if (common) wrap.appendChild(common);
+  return wrap;
+}
+
+/** A card picked on the page: a new server without changes starts at once, otherwise it asks first */
+function presetPick(kind, card) {
+  if (kind === (setup.preset || 'auto') && !presetChanged()) return;           // that is the start already
+  const go = () => {
+    presetChoose(kind);
+    Office.toast(T('setup.preset.done', { name: T('setup.preset.' + kind) }));
+    Office.keepInPlace(card, () => renderSetup());
+  };
+  if (!setup.plan.have_settings && !presetChanged()) { go(); return; }
+  Office.dialog({
+    title: T('setup.preset.confirm_title'),
+    body: T(setup.plan.have_settings ? 'setup.preset.replace' : 'setup.preset.replace_new'),
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('setup.preset.confirm_go'), kind: '', act: () => { go(); return true; } }],
+  });
+}
+
+/** On a new server: «Where to start» at the top of the page, my proposal chosen until another start is */
+function presetSection() {
+  const s = section(T('setup.preset.title'), T('setup.preset.sub'));
+  s.classList.add('bk-preset-section');
+  s.appendChild(presetCards(setup.preset || 'auto', presetPick, true));
+  return s;
+}
+
+/** With settings applied: which start the draft came from (once one was chosen), and a first upload to Kopia */
+function presetStartLine() {
+  if (!setup.preset || !setup.draft) return null;
+  const out = el('div', 'bk-start');
+  out.appendChild(el('p', 'role', presetStartText()));
+  if (setup.preset === 'kopia') {
+    const lines = uploadLines(firstUpload(draftMode), true);
+    if (lines.length) {
+      const box = el('div', 'callout bk-upload');
+      lines.forEach((l) => box.appendChild(l));
+      out.appendChild(box);
+    }
+  }
+  return out;
+}
+
+/** With settings applied: the starts in a dialog, which says first that the draft's choices go */
+function presetDialog() {
+  if (!setup.plan || !setup.draft) return;
+  let pick = setup.preset || 'auto';
+  const box = el('div', 'bk-preset-dialog');
+  box.appendChild(el('p', 'callout', T('setup.preset.replace')));
+  const holder = el('div');
+  box.appendChild(holder);
+  const draw = () => {
+    holder.innerHTML = '';
+    holder.appendChild(presetCards(pick, (kind) => { pick = kind; draw(); holder.querySelector(`[data-preset="${kind}"]`).focus(); }, false));
+  };
+  draw();
+  Office.dialog({
+    title: T('setup.preset.dialog_title'),
+    body: box,
+    wide: true,
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('setup.preset.go'), kind: '', act: () => {
+        presetChoose(pick);
+        Office.toast(T('setup.preset.done', { name: T('setup.preset.' + pick) }));
+        renderSetup();
+        return true;
+      } },
+    ],
+  });
+}
+
 /** The bar at the bottom: how many changes, apply */
 function setupBar() {
   if (page !== 'setup' || !setup.plan || !setup.draft) { Office.selbar(null); return; }
@@ -1658,9 +2007,11 @@ function setupBar() {
   const proposals = fresh ? 0 : setupChanges(setupSaved(), setup.base || setup.plan.P).length;
   const busy = setup.status && setup.status.running;
   if (!edits && !fresh && proposals <= 0) { Office.selbar(null); return; }      // nothing to apply: no bar that keeps offering it
+  const chosen = presetChosen();               // a start of the user's: what it changes is the user's, not proposals of mine
   Office.selbar({
-    title: edits ? T('setup.bar_changes', { n: edits }) : fresh ? T('setup.bar_new') : T('setup.bar_proposals', { n: proposals }),
-    sub: T('setup.bar_sub', { when: fmt.relative(setup.plan.time) }),
+    title: edits ? T('setup.bar_changes', { n: edits }) : fresh ? T('setup.bar_new')
+      : T(chosen ? 'setup.bar_changes' : 'setup.bar_proposals', { n: proposals }),
+    sub: [chosen ? presetStartText() : '', T('setup.bar_sub', { when: fmt.relative(setup.plan.time) })].filter(Boolean).join(' · '),
     buttons: [
       { text: T('setup.discard'), kind: 'plain', disabled: !edits || busy, act: () => { setupDraftFromPlan(); renderSetup(); } },
       { text: T('setup.review'), disabled: busy || !Office.agent.running, act: setupApply },   // opens the list of changes; its dialog applies
@@ -1724,15 +2075,21 @@ function renderSetup() {
   const again = button(T('setup.replan'), 'plain', () => setupPlan(false));
   const measure = button(T('setup.measure'), 'plain', () => setupPlan(true));
   const forget = button(T('setup.forget_short') + ' …', 'plain', setupForget);
+  // with settings applied, the three starts are a quiet entry here (on a new server they stand at the top of the page)
+  const preset = button(T('setup.preset.open') + ' …', 'plain', presetDialog);
   const busy = setup.status && setup.status.running;
   [again, measure, forget].forEach((b) => { b.disabled = busy || !canPlan(); });
+  preset.disabled = busy || !setup.draft;
   measure.title = T('setup.measure_hint');
   forget.title = T('help.forget');
+  preset.title = T('setup.preset.sub');
   forget.hidden = !(setup.plan && setup.plan.have_settings);
+  preset.hidden = forget.hidden;
   const pageSub = setup.plan ? T(setup.plan.have_settings ? 'setup.sub_have' : 'setup.sub_new') : '';
-  const { head } = Office.deskHead(Office.desks.get(ID), { page: T('setup.page'), pageSub, actions: [back, again, measure, forget] });
+  const { head } = Office.deskHead(Office.desks.get(ID), { page: T('setup.page'), pageSub, actions: [back, again, measure, preset, forget] });
   root.appendChild(head);
   root.appendChild(Office.pageHelp(ID + '-setup', [
+    [T('setup.preset.title'), T('help.preset_text')],
     [T('help.draft'), T('help.draft_text')],
     [T('setup.replan'), T('help.replan')],
     [T('setup.measure'), T('setup.measure_hint')],
@@ -1756,6 +2113,8 @@ function renderSetup() {
   if (!setup.plan) { setupBar(); return; }
 
   const plan = setup.plan;
+  const start = plan.have_settings ? presetStartLine() : presetSection();   // a new server: where to start, the three cards;
+  if (start) root.appendChild(start);                                       // set up: which start the draft came from, once chosen
   root.appendChild(setupKopia(plan));          // 0 basics: where backups go, Kopia, the flash
   root.appendChild(setupVms(plan));            // 1
   root.appendChild(setupApps(plan));           // 2
@@ -2891,7 +3250,9 @@ if (globalThis.OFFICE_DESK_TESTS) {
     get setup() { return setup; },
     setState: (s) => { state = s; },
     setupDraftFromPlan, setupNewLines, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText,
-    placeLines, placeIntro, setupDraftKeep, setupDerive, dset,
+    placeLines, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,
+    PRESETS, presetChoose, presetForget, presetKeep, presetChanged, presetKopiaState, firstUpload, presetKeptList, presetStartText,
+    presetKopiaMode, draftMode,
   };
 }
 })();
