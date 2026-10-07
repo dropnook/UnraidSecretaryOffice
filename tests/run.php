@@ -7805,6 +7805,42 @@ function testAdvisorObjectLock(): void
 }
 
 /**
+ * The Consultant's partner guide (2026-10): versitygw replaced MinIO — the guide and the assistant's hints recommend no
+ * MinIO any more (only the sentence that it was archived names it), the versitygw part and the partner guide exist in
+ * every language with the same labels, versitygw is an offered provider that answers the Object Lock probe like AWS
+ * (1.8.0's empty <Rule/> for a locked bucket, 404 ObjectLockConfigurationNotFoundError for one made without)
+ */
+function testAdvisorPartnerGuide(): void
+{
+    $pub = dirname(__DIR__) . '/public';
+    $lang = fn (string $code) => json_decode((string) file_get_contents("$pub/desks/advisor/lang/$code.json"), true) ?: [];
+    $en = $lang('en');
+    $guide = array_values(array_filter(array_keys($en), fn ($k) => preg_match('/^(lock|partner|copy\.lock)\./', (string) $k) === 1));
+    same('partner guide: the versitygw part and the partner guide exist', [],
+        array_values(array_diff(['lock.vgw_title', 'lock.vgw.1', 'lock.vgw_warn', 'copy.lock.vgw_user', 'copy.lock.vgw_bucket', 'partner.title', 'partner.1', 'partner.warn'], $guide)));
+    check('partner guide: lock.minio is gone', !isset($en['lock.minio']));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $t = $lang($code);
+        $texts = array_intersect_key($t, array_flip($guide)) + ['kr.storage_s3_hint' => $t['kr.storage_s3_hint'] ?? '', 'kr.lock_off' => $t['kr.lock_off'] ?? ''];
+        same("partner guide/$code: every guide key", [], array_values(array_diff($guide, array_keys($t))));
+        same("partner guide/$code: MinIO only where its archive is told", ['lock.vgw.1'], array_keys(array_filter($texts, fn ($v) => str_contains((string) $v, 'MinIO'))));
+        $all = implode("\n", $texts);
+        check("partner guide/$code: versitygw, WireGuard and Tailscale named, Unraid's VPN labels as tokens",
+            substr_count($all, 'versitygw') >= 6 && str_contains($all, 'WireGuard') && str_contains($all, 'Tailscale')
+            && str_contains((string) $t['partner.3'], '⟦VPN Manager⟧') && str_contains((string) $t['partner.3'], '⟦Server to server access⟧'));
+    }
+    check('partner guide: versitygw offered, not among the providers without Object Lock',
+        in_array('versitygw', ADVISOR_S3_PROVIDERS, true) && !in_array('versitygw', ADVISOR_NO_LOCK, true));
+    $js = (string) file_get_contents("$pub/desks/advisor/desk.js");
+    check('partner guide: the page offers versitygw, no MinIO endpoint example', str_contains($js, "versitygw: '100.x.y.z:7070'") && !str_contains($js, 'minio.lan'));
+    $ans = fn (int $status, string $body) => ['status' => $status, 'headers' => [], 'body' => $body, 'error' => null];
+    same('versitygw 1.8.0: a bucket born with the lock, its empty Rule', ['state' => 'enabled', 'mode' => null, 'days' => null],
+        advisorObjectLockState($ans(200, '<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled><Rule></Rule></ObjectLockConfiguration>'), 'versitygw'));
+    same('versitygw: a bucket made without the lock', ['state' => 'off'],
+        advisorObjectLockState($ans(404, '<Error><Code>ObjectLockConfigurationNotFoundError</Code><Message>Object Lock configuration does not exist for this bucket.</Message></Error>'), 'versitygw'));
+}
+
+/**
  * The Consultant's Kopia setup: the user's keys and password go from the web side through a RAM
  * file (gone once read) to Kopia's stdin — end to end with a stand-in for docker and Kopia: no
  * secret in any file but that one (and Kopia's own config), in no log, no state, no answer, no ps.
@@ -11077,7 +11113,7 @@ function testUnraidWords(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings', 'testUnraidWords']];
