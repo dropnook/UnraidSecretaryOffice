@@ -106,6 +106,9 @@ Where things are:
 | Mr. Backupsy's packages per app and VM (templates, compose files, database dumps, VM configurations) | the share `UnraidSecretaryOffice`, one folder per desk (`backup/`); their history in that share's snapshots |
 | Snapshot mounts for Kopia | `/mnt/addons/UnraidSecretaryOffice/` |
 | The office's numbers for Prometheus (a few KB, rewritten every minute) | `/mnt/addons/UnraidSecretaryOffice/metrics/` |
+| Partner offices: this server's key per partner, the partner's pinned server key | `/boot/config/plugins/unraid-secretary-office/partners/` |
+| Partner offices: the line that lets a partner in (only lines ending `uso-partner:<id>`) | `/boot/config/ssh/root/authorized_keys` (Unraid's file; other lines untouched) |
+| A partner's copies kept here | `<pool>/UnraidSecretaryOffice-partners/<id>/…` (datasets, never mounted, never shared) |
 
 ## Notifications
 
@@ -146,11 +149,29 @@ as the event *Unraid Secretary Office*:
   A switch on his page turns this off (what comes meanwhile stays in his watch book).
 * **The plugin**: the agent hasn't checked in for more than 10 minutes while
   the array runs (alert), and once it is back (normal).
+* **The Team Lead (partner offices)**: a partner office hasn't answered for 6 hours (warning), once per
+  silence and again every 24 hours — with Tailscale's word where it runs; «I know, thanks» quiets it.
 
 The Team Lead, Jack Emby and the Night Watchman write in the language the office was last used in
 (the page tells the server, `data/office/lang.json`; until then Unraid's language, English where the
 office doesn't speak it), Unraid's menus in them in Unraid's language; the engine and the plugin's look
 at the agent in English.
+
+## Partner offices
+
+Two Unraid servers with the office can become **partners**: each keeps copies of the other's ZFS snapshots — your
+second server, a family member's, a friend's — with a retention of its own; the sender can never delete them there.
+No master, no automatic failover: a partner only keeps and answers. Pairing is at the Team Lead (*Partner offices*):
+*Add a partner…* gives a block to paste at the other office, its *Accept a partner…* answers with a block and a
+**safety code** — the same code on both pages means nobody changed a block on its way. The partner's office then
+writes one line into `authorized_keys`: a key that can only reach the office's **door** (`restrict`, `from=` the
+partner's address, a forced command) — it may write into its own folder, read its own copies back and ask how the
+office is; it can't browse the server, run a command or delete the history kept of its copies. The way is always
+encrypted (SSH); the copies at the partner are in plain form (it can read them — for a friend, Kopia is the encrypted
+way). Only datasets go (shares that are a dataset of their own, VMs with one, the backup place); the nightly sending
+is Mr. Backupsy's (a later step). Every 15 minutes each office asks its partners how they are; one silent for 6 hours
+is told. Better between two households: a tunnel (WireGuard, Tailscale) and its addresses — a public address is
+warned about.
 
 ## Monitoring
 
