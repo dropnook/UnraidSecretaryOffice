@@ -286,7 +286,9 @@ build_stop_tiers() {
 
 # Notes in state/: if a run is killed hard (kill -9, crash), the next start
 # of backup.sh/setup.sh brings the services back.
+RUN_NOTED="no"              # this run wrote notes of its own (save_restore_state) - only then are they its to rewrite
 save_restore_state() {
+    RUN_NOTED="yes"
     if [[ ${#STOPPED[@]} -gt 0 ]]; then printf '%s\n' "${STOPPED[@]}" >"$UB_STATE/stopped"; else rm -f "$UB_STATE/stopped"; fi
     if [[ ${#NC_ON[@]} -gt 0 ]]; then printf '%s\n' "${!NC_ON[@]}" >"$UB_STATE/maintenance"; else rm -f "$UB_STATE/maintenance"; fi
     local v; : >"$UB_STATE/.vms.$$"
@@ -914,7 +916,7 @@ nextcloud_maintenance_on() {
             die "Nextcloud '$c': maintenance mode could not be switched on (occ's message is in the log)"
         fi
     done < <(cfg_names nextcloud)
-    [[ ${#NC_ON[@]} -gt 0 ]] && sleep 5      # let running requests finish
+    [[ ${#NC_ON[@]} -gt 0 ]] && sleep "${UB_NC_SETTLE:-5}"      # let running requests finish (tests: shorter)
     return 0
 }
 
@@ -2127,7 +2129,8 @@ array_stop_release() {
             log "  Nextcloud '$c': stays in maintenance mode (its container is stopped) - noted (state/maintenance): the first run after the array start switches it off"
         fi
     done
-    save_restore_state
+    # only notes of its own: an earlier run's (kept by recover_interrupted_run while the array stops) stay as they are
+    [[ "$RUN_NOTED" == "yes" ]] && save_restore_state
 }
 
 array_stop_report() { # a few lines for the notification
@@ -2143,7 +2146,7 @@ array_stop_report() { # a few lines for the notification
 array_stop_notify() {
     [[ "$ST_MODE" == "backup" ]] || return 0           # a check or dry run is started by hand: its answer is seen there
     local short
-    if (( ${#ST_KOPIA_SKIPPED[@]} )); then short="Backup stopped because the array is being stopped - nothing is lost; the next run continues the Kopia upload."
+    if [[ -n "$ST_KOPIA_INTERRUPTED" ]] || (( ${#ST_KOPIA_SKIPPED[@]} && ${#ST_KOPIA_DONE[@]} )); then short="Backup stopped because the array is being stopped - nothing is lost; the next run continues the Kopia upload."
     else short="Backup stopped because the array is being stopped - nothing is lost; the next run backs up as usual."; fi
     ub_notify "Backup stopped for the array stop" "$short" "normal" "$(array_stop_report)"
 }

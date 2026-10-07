@@ -1627,7 +1627,9 @@ drift_check_vms() {
 #   KP_STATUS    one JSON object per Kopia target (for drift.json): kind, share, path,
 #                ok, skipped (the run leaves the share out), differences as codes
 #   KP_CHECKED   yes once the policies were compared (Kopia reachable)
-KOPIA_OK="no"
+#   KOPIA_OK     yes | no | off | none | skip (--no-kopia); "" until checked (2.24: a run ended before its
+#                check - e.g. by the array stop - says nothing about Kopia in status.json, never "no")
+KOPIA_OK=""
 declare -ga KP_STATUS=()
 KP_CHECKED="no"
 kp_status_add() { # kp_status_add <kind> <name: share, app or VM> <container path> <ok 1/0> <skipped 1/0>
