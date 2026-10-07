@@ -36,12 +36,6 @@ function agentInfo(): array
     return $info;
 }
 
-/** The office's folder in RAM (the agent's RUN_DIR, root only); OFFICE_RUN_DIR for the tests */
-function officeRunDir(): string
-{
-    return rtrim(getenv('OFFICE_RUN_DIR') ?: '/var/run/unraid-secretary-office', '/');
-}
-
 /**
  * The night watchman's night shift (`php agent.php nightshift`, while the array isn't started — agent/agent.php
  * nightShift(), watchmanNightRound()): on while the process that holds its lock (WATCH_NIGHT_LOCK, which carries its

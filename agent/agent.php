@@ -31,10 +31,14 @@ declare(strict_types=1);
  *
  * Environment (tests only):
  *   OFFICE_DATA_DIR            another data folder than the plugin's DATA_DIR
+ *   OFFICE_RUN_DIR             another folder in RAM than the office's (RUN_DIR, see officeRunDir())
  */
 
+require dirname(__DIR__) . '/src/place.php';
+require_once dirname(__DIR__) . '/src/words.php';     // Unraid's own words in the texts (shared with the web side)
+
 const AGENT_VERSION = '1.32.0';
-const RUN_DIR       = '/var/run/unraid-secretary-office';
+define('RUN_DIR', officeRunDir());          // RAM, root only (0700); the web side's officeRunDir()
 const PID_FILE      = RUN_DIR . '/agent.pid';
 const TICK_US       = 150000;
 const LOG_MAX       = 512 * 1024;
@@ -46,9 +50,6 @@ const WEB_UID       = 0;     // the web server's user: Unraid's php-fpm runs as 
 // array_started — which starts the agent or the night shift) and the backup engine (lib/common.sh array_stopping():
 // only Stopping and Stopped end a run); tests/run.php compares them.
 const ARRAY_RUNNING = ['Started', 'Formatting', 'Clearing'];
-
-require dirname(__DIR__) . '/src/place.php';
-require_once dirname(__DIR__) . '/src/words.php';     // Unraid's own words in the texts (shared with the web side)
 
 define('OFFICE_DIR', dirname(__DIR__));
 // the web files (desks/<id>/desk.json, lang/ …) lie at the top of the plugin's folder; the tests set the repository's public/

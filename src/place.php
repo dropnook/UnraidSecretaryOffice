@@ -29,6 +29,16 @@ function officePluginDataDir(): string
     return "$appdata/UnraidSecretaryOffice/data";
 }
 
+/**
+ * The office's folder in RAM (/run is a tmpfs): the agent's RUN_DIR — its pid and heartbeat, locks, the doorbell, the
+ * night shift — root only (0700). The web side reads the heartbeat and the night shift's state there and rings the
+ * doorbell, nothing else. OFFICE_RUN_DIR points elsewhere: the tests never meet the live agent's folder.
+ */
+function officeRunDir(): string
+{
+    return rtrim(getenv('OFFICE_RUN_DIR') ?: '/var/run/unraid-secretary-office', '/');
+}
+
 /*
  * The office's entry in Unraid's web UI: the page
  * SecretaryOffice.page. Where it shows is its Menu= line — its own entry in
@@ -139,9 +149,9 @@ function officePageHeader(string $page, array $own, array $keys): bool
  * a root-only folder in /run — a tmpfs, RAM — never the mailbox, which lies in
  * the data folder on the pool (snapshotted, backed up). See apiSecretStash()
  * in src/api.php and advisorSecretTake() in agent/desks/advisor.php.
- * OFFICE_INBOX_DIR points elsewhere for the tests.
+ * OFFICE_INBOX_DIR (or OFFICE_RUN_DIR) points elsewhere for the tests.
  */
 function officeInboxDir(): string
 {
-    return rtrim(getenv('OFFICE_INBOX_DIR') ?: '/var/run/unraid-secretary-office/inbox', '/');
+    return rtrim(getenv('OFFICE_INBOX_DIR') ?: officeRunDir() . '/inbox', '/');
 }

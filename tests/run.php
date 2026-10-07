@@ -41,10 +41,40 @@ declare(strict_types=1);
  * Exit code 0 when everything passes.
  */
 
+/*
+ * The live agent's folder in RAM is never the tests': they run with a RAM folder of their own (OFFICE_RUN_DIR — RUN_DIR,
+ * the web side's officeRunDir(), and every process started from here that inherits the environment; the ones started
+ * with an environment of their own name it). On the server (root, util-linux unshare) the run goes on in a mount
+ * namespace of its own whose /var/run/unraid-secretary-office is an empty folder of the tests' (a bind mount nobody
+ * else sees, gone with the run): a test that still reaches for the live folder writes there instead, and
+ * testLiveRunUntouched() fails. The live agent never sees any of it.
+ */
+const TESTS_LIVE_RUN = '/var/run/unraid-secretary-office';
+if (getenv('OFFICE_TESTS_GUARD') === false && PHP_OS_FAMILY === 'Linux' && function_exists('posix_geteuid') && posix_geteuid() === 0
+    && is_dir(TESTS_LIVE_RUN) && !is_link(TESTS_LIVE_RUN) && is_executable('/usr/bin/unshare')) {
+    $guard = sys_get_temp_dir() . '/office-tests-guard-' . getmypid();
+    @mkdir($guard, 0700);
+    putenv("OFFICE_TESTS_GUARD=$guard");
+    $p = proc_open(array_merge(['/usr/bin/unshare', '--mount', '--propagation', 'private', '--', '/bin/sh', '-c',
+        'g=$1; l=$2; shift 2; mount --bind "$g" "$l" 2>/dev/null || exit 97; exec "$@"', 'sh', $guard, TESTS_LIVE_RUN, PHP_BINARY, __FILE__],
+        array_slice($argv, 1)), [0 => STDIN, 1 => STDOUT, 2 => STDERR], $pipes);
+    $code = is_resource($p) ? proc_close($p) : 97;
+    exec('rm -rf ' . escapeshellarg($guard));       // the namespace (and its mount) ended with the run
+    if ($code !== 97) {
+        exit($code);
+    }
+    putenv('OFFICE_TESTS_GUARD');                   // no namespace here: the run goes on without the guard
+    fwrite(STDERR, "(no mount namespace of the tests' own — the live RAM folder is not guarded)\n");
+}
+
 define('AGENT_LIBRARY_ONLY', 1);
 // the repository, not the plugin's folder: the web files in public/, a data folder of its own (never the plugin's DATA_DIR)
 define('OFFICE_WEB', dirname(__DIR__) . '/public');
 putenv('OFFICE_DATA_DIR=' . dirname(__DIR__) . '/data');
+// a RAM folder of the tests' own (removed at the end of the run)
+define('TESTS_RUN_DIR', sys_get_temp_dir() . '/office-tests-run-' . getmypid());
+@mkdir(TESTS_RUN_DIR, 0700, true);
+putenv('OFFICE_RUN_DIR=' . TESTS_RUN_DIR);
 require dirname(__DIR__) . '/agent/agent.php';
 date_default_timezone_set('Europe/Zurich');
 
@@ -7035,7 +7065,7 @@ function testAgentRestarted(): void
     // the web side asks; $agent(request file) plays the agent once the request is there
     $ask = function (callable $agent) use ($web, $tmp): array {
         $p = proc_open([PHP_BINARY, $web], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['OFFICE_DATA_DIR' => $tmp, 'PATH' => getenv('PATH')]);
+            ['OFFICE_DATA_DIR' => $tmp, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
         $request = null;
         for ($i = 0; $i < 60 && $request === null; $i++) {
             usleep(50000);
@@ -7366,7 +7396,7 @@ function testAdvisorSecrets(): void
     $web = "$tmp/web.php";
     file_put_contents($web, '<?php require ' . var_export(OFFICE_DIR . '/src/place.php', true) . '; require '
         . var_export(OFFICE_DIR . '/src/api.php', true) . '; echo apiSecretStash("advisor.kopia_repo", json_decode(stream_get_contents(STDIN), true));');
-    $p = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, ['OFFICE_INBOX_DIR' => $inbox, 'PATH' => getenv('PATH')]);
+    $p = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, ['OFFICE_INBOX_DIR' => $inbox, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
     fwrite($pipes[0], json_encode($secrets));
     fclose($pipes[0]);
     $ref = trim((string) stream_get_contents($pipes[1]));
@@ -7374,7 +7404,7 @@ function testAdvisorSecrets(): void
     proc_close($p);
     $st = @lstat("$inbox/$ref.secret");
     check('secret e2e: the web side left a 0600 file in the inbox', $st !== false && ($st['mode'] & 0777) === 0600, $webErr);
-    $refused = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes2, null, ['OFFICE_INBOX_DIR' => $inbox]);
+    $refused = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes2, null, ['OFFICE_INBOX_DIR' => $inbox, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR]);
     fwrite($pipes2[0], json_encode(['password' => ['nested']]));
     fclose($pipes2[0]);
     check('secret e2e: the web side refuses odd shapes', str_contains((string) stream_get_contents($pipes2[1]), 'bad_request'));
@@ -9010,7 +9040,7 @@ function testStaffMerged(): void
         . ' echo json_encode([officeStaffMigrate($f, $desks), officeStaffMigrate($f, $desks)]);');
     $run = function () use ($web, $tmp): array {
         $p = proc_open([PHP_BINARY, $web], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['OFFICE_DATA_DIR' => $tmp, 'PATH' => getenv('PATH')]);
+            ['OFFICE_DATA_DIR' => $tmp, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
         $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
         proc_close($p);
         return [json_decode($raw, true), $raw];
@@ -9093,7 +9123,7 @@ function testStaffOrder(): void
         . var_export($file, true) . '), true); } echo json_encode($out);');
     $webRun = function (array $steps, string $data) use ($web): array {
         $p = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['OFFICE_DATA_DIR' => $data, 'PATH' => getenv('PATH')]);
+            ['OFFICE_DATA_DIR' => $data, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
         fwrite($pipes[0], json_encode($steps));
         fclose($pipes[0]);
         $raw = (string) stream_get_contents($pipes[1]);
@@ -9257,7 +9287,7 @@ function testSupporter(): void
               ['office.supporter_ask', ['answer' => 'later']], ['office.supporter_remove', []], ['office.supporter_ask', ['answer' => 'never']]];
     $webRun = function (array $steps) use ($web, $tmp, $pub): array {
         $p = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['OFFICE_DATA_DIR' => $tmp, 'OFFICE_SUPPORTER_PUBKEY' => $pub, 'PATH' => getenv('PATH')]);
+            ['OFFICE_DATA_DIR' => $tmp, 'OFFICE_SUPPORTER_PUBKEY' => $pub, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
         fwrite($pipes[0], json_encode($steps));
         fclose($pipes[0]);
         $raw = (string) stream_get_contents($pipes[1]);
@@ -9486,7 +9516,7 @@ function testOfficeLanguage(): void
         . ' $GLOBALS["locale"] = ""; $out["en"] = [officePageConfig()["unraid_words"], officeDashT(["k" => "⟦Main⟧"], "k")];'
         . ' echo json_encode($out, JSON_UNESCAPED_UNICODE);');
     $p = proc_open([PHP_BINARY, "$tmp/web.php", json_encode($accept)], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-        ['OFFICE_DATA_DIR' => "$tmp/data", 'PATH' => getenv('PATH')]);
+        ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
     $raw = (string) stream_get_contents($pipes[1]);
     $err = trim((string) stream_get_contents($pipes[2]));
     proc_close($p);
@@ -9547,7 +9577,7 @@ function testThemeSwitch(): void
             . ' ob_start(); officeBody(officePageConfig()); $out["body"] = ob_get_clean();'
             . ' echo json_encode($out, JSON_UNESCAPED_UNICODE);');
         $p = proc_open([PHP_BINARY, "$tmp/web.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['OFFICE_DATA_DIR' => "$tmp/data", 'PATH' => getenv('PATH')]);
+            ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
         $raw = (string) stream_get_contents($pipes[1]);
         $err = trim((string) stream_get_contents($pipes[2]));
         proc_close($p);
@@ -9646,6 +9676,39 @@ function testThemeSwitch(): void
     check('core.js: the help line only while the script is there', str_contains($core, "if (Office.theme) item(t('help.theme_title'), t('help.theme_text'));"));
 }
 
+/**
+ * The tests never touch the live agent's RAM folder (/var/run/unraid-secretary-office: its locks, the night shift's
+ * state, the doorbell, the heartbeat): every RAM path of the agent and the web side lies in the tests' own folder
+ * (OFFICE_RUN_DIR), no PHP file but src/place.php names the live folder, and — on the server, where the run goes on in
+ * a mount namespace whose live folder is an empty one of the tests' (see the top of this file) — nothing at all landed
+ * there during the whole run, whatever process put it there.
+ */
+function testLiveRunUntouched(): void
+{
+    $own = TESTS_RUN_DIR;
+    same('live run folder: RUN_DIR is the tests\' own', $own, RUN_DIR);
+    same('live run folder: the web side\'s too', $own, officeRunDir());
+    $paths = ['PID_FILE' => PID_FILE, 'inbox' => officeInboxDir(), 'WATCH_NIGHT_DIR' => WATCH_NIGHT_DIR, 'WATCH_NIGHT_LOCK' => WATCH_NIGHT_LOCK,
+              'WATCH_MIRROR_RAM' => WATCH_MIRROR_RAM, 'WATCH_ARRAY_EVENTS' => WATCH_ARRAY_EVENTS, 'OFFICE_NOTIFY_LANG_RAM' => OFFICE_NOTIFY_LANG_RAM,
+              'ADVISOR_PREPARED_DIR' => ADVISOR_PREPARED_DIR, 'ADVISOR_JOB' => ADVISOR_JOB];
+    same('live run folder: every RAM path of the agent in the tests\' own', [], array_keys(array_filter($paths, fn ($p) => !str_starts_with($p, "$own/"))));
+    $named = [];
+    foreach (array_merge(glob(OFFICE_DIR . '/agent/*.php') ?: [], glob(OFFICE_DIR . '/agent/*/*.php') ?: [], glob(OFFICE_DIR . '/src/*.php') ?: []) as $f) {
+        if (str_contains((string) file_get_contents($f), TESTS_LIVE_RUN) && basename($f) !== 'place.php') {
+            $named[] = substr($f, strlen(OFFICE_DIR) + 1);
+        }
+    }
+    same('live run folder: named only by src/place.php (officeRunDir()) — everything else derives from it', [], $named);
+    $guard = getenv('OFFICE_TESTS_GUARD');
+    if ($guard === false) {
+        return;         // not on the server (or no namespace): the checks above only
+    }
+    $live = @stat(TESTS_LIVE_RUN);
+    $mine = @stat($guard);
+    check('live run folder: the run went on with the tests\' empty folder in its place', $live && $mine && $live['dev'] === $mine['dev'] && $live['ino'] === $mine['ino']);
+    same('live run folder: no test wrote into it', [], array_values(array_diff(scandir(TESTS_LIVE_RUN) ?: [], ['.', '..'])));
+}
+
 /** The ⟦labels⟧ of a text, sorted (with repeats) */
 function langTokens(string $s): array
 {
@@ -9733,6 +9796,8 @@ foreach ($parts as $name => $fns) {
         }
     }
 }
+testLiveRunUntouched();         // last: nothing of all the above reached the live agent's RAM folder
+exec('rm -rf ' . escapeshellarg(TESTS_RUN_DIR));
 $fail = $GLOBALS['results']['fail'];
 foreach ($fail as $f) {
     echo "FAIL  $f\n";
