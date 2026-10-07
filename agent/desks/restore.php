@@ -89,6 +89,17 @@ function rsUbData(): string
     return $GLOBALS['rs']['ub_data'] ?? BACKUP_DATA_DIR;
 }
 
+/** The ZFS pools as he last saw them (rsContextZfs: a sleeping pool keeps its list from here); written by his scan only */
+function rsKeptFile(): string
+{
+    return $GLOBALS['rs']['kept_file'] ?? DATA_DIR . '/restore-zfs.json';
+}
+
+function rsKeptWrite(array $pools): void
+{
+    writeAtomic(rsKeptFile(), jsonEncode(['time' => time(), 'pools' => $pools]));
+}
+
 desk('restore', [
     'fit'     => fn (): array => rsFit(),
     'start'   => function (): void {
@@ -111,39 +122,25 @@ desk('restore', [
 
 /**
  * What every look needs: the file system of each pool and disk, the ZFS datasets with their
- * mountpoints and snapshots, which disks sleep, the engine's settings. One zfs call each.
+ * mountpoints and snapshots (the awake pools only — rsContextZfs()), which disks sleep, the engine's settings.
  */
 function rsContext(array $settings): array
 {
-    $fs = [];
-    foreach (mountTable() as $m) {
-        if (preg_match('#^/mnt/([^/]+)$#', $m['mount'], $x) && !in_array($x[1], RS_NOT_BASES, true)) {
-            $fs[$x[1]] = $m['fs'];
-        }
-    }
-    $mounts = [];
-    $snaps = [];
-    if (in_array('zfs', $fs, true) && bin('zfs')) {
-        $r = runAll([
-            'ds'    => ['zfs', 'list', '-H', '-o', 'name,mountpoint', '-t', 'filesystem'],
-            'snaps' => ['zfs', 'list', '-Hp', '-t', 'snapshot', '-o', 'name,creation', '-s', 'creation'],
-        ], 60);
-        foreach (rows($r['ds'][1]) as $f) {
-            if (count($f) >= 2 && str_starts_with($f[1], '/mnt/')) {
-                $mounts[rtrim($f[1], '/')] = $f[0];
-            }
-        }
-        foreach (rows($r['snaps'][1]) as $f) {
-            if (count($f) >= 2 && str_contains($f[0], '@')) {
-                [$ds, $name] = explode('@', $f[0], 2);
-                $snaps[$ds][] = ['name' => $name, 'time' => num($f[1])];
+    $fs = $GLOBALS['rs']['fs'] ?? null;             // tests name the bases themselves
+    if ($fs === null) {
+        $fs = [];
+        foreach (mountTable() as $m) {
+            if (preg_match('#^/mnt/([^/]+)$#', $m['mount'], $x) && !in_array($x[1], RS_NOT_BASES, true)) {
+                $fs[$x[1]] = $m['fs'];
             }
         }
     }
-    return [
+    $ctx = [
         'fs'        => $fs,
-        'zfs'       => $mounts,                 // mountpoint => dataset
-        'snaps'     => $snaps,                  // dataset => [{name, time}] oldest first
+        'zfs'       => [],                      // mountpoint => dataset (the awake pools)
+        'snaps'     => [],                      // dataset => [{name, time}] oldest first (the awake pools)
+        'zfs_kept'  => [],                      // pool => what he last saw of it (looked, mounts, snaps) — the sleeping ones from his file (rsKeptFile)
+        'pools_asleep' => [],                   // pool => when he last looked at it (null: never since the agent started)
         'asleep'    => sleepingDisks(),
         'prefixes'  => backupSnapPrefixes(backupSetting($settings, 'general', 'snap_prefix')),   // the engine's, old names too
         'btrfs_dir' => (string) backupSetting($settings, 'general', 'btrfs_snap_dir', '.btrfs-snap'),
@@ -156,6 +153,108 @@ function rsContext(array $settings): array
         'old_shares' => null,                   // <backup place>/server/shares: the shares' settings as the last run found them
         'now'       => [],                      // rsShareNow() per share, once per look
     ];
+    rsContextZfs($ctx);
+    return $ctx;
+}
+
+/**
+ * The ZFS datasets (mountpoint => dataset) and snapshots (dataset => [{name, time}], oldest first) of the ZFS
+ * pools and array disks under /mnt — the AWAKE ones only: `zfs list … -r <pool>` (a pool sleeps when any of its
+ * disks does, `poolsBySleep()`). A sleeping pool is never asked — whether zfs would read its disks depends on
+ * what the ARC still holds, and the office never risks waking one. What he last saw of it stays in a file of his
+ * own (rsKeptFile(), written by his scan: per pool `looked`, `mounts`, `snaps`), apart from the live lists: rsLocate() names a sleeping
+ * place's dataset and how many snapshots held it then, never a path into it (a restore from it needs «wake»).
+ * $pools: only these — after rsWake() the woken ones, listed fresh into the live lists.
+ */
+function rsContextZfs(array &$ctx, ?array $pools = null): void
+{
+    $zfs = $GLOBALS['rs']['zfs_bin'] ?? (bin('zfs') ? 'zfs' : null);
+    $names = $pools ?? array_keys(array_filter($ctx['fs'], fn ($t) => $t === 'zfs'));
+    if ($zfs === null || !$names) {
+        return;
+    }
+    $split = poolsBySleep($names, $ctx['asleep'] ?? []);
+    if ($split['awake']) {
+        $r = runAll([
+            'ds'    => [$zfs, 'list', '-H', '-o', 'name,mountpoint', '-t', 'filesystem', '-r', ...$split['awake']],
+            'snaps' => [$zfs, 'list', '-Hp', '-t', 'snapshot', '-o', 'name,creation', '-s', 'creation', '-r', ...$split['awake']],
+        ], 60);
+        $now = time();
+        $fresh = [];
+        foreach ($split['awake'] as $p) {
+            $fresh[$p] = ['looked' => $now, 'mounts' => [], 'snaps' => []];
+            unset($ctx['pools_asleep'][$p]);
+        }
+        foreach (rows($r['ds'][1]) as $f) {
+            if (count($f) >= 2 && str_starts_with($f[1], '/mnt/')) {
+                $mp = rtrim($f[1], '/');
+                $ctx['zfs'][$mp] = $f[0];
+                $pool = explode('/', $f[0])[0];
+                if (isset($fresh[$pool])) {
+                    $fresh[$pool]['mounts'][$mp] = $f[0];
+                }
+            }
+        }
+        foreach (rows($r['snaps'][1]) as $f) {
+            if (count($f) >= 2 && str_contains($f[0], '@')) {
+                [$ds, $name] = explode('@', $f[0], 2);
+                $ctx['snaps'][$ds][] = ['name' => $name, 'time' => num($f[1])];
+                $pool = explode('/', $ds)[0];
+                if (isset($fresh[$pool])) {
+                    $fresh[$pool]['snaps'][$ds][] = [$name, num($f[1])];
+                }
+            }
+        }
+        foreach ($fresh as $p => $v) {
+            $ctx['zfs_kept'][$p] = $v;
+        }
+    }
+    // the sleeping ones: as last seen, from his own file (rsKeptFile) — only in the shape he writes
+    $kept = (array) ((readJson(rsKeptFile()) ?? [])['pools'] ?? []);
+    foreach ($split['asleep'] as $p) {
+        $k = is_array($kept[$p] ?? null) ? $kept[$p] : [];
+        $v = ['looked' => is_int($k['looked'] ?? null) && $k['looked'] > 0 ? $k['looked'] : null, 'mounts' => [], 'snaps' => []];
+        foreach ((array) ($k['mounts'] ?? []) as $mp => $ds) {
+            if (is_string($mp) && is_string($ds) && str_starts_with($mp, '/mnt/') && (str_starts_with($ds, "$p/") || $ds === $p)) {
+                $v['mounts'][$mp] = $ds;
+            }
+        }
+        foreach ((array) ($k['snaps'] ?? []) as $ds => $list) {
+            if (is_string($ds) && (str_starts_with($ds, "$p/") || $ds === $p)) {
+                foreach ((array) $list as $x) {
+                    if (is_array($x) && is_string($x[0] ?? null) && is_int($x[1] ?? null)) {
+                        $v['snaps'][$ds][] = [$x[0], $x[1]];
+                    }
+                }
+            }
+        }
+        $ctx['zfs_kept'][$p] = $v;
+        $ctx['pools_asleep'][$p] = $v['looked'];
+    }
+}
+
+/**
+ * What he last saw of a path on a sleeping ZFS pool (rsContextZfs: his state, never a look now): the dataset
+ * holding it then, how many snapshots that dataset had and the newest one's time, and when that was. Null when
+ * he never looked at the pool since the agent started.
+ *
+ * @return array{dataset: ?string, count: int, newest: ?int, looked: int}|null
+ */
+function rsKeptLook(string $live, string $base, array $ctx): ?array
+{
+    $k = $ctx['zfs_kept'][$base] ?? null;
+    if (!is_array($k) || !is_int($k['looked'] ?? null)) {
+        return null;
+    }
+    $best = null;
+    foreach ($k['mounts'] as $mp => $ds) {
+        if (under($live, (string) $mp) && ($best === null || strlen((string) $mp) > strlen($best))) {
+            $best = (string) $mp;
+        }
+    }
+    $ds = $best !== null ? (string) $k['mounts'][$best] : null;
+    $times = $ds !== null ? array_map(fn ($s) => $s[1], (array) ($k['snaps'][$ds] ?? [])) : [];
+    return ['dataset' => $ds, 'count' => count($times), 'newest' => $times ? max($times) : null, 'looked' => $k['looked']];
 }
 
 /**
@@ -421,6 +520,8 @@ function rsLocate(string $path, array &$ctx): array
         $p = ['base' => $base, 'fs' => $ctx['fs'][$base] ?? '', 'live' => $live, 'asleep' => baseAsleep($base, $ctx['asleep']),
               'exists' => false, 'dataset' => null, 'own_dataset' => false, 'inner' => [], 'snaps' => []];
         if ($p['asleep']) {
+            // never looked into now — on ZFS what he last saw of it (his state): the dataset, its snapshots then, as of when
+            $p['kept'] = $p['fs'] === 'zfs' ? rsKeptLook($live, $base, $ctx) : null;
             $places[] = $p;
             continue;
         }
@@ -1079,6 +1180,7 @@ function rsScan(): array
 {
     $settings = backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');
     $ctx = rsContext($settings);
+    rsKeptWrite($ctx['zfs_kept']);          // the ZFS pools as seen now — a pool that sleeps at a later look keeps its list from here
     $engine = rsEngine($settings);
     $place = rsPlace($settings, $ctx);
     $old = $GLOBALS['rs']['state'] ?? [];
@@ -1093,6 +1195,7 @@ function rsScan(): array
         'templates_dir' => RS_TEMPLATES,
         'libvirt_img' => readCfg('/boot/config/domain.cfg')['IMAGE_FILE'] ?? '/mnt/user/system/libvirt/libvirt.img',
         'vm_service' => is_dir(RS_LIBVIRT . '/qemu'),
+        'pools_asleep' => $ctx['pools_asleep'], // ZFS pools asleep (never asked) => when he last looked at them (null: not since the agent started)
         'shares'   => [],
         'apps'     => [],
         'vms'      => [],
@@ -2002,6 +2105,11 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
         if ($woke['woken']) {
             $ctx['now'] = [];
             $now = rsShareNow($share, $ctx);         // its top folders were not looked into while it slept
+            // a woken ZFS pool: its datasets and snapshots listed now (the look before left the sleeping pools out)
+            $zpools = array_values(array_filter($woke['woken'], fn ($b) => ($ctx['fs'][$b] ?? '') === 'zfs'));
+            if ($zpools) {
+                rsContextZfs($ctx, $zpools);
+            }
         }
     }
     $plan['share_now'] = $now;

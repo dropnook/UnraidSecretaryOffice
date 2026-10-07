@@ -398,10 +398,13 @@ function snapPlansRunDue(): int
 
 /**
  * A plan's targets sorted by what the scan knows: those to take now, those skipped because their disk
- * sleeps (and the plan says so), those that aren't there any more.
+ * sleeps (and the plan says so), those that aren't there any more. A dataset nobody has seen on a pool
+ * that sleeps (the scan lists only the awake pools — a sleeping one keeps its last list, and since the
+ * agent started it may have none) is asleep, never gone.
  *
  * @param array<string, bool> $asleep  disk name => asleep (sleepingDisks())
- * @return array{take: list<string>, skipped: list<string>, gone: list<string>}
+ * @return array{take: list<string>, skipped: list<string>, gone: list<string>, wake: list<string>}
+ *         wake: those of `take` that sleep — the plan takes them anyway (it says so), the create has to wake them
  */
 function snapPlanTargets(array $plan, array $state, array $asleep): array
 {
@@ -413,17 +416,32 @@ function snapPlanTargets(array $plan, array $state, array $asleep): array
     foreach ($state['btrfs']['devices'] ?? [] as $d) {
         $devices["btrfs:{$d['mount']}"] = $d;
     }
-    $out = ['take' => [], 'skipped' => [], 'gone' => []];
+    $pools = [];
+    foreach ($state['zfs']['pools'] ?? [] as $p) {
+        if (is_array($p) && is_string($p['name'] ?? null)) {
+            $pools[$p['name']] = true;
+        }
+    }
+    $out = ['take' => [], 'skipped' => [], 'gone' => [], 'wake' => []];
     foreach ($plan['targets'] as $t) {
         if (isset($volumes[$t])) {
             $sleeping = baseAsleep((string) $volumes[$t]['pool'], $asleep);
         } elseif (isset($devices[$t])) {
             $sleeping = (bool) $devices[$t]['asleep'];
+        } elseif (preg_match('#^zfs:([^/@]+)#', (string) $t, $m) && isset($pools[$m[1]]) && baseAsleep($m[1], $asleep)) {
+            $sleeping = true;                       // on a pool that sleeps and wasn't listed: not known, not gone
         } else {
             $out['gone'][] = $t;
             continue;
         }
-        $out[$sleeping && !empty($plan['skip_asleep']) ? 'skipped' : 'take'][] = $t;
+        if ($sleeping && !empty($plan['skip_asleep'])) {
+            $out['skipped'][] = $t;
+            continue;
+        }
+        $out['take'][] = $t;
+        if ($sleeping) {
+            $out['wake'][] = $t;
+        }
     }
     return $out;
 }
@@ -466,7 +484,7 @@ function snapPlanRun(array $plan, int $now, ?array $host = null): array
     $delete = $host['delete'] ?? fn (array $ids): array => snapshotDelete($ids, false);
 
     $state = $scan();
-    ['take' => $take, 'skipped' => $skipped, 'gone' => $gone] = snapPlanTargets($plan, $state, ($host['asleep'] ?? 'sleepingDisks')());
+    ['take' => $take, 'skipped' => $skipped, 'gone' => $gone, 'wake' => $wake] = snapPlanTargets($plan, $state, ($host['asleep'] ?? 'sleepingDisks')());
     $devices = [];
     foreach ($state['btrfs']['devices'] ?? [] as $d) {
         $devices["btrfs:{$d['mount']}"] = $d;
@@ -476,7 +494,8 @@ function snapPlanRun(array $plan, int $now, ?array $host = null): array
     $created = [];
     if ($take) {
         try {
-            $r = $create(['name' => snapPlanName($id, $now), 'targets' => $take, 'recursive' => !empty($plan['recursive'])]);
+            // a sleeping target the plan takes anyway (it doesn't skip them): the create lists its pool fresh — that wakes it, as the plan says
+            $r = $create(['name' => snapPlanName($id, $now), 'targets' => $take, 'recursive' => !empty($plan['recursive']), 'wake' => (bool) $wake]);
             $created = $r['created'] ?? [];
             $failures = $r['failures'] ?? [];
         } catch (Problem $p) {
@@ -513,7 +532,8 @@ function snapPlanRun(array $plan, int $now, ?array $host = null): array
                     'created' => count($created), 'deleted' => $deleted, 'skipped' => $skipped]
                  + ($remembered['gone'] ? ['gone' => $remembered['gone']] : []);
     writeAtomic(snapPlanStateFile(), jsonEncode($states));
-    logLine(sprintf('Ms. Snapshotini: plan %s — %d created, %d removed%s%s%s', $id, count($created), $deleted,
+    logLine(sprintf('Ms. Snapshotini: plan %s — %d created, %d removed%s%s%s%s', $id, count($created), $deleted,
+        $wake ? ', woken (the plan takes sleeping targets): ' . implode(', ', $wake) : '',
         $skipped ? ', skipped (asleep): ' . implode(', ', $skipped) : '',
         $gone ? ', gone: ' . implode(', ', $gone) . ($remembered['new'] ? '' : ' (known)') : '',
         $failures ? ', ' . count($failures) . ' problem(s)' : ''));

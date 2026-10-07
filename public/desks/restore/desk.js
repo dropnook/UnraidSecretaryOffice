@@ -31,13 +31,15 @@ const journalShown = new Map();               // id -> {box, fill, fail}: the jo
 let agentWas = null;                          // the agent running when the page was drawn last
 
 // ------------------------------------------------------------------ loading
+/** His state: as kept at once, a new look following on his page (core.js Office.loadState()); fresh waits for a new look */
 async function load(fresh) {
   if (fresh) journals.forEach((v, id) => { if (v.error) journals.delete(id); });   // a journal that failed to load is asked again
-  const j = await Office.api.get({ a: 'state', desk: ID, ...(fresh ? { fresh: 1 } : {}) });
+  return Office.loadState(ID, { fresh }, took);
+}
+function took(j) {
   if (j.ok && j.state) state = j.state;
   if (view) render();
   if (state && state.running && !jobTimer) pollJob();
-  return j;
 }
 
 /** While a restore runs: its notice, the tiles and the open section anew — the page stays where it is */
@@ -793,8 +795,15 @@ function unitPart(f, owner) {
     const line = el('div', 'rs-place');
     const where = p.dataset ? T('snaps.zfs', { base: p.base, dataset: p.dataset }) : T('snaps.base', { base: p.base, fs: p.fs || '?' });
     line.appendChild(el('span', 'rs-place-where', where));
-    if (p.asleep) line.appendChild(chip(T('snaps.asleep'), 'quiet', T('snaps.asleep_hint')));
-    else if (!p.count) line.appendChild(chip(T('snaps.zero'), 'warn', T('snaps.zero_hint', { fs: p.fs || '?' })));
+    if (p.asleep) {
+      line.appendChild(chip(T('snaps.asleep'), 'quiet', T('snaps.asleep_hint')));
+      // a ZFS pool asleep: what he last saw of it (never a look now) — as of when, how many snapshots held it then
+      if (p.kept && p.kept.looked) {
+        const k = el('span', '', T('snaps.kept', { n: p.kept.count, when: fmt.relative(p.kept.looked) }));
+        k.title = T('snaps.kept_hint', { when: fmt.date(p.kept.looked, true), newest: p.kept.newest ? fmt.date(p.kept.newest) : '–' });
+        line.appendChild(k);
+      }
+    } else if (!p.count) line.appendChild(chip(T('snaps.zero'), 'warn', T('snaps.zero_hint', { fs: p.fs || '?' })));
     else line.appendChild(el('span', '', T('snaps.count', { n: p.count, when: date(p.latest && p.latest.time) })));
     if (p.own_dataset && !f.whole) line.appendChild(chip(T('snaps.own_ds'), 'quiet', T('snaps.own_ds_hint')));
     if ((p.inner || []).length) line.appendChild(chip(T('snaps.inner', { n: p.inner.length }), 'warn', T('snaps.inner_hint', { list: p.inner.join(', ') })));
@@ -1391,6 +1400,7 @@ function momentView(m) {
  * again and runs it only when it is still the same.
  */
 async function restoreDialog(req, title) {
+  if (!(await Office.freshState(ID))) return;      // what comes back rests on his look: a fresh one (the preview looks again too)
   const body = el('div', 'rs-dlg');
   const opts = el('div', 'rs-opts');
   const pv = el('div');

@@ -27,10 +27,21 @@ let groupRefs = [];
 let view = null;                   // DOM of the mounted desk
 
 // ------------------------------------------------------------------ loading
+/** Her state: as kept at once, a new look following on her page (core.js Office.loadState()); refresh waits for a new look */
 async function load(refresh) {
-  const j = await Office.api.get({ a: 'state', desk: ID, ...(refresh ? { fresh: 1 } : {}) });
-  if (j.ok) setState(j.state);
-  return j;
+  return Office.loadState(ID, { fresh: refresh }, (j) => { if (j.ok) setState(j.state); });
+}
+
+/*
+ * Selecting means deleting: what she does to a snapshot or a schedule starts from a fresh look (Office.freshState(),
+ * never a stale list) — the snapshot or plan as it is now, null when it is gone (her list shows that already).
+ */
+async function freshSnap(s) {
+  return (await Office.freshState(ID)) ? index.get(s.id) || null : null;
+}
+async function freshPlan(p) {
+  if (!(await Office.freshState(ID))) return null;
+  return p ? (state?.plans?.plans || []).find((x) => x.id === p.id) || null : undefined;
 }
 
 function setState(s) {
@@ -51,6 +62,21 @@ function filterPools() {
   for (const d of state?.btrfs?.devices || []) r.add(d.name);
   if (state?.vm?.available) r.add('VMs');
   return r;
+}
+
+/** The ZFS pools that sleep: never asked, shown as she last saw them (the state marks them) */
+function poolsAsleep() { return (state?.zfs?.pools || []).filter((p) => p.asleep); }
+function poolOf(name) { return (state?.zfs?.pools || []).find((p) => p.name === name) || null; }
+
+/** What sleeps right now — the btrfs disks and the ZFS pools — by name: «wake» reads them on purpose */
+function sleepingParts() {
+  return [...(state?.btrfs?.devices || []).filter((d) => d.asleep).map((d) => d.name), ...poolsAsleep().map((p) => p.name)];
+}
+
+/** How a sleeping pool's snapshots are to be read: as she last saw them, from when */
+function asleepTitle(s) {
+  const p = poolOf(s.pool);
+  return p && p.looked ? T('pool_asleep_chip_title', { pool: s.pool, when: fmt.date(p.looked, true) }) : T('pool_asleep_never', { pool: s.pool });
 }
 
 // ------------------------------------------------------------------ understanding snapshots
@@ -168,6 +194,8 @@ function bubbleText() {
   if (mounted) parts.push(T('bubble.mounted', { n: mounted }));
   const asleep = (state.btrfs?.devices || []).filter((d) => d.asleep).length;
   if (asleep) parts.push(T('bubble.asleep', { n: asleep }));
+  const pools = poolsAsleep();
+  if (pools.length) parts.push(T('bubble.pools_asleep', { n: pools.length, names: pools.map((p) => p.name).join(', ') }));
   if (!Office.agent.running) parts.push(T('bubble.offline', { when: fmt.date(state.time) }));
   return parts;
 }
@@ -193,10 +221,10 @@ Office.desk({
 
   menu() {
     const on = Office.agent.running && !busy;
-    const asleep = (state?.btrfs?.devices || []).filter((d) => d.asleep).length;
+    const asleep = sleepingParts();
     return [
       { text: T('scan'), act: () => scan(false), disabled: !on },
-      { text: T('scan_wake', { n: asleep }), act: () => scan(true), disabled: !on || !asleep },
+      { text: T('scan_wake', { names: asleep.join(', ') || '–' }), act: () => scan(true), disabled: !on || !asleep.length },
     ];
   },
 
@@ -243,6 +271,7 @@ function build(root) {
     [el('span', 'chip outline', '📌 ' + T('mounted')), T('help.mounted')],
     [el('span', 'chip outline', '📌 ' + T('used_by_backup')), T('help.backup')],
     [el('span', 'chip quiet', '💤 ' + T('disk_asleep')), T('help.asleep')],
+    [el('span', 'chip quiet', '💤 ' + T('pool_asleep_chip')), T('help.pool_asleep')],
     [T('plans'), T('help.plans')],
     [T('help.sources'), T('help.sources_text')],
     [T('docker_layers'), T('help.docker')],
@@ -296,9 +325,10 @@ function build(root) {
   v.search.placeholder = Office.t('common.filter');
   v.search.autocomplete = 'off';
   v.search.spellcheck = false;
+  v.search.dataset.keep = '1';         // built once: typing here never holds up a new look (core.js calm())
   v.search.oninput = () => renderList();
   v.source = el('select', 'picker');
-  v.source.setAttribute('aria-label', T('source.label'));
+  v.source.setAttribute('aria-label', T('source.label'));     // its options are made anew with every state: no data-keep
   v.source.onchange = () => renderList();
   v.dockerSwitch = el('label', 'switch');
   v.dockerBox = el('input');
@@ -330,9 +360,9 @@ function render() {
 }
 
 function renderHead() {
-  const sleeping = (state?.btrfs?.devices || []).filter((d) => d.asleep).length;
-  view.wakeText.textContent = sleeping ? T('wake_n', { n: sleeping }) : T('wake');
-  view.wakeLabel.hidden = !sleeping && !view.wake.checked;
+  const sleeping = sleepingParts();
+  view.wakeText.textContent = sleeping.length ? T('wake_n', { names: sleeping.join(', ') }) : T('wake');
+  view.wakeLabel.hidden = !sleeping.length && !view.wake.checked;
   view.bubble.innerHTML = '';
   view.bubble.append(Office.withGreeting(ID, bubbleText().join(' ')));
 }
@@ -363,12 +393,18 @@ function toggleFilter(name) {
 }
 
 function zfsCard(p) {
-  const card = el('button', 'card' + (poolFilter === p.name ? ' active' : '') + (p.count ? '' : ' empty-card'));
+  const card = el('button', 'card' + (poolFilter === p.name ? ' active' : '') + (p.count ? '' : ' empty-card') + (p.asleep ? ' asleep' : ''));
   card.type = 'button';
   card.onclick = () => toggleFilter(p.name);
   const head = el('div', 'card-head');
   head.append(el('span', 'card-name', p.name), el('span', 'tag', 'ZFS'));
-  head.append(el('span', 'status' + (p.health === 'ONLINE' ? '' : ' bad'), p.health === 'ONLINE' ? T('online') : p.health));
+  if (p.asleep) {
+    // never asked while it sleeps: what she last saw of it, from when — «Wake sleeping disks» + Tour reads it
+    head.append(el('span', 'status quiet', '💤 ' + T('asleep')));
+    card.title = p.looked ? T('pool_asleep_title', { pool: p.name, when: fmt.date(p.looked, true) }) : T('pool_asleep_never', { pool: p.name });
+  } else {
+    head.append(el('span', 'status' + (p.health === 'ONLINE' ? '' : ' bad'), p.health === 'ONLINE' ? T('online') : p.health));
+  }
   card.appendChild(head);
   // usable space without parity (dataset view), else the pool view
   const total = p.used !== null ? p.used + p.avail : p.size;
@@ -379,8 +415,9 @@ function zfsCard(p) {
   card.appendChild(figures);
   const line = el('div', 'card-line');
   if (p.count) line.append(el('b', '', T('count', { n: p.count })), ` · ${fmt.size(p.snapused)}`);
-  else line.append(T('none'));
+  else line.append(p.asleep && !p.looked ? T('never_read') : T('none'));
   if (p.docker) line.append(el('span', 'quiet', ` · ${T('docker_count', { n: p.docker })}`));
+  if (p.asleep && p.looked) line.append(el('span', 'quiet', ` · 💤 ${T('as_of', { when: fmt.relative(p.looked) })}`));
   card.appendChild(line);
   return card;
 }
@@ -625,6 +662,8 @@ function buildGroup(g) {
   if (g.kind === 'zfs') {
     const v = (state.zfs.volumes || []).find((x) => x.id === g.vol);
     if (v) meta.push(T('group.uses', { size: fmt.size(v.snapused) }));
+    const p = g.items[0] && poolOf(g.items[0].pool);
+    if (p && p.asleep) meta.push('💤 ' + (p.looked ? T('as_of', { when: fmt.relative(p.looked) }) : T('asleep')));
   }
   if (g.kind === 'btrfs') {
     const d = (state.btrfs.devices || []).find((x) => 'btrfs:' + x.mount === g.vol);
@@ -765,6 +804,11 @@ function buildRow(s) {
     c.title = T('detected_title');
     meta.appendChild(c);
   }
+  if (s.asleep) {
+    const c = el('span', 'chip quiet', '💤 ' + T('pool_asleep_chip'));
+    c.title = asleepTitle(s);
+    meta.appendChild(c);
+  }
   if (s.fs === 'vm') {
     if (s.description) meta.appendChild(el('span', 'note', `«${s.description}»`));
     if (s.active) {
@@ -874,6 +918,7 @@ async function estimate(ids) {
 function reclaimText(j) {
   let s = T('frees', { size: fmt.size(j.bytes) });
   if (j.unknown) s += ' ' + T('frees_unknown', { n: j.unknown });
+  if (j.asleep) s += ' — ' + T('delete.asleep_unknown', { n: j.asleep });
   return s;
 }
 
@@ -905,12 +950,33 @@ async function scan(wake) {
   if (!n && !gone) parts.push(T('scan_same'));
   const asleep = (state.btrfs?.devices || []).filter((d) => d.asleep).length;
   if (asleep && !wake) parts.push(T('scan_skipped', { n: asleep }));
+  const pools = poolsAsleep().length;
+  if (pools && !wake) parts.push(T('scan_pools_kept', { n: pools }));
   Office.toast(parts.join(' · '));
 }
 
-async function hold(s, on) {
+/** A snapshot on a sleeping pool: the action would wake the pool — asked first, never done on her own */
+function askWakeFor(s, what, go) {
+  const box = el('div');
+  box.appendChild(el('p', '', T('wake_for.text', { name: `${s.ds}@${s.name}`, pool: s.pool })));
+  box.appendChild(el('p', 'callout', T('wake_for.note')));
+  const d = Office.dialog({
+    title: T('wake_for.title', { pool: s.pool }),
+    body: box,
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('wake_for.confirm', { what }), kind: '', act: () => { setTimeout(go, 0); } },
+    ],
+  });
+  d.buttons[0].focus();
+}
+
+async function hold(s, on, wake) {
+  s = await freshSnap(s);
+  if (!s) return;
+  if (s.asleep && !wake) { askWakeFor(s, on ? T('hold') : T('release'), () => hold(s, on, true)); return; }
   setBusy(true);
-  const j = await Office.api.post(`${ID}.${on ? 'hold' : 'release'}`, { id: s.id });
+  const j = await Office.api.post(`${ID}.${on ? 'hold' : 'release'}`, { id: s.id, wake: !!wake });
   setBusy(false);
   if (!j.ok) { failed(j); return; }
   setState(j.state);
@@ -928,7 +994,9 @@ function keepName(s) {
  * delete it every night and logs an error each time. Renaming takes it out
  * of the script's clean-up quietly.
  */
-function askHold(s) {
+async function askHold(s) {
+  s = await freshSnap(s);
+  if (!s) return;
   if (source(s).key !== 'backup') { hold(s, true); return; }
   const suggestion = keepName(s);
   const mounted = fixedMounts(s).length > 0;
@@ -951,7 +1019,9 @@ function askHold(s) {
   if (mounted) d.buttons[2].disabled = true;
 }
 
-function renameDialog(s, suggestion) {
+async function renameDialog(s, suggestion) {
+  s = await freshSnap(s);
+  if (!s) return;
   const box = el('div');
   const field = el('div', 'field');
   const label = el('label', '', T('rename.new_name'));
@@ -965,7 +1035,16 @@ function renameDialog(s, suggestion) {
   field.append(label, input, hint);
   box.appendChild(field);
   if (source(s).key === 'backup') box.appendChild(el('p', 'callout', T('rename.backup_note')));
-  Office.dialog({
+  // on a sleeping pool: renaming wakes it — only with the box ticked (never on her own)
+  let wakeBox = null;
+  if (s.asleep) {
+    const c = el('div', 'callout warn');
+    c.appendChild(el('p', '', T('rename.asleep', { ds: s.ds, pool: s.pool })));
+    wakeBox = check(T('rename.wake', { pool: s.pool }), T('wake_for.note'));
+    c.appendChild(wakeBox.label);
+    box.appendChild(c);
+  }
+  const d = Office.dialog({
     title: T('rename.title'),
     body: box,
     buttons: [
@@ -974,8 +1053,9 @@ function renameDialog(s, suggestion) {
         const name = input.value.trim();
         if (!NAME_RULE.test(name)) { hint.className = 'missing'; input.focus(); return false; }
         if (name === s.name) return true;
+        if (wakeBox && !wakeBox.input.checked) return false;
         setBusy(true);
-        const j = await Office.api.post(`${ID}.rename`, { id: s.id, name });
+        const j = await Office.api.post(`${ID}.rename`, { id: s.id, name, wake: !!(wakeBox && wakeBox.input.checked) });
         setBusy(false);
         if (!j.ok) { failed(j); return false; }
         if (j.id) fresh = new Set([j.id]);
@@ -986,9 +1066,14 @@ function renameDialog(s, suggestion) {
       } },
     ],
   });
+  if (wakeBox) {
+    d.buttons[1].disabled = true;
+    wakeBox.input.onchange = () => { d.buttons[1].disabled = !wakeBox.input.checked; };
+  }
 }
 
-function askDelete(ids) {
+async function askDelete(ids) {
+  if (!(await Office.freshState(ID))) return;
   const list = ids.map((id) => index.get(id)).filter((s) => s && deletable(s));
   if (!list.length) return;
   const n = list.length;
@@ -1017,31 +1102,50 @@ function askDelete(ids) {
     c.appendChild(mu);
     box.appendChild(c);
   }
+  // on a sleeping pool: deleting wakes it — only with the box ticked; unticked, those stay and the rest goes
+  const sleeping = list.filter((s) => s.asleep);
+  let wakeBox = null;
+  if (sleeping.length) {
+    const pools = [...new Set(sleeping.map((s) => s.pool))].join(', ');
+    const c = el('div', 'callout warn');
+    c.append(el('strong', '', T('delete.asleep', { n: sleeping.length, pools })), ' ', T('delete.asleep_text'));
+    wakeBox = check(T('delete.wake', { pools }), T('wake_for.note'));
+    wakeBox.label.style.margin = '8px 0 0';
+    c.appendChild(wakeBox.label);
+    box.appendChild(c);
+  }
+  const chosen = () => (wakeBox && wakeBox.input.checked ? list : list.filter((s) => !s.asleep));
   box.appendChild(el('p', 'callout', T('delete.note')));
 
+  const label = () => { const k = chosen().length; return mounted.length ? T('delete.unmount_and_delete', { n: k }) : T('delete.confirm', { n: k }); };
   const d = Office.dialog({
     title: T('delete.title', { n }),
     body: box,
     buttons: [
       { text: Office.t('common.cancel') },
-      { text: mounted.length ? T('delete.unmount_and_delete', { n }) : T('delete.confirm', { n }), kind: 'danger',
-        act: () => { remove(list.map((s) => s.id), mounted.length > 0); } },
+      { text: label(), kind: 'danger',
+        act: () => { const l = chosen(); if (!l.length) return false; remove(l.map((s) => s.id), mounted.length > 0, !!(wakeBox && wakeBox.input.checked)); return true; } },
     ],
   });
   d.buttons[0].focus();   // safe default: Enter cancels
+  if (wakeBox) {
+    d.buttons[1].disabled = !chosen().length;
+    wakeBox.input.onchange = () => { d.buttons[1].textContent = label(); d.buttons[1].disabled = !chosen().length; };
+  }
 
   estimate(list.map((s) => s.id)).then((j) => {
     reclaim.innerHTML = '';
     if (!j) { reclaim.append(el('span', '', T('delete.no_estimate'))); return; }
     reclaim.append(T('delete.frees_before'), ' ', el('b', '', fmt.size(j.bytes)), ' ', T('delete.frees_after'));
     if (j.unknown) reclaim.append(el('span', '', ' — ' + T('delete.btrfs_unknown', { n: j.unknown })));
+    if (j.asleep) reclaim.append(el('span', '', ' — ' + T('delete.asleep_unknown', { n: j.asleep })));
   });
 }
 
-async function remove(ids, unmount) {
+async function remove(ids, unmount, wake) {
   setBusy(true);
   Office.toast(T('deleting', { n: ids.length }));
-  const j = await Office.api.post(`${ID}.delete`, { ids, unmount: !!unmount });
+  const j = await Office.api.post(`${ID}.delete`, { ids, unmount: !!unmount, wake: !!wake });
   setBusy(false);
   if (!j.ok) { failed(j); return; }
   (j.deleted || []).forEach((id) => selection.delete(id));
@@ -1051,7 +1155,9 @@ async function remove(ids, unmount) {
   if ((j.failures || []).length) Office.showErrors(n ? T('delete.partly') : T('delete.failed'), j.failures, ID);
 }
 
-function askUnmount(s) {
+async function askUnmount(s) {
+  s = await freshSnap(s);
+  if (!s) return;
   const box = el('div');
   box.appendChild(el('p', '', T('unmount.intro', { name: `${s.ds}@${s.name}` })));
   const ul = el('ul', 'shortlist');
@@ -1062,14 +1168,15 @@ function askUnmount(s) {
   });
   box.appendChild(ul);
   box.appendChild(el('p', 'callout', T('unmount.note') + (state.backup?.found ? ' ' + T('unmount.remount') : '')));
+  if (s.asleep) box.appendChild(el('p', 'callout warn', T('unmount.asleep', { pool: s.pool }) + ' ' + T('wake_for.note')));
   Office.dialog({
     title: T('unmount'),
     body: box,
     buttons: [
       { text: Office.t('common.cancel') },
-      { text: T('unmount'), kind: '', act: async () => {
+      { text: s.asleep ? T('unmount.wake') : T('unmount'), kind: '', act: async () => {
         setBusy(true);
-        const j = await Office.api.post(`${ID}.unmount`, { id: s.id });
+        const j = await Office.api.post(`${ID}.unmount`, { id: s.id, wake: !!s.asleep });
         setBusy(false);
         if (!j.ok) { failed(j); return false; }
         setState(j.state);
@@ -1169,6 +1276,8 @@ function planMenu(p) {
 }
 
 async function planRunNow(p) {
+  p = await freshPlan(p);
+  if (!p) return;
   Office.toast(T('plan.running', { name: p.label }));
   const j = await Office.api.post(`${ID}.plan_run`, { id: p.id });
   if (!j.ok) { failed(j); return; }
@@ -1179,13 +1288,17 @@ async function planRunNow(p) {
 }
 
 async function planToggle(p) {
+  p = await freshPlan(p);
+  if (!p) return;
   const j = await Office.api.post(`${ID}.plan_toggle`, { id: p.id, enabled: !p.enabled });
   if (!j.ok) { failed(j); return; }
   setState(j.state);
   Office.toast(p.enabled ? T('plan.paused_now', { name: p.label }) : T('plan.resumed', { name: p.label }));
 }
 
-function planDelete(p) {
+async function planDelete(p) {
+  p = await freshPlan(p);
+  if (!p) return;
   Office.dialog({
     title: T('plan.delete_title', { name: p.label }),
     body: el('p', '', T('plan.delete_text', { n: p.count })),
@@ -1202,8 +1315,10 @@ function planDelete(p) {
 }
 
 /** New or changed schedule: what, when, how many to keep */
-function planDialog(p) {
-  if (!state) return;
+async function planDialog(p) {
+  p = await freshPlan(p);
+  if (p === null || !state) return;     // gone meanwhile (undefined: a new one)
+  p = p || null;
   // a target that is gone (the share deleted, the dataset renamed) can't be shown by the picker, so it can't be unticked:
   // the selection starts without it and the dialog says so — the plan loses it when saved (the agent drops it too)
   const have = new Set(targets().map((v) => v.id));
@@ -1396,7 +1511,8 @@ function targetPicker(chosen, recursive, onCount) {
   return { field: targetField, draw, byId };
 }
 
-function createDialog(preselected) {
+async function createDialog(preselected) {
+  if (!(await Office.freshState(ID))) return;      // her picker shows what is there now
   if (!state) return;
   const chosen = new Set(preselected || []);
   const box = el('div');
@@ -1440,9 +1556,10 @@ function createDialog(preselected) {
         if (!NAME_RULE.test(n)) { nameHint.className = 'missing'; name.focus(); return false; }
         if (!chosen.size) return false;
         const sleepy = [...chosen].map((id) => byId.get(id)).filter((v) => v && v.asleep);
-        if (sleepy.length) Office.toast(T('create.waking', { disks: sleepy.map((v) => v.pool).join(', ') }));
+        if (sleepy.length) Office.toast(T('create.waking', { disks: [...new Set(sleepy.map((v) => v.pool))].join(', ') }));
         setBusy(true, view && view.newBtn);
-        const j = await Office.api.post(`${ID}.create`, { targets: [...chosen], name: n, recursive: recursive.input.checked, hold: keep.input.checked });
+        // a target that sleeps (💤 in the picker): the agent lists its pool fresh first — that wakes it, as chosen here
+        const j = await Office.api.post(`${ID}.create`, { targets: [...chosen], name: n, recursive: recursive.input.checked, hold: keep.input.checked, wake: sleepy.length > 0 });
         setBusy(false, view && view.newBtn);
         if (!j.ok) { failed(j); return false; }
         fresh = new Set(j.created || []);
@@ -1486,6 +1603,10 @@ function properties(s) {
   line(T('p.source'), source(s).label);
   if (s.t) line(T('p.created'), fmt.date(s.t, true), fmt.relative(s.t));
   if (s.detected === 'mount') line(T('p.detected'), T('p.detected_value'), T('p.detected_hint'));
+  if (s.asleep) {
+    const p = poolOf(s.pool);
+    line(T('p.pool_asleep'), p && p.looked ? T('p.pool_asleep_value', { when: fmt.date(p.looked, true) }) : T('asleep'), T('p.pool_asleep_hint'));
+  }
   if (s.used !== null && s.used !== undefined) line(T('p.used'), fmt.size(s.used), T('p.used_hint'));
   if (s.refer !== null && s.refer !== undefined) line(T('p.data'), fmt.size(s.refer), T('p.data_hint'));
   if (s.written !== null && s.written !== undefined) line(T('p.written'), fmt.size(s.written), T('p.written_hint'));

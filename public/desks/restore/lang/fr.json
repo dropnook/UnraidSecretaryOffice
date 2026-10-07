@@ -154,6 +154,8 @@
   "snaps.zero_hint": "Ici, aucun snapshot ne le contient ({fs}).",
   "snaps.asleep": "endormi",
   "snaps.asleep_hint": "Ce disque dort — je n'ai pas regardé dedans.",
+  "snaps.kept": {"one": "au {when} : {n} snapshot", "other": "au {when} : {n} snapshots"},
+  "snaps.kept_hint": "Ce que j'ai vu de ce pool en dernier, le {when}, avant qu'il ne s'endorme (le snapshot le plus récent alors : {newest}) — je ne regarde pas dans un pool endormi. Une restauration depuis celui-ci demande « réveiller ».",
   "snaps.own_ds": "dataset à part",
   "snaps.own_ds_hint": "Le dossier est un dataset ZFS à part : ses snapshots n'appartiennent qu'à lui.",
   "snaps.inner": {"one": "{n} dataset à l'intérieur", "other": "{n} datasets à l'intérieur"},

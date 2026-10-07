@@ -26,10 +26,7 @@
   },
   "scan": "Tour",
   "scan_title": "Look for snapshots on all pools, disks and VMs again",
-  "scan_wake": {
-    "one": "Tour and wake {n} disk",
-    "other": "Tour and wake {n} disks"
-  },
+  "scan_wake": "Tour and wake {names}",
   "scan_now": "Tour now",
   "new": "New snapshot",
   "new_from_here": "New snapshot of this",
@@ -338,7 +335,7 @@
   "help.sources_text": "Who made it: the backup engine (Mr. Backupsy), Docker, a VM, by hand, or another tool.",
   "help.docker": "Docker's own image layers (ZFS) — hundreds of them, managed by Docker. Hidden unless switched on, never deletable here.",
   "help.scan": "Tour · Wake & tour",
-  "help.scan_text": "The tour reads all pools, disks and VMs again — sleeping array disks are left alone. «Wake & tour» wakes them on purpose.",
+  "help.scan_text": "The tour reads the awake pools, disks and VMs again — sleeping array disks and sleeping ZFS pools are left alone (a sleeping pool shows what I last saw of it). «Wake & tour» wakes them on purpose.",
   "visit": "Visit Ms. Snapshotini",
   "greet.1": "Buongiorno!",
   "greet.2": "Ciao, bello!",
@@ -431,11 +428,44 @@
   "plan.dow.6": "Saturday",
   "plan.dow.0": "Sunday",
   "wake": "Wake sleeping disks",
-  "wake_n": {
-    "one": "Wake 1 sleeping disk",
-    "other": "Wake {n} sleeping disks"
+  "wake_n": "Wake {names}",
+  "wake_title": "Only for this tour: wakes the sleeping btrfs disks and ZFS pools and reads their snapshots too. Unticked, I let them sleep and show what I last knew about them. Unraid puts them back to sleep after its delay.",
+  "bubble.pools_asleep": {
+    "one": "The pool {names} is asleep — I show what I last saw of it and ask nothing of it.",
+    "other": "The pools {names} are asleep — I show what I last saw of them and ask nothing of them."
   },
-  "wake_title": "Only for this tour: wakes the sleeping btrfs disks and reads their snapshots too. Unticked, I let them sleep and show what I last knew about them. Unraid puts them back to sleep after its delay.",
+  "scan_pools_kept": {
+    "one": "{n} sleeping pool as last seen",
+    "other": "{n} sleeping pools as last seen"
+  },
+  "as_of": "as of {when}",
+  "pool_asleep_chip": "pool asleep",
+  "pool_asleep_chip_title": "The pool {pool} is asleep — this is how I last saw it ({when}). Deleting, renaming or holding would wake it: I ask first.",
+  "pool_asleep_title": "{pool} is asleep — what I show is what I last saw of it ({when}). Tick «Wake sleeping disks» and start a tour to read it now.",
+  "pool_asleep_never": "{pool} is asleep, and I haven't looked at it since the messenger started — I don't know its snapshots. Tick «Wake sleeping disks» and start a tour to read it.",
+  "help.pool_asleep": "Its ZFS pool sleeps (one of its disks does) — I show what I last saw of it and ask nothing of it. Deleting, renaming or holding such a snapshot asks you to wake the pool first.",
+  "delete.asleep": {
+    "one": "{n} of them lies on a sleeping pool ({pools}).",
+    "other": "{n} of them lie on a sleeping pool ({pools})."
+  },
+  "delete.asleep_text": "Deleting would wake it. Unticked, those stay and the rest goes.",
+  "delete.wake": "Wake {pools} and delete those too",
+  "delete.asleep_unknown": {
+    "one": "{n} on a sleeping pool, not estimated",
+    "other": "{n} on a sleeping pool, not estimated"
+  },
+  "rename.asleep": "{ds} lies on the pool {pool}, which is asleep — renaming wakes it.",
+  "rename.wake": "Wake {pool} for this",
+  "wake_for.title": "Wake {pool}?",
+  "wake_for.text": "{name} lies on the pool {pool}, which is asleep — this would wake it.",
+  "wake_for.note": "Only if you really want it — I never wake a pool on my own.",
+  "wake_for.confirm": "Wake it and {what}",
+  "unmount.asleep": "The pool {pool} is asleep — unmounting wakes it.",
+  "unmount.wake": "Wake & unmount",
+  "p.pool_asleep": "Pool",
+  "p.pool_asleep_value": "asleep — as I last saw it, {when}",
+  "p.pool_asleep_hint": "Nothing is asked of a sleeping pool. Tick «Wake sleeping disks» and start a tour to read it.",
+  "errors.pool_asleep": "{name}: its pool {pool} is asleep — wake it first (I never do that on my own).",
   "plan.result.gone": "targets gone",
   "plan.gone": "target gone",
   "plan.gone_title": "Gone since {since}: {targets} (deleted or renamed?). I skip what is gone and take the rest — delete the schedule or choose another target under \"Edit…\".",

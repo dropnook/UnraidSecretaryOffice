@@ -11,7 +11,9 @@
      poll()             optional, called every minute while the desk is shown
      started()          optional, once after the page started (any desk shown)
    Its strings live in public/desks/<id>/lang/<code>.json and are reached as
-   t('<id>.<key>'), or with Office.scope('<id>') as a shortcut. */
+   t('<id>.<key>'), or with Office.scope('<id>') as a shortcut.
+   Its state comes through Office.loadState(id, {fresh, part}, took): at once as kept, the agent's new look
+   following on its own page (show first, then look); actions on what the page shows ask Office.freshState(id). */
 (() => {
 'use strict';
 
@@ -306,6 +308,163 @@ async function postOnce(action, data) {
   if (j.error && j.error.key === 'agent_restarted') [...busyHolds.keys()].forEach((key) => Office.busy(key, false));
   j.desk = action.split('.')[0];
   return j;
+}
+
+// ------------------------------------------------------------------ states: show first, then look
+/*
+ * A desk's state (or a part of it) the quick way (src/api.php apiLook(), Benj 2026-10-07): the server answers at once
+ * with what it keeps — `stale` when older than the desk's refresh_after, `refreshing` while the agent looks again in the
+ * background; the page then asks once more (`wait`) and shows the new state when it is there. Who asks how:
+ *   the desk whose page is shown   at once, the new look follows (its mount, its poll)
+ *   anyone else                    as kept, never a look (the reception's cards, the badges every page shows)
+ *   fresh                          wait for a new look (the Tour / «Look again» buttons, live views)
+ * The same question while one is on its way gets the same answer (the reception and started() ask together: each desk
+ * once). took(j, later) gets every answer worth showing — j as from Office.api.get (j.state, or j.part); later = the
+ * new look that followed, handed over only while the user isn't in the middle of something (calm()) and kept in place.
+ * An answer older than one already shown is dropped. Actions on what the page shows ask Office.freshState() first.
+ */
+const asked = new Map();            // the same GET on its way: one request
+function getOnce(params) {
+  const key = new URLSearchParams(params).toString();
+  if (!asked.has(key)) {
+    asked.set(key, Office.api.get(params).catch(() => ({ ok: false, error: { key: 'offline' } })).finally(() => asked.delete(key)));
+  }
+  return asked.get(key);
+}
+
+const looks = new Map();            // 'desk' or 'desk/part' -> { time, age, at, after, refreshing, pending, since, took }
+const lookKey = (desk, part) => (part ? `${desk}/${part}` : desk);
+/** How old the state is now, by the server's clock (its age when answered plus the time since), or null */
+const lookAge = (look) => (typeof look.age === 'number' ? look.age + (Date.now() - look.at) / 1000 : look.age === null ? Infinity : null);
+const lookStale = (look) => typeof look.after === 'number' && lookAge(look) > look.after;
+
+/** Note an answer; 'older' (than what was shown: drop it), 'same' (that very state), 'new', or null (no state answer) */
+function noteLook(look, j) {
+  if (!j || !j.ok) return null;
+  const data = 'part' in j ? j.part : j.state;
+  const time = data && typeof data.time === 'number' ? data.time : null;
+  if (time !== null && typeof look.time === 'number' && time < look.time) return 'older';
+  const same = time !== null && time === look.time;
+  look.time = time;
+  if ('age' in j) { look.age = j.age; look.at = Date.now(); look.after = j.refresh_after; }
+  look.refreshing = !!j.refreshing;
+  return same ? 'same' : 'new';
+}
+
+Office.loadState = async function loadState(desk, opts, took) {
+  const { fresh, part } = opts || {};
+  const key = lookKey(desk, part);
+  const look = looks.get(key) || {};
+  looks.set(key, look);
+  look.took = took;
+  const base = part ? { a: 'part', desk, part } : { a: 'state', desk };
+  const how = fresh ? 'fresh' : Office.current && Office.current.id === desk ? '' : 'stored';
+  const j = await getOnce(how ? { ...base, [how]: 1 } : base);
+  const seen = noteLook(look, j);
+  // the very state the page has, and the new look on its way: nothing to draw now
+  if (seen !== 'older' && !(seen === 'same' && j.refreshing)) took(j, false);
+  if (j.ok && j.refreshing && !look.pending) followLook(desk, look, base);
+  paintAsOf(desk);
+  return j;
+};
+
+/** The agent looks again: ask for that look (`wait`) and hand it over once the user is calm */
+function followLook(desk, look, base) {
+  look.since = Date.now();
+  const p = getOnce({ ...base, wait: 1 });
+  look.pending = p;
+  setTimeout(() => paintAsOf(desk), ASOF_PATIENCE + 50);
+  p.then((k) => whenCalm(() => tookLater(desk, look, p, k)));
+}
+function tookLater(desk, look, p, k) {
+  if (look.pending !== p) return;          // handed over already (Office.freshState())
+  look.pending = null;
+  if (noteLook(look, k) !== 'older' && look.took) {
+    if (Office.current && Office.current.id === desk) Office.keepInPlace(null, () => look.took(k, true));
+    else look.took(k, true);
+  }
+  paintAsOf(desk);
+}
+
+/**
+ * Before an action on what the page shows (a selection to delete, a plan's targets …): the state fresh — the look under
+ * way handed over at once, a stale one looked at again (fresh). False (and said) when no fresh look could be had: never
+ * act on a stale list.
+ */
+Office.freshState = async function freshState(desk, part) {
+  const look = looks.get(lookKey(desk, part));
+  if (!look || (!look.pending && !lookStale(look))) return true;     // never loaded through Office.loadState(), or fresh
+  Office.busy('look.' + desk, true);       // the wave while it takes more than a moment
+  try {
+    if (look.pending) {                    // the look under way (a failed one isn't asked for again at once)
+      const p = look.pending;
+      tookLater(desk, look, p, await p);
+    } else if (look.took) {
+      await Office.loadState(desk, { fresh: true, part }, look.took);
+    }
+  } finally {
+    Office.busy('look.' + desk, false);
+  }
+  if (!lookStale(look)) return true;
+  Office.toast(t('office.stale_refused', { name: t(`${desk}.name`) }), true);
+  return false;
+};
+
+/**
+ * Is the user in the middle of something a new picture would disturb? A dialog or menu open, a mouse button or finger
+ * down, or typing in a field of the page that its next render would build anew (fields built once, like a desk's
+ * filter, carry data-keep and don't count).
+ */
+const TYPING = 'textarea, select, input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]):not([type=file]):not([type=range]):not([type=color])';
+let pressed = 0;
+function calm() {
+  if (Office.dialogOpen() || Office.menuOpen() || (pressed && Date.now() - pressed < 3000)) return false;
+  const f = document.activeElement;
+  return !(f && f.matches && f.matches(TYPING) && !f.closest('[data-keep]') && $('#sso-desk').contains(f));
+}
+function whenCalm(fn) {
+  if (calm()) fn(); else setTimeout(() => whenCalm(fn), 250);
+}
+Office.calm = calm;
+
+/**
+ * «As of …»: a state older than the desk looks after shows when it was (the server's clock) — quietly, on the reception's
+ * card when older than ASOF_RECEPTION (or the desk's refresh_after, if longer), under the desk's head while its page
+ * shows a stale state and no new look came within ASOF_PATIENCE.
+ */
+const ASOF_RECEPTION = 900;
+const ASOF_PATIENCE = 1500;
+const asofNodes = new Map();       // desk -> the line under its head
+/** The oldest state the desk has shown (its own and its parts' that are looked after), or null */
+function deskLook(desk) {
+  let worst = null;
+  for (const [key, look] of looks) {
+    if ((key === desk || key.startsWith(desk + '/')) && typeof look.after === 'number' && (!worst || lookAge(look) - look.after > lookAge(worst) - worst.after)) worst = look;
+  }
+  return worst;
+}
+function asOfText(look) {
+  const when = Date.now() / 1000 - lookAge(look);
+  const today = Office.fmt.dayKey(when) === Office.fmt.dayKey(Date.now() / 1000);
+  return t('office.as_of', { when: today ? Office.fmt.time(when) : Office.fmt.date(when, true) });
+}
+/** The reception's quiet line for a desk's card, or null */
+function receptionAsOf(desk) {
+  const look = deskLook(desk);
+  if (!look || !isFinite(lookAge(look)) || lookAge(look) <= Math.max(look.after, ASOF_RECEPTION)) return null;
+  const li = el('li', 'role', asOfText(look));
+  li.title = t('office.as_of_tip');
+  return li;
+}
+function paintAsOf(desk, node) {
+  node = node || asofNodes.get(desk);
+  if (!node) return;
+  const look = deskLook(desk);
+  const waiting = look && look.pending && Date.now() - look.since < ASOF_PATIENCE;
+  const show = !!look && lookStale(look) && isFinite(lookAge(look)) && !waiting;
+  node.hidden = !show;
+  node.textContent = show ? asOfText(look) : '';
+  node.title = show ? t('office.as_of_tip') : '';
 }
 
 /** Text for an error {key, params} — desk-specific first, then the office's */
@@ -1057,6 +1216,11 @@ Office.deskHead = function deskHead(desk, { bubble, actions, page, pageSub }) {
     text.append(el('h1', '', t(`${desk.id}.name`)), el('div', 'role', t(`${desk.id}.role`)));
     if (bubble) b.append(bubble);
     text.appendChild(b);
+    // «As of …» while the page shows a state older than the desk looks after (paintAsOf())
+    const asof = el('div', 'role');
+    asofNodes.set(desk.id, asof);
+    paintAsOf(desk.id, asof);
+    text.appendChild(asof);
   }
   head.appendChild(text);
   const act = el('div', 'deskhead-actions');
@@ -1113,6 +1277,9 @@ async function reception(root) {
         if (r && r.bubble) bubble.append(r.bubble);
         else bubble.textContent = t('office.no_news');
         (r && r.facts || []).forEach((f) => facts.appendChild(el('li', '', f)));
+        // the cards show what the desks kept (never a look just for the reception): an old one says when it was
+        const asof = receptionAsOf(desk.id);
+        if (asof) facts.appendChild(asof);
       }).catch(() => { bubble.textContent = t('office.no_news'); });
     } else {
       bubble.textContent = t('office.no_news');
@@ -1462,6 +1629,9 @@ async function start() {
   $('#sso-state').onclick = Office.help;
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenu(); });
   initTips();
+  // a mouse button or finger down: a new picture waits until the click is done (calm())
+  document.addEventListener('pointerdown', () => { pressed = Date.now(); }, true);
+  ['pointerup', 'pointercancel'].forEach((ev) => document.addEventListener(ev, () => setTimeout(() => { pressed = 0; }, 0), true));
   window.addEventListener('scroll', relaxDesk, { passive: true });
   window.addEventListener('hashchange', route);
   route();

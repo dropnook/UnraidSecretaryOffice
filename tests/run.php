@@ -211,9 +211,10 @@ function testPlanGone(): void
 
     // sorting the targets: what exists is taken, what sleeps is skipped only when the plan says so, the rest is gone
     $scan = $host['scan']();
-    same('gone: targets sorted — take, skipped, gone', ['take' => ['zfs:hive/appdata', 'zfs:hive/system'], 'skipped' => [], 'gone' => ['zfs:mother/drop']],
+    same('gone: targets sorted — take, skipped, gone (and which of the taken ones sleep: the create wakes them, as the plan says)',
+        ['take' => ['zfs:hive/appdata', 'zfs:hive/system'], 'skipped' => [], 'gone' => ['zfs:mother/drop'], 'wake' => ['zfs:hive/appdata', 'zfs:hive/system']],
         snapPlanTargets($three, $scan, ['hive' => true]));
-    same('gone: a sleeping pool is skipped when the plan says so', ['take' => [], 'skipped' => ['zfs:hive/appdata', 'zfs:hive/system'], 'gone' => ['zfs:mother/drop']],
+    same('gone: a sleeping pool is skipped when the plan says so', ['take' => [], 'skipped' => ['zfs:hive/appdata', 'zfs:hive/system'], 'gone' => ['zfs:mother/drop'], 'wake' => []],
         snapPlanTargets(['skip_asleep' => true] + $three, $scan, ['hive' => true]));
     same('gone: remembered with its first time, a further one is new, one back is forgotten',
         ['gone' => ['zfs:a' => 100, 'zfs:c' => 500], 'new' => ['zfs:c']], snapPlanGone(['zfs:a' => 100, 'zfs:b' => 200], ['zfs:a', 'zfs:c'], 500));
@@ -317,6 +318,158 @@ function testPlanGone(): void
 
     putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
     unset($GLOBALS['snapPlanFile'], $GLOBALS['snapPlanStateFile']);
+    hardeningRm($tmp);
+}
+
+/**
+ * Sleeping ZFS pools (2026-10-07): Ms. Snapshotini and Mr. Restori list datasets and snapshots only on the awake
+ * pools (`zfs list … -r <pool>`; disks.ini says which sleep, a pool sleeps when any of its disks does) — a sleeping
+ * pool is never asked, it keeps what was last seen of it, marked asleep with when that was; «wake» lists it too.
+ * Her actions on such a snapshot refuse without `wake`; a plan's target on a sleeping pool nobody listed is asleep,
+ * not gone. Stand-ins for zfs, zpool and disks.ini in a temporary folder.
+ */
+function testSleepingPools(): void
+{
+    $tmp = hardeningTmp('sleepsnap');
+    $args = "$tmp/zfs-args.txt";
+    $ini = function (bool $hiveAsleep) use ($tmp): void {
+        $x = $hiveAsleep ? '1' : '0';
+        file_put_contents("$tmp/disks.ini", "[\"master\"]\nname=\"master\"\ntype=\"Cache\"\nfsType=\"luks:zfs\"\nspundown=\"0\"\n[\"master2\"]\nname=\"master2\"\ntype=\"Cache\"\nspundown=\"0\"\n"
+            . "[\"hive\"]\nname=\"hive\"\ntype=\"Cache\"\nfsType=\"zfs\"\nspundown=\"0\"\n[\"hive2\"]\nname=\"hive2\"\ntype=\"Cache\"\nspundown=\"$x\"\n"
+            . "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"luks:btrfs\"\nspundown=\"0\"\n[\"flash\"]\nname=\"flash\"\ntype=\"Boot\"\nfsType=\"zfs\"\nspundown=\"0\"\n");
+    };
+    file_put_contents("$tmp/zfs-ds.txt", "master\tfilesystem\t1000\t9000\t100\t50\t/mnt/master\nmaster/appdata\tfilesystem\t500\t9000\t400\t100\t/mnt/master/appdata\n"
+        . "hive\tfilesystem\t2000\t8000\t100\t0\t/mnt/hive\nhive/media\tfilesystem\t1500\t8000\t1400\t300\t/mnt/hive/media\nflash\tfilesystem\t10\t90\t10\t0\t/boot\n");
+    file_put_contents("$tmp/zfs-snaps.txt", "master/appdata@a\t11\t1700000000\t10\t400\t5\t0\t-\nmaster/appdata@b\t12\t1700003600\t10\t400\t5\t0\t-\n"
+        . "hive/media@h1\t21\t1700000000\t20\t1400\t0\t0\t-\nhive/media@h2\t22\t1700007200\t20\t1400\t0\t1\t-\nflash/cfg@f\t31\t1700000000\t1\t10\t0\t0\t-\n");
+    file_put_contents("$tmp/zpool.txt", "master\t8000000\t5000000\t3000000\t62\tONLINE\t16\nhive\t60000000\t600000\t59400000\t1\tONLINE\t0\nflash\t100\t10\t90\t10\tONLINE\t1\n");
+    // zfs lists only the pools named after -r (the columns asked for), answers holds with nothing, a dry destroy with a reclaim line
+    file_put_contents("$tmp/zfs", "#!/bin/sh\nprintf '%s\\n' \"\$*\" >> " . escapeshellarg($args) . "\ncase \"\$1\" in\n  list)\n    file=snaps; cols=; prev=\n"
+        . "    for a in \"\$@\"; do [ \"\$a\" = filesystem,volume ] && file=ds; [ \"\$a\" = filesystem ] && file=ds; [ \"\$prev\" = -o ] && cols=\$a; prev=\$a; done\n"
+        . "    case \$cols in name,mountpoint) cut=1,7;; name,creation) cut=1,3;; *) cut=1-;; esac\n    seen=0\n"
+        . "    for a in \"\$@\"; do [ \$seen = 1 ] && grep -E \"^\$a[/@\t]\" " . escapeshellarg($tmp) . "/zfs-\$file.txt | cut -f\$cut; [ \"\$a\" = -r ] && seen=1; done\n    exit 0;;\n"
+        . "  destroy) printf 'reclaim\\t1000\\n';;\nesac\nexit 0\n");
+    file_put_contents("$tmp/zpool", "#!/bin/sh\n[ \"\$1\" = list ] && cat " . escapeshellarg("$tmp/zpool.txt") . "\nexit 0\n");
+    chmod("$tmp/zfs", 0755);
+    chmod("$tmp/zpool", 0755);
+    $GLOBALS['disksIni'] = "$tmp/disks.ini";
+    $GLOBALS['snapshotHost'] = ['zfs' => "$tmp/zfs", 'zpool' => "$tmp/zpool", 'docker' => null];
+    $asked = function () use ($args): array {
+        $lines = array_values(array_filter(explode("\n", (string) @file_get_contents($args))));
+        @unlink($args);
+        return array_map(fn ($l) => preg_replace('/^list .* -r /', 'list -r ', $l), $lines);
+    };
+    $poolsOf = fn (array $z) => array_map(fn ($p) => [$p['name'], $p['asleep'], $p['count']], $z['pools']);
+    $names = fn (array $list) => array_map(fn ($x) => $x['id'] . (!empty($x['asleep']) ? ' (asleep)' : ''), $list);
+
+    // the shared helper: a pool sleeps when any of its disks does; a name disks.ini doesn't know is awake
+    $ini(true);
+    same('sleeping pools: sorted by disks.ini — hive sleeps through hive2, master and the boot pool are awake, an unknown pool counts as awake',
+        ['awake' => ['master', 'flash', 'ud'], 'asleep' => ['hive']], poolsBySleep(['master', 'hive', 'flash', 'ud']));
+
+    // Ms. Snapshotini, nothing known yet and hive asleep: zfs is asked for master and flash only; hive is there, asleep, never looked at
+    $z = snapshotReadZfs(null, false);
+    same('Snapshotini: zfs asked for the awake pools only (datasets and snapshots)', ['list -r master flash', 'list -r master flash'], $asked());
+    same('Snapshotini: the sleeping pool is listed as asleep, never looked at, without snapshots; the others as before',
+        [[['master', false, 2], ['hive', true, 0], ['flash', false, 1]], ['hive'], null, 'zfs:master/appdata@a', 'zfs:master/appdata@b', 'zfs:flash/cfg@f'],
+        [$poolsOf($z), $z['asleep'], $z['pools'][1]['looked'], ...array_column($z['snapshots'], 'id')]);
+    same('Snapshotini: no dataset of the sleeping pool either', ['zfs:master', 'zfs:master/appdata', 'zfs:flash'], array_column($z['volumes'], 'id'));
+    check('Snapshotini: the awake pools carry when they were looked at', is_int($z['pools'][0]['looked']) && $z['pools'][0]['looked'] > 0);
+
+    // hive awake: everything listed; then asleep again — hive keeps what she saw, marked asleep with when that was; nothing asked of it
+    $ini(false);
+    $all = ['time' => 1700000000, 'zfs' => snapshotReadZfs(null, false)];
+    same('Snapshotini: all pools awake — all listed', [['list -r master hive flash', 'list -r master hive flash', 'holds -H hive/media@h2'], [['master', false, 2], ['hive', false, 2], ['flash', false, 1]]],
+        [$asked(), $poolsOf($all['zfs'])]);
+    $ini(true);
+    $z = snapshotReadZfs($all, false);
+    same('Snapshotini: hive asleep again — zfs asked for master and flash only, hive keeps its list as last seen, each snapshot marked',
+        [['list -r master flash', 'list -r master flash'], [['master', false, 2], ['hive', true, 2], ['flash', false, 1]],
+         ['zfs:master/appdata@a', 'zfs:master/appdata@b', 'zfs:flash/cfg@f', 'zfs:hive/media@h1 (asleep)', 'zfs:hive/media@h2 (asleep)'],
+         ['zfs:master', 'zfs:master/appdata', 'zfs:flash', 'zfs:hive (asleep)', 'zfs:hive/media (asleep)']],
+        [$asked(), $poolsOf($z), $names($z['snapshots']), $names($z['volumes'])]);
+    same('Snapshotini: the sleeping pool says when it was last looked at, and keeps what its snapshots held', [$all['zfs']['pools'][1]['looked'], 300],
+        [$z['pools'][1]['looked'], $z['pools'][1]['snapused']]);
+    $old = $all;
+    unset($old['zfs']['pools'][1]['looked']);
+    same('Snapshotini: a state from before (no `looked` yet) — the scan\'s time stands in', 1700000000, snapshotReadZfs($old, false)['pools'][1]['looked']);
+    $asked();
+    $z2 = snapshotReadZfs($z, true);
+    same('Snapshotini: «wake» — the sleeping pool is listed too, nothing is asleep any more', [['list -r master hive flash', 'list -r master hive flash', 'holds -H hive/media@h2'], [['master', false, 2], ['hive', false, 2], ['flash', false, 1]], []],
+        [$asked(), $poolsOf($z2), $z2['asleep']]);
+    same('Snapshotini: the names of the pools asleep, for the log', ['hive'], snapshotPoolsAsleep(['zfs' => $z]));
+
+    // her actions: the estimate leaves a sleeping pool's snapshot out (counted), delete/rename/hold refuse it without «wake»
+    $GLOBALS['snapshot'] = ['zfs' => $z, 'btrfs' => ['devices' => [], 'snapshots' => []], 'vm' => ['snapshots' => []]];
+    $e = snapshotEstimate(['zfs:master/appdata@a', 'zfs:hive/media@h1', 'zfs:nobody@x']);
+    same('Snapshotini: the estimate asks zfs only about the awake pool\'s snapshot, counts the sleeping one',
+        [['destroy -nvp master/appdata@a'], 1000, 1, 0], [$asked(), $e['bytes'], $e['asleep'], $e['unknown']]);
+    $index = snapshotIndex($GLOBALS['snapshot']);
+    try {
+        snapshotRefuseAsleep($index['zfs:hive/media@h1']);
+        check('Snapshotini: a snapshot on a sleeping pool is refused', false);
+    } catch (Problem $p) {
+        same('Snapshotini: a snapshot on a sleeping pool is refused — naming it and its pool', ['pool_asleep', ['name' => 'hive/media@h1', 'pool' => 'hive']], [$p->key, $p->params]);
+    }
+    snapshotRefuseAsleep($index['zfs:master/appdata@a']);
+    check('Snapshotini: one on an awake pool passes', true);
+    $GLOBALS['snapshot'] = null;
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/snapshot/lang/en.json'), true) ?: [];
+    check('Snapshotini: the page can say it', isset($en['errors.pool_asleep'], $en['pool_asleep_chip'], $en['delete.wake'], $en['rename.wake'], $en['wake_for.confirm']));
+
+    // her plans: a target on a sleeping pool that was never listed is asleep (skipped when the plan says so, else taken with a wake), not gone
+    $state = ['zfs' => ['pools' => [['name' => 'hive', 'asleep' => true]], 'volumes' => []], 'btrfs' => ['devices' => []]];
+    $plan = ['targets' => ['zfs:hive/appdata', 'zfs:gone/x'], 'skip_asleep' => true];
+    same('plans: a target on a sleeping, never listed pool is skipped, not gone', ['take' => [], 'skipped' => ['zfs:hive/appdata'], 'gone' => ['zfs:gone/x'], 'wake' => []],
+        snapPlanTargets($plan, $state, ['hive' => false, 'hive2' => true]));
+    same('plans: … and taken with a wake when the plan takes sleeping targets', ['take' => ['zfs:hive/appdata'], 'skipped' => [], 'gone' => ['zfs:gone/x'], 'wake' => ['zfs:hive/appdata']],
+        snapPlanTargets(['skip_asleep' => false] + $plan, $state, ['hive' => false, 'hive2' => true]));
+    same('plans: on an awake pool a target nobody lists is gone', ['take' => [], 'skipped' => [], 'gone' => ['zfs:hive/appdata', 'zfs:gone/x'], 'wake' => []],
+        snapPlanTargets($plan, $state, ['hive' => false, 'hive2' => false]));
+
+    // Mr. Restori: his look lists the awake pools only; a sleeping pool keeps its list in his file, rsLocate names what he last saw
+    $GLOBALS['rs']['fs'] = ['master' => 'zfs', 'hive' => 'zfs', 'disk1' => 'btrfs'];
+    $GLOBALS['rs']['zfs_bin'] = "$tmp/zfs";
+    $GLOBALS['rs']['kept_file'] = "$tmp/restore-zfs.json";
+    $ini(true);
+    $ctx = rsContext([]);
+    same('Restori: zfs asked for the awake pool only, the sleeping one named, never looked at yet',
+        [['list -r master', 'list -r master'], ['/mnt/master' => 'master', '/mnt/master/appdata' => 'master/appdata'], ['master/appdata'], ['hive' => null], null],
+        [$asked(), $ctx['zfs'], array_keys($ctx['snaps']), $ctx['pools_asleep'], rsKeptLook('/mnt/hive/media/x', 'hive', $ctx)]);
+    $ini(false);
+    $ctx = rsContext([]);
+    rsKeptWrite($ctx['zfs_kept']);
+    same('Restori: all awake — both listed, his file keeps both', [['list -r master hive', 'list -r master hive'], ['master', 'hive'], []],
+        [$asked(), array_keys((readJson("$tmp/restore-zfs.json") ?? [])['pools'] ?? []), $ctx['pools_asleep']]);
+    $ini(true);
+    $ctx = rsContext([]);
+    $kept = rsKeptLook('/mnt/hive/media/films', 'hive', $ctx);
+    same('Restori: hive asleep again — only master live; hive as last seen from his file: the dataset holding the path, its snapshots then, as of when',
+        [['list -r master', 'list -r master'], ['master/appdata'], true, ['hive/media', 2, 1700007200], true, ['hive', 0], 'master'],
+        [$asked(), array_keys($ctx['snaps']), is_int($ctx['pools_asleep']['hive'] ?? null), [$kept['dataset'], $kept['count'], $kept['newest']], $kept['looked'] === $ctx['pools_asleep']['hive'],
+         [rsKeptLook('/mnt/hive/other', 'hive', $ctx)['dataset'], rsKeptLook('/mnt/hive/other', 'hive', $ctx)['count']], rsKeptLook('/mnt/master/x', 'master', $ctx)['dataset'] ?? null]);
+    // «wake» ticked and the pool answered (rsWake marks its disks awake): listed fresh into the live lists
+    foreach (array_keys($ctx['asleep']) as $n) {
+        $ctx['asleep'][$n] = false;
+    }
+    rsContextZfs($ctx, ['hive']);
+    same('Restori: after a wake the pool is listed into the live lists', [['list -r hive', 'list -r hive'], ['master/appdata', 'hive/media'], 'hive/media', []],
+        [$asked(), array_keys($ctx['snaps']), $ctx['zfs']['/mnt/hive/media'] ?? null, $ctx['pools_asleep']]);
+    // his file is trusted only in his shape
+    file_put_contents("$tmp/restore-zfs.json", json_encode(['pools' => ['hive' => ['looked' => 'soon', 'mounts' => ['/etc' => 'hive/x', '/mnt/hive' => 'other/ds', '/mnt/hive/ok' => 'hive/ok'], 'snaps' => ['hive/ok' => [['a', 1], ['b', 'x'], 'junk']]]]]));
+    $ctx = rsContext([]);
+    $asked();
+    same('Restori: junk in his file is left out, an odd `looked` means never looked (nothing said of the pool then)', [null, ['hive/ok' => [['a', 1]]], ['/mnt/hive/ok' => 'hive/ok'], null],
+        [$ctx['pools_asleep']['hive'], $ctx['zfs_kept']['hive']['snaps'], $ctx['zfs_kept']['hive']['mounts'], rsKeptLook('/mnt/hive/ok', 'hive', $ctx)]);
+    file_put_contents("$tmp/restore-zfs.json", json_encode(['pools' => ['hive' => ['looked' => 1700000500, 'mounts' => ['/etc' => 'hive/x', '/mnt/hive' => 'other/ds', '/mnt/hive/ok' => 'hive/ok'], 'snaps' => ['hive/ok' => [['a', 1], ['b', 'x'], 'junk'], 'other/ds' => [['c', 2]]]]]]));
+    $ctx = rsContext([]);
+    $asked();
+    same('Restori: only mounts under /mnt of that pool and well-formed snapshots are taken', [['/mnt/hive/ok' => 'hive/ok'], ['hive/ok' => [['a', 1]]], ['dataset' => 'hive/ok', 'count' => 1, 'newest' => 1, 'looked' => 1700000500]],
+        [$ctx['zfs_kept']['hive']['mounts'], $ctx['zfs_kept']['hive']['snaps'], rsKeptLook('/mnt/hive/ok/sub', 'hive', $ctx)]);
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'), true) ?: [];
+    check('Restori: the page can say it', isset($en['snaps.kept'], $en['snaps.kept_hint']));
+
+    unset($GLOBALS['disksIni'], $GLOBALS['snapshotHost'], $GLOBALS['rs']['fs'], $GLOBALS['rs']['zfs_bin'], $GLOBALS['rs']['kept_file']);
     hardeningRm($tmp);
 }
 
@@ -9216,11 +9369,12 @@ function testWhereDesk(): void
         officeDeskParts(['ok' => ['refresh_after' => 5, 'action' => 'look'], 'Bad' => ['refresh_after' => 5, 'action' => 'look'], 'x' => ['refresh_after' => '5', 'action' => 'look'],
                          'y' => ['refresh_after' => 0, 'action' => 'look'], 'z' => ['refresh_after' => 5, 'action' => 'a.b'], 'w' => 'look', 7 => ['refresh_after' => 5, 'action' => 'look']]));
     same('where desk: … and none without any', [[], []], [officeDeskParts(null), officeDeskParts('where')]);
-    check('where desk: the page reads her look with fresh, never by its own clock',
-        str_contains($js, "part: 'where', fresh:") && !preg_match('/Date\.now\(\)[^\n]*state\.time/', $js) && !str_contains($js, '.where_refresh`'));
+    check('where desk: the page reads her look through Office.loadState() (fresh when asked), never by its own clock',
+        str_contains($js, "Office.loadState(ID, { part: 'where', fresh }") && !preg_match('/Date\.now\(\)[^\n]*state\.time/', $js) && !str_contains($js, '.where_refresh`'));
     $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
-    check('where desk: the API asks for the action desk.json names, with the short wait, hired desks only',
-        (bool) preg_match('/askAgent\("\$desk\.\{\$rule\[\'action\'\]\}", \[\], 10\)/', $api) && str_contains($api, "officeIsHired(\$desk) && (\$fresh || \$age > \$rule['refresh_after'])"));
+    check('where desk: the API looks with the action desk.json names (apiLook(), the short wait), hired desks only',
+        str_contains($api, "apiLook(\$file, \"\$desk.{\$rule['action']}\", \$rule['refresh_after'], \"\$desk.\$part\", \$look)")
+        && str_contains($api, "if (\$rule === null || !officeIsHired(\$desk)) {") && str_contains($api, 'askAgent($action, [], 10)'));
 
     // links to her page name the part they mean (her rooms are «Tidying up», far below «Where is what»)
     $links = [];
@@ -9977,6 +10131,316 @@ function testLiveRunUntouched(): void
     same('live run folder: no test wrote into it', [], array_values(array_diff(scandir(TESTS_LIVE_RUN) ?: [], ['.', '..'])));
 }
 
+/**
+ * Show first, then look (Benj 2026-10-07, perf report levers 1 and 2): src/api.php apiLook() through the web side, in a
+ * process of its own (a plugin's layout, the data and RAM folders in $tmp); this one plays the agent. A fresh state is
+ * answered as it is; a stale one at once with `stale`/`refreshing`, its look left for after the answer (one per state at
+ * a time — a second ask meanwhile only says `refreshing`); `wait` waits for that look; `fresh` asks and waits; `stored`
+ * (the reception, the badges) never asks the agent; the agent away: as it is; parts the same, unhired ones as plain files.
+ */
+function testApiLook(): void
+{
+    $tmp = hardeningTmp('apilook');
+    mkdir("$tmp/plugin/src", 0700, true);
+    foreach (glob(OFFICE_DIR . '/src/*.php') ?: [] as $f) {
+        copy($f, "$tmp/plugin/src/" . basename($f));
+    }
+    foreach (['desks', 'lang'] as $d) {
+        symlink(OFFICE_WEB . "/$d", "$tmp/plugin/$d");
+    }
+    mkdir("$tmp/data/mailbox", 0700, true);
+    mkdir("$tmp/data/office", 0700, true);
+    mkdir("$tmp/run", 0700);
+    file_put_contents("$tmp/data/office/staff.json", json_encode(['hired' => ['snapshot' => 1, 'cleanup' => 2]]));
+    $agent = fn (bool $running = true) => file_put_contents("$tmp/data/agent.json",
+        json_encode(['running' => $running, 'version' => AGENT_VERSION, 'pid' => 4242, 'started' => 1000, 'host' => 'test', 'desks' => []]));
+    $state = fn (string $file, int $age, string $mark) => file_put_contents("$tmp/data/$file", json_encode(['time' => time() - $age, 'mark' => $mark]));
+    $requests = fn (): array => array_map(fn ($f) => json_decode((string) file_get_contents($f), true)['action'] ?? '?', glob("$tmp/data/mailbox/*.request") ?: []);
+    file_put_contents("$tmp/web.php", '<?php require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . '; require ' . var_export("$tmp/plugin/src/api.php", true) . ';'
+        . ' $s = json_decode($argv[1], true); $t = microtime(true);'
+        . ' if (isset($s["modes"])) { echo json_encode(["modes" => array_map("apiLookMode", $s["modes"])]); exit; }'
+        . ' $r = $s["part"] !== null ? apiPart($s["desk"], $s["part"], $s["look"]) : apiState($s["desk"], $s["look"]);'
+        . ' if (!empty($s["then"])) { answerThenLook($r); }'
+        . ' $r["later"] = isset($r["later"]); $r["s"] = round(microtime(true) - $t, 2); echo json_encode($r);');
+    // the web side asks (a process of its own) while $play() answers as the agent
+    $open = function (array $s) use ($tmp): array {
+        $p = proc_open([PHP_BINARY, "$tmp/web.php", json_encode($s + ['part' => null, 'look' => ''])],
+            [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => "$tmp/run", 'PATH' => getenv('PATH')]);
+        return [$p, $pipes];
+    };
+    $close = function (array $h): array {
+        [$p, $pipes] = $h;
+        $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return (json_decode(substr($raw, (int) strpos($raw, '{')), true) ?: []) + ['raw' => $raw];
+    };
+    $ask = fn (array $s): array => $close($open($s));
+    // the agent: the next request (≤ 3 s), its look written to the state file like a desk's refresh, then answered
+    $play = function (string $file, string $mark, float $after = 0.0) use ($tmp): ?string {
+        for ($i = 0, $req = null; $i < 60 && $req === null; $i++) {
+            usleep(50000);
+            $req = (glob("$tmp/data/mailbox/*.request") ?: [null])[0];
+        }
+        if ($req === null) {
+            return null;
+        }
+        $action = json_decode((string) file_get_contents($req), true)['action'] ?? '?';
+        unlink($req);
+        usleep((int) ($after * 1e6));
+        $new = ['time' => time(), 'mark' => $mark];
+        file_put_contents("$tmp/data/$file", json_encode($new));
+        file_put_contents(substr($req, 0, -strlen('.request')) . '.response', json_encode(['ok' => true, 'state' => $new]));
+        return $action;
+    };
+    $agent();
+
+    // fresh enough (younger than refresh_after 60): as it is, no look
+    $state('snapshot.json', 10, 'young');
+    $r = $ask(['desk' => 'snapshot']);
+    same('api look: a fresh state as it is', ['young', false, false, false, 60], [$r['state']['mark'] ?? $r['raw'], $r['stale'] ?? null, $r['refreshing'] ?? null, $r['later'] ?? null, $r['refresh_after'] ?? null]);
+    check('api look: … its age by the server\'s clock', ($r['age'] ?? -1) >= 10 && $r['age'] <= 12);
+    same('api look: … and no request for the agent', [], $requests());
+
+    // stale, from the reception (stored): as it is, said so, never a request
+    $state('snapshot.json', 1800, 'old');
+    $r = $ask(['desk' => 'snapshot', 'look' => 'stored']);
+    same('api look: the reception (stored) gets the stale state, told so, no look', ['old', true, false, false],
+        [$r['state']['mark'] ?? $r['raw'], $r['stale'] ?? null, $r['refreshing'] ?? null, $r['later'] ?? null]);
+    same('api look: … and no request for the agent', [], $requests());
+    $r = $ask(['desk' => 'cleanup', 'part' => 'where', 'look' => 'stored']);
+    same('api look: a part as stored too (none kept: null, stale)', [null, true, false, []], [array_key_exists('part', $r) ? $r['part'] : 'x', $r['stale'] ?? null, $r['refreshing'] ?? null, $requests()]);
+
+    // stale, her page: answered at once — the look comes after the answer, the browser has it first
+    $h = $open(['desk' => 'snapshot', 'then' => true]);
+    stream_set_blocking($h[1][1], false);
+    $first = '';
+    for ($i = 0; $i < 60 && !str_ends_with($first, '}'); $i++) {
+        usleep(50000);
+        $first .= (string) fread($h[1][1], 65536);
+    }
+    $a = json_decode($first, true) ?: [];
+    same('api look: a stale state at once, the look under way', ['old', true, true], [$a['state']['mark'] ?? $first, $a['stale'] ?? null, $a['refreshing'] ?? null]);
+    usleep(200000);
+    check('api look: … the answer out while the look still waits for the agent (after the answer, in the same process)',
+        $requests() === ['snapshot.refresh'] && (proc_get_status($h[0])['running'] ?? false));
+    // meanwhile a second page (another tab): no second look, only «under way»
+    usleep(300000);
+    $r = $ask(['desk' => 'snapshot']);
+    same('api look: one look at a time — a second ask meanwhile only says refreshing', ['old', true, true, false],
+        [$r['state']['mark'] ?? $r['raw'], $r['stale'] ?? null, $r['refreshing'] ?? null, $r['later'] ?? null]);
+    same('api look: … one request for the agent, the desk\'s refresh', ['snapshot.refresh'], $requests());
+    // the page's second ask waits for that look; the agent answers
+    $w = $open(['desk' => 'snapshot', 'look' => 'wait']);
+    same('api look: the background look asks the desk\'s refresh', 'snapshot.refresh', $play('snapshot.json', 'looked', 0.4));
+    $r = $close($w);
+    same('api look: wait gets the new look once it is there', ['looked', false, false, false], [$r['state']['mark'] ?? $r['raw'], $r['stale'] ?? null, $r['refreshing'] ?? null, $r['later'] ?? null]);
+    $close($h);
+    $lock = fopen("$tmp/run/look-snapshot.lock", 'c');
+    check('api look: … the look\'s lock let go (RAM, never the pool)', $lock && flock($lock, LOCK_EX | LOCK_NB) && !glob("$tmp/data/*.lock"));
+    if ($lock) {
+        fclose($lock);
+    }
+    same('api look: … nothing left in the mailbox', [], array_values(array_diff(scandir("$tmp/data/mailbox") ?: [], ['.', '..'])));
+    $r = $ask(['desk' => 'snapshot', 'look' => 'wait']);
+    check('api look: wait with no look under way answers at once, never starts one', ($r['s'] ?? 9) < 1 && $requests() === [] && ($r['state']['mark'] ?? '') === 'looked');
+
+    // fresh (the Tour / «Look again»): asks and waits, as before
+    $h = $open(['desk' => 'snapshot', 'look' => 'fresh']);
+    same('api look: fresh asks the agent', 'snapshot.refresh', $play('snapshot.json', 'again'));
+    $r = $close($h);
+    same('api look: … and waits for the new state', ['again', false, false], [$r['state']['mark'] ?? $r['raw'], $r['stale'] ?? null, $r['later'] ?? null]);
+
+    // nothing kept yet: nothing to show, so it waits for the look (as before)
+    @unlink("$tmp/data/snapshot.json");
+    $h = $open(['desk' => 'snapshot']);
+    same('api look: no state yet — the look is waited for', 'snapshot.refresh', $play('snapshot.json', 'first'));
+    $r = $close($h);
+    same('api look: … and answered', ['first', false], [$r['state']['mark'] ?? $r['raw'], $r['refreshing'] ?? null]);
+
+    // a part desk.json names (her «Where is what», 600 s): the same, with its own action and lock
+    $state('cleanup-where.json', 1200, 'old where');
+    $r = $ask(['desk' => 'cleanup', 'part' => 'where']);
+    same('api look: a stale part at once, its look left for after the answer', ['old where', true, true, true, 600],
+        [$r['part']['mark'] ?? $r['raw'], $r['stale'] ?? null, $r['refreshing'] ?? null, $r['later'] ?? null, $r['refresh_after'] ?? null]);
+    same('api look: … (the answer only: nothing asked yet)', [], $requests());
+    $h = $open(['desk' => 'cleanup', 'part' => 'where', 'then' => true]);
+    same('api look: the part\'s look asks the action desk.json names', 'cleanup.where_refresh', $play('cleanup-where.json', 'new where'));
+    $close($h);
+    same('api look: … its own lock', true, is_file("$tmp/run/look-cleanup.where.lock"));
+    $state('cleanup-where.json', 1200, 'old where');
+    file_put_contents("$tmp/data/office/staff.json", json_encode(['hired' => ['snapshot' => 1]]));
+    $r = $ask(['desk' => 'cleanup', 'part' => 'where']);
+    same('api look: a part of a desk not hired: a plain file, never a look', ['old where', false, []], [$r['part']['mark'] ?? $r['raw'], array_key_exists('stale', $r), $requests()]);
+    $r = $ask(['desk' => 'restore', 'part' => 'job']);
+    same('api look: a part desk.json doesn\'t name: a plain file', [null, false], [array_key_exists('part', $r) ? $r['part'] : 'x', array_key_exists('refreshing', $r)]);
+
+    // the agent away (the array stopping, a crash): as it is, said stale, nothing dropped into the mailbox
+    $state('snapshot.json', 1800, 'old');
+    $agent(false);
+    $r = $ask(['desk' => 'snapshot']);
+    same('api look: the agent away — as it is, stale, no look', ['old', true, false, false, []],
+        [$r['state']['mark'] ?? $r['raw'], $r['stale'] ?? null, $r['refreshing'] ?? null, $r['later'] ?? null, $requests()]);
+    same('api look: unknown desk refused', 'unknown_desk', $ask(['desk' => 'nobody'])['error']['key'] ?? null);
+    $r = $ask(['modes' => [[], ['fresh' => '1'], ['wait' => '1'], ['stored' => '1'], ['fresh' => '0', 'stored' => '1'], ['fresh' => '0']]]);
+    same('api look: the modes from the query', ['', 'fresh', 'wait', 'stored', 'stored', ''], $r['modes'] ?? $r['raw']);
+
+    // the page: only the desk shown looks, everyone else (the reception's cards, the badges) reads as stored
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    check('api look: core.js asks stored unless the desk is shown, fresh when asked',
+        str_contains($core, "const how = fresh ? 'fresh' : Office.current && Office.current.id === desk ? '' : 'stored';"));
+    $direct = [];
+    foreach (glob(OFFICE_WEB . '/desks/*/desk.js') ?: [] as $f) {
+        if (preg_match("/a: 'state'/", (string) file_get_contents($f))) {
+            $direct[] = basename(dirname($f));
+        }
+        if (preg_match_all("/a: 'part', desk: ID, part: '([a-z-]+)'/", (string) file_get_contents($f), $m)) {
+            foreach ($m[1] as $part) {
+                if (isset(officeDeskPartsOf(basename(dirname($f)))[$part])) {
+                    $direct[] = basename(dirname($f)) . "/$part";
+                }
+            }
+        }
+    }
+    same('api look: every desk reads its state (and the parts that are looked after) through Office.loadState()', [], $direct);
+    hardeningRm($tmp);
+}
+
+/** desk.json "parts" of a desk (src/desks.php officeDeskParts()) */
+function officeDeskPartsOf(string $desk): array
+{
+    require_once OFFICE_DIR . '/src/desks.php';
+    $meta = json_decode((string) @file_get_contents(OFFICE_WEB . "/desks/$desk/desk.json"), true);
+    return officeDeskParts(is_array($meta) ? ($meta['parts'] ?? null) : null);
+}
+
+/**
+ * The page's side of «show first, then look» (core.js Office.loadState() / Office.freshState()), run by node on a stand-in
+ * page with a stand-in fetch (skipped where node is missing): the reception asks as stored, the same question on its way
+ * once (the reception and started() together); the desk shown gets its kept state at once and the new look (`wait`)
+ * after it — handed over only once no dialog is open; an answer older than what is shown is dropped; actions ask for a
+ * fresh state first (none needed, a fresh look, the look under way handed over at once) and are refused without one.
+ */
+function testLookPage(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('look page: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('lookpage');
+    file_put_contents("$tmp/t.js", <<<'JS'
+// core.js's show-first-then-look under node: a stand-in page (no DOM worth the name) and a stand-in fetch
+const fs = require('fs');
+const mk = () => ({ style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [],
+  classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {},
+  setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
+  querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+  getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0 }), focus() {}, select() {} });
+globalThis.window = globalThis;
+globalThis.innerHeight = 800; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+globalThis.navigator = { languages: ['en'] };
+globalThis.history = { replaceState() {} };
+globalThis.location = { hash: '', reload() {} };
+const CONFIG = { desks: [{ id: 'snapshot', refresh_after: 60 }], languages: [{ code: 'en' }], base: '', staff_order: [] };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : mk()),
+  querySelector: () => mk(), querySelectorAll: () => [], createElement: () => mk(), addEventListener() {},
+  documentElement: { scrollHeight: 0 }, activeElement: null, hidden: false, body: mk() };
+const calls = [];
+let answers = {};
+globalThis.fetch = async (url) => {
+  calls.push(String(url).replace(/^api\.php\?/, ''));
+  let a = { ok: false };
+  for (const [k, v] of Object.entries(answers)) if (new RegExp(k).test(url)) { a = v; break; }
+  if (typeof a === 'function') a = await a();
+  return { redirected: false, url, ok: true, status: 200, json: async () => a, text: async () => JSON.stringify(a) };
+};
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const O = globalThis.Office;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const later = (ms, a) => () => sleep(ms).then(() => a);
+const ans = (time, age, refreshing) => ({ ok: true, state: { time }, age, stale: age > 60, refreshing: !!refreshing, refresh_after: 60 });
+const out = {};
+(async () => {
+  const got = [];
+  const took = (j, l) => got.push([j.state && j.state.time, !!l]);
+  // the reception: stored, the same question twice on its way = one request, both get it
+  O.current = null;
+  answers = { 'stored=1': later(30, ans(100, 2000)) };
+  calls.length = 0;
+  await Promise.all([O.loadState('snapshot', {}, took), O.loadState('snapshot', {}, took)]);
+  out.reception = { calls: calls.slice(), got: got.splice(0) };
+  // her page: at once (the very state the page has: nothing to draw), the new look follows (wait) and is handed over
+  O.current = { id: 'snapshot' };
+  answers = { 'wait=1': later(80, ans(200, 0)), 'desk=snapshot$': ans(100, 2010, true) };
+  calls.length = 0;
+  await O.loadState('snapshot', {}, took);
+  out.firstDrawn = got.splice(0);
+  await sleep(250);
+  out.page = { calls: calls.slice(), got: got.splice(0) };
+  // a dialog open: the new look waits for it to close
+  answers = { 'wait=1': later(20, ans(300, 0)), 'desk=snapshot$': ans(200, 700, true) };
+  O.dialogOpen = () => true;
+  await O.loadState('snapshot', {}, took);
+  await sleep(500);
+  out.whileDialog = got.splice(0);
+  O.dialogOpen = () => false;
+  await sleep(400);
+  out.afterDialog = got.splice(0);
+  // an answer older than what is shown is dropped
+  answers = { 'desk=snapshot$': ans(250, 10) };
+  await O.loadState('snapshot', {}, took);
+  out.older = got.splice(0);
+  // fresh: nothing to ask
+  calls.length = 0;
+  out.freshOk = [await O.freshState('snapshot'), calls.slice()];
+  // stale (time went by): a fresh look first
+  answers = { 'desk=snapshot$': ans(300, 500), 'fresh=1': later(20, ans(400, 0)) };
+  await O.loadState('snapshot', {}, took);
+  got.splice(0);
+  calls.length = 0;
+  out.freshAsked = [await O.freshState('snapshot'), calls.slice(), got.splice(0)];
+  // a look under way: handed over at once, even with a dialog open (the user asked for it)
+  answers = { 'desk=snapshot$': ans(400, 500, true), 'wait=1': later(100, ans(500, 0)) };
+  O.dialogOpen = () => true;
+  await O.loadState('snapshot', {}, took);
+  calls.length = 0;
+  out.pendingTaken = [await O.freshState('snapshot'), calls.slice(), got.splice(0)];
+  O.dialogOpen = () => false;
+  await sleep(400);
+  out.pendingTwice = got.splice(0);
+  // no fresh look to be had (the agent busy or away): refused, never on the stale list
+  answers = { 'desk=snapshot$': ans(500, 900), 'fresh=1': ans(500, 900) };
+  await O.loadState('snapshot', {}, took);
+  got.splice(0);
+  out.refused = await O.freshState('snapshot');
+  console.log(JSON.stringify(out));
+  process.exit(0);
+})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
+    $r = json_decode($raw, true);
+    if (!is_array($r) || isset($r['error'])) {
+        check('look page: ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('look page: the reception asks as stored, the same question once, both get the answer',
+        [['a=state&desk=snapshot&stored=1'], [[100, false], [100, false]]], [$r['reception']['calls'], $r['reception']['got']]);
+    same('look page: her page — the state she has and the look under way: nothing drawn twice', [], $r['firstDrawn']);
+    same('look page: … the new look asked for (wait) and handed over', [['a=state&desk=snapshot', 'a=state&desk=snapshot&wait=1'], [[200, true]]],
+        [$r['page']['calls'], $r['page']['got']]);
+    same('look page: a dialog open — the new look waits for it to close', [[], [[300, true]]], [$r['whileDialog'], $r['afterDialog']]);
+    same('look page: an answer older than what is shown is dropped', [], $r['older']);
+    same('look page: an action on a fresh state asks nothing', [true, []], $r['freshOk']);
+    same('look page: an action on a stale state waits for a fresh look', [true, ['a=state&desk=snapshot&fresh=1'], [[400, false]]], $r['freshAsked']);
+    same('look page: … the look under way handed over at once (a dialog open or not), once', [[true, [], [[500, true]]], []], [$r['pendingTaken'], $r['pendingTwice']]);
+    same('look page: no fresh look to be had — refused (never on a stale list)', false, $r['refused']);
+    hardeningRm($tmp);
+}
+
 /** The ⟦labels⟧ of a text, sorted (with repeats) */
 function langTokens(string $s): array
 {
@@ -10051,9 +10515,9 @@ function testUnraidWords(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings', 'testUnraidWords']];
 $only = $argv[1] ?? '';

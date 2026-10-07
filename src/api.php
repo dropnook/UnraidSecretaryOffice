@@ -4,9 +4,13 @@ declare(strict_types=1);
 /*
  * JSON API for the office.
  *
- * GET  ?a=state&desk=<id>[&fresh=1]   a desk's last state (refreshed when stale)
- * GET  ?a=part&desk=<id>&part=<name>[&fresh=1]  an extra state file data/<id>-<name>.json (refreshed when stale,
- *                                     where desk.json "parts" says how — officeDeskParts())
+ * GET  ?a=state&desk=<id>[&fresh=1|wait=1|stored=1]   a desk's last state, at once (show first, then look — apiLook()):
+ *                                     older than its refresh_after it is `stale` and the agent looks again in the
+ *                                     background (`refreshing`, one look per desk at a time); fresh=1 waits for a new
+ *                                     look (the Tour / «Look again» buttons), wait=1 for the one under way (the page's
+ *                                     second ask), stored=1 never asks the agent (the reception, the badges)
+ * GET  ?a=part&desk=<id>&part=<name>[&fresh=1|wait=1|stored=1]  an extra state file data/<id>-<name>.json, looked at
+ *                                     again the same way where desk.json "parts" says how (officeDeskParts())
  * GET  ?a=strings&lang=<code>         all UI strings of a language
  * GET  ?a=log                         tail of the agent log
  * GET  ?a=dash&lang=<code>            the rows of the tile on Unraid's Dashboard (dashboard.php), in the browser's language
@@ -35,8 +39,8 @@ function api_main(): void
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
         if ($method === 'GET') {
             match ((string) ($_GET['a'] ?? '')) {
-                'state'   => answer(apiState((string) ($_GET['desk'] ?? ''), !empty($_GET['fresh']))),
-                'part'    => answer(apiPart((string) ($_GET['desk'] ?? ''), (string) ($_GET['part'] ?? ''), !empty($_GET['fresh']))),
+                'state'   => answerThenLook(apiState((string) ($_GET['desk'] ?? ''), apiLookMode($_GET))),
+                'part'    => answerThenLook(apiPart((string) ($_GET['desk'] ?? ''), (string) ($_GET['part'] ?? ''), apiLookMode($_GET))),
                 'strings' => apiStrings((string) ($_GET['lang'] ?? 'en')),
                 'log'     => answer(['ok' => true, 'lines' => apiLogTail(400)]),
                 'dash'    => apiDash((string) ($_GET['lang'] ?? '')),
@@ -104,59 +108,220 @@ function api_main(): void
     }
 }
 
-/** A desk's state; when older than its refresh_after, the agent reads it anew. */
-function apiState(string $desk, bool $fresh): array
+/** A desk's state, at once — older than its refresh_after the agent looks again (apiLook()) */
+function apiState(string $desk, string $look = ''): array
 {
     $desks = officeDesks();
     if (!isset($desks[$desk])) {
         return ['ok' => false, 'error' => ['key' => 'unknown_desk', 'params' => ['desk' => $desk]]];
     }
-    $agent = agentInfo();
-    $state = officeReadJson(OFFICE_DATA . "/$desk.json");
-    $age = $state ? time() - (int) ($state['time'] ?? 0) : PHP_INT_MAX;
-    if ($agent['running'] && ($fresh || $age > $desks[$desk]['refresh_after'])) {
-        try {
-            $r = askAgent("$desk.refresh", [], 10);
-            if (!empty($r['ok']) && is_array($r['state'] ?? null)) {
-                $state = $r['state'];
-            }
-        } catch (AgentAway) {
-            $agent['running'] = false;
-        } catch (AgentBusy | AgentRestarted) {
-            // busy with something longer, or restarted meanwhile — the last state will do
-        }
-    }
-    return ['ok' => true, 'agent' => $agent, 'state' => $state];
+    return ['ok' => true] + apiLook(OFFICE_DATA . "/$desk.json", "$desk.refresh", $desks[$desk]['refresh_after'], $desk, $look);
 }
 
 /**
- * An extra state part; one desk.json names under "parts" is read anew by the agent when older than its
- * refresh_after — like apiState(): the server's clock (never the browser's), the short wait (a long job
- * going on: the last part will do), hired desks only.
+ * An extra state part; one desk.json names under "parts" is looked at again like a desk's state (apiLook(): the
+ * server's clock, never the browser's; the short wait), hired desks only — any other part is a plain file, as it is.
  */
-function apiPart(string $desk, string $part, bool $fresh = false): array
+function apiPart(string $desk, string $part, string $look = ''): array
 {
     $desks = officeDesks();
     if (!isset($desks[$desk]) || !preg_match('/^[a-z][a-z0-9_-]{0,31}$/D', $part)) {
         return ['ok' => false, 'error' => ['key' => 'bad_request']];
     }
-    $agent = agentInfo();
-    $state = officeReadJson(OFFICE_DATA . "/$desk-$part.json");
+    $file = OFFICE_DATA . "/$desk-$part.json";
     $rule = $desks[$desk]['parts'][$part] ?? null;
-    $age = $state ? time() - (int) ($state['time'] ?? 0) : PHP_INT_MAX;
-    if ($rule !== null && $agent['running'] && officeIsHired($desk) && ($fresh || $age > $rule['refresh_after'])) {
-        try {
-            $r = askAgent("$desk.{$rule['action']}", [], 10);
-            if (!empty($r['ok']) && is_array($r['state'] ?? null)) {
-                $state = $r['state'];
-            }
-        } catch (AgentAway) {
-            $agent['running'] = false;
-        } catch (AgentBusy | AgentRestarted) {
-            // busy with something longer, or restarted meanwhile — the last part will do
+    if ($rule === null || !officeIsHired($desk)) {
+        return ['ok' => true, 'agent' => agentInfo(), 'part' => officeReadJson($file)];
+    }
+    $r = apiLook($file, "$desk.{$rule['action']}", $rule['refresh_after'], "$desk.$part", $look);
+    $r['part'] = $r['state'];
+    unset($r['state']);
+    return ['ok' => true] + $r;
+}
+
+/** How a request wants its state: '' (at once, a stale one looked at again in the background), fresh, wait or stored */
+function apiLookMode(array $query): string
+{
+    foreach (['fresh', 'wait', 'stored'] as $mode) {
+        if (!empty($query[$mode])) {
+            return $mode;
         }
     }
-    return ['ok' => true, 'agent' => $agent, 'part' => $state];
+    return '';
+}
+
+/**
+ * Show first, then look (Benj, 2026-10-07 — perf report levers 1 and 2). A state file is answered at once, with its
+ * age and whether it is older than refresh_after (`stale`); a stale one is looked at again by the agent AFTER the
+ * answer went out (`later`, run by answerThenLook()) — `refreshing` says a look is under way, the page then asks with
+ * `wait` and gets the new state when it is there. One look per state at a time: its lock lies in RAM
+ * (apiLookLock(), officeRunDir()), held by the PHP process that waits for the agent; a second page (or tab) that
+ * finds it taken only says `refreshing`. The modes:
+ *   ''       at once; stale → a look in the background (none to show yet, or no lock to be had → waited for, as before)
+ *   fresh    wait for a new look — or for the one under way (≤ 12 s); the Tour / «Look again» buttons
+ *   wait     a look is under way: wait for it to end (≤ 12 s), then the state as it is; never starts one
+ *   stored   as it is, never a look — the reception and the badges every page shows (no agent call at all)
+ * The agent away: as it is. The look itself is the short wait (askAgent, 10 s): a long job of the agent going on, the
+ * last state will do.
+ *
+ * @return array{agent: array, state: ?array, age: ?int, stale: bool, refreshing: bool, refresh_after: int, later?: Closure}
+ */
+function apiLook(string $file, string $action, int $after, string $key, string $look): array
+{
+    $agent = agentInfo();
+    $state = officeReadJson($file);
+    $old = static fn (?array $s): bool => $s === null || time() - (int) ($s['time'] ?? 0) > $after;
+    $out = static function (?array $s, bool $refreshing = false) use (&$agent, $old, $after): array {
+        return ['agent' => $agent, 'state' => $s, 'age' => $s === null ? null : max(0, time() - (int) ($s['time'] ?? 0)),
+                'stale' => $old($s), 'refreshing' => $refreshing, 'refresh_after' => $after];
+    };
+    if ($look === 'stored' || !$agent['running']) {
+        return $out($state);
+    }
+    if ($look === 'wait') {
+        apiLookWait($key, APILOOK_WAIT);
+        return $out(officeReadJson($file));
+    }
+    if ($look !== 'fresh' && !$old($state)) {
+        return $out($state);
+    }
+    $lock = apiLookLock($key);
+    if ($lock === false) {
+        if ($look === 'fresh' || $state === null) {
+            apiLookWait($key, APILOOK_WAIT);          // someone else's look is under way: that one will do
+            return $out(officeReadJson($file));
+        }
+        return $out($state, true);
+    }
+    if ($look === 'fresh' || $state === null || $lock === null) {
+        try {
+            $new = apiLookNow($action, $agent);
+        } finally {
+            apiLookRelease($lock);
+        }
+        return $out($new ?? officeReadJson($file));
+    }
+    return $out($state, true) + ['later' => static function () use ($action, $lock): void {
+        $agent = [];
+        try {
+            apiLookNow($action, $agent);
+        } finally {
+            apiLookRelease($lock);
+        }
+    }];
+}
+
+/** How long a page's `wait` (or a `fresh` meeting a look under way) waits for that look: a bit more than askAgent's 10 s */
+const APILOOK_WAIT = 12.0;
+
+/** The agent's look, the short wait; its new state, or null (it failed, the agent is busy with something longer or gone) */
+function apiLookNow(string $action, array &$agent): ?array
+{
+    try {
+        $r = askAgent($action, [], 10);
+        return !empty($r['ok']) && is_array($r['state'] ?? null) ? $r['state'] : null;
+    } catch (AgentAway) {
+        $agent['running'] = false;
+    } catch (AgentBusy | AgentRestarted) {
+        // busy with something longer, or restarted meanwhile — the last state will do
+    }
+    return null;
+}
+
+/** The lock file of a look at <key> (<desk> or <desk>.<part>) in the office's RAM folder, or null when there is none to be had */
+function apiLookLockFile(string $key): ?string
+{
+    $dir = officeRunDir();
+    if (!preg_match('/^[a-z][a-z0-9_-]{0,31}(\.[a-z][a-z0-9_-]{0,31})?$/D', $key) || is_link($dir) || !is_dir($dir)) {
+        return null;
+    }
+    $file = "$dir/look-$key.lock";
+    return is_link($file) ? null : $file;
+}
+
+/**
+ * Take the lock of a look: the open handle (ours until apiLookRelease()), false while another process holds it (a look is
+ * under way), null when there is none to be had (no RAM folder — the agent not started yet —, a link).
+ *
+ * @return resource|false|null
+ */
+function apiLookLock(string $key): mixed
+{
+    $file = apiLookLockFile($key);
+    if ($file === null) {
+        return null;
+    }
+    $mask = umask(0077);
+    $h = @fopen($file, 'c');
+    umask($mask);
+    if (!$h) {
+        return null;
+    }
+    if (!flock($h, LOCK_EX | LOCK_NB)) {
+        fclose($h);
+        return false;
+    }
+    return $h;
+}
+
+/** @param resource|false|null $lock */
+function apiLookRelease(mixed $lock): void
+{
+    if (is_resource($lock)) {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+}
+
+/** Is a look at <key> under way (its lock held by another process)? */
+function apiLookBusy(string $key): bool
+{
+    $lock = apiLookLock($key);
+    apiLookRelease($lock);
+    return $lock === false;
+}
+
+/** Wait (≤ $seconds) while a look at <key> is under way */
+function apiLookWait(string $key, float $seconds): void
+{
+    $until = microtime(true) + $seconds;
+    while (apiLookBusy($key) && microtime(true) < $until) {
+        usleep(50000);
+    }
+}
+
+/**
+ * Answer a state or part; a look left for later (apiLook() `later`) runs once the browser has the answer: php-fpm hands
+ * it over with fastcgi_finish_request(), other servers (php -S) are told its length and to close — the PHP process
+ * then waits for the agent and lets go of the look's lock.
+ */
+function answerThenLook(array $data): never
+{
+    $later = $data['later'] ?? null;
+    unset($data['later']);
+    if (!$later instanceof Closure) {
+        answer($data);
+    }
+    ignore_user_abort(true);
+    set_time_limit(60);
+    $body = apiJson($data);
+    http_response_code(200);
+    header('Content-Type: application/json; charset=utf-8');
+    if (function_exists('fastcgi_finish_request')) {
+        echo $body;
+        fastcgi_finish_request();
+    } else {
+        header('Content-Length: ' . strlen($body));
+        header('Connection: close');
+        echo $body;
+        flush();
+    }
+    try {
+        $later();
+    } catch (Throwable $e) {
+        error_log('UnraidSecretaryOffice: ' . $e);
+    }
+    exit;
 }
 
 function apiStrings(string $code): never
@@ -243,8 +408,13 @@ function answer(array $data, int $status = 200): never
 {
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
-    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    echo apiJson($data);
     exit;
+}
+
+function apiJson(array $data): string
+{
+    return (string) json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
 }
 
 /** The rows of the office's tile on Unraid's Dashboard (src/dashboard.php), for its refresh every minute */
