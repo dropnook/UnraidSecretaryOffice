@@ -11219,7 +11219,29 @@ switch ($cmd) {
         unset($st['snaps'][$t]);
         $save();
         exit(0);
+    case 'rename':
+        [$from, $to] = $rest;
+        if (!isset($st['ds'][$from])) { $no($from); }
+        if (isset($st['ds'][$to])) { fwrite(STDERR, "cannot rename to '$to': dataset already exists\n"); exit(1); }
+        foreach (['ds' => '/', 'snaps' => '@'] as $k => $sep) {
+            foreach (array_keys($st[$k]) as $n) {
+                if ($n === $from || str_starts_with($n, "$from$sep") || str_starts_with($n, "$from/")) {
+                    $st[$k][$to . substr($n, strlen($from))] = $st[$k][$n];
+                    unset($st[$k][$n]);
+                }
+            }
+        }
+        $save();
+        exit(0);
     case 'recv':
+        if (isset($f['-A'])) {
+            $ds = $rest[0];
+            if (!isset($st['ds'][$ds]['token'])) { fwrite(STDERR, "'$ds' does not have any resumable receive state to abort\n"); exit(1); }
+            unset($st['ds'][$ds]['token']);
+            if (!array_filter(array_keys($st['snaps']), fn ($n) => str_starts_with($n, "$ds@"))) { unset($st['ds'][$ds]); }
+            $save();
+            exit(0);
+        }
         $data = (string) stream_get_contents(STDIN);
         $t = end($rest);
         [$ds, $snap] = explode('@', $t) + [1 => null];
@@ -11752,6 +11774,8 @@ function testPartnerDoor(): void
     $r = partnerTestDoor($B, 'list share:appdata');
     same('door: list — the engine\'s snapshots kept of that unit', ['uso-backup-20260901-0200', 'uso-backup-20261002-0200', 'uso-backup-20261003-0200'],
         array_column($r['out'][0]['snaps'] ?? [], 'name'));
+    same('door: list — the shape the engine reads (snaps[].name …)', [['ok', 'unit', 'snaps'], 'share:appdata', ['name', 'used', 'referenced', 'creation']],
+        [array_keys($r['out'][0] ?? []), $r['out'][0]['unit'] ?? null, array_keys($r['out'][0]['snaps'][0] ?? [])]);
     same('door: list of a unit not received yet', [0, []], [partnerTestDoor($B, 'list vm:Debian_Helmi')['exit'], partnerTestDoor($B, 'list vm:Debian_Helmi')['out'][0]['snaps'] ?? null]);
     same('door: resume — no token', ['ok' => true, 'token' => null], partnerTestDoor($B, 'resume share:appdata')['out'][0] ?? null);
     same('door: quota', ['ok' => true, 'bytes' => 10 * 1024 ** 3, 'used_bytes' => 21], partnerTestDoor($B, 'quota')['out'][0] ?? null);
@@ -11766,15 +11790,21 @@ function testPartnerDoor(): void
     // ---- the chain's refusals
     same('door: from a snapshot it hasn\'t — need_full', ['ok' => false, 'why' => 'need_full'],
         partnerTestDoor($B, 'recv share:appdata uso-backup-20261004-0200 uso-backup-20260101-0200', 'x')['err'][0] ?? null);
-    same('door: a full stream onto what is there — need_incremental', 'need_incremental',
-        partnerTestDoor($B, 'recv share:appdata uso-backup-20261004-0200', 'x')['err'][0]['why'] ?? null);
     same('door: a snapshot it has — exists', 'exists', partnerTestDoor($B, 'recv share:appdata uso-backup-20261003-0200 uso-backup-20261002-0200', 'x')['err'][0]['why'] ?? null);
     same('door: -t without a token — no_token', 'no_token', partnerTestDoor($B, 'recv share:appdata uso-backup-20261004-0200 -t', 'x')['err'][0]['why'] ?? null);
     $r = partnerTestDoor($B, 'recv vm:Debian_Helmi uso-backup-20261003-0200', 'INTERRUPT');
     same('door: an interrupted receive says so — and that it can be resumed', [1, 'recv_failed', true], [$r['exit'], $r['err'][1]['why'] ?? null, $r['err'][1]['resumable'] ?? null]);
     $vmds = 'tank/' . PARTNER_PARENT . "/$id/vm-Debian_Helmi";
     same('door: resume — its token', ['ok' => true, 'token' => '1-abcdef0123-c8-789c0123456789'], partnerTestDoor($B, 'resume vm:Debian_Helmi')['out'][0] ?? null);
-    same('door: a new stream while a receive waits to be resumed — resume_first', 'resume_first', partnerTestDoor($B, 'recv vm:Debian_Helmi uso-backup-20261004-0200', 'x')['err'][0]['why'] ?? null);
+    // a stale partial receive: the sender starts anew without -t — the partial state is aborted first (zfs recv -A)
+    partnerTestCalls($B['bin']);
+    $r = partnerTestDoor($B, 'recv vm:Debian_Helmi uso-backup-20261002-0200', 'vm-full');
+    $calls = array_values(array_filter(partnerTestCalls($B['bin']), fn ($c) => ($c[1] ?? '') === 'recv'));
+    same('door: a stale partial first receive aborted, then received anew as a first receive', [0, [['zfs', 'recv', '-A', $vmds],
+        ['zfs', 'recv', '-s', '-u', '-o', 'mountpoint=legacy', '-o', 'canmount=noauto', '-o', 'readonly=on', '-x', 'sharesmb', '-x', 'sharenfs', "$vmds@uso-backup-20261002-0200"]]], [$r['exit'], $calls]);
+    check('door: … said in its log', str_contains($log(), "a stale partial receive on $vmds aborted"));
+    $r = partnerTestDoor($B, 'recv vm:Debian_Helmi uso-backup-20261003-0200 uso-backup-20261002-0200', 'INTERRUPT');
+    same('door: an interrupted incremental leaves a token', [1, true], [$r['exit'], $r['err'][1]['resumable'] ?? null]);
     partnerTestCalls($B['bin']);
     $r = partnerTestDoor($B, 'recv vm:Debian_Helmi uso-backup-20261003-0200 -t', 'SNAP:uso-backup-20261003-0200');
     $calls = partnerTestCalls($B['bin']);
@@ -11782,6 +11812,37 @@ function testPartnerDoor(): void
         [$r['exit'], array_values(array_filter($calls, fn ($c) => ($c[1] ?? '') === 'recv'))]);
     same('door: … then its properties set as a first receive\'s', [['zfs', 'set', 'canmount=noauto', $vmds], ['zfs', 'set', 'mountpoint=legacy', $vmds], ['zfs', 'set', 'readonly=on', $vmds]],
         array_values(array_filter($calls, fn ($c) => ($c[1] ?? '') === 'set')));
+    // stale on a dataset with history: aborted, then the normal incremental
+    partnerTestDoor($B, 'recv vm:Debian_Helmi uso-backup-20261004-0200 uso-backup-20261003-0200', 'INTERRUPT');
+    partnerTestCalls($B['bin']);
+    $r = partnerTestDoor($B, 'recv vm:Debian_Helmi uso-backup-20261005-0200 uso-backup-20261003-0200', 'vm-5');
+    same('door: a stale partial incremental aborted, then the normal incremental', [0, [['zfs', 'recv', '-A', $vmds],
+        ['zfs', 'recv', '-s', '-u', '-x', 'mountpoint', '-x', 'canmount', '-x', 'sharesmb', '-x', 'sharenfs', "$vmds@uso-backup-20261005-0200"]]],
+        [$r['exit'], array_values(array_filter(partnerTestCalls($B['bin']), fn ($c) => ($c[1] ?? '') === 'recv'))]);
+    same('door: … the VM\'s history kept', ['uso-backup-20261003-0200', 'uso-backup-20261005-0200'], array_column(partnerTestDoor($B, 'list vm:Debian_Helmi')['out'][0]['snaps'] ?? [], 'name'));
+
+    // a full stream onto a unit that shares nothing with it: the old dataset aside (renamed, never destroyed), a fresh one
+    $now = ['OFFICE_PARTNER_NOW' => (string) strtotime('2026-10-08 01:00')];
+    $r = partnerTestDoor($B, 'recv vm:Debian_Helmi uso-backup-20261008-0100', 'FAIL', $id, $now);
+    $calls = array_values(array_filter(partnerTestCalls($B['bin']), fn ($c) => ($c[1] ?? '') === 'rename'));
+    same('door: full onto an existing unit, nothing received — put aside and back', [1, 'recv_failed', false, [['zfs', 'rename', $vmds, "$vmds.old-20261008-0100"],
+        ['zfs', 'rename', "$vmds.old-20261008-0100", $vmds]]], [$r['exit'], $r['err'][1]['why'] ?? null, isset($r['err'][1]['aside']), $calls]);
+    same('door: … its history as it was', ['uso-backup-20261003-0200', 'uso-backup-20261005-0200'], array_column(partnerTestDoor($B, 'list vm:Debian_Helmi')['out'][0]['snaps'] ?? [], 'name'));
+    $r = partnerTestDoor($B, 'recv vm:Debian_Helmi uso-backup-20261008-0100', 'vm-new', $id, $now);
+    $calls = partnerTestCalls($B['bin']);
+    same('door: full onto an existing unit — the old one aside, said in the answer', [0, "$vmds.old-20261008-0100"], [$r['exit'], $r['err'][1]['aside'] ?? null]);
+    same('door: … renamed, then a first receive into a fresh dataset', [['zfs', 'rename', $vmds, "$vmds.old-20261008-0100"],
+        ['zfs', 'recv', '-s', '-u', '-o', 'mountpoint=legacy', '-o', 'canmount=noauto', '-o', 'readonly=on', '-x', 'sharesmb', '-x', 'sharenfs', "$vmds@uso-backup-20261008-0100"]],
+        array_values(array_filter($calls, fn ($c) => in_array($c[1] ?? '', ['rename', 'recv', 'destroy'], true))));
+    $st = $zfs();
+    same('door: … the old history kept aside, the new one fresh', [['uso-backup-20261003-0200', 'uso-backup-20261005-0200'], ['uso-backup-20261008-0100']],
+        [array_map(fn ($n) => explode('@', $n)[1], array_values(array_filter(array_keys($st['snaps']), fn ($n) => str_starts_with($n, "$vmds.old-20261008-0100@")))),
+         array_map(fn ($n) => explode('@', $n)[1], array_values(array_filter(array_keys($st['snaps']), fn ($n) => str_starts_with($n, "$vmds@"))))]);
+    check('door: … said in its log', str_contains($log(), "the old one put aside as $vmds.old-20261008-0100"));
+    partnerTestDoor($B, 'recv vm:Debian_Helmi uso-backup-20261009-0100', 'vm-newer', $id, $now);
+    same('door: a second one in the same minute gets its own name', ["$vmds.old-20261008-0100", "$vmds.old-20261008-0100-2"],
+        array_values(array_filter(array_keys($zfs()['ds']), fn ($n) => str_starts_with($n, "$vmds.old-"))));
+    partnerTestCalls($B['bin']);
     $r = partnerTestDoor($B, 'recv share:appdata uso-backup-20261004-0200 uso-backup-20261003-0200', 'FAIL');
     same('door: a receive zfs refuses', [1, ['ok' => true], 'recv_failed'], [$r['exit'], $r['err'][0] ?? null, $r['err'][1]['why'] ?? null]);
     check('door: … its detail said, received/ not moved on', str_contains((string) ($r['err'][1]['detail'] ?? ''), 'invalid backup stream')
