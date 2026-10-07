@@ -17,8 +17,8 @@
 const ID = 'cleanup';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
-const SECTIONS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'leftovers', 'trash'];
-const ICONS = { templates: '📄', stacks: '🧩', appdata: '🗃️', vms: '🖥️', scripts: '📜', docker: '🐳', icons: '🖼️', leftovers: '📦', trash: '🗑️' };
+const SECTIONS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'leftovers', 'partners', 'trash'];
+const ICONS = { templates: '📄', stacks: '🧩', appdata: '🗃️', vms: '🖥️', scripts: '📜', docker: '🐳', icons: '🖼️', leftovers: '📦', partners: '🤝', trash: '🗑️' };
 const GROUPS = {
   templates: ['leftover', 'unused', 'duplicate', 'noname', 'stray_only_here', 'stray_newer', 'stray_name_exists', 'stray_older', 'stray_copy', 'unknown', 'in_use'],
   stacks: ['leftover', 'broken', 'unused', 'unknown', 'in_use'],
@@ -28,6 +28,7 @@ const GROUPS = {
   docker: ['dangling', 'volume', 'unused', 'cache', 'used'],
   icons: ['template', 'compose', 'none', 'ok'],
   leftovers: ['leftover', 'way_back', 'unknown'],     // shown per restore (renderLeftovers), these for the CSV
+  partners: ['leftover'],
 };
 const CANDIDATES = {
   templates: ['leftover', 'unused', 'duplicate', 'noname', 'stray_only_here', 'stray_newer', 'stray_name_exists', 'stray_older', 'stray_copy'],
@@ -38,11 +39,12 @@ const CANDIDATES = {
   docker: ['dangling', 'volume', 'unused', 'cache'],
   icons: ['template', 'compose', 'none'],
   leftovers: ['leftover', 'way_back'],
+  partners: ['leftover'],
 };
 const CLOSED = ['in_use', 'used', 'unknown', 'ok'];  // folded until opened
 const KIND_ICONS = { container: '🐳', template: '📄', stack: '🧩', compose: '🧩', flash: '💾', vm: '🖥️' };
-const ITEM_ICONS = { template: '📄', stray: '📄', vmdef: '🖥️', userscript: '📜', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐', icon: '🖼️', leftover: '📦' };
-const ROOMS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'leftovers'];     // where she finds something (not the storeroom)
+const ITEM_ICONS = { template: '📄', stray: '📄', vmdef: '🖥️', userscript: '📜', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐', icon: '🖼️', leftover: '📦', partner: '🤝' };
+const ROOMS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'leftovers', 'partners'];     // where she finds something (not the storeroom)
 const POLL_MS = 3000;
 
 let state = null;
@@ -104,7 +106,7 @@ function entries(sec) {
   return ({
     templates: state.templates.list, stacks: state.stacks.list, appdata: state.appdata.list,
     vms: state.vms.list, scripts: state.scripts.list, docker: state.docker.list, icons: (state.icons || {}).list,
-    leftovers: (state.leftovers || {}).list,
+    leftovers: (state.leftovers || {}).list, partners: (state.partners || {}).list,
   })[sec] || [];
 }
 const candidates = (sec) => entries(sec).filter((e) => CANDIDATES[sec].includes(e.category));
@@ -122,13 +124,15 @@ function matches(e) {
   const w = words();
   if (!w.length) return true;
   const hay = [label(e), e.name, e.file, e.folder, e.image, e.project, e.uuid, e.from, e.path, e.restore && e.restore.what, ...(e.refs || []),
-    ...(e.used_by || []).map((u) => u.name), ...(e.containers || []).map((c) => c.name), ...(e.parts || []).map((p) => p.path)]
+    ...(e.used_by || []).map((u) => u.name), ...(e.containers || []).map((c) => c.name), ...(e.parts || []).map((p) => p.path),
+    e.dataset, ...(e.units || [])]
     .filter(Boolean).join(' ').toLowerCase();
   return w.every((x) => hay.includes(x));
 }
 /** VMs only with the VM service switched on, Docker's rooms (appdata too: who uses it is told by Docker) only with Docker */
 const visible = (sec) => (sec === 'vms' ? state.vms.enabled : sec === 'scripts' ? state.scripts.installed
   : sec === 'leftovers' ? !!state.leftovers && state.leftovers.restores > 0
+  : sec === 'partners' ? !!state.partners && state.partners.list.length > 0
   : sec === 'icons' ? state.docker.enabled && !!state.icons : ['templates', 'stacks', 'appdata', 'docker'].includes(sec) ? state.docker.enabled : true);
 
 function chip(text, cls, tip) {
@@ -284,6 +288,7 @@ function build(root) {
     [T('section.docker'), T('help.docker_text')],
     [T('section.icons'), T('help.icons_text')],
     [T('section.leftovers'), T('help.leftovers_text')],
+    [T('section.partners'), T('help.partners_text')],
     [T('help.loop'), T('help.loop_text')],
     [T('help.sizes'), T('help.sizes_text')],
     [T('help.safe'), T('help.safe_text')],
@@ -474,6 +479,7 @@ function renderSection() {
   if (section === 'docker') body.appendChild(dockerInfo());
   if (section === 'icons') body.appendChild(iconsInfo());
   if (section === 'leftovers') body.appendChild(leftoversInfo());
+  if (section === 'partners') body.appendChild(partnersInfo());
   if (section === 'stacks' && !state.stacks.exists) { body.appendChild(emptyNote(T('empty.no_compose', { path: state.stacks.root }))); return; }
   if (section === 'trash') renderTrash(body);
   else if (section === 'leftovers') renderLeftovers(body);
@@ -657,6 +663,7 @@ const VIEWS = {
   cache: () => [cacheMeta, cacheDetail],
   icon: () => [iconMeta, iconDetail],
   leftover: () => [leftoverMeta, leftoverDetail],
+  partner: () => [partnerMeta, partnerDetail],
 };
 
 /** A row: the checkbox selects, a click anywhere else unfolds the details */
@@ -730,7 +737,7 @@ function menuItems(e) {
   if (e.parts && !e.parts.every((p) => p.file) || (e.kind === 'volume' && e.path)) {
     items.push({ text: T('measure_again'), act: () => measure([e.id]), disabled: !Office.agent.running || e.measuring });
   }
-  const path = e.kind === 'template' || e.kind === 'stray' ? e.path : e.kind === 'stack' ? e.dir : e.parts ? (e.parts[0] || {}).path : e.path;
+  const path = e.kind === 'template' || e.kind === 'stray' ? e.path : e.kind === 'stack' ? e.dir : e.kind === 'partner' ? e.dataset : e.parts ? (e.parts[0] || {}).path : e.path;
   if (path) items.push({ text: Office.t('common.copy_path'), act: () => Office.copy(path) });
   return items;
 }
@@ -1416,6 +1423,38 @@ function leftoverDetail(e) {
   box.appendChild(el('p', 'role', T('lo.what.' + e.what + '_text')));
   if (e.category === 'way_back') box.appendChild(el('p', 'role', T('lo.way_back_text')));
   if (e.asleep.length) box.appendChild(el('p', 'role', T('asleep', { disks: e.asleep.join(', ') })));
+  return box;
+}
+
+// ------------------------------------------------------------------ what ended partnerships left
+function partnersInfo() {
+  const box = el('div', 'cl-info');
+  const p = el('p', 'role', T('pa.where') + ' ');
+  const a = el('a', '', T('pa.lead'));
+  a.href = '#/caretaker';
+  p.appendChild(a);
+  box.appendChild(p);
+  if ((state.partners.asleep || []).length) box.appendChild(asleepCallout(state.partners.asleep));
+  return box;
+}
+
+function partnerMeta(e, meta, figures) {
+  meta.appendChild(el('span', 'mono', e.dataset));
+  if ((e.units || []).length) meta.appendChild(chip(T('pa.units', { n: e.units.length }), 'quiet', e.units.join(', ')));
+  const sc = snapsChip(e);
+  if (sc) meta.appendChild(sc);
+  sizeFigures(e, figures, '');
+}
+
+function partnerDetail(e) {
+  const box = el('div');
+  box.appendChild(kv([
+    [T('pa.d.dataset'), e.dataset, true],
+    [T('pa.d.pair'), e.name, true],
+    [T('pa.d.units'), (e.units || []).length ? lines(e.units) : T('d.none')],
+    [T('d.size'), e.bytes !== null && e.bytes !== undefined ? fmt.size(e.bytes) + snapsOf(e) : T('d.not_measured')],
+  ]));
+  box.appendChild(el('p', 'role', T('pa.text')));
   return box;
 }
 
@@ -3105,7 +3144,32 @@ function backups(body) {
     }));
   }
   body.appendChild(box);
+  const pa = state.partners;
+  if (pa && (pa.places || []).length) body.appendChild(partnerPlaces(pa));
   body.appendChild(el('p', 'hint', T('where.backups_note')));
+}
+
+/** The partners' places: per pool what each partner's copies take there (a partnership ended: a leftover of «Tidying up») */
+function partnerPlaces(pa) {
+  const rows = pa.places.filter((x) => matches(join(x.dataset, x.pairs.map((p) => [p.name, p.id, p.units])))).map((x) => row({
+    key: 'partners:' + x.pool,
+    name: x.dataset,
+    mono: true,
+    meta: [
+      ...x.pairs.slice(0, 4).map((p) => chip(`${p.name || p.id} · ${fmt.size(p.used)}`, p.gone ? 'warn' : 'quiet',
+        p.gone ? T('where.partners.gone_text', { id: p.id }) : T('where.partners.pair_text', { name: p.name || p.id, n: p.units.length }))),
+      x.pairs.length > 4 ? chip(`+${x.pairs.length - 4}`, 'quiet') : null,
+      x.stored ? chip(T('where.partners.stored', { n: x.stored }), 'quiet', T('where.partners.stored_text')) : null,
+    ],
+    figures: sizeFigures({ bytes: x.used, how: 'zfs' }),
+    detail: () => kv(x.pairs.map((p) => [p.name || p.id, `${fmt.size(p.used)} · ${p.units.join(', ') || '–'}${p.gone ? ' · ' + T('where.partners.gone') : ''}`])),
+    menu: () => [{ text: T('where.partners.to_lead'), act: () => Office.go('#/caretaker') }],
+  }));
+  const meta = T('where.partners.sum', { n: pa.places.reduce((a, x) => a + x.pairs.length, 0) })
+    + ((pa.asleep || []).length ? ' · ' + T('where.partners.asleep', { pools: pa.asleep.join(', ') }) : '');
+  const box = el('div', 'box');
+  box.appendChild(group(T('where.partners.title'), meta, rows));
+  return box;
 }
 
 // --------------------------------------------------------------- disks & health

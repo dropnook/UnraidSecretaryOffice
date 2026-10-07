@@ -33,6 +33,10 @@ declare(strict_types=1);
  *              .putback-<time>, <file>.restored-aside-<time>, his folders on
  *              the flash and in libvirt.img, the safety dumps in the backup
  *              place — found from his journals, never by scanning disks
+ *   partners   what an ended partnership left: <pool>/UnraidSecretaryOffice-partners/<pair> datasets whose pair is
+ *              gone from data/partner/pairs.json (agent/lib/partnerlook.php) — awake pools only, the size from zfs
+ *              list; put away with zfs rename next to the storeroom (the run's manifest on the flash), never while
+ *              the partner door receives for that pair
  *   icons      containers without a picture on Unraid's Docker page and
  *              Dashboard (none set, or one Unraid can't load): she finds a
  *              logo (pictures on this server named like the app, Community
@@ -74,7 +78,7 @@ const CL_LEGACY       = '_zumloeschen';            // trash of the old unraid-cl
 // folder in a trash run => kind of what is in it
 const CL_KINDS        = ['templates' => 'template', 'compose' => 'stack', 'appdata' => 'appdata', 'vms' => 'domain', 'isos' => 'iso',
                          'nvram' => 'nvram', 'tpm' => 'tpm', 'snapshotdb' => 'snapshotdb', 'strays' => 'stray', 'userscripts' => 'userscript',
-                         'icons' => 'icon', 'restore' => 'leftover'];
+                         'icons' => 'icon', 'restore' => 'leftover', 'partners' => 'partner'];
 const CL_US_SCRIPTS   = US_DIR . '/scripts';
 const CL_US_TMP       = '/tmp/user.scripts';         // running markers and last outputs (RAM: since the reboot)
 const CL_STRAY_TTL    = 6 * 3600;                  // look for stray templates again after this (or when asked)
@@ -179,6 +183,7 @@ const CL_ICON_SIDE    = '/(^|[-_.])(machine[-_.]?learning|ml|worker)([-_.]|$)/i'
 const CL_WEAK = '#^(history/|plugins-removed/|[^/]+\.plg$|plugins/[^/]+\.plg$|plugins/dockerMan/(buildx|templates|template-repos|images)/'
               . '|plugins/dynamix\.my\.servers/configs/docker\.organizer\.json$|plugins/compose\.manager/containers\.cache\.json$)#';
 
+require_once __DIR__ . '/../lib/partnerlook.php';
 require_once __DIR__ . '/../lib/where.php';
 
 const CL_WHERE_DEBOUNCE = 60;      // «where_refresh»: a look younger than this is fresh enough (several tabs ask at once)
@@ -322,7 +327,8 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         'vms'       => $vms,
         'libvirt'   => clLibvirtOrphans($vms),
         'leftovers' => $leftovers,
-        'trash'     => clTrashRuns($places, $vms, $leftovers['trash']),
+        'partners'  => $partners = clPartners(),          // what ended partnerships left (awake pools only)
+        'trash'     => clTrashRuns($places, $vms, $leftovers['trash'], $partners['there'], $partners['asleep']),
     ];
     $raw['icons'] = clIcons($docker, $raw['stacks']);
     $raw['zfs_space'] = clZfsSpace(clRawDatasets($raw));
@@ -1892,7 +1898,7 @@ function clRawDatasets(array $raw): array
     }
     foreach ($raw['trash'] ?? [] as $run) {
         foreach ($run['items'] as $it) {
-            $names[] = $it['present'] ? $it['zfs'] : null;
+            $names[] = $it['present'] && empty($it['asleep']) ? $it['zfs'] : null;      // a sleeping pool is never asked
         }
     }
     // a dataset under its pool (a share's folder is never a pool's root; a tmpfs mount's source is no dataset)
@@ -2470,6 +2476,7 @@ function clBuild(): array
             'list'     => $vmItems,
         ],
         'leftovers' => ['restores' => (int) ($raw['leftovers']['restores'] ?? 0), 'asleep' => $raw['leftovers']['asleep'] ?? [], 'list' => $leftovers],
+        'partners'  => ['asleep' => $raw['partners']['asleep'] ?? [], 'list' => $raw['partners']['list'] ?? []],
         'trash'     => ['runs' => $runs, 'bytes' => $trashBytes],
         'icons'     => clIconState($raw['icons'] ?? [], $cache, $pending),
         'jobs'      => [
@@ -2740,6 +2747,65 @@ function clWrite(array $state): void
     }
 }
 
+// ===================================================================== partner offices
+
+/** The partner door's records in RAM (RUN_DIR/partner; tests: `$GLOBALS['clPartnerHost']['run']`) */
+function clPartnerRunDir(): string
+{
+    return (string) ($GLOBALS['clPartnerHost']['run'] ?? partnerRunDir());
+}
+
+/**
+ * What ended partnerships left (agent/lib/partnerlook.php): on the awake ZFS pools, every
+ * <pool>/UnraidSecretaryOffice-partners/<pair> whose pair is gone from data/partner/pairs.json — a leftover of her
+ * room «partners», its size ZFS's `used` (its units and their snapshots), `why` transfer while the door receives for
+ * it. Also every dataset of the partners' places (her storeroom's parked ones are found by it — never mounted) and
+ * the sleeping pools (not looked at). Tests: `$GLOBALS['clPartnerHost']` = pools [awake, asleep], zfs (a callable
+ * like run()), pairs (the file), run, alive.
+ *
+ * @return array{list: list<array>, there: array<string, true>, asleep: list<string>}
+ */
+function clPartners(?array $host = null): array
+{
+    $host ??= $GLOBALS['clPartnerHost'] ?? [];
+    if (isset($host['pools'])) {
+        [$awake, $asleep] = $host['pools'];
+    } else {
+        $names = [];
+        $zpool = bin('zpool');
+        [$exit, $out] = $zpool ? run([$zpool, 'list', '-H', '-o', 'name'], 30) : [1, ''];
+        foreach ($exit === 0 ? rows($out) : [] as $f) {
+            if (preg_match(PARTNER_POOL_RE, $f[0] ?? '')) {
+                $names[] = $f[0];
+            }
+        }
+        $split = poolsBySleep($names);
+        [$awake, $asleep] = [$split['awake'], $split['asleep']];
+    }
+    $places = partnerLookPlaces($awake, $host['zfs'] ?? null) ?? [];
+    $pairs = partnerLookPairs($host['pairs'] ?? null);
+    $busy = array_flip(array_column(partnerLookDoors($host['run'] ?? partnerRunDir(), $host['alive'] ?? null), 'pair'));
+    $list = $there = [];
+    foreach ($places as $pool => $pl) {
+        $there[$pl['dataset']] = true;
+        foreach ($pl['trash'] as $ds => $_) {
+            $there[$ds] = true;
+        }
+        foreach ($pl['ids'] as $id => $x) {
+            $there[$x['dataset']] = true;
+            if (isset($pairs[$id])) {
+                continue;                       // a pair of today: the door keeps its copies
+            }
+            $units = array_map('partnerLookUnit', array_map('strval', array_keys($x['units'])));
+            sort($units);
+            $list[] = ['id' => "partner:$pool/$id", 'kind' => 'partner', 'category' => 'leftover', 'name' => (string) $id, 'pool' => (string) $pool,
+                       'dataset' => $x['dataset'], 'bytes' => $x['used'], 'snaps' => $x['snaps'], 'units' => $units,
+                       'why' => isset($busy[$id]) ? 'transfer' : null, 'force' => false, 'used_by' => [], 'notes' => [], 'path' => null];
+        }
+    }
+    return ['list' => $list, 'there' => $there, 'asleep' => array_values($asleep)];
+}
+
 // ===================================================================== trash
 
 /**
@@ -2813,7 +2879,8 @@ function clTrashAsOk(string $as, string $kind, string $stamp): bool
     if (str_starts_with($as, '@')) {
         $ds = substr($as, 1);
         return clZfsNameOk($ds) && str_contains($ds, '/') && str_starts_with(basename($ds), CL_TRASH . '-' . $stamp . '-')
-            && in_array($kind, ['appdata', 'domain', 'iso', 'leftover'], true);
+            && in_array($kind, ['appdata', 'domain', 'iso', 'leftover', 'partner'], true)
+            && ($kind !== 'partner' || (($d = partnerLookDataset($ds)) !== null && $d['trash'] && $d['unit'] === null));
     }
     if ($as === '' || strlen($as) > 4096 || preg_match('/[\x00-\x1f\x7f]/', $as)) {
         return false;
@@ -2874,7 +2941,7 @@ function clRunPathOk(string $runPath, string $as): bool
     return true;
 }
 
-function clTrashRuns(array $places, array $vms, array $extra = []): array
+function clTrashRuns(array $places, array $vms, array $extra = [], array $zfsThere = [], array $zfsAsleep = []): array
 {
     $runs = [];
     $datasets = [];
@@ -2904,6 +2971,8 @@ function clTrashRuns(array $places, array $vms, array $extra = []): array
                 $known[$it['as']] = true;
                 $known[dirname($it['as'])] = true;            // strays/<folder hash>/
                 $zfs = str_starts_with($it['as'], '@') ? substr($it['as'], 1) : null;
+                // a partner's dataset is never mounted (legacy/none): there when zfs lists it; on a sleeping pool not looked at
+                $asleep = $zfs !== null && $it['kind'] === 'partner' && in_array(strtok($zfs, '/'), $zfsAsleep, true);
                 $items[] = [
                     'id'      => "$path|{$it['as']}",
                     'kind'    => $it['kind'],
@@ -2914,7 +2983,8 @@ function clTrashRuns(array $places, array $vms, array $extra = []): array
                     'dataset' => $zfs !== null && is_string($it['dataset'] ?? null) && clZfsNameOk($it['dataset']) ? $it['dataset'] : null,
                     'zfs'     => $zfs,
                     'zfs_path' => $zfs !== null ? ($datasets[$zfs] ?? null) : null,
-                    'present' => $zfs !== null ? isset($datasets[$zfs]) : file_exists("$path/{$it['as']}"),
+                    'present' => $zfs !== null ? isset($datasets[$zfs]) || isset($zfsThere[$zfs]) || $asleep : file_exists("$path/{$it['as']}"),
+                    'asleep'  => $asleep,
                     'volumes' => array_values(array_filter((array) ($it['volumes'] ?? []), fn ($v) => is_string($v) && preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}\z/', $v))),
                     'images'  => array_values(array_filter((array) ($it['images'] ?? []), fn ($v) => is_string($v) && preg_match('#^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,511}\z#', $v))),
                 ];
@@ -2924,7 +2994,7 @@ function clTrashRuns(array $places, array $vms, array $extra = []): array
                 foreach (@scandir("$path/$dir") ?: [] as $n) {
                     if ($n !== '.' && $n !== '..' && !isset($known["$dir/$n"])) {
                         $items[] = ['id' => "$path|$dir/$n", 'kind' => $kind,
-                                    'name' => $n, 'label' => '', 'from' => null, 'as' => "$dir/$n", 'present' => true, 'volumes' => [], 'images' => [], 'dataset' => null, 'zfs' => null, 'zfs_path' => null];
+                                    'name' => $n, 'label' => '', 'from' => null, 'as' => "$dir/$n", 'present' => true, 'asleep' => false, 'volumes' => [], 'images' => [], 'dataset' => null, 'zfs' => null, 'zfs_path' => null];
                     }
                 }
             }
@@ -2950,12 +3020,12 @@ function clTrashRuns(array $places, array $vms, array $extra = []): array
                         foreach (@scandir("$path/$n") ?: [] as $x) {
                             if ($x !== '.' && $x !== '..') {
                                 $items[] = ['id' => "$path|$n/$x", 'kind' => $n === 'templates' ? 'template' : 'stack', 'name' => $x, 'label' => '',
-                                            'from' => null, 'as' => "$n/$x", 'present' => true, 'volumes' => [], 'images' => [], 'dataset' => null, 'zfs' => null, 'zfs_path' => null];
+                                            'from' => null, 'as' => "$n/$x", 'present' => true, 'asleep' => false, 'volumes' => [], 'images' => [], 'dataset' => null, 'zfs' => null, 'zfs_path' => null];
                             }
                         }
                     } else {
                         $items[] = ['id' => "$path|$n", 'kind' => 'appdata', 'name' => $n, 'label' => '', 'from' => null, 'as' => $n,
-                                    'present' => true, 'volumes' => [], 'images' => [], 'dataset' => null, 'zfs' => null, 'zfs_path' => null];
+                                    'present' => true, 'asleep' => false, 'volumes' => [], 'images' => [], 'dataset' => null, 'zfs' => null, 'zfs_path' => null];
                     }
                 }
             }
@@ -3098,7 +3168,7 @@ function clIndex(array $state): array
     foreach (array_merge($state['templates']['list'], $state['stacks']['list'], $state['scripts']['list']) as $e) {
         $all[$e['id']] = $e;
     }
-    foreach (array_merge($state['appdata']['list'], $state['vms']['list'], $state['leftovers']['list'] ?? []) as $f) {
+    foreach (array_merge($state['appdata']['list'], $state['vms']['list'], $state['leftovers']['list'] ?? [], $state['partners']['list'] ?? []) as $f) {
         $all[$f['id']] = $f;
     }
     return $all;
@@ -3127,6 +3197,7 @@ function clPark(array $ids, bool $force): array
                 'running'       => new Problem('cleanup_running', $p),
                 'scheduled'     => new Problem('cleanup_scheduled', $p),
                 'measuring'     => new Problem('cleanup_measuring', $p),
+                'transfer'      => new Problem('cleanup_partner_transfer', $p),
                 default         => new Problem('cleanup_measure_first', $p),
             };
         }
@@ -3190,6 +3261,18 @@ function clPark(array $ids, bool $force): array
                                             'as' => $as, 'dataset' => $p['dataset'], 'bytes' => $p['bytes']];
                     clManifestWrite($runs[$r]);
                 }
+            } elseif ($e['kind'] === 'partner') {
+                // what an ended partnership left: the pair's dataset renamed next to it (zfs rename, its units and snapshots
+                // along) — never while the door receives for that pair; the run's manifest goes into the storeroom on the flash
+                if (in_array($e['name'], array_column(partnerLookDoors(clPartnerRunDir()), 'pair'), true)) {
+                    throw new Problem('cleanup_partner_transfer', ['name' => $e['name']]);
+                }
+                $r = $run(CL_FLASH . '/' . CL_TRASH);
+                $to = dirname($e['dataset']) . '/' . CL_TRASH . '-' . $runs[$r]['stamp'] . '-' . basename($e['dataset']);
+                clZfsRename($e['dataset'], $to, '');
+                $runs[$r]['items'][] = ['kind' => 'partner', 'name' => $e['name'], 'label' => $e['pool'], 'from' => '/mnt/' . $e['dataset'],
+                                        'as' => "@$to", 'dataset' => $e['dataset'], 'bytes' => $e['bytes'], 'units' => $e['units']];
+                clManifestWrite($runs[$r]);
             } elseif (in_array($e['kind'], ['nvram', 'tpm', 'snapshotdb'], true)) {
                 $r = $run(CL_LIBVIRT . '/' . CL_TRASH);
                 $as = $e['kind'] . '/' . $e['name'];
@@ -3309,7 +3392,7 @@ function clZfsRename(string $from, string $to, string $oldPath): void
     if ($exit !== 0) {
         throw new Problem('cleanup_move_failed', ['path' => $from, 'detail' => trim($err)]);
     }
-    if (is_dir($oldPath) && !array_diff(@scandir($oldPath) ?: [], ['.', '..'])) {
+    if ($oldPath !== '' && is_dir($oldPath) && !array_diff(@scandir($oldPath) ?: [], ['.', '..'])) {
         @rmdir($oldPath);
     }
 }
@@ -3365,6 +3448,9 @@ function clRestore(array $ids): array
             'snapshotdb' => CL_LIBVIRT . '/qemu/snapshotdb',
             'userscript' => CL_US_SCRIPTS,
             'leftover'   => clLeftoverHome($it['from'], $run['root']),
+            // a partner's dataset (never mounted): back next to where it was, only under a pool's partners' place
+            'partner'    => is_string($it['dataset']) && ($d = partnerLookDataset($it['dataset'])) !== null && !$d['trash'] && $d['id'] !== null
+                            && $d['unit'] === null && $it['from'] === '/mnt/' . $it['dataset'] ? dirname($it['from']) : '',
             'icon'       => clIconHome($it['from'], $state['stacks']['root']),
             'stray'      => preg_match('#/my-[^/]+\.xml$#', $it['from'])
                             && under($it['from'], under($run['root'], '/boot') ? '/boot' : dirname($run['root'])) ? dirname($it['from']) : '',
@@ -3378,14 +3464,17 @@ function clRestore(array $ids): array
         if ($zfs === null && !clRunPathOk($run['path'], $it['as'])) {
             throw new Problem('cleanup_no_way_back', ['name' => $it['name']]);
         }
+        if (!empty($it['asleep'])) {
+            throw new Problem('cleanup_asleep', ['name' => $it['name']]);         // its pool sleeps: never woken on her own
+        }
         try {
-            if ($zfs !== null && is_dir($it['from']) && !array_diff(@scandir($it['from']) ?: [], ['.', '..'])) {
+            if ($zfs !== null && $it['kind'] !== 'partner' && is_dir($it['from']) && !array_diff(@scandir($it['from']) ?: [], ['.', '..'])) {
                 @rmdir($it['from']);               // the empty mountpoint folder ZFS left behind
             }
             if (file_exists($it['from']) && $it['kind'] !== 'icon') {        // a picture's file was changed, not moved: it is there
                 throw new Problem('cleanup_target_exists', ['path' => $it['from']]);
             }
-            if (!is_dir($home)) {
+            if ($it['kind'] !== 'partner' && !is_dir($home)) {
                 throw new Problem('cleanup_no_home', ['path' => $home]);
             }
             if ($it['kind'] === 'icon') {
@@ -3448,6 +3537,12 @@ function clPurge(array $ids, bool $volumes, bool $images): array
     foreach ($todo as $run) {
         $done = ['id' => $run['id'], 'ok' => true, 'volumes' => [], 'images' => []];
         // datasets of the run first (with their snapshots); the run's folder only when they are gone
+        foreach ($run['items'] as $it) {
+            if (!empty($it['asleep'])) {
+                $results[] = ['id' => $run['id'], 'ok' => false, 'error' => ['key' => 'cleanup_asleep', 'params' => ['name' => $it['name']]]];
+                continue 2;                            // its pool sleeps: emptied once it is awake
+            }
+        }
         foreach ($run['items'] as $it) {
             if ($it['zfs'] !== null && $it['present'] && str_contains(basename($it['zfs']), CL_TRASH . '-')) {
                 [$exit, , $err] = run(['zfs', 'destroy', '-r', $it['zfs']], 600);
