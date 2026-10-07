@@ -12,6 +12,7 @@ declare(strict_types=1);
  * GET  ?a=agent                       the messenger alone (agentInfo(): the array stopped, the night shift)
  * POST {"a": "<desk>.<action>", ...}  a request for the agent; it checks everything
  * POST {"a": "office.hire|fire"}       who works here (see staff.php)
+ * POST {"a": "office.staff_order", "order": [desk, …]}   in which order (the reception's cards, the tabs; staff.php)
  * POST {"a": "office.supporter_set|supporter_remove|supporter_ask"}   the supporter key (supporter.php)
  *
  * Who may use it is Unraid's business: everything under /plugins/… is behind
@@ -50,6 +51,9 @@ function api_main(): void
         $action = is_array($data) ? (string) ($data['a'] ?? '') : '';
         if ($action === 'office.hire' || $action === 'office.fire') {
             answer(officeStaffAction($action, $data));
+        }
+        if ($action === 'office.staff_order') {
+            answer(officeStaffOrderAction($data));
         }
         if (in_array($action, OFFICE_SUPPORTER_ACTIONS, true)) {
             answer(officeSupporterAction($action, $data));

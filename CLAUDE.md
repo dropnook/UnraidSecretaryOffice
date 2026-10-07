@@ -334,6 +334,16 @@ file, told by the caretaker). The caretaker suggests whom to hire; hiring
 the desk in the tabs and at the reception, firing hides it again — data and
 whatever it set up on the server stay (`fire_note` says what keeps running).
 Unhired desks get no write actions (`not_hired`) and their checks don't count.
+**Order** (Benj, 2026-10-07): «Change the order» at the reception (core.js `arrangeable()`: small cards with ▲ / ▼, the
+team lead's card says why he stays first, the selection bar has «As at the start» and «Done»; every move saved at once —
+`office.staff_order`, one request at a time, the newest after it, quiet; `Office.keepInPlace` on the moved card). Kept
+in staff.json `"order"` (src/staff.php: ids of existing desks, never an `always` one, each once; `[]` = none);
+`officeStaffOrderOf()` = the `always` desks, then that list, then the rest by desk.json's `order` (someone newly hired
+joins at the end); `OFFICE_DESKS_MERGED` applies to it too (the one that took over at the earlier place). The page gets
+`CONFIG.staff_order`; the reception's cards, the tabs (`Office.staffInOrder()`) and the team lead's «The team» (hired
+first by `Office.deskRank()`, then candidates by desk.json's order) follow it. No `reception_order` any more. The
+Dashboard tile is no list of the staff (fixed rows) and keeps its order. Ms. Dustdevil's default is 20 (right after the
+team lead, where Ms. Whereabouts was).
 After hiring, the tip jar (core.js `tipJar`, link `OFFICE_TIP_URL`) says hello — and that a share of the tips goes to helmi1987, the author of Jack Emby's tools (`office.tip_credit`), and what goes beyond our work's cost to animal shelters (`office.tip_shelter`, Benj).
 **Supporter key** (Benj, 2026-10-06: no licence, no paywall, nothing ever locked): a thank-you for a tip that unlocks
 nothing — only the reminders ask it, never backups, restores or a desk (`src/supporter.php`, web side like staff.php).

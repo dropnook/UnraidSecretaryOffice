@@ -110,7 +110,7 @@
   "hired": "Welcome: {names}",
   "fit.yes": "{name} would like to come.",
   "fit.no": "{name} doesn't suit this server.",
-  "help.team": "Who works in the office. I ask everyone whether they suit your server — those who don't, decline. Hiring shows the desk at the reception and in the tabs; letting go hides it again without deleting anything.",
+  "help.team": "Who works in the office. I ask everyone whether they suit your server — those who don't, decline. Hiring shows the desk at the reception and in the tabs; letting go hides it again without deleting anything. Those who work here come first, in the order set at the reception.",
   "help.supporter": "The office is free and complete — nothing is ever locked. A tip is welcome, and with it comes a supporter key (the tip jar says how). It unlocks nothing; it only stops the reminders and puts a small thank-you next to «Tips & pay rise».",
   "tip_button": "☕ Tips & pay rise",
   "tip_button_title": "The team is glad of a tip (PayPal)",

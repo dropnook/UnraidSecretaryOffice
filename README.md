@@ -23,6 +23,10 @@ server, tells you what they noticed and — where it makes sense — lets you ac
 A fresh office has only the team lead. He asks around who would suit your
 server (no Emby, no Jack Emby; no ZFS or btrfs, no snapshots) and you hire whom
 you need — or let them go again later; their data and settings stay.
+*Change the order* at the reception puts them in the order you like (▲ / ▼; the
+team lead stays first): the reception, the tabs and the team lead's list follow
+it, kept on the server for every browser; *As at the start* brings back the
+office's own order.
 
 More desks can join: each one is a module (see below).
 
@@ -195,7 +199,8 @@ A desk is a set of files; nothing in the core needs to change.
 ```
 agent/desks/<id>.php            what it does on the host
 public/desks/<id>/desk.json     {"order": 40, "icon": "🧹", "refresh_after": 300}
-                                ("reception_order" places it differently at the reception)
+                                ("order": its place in a fresh office — reception and tabs;
+                                the user may set another at the reception)
 public/desks/<id>/desk.js       her desk in the web UI
 public/desks/<id>/desk.css      optional, its rules nested in #sso{ … } like office.css
 public/desks/<id>/avatar.svg    optional, her picture (64×64, readable on dark and light; else the emoji)

@@ -78,7 +78,9 @@ function staff() {
     const d = Office.desks.get(id);
     if (d) out.push({ ...s, id, desk: d, hired: !!d.hired });
   }
-  return out.sort((a, b) => (a.desk.order ?? 0) - (b.desk.order ?? 0));
+  // who works here first, in the order set at the reception (core.js Office.deskRank); then who could come, by desk.json's order
+  return out.sort((a, b) => (b.hired - a.hired)
+    || (a.hired ? Office.deskRank(a.id) - Office.deskRank(b.id) : (a.desk.order ?? 0) - (b.desk.order ?? 0)));
 }
 const alone = () => !staff().some((s) => s.hired);
 const fitText = (s) => {

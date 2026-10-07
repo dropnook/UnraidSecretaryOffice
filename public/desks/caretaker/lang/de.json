@@ -110,7 +110,7 @@
   "hired": "Willkommen: {names}",
   "fit.yes": "{name} würde gern kommen.",
   "fit.no": "{name} passt nicht zu diesem Server.",
-  "help.team": "Wer im Sekretariat arbeitet. Ich frage bei allen nach, ob sie zu deinem Server passen — wer nicht passt, sagt ab. Einstellen zeigt den Schreibtisch am Empfang und in den Reitern; entlassen blendet ihn wieder aus, ohne etwas zu löschen.",
+  "help.team": "Wer im Sekretariat arbeitet. Ich frage bei allen nach, ob sie zu deinem Server passen — wer nicht passt, sagt ab. Einstellen zeigt den Schreibtisch am Empfang und in den Reitern; entlassen blendet ihn wieder aus, ohne etwas zu löschen. Wer hier arbeitet, steht zuerst — in der Reihenfolge, die du am Empfang bestimmst.",
   "help.supporter": "Das Sekretariat ist kostenlos und vollständig — nichts wird je gesperrt. Ein Trinkgeld ist willkommen, und dazu gibt es einen Unterstützer-Schlüssel (wie, sagt die Trinkgeldkasse). Er schaltet nichts frei; er beendet nur die Erinnerungen und zeigt neben «Trinkgeld & Lohnerhöhung» ein kleines Dankeschön.",
   "tip_button": "☕ Trinkgeld & Lohnerhöhung",
   "tip_button_title": "Das Team freut sich über ein Trinkgeld (PayPal)",

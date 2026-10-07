@@ -110,7 +110,7 @@
   "hired": "Benvenuti: {names}",
   "fit.yes": "{name} verrebbe volentieri.",
   "fit.no": "{name} non fa al caso di questo server.",
-  "help.team": "Chi lavora nella segreteria. Chiedo a tutti se sono adatti al tuo server — chi non lo è, rinuncia. Assumere mostra la scrivania alla reception e nelle schede; licenziare la nasconde di nuovo, senza eliminare nulla.",
+  "help.team": "Chi lavora nella segreteria. Chiedo a tutti se sono adatti al tuo server — chi non lo è, rinuncia. Assumere mostra la scrivania alla reception e nelle schede; licenziare la nasconde di nuovo, senza eliminare nulla. Chi lavora qui viene prima, nell'ordine scelto alla reception.",
   "help.supporter": "La segreteria è gratuita e completa — niente viene mai bloccato. Una mancia è benvenuta, e con essa arriva una chiave sostenitore (il barattolo delle mance spiega come). Non sblocca nulla; ferma solo i promemoria e mostra un piccolo ringraziamento accanto a «Mancia & aumento».",
   "tip_button": "☕ Mancia & aumento",
   "tip_button_title": "Il team è felice di ricevere una mancia (PayPal)",

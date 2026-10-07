@@ -110,7 +110,7 @@
   "hired": "Bienvenidos: {names}",
   "fit.yes": "A {name} le gustaría venir.",
   "fit.no": "{name} no encaja con este servidor.",
-  "help.team": "Quién trabaja en la secretaría. Pregunto a cada uno si encaja con tu servidor — quienes no encajan, declinan. Contratar muestra el escritorio en la recepción y en las pestañas; despedir lo vuelve a ocultar sin borrar nada.",
+  "help.team": "Quién trabaja en la secretaría. Pregunto a cada uno si encaja con tu servidor — quienes no encajan, declinan. Contratar muestra el escritorio en la recepción y en las pestañas; despedir lo vuelve a ocultar sin borrar nada. Quienes trabajan aquí van primero, en el orden elegido en la recepción.",
   "help.supporter": "La secretaría es gratis y completa — nunca se bloquea nada. Una propina es bienvenida, y con ella llega una clave de apoyo (el bote de propinas explica cómo). No desbloquea nada; solo detiene los recordatorios y muestra un pequeño agradecimiento junto a «Propinas y aumento».",
   "tip_button": "☕ Propinas y aumento",
   "tip_button_title": "Al equipo le alegra una propina (PayPal)",
