@@ -16,6 +16,8 @@ declare(strict_types=1);
  *   list <unit>                       the snapshots kept here of that unit
  *   resume <unit>                     {"ok":true,"token":<receive_resume_token>|null}
  *   recv <unit> <snap> [<from>|-t]    stdin → mbuffer → zfs recv -s -u into <pool>/UnraidSecretaryOffice-partners/<id>/<unit>;
+ *                                     a full stream onto an existing unit puts the old dataset aside (<ds>.old-<time>),
+ *                                     a stale partial receive is aborted (zfs recv -A) unless the call is a -t resume;
  *                                     JSON on stderr before reading and after; the receiver's retention afterwards
  *   send-back <unit> <snap> [<from>]  stage 3 — not yet: {"ok":false,"why":"not_yet"}
  *
@@ -373,26 +375,47 @@ function doorRecv(array $pair, string $unit, string $snap, ?string $from): int
             return doorRefuse($id, 'refused_quota', true, ['used_bytes' => $used, 'bytes' => $r['quota_gb'] * 1024 ** 3]);
         }
     }
+    $zfs = partnerBin('zfs') ?? 'zfs';
     $info = doorZfsGet($ds, 'type,receive_resume_token');
+    $resume = $from === '-t';
+    $token = $info !== null ? ($info['receive_resume_token'] ?? '-') : '-';
+    $hasToken = $token !== '-' && $token !== '';
+    if ($resume && !$hasToken) {
+        return doorRefuse($id, 'no_token', true);
+    }
+    if (!$resume && $hasToken) {
+        // a stale partial receive: the sender starts anew (it no longer has what was interrupted) — its partial state
+        // goes (zfs recv -A: only the unfinished part; a first receive that never finished leaves no dataset behind)
+        [$exit, , $err] = run([$zfs, 'recv', '-A', $ds], 120);
+        if ($exit !== 0) {
+            return doorRefuse($id, 'recv_failed', true, ['detail' => 'abort: ' . substr(trim($err), 0, 200)]);
+        }
+        doorLog($id, "recv $unit $snap: a stale partial receive on $ds aborted (zfs recv -A) - the sender starts anew");
+        $info = doorZfsGet($ds, 'type,receive_resume_token');
+    }
     $snaps = $info !== null ? array_column(doorSnaps($ds), 'name') : [];
     if (in_array($snap, $snaps, true)) {
         return doorRefuse($id, 'exists', true);
     }
-    $resume = $from === '-t';
-    $token = $info !== null ? ($info['receive_resume_token'] ?? '-') : '-';
-    if ($resume && ($info === null || $token === '-' || $token === '')) {
-        return doorRefuse($id, 'no_token', true);
-    }
-    if (!$resume && $info !== null && $token !== '-' && $token !== '') {
-        return doorRefuse($id, 'resume_first', true);       // an interrupted receive waits: the sender asks `resume`
-    }
     if (!$resume && $from !== null && !in_array($from, $snaps, true)) {
         return doorRefuse($id, 'need_full', true);
     }
+    $aside = null;
     if (!$resume && $from === null && $info !== null) {
-        return doorRefuse($id, 'need_incremental', true, ['newest' => $snaps ? end($snaps) : null]);
+        // a full stream onto a dataset that holds snapshots the sender doesn't share (zfs recv without -F refuses it):
+        // the old one is put aside — renamed, never destroyed (the user or Ms. Dustdevil clears it) — and the stream
+        // goes into a fresh dataset with the first receive's properties
+        $base = "$ds.old-" . date('Ymd-Hi', doorNow());
+        $aside = $base;
+        for ($i = 2; doorZfsGet($aside, 'type') !== null; $i++) {
+            $aside = "$base-$i";
+        }
+        [$exit, , $err] = run([$zfs, 'rename', $ds, $aside], 120);
+        if ($exit !== 0) {
+            return doorRefuse($id, 'recv_failed', true, ['detail' => 'aside: ' . substr(trim($err), 0, 200)]);
+        }
+        doorLog($id, "recv $unit $snap (full) onto $ds, which shares no snapshot with it: the old one put aside as $aside");
     }
-    $zfs = partnerBin('zfs') ?? 'zfs';
     $cmd = [$zfs, 'recv', '-s', '-u'];
     if (!$resume && $from === null) {
         // the first receive: never mounted, never shared, read-only — legacy: shfs and Unraid never see it (with a -R
@@ -473,7 +496,12 @@ function doorRecv(array $pair, string $unit, string $snap, ?string $from): int
         $detail = substr(trim((string) preg_replace('/[^\x20-\x7e\n]/', '?', $errText)), 0, 400);
         $token = doorZfsGet($ds, 'receive_resume_token')['receive_resume_token'] ?? '-';
         doorLog($id, "recv $unit $snap failed" . ($stopped ? ' (stopped)' : '') . ': ' . str_replace("\n", ' | ', $detail));
-        doorSay(['ok' => false, 'why' => $stopped ? 'stopped' : 'recv_failed', 'detail' => $detail, 'resumable' => $token !== '-' && $token !== ''], true);
+        if ($aside !== null && doorZfsGet($ds, 'type') === null && run([$zfs, 'rename', $aside, $ds], 120)[0] === 0) {
+            doorLog($id, "recv $unit $snap: nothing received - $aside back as $ds");
+            $aside = null;
+        }
+        doorSay(['ok' => false, 'why' => $stopped ? 'stopped' : 'recv_failed', 'detail' => $detail, 'resumable' => $token !== '-' && $token !== '']
+            + ($aside !== null ? ['aside' => $aside] : []), true);
         return 1;
     }
     if ($resume) {
@@ -486,7 +514,7 @@ function doorRecv(array $pair, string $unit, string $snap, ?string $from): int
     $kept = doorRetention($pair, $ds);
     doorReceived($pair, $unit, $snap, $bytes, $seconds, $kept);
     doorLog($id, "recv $unit $snap done: $bytes bytes in {$seconds} s");
-    doorSay(['ok' => true, 'bytes' => $bytes, 'seconds' => $seconds], true);
+    doorSay(['ok' => true, 'bytes' => $bytes, 'seconds' => $seconds] + ($aside !== null ? ['aside' => $aside] : []), true);
     flock($lock, LOCK_UN);
     return 0;
 }
