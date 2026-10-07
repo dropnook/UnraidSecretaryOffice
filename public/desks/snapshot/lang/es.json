@@ -407,7 +407,7 @@
   "plan.recursive_hint": "Los datasets de debajo también reciben una instantánea (ZFS); la retención funciona por dataset.",
   "plan.skip_asleep": "Omitir discos en reposo",
   "plan.skip_asleep_hint": "Una instantánea los despertaría. En esa ejecución se quedan sin ella.",
-  "plan.note": "La secretaría comprueba cada 5 minutos lo que toca (una línea en su archivo cron en la memoria flash) — incluso cuando nadie la tiene abierta. Las horas perdidas (servidor apagado) se recuperan una vez.",
+  "plan.note": "La secretaría comprueba cada 5 minutos lo que toca (una línea en su archivo cron en el flash) — incluso cuando nadie la tiene abierta. Las horas perdidas (servidor apagado) se recuperan una vez.",
   "plan.save": "Guardar",
   "plan.saved": "Programado: {when}",
   "plan.need_targets": "Elige al menos un destino, por favor.",

@@ -407,7 +407,7 @@
   "plan.recursive_hint": "Les datasets en dessous reçoivent aussi un snapshot (ZFS) ; la rétention fonctionne par dataset.",
   "plan.skip_asleep": "Ignorer les disques endormis",
   "plan.skip_asleep_hint": "Un snapshot les réveillerait. Ils n'en reçoivent alors pas lors de cette exécution.",
-  "plan.note": "Le secrétariat vérifie toutes les 5 minutes ce qui est dû (une ligne dans son fichier cron sur la clé flash) — même quand personne ne l'a ouvert. Les heures manquées (serveur éteint) sont rattrapées une fois.",
+  "plan.note": "Le secrétariat vérifie toutes les 5 minutes ce qui est dû (une ligne dans son fichier cron sur la flash) — même quand personne ne l'a ouvert. Les heures manquées (serveur éteint) sont rattrapées une fois.",
   "plan.save": "Enregistrer",
   "plan.saved": "Planifié : {when}",
   "plan.need_targets": "Choisis au moins une cible, s'il te plaît.",

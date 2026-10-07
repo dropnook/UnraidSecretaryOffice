@@ -179,7 +179,7 @@
   "help.schedule_text": "EmbyCache de préférence toutes les heures, le regroupement p. ex. une fois par semaine la nuit. Les deux se trouvent dans le fichier cron du secrétariat et ne tournent que pendant que l'array est démarré.",
   "schedule_title.embycache": "Quand EmbyCache tourne",
   "schedule_title.gather": "Quand je regroupe les dossiers",
-  "schedule.intro": "J'inscris la planification de {what} dans le propre fichier cron du secrétariat sur la clé flash ; Unraid l'exécute même quand personne n'a ouvert le secrétariat (seulement pendant que l'array tourne).",
+  "schedule.intro": "J'inscris la planification de {what} dans le propre fichier cron du secrétariat sur la flash ; Unraid l'exécute même quand personne n'a ouvert le secrétariat (seulement pendant que l'array tourne).",
   "schedule.hourly": "Toutes les heures, à la minute",
   "schedule.hourly_hint": "Ce qui vient ensuite est prêt peu après que quelqu'un commence à regarder.",
   "schedule.every": "Toutes les quelques heures",

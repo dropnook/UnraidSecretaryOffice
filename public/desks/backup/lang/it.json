@@ -905,7 +905,7 @@
   "setup.place_2": "ZFS o btrfs — solo lì ci sono gli snapshot, e le notti precedenti dei pacchetti stanno negli snapshot del deposito dei backup. Su un disco XFS dell'array resta solo l'ultimo stato.",
   "setup.place_3": "Ridondante se possibile: un pool mirror, o l'array con parità.",
   "setup.place_4": "Un posto solo: nessuna archiviazione secondaria, nessun mover — i pacchetti non devono vagare tra le unità.",
-  "setup.place_5": "Resta piccolo: solo configurazioni, dump dei database, l'archivio della flash e le configurazioni delle VM (spesso ben sotto un gigabyte) — i dati grandi restano nelle loro condivisioni e nei loro snapshot. Non serve un disco grande; se cresce molto, qualcosa non va (un dump enorme, per esempio).",
+  "setup.place_5": "Resta piccolo: solo configurazioni, dump dei database, l'archivio dell'unità flash e le configurazioni delle VM (spesso ben sotto un gigabyte) — i dati grandi restano nelle loro condivisioni e nei loro snapshot. Non serve un disco grande; se cresce molto, qualcosa non va (un dump enorme, per esempio).",
   "setup.place_add": "Aggiungi una condivisione in Unraid",
   "setup.place_name": "Nome suggerito: {name}",
   "setup.place_back": "Quando c'è, torna qui: all'apertura della configurazione riguardo il server da solo (oppure clicca «Giro»).",

@@ -112,7 +112,7 @@
   "install.nodeexporter.3": "Sans Applis : Docker → Ajouter Conteneur : Référentiel {image}, type de réseau « Host », Extra Parameters --pid=host, un chemin / → /host avec le mode d'accès « Lecture seule » (Read Only — juste cela : Docker le passe lui-même en « rslave » ; « Lecture seule - Esclave » est refusé pour /), Post Arguments comme ci-dessous.",
   "install.nodeexporter.4": "Appliquer. Vérifier : {check} affiche une longue page de chiffres.",
   "install.nodeexporter.5": "Le coursier du secrétariat crée le dossier {dir} et y écrit ses chiffres une fois par minute (quelques Ko). Il est en RAM : après un redémarrage, le coursier le recrée — d'ici là, l'exporter note dans son journal que le dossier manque, sans gravité.",
-  "install.nodeexporter.6": "Tu as déjà le plugin « Prometheus Node Exporter » d'ich777 ? Il fait le même travail — pas besoin de conteneur. Il prend ses options de démarrage dans un fichier sur la clé : la commande ci-dessous (terminal d'Unraid, >_ en haut à droite) y inscrit le dossier du secrétariat et le redémarre. Elle remplace les options de démarrage que tu y aurais mises.",
+  "install.nodeexporter.6": "Tu as déjà le plugin « Prometheus Node Exporter » d'ich777 ? Il fait le même travail — pas besoin de conteneur. Il prend ses options de démarrage dans un fichier sur la flash : la commande ci-dessous (terminal d'Unraid, >_ en haut à droite) y inscrit le dossier du secrétariat et le redémarre. Elle remplace les options de démarrage que tu y aurais mises.",
   "copy.nodeexporter.image": "Référentiel",
   "copy.nodeexporter.postargs": "Post Arguments",
   "copy.nodeexporter.check": "Vérifier",

@@ -704,7 +704,7 @@
   "pic.own_bad": "Questo non è un indirizzo http(s).",
   "pic.own_hint": "Oppure la tua: l'indirizzo di un PNG (al massimo 1 MB) — la carico e la controllo prima di appenderla. Oppure carica un'immagine dal tuo computer.",
   "pic.upload": "Carica un'immagine…",
-  "pic.upload_hint": "Dal tuo computer: PNG, JPEG, WebP, GIF o SVG. Il tuo browser ne fa un PNG quadrato di al massimo 256 × 256 pixel, e si invia solo quello; lo tengo sulla chiavetta ({dir}).",
+  "pic.upload_hint": "Dal tuo computer: PNG, JPEG, WebP, GIF o SVG. Il tuo browser ne fa un PNG quadrato di al massimo 256 × 256 pixel, e si invia solo quello; lo tengo sull'unità flash ({dir}).",
   "pic.upload_bad": "Il tuo browser non riesce a leggere quel file come immagine.",
   "pic.local_preview": "Un file sul server — troppo grande per un'anteprima qui.",
   "pic.where": "Unraid prende l'immagine di un contenitore dal suo template, altrimenti dalla sua etichetta net.unraid.docker.icon. Cerco immagini su questo server che si chiamano come l'app (la cartella dockerMan/images di Unraid), loghi in Community Applications su questo server, in una tabella di immagini note e dal nome dell'immagine (la raccolta aperta dashboard-icons) — offro solo immagini che si caricano. Oppure caricane una tua nei dettagli.",
@@ -728,7 +728,7 @@
   "src.office": "caricata prima",
   "src.office_text": "Un'immagine che hai caricato prima per lui, ancora nella cartella della segreteria ({detail}).",
   "src.upload": "caricata",
-  "src.upload_text": "L'immagine che hai caricato — la tengo sulla chiavetta nella cartella della segreteria e la imposto da lì.",
+  "src.upload_text": "L'immagine che hai caricato — la tengo sull'unità flash nella cartella della segreteria e la imposto da lì.",
   "loop.text": {
     "one": "Unraid {version} ha un difetto: per un contenitore senza immagine, la sua pagina Docker e la Dashboard chiedono question.png — un file che questa versione non include — ancora e ancora, circa mille volte al secondo, finché /var/log è pieno. 1 contenitore non ha un'immagine. Tieni chiuse quelle pagine finché non ne ha una, oppure metti subito un sostituto.",
     "other": "Unraid {version} ha un difetto: per un contenitore senza immagine, la sua pagina Docker e la Dashboard chiedono question.png — un file che questa versione non include — ancora e ancora, circa mille volte al secondo, finché /var/log è pieno. {n} contenitori non hanno un'immagine. Tieni chiuse quelle pagine finché non ne hanno una, oppure metti subito un sostituto."
@@ -771,7 +771,7 @@
   },
   "item.icon": "file prima della sua immagine",
   "restore.done_icon": "{name} è di nuovo com'era — l'immagine è di nuovo sparita (per uno stack: dal suo prossimo Compose Up).",
-  "help.icons_text": "Contenitori che nella pagina Docker e nella Dashboard di Unraid mostrano un punto interrogativo: nessuna immagine impostata, o una che Unraid non riesce a caricare. Per un contenitore da template imposto <Icon> nel suo template (si vede subito); per uno da uno stack del Compose Manager, l'etichetta nel file di override dello stack (stabile dal suo prossimo Compose Up). Le immagini vengono da questo server (chiamate come l'app nella cartella dockerMan/images di Unraid; per i contenitori Time Machine il logo Time Machine di Apple), da Community Applications su questo server, da una tabella di immagini note (un database nello stack di un'app riceve il logo del suo database) e, dopo il controllo, da un'ipotesi sul nome dell'immagine — indirizzi della raccolta aperta dashboard-icons; niente è incluso. Oppure caricane una tua nei dettagli di un contenitore: il tuo browser ne fa un PNG quadrato di al massimo 256 × 256 pixel, io lo tengo sulla chiavetta nella cartella della segreteria e lo imposto da lì. Prima di cambiare un file, lo metto nel mio ripostiglio.",
+  "help.icons_text": "Contenitori che nella pagina Docker e nella Dashboard di Unraid mostrano un punto interrogativo: nessuna immagine impostata, o una che Unraid non riesce a caricare. Per un contenitore da template imposto <Icon> nel suo template (si vede subito); per uno da uno stack del Compose Manager, l'etichetta nel file di override dello stack (stabile dal suo prossimo Compose Up). Le immagini vengono da questo server (chiamate come l'app nella cartella dockerMan/images di Unraid; per i contenitori Time Machine il logo Time Machine di Apple), da Community Applications su questo server, da una tabella di immagini note (un database nello stack di un'app riceve il logo del suo database) e, dopo il controllo, da un'ipotesi sul nome dell'immagine — indirizzi della raccolta aperta dashboard-icons; niente è incluso. Oppure caricane una tua nei dettagli di un contenitore: il tuo browser ne fa un PNG quadrato di al massimo 256 × 256 pixel, io lo tengo sull'unità flash nella cartella della segreteria e lo imposto da lì. Prima di cambiare un file, lo metto nel mio ripostiglio.",
   "help.loop": "Unraid 7.3.2",
   "help.loop_text": "Questa versione non include il punto interrogativo che mostra per i contenitori senza immagine, e le sue pagine lo chiedono all'infinito — /var/log si riempie in pochi minuti. Finché è così offro un sostituto (nella RAM, sparisce dopo un riavvio); quando Unraid lo corregge, il mio avviso sparisce.",
   "errors.cleanup_icon_has": "{name} ha già un'immagine.",
@@ -811,8 +811,8 @@
   "lo.what.restored_text": "La copia che ha ripristinato accanto a quella viva (<nome>.restored-<ora>) — volevi guardarla; resta finché non lo dici tu.",
   "lo.what.file_aside": "file messo da parte",
   "lo.what.file_aside_text": "Un file che ha sostituito, rinominato da parte lì accanto (<file>.restored-aside-<ora>).",
-  "lo.what.flash": "sulla flash",
-  "lo.what.flash_text": "Template e file compose che ha sostituito sulla flash, in /boot/config/_UnraidSecretaryOffice-restore/<ora>/.",
+  "lo.what.flash": "sull'unità flash",
+  "lo.what.flash_text": "Template e file compose che ha sostituito sull'unità flash, in /boot/config/_UnraidSecretaryOffice-restore/<ora>/.",
   "lo.what.libvirt": "in libvirt.img",
   "lo.what.libvirt_text": "Definizione, NVRAM o stato TPM di una VM che ha sostituito, in /etc/libvirt/_UnraidSecretaryOffice-restore/<ora>/.",
   "lo.what.safety": "dump di sicurezza",
@@ -840,7 +840,7 @@
     "other": "Queste {n} cose vanno nel mio ripostiglio:"
   },
   "park.in_use_leftovers": "Ancora la via del ritorno del Signor Restori: {names}. Il suo «Rimetti a posto» di quei ripristini non li troverà finché non li rimetti a posto dal mio ripostiglio.",
-  "park.where_leftovers": "Ognuno resta sul suo pool o disco, in _UnraidSecretaryOffice-trash della sua condivisione (quello che sta sulla flash o in libvirt.img va nel mio ripostiglio lì); i dataset vengono rinominati lì accanto. Solo rinominati, non si copia niente — puoi rimettere a posto in qualsiasi momento, finché non svuoti il ripostiglio.",
+  "park.where_leftovers": "Ognuno resta sul suo pool o disco, in _UnraidSecretaryOffice-trash della sua condivisione (quello che sta sull'unità flash o in libvirt.img va nel mio ripostiglio lì); i dataset vengono rinominati lì accanto. Solo rinominati, non si copia niente — puoi rimettere a posto in qualsiasi momento, finché non svuoti il ripostiglio.",
   "empty.leftovers": "Il Signor Restori non ha lasciato niente in giro. Che uomo ordinato!",
   "bubble.leftovers": {
     "one": "1 avanzo del Signor Restori ({size})",
@@ -850,7 +850,7 @@
     "one": "1 avanzo del Signor Restori · {size}",
     "other": "{n} avanzi del Signor Restori · {size}"
   },
-  "help.leftovers_text": "Nemmeno il Signor Restori cancella mai niente: quello che un ripristino sostituisce lo rinomina da parte (.aside-<ora>, al «Rimetti a posto» .putback-<ora>), una copia finisce accanto a quella viva (.restored-<ora>), i file sulla flash e in libvirt.img vanno nelle sue cartelle _UnraidSecretaryOffice-restore, e dei database fa dei dump di sicurezza. Tutta polvere — ma non si sa mai: io lo metto solo nel mio ripostiglio. Lo trovo nei suoi giornali, mai cercando sui dischi. Quello che il suo «Rimetti a posto» richiede ancora è segnato come «la sua via del ritorno».",
+  "help.leftovers_text": "Nemmeno il Signor Restori cancella mai niente: quello che un ripristino sostituisce lo rinomina da parte (.aside-<ora>, al «Rimetti a posto» .putback-<ora>), una copia finisce accanto a quella viva (.restored-<ora>), i file sull'unità flash e in libvirt.img vanno nelle sue cartelle _UnraidSecretaryOffice-restore, e dei database fa dei dump di sicurezza. Tutta polvere — ma non si sa mai: io lo metto solo nel mio ripostiglio. Lo trovo nei suoi giornali, mai cercando sui dischi. Quello che il suo «Rimetti a posto» richiede ancora è segnato come «la sua via del ritorno».",
   "item.leftover": "avanzo del Signor Restori",
   "where.bubble.no_tour": "Non sono ancora passata in ogni angolo — un giro dura pochi secondi, poi saprò dove sta tutto.",
   "where.bubble.no_data": "Non riesco a raggiungere il server e non ho ancora niente da mostrare.",
@@ -974,7 +974,7 @@
   "where.only_unused": "solo quelle inutilizzate in {share}",
   "where.folders_hint": "primo livello delle condivisioni che stanno su un pool",
   "where.unused": "inutilizzata",
-  "where.unused_title": "Nessun contenitore, progetto Compose, template, VM o user script punta qui — un avanzo? Se lo è davvero, lo guarda più da vicino la mia stanza «Cartelle di appdata» sotto «Mettere in ordine» (la flash, i nomi, le modifiche recenti).",
+  "where.unused_title": "Nessun contenitore, progetto Compose, template, VM o user script punta qui — un avanzo? Se lo è davvero, lo guarda più da vicino la mia stanza «Cartelle di appdata» sotto «Mettere in ordine» (l'unità flash, i nomi, le modifiche recenti).",
   "where.changed": "modificata {when}",
   "where.folder_count": {
     "one": "{n} cartella",
@@ -1544,8 +1544,8 @@
     "other": "Delle righe cron avviano {n} programmi che non ci sono più: {names}"
   },
   "where.adv.cron_dead.why": "Guarda un po' — avanzi: il plugin ({plugins}) non c'è più, la sua riga è rimasta. crond ci prova ogni volta e fallisce in silenzio. Innocuo, ma disordinato — e confonde quando cerchi cosa gira e quando. {how}",
-  "where.adv.cron_dead.own": "Sono nel crontab di root (crontab -l): il comando qui sotto le toglie in un terminale (il >_ di Unraid in alto a destra) e prima mette una copia sulla flash.",
-  "where.adv.cron_dead.system": "Le righe in /etc/cron.d vengono da un plugin (Unraid vi costruisce il suo crontab dai file .cron dei plugin sulla flash): reinstalla quel plugin, o rimuovilo in Plugin.",
+  "where.adv.cron_dead.own": "Sono nel crontab di root (crontab -l): il comando qui sotto le toglie in un terminale (il >_ di Unraid in alto a destra) e prima mette una copia sull'unità flash.",
+  "where.adv.cron_dead.system": "Le righe in /etc/cron.d vengono da un plugin (Unraid vi costruisce il suo crontab dai file .cron dei plugin sull'unità flash): reinstalla quel plugin, o rimuovilo in Plugin.",
   "where.adv.spindown_default.title": "I dischi non dormono mai",
   "where.adv.spindown_default.why": "Il ritardo spin down predefinito è «Mai»: ogni disco dell'array gira giorno e notte — corrente, calore e usura. Da 30 a 60 minuti è un buon inizio; con i pool per appdata e VM la maggior parte dei dischi poi riposa davvero.",
   "where.adv.spindown_some.title": {
