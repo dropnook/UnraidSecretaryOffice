@@ -728,6 +728,8 @@
     "other": "{n} alte Damen: {names}"
   },
   "adv.old_disks.why": "Mehr als etwa 5 Jahre Betriebsstunden. Kein Fehler — aber Zeit, SMART im Auge zu behalten, eine Ersatzdisk bereitzuhaben und sicher zu sein, dass gesichert ist, was darauf liegt.",
+  "adv.no_parity.title": "Das Array läuft ohne Parität",
+"adv.no_parity.why": {"one": "Fällt seine Datenplatte aus, ist weg, was darauf liegt — und nichts warnt dich vorher. Eine Paritätsplatte (mindestens so gross wie die grösste Datenplatte) baut eine ausgefallene Platte wieder auf. Main → Array stoppen → eine Platte in den Paritäts-Slot → starten: Unraid baut die Parität (Stunden, das Array bleibt nutzbar).", "other": "Fällt eine der {n} Datenplatten aus, ist weg, was darauf liegt — und nichts warnt dich vorher. Eine Paritätsplatte (mindestens so gross wie die grösste Datenplatte) baut eine ausgefallene Platte wieder auf. Main → Array stoppen → eine Platte in den Paritäts-Slot → starten: Unraid baut die Parität (Stunden, das Array bleibt nutzbar)."},
   "adv.parity.title": "Letzte Paritätsprüfung: {when}",
   "adv.parity.why": "Eine regelmässige Prüfung (monatlich oder vierteljährlich) findet schlechte Sektoren, bevor eine Disk ausfällt und du die Parität brauchst. Settings → Scheduler → Parity Check, zu einer Zeit, in der niemand den Server braucht.",
   "adv.ups.title": "Keine USV",

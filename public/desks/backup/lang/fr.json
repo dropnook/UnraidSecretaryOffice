@@ -462,6 +462,7 @@
   "setup.g_btrfs_free": "Frein d'urgence btrfs (Go libres)",
   "setup.g_btrfs_free_hint": "En dessous, les plus anciens snapshots btrfs partent plus tôt.",
   "setup.g_btrfs_all": "Snapshot de tous les disques btrfs de l'array (pour les parcourir), même sans partages sauvegardés",
+  "setup.g_btrfs_all_wake": {"one": "Cela réveille {names} chaque nuit pour son snapshot, même s'il dort — laisse-le désactivé s'il doit dormir toute la nuit.", "other": "Cela réveille les {n} disques ({names}) chaque nuit pour leurs snapshots, même ceux qui dorment — laisse-le désactivé s'ils doivent dormir toute la nuit."},
   "setup.g_flash": "Support de démarrage (clé USB)",
   "setup.g_flash_pool": "Support de démarrage (pool de démarrage « {pool} »)",
   "setup.g_flash_zfs": "/boot est sur ZFS ({ds}) — un snapshot est possible et va vers Kopia.",

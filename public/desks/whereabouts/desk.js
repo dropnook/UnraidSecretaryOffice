@@ -354,6 +354,11 @@ function advice() {
     const old = h.devices.filter((d) => d.smart && d.smart.hours > 50000);
     if (old.length) add('old_disks', 'info', { names: listNames(old.map((d) => `${d.name} (${fmt.number(d.smart.hours / 8760, 1)} ${T('adv.years')})`)), n: old.length }, { path: '/Main', text: T('adv.to_main') }, old.map((d) => d.name).join(','));
     const p = h.parity || {};
+    // no parity at all: one failed array disk and what was on it is gone (Benj, 2026-10-07: she should say so here too)
+    if (p.slots && !p.present) {
+      const data = h.devices.filter((d) => d.type === 'Data').length;
+      add('no_parity', 'advice', { n: data }, { path: '/Main', text: T('adv.to_main') }, 'none');
+    }
     if (p.present && (!p.checked || Date.now() / 1000 - p.checked > 90 * DAY)) {
       add('parity', 'advice', { when: p.checked ? fmt.relative(p.checked) : T('adv.never') }, { path: '/Settings/Scheduler', text: T('adv.to_scheduler') }, p.checked ? fmt.dayKey(p.checked) : 'never');
     }

@@ -728,6 +728,8 @@
     "other": "{n} old ladies: {names}"
   },
   "adv.old_disks.why": "More than about 5 years of running hours. Not a fault — but the time to keep an eye on SMART, have a spare at hand and make sure what's on it is backed up.",
+  "adv.no_parity.title": "The array runs without parity",
+"adv.no_parity.why": {"one": "If its data disk fails, what is on it is gone — and nothing tells you beforehand. A parity disk (at least as big as the biggest data disk) rebuilds a failed disk. Main → stop the array → put a disk into the parity slot → start: Unraid builds the parity (hours, the array stays usable).", "other": "If one of the {n} data disks fails, what is on it is gone — and nothing tells you beforehand. A parity disk (at least as big as the biggest data disk) rebuilds a failed disk. Main → stop the array → put a disk into the parity slot → start: Unraid builds the parity (hours, the array stays usable)."},
   "adv.parity.title": "Last parity check: {when}",
   "adv.parity.why": "A regular check (monthly or quarterly) finds bad sectors before a disk fails and you need the parity. Settings → Scheduler → Parity Check, with a time when nobody needs the server.",
   "adv.ups.title": "No UPS",

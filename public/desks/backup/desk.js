@@ -2575,7 +2575,10 @@ function setupGeneral(plan) {
   if (zfs) box.appendChild(field(T('setup.g_prefix'), textInput('general|snap_prefix', /^(?!uso-plan-|auto-)[a-z0-9_]+(?:-[a-z0-9_]+)*-$/), T('setup.g_prefix_hint')));
   if (btrfs) {
     box.appendChild(field(T('setup.g_btrfs_free'), textInput('btrfs|min_free_gb', /^\d+$/), T('setup.g_btrfs_free_hint')));
-    box.appendChild(checkbox(T('setup.g_btrfs_all'), dget('btrfs|snapshot_all') === 'yes', (v) => dset('btrfs|snapshot_all', v ? 'yes' : 'no')));
+    // a snapshot needs the disk awake: with every disk, those that sleep at night are woken for it (Benj, 2026-10-07)
+    const disks = plan.bases.filter((b) => b.fs === 'btrfs' && b.kind === 'disk').map((b) => b.name);
+    box.appendChild(checkbox(T('setup.g_btrfs_all'), dget('btrfs|snapshot_all') === 'yes', (v) => dset('btrfs|snapshot_all', v ? 'yes' : 'no'),
+      disks.length ? T('setup.g_btrfs_all_wake', { n: disks.length, names: disks.join(', ') }) : ''));
   }
   if (plan.P['libvirt|mode'] !== undefined) {
     box.appendChild(field(T('setup.g_libvirt'), selectInput('libvirt|mode', ['tar', 'off'], (o) => T('setup.libvirt.' + o)), T('setup.g_libvirt_hint')));

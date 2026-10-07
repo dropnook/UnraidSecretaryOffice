@@ -728,6 +728,8 @@
     "other": "{n} vecchie signore: {names}"
   },
   "adv.old_disks.why": "Più di circa 5 anni di ore di funzionamento. Non è un guasto — ma è il momento di tenere d'occhio lo SMART, avere un disco di riserva a portata di mano e assicurarsi che ciò che c'è sopra abbia un backup.",
+  "adv.no_parity.title": "L'array gira senza parità",
+"adv.no_parity.why": {"one": "Se il suo disco dati si guasta, ciò che c'è sopra è perso — e niente ti avvisa prima. Un disco di parità (grande almeno quanto il disco dati più grande) ricostruisce un disco guasto. Main → ferma l'array → metti un disco nello slot di parità → avvia: Unraid costruisce la parità (ore, l'array resta utilizzabile).", "other": "Se uno dei {n} dischi dati si guasta, ciò che c'è sopra è perso — e niente ti avvisa prima. Un disco di parità (grande almeno quanto il disco dati più grande) ricostruisce un disco guasto. Main → ferma l'array → metti un disco nello slot di parità → avvia: Unraid costruisce la parità (ore, l'array resta utilizzabile)."},
   "adv.parity.title": "Ultimo controllo di parità: {when}",
   "adv.parity.why": "Un controllo regolare (mensile o trimestrale) trova i settori difettosi prima che un disco si guasti e ti serva la parità. Impostazioni → Operazioni pianificate → Controllo di Parità, a un'ora in cui nessuno ha bisogno del server.",
   "adv.ups.title": "Nessun UPS",

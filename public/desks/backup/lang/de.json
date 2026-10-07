@@ -456,6 +456,7 @@
   "setup.g_btrfs_free": "btrfs-Notbremse (GB frei)",
   "setup.g_btrfs_free_hint": "Darunter werden die ältesten btrfs-Snapshots vorzeitig gelöscht.",
   "setup.g_btrfs_all": "Alle btrfs-Array-Disks snapshotten (zum Durchstöbern), auch ohne gesicherte Shares",
+  "setup.g_btrfs_all_wake": {"one": "Das weckt {names} jede Nacht für ihren Snapshot, auch wenn sie schläft — lass es aus, wenn sie die Nacht durchschlafen soll.", "other": "Das weckt die {n} Platten ({names}) jede Nacht für ihre Snapshots, auch die schlafenden — lass es aus, wenn sie die Nacht durchschlafen sollen."},
   "setup.g_flash": "Boot-Medium (USB-Stick)",
   "setup.g_flash_pool": "Boot-Medium (Boot-Pool «{pool}»)",
   "setup.g_flash_zfs": "/boot liegt auf ZFS ({ds}) — ein Snapshot ist möglich und geht an Kopia.",
