@@ -230,9 +230,11 @@ desk('cleaner', [
 ```
 
 Her state goes to `data/<id>.json` (`writeAtomic(deskFile('cleaner'), …)`); the
-office serves it at `api.php?a=state&desk=cleaner` and asks for `cleaner.refresh`
-when it is older than `refresh_after`. An extra state file `data/<id>-<part>.json`
-(`?a=part&desk=<id>&part=<part>`) is kept fresh the same way when desk.json names it:
+office serves it at `api.php?a=state&desk=cleaner` at once, and when it is older than
+`refresh_after` asks for `cleaner.refresh` in the background — her page shows the new
+state when it is there (`fresh=1` waits for it; the reception only reads what is kept).
+An extra state file `data/<id>-<part>.json` (`?a=part&desk=<id>&part=<part>`) is kept
+fresh the same way when desk.json names it:
 `"parts": {"<part>": {"refresh_after": 600, "action": "<action>"}}`. Errors are thrown as
 `new Problem('key', [...])` and translated in the UI (`errors.<key>`).
 
@@ -242,7 +244,9 @@ built with `finding()` from `agent/lib/house.php`, texts as `check.<id>` and
 
 On the web side it registers with `Office.desk({ id, mount(root), poll(), reception() })`
 and uses `Office.api`, `Office.dialog`, `Office.menu`, `Office.toast`, `Office.fmt`
-and `Office.scope('<id>')` for its strings. See the existing desks.
+and `Office.scope('<id>')` for its strings. It reads its state with
+`Office.loadState(id, { fresh }, took)` and asks `await Office.freshState(id)` before it
+acts on what its page shows. See the existing desks.
 
 ## Adding a language
 
