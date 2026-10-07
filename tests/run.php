@@ -7240,6 +7240,145 @@ function testWatchmanNight(): void
     hardeningRm($tmp);
 }
 
+/**
+ * The night shift on the office's page and on the Dashboard tile while the array is stopped: officeNightShift()
+ * (src/mailbox.php) reads RAM only — the pid in its lock (a living `agent.php nightshift`; it never takes the lock, so
+ * the night shift's own non-blocking lock at its start never meets it) and its state — and the web side without its
+ * data folder (the array stopped) answers without a warning. In a process of its own (bootstrap.php) on a copy laid
+ * out like the plugin (src/ beside the web files).
+ */
+function testNightUi(): void
+{
+    $tmp = hardeningTmp('nightui');
+    $now = time();
+    @mkdir("$tmp/plugin/src", 0700, true);
+    foreach (glob(OFFICE_DIR . '/src/*.php') ?: [] as $f) {
+        copy($f, "$tmp/plugin/src/" . basename($f));
+    }
+    foreach (['assets', 'desks', 'lang'] as $d) {
+        @symlink(OFFICE_WEB . "/$d", "$tmp/plugin/$d");
+    }
+    // a night shift: a process whose command line is `… agent.php nightshift` (a stand-in that only waits); one that ended
+    file_put_contents("$tmp/agent.php", "<?php sleep(60);\n");
+    $quiet = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
+    $shift = proc_open([PHP_BINARY, "$tmp/agent.php", 'nightshift'], $quiet, $pipes);
+    $pid = (int) (proc_get_status($shift)['pid'] ?? 0);
+    for ($i = 0; $i < 60 && !str_contains((string) @file_get_contents("/proc/$pid/cmdline"), 'nightshift'); $i++) {
+        usleep(50000);
+    }
+    $ended = proc_open([PHP_BINARY, "$tmp/agent.php", 'nightshift', 'x'], $quiet, $pipes);
+    $gone = (int) (proc_get_status($ended)['pid'] ?? 0);
+    proc_terminate($ended);
+    proc_close($ended);
+
+    $since = $now - 120;
+    $state = ['hired' => 1000, 'night' => ['since' => $since, 'from' => 'ram', 'rounds' => 7, 'new' => 1], 'round' => ['time' => $now - 60]];
+    $runs = [
+        'on'        => [$pid, $state],
+        'quiet'     => [$pid, ['night' => ['since' => $since, 'from' => 'flash', 'rounds' => 1, 'new' => 0]] + $state],
+        'old'       => [$pid, ['night' => ['since' => $since, 'from' => 'ram']] + $state],      // a night shift of an older agent: no counts
+        'off'       => [null, $state],                  // no lock: no night shift since the boot
+        'stale'     => [$gone, $state],                 // a stale lock: its process ended (the agent took over)
+        'other'     => [getmypid(), $state],            // its pid now another process's
+        'junk'      => ["$pid\n1", $state],
+        'no_mirror' => [$pid, null],                    // on, but no mirror (not hired, no round yet): no state, it ends at once
+        'day'       => [$pid, ['night' => ['since' => 1, 'until' => 2, 'from' => 'ram']] + $state],     // the day's, after a handover
+        'unhired'   => [$pid, ['hired' => 0] + $state],
+    ];
+    foreach ($runs as $name => [$lockPid, $st]) {
+        @mkdir("$tmp/run-$name/nightshift", 0700, true);
+        if ($lockPid !== null) {
+            file_put_contents("$tmp/run-$name/nightshift.lock", (string) $lockPid);
+        }
+        if ($st !== null) {
+            file_put_contents("$tmp/run-$name/nightshift/state.json", json_encode($st));
+        }
+    }
+    // an agent at work: its data folder with a fresh agent.json and the mailbox
+    @mkdir("$tmp/data/mailbox", 0700, true);
+    file_put_contents("$tmp/data/agent.json", json_encode(['running' => true, 'version' => AGENT_VERSION, 'pid' => 4242, 'started' => $now, 'host' => 'test']));
+
+    $plugin = var_export("$tmp/plugin/src", true);
+    file_put_contents("$tmp/web.php", '<?php foreach (["bootstrap", "page", "dashboard", "api"] as $f) { require ' . $plugin . ' . "/$f.php"; }'
+        . ' date_default_timezone_set("Europe/Zurich"); error_reporting(E_ALL);'
+        . ' set_error_handler(function (int $no, string $s, string $file, int $line): bool { if (error_reporting() & $no) { fwrite(STDERR, "PHP: $s ($file:$line)\n"); } return true; });'
+        . ' if ($argv[1] === "read") { $out = []; foreach (json_decode($argv[2], true) as $n) { $out[$n] = officeNightShift(' . var_export($tmp, true) . ' . "/run-$n"); }'
+        . ' echo json_encode($out); exit; }'
+        . ' if ($argv[1] === "api") { $_SERVER["REQUEST_METHOD"] = "GET"; $_GET = ["a" => $argv[2], "lang" => "en", "desk" => $argv[3] ?? ""]; api_main(); }'
+        . ' echo json_encode(["agent" => agentInfo(), "config" => officePageConfig()["agent"], "en" => officeDashRows("en"), "de" => officeDashRows("de"),'
+        . ' "fr" => officeDashRows("fr")]);');
+    $web = function (array $args, string $run, string $data = 'missing') use ($tmp): array {
+        $p = proc_open(array_merge([PHP_BINARY, "$tmp/web.php"], $args), [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => "$tmp/$data", 'OFFICE_RUN_DIR' => "$tmp/run-$run", 'PATH' => getenv('PATH')]);
+        $out = (string) stream_get_contents($pipes[1]);
+        $err = (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return [json_decode($out, true), trim($err), $out];
+    };
+
+    [$read, $err, $raw] = $web(['read', json_encode(array_keys($runs))], 'on');
+    same('night ui: on — since when, its rounds, what is new, the last round', ['since' => $since, 'rounds' => 7, 'new' => 1, 'last' => $now - 60], $read['on'] ?? $raw);
+    same('night ui: on, nothing new yet; an older agent\'s state without counts', [[1, 0], [0, 0]],
+        [[$read['quiet']['rounds'] ?? null, $read['quiet']['new'] ?? null], [$read['old']['rounds'] ?? null, $read['old']['new'] ?? null]]);
+    same('night ui: off — no lock, a stale lock, another process\'s pid, junk, no mirror, the day\'s state, not hired',
+        array_fill_keys(['off', 'stale', 'other', 'junk', 'no_mirror', 'day', 'unhired'], null),
+        array_intersect_key($read ?? [], array_flip(['off', 'stale', 'other', 'junk', 'no_mirror', 'day', 'unhired'])));
+    same('night ui: read without a word', '', $err);
+    same('night ui: the lock left as it was (never taken, never written)', (string) $pid, (string) file_get_contents("$tmp/run-on/nightshift.lock"));
+
+    // the array stopped (no data folder), the night shift on: the page knows at once, the tile has its line
+    [$o, $err, $raw] = $web(['web'], 'on');
+    same('night ui: no data folder, night shift on — no warning', '', $err);
+    same('night ui: the agent\'s info carries it, the page gets it at once', [false, true, $read['on'], $read['on']],
+        [$o['agent']['running'] ?? null, isset($o['agent']['no_data']), $o['agent']['night'] ?? null, $o['config']['night'] ?? null]);
+    $at = date('Y-m-d', $since) === date('Y-m-d', $now) ? date('H:i', $since) : null;      // else «yesterday 23:59» (a run just after midnight)
+    $en = (string) ($o['en'] ?? '');
+    check('night ui: the tile — the messenger says the array, his line with since, rounds and what is new',
+        str_contains($en, 'Array stopped') && str_contains($en, 'desks/watchman/avatar.svg') && str_contains($en, 'The Night Watchman')
+        && ($at === null || str_contains($en, "Night shift since $at")) && str_contains($en, '7 rounds, 1 new entry') && str_contains($en, 'orange-text'), $raw);
+    check('night ui: the tile in German and French', str_contains((string) ($o['de'] ?? ''), '7 Runden, 1 neuer Eintrag') && str_contains((string) ($o['de'] ?? ''), 'Der Nachtwächter')
+        && str_contains((string) ($o['fr'] ?? ''), '7 rondes, 1 nouvelle entrée'), $raw);
+    check('night ui: the tile links to the office\'s reception', (bool) preg_match('~<a class="sso-dash-row" href="[^"]*#/"><img class="sso-dash-icon" src="[^"]*desks/watchman/avatar\.svg~', $en), $en);
+    [$o, , $raw] = $web(['web'], 'quiet');
+    check('night ui: nothing new — calm', str_contains((string) ($o['en'] ?? ''), '1 round, nothing new') && !str_contains((string) ($o['en'] ?? ''), '1 new'), $raw);
+    [$o, , $raw] = $web(['web'], 'old');
+    check('night ui: no counts (an older agent) — only what is new', str_contains((string) ($o['en'] ?? ''), '<small>nothing new</small>'), $raw);
+
+    // off (the night shift ended, its lock stays behind): nothing about it, no warning
+    [$o, $err, $raw] = $web(['web'], 'stale');
+    same('night ui: a stale lock — nothing on the page or the tile, no warning', [false, false, false, ''],
+        [isset($o['agent']['night']), isset($o['config']['night']), str_contains((string) ($o['en'] ?? ''), 'watchman'), $err]);
+    // the agent at work (the array started): never the night's line, even while a night shift still lives
+    [$o, $err, $raw] = $web(['web'], 'on', 'data');
+    same('night ui: the agent at work — no night line', [true, false, false, true, ''],
+        [$o['agent']['running'] ?? null, isset($o['agent']['night']), str_contains((string) ($o['en'] ?? ''), 'watchman'),
+         str_contains((string) ($o['en'] ?? ''), 'Messenger is in'), $err]);
+
+    // the API: ?a=agent for the reception's look every minute, ?a=dash for the tile
+    [$o, $err, $raw] = $web(['api', 'agent'], 'on');
+    same('night ui: api agent', [true, $read['on'], ''], [$o['ok'] ?? null, $o['agent']['night'] ?? null, $err]);
+    [$o, $err, $raw] = $web(['api', 'dash'], 'on');
+    check('night ui: api dash', ($o['ok'] ?? null) === true && str_contains((string) ($o['html'] ?? ''), '7 rounds, 1 new entry') && $err === '', $raw . $err);
+    [$o, $err, $raw] = $web(['api', 'state', 'caretaker'], 'on');
+    same('night ui: a desk\'s state without the data folder — none, the night in the agent\'s info, no warning', [true, null, true, ''],
+        [$o['ok'] ?? null, $o['state'] ?? null, isset($o['agent']['night']), $err]);
+
+    // every text the tile asks for exists (officeDashT … '<key>')
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/lang/en.json'), true) ?: [];
+    foreach (glob(OFFICE_WEB . '/desks/*/lang/en.json') ?: [] as $file) {
+        foreach (json_decode((string) file_get_contents($file), true) ?: [] as $k => $v) {
+            $en[basename(dirname($file, 2)) . ".$k"] = $v;
+        }
+    }
+    preg_match_all("/officeDashT\\(\\\$s(?:trings)?, '([a-z0-9_.]+)'/", (string) file_get_contents(OFFICE_DIR . '/src/dashboard.php'), $m);
+    $missing = array_values(array_filter(array_unique($m[1]), fn ($k) => !isset($en[$k])));
+    check('dashboard.php: every text it asks for exists (' . count(array_unique($m[1])) . ')', $missing === [] && count($m[1]) > 10, json_encode($missing));
+
+    proc_terminate($shift);
+    proc_close($shift);
+    hardeningRm($tmp);
+}
+
 function testWatchmanSnaps(): void
 {
     $now = strtotime('2026-10-06 12:00:00');
@@ -7700,7 +7839,7 @@ function testSupporterKeys(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
                       'testWhereaboutsAfterWatchman', 'testWhereaboutsVmStop', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];

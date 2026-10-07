@@ -6,7 +6,8 @@ declare(strict_types=1);
  * team lead's traffic light (open points only — what the user noted with «I
  * know, thanks» doesn't count) and Mr. Backupsy's last and next run (or what
  * the engine is doing right now: a backup, a check, a dry run; a run skipped
- * because the engine was busy, engine 2.20) — each row
+ * because the engine was busy, engine 2.20); while the array isn't started the
+ * night watchman's night shift (since when, its rounds, what is new) — each row
  * a link into the office. Built from the desks' state files only (no request
  * to the agent, no disk wakes up); the tile asks api.php?a=dash again every
  * minute. While Mr. Restori restores, a row of his says what. Texts from the office's language files (dash.*): the language this
@@ -46,6 +47,24 @@ function officeDashWhen(array $strings, int $time, string $lang): string
         $day(time() + 86400)  => officeDashT($strings, 'dash.tomorrow', ['time' => $clock]),
         default               => date($lang === 'de' ? 'd.m. H:i' : 'M j, H:i', $time),
     };
+}
+
+/** "09:18" for a time of today, else "yesterday 23:10" or the date */
+function officeDashSince(array $strings, int $time, string $lang): string
+{
+    return date('Y-m-d', $time) === date('Y-m-d') ? date('H:i', $time) : officeDashWhen($strings, $time, $lang);
+}
+
+/** The night shift's rounds and what is new in it: "12 rounds, 1 new entry" (no rounds counted yet: only what is new) */
+function officeDashNightFacts(array $strings, array $night): string
+{
+    $facts = [];
+    if ((int) ($night['rounds'] ?? 0) > 0) {
+        $facts[] = officeDashT($strings, 'agent.night_rounds', ['n' => (int) $night['rounds']]);
+    }
+    $new = (int) ($night['new'] ?? 0);
+    $facts[] = $new > 0 ? officeDashT($strings, 'agent.night_new', ['n' => $new]) : officeDashT($strings, 'agent.night_nothing');
+    return implode(', ', $facts);
 }
 
 /** The next run of a daily cron ("M H * * *"), else null */
@@ -156,9 +175,18 @@ function officeDashRows(string $lang): string
     };
     $out = '';
     $agent = agentInfo();
+    $night = !$agent['running'] && is_array($agent['night'] ?? null) ? $agent['night'] : null;
     $out .= $row('', officeDashAsset('assets/messenger.svg'), officeDashT($s, 'dash.messenger'),
-        officeDashT($s, $agent['running'] ? 'agent.label_on' : (isset($agent['no_data']) && ($agent['no_data']['array'] ?? '') !== 'Started' ? 'agent.label_array' : 'agent.label_off')),
+        officeDashT($s, $agent['running'] ? 'agent.label_on'
+            : ($night || (isset($agent['no_data']) && ($agent['no_data']['array'] ?? '') !== 'Started') ? 'agent.label_array' : 'agent.label_off')),
         $agent['running'] ? 'green' : 'red');
+
+    // the array isn't started: the night watchman's night shift keeps watch (RAM and flash only) — since when, its rounds, what is new
+    if ($night) {
+        $out .= $row('', officeDashAsset('desks/watchman/avatar.svg'), officeDashT($s, 'watchman.name'),
+            officeDashT($s, 'dash.night', ['time' => officeDashSince($s, (int) $night['since'], $lang)]), $night['new'] ? 'orange' : 'green',
+            officeDashNightFacts($s, $night));
+    }
 
     // the team lead: what is left to do, what he recommends (only desks that work here, only what is open)
     $hired = officeHired();
