@@ -22,7 +22,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.23"
+UB_VERSION="2.24"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -659,6 +659,22 @@ ub_base_asleep() { # ub_base_asleep <base>  -> 0 when it sleeps
         }
         END { exit f ? 0 : 1 }' "$UB_DISKS_INI"
 }
+# --- The array being stopped (since 2.24) ------------------------------------
+# Unraid writes fsState="Stopping" into var.ini the moment an array stop begins - minutes before it
+# shuts down the VMs and Docker, long before it unmounts the pools (where a run's lock, log and
+# mounts would hold it up). "Started" - and "Formatting", "Clearing", which Unraid shows as "Started,
+# formatting/clearing" (a new disk is cleared for hours while the array runs) - means it runs;
+# "Stopping" and "Stopped" that it is going or gone. Anything else (no var.ini, a value not known
+# here, the file read while emhttpd rewrites it) is never taken for a stop. Cheap: one small file in
+# RAM, read at the run's safe points and every few seconds while Kopia uploads (backup.sh).
+UB_VAR_INI="${UB_VAR_INI:-/var/local/emhttp/var.ini}"
+array_fsstate() { sed -n 's/^fsState="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$UB_VAR_INI" 2>/dev/null | tail -n 1; }
+array_stopping() { # -> 0 while the array is being stopped (or is stopped)
+    [[ -r "$UB_VAR_INI" ]] || return 1
+    case "$(array_fsstate)" in Stopping|Stopped) return 0 ;; esac
+    return 1
+}
+
 # ub_path_where <path>  -> the path on the pool or disk that holds it ("" when it lies only on sleeping
 # disks or nowhere); a /mnt/user path is looked up on the awake bases of its share only
 UB_WHERE_ASLEEP="no"
@@ -1422,8 +1438,13 @@ kopia_probe_propagation() {
 # the containers it had stopped and the Nextclouds it had put into
 # maintenance mode. Both are brought back here.
 # Call only while holding the lock (then no other run is going).
+# Never into a stopping array (2.24): the notes stay for the first run after the array start.
 recover_interrupted_run() {
     local n occ u list=""
+    if array_stopping && [[ -s "$UB_STATE/stopped" || -s "$UB_STATE/maintenance" || -s "$UB_STATE/vms" ]]; then
+        log "The array is being stopped - what an earlier run left stopped stays so (state/stopped, maintenance, vms) until a run after the array start"
+        return 0
+    fi
     if [[ -s "$UB_STATE/stopped" ]]; then
         while IFS= read -r n; do
             [[ -z "$n" ]] && continue
@@ -1757,6 +1778,10 @@ drift_count() { local lvl="$1" n=0 l; for l in "${DRIFT[@]}"; do [[ "${l%%|*}" =
 #   skipped.json     the last run that could not start because the lock was busy; a real backup run
 #                    that was skipped also gets a line in history.jsonl ("result": "skipped") - it
 #                    never touches status.json, which describes the run going on
+#   since 2.24 a run that ends because the array is being stopped: "result": "aborted", "message":
+#   "array_stopping" (a code - the office translates backup.message.array_stopping), a history.jsonl
+#   line like any run; "kopia" carries "skipped" (the planned sources it didn't do - not failed: the
+#   next run does them) and "interrupted" (the source whose upload was interrupted, null if none)
 # Writing is never critical: if it fails, the backup carries on.
 UB_INTERFACE=1
 UB_HISTORY_MAX=200
@@ -1773,6 +1798,8 @@ ST_KOPIA_PLAN=()          # names of the Kopia sources in order
 ST_KOPIA_CUR=""
 ST_KOPIA_CUR_T=0
 ST_KOPIA_DONE=()          # lines "name|ok(1/0)|seconds|end"
+ST_KOPIA_SKIPPED=()       # since 2.24: planned sources not done because the array is being stopped (not failed)
+ST_KOPIA_INTERRUPTED=""   # since 2.24: the source whose upload the array stop interrupted
 ST_DUMP_BYTES=0
 ST_VMS=()                 # lines "name|prepare|done|seconds|snapshot(1/0)" - what the run did with each VM
                           #   done: planned | frozen | paused | shutdown | kept_running | off | not_running | failed
@@ -1788,8 +1815,9 @@ status_init() { # status_init <mode>
 status_phase() { ST_PHASE="$1"; status_write; }
 
 status_json() {
-    local plan done_ drift
+    local plan done_ drift skipped
     plan="$(printf '%s\n' "${ST_KOPIA_PLAN[@]}" | jq -R 'select(length > 0)' | jq -sc .)" || plan='[]'
+    skipped="$(printf '%s\n' "${ST_KOPIA_SKIPPED[@]}" | jq -R 'select(length > 0)' | jq -sc .)" || skipped='[]'
     done_="$(printf '%s\n' "${ST_KOPIA_DONE[@]}" | jq -R 'select(length > 0) | split("|")
         | {name: .[0], ok: (.[1] == "1"), seconds: (.[2] | tonumber), finished: (.[3] | tonumber)}' | jq -sc .)" || done_='[]'
     drift="$(jq -nc --argjson e "$(drift_count error)" --argjson w "$(drift_count warn)" --argjson i "$(drift_count info)" \
@@ -1808,6 +1836,7 @@ status_json() {
         --argjson drift "$drift" --argjson planned "$plan" --argjson done "$done_" \
         --arg kopia_enabled "${KOPIA_ENABLED:-}" --arg kopia_ok "${KOPIA_OK:-}" \
         --arg current "$ST_KOPIA_CUR" --argjson current_since "$ST_KOPIA_CUR_T" --argjson vms "${vms:-[]}" \
+        --argjson skipped "${skipped:-[]}" --arg interrupted "$ST_KOPIA_INTERRUPTED" \
         --argjson packages "${ST_PACKAGES:-null}" --argjson new_local "${ST_NEW_LOCAL:-null}" \
         '{interface: $interface, name: $name, version: $version, mode: $mode, run: $run, pid: $pid,
           started: $started, updated: $updated, finished: $finished, phase: $phase, result: $result,
@@ -1816,7 +1845,8 @@ status_json() {
           new_local: $new_local,
           kopia: {enabled: ($kopia_enabled | ascii_downcase | test("^(yes|ja|1|true)$")), state: $kopia_ok,
                   planned: $planned, current: (if $current == "" then null else $current end),
-                  current_since: (if $current == "" then null else $current_since end), done: $done}}'
+                  current_since: (if $current == "" then null else $current_since end), done: $done,
+                  skipped: $skipped, interrupted: (if $interrupted == "" then null else $interrupted end)}}'
 }
 
 status_write() {

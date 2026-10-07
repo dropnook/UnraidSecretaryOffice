@@ -1,6 +1,14 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.23 - 2026-10-07
+# unraid-backup - backup.sh                       Version 2.24 - 2026-10-07
+#   2.24 The run notices the array being stopped (var.ini fsState Stopping - minutes before Unraid
+#        stops the VMs and Docker) at its safe points and every few seconds while Kopia uploads, and
+#        ends at once: the Kopia snapshot going on is interrupted inside the container (Kopia keeps
+#        what it uploaded, the next run continues), the remaining sources are skipped (not failed),
+#        no retention, no new snapshot or dump, mounts, lock and lock note released. Nothing is
+#        started into the stopping array (what the run stopped stays noted for the next run); frozen
+#        or paused VMs are released, a running Nextcloud leaves maintenance mode. Result "aborted",
+#        message array_stopping, one normal notification - never "errors" or an alert; exit code 3
 #   2.23 The btrfs emergency brake scales with the disk: its floor is [btrfs] min_free_gb, but at most a
 #        tenth of the disk (small disks were always "short"); with no earlier snapshot of ours left to
 #        release it is a log line only, no warning and no notification every run
@@ -225,8 +233,15 @@ DOWNTIME=0                  # the apps' downtime (downtime_s): from stopping the
 SNAP_NAME=""
 KOPIA_PID=""                # running Kopia snapshot (background, see kopia_one)
 KOPIA_CP=""
+ARRAY_STOP="no"             # the array is being stopped: the run ends at once, starts nothing (2.24, array_stop_check)
+CLEANUP_ARMED="no"          # the cleanup trap is set (from then on an array stop ends the run through it)
+UB_ARRAY_LOOK="${UB_ARRAY_LOOK:-5}"   # seconds between looks at var.ini while Kopia uploads
+
+dur_h() { local s="${1:-0}"; if (( s >= 60 )); then printf '%d min %d s' $(( s / 60 )) $(( s % 60 )); else printf '%d s' "$s"; fi; }
 
 die() {
+    # a failure while the array is being stopped is that stop (Docker gone, a pool going): ended as such
+    [[ "$CLEANUP_ARMED" == "yes" && "$CLEANUP_DONE" != "yes" ]] && array_stopping && { log "  ($*)"; array_stop_abort; }
     err "$*"
     status_finish failed "$*"
     ub_notify "Backup FAILED" "$*" "alert" "Log: $LOG_FILE"
@@ -235,6 +250,7 @@ die() {
 # die_code <code> <text>: like die, but status.json carries the code - the office translates it
 die_code() {
     local code="$1"; shift
+    [[ "$CLEANUP_ARMED" == "yes" && "$CLEANUP_DONE" != "yes" ]] && array_stopping && { log "  ($*)"; array_stop_abort; }
     err "$*"
     status_finish failed "$code"
     ub_notify "Backup FAILED" "$*" "alert" "Log: $LOG_FILE"
@@ -325,7 +341,7 @@ vm_shutdowns() {
     local n k=0
     for n in "${VM_TODO[@]}"; do [[ "$(vm_prepare "$n")" == "shutdown" ]] && k=$((k+1)); done
     (( k > 0 )) || return 0
-    status_phase "vm_shutdown"
+    next_phase "vm_shutdown"
     log "VMs: shutting down $k before anything stops (the apps keep running meanwhile; waiting at most ${VM_SHUTDOWN_TIMEOUT} s)"
     vm_hold_begin
     vm_shutdown_wait
@@ -365,6 +381,7 @@ vm_shutdown_wait() {
     (( ${#pending[@]} > 0 )) || return 0
     [[ "$mode" == "abort" ]] && log "  Waiting for ${#pending[@]} VM(s) going down, to start them again (at most until ${VM_SHUTDOWN_TIMEOUT} s after the request)"
     while (( ${#pending[@]} > 0 )); do
+        [[ "$mode" == "abort" ]] || array_stop_check "while VMs shut down"
         left=()
         for n in "${pending[@]}"; do
             if [[ "$(vm_domstate "$n")" == "shut off" ]]; then
@@ -515,6 +532,7 @@ wait_ready() { # wait_ready <seconds> <name...>
     local limit="$1" t=0 n st all; shift
     [[ $# -eq 0 ]] && return 0
     while (( t < limit )); do
+        array_stopping && return 1           # Docker is about to stop them all
         all=1
         for n in "$@"; do
             st="$(docker inspect -f '{{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$n" 2>/dev/null)"
@@ -530,6 +548,11 @@ restore_service() {
     local tier n started c i out
     if [[ ${#STOPPED[@]} -gt 0 ]]; then
         for tier in NET DB APP; do
+            if [[ "$ARRAY_STOP" == "yes" ]] || array_stopping; then
+                ARRAY_STOP="yes"
+                log "  The array is being stopped - the containers not started yet stay stopped (state/stopped)"
+                return 0
+            fi
             local -n T="T_$tier"
             started=()
             for n in "${T[@]}"; do
@@ -543,7 +566,7 @@ restore_service() {
             done
             unset -n T
             [[ "$tier" != "APP" && ${#started[@]} -gt 0 ]] && \
-                { wait_ready 120 "${started[@]}" || warn "Not all $tier containers are ready after 120 s"; }
+                { wait_ready 120 "${started[@]}" || array_stopping || warn "Not all $tier containers are ready after 120 s"; }
         done
         log "  Containers started: ${#STOPPED[@]}"
         STOPPED=()
@@ -553,12 +576,16 @@ restore_service() {
     for c in "${!NC_ON[@]}"; do
         for i in $(seq 1 60); do
             nc_occ "$c" status >/dev/null 2>&1 && break
+            array_stopping && break
             sleep 2
         done
         if out="$(nc_occ "$c" maintenance:mode --off 2>&1)"; then
             log "  Nextcloud '$c': maintenance mode off"
             unset "NC_ON[$c]"
             save_restore_state
+        elif array_stopping; then
+            ARRAY_STOP="yes"
+            log "  Nextcloud '$c': maintenance mode stays on (the array is being stopped) - noted (state/maintenance) for the next run"
         else
             nc_log_output "$out"
             warn "Nextcloud '$c': maintenance mode would NOT switch off"
@@ -1023,6 +1050,7 @@ run_dumps() {
     local c t f rc
     while IFS= read -r c; do
         [[ -z "$c" ]] && continue
+        array_stop_check "before the dump of $c"
         t="$(cfg "dump|$c|type")"
         f="${PKG_APP_OF[$c]:-}"
         if [[ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" != "true" ]]; then
@@ -1096,6 +1124,7 @@ run_sqlite_copies() {
     local line c hp p asl f file key out old r sz
     for line in "${SQ_PLAN[@]}"; do
         IFS='|' read -r c hp p asl <<<"$line"
+        array_stop_check "before the SQLite copies of $c"
         f="${PKG_APP_OF[$c]}"; file="sqlite_${c}_${p##*/}"; key="$c|$file"
         out="$PKG_STAGE/apps/$f/db/$file"; old="$UB_DUMPS/apps/$f/db/$file"
         if [[ "$asl" == "asleep" ]]; then
@@ -2018,18 +2047,132 @@ report_drift() {
 }
 
 ##############################################################################
+# The array is being stopped (2.24)
+##############################################################################
+# Unraid says so in var.ini (array_stopping, lib/common.sh) the moment an array stop begins: minutes
+# before it shuts down the VMs and Docker, long before it unmounts the pools - which this run's lock,
+# its log and its mounts would hold up. Up to 2.23 a run noticed nothing until Docker was gone, then
+# failed every Kopia source left, pruned snapshots during the stop and sent an alert. Now it looks at
+# its safe points - every phase (next_phase), before writing packages, before every dump, Kopia source
+# and pruned dataset, every few seconds while Kopia uploads (kopia_one), while it waits for VMs or
+# containers - and ends at once (array_stop_abort: exit 3, the EXIT trap does the rest):
+#   - the Kopia snapshot going on is interrupted inside the container (kopia_stop: SIGINT to the kopia
+#     process, not just its docker exec client - Kopia saves what it uploaded and a checkpoint, the next
+#     run continues); the planned sources not done are "skipped" (status.json kopia.skipped), not failed
+#   - no retention (nothing is pruned during a stop), no new snapshot, dump or package
+#   - nothing is started into the stopping array: containers the run stopped stay stopped (Docker
+#     stops the rest now), a VM it shut down stays off - noted in state/stopped and state/vms like a
+#     killed run's, so the first run after the array start starts what Unraid's autostart didn't
+#   - a frozen VM is thawed and a paused one resumed (array_stop_release): a held guest can't shut down
+#     cleanly when libvirt asks - a frozen one would be forced off after Unraid's VM timeout
+#   - a Nextcloud whose container still runs leaves maintenance mode; one whose container the run
+#     stopped stays in it, noted (state/maintenance) for the next run - occ needs its container
+#   - its mounts go (keep_mounts too), the lock and its note are released - nothing keeps a pool busy
+#   - status.json "result": "aborted", "message": "array_stopping", a history line; one notification
+#     (normal) - never "errors" or an alert
+# Between stopping the apps and the snapshots that means: no snapshot this night (dumps made so far go
+# with the stage, the last good packages stay) - rather than snapshotting while Unraid is about to stop
+# Docker and unmount the pools; the next run takes the night's backup.
+ARRAY_STOP_PHASE=""         # where the run was when it saw the array being stopped
+
+next_phase() { array_stop_check; status_phase "$1"; }
+
+array_stop_check() { # array_stop_check [what was going on]  - ends the run when the array is being stopped
+    [[ "$CLEANUP_ARMED" == "yes" && "$CLEANUP_DONE" != "yes" ]] || return 0     # never from the cleanup itself
+    [[ "$ARRAY_STOP" == "yes" ]] || array_stopping || return 0
+    array_stop_abort "${1:-}"
+}
+array_stop_abort() {
+    ARRAY_STOP="yes"; ARRAY_STOP_PHASE="${ARRAY_STOP_PHASE:-$ST_PHASE}"
+    log "The array is being stopped (Unraid: fsState $(array_fsstate)) - the run ends now${1:+ ($1)}; nothing is started again"
+    exit 3
+}
+
+# The planned Kopia sources not done: skipped, not failed - the next run does them
+array_stop_kopia() {
+    local d n
+    local -A gone=()
+    for d in "${ST_KOPIA_DONE[@]}"; do gone[${d%%|*}]=1; done
+    ST_KOPIA_SKIPPED=()
+    for n in "${ST_KOPIA_PLAN[@]}"; do [[ -n "${gone[$n]:-}" ]] || ST_KOPIA_SKIPPED+=( "$n" ); done
+}
+
+# What the run holds when the array is being stopped (from the cleanup): nothing is started
+array_stop_release() {
+    local n how secs c out
+    if (( ${#VM_HELD[@]} )); then
+        log "Releasing the VMs (none is started into the stopping array) ..."
+        for n in "${!VM_HELD[@]}"; do
+            how="${VM_HELD[$n]}"; secs=$(( $(date +%s) - ${VM_HELD_AT[$n]:-$(date +%s)} ))
+            case "$how" in
+                frozen)   if timeout 60 virsh domfsthaw "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': thawed"
+                          else warn "VM '$n': thawing its file systems failed - check the VM"; fi ;;
+                paused)   if timeout 30 virsh resume "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': resumed (Unraid shuts it down now)"
+                          else warn "VM '$n' could not be resumed (Unraid resumes paused VMs before it shuts them down)"; fi ;;
+                shutdown) log "  VM '$n': stays off - noted (state/vms): the first run after the array start starts it, unless Unraid's autostart did"
+                          vm_note "$n" "$(vm_prepare "$n")" "$how" "$secs"; continue ;;
+            esac
+            vm_note "$n" "$(vm_prepare "$n")" "$how" "$secs"
+            unset "VM_HELD[$n]" "VM_HELD_AT[$n]"
+        done
+    fi
+    (( ${#STOPPED[@]} )) && log "  Stay stopped (Docker is being stopped): ${STOPPED[*]} - noted (state/stopped): the first run after the array start starts those Unraid's autostart didn't"
+    for c in "${!NC_ON[@]}"; do
+        out=""
+        if [[ -n "${NC_OCC[$c]:-}" && "$(timeout 20 docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" == "true" ]] \
+           && out="$(timeout 60 docker exec -u "${NC_USER[$c]}" "$c" php "${NC_OCC[$c]}" maintenance:mode --off 2>&1)"; then
+            log "  Nextcloud '$c': maintenance mode off"; unset "NC_ON[$c]"
+        else
+            [[ -n "$out" ]] && nc_log_output "$out"
+            log "  Nextcloud '$c': stays in maintenance mode (its container is stopped) - noted (state/maintenance): the first run after the array start switches it off"
+        fi
+    done
+    save_restore_state
+}
+
+array_stop_report() { # a few lines for the notification
+    local l list="" n
+    echo "The run of $(date -d "@$STARTED_AT" '+%Y-%m-%d %H:%M' 2>/dev/null) ended at once when the array stop began (phase ${ARRAY_STOP_PHASE:-?}), after $(dur_h $(( $(date +%s) - STARTED_AT )))."
+    (( ${#ST_KOPIA_PLAN[@]} )) && echo "Kopia: $(( ${#ST_KOPIA_PLAN[@]} - ${#ST_KOPIA_SKIPPED[@]} )) of ${#ST_KOPIA_PLAN[@]} sources done${ST_KOPIA_INTERRUPTED:+, $ST_KOPIA_INTERRUPTED interrupted (Kopia keeps what it uploaded)}; skipped until the next run: ${#ST_KOPIA_SKIPPED[@]}"
+    for l in "${!VM_HELD[@]}"; do list+="${list:+, }VM $l"; done
+    for n in "${STOPPED[@]}"; do list+="${list:+, }$n"; done
+    for n in "${!NC_ON[@]}"; do list+="${list:+, }maintenance mode of $n"; done
+    [[ -n "$list" ]] && echo "Left as the stop found them, for the next run: $list"
+    echo "No snapshots were pruned. Log: $LOG_FILE"
+}
+array_stop_notify() {
+    [[ "$ST_MODE" == "backup" ]] || return 0           # a check or dry run is started by hand: its answer is seen there
+    local short
+    if (( ${#ST_KOPIA_SKIPPED[@]} )); then short="Backup stopped because the array is being stopped - nothing is lost; the next run continues the Kopia upload."
+    else short="Backup stopped because the array is being stopped - nothing is lost; the next run backs up as usual."; fi
+    ub_notify "Backup stopped for the array stop" "$short" "normal" "$(array_stop_report)"
+}
+
+##############################################################################
 # Cleaning up at every end
 ##############################################################################
 # Aborting in the middle of Kopia: end the snapshot inside the container (SIGINT -
-# Kopia then finishes cleanly). Ending only the docker exec client is not
-# enough, the process in the container would keep running and hold the mounts.
+# Kopia then saves what it uploaded and a checkpoint, and ends). Ending only the docker exec client is
+# not enough, the process in the container would keep running and hold the mounts. docker top names
+# the container's processes by their host PIDs; when Docker doesn't answer (it is being stopped), the
+# same process is found on the host - its command line begins with kopia (the client's with docker).
 kopia_stop() {
     [[ -n "$KOPIA_PID" ]] || return 0
-    local pid args t
+    local pid args t sent=0
     log "Ending the running Kopia snapshot ..."
     while read -r pid args; do
-        [[ "$pid" =~ ^[0-9]+$ && "$args" == *"snapshot create"* && "$args" == *"$KOPIA_CP"* ]] && kill -INT "$pid" 2>/dev/null
-    done < <(docker top "$KOPIA_CONTAINER" -eo pid,args 2>/dev/null | tail -n +2)
+        if [[ "$pid" =~ ^[0-9]+$ && "$args" == *"snapshot create"* && "$args" == *"$KOPIA_CP"* ]]; then
+            kill -INT "$pid" 2>/dev/null && sent=1
+        fi
+    done < <(timeout 20 docker top "$KOPIA_CONTAINER" -eo pid,args 2>/dev/null | tail -n +2)
+    if (( ! sent )); then
+        local re='^(/[^ ]*/)?kopia '
+        for pid in $(pgrep -f 'snapshot create' 2>/dev/null); do
+            args="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null)"
+            [[ "$args" =~ $re && "$args" == *"snapshot create"* && "$args" == *"$KOPIA_CP"* ]] && kill -INT "$pid" 2>/dev/null && sent=1
+        done
+    fi
+    (( sent )) || log "  (no Kopia process found in the container - its client is ended)"
     for t in $(seq 1 60); do
         kill -0 "$KOPIA_PID" 2>/dev/null || break
         sleep 1
@@ -2037,7 +2180,9 @@ kopia_stop() {
     if kill -0 "$KOPIA_PID" 2>/dev/null; then
         pkill -TERM -P "$KOPIA_PID" 2>/dev/null; kill -TERM "$KOPIA_PID" 2>/dev/null
         warn "Kopia did not end after 60 s"
+        sleep 2; kill -0 "$KOPIA_PID" 2>/dev/null && kill -KILL "$KOPIA_PID" 2>/dev/null     # it holds the log (and the lock) open
     fi
+    wait "$KOPIA_PID" 2>/dev/null
     KOPIA_PID=""
 }
 
@@ -2045,28 +2190,48 @@ cleanup() {
     local rc=$?
     [[ "$CLEANUP_DONE" == "yes" ]] && exit "$rc"
     CLEANUP_DONE="yes"
-    if [[ "$ST_ABORTED" == "yes" ]]; then
+    # ending for another reason (a signal, a failure) while the array is being stopped: then that is the stop
+    if [[ "$ARRAY_STOP" != "yes" && "$CLEANUP_ARMED" == "yes" && "$ST_RESULT" == "running" ]] && array_stopping; then
+        ARRAY_STOP="yes"; ARRAY_STOP_PHASE="${ARRAY_STOP_PHASE:-$ST_PHASE}"
+        log "The array is being stopped (Unraid: fsState $(array_fsstate)) - nothing is started again"
+    fi
+    if [[ "$ARRAY_STOP" == "yes" ]]; then
+        [[ -n "$KOPIA_PID" ]] && ST_KOPIA_INTERRUPTED="$ST_KOPIA_CUR"
+        status_phase "aborting"
+    elif [[ "$ST_ABORTED" == "yes" ]]; then
         warn "Run aborted (signal)"
         status_phase "aborting"
     fi
     kopia_stop
     # a package half swapped in goes back, the stage goes (the packages of the last run stay)
     [[ -n "$PKG_STAGE" && "$PKG_COMMITTED" != "yes" ]] && pkg_recover "$UB_DUMPS" >/dev/null
-    if [[ ${#VM_HELD[@]} -gt 0 ]]; then
-        log "Releasing the VMs ..."
-        vm_shutdown_wait abort       # one still going down after the run's request: started again once it is off
-        vm_release btrfs
-    fi
-    if [[ ${#STOPPED[@]} -gt 0 || ${#NC_ON[@]} -gt 0 ]]; then
-        log "Restoring normal operation ..."
-        restore_service
-        # a stop mid-run: the interruption lasted until now (otherwise the status says 0 s)
+    if [[ "$ARRAY_STOP" == "yes" ]]; then
+        array_stop_release
         [[ -n "${STOP_AT:-}" && "${DOWNTIME:-0}" == 0 ]] && DOWNTIME=$(( $(date +%s) - STOP_AT ))
+    else
+        if [[ ${#VM_HELD[@]} -gt 0 ]]; then
+            log "Releasing the VMs ..."
+            vm_shutdown_wait abort       # one still going down after the run's request: started again once it is off
+            vm_release btrfs
+        fi
+        if [[ ${#STOPPED[@]} -gt 0 || ${#NC_ON[@]} -gt 0 ]]; then
+            log "Restoring normal operation ..."
+            restore_service
+            # a stop mid-run: the interruption lasted until now (otherwise the status says 0 s)
+            [[ -n "${STOP_AT:-}" && "${DOWNTIME:-0}" == 0 ]] && DOWNTIME=$(( $(date +%s) - STOP_AT ))
+        fi
     fi
-    if [[ "$MOUNTED" == "yes" && "$KEEP_MOUNTS" != "yes" ]]; then
+    # an array stop: always (keep_mounts too) - a mount of ours would keep the pool from unmounting
+    if [[ "$MOUNTED" == "yes" && ( "$KEEP_MOUNTS" != "yes" || "$ARRAY_STOP" == "yes" ) ]]; then
         unmount_all
     fi
-    if [[ "$ST_ABORTED" == "yes" ]]; then status_finish aborted "signal"
+    if [[ "$ARRAY_STOP" == "yes" && "$ST_RESULT" == "running" ]]; then
+        array_stop_kopia
+        status_finish aborted "array_stopping"
+        log "Backup stopped because the array is being stopped - nothing pruned, nothing started; the next run continues."
+        array_stop_notify
+        rc=3
+    elif [[ "$ST_ABORTED" == "yes" ]]; then status_finish aborted "signal"
     elif (( rc != 0 )); then status_finish failed "exit $rc"
     fi
     ub_holder_clear
@@ -2156,8 +2321,10 @@ fi
 
 trap cleanup EXIT
 trap on_signal INT TERM
+CLEANUP_ARMED="yes"
 
 log "===================== $UB_NAME $UB_VERSION - $UB_MODE $TS ====================="
+array_stop_check "at its start"      # before anything - also before an earlier run's containers are started again
 recover_interrupted_run
 [[ "$DRY" == "1" ]] && log "DRY RUN - nothing is changed."
 
@@ -2174,7 +2341,7 @@ if [[ "$SNAP_PREFIX_SET" == "$UB_SNAP_PREFIX_LEGACY" ]]; then
 fi
 
 # --- Inventory, plan, drift ------------------------------------------------
-status_phase "inventory"
+next_phase "inventory"
 inv_scan
 docker_load
 vm_load
@@ -2317,6 +2484,7 @@ if [[ "$DRY" == "1" ]]; then
     exit 0
 fi
 
+array_stop_check "before the packages are begun"
 FREE_MB=$(df -Pm "$UB_DUMPS" 2>/dev/null | awk 'NR==2{print $4}')
 (( ${FREE_MB:-0} >= MIN_FREE_GB * 1024 )) || die "Not enough space for the packages in $UB_DUMPS (${FREE_MB} MB free)"
 pkg_begin || die "Cannot create $PKG_STAGE"
@@ -2331,10 +2499,10 @@ legacy_dirs_remove
 vm_shutdowns
 
 # --- Maintenance mode, manifest ---------------------------------------------
-status_phase "maintenance"
+next_phase "maintenance"
 log "Nextcloud ..."
 nextcloud_maintenance_on
-status_phase "manifest"
+next_phase "manifest"
 log "Packages: templates, compose files, the server's lists ..."
 pkg_server                           # still with all containers running
 pkg_apps_static
@@ -2348,29 +2516,31 @@ fi
 # would otherwise keep writing between dump and snapshot - the dump would then
 # no longer quite match the files. The databases still run for the dump.
 STOP_AT="$(date +%s)"
-status_phase "stopping_apps"
+next_phase "stopping_apps"
 log "Pausing apps: ${#T_APP[@]} (before the dumps, so that dumps and files match)"
 stop_tier "${T_APP[@]}"
-status_phase "dumps"
+next_phase "dumps"
 log "Database dumps ..."
 run_dumps
 [[ "$PLAN_FLASH" == "tar" ]] && flash_tar
+array_stop_check "before the app packages go in place"
 pkg_commit_apps                      # the app packages in place, before the databases stop
-status_phase "stopping"
+next_phase "stopping"
 log "Stopping: ${#T_DB[@]} databases, ${#T_NET[@]} network"
 stop_tier "${T_DB[@]}"
 stop_tier "${T_NET[@]}"
 if [[ ${#VM_TODO[@]} -gt 0 ]]; then
-    status_phase "vms"
+    next_phase "vms"
     log "VMs: ${#VM_TODO[@]} prepared for the snapshot"
     vm_hold                          # freeze, pause (the shutdowns are done - vm_shutdowns)
 fi
 # after the VMs: their TPM state and NVRAM then match the disks in the snapshot
+array_stop_check "before the VM packages are written"
 [[ "$LIBVIRT_MODE" == "tar" ]] && libvirt_tar
 pkg_vms
 pkg_commit_rest                      # VMs and server/ in place: this run's snapshot holds all packages
 
-status_phase "snapshots"
+next_phase "snapshots"
 log "Creating snapshots $SNAP_NAME ..."
 declare -A BY_POOL=()
 for ds in "${PLAN_ZFS[@]}"; do BY_POOL[${ds%%/*}]+="$ds@$SNAP_NAME"$'\n'; done
@@ -2386,6 +2556,7 @@ if [[ "$PLAN_FLASH" == "snapshot" ]]; then
     zfs snapshot "$FLASH_DATASET@$SNAP_NAME" 2>>"$LOG_FILE" \
         || { err "Flash snapshot failed"; PLAN_FLASH="failed"; }
 fi
+array_stop_check "after the ZFS snapshots"          # a VM shut down is never started into a stopping array
 [[ ${#VM_HELD[@]} -gt 0 ]] && vm_release          # the VMs on ZFS: their snapshot is taken
 # btrfs in two parts: first the disks that hold data of what is held (stopped containers,
 # held VMs, the backup place with the dumps) - consistency before speed; then everything
@@ -2394,17 +2565,19 @@ btrfs_needed
 for base in "${PLAN_BTRFS[@]}"; do [[ -n "${BTRFS_NEED[$base]:-}" ]] && btrfs_snap "$base"; done
 [[ ${#VM_HELD[@]} -gt 0 ]] && vm_release btrfs
 
-status_phase "starting"
+next_phase "starting"
 log "Starting containers ..."
 restore_service
+array_stop_check "while the containers started"     # restore_service stops starting them then
 DOWNTIME=$(( $(date +%s) - STOP_AT ))
 status_write
 log "Normal operation restored - downtime ${DOWNTIME} s"
+array_stop_check "after the restart"
 for base in "${PLAN_BTRFS[@]}"; do [[ -z "${BTRFS_NEED[$base]:-}" ]] && btrfs_snap "$base" "after the restart"; done
 
 # --- Mounting (only when Kopia really runs this time) -----------------------
 if [[ "$KOPIA_OK" == "yes" && "$SKIPK" != "1" ]]; then
-    status_phase "mounting"
+    next_phase "mounting"
     log "Mounting snapshots under $MOUNT_ROOT ..."
     mkdir -p "$MOUNT_ROOT"
     stage_ready || die "Private staging area $UB_STAGE cannot be created"
@@ -2438,11 +2611,27 @@ kopia_one() { # kopia_one <name> <container path>
     # In the background + wait: a signal (abort) interrupts wait at once,
     # while bash waits for a foreground command until it ends -
     # with Kopia that can be hours. kopia_stop then ends it.
+    # 2.24: waited for in steps of UB_ARRAY_LOOK seconds (a sleep beside it, wait -n for whichever ends
+    # first), looking at var.ini each time - an array stop interrupts the upload at once (kopia_stop)
     KOPIA_CP="$cp"
     kopia_x snapshot create "$cp" --description "$UB_KOPIA_DESC $TS" >>"$LOG_FILE" 2>&1 &
     KOPIA_PID=$!
-    wait "$KOPIA_PID"; rc=$?
+    local w got
+    while :; do
+        array_stop_check "Kopia was uploading $name"
+        sleep "$UB_ARRAY_LOOK" 9>&- &
+        w=$!; got=""
+        wait -n -p got "$KOPIA_PID" "$w"; rc=$?
+        [[ "$got" == "$KOPIA_PID" ]] && break
+        if [[ "$got" != "$w" ]]; then                    # neither (a bash without wait -p): the sleep's time
+            wait "$w" 2>/dev/null
+            kill -0 "$KOPIA_PID" 2>/dev/null || { wait "$KOPIA_PID"; rc=$?; break; }
+        fi
+    done
+    kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
     KOPIA_PID=""; KOPIA_CP=""
+    # it ended badly just as the array stop began (Docker going): interrupted by the stop, not failed
+    if (( rc != 0 )) && array_stopping; then ST_KOPIA_INTERRUPTED="$name"; array_stop_check "Kopia ended with exit code $rc"; fi
     secs=$(( $(date +%s) - t0 ))
     if [[ $rc -eq 0 ]]; then KOPIA_DONE=$((KOPIA_DONE+1)); log "  ok ($secs s)"
     else KOPIA_FAILED=$((KOPIA_FAILED+1)); err "Kopia snapshot of '$name' failed (exit code $rc)"; fi
@@ -2462,6 +2651,7 @@ kopia_item() {
         IFS='|' read -r t n f <<<"$it"
         [[ "$t" == "$1" ]] || continue
         key="$t:$n"
+        array_stop_check "before Kopia: $key"
         if [[ -n "${SKIP_KOPIA[$key]:-}" ]]; then err "Kopia: $t '$n' skipped - ${SKIP_KOPIA[$key]}"; kopia_skip "$key"; continue; fi
         cp="$(k_path "$(item_hostpath "$t" "$f")")" || { err "Kopia: $t '$n' is not mapped into the container"; kopia_skip "$key"; continue; }
         [[ -n "${ITEM_MPS[$key]:-}" ]] || { kopia_skip "$key"; continue; }
@@ -2485,13 +2675,14 @@ if [[ "$SKIPK" == "1" ]]; then
 elif [[ "$KOPIA_OK" == "off" ]]; then
     log "Kopia switched off - local snapshots and dumps are done."
 elif [[ "$KOPIA_OK" == "yes" ]]; then
-    status_phase "kopia"
+    next_phase "kopia"
     kopia_mountinfo_load
     # new folders of the shares going to Kopia stay local until the user decided (section 11)
     new_local_run
     # the apps first: small, and what a restore needs first; the VMs' disks last, they are big
     kopia_item app
     for s in "${PLAN_KOPIA[@]}"; do
+        array_stop_check "before Kopia: $s"
         if [[ -n "${SKIP_KOPIA[$s]:-}" ]]; then err "Kopia: '$s' skipped - ${SKIP_KOPIA[$s]}"; kopia_skip "$s"; continue; fi
         hp="$(share_kopia_hostpath "$s")"
         cp="$(k_path "$hp")" || { err "Kopia: '$s' is not mapped into the container"; kopia_skip "$s"; continue; }
@@ -2512,6 +2703,7 @@ elif [[ "$KOPIA_OK" == "yes" ]]; then
     done
     kopia_item vm
     if [[ "$PLAN_FLASH" == "snapshot" ]]; then
+        array_stop_check "before Kopia: flash"
         cp="$(k_path "$MOUNT_ROOT/$FLASH_SOURCE_NAME")"
         if [[ -n "${KMI[$cp]+x}" ]]; then kopia_one "flash" "$cp"
         else err "Kopia does not see the flash snapshot ($cp)"; kopia_skip "flash"; fi
@@ -2522,18 +2714,20 @@ fi
 
 # --- Unmounting and cleaning up --------------------------------------------
 if [[ "$KEEP_MOUNTS" != "yes" ]]; then
-    status_phase "unmounting"
+    next_phase "unmounting"
     unmount_all || warn "Not all snapshot mounts could be released"
 fi
 
-status_phase "cleanup"
+next_phase "cleanup"                 # never prunes while the array is being stopped
 log "Cleaning up ..."
 if command -v zfs >/dev/null 2>&1; then
     mapfile -t OWNERS < <(zfs list -H -t snapshot -o name 2>/dev/null | snap_filter | sed 's/@.*//' | sort -u)
     for ds in "${OWNERS[@]}"; do
+        array_stop_check "while pruning"
         prune_zfs "$ds" "${PLAN_ZFS_RET[$ds]:-$ZFS_RETENTION}"
     done
 fi
+array_stop_check "while pruning"
 command -v btrfs >/dev/null 2>&1 && prune_btrfs
 pruned_write                         # what the retention removed, for whoever watches the server (state/pruned.json)
 prune_files
@@ -2556,7 +2750,6 @@ RUN_SIZE="$(human "$ST_DUMP_BYTES")"
 
 if is_yes "$KOPIA_ENABLED"; then KSUM="Kopia ${KOPIA_DONE} ok/${KOPIA_FAILED} failed"; else KSUM="Kopia off"; fi
 # A few lines for the notification: what this run did, like the office's overview
-dur_h() { local s="${1:-0}"; if (( s >= 60 )); then printf '%d min %d s' $(( s / 60 )) $(( s % 60 )); else printf '%d s' "$s"; fi; }
 run_report() {
     local l n p d secs ok f list=""
     echo "Duration $(dur_h "$TOTAL"), containers stopped $(dur_h "$DOWNTIME")"
