@@ -373,7 +373,9 @@ matches IPs); missing or changed → the card says «door closed/changed», neve
 word by word (≤ 5 words of `[A-Za-z0-9._:-]`), verbs `ping` (RAM and flash only — answers while the array is stopped, nothing
 under /mnt), `status`, `quota`, `list <unit>`, `resume <unit>`, `recv <unit> <snap> [<from>|-t]`, `send-back` (not yet);
 units against the agreement, snapshots exactly `uso-backup-YYYYMMDD-HHMM`; `recv`: window, pool awake or `wake`, quota,
-the chain (`need_full`, `need_incremental`, `exists`, `resume_first`), one per pair (flock `RUN_DIR/partner/<id>.lock`),
+the chain (`need_full`, `exists`, `no_token`; a full stream onto an existing unit puts the old dataset aside —
+`zfs rename <ds> <ds>.old-YYYYMMDD-HHMM`, never destroyed, put back when nothing was received, `aside` in the answer; a
+resume token met by a call without `-t` is a stale partial receive: `zfs recv -A` first, logged), one per pair (flock `RUN_DIR/partner/<id>.lock`),
 `mbuffer -q -s 128k -m 256M` → `zfs recv -s -u` into `<pool>/UnraidSecretaryOffice-partners/<id>/<unit ':'→'-'>` (parents
 `mountpoint=none canmount=off`, quota on `<id>`; the first receive `-o mountpoint=legacy -o canmount=noauto -o readonly=on
 -x sharesmb -x sharenfs`, later and resumed ones `-x mountpoint -x canmount -x sharesmb -x sharenfs` (a descendant a stream
