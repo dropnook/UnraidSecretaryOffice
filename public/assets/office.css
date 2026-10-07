@@ -398,10 +398,15 @@
 .facts li{display:flex; gap:8px; align-items:baseline}
 .facts li::before{content:"·"; color:var(--muted)}
 .desk-card-foot{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:auto}
-/* «Change the order» (core.js arrangeable): small cards — name and role —, ▲ / ▼ instead of their buttons */
-.desk-card-move{display:none; align-items:center; gap:8px; flex-wrap:wrap; margin-top:auto}
+/* «Change the order» (core.js arrangeable): small cards in a row — avatar, name and role, the big arrows ▲ ▼ on
+   their right (44 px, for fingers too; the team lead's card a chip instead); a hint under the welcome meanwhile */
+.desk-card-move{display:none; align-items:center; gap:6px; flex:none; margin-left:auto}
+.btn.order-arrow{width:44px; height:44px; padding:0; font-size:19px; line-height:1}
+.order-hint{font-size:13px; color:var(--ink2); max-width:760px}
+.order-buttons{display:inline-flex; align-items:center; gap:8px; flex-wrap:wrap}
 .reception.arranging{gap:10px}
-.reception.arranging .desk-card{padding:12px 14px; gap:10px}
+.reception.arranging .desk-card{flex-direction:row; align-items:center; gap:12px; padding:10px 12px 10px 14px}
+.reception.arranging .desk-card-head{flex:1 1 auto; min-width:0; gap:12px}
 .reception.arranging .desk-card .bubble, .reception.arranging .facts, .reception.arranging .desk-card-foot{display:none}
 .reception.arranging .desk-card-move{display:flex}
 .reception.arranging .avatar.big{width:48px; height:48px; font-size:26px}

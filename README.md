@@ -23,10 +23,10 @@ server, tells you what they noticed and — where it makes sense — lets you ac
 A fresh office has only the team lead. He asks around who would suit your
 server (no Emby, no Jack Emby; no ZFS or btrfs, no snapshots) and you hire whom
 you need — or let them go again later; their data and settings stay.
-*Change the order* at the reception puts them in the order you like (▲ / ▼; the
-team lead stays first): the reception, the tabs and the team lead's list follow
-it, kept on the server for every browser; *As at the start* brings back the
-office's own order.
+*Change the order* at the reception puts them in the order you like (big ▲ / ▼
+buttons on the cards; the team lead stays first): the reception, the tabs and the
+team lead's list follow it, every move kept on the server at once for every browser —
+*✓ Done* just ends arranging; *As at the start* brings back the office's own order.
 
 More desks can join: each one is a module (see below).
 

@@ -1291,21 +1291,35 @@ async function reception(root) {
 /**
  * «Change the order» at the reception: the user puts the staff in the order they like — the reception's cards,
  * the tabs and the team lead's «The team» follow it (Office.deskRank), kept on the server for every browser
- * (office.staff_order, src/staff.php). While arranging, the cards are small (name and role) and carry ▲ / ▼;
- * the team lead stays first (he leads the team, his card says so); the selection bar at the bottom has «As at
- * the start» and «Done». Every move is saved at once (the last one wins, never two at a time); the moved card
- * stays where it is on screen (Office.keepInPlace).
+ * (office.staff_order, src/staff.php). While arranging, the cards are small (name and role) and carry big ▲ / ▼
+ * buttons (the words as a tip and for screen readers); the team lead stays first (he leads the team, his card
+ * says so). The head's button turns into «✓ Done» — every move is saved at once (the last one wins, never two
+ * at a time), so there is nothing to apply —, «As at the start» beside it, a hint under the welcome. The
+ * selection bar at the bottom (the same two buttons) shows only while the head's are scrolled out of view
+ * (a phone with many desks), never a second «✓ Done» on screen. The moved card stays where it is on screen
+ * (Office.keepInPlace), the keyboard on the arrow it pressed.
  */
 function arrangeable(head, grid, cards) {
   const all = () => [...cards.keys()];
   const movable = () => all().filter((id) => !Office.desks.get(id).always);
   if (movable().length < 2) return;           // the team lead and one more: nothing to put in order
+  const lead = all().find((id) => Office.desks.get(id).always) || 'caretaker';
+  // the head: «Change the order», while arranging «✓ Done» (the same button) with «As at the start» before it
   const start = el('button', 'btn small plain', t('office.order_change'));
   start.type = 'button';
   start.title = t('office.order_change_title');
+  const back = el('button', 'btn small plain', t('office.order_default'));
+  back.type = 'button';
+  back.title = t('office.order_default_title');
+  back.hidden = true;
   const acts = $('.deskhead-actions', head) || el('div', 'deskhead-actions');   // beside the theme switch, if any
-  acts.appendChild(start);
+  const group = el('span', 'order-buttons');                                    // the two wrap as one on a phone
+  group.append(back, start);
+  acts.appendChild(group);
   head.appendChild(acts);
+  const hint = el('div', 'order-hint', t('office.order_hint', { name: t(`${lead}.name`) }));
+  hint.hidden = true;
+  ($('.deskhead-text', head) || head).appendChild(hint);
 
   // every card gets its line for arranging (shown only then): ▲ / ▼, the team lead a word why he stays first
   const moves = new Map();
@@ -1316,9 +1330,12 @@ function arrangeable(head, grid, cards) {
       chip.title = t('office.order_lead_title', { name: t(`${id}.name`) });
       line.appendChild(chip);
     } else {
+      // a big arrow (44 px, for fingers too): the word as a bubble on hover (initTips — the click is the move)
+      // and as its name for screen readers
       const button = (glyph, label, step) => {
-        const b = el('button', 'btn small plain', `${glyph} ${label}`);
+        const b = el('button', 'btn plain order-arrow', glyph);
         b.type = 'button';
+        b.dataset.tip = label;
         b.setAttribute('aria-label', `${t(`${id}.name`)}: ${label}`);
         b.onclick = () => move(id, step, b);
         line.appendChild(b);
@@ -1329,6 +1346,7 @@ function arrangeable(head, grid, cards) {
     card.appendChild(line);
   }
 
+  const arranging = () => grid.classList.contains('arranging');
   const byRank = (a, b) => Office.deskRank(a) - Office.deskRank(b);
   /** they stand as a fresh office has them (desk.json's order): «As at the start» has nothing to do */
   const isDefault = () => {
@@ -1355,24 +1373,57 @@ function arrangeable(head, grid, cards) {
   };
   let moved = null;
   const mark = (card) => { if (moved) moved.classList.remove('moved'); moved = card; if (card) card.classList.add('moved'); };
-  const bar = () => Office.selbar({
-    title: t('office.order_title'),
-    sub: t('office.order_hint', { name: t(`${all().find((id) => Office.desks.get(id).always) || 'caretaker'}.name`) }),
-    buttons: [
-      { text: t('office.order_default'), kind: 'plain', disabled: isDefault(), act: reset },
-      { text: t('office.order_done'), act: done },
-    ],
-  });
+  /** the head's buttons as the mode is: «Change the order» — or «✓ Done» (filled) and «As at the start» */
+  const headButtons = () => {
+    const on = arranging();
+    start.textContent = on ? t('office.order_done') : t('office.order_change');
+    start.title = on ? t('office.order_done_title') : t('office.order_change_title');
+    start.classList.toggle('plain', !on);
+    back.hidden = hint.hidden = !on;
+    back.disabled = isDefault();
+  };
+  /** the bar at the bottom: only while arranging and the head's buttons are out of view (headSeen, watched below) */
+  let headSeen = true, watch = null;
+  const bar = () => {
+    if (!grid.isConnected) { stopWatch(); return; }       // the reception went (route() took the bar with it)
+    if (!arranging() || headSeen) { Office.selbar(null); return; }
+    Office.selbar({
+      title: t('office.order_title'),
+      sub: t('office.order_hint', { name: t(`${lead}.name`) }),
+      buttons: [
+        { text: t('office.order_default'), kind: 'plain', disabled: isDefault(), act: reset },
+        { text: t('office.order_done'), act: done },
+      ],
+    });
+  };
+  /** watches whether «✓ Done» in the head is in view — under what Unraid keeps fixed (its sticky menu at the top, the
+      footer below, --under) it counts as out of view; without IntersectionObserver the bar stays, as before */
+  const startWatch = () => {
+    stopWatch();
+    if (!window.IntersectionObserver) { headSeen = false; return; }
+    const menu = document.getElementById('menu');
+    const above = menu && /^(sticky|fixed)$/.test(getComputedStyle(menu).position) ? menu.offsetHeight : 0;
+    const under = parseFloat(getComputedStyle(ROOT).getPropertyValue('--under')) || 0;
+    watch = new IntersectionObserver((entries) => {
+      headSeen = entries[entries.length - 1].intersectionRatio >= 0.9;
+      bar();
+    }, { rootMargin: `-${Math.round(above)}px 0px -${Math.round(under)}px 0px`, threshold: [0, 0.9] });
+    watch.observe(start);
+  };
+  const stopWatch = () => { if (watch) { watch.disconnect(); watch = null; } headSeen = true; };
 
   function open() {
     Office.hideTip();
-    Office.keepInPlace(inView(), () => { grid.classList.add('arranging'); start.hidden = true; place(); });
+    Office.keepInPlace(inView(), () => { grid.classList.add('arranging'); headButtons(); place(); });
+    startWatch();
     bar();
   }
   function done() {
     Office.hideTip();
-    Office.keepInPlace(inView(), () => { grid.classList.remove('arranging'); start.hidden = false; mark(null); });
-    Office.selbar(null);
+    stopWatch();
+    Office.keepInPlace(inView(), () => { grid.classList.remove('arranging'); headButtons(); mark(null); });
+    bar();
+    start.focus({ preventScroll: true });
   }
   /** one step forward (-1) or back (+1) among the desks that can move */
   function move(id, step, b) {
@@ -1383,11 +1434,13 @@ function arrangeable(head, grid, cards) {
     [ids[i], ids[j]] = [ids[j], ids[i]];
     const card = cards.get(id);
     const focused = document.activeElement === b;
+    Office.hideTip();
     setStaffOrder(ids);
     Office.keepInPlace(card, place);
     mark(card);
-    // the keyboard keeps its place: on the same button, or at the end of the line on the other one
+    // the keyboard keeps its place: on the same arrow, or at the end of the line on the other one
     if (focused) (b.disabled ? moves.get(id)[step < 0 ? 'down' : 'up'] : b).focus({ preventScroll: true });
+    headButtons();
     bar();
     saveStaffOrder(ids);
   }
@@ -1395,10 +1448,13 @@ function arrangeable(head, grid, cards) {
   function reset() {
     setStaffOrder([]);
     Office.keepInPlace(inView(), place);
+    mark(null);
+    headButtons();
     bar();
     saveStaffOrder([]);
   }
-  start.onclick = open;
+  start.onclick = () => (arranging() ? done() : open());
+  back.onclick = reset;
 }
 
 /** The staff's order in this page at once (the movable ids as the user put them; [] = desk.json's) — the tabs follow */

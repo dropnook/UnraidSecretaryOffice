@@ -9227,6 +9227,50 @@ function testStaffOrder(): void
         && !str_contains($core, 'reception_order'));
     check('staff order: the team lead\'s «The team» follows it', str_contains((string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/desk.js'), 'Office.deskRank(a.id) - Office.deskRank(b.id)'));
 
+    // the arrange mode's polish (Benj, 2026-10-07): the head's button turns into «✓ Done» with «As at the start» before
+    // it, big arrow buttons on the cards (the words as a tip and for screen readers), the bar only while the head's
+    // buttons are out of view
+    $arrange = preg_match('/^function arrangeable\(.*?^}\n/ms', $core, $m) ? $m[0] : '';
+    check('arrange: the head\'s button is «Change the order», while arranging «✓ Done» (the same button, filled) — it ends arranging',
+        str_contains($arrange, "on ? t('office.order_done') : t('office.order_change')")
+        && str_contains($arrange, "on ? t('office.order_done_title') : t('office.order_change_title')")
+        && str_contains($arrange, "start.classList.toggle('plain', !on)")
+        && str_contains($arrange, "start.onclick = () => (arranging() ? done() : open())")
+        && !str_contains($arrange, 'start.hidden'));
+    check('arrange: «As at the start» before it in the head, only while arranging, off when nothing to do',
+        str_contains($arrange, "el('button', 'btn small plain', t('office.order_default'))")
+        && str_contains($arrange, "back.title = t('office.order_default_title')")
+        && str_contains($arrange, 'group.append(back, start)') && str_contains($arrange, 'back.hidden = hint.hidden = !on')
+        && str_contains($arrange, 'back.disabled = isDefault()') && str_contains($arrange, 'back.onclick = reset'));
+    check('arrange: big arrows ▲ / ▼ on the cards — the glyph alone, the word as data-tip and in the aria-label',
+        str_contains($arrange, "el('button', 'btn plain order-arrow', glyph)") && str_contains($arrange, 'b.dataset.tip = label')
+        && str_contains($arrange, 'b.setAttribute(\'aria-label\', `${t(`${id}.name`)}: ${label}`)')
+        && str_contains($arrange, "button('▲', t('office.order_up'), -1)") && str_contains($arrange, "button('▼', t('office.order_down'), 1)")
+        && !str_contains($arrange, '`${glyph} ${label}`'));
+    check('arrange: ▲ off on the first movable card, ▼ on the last; the keyboard stays on the arrow it pressed',
+        str_contains($arrange, 'moves.get(id).up.disabled = i === 0; moves.get(id).down.disabled = i === free.length - 1')
+        && str_contains($arrange, "(b.disabled ? moves.get(id)[step < 0 ? 'down' : 'up'] : b).focus({ preventScroll: true })"));
+    check('arrange: the team lead\'s card keeps its chip', str_contains($arrange, "el('span', 'chip quiet', t('office.order_lead'))"));
+    check('arrange: the bar at the bottom only while «✓ Done» in the head is out of view (watched; without the observer it stays)',
+        str_contains($arrange, 'if (!arranging() || headSeen) { Office.selbar(null); return; }')
+        && str_contains($arrange, 'watch = new IntersectionObserver(') && str_contains($arrange, 'watch.observe(start)')
+        && str_contains($arrange, 'if (!window.IntersectionObserver) { headSeen = false; return; }')
+        && str_contains($arrange, "if (!grid.isConnected) { stopWatch(); return; }"));
+    $css = (string) file_get_contents(OFFICE_DIR . '/public/assets/office.css');
+    check('arrange: the arrows are 44 px targets, the cards a row with the arrows on the right, every colour a token',
+        preg_match('/^\.btn\.order-arrow\{width:44px; height:44px; padding:0;[^}]*\}$/m', $css) === 1
+        && str_contains($css, '.reception.arranging .desk-card{flex-direction:row; align-items:center;')
+        && str_contains($css, '.desk-card-move{display:none; align-items:center; gap:6px; flex:none; margin-left:auto}')
+        && preg_match('/^\.order-hint\{[^}]*color:var\(--ink2\)[^}]*\}$/m', $css) === 1
+        && !preg_match('/order-arrow\{[^}]*#[0-9a-f]{3,6}/i', $css));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $l = langFile(OFFICE_DIR . "/public/lang/$code.json");
+        check("arrange $code: «✓ Done» carries its tick, its tip and «As at the start»'s are there",
+            str_starts_with((string) ($l['office.order_done'] ?? ''), '✓ ') && strlen((string) ($l['office.order_done'] ?? '')) > 4
+            && is_string($l['office.order_done_title'] ?? null) && is_string($l['office.order_default_title'] ?? null)
+            && str_contains((string) ($l['help.order_text'] ?? ''), (string) $l['office.order_done']));
+    }
+
     // the office action through the web side, in a process of its own: a plugin's layout (src/ beside the web files,
     // the repository's desks and languages), the data folder in $tmp
     $tmp = hardeningTmp('staff-order');
