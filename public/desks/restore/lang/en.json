@@ -154,6 +154,8 @@
   "snaps.zero_hint": "No snapshot holds it here ({fs}).",
   "snaps.asleep": "asleep",
   "snaps.asleep_hint": "This disk is asleep — I didn't look into it.",
+  "snaps.kept": {"one": "as of {when}: {n} snapshot", "other": "as of {when}: {n} snapshots"},
+  "snaps.kept_hint": "What I last saw of this pool, on {when}, before it went to sleep (the newest snapshot then: {newest}) — I don't look into a sleeping pool. A restore from it needs «wake».",
   "snaps.own_ds": "dataset of its own",
   "snaps.own_ds_hint": "The folder is a ZFS dataset of its own: its snapshots belong to it alone.",
   "snaps.inner": {"one": "1 dataset inside", "other": "{n} datasets inside"},

@@ -154,6 +154,8 @@
   "snaps.zero_hint": "Hier enthält ihn kein Snapshot ({fs}).",
   "snaps.asleep": "schläft",
   "snaps.asleep_hint": "Diese Disk schläft — ich habe nicht hineingeschaut.",
+  "snaps.kept": {"one": "Stand {when}: {n} Snapshot", "other": "Stand {when}: {n} Snapshots"},
+  "snaps.kept_hint": "Was ich zuletzt von diesem Pool gesehen habe, am {when}, bevor er einschlief (der neueste Snapshot damals: {newest}) — in einen schlafenden Pool schaue ich nicht hinein. Eine Rückholung daraus braucht «wecken».",
   "snaps.own_ds": "eigenes Dataset",
   "snaps.own_ds_hint": "Der Ordner ist ein eigenes ZFS-Dataset: Seine Snapshots gehören ihm allein.",
   "snaps.inner": {"one": "1 Dataset darin", "other": "{n} Datasets darin"},

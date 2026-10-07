@@ -795,8 +795,15 @@ function unitPart(f, owner) {
     const line = el('div', 'rs-place');
     const where = p.dataset ? T('snaps.zfs', { base: p.base, dataset: p.dataset }) : T('snaps.base', { base: p.base, fs: p.fs || '?' });
     line.appendChild(el('span', 'rs-place-where', where));
-    if (p.asleep) line.appendChild(chip(T('snaps.asleep'), 'quiet', T('snaps.asleep_hint')));
-    else if (!p.count) line.appendChild(chip(T('snaps.zero'), 'warn', T('snaps.zero_hint', { fs: p.fs || '?' })));
+    if (p.asleep) {
+      line.appendChild(chip(T('snaps.asleep'), 'quiet', T('snaps.asleep_hint')));
+      // a ZFS pool asleep: what he last saw of it (never a look now) — as of when, how many snapshots held it then
+      if (p.kept && p.kept.looked) {
+        const k = el('span', '', T('snaps.kept', { n: p.kept.count, when: fmt.relative(p.kept.looked) }));
+        k.title = T('snaps.kept_hint', { when: fmt.date(p.kept.looked, true), newest: p.kept.newest ? fmt.date(p.kept.newest) : '–' });
+        line.appendChild(k);
+      }
+    } else if (!p.count) line.appendChild(chip(T('snaps.zero'), 'warn', T('snaps.zero_hint', { fs: p.fs || '?' })));
     else line.appendChild(el('span', '', T('snaps.count', { n: p.count, when: date(p.latest && p.latest.time) })));
     if (p.own_dataset && !f.whole) line.appendChild(chip(T('snaps.own_ds'), 'quiet', T('snaps.own_ds_hint')));
     if ((p.inner || []).length) line.appendChild(chip(T('snaps.inner', { n: p.inner.length }), 'warn', T('snaps.inner_hint', { list: p.inner.join(', ') })));
