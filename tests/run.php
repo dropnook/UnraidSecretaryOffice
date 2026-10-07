@@ -8717,6 +8717,38 @@ function testWhereDesk(): void
 }
 
 /**
+ * Ms. Dustdevil's tick: three parts, each on its own — one that throws (an exception in her jobs) doesn't stop
+ * the du jobs of «where is what»; said once in the log, again only after it worked once more
+ */
+function testCleanupTick(): void
+{
+    same('cleanup tick: her parts, in order', ['jobs' => 'clJobsTick', 'backup' => 'clBackupFlagTick', 'where' => 'whereJobsTick'], clTickParts());
+    same('cleanup tick: each a function', [], array_keys(array_filter(clTickParts(), fn ($f) => !is_callable($f))));
+    $ran = [];
+    $boom = true;
+    $parts = ['a' => function () use (&$ran): void { $ran[] = 'a'; },
+              'b' => function () use (&$boom): void { if ($boom) { throw new RuntimeException('boom'); } },
+              'c' => function () use (&$ran): void { $ran[] = 'c'; }];
+    $GLOBALS['clTickFailed'] = [];
+    $log = AGENT_LOG;
+    $before = is_file($log) ? (int) filesize($log) : 0;
+    clTickEach($parts);
+    same('cleanup tick: one part throwing stops nobody else', ['a', 'c'], $ran);
+    same('cleanup tick: noted', ['b' => true], $GLOBALS['clTickFailed']);
+    clTickEach($parts);
+    same('cleanup tick: still noted, the others ran again', [['b' => true], ['a', 'c', 'a', 'c']], [$GLOBALS['clTickFailed'], $ran]);
+    $boom = false;
+    clTickEach($parts);
+    same('cleanup tick: works again — forgotten (said again should it fail once more)', [], $GLOBALS['clTickFailed']);
+    if (is_dir(DATA_DIR)) {
+        $lines = substr((string) file_get_contents($log), $before);
+        same('cleanup tick: said once in the log, and once when it works again', [1, 1],
+            [substr_count($lines, 'cleanup: tick b failed: boom'), substr_count($lines, 'cleanup: tick b works again')]);
+    }
+    unset($GLOBALS['clTickFailed']);
+}
+
+/**
  * The staff list: a server that had Ms. Whereabouts hired has Ms. Dustdevil hired (since the earlier of the two),
  * Ms. Whereabouts gone from the list — rewritten once by the web side (src/staff.php, under its lock, new file +
  * rename); until then the agent counts her as Ms. Dustdevil.
@@ -9128,7 +9160,7 @@ function testSupporterKeys(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings']];
 $only = $argv[1] ?? '';
