@@ -1342,6 +1342,7 @@
   "where.vm.disk": "Disk {target} ({bus}, {format})",
   "where.vm.overlay": "This disk is an overlay from a VM snapshot — it only works together with the file(s) below.",
   "where.vm.base": "Base {n}",
+  "where.vm.sparse": "Sparse: {used} used of {virtual} — Kopia reads all of it once, at the first upload.",
   "where.vm.move_hint": "To move this VM to another server you need all of these files.",
   "where.vm.tpm_hint": "Without the TPM state Windows still starts, but BitLocker asks for its recovery key and Windows Hello PINs are gone.",
   "where.vm.config_local": "XML, NVRAM and TPM state are only backed up locally, not with Kopia. Mr. Backupsy can archive them with the dumps (Set up… → VM configuration).",
@@ -1492,6 +1493,7 @@
   "where.adv.to_browse": "⟦Browse⟧ {path}",
   "where.adv.to_team_lead": "To the team lead",
   "where.adv.to_vm_settings": "⟦VM Manager⟧",
+  "where.adv.to_vms": "⟦VMs⟧",
   "where.adv.system_array.title": "On the array: {names}",
   "where.adv.system_array.why": "Docker's and the VMs' own things belong on a pool (SSD/NVMe): on the array every container and VM gets slow, and the disks never get to sleep. In the share's settings set the primary storage to a pool and the secondary to none, then let the mover bring the files over (with Docker and VMs stopped).",
   "where.adv.mover.title": {
@@ -1577,6 +1579,9 @@
     "one": "Well, well — when the array stops, Unraid asks every VM to shut down and waits up to {timeout} s (⟦Settings⟧ → ⟦VM Manager⟧ → «⟦VM shutdown time-out⟧»); whatever still runs then is switched off hard, like pulling the plug — unsaved work is gone, and Windows checks its disk at the next start. No guest agent answers in this one, so Unraid's request is the power button — and an idle Windows with its display off likes to ignore it: the array stop waits the whole {timeout} s for nothing, then comes the plug. What helps, in Windows: the QEMU Guest Agent (on the virtio-win ISO: guest-agent\\qemu-ga-x86_64.msi) — Unraid then asks the agent, and Windows listens; or in its power options «Turn off the display: Never» and «When I press the power button: Shut down». A longer time-out doesn't help against that — the wait only gets longer; and it has to stay below the disks' shutdown time-out ({disk} s, ⟦Settings⟧ → ⟦Disk Settings⟧ → «⟦Shutdown time-out⟧»).",
     "other": "Well, well — when the array stops, Unraid asks every VM to shut down and waits up to {timeout} s (⟦Settings⟧ → ⟦VM Manager⟧ → «⟦VM shutdown time-out⟧»); whatever still runs then is switched off hard, like pulling the plug — unsaved work is gone, and Windows checks its disk at the next start. No guest agent answers in these, so Unraid's request is the power button — and an idle Windows with its display off likes to ignore it: the array stop waits the whole {timeout} s for nothing, then comes the plug. What helps, in Windows: the QEMU Guest Agent (on the virtio-win ISO: guest-agent\\qemu-ga-x86_64.msi) — Unraid then asks the agent, and Windows listens; or in its power options «Turn off the display: Never» and «When I press the power button: Shut down». A longer time-out doesn't help against that — the wait only gets longer; and it has to stay below the disks' shutdown time-out ({disk} s, ⟦Settings⟧ → ⟦Disk Settings⟧ → «⟦Shutdown time-out⟧»)."
   },
+  "where.adv.vm_sparse.disk": "{vm}: {file} — {virtual} virtual disk, {used} used",
+  "where.adv.vm_sparse.title": {"one": "A VM disk far bigger than what it holds: {names}", "other": "{n} VM disks far bigger than what they hold: {names}"},
+  "where.adv.vm_sparse.why": "Well, well — {example}. On the server that costs nothing: a sparse file, the empty part isn't stored. But Kopia reads the whole file once, at its first upload, the empty part as zeros — hours for nothing (a 1.6 TB disk holding 21 GB: close to three hours at 200 MB/s); later runs skip the file while it is unchanged. A smaller virtual disk, or a qcow2 disk the guest trims (discard='unmap' on the disk in the VM's XML, then TRIM inside the guest), keeps the file at what it holds. The local snapshots don't mind either way.",
   "where.adv.security.title": "Security is the night watchman's job now",
   "where.adv.security.why": "Shares open to everyone, Telnet, FTP, privileged containers, the CPU's protection — that's his department now, and he notices when something changes, too. Only: he doesn't work here yet. The team lead can hire him. If you ask me: I would."
 }

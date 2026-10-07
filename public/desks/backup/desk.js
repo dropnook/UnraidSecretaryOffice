@@ -1796,29 +1796,53 @@ function presetKopiaState(plan) {
 
 /**
  * What goes to Kopia for the first time: the shares going there (`modeOf`) that didn't before - on a new server all
- * of them -, with their sizes as far as the plan knows them (a share on the array only after «Measure sizes»)
+ * of them -, with their sizes as far as the plan knows them (a share on the array only after «Measure sizes»); and
+ * the VMs whose disks go along for the first time - with their share, or as a source of their own (`vmLevel` 2) -
+ * counted by what Kopia really reads: a VM's first upload reads its disk files whole, a sparse vdisk's holes as
+ * zeros (engine 2.26: the plan's `apparent` beside `bytes`, what the files take - a 1.6 TB vdisk holding 21 GB is
+ * 1.6 TB of reading), so a share's measured size (what its files take) grows by the gap. `vms`, `vm_bytes` (what
+ * their disks are) and `vm_used` (what they hold) say so in words.
  */
-function firstUpload(modeOf) {
+function firstUpload(modeOf, vmLevel) {
   const plan = setup.plan;
   const O = plan.have_settings && (plan.O || {})['kopia|enabled'] === 'yes' ? plan.O : {};
-  const out = { bytes: 0, shares: [], unknown: [] };
+  const out = { bytes: 0, shares: [], unknown: [], vms: [], vm_bytes: 0, vm_used: 0 };
   plan.shares.forEach((sh) => {
     if (!sh.exists || modeOf(sh) !== 'kopia' || O[`share|${sh.name}|mode`] === 'kopia') return;
     out.shares.push(sh.name);
     if (sh.gb === null || sh.gb === undefined || sh.gb < 0) out.unknown.push(sh.name);
     else out.bytes += sh.gb * 1073741824;
   });
+  const shareOf = (name) => plan.shares.find((sh) => sh.name === name);
+  (setup.model ? setup.model.vms : []).forEach((x) => {
+    const v = x.v;
+    const goes = (vmLevel ? vmLevel(x) : 0) === 2 || x.shares.some((n) => shareOf(n) && shareOf(n).exists && modeOf(shareOf(n)) === 'kopia');
+    if (!(v.apparent > 0) || !goes) return;
+    // went before: with its share, or as its own source (same repository - nothing is read twice)
+    if (O[`vm|${x.name}|kopia`] === 'yes' || x.shares.some((n) => O[`share|${n}|mode`] === 'kopia')) return;
+    out.vms.push(x.name);
+    out.vm_bytes += v.apparent;
+    out.vm_used += v.bytes || 0;
+    // its share's size (when counted above) holds what its disks take; the first upload reads what they are
+    out.bytes += x.shares.some((n) => out.shares.includes(n)) ? Math.max(0, v.apparent - (v.bytes || 0)) : v.apparent;
+  });
   return out;
 }
-/** «local + Kopia» before it is chosen: every share the engine doesn't keep */
+/** «local + Kopia» before it is chosen: every share the engine doesn't keep, every VM it can snapshot */
 const presetKopiaMode = (sh) => (presetKeep(sh, setup.plan) ? (setup.plan.P || {})[`share|${sh.name}|mode`] : 'kopia');
+const presetKopiaVm = (x) => (presetVmKeep(x) ? 0 : 2);
 const draftMode = (sh) => dget(`share|${sh.name}|mode`, 'off');
+const draftVm = (x) => levelOf('vm:' + x.name);
 
 /** The first upload in words: how much, what isn't measured, how long at 100 Mbit/s, what it costs */
 function uploadLines(up, measure) {
   const out = [];
-  if (!up.shares.length) return out;
+  if (!up.shares.length && !up.vms.length) return out;
   out.push(el('div', 'bk-upload-size', T('setup.preset.kopia_size', { n: up.shares.length, size: fmt.size(up.bytes) })));
+  if (up.vms.length) {
+    out.push(el('div', '', T('setup.preset.kopia_vms', { n: up.vms.length, list: up.vms.length > 6 ? `${up.vms.slice(0, 6).join(', ')} …` : up.vms.join(', '),
+      size: fmt.size(up.vm_bytes), used: fmt.size(up.vm_used) })));
+  }
   if (up.unknown.length) {
     const list = up.unknown.length > 6 ? `${up.unknown.slice(0, 6).join(', ')} …` : up.unknown.join(', ');
     const line = el('div', '', T('setup.preset.kopia_unknown', { n: up.unknown.length, list }));
@@ -1875,7 +1899,7 @@ function presetNotes(kind, kst, measure) {
       note(T('setup.preset.kopia_not_ready', { problem }), 'warn').append(' ', kopiaHelpLink());
     }
     if (kst.why === 'unchecked') note(T('setup.kopia_recheck'));
-    const lines = uploadLines(firstUpload(setup.preset === 'kopia' ? draftMode : presetKopiaMode), measure);
+    const lines = uploadLines(setup.preset === 'kopia' ? firstUpload(draftMode, draftVm) : firstUpload(presetKopiaMode, presetKopiaVm), measure);
     if (lines.length) {
       const box = el('div', 'bk-preset-note bk-upload');
       lines.forEach((l) => box.appendChild(l));
@@ -2721,6 +2745,12 @@ function setupVms(plan) {
     if (v.snap !== 'yes') meta.appendChild(chip(T('setup.vm_cannot.' + v.snap), 'danger', T('setup.vm_cannot_hint')));
     else if (x.own) meta.appendChild(el('span', 'mono', v.own.join(', ')));
     else meta.appendChild(chip(T('setup.vm_shared'), '', T('setup.vm_shared_hint')));
+    // a VM's first upload to Kopia reads its disk files whole - a sparse vdisk's holes as zeros (engine 2.26: the
+    // plan's `apparent` beside `bytes`, what the files take); the chip says what, its tip why
+    if (v.apparent > 0) {
+      meta.appendChild(chip(T('setup.vm_upload', { size: fmt.size(v.apparent) }), '',
+        T('setup.vm_upload_hint', { size: fmt.size(v.apparent), used: fmt.size(v.bytes || 0) })));
+    }
     main.appendChild(meta);
     if (l === 0 && !x.own && x.shares.some((sh) => dget(`share|${sh}|mode`, 'off') !== 'off')) {
       main.appendChild(el('div', 'row-meta', T('setup.vm_off_shared', { share: x.shares.join(', ') })));
@@ -3260,7 +3290,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     setupDraftFromPlan, setupNewLines, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText,
     placeLines, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,
     PRESETS, presetChoose, presetForget, presetKeep, presetChanged, presetKopiaState, firstUpload, presetKeptList, presetStartText,
-    presetKopiaMode, draftMode,
+    presetKopiaMode, presetKopiaVm, draftMode, draftVm,
   };
 }
 })();

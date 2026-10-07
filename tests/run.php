@@ -1485,7 +1485,7 @@ case "$1" in
   domstate) echo "shut off" ;;
   dominfo) echo "Autostart:      disable" ;;
   dumpxml) echo "<domain/>" ;;
-  domblklist) printf 'Type Device Target Source\n' ;;
+  domblklist) printf 'Type Device Target Source\n'; [[ "$*" == *oldvm* ]] && printf 'file disk vda %s/user/domains/oldvm/vdisk1.img\n' "$UB_MNT" ;;
 esac
 exit 0
 SH);
@@ -1610,18 +1610,21 @@ SH);
         @mkdir($d, 0700, true);
     }
     foreach (["$mnt/user", "$pool/appdata/c1", "$pool/appdata/bitcoin2", "$pool/appdata/kopia", "$pool/appdata/gone", "$pool/appdata/bigds", "$pool/appdata/_UnraidSecretaryOffice-trash",
-              "$pool/UnraidSecretaryOffice/backup", "$pool/docs", "$mnt/ripley/sleepy/old"] as $d) {
+              "$pool/UnraidSecretaryOffice/backup", "$pool/docs", "$pool/domains/oldvm", "$mnt/ripley/sleepy/old"] as $d) {
         @mkdir($d, 0700, true);
     }
-    foreach (['appdata', 'UnraidSecretaryOffice', 'docs', 'sleepy', 'media'] as $n) {
+    exec('truncate -s 2G ' . escapeshellarg("$pool/domains/oldvm/vdisk1.img"));       // a sparse vdisk: 2 GiB it is, next to nothing it takes
+    foreach (['appdata', 'UnraidSecretaryOffice', 'docs', 'sleepy', 'media', 'domains'] as $n) {
         touch("$tmp/boot/config/shares/$n.cfg");
     }
     file_put_contents("$tmp/fake/mounts", "master $pool zfs rw 0 0\nmaster/appdata $pool/appdata zfs rw 0 0\nmaster/appdata/bigds $pool/appdata/bigds zfs rw 0 0\n"
-        . "master/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\nmaster/docs $pool/docs zfs rw 0 0\nmaster/media $pool/media zfs rw 0 0\nripley $mnt/ripley zfs rw 0 0\nripley/sleepy $mnt/ripley/sleepy zfs rw 0 0\n"
+        . "master/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\nmaster/docs $pool/docs zfs rw 0 0\nmaster/media $pool/media zfs rw 0 0\nmaster/domains $pool/domains zfs rw 0 0\n"
+        . "ripley $mnt/ripley zfs rw 0 0\nripley/sleepy $mnt/ripley/sleepy zfs rw 0 0\n"
         . "shfs $mnt/user fuse.shfs rw 0 0\n");
     $z = fn ($n, $mp, $ref) => "$n\t$mp\ton\t" . crc32($n) . "\t$ref\t-\n";
     file_put_contents("$tmp/fake/zfs.txt", $z('master', $pool, 1) . $z('master/appdata', "$pool/appdata", 5000) . $z('master/appdata/bigds', "$pool/appdata/bigds", 123456789)
-        . $z('master/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 10) . $z('master/docs', "$pool/docs", 10) . $z('master/media', "$pool/media", 10) . $z('ripley', "$mnt/ripley", 1) . $z('ripley/sleepy', "$mnt/ripley/sleepy", 10));
+        . $z('master/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 10) . $z('master/docs', "$pool/docs", 10) . $z('master/media', "$pool/media", 10) . $z('master/domains', "$pool/domains", 10)
+        . $z('ripley', "$mnt/ripley", 1) . $z('ripley/sleepy', "$mnt/ripley/sleepy", 10));
     file_put_contents("$tmp/fake/disks.ini", "[\"master\"]\nname=\"master\"\nspundown=\"0\"\n[\"ripley\"]\nname=\"ripley\"\nspundown=\"1\"\n");
     file_put_contents("$tmp/fake/repo.json", json_encode(['configFile' => '/config/repository.config', 'storage' => ['type' => 'filesystem'], 'clientOptions' => ['username' => 'root', 'hostname' => 'kopia']]));
     file_put_contents("$tmp/fake/ids", "id1\nid2\nid3\n");
@@ -1654,6 +1657,10 @@ SH);
     $vms = array_column($plan['vms'] ?? [], null, 'name');
     same('setup plan: a new VM is not held (prepare none), a known one as before', ['none', 'pause', true, false],
         [$P['vm|newvm|prepare'] ?? null, $P['vm|oldvm|prepare'] ?? null, $vms['oldvm']['previous'] ?? null, $vms['newvm']['previous'] ?? null]);
+    same('setup plan: per VM what its disk files are (apparent - the sparse vdisk whole, engine 2.26) and take (bytes - next to nothing); null without disks',
+        [2147483648, true, true, true], [$vms['oldvm']['apparent'] ?? null, ($vms['oldvm']['bytes'] ?? -1) >= 0 && ($vms['oldvm']['bytes'] ?? -1) < 100000000,
+         array_key_exists('apparent', $vms['newvm'] ?? []) && $vms['newvm']['apparent'] === null, array_key_exists('bytes', $vms['newvm'] ?? []) && $vms['newvm']['bytes'] === null],
+        json_encode([$vms['oldvm'] ?? null, $vms['newvm'] ?? null]));
     same('setup plan: nothing waiting at the first record', [], array_merge(...array_map(fn ($s) => $s['waiting'] ?? ['?'], $plan['shares'] ?? [])));
     // apply what the plan says (the office sends its draft: every key of P)
     file_put_contents("$tmp/dec.json", json_encode($P + ['_retire_sources' => 'no']));
@@ -2574,7 +2581,8 @@ function testBackupKopiaOrder(): void
              . ' PLAN_FLASH=snapshot; PLAN_KOPIA=(isos appdata docs Backups scripts media);'
              . ' PLAN_KITEMS=("app|nextcloud|nextcloud" "app|immich|immich" "vm|Win 11|Win_11" "vm|Debian|Debian" "vm|Tiny|Tiny");'
              . ' INV_BYTES=([appdata]=40000000000 [docs]=1000000000 [Backups]=2300000000000 [scripts]=1000000000);'
-             . ' VM_BYTES=(["Win 11"]=380000000000 [Tiny]=4000000000);';
+             // Win 11: a 1.6 TB vdisk holding 21 GB plus overlays (nostromo's Windows11_Gaming, 2026-10-07) - the order goes by what Kopia reads
+             . ' VM_BYTES=(["Win 11"]=21000000000 [Tiny]=4000000000); VM_APPARENT=(["Win 11"]=2000000000000 [Tiny]=4000000000);';
         return trim((string) shell_exec('bash -c ' . escapeshellarg("$pre $script") . ' 2>&1'));
     };
     same('kopia order: per source of this identity the newest complete snapshot - or a newer checkpoint when larger (a lower bound), never an older one; '
@@ -2584,17 +2592,32 @@ function testBackupKopiaOrder(): void
             . ' for k in $(printf "%s\n" "${!KSIZE[@]}" | LC_ALL=C sort); do printf "%s=%s " "$k" "${KSIZE[$k]}"; done'));
     same('kopia order: no sizes from Kopia while it isn\'t connected', '0', $sh('KOPIA_CONNECTED=no; kopia_sizes_load; echo ${#KSIZE[@]}'));
     same('kopia order: the flash, the apps in their order, then shares and VMs the smallest first - by the larger of Kopia\'s and the server\'s size '
-        . '(a stale tiny Kopia snapshot of a huge share goes by the server\'s, an XFS share\'s by its newer checkpoint), either alone when only one is known, unknown last in their order',
+        . '(a stale tiny Kopia snapshot of a huge share goes by the server\'s, an XFS share\'s by its newer checkpoint; a VM by its disk files\' own sizes - a sparse vdisk whole, '
+        . 'not by the 21 GB it holds), either alone when only one is known, unknown last in their order',
         "flash|flash||||\napp:nextcloud|app|nextcloud|nextcloud||\napp:immich|app|immich|immich||\n"
         . "vm:Debian|vm|Debian|Debian|7|kopia\ndocs|share|docs||1000000000|inventory\nscripts|share|scripts||3000000000|kopia\n"
-        . "vm:Tiny|vm|Tiny|Tiny|4000000000|inventory\nappdata|share|appdata||40000000000|inventory\nvm:Win 11|vm|Win 11|Win_11|380000000000|inventory\n"
-        . "media|share|media||1500000000000|kopia\nBackups|share|Backups||2300000000000|inventory\nisos|share|isos|||",
+        . "vm:Tiny|vm|Tiny|Tiny|4000000000|inventory\nappdata|share|appdata||40000000000|inventory\n"
+        . "media|share|media||1500000000000|kopia\nvm:Win 11|vm|Win 11|Win_11|2000000000000|inventory\nBackups|share|Backups||2300000000000|inventory\nisos|share|isos|||",
         $sh('KOPIA_CONNECTED=yes KOPIA_USER=root KOPIA_HOST=kopia KOPIA_RUN_UID=0 KOPIA_CONTAINER=kopia; kopia_sizes_load; kopia_order'));
+    same('kopia order: the allocated size alone would put the sparse VM far too early (what 2.25 did)', 'vm:Win 11 appdata',
+        $sh('VM_APPARENT=(["Win 11"]=21000000000); KOPIA_CONNECTED=no; kopia_order | cut -d"|" -f1 | grep -E "^(vm:Win 11|appdata)$" | paste -sd" " -'));
+    // vm_load reads both sizes of a VM's disk files on their pool: what they take (allocated) and what they are (a sparse vdisk whole)
+    @mkdir("$tmp/mnt/master/domains/Sparse", 0700, true);
+    exec('truncate -s 5G ' . escapeshellarg("$tmp/mnt/master/domains/Sparse/vdisk1.img"));
+    file_put_contents("$tmp/mnt/master/domains/Sparse/vdisk2.img", str_repeat('x', 1024 * 1024));
+    file_put_contents("$tmp/mounts", "master $tmp/mnt/master zfs rw 0 0\n");
+    file_put_contents("$tmp/bin/virsh", "#!/bin/bash\ncase \"\$1\" in\n  list) echo Sparse ;;\n  domstate) echo 'shut off' ;;\n  dominfo) echo 'Autostart:      disable' ;;\n  dumpxml) echo '<domain/>' ;;\n"
+        . "  domblklist) printf 'Type Device Target Source\\nfile disk vda $tmp/mnt/user/domains/Sparse/vdisk1.img\\nfile disk vdb $tmp/mnt/user/domains/Sparse/vdisk2.img\\nfile cdrom sda -\\n' ;;\nesac\n");
+    chmod("$tmp/bin/virsh", 0755);
+    $vm = explode(' ', $sh("UB_MNT=$tmp/mnt UB_MOUNTS_FILE=$tmp/mounts; mounts_load; INV_BASES=(master); INV_BASE_PATH[master]=$tmp/mnt/master; vm_load;"
+        . ' printf "%s %s %s %s" "${VM_APPARENT[Sparse]}" "$(( ${VM_BYTES[Sparse]} < 100000000 ))" "$(( ${VM_BYTES[Sparse]} >= 1048576 ))" "${VM_SNAP[Sparse]}"'));
+    same('vm_load: VM_APPARENT is the files\' own sizes (5 GiB sparse + 1 MiB), VM_BYTES what they take (the 1 MiB, far less than the 5 GiB), the VM in a snapshot',
+        [(string) (5 * 1073741824 + 1048576), '1', '1', 'yes'], $vm);
     same('kopia order: the larger size wins, equal goes to Kopia\'s', ['5|kopia', '7|inventory', '4|kopia', '9|inventory', '|'],
         explode(' ', $sh('for a in "5 4" "3 7" "4 4" "x 9" "x x"; do set -- $a; [[ $1 == x ]] && set -- "" "$2"; [[ $2 == x ]] && set -- "$1" ""; printf "%s " "$(kopia_expect "$1" "$2")"; done')));
     same('kopia order: without the flash\'s snapshot no flash; without sizes the shares, then the VMs, as listed',
         "app:nextcloud\napp:immich\nisos\nappdata\ndocs\nBackups\nscripts\nmedia\nvm:Win 11\nvm:Debian\nvm:Tiny",
-        $sh('PLAN_FLASH=tar; INV_BYTES=(); VM_BYTES=(); kopia_order | cut -d"|" -f1'));
+        $sh('PLAN_FLASH=tar; INV_BYTES=(); VM_BYTES=(); VM_APPARENT=(); kopia_order | cut -d"|" -f1'));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -3213,7 +3236,7 @@ function testBackupPresets(): void
     same('presets: the three starts', ['auto', 'local', 'kopia'], $kinds);
     $want = [...array_map(fn ($x) => "setup.preset.$x", $kinds), 'setup.preset.auto_new', 'setup.preset.auto_have', 'setup.preset.local_text',
         'setup.preset.kopia_text', 'setup.preset.replace', 'setup.preset.replace_new', 'setup.preset.kopia_time', 'setup.preset.kopia_time_least',
-        ...array_map(fn ($x) => "setup.preset.keep.$x", $keeps)];
+        'setup.preset.kopia_vms', 'setup.vm_upload', 'setup.vm_upload_hint', ...array_map(fn ($x) => "setup.preset.keep.$x", $keeps)];
     same('presets: every name, text and reason a start asks for exists', [], array_values(array_filter($want, fn ($x) => !isset($en[$x]))));
 
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
@@ -3255,9 +3278,13 @@ function testBackupPresets(): void
             $ct('newapp', 'new', ['appdata/newapp'], ['previous' => false]),
             $ct('kopia', 'kopia', [], ['kopia' => true])],
         'vms' => [
-            ['name' => 'vm1', 'why' => 'previous', 'agent' => 'no', 'snap' => 'yes', 'own' => ['master/domains/vm1'], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/vm1/vdisk1.img']]],
-            ['name' => 'vm2', 'why' => 'previous', 'agent' => 'no', 'snap' => 'no_snapshot', 'own' => [], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/vm2/vdisk1.img']]],
-            ['name' => 'vm3', 'why' => 'previous', 'agent' => 'yes', 'snap' => 'yes', 'own' => ['master/domains/vm3'], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/vm3/vdisk1.img']]]],
+            // vm1: a 500 GB vdisk holding 20 GB (engine 2.26: bytes = what the files take, apparent = what they are); vm3: a full one; vm2: sizes unknown
+            ['name' => 'vm1', 'why' => 'previous', 'agent' => 'no', 'snap' => 'yes', 'own' => ['master/domains/vm1'], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/vm1/vdisk1.img']],
+             'bytes' => 20000000000, 'apparent' => 500000000000],
+            ['name' => 'vm2', 'why' => 'previous', 'agent' => 'no', 'snap' => 'no_snapshot', 'own' => [], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/vm2/vdisk1.img']],
+             'bytes' => null, 'apparent' => null],
+            ['name' => 'vm3', 'why' => 'previous', 'agent' => 'yes', 'snap' => 'yes', 'own' => ['master/domains/vm3'], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/vm3/vdisk1.img']],
+             'bytes' => 50000000000, 'apparent' => 50000000000]],
         'databases' => [], 'nextcloud' => [], 'missing_databases' => [], 'bases' => [['name' => 'master', 'fs' => 'zfs', 'kind' => 'pool']], 'flash' => ['dataset' => '', 'fs' => 'vfat'],
         'kopia' => ['container' => 'kopia', 'candidates' => ['kopia'], 'problem' => null, 'mappings' => [
             ['source' => '/mnt/addons/UnraidSecretaryOffice/snapshots', 'target' => '/uso', 'rw' => false, 'main' => true],
@@ -3311,7 +3338,7 @@ const plain = snap();
 b.presetChoose('auto');
 out.auto = [snap() === plain, b.presetChanged(), b.presetStartText()];
 out.keep = S.plan.shares.map((sh) => b.presetKeep(sh, S.plan));
-out.cardUpload = b.firstUpload(b.presetKopiaMode);      // what card C says before it is chosen
+out.cardUpload = b.firstUpload(b.presetKopiaMode, b.presetKopiaVm);      // what card C says before it is chosen
 b.presetChoose('local');
 out.local = look();
 S.levels['app:ct:c2'] = 0;                      // a row changed by hand
@@ -3319,7 +3346,14 @@ b.setupDerive();
 out.localEdited = [b.presetChanged(), b.presetStartText()];
 b.presetChoose('kopia');
 out.kopia = look();
-out.upload = b.firstUpload(b.draftMode);
+out.upload = b.firstUpload(b.draftMode, b.draftVm);
+// the VM's own source while its share stays local: all of its disks' virtual size counts; one that went to Kopia before doesn't
+S.draft['share|domains|mode'] = 'snapshot';
+out.uploadVmOnly = b.firstUpload(b.draftMode, b.draftVm);
+S.plan.O['vm|vm1|kopia'] = 'yes';
+out.uploadVmBefore = b.firstUpload(b.draftMode, b.draftVm);
+delete S.plan.O['vm|vm1|kopia'];
+S.draft['share|domains|mode'] = 'kopia';
 out.kept = b.presetKeptList();
 // a row changed by hand, then a new plan (a tour): the start stays for what was there, the change stays, the newcomer stays local and running
 S.levels['app:ct:c1'] = 1;
@@ -3387,9 +3421,14 @@ JS;
         ['yes', 'yes', 'yes', 'yes', null], $K['items']);
     same('presets: «Everything local + Kopia» - the user\'s ignore rules stay (Kopia\'s own folder, /cache/), no app folder left out, the new folder nobody owns goes along',
         [['/kopia/', '/cache/'], true], [$K['ignore'], in_array('/loose/', $K['known'] ?? [], true)]);
-    same('presets: the first upload - the shares new to Kopia, sizes known and not (card and draft agree)',
-        ['bytes' => (200 + 3000) * 1073741824, 'shares' => ['domains', 'Filme', 'photos'], 'unknown' => ['photos']], $r['upload']);
+    same('presets: the first upload - the shares new to Kopia, sizes known and not; the VMs going along by what Kopia reads: their disks whole '
+        . '(the sparse one\'s 480 GB of holes on top of its share\'s measured size; a VM without sizes says nothing) (card and draft agree)',
+        ['bytes' => (200 + 3000) * 1073741824 + 480000000000, 'shares' => ['domains', 'Filme', 'photos'], 'unknown' => ['photos'],
+         'vms' => ['vm1', 'vm3'], 'vm_bytes' => 550000000000, 'vm_used' => 70000000000], $r['upload']);
     same('presets: card C says the same before it is chosen', $r['upload'], $r['cardUpload']);
+    same('presets: a VM as a Kopia source of its own while its share stays local - all of its disks\' virtual size counts',
+        [(3000 * 1073741824) + 550000000000, ['Filme', 'photos'], ['vm1', 'vm3']], [$r['uploadVmOnly']['bytes'], $r['uploadVmOnly']['shares'], $r['uploadVmOnly']['vms']]);
+    same('presets: a VM that went to Kopia before (its own source) is no first upload', [(3000 * 1073741824) + 50000000000, ['vm3']], [$r['uploadVmBefore']['bytes'], $r['uploadVmBefore']['vms']]);
     same('presets: what every start leaves as it is', ['setup.preset.keep.system {"name":"system"}', 'setup.preset.keep.kopia_workdir {"name":"kopia_tmp"}',
         'setup.preset.keep.timemachine {"name":"tm_janine"}', 'setup.preset.keep.timemachine {"name":"Backups_TimeMachine"}',
         'setup.preset.keep.drift_ignore {"name":"scratch"}', 'setup.preset.keep.vm_cannot {"name":"vm2"}'], $r['kept']);
@@ -3402,7 +3441,8 @@ JS;
         ['ok' => true, 'why' => null]], $r['kstate']);
     same('presets: a new server, my proposal - nothing to Kopia unasked, the big share off, its container running', ['snapshot', 'off', 'run', 1], $r['freshAuto']);
     same('presets: a new server, «local + Kopia» - every share (the big one too) to Kopia, the system share stays off, the container now stops, all of it a first upload',
-        ['kopia', 'kopia', 'off', 'stop', 2, 'snapshot', ['bytes' => (100 + 1 + 3000) * 1073741824, 'shares' => ['appdata', 'UnraidSecretaryOffice', 'Filme'], 'unknown' => []]], $r['freshKopia']);
+        ['kopia', 'kopia', 'off', 'stop', 2, 'snapshot', ['bytes' => (100 + 1 + 3000) * 1073741824, 'shares' => ['appdata', 'UnraidSecretaryOffice', 'Filme'], 'unknown' => [],
+         'vms' => [], 'vm_bytes' => 0, 'vm_used' => 0]], $r['freshKopia']);
     same('presets: a new server, «local only»', ['no', 'snapshot', 'snapshot', 'off', 'stop'], $r['freshLocal']);
     hardeningRm($tmp);
 }
@@ -9516,7 +9556,7 @@ function testWhereAfterWatchman(): void
     foreach (array_keys(WATCH_POSTURE) as $id) {
         check("where: security tip $id is the watchman's now", !str_contains($js, "add('$id',") && !isset($en["where.adv.$id.title"]));
     }
-    foreach (['system_array', 'mover', 'compose_build', 'spindown_default', 'spindown_some', 'old_disks', 'no_parity', 'parity', 'ups', 'syslog', 'cron_dead', 'vm_windows', 'security'] as $id) {
+    foreach (['system_array', 'mover', 'compose_build', 'spindown_default', 'spindown_some', 'old_disks', 'no_parity', 'parity', 'ups', 'syslog', 'cron_dead', 'vm_windows', 'vm_sparse', 'security'] as $id) {
         check("where: tip $id is hers", str_contains($js, "add('$id',") && isset($en["where.adv.$id.title"], $en["where.adv.$id.why"]));
     }
     $advice = waAdvice([], [], []);
@@ -9556,6 +9596,68 @@ function testWhereVmStop(): void
     $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/lang/en.json'), true) ?: [];
     check('where: the Windows VM tip is hers, with the current time-outs', str_contains($js, "add('vm_windows',") && isset($en['where.adv.vm_windows.title'], $en['where.adv.vm_windows.why'])
         && str_contains($en['where.adv.vm_windows.why']['other'] ?? '', '{timeout}') && str_contains($en['where.adv.vm_windows.why']['other'] ?? '', '{disk}'));
+}
+
+/**
+ * Sparse VM disks and Kopia's first upload (Benj, 2026-10-07: Windows11_Gaming's vdisk2.img, 1.6 TB apparent and 21 GB
+ * allocated plus two qcow2 overlays - its snapshot said 382 GB, Kopia read 2 TB in 2.7 h, the holes as zeros; Mr.
+ * Backupsy had reckoned with 382 GB): Mr. Backupsy's first-upload estimate reckons a VM's own source by the apparent
+ * size of the files in its folders (one lstat each, links and anything beyond a few thousand entries left out, a sleeping
+ * place not looked at), an app's and a share's still by logicalreferenced; Ms. Dustdevil's tip about a VM disk file far
+ * bigger than what it holds (waFileSizes(): bytes and allocated per disk and overlay base, waSparseDisk(): at least 4x
+ * and 200 GB more), her page's note on such a file, Mr. Backupsy's VM rows and the «Everything local + Kopia» start's
+ * words (testBackupPresets), and the engine's order (testBackupKopiaOrder).
+ */
+function testBackupSparse(): void
+{
+    $tmp = hardeningTmp('sparse');
+    @mkdir("$tmp/testpool/domains/Win_11/sub", 0700, true);
+    exec('truncate -s 3G ' . escapeshellarg("$tmp/testpool/domains/Win_11/vdisk1.img"));
+    file_put_contents("$tmp/testpool/domains/Win_11/sub/vdisk2.qcow2", str_repeat('q', 4096));
+    file_put_contents("$tmp/testpool/domains/Win_11/Win_11.xml", str_repeat('x', 100));
+    symlink("$tmp/testpool/domains/Win_11/vdisk1.img", "$tmp/testpool/domains/Win_11/link.img");
+    symlink("$tmp/testpool/domains/Win_11/sub", "$tmp/testpool/domains/Win_11/sublink");
+    same('sparse: the apparent size of every regular file under a folder - the sparse vdisk whole, the small ones, never through a link',
+        3 * 1073741824 + 4096 + 100, backupApparentSize("$tmp/testpool/domains/Win_11"));
+    same('sparse: a folder that isn\'t there, is a link, or holds more entries than a VM\'s folder would - unknown', [null, null, null],
+        [backupApparentSize("$tmp/testpool/domains/Gone"), backupApparentSize("$tmp/testpool/domains/Win_11/sublink"), backupApparentSize("$tmp/testpool/domains/Win_11", 3)]);
+
+    file_put_contents("$tmp/disks.ini", "[\"testpool\"]\nname=\"testpool\"\nspundown=\"0\"\n[\"sleepy\"]\nname=\"sleepy\"\nspundown=\"1\"\n");
+    $GLOBALS['disksIni'] = "$tmp/disks.ini";
+    $s = ['general' => ['dumps_share' => ['UnraidSecretaryOffice']], 'share|domains' => ['mode' => ['snapshot'], 'locations' => ['testpool']],
+          'share|sleepyshare' => ['mode' => ['snapshot'], 'locations' => ['sleepy']],
+          'vm|Win 11' => ['kopia' => ['yes'], 'folder' => ['domains/Win_11']], 'vm|Both' => ['kopia' => ['yes'], 'folder' => ['domains/Win_11', 'sleepyshare/x']],
+          'vm|Nowhere' => ['kopia' => ['yes'], 'folder' => ['domains/Gone']], 'vm|Nofolder' => ['kopia' => ['yes']]];
+    same('sparse: a VM source\'s size for the first-upload estimate is what Kopia reads - its disk files whole (a stat, no zfs list)',
+        3 * 1073741824 + 4096 + 100, backupSourceSize('vm:Win 11', $s, 'uso-backup-20261007-0100', $tmp));
+    same('sparse: a VM with a folder on a sleeping place, a folder that is gone, or no folder at all - unknown, nothing woken', [null, null, null],
+        [backupSourceSize('vm:Both', $s, 'uso-backup-20261007-0100', $tmp), backupSourceSize('vm:Nowhere', $s, 'uso-backup-20261007-0100', $tmp),
+         backupSourceSize('vm:Nofolder', $s, 'uso-backup-20261007-0100', $tmp)]);
+    unset($GLOBALS['disksIni']);
+
+    // Ms. Dustdevil: a disk file's two sizes, and when the gap is worth a word
+    $f = waFileSizes("$tmp/testpool/domains/Win_11/vdisk1.img");
+    same('sparse: waFileSizes - what the file is and what it takes (a 3 GiB sparse file takes next to nothing); the gap too small for a word', [3 * 1073741824, true, false],
+        [$f['bytes'], $f['allocated'] !== null && $f['allocated'] < 10 * 1048576, $f['sparse']]);
+    same('sparse: a file that isn\'t there', ['bytes' => null, 'allocated' => null, 'sparse' => false], waFileSizes("$tmp/testpool/domains/Win_11/gone.img"));
+    $g = 1000 * 1000 * 1000;
+    same('sparse: worth a word - at least 4x what it holds AND at least 200 GB of holes (1.6 TB / 21 GB yes; 1 TB / 300 GB no: only 3.3x; 240 GB / 50 GB: almost 5x but only 190 GB of holes; '
+        . '250 GB / 50 GB: exactly 200 GB, yes; 800 GB / 0 yes; unknown sizes never; exactly 4x yes, a hair under no)',
+        [true, false, false, true, true, false, false, true, false],
+        [waSparseDisk(1600 * $g, 21 * $g), waSparseDisk(1000 * $g, 300 * $g), waSparseDisk(240 * $g, 50 * $g), waSparseDisk(250 * $g, 50 * $g), waSparseDisk(800 * $g, 0),
+         waSparseDisk(null, 1), waSparseDisk(1600 * $g, null), waSparseDisk(1000 * $g, 250 * $g), waSparseDisk(999 * $g, 250 * $g)]);
+
+    // her tip and her page, Mr. Backupsy's row: the words are there
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.js');
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/lang/en.json'), true) ?: [];
+    check('sparse: Ms. Dustdevil\'s tip, with its link into Unraid\'s VMs page, the file line\'s note', str_contains($js, "add('vm_sparse',") && str_contains($js, "T('where.vm.sparse'")
+        && isset($en['where.adv.vm_sparse.title']['one'], $en['where.adv.vm_sparse.title']['other'], $en['where.adv.vm_sparse.why'], $en['where.adv.vm_sparse.disk'], $en['where.adv.to_vms'], $en['where.vm.sparse'])
+        && str_contains($en['where.adv.vm_sparse.why'], '{example}') && str_contains($en['where.adv.vm_sparse.disk'], '{virtual}') && str_contains($en['where.adv.vm_sparse.disk'], '{used}'));
+    $bjs = (string) file_get_contents(OFFICE_DIR . '/public/desks/backup/desk.js');
+    $ben = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/backup/lang/en.json'), true) ?: [];
+    check('sparse: Mr. Backupsy\'s VM row says what a first upload reads, the start\'s note names the VMs', str_contains($bjs, "T('setup.vm_upload', { size:") && str_contains($bjs, "T('setup.preset.kopia_vms'")
+        && str_contains($ben['setup.vm_upload'] ?? '', '{size}') && str_contains($ben['setup.vm_upload_hint'] ?? '', '{used}') && str_contains($ben['setup.preset.kopia_vms']['other'] ?? '', '{list}'));
+    hardeningRm($tmp);
 }
 
 /**
@@ -10823,7 +10925,7 @@ function testUnraidWords(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testWatchmanApiDoor', 'testCaretakerApi', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys'],
           'strings' => ['testStrings', 'testUnraidWords']];
 $only = $argv[1] ?? '';

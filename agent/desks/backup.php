@@ -948,17 +948,24 @@ function backupProcIo(int $pid, string $proc = '/proc'): array
 
 /**
  * How big a source is in the snapshot Kopia reads: logicalreferenced of every dataset of this run's
- * ZFS snapshot under its share (an app's or VM's folders: under each folder that is a dataset), on
- * each place settings.ini names for the share. Null when it can't be told (a place that isn't ZFS or
- * sleeps, a folder that is no dataset, the flash).
+ * ZFS snapshot under its share (an app's folders: under each folder that is a dataset), on each place
+ * settings.ini names for the share. A VM's own source goes by the apparent size of the files in its
+ * folders instead (backupApparentSize(): one stat per file, never a read) — Kopia reads a sparse vdisk
+ * whole, its holes as zeros, so a 1.6 TB vdisk holding 21 GB is 1.6 TB of reading, while its snapshot's
+ * logicalreferenced says 21 GB (nostromo's Windows11_Gaming, 2026-10-07: 382 GB by the snapshot, 2 TB
+ * read, 2.7 h — the estimate was off by that). Its package (XML, NVRAM, TPM: a few MB) isn't counted.
+ * Null when it can't be told (a place that isn't ZFS or sleeps, a folder that is no dataset, the flash).
+ * $mnt: where the places are mounted (/mnt/<place>/<share>; tests pass a folder of their own).
  */
-function backupSourceSize(string $source, array $settings, string $snap): ?int
+function backupSourceSize(string $source, array $settings, string $snap, string $mnt = '/mnt'): ?int
 {
     if (!preg_match('/^[A-Za-z0-9_.:-]{1,200}$/D', $snap) || $source === 'flash') {
         return null;
     }
     $parts = [];
+    $vm = false;
     if (preg_match('/^(app|vm):(.+)$/D', $source, $m)) {
+        $vm = $m[1] === 'vm';
         foreach ((array) ($settings["$m[1]|$m[2]"]['folder'] ?? []) as $f) {
             $parts[] = explode('/', (string) $f, 2) + [1 => ''];
         }
@@ -977,8 +984,12 @@ function backupSourceSize(string $source, array $settings, string $snap): ?int
             if (baseAsleep($place, $asleep) || !preg_match('#^[A-Za-z0-9][\w .:/-]{0,250}$#D', $ds) || str_contains($ds, '//')) {
                 return null;
             }
-            [$exit, $out] = run(['zfs', 'list', '-Hp', '-t', 'snapshot', '-r', '-o', 'name,logicalreferenced', $ds], 30);
-            $n = $exit === 0 ? backupZfsSnapSum($out, $snap) : null;
+            if ($vm) {
+                $n = backupApparentSize("$mnt/$ds");
+            } else {
+                [$exit, $out] = run(['zfs', 'list', '-Hp', '-t', 'snapshot', '-r', '-o', 'name,logicalreferenced', $ds], 30);
+                $n = $exit === 0 ? backupZfsSnapSum($out, $snap) : null;
+            }
             if ($n === null) {
                 return null;
             }
@@ -986,6 +997,51 @@ function backupSourceSize(string $source, array $settings, string $snap): ?int
         }
     }
     return $parts ? $total : null;
+}
+
+/**
+ * The apparent size of every regular file under a folder (st_size — a sparse file's full size, what
+ * Kopia reads), one lstat per entry, links not followed, at most $max entries (more: null — a VM's
+ * folder holds a few disk images, anything bigger isn't one). Null when the folder isn't there. A
+ * missing folder, a dataset's hidden .zfs (never listed by readdir) and a sleeping place are the
+ * caller's to think of.
+ */
+function backupApparentSize(string $dir, int $max = 5000): ?int
+{
+    if (!is_dir($dir) || is_link($dir)) {
+        return null;
+    }
+    $total = 0;
+    $seen = 0;
+    $queue = [$dir];
+    while ($queue) {
+        $d = array_shift($queue);
+        $h = @opendir($d);
+        if ($h === false) {
+            return null;
+        }
+        while (($e = readdir($h)) !== false) {
+            if ($e === '.' || $e === '..') {
+                continue;
+            }
+            if (++$seen > $max) {
+                closedir($h);
+                return null;
+            }
+            $p = "$d/$e";
+            $st = @lstat($p);
+            if ($st === false || ($st['mode'] & 0170000) === 0120000) {       // gone meanwhile, or a link
+                continue;
+            }
+            if (($st['mode'] & 0170000) === 0040000) {
+                $queue[] = $p;
+            } elseif (($st['mode'] & 0170000) === 0100000) {
+                $total += (int) $st['size'];
+            }
+        }
+        closedir($h);
+    }
+    return $total;
 }
 
 /** The sum of a size column of "zfs list -Hp -o name,<size>" for the snapshots named @$snap, null when there is none */
