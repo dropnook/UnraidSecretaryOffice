@@ -474,7 +474,7 @@
   "errors.emby_import_nothing": "Gib mindestens einen Ordner ein.",
   "errors.emby_import_folder": "{path} ist kein Ordnerpfad, den ich lesen kann: absolut (/…), ohne . oder ..",
   "errors.emby_import_where": "{path} liegt ausserhalb der Orte, an denen ich lese: /mnt/user/<Share>/…, ein Pool, eine Array-Disk oder /boot/config/plugins/user.scripts/scripts/<Script>.",
-  "errors.emby_import_asleep": "{path} liegt auf einer schlafenden Disk ({disks}). Ich wecke sie nicht — starte sie in Unraid (Main) und sieh noch einmal nach.",
+  "errors.emby_import_asleep": "{path} liegt auf einer schlafenden Disk ({disks}). Ich wecke sie nicht — starte sie in Unraid (Start) und sieh noch einmal nach.",
   "errors.emby_import_missing": "{path} gibt es nicht oder ist kein Ordner.",
   "errors.emby_import_link": "{path} ist ein Link — ich lese nur aus echten Ordnern.",
   "errors.emby_import_own": "{path} ist mein eigener Ordner — da gibt es nichts zu übernehmen.",
