@@ -66,7 +66,7 @@
   "check.other_backup_script": "Another backup tool: user script {name}",
   "check.other_backup_script_how": "Make sure it doesn't back up the same things as Mr. Backupsy at the same time — or that this is on purpose.",
   "check.metrics_written": "The office's numbers for Prometheus are fresh in {dir}",
-  "check.metrics_written_how": "The agent writes them there once a minute — the folder lives in RAM and comes back by itself after a reboot. Missing or old: the agent log (Ms. Protocolli reads it out as «Agent») says why, in a line starting with «Metrics:».",
+  "check.metrics_written_how": "The messenger writes them there once a minute — the folder lives in RAM and comes back by itself after a reboot. Missing or old: the messenger's log (Ms. Protocolli reads it out as «Messenger») says why, in a line starting with «Metrics:».",
   "check.metrics_textfile": "The Node Exporter ({name}) reads the office's numbers from {dir}",
   "check.metrics_textfile_how": "Its textfile collector doesn't read that folder yet, so the office's numbers never reach Prometheus. For the container --collector.textfile.directory=/host{dir} goes into its Post Arguments (Advanced View; inside, the server's / is /host), for ich777's plugin into its start options. The Consultant has both ready to copy.",
   "check.metrics_no_prometheus": "No Prometheus on this server keeps the Node Exporter's numbers",

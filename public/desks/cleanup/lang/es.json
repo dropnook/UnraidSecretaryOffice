@@ -314,7 +314,7 @@
   "empty.trash": "Mi trastero está vacío. ¡Como los chorros del oro!",
   "empty.no_compose": "No hay carpeta de proyectos del Compose Manager ({path}).",
   "bubble.loading": "Un momento, estoy echando un vistazo…",
-  "bubble.no_data": "Todavía no he podido echar un vistazo — ¿se está ejecutando el agente?",
+  "bubble.no_data": "Todavía no he podido echar un vistazo — ¿está aquí el mensajero?",
   "bubble.docker_down": "Docker no responde — espero antes de tocar nada.",
   "bubble.spotless": "¡Como los chorros del oro! No hay nada tirado que nadie necesite.",
   "bubble.found": "Mira todo lo que hay por aquí tirado: {list}.",

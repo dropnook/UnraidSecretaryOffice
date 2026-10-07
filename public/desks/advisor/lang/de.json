@@ -96,7 +96,7 @@
   "textfile_no": "Ordner des Sekretariats nicht eingestellt",
   "textfile_no_tip": "Er liest {dir} nicht — die Zahlen des Sekretariats kämen nicht bei Prometheus an. «Von Hand installieren» zeigt, wie: die Post Arguments beim Container, der Befehl beim Plugin von ich777.",
   "textfile_nodir": "Ordner des Sekretariats noch nicht da",
-  "textfile_nodir_tip": "Er ist auf {dir} eingestellt — aber diesen Ordner gibt es auf dem Server noch nicht, also gibt es nichts zu lesen. Der Agent des Sekretariats legt ihn an, sobald er läuft (er schaut jede Minute nach); fehlt er weiter, steht im Log des Agenten, warum.",
+  "textfile_nodir_tip": "Er ist auf {dir} eingestellt — aber diesen Ordner gibt es auf dem Server noch nicht, also gibt es nichts zu lesen. Der Hausbote des Sekretariats legt ihn an, sobald er da ist (er schaut jede Minute nach); fehlt er weiter, steht im Protokoll des Hausboten, warum.",
   "help.textfile": "Nur beim Node Exporter: ob er den Ordner liest, in den das Sekretariat seine Zahlen schreibt (sonst gelb «Ordner des Sekretariats nicht eingestellt», oder «Ordner des Sekretariats noch nicht da», solange der Ordner selbst auf dem Server fehlt).",
   "ip_unknown": "Das Sekretariat konnte die Adresse des Servers nicht lesen: Setze sie anstelle von <server-ip> ein (steht unter Settings → Network Settings).",
   "bubble.monitoring": {
@@ -111,7 +111,7 @@
   "install.nodeexporter.2": "Vor Apply: oben rechts auf «Advanced View» umschalten und «Post Arguments» durch die Zeile unten ersetzen — die eigenen Argumente der Vorlage und am Schluss der Ordner des Sekretariats {dir} (von innen gesehen /host{dir}). Ein zusätzlicher Pfad ist nicht nötig.",
   "install.nodeexporter.3": "Ohne Apps: Docker → Add Container: Repository {image}, Network Type «Host», Extra Parameters --pid=host, ein Pfad / → /host mit Access Mode «Read Only» (nur das: Docker macht daraus selbst «rslave»; «Read Only - Slave» lehnt Docker für / ab), Post Arguments wie unten.",
   "install.nodeexporter.4": "Apply. Prüfen: {check} zeigt eine lange Seite voller Zahlen.",
-  "install.nodeexporter.5": "Der Agent des Sekretariats legt den Ordner {dir} an und schreibt seine Zahlen einmal pro Minute hinein (ein paar KB). Er liegt im RAM: Nach einem Neustart legt ihn der Agent wieder an — bis dahin notiert der Exporter in seinem Protokoll, dass der Ordner fehlt, harmlos.",
+  "install.nodeexporter.5": "Der Hausbote des Sekretariats legt den Ordner {dir} an und schreibt seine Zahlen einmal pro Minute hinein (ein paar KB). Er liegt im RAM: Nach einem Neustart legt ihn der Hausbote wieder an — bis dahin notiert der Exporter in seinem Protokoll, dass der Ordner fehlt, harmlos.",
   "install.nodeexporter.6": "Du hast schon das Plugin «Prometheus Node Exporter» von ich777? Das tut denselben Job — dann braucht es keinen Container. Es liest seine Startoptionen aus einer Datei auf dem Flash: Der Befehl unten (Unraids Terminal, >_ oben rechts) trägt dort den Ordner des Sekretariats ein und startet es neu. Er ersetzt Startoptionen, die du dort vielleicht gesetzt hast.",
   "copy.nodeexporter.image": "Repository",
   "copy.nodeexporter.postargs": "Post Arguments",

@@ -96,7 +96,7 @@
   "textfile_no": "dossier du secrétariat non réglé",
   "textfile_no_tip": "Il ne lit pas {dir} — les chiffres du secrétariat n'arriveraient pas jusqu'à Prometheus. « Installer à la main » montre comment : les Post Arguments pour le conteneur, la commande pour le plugin d'ich777.",
   "textfile_nodir": "dossier du secrétariat pas encore là",
-  "textfile_nodir_tip": "Il est réglé pour lire {dir} — mais ce dossier n'existe pas encore sur le serveur, il n'y a donc rien à lire. L'agent du secrétariat le crée dès qu'il tourne (il regarde chaque minute) ; s'il manque toujours, le journal de l'agent dit pourquoi.",
+  "textfile_nodir_tip": "Il est réglé pour lire {dir} — mais ce dossier n'existe pas encore sur le serveur, il n'y a donc rien à lire. Le coursier du secrétariat le crée dès qu'il est là (il regarde chaque minute) ; s'il manque toujours, le journal du coursier dit pourquoi.",
   "help.textfile": "Node Exporter seulement : s'il lit le dossier où le secrétariat écrit ses chiffres (sinon en jaune « dossier du secrétariat non réglé », ou « dossier du secrétariat pas encore là » tant que le dossier lui-même manque sur le serveur).",
   "ip_unknown": "Le secrétariat n'a pas pu lire l'adresse du serveur : mets-la à la place de <server-ip> (Paramètres → Paramètres réseau l'indique).",
   "bubble.monitoring": {
@@ -111,7 +111,7 @@
   "install.nodeexporter.2": "Avant Appliquer : passe en « Vue avancée » (Advanced View, en haut à droite) et remplace « Post Arguments » par la ligne ci-dessous — les arguments du modèle plus, à la fin, le dossier du secrétariat {dir} (vu de l'intérieur : /host{dir}). Pas besoin de chemin en plus.",
   "install.nodeexporter.3": "Sans Applis : Docker → Ajouter Conteneur : Référentiel {image}, type de réseau « Host », Extra Parameters --pid=host, un chemin / → /host avec le mode d'accès « Lecture seule » (Read Only — juste cela : Docker le passe lui-même en « rslave » ; « Lecture seule - Esclave » est refusé pour /), Post Arguments comme ci-dessous.",
   "install.nodeexporter.4": "Appliquer. Vérifier : {check} affiche une longue page de chiffres.",
-  "install.nodeexporter.5": "L'agent du secrétariat crée le dossier {dir} et y écrit ses chiffres une fois par minute (quelques Ko). Il est en RAM : après un redémarrage, l'agent le recrée — d'ici là, l'exporter note dans son journal que le dossier manque, sans gravité.",
+  "install.nodeexporter.5": "Le coursier du secrétariat crée le dossier {dir} et y écrit ses chiffres une fois par minute (quelques Ko). Il est en RAM : après un redémarrage, le coursier le recrée — d'ici là, l'exporter note dans son journal que le dossier manque, sans gravité.",
   "install.nodeexporter.6": "Tu as déjà le plugin « Prometheus Node Exporter » d'ich777 ? Il fait le même travail — pas besoin de conteneur. Il prend ses options de démarrage dans un fichier sur la clé : la commande ci-dessous (terminal d'Unraid, >_ en haut à droite) y inscrit le dossier du secrétariat et le redémarre. Elle remplace les options de démarrage que tu y aurais mises.",
   "copy.nodeexporter.image": "Référentiel",
   "copy.nodeexporter.postargs": "Post Arguments",

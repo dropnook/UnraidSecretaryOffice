@@ -20,7 +20,7 @@
   "round_now_title": "Fai subito un giro invece di aspettare il prossimo",
   "round_done": "Giro finito. Niente di nuovo.",
   "round_done_new": {"one": "Giro finito — una voce nuova.", "other": "Giro finito — {n} voci nuove."},
-  "round_failed": "Il giro è andato storto — il registro del fattorino dice perché.",
+  "round_failed": "Il giro è andato storto — il log del fattorino dice perché.",
   "notify_switch": "Segnala alle notifiche di Unraid",
   "notify_on": "Segnalazioni alle notifiche di Unraid: attive.",
   "notify_off": "Niente più segnalazioni alle notifiche di Unraid. Tutto resta nel registro di guardia.",

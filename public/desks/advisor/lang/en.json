@@ -96,7 +96,7 @@
   "textfile_no": "office's folder not set",
   "textfile_no_tip": "It doesn't read {dir} — the office's numbers wouldn't reach Prometheus. «Install by hand» shows how: the Post Arguments for the container, the command for ich777's plugin.",
   "textfile_nodir": "office's folder not there yet",
-  "textfile_nodir_tip": "It is set to read {dir} — but that folder isn't on the server yet, so there is nothing to read. The office's agent makes it as soon as it runs (it looks every minute); if it stays missing, the agent's log says why.",
+  "textfile_nodir_tip": "It is set to read {dir} — but that folder isn't on the server yet, so there is nothing to read. The office's messenger makes it as soon as he is in (he looks every minute); if it stays missing, the messenger's log says why.",
   "help.textfile": "Node Exporter only: whether it reads the folder the office writes its numbers to (otherwise a yellow «office's folder not set», or «office's folder not there yet» while the folder itself is missing on the server).",
   "ip_unknown": "The office couldn't read the server's address: put it in place of <server-ip> (Settings → Network Settings shows it).",
   "bubble.monitoring": {
@@ -111,7 +111,7 @@
   "install.nodeexporter.2": "Before Apply: switch to «Advanced View» (top right) and replace «Post Arguments» with the line below — the template's own arguments plus, at the end, the office's folder {dir} (seen from inside as /host{dir}). No extra path needed.",
   "install.nodeexporter.3": "Without Apps: Docker → Add Container: Repository {image}, Network Type «Host», Extra Parameters --pid=host, a path / → /host with Access Mode «Read Only» (just that: Docker makes it «rslave» by itself; «Read Only - Slave» is refused for /), Post Arguments as below.",
   "install.nodeexporter.4": "Apply. Check: {check} shows a long page of numbers.",
-  "install.nodeexporter.5": "The office's agent creates the folder {dir} and writes its numbers there once a minute (a few KB). It lives in RAM: after a reboot the agent creates it again — until then the exporter notes in its log that the folder is missing, harmless.",
+  "install.nodeexporter.5": "The office's messenger creates the folder {dir} and writes its numbers there once a minute (a few KB). It lives in RAM: after a reboot the messenger creates it again — until then the exporter notes in its log that the folder is missing, harmless.",
   "install.nodeexporter.6": "Already have ich777's plugin «Prometheus Node Exporter»? It does the same job — no container needed. It takes its start options from a file on the flash: the command below (Unraid's terminal, >_ top right) puts the office's folder in there and restarts it. It replaces start options you may have set there.",
   "copy.nodeexporter.image": "Repository",
   "copy.nodeexporter.postargs": "Post Arguments",

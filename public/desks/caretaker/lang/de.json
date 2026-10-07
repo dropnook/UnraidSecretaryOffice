@@ -66,7 +66,7 @@
   "check.other_backup_script": "Weiteres Backup-Werkzeug: User Script {name}",
   "check.other_backup_script_how": "Prüfe, dass es nicht dasselbe zur selben Zeit sichert wie Herr Backupsi — oder dass das so gewollt ist.",
   "check.metrics_written": "Die Zahlen des Büros für Prometheus liegen frisch in {dir}",
-  "check.metrics_written_how": "Der Agent schreibt sie einmal pro Minute dorthin — der Ordner liegt im RAM und kommt nach einem Neustart von selbst wieder. Fehlen sie oder sind sie alt: Das Agent-Log (Frau Protokolli liest es als «Agent» vor) sagt in einer Zeile mit «Metrics:», warum.",
+  "check.metrics_written_how": "Der Hausbote schreibt sie einmal pro Minute dorthin — der Ordner liegt im RAM und kommt nach einem Neustart von selbst wieder. Fehlen sie oder sind sie alt: Das Protokoll des Hausboten (Frau Protokolli liest es als «Hausbote» vor) sagt in einer Zeile mit «Metrics:», warum.",
   "check.metrics_textfile": "Der Node Exporter ({name}) liest die Zahlen des Büros aus {dir}",
   "check.metrics_textfile_how": "Sein Textfile-Collector liest diesen Ordner noch nicht — so kommen die Zahlen des Büros nie bei Prometheus an. Beim Container gehört --collector.textfile.directory=/host{dir} in die Post Arguments (Advanced View; drinnen ist das / des Servers /host), bei ich777s Plugin in die Startoptionen. Der Berater hat beides zum Kopieren bereit.",
   "check.metrics_no_prometheus": "Kein Prometheus auf diesem Server hält die Zahlen des Node Exporters fest",

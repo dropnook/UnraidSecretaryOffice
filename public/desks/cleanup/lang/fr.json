@@ -314,7 +314,7 @@
   "empty.trash": "Mon débarras est vide. Impeccable !",
   "empty.no_compose": "Pas de dossier de projets du Compose Manager ({path}).",
   "bubble.loading": "Un instant, je jette un œil partout…",
-  "bubble.no_data": "Je n'ai pas encore pu faire le tour — l'agent tourne-t-il ?",
+  "bubble.no_data": "Je n'ai pas encore pu faire le tour — le coursier est-il là ?",
   "bubble.docker_down": "Docker ne répond pas — j'attends avant de toucher à quoi que ce soit.",
   "bubble.spotless": "Impeccable ! Rien ne traîne que personne n'utilise.",
   "bubble.found": "Regarde tout ce qui traîne ici : {list}.",

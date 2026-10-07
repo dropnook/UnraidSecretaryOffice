@@ -314,7 +314,7 @@
   "empty.trash": "Meine Abstellkammer ist leer. Blitzblank!",
   "empty.no_compose": "Kein Projektordner des Compose Managers ({path}).",
   "bubble.loading": "Einen Moment, ich schaue mich um…",
-  "bubble.no_data": "Ich konnte mich noch nicht umschauen — läuft der Agent?",
+  "bubble.no_data": "Ich konnte mich noch nicht umschauen — ist der Hausbote da?",
   "bubble.docker_down": "Docker antwortet nicht — ich warte, bevor ich etwas anfasse.",
   "bubble.spotless": "Blitzblank! Hier liegt nichts herum, das niemand braucht.",
   "bubble.found": "Was hier alles herumliegt: {list}.",

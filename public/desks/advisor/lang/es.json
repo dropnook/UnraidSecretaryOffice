@@ -96,7 +96,7 @@
   "textfile_no": "carpeta de la secretaría sin configurar",
   "textfile_no_tip": "No lee {dir} — los números de la secretaría no llegarían a Prometheus. «Instalar a mano» muestra cómo: los Post Arguments para el contenedor, el comando para el plugin de ich777.",
   "textfile_nodir": "carpeta de la secretaría aún no existe",
-  "textfile_nodir_tip": "Está configurado para leer {dir} — pero esa carpeta aún no existe en el servidor, así que no hay nada que leer. El agente de la secretaría la crea en cuanto está en marcha (mira cada minuto); si sigue faltando, el registro del agente dice por qué.",
+  "textfile_nodir_tip": "Está configurado para leer {dir} — pero esa carpeta aún no existe en el servidor, así que no hay nada que leer. El mensajero de la secretaría la crea en cuanto está aquí (mira cada minuto); si sigue faltando, el registro del mensajero dice por qué.",
   "help.textfile": "Solo en el Node Exporter: si lee la carpeta donde la secretaría escribe sus números (si no, en amarillo «carpeta de la secretaría sin configurar», o «carpeta de la secretaría aún no existe» mientras falte la propia carpeta en el servidor).",
   "ip_unknown": "La secretaría no pudo leer la dirección del servidor: ponla en lugar de <server-ip> (la ves en Configuración → Configuración de red).",
   "bubble.monitoring": {
@@ -111,7 +111,7 @@
   "install.nodeexporter.2": "Antes de Aplicar: cambia a «Vista avanzada» (Advanced View, arriba a la derecha) y sustituye «Post Arguments» por la línea de abajo — los argumentos de la plantilla más, al final, la carpeta de la secretaría {dir} (vista desde dentro como /host{dir}). No hace falta otra ruta.",
   "install.nodeexporter.3": "Sin Apps: Docker → Agregar Contenedor: Repositorio {image}, tipo de red «Host», Extra Parameters --pid=host, una ruta / → /host con modo de acceso «Solo lectura» (Read Only — solo eso: Docker la hace «rslave» por sí mismo; «Solo lectura - Esclavo» se rechaza para /), Post Arguments como abajo.",
   "install.nodeexporter.4": "Aplicar. Comprobar: {check} muestra una larga página de números.",
-  "install.nodeexporter.5": "El agente de la secretaría crea la carpeta {dir} y escribe ahí sus números una vez por minuto (unos pocos KB). Está en RAM: tras un reinicio el agente la vuelve a crear — hasta entonces el exporter anota en su registro que falta la carpeta, inofensivo.",
+  "install.nodeexporter.5": "El mensajero de la secretaría crea la carpeta {dir} y escribe ahí sus números una vez por minuto (unos pocos KB). Está en RAM: tras un reinicio el mensajero la vuelve a crear — hasta entonces el exporter anota en su registro que falta la carpeta, inofensivo.",
   "install.nodeexporter.6": "¿Ya tienes el plugin «Prometheus Node Exporter» de ich777? Hace el mismo trabajo — no hace falta contenedor. Toma sus opciones de arranque de un archivo en el flash: el comando de abajo (terminal de Unraid, >_ arriba a la derecha) escribe ahí la carpeta de la secretaría y lo reinicia. Sustituye las opciones de arranque que hubieras puesto ahí.",
   "copy.nodeexporter.image": "Repositorio",
   "copy.nodeexporter.postargs": "Post Arguments",

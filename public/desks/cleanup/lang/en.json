@@ -314,7 +314,7 @@
   "empty.trash": "My storeroom is empty. Spotless!",
   "empty.no_compose": "No Compose Manager projects folder ({path}).",
   "bubble.loading": "One moment, I'm having a look around…",
-  "bubble.no_data": "I haven't been able to look around yet — is the agent running?",
+  "bubble.no_data": "I haven't been able to look around yet — is the messenger in?",
   "bubble.docker_down": "Docker doesn't answer — I'll wait before I touch anything.",
   "bubble.spotless": "Spotless! Nothing lying around that nobody needs.",
   "bubble.found": "Look what's lying around here: {list}.",

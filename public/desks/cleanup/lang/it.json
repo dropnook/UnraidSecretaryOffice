@@ -314,7 +314,7 @@
   "empty.trash": "Il mio ripostiglio è vuoto. Splendente!",
   "empty.no_compose": "Nessuna cartella dei progetti del Compose Manager ({path}).",
   "bubble.loading": "Un momento, do un'occhiata in giro…",
-  "bubble.no_data": "Non sono ancora riuscita a guardarmi intorno — l'agente è in esecuzione?",
+  "bubble.no_data": "Non sono ancora riuscita a guardarmi intorno — il fattorino c'è?",
   "bubble.docker_down": "Docker non risponde — aspetto prima di toccare qualcosa.",
   "bubble.spotless": "Splendente! Qui non c'è niente in giro che non serva a nessuno.",
   "bubble.found": "Guarda cosa c'è in giro qui: {list}.",
