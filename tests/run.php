@@ -31,9 +31,11 @@ declare(strict_types=1);
  *            (the state files, the staff list, the old addresses, the page's parts), the staff's order
  *            (office.staff_order, the default order))
  *   hardening  the checks that keep requests, manifests, paths and links in
- *            bounds (safe writes, the mailbox — and a request a restarting agent dropped —, Ms. Snapshotini's record of what she removed, Ms. Dustdevil's
+ *            bounds (safe writes, the mailbox — and a request a restarting agent dropped —, the agent's
+ *            doorbell and heartbeat in RAM, Ms. Snapshotini's record of what she removed, Ms. Dustdevil's
  *            manifests, Emby paths, anchored validators, the release link, the
- *            Consultant's secrets for Kopia: RAM only, never in a file, log or ps)
+ *            Consultant's secrets for Kopia: RAM only, never in a file, log or ps; and, last of all, that no
+ *            test touched the live agent's RAM folder)
  *   strings  German and English have the same keys, Italian has every English
  *            key, no language has keys English lacks, placeholders and plurals
  *            match English, and every text the code asks for exists (desk.js,
