@@ -489,7 +489,12 @@
   "watch.who": "{user} guarda {title} su {device}",
   "watch.who_paused": "{user} ha messo in pausa {title} su {device}",
   "watch.someone": "Qualcuno",
-  "watch.no_override": "Non c'è modo di aggirarlo: se deve proprio essere adesso, ferma tu il container di Emby (Docker) e avvia di nuovo.",
+  "watch.no_override": "Non c'è modo di aggirarlo — anche in pausa conta come guardare.",
+  "watch.end_session": "Spesso è una sessione dimenticata: un dispositivo che si è addormentato con qualcosa in pausa resta «a guardare» in Emby per ore (vedi la sua ultima attività). Puoi chiuderla in Emby: «Gestisci Emby Server» (l'ingranaggio in alto) → «Pannello di controllo» → sotto «Riproduco» la scheda del dispositivo → ■ «Ferma» (c'è finché Emby raggiunge ancora il dispositivo) — oppure apri l'app su quel dispositivo e ferma lì la riproduzione.",
+  "watch.end_then_start": "Poi avvia di nuovo. Solo se non basta: ferma tu il container di Emby (Docker).",
+  "watch.end_then_wait": "Chiusa quella, parto al prossimo controllo.",
+  "watch.seen": "ultima attività {ago}",
+  "watch.seen_at": "ultima attività il {date}",
   "watch_note.down": "Emby non ha risposto — avviato comunque",
   "watch_note.unknown": "nessun server Emby da chiedere — avviato comunque",
   "watch_note.waited": "aspettato {min} min che Emby fosse libero",
@@ -499,8 +504,9 @@
   "gather_skipped_summary": "saltato — qualcuno ha guardato Emby per {min} min",
   "gather_waiting": "Qualcuno sta guardando Emby — l'esecuzione pianificata aspetta. Ricontrollo alle {next}, al più tardi fino alle {until}; poi stanotte salta.",
   "gather_skipped": "L'esecuzione pianificata del {date} è saltata: qualcuno ha guardato Emby per due ore.",
+  "gather_skipped_again": "Una sessione dimenticata fa aspettare anche l'esecuzione di stanotte.",
   "gather_run_watch": "Prima chiedo a Emby: finché qualcuno guarda, non avvio.",
   "bubble.gather_waiting": "Qualcuno sta guardando Emby — il consolidamento aspetta che finisca. Prima la serata film!",
   "help.watch": "Mentre qualcuno guarda",
-  "help.watch_text": "Un vero «Consolida» non parte mai mentre qualcuno guarda Emby (anche in pausa). Avviato da qui: ti dico chi guarda cosa e non avvio. Pianificato: ricontrollo ogni 15 minuti, per al massimo due ore — poi quella notte salta. Se qualcuno inizia a guardare durante un'esecuzione, mi fermo dopo la cartella su cui sono. Se Emby non risponde affatto, l'esecuzione parte comunque; se risponde ma non riesco a leggerlo (chiave API), no. Le prove partono sempre."
+  "help.watch_text": "Un vero «Consolida» non parte mai mentre qualcuno guarda Emby (anche in pausa). Avviato da qui: ti dico chi guarda cosa e non avvio. Pianificato: ricontrollo ogni 15 minuti, per al massimo due ore — poi quella notte salta. Se qualcuno inizia a guardare durante un'esecuzione, mi fermo dopo la cartella su cui sono. Se Emby non risponde affatto, l'esecuzione parte comunque; se risponde ma non riesco a leggerlo (chiave API), no. Le prove partono sempre. Una sessione dimenticata (un dispositivo addormentato con qualcosa in pausa) la riconosci dall'ultima attività — chiudila nel pannello di controllo di Emby (Riproduco → Ferma) o nell'app su quel dispositivo."
 }

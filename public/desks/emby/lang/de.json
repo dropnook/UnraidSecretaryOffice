@@ -489,7 +489,12 @@
   "watch.who": "{user} schaut {title} auf {device}",
   "watch.who_paused": "{user} hat {title} auf {device} pausiert",
   "watch.someone": "Jemand",
-  "watch.no_override": "Daran führt kein Weg vorbei: Wenn es wirklich jetzt sein muss, stopp den Emby-Container selbst (Docker) und starte nochmals.",
+  "watch.no_override": "Daran führt kein Weg vorbei — pausiert zählt auch als Schauen.",
+  "watch.end_session": "Oft ist es eine liegengebliebene Sitzung: Ein Gerät, das mit etwas Pausiertem eingeschlafen ist, «schaut» in Emby stundenlang weiter (siehe seine letzte Aktivität). Beenden kannst du sie in Emby: «Emby Server verwalten» (das Zahnrad oben) → «Übersicht» → unter «Aktuelle Wiedergabe» die Karte des Geräts → ■ «Stopp» (da, solange Emby das Gerät noch erreicht) — oder öffne auf dem Gerät die App und stopp dort die Wiedergabe.",
+  "watch.end_then_start": "Dann starte nochmals. Erst wenn das nicht hilft: Stopp den Emby-Container selbst (Docker).",
+  "watch.end_then_wait": "Ist sie beendet, starte ich beim nächsten Nachschauen.",
+  "watch.seen": "letzte Aktivität {ago}",
+  "watch.seen_at": "letzte Aktivität am {date}",
   "watch_note.down": "Emby hat nicht geantwortet — trotzdem gestartet",
   "watch_note.unknown": "kein Emby-Server zum Fragen — trotzdem gestartet",
   "watch_note.waited": "{min} Min. gewartet, bis Emby frei war",
@@ -499,8 +504,9 @@
   "gather_skipped_summary": "ausgelassen — jemand hat {min} Min. lang Emby geschaut",
   "gather_waiting": "Gerade schaut jemand Emby — der geplante Lauf wartet. Ich schaue um {next} wieder nach, längstens bis {until}; dann fällt er heute aus.",
   "gather_skipped": "Der geplante Lauf vom {date} ist ausgefallen: Jemand hat zwei Stunden lang Emby geschaut.",
+  "gather_skipped_again": "Eine liegengebliebene Sitzung lässt auch den Lauf heute Nacht warten.",
   "gather_run_watch": "Zuerst frage ich Emby: Solange jemand schaut, starte ich nicht.",
   "bubble.gather_waiting": "Gerade schaut jemand Emby — das Zusammenführen wartet, bis der Film fertig ist. Filmabend geht vor!",
   "help.watch": "Solange jemand schaut",
-  "help.watch_text": "Ein echtes «Zusammenführen» startet nie, solange jemand Emby schaut (auch pausiert). Hier gestartet: Ich sage, wer was schaut, und starte nicht. Nach Zeitplan: Ich schaue alle 15 Minuten wieder nach, höchstens zwei Stunden lang — dann fällt der Lauf in dieser Nacht aus. Fängt während eines Laufs jemand an zu schauen, höre ich nach dem Ordner auf, an dem ich gerade bin. Antwortet Emby gar nicht, läuft er trotzdem; antwortet es, aber ich kann es nicht lesen (API-Schlüssel), läuft er nicht. Probeläufe gehen immer."
+  "help.watch_text": "Ein echtes «Zusammenführen» startet nie, solange jemand Emby schaut (auch pausiert). Hier gestartet: Ich sage, wer was schaut, und starte nicht. Nach Zeitplan: Ich schaue alle 15 Minuten wieder nach, höchstens zwei Stunden lang — dann fällt der Lauf in dieser Nacht aus. Fängt während eines Laufs jemand an zu schauen, höre ich nach dem Ordner auf, an dem ich gerade bin. Antwortet Emby gar nicht, läuft er trotzdem; antwortet es, aber ich kann es nicht lesen (API-Schlüssel), läuft er nicht. Probeläufe gehen immer. Eine liegengebliebene Sitzung (ein Gerät, das mit etwas Pausiertem eingeschlafen ist) erkennst du an ihrer letzten Aktivität — beende sie in Embys Übersicht (Aktuelle Wiedergabe → Stopp) oder in der App auf dem Gerät."
 }

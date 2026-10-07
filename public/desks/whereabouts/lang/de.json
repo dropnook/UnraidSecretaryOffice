@@ -662,6 +662,7 @@
   "adv.to_share_settings": "Global Share Settings",
   "adv.to_browse": "Browse {path}",
   "adv.to_team_lead": "Zum Teamchef",
+  "adv.to_vm_settings": "VM Manager",
   "adv.system_array.title": "Auf dem Array: {names}",
   "adv.system_array.why": "Was Docker und die VMs selbst brauchen, gehört auf einen Pool (SSD/NVMe): Auf dem Array wird jeder Container und jede VM langsam, und die Disks kommen nie zur Ruhe. In den Einstellungen des Shares den primären Speicher auf einen Pool und den sekundären auf keinen setzen, dann den Mover die Dateien holen lassen (Docker und VMs gestoppt).",
   "adv.mover.title": {
@@ -736,6 +737,14 @@
   "adv.ups.why": "Fällt der Strom aus, ist der Server einfach weg: Offene Dateien können kaputtgehen, danach läuft eine lange Paritätsprüfung. Eine kleine USV gibt ihm Zeit, sauber herunterzufahren (Settings → UPS Settings; für einen NUT-Server das NUT-Plugin).",
   "adv.syslog.title": "Nach einem Absturz ist das Protokoll weg",
   "adv.syslog.why": "Unraid hält sein Syslog im RAM — nach einem Absturz oder harten Reset weiss niemand mehr, was passiert ist, auch Frau Protokolli nicht. «Mirror syslog to flash» (für eine Weile, es nutzt den Stick ab) oder ein Syslog-Server (dieser hier: ein Share als lokaler Syslog-Ordner) bewahrt es auf.",
+  "adv.vm_windows.title": {
+    "one": "Eine Windows-VM kann den Array-Stopp aufhalten: {names}",
+    "other": "{n} Windows-VMs können den Array-Stopp aufhalten: {names}"
+  },
+  "adv.vm_windows.why": {
+    "one": "Sieh mal an — wenn das Array stoppt, bittet Unraid jede VM herunterzufahren und wartet bis zu {timeout} s (Settings → VM Manager → «VM shutdown time-out»); was dann noch läuft, wird hart ausgeschaltet, wie Stecker ziehen — Ungespeichertes ist weg, und Windows prüft beim nächsten Start seine Disk. In dieser antwortet kein Gast-Agent, also ist Unraids Bitte der Netzschalter — und ein Windows im Leerlauf mit ausgeschaltetem Bildschirm überhört den gern: Der Array-Stopp wartet die ganzen {timeout} s umsonst, dann kommt der Stecker. Was hilft, in Windows: der QEMU Guest Agent (auf der virtio-win-ISO: guest-agent\\qemu-ga-x86_64.msi) — dann fragt Unraid ihn, und Windows hört zu; oder in den Energieoptionen «Bildschirm ausschalten: Nie» und «Beim Drücken des Netzschalters: Herunterfahren». Ein längerer Timeout hilft dagegen nicht — das Warten wird nur länger; und er muss unter dem Timeout der Disks beim Herunterfahren bleiben ({disk} s, Settings → Disk Settings → «Shutdown time-out»).",
+    "other": "Sieh mal an — wenn das Array stoppt, bittet Unraid jede VM herunterzufahren und wartet bis zu {timeout} s (Settings → VM Manager → «VM shutdown time-out»); was dann noch läuft, wird hart ausgeschaltet, wie Stecker ziehen — Ungespeichertes ist weg, und Windows prüft beim nächsten Start seine Disk. In diesen antwortet kein Gast-Agent, also ist Unraids Bitte der Netzschalter — und ein Windows im Leerlauf mit ausgeschaltetem Bildschirm überhört den gern: Der Array-Stopp wartet die ganzen {timeout} s umsonst, dann kommt der Stecker. Was hilft, in Windows: der QEMU Guest Agent (auf der virtio-win-ISO: guest-agent\\qemu-ga-x86_64.msi) — dann fragt Unraid ihn, und Windows hört zu; oder in den Energieoptionen «Bildschirm ausschalten: Nie» und «Beim Drücken des Netzschalters: Herunterfahren». Ein längerer Timeout hilft dagegen nicht — das Warten wird nur länger; und er muss unter dem Timeout der Disks beim Herunterfahren bleiben ({disk} s, Settings → Disk Settings → «Shutdown time-out»)."
+  },
   "adv.security.title": "Sicherheit macht jetzt der Nachtwächter",
   "adv.security.why": "Shares, die für alle offen sind, Telnet, FTP, privilegierte Container, der Schutz der CPU — das ist jetzt seine Abteilung, und er merkt auch, wenn sich etwas ändert. Nur: Er arbeitet noch nicht hier. Der Teamchef kann ihn einstellen. Unter uns: Ich würde es tun."
 }

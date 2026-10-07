@@ -662,6 +662,7 @@
   "adv.to_share_settings": "Paramètres globaux des partages",
   "adv.to_browse": "Parcourir {path}",
   "adv.to_team_lead": "Chez le chef d'équipe",
+  "adv.to_vm_settings": "Gestionnaire des VM",
   "adv.system_array.title": "Sur l'array : {names}",
   "adv.system_array.why": "Les affaires de Docker et des VM ont leur place sur un pool (SSD/NVMe) : sur l'array, chaque conteneur et chaque VM devient lent, et les disques ne peuvent jamais dormir. Dans les réglages du partage, mets le stockage principal sur un pool et le secondaire sur aucun, puis laisse le Mover transférer les fichiers (Docker et VM arrêtés).",
   "adv.mover.title": {
@@ -736,6 +737,14 @@
   "adv.ups.why": "Quand le courant saute, le serveur s'arrête net : des fichiers ouverts peuvent être abîmés, ensuite Unraid lance un long contrôle de parité. Un petit onduleur lui donne le temps de s'arrêter proprement (Réglages → Paramètres de l'onduleur ; pour un serveur NUT, le plugin NUT).",
   "adv.syslog.title": "Après un plantage, le journal a disparu",
   "adv.syslog.why": "Unraid garde son syslog en RAM — après un plantage ou un reset brutal, personne ne peut lire ce qui s'est passé, Madame Protocolli comprise. « Refléter le syslog dans le flash » (pour un temps, ça use la clé) ou un serveur syslog (celui-ci : un partage comme dossier syslog local) le conserve.",
+  "adv.vm_windows.title": {
+    "one": "Une VM Windows peut retenir l'arrêt de l'array : {names}",
+    "other": "{n} VM Windows peuvent retenir l'arrêt de l'array : {names}"
+  },
+  "adv.vm_windows.why": {
+    "one": "Tiens, tiens — quand l'array s'arrête, Unraid demande à chaque VM de s'éteindre et attend jusqu'à {timeout} s (Réglages → Gestionnaire des VM → « délais d’extinction des VM ») ; ce qui tourne encore ensuite est coupé net, comme on débranche la prise — le travail non enregistré est perdu, et Windows vérifie son disque au démarrage suivant. Dans celle-ci, aucun agent invité ne répond, donc la demande d'Unraid, c'est le bouton d'alimentation — et un Windows inactif, écran éteint, aime l'ignorer : l'arrêt de l'array attend les {timeout} s entières pour rien, puis vient la prise. Ce qui aide, dans Windows : le QEMU Guest Agent (sur l'ISO virtio-win : guest-agent\\qemu-ga-x86_64.msi) — Unraid lui demande alors, et Windows écoute ; ou dans ses options d'alimentation « Éteindre l'écran : Jamais » et « Lorsque j'appuie sur le bouton d'alimentation : Arrêter ». Un délai plus long n'y change rien — l'attente s'allonge seulement ; et il doit rester sous le délai d'extinction des disques ({disk} s, Réglages → Paramètres disque → « Délais avant l'extinction »).",
+    "other": "Tiens, tiens — quand l'array s'arrête, Unraid demande à chaque VM de s'éteindre et attend jusqu'à {timeout} s (Réglages → Gestionnaire des VM → « délais d’extinction des VM ») ; ce qui tourne encore ensuite est coupé net, comme on débranche la prise — le travail non enregistré est perdu, et Windows vérifie son disque au démarrage suivant. Dans celles-ci, aucun agent invité ne répond, donc la demande d'Unraid, c'est le bouton d'alimentation — et un Windows inactif, écran éteint, aime l'ignorer : l'arrêt de l'array attend les {timeout} s entières pour rien, puis vient la prise. Ce qui aide, dans Windows : le QEMU Guest Agent (sur l'ISO virtio-win : guest-agent\\qemu-ga-x86_64.msi) — Unraid lui demande alors, et Windows écoute ; ou dans ses options d'alimentation « Éteindre l'écran : Jamais » et « Lorsque j'appuie sur le bouton d'alimentation : Arrêter ». Un délai plus long n'y change rien — l'attente s'allonge seulement ; et il doit rester sous le délai d'extinction des disques ({disk} s, Réglages → Paramètres disque → « Délais avant l'extinction »)."
+  },
   "adv.security.title": "La sécurité, c'est le veilleur de nuit maintenant",
   "adv.security.why": "Partages ouverts à tout le monde, Telnet, FTP, conteneurs privilégiés, la protection du CPU — c'est son service maintenant, et il remarque aussi quand quelque chose change. Seulement, il ne travaille pas encore ici. Le chef d'équipe peut l'embaucher. Entre nous : moi, je le ferais."
 }

@@ -662,6 +662,7 @@
   "adv.to_share_settings": "Recursos Compartidos",
   "adv.to_browse": "Explorar {path}",
   "adv.to_team_lead": "Al jefe de equipo",
+  "adv.to_vm_settings": "Máquinas Virtuales",
   "adv.system_array.title": "En el array: {names}",
   "adv.system_array.why": "Las cosas propias de Docker y de las VMs deben estar en un pool (SSD/NVMe): en el array cada contenedor y cada VM va lento, y los discos nunca pueden dormir. En los ajustes del recurso compartido pon el almacenamiento primario en un pool y el secundario en ninguno, y luego deja que el Mover traslade los archivos (con Docker y las VMs detenidos).",
   "adv.mover.title": {
@@ -736,6 +737,14 @@
   "adv.ups.why": "Cuando se va la luz, el servidor simplemente se para: los archivos abiertos pueden romperse y después Unraid hace una larga comprobación de paridad. Un SAI pequeño le da tiempo a apagarse limpiamente (Ajustes → Ajustes del SAI; para un servidor NUT, el plugin NUT).",
   "adv.syslog.title": "Tras un fallo, el registro desaparece",
   "adv.syslog.why": "Unraid guarda su syslog en la RAM — tras un cuelgue o un reinicio a lo bruto nadie puede leer lo que pasó, ni siquiera la señora Protocoli. «Duplicar registro syslog en la memoria Flash» (por un tiempo, desgasta la memoria) o un servidor syslog (este mismo: un recurso compartido como carpeta local del registro syslog) lo conserva.",
+  "adv.vm_windows.title": {
+    "one": "Una VM de Windows puede retrasar la parada del array: {names}",
+    "other": "{n} VMs de Windows pueden retrasar la parada del array: {names}"
+  },
+  "adv.vm_windows.why": {
+    "one": "Vaya, vaya — cuando el array se detiene, Unraid pide a cada VM que se apague y espera hasta {timeout} s (Ajustes → Máquinas Virtuales → «Tiempo de espera para apagar las VMs»); lo que siga en marcha después se apaga de golpe, como tirar del enchufe — lo no guardado se pierde y Windows revisa su disco en el siguiente arranque. En esta no responde ningún agente invitado, así que la petición de Unraid es el botón de encendido — y un Windows inactivo con la pantalla apagada suele ignorarlo: la parada del array espera los {timeout} s enteros para nada, y luego el enchufe. Lo que ayuda, en Windows: el QEMU Guest Agent (en la ISO virtio-win: guest-agent\\qemu-ga-x86_64.msi) — Unraid le pregunta entonces a él, y Windows escucha; o en sus opciones de energía «Apagar la pantalla: Nunca» y «Cuando presione el botón de inicio/apagado: Apagar». Un tiempo de espera más largo no ayuda contra eso — solo alarga la espera; y debe quedar por debajo del tiempo de espera de apagado de los discos ({disk} s, Ajustes → Ajustes de Disco → «Tiempo de espera para apagado»).",
+    "other": "Vaya, vaya — cuando el array se detiene, Unraid pide a cada VM que se apague y espera hasta {timeout} s (Ajustes → Máquinas Virtuales → «Tiempo de espera para apagar las VMs»); lo que siga en marcha después se apaga de golpe, como tirar del enchufe — lo no guardado se pierde y Windows revisa su disco en el siguiente arranque. En estas no responde ningún agente invitado, así que la petición de Unraid es el botón de encendido — y un Windows inactivo con la pantalla apagada suele ignorarlo: la parada del array espera los {timeout} s enteros para nada, y luego el enchufe. Lo que ayuda, en Windows: el QEMU Guest Agent (en la ISO virtio-win: guest-agent\\qemu-ga-x86_64.msi) — Unraid le pregunta entonces a él, y Windows escucha; o en sus opciones de energía «Apagar la pantalla: Nunca» y «Cuando presione el botón de inicio/apagado: Apagar». Un tiempo de espera más largo no ayuda contra eso — solo alarga la espera; y debe quedar por debajo del tiempo de espera de apagado de los discos ({disk} s, Ajustes → Ajustes de Disco → «Tiempo de espera para apagado»)."
+  },
   "adv.security.title": "De la seguridad se ocupa ahora el sereno",
   "adv.security.why": "Recursos compartidos abiertos a todos, Telnet, FTP, contenedores privilegiados, la protección de la CPU — ahora es su departamento, y además se da cuenta cuando algo cambia. Solo que todavía no trabaja aquí. El jefe de equipo puede contratarlo. Entre nosotros: yo lo haría."
 }

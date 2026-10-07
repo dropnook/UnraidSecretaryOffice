@@ -366,6 +366,15 @@ function advice() {
   if (!a.ups) add('ups', 'info', {}, { path: '/Settings/UPSsettings', text: T('adv.to_ups') });
   if (!a.syslog_kept) add('syslog', 'advice', {}, { path: '/Settings/SyslogSettings', text: T('adv.to_syslog') });
 
+  // Windows VMs at the array stop: Unraid asks (the guest agent, else the ACPI power button), waits the VM
+  // shutdown time-out, then switches off hard — an idle Windows with its display off ignores the button (waVmStop())
+  const deaf = (state.vms || []).filter((v) => v.os === 'windows' && v.running && v.agent !== 'connected');
+  if (a.vm_stop && deaf.length) {
+    const names = deaf.map((v) => v.name).sort();
+    add('vm_windows', 'advice', { names: listNames(names, 3), n: names.length, timeout: a.vm_stop.timeout, disk: a.vm_stop.disk_timeout },
+      { path: '/Settings/VMSettings', text: T('adv.to_vm_settings') }, names.join(','));
+  }
+
   // security advice is the night watchman's — while he doesn't work here, she says where it went
   if (Office.desks.has('watchman') && !watchmanHired()) add('security', 'info', {}, { path: '#/caretaker', text: T('adv.to_team_lead') });
   return out;

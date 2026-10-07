@@ -489,7 +489,12 @@
   "watch.who": "{user} watches {title} on {device}",
   "watch.who_paused": "{user} has {title} paused on {device}",
   "watch.someone": "Someone",
-  "watch.no_override": "There's no way around it: if it really has to be now, stop the Emby container yourself (Docker) and start again.",
+  "watch.no_override": "There's no way around it — paused counts as watching too.",
+  "watch.end_session": "Often it's a session left behind: a device that went to sleep with something paused stays «watching» in Emby for hours (see its last activity). You can end it in Emby: «Manage Emby Server» (the gear at the top) → «Dashboard» → the device's card under «Now Playing» → ■ «Stop» (there while Emby can still reach the device) — or open the app on that device and stop the playback there.",
+  "watch.end_then_start": "Then start again. Only if that doesn't help: stop the Emby container yourself (Docker).",
+  "watch.end_then_wait": "Once it's ended, I start at my next look.",
+  "watch.seen": "last activity {ago}",
+  "watch.seen_at": "last activity on {date}",
   "watch_note.down": "Emby didn't answer — started anyway",
   "watch_note.unknown": "no Emby server to ask — started anyway",
   "watch_note.waited": "waited {min} min for Emby to be free",
@@ -499,8 +504,9 @@
   "gather_skipped_summary": "skipped — someone watched Emby for {min} min",
   "gather_waiting": "Someone is watching Emby — the scheduled run waits. I look again at {next}, at the latest until {until}; then it's skipped tonight.",
   "gather_skipped": "The scheduled run of {date} was skipped: someone watched Emby for two hours.",
+  "gather_skipped_again": "A session left behind keeps tonight's run waiting too.",
   "gather_run_watch": "First I ask Emby: while someone watches, I don't start.",
   "bubble.gather_waiting": "Someone's watching Emby — consolidating waits until they're done. Movie night comes first!",
   "help.watch": "While someone watches",
-  "help.watch_text": "A real \"Consolidate\" never starts while someone watches Emby (paused counts too). Started here: I say who watches what and don't start. On schedule: I look again every 15 minutes, for up to two hours — then that night is skipped. If someone starts watching during a run, I stop after the folder I'm on. If Emby doesn't answer at all, the run goes ahead; if it answers but I can't read it (API key), it doesn't. Dry runs always go."
+  "help.watch_text": "A real \"Consolidate\" never starts while someone watches Emby (paused counts too). Started here: I say who watches what and don't start. On schedule: I look again every 15 minutes, for up to two hours — then that night is skipped. If someone starts watching during a run, I stop after the folder I'm on. If Emby doesn't answer at all, the run goes ahead; if it answers but I can't read it (API key), it doesn't. Dry runs always go. A session left behind (a device asleep with something paused) shows by its last activity — end it in Emby's dashboard (Now Playing → Stop) or in the app on that device."
 }
