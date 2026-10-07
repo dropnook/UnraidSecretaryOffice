@@ -419,7 +419,7 @@
   "import.kept": "reste tel quel : {value}",
   "import.jack_default": "ma valeur par défaut : {value}",
   "import.jack": "Ceux-là, je les règle moi-même",
-  "import.jack_sub": "Ils appartiennent au bureau ou n'étaient pas valides ici (maintenant → après).",
+  "import.jack_sub": "Ils appartiennent au secrétariat ou n'étaient pas valides ici (maintenant → après).",
   "import.empty": "(vide)",
   "import.dropped": "Laissés de côté — ma version ne les connaît pas : {keys}",
   "import.on_pool": "Ce que l'ancienne installation a mis sur le pool",

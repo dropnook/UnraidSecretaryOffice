@@ -662,7 +662,7 @@
   "diff.schedule": "Kopia darf diese Quellen nach eigenem Zeitplan starten (hier: nur während der Sicherung)",
   "diff.one_file_system": "one-file-system steht in Kopia auf {have} (nötig: false, damit Kind-Datasets mitkommen)",
   "diff.compression": "Kompression: in Kopia {have}, hier {want}",
-  "check.mnt_folders": "Nichts vom Büro direkt in /mnt",
+  "check.mnt_folders": "Nichts vom Sekretariat direkt in /mnt",
   "check.mnt_folders_how": "Fix Common Problems meldet zu Recht {folders}. Die Snapshots gehören unter /mnt/addons (Unraids Ort dafür, im RAM, ohne eigene Daten): im Template von «{name}» beim Snapshot-Mapping nur den Host Path auf {path} ändern (Container Path und «Read Only - Slave» bleiben), dann Herr Backupsi → «Einrichten…» → Anwenden. Die nächste Sicherung räumt die alten Ordner weg.",
   "stat.by_office": "hier eingestellt",
   "schedule.no_settings": "Zuerst muss ich eingerichtet sein: «Einrichten…» → Übernehmen. Dann kannst du hier eine Zeit wählen.",

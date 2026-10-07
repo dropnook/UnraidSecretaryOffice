@@ -301,7 +301,7 @@
   "move.s7_snapshot": "La clé flash part vers Kopia comme source à part (_flash). N'en prends que ce dont tu as besoin : les réglages de plugins individuels (config/plugins/<plugin>/), le fichier go, User Scripts.",
   "move.s7_tar": "La clé flash est dans l'archive {path}. N'en prends que ce dont tu as besoin : les réglages de plugins individuels (config/plugins/<plugin>/), le fichier go, User Scripts.",
   "move.s7_never": "Ne jamais copier à l'aveugle : l'attribution des disques (super.dat), la clé de licence (*.key) et les réglages réseau (network.cfg) appartiennent à l'ancien serveur.",
-  "move.s7_official": "Une clé flash entière ne revient que par la voie officielle : la sauvegarde flash d'Unraid (un .zip, ou celle d'Unraid Connect) écrite sur une clé avec l'Unraid USB Flash Creator. De la copie du bureau, ne prends que des pièces isolées — réglages de plugins, le fichier go, User Scripts.",
+  "move.s7_official": "Une clé flash entière ne revient que par la voie officielle : la sauvegarde flash d'Unraid (un .zip, ou celle d'Unraid Connect) écrite sur une clé avec l'Unraid USB Flash Creator. De la copie du secrétariat, ne prends que des pièces isolées — réglages de plugins, le fichier go, User Scripts.",
   "move.s8": "8. Le secrétariat",
   "move.s8_text": "Installe le plugin Secretary Office. Son dossier de données revient avec appdata (réglages, historique, settings.ini de Monsieur Backupsi) ; ensuite Monsieur Backupsi → « Configurer… » → Appliquer, pour que tout corresponde au nouveau serveur.",
   "fact.apps": {"one": "{n} appli peut revenir (paquets du {when})", "other": "{n} applis peuvent revenir (paquets du {when})"},

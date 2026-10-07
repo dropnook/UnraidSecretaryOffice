@@ -668,7 +668,7 @@
   "diff.schedule": "Kopia può avviare queste sorgenti con una pianificazione sua (qui: solo durante il backup)",
   "diff.one_file_system": "one-file-system in Kopia è {have} (serve: false, così vengono inclusi i dataset figli)",
   "diff.compression": "compressione: {have} in Kopia, {want} qui",
-  "check.mnt_folders": "Niente dell'ufficio direttamente in /mnt",
+  "check.mnt_folders": "Niente della segreteria direttamente in /mnt",
   "check.mnt_folders_how": "Fix Common Problems segnala giustamente {folders}. Gli snapshot vanno sotto /mnt/addons (il posto di Unraid per questo, nella RAM, senza dati propri): nel template di «{name}» cambia solo il Percorso Host della mappatura degli snapshot in {path} (Percorso contenitore e «Solo Lettura - Slave» restano), poi Signor Backupsi → «Configura…» → Applica. Il prossimo backup toglie le vecchie cartelle.",
   "stat.by_office": "impostato qui",
   "schedule.no_settings": "Prima devo essere configurato: «Configura…» → Applica. Poi qui puoi scegliere un orario.",
