@@ -11,7 +11,10 @@
 #   agent.sh watch     is the agent at work? (cron, every 5 minutes: job.sh watch)
 #   agent.sh array stopping|started   from the event scripts: a line for the night
 #                      watchman's book, then the agent goes and the night shift
-#                      comes (stopping) or the other way round (started)
+#                      comes (stopping) or the other way round (started); at the
+#                      stop the backup engine's mounts left between runs go, at the
+#                      start what a backup run the stop ended left stopped comes
+#                      back (backup.sh --unmount / --recover, engine 2.25)
 #   agent.sh nightshift  the night shift alone (php agent.php nightshift: RAM and
 #                      flash only - nothing under /mnt; it ends by itself without
 #                      the night watchman's mirror, when the array is started or
@@ -46,6 +49,11 @@ WATCH_LINE="*/5 * * * * bash $DIR/scripts/job.sh watch > /dev/null 2>&1"
 WATCH_DOWN=$RUN/watch-down        # since when the agent hasn't checked in (array started)
 WATCH_TOLD=$RUN/watch-told        # this outage was reported
 WATCH_AFTER=600                   # seconds without a sign of life before Unraid hears of it
+# the mark of the office's jobs in atd's queue - the same line as HOST_LAUNCH_MARK in agent/lib/house.php
+# (hostLaunch()): the night watchman knows them by it
+HOST_LAUNCH_MARK='# written by the Unraid Secretary Office agent'
+PROC_MOUNTS=/proc/mounts
+BACKUP_STAGE=/run/unraid-backup-stage   # the backup engine's private staging area (UB_STAGE in backup/lib/common.sh)
 
 supervisor_pid() {
     local pid
@@ -257,6 +265,61 @@ watch() {
     echo "$(date '+%F %T') watch: the agent hasn't checked in for $minutes minutes - Unraid's notifications told" >>"$LOG"
 }
 
+# One word for the shell, quoted
+shq() { printf "'%s'" "${1//\'/\'\\\'\'}"; }
+
+# Array started: what a backup run the array stop ended left behind - containers it had stopped, Nextcloud
+# in maintenance mode, VMs it shut down; the engine (2.24) notes them in its state folder instead of starting
+# anything into the stopping array - comes back now, not with the next run (often the next night):
+# backup.sh --recover (engine 2.25) takes the engine's lock, waits for Docker and libvirt to answer and
+# brings them back. Handed to atd like the office's other jobs on the host (hostLaunch() in
+# agent/lib/house.php, with its mark), so it outlives this event script; emhttp waits for event/started -
+# only a look at three small files here.
+backup_recover() {
+    local ub job
+    [[ -f "$DIR/backup/backup.sh" ]] || return 0
+    ub="$(data_dir)/unraid-backup"
+    [[ -s "$ub/state/stopped" || -s "$ub/state/maintenance" || -s "$ub/state/vms" ]] || return 0
+    mkdir -p "$RUN" && chmod 700 "$RUN" || return 0
+    job="$RUN/backup-recover.sh"
+    printf '%s\n' '#!/bin/sh' "$HOST_LAUNCH_MARK" 'PATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin' 'export PATH' \
+        "UB_DATA=$(shq "$ub")" 'export UB_DATA' "cd '/'" "exec /bin/bash $(shq "$DIR/backup/backup.sh") --recover </dev/null >/dev/null 2>&1" >"$job" || return 0
+    if timeout 10 at -M -f "$job" now >/dev/null 2>&1; then
+        echo "$(date '+%F %T') array started: a backup run left things stopped - backup.sh --recover handed to atd" >>"$LOG"
+    else
+        echo "$(date '+%F %T') array started: backup.sh --recover could not be handed to atd - the next backup run brings them back" >>"$LOG"
+    fi
+}
+
+# Array stopping: the backup engine's read-only snapshot mounts under /mnt/addons left between runs
+# ([general] keep_mounts = yes keeps them until the next run; a run killed hard leaves them too) would
+# keep a pool from unmounting - released now (backup.sh --unmount), at most 10 s. A run going on releases
+# its own the moment it sees the stop (engine 2.24): only when nobody holds the engine's lock. Never
+# blocks the stop: nothing of ours mounted - nothing done (one look at /proc/mounts). latest.log stays the
+# last run's (UB_KEEP_LATEST): the office and Ms. Protocolli keep showing that run, not this unmount.
+backup_release() {
+    local ub ini lock roots
+    [[ -f "$DIR/backup/backup.sh" ]] || return 0
+    ub="$(data_dir)/unraid-backup"; ini="$ub/settings.ini"; lock="$ub/state/lock"
+    [[ -f "$ini" ]] || return 0
+    # where the engine mounts: [general] mount_root and view_root (else its defaults), and its staging area
+    roots=$(awk '/^[[:space:]]*\[/ { g = ($0 ~ /^[[:space:]]*\[general\][[:space:]]*$/); next }
+                 g && $0 ~ /^[[:space:]]*(mount_root|view_root)[[:space:]]*=/ {
+                     v = substr($0, index($0, "=") + 1); gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); if (v ~ /^\//) print v }' "$ini" 2>/dev/null)
+    roots+=$'\n'"/mnt/addons/UnraidSecretaryOffice/snapshots"$'\n'"/mnt/addons/UnraidSecretaryOffice/btrfs-snap"$'\n'"$BACKUP_STAGE"
+    ROOTS="$roots" awk 'BEGIN { n = split(ENVIRON["ROOTS"], r, "\n") }
+        { for (i = 1; i <= n; i++) if (r[i] != "" && index($2, r[i] "/") == 1) found = 1 }
+        END { exit !found }' "$PROC_MOUNTS" 2>/dev/null || return 0
+    if [[ -e "$lock" ]] && ! flock -n "$lock" true 2>/dev/null; then
+        return 0                # a run holds it: it unmounts itself
+    fi
+    if UB_DATA="$ub" UB_KEEP_LATEST=1 timeout -k 2 8 bash "$DIR/backup/backup.sh" --unmount >/dev/null 2>&1; then
+        echo "$(date '+%F %T') array stopping: the backup engine's snapshot mounts released" >>"$LOG"
+    else
+        echo "$(date '+%F %T') array stopping: backup.sh --unmount did not end within 10 s (see its logs/unmount.log)" >>"$LOG"
+    fi
+}
+
 # array stopping|started (the event scripts): a line for the night watchman's book (RAM, the newest 50), then the shift change
 array_event() {
     local what
@@ -270,13 +333,18 @@ array_event() {
     tail -n 50 "$ARRAY_EVENTS" >"$ARRAY_EVENTS.tmp" 2>/dev/null && mv -f "$ARRAY_EVENTS.tmp" "$ARRAY_EVENTS"
     if [[ "$what" == stop ]]; then
         stop                # the agent and whatever it started: nothing may keep a pool busy
+        backup_release      # the backup engine's mounts left between runs (keep_mounts) - nor those
         night_start         # RAM and flash only
     else
         watch_cron
         night_stop          # first: never two of them
         agent_start
+        backup_recover      # what a backup run the stop ended left stopped
     fi
 }
+
+# sourced (the tests): the functions only
+[[ "${BASH_SOURCE[0]}" == "$0" ]] || return 0
 
 case "$1" in
     start)     start ;;

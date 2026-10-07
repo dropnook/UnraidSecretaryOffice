@@ -1,6 +1,19 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.24 - 2026-10-07
+# unraid-backup - backup.sh                       Version 2.25 - 2026-10-07
+#   2.25 backup.sh --recover: what a run left stopped, in maintenance mode or held (state/stopped,
+#        maintenance, vms - an array stop leaves them for after the array start) is brought back right
+#        after the array start - the plugin's event/started hands it to atd when such a note exists -,
+#        not only by the next run (often the next night). Takes the lock without waiting (busy: the run
+#        holding it brings them back itself - exit 75, quietly), never into a stopping array, waits a
+#        bounded time for Docker and libvirt to answer; leaves status.json, last-run.json and history
+#        alone (no run: its log is logs/recover.log). A run that finds a recover holding the lock waits
+#        for it instead of skipping the night. A note stays while Docker (libvirt) doesn't answer.
+#        The Kopia phase goes small and important first: the flash, the apps' own sources, then the
+#        shares and the VMs' own sources by their expected size, smallest first (the larger of the
+#        newest complete Kopia snapshot's size and ZFS's referenced or the VM's disk files; unknown
+#        last) - a first upload of terabytes no longer holds back everything behind it for days. At the
+#        array stop the plugin runs --unmount with UB_KEEP_LATEST=1: latest.log stays the last run's
 #   2.24 The run notices the array being stopped (var.ini fsState Stopping - minutes before Unraid
 #        stops the VMs and Docker) at its safe points and every few seconds while Kopia uploads, and
 #        ends at once: the Kopia snapshot going on is interrupted inside the container (Kopia keeps
@@ -127,9 +140,9 @@
 #    9. Start containers, maintenance mode off  -> the downtime ends here
 #   10. Mount the snapshots per share under <mount_root>/<share> (read-only), and
 #       join each app's and VM's own source under <mount_root>/.apps|.vms/<name>
-#   11. Kopia backs up the apps, every share from <mount_root>/<share>, the VMs
-#       (only with [kopia] enabled = yes - without Kopia 10/11 end here: local
-#       snapshots and dumps are then the whole backup)
+#   11. Kopia backs up the flash, the apps, then every share from <mount_root>/<share>
+#       and the VMs, the smallest first (only with [kopia] enabled = yes - without
+#       Kopia 10/11 end here: local snapshots and dumps are then the whole backup)
 #   12. Unmount, clean up (ZFS, btrfs, logs; once: the run folders of engines
 #       before 2.18), notification
 #
@@ -150,8 +163,10 @@
 #   UB_MODE=backup                 full run (default)
 #   UB_MODE=check     --check      only check and report drift
 #   UB_MODE=unmount   --unmount    release all snapshot mounts
-#                                  (for "At Stopping of Array" when
-#                                  keep_mounts = yes is set)
+#                                  (the plugin does it at the array stop
+#                                  when keep_mounts = yes left them)
+#   UB_MODE=recover   --recover    bring back what an interrupted run left
+#                                  stopped (the plugin, at the array start)
 #   UB_DRY_RUN=1      --dry-run    show the plan, change nothing
 #   UB_SKIP_KOPIA=1   --no-kopia   dumps and snapshots yes, Kopia no
 #   UB_NC_PREEXISTING=abort|continue
@@ -160,6 +175,8 @@
 #                     leave maintenance mode ON afterwards (applies to all
 #                     Nextclouds and overrides settings.ini)
 #   UB_NO_NOTIFY=1                 no Unraid notifications
+#   UB_KEEP_LATEST=1               --unmount: leave logs/latest.log at the last run's log
+#                                  (the plugin's array-stop hook, 2.25)
 #                     --about      name, version and interface as JSON
 #   UB_DATA=/path                  another data folder (default <office>/data/unraid-backup)
 #   UB_SETTINGS=/path/settings.ini another settings file
@@ -192,6 +209,7 @@ for a in "$@"; do
     case "$a" in
         --check)    UB_MODE="check" ;;
         --unmount)  UB_MODE="unmount" ;;
+        --recover)  UB_MODE="recover" ;;
         --dry-run)  UB_DRY_RUN=1 ;;
         --no-kopia) UB_SKIP_KOPIA=1 ;;
         --about)    jq -nc --arg n "$UB_NAME" --arg v "$UB_VERSION" --argjson i "$UB_INTERFACE" --arg c "$UB_DIR" --arg d "$UB_DATA" \
@@ -203,9 +221,15 @@ done
 UB_MODE="${UB_MODE:-backup}"
 DRY="${UB_DRY_RUN:-0}"
 SKIPK="${UB_SKIP_KOPIA:-0}"
-case "$UB_MODE" in backup|check|unmount) ;; *) echo "UB_MODE=$UB_MODE is unknown"; exit 2 ;; esac
+case "$UB_MODE" in backup|check|unmount|recover) ;; *) echo "UB_MODE=$UB_MODE is unknown"; exit 2 ;; esac
 
 [[ $EUID -eq 0 ]] || { echo "Please run as root."; exit 1; }
+# --recover (2.25): no note of an interrupted run - nothing to do, nothing written; the array being
+# stopped - not now (the notes stay for after the array start), exit 3 like a run the stop ends
+if [[ "$UB_MODE" == "recover" ]]; then
+    recover_notes || exit 0
+    array_stopping && { echo "The array is being stopped - nothing is started now; the notes stay for after the array start."; exit 3; }
+fi
 ub_data_dirs || { echo "Cannot create folders in $UB_DATA"; exit 1; }
 
 TS="$(date +%Y%m%d-%H%M)"
@@ -214,6 +238,7 @@ case "$UB_MODE" in
     backup)  LOG_FILE="$UB_LOGS/run-$TS.log" ;;
     check)   LOG_FILE="$UB_LOGS/check-$TS.log" ;;
     unmount) LOG_FILE="$UB_LOGS/unmount.log" ;;
+    recover) LOG_FILE="$UB_LOGS/recover.log" ;;
 esac
 [[ "$DRY" == "1" && "$UB_MODE" == "backup" ]] && LOG_FILE="$UB_LOGS/dryrun-$TS.log"
 # latest.log points at this run's log only once it has the lock (Start, at the end)
@@ -236,6 +261,9 @@ KOPIA_CP=""
 ARRAY_STOP="no"             # the array is being stopped: the run ends at once, starts nothing (2.24, array_stop_check)
 CLEANUP_ARMED="no"          # the cleanup trap is set (from then on an array stop ends the run through it)
 UB_ARRAY_LOOK="${UB_ARRAY_LOOK:-5}"   # seconds between looks at var.ini while Kopia uploads
+UB_RECOVER_WAIT="${UB_RECOVER_WAIT:-300}"            # --recover: at most so long for Docker and libvirt to answer (2.25)
+UB_RECOVER_LOOK="${UB_RECOVER_LOOK:-5}"              #   asking every so many seconds
+UB_RECOVER_LOCK_WAIT="${UB_RECOVER_LOCK_WAIT:-900}"  # a run that finds a --recover holding the lock waits so long for it
 
 dur_h() { local s="${1:-0}"; if (( s >= 60 )); then printf '%d min %d s' $(( s / 60 )) $(( s % 60 )); else printf '%d s' "$s"; fi; }
 
@@ -587,7 +615,7 @@ restore_service() {
             save_restore_state
         elif array_stopping; then
             ARRAY_STOP="yes"
-            log "  Nextcloud '$c': maintenance mode stays on (the array is being stopped) - noted (state/maintenance) for the next run"
+            log "  Nextcloud '$c': maintenance mode stays on (the array is being stopped) - noted (state/maintenance) for after the array start"
         else
             nc_log_output "$out"
             warn "Nextcloud '$c': maintenance mode would NOT switch off"
@@ -2013,9 +2041,11 @@ prune_files() {
     fi
     ls -1 "$UB_LOGS"/run-*.log "$UB_LOGS"/check-*.log "$UB_LOGS"/dryrun-*.log 2>/dev/null | sort -t- -k2 | head -n -"$KEEP_LOGS" \
         | while read -r d; do rm -f "$d"; done
-    if [[ -f "$UB_LOGS/unmount.log" && $(stat -c %s "$UB_LOGS/unmount.log") -gt 1048576 ]]; then
-        mv "$UB_LOGS/unmount.log" "$UB_LOGS/unmount.log.1"
-    fi
+    for d in unmount recover; do
+        if [[ -f "$UB_LOGS/$d.log" && $(stat -c %s "$UB_LOGS/$d.log") -gt 1048576 ]]; then
+            mv "$UB_LOGS/$d.log" "$UB_LOGS/$d.log.1"
+        fi
+    done
 }
 
 ##############################################################################
@@ -2064,11 +2094,12 @@ report_drift() {
 #   - no retention (nothing is pruned during a stop), no new snapshot, dump or package
 #   - nothing is started into the stopping array: containers the run stopped stay stopped (Docker
 #     stops the rest now), a VM it shut down stays off - noted in state/stopped and state/vms like a
-#     killed run's, so the first run after the array start starts what Unraid's autostart didn't
+#     killed run's: right after the array start backup.sh --recover (2.25, the plugin's event/started) - else
+#     the first run after it - starts what Unraid's autostart didn't
 #   - a frozen VM is thawed and a paused one resumed (array_stop_release): a held guest can't shut down
 #     cleanly when libvirt asks - a frozen one would be forced off after Unraid's VM timeout
 #   - a Nextcloud whose container still runs leaves maintenance mode; one whose container the run
-#     stopped stays in it, noted (state/maintenance) for the next run - occ needs its container
+#     stopped stays in it, noted (state/maintenance) for after the array start - occ needs its container
 #   - its mounts go (keep_mounts too), the lock and its note are released - nothing keeps a pool busy
 #   - status.json "result": "aborted", "message": "array_stopping", a history line; one notification
 #     (normal) - never "errors" or an alert
@@ -2111,14 +2142,14 @@ array_stop_release() {
                           else warn "VM '$n': thawing its file systems failed - check the VM"; fi ;;
                 paused)   if timeout 30 virsh resume "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': resumed (Unraid shuts it down now)"
                           else warn "VM '$n' could not be resumed (Unraid resumes paused VMs before it shuts them down)"; fi ;;
-                shutdown) log "  VM '$n': stays off - noted (state/vms): the first run after the array start starts it, unless Unraid's autostart did"
+                shutdown) log "  VM '$n': stays off - noted (state/vms): started right after the array start, unless Unraid's autostart did"
                           vm_note "$n" "$(vm_prepare "$n")" "$how" "$secs"; continue ;;
             esac
             vm_note "$n" "$(vm_prepare "$n")" "$how" "$secs"
             unset "VM_HELD[$n]" "VM_HELD_AT[$n]"
         done
     fi
-    (( ${#STOPPED[@]} )) && log "  Stay stopped (Docker is being stopped): ${STOPPED[*]} - noted (state/stopped): the first run after the array start starts those Unraid's autostart didn't"
+    (( ${#STOPPED[@]} )) && log "  Stay stopped (Docker is being stopped): ${STOPPED[*]} - noted (state/stopped): started right after the array start, those Unraid's autostart didn't"
     for c in "${!NC_ON[@]}"; do
         out=""
         if [[ -n "${NC_OCC[$c]:-}" && "$(timeout 20 docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" == "true" ]] \
@@ -2126,7 +2157,7 @@ array_stop_release() {
             log "  Nextcloud '$c': maintenance mode off"; unset "NC_ON[$c]"
         else
             [[ -n "$out" ]] && nc_log_output "$out"
-            log "  Nextcloud '$c': stays in maintenance mode (its container is stopped) - noted (state/maintenance): the first run after the array start switches it off"
+            log "  Nextcloud '$c': stays in maintenance mode (its container is stopped) - noted (state/maintenance): switched off right after the array start"
         fi
     done
     # only notes of its own: an earlier run's (kept by recover_interrupted_run while the array stops) stay as they are
@@ -2140,7 +2171,7 @@ array_stop_report() { # a few lines for the notification
     for l in "${!VM_HELD[@]}"; do list+="${list:+, }VM $l"; done
     for n in "${STOPPED[@]}"; do list+="${list:+, }$n"; done
     for n in "${!NC_ON[@]}"; do list+="${list:+, }maintenance mode of $n"; done
-    [[ -n "$list" ]] && echo "Left as the stop found them, for the next run: $list"
+    [[ -n "$list" ]] && echo "Left as the stop found them - brought back right after the array start: $list"
     if (( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )); then echo "Its retention had removed $(( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )) snapshot(s) when the stop began; the rest waits for the next run. Log: $LOG_FILE"
     else echo "No snapshots were pruned. Log: $LOG_FILE"; fi
 }
@@ -2287,6 +2318,29 @@ skip_busy() {
     exit 75
 }
 
+# --recover (2.25): Docker - and libvirt, when a VM is noted - answers? Asked every UB_RECOVER_LOOK s, at most
+# UB_RECOVER_WAIT s (right after the array start they may still be coming up); 1 when the array is being
+# stopped meanwhile. A service still silent then: recover_interrupted_run keeps its notes for the next run.
+recover_wait() {
+    local until=$(( $(date +%s) + UB_RECOVER_WAIT )) docker=0 virt=0 told=0
+    [[ -s "$UB_STATE/stopped" || -s "$UB_STATE/maintenance" ]] && docker=1
+    [[ -s "$UB_STATE/vms" ]] && command -v virsh >/dev/null 2>&1 && virt=1
+    while :; do
+        array_stopping && return 1
+        (( docker )) && ub_docker_answers && docker=0
+        (( virt )) && ub_libvirt_answers && virt=0
+        (( docker + virt == 0 )) && return 0
+        if (( $(date +%s) >= until )); then
+            log "$( (( docker )) && echo Docker)$( (( docker && virt )) && echo ' and ')$( (( virt )) && echo libvirt) did not answer within ${UB_RECOVER_WAIT} s"
+            return 0
+        fi
+        (( told++ )) || log "Waiting for $( (( docker )) && echo Docker)$( (( docker && virt )) && echo ' and ')$( (( virt )) && echo libvirt) to answer (at most ${UB_RECOVER_WAIT} s) ..."
+        sleep "$UB_RECOVER_LOOK"
+    done
+}
+# Does a --recover hold the lock? (its note: holder backup, mode recover - and its pid runs backup.sh)
+recover_holds() { ub_holder_read; [[ "$HOLDER_KIND" == "backup" && "$HOLDER_MODE" == "recover" ]]; }
+
 ##############################################################################
 # Start
 ##############################################################################
@@ -2295,10 +2349,21 @@ skip_busy() {
 # start of the run holding it from its time); the one that gets it touches it.
 exec 9>>"$UB_STATE/lock"
 if [[ "$UB_MODE" == "unmount" ]]; then
-    ln -sfn "$(basename "$LOG_FILE")" "$UB_LOGS/latest.log" 2>/dev/null
+    # by hand (the office's «Unmount», a terminal) its log is the newest; from the plugin's array-stop hook
+    # (UB_KEEP_LATEST=1, 2.25) latest.log stays the last run's - for the office and Ms. Protocolli
+    [[ "${UB_KEEP_LATEST:-0}" == "1" ]] || ln -sfn "$(basename "$LOG_FILE")" "$UB_LOGS/latest.log" 2>/dev/null
     flock -w 10 9 || echo "$(_ts)  A run holds the lock - unmounting anyway" >>"$LOG_FILE"
+elif [[ "$UB_MODE" == "recover" ]]; then
+    # busy: whoever holds it is a run (or the setup) that brings the notes back at its own start - quietly,
+    # no skipped.json, no notification, status.json untouched (it describes that run)
+    flock -n 9 || exit 75
+    touch "$UB_STATE/lock"
+    ub_holder_write backup recover "$TS" "$STARTED_AT"
+    trap ub_holder_clear EXIT
+    # latest.log stays the last run's: a recover is no run
 else
-    flock -n 9 || skip_busy
+    # a --recover holds the lock for seconds to minutes after an array start: wait for it rather than skip the night
+    flock -n 9 || { recover_holds && flock -w "$UB_RECOVER_LOCK_WAIT" 9; } || skip_busy
     touch "$UB_STATE/lock"
     if [[ "$UB_MODE" == "check" ]]; then ST_MODE="check"
     elif [[ "$DRY" == "1" ]]; then ST_MODE="dryrun"
@@ -2307,6 +2372,31 @@ else
     trap ub_holder_clear EXIT
     ln -sfn "$(basename "$LOG_FILE")" "$UB_LOGS/latest.log" 2>/dev/null
     status_init "$ST_MODE"
+fi
+
+# --- --recover (2.25) ---------------------------------------------------------
+# Right after the array start (the plugin's event/started hands it to atd when a note exists): what an
+# interrupted run left stopped, in maintenance mode or held - the array stop leaves it so (2.24) - comes
+# back now instead of with the next run, often the next night. Needs no settings.ini. Writes no status.json,
+# last-run.json or history line - it is no backup run, and the office keeps showing the run that left the
+# notes; recover_interrupted_run sends its notification ("Aborted run repaired"), recover.log keeps the rest.
+# Exit 0 done (nothing left noted), 1 something stays noted (a service didn't answer, a container or VM
+# didn't start - the next run tries again), 3 the array is being stopped, 75 the lock is busy.
+if [[ "$UB_MODE" == "recover" ]]; then
+    log "===================== $UB_NAME $UB_VERSION - recover $TS ====================="
+    rn=()
+    [[ -s "$UB_STATE/stopped" ]]     && rn+=( "containers $(paste -sd' ' "$UB_STATE/stopped")" )
+    [[ -s "$UB_STATE/maintenance" ]] && rn+=( "maintenance mode $(paste -sd' ' "$UB_STATE/maintenance")" )
+    [[ -s "$UB_STATE/vms" ]]         && rn+=( "VMs $(cut -d'|' -f1 "$UB_STATE/vms" | paste -sd' ')" )
+    log "Notes of an interrupted run: $(printf '%s; ' "${rn[@]}" | sed 's/; $//')"
+    recover_wait || { log "The array is being stopped - nothing is started now; the notes stay for after the array start."; exit 3; }
+    recover_interrupted_run
+    if recover_notes || (( ERRORS > 0 )); then
+        log "Not all of it came back$( (( ERRORS > 0 )) && echo " ($ERRORS error(s))") - what is still noted is tried again by the next run."
+        exit 1
+    fi
+    log "Done - nothing is noted any more."
+    exit 0
 fi
 
 SETTINGS_OK="yes"
@@ -2466,13 +2556,23 @@ for it in "${PLAN_KITEMS[@]}"; do
     while IFS='|' read -r it_s it_r; do log "                      $it_s/$it_r"; done < <(kopia_item_parts "$it_t" "$it_n" "$(item_pkg "$it_t" "$it_n")")
 done
 
+KOPIA_ORDER=()              # the Kopia phase's sources in their order (2.25, kopia_order): "name|kind|item|folder|bytes|from"
 if [[ "$KOPIA_OK" == "yes" && "$SKIPK" != "1" ]]; then
-    # in the order of the Kopia phase: apps (app:<name>), shares, VMs (vm:<name>), the flash
-    ST_KOPIA_PLAN=()
-    for it in "${PLAN_KITEMS[@]}"; do [[ "$it" == app\|* ]] && { IFS='|' read -r it_t it_n _ <<<"$it"; ST_KOPIA_PLAN+=( "app:$it_n" ); }; done
-    ST_KOPIA_PLAN+=( "${PLAN_KOPIA[@]}" )
-    for it in "${PLAN_KITEMS[@]}"; do [[ "$it" == vm\|* ]] && { IFS='|' read -r it_t it_n _ <<<"$it"; ST_KOPIA_PLAN+=( "vm:$it_n" ); }; done
-    [[ "$PLAN_FLASH" == "snapshot" ]] && ST_KOPIA_PLAN+=( "flash" )
+    # small and important first: the flash, the apps' own sources, then shares and VMs by expected size
+    kopia_sizes_load
+    mapfile -t KOPIA_ORDER < <(kopia_order)
+    ST_KOPIA_PLAN=(); ko_line=""
+    for ko in "${KOPIA_ORDER[@]}"; do
+        IFS='|' read -r ko_name ko_kind _ _ ko_b ko_from <<<"$ko"
+        ST_KOPIA_PLAN+=( "$ko_name" )
+        case "$ko_kind" in
+            share|vm) if [[ -n "$ko_from" ]]; then ko_line+="${ko_line:+, }$ko_name $(human "$ko_b")$([[ "$ko_from" == "inventory" ]] && echo '*')"
+                      else ko_line+="${ko_line:+, }$ko_name ?"; fi ;;
+            *)        ko_line+="${ko_line:+, }$ko_name" ;;
+        esac
+    done
+    log "  Kopia order:      ${ko_line:-none}"
+    log "                    (shares and VMs the smallest first - the larger of the newest complete Kopia snapshot's size and the server's, * = the server's (ZFS, the VM's disks); ? unknown, last)"
 fi
 status_write
 
@@ -2650,30 +2750,58 @@ kopia_skip() { # source not backed up, without Kopia having run
     ST_KOPIA_DONE+=( "$1|0|0|$(date +%s)" ); status_write
 }
 
-# kopia_item <kind>  - the own sources of the apps or of the VMs
-kopia_item() {
-    local it t n f key cp mp c_mp missing
-    for it in "${PLAN_KITEMS[@]}"; do
-        IFS='|' read -r t n f <<<"$it"
-        [[ "$t" == "$1" ]] || continue
-        key="$t:$n"
-        array_stop_check "before Kopia: $key"
-        if [[ -n "${SKIP_KOPIA[$key]:-}" ]]; then err "Kopia: $t '$n' skipped - ${SKIP_KOPIA[$key]}"; kopia_skip "$key"; continue; fi
-        cp="$(k_path "$(item_hostpath "$t" "$f")")" || { err "Kopia: $t '$n' is not mapped into the container"; kopia_skip "$key"; continue; }
-        [[ -n "${ITEM_MPS[$key]:-}" ]] || { kopia_skip "$key"; continue; }
-        # never an empty folder: every part must be visible inside the container
-        missing=""
-        while IFS= read -r mp; do
-            [[ -z "$mp" ]] && continue
-            c_mp="$(k_path "$mp")"
-            [[ -n "${KMI[$c_mp]+x}" ]] || missing+="$c_mp "
-        done <<<"${ITEM_MPS[$key]}"
-        if [[ -n "$missing" ]]; then
-            err "Kopia does not see the mount: $missing- check that the mapping is 'Read Only - Slave'"
-            kopia_skip "$key"; continue
-        fi
-        kopia_one "$key" "$cp"
-    done
+# kopia_item_one <kind> <name> <folder>  - an app's or a VM's own source
+kopia_item_one() {
+    local t="$1" n="$2" f="$3" key="$1:$2" cp mp c_mp missing
+    array_stop_check "before Kopia: $key"
+    if [[ -n "${SKIP_KOPIA[$key]:-}" ]]; then err "Kopia: $t '$n' skipped - ${SKIP_KOPIA[$key]}"; kopia_skip "$key"; return 0; fi
+    cp="$(k_path "$(item_hostpath "$t" "$f")")" || { err "Kopia: $t '$n' is not mapped into the container"; kopia_skip "$key"; return 0; }
+    [[ -n "${ITEM_MPS[$key]:-}" ]] || { kopia_skip "$key"; return 0; }
+    # never an empty folder: every part must be visible inside the container
+    missing=""
+    while IFS= read -r mp; do
+        [[ -z "$mp" ]] && continue
+        c_mp="$(k_path "$mp")"
+        [[ -n "${KMI[$c_mp]+x}" ]] || missing+="$c_mp "
+    done <<<"${ITEM_MPS[$key]}"
+    if [[ -n "$missing" ]]; then
+        err "Kopia does not see the mount: $missing- check that the mapping is 'Read Only - Slave'"
+        kopia_skip "$key"; return 0
+    fi
+    kopia_one "$key" "$cp"
+}
+
+# kopia_share_one <share>
+kopia_share_one() {
+    local s="$1" hp cp mp c_mp missing
+    array_stop_check "before Kopia: $s"
+    if [[ -n "${SKIP_KOPIA[$s]:-}" ]]; then err "Kopia: '$s' skipped - ${SKIP_KOPIA[$s]}"; kopia_skip "$s"; return 0; fi
+    hp="$(share_kopia_hostpath "$s")"
+    cp="$(k_path "$hp")" || { err "Kopia: '$s' is not mapped into the container"; kopia_skip "$s"; return 0; }
+    if [[ -z "${SHARE_MOUNTED[$s]:-}" ]]; then kopia_skip "$s"; return 0; fi
+    # Never back up an empty folder: the mount must be there inside the container
+    missing=""
+    while IFS= read -r mp; do
+        [[ -z "$mp" ]] && continue
+        c_mp="$(k_path "$mp")"
+        [[ -n "${KMI[$c_mp]+x}" ]] || missing+="$c_mp "
+    done < <(share_mount_points "$s")
+    if [[ -n "$missing" ]]; then
+        err "Kopia does not see the mount: $missing- check that the mapping is 'Read Only - Slave'"
+        kopia_skip "$s"; return 0
+    fi
+    [[ "${SHARE_MOUNTED[$s]}" == "live" ]] && log "  (live: '$s' is read without a snapshot)"
+    kopia_one "$s" "$cp"
+}
+
+# kopia_flash_one  - the flash's ZFS snapshot (only when /boot is on ZFS); its snapshot or mount failed: not backed up
+kopia_flash_one() {
+    local cp
+    array_stop_check "before Kopia: flash"
+    [[ "$PLAN_FLASH" == "snapshot" ]] || { kopia_skip "flash"; return 0; }
+    cp="$(k_path "$MOUNT_ROOT/$FLASH_SOURCE_NAME")"
+    if [[ -n "${KMI[$cp]+x}" ]]; then kopia_one "flash" "$cp"
+    else err "Kopia does not see the flash snapshot ($cp)"; kopia_skip "flash"; fi
 }
 
 if [[ "$SKIPK" == "1" ]]; then
@@ -2685,35 +2813,15 @@ elif [[ "$KOPIA_OK" == "yes" ]]; then
     kopia_mountinfo_load
     # new folders of the shares going to Kopia stay local until the user decided (section 11)
     new_local_run
-    # the apps first: small, and what a restore needs first; the VMs' disks last, they are big
-    kopia_item app
-    for s in "${PLAN_KOPIA[@]}"; do
-        array_stop_check "before Kopia: $s"
-        if [[ -n "${SKIP_KOPIA[$s]:-}" ]]; then err "Kopia: '$s' skipped - ${SKIP_KOPIA[$s]}"; kopia_skip "$s"; continue; fi
-        hp="$(share_kopia_hostpath "$s")"
-        cp="$(k_path "$hp")" || { err "Kopia: '$s' is not mapped into the container"; kopia_skip "$s"; continue; }
-        if [[ -z "${SHARE_MOUNTED[$s]:-}" ]]; then kopia_skip "$s"; continue; fi
-        # Never back up an empty folder: the mount must be there inside the container
-        missing=""
-        while IFS= read -r mp; do
-            [[ -z "$mp" ]] && continue
-            c_mp="$(k_path "$mp")"
-            [[ -n "${KMI[$c_mp]+x}" ]] || missing+="$c_mp "
-        done < <(share_mount_points "$s")
-        if [[ -n "$missing" ]]; then
-            err "Kopia does not see the mount: $missing- check that the mapping is 'Read Only - Slave'"
-            kopia_skip "$s"; continue
-        fi
-        [[ "${SHARE_MOUNTED[$s]}" == "live" ]] && log "  (live: '$s' is read without a snapshot)"
-        kopia_one "$s" "$cp"
+    # in the plan's order (kopia_order, 2.25): the flash, the apps, then the shares and VMs, the smallest first
+    for ko in "${KOPIA_ORDER[@]}"; do
+        IFS='|' read -r _ ko_kind ko_item ko_folder _ <<<"$ko"
+        case "$ko_kind" in
+            flash) kopia_flash_one ;;
+            app|vm) kopia_item_one "$ko_kind" "$ko_item" "$ko_folder" ;;
+            share) kopia_share_one "$ko_item" ;;
+        esac
     done
-    kopia_item vm
-    if [[ "$PLAN_FLASH" == "snapshot" ]]; then
-        array_stop_check "before Kopia: flash"
-        cp="$(k_path "$MOUNT_ROOT/$FLASH_SOURCE_NAME")"
-        if [[ -n "${KMI[$cp]+x}" ]]; then kopia_one "flash" "$cp"
-        else err "Kopia does not see the flash snapshot ($cp)"; kopia_skip "flash"; fi
-    fi
     [[ $KOPIA_FAILED -gt 0 ]] && ub_notify "Kopia incomplete" \
         "$KOPIA_FAILED source(s) not backed up, $KOPIA_DONE ok. Log: $LOG_FILE" "warning"
 fi

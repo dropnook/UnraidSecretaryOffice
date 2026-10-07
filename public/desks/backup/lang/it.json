@@ -1034,7 +1034,7 @@
   "bubble.last_array_stop": "L'ultimo backup, {when}, si è fermato quando l'array è stato arrestato — apposta: ho controllato tre volte, non si è perso niente. La prossima esecuzione riprende da dove era Kopia.",
   "notice.array_stop": "L'ultima esecuzione ({when}) si è fermata subito quando l'array veniva arrestato — apposta, non si è perso niente: non è stato sfoltito niente, e la prossima esecuzione fa il backup come sempre e riprende il caricamento su Kopia da dove era.",
   "notice.array_stop_kopia": {"one": "Una sorgente Kopia la aspetta.", "other": "{n} sorgenti Kopia la aspettano."},
-  "notice.array_stop_left": "Lasciati come li ha trovati l'arresto — la prossima esecuzione li riporta, se l'avvio automatico di Unraid non l'ha già fatto: {list}.",
+  "notice.array_stop_left": "Lasciati come li ha trovati l'arresto — tornano subito dopo l'avvio dell'array, al più tardi con la prossima esecuzione, se l'avvio automatico di Unraid non l'ha già fatto: {list}.",
   "left.vm": "VM {name}",
   "left.maintenance": "{name} in modalità manutenzione",
   "stat.last_array_stop": "{when} · arresto dell'array",

@@ -1049,7 +1049,7 @@
   "bubble.last_array_stop": "La última copia {when} se detuvo cuando se paró el array — a propósito: lo he comprobado tres veces, no se ha perdido nada. La próxima ejecución sigue donde estaba Kopia.",
   "notice.array_stop": "La última ejecución ({when}) terminó en el acto cuando se estaba parando el array — a propósito, no se ha perdido nada: no se ha podado nada, y la próxima ejecución hace la copia como siempre y sigue la subida a Kopia donde estaba.",
   "notice.array_stop_kopia": {"one": "Una fuente de Kopia la espera.", "other": "{n} fuentes de Kopia la esperan."},
-  "notice.array_stop_left": "Dejados como los encontró la parada — la próxima ejecución los recupera, salvo que el arranque automático de Unraid ya lo haya hecho: {list}.",
+  "notice.array_stop_left": "Dejados como los encontró la parada — vuelven justo después de arrancar el array, a más tardar con la próxima ejecución, salvo que el arranque automático de Unraid ya lo haya hecho: {list}.",
   "left.vm": "VM {name}",
   "left.maintenance": "{name} en modo mantenimiento",
   "stat.last_array_stop": "{when} · parada del array",

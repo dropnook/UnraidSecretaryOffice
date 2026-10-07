@@ -1028,7 +1028,7 @@
   "bubble.last_array_stop": "Das letzte Backup {when} hat aufgehört, als das Array gestoppt wurde — mit Absicht: Ich habe dreimal nachgesehen, verloren ist nichts. Der nächste Lauf macht dort weiter, wo Kopia war.",
   "notice.array_stop": "Der letzte Lauf ({when}) hat sofort aufgehört, als das Array gestoppt wurde — mit Absicht, verloren ist nichts: Es wurde nichts ausgedünnt, und der nächste Lauf sichert wie immer und setzt den Kopia-Upload dort fort, wo er war.",
   "notice.array_stop_kopia": {"one": "Eine Kopia-Quelle wartet darauf.", "other": "{n} Kopia-Quellen warten darauf."},
-  "notice.array_stop_left": "So geblieben, wie der Stopp sie antraf — der nächste Lauf holt sie zurück, falls Unraids Autostart es nicht schon getan hat: {list}.",
+  "notice.array_stop_left": "So geblieben, wie der Stopp sie antraf — sie kommen gleich nach dem Start des Arrays zurück, spätestens mit dem nächsten Lauf, falls Unraids Autostart es nicht schon getan hat: {list}.",
   "left.vm": "VM {name}",
   "left.maintenance": "{name} im Wartungsmodus",
   "stat.last_array_stop": "{when} · Array-Stopp",
