@@ -5659,6 +5659,39 @@ function testNotify(): void
     }
     $got = array_filter(explode("\n", (string) @file_get_contents($secs)));
     same('notify: three in a row, three different seconds (none overwritten)', 3, count(array_unique($got)));
+
+    // the agent, its night shift, agent.sh and the backup engine send with the same event: they take turns through one
+    // stamp in RAM (here a test folder's) - a burst from three processes at once lands in as many seconds as calls
+    @mkdir("$tmp/run", 0700, true);
+    $stamp = "$tmp/run/notify.second";
+    putenv("OFFICE_NOTIFY_STAMP=$stamp");
+    @unlink($secs);
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $agentSh = escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh');
+    $quiet = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
+    usleep((int) ((1 - fmod(microtime(true), 1)) * 1e6) + 600000);
+    $t0 = microtime(true);
+    $procs = [proc_open(['bash', '-c', "UB_DATA=$tmp/ub UB_NOTIFY_BIN=$slow UB_NOTIFY_STAMP=$stamp; source $lib; ub_notify e1 x; ub_notify e2 x"], $quiet, $pipes),
+              proc_open(['bash', '-c', "source $agentSh; RUN=$tmp/run; NOTIFY=$slow; FLASH=$tmp/flash; tell t1 x normal; tell t2 x normal"], $quiet, $pipes)];
+    officeNotify('p1', 'x');
+    officeNotify('p2', 'x');
+    foreach ($procs as $p) {
+        for ($i = 0; $i < 300 && proc_get_status($p)['running']; $i++) {
+            usleep(100000);
+        }
+        proc_close($p);
+    }
+    $got = array_values(array_filter(explode("\n", (string) @file_get_contents($secs))));
+    same('notify: the engine, agent.sh and the agent at once - six calls, six different seconds (one stamp in RAM for all)', [6, 6], [count($got), count(array_unique($got))]);
+    check('notify: the stamp holds the second the last call ended in', (int) trim((string) @file_get_contents($stamp)) >= max(array_map('intval', $got ?: [0])));
+    check('notify: taking turns stays bounded (six calls in well under the time of six waits for the lock)', microtime(true) - $t0 < 20, (string) (microtime(true) - $t0));
+    // the RAM folder missing: never blocks - sent at once, the guard of this process only
+    putenv("OFFICE_NOTIFY_STAMP=$tmp/no-such-folder/notify.second");
+    $t0 = microtime(true);
+    check('notify: without the RAM folder - sent, without waiting', officeNotify('q', 'x') && microtime(true) - $t0 < 3 && !is_dir("$tmp/no-such-folder"));
+    same('notify: the engine outside the plugin (a copy, the tests) uses no RAM stamp of the plugin\'s', '',
+        trim((string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/ub; unset UB_NOTIFY_STAMP; source $lib >/dev/null 2>&1; printf %s \"\$UB_NOTIFY_STAMP\"") . ' 2>&1')));
+    putenv('OFFICE_NOTIFY_STAMP');
     putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
 
     // which findings are red: required and known to be missing, one key per thing

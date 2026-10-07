@@ -218,13 +218,18 @@ function hostNet(array $command, int $timeout = 60): array
  */
 const OFFICE_NOTIFY_BIN   = '/usr/local/emhttp/webGui/scripts/notify';
 const OFFICE_NOTIFY_EVENT = 'Unraid Secretary Office';
+// the second the last notification of the event ended in — shared by the agent, its night shift, scripts/agent.sh and
+// the backup engine (RAM; see officeNotify())
+const OFFICE_NOTIFY_STAMP = RUN_DIR . '/notify.second';
+const OFFICE_NOTIFY_LOCK_WAIT = 10;     // seconds waited at most for another's notification to end — then it goes anyway
 
 /**
  * Sends one notification. $level normal|warning|alert; $message the long
  * text (its lines become Unraid's "\n", which mail, push agents and the
  * archive turn into line breaks); $link where a click leads (officeNotifyLink()).
  * Does nothing without Unraid's notify script. OFFICE_NOTIFY_BIN in the
- * environment points to a stand-in — for the tests only.
+ * environment points to a stand-in, OFFICE_NOTIFY_STAMP to another shared
+ * stamp — for the tests only.
  */
 function officeNotify(string $subject, string $description, string $level = 'normal', string $message = '', ?string $link = null): bool
 {
@@ -233,6 +238,8 @@ function officeNotify(string $subject, string $description, string $level = 'nor
     if (!is_executable($bin)) {
         return false;
     }
+    // with a stand-in notify (the tests) the plugin's RAM stamp is never touched: only the one they name, else this process's
+    $stamp = (string) (getenv('OFFICE_NOTIFY_STAMP') ?: (getenv('OFFICE_NOTIFY_BIN') ? '' : OFFICE_NOTIFY_STAMP));
     $flat = fn (string $s) => trim((string) preg_replace('/\s+/u', ' ', $s));
     $args = [$bin, '-e', OFFICE_NOTIFY_EVENT, '-s', OFFICE_NOTIFY_EVENT . ': ' . $flat($subject), '-d', $flat($description),
              '-i', in_array($level, ['normal', 'warning', 'alert'], true) ? $level : 'normal'];
@@ -245,12 +252,60 @@ function officeNotify(string $subject, string $description, string $level = 'nor
     // Unraid names a notification after its event and the second its script reads the clock — somewhere between
     // our call's start and its end: one more in that second would overwrite it (the night shift lost one of three
     // sent in a row on 2026-10-07). $last is the second the last call ENDED in; a new one starts only after it.
+    // The agent, the night shift, scripts/agent.sh and the backup engine send with the same event: the second lies in
+    // a stamp in RAM they all share, read and written under its flock (held through the call, so they take turns;
+    // waited for at most OFFICE_NOTIFY_LOCK_WAIT s, then the call goes anyway). No RAM folder: this process's alone.
+    $h = officeNotifyStampOpen($stamp);
+    if ($h) {
+        rewind($h);
+        $shared = trim((string) stream_get_contents($h, 32));
+        if (preg_match('/^\d{1,12}$/D', $shared)) {
+            $last = max($last, (int) $shared);
+        }
+    }
     if (time() <= $last) {
         usleep((int) ((1 - fmod(microtime(true), 1)) * 1e6) + 10000);
     }
     [$exit] = hostNet($args, 30);
     $last = time();
+    if ($h) {
+        ftruncate($h, 0);
+        rewind($h);
+        fwrite($h, "$last\n");
+        fflush($h);
+        flock($h, LOCK_UN);
+        fclose($h);
+    }
     return $exit === 0;
+}
+
+/**
+ * The shared stamp of officeNotify(), opened (close-on-exec: the notify script never inherits it) and locked — waited
+ * for at most OFFICE_NOTIFY_LOCK_WAIT s. null: no stamp ('' or its folder missing, a link), or the lock not had in
+ * time (then the stamp isn't written either: the holder does that).
+ *
+ * @return resource|null
+ */
+function officeNotifyStampOpen(string $stamp): mixed
+{
+    if ($stamp === '' || !is_dir(dirname($stamp)) || is_link($stamp)) {
+        return null;
+    }
+    $old = umask(0077);
+    $h = @fopen($stamp, 'c+e');
+    umask($old);
+    if (!$h) {
+        return null;
+    }
+    $until = microtime(true) + OFFICE_NOTIFY_LOCK_WAIT;
+    while (!flock($h, LOCK_EX | LOCK_NB)) {
+        if (microtime(true) >= $until) {
+            fclose($h);
+            return null;
+        }
+        usleep(50000);
+    }
+    return $h;
 }
 
 /** Where a click on a notification leads: a page of the office ("#/caretaker") inside Unraid */

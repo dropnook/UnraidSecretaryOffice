@@ -217,14 +217,34 @@ data_dir() {
     echo "${d%/}"
 }
 
-# tell <subject> <short text> <normal|warning|alert> [long text] - like the engine's ub_notify; a click opens the office
+# tell <subject> <short text> <normal|warning|alert> [long text] - like the engine's ub_notify; a click opens the office.
+# Unraid names a notification <event>-<second>: one more with the same event in that second overwrites it. The agent,
+# its night shift and the backup engine send with the same event - all take turns through one stamp in RAM
+# ($RUN/notify.second: the second the last call ended in, under its flock held through the call - at most 10 s
+# waited, then it goes anyway); a call starts only after that second. No RAM folder: no guard.
 tell() {
-    local place link=/SecretaryOffice
+    local place link=/SecretaryOffice stamp="$RUN/notify.second" fd="" last now
     [[ -x "$NOTIFY" ]] || return 0
     place=$(sed -n 's/^MENU_PLACE="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$FLASH/$PLUGIN.cfg" 2>/dev/null | tail -n 1)
     [[ "$place" == settings ]] && link=/Settings/SecretaryOffice
     local args=( -e "Unraid Secretary Office" -s "Unraid Secretary Office: $1" -d "$2" -i "$3" -l "$link" )
     [[ -n "${4:-}" ]] && args+=( -m "$4" )
+    if [[ -d "$RUN" && ! -L "$stamp" ]] && { exec {fd}>>"$stamp"; } 2>/dev/null; then
+        if flock -w 10 "$fd" 2>/dev/null; then
+            last=$(head -c 32 "$stamp" 2>/dev/null | tr -dc '0-9')
+            now=$(date +%s%N)
+            # still in that second: wait until just past it (at most ~1 s)
+            if [[ "$last" =~ ^[0-9]+$ && "$now" =~ ^[0-9]{10,}$ ]] && (( ${now:0:${#now}-9} <= last )); then
+                now=$(( 1010000 - 10#${now:${#now}-9} / 1000 ))
+                sleep "$(( now / 1000000 )).$(printf '%06d' $(( now % 1000000 )))"
+            fi
+            timeout 60 "$NOTIFY" "${args[@]}" >/dev/null 2>&1 {fd}>&-
+            date +%s >"$stamp" 2>/dev/null
+            exec {fd}>&-
+            return 0
+        fi
+        exec {fd}>&-
+    fi
     timeout 60 "$NOTIFY" "${args[@]}" >/dev/null 2>&1 || true
 }
 

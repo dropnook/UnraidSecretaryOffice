@@ -104,13 +104,48 @@ ub_data_dirs() {
     return 0
 }
 
+# Unraid names a notification <event>-<second> - the second its notify script reads the clock, somewhere in our call - and
+# one more with the same event in that second overwrites it. The engine, the office's agent and its night shift
+# (officeNotify() in agent/lib/house.php) and the plugin's agent.sh (tell) send with the same event, so they share one
+# guard (2.25): the stamp UB_NOTIFY_STAMP in RAM - the plugin's /var/run/unraid-secretary-office/notify.second - holds the
+# second the last call ended in; under its flock (held through the call, so they take turns; at most 10 s waited, then
+# the call goes anyway) a call starts only after that second. Without the folder (a copy outside the plugin): this
+# process's own guard (UB_NOTIFY_LAST). The notify script never inherits the lock.
+UB_NOTIFY_STAMP="${UB_NOTIFY_STAMP-$(ub_is_plugin && echo /var/run/unraid-secretary-office/notify.second)}"
+UB_NOTIFY_LAST=0
+ub_notify_after() { # ub_notify_after <second>  - returns once the clock is past that second (at most ~1 s)
+    local now us
+    now="$(date +%s%N)"
+    [[ "$now" =~ ^[0-9]{10,}$ ]] || { (( $(date +%s) <= $1 )) && sleep 1; return 0; }
+    (( ${now:0:${#now}-9} <= $1 )) || return 0
+    us=$(( 1010000 - 10#${now:${#now}-9} / 1000 ))
+    sleep "$(( us / 1000000 )).$(printf '%06d' $(( us % 1000000 )))"
+}
 ub_notify() {
     [[ "${UB_NO_NOTIFY:-0}" == "1" ]] && return 0
     [[ -x "$UB_NOTIFY_BIN" ]] || return 0
     # Unraid puts the server's name in front of the subject itself
-    local args=( -e "Unraid Secretary Office" -s "Unraid Secretary Office: $1" -d "$2" -i "${3:-normal}" )
+    local args=( -e "Unraid Secretary Office" -s "Unraid Secretary Office: $1" -d "$2" -i "${3:-normal}" ) st="$UB_NOTIFY_STAMP" fd="" last
     [[ -n "${4:-}" ]] && args+=( -m "$4" )
-    "$UB_NOTIFY_BIN" "${args[@]}" >/dev/null 2>&1 || true
+    if [[ -n "$st" && -d "${st%/*}" && ! -L "$st" ]] && { exec {fd}>>"$st"; } 2>/dev/null; then
+        if flock -w 10 "$fd" 2>/dev/null; then
+            last="$(head -c 32 "$st" 2>/dev/null | tr -dc '0-9')"
+            is_uint "$last" && (( last > UB_NOTIFY_LAST )) && UB_NOTIFY_LAST="$last"
+        else
+            exec {fd}>&-; fd=""
+        fi
+    fi
+    ub_notify_after "$UB_NOTIFY_LAST"
+    if [[ -n "$fd" ]]; then
+        "$UB_NOTIFY_BIN" "${args[@]}" >/dev/null 2>&1 {fd}>&-
+        UB_NOTIFY_LAST="$(date +%s)"
+        printf '%s\n' "$UB_NOTIFY_LAST" >"$st" 2>/dev/null
+        exec {fd}>&-
+    else
+        "$UB_NOTIFY_BIN" "${args[@]}" >/dev/null 2>&1
+        UB_NOTIFY_LAST="$(date +%s)"
+    fi
+    return 0
 }
 
 is_yes() { [[ "${1,,}" == "yes" || "${1,,}" == "ja" || "$1" == "1" || "${1,,}" == "true" ]]; }
