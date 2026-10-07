@@ -1296,10 +1296,15 @@ kopia_policies_load() {
     jq -e 'type=="array"' >/dev/null 2>&1 <<<"$KP_JSON" || KP_JSON="[]"
 }
 
-# The size of each source's newest complete Kopia snapshot of this identity (since 2.25, for the Kopia order:
-# kopia_order) -> KSIZE[<container path>] = bytes. One "snapshot list" (metadata only - Kopia keeps the
-# manifests in its index); checkpoints of an interrupted upload are no snapshot ("incomplete") and don't
-# count. At most UB_KOPIA_LIST_TIMEOUT s; whatever goes wrong leaves KSIZE empty (then the inventory's sizes).
+# The size each source is expected to have, from Kopia (since 2.25, for the Kopia order: kopia_order) -> KSIZE[<container
+# path>] = bytes: the size of its newest complete snapshot of this identity - or, when larger, of a newer incomplete one
+# (a checkpoint of an upload interrupted or still going on, run after run: a lower bound of what the source holds). A share
+# whose folders were all left out until the setup changed has a tiny complete snapshot while its first real upload of
+# terabytes is still in checkpoints - where the server knows no size of its own (an array share on XFS or btrfs, a folder
+# in a pool's root dataset) only the checkpoint says it is huge. One "snapshot list" (metadata only - Kopia keeps the
+# manifests in its index); its JSON lists the incomplete ones too, and with -n 1 a newer checkpoint would hide the complete
+# snapshot, so all are listed and picked here. At most UB_KOPIA_LIST_TIMEOUT s; whatever goes wrong leaves KSIZE empty
+# (then the inventory's sizes).
 declare -gA KSIZE=()
 kopia_sizes_load() {
     KSIZE=()
@@ -1309,11 +1314,17 @@ kopia_sizes_load() {
     while IFS=$'\t' read -r p b; do
         [[ -n "$p" ]] && is_uint "$b" && KSIZE[$p]="$b"
     done < <(timeout "${UB_KOPIA_LIST_TIMEOUT:-60}" docker exec -u "$KOPIA_RUN_UID" "${e[@]}" "$KOPIA_CONTAINER" \
-                 kopia --no-progress snapshot list --all --json -n 1 2>/dev/null \
+                 kopia --no-progress snapshot list --all --json 2>/dev/null \
              | jq -r --arg u "$KOPIA_USER" --arg h "$KOPIA_HOST" '
-                 [.[]? | select(.source.userName == $u and .source.host == $h and ((.incompleteReason // "") == ""))]
-                 | group_by(.source.path)[] | max_by(.startTime // "")
-                 | [.source.path, ((.stats.totalSize // .rootEntry.summ.size // "") | tostring)] | @tsv' 2>/dev/null)
+                 def size: (.stats.totalSize // .rootEntry.summ.size // null) | if type == "number" then floor else null end;
+                 [.[]? | select(.source.userName == $u and .source.host == $h)]
+                 | group_by(.source.path)[] as $g
+                 | ($g | map(select((.incompleteReason // "") == "")) | max_by(.startTime // "")) as $c
+                 | ($g | map(select((.incompleteReason // "") != "" and ((.startTime // "") > ($c.startTime // ""))))
+                       | max_by(.startTime // "")) as $i
+                 | ([$c, $i] | map(select(. != null) | size) | map(select(. != null)) | max) as $b
+                 | select($b != null)
+                 | [$g[0].source.path, ($b | tostring)] | @tsv' 2>/dev/null)
     return 0
 }
 
@@ -2398,13 +2409,14 @@ uri_escape() {
 # run after run from Kopia's checkpoints, no longer holds back everything queued behind it. (Up to 2.24: the
 # apps, the shares in settings.ini's order, the VMs, the flash last - on 2026-10-07 a 2.3 TB first upload of
 # one share kept the flash, appdata and the VMs from Kopia for days.)
-# The size a source is expected to have, from what is cheap and reliable: the size of its newest complete
-# Kopia snapshot (KSIZE, kopia_sizes_load - what Kopia read then, its ignore rules applied) and the server's
-# (ZFS's referenced for a share that is a dataset of its own, INV_BYTES; the VM's disk files, VM_BYTES) -
-# the LARGER of the two when both are known, either alone when only one is. Kopia's alone can be stale: a share
-# whose folders were all ignored until the setup changed has a tiny complete snapshot while its first real
-# upload of terabytes is still going on in checkpoints (nostromo's Backups, 2026-10-07) - by Kopia's size it
-# would go first. The server's overestimates a share with big ignored parts, which only moves it later. An
+# The size a source is expected to have, from what is cheap and reliable: Kopia's (KSIZE, kopia_sizes_load - the
+# size of its newest complete snapshot, what Kopia read then with its ignore rules applied, or of a newer checkpoint
+# when that is larger) and the server's (ZFS's referenced for a share that is a dataset of its own, INV_BYTES; the
+# VM's disk files, VM_BYTES) - the LARGER of the two when both are known, either alone when only one is. A complete
+# snapshot alone can be stale: a share whose folders were all ignored until the setup changed has a tiny complete
+# snapshot while its first real upload of terabytes is still going on in checkpoints (nostromo's Backups,
+# 2026-10-07) - by that size it would go first; the checkpoint (or ZFS) says better. The server's overestimates a
+# share with big ignored parts, which only moves it later. An
 # unknown size goes last; equal sizes and the unknown keep their order (the shares as settings.ini lists
 # them, then the VMs).
 # kopia_order  -> lines "name|kind|item|folder|bytes|from" in the order they go:

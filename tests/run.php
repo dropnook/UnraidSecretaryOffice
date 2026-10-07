@@ -2310,36 +2310,43 @@ function testBackupKopiaOrder(): void
         $ksnap('/uso/Backups', 1000, '2026-10-05T01:00:00Z'),       // complete but stale: all of it was ignored before the setup changed
         $ksnap('/uso/Backups', 10, '2026-10-07T03:00:00Z', ['incompleteReason' => 'checkpoint']),
         $ksnap('/uso/scripts', 3000000000, '2026-10-06T01:00:00Z'),
+        // an array share on XFS (no size from the server): a stale tiny complete snapshot, its first real upload in a newer checkpoint
+        $ksnap('/uso/media', 2000, '2026-10-05T01:00:00Z'), $ksnap('/uso/media', 1500000000000, '2026-10-07T03:00:00Z', ['incompleteReason' => 'checkpoint']),
+        // a checkpoint older than the newest complete snapshot doesn't count; one never completed counts alone
+        $ksnap('/uso/old', 5000000000, '2026-10-01T01:00:00Z', ['incompleteReason' => 'canceled']), $ksnap('/uso/old', 100, '2026-10-06T01:00:00Z'),
+        $ksnap('/uso/fresh', 7000000000, '2026-10-07T01:00:00Z', ['incompleteReason' => 'checkpoint']),
         ['source' => ['host' => 'other', 'userName' => 'root', 'path' => '/uso/isos'], 'startTime' => '2026-10-06T01:00:00Z', 'stats' => ['totalSize' => 1]],
         ['source' => ['host' => 'kopia', 'userName' => 'root', 'path' => '/uso/.vms/Debian'], 'startTime' => '2026-10-06T01:00:00Z', 'rootEntry' => ['summ' => ['size' => 7]]]]));
-    file_put_contents("$tmp/bin/docker", "#!/bin/bash\n[[ \"\$*\" == *'snapshot list --all --json -n 1'* ]] && cat $tmp/list.json\n");
+    // every snapshot (no -n: a newer checkpoint would hide the complete one)
+    file_put_contents("$tmp/bin/docker", "#!/bin/bash\n[[ \"\$*\" == *'snapshot list --all --json' ]] && cat $tmp/list.json\n");
     chmod("$tmp/bin/docker", 0755);
     $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
     $sh = function (string $script) use ($lib, $tmp): string {
         $pre = "PATH=$tmp/bin:\$PATH UB_DATA=$tmp/data; source $lib >/dev/null 2>&1; cfg_load $tmp/settings.ini; apply_settings;"
              . ' KM_SRC=(/mnt/addons/UnraidSecretaryOffice/snapshots); KM_DST=(/uso); KM_RW=(false); KM_PROP=(rslave);'
-             . ' PLAN_FLASH=snapshot; PLAN_KOPIA=(isos appdata docs Backups scripts);'
+             . ' PLAN_FLASH=snapshot; PLAN_KOPIA=(isos appdata docs Backups scripts media);'
              . ' PLAN_KITEMS=("app|nextcloud|nextcloud" "app|immich|immich" "vm|Win 11|Win_11" "vm|Debian|Debian" "vm|Tiny|Tiny");'
              . ' INV_BYTES=([appdata]=40000000000 [docs]=1000000000 [Backups]=2300000000000 [scripts]=1000000000);'
              . ' VM_BYTES=(["Win 11"]=380000000000 [Tiny]=4000000000);';
         return trim((string) shell_exec('bash -c ' . escapeshellarg("$pre $script") . ' 2>&1'));
     };
-    same('kopia order: the newest complete snapshot of this identity per source - no checkpoint, no other identity; rootEntry\'s size when stats lack',
-        "/uso/.vms/Debian=7 /uso/Backups=1000 /uso/appdata=5000000000 /uso/scripts=3000000000",
+    same('kopia order: per source of this identity the newest complete snapshot - or a newer checkpoint when larger (a lower bound), never an older one; '
+        . 'no other identity; rootEntry\'s size when stats lack',
+        "/uso/.vms/Debian=7 /uso/Backups=1000 /uso/appdata=5000000000 /uso/fresh=7000000000 /uso/media=1500000000000 /uso/old=100 /uso/scripts=3000000000",
         $sh('KOPIA_CONNECTED=yes KOPIA_USER=root KOPIA_HOST=kopia KOPIA_RUN_UID=0 KOPIA_CONTAINER=kopia; kopia_sizes_load;'
             . ' for k in $(printf "%s\n" "${!KSIZE[@]}" | LC_ALL=C sort); do printf "%s=%s " "$k" "${KSIZE[$k]}"; done'));
     same('kopia order: no sizes from Kopia while it isn\'t connected', '0', $sh('KOPIA_CONNECTED=no; kopia_sizes_load; echo ${#KSIZE[@]}'));
     same('kopia order: the flash, the apps in their order, then shares and VMs the smallest first - by the larger of Kopia\'s and the server\'s size '
-        . '(a stale tiny Kopia snapshot of a huge share goes by the server\'s), either alone when only one is known, unknown last in their order',
+        . '(a stale tiny Kopia snapshot of a huge share goes by the server\'s, an XFS share\'s by its newer checkpoint), either alone when only one is known, unknown last in their order',
         "flash|flash||||\napp:nextcloud|app|nextcloud|nextcloud||\napp:immich|app|immich|immich||\n"
         . "vm:Debian|vm|Debian|Debian|7|kopia\ndocs|share|docs||1000000000|inventory\nscripts|share|scripts||3000000000|kopia\n"
         . "vm:Tiny|vm|Tiny|Tiny|4000000000|inventory\nappdata|share|appdata||40000000000|inventory\nvm:Win 11|vm|Win 11|Win_11|380000000000|inventory\n"
-        . "Backups|share|Backups||2300000000000|inventory\nisos|share|isos|||",
+        . "media|share|media||1500000000000|kopia\nBackups|share|Backups||2300000000000|inventory\nisos|share|isos|||",
         $sh('KOPIA_CONNECTED=yes KOPIA_USER=root KOPIA_HOST=kopia KOPIA_RUN_UID=0 KOPIA_CONTAINER=kopia; kopia_sizes_load; kopia_order'));
     same('kopia order: the larger size wins, equal goes to Kopia\'s', ['5|kopia', '7|inventory', '4|kopia', '9|inventory', '|'],
         explode(' ', $sh('for a in "5 4" "3 7" "4 4" "x 9" "x x"; do set -- $a; [[ $1 == x ]] && set -- "" "$2"; [[ $2 == x ]] && set -- "$1" ""; printf "%s " "$(kopia_expect "$1" "$2")"; done')));
     same('kopia order: without the flash\'s snapshot no flash; without sizes the shares, then the VMs, as listed',
-        "app:nextcloud\napp:immich\nisos\nappdata\ndocs\nBackups\nscripts\nvm:Win 11\nvm:Debian\nvm:Tiny",
+        "app:nextcloud\napp:immich\nisos\nappdata\ndocs\nBackups\nscripts\nmedia\nvm:Win 11\nvm:Debian\nvm:Tiny",
         $sh('PLAN_FLASH=tar; INV_BYTES=(); VM_BYTES=(); kopia_order | cut -d"|" -f1'));
     exec('rm -rf ' . escapeshellarg($tmp));
 }

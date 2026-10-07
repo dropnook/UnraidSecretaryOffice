@@ -2597,7 +2597,7 @@ if [[ "$KOPIA_OK" == "yes" && "$SKIPK" != "1" ]]; then
         esac
     done
     log "  Kopia order:      ${ko_line:-none}"
-    log "                    (shares and VMs the smallest first - the larger of the newest complete Kopia snapshot's size and the server's, * = the server's (ZFS, the VM's disks); ? unknown, last)"
+    log "                    (shares and VMs the smallest first - the larger of Kopia's size (its newest complete snapshot, or a newer checkpoint when larger) and the server's, * = the server's (ZFS, the VM's disks); ? unknown, last)"
 fi
 status_write
 
