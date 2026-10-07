@@ -174,7 +174,9 @@ encrypted (SSH); the copies at the partner are in plain form (it can read them â
 way). Only datasets go (shares that are a dataset of their own, VMs with one, the backup place); the nightly sending
 is Mr. Backupsy's (a later step). Every 15 minutes each office asks its partners how they are; one silent for 6 hours
 is told. Better between two households: a tunnel (WireGuard, Tailscale) and its addresses â€” a public address is
-warned about.
+warned about. The night watchman knows the door (the office's own line, logins and refusals that don't fit, a line
+changed), Ms. Snapshotini shows a partner's copies and keeps her hands off them, Ms. Dustdevil puts away what an ended
+partnership left, and Ms. Protocolli reads the door's log.
 
 ## Monitoring
 
