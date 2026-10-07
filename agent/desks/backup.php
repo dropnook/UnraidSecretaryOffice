@@ -109,8 +109,13 @@ function backupMetrics(?string $state = null): array
             $done = array_filter((array) ($kopia['done'] ?? []), 'is_array');
             $went = count(array_filter($done, fn ($d) => ($d['ok'] ?? false) === true));
             $planned = count((array) ($kopia['planned'] ?? []));
-            $out[] = metricsGauge('uso_backup_last_kopia_sources', 'Kopia sources of the last real backup run: copied (ok) and not (failed, or never reached)',
-                [[['result' => 'ok'], $went], [['result' => 'failed'], max(count($done), $planned) - $went]]);
+            $skipped = count(array_filter((array) ($kopia['skipped'] ?? []), 'is_string'));       // engine 2.24: an array stop ended the run
+            $samples = [[['result' => 'ok'], $went], [['result' => 'failed'], max(0, max(count($done), $planned) - $went - $skipped)]];
+            if ($skipped > 0) {
+                $samples[] = [['result' => 'skipped'], $skipped];
+            }
+            $out[] = metricsGauge('uso_backup_last_kopia_sources', 'Kopia sources of the last real backup run: copied (ok), not (failed, or never reached), skipped (the array was being stopped - the next run does them)',
+                $samples);
         }
         $packages = is_array($last['packages'] ?? null) ? $last['packages'] : [];
         if (!empty($packages['written'])) {
@@ -214,6 +219,8 @@ function backupScan(): array
         'since'      => $running ? (($holder['started'] ?? 0) ?: (@filemtime("$data/state/lock") ?: null)) : null,
         'holder'     => $holder,
         'paused'     => $running ? backupPaused($data) : null,
+        // a run the array stop ended leaves what it stopped noted for the next run (engine 2.24)
+        'left'       => !$running && ($status['result'] ?? '') === 'aborted' && ($status['message'] ?? '') === 'array_stopping' ? backupPaused($data) : null,
         'history'    => $history,
         'skips'      => $skips,                  // backup runs skipped because the lock was busy, newest first
         'skipped'    => backupSkipRow(readJson("$data/state/skipped.json")),   // the last attempt of any mode
@@ -578,6 +585,9 @@ function backupRunFromStatus(array $j): array
                             'errors' => (int) ($j['packages']['errors'] ?? 0), 'stale' => (int) ($j['packages']['stale'] ?? 0)] : null,
         'kopia'      => array_map(fn ($k) => ['name' => (string) $k['name'], 'ok' => (bool) $k['ok'], 'seconds' => (int) $k['seconds'], 'finished' => (int) ($k['finished'] ?? 0)],
                                   $j['kopia']['done'] ?? []),
+        // engine 2.24: an array stop ended the run - the sources it didn't do are skipped (never failed), one maybe interrupted
+        'kopia_skipped' => array_values(array_filter((array) ($j['kopia']['skipped'] ?? []), fn ($n) => is_string($n) && $n !== '')),
+        'kopia_interrupted' => is_string($j['kopia']['interrupted'] ?? null) && $j['kopia']['interrupted'] !== '' ? $j['kopia']['interrupted'] : null,
         'kopia_first' => null,
         'log'        => (string) ($j['log'] ?? ''),
         'version'    => (string) ($j['version'] ?? ''),
@@ -593,7 +603,7 @@ function backupRunFromStatus(array $j): array
 function backupRunFromLog(string $path, string $run, int $started): array
 {
     $r = ['run' => $run, 'started' => $started, 'finished' => 0, 'result' => 'failed', 'message' => 'interrupted',
-          'errors' => 0, 'warnings' => 0, 'downtime' => 0, 'dump_bytes' => 0, 'packages' => null, 'kopia' => [], 'kopia_first' => null,
+          'errors' => 0, 'warnings' => 0, 'downtime' => 0, 'dump_bytes' => 0, 'packages' => null, 'kopia' => [], 'kopia_skipped' => [], 'kopia_interrupted' => null, 'kopia_first' => null,
           'log' => basename($path), 'version' => '', 'source' => 'log'];
     $h = @fopen($path, 'r');
     if (!$h) {
@@ -1449,7 +1459,15 @@ function backupPaused(string $data): array
     };
     $stopped = $read("$data/state/stopped");
     $maint = $read("$data/state/maintenance");
+    $vms = [];
+    foreach (@file("$data/state/vms", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $l) {
+        $vm = explode('|', $l, 2)[0];
+        if (($l[strlen($vm)] ?? '') === '|' && preg_match('/^[\w .@()-]{1,128}$/D', $vm)) {
+            $vms[$vm] = true;
+        }
+    }
     return [
+        'vms'               => array_keys($vms),      // VMs the run froze, paused or shut down (name|how)
         'stopped'           => $stopped,
         'stopped_since'     => $stopped ? (@filemtime("$data/state/stopped") ?: null) : null,
         'maintenance'       => $maint,
@@ -1697,9 +1715,11 @@ function backupChecks(): array
         }
         if ($kopiaOn) {
             // the engine finds out whether the repository answers; we read its last word
+            // only "yes" and "no" are a word about the repository: a run ended before its check (engine 2.24 says "" then -
+            // an array stop at its start; older engines said "no"), a --no-kopia run ("skip") says nothing
             $status = readJson("$data/state/status.json");
             $state = $status['kopia']['state'] ?? null;
-            $out[] = finding('kopia_repo', 'required', $state === null ? null : $state === 'yes', ['name' => $name]);
+            $out[] = finding('kopia_repo', 'required', in_array($state, ['yes', 'no'], true) ? $state === 'yes' : null, ['name' => $name]);
         }
     }
 

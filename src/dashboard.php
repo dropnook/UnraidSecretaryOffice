@@ -124,6 +124,10 @@ function officeDashBackupState(array $backup): array
     }
     if (is_array($last)) {
         $result = (string) ($last['result'] ?? '');
+        // ended because the array was being stopped (engine 2.24): a stopped run, not a failure - the next one continues
+        if ($result === 'aborted' && ($last['message'] ?? '') === 'array_stopping') {
+            return ['backup.dash_array_stop', 'orange', $lastTime];
+        }
         return ['dash.bk_' . (in_array($result, ['ok', 'warnings'], true) ? $result : 'failed'),
                 match ($result) { 'ok' => 'green', 'warnings' => 'orange', default => 'red' }, $lastTime];
     }
