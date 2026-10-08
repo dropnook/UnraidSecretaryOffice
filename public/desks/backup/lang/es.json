@@ -1072,6 +1072,7 @@
   "setup.preset.keep.drift_ignore": "{name} (tu drift.ignore)",
   "setup.preset.keep.name_bad": "{name} (nombre no compatible)",
   "setup.preset.keep.domains": "{name} (discos de VM sin instantáneas)",
+  "setup.preset.keep.syslog": "{name} (aquí escribe el servidor syslog de Unraid)",
   "setup.preset.keep.vm_cannot": "{name} (una VM sin instantáneas posibles)",
   "setup.preset.media": "Los servidores multimedia siguen funcionando durante la instantánea.",
   "setup.preset.new_later": "Lo que llegue después se queda en local y sigue funcionando hasta que decidas.",

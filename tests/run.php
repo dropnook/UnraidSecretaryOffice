@@ -4311,10 +4311,12 @@ function testBackupPresets(): void
     // a new server: nothing set up, a big share the engine leaves off, a container that ran because its data was off
     $fresh = ['time' => 1000, 'have_settings' => false, 'mount_root' => '/mnt/addons/UnraidSecretaryOffice/snapshots',
         'P' => ['kopia|enabled' => 'yes', 'general|dumps_share' => 'UnraidSecretaryOffice', 'flash|mode' => 'snapshot', 'docker|no_stop' => ['dsm'], 'docker|skip' => [],
-                'share|appdata|mode' => 'kopia', 'share|UnraidSecretaryOffice|mode' => 'kopia', 'share|Filme|mode' => 'off', 'share|system|mode' => 'off'],
+                'share|appdata|mode' => 'kopia', 'share|UnraidSecretaryOffice|mode' => 'kopia', 'share|Filme|mode' => 'off', 'share|system|mode' => 'off',
+                'share|routerlogs|mode' => 'off'],
         'O' => [],
         'shares' => [$sh('appdata', 100, ['why' => 'big_container', 'folders' => [['dir' => 'c1', 'container' => 'c1'], ['dir' => 'c2', 'container' => 'c2'], ['dir' => 'c3', 'container' => 'c3']]]),
-                     $sh('UnraidSecretaryOffice', 1, ['why' => 'new']), $sh('Filme', 3000, ['why' => 'big']), $sh('system', 30, ['why' => 'system'])],
+                     $sh('UnraidSecretaryOffice', 1, ['why' => 'new']), $sh('Filme', 3000, ['why' => 'big']), $sh('system', 30, ['why' => 'system']),
+                     $sh('routerlogs', 2, ['why' => 'syslog'])],
         'containers' => [$ct('c1', 'writes', ['appdata/c1']), $ct('c2', 'writes', ['appdata/c2']), $ct('c3', 'writes', ['appdata/c3']), $ct('dsm', 'no_data', ['Filme'])],
         'vms' => [], 'databases' => [], 'nextcloud' => [], 'missing_databases' => [], 'bases' => [['name' => 'master', 'fs' => 'zfs', 'kind' => 'pool']],
         'flash' => ['dataset' => 'flash/boot', 'fs' => 'zfs'], 'kopia' => ['container' => 'kopia', 'candidates' => ['kopia'], 'problem' => null, 'mappings' => []]];
@@ -4391,6 +4393,15 @@ out.freshKopia = [S.draft['share|appdata|mode'], S.draft['share|Filme|mode'], S.
   b.firstUpload(b.draftMode)];
 b.presetChoose('local');
 out.freshLocal = [S.draft['kopia|enabled'], S.draft['share|appdata|mode'], S.draft['share|Filme|mode'], S.draft['share|system|mode'], S.held['ct:dsm']];
+// the share Unraid's syslog server writes into (setup.sh: why syslog, proposed off) stays off under every start
+const routerlogs = () => S.draft['share|routerlogs|mode'];
+out.freshSyslog = [b.presetKeep(S.plan.shares.find((sh) => sh.name === 'routerlogs'), S.plan), routerlogs()];
+b.presetChoose('kopia');
+out.freshSyslog.push(routerlogs());
+b.presetChoose('auto');
+out.freshSyslog.push(routerlogs());
+b.presetChoose('local');
+out.freshSyslog.push(routerlogs(), b.presetKeptList().filter((x) => x.includes('routerlogs')));
 console.log(JSON.stringify(out));
 JS;
     file_put_contents("$tmp/t.js", $test);
@@ -4455,6 +4466,8 @@ JS;
         ['kopia', 'kopia', 'off', 'stop', 2, 'snapshot', ['bytes' => (100 + 1 + 3000) * 1073741824, 'shares' => ['appdata', 'UnraidSecretaryOffice', 'Filme'], 'unknown' => [],
          'vms' => [], 'vm_bytes' => 0, 'vm_used' => 0]], $r['freshKopia']);
     same('presets: a new server, «local only»', ['no', 'snapshot', 'snapshot', 'off', 'stop'], $r['freshLocal']);
+    same('presets: the share Unraid\'s syslog server writes into (why syslog) stays «not backed up» under every start, and the starts say so',
+        ['syslog', 'off', 'off', 'off', 'off', ['setup.preset.keep.syslog {"name":"routerlogs"}']], $r['freshSyslog']);
     hardeningRm($tmp);
 }
 

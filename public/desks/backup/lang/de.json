@@ -1051,6 +1051,7 @@
   "setup.preset.keep.drift_ignore": "{name} (dein drift.ignore)",
   "setup.preset.keep.name_bad": "{name} (Name nicht unterstützt)",
   "setup.preset.keep.domains": "{name} (VM-Disks ohne Snapshots)",
+  "setup.preset.keep.syslog": "{name} (hier schreibt Unraids Syslog-Server)",
   "setup.preset.keep.vm_cannot": "{name} (eine VM, die sich nicht snapshotten lässt)",
   "setup.preset.media": "Mediaserver laufen während des Snapshots weiter.",
   "setup.preset.new_later": "Was später dazukommt, bleibt lokal und läuft weiter, bis du entscheidest.",
