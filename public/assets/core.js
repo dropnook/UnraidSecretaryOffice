@@ -1323,11 +1323,9 @@ Office.reportDialog = function reportDialog(deskId) {
   text.value = typeof draft.text === 'string' ? draft.text : '';
   const count = el('small', 'sso-report-count');
   field(t('office.report_text'), text, count);
+  // no name field (Benj, 2026-10-08): nobody is answered by name — the forum is the place for a conversation
   const name = el('input', 'input');
-  name.maxLength = REPORT_NAME_MAX;
-  name.autocomplete = 'off';
-  name.value = typeof draft.name === 'string' ? draft.name : '';
-  field(t('office.report_name'), name, el('small', '', t('office.report_name_hint')));
+  name.value = '';
   box.appendChild(form);
 
   const msg = el('p', 'callout warn');
@@ -1430,7 +1428,6 @@ Office.reportDialog = function reportDialog(deskId) {
     mine.appendChild(el('div', 'sso-report-words-head', `${t(`office.report_kind_${w.kind}`)} · ${w.desk === 'office' ? t('office.report_desk_office') : t(`${w.desk}.name`)}`));
     mine.appendChild(el('strong', '', w.title));
     mine.appendChild(el('pre', 'code sso-report-text-shown', w.text));
-    if (w.name) mine.appendChild(el('small', '', t('office.report_name_shown', { name: w.name })));
     partRow('words', mine, true, true);
     (j.hints || []).forEach((h) => preview.appendChild(el('p', 'callout', t(`office.report_hint.${h}`))));
     const line = (s) => el('div', 'sso-report-value', s);

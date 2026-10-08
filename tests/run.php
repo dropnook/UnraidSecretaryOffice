@@ -18790,11 +18790,10 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   out.opened = { title: byId['sso-dialog-title'].textContent, desk: desk.value, deskOptions: desk.children.map((o) => o.value), sendOff: send.disabled,
     asked: posts.map((p) => p.a), wide: byId['sso-dialog'].className, issues: walk(body(), (n) => n.tag === 'a').map((a) => a.href),
     yours: text(one((n) => n.tag === 'details')).includes('#40 Darker') };
-  const [title, name] = walk(body(), (n) => n.tag === 'input' && n.className === 'input');
+  const [title] = walk(body(), (n) => n.tag === 'input' && n.className === 'input');
   const area = one((n) => n.tag === 'textarea');
   title.value = 'Her plan ran twice'; title.oninput();
   area.value = 'It ran twice at 03:00, see the log.'; area.oninput();
-  name.value = 'benj'; name.oninput();
   out.draft = JSON.parse(store['office.report.draft'] || 'null');
   out.counter = text(one((n) => n.className.startsWith('sso-report-count')));
   posts.length = 0;
@@ -18852,7 +18851,7 @@ JS);
     same('report dialog: opens wide with the desk shown, asks only for «Your reports», «Send» off', ['office.report_title', 'snapshot', ['office', 'caretaker', 'snapshot'], true, ['office.reports'], true],
         [$o['title'], $o['desk'], $o['deskOptions'], $o['sendOff'], $o['asked'], str_contains($o['wide'], 'wide') && str_contains($o['wide'], 'sso-report-dialog')]);
     same('report dialog: … the GitHub issues for account holders (no forum yet), «Your reports»', [['https://github.com/dropnook/UnraidSecretaryOffice/issues'], true], [$o['issues'], $o['yours']]);
-    same('report dialog: the draft kept while typing', ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => 'It ran twice at 03:00, see the log.', 'name' => 'benj'], $r['draft']);
+    same('report dialog: the draft kept while typing', ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => 'It ran twice at 03:00, see the log.', 'name' => ''], $r['draft']);
     same('report dialog: the counter in bytes', 'office.report_count', $r['counter']);   // no strings loaded: the key
     $p = $r['preview'];
     same('report dialog: the preview asks with the words, the languages and the desk\'s last error (plain params only)',
