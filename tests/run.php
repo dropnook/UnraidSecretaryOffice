@@ -17270,11 +17270,73 @@ function testPlgGuard(): void
     check('plg guard: before the agent is stopped and the folder replaced', $guard !== false && $guard < strpos($plg, 'scripts/agent.sh" stop') && $guard < strpos($plg, 'rm -rf "$dir"'));
 }
 
+/**
+ * The engine's lock seen through shfs (QA 2026-10-08, finding 1): on a data folder whose share isn't exclusive the flock
+ * lies on the pool's file — /proc/locks names that one, never the inode stat() shows through /mnt/user — so «Stop the
+ * run» said «not running». flockHeld() looks for the file behind shfs ((dev << 48) | ino, Unraid 7.3.2), and probes
+ * (a shared flock without waiting, let go at once) only a FUSE file whose number names no mounted device. A stand-in
+ * holds the lock in a process of its own; the folder is reached two ways; shfs's view is a stat() as it would show it.
+ */
+function testFlockShfs(): void
+{
+    $tmp = hardeningTmp('flock');
+    mkdir("$tmp/data/state", 0700, true);
+    symlink("$tmp/data", "$tmp/user");                   // the same folder a second way
+    $lock = "$tmp/data/state/lock";
+    touch($lock);
+    $p = proc_open([PHP_BINARY, '-r', '$h = fopen($argv[1], "r"); flock($h, LOCK_EX); echo "held\n"; sleep(30);', $lock],
+        [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+    $ready = trim((string) fgets($pipes[1])) === 'held';
+    $pid = proc_get_status($p)['pid'];
+    check('flock: the stand-in holds the lock', $ready);
+    check('flock: held — seen on its path', flockHeld($lock));
+    check('flock: … and the other way', flockHeld("$tmp/user/state/lock"));
+    file_put_contents("$tmp/data/state/lock-holder.json", json_encode(['holder' => 'restore', 'what' => 'zz-app', 'pid' => $pid, 'started' => time()]));
+    same('flock: who holds it, the other way', ['restore', 'zz-app'], [backupLockHolder("$tmp/user")['holder'] ?? null, backupLockHolder("$tmp/user")['what'] ?? null]);
+
+    // the file as /mnt/user of a share that isn't exclusive shows it: shfs's device, (dev << 48) | ino of the file behind
+    $st = stat($lock);
+    $major = (($st['dev'] >> 8) & 0xfff) | (($st['dev'] >> 32) & ~0xfff);
+    $minor = ($st['dev'] & 0xff) | (($st['dev'] >> 12) & ~0xff);
+    $shfs = ['dev' => 0x34, 'ino' => (($st['dev'] & 0xffff) << 48) | $st['ino']];
+    $fuse = "59 44 0:52 / /mnt/user rw,nosuid,nodev,noatime shared:15 - fuse.shfs shfs rw,user_id=0,group_id=0\n";
+    $pool = "48 44 $major:$minor / /mnt/cache rw,noatime shared:5 - zfs cache rw,xattr\n";
+    check('flock: its device fits shfs\'s 16 bits (the test\'s own premise)', ($st['dev'] & 0xffff) === $st['dev']);
+    check('flock: through shfs, the pool\'s file found', flockHeld($lock, $shfs, $fuse . $pool));
+    same('flock: … what it looks for', ['ids' => [flockId(0x34, $shfs['ino']), flockId($st['dev'], $st['ino'])], 'probe' => false], flockIds($shfs, $fuse . $pool));
+    // USOPartner, 2026-10-08: stat through /mnt/user dev=2e ino=11258999068426506, /proc/locks 00:28:266 (cache pool, inode 266)
+    same('flock: USOPartner\'s numbers', ['ids' => ['00:2e:11258999068426506', '00:28:266'], 'probe' => false],
+        flockIds(['dev' => 0x2e, 'ino' => 11258999068426506], "59 44 0:46 / /mnt/user rw - fuse.shfs shfs rw\n48 44 0:40 / /mnt/cache rw - zfs cache rw\n"));
+    // a FUSE file whose number names no mounted device: probed — busy while held, never blocking, never taking it away
+    same('flock: an unknown FUSE number is probed', true, flockIds($shfs, $fuse)['probe']);
+    $t = microtime(true);
+    check('flock: the probe says held', flockHeld($lock, $shfs, $fuse));
+    check('flock: … at once', microtime(true) - $t < 0.5);
+    check('flock: … and the stand-in still holds it', flockHeld($lock) && proc_get_status($p)['running']);
+    // anything else that isn't FUSE: only its own id, no probe
+    same('flock: a ZFS file with a big inode: its own id only', ['ids' => [flockId(0x34, $shfs['ino'])], 'probe' => false],
+        flockIds($shfs, "59 44 0:52 / /mnt/big rw - zfs big rw\n"));
+    same('flock: a block device: its own id only', ['ids' => [flockId(0x901, 5)], 'probe' => false], flockIds(['dev' => 0x901, 'ino' => 5], $fuse));
+
+    proc_terminate($p);
+    proc_close($p);
+    for ($i = 0; $i < 100 && flockHeld($lock); $i++) {
+        usleep(20000);
+    }
+    check('flock: let go — not held, any way', !flockHeld($lock) && !flockHeld("$tmp/user/state/lock") && !flockHeld($lock, $shfs, $fuse . $pool)
+        && !flockHeld($lock, $shfs, $fuse));
+    same('flock: … nobody holds it', null, backupLockHolder("$tmp/user"));
+    exec('flock -n ' . escapeshellarg($lock) . ' true 2>&1', $out, $rc);
+    same('flock: the probe let go — a run\'s flock -n takes it', 0, $rc);
+    hardeningRm($tmp);
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testMigrate', 'testPlgGuard'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testMigrate', 'testPlgGuard',
+                      'testFlockShfs'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

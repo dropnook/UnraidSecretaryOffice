@@ -25,8 +25,9 @@ const BACKUP_SNAP_PREFIX_LEGACY = 'unraidbackup-';    // the default of engines 
 
 /**
  * Is the backup script running right now? It holds an flock on state/lock for
- * the whole run. We only look that up in /proc/locks and never take the lock
- * ourselves — a run starting at that very moment would give up otherwise.
+ * the whole run. We only look that up in /proc/locks (flockHeld(), also through
+ * shfs) and never take the lock ourselves — a run starting at that very moment
+ * would give up otherwise.
  */
 function backupScriptState(): array
 {
@@ -226,24 +227,89 @@ function inBackupRoots(string $path, array $roots): bool
 }
 
 /**
- * Does anybody hold an flock on this file? The PID in /proc/locks is the one
- * that took the lock — it may be long gone while backup.sh keeps the inherited
- * handle. So only the entry itself counts.
+ * Does anybody hold an flock on this file? Looked up in /proc/locks, never by taking the lock: a run of the engine
+ * starting that very moment takes it with `flock -n` and would skip the night. The PID in /proc/locks is the one that
+ * took the lock — it may be long gone while backup.sh keeps the inherited handle. So only the entry itself counts.
+ *
+ * Through shfs (/mnt/user/… of a share that isn't exclusive — USOPartner's appdata, 2026-10-08) the lock lies on the
+ * disk's or pool's file: FUSE hands the flock down, and /proc/locks names that file (`00:28:266`), never the inode
+ * stat() shows through /mnt/user. shfs numbers its inodes (st_dev << 48) | st_ino of the file behind (Unraid 7.3.2,
+ * seen on ZFS and btrfs: Tower, USOPartner), so that file's id is looked for too — when the device it names is mounted
+ * (/proc/self/mountinfo). A FUSE file whose number doesn't name a mounted device (another scheme) is probed instead:
+ * a non-blocking shared flock on a read-only handle, let go at once (flockProbe()).
+ * $st and $mountinfo: the tests' (a file as shfs would show it).
  */
-function flockHeld(string $file): bool
+function flockHeld(string $file, ?array $st = null, ?string $mountinfo = null): bool
 {
-    $st = @stat($file);
+    $st ??= @stat($file) ?: null;
     if (!$st) {
         return false;
     }
-    $d = $st['dev'];
-    $id = sprintf('%02x:%02x:%d', (($d >> 8) & 0xfff) | (($d >> 32) & ~0xfff), ($d & 0xff) | (($d >> 12) & ~0xff), $st['ino']);
+    $look = flockIds($st, $mountinfo);
     foreach (@file('/proc/locks', FILE_IGNORE_NEW_LINES) ?: [] as $line) {
-        if (preg_match('/^\d+:\s+FLOCK\s+\S+\s+\S+\s+\d+\s+(\S+)\s/', $line, $m) && $m[1] === $id) {
+        if (preg_match('/^\d+:\s+FLOCK\s+\S+\s+\S+\s+\d+\s+(\S+)\s/', $line, $m) && in_array($m[1], $look['ids'], true)) {
             return true;
         }
     }
-    return false;
+    return $look['probe'] && flockProbe($file);
+}
+
+/** A device and an inode the way /proc/locks writes them (MAJOR:MINOR:INODE, the numbers in hex but the inode) */
+function flockId(int $dev, int $ino): string
+{
+    return sprintf('%02x:%02x:%d', (($dev >> 8) & 0xfff) | (($dev >> 32) & ~0xfff), ($dev & 0xff) | (($dev >> 12) & ~0xff), $ino);
+}
+
+/**
+ * What to look for in /proc/locks for a file stat() saw: its own id, and for a file on shfs the one of the file behind it
+ * (see flockHeld()); `probe` when it lies on FUSE and its number names no mounted device.
+ *
+ * @param  array{dev:int, ino:int} $st
+ * @param  ?string $mountinfo  /proc/self/mountinfo (the tests' own)
+ * @return array{ids: list<string>, probe: bool}
+ */
+function flockIds(array $st, ?string $mountinfo = null): array
+{
+    $ids = [flockId($st['dev'], $st['ino'])];
+    $major = (($st['dev'] >> 8) & 0xfff) | (($st['dev'] >> 32) & ~0xfff);
+    if ($major !== 0) {
+        return ['ids' => $ids, 'probe' => false];    // a block device: never FUSE
+    }
+    $mounts = [];
+    foreach (explode("\n", $mountinfo ?? (string) @file_get_contents('/proc/self/mountinfo')) as $line) {
+        // 59 44 0:52 / /mnt/user rw,… shared:15 - fuse.shfs shfs rw,…
+        if (preg_match('/^\d+ \d+ (\d+):(\d+) .* - (\S+) /', $line, $m)) {
+            $mounts[sprintf('%02x:%02x', (int) $m[1], (int) $m[2])] = $m[3];
+        }
+    }
+    $fs = $mounts[substr($ids[0], 0, strrpos($ids[0], ':'))] ?? '';
+    if (!str_starts_with($fs, 'fuse')) {
+        return ['ids' => $ids, 'probe' => false];
+    }
+    $behind = flockId(($st['ino'] >> 48) & 0xffff, $st['ino'] & 0xffffffffffff);
+    if ($st['ino'] >> 48 !== 0 && isset($mounts[substr($behind, 0, strrpos($behind, ':'))])) {
+        $ids[] = $behind;
+        return ['ids' => $ids, 'probe' => false];
+    }
+    return ['ids' => $ids, 'probe' => true];
+}
+
+/**
+ * Is the flock on this file held? Asked by taking a shared one without waiting on a read-only handle, and letting go
+ * at once — only where /proc/locks can't tell (flockIds()): a run taking the lock at that very moment would find it busy.
+ */
+function flockProbe(string $file): bool
+{
+    $h = @fopen($file, 'r');
+    if (!$h) {
+        return false;
+    }
+    $free = flock($h, LOCK_SH | LOCK_NB, $busy);
+    if ($free) {
+        flock($h, LOCK_UN);
+    }
+    fclose($h);
+    return !$free && (bool) $busy;
 }
 
 /** Last main line of the running backup's log */
