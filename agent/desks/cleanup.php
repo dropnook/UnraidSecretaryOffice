@@ -81,7 +81,7 @@ const CL_LEGACY       = '_zumloeschen';            // trash of the old unraid-cl
 // folder in a trash run => kind of what is in it
 const CL_KINDS        = ['templates' => 'template', 'compose' => 'stack', 'appdata' => 'appdata', 'vms' => 'domain', 'isos' => 'iso',
                          'nvram' => 'nvram', 'tpm' => 'tpm', 'snapshotdb' => 'snapshotdb', 'strays' => 'stray', 'userscripts' => 'userscript',
-                         'icons' => 'icon', 'restore' => 'leftover', 'partners' => 'partner'];
+                         'icons' => 'icon', 'restore' => 'leftover', 'partners' => 'partner', 'packages' => 'package'];
 const CL_US_SCRIPTS   = US_DIR . '/scripts';
 const CL_US_TMP       = '/tmp/user.scripts';         // running markers and last outputs (RAM: since the reboot)
 const CL_STRAY_TTL    = 6 * 3600;                  // look for stray templates again after this (or when asked)
@@ -331,7 +331,8 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         'libvirt'   => clLibvirtOrphans($vms),
         'leftovers' => $leftovers,
         'partners'  => $partners = clPartners(),          // what ended partnerships left (awake pools only)
-        'trash'     => clTrashRuns($places, $vms, $leftovers['trash'], $partners['there'], $partners['asleep']),
+        // the storerooms Mr. Backupsy's let-go put his packages into (agent/desks/backup-letgo.php): also on array disks
+        'trash'     => clTrashRuns($places, $vms, array_merge($leftovers['trash'], backupLetGoTrashRoots($asleep)), $partners['there'], $partners['asleep']),
     ];
     $raw['icons'] = clIcons($docker, $raw['stacks']);
     $raw['zfs_space'] = clZfsSpace(clRawDatasets($raw));
@@ -2321,6 +2322,17 @@ function clLeftoverHome(string $from, string $runRoot): string
     return clLeftoverShape($from) && under($from, $base) && $from !== $base ? dirname($from) : '';
 }
 
+/**
+ * Back from the storeroom: one of Mr. Backupsy's packages (his let-go, agent/desks/backup-letgo.php) only into a backup
+ * place's folder — `<…>/backup|unraid-backup/apps|vms/<name>`, `…/server`, `…/flash` — on the storeroom's own filesystem
+ */
+function clPackageHome(string $from, string $runRoot): string
+{
+    $base = dirname($runRoot);
+    return clTrashPathOk($from) && under($from, $base) && $from !== $base
+        && preg_match('#/(?:backup|unraid-backup)/(?:(?:apps|vms)/[^/]+|server|flash)$#D', $from) ? dirname($from) : '';
+}
+
 // ===================================================================== build
 
 /** Everything the page shows, from the last tour plus what the background work found */
@@ -2958,7 +2970,7 @@ function clTrashAsOk(string $as, string $kind, string $stamp): bool
             return false;
         }
     }
-    $deep = in_array($parts[0], ['strays', 'icons', 'restore'], true);
+    $deep = in_array($parts[0], ['strays', 'icons', 'restore', 'packages'], true);
     return (CL_KINDS[$parts[0]] ?? null) === $kind && count($parts) === ($deep ? 3 : 2);
 }
 
@@ -3143,7 +3155,8 @@ function clManifestWrite(array $run): void
 /** Removes a run folder that holds nothing any more (and its trash root, if empty) */
 function clRunTidy(string $path, string $root): void
 {
-    foreach (array_merge(glob("$path/strays/*", GLOB_ONLYDIR) ?: [], glob("$path/icons/*", GLOB_ONLYDIR) ?: [], glob("$path/restore/*", GLOB_ONLYDIR) ?: []) as $d) {
+    foreach (array_merge(glob("$path/strays/*", GLOB_ONLYDIR) ?: [], glob("$path/icons/*", GLOB_ONLYDIR) ?: [], glob("$path/restore/*", GLOB_ONLYDIR) ?: [],
+                         glob("$path/packages/*", GLOB_ONLYDIR) ?: []) as $d) {
         @rmdir($d);
     }
     foreach (array_keys(CL_KINDS) as $dir) {
@@ -3532,6 +3545,7 @@ function clRestore(array $ids): array
             'snapshotdb' => CL_LIBVIRT . '/qemu/snapshotdb',
             'userscript' => CL_US_SCRIPTS,
             'leftover'   => clLeftoverHome($it['from'], $run['root']),
+            'package'    => clPackageHome($it['from'], $run['root']),
             'partner'    => clPartnerHome($it),
             'icon'       => clIconHome($it['from'], $state['stacks']['root']),
             'stray'      => preg_match('#/my-[^/]+\.xml$#', $it['from'])
