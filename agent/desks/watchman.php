@@ -1460,8 +1460,16 @@ function watchmanCounts(array $b): array
 
 function watchmanSummaryLine(array $c): string
 {
-    return "{$c['ips']} login addresses, {$c['containers']} containers ({$c['special']} with special rights), "
-         . "{$c['plugins']} plugins, {$c['shares']} shares ({$c['open']} open to guests)";
+    $w = watchmanCountWords($c, 'en');
+    return "{$w['ips']}, {$w['containers']} ({$w['special']} with special rights), {$w['plugins']}, {$w['shares']} ({$w['open']} open to guests)";
+}
+
+/** The counts of «Took over the watch» in words of $lang — «1 login address», «3 containers» (count.*: one/other) */
+function watchmanCountWords(array $c, string $lang): array
+{
+    $w = fn (string $what, string $k) => officeNotifyText('watchman', "count.$what", ['n' => (int) ($c[$k] ?? 0)], $lang);
+    return ['ips' => $w('login_addresses', 'ips'), 'containers' => $w('containers', 'containers'), 'special' => (int) ($c['special'] ?? 0),
+            'plugins' => $w('plugins', 'plugins'), 'shares' => $w('shares', 'shares'), 'open' => (int) ($c['open'] ?? 0)];
 }
 
 /** Keeps his memory small: old failure trackers, too many addresses, what is gone for long */
@@ -6738,7 +6746,8 @@ function watchmanText(array $e, ?string $lang = null): array
                                  fn ($w) => officeNotifyText('watchman', WATCH_DOOR_WHAT[$w] ?? 'door_what.options', [], $lang), (array) ($p['what'] ?? [])))],
         'door_key_moved' => ['name' => (string) ($p['name'] ?? ''), 'ip' => (string) ($p['ip'] ?? '')],
         'door_refused'   => ['name' => (string) ($p['name'] ?? '')],
-        'watch'          => isset($p['too_much']) ? watchnetText(['kind' => 'net_too_much', 'p' => $p]) : array_map('intval', $p),
+        'watch'          => isset($p['too_much']) ? watchnetText(['kind' => 'net_too_much', 'p' => $p])
+                              : ($lang === null ? array_map('intval', $p) : watchmanCountWords($p, $lang)),     // the page words the numbers itself
         default          => watchnetText($e, $lang),     // the network (agent/lib/watchnet.php); [] for anything else
     };
 }

@@ -553,6 +553,10 @@ function doorWords(d) {
 function entryParams(e) {
   const t = { ...(e.t || {}), n: e.count };
   const p = e.p || {};
+  if (e.kind === 'watch' && !p.too_much) {      // «Took over the watch»: each count in its own words (count.*: one/other)
+    const c = (what, k) => T('count.' + what, { n: Number(t[k]) || 0 });
+    Object.assign(t, { ips: c('login_addresses', 'ips'), containers: c('containers', 'containers'), plugins: c('plugins', 'plugins'), shares: c('shares', 'shares') });
+  }
   if (e.kind === 'proc_odd') t.where = p.where || T('where.host');
   if (e.kind === 'door_new') t.door = doorWords(p);
   if (e.kind === 'door_changed') t.what = doorWhat(p.what);
@@ -1063,13 +1067,13 @@ function netGroup(n) {
       rows.push(item(T('watch.net_no_firewall'), [], null, true));
     }
     const dr = n.dropped || {};
-    if (dr.update || dr.wan) rows.push(item(T('watch.net_dropped', { update: dr.update || 0, wan: dr.wan || 0 }), [], null, true));
+    if (dr.update || dr.wan) rows.push(item(T('watch.net_dropped', { update: T('count.updates', { n: dr.update || 0 }), wan: T('count.wan_changes', { n: dr.wan || 0 }) }), [], null, true));
   }
   if ((n.own || []).length) rows.push(note(T('watch.net_own', { list: n.own.join(', ') })));
   if (n.skipped) rows.push(note(T('watch.net_skipped', { size: fmt.size(n.skipped) })));
   if (n.more) rows.push(note(T('watch.net_more', { n: n.more })));
   if (senders.length) rows.push(lanSwitch());
-  (n.lan || []).forEach((x) => rows.push(item(x.name || x.mac, [T('watch.net_lan_row', { c: x.connects, d: x.detections })])));
+  (n.lan || []).forEach((x) => rows.push(item(x.name || x.mac, [T('watch.net_lan_row', { c: T('count.connections', { n: Number(x.connects) || 0 }), d: T('count.detections', { n: Number(x.detections) || 0 }) })])));
   if (state.net_lan && !(n.lan || []).length) rows.push(note(T('watch.net_lan_none')));
   const det = n.detections || {};
   const sum = senders.length ? T('watch.net_sum', { senders: senders.length, devices: n.devices, det: (det.in || 0) + (det.out || 0) })
@@ -1259,7 +1263,7 @@ Office.desk({
     const n = openCount();
     if (state.on_watch) facts.push(n ? T('fact.open', { n }) : T('fact.quiet'));
     if (postureOpen()) facts.push(T('fact.posture', { n: postureOpen() }));
-    if (state.watch) facts.push(T('fact.known', { ips: state.watch.ips.length, plugins: state.watch.plugins.length }));
+    if (state.watch) facts.push(T('fact.known', { ips: T('count.known_addresses', { n: state.watch.ips.length }), plugins: T('count.plugins', { n: state.watch.plugins.length }) }));
     return { bubble: bubbleText(), facts };
   },
 });
