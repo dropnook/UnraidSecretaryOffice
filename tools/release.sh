@@ -99,12 +99,10 @@ red() {
 }
 # show: print a command, run it (every command that runs is shown)
 show() { echo "   \$ $*"; "$@"; }
-# change: a command that changes something - only printed in a dry run
-change() {
-    if (( dry )); then echo "   (dry, not run) \$ $*"; return 0; fi
-    echo "   \$ $*"; "$@"
-}
-trap 'echo; echo "INTERRUPTED at step $step_no ($step_name). Log: $log"; exit 1' INT TERM
+# a red build or suite after the bump puts the two version lines back (so does Ctrl-C before the commit)
+bumped=0
+unbump() { (( bumped )) && { git checkout -- src/bootstrap.php agent/agent.php; echo "   (the two version lines are put back)"; bumped=0; }; return 0; }
+trap 'echo; unbump; echo "INTERRUPTED at step $step_no ($step_name). Log: $log"; exit 1' INT TERM
 
 # remote <host> [var=value …] <<'EOF' … EOF - runs the script from stdin on <host> with those variables set first.
 # Everything goes through stdin: no pattern of ours ever stands in a remote command line (pgrep -f would see it).
@@ -177,7 +175,6 @@ fi
 
 # ---------------------------------------------------------------------------------------------------------------------
 step 4 bump
-bumped=0
 if [[ -z "$cur_office" || -z "$cur_agent" ]]; then
     red "cannot read OFFICE_VERSION ('$cur_office') or AGENT_VERSION ('$cur_agent')"
 elif [[ "$cur_office" != "$cur_agent" ]]; then
@@ -201,8 +198,6 @@ else
         show git diff --stat
     fi
 fi
-# a red build or suite after the bump puts the two lines back - the clone stays as it was
-unbump() { (( bumped )) && { git checkout -- src/bootstrap.php agent/agent.php; echo "   (the two version lines are put back)"; bumped=0; }; return 0; }
 
 # ---------------------------------------------------------------------------------------------------------------------
 step 5 build
