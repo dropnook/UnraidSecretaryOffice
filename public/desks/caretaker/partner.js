@@ -22,7 +22,8 @@ const unitText = (u) => (u === 'place' ? T('partner.unit_place')
 const unitsText = (list) => (list && list.length ? list.map(unitText).join(', ') : T('partner.nothing'));
 const retentionText = (r) => {
   const [d, w, m] = String(r || DEFAULT_RETENTION).split(' ').map(Number);
-  return T('partner.retention_text', { d, w, m });
+  const n = (what, x) => T('count.' + what, { n: Number.isFinite(x) ? x : 0 });
+  return T('partner.retention_text', { d: n('days', d), w: n('weeks', w), m: n('months', m) });
 };
 const windowText = (w) => {
   const [from, to] = String(w || '').split('-');
