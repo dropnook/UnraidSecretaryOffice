@@ -17270,11 +17270,154 @@ function testPlgGuard(): void
     check('plg guard: before the agent is stopped and the folder replaced', $guard !== false && $guard < strpos($plg, 'scripts/agent.sh" stop') && $guard < strpos($plg, 'rm -rf "$dir"'));
 }
 
+/**
+ * One of the .plg's inline scripts ('install' or 'remove'), pointed at a folder of the tests: the plugin folder under
+ * $root/plugins, the flash $root/flash, the RAM folder $root/run — nothing of the live plugin is touched.
+ */
+function plgScript(string $method, string $root): string
+{
+    $plg = (string) file_get_contents(OFFICE_DIR . '/plugin/unraid-secretary-office.plg');
+    $re = $method === 'remove' ? '/<FILE Run="\/bin\/bash" Method="remove">\s*<INLINE>\s*<!\[CDATA\[\n(.*?)\]\]>/s'
+                               : '/<FILE Run="\/bin\/bash">\s*<INLINE>\s*<!\[CDATA\[\n(.*?)\]\]>/s';
+    $s = preg_match($re, $plg, $m) ? $m[1] : '';
+    return strtr($s, ['dir=/usr/local/emhttp/plugins/$name' => "dir=$root/plugins/\$name", 'flash=/boot/config/plugins/$name' => "flash=$root/flash",
+                      'run=/var/run/$name' => "run=$root/run", '@VERSION@' => '2026.10.08', '@OFFICE_VERSION@' => '1.42.0']);
+}
+
+/** A stand-in of the plugin folder's agent.sh: each call a line "<marker> <command>" in $USO_PLG_LOG; START and STATUS its exits */
+function plgTestAgentSh(): string
+{
+    return "#!/bin/bash\nhere=\$(cd \"\$(dirname \"\$0\")/..\" && pwd)\necho \"\$(cat \"\$here/marker\") \$*\" >>\"\$USO_PLG_LOG\"\n"
+        . "case \"\$1\" in start) exit \${START:-0} ;; status) exit \${STATUS:-3} ;; esac\nexit 0\n";
+}
+
+function testPlgInstall(): void
+{
+    $tmp = hardeningTmp('plginstall');
+    $name = 'unraid-secretary-office';
+    $dir = "$tmp/plugins/$name";
+    $flash = "$tmp/flash";
+    $log = "$tmp/calls.log";
+    $script = plgScript('install', $tmp);
+    file_put_contents("$tmp/install.sh", $script);
+    check('plg install: the script read, pointed at the tests\' folders', str_contains($script, "dir=$tmp/plugins/\$name") && !str_contains($script, '/usr/local/emhttp/plugins/$name')
+        && !str_contains($script, '/boot/config/plugins/$name') && !str_contains($script, '/var/run/$name'));
+    // a package: what the build puts in, as far as the install looks at it
+    $pack = function (string $marker, array $leave = [], bool $broken = false) use ($tmp, $name, $flash): void {
+        hardeningRm("$tmp/stage");
+        $p = "$tmp/stage/$name";
+        foreach (['agent', 'scripts', 'backup'] as $d) {
+            @mkdir("$p/$d", 0755, true);
+        }
+        file_put_contents("$p/marker", $marker);
+        file_put_contents("$p/agent/agent.php", "<?php\n");
+        file_put_contents("$p/scripts/agent.sh", plgTestAgentSh());
+        file_put_contents("$p/scripts/partner-door.sh", "#!/bin/bash\n");
+        foreach ($leave as $f) {
+            unlink("$p/$f");
+        }
+        @mkdir($flash, 0700, true);
+        $txz = "$flash/$name-2026.10.08.txz";
+        exec('tar -cJf ' . escapeshellarg($txz) . ' -C ' . escapeshellarg("$tmp/stage") . " $name");
+        if ($broken) {
+            file_put_contents($txz, substr((string) file_get_contents($txz), 0, 200));
+        }
+    };
+    $old = function () use ($dir): void {          // the version that runs now
+        hardeningRm($dir);
+        mkdir("$dir/scripts", 0755, true);
+        mkdir("$dir/backup", 0755, true);
+        file_put_contents("$dir/marker", 'old');
+        file_put_contents("$dir/gone.txt", 'only the old version has me');
+        file_put_contents("$dir/scripts/agent.sh", plgTestAgentSh());
+        file_put_contents("$dir/backup/backup.sh", "sleep 20\ntrue\n");     // not exec'd into sleep: bash stays
+    };
+    $run = function (array $env = []) use ($tmp, $log): array {
+        @unlink($log);
+        $e = '';
+        foreach ($env + ['USO_PLG_LOG' => $log] as $k => $v) {
+            $e .= "$k=" . escapeshellarg((string) $v) . ' ';
+        }
+        exec("cd / && env $e bash " . escapeshellarg("$tmp/install.sh") . ' 2>&1', $out, $code);
+        return [$code, implode("\n", $out), is_file($log) ? file($log, FILE_IGNORE_NEW_LINES) : []];
+    };
+    $left = fn (): array => array_values(array_filter(scandir("$tmp/plugins") ?: [], fn ($n) => $n !== '.' && $n !== '..' && $n !== $name));
+
+    // at boot: no folder yet — unpacked, put into place, the agent (or the night shift) started
+    $pack('new');
+    @mkdir("$tmp/plugins", 0755, true);
+    [$code, $out, $calls] = $run();
+    same('plg install at boot: done, the new version in place, its agent started', [0, 'new', ['new start', 'new status']],
+        [$code, @file_get_contents("$dir/marker"), $calls]);
+    same('plg install at boot: nothing left beside it', [], $left());
+    check('plg install at boot: the .cfg written', str_contains((string) @file_get_contents("$flash/$name.cfg"), 'DATA_DIR="'));
+    check('plg install at boot: it says it is installed', str_contains($out, 'Unraid Secretary Office 1.42.0 (plugin 2026.10.08) is installed'));
+
+    // an update: the old agent stopped, the new folder in place of the old one (files the new one lacks are gone), the
+    // new agent started, older packages off the flash
+    $old();
+    file_put_contents("$flash/$name-2026.01.01.txz", 'an older package');
+    [$code, , $calls] = $run();
+    same('plg update: the old agent stopped, the new one started, the new version in place', [0, ['old stop', 'new start', 'new status'], 'new', false],
+        [$code, $calls, @file_get_contents("$dir/marker"), is_file("$dir/gone.txt")]);
+    same('plg update: nothing left beside it, the older package gone, this one kept', [[], false, true],
+        [$left(), is_file("$flash/$name-2026.01.01.txz"), is_file("$flash/$name-2026.10.08.txz")]);
+
+    // a package that can't be unpacked, or one without what the office needs: nothing changed, the agent never stopped
+    foreach (['a damaged package' => [[], true], 'a package without agent.php' => [['agent/agent.php'], false],
+              'a package without the partners\' door' => [['scripts/partner-door.sh'], false]] as $what => [$leave, $broken]) {
+        $old();
+        $pack('new', $leave, $broken);
+        [$code, $out, $calls] = $run();
+        same("plg update, $what: refused, the old version untouched and running", [1, 'old', true, []],
+            [$code, @file_get_contents("$dir/marker"), is_file("$dir/gone.txt"), $calls]);
+        check("plg update, $what: it says so", str_contains($out, 'could not be unpacked') && str_contains($out, 'Nothing was changed'), $out);
+        same("plg update, $what: nothing left beside it", [], $left());
+    }
+
+    // what an install that was cut off left: gone — not a folder of an install running right now
+    $old();
+    $pack('new');
+    mkdir("$tmp/plugins/$name.new-999999999/$name", 0755, true);
+    mkdir("$tmp/plugins/$name.old-999999998/$name", 0755, true);
+    mkdir("$tmp/plugins/$name.new-" . getmypid(), 0755, true);
+    $run();
+    same('plg update: an earlier install\'s leftovers gone, a running one\'s kept', ["$name.new-" . getmypid()], $left());
+    rmdir("$tmp/plugins/$name.new-" . getmypid());
+
+    // after the swap the new version stays: an agent that doesn't start is said, the install still ends well
+    $old();
+    [$code, $out, $calls] = $run(['START' => 1]);
+    same('plg update, the new agent doesn\'t start: the new version stays, done', [0, 'new', ['old stop', 'new start']], [$code, @file_get_contents("$dir/marker"), $calls]);
+    check('plg update, the new agent doesn\'t start: it says so', str_contains($out, 'its agent did not start'), $out);
+    // the agent runs: its heartbeat in RAM, written after the start, ends the wait at once
+    $old();
+    @mkdir("$tmp/run", 0700, true);
+    file_put_contents("$tmp/run/agent.json", '{"running":true,"version":"1.42.0"}');
+    touch("$tmp/run/agent.json", time() + 5);
+    $t = microtime(true);
+    [$code, $out] = $run(['STATUS' => 0]);
+    check('plg update, the agent checked in: no word about it, no wait', $code === 0 && !str_contains($out, 'checked in') && microtime(true) - $t < 5, $out);
+
+    // busy: a backup run from the plugin folder — refused before anything happens
+    $old();
+    $busy = proc_open(['bash', "$dir/backup/backup.sh"], [['file', '/dev/null', 'r'], ['file', '/dev/null', 'w'], ['file', '/dev/null', 'w']], $pipes, '/');
+    usleep(200000);
+    [$code, $out, $calls] = $run();
+    same('plg update while a backup runs: refused, nothing touched', [1, 'old', []], [$code, @file_get_contents("$dir/marker"), $calls]);
+    check('plg update while a backup runs: it says why', str_contains($out, 'The office is busy right now'), $out);
+    if (is_resource($busy)) {
+        proc_terminate($busy, SIGKILL);
+        proc_close($busy);
+    }
+    hardeningRm($tmp);
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testMigrate', 'testPlgGuard'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testMigrate', 'testPlgGuard', 'testPlgInstall'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
