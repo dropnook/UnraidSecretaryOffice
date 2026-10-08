@@ -385,6 +385,22 @@ installed plugin (see the checklist).
   public "latest" address may answer 404 for a few seconds after the upload).
   Releases are made with `gh release create v<version> --target main --title
   "Version x.y" --notes-file <notes>` (allowed in .claude/settings.local.json).
+* **Updates (2026-10-08, `briefs/upgrade-audit.md`):** users update through Unraid's plugin manager (CA) and read no
+  notes — every version starts on any older version's data folder, and an older one on a newer's (a downgrade is
+  remove + install). The agent keeps `data/office.json` (`version`, `since`, `updated_from`, `done`, `pending`) and
+  runs `officeMigrateStart()` (agent/lib/migrate.php) in `setUp()`, before any desk reads state and before
+  `writeInfo()` (agent.json tells the version before): **the one place for migrations** — a step `['id', 'version',
+  'run']` in `officeMigrateSteps()` (version = the first version carrying it), idempotent (it runs again after a
+  downgrade and back), logged, never deleting (`officeMigrateAside()`: `<name>.before-<version>`); failed ones are
+  tried again at the next start. Jobs (cron, atd), the night shift and the web side never migrate and may meet the old
+  shape for a moment. Rules: new keys are additive and read with a default — in PHP and in desk.js (the first state a
+  new page meets can be the old agent's; the reception reads stored states); keys a reader doesn't know are kept, never
+  dropped on a rewrite; no rename of a key, file, path or name (a cron line's command — `officeJobCommand()` —, the
+  door's path in authorized_keys, the snapshot prefixes, Kopia's source paths, desk ids) without a step that rewrites
+  it and readers of both; exact-shape files (pairs.json, the watchman's mirror `v`, the drill's `interface`, the
+  storeroom's manifests) change only with a new `v`/`interface` read beside the old one; the engine's defaults for
+  settings.ini keys don't change (old installs rely on them unwritten). The .plg refuses an update while a backup run
+  or setup, a restore or drill, or one of Jack Emby's runs is active (one `pgrep -f` pattern, `testPlgGuard`).
 
 ## The desks
 
