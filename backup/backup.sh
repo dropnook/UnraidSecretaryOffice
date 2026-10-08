@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.34 - 2026-10-08
+# unraid-backup - backup.sh                       Version 2.35 - 2026-10-09
+#   2.35 cfg_list readers no longer cut the pipe: a unit kept by two partners is never dropped from a run (partner_units
+#        read the list through grep -q - SIGPIPE under pipefail counted a match as none); readers that stop early
+#        (grep -q, break/return in a loop) take a $( ) of the helper, no «printf: write error: Broken pipe» either.
 #   2.34 One run a minute: a run whose log (run-|check-|dryrun-<minute>.log) is there already ends right after taking
 #        the lock with an ERROR line and exit 1, touching nothing - never a snapshot phase into an existing name.
 #        The «not agreed» line names the server as Unraid does (ident.cfg NAME); setup.sh's hints go out as codes.

@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.34 - 2026-10-08
+# unraid-backup - setup.sh                        Version 2.35 - 2026-10-09
+#   2.35 cfg_list/plist readers no longer cut the pipe (plist_add, ignored_rel and co. read a $( ) of the list): under
+#        pipefail a value found could count as missing and be added twice; the run keeps a unit kept by two partners
 #   2.34 The «not agreed» hints go out as codes the office translates (messages[] `code` not_agreed_share|_vm|_place
 #        with `params` name, partner, host; place_not_agreed with host) and name the server as Unraid does (ident.cfg NAME, ub_host_name) - not
 #        settings.ini's [general] server, which keeps the name the setup was first made under
