@@ -37,7 +37,7 @@ declare(strict_types=1);
 require dirname(__DIR__) . '/src/place.php';
 require_once dirname(__DIR__) . '/src/words.php';     // Unraid's own words in the texts (shared with the web side)
 
-const AGENT_VERSION = '1.42.0';
+const AGENT_VERSION = '1.43.0';
 define('RUN_DIR', officeRunDir());          // RAM, root only (0700); the web side's officeRunDir()
 const PID_FILE      = RUN_DIR . '/agent.pid';
 const AGENT_HEARTBEAT = RUN_DIR . '/agent.json';     // who is at work; its mtime is the pulse (writeInfo(), agentPulse())
