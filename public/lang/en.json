@@ -102,7 +102,7 @@
   "help.order_title": "The order of the team",
   "help.order_text": "At the reception, «Change the order» puts the staff in the order you like — the reception's cards, the tabs and the team lead's «The team» follow it. Every move is kept the moment you make it, «✓ Done» just ends arranging; the order lies on the server, so every browser shows the same; «As at the start» brings back the office's own order. The team lead always comes first; someone newly hired joins at the end.",
   "help.search_title": "The search",
-  "help.search_text": "The magnifier at the top right (or {keys} while you are in the office) finds a desk, a section, a tile, a step or a setting of a setup, or a term of «How to read this page» — in any of the office's languages, even with a typo. Enter or a click takes you there: the desk's page, the tile or the setup opened, the place scrolled into view and marked for a moment. A tile opened this way is the same as one you clicked: the page remembers it.",
+  "help.search_text": "The magnifier at the top right (or {keys} while you are in the office) finds a desk, a section, a tile, a step or a setting of a setup, or a term of «How to read this page» — in any of the office's languages, even with a typo. Enter or a click takes you there: the desk's page, the tile or the setup opened, the place scrolled into view and marked for a moment. A tile opened this way is the same as one you clicked: the page remembers it. It also finds what the desks know right now — a point still to do, an open entry of the watch book, a share, an app, a dataset, a log («Item») — once a desk has shown it or the reception has read it.",
   "errors.bad_cron": "\"{cron}\" isn't a valid schedule (five fields, e.g. 0 3 * * *).",
   "office.not_hired": "{name} doesn't work here (yet) — the team lead knows who could come.",
   "office.tip_title": "Welcome to the team!",
@@ -214,10 +214,11 @@
   "errors.logged_out": "Your Unraid session has ended — please log in again.",
   "errors.stale_page": "Unraid rejected the request: the page is out of date (the server was restarted?). Reload it and try again.",
   "search.open": "Search the office",
-  "search.placeholder": "Find a desk, a section, a setting …",
+  "search.placeholder": "Find a desk, a setting, a share, an app …",
   "search.hint": "↑ ↓ choose · Enter opens · Esc closes",
   "search.label": "Places in the office",
   "search.results": {"one": "1 place", "other": "{n} places"},
+  "search.items": {"one": "1 item", "other": "{n} items"},
   "search.none": "Nothing found for «{q}».",
   "search.not_hired": "not hired",
   "search.not_there": "«{name}» isn't on the page right now — it shows when there is something to show.",
@@ -227,5 +228,6 @@
   "search.kind.step": "Step",
   "search.kind.setting": "Setting",
   "search.kind.help": "Explained",
-  "search.kind.guide": "Guide"
+  "search.kind.guide": "Guide",
+  "search.kind.item": "Item"
 }

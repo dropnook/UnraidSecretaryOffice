@@ -102,7 +102,7 @@
   "help.order_title": "Die Reihenfolge des Teams",
   "help.order_text": "Am Empfang stellst du mit «Reihenfolge ändern» das Team so auf, wie es dir passt — die Karten am Empfang, die Reiter und «Das Team» beim Teamchef folgen ihr. Jede Verschiebung ist sofort gespeichert, «✓ Fertig» beendet nur das Umstellen; die Reihenfolge liegt auf dem Server, jeder Browser zeigt also dieselbe; «Wie am Anfang» holt die Reihenfolge des Sekretariats zurück. Der Teamchef kommt immer zuerst; wer neu eingestellt wird, kommt ans Ende.",
   "help.search_title": "Die Suche",
-  "help.search_text": "Die Lupe oben rechts (oder {keys}, während du im Sekretariat bist) findet einen Schreibtisch, einen Abschnitt, eine Kachel, einen Schritt oder eine Einstellung einer Einrichtung oder einen Begriff aus «So liest du diese Seite» — in jeder Sprache des Sekretariats, auch mit einem Tippfehler. Enter oder ein Klick führt hin: die Seite des Schreibtischs, die Kachel oder die Einrichtung geöffnet, die Stelle ins Bild gerollt und kurz markiert. Eine so geöffnete Kachel ist wie eine angeklickte: Die Seite merkt sie sich.",
+  "help.search_text": "Die Lupe oben rechts (oder {keys}, während du im Sekretariat bist) findet einen Schreibtisch, einen Abschnitt, eine Kachel, einen Schritt oder eine Einstellung einer Einrichtung oder einen Begriff aus «So liest du diese Seite» — in jeder Sprache des Sekretariats, auch mit einem Tippfehler. Enter oder ein Klick führt hin: die Seite des Schreibtischs, die Kachel oder die Einrichtung geöffnet, die Stelle ins Bild gerollt und kurz markiert. Eine so geöffnete Kachel ist wie eine angeklickte: Die Seite merkt sie sich. Sie findet auch, was die Schreibtische gerade wissen — einen offenen Punkt, einen offenen Eintrag im Wachbuch, einen Share, eine App, ein Dataset, ein Protokoll («Eintrag») —, sobald ein Schreibtisch es gezeigt oder der Empfang es gelesen hat.",
   "errors.bad_cron": "«{cron}» ist kein gültiger Zeitplan (fünf Felder, z. B. 0 3 * * *).",
   "office.not_hired": "{name} arbeitet (noch) nicht hier — der Teamchef weiss, wer kommen könnte.",
   "office.tip_title": "Willkommen im Team!",
@@ -214,10 +214,11 @@
   "errors.logged_out": "Deine Anmeldung bei Unraid ist abgelaufen — bitte melde dich neu an.",
   "errors.stale_page": "Unraid hat die Anfrage abgelehnt: Die Seite ist veraltet (Server neu gestartet?). Lade sie neu und versuch es noch einmal.",
   "search.open": "Sekretariat durchsuchen",
-  "search.placeholder": "Schreibtisch, Abschnitt, Einstellung finden …",
+  "search.placeholder": "Schreibtisch, Einstellung, Share, App finden …",
   "search.hint": "↑ ↓ wählen · Enter öffnet · Esc schliesst",
   "search.label": "Orte im Sekretariat",
   "search.results": {"one": "1 Ort", "other": "{n} Orte"},
+  "search.items": {"one": "1 Eintrag", "other": "{n} Einträge"},
   "search.none": "Nichts gefunden für «{q}».",
   "search.not_hired": "nicht angestellt",
   "search.not_there": "«{name}» ist gerade nicht auf der Seite — es erscheint, sobald es etwas zu zeigen gibt.",
@@ -227,5 +228,6 @@
   "search.kind.step": "Schritt",
   "search.kind.setting": "Einstellung",
   "search.kind.help": "Erklärt",
-  "search.kind.guide": "Anleitung"
+  "search.kind.guide": "Anleitung",
+  "search.kind.item": "Eintrag"
 }

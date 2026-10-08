@@ -102,7 +102,7 @@
   "help.order_title": "El orden del equipo",
   "help.order_text": "En la recepción, «Cambiar el orden» pone al equipo en el orden que prefieras — las tarjetas de la recepción, las pestañas y «El equipo» del jefe de equipo lo siguen. Cada movimiento se guarda al momento, «✓ Listo» solo termina la ordenación; el orden se guarda en el servidor, así que cada navegador muestra el mismo; «Como al principio» recupera el orden de la secretaría. El jefe de equipo va siempre primero; quien se contrata después se pone al final.",
   "help.search_title": "La búsqueda",
-  "help.search_text": "La lupa arriba a la derecha (o {keys} mientras estás en la secretaría) encuentra un escritorio, una sección, un mosaico, un paso o un ajuste de una configuración, o un término de «Cómo leer esta página» — en cualquier idioma de la secretaría, también con una errata. Intro o un clic te lleva allí: la página del escritorio, el mosaico o la configuración abiertos, el lugar desplazado a la vista y marcado un momento. Un mosaico abierto así es como uno pulsado: la página lo recuerda.",
+  "help.search_text": "La lupa arriba a la derecha (o {keys} mientras estás en la secretaría) encuentra un escritorio, una sección, un mosaico, un paso o un ajuste de una configuración, o un término de «Cómo leer esta página» — en cualquier idioma de la secretaría, también con una errata. Intro o un clic te lleva allí: la página del escritorio, el mosaico o la configuración abiertos, el lugar desplazado a la vista y marcado un momento. Un mosaico abierto así es como uno pulsado: la página lo recuerda. También encuentra lo que los escritorios saben ahora mismo — un punto pendiente, una entrada abierta del libro de guardia, un recurso compartido, una app, un dataset, un registro («Elemento») — en cuanto un escritorio lo ha mostrado o la recepción lo ha leído.",
   "errors.bad_cron": "«{cron}» no es una programación válida (cinco campos, p. ej. 0 3 * * *).",
   "office.not_hired": "{name} no trabaja aquí (todavía) — el jefe de equipo sabe quién podría venir.",
   "office.tip_title": "¡Bienvenido al equipo!",
@@ -220,10 +220,11 @@
   "errors.logged_out": "Tu sesión de Unraid ha terminado — vuelve a iniciar sesión, por favor.",
   "errors.stale_page": "Unraid rechazó la petición: la página está desactualizada (¿se reinició el servidor?). Recárgala e inténtalo de nuevo.",
   "search.open": "Buscar en la secretaría",
-  "search.placeholder": "Encontrar un escritorio, una sección, un ajuste …",
+  "search.placeholder": "Encontrar un escritorio, un ajuste, un recurso compartido, una app …",
   "search.hint": "↑ ↓ elegir · Intro abre · Esc cierra",
   "search.label": "Lugares de la secretaría",
   "search.results": {"one": "1 lugar", "other": "{n} lugares"},
+  "search.items": {"one": "1 elemento", "other": "{n} elementos"},
   "search.none": "Nada encontrado para «{q}».",
   "search.not_hired": "no contratado",
   "search.not_there": "«{name}» no está en la página ahora mismo — aparece cuando hay algo que mostrar.",
@@ -233,5 +234,6 @@
   "search.kind.step": "Paso",
   "search.kind.setting": "Ajuste",
   "search.kind.help": "Explicado",
-  "search.kind.guide": "Guía"
+  "search.kind.guide": "Guía",
+  "search.kind.item": "Elemento"
 }

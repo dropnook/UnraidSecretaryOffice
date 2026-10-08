@@ -102,7 +102,7 @@
   "help.order_title": "L'ordine del team",
   "help.order_text": "Alla reception, «Cambia l'ordine» mette il personale nell'ordine che preferisci — i riquadri della reception, le schede e «Il team» del capoufficio lo seguono. Ogni spostamento è salvato subito, «✓ Fatto» chiude solo la sistemazione; l'ordine è salvato sul server, quindi ogni browser mostra lo stesso; «Come all'inizio» riporta l'ordine della segreteria. Il capoufficio viene sempre per primo; chi viene assunto dopo si mette in fondo.",
   "help.search_title": "La ricerca",
-  "help.search_text": "La lente in alto a destra (o {keys} mentre sei nella segreteria) trova una scrivania, una sezione, un riquadro, un passo o un'impostazione di una configurazione, o un termine di «Come leggere questa pagina» — in qualsiasi lingua della segreteria, anche con un errore di battitura. Invio o un clic ti porta lì: la pagina della scrivania, il riquadro o la configurazione aperti, il punto portato in vista e segnato per un momento. Un riquadro aperto così è come uno cliccato: la pagina se lo ricorda.",
+  "help.search_text": "La lente in alto a destra (o {keys} mentre sei nella segreteria) trova una scrivania, una sezione, un riquadro, un passo o un'impostazione di una configurazione, o un termine di «Come leggere questa pagina» — in qualsiasi lingua della segreteria, anche con un errore di battitura. Invio o un clic ti porta lì: la pagina della scrivania, il riquadro o la configurazione aperti, il punto portato in vista e segnato per un momento. Un riquadro aperto così è come uno cliccato: la pagina se lo ricorda. Trova anche ciò che le scrivanie sanno in questo momento — un punto aperto, una voce aperta del registro di guardia, una condivisione, un'app, un dataset, un log («Voce») — appena una scrivania l'ha mostrato o la reception l'ha letto.",
   "errors.bad_cron": "«{cron}» non è una pianificazione valida (cinque campi, ad es. 0 3 * * *).",
   "office.not_hired": "{name} non lavora (ancora) qui — il capoufficio sa chi potrebbe venire.",
   "office.tip_title": "Un benvenuto nel team!",
@@ -220,10 +220,11 @@
   "errors.logged_out": "La tua sessione di Unraid è scaduta — accedi di nuovo.",
   "errors.stale_page": "Unraid ha rifiutato la richiesta: la pagina non è aggiornata (il server è stato riavviato?). Ricaricala e riprova.",
   "search.open": "Cerca nella segreteria",
-  "search.placeholder": "Trova una scrivania, una sezione, un'impostazione …",
+  "search.placeholder": "Trova una scrivania, un'impostazione, una condivisione, un'app …",
   "search.hint": "↑ ↓ scegli · Invio apre · Esc chiude",
   "search.label": "Luoghi della segreteria",
   "search.results": {"one": "1 luogo", "other": "{n} luoghi"},
+  "search.items": {"one": "1 voce", "other": "{n} voci"},
   "search.none": "Nessun risultato per «{q}».",
   "search.not_hired": "non assunto",
   "search.not_there": "«{name}» al momento non è sulla pagina — compare quando c'è qualcosa da mostrare.",
@@ -233,5 +234,6 @@
   "search.kind.step": "Passo",
   "search.kind.setting": "Impostazione",
   "search.kind.help": "Spiegato",
-  "search.kind.guide": "Guida"
+  "search.kind.guide": "Guida",
+  "search.kind.item": "Voce"
 }
