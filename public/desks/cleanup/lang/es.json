@@ -1590,7 +1590,7 @@
   "where.adv.ups.title": "Sin SAI",
   "where.adv.ups.why": "Cuando se va la luz, el servidor simplemente se para: los archivos abiertos pueden romperse y después Unraid hace una larga comprobación de paridad. Un SAI pequeño le da tiempo a apagarse limpiamente (⟦Settings⟧ → ⟦UPS Settings⟧; para un servidor NUT, el plugin NUT).",
   "where.adv.syslog.title": "Tras un fallo, el registro desaparece",
-  "where.adv.syslog.why": "Unraid guarda su syslog en la RAM — tras un cuelgue o un reinicio a lo bruto nadie puede leer lo que pasó, ni siquiera la señora Protocoli. «⟦Mirror syslog to flash⟧» (por un tiempo, desgasta la memoria) o un servidor syslog (este mismo: un recurso compartido como carpeta local del registro syslog) lo conserva.",
+  "where.adv.syslog.why": "Unraid guarda su syslog en la RAM — tras un cuelgue o un reinicio a lo bruto nadie puede leer lo que pasó, ni siquiera la señora Protocoli. Unraid puede guardarlo él mismo: «⟦Mirror syslog to flash⟧» por un tiempo (desgasta la memoria). Mejor: «⟦Local syslog server⟧» lo escribe en un recurso compartido de un pool que nunca duerme, con este mismo servidor como «⟦Remote syslog server⟧».",
   "where.adv.vm_windows.title": {
     "one": "Una VM de Windows puede retrasar la parada del array: {names}",
     "other": "{n} VMs de Windows pueden retrasar la parada del array: {names}"

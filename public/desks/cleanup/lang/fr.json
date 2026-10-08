@@ -1590,7 +1590,7 @@
   "where.adv.ups.title": "Pas d'onduleur",
   "where.adv.ups.why": "Quand le courant saute, le serveur s'arrête net : des fichiers ouverts peuvent être abîmés, ensuite Unraid lance un long contrôle de parité. Un petit onduleur lui donne le temps de s'arrêter proprement (⟦Settings⟧ → ⟦UPS Settings⟧ ; pour un serveur NUT, le plugin NUT).",
   "where.adv.syslog.title": "Après un plantage, le journal a disparu",
-  "where.adv.syslog.why": "Unraid garde son syslog en RAM — après un plantage ou un reset brutal, personne ne peut lire ce qui s'est passé, Madame Protocolli comprise. « ⟦Mirror syslog to flash⟧ » (pour un temps, ça use la clé) ou un serveur syslog (celui-ci : un partage comme dossier syslog local) le conserve.",
+  "where.adv.syslog.why": "Unraid garde son syslog en RAM — après un plantage ou un reset brutal, personne ne peut lire ce qui s'est passé, Madame Protocolli comprise. Unraid peut le garder lui-même : « ⟦Mirror syslog to flash⟧ » pour un temps (ça use la clé). Mieux : « ⟦Local syslog server⟧ » l'écrit dans un partage sur un pool qui ne dort jamais, avec ce serveur lui-même comme « ⟦Remote syslog server⟧ ».",
   "where.adv.vm_windows.title": {
     "one": "Une VM Windows peut retenir l'arrêt de l'array : {names}",
     "other": "{n} VM Windows peuvent retenir l'arrêt de l'array : {names}"

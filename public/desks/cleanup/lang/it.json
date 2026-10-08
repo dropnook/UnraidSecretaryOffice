@@ -1590,7 +1590,7 @@
   "where.adv.ups.title": "Nessun UPS",
   "where.adv.ups.why": "Quando va via la corrente, il server si spegne di colpo: i file aperti possono rovinarsi, e dopo Unraid fa un lungo controllo di parità. Un piccolo gruppo di continuità (UPS) gli dà il tempo di spegnersi in modo pulito (⟦Settings⟧ → ⟦UPS Settings⟧; per un server NUT il plugin NUT).",
   "where.adv.syslog.title": "Dopo un crash il log è perso",
-  "where.adv.syslog.why": "Unraid tiene il suo syslog nella RAM — dopo un crash o un reset brutale nessuno può più leggere cosa è successo, nemmeno la signora Protocolli. «⟦Mirror syslog to flash⟧» (per un po', consuma la chiavetta) o un server syslog (questo stesso: una condivisione come cartella syslog locale) lo conserva.",
+  "where.adv.syslog.why": "Unraid tiene il suo syslog nella RAM — dopo un crash o un reset brutale nessuno può più leggere cosa è successo, nemmeno la signora Protocolli. Unraid può conservarlo da sé: «⟦Mirror syslog to flash⟧» per un po' (consuma la chiavetta). Meglio: «⟦Local syslog server⟧» lo scrive in una condivisione su un pool che non dorme mai, con questo stesso server come «⟦Remote syslog server⟧».",
   "where.adv.vm_windows.title": {
     "one": "Una VM Windows può trattenere l'arresto dell'array: {names}",
     "other": "{n} VM Windows possono trattenere l'arresto dell'array: {names}"
