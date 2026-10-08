@@ -2807,8 +2807,9 @@ function clPartnerUnitBusy(array $doors, string $id, string $unit, string $datas
  * <pool>/UnraidSecretaryOffice-partners/<pair> whose pair is gone from data/partner/pairs.json — a leftover of her
  * room «partners», its size ZFS's `used` (its units and their snapshots), `why` transfer while the door receives for
  * it; and of a pair still there every unit dataset <pair>/<unit> its receive.units no longer names (category
- * `dropped`, `unit`, `pair_name`; `why` transfer while a transfer of the door names that unit). Also every dataset of the partners' places (her storeroom's parked ones are found by it — never mounted) and
- * the sleeping pools (not looked at). Tests: `$GLOBALS['clPartnerHost']` = pools [awake, asleep], zfs (a callable
+ * `dropped`, `unit`, `pair_name`; `why` transfer while a transfer of the door names that unit). Also every dataset
+ * of the partners' places (her storeroom's parked ones are found by it — never mounted) and the sleeping pools (not
+ * looked at). Tests: `$GLOBALS['clPartnerHost']` = pools [awake, asleep], zfs (a callable
  * like run()), pairs (the file), run, alive.
  *
  * @return array{list: list<array>, there: array<string, true>, asleep: list<string>}
