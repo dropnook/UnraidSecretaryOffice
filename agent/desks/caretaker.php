@@ -471,6 +471,10 @@ function caretakerChecks(): array
     $version = preg_match('/version="([^"]+)"/', (string) @file_get_contents('/etc/unraid-version'), $m) ? $m[1] : null;
     $out[] = finding('unraid', 'required', $version === null ? null : version_compare($version, CARETAKER_UNRAID_MIN, '>='),
         ['version' => $version ?? '?', 'min' => CARETAKER_UNRAID_MIN]);
+    // Unraid 8 switches off an office whose .plg doesn't name it: say so before the OS update, not after
+    if ($tested = caretakerUnraidTested($version)) {
+        $out[] = $tested;
+    }
 
     // the office itself: a newer release?
     $office = officeUpdateInfo();
@@ -534,6 +538,25 @@ function caretakerChecks(): array
             'link' => in_array('advisor', $hired, true) ? '#/advisor' : 'settings']));
     }
     return $out;
+}
+
+/**
+ * The Unraid the office was tested on (OFFICE_UNRAID_TESTED, src/place.php) — recommended, never required: the office
+ * runs on a newer 7.x, but the .plg's max (officeUnraidMax(), <major>.99.99) makes Unraid switch it off at the first
+ * boot of the next major (the .plg moved to plugins-error, the office and its nightly backups gone, no notification).
+ * Not in place («look for an office release first») when this Unraid is newer than the tested major.minor, or within
+ * the last minor before max. Null: the version unknown.
+ */
+function caretakerUnraidTested(?string $version, string $tested = OFFICE_UNRAID_TESTED): ?array
+{
+    if ($version === null || !preg_match('/^(\d+)\.(\d+)/', $version, $m) || !preg_match('/^(\d+)\.(\d+)\z/', $tested, $t)) {
+        return null;
+    }
+    $max = officeUnraidMax($tested);
+    $beyond = version_compare("$m[1].$m[2]", $tested, '>');
+    $nearMax = version_compare($version, implode('.', array_slice(explode('.', $max), 0, 2)), '>=');
+    return finding('unraid_tested', 'recommended', !($beyond || $nearMax),
+        ['version' => $version, 'tested' => $tested, 'next' => (string) ((int) $t[1] + 1)], 'plugins');
 }
 
 /**

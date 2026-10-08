@@ -17619,6 +17619,53 @@ function testBackupReplan(): void
 }
 
 /**
+ * Unraid 8 and the .plg's max (upgrade audit proposal 7): the version the office was tested on is one constant
+ * (OFFICE_UNRAID_TESTED, src/place.php), the .plg's max is <major>.99.99 of it (plugin/build.sh refuses another); the
+ * team lead recommends looking for an office release before an Unraid update once this Unraid is newer than the tested
+ * major.minor or within the last minor before max — in place on the tested one and older.
+ */
+function testUnraidTested(): void
+{
+    $ok = fn (?string $v, string $t = '7.3') => ($f = caretakerUnraidTested($v, $t)) === null ? null : $f['ok'];
+    same('unraid tested: the tested one and older — in place', [true, true, true, true], [$ok('7.3.2'), $ok('7.3.0'), $ok('7.2.4'), $ok('7.3.0-rc.1')]);
+    same('unraid tested: newer than tested — look for an office release first', [false, false, false], [$ok('7.4.0'), $ok('7.4.0-beta.2'), $ok('7.10.1')]);
+    same('unraid tested: within the last minor before max (7.99.x) — also when tested that far', [false, false], [$ok('7.99.0', '7.99'), $ok('7.99.5')]);
+    same('unraid tested: version unknown — nothing said', [null, null], [$ok(null), $ok('weird')]);
+    $f = caretakerUnraidTested('7.4.1', '7.3');
+    same('unraid tested: the finding — recommended (never a must), its params, Unraid\'s Plugins page',
+        ['unraid_tested', 'recommended', ['version' => '7.4.1', 'tested' => '7.3', 'next' => '8'], 'plugins'], [$f['id'], $f['level'], $f['params'], $f['link']]);
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/caretaker/lang/en.json'), true) ?: [];
+    check('unraid tested: the team lead has its words (tested, version, next)', isset($en['check.unraid_tested'])
+        && str_contains((string) ($en['check.unraid_tested_how'] ?? ''), '{tested}') && str_contains((string) ($en['check.unraid_tested_how'] ?? ''), '{next}'));
+    check('unraid tested: one constant, major.minor', (bool) preg_match('/^\d+\.\d+\z/', OFFICE_UNRAID_TESTED));
+    $plg = (string) file_get_contents(OFFICE_DIR . '/plugin/unraid-secretary-office.plg');
+    same('unraid tested: the .plg\'s max agrees with it', officeUnraidMax(), preg_match('/\smax="([^"]+)"/', $plg, $m) ? $m[1] : null);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php');
+    check('unraid tested: the team lead\'s checks ask for it', str_contains($src, 'caretakerUnraidTested($version)'));
+
+    // build.sh refuses a .plg whose max doesn't agree (a stand-in tree with only what its first checks read)
+    $tmp = hardeningTmp('unraid-tested');
+    $build = function (string $max) use ($tmp): string {
+        exec('rm -rf ' . escapeshellarg("$tmp/tree"));
+        @mkdir("$tmp/tree/plugin", 0700, true);
+        @mkdir("$tmp/tree/src", 0700, true);
+        @mkdir("$tmp/tree/agent", 0700, true);
+        copy(OFFICE_DIR . '/plugin/build.sh', "$tmp/tree/plugin/build.sh");
+        foreach (['src/place.php', 'src/bootstrap.php', 'agent/agent.php'] as $f) {
+            copy(OFFICE_DIR . "/$f", "$tmp/tree/$f");
+        }
+        file_put_contents("$tmp/tree/plugin/unraid-secretary-office.plg", preg_replace('/(\s)max="[^"]+"/', '$1max="' . $max . '"',
+            (string) file_get_contents(OFFICE_DIR . '/plugin/unraid-secretary-office.plg'), 1));
+        return (string) shell_exec('cd ' . escapeshellarg("$tmp/tree") . ' && bash plugin/build.sh ' . escapeshellarg(AGENT_VERSION) . ' 2026.10.08 2>&1');
+    };
+    $bad = $build('8.99.99');
+    check('unraid tested: build.sh refuses a max beyond the tested major', str_contains($bad, "the .plg's max is '8.99.99'"), $bad);
+    $good = $build(officeUnraidMax());
+    check('unraid tested: … and passes the one that agrees', !str_contains($good, "the .plg's max") && !str_contains($good, 'OFFICE_UNRAID_TESTED'), $good);
+    hardeningRm($tmp);
+}
+
+/**
  * The .plg refuses an update while one of the office's long jobs runs from the plugin folder outside the agent: a backup
  * run or the setup (atd, cron), Mr. Restori's restore or drill, Jack Emby's EmbyCache or gather — one pgrep -f
  * pattern; the agent, its night shift and the short jobs don't hold it up. pgrep matches POSIX EREs against the whole
@@ -18252,7 +18299,7 @@ function agentPhpErrorSilenced(callable $log): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
