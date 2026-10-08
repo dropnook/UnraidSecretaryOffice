@@ -8675,6 +8675,46 @@ function testAgentRestarted(): void
             $info(1006);
         });
         same("restart ($where): in place (same pid, new start time) is told too", 'AgentRestarted', $r['out'] ?? $r['raw']);
+
+        if ($where === 'ram') {
+            // away before the request came (agent.sh stop; QA 2026-10-08, finding 2): taken back after a short grace — never
+            // the page's 600 s (a php-fpm worker each)
+            $long = "$tmp/web-long.php";
+            file_put_contents($long, str_replace('askAgent("x.y", [], 8)', 'askAgent("x.y", [], 30)', (string) file_get_contents($web)));
+            $askLong = function () use ($long, $tmp, $where): array {
+                $p = proc_open([PHP_BINARY, $long], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+                    ['OFFICE_DATA_DIR' => $tmp, 'OFFICE_RUN_DIR' => "$tmp/run-$where", 'PATH' => getenv('PATH')]);
+                $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+                proc_close($p);
+                return (json_decode(substr($raw, (int) strpos($raw, '{')), true) ?: []) + ['raw' => $raw];
+            };
+            $grace = 4.0;                   // AGENT_AWAY_GRACE (src/mailbox.php)
+            $info(1007, false);
+            $r = $askLong();
+            check("away ($where): a stopped agent — agent_away after the grace, not the full wait",
+                ($r['out'] ?? '') === 'AgentAway' && ($r['s'] ?? 99) >= $grace - 0.1 && $r['s'] < $grace + 2, $r['raw']);
+            same("away ($where): … its request taken back", [], glob("$tmp/mailbox/*.request") ?: []);
+            // killed: it says it runs, but its heartbeat went stale
+            $info(1008);
+            touch($file, time() - 120);
+            $r = $askLong();
+            check("away ($where): a stale heartbeat — agent_away after the grace", ($r['out'] ?? '') === 'AgentAway' && ($r['s'] ?? 99) < $grace + 2, $r['raw']);
+            // away, and back within the grace (agent.sh's supervisor started it again): the new one answers
+            $info(1009, false);
+            $r = $ask(function (string $req) use ($info, $answer): void {
+                usleep(1500000);
+                $info(1010);
+                usleep(800000);
+                $answer($req, ['ok' => true, 'n' => 3]);
+            });
+            same("away ($where): back within the grace — answered", ['ok' => true, 'n' => 3], $r['out'] ?? $r['raw']);
+            $up = shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg('require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . ';'
+                . ' echo json_encode([AGENT_AWAY_GRACE, agentUp(["running" => true], time()), agentUp(["running" => false], time()),'
+                . ' agentUp(["running" => true], time() - 71), agentUp(null, time())]);'));
+            $up = json_decode((string) $up, true) ?: [0];
+            $up[0] = (float) $up[0];
+            same("away ($where): the grace, and the web side's word for «at work»", [$grace, true, false, false, false], $up);
+        }
         @unlink($file);
     }
     hardeningRm($tmp);

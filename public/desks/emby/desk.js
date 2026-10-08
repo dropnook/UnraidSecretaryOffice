@@ -202,14 +202,14 @@ function render() {
   if (foreign.length) root.appendChild(el('p', 'callout warn', T('notice.foreign', { where: foreign.map((f) => f.where).join(', ') })));
   if (running()) {
     const p = el('p', 'callout', T(state.jobs.gather.running ? 'notice.gathering' : 'notice.running') + ' ');
-    p.appendChild(button(T('show_output_now'), 'small', () => showOutput(state.jobs.gather.running ? 'gather' : 'embycache', true)));
+    p.appendChild(button(T('show_output_now'), 'small', () => showOutput(state.jobs.gather.running ? 'gather' : 'embycache', true))).disabled = !Office.agent.running;
     root.appendChild(p);
   }
   if (!state.configured) {
     const p = el('p', 'callout', T('notice.setup') + ' ');
     p.appendChild(button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
     p.appendChild(document.createTextNode(' '));
-    p.appendChild(button(T('import.open'), 'small plain', importDialog));
+    p.appendChild(button(T('import.open'), 'small plain', importDialog)).disabled = !Office.agent.running;
     root.appendChild(p);
     root.appendChild(gatherSection());
     root.appendChild(historySection());
@@ -320,7 +320,7 @@ function gatherSection() {
   const set = g.settings;
   if (!set || !set.shares.length) {
     const p = el('p', 'callout', T('gather_unset') + ' ');
-    p.appendChild(button(T('gather_cfg_open'), 'small', gatherSettingsDialog));
+    p.appendChild(button(T('gather_cfg_open'), 'small', gatherSettingsDialog)).disabled = !Office.agent.running;
     s.appendChild(p);
     return s;
   }

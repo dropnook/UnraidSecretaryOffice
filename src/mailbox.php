@@ -42,7 +42,7 @@ function agentInfo(): array
     [$info, $pulse] = agentRecord();
     $info ??= [];
     $info['pulse'] = $pulse ?: null;
-    $info['running'] = !empty($info['running']) && $pulse > time() - 70 && is_dir(OFFICE_DATA . '/mailbox');
+    $info['running'] = agentUp($info, $pulse) && is_dir(OFFICE_DATA . '/mailbox');
     if (!$info['running'] && !is_dir(OFFICE_DATA)) {
         // the data folder comes with the array: say why nobody answers
         $var = @parse_ini_file('/var/local/emhttp/var.ini') ?: [];
@@ -83,6 +83,19 @@ function officeNightShift(?string $run = null): ?array
             'last' => $last > 0 ? $last : null];
 }
 
+/** How long a request waits for an agent the heartbeat calls away before it is taken back (agent_away): a restart after a
+ *  code change, or agent.sh's supervisor starting it again, takes about a second */
+const AGENT_AWAY_GRACE = 4.0;
+
+/**
+ * Is the agent at work by its heartbeat (agentRecord())? It said it runs and gave a sign of life within 70 s — the same
+ * rule as agentInfo()'s `running`.
+ */
+function agentUp(?array $info, int $pulse): bool
+{
+    return !empty($info['running']) && $pulse > time() - 70;
+}
+
 function askAgent(string $action, array $data = [], float $wait = 20.0): array
 {
     $mailbox = OFFICE_DATA . '/mailbox';
@@ -117,14 +130,15 @@ function askAgent(string $action, array $data = [], float $wait = 20.0): array
         if (is_file($response)) {
             return agentAnswer($response);
         }
-        if ($who !== null && microtime(true) >= $nextLook) {
-            // every half second: still the same agent? A new one empties the mailbox when it starts
-            // (setUp()), a stopped one answers nothing more — what was waiting is lost
-            $nextLook = microtime(true) + 0.5;
-            $now = agentIdentity(agentRecord()[0]);
-            if ($now === null || ($now['id'] === $who['id'] && ($now['running'] || !$who['running']))) {
-                continue;
-            }
+        if (microtime(true) < $nextLook) {
+            continue;
+        }
+        // every half second: still the same agent? A new one empties the mailbox when it starts
+        // (setUp()), a stopped one answers nothing more — what was waiting is lost
+        $nextLook = microtime(true) + 0.5;
+        [$info, $pulse] = agentRecord();
+        $now = agentIdentity($info);
+        if ($who !== null && $now !== null && !($now['id'] === $who['id'] && ($now['running'] || !$who['running']))) {
             clearstatcache();
             if (is_file($response)) {
                 return agentAnswer($response);
@@ -139,6 +153,18 @@ function askAgent(string $action, array $data = [], float $wait = 20.0): array
                 }
             }
             throw new AgentRestarted('restarted');
+        }
+        // away (stopped, the array stopping, killed — its heartbeat says so or went stale): nobody will take the request.
+        // After a short grace it is taken back and said at once, never a wait of up to ten minutes (a php-fpm worker each)
+        if (microtime(true) - $start >= AGENT_AWAY_GRACE && !agentUp($info, $pulse)) {
+            clearstatcache();
+            if (is_file($response)) {
+                return agentAnswer($response);
+            }
+            if (@unlink($request)) {
+                throw new AgentAway('not_running');
+            }
+            // taken this very moment: it works on it after all — its answer is waited for
         }
     }
     if (@unlink($request)) {

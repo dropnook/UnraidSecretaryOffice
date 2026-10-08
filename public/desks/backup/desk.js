@@ -397,7 +397,11 @@ function notices() {
   }
   if (!state.settings_found) callout(T('notice.no_settings'), true, button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
   const sc = state.schedule || {};
-  if (sc.script && !sc.enabled) callout(T('notice.schedule_off'), true, button(T('schedule.open'), 'small', scheduleDialog));     // no settings yet: "no settings" says it all
+  if (sc.script && !sc.enabled) {     // no settings yet: "no settings" says it all
+    const b = button(T('schedule.open'), 'small', scheduleDialog);
+    b.disabled = !Office.agent.running;  // the messenger away: nobody would take the request
+    callout(T('notice.schedule_off'), true, b);
+  }
   const errors = (state.drift && state.drift.items || []).filter((d) => d.level === 'error').length;
   if (errors) callout(T('notice.drift_errors', { n: errors }), true);
   const last = lastRun();
@@ -2435,7 +2439,9 @@ function appliedCard(run) {
   const box = el('div', 'callout' + (ok ? '' : ' warn'));
   box.appendChild(el('strong', '', ok ? T('setup.applied_ok') : T('setup.applied_failed')));
   if (ok && state && state.schedule && state.schedule.script && !state.schedule.enabled) {
-    box.append(' ', T('schedule.after_setup'), ' ', button(T('schedule.open'), 'small', scheduleDialog));
+    const b = button(T('schedule.open'), 'small', scheduleDialog);
+    b.disabled = !Office.agent.running;
+    box.append(' ', T('schedule.after_setup'), ' ', b);
   }
   const bad = (run.messages || []).filter((m) => m.level === 'error' || m.level === 'warn');
   if (bad.length) {
