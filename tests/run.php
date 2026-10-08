@@ -2958,7 +2958,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.27', [1, '2.27'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.28', [1, '2.28'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -3096,6 +3096,430 @@ function testBackupPartnerOffice(): void
     $why = array_values(array_unique($why));
     check('partner office: the engine\'s codes found', count($why) >= 12, json_encode($why));
     same('partner office: the codes the engine skips and fails with all have a text', [], array_values(array_filter($why, fn ($c) => !isset($en["partner.why_short.$c"]))));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Engine 2.28: sleeping pools - [general] asleep_pools = skip leaves a pool whose disks sleep out of the night's run.
+ * backup.sh on a fixture server like testBackupArrayStop: the pools master (awake) and hive (asleep: one of its two
+ * disks spun down in a fixture disks.ini), stand-ins for docker (c1 on master, c2 only on hive, c3 on both, kopia),
+ * zfs (snapshots in a file, every snapshot call and snapshot list noted), virsh (vmm on master, vmh on hive), mount,
+ * notify. Skip: hive's datasets not in the snapshot call, no list or prune there, its Kopia sources skipped (asleep),
+ * vmh not shut down, c2 not stopped, the partner's unit there skipped (asleep), status/last-run/history/notification;
+ * the 7th night warns once; wake = as before; the backup place on a sleeping pool is woken; a dry run counts no
+ * night; setup.sh --plan / --apply carry the key and what sleeps now.
+ */
+function testBackupAsleep(): void
+{
+    if (posix_getuid() !== 0) {
+        check('asleep: backup.sh runs as root only — not run here', true);
+        return;
+    }
+    $tmp = sys_get_temp_dir() . '/office-tests-asleep-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    $m = "$mnt/master";
+    $h = "$mnt/hive";
+    $fake = "$tmp/fake";
+    $data = "$tmp/data/unraid-backup";
+    $root = "$mnt/addons/UnraidSecretaryOffice/snapshots";
+    foreach (["$tmp/bin", "$fake/vm", "$fake/ct", "$data/state", "$tmp/boot/config/shares", "$mnt/user", "$m/appdata/c1", "$m/appdata/c3", "$m/appdata/kopia", "$m/films/a",
+              "$m/domains/vmm", "$m/UnraidSecretaryOffice/backup", "$h/media/c2", "$h/tm/x", "$h/films/b", "$h/vmh/vmh", "$tmp/stage"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    touch("$m/domains/vmm/vdisk1.img");
+    touch("$h/vmh/vmh/vdisk1.img");
+    foreach (['appdata', 'films', 'domains', 'UnraidSecretaryOffice', 'media', 'tm', 'vmh'] as $n) {
+        touch("$tmp/boot/config/shares/$n.cfg");
+    }
+    $ds = ['master' => $m, 'master/appdata' => "$m/appdata", 'master/films' => "$m/films", 'master/domains' => "$m/domains",
+           'master/UnraidSecretaryOffice' => "$m/UnraidSecretaryOffice", 'hive' => $h, 'hive/media' => "$h/media", 'hive/tm' => "$h/tm",
+           'hive/films' => "$h/films", 'hive/vmh' => "$h/vmh"];
+    $mounts0 = '';
+    $zfs = '';
+    foreach ($ds as $n => $mp) {
+        $mounts0 .= "$n $mp zfs rw 0 0\n";
+        $zfs .= "$n\t$mp\ton\t" . crc32($n) . "\t1000\t-\n";
+    }
+    $mounts0 .= "shfs $mnt/user fuse.shfs rw 0 0\n";
+    file_put_contents("$fake/zfs.txt", $zfs);
+    $ct = fn ($name, $img, $binds) => ['Name' => "/$name", 'Id' => "id-$name", 'Config' => ['Image' => $img, 'Env' => [], 'Labels' => new stdClass()],
+        'State' => ['Running' => true], 'HostConfig' => ['NetworkMode' => 'bridge'],
+        'Mounts' => array_map(fn ($b) => ['Type' => 'bind', 'Source' => $b[0], 'Destination' => $b[1], 'RW' => true], $binds)];
+    file_put_contents("$fake/inspect.json", json_encode([$ct('c1', 'nginx', [["$mnt/user/appdata/c1", '/config']]),
+        $ct('c2', 'nginx', [["$mnt/user/media/c2", '/config'], ['/var/run/docker.sock', '/var/run/docker.sock']]),
+        $ct('c3', 'nginx', [["$mnt/user/appdata/c3", '/config'], ["$mnt/user/media", '/media']]),
+        $ct('kopia', 'imagegenius/kopia', [["$mnt/user/appdata/kopia", '/config'], [$root, '/uso']])]));
+    file_put_contents("$fake/repo.json", json_encode(['configFile' => '/config/repository.config', 'storage' => ['type' => 'filesystem'], 'clientOptions' => ['username' => 'root', 'hostname' => 'kopia']]));
+    file_put_contents("$tmp/bin/docker", <<<'SH'
+#!/bin/bash
+ev() { echo "$(date +%s) $*" >>"$FAKE/events"; }
+st() { cat "$FAKE/ct/$1" 2>/dev/null || echo running; }
+case "$1" in
+  info|version) exit 0 ;;
+  ps) printf 'id-c1\nid-c2\nid-c3\nid-kopia\n'; exit 0 ;;
+  compose) exit 1 ;;
+  top)
+    if [[ "$4" == pid,uid,args ]]; then printf 'PID UID COMMAND\n7 0 /app/kopia server start\n'; exit 0; fi
+    echo 'PID COMMAND'; echo '7 /app/kopia server start'; exit 0 ;;
+  inspect)
+    shift
+    if [[ "$1" == -f ]]; then
+      case "$2" in
+        *Mounts*) printf '%s\x1e/uso\x1efalse\x1erslave\n' "$FAKE_ROOT" ;;
+        *Health*) [[ "$(st "$3")" == running ]] && echo "true " || echo "false " ;;
+        *State.Running*) [[ "$(st "$3")" == running ]] && echo true || echo false ;;
+      esac
+      exit 0
+    fi
+    [[ "$1" == --format ]] && { echo "/c1  nginx  sha256:1"; exit 0; }
+    cat "$FAKE/inspect.json"; exit 0 ;;
+  stop) shift; while [[ "$1" == -* ]]; do shift 2; done
+        for c in "$@"; do echo stopped >"$FAKE/ct/$c"; ev "docker stop $c"; done; exit 0 ;;
+  start) shift; for c in "$@"; do echo running >"$FAKE/ct/$c"; ev "docker start $c"; done; exit 0 ;;
+  exec)
+    shift
+    while [[ "$1" == -* ]]; do case "$1" in -u|-e) shift 2 ;; *) shift ;; esac; done
+    c="$1"; shift
+    [[ "$c" == kopia ]] || exit 1
+    case "$1" in
+      cat) [[ "$2" == /proc/self/mountinfo ]] || exit 1
+           while read -r s t f o r; do [[ "$t" == "$FAKE_ROOT"/* ]] && echo "36 25 0:50 / /uso${t#"$FAKE_ROOT"} ro,relatime - $f $s ro"; done <"$FAKE/mounts"; exit 0 ;;
+      kopia)
+        shift; [[ "$1" == --no-progress ]] && shift
+        case "$1 ${2:-}" in
+          "repository status") cat "$FAKE/repo.json" ;;
+          "policy list") echo '[]' ;;
+          "snapshot list") echo '[]' ;;
+          "snapshot create") ev "kopia $3" ;;
+          --version*) echo "0.23.0 build" ;;
+        esac
+        exit 0 ;;
+    esac
+    exit 1 ;;
+esac
+exit 1
+SH);
+    file_put_contents("$tmp/bin/virsh", <<<'SH'
+#!/bin/bash
+ev() { echo "$(date +%s) $*" >>"$FAKE/events"; }
+V="$FAKE/vm"; n="${2:-}"
+[[ "$2" == --* ]] && n="${@: -1}"
+state() { cat "$V/$n.state" 2>/dev/null || echo running; }
+case "$1" in
+  list) printf 'vmm\nvmh\n'; exit 0 ;;
+  domstate) state; exit 0 ;;
+  dominfo) echo "Autostart:      disable"; exit 0 ;;
+  dumpxml) echo "<domain><name>$n</name><uuid>uuid-$n</uuid></domain>"; exit 0 ;;
+  domblklist) sh=domains; [[ "$n" == vmh ]] && sh=vmh
+              printf 'Type Device Target Source\n----\nfile disk vdisk1 %s\n' "$MNT/user/$sh/$n/vdisk1.img"; exit 0 ;;
+  qemu-agent-command|domfsfreeze) exit 1 ;;
+  shutdown) ev "virsh shutdown $n"; echo "shut off" >"$V/$n.state"; exit 0 ;;
+  suspend) [[ "$(state)" == running ]] || exit 1; echo paused >"$V/$n.state"; ev "virsh suspend $n"; exit 0 ;;
+  resume) echo running >"$V/$n.state"; ev "virsh resume $n"; exit 0 ;;
+  start) [[ "$(state)" == "shut off" ]] || exit 1; echo running >"$V/$n.state"; ev "virsh start $n"; exit 0 ;;
+esac
+exit 0
+SH);
+    // zfs: datasets from zfs.txt, snapshots in snaps.txt; every snapshot call and every snapshot list noted with its arguments
+    file_put_contents("$tmp/bin/zfs", <<<'SH'
+#!/bin/bash
+ev() { echo "$(date +%s) $*" >>"$FAKE/events"; }
+case "$1" in
+  list) if [[ "$*" == *'-t snapshot'* ]]; then
+          ev "zfs $*"
+          if [[ "$*" == *'-d 1'* ]]; then grep "^${@: -1}@" "$FAKE/snaps.txt"
+          elif [[ "$*" == *' -r '* ]]; then grep "^${@: -1}[/@]" "$FAKE/snaps.txt"
+          else cat "$FAKE/snaps.txt"; fi
+        elif [[ "$*" == *'-t filesystem'* ]]; then cat "$FAKE/zfs.txt"; fi
+        exit 0 ;;
+  snapshot) shift; printf '%s\n' "$@" >>"$FAKE/snaps.txt"; ev "zfs snapshot $*"; exit 0 ;;
+  destroy) grep -vxF -- "$2" "$FAKE/snaps.txt" >"$FAKE/snaps.new"; mv "$FAKE/snaps.new" "$FAKE/snaps.txt"; ev "zfs destroy $2"; exit 0 ;;
+esac
+exit 0
+SH);
+    file_put_contents("$tmp/bin/mount", <<<'SH'
+#!/bin/bash
+case "$*" in *--make-private*|*remount*) exit 0 ;; esac
+t="${@: -1}"; s="${@: -2:1}"; mkdir -p "$t"
+echo "$(date +%s) mount $s" >>"$FAKE/events"
+[[ "$*" == *--bind* ]] && exit 0
+echo "$s $t fake ro 0 0" >>"$FAKE/mounts"
+SH);
+    file_put_contents("$tmp/bin/umount", <<<'SH'
+#!/bin/bash
+t="${@: -1}"
+awk -v t="$t" '$2 != t' "$FAKE/mounts" >"$FAKE/mounts.new" && mv "$FAKE/mounts.new" "$FAKE/mounts"
+SH);
+    foreach (['zpool', 'btrfs'] as $b) {
+        file_put_contents("$tmp/bin/$b", "#!/bin/bash\nexit 0\n");
+    }
+    file_put_contents("$tmp/bin/mountpoint", "#!/bin/bash\n[[ \"\${@: -1}\" == */user ]]\n");
+    file_put_contents("$tmp/bin/notify", <<<'SH'
+#!/bin/bash
+a="$*"; printf '%s\n' "${a//$'\n'/ | }" >>"$FAKE/notify.log"
+SH);
+    foreach (glob("$tmp/bin/*") as $f) {
+        chmod($f, 0755);
+    }
+    $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares UB_STAGE=$tmp/stage"
+         . " UB_DISKS_INI=$fake/disks.ini UB_MOUNTS_FILE=$fake/mounts UB_NOTIFY_BIN=$tmp/bin/notify UB_NOTIFY_STAMP=$tmp/notify.stamp UB_VAR_INI=$fake/var.ini"
+         . " FAKE=$fake FAKE_ROOT=$root MNT=$mnt UB_VM_SHUTDOWN_TIMEOUT=4 UB_VM_SHUTDOWN_RETRY=2 UB_ARRAY_LOOK=1";
+    $pid = '0a0b0c0d';
+    // app c2 (its folder on hive) is a Kopia source of its own only in the skip nights: the fixture's mounts are empty
+    // folders, a source of its own could never be put together - skipped asleep it never needs to be
+    $settings = function (string $asleep) use ($data, $root, $mnt, $pid): void {
+        file_put_contents("$data/settings.ini", "[general]\nserver = Test\nmount_root = $root\nview_root = $mnt/addons/UnraidSecretaryOffice/btrfs-snap\n"
+            . "snap_prefix = uso-backup-\ndumps_share = UnraidSecretaryOffice\nmin_free_gb = 0\n" . ($asleep !== '' ? "asleep_pools = $asleep\n" : '')
+            . "[zfs]\nretention = 1 0 0\n[docker]\nstop = all\nknown = c1\nknown = c2\nknown = c3\nknown = kopia\n[flash]\nmode = off\n[libvirt]\nmode = off\n"
+            . "[kopia]\nenabled = yes\ncontainer = kopia\nidentity = root@kopia\n[partner \"$pid\"]\nname = vault\naddress = 10.0.0.9\n"
+            . "[share \"appdata\"]\nmode = kopia\npartner = $pid\n[share \"media\"]\nmode = kopia\npartner = $pid\n[share \"films\"]\nmode = snapshot\n"
+            . "[share \"tm\"]\nmode = snapshot\n[share \"vmh\"]\nmode = snapshot\n[share \"domains\"]\nmode = snapshot\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n"
+            . ($asleep === 'skip' ? "[app \"c2\"]\nkopia = yes\nfolder = media/c2\n" : '')
+            . "[vm \"vmm\"]\nmode = snapshot\nprepare = pause\n[vm \"vmh\"]\nmode = snapshot\nprepare = shutdown\n");
+    };
+    // a fresh night: everything running, hive asleep (one of its two disks), an old snapshot on each pool
+    $night = function (string $sleep = 'hive') use ($fake, $data, $mounts0): void {
+        exec('rm -rf ' . escapeshellarg("$fake/vm") . ' ' . escapeshellarg("$fake/ct") . ' ' . escapeshellarg("$data/logs"));
+        foreach (['events', 'notify.log'] as $f) {
+            @unlink("$fake/$f");
+        }
+        foreach (['status.json', 'stopped', 'maintenance', 'vms'] as $f) {
+            @unlink("$data/state/$f");
+        }
+        @mkdir("$fake/vm", 0700, true);
+        @mkdir("$fake/ct", 0700, true);
+        file_put_contents("$fake/mounts", $mounts0);
+        file_put_contents("$fake/snaps.txt", "master/appdata@uso-backup-20200101-0100\nmaster/appdata@uso-backup-20200102-0100\nhive/media@uso-backup-20200101-0100\nhive/media@uso-backup-20200102-0100\n");
+        file_put_contents("$fake/var.ini", "mdState=\"STARTED\"\nfsState=\"Started\"\n");
+        $ini = '';
+        foreach (['master' => 0, 'master2' => 0, 'hive' => 0, 'hive2' => 1] as $d => $down) {
+            $asleep = $down || ($sleep === 'both' && str_starts_with($d, 'master'));
+            $ini .= "[\"$d\"]\nname=\"$d\"\nspundown=\"" . ($asleep ? 1 : 0) . "\"\n";
+        }
+        file_put_contents("$fake/disks.ini", $sleep === 'none' ? str_replace('spundown="1"', 'spundown="0"', $ini) : $ini);
+    };
+    $run = function (string $args = '') use ($env): array {
+        $out = (string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null; echo \"exit=\$?\"") . ' 2>&1');
+        preg_match('/exit=(\d+)\s*$/', $out, $mm);
+        return [(int) ($mm[1] ?? -1), $out];
+    };
+    $names = fn () => array_map(fn ($l) => explode(' ', $l, 2)[1] ?? '', @file("$fake/events", FILE_IGNORE_NEW_LINES) ?: []);
+    $status = fn () => json_decode((string) @file_get_contents("$data/state/status.json"), true) ?: [];
+    $log = fn () => (string) @file_get_contents("$data/logs/latest.log");
+    $notes = fn () => array_values(array_filter(explode("\n", (string) @file_get_contents("$fake/notify.log"))));
+    $lastHistory = fn () => json_decode((string) (array_slice(@file("$data/state/history.jsonl", FILE_IGNORE_NEW_LINES) ?: [], -1)[0] ?? ''), true) ?: [];
+    $nights = fn () => json_decode((string) @file_get_contents("$data/state/asleep.json"), true);
+    $snapCall = fn (array $n) => implode(' ', preg_grep('/^zfs snapshot /', $n));
+
+    // --- skip: hive sleeps - left out
+    $settings('skip');
+    $night();
+    [$code, $out] = $run();
+    $s = $status();
+    $n = $names();
+    $l = $log();
+    same('asleep skip: the run went through - ok, exit 0, no warning, no error', ['ok', 0, 0, 0], [$s['result'] ?? null, $code, $s['warnings'] ?? null, $s['errors'] ?? null], $out . $l);
+    $snap = $snapCall($n);
+    check('asleep skip: one snapshot call for master, none of hive\'s datasets in it', str_contains($snap, 'master/appdata@uso-backup-') && str_contains($snap, 'master/films@')
+        && str_contains($snap, 'master/UnraidSecretaryOffice@') && !str_contains($snap, 'hive') && count(preg_grep('/^zfs snapshot /', $n)) === 1, json_encode($n));
+    $lists = preg_grep('/^zfs list /', $n);
+    check('asleep skip: the retention lists snapshots on master only (-r master), never hive, never all pools at once',
+        (bool) preg_grep('/-r master$/', $lists) && !preg_grep('/hive/', $lists) && !preg_grep('/^zfs list -H -t snapshot -o name$/', $lists), json_encode($lists));
+    check('asleep skip: master\'s old snapshot pruned, hive\'s left alone', in_array('zfs destroy master/appdata@uso-backup-20200101-0100', $n, true) && !preg_grep('/^zfs destroy hive/', $n), json_encode($n));
+    check('asleep skip: c1 and c3 stopped and started, c2 (only hive) never stopped', in_array('docker stop c1', $n, true) && in_array('docker stop c3', $n, true)
+        && in_array('docker start c3', $n, true) && !preg_grep('/ c2$/', $n), json_encode($n));
+    check('asleep skip: vmm paused and resumed, vmh (on hive) neither shut down nor paused', in_array('virsh suspend vmm', $n, true) && in_array('virsh resume vmm', $n, true)
+        && !preg_grep('/vmh$/', $n), json_encode($n));
+    $kopia = array_values(preg_grep('/^kopia /', $n));
+    check('asleep skip: Kopia for appdata and the backup place - nothing of media or app c2', in_array('kopia /uso/appdata', $kopia, true) && in_array('kopia /uso/UnraidSecretaryOffice', $kopia, true)
+        && !preg_grep('/media|c2/', $kopia), json_encode($kopia));
+    check('asleep skip: nothing of hive mounted', !preg_grep('/^mount .*hive/', $n), json_encode(preg_grep('/^mount /', $n)));
+    $a = $s['asleep'] ?? [];
+    if (is_array($a['nights'] ?? null)) {
+        ksort($a['nights']);
+    }
+    same('asleep skip: status.json asleep - the pool, its shares (films partly), units, the VM, the container, the sources',
+        ['mode' => 'skip', 'pools' => ['hive'], 'shares' => ['films', 'media', 'tm', 'vmh'], 'units' => 4, 'vms' => ['vmh'], 'containers' => ['c2'], 'sources' => ['media', 'app:c2'],
+         'woken' => [], 'nights' => ['films' => 1, 'media' => 1, 'tm' => 1, 'vmh' => 1]], $a);
+    $why = $s['kopia']['skipped_why'] ?? [];
+    ksort($why);
+    same('asleep skip: kopia.skipped with why asleep - not failed, not in the plan, not interrupted',
+        [['media', 'app:c2'], ['app:c2' => 'asleep', 'media' => 'asleep'], false, true, 0],
+        [$s['kopia']['skipped'] ?? null, $why, (bool) array_intersect(['media', 'app:c2'], $s['kopia']['planned'] ?? []),
+         array_key_exists('interrupted', $s['kopia'] ?? []) && $s['kopia']['interrupted'] === null, count(array_filter($s['kopia']['done'] ?? [], fn ($d) => !$d['ok']))]);
+    $vms = array_column($s['vms'] ?? [], null, 'name');
+    same('asleep skip: vms - vmh asleep (no snapshot), vmm paused', [['shutdown', 'asleep', false], ['pause', 'paused']],
+        [[$vms['vmh']['prepare'] ?? null, $vms['vmh']['done'] ?? null, $vms['vmh']['snapshot'] ?? null], [$vms['vmm']['prepare'] ?? null, $vms['vmm']['done'] ?? null]]);
+    same('asleep skip: the partner - media skipped (asleep), appdata skipped (no key)', [['id' => $pid, 'unit' => 'share:media', 'why' => 'asleep'], ['id' => $pid, 'unit' => 'share:appdata', 'why' => 'no_key']],
+        $s['partner']['skipped'] ?? null);
+    check('asleep skip: the log - one line for the pool', str_contains($l, 'ZFS hive: asleep - left out this run (asleep_pools = skip)') && substr_count($l, 'ZFS hive: asleep - left out') === 1, $l);
+    check('asleep skip: last-run asleep=4, history asleep.units 4', str_contains((string) @file_get_contents("$data/state/last-run"), "asleep=4\n") && ($lastHistory()['asleep']['units'] ?? null) === 4);
+    $nt = array_values(preg_grep('/Backup successful/', $notes()));
+    check('asleep skip: the notification - successful, «4 shares asleep (left out)» in its summary', count($nt) === 1
+        && str_contains($nt[0], ', 4 shares asleep (left out)') && str_contains($nt[0], 'Asleep, left out (asleep_pools = skip): hive'), json_encode($nt));
+    same('asleep skip: state/asleep.json - one night each', ['films' => 1, 'media' => 1, 'tm' => 1, 'vmh' => 1], array_map(fn ($x) => $x['nights'] ?? null, $nights()['shares'] ?? []));
+
+    // --- the 7th night in a row: one warning; the same day again: none
+    $j = $nights();
+    $j['shares']['media']['nights'] = 6;
+    $j['shares']['media']['last_day'] = '2000-01-01';
+    file_put_contents("$data/state/asleep.json", json_encode($j));
+    $night();
+    [$code, $out] = $run();
+    $s = $status();
+    $l = $log();
+    same('asleep 7 nights: one warning - the run ends with warnings, media 7 nights, warned today', ['warnings', 1, 7, date('Y-m-d'), 7],
+        [$s['result'] ?? null, $s['warnings'] ?? null, $s['asleep']['nights']['media'] ?? null, $nights()['shares']['media']['warned'] ?? null, $nights()['shares']['media']['nights'] ?? null], $l);
+    check('asleep 7 nights: the warning names the share and the nights', str_contains($l, "WARNING: Share 'media' was left out 7 nights in a row") && str_contains($l, '(asleep_long)'), $l);
+    $night();
+    $run();
+    $s = $status();
+    same('asleep 7 nights: the same day again - no second warning, the night not counted twice', ['ok', 0, 7, 1],
+        [$s['result'] ?? null, $s['warnings'] ?? null, $s['asleep']['nights']['media'] ?? null, $s['asleep']['nights']['tm'] ?? null]);
+
+    // --- a dry run counts no night
+    $before = (string) @file_get_contents("$data/state/asleep.json");
+    $night();
+    $run('--dry-run');
+    $s = $status();
+    same('asleep dry run: the plan says it (asleep, skipped sources), asleep.json untouched, nothing snapshotted',
+        [['hive'], ['media', 'app:c2'], $before, []], [$s['asleep']['pools'] ?? null, $s['kopia']['skipped'] ?? null, (string) @file_get_contents("$data/state/asleep.json"), array_values(preg_grep('/^zfs snapshot/', $names()))]);
+
+    // --- the backup place's pool asleep too: woken as always (the packages are the point), only hive left out
+    $night('both');
+    [$code, $out] = $run();
+    $s = $status();
+    $l = $log();
+    check('asleep place: master asleep but holds the backup place - woken, said so; hive left out',
+        ($s['asleep']['woken'] ?? null) === ['master'] && ($s['asleep']['pools'] ?? null) === ['hive'] && str_contains($snapCall($names()), 'master/UnraidSecretaryOffice@')
+        && str_contains($l, 'ZFS master: asleep, but the backup place (UnraidSecretaryOffice) lies there - woken as always'), $out . $l);
+
+    // --- hive awake with skip: nothing left out, the nights reset
+    $night('none');
+    $run();
+    $s = $status();
+    same('asleep skip, nothing asleep: asleep with empty lists, every night count gone', [[], 0, null], [$s['asleep']['pools'] ?? null, $s['asleep']['units'] ?? null, $nights()]);
+
+    // --- wake: as before - hive woken by its snapshot
+    $settings('wake');
+    $night();
+    file_put_contents("$data/state/asleep.json", json_encode(['shares' => ['media' => ['nights' => 3, 'first' => 1, 'last_day' => '2000-01-01', 'warned' => '']]]));
+    [$code, $out] = $run();
+    $s = $status();
+    $n = $names();
+    check('asleep wake: as before - hive in the snapshot call, c2 stopped, vmh shut down and started, Kopia for media',
+        str_contains($snapCall($n), 'hive/media@') && in_array('docker stop c2', $n, true) && in_array('virsh shutdown vmh', $n, true) && in_array('virsh start vmh', $n, true)
+        && in_array('kopia /uso/media', $n, true), json_encode($n) . $out);
+    same('asleep wake: status asleep null, nothing skipped, the night counts gone, last-run asleep=0', [null, [], [], null, true],
+        [array_key_exists('asleep', $s) ? $s['asleep'] : 'missing', $s['kopia']['skipped'] ?? null, $s['kopia']['skipped_why'] ?? null, $nights(), str_contains((string) @file_get_contents("$data/state/last-run"), "asleep=0\n")]);
+    check('asleep wake: the retention lists all pools at once, as before', (bool) preg_grep('/^zfs list -H -t snapshot -o name$/', $n), json_encode(preg_grep('/^zfs list/', $n)));
+    $settings('');
+    $night();
+    $run();
+    $s = $status();
+    same('asleep: no key at all = wake', [null, true], [array_key_exists('asleep', $s) ? $s['asleep'] : 'missing', str_contains($snapCall($names()), 'hive/media@')]);
+
+    // --- --about keeps interface 1
+    $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
+    same('asleep: --about - interface 1, version 2.28', [1, '2.28'], [$about['interface'] ?? null, $about['version'] ?? null]);
+
+    // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
+    $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
+    $settings('skip');
+    $night();
+    $out = $setup('--plan');
+    $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    $sh = array_column($plan['shares'] ?? [], null, 'name');
+    $vm = array_column($plan['vms'] ?? [], null, 'name');
+    same('setup plan: asleep_pools (and in P), per share and VM pool_asleep / asleep_bases from disks.ini',
+        ['skip', 'skip', 7, [true, ['hive']], [true, ['hive']], [false, []], [true, ['hive']], [false, []]],
+        [$plan['asleep_pools'] ?? null, $plan['P']['general|asleep_pools'] ?? null, $plan['asleep_nights'] ?? null,
+         [$sh['media']['pool_asleep'] ?? null, $sh['media']['asleep_bases'] ?? null], [$sh['films']['pool_asleep'] ?? null, $sh['films']['asleep_bases'] ?? null],
+         [$sh['appdata']['pool_asleep'] ?? null, $sh['appdata']['asleep_bases'] ?? null], [$vm['vmh']['pool_asleep'] ?? null, $vm['vmh']['asleep_bases'] ?? null],
+         [$vm['vmm']['pool_asleep'] ?? null, $vm['vmm']['asleep_bases'] ?? null]], $out);
+    same('setup plan: nothing pending for the key as settings.ini has it', [], array_values(array_filter($plan['pending'] ?? [], fn ($p) => str_contains($p['line'] ?? '', 'asleep_pools'))));
+    $apply = function (string $value) use ($tmp, $data, $setup): string {
+        $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+        $dec = $plan['P'] ?? [];
+        $dec['general|asleep_pools'] = $value;
+        $dec['kopia|enabled'] = 'no';                       // the stand-in Kopia takes no policies
+        file_put_contents("$tmp/dec.json", json_encode($dec + ['_retire_sources' => 'no']));
+        $out = $setup("--apply=$tmp/dec.json");
+        return (string) @file_get_contents("$data/settings.ini") . $out;
+    };
+    $ini = $apply('wake');
+    check('setup apply: the decision wake written (settings.ini named the key)', (bool) preg_match('/\[general\][^\[]*\nasleep_pools = wake\n/', $ini), $ini);
+    $setup('--plan');
+    $ini = $apply('skip');
+    check('setup apply: the decision skip written', (bool) preg_match('/\[general\][^\[]*\nasleep_pools = skip\n/', $ini), $ini);
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    same('setup apply: the settings written load without errors', '0', trim((string) shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; cfg_load $data/settings.ini; cfg_validate >/dev/null; echo \${#CFG_ERRORS[@]}"))));
+    $settings('');
+    $setup('--plan');
+    $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    same('setup plan: no key in settings.ini - wake, nothing pending', ['wake', []], [$plan['asleep_pools'] ?? null,
+        array_values(array_filter($plan['pending'] ?? [], fn ($p) => str_contains($p['line'] ?? '', 'asleep_pools')))]);
+    $ini = $apply('wake');
+    check('setup apply: wake on a settings.ini without the key - no line (nothing changes for an install that never chose)', !str_contains($ini, 'asleep_pools ='), $ini);
+    $bad = trim((string) shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; printf '[general]\\nasleep_pools = maybe\\n' >$tmp/bad.ini; cfg_load $tmp/bad.ini; cfg_validate >/dev/null; printf '%s' \"\${CFG_ERRORS[*]}\"")));
+    check('settings: asleep_pools takes wake or skip only', str_contains($bad, "asleep_pools = 'maybe' is invalid (wake/skip)"), $bad);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Engine 2.28 in the office: Mr. Backupsy reads what a run left out because its pool slept - status.json/history
+ * "asleep" (the shape kept, everything else dropped), the Kopia sources skipped asleep apart from those the array stop
+ * skipped, the metrics, what Apply accepts for the key, the page's texts in all five languages and the setup's switch.
+ */
+function testBackupAsleepOffice(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-asleepoffice-' . getmypid();
+    @mkdir("$tmp/state", 0700, true);
+    $j = ['run' => '20261008-0302', 'started' => 1000, 'finished' => 1600, 'result' => 'ok', 'version' => '2.28',
+        'asleep' => ['mode' => 'skip', 'pools' => ['hive'], 'shares' => ['Filme', 'timemachine_benj', 'timemachine_janine', "bad\nname", 5], 'units' => 99,
+                     'vms' => [], 'containers' => ['TimeMachine_Benj'], 'sources' => [], 'woken' => [], 'nights' => ['Filme' => 9, 'timemachine_benj' => 2, '2024' => 7, 'x' => 'many']],
+        'kopia' => ['enabled' => true, 'planned' => ['appdata'], 'done' => [['name' => 'appdata', 'ok' => true, 'seconds' => 5, 'finished' => 1500]],
+                    'skipped' => ['media', 'docs'], 'skipped_why' => ['media' => 'asleep'], 'interrupted' => null]];
+    $r = backupRunFromStatus($j);
+    same('asleep office: a run\'s asleep block - names in their shape, units counted from them, nights, the long ones',
+        ['pools' => ['hive'], 'shares' => ['Filme', 'timemachine_benj', 'timemachine_janine'], 'units' => 3, 'vms' => [], 'containers' => ['TimeMachine_Benj'], 'woken' => [],
+         'nights' => ['Filme' => 9, 'timemachine_benj' => 2, '2024' => 7], 'long' => ['Filme', '2024']], $r['asleep']);
+    same('asleep office: Kopia sources skipped asleep apart from those the array stop skipped', [['docs'], ['media']], [$r['kopia_skipped'], $r['kopia_asleep']]);
+    same('asleep office: wake, an older engine or no block - null', [null, null, null],
+        [backupRunFromStatus(['run' => 'x'])['asleep'], backupAsleepRun(['pools' => ['hive']]), backupAsleepRun(null)]);
+    same('asleep office: an older engine\'s skipped list (no skipped_why) - all the array stop\'s', [['a', 'b'], []],
+        [backupKopiaSkipped(['skipped' => ['a', 'b', 3]], false), backupKopiaSkipped(['skipped' => ['a', 'b']], true)]);
+    // the history as the page gets it
+    file_put_contents("$tmp/history.jsonl", json_encode($j) . "\n");
+    $h = backupHistory([], null, $skips, "$tmp/history.jsonl");
+    same('asleep office: the history row carries it (the overview and the row read units)', [3, ['media']], [$h[0]['asleep']['units'] ?? null, $h[0]['kopia_asleep'] ?? null]);
+    // metrics: the asleep sources apart (never counted as failed), the shares left out
+    file_put_contents("$tmp/state/last-run.json", json_encode($j));
+    $fams = array_column(backupMetrics("$tmp/state"), null, 'name');
+    $samples = [];
+    foreach ($fams['uso_backup_last_kopia_sources']['samples'] ?? [] as [$l, $v]) {
+        $samples[$l['result']] = $v;
+    }
+    same('asleep office: metrics - Kopia sources ok / failed / skipped (array stop) / asleep; the shares left out', [['ok' => 1, 'failed' => 0, 'skipped' => 1, 'asleep' => 1], 3],
+        [$samples, $fams['uso_backup_last_asleep_shares']['samples'][0][1] ?? null]);
+    // the page: its texts in all five languages, the dynamic keys too; the setup's switch and the row chips in desk.js
+    $keys = ['setup.asleep.label', 'setup.asleep.wake', 'setup.asleep.wake_hint', 'setup.asleep.skip', 'setup.asleep.skip_hint', 'setup.asleep.now', 'setup.asleep.chip',
+             'setup.asleep.chip_disk', 'setup.asleep.chip_skip', 'setup.asleep.chip_wake', 'setup.asleep.short_wake', 'setup.asleep.short_skip', 'setup.key.general_asleep_pools',
+             'asleep.left_out', 'asleep.long', 'bubble.asleep_left', 'stat.kopia_asleep', 'partner.why_short.asleep', 'vm.done.asleep', 'vm.done_text.asleep'];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$lang.json"), true) ?: [];
+        same("asleep office: the texts ($lang)", [], array_values(array_filter($keys, fn ($k) => !isset($l[$k]))));
+    }
+    $de = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/de.json'), true) ?: [];
+    check('asleep office: German words - «ausgelassen», der Share, die Sicherung', str_contains($de['asleep.left_out']['other'] ?? '', 'ausgelassen')
+        && str_contains($de['setup.asleep.skip_hint'] ?? '', 'ein Share') && str_contains($de['setup.asleep.wake_hint'] ?? '', 'Sicherung'));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('asleep office: desk.js - the switch in step 0 (general|asleep_pools, only with an engine that knows it), chips from the plan, the run\'s units',
+        str_contains($js, "dset('general|asleep_pools', o)") && str_contains($js, 'plan.asleep_pools === undefined') && str_contains($js, 'asleepChip(sh.asleep_bases)')
+        && str_contains($js, 'asleepChip(v.asleep_bases)') && substr_count($js, 'asleepUnits(') >= 4);
+    $php = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    check('asleep office: Apply takes the key with wake or skip only', str_contains($php, "\$key === 'general|asleep_pools' && !in_array(\$value, ['wake', 'skip'], true)"));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -13713,15 +14137,17 @@ function testLogsPartner(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testWatchmanPartner', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testWatchmanPartner', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor'],
           'strings' => ['testStrings', 'testUnraidWords']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
-    if ($only === '' || $only === $name) {
+    if ($only === '' || $only === $name || in_array($only, $fns, true)) {
         foreach ($fns as $t) {
-            $t();
+            if ($only === '' || $only === $name || $only === $t) {      // a part, or one test by its name
+                $t();
+            }
         }
     }
 }

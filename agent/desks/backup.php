@@ -38,6 +38,7 @@ const BACKUP_LOG_BYTES   = 512 * 1024;
 const BACKUP_HISTORY     = 60;           // runs shown
 const BACKUP_UPLOAD_LOOK = 180;          // a first upload's rate: from looks at least this far apart (seconds) …
 const BACKUP_UPLOAD_KEEP = 900;          // … within the last 15 minutes; before that, the average since it started
+const BACKUP_ASLEEP_NIGHTS = 7;          // engine 2.28: a share left out asleep so many nights in a row - the engine warned (UB_ASLEEP_NIGHTS)
 
 $GLOBALS['backup'] = null;
 $GLOBALS['backupLogCache'] = [];         // legacy log file => [mtime, parsed]
@@ -104,17 +105,24 @@ function backupMetrics(?string $state = null): array
         $out[] = metricsGauge('uso_backup_last_downtime_seconds', 'How long containers and VMs were held in the last real backup run', (int) ($last['downtime_s'] ?? 0));
         $out[] = metricsGauge('uso_backup_last_errors', 'Errors in the last real backup run', (int) ($last['errors'] ?? 0));
         $out[] = metricsGauge('uso_backup_last_warnings', 'Warnings in the last real backup run', (int) ($last['warnings'] ?? 0));
+        if ($asleepRun = backupAsleepRun($last['asleep'] ?? null)) {
+            $out[] = metricsGauge('uso_backup_last_asleep_shares', 'Shares the last real backup run left out because their pool slept (asleep_pools = skip)', $asleepRun['units']);
+        }
         $kopia = is_array($last['kopia'] ?? null) ? $last['kopia'] : [];
         if (!empty($kopia['enabled'])) {
             $done = array_filter((array) ($kopia['done'] ?? []), 'is_array');
             $went = count(array_filter($done, fn ($d) => ($d['ok'] ?? false) === true));
             $planned = count((array) ($kopia['planned'] ?? []));
-            $skipped = count(array_filter((array) ($kopia['skipped'] ?? []), 'is_string'));       // engine 2.24: an array stop ended the run
+            $skipped = count(backupKopiaSkipped($kopia, false));       // engine 2.24: an array stop ended the run
+            $asleep = count(backupKopiaSkipped($kopia, true));         // engine 2.28: their pool slept (never in the plan)
             $samples = [[['result' => 'ok'], $went], [['result' => 'failed'], max(0, max(count($done), $planned) - $went - $skipped)]];
             if ($skipped > 0) {
                 $samples[] = [['result' => 'skipped'], $skipped];
             }
-            $out[] = metricsGauge('uso_backup_last_kopia_sources', 'Kopia sources of the last real backup run: copied (ok), not (failed, or never reached), skipped (the array was being stopped - the next run does them)',
+            if ($asleep > 0) {
+                $samples[] = [['result' => 'asleep'], $asleep];
+            }
+            $out[] = metricsGauge('uso_backup_last_kopia_sources', 'Kopia sources of the last real backup run: copied (ok), not (failed, or never reached), skipped (the array was being stopped - the next run does them), asleep (their pool slept, asleep_pools = skip)',
                 $samples);
         }
         $packages = is_array($last['packages'] ?? null) ? $last['packages'] : [];
@@ -637,8 +645,12 @@ function backupRunFromStatus(array $j): array
                             'errors' => (int) ($j['packages']['errors'] ?? 0), 'stale' => (int) ($j['packages']['stale'] ?? 0)] : null,
         'kopia'      => array_map(fn ($k) => ['name' => (string) $k['name'], 'ok' => (bool) $k['ok'], 'seconds' => (int) $k['seconds'], 'finished' => (int) ($k['finished'] ?? 0)],
                                   $j['kopia']['done'] ?? []),
-        // engine 2.24: an array stop ended the run - the sources it didn't do are skipped (never failed), one maybe interrupted
-        'kopia_skipped' => array_values(array_filter((array) ($j['kopia']['skipped'] ?? []), fn ($n) => is_string($n) && $n !== '')),
+        // engine 2.24: an array stop ended the run - the sources it didn't do are skipped (never failed), one maybe interrupted;
+        // engine 2.28: those skipped because their pool slept (kopia.skipped_why) are apart - kopia_asleep
+        'kopia_skipped' => backupKopiaSkipped($j['kopia'] ?? null, false),
+        'kopia_asleep' => backupKopiaSkipped($j['kopia'] ?? null, true),
+        // engine 2.28: what the run left out because it slept (asleep_pools = skip; null: not chosen, or an older engine)
+        'asleep'     => backupAsleepRun($j['asleep'] ?? null),
         'kopia_interrupted' => is_string($j['kopia']['interrupted'] ?? null) && $j['kopia']['interrupted'] !== '' ? $j['kopia']['interrupted'] : null,
         'kopia_first' => null,
         // engine 2.27: the partner phase per partner (null: the run sent to no partner)
@@ -650,6 +662,53 @@ function backupRunFromStatus(array $j): array
 }
 
 /**
+ * A run's skipped Kopia sources (status.json kopia.skipped): those the array stop skipped (engine 2.24 - no entry in
+ * kopia.skipped_why), or with $asleep those skipped because their pool slept (engine 2.28 - why "asleep")
+ */
+function backupKopiaSkipped(mixed $kopia, bool $asleep): array
+{
+    if (!is_array($kopia)) {
+        return [];
+    }
+    $why = is_array($kopia['skipped_why'] ?? null) ? $kopia['skipped_why'] : [];
+    return array_values(array_filter((array) ($kopia['skipped'] ?? []),
+        fn ($n) => is_string($n) && $n !== '' && (($why[$n] ?? null) === 'asleep') === $asleep));
+}
+
+/**
+ * What a run left out because it slept (engine 2.28, status.json "asleep" - [general] asleep_pools = skip): the pools
+ * and disks, the shares with a part there (units: how many), the VMs not held, the containers kept running, the pools
+ * woken all the same (the backup place's), per share the nights in a row it was left out, and those at or past
+ * BACKUP_ASLEEP_NIGHTS (the engine warned once). Null when the run didn't leave anything out by choice (wake, older).
+ * Only names in the shape the engine writes; everything else dropped.
+ */
+function backupAsleepRun(mixed $a): ?array
+{
+    if (!is_array($a) || ($a['mode'] ?? '') !== 'skip') {
+        return null;
+    }
+    $names = fn ($l) => array_values(array_filter(is_array($l) ? $l : [], fn ($n) => is_string($n) && preg_match('/^[^\x00-\x1f\/]{1,120}$/D', $n)));
+    $nights = [];
+    foreach (is_array($a['nights'] ?? null) ? $a['nights'] : [] as $share => $n) {
+        $share = (string) $share;            // a share called "2024" comes back from json_decode as an int key
+        if (preg_match('/^[^\x00-\x1f\/]{1,120}$/D', $share) && is_int($n) && $n > 0) {
+            $nights[$share] = $n;
+        }
+    }
+    $shares = $names($a['shares'] ?? null);
+    return [
+        'pools'      => $names($a['pools'] ?? null),
+        'shares'     => $shares,
+        'units'      => count($shares),
+        'vms'        => $names($a['vms'] ?? null),
+        'containers' => $names($a['containers'] ?? null),
+        'woken'      => $names($a['woken'] ?? null),
+        'nights'     => $nights,
+        'long'       => array_map('strval', array_keys(array_filter($nights, fn ($n) => $n >= BACKUP_ASLEEP_NIGHTS))),
+    ];
+}
+
+/**
  * A run of a script version without status files, from its log. The log
  * lines are only meant for people (German before 2.13, English since); this
  * is a fallback, nothing else depends on it.
@@ -657,7 +716,8 @@ function backupRunFromStatus(array $j): array
 function backupRunFromLog(string $path, string $run, int $started): array
 {
     $r = ['run' => $run, 'started' => $started, 'finished' => 0, 'result' => 'failed', 'message' => 'interrupted',
-          'errors' => 0, 'warnings' => 0, 'downtime' => 0, 'dump_bytes' => 0, 'packages' => null, 'kopia' => [], 'kopia_skipped' => [], 'kopia_interrupted' => null, 'kopia_first' => null,
+          'errors' => 0, 'warnings' => 0, 'downtime' => 0, 'dump_bytes' => 0, 'packages' => null, 'kopia' => [], 'kopia_skipped' => [], 'kopia_asleep' => [], 'asleep' => null,
+          'kopia_interrupted' => null, 'kopia_first' => null,
           'log' => basename($path), 'version' => '', 'source' => 'log'];
     $h = @fopen($path, 'r');
     if (!$h) {
@@ -2170,6 +2230,10 @@ function backupSetupApply(mixed $decisions): array
             || ((preg_match('/^(share|vm)\|(.+)\|partner$/D', $key, $m) && in_array($m[2], $m[1] === 'share' ? $shares : $vms, true)
                  || $key === 'general|partner_place')
                 && is_array($value) && !array_diff($value, $partners));
+        // engine 2.28: sleeping pools - woken for the snapshot, or left out that night
+        if ($key === 'general|asleep_pools' && !in_array($value, ['wake', 'skip'], true)) {
+            $ok = false;
+        }
         $plain = fn ($v) => is_string($v) && strlen($v) <= 500 && !preg_match('/[\x00-\x1f]/', $v);
         $valid = $plain($value) || (is_array($value) && array_is_list($value) && count($value) <= 1000 && !in_array(false, array_map($plain, $value), true));
         if (!$ok || !$valid) {

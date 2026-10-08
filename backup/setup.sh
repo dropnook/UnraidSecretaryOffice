@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.27 - 2026-10-08
+# unraid-backup - setup.sh                        Version 2.28 - 2026-10-08
+#   2.28 Sleeping pools: [general] asleep_pools = wake (default) | skip - asked with the snapshots, taken from
+#        the decisions (general|asleep_pools), written only when it is skip or was there before (so nothing
+#        changes for an install that never chose). The plan carries asleep_pools and per share and VM
+#        pool_asleep / asleep_bases: what sleeps right now (disks.ini, nothing woken)
 #   2.27 Partner offices: the [partner "<id>"] sections come from the Team Lead's pairs (data/partner/
 #        pairs.json - the pairs this office sends to; without the file they stay as settings.ini has
 #        them), the units' keys ([share|vm] partner = <id>, [general] partner_place = <id>) from the
@@ -432,6 +436,7 @@ TXT
     fi
     old_keep
     ORIG_DUMPS_SHARE="$(old "general|dumps_share")"       # before --apply lays the decisions over it
+    ORIG_ASLEEP_SET="${CFG[general|asleep_pools]:+yes}"  # settings.ini names asleep_pools (2.28): it is written again, wake too
     [[ "$MODE" == "apply" ]] && decisions_load
 
     # General defaults
@@ -448,6 +453,8 @@ TXT
     pinit "general|min_free_gb"    "8"
     pinit "general|keep_mounts"    "no"
     pinit "general|notify_success" "yes"
+    pinit "general|asleep_pools"   "wake"           # 2.28: wake = as before; skip = sleeping pools are left out that night
+    [[ "$(pget "general|asleep_pools")" == "skip" ]] || pset "general|asleep_pools" "wake"
     pinit "zfs|retention"          "7 4 6"
     pinit "btrfs|keep_days"        "7"
     pinit "btrfs|min_free_gb"      "150"
@@ -1439,6 +1446,16 @@ TXT
             pset "btrfs|snapshot_all" yes
         else pset "btrfs|snapshot_all" no; fi
     fi
+    if (( havez || haveb )); then
+        # 2.28: a pool whose disks sleep at the run's time - woken by its snapshot (as before), or left out that night
+        interactive && say "  Sleeping pools at night: woken for the snapshot (as before) - or left asleep: their shares are"
+        interactive && say "  then left out that night (a share on a pool that sleeps every night is never backed up until it is"
+        interactive && say "  awake at the run's time; the run warns after ${UB_ASLEEP_NIGHTS} nights in a row). The backup place is always woken."
+        if ask_yn "  Leave sleeping pools asleep (their shares left out that night)?" \
+                  "$([[ $(pget "general|asleep_pools") == skip ]] && echo y || echo n)"; then
+            pset "general|asleep_pools" skip
+        else pset "general|asleep_pools" wake; fi
+    fi
 
     sub "Backup place (the packages of apps and VMs)"
     explain <<'TXT'
@@ -1843,6 +1860,11 @@ settings_render() {
         w_kv keep_mounts "$(pget "general|keep_mounts")"
         w_c "Notification on success too (yes/no)"
         w_kv notify_success "$(pget "general|notify_success")"
+        w_c "Sleeping pools at the run's time: wake = woken for the snapshot (default); skip = left out that night"
+        w_c "(their shares are not snapshotted, nothing of them goes to Kopia; a warning after ${UB_ASLEEP_NIGHTS} nights in a row)"
+        if [[ "$(pget "general|asleep_pools")" == "skip" || "${ORIG_ASLEEP_SET:-}" == "yes" ]]; then
+            w_kv asleep_pools "$(pget "general|asleep_pools" wake)"
+        fi
         if [[ -n "$(plist "general|partner_place")" ]]; then
             w_c "The backup place's dataset goes to these partners too (the id of a [partner] section, several times)"
             w_list partner_place "general|partner_place"
@@ -2498,6 +2520,15 @@ plan_write() {
         --argjson ids "$(for n in "${VM_NAMES[@]}"; do printf '%s\x1f%s\n' "$n" "$(plist "vm|$n|partner" | paste -sd' ')"; done | us_json name ids | jq -c 'map(select(.name != "") | {key: .name, value: (.ids | split(" ") | map(select(length > 0)))}) | from_entries')" \
         'map(.name as $n | .partner = ($ids[$n] // []) | .partner_ok = ($pu["vm:" + $n].ok // false)
              | .partner_why = (if ($pu["vm:" + $n].ok // false) then null else ($pu["vm:" + $n].why // "no_dataset") end))' <<<"${vms:-[]}")" || vms="[]"
+    # what sleeps right now (2.28: disks.ini, read once - nothing woken): per share and VM its pools and disks asleep,
+    # so the office can say «hive sleeps now» beside the choice asleep_pools
+    ub_asleep_load
+    shares="$(jq -c --argjson a "$(for s in "${SH[@]}"; do printf '%s\x1f%s\n' "$s" "$(share_asleep_now "$s" | paste -sd' ')"; done | us_json name bases \
+            | jq -c 'map(select(.name != "") | {key: .name, value: (.bases | split(" ") | map(select(length > 0)))}) | from_entries')" \
+        'map(.name as $n | .asleep_bases = ($a[$n] // []) | .pool_asleep = ((.asleep_bases | length) > 0))' <<<"$shares")" || shares="[]"
+    vms="$(jq -c --argjson a "$(for n in "${VM_NAMES[@]}"; do printf '%s\x1f%s\n' "$n" "$(vm_asleep_now "$n" | paste -sd' ')"; done | us_json name bases \
+            | jq -c 'map(select(.name != "") | {key: .name, value: (.bases | split(" ") | map(select(length > 0)))}) | from_entries')" \
+        'map(.name as $n | .asleep_bases = ($a[$n] // []) | .pool_asleep = ((.asleep_bases | length) > 0))' <<<"${vms:-[]}")" || vms="[]"
     local place_partner
     place_partner="$(jq -nc --arg share "$(pget "general|dumps_share")" --argjson ids "$(plist_json "general|partner_place")" --argjson pu "$pu" \
         '{share: $share, partner: $ids, partner_ok: ($pu.place.ok // false), partner_why: (if ($pu.place.ok // false) then null else ($pu.place.why // "no_dataset") end)}')" \
@@ -2527,7 +2558,9 @@ plan_write() {
         --arg k_storage "${KOPIA_STORAGE:-}" --arg k_host "${KOPIA_HOST:-}" --arg k_uid "${KOPIA_SERVER_UID:-}" \
         --argjson k_sources "$srcs" --arg mount_root "$MOUNT_ROOT" \
         --argjson partners "${partners:-[]}" --argjson place_partner "${place_partner:-null}" \
+        --arg asleep_pools "$(pget "general|asleep_pools" wake)" --argjson asleep_nights "$UB_ASLEEP_NIGHTS" \
         '{interface: $interface, version: $version, time: $time, have_settings: ($have == "yes"),
+          asleep_pools: $asleep_pools, asleep_nights: $asleep_nights,
           sizes_measured: ($size_timeout != "0"), P: $P, O: $O, pending: $pending, shares: $shares, containers: $containers,
           databases: $databases, missing_databases: $missing, nextcloud: $nextcloud,
           vms: $vms, vm_service: ($vm_service == "yes"), partners: $partners, place_partner: $place_partner,

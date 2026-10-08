@@ -1,6 +1,14 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.27 - 2026-10-08
+# unraid-backup - backup.sh                       Version 2.28 - 2026-10-08
+#   2.28 Sleeping pools: [general] asleep_pools = wake (default, as before) | skip. With skip a ZFS pool of the
+#        snapshot plan whose disks sleep (disks.ini, read once - nothing on the pool is asked) is left out that
+#        night - no snapshot, no retention, no mount -, so is a btrfs disk or pool that sleeps; decided when the
+#        run makes its plan, so a VM whose disks lie there is not frozen, paused or shut down and an app whose
+#        backed-up data all lies there keeps running. Kopia sources with a part there are skipped (why asleep,
+#        not failed), a partner's unit there too. The backup place's pool is always woken (the packages are the
+#        point). status.json "asleep", kopia.skipped_why, last-run asleep=<n>; the result stays ok. A share left
+#        out UB_ASLEEP_NIGHTS (7) nights in a row warns once (state/asleep.json)
 #   2.27 Partner offices: the phase "partner" - right after the snapshots and the apps' restart, before
 #        Kopia - sends this run's ZFS snapshots of the units the setup ticked ([share|vm] partner = <id>,
 #        [general] partner_place = <id>; [partner "<id>"] name, address, port, rate_mbit) to each partner
@@ -318,12 +326,12 @@ die_code() {
 ##############################################################################
 # Stopping and starting containers
 ##############################################################################
-T_APP=(); T_DB=(); T_NET=(); T_NEW=()
+T_APP=(); T_DB=(); T_NET=(); T_NEW=(); T_REST=()
 
 build_stop_tiers() {
     local n prov
     local -A provider=() isdb=()
-    T_APP=(); T_DB=(); T_NET=(); T_NEW=()
+    T_APP=(); T_DB=(); T_NET=(); T_NEW=(); T_REST=()
     [[ "$DOCKER_STOP" == "none" ]] && return 0
     for n in "${CT_NAMES[@]}"; do
         [[ "${CT_NET[$n]}" == container:* ]] || continue
@@ -336,6 +344,8 @@ build_stop_tiers() {
         in_list "$n" "${DOCKER_NO_STOP[@]}" "${DOCKER_SKIP[@]}" && continue
         # a container the setup hasn't seen ([docker] known) keeps running until the user decided (2.21)
         if (( ${#DOCKER_KNOWN[@]} )) && ! in_list "$n" "${DOCKER_KNOWN[@]}"; then T_NEW+=( "$n" ); continue; fi
+        # all its backed-up data on pools left out this run (2.28, asleep_pools = skip): stopping it changes no snapshot
+        if ct_rests "$n"; then T_REST+=( "$n" ); ST_ASLEEP_CTS+=( "$n" ); continue; fi
         if [[ -n "${provider[$n]:-}" ]]; then T_NET+=( "$n" )
         elif [[ -n "${isdb[$n]:-}" || -n "$(ct_db_type "$n")" ]]; then T_DB+=( "$n" )
         else T_APP+=( "$n" ); fi
@@ -380,6 +390,8 @@ vm_plan() {
     for n in "${VM_NAMES[@]}"; do
         p="$(vm_prepare "$n")"
         if [[ "$(vm_mode "$n")" == "off" ]]; then ST_VMS+=( "$n|$p|off|0|0" ); continue; fi
+        # a disk on a pool left out this run (2.28): not snapshotted tonight - so neither frozen, paused nor shut down
+        if asleep_vm "$n"; then ST_VMS+=( "$n|$p|asleep|0|0" ); ST_ASLEEP_VMS+=( "$n" ); continue; fi
         if ! vm_snapshotted "$n"; then ST_VMS+=( "$n|$p|kept_running|0|0" ); continue; fi
         if [[ "${VM_STATE[$n]}" != "running" ]]; then ST_VMS+=( "$n|$p|not_running|0|1" ); continue; fi
         if [[ "$p" == "none" ]]; then ST_VMS+=( "$n|$p|kept_running|0|1" ); continue; fi
@@ -1654,7 +1666,7 @@ pkg_vm() {
             if [[ -n "$b" && ( "$s" == "$UB_MNT"/user/* || "$s" == "$UB_MNT"/user0/* ) ]]; then
                 rel="${s#"$UB_MNT"/user/}"; rel="${rel#"$UB_MNT"/user0/}"; pth="${INV_BASE_PATH[$b]}/$rel"
             fi
-            sz=""; [[ -f "$pth" ]] && sz="$(stat -c %s "$pth" 2>/dev/null)"
+            sz=""; [[ ( -z "$b" || -z "${ASLEEP_BASE[$b]:-}" ) && -f "$pth" ]] && sz="$(stat -c %s "$pth" 2>/dev/null)"     # its pool asleep (2.28): not looked at
             snap=""
             case "$fs" in
                 zfs)   in_list "$ds" "${PLAN_ZFS[@]}" && snap="$ds@$SNAP_NAME" ;;
@@ -2016,6 +2028,7 @@ prune_btrfs() {
     cutoff="$(date -d "-${BTRFS_KEEP_DAYS} days" +%Y%m%d)"
     for b in "${INV_BASES[@]}"; do
         [[ "${INV_BASE_FS[$b]}" == "btrfs" ]] || continue
+        [[ -n "${NOT_LOOKED[$b]:-}" ]] && { log "  btrfs $b: asleep - its snapshots wait for a night it is awake"; continue; }   # 2.28
         base="${INV_BASE_PATH[$b]}"; sdir="$base/$BTRFS_SNAP_DIR"
         [[ -d "$sdir" ]] || continue
         for s in "$sdir"/*/; do
@@ -2052,6 +2065,7 @@ refresh_view() { # browsing view: symlinks instead of bind mounts (they hold no 
     for l in "$VIEW_ROOT"/*; do [[ -L "$l" && ! -e "$l" ]] && rm -f "$l"; done
     for b in "${INV_BASES[@]}"; do
         [[ "${INV_BASE_FS[$b]}" == "btrfs" ]] || continue
+        [[ -n "${NOT_LOOKED[$b]:-}" ]] && continue          # asleep (2.28): not looked at - its link stays as it was
         base="${INV_BASE_PATH[$b]}"
         [[ -d "$base/$BTRFS_SNAP_DIR" ]] || continue
         if [[ -e "$VIEW_ROOT/$b" && ! -L "$VIEW_ROOT/$b" ]]; then
@@ -2165,6 +2179,7 @@ array_stop_kopia() {
     local -A gone=()
     for d in "${ST_KOPIA_DONE[@]}"; do gone[${d%%|*}]=1; done
     ST_KOPIA_SKIPPED=()
+    for n in "${!ST_KOPIA_SKIPPED_WHY[@]}"; do ST_KOPIA_SKIPPED+=( "$n" ); done      # asleep (2.28): skipped from the start
     for n in "${ST_KOPIA_PLAN[@]}"; do [[ -n "${gone[$n]:-}" ]] || ST_KOPIA_SKIPPED+=( "$n" ); done
 }
 
@@ -2205,7 +2220,8 @@ array_stop_release() {
 array_stop_report() { # a few lines for the notification
     local l list="" n
     echo "The run of $(date -d "@$STARTED_AT" '+%Y-%m-%d %H:%M' 2>/dev/null) ended at once when the array stop began (phase ${ARRAY_STOP_PHASE:-?}), after $(dur_h $(( $(date +%s) - STARTED_AT )))."
-    (( ${#ST_KOPIA_PLAN[@]} )) && echo "Kopia: $(( ${#ST_KOPIA_PLAN[@]} - ${#ST_KOPIA_SKIPPED[@]} )) of ${#ST_KOPIA_PLAN[@]} sources done${ST_KOPIA_INTERRUPTED:+, $ST_KOPIA_INTERRUPTED interrupted (Kopia keeps what it uploaded)}; skipped until the next run: ${#ST_KOPIA_SKIPPED[@]}"
+    local ns=$(( ${#ST_KOPIA_SKIPPED[@]} - ${#ST_KOPIA_SKIPPED_WHY[@]} ))
+    (( ${#ST_KOPIA_PLAN[@]} )) && echo "Kopia: $(( ${#ST_KOPIA_PLAN[@]} - ns )) of ${#ST_KOPIA_PLAN[@]} sources done${ST_KOPIA_INTERRUPTED:+, $ST_KOPIA_INTERRUPTED interrupted (Kopia keeps what it uploaded)}; skipped until the next run: $ns"
     (( ${#ST_PARTNER_PLAN[@]} )) && echo "Partners: ${#ST_PARTNER_DONE[@]} of ${#ST_PARTNER_PLAN[@]} sent${ST_PARTNER_INTERRUPTED:+, ${ST_PARTNER_INTERRUPTED#*|} interrupted (the partner keeps what came; the next run continues it)}"
     for l in "${!VM_HELD[@]}"; do list+="${list:+, }VM $l"; done
     for n in "${STOPPED[@]}"; do list+="${list:+, }$n"; done
@@ -2220,7 +2236,7 @@ array_stop_report() { # a few lines for the notification
 array_stop_notify() {
     [[ "$ST_MODE" == "backup" ]] || return 0           # a check or dry run is started by hand: its answer is seen there
     local short
-    if [[ -n "$ST_KOPIA_INTERRUPTED" ]] || (( ${#ST_KOPIA_SKIPPED[@]} && ${#ST_KOPIA_DONE[@]} )); then short="Backup stopped because the array is being stopped - nothing is lost; the next run continues the Kopia upload."
+    if [[ -n "$ST_KOPIA_INTERRUPTED" ]] || (( ${#ST_KOPIA_SKIPPED[@]} > ${#ST_KOPIA_SKIPPED_WHY[@]} && ${#ST_KOPIA_DONE[@]} )); then short="Backup stopped because the array is being stopped - nothing is lost; the next run continues the Kopia upload."
     else short="Backup stopped because the array is being stopped - nothing is lost; the next run backs up as usual."; fi
     ub_notify "Backup stopped for the array stop" "$short" "normal" "$(array_stop_report)"
 }
@@ -2424,6 +2440,108 @@ recover_wait() {
 recover_holds() { ub_holder_read; [[ "$HOLDER_KIND" == "backup" && "$HOLDER_MODE" == "recover" ]]; }
 
 ##############################################################################
+# Sleeping pools (2.28)
+##############################################################################
+# [general] asleep_pools = skip (lib/common.sh section 13): decided once, when the run makes its plan - right
+# after the inventory and the drift, before anything is shut down, paused or stopped, so a VM whose disks sleep
+# isn't held for nothing and an app whose backed-up data all sleeps keeps running (if it ran and wrote there, the
+# pool wouldn't sleep). Never touches a disk to find out: disks.ini only (ub_asleep_load). Packages and dumps
+# are unaffected - they go to the backup place, whose pool is woken as always.
+declare -A ASLEEP_BASE=() ASLEEP_DS=() ASLEEP_SHARE=() NOT_LOOKED=()
+asleep_src() { # asleep_src <Kopia source name>  - skipped this run, why asleep (only said so when Kopia runs at all)
+    ST_ASLEEP_SRC+=( "$1" )
+    [[ "$KOPIA_OK" == "yes" && "$SKIPK" != "1" ]] || return 0
+    ST_KOPIA_SKIPPED+=( "$1" ); ST_KOPIA_SKIPPED_WHY[$1]="asleep"
+    log "  Kopia: $1 - skipped, its data sleeps (asleep_pools = skip)"
+}
+asleep_base_of() { local b; for b in "${INV_BASES[@]}"; do [[ "${INV_BASE_PATH[$b]}" == "$1" ]] && { printf '%s' "$b"; return 0; }; done; return 1; }
+asleep_plan() {
+    [[ "$ASLEEP_POOLS" == "skip" ]] || return 0
+    ST_ASLEEP_ON="yes"
+    ub_asleep_load
+    local b ds p s t n f sh why line
+    local -a keep_zfs=() keep_btrfs=() kk=() ki=() km=()
+    local -A keep=() cand=()
+    log "Sleeping pools (asleep_pools = skip):"
+    # never left out: the backup place's pool - its packages are the point - and the pool of the engine's data folder
+    while IFS= read -r b; do [[ -n "$b" ]] && keep[$b]="the backup place ($DUMPS_SHARE)"; done < <(share_bases "$DUMPS_SHARE")
+    while IFS= read -r b; do [[ -n "$b" && -z "${keep[$b]:-}" ]] && keep[$b]="the engine's data folder"; done < <(ub_path_bases "$UB_DATA")
+    for ds in "${PLAN_ZFS[@]}"; do cand[${ds%%/*}]="ZFS"; done
+    for p in "${PLAN_BTRFS[@]}"; do b="$(asleep_base_of "$p")" && cand[$b]="btrfs"; done
+    for b in $(printf '%s\n' "${!cand[@]}" | LC_ALL=C sort); do
+        ub_base_sleeps "$b" || continue
+        if [[ -n "${keep[$b]:-}" ]]; then
+            log "  ${cand[$b]} $b: asleep, but ${keep[$b]} lies there - woken as always (the packages are the point)"
+            ST_ASLEEP_WOKEN+=( "$b" ); continue
+        fi
+        ASLEEP_BASE[$b]=1; ST_ASLEEP_POOLS+=( "$b" )
+        log "  ${cand[$b]} $b: asleep - left out this run (asleep_pools = skip)"
+    done
+    # every pool and disk asleep now that the run doesn't wake: the retention looks neither at its ZFS snapshots nor
+    # at its btrfs snapshot folder
+    for b in $( { printf '%s\n' "${INV_BASES[@]}"; for ds in "${!ZDS_MP[@]}"; do printf '%s\n' "${ds%%/*}"; done; } | LC_ALL=C sort -u); do
+        [[ -z "${keep[$b]:-}" ]] && ub_base_sleeps "$b" && NOT_LOOKED[$b]=1
+    done
+    for ds in "${PLAN_ZFS[@]}"; do if [[ -n "${ASLEEP_BASE[${ds%%/*}]:-}" ]]; then ASLEEP_DS[$ds]=1; else keep_zfs+=( "$ds" ); fi; done
+    PLAN_ZFS=( "${keep_zfs[@]}" )
+    for p in "${PLAN_BTRFS[@]}"; do b="$(asleep_base_of "$p")"; [[ -n "$b" && -n "${ASLEEP_BASE[$b]:-}" ]] || keep_btrfs+=( "$p" ); done
+    PLAN_BTRFS=( "${keep_btrfs[@]}" )
+    # the shares with a part there - and a share Kopia would read live from a disk that sleeps: not woken either
+    while IFS= read -r s; do
+        [[ -n "$s" ]] && inv_has_share "$s" && [[ "$(share_mode "$s")" != "off" ]] || continue
+        why=""
+        while IFS= read -r b; do [[ -n "$b" && -n "${ASLEEP_BASE[$b]:-}" ]] && { why="$b"; break; }; done < <(share_bases "$s")
+        if [[ -z "$why" && "$(share_method "$s")" == "live" ]] && in_list "$s" "${PLAN_MOUNT[@]}"; then
+            while IFS= read -r b; do [[ -n "$b" && -z "${keep[$b]:-}" ]] && ub_base_sleeps "$b" && { why="$b"; break; }; done < <(share_bases "$s")
+            [[ -n "$why" ]] && log "  share $s (read live): $why asleep - left out of Kopia this run"
+        fi
+        [[ -n "$why" ]] || continue
+        ASLEEP_SHARE[$s]=1; ST_ASLEEP_SHARES+=( "$s" )
+    done < <(cfg_names share | LC_ALL=C sort)
+    (( ${#ST_ASLEEP_SHARES[@]} )) && log "  Shares left out (a part asleep): ${ST_ASLEEP_SHARES[*]}"
+    # their Kopia sources, and the apps' and VMs' own sources with a part in them: skipped, why asleep (never half
+    # a source - Kopia would take what is missing for deleted)
+    for s in "${PLAN_KOPIA[@]}"; do if [[ -n "${ASLEEP_SHARE[$s]:-}" ]]; then asleep_src "$s"; else kk+=( "$s" ); fi; done
+    PLAN_KOPIA=( "${kk[@]}" )
+    for line in "${PLAN_KITEMS[@]}"; do
+        IFS='|' read -r t n f <<<"$line"; why=""
+        while IFS='|' read -r sh _; do [[ -n "$sh" && -n "${ASLEEP_SHARE[$sh]:-}" ]] && { why="$sh"; break; }; done < <(kopia_item_parts "$t" "$n" "-")
+        if [[ -n "$why" ]]; then asleep_src "$t:$n"; else ki+=( "$line" ); fi
+    done
+    PLAN_KITEMS=( "${ki[@]}" )
+    for s in "${PLAN_MOUNT[@]}"; do [[ -n "${ASLEEP_SHARE[$s]:-}" ]] || km+=( "$s" ); done
+    PLAN_MOUNT=( "${km[@]}" )
+    (( ${#ST_ASLEEP_POOLS[@]} + ${#ST_ASLEEP_SHARES[@]} + ${#ST_ASLEEP_WOKEN[@]} )) || log "  none asleep - everything as planned"
+    return 0
+}
+# asleep_vm <vm>  -> 0 when one of its disks lies on a pool or disk left out this run
+asleep_vm() {
+    local t b
+    (( ${#ASLEEP_BASE[@]} )) || return 1
+    while IFS='|' read -r t _ b _; do [[ -n "$t" && -n "$b" && -n "${ASLEEP_BASE[$b]:-}" ]] && return 0; done <<<"${VM_DISKS[$1]:-}"
+    return 1
+}
+# ct_rests <container>  -> 0 when every bind of it into backed-up data lies only on pools and disks left out this run:
+# stopping it would change no snapshot (it keeps running, listed in status.json asleep.containers)
+ct_rests() {
+    local src s b any=0 n
+    (( ${#ASLEEP_BASE[@]} )) || return 1
+    while IFS='|' read -r src _ _; do
+        [[ -n "$src" ]] || continue
+        s="$(src_share "$src")"
+        [[ -n "$s" && "$(share_mode "$s")" != "off" ]] || continue
+        n=0
+        while IFS= read -r b; do
+            [[ -n "$b" ]] || continue
+            n=$((n+1)); [[ -n "${ASLEEP_BASE[$b]:-}" ]] || return 1
+        done < <(ub_path_bases "$src")
+        (( n > 0 )) || return 1
+        any=1
+    done <<<"${CT_BINDS[$1]:-}"
+    (( any ))
+}
+
+##############################################################################
 # Partners (2.27)
 ##############################################################################
 # After the snapshots and the apps' restart, before Kopia (a LAN or tunnel transfer ends in minutes to hours, Kopia's
@@ -2462,6 +2580,8 @@ partner_plan() {
             # the backup place's share ticked as a share too: one transfer (place)
             [[ -n "${seen[$ds]:-}" ]] && { log "  Partner $(partner_name "$id"): $u is the same dataset as ${seen[$ds]} - sent once"; continue; }
             seen[$ds]="$u"
+            # its pool left out this run (2.28, asleep_pools = skip): no snapshot to send - skipped, why asleep
+            if [[ -n "${ASLEEP_DS[$ds]:-}" ]]; then PARTNER_CANT+=( "$id|$u|asleep" ); continue; fi
             if ! in_list "$ds" "${PLAN_ZFS[@]}"; then PARTNER_CANT+=( "$id|$u|not_snapshotted" ); continue; fi
             b="${ZDS_REF[$ds]:-}"
             if [[ "$u" == place ]]; then rows+=( "0|$u|$ds|${b:-0}" )
@@ -2740,7 +2860,8 @@ partner_phase() {
         for u in "${PARTNER_CANT[@]}"; do
             [[ "$u" == "$id|"* ]] || continue
             IFS='|' read -r _ u why <<<"$u"
-            log "  $u: not covered ($why)"
+            if [[ "$why" == "asleep" ]]; then log "  $u: its pool sleeps - left out this run (asleep_pools = skip)"
+            else log "  $u: not covered ($why)"; fi
             partner_skip "$id" "$u" "$why"
         done
         for row in "${PARTNER_ORDER[@]}"; do
@@ -2936,6 +3057,9 @@ case "$KOPIA_OK" in
     off) log "Kopia is switched off ([kopia] enabled = no) - local snapshots and dumps only." ;;
 esac
 
+# --- Sleeping pools (2.28): left out before anything is planned around them -
+asleep_plan
+
 # --- Showing the plan -----------------------------------------------------
 build_stop_tiers
 vm_plan
@@ -2953,6 +3077,8 @@ log "  Nextcloud:        $(cfg_names nextcloud | paste -sd' ' -)"
 log "  Pause:            ${T_APP[*]:-} | DB: ${T_DB[*]:-} | network: ${T_NET[*]:-}"
 log "  Keep running:     ${KOPIA_CONTAINER:-} ${DOCKER_NO_STOP[*]:-}"
 (( ${#T_NEW[@]} )) && log "  New, keep running: ${T_NEW[*]} (not stopped until you decide in the setup)"
+(( ${#T_REST[@]} )) && log "  Asleep, keep running: ${T_REST[*]} (all their backed-up data on pools left out this run)"
+(( ${#ST_ASLEEP_POOLS[@]} )) && log "  Left out, asleep:  ${ST_ASLEEP_POOLS[*]} - shares ${ST_ASLEEP_SHARES[*]:-none}${ST_ASLEEP_VMS[*]:+, VMs ${ST_ASLEEP_VMS[*]}}"
 if (( ${#NEW_LIST[@]} )); then
     nl=""; for l in "${NEW_LIST[@]}"; do IFS=$'\x1f' read -r nl_s nl_n _ <<<"$l"; nl+="$nl_s/$nl_n "; done
     log "  New, only local:  ${nl}(Kopia leaves them out until you decide; the run looks again before Kopia)"
@@ -3014,7 +3140,7 @@ for pl in "${ST_PARTNER_IDS[@]}"; do
     done
     for po in "${PARTNER_CANT[@]}"; do
         IFS='|' read -r po_id po_u po_why <<<"$po"
-        [[ "$po_id" == "$pl_id" ]] && pl_line+="${pl_line:+, }$po_u (not covered: $po_why)"
+        [[ "$po_id" == "$pl_id" ]] && pl_line+="${pl_line:+, }$po_u ($([[ "$po_why" == asleep ]] && echo "asleep, left out" || echo "not covered: $po_why"))"
     done
     log "  Partner:          $(partner_name "$pl_id") <- ${pl_line:-nothing}${SNAP_NAME:+ ($SNAP_NAME)}"
 done
@@ -3124,6 +3250,9 @@ status_write
 log "Normal operation restored - downtime ${DOWNTIME} s"
 array_stop_check "after the restart"
 for base in "${PLAN_BTRFS[@]}"; do [[ -z "${BTRFS_NEED[$base]:-}" ]] && btrfs_snap "$base" "after the restart"; done
+# the nights in a row each share was left out asleep (2.28): the UB_ASLEEP_NIGHTS-th warns once; a night it was
+# snapshotted - every night with asleep_pools = wake - takes it out of state/asleep.json
+asleep_nights "${ST_ASLEEP_SHARES[@]}"
 
 # --- Partners (2.27): this run's snapshots to the partner offices, before Kopia's long upload ---
 (( ${#ST_PARTNER_PLAN[@]} )) && partner_phase
@@ -3282,7 +3411,17 @@ fi
 next_phase "cleanup"                 # never prunes while the array is being stopped
 log "Cleaning up ..."
 if command -v zfs >/dev/null 2>&1; then
-    mapfile -t OWNERS < <(zfs list -H -t snapshot -o name 2>/dev/null | snap_filter | sed 's/@.*//' | sort -u)
+    if (( ${#NOT_LOOKED[@]} )); then
+        # asleep_pools = skip (2.28): the snapshots of the pools asleep (left out, or asleep and not in the plan) are not
+        # looked at - their retention waits for a night they are awake
+        OWNERS=()
+        for pool in $(for ds in "${!ZDS_MP[@]}"; do printf '%s\n' "${ds%%/*}"; done | LC_ALL=C sort -u); do
+            if [[ -n "${NOT_LOOKED[$pool]:-}" ]]; then log "  ZFS $pool: asleep - its snapshots wait for a night it is awake"; continue; fi
+            mapfile -t -O "${#OWNERS[@]}" OWNERS < <(zfs list -H -t snapshot -o name -r "$pool" 2>/dev/null | snap_filter | sed 's/@.*//' | sort -u)
+        done
+    else
+        mapfile -t OWNERS < <(zfs list -H -t snapshot -o name 2>/dev/null | snap_filter | sed 's/@.*//' | sort -u)
+    fi
     for ds in "${OWNERS[@]}"; do
         array_stop_check "while pruning"
         prune_zfs "$ds" "${PLAN_ZFS_RET[$ds]:-$ZFS_RETENTION}"
@@ -3311,6 +3450,7 @@ RUN_SIZE="$(human "$ST_DUMP_BYTES")"
     echo "partner_ok=${#ST_PARTNER_DONE[@]}"
     echo "partner_failed=${#ST_PARTNER_FAILED[@]}"
     echo "partner_skipped=${#ST_PARTNER_SKIPPED[@]}"
+    echo "asleep=${#ST_ASLEEP_SHARES[@]}"
     echo "drift=$(drift_count warn)/$(drift_count error)"
     echo "log=$LOG_FILE"
 } >"$UB_STATE/last-run"
@@ -3355,6 +3495,9 @@ run_report() {
         done
         echo "To $(partner_name "$id"): ${list:-nothing}"
     done
+    if (( ${#ST_ASLEEP_POOLS[@]} )); then
+        echo "Asleep, left out (asleep_pools = skip): ${ST_ASLEEP_POOLS[*]} - shares ${ST_ASLEEP_SHARES[*]:-none}${ST_ASLEEP_VMS[*]:+; VMs ${ST_ASLEEP_VMS[*]} not held}${ST_ASLEEP_CTS[*]:+; kept running ${ST_ASLEEP_CTS[*]}}"
+    fi
     list=""
     for l in "${NEW_LIST[@]}"; do IFS=$'\x1f' read -r n p _ <<<"$l"; list+="${list:+, }$n/$p"; done
     [[ -n "$list" ]] && echo "New, only local until you decide: $list"
@@ -3364,6 +3507,7 @@ run_report() {
 }
 SUMMARY="duration ${TOTAL}s, downtime ${DOWNTIME}s, ${KSUM}, packages ${RUN_SIZE}"
 (( ${#ST_PARTNER_PLAN[@]} )) && SUMMARY+=", partners ${#ST_PARTNER_DONE[@]} sent/${#ST_PARTNER_FAILED[@]} failed/${#ST_PARTNER_SKIPPED[@]} skipped"
+(( ${#ST_ASLEEP_SHARES[@]} )) && SUMMARY+=", ${#ST_ASLEEP_SHARES[@]} share$( (( ${#ST_ASLEEP_SHARES[@]} == 1 )) || echo s) asleep (left out)"
 if (( ERRORS > 0 )); then status_finish errors
 elif (( WARNINGS > 0 )); then status_finish warnings
 else status_finish ok; fi
