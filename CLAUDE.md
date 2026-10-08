@@ -322,7 +322,8 @@ installed plugin (see the checklist).
   **2.29:** `partner_pairs_load()` reads each pair's `send.units` too (what the partner agreed to keep); setup.sh gives a unit that is a dataset of
   its own but agreed by no partner `partner_ok=false`, `partner_why=not_agreed` (hint: ask at the Team Lead, «Change what <host> sends…») and keeps
   its partner key as it is; the run skips a unit its pair doesn't agree to as `not_agreed` before the door is asked (`partner_agreed_load`,
-  `partner_agreed`; without pairs.json or for a pair it doesn't name the door decides, as before). `testPartnerUnits` has the Team Lead's side.
+  `partner_agreed`; without pairs.json or for a pair it doesn't name the door decides, as before). `testPartnerUnits` has the Team Lead's side. **2.33:** the backup place's share is the unit `place` for a partner — its row in the plan (`place: true`) takes the
+  agreement of `place`, like `place_partner` (`agreed_as` in `step_partners()`; up to 2.32 it looked for `share:<its name>` and said `not_agreed` on the place — USOPartner, 2026-10-08).
 * **Sleeping pools (engine 2.28, Benj 2026-10-08):** `[general] asleep_pools = wake` (default, also without the key: as before) `| skip`. With
   skip `asleep_plan` (backup.sh) decides once, when the plan is made (after the drift, before `build_stop_tiers`/`vm_plan` - so before anything
   is held): `ub_asleep_load` reads disks.ini once (lib/common.sh section 13; `ub_base_sleeps`: a pool sleeps when ANY of its disks does), nothing

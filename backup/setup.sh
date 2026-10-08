@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.32 - 2026-10-08
+# unraid-backup - setup.sh                        Version 2.33 - 2026-10-08
+#   2.33 The backup place's share is the unit `place` for a partner: its row in the plan takes the agreement of
+#        `place` (pairs.json send.units), not of `share:<its name>` - up to 2.32 it said partner_ok false,
+#        partner_why not_agreed although the place was agreed and the run sent it
 #   2.32 The plan names Unraid's syslog share every time: per share `syslog: true` when it is the folder Unraid's
 #        syslog server writes into (rsyslog.cfg local_server + server_folder, syslog_share()) - also once the share
 #        is in settings.ini and its why is `previous` (up to 2.31 only the first plan said `why syslog`, so Mr.
@@ -1628,14 +1631,19 @@ step_partners() {
         (( ${#pair[@]} )) && PARTNER_SOURCE="settings"
     fi
     _apply_P
+    # agreed_as <unit>: the unit as the partner knows it - the backup place's share is the unit `place` at the door and
+    # in the pairs' send.units, never `share:<its name>` (2.33: up to 2.32 the plan's row of that share said not_agreed
+    # although the place was agreed and the run sent it)
+    agreed_as() { if [[ "$1" == "share:$(pget "general|dumps_share")" && -n "$(pget "general|dumps_share")" ]]; then echo place; else echo "$1"; fi; }
     # unit_ok <unit>: PARTNER_OKU / PARTNER_WHYU - one dataset of its own (partner_unit_dataset), and (2.29, the pairs
     # known) agreed by at least one partner (send.units) - else not_agreed
     unit_ok() {
-        local v any=""
+        local v any="" a
         if ! partner_unit_dataset "$1"; then PARTNER_OKU[$1]="no"; PARTNER_WHYU[$1]="$PU_WHY"; return 0; fi
         PARTNER_OKU[$1]="yes"
         [[ "$PARTNER_SOURCE" == "pairs" ]] && (( ${#agreed[@]} )) || return 0
-        for v in "${!agreed[@]}"; do [[ "${agreed[$v]}" == *" $1 "* ]] && any=1; done
+        a="$(agreed_as "$1")"
+        for v in "${!agreed[@]}"; do [[ "${agreed[$v]}" == *" $a "* ]] && any=1; done
         [[ -n "$any" ]] || { PARTNER_OKU[$1]="no"; PARTNER_WHYU[$1]="not_agreed"; }
         return 0
     }
@@ -1649,7 +1657,7 @@ step_partners() {
             if [[ -z "${pair[$v]:-}" ]]; then continue
             elif [[ "${PARTNER_OKU[$unit]}" != "yes" && "${PARTNER_WHYU[$unit]}" != "not_agreed" ]]; then hint "${unit}: not one dataset of its own (${PARTNER_WHYU[$unit]}) - it can't go to partner $(pget "partner|$v|name" "$v")"; continue
             elif [[ "$off" == 1 ]]; then hint "${unit}: not backed up (off) - nothing of it goes to partner $(pget "partner|$v|name" "$v")"; continue; fi
-            if [[ -n "${agreed[$v]+x}" && "${agreed[$v]}" != *" $unit "* ]]; then
+            if [[ -n "${agreed[$v]+x}" && "${agreed[$v]}" != *" $(agreed_as "$unit") "* ]]; then
                 hint "${unit}: not agreed with $(pget "partner|$v|name" "$v") yet - ask at the Team Lead («Change what $(pget "general|server" "$(hostname -s 2>/dev/null)") sends…»); until then it doesn't go there"
             fi
             grep -Fxq -- "$v" <<<"$out" || out+="$v"$'\n'
@@ -1667,7 +1675,7 @@ step_partners() {
     done
     unit_ok place
     keep_ids "general|partner_place" place 0
-    unset -f keep_ids unit_ok
+    unset -f keep_ids unit_ok agreed_as
     _apply_P
     (( ${#pair[@]} )) || return 0
     sub "Partners"

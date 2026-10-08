@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.32 - 2026-10-08
+# unraid-backup - backup.sh                       Version 2.33 - 2026-10-08
+#   2.33 (setup.sh only: the backup place's share row in the plan takes the agreement of the unit `place`)
 #   2.32 (setup.sh only: the plan flags Unraid's syslog share every time - `syslog: true` per share)
 #   2.31 (setup.sh only: [general] preset_new, Mr. Backupsy's default for new things - a run accepts the key
 #        and never reads it)
