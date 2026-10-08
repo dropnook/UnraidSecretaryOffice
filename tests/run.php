@@ -13477,6 +13477,92 @@ JS);
  * per version; «Later» keeps it away for that version, a newer one brings it back. Run by node on a stand-in page
  * that keeps its elements by id (skipped where node is missing).
  */
+/**
+ * Office.api.get never throws (review 2026-10-09, finding 4): the network gone (fetch rejects) or an answer that isn't
+ * JSON answers {ok: false, error: {key: 'offline'}} like post(); «No connection to the server.» once per outage, again
+ * after it was back; a good answer still hands over the messenger; Office.pollDelay — the pace, doubled per failure, ≤ 30 s.
+ */
+function testApiGetOffline(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('api get offline: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('apigetoffline');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const byId = {};
+const mk = (tag, cls, text) => {
+  const n = { tag, id: '', className: cls || '', style: {}, dataset: {}, hidden: true, textContent: text || '', offsetHeight: 0, children: [], onclick: null, type: '',
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, after(c) { if (c.id) byId[c.id] = c; },
+    remove() {}, prepend() {}, setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
+    querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+    getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0 }), focus() {}, select() {} };
+  Object.defineProperty(n, 'innerHTML', { get: () => '', set() { n.children = []; } });
+  return n;
+};
+const find = (id) => (byId[id] = byId[id] || mk('div'));
+const store = {};
+globalThis.window = globalThis;
+globalThis.innerHeight = 800; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
+globalThis.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
+globalThis.navigator = { languages: ['en'] };
+globalThis.history = { replaceState() {} };
+globalThis.location = { hash: '', reload() {} };
+const CONFIG = { version: '1.42.0', desks: [], languages: [{ code: 'en' }], base: '', staff_order: [] };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : find(id)),
+  querySelector: (s) => (s[0] === '#' ? find(s.slice(1)) : mk('div')), querySelectorAll: () => [], createElement: (tag) => mk(tag), addEventListener() {},
+  documentElement: { scrollHeight: 0 }, activeElement: null, hidden: false, body: mk('body') };
+let mode = 'ok';
+globalThis.fetch = async (url) => {
+  if (mode === 'down') throw new TypeError('Failed to fetch');
+  return { redirected: false, url, ok: true, status: 200,
+    json: async () => (mode === 'html' ? JSON.parse('<html>') : { ok: true, part: { n: 1 }, agent: { running: true, version: '1.42.0' } }) };
+};
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const O = globalThis.Office;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const toasts = () => (byId['sso-toasts'] ? byId['sso-toasts'].children.map((c) => c.textContent) : []);
+(async () => {
+  await sleep(50);
+  O.strings['errors.offline'] = 'No connection to the server.';
+  const out = {};
+  const before = toasts().length;
+  mode = 'down';
+  out.down = await O.api.get({ a: 'part', desk: 'restore', part: 'job' });
+  out.down2 = await O.api.get({ a: 'part', desk: 'restore', part: 'job' });
+  mode = 'html';
+  out.html = await O.api.get({ a: 'part', desk: 'restore', part: 'job' });
+  out.saidOnce = toasts().slice(before);
+  mode = 'ok';
+  O.agent = { running: false };
+  out.back = await O.api.get({ a: 'part', desk: 'restore', part: 'job' });
+  out.agent = O.agent.running;
+  mode = 'down';
+  await O.api.get({ a: 'part', desk: 'restore', part: 'job' });
+  out.saidAgain = toasts().slice(before);
+  out.delays = [O.pollDelay(2000, 0), O.pollDelay(2000, 1), O.pollDelay(2000, 2), O.pollDelay(2000, 3), O.pollDelay(2000, 20)];
+  console.log(JSON.stringify(out));
+  process.exit(0);
+})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
+    $r = json_decode($raw, true);
+    hardeningRm($tmp);
+    if (!is_array($r) || isset($r['error'])) {
+        check('api get offline: ran under node', false, $raw);
+        return;
+    }
+    $off = ['ok' => false, 'error' => ['key' => 'offline']];
+    same('api get offline: the network gone, or an answer that isn\'t JSON — offline, never a throw', [$off, $off, $off], [$r['down'], $r['down2'], $r['html']]);
+    same('api get offline: said once per outage', ['No connection to the server.'], $r['saidOnce']);
+    same('api get offline: back — the answer as it came, the messenger handed over; gone again — said again',
+        [true, ['n' => 1], true, ['No connection to the server.', 'No connection to the server.']], [$r['back']['ok'] ?? null, $r['back']['part'] ?? null, $r['agent'], $r['saidAgain']]);
+    same('api get offline: a poll\'s pace — as asked, doubled per failure, at most 30 s', [2000, 4000, 8000, 16000, 30000], $r['delays']);
+}
+
 function testUpdateNotice(): void
 {
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
@@ -17469,7 +17555,19 @@ d.setJob({ result: 'running', steps: [{ state: 'ok' }, { state: 'running' }, { s
 out.running = d.tileLine();
 out.code = d.codeText('too_big_for_ram', { need: 3, budget: 2, container: 'x' });
 out.reasons = [d.reasonText('array_stopping'), d.reasonText('drill_parity')];
-console.log(JSON.stringify(out));
+// the job's poll: a failed ask (Office.api.get answers offline, never throws) keeps it going, slower; back — its pace again
+const delays = [];
+globalThis.setTimeout = (fn, ms) => { delays.push(ms); return 1; };
+globalThis.clearTimeout = () => {};
+Office.pollDelay = (b, f) => (f > 0 ? b * 10 * f : b);
+d.setJob({ id: 'j1', result: 'running', steps: [] });
+let asks = 0;
+Office.api.get = async () => (++asks <= 2 ? { ok: false, error: { key: 'offline' } } : { ok: true, part: { id: 'j1', result: 'running', steps: [{ state: 'ok' }] } });
+(async () => {
+  await d.poll(); await d.poll(); await d.poll();
+  out.poll = [delays, d.job().steps.length];
+  console.log(JSON.stringify(out));
+})();
 JS);
         $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/drill-page.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/restore/drill.js') . ' 2>&1');
         $o = json_decode($raw, true);
@@ -17479,6 +17577,8 @@ JS);
             is_array($o) ? [$o['none'], $o['passed'], $o['failed'], $o['running']] : $raw);
         same('drill page: a code\'s words with its sizes made readable; a stop of its own, a refusal', ['drill.code.too_big_for_ram {"need":"3 B","budget":"2 B","container":"x"}',
             ['drill.code.array_stopping {}', 'error drill_parity']], is_array($o) ? [$o['code'], $o['reasons']] : $raw);
+        same('drill page: the job\'s poll goes on after failed asks, slower, and at its pace once they come through again (review 2026-10-09)',
+            [[20000, 40000, 2000], 1], is_array($o) ? $o['poll'] ?? null : $raw);
     }
 
     // ---- the strings: every text the drill asks for, in English (the five languages are compared by testStrings)
@@ -20250,7 +20350,7 @@ JS);
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testApiGetOffline', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired'],
           'strings' => ['testStrings', 'testUnraidWords']];

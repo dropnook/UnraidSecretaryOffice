@@ -56,10 +56,12 @@ function refreshLive() {
 }
 
 /** Follows a restore while it runs: its journal straight from disk every two seconds (api part "job") */
+let jobFails = 0;
 async function pollJob() {
   clearTimeout(jobTimer);
   jobTimer = null;
   const j = await Office.api.get({ a: 'part', desk: ID, part: 'job' });
+  jobFails = j.ok ? 0 : jobFails + 1;          // a blip: the poll goes on, slower (Office.pollDelay)
   const was = job && job.result;
   const sig = (x) => (x ? JSON.stringify([x.id, x.result, (x.steps || []).map((s) => [s.state, s.progress || null])]) : '');
   const before = sig(job);
@@ -70,7 +72,7 @@ async function pollJob() {
       journals.delete(job && job.id);
       refreshLive();
     }
-    if (live) jobTimer = setTimeout(pollJob, JOB_POLL);
+    if (live) jobTimer = setTimeout(pollJob, Office.pollDelay(JOB_POLL, jobFails));
     else if (was && ['queued', 'running'].includes(was)) {
       Office.toast(T('job.done.' + (job.result === 'ok' ? 'ok' : job.result === 'warnings' ? 'warnings' : 'failed'), { what: job.what }), job.result !== 'ok');
       await load(true);
@@ -1563,6 +1565,7 @@ async function restoreDialog(req, title) {
   let ask = { ...req };
   let seq = 0;                   // the newest preview asked for: an older answer arriving late is dropped
   let sizeMap = null;            // path -> {bytes}: what the agent measured in the background
+  let sizeFails = 0;             // its asks in a row that didn't come through (Office.pollDelay)
   let entrySig = '';
   const d = Office.dialog({
     title,
@@ -1622,7 +1625,8 @@ async function restoreDialog(req, title) {
     const mine = seq;
     const j = await Office.api.get({ a: 'part', desk: ID, part: 'sizes' });
     if (mine !== seq || !plan || !Office.dialogOpen()) return;
-    sizeMap = (j.ok && j.part && j.part.sizes) || {};
+    sizeFails = j.ok ? 0 : sizeFails + 1;
+    sizeMap = j.ok ? (j.part && j.part.sizes) || {} : sizeMap || {};      // a blip keeps what was measured
     if (req.kind === 'files' && plan.options && JSON.stringify((plan.options.entries || []).map((e) => entryBytes(e, sizeMap))) !== entrySig) options();
     const done = sizes && sizes.measuring ? sizesDone(sizes, sizeMap) : null;
     if (done) {
@@ -1632,7 +1636,7 @@ async function restoreDialog(req, title) {
       pv.appendChild(previewView(plan, sizes));
       update();
     }
-    if ((sizes && sizes.measuring) || entriesPending()) timer = setTimeout(watchSize, JOB_POLL);
+    if ((sizes && sizes.measuring) || entriesPending()) timer = setTimeout(watchSize, Office.pollDelay(JOB_POLL, sizeFails));
   }
 
   async function start() {

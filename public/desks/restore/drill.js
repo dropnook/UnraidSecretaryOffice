@@ -61,16 +61,18 @@ async function refresh() {
 
 const live = () => !!(job && ['queued', 'running'].includes(job.result));
 
+let pollFails = 0;         // asks in a row that didn't come through: the poll goes on, slower (Office.pollDelay)
 async function poll() {
   clearTimeout(timer);
   timer = null;
   const was = live();
   const j = await Office.api.get({ a: 'part', desk: ID, part: 'drill-job' });
+  pollFails = j.ok ? 0 : pollFails + 1;
   if (j.ok && j.part) job = j.part;
   if (!x.shown()) return;
   if (live()) {
     x.redraw();
-    timer = setTimeout(poll, POLL);
+    timer = setTimeout(poll, Office.pollDelay(POLL, pollFails));
   } else if (was) {
     Office.toast(T('drill.done.' + (job.result === 'passed' ? 'passed' : job.result === 'failed' ? 'failed' : 'other'), { result: T('drill.result.' + job.result) }),
       job.result !== 'passed');
@@ -485,6 +487,6 @@ Office.restoreDrill = {
   stop() { clearTimeout(timer); timer = null; },
 };
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.drill = { nice, codeText, reasonText, setCert: (c) => { cert = c; }, setJob: (j) => { job = j; }, tileLine };
+  globalThis.OFFICE_DESK_TESTS.drill = { nice, codeText, reasonText, setCert: (c) => { cert = c; }, setJob: (j) => { job = j; }, tileLine, poll, job: () => job };
 }
 })();
