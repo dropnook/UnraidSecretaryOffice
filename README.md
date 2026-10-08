@@ -197,6 +197,26 @@ the gone server's copies, for 7 days — and a safety code; pasted on the new se
 the backup place first, then the shares and VMs (into shares you created in Unraid, else under
 `UnraidSecretaryOffice-restored` — the office never makes shares).
 
+## The network
+
+The Night Watchman can read what your router says about this server — UniFi gateways for now. The office never
+listens itself: the router sends its log to Unraid's own syslog server (*Settings → Network Services → Syslog
+Server*, one file per sender in a share of its own on a pool that never sleeps), and he reads those files every
+round like the syslog — never while the array is stopped, never a disk woken, nothing written there, no router
+password, never a word to the router. The Consultant shows the setting (and which of your shares qualify) and the
+router's side (UniFi Network 10.x: *Settings → CyberSecure → Traffic Logging → Activity Logging (Syslog) → SIEM
+Server*, «Blocked Traffic Only»). Only what concerns this server becomes an entry in the group **The network**: a new
+sender, a device never seen on the LAN, someone using the server's name or address with another MAC, a router or VPN
+login not seen before, a change to the router's firewall, NAT or port forwarding, other settings changed (one line a
+day), intrusion detections against this server or from it, the router blocking something the server sent, the router's
+log going silent — and a tip when the router's clock is off. A new device and, minutes later, a login on Unraid from
+its address show up together. Privacy: another device's address or name appears only in an entry about that device;
+detections on other devices are counts, and a switch «Whole LAN» adds per-device counts — never a destination. The
+Team Lead checks the syslog server (the share sleeps, no rotation, the share exported, a container on UDP 514, the
+remote syslog server pointing at itself), Ms. Protocolli reads the routers' files out, Mr. Backupsy proposes their
+share «not backed up». Dashboards and weeks of the router's log are the neighbours' job — FireSight, Loki + Alloy,
+CrowdSec or a real SIEM; the Consultant names them.
+
 ## Monitoring
 
 Optional: with a Node Exporter, Prometheus and Grafana on the server (the
@@ -209,7 +229,7 @@ sizes), the last one that went well, a run going on now, runs skipped because
 the engine was busy; Ms. Snapshotini's snapshots per pool and her plans; the
 Team Lead's open points; Mr. Restori's last drill (when, when it last passed, its items by result, what it read back
 from Kopia); the night watchman's findings and the data flow (bytes sent per file
-service, written per ZFS share); Ms. Protocolli's last
+service, written per ZFS share, the router's lines per sender); Ms. Protocolli's last
 tour, EmbyCache and Ms. Dustdevil's storeroom — all named `uso_…`.
 [`monitoring/grafana-dashboard.json`](monitoring/grafana-dashboard.json) is a
 ready dashboard (Grafana: *Dashboards → New → Import*, choose the Prometheus
