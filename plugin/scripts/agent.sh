@@ -400,6 +400,22 @@ partner_release() {
     return 0
 }
 
+# Array stopping: what Mr. Restori pulled from a partner office lies in datasets of a pool, mounted read-only under the
+# office's restored/ folder in /mnt/addons (agent/desks/restore-partner.php) - unmounted now (lazily when busy), else the
+# pool can't go. Nothing mounted there - nothing done (one read of /proc/mounts). The agent mounts them again at its start.
+restored_release() {
+    local root=/mnt/addons/UnraidSecretaryOffice/restored mnt n=0
+    while IFS= read -r mnt; do
+        mnt=${mnt//\\040/ }
+        [[ "$mnt" == "$root"/* ]] || continue
+        umount "$mnt" 2>/dev/null || umount -l "$mnt" 2>/dev/null
+        rmdir "$mnt" 2>/dev/null
+        n=$((n + 1))
+    done < <(awk -v r="$root/" 'index($2, r) == 1 { print $2 }' /proc/mounts 2>/dev/null)
+    (( n )) && echo "$(date '+%F %T') array stopping: $n of Mr. Restori's pulls unmounted ($root)" >>"$LOG"
+    return 0
+}
+
 # Array stopping: Mr. Restori's drill or restore (atd jobs, the engine's lock file open on the pool) ended at once - SIGTERM
 # to the agent.php its RAM marker names ("<pid> <id>"), the drill's throwaways (label uso.drill) gone; no marker: nothing.
 drill_release() {
@@ -432,6 +448,7 @@ array_event() {
         stop                # the agent and whatever it started: nothing may keep a pool busy
         drill_release       # Mr. Restori's drill or restore (atd jobs): ended, the drill's throwaways gone
         partner_release     # a partner's transfer coming in through the door - nor that
+        restored_release    # what Mr. Restori pulled from a partner, mounted read-only - nor that
         backup_release      # the backup engine's mounts left between runs (keep_mounts) - nor those
         night_start         # RAM and flash only
     else

@@ -749,5 +749,7 @@
   "posture.partner_public.title": {"one": "Un socio está en internet: {names}", "other": "{n} socios están en internet: {names}"},
   "posture.partner_public.why": "La dirección de la asociación es pública: las copias viajan por internet — cifradas, pero el SSH de este servidor debe entonces ser accesible desde allí, para todos. Entre dos hogares un túnel es el mejor camino: WireGuard (⟦Settings⟧ → ⟦VPN Manager⟧) o Tailscale; luego empareja de nuevo con la dirección del túnel.",
   "posture.partner_friend.title": {"one": "Copias sin cifrar van a un amigo: {names}", "other": "Copias sin cifrar van a {n} amigos: {names}"},
-  "posture.partner_friend.why": "Un socio guarda tus instantáneas tal cual — legibles para quien sea root allí. Bien para tu propio segundo servidor o la familia; para el servidor de un amigo piénsalo dos veces: todo lo que hay en esos recursos compartidos puede leerse allí. Cifrado en su lugar: Kopia al servidor del amigo (el consultor explica cómo) — el amigo guarda entonces solo bloques, la contraseña se queda aquí."
+  "posture.partner_friend.why": "Un socio guarda tus instantáneas tal cual — legibles para quien sea root allí. Bien para tu propio segundo servidor o la familia; para el servidor de un amigo piénsalo dos veces: todo lo que hay en esos recursos compartidos puede leerse allí. Cifrado en su lugar: Kopia al servidor del amigo (el consultor explica cómo) — el amigo guarda entonces solo bloques, la contraseña se queda aquí.",
+  "detail.ticket": "Ticket de restauración",
+  "detail.ticket_text": "un servidor nuevo puede leer las copias de {of} hasta {until}"
 }

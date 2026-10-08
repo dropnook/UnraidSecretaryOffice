@@ -730,6 +730,7 @@ function details(e) {
     // a partner office's door (the Team Lead's pairing): never a key, only its fingerprint and addresses
     add(T('detail.partner'), p.name || p.id);
     if (e.kind === 'partner_paired') {
+      if (p.kind === 'ticket') add(T('detail.ticket'), T('detail.ticket_text', { of: p.of || '', until: p.expires ? fmt.date(p.expires) : '?' }));
       add(T('detail.address'), p.address, true);
       add(T('detail.from'), p.from, true);
       add(T('detail.fingerprint'), p.fp, true);

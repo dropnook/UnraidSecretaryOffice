@@ -12,7 +12,7 @@ const ID = 'restore';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
 const SECTIONS = ['apps', 'vms', 'dbs', 'kopia', 'journal', 'move', 'drill'];
-const ICONS = { apps: '📦', vms: '🖥️', dbs: '🗄️', kopia: '☁️', journal: '📓', move: '🚚', drill: '🧪' };
+const ICONS = { apps: '📦', vms: '🖥️', dbs: '🗄️', kopia: '☁️', journal: '📓', move: '🚚', drill: '🧪', partner: '🏢' };
 const SELF = (typeof document !== 'undefined' && document.currentScript && document.currentScript.src) || '';     // drill.js lies next to this file
 const HOLDERS = ['backup', 'check', 'dryrun', 'setup', 'restore', 'other'];
 const JOB_POLL = 2000;
@@ -159,6 +159,8 @@ function andList(names) {
   try { return new Intl.ListFormat(Office.locale, { style: 'long', type: 'conjunction' }).format(names); } catch (e) { return names.join(', '); }
 }
 const apps = () => (state && state.apps) || [];
+const partners = () => (state && state.partners) || [];
+const partnerOf = (id) => partners().find((p) => p.id === id) || null;
 const vms = () => (state && state.vms) || [];
 const engine = () => (state && state.engine) || {};
 const kopia = () => (state && state.kopia) || {};
@@ -310,9 +312,10 @@ function notices() {
   const callout = (text, warn) => out.push(el('p', 'callout' + (warn ? ' warn' : ''), text));
   const e = engine();
   if (!e.found) callout(T('notice.no_engine'), true);
-  else if (!state.place.base) callout(T('notice.no_place'), true);
+  else if (!state.place.base) callout(T(partners().some((p) => p.kind === 'ticket') ? 'notice.no_place_ticket' : 'notice.no_place'), !partners().some((p) => p.kind === 'ticket'));
   else if (state.place.asleep) callout(T('notice.asleep', { path: state.place.base }), false);
   else if (!state.place.found) callout(T('notice.no_packages', { path: state.place.base }), false);
+  if (state.place.partner) callout(T('notice.place_partner', { name: state.place.partner.name, when: date(state.place.partner.time), path: state.place.base }), false);
   const run = runningJob();
   if (run) {
     const c = el('p', 'callout', T('notice.restoring', { what: run.what, n: run.step, total: run.steps }) + ' ');
@@ -354,18 +357,35 @@ function tileLine(sec) {
     return [kopia().container ? T('tile.kopia_on', { name: kopia().container }) : T('tile.kopia_missing'), t ? fmt.relative(t) : ''];
   }
   if (sec === 'drill') return Office.restoreDrill ? Office.restoreDrill.tileLine() : [T('drill.tile_none'), ''];
+  if (sec.startsWith('partner:')) {
+    const p = partnerOf(sec.slice(8));
+    if (!p) return ['', ''];
+    const held = p.units.filter((u) => u.snaps.length);
+    const newest = Math.max(0, ...held.map((u) => u.newest || 0));
+    const line = p.looked === null ? T(p.looking ? 'tile.partner_asking' : 'tile.partner_never')
+      : held.length ? T('tile.partner_line', { n: held.length }) : T('tile.partner_none');
+    return [p.reachable === false ? T('tile.partner_as_of', { when: date(p.looked) }) : line, newest ? fmt.relative(newest) : ''];
+  }
   return [T('tile.move_line'), ''];
+}
+
+/** The tiles: his sections, and after «Databases» one «At <partner>» per partner office that keeps copies of mine */
+function sections() {
+  const out = SECTIONS.slice();
+  out.splice(out.indexOf('dbs') + 1, 0, ...partners().map((p) => 'partner:' + p.id));
+  return out;
 }
 
 function renderTiles() {
   const box = view.tiles;
   box.innerHTML = '';
-  SECTIONS.forEach((sec) => {
+  sections().forEach((sec) => {
     const card = el('button', 'card' + (section === sec ? ' active' : ''));
     card.type = 'button';
     card.setAttribute('aria-pressed', String(section === sec));
     const head = el('div', 'card-head');
-    head.append(el('span', 'rs-tile-icon', ICONS[sec]), el('span', 'card-name', T('tile.' + sec)));
+    const src = sec.startsWith('partner:') ? partnerOf(sec.slice(8)) : null;
+    head.append(el('span', 'rs-tile-icon', ICONS[src ? 'partner' : sec]), el('span', 'card-name', src ? T('tile.partner', { name: src.name }) : T('tile.' + sec)));
     const [line, right] = tileLine(sec);
     const fig = el('div', 'card-figures');
     fig.append(el('span', '', line), el('span', '', right));
@@ -392,6 +412,7 @@ function renderSection() {
   else if (section === 'kopia') body.appendChild(kopiaSection());
   else if (section === 'journal') body.appendChild(journalSection());
   else if (section === 'move') body.appendChild(moveSection());
+  else if (section.startsWith('partner:') && partnerOf(section.slice(8))) body.appendChild(partnerSection(partnerOf(section.slice(8))));
   else if (section === 'drill') body.appendChild(Office.restoreDrill ? Office.restoreDrill.section() : el('p', 'empty', Office.t('common.loading')));
 }
 
@@ -463,8 +484,17 @@ function rowChips(meta, x, extraPackage, extraData) {
     ...extraPackage,
     own ? null : kopiaChip(x.kopia, ['package']),
   ]);
-  const data = chipGroup(T('chip.label_data'), [...extraData, snapsChip(x.folders), kopiaChip(x.kopia, ['data', 'all']), Office.backupChip(protectionOf(x.folders))]);
+  const data = chipGroup(T('chip.label_data'), [...extraData, snapsChip(x.folders), kopiaChip(x.kopia, ['data', 'all']), ...(x.at_partner || []).map(atPartnerChip),
+    Office.backupChip(protectionOf(x.folders))]);
   [pkg, data].forEach((g) => { if (g) meta.appendChild(g); });
+}
+
+/** «at <partner>»: a partner office keeps a unit this row's data lies in — a click opens its tile */
+function atPartnerChip(c) {
+  const x = chip(T('chip.at_partner', { name: c.name }), 'ok', T('chip.at_partner_hint', { name: c.name, unit: unitLabel(c.unit), n: c.n, when: date(c.newest) }));
+  x.dataset.own = '1';
+  x.onclick = () => pick('partner:' + c.id);
+  return x;
 }
 
 function appRow(a) {
@@ -1247,6 +1277,111 @@ function adviserLink() {
   return p;
 }
 
+// ------------------------------------------------------------------ at a partner office
+/** A unit in words: the backup place, a share, a VM */
+function unitLabel(u) {
+  if (u === 'place') return T('pt.unit_place');
+  if (String(u).startsWith('share:')) return T('pt.unit_share', { name: u.slice(6) });
+  if (String(u).startsWith('vm:')) return T('pt.unit_vm', { name: u.slice(3) });
+  return String(u || '');
+}
+
+/** «Look again»: his tick hands the look to atd (never this request); the page looks for the answer a few times */
+async function partnerLook(p, btn) {
+  if (btn) btn.disabled = true;
+  const j = await Office.api.post(`${ID}.partner_look`, {});
+  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); if (btn) btn.disabled = false; return; }
+  Office.toast(T('pt.asking', { name: p.name }));
+  [5, 15, 35, 70].forEach((sec) => setTimeout(() => { if (view) load(false); }, sec * 1000));
+}
+
+/** The moments of one unit at a partner, newest first, each with «Bring back…» */
+function partnerMoments(p, u) {
+  const box = el('div', 'box');
+  if (!u.snaps.length) {
+    box.appendChild(el('p', 'empty', u.why ? T('pt.unit_why', { why: T('pt.why.' + u.why) }) : T('pt.unit_empty')));
+    return box;
+  }
+  u.snaps.forEach((s, i) => {
+    const r = el('div', 'row nocheck');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name text', date(s.creation)));
+    const meta = el('div', 'row-meta');
+    if (i === 0) meta.appendChild(chip(T('pt.newest'), 'ok'));
+    meta.appendChild(el('span', 'mono', s.name));
+    if (s.referenced !== null && s.referenced !== undefined) meta.appendChild(el('span', '', T('pt.size', { size: fmt.size(s.referenced) })));
+    if (s.used) meta.appendChild(el('span', '', T('pt.own', { size: fmt.size(s.used) })));
+    main.appendChild(meta);
+    r.appendChild(main);
+    const right = el('div', 'rs-right');
+    right.appendChild(restoreButton(T('pt.bring'), { kind: 'partner', pair: p.id, unit: u.unit, snap: s.name },
+      T('rd.title.partner', { what: unitLabel(u.unit), name: p.name, when: date(s.creation) })));
+    r.appendChild(right);
+    box.appendChild(r);
+  });
+  return box;
+}
+
+/** «At <partner>»: what a partner office keeps of mine — per unit its moments with sizes; «as of …» when it didn't answer */
+function partnerSection(p) {
+  const again = button(T('pt.look'), 'small plain', () => partnerLook(p, again));
+  again.disabled = !Office.agent.running || p.looking;
+  const sub = p.kind === 'ticket' ? T('pt.sub_ticket', { name: p.name, of: p.of, until: date(p.expires) }) : T('pt.sub', { name: p.name });
+  const s = sectionBox(T('pt.title', { name: p.name }), sub, again);
+  if (p.looking) s.appendChild(el('p', 'callout running', T('pt.looking', { name: p.name })));
+  else if (p.looked === null) s.appendChild(el('p', 'callout', T(p.reachable === false ? 'pt.never_answered' : 'pt.never', { name: p.name, why: T('pt.why.' + (p.why || 'unreachable')) })));
+  else if (p.reachable === false) s.appendChild(el('p', 'callout warn', T('pt.as_of', { name: p.name, when: date(p.looked), why: T('pt.why.' + (p.why || 'unreachable')) })));
+  else s.appendChild(el('p', 'role', T('pt.looked', { when: date(p.looked) })));
+  s.appendChild(el('p', 'role', T('pt.beside')));
+  const box = el('div', 'box');
+  p.units.forEach((u) => {
+    const meta = el('div', 'row-meta');
+    meta.appendChild(u.snaps.length ? chip(T('pt.moments', { n: u.snaps.length }), '', T('pt.moments_hint', { name: p.name }))
+      : chip(u.known ? T('pt.none') : T('pt.unknown'), 'quiet', u.why ? T('pt.why.' + u.why) : ''));
+    if (u.newest) meta.appendChild(el('span', '', T('pt.newest_at', { when: date(u.newest) })));
+    if (u.snaps[0] && u.snaps[0].referenced) meta.appendChild(el('span', '', fmt.size(u.snaps[0].referenced)));
+    box.appendChild(unfoldingRow(`pt:${p.id}:${u.unit}`, unitLabel(u.unit), meta, () => partnerMoments(p, u)));
+  });
+  s.appendChild(box);
+  return s;
+}
+
+/**
+ * On a new server with a restore ticket: the gone server's copies at its partner, unit by unit — the backup place first
+ * (its packages make the rest of this guide work with what is at hand), then the shares and VMs.
+ */
+function ticketBlock(box, p) {
+  const st = rstep(T('move.t_title', { name: p.name, of: p.of }), T('move.t_text', { name: p.name, of: p.of, until: date(p.expires) }));
+  if (p.looked === null) st.appendChild(el('div', 'role', T(p.looking ? 'pt.looking' : 'move.t_unknown', { name: p.name })));
+  else if (p.reachable === false) st.appendChild(el('div', 'callout warn', T('pt.as_of', { name: p.name, when: date(p.looked), why: T('pt.why.' + (p.why || 'unreachable')) })));
+  const list = el('div', 'box');
+  p.units.forEach((u) => {
+    const r = el('div', 'row nocheck');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name text', unitLabel(u.unit)));
+    const meta = el('div', 'row-meta');
+    if (u.unit === 'place') meta.appendChild(chip(T('move.t_first'), 'accent', T('move.t_first_hint')));
+    if (u.snaps[0]) meta.append(el('span', '', date(u.snaps[0].creation)), el('span', '', fmt.size(u.snaps[0].referenced || 0)));
+    else meta.appendChild(chip(u.known ? T('pt.none') : T('pt.unknown'), 'quiet'));
+    main.appendChild(meta);
+    r.appendChild(main);
+    const right = el('div', 'rs-right');
+    if (u.snaps[0]) right.appendChild(restoreButton(T('move.t_pull'), { kind: 'partner', pair: p.id, unit: u.unit, snap: u.snaps[0].name },
+      T('rd.title.partner', { what: unitLabel(u.unit), name: p.name, when: date(u.snaps[0].creation) })));
+    r.appendChild(right);
+    list.appendChild(r);
+  });
+  st.appendChild(list);
+  const more = el('a', '', T('move.t_more', { name: p.name }));
+  more.href = '#/restore';
+  more.onclick = (e) => { e.preventDefault(); pick('partner:' + p.id); };
+  const line = el('p', 'role');
+  line.appendChild(more);
+  st.appendChild(line);
+  st.appendChild(el('div', 'role', T('move.t_shares')));
+  box.appendChild(st);
+}
+
 // ------------------------------------------------------------------ onto a new server
 /**
  * Everything onto another Unraid server (the old one burnt, was stolen or retired):
@@ -1277,6 +1412,7 @@ function moveSection() {
   const vmShares = [...new Set(vms().flatMap((v) => v.disks.map((d) => d.share)).filter(Boolean))];
   const vmOffsite = e.kopia && vmShares.length && vmShares.every((sh) => (state.shares || []).some((x) => x.name === sh && x.mode === 'kopia'));
   const flash = state.flash ? state.flash.path : `${base}/flash/flash.tar.gz`;
+  partners().filter((p) => p.kind === 'ticket').forEach((p) => ticketBlock(box, p));
 
   // the shares the apps and VMs keep their data in, as they are here: a missing one the user creates himself
   const needs = new Map();
@@ -1329,6 +1465,8 @@ function stepText(s) {
   if (s.do === 'start' && s.only_stopped) key = 'start_again';
   if (s.do === 'play' && s.immich) key = 'play_immich';
   if (s.do === 'aside' && s.optional) key = 'aside_optional';
+  if (s.do === 'pull' && s.resume) key = 'pull_resume';
+  if (s.do === 'pull') return T('step.' + key, { ...nice(s), unit: unitLabel(s.unit) });
   return T('step.' + key, nice(s));
 }
 
@@ -1387,13 +1525,13 @@ function previewView(p, sizes) {
 function momentView(m) {
   const wrap = el('div', 'rs-pv-part');
   const src = el('p', 'role rs-pv-src');
-  src.append(T('rd.from'), ' ', el('strong', '', m.kopia ? T('rd.snap_kopia', { name: m.name }) : m.name), ' · ', date(m.time));
+  src.append(T('rd.from'), ' ', el('strong', '', m.partner ? T('rd.snap_partner', { name: m.partner }) : m.kopia ? T('rd.snap_kopia', { name: m.name }) : m.name), ' · ', date(m.time));
   if (m.aside) src.append(' · ', T('rd.m_aside', { name: m.aside.split('/').pop() }));
   wrap.appendChild(src);
   const ul = el('ul', 'rs-pv-list');
   (m.parts || []).forEach((x) => {
     const li = el('li');
-    li.append(el('strong', '', x.base === 'kopia' ? 'Kopia' : x.base), ': ');
+    li.append(el('strong', '', x.base === 'kopia' ? (m.partner || 'Kopia') : x.base), ': ');
     if (x.asleep) li.append(T('rd.part_asleep'));
     else if (!x.covered) li.append(T(x.content ? 'rd.part_uncovered_content' : 'rd.part_uncovered'));
     else if (!x.holds) li.append(T('rd.part_empty'));
@@ -1470,6 +1608,7 @@ async function restoreDialog(req, title) {
     sizes = plan.sizes;
     if (plan.options) sleepers = [...new Set([...sleepers, ...(plan.options.asleep || []), ...(plan.options.woken || [])])];
     if (plan.options && req.kind === 'files') options();
+    if (plan.options && req.kind === 'partner') partnerOptions(opts, plan, ask, onChange);
     pv.appendChild(previewView(plan, sizes));
     update();
     if ((sizes && sizes.measuring) || entriesPending()) watchSize();
@@ -1578,8 +1717,32 @@ function filesOptions(box, plan, ask, change, sizeMap, sleepers) {
   }
 }
 
+/** A pull on a new server: the pool it lands on (awake ZFS pools; the plan says where on it) */
+function partnerOptions(box, plan, ask, change) {
+  box.innerHTML = '';
+  const pools = (plan.options || {}).pools;
+  if (!pools) return;
+  const f = el('div', 'field');
+  const label = el('label', '', T('rd.pool'));
+  const sel = el('select', 'input');
+  sel.id = 'rs-pool';
+  label.htmlFor = sel.id;
+  pools.forEach((p) => {
+    const op = el('option', '', p.asleep ? T('rd.pool_asleep', { name: p.name }) : T('rd.pool_free', { name: p.name, free: fmt.size(p.free || 0) }));
+    op.value = p.name;
+    op.disabled = !!p.asleep;
+    op.selected = p.name === (ask.pool || plan.target.pool || (plan.target.dataset || '').split('/')[0]);
+    sel.appendChild(op);
+  });
+  sel.onchange = () => change({ pool: sel.value });
+  f.append(label, sel);
+  if (!pools.length) f.appendChild(el('small', '', T('rd.pool_none')));
+  box.appendChild(f);
+}
+
 /** A moment in the list: when, its name, whose, which parts of the share it covers, whether it holds anything of it */
 function momentLabel(m, o) {
+  if (m.partner) return `${date(m.time)} — ${T('rd.snap_partner', { name: m.partner })}`;
   if (m.kopia) return `${date(m.time)} — ${T('rd.snap_kopia', { name: m.name })}`;
   const bits = [`${date(m.time)} — ${m.name}`];
   if (m.aside) bits.push(T('rd.m_aside', { name: m.aside.split('/').pop() }));
@@ -1753,7 +1916,8 @@ function journalDetail(r) {
     if (log && log.length) box.appendChild(fold(T('j.log'), el('pre', 'code rs-j-log', log.join('\n'))));
     if (r.can_putback) {
       const p = el('div', 'rs-act');
-      p.append(restoreButton(T('j.putback'), { kind: 'putback', id: r.id }, T('rd.title.putback', { what: journalTitle(r) })), ' ', el('span', 'role', T('j.putback_hint')));
+      p.append(restoreButton(T(r.kind === 'partner' ? 'j.drop' : 'j.putback'), { kind: 'putback', id: r.id }, T('rd.title.putback', { what: journalTitle(r) })), ' ',
+        el('span', 'role', T(r.kind === 'partner' ? 'j.drop_hint' : 'j.putback_hint')));
       box.appendChild(p);
     } else if (!live && ['ok', 'warnings'].includes(r.result) && !r.putback && r.kind !== 'putback') box.appendChild(el('p', 'role', T(r.kind === 'kopia' ? 'j.no_putback_kopia' : 'j.no_putback')));
   };

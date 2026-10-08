@@ -323,3 +323,75 @@ function partnerLookUnit(string $datasetUnit): string
 {
     return preg_match('/^(share|vm)-(.+)$/D', $datasetUnit, $m) ? "$m[1]:$m[2]" : $datasetUnit;
 }
+
+/**
+ * The restore tickets' lines in authorized_keys (comment uso-ticket:<id>, stage 3) — like partnerLookLines(): what each
+ * allows, a hash, the key's fingerprint, whether it is exactly as partnerTicketLine() writes it (its expiry-time read
+ * back); never the key kept.
+ *
+ * @return array<string, array{fp:?string, restrict:bool, from:?string, command:?string, others:list<string>, expires:?int, exact:bool, h:string, twice:bool}>
+ */
+function partnerLookTicketLines(string $file): array
+{
+    $text = @file_get_contents($file, false, null, 0, 1024 * 1024);
+    $out = [];
+    foreach (is_string($text) ? preg_split('/\r?\n/', $text) : [] as $raw) {
+        $line = trim($raw);
+        if ($line === '' || strlen($line) > PARTNER_LOOK_LINE_MAX || !preg_match('/uso-ticket:([0-9a-f]{8})$/D', $line, $m)) {
+            continue;
+        }
+        $id = $m[1];
+        if (isset($out[$id])) {
+            $out[$id]['twice'] = true;
+            continue;
+        }
+        $parsed = partnerLookOptions($line);
+        $restrict = false;
+        $from = $command = $expiry = null;
+        $others = [];
+        foreach ($parsed[0] ?? [] as [$name, $value]) {
+            if ($name === 'restrict' && $value === null) {
+                $restrict = true;
+            } elseif ($name === 'from' && $value !== null && $from === null) {
+                $from = $value;
+            } elseif ($name === 'command' && $value !== null && $command === null) {
+                $command = $value;
+            } elseif ($name === 'expiry-time' && $value !== null && $expiry === null) {
+                $expiry = $value;
+            } else {
+                $others[] = $name;
+            }
+        }
+        $rest = $parsed[1] ?? '';
+        $expires = $expiry !== null && preg_match('/^(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)Z$/D', $expiry, $e) ? (int) gmmktime((int) $e[4], (int) $e[5], 0, (int) $e[2], (int) $e[3], (int) $e[1]) : null;
+        $key = preg_match('/^(ssh-ed25519 [A-Za-z0-9+\/]+=*) uso-ticket:[0-9a-f]{8}$/D', $rest, $k) ? partnerKeyNorm($k[1]) : null;
+        $fp = null;
+        if (preg_match('/^((?:ssh|ecdsa|sk)-[a-z0-9@.-]{1,60}) ([A-Za-z0-9+\/]{20,}={0,3})(?: |$)/', $rest, $b) && ($blob = base64_decode($b[2], true)) !== false) {
+            $fp = 'SHA256:' . rtrim(base64_encode(hash('sha256', $blob, true)), '=');
+        }
+        $out[$id] = ['fp' => $fp, 'restrict' => $restrict, 'from' => $from, 'command' => $command, 'others' => $others, 'expires' => $expires,
+                     'exact' => $parsed !== null && $key !== null && $from !== null && $expires !== null && $line === partnerTicketLine($id, $from, $key, $expires),
+                     'h' => substr(hash('sha256', $line), 0, 16), 'twice' => false];
+    }
+    return $out;
+}
+
+/**
+ * The restore tickets this office gave (data/partner/tickets.json, root only, in its shape) — never a key: id => name,
+ * the addresses it may come from, its key's fingerprint, the pair whose copies it hands out (name), created, expires.
+ *
+ * @return array<string, array{id:string, name:string, address:string, ips:list<string>, fp:string, of:string, of_name:string, created:int, expires:int}>
+ */
+function partnerLookTickets(string $file, array $pairs = []): array
+{
+    $j = partnerReadPrivate($file);
+    $out = [];
+    foreach (is_array($j) && ($j['v'] ?? null) === 1 ? (array) ($j['tickets'] ?? []) : [] as $t) {
+        if (!partnerTicketValid($t)) {
+            continue;
+        }
+        $out[$t['id']] = ['id' => $t['id'], 'name' => $t['name'], 'address' => $t['address'], 'ips' => partnerLookFromIps($t['from']), 'fp' => $t['key'],
+                          'of' => $t['of'], 'of_name' => (string) ($pairs[$t['of']]['name'] ?? $t['of']), 'created' => $t['created'], 'expires' => $t['expires']];
+    }
+    return $out;
+}

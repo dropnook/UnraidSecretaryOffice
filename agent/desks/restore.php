@@ -70,6 +70,8 @@ $GLOBALS['rs'] = ['state' => null, 'du' => ['queue' => [], 'running' => []]];
 
 // his drill (the restore drill, stage 1): functions only, in a file of its own — the agent's desk glob has loaded it already
 require_once __DIR__ . '/restore-drill.php';
+// across servers (partner offices, stage 3): «At <partner>», «Bring back from <partner>», a new server's pulls — likewise
+require_once __DIR__ . '/restore-partner.php';
 
 function rsSizesFile(): string
 {
@@ -113,10 +115,16 @@ desk('restore', [
         } catch (Throwable $e) {
             logLine('Mr. Restori: the drill\'s sweeper: ' . $e->getMessage());
         }
+        try {
+            rspRemount();           // what he pulled from a partner: mounted again (read-only) at every agent start
+        } catch (Throwable $e) {
+            logLine('Mr. Restori: mounting what was pulled: ' . $e->getMessage());
+        }
     },
     'tick'    => function (): void {
         rsDuTick();
         drillTick();
+        rspTick();
     },
     'checks'  => fn (): array => drillChecks(),
     'metrics' => fn (): array => drillMetrics(),
@@ -131,8 +139,10 @@ desk('restore', [
         'drill_plan'  => fn (array $r) => drillPlan($r),
         'drill_start' => fn (array $r) => drillStart($r),
         'drill_set'   => fn (array $r) => drillSet($r),
+        'partner_look' => fn (array $r) => rspWantLook(),
     ],
-    'jobs'    => ['restore' => fn (array $args) => rsJob($args), 'restore-drill' => fn (array $args) => drillJob($args)],
+    'jobs'    => ['restore' => fn (array $args) => rsJob($args), 'restore-drill' => fn (array $args) => drillJob($args),
+                  'restore-partner-look' => fn (array $args) => rspLookJob($args)],
 ]);
 
 // ===================================================================== the server, once per look
@@ -658,7 +668,9 @@ function rsMoments(array $places, array $kopia = []): array
         }
     }
     foreach ($kopia as $k) {
+        // a folder brought back elsewhere — by Kopia, or pulled from a partner office (`partner`: its name)
         $m[$k['id']] = ['id' => $k['id'], 'key' => $k['id'], 'name' => $k['name'], 'time' => (int) $k['time'], 'ours' => false, 'kopia' => true, 'aside' => null,
+                        'partner' => $k['partner'] ?? null,
                         'parts' => ['kopia' => ['path' => $k['path'], 'snap' => $k['id'], 'name' => $k['name'], 'time' => (int) $k['time']]]];
     }
     $m = array_values($m);
@@ -804,12 +816,29 @@ function rsPlace(array $settings, array &$ctx): array
     $base = backupDumpsPath($share);
     $out = ['share' => $share, 'base' => $base, 'asleep' => false, 'found' => false, 'places' => []];
     if ($base === null) {
-        return $out;
+        return rsPlacePulled($out);
     }
     $out['places'] = rsLocate($base, $ctx);
     $out['asleep'] = (bool) array_filter($out['places'], fn ($p) => $p['asleep']);
     $out['found'] = !$out['asleep'] && (is_dir("$base/apps") || is_dir("$base/vms") || is_file("$base/server/run.json"));
-    return $out;
+    return rsPlacePulled($out);
+}
+
+/**
+ * No backup place here (a new server), but one pulled from a partner office: its packages are his (read-only, the
+ * newest pull). Safety dumps then go to his own folder (data/restore/safety), never into the read-only mount.
+ */
+function rsPlacePulled(array $out): array
+{
+    if ($out['found'] || $out['asleep']) {
+        return $out;
+    }
+    $pulled = rspPlaceSnaps()[0] ?? null;
+    if ($pulled === null) {
+        return $out;
+    }
+    return ['share' => $out['share'], 'base' => $pulled['path'], 'asleep' => false, 'found' => true, 'places' => [],
+            'partner' => ['name' => $pulled['partner'], 'time' => $pulled['time']], 'safety' => rsData() . '/safety'];
 }
 
 /** The engine's history: per Kopia source when it last went well (history.jsonl, newest last) */
@@ -1205,7 +1234,7 @@ function rsScan(): array
         'time'     => time(),
         'host'     => hostname(),
         'engine'   => $engine,
-        'place'    => ['share' => $place['share'], 'base' => $place['base'], 'asleep' => $place['asleep'], 'found' => $place['found'],
+        'place'    => ['share' => $place['share'], 'base' => $place['base'], 'asleep' => $place['asleep'], 'found' => $place['found'], 'partner' => $place['partner'] ?? null,
                        'snaps' => array_sum(array_map(fn ($p) => count($p['snaps']), $place['places']))],
         'kopia'    => rsKopia($engine, $settings),
         'compose_root' => rsComposeRoot(),
@@ -1222,6 +1251,7 @@ function rsScan(): array
         'run_time' => null,
         'running'  => rsRunningJob(),          // a restore of his going on now
         'restores' => rsJournals(),            // his restores, newest first
+        'partners' => rspState(),              // what partner offices keep of mine (held.json, asked by his look job)
     ];
     if ($place['asleep']) {
         // the backup place's disk sleeps: what was read before
@@ -1281,6 +1311,7 @@ function rsScan(): array
         $a['needs'] = rsNeeds($folders, $whole, $ctx);
         $a['kopia'] = $sources;
         $a['package_protection'] = rsPackageProtection($a['path'], $own('app', $a['name']));
+        $a['at_partner'] = rspChips($state['partners'], array_merge(array_map(fn ($f) => explode('/', (string) $f['path'])[3] ?? '', $folders), array_column($whole, 'share')));
         $a['files'] = array_values(array_filter($a['files'], fn ($f) => $f['what'] !== 'error'));
         $state['apps'][] = $a;
     }
@@ -1297,6 +1328,7 @@ function rsScan(): array
         $v['needs'] = rsNeeds($v['folders'], [], $ctx);
         $v['state'] = $vmStates === null ? null : ($vmStates[$v['name']] ?? 'missing');
         $v['kopia'] = $sourcesOf('vm', $v['name'], $v['id'], $v['folders'], []);
+        $v['at_partner'] = rspChips($state['partners'], array_column($v['folders'], 'share'), $v['name']);
         unset($v['files']);
         $state['vms'][] = $v;
     }
@@ -1365,7 +1397,8 @@ function rsVersionList(array $place, string $kind, string $id, string $currentRu
 {
     $out = [];
     $seen = [$currentRun => true];
-    foreach ($place['places'] as $p) {
+    // a backup place pulled from a partner office is a night's packages too (its mount: rspPlaceSnaps())
+    foreach (array_merge($place['places'], [['snaps' => array_map(fn ($x) => $x + ['partner_path' => true], rspPlaceSnaps())]]) as $p) {
         foreach ($p['snaps'] as $s) {
             $dir = "{$s['path']}/{$kind}s/$id";
             $m = is_file("$dir/manifest.json") ? readJson("$dir/manifest.json") : null;
@@ -1674,6 +1707,7 @@ function rsPlan(array $r): array
         'vm'      => rsPlanVm($r, $stamp),
         'kopia'   => rsPlanKopia($r, $stamp),
         'putback' => rsPlanPutback($r, $stamp),
+        'partner' => rsPlanPartner($r, $stamp),
         default   => throw new Problem('unknown_target', ['target' => $kind]),
     };
     return rsPlanSeal($plan, $stamp);
@@ -1920,7 +1954,8 @@ function rsPlanDbFor(array &$ctx, array $place, array $app, array $pkg, ?array $
     }
     $plan['method'] = $method;
     $db = $type === 'mariadb' ? (string) $dump['db'] : null;
-    $safety = "{$place['base']}/restore/{$app['id']}/$stamp/" . basename($dump['file']);
+    $safetyRoot = $place['safety'] ?? "{$place['base']}/restore";      // a place pulled from a partner is read-only: his own folder then
+    $safety = "$safetyRoot/{$app['id']}/$stamp/" . basename($dump['file']);
     $base = ['type' => $type, 'container' => $c, 'db' => $db] + $login;
     $steps = [];
     if (!$now[$c] && $method === 'inplace') {
@@ -1957,7 +1992,7 @@ function rsPlanDbFor(array &$ctx, array $place, array $app, array $pkg, ?array $
         $plan['putback_post'] = $others ? [['do' => 'start', 'containers' => $others, 'only_stopped' => true]] : [];
     }
     $steps[] = ['do' => 'play', 'file' => $path, 'immich' => $immich, 'method' => $method, 'safety' => $safety,
-                'putback_file' => "{$place['base']}/restore/{$app['id']}/{T}/" . basename($dump['file'])] + $base;
+                'putback_file' => "$safetyRoot/{$app['id']}/{T}/" . basename($dump['file'])] + $base;
     $steps[] = ['do' => 'verify', 'file' => $path] + $base;
     if ($others) {
         $steps[] = ['do' => 'start', 'containers' => $others, 'only_stopped' => true];
@@ -2135,11 +2170,11 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
     $asleep = array_values(array_map(fn ($p) => $p['base'], array_filter($places, fn ($p) => $p['asleep'])));
     // a part still asleep: tick «wake» — or, ticked, it didn't answer
     $sleepy = fn (): array => ['key' => $wake ? 'restore_wake_failed' : 'restore_asleep', 'params' => ['base' => implode(', ', $asleep)]];
-    $moments = rsMoments($places, rsKopiaRestored($path, $ctx));
+    $moments = rsMoments($places, array_merge(rsKopiaRestored($path, $ctx), rspRestored($path)));
     rsMomentHolds($moments, $whole);
     $plan['options'] = [
         'moments' => array_map(fn ($m) => ['id' => $m['id'], 'name' => $m['name'], 'time' => $m['time'], 'ours' => $m['ours'], 'kopia' => $m['kopia'],
-                                           'aside' => $m['aside'] ?? null, 'bases' => array_map('strval', array_keys($m['parts'])), 'holds' => $m['holds']], $moments),
+                                           'aside' => $m['aside'] ?? null, 'partner' => $m['partner'] ?? null, 'bases' => array_map('strval', array_keys($m['parts'])), 'holds' => $m['holds']], $moments),
         'parts'   => array_values(array_map(fn ($p) => $p['base'], $places)),
         'asleep'  => $asleep, 'woken' => $woke['woken'] ?? [], 'vm' => $owner['kind'] === 'vm', 'whole' => $whole, 'share' => $share,
         'entries' => null, 'nothing_live' => false,
@@ -2180,7 +2215,7 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
     }
     $plan['target']['snap'] = $moment['id'];
     $plan['moment'] = ['id' => $moment['id'], 'name' => $moment['name'], 'time' => $moment['time'], 'ours' => $moment['ours'], 'kopia' => $moment['kopia'],
-                       'aside' => $moment['aside'] ?? null, 'parts' => []];
+                       'aside' => $moment['aside'] ?? null, 'partner' => $moment['partner'] ?? null, 'parts' => []];
     foreach ($moment['kopia'] ? [] : $places as $p) {
         $b = (string) $p['base'];
         $plan['moment']['parts'][] = ['base' => $b, 'asleep' => $p['asleep'], 'covered' => isset($moment['parts'][$b]), 'holds' => in_array($b, $moment['holds'], true),
@@ -2908,6 +2943,9 @@ function rsPlanPutback(array $r, string $stamp): array
         if ($s['do'] === 'dump') {
             $plan['aside'][] = ['what' => 'safety_dump', 'from' => $s['container'], 'to' => $s['file']];
         }
+        if ($s['do'] === 'drop') {
+            $plan['aside'][] = ['what' => 'drop', 'from' => $s['dataset'], 'to' => ''];      // what a pull made — removed, nothing else
+        }
     }
     $vm = $orig['target']['vm'] ?? ($j['kind'] === 'vm' ? ($orig['target']['name'] ?? null) : null);
     $blockedVm = [];
@@ -3165,7 +3203,7 @@ function rsJob(array $args): int
 function rsStepLine(array $s): string
 {
     $parts = [$s['do']];
-    foreach (['containers', 'container', 'path', 'from', 'to', 'file', 'name', 'xml'] as $k) {
+    foreach (['containers', 'container', 'path', 'from', 'to', 'file', 'name', 'xml', 'unit', 'snap', 'dataset'] as $k) {
         if (isset($s[$k]) && $s[$k] !== '' && $s[$k] !== null) {
             $parts[] = "$k=" . (is_array($s[$k]) ? implode(',', $s[$k]) : (string) $s[$k]);
         }
@@ -3194,6 +3232,9 @@ function rsStep(array &$j, int $i): array
         'autostart' => rsDoVirsh($j, ['autostart', (string) $s['name']]),
         'kopia'     => rsDoKopia($j, $i),
         'vms_off'   => rsDoVmsOff($s),
+        'pull'      => rsDoPull($j, $i),
+        'mount'     => rsDoMount($j, $s),
+        'drop'      => rsDoDrop($j, $s),
         default     => ['state' => 'failed', 'detail' => "unknown step {$s['do']}"],
     };
 }
@@ -4336,6 +4377,10 @@ function rsFit(?array $state = null, ?array $lastRun = null, ?array $settings = 
     }
     if ($base !== null) {
         return $n ? fit(true, 'packages', ['n' => $n]) : fit(true, 'no_packages');
+    }
+    // a new server with a restore ticket: a gone server's copies wait at its partner — he pulls them
+    if (partnerTicketPairs()) {
+        return fit(true, 'partner_ticket', ['n' => $n]);
     }
     // Mr. Backupsy not set up yet: nothing to bring back — but where he can work, the two come together
     $fs ??= houseSnapshotFilesystems();
