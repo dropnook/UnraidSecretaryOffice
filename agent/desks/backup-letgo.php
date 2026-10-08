@@ -16,8 +16,9 @@ declare(strict_types=1);
  *   - The engine's own local snapshots are deleted: ZFS `<prefix>YYYYMMDD-HHMM` (backupIsEngineSnap() with the
  *     prefixes of settings.ini) and btrfs `<disk>/<btrfs_snap_dir>/YYYYMMDD-HHMM` — as Ms. Snapshotini sees them
  *     (snapshotScan()), with her estimate first (snapshotEstimate()). Never her plans' (`uso-plan-…`), never a
- *     partner's copies (anything under the partners' place), never Docker's layers, never a parked dataset's in the
- *     storeroom; a held or cloned one and one on a sleeping pool stay (counted). Each deletion goes into her record
+ *     partner's copies (anything under the partners' place), never what Mr. Restori pulled back from a partner
+ *     (backupLetGoRestored()), never Docker's layers, never a parked dataset's in the storeroom; a held or cloned one
+ *     and one on a sleeping pool stay (counted). Each deletion goes into her record
  *     (snapshotRecord()), so the night watchman knows it was the office.
  *   - settings.ini, the decisions and the schedule stay: hired again, his plan is there. Kopia's copies and the
  *     partners' are never touched.
@@ -162,7 +163,7 @@ function backupLetGoSnaps(?array $state, array $prefixes, string $btrfsDir): arr
         $ds = (string) ($s['ds'] ?? '');
         if (($s['fs'] ?? '') === 'zfs') {
             if (!backupIsEngineSnap($name, $prefixes) || !clZfsNameOk($ds)
-                || str_contains("/$ds/", '/' . PARTNER_PARENT . '/') || str_contains($ds, CL_TRASH)) {
+                || str_contains("/$ds/", '/' . PARTNER_PARENT . '/') || str_contains($ds, CL_TRASH) || backupLetGoRestored($ds)) {
                 continue;
             }
         } elseif (($s['fs'] ?? '') === 'btrfs') {
@@ -181,6 +182,16 @@ function backupLetGoSnaps(?array $state, array $prefixes, string $btrfsDir): arr
         }
     }
     return $out;
+}
+
+/**
+ * A dataset Mr. Restori pulled back from a partner (agent/desks/restore-partner.php rspTarget()): <dataset>.restored-<time>
+ * beside the original, or under <pool>/UnraidSecretaryOffice-restored/ on a new server. It arrives with the engine's
+ * snapshot names (the partner received them from the engine), but it is his, not Mr. Backupsy's: never cleared away.
+ */
+function backupLetGoRestored(string $ds): bool
+{
+    return (bool) preg_match('#\.restored-\d{8}-\d{6}(?:/|$)#D', $ds) || str_contains("/$ds/", '/' . RSP_PARENT . '/');
 }
 
 /** «What would go?» — the dialog's look: nothing changes */

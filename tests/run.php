@@ -19787,6 +19787,12 @@ function testBackupLetGo(): void
         ['zfs:pool/UnraidSecretaryOffice@uso-backup-20261001-0200', 'zfs:pool/appdata@uso-backup-20261001-0200', 'zfs:pool/appdata@unraidbackup-20260901-0200',
          'zfs:pool/appdata@uso-backup-20261003-0200', 'btrfs:/mnt/disk3/.btrfs-snap/20261001-0200'], array_column($snaps['take'], 'id'));
     same('let go: a held one and one on a sleeping pool stay, counted', [1, 1], [$snaps['held'], $snaps['asleep']]);
+    // what Mr. Restori pulled back from a partner arrives with the engine's names — his, never cleared away (review 2026-10-09)
+    $pulled = backupLetGoSnaps(['zfs' => ['snapshots' => [$z('pool/appdata.restored-20261008-120000', 'uso-backup-20261001-0200'),
+        $z('pool/' . RSP_PARENT . '/share-media', 'uso-backup-20261001-0200'), $z('pool/media.restored-20261008-120000/sub', 'uso-backup-20261001-0200'),
+        $z('pool/appdata.restored-old', 'uso-backup-20261001-0200')]]], $prefixes, '.btrfs-snap');
+    same('let go: never the snapshots of a dataset Mr. Restori pulled from a partner (beside the original, or on a new server)',
+        ['zfs:pool/appdata.restored-old@uso-backup-20261001-0200'], array_column($pulled['take'], 'id'));
     same('let go: a prefix of the user\'s own — only that one', ['zfs:pool/appdata@manual-20261001-0200'],
         array_column(backupLetGoSnaps(['zfs' => ['snapshots' => [$z('pool/appdata', 'manual-20261001-0200'), $z('pool/appdata', 'uso-backup-20261001-0200')]]],
             backupSnapPrefixes('manual-'), '.btrfs-snap')['take'], 'id'));
