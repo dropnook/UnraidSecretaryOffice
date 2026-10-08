@@ -7,6 +7,8 @@
 
 const ID = 'backup';
 const T = Office.scope(ID);
+/** «{n} <noun>» from the lang key count.<what> — its one/other forms (several counts in one text are composed of these) */
+const nOf = (what, n) => T('count.' + what, { n: Number(n) || 0 });
 const { el, fmt } = Office;
 const LIVE_POLL = 5000;
 const SETUP_STALE = 600;          // seconds: an older plan gets a warning on the setup page
@@ -490,7 +492,7 @@ function runningCard() {
   if (p.eta) line.append(T(p.overdue ? 'eta_late' : 'eta_at', { time: fmt.time(p.eta) }));
   else line.append(T(p.first ? 'eta_first' : 'eta_unknown'));
   if (s.downtime_s) line.append(' · ', T('downtime_was', { duration: fmt.duration(s.downtime_s) }));
-  if (s.packages && s.packages.written) line.append(' · ', T('pk.run_packed', { apps: s.packages.apps, vms: s.packages.vms }));
+  if (s.packages && s.packages.written) line.append(' · ', T('pk.run_packed', { apps: nOf('apps', s.packages.apps), vms: nOf('vms', s.packages.vms) }));
   card.appendChild(line);
   if (s.phase === 'vm_shutdown') card.appendChild(el('div', 'card-line', T('vm_shutdown_now')));
   if (s.phase === 'partner' && s.partner && s.partner.current) {
@@ -548,7 +550,7 @@ function runningCard() {
   }
 
   const foot = el('div', 'card-foot');
-  foot.appendChild(el('span', '', T('counts', { errors: s.errors, warnings: s.warnings })));
+  foot.appendChild(el('span', '', T('counts', { errors: nOf('errors', s.errors), warnings: nOf('warnings', s.warnings) })));
   if (s.log) foot.appendChild(button(T('show_log'), 'small plain', () => showLog(s.log, true)));
   card.appendChild(foot);
   box.appendChild(card);
@@ -661,7 +663,7 @@ function overviewTiles() {
     if (stale) sub.push(T('stat.pk_stale', { n: stale }));
     if (pk.old_runs) sub.push(T('stat.pk_old', { n: pk.old_runs }));
     if (pk.asleep) sub.push(T('stat.pk_asleep'));
-    const t = stat(T('stat.packages'), T('stat.pk_value', { apps: pk.apps.length - pk.apps.filter((a) => a.stale).length, vms: pk.vms.length - pk.vms.filter((v) => v.stale).length }), sub.join(' · '), bad > 0);
+    const t = stat(T('stat.packages'), T('stat.pk_value', { apps: nOf('apps', pk.apps.length - pk.apps.filter((a) => a.stale).length), vms: nOf('vms', pk.vms.length - pk.vms.filter((v) => v.stale).length) }), sub.join(' · '), bad > 0);
     tiles.push(clickable(t, () => {
       const g = view && view.querySelector('.bk-protect tr.bk-group.bk-apps');
       if (g) g.scrollIntoView({ block: 'start', behavior: 'smooth' });
@@ -1189,8 +1191,8 @@ function historySection() {
     if (ks) meta.appendChild(el('span', '', T('kopia_skipped_count', { n: ks })));
     if (asleepUnits(r)) meta.appendChild(el('span', '', T('asleep.left_out', { n: asleepUnits(r) })));
     if (r.downtime) meta.appendChild(el('span', '', T('downtime_short', { duration: fmt.duration(r.downtime) })));
-    if (r.packages && (r.packages.apps || r.packages.vms)) meta.appendChild(el('span', '', T('pk.history', { apps: r.packages.apps, vms: r.packages.vms })));
-    if (r.errors || r.warnings) meta.appendChild(el('span', '', T('counts', { errors: r.errors, warnings: r.warnings })));
+    if (r.packages && (r.packages.apps || r.packages.vms)) meta.appendChild(el('span', '', T('pk.history', { apps: nOf('apps', r.packages.apps), vms: nOf('vms', r.packages.vms) })));
+    if (r.errors || r.warnings) meta.appendChild(el('span', '', T('counts', { errors: nOf('errors', r.errors), warnings: nOf('warnings', r.warnings) })));
     if (r.message && r.result !== 'ok') meta.append(el('span', 'note', messageText(r.message)));
     main.appendChild(meta);
     row.appendChild(main);
@@ -3534,7 +3536,7 @@ function setupMessages(msgs) {
   const det = el('details', 'bk-log');
   const counts = { error: 0, warn: 0 };
   (msgs || []).forEach((m) => { if (counts[m.level] !== undefined) counts[m.level]++; });
-  det.appendChild(el('summary', '', T('setup.messages_sum', { n: (msgs || []).length, errors: counts.error, warnings: counts.warn })));
+  det.appendChild(el('summary', '', T('setup.messages_sum', { messages: nOf('messages', (msgs || []).length), errors: nOf('errors', counts.error), warnings: nOf('warnings', counts.warn) })));
   const ul = el('ul', 'bk-msgs');
   (msgs || []).forEach((m) => {
     const li = el('li', msgClass(m));
@@ -3691,7 +3693,7 @@ Office.desk({
       if (last) facts.push(T('fact.last', { when: fmt.date(last.started, true), result: T('result.' + last.result) }));
       const shares = state.shares || [];
       const off = shares.filter((s) => s.mode === 'off').length;
-      facts.push(T('fact.shares', { kopia: shares.filter((s) => s.mode === 'kopia').length, local: shares.filter((s) => s.mode === 'snapshot').length, off }));
+      facts.push(T('fact.shares', { kopia: nOf('shares', shares.filter((s) => s.mode === 'kopia').length), local: shares.filter((s) => s.mode === 'snapshot').length, off }));
       if (state.version) facts.push(T('fact.version', { version: state.version }));
     }
     return { bubble: bubbleText().join(' '), facts };
