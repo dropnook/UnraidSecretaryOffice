@@ -11,7 +11,7 @@ declare(strict_types=1);
  * Every desk, in desk.json's order ("order", then the id) — the order of a fresh office; the user may set another one
  * at the reception (staff.php officeStaffOrder()).
  *
- * @return array<string, array{id:string, order:int, icon:string, refresh_after:int, parts:array<string, array{refresh_after:int, action:string}>, css:bool, always:bool, training:bool}>
+ * @return array<string, array{id:string, order:int, icon:string, refresh_after:int, parts:array<string, array{refresh_after:int, action:string}>, css:bool, always:bool, training:bool, with:?string}>
  */
 function officeDesks(): array
 {
@@ -35,7 +35,15 @@ function officeDesks(): array
             'css'           => is_file(dirname($file) . '/desk.css'),
             'always'        => !empty($meta['always']),       // always in the office (the caretaker), never hired or fired
             'training'      => !empty($meta['training']),     // still learning: the caretaker shows him, nobody can hire him yet
+            // the colleague he needs (desk.json "with": Mr. Restori works from Mr. Backupsy's packages): the Team Lead
+            // offers to hire both at once; only another desk's id, else null
+            'with'          => is_string($meta['with'] ?? null) && $meta['with'] !== $id ? $meta['with'] : null,
         ];
+    }
+    foreach ($desks as $id => $desk) {
+        if ($desk['with'] !== null && !isset($desks[$desk['with']])) {
+            $desks[$id]['with'] = null;
+        }
     }
     uasort($desks, fn ($a, $b) => [$a['order'], $a['id']] <=> [$b['order'], $b['id']]);
     return $desks;
