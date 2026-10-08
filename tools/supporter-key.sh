@@ -1,13 +1,15 @@
 #!/bin/bash
 # Unraid Secretary Office — supporter keys (for the maintainer only).
 #
-#   tools/supporter-key.sh <server-id> "<name>" [YYYY-MM-DD]   prints a new key (date: today)
+#   tools/supporter-key.sh [--level <level>] <server-id> "<name>" [YYYY-MM-DD]   prints a new key (date: today)
 #   tools/supporter-key.sh --verify <key> [<server-id>]         checks a key, says what it carries
 #
 # A supporter key unlocks nothing — the office is free and complete. It only says
 # thank you: no more reminders, a small thank-you at the team lead. The server ID is
 # what the tip jar shows (XXXX-XXXX-XXXX-XXXX); the format is described and checked in
-# src/supporter.php.
+# src/supporter.php. The level is the thank-you's picture, by the tip (any of USD/EUR/CHF):
+# coffee (default, any tip) · round (from 20) · cake (from 50) · raise (from 100);
+# coffee is written as no level at all, so such a key is one any office version takes.
 #
 #   USO_SUPPORTER_KEY  the private key (PEM, EC P-256), default
 #                      ~/.config/uso-supporter/supporter-private.pem — it stays on the
@@ -24,6 +26,7 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 die() { echo "supporter-key: $*" >&2; exit 1; }
 usage() {
   sed -n '4,5p' "${BASH_SOURCE[0]}" | sed 's/^# *//' >&2
+  echo "levels: coffee (default) | round | cake | raise" >&2
   exit 2
 }
 
@@ -95,9 +98,10 @@ verify() {
   payload=$(printf '%s' "$p" | b64url_decode 2>/dev/null) || { echo "payload: not base64url" >&2; return 1; }
   echo "signature: valid"
   echo "payload:   $payload"
-  [[ $payload =~ ^\{\"v\":1,\"id\":\"([0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4})\",\"name\":\".*\",\"date\":\"[0-9]{4}-[0-9]{2}-[0-9]{2}\"\}$ ]] \
+  [[ $payload =~ ^\{\"v\":1,\"id\":\"([0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4})\",\"name\":\".*\",\"date\":\"[0-9]{4}-[0-9]{2}-[0-9]{2}\"(,\"l\":\"(round|cake|raise)\")?\}$ ]] \
     || { echo "payload: not in the office's shape" >&2; return 1; }
   id=${BASH_REMATCH[1]}
+  echo "level:     ${BASH_REMATCH[3]:-coffee}"
   if [[ -n $want && $id != "$want" ]]; then
     echo "server:    for $id, not for $want" >&2
     return 1
@@ -105,16 +109,21 @@ verify() {
 }
 
 sign() {
-  local id name=$2 date=${3:-} payload head key
+  local id name=$2 date=${3:-} payload head key extra=
   id=$(printf '%s' "$1" | tr 'a-f' 'A-F')
   [[ -n $date ]] || date=$(date +%F)
   [[ $id =~ ^[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$ ]] || die "the server ID looks like XXXX-XXXX-XXXX-XXXX (16 hex digits, from the tip jar)"
   name_ok "$name" || die "the name: 1–60 printable characters, no space at either end"
   date_ok "$date" || die "the date: YYYY-MM-DD"
+  case $level in
+    coffee) ;;                                     # no l: a coffee key, the same bytes as before levels
+    round|cake|raise) extra=",\"l\":\"$level\"" ;;
+    *) die "the level: coffee, round, cake or raise" ;;
+  esac
   [[ -r $private ]] || die "no private key at $private (USO_SUPPORTER_KEY)"
   local esc=${name//\\/\\\\}
   esc=${esc//\"/\\\"}
-  payload="{\"v\":1,\"id\":\"$id\",\"name\":\"$esc\",\"date\":\"$date\"}"
+  payload="{\"v\":1,\"id\":\"$id\",\"name\":\"$esc\",\"date\":\"$date\"$extra}"
   head="USO1.$(printf '%s' "$payload" | b64url)"
   printf '%s' "$head" > "$work/sign.msg"
   openssl dgst -sha256 -sign "$private" -out "$work/sign.sig" "$work/sign.msg" 2>/dev/null || die "signing failed (is $private an EC P-256 private key?)"
@@ -123,8 +132,15 @@ sign() {
   printf '%s\n' "$key"
 }
 
+level=coffee
+if [[ ${1:-} == --level ]]; then
+  (( $# >= 2 )) || usage
+  level=$2
+  shift 2
+fi
+
 case ${1:-} in
-  --verify) (( $# >= 2 && $# <= 3 )) || usage; verify "$2" "${3:-}" ;;
+  --verify) (( $# >= 2 && $# <= 3 )) && [[ $level == coffee ]] || usage; verify "$2" "${3:-}" ;;
   ''|-h|--help) usage ;;
   -*) usage ;;
   *) (( $# >= 2 && $# <= 3 )) || usage; sign "$@" ;;

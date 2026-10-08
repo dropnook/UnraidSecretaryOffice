@@ -8,7 +8,8 @@ declare(strict_types=1);
  * the reminders asks this file (backups, restores, the desks never do). A tip
  * with this server's ID in its note gets a supporter key from the maintainer;
  * with a valid one the office stops reminding (the tip jar after hiring, the
- * team lead's one ask) and the team lead shows a small thank-you with the name.
+ * team lead's one ask) and the team lead shows a small thank-you with the name,
+ * its picture the tip's level (coffee, a round, cake, a pay rise — not a rank).
  *
  * Server ID: sha256("uso-supporter:" . strtoupper(GUID)), its first 16 hex
  * digits upper-case as XXXX-XXXX-XXXX-XXXX. The GUID is Unraid's regGUID in
@@ -21,10 +22,16 @@ declare(strict_types=1);
  * never comes near the office. A key for another server has no effect. For whoever
  * makes keys, exactly what officeSupporterCheck() accepts:
  *   - payload: UTF-8 JSON, an object with exactly the keys v, id, name, date in this
- *     order — {"v":1,"id":"XXXX-XXXX-XXXX-XXXX","name":"<name>","date":"YYYY-MM-DD"};
+ *     order — {"v":1,"id":"XXXX-XXXX-XXXX-XXXX","name":"<name>","date":"YYYY-MM-DD"} —
+ *     or with l as a fifth key: {…,"date":"YYYY-MM-DD","l":"cake"};
  *     v the integer 1, id the server ID (16 upper-case hex digits in groups of 4),
  *     name 1–60 characters (not bytes), none of them a control/format character or a
- *     line/paragraph separator, no white space at either end; date a real day.
+ *     line/paragraph separator, no white space at either end; date a real day;
+ *     l the thank-you's level (Benj, 2026-10-08), exactly "round" (a tip from 20),
+ *     "cake" (from 50) or "raise" (from 100). Without l the key is «coffee» (any tip,
+ *     and every key made before levels) — coffee is never written as l. The level is
+ *     signed like the rest, so the office never shows one nobody signed; it only
+ *     chooses the plate's picture (☕ ☕☕ 🍰 💐) and unlocks nothing, like the key.
  *     Compact, non-ASCII unescaped is what the tool writes (JSON.stringify() gives the
  *     same); the bytes are never re-encoded here, any valid JSON spelling of that shape counts.
  *   - b64url: RFC 4648 base64url, no padding, canonical (unused bits zero).
@@ -53,6 +60,7 @@ const OFFICE_SUPPORTER_ASK_AFTER = 7 * 86400;     // the team lead's one ask: a 
 const OFFICE_SUPPORTER_ASK_AGAIN = 30 * 86400;    // «Not now»: again in a month …
 const OFFICE_SUPPORTER_ASKS      = 3;             // … at most twice more
 const OFFICE_SUPPORTER_ACTIONS   = ['office.supporter_set', 'office.supporter_remove', 'office.supporter_ask'];
+const OFFICE_SUPPORTER_LEVELS    = ['coffee', 'round', 'cake', 'raise'];   // the thank-you's picture; coffee = no l in the key
 
 /** This server's ID for a supporter key, null when var.ini names no GUID */
 function officeServerId(string $varIni = '/var/local/emhttp/var.ini'): ?string
@@ -106,7 +114,7 @@ function officeSupporterNameOk(mixed $name): bool
 /**
  * What a key says, checked strictly: 'valid' (signed, for this server), 'other' (signed, for
  * another server — no effect) or 'invalid' (anything else). Never throws.
- * @return array{state: string, id?: string, name?: string, date?: string}
+ * @return array{state: string, id?: string, name?: string, date?: string, level?: string}
  */
 function officeSupporterCheck(string $key, ?string $serverId): array
 {
@@ -132,15 +140,17 @@ function officeSupporterCheck(string $key, ?string $serverId): array
         return $bad;
     }
     $data = json_decode($payload, true, 2);
-    if (!is_array($data) || array_keys($data) !== ['v', 'id', 'name', 'date']) {
+    if (!is_array($data) || !in_array(array_keys($data), [['v', 'id', 'name', 'date'], ['v', 'id', 'name', 'date', 'l']], true)) {
         return $bad;
     }
     ['v' => $v, 'id' => $id, 'name' => $name, 'date' => $date] = $data;
+    $level = $data['l'] ?? 'coffee';                        // no l: coffee (and every key from before levels)
     if ($v !== 1 || !is_string($id) || !preg_match(OFFICE_SUPPORTER_ID, $id) || !officeSupporterNameOk($name)
-        || !is_string($date) || !preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $date, $d) || !checkdate((int) $d[2], (int) $d[3], (int) $d[1])) {
+        || !is_string($date) || !preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $date, $d) || !checkdate((int) $d[2], (int) $d[3], (int) $d[1])
+        || (array_key_exists('l', $data) && !in_array($data['l'], ['round', 'cake', 'raise'], true))) {
         return $bad;
     }
-    return ['state' => $serverId !== null && hash_equals($serverId, $id) ? 'valid' : 'other', 'id' => $id, 'name' => $name, 'date' => $date];
+    return ['state' => $serverId !== null && hash_equals($serverId, $id) ? 'valid' : 'other', 'id' => $id, 'name' => $name, 'date' => $date, 'level' => $level];
 }
 
 /** Does the team lead ask now? A week after the first sight, never with a valid key, «Not now» at most twice */
@@ -170,14 +180,14 @@ function officeSupporterAnswer(array $data, string $answer, int $now): array
 
 /**
  * What the page gets (CONFIG.supporter): this server's ID, the saved key's state
- * ('none', 'valid', 'other', 'invalid') with its name, date and ID, and whether the team lead asks
+ * ('none', 'valid', 'other', 'invalid') with its name, date, ID and level, and whether the team lead asks
  */
 function officeSupporterInfo(array $data, ?string $serverId, int $now): array
 {
     $check = is_string($data['key'] ?? null) ? officeSupporterCheck($data['key'], $serverId) : ['state' => 'none'];
     $info = ['id' => $serverId, 'state' => $check['state']];
     if (isset($check['id'])) {
-        $info += ['name' => $check['name'], 'date' => $check['date'], 'key_id' => $check['id']];
+        $info += ['name' => $check['name'], 'date' => $check['date'], 'key_id' => $check['id'], 'level' => $check['level']];
     }
     $info['ask'] = officeSupporterAskDue($data, $check['state'] === 'valid', $now);
     return $info;
