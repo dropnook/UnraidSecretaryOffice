@@ -448,8 +448,8 @@ array_event() {
         stop                # the agent and whatever it started: nothing may keep a pool busy
         drill_release       # Mr. Restori's drill or restore (atd jobs): ended, the drill's throwaways gone
         partner_release     # a partner's transfer coming in through the door - nor that
-        restored_release    # what Mr. Restori pulled from a partner, mounted read-only - nor that
         backup_release      # the backup engine's mounts left between runs (keep_mounts) - nor those
+        restored_release    # what Mr. Restori pulled from a partner, mounted read-only - nor that
         night_start         # RAM and flash only
     else
         watch_cron

@@ -2217,7 +2217,7 @@ function watchmanPartnerAdopt(array &$b, ?array $seen, array &$book, int $now, a
             continue;
         }
         $t = is_array($seen['tickets'] ?? null) ? ($seen['tickets'][$id] ?? null) : null;
-        if (!is_array($t) || ($l['expires'] ?? null) !== $t['expires']
+        if (!is_array($t) || !is_int($l['expires'] ?? null) || gmdate('YmdHi', $l['expires']) !== gmdate('YmdHi', (int) $t['expires'])
             || !watchmanPartnerOwnLine($l, ['fp' => $t['fp'], 'ips' => $t['ips'], 'paired' => $t['created']], $seen['mtime'] ?? null)) {
             continue;
         }

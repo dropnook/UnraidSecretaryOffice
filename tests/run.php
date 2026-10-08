@@ -11687,6 +11687,22 @@ if ($me === 'mbuffer') {
     stream_copy_to_stream(STDIN, STDOUT);
     exit(0);
 }
+if ($me === 'pv') {
+    $n = stream_copy_to_stream(STDIN, STDOUT);
+    fwrite(STDERR, "$n\n");
+    exit(0);
+}
+if ($me === 'mount' || $me === 'umount') {
+    // mount -t zfs -o ro,noatime <ds> <path> / umount <path>: the kernel's table is mounts beside
+    $lines = array_values(array_filter(explode("\n", (string) @file_get_contents("$dir/mounts"))));
+    if ($me === 'mount') {
+        $lines[] = $a[4] . ' ' . $a[5] . ' zfs ro,noatime 0 0';
+    } else {
+        $lines = array_values(array_filter($lines, fn ($l) => explode(' ', $l)[1] !== $a[0]));
+    }
+    file_put_contents("$dir/mounts", implode("\n", $lines) . "\n");
+    exit(0);
+}
 if ($me === 'ssh') {
     $key = $known = $port = $dest = $remote = null;
     for ($i = 0; $i < count($a); $i++) {
@@ -11759,8 +11775,9 @@ switch ($cmd) {
             foreach ($rest as $p) { echo "$p\t" . ($st['avail'][$p] ?? 1000000000000) . "\n"; }
             exit(0);
         }
+        foreach ($rest as $p) { if (!isset($st['ds'][$p])) { $no($p); } }
         foreach (array_keys($st['ds']) as $n) {
-            foreach ($rest as $p) { if ($n === $p || str_starts_with($n, "$p/")) { echo "$n\n"; } }
+            foreach ($rest as $p) { if ($n === $p || (isset($f['-r']) && str_starts_with($n, "$p/"))) { echo "$n\n"; } }
         }
         exit(0);
     case 'get':
@@ -11775,9 +11792,11 @@ switch ($cmd) {
                 'receive_resume_token' => $st['ds'][$target]['token'] ?? '-',
                 'available' => $st['avail'][$target] ?? 1000000000000,
                 'written' => $snap ? $st['snaps'][$target]['written'] : 0,
+                'mountpoint' => $st['ds'][$target]['mountpoint'] ?? '-',
+                'guid' => $st['ds'][$target]['guid'] ?? (string) abs(crc32($target)),
                 default => '-',
             };
-            echo "$p\t$v\n";
+            echo ($f['-o'] ?? '') === 'value' ? "$v\n" : "$p\t$v\n";
         }
         exit(0);
     case 'create':
@@ -11800,6 +11819,15 @@ switch ($cmd) {
         exit(0);
     case 'destroy':
         $t = $rest[0];
+        if (isset($f['-r']) && isset($st['ds'][$t])) {
+            foreach (['ds' => '/', 'snaps' => '@'] as $k => $sep) {
+                foreach (array_keys($st[$k]) as $n) {
+                    if ($n === $t || str_starts_with($n, "$t$sep") || str_starts_with($n, "$t/")) { unset($st[$k][$n]); }
+                }
+            }
+            $save();
+            exit(0);
+        }
         if (!isset($st['snaps'][$t])) { $no($t); }
         if ($st['snaps'][$t]['userrefs'] > 0) { fwrite(STDERR, "cannot destroy snapshot $t: dataset is busy\n"); exit(1); }
         unset($st['snaps'][$t]);
@@ -11834,6 +11862,7 @@ switch ($cmd) {
         $parent = substr($ds, 0, (int) strrpos($ds, '/'));
         if (!isset($st['ds'][$parent])) { fwrite(STDERR, "cannot receive: parent does not exist\n"); exit(1); }
         if (str_starts_with($data, 'FAIL')) { fwrite(STDERR, "cannot receive incremental stream: invalid backup stream\n"); exit(1); }
+        if ($data === '') { fwrite(STDERR, "cannot receive: failed to read from stream\n"); exit(1); }
         if (str_starts_with($data, 'INTERRUPT')) {
             $st['ds'][$ds] = ($st['ds'][$ds] ?? ['used' => 0, 'props' => $o]) + [];
             $st['ds'][$ds]['token'] = '1-abcdef0123-c8-789c0123456789';
@@ -11868,13 +11897,15 @@ if ($cmd === 'send') {
         echo ($base !== null ? "incremental\t$base\t$target\t$size\n" : "full\t$target\t$size\n") . "size\t$size\n";
         exit(0);
     }
-    echo 'SNAP:' . explode('@', $target)[1] . ' ' . ($base !== null ? 'from ' . explode('@', $base)[1] : 'whole') . (isset($f['-t']) ? ' resumed' : '') . "\n";
+    if (($st['send_sleep'] ?? 0) > 0) { sleep((int) $st['send_sleep']); }
+    echo (($st['send_interrupt'] ?? false) && !isset($f['-t']) ? 'INTERRUPT ' : '') . 'SNAP:' . explode('@', $target)[1] . ' ' . ($base !== null ? 'from ' . explode('@', $base)[1] : 'whole')
+        . (isset($f['-t']) ? ' resumed' : '') . "\n";
     exit(($st['send_fail'] ?? false) ? 1 : 0);
 }
 fwrite(STDERR, "stand-in: unknown $cmd\n");
 exit(2);
 PHP;
-    foreach (['zfs', 'zpool', 'mbuffer', 'ssh'] as $n) {
+    foreach (['zfs', 'zpool', 'mbuffer', 'ssh', 'pv', 'mount', 'umount'] as $n) {
         file_put_contents("$dir/$n", $script);
         chmod("$dir/$n", 0755);
     }
@@ -12857,6 +12888,448 @@ function testPartnerSendBack(): void
     } catch (Problem $e) {
         same('authorized_keys: a pair\'s line refused as a ticket\'s', 'partner_shape', $e->key);
     }
+    hardeningRm($tmp);
+}
+
+/**
+ * Two offices for Mr. Restori across servers: A sends share:appdata, vm:Debian_Helmi and place to B (pair a1b2c3d4); B's
+ * door keeps them in vault/UnraidSecretaryOffice-partners/a1b2c3d4/…; ssh, zfs, pv, mbuffer, mount played by stand-ins.
+ */
+function restorePartnerTestPair(string $tmp, array $sendUnits = ['share:appdata', 'vm:Debian_Helmi', 'place']): array
+{
+    $id = 'a1b2c3d4';
+    $A = partnerTestOffice("$tmp/A");
+    $B = partnerTestOffice("$tmp/B", 'vault');
+    $target = fn (array $o) => ['php' => PHP_BINARY, 'door' => OFFICE_DIR . '/agent/partner-door.php', 'host_key' => $o['host'], 'auth_keys' => $o['keys'],
+                                'env' => array_diff_key($o['env'], ['PATH' => 1]) + ['PATH' => '/usr/bin:/bin']];
+    $pd = 'vault/' . PARTNER_PARENT . "/$id";
+    $snap = fn (int $c, int $ref = 1000) => ['userrefs' => 0, 'used' => 10, 'written' => 10, 'creation' => $c];
+    partnerTestBin($A['bin'], ['pools' => ['tank'], 'ds' => array_fill_keys(['tank', 'tank/appdata', 'tank/domains', 'tank/domains/Debian_Helmi', 'tank/UnraidSecretaryOffice'], ['used' => 0]),
+        'avail' => ['tank' => 50 * 1024 ** 3]], ['root@192.168.77.2' => $target($B)]);
+    partnerTestBin($B['bin'], ['pools' => ['vault'], 'ds' => array_fill_keys(['vault', "vault/" . PARTNER_PARENT, $pd, "$pd/share-appdata", "$pd/vm-Debian_Helmi", "$pd/place"], ['used' => 0]),
+        'snaps' => ["$pd/share-appdata@uso-backup-20261006-0200" => $snap(1791250000), "$pd/share-appdata@uso-backup-20261007-0200" => $snap(1791336000),
+                    "$pd/vm-Debian_Helmi@uso-backup-20261007-0200" => $snap(1791336001), "$pd/place@uso-backup-20261007-0200" => $snap(1791336002)]], ['root@192.168.77.1' => $target($A)]);
+    $pubA = partnerTestKey();
+    file_put_contents("$A[flash]/$id.key", "not a real key\n");
+    file_put_contents("$A[flash]/$id.key.pub", "$pubA uso-partner:$id\n");
+    file_put_contents("$A[flash]/$id.known", partnerKnownText('192.168.77.2', 22, [trim(file_get_contents($B['host']))]));
+    file_put_contents($B['keys'], partnerDoorLine($id, '192.168.77.1', $pubA) . "\n");
+    partnerTestAs($A, 'partnerPairsWrite([' . var_export(partnerTestPair($id, ['address' => '192.168.77.2', 'my_key' => partnerFingerprint($pubA), 'their_key' => null,
+        'receive' => null, 'send' => ['units' => $sendUnits, 'rate_mbit' => 0]]), true) . ']); return true;');
+    partnerTestAs($B, 'partnerPairsWrite([' . var_export(partnerTestPair($id, ['address' => '192.168.77.1', 'my_key' => null, 'send' => ['units' => [], 'rate_mbit' => 0],
+        'their_key' => partnerFingerprint($pubA), 'receive' => ['pool' => 'vault', 'quota_gb' => 0, 'retention' => '7 4 6', 'window' => '00:00-00:00', 'wake' => false,
+        'units' => ['share:appdata', 'vm:Debian_Helmi', 'place']]]), true) . ']); return true;');
+    file_put_contents("$A[data]/unraid-backup/state/partner-sent.json", json_encode([$id => ['share:appdata' => ['snap' => 'uso-backup-20261007-0200', 'dataset' => 'tank/appdata'],
+        'vm:Debian_Helmi' => ['snap' => 'uso-backup-20261007-0200', 'dataset' => 'tank/domains/Debian_Helmi'], 'place' => ['snap' => 'uso-backup-20261007-0200', 'dataset' => 'tank/UnraidSecretaryOffice']]]));
+    file_put_contents("$A[data]/unraid-backup/settings.ini", "[general]\ndumps_share = UnraidSecretaryOffice\n");
+    @mkdir("$tmp/A/restored", 0755, true);
+    $A['pre'] = 'date_default_timezone_set("UTC"); $GLOBALS["rs"]["restored_root"] = ' . var_export("$tmp/A/restored", true) . '; $GLOBALS["rs"]["mounts_file"] = ' . var_export("$A[bin]/mounts", true)
+        . '; $GLOBALS["rs"]["var_ini"] = ' . var_export("$A[root]/var.ini", true) . ';';
+    return [$A, $B, $id];
+}
+
+/** Mr. Restori across servers: «At <partner>» (the look job, held.json), the plan kind partner, the pull, its undo, a resume, the array stop */
+function testRestorePartner(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('restore partner: root only — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('restore-partner');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    [$A, $B, $id] = restorePartnerTestPair($tmp);
+    $as = fn (string $code) => partnerTestAs($A, $A['pre'] . $code);
+    $zfsA = fn () => json_decode((string) file_get_contents("$A[bin]/zfs.json"), true);
+    $at = fn (int $ago) => gmdate('Ymd-His', time() - $ago);        // a preview's stamp: within the last day (rsStampOf(); the offices run in UTC)
+    $stamp = $at(7200);
+
+    // ---- «At <partner>»: the look job asks the door (list per unit), keeps it in held.json
+    same('restore partner: the sources — the pair I send to', [[$id, 'pair', ['share:appdata', 'vm:Debian_Helmi', 'place']]],
+        array_map(fn ($s) => [$s['id'], $s['kind'], $s['units']], $as('return array_map(fn ($s) => array_diff_key($s, ["pair" => 1]), rspSources());')));
+    same('restore partner: the look job', 0, $as('return rspLookJob([]);'));
+    $held = json_decode((string) @file_get_contents("$A[data]/partner/$id/held.json"), true);
+    same('restore partner: held.json — what B keeps of mine, with looked', [true, ['uso-backup-20261006-0200', 'uso-backup-20261007-0200'], ['uso-backup-20261007-0200'], true],
+        [is_int($held['looked'] ?? null), array_column($held['units']['share:appdata'] ?? [], 'name'), array_column($held['units']['place'] ?? [], 'name'), $held['reachable'] ?? null]);
+    same('restore partner: held.json root only', [0600, 0700], [fileperms("$A[data]/partner/$id/held.json") & 0777, fileperms("$A[data]/partner/$id") & 0777]);
+    $st = $as('return rspState();');
+    same('restore partner: his state — the place first, newest moment first', [['place', 'share:appdata', 'vm:Debian_Helmi'], 'uso-backup-20261007-0200', 1791336000],
+        [array_column($st[0]['units'] ?? [], 'unit'), $st[0]['units'][1]['snaps'][0]['name'] ?? null, $st[0]['units'][1]['newest'] ?? null]);
+    check('restore partner: nothing of a key in his state', !str_contains(json_encode($st), 'ssh-ed25519') && !str_contains(json_encode($st), 'SHA256:'));
+    same('restore partner: the chip «at <partner>» of an app in appdata', [['id' => $id, 'name' => 'nostromo', 'unit' => 'share:appdata', 'newest' => 1791336000, 'n' => 2]],
+        $as('return rspChips(rspState(), ["appdata", "media"]);'));
+    same('restore partner: … of a VM by its own unit', ['vm:Debian_Helmi'], array_column($as('return rspChips(rspState(), ["domains"], "Debian_Helmi");'), 'unit'));
+    // unreachable: what was known stays, «as of»
+    $t = json_decode((string) file_get_contents("$A[bin]/targets.json"), true);
+    file_put_contents("$A[bin]/targets.json", json_encode([]));
+    $as('rspLookJob([]); return true;');
+    $held2 = json_decode((string) @file_get_contents("$A[data]/partner/$id/held.json"), true);
+    same('restore partner: unreachable — what was known stays, looked stays, tried moves on', [false, 'unreachable', $held['looked'], 2],
+        [$held2['reachable'] ?? null, $held2['why'] ?? null, $held2['looked'] ?? null, count($held2['units']['share:appdata'] ?? [])]);
+    file_put_contents("$A[bin]/targets.json", json_encode($t));
+    $as('rspLookJob([]); return true;');
+    same('restore partner: «Look again» — a file in RAM for his tick', [true, true], [$as('return rspWantLook()["ok"];'), is_file("$A[run]/restore-partner.want")]);
+
+    // ---- the plan: beside, never over; the steps; sizes; what comes after
+    $plan = $as('return rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $stamp . '"]);');
+    same('restore partner: the plan — pull, then mount read-only', [['pull', 'mount'], "tank/appdata.restored-$stamp", false, "$tmp/A/restored/nostromo-share-appdata-$stamp"],
+        [array_column($plan['steps'] ?? [], 'do'), $plan['steps'][0]['dataset'] ?? null, $plan['steps'][0]['resume'] ?? null, $plan['steps'][1]['path'] ?? null]);
+    same('restore partner: … nothing blocks, sizes from the partner and the pool', [[], 1000 > 0, 50 * 1024 ** 3], [$plan['blockers'] ?? null, ($plan['sizes']['need'] ?? -1) >= 0, $plan['sizes']['free'] ?? null]);
+    same('restore partner: … said: beside, then «Restore…» of a folder in /mnt/user/appdata, how to remove it', [true, '/mnt/user/appdata', true],
+        [in_array('note.partner_beside', array_column($plan['notes'] ?? [], 'key'), true), ($plan['after'][0]['params']['path'] ?? null),
+         in_array('after.partner_drop', array_column($plan['after'] ?? [], 'key'), true)]);
+    same('restore partner: … a moment it doesn\'t hold — blocked', 'restore_partner_no_snap',
+        $as('return rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261009-0200"]);')['blockers'][0]['key'] ?? null);
+    same('restore partner: … a unit I don\'t send there — unknown', 'unknown_target',
+        $as('return rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "share:media", "snap" => "uso-backup-20261007-0200"]);')['problem'] ?? null);
+    same('restore partner: … a path as a unit — unknown', 'unknown_target',
+        $as('return rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "../../etc", "snap" => "uso-backup-20261007-0200"]);')['problem'] ?? null);
+    // the VM: the place comes along when held there, else the plain sentence
+    $vm = $as('return rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "vm:Debian_Helmi", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $stamp . '"]);');
+    same('restore partner: a VM — its disks and its package (the place) come back together', [['pull', 'mount', 'pull', 'mount'], ['vm:Debian_Helmi', 'place'],
+        "tank/domains/Debian_Helmi.restored-$stamp", true], [array_column($vm['steps'] ?? [], 'do'), array_values(array_filter(array_column($vm['steps'] ?? [], 'unit'))),
+        $vm['steps'][0]['dataset'] ?? null, in_array('note.partner_place_too', array_column($vm['notes'] ?? [], 'key'), true)]);
+    [$A2, , ] = restorePartnerTestPair("$tmp/nopkg", ['share:appdata', 'vm:Debian_Helmi']);
+    partnerTestAs($A2, $A2['pre'] . 'rspLookJob([]); return true;');
+    $vm2 = partnerTestAs($A2, $A2['pre'] . 'return rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "vm:Debian_Helmi", "snap" => "uso-backup-20261007-0200"]);');
+    same('restore partner: a VM whose place isn\'t at the partner — only the disks, said plainly', [['pull', 'mount'], true, true],
+        [array_column($vm2['steps'] ?? [], 'do'), in_array('note.partner_no_package', array_column($vm2['notes'] ?? [], 'key'), true), ($vm2['notes'][0]['warn'] ?? false) || true]);
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'), true);
+    check('restore partner: «the package isn\'t at the partner — only the disks come back»', str_contains((string) ($en['note.partner_no_package'] ?? ''), "The package isn't at {name} — only the disks come back"));
+
+    // ---- the pull: ssh | pv | mbuffer | zfs recv -s -u into the new dataset, then mounted
+    partnerTestCalls($A['bin']);
+    $run = $as('$p = rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $stamp . '"]);'
+        . ' $jid = rsLaunch($p, false); $code = rsJob([$jid]); return ["id" => $jid, "code" => $code, "j" => rsJournal($jid)];');
+    $j = $run['j'] ?? [];
+    $ds = "tank/appdata.restored-$stamp";
+    same('restore partner: the pull went through', [0, 'ok', ['ok', 'ok']], [$run['code'] ?? null, $j['result'] ?? null, array_column($j['steps'] ?? [], 'state')], );
+    $calls = partnerTestCalls($A['bin']);
+    $zc = fn (string $verb) => array_values(array_filter($calls, fn ($c) => $c[0] === 'zfs' && ($c[1] ?? '') === $verb));
+    same('restore partner: zfs recv -s -u — legacy, noauto, not shared, never -F, into the new dataset', [['zfs', 'recv', '-s', '-u', '-o', 'mountpoint=legacy', '-o', 'canmount=noauto',
+        '-x', 'sharesmb', '-x', 'sharenfs', "$ds@uso-backup-20261007-0200"]], $zc('recv'));
+    $pipe = array_values(array_filter($calls, fn ($c) => in_array($c[0], ['pv', 'mbuffer'], true)));
+    usort($pipe, fn ($a, $b) => strcmp($a[0], $b[0]));
+    same('restore partner: … through pv and mbuffer', [['mbuffer', '-q', '-s', '128k', '-m', '256M'], ['pv', '-n', '-b', '-i', '2']], $pipe);
+    same('restore partner: … the door asked for send-back with the pair\'s key', ['send-back share:appdata uso-backup-20261007-0200', "$A[flash]/$id.key"],
+        [array_values(array_filter($calls, fn ($c) => $c[0] === 'ssh'))[0][count(array_values(array_filter($calls, fn ($c) => $c[0] === 'ssh'))[0]) - 1] ?? null,
+         array_values(array_filter($calls, fn ($c) => $c[0] === 'ssh'))[0][2] ?? null]);
+    same('restore partner: … the properties kept, then mounted read-only', [[['zfs', 'set', 'canmount=noauto', $ds], ['zfs', 'set', 'mountpoint=legacy', $ds]],
+        [['mount', '-t', 'zfs', '-o', 'ro,noatime', $ds, "$tmp/A/restored/nostromo-share-appdata-$stamp"]]],
+        [$zc('set'), array_values(array_filter($calls, fn ($c) => $c[0] === 'mount'))]);
+    check('restore partner: the original untouched — nothing renamed, destroyed, set or received into it', !array_filter($calls, fn ($c) => $c[0] === 'zfs'
+        && (in_array($c[1] ?? '', ['rename', 'destroy'], true) || (in_array($c[1] ?? '', ['recv', 'set', 'create'], true) && (in_array('tank/appdata', $c, true) || in_array('tank/appdata@uso-backup-20261007-0200', $c, true))))));
+    same('restore partner: the stream that came is B\'s copy of that moment', strlen("SNAP:uso-backup-20261007-0200 whole\n"), $zfsA()['snaps']["$ds@uso-backup-20261007-0200"]['used'] ?? null);
+    same('restore partner: the journal records the pull (its guid) and its undo', [[$ds], [[['do' => 'drop', 'dataset' => $ds, 'path' => "$tmp/A/restored/nostromo-share-appdata-$stamp",
+        'guid' => (string) abs(crc32($ds))]]]], [array_column($j['pulled'] ?? [], 'dataset'), [$j['steps'][0]['undo'] ?? null]]);
+    check('restore partner: progress in the job file (pv\'s bytes)', ($j['steps'][0]['progress']['done'] ?? 0) > 0);
+    check('restore partner: B\'s door logged it', str_contains((string) @file_get_contents("$B[data]/partner/door.log"), 'send-back share:appdata uso-backup-20261007-0200 (whole)'));
+    check('restore partner: the lock as holder restore, released', !is_file("$A[data]/unraid-backup/state/lock-holder.json"));
+    // the pull as a moment of his files restores, and the same plan again — refused: never over
+    $mnt = "$tmp/A/restored/nostromo-share-appdata-$stamp";
+    @mkdir("$mnt/nextcloud", 0755, true);
+    $m = $as('return rspRestored("/mnt/user/appdata/nextcloud");');
+    same('restore partner: a moment «at <partner>» for a folder in the share', [["partner:{$run['id']}:share:appdata", "$mnt/nextcloud", 'nostromo', true, 1791336000]],
+        array_map(fn ($x) => [$x['id'], $x['path'], $x['partner'], $x['kopia'], $x['time']], $m));
+    same('restore partner: … none for another share', [], $as('return rspRestored("/mnt/user/media/x");'));
+    same('restore partner: the same moment again into the same name — blocked, never over', 'restore_exists',
+        $as('return rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $stamp . '"]);')['blockers'][0]['key'] ?? null);
+
+    // ---- «Remove what was pulled…»: exactly that dataset (name, guid, no children), unmounted first
+    same('restore partner: the drop refuses anything not his', 'drop_refused', $as('$j = ["id" => "x"]; return rsDoDrop($j, ["dataset" => "tank/appdata"])["note"];'));
+    same('restore partner: … another guid — refused', 'drop_other', $as('$j = ["id" => "x"]; return rsDoDrop($j, ["dataset" => "' . $ds . '", "guid" => "1"])["note"];'));
+    $pb = $as('return rsPlan(["kind" => "putback", "id" => "' . $run['id'] . '"]);');
+    same('restore partner: its put back — only the drop, said in the preview', [['drop'], [['what' => 'drop', 'from' => $ds, 'to' => '']], []],
+        [array_column($pb['steps'] ?? [], 'do'), $pb['aside'] ?? null, $pb['blockers'] ?? null]);
+    partnerTestCalls($A['bin']);
+    $undo = $as('$p = rsPlan(["kind" => "putback", "id" => "' . $run['id'] . '"]); $jid = rsLaunch($p, false); return [rsJob([$jid]), rsJournal($jid)["result"], rsJournal("' . $run['id'] . '")["putback"]["result"] ?? null];');
+    $calls = partnerTestCalls($A['bin']);
+    same('restore partner: dropped — unmounted, then zfs destroy -r of exactly it', [[0, 'ok', 'ok'], [['umount', $mnt]], [['zfs', 'destroy', '-r', $ds]]],
+        [$undo, array_values(array_filter($calls, fn ($c) => $c[0] === 'umount')), array_values(array_filter($calls, fn ($c) => $c[0] === 'zfs' && ($c[1] ?? '') === 'destroy'))]);
+    check('restore partner: … the original and its snapshots still there', isset($zfsA()['ds']['tank/appdata']) && !isset($zfsA()['ds'][$ds]));
+    same('restore partner: … no moment of it any more', [], $as('return rspRestored("/mnt/user/appdata/nextcloud");'));
+
+    // ---- an interrupted pull keeps its token here; the next plan of the same moment goes on with send-back -t
+    $zb = json_decode((string) file_get_contents("$B[bin]/zfs.json"), true);
+    $zb['send_interrupt'] = true;
+    $zb['tokens']['1-abcdef0123-c8-789c0123456789'] = 'vault/' . PARTNER_PARENT . "/$id/share-appdata@uso-backup-20261006-0200";
+    file_put_contents("$B[bin]/zfs.json", json_encode($zb));
+    $s2 = $at(6000);
+    $first = $as('$p = rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261006-0200", "stamp" => "' . $s2 . '"]);'
+        . ' $jid = rsLaunch($p, false); rsJob([$jid]); return rsJournal($jid);');
+    same('restore partner: interrupted — failed, resumable, the undo recorded anyway', ['failed', 'pull_failed', 'yes', 'drop'],
+        [$first['result'] ?? null, $first['steps'][0]['note'] ?? null, $first['steps'][0]['params']['resumable'] ?? null, $first['steps'][0]['undo'][0]['do'] ?? null]);
+    $zb['send_interrupt'] = false;
+    file_put_contents("$B[bin]/zfs.json", json_encode($zb));
+    $again = $as('return rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261006-0200", "stamp" => "' . $at(5000) . '"]);');
+    same('restore partner: the next plan goes on in the same dataset', [true, "tank/appdata.restored-$s2", true],
+        [$again['steps'][0]['resume'] ?? null, $again['steps'][0]['dataset'] ?? null, in_array('note.partner_resume', array_column($again['notes'] ?? [], 'key'), true)]);
+    partnerTestCalls($A['bin']);
+    $res = $as('$p = rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261006-0200", "stamp" => "' . $at(5000) . '"]);'
+        . ' $jid = rsLaunch($p, false); rsJob([$jid]); return rsJournal($jid)["result"];');
+    $calls = partnerTestCalls($A['bin']);
+    $sshc = array_values(array_filter($calls, fn ($c) => $c[0] === 'ssh'))[0] ?? [];
+    same('restore partner: resumed — send-back -t with the token kept here, zfs recv -s -u into it (no -o)', ['ok', 'send-back share:appdata -t 1-abcdef0123-c8-789c0123456789',
+        [['zfs', 'recv', '-s', '-u', "tank/appdata.restored-$s2"]]], [$res, end($sshc), array_values(array_filter($calls, fn ($c) => $c[0] === 'zfs' && ($c[1] ?? '') === 'recv'))]);
+    check('restore partner: … B sent the resumed stream (zfs send -t)', str_contains((string) @file_get_contents("$B[data]/partner/door.log"), 'send-back share:appdata uso-backup-20261006-0200 (resumed)'));
+
+    // ---- the door refuses: said in the journal
+    $zb['snaps'] = array_diff_key($zb['snaps'], ['vault/' . PARTNER_PARENT . "/$id/vm-Debian_Helmi@uso-backup-20261007-0200" => 1]);
+    file_put_contents("$B[bin]/zfs.json", json_encode($zb));
+    $ref = $as('$p = rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "vm:Debian_Helmi", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $at(4000) . '"]);'
+        . ' $jid = rsLaunch($p, false); rsJob([$jid]); return rsJournal($jid);');
+    same('restore partner: the door refuses (the moment is gone there) — said, nothing more done', ['failed', 'pull_refused_door', 'no_snapshot', ['failed', 'skipped', 'skipped', 'skipped']],
+        [$ref['result'] ?? null, $ref['steps'][0]['note'] ?? null, $ref['steps'][0]['params']['why'] ?? null, array_column($ref['steps'] ?? [], 'state')]);
+
+    // ---- the array stop ends the pull (rsWatch every 2 s; the pipe's processes terminated)
+    $zb['send_sleep'] = 4;
+    file_put_contents("$B[bin]/zfs.json", json_encode($zb));
+    file_put_contents("$A[root]/var.ini", "fsState=\"Stopping\"\n");
+    $t0 = microtime(true);
+    $stop = $as('$p = rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $at(3000) . '"]);'
+        . ' $jid = rsLaunch($p, false); rsJob([$jid]); return rsJournal($jid);');
+    same('restore partner: the array stopping — the pull ends at once, never failed silently', ['failed', 'restore_array_stopping', 'pull_stopped'],
+        [$stop['result'] ?? null, $stop['reason'] ?? null, $stop['steps'][0]['note'] ?? null]);
+    check('restore partner: … within seconds, not after the stream', microtime(true) - $t0 < 4, (string) round(microtime(true) - $t0, 1));
+    file_put_contents("$A[root]/var.ini", "fsState=\"Started\"\n");
+    $sh = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
+    check('restore partner: agent.sh unmounts the pulls at the array stop (after drill_release ended the job)', (bool) preg_match('/drill_release.*\n(?:.*\n){0,3}\s*restored_release\s/', $sh)
+        && str_contains($sh, 'root=/mnt/addons/UnraidSecretaryOffice/restored') && RSP_MOUNT_ROOT === '/mnt/addons/UnraidSecretaryOffice/restored');
+    $out = trim((string) shell_exec('bash -c ' . escapeshellarg('source ' . escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh') . '; LOG=' . escapeshellarg("$tmp/agent.log") . '; restored_release; echo "rc=$?"') . ' 2>&1'));
+    same('restore partner: nothing mounted there — nothing done, nothing said', ['rc=0', false], [$out, is_file("$tmp/agent.log")]);
+    sleep(4);           // the door's orphaned send (4 s) lets go of the pair's lock
+    hardeningRm($tmp);
+}
+
+/** Restore tickets: BLOCK-N and BLOCK-T, the code, the ticket pair, the cards — and a new server's pull through the ticket */
+function testPartnerTicket(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('partner ticket: root only — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('partner-ticket');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    [$A, $H, $id] = restorePartnerTestPair($tmp);       // H keeps A's copies; A is gone
+    $N = partnerTestOffice("$tmp/N", 'pool9');
+    $target = fn (array $o) => ['php' => PHP_BINARY, 'door' => OFFICE_DIR . '/agent/partner-door.php', 'host_key' => $o['host'], 'auth_keys' => $o['keys'],
+                                'env' => array_diff_key($o['env'], ['PATH' => 1]) + ['PATH' => '/usr/bin:/bin']];
+    partnerTestBin($N['bin'], ['pools' => ['pool9'], 'ds' => array_fill_keys(['pool9', 'pool9/appdata'], ['used' => 0]), 'avail' => ['pool9' => 80 * 1024 ** 3]],
+        ['root@192.168.77.2' => $target($H)]);
+    $N['pre'] = 'date_default_timezone_set("UTC"); $GLOBALS["rs"]["restored_root"] = ' . var_export("$tmp/N/restored", true) . '; $GLOBALS["rs"]["mounts_file"] = ' . var_export("$N[bin]/mounts", true)
+        . '; $GLOBALS["rs"]["var_ini"] = ' . var_export("$N[root]/var.ini", true) . ';';
+    @mkdir("$tmp/N/restored", 0755, true);
+    $asN = fn (string $code) => partnerTestAs($N, $N['pre'] . $code);
+    $asH = fn (string $code) => partnerTestAs($H, $code);
+    $ts = gmdate('Ymd-His', time() - 600);
+    $hKeys = (string) file_get_contents($H['keys']);
+
+    // ---- the new server asks: its own key, BLOCK-N (no secret in it)
+    $look = $asN('return partner_ticket_start(["step" => "look"]);');
+    same('ticket: the new server\'s look', [true, partnerMyName()], [$look['ok'] ?? null, $look['name'] ?? null]);
+    same('ticket: an address that isn\'t one', 'partner_address', $asN('return partner_ticket_start(["step" => "do", "address" => "1.2.3.4;id"]);')['problem'] ?? null);
+    $req = $asN('return partner_ticket_start(["step" => "do", "address" => "192.168.77.9"]);');
+    $tid = (string) ($req['id'] ?? '');
+    $n = partnerTicketBlockDecode((string) ($req['block'] ?? ''), 'N');
+    same('ticket: BLOCK-N — id, name, address, its public key', [$tid, '192.168.77.9', trim(implode(' ', array_slice(explode(' ', (string) file_get_contents("$N[flash]/$tid.key.pub")), 0, 2)))],
+        [$n['id'], $n['address'], $n['pub_key']]);
+    check('ticket: no private key in BLOCK-N', !str_contains((string) base64_decode((string) $req['block']), 'PRIVATE'));
+    same('ticket: the request on the new server\'s cards — no key', [[$tid, '192.168.77.9']], array_map(fn ($q) => [$q['id'], $q['address']], $asN('return partnerPublic()["ticket_requests"];')));
+    same('ticket: BLOCK-N shown again', $req['block'], $asN('return partner_ticket_start(["step" => "show", "id" => "' . $tid . '"])["block"];'));
+    $enc = fn (array $b) => base64_encode(json_encode($b));
+    $refused = function (string $text, string $kind) {
+        try {
+            partnerTicketBlockDecode($text, $kind);
+            return 'taken';
+        } catch (Problem $e) {
+            return $e->key . ':' . ($e->params['field'] ?? '');
+        }
+    };
+    foreach (['kind' => $enc(['block' => 'T'] + $n), 'fields' => $enc($n + ['x' => 1]), 'id' => $enc(['id' => '../x'] + $n), 'address' => $enc(['address' => '-oProxyCommand=x'] + $n),
+              'pub_key' => $enc(['pub_key' => 'ssh-rsa AAAA'] + $n), 'name' => $enc(['name' => 'a b'] + $n)] as $field => $text) {
+        same("ticket: BLOCK-N refused — $field", "partner_block:$field", $refused($text, 'N'));
+    }
+
+    // ---- the holder: «Hand <name>'s copies to a new server…» on the gone server's card
+    same('ticket: only on a pair whose copies are kept here', 'partner_ticket_nothing', partnerTestAs($A, 'return partner_ticket_make(["pair" => "' . $id . '", "block" => ' . var_export($req['block'], true) . ']);')['problem'] ?? null);
+    $hl = $asH('return partner_ticket_make(["step" => "look", "pair" => "' . $id . '", "block" => ' . var_export($req['block'], true) . ']);');
+    $pubN = $n['pub_key'];
+    same('ticket: the holder\'s look — who, whose copies, the line, until when', [$tid, 'nostromo', ['share:appdata', 'vm:Debian_Helmi', 'place'],
+        partnerTicketLine($tid, '192.168.77.9', $pubN, (int) ($hl['expires'] ?? 0)), true],
+        [$hl['new']['id'] ?? null, $hl['of'] ?? null, $hl['units'] ?? null, $hl['line'] ?? null, abs(($hl['expires'] ?? 0) - (time() + 7 * 86400)) < 60]);
+    check('ticket: nothing written at the look', file_get_contents($H['keys']) === $hKeys && !is_file("$H[data]/partner/tickets.json"));
+    same('ticket: the confirmation is needed', 'bad_request', $asH('return partner_ticket_make(["step" => "do", "pair" => "' . $id . '", "block" => ' . var_export($req['block'], true) . ', "address" => "192.168.77.2", "port" => 22]);')['problem'] ?? null);
+    $made = $asH('return partner_ticket_make(["step" => "do", "confirm" => true, "pair" => "' . $id . '", "block" => ' . var_export($req['block'], true) . ', "address" => "192.168.77.2", "port" => 22]);');
+    $tline = partnerTicketLine($tid, '192.168.77.9', $pubN, (int) ($made['expires'] ?? 0));
+    same('ticket: the line in authorized_keys — the pair\'s line byte for byte, the ticket\'s after it', $hKeys . $tline . "\n", file_get_contents($H['keys']));
+    $tickets = $asH('return partnerTickets();');
+    same('ticket: tickets.json — for whom, of which pair, which units', [[$tid, $id, '192.168.77.9', ['share:appdata', 'vm:Debian_Helmi', 'place'], partnerFingerprint($pubN)]],
+        array_map(fn ($t) => [$t['id'], $t['of'], $t['from'], $t['units'], $t['key']], $tickets));
+    $T = partnerTicketBlockDecode((string) ($made['block'] ?? ''), 'T');
+    same('ticket: BLOCK-T', [$tid, 'nostromo', '192.168.77.2', 22, ['share:appdata', 'vm:Debian_Helmi', 'place'], [trim(implode(' ', array_slice(explode(' ', trim((string) file_get_contents($H['host']))), 0, 2)))]],
+        [$T['id'], $T['of'], $T['address'], $T['port'], $T['units'], $T['host_keys']]);
+    same('ticket: the same ticket twice — known', 'partner_known', $asH('return partner_ticket_make(["step" => "look", "pair" => "' . $id . '", "block" => ' . var_export($req['block'], true) . ']);')['problem'] ?? null);
+    $cards = $asH('return partnerPublic();');
+    same('ticket: the holder\'s card lists it — open, no key', [[$tid, 'open', false]], array_map(fn ($t) => [$t['id'], $t['door'], $t['expired']], $cards['pairs'][0]['tickets'] ?? []));
+    check('ticket: nothing of a key on the holder\'s cards', !str_contains(json_encode($cards), 'ssh-ed25519'));
+    foreach (['kind' => $enc(['block' => 'N'] + $T), 'of' => $enc(['of' => 'a/b'] + $T), 'units' => $enc(['units' => ['/etc']] + $T), 'expires' => $enc(['expires' => '1'] + $T),
+              'host_keys' => $enc(['host_keys' => []] + $T), 'port' => $enc(['port' => 0] + $T)] as $field => $text) {
+        same("ticket: BLOCK-T refused — $field", "partner_block:$field", $refused($text, 'T'));
+    }
+
+    // ---- the new server: «Paste the ticket», the same code, the ticket pair
+    $nl = $asN('return partner_ticket_finish(["step" => "look", "block" => ' . var_export($made['block'], true) . ']);');
+    same('ticket: the safety code — the same on both pages', $made['code'] ?? 'x', $nl['code'] ?? 'y');
+    $forged = $T;
+    $forged['host_keys'] = [partnerTestKey()];
+    check('ticket: a forged block shows another code', ($asN('return partner_ticket_finish(["step" => "look", "block" => ' . var_export(partnerBlockEncode($forged), true) . ']);')['code'] ?? '') !== $made['code']);
+    same('ticket: «They match» needs the code shown', 'bad_request', $asN('return partner_ticket_finish(["step" => "do", "confirm" => true, "code" => "000000", "block" => ' . var_export($made['block'], true) . ']);')['problem'] ?? null);
+    $done = $asN('return partner_ticket_finish(["step" => "do", "confirm" => true, "code" => ' . var_export($made['code'], true) . ', "block" => ' . var_export($made['block'], true) . ']);');
+    same('ticket: taken — the holder\'s door answers the ticket at once', ['reachable' => true, 'why' => null, 'array' => 'started'], $done['ask'] ?? $done);
+    $tp = $asN('return partnerTicketPairs();')[0] ?? [];
+    same('ticket: the ticket pair — kind ticket, only pulling', ['ticket', $tid, 'nostromo', ['share:appdata', 'vm:Debian_Helmi', 'place']], [$tp['kind'] ?? null, $tp['id'] ?? null, $tp['of'] ?? null, $tp['units'] ?? null]);
+    same('ticket: … not a pair (the engine never sends with it)', [], $asN('return partnerPairs();'));
+    same('ticket: … its pin is the holder\'s host key', partnerKnownText('192.168.77.2', 22, [trim((string) file_get_contents($H['host']))]), @file_get_contents("$N[flash]/$tid.known"));
+    same('ticket: the request is gone', [], $asN('return partnerTicketPending();'));
+    $cn = $asN('return partnerPublic();');
+    same('ticket: the new server\'s card', [[$tid, 'nostromo', false]], array_map(fn ($t) => [$t['id'], $t['of'], $t['expired']], $cn['ticket_pairs'] ?? []));
+    check('ticket: nothing of a key on the new server\'s cards', !str_contains(json_encode($cn), 'ssh-ed25519') && !str_contains(json_encode($cn), 'SHA256:'));
+    same('ticket: the door\'s other verbs aren\'t even asked through a ticket', 2, $asN('$t = partnerTicketPairs()[0]; return partnerTicketSsh($t, "status")[0];'));
+    same('Mr. Restori fits on a new server with a ticket', ['ok' => true, 'why' => 'partner_ticket', 'params' => ['n' => 0]], $asN('return rsFit(["apps" => [], "vms" => []], null, []);'));
+
+    // ---- a new server's pull through the ticket: the place first, onto a pool here, under UnraidSecretaryOffice-restored
+    same('ticket: the look through the ticket', 0, $asN('return rspLookJob([]);'));
+    $st = $asN('return rspState();')[0] ?? [];
+    same('ticket: «At <holder>» on the new server — kind ticket, copies of nostromo, the pools', ['ticket', 'nostromo', ['place', 'share:appdata', 'vm:Debian_Helmi'], ['pool9']],
+        [$st['kind'] ?? null, $st['of'] ?? null, array_column($st['units'] ?? [], 'unit'), array_column($st['pools'] ?? [], 'name')]);
+    $p = $asN('return rsPlan(["kind" => "partner", "pair" => "' . $tid . '", "unit" => "place", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $ts . '"]);');
+    same('ticket: the place lands under UnraidSecretaryOffice-restored (no share is made)', ['pool9/' . RSP_PARENT . '/place', 'pool9/' . RSP_PARENT, 'restored_parent', []],
+        [$p['steps'][0]['dataset'] ?? null, $p['steps'][0]['parent'] ?? null, $p['target']['how'] ?? null, $p['blockers'] ?? null]);
+    file_put_contents("$N[root]/shares.ini", "[appdata]\nname=\"appdata\"\nexclusive=\"yes\"\n");
+    same('ticket: a share that exists as a dataset — beside it, swap said', ["pool9/appdata.restored-$ts", 'share_exists', true],
+        array_values(array_intersect_key($asN('$t = rspTarget(rspSource("' . $tid . '"), "share:appdata", "pool9", "' . $ts . '", ["shares_ini" => ["appdata" => ["name" => "appdata"]]]); return ["d" => $t["dataset"], "h" => $t["how"], "n" => $t["notes"][0]["key"] === "note.partner_share_exists"];'), ['d' => 1, 'h' => 1, 'n' => 1])));
+    same('ticket: a share that doesn\'t exist — under UnraidSecretaryOffice-restored, said', ['pool9/' . RSP_PARENT . '/share-media', 'note.partner_share_missing'],
+        array_values($asN('$t = rspTarget(["kind" => "ticket", "id" => "x", "units" => ["share:media"], "pair" => []], "share:media", "pool9", "' . $ts . '", ["shares_ini" => []]); return [$t["dataset"], $t["notes"][0]["key"]];')));
+    same('ticket: a pool that isn\'t here', 'restore_partner_pool', $asN('return rsPlan(["kind" => "partner", "pair" => "' . $tid . '", "unit" => "place", "snap" => "uso-backup-20261007-0200", "pool" => "tank"]);')['blockers'][0]['key'] ?? null);
+    $pull = $asN('$p = rsPlan(["kind" => "partner", "pair" => "' . $tid . '", "unit" => "place", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $ts . '"]);'
+        . ' $jid = rsLaunch($p, false); rsJob([$jid]); return rsJournal($jid);');
+    same('ticket: the place pulled through the ticket', ['ok', ['ok', 'ok']], [$pull['result'] ?? null, array_column($pull['steps'] ?? [], 'state')]);
+    $zn = json_decode((string) file_get_contents("$N[bin]/zfs.json"), true);
+    check('ticket: … the parent made never mounted, the place received into it', in_array('mountpoint=none', (array) ($zn['ds']['pool9/' . RSP_PARENT]['props'] ?? []), true)
+        && isset($zn['snaps']['pool9/' . RSP_PARENT . '/place@uso-backup-20261007-0200']));
+    check('ticket: … the holder logged the ticket\'s send-back', str_contains((string) @file_get_contents("$H[data]/partner/door.log"), "$tid") && str_contains((string) @file_get_contents("$H[data]/partner/door.log"), 'send-back place uso-backup-20261007-0200'));
+    // its packages are his now (the mount stands for the pulled place)
+    $mnt = "$tmp/N/restored/" . partnerMyName() . "-place-$ts";             // the holder's name (the ticket pair's)
+    @mkdir("$mnt/backup/server", 0755, true);
+    file_put_contents("$mnt/backup/server/run.json", json_encode(['run' => '20261007-0200']));
+    $place = $asN('$ctx = ["fs" => []]; return rsPlace([], $ctx);');
+    same('ticket: no place here — the pulled one\'s packages are his (read-only), safety dumps in his own folder', [true, "$mnt/backup", partnerMyName(), "$N[data]/restore/safety"],
+        [$place['found'] ?? null, $place['base'] ?? null, $place['partner']['name'] ?? null, $place['safety'] ?? null]);
+
+    // ---- end and tidy: the holder ends it (the line goes), the new server ends it (key and pin go)
+    $asH('return partner_ticket_end(["id" => "' . $tid . '"]);');
+    same('ticket: ended by the holder — its line gone, the rest byte for byte', $hKeys, file_get_contents($H['keys']));
+    same('ticket: … its record gone', [], $asH('return partnerTickets();'));
+    $asN('return partner_ticket_end(["id" => "' . $tid . '"]);');
+    check('ticket: ended on the new server — its key and pin gone', !is_file("$N[flash]/$tid.key") && !is_file("$N[flash]/$tid.known") && $asN('return partnerTicketPairs();') === []);
+    same('ticket: an unknown one', 'partner_unknown', $asN('return partner_ticket_end(["id" => "eeeeeeee"]);')['problem'] ?? null);
+    // close_door: the gone server's own line goes, its pair and copies stay
+    $req2 = $asN('return partner_ticket_start(["step" => "do", "address" => "192.168.77.9"]);');
+    $made2 = $asH('return partner_ticket_make(["step" => "do", "confirm" => true, "close_door" => true, "pair" => "' . $id . '", "block" => ' . var_export($req2['block'], true) . ', "address" => "192.168.77.2", "port" => 22]);');
+    same('ticket: «close its own door» — the gone server\'s line out, the ticket\'s in, the pair stays', [true, false, true, 1],
+        [$made2['closed'] ?? null, str_contains((string) file_get_contents($H['keys']), "uso-partner:$id"), str_contains((string) file_get_contents($H['keys']), 'uso-ticket:' . $req2['id']), count($asH('return partnerPairs();'))]);
+    // the tidy: an expired ticket pair goes on the new server; an expired ticket's line on the holder
+    $asN('$t = partner_ticket_finish(["step" => "do", "confirm" => true, "code" => ' . var_export($made2['code'], true) . ', "block" => ' . var_export($made2['block'], true) . ']); return true;');
+    same('ticket tidy: nothing ended yet', [0, 0], [$asN('return partnerTicketsTidy();'), $asH('return partnerTicketsTidy();')]);
+    same('ticket tidy: a week later — the ticket pair gone (key, pin), the holder\'s line gone', [1, 1, false, false],
+        [$asN('return partnerTicketsTidy(time() + 8 * 86400);'), $asH('return partnerTicketsTidy(time() + 8 * 86400);'), is_file("$N[flash]/{$req2['id']}.key"),
+         str_contains((string) file_get_contents($H['keys']), 'uso-ticket:')]);
+
+    // ---- the Team Lead's ticket texts: every T('…') of partner.js in all five languages
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/caretaker/partner.js');
+    preg_match_all("/(?<![.\\w])T\\(\\s*'([a-z0-9_.]+)'\\s*[,)]/", $js, $m);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/caretaker/lang/$lang.json"), true) ?: [];
+        same("ticket: partner.js's texts in $lang", [], array_values(array_filter(array_unique($m[1]), fn ($k) => !isset($l[$k]))));
+    }
+    $rjs = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
+    foreach (['pt.title', 'pt.bring', 'tile.partner', 'move.t_pull', 'chip.at_partner', 'j.drop', 'rd.snap_partner', 'step.pull', 'step.drop', 'step.mount'] as $k) {
+        check("restore desk asks for $k", str_contains($rjs, "'$k'") || str_contains($rjs, "'step.' + key"));
+    }
+    hardeningRm($tmp);
+}
+
+/** The night watchman and the restore tickets: a ticket's line the office's own like a pair's (kind ticket), its removal normal */
+function testWatchmanTicket(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('watchman ticket: root only — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('watch-ticket');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['crontabs', 'cron.d', 'logplugins', 'atjobs', 'agents', 'extra', 'ssh/root', 'flash', 'prun'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/logplugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+              'etc_passwd' => "$src/passwd", 'crontabs' => "$src/crontabs", 'cron_d' => "$src/cron.d", 'cron_files' => "$src/flash",
+              'userscripts' => "$src/flash/user.scripts", 'atjobs' => "$src/atjobs", 'agents' => "$src/agents",
+              'partner_pairs' => "$src/pdata/pairs.json", 'partner_tickets' => "$src/pdata/tickets.json", 'partner_run' => "$src/prun", 'partner_data' => "$src/pdata"];
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n");
+    file_put_contents($paths['syslog'], '');
+    file_put_contents("$src/cron.d/root", "*/1 * * * * /usr/local/emhttp/plugins/dynamix/scripts/monitor &> /dev/null\n");
+    file_put_contents("$src/crontabs/root", "# nothing\n");
+    $keys = "$src/ssh/root/authorized_keys";
+    $benj = partnerTestKey('benj@mac');
+    file_put_contents($keys, "$benj\n");
+    $now = time();
+    $round = fn (int $t) => watchmanRound($paths, $data, 1000, $t, fn () => [], false, "$tmp/acks.json");
+    $open = function () use ($data): array {
+        $k = array_column(array_values(array_filter(watchmanLoad($data)['book'], 'watchmanOpen')), 'key');
+        sort($k);
+        return $k;
+    };
+    $round($now - 600);
+    $kA = partnerTestKey();
+    $pairA = partnerTestPair('a1b2c3d4', ['name' => 'nostromo', 'address' => '192.168.77.1', 'their_key' => $kA ? partnerFingerprint($kA) : null, 'paired' => $now - 90000]);
+    partnerPairsWrite([$pairA], $paths['partner_pairs']);
+    $lineA = partnerDoorLine('a1b2c3d4', '192.168.77.1', $kA);
+    file_put_contents($keys, "$benj\n$lineA\n");
+    touch($keys, $now - 89990);
+    $round($now - 500);
+    watchmanAck('*', $data, $now - 450, false);
+
+    // ---- the ticket made (record, then line): the office's own — noted by himself, kind ticket, never open
+    $kT = partnerTestKey();
+    $exp = $now + 7 * 86400;
+    $ticket = ['id' => 'c3d4e5f6', 'of' => 'a1b2c3d4', 'name' => 'newbox', 'address' => '192.168.77.9', 'from' => '192.168.77.9', 'key' => partnerFingerprint($kT),
+               'created' => $now - 30, 'expires' => $exp, 'units' => ['share:appdata']];
+    partnerWritePrivate($paths['partner_tickets'], ['v' => 1, 'tickets' => [$ticket]]);
+    $lineT = partnerTicketLine('c3d4e5f6', '192.168.77.9', $kT, $exp);
+    file_put_contents($keys, "$benj\n$lineA\n$lineT\n");
+    touch($keys, $now - 28);
+    $r = $round($now);
+    $noted = array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => ($e['key'] ?? '') === 'partner_paired:ticket-c3d4e5f6'));
+    same('watch ticket: the ticket\'s line — the office\'s own, noted by himself with kind ticket, nothing open', [1, 'office', 'ticket', 'nostromo', 'newbox', $exp, [], []],
+        [count($noted), $noted[0]['by'] ?? null, $noted[0]['p']['kind'] ?? null, $noted[0]['p']['of'] ?? null, $noted[0]['p']['name'] ?? null, $noted[0]['p']['expires'] ?? null, $r['added'], $open()]);
+    same('watch ticket: … its key known', true, isset(watchmanLoad($data)['baseline']['flash']['keys']['root'][partnerFingerprint($kT)]));
+    check('watch ticket: … never its key in the book', !str_contains(json_encode(watchmanLoad($data)), substr($kT, 12, 30)));
+    // the tidy took it out (it expired): normal, forgotten
+    file_put_contents($keys, "$benj\n$lineA\n");
+    touch($keys, $now + 100);
+    $r = $round($now + 120);
+    same('watch ticket: its line gone (expired, ended) — normal', [[], [], false], [$r['added'], $open(), isset(watchmanLoad($data)['baseline']['partner']['tickets']['c3d4e5f6'])]);
+
+    // ---- a ticket line with no ticket, or written long after it: news like any new key
+    $kX = partnerTestKey();
+    $lineX = partnerTicketLine('d4e5f6a7', '10.9.9.9', $kX, $exp);
+    file_put_contents($keys, "$benj\n$lineA\n$lineX\n");
+    touch($keys, $now + 200);
+    $round($now + 220);
+    same('watch ticket: a ticket line of no ticket — a new key, news', ['flash_ssh_key:root:' . partnerFingerprint($kX)], $open());
     hardeningRm($tmp);
 }
 
@@ -13891,11 +14364,16 @@ function testLogsPartner(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testWatchmanPartner', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerSendBack'],
           'strings' => ['testStrings', 'testUnraidWords']];
 $only = $argv[1] ?? '';
-foreach ($parts as $name => $fns) {
+// php tests/run.php testA testB …: only those (while working on them); a part's name: that part; nothing: all
+$named = array_values(array_filter(array_slice($argv, 1), fn ($a) => str_starts_with($a, 'test') && function_exists($a)));
+foreach ($named as $t) {
+    $t();
+}
+foreach ($named ? [] : $parts as $name => $fns) {
     if ($only === '' || $only === $name) {
         foreach ($fns as $t) {
             $t();
