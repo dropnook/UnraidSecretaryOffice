@@ -15429,6 +15429,9 @@ function testWatchmanNet(): void
          watchnetBases('/mnt/user/media', readCfg($paths['shares_ini'], true), readCfg($paths['disks_ini'], true))['bases'],
          baseAsleep('hive', watchnetSleeping(readCfg($paths['disks_ini'], true))),
          watchnetBases('/mnt/user/nope', readCfg($paths['shares_ini'], true), readCfg($paths['disks_ini'], true))['known']]);
+    same('net: an SSD whose spundown says 1 never sleeps for the office (only rotating disks do)', [false, true],
+        [watchnetSleeping(['x' => ['name' => 'ssd', 'spundown' => '1', 'rotational' => '0']])['ssd'],
+         watchnetSleeping(['x' => ['name' => 'hdd', 'spundown' => '1']])['hdd']]);
     same('net: the night shift never reads the router (its paths have no rsyslog_cfg)', false, isset(watchmanNightPaths()['rsyslog_cfg']));
     $mir = watchmanMirror(['baseline' => watchmanLoad($data)['baseline'], 'state' => [], 'book' => [], 'net' => $net()], 'boot', $t7, false);
     $mirF = watchmanMirror(['baseline' => watchmanLoad($data)['baseline'], 'state' => [], 'book' => [], 'net' => $net()], 'boot', $t7, true);

@@ -162,12 +162,17 @@ function watchnetBases(string $folder, array $shares, array $disks): array
     return ['share' => null, 'bases' => [], 'array' => false, 'known' => true];
 }
 
-/** Disk name => asleep, from disks.ini as read (sleepingDisks() without the file of its own) */
+/**
+ * Disk name => asleep now, from disks.ini as read: spun down AND rotating (an SSD/NVMe never sleeps for the office,
+ * whatever its spundown says) — mounts.php's diskAsleep() where it exists, the same rule otherwise
+ */
 function watchnetSleeping(array $disks): array
 {
     $out = [];
     foreach ($disks as $section => $d) {
-        $out[(string) ($d['name'] ?? $section)] = ($d['spundown'] ?? '0') === '1';
+        $d = (array) $d;
+        $out[(string) ($d['name'] ?? $section)] = function_exists('diskAsleep') ? diskAsleep($d)
+            : ($d['spundown'] ?? '0') === '1' && ($d['rotational'] ?? '1') !== '0';
     }
     return $out;
 }
