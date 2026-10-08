@@ -271,10 +271,11 @@ function partnerLookReceived(string $dir): array
 /**
  * The partners' places on the pools named (awake ones only — the caller asks): one `zfs list` of their datasets
  * three levels deep. Per pool: the place's own size, per pair id what its copies take (with their snapshots) and
- * its units (`snaps`: what the snapshots of it and its units hold), what Ms. Dustdevil put away there. Null: zfs didn't answer.
+ * its units (`snaps`: what the snapshots of it and its units hold; `unit_snaps`: per unit), what Ms. Dustdevil put away
+ * there. Null: zfs didn't answer.
  *
  * @param list<string> $pools
- * @return array<string, array{dataset: string, used: int, ids: array<string, array{dataset: string, used: int, snaps: int, units: array<string, int>}>,
+ * @return array<string, array{dataset: string, used: int, ids: array<string, array{dataset: string, used: int, snaps: int, units: array<string, int>, unit_snaps: array<string, int>}>,
  *                             trash: array<string, array{id: ?string, used: int, snaps: int}>}>|null
  */
 function partnerLookPlaces(array $pools, ?callable $zfs = null): ?array
@@ -307,10 +308,11 @@ function partnerLookPlaces(array $pools, ?callable $zfs = null): ?array
         } elseif ($d['trash'] && $d['unit'] === null) {
             $out[$pool]['trash'][$f[0]] = ['id' => $d['id'], 'used' => $used, 'snaps' => $snaps];
         } elseif (!$d['trash'] && $d['id'] !== null && $d['unit'] === null) {
-            $out[$pool]['ids'][$d['id']] = ['dataset' => $f[0], 'used' => $used, 'snaps' => $snaps] + ($out[$pool]['ids'][$d['id']] ?? ['units' => []]);
+            $out[$pool]['ids'][$d['id']] = ['dataset' => $f[0], 'used' => $used, 'snaps' => $snaps] + ($out[$pool]['ids'][$d['id']] ?? ['units' => [], 'unit_snaps' => []]);
         } elseif (!$d['trash'] && $d['id'] !== null && !str_contains((string) $d['unit'], '/')) {
-            $out[$pool]['ids'][$d['id']] ??= ['dataset' => $top, 'used' => 0, 'snaps' => 0, 'units' => []];
+            $out[$pool]['ids'][$d['id']] ??= ['dataset' => $top, 'used' => 0, 'snaps' => 0, 'units' => [], 'unit_snaps' => []];
             $out[$pool]['ids'][$d['id']]['units'][(string) $d['unit']] = $used;
+            $out[$pool]['ids'][$d['id']]['unit_snaps'][(string) $d['unit']] = $snaps;
             $out[$pool]['ids'][$d['id']]['snaps'] += $snaps;         // what its units' snapshots hold (`used` has them already)
         }
     }

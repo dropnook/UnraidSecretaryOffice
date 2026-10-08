@@ -15146,6 +15146,52 @@ function testCleanupPartner(): void
     same('cleanup partner: back only to where it was, under the partners\' place', ["/mnt/tank/$P", '', ''],
         [clPartnerHome(['dataset' => "tank/$P/deadbeef", 'from' => "/mnt/tank/$P/deadbeef"]), clPartnerHome(['dataset' => 'tank/appdata', 'from' => '/mnt/tank/appdata']),
          clPartnerHome(['dataset' => "tank/$P/deadbeef", 'from' => '/mnt/tank/elsewhere'])]);
+    // a pair of today: a unit its receive.units no longer names (the Team Lead's «Keep less of …») is dust — a kept one not,
+    // an odd child dataset not (not the door's name for a unit); never while a transfer of the door names that unit
+    $zfs2 = fn (array $args) => [0, "tank/$P\t3000\t0\ntank/$P/a1b2c3d4\t1705\t0\ntank/$P/a1b2c3d4/share-appdata\t1000\t300\n"
+        . "tank/$P/a1b2c3d4/share-old\t600\t60\ntank/$P/a1b2c3d4/vm-Gone\t100\t10\ntank/$P/a1b2c3d4/odd_name\t5\t0\n"];
+    file_put_contents("$tmp/run/door-4242.json", json_encode(['pid' => 4242, 'pair' => 'a1b2c3d4', 'unit' => 'vm:Gone', 'dataset' => "tank/$P/a1b2c3d4/vm-Gone", 'since' => time()]));
+    $r2 = clPartners(['pools' => [['tank'], []], 'zfs' => $zfs2, 'pairs' => $pairs, 'run' => "$tmp/run", 'alive' => fn (int $pid) => in_array($pid, [getmypid(), 4242], true)]);
+    $drop = array_column($r2['list'], null, 'id');
+    ksort($drop);
+    same('cleanup partner: a dropped unit of a pair of today listed (its used, its snapshots, «<unit> of <name>»), the kept one and an odd name not, the transfer guard per unit',
+        [["partner:tank/a1b2c3d4/share-old", "partner:tank/a1b2c3d4/vm-Gone"],
+         ['dropped', 'share:old', 'vault', "tank/$P/a1b2c3d4/share-old", 600, 60, null, 'share:old · vault'], ['vm:Gone', 'transfer']],
+        [array_keys($drop), [$drop["partner:tank/a1b2c3d4/share-old"]['category'] ?? null, $drop["partner:tank/a1b2c3d4/share-old"]['unit'] ?? null,
+          $drop["partner:tank/a1b2c3d4/share-old"]['pair_name'] ?? null, $drop["partner:tank/a1b2c3d4/share-old"]['dataset'] ?? null,
+          $drop["partner:tank/a1b2c3d4/share-old"]['bytes'] ?? null, $drop["partner:tank/a1b2c3d4/share-old"]['snaps'] ?? null,
+          array_key_exists('why', $drop["partner:tank/a1b2c3d4/share-old"] ?? []) ? $drop["partner:tank/a1b2c3d4/share-old"]['why'] : 'x', clLabel($drop["partner:tank/a1b2c3d4/share-old"] ?? ['kind' => '', 'name' => ''])],
+         [$drop["partner:tank/a1b2c3d4/vm-Gone"]['unit'] ?? null, $drop["partner:tank/a1b2c3d4/vm-Gone"]['why'] ?? null]]);
+    same('cleanup partner: the guard names the unit — another unit of the pair, or another pair, isn\'t held up', [true, true, false, false],
+        [clPartnerUnitBusy(partnerLookDoors("$tmp/run", fn (int $pid) => $pid === 4242), 'a1b2c3d4', 'vm:Gone', "tank/$P/a1b2c3d4/vm-Gone"),
+         clPartnerUnitBusy([['pair' => 'a1b2c3d4', 'unit' => '', 'dataset' => "tank/$P/a1b2c3d4/vm-Gone/x"]], 'a1b2c3d4', 'vm:Gone', "tank/$P/a1b2c3d4/vm-Gone"),
+         clPartnerUnitBusy(partnerLookDoors("$tmp/run", fn (int $pid) => $pid === 4242), 'a1b2c3d4', 'share:old', "tank/$P/a1b2c3d4/share-old"),
+         clPartnerUnitBusy(partnerLookDoors("$tmp/run", fn (int $pid) => $pid === 4242), 'deadbeef', 'vm:Gone', "tank/$P/deadbeef/vm-Gone")]);
+    @unlink("$tmp/run/door-4242.json");
+    same('cleanup partner: no receive at all for a pair — every unit of it is dust', ["partner:tank/a1b2c3d4/share-appdata", "partner:tank/a1b2c3d4/share-old", "partner:tank/a1b2c3d4/vm-Gone"],
+        (function () use ($tmp, $zfs2) {
+            $file = "$tmp/partner/pairs-noreceive.json";
+            partnerPairsWrite([partnerTestPair('a1b2c3d4', ['name' => 'vault', 'receive' => null, 'their_key' => null])], $file);
+            $ids = array_column(clPartners(['pools' => [['tank'], []], 'zfs' => $zfs2, 'pairs' => $file, 'run' => "$tmp/run"])['list'], 'id');
+            sort($ids);
+            return $ids;
+        })());
+    $unitTrash = "tank/$P/_UnraidSecretaryOffice-trash-20261008-101010-share-old-a1b2c3d4";
+    same('cleanup partner: a unit put away lies in the partners\' place, the pair\'s id at the end — her manifest takes it, the way back only to that pair\'s unit',
+        [true, true, true, false, false, false],
+        [clTrashAsOk("@$unitTrash", 'partner', '20261008-101010'), clPartnerTrashOk($unitTrash, "tank/$P/a1b2c3d4/share-old"),
+         clPartnerTrashOk("tank/$P/_UnraidSecretaryOffice-trash-20261008-101010-deadbeef", "tank/$P/deadbeef"),
+         clPartnerTrashOk($unitTrash, "tank/$P/deadbeef/share-old"), clPartnerTrashOk($unitTrash, "cold/$P/a1b2c3d4/share-old"),
+         clPartnerTrashOk("tank/$P/a1b2c3d4/_UnraidSecretaryOffice-trash-20261008-101010-share-old-a1b2c3d4", "tank/$P/a1b2c3d4/share-old")]);
+    same('cleanup partner: a unit goes back only into its pair\'s dataset, only by the door\'s name for it', ["/mnt/tank/$P/a1b2c3d4", '', ''],
+        [clPartnerHome(['dataset' => "tank/$P/a1b2c3d4/share-old", 'from' => "/mnt/tank/$P/a1b2c3d4/share-old"]),
+         clPartnerHome(['dataset' => "tank/$P/a1b2c3d4/odd_name", 'from' => "/mnt/tank/$P/a1b2c3d4/odd_name"]),
+         clPartnerHome(['dataset' => "tank/$P/a1b2c3d4/share-old/deeper", 'from' => "/mnt/tank/$P/a1b2c3d4/share-old/deeper"])]);
+    // Ms. Snapshotini and the watchman's view: until it is put away it is the pair's copy (locked); put away, a leftover
+    $marked = snapshotPartnerMark(['volumes' => [['name' => "tank/$P/a1b2c3d4/share-old"], ['name' => $unitTrash]], 'snapshots' => []], $pairs);
+    same('cleanup partner: Ms. Snapshotini keeps her hands off a dropped unit until it is put away', [true, false],
+        [snapshotPartnerLocked($marked['volumes'][0]), snapshotPartnerLocked($marked['volumes'][1])]);
+
     // «Where is what»: the partners' places with sizes per pair
     $GLOBALS['waPartnerHost'] = ['pools' => [['tank'], ['cold']], 'zfs' => $zfs, 'pairs' => $pairs];
     $w = waPartners();
@@ -15163,6 +15209,8 @@ function testCleanupPartner(): void
         return [clPartners(['pools' => [[], ['tank']], 'zfs' => $none, 'pairs' => $pairs, 'run' => '/nonexistent'])['list'], count($asked) + 1];
     })());
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/cleanup/lang/en.json'), true) ?: [];
+    check('cleanup partner: the page can say a dropped unit', isset($en['cat.partners.dropped'], $en['cat.partners.dropped_text'], $en['pa.dropped_text'])
+        && str_contains($en['pa.dropped_name'] ?? '', '{unit}') && str_contains($en['pa.dropped_name'] ?? '', '{name}'));
     check('cleanup partner: the page can say it', isset($en['section.partners'], $en['cat.partners.leftover'], $en['park.text_partners'], $en['park.where_partners'],
         $en['item.partner'], $en['why.transfer'], $en['errors.cleanup_partner_transfer'], $en['where.partners.title'], $en['fact.partners'], $en['bubble.partners']));
     exec('rm -rf ' . escapeshellarg($tmp));

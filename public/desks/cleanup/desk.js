@@ -28,7 +28,7 @@ const GROUPS = {
   docker: ['dangling', 'volume', 'unused', 'cache', 'used'],
   icons: ['template', 'compose', 'none', 'ok'],
   leftovers: ['leftover', 'way_back', 'unknown'],     // shown per restore (renderLeftovers), these for the CSV
-  partners: ['leftover'],
+  partners: ['leftover', 'dropped'],
 };
 const CANDIDATES = {
   templates: ['leftover', 'unused', 'duplicate', 'noname', 'stray_only_here', 'stray_newer', 'stray_name_exists', 'stray_older', 'stray_copy'],
@@ -39,7 +39,7 @@ const CANDIDATES = {
   docker: ['dangling', 'volume', 'unused', 'cache'],
   icons: ['template', 'compose', 'none'],
   leftovers: ['leftover', 'way_back'],
-  partners: ['leftover'],
+  partners: ['leftover', 'dropped'],
 };
 const CLOSED = ['in_use', 'used', 'unknown', 'ok'];  // folded until opened
 const KIND_ICONS = { container: '🐳', template: '📄', stack: '🧩', compose: '🧩', flash: '💾', vm: '🖥️' };
@@ -116,7 +116,8 @@ const iconChoice = (e) => picks.get(e.id) || e.suggest || null;
 /** Docker's leftovers in use can't be chosen at all; everything else in use only with a warning; a container only with a picture to hang */
 const selectable = (e) => !!state && e.why === null && !state.backup_running && !(removable(e) && e.category === 'used')
   && !(e.kind === 'icon' && (e.category === 'ok' || e.category === 'none' || !iconChoice(e)));
-const label = (e) => (e.kind === 'template' || e.kind === 'stray' ? e.file : e.kind === 'userscript' ? e.name : e.kind === 'stack' ? e.folder : e.kind === 'cache' ? T('cache.name') : e.name);
+const label = (e) => (e.kind === 'template' || e.kind === 'stray' ? e.file : e.kind === 'userscript' ? e.name : e.kind === 'stack' ? e.folder : e.kind === 'cache' ? T('cache.name')
+  : e.kind === 'partner' && e.unit ? T('pa.dropped_name', { unit: e.unit, name: e.pair_name || e.name }) : e.name);
 const sum = (list) => list.reduce((a, e) => a + (e.bytes || 0), 0);
 const words = () => query.trim().toLowerCase().split(/\s+/).filter(Boolean);
 /** Does an entry match the filter? Its name and what it is connected to (image, containers, stack, paths) */
@@ -125,7 +126,7 @@ function matches(e) {
   if (!w.length) return true;
   const hay = [label(e), e.name, e.file, e.folder, e.image, e.project, e.uuid, e.from, e.path, e.restore && e.restore.what, ...(e.refs || []),
     ...(e.used_by || []).map((u) => u.name), ...(e.containers || []).map((c) => c.name), ...(e.parts || []).map((p) => p.path),
-    e.dataset, ...(e.units || [])]
+    e.dataset, e.pair_name, ...(e.units || [])]
     .filter(Boolean).join(' ').toLowerCase();
   return w.every((x) => hay.includes(x));
 }
@@ -1450,11 +1451,11 @@ function partnerDetail(e) {
   const box = el('div');
   box.appendChild(kv([
     [T('pa.d.dataset'), e.dataset, true],
-    [T('pa.d.pair'), e.name, true],
+    [T('pa.d.pair'), e.pair_name ? `${e.pair_name} (${e.name})` : e.name, true],
     [T('pa.d.units'), (e.units || []).length ? lines(e.units) : T('d.none')],
     [T('d.size'), e.bytes !== null && e.bytes !== undefined ? fmt.size(e.bytes) + snapsOf(e) : T('d.not_measured')],
   ]));
-  box.appendChild(el('p', 'role', T('pa.text')));
+  box.appendChild(el('p', 'role', e.unit ? T('pa.dropped_text', { name: e.pair_name || e.name }) : T('pa.text')));
   return box;
 }
 
