@@ -19,7 +19,17 @@ declare(strict_types=1);
  *                                     a full stream onto an existing unit puts the old dataset aside (<ds>.old-<time>),
  *                                     a stale partial receive is aborted (zfs recv -A) unless the call is a -t resume;
  *                                     JSON on stderr before reading and after; the receiver's retention afterwards
- *   send-back <unit> <snap> [<from>]  stage 3 — not yet: {"ok":false,"why":"not_yet"}
+ *   send-back <unit> <snap> [<from>]  the pair's own copy of a unit back to its sender: zfs send -L -c [-i <from>] of
+ *   send-back <unit> -t <token>       <pool>/UnraidSecretaryOffice-partners/<id>/<unit>@<snap> to stdout (through mbuffer) —
+ *                                     or, resumed, zfs send -t <token> (the token is the puller's: its zfs recv -s kept
+ *                                     it; the door sends only when the token names this unit's dataset). JSON on stderr
+ *                                     before ({"ok":true,"size"}) and after; one transfer per pair; registered for the
+ *                                     array stop like recv
+ *
+ * A restore ticket (stage 3, partner.php «restore tickets») has a line of its own — command="…/partner-door.sh
+ * ticket-<id>", comment uso-ticket:<id>: a new server pulls a gone server's copies with it. Its verbs are ping, list,
+ * send-back and quota on the copies of the pair it was given for (tickets.json `of`), until `expires` (then
+ * {"ok":false,"why":"ticket_expired","time":<now>}; sshd's expiry-time ends the key too).
  *
  * Never a path from the client, never -F, never a destroy but this office's own retention on the pair's datasets,
  * never a shell. Every unit is checked against the pair's agreement (pairs.json receive.units), every snapshot name
@@ -75,11 +85,15 @@ require __DIR__ . '/lib/partner.php';
 
 /**
  * The request's words: at most five, single spaces, nothing but [A-Za-z0-9._:-] — anything else (a newline, a ;, a
- * quote, a slash, a tab, two spaces) is no request. Null: not one.
+ * quote, a slash, a tab, two spaces) is no request. At most 256 characters — but «send-back <unit> -t <token>», whose
+ * resume token is longer (only [0-9a-zA-Z-]). Null: not one.
  */
 function doorWords(string $cmd): ?array
 {
-    if ($cmd === '' || strlen($cmd) > 256 || !preg_match('/^[A-Za-z0-9._:-]+(?: [A-Za-z0-9._:-]+){0,4}$/D', $cmd)) {
+    if ($cmd === '' || !preg_match('/^[A-Za-z0-9._:-]+(?: [A-Za-z0-9._:-]+){0,4}$/D', $cmd)) {
+        return null;
+    }
+    if (strlen($cmd) > 256 && (strlen($cmd) > 4200 || !preg_match('/^send-back [A-Za-z0-9:._-]{1,80} -t [0-9a-zA-Z-]{8,4000}$/D', $cmd))) {
         return null;
     }
     return explode(' ', $cmd);
@@ -221,7 +235,10 @@ function doorParents(string $pool, string $id, int $quotaGb): bool
 
 function doorMain(array $argv): int
 {
-    $id = (string) ($argv[1] ?? '');
+    $arg = (string) ($argv[1] ?? '');
+    // a pair's line names the pair; a restore ticket's line «ticket-<id>»
+    $ticketId = preg_match(PARTNER_TICKET_ARG_RE, $arg, $tm) ? $tm[1] : null;
+    $id = $ticketId ?? $arg;
     if (!preg_match(PARTNER_ID_RE, $id)) {
         return doorRefuse('-', 'no_pair');
     }
@@ -235,20 +252,34 @@ function doorMain(array $argv): int
     if (!isset($arity[$verb])) {
         return doorRefuse($id, 'unknown_verb');
     }
+    $err = $verb === 'recv' || $verb === 'send-back';        // the verbs whose stdout or stdin is a stream answer on stderr
     if ($n < $arity[$verb][0] || $n > $arity[$verb][1]) {
-        return doorRefuse($id, 'malformed', $verb === 'recv');
+        return doorRefuse($id, 'malformed', $err);
+    }
+    if ($ticketId !== null && !in_array($verb, PARTNER_TICKET_VERBS, true)) {
+        return doorRefuse($id, 'ticket_verb', $err);
     }
     if ($verb === 'ping') {
+        // a ticket's ping: its expiry looked at while the data folder is there (the array stopped: RAM and flash only)
+        if ($ticketId !== null && doorArrayRunning() && is_dir(DATA_DIR) && ($why = doorTicketWhy($ticketId)) !== null) {
+            return doorRefuse($id, $why, false, $why === 'ticket_expired' ? ['time' => doorNow()] : []);
+        }
         doorHeard($id);
         doorSay(['ok' => true, 'v' => doorVersion(), 'pair' => $id, 'array' => doorArrayRunning() ? 'started' : 'stopped', 'night' => doorNight(), 'time' => doorNow()]);
         return 0;
     }
-    $err = $verb === 'recv';
     // every other verb: the unit and snapshot names first — exactly their shapes
     if ($n >= 2 && !preg_match(PARTNER_UNIT_RE, $w[1])) {
         return doorRefuse($id, 'bad_unit', $err);
     }
+    $resumeBack = $verb === 'send-back' && $n === 4 && $w[2] === '-t';
     foreach (array_slice($w, 2) as $i => $s) {
+        if ($resumeBack) {
+            if ($i === 1 && !preg_match(PARTNER_TOKEN_RE, $s)) {
+                return doorRefuse($id, 'bad_token', true);
+            }
+            continue;
+        }
         if (!preg_match(PARTNER_SNAP_RE, $s) && !($i === 1 && $s === '-t' && $verb === 'recv')) {
             return doorRefuse($id, 'bad_snap', $err);
         }
@@ -256,22 +287,34 @@ function doorMain(array $argv): int
     if (!doorArrayRunning() || !is_dir(DATA_DIR)) {
         return doorRefuse($id, 'array_stopped', $err);
     }
-    $pair = partnerPair($id);
-    if ($pair === null) {
-        return doorRefuse($id, 'no_pair', $err);
+    $units = null;
+    if ($ticketId !== null) {
+        // a ticket: its own record (not expired), the pair it was given for, the units of that pair the ticket names
+        if (($why = doorTicketWhy($ticketId)) !== null) {
+            return doorRefuse($id, $why, $err, $why === 'ticket_expired' ? ['time' => doorNow()] : []);
+        }
+        $ticket = partnerTicket($ticketId);
+        $pair = partnerPair($ticket['of']);
+        if ($pair === null) {
+            return doorRefuse($id, 'no_pair', $err);
+        }
+        $units = $pair['receive'] !== null ? array_values(array_intersect($ticket['units'], $pair['receive']['units'])) : [];
+    } else {
+        $pair = partnerPair($id);
+        if ($pair === null) {
+            return doorRefuse($id, 'no_pair', $err);
+        }
     }
     doorHeard($id);
     if ($verb === 'status') {
         return doorStatus($pair);
     }
-    if ($verb === 'send-back') {
-        return doorRefuse($id, 'not_yet');
-    }
     $r = $pair['receive'];
     if ($r === null) {
         return doorRefuse($id, 'not_receiving', $err);
     }
-    if ($n >= 2 && !in_array($w[1], $r['units'], true)) {
+    $units ??= $r['units'];
+    if ($n >= 2 && !in_array($w[1], $units, true)) {
         return doorRefuse($id, 'unit_not_agreed', $err);
     }
     if (!doorPoolThere($r['pool'])) {
@@ -280,23 +323,35 @@ function doorMain(array $argv): int
     if (in_array($r['pool'], poolsBySleep([$r['pool']])['asleep'], true) && !$r['wake']) {
         return doorRefuse($id, 'refused_asleep', $err);
     }
-    $pairDs = "{$r['pool']}/" . PARTNER_PARENT . "/$id";
+    $pairDs = "{$r['pool']}/" . PARTNER_PARENT . "/{$pair['id']}";       // a ticket reads the copies of the pair it was given for
     switch ($verb) {
         case 'quota':
             $q = doorZfsGet($pairDs, 'quota,used');
             doorSay(['ok' => true, 'bytes' => $q !== null && num($q['quota'] ?? '') > 0 ? num($q['quota']) : null, 'used_bytes' => $q !== null ? num($q['used'] ?? '') : 0]);
             return 0;
         case 'list':
-            $ds = partnerUnitDataset($r['pool'], $id, $w[1]);
+            $ds = partnerUnitDataset($r['pool'], $pair['id'], $w[1]);
             doorSay(['ok' => true, 'unit' => $w[1], 'snaps' => array_map(fn ($s) => ['name' => $s['name'], 'used' => $s['used'], 'referenced' => $s['referenced'],
                 'creation' => $s['creation']], array_values(array_filter(doorSnaps($ds), fn ($s) => preg_match(PARTNER_SNAP_RE, $s['name']))))]);
             return 0;
         case 'resume':
-            $t = doorZfsGet(partnerUnitDataset($r['pool'], $id, $w[1]), 'receive_resume_token')['receive_resume_token'] ?? '-';
+            $t = doorZfsGet(partnerUnitDataset($r['pool'], $pair['id'], $w[1]), 'receive_resume_token')['receive_resume_token'] ?? '-';
             doorSay(['ok' => true, 'token' => preg_match('/^[0-9a-zA-Z-]{8,4096}$/D', $t) && $t !== '-' ? $t : null]);
             return 0;
+        case 'send-back':
+            return doorSendBack($pair, $id, $w[1], $resumeBack ? null : $w[2], $resumeBack ? null : ($w[3] ?? null), $resumeBack ? $w[3] : null);
     }
     return doorRecv($pair, $w[1], $w[2], $w[3] ?? null);
+}
+
+/** Why a ticket can't be used (null: it can): gone from tickets.json, or expired */
+function doorTicketWhy(string $ticketId): ?string
+{
+    $t = partnerTicket($ticketId);
+    if ($t === null) {
+        return 'no_ticket';
+    }
+    return $t['expires'] <= doorNow() ? 'ticket_expired' : null;
 }
 
 function doorStatus(array $pair): int
@@ -516,6 +571,123 @@ function doorRecv(array $pair, string $unit, string $snap, ?string $from): int
     doorLog($id, "recv $unit $snap done: $bytes bytes in {$seconds} s");
     doorSay(['ok' => true, 'bytes' => $bytes, 'seconds' => $seconds] + ($aside !== null ? ['aside' => $aside] : []), true);
     flock($lock, LOCK_UN);
+    return 0;
+}
+
+/**
+ * The way back: the pair's own copy of a unit to stdout — `zfs send -L -c [-i <ds>@<from>] <ds>@<snap>` (or, resumed,
+ * `zfs send -t <token>` when the token names exactly this unit's dataset and a snapshot of the engine's shape) through
+ * mbuffer. Only this pair's dataset of the unit; the snapshots must be there. One transfer per pair ($callerId's lock —
+ * a ticket has its own); registered for the array stop (agent.sh partner_release); JSON on stderr before ({"ok":true,
+ * "size":<bytes zfs says it sends>}) and after. Nothing here writes or destroys anything.
+ */
+function doorSendBack(array $pair, string $callerId, string $unit, ?string $snap, ?string $from, ?string $token): int
+{
+    $r = $pair['receive'];
+    $ds = partnerUnitDataset($r['pool'], $pair['id'], $unit);
+    $zfs = partnerBin('zfs') ?? 'zfs';
+    if (doorZfsGet($ds, 'type') === null) {
+        return doorRefuse($callerId, 'no_snapshot', true);
+    }
+    if ($token !== null) {
+        // the token says what it continues: it must be this dataset — never another one of this server
+        [$exit, $out, $e] = run([$zfs, 'send', '-nvP', '-t', $token], 60);
+        $text = $out . "\n" . $e;
+        $to = preg_match('/^\s*toname = (\S+)\s*$/m', $text, $m) ? $m[1] : '';
+        $toSnap = str_contains($to, '@') ? explode('@', $to, 2)[1] : '';
+        if ($exit !== 0 || !str_starts_with($to, "$ds@") || !preg_match(PARTNER_SNAP_RE, $toSnap)) {
+            return doorRefuse($callerId, $exit !== 0 ? 'bad_token' : 'token_other', true);
+        }
+        $snap = $toSnap;
+        $cmd = [$zfs, 'send', '-t', $token];
+        $size = preg_match('/^size\s+(\d+)\s*$/m', $text, $m) ? (int) $m[1] : null;
+    } else {
+        $snaps = array_column(doorSnaps($ds), 'name');
+        if (!in_array($snap, $snaps, true)) {
+            return doorRefuse($callerId, 'no_snapshot', true);
+        }
+        if ($from !== null && (!in_array($from, $snaps, true) || strcmp($from, (string) $snap) >= 0)) {
+            return doorRefuse($callerId, 'need_full', true);
+        }
+        $cmd = array_merge([$zfs, 'send', '-L', '-c'], $from !== null ? ['-i', "$ds@$from"] : [], ["$ds@$snap"]);
+        [$exit, $out] = run(array_merge([$zfs, 'send', '-nP', '-L', '-c'], $from !== null ? ['-i', "$ds@$from"] : [], ["$ds@$snap"]), 60);
+        $size = $exit === 0 && preg_match('/^size\s+(\d+)\s*$/m', $out, $m) ? (int) $m[1] : null;
+    }
+    if (!partnerDirReady(partnerRunDir())) {
+        return doorRefuse($callerId, 'busy', true);
+    }
+    $lock = @fopen(partnerRunDir() . "/$callerId.lock", 'c');
+    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
+        return doorRefuse($callerId, 'busy', true);
+    }
+    doorSay(['ok' => true, 'size' => $size], true);
+    doorLog($callerId, "send-back $unit $snap" . ($token !== null ? ' (resumed)' : ($from !== null ? " from $from" : ' (whole)')) . " <- $ds");
+    $env = ['PATH' => '/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin', 'LC_ALL' => 'C', 'HOME' => '/root'];
+    $t0 = microtime(true);
+    $mbuffer = partnerBin('mbuffer');
+    $zs = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => $mbuffer !== null ? ['pipe', 'w'] : STDOUT, 2 => ['pipe', 'w']], $zp, '/', $env);
+    if (!is_resource($zs)) {
+        doorSay(['ok' => false, 'why' => 'send_failed', 'detail' => 'could not start zfs'], true);
+        return 1;
+    }
+    $mb = null;
+    if ($mbuffer !== null) {
+        $mb = proc_open([$mbuffer, '-q', '-s', '128k', '-m', '256M'], [0 => $zp[1], 1 => STDOUT, 2 => ['file', '/dev/null', 'w']], $mp, '/', $env);
+        fclose($zp[1]);                 // the pipe is mbuffer's now
+        if (!is_resource($mb)) {
+            @proc_terminate($zs);
+            proc_close($zs);
+            doorSay(['ok' => false, 'why' => 'send_failed', 'detail' => 'could not start mbuffer'], true);
+            return 1;
+        }
+    }
+    $children = array_values(array_filter([proc_get_status($zs)['pid'] ?? null, $mb !== null ? (proc_get_status($mb)['pid'] ?? null) : null]));
+    $record = partnerRunDir() . '/door-' . getmypid() . '.json';
+    try {
+        writeAtomic($record, jsonEncode(['pid' => getmypid(), 'pair' => $callerId, 'unit' => $unit, 'snap' => $snap, 'dataset' => $ds, 'since' => time(),
+            'children' => $children, 'send_back' => true]), 0600, 0, 0);
+    } catch (Throwable $e) {
+    }
+    $stopped = false;
+    pcntl_async_signals(true);
+    $stop = function () use (&$stopped, $zs, $mb) {
+        $stopped = true;            // the array stops (partner_release), or the puller went away
+        @proc_terminate($zs, SIGTERM);
+        if ($mb !== null) {
+            @proc_terminate($mb, SIGTERM);
+        }
+    };
+    foreach ([SIGTERM, SIGINT, SIGHUP, SIGPIPE] as $sig) {
+        pcntl_signal($sig, $stop);
+    }
+    $errText = '';
+    while (!feof($zp[2])) {
+        $chunk = fread($zp[2], 8192);
+        if ($chunk === false) {
+            break;
+        }
+        $errText = substr($errText . $chunk, -4096);
+    }
+    fclose($zp[2]);
+    $code = proc_close($zs);
+    $mcode = 0;
+    if ($mb !== null) {
+        if ($code !== 0) {
+            @proc_terminate($mb, SIGTERM);
+        }
+        $mcode = proc_close($mb);
+    }
+    @unlink($record);
+    flock($lock, LOCK_UN);
+    $seconds = (int) round(microtime(true) - $t0);
+    if ($code !== 0 || $mcode !== 0 || $stopped) {
+        $detail = substr(trim((string) preg_replace('/[^\x20-\x7e\n]/', '?', $errText)), 0, 400);
+        doorLog($callerId, "send-back $unit $snap failed" . ($stopped ? ' (stopped)' : '') . ': ' . str_replace("\n", ' | ', $detail));
+        doorSay(['ok' => false, 'why' => $stopped ? 'stopped' : 'send_failed', 'detail' => $detail], true);
+        return 1;
+    }
+    doorLog($callerId, "send-back $unit $snap done in {$seconds} s");
+    doorSay(['ok' => true, 'seconds' => $seconds], true);
     return 0;
 }
 

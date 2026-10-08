@@ -11704,7 +11704,7 @@ if ($me === 'ssh') {
     if (!in_array("$name $hk", array_map('trim', @file((string) $known) ?: []), true)) { fwrite(STDERR, "Host key verification failed.\n"); exit(255); }
     $pub = implode(' ', array_slice(explode(' ', trim((string) @file_get_contents("$key.pub"))), 0, 2));
     foreach (@file($t['auth_keys']) ?: [] as $line) {
-        if (str_contains($line, " $pub ") && preg_match('/^restrict,from="([^"]*)",command="[^" ]* ([0-9a-f]{8})" /', $line, $m)) {
+        if (str_contains($line, " $pub ") && preg_match('/^restrict,(?:expiry-time="[0-9TZ]+",)?from="([^"]*)",command="[^" ]* ((?:ticket-)?[0-9a-f]{8})" /', $line, $m)) {
             $p = proc_open([$t['php'], $t['door'], $m[2]], [0 => STDIN, 1 => STDOUT, 2 => STDERR], $pp, '/',
                 $t['env'] + ['SSH_ORIGINAL_COMMAND' => (string) $remote, 'SSH_CONNECTION' => "{$m[1]} 50000 $host $port"]);
             exit(proc_close($p));
@@ -11837,6 +11837,7 @@ switch ($cmd) {
         if (str_starts_with($data, 'INTERRUPT')) {
             $st['ds'][$ds] = ($st['ds'][$ds] ?? ['used' => 0, 'props' => $o]) + [];
             $st['ds'][$ds]['token'] = '1-abcdef0123-c8-789c0123456789';
+            $st['tokens']['1-abcdef0123-c8-789c0123456789'] = $ds . '@' . ($snap ?? (preg_match('/SNAP:(\S+)/', $data, $m) ? $m[1] : 'uso-backup-19990101-0000'));
             $save();
             fwrite(STDERR, "cannot receive new filesystem stream: checksum mismatch or incomplete stream.\nPartially received snapshot is saved.\n");
             exit(1);
@@ -11848,6 +11849,27 @@ switch ($cmd) {
         $st['snaps']["$ds@$snap"] = ['userrefs' => 0, 'used' => strlen($data), 'written' => strlen($data), 'creation' => $st['seq']];
         $save();
         exit(0);
+}
+if ($cmd === 'send') {
+    // the sending end (the door's send-back): a stream that names what it is — «SNAP:<snap> <whole|from …> [resumed]»
+    $dry = isset($f['-nP']) || isset($f['-nvP']);
+    $base = null;
+    if (isset($f['-t'])) {
+        $target = $st['tokens'][$rest[0]] ?? null;
+        if ($target === null) { fwrite(STDERR, "cannot resume send: kernel modules must be upgraded to receive this stream.\n"); exit(255); }
+    } else {
+        $target = (string) end($rest);
+        $base = isset($f['-i']) ? $rest[0] : null;
+    }
+    if (!isset($st['snaps'][$target])) { $no($target); }
+    $size = (int) ($st['snaps'][$target]['used'] ?? 0) + 100;
+    if ($dry) {
+        if (isset($f['-t'])) { echo "resume token contents:\nnvlist version: 0\n\tobject = 0x1\n\ttoname = $target\n"; }
+        echo ($base !== null ? "incremental\t$base\t$target\t$size\n" : "full\t$target\t$size\n") . "size\t$size\n";
+        exit(0);
+    }
+    echo 'SNAP:' . explode('@', $target)[1] . ' ' . ($base !== null ? 'from ' . explode('@', $base)[1] : 'whole') . (isset($f['-t']) ? ' resumed' : '') . "\n";
+    exit(($st['send_fail'] ?? false) ? 1 : 0);
 }
 fwrite(STDERR, "stand-in: unknown $cmd\n");
 exit(2);
@@ -12469,7 +12491,6 @@ function testPartnerDoor(): void
     fclose($hold);
     same('door: a pair that receives nothing here', 'not_receiving', partnerTestDoor($B, 'list share:appdata', '', 'b2c3d4e5')['out'][0]['why'] ?? null);
     same('door: … its ping and status work', [0, 0], [partnerTestDoor($B, 'ping', '', 'b2c3d4e5')['exit'], partnerTestDoor($B, 'status', '', 'b2c3d4e5')['exit']]);
-    same('door: send-back — not yet', ['ok' => false, 'why' => 'not_yet'], partnerTestDoor($B, 'send-back share:appdata uso-backup-20261004-0200')['out'][0] ?? null);
 
     // ---- everything else: refused, logged, counted — and nothing of zfs ran
     partnerTestCalls($B['bin']);
@@ -12683,6 +12704,162 @@ function testPartnerRelease(): void
     check('partner release: called at the array stop, beside backup_release', (bool) preg_match('/partner_release[^\n]*\n\s*backup_release/', (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh')));
     hardeningRm($tmp);
 }
+/** The door's way back (send-back, its -t form) and the restore tickets' door: verbs, units, expiry, the tidy */
+function testPartnerSendBack(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('partner send-back: root only — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('partner-sendback');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $B = partnerTestOffice("$tmp/B");
+    $id = 'a1b2c3d4';
+    $ds = 'tank/' . PARTNER_PARENT . "/$id/share-appdata";
+    $vm = 'tank/' . PARTNER_PARENT . "/$id/vm-Debian_Helmi";
+    $snap = fn (int $c) => ['userrefs' => 0, 'used' => 10, 'written' => 10, 'creation' => $c];
+    $st = ['pools' => ['tank'], 'ds' => ['tank' => ['used' => 0], 'tank/' . PARTNER_PARENT => ['used' => 0], 'tank/' . PARTNER_PARENT . "/$id" => ['used' => 0],
+           $ds => ['used' => 0], $vm => ['used' => 0], 'tank/appdata' => ['used' => 0]],
+           'snaps' => ["$ds@uso-backup-20261001-0200" => $snap(1), "$ds@uso-backup-20261002-0200" => $snap(2), "$vm@uso-backup-20261002-0200" => $snap(3),
+                       'tank/appdata@uso-backup-20261002-0200' => $snap(4)],
+           'tokens' => ['1-aaaaaaaa11-c8-789c0123456789' => "$ds@uso-backup-20261002-0200", '1-bbbbbbbb22-c8-789c0123456789' => 'tank/appdata@uso-backup-20261002-0200',
+                        '1-cccccccc33-c8-789c0123456789' => "$ds@manual-snap"]];
+    $st['snaps']["$ds@manual-snap"] = $snap(5);
+    partnerTestBin($B['bin'], $st);
+    $pairsFile = "$B[data]/partner/pairs.json";
+    partnerPairsWrite([partnerTestPair($id), partnerTestPair('b2c3d4e5', ['their_key' => null, 'receive' => null])], $pairsFile);
+    $log = fn () => (string) @file_get_contents("$B[data]/partner/door.log");
+    $sends = function () use ($B): array {
+        $c = array_values(array_filter(partnerTestCalls($B['bin']), fn ($c) => $c[0] === 'mbuffer' || ($c[0] === 'zfs' && ($c[1] ?? '') === 'send' && !preg_grep('/^-n/', $c))));
+        usort($c, fn ($a, $b) => strcmp(json_encode($b), json_encode($a)));      // zfs before mbuffer, whichever wrote first
+        return $c;
+    };
+
+    // ---- the whole copy back
+    $r = partnerTestDoor($B, 'send-back share:appdata uso-backup-20261002-0200');
+    same('send-back: the stream on stdout, ok before (with the size) and after on stderr', [0, "SNAP:uso-backup-20261002-0200 whole\n", ['ok' => true, 'size' => 110], true],
+        [$r['exit'], explode('{', $r['raw'])[0], $r['err'][0] ?? null, ($r['err'][1]['ok'] ?? null) === true && isset($r['err'][1]['seconds'])]);
+    same('send-back: zfs send -L -c of the pair\'s own dataset, through mbuffer', [['zfs', 'send', '-L', '-c', "$ds@uso-backup-20261002-0200"], ['mbuffer', '-q', '-s', '128k', '-m', '256M']], $sends());
+    check('send-back: in the door\'s log', str_contains($log(), "send-back share:appdata uso-backup-20261002-0200 (whole) <- $ds") && str_contains($log(), 'send-back share:appdata uso-backup-20261002-0200 done'));
+    same('send-back: no record of a transfer left', [], glob("$B[run]/partner/door-*.json"));
+    $r = partnerTestDoor($B, 'send-back share:appdata uso-backup-20261002-0200 uso-backup-20261001-0200');
+    same('send-back: incremental', [0, "SNAP:uso-backup-20261002-0200 from uso-backup-20261001-0200\n"], [$r['exit'], explode('{', $r['raw'])[0]]);
+    same('send-back: … zfs send -i', [['zfs', 'send', '-L', '-c', '-i', "$ds@uso-backup-20261001-0200", "$ds@uso-backup-20261002-0200"], ['mbuffer', '-q', '-s', '128k', '-m', '256M']], $sends());
+    same('send-back: a VM\'s copy', 0, partnerTestDoor($B, 'send-back vm:Debian_Helmi uso-backup-20261002-0200')['exit']);
+    $sends();
+
+    // ---- resumed: the token is the puller's — only one that names this unit's dataset and an engine snapshot
+    $r = partnerTestDoor($B, 'send-back share:appdata -t 1-aaaaaaaa11-c8-789c0123456789');
+    same('send-back -t: zfs send -t', [0, "SNAP:uso-backup-20261002-0200 whole resumed\n", 110], [$r['exit'], explode('{', $r['raw'])[0], $r['err'][0]['size'] ?? null]);
+    same('send-back -t: … the token sent as it came', [['zfs', 'send', '-t', '1-aaaaaaaa11-c8-789c0123456789'], ['mbuffer', '-q', '-s', '128k', '-m', '256M']], $sends());
+    $long = '1-' . str_repeat('ab12', 700);
+    foreach (['send-back share:appdata -t 1-bbbbbbbb22-c8-789c0123456789' => 'token_other', 'send-back share:appdata -t 1-cccccccc33-c8-789c0123456789' => 'token_other',
+              'send-back vm:Debian_Helmi -t 1-aaaaaaaa11-c8-789c0123456789' => 'token_other', 'send-back share:appdata -t 1-dddddddd44-c8-789c0123456789' => 'bad_token',
+              "send-back share:appdata -t $long" => 'bad_token', 'send-back share:appdata -t short' => 'bad_token'] as $cmd => $why) {
+        $r = partnerTestDoor($B, $cmd);
+        same('send-back -t refused — ' . substr($cmd, 10, 50), [1, $why, ''], [$r['exit'], $r['err'][0]['why'] ?? $r['raw'], explode('{', $r['raw'])[0]]);
+    }
+    same('send-back -t: none of those sent a byte', [], $sends());
+
+    // ---- refusals
+    $bad = [
+        'send-back share:appdata uso-backup-20261009-0200' => 'no_snapshot', 'send-back share:appdata manual-snap' => 'bad_snap',
+        'send-back share:appdata uso-backup-20261002-0200 uso-backup-20260101-0200' => 'need_full', 'send-back share:appdata uso-backup-20261001-0200 uso-backup-20261002-0200' => 'need_full',
+        'send-back share:system uso-backup-20261002-0200' => 'unit_not_agreed', 'send-back place uso-backup-20261002-0200' => 'unit_not_agreed',
+        'send-back share:appdata' => 'malformed', 'send-back share:appdata uso-backup-20261002-0200 -t' => 'bad_snap', 'send-back share:appdata -t 1-aaaa;id' => 'malformed',
+        'send-back share:appdata -t ' . str_repeat('a', 4100) => 'malformed', 'send-back share:appdata uso-backup-20261002-0200 ' . str_repeat('a', 300) => 'malformed',
+        'list share:appdata ' . str_repeat('a', 300) => 'malformed', 'send-back tank/appdata uso-backup-20261002-0200' => 'malformed', 'send-back -F uso-backup-20261002-0200' => 'bad_unit',
+    ];
+    foreach ($bad as $cmd => $why) {
+        $r = partnerTestDoor($B, $cmd);
+        same('send-back refused — ' . substr($cmd, 0, 70), [true, $why], [$r['exit'] !== 0, (array_merge($r['out'], $r['err'])[0]['why'] ?? $r['raw'])]);
+    }
+    same('send-back: a pair that keeps nothing here', 'not_receiving', partnerTestDoor($B, 'send-back share:appdata uso-backup-20261002-0200', '', 'b2c3d4e5')['err'][0]['why'] ?? null);
+    @mkdir("$B[run]/partner", 0700, true);
+    $hold = fopen("$B[run]/partner/$id.lock", 'c');
+    flock($hold, LOCK_EX);
+    same('send-back: one transfer per pair — busy', 'busy', partnerTestDoor($B, 'send-back share:appdata uso-backup-20261002-0200')['err'][0]['why'] ?? null);
+    flock($hold, LOCK_UN);
+    fclose($hold);
+    $z = json_decode((string) file_get_contents("$B[bin]/zfs.json"), true);
+    $z['send_fail'] = true;
+    file_put_contents("$B[bin]/zfs.json", json_encode($z));
+    $r = partnerTestDoor($B, 'send-back share:appdata uso-backup-20261002-0200');
+    same('send-back: zfs send failing — said after', [1, ['ok' => true, 'size' => 110], 'send_failed'], [$r['exit'], $r['err'][0] ?? null, $r['err'][1]['why'] ?? null]);
+    $z['send_fail'] = false;
+    file_put_contents("$B[bin]/zfs.json", json_encode($z));
+    $sends();
+    same('send-back: nothing written, renamed or destroyed by any of it', [], array_values(array_filter(partnerTestCalls($B['bin']), fn ($c) => in_array($c[1] ?? '', ['recv', 'create', 'destroy', 'set', 'rename'], true))));
+
+    // ---- restore tickets: a line of their own, ping / list / send-back / quota on the pair's copies, until expires
+    $t1 = 'c3d4e5f6';
+    $t2 = 'd4e5f6a7';
+    $now = time();
+    $ticket = fn (string $tid, int $expires, array $over = []) => $over + ['id' => $tid, 'of' => $id, 'name' => 'newbox', 'address' => '192.168.77.9', 'from' => '192.168.77.9',
+        'key' => partnerFingerprint(partnerTestKey()), 'created' => $expires - PARTNER_TICKET_DAYS * 86400, 'expires' => $expires, 'units' => ['share:appdata']];
+    partnerTestAs($B, 'partnerTicketsWrite(' . var_export([$ticket($t1, $now + 3600), $ticket($t2, $now - 60)], true) . '); return true;');
+    same('tickets.json root only', 0600, fileperms("$B[data]/partner/tickets.json") & 0777);
+    $T = fn (string $cmd, string $tid = 'c3d4e5f6', array $env = []) => partnerTestDoor($B, $cmd, '', "ticket-$tid", $env);
+    $r = $T('ping');
+    same('ticket: ping', [0, true, $t1], [$r['exit'], $r['out'][0]['ok'] ?? null, $r['out'][0]['pair'] ?? null]);
+    $r = $T('list share:appdata');
+    same('ticket: list of the unit it names', ['uso-backup-20261001-0200', 'uso-backup-20261002-0200'], array_column($r['out'][0]['snaps'] ?? [], 'name') ?: $r['raw']);
+    same('ticket: quota (the pair\'s)', [0, true], [$T('quota')['exit'], $T('quota')['out'][0]['ok'] ?? null]);
+    $r = $T('send-back share:appdata uso-backup-20261002-0200');
+    same('ticket: send-back', [0, "SNAP:uso-backup-20261002-0200 whole\n"], [$r['exit'], explode('{', $r['raw'])[0]]);
+    foreach (['status' => 'ticket_verb', 'recv share:appdata uso-backup-20261003-0200' => 'ticket_verb', 'resume share:appdata' => 'ticket_verb',
+              'list vm:Debian_Helmi' => 'unit_not_agreed', 'send-back vm:Debian_Helmi uso-backup-20261002-0200' => 'unit_not_agreed', 'rm -rf /' => 'malformed'] as $cmd => $why) {
+        $r = $T($cmd);
+        same("ticket: refused — $cmd", [true, $why], [$r['exit'] !== 0, array_merge($r['out'], $r['err'])[0]['why'] ?? $r['raw']]);
+    }
+    $r = $T('list share:appdata', $t2);
+    same('ticket expired — refused, with the server\'s time', [1, 'ticket_expired', true], [$r['exit'], $r['out'][0]['why'] ?? null, abs(($r['out'][0]['time'] ?? 0) - time()) < 30]);
+    same('ticket expired — its ping too', 'ticket_expired', $T('ping', $t2)['out'][0]['why'] ?? null);
+    same('ticket expired — its send-back too (stderr)', 'ticket_expired', $T('send-back share:appdata uso-backup-20261002-0200', $t2)['err'][0]['why'] ?? null);
+    file_put_contents("$tmp/stopped.ini", "fsState=\"Stopped\"\n");
+    same('ticket: ping while the array is stopped — RAM and flash only', [0, 'stopped'], [$T('ping', $t2, ['OFFICE_VAR_INI' => "$tmp/stopped.ini"])['exit'],
+        $T('ping', $t2, ['OFFICE_VAR_INI' => "$tmp/stopped.ini"])['out'][0]['array'] ?? null]);
+    same('ticket: one the holder doesn\'t know', 'no_ticket', $T('list share:appdata', 'eeeeeeee')['out'][0]['why'] ?? null);
+    foreach (['ticket-', 'ticket-A1B2C3D4', 'ticket-a1b2c3d4x', 'tickets-a1b2c3d4', 'ticket-../x'] as $arg) {
+        same('ticket: no pair from the line ' . $arg, 'no_pair', partnerTestDoor($B, 'ping', '', $arg)['out'][0]['why'] ?? null);
+    }
+    check('ticket: refusals counted under the ticket\'s id', is_file("$B[run]/partner/refused-$t1.json") && is_file("$B[run]/partner/refused-$t2.json"));
+    partnerTestAs($B, 'partnerTicketsWrite(' . var_export([$ticket($t1, $now + 3600, ['of' => 'f0f0f0f0'])], true) . '); return true;');
+    same('ticket: the pair it was given for is gone', 'no_pair', $T('list share:appdata')['out'][0]['why'] ?? null);
+
+    // ---- the line, and the tidy at the agent's start and once a day
+    $k1 = partnerTestKey();
+    $l1 = partnerTicketLine($t1, '192.168.77.9', $k1, strtotime('2026-10-15 12:00 UTC'));
+    same('ticket: its line — restrict, sshd\'s expiry-time in UTC, from=, the door with ticket-<id>, uso-ticket:<id>',
+        'restrict,expiry-time="202610151200Z",from="192.168.77.9",command="' . PARTNER_DOOR . " ticket-$t1\" $k1 uso-ticket:$t1", $l1);
+    check('ticket: its line is a ticket\'s, not a pair\'s', partnerTicketLineIsOurs($l1, $t1) && !partnerLineIsOurs($l1) && !partnerTicketLineIsOurs($l1, $t2));
+    $benj = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBenjBenjBenjBenjBenjBenjBenjBenjBenjBenj benj@MacBook\n";
+    $pairLine = partnerDoorLine($id, '192.168.77.1', partnerTestKey());
+    $l2 = partnerTicketLine($t2, '192.168.77.9', partnerTestKey(), $now - 60);
+    $l3 = partnerTicketLine('f1f2f3f4', '192.168.77.9', partnerTestKey(), $now + 999);
+    file_put_contents($B['keys'], $benj . $pairLine . "\n" . $l1 . "\n" . $l2 . "\n" . $l3 . "\n");
+    partnerTestAs($B, 'partnerTicketsWrite(' . var_export([$ticket($t1, $now + 3600), $ticket($t2, $now - 60)], true) . '); return true;');
+    $gone = partnerTestAs($B, 'return partnerTicketsTidy();');
+    same('ticket tidy: the expired one and one without its ticket went — the rest byte for byte', [2, $benj . $pairLine . "\n" . $l1 . "\n"], [$gone, file_get_contents($B['keys'])]);
+    same('ticket tidy: tickets.json keeps the living one', [$t1], array_column(partnerTestAs($B, 'return partnerTickets();'), 'id'));
+    same('ticket tidy: nothing more the second time', 0, partnerTestAs($B, 'return partnerTicketsTidy();'));
+    same('ticket: its line read back', $l1, partnerAuthKeysLine($t1, $B['keys'], true));
+    $strip = partnerAuthKeysStrip(file_get_contents($B['keys']));
+    same('authorized_keys: every line of the office\'s out at once (the .plg\'s remove) — pairs and tickets', $benj, $strip);
+    $plg = (string) file_get_contents(OFFICE_DIR . '/plugin/unraid-secretary-office.plg');
+    $one = preg_match("/php -r '(umask\\(077\\);.*?)' \"\\\$keys\"/s", $plg, $m) ? $m[1] : '';
+    exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($one) . ' ' . escapeshellarg($B['keys']));
+    same('authorized_keys: the .plg\'s remove takes the tickets\' lines too', $benj, file_get_contents($B['keys']));
+    check('the .plg\'s remove looks for the tickets\' mark', str_contains($plg, "grep -q 'uso-\\(partner\\|ticket\\):[0-9a-f]\\{8\\}'"));
+    try {
+        partnerAuthKeysEdit($t1, $pairLine, $B['keys'], true);
+        check('authorized_keys: a pair\'s line refused as a ticket\'s', false);
+    } catch (Problem $e) {
+        same('authorized_keys: a pair\'s line refused as a ticket\'s', 'partner_shape', $e->key);
+    }
+    hardeningRm($tmp);
+}
+
 /**
  * Mr. Restori's drill (agent/desks/restore-drill.php): the one gate for throwaway containers against nostromo-shaped
  * manifests (tests/fixtures/restore-drill, selected keys, values scrubbed — the «never» list of the concept's 3.1), the
@@ -13715,7 +13892,7 @@ function testLogsPartner(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testWatchmanPartner', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease'],
-          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor'],
+          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerSendBack'],
           'strings' => ['testStrings', 'testUnraidWords']];
 $only = $argv[1] ?? '';
 foreach ($parts as $name => $fns) {
