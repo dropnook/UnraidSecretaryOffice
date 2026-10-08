@@ -1361,9 +1361,8 @@ Office.reportDialog = function reportDialog(deskId) {
   text.value = typeof draft.text === 'string' ? draft.text : '';
   const count = el('small', 'sso-report-count');
   field(t('office.report_text'), text, count);
-  // no name field (Benj, 2026-10-08): nobody is answered by name — the forum is the place for a conversation
-  const name = el('input', 'input');
-  name.value = '';
+  // no name field (Benj, 2026-10-08): nobody is answered by name — the forum is the place for a conversation (the agent
+  // still takes an empty one: report.php reportWords())
   box.appendChild(form);
 
   const msg = el('p', 'callout warn');
@@ -1383,7 +1382,7 @@ Office.reportDialog = function reportDialog(deskId) {
   yours.hidden = true;
   box.appendChild(yours);
 
-  const words = () => ({ kind: state.kind, desk: desk.value, title: title.value.trim(), text: text.value.trim(), name: name.value.trim() });
+  const words = () => ({ kind: state.kind, desk: desk.value, title: title.value.trim(), text: text.value.trim() });
   const keep = () => { if (!state.sent) Office.storeJson('report.draft', words()); };
   const say = (s) => { msg.textContent = s || ''; msg.hidden = !s; };
   let send = null;
@@ -1403,7 +1402,7 @@ Office.reportDialog = function reportDialog(deskId) {
     }
     if (send) send.disabled = !sendable();
   }
-  [title, text, name].forEach((f) => { f.oninput = changed; });
+  [title, text].forEach((f) => { f.oninput = changed; });
   desk.onchange = changed;
   counter();
 

@@ -19896,12 +19896,12 @@ JS);
     same('report dialog: opens wide with the desk shown, asks only for «Your reports», «Send» off', ['office.report_title', 'snapshot', ['office', 'caretaker', 'snapshot'], true, ['office.reports'], true],
         [$o['title'], $o['desk'], $o['deskOptions'], $o['sendOff'], $o['asked'], str_contains($o['wide'], 'wide') && str_contains($o['wide'], 'sso-report-dialog')]);
     same('report dialog: … the GitHub issues for account holders (no forum yet), «Your reports»', [['https://github.com/dropnook/UnraidSecretaryOffice/issues'], true], [$o['issues'], $o['yours']]);
-    same('report dialog: the draft kept while typing', ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => 'It ran twice at 03:00, see the log.', 'name' => ''], $r['draft']);
+    same('report dialog: the draft kept while typing', ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => 'It ran twice at 03:00, see the log.'], $r['draft']);
     same('report dialog: the counter in bytes', 'office.report_count', $r['counter']);   // no strings loaded: the key
     $p = $r['preview'];
-    same('report dialog: the preview asks with the words, the languages and the desk\'s last error (plain params only)',
-        ['office.report_preview', 'bug', 'snapshot', 'Her plan ran twice', '', 'en', 'de', 'command_failed', ['detail' => 'zfs busy']],
-        [$p['a'], $p['kind'], $p['desk'], $p['title'], $p['name'], $p['lang'], $p['browser'], $p['error']['key'] ?? null, $p['error']['params'] ?? null]);
+    same('report dialog: the preview asks with the words (no name: the field is gone), the languages and the desk\'s last error (plain params only)',
+        ['office.report_preview', 'bug', 'snapshot', 'Her plan ran twice', null, 'en', 'de', 'command_failed', ['detail' => 'zfs busy']],
+        [$p['a'], $p['kind'], $p['desk'], $p['title'], $p['name'] ?? null, $p['lang'], $p['browser'], $p['error']['key'] ?? null, $p['error']['params'] ?? null]);
     same('report dialog: … then «Send» is on, every part a tick box (the words and the ID always)', [true, [['words', true, true], ['versions', true, false], ['unraid', true, false],
         ['language', true, false], ['team', true, false], ['error', true, false], ['log', true, false], ['id', true, true]]], [$p['sendOn'], $p['parts']]);
     same('report dialog: … the log in full, what was hidden, the hint', ['2026-10-08 10:00:00  Ms. Snapshotini: created ‹pool-1›/‹share-1›@…', true, true], [$p['log'], $p['hidden'], $p['hint']]);
