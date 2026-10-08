@@ -18855,7 +18855,7 @@ JS);
     same('report dialog: the counter in bytes', 'office.report_count', $r['counter']);   // no strings loaded: the key
     $p = $r['preview'];
     same('report dialog: the preview asks with the words, the languages and the desk\'s last error (plain params only)',
-        ['office.report_preview', 'bug', 'snapshot', 'Her plan ran twice', 'benj', 'en', 'de', 'command_failed', ['detail' => 'zfs busy']],
+        ['office.report_preview', 'bug', 'snapshot', 'Her plan ran twice', '', 'en', 'de', 'command_failed', ['detail' => 'zfs busy']],
         [$p['a'], $p['kind'], $p['desk'], $p['title'], $p['name'], $p['lang'], $p['browser'], $p['error']['key'] ?? null, $p['error']['params'] ?? null]);
     same('report dialog: … then «Send» is on, every part a tick box (the words and the ID always)', [true, [['words', true, true], ['versions', true, false], ['unraid', true, false],
         ['language', true, false], ['team', true, false], ['error', true, false], ['log', true, false], ['id', true, true]]], [$p['sendOn'], $p['parts']]);
