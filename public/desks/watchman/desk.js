@@ -347,7 +347,7 @@ function postureParams(x) {
 
 function postureRow(x) {
   const r = el('div', 'row nocheck wm-tip' + (x.known ? ' wm-tip-known' : ''));
-  r.dataset.tip = x.id;
+  r.dataset.id = x.id;      // not data-tip: that is the office's tooltip hook (it swallowed the row's clicks up to 1.36.0)
   const main = el('div', 'row-main');
   const params = postureParams(x);
   main.appendChild(el('div', 'row-name text', T(`posture.${x.id}.title`, params)));

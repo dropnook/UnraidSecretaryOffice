@@ -681,7 +681,9 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   a bubble (core.js `initTips`): on hover with a mouse, on click or tap
   everywhere. That click belongs to the chip and never folds the row under it.
   Chips that do something themselves (own `onclick`, `data-own`, inside a
-  button/link/label) keep their click and explain on hover only.
+  button/link/label) keep their click and explain on hover only; a button, link or field INSIDE an element with
+  `data-tip` keeps its click too (1.36.1 — the watchman's posture rows carried `data-tip` as an id and their «I know,
+  thanks» never fired). `data-tip` is the tooltip's hook only: an element's id goes into `data-id`.
 * **Folding never makes the page jump:** wrap every fold/unfold (rows, groups,
   tiles that open or close a section, "Unfold all", re-renders after a toggle)
   in `Office.keepInPlace(anchor, change)` — the clicked element stays where it

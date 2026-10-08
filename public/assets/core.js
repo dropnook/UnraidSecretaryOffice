@@ -895,7 +895,14 @@ Office.hideTip = hideTip;
 function initTips() {
   document.addEventListener('click', (e) => {
     const node = e.target.closest && e.target.closest(TIP_SEL);
-    if (!node || ownClick(node)) { if (tipPinned && !(tipBox && tipBox.contains(e.target))) hideTip(); return; }
+    // a control INSIDE a node that explains itself (a row with data-tip holding buttons) keeps its click — only a
+    // click on the explaining node itself (or its plain text) opens the explanation (1.36.1: the night watchman's
+    // «I know, thanks» on a posture tip never fired — its row carried data-tip)
+    const control = e.target.closest && e.target.closest('button, a, label, input, select, textarea, summary');
+    if (!node || ownClick(node) || (control && control !== node && node.contains(control))) {
+      if (tipPinned && !(tipBox && tipBox.contains(e.target))) hideTip();
+      return;
+    }
     e.stopPropagation();               // capture phase: the row under the chip never hears of it
     e.preventDefault();
     if (tipFor === node && tipPinned) hideTip(); else showTip(node, true);
