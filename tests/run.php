@@ -12233,7 +12233,7 @@ function testThemeSwitch(): void
     same('theme switch on: the constant and the page\'s config', [true, true], [$on['flag'] ?? null, $on['config'] ?? null]);
     check('theme switch on: theme-switch.css right after office.css', preg_match('#assets/office\.css\?v=\d+">\s*<link rel="stylesheet" href="[^"]*assets/theme-switch\.css\?v=#', (string) ($on['styles'] ?? '')) === 1);
     check('theme switch on: data-theme set before the first paint, right inside #sso',
-        preg_match('#<div class="sso in-unraid" id="sso">\s*<script>[^<]*localStorage\.getItem\(\'office\.theme\'\)[^<]*setAttribute\(\'data-theme\'[^<]*</script>\s*<header#', (string) ($on['body'] ?? '')) === 1);
+        preg_match('#<div class="sso in-unraid" id="sso">\s*<script>[^<]*localStorage\.getItem\(\'office\.theme\'\)[^<]*setAttribute\(\'data-theme\'[^<]*</script>\s*(?:<script>[^<]*</script>\s*)?<header#', (string) ($on['body'] ?? '')) === 1);
     check('theme switch on: theme-switch.js after core.js', preg_match('#assets/core\.js\?v=\d+"></script>\s*<script src="[^"]*assets/theme-switch\.js\?v=#', (string) ($on['body'] ?? '')) === 1);
     $off = $page(false);
     same('theme switch off: the constant and the page\'s config', [false, false], [$off['flag'] ?? null, $off['config'] ?? null]);

@@ -1641,6 +1641,8 @@ async function reception(root) {
   head.appendChild(text);
   // theme-switch: Automatic · Dark · Light on the right (theme-switch.js, only while OFFICE_THEME_SWITCH is on)
   if (Office.theme) { const acts = el('div', 'deskhead-actions'); acts.appendChild(Office.theme.control()); head.appendChild(acts); }
+  // size-switch: A · A · A beside it (size-switch.js, only while OFFICE_SIZE_SWITCH is on)
+  if (Office.size) (head.querySelector('.deskhead-actions') || head.appendChild(el('div', 'deskhead-actions'))).appendChild(Office.size.control());
   root.appendChild(head);
   if (noData()) return;                     // nobody's state without the data folder: the notice above says why
 
@@ -2045,6 +2047,7 @@ Office.help = function help() {
   item('help.languages_title', t('help.languages_text'), ' ', code('public/lang/<code>.json'), ', ',
     code('public/desks/<desk>/lang/<code>.json'), '.');
   if (Office.theme) item('help.theme_title', t('help.theme_text'));      // theme-switch
+  if (Office.size) item('help.size_title', t('help.size_text'));      // size-switch
   item('help.security_title', t('help.security_text'));
   item('help.report_title', t('help.report_text'));
   box.appendChild(dl);
@@ -2248,6 +2251,7 @@ function itemEntries() {
 /** The office's own places: the reception, the help's parts, the language, its entry in Unraid */
 function officePlaces() {
   const help = ['office', 'search', 'order', 'agent', 'dot', 'start', 'languages', 'security', 'report'].concat(Office.theme ? ['theme'] : [])   // theme-switch
+    .concat(Office.size ? ['size'] : [])     // size-switch
     .map((x) => ({ kind: 'help', key: `help.${x}_title`, anchor: `help.${x}_title`, text: `help.${x}_text`, act: Office.help }));
   Office.places('', [
     { kind: 'desk', key: 'office.reception', route: '#/', anchor: null },

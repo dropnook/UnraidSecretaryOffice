@@ -1,0 +1,37 @@
+/* Unraid Secretary Office — the text-size switch at the reception: A · A · A
+   (for people with glasses, Benj 2026-10-08).
+
+   Loaded only while OFFICE_SIZE_SWITCH (src/bootstrap.php) is true, together with size-switch.js.
+   Nothing here applies without a choice: the small step is the office as it always was — #sso carries
+   no data-size and nothing below matches. Medium and Large set CSS `zoom` on the office's own element:
+   text, spacing, icons, grids, dialogs, menus and tips grow together, as if the window were narrower
+   (the pages are responsive down to phone width already). The office's CSS sets its sizes in px, so a
+   root-font-size switch would not reach them — zoom does. Only the office's area grows: Unraid's
+   header, menu and footer stay as they are — that's intended, like the theme switch.
+
+   What zoom asks of the rest: position:fixed boxes the office places from getBoundingClientRect
+   (the ⋯ menu, the tips, the search palette) take their coordinates in the zoomed element's own px —
+   core.js divides by Office.zoom() (the lines marked «size-switch»); lengths in vh/vw inside #sso are
+   zoomed too, so the few that bound something to the window are divided again below.
+
+   Switching off: OFFICE_SIZE_SWITCH = false — nothing of this shows or loads.
+   Removing: delete this file and size-switch.js, the OFFICE_SIZE_SWITCH lines in src/bootstrap.php
+   and src/page.php, the lines marked «size-switch» in core.js, the office.size_* and help.size_*
+   strings, testSizeSwitch in tests/run.php, the paragraph in CLAUDE.md. */
+
+/* ------------------------------------------------------------ the two larger steps */
+#sso[data-size=medium]{zoom:1.15; --zoom:1.15}
+#sso[data-size=large]{zoom:1.3; --zoom:1.3}
+
+/* ------------------------------------------------------------ the switch itself (size-switch.js) */
+/* a segmented control like office.css's .seg (it carries that class too): three radios, the letter A
+   in three sizes, the chosen one filled */
+#sso{
+  .size-switch{flex:none; align-items:stretch}
+  .size-switch button{display:inline-flex; align-items:center; justify-content:center; min-width:30px; padding:2px 8px; line-height:1; font-weight:600}
+  .size-switch button[data-choice=small]{font-size:12px}
+  .size-switch button[data-choice=medium]{font-size:15px}
+  .size-switch button[data-choice=large]{font-size:18px}
+  .size-switch button[aria-checked=true]{background:var(--accent); color:var(--surface)}
+  .size-switch button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px; border-radius:0}
+}
