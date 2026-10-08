@@ -1,12 +1,12 @@
 /* The Consultant */
 #sso{   /* nested in the office's element, like office.css */
-.box.ad-external{min-height:0}
+.box.ad-external{min-height:0; overflow-wrap:break-word}   /* a long path or URL in its steps wraps, never cut by the box */
 .row.ad-row{grid-template-columns:auto minmax(0,1fr) auto; align-items:start; border-top:0; padding:12px 12px 10px 14px}
 .ad-avatar{width:42px; height:42px; font-size:23px; overflow:hidden}
 .ad-avatar img{width:30px; height:30px; object-fit:contain; display:block}
 .ad-acts{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; padding-top:4px; max-width:300px}
 .ad-howto{border-top:1px solid var(--line); padding:9px 14px 11px}
-.ad-howto summary{cursor:pointer; color:var(--accent); font-size:13px; width:max-content}
+.ad-howto summary{cursor:pointer; color:var(--accent); font-size:13px; width:max-content; max-width:100%}
 .ad-steps{margin:10px 0 8px; padding-left:22px; font-size:13px; line-height:1.5; color:var(--ink2); display:flex; flex-direction:column; gap:6px}
 .ad-copies{display:flex; flex-direction:column; gap:6px; margin:4px 0 2px}
 .ad-copy{display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12.5px}

@@ -145,7 +145,8 @@ backup does, unless you tell it to leave sleeping pools out.
 The office speaks English, German, Italian, French and Spanish — your browser's language, English where it doesn't
 speak yours; *⋯ → Language* picks another one. Where it tells you what to click in Unraid, Unraid's menus read as
 Unraid shows them, in the language Unraid runs in. It takes Unraid's theme; *Auto · Dark · Light* at the reception
-gives the office's own area the look of Unraid's black or white theme, in your browser only.
+gives the office's own area the look of Unraid's black or white theme, and a text-size switch *A · A · A* beside it
+makes it larger — both in your browser only.
 
 ## Security
 

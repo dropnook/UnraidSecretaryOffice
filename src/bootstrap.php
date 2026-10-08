@@ -30,6 +30,10 @@ const OFFICE_FORUM_URL = '';
 // 2026-10-07): false = nothing of it shows or loads (public/assets/theme-switch.css and .js, the lines in page.php
 // and core.js marked «theme-switch»); CLAUDE.md «Theme switch» says how to remove it for good
 const OFFICE_THEME_SWITCH = true;
+// the text-size switch at the reception — A · A · A, per browser (for people with glasses, Benj 2026-10-08): the small
+// step is the office as it always was; false = nothing of it shows or loads (public/assets/size-switch.css and .js, the
+// lines in page.php and core.js marked «size-switch»); CLAUDE.md «Text size switch» says how to remove it for good
+const OFFICE_SIZE_SWITCH = true;
 
 require __DIR__ . '/place.php';
 require_once __DIR__ . '/words.php';      // Unraid's own words in the texts (shared with the agent)

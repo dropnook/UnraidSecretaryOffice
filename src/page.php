@@ -51,6 +51,7 @@ function officePageConfig(): array
         'reception_icon' => officeAsset('assets/reception.svg'),
         'agent'     => $info,       // the messenger, or why nobody answers (the array stopped, the night shift): said at once
         'theme_switch' => OFFICE_THEME_SWITCH,   // theme-switch: the switch at the reception (theme-switch.js)
+        'size_switch' => OFFICE_SIZE_SWITCH,     // size-switch: A · A · A at the reception (size-switch.js)
     ];
     $var = @parse_ini_file('/var/local/emhttp/var.ini') ?: [];
     $config['csrf'] = (string) ($var['csrf_token'] ?? '');
@@ -83,6 +84,9 @@ function officeStyles(): void
     if (OFFICE_THEME_SWITCH) {      // theme-switch: forced Dark / Light inside #sso, right after the office's own rules
         echo '<link rel="stylesheet" href="' . $h(officeAsset('assets/theme-switch.css')) . '">' . "\n";
     }
+    if (OFFICE_SIZE_SWITCH) {       // size-switch: the two larger text sizes (zoom on #sso), after the office's own rules
+        echo '<link rel="stylesheet" href="' . $h(officeAsset('assets/size-switch.css')) . '">' . "\n";
+    }
     foreach (officeDesks() as $id => $d) {
         if ($d['css']) {
             echo '<link rel="stylesheet" href="' . $h(officeAsset("desks/$id/desk.css")) . '">' . "\n";
@@ -103,6 +107,10 @@ function officeBody(array $config): void
 <?php if (OFFICE_THEME_SWITCH): ?>
 <script>/* theme-switch: the look kept in this browser, set before the first paint (theme-switch.js keeps it up to date) */
 (function(){try{var t=localStorage.getItem('office.theme');if(t==='dark'||t==='light'){document.getElementById('sso').setAttribute('data-theme',t)}}catch(e){}})()</script>
+<?php endif; ?>
+<?php if (OFFICE_SIZE_SWITCH): ?>
+<script>/* size-switch: the text size kept in this browser, set before the first paint (size-switch.js keeps it up to date) */
+(function(){try{var s=localStorage.getItem('office.size');if(s==='medium'||s==='large'){document.getElementById('sso').setAttribute('data-size',s)}}catch(e){}})()</script>
 <?php endif; ?>
 
 <header class="topbar">
@@ -136,6 +144,9 @@ function officeBody(array $config): void
 <script src="<?= $h(officeAsset('assets/core.js')) ?>"></script>
 <?php if (OFFICE_THEME_SWITCH): ?>
 <script src="<?= $h(officeAsset('assets/theme-switch.js')) ?>"></script>
+<?php endif; ?>
+<?php if (OFFICE_SIZE_SWITCH): ?>
+<script src="<?= $h(officeAsset('assets/size-switch.js')) ?>"></script>
 <?php endif; ?>
 <?php foreach (officeDesks() as $id => $d): ?>
 <script src="<?= $h(officeAsset("desks/$id/desk.js")) ?>"></script>
