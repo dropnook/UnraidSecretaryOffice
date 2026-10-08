@@ -19,7 +19,9 @@
     "other": "{n} disks are asleep — piano, piano, I let them sleep."
   },
   "bubble.offline": "I can't reach the server right now; this is what I knew on {when}.",
-  "fact.pools": "{n} ZFS pools, {d} btrfs disks",
+  "fact.pools": "{pools}, {disks}",
+  "count.zfs_pools": {"one": "{n} ZFS pool", "other": "{n} ZFS pools"},
+  "count.btrfs_disks": {"one": "{n} btrfs disk", "other": "{n} btrfs disks"},
   "fact.vm": {
     "one": "{n} VM snapshot",
     "other": "{n} VM snapshots"
@@ -110,7 +112,7 @@
     "one": "{n} mounted",
     "other": "{n} mounted"
   },
-  "timeline_title": "Time axis: last {n} days, now is on the right",
+  "timeline_title": {"one": "Time axis: the last day, now is on the right", "other": "Time axis: last {n} days, now is on the right"},
   "time_unknown": "time unknown",
   "held": "held",
   "held_by": "Held by «{holds}»",
@@ -142,7 +144,7 @@
   "unmount": "Unmount",
   "unmount_locked": "Unmount (backup running)",
   "delete": "Delete",
-  "selected": "{n} selected",
+  "selected": {"one": "{n} selected", "other": "{n} selected"},
   "selected_title": {
     "one": "{n} snapshot selected",
     "other": "{n} snapshots selected"
@@ -156,8 +158,8 @@
     "one": "Tour done: {n} snapshot",
     "other": "Tour done: {n} snapshots"
   },
-  "scan_new": "{n} new",
-  "scan_gone": "{n} gone",
+  "scan_new": {"one": "{n} new", "other": "{n} new"},
+  "scan_gone": {"one": "{n} gone", "other": "{n} gone"},
   "scan_same": "nothing changed",
   "scan_skipped": {
     "one": "{n} sleeping disk skipped",
@@ -191,7 +193,7 @@
   "delete.no_estimate": "Could not work out how much would be freed.",
   "delete.frees_before": "Frees about",
   "delete.frees_after": "",
-  "delete.btrfs_unknown": "plus {n} btrfs snapshot(s), btrfs doesn't tell",
+  "delete.btrfs_unknown": {"one": "plus {n} btrfs snapshot, btrfs doesn't tell", "other": "plus {n} btrfs snapshots, btrfs doesn't tell"},
   "delete.mounted": {
     "one": "It is mounted",
     "other": "{n} are mounted"

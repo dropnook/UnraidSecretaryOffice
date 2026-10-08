@@ -2005,8 +2005,11 @@ function waSystem(array $containers, array $vms, array $scripts, array $backupSc
         ],
         'mover'     => ($var['shareMoverActive'] ?? 'no') === 'yes',
         'scrubs'    => $scrubs,
-        'docker'    => ['running' => count(array_filter($containers, fn ($c) => $c['state'] === 'running')), 'total' => count($containers)],
-        'vms'       => ['running' => count(array_filter($vms, fn ($v) => $v['running'])), 'total' => count($vms)],
+        // up: the service answers where waContainers() / waVms() ask it — off, the page says so instead of «0 of 0»
+        'docker'    => ['running' => count(array_filter($containers, fn ($c) => $c['state'] === 'running')), 'total' => count($containers),
+                        'up' => bin('docker') !== null && file_exists('/var/run/docker.sock')],
+        'vms'       => ['running' => count(array_filter($vms, fn ($v) => $v['running'])), 'total' => count($vms),
+                        'up' => bin('virsh') !== null && file_exists('/var/run/libvirt/libvirt-sock')],
         'scripts'   => array_values(array_map(fn ($s) => $s['name'], array_filter($scripts, fn ($s) => $s['running']))),
         'backup'    => ['running' => $backupScript['running'], 'since' => $backupScript['since'], 'step' => $backupScript['step']],
     ];

@@ -19,7 +19,9 @@
     "other": "{n} dischi dormono — piano, piano, li lascio dormire."
   },
   "bubble.offline": "In questo momento non raggiungo il server; questo è ciò che sapevo il {when}.",
-  "fact.pools": "{n} pool ZFS, {d} dischi btrfs",
+  "fact.pools": "{pools}, {disks}",
+  "count.zfs_pools": {"one": "{n} pool ZFS", "other": "{n} pool ZFS"},
+  "count.btrfs_disks": {"one": "{n} disco btrfs", "other": "{n} dischi btrfs"},
   "fact.vm": {
     "one": "{n} snapshot di VM",
     "other": "{n} snapshot di VM"
@@ -110,7 +112,7 @@
     "one": "{n} montato",
     "other": "{n} montati"
   },
-  "timeline_title": "Asse del tempo: ultimi {n} giorni, a destra è adesso",
+  "timeline_title": {"one": "Asse del tempo: l'ultimo giorno, a destra è adesso", "other": "Asse del tempo: ultimi {n} giorni, a destra è adesso"},
   "time_unknown": "ora sconosciuta",
   "held": "protetto",
   "held_by": "Protetto da «{holds}»",
@@ -142,7 +144,7 @@
   "unmount": "Smonta",
   "unmount_locked": "Smonta (backup in corso)",
   "delete": "Elimina",
-  "selected": "Selezionati: {n}",
+  "selected": {"one": "Selezionato: {n}", "other": "Selezionati: {n}"},
   "selected_title": {
     "one": "{n} snapshot selezionato",
     "other": "{n} snapshot selezionati"
@@ -156,8 +158,8 @@
     "one": "Giro finito: {n} snapshot",
     "other": "Giro finito: {n} snapshot"
   },
-  "scan_new": "{n} nuovi",
-  "scan_gone": "{n} spariti",
+  "scan_new": {"one": "{n} nuovo", "other": "{n} nuovi"},
+  "scan_gone": {"one": "{n} sparito", "other": "{n} spariti"},
   "scan_same": "niente di cambiato",
   "scan_skipped": {
     "one": "{n} disco in standby saltato",
@@ -191,7 +193,7 @@
   "delete.no_estimate": "Non sono riuscita a calcolare quanto spazio si libererebbe.",
   "delete.frees_before": "Libera circa",
   "delete.frees_after": "",
-  "delete.btrfs_unknown": "più {n} snapshot btrfs, per cui btrfs non lo dice",
+  "delete.btrfs_unknown": {"one": "più {n} snapshot btrfs, per cui btrfs non lo dice", "other": "più {n} snapshot btrfs, per cui btrfs non lo dice"},
   "delete.mounted": {
     "one": "È montato",
     "other": "{n} sono montati"

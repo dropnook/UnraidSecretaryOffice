@@ -497,7 +497,9 @@ function backupContainers(array $s): array
     $stopNone = backupSetting($s, 'docker', 'stop', 'all') === 'none';
     $kept = $stopNone ? $running : array_values(array_intersect($running, $keep));
     $kopia = (string) backupSetting($s, 'kopia', 'container', '');
-    return ['total' => count($all), 'running' => count($running), 'kept' => count($kept),
+    // up: Docker answers (its socket) — stopped, the page says so instead of nothing (1.43)
+    return ['up' => bin('docker') !== null && file_exists('/var/run/docker.sock'),
+            'total' => count($all), 'running' => count($running), 'kept' => count($kept),
             'stopped' => count($running) - count($kept), 'dumps' => count(array_filter(array_keys($s), fn ($k) => str_starts_with($k, 'dump|'))),
             'kopia' => $kopia === '' ? null : ['name' => $kopia, 'exists' => isset($all[$kopia]), 'running' => !empty($all[$kopia]['running'])]];
 }

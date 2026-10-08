@@ -9501,6 +9501,39 @@ function testStrings(): void
         }
     }
 
+    // plurals (QA 2026-10-08 #9: «1 warnings», «1 alerts · 9 warnings unread»): a key that is a plural in English is one
+    // in all five; a text with several counts is composed of count.<what> keys (one/other with {n}), which the pages ask
+    // for through nOf('<what>') or T('count.<what>', …); no «file(s)» behind a count
+    foreach ($sets as $desk => $dir) {
+        $where = $desk === '' ? 'office' : $desk;
+        $e = langFile("$dir/en.json");
+        $plurals = array_keys(array_filter($e, 'is_array'));
+        foreach ($complete as $code) {
+            $l = langFile("$dir/$code.json");
+            same("$where/$code: every English plural is a plural", [], array_values(array_filter($plurals, fn ($k) => !langPluralOk($l[$k] ?? null))));
+        }
+        same("$where: count.* keys are plurals of {n}", [], array_values(array_filter(array_keys($e),
+            fn ($k) => str_starts_with($k, 'count.') && !(langPluralOk($e[$k]) && langPlaceholders($e[$k]) === ['n']))));
+        same("$where: no «(s)» behind a count — a plural instead", [], array_values(array_keys(array_filter($e,
+            fn ($v) => is_string($v) && preg_match('/\{\w+\}[^{}"]{0,30}?[a-z]\((?:s|es)\)/', $v)))));
+    }
+    foreach (glob("$pub/desks/*/*.js") ?: [] as $file) {
+        $desk = basename(dirname($file));
+        preg_match_all("/\\bnOf\\(\\s*'([a-z0-9_]+)'/", (string) file_get_contents($file), $m);
+        foreach (array_unique($m[1]) as $what) {
+            check("$desk/" . basename($file) . " counts with $desk.count.$what", isset($en["$desk.count.$what"]));
+        }
+    }
+    same('watchman: the log line «took over the watch» counts in words',
+        '1 login address, 2 containers (0 with special rights), 1 plugin, 3 shares (1 open to guests)',
+        watchmanSummaryLine(['ips' => 1, 'containers' => 2, 'special' => 0, 'plugins' => 1, 'shares' => 3, 'open' => 1]));
+    same('watchman: the watch entry in German words', '1 Anmeldeadresse', watchmanText(['kind' => 'watch', 'p' => ['ips' => 1]], 'de')['ips'] ?? null);
+
+    // the watchman's book shows every entry's group as a chip with its title (desk.js: group.<g>, group_title.<g>)
+    foreach (array_unique(array_column(WATCH_KINDS, 0)) as $group) {
+        check("watchman: chip and title for group '$group'", isset($en["watchman.group.$group"], $en["watchman.group_title.$group"]));
+    }
+
     // every Problem key has a text, at a desk or in the office
     $errors = [];
     foreach ($en as $k => $_) {
@@ -11078,6 +11111,13 @@ function testWhereDesk(): void
     $core = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
     check('where desk: her look and her measuring stay quiet (no spinner)', (bool) preg_match('/const QUIET = .*where_refresh.*where_measure/', $core));
     check('where desk: both parts on her page', str_contains($js, "part(T('part.where')") && str_contains($js, "part(T('part.tidy')"));
+    // Docker stopped (QA 2026-10-08 #13): her facts say so instead of «0 of 0 running», and so does Mr. Backupsy
+    $sys = waSystem([], [], [], ['running' => false, 'since' => null, 'step' => null]);
+    check('where desk: whether Docker and the VM service answer', is_bool($sys['docker']['up'] ?? null) && is_bool($sys['vms']['up'] ?? null));
+    check('where desk: Docker off said on her page', substr_count($js, "docker.up === false ? Office.t('common.docker_off')") >= 1
+        && str_contains($js, "if (s.system.docker.up === false) return { sub: Office.t('common.docker_off') }"));
+    $bk = (string) file_get_contents(OFFICE_DIR . '/public/desks/backup/desk.js');
+    check('backup: Docker off said on his overview', str_contains($bk, "c.up === false") && str_contains($bk, "Office.t('common.docker_off')"));
 
     // her look is kept fresh by the API (apiPart(): the server's clock, the short wait), not by the page's clock:
     // desk.json names the part and its action (officeDeskParts()), the page only reads the part — no Date.now()

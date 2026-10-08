@@ -44,6 +44,7 @@
   "common.no": "no",
   "common.none": "nessuno",
   "common.unknown": "sconosciuto",
+  "common.docker_off": "Docker non è in funzione",
   "common.scanned_ago": "letto {when}",
   "common.page_help": "Come leggere questa pagina",
   "protect.offsite": "Kopia",
@@ -61,7 +62,7 @@
     "other": "ogni {n} minuti"
   },
   "cron.hourly_at": "ogni ora al minuto {m}",
-  "cron.every_hours": "ogni {n} ore al minuto {m}",
+  "cron.every_hours": {"one": "ogni ora al minuto {m}", "other": "ogni {n} ore al minuto {m}"},
   "cron.daily_at": "ogni giorno alle {time}",
   "cron.weekly_at": "ogni {day} alle {time}",
   "cron.monthly_at": "ogni mese il giorno {day} alle {time}",

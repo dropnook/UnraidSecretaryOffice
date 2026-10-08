@@ -9,6 +9,8 @@
 
 const ID = 'emby';
 const T = Office.scope(ID);
+/** «{n} <noun>» from the lang key count.<what> — its one/other forms (several counts in one text are composed of these) */
+const nOf = (what, n) => T('count.' + what, { n: Number(n) || 0 });
 const { el, fmt } = Office;
 const POLL = 3000;
 /** Where the two tools come from (helmi1987's repositories) — for the credit under the tools' tiles */
@@ -135,7 +137,7 @@ function runSummary(r) {
     if (s.result === 'failed') return s.message || T('result.failed');
     const notes = [];
     if (s.result === 'stopped') notes.push(T('gather_stopped', { done: s.folders_done || 0, total: s.folders || 0 }) + whoText(r.who));
-    notes.push(T('gather_summary', { moved: s.moved || 0, dups: s.duplicates || 0, conflicts: s.conflicts || 0, dirs: s.dirs_deleted || 0, kept: s.dirs_kept || 0 }));
+    notes.push(gatherSummary(s));
     if (r.waited) notes.push(T('watch_note.waited', { min: Math.round(r.waited / 60) }));
     if (r.emby) notes.push(T('watch_note.' + r.emby));
     return notes.join(' · ');
@@ -145,8 +147,15 @@ function runSummary(r) {
   if (s.mode === 'report' || r.mode === 'report') return s.on_deck ? T('report_summary', { n: s.on_deck.files, size: fmt.size(s.on_deck.bytes) }) : '';
   const c = s.cleanup || {}; const f = s.fill || {};
   const key = (s.mode || r.mode) === 'run' ? 'run_summary' : 'dry_summary';
-  return T(key, { back: c.done || 0, back_planned: c.planned || 0, origin: c.to_origin || 0,
-    fill: f.done || 0, fill_planned: f.planned || 0, fill_size: fmt.size(f.bytes_planned || 0) });
+  const files = (n) => (key === 'dry_summary' ? nOf('files', n) : n || 0);     // «would bring 1 file back»; the run's «1 of 3» stays a number
+  return T(key, { back: c.done || 0, back_planned: files(c.planned), origin: c.to_origin || 0,
+    fill: f.done || 0, fill_planned: files(f.planned), fill_size: fmt.size(f.bytes_planned || 0) });
+}
+
+/** What a gather did, each count in its own words (count.*) */
+function gatherSummary(s) {
+  return T('gather_summary', { moved: nOf('moved', s.moved), dups: nOf('dups', s.duplicates), conflicts: nOf('conflicts', s.conflicts),
+    dirs: nOf('empty_dirs', s.dirs_deleted), kept: nOf('kept', s.dirs_kept) });
 }
 
 function bubbleText() {
@@ -262,7 +271,7 @@ function overview() {
   }
   const last = state.last;
   stat(stats, T('last_run'), last && last.finished ? fmt.relative(last.finished) : T('never'),
-    last ? `${T('mode.' + (last.mode || 'dry'))} · ${T('counts', { errors: last.errors || 0, warnings: last.warnings || 0 })}` : '',
+    last ? `${T('mode.' + (last.mode || 'dry'))} · ${T('counts', { errors: nOf('errors', last.errors), warnings: nOf('warnings', last.warnings) })}` : '',
     !!(last && (last.errors || (last.result && last.result !== 'ok'))));
   const sc = state.schedules.embycache;
   stat(stats, T('schedule'), schedText(sc), sc.enabled ? T('by_office') : T('schedule_set'),
@@ -342,14 +351,14 @@ function gatherSection() {
   const stats = el('div', 'stats');
   const last = g.last;
   stat(stats, T('gather_last'), last ? fmt.relative(last.finished) : T('never'),
-    last ? T('gather_summary', { moved: last.moved, dups: last.duplicates, conflicts: last.conflicts, dirs: last.dirs_deleted, kept: last.dirs_kept || 0 }) : T('gather_never'),
+    last ? gatherSummary(last) : T('gather_never'),
     !!(last && (last.conflicts || last.errors || last.full)));
   stat(stats, T('shares'), set.shares.join(', '), T('gather_settings', { gb: set.min_free_gb, dup: T('dup.' + set.dup_check) }));
   const sc = state.schedules.gather;
   stat(stats, T('schedule'), schedText(sc), sc.enabled ? T('by_office') : T('schedule_set'),
     false, () => scheduleDialog('gather'));
   s.appendChild(stats);
-  if (last && (last.conflicts || last.errors || last.full)) s.appendChild(el('p', 'callout warn', T('gather_problems', { conflicts: last.conflicts, errors: last.errors, full: last.full })));
+  if (last && (last.conflicts || last.errors || last.full)) s.appendChild(el('p', 'callout warn', T('gather_problems', { conflicts: nOf('conflicts', last.conflicts), errors: nOf('errors', last.errors), full: nOf('not_moved', last.full) })));
   const bar = el('div', 'toolbar');
   const dis = !Office.agent.running || running();
   const b1 = button(T('mode.dry'), 'small plain', () => startRun('gather', 'dry'));

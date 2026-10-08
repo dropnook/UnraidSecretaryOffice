@@ -175,7 +175,10 @@
   "d.webui": "Web-UI",
   "d.support": "Support",
   "d.config": "Einstellungen",
-  "d.config_counts": "{paths} Pfade, {ports} Ports, {vars} Variablen",
+  "d.config_counts": "{paths}, {ports}, {vars}",
+  "count.paths": {"one": "{n} Pfad", "other": "{n} Pfade"},
+  "count.ports": {"one": "{n} Port", "other": "{n} Ports"},
+  "count.vars": {"one": "{n} Variable", "other": "{n} Variablen"},
   "d.paths": "Host-Pfade",
   "d.newer": "Neuere Datei",
   "d.stack_dir": "Stack-Ordner",
@@ -854,7 +857,17 @@
   "item.leftover": "Rest von Herrn Restori",
   "where.bubble.no_tour": "Ich war noch nicht in jedem Winkel — ein Rundgang dauert ein paar Sekunden, dann weiss ich, wo alles liegt.",
   "where.bubble.no_data": "Ich komme nicht an den Server heran und habe noch nichts zu zeigen.",
-  "where.bubble.summary": "Ich kenne jeden Winkel: {shares} Shares, {containers} Container und {scripts} User Scripts — und den Staub in jedem davon.",
+  "where.bubble.summary": "Ich kenne jeden Winkel: {shares}, {containers} und {scripts} — und den Staub in jedem davon.",
+  "count.shares": {"one": "{n} Share", "other": "{n} Shares"},
+  "count.containers": {"one": "{n} Container", "other": "{n} Container"},
+  "count.user_scripts": {"one": "{n} User Script", "other": "{n} User Scripts"},
+  "count.cron_jobs": {"one": "{n} Cronjob", "other": "{n} Cronjobs"},
+  "count.stacks": {"one": "{n} Stack", "other": "{n} Stacks"},
+  "count.alerts": {"one": "{n} Alarm", "other": "{n} Alarme"},
+  "count.warnings": {"one": "{n} Warnung", "other": "{n} Warnungen"},
+  "count.unread": {"one": "{n} ungelesen", "other": "{n} ungelesen"},
+  "count.media_errors": {"one": "{n} Medienfehler", "other": "{n} Medienfehler"},
+  "count.unsafe_shutdowns": {"one": "{n} unsaubere Abschaltung", "other": "{n} unsaubere Abschaltungen"},
   "where.bubble.noticed": "Und beim Abstauben ist mir aufgefallen:",
   "where.bubble.findings": {
     "one": "Beim Abstauben ist mir {n} Sache aufgefallen.",
@@ -878,6 +891,7 @@
   },
   "where.fact.docker": "Docker: {running} von {total} laufen",
   "where.fact.vms": "VMs: {running} von {total} laufen",
+  "where.fact.vms_none": "Keine VMs",
   "where.fact.smb": {
     "zero": "niemand per SMB verbunden",
     "one": "{n} SMB-Sitzung",
@@ -1148,7 +1162,7 @@
     "other": "{n} Disks mit Timeouts/CRC (Kabel?)"
   },
   "where.stat.notices": "Unraid-Benachrichtigungen",
-  "where.stat.notices_sub": "{alerts} Alarme · {warnings} Warnungen ungelesen",
+  "where.stat.notices_sub": "Ungelesen: {alerts} · {warnings}",
   "where.stat.license": "Lizenz",
   "where.stat.license_until": "bis {when}",
   "where.stat.license_since": "seit {when}",
@@ -1157,7 +1171,7 @@
   "where.smart.attribute": "{name}: {raw}",
   "where.smart.failing": "Attribut {id} {name} versagt",
   "where.smart.nvme_warning": "NVMe-Warnung {raw}",
-  "where.smart.nvme_media": "{raw} Medienfehler",
+  "where.smart.nvme_media": {"one": "{raw} Medienfehler", "other": "{raw} Medienfehler"},
   "where.smart.nvme_spare": "Reserve aufgebraucht ({raw})",
   "where.smart.nvme_worn": "{raw} abgenutzt",
   "where.smart.notice_title": "Allein meist harmlos (Timeouts, Kabel/CRC). Im Auge behalten, falls es weiter steigt.",
@@ -1192,7 +1206,7 @@
   "where.smart_none": "keine SMART-Daten zwischengespeichert",
   "where.smart_findings": "SMART-Befunde",
   "where.smart_clean": "keine",
-  "where.nvme_line": "{used} % abgenutzt · Reserve {spare} % · {media} Medienfehler · {unsafe} unsaubere Abschaltungen · geschrieben {written}",
+  "where.nvme_line": "{used} % abgenutzt · Reserve {spare} % · {media} · {unsafe} · geschrieben {written}",
   "where.copy_id": "Modell/Seriennummer kopieren",
   "where.type.Parity": "🛡️ Parität",
   "where.type.Data": "💽 Array",
@@ -1360,7 +1374,7 @@
   "where.boot.layout.raidz1": "RAIDZ1",
   "where.boot.layout.raidz2": "RAIDZ2",
   "where.boot.layout.raidz3": "RAIDZ3",
-  "where.boot.pool_short": "Boot-Pool {pool} ({layout}, {n} Disks)",
+  "where.boot.pool_short": {"one": "Boot-Pool {pool} ({layout}, {n} Disk)", "other": "Boot-Pool {pool} ({layout}, {n} Disks)"},
   "where.boot.usb_short": "USB-Stick {name}",
   "where.boot.internal_short": "interne Boot-Disk {dev}",
   "where.boot.other_short": "Boot-Medium ({fs})",
@@ -1423,7 +1437,7 @@
     "one": "1 Ordner in {share}, auf den nichts zeigt",
     "other": "{n} Ordner in {share}, auf die nichts zeigt"
   },
-  "where.sum.docker": "{run} von {total} laufen · {stacks} Stacks",
+  "where.sum.docker": "{run} von {total} laufen · {stacks}",
   "where.sum.vms": "{run} von {total} laufen",
   "where.sum.disks": {
     "zero": "Temperatur, SMART, Füllstand",
@@ -1435,12 +1449,12 @@
     "other": "{n} Benutzer und ihr Share-Zugriff"
   },
   "where.sum.network": "SMB-Sitzungen {smb} · NFS-Freigaben {nfs}",
-  "where.sum.scripts": "{scripts} User Scripts · {cron} Cronjobs · {running} laufen",
+  "where.sum.scripts": "{scripts} · {cron} · {running} laufend",
   "where.sum.backups": {
     "one": "1 Ort, der nach Backup aussieht",
     "other": "{n} Orte, die nach Backup aussehen"
   },
-  "where.sum.notices": "{n} ungelesen · {alerts} Alarme",
+  "where.sum.notices": "{unread} · {alerts}",
   "where.sum.plugins": {
     "one": "1 Plugin",
     "other": "{n} Plugins"

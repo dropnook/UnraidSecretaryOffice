@@ -175,7 +175,10 @@
   "d.webui": "Interfaz web",
   "d.support": "Soporte",
   "d.config": "Ajustes",
-  "d.config_counts": "{paths} rutas, {ports} puertos, {vars} variables",
+  "d.config_counts": "{paths}, {ports}, {vars}",
+  "count.paths": {"one": "{n} ruta", "other": "{n} rutas"},
+  "count.ports": {"one": "{n} puerto", "other": "{n} puertos"},
+  "count.vars": {"one": "{n} variable", "other": "{n} variables"},
   "d.paths": "Rutas del host",
   "d.newer": "Archivo más nuevo",
   "d.stack_dir": "Carpeta de la stack",
@@ -854,7 +857,17 @@
   "item.leftover": "resto del señor Restori",
   "where.bubble.no_tour": "Todavía no he pasado por cada rincón — una ronda tarda unos segundos y después sabré dónde está todo.",
   "where.bubble.no_data": "No llego al servidor y todavía no tengo nada que enseñar.",
-  "where.bubble.summary": "Conozco cada rincón: {shares} recursos compartidos, {containers} contenedores y {scripts} user scripts — y el polvo de cada uno.",
+  "where.bubble.summary": "Conozco cada rincón: {shares}, {containers} y {scripts} — y el polvo de cada uno.",
+  "count.shares": {"one": "{n} recurso compartido", "other": "{n} recursos compartidos"},
+  "count.containers": {"one": "{n} contenedor", "other": "{n} contenedores"},
+  "count.user_scripts": {"one": "{n} user script", "other": "{n} user scripts"},
+  "count.cron_jobs": {"one": "{n} tarea cron", "other": "{n} tareas cron"},
+  "count.stacks": {"one": "{n} stack", "other": "{n} stacks"},
+  "count.alerts": {"one": "{n} alerta", "other": "{n} alertas"},
+  "count.warnings": {"one": "{n} advertencia", "other": "{n} advertencias"},
+  "count.unread": {"one": "{n} sin leer", "other": "{n} sin leer"},
+  "count.media_errors": {"one": "{n} error de medio", "other": "{n} errores de medio"},
+  "count.unsafe_shutdowns": {"one": "{n} apagado no seguro", "other": "{n} apagados no seguros"},
   "where.bubble.noticed": "Y quitando el polvo me he fijado en:",
   "where.bubble.findings": {
     "one": "Quitando el polvo, me ha llamado la atención {n} cosa.",
@@ -878,6 +891,7 @@
   },
   "where.fact.docker": "Docker: {running} de {total} en marcha",
   "where.fact.vms": "VMs: {running} de {total} en marcha",
+  "where.fact.vms_none": "Ninguna VM",
   "where.fact.smb": {
     "zero": "nadie conectado por SMB",
     "one": "{n} sesión SMB",
@@ -1148,7 +1162,7 @@
     "other": "{n} discos con timeouts/CRC (¿cables?)"
   },
   "where.stat.notices": "Avisos de Unraid",
-  "where.stat.notices_sub": "{alerts} alertas · {warnings} advertencias sin leer",
+  "where.stat.notices_sub": "Sin leer: {alerts} · {warnings}",
   "where.stat.license": "Licencia",
   "where.stat.license_until": "hasta {when}",
   "where.stat.license_since": "desde {when}",
@@ -1157,7 +1171,7 @@
   "where.smart.attribute": "{name}: {raw}",
   "where.smart.failing": "atributo {id} {name} fallando",
   "where.smart.nvme_warning": "aviso crítico NVMe {raw}",
-  "where.smart.nvme_media": "{raw} errores de medio",
+  "where.smart.nvme_media": {"one": "{raw} error de medio", "other": "{raw} errores de medio"},
   "where.smart.nvme_spare": "reserva agotada ({raw})",
   "where.smart.nvme_worn": "{raw} de desgaste",
   "where.smart.notice_title": "Por sí solo suele ser inofensivo (timeouts, cable/CRC). Conviene vigilarlo si sigue creciendo.",
@@ -1192,7 +1206,7 @@
   "where.smart_none": "no hay datos SMART en caché",
   "where.smart_findings": "Hallazgos SMART",
   "where.smart_clean": "ninguno",
-  "where.nvme_line": "{used} % de desgaste · reserva {spare} % · {media} errores de medio · {unsafe} apagados no seguros · escrito {written}",
+  "where.nvme_line": "{used} % de desgaste · reserva {spare} % · {media} · {unsafe} · escrito {written}",
   "where.copy_id": "Copiar modelo/número de serie",
   "where.type.Parity": "🛡️ Paridad",
   "where.type.Data": "💽 Array",
@@ -1360,7 +1374,7 @@
   "where.boot.layout.raidz1": "RAIDZ1",
   "where.boot.layout.raidz2": "RAIDZ2",
   "where.boot.layout.raidz3": "RAIDZ3",
-  "where.boot.pool_short": "pool de arranque {pool} ({layout}, {n} discos)",
+  "where.boot.pool_short": {"one": "pool de arranque {pool} ({layout}, {n} disco)", "other": "pool de arranque {pool} ({layout}, {n} discos)"},
   "where.boot.usb_short": "memoria USB {name}",
   "where.boot.internal_short": "disco de arranque interno {dev}",
   "where.boot.other_short": "dispositivo de arranque ({fs})",
@@ -1423,7 +1437,7 @@
     "one": "1 carpeta en {share} a la que nada apunta",
     "other": "{n} carpetas en {share} a las que nada apunta"
   },
-  "where.sum.docker": "{run} de {total} en marcha · {stacks} stacks",
+  "where.sum.docker": "{run} de {total} en marcha · {stacks}",
   "where.sum.vms": "{run} de {total} en marcha",
   "where.sum.disks": {
     "zero": "temperatura, SMART, nivel de llenado",
@@ -1435,12 +1449,12 @@
     "other": "{n} usuarios y su acceso a los recursos compartidos"
   },
   "where.sum.network": "Sesiones SMB {smb} · exportaciones NFS {nfs}",
-  "where.sum.scripts": "{scripts} user scripts · {cron} tareas cron · {running} en ejecución",
+  "where.sum.scripts": "{scripts} · {cron} · {running} en ejecución",
   "where.sum.backups": {
     "one": "1 lugar que parece una copia de seguridad",
     "other": "{n} lugares que parecen copias de seguridad"
   },
-  "where.sum.notices": "{n} sin leer · {alerts} alertas",
+  "where.sum.notices": "{unread} · {alerts}",
   "where.sum.plugins": {
     "one": "1 plugin",
     "other": "{n} plugins"
