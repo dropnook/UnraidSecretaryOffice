@@ -16481,6 +16481,19 @@ function testRestoreDrill(): void
     same('drill blocker: the next backup in 30 min, 20 min of work — refused', 'drill_deadline', drillBlocker(1200, $now + 1800, $now)['key'] ?? null);
     file_put_contents("$tmp/var.ini", "fsState=\"Started\"\nmdResyncPos=\"995596\"\n");
     same('drill blocker: a parity check or rebuild running', 'drill_parity', drillBlocker(60, null, $now)['key'] ?? null);
+    // running / paused / finished as Unraid's var.ini says them (Benj, 2026-10-08: a paused sync blocked the drill)
+    $sync = fn (string $resync, string $pos, string $dt, string $db) => "fsState=\"Started\"\nmdResync=\"$resync\"\nmdResyncPos=\"$pos\"\n"
+        . "mdResyncDt=\"$dt\"\nmdResyncDb=\"$db\"\nmdResyncAction=\"check P\"\nmdResyncSize=\"23437770700\"\n";
+    file_put_contents("$tmp/var.ini", $sync('23437770700', '19114247308', '31', '462168'));
+    same('drill blocker: a check running (mdResync, mdResyncDt set) — refused', 'drill_parity', drillBlocker(60, null, $now)['key'] ?? null);
+    file_put_contents("$tmp/var.ini", $sync('0', '19114247308', '0', '0'));
+    same('drill blocker: a check paused (mdResync 0, mdResyncDt 0, the position kept) — no blocker', null, drillBlocker(60, null, $now));
+    file_put_contents("$tmp/var.ini", $sync('0', '0', '0', '0'));
+    same('drill blocker: a check finished (mdResyncPos 0) — no blocker', null, drillBlocker(60, null, $now));
+    same('drill parity: running / paused / finished / one key missing (running, never a guess towards «go»)', [true, false, false, true, true, true],
+        [drillParity(['mdResyncPos' => '5', 'mdResync' => '10', 'mdResyncDt' => '30']), drillParity(['mdResyncPos' => '5', 'mdResync' => '0', 'mdResyncDt' => '0']),
+         drillParity(['mdResyncPos' => '0', 'mdResync' => '0', 'mdResyncDt' => '0']), drillParity(['mdResyncPos' => '5', 'mdResyncDt' => '0']),
+         drillParity(['mdResyncPos' => '5', 'mdResync' => '0', 'mdResyncDt' => '12']), drillParity(['mdResyncPos' => '5', 'mdResync' => '10', 'mdResyncDt' => '0'])]);
     file_put_contents("$tmp/var.ini", "fsState=\"Stopped\"\nmdResyncPos=\"0\"\n");
     same('drill blocker: the array not started', 'drill_array', drillBlocker(60, null, $now)['key'] ?? null);
     file_put_contents("$tmp/var.ini", "fsState=\"Started\"\nmdResyncPos=\"0\"\n");
