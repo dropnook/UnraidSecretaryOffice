@@ -390,6 +390,9 @@ The key unlocks nothing — it just says thank you: the office stops reminding y
 and the Team Lead shows a small thank-you. Backups, restores and every desk work exactly the same
 with or without it.
 Buying or upgrading an Unraid licence? The support page has an affiliate link that supports the office (clearly marked).
+The support page itself is a small separate service (a Cloudflare Worker, not part of the plugin). It keeps, per tip, only
+the server ID, the amount, the currency, the name you typed and the date — nothing PayPal knows about you, no e-mail, no
+address — and the newest key per server ID so a lost key can be shown again.
 
 ## Thanks
 
