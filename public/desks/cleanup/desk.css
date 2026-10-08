@@ -46,6 +46,7 @@
 .clw-unfold{justify-content:flex-end; padding:0}
 
 .clw-places .card{gap:6px}
+.clw-places .card-name{white-space:normal; overflow:visible; line-height:1.25}   /* a place's name beside its chip wraps, never cut */
 .clw-place-icon{font-size:17px; line-height:1}
 .clw-ellipsis{font-size:12px; color:var(--ink2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .clw-place{padding:4px 0}
