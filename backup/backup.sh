@@ -3,6 +3,7 @@
 # unraid-backup - backup.sh                       Version 2.34 - 2026-10-08
 #   2.34 One run a minute: a run whose log (run-|check-|dryrun-<minute>.log) is there already ends right after taking
 #        the lock with an ERROR line and exit 1, touching nothing - never a snapshot phase into an existing name.
+#        The «not agreed» line names the server as Unraid does (ident.cfg NAME); setup.sh's hints go out as codes.
 #   2.33 (setup.sh only: the backup place's share row in the plan takes the agreement of the unit `place`)
 #   2.32 (setup.sh only: the plan flags Unraid's syslog share every time - `syslog: true` per share)
 #   2.31 (setup.sh only: [general] preset_new, Mr. Backupsy's default for new things - a run accepts the key
@@ -2876,7 +2877,7 @@ partner_phase() {
             [[ "$u" == "$id|"* ]] || continue
             IFS='|' read -r _ u why <<<"$u"
             if [[ "$why" == "asleep" ]]; then log "  $u: its pool sleeps - left out this run (asleep_pools = skip)"
-            elif [[ "$why" == "not_agreed" ]]; then log "  $u: not agreed with $name yet - ask at the Team Lead («Change what $(cfg "general|server" "$(hostname -s 2>/dev/null)") sends…»)"
+            elif [[ "$why" == "not_agreed" ]]; then log "  $u: not agreed with $name yet - ask at the Team Lead («Change what $(ub_host_name) sends…»)"
             else log "  $u: not covered ($why)"; fi
             partner_skip "$id" "$u" "$why"
         done

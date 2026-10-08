@@ -3119,6 +3119,16 @@ partner_unit_dataset() {
     return 0
 }
 
+# ub_host_name: this server's name as Unraid and the office's Team Lead say it («Change what <host> sends…») - ident.cfg
+# NAME (Settings -> Identification), else the kernel's; never settings.ini's [general] server, which keeps the name the
+# setup was first made under (2.34: USO-Test-Server on a Tower, QA 2026-10-08)
+ub_host_name() {
+    local n
+    n="$(sed -n 's/^NAME="\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' "$UB_BOOT/config/ident.cfg" 2>/dev/null | head -1)"
+    [[ -n "$n" ]] || n="$(hostname -s 2>/dev/null)"
+    printf '%s\n' "${n:-Unraid}"
+}
+
 # partner_ssh_cmd <id>  -> PSSH: the ssh call to that partner's door - the one place for its options (plan 3.5):
 # the pair's own key only, never a password or agent, the pinned host keys only, a fast AEAD cipher, no compression
 # (zfs send -c sends compressed blocks), a dead link noticed within two minutes

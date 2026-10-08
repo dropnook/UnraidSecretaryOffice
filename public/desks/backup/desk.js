@@ -2446,7 +2446,7 @@ function appliedCard(run) {
   const bad = (run.messages || []).filter((m) => m.level === 'error' || m.level === 'warn');
   if (bad.length) {
     const ul = el('ul', 'bk-msgs');
-    bad.forEach((m) => ul.appendChild(el('li', m.level, m.text)));
+    bad.forEach((m) => ul.appendChild(el('li', m.level, setupMsgText(m))));
     box.appendChild(ul);
   }
   return box;
@@ -3526,6 +3526,16 @@ function setupSources(old) {
   return s;
 }
 
+/**
+ * A setup message in the office's words when the engine gave it a code (engine 2.34: messages[] `code` + `params` →
+ * setup.msg.<code>; the server named as the Team Lead's menu does), else the engine's English text
+ */
+function setupMsgText(m) {
+  if (!m.code || !Office.has(`${ID}.setup.msg.${m.code}`)) return m.text;
+  const p = m.params && typeof m.params === 'object' ? m.params : {};
+  return T('setup.msg.' + m.code, { ...p, host: Office.config.host || p.host || '' });
+}
+
 function setupMessages(msgs) {
   const s = section(T('setup.messages'), T('setup.messages_sub'), { place: 'setup.messages' });
   const det = el('details', 'bk-log');
@@ -3535,7 +3545,7 @@ function setupMessages(msgs) {
   const ul = el('ul', 'bk-msgs');
   (msgs || []).forEach((m) => {
     const li = el('li', m.level);
-    li.append(el('span', 'bk-step', T('setup.step.' + (m.step || 'other'))), m.text);
+    li.append(el('span', 'bk-step', T('setup.step.' + (m.step || 'other'))), setupMsgText(m));
     ul.appendChild(li);
   });
   det.appendChild(ul);

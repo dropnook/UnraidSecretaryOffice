@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.33 - 2026-10-08
+# unraid-backup - setup.sh                        Version 2.34 - 2026-10-08
+#   2.34 The «not agreed» hints go out as codes the office translates (messages[] `code` not_agreed_share|_vm|_place
+#        with `params` name, partner, host; place_not_agreed with host) and name the server as Unraid does (ident.cfg NAME, ub_host_name) - not
+#        settings.ini's [general] server, which keeps the name the setup was first made under
 #   2.33 The backup place's share is the unit `place` for a partner: its row in the plan takes the agreement of
 #        `place` (pairs.json send.units), not of `share:<its name>` - up to 2.32 it said partner_ok false,
 #        partner_why not_agreed although the place was agreed and the run sent it
@@ -248,16 +251,25 @@ say()  { printf '%s\n' "$*"; printf '%s\n' "$*" | sed 's/\x1b\[[0-9;]*[mK]//g' >
 say2() { printf '%s\n' "$1"; printf '%s\n' "$2" >>"$LOG_FILE"; }
 ok()   { say "  ${C_G}OK${C_0}      $*"; msg ok "$*"; }
 hint() { say "  ${C_D}..${C_0}      $*"; msg hint "$*"; }
+# hint_code <code> <params as JSON> <text>: a hint the office says in its own words (setup.msg.<code>, the params filled
+# in; 2.34) - the terminal and the log get the English text
+hint_code() { say "  ${C_D}..${C_0}      $3"; msg hint "$3" "$1" "$2"; }
 wrn()  { WARNINGS=$((WARNINGS+1)); say "  ${C_Y}WARNING${C_0} $*"; msg warn "$*"; }
 bad()  { ERRORS=$((ERRORS+1));     say "  ${C_R}ERROR${C_0}   $*"; msg error "$*"; }
-# Collect messages for --plan/--apply: "level<US>step<US>text" (without colours)
+# Collect messages for --plan/--apply: "level<US>step<US>text<US>code<US>params" (without colours; code and params - a
+# JSON object on one line - only for messages the office translates, hint_code)
 declare -a MSGS=()
 STEP_ID=""
 msg() {
     [[ "$MODE" == "plan" || "$MODE" == "apply" || "$MODE" == "forget" ]] || return 0
     local t
     t="$(sed 's/\x1b\[[0-9;]*[mK]//g' <<<"$2")"
-    MSGS+=( "$1"$'\x1f'"$STEP_ID"$'\x1f'"$t" )
+    MSGS+=( "$1"$'\x1f'"$STEP_ID"$'\x1f'"$t"$'\x1f'"${3:-}"$'\x1f'"${4:-}" )
+}
+# The messages as JSON: {level, step, text} and, for hint_code's, {code, params}
+msgs_json() {
+    printf '%s\n' "${MSGS[@]}" | us_json level step text code params \
+        | jq -c 'map(if (.code // "") == "" then del(.code, .params) else .params = ((.params | fromjson?) // {}) end)'
 }
 # explain <<'TXT' ... TXT  - background for a step (UB_EXPLAIN=0 switches it off)
 explain() {
@@ -1658,7 +1670,9 @@ step_partners() {
             elif [[ "${PARTNER_OKU[$unit]}" != "yes" && "${PARTNER_WHYU[$unit]}" != "not_agreed" ]]; then hint "${unit}: not one dataset of its own (${PARTNER_WHYU[$unit]}) - it can't go to partner $(pget "partner|$v|name" "$v")"; continue
             elif [[ "$off" == 1 ]]; then hint "${unit}: not backed up (off) - nothing of it goes to partner $(pget "partner|$v|name" "$v")"; continue; fi
             if [[ -n "${agreed[$v]+x}" && "${agreed[$v]}" != *" $(agreed_as "$unit") "* ]]; then
-                hint "${unit}: not agreed with $(pget "partner|$v|name" "$v") yet - ask at the Team Lead («Change what $(pget "general|server" "$(hostname -s 2>/dev/null)") sends…»); until then it doesn't go there"
+                hint_code "not_agreed_${unit%%:*}" "$(jq -nc --arg name "${unit#*:}" --arg partner "$(pget "partner|$v|name" "$v")" --arg host "$(ub_host_name)" \
+                    '{name: $name, partner: $partner, host: $host}')" \
+                    "${unit}: not agreed with $(pget "partner|$v|name" "$v") yet - ask at the Team Lead («Change what $(ub_host_name) sends…»); until then it doesn't go there"
             fi
             grep -Fxq -- "$v" <<<"$out" || out+="$v"$'\n'
         done < <(if [[ -n "${OLD[$key]+x}" ]]; then printf '%s\n' "${OLD[$key]}"; else printf '%s\n' "${P[$key]}"; fi)
@@ -1686,7 +1700,8 @@ step_partners() {
         [[ -f "$UB_PARTNER_DIR/$id.key" ]] || wrn "Partner $(pget "partner|$id|name" "$id"): its key is missing ($UB_PARTNER_DIR/$id.key) - pair anew at the Team Lead"
     done
     hint "What goes to a partner is ticked per share and VM in Mr. Backupsy's setup («also to <partner>»); only ZFS datasets of their own travel"
-    if [[ "${PARTNER_WHYU[place]:-}" == "not_agreed" ]]; then hint "The backup place is not agreed with a partner yet - ask at the Team Lead («Change what $(pget "general|server" "$(hostname -s 2>/dev/null)") sends…»)"
+    if [[ "${PARTNER_WHYU[place]:-}" == "not_agreed" ]]; then hint_code place_not_agreed "$(jq -nc --arg host "$(ub_host_name)" '{host: $host}')" \
+        "The backup place is not agreed with a partner yet - ask at the Team Lead («Change what $(ub_host_name) sends…»)"
     elif [[ "${PARTNER_OKU[place]}" != "yes" ]]; then hint "The backup place is not a dataset of its own (${PARTNER_WHYU[place]}) - it can't go to a partner"; fi
     return 0
 }
@@ -2380,7 +2395,7 @@ us_json() { jq -Rn --arg f "$*" '($f | split(" ")) as $k
 
 setup_status_write() { # setup_status_write <result>
     local tmp="$UB_STATE/.setup-status.json.$$"
-    if printf '%s\n' "${MSGS[@]}" | us_json level step text | jq -c \
+    if msgs_json | jq -c \
         --arg mode "$MODE" --arg result "$1" --arg version "$UB_VERSION" --argjson interface "$UB_INTERFACE" \
         --argjson pid "$$" --argjson started "$SETUP_STARTED" --argjson now "$(date +%s)" \
         --arg written "$WRITTEN" --argjson errors "$ERRORS" --argjson warnings "$WARNINGS" --arg log "$(basename "$LOG_FILE")" \
@@ -2625,7 +2640,7 @@ plan_write() {
          | us_json source target rw propagation main | jq 'map(select(.source != "") | .rw = (.rw == "true") | .main = (.main == "1"))')"
     local kc="${KOPIA_CONTAINER:-}" cands=""
     for n in "${CT_NAMES[@]}"; do is_kopia_image "${CT_IMAGE[$n]}" && cands+="$n"$'\x1e'; done
-    printf '%s\n' "${MSGS[@]}" | us_json level step text | jq -c \
+    msgs_json | jq -c \
         --argjson interface "$UB_INTERFACE" --arg version "$UB_VERSION" --argjson time "$(date +%s)" \
         --arg have "$HAVE_SETTINGS" --argjson P "$p" --argjson O "$o" --argjson pending "$pending" --argjson shares "$shares" --argjson containers "$cts" \
         --argjson databases "$dbs" --argjson missing "$miss" --argjson nextcloud "$ncs" --argjson bases "$bases" \

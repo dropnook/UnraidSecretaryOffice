@@ -3069,6 +3069,9 @@ SH);
         ['id' => 'BAD', 'name' => 'x', 'address' => '1.2.3.4', 'port' => 22, 'my_key' => 'SHA256:q']]]));
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
     $night();
+    // the server's name as Unraid has it (ident.cfg NAME) — settings.ini keeps «Test», the name the setup was first made under
+    @mkdir("$tmp/boot/config", 0700, true);
+    file_put_contents("$tmp/boot/config/ident.cfg", "NAME=\"Fixture\"\r\nPORTSSH=\"22\"\r\n");
     $out = $setup('--plan');
     $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
     same('setup plan: partners[] - the pairs this office sends to, from pairs.json (no connection: reachable null)',
@@ -3085,7 +3088,16 @@ SH);
     // 2.29: docs is a dataset of its own, ticked for vault, but vault hasn't agreed to keep it - not_agreed, its key kept
     same('setup plan 2.29: a unit the partner hasn\'t agreed to keep - partner_ok false, why not_agreed, its partner kept in P',
         [false, 'not_agreed', [$id]], [$sh['docs']['partner_ok'] ?? null, $sh['docs']['partner_why'] ?? null, $plan['P']['share|docs|partner'] ?? null]);
-    check('setup plan 2.29: … and said: ask at the Team Lead', str_contains($out, 'share:docs: not agreed with vault yet - ask at the Team Lead («Change what Test sends…»)'), $out);
+    check('setup plan 2.29: … and said: ask at the Team Lead (2.34: the server as ident.cfg names it)',
+        str_contains($out, 'share:docs: not agreed with vault yet - ask at the Team Lead («Change what Fixture sends…»)'), $out);
+    // 2.34: as a code the office translates (setup.msg.<code>), the share by its name, not the unit id (QA 2026-10-08, finding 10)
+    $coded = array_values(array_filter($plan['messages'] ?? [], fn ($m) => isset($m['code'])));
+    same('setup plan 2.34: the «not agreed» hint as a code with its params', [['level' => 'hint', 'code' => 'not_agreed_share', 'params' => ['name' => 'docs', 'partner' => 'vault', 'host' => 'Fixture']]],
+        array_map(fn ($m) => array_intersect_key($m, ['level' => 1, 'code' => 1, 'params' => 1]), $coded));
+    check('setup plan 2.34: … the English text beside it; other messages without a code', ($coded[0]['text'] ?? '') !== '' && !array_filter($plan['messages'] ?? [], fn ($m) => array_key_exists('params', $m) && !isset($m['code'])));
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true);
+    check('setup plan 2.34: … the office has its words', isset($en['setup.msg.not_agreed_share'], $en['setup.msg.not_agreed_vm'], $en['setup.msg.not_agreed_place'], $en['setup.msg.place_not_agreed'])
+        && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js'), "T('setup.msg.' + m.code"));
     // 2.33: the backup place's share is the unit `place` for a partner - its row takes the agreement of `place`, like place_partner
     // (up to 2.32 it looked for share:UnraidSecretaryOffice, said not_agreed, and the office showed it on the place - USOPartner, 2026-10-08)
     same('setup plan 2.33: the backup place\'s share row - agreed as `place`, partner_ok true', [true, true, null],
@@ -3124,6 +3136,8 @@ SH);
         [[$sh['UnraidSecretaryOffice']['partner_ok'] ?? null, $sh['UnraidSecretaryOffice']['partner_why'] ?? null],
          [$plan['place_partner']['partner_ok'] ?? null, $plan['place_partner']['partner_why'] ?? null], $plan['P']['general|partner_place'] ?? null]);
     check('setup plan 2.33: … said for the place', str_contains($out, 'The backup place is not agreed with a partner yet'), $out);
+    same('setup plan 2.34: … as a code', [['code' => 'place_not_agreed', 'params' => ['host' => 'Fixture']]],
+        array_values(array_map(fn ($m) => array_intersect_key($m, ['code' => 1, 'params' => 1]), array_filter($plan['messages'] ?? [], fn ($m) => ($m['code'] ?? '') === 'place_not_agreed'))));
     // the pair ended at the Team Lead: its section and its units go at the next Apply
     file_put_contents("$tmp/data/partner/pairs.json", json_encode(['v' => 1, 'pairs' => []]));
     $setup('--plan');
