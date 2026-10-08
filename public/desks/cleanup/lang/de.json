@@ -1599,7 +1599,7 @@
   "cat.partners.dropped": "Nicht mehr aufbewahrt",
   "cat.partners.dropped_text": "Die Partnerschaft besteht noch — der Teamchef bewahrt diese Einheit davon nicht mehr auf",
   "park.text_partners": {"one": "Die Kopien dieses Partners kommen in meine Abstellkammer:", "other": "Die Kopien dieser {n} Partner kommen in meine Abstellkammer:"},
-  "park.where_partners": "Alles bleibt auf seinem Pool: Das Dataset wird daneben umbenannt (zfs rename — seine Einheiten und Snapshots kommen mit), der Zettel, woher es kam, liegt in meiner Abstellkammer auf dem Flash. Nur umbenannt, nichts wird kopiert — Zurücklegen geht jederzeit, bis du die Abstellkammer leerst.",
+  "park.where_partners": "Alles bleibt auf seinem Pool: Das Dataset wird in den Partner-Ort des Pools umbenannt (zfs rename — ein ganzes Paar neben sich selbst, eine einzelne Einheit eine Ebene höher, als _UnraidSecretaryOffice-trash-…; seine Einheiten und Snapshots kommen mit), der Zettel, woher es kam, liegt in meiner Abstellkammer auf dem Flash. Nur umbenannt, nichts wird kopiert — Zurücklegen geht jederzeit, bis du die Abstellkammer leerst.",
   "empty.partners": "Kein Partner hat hier etwas liegen lassen.",
   "bubble.partners": {"one": "Kopien von 1 Partner liegen noch da ({size})", "other": "Kopien von {n} Partnern liegen noch da ({size})"},
   "fact.partners": {"one": "Rest von 1 Partner · {size}", "other": "Reste von {n} Partnern · {size}"},

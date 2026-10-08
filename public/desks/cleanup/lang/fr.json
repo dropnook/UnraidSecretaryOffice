@@ -1599,7 +1599,7 @@
   "cat.partners.dropped": "Plus gardée",
   "cat.partners.dropped_text": "Le partenariat existe toujours — le chef d'équipe ne garde plus cette unité",
   "park.text_partners": {"one": "Les copies de ce partenaire vont dans mon débarras :", "other": "Les copies de ces {n} partenaires vont dans mon débarras :"},
-  "park.where_partners": "Chacune reste sur son pool : le dataset est renommé juste à côté (zfs rename — ses unités et ses snapshots suivent), la note d'où il vient est dans mon débarras sur la flash. Seulement renommé, rien n'est copié — remis en place quand tu veux, jusqu'à ce que tu vides le débarras.",
+  "park.where_partners": "Chacune reste sur son pool : le dataset est renommé dans l'emplacement des partenaires du pool (zfs rename — une paire entière juste à côté d'elle-même, une unité seule un niveau plus haut, en _UnraidSecretaryOffice-trash-… ; ses unités et ses snapshots suivent), la note d'où il vient est dans mon débarras sur la flash. Seulement renommé, rien n'est copié — remis en place quand tu veux, jusqu'à ce que tu vides le débarras.",
   "empty.partners": "Aucun partenaire n'a rien laissé ici.",
   "bubble.partners": {"one": "les copies de {n} partenaire traînent encore ({size})", "other": "les copies de {n} partenaires traînent encore ({size})"},
   "fact.partners": {"one": "reste de {n} partenaire · {size}", "other": "restes de {n} partenaires · {size}"},

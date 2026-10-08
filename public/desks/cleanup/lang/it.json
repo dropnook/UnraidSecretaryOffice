@@ -1599,7 +1599,7 @@
   "cat.partners.dropped": "Non più conservata",
   "cat.partners.dropped_text": "La partnership c'è ancora — il capoufficio non conserva più questa unità",
   "park.text_partners": {"one": "Le copie di questo partner vanno nel mio ripostiglio:", "other": "Le copie di questi {n} partner vanno nel mio ripostiglio:"},
-  "park.where_partners": "Ognuna resta sul suo pool: il dataset viene rinominato lì accanto (zfs rename — le sue unità e i suoi snapshot vanno con lui), il biglietto da dove viene sta nel mio ripostiglio sull'unità flash. Solo rinominati, non si copia niente — puoi rimettere a posto in qualsiasi momento, finché non svuoti il ripostiglio.",
+  "park.where_partners": "Ognuna resta sul suo pool: il dataset viene rinominato nel posto dei partner del pool (zfs rename — una coppia intera accanto a sé stessa, una singola unità un livello più su, come _UnraidSecretaryOffice-trash-…; le sue unità e i suoi snapshot vanno con lui), il biglietto da dove viene sta nel mio ripostiglio sull'unità flash. Solo rinominati, non si copia niente — puoi rimettere a posto in qualsiasi momento, finché non svuoti il ripostiglio.",
   "empty.partners": "Nessun partner ha lasciato niente qui.",
   "bubble.partners": {"one": "le copie di 1 partner sono ancora qui ({size})", "other": "le copie di {n} partner sono ancora qui ({size})"},
   "fact.partners": {"one": "avanzo di 1 partner · {size}", "other": "avanzi di {n} partner · {size}"},
