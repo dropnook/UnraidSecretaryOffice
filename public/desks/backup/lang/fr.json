@@ -1,5 +1,6 @@
 {
   "name": "Monsieur Backupsi",
+  "name_with": "Monsieur Backupsi",
   "role": "S'occupe de la sauvegarde nocturne — un peu étourdi et anxieux, alors il vérifie tout trois fois",
   "visit": "Aller voir Monsieur Backupsi",
   "bubble.loading": "Un instant, je regarde la sauvegarde…",

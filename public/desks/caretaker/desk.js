@@ -461,8 +461,11 @@ function teamRow(x) {
     b = el('button', 'btn small plain', T('fire'));
     b.onclick = () => fire(x.id);
   } else if (x.ok) {
-    b = el('button', 'btn small', T('hire'));
-    b.onclick = () => hire([x.id]);
+    // a desk that needs a colleague (desk.json "with"): both at once while the colleague isn't here and would come —
+    // the colleague first, so he stands first in the team; hiring him alone stays possible (nothing blocks)
+    const w = colleague(x);
+    b = el('button', 'btn small', w ? T('hire_with', { name: nameWith(w.id) }) : T('hire'));
+    b.onclick = () => hire(w ? [w.id, x.id] : [x.id]);
   }
   if (b) {
     b.type = 'button';
@@ -473,6 +476,16 @@ function teamRow(x) {
   }
   return r;
 }
+
+/** The colleague a candidate asks to come with (desk.json "with"), while he isn't hired and would come; else null */
+function colleague(x) {
+  const id = x.desk && x.desk.with;
+  if (!id || id === x.id) return null;
+  const w = staff().find((s) => s.id === id);
+  return w && !w.hired && w.ok && !w.desk.training ? w : null;
+}
+/** His name as «with …» needs it (de «Herrn Backupsi», es «el señor Backupsi»): <desk>.name_with, else the name */
+const nameWith = (id) => Office.t(Office.has(`${id}.name_with`) ? `${id}.name_with` : `${id}.name`);
 
 async function hire(ids) {
   if (!await Office.hire(ids)) return;
@@ -592,4 +605,9 @@ Office.placesFrom(ID, (s) => {
   (p.ticket_requests || []).forEach((q) => out.push({ text: T('partner.t_request', { id: q.id }), sub: T('partner.title'), anchor: `ticket:${q.id}` }));
   return out;
 });
+
+// tests/run.php draws a candidate's row under node (the «Hire together with …» button)
+if (globalThis.OFFICE_DESK_TESTS) {
+  globalThis.OFFICE_DESK_TESTS.caretaker = { setState: (s) => { state = s; }, staff, teamRow };
+}
 })();

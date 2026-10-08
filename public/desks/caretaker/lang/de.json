@@ -107,6 +107,7 @@
   "could_come": "könnte kommen",
   "declined": "sagt ab",
   "hire": "Einstellen",
+  "hire_with": "Zusammen mit {name} einstellen",
   "hire_all": {
     "one": "Einstellen",
     "other": "Alle {n} einstellen"

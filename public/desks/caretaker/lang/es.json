@@ -107,6 +107,7 @@
   "could_come": "podría venir",
   "declined": "ha declinado",
   "hire": "Contratar",
+  "hire_with": "Contratar junto con {name}",
   "hire_all": {
     "one": "Contratar",
     "other": "Contratar a los {n}"
