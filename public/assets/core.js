@@ -1721,18 +1721,31 @@ function footer() {
  *           Office.sectionHead()'s extras; default the key; null = the page itself. A help term needs no mark: pageHelp()
  *           finds it by its words (its anchor 'help:<key>')
  *   text    a lang key shown under it (a term's explanation); crumb: a lang key between the desk and it («Set up»)
- * The desk's places.json (beside desk.json) lists the same keys: api.php?a=places sends their words in every language,
- * asked once on the first open — never with the first paint, never per keystroke; until it answers, the office's own
- * language finds them. tests/run.php testSearchPlaces keeps both lists, the anchors and the sections in step.
+ *   paras   a guide's paragraphs: the prefix of its lang keys <paras>.1, <paras>.2 … (the Consultant's guides), each marked
+ *           on the page as Office.place('<paras>.<n>', node) — the search lands on the sentence it met
+ *   shown   () => boolean, asked when the search looks (cheap, the desk's own rule): false = the page doesn't draw it now
+ *           (Ms. Dustdevil's rooms without anything in them …) — not listed at all. Without it: always drawn
+ *   part    the anchor of the part of the page it lies in: Office.reveal() lands there when the place itself isn't drawn
+ * The text and the paragraphs are its SECONDARY words (phase 3): a query that meets none of its own words but meets
+ * them finds it below every place met by its name — the sentence shown with the words met marked.
+ * The desk's places.json (beside desk.json) lists the same keys ("keys") and the texts and paragraphs ("texts",
+ * a guide's as '<paras>.*'): api.php?a=places sends the keys' words in every language, asked once on the first open —
+ * never with the first paint, never per keystroke; until it answers, the office's own language finds them. The texts
+ * are bigger (≈ 166 KB gzip in five languages, the words ≈ 14): the office's language has them already (the strings),
+ * English comes right after the words (api.php?a=places&part=text, ≈ 31 KB gzip) when the office speaks another one.
+ * tests/run.php testSearchPlaces / testSearchGuides keep both lists, the anchors and the sections in step.
  */
 const PLACE_KINDS = ['desk', 'section', 'tile', 'step', 'setting', 'help', 'guide'];
-const PLACE_WEIGHT = { desk: 1, section: 0.9, tile: 0.85, step: 0.8, setting: 0.8, help: 0.7, guide: 0.7, item: 0.75 };
+const PLACE_WEIGHT = { desk: 1, section: 0.9, tile: 0.85, step: 0.8, setting: 0.8, help: 0.7, guide: 0.7, item: 0.75, text: 0.6 };
 const PLACES_SHOWN = 12;
 const placeLists = new Map();       // desk ('' = the office itself) -> its places
 let searchIndex = null;             // the places with their words, built on the first open (again for other strings)
 let indexStrings = null;
 let searchWords = null;             // api.php?a=places: {<key>: {<lang>: words}} — every language, once
 let wordsAsked = null;
+let searchTexts = null;             // api.php?a=places&part=text: {<key>: English text} — the texts and paragraphs
+let textsAsked = null;
+const textHays = new Map();         // '<lang>|<key>' -> ' word word … ' of a text, folded (built when first compared)
 
 Office.places = function places(desk, list) {
   placeLists.set(desk, (Array.isArray(list) ? list : []).filter((p) => p && PLACE_KINDS.includes(p.kind) && typeof p.key === 'string' && p.key)
@@ -1741,6 +1754,9 @@ Office.places = function places(desk, list) {
       route: typeof p.route === 'string' ? p.route : desk ? `#/${desk}` : '#/',
       anchor: p.anchor !== undefined ? p.anchor : p.kind === 'help' ? `help:${p.key}` : p.key,
       text: p.text || null, crumb: p.crumb || null, act: typeof p.act === 'function' ? p.act : null,
+      paras: typeof p.paras === 'string' && p.paras ? p.paras : null,
+      shown: typeof p.shown === 'function' ? p.shown : null,
+      part: typeof p.part === 'string' && p.part ? p.part : null,
     })));
   searchIndex = null;
 };
@@ -1869,7 +1885,11 @@ function officePlaces() {
 
 const hiredDesk = (id) => !id || !!(Office.desks.get(id) || CONFIG.desks.find((d) => d.id === id) || {}).hired;
 
-/** Every place once: the desks themselves first, then what each lists; a term named like a section of its desk is that section */
+/**
+ * Every place once: the desks themselves first, then what each lists; a term named like a section of its desk is that
+ * section (a section the page may not draw — shown — keeps the term beside it: the search lists the one that is there).
+ * Each place's texts: its explanation (text) and a guide's paragraphs (paras), with the anchor each lands on.
+ */
 function placeIndex() {
   if (searchIndex && indexStrings === Office.strings) return searchIndex;
   if (!placeLists.has('')) officePlaces();
@@ -1879,23 +1899,30 @@ function placeIndex() {
     all.push(...(placeLists.get(d.id) || []));
   }
   const kept = new Map();
+  const full = (p, k) => (p.desk ? `${p.desk}.${k}` : k);
   searchIndex = [];
   for (const p of all) {
-    const full = p.desk ? `${p.desk}.${p.key}` : p.key;
-    if (!Office.has(full)) continue;
-    const label = placeLabel(t(full));
+    if (!Office.has(full(p, p.key))) continue;
+    const label = placeLabel(t(full(p, p.key)));
     if (!label) continue;
     const same = `${p.desk}|${foldText(label)}`;
     const first = kept.get(same);
     if (first) {                           // the same words twice on a desk: one result, a term's explanation joins it
       if (!first.text && p.text) first.text = p.text;
-      continue;
+      if (!first.shown) continue;
     }
-    const e = { ...p, full, label, tokens: null };
-    kept.set(same, e);
+    const e = { ...p, full: full(p, p.key), label, same, tokens: null, texts: [] };
+    if (!first) kept.set(same, e);
     searchIndex.push(e);
   }
+  for (const e of searchIndex) {
+    if (e.text && Office.has(full(e, e.text))) e.texts.push({ full: full(e, e.text), anchor: e.anchor });
+    for (let i = 1; e.paras && i < 100 && Office.has(full(e, `${e.paras}.${i}`)); i++) {
+      e.texts.push({ full: full(e, `${e.paras}.${i}`), anchor: `${e.paras}.${i}` });
+    }
+  }
   indexStrings = Office.strings;
+  textHays.clear();
   return searchIndex;
 }
 
@@ -1919,9 +1946,103 @@ function placeWords() {
       searchWords = j.words;
       for (const e of searchIndex || []) e.tokens = null;
       if (Office.paletteOpen()) renderPalette();
+      return placeTexts();
     })
     .catch(() => { wordsAsked = null; });          // asked again at the next open
   return wordsAsked;
+}
+
+/**
+ * The texts' English words, right after the words (the office's own language has its texts in the strings already; an
+ * English office asks nothing). Never with the first paint, never per keystroke; a day in the browser's cache.
+ */
+function placeTexts() {
+  if (textsAsked || Office.lang === 'en') return textsAsked;
+  textsAsked = fetch(`${API}?a=places&part=text&v=${encodeURIComponent(`${CONFIG.stamp}-${CONFIG.version}`)}`)
+    .then((r) => r.json())
+    .then((j) => {
+      if (!j || !j.ok || !j.texts || typeof j.texts !== 'object') return;
+      searchTexts = j.texts;
+      textHays.clear();
+      if (Office.paletteOpen()) renderPalette();
+    })
+    .catch(() => { textsAsked = null; });          // asked again after the next open's words
+  return textsAsked;
+}
+
+/** A text as the search compares it: ' word word … ' (folded, each once) — in the office's language ('') or English */
+function textHay(full, lang) {
+  const k = `${lang}|${full}`;
+  let hay = textHays.get(k);
+  if (hay === undefined) {
+    const v = lang ? searchTexts && searchTexts[full] : Office.strings[full];
+    hay = v ? ` ${[...new Set(foldText(placeWordsOf(v)).split(' ').filter(Boolean))].join(' ')} ` : '';
+    textHays.set(k, hay);
+  }
+  return hay;
+}
+/**
+ * How well a query word meets a text: 4 a word of it, 3 a word's start, 2 inside a word (from TEXT_INSIDE letters: a long
+ * text has many words — «gangs» in «Rundgangs», «lock» in «Glocke» are noise), 0 not (no typing errors)
+ */
+const TEXT_INSIDE = 6;
+const textMeets = (q, w) => w === q || w.startsWith(q) || (q.length >= TEXT_INSIDE && w.includes(q));
+const hayScore = (q, hay) => (!hay.includes(q) ? 0 : hay.includes(` ${q} `) ? 4 : hay.includes(` ${q}`) ? 3 : q.length >= TEXT_INSIDE ? 2 : 0);
+
+/**
+ * A place met in its texts: every query word meets the text (or the place's own words as typed), at least one the
+ * text — the best text of the place (the office's language first, then English); null when none
+ */
+function textHit(e, qs, own) {
+  let best = null;
+  for (const tx of e.texts) {
+    for (const lang of searchTexts && Office.lang !== 'en' ? ['', 'en'] : ['']) {
+      const hay = textHay(tx.full, lang);
+      if (!hay) continue;
+      let sum = 0, met = 0;
+      for (let i = 0; i < qs.length && sum >= 0; i++) {
+        const s = hayScore(qs[i], hay);
+        const o = own(i) >= 2 ? own(i) : 0;
+        if (!s && !o) sum = -1;
+        else { sum += Math.max(s, o); if (s) met++; }
+      }
+      if (sum > 0 && met && (!best || sum > best.sum)) best = { sum, tx, lang };
+    }
+  }
+  return best;
+}
+
+/**
+ * The sentence a text hit shows: ≤ TEXT_SNIPPET letters around the first word met (… where cut), the words met marked —
+ * {text, marks: [[from, to], …]}. In the language it was met in; placeholders the page fills in read «…».
+ */
+const TEXT_SNIPPET = 80;
+function textSnippet(full, lang, qs) {
+  const v = lang ? searchTexts && searchTexts[full] : Office.strings[full];
+  let s = typeof v === 'string' ? v : v && typeof v === 'object' ? String(v.other || Object.values(v).find((x) => typeof x === 'string') || '') : '';
+  s = (lang ? s.replace(/[⟦⟧]/g, '') : unraidWords(s)).replace(/\{\w+\}/g, '…').replace(/\s+/g, ' ').trim();
+  const met = [];
+  for (const m of s.matchAll(/[\p{L}\p{M}\p{N}]+/gu)) {
+    const w = foldText(m[0]);
+    if (qs.some((q) => textMeets(q, w))) met.push([m.index, m.index + m[0].length]);
+  }
+  const room = TEXT_SNIPPET - 4;
+  if (s.length <= TEXT_SNIPPET) return { text: s, marks: met };
+  const at = met.length ? met[0][0] : 0;
+  let from = Math.max(0, Math.min(at - 24, s.length - room));
+  if (from > 0) {
+    const sp = s.indexOf(' ', from);
+    from = sp >= 0 && sp < at ? sp + 1 : Math.min(from, at);
+  }
+  let to = Math.min(s.length, from + room);
+  if (to < s.length) {
+    const sp = s.lastIndexOf(' ', to);
+    if (sp > from && (!met.length || sp >= met[0][1])) to = sp;
+  }
+  const head = from > 0 ? '… ' : '';
+  const text = head + s.slice(from, to) + (to < s.length ? ' …' : '');
+  const shift = head.length - from;
+  return { text, marks: met.filter(([a, b]) => a >= from && b <= to).map(([a, b]) => [a + shift, b + shift]) };
 }
 
 /** Typing errors: Damerau-Levenshtein (adjacent swaps count one), given up beyond max */
@@ -1957,11 +2078,16 @@ function wordScore(q, w) {
   return 0;
 }
 
+/** Is a place drawn now (its desk's rule: shown())? A rule that slips counts as drawn */
+const placeShown = (e) => { try { return !e.shown || e.shown() !== false; } catch (err) { return true; } };
+
 /**
  * The places and items for a query, best first (hired desks before the others), at most PLACES_SHOWN. Every word of the
  * query must meet a word of the place (in any language); typing errors count only while nothing meets the query as it
  * is typed. A place met word by word (each word as it is or at its start) comes before the items, an item before a place
- * met only inside its words; a place and an item that lead to the same spot are one result (the better one).
+ * met only inside its words; a place and an item that lead to the same spot are one result (the better one). A place
+ * met only in its texts (its explanation, a guide's paragraphs — the words as typed) comes last, its sentence shown.
+ * A place its desk doesn't draw now (shown) is left out.
  */
 function findPlaces(query) {
   const qs = foldText(query).split(' ').filter(Boolean);
@@ -1969,23 +2095,38 @@ function findPlaces(query) {
   const whole = qs.join(' ');
   const here = Office.current ? Office.current.id : '';
   const out = [];
-  for (const e of [...placeIndex(), ...itemEntries()]) {
+  const best = (q, words) => {
+    let b = 0;
+    for (const w of words) {
+      const s = wordScore(q, w);
+      if (s > b) { b = s; if (s === 4) break; }
+    }
+    return b;
+  };
+  const items = itemEntries();                              // the providers have read the states that came: shown() knows them
+  for (const e of [...placeIndex(), ...items]) {
     const item = e.kind === 'item';
     if (item && !hiredDesk(e.desk)) continue;               // a desk let go: what it held is gone with it
+    if (!item && !placeShown(e)) continue;                  // not drawn now: nothing to go to
     const words = placeTokens(e);
-    let sum = 0, typo = false, low = 4;
-    for (const q of qs) {
-      let best = 0;
-      for (const w of words) {
-        const s = wordScore(q, w);
-        if (s > best) { best = s; if (s === 4) break; }
-      }
-      if (!best) { sum = -1; break; }
-      sum += best;
-      low = Math.min(low, best);
-      typo = typo || best === 1;
+    let sum = 0, typo = false, low = 4, missed = -1;
+    for (let i = 0; i < qs.length; i++) {
+      const b = best(qs[i], words);
+      if (!b) { sum = -1; missed = i; break; }
+      sum += b;
+      low = Math.min(low, b);
+      typo = typo || b === 1;
     }
-    if (sum < 0) continue;
+    if (sum < 0) {
+      // not met by its own words: its texts (its own words count as typed for the other query words)
+      const own = [];
+      const hit = e.texts && e.texts.length
+        ? textHit(e, qs, (i) => (i === missed ? 0 : own[i] !== undefined ? own[i] : (own[i] = best(qs[i], words)))) : null;
+      if (!hit) continue;
+      const score = (hit.sum / qs.length / 4) * PLACE_WEIGHT.text + (e.desk && e.desk === here ? 0.2 : 0);
+      out.push({ e, score, rank: score - 2, typo: false, text: hit, hired: hiredDesk(e.desk) });
+      continue;
+    }
     let score = (sum / qs.length / 4) * PLACE_WEIGHT[e.kind];
     if (foldText(e.label) === whole) score += 0.3;            // the very words the page shows
     else if (foldText(e.label).startsWith(whole)) score += 0.15;
@@ -1993,20 +2134,34 @@ function findPlaces(query) {
     const rank = score + (typo ? 0 : !item && low >= 3 ? 2 : 1);
     out.push({ e, score, rank, typo, hired: hiredDesk(e.desk) });
   }
-  const typed = out.some((x) => !x.typo) ? out.filter((x) => !x.typo) : out;
+  // typing errors only while nothing meets as typed by its own words (a word in some text doesn't hide them)
+  const typed = out.some((x) => !x.typo && !x.text) ? out.filter((x) => !x.typo) : out;
   typed.sort((a, b) => (b.hired - a.hired) || (b.rank - a.rank) || (a.e.label.length - b.e.label.length)
     || (Office.deskRank(a.e.desk) - Office.deskRank(b.e.desk)));
   const spots = new Set();
-  return typed.filter(({ e }) => {
-    if (!e.anchor) return true;
-    const spot = `${e.desk}|${e.route}|${e.anchor}`;
+  const sames = new Set();
+  return typed.filter(({ e, text }) => {
+    if (e.same) {                            // a term and the section of its name: the one that is there
+      if (sames.has(e.same)) return false;
+      sames.add(e.same);
+    }
+    const anchor = text ? text.tx.anchor : e.anchor;
+    if (!anchor) return true;
+    const spot = `${e.desk}|${e.route}|${anchor}`;
     if (spots.has(spot)) return false;
     spots.add(spot);
     return true;
-  }).slice(0, PLACES_SHOWN).map(({ e, score, hired }) => ({
-    desk: e.desk, key: e.key, kind: e.kind, route: e.route, anchor: e.anchor, act: e.act, label: e.label, hired, score,
-    crumb: placeCrumb(e), detail: placeDetail(e),
-  }));
+  }).slice(0, PLACES_SHOWN).map(({ e, score, hired, text }) => {
+    const r = { desk: e.desk, key: e.key, kind: e.kind, route: e.route, anchor: e.anchor, part: e.part, act: e.act, label: e.label,
+      hired, score, crumb: placeCrumb(e), detail: placeDetail(e), marks: null, text: null };
+    if (text) {
+      const snip = textSnippet(text.tx.full, text.lang, qs);
+      // a paragraph: the sentence is the spot, the guide's own anchor the part around it
+      if (text.tx.anchor !== e.anchor) Object.assign(r, { anchor: text.tx.anchor, part: e.anchor || e.part });
+      Object.assign(r, { detail: snip.text, marks: snip.marks, text: e.desk ? text.tx.full.slice(e.desk.length + 1) : text.tx.full });
+    }
+    return r;
+  });
 }
 
 /** «Mr. Backupsy › Set up», «… › How to read this page»; a desk none (its role is the line under it) */
@@ -2174,7 +2329,17 @@ function renderPalette() {
     const text = el('span', 'palette-text');
     text.appendChild(el('span', 'palette-name', r.label));
     if (r.crumb) text.appendChild(el('span', 'palette-crumb', r.crumb));
-    if (r.detail) text.appendChild(el('span', 'palette-detail', r.detail));
+    if (r.marks) {                         // the sentence a text hit met, the words met marked
+      const d = el('span', 'palette-detail snippet');
+      let at = 0;
+      for (const [a, b] of r.marks) {
+        if (a > at) d.append(r.detail.slice(at, a));
+        d.appendChild(el('mark', '', r.detail.slice(a, b)));
+        at = b;
+      }
+      if (at < r.detail.length) d.append(r.detail.slice(at));
+      text.appendChild(d);
+    } else if (r.detail) text.appendChild(el('span', 'palette-detail', r.detail));
     const chips = el('span', 'palette-chips');
     chips.appendChild(el('span', 'chip quiet', t(`search.kind.${r.kind}`)));
     if (!r.hired) chips.appendChild(el('span', 'chip quiet', t('search.not_hired')));
@@ -2224,7 +2389,7 @@ function choosePlace(i) {
 Office.goToPlace = function goToPlace(r) {
   if (r.act) {
     r.act();
-    if (r.anchor) Office.reveal(r.anchor, { name: r.label });
+    if (r.anchor) Office.reveal(r.anchor, { name: r.label, part: r.part });
     return;
   }
   if (!r.hired) {
@@ -2235,10 +2400,10 @@ Office.goToPlace = function goToPlace(r) {
     return;
   }
   const here = (location.hash || '#/') === r.route && r.route.split('/').length <= 2;
-  if (here && r.anchor) { Office.reveal(r.anchor, { name: r.label }); return; }
+  if (here && r.anchor) { Office.reveal(r.anchor, { name: r.label, part: r.part }); return; }
   const gen = routeGen;
   Office.go(r.route);
-  if (r.anchor) Office.reveal(r.anchor, { since: gen, name: r.label });
+  if (r.anchor) Office.reveal(r.anchor, { since: gen, name: r.label, part: r.part });
 };
 
 /**
@@ -2246,71 +2411,126 @@ Office.goToPlace = function goToPlace(r) {
  * already, like the watchman's posture tips: an item's anchor may name it) — at once, or as soon as the page has drawn it
  * (desks draw before their state arrives: watched for ≤ 10 s; since = only a page drawn after that route counts). Every
  * <details> above it opens; inside a folded group (.group.closed) its head stands for it (the desk opens its groups);
- * it scrolls under Unraid's menu, is marked a moment and takes the focus. For 2 s more a page drawn anew (the state
- * arrived) is followed; the user scrolling, clicking or typing ends all of it.
+ * it scrolls under Unraid's menu, is marked a moment and takes the focus. For REVEAL_SETTLE more a page drawn anew (the
+ * state arrived) is followed, and the place is kept where it was put while the page settles above it (a desk's head
+ * that grows or shrinks when the new look arrives, «As of …» going: 11 px above the top on a phone, 2026-10-08) —
+ * the user scrolling, clicking or typing ends all of it. part (the place's part of the page, Office.places()): when the
+ * place isn't drawn within REVEAL_PART, that part is brought into view meanwhile; when it never comes, the part is
+ * marked before search.not_there says so.
  */
 const REVEAL_WAIT = 10000;
-const REVEAL_SETTLE = 2000;
+const REVEAL_SETTLE = 6000;
+const REVEAL_PART = 1500;
 let revealing = null;
 Office.reveal = function reveal(anchor, opts) {
   if (revealing) revealing.stop();
   if (!anchor) return;
-  const { since, name } = opts || {};
-  const quoted = String(anchor).replace(/["\\]/g, '\\$&');
+  const { since, name, part } = opts || {};
+  const quote = (a) => String(a).replace(/["\\]/g, '\\$&');
+  const quoted = quote(anchor);
   const sel = `[data-place="${quoted}"]`;
   const byId = `[data-id="${quoted}"]`;
+  const partSel = part && part !== anchor ? `[data-place="${quote(part)}"]` : null;
   const me = {};
-  let hit = null, found = false, timer = 0, obs = null, done = false;
+  let hit = null, shownNode = null, want = null, found = false, timer = 0, partTimer = 0, obs = null, sizes = null, done = false, frame = false;
   const user = ['wheel', 'touchstart', 'pointerdown', 'keydown'];
   const stop = () => {
     done = true;
     clearTimeout(timer);
+    clearTimeout(partTimer);
     if (obs) obs.disconnect();
+    if (sizes) sizes.disconnect();
     user.forEach((ev) => document.removeEventListener(ev, stop, true));
     if (revealing === me) revealing = null;
   };
   me.stop = stop;
   revealing = me;
+  const drawn = () => !(since !== undefined && routeGen === since);
+  // the place moved since it was put (the page settled above it): put back — retargeted while the smooth scroll runs
+  const keep = () => {
+    if (done || !shownNode || !shownNode.isConnected || want === null) return;
+    const now = placeTop(shownNode);
+    if (now === null || Math.abs(now - want) <= 1) return;
+    const moving = Math.abs(window.scrollY - want) > 1;
+    want = now;
+    window.scrollTo({ top: now, behavior: moving && !reducedMotion() ? 'smooth' : 'auto' });
+  };
+  const keepSoon = () => {
+    if (frame || done) return;
+    frame = true;
+    (typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (f) => setTimeout(f, 16))(() => { frame = false; keep(); });
+  };
   const look = () => {
-    if (done || (since !== undefined && routeGen === since) || (hit && hit.isConnected)) return;
+    if (done || !drawn()) return;
+    if (hit && hit.isConnected) { keepSoon(); return; }
     const node = ROOT.querySelector(sel) || ROOT.querySelector(byId);
     if (!node) return;
     const first = !found;
     found = true;
     hit = node;
+    clearTimeout(partTimer);
     const folded = node.closest('.group.closed');
-    showPlace((folded && folded !== node && folded.querySelector('.group-head')) || node, first);
+    shownNode = (folded && folded !== node && folded.querySelector('.group-head')) || node;
+    want = showPlace(shownNode, first);
     if (first) {                         // found: follow a page drawn anew a little longer, then let go
       clearTimeout(timer);
-      timer = setTimeout(stop, REVEAL_SETTLE);
+      timer = setTimeout(() => { keep(); stop(); }, REVEAL_SETTLE);
     }
   };
+  const partNode = () => (partSel && drawn() ? ROOT.querySelector(partSel) : null);
   setTimeout(() => { if (!done) user.forEach((ev) => document.addEventListener(ev, stop, true)); }, 0);
   if (typeof MutationObserver === 'function') {
     obs = new MutationObserver(look);
     obs.observe(ROOT, { childList: true, subtree: true });
   }
+  if (typeof ResizeObserver === 'function') {          // what grows or shrinks without a node added (a line wraps anew)
+    sizes = new ResizeObserver(() => { if (hit) keepSoon(); });
+    sizes.observe(ROOT);
+  }
+  if (partSel) {
+    partTimer = setTimeout(() => {                     // not drawn yet: its part in view meanwhile (no mark, no focus)
+      const p = !found && !done && partNode();
+      if (p) placeScroll(p, true);
+    }, REVEAL_PART);
+  }
   timer = setTimeout(() => {
-    if (!found && !done) Office.toast(t('search.not_there', { name: name || '' }));
+    if (!found && !done) {
+      const p = partNode();
+      if (p) showPlace(p, false);
+      Office.toast(t('search.not_there', { name: name || '' }));
+    }
     stop();
   }, REVEAL_WAIT);
   look();
 };
 
+const reducedMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+/**
+ * Where the page must stand for a node to sit 12 px under what Unraid keeps fixed at the top (its menu when sticky — on
+ * the desktop; on a phone it is static: 12 px under the window's top), as far as the page can scroll; null in a dialog
+ */
+function placeTop(node) {
+  if (node.closest('.dialog')) return null;
+  const menu = document.getElementById('menu');
+  const above = menu && /^(sticky|fixed)$/.test(getComputedStyle(menu).position) ? menu.offsetHeight : 0;
+  const top = node.getBoundingClientRect().top + window.scrollY - above - 12;
+  const doc = document.documentElement;
+  const most = doc && doc.scrollHeight ? Math.max(0, doc.scrollHeight - window.innerHeight) : Infinity;
+  return Math.round(Math.max(0, Math.min(top, most)));
+}
+/** Scroll there (a dialog: its middle); the page's top it went to, or null */
+function placeScroll(node, smooth) {
+  const top = placeTop(node);
+  if (top === null) { node.scrollIntoView({ block: 'center' }); return null; }
+  window.scrollTo({ top, behavior: smooth && !reducedMotion() ? 'smooth' : 'auto' });
+  return top;
+}
+
 function showPlace(node, first) {
   for (let d = node.closest('details'); d; d = d.parentElement ? d.parentElement.closest('details') : null) {
     if (!d.open) d.open = true;
   }
-  const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (node.closest('.dialog')) {
-    node.scrollIntoView({ block: 'center' });
-  } else {
-    // under what Unraid keeps fixed at the top (its menu, when sticky)
-    const menu = document.getElementById('menu');
-    const above = menu && /^(sticky|fixed)$/.test(getComputedStyle(menu).position) ? menu.offsetHeight : 0;
-    const top = node.getBoundingClientRect().top + window.scrollY - above - 12;
-    window.scrollTo({ top: Math.max(0, top), behavior: first && !reduced ? 'smooth' : 'auto' });
-  }
+  const top = placeScroll(node, first);
   node.classList.add('place-hit');
   setTimeout(() => node.classList.remove('place-hit'), 1800);
   if (!node.matches('a[href], button, input, select, textarea, summary, [tabindex]')) {
@@ -2318,6 +2538,7 @@ function showPlace(node, first) {
     node.addEventListener('blur', () => node.removeAttribute('tabindex'), { once: true });
   }
   node.focus({ preventScroll: true });
+  return top;
 }
 
 /** ⌘K / Ctrl+K while the office has the focus — or nothing outside it was clicked last (Unraid's header keeps its own) */
@@ -2341,6 +2562,8 @@ function searchKeys() {
 
 Office.search = {
   open: openPalette, close: () => closePalette(true), find: findPlaces, words: placeWords,
+  /** the texts' English words as asked after the words (for the tests): a promise, or null when none were asked */
+  texts: () => textsAsked,
   /** a desk's items as the search keeps them now (for the tests) */
   items: (desk) => itemEntries().filter((e) => !desk || e.desk === desk).map(({ tokens, ...e }) => ({ ...e })),
 };
