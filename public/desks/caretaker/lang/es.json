@@ -461,5 +461,13 @@
   "errors.partner_not_sending": "Esta secretaría no envía nada a {name} — no tiene clave allí. Para enviar, empareja de nuevo.",
   "errors.partner_unit_asleep": "{unit}: su pool duerme ahora mismo — pídelo cuando el pool esté despierto.",
   "errors.partner_units_max": "Como máximo {max} por asociación.",
-  "errors.partner_no_wish": "{name} ya no desea nada más."
+  "errors.partner_no_wish": "{name} ya no desea nada más.",
+  "partner.keep_less": "Guardar menos de {name}…",
+  "partner.keep_less_title": "Guardar menos de {name}",
+  "partner.keep_less_text": "Desmarca lo que esta secretaría ya no guarda de {name}. Su puerta lo rechaza entonces, y {name} deja de enviarlo en cuanto vuelva a mirar (en 15 minutos).",
+  "partner.keep_less_copies": "Las copias que ya están aquí se quedan donde están (indicado bajo cada una) — guárdalas con la señora Plumero o quítalas tú cuando ya no las necesites. Para no guardar nada de {name}: termina la asociación.",
+  "partner.keep_less_do": "Guardar menos",
+  "partner.keep_less_one": "Al menos uno queda marcado — para no guardar nada de {name}, termina la asociación.",
+  "partner.kept_less": "{list}: ya no se guarda de {name} — las copias aquí se quedan.",
+  "errors.partner_not_keeping": "Esta secretaría no guarda nada de {name}."
 }

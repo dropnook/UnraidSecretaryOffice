@@ -193,6 +193,7 @@ function card(x) {
   more.onclick = (e) => Office.menu(e, [
     ...(x.sends ? [{ text: T('partner.change', { host: Office.config.host }), act: () => changeDialog(x) }] : []),
     ...(x.receive ? [{ text: T('partner.t_make', { name: x.name }), act: () => ticketMakeDialog(x) }] : []),
+    ...(x.receive && x.receive.units.length > 1 ? [{ text: T('partner.keep_less', { name: x.name }), act: () => keepLessDialog(x) }] : []),
     { text: T('partner.renew'), act: () => renewDialog(x) },
     { separator: true },
     { text: T('partner.end'), kind: 'danger', act: () => endDialog(x) },
@@ -770,6 +771,33 @@ function wishKeepDialog(x) {
       const j = await Office.api.post(`${ID}.partner_wish`, { id: x.id, units, keep: true, confirm: true });
       if (!took(j)) return false;
       Office.toast(T('partner.wish_kept', { name: x.name, list: unitsText(units) }));
+      return true;
+    } }],
+  });
+}
+
+/** «Keep less of <name>…»: untick what this office no longer keeps — at least one stays; the copies here stay too */
+function keepLessDialog(x) {
+  const r = x.receive;
+  const box = el('div');
+  box.appendChild(el('p', '', T('partner.keep_less_text', { name: x.name })));
+  const ticks = r.units.map((u) => {
+    const t = tick(unitText(u), true, `${r.pool}/UnraidSecretaryOffice-partners/${x.id}/${u.replace(':', '-')}`);
+    box.appendChild(t.node);
+    return [u, t.cb];
+  });
+  box.appendChild(el('p', 'callout', T('partner.keep_less_copies', { name: x.name })));
+  Office.dialog({
+    title: T('partner.keep_less_title', { name: x.name }),
+    body: box,
+    wide: true,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('partner.keep_less_do'), kind: 'danger', act: async () => {
+      const units = ticks.filter(([, cb]) => cb.checked).map(([u]) => u);
+      if (!units.length) { Office.toast(T('partner.keep_less_one', { name: x.name }), true); return false; }
+      if (units.length === r.units.length) return true;
+      const j = await Office.api.post(`${ID}.partner_keep_less`, { id: x.id, units, confirm: true });
+      if (!took(j)) return false;
+      Office.toast(T('partner.kept_less', { name: x.name, list: unitsText(j.removed || []) }));
       return true;
     } }],
   });

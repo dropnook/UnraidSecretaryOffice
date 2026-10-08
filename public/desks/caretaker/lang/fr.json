@@ -461,5 +461,13 @@
   "errors.partner_not_sending": "Ce secrétariat n'envoie rien à {name} — il n'y a pas de clé. Pour envoyer, appaire à nouveau.",
   "errors.partner_unit_asleep": "{unit} : son pool dort en ce moment — demande-le quand le pool est réveillé.",
   "errors.partner_units_max": "Au plus {max} par partenariat.",
-  "errors.partner_no_wish": "{name} ne souhaite (plus) rien."
+  "errors.partner_no_wish": "{name} ne souhaite (plus) rien.",
+  "partner.keep_less": "Garder moins de {name}…",
+  "partner.keep_less_title": "Garder moins de {name}",
+  "partner.keep_less_text": "Décoche ce que ce secrétariat ne garde plus de {name}. Sa porte le refuse alors, et {name} arrête de l'envoyer dès qu'il regarde à nouveau (dans les 15 minutes).",
+  "partner.keep_less_copies": "Les copies déjà ici restent où elles sont (indiqué sous chacune) — range-les avec Madame Plumeau ou enlève-les toi-même quand tu n'en as plus besoin. Pour ne rien garder de {name} : termine le partenariat.",
+  "partner.keep_less_do": "Garder moins",
+  "partner.keep_less_one": "Au moins un reste coché — pour ne rien garder de {name}, termine le partenariat.",
+  "partner.kept_less": "{list} : plus gardé de {name} — les copies ici restent.",
+  "errors.partner_not_keeping": "Ce secrétariat ne garde rien de {name}."
 }

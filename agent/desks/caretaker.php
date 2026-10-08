@@ -60,6 +60,7 @@ desk('caretaker', [
         // what a pair's agreement covers, changed without a new pairing (2.29): the sender asks, the receiver decides
         'partner_change' => fn (array $r) => partner_change($r),
         'partner_wish'   => fn (array $r) => partner_wish($r),
+        'partner_keep_less' => fn (array $r) => partner_keep_less($r),
         // restore tickets (stage 3): a gone server's copies handed to a new server
         'partner_ticket_start'  => fn (array $r) => partner_ticket_start($r),
         'partner_ticket_make'   => fn (array $r) => partner_ticket_make($r),

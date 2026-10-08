@@ -461,5 +461,13 @@
   "errors.partner_not_sending": "Dieses Sekretariat schickt {name} nichts — es hat dort keinen Schlüssel. Um zu schicken, verbinde neu.",
   "errors.partner_unit_asleep": "{unit}: sein Pool schläft gerade — frag danach, wenn der Pool wach ist.",
   "errors.partner_units_max": "Höchstens {max} pro Partnerschaft.",
-  "errors.partner_no_wish": "{name} wünscht (inzwischen) nichts mehr."
+  "errors.partner_no_wish": "{name} wünscht (inzwischen) nichts mehr.",
+  "partner.keep_less": "Weniger von {name} aufbewahren…",
+  "partner.keep_less_title": "Weniger von {name} aufbewahren",
+  "partner.keep_less_text": "Hake ab, was dieses Sekretariat von {name} nicht mehr aufbewahrt. Seine Tür nimmt es dann nicht mehr an, und {name} hört auf, es zu schicken, sobald es wieder nachschaut (innert 15 Minuten).",
+  "partner.keep_less_copies": "Die Kopien, die schon hier sind, bleiben, wo sie sind (unter jedem gezeigt) — räume sie mit Frau Putzteufel weg oder entferne sie selbst, wenn du sie nicht mehr brauchst. Um gar nichts von {name} aufzubewahren: Partnerschaft beenden.",
+  "partner.keep_less_do": "Weniger aufbewahren",
+  "partner.keep_less_one": "Mindestens eines bleibt angehakt — um nichts von {name} aufzubewahren, beende die Partnerschaft.",
+  "partner.kept_less": "{list}: von {name} nicht mehr aufbewahrt — die Kopien hier bleiben.",
+  "errors.partner_not_keeping": "Dieses Sekretariat bewahrt nichts von {name} auf."
 }

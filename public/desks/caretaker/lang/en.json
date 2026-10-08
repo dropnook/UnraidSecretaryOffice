@@ -461,5 +461,13 @@
   "errors.partner_not_sending": "This office sends {name} nothing — it has no key there. To send, pair anew.",
   "errors.partner_unit_asleep": "{unit}: its pool sleeps right now — ask for it once the pool is awake.",
   "errors.partner_units_max": "At most {max} per partnership.",
-  "errors.partner_no_wish": "{name} wishes nothing more (any more)."
+  "errors.partner_no_wish": "{name} wishes nothing more (any more).",
+  "partner.keep_less": "Keep less of {name}…",
+  "partner.keep_less_title": "Keep less of {name}",
+  "partner.keep_less_text": "Untick what this office no longer keeps of {name}. Its door then refuses it, and {name} stops sending it once it looks again (within 15 minutes).",
+  "partner.keep_less_copies": "The copies already here stay where they are (shown under each) — put them away with Ms. Dustdevil or remove them yourself once you no longer need them. To keep nothing of {name}: end the partnership.",
+  "partner.keep_less_do": "Keep less",
+  "partner.keep_less_one": "At least one stays ticked — to keep nothing of {name}, end the partnership.",
+  "partner.kept_less": "{list}: no longer kept of {name} — the copies here stay.",
+  "errors.partner_not_keeping": "This office keeps nothing of {name}."
 }

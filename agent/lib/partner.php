@@ -2032,6 +2032,47 @@ function partner_wish(array $r): array
     return ['ok' => true, 'partners' => partnerPublic()];
 }
 
+/**
+ * «Keep less of <name>…» (the receiver's card): {id, units: what this office still keeps, confirm: true} — at least one
+ * (to keep nothing: «End the partnership»). receive.units shrinks; the copies here stay (Ms. Dustdevil's to put away
+ * once the user wants); the door refuses the units left out (unit_not_agreed) and the partner learns it from `status`
+ * at its next look (its send.units follows, it doesn't ask for them again by itself).
+ */
+function partner_keep_less(array $r): array
+{
+    $id = (string) ($r['id'] ?? '');
+    if (!preg_match(PARTNER_ID_RE, $id) || ($r['confirm'] ?? null) !== true) {
+        throw new Problem('bad_request');
+    }
+    $pair = partnerPair($id);
+    if ($pair === null) {
+        throw new Problem('partner_unknown');
+    }
+    if ($pair['receive'] === null) {
+        throw new Problem('partner_not_keeping', ['name' => $pair['name']]);
+    }
+    $keep = $r['units'] ?? null;
+    if (!is_array($keep) || !array_is_list($keep) || !$keep) {
+        throw new Problem('partner_receive', ['field' => 'units']);
+    }
+    foreach ($keep as $u) {
+        if (!is_string($u) || !in_array($u, $pair['receive']['units'], true)) {
+            throw new Problem('partner_unit', ['unit' => is_string($u) ? substr($u, 0, 80) : '?']);
+        }
+    }
+    $gone = [];
+    $pair = partnerPairUpdate($id, function (array $p) use ($keep, &$gone) {
+        $gone = array_values(array_diff($p['receive']['units'], $keep));
+        $p['receive']['units'] = array_values(array_intersect($p['receive']['units'], $keep));
+        return $p['receive']['units'] ? $p : null;
+    }) ?? throw new Problem('partner_unknown');
+    if ($gone) {
+        partnerLog("{$pair['name']} ($id): the Team Lead keeps " . implode(', ', $gone) . ' no more — the copies here stay');
+        partnerDoorLogLine($id, 'agreement: the Team Lead keeps ' . implode(' ', $gone) . ' no more - now ' . implode(' ', $pair['receive']['units']));
+    }
+    return ['ok' => true, 'removed' => $gone, 'partners' => partnerPublic()];
+}
+
 function partner_state(array $r): array
 {
     return ['ok' => true, 'partners' => partnerPublic()];

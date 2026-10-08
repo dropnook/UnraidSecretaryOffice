@@ -13337,6 +13337,24 @@ function testPartnerUnits(): void
     same('units: A after «No» — not asked again, docs not sent, B\'s status says no wish', [['ping', 'status'], ['share:appdata', 'place', 'share:domains'], []],
         [$calls(), $cardA['send_units'] ?? null, $cardA['they_keep']['wish'] ?? null]);
 
+    // ---- «Keep less of <name>…»: B keeps domains no more — its copies stay, A follows at its next look, asks nothing
+    $less = fn (array $req) => $as($B, 'return partner_keep_less(' . var_export(['id' => $id] + $req, true) . ');');
+    same('units: «Keep less» needs the confirmation', 'bad_request', $less(['units' => ['share:appdata', 'place']])['problem'] ?? null);
+    same('units: … at least one stays', 'partner_receive', $less(['units' => [], 'confirm' => true])['problem'] ?? null);
+    same('units: … only what is kept', 'partner_unit', $less(['units' => ['share:appdata', 'share:other'], 'confirm' => true])['problem'] ?? null);
+    same('units: … only where something is kept', 'partner_not_keeping', $as($A, 'return partner_keep_less(' . var_export(['id' => $id, 'units' => ['place'], 'confirm' => true], true) . ');')['problem'] ?? null);
+    $l = $less(['units' => ['share:appdata', 'place'], 'confirm' => true]);
+    same('units: B keeps domains no more', [['share:domains'], ['share:appdata', 'place']], [$l['removed'] ?? $l, $pairB()]);
+    check('units: … said in B\'s door.log', str_contains((string) file_get_contents("$B[data]/partner/door.log"), "$id - agreement: the Team Lead keeps share:domains no more"));
+    same('units: … its door refuses domains now', 'unit_not_agreed', partnerTestDoor($B, 'recv share:domains uso-backup-20261009-0200', 'x', $id)['err'][0]['why'] ?? null);
+    check('units: … the copies of domains stay', isset(json_decode((string) file_get_contents("$B[bin]/zfs.json"), true)['ds']['vault/' . PARTNER_PARENT . "/$id/share-domains"]));
+    $as($A, 'return partnerWatch(fn () => false, fn () => true);');
+    same('units: A\'s watch — domains no longer sent, not asked for again', [['share:appdata', 'place'], ['ping', 'status']], [$pairA()['units'] ?? null, $calls()]);
+    $as($A, 'return partnerWatch(fn () => false, fn () => true);');
+    same('units: … nor at the next round', ['ping', 'status'], $calls());
+    same('units: … the card: wanted, but B doesn\'t keep it', [true, false], [in_array('share:domains', $as($A, 'return partnerPublic()["pairs"][0]["wanted"];'), true),
+        in_array('share:domains', $as($A, 'return partnerPublic()["pairs"][0]["they_keep"]["agreed"];'), true)]);
+
     // ---- B keeps more than 64: refused
     $as($B, 'partnerPairUpdate(' . var_export($id, true) . ', function ($p) { $p["receive"]["units"] = array_map(fn ($i) => "share:f$i", range(1, 63)); return $p; }); return true;');
     partnerTestDoor($B, 'offer share:x1 share:x2', '', $id);
@@ -13365,7 +13383,8 @@ function testPartnerUnits(): void
 
     // the strings the page asks for
     $en = langFile(OFFICE_DIR . '/public/desks/caretaker/lang/en.json');
-    foreach (['check.partner_wish', 'check.partner_wish_how', 'errors.partner_not_sending', 'errors.partner_unit_asleep', 'errors.partner_units_max', 'errors.partner_no_wish'] as $key) {
+    foreach (['check.partner_wish', 'check.partner_wish_how', 'errors.partner_not_sending', 'errors.partner_unit_asleep', 'errors.partner_units_max', 'errors.partner_no_wish',
+              'errors.partner_not_keeping'] as $key) {
         check("units: caretaker.$key", isset($en[$key]));
     }
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {

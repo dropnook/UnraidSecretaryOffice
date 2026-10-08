@@ -461,5 +461,13 @@
   "errors.partner_not_sending": "Questa segreteria non manda niente a {name} — lì non ha una chiave. Per mandare, abbina di nuovo.",
   "errors.partner_unit_asleep": "{unit}: il suo pool dorme adesso — chiedilo quando il pool è sveglio.",
   "errors.partner_units_max": "Al massimo {max} per partnership.",
-  "errors.partner_no_wish": "{name} non chiede (più) niente."
+  "errors.partner_no_wish": "{name} non chiede (più) niente.",
+  "partner.keep_less": "Conserva meno di {name}…",
+  "partner.keep_less_title": "Conserva meno di {name}",
+  "partner.keep_less_text": "Togli la spunta a ciò che questa segreteria non conserva più di {name}. La sua porta poi lo rifiuta, e {name} smette di mandarlo appena guarda di nuovo (entro 15 minuti).",
+  "partner.keep_less_copies": "Le copie già qui restano dove sono (indicate sotto ognuna) — mettile via con la signora Spolverina o toglile tu quando non ti servono più. Per non conservare niente di {name}: termina la partnership.",
+  "partner.keep_less_do": "Conserva meno",
+  "partner.keep_less_one": "Almeno uno resta spuntato — per non conservare niente di {name}, termina la partnership.",
+  "partner.kept_less": "{list}: di {name} non più conservato — le copie qui restano.",
+  "errors.partner_not_keeping": "Questa segreteria non conserva niente di {name}."
 }
