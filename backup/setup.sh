@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.29 - 2026-10-08
+# unraid-backup - setup.sh                        Version 2.30 - 2026-10-08
+#   2.30 Sleeping pools: an SSD in standby is never asleep (ub_asleep_load: spundown AND rotational) - the plan's
+#        pool_asleep / asleep_bases follow it
 #   2.29 Partner offices: a unit that is a dataset of its own but not among what the partner agreed to keep
 #        (pairs.json send.units) is partner_ok false, partner_why not_agreed in the plan, with a hint to ask
 #        at the Team Lead («Change what <host> sends…»); its partner stays in the unit's key (settings.ini

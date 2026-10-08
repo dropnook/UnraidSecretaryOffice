@@ -4636,7 +4636,7 @@ function watchmanFlowDisks(array $paths, array $snapDirs = ['.btrfs-snap']): ?ar
     $mnt = rtrim($paths['mnt'] ?? '/mnt', '/');
     $sleep = [];
     foreach ($ini as $section => $v) {
-        $sleep[(string) ($v['name'] ?? $section)] = ($v['spundown'] ?? '0') === '1';
+        $sleep[(string) ($v['name'] ?? $section)] = diskAsleep($v);       // spun down AND rotating (lib/mounts.php)
     }
     $out = $asleep = [];
     foreach ($ini as $section => $v) {
@@ -4728,7 +4728,7 @@ function watchmanFlowZfs(array $paths): ?array
     $disks = readCfg($paths['disks_ini'], true);
     $sleep = [];
     foreach ($disks as $section => $v) {
-        $sleep[(string) ($v['name'] ?? $section)] = ($v['spundown'] ?? '0') === '1';
+        $sleep[(string) ($v['name'] ?? $section)] = diskAsleep($v);       // spun down AND rotating (lib/mounts.php)
     }
     $pools = $asleep = [];
     foreach ($disks as $section => $v) {
@@ -5673,7 +5673,7 @@ function watchmanSnapLook(array $paths, array $snapDirs): array
     $ini = isset($paths['disks_ini']) ? readCfg($paths['disks_ini'], true) : [];
     $sleep = [];
     foreach ($ini as $section => $v) {
-        $sleep[(string) ($v['name'] ?? $section)] = ($v['spundown'] ?? '0') === '1';
+        $sleep[(string) ($v['name'] ?? $section)] = diskAsleep($v);       // spun down AND rotating (lib/mounts.php)
     }
     $zpools = $zasleep = $bdisks = $basleep = [];
     foreach ($ini as $section => $v) {

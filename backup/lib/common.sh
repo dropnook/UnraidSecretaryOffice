@@ -24,7 +24,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.29"
+UB_VERSION="2.30"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -3276,9 +3276,15 @@ ub_asleep_load() { # the disks disks.ini calls spun down -> UB_SPUNDOWN[<disk>]=
     local n
     UB_SPUNDOWN=(); UB_ASLEEP_LOADED="yes"
     [[ -r "$UB_DISKS_INI" ]] || return 0
+    # spun down AND rotating: Unraid puts SATA SSDs into standby too, but an SSD wakes in milliseconds and wears nothing
+    # worth sparing - never asleep for the engine (Benj, 2026-10-08; agent/lib/mounts.php diskAsleep() says the same);
+    # rotational missing (an older disks.ini) = a rotating disk, as before
     while IFS= read -r n; do [[ -n "$n" ]] && UB_SPUNDOWN[$n]=1; done < <(awk '
-        /^\[/ { name = $0; gsub(/[\[\]"]/, "", name); next }
-        /^spundown=/ { v = $0; sub(/^spundown="?/, "", v); sub(/"$/, "", v); if (v == "1" && name != "") print name }' "$UB_DISKS_INI")
+        function flush() { if (name != "" && sd == "1" && rot != "0") print name; sd = ""; rot = "" }
+        /^\[/ { flush(); name = $0; gsub(/[\[\]"]/, "", name); next }
+        /^spundown=/ { v = $0; sub(/^spundown="?/, "", v); sub(/"$/, "", v); sd = v }
+        /^rotational=/ { v = $0; sub(/^rotational="?/, "", v); sub(/"$/, "", v); rot = v }
+        END { flush() }' "$UB_DISKS_INI")
     return 0
 }
 ub_base_sleeps() { # ub_base_sleeps <base>  -> 0 when it sleeps (like ub_base_asleep, from the one read of ub_asleep_load)

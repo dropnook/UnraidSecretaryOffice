@@ -817,7 +817,12 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   `zfs rename`, and remember a share and its folders are different
   filesystems.
 * A pool sleeps when **any** of its disks does (`cache`, `cache2` … in
-  `disks.ini`); `disk1` is not `disk10`.
+  `disks.ini`); `disk1` is not `disk10`. **Only a rotating disk is ever asleep for the office** (Benj, 2026-10-08):
+  Unraid puts SATA SSDs into standby too (`spundown="1"` with `rotational="0"`), but an SSD wakes in milliseconds and
+  wears nothing worth sparing — `diskAsleep()` (agent/lib/mounts.php) and the engine's `ub_asleep_load` count a disk
+  asleep only when it is spun down AND rotates (`rotational` missing = rotating, as before 7.x). So an SSD pool is never
+  «asleep», never left out, never «not looked at»; a mixed pool sleeps when one of its HDDs does. Every reader of
+  disks.ini goes through those two helpers.
 * Images pinned by digest (`image: x@sha256:…`) don't show up in
   `docker image ls`; take the image ids from `docker inspect` of the
   containers. `docker system df` takes seconds — not in a `refresh`.

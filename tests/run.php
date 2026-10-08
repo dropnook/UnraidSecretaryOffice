@@ -336,7 +336,8 @@ function testSleepingPools(): void
         $x = $hiveAsleep ? '1' : '0';
         file_put_contents("$tmp/disks.ini", "[\"master\"]\nname=\"master\"\ntype=\"Cache\"\nfsType=\"luks:zfs\"\nspundown=\"0\"\n[\"master2\"]\nname=\"master2\"\ntype=\"Cache\"\nspundown=\"0\"\n"
             . "[\"hive\"]\nname=\"hive\"\ntype=\"Cache\"\nfsType=\"zfs\"\nspundown=\"0\"\n[\"hive2\"]\nname=\"hive2\"\ntype=\"Cache\"\nspundown=\"$x\"\n"
-            . "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"luks:btrfs\"\nspundown=\"0\"\n[\"flash\"]\nname=\"flash\"\ntype=\"Boot\"\nfsType=\"zfs\"\nspundown=\"0\"\n");
+            . "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"luks:btrfs\"\nspundown=\"0\"\n[\"flash\"]\nname=\"flash\"\ntype=\"Boot\"\nfsType=\"zfs\"\nspundown=\"0\"\n"
+            . "[\"sulaco\"]\nname=\"sulaco\"\ntype=\"Cache\"\nfsType=\"zfs\"\nrotational=\"0\"\nspundown=\"1\"\n");     // an SSD in standby: never asleep for the office
     };
     file_put_contents("$tmp/zfs-ds.txt", "master\tfilesystem\t1000\t9000\t100\t50\t/mnt/master\nmaster/appdata\tfilesystem\t500\t9000\t400\t100\t/mnt/master/appdata\n"
         . "hive\tfilesystem\t2000\t8000\t100\t0\t/mnt/hive\nhive/media\tfilesystem\t1500\t8000\t1400\t300\t/mnt/hive/media\nflash\tfilesystem\t10\t90\t10\t0\t/boot\n");
@@ -364,8 +365,10 @@ function testSleepingPools(): void
 
     // the shared helper: a pool sleeps when any of its disks does; a name disks.ini doesn't know is awake
     $ini(true);
-    same('sleeping pools: sorted by disks.ini — hive sleeps through hive2, master and the boot pool are awake, an unknown pool counts as awake',
-        ['awake' => ['master', 'flash', 'ud'], 'asleep' => ['hive']], poolsBySleep(['master', 'hive', 'flash', 'ud']));
+    same('sleeping pools: sorted by disks.ini — hive sleeps through hive2, master and the boot pool are awake, an unknown pool counts as awake, an SSD pool in standby (spundown=1, rotational=0) is awake',
+        ['awake' => ['master', 'flash', 'ud', 'sulaco'], 'asleep' => ['hive']], poolsBySleep(['master', 'hive', 'flash', 'ud', 'sulaco']));
+    same('sleeping disks: diskAsleep — spun down and rotating; rotational missing counts as rotating; an SSD never', [true, true, false, false],
+        [diskAsleep(['spundown' => '1', 'rotational' => '1']), diskAsleep(['spundown' => '1']), diskAsleep(['spundown' => '1', 'rotational' => '0']), diskAsleep(['spundown' => '0', 'rotational' => '1'])]);
 
     // Ms. Snapshotini, nothing known yet and hive asleep: zfs is asked for master and flash only; hive is there, asleep, never looked at
     $z = snapshotReadZfs(null, false);
@@ -2979,7 +2982,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.29', [1, '2.29'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.30', [1, '2.30'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -3318,9 +3321,10 @@ SH);
         file_put_contents("$fake/snaps.txt", "master/appdata@uso-backup-20200101-0100\nmaster/appdata@uso-backup-20200102-0100\nhive/media@uso-backup-20200101-0100\nhive/media@uso-backup-20200102-0100\n");
         file_put_contents("$fake/var.ini", "mdState=\"STARTED\"\nfsState=\"Started\"\n");
         $ini = '';
-        foreach (['master' => 0, 'master2' => 0, 'hive' => 0, 'hive2' => 1] as $d => $down) {
+        foreach (['master' => 0, 'master2' => 1, 'hive' => 0, 'hive2' => 1] as $d => $down) {
             $asleep = $down || ($sleep === 'both' && str_starts_with($d, 'master'));
-            $ini .= "[\"$d\"]\nname=\"$d\"\nspundown=\"" . ($asleep ? 1 : 0) . "\"\n";
+            // master2 is an SSD in standby (rotational=0, spundown=1): never asleep for the engine - master sleeps only through master ('both')
+            $ini .= "[\"$d\"]\nname=\"$d\"\n" . ($d === 'master2' ? "rotational=\"0\"\n" : '') . "spundown=\"" . ($asleep ? 1 : 0) . "\"\n";
         }
         file_put_contents("$fake/disks.ini", $sleep === 'none' ? str_replace('spundown="1"', 'spundown="0"', $ini) : $ini);
     };
@@ -3447,7 +3451,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.29', [1, '2.29'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.30', [1, '2.30'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');

@@ -247,7 +247,7 @@ function waWakeDisks(): array
     $commands = [];
     foreach (readCfg('/var/local/emhttp/disks.ini', true) as $section => $d) {
         $dev = $d['device'] ?? '';
-        if (($d['spundown'] ?? '0') === '1' && preg_match('/^[a-z0-9]+$/', $dev) && file_exists("/dev/$dev")) {
+        if (diskAsleep($d) && preg_match('/^[a-z0-9]+$/', $dev) && file_exists("/dev/$dev")) {     // an SSD in standby needs no waking
             $commands[(string) ($d['name'] ?? $section)] = ['dd', "if=/dev/$dev", 'of=/dev/null', 'bs=4096', 'count=1', 'iflag=direct'];
         }
     }
@@ -1610,7 +1610,7 @@ function waHealth(): array
                 'id'         => $id,
                 'transport'  => $d['transport'] ?? '',
                 'rotational' => $rotational,
-                'asleep'     => ($d['spundown'] ?? '0') === '1',
+                'asleep'     => diskAsleep($d),                  // an SSD in standby is not asleep for the office
                 'status'     => $d['status'] ?? null,
                 'errors'     => num($d['numErrors'] ?? '0'),
                 'temp'       => $temp,
