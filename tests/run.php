@@ -83,10 +83,94 @@ date_default_timezone_set('Europe/Zurich');
 $GLOBALS['results'] = ['pass' => 0, 'fail' => []];
 
 /**
- * The engine runs one run a minute (engine 2.34: a run whose log of this minute is there ends at once). A fixture that
- * runs backup.sh again and again within a minute removes that minute's logs first — put right before `bash backup.sh`.
+ * The engine tests' clock (a suite red by the clock, 2026-10-08: «expected snapshot …-1815, got …-1816», a «third night
+ * in a row» that wasn't). The engine reads the time only through `date` — backup.sh, setup.sh, lib/common.sh, and the
+ * fixtures' stand-ins too — so testsClock() puts a `date` stand-in into the fixture's bin folder (first on PATH) that
+ * reads the clock file: "<epoch> <real epoch when it was set>". From there the clock runs at the real pace (a VM's
+ * shutdown deadline, a door that doesn't answer still take their seconds), but the minute and the day are the test's:
+ * testsClockRun() — before every run — moves it to the start of the next minute (each run its own minute: run id, log,
+ * snapshot names; nothing to clean between runs), testsClockNight() to 03:00 of the next day («nights in a row», «once
+ * a day»). It starts at 03:00 tomorrow: never behind the real clock, so what the fixture writes is never newer than the
+ * engine's «now». The stand-in answers like GNU date exactly the forms the engine uses — `+FORMAT` (`%N` real),
+ * `-d @N|YYYY-MM-DD [+FORMAT]` (absolute: as date), `-d "-N days"|"N days ago"|yesterday|tomorrow [+FORMAT]` (from the
+ * clock) — and fails anything else loudly: exit 2, a line on stderr and in <clock>.unsupported, which every test that
+ * uses the clock checks is empty (testsClockUnsupported()). Without the clock file: the real date.
  */
-const TESTS_ENGINE_MINUTE = 'm="$(date +%Y%m%d-%H%M)"; rm -f "$UB_DATA/logs/run-$m.log" "$UB_DATA/logs/check-$m.log" "$UB_DATA/logs/dryrun-$m.log"; ';
+function testsClock(string $bin, string $file, ?int $start = null): int
+{
+    $real = is_executable('/usr/bin/date') ? '/usr/bin/date' : '/bin/date';
+    file_put_contents("$bin/date", str_replace(['@REAL@', '@CLOCK@'], [escapeshellarg($real), escapeshellarg($file)], <<<'SH'
+#!/bin/bash
+# date for the engine tests: the clock of tests/run.php testsClock(), answered like GNU date
+REAL=@REAL@
+CLOCK=@CLOCK@
+[[ -s "$CLOCK" ]] || exec "$REAL" "$@"
+no() { printf 'date %s\n' "$*" >>"$CLOCK.unsupported"; echo "date (the tests' clock): not supported: date $*" >&2; exit 2; }
+read -r base set _ <"$CLOCK"
+ns="$("$REAL" +%s%N)"
+now=$(( base + ${ns:0:${#ns}-9} - set ))
+all=( "$@" ) d="" given="" fmt=()
+while (( $# > 0 )); do
+    case "$1" in
+        -d|--date) [[ $# -gt 1 && -z "$given" ]] || no "${all[@]}"; d="$2"; given=1; shift 2 ;;
+        --date=*) [[ -z "$given" ]] || no "${all[@]}"; d="${1#--date=}"; given=1; shift ;;
+        +*) (( ${#fmt[@]} == 0 )) || no "${all[@]}"; fmt=( "$1" ); shift ;;
+        *) no "${all[@]}" ;;
+    esac
+done
+[[ -n "$given" ]] || exec "$REAL" -d "@$now.${ns:${#ns}-9}" "${fmt[@]}"
+[[ "$d" =~ ^@[0-9]+$ || "$d" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] && exec "$REAL" -d "$d" "${fmt[@]}"
+if [[ "$d" =~ ^(-?[0-9]+\ (second|minute|hour|day|week)s?(\ ago)?|yesterday|tomorrow|today|now)$ ]]; then
+    exec "$REAL" -d "$("$REAL" -d "@$now" '+%Y-%m-%d %H:%M:%S %z') $d" "${fmt[@]}"
+fi
+no "${all[@]}"
+SH));
+    chmod("$bin/date", 0755);
+    @unlink("$file.unsupported");
+    return testsClockSet($file, $start ?? (int) strtotime('tomorrow 03:00'));
+}
+
+/** Sets the tests' clock to $t (it runs on from there) — returns $t */
+function testsClockSet(string $file, int $t): int
+{
+    file_put_contents("$file.new", "$t " . time() . "\n");
+    rename("$file.new", $file);
+    return $t;
+}
+
+/** The tests' clock now (what `date +%s` answers) */
+function testsClockNow(string $file): int
+{
+    [$t, $set] = array_map('intval', explode(' ', trim((string) @file_get_contents($file))) + [1 => 0]);
+    return $t + time() - $set;
+}
+
+/** A run: the clock to the start of the next minute — the run's id is date('Ymd-Hi', <returned>) */
+function testsClockRun(string $file): int
+{
+    return testsClockSet($file, intdiv(testsClockNow($file), 60) * 60 + 60);
+}
+
+/** A night later: the clock to 03:00 of the next day */
+function testsClockNight(string $file): int
+{
+    return testsClockSet($file, (int) strtotime('tomorrow 03:00', testsClockNow($file)));
+}
+
+/** A run the engine refused as «one run a minute»: the tests' clock didn't move — a failure (counts nothing otherwise) */
+function testsClockRan(string $what, string $out): string
+{
+    if (str_contains($out, 'one run a minute')) {
+        check("$what: a run refused as «one run a minute» — the tests' clock didn't move", false, $out);
+    }
+    return $out;
+}
+
+/** The date calls the stand-in didn't know ("" = none) */
+function testsClockUnsupported(string $file): string
+{
+    return (string) @file_get_contents("$file.unsupported");
+}
 
 function check(string $what, bool $ok, string $detail = ''): void
 {
@@ -1958,6 +2042,8 @@ SH);
     foreach (glob("$tmp/bin/*") as $f) {
         chmod($f, 0755);
     }
+    $clock = "$fake/clock";
+    testsClock("$tmp/bin", $clock);
     $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares UB_STAGE=$tmp/stage"
          . " UB_DISKS_INI=$fake/disks.ini UB_MOUNTS_FILE=$fake/mounts UB_NOTIFY_BIN=$tmp/bin/notify UB_NO_NOTIFY=1 FAKE=$fake MNT=$mnt"
          . ' UB_VM_SHUTDOWN_TIMEOUT=4 UB_VM_SHUTDOWN_RETRY=2';
@@ -1973,8 +2059,7 @@ SH);
     };
     // a fresh night: every VM and the container running, nothing noted
     $night = function (array $how) use ($fake, $data, $vms): void {
-        // the logs too: a run in the same minute writes to the same run-<minute>.log
-        exec('rm -rf ' . escapeshellarg("$fake/vm") . ' ' . escapeshellarg("$fake/ct") . ' ' . escapeshellarg("$fake/events") . ' ' . escapeshellarg("$data/logs"));
+        exec('rm -rf ' . escapeshellarg("$fake/vm") . ' ' . escapeshellarg("$fake/ct") . ' ' . escapeshellarg("$fake/events"));
         @mkdir("$fake/vm", 0700, true);
         @mkdir("$fake/ct", 0700, true);
         foreach ($how as $vm => $h) {
@@ -2003,7 +2088,11 @@ SH);
         }
         return $found;
     };
-    $run = fn (string $args = '') => (string) shell_exec('bash -c ' . escapeshellarg("$env; " . TESTS_ENGINE_MINUTE . "bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null") . ' 2>&1');
+    // every run its own minute (the tests' clock)
+    $run = function (string $args = '') use ($env, $clock): string {
+        testsClockRun($clock);
+        return testsClockRan('vm order', (string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null") . ' 2>&1'));
+    };
     $log = fn () => (string) @file_get_contents("$data/logs/latest.log");
     $status = fn () => json_decode((string) @file_get_contents("$data/state/status.json"), true) ?: [];
 
@@ -2062,7 +2151,8 @@ SH);
     // --- stopped while a VM goes down: the run waits until it is off and starts it again; nothing else was stopped
     $settings(['vmslow' => 'shutdown']);
     $night(['vmslow' => 'slow']);
-    $p = proc_open(['bash', '-c', "$env; " . TESTS_ENGINE_MINUTE . "exec bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' </dev/null >/dev/null 2>&1'], [], $pipes);
+    testsClockRun($clock);
+    $p = proc_open(['bash', '-c', "$env; exec bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' </dev/null >/dev/null 2>&1'], [], $pipes);
     $pid = proc_get_status($p)['pid'];
     for ($i = 0; $i < 150 && !str_contains((string) @file_get_contents("$fake/events"), 'virsh shutdown vmslow'); $i++) {
         usleep(100000);
@@ -2089,6 +2179,7 @@ SH);
     $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
     shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; LOG_FILE=$tmp/recover.log; recover_interrupted_run") . ' 2>&1');
     same('vm order: killed — the next start starts it again', [['virsh start vmslow'], false], [array_column($events(), 1), file_exists("$data/state/vms")]);
+    same('vm order: every date call one the tests\' clock knows', '', testsClockUnsupported($clock));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -2211,7 +2302,7 @@ case "\$1" in
             flip "kopia:\$n"
             # an upload: a moment - or, once the array is being stopped, until SIGINT (Kopia saves a checkpoint and ends)
             exec perl -e '\$cp = shift; \$f = shift; \$long = shift;
-              sub ev { open(my \$h, ">>", "\$f/events"); print \$h time() . " \$_[0]\\n"; close(\$h); }
+              sub ev { my \$t = qx(date +%s); chomp \$t; open(my \$h, ">>", "\$f/events"); print \$h "\$t \$_[0]\\n"; close(\$h); }
               \$SIG{INT} = sub { ev("kopia interrupted \$cp"); unlink("\$f/kopia.top"); exit 0; };
               select(undef, undef, undef, 0.1) for 1 .. (\$long ? 300 : 3);
               ev("kopia done \$cp"); unlink("\$f/kopia.top"); exit 0;' "\$cp" "\$FAKE" "\$(grep -c Stopping "\$FAKE/var.ini")" ;;
@@ -2295,6 +2386,8 @@ SH);
     foreach (glob("$tmp/bin/*") as $f) {
         chmod($f, 0755);
     }
+    $clock = "$fake/clock";
+    testsClock("$tmp/bin", $clock);
     $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares UB_STAGE=$tmp/stage"
          . " UB_DISKS_INI=$fake/disks.ini UB_MOUNTS_FILE=$fake/mounts UB_NOTIFY_BIN=$tmp/bin/notify UB_VAR_INI=$fake/var.ini FAKE=$fake FAKE_ROOT=$root MNT=$mnt"
          . ' UB_VM_SHUTDOWN_TIMEOUT=4 UB_VM_SHUTDOWN_RETRY=2 UB_ARRAY_LOOK=1 UB_NC_SETTLE=0';
@@ -2322,9 +2415,10 @@ SH);
             file_put_contents("$fake/stop-at", $stopAt);
         }
     };
-    $run = function (string $args = '') use ($env): array {
+    $run = function (string $args = '') use ($env, $clock): array {
+        testsClockRun($clock);                          // every run its own minute
         $t0 = microtime(true);
-        $out = (string) shell_exec('bash -c ' . escapeshellarg("$env; " . TESTS_ENGINE_MINUTE . "bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null; echo \"exit=\$?\"") . ' 2>&1');
+        $out = testsClockRan('array stop', (string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null; echo \"exit=\$?\"") . ' 2>&1'));
         preg_match('/exit=(\d+)\s*$/', $out, $m);
         return [(int) ($m[1] ?? -1), microtime(true) - $t0, $out];
     };
@@ -2651,7 +2745,7 @@ SH);
     file_put_contents("$fake/ct/c1", "stopped\n");
     file_put_contents("$data/state/vms", "vmshut|shutdown\n");
     file_put_contents("$fake/vm/vmshut.state", "shut off\n");
-    touch("$data/state/vms", time() + 60);          // a later run's notes (killed): newer than the run the array stop ended
+    touch("$data/state/vms", testsClockNow($clock) + 60);          // a later run's notes (killed): newer than the run the array stop ended
     [$code, $out] = $rec('UB_RECOVER_WAIT=2');
     same('recover: Docker silent - exit 1, the containers\' note kept, the VM started all the same', [1, ['virsh start vmshut'], ["c1\n", '', '']], [$code, $names(), $noted()]);
     check('recover: Docker silent - said in its log', str_contains($recLog(), 'Docker did not answer within 2 s') && str_contains($recLog(), 'stays noted for the next start'), $recLog());
@@ -2666,11 +2760,12 @@ SH);
     file_put_contents("$fake/ct/c1", "stopped\n");
     @unlink("$data/state/skipped.json");
     $bg = fn (string $what) => proc_open(['bash', '-c', "$env $what </dev/null >/dev/null 2>&1"], [], $pipes);
+    testsClockRun($clock);                              // the check's minute
     $recP = $bg('UB_RECOVER_LOOK=1 UB_RECOVER_WAIT=30; exec bash ' . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --recover');
     for ($i = 0; $i < 50 && (json_decode((string) @file_get_contents("$data/state/lock-holder.json"), true)['mode'] ?? '') !== 'recover'; $i++) {
         usleep(100000);
     }
-    $chkP = $bg('UB_RECOVER_LOCK_WAIT=60; ' . TESTS_ENGINE_MINUTE . 'exec bash ' . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --check');
+    $chkP = $bg('UB_RECOVER_LOCK_WAIT=60; exec bash ' . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --check');
     usleep(1500000);
     $waiting = proc_get_status($chkP)['running'] && !is_file("$data/state/status.json") && !is_file("$data/state/skipped.json");
     @unlink("$fake/docker.down");
@@ -2686,6 +2781,7 @@ SH);
     same('recover: a check started meanwhile waits for it, then runs - not skipped',
         [true, ['recover' => 0, 'check' => 0], 'check', true, false, ['docker start c1']],
         [$waiting, $codes, $s['mode'] ?? null, in_array($s['result'] ?? '', ['ok', 'warnings', 'errors'], true), is_file("$data/state/skipped.json"), $names()]);
+    same('array stop: every date call one the tests\' clock knows', '', testsClockUnsupported($clock));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -2844,6 +2940,8 @@ SH);
     foreach (glob("$tmp/bin/*") as $f) {
         chmod($f, 0755);
     }
+    $clock = "$fake/clock";
+    testsClock("$tmp/bin", $clock);
     $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares UB_STAGE=$tmp/stage"
          . " UB_DISKS_INI=$fake/disks.ini UB_MOUNTS_FILE=$fake/mounts UB_NOTIFY_BIN=$tmp/bin/notify UB_VAR_INI=$fake/var.ini FAKE=$fake MNT=$mnt"
          . " UB_PARTNER_DIR=$pdir UB_ARRAY_LOOK=1 UB_PARTNER_ASK=3";
@@ -2870,8 +2968,11 @@ SH);
         file_put_contents("$fake/var.ini", "mdState=\"STARTED\"\nfsState=\"Started\"\n");
         @unlink("$data/state/status.json");
     };
-    $run = function (string $args = '') use ($env): array {
-        $out = (string) shell_exec('bash -c ' . escapeshellarg("$env; " . TESTS_ENGINE_MINUTE . "bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null; echo \"exit=\$?\"") . ' 2>&1');
+    // every run its own minute (the tests' clock) - $snap: the snapshot the run makes
+    $snap = '';
+    $run = function (string $args = '') use ($env, $clock, &$snap): array {
+        $snap = 'uso-backup-' . date('Ymd-Hi', testsClockRun($clock));
+        $out = testsClockRan('partner phase', (string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null; echo \"exit=\$?\"") . ' 2>&1'));
         preg_match('/exit=(\d+)\s*$/', $out, $m);
         return [(int) ($m[1] ?? -1), $out];
     };
@@ -2892,7 +2993,7 @@ SH);
     [$rc, $out] = $run();
     $s = $status();
     $l = $log();
-    $snap = $s['snapshot'] ?? '?';
+    same('partner phase: the run\'s snapshot carries the minute of the tests\' clock', $snap, $s['snapshot'] ?? null);
     $p = $s['partner'] ?? [];
     same('partner phase: a first night - every unit whole, the place first, then by size (docs, vm1, appdata)',
         ["ssh ping", "ssh resume place", "ssh list place", "ssh recv place $snap", "ssh resume share:docs", "ssh list share:docs", "ssh recv share:docs $snap",
@@ -2999,6 +3100,7 @@ SH);
     $night();
     touch("$fake/door.down");
     [$rc, $out] = $run();
+    $first = testsClockNow($clock);
     $s = $status();
     $l = $log();
     same('partner phase: unreachable - only the ping, every unit skipped (unreachable), no warning, the run ok',
@@ -3006,15 +3108,17 @@ SH);
         [$ssh(), array_values(array_unique(array_column(array_filter($s['partner']['skipped'] ?? [], fn ($x) => $x['unit'] !== 'share:rootfolder'), 'why'))),
          $s['partner_failed'] ?? null, $rc, str_contains($l, 'WARNING: Partner')], $out . $l);
     $sk = json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [];
-    same('partner phase: partner-skips.json counts the night', [1, date('Y-m-d')], [$sk[$id]['nights'] ?? null, $sk[$id]['last_day'] ?? null]);
+    same('partner phase: partner-skips.json counts the night', [1, date('Y-m-d', $first)], [$sk[$id]['nights'] ?? null, $sk[$id]['last_day'] ?? null]);
     $run();
     same('partner phase: unreachable twice the same day - still one night', 1, (json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null);
-    $sk[$id]['nights'] = 2;
-    $sk[$id]['last_day'] = date('Y-m-d', time() - 86400);
-    file_put_contents("$data/state/partner-skips.json", json_encode($sk));
+    testsClockNight($clock);
     $run();
-    same('partner phase: the third night in a row - one warning (partner_unreachable)', 1, substr_count($log(), 'WARNING: Partner vault has not answered for 3 nights'), $log());
-    exec('rm -rf ' . escapeshellarg("$data/logs"));         // a run in the same minute writes to the same log
+    same('partner phase: unreachable the next night - two nights in a row, still no warning', [2, 0],
+        [(json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null, substr_count($log(), 'WARNING: Partner')], $log());
+    testsClockNight($clock);
+    $run();
+    same('partner phase: the third night in a row - one warning (partner_unreachable), since the first night', 1,
+        substr_count($log(), 'WARNING: Partner vault has not answered for 3 nights in a row (since ' . date('Y-m-d', $first) . ')'), $log());
     $run();
     $got = [substr_count($log(), 'WARNING: Partner vault has not answered'), (json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null];
     check('partner phase: … said once a day', $got === [0, 3], json_encode($got) . (string) @file_get_contents("$data/state/partner-skips.json") . $log());
@@ -3218,6 +3322,7 @@ SH);
     $setup('--plan');
     $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
     same('setup forget: the next plan has the partner again, no unit ticked', [$id, 'vault', null], [$plan['partners'][0]['id'] ?? null, $plan['partners'][0]['name'] ?? null, $plan['P']['share|appdata|partner'] ?? null]);
+    same('partner phase: every date call one the tests\' clock knows', '', testsClockUnsupported($clock));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -3460,6 +3565,8 @@ SH);
     foreach (glob("$tmp/bin/*") as $f) {
         chmod($f, 0755);
     }
+    $clock = "$fake/clock";
+    testsClock("$tmp/bin", $clock);
     $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares UB_STAGE=$tmp/stage"
          . " UB_DISKS_INI=$fake/disks.ini UB_MOUNTS_FILE=$fake/mounts UB_NOTIFY_BIN=$tmp/bin/notify UB_NOTIFY_STAMP=$tmp/notify.stamp UB_VAR_INI=$fake/var.ini"
          . " FAKE=$fake FAKE_ROOT=$root MNT=$mnt UB_VM_SHUTDOWN_TIMEOUT=4 UB_VM_SHUTDOWN_RETRY=2 UB_ARRAY_LOOK=1";
@@ -3498,8 +3605,9 @@ SH);
         }
         file_put_contents("$fake/disks.ini", $sleep === 'none' ? str_replace('spundown="1"', 'spundown="0"', $ini) : $ini);
     };
-    $run = function (string $args = '') use ($env): array {
-        $out = (string) shell_exec('bash -c ' . escapeshellarg("$env; " . TESTS_ENGINE_MINUTE . "bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null; echo \"exit=\$?\"") . ' 2>&1');
+    $run = function (string $args = '') use ($env, $clock): array {
+        testsClockRun($clock);                          // every run its own minute, the same day until testsClockNight()
+        $out = testsClockRan('asleep', (string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null; echo \"exit=\$?\"") . ' 2>&1'));
         preg_match('/exit=(\d+)\s*$/', $out, $mm);
         return [(int) ($mm[1] ?? -1), $out];
     };
@@ -3568,13 +3676,19 @@ SH);
     [$code, $out] = $run();
     $s = $status();
     $l = $log();
-    same('asleep 7 nights: one warning - the run ends with warnings, media 7 nights, warned today', ['warnings', 1, 7, date('Y-m-d'), 7],
+    same('asleep 7 nights: one warning - the run ends with warnings, media 7 nights, warned today', ['warnings', 1, 7, date('Y-m-d', testsClockNow($clock)), 7],
         [$s['result'] ?? null, $s['warnings'] ?? null, $s['asleep']['nights']['media'] ?? null, $nights()['shares']['media']['warned'] ?? null, $nights()['shares']['media']['nights'] ?? null], $l);
     check('asleep 7 nights: the warning names the share and the nights', str_contains($l, "WARNING: Share 'media' was left out 7 nights in a row") && str_contains($l, '(asleep_long)'), $l);
     $night();
     $run();
     $s = $status();
     same('asleep 7 nights: the same day again - no second warning, the night not counted twice', ['ok', 0, 7, 1],
+        [$s['result'] ?? null, $s['warnings'] ?? null, $s['asleep']['nights']['media'] ?? null, $s['asleep']['nights']['tm'] ?? null]);
+    testsClockNight($clock);
+    $night();
+    $run();
+    $s = $status();
+    same('asleep 7 nights: the next night - counted (8, tm 2), still no second warning (once per stretch)', ['ok', 0, 8, 2],
         [$s['result'] ?? null, $s['warnings'] ?? null, $s['asleep']['nights']['media'] ?? null, $s['asleep']['nights']['tm'] ?? null]);
 
     // --- a dry run counts no night
@@ -3663,6 +3777,7 @@ SH);
     check('setup apply: wake on a settings.ini without the key - no line (nothing changes for an install that never chose)', !str_contains($ini, 'asleep_pools ='), $ini);
     $bad = trim((string) shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; printf '[general]\\nasleep_pools = maybe\\n' >$tmp/bad.ini; cfg_load $tmp/bad.ini; cfg_validate >/dev/null; printf '%s' \"\${CFG_ERRORS[*]}\"")));
     check('settings: asleep_pools takes wake or skip only', str_contains($bad, "asleep_pools = 'maybe' is invalid (wake/skip)"), $bad);
+    same('asleep: every date call one the tests\' clock knows', '', testsClockUnsupported($clock));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -18231,19 +18346,19 @@ function testBackupOneMinute(): void
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true);
     check('one a minute: its words, with the seconds', str_contains($en['errors.one_run_a_minute'] ?? '', '{seconds}'));
 
-    // the engine: its log of this minute is there — the minute after too, should the clock turn meanwhile
+    // the engine: its log of this minute is there (the tests' clock: 2026-10-08 01:02, whatever the real one says)
     $eng = "$tmp/eng";
     @mkdir("$eng/state", 0700, true);
     @mkdir("$eng/logs", 0700, true);
+    @mkdir("$tmp/bin", 0700, true);
     touch("$eng/state/lock", 1000);
-    foreach ([0, 60] as $ahead) {
-        foreach (['run', 'dryrun', 'check'] as $kind) {
-            touch("$eng/logs/$kind-" . date('Ymd-Hi', time() + $ahead) . '.log');
-        }
+    testsClock("$tmp/bin", "$tmp/clock", mktime(1, 2, 0, 10, 8, 2026));
+    foreach (['run', 'dryrun', 'check'] as $kind) {
+        touch("$eng/logs/$kind-20261008-0102.log");
     }
     foreach (['backup' => [], 'dry run' => ['--dry-run'], 'check' => ['--check']] as $what => $args) {
         $p = proc_open(array_merge(['bash', OFFICE_DIR . '/backup/backup.sh'], $args), [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['UB_DATA' => $eng, 'UB_NO_NOTIFY' => '1', 'PATH' => getenv('PATH'), 'OFFICE_RUN_DIR' => TESTS_RUN_DIR]);
+            ['UB_DATA' => $eng, 'UB_NO_NOTIFY' => '1', 'PATH' => "$tmp/bin:" . getenv('PATH'), 'OFFICE_RUN_DIR' => TESTS_RUN_DIR]);
         $out = (string) stream_get_contents($pipes[1]);
         $err = (string) stream_get_contents($pipes[2]);
         $rc = proc_close($p);
@@ -18252,6 +18367,7 @@ function testBackupOneMinute(): void
         same("one a minute: … nothing of the run touched ($what)", [false, false, false, false, 1000],
             [is_file("$eng/state/status.json"), is_file("$eng/state/lock-holder.json"), is_link("$eng/logs/latest.log"), is_file("$eng/state/skipped.json"), filemtime("$eng/state/lock")]);
     }
+    same('one a minute: every date call one the tests\' clock knows', '', testsClockUnsupported("$tmp/clock"));
     hardeningRm($tmp);
 }
 

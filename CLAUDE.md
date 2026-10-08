@@ -382,7 +382,7 @@ installed plugin (see the checklist).
   log and snapshots' name carry the minute — `backupStart()` refuses `one_run_a_minute` {seconds} while the last run
   (status.json `run`) has this minute's id or this mode's log exists (`backupMinuteTaken()`), and backup.sh itself ends
   right after taking the lock when its log of the minute is there (an ERROR line, exit 1, nothing touched). Test
-  fixtures that run backup.sh again within a minute remove that minute's logs first (`TESTS_ENGINE_MINUTE`).
+  fixtures run backup.sh on the tests' clock (checklist 3): every run a minute of its own.
 * **Names (engine 2.20):** what the office creates in numbers carries the short prefix `uso`; places
   keep the long name (share `UnraidSecretaryOffice`, `/mnt/addons/UnraidSecretaryOffice/…`,
   `_UnraidSecretaryOffice-trash`, the plugin's folders, `unraid-backup` as the interface's name). The
@@ -1204,6 +1204,18 @@ When more than one Claude chat works on the office, one of them is the
    environment of its own gets `'OFFICE_RUN_DIR' => TESTS_RUN_DIR`) and, as root with `unshare`, run in a mount
    namespace of their own whose `/var/run/unraid-secretary-office` is an empty folder of theirs — the live agent's
    locks, heartbeat and doorbell are never met; `testLiveRunUntouched()` fails if anything landed there.
+   **The engine's fixtures run on a clock of the tests' own**, never the real one (a run id, a log, a snapshot's name
+   carry the minute; «nights in a row» and «once a day» the date — the suite went red by the clock, 2026-10-08):
+   `testsClock($bin, $clock)` puts a `date` stand-in into the fixture's bin folder (first on PATH; the engine reads
+   the time only through `date`), starting at 03:00 tomorrow — never behind the real clock, so what the fixture writes
+   is never newer than the engine's «now». The seconds run at the real pace (deadlines still pass); the test moves
+   minute and day: `testsClockRun($clock)` before every run (the next minute — the run's id is
+   `date('Ymd-Hi', <returned>)`), `testsClockNight($clock)` for a night later (03:00 the next day), `testsClockNow()`
+   for anything compared with the engine's time (never `time()`/`date('Y-m-d')`). Stand-ins note times with
+   `date +%s` too. The stand-in knows exactly the `date` forms the engine uses (`+FORMAT`, `-d @N|YYYY-MM-DD`,
+   `-d "-N days"|"N days ago"|yesterday …`); a new form in the engine fails loudly — add it to `testsClock()`; each
+   such test ends with `testsClockUnsupported($clock) === ''`, and its `$run` passes the output through
+   `testsClockRan()` (a run refused as «one run a minute» fails). Never remove logs between runs to dodge the minute.
 4. On a server that runs the plugin, `bash plugin/dev-sync.sh` on the host puts
    the working copy into the plugin (RAM, until reboot/update; leaves backup/
    alone while a run is active). The agent restarts itself when its files change (agent/, and src/place.php it shares with the web side) — watch `data/agent.log`
