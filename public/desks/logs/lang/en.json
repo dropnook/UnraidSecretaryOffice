@@ -218,5 +218,7 @@
   "errors.logs_tour_failed": "My tour couldn't be started.",
   "source.partner_door": "Partner door (what partner offices asked for)",
   "source.partner_door_old": "Partner door — older log",
-  "source.partner_door_ram": "Partner door — while the array was stopped"
+  "source.partner_door_ram": "Partner door — while the array was stopped",
+  "source.router": "Router {name} (Unraid's syslog server)",
+  "source.router_old": "Router {name} — previous"
 }

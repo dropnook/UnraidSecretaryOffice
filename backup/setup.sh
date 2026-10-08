@@ -596,6 +596,17 @@ TXT
 declare -a SH=()     # order shown
 declare -A SH_GB=()
 
+# The share Unraid's syslog server writes into (rsyslog.cfg: local_server on, server_folder /mnt/user/<share>):
+# the routers' lines, not the user's - proposed not backed up (why code syslog). Prints the share's name.
+syslog_share() {
+    local f="${UB_RSYSLOG_CFG:-$UB_BOOT/config/rsyslog.cfg}" on folder
+    [[ -f "$f" ]] || return 1
+    on="$(sed -n 's/^local_server="\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' "$f" | tail -n 1)"
+    folder="$(sed -n 's/^server_folder="\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' "$f" | tail -n 1)"
+    [[ "$on" == "1" && "$folder" =~ ^/mnt/user/([^/]+)/?$ ]] || return 1
+    printf '%s' "${BASH_REMATCH[1]}"
+}
+
 # Proposal for a share not yet in settings.ini -> PROP_MODE, WHY[s]
 # (no $(...): the reason in WHY must arrive in this shell)
 PROP_MODE=""
@@ -614,6 +625,11 @@ share_propose() {
             fi
             return ;;
     esac
+    # Unraid's syslog server writes here: the routers' words, not yours
+    local sl
+    if sl="$(syslog_share)" && [[ "$s" == "$sl" ]]; then
+        why "$s" syslog "" "Unraid's syslog server writes here - the router's words, not yours"; PROP_MODE=off; return
+    fi
     # Time Machine target: already holds the backups of other computers and
     # keeps changing in large blocks
     local tm

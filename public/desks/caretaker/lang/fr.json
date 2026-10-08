@@ -469,5 +469,17 @@
   "partner.keep_less_do": "Garder moins",
   "partner.keep_less_one": "Au moins un reste coché — pour ne rien garder de {name}, termine le partenariat.",
   "partner.kept_less": "{list} : plus gardé de {name} — les copies ici restent.",
-  "errors.partner_not_keeping": "Ce secrétariat ne garde rien de {name}."
+  "errors.partner_not_keeping": "Ce secrétariat ne garde rien de {name}.",
+  "check.syslog_share_sleeps": "Le journal du routeur arrive sur un partage dont les disques ne dorment jamais",
+  "check.syslog_share_sleeps_how": "Le serveur syslog d'Unraid écrit aussitôt chaque ligne du routeur dans {share} — son stockage a des disques qui s'endorment ({disks}) : chaque ligne les réveille. Choisis un partage sur un pool qui ne dort jamais ({pools}) sous ⟦Settings⟧ → ⟦Network Services⟧ → ⟦Syslog Server⟧ → ⟦Local syslog folder⟧ (le consultant l'explique).",
+  "check.syslog_no_rotation": "Le serveur syslog d'Unraid fait la rotation de ses fichiers",
+  "check.syslog_no_rotation_how": "⟦Local syslog rotation⟧ est désactivée ou garde plus de 2 Go ({size} × {files}) : le journal du routeur peut remplir {share}. Active-la sous ⟦Settings⟧ → ⟦Network Services⟧ → ⟦Syslog Server⟧ — 50 Mo × 4 suffisent.",
+  "check.syslog_share_public": "Le partage syslog n'est pas exporté",
+  "check.syslog_share_public_how": "{share} est exporté ({proto}) : ses fichiers contiennent le journal de ton réseau en clair et sont modifiables — qui peut écrire ce partage peut y glisser des lignes que le veilleur de nuit lit. Règle son export sur « Non » dans les réglages du partage (⟦Shares⟧).",
+  "check.syslog_port_taken": "Seul le serveur syslog d'Unraid écoute sur UDP {port}",
+  "check.syslog_port_taken_how": "Un conteneur écoute lui-même sur le port syslog : {names}. Un seul peut l'avoir, et la passerelle envoie à un seul récepteur. Décide : le serveur syslog d'Unraid (le veilleur de nuit le lit) ou le conteneur (ses tableaux de bord) — mets l'autre sur un autre port ou arrête-le.",
+  "check.syslog_loop": "⟦Remote syslog server⟧ n'est pas ce serveur",
+  "check.syslog_loop_how": "⟦Remote syslog server⟧ est {remote} — ce serveur lui-même : Unraid s'envoie ses propres lignes et les écrit encore dans le partage syslog (le veilleur de nuit saute ce fichier). Vide le champ sous ⟦Settings⟧ → ⟦Network Services⟧ → ⟦Syslog Server⟧, ou indique un vrai SIEM.",
+  "check.syslog_off": "Le serveur syslog d'Unraid est désactivé",
+  "check.syslog_off_how": "Le veilleur de nuit est engagé et tu as ouvert le guide du routeur du consultant, mais ⟦Local syslog server⟧ est désactivé — le routeur n'a nulle part où envoyer. Le consultant montre le réglage."
 }

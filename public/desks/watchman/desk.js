@@ -8,9 +8,12 @@
    notification agents; the data flow: who pulls how much, containers, what is
    written into ZFS shares, SMB's users and machines — with a link to its
    history in Grafana where the office's dashboard is; the snapshots he
-   follows: gone or released without the office). His rounds run on the
-   server every five minutes, read only: agent/desks/watchman.php. Everything
-   from his state goes into the page as text, never as HTML. */
+   follows: gone or released without the office; the network: what the router
+   sends to Unraid's syslog server — its senders, devices, detections, blocks,
+   counts only for other devices, the «Whole LAN» switch). His rounds run on the
+   server every five minutes, read only: agent/desks/watchman.php (the network:
+   agent/lib/watchnet.php). Everything from his state goes into the page as text,
+   never as HTML. */
 (() => {
 'use strict';
 
@@ -196,6 +199,8 @@ function render() {
     [T('help.snaps'), T('help.snaps_text')],
     [T('help.host'), T('help.host_text')],
     [T('help.host_not'), T('help.host_not_text')],
+    [T('help.net'), T('help.net_text')],
+    [T('help.net_not'), T('help.net_not_text')],
     [T('help.attack'), T('help.attack_text')],
     [T('help.siem'), T('help.siem_text')],
     [T('help.chain'), T('help.chain_text')],
@@ -463,12 +468,16 @@ function chainCallout(c) {
 /** One entry: what, when, noted or not; a click unfolds its details */
 function entryRow(e) {
   const watch = e.kind === 'watch';
+  const tooMuch = watch && !!(e.p && e.p.too_much);       // more of a router's log than a round reads (agent: watchnetTooMuch())
   const r = el('div', 'row nocheck wm-entry' + (watch ? ' wm-watch' : ' unfolds') + (e.open ? ' wm-open' : ''));
   r.dataset.id = e.id;
   const main = el('div', 'row-main');
-  const name = el('div', 'row-name text', T('entry.' + e.kind, entryParams(e)));
+  const name = el('div', 'row-name text', tooMuch ? T('entry.net_too_much', { sender: e.p.sender || '', size: fmt.size(e.p.skipped || 0) })
+    : T('entry.' + e.kind, entryParams(e)));
   const meta = el('div', 'row-meta');
-  if (watch) {
+  if (tooMuch) {
+    meta.appendChild(chip(T('state.too_much'), 'warn', T('state.too_much_title')));
+  } else if (watch) {
     meta.appendChild(chip(T('state.watch'), 'accent', T('state.watch_title')));
   } else {
     name.title = T('details');
@@ -538,6 +547,7 @@ function entryParams(e) {
   if (e.kind === 'proc_odd') t.where = p.where || T('where.host');
   if (e.kind === 'door_new') t.door = doorWords(p);
   if (e.kind === 'door_changed') t.what = doorWhat(p.what);
+  if (e.kind === 'net_firewall_change') t.area = T('net_area.' + (['firewall', 'nat', 'port_forward', 'policy'].includes(p.area) ? p.area : 'firewall'));
   if (e.group !== 'flow') return t;
   if (p.bytes !== undefined) t.size = fmt.size(p.bytes);
   if (e.kind.startsWith('flow_')) t.usual = usualText(e.kind, p);
@@ -751,6 +761,8 @@ function details(e) {
       add(T('detail.refused_why'), (p.why || []).join(', '), true);
       if (!p.known) add(T('detail.partner_unknown'), T('detail.partner_unknown_text'));
     }
+  } else if (e.group === 'net') {
+    netDetails(e, p, add);
   } else if (e.group === 'sched') {
     if (p.file) add(T('detail.cron_file'), '/boot/config/plugins/' + p.file + (p.new ? ` (${T('detail.file_new')})` : ''), true);
     if (p.plugin) add(T('detail.plugin'), p.plugin);
@@ -785,12 +797,70 @@ function details(e) {
   if (p.office && e.kind.startsWith('cron_file')) notes.push(T('detail.office_cron'));
   if (e.open) notes.push(T('adopt.' + e.kind));
   const by = e.by === 'office' && e.kind === 'partner_paired' ? 'office_partner' : e.by;
-  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'schedule', 'array', 'unraid'].includes(by) ? by : 'page'), { when: fmt.date(e.noted) }));
+  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'schedule', 'array', 'unraid', 'router'].includes(by) ? by : 'page'), { when: fmt.date(e.noted) }));
   if (e.told) notes.push(T('detail.told', { when: fmt.date(e.told) }));
   else if (e.muted && e.tell) notes.push(T('detail.muted'));
   else if (e.open) notes.push(T(e.tell ? 'detail.not_told' : 'detail.book_only'));
   notes.forEach((n) => box.appendChild(el('p', 'wm-note', n)));
   return box;
+}
+
+/**
+ * A network entry's details (agent: watchnetEvent()): the router, its file, what the entry is about — another device's
+ * address, MAC or name only for a new device or one claiming the server's place —, the router's line (scrubbed there)
+ */
+function netDetails(e, p, add) {
+  add(T('detail.router'), p.router || p.sender || '');
+  if (p.sender && p.sender !== p.router) add(T('detail.sender'), p.sender, true);
+  switch (e.kind) {
+    case 'net_sender_new':
+      if (p.product) add(T('detail.version'), `${p.product} ${p.version || ''}`.trim());
+      break;
+    case 'net_new_device':
+      add(T('detail.device'), p.name || '–');
+      add(T('detail.mac'), p.mac + (p.random ? ` (${T('detail.random')})` : ''), true);
+      add(T('detail.ip'), p.ip || '–', true);
+      if (p.network) add(T('detail.network'), p.network);
+      if (p.taken) add(T('detail.taken'), T('detail.taken_text', { mac: p.taken }));
+      break;
+    case 'net_spoof':
+      add(T('detail.mac'), p.mac, true);
+      add(T('detail.device'), [p.device, p.device_ip].filter(Boolean).join(' · ') || '–');
+      add(T('detail.server_macs'), (p.known || []).join(', ') || '–', true);
+      break;
+    case 'net_router_login':
+      add(T('detail.admin'), p.admin + (p.new_admin ? ` (${T('detail.admin_new')})` : ''));
+      add(T('detail.ip'), p.ip || '?', true);
+      if (p.method) add(T('detail.how'), p.method);
+      break;
+    case 'net_firewall_change':
+    case 'net_router_config':
+      add(T('detail.admin'), (p.admins || []).join(', '));
+      if (p.area) add(T('detail.area'), T('net_area.' + p.area));
+      if ((p.msgs || []).length) add(T('detail.changes'), lines(p.msgs, e.count));
+      break;
+    case 'net_vpn_login':
+      add(T('detail.vpn_user'), p.user || '?');
+      add(T('detail.ip'), p.ip || '?', true);
+      if (p.how) add(T('detail.how'), p.how);
+      break;
+    case 'net_ips_server':
+      add(T('detail.signature'), `${p.signature || ''} (${p.sig || '?'})`);
+      add(T('detail.direction'), T(p.dir === 'out' ? 'detail.dir_out' : 'detail.dir_in'));
+      add(T('detail.remote'), [p.remote, p.dpt ? `${(p.proto || '').toLowerCase()}/${p.dpt}` : ''].filter(Boolean).join(' '), true);
+      if (p.risk) add(T('detail.risk'), p.risk);
+      break;
+    case 'net_blocked_from_server':
+      add(T('detail.destination'), `${p.dst} ${(p.proto || '').toLowerCase()}${p.dpt ? '/' + p.dpt : ''}`, true);
+      add(T('detail.rule'), `${p.zone || ''} ${p.action || ''} ${p.rule || ''}`.trim(), true);
+      break;
+    case 'net_log_silent':
+      add(T('detail.last_line'), fmt.date(p.last));
+      if (p.usual) add(T('detail.usual_gap'), fmt.duration(p.usual));
+      break;
+    default:
+  }
+  if (p.evidence) add(T('detail.router_line'), p.evidence, true);
 }
 
 // ------------------------------------------------------------------ what he keeps an eye on
@@ -876,6 +946,7 @@ function watchSection() {
   box.appendChild(schedGroup(w.sched));
   box.appendChild(hostGroup(w.host));
   if (w.partner && (w.partner.pairs.length || w.partner.strays.length)) box.appendChild(partnerGroup(w.partner));
+  box.appendChild(netGroup(state.net));
   box.appendChild(snapGroup(state.snaps));
   flowGroups(state.flow).forEach((g) => box.appendChild(g));
   const label = () => {
@@ -935,6 +1006,95 @@ function partnerGroup(x) {
   x.strays.forEach((id) => rows.push(item(`uso-partner:${id}`, [T('watch.partner_stray')], null, true)));
   const sum = T('watch.partner_sum', { n: x.pairs.length }) + (x.transfers ? ' · ' + T('watch.partner_transfers', { n: x.transfers }) : '');
   return group('partner', T('watch.partner'), sum, rows);
+}
+
+/**
+ * The network: Unraid's syslog server and its senders (the router's name and version from its lines, the last line's
+ * age, lines a day, lines not understood), devices known, detections this week (other devices only counted), what the
+ * router blocked from the server, what isn't in the book; the «Whole LAN» switch and its counts. Never another
+ * device's address (the agent sends none here).
+ */
+function netGroup(n) {
+  if (!n) return group('net', T('watch.net'), T('watch.net_wait'), []);
+  const rows = [];
+  const toAdvisor = () => {
+    const a = el('a', '', T('watch.net_to_advisor'));
+    a.href = '#/advisor';
+    return a;
+  };
+  const say = (text, link) => {
+    const p = note(text);
+    if (link) p.append(' ', toAdvisor());
+    rows.push(p);
+  };
+  const stateText = { off: 'watch.net_off', asleep: 'watch.net_asleep', array: 'watch.net_array', unknown: 'watch.net_unknown', unreadable: 'watch.net_unreadable' };
+  if (stateText[n.state]) say(T(stateText[n.state], { folder: (n.cfg && n.cfg.folder) || '' }), n.state === 'off');
+  if (n.cfg && n.cfg.folder && n.state !== 'off') rows.push(note(T('watch.net_folder', { folder: n.cfg.folder })));
+  const senders = n.senders || [];
+  if (n.state === 'on' && !senders.length) {
+    const c = el('p', 'callout wm-net-listening', T('watch.net_listening'));
+    c.append(' ', toAdvisor());
+    rows.push(c);
+  }
+  senders.forEach((x) => rows.push(item(x.host ? `${x.host} · ${x.sender}` : x.sender, [
+    x.product ? `${x.product} ${x.version}`.trim() : '',
+    x.last ? T('watch.net_last', { when: fmt.relative(x.last) }) : '',
+    T('watch.net_per_day', { n: x.per_day || 0 }),
+    x.other_pct > 0 ? T('watch.net_other', { pct: fmt.number(x.other_pct) }) : '',
+  ])));
+  if (senders.length) {
+    rows.push(item(T('watch.net_counts', { devices: n.devices, admins: n.admins, vpn: n.vpn }), [], null, true));
+    const d = n.detections || {};
+    rows.push(item(senders.some((x) => x.detections) ? T('watch.net_detections', { in: d.in || 0, out: d.out || 0, other: d.other || 0 })
+      : T('watch.net_no_detections'), [], null, true));
+    const b = n.blocked || { week: 0, top: [] };
+    if (senders.some((x) => x.firewall) || b.week) {
+      rows.push(item(T('watch.net_blocked', { n: b.week || 0 }), (b.top || []).map((k) => T('watch.net_blocked_key', { key: k.key, n: k.n })), null, true));
+    } else {
+      rows.push(item(T('watch.net_no_firewall'), [], null, true));
+    }
+    const dr = n.dropped || {};
+    if (dr.update || dr.wan) rows.push(item(T('watch.net_dropped', { update: dr.update || 0, wan: dr.wan || 0 }), [], null, true));
+  }
+  if ((n.own || []).length) rows.push(note(T('watch.net_own', { list: n.own.join(', ') })));
+  if (n.skipped) rows.push(note(T('watch.net_skipped', { size: fmt.size(n.skipped) })));
+  if (n.more) rows.push(note(T('watch.net_more', { n: n.more })));
+  if (senders.length) rows.push(lanSwitch());
+  (n.lan || []).forEach((x) => rows.push(item(x.name || x.mac, [T('watch.net_lan_row', { c: x.connects, d: x.detections })])));
+  if (state.net_lan && !(n.lan || []).length) rows.push(note(T('watch.net_lan_none')));
+  const det = n.detections || {};
+  const sum = senders.length ? T('watch.net_sum', { senders: senders.length, devices: n.devices, det: (det.in || 0) + (det.out || 0) })
+    : T(stateText[n.state] || 'watch.net_listening', { folder: (n.cfg && n.cfg.folder) || '' });
+  return group('net', T('watch.net'), sum, rows);
+}
+
+/** The «Whole LAN» switch: per device on the LAN how often it connected and how many detections named it — counts, off by default */
+function lanSwitch() {
+  const label = el('label', 'switch wm-net-lan');
+  const cb = el('input');
+  cb.type = 'checkbox';
+  cb.checked = !!state.net_lan;
+  cb.disabled = !Office.agent.running || !hired();
+  label.append(cb, el('span', '', T('watch.net_lan_switch')));
+  label.title = T('watch.net_lan_title');
+  label.dataset.own = '1';
+  cb.onchange = async () => {
+    cb.disabled = true;
+    const on = cb.checked;
+    const j = await Office.api.post(`${ID}.net_lan_set`, { on });
+    if (!j.ok) {
+      cb.checked = !on;
+      cb.disabled = false;
+      Office.toast(Office.errorText(j.error, ID), true);
+      return;
+    }
+    if (j.state) state = j.state;
+    if (view) Office.keepInPlace(label, render);
+    Office.toast(T(on ? 'watch.net_lan_on' : 'watch.net_lan_off'));
+  };
+  const row = el('div', 'row nocheck wm-item');
+  row.appendChild(label);
+  return row;
 }
 
 /** The snapshots he follows: per pool and disk how many, which sleep (compared once awake), the series you taught him */

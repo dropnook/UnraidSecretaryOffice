@@ -526,6 +526,13 @@ function caretakerChecks(): array
     }
     array_push($out, ...caretakerMonitoringChecks());
     array_push($out, ...caretakerPartnerFindings());
+    // Unraid's syslog server for the router (agent/lib/watchnet.php): the share, rotation, exports, UDP 514, a loop; the server
+    // off while the night watchman is hired and the Consultant's router guide was opened — the flash and emhttp's ini files only
+    if (function_exists('watchnetChecks')) {
+        $hired = staffHired();
+        array_push($out, ...watchnetChecks(['hired' => in_array('watchman', $hired, true), 'guide' => watchnetGuideSeen(),
+            'link' => in_array('advisor', $hired, true) ? '#/advisor' : 'settings']));
+    }
     return $out;
 }
 

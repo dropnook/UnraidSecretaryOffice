@@ -469,5 +469,17 @@
   "partner.keep_less_do": "Weniger aufbewahren",
   "partner.keep_less_one": "Mindestens eines bleibt angehakt — um nichts von {name} aufzubewahren, beende die Partnerschaft.",
   "partner.kept_less": "{list}: von {name} nicht mehr aufbewahrt — die Kopien hier bleiben.",
-  "errors.partner_not_keeping": "Dieses Sekretariat bewahrt nichts von {name} auf."
+  "errors.partner_not_keeping": "Dieses Sekretariat bewahrt nichts von {name} auf.",
+  "check.syslog_share_sleeps": "Das Protokoll des Routers landet auf einem Share, dessen Disks nie schlafen",
+  "check.syslog_share_sleeps_how": "Unraids Syslog-Server schreibt jede Zeile des Routers sofort in {share} — sein Speicher hat Disks, die schlafen gehen ({disks}): Jede Zeile weckt sie. Wähle einen Share auf einem Pool, der nie schläft ({pools}), unter ⟦Settings⟧ → ⟦Network Services⟧ → ⟦Syslog Server⟧ → ⟦Local syslog folder⟧ (der Berater erklärt es).",
+  "check.syslog_no_rotation": "Unraids Syslog-Server rotiert seine Dateien",
+  "check.syslog_no_rotation_how": "⟦Local syslog rotation⟧ ist aus oder behält mehr als 2 GB ({size} × {files}): Das Protokoll des Routers kann {share} füllen. Schalte sie unter ⟦Settings⟧ → ⟦Network Services⟧ → ⟦Syslog Server⟧ ein — 50 MB × 4 reichen.",
+  "check.syslog_share_public": "Der Syslog-Share ist nicht freigegeben",
+  "check.syslog_share_public_how": "{share} ist freigegeben ({proto}): Seine Dateien enthalten das Protokoll deines Netzwerks im Klartext und sind beschreibbar — wer diesen Share schreiben kann, kann Zeilen unterschieben, die der Nachtwächter liest. Stell seine Freigabe in den Einstellungen des Shares (⟦Shares⟧) auf «Nein».",
+  "check.syslog_port_taken": "Nur Unraids Syslog-Server hört auf UDP {port}",
+  "check.syslog_port_taken_how": "Ein Container hört selbst auf dem Syslog-Port: {names}. Nur einer kann ihn haben, und das Gateway schickt an einen Empfänger. Entscheide: Unraids Syslog-Server (der Nachtwächter liest ihn) oder der Container (seine Dashboards) — leg den anderen auf einen anderen Port oder schalte ihn ab.",
+  "check.syslog_loop": "⟦Remote syslog server⟧ ist nicht dieser Server",
+  "check.syslog_loop_how": "⟦Remote syslog server⟧ ist {remote} — dieser Server selbst: Unraid schickt seine eigenen Zeilen an sich und schreibt sie nochmals in den Syslog-Share (der Nachtwächter überspringt diese Datei). Leere das Feld unter ⟦Settings⟧ → ⟦Network Services⟧ → ⟦Syslog Server⟧, oder nenne ein echtes SIEM.",
+  "check.syslog_off": "Unraids Syslog-Server ist aus",
+  "check.syslog_off_how": "Der Nachtwächter ist angestellt und du hast die Router-Anleitung des Beraters geöffnet, aber ⟦Local syslog server⟧ ist aus — der Router kann nirgends hin schicken. Der Berater zeigt die Einstellung."
 }

@@ -67,9 +67,19 @@ declare(strict_types=1);
  *               offers Kopia's retention (COMPLIANCE, N days) — Kopia then
  *               extends the locks at its full maintenance
  *
+ * The network (group 'network', the night watchman's router lines — briefs/brief-router-soc-stage1.md 6): a new
+ * shape, a setting he explains and never changes — «Unraid's syslog server» (what rsyslog.cfg says, which shares
+ * qualify, the loop of ⟦Remote syslog server⟧, which senders have files: agent/lib/watchnet.php's watchnetAdvisor()) —
+ * and two guides: the router's side (UniFi: the gateway's Activity Logging to Unraid) and the neighbours (FireSight,
+ * Loki + Alloy, CrowdSec, a real SIEM: dashboards and stores of the router's logs are theirs). Nothing installed, no
+ * router credential asked for; the page tells the agent when the router guide was opened (network_seen: the Team
+ * Lead's syslog_off hint).
+ *
  * The office never logs into a web page or an HTTP API of an external: it
  * configures them through files and command lines, at install time.
  */
+
+require_once __DIR__ . '/../lib/watchnet.php';
 
 const ADVISOR_EXTERNALS = [
     // 'plg': the plugin's address (the maker's repository, as Community Applications has it) — he installs only these
@@ -88,6 +98,10 @@ const ADVISOR_EXTERNALS = [
     'prometheus'   => ['image' => '/^prometheus$/i', 'optional' => true, 'group' => 'monitoring', 'template' => 'prometheus'],
     'grafana'      => ['image' => '/^grafana(-oss|-enterprise)?$/i', 'optional' => true, 'group' => 'monitoring', 'template' => 'Grafana'],
     'loki'         => ['image' => '/^loki$/i', 'optional' => true, 'group' => 'monitoring', 'later' => true],
+    // the network: a setting he explains and never changes, and two guides (no plugin, no container — nothing to install)
+    'syslogserver' => ['setting' => 'syslog', 'optional' => true, 'group' => 'network'],
+    'unifi'        => ['guide' => 'unifi', 'optional' => true, 'group' => 'network'],
+    'neighbours'   => ['guide' => 'neighbours', 'optional' => true, 'group' => 'network'],
 ];
 /** Where the office's own numbers go for the node exporter's textfile collector (RAM; *.prom files, lib/metrics.php writes them) */
 const ADVISOR_METRICS_DIR = METRICS_HOST_DIR;
@@ -186,6 +200,8 @@ desk('advisor', [
         'provision'        => fn (array $r) => advisorProvision(advisorEnv()) + ['state' => advisorScan()],
         'plugin_install'   => fn (array $r) => advisorPluginInstall(advisorId($r)),
         'kopia_repo'       => fn (array $r) => advisorKopiaRepo($r),
+        // his router guide was opened on the page: the Team Lead may say the syslog server is still off (a time, nothing else)
+        'network_seen'     => fn (array $r) => advisorNetworkSeen(),
     ],
     // Kopia: Mr. Backupsy's checks say what he needs from it
     'checks'  => fn () => array_merge(
@@ -220,6 +236,13 @@ function advisorScan(): array
             continue;                       // no media server, nothing to watch
         }
         $common = ['optional' => !empty($how['optional'])] + array_filter(['group' => $how['group'] ?? null, 'later' => !empty($how['later'])]);
+        if (isset($how['setting']) || isset($how['guide'])) {
+            // the network: Unraid's syslog server as it is set (read only), the guides (nothing to look at)
+            $externals[$id] = isset($how['setting'])
+                ? ['kind' => 'setting', 'there' => ($syslog = watchnetAdvisor())['on'], 'syslog' => $syslog] + $common
+                : ['kind' => 'guide', 'there' => null, 'seen' => watchnetGuideSeen()] + $common;
+            continue;
+        }
         $p = isset($how['plugin']) ? ($plugins[$how['plugin']] ?? null) : null;
         if ($p !== null || !isset($how['container']) && !isset($how['image'])) {
             $externals[$id] = ['kind' => 'plugin', 'there' => $p !== null, 'version' => $p['version'] ?? null,
@@ -259,6 +282,21 @@ function advisorScan(): array
               'server' => hostname(), 'job' => advisorJob()];
     writeAtomic(deskFile('advisor'), jsonEncode($state));
     return $state;
+}
+
+/** «UniFi: send the gateway's logs» was opened on his page: noted (data/advisor/network.json, root only) for the Team Lead */
+function advisorNetworkSeen(?string $file = null, ?int $now = null): array
+{
+    $file ??= watchnetGuideFile();
+    $now ??= time();
+    if (!is_dir(dirname($file)) && !@mkdir(dirname($file), 0700, true)) {
+        throw new Problem('ad_write', ['path' => dirname($file)]);
+    }
+    $was = watchnetGuideSeen($file);
+    if ($was === null || $now - $was > 3600) {
+        writeAtomic($file, jsonEncode(['seen' => $now]), 0600, 0, 0);
+    }
+    return ['ok' => true];
 }
 
 /**

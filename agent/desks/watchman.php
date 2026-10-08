@@ -105,9 +105,18 @@ declare(strict_types=1);
  * minute `door_refused`; the door's transfers and the sender's phase `partner` are the office's own in the data flow,
  * what the door's retention destroyed (data/partner/deletes.jsonl) no `snap_gone`; posture tips for a door wider than
  * the office made it, a door line of no pair, a pair facing the internet, plain copies going to a «friend».
+ *
+ * The network (group `net`, agent/lib/watchnet.php — stage 1 of the router SOC, UniFi only): what the router sends to
+ * Unraid's own syslog server, read from its files like his syslog (never in the night shift, never the files of this
+ * server's own addresses, nothing written there) — a witness's statement about the server: a new sender, a new device,
+ * someone claiming the server's name or address, router and VPN logins not seen before, firewall changes, other config
+ * changes (a line a day), IPS detections against or from the server, the gateway blocking something from the server, the
+ * router's log going silent; the router's clock as a posture tip. Other clients' addresses only in net_new_device and
+ * net_spoof (the privacy rule); the «whole LAN» switch adds per-device counts, nothing more.
  */
 
 require_once __DIR__ . '/../lib/partnerlook.php';
+require_once __DIR__ . '/../lib/watchnet.php';
 
 const WATCH_EVERY        = 300;              // a round every 5 minutes
 const WATCH_LOOK         = 20;               // the tick looks whether one is due this often (seconds)
@@ -186,6 +195,17 @@ const WATCH_KINDS = [
     'door_changed'         => ['partner', true],    // a known pair's door line changed (another from=, no restrict, another command or key)
     'door_key_moved'       => ['partner', true],    // a pair's key from another address, or a pair's address with another key
     'door_refused'         => ['partner', true],    // three or more refusals at the door within a minute from one pair
+    // the network (agent/lib/watchnet.php): what the router says about the server
+    'net_sender_new'          => ['net', false],    // a new file in Unraid's syslog server folder: a host started sending there
+    'net_new_device'          => ['net', false],    // a MAC never seen on the LAN (important when it takes a known device's name: the entry's `important`)
+    'net_spoof'               => ['net', true],     // the server's name or one of its addresses with a MAC that isn't the server's
+    'net_router_login'        => ['net', true],     // a router admin login by an admin or from an address not seen before
+    'net_firewall_change'     => ['net', true],     // the router's firewall, NAT, port forwarding or policies changed
+    'net_router_config'       => ['net', false],    // other router settings changed: a line a day (noted by himself when the admin is known)
+    'net_vpn_login'           => ['net', true],     // a VPN user or remote address not seen before
+    'net_ips_server'          => ['net', true],     // an IPS detection against the server or from it
+    'net_blocked_from_server' => ['net', true],     // the gateway dropped something the server sent (a destination and port not seen before)
+    'net_log_silent'          => ['net', true],     // the router's file stopped growing while the router still answers
 ];
 
 /**
@@ -217,6 +237,14 @@ const WATCH_ATTACK = [
     // the partner door: a key in authorized_keys (SSH Authorized Keys) — the office's own written at the pairing, or one
     // changed; the pair's key used from elsewhere is a valid account's use; refusals are someone trying the door (SSH)
     'partner_paired' => 'T1098.004', 'door_changed' => 'T1098.004', 'door_key_moved' => 'T1078', 'door_refused' => 'T1021.004',
+    // the network: a new sender or device is hardware added (T1200); someone taking the server's identity on the LAN an
+    // adversary-in-the-middle (T1557); a router admin's login a valid account (T1078); a firewall change Impair Defenses:
+    // Disable or Modify System Firewall; other settings Impair Defenses (T1562); a VPN login External Remote Services;
+    // an IPS hit against the server Active Scanning (T1595) — from it Application Layer Protocol (T1071), like a block
+    // from the server; the router's log silent Impair Defenses: Indicator Blocking
+    'net_sender_new' => 'T1200', 'net_new_device' => 'T1200', 'net_spoof' => 'T1557', 'net_router_login' => 'T1078',
+    'net_firewall_change' => 'T1562.004', 'net_router_config' => 'T1562', 'net_vpn_login' => 'T1133', 'net_ips_server' => 'T1595',
+    'net_blocked_from_server' => 'T1071', 'net_log_silent' => 'T1562.006',
 ];
 
 /**
@@ -235,6 +263,7 @@ const WATCH_POSTURE = [
     'partner_wide'    => 'advice',     // a partner's door line without restrict or from= (wider than the office made it)
     'partner_unknown' => 'advice',     // a uso-partner line for a pair the office doesn't know
     'partner_public'  => 'advice',     // a pair whose address faces the internet
+    'router_clock'    => 'advice',     // the router's clock (or its time zone) off the server's by more than 5 minutes
     'remote_access'   => 'info',
     'privileged'      => 'info',
     'partner_friend'  => 'info',       // plain copies going to a partner marked «a friend»
@@ -252,8 +281,9 @@ const WATCH_SSH_OK      = '/\ssshd[\w-]*(?:\[\d+\])?:\s+Accepted (\S+) for (\S+)
 const WATCH_SSH_FAIL    = '/\ssshd[\w-]*(?:\[\d+\])?:\s+Failed (\S+) for (invalid user )?(\S+) from (\S+) port \d+/';
 const WATCH_SSH_INVALID = '/\ssshd[\w-]*(?:\[\d+\])?:\s+Invalid user (.*) from (\S+) port \d+/';
 // docker inspect: name, image, HostConfig and mounts as JSON (tabs and newlines inside are escaped), the main process (data flow)
-// and the consultant's label (ADVISOR_LABEL: he prepared Unraid's form) and when it was created — what the office installed itself
-const WATCH_INSPECT     = "{{json .Name}}\t{{json .Config.Image}}\t{{json .HostConfig}}\t{{json .Mounts}}\t{{.State.Pid}}\t{{json (index .Config.Labels \"uso.installed-by\")}}\t{{json .Created}}";
+// and the consultant's label (ADVISOR_LABEL: he prepared Unraid's form) and when it was created — what the office installed itself;
+// last its networks (the network watch: a container's own address and MAC on the LAN are the server's, watchnetServer())
+const WATCH_INSPECT     = "{{json .Name}}\t{{json .Config.Image}}\t{{json .HostConfig}}\t{{json .Mounts}}\t{{.State.Pid}}\t{{json (index .Config.Labels \"uso.installed-by\")}}\t{{json .Created}}\t{{json .NetworkSettings.Networks}}";
 
 // the night shift (agent.php nightshift, watchmanNightRound()): while the array is stopped, and from boot until the first array
 // start (an encrypted array waits for its key), he keeps the RAM and flash parts of his watch — nothing under /mnt, no data folder
@@ -280,6 +310,7 @@ desk('watchman', [
         'notify_set' => fn (array $r) => watchmanNotifySet($r['on'] ?? null),
         'syslog_set' => fn (array $r) => watchmanSyslogSet($r['on'] ?? null),
         'posture_ack' => fn (array $r) => watchmanPostureAck($r['id'] ?? null, $r['on'] ?? null),
+        'net_lan_set' => fn (array $r) => watchmanNetLanSet($r['on'] ?? null),
     ],
     'jobs'    => ['watchman-round' => fn (array $args) => watchmanRun()],
     'checks'  => fn (): array => watchmanChecks(),
@@ -350,6 +381,11 @@ function watchmanPaths(): array
         'partner_tickets' => DATA_DIR . '/partner/tickets.json',        // the restore tickets this office gave (stage 3)
         'partner_run'   => RUN_DIR . '/partner',
         'partner_data'  => DATA_DIR . '/partner',
+        // the network (agent/lib/watchnet.php): Unraid's syslog server (the flash), the share's storage (RAM), this server's MACs, ARP
+        'rsyslog_cfg'   => WATCHNET_CFG,
+        'shares_ini'    => '/var/local/emhttp/shares.ini',
+        'net_class'     => '/sys/class/net',
+        'arp'           => '/proc/net/arp',
     ];
 }
 
@@ -419,7 +455,7 @@ function watchmanSave(string $dir, array $old, array $new): void
         @lchgrp($dir, FILE_GID);
     }
     foreach (['baseline' => 'baseline.json', 'book' => 'book.json', 'state' => 'state.json', 'seen' => 'seen.json', 'flow' => 'flow.json',
-              'posture' => 'posture.json', 'snaps' => 'snaps.json'] as $k => $file) {
+              'posture' => 'posture.json', 'snaps' => 'snaps.json', 'net' => 'net.json'] as $k => $file) {
         if (!array_key_exists($k, $new) || $new[$k] === null || ($old[$k] ?? null) === $new[$k]) {
             continue;
         }
@@ -675,7 +711,8 @@ function watchmanNightPaths(): array
 {
     // libvirt is left alone too (while the array stops it shuts the VMs down; his VM count for a posture tip keeps the day's word)
     return array_diff_key(watchmanPaths(), array_flip(['office_installs', 'zfs', 'zpool', 'mnt', 'agent_log', 'snap_record', 'engine',
-        'sec', 'sec_nfs', 'share_cfg', 'libvirt_sock', 'virsh', 'partner_pairs', 'partner_tickets', 'partner_data']));
+        'sec', 'sec_nfs', 'share_cfg', 'libvirt_sock', 'virsh', 'partner_pairs', 'partner_tickets', 'partner_data',
+        'rsyslog_cfg', 'shares_ini', 'arp']));
 }
 
 /** This boot's id: the RAM mirror and a position in the syslog belong to one boot */
@@ -711,7 +748,7 @@ function watchmanMirror(array $d, string $boot, int $now, bool $flash): array
     $b = (array) ($d['baseline'] ?? []);
     $st = (array) ($d['state'] ?? []);
     $base = ['hired' => (int) ($b['hired'] ?? 0), 'time' => (int) ($b['time'] ?? 0)];
-    foreach (['ips', 'fail_ips', 'plugins', 'flash', 'sched', 'host', 'partner'] as $k) {
+    foreach (['ips', 'fail_ips', 'plugins', 'flash', 'sched', 'host', 'partner', 'net'] as $k) {
         $base[$k] = is_array($b[$k] ?? null) ? $b[$k] : null;
     }
     $open = [];
@@ -730,6 +767,7 @@ function watchmanMirror(array $d, string $boot, int $now, bool $flash): array
         $m['state'] += ['syslog' => is_array($st['syslog'] ?? null) ? $st['syslog'] : null, 'fails' => (array) ($st['fails'] ?? []),
                         'logins' => (array) ($st['logins'] ?? []), 'array_seen' => (int) ($st['array_seen'] ?? 0), 'last_notify' => $st['last_notify'] ?? null];
         $m['seen'] = ['sched' => $seen['sched'] ?? null, 'host' => $seen['host'] ?? null];
+        $m['state']['net_pos'] = is_array($d['net']['pos'] ?? null) ? $d['net']['pos'] : null;     // the router files' positions (no line of them)
         return $m;
     }
     $mb = &$m['baseline'];
@@ -790,6 +828,7 @@ function watchmanMirrorWrite(string $dir, string $ram = WATCH_MIRROR_RAM, ?strin
         return 'none';
     }
     $d['seen'] = readJson("$dir/seen.json");
+    $d['net'] = readJson("$dir/net.json");
     $boot ??= watchmanBootId();
     @mkdir(dirname($ram), 0700, true);
     writeAtomic($ram, jsonEncode(watchmanMirror($d, $boot, $now, false)), 0600, 0, 0);
@@ -1203,8 +1242,14 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     $prevSeen = readJson("$dir/seen.json") ?? [];      // the last round's look: a file the same as then isn't read again
     // with the containers' main processes (whose programs run where)
     $host = watchmanHost($paths, $containers, is_array($prevSeen['host'] ?? null) ? $prevSeen['host'] : null);
+    // the network (agent/lib/watchnet.php): the router files read here, judged in the lock — never in the night shift (no rsyslog_cfg)
+    $netServer = $netLook = null;
+    if (isset($paths['rsyslog_cfg'])) {
+        $netServer = watchnetServer($paths, $containers);
+        $netLook = watchnetLook($paths, $fresh ? null : readJson("$dir/net.json"), $netServer, $now);
+    }
     if (is_array($containers)) {
-        $containers = array_map(fn ($c) => array_diff_key((array) $c, ['pid' => true]), $containers);     // the process is the data flow's only
+        $containers = array_map(fn ($c) => array_diff_key((array) $c, ['pid' => true, 'addrs' => true, 'macs' => true]), $containers);     // the data flow's and the network's only
     }
     $seen = [
         'containers' => $containers,
@@ -1224,7 +1269,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     $btime = $boot !== '' && isset($paths['stat']) ? watchmanBootTime((string) $paths['stat']) : null;
 
     return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes,
-                                               $office, $paths, $boot, $btime): array {
+                                               $office, $paths, $boot, $btime, $netLook, $netServer): array {
         $old = watchmanLoad($dir);
         $old['seen'] = readJson("$dir/seen.json");
         $old['flow'] = readJson("$dir/flow.json");
@@ -1292,6 +1337,15 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             writeAtomic(watchmanFlowCountersFile($dir), jsonEncode($counters), 0600, 0, 0);
             $st['flow'] = watchmanFlowTotals($flow);
         }
+        $net = null;
+        if ($netLook !== null) {
+            // the network: what the router said since the last round (taken over anew, or a router seen for the first time: learned)
+            $net = $fresh ? [] : (readJson("$dir/net.json") ?? []);
+            $old['net'] = $net;
+            $b['net'] = $fresh ? null : ($b['net'] ?? null);
+            $added = array_merge($added, watchnetCompare($b['net'], $netLook, $book, $net, $netServer, $now, $fresh, !empty($st['net_lan'])));
+            $observed['net'] = ['clock' => watchnetClock($net)];
+        }
         if ($snapRes !== null) {
             // snapshots gone or released that the office didn't do (taken over anew: all of it normal)
             $b['snaps'] = is_array($b['snaps'] ?? null) ? $b['snaps'] : ['series' => []];
@@ -1339,7 +1393,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         }
         $old['snaps'] = $snapKnown;
         watchmanSave($dir, $old, ['baseline' => $b, 'book' => $book, 'state' => $st, 'seen' => $observed, 'flow' => $flow, 'posture' => $known,
-                                  'snaps' => $snapRes['known'] ?? null]);
+                                  'snaps' => $snapRes['known'] ?? null, 'net' => $net]);
         if (!$fresh && !empty($st['siem']) && isset($paths['logger'])) {
             watchmanSyslogForward((string) $paths['logger'], array_values(array_filter($book, fn ($e) => !isset($before[$e['id']]) && $e['kind'] !== 'watch')),
                 array_values(array_filter($told, fn ($t) => $t['kind'] === 'chain')));
@@ -1845,8 +1899,19 @@ function watchmanContainers(): ?array
         $by = json_decode($f[5] ?? 'null');
         $created = json_decode($f[6] ?? 'null');
         $created = is_string($created) ? strtotime((string) preg_replace('/\.\d+/', '', $created)) : false;
+        $addrs = $macs = [];
+        foreach ((array) (json_decode($f[7] ?? 'null', true) ?: []) as $nw) {
+            foreach (['IPAddress', 'GlobalIPv6Address'] as $k) {
+                if (is_string($nw[$k] ?? null) && $nw[$k] !== '') {
+                    $addrs[] = $nw[$k];
+                }
+            }
+            if (is_string($nw['MacAddress'] ?? null) && $nw['MacAddress'] !== '') {
+                $macs[] = $nw['MacAddress'];
+            }
+        }
         $out[$name] = ['image' => (string) json_decode($f[1]), 'tokens' => watchmanContainerTokens($hc, is_array($mounts) ? $mounts : []),
-                       'pid' => (int) ($f[4] ?? 0)]
+                       'pid' => (int) ($f[4] ?? 0), 'addrs' => array_slice($addrs, 0, 8), 'macs' => array_slice($macs, 0, 8)]
                     + (is_string($by) && preg_match('/^[a-z]{1,20}$/D', $by) ? ['by' => $by] : [])
                     + ($created !== false ? ['created' => $created] : []);
     }
@@ -3625,6 +3690,13 @@ function watchmanPosture(array $f, array $seen, array $prev = []): array
     }
     if ($friend) {
         $add('partner_friend', ['names' => watchmanNames(array_values($friend)), 'n' => count($friend)], implode(',', array_keys($friend)), $lead);
+    }
+    // the router's clock (the network, watchnetClock()): its lines' time off their arrival — every correlation would be off with it
+    $clock = is_array($seen['net']['clock'] ?? null) ? $seen['net']['clock'] : [];
+    if ($clock) {
+        $c = $clock[0];
+        $add('router_clock', ['router' => (string) $c['router'], 'minutes' => abs((int) $c['minutes']), 'zone' => !empty($c['zone']) ? 1 : 0, 'n' => count($clock)],
+            implode(',', array_map(fn ($x) => $x['sender'] . ':' . (int) round($x['minutes'] / 15), $clock)), ['to' => 'advisor', 'path' => '#/advisor']);
     }
     return array_values(array_filter(array_map(fn ($id) => $tips[$id] ?? null, array_keys(WATCH_POSTURE))));
 }
@@ -6482,6 +6554,8 @@ function watchmanAdopt(array &$b, array $e, array $seen, int $now): void
             // log_cleared: something that happened — nothing to adopt
             if ((WATCH_KINDS[$kind][0] ?? '') === 'sched') {
                 watchmanSchedAdopt($b, $kind, $p, $seen);
+            } elseif ((WATCH_KINDS[$kind][0] ?? '') === 'net') {
+                watchnetAdopt($b, $e, $now);       // the network (agent/lib/watchnet.php)
             }
     }
 }
@@ -6664,8 +6738,8 @@ function watchmanText(array $e, ?string $lang = null): array
                                  fn ($w) => officeNotifyText('watchman', WATCH_DOOR_WHAT[$w] ?? 'door_what.options', [], $lang), (array) ($p['what'] ?? [])))],
         'door_key_moved' => ['name' => (string) ($p['name'] ?? ''), 'ip' => (string) ($p['ip'] ?? '')],
         'door_refused'   => ['name' => (string) ($p['name'] ?? '')],
-        'watch'          => array_map('intval', $p),
-        default          => [],
+        'watch'          => isset($p['too_much']) ? watchnetText(['kind' => 'net_too_much', 'p' => $p]) : array_map('intval', $p),
+        default          => watchnetText($e, $lang),     // the network (agent/lib/watchnet.php); [] for anything else
     };
 }
 
@@ -6811,14 +6885,14 @@ function watchmanNotifyDue(array &$book, array &$st, int $now, bool $send, ?stri
     $told = [];
     $on = ($st['notify'] ?? true) !== false;
     foreach (WATCH_KINDS as $kind => [, $important]) {
-        if (!$important) {
-            continue;
-        }
         $new = [];
         foreach ($book as $i => $e) {
-            if ($e['kind'] === $kind && watchmanOpen($e) && empty($e['told']) && empty($e['muted'])) {
+            if ($e['kind'] === $kind && ($important || !empty($e['important'])) && watchmanOpen($e) && empty($e['told']) && empty($e['muted'])) {
                 $new[] = $i;
             }
+        }
+        if (!$important && !$new) {
+            continue;
         }
         if (!$on) {
             foreach ($new as $i) {
@@ -6899,6 +6973,29 @@ function watchmanSyslogChainLine(array $c): string
         'important' => true, 'time' => date('c'), 'text' => officeNotifyText('watchman', 'notify.chain', ['n' => count($ids)], 'en')]);
 }
 
+/**
+ * The «whole LAN» switch (the network): per device on the LAN how often it connected and how many security detections
+ * named it — counts only, never a destination, an address or a time; off by default, and its counts go when switched off.
+ */
+function watchmanNetLanSet(mixed $on, ?string $dir = null, bool $page = true): array
+{
+    if (!is_bool($on)) {
+        throw new Problem('bad_request');
+    }
+    $dir ??= watchmanDir();
+    watchmanLocked($dir, function () use ($dir, $on): void {
+        $d = watchmanLoad($dir);
+        $st = $d['state'];
+        $st['net_lan'] = $on;
+        watchmanSave($dir, $d, ['state' => $st]);
+    });
+    if (!$page) {
+        return ['ok' => true];
+    }
+    logLine('Night watchman: the whole LAN (per-device counts) ' . ($on ? 'on' : 'off'));
+    return ['ok' => true, 'state' => watchmanPageState()];
+}
+
 /** The switch on his page: also write the book's new entries to the syslog, for a SIEM — default off */
 function watchmanSyslogSet(mixed $on, ?string $dir = null, bool $page = true): array
 {
@@ -6932,8 +7029,10 @@ const WATCH_CHAIN_WINDOW = 3600;            // first seen this close to another 
 const WATCH_CHAIN_KEEP   = 7 * 86400;       // entries older than this start no chain
 // a chain is a way in and something else (a login from a new address, then a cron line), or damage of two sorts (snapshots
 // gone and much written) — a plugin installed (its plugin, cron file and port at once) alone is none
-const WATCH_CHAIN_ACCESS = ['login_new_ip', 'login_failures', 'smb_user', 'door_new', 'door_key_moved', 'door_refused'];
-const WATCH_CHAIN_IMPACT = ['snap_gone' => 'snap', 'snap_hold_released' => 'snap', 'flow_written' => 'flow', 'flow_gone' => 'flow', 'log_cleared' => 'log'];
+const WATCH_CHAIN_ACCESS = ['login_new_ip', 'login_failures', 'smb_user', 'door_new', 'door_key_moved', 'door_refused',
+                            'net_router_login', 'net_vpn_login', 'net_new_device', 'net_spoof'];
+const WATCH_CHAIN_IMPACT = ['snap_gone' => 'snap', 'snap_hold_released' => 'snap', 'flow_written' => 'flow', 'flow_gone' => 'flow', 'log_cleared' => 'log',
+                            'net_blocked_from_server' => 'exfil'];
 
 /**
  * The chains in the book now: list of [key (its first entry's id), ids (oldest first), groups, first, last].
@@ -6941,7 +7040,7 @@ const WATCH_CHAIN_IMPACT = ['snap_gone' => 'snap', 'snap_hold_released' => 'snap
  */
 function watchmanChains(array $book, int $now): array
 {
-    $list = array_values(array_filter($book, fn ($e) => watchmanOpen($e) && (WATCH_KINDS[$e['kind']][1] ?? false)
+    $list = array_values(array_filter($book, fn ($e) => watchmanOpen($e) && watchmanImportant($e)
         && (int) $e['time'] >= $now - WATCH_CHAIN_KEEP));
     usort($list, fn ($a, $b) => [(int) $a['time'], $a['id']] <=> [(int) $b['time'], $b['id']]);
     $chains = [];
@@ -6968,7 +7067,13 @@ function watchmanChains(array $book, int $now): array
         $out[] = ['key' => (string) $c[0]['id'], 'ids' => array_column($c, 'id'), 'groups' => $groups,
                   'first' => (int) $c[0]['time'], 'last' => (int) end($c)['time']];      // first seen: when each came
     }
-    return $out;
+    return watchnetChains($book, $out, $now);       // a new device on the LAN and a login from its address (agent/lib/watchnet.php)
+}
+
+/** Told to Unraid's notifications and joining chains: the kind's word, or the entry's own (a new device taking a known name) */
+function watchmanImportant(array $e): bool
+{
+    return (bool) (WATCH_KINDS[$e['kind'] ?? ''][1] ?? false) || !empty($e['important']);
 }
 
 /**
@@ -7068,6 +7173,7 @@ function watchmanMetrics(?string $dir = null): array
          'help' => 'Bytes the server sent to clients per file service (SMB, NFS, SSH, WebGUI) since the night watchman watches the data flow', 'samples' => $sent],
         ['name' => 'uso_watchman_written_bytes_total', 'type' => 'counter',
          'help' => 'Bytes written into ZFS shares since the night watchman watches the data flow (the ' . WATCH_FLOW_TOP . ' shares with the most)', 'samples' => $written],
+        ...watchnetMetrics($st, readJson(($dir ?? watchmanDir()) . '/net.json')),      // the network (agent/lib/watchnet.php)
     ];
 }
 
@@ -7090,7 +7196,7 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
     $last = isset($st['round']['time']) ? (int) $st['round']['time'] : null;
     $book = [];
     foreach ($d['book'] as $e) {
-        $book[] = ['id' => $e['id'], 'kind' => $e['kind'], 'group' => WATCH_KINDS[$e['kind']][0] ?? 'watch', 'tell' => WATCH_KINDS[$e['kind']][1] ?? false,
+        $book[] = ['id' => $e['id'], 'kind' => $e['kind'], 'group' => WATCH_KINDS[$e['kind']][0] ?? 'watch', 'tell' => watchmanImportant($e),
                    'attack' => WATCH_ATTACK[$e['kind']] ?? null,
                    'time' => (int) $e['time'], 'last' => (int) $e['last'], 'count' => (int) $e['count'],
                    'open' => watchmanOpen($e), 't' => watchmanText($e),
@@ -7119,6 +7225,9 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         'watch'    => $onWatch ? watchmanSummary($b, readJson("$dir/seen.json")) : null,
         'flow'     => $onWatch ? watchmanFlowSummary(is_array($b['flow'] ?? null) ? $b['flow'] : null, readJson("$dir/flow.json"), $now) : null,
         'snaps'    => $onWatch ? watchmanSnapSummary($st['snaps'] ?? null, is_array($b['snaps'] ?? null) ? $b['snaps'] : null) : null,
+        // the network (agent/lib/watchnet.php): Unraid's syslog server, the senders, counts — never another client's address
+        'net'      => $onWatch ? watchnetSummary(is_array($b['net'] ?? null) ? $b['net'] : null, readJson("$dir/net.json"), !empty($st['net_lan']), $now) : null,
+        'net_lan'  => !empty($st['net_lan']),
         'posture'  => $onWatch ? watchmanPosturePage($st['posture'] ?? null, readJson("$dir/posture.json")) : null,
         'grafana'  => $onWatch ? watchmanGrafana($grafana) : null,
         'notified' => $st['last_notify'] ?? null,

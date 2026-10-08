@@ -218,5 +218,7 @@
   "errors.logs_tour_failed": "Mi ronda no pudo empezar.",
   "source.partner_door": "Puerta de socios (lo que pidieron las secretarías asociadas)",
   "source.partner_door_old": "Puerta de socios — registro anterior",
-  "source.partner_door_ram": "Puerta de socios — mientras el array estaba detenido"
+  "source.partner_door_ram": "Puerta de socios — mientras el array estaba detenido",
+  "source.router": "Router {name} (servidor syslog de Unraid)",
+  "source.router_old": "Router {name} — anterior"
 }

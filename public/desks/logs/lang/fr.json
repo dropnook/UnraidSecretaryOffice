@@ -218,5 +218,7 @@
   "errors.logs_tour_failed": "Ma tournée n'a pas pu démarrer.",
   "source.partner_door": "Porte des partenaires (ce que les secrétariats partenaires ont demandé)",
   "source.partner_door_old": "Porte des partenaires — journal précédent",
-  "source.partner_door_ram": "Porte des partenaires — pendant que l'array était arrêté"
+  "source.partner_door_ram": "Porte des partenaires — pendant que l'array était arrêté",
+  "source.router": "Routeur {name} (serveur syslog d'Unraid)",
+  "source.router_old": "Routeur {name} — précédent"
 }

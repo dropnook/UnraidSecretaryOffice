@@ -469,5 +469,17 @@
   "partner.keep_less_do": "Keep less",
   "partner.keep_less_one": "At least one stays ticked — to keep nothing of {name}, end the partnership.",
   "partner.kept_less": "{list}: no longer kept of {name} — the copies here stay.",
-  "errors.partner_not_keeping": "This office keeps nothing of {name}."
+  "errors.partner_not_keeping": "This office keeps nothing of {name}.",
+  "check.syslog_share_sleeps": "The router's log lands on a share whose disks never sleep",
+  "check.syslog_share_sleeps_how": "Unraid's syslog server writes every line of the router into {share} at once — its storage has disks that spin down ({disks}): each line wakes them. Choose a share on a pool that never sleeps ({pools}) under ⟦Settings⟧ → ⟦Network Services⟧ → ⟦Syslog Server⟧ → ⟦Local syslog folder⟧ (the Consultant explains it).",
+  "check.syslog_no_rotation": "Unraid's syslog server rotates its files",
+  "check.syslog_no_rotation_how": "⟦Local syslog rotation⟧ is off or keeps more than 2 GB ({size} × {files}): the router's log can fill {share}. Switch it on under ⟦Settings⟧ → ⟦Network Services⟧ → ⟦Syslog Server⟧ — 50 MB × 4 is plenty.",
+  "check.syslog_share_public": "The syslog share isn't exported",
+  "check.syslog_share_public_how": "{share} is exported ({proto}): its files hold your network's log in plain text and are writable — whoever can write that share can plant lines the night watchman reads. Set its export to «No» in the share's settings (⟦Shares⟧).",
+  "check.syslog_port_taken": "Only Unraid's syslog server listens on UDP {port}",
+  "check.syslog_port_taken_how": "A container listens on the syslog port itself: {names}. Only one of them can have it, and the gateway sends to one receiver. Decide: Unraid's syslog server (the night watchman reads it) or the container (its dashboards) — move the other to another port or switch it off.",
+  "check.syslog_loop": "⟦Remote syslog server⟧ isn't this server",
+  "check.syslog_loop_how": "⟦Remote syslog server⟧ is {remote} — this server itself: Unraid sends its own lines to itself and writes them again into the syslog share (the night watchman skips that file). Empty the field under ⟦Settings⟧ → ⟦Network Services⟧ → ⟦Syslog Server⟧, or name a real SIEM.",
+  "check.syslog_off": "Unraid's syslog server is off",
+  "check.syslog_off_how": "The night watchman is hired and you opened the Consultant's router guide, but ⟦Local syslog server⟧ is off — the router has nowhere to send. The Consultant shows the setting."
 }
