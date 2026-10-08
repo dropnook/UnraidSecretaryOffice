@@ -81,9 +81,16 @@ function rspHeldFile(string $id): string
 function rspSources(): array
 {
     $out = [];
+    $state = null;
     foreach (partnerPairs() as $p) {
-        if ($p['my_key'] !== null && $p['send']['units']) {
-            $out[] = ['id' => $p['id'], 'name' => $p['name'], 'kind' => 'pair', 'of' => null, 'units' => $p['send']['units'], 'expires' => null, 'pair' => $p];
+        if ($p['my_key'] === null) {
+            continue;
+        }
+        $state ??= partnerStateRead();
+        $status = $state['pairs'][$p['id']]['status'] ?? null;
+        $units = rspPairUnits($p['send']['units'], is_array($status) ? ($status['agreed'] ?? null) : null, rspHeld($p['id']));
+        if ($units) {
+            $out[] = ['id' => $p['id'], 'name' => $p['name'], 'kind' => 'pair', 'of' => null, 'units' => $units, 'expires' => null, 'pair' => $p];
         }
     }
     foreach (partnerTicketPairs() as $t) {
@@ -92,6 +99,33 @@ function rspSources(): array
         }
     }
     return $out;
+}
+
+/**
+ * What a pair's partner may hold of mine: what I send (send.units), what it agreed to keep (its status' `agreed`, kept by
+ * the mutual watch — a unit I no longer send stays there and its door still sends it back), and what its `list` actually
+ * found at the last look (held.json: a unit with moments there is shown whatever the lists say). In that order, each once,
+ * only in the unit's exact shape.
+ *
+ * @param list<string> $send
+ * @return list<string>
+ */
+function rspPairUnits(array $send, mixed $agreed, ?array $held): array
+{
+    $units = [];
+    foreach ([$send, partnerUnitList($agreed) ?? []] as $list) {
+        foreach ($list as $u) {
+            if (is_string($u) && preg_match(PARTNER_UNIT_RE, $u)) {
+                $units[$u] = true;
+            }
+        }
+    }
+    foreach ((array) ($held['units'] ?? []) as $u => $snaps) {
+        if (is_string($u) && preg_match(PARTNER_UNIT_RE, $u) && is_array($snaps) && $snaps) {
+            $units[$u] = true;
+        }
+    }
+    return array_slice(array_keys($units), 0, PARTNER_UNITS_MAX);
 }
 
 function rspSource(string $id): ?array

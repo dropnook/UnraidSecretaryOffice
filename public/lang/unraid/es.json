@@ -51,6 +51,7 @@
   "Mirror syslog to flash": "Duplicar registro syslog en la memoria Flash",
   "Mover Settings": "Ajustes del Servicio Mover",
   "Name": "Nombre",
+  "Network Model": "Modelo",
   "Network Services": "Servicios de Red",
   "Network Settings": "Ajustes de Red",
   "Network Type": "Tipo de red",

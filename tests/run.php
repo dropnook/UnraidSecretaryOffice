@@ -4311,10 +4311,12 @@ function testBackupPresets(): void
     // a new server: nothing set up, a big share the engine leaves off, a container that ran because its data was off
     $fresh = ['time' => 1000, 'have_settings' => false, 'mount_root' => '/mnt/addons/UnraidSecretaryOffice/snapshots',
         'P' => ['kopia|enabled' => 'yes', 'general|dumps_share' => 'UnraidSecretaryOffice', 'flash|mode' => 'snapshot', 'docker|no_stop' => ['dsm'], 'docker|skip' => [],
-                'share|appdata|mode' => 'kopia', 'share|UnraidSecretaryOffice|mode' => 'kopia', 'share|Filme|mode' => 'off', 'share|system|mode' => 'off'],
+                'share|appdata|mode' => 'kopia', 'share|UnraidSecretaryOffice|mode' => 'kopia', 'share|Filme|mode' => 'off', 'share|system|mode' => 'off',
+                'share|routerlogs|mode' => 'off'],
         'O' => [],
         'shares' => [$sh('appdata', 100, ['why' => 'big_container', 'folders' => [['dir' => 'c1', 'container' => 'c1'], ['dir' => 'c2', 'container' => 'c2'], ['dir' => 'c3', 'container' => 'c3']]]),
-                     $sh('UnraidSecretaryOffice', 1, ['why' => 'new']), $sh('Filme', 3000, ['why' => 'big']), $sh('system', 30, ['why' => 'system'])],
+                     $sh('UnraidSecretaryOffice', 1, ['why' => 'new']), $sh('Filme', 3000, ['why' => 'big']), $sh('system', 30, ['why' => 'system']),
+                     $sh('routerlogs', 2, ['why' => 'syslog'])],
         'containers' => [$ct('c1', 'writes', ['appdata/c1']), $ct('c2', 'writes', ['appdata/c2']), $ct('c3', 'writes', ['appdata/c3']), $ct('dsm', 'no_data', ['Filme'])],
         'vms' => [], 'databases' => [], 'nextcloud' => [], 'missing_databases' => [], 'bases' => [['name' => 'master', 'fs' => 'zfs', 'kind' => 'pool']],
         'flash' => ['dataset' => 'flash/boot', 'fs' => 'zfs'], 'kopia' => ['container' => 'kopia', 'candidates' => ['kopia'], 'problem' => null, 'mappings' => []]];
@@ -4391,6 +4393,15 @@ out.freshKopia = [S.draft['share|appdata|mode'], S.draft['share|Filme|mode'], S.
   b.firstUpload(b.draftMode)];
 b.presetChoose('local');
 out.freshLocal = [S.draft['kopia|enabled'], S.draft['share|appdata|mode'], S.draft['share|Filme|mode'], S.draft['share|system|mode'], S.held['ct:dsm']];
+// the share Unraid's syslog server writes into (setup.sh: why syslog, proposed off) stays off under every start
+const routerlogs = () => S.draft['share|routerlogs|mode'];
+out.freshSyslog = [b.presetKeep(S.plan.shares.find((sh) => sh.name === 'routerlogs'), S.plan), routerlogs()];
+b.presetChoose('kopia');
+out.freshSyslog.push(routerlogs());
+b.presetChoose('auto');
+out.freshSyslog.push(routerlogs());
+b.presetChoose('local');
+out.freshSyslog.push(routerlogs(), b.presetKeptList().filter((x) => x.includes('routerlogs')));
 console.log(JSON.stringify(out));
 JS;
     file_put_contents("$tmp/t.js", $test);
@@ -4455,6 +4466,8 @@ JS;
         ['kopia', 'kopia', 'off', 'stop', 2, 'snapshot', ['bytes' => (100 + 1 + 3000) * 1073741824, 'shares' => ['appdata', 'UnraidSecretaryOffice', 'Filme'], 'unknown' => [],
          'vms' => [], 'vm_bytes' => 0, 'vm_used' => 0]], $r['freshKopia']);
     same('presets: a new server, «local only»', ['no', 'snapshot', 'snapshot', 'off', 'stop'], $r['freshLocal']);
+    same('presets: the share Unraid\'s syslog server writes into (why syslog) stays «not backed up» under every start, and the starts say so',
+        ['syslog', 'off', 'off', 'off', 'off', ['setup.preset.keep.syslog {"name":"routerlogs"}']], $r['freshSyslog']);
     hardeningRm($tmp);
 }
 
@@ -5690,10 +5703,13 @@ function testLogsTour(): void
     same('logs tour: the first tour counts the last 24 hours, similar lines as one kind', [2, 1, 2, 1],
         [$e['errors'], $e['kinds'], $e['groups'][0]['count'] ?? null, $e['groups'][0]['back'] ?? null]);
     same('logs tour: remembers where the file ended', filesize($log), $mem['syslog']['size'] ?? null);
+    same('logs tour: the first tour — how much it grew isn\'t known', null, $e['grew']);
+    $was = filesize($log);
     file_put_contents($log, "$new Tower smbd[3]: warning: two\n$new Tower half a li", FILE_APPEND);
     $mem2 = [];
     $e = logsTourFileSource('syslog', $src, $mem['syslog'], null, time() - 3600, $sources, $mem2);
     same('logs tour: the next tour reads only what came, whole lines', [0, 1, 1], [$e['errors'], $e['warnings'], $e['lines']]);
+    same('logs tour: … and says how much the file grew since (bytes, the unfinished line too)', filesize($log) - $was, $e['grew']);
     check('logs tour: an unfinished line waits for the next tour', ($mem2['syslog']['size'] ?? PHP_INT_MAX) < filesize($log));
     rename($log, "$log.1");
     file_put_contents("$log.1", "ne\n$new Tower smbd[4]: error: three\n", FILE_APPEND);
@@ -5703,6 +5719,10 @@ function testLogsTour(): void
     $srcs = array_values(array_unique(array_column($e['groups'], 'src')));
     sort($srcs);
     same('logs tour: rotated — the rest of the old file and the new one', [true, 2, ['syslog', 'syslog.1']], [$e['rotated'], $e['errors'], $srcs]);
+    same('logs tour: rotated — grew by the old one\'s rest and the whole new one', filesize("$log.1") - $mem2['syslog']['size'] + filesize($log), $e['grew']);
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/logs/desk.js');
+    check('logs tour: her page says per source how much it grew (the source rows, the quiet ones\' bubble)', str_contains($js, 'const grew = grewChip(s.grew);')
+        && str_contains($js, "T('grew.more', { size: fmt.size(s.grew) })"));
     file_put_contents($log, str_repeat("$new Tower x: nothing to see\n", 160000), FILE_APPEND);
     $e = logsTourFileSource('syslog', $src, $mem3['syslog'], null, time() - 3600, $sources, $mem);
     same('logs tour: never more than the cap, the newest part', [true, true], [$e['partial'], $e['skipped'] > 0 && $e['lines'] * 30 <= LOGS_TOUR_BYTES]);
@@ -10606,7 +10626,7 @@ function testWhereAfterWatchman(): void
     foreach (array_keys(WATCH_POSTURE) as $id) {
         check("where: security tip $id is the watchman's now", !str_contains($js, "add('$id',") && !isset($en["where.adv.$id.title"]));
     }
-    foreach (['system_array', 'mover', 'compose_build', 'spindown_default', 'spindown_some', 'old_disks', 'no_parity', 'parity', 'ups', 'syslog', 'cron_dead', 'vm_windows', 'vm_sparse', 'security'] as $id) {
+    foreach (['system_array', 'mover', 'compose_build', 'spindown_default', 'spindown_some', 'old_disks', 'no_parity', 'parity', 'ups', 'syslog', 'cron_dead', 'vm_windows', 'vm_sparse', 'vm_netmodel', 'security'] as $id) {
         check("where: tip $id is hers", str_contains($js, "add('$id',") && isset($en["where.adv.$id.title"], $en["where.adv.$id.why"]));
     }
     $advice = waAdvice([], [], []);
@@ -10642,8 +10662,33 @@ function testWhereVmStop(): void
         [waVmAgent('Win11', $tmp), waVmAgent('Linked', $tmp), waVmAgent('../' . basename($tmp) . '/Win11', $tmp), waVmAgent('.hidden', $tmp), waVmAgent('Gone', $tmp)]);
     hardeningRm($tmp);
 
+    // the NIC model (Benj, 2026-10-08: «virtio-net» has no vhost — 2.2 Gbit/s per stream on nostromo, 93 with «virtio»);
+    // the interfaces as nostromo's XML has them (Debian_Helmi: virtio-net, USO-Test-Server: virtio + vhost, the drill VM: e1000)
+    $iface = fn (string $mac, string $bridge, string $model, string $driver = '') => "    <interface type='bridge'>\n      <mac address='$mac'/>\n"
+        . "      <source bridge='$bridge'/>\n      <model type='$model'/>\n$driver      <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>\n    </interface>\n";
+    $domXml = fn (string $name, string $ifaces) => "<domain type='kvm'>\n  <name>$name</name>\n  <devices>\n$ifaces    <serial type='pty'>\n"
+        . "      <target type='isa-serial' port='0'>\n        <model name='isa-serial'/>\n      </target>\n    </serial>\n  </devices>\n</domain>\n";
+    $vmOf = fn (string $name, string $ifaces) => ['name' => $name, 'networks' => waVmNets(simplexml_load_string($domXml($name, $ifaces)))];
+    $helmi = $vmOf('Debian_Helmi', $iface('52:54:00:70:ed:1b', 'br0.13', 'virtio-net'));
+    same('wa vm nets: MAC, bridge and model as the XML has them (the serial port\'s <model name=…> is no NIC)',
+        [['mac' => '52:54:00:70:ed:1b', 'source' => 'br0.13', 'model' => 'virtio-net']], $helmi['networks']);
+    $vms = [$vmOf('Windows_11_Tom_2', $iface('52:54:00:73:5c:4e', 'br0', 'virtio-net')),
+            $vmOf('USO-Test-Server', $iface('52:54:00:32:f5:ab', 'br0', 'virtio', "      <driver name='vhost' queues='3'/>\n")
+                . $iface('52:54:00:aa:10:01', 'br-uso', 'virtio', "      <driver name='vhost' queues='3'/>\n")),
+            $vmOf('Mixed', $iface('52:54:00:00:00:01', 'br0', 'virtio') . $iface('52:54:00:00:00:02', 'br0', 'virtio-net')),
+            $vmOf('USO-Restori-test-VM', $iface('52:54:00:c5:02:13', 'br0', 'e1000')),
+            $helmi, $vmOf('No_NIC', ''), ['name' => 'Odd', 'networks' => 'virtio-net']];
+    same('wa vm netmodel: the VMs with a «virtio-net» NIC (one is enough), sorted — never «virtio», e1000, none, an odd shape',
+        ['Debian_Helmi', 'Mixed', 'Windows_11_Tom_2'], waVmNetModel($vms));
+    same('wa vm netmodel: none — nothing to say', [], waVmNetModel([$vms[1], $vms[3]]));
+    same('wa vm netmodel: her advice carries the names', ['Debian_Helmi', 'Mixed', 'Windows_11_Tom_2'], waAdvice([], [], [], $vms)['vm_netmodel']);
+
     $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.js');
     $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/lang/en.json'), true) ?: [];
+    check('where: the NIC model tip is hers — info, the names, a link to Unraid\'s VMs page, the how with Unraid\'s labels',
+        (bool) preg_match("/add\\('vm_netmodel', 'info', \\{ names: listNames\\(slowNet, 3\\), n: slowNet.length \\}, \\{ path: '\\/VMs'/", $js)
+        && str_contains($en['where.adv.vm_netmodel.title']['other'] ?? '', '{names}') && str_contains($en['where.adv.vm_netmodel.why'] ?? '', '⟦Network Model⟧')
+        && str_contains($en['where.adv.vm_netmodel.why'] ?? '', '⟦VMs⟧ → the VM → ⟦Edit⟧'));
     check('where: the Windows VM tip is hers, with the current time-outs', str_contains($js, "add('vm_windows',") && isset($en['where.adv.vm_windows.title'], $en['where.adv.vm_windows.why'])
         && str_contains($en['where.adv.vm_windows.why']['other'] ?? '', '{timeout}') && str_contains($en['where.adv.vm_windows.why']['other'] ?? '', '{disk}'));
 }
@@ -11563,6 +11608,35 @@ function testThemeSwitch(): void
  * a mount namespace whose live folder is an empty one of the tests' (see the top of this file) — nothing at all landed
  * there during the whole run, whatever process put it there.
  */
+/**
+ * The runner itself: `php tests/run.php <a> <b> …` runs every named test and part (each once), one sum at the end, exit 1
+ * on a failure; a name nobody knows is said, exit 2, nothing run; no name still runs everything (not tried here — that is
+ * this very run). Each child ends with testLiveRunUntouched(), so a sum is the tests' checks plus its own (`$live`).
+ */
+function testRunnerNames(): void
+{
+    $run = function (string ...$names): array {
+        exec(implode(' ', array_map('escapeshellarg', array_merge([PHP_BINARY, __FILE__], $names))) . ' 2>&1', $out, $code);
+        $last = (string) end($out);
+        return [preg_match('/^(\d+) passed, (\d+) failed$/', $last, $m) ? [(int) $m[1], (int) $m[2]] : null, $code, implode("\n", $out)];
+    };
+    [$cron, $cronCode] = $run('testCron');
+    [$ret] = $run('testRetention');
+    [$names] = $run('testSnapshotNames');
+    [$both, $bothCode] = $run('testCron', 'testRetention');
+    [$again] = $run('testRetention', 'testCron', 'testRetention');
+    [$other] = $run('testCron', 'testSnapshotNames');
+    check('runner: one name runs that test, exit 0', $cron !== null && $cron[0] > 0 && $cron[1] === 0 && $cronCode === 0);
+    $live = $cron && $ret && $both ? $cron[0] + $ret[0] - $both[0] : null;
+    check('runner: two names run both — one sum, more than either alone, exit 0', $both !== null && $both[0] > max($cron[0] ?? 0, $ret[0] ?? 0) && $both[1] === 0 && $bothCode === 0);
+    same('runner: the sum is both tests\' checks (the live folder\'s checks once) — whatever pair', $live, $cron && $names && $other ? $cron[0] + $names[0] - $other[0] : -1);
+    same('runner: order and a name twice change nothing — each test once', $both, $again);
+    [$none, $code, $text] = $run('testCron', 'testNoSuchThing');
+    check('runner: an unknown name — said, exit 2, nothing run', $none === null && $code === 2 && str_contains($text, 'testNoSuchThing') && !str_contains($text, 'passed'));
+    [$part] = $run('strings');
+    check('runner: a part by its name still runs its tests', $part !== null && $part[0] > 1000 && $part[1] === 0);
+}
+
 function testLiveRunUntouched(): void
 {
     $own = TESTS_RUN_DIR;
@@ -13710,6 +13784,27 @@ function testRestorePartner(): void
     $vm2 = partnerTestAs($A2, $A2['pre'] . 'return rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "vm:Debian_Helmi", "snap" => "uso-backup-20261007-0200"]);');
     same('restore partner: a VM whose place isn\'t at the partner — only the disks, said plainly', [['pull', 'mount'], true, true],
         [array_column($vm2['steps'] ?? [], 'do'), in_array('note.partner_no_package', array_column($vm2['notes'] ?? [], 'key'), true), ($vm2['notes'][0]['warn'] ?? false) || true]);
+    // a unit no longer sent but still agreed there (its status' agreed, the mutual watch's): still offered, the look asks for it
+    [$A3, , ] = restorePartnerTestPair("$tmp/agreed", ['share:appdata']);
+    $as3 = fn (string $code) => partnerTestAs($A3, $A3['pre'] . $code);
+    $srcUnits = fn () => array_column($as3('return array_map(fn ($s) => array_diff_key($s, ["pair" => 1]), rspSources());'), 'units', 'id');
+    same('restore partner: sent only appdata, nothing known of the partner yet — appdata only', [$id => ['share:appdata']], $srcUnits());
+    partnerWritePrivate("$A3[data]/partner/state.json", ['pairs' => [$id => ['status' => ['agreed' => ['share:appdata', 'vm:Debian_Helmi']]]]]);
+    same('restore partner: a unit in agreed but not in send.units is offered (sent ones first)', [$id => ['share:appdata', 'vm:Debian_Helmi']], $srcUnits());
+    $as3('rspLookJob([]); return true;');
+    $plan3 = $as3('return rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "vm:Debian_Helmi", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $stamp . '"]);');
+    same('restore partner: … the look asked for it, the tile and the plan have it', [['uso-backup-20261007-0200'], 'vm:Debian_Helmi', null, []],
+        [array_column(($as3('return rspHeld("' . $id . '");')['units']['vm:Debian_Helmi'] ?? []), 'name'),
+         $as3('return rspState();')[0]['units'][array_search('vm:Debian_Helmi', array_column($as3('return rspState();')[0]['units'] ?? [], 'unit'), true)]['unit'] ?? null,
+         $plan3['problem'] ?? null, $plan3['blockers'] ?? null]);
+    partnerWritePrivate("$A3[data]/partner/state.json", ['pairs' => [$id => ['status' => ['agreed' => null]]]]);
+    same('restore partner: what the partner\'s list found wins — no agreed known (an office before 2.29), the unit it lists still offered', [$id => ['share:appdata', 'vm:Debian_Helmi']], $srcUnits());
+    partnerWritePrivate("$A3[data]/partner/state.json", ['pairs' => [$id => ['status' => ['agreed' => ['share:appdata', '../etc', 'place']]]]]);
+    same('restore partner: an agreed list out of shape counts for nothing', [$id => ['share:appdata', 'vm:Debian_Helmi']], $srcUnits());
+    same('restore partner: rspPairUnits — send, agreed, what the list found (with moments), each once, never an odd name',
+        ['share:a', 'vm:b', 'place', 'share:c'],
+        rspPairUnits(['share:a', 'vm:b'], ['vm:b', 'place'], ['units' => ['share:c' => [['name' => 'x']], 'share:empty' => [], '../x' => [['name' => 'x']], 'share:a' => [['name' => 'y']]]]));
+
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'), true);
     check('restore partner: «the package isn\'t at the partner — only the disks come back»', str_contains((string) ($en['note.partner_no_package'] ?? ''), "The package isn't at {name} — only the disks come back"));
 
@@ -13810,9 +13905,33 @@ function testRestorePartner(): void
     file_put_contents("$A[root]/var.ini", "fsState=\"Started\"\n");
     $sh = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
     check('restore partner: agent.sh unmounts the pulls at the array stop (after drill_release ended the job)', (bool) preg_match('/drill_release.*\n(?:.*\n){0,3}\s*restored_release\s/', $sh)
-        && str_contains($sh, 'root=/mnt/addons/UnraidSecretaryOffice/restored') && RSP_MOUNT_ROOT === '/mnt/addons/UnraidSecretaryOffice/restored');
-    $out = trim((string) shell_exec('bash -c ' . escapeshellarg('source ' . escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh') . '; LOG=' . escapeshellarg("$tmp/agent.log") . '; restored_release; echo "rc=$?"') . ' 2>&1'));
-    same('restore partner: nothing mounted there — nothing done, nothing said', ['rc=0', false], [$out, is_file("$tmp/agent.log")]);
+        && str_contains($sh, 'RESTORED_ROOT="${USO_RESTORED_ROOT:-/mnt/addons/UnraidSecretaryOffice/restored}"') && str_contains($sh, 'local root=$RESTORED_ROOT ')
+        && RSP_MOUNT_ROOT === '/mnt/addons/UnraidSecretaryOffice/restored');
+    // never the live folder: a root of the test's own (USO_RESTORED_ROOT) — a real pull or an earlier test's mount there is none of this test's business
+    $release = fn (string $root) => trim((string) shell_exec('USO_RESTORED_ROOT=' . escapeshellarg($root) . ' bash -c ' . escapeshellarg('source '
+        . escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh') . '; LOG=' . escapeshellarg("$tmp/agent.log") . '; restored_release; echo "rc=$?"') . ' 2>&1'));
+    @mkdir("$tmp/restored-root", 0755, true);
+    same('restore partner: nothing mounted there — nothing done, nothing said', ['rc=0', false], [$release("$tmp/restored-root"), is_file("$tmp/agent.log")]);
+    same('restore partner: an odd root (relative, «/», with a space) — nothing looked at', ['rc=0', 'rc=0', 'rc=0', false],
+        [$release('restored'), $release('/'), $release("$tmp/restored root"), is_file("$tmp/agent.log")]);
+    if (getenv('OFFICE_TESTS_GUARD') !== false) {       // the tests' own mount namespace (root): bind mounts nobody else sees
+        @mkdir("$tmp/restored-src", 0755, true);
+        @mkdir("$tmp/restored-root/appdata", 0755, true);
+        @mkdir("$tmp/restored-other", 0755, true);
+        exec('mount --bind ' . escapeshellarg("$tmp/restored-src") . ' ' . escapeshellarg("$tmp/restored-root/appdata") . ' && mount --bind '
+            . escapeshellarg("$tmp/restored-src") . ' ' . escapeshellarg("$tmp/restored-other") . ' 2>&1', $o, $mc);
+        $mounted = fn (string $at) => str_contains((string) file_get_contents('/proc/mounts'), " $at ");
+        if ($mc === 0 && $mounted("$tmp/restored-root/appdata")) {
+            $out = $release("$tmp/restored-root");
+            same('restore partner: a pull mounted there — unmounted, its folder gone, said once; a mount elsewhere untouched',
+                ['rc=0', false, false, true, true],
+                [$out, $mounted("$tmp/restored-root/appdata"), is_dir("$tmp/restored-root/appdata"), $mounted("$tmp/restored-other"),
+                 str_contains((string) @file_get_contents("$tmp/agent.log"), "1 of Mr. Restori's pulls unmounted ($tmp/restored-root)")]);
+        } else {
+            check('restore partner: a bind mount of the test\'s own for restored_release', false, implode(' ', $o));
+        }
+        exec('umount ' . escapeshellarg("$tmp/restored-other") . ' 2>/dev/null; umount ' . escapeshellarg("$tmp/restored-root/appdata") . ' 2>/dev/null');
+    }
     sleep(4);           // the door's orphaned send (4 s) lets go of the pair's lock
     hardeningRm($tmp);
 }
@@ -15034,6 +15153,52 @@ function testCleanupPartner(): void
     same('cleanup partner: back only to where it was, under the partners\' place', ["/mnt/tank/$P", '', ''],
         [clPartnerHome(['dataset' => "tank/$P/deadbeef", 'from' => "/mnt/tank/$P/deadbeef"]), clPartnerHome(['dataset' => 'tank/appdata', 'from' => '/mnt/tank/appdata']),
          clPartnerHome(['dataset' => "tank/$P/deadbeef", 'from' => '/mnt/tank/elsewhere'])]);
+    // a pair of today: a unit its receive.units no longer names (the Team Lead's «Keep less of …») is dust — a kept one not,
+    // an odd child dataset not (not the door's name for a unit); never while a transfer of the door names that unit
+    $zfs2 = fn (array $args) => [0, "tank/$P\t3000\t0\ntank/$P/a1b2c3d4\t1705\t0\ntank/$P/a1b2c3d4/share-appdata\t1000\t300\n"
+        . "tank/$P/a1b2c3d4/share-old\t600\t60\ntank/$P/a1b2c3d4/vm-Gone\t100\t10\ntank/$P/a1b2c3d4/odd_name\t5\t0\n"];
+    file_put_contents("$tmp/run/door-4242.json", json_encode(['pid' => 4242, 'pair' => 'a1b2c3d4', 'unit' => 'vm:Gone', 'dataset' => "tank/$P/a1b2c3d4/vm-Gone", 'since' => time()]));
+    $r2 = clPartners(['pools' => [['tank'], []], 'zfs' => $zfs2, 'pairs' => $pairs, 'run' => "$tmp/run", 'alive' => fn (int $pid) => in_array($pid, [getmypid(), 4242], true)]);
+    $drop = array_column($r2['list'], null, 'id');
+    ksort($drop);
+    same('cleanup partner: a dropped unit of a pair of today listed (its used, its snapshots, «<unit> of <name>»), the kept one and an odd name not, the transfer guard per unit',
+        [["partner:tank/a1b2c3d4/share-old", "partner:tank/a1b2c3d4/vm-Gone"],
+         ['dropped', 'share:old', 'vault', "tank/$P/a1b2c3d4/share-old", 600, 60, null, 'share:old · vault'], ['vm:Gone', 'transfer']],
+        [array_keys($drop), [$drop["partner:tank/a1b2c3d4/share-old"]['category'] ?? null, $drop["partner:tank/a1b2c3d4/share-old"]['unit'] ?? null,
+          $drop["partner:tank/a1b2c3d4/share-old"]['pair_name'] ?? null, $drop["partner:tank/a1b2c3d4/share-old"]['dataset'] ?? null,
+          $drop["partner:tank/a1b2c3d4/share-old"]['bytes'] ?? null, $drop["partner:tank/a1b2c3d4/share-old"]['snaps'] ?? null,
+          array_key_exists('why', $drop["partner:tank/a1b2c3d4/share-old"] ?? []) ? $drop["partner:tank/a1b2c3d4/share-old"]['why'] : 'x', clLabel($drop["partner:tank/a1b2c3d4/share-old"] ?? ['kind' => '', 'name' => ''])],
+         [$drop["partner:tank/a1b2c3d4/vm-Gone"]['unit'] ?? null, $drop["partner:tank/a1b2c3d4/vm-Gone"]['why'] ?? null]]);
+    same('cleanup partner: the guard names the unit — another unit of the pair, or another pair, isn\'t held up', [true, true, false, false],
+        [clPartnerUnitBusy(partnerLookDoors("$tmp/run", fn (int $pid) => $pid === 4242), 'a1b2c3d4', 'vm:Gone', "tank/$P/a1b2c3d4/vm-Gone"),
+         clPartnerUnitBusy([['pair' => 'a1b2c3d4', 'unit' => '', 'dataset' => "tank/$P/a1b2c3d4/vm-Gone/x"]], 'a1b2c3d4', 'vm:Gone', "tank/$P/a1b2c3d4/vm-Gone"),
+         clPartnerUnitBusy(partnerLookDoors("$tmp/run", fn (int $pid) => $pid === 4242), 'a1b2c3d4', 'share:old', "tank/$P/a1b2c3d4/share-old"),
+         clPartnerUnitBusy(partnerLookDoors("$tmp/run", fn (int $pid) => $pid === 4242), 'deadbeef', 'vm:Gone', "tank/$P/deadbeef/vm-Gone")]);
+    @unlink("$tmp/run/door-4242.json");
+    same('cleanup partner: no receive at all for a pair — every unit of it is dust', ["partner:tank/a1b2c3d4/share-appdata", "partner:tank/a1b2c3d4/share-old", "partner:tank/a1b2c3d4/vm-Gone"],
+        (function () use ($tmp, $zfs2) {
+            $file = "$tmp/partner/pairs-noreceive.json";
+            partnerPairsWrite([partnerTestPair('a1b2c3d4', ['name' => 'vault', 'receive' => null, 'their_key' => null])], $file);
+            $ids = array_column(clPartners(['pools' => [['tank'], []], 'zfs' => $zfs2, 'pairs' => $file, 'run' => "$tmp/run"])['list'], 'id');
+            sort($ids);
+            return $ids;
+        })());
+    $unitTrash = "tank/$P/_UnraidSecretaryOffice-trash-20261008-101010-share-old-a1b2c3d4";
+    same('cleanup partner: a unit put away lies in the partners\' place, the pair\'s id at the end — her manifest takes it, the way back only to that pair\'s unit',
+        [true, true, true, false, false, false],
+        [clTrashAsOk("@$unitTrash", 'partner', '20261008-101010'), clPartnerTrashOk($unitTrash, "tank/$P/a1b2c3d4/share-old"),
+         clPartnerTrashOk("tank/$P/_UnraidSecretaryOffice-trash-20261008-101010-deadbeef", "tank/$P/deadbeef"),
+         clPartnerTrashOk($unitTrash, "tank/$P/deadbeef/share-old"), clPartnerTrashOk($unitTrash, "cold/$P/a1b2c3d4/share-old"),
+         clPartnerTrashOk("tank/$P/a1b2c3d4/_UnraidSecretaryOffice-trash-20261008-101010-share-old-a1b2c3d4", "tank/$P/a1b2c3d4/share-old")]);
+    same('cleanup partner: a unit goes back only into its pair\'s dataset, only by the door\'s name for it', ["/mnt/tank/$P/a1b2c3d4", '', ''],
+        [clPartnerHome(['dataset' => "tank/$P/a1b2c3d4/share-old", 'from' => "/mnt/tank/$P/a1b2c3d4/share-old"]),
+         clPartnerHome(['dataset' => "tank/$P/a1b2c3d4/odd_name", 'from' => "/mnt/tank/$P/a1b2c3d4/odd_name"]),
+         clPartnerHome(['dataset' => "tank/$P/a1b2c3d4/share-old/deeper", 'from' => "/mnt/tank/$P/a1b2c3d4/share-old/deeper"])]);
+    // Ms. Snapshotini and the watchman's view: until it is put away it is the pair's copy (locked); put away, a leftover
+    $marked = snapshotPartnerMark(['volumes' => [['name' => "tank/$P/a1b2c3d4/share-old"], ['name' => $unitTrash]], 'snapshots' => []], $pairs);
+    same('cleanup partner: Ms. Snapshotini keeps her hands off a dropped unit until it is put away', [true, false],
+        [snapshotPartnerLocked($marked['volumes'][0]), snapshotPartnerLocked($marked['volumes'][1])]);
+
     // «Where is what»: the partners' places with sizes per pair
     $GLOBALS['waPartnerHost'] = ['pools' => [['tank'], ['cold']], 'zfs' => $zfs, 'pairs' => $pairs];
     $w = waPartners();
@@ -15051,6 +15216,8 @@ function testCleanupPartner(): void
         return [clPartners(['pools' => [[], ['tank']], 'zfs' => $none, 'pairs' => $pairs, 'run' => '/nonexistent'])['list'], count($asked) + 1];
     })());
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/cleanup/lang/en.json'), true) ?: [];
+    check('cleanup partner: the page can say a dropped unit', isset($en['cat.partners.dropped'], $en['cat.partners.dropped_text'], $en['pa.dropped_text'])
+        && str_contains($en['pa.dropped_name'] ?? '', '{unit}') && str_contains($en['pa.dropped_name'] ?? '', '{name}'));
     check('cleanup partner: the page can say it', isset($en['section.partners'], $en['cat.partners.leftover'], $en['park.text_partners'], $en['park.where_partners'],
         $en['item.partner'], $en['why.transfer'], $en['errors.cleanup_partner_transfer'], $en['where.partners.title'], $en['fact.partners'], $en['bubble.partners']));
     exec('rm -rf ' . escapeshellarg($tmp));
@@ -15540,15 +15707,23 @@ function testWatchmanNet(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits'],
-          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor'],
+          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
-$only = $argv[1] ?? '';
+// php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
+// $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
+$only = array_values(array_unique(array_slice($argv, 1)));
+$known = array_merge(array_keys($parts), ...array_values($parts));
+$unknown = array_values(array_diff($only, $known));
+if ($unknown) {
+    fwrite(STDERR, 'Unknown test or part: ' . implode(', ', $unknown) . "\nParts: " . implode(', ', array_keys($parts))
+        . "; tests: the names in \$parts at the end of tests/run.php (e.g. testCron).\n");
+    exec('rm -rf ' . escapeshellarg(TESTS_RUN_DIR));
+    exit(2);
+}
 foreach ($parts as $name => $fns) {
-    if ($only === '' || $only === $name || in_array($only, $fns, true)) {
-        foreach ($fns as $t) {
-            if ($only === '' || $only === $name || $only === $t) {      // a part, or one test by its name
-                $t();
-            }
+    foreach ($fns as $t) {
+        if (!$only || in_array($name, $only, true) || in_array($t, $only, true)) {      // everything, its part, or the test by its name
+            $t();
         }
     }
 }

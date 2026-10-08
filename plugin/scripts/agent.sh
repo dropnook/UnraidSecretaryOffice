@@ -57,6 +57,9 @@ WATCH_AFTER=600                   # seconds without a sign of life before Unraid
 HOST_LAUNCH_MARK='# written by the Unraid Secretary Office agent'
 PROC_MOUNTS=/proc/mounts
 BACKUP_STAGE=/run/unraid-backup-stage   # the backup engine's private staging area (UB_STAGE in backup/lib/common.sh)
+# where Mr. Restori mounts what he pulled from a partner (RSP_MOUNT_ROOT in agent/desks/restore-partner.php); the tests
+# name a folder of their own (USO_RESTORED_ROOT) - live it is always this one
+RESTORED_ROOT="${USO_RESTORED_ROOT:-/mnt/addons/UnraidSecretaryOffice/restored}"
 VAR_INI=/var/local/emhttp/var.ini
 # The array runs: "Started" - and Unraid's "Started, formatting/clearing" (fsState Formatting, Clearing: a new
 # disk is formatted or cleared for hours while the array runs). One definition: agent.php's ARRAY_RUNNING says the
@@ -404,7 +407,8 @@ partner_release() {
 # office's restored/ folder in /mnt/addons (agent/desks/restore-partner.php) - unmounted now (lazily when busy), else the
 # pool can't go. Nothing mounted there - nothing done (one read of /proc/mounts). The agent mounts them again at its start.
 restored_release() {
-    local root=/mnt/addons/UnraidSecretaryOffice/restored mnt n=0
+    local root=$RESTORED_ROOT mnt n=0
+    [[ "$root" == /?* && "$root" != *[[:space:]]* && "$root" != */ ]] || return 0
     while IFS= read -r mnt; do
         mnt=${mnt//\\040/ }
         [[ "$mnt" == "$root"/* ]] || continue

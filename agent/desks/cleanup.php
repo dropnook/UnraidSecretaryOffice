@@ -36,7 +36,10 @@ declare(strict_types=1);
  *   partners   what an ended partnership left: <pool>/UnraidSecretaryOffice-partners/<pair> datasets whose pair is
  *              gone from data/partner/pairs.json (agent/lib/partnerlook.php) — awake pools only, the size from zfs
  *              list; put away with zfs rename next to the storeroom (the run's manifest on the flash), never while
- *              the partner door receives for that pair
+ *              the partner door receives for that pair. Also a pair's unit datasets (<pair>/<unit>) whose unit the
+ *              pair's receive.units no longer names (the Team Lead's «Keep less of …»): renamed into the partners'
+ *              place on the same pool (<…-partners>/_UnraidSecretaryOffice-trash-<run>-<unit>-<pair>), never while a
+ *              transfer of the door names that unit
  *   icons      containers without a picture on Unraid's Docker page and
  *              Dashboard (none set, or one Unraid can't load): she finds a
  *              logo (pictures on this server named like the app, Community
@@ -2756,22 +2759,55 @@ function clPartnerRunDir(): string
 }
 
 /**
- * Where a partner's dataset put away goes back (never mounted, so its «from» is /mnt/<its name>): next to where it
- * was, only as <pool>/UnraidSecretaryOffice-partners/<pair> — anything else in a manifest has no way back ('').
+ * Where a partner's dataset put away goes back (never mounted, so its «from» is /mnt/<its name>): where it was, only
+ * as <pool>/UnraidSecretaryOffice-partners/<pair> or one of its units <…>/<pair>/<unit> (a pair still there: the
+ * parent must exist for the rename) — anything else in a manifest has no way back ('').
  */
 function clPartnerHome(array $it): string
 {
     $ds = $it['dataset'] ?? null;
     $d = is_string($ds) ? partnerLookDataset($ds) : null;
-    return $d !== null && !$d['trash'] && $d['id'] !== null && $d['unit'] === null && clZfsNameOk($ds) && ($it['from'] ?? null) === "/mnt/$ds"
-        ? dirname("/mnt/$ds") : '';
+    return $d !== null && !$d['trash'] && $d['id'] !== null && ($d['unit'] === null || clPartnerUnitOf($d['unit']) !== null) && clZfsNameOk($ds)
+        && ($it['from'] ?? null) === "/mnt/$ds" ? dirname("/mnt/$ds") : '';
+}
+
+/** The unit a pair's unit dataset holds (share-appdata → share:appdata), only when the name is exactly the door's for it */
+function clPartnerUnitOf(string $datasetUnit): ?string
+{
+    $unit = partnerLookUnit($datasetUnit);
+    return preg_match(PARTNER_UNIT_RE, $unit) && str_replace(':', '-', $unit) === $datasetUnit ? $unit : null;
+}
+
+/**
+ * A partner's dataset in her storeroom and where it was: the put-away one lies right in its pool's partners' place
+ * (whole pairs next to themselves, a pair's unit one level up), of the same pair, the same pool
+ */
+function clPartnerTrashOk(string $zfs, string $dataset): bool
+{
+    $t = partnerLookDataset($zfs);
+    $d = partnerLookDataset($dataset);
+    return $t !== null && $d !== null && $t['trash'] && $t['unit'] === null && $t['id'] !== null && !$d['trash'] && $d['id'] === $t['id']
+        && $d['pool'] === $t['pool'] && dirname($zfs) === $t['pool'] . '/' . PARTNER_PARENT
+        && ($d['unit'] === null || clPartnerUnitOf($d['unit']) !== null);
+}
+
+/** Does a transfer of the door going on now name this pair's unit (its unit, or its dataset or one below it)? */
+function clPartnerUnitBusy(array $doors, string $id, string $unit, string $dataset): bool
+{
+    foreach ($doors as $x) {
+        if ($x['pair'] === $id && ($x['unit'] === $unit || $x['dataset'] === $dataset || str_starts_with($x['dataset'], "$dataset/"))) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /**
  * What ended partnerships left (agent/lib/partnerlook.php): on the awake ZFS pools, every
  * <pool>/UnraidSecretaryOffice-partners/<pair> whose pair is gone from data/partner/pairs.json — a leftover of her
  * room «partners», its size ZFS's `used` (its units and their snapshots), `why` transfer while the door receives for
- * it. Also every dataset of the partners' places (her storeroom's parked ones are found by it — never mounted) and
+ * it; and of a pair still there every unit dataset <pair>/<unit> its receive.units no longer names (category
+ * `dropped`, `unit`, `pair_name`; `why` transfer while a transfer of the door names that unit). Also every dataset of the partners' places (her storeroom's parked ones are found by it — never mounted) and
  * the sleeping pools (not looked at). Tests: `$GLOBALS['clPartnerHost']` = pools [awake, asleep], zfs (a callable
  * like run()), pairs (the file), run, alive.
  *
@@ -2796,7 +2832,12 @@ function clPartners(?array $host = null): array
     }
     $places = partnerLookPlaces($awake, $host['zfs'] ?? null) ?? [];
     $pairs = partnerLookPairs($host['pairs'] ?? null);
-    $busy = array_flip(array_column(partnerLookDoors($host['run'] ?? partnerRunDir(), $host['alive'] ?? null), 'pair'));
+    $keeps = [];                                // what I still keep of each pair (its receive.units; none: nothing)
+    foreach (partnerPairs($host['pairs'] ?? null) as $p) {
+        $keeps[$p['id']] = (array) ($p['receive']['units'] ?? []);
+    }
+    $doors = partnerLookDoors($host['run'] ?? partnerRunDir(), $host['alive'] ?? null);
+    $busy = array_flip(array_column($doors, 'pair'));
     $list = $there = [];
     foreach ($places as $pool => $pl) {
         $there[$pl['dataset']] = true;
@@ -2806,7 +2847,20 @@ function clPartners(?array $host = null): array
         foreach ($pl['ids'] as $id => $x) {
             $there[$x['dataset']] = true;
             if (isset($pairs[$id])) {
-                continue;                       // a pair of today: the door keeps its copies
+                // a pair of today: the door keeps its copies — but a unit the agreement no longer names is dust
+                foreach ($x['units'] as $uds => $used) {
+                    $uds = (string) $uds;
+                    $unit = clPartnerUnitOf($uds);
+                    if ($unit === null || in_array($unit, $keeps[$id] ?? [], true)) {
+                        continue;
+                    }
+                    $ds = $x['dataset'] . "/$uds";
+                    $list[] = ['id' => "partner:$pool/$id/$uds", 'kind' => 'partner', 'category' => 'dropped', 'name' => (string) $id, 'pool' => (string) $pool,
+                               'pair_name' => $pairs[$id]['name'], 'unit' => $unit, 'dataset' => $ds, 'bytes' => $used, 'snaps' => $x['unit_snaps'][$uds] ?? null,
+                               'units' => [$unit], 'why' => clPartnerUnitBusy($doors, (string) $id, $unit, $ds) ? 'transfer' : null, 'force' => false,
+                               'used_by' => [], 'notes' => [], 'path' => null];
+                }
+                continue;
             }
             $units = array_map('partnerLookUnit', array_map('strval', array_keys($x['units'])));
             sort($units);
@@ -3273,6 +3327,22 @@ function clPark(array $ids, bool $force): array
                                             'as' => $as, 'dataset' => $p['dataset'], 'bytes' => $p['bytes']];
                     clManifestWrite($runs[$r]);
                 }
+            } elseif ($e['kind'] === 'partner' && isset($e['unit'])) {
+                // a unit of a pair of today the agreement no longer names: renamed into the partners' place on its pool (out
+                // of the pair's dataset, where the door would meet it) — never while a transfer of the door names it
+                $d = partnerLookDataset($e['dataset']);
+                if ($d === null || $d['trash'] || $d['id'] !== $e['name'] || $d['unit'] === null || clPartnerUnitOf($d['unit']) !== $e['unit']) {
+                    throw new Problem('unknown_target', ['target' => $e['id']]);
+                }
+                if (clPartnerUnitBusy(partnerLookDoors(clPartnerRunDir()), $e['name'], $e['unit'], $e['dataset'])) {
+                    throw new Problem('cleanup_partner_transfer', ['name' => clLabel($e)]);
+                }
+                $r = $run(CL_FLASH . '/' . CL_TRASH);
+                $to = $d['pool'] . '/' . PARTNER_PARENT . '/' . CL_TRASH . '-' . $runs[$r]['stamp'] . '-' . $d['unit'] . '-' . $e['name'];
+                clZfsRename($e['dataset'], $to, '');
+                $runs[$r]['items'][] = ['kind' => 'partner', 'name' => clLabel($e), 'label' => $e['pool'], 'from' => '/mnt/' . $e['dataset'],
+                                        'as' => "@$to", 'dataset' => $e['dataset'], 'bytes' => $e['bytes'], 'units' => $e['units'], 'unit' => $e['unit']];
+                clManifestWrite($runs[$r]);
             } elseif ($e['kind'] === 'partner') {
                 // what an ended partnership left: the pair's dataset renamed next to it (zfs rename, its units and snapshots
                 // along) — never while the door receives for that pair; the run's manifest goes into the storeroom on the flash
@@ -3390,9 +3460,10 @@ function clInstall(string $id): array
 /** What the user calls it: the template's file, the stack's folder, the name */
 function clLabel(array $e): string
 {
-    return match ($e['kind']) {
-        'template', 'stray' => $e['file'],
-        'stack', 'userscript' => $e['folder'],
+    return match (true) {
+        in_array($e['kind'], ['template', 'stray'], true) => $e['file'],
+        in_array($e['kind'], ['stack', 'userscript'], true) => $e['folder'],
+        $e['kind'] === 'partner' && isset($e['unit']) => "{$e['unit']} · " . ($e['pair_name'] ?? $e['name']),
         default    => $e['name'],
     };
 }
@@ -3468,7 +3539,7 @@ function clRestore(array $ids): array
         };
         $zfs = $it['zfs'];
         if (dirname($it['from']) !== $home || basename($it['from']) !== basename($zfs !== null ? (string) $it['dataset'] : $it['as'])
-            || ($zfs !== null && (!$it['dataset'] || dirname($it['dataset']) !== dirname($zfs)))) {
+            || ($zfs !== null && (!$it['dataset'] || ($it['kind'] === 'partner' ? !clPartnerTrashOk($zfs, $it['dataset']) : dirname($it['dataset']) !== dirname($zfs))))) {
             throw new Problem('cleanup_no_way_back', ['name' => $it['name']]);
         }
         if ($zfs === null && !clRunPathOk($run['path'], $it['as'])) {

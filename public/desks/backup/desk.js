@@ -1763,7 +1763,7 @@ function setupForget() {
 // setupDerive() does the rest as always, every row stays the user's to change, and nothing counts before Apply.
 const PRESETS = ['auto', 'local', 'kopia'];
 /** The plan's reasons for a share the engine never backs up on its own (setup.sh share_propose()) */
-const PRESET_KEEP = ['system', 'name_bad', 'kopia_workdir', 'timemachine', 'drift_ignore', 'domains'];
+const PRESET_KEEP = ['system', 'name_bad', 'kopia_workdir', 'syslog', 'timemachine', 'drift_ignore', 'domains'];
 /** A Kopia container's own working folders (setup.sh kopia_workdir()) */
 const KOPIA_WORKDIR = /^\/(config|cache|logs|tmp|backups|repo|repository|app\/config|app\/cache|app\/logs)(\/|$)/;
 const UPLOAD_MBIT = 100;          // the upload speed a first upload to Kopia is reckoned at
@@ -1787,8 +1787,8 @@ function wholeShareOf(path, plan) {
 
 /**
  * Why a share keeps what the plan says under every start: what the engine never backs up on its own - the system
- * share (Docker image, libvirt), a name it can't use, the Kopia container's own folders, a Time Machine target,
- * drift.ignore, VM disks without snapshots. From the plan's reason, or - for settings made earlier, «as before» -
+ * share (Docker image, libvirt), a name it can't use, the Kopia container's own folders, the share Unraid's syslog
+ * server writes into (setup.sh syslog_share(), why code syslog), a Time Machine target, drift.ignore, VM disks without snapshots. From the plan's reason, or - for settings made earlier, «as before» -
  * the way the engine finds it (setup.sh share_propose(), timemachine_reason(), kopia_workdir())
  */
 function presetKeep(sh, plan) {
