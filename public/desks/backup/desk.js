@@ -2420,7 +2420,9 @@ function setupKopia(plan) {
 function asleepChoice(plan) {
   if (plan.asleep_pools === undefined || !plan.bases.some((b) => b.fs === 'zfs' || b.fs === 'btrfs')) return null;
   const f = el('div', 'field bk-asleep');
-  f.appendChild(el('label', '', T('setup.asleep.label')));
+  f.appendChild(el('span', 'field-title', T('setup.asleep.label')));
+  const opts = el('div', 'bk-asleep-opts');            // the radios apart: «.field > label» is the field's title style
+  f.appendChild(opts);
   const cur = dget('general|asleep_pools', 'wake') === 'skip' ? 'skip' : 'wake';
   ['wake', 'skip'].forEach((o) => {
     const label = el('label', 'check');
@@ -2432,7 +2434,7 @@ function asleepChoice(plan) {
     const span = el('span', '', T('setup.asleep.' + o));
     span.appendChild(el('small', '', T('setup.asleep.' + o + '_hint', { n: plan.asleep_nights || 7 })));
     label.append(input, span);
-    f.appendChild(label);
+    opts.appendChild(label);
   });
   const now = [...new Set([...plan.shares, ...(plan.vms || [])].flatMap((x) => x.asleep_bases || []))].sort();
   if (now.length) f.appendChild(el('small', '', T('setup.asleep.now', { names: now.join(', ') })));

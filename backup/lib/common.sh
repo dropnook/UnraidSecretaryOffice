@@ -3269,6 +3269,7 @@ ub_base_sleeps() { # ub_base_sleeps <base>  -> 0 when it sleeps (like ub_base_as
 # share_bases <share>  -> the pools and disks holding it - its parts and its child datasets -, one per line
 share_bases() {
     local b
+    [[ -n "$1" ]] || return 0
     { while IFS='|' read -r b _; do [[ -n "$b" ]] && printf '%s\n' "$b"; done <<<"${INV_LOCS[$1]:-}"
       while IFS='|' read -r b _; do [[ -n "$b" ]] && printf '%s\n' "$b"; done <<<"${INV_CHILDREN[$1]:-}"; } | awk '!seen[$0]++'
 }
