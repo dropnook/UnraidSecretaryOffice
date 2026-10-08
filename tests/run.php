@@ -3467,8 +3467,60 @@ SH);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/**
+ * Engine 2.28 in the office: Mr. Backupsy reads what a run left out because its pool slept - status.json/history
+ * "asleep" (the shape kept, everything else dropped), the Kopia sources skipped asleep apart from those the array stop
+ * skipped, the metrics, what Apply accepts for the key, the page's texts in all five languages and the setup's switch.
+ */
 function testBackupAsleepOffice(): void
 {
+    $tmp = sys_get_temp_dir() . '/office-tests-asleepoffice-' . getmypid();
+    @mkdir("$tmp/state", 0700, true);
+    $j = ['run' => '20261008-0302', 'started' => 1000, 'finished' => 1600, 'result' => 'ok', 'version' => '2.28',
+        'asleep' => ['mode' => 'skip', 'pools' => ['hive'], 'shares' => ['Filme', 'timemachine_benj', 'timemachine_janine', "bad\nname", 5], 'units' => 99,
+                     'vms' => [], 'containers' => ['TimeMachine_Benj'], 'sources' => [], 'woken' => [], 'nights' => ['Filme' => 9, 'timemachine_benj' => 2, '2024' => 7, 'x' => 'many']],
+        'kopia' => ['enabled' => true, 'planned' => ['appdata'], 'done' => [['name' => 'appdata', 'ok' => true, 'seconds' => 5, 'finished' => 1500]],
+                    'skipped' => ['media', 'docs'], 'skipped_why' => ['media' => 'asleep'], 'interrupted' => null]];
+    $r = backupRunFromStatus($j);
+    same('asleep office: a run\'s asleep block - names in their shape, units counted from them, nights, the long ones',
+        ['pools' => ['hive'], 'shares' => ['Filme', 'timemachine_benj', 'timemachine_janine'], 'units' => 3, 'vms' => [], 'containers' => ['TimeMachine_Benj'], 'woken' => [],
+         'nights' => ['Filme' => 9, 'timemachine_benj' => 2, '2024' => 7], 'long' => ['Filme', '2024']], $r['asleep']);
+    same('asleep office: Kopia sources skipped asleep apart from those the array stop skipped', [['docs'], ['media']], [$r['kopia_skipped'], $r['kopia_asleep']]);
+    same('asleep office: wake, an older engine or no block - null', [null, null, null],
+        [backupRunFromStatus(['run' => 'x'])['asleep'], backupAsleepRun(['pools' => ['hive']]), backupAsleepRun(null)]);
+    same('asleep office: an older engine\'s skipped list (no skipped_why) - all the array stop\'s', [['a', 'b'], []],
+        [backupKopiaSkipped(['skipped' => ['a', 'b', 3]], false), backupKopiaSkipped(['skipped' => ['a', 'b']], true)]);
+    // the history as the page gets it
+    file_put_contents("$tmp/history.jsonl", json_encode($j) . "\n");
+    $h = backupHistory([], null, $skips, "$tmp/history.jsonl");
+    same('asleep office: the history row carries it (the overview and the row read units)', [3, ['media']], [$h[0]['asleep']['units'] ?? null, $h[0]['kopia_asleep'] ?? null]);
+    // metrics: the asleep sources apart (never counted as failed), the shares left out
+    file_put_contents("$tmp/state/last-run.json", json_encode($j));
+    $fams = array_column(backupMetrics("$tmp/state"), null, 'name');
+    $samples = [];
+    foreach ($fams['uso_backup_last_kopia_sources']['samples'] ?? [] as [$l, $v]) {
+        $samples[$l['result']] = $v;
+    }
+    same('asleep office: metrics - Kopia sources ok / failed / skipped (array stop) / asleep; the shares left out', [['ok' => 1, 'failed' => 0, 'skipped' => 1, 'asleep' => 1], 3],
+        [$samples, $fams['uso_backup_last_asleep_shares']['samples'][0][1] ?? null]);
+    // the page: its texts in all five languages, the dynamic keys too; the setup's switch and the row chips in desk.js
+    $keys = ['setup.asleep.label', 'setup.asleep.wake', 'setup.asleep.wake_hint', 'setup.asleep.skip', 'setup.asleep.skip_hint', 'setup.asleep.now', 'setup.asleep.chip',
+             'setup.asleep.chip_disk', 'setup.asleep.chip_skip', 'setup.asleep.chip_wake', 'setup.asleep.short_wake', 'setup.asleep.short_skip', 'setup.key.general_asleep_pools',
+             'asleep.left_out', 'asleep.long', 'bubble.asleep_left', 'stat.kopia_asleep', 'partner.why_short.asleep', 'vm.done.asleep', 'vm.done_text.asleep'];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$lang.json"), true) ?: [];
+        same("asleep office: the texts ($lang)", [], array_values(array_filter($keys, fn ($k) => !isset($l[$k]))));
+    }
+    $de = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/de.json'), true) ?: [];
+    check('asleep office: German words - «ausgelassen», der Share, die Sicherung', str_contains($de['asleep.left_out']['other'] ?? '', 'ausgelassen')
+        && str_contains($de['setup.asleep.skip_hint'] ?? '', 'ein Share') && str_contains($de['setup.asleep.wake_hint'] ?? '', 'Sicherung'));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('asleep office: desk.js - the switch in step 0 (general|asleep_pools, only with an engine that knows it), chips from the plan, the run\'s units',
+        str_contains($js, "dset('general|asleep_pools', o)") && str_contains($js, 'plan.asleep_pools === undefined') && str_contains($js, 'asleepChip(sh.asleep_bases)')
+        && str_contains($js, 'asleepChip(v.asleep_bases)') && substr_count($js, 'asleepUnits(') >= 4);
+    $php = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    check('asleep office: Apply takes the key with wake or skip only', str_contains($php, "\$key === 'general|asleep_pools' && !in_array(\$value, ['wake', 'skip'], true)"));
+    exec('rm -rf ' . escapeshellarg($tmp));
 }
 
 function testBackupKopiaOrder(): void

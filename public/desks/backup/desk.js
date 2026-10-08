@@ -128,6 +128,8 @@ function itemChip(it) {
 const lastRun = () => (state && state.history && state.history[0]) || null;
 /** A run that ended because the array was being stopped (engine 2.24): stopped on purpose, nothing lost — never a failure */
 const arrayStopped = (r) => !!(r && r.result === 'aborted' && r.message === 'array_stopping');
+/** How many shares a run left out because their pool slept (engine 2.28, asleep_pools = skip) */
+const asleepUnits = (r) => (r && r.asleep && r.asleep.units) || 0;
 /**
  * The newest backup run that was skipped because the lock was busy (engine 2.20: state.skips) — as long
  * as no run finished or started after it. Skips are no runs: history, «last run» and estimates never see them.
@@ -290,6 +292,7 @@ function bubbleText() {
     if (last.result === 'ok') out.push(k.length ? T('bubble.last_ok_kopia', { when, ok, total: k.length }) : T('bubble.last_ok', { when }));
     else if (arrayStopped(last)) out.push(T('bubble.last_array_stop', { when }));
     else out.push(T('bubble.last_' + last.result, { when, errors: last.errors, warnings: last.warnings, n: last.result === 'errors' ? last.errors : last.warnings }));
+    if (asleepUnits(last)) out.push(T('bubble.asleep_left', { n: asleepUnits(last), pools: (last.asleep.pools || []).join(', ') }));
     const age = Date.now() / 1000 - (last.finished || last.started);
     if (age > 36 * 3600) out.push(T('bubble.old', { days: Math.floor(age / 86400) }));
   }
@@ -405,6 +408,12 @@ function notices() {
     const n = (last.kopia_skipped || []).length;
     callout(T('notice.array_stop', { when: fmt.date(last.started, true) }) + (n ? ' ' + T('notice.array_stop_kopia', { n }) : '')
       + (list.length ? ' ' + T('notice.array_stop_left', { list: list.join(', ') }) : ''), false);
+  }
+  // engine 2.28: a share left out asleep night after night is backed up nowhere - the engine warned once, the page says it while it lasts
+  if (last && last.asleep && (last.asleep.long || []).length) {
+    const long = last.asleep.long;
+    callout(T('asleep.long', { n: long.length, shares: long.join(', '), nights: Math.max(...long.map((x) => last.asleep.nights[x] || 0)) }), true,
+      button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
   }
   const skip = newSkip();
   if (skip) callout(skipText(skip) + ' ' + T('skipped.next'), true);
@@ -555,7 +564,9 @@ function summary() {
   if (last) {
     const k = last.kopia || [];
     const okCount = k.filter((x) => x.ok).length;
-    const st = stat(T('stat.last'), T('result.' + last.result), arrayStopped(last) ? T('stat.last_array_stop', { when: fmt.date(last.started, true) }) : fmt.date(last.started, true),
+    const lastSub = arrayStopped(last) ? T('stat.last_array_stop', { when: fmt.date(last.started, true) }) : fmt.date(last.started, true);
+    // engine 2.28: the shares it left out because their pool slept (the user's choice - the result stays ok)
+    const st = stat(T('stat.last'), T('result.' + last.result), lastSub + (asleepUnits(last) ? ' · ' + T('asleep.left_out', { n: asleepUnits(last) }) : ''),
       last.result !== 'ok' && !arrayStopped(last));
     stats.appendChild(st);
     stats.appendChild(stat(T('stat.duration'), last.finished ? fmt.duration(last.finished - last.started) : '–',
@@ -617,6 +628,8 @@ function overviewTiles() {
     if (k.length && okCount !== k.length) sub.unshift(T('stat.kopia_missing', { n: k.length - okCount }));
     else if (withKopia) sub.unshift(T('stat.kopia_when', { when: fmt.relative(withKopia.started) }));
     if (skipped) sub.unshift(T('stat.kopia_skipped', { n: skipped }));
+    const slept = ((withKopia && withKopia.kopia_asleep) || []).length;     // engine 2.28: their pool slept - left out by choice
+    if (slept) sub.push(T('stat.kopia_asleep', { n: slept }));
     tiles.push(stat(T('stat.kopia'), value, sub.join(' · '), !!trouble));
   }
   if (c && c.total) {
@@ -1171,6 +1184,7 @@ function historySection() {
     const ks = (r.kopia_skipped || []).length;
     if (k.length || ks) meta.appendChild(el('span', '', T('kopia_count', { ok: k.filter((x) => x.ok).length, total: k.length + ks })));
     if (ks) meta.appendChild(el('span', '', T('kopia_skipped_count', { n: ks })));
+    if (asleepUnits(r)) meta.appendChild(el('span', '', T('asleep.left_out', { n: asleepUnits(r) })));
     if (r.downtime) meta.appendChild(el('span', '', T('downtime_short', { duration: fmt.duration(r.downtime) })));
     if (r.packages && (r.packages.apps || r.packages.vms)) meta.appendChild(el('span', '', T('pk.history', { apps: r.packages.apps, vms: r.packages.vms })));
     if (r.errors || r.warnings) meta.appendChild(el('span', '', T('counts', { errors: r.errors, warnings: r.warnings })));
@@ -1712,7 +1726,8 @@ function valueText(v, k = '') {
   const p = k.split('|');
   const word = p[0] === 'share' && p[2] === 'mode' ? `setup.mode.${v}`
     : p[0] === 'vm' && p[2] === 'mode' ? `setup.vm_mode.${v}`
-      : p[0] === 'vm' && p[2] === 'prepare' ? `setup.vm_prep.${v}` : '';
+      : p[0] === 'vm' && p[2] === 'prepare' ? `setup.vm_prep.${v}`
+        : k === 'general|asleep_pools' ? `setup.asleep.short_${v}` : '';
   if (word && Office.has(`${ID}.${word}`)) return T(word);
   if (v === 'yes' || v === 'no') return Office.t(`common.${v}`);
   return v;
@@ -2336,6 +2351,8 @@ function setupKopia(plan) {
   const flashOpts = plan.flash.dataset ? ['snapshot', 'tar', 'off'] : ['tar', 'off'];
   basics.appendChild(field(flashLabel(plan), selectInput('flash|mode', flashOpts, (o) => T('setup.flash.' + o)),
     plan.flash.dataset ? T('setup.g_flash_zfs', { ds: plan.flash.dataset }) : T('setup.g_flash_other', { fs: plan.flash.fs || '?' })));
+  const asleep = asleepChoice(plan);
+  if (asleep) basics.appendChild(asleep);
   s.appendChild(basics);
   // engine 2.27: the partner offices this office sends to (paired at the Team Lead) - and the backup place to them too
   if ((plan.partners || []).length) {
@@ -2395,6 +2412,41 @@ function setupKopia(plan) {
   return s;
 }
 
+/**
+ * Engine 2.28: a pool (or disk) that sleeps at the run's time - woken for its snapshot as before, or left asleep: its
+ * shares are left out that night. One honest sentence each; what sleeps right now from the plan's look at disks.ini.
+ * Only with an engine that knows the key (the plan carries asleep_pools).
+ */
+function asleepChoice(plan) {
+  if (plan.asleep_pools === undefined || !plan.bases.some((b) => b.fs === 'zfs' || b.fs === 'btrfs')) return null;
+  const f = el('div', 'field bk-asleep');
+  f.appendChild(el('label', '', T('setup.asleep.label')));
+  const cur = dget('general|asleep_pools', 'wake') === 'skip' ? 'skip' : 'wake';
+  ['wake', 'skip'].forEach((o) => {
+    const label = el('label', 'check');
+    const input = el('input');
+    input.type = 'radio';
+    input.name = 'bk-asleep';
+    input.checked = cur === o;
+    input.onchange = () => { dset('general|asleep_pools', o); Office.keepInPlace(input, () => renderSetup()); };
+    const span = el('span', '', T('setup.asleep.' + o));
+    span.appendChild(el('small', '', T('setup.asleep.' + o + '_hint', { n: plan.asleep_nights || 7 })));
+    label.append(input, span);
+    f.appendChild(label);
+  });
+  const now = [...new Set([...plan.shares, ...(plan.vms || [])].flatMap((x) => x.asleep_bases || []))].sort();
+  if (now.length) f.appendChild(el('small', '', T('setup.asleep.now', { names: now.join(', ') })));
+  return f;
+}
+
+/** «pool asleep now» on a share's or VM's row (engine 2.28, the plan's asleep_bases): what the night does with it, in its tip */
+function asleepChip(bases) {
+  if (!bases || !bases.length) return null;
+  const disk = bases.every((b) => /^disk\d+$/.test(b));
+  return chip(T(disk ? 'setup.asleep.chip_disk' : 'setup.asleep.chip'), '',
+    T(dget('general|asleep_pools', 'wake') === 'skip' ? 'setup.asleep.chip_skip' : 'setup.asleep.chip_wake', { names: bases.join(', ') }));
+}
+
 function shareWhy(sh) {
   const code = sh.why || '';
   if (!code) return sh.why_text || '';
@@ -2418,7 +2470,10 @@ function setupShares(plan) {
     const tr = el('tr');
     tr.dataset.share = sh.name;
     tr.appendChild(el('th', '', sh.name));
-    tr.appendChild(el('td', '', sh.where === '-' ? '' : sh.where));
+    const whereCell = el('td', '', sh.where === '-' ? '' : sh.where);
+    const ac = asleepChip(sh.asleep_bases);
+    if (ac) whereCell.append(' ', ac);
+    tr.appendChild(whereCell);
     tr.appendChild(el('td', 'num', sh.gb === null ? '' : sh.gb < 0 ? '> ?' : fmt.size(sh.gb * 1073741824)));
     const modeCell = el('td');
     const lock = setup.locks[sh.name];
@@ -2908,6 +2963,8 @@ function setupVms(plan) {
     meta.appendChild(chip(T('setup.vm_agent.' + v.agent), v.agent === 'yes' ? 'ok' : '', T('setup.vm_agent_hint.' + v.agent)));
     if (v.tpm) meta.appendChild(chip(T('setup.vm_tpm'), '', T('setup.vm_tpm_hint')));
     if (v.hostdev) meta.appendChild(chip(T('setup.vm_gpu', { n: v.hostdev }), '', T('setup.vm_gpu_hint')));
+    const vac = asleepChip(v.asleep_bases);
+    if (vac) meta.appendChild(vac);
     if (v.snap !== 'yes') meta.appendChild(chip(T('setup.vm_cannot.' + v.snap), 'danger', T('setup.vm_cannot_hint')));
     else if (x.own) meta.appendChild(el('span', 'mono', v.own.join(', ')));
     else meta.appendChild(chip(T('setup.vm_shared'), '', T('setup.vm_shared_hint')));
