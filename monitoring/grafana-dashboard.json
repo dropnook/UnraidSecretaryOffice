@@ -2647,6 +2647,90 @@
       "id": 51
     },
     {
+      "type": "timeseries",
+      "title": "The router's lines per sender",
+      "description": "What each sender wrote into Unraid's syslog server folder per hour (the night watchman's network watch: the lines he read of each router's file). A sender that stops — while the router still answers — is told in his watch book (its log went silent). Senders by their address; only lines read since he watches.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "interval": "5m",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "refId": "A",
+          "expr": "sum by (sender) (increase(uso_watchman_net_lines_total{instance=~\"$instance\"}[1h]))",
+          "legendFormat": "{{sender}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "noValue": "no router sends to Unraid's syslog server"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "max",
+            "mean"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 78
+      },
+      "id": 52
+    },
+    {
       "type": "row",
       "title": "Ms. Protocolli, Jack Emby, Ms. Dustdevil",
       "id": 37,
@@ -2656,7 +2740,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 78
+        "y": 86
       }
     },
     {
@@ -2720,7 +2804,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 79
+        "y": 87
       },
       "id": 38
     },
@@ -2784,7 +2868,7 @@
         "h": 4,
         "w": 4,
         "x": 6,
-        "y": 79
+        "y": 87
       },
       "id": 39
     },
@@ -2849,7 +2933,7 @@
         "h": 4,
         "w": 4,
         "x": 10,
-        "y": 79
+        "y": 87
       },
       "id": 40
     },
@@ -2930,7 +3014,7 @@
         "h": 4,
         "w": 5,
         "x": 14,
-        "y": 79
+        "y": 87
       },
       "id": 41
     },
@@ -2995,7 +3079,7 @@
         "h": 4,
         "w": 5,
         "x": 19,
-        "y": 79
+        "y": 87
       },
       "id": 42
     },
@@ -3009,7 +3093,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 83
+        "y": 91
       }
     },
     {
@@ -3087,7 +3171,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 84
+        "y": 92
       },
       "id": 44
     },
@@ -3166,7 +3250,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 84
+        "y": 92
       },
       "id": 45
     },
@@ -3239,7 +3323,7 @@
         "h": 8,
         "w": 4,
         "x": 16,
-        "y": 84
+        "y": 92
       },
       "id": 46
     },
@@ -3312,7 +3396,7 @@
         "h": 8,
         "w": 4,
         "x": 20,
-        "y": 84
+        "y": 92
       },
       "id": 47
     },
@@ -3391,7 +3475,7 @@
         "h": 8,
         "w": 16,
         "x": 0,
-        "y": 92
+        "y": 100
       },
       "id": 48
     },
@@ -3455,7 +3539,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 92
+        "y": 100
       },
       "id": 49
     }
