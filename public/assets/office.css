@@ -118,6 +118,9 @@
 /* the array stopped, the night watchman's night shift on (core.js setAgent): calm, with his lantern */
 .notice.night{display:flex; align-items:center; gap:10px; color:var(--ink)}
 .notice.night img.desk-icon{width:26px; height:26px}
+/* the office was updated while the page was open (core.js updateNotice()): the line, «Reload», «Later» */
+.notice.update{display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px}
+.notice.update span{flex:1 1 240px}
 .notice a{color:inherit; font-weight:600}
 .notice strong{font-weight:650}
 &.in-unraid .notice{margin:12px 0 0}

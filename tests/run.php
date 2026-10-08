@@ -12448,6 +12448,96 @@ JS);
 }
 
 /**
+ * The page notices a new version (core.js updateNotice()): an answer whose running agent has another version than the
+ * page (CONFIG.version) — one calm line under the top line with «Reload» and «Later», never a reload of its own; once
+ * per version; «Later» keeps it away for that version, a newer one brings it back. Run by node on a stand-in page
+ * that keeps its elements by id (skipped where node is missing).
+ */
+function testUpdateNotice(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('update notice: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('updatenotice');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const byId = {};
+const mk = (tag) => {
+  const n = { tag, id: '', className: '', style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [], onclick: null, type: '',
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, after(c) { if (c.id) byId[c.id] = c; },
+    remove() {}, prepend() {}, setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
+    querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+    getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0 }), focus() {}, select() {} };
+  Object.defineProperty(n, 'innerHTML', { get: () => '', set() { n.children = []; } });
+  return n;
+};
+const find = (id) => (id === 'sso-update' ? byId[id] || null : (byId[id] = byId[id] || mk('div')));
+const store = {};
+let reloads = 0;
+globalThis.window = globalThis;
+globalThis.innerHeight = 800; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
+globalThis.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
+globalThis.navigator = { languages: ['en'] };
+globalThis.history = { replaceState() {} };
+globalThis.location = { hash: '', reload() { reloads++; } };
+const CONFIG = { version: '1.42.0', desks: [], languages: [{ code: 'en' }], base: '', staff_order: [] };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : find(id)),
+  querySelector: (s) => (s[0] === '#' ? find(s.slice(1)) : mk('div')), querySelectorAll: () => [], createElement: (tag) => mk(tag), addEventListener() {},
+  documentElement: { scrollHeight: 0 }, activeElement: null, hidden: false, body: mk('body') };
+globalThis.fetch = async (url) => ({ redirected: false, url, ok: true, status: 200, json: async () => ({ ok: false }), text: async () => '{"ok":false}' });
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const O = globalThis.Office;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const text = (n) => [n.textContent || '', ...(n.children || []).map(text)].join('');
+const look = () => { const n = byId['sso-update']; return n ? { hidden: n.hidden, cls: n.className, text: text(n), buttons: n.children.filter((c) => c.tag === 'button').map((b) => b.textContent) } : null; };
+(async () => {
+  await sleep(50);
+  Object.assign(O.strings, { 'office.updated': 'Updated to {version}.', 'office.updated_reload': 'Reload', 'office.updated_later': 'Later' });
+  const out = {};
+  O.setAgent({ running: true, version: '1.42.0' });
+  out.same = look();
+  O.setAgent({ running: false, version: '1.43.0' });
+  out.notRunning = look();
+  O.setAgent({ running: true, version: '1.43.0' });
+  out.shown = look();
+  out.reloadsBefore = reloads;
+  const first = byId['sso-update'].children[0];
+  O.setAgent({ running: true, version: '1.43.0' });
+  out.once = byId['sso-update'].children[0] === first;
+  byId['sso-update'].children.find((c) => c.textContent === 'Reload').onclick();
+  out.reloadsAfter = reloads;
+  byId['sso-update'].children.find((c) => c.textContent === 'Later').onclick();
+  out.later = [look().hidden, store['office.update.later'] || null];
+  O.setAgent({ running: true, version: '1.43.0' });
+  out.laterStays = look().hidden;
+  O.setAgent({ running: true, version: '1.44.0' });
+  out.newer = look();
+  console.log(JSON.stringify(out));
+  process.exit(0);
+})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
+    $r = json_decode($raw, true);
+    if (!is_array($r) || isset($r['error'])) {
+        check('update notice: ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('update notice: the agent of the page\'s own version, or one not running — nothing', [null, null], [$r['same'], $r['notRunning']]);
+    same('update notice: another version running — one calm line under the top line, «Reload» and «Later»',
+        ['hidden' => false, 'cls' => 'notice info update', 'text' => 'Updated to 1.43.0.ReloadLater', 'buttons' => ['Reload', 'Later']], $r['shown']);
+    same('update notice: never a reload of its own; once per version (not drawn again); «Reload» reloads', [0, true, 1], [$r['reloadsBefore'], $r['once'], $r['reloadsAfter']]);
+    same('update notice: «Later» puts it away for that version, kept in the browser', [[true, '1.43.0'], true], [$r['later'], $r['laterStays']]);
+    same('update notice: a newer version brings it back', [false, 'Updated to 1.44.0.ReloadLater'], [$r['newer']['hidden'] ?? null, $r['newer']['text'] ?? null]);
+    $js = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    check('update notice: setAgent() asks for it — every answer with the messenger', (bool) preg_match('/footer\(\);\n  updateNotice\(\);\n\};/', $js));
+    hardeningRm($tmp);
+}
+
+/**
  * The search (core.js «places and the search», src/api.php ?a=places): every desk lists its places with Office.places()
  * — run by node on a stand-in page (core.js and every desk.js; skipped where node is missing) — and its places.json the
  * same keys (the server sends only their words, in every language); every key, explanation and crumb in all five
@@ -17629,7 +17719,7 @@ function testPlgInstall(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
