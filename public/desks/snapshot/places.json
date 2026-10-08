@@ -1,19 +1,38 @@
-[
-  "disk_asleep",
-  "docker_layers",
-  "held",
-  "help.group",
-  "help.menu",
-  "help.name",
-  "help.scan",
-  "help.select",
-  "help.sources",
-  "help.tiles",
-  "mounted",
-  "partner.chip",
-  "plans",
-  "pool_asleep_chip",
-  "snapshots",
-  "storage",
-  "used_by_backup"
-]
+{
+  "keys": [
+    "disk_asleep",
+    "docker_layers",
+    "held",
+    "help.group",
+    "help.menu",
+    "help.name",
+    "help.scan",
+    "help.select",
+    "help.sources",
+    "help.tiles",
+    "mounted",
+    "partner.chip",
+    "plans",
+    "pool_asleep_chip",
+    "snapshots",
+    "storage",
+    "used_by_backup"
+  ],
+  "texts": [
+    "help.asleep",
+    "help.backup",
+    "help.docker",
+    "help.group_text",
+    "help.held",
+    "help.menu_text",
+    "help.mounted",
+    "help.name_text",
+    "help.partner",
+    "help.plans",
+    "help.pool_asleep",
+    "help.scan_text",
+    "help.select_text",
+    "help.sources_text",
+    "help.tiles_text"
+  ]
+}

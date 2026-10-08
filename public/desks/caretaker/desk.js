@@ -551,7 +551,7 @@ Office.places(ID, [
   { kind: 'section', key: 'notify_title' },
   { kind: 'section', key: 'partner.title' },
   { kind: 'section', key: 'done' },
-  { kind: 'section', key: 'noted' },
+  { kind: 'section', key: 'noted', shown: () => !state || groups().noted.length > 0 },     // drawn only with something put aside
   ...[['todo', 'help.todo'], ['advice', 'help.advice'], ['hints', 'help.hints'], ['ack', 'help.ack'], ['noted_term', 'help.noted'],
     ['missing', 'help.missing'], ['not_yet', 'help.not_yet'], ['unknown', 'help.unknown'], ['team', 'help.team'],
     ['supporter_term', 'help.supporter'], ['help.open', 'help.open_text'], ['check_again', 'help.again'], ['notify_title', 'help.notify'],
@@ -576,7 +576,10 @@ Office.placesFrom(ID, (s) => {
     out.push({ text: Office.t(`${id}.name`), sub: `${T('team')} · ${T(d.hired ? 'in_team' : x.ok ? 'could_come' : 'declined')}`, anchor: `staff:${id}` });
   }
   const p = s.partners || {};
-  (p.pairs || []).forEach((x) => out.push({ text: x.name, sub: T('partner.title'), anchor: `partner:${x.id}` }));
+  // a pair's card says which way the copies go: two pairs with the same partner (one each way) told apart by its words
+  const way = (x) => [x.sends ? T('partner.i_send', { host: Office.config.host }) : '', x.receive ? T('partner.i_keep', { host: Office.config.host }) : '']
+    .filter(Boolean).map((w) => w.replace(/[\s:：]+$/, '')).join(' · ');
+  (p.pairs || []).forEach((x) => out.push({ text: x.name, sub: [T('partner.title'), way(x)].filter(Boolean).join(' · '), anchor: `partner:${x.id}` }));
   (p.ticket_pairs || []).forEach((t) => out.push({ text: T('partner.t_card', { name: t.name, of: t.of }), sub: T('partner.title'), anchor: `ticket:${t.id}` }));
   (p.ticket_requests || []).forEach((q) => out.push({ text: T('partner.t_request', { id: q.id }), sub: T('partner.title'), anchor: `ticket:${q.id}` }));
   return out;

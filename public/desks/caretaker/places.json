@@ -1,19 +1,37 @@
-[
-  "ack",
-  "advice",
-  "check_again",
-  "done",
-  "help.open",
-  "hints",
-  "missing",
-  "not_yet",
-  "noted",
-  "noted_term",
-  "notify_title",
-  "office",
-  "partner.title",
-  "supporter_term",
-  "team",
-  "todo",
-  "unknown"
-]
+{
+  "keys": [
+    "ack",
+    "advice",
+    "check_again",
+    "done",
+    "help.open",
+    "hints",
+    "missing",
+    "not_yet",
+    "noted",
+    "noted_term",
+    "notify_title",
+    "office",
+    "partner.title",
+    "supporter_term",
+    "team",
+    "todo",
+    "unknown"
+  ],
+  "texts": [
+    "help.ack",
+    "help.advice",
+    "help.again",
+    "help.hints",
+    "help.missing",
+    "help.not_yet",
+    "help.noted",
+    "help.notify",
+    "help.open_text",
+    "help.supporter",
+    "help.team",
+    "help.todo",
+    "help.unknown",
+    "partner.help"
+  ]
+}

@@ -1,17 +1,30 @@
-[
-  "help.agent_title",
-  "help.dot_title",
-  "help.languages_title",
-  "help.office_title",
-  "help.order_title",
-  "help.search_title",
-  "help.security_title",
-  "help.start_title",
-  "help.theme_title",
-  "help.title",
-  "office.language",
-  "office.log",
-  "office.menu_title",
-  "office.order_change",
-  "office.reception"
-]
+{
+  "keys": [
+    "help.agent_title",
+    "help.dot_title",
+    "help.languages_title",
+    "help.office_title",
+    "help.order_title",
+    "help.search_title",
+    "help.security_title",
+    "help.start_title",
+    "help.theme_title",
+    "help.title",
+    "office.language",
+    "office.log",
+    "office.menu_title",
+    "office.order_change",
+    "office.reception"
+  ],
+  "texts": [
+    "help.agent_text",
+    "help.dot_text",
+    "help.languages_text",
+    "help.office_text",
+    "help.order_text",
+    "help.search_text",
+    "help.security_text",
+    "help.start_text",
+    "help.theme_text"
+  ]
+}

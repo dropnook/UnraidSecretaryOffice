@@ -14,6 +14,8 @@ declare(strict_types=1);
  * GET  ?a=strings&lang=<code>         all UI strings of a language
  * GET  ?a=places                      the words of the places the search finds (core.js), in every language — only the
  *                                     keys the desks list in places.json, nothing a request names (apiPlaceWords())
+ * GET  ?a=places&part=text            their texts (explanations, the Consultant's guide paragraphs) in English only — the
+ *                                     page has its own language's in the strings (apiPlaceTexts())
  * GET  ?a=log                         tail of the agent log
  * GET  ?a=dash&lang=<code>            the rows of the tile on Unraid's Dashboard (dashboard.php), in the browser's language
  * GET  ?a=agent                       the messenger alone (agentInfo(): the array stopped, the night shift)
@@ -46,7 +48,7 @@ function api_main(): void
                 'state'   => answerThenLook(apiState((string) ($_GET['desk'] ?? ''), apiLookMode($_GET))),
                 'part'    => answerThenLook(apiPart((string) ($_GET['desk'] ?? ''), (string) ($_GET['part'] ?? ''), apiLookMode($_GET))),
                 'strings' => apiStrings((string) ($_GET['lang'] ?? 'en')),
-                'places'  => apiPlaces(),
+                'places'  => apiPlaces((string) ($_GET['part'] ?? '')),
                 'log'     => answer(['ok' => true, 'lines' => apiLogTail(400)]),
                 'dash'    => apiDash((string) ($_GET['lang'] ?? '')),
                 'agent'   => answer(['ok' => true, 'agent' => agentInfo()]),
@@ -343,36 +345,89 @@ function apiStrings(string $code): never
  * The search's words (core.js «places and the search»): the page knows its places (Office.places() in each desk.js) and
  * the office's language; to find «Partn» in an English office it needs the other languages' words too — of those keys
  * only, not the whole strings ×5. The page asks once, on the first open of the search, with the strings' stamp and the
- * version in the URL (a day in the browser's cache, like the strings).
+ * version in the URL (a day in the browser's cache, like the strings). part=text: the places' texts (phase 3) — in five
+ * languages ≈ 166 KB gzip beside the words' 14 (measured 2026-10-08), so not with the words: English only (31 KB gzip),
+ * asked right after them by a page that speaks another language (its own language's texts are in its strings already).
  */
-function apiPlaces(): never
+function apiPlaces(string $part = ''): never
 {
     header('Cache-Control: public, max-age=86400');   // the URL carries the stamp and the version
+    if ($part === 'text') {
+        answer(['ok' => true, 'lang' => 'en', 'texts' => apiPlaceTexts()]);
+    }
     answer(['ok' => true, 'langs' => array_column(officeLanguages(), 'code'), 'words' => apiPlaceWords()]);
+}
+
+/**
+ * A places.json: {"keys": [the places' lang keys], "texts": [their texts' keys, a guide's paragraphs as '<prefix>.*']} —
+ * only well-formed keys (a list of the place keys alone is read as before)
+ *
+ * @return array{keys: list<string>, texts: list<string>}
+ */
+function apiPlaceList(string $file): array
+{
+    $j = officeReadJson($file) ?? [];
+    $ok = static fn (mixed $list, string $re): array => array_values(array_filter(is_array($list) ? $list : [],
+        static fn ($k): bool => is_string($k) && preg_match($re, $k) === 1));
+    $key = '/^[a-z0-9_]+(\.[a-z0-9_]+){0,5}$/D';
+    if (array_is_list($j)) {
+        return ['keys' => $ok($j, $key), 'texts' => []];
+    }
+    return ['keys' => $ok($j['keys'] ?? [], $key), 'texts' => $ok($j['texts'] ?? [], '/^[a-z0-9_]+(\.[a-z0-9_]+){0,5}(\.\*)?$/D')];
 }
 
 /**
  * The keys of the places: the office's (public/assets/places.json) and each desk's (public/desks/<id>/places.json, its
  * own keys like T('…'), as <id>.<key>) plus every desk's name — the lists tests/run.php keeps equal to the desks'
- * Office.places(). Only well-formed keys; nothing from the request.
+ * Office.places(). Only well-formed keys; nothing from the request. texts: their texts' keys instead.
  *
  * @return list<string>
  */
-function apiPlaceKeys(): array
+function apiPlaceKeys(bool $texts = false): array
 {
-    $list = static fn (string $file): array => array_values(array_filter(officeReadJson($file) ?? [],
-        static fn ($k): bool => is_string($k) && preg_match('/^[a-z0-9_]+(\.[a-z0-9_]+){0,5}$/D', $k) === 1));
+    $which = $texts ? 'texts' : 'keys';
     $keys = [];
-    foreach ($list(OFFICE_PUBLIC . '/assets/places.json') as $k) {
+    foreach (apiPlaceList(OFFICE_PUBLIC . '/assets/places.json')[$which] as $k) {
         $keys[$k] = true;
     }
     foreach (officeDesks() as $id => $_) {
-        $keys["$id.name"] = true;
-        foreach ($list(OFFICE_PUBLIC . "/desks/$id/places.json") as $k) {
+        if (!$texts) {
+            $keys["$id.name"] = true;
+        }
+        foreach (apiPlaceList(OFFICE_PUBLIC . "/desks/$id/places.json")[$which] as $k) {
             $keys["$id.$k"] = true;
         }
     }
     return array_keys($keys);
+}
+
+/**
+ * The places' texts in English: {<key>: text} — each text key the places.json files list, a guide's '<prefix>.*' as its
+ * paragraphs <prefix>.1, <prefix>.2 … as long as they exist; a plural's forms joined
+ *
+ * @return array<string, string>
+ */
+function apiPlaceTexts(): array
+{
+    $en = officeStrings('en');
+    $text = static fn (mixed $v): string => is_array($v) ? implode(' ', array_unique(array_filter($v, 'is_string'))) : (is_string($v) ? $v : '');
+    $out = [];
+    foreach (apiPlaceKeys(true) as $k) {
+        $keys = [$k];
+        if (str_ends_with($k, '.*')) {
+            $keys = [];
+            for ($i = 1, $p = substr($k, 0, -2); $i < 100 && isset($en["$p.$i"]); $i++) {
+                $keys[] = "$p.$i";
+            }
+        }
+        foreach ($keys as $one) {
+            $s = $text($en[$one] ?? null);
+            if ($s !== '') {
+                $out[$one] = $s;
+            }
+        }
+    }
+    return $out;
 }
 
 /**

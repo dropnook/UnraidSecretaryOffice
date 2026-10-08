@@ -3692,17 +3692,33 @@ Office.desk({
 // his places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys): the main
 // page, then the setup's steps and fixed settings (#/backup/setup) — the rows per share, app and VM are a later phase
 const SETUP = { route: '#/backup/setup', crumb: 'setup.page' };
+// what his pages draw only in some states (core.js shown, asked when the search looks; not known yet: listed): the main
+// page's sections once the engine is found (a run going on: «now» instead of the overview; drift only with something
+// drifted), the setup's start cards for a new server, the old Kopia sources, the settings its plan has (ZFS, btrfs,
+// libvirt, Kopia switched on)
+const mainShown = (f) => () => !state || (!!state.found && f());
+const planShown = (f) => () => !setup.plan || !setup.draft || !!f(setup.plan);
+const hasFs = (fs) => (p) => (p.bases || []).some((b) => b.fs === fs);
+const kopiaOn = () => dget('kopia|enabled') === 'yes';
+const SHOWN = {
+  now: mainShown(() => live()), overview: mainShown(() => !live()), protection: mainShown(() => true), history: mainShown(() => true),
+  drift: mainShown(() => ((state.drift && state.drift.items) || []).length > 0), restore: mainShown(() => true),
+  'setup.preset.title': planShown((p) => !p.have_settings),
+  'setup.sources': planShown((p) => ((p.kopia && p.kopia.sources) || []).some((x) => x.state === 'orphan' || x.state === 'gone')),
+  'setup.g_prefix': planShown(hasFs('zfs')), 'setup.g_zfs': planShown(hasFs('zfs')),
+  'setup.g_btrfs_free': planShown(hasFs('btrfs')), 'setup.g_btrfs_all': planShown(hasFs('btrfs')), 'setup.g_btrfs_days': planShown(hasFs('btrfs')),
+  'setup.g_libvirt': planShown((p) => !!p.P && p.P['libvirt|mode'] !== undefined),
+  'setup.p_compression': planShown(kopiaOn), 'setup.p_ignore': planShown(kopiaOn),
+};
+const PART = { 'setup.ds_label': 'setup.kopia', 'setup.g_flash': 'setup.kopia', 'setup.g_zfs': 'setup.retention', 'setup.g_btrfs_days': 'setup.retention' };
+const when = (key) => ({ ...(SHOWN[key] ? { shown: SHOWN[key] } : {}), ...(PART[key] || key.startsWith('setup.g_') || key.startsWith('setup.p_')
+  ? { part: PART[key] || 'setup.general' } : {}) });
 Office.places(ID, [
-  { kind: 'section', key: 'now' },
-  { kind: 'section', key: 'overview' },
-  { kind: 'section', key: 'protection' },
-  { kind: 'section', key: 'history' },
-  { kind: 'section', key: 'drift' },
-  { kind: 'section', key: 'restore' },
+  ...['now', 'overview', 'protection', 'history', 'drift', 'restore'].map((key) => ({ kind: 'section', key, ...when(key) })),
   ...['setup.preset.title', 'setup.kopia', 'setup.vms', 'setup.apps', 'setup.shares', 'setup.retention', 'setup.general', 'setup.sources',
-    'setup.messages'].map((key) => ({ kind: 'step', key, ...SETUP })),
+    'setup.messages'].map((key) => ({ kind: 'step', key, ...SETUP, ...when(key) })),
   ...['setup.ds_label', 'setup.g_flash', 'setup.g_prefix', 'setup.g_btrfs_free', 'setup.g_btrfs_all', 'setup.g_libvirt', 'setup.g_notify',
-    'setup.p_compression', 'setup.p_ignore', 'setup.g_zfs', 'setup.g_btrfs_days'].map((key) => ({ kind: 'setting', key, ...SETUP })),
+    'setup.p_compression', 'setup.p_ignore', 'setup.g_zfs', 'setup.g_btrfs_days'].map((key) => ({ kind: 'setting', key, ...SETUP, ...when(key) })),
   ...['run', 'results', 'protection', 'rules', 'vms', 'packages', 'items', 'waiting', 'buttons'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
   ...[['setup_open', 'help.setup'], ['history', 'help.history'], ['drift', 'help.drift'], ['restore', 'help.restore']]
     .map(([key, text]) => ({ kind: 'help', key, text })),

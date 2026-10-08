@@ -363,7 +363,7 @@ function howto(id, x) {
   det.appendChild(el('summary', '', T('howto')));
   const ol = el('ol', 'ad-steps');
   const params = { ...values, ip: serverIp() || '<server-ip>', dir: state.metrics_dir || '', media: state.media || 'Emby' };
-  for (let i = 1; Office.has(`${ID}.install.${id}.${i}`); i++) ol.appendChild(el('li', '', T(`install.${id}.${i}`, params)));
+  for (let i = 1; Office.has(`${ID}.install.${id}.${i}`); i++) ol.appendChild(Office.place(`install.${id}.${i}`, el('li', '', T(`install.${id}.${i}`, params))));
   det.appendChild(ol);
   const box = el('div', 'ad-copies');
   Object.entries(values).forEach(([key, value]) => {
@@ -398,9 +398,10 @@ const VGW_COPIES = {
   vgw_user: `${VGW_ADMIN} create-user --access <bucket key> --secret <bucket secret> --role user`,
   vgw_bucket: `${VGW_ADMIN} create-bucket --bucket <bucket> --owner <bucket key> --object-lock-enabled-for-bucket`,
 };
-/** A guide's paragraphs: the lang keys <prefix>.1, <prefix>.2 … as long as they exist */
+/** A guide's paragraphs: the lang keys <prefix>.1, <prefix>.2 … as long as they exist — each a place of its own (the
+    search lands on the sentence it met: his places' paras) */
 function paragraphs(box, prefix, params) {
-  for (let i = 1; Office.has(`${ID}.${prefix}.${i}`); i++) box.appendChild(el('p', 'ad-lock-p', T(`${prefix}.${i}`, params)));
+  for (let i = 1; Office.has(`${ID}.${prefix}.${i}`); i++) box.appendChild(Office.place(`${prefix}.${i}`, el('p', 'ad-lock-p', T(`${prefix}.${i}`, params))));
 }
 /** Command lines to copy, each labelled by copy.<prefix>.<key> */
 function copyLines(copies, prefix) {
@@ -510,7 +511,7 @@ function networkEntry(id, x) {
     const pools = ((sys && sys.pools) || []).concat(sys && sys.array_ssd ? [T('net.syslog.the_array')] : []);
     const fit = pools.length ? T('net.syslog.pools', { list: pools.join(', ') }) : T('net.syslog.pools_none');
     const ol = el('ol', 'ad-steps');
-    for (let i = 1; Office.has(`${ID}.net.syslog.${i}`); i++) ol.appendChild(el('li', '', T(`net.syslog.${i}`, { pools: fit })));
+    for (let i = 1; Office.has(`${ID}.net.syslog.${i}`); i++) ol.appendChild(Office.place(`net.syslog.${i}`, el('li', '', T(`net.syslog.${i}`, { pools: fit }))));
     guide.appendChild(ol);
     guide.appendChild(callout(T('net.syslog.private'), true));
   } else if (id === 'unifi') {
@@ -566,7 +567,7 @@ function dashboard() {
   const det = el('details', 'ad-howto');
   det.appendChild(el('summary', '', T(provisioned ? 'dashboard.howto_manual' : 'dashboard.howto')));
   const ol = el('ol', 'ad-steps');
-  for (let i = 1; Office.has(`${ID}.dashboard.${i}`); i++) ol.appendChild(el('li', '', T(`dashboard.${i}`, { dir: state.metrics_dir || '' })));
+  for (let i = 1; Office.has(`${ID}.dashboard.${i}`); i++) ol.appendChild(Office.place(`dashboard.${i}`, el('li', '', T(`dashboard.${i}`, { dir: state.metrics_dir || '' }))));
   det.appendChild(ol);
   const line = el('div', 'ad-copy');
   const b = el('button', 'btn small plain', Office.t('common.copy'));
@@ -1291,17 +1292,22 @@ Office.desk({
 });
 
 // his places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys): each
-// external with its guide, the guides inside Kopia's, the dashboard
+// external with its guide, the guides inside Kopia's, the dashboard — each guide found by its paragraphs too (paras: the
+// sentence met, marked by paragraphs() and the steps' lists); a group's section and the dashboard only while he shows them
+// (his state known: the groups he lists, the dashboard's address)
+const drawnGroup = (g) => () => !state || group(g).length > 0;
+const GUIDE_PARAS = { syslogserver: 'net.syslog', unifi: 'net.unifi', neighbours: 'net.neighbours' };
 Office.places(ID, [
   { kind: 'section', key: 'externals' },
-  { kind: 'section', key: 'monitoring' },
-  { kind: 'section', key: 'network' },
+  { kind: 'section', key: 'monitoring', shown: drawnGroup('monitoring') },
+  { kind: 'section', key: 'network', shown: drawnGroup('network') },
   ...Object.keys(EXTERNALS).map((id) => ({ kind: 'guide', key: `ext.${id}.name`, anchor: `ext.${id}`,
-    text: { syslogserver: 'net.syslog.what', unifi: 'net.unifi.what', neighbours: 'net.neighbours.what' }[id] || `ext.${id}.what` })),
-  { kind: 'guide', key: 'lock.title' },
-  { kind: 'guide', key: 'lock.vgw_title' },
-  { kind: 'guide', key: 'partner.title' },
-  { kind: 'guide', key: 'dashboard.name', text: 'dashboard.what' },
+    text: { syslogserver: 'net.syslog.what', unifi: 'net.unifi.what', neighbours: 'net.neighbours.what' }[id] || `ext.${id}.what`,
+    paras: GUIDE_PARAS[id] || `install.${id}`, shown: () => !state || !!(state.externals || {})[id] })),
+  { kind: 'guide', key: 'lock.title', paras: 'lock', part: 'ext.kopia' },
+  { kind: 'guide', key: 'lock.vgw_title', paras: 'lock.vgw', part: 'ext.kopia' },
+  { kind: 'guide', key: 'partner.title', paras: 'partner', part: 'ext.kopia' },
+  { kind: 'guide', key: 'dashboard.name', text: 'dashboard.what', paras: 'dashboard', shown: () => !state || !!state.dashboard, part: 'monitoring' },
   ...[['there', 'help.there'], ['missing', 'help.missing'], ['absent', 'help.absent'], ['later', 'help.later'], ['stopped', 'help.stopped'],
     ['textfile_yes', 'help.textfile'], ['by_me', 'help.by_me'], ['howto', 'help.howto'], ['help.do_term', 'help.do'], ['do.sheet', 'help.sheet'],
     ['look_again', 'help.again'], ['help.network', 'help.network_text']].map(([key, text]) => ({ kind: 'help', key, text })),

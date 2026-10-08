@@ -1,18 +1,33 @@
-[
-  "docker.title",
-  "help.counted",
-  "help.favorites",
-  "help.grouped",
-  "help.red",
-  "help.safe",
-  "help.since",
-  "help.source",
-  "help.space",
-  "live",
-  "only_problems",
-  "reading",
-  "tile.found",
-  "tour",
-  "tour_section",
-  "varlog.title"
-]
+{
+  "keys": [
+    "docker.title",
+    "help.counted",
+    "help.favorites",
+    "help.grouped",
+    "help.red",
+    "help.safe",
+    "help.since",
+    "help.source",
+    "help.space",
+    "live",
+    "only_problems",
+    "reading",
+    "tile.found",
+    "tour",
+    "tour_section",
+    "varlog.title"
+  ],
+  "texts": [
+    "help.colours",
+    "help.counted_text",
+    "help.favorites_text",
+    "help.grouped_text",
+    "help.live",
+    "help.only",
+    "help.safe_text",
+    "help.since_text",
+    "help.source_text",
+    "help.space_text",
+    "help.tour_text"
+  ]
+}
