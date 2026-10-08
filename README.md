@@ -27,8 +27,9 @@ plugin: no container, no account, no cloud of ours, nothing locked.
 | 💼 | **The Consultant** | Knows the tools the office relies on — Kopia, Fix Common Problems, Files Viewer, Prometheus, Grafana — and installs them with you through Unraid's own forms. Sets up the Kopia repository if you like, and prints a recovery sheet. |
 
 A fresh office has only the Team Lead. He looks at your server and suggests whom to hire (no Emby, no Jack Emby; no
-ZFS or btrfs, no Ms. Snapshotini). Hire whom you need, let them go later — their data and settings stay. *Change the
-order* at the reception puts the desks in the order you like.
+ZFS or btrfs, no Ms. Snapshotini). Hire whom you need, let them go later — their data and settings stay; Mr. Restori
+asks to come together with Mr. Backupsy, one button hires both. *Change the order* at the reception puts the desks in
+the order you like.
 
 ![Ms. Snapshotini's page](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/snapshot.png)
 
