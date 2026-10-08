@@ -210,6 +210,7 @@
   "errors.backup_running": "Es läuft schon eine Sicherung (oder das Einrichten).",
   "errors.backup_no_settings": "Noch ist nichts eingerichtet — zuerst «Einrichten…».",
   "errors.backup_not_running": "Es läuft gerade keine Sicherung.",
+  "errors.one_run_a_minute": "Eine Sicherung pro Minute: In dieser Minute lief schon eine (ihr Name und der der Snapshots tragen die Minute). In {seconds} s nochmals versuchen.",
   "errors.backup_no_process": "Die laufende Engine ist nicht zu finden.",
   "errors.backup_unmount_left": {
     "one": "{path} ist noch eingehängt.",

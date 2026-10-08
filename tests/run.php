@@ -82,6 +82,12 @@ date_default_timezone_set('Europe/Zurich');
 
 $GLOBALS['results'] = ['pass' => 0, 'fail' => []];
 
+/**
+ * The engine runs one run a minute (engine 2.34: a run whose log of this minute is there ends at once). A fixture that
+ * runs backup.sh again and again within a minute removes that minute's logs first — put right before `bash backup.sh`.
+ */
+const TESTS_ENGINE_MINUTE = 'm="$(date +%Y%m%d-%H%M)"; rm -f "$UB_DATA/logs/run-$m.log" "$UB_DATA/logs/check-$m.log" "$UB_DATA/logs/dryrun-$m.log"; ';
+
 function check(string $what, bool $ok, string $detail = ''): void
 {
     if ($ok) {
@@ -1934,7 +1940,7 @@ SH);
         }
         return $found;
     };
-    $run = fn (string $args = '') => (string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null") . ' 2>&1');
+    $run = fn (string $args = '') => (string) shell_exec('bash -c ' . escapeshellarg("$env; " . TESTS_ENGINE_MINUTE . "bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null") . ' 2>&1');
     $log = fn () => (string) @file_get_contents("$data/logs/latest.log");
     $status = fn () => json_decode((string) @file_get_contents("$data/state/status.json"), true) ?: [];
 
@@ -1993,7 +1999,7 @@ SH);
     // --- stopped while a VM goes down: the run waits until it is off and starts it again; nothing else was stopped
     $settings(['vmslow' => 'shutdown']);
     $night(['vmslow' => 'slow']);
-    $p = proc_open(['bash', '-c', "$env; exec bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' </dev/null >/dev/null 2>&1'], [], $pipes);
+    $p = proc_open(['bash', '-c', "$env; " . TESTS_ENGINE_MINUTE . "exec bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' </dev/null >/dev/null 2>&1'], [], $pipes);
     $pid = proc_get_status($p)['pid'];
     for ($i = 0; $i < 150 && !str_contains((string) @file_get_contents("$fake/events"), 'virsh shutdown vmslow'); $i++) {
         usleep(100000);
@@ -2255,7 +2261,7 @@ SH);
     };
     $run = function (string $args = '') use ($env): array {
         $t0 = microtime(true);
-        $out = (string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null; echo \"exit=\$?\"") . ' 2>&1');
+        $out = (string) shell_exec('bash -c ' . escapeshellarg("$env; " . TESTS_ENGINE_MINUTE . "bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null; echo \"exit=\$?\"") . ' 2>&1');
         preg_match('/exit=(\d+)\s*$/', $out, $m);
         return [(int) ($m[1] ?? -1), microtime(true) - $t0, $out];
     };
@@ -2601,7 +2607,7 @@ SH);
     for ($i = 0; $i < 50 && (json_decode((string) @file_get_contents("$data/state/lock-holder.json"), true)['mode'] ?? '') !== 'recover'; $i++) {
         usleep(100000);
     }
-    $chkP = $bg('UB_RECOVER_LOCK_WAIT=60; exec bash ' . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --check');
+    $chkP = $bg('UB_RECOVER_LOCK_WAIT=60; ' . TESTS_ENGINE_MINUTE . 'exec bash ' . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --check');
     usleep(1500000);
     $waiting = proc_get_status($chkP)['running'] && !is_file("$data/state/status.json") && !is_file("$data/state/skipped.json");
     @unlink("$fake/docker.down");
@@ -2802,7 +2808,7 @@ SH);
         @unlink("$data/state/status.json");
     };
     $run = function (string $args = '') use ($env): array {
-        $out = (string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null; echo \"exit=\$?\"") . ' 2>&1');
+        $out = (string) shell_exec('bash -c ' . escapeshellarg("$env; " . TESTS_ENGINE_MINUTE . "bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null; echo \"exit=\$?\"") . ' 2>&1');
         preg_match('/exit=(\d+)\s*$/', $out, $m);
         return [(int) ($m[1] ?? -1), $out];
     };
@@ -3052,7 +3058,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.33', [1, '2.33'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.34', [1, '2.34'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -3416,7 +3422,7 @@ SH);
         file_put_contents("$fake/disks.ini", $sleep === 'none' ? str_replace('spundown="1"', 'spundown="0"', $ini) : $ini);
     };
     $run = function (string $args = '') use ($env): array {
-        $out = (string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null; echo \"exit=\$?\"") . ' 2>&1');
+        $out = (string) shell_exec('bash -c ' . escapeshellarg("$env; " . TESTS_ENGINE_MINUTE . "bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null; echo \"exit=\$?\"") . ' 2>&1');
         preg_match('/exit=(\d+)\s*$/', $out, $mm);
         return [(int) ($mm[1] ?? -1), $out];
     };
@@ -3538,7 +3544,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.33', [1, '2.33'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.34', [1, '2.34'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -17371,12 +17377,65 @@ function testFlockShfs(): void
     hardeningRm($tmp);
 }
 
+/**
+ * One run a minute (QA 2026-10-08, finding 3): the run id, its log and the snapshots' name carry the minute — a second
+ * «Back up now» in the same minute failed («ZFS snapshot … failed») and left two history lines with one id. The office
+ * refuses it (backupMinuteTaken(): the last run's id, or this mode's log), and backup.sh itself ends right after taking
+ * the lock when its log is there already — an ERROR line, exit 1, nothing of that run touched (engine 2.34).
+ */
+function testBackupOneMinute(): void
+{
+    $tmp = hardeningTmp('minute');
+    $data = "$tmp/data";
+    @mkdir("$data/state", 0700, true);
+    @mkdir("$data/logs", 0700, true);
+    $now = mktime(1, 2, 40, 10, 8, 2026);
+    same('one a minute: nothing ran yet', null, backupMinuteTaken('backup', $data, $now));
+    file_put_contents("$data/state/status.json", json_encode(['run' => '20261008-0101', 'result' => 'ok']));
+    same('one a minute: the last run a minute before', null, backupMinuteTaken('backup', $data, $now));
+    file_put_contents("$data/state/status.json", json_encode(['run' => '20261008-0102', 'result' => 'ok']));
+    same('one a minute: the last run this minute — 20 s to wait', 20, backupMinuteTaken('backup', $data, $now));
+    same('one a minute: … whatever the mode', [20, 20, 20], [backupMinuteTaken('nokopia', $data, $now), backupMinuteTaken('dryrun', $data, $now), backupMinuteTaken('check', $data, $now)]);
+    file_put_contents("$data/state/status.json", json_encode(['run' => '20261008-0101', 'result' => 'ok']));
+    touch("$data/logs/check-20261008-0102.log");
+    same('one a minute: a check\'s log this minute — another check waits, a backup not', [20, null], [backupMinuteTaken('check', $data, $now), backupMinuteTaken('backup', $data, $now)]);
+    touch("$data/logs/run-20261008-0102.log");
+    same('one a minute: a run\'s log this minute', [20, 20, null], [backupMinuteTaken('backup', $data, $now), backupMinuteTaken('nokopia', $data, $now), backupMinuteTaken('dryrun', $data, $now)]);
+    $start = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    check('one a minute: backupStart() asks before it launches', ($a = strpos($start, "throw new Problem('one_run_a_minute'")) !== false && $a < strpos($start, 'backupLaunch(array_merge([$dir'));
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true);
+    check('one a minute: its words, with the seconds', str_contains($en['errors.one_run_a_minute'] ?? '', '{seconds}'));
+
+    // the engine: its log of this minute is there — the minute after too, should the clock turn meanwhile
+    $eng = "$tmp/eng";
+    @mkdir("$eng/state", 0700, true);
+    @mkdir("$eng/logs", 0700, true);
+    touch("$eng/state/lock", 1000);
+    foreach ([0, 60] as $ahead) {
+        foreach (['run', 'dryrun', 'check'] as $kind) {
+            touch("$eng/logs/$kind-" . date('Ymd-Hi', time() + $ahead) . '.log');
+        }
+    }
+    foreach (['backup' => [], 'dry run' => ['--dry-run'], 'check' => ['--check']] as $what => $args) {
+        $p = proc_open(array_merge(['bash', OFFICE_DIR . '/backup/backup.sh'], $args), [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['UB_DATA' => $eng, 'UB_NO_NOTIFY' => '1', 'PATH' => getenv('PATH'), 'OFFICE_RUN_DIR' => TESTS_RUN_DIR]);
+        $out = (string) stream_get_contents($pipes[1]);
+        $err = (string) stream_get_contents($pipes[2]);
+        $rc = proc_close($p);
+        check("one a minute: the engine's $what ends — exit 1, an ERROR line", $rc === 1 && str_contains($err, 'ERROR: a run of this minute was made already'), "rc $rc: $out $err");
+        clearstatcache();
+        same("one a minute: … nothing of the run touched ($what)", [false, false, false, false, 1000],
+            [is_file("$eng/state/status.json"), is_file("$eng/state/lock-holder.json"), is_link("$eng/logs/latest.log"), is_file("$eng/state/skipped.json"), filemtime("$eng/state/lock")]);
+    }
+    hardeningRm($tmp);
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testMigrate', 'testPlgGuard',
-                      'testFlockShfs'],
+                      'testFlockShfs', 'testBackupOneMinute'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

@@ -213,6 +213,7 @@
   "errors.backup_running": "Ya hay una copia (o la configuración) en curso.",
   "errors.backup_no_settings": "Todavía no hay nada configurado — usa primero «Configurar…».",
   "errors.backup_not_running": "No hay ninguna copia en curso.",
+  "errors.one_run_a_minute": "Una copia por minuto: ya empezó una en este minuto (su nombre y el de las instantáneas llevan el minuto). Vuelve a intentarlo en {seconds} s.",
   "errors.backup_no_process": "No se encuentra el motor en ejecución.",
   "errors.backup_unmount_left": {
     "one": "{path} sigue montado.",

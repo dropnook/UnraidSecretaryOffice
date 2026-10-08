@@ -213,6 +213,7 @@
   "errors.backup_running": "È già in corso un backup (o la configurazione).",
   "errors.backup_no_settings": "Non è ancora configurato niente — prima «Configura…».",
   "errors.backup_not_running": "Non è in corso nessun backup.",
+  "errors.one_run_a_minute": "Un backup al minuto: in questo minuto ne è già partito uno (il suo nome e quello degli snapshot portano il minuto). Riprova tra {seconds} s.",
   "errors.backup_no_process": "Non si trova il motore in esecuzione.",
   "errors.backup_unmount_left": {
     "one": "{path} è ancora montato.",

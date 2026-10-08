@@ -1713,6 +1713,9 @@ function backupStart(string $mode): array
     if (!is_file("$data/settings.ini")) {
         throw new Problem('backup_no_settings');
     }
+    if (($wait = backupMinuteTaken($mode, $data)) !== null) {
+        throw new Problem('one_run_a_minute', ['seconds' => $wait]);
+    }
     $before = (int) (readJson("$data/state/status.json")['started'] ?? 0);
     $skipBefore = readJson("$data/state/skipped.json");
     $t0 = time();
@@ -1737,6 +1740,23 @@ function backupStart(string $mode): array
         logLine("Backup: backup.sh ($mode) was skipped - $skipped[reason]");
     }
     return ['ok' => true, 'started' => $seen, 'skipped' => $skipped, 'state' => backupScan()];
+}
+
+/**
+ * One run a minute (QA 2026-10-08, finding 3): the engine's run id, its log and its snapshots' name carry the minute
+ * (`uso-backup-YYYYMMDD-HHMM`) — a second run in the same minute failed with «ZFS snapshot … failed» and left two
+ * history lines with one id. Taken: the last run (status.json, any mode) has the id the engine would take now, or the
+ * log this mode would write is there (backup.sh refuses then too, engine 2.34). The seconds until the next minute, or null.
+ */
+function backupMinuteTaken(string $mode, string $data, ?int $now = null): ?int
+{
+    $now ??= time();
+    $id = date('Ymd-Hi', $now);
+    $log = ['dryrun' => 'dryrun', 'check' => 'check'][$mode] ?? 'run';
+    if ((readJson("$data/state/status.json")['run'] ?? null) === $id || is_file("$data/logs/$log-$id.log")) {
+        return 60 - (int) date('s', $now);
+    }
+    return null;
 }
 
 /** SIGTERM to the running backup.sh — its trap cleans up (Kopia, containers, mounts) */

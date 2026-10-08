@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.33 - 2026-10-08
+# unraid-backup - backup.sh                       Version 2.34 - 2026-10-08
+#   2.34 One run a minute: a run whose log (run-|check-|dryrun-<minute>.log) is there already ends right after taking
+#        the lock with an ERROR line and exit 1, touching nothing - never a snapshot phase into an existing name.
 #   2.33 (setup.sh only: the backup place's share row in the plan takes the agreement of the unit `place`)
 #   2.32 (setup.sh only: the plan flags Unraid's syslog share every time - `syslog: true` per share)
 #   2.31 (setup.sh only: [general] preset_new, Mr. Backupsy's default for new things - a run accepts the key
@@ -2925,6 +2927,13 @@ elif [[ "$UB_MODE" == "recover" ]]; then
 else
     # a --recover holds the lock for seconds to minutes after an array start: wait for it rather than skip the night
     flock -n 9 || { recover_holds && flock -w "$UB_RECOVER_LOCK_WAIT" 9; } || skip_busy
+    # one run a minute (2.34): the run id, its log and the snapshots' name carry the minute - a second run in the same
+    # minute would share them (ZFS refuses the existing snapshot name: "failed", one id twice in history.jsonl). Its log
+    # is there already: nothing of that run is touched (lock, note, status.json, latest.log, snapshots), exit 1
+    if [[ -e "$LOG_FILE" ]]; then
+        echo "ERROR: a run of this minute was made already ($(basename "$LOG_FILE")) - one run a minute: try again in $(( 60 - 10#$(date +%S) )) s" >&2
+        exit 1
+    fi
     touch "$UB_STATE/lock"
     if [[ "$UB_MODE" == "check" ]]; then ST_MODE="check"
     elif [[ "$DRY" == "1" ]]; then ST_MODE="dryrun"

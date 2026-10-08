@@ -213,6 +213,7 @@
   "errors.backup_running": "Une sauvegarde (ou la configuration) est déjà en cours.",
   "errors.backup_no_settings": "Rien n'est encore configuré — utilise d'abord « Configurer… ».",
   "errors.backup_not_running": "Aucune sauvegarde n'est en cours.",
+  "errors.one_run_a_minute": "Une sauvegarde par minute : une a déjà démarré cette minute (son nom et celui des snapshots portent la minute). Réessaie dans {seconds} s.",
   "errors.backup_no_process": "Le moteur en cours est introuvable.",
   "errors.backup_unmount_left": {
     "one": "{path} est encore monté.",

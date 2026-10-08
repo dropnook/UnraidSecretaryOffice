@@ -210,6 +210,7 @@
   "errors.backup_running": "A run (or the setup) is already going on.",
   "errors.backup_no_settings": "Nothing is set up yet — use «Set up…» first.",
   "errors.backup_not_running": "No run is going on.",
+  "errors.one_run_a_minute": "One run a minute: a run already started this minute (its name and the snapshots' carry the minute). Try again in {seconds} s.",
   "errors.backup_no_process": "The running engine can't be found.",
   "errors.backup_unmount_left": {
     "one": "{path} is still mounted.",
