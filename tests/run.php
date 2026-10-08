@@ -16866,11 +16866,57 @@ function testMigrate(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/**
+ * The .plg refuses an update while one of the office's long jobs runs from the plugin folder outside the agent: a backup
+ * run or the setup (atd, cron), Mr. Restori's restore or drill, Jack Emby's EmbyCache or gather — one pgrep -f
+ * pattern; the agent, its night shift and the short jobs don't hold it up. pgrep matches POSIX EREs against the whole
+ * command line, as grep -E does here.
+ */
+function testPlgGuard(): void
+{
+    $plg = (string) file_get_contents(OFFICE_DIR . '/plugin/unraid-secretary-office.plg');
+    $line = preg_match('/^jobs="([^"\n]+)"$/m', $plg, $m) ? $m[1] : '';
+    check('plg guard: the pattern is one plain string, pgrep -f uses it', $line !== '' && str_contains($plg, 'pgrep -f "$jobs"'));
+    $dir = '/usr/local/emhttp/plugins/unraid-secretary-office';
+    $pattern = str_replace(['$dir', '\\$'], [$dir, '$'], $line);
+    $hit = function (string $cmd) use ($pattern): bool {
+        exec('printf "%s\n" ' . escapeshellarg($cmd) . ' | grep -qE ' . escapeshellarg($pattern), $o, $code);
+        return $code === 0;
+    };
+    $busy = [
+        "/bin/bash $dir/backup/backup.sh --check",                              // atd (backupLaunch)
+        "bash $dir/backup/backup.sh",                                           // cron (job.sh's exec)
+        "/bin/bash $dir/backup/backup.sh --recover",                            // agent.sh backup_recover
+        "/bin/bash $dir/backup/setup.sh --plan",
+        "/usr/bin/php $dir/agent/agent.php job restore 20261008-125107-32f9",   // hostLaunch (PHP_BINARY)
+        "/usr/bin/php $dir/agent/agent.php job restore-drill 20261008-011005-57db",
+        "/usr/bin/php $dir/agent/agent.php job gather run --office",
+        "php $dir/agent/agent.php job embycache",                               // cron (job.sh's exec)
+        "php $dir/agent/agent.php job gather",
+    ];
+    $free = [
+        "php $dir/agent/agent.php run",
+        "php $dir/agent/agent.php nightshift",
+        "php $dir/agent/agent.php job snapshot-plans",
+        "/usr/bin/php $dir/agent/agent.php job restore-partner-look",
+        "/usr/bin/php $dir/agent/agent.php job partner-ping",
+        "nice -n 10 /usr/bin/php $dir/agent/agent.php job logs-tour",
+        "bash $dir/scripts/agent.sh supervise",
+        "grep $dir/backup/backup.sh",
+        "/usr/bin/php /tmp/x/agent/agent.php job restore 1",
+        "bash /tmp/uso-upgrade/backup/backup.sh",
+    ];
+    same('plg guard: these hold the update up', array_fill(0, count($busy), true), array_map($hit, $busy));
+    same('plg guard: these don\'t', array_fill(0, count($free), false), array_map($hit, $free));
+    $guard = strpos($plg, 'pgrep -f "$jobs"');
+    check('plg guard: before the agent is stopped and the folder replaced', $guard !== false && $guard < strpos($plg, 'scripts/agent.sh" stop') && $guard < strpos($plg, 'rm -rf "$dir"'));
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testMigrate'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testMigrate', 'testPlgGuard'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
