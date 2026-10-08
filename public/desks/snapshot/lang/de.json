@@ -169,7 +169,7 @@
   "released_done": "Schutz von {name} aufgehoben",
   "keep.title": "Backup-Snapshot behalten",
   "keep.text1": "Dieser Snapshot gehört der Backup-Engine. Sie räumt ihn nach ihren Aufbewahrungsregeln irgendwann auf.",
-  "keep.text2": "Geschützt kann sie ihn nicht mehr löschen, versucht es aber jede Nacht wieder und schreibt jedes Mal einen Fehler in ihr Protokoll.",
+  "keep.text2": "Geschützt kann sie ihn nicht mehr löschen, versucht es aber bei jeder Sicherung wieder und schreibt jedes Mal einen Fehler in ihr Protokoll.",
   "keep.better_before": "Besser umbenennen, zum Beispiel in",
   "keep.better_after": "— dann lässt ihn die Engine still in Ruhe, und er bleibt, bis du ihn selbst löschst.",
   "keep.after_backup": "Umbenennen geht erst nach der laufenden Sicherung — solange ist er eingehängt.",

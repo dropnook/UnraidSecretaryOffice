@@ -169,7 +169,7 @@
   "released_done": "Protezione di {name} tolta",
   "keep.title": "Tenere uno snapshot del backup",
   "keep.text1": "Questo snapshot appartiene al motore di backup. Prima o poi lo eliminerà secondo le sue regole di conservazione.",
-  "keep.text2": "Se è protetto il motore non può eliminarlo — ma ci riproverà ogni notte e ogni volta scriverà un errore nel suo log.",
+  "keep.text2": "Se è protetto il motore non può eliminarlo — ma ci riproverà a ogni backup e ogni volta scriverà un errore nel suo log.",
   "keep.better_before": "Meglio rinominarlo, per esempio in",
   "keep.better_after": "— così il motore lo lascia stare in silenzio, e resta finché non lo elimini tu.",
   "keep.after_backup": "Si può rinominare solo dopo il backup in corso — fino ad allora è montato.",

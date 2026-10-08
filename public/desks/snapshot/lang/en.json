@@ -169,7 +169,7 @@
   "released_done": "Hold on {name} released",
   "keep.title": "Keep a backup snapshot",
   "keep.text1": "This snapshot belongs to the backup engine. It will clean it up some day according to its retention rules.",
-  "keep.text2": "Held, the engine can't delete it — but it will try again every night and log an error each time.",
+  "keep.text2": "Held, the engine can't delete it — but it will try again with every backup and log an error each time.",
   "keep.better_before": "Better rename it, for example to",
   "keep.better_after": "— then the engine quietly leaves it alone, and it stays until you delete it yourself.",
   "keep.after_backup": "Renaming has to wait until the running backup is done — it is mounted until then.",

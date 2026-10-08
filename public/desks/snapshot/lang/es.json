@@ -169,7 +169,7 @@
   "released_done": "Protección de {name} quitada",
   "keep.title": "Conservar una instantánea de la copia de seguridad",
   "keep.text1": "Esta instantánea pertenece al motor de copias. Algún día la limpiará según sus reglas de retención.",
-  "keep.text2": "Protegida, el motor no puede borrarla — pero lo volverá a intentar cada noche y anotará un error cada vez.",
+  "keep.text2": "Protegida, el motor no puede borrarla — pero lo volverá a intentar en cada copia y anotará un error cada vez.",
   "keep.better_before": "Mejor renómbrala, por ejemplo a",
   "keep.better_after": "— así el motor la deja en paz sin decir nada, y se queda hasta que la borres tú.",
   "keep.after_backup": "El renombrado tiene que esperar a que termine la copia de seguridad en curso — hasta entonces está montada.",

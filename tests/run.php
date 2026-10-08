@@ -8178,7 +8178,7 @@ function testNotify(): void
     same('notify: subject in Unraid\'s language', 'Unraid Secretary Office: Etwas Neues zu erledigen', $c[0]['-s'] ?? null);
     same('notify: event as the engine\'s', 'Unraid Secretary Office', $c[0]['-e'] ?? null);
     same('notify: a warning', 'warning', $c[0]['-i'] ?? null);
-    check('notify: what is missing in the bell', str_contains($c[0]['-d'] ?? '', 'Herr Backupsi — Eine nächtliche Sicherung ist geplant'), $c[0]['-d'] ?? '');
+    check('notify: what is missing in the bell', str_contains($c[0]['-d'] ?? '', 'Herr Backupsi — Eine Sicherung ist geplant'), $c[0]['-d'] ?? '');
     check('notify: long text with what to do, lines as Unraid\'s \n', str_contains($c[0]['-m'] ?? '', 'Herr Backupsi → Zeitplan')
         && str_contains($c[0]['-m'] ?? '', '\n') && !str_contains($c[0]['-m'] ?? '', "\n"), $c[0]['-m'] ?? '');
     $page = caretakerNotifyPublic(readJson($file) ?? []);

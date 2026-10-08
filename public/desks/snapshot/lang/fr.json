@@ -169,7 +169,7 @@
   "released_done": "Protection de {name} levée",
   "keep.title": "Garder un snapshot de sauvegarde",
   "keep.text1": "Ce snapshot appartient au moteur de sauvegarde. Il le nettoiera un jour selon ses règles de rétention.",
-  "keep.text2": "Protégé, le moteur ne peut pas le supprimer — mais il réessaiera chaque nuit et notera une erreur à chaque fois.",
+  "keep.text2": "Protégé, le moteur ne peut pas le supprimer — mais il réessaiera à chaque sauvegarde et notera une erreur à chaque fois.",
   "keep.better_before": "Mieux vaut le renommer, par exemple en",
   "keep.better_after": "— alors le moteur le laisse tranquille sans rien dire, et il reste jusqu'à ce que tu le supprimes toi-même.",
   "keep.after_backup": "Le renommage doit attendre la fin de la sauvegarde en cours — il reste monté jusque-là.",
