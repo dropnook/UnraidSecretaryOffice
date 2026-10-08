@@ -8193,7 +8193,7 @@ function testNotify(): void
     $c = $calls();
     same('notify: back and a second one — one notification', 2, count($c));
     same('notify: both in it (English)', 'Unraid Secretary Office: 2 new things to do', $c[1]['-s'] ?? null);
-    check('notify: both listed', str_contains($c[1]['-d'] ?? '', 'Mr. Backupsy — A nightly backup is scheduled')
+    check('notify: both listed', str_contains($c[1]['-d'] ?? '', 'Mr. Backupsy — A backup is scheduled')
         && str_contains($c[1]['-d'] ?? '', 'Jack Emby — Python 3'), $c[1]['-d'] ?? '');
     $data = readJson($file) ?? [];
     $data['on'] = false;
