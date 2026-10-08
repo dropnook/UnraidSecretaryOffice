@@ -1717,6 +1717,61 @@ SH);
     $sh3 = array_column($plan['shares'] ?? [], null, 'name');
     same('setup plan: the share Unraid\'s syslog server writes into — proposed not backed up (why syslog)', ['off', 'syslog'],
         [$plan['P']['share|syslog|mode'] ?? null, $sh3['syslog']['why'] ?? null], $out);
+
+    // --- engine 2.31: [general] preset_new, Mr. Backupsy's default for new things - kept, carried by the plan, never acted on
+    $pnLine = fn (string $ini) => preg_match('/\[general\][^\[]*\npreset_new = ([a-z]+)\n/', $ini, $mm) ? $mm[1] : null;
+    $pnPending = fn (array $plan) => array_values(array_filter($plan['pending'] ?? [], fn ($p) => str_contains($p['line'] ?? '', 'preset_new')));
+    $pnApply = function (?string $value) use ($tmp, $data, $setup): string {
+        $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+        $dec = $plan['P'] ?? [];
+        if ($value === null) {
+            unset($dec['general|preset_new']);
+        } else {
+            $dec['general|preset_new'] = $value;
+        }
+        file_put_contents("$tmp/dec.json", json_encode($dec + ['_retire_sources' => 'no']));
+        return $setup("--apply=$tmp/dec.json");
+    };
+    same('preset_new: a settings.ini without the key - the plan carries auto (top level and P), nothing pending', ['auto', 'auto', []],
+        [$plan['preset_new'] ?? null, $plan['P']['general|preset_new'] ?? null, $pnPending($plan)]);
+    $pnApply('auto');
+    $ini = (string) @file_get_contents("$data/settings.ini");
+    same('preset_new: auto on a settings.ini without the key - no line (nothing changes for an install that never chose)', [null, false],
+        [$pnLine($ini), str_contains($ini, 'preset_new =')]);
+    $setup('--plan');
+    $out = $pnApply('local');
+    $ini = (string) @file_get_contents("$data/settings.ini");
+    same('preset_new: the decision local written under [general]', 'local', $pnLine($ini), $ini . $out);
+    same('preset_new: the settings written load without errors (the run accepts the key)', '0', $sh("cfg_load $data/settings.ini; cfg_validate >/dev/null; echo \${#CFG_ERRORS[@]}"));
+    $setup('--plan');
+    $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    same('preset_new: the next plan carries it, nothing pending for it', ['local', 'local', []],
+        [$plan['preset_new'] ?? null, $plan['P']['general|preset_new'] ?? null, $pnPending($plan)]);
+    $pnApply('kopia');
+    same('preset_new: kopia written', 'kopia', $pnLine((string) @file_get_contents("$data/settings.ini")));
+    $setup('--plan');
+    $pnApply(null);
+    same('preset_new: decisions without the key keep the one settings.ini has', 'kopia', $pnLine((string) @file_get_contents("$data/settings.ini")));
+    $setup('--plan');
+    $pnApply('auto');
+    same('preset_new: auto once settings.ini had the key - written as auto', 'auto', $pnLine((string) @file_get_contents("$data/settings.ini")));
+    // by hand: a value it doesn't know - the run refuses the file (like any bad value), the setup takes it as auto and says so
+    file_put_contents("$data/settings.ini", preg_replace('/\npreset_new = auto\n/', "\npreset_new = maybe\n", (string) file_get_contents("$data/settings.ini")));
+    $bad = $sh("cfg_load $data/settings.ini; cfg_validate >/dev/null; printf '%s' \"\${CFG_ERRORS[*]}\"");
+    check('preset_new: settings.ini takes auto, local or kopia only', str_contains($bad, "preset_new = 'maybe' is invalid (auto/local/kopia)"), $bad);
+    $out = $setup('--plan');
+    $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    $warned = array_filter($plan['messages'] ?? [], fn ($m) => ($m['level'] ?? '') === 'warn' && str_contains($m['text'] ?? '', "preset_new = 'maybe' is not auto, local or kopia"));
+    same('preset_new: a value it doesn\'t know - auto in the plan, with a warning', ['auto', 'auto', true], [$plan['preset_new'] ?? null, $plan['P']['general|preset_new'] ?? null, (bool) $warned], $out);
+    $pnApply('local');
+    // --forget: settings.ini goes aside with the key in it - the next setup starts as on a new server (auto)
+    $out = $setup('--forget --yes');
+    $reset = glob("$data/state/reset-*/settings.ini") ?: [];
+    same('preset_new: --forget puts it aside with settings.ini', [false, 'local'],
+        [file_exists("$data/settings.ini"), $reset ? $pnLine((string) file_get_contents(end($reset))) : null], $out);
+    $setup('--plan');
+    $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    same('preset_new: after --forget the plan is a new server\'s - auto', [false, 'auto', 'auto'], [$plan['have_settings'] ?? null, $plan['preset_new'] ?? null, $plan['P']['general|preset_new'] ?? null]);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -2993,7 +3048,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.30', [1, '2.30'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.31', [1, '2.31'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -3462,7 +3517,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.30', [1, '2.30'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.31', [1, '2.31'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
