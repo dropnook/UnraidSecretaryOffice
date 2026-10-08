@@ -4283,13 +4283,16 @@ JS;
 }
 
 /**
- * «Where to start» (Benj, 2026-10-07): the setup's three starts under node - «auto» is the plan as today, «local»
- * every share, app and VM local with Kopia off, «kopia» all of them local + Kopia; what the engine never backs up on
- * its own stays as the plan says (the system share, Kopia's own folder, Time Machine targets, drift.ignore, a VM it
- * can't snapshot), media servers keep running, an app that ran only because nothing of it was backed up is held as
- * the engine proposes, the user's Kopia ignore rules stay; a row changed by hand marks the draft; a new plan keeps the
- * start for what was there and the user's changes, and what came later stays local and running; the first upload
- * to Kopia with its sizes; whether «local + Kopia» can start at all. Plus: every text a start asks for exists.
+ * The default (Benj, 2026-10-07/08; engine 2.31 [general] preset_new): the setup's three defaults under node - «auto» is
+ * the plan as today, «local» every share, app and VM local with Kopia off, «kopia» all of them local + Kopia; what the
+ * engine never backs up on its own stays as the plan says (the system share, Kopia's own folder, Time Machine targets,
+ * drift.ignore, a VM it can't snapshot), media servers keep running, an app that ran only because nothing of it was
+ * backed up is held as the engine proposes, the user's Kopia ignore rules stay; a row changed by hand marks the draft;
+ * a new plan keeps the default for what was there and the user's changes, and what came later gets the default; the
+ * first upload to Kopia with its sizes; whether «local + Kopia» can start at all. Then the default for new things: what
+ * is new (setupNewItems), the stored default on new apps, VMs, shares and folders only - the rest exactly as without
+ * it -, big and unknown new shares left to the user under «kopia», Kopia off, «only what is new» and «everything» chosen
+ * on the page, a re-plan, an engine without the key. Plus: every text a default asks for exists.
  */
 function testBackupPresets(): void
 {
@@ -4300,9 +4303,18 @@ function testBackupPresets(): void
     preg_match("/const PRESET_KEEP = \\[([^\\]]*)\\]/", $js, $m);
     $keeps = preg_match_all("/'([a-z_]+)'/", $m[1] ?? '', $k) ? [...$k[1], 'vm_cannot'] : [];
     same('presets: the three starts', ['auto', 'local', 'kopia'], $kinds);
+    // one scope: a function declared twice is silently the second one (the run's firstUpload() was the setup's up to 1.38.0)
+    preg_match_all('/^(?:async )?function (\w+)\(/m', $js, $fm);
+    same('desk.js: no function declared twice', [], array_values(array_unique(array_diff_assoc($fm[1], array_unique($fm[1])))));
     $want = [...array_map(fn ($x) => "setup.preset.$x", $kinds), 'setup.preset.auto_new', 'setup.preset.auto_have', 'setup.preset.local_text',
         'setup.preset.kopia_text', 'setup.preset.replace', 'setup.preset.replace_new', 'setup.preset.kopia_time', 'setup.preset.kopia_time_least',
-        'setup.preset.kopia_vms', 'setup.vm_upload', 'setup.vm_upload_hint', ...array_map(fn ($x) => "setup.preset.keep.$x", $keeps)];
+        'setup.preset.kopia_vms', 'setup.vm_upload', 'setup.vm_upload_hint', ...array_map(fn ($x) => "setup.preset.keep.$x", $keeps),
+        // the default for new things (engine 2.31): its scope, its line, the chips on new rows, the dialogs
+        'setup.preset.local_new_text', 'setup.preset.kopia_new_text', 'setup.preset.scope_all', 'setup.preset.scope_all_hint', 'setup.preset.scope_new',
+        'setup.preset.scope_new_hint', 'setup.preset.line', 'setup.preset.line_auto', 'setup.preset.change', 'setup.preset.kopia_off_new', 'setup.preset.kopia_new_none',
+        'setup.preset.new_sub', 'setup.preset.done', 'setup.preset.done_new', 'setup.new_chip', 'setup.new_chip_hint', 'setup.new_chip_preset', 'setup.new_chip_hint_local',
+        'setup.new_chip_hint_kopia', 'setup.new_ask_hint', 'setup.new_big', 'setup.new_size_unknown', 'setup.new_share', 'setup.apply_new_default',
+        'setup.key.general_preset_new', 'setup.forget_default'];
     same('presets: every name, text and reason a start asks for exists', [], array_values(array_filter($want, fn ($x) => !isset($en[$x]))));
 
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
@@ -4498,9 +4510,9 @@ JS;
     same('presets: what every start leaves as it is', ['setup.preset.keep.system {"name":"system"}', 'setup.preset.keep.kopia_workdir {"name":"kopia_tmp"}',
         'setup.preset.keep.timemachine {"name":"tm_janine"}', 'setup.preset.keep.timemachine {"name":"Backups_TimeMachine"}',
         'setup.preset.keep.drift_ignore {"name":"scratch"}', 'setup.preset.keep.vm_cannot {"name":"vm2"}'], $r['kept']);
-    same('presets: a new plan - the start stays for what was there, the change by hand stays, what came later stays local and running',
-        ['levels' => [1, 2, 1, 2], 'held' => 'run', 'later' => null, 'changed' => true], $r['replan']);
-    same('presets: «Discard» goes back to the start (not to my proposal), the newcomer still local', [2, 1, false], $r['discard']);
+    same('presets: a new plan - the default stays for what was there, the change by hand stays, what came later gets the default (local + Kopia, stopped like any)',
+        ['levels' => [1, 2, 2, 2], 'held' => 'stop', 'later' => 'yes', 'changed' => true], $r['replan']);
+    same('presets: «Discard» goes back to the default (not to my proposal), the newcomer with it', [2, 2, false], $r['discard']);
     same('presets: without a start the plan as it is again', ['yes', 2, 0, 'off'], $r['forgot']);
     same('presets: can «local + Kopia» start - yes; no container; Kopia off so far (not looked at); not connected; «no share yet» is no problem for it', [
         ['ok' => true, 'why' => null], ['ok' => false, 'why' => 'none'], ['ok' => true, 'why' => 'unchecked'], ['ok' => true, 'why' => 'problem', 'problem' => 'no_repo'],
@@ -4510,6 +4522,174 @@ JS;
         ['kopia', 'kopia', 'off', 'stop', 2, 'snapshot', ['bytes' => (100 + 1 + 3000) * 1073741824, 'shares' => ['appdata', 'UnraidSecretaryOffice', 'Filme'], 'unknown' => [],
          'vms' => [], 'vm_bytes' => 0, 'vm_used' => 0]], $r['freshKopia']);
     same('presets: a new server, «local only»', ['no', 'snapshot', 'snapshot', 'off', 'stop'], $r['freshLocal']);
+
+    // ---- the default for new things (engine 2.31): the plan carries preset_new; new since the last setup: the app newapp
+    // (its container not known), the VM vmnew (no section), the shares fresh, huge (big) and unk (size unknown) - none in
+    // settings.ini -, the folder loose; a share renamed (its settings carried over) is not new
+    $news = $plan;
+    $news['preset_new'] = 'auto';
+    $news['P']['general|preset_new'] = 'auto';
+    $news['O'] += ['share|kopia_tmp|mode' => 'off', 'share|tm_janine|mode' => 'off', 'share|Backups_TimeMachine|mode' => 'off', 'share|scratch|mode' => 'off',
+        'share|old_name|mode' => 'snapshot'];
+    $news['vms'][] = ['name' => 'vmnew', 'why' => 'new', 'agent' => 'yes', 'snap' => 'yes', 'own' => ['master/domains/vmnew'],
+        'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/vmnew/vdisk1.img']], 'bytes' => 10000000000, 'apparent' => 10000000000];
+    $news['P'] += ['vm|vmnew|mode' => 'snapshot', 'vm|vmnew|prepare' => 'none', 'share|fresh|mode' => 'kopia', 'share|huge|mode' => 'off', 'share|unk|mode' => 'snapshot',
+        'share|renamed|mode' => 'snapshot'];
+    $news['shares'][] = $sh('fresh', 50, ['why' => 'new']);
+    $news['shares'][] = $sh('huge', 2000, ['why' => 'big', 'why_arg' => '2000']);
+    $news['shares'][] = $sh('unk', null, ['why' => 'size_unknown', 'method' => 'live']);
+    $news['shares'][] = $sh('renamed', 5, ['why' => 'renamed_from', 'why_arg' => 'old_name']);
+    $stored = function (string $kind, array $more = []) use ($news): array {
+        $p = array_replace_recursive($news, $more);
+        $p['preset_new'] = $kind;
+        $p['P']['general|preset_new'] = $kind;
+        return $p;
+    };
+    // a new plan later under the stored default: one more container came, and one of the user's hand changes waits
+    $newsLater = $stored('kopia');
+    $newsLater['time'] = 3000;
+    $newsLater['containers'][] = $ct('late2', 'new', ['appdata/late2'], ['previous' => false]);
+    $newsLater['P']['docker|no_stop'][] = 'late2';
+    $newsLater['shares'][0]['folders'][] = ['dir' => 'late2', 'container' => 'late2'];
+    $old = $stored('kopia');
+    unset($old['preset_new'], $old['P']['general|preset_new']);          // a plan from engine 2.30: no key
+    foreach (['news' => $news, 'kopia' => $stored('kopia'), 'local' => $stored('local'), 'kopiaoff' => $stored('kopia', ['P' => ['kopia|enabled' => 'no'], 'O' => ['kopia|enabled' => 'no']]),
+              'later' => $newsLater, 'old' => $old] as $f => $p) {
+        file_put_contents("$tmp/n-$f.json", json_encode($p));
+    }
+    $test2 = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now', duration: (s) => Math.round(s) + ' s' },
+  desk: () => {}, selbar: () => {}, has: () => false };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const S = b.setup;
+const dir = process.argv[3];
+const load = (f) => { S.plan = JSON.parse(fs.readFileSync(`${dir}/n-${f}.json`, 'utf8')); b.presetForget(); b.setupDraftFromPlan(); };
+const NEWK = /newapp|vmnew|\|fresh\||\|huge\||\|unk\||general\|preset_new/;
+// what the draft says about what was there before (everything but the new things and what follows from them)
+const old = () => {
+  const d = {};
+  Object.keys(S.draft).sort().forEach((k) => { if (!NEWK.test(k) && !/^share\|(appdata|domains)\|kopia_(ignore|known)$|^docker\|(no_stop|skip)$|^share\|domains\|mode$/.test(k)) d[k] = S.draft[k]; });
+  const lv = {}; Object.keys(S.levels).sort().forEach((k) => { if (!NEWK.test(k)) lv[k] = S.levels[k]; });
+  const held = {}; Object.keys(S.held).sort().forEach((k) => { if (!NEWK.test(k)) held[k] = S.held[k]; });
+  return JSON.stringify({ d, lv, held, ign: (S.draft['share|appdata|kopia_ignore'] || []).filter((x) => x !== '/loose/' && x !== '/newapp/'),
+    known: (S.draft['share|appdata|kopia_known'] || []).filter((x) => x !== '/loose/'),
+    noStop: (S.draft['docker|no_stop'] || []).filter((x) => x !== 'newapp').sort() });
+};
+const look = () => ({
+  levels: [S.levels['app:ct:newapp'], S.levels['vm:vmnew']], held: S.held['ct:newapp'] ?? null, noStop: (S.draft['docker|no_stop'] || []).includes('newapp'),
+  items: [S.draft['app|newapp|kopia'] ?? null, S.draft['vm|vmnew|kopia'] ?? null], prepare: S.draft['vm|vmnew|prepare'] ?? null,
+  modes: ['fresh', 'huge', 'unk', 'renamed', 'domains'].map((n) => S.draft[`share|${n}|mode`] ?? null),
+  loose: (S.draft['share|appdata|kopia_known'] || []).includes('/loose/') ? 'kopia' : (S.draft['share|appdata|kopia_ignore'] || []).includes('/loose/') ? 'local' : null,
+  kopia: S.draft['kopia|enabled'], key: S.draft['general|preset_new'] ?? null, now: b.presetNow(), changed: b.presetChanged(), chosen: b.presetChosen(), start: b.presetStartText(),
+});
+const out = {};
+load('news');
+out.items = [...b.setupNewItems(S.plan, b.setupSaved())].sort();
+out.itemsFresh = [...b.setupNewItems({ ...S.plan, have_settings: false }, {})];
+out.auto = look();
+const plain = old();
+out.autoLines = b.setupNewLines();
+load('kopia');
+out.kopia = look();
+out.kopiaOld = old() === plain;
+out.kopiaLines = b.setupNewLines();
+out.kopiaUpload = b.firstUpload(b.draftMode, b.draftVm);
+load('local');
+out.local = look();
+out.localOld = old() === plain;
+load('kopiaoff');
+out.kopiaOff = look();
+// on the page: «only to what is new» on a plan whose default is auto - a hand change stays, the existing rows as they are
+load('news');
+S.levels['app:ct:c2'] = 0;
+b.setupDerive();
+const edited = old();
+const card = b.firstUpload(b.presetNewMode, b.presetNewVm);          // what the card says before it is chosen
+b.presetChoose('kopia', true);
+out.newOnly = look();
+out.newOnlyOld = old() === edited;
+out.newOnlyHand = S.levels['app:ct:c2'];
+out.newOnlyUpload = [card, b.firstUpload(b.draftMode, b.draftVm)];
+b.setupDraftFromPlan();                         // «Discard»: back to the default chosen, the hand change goes
+out.newOnlyDiscard = [S.levels['app:ct:c2'], S.levels['app:ct:newapp'], S.draft['general|preset_new'], b.presetChanged()];
+b.presetChoose('local', true);
+out.newOnlyLocal = look();
+out.newOnlyLocalOld = old() === plain;
+// «apply to everything now»: today's start on every row, the key set too - the big new share along (it was there when chosen)
+load('news');
+b.presetChoose('kopia', false);
+out.all = look();
+out.allApps = [S.levels['app:ct:c1'], S.levels['app:ct:skipme'], S.draft['share|Filme|mode']];
+// a re-plan under the stored default: the newcomer gets it, the user's hand change on a new row stays
+load('kopia');
+S.levels['app:ct:newapp'] = 1;
+b.setupDerive();
+S.plan = JSON.parse(fs.readFileSync(`${dir}/n-later.json`, 'utf8'));
+b.setupDraftKeep();
+out.replan = [S.levels['app:ct:late2'], S.held['ct:late2'], S.draft['app|late2|kopia'] ?? null, S.levels['app:ct:newapp'], b.presetChanged()];
+// a plan from engine 2.30 (no key): the choice works on the draft, no key goes to Apply
+load('old');
+out.oldAuto = [b.presetNow(), S.levels['app:ct:newapp']];
+b.presetChoose('kopia', true);
+out.oldChosen = ['general|preset_new' in S.draft, S.levels['app:ct:newapp'], b.presetNow()];
+console.log(JSON.stringify(out));
+JS;
+    file_put_contents("$tmp/t2.js", $test2);
+    $cmd = escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t2.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' ' . escapeshellarg($tmp) . ' 2>&1';
+    $n = json_decode((string) shell_exec($cmd), true);
+    if (!is_array($n)) {
+        check('presets: the default for new things ran under node', false, (string) shell_exec($cmd));
+        hardeningRm($tmp);
+        return;
+    }
+    same('default: what is new - the app with only new containers, the VM without a section, the shares settings.ini lacks (not the renamed one), the waiting folder',
+        ['app:ct:newapp', 'share:fresh', 'share:huge', 'share:unk', 'vm:vmnew', 'wait:appdata/loose'], $n['items']);
+    same('default: a new server has nothing new (everything is - the default chosen there covers it)', [], $n['itemsFresh']);
+    same('default: auto - my proposals, nothing forced: the new app local and running, the new VM local and not held, the new share as the engine proposes, the folder only local',
+        ['levels' => [1, 1], 'held' => 'run', 'noStop' => true, 'items' => [null, null], 'prepare' => 'none', 'modes' => ['kopia', 'off', 'snapshot', 'snapshot', 'snapshot'],
+         'loose' => 'local', 'kopia' => 'yes', 'key' => 'auto', 'now' => 'auto', 'changed' => false, 'chosen' => false, 'start' => ''], $n['auto']);
+    same('default: kopia stored - the new app and VM local + Kopia (sources of their own, stopped / frozen like any), the new share to Kopia, the big and the unknown one as the plan says, '
+        . 'the folder to Kopia, the new VM\'s share follows as a click on its row would; nothing «changed by you», but mine no longer: changes',
+        ['levels' => [2, 2], 'held' => 'stop', 'noStop' => false, 'items' => ['yes', 'yes'], 'prepare' => 'freeze', 'modes' => ['kopia', 'off', 'snapshot', 'snapshot', 'kopia'],
+         'loose' => 'kopia', 'kopia' => 'yes', 'key' => 'kopia', 'now' => 'kopia', 'changed' => false, 'chosen' => true,
+         'start' => 'setup.preset.new_sub {"name":"setup.preset.kopia"}'], $n['kopia']);
+    check('default: kopia stored - everything that was there before exactly as without a default', $n['kopiaOld']);
+    $lines = array_column($n['kopiaLines'], 1, 0);
+    same('default: the apply dialog\'s «New» names the new shares too, with their mode', ['setup.mode.kopia', 'setup.mode.off', 'setup.mode.snapshot'],
+        [$lines['setup.new_share {"name":"fresh"}'] ?? null, $lines['setup.new_share {"name":"huge"}'] ?? null, $lines['setup.new_share {"name":"unk"}'] ?? null]);
+    same('default: kopia stored - the first upload counts the new share, the new VM\'s share and the new VM - not the VMs there that stay local (left out), not the big share',
+        [['domains', 'fresh'], ['vmnew']], [$n['kopiaUpload']['shares'], $n['kopiaUpload']['vms']]);
+    same('default: local stored - the new app local and stopped for the snapshot (it writes into a backed-up share), the new VM held, every new share local, the folder only local; Kopia stays on',
+        ['levels' => [1, 1], 'held' => 'stop', 'noStop' => false, 'items' => [null, null], 'prepare' => 'freeze', 'modes' => ['snapshot', 'snapshot', 'snapshot', 'snapshot', 'snapshot'],
+         'loose' => 'local', 'kopia' => 'yes', 'key' => 'local', 'now' => 'local', 'changed' => false, 'chosen' => true,
+         'start' => 'setup.preset.new_sub {"name":"setup.preset.local"}'], $n['local']);
+    check('default: local stored - everything that was there before exactly as without a default', $n['localOld']);
+    same('default: kopia stored while Kopia is off - never switched on: the new things local', [[1, 1], 'no', ['snapshot', 'off', 'snapshot', 'snapshot', 'snapshot']],
+        [$n['kopiaOff']['levels'], $n['kopiaOff']['kopia'], $n['kopiaOff']['modes']]);
+    same('default: «only to what is new» chosen on the page - the new things get it, the key set, the hand change and every row before stay',
+        [[2, 2], 'kopia', 'kopia', 0, true], [$n['newOnly']['levels'], $n['newOnly']['key'], $n['newOnly']['modes'][0], $n['newOnlyHand'], $n['newOnlyOld']]);
+    same('default: «only to what is new» - its card reckons the first upload of the new things only, as the draft says once chosen',
+        [[['domains', 'fresh'], ['vmnew']], [['domains', 'fresh'], ['vmnew']]],
+        array_map(fn ($u) => [$u['shares'] ?? null, $u['vms'] ?? null], $n['newOnlyUpload']));
+    same('default: «Discard» after choosing - back to the default chosen (it stays until Apply), the hand change goes', [2, 2, 'kopia', false], $n['newOnlyDiscard']);
+    same('default: another one «only to what is new» - the new things local, every row before as without a default', [[1, 1], 'local', 'snapshot', true],
+        [$n['newOnlyLocal']['levels'], $n['newOnlyLocal']['key'], $n['newOnlyLocal']['modes'][0], $n['newOnlyLocalOld']]);
+    same('default: «apply to everything now» - every row local + Kopia (the big and the unknown new share too: they were there when chosen), the key set, «Start: …»',
+        [[2, 2], ['kopia', 'kopia', 'kopia'], 'kopia', 'setup.preset.start {"name":"setup.preset.kopia"}', [2, 2, 'kopia']],
+        [$n['all']['levels'], array_slice($n['all']['modes'], 0, 3), $n['all']['key'], $n['all']['start'], $n['allApps']]);
+    same('default: a re-plan under the stored default - the newcomer gets it (local + Kopia, stopped), a hand change on a new row stays',
+        [2, 'stop', 'yes', 1, true], $n['replan']);
+    same('default: a plan from engine 2.30 - auto; a choice works on the draft, no key for Apply', [['auto', 1], [false, 2, 'kopia']], [$n['oldAuto'], $n['oldChosen']]);
+    // the page's parts that need a browser: in the code (the coordinator checks the pages headless)
+    $php = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    check('default: Apply takes the key with auto, local or kopia only', str_contains($php, "\$key === 'general|preset_new' && !in_array(\$value, ['auto', 'local', 'kopia'], true)"));
+    check('default: desk.js - step 0\'s line, the chip on new rows (apps, VMs, shares, waiting folders), the scope in the dialog, «New» names the default',
+        str_contains($js, 'const pl = presetLine(plan);') && substr_count($js, 'newChip(') >= 5 && str_contains($js, 'presetScope(newOnly,')
+        && str_contains($js, "T('setup.apply_new_default'") && str_contains($js, "plan.preset_new === undefined"));
     hardeningRm($tmp);
 }
 
