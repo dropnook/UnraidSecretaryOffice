@@ -7247,6 +7247,61 @@ function testWatchmanOffice(): void
     chmod($record, 0600);
     same('office record: only in exactly his shape', [], watchmanOfficeInstalls($record, $now));
 
+    // Mr. Restori's drill: its record (root only), then its throwaways — adopted only when name, label, image and the
+    // record's drill all agree and it has no rights; a label alone (anyone can set one) is nothing
+    $drillId = '20261008-031500-ab12';
+    $img = 'sha256:' . str_repeat('c', 64);
+    @mkdir("$src/drill", 0700, true);
+    chmod("$src/drill", 0700);
+    $keepDrill = $GLOBALS['drill'] ?? [];
+    $GLOBALS['drill'] = ['data' => "$src/drill"] + $keepDrill;
+    $tRec = time();
+    drillRecord(['t' => $tRec, 'kind' => 'container', 'name' => "uso-drill-$drillId-3", 'image' => $img, 'id' => $drillId]);
+    drillRecord(['t' => $tRec, 'kind' => 'container', 'name' => "uso-drill-$drillId-4", 'image' => $img, 'id' => $drillId]);
+    drillRecord(['t' => $tRec, 'kind' => 'container', 'name' => "uso-drill-$drillId-5", 'image' => $img, 'id' => $drillId]);
+    drillRecord(['t' => $tRec, 'kind' => 'container', 'name' => "uso-drill-$drillId-6", 'image' => $img, 'id' => $drillId]);
+    drillRecord(['t' => $tRec, 'kind' => 'container', 'name' => 'uso-drill-20261008-031500-ffff-1', 'image' => $img, 'id' => $drillId]);    // another drill's name
+    $GLOBALS['drill'] = $keepDrill;
+    $paths['drill_record'] = "$src/drill/record.json";
+    same('drill record: read by the night watchman by name, only entries whose name names their drill', ["uso-drill-$drillId-3", "uso-drill-$drillId-4", "uso-drill-$drillId-5", "uso-drill-$drillId-6"],
+        array_keys(watchmanDrillRecord($paths['drill_record'], $now + 900)));
+    $tw = ['image' => $img, 'tokens' => [], 'drill' => $drillId, 'created' => $tRec + 2];
+    $containers = ["uso-drill-$drillId-3" => $tw,
+                   "uso-drill-$drillId-4" => ['drill' => '20261008-031500-ffff'] + $tw,                         // its label names another drill
+                   "uso-drill-$drillId-5" => ['tokens' => ['--privileged']] + $tw,                                 // rights: never the drill's
+                   'uso-drill-20261008-031500-eeee-1' => ['drill' => '20261008-031500-eeee', 'tokens' => ['-p 5432:5432/tcp', '--cap-add=SYS_ADMIN']] + $tw];   // a label without a record
+    $r = watchmanRound($paths, $data, 1000, $now + 900, $docker, true, $acks);
+    $book = watchmanLoad($data)['book'];
+    $dl = array_values(array_filter($book, fn ($e) => $e['kind'] === 'drill_throwaway'));
+    same('drill throwaway: one quiet line per drill, noted by the office — no finding, not told',
+        [1, "drill_throwaway:$drillId", 'office', false, ["uso-drill-$drillId-3"], 1, ['names' => "uso-drill-$drillId-3", 'id' => $drillId]],
+        [count($dl), $dl[0]['key'] ?? null, $dl[0]['by'] ?? null, watchmanOpen($dl[0] ?? []), $dl[0]['p']['names'] ?? null, $dl[0]['count'] ?? null, watchmanText($dl[0] ?? ['kind' => 'x'])]);
+    $open = array_keys(array_column(array_filter($book, 'watchmanOpen'), null, 'key'));
+    sort($open);
+    same('drill throwaway: a label alone, rights, another drill\'s label — never adopted (with rights reported as any container)',
+        ["container_new:uso-drill-$drillId-5", 'container_new:uso-drill-20261008-031500-eeee-1'],
+        array_values(array_filter($open, fn ($k) => str_contains($k, 'uso-drill'))));
+    same('drill throwaway: never told', false, in_array('drill_throwaway', array_column($r['told'], 'kind'), true));
+    $containers["uso-drill-$drillId-6"] = $tw;
+    $containers['uso-drill-20261008-031500-ffff-1'] = ['drill' => '20261008-031500-ffff'] + $tw;          // name and label agree, the record names another drill
+    unset($containers["uso-drill-$drillId-3"]);
+    $r = watchmanRound($paths, $data, 1000, $now + 1200, $docker, true, $acks);
+    $dl = array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => $e['kind'] === 'drill_throwaway'));
+    same('drill throwaway: the next one of the same drill joins its line; one whose record names another drill doesn\'t',
+        [1, ["uso-drill-$drillId-3", "uso-drill-$drillId-6"], 2, []], [count($dl), $dl[0]['p']['names'] ?? null, $dl[0]['count'] ?? null, $r['added']]);
+    $known = watchmanLoad($data)['baseline']['containers'];
+    same('drill throwaway: his throwaways never become what is normal — one that isn\'t his (its label names another drill, no rights) does, like any',
+        [false, false, true], [isset($known["uso-drill-$drillId-3"]), isset($known["uso-drill-$drillId-6"]), isset($known["uso-drill-$drillId-4"])]);
+    $late = ['created' => $tRec + WATCH_DRILL_CREATE + 60] + $tw;
+    same('drill throwaway: made long after the record, another image — not the drill\'s', [false, false],
+        [watchmanDrillContainer(['drills' => watchmanDrillRecord($paths['drill_record'], $now)], "uso-drill-$drillId-3", $late),
+         watchmanDrillContainer(['drills' => watchmanDrillRecord($paths['drill_record'], $now)], "uso-drill-$drillId-3", ['image' => 'sha256:' . str_repeat('d', 64)] + $tw)]);
+    chmod("$src/drill/record.json", 0644);
+    same('drill record: a file others may read is not trusted', [], watchmanDrillRecord($paths['drill_record'], $now));
+    chmod("$src/drill/record.json", 0600);
+    same('drill record: older than 7 days left out', [], watchmanDrillRecord($paths['drill_record'], $tRec + WATCH_DRILL_KEEP + 1));
+    check('drill record: never read in the night shift', !isset(watchmanNightPaths()['drill_record']));
+
     putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
     @unlink(watchmanLockFile($data, 'book'));
     exec('rm -rf ' . escapeshellarg($tmp));

@@ -138,6 +138,11 @@ const WATCH_CODE_HOSTS   = ['github.com', 'raw.githubusercontent.com', 'gitlab.c
 const WATCH_OFFICE_PLUGIN = 900;             // a plugin he installed: its link in /var/log/plugins (and a cron.d file of its name) this soon after his job started
 const WATCH_OFFICE_FORM   = 7200;            // a container from Unraid's form he prepared: created this soon after
 const WATCH_OFFICE_KEEP   = 7 * 86400;       // his records older than this are left out
+// Mr. Restori's drill (its record, watchmanDrillRecord()): a throwaway of exactly the recorded name, label uso.drill=<its
+// drill> and image, created this soon after the record, no rights — the office's own
+const WATCH_DRILL_NAME    = '/^uso-drill-(\d{8}-\d{6}-[0-9a-f]{4})-\d{1,3}$/D';
+const WATCH_DRILL_CREATE  = 600;
+const WATCH_DRILL_KEEP    = 7 * 86400;
 // partner offices (agent/lib/partnerlook.php)
 const WATCH_PARTNER_PAIRED = 900;            // the office's line in authorized_keys: written this soon after the pair's `paired`
 const WATCH_REFUSED_BURST  = 3;              // refusals at the door from one pair …
@@ -154,6 +159,7 @@ const WATCH_KINDS = [
     'container_host'       => ['container', true],
     'container_ports'      => ['container', false],
     'container_rights'     => ['container', false],
+    'drill_throwaway'      => ['container', false],     // Mr. Restori's drill made it (his record, name, label and image agree): noted by himself (by office)
     'plugin_new'           => ['plugin', true],
     'plugin_source'        => ['plugin', true],
     'flash_go'             => ['flash', true],
@@ -215,7 +221,7 @@ const WATCH_KINDS = [
 const WATCH_ATTACK = [
     'login_new_ip' => 'T1078', 'login_failures' => 'T1110',
     'container_new' => 'T1610', 'container_privileged' => 'T1611', 'container_host' => 'T1611', 'container_ports' => 'T1133',
-    'container_rights' => 'T1611',
+    'container_rights' => 'T1611', 'drill_throwaway' => 'T1610',
     'plugin_new' => 'T1543', 'plugin_source' => 'T1195.002',
     'flash_go' => 'T1037.004', 'flash_extra' => 'T1037.004', 'flash_user' => 'T1136.001', 'flash_password' => 'T1098',
     'flash_ssh_key' => 'T1098.004', 'share_public' => 'T1222',
@@ -283,7 +289,7 @@ const WATCH_SSH_INVALID = '/\ssshd[\w-]*(?:\[\d+\])?:\s+Invalid user (.*) from (
 // docker inspect: name, image, HostConfig and mounts as JSON (tabs and newlines inside are escaped), the main process (data flow)
 // and the consultant's label (ADVISOR_LABEL: he prepared Unraid's form) and when it was created — what the office installed itself;
 // last its networks (the network watch: a container's own address and MAC on the LAN are the server's, watchnetServer())
-const WATCH_INSPECT     = "{{json .Name}}\t{{json .Config.Image}}\t{{json .HostConfig}}\t{{json .Mounts}}\t{{.State.Pid}}\t{{json (index .Config.Labels \"uso.installed-by\")}}\t{{json .Created}}\t{{json .NetworkSettings.Networks}}";
+const WATCH_INSPECT     = "{{json .Name}}\t{{json .Config.Image}}\t{{json .HostConfig}}\t{{json .Mounts}}\t{{.State.Pid}}\t{{json (index .Config.Labels \"uso.installed-by\")}}\t{{json .Created}}\t{{json .NetworkSettings.Networks}}\t{{json (index .Config.Labels \"uso.drill\")}}";
 
 // the night shift (agent.php nightshift, watchmanNightRound()): while the array is stopped, and from boot until the first array
 // start (an encrypted array waits for its key), he keeps the RAM and flash parts of his watch — nothing under /mnt, no data folder
@@ -338,6 +344,7 @@ function watchmanPaths(): array
         'userscripts' => '/boot/config/plugins/user.scripts',
         'atjobs'     => '/var/spool/atjobs',
         'office_installs' => DATA_DIR . '/advisor/installs.json',    // the consultant's record of what he installed (root only)
+        'drill_record' => DATA_DIR . '/restore-drill/record.json',  // Mr. Restori's drill: the throwaways it made (root only)
         'agents'     => '/boot/config/plugins/dynamix/notifications/agents',
         'var_ini'    => '/var/local/emhttp/var.ini',
         'disks_ini'  => '/var/local/emhttp/disks.ini',
@@ -710,7 +717,7 @@ const WATCH_BUMP_KINDS = ['login_new_ip', 'login_failures', 'log_cleared', 'door
 function watchmanNightPaths(): array
 {
     // libvirt is left alone too (while the array stops it shuts the VMs down; his VM count for a posture tip keeps the day's word)
-    return array_diff_key(watchmanPaths(), array_flip(['office_installs', 'zfs', 'zpool', 'mnt', 'agent_log', 'snap_record', 'engine',
+    return array_diff_key(watchmanPaths(), array_flip(['office_installs', 'drill_record', 'zfs', 'zpool', 'mnt', 'agent_log', 'snap_record', 'engine',
         'sec', 'sec_nfs', 'share_cfg', 'libvirt_sock', 'virsh', 'partner_pairs', 'partner_tickets', 'partner_data',
         'rsyslog_cfg', 'shares_ini', 'arp']));
 }
@@ -1905,6 +1912,7 @@ function watchmanContainers(): ?array
             continue;
         }
         $by = json_decode($f[5] ?? 'null');
+        $drill = json_decode($f[8] ?? 'null');
         $created = json_decode($f[6] ?? 'null');
         $created = is_string($created) ? strtotime((string) preg_replace('/\.\d+/', '', $created)) : false;
         $addrs = $macs = [];
@@ -1921,6 +1929,7 @@ function watchmanContainers(): ?array
         $out[$name] = ['image' => (string) json_decode($f[1]), 'tokens' => watchmanContainerTokens($hc, is_array($mounts) ? $mounts : []),
                        'pid' => (int) ($f[4] ?? 0), 'addrs' => array_slice($addrs, 0, 8), 'macs' => array_slice($macs, 0, 8)]
                     + (is_string($by) && preg_match('/^[a-z]{1,20}$/D', $by) ? ['by' => $by] : [])
+                    + (is_string($drill) && preg_match('/^\d{8}-\d{6}-[0-9a-f]{4}$/D', $drill) ? ['drill' => $drill] : [])
                     + ($created !== false ? ['created' => $created] : []);
     }
     ksort($out);
@@ -2011,6 +2020,12 @@ function watchmanContainersCompare(?array &$known, ?array $seen, array &$book, i
     foreach ($seen as $name => $c) {
         $tokens = (array) $c['tokens'];
         if (!isset($known[$name])) {
+            if (watchmanDrillContainer($office, (string) $name, (array) $c)) {
+                // Mr. Restori's drill made it and removes it again after its step: one quiet line per drill, never into
+                // what is normal (the next drill's throwaways have other names)
+                watchmanDrillNote($book, (string) $name, (array) $c, $office['drills'][$name]['id'], $now);
+                continue;
+            }
             if (!watchmanRights($tokens)) {
                 $known[$name] = ['tokens' => $tokens, 'seen' => $now];
                 continue;
@@ -2090,7 +2105,7 @@ function watchmanOfficeInstalls(?string $file, int $now): array
  */
 function watchmanOfficeLook(array $paths, int $now): array
 {
-    $out = ['plugins' => [], 'cron_d' => [], 'containers' => []];
+    $out = ['plugins' => [], 'cron_d' => [], 'containers' => [], 'drills' => watchmanDrillRecord($paths['drill_record'] ?? null, $now)];
     foreach (watchmanOfficeInstalls($paths['office_installs'] ?? null, $now) as $r) {
         if ($r['kind'] === 'container') {
             $out['containers'][$r['name']][] = ['image' => $r['image'], 't' => $r['t']];
@@ -2119,6 +2134,73 @@ function watchmanOfficeContainer(array $office, string $name, array $c): bool
         }
     }
     return false;
+}
+
+/**
+ * Mr. Restori's drill's record of the throwaways it made (data/restore-drill/record.json, drillRecord(): written before
+ * each create) — trusted like the consultant's: its folder and the file root's own, no one else may write them, only
+ * in exactly the shape the drill writes, within WATCH_DRILL_KEEP. By name.
+ *
+ * @return array<string, array{id: string, image: string, t: int}>
+ */
+function watchmanDrillRecord(?string $file, int $now): array
+{
+    if ($file === null) {
+        return [];
+    }
+    $own = function (string $path, bool $dir): bool {
+        $st = @lstat($path);
+        return $st && ($st['mode'] & 0170000) === ($dir ? 0040000 : 0100000) && $st['uid'] === 0 && !($st['mode'] & 0077)
+            && ($dir || ($st['nlink'] === 1 && $st['size'] <= 65536));
+    };
+    clearstatcache();
+    if (!$own(dirname($file), true) || !$own($file, false)) {
+        return [];
+    }
+    $out = [];
+    foreach ((array) ((readJson($file) ?? [])['made'] ?? []) as $r) {
+        if (!is_array($r) || ($r['kind'] ?? null) !== 'container' || !is_string($r['name'] ?? null) || !preg_match(WATCH_DRILL_NAME, $r['name'], $m)
+            || ($r['id'] ?? null) !== $m[1] || !is_string($r['image'] ?? null) || !preg_match('/^sha256:[0-9a-f]{64}$/D', $r['image'])
+            || !is_int($r['t'] ?? null) || $r['t'] > $now + 60 || $r['t'] < $now - WATCH_DRILL_KEEP) {
+            continue;
+        }
+        $out[$r['name']] = ['id' => $m[1], 'image' => $r['image'], 't' => $r['t']];
+    }
+    return $out;
+}
+
+/**
+ * A new container the drill made: its record names it, and the container agrees in everything — its name (the drill's
+ * pattern, the recorded drill), its label uso.drill (that drill — a label alone anyone can set), its image (the
+ * recorded id), created right after the record, no rights. Anything else stays what it is (reported when it has rights).
+ */
+function watchmanDrillContainer(array $office, string $name, array $c): bool
+{
+    $r = $office['drills'][$name] ?? null;
+    $created = $c['created'] ?? null;
+    return is_array($r) && preg_match(WATCH_DRILL_NAME, $name, $m) && $m[1] === $r['id'] && ($c['drill'] ?? null) === $r['id']
+        && (string) ($c['image'] ?? '') === $r['image'] && !($c['tokens'] ?? []) && is_int($created)
+        && $created >= $r['t'] - 5 && $created <= $r['t'] + WATCH_DRILL_CREATE;
+}
+
+/** The drill's throwaways in the book: one line per drill, noted by himself (`by` office), its names added as they come */
+function watchmanDrillNote(array &$book, string $name, array $c, string $drill, int $now): void
+{
+    foreach ($book as $i => $e) {
+        if (($e['key'] ?? '') === "drill_throwaway:$drill") {
+            $names = (array) ($e['p']['names'] ?? []);
+            if (!in_array($name, $names, true)) {
+                $book[$i]['p']['names'] = array_slice([...$names, $name], -WATCH_LIST_MAX);
+                $book[$i]['count'] = (int) ($e['count'] ?? 1) + 1;
+                $book[$i]['last'] = $now;
+            }
+            return;
+        }
+    }
+    $e = watchmanEntry('drill_throwaway', "drill_throwaway:$drill", $now, ['id' => $drill, 'names' => [$name], 'image' => (string) ($c['image'] ?? '')]);
+    $e['noted'] = $now;
+    $e['by'] = 'office';
+    $book[] = $e;
 }
 
 /** A line of the office's own cron file exactly as officeJobSetSchedule() writes it: a cron time, then one of its jobs */
@@ -6724,6 +6806,7 @@ function watchmanText(array $e, ?string $lang = null): array
         'login_failures' => ['ip' => (string) ($p['ip'] ?? ''), 'service' => $services],
         'container_new', 'container_privileged', 'container_host', 'container_ports', 'container_rights'
                          => ['name' => (string) ($p['name'] ?? ''), 'rights' => implode(' ', (array) ($p['tokens'] ?? []))],
+        'drill_throwaway' => ['names' => $list('names'), 'id' => (string) ($p['id'] ?? '')],
         'plugin_new'     => ['name' => (string) ($p['name'] ?? ''), 'source' => (string) ($p['source'] ?? '') ?: '–'],
         'plugin_source'  => ['name' => (string) ($p['name'] ?? ''), 'source' => (string) ($p['source'] ?? '') ?: '–', 'old' => (string) ($p['old'] ?? '') ?: '–'],
         'flash_go'       => ['added' => (int) ($p['added'] ?? 0), 'removed' => (int) ($p['removed'] ?? 0)],

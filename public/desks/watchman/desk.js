@@ -667,6 +667,11 @@ function details(e) {
     const users = (p.users || []).join(', ');
     add(T('detail.users'), [users, p.unknown ? T('detail.unknown', { n: p.unknown }) : ''].filter(Boolean).join(' · '));
     add(T('detail.services'), (e.t && e.t.service) || '');
+  } else if (e.kind === 'drill_throwaway') {
+    // Mr. Restori's drill: its throwaways, as its record names them
+    add(T('detail.drill'), p.id, true);
+    add(T('detail.name'), (p.names || []).join(', '), true);
+    add(T('detail.image'), p.image, true);
   } else if (e.group === 'container') {
     add(T('detail.name'), p.name);
     add(T('detail.image'), p.image, true);
@@ -809,8 +814,8 @@ function details(e) {
   if (e.group === 'flow' && p.learning) notes.push(T('detail.learning'));
   if (p.office && e.kind.startsWith('cron_file')) notes.push(T('detail.office_cron'));
   if (e.open) notes.push(T('adopt.' + e.kind));
-  const by = e.by === 'office' && e.kind === 'partner_paired' ? 'office_partner' : e.by;
-  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'schedule', 'array', 'unraid', 'router'].includes(by) ? by : 'page'), { when: fmt.date(e.noted) }));
+  const by = e.by === 'office' && e.kind === 'partner_paired' ? 'office_partner' : e.by === 'office' && e.kind === 'drill_throwaway' ? 'office_drill' : e.by;
+  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'schedule', 'array', 'unraid', 'router'].includes(by) ? by : 'page'), { when: fmt.date(e.noted) }));
   if (e.told) notes.push(T('detail.told', { when: fmt.date(e.told) }));
   else if (e.muted && e.tell) notes.push(T('detail.muted'));
   else if (e.open) notes.push(T(e.tell ? 'detail.not_told' : 'detail.book_only'));
