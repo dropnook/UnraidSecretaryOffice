@@ -12323,6 +12323,91 @@ function testThemeSwitch(): void
 }
 
 /**
+ * The text-size switch at the reception (A · A · A, Benj 2026-10-08): OFFICE_SIZE_SWITCH — on, the page loads
+ * size-switch.css and .js, sets data-size on #sso before the first paint and tells core.js (CONFIG.size_switch); off,
+ * nothing of it is in the page. The stylesheet zooms the office's element for Medium and Large and does nothing for
+ * the small step (the office as it always was); the menu, the tips and the palette place themselves in the zoomed px
+ * (core.js fixedSpace()). The strings the switch and its help line ask for exist in every language.
+ */
+function testSizeSwitch(): void
+{
+    $tmp = hardeningTmp('size');
+    @mkdir("$tmp/data/office", 0700, true);
+    @mkdir("$tmp/plugin/src", 0700, true);
+    foreach (glob(OFFICE_DIR . '/src/*.php') ?: [] as $f) {
+        copy($f, "$tmp/plugin/src/" . basename($f));
+    }
+    foreach (['assets', 'desks', 'lang'] as $d) {
+        @symlink(OFFICE_WEB . "/$d", "$tmp/plugin/$d");
+    }
+    $bootstrap = (string) file_get_contents(OFFICE_DIR . '/src/bootstrap.php');
+    check('size switch: one bool constant in bootstrap.php', preg_match_all('/^const OFFICE_SIZE_SWITCH = (?:true|false);$/m', $bootstrap) === 1);
+
+    // the page as the plugin shows it (a process of its own on a copy laid out like the plugin), the constant on and off
+    $page = function (bool $on) use ($tmp, $bootstrap): array {
+        file_put_contents("$tmp/plugin/src/bootstrap.php",
+            preg_replace('/^const OFFICE_SIZE_SWITCH = (?:true|false);$/m', 'const OFFICE_SIZE_SWITCH = ' . ($on ? 'true' : 'false') . ';', $bootstrap, 1));
+        file_put_contents("$tmp/web.php", '<?php define("OFFICE_IN_UNRAID", true); foreach (["bootstrap", "page"] as $f) { require ' . var_export("$tmp/plugin/src", true) . ' . "/$f.php"; }'
+            . ' $out = ["flag" => OFFICE_SIZE_SWITCH, "config" => officePageConfig()["size_switch"] ?? null];'
+            . ' ob_start(); officeStyles(); $out["styles"] = ob_get_clean();'
+            . ' ob_start(); officeBody(officePageConfig()); $out["body"] = ob_get_clean();'
+            . ' echo json_encode($out, JSON_UNESCAPED_UNICODE);');
+        $p = proc_open([PHP_BINARY, "$tmp/web.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
+        $raw = (string) stream_get_contents($pipes[1]);
+        $err = trim((string) stream_get_contents($pipes[2]));
+        proc_close($p);
+        same('size switch page (' . ($on ? 'on' : 'off') . '): no warnings', '', $err);
+        return json_decode($raw, true) ?? [];
+    };
+    $on = $page(true);
+    same('size switch on: the constant and the page\'s config', [true, true], [$on['flag'] ?? null, $on['config'] ?? null]);
+    check('size switch on: size-switch.css after office.css', preg_match('#assets/office\.css\?v=\d+">\s*(?:<link rel="stylesheet" href="[^"]*assets/theme-switch\.css\?v=\d+">\s*)?<link rel="stylesheet" href="[^"]*assets/size-switch\.css\?v=#', (string) ($on['styles'] ?? '')) === 1);
+    check('size switch on: data-size set before the first paint, right inside #sso',
+        preg_match('#<div class="sso in-unraid" id="sso">\s*(?:<script>[^<]*</script>\s*)?<script>[^<]*localStorage\.getItem\(\'office\.size\'\)[^<]*setAttribute\(\'data-size\'[^<]*</script>\s*<header#', (string) ($on['body'] ?? '')) === 1);
+    check('size switch on: size-switch.js after core.js', preg_match('#assets/core\.js\?v=\d+"></script>\s*(?:<script src="[^"]*assets/theme-switch\.js\?v=\d+"></script>\s*)?<script src="[^"]*assets/size-switch\.js\?v=#', (string) ($on['body'] ?? '')) === 1);
+    $off = $page(false);
+    same('size switch off: the constant and the page\'s config', [false, false], [$off['flag'] ?? null, $off['config'] ?? null]);
+    check('size switch off: nothing of it in the page', !str_contains((string) ($off['styles'] ?? ''), 'size-switch')
+        && !str_contains((string) ($off['body'] ?? ''), 'size-switch') && !str_contains((string) ($off['body'] ?? ''), 'office.size'));
+    same('page.php: the switch in four places, each behind the constant', 4, substr_count((string) file_get_contents(OFFICE_DIR . '/src/page.php'), 'OFFICE_SIZE_SWITCH'));
+    hardeningRm($tmp);
+
+    // the stylesheet: zoom for Medium and Large on the office's element, nothing for the small step, nothing outside #sso
+    $css = (string) file_get_contents(OFFICE_WEB . '/assets/size-switch.css');
+    $rules = (string) preg_replace('#/\*.*?\*/#s', '', $css);
+    preg_match_all('/([^{}]*)\{[^{}]*(?<![-\w])zoom\s*:\s*([0-9.]+)/', $rules, $m, PREG_SET_ORDER);
+    $zooms = [];
+    foreach ($m as $z) {
+        $zooms[trim($z[1])] = $z[2];
+    }
+    same('size switch css: zoom 1.15 for Medium, 1.3 for Large — and nowhere else', ['#sso[data-size=medium]' => '1.15', '#sso[data-size=large]' => '1.3'], $zooms);
+    check('size switch css: nothing for the small step', !str_contains($rules, 'data-size=small') && !preg_match('/#sso\s*\{[^{}]*(?<![-\w])zoom/', $rules));
+    check('size switch css: --zoom beside each zoom, for the vh / vw lengths', preg_match('/#sso\[data-size=medium\]\{zoom:1\.15; --zoom:1\.15\}/', $rules) === 1 && preg_match('/#sso\[data-size=large\]\{zoom:1\.3; --zoom:1\.3\}/', $rules) === 1);
+    preg_match_all('/^[^\s\/@}][^{]*\{/m', $rules, $m);     // every rule at the top level (the nested ones sit under #sso{ … })
+    check('size switch css: rules only under #sso', count($m[0]) >= 3, (string) count($m[0]));
+    same('size switch css: nothing leaks into Unraid\'s page', [], array_values(array_filter($m[0], fn ($sel) => !str_contains($sel, '#sso'))));
+
+    // the script and its strings: in every language, and the hooks core.js keeps for it
+    $js = (string) file_get_contents(OFFICE_WEB . '/assets/size-switch.js');
+    preg_match_all("/(?<![.\\w])t\\(\\s*'([a-z0-9_.]+)'\\s*[,)]/", $js, $m);
+    $keys = array_merge($m[1], ['office.size_title', 'office.size_small', 'office.size_medium', 'office.size_large', 'help.size_title', 'help.size_text']);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $lang = langFile(OFFICE_WEB . "/lang/$code.json");
+        same("size switch strings: $code has every one", [], array_values(array_diff(array_unique($keys), array_keys($lang))));
+    }
+    check('size switch js: the choice kept per browser under office., the attribute on #sso', str_contains($js, "Office.store('size'") && str_contains($js, 'ROOT.dataset.size = v'));
+    check('size switch js: the small step is no attribute and nothing kept', str_contains($js, "Office.store('size', v === 'small' ? null : v)") && str_contains($js, "if (v === 'small') ROOT.removeAttribute('data-size')"));
+    check('size switch js: a radio group the keyboard can work', str_contains($js, "setAttribute('role', 'radiogroup')") && str_contains($js, "setAttribute('role', 'radio')") && str_contains($js, 'ArrowRight'));
+    check('size switch js: loads nothing while the flag is off', str_contains($js, 'if (!Office || !Office.config.size_switch) return;'));
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    check('core.js: the switch at the reception only while the script is there', str_contains($core, 'if (Office.size) (head.querySelector(\'.deskhead-actions\')'));
+    check('core.js: the help line only while the script is there', str_contains($core, "if (Office.size) item('help.size_title', t('help.size_text'));"));
+    check('core.js: … and the search\'s place for it', str_contains($core, ".concat(Office.size ? ['size'] : [])"));
+    same('core.js: the menu, the tips and the palette place themselves in the zoomed px (fixedSpace())', 3, substr_count($core, 'const s = fixedSpace();'));
+}
+
+/**
  * The tests never touch the live agent's RAM folder (/var/run/unraid-secretary-office: its locks, the night shift's
  * state, the doorbell, the heartbeat): every RAM path of the agent and the web side lies in the tests' own folder
  * (OFFICE_RUN_DIR), no PHP file but src/place.php names the live folder, and — on the server, where the run goes on in
@@ -19001,7 +19086,7 @@ JS);
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
