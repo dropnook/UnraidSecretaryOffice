@@ -16,6 +16,8 @@
 #                      start what a backup run the stop ended left stopped comes
 #                      back (backup.sh --unmount / --recover, engine 2.25); a partner's
 #                      transfer through the door ends at the stop (partner_release)
+#   agent.sh release   everything the office holds let go (the .plg's remove, before the code goes): the agent
+#                      stopped, then what "array stopping" releases - no night shift after it
 #   agent.sh nightshift  the night shift alone (php agent.php nightshift: RAM and
 #                      flash only - nothing under /mnt; it ends by itself without
 #                      the night watchman's mirror, when the array is started or
@@ -437,6 +439,18 @@ drill_release() {
     done
 }
 
+# What the office holds on the server, let go - at the array stop and by the .plg's remove before the code goes (these
+# scripts go with it, so nothing would release them later): the agent and whatever it started, Mr. Restori's drill or
+# restore, a partner's transfer through the door (and the door's records in RAM), the backup engine's mounts kept
+# between runs, what Mr. Restori pulled from a partner.
+release() {
+    stop                # the agent and whatever it started: nothing may keep a pool busy
+    drill_release       # Mr. Restori's drill or restore (atd jobs): ended, the drill's throwaways gone
+    partner_release     # a partner's transfer coming in through the door - nor that
+    backup_release      # the backup engine's mounts left between runs (keep_mounts) - nor those
+    restored_release    # what Mr. Restori pulled from a partner, mounted read-only - nor that
+}
+
 # array stopping|started (the event scripts): a line for the night watchman's book (RAM, the newest 50), then the shift change
 array_event() {
     local what
@@ -449,11 +463,7 @@ array_event() {
     echo "$(date +%s) $what" >>"$ARRAY_EVENTS"
     tail -n 50 "$ARRAY_EVENTS" >"$ARRAY_EVENTS.tmp" 2>/dev/null && mv -f "$ARRAY_EVENTS.tmp" "$ARRAY_EVENTS"
     if [[ "$what" == stop ]]; then
-        stop                # the agent and whatever it started: nothing may keep a pool busy
-        drill_release       # Mr. Restori's drill or restore (atd jobs): ended, the drill's throwaways gone
-        partner_release     # a partner's transfer coming in through the door - nor that
-        backup_release      # the backup engine's mounts left between runs (keep_mounts) - nor those
-        restored_release    # what Mr. Restori pulled from a partner, mounted read-only - nor that
+        release             # everything the office holds on a pool
         night_start         # RAM and flash only
     else
         watch_cron
@@ -475,7 +485,8 @@ case "$1" in
     supervise) supervise ;;
     night-supervise) night_supervise ;;
     nightshift) night_start ;;
+    release)   release ;;
     array)     array_event "$2" ;;
     watch)     watch ;;
-    *)         echo "Usage: bash $0 start|stop|restart|status|watch|array stopping|started|nightshift"; exit 2 ;;
+    *)         echo "Usage: bash $0 start|stop|restart|status|watch|array stopping|started|nightshift|release"; exit 2 ;;
 esac

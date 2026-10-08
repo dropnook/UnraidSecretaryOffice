@@ -17281,7 +17281,8 @@ function plgScript(string $method, string $root): string
                                : '/<FILE Run="\/bin\/bash">\s*<INLINE>\s*<!\[CDATA\[\n(.*?)\]\]>/s';
     $s = preg_match($re, $plg, $m) ? $m[1] : '';
     return strtr($s, ['dir=/usr/local/emhttp/plugins/$name' => "dir=$root/plugins/\$name", 'flash=/boot/config/plugins/$name' => "flash=$root/flash",
-                      'run=/var/run/$name' => "run=$root/run", '@VERSION@' => '2026.10.08', '@OFFICE_VERSION@' => '1.42.0']);
+                      'run=/var/run/$name' => "run=$root/run", 'keys=/boot/config/ssh/root/authorized_keys' => "keys=$root/authorized_keys",
+                      '/usr/local/sbin/update_cron' => "$root/update_cron", '@VERSION@' => '2026.10.08', '@OFFICE_VERSION@' => '1.42.0']);
 }
 
 /** A stand-in of the plugin folder's agent.sh: each call a line "<marker> <command>" in $USO_PLG_LOG; START and STATUS its exits */
@@ -17289,6 +17290,124 @@ function plgTestAgentSh(): string
 {
     return "#!/bin/bash\nhere=\$(cd \"\$(dirname \"\$0\")/..\" && pwd)\necho \"\$(cat \"\$here/marker\") \$*\" >>\"\$USO_PLG_LOG\"\n"
         . "case \"\$1\" in start) exit \${START:-0} ;; status) exit \${STATUS:-3} ;; esac\nexit 0\n";
+}
+
+/** The .plg's remove (pointed at the tests' folders): the busy guard, what the office holds let go, the schedules aside */
+function testPlgRemove(): void
+{
+    $tmp = hardeningTmp('plgremove');
+    $name = 'unraid-secretary-office';
+    $dir = "$tmp/plugins/$name";
+    $flash = "$tmp/flash";
+    $log = "$tmp/calls.log";
+    $script = plgScript('remove', $tmp);
+    file_put_contents("$tmp/remove.sh", $script);
+    check('plg remove: the script read, pointed at the tests\' folders', str_contains($script, "dir=$tmp/plugins/\$name")
+        && !preg_match('#/usr/local/emhttp/plugins/\$name|/boot/config/(plugins|ssh)|/usr/local/sbin#', $script), $script);
+    file_put_contents("$tmp/update_cron", "echo update_cron >>\"\$USO_PLG_LOG\"\n");
+    $cron = "# Unraid Secretary Office - written by the office, change it there\n0 2 * * * bash /usr/local/emhttp/plugins/$name/scripts/job.sh backup > /dev/null 2>&1\n";
+    $benj = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBenjBenjBenjBenjBenjBenjBenjBenjBenjBenj benj@MacBook\n";
+    $installed = function () use ($tmp, $dir, $flash, $name, $cron, $benj): void {
+        hardeningRm($dir);
+        hardeningRm($flash);
+        mkdir("$dir/scripts", 0755, true);
+        mkdir("$dir/backup", 0755, true);
+        mkdir("$flash/partners", 0700, true);
+        file_put_contents("$dir/marker", 'old');
+        file_put_contents("$dir/scripts/agent.sh", plgTestAgentSh());
+        file_put_contents("$dir/backup/backup.sh", "sleep 20\ntrue\n");
+        file_put_contents("$flash/$name.cfg", "DATA_DIR=\"/mnt/user/appdata/UnraidSecretaryOffice/data\"\n");
+        file_put_contents("$flash/$name.cron", $cron);
+        file_put_contents("$flash/$name.cron.removed-20260101-010101", 'an earlier remove\'s');
+        file_put_contents("$flash/agent-watch.cron", "*/5 * * * * bash /usr/local/emhttp/plugins/$name/scripts/job.sh watch > /dev/null 2>&1\n");
+        file_put_contents("$flash/$name-2026.10.08.txz", 'the package');
+        file_put_contents("$flash/partners/a1b2c3d4.key", 'a key');
+        file_put_contents("$tmp/authorized_keys", $benj . "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPartPartPartPartPartPartPartPartPartPart uso-partner:a1b2c3d4\n");
+    };
+    $run = function () use ($tmp, $log): array {
+        @unlink($log);
+        exec('cd / && env USO_PLG_LOG=' . escapeshellarg($log) . ' bash ' . escapeshellarg("$tmp/remove.sh") . ' 2>&1', $out, $code);
+        return [$code, implode("\n", $out), is_file($log) ? file($log, FILE_IGNORE_NEW_LINES) : []];
+    };
+    $asides = fn (): array => array_map('basename', glob("$flash/$name.cron.removed-*") ?: []);
+
+    // busy: a backup run from the plugin folder — nothing removed, nothing released
+    $installed();
+    $busy = proc_open(['bash', "$dir/backup/backup.sh"], [['file', '/dev/null', 'r'], ['file', '/dev/null', 'w'], ['file', '/dev/null', 'w']], $pipes, '/');
+    usleep(200000);
+    [$code, $out, $calls] = $run();
+    same('plg remove while a backup runs: refused, nothing touched', [1, [], true, $cron, true],
+        [$code, $calls, is_dir($dir), @file_get_contents("$flash/$name.cron"), is_file("$flash/partners/a1b2c3d4.key")]);
+    check('plg remove while a backup runs: it says why', str_contains($out, 'The office is busy right now') && str_contains($out, 'Nothing was removed'), $out);
+    if (is_resource($busy)) {
+        proc_terminate($busy, SIGKILL);
+        proc_close($busy);
+    }
+
+    // the remove: released first (agent.sh release, while the scripts are there), the schedules aside, the rest as before
+    [$code, $out, $calls] = $run();
+    $aside = $asides();
+    same('plg remove: what the office holds let go first, then update_cron, the code gone', [0, ['old release', 'update_cron'], false], [$code, $calls, file_exists($dir)]);
+    check('plg remove: the schedules aside, byte for byte, the earlier aside made way', count($aside) === 1 && preg_match('/^' . preg_quote($name) . '\.cron\.removed-\d{8}-\d{6}$/D', $aside[0])
+        && $aside[0] !== "$name.cron.removed-20260101-010101" && file_get_contents("$flash/$aside[0]") === $cron && !file_exists("$flash/$name.cron"), json_encode($aside));
+    same('plg remove: the watch line, the partners\' keys and their lines, the package and the mirror gone; the .cfg kept',
+        [false, false, $benj, false, true], [file_exists("$flash/agent-watch.cron"), file_exists("$flash/partners"), file_get_contents("$tmp/authorized_keys"),
+        file_exists("$flash/$name-2026.10.08.txz"), is_file("$flash/$name.cfg")]);
+    check('plg remove: it says that the partnerships ended and where the schedules went', str_contains($out, 'partnerships with other offices have ended')
+        && str_contains($out, "$flash/$aside[0]") && str_contains($out, 'puts them back'), $out);
+
+    // nothing of that: no word about it
+    $installed();
+    unlink("$flash/$name.cron");
+    hardeningRm("$flash/partners");
+    file_put_contents("$tmp/authorized_keys", $benj);
+    [$code, $out, $calls] = $run();
+    same('plg remove without schedules or partners: done, the earlier aside kept, nothing said of either', [0, ["$name.cron.removed-20260101-010101"], false, false],
+        [$code, $asides(), str_contains($out, 'partnerships'), str_contains($out, 'put aside')]);
+    // no plugin folder (a broken install): removed all the same
+    hardeningRm($dir);
+    [$code, , $calls] = $run();
+    same('plg remove without the plugin folder: done, nothing to release', [0, []], [$code, $calls]);
+
+    // agent.sh release: what the array stop releases, without the night shift — and the array stop uses it
+    $sh = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
+    $body = preg_match('/^release\(\) \{\n(.*?)^\}/ms', $sh, $m) ? preg_replace('/\s*#.*$/m', '', $m[1]) : '';
+    same('agent.sh release: the agent stopped, then drill, partner door, backup mounts, Mr. Restori\'s pulls',
+        ['stop', 'drill_release', 'partner_release', 'backup_release', 'restored_release'], preg_split('/\s+/', trim($body)));
+    check('agent.sh: the array stop releases the same way, then the night shift; "release" is a command', preg_match('/\n\s+release\s+# [^\n]*\n\s+night_start/', $sh)
+        && str_contains($sh, '    release)   release ;;'));
+    hardeningRm($tmp);
+}
+
+/** officeCronBack(): the schedules a remove put aside, back at the agent's start — only when there is no cron file */
+function testCronBack(): void
+{
+    $tmp = hardeningTmp('cronback');
+    $file = "$tmp/unraid-secretary-office.cron";
+    $lines = [];
+    $applied = 0;
+    $apply = function () use (&$applied): void { $applied++; };
+    $logf = function (string $l) use (&$lines): void { $lines[] = $l; };
+    $cron = '0 2 * * * ' . officeJobCommand('backup') . "\n" . '*/5 * * * * ' . officeJobCommand('snapshots') . "\n";
+    same('cron back: nothing aside, nothing done', [null, 0, []], [officeCronBack($file, $apply, $logf), $applied, $lines]);
+    file_put_contents("$file.removed-20260101-010101", "an older one\n");
+    file_put_contents("$file.removed-20261008-120000", $cron);
+    file_put_contents("$file.removed-notatime", "not ours\n");
+    same('cron back: the newest aside back, byte for byte, the crontab told', ["$file.removed-20261008-120000", $cron, 1],
+        [officeCronBack($file, $apply, $logf), @file_get_contents($file), $applied]);
+    check('cron back: said in the log with its jobs', count($lines) === 1 && str_contains($lines[0], 'schedules from before the removal are back')
+        && str_contains($lines[0], 'backup, snapshots'), json_encode($lines));
+    same('cron back: the others left as they are', ["$file.removed-20260101-010101", "$file.removed-notatime"], glob("$file.removed-*"));
+    same('cron back: a cron file there — nothing done', [null, 1, "an older one\n"], [officeCronBack($file, $apply, $logf), $applied, file_get_contents("$file.removed-20260101-010101")]);
+    unlink($file);
+    symlink("$tmp/elsewhere", "$file.removed-20261009-000000");
+    same('cron back: an aside that is a link is none', "$file.removed-20260101-010101", officeCronBack($file, $apply, $logf));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/agent.php');
+    $setUp = preg_match('/^function setUp\(\): void\n\{\n(.*?)^\}/ms', $src, $m) ? $m[1] : '';
+    $at = fn (string $s) => strpos($setUp, $s);
+    check('cron back: in setUp(), after the steps, before the desks\' start', $at('officeCronBack()') !== false && $at('officeMigrateStart()') < $at('officeCronBack()')
+        && $at('officeCronBack()') < $at('foreach (desks()'));
+    hardeningRm($tmp);
 }
 
 function testPlgInstall(): void
@@ -17417,7 +17536,7 @@ function testPlgInstall(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testMigrate', 'testPlgGuard', 'testPlgInstall'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testMigrate', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
