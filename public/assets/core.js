@@ -1508,7 +1508,7 @@ Office.reportDialog = function reportDialog(deskId) {
     [form, showLine, preview, capLine].forEach((n) => { n.hidden = true; });
     done.hidden = false;
     done.innerHTML = '';
-    done.appendChild(el('p', 'sso-report-sent', t('office.report_sent', { number: j.number })));
+    done.appendChild(el('p', 'sso-report-sent', t('office.report_sent', { number: String(j.number) })));
     if (Office.safeHref(j.url) && /^https:\/\/github\.com\//.test(j.url)) {
       const p = el('p');
       p.appendChild(link(j.url, t('office.report_sent_link')));
