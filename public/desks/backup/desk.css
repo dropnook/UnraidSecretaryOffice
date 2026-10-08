@@ -163,6 +163,13 @@
 .bk-preset-dialog .callout{margin-bottom:10px}
 .bk-preset-wrap .bk-preset-common{margin:8px 0 4px; font-size:12.5px; line-height:1.45}
 .dialog.wide:has(.bk-preset-dialog){width:min(1080px,100%)}
+/* the default for new things (engine 2.31): the scope in its dialog, the line in step 0, the chip on new rows that opens it */
+.bk-preset-dialog .bk-preset-scope{margin:0 0 10px}
+.bk-preset-line{margin:8px 0 0}
+.bk-preset-line .btn{margin-left:4px; vertical-align:baseline}
+.bk-preset-line .bk-preset-warn{color:var(--warn)}
+.bk-newchip{font:inherit; font-size:10.5px; line-height:17px; cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis}
+.bk-newchip:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
 /* partner offices (engine 2.27): «also to <partner>» toggles on the setup's rows, the overview tile */
 .bk-partners{display:flex; flex-wrap:wrap; gap:4px 6px; align-items:center; margin-top:4px}
 .bk-partners .role{font-size:12px}
