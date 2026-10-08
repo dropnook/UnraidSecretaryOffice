@@ -98,7 +98,10 @@ Unraid's theme (an experiment; `OFFICE_THEME_SWITCH` in `src/bootstrap.php` swit
   («Partn» finds «Partner-Sekretariate» in an English office too) — and takes you
   there: the page, the tile or setup opened, the place scrolled into view and
   marked. It runs in the browser; the other languages' words (only those of the
-  places, ≈ 10 KB) come once, the first time you open it.
+  places, ≈ 10 KB) come once, the first time you open it. It also finds what the
+  desks know right now — an open point of the Team Lead, an open entry of the watch
+  book, a share, an app, a VM, a database, a dataset, a log, a partner office —
+  from the states the page already has (nothing is asked for it).
 
 Where things are:
 
@@ -337,8 +340,12 @@ acts on what its page shows. For the search it lists its places beside `Office.d
 route: '#/<id>/apps' }, { kind: 'help', key: 'help.x', text: 'help.x_text' }, …])` — marks
 them on the page (`Office.place('<anchor>', node)`, or `{ place: '<anchor>' }` among
 `Office.sectionHead()`'s extras; page-help terms are found by their words) and lists the
-same keys in `places.json`; `php tests/run.php testSearchPlaces` says what is missing. See
-the existing desks.
+same keys in `places.json`; `php tests/run.php testSearchPlaces` says what is missing. What
+its state holds worth finding it names with one provider beside them —
+`Office.placesFrom(id, (state, part) => [{ text, sub, route, anchor }, …])`, called with every
+state `Office.loadState()` brings (≤ 200 items, its own words, never a log line, a secret or a
+path the page doesn't show), the rows marked like places (`testSearchItems`). See the existing
+desks.
 
 ## Adding a language
 
