@@ -1117,9 +1117,16 @@ Office.tipJar = function openTipJar(ids) {
  * The supporter key (src/supporter.php): a thank-you for a tip, it unlocks nothing — the office is free
  * and complete. With a valid one the reminders stop (the tip jar after hiring, the team lead's ask) and
  * the team lead shows a small thank-you. {id: this server's ID, state: none|valid|other|invalid,
- * name, date, key_id, ask: the team lead asks now}
+ * name, date, key_id, level, ask: the team lead asks now}
  */
 Office.supporter = () => CONFIG.supporter || { id: null, state: 'none', ask: false };
+// the thank-you's level, signed in the key (Benj, 2026-10-08): only the plate's picture — not a rank, it unlocks nothing
+const SUPPORTER_PICTURES = { coffee: '☕', round: '☕☕', cake: '🍰', raise: '💐' };
+/** {level, icon, text} of a key — a coffee when it names none (every key from before levels) */
+Office.supporterLevel = (sup) => {
+  const level = sup && Object.prototype.hasOwnProperty.call(SUPPORTER_PICTURES, sup.level) ? sup.level : 'coffee';
+  return { level, icon: SUPPORTER_PICTURES[level], text: t(`office.supporter_level_${level}`) };
+};
 function supporterChanged(info) {
   if (info) CONFIG.supporter = info;
   if (Office.current && Office.current.supporterChanged) Office.current.supporterChanged();
@@ -1146,7 +1153,8 @@ function supporterPart(sup) {
   const part = el('div', 'tip-jar-key');
   part.appendChild(el('div', 'field-title', t('office.supporter_title')));
   if (sup.state === 'valid') {
-    part.appendChild(el('p', '', t('office.supporter_key_info', { id: sup.key_id, date: keyDay(sup.date) })));
+    const level = Office.supporterLevel(sup);
+    part.appendChild(el('p', '', t('office.supporter_key_info', { icon: level.icon, level: level.text, id: sup.key_id, date: keyDay(sup.date) })));
   } else {
     if (sup.state === 'other') part.appendChild(el('p', 'callout warn', t('office.supporter_other', { id: sup.key_id, server: sup.id || '?' })));
     if (sup.state === 'invalid') part.appendChild(el('p', 'callout warn', t('office.supporter_bad_saved')));

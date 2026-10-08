@@ -12078,6 +12078,19 @@ function testSupporter(): void
     $saved = json_decode((string) @file_get_contents($file), true) ?: [];
     same('web: only the key went, the answers stay', [false, true, 1, true], [isset($saved['key']), isset($saved['first_seen']), $saved['ask']['later'] ?? null, $saved['ask']['never'] ?? null]);
     same('web: the file is 0600', '600', substr(sprintf('%o', @fileperms($file)), -3));
+
+    // the page: the plate's picture per level (core.js), a text per level in all five languages (asked for as a template)
+    $core = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
+    preg_match('/const SUPPORTER_PICTURES = \{([^}]*)\}/', $core, $pm);
+    preg_match_all('/(\w+): \'([^\']+)\'/u', $pm[1] ?? '', $pics);
+    same('page: a picture for each level', [OFFICE_SUPPORTER_LEVELS, ['☕', '☕☕', '🍰', '💐']], [$pics[1], $pics[2]]);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $lang = langFile(OFFICE_DIR . "/public/lang/$code.json");
+        same("page: the levels' texts ($code)", [], array_values(array_filter(OFFICE_SUPPORTER_LEVELS, fn ($l) => !is_string($lang["office.supporter_level_$l"] ?? null) || $lang["office.supporter_level_$l"] === '')));
+    }
+    $desk = (string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/desk.js');
+    check('page: the plate shows the level\'s picture, its title the level', str_contains($desk, "T('supporter_plate', { icon: level.icon, name: sup.name })")
+        && str_contains($desk, "T('supporter_plate_title', { level: level.text,"));
     hardeningRm($tmp);
 }
 

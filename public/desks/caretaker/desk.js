@@ -8,7 +8,8 @@
    keeps them (data/caretaker/acks.json) and marks them "acked" in its state,
    each finding carries its "sig" — they move to «Noted» and count nowhere.
    The supporter key (core.js Office.supporter, src/supporter.php) unlocks
-   nothing: with a valid one he shows a small thank-you at «The team»; without,
+   nothing: with a valid one he shows a small thank-you at «The team» (its
+   picture the tip's level: Office.supporterLevel); without,
    he asks once, friendly, a week after the office first ran here (a callout
    under «The team», «Not now» at most twice more, «Don't ask again»). */
 (() => {
@@ -365,9 +366,11 @@ function teamSection() {
   const extra = [];
   const sup = Office.supporter();
   if (sup.state === 'valid') {
-    // the supporter key's plate: a quiet thank-you, the name as text only
-    const plate = el('span', 'chip ok ct-supporter', T('supporter_plate', { name: sup.name }));
-    plate.title = T('supporter_plate_title', { date: Office.fmt.day(sup.date) });
+    // the supporter key's plate: a quiet thank-you, the name as text only; the picture is the tip's level
+    // (☕ ☕☕ 🍰 💐, signed in the key — only the owner sees it, it is not a rank)
+    const level = Office.supporterLevel(sup);
+    const plate = el('span', 'chip ok ct-supporter', T('supporter_plate', { icon: level.icon, name: sup.name }));
+    plate.title = T('supporter_plate_title', { level: level.text, date: Office.fmt.day(sup.date) });
     extra.push(plate);
   }
   const tip = el('button', 'btn small plain', T('tip_button'));
