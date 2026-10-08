@@ -224,7 +224,7 @@ function whereScan(bool $awake = false): array
         'license'     => waLicense(),
         'notices'     => waNotices(),
         'locations'   => waLocations($vms, $cron),
-        'advice'      => waAdvice($shares, $roots, $asleep),
+        'advice'      => waAdvice($shares, $roots, $asleep, $vms),
     ];
     $state['duration_ms'] = (int) round((microtime(true) - $t0) * 1000);
     $GLOBALS['where'] = $state;
@@ -771,13 +771,7 @@ function waVm(string $name, string $state, int $snapshots, array $roots, array $
                        + ($readable ? waFileSizes($src) : ['bytes' => null, 'allocated' => null, 'sparse' => false]);
         }
     }
-    $nets = [];
-    if ($dom) {
-        foreach ($dom->devices->interface as $i) {
-            $nets[] = ['mac' => $attr($i->mac, 'address'), 'source' => $attr($i->source, 'bridge') ?? $attr($i->source, 'network') ?? $attr($i->source, 'dev'),
-                       'model' => $attr($i->model, 'type')];
-        }
-    }
+    $nets = waVmNets($dom);
     $passthrough = $dom ? count($dom->devices->hostdev) : 0;
     $vnc = null;
     if ($dom) {
@@ -815,6 +809,50 @@ function waVm(string $name, string $state, int $snapshots, array $roots, array $
         'config_backup' => backupProtection(WA_LIBVIRT),
         'agent'       => $state === 'running' ? waVmAgent($name) : null,
     ];
+}
+
+/**
+ * A VM's network interfaces from its libvirt XML: MAC, what it hangs on (bridge, network or device) and the NIC model
+ * (`virtio`, `virtio-net`, `e1000` …).
+ *
+ * @param \SimpleXMLElement|false $dom
+ * @return list<array{mac: ?string, source: ?string, model: ?string}>
+ */
+function waVmNets($dom): array
+{
+    $attr = fn ($node, string $a) => $node ? ((string) ($node[$a] ?? '')) ?: null : null;
+    $nets = [];
+    if ($dom) {
+        foreach ($dom->devices->interface as $i) {
+            $nets[] = ['mac' => $attr($i->mac, 'address'), 'source' => $attr($i->source, 'bridge') ?? $attr($i->source, 'network') ?? $attr($i->source, 'dev'),
+                       'model' => $attr($i->model, 'type')];
+        }
+    }
+    return $nets;
+}
+
+/**
+ * The VMs (running or not) with a NIC of Unraid's «Network Model: virtio-net» (`<model type='virtio-net'/>`): QEMU's
+ * virtio NIC without vhost, every packet through the QEMU process — on nostromo (2026-10-08, iperf3) a single stream
+ * capped at 2.2 Gbit/s, the same VMs with `virtio` (vhost-net in the kernel) did 93. A performance hint for Ms.
+ * Dustdevil's «If I were you …» (`vm_netmodel`), names sorted.
+ *
+ * @param list<array> $vms waVms()
+ * @return list<string>
+ */
+function waVmNetModel(array $vms): array
+{
+    $names = [];
+    foreach ($vms as $vm) {
+        foreach ((array) ($vm['networks'] ?? []) as $n) {
+            if (is_array($n) && ($n['model'] ?? null) === 'virtio-net' && is_string($vm['name'] ?? null)) {
+                $names[] = $vm['name'];
+                break;
+            }
+        }
+    }
+    sort($names, SORT_NATURAL | SORT_FLAG_CASE);
+    return array_values(array_unique($names));
 }
 
 /**
@@ -1430,8 +1468,9 @@ function waBackups(array $containers, array $scripts, array $backupScript): arra
  * privileged containers, the CPU's protection) is the night watchman's.
  *
  * @param array $shares what waShares() found (with $roots and $asleep of the same tour)
+ * @param array $vms    what waVms() found
  */
-function waAdvice(array $shares, array $roots, array $asleep): array
+function waAdvice(array $shares, array $roots, array $asleep, array $vms = []): array
 {
     $share = readCfg('/boot/config/share.cfg');
     $disk = readCfg('/boot/config/disk.cfg');
@@ -1463,6 +1502,7 @@ function waAdvice(array $shares, array $roots, array $asleep): array
         'syslog_kept'    => ($syslog['syslog_flash'] ?? '') !== '' || trim((string) ($syslog['remote_server'] ?? '')) !== '',
         'exclusive'      => waExclusive($shares, $roots, $asleep, $share),
         'vm_stop'        => waVmStop($domain, readCfg(WA_VAR_INI)),
+        'vm_netmodel'    => waVmNetModel($vms),
     ];
 }
 

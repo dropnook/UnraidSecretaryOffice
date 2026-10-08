@@ -2193,6 +2193,14 @@ function advice() {
       { path: '/VMs', text: T('where.adv.to_vms') }, sparse.map((f) => `${f.vm}:${f.path}:${f.bytes}`).join(','));
   }
 
+  // VMs with a NIC of Unraid's «virtio-net» model (waVmNetModel()): no vhost, the network runs through the QEMU process —
+  // on nostromo one stream capped at 2.2 Gbit/s, 93 with «virtio». A performance hint, not a risk; the signature is the
+  // VMs' names (one more, or one changed, brings the tip back)
+  const slowNet = (a.vm_netmodel || []).filter((n) => typeof n === 'string' && n !== '');
+  if (slowNet.length) {
+    add('vm_netmodel', 'info', { names: listNames(slowNet, 3), n: slowNet.length }, { path: '/VMs', text: T('where.adv.to_vms') }, slowNet.join(','));
+  }
+
   // security advice is the night watchman's — while he doesn't work here, she says where it went
   if (Office.desks.has('watchman') && !watchmanHired()) add('security', 'info', {}, { path: '#/caretaker', text: T('where.adv.to_team_lead') });
   return out;

@@ -10606,7 +10606,7 @@ function testWhereAfterWatchman(): void
     foreach (array_keys(WATCH_POSTURE) as $id) {
         check("where: security tip $id is the watchman's now", !str_contains($js, "add('$id',") && !isset($en["where.adv.$id.title"]));
     }
-    foreach (['system_array', 'mover', 'compose_build', 'spindown_default', 'spindown_some', 'old_disks', 'no_parity', 'parity', 'ups', 'syslog', 'cron_dead', 'vm_windows', 'vm_sparse', 'security'] as $id) {
+    foreach (['system_array', 'mover', 'compose_build', 'spindown_default', 'spindown_some', 'old_disks', 'no_parity', 'parity', 'ups', 'syslog', 'cron_dead', 'vm_windows', 'vm_sparse', 'vm_netmodel', 'security'] as $id) {
         check("where: tip $id is hers", str_contains($js, "add('$id',") && isset($en["where.adv.$id.title"], $en["where.adv.$id.why"]));
     }
     $advice = waAdvice([], [], []);
@@ -10642,8 +10642,33 @@ function testWhereVmStop(): void
         [waVmAgent('Win11', $tmp), waVmAgent('Linked', $tmp), waVmAgent('../' . basename($tmp) . '/Win11', $tmp), waVmAgent('.hidden', $tmp), waVmAgent('Gone', $tmp)]);
     hardeningRm($tmp);
 
+    // the NIC model (Benj, 2026-10-08: «virtio-net» has no vhost — 2.2 Gbit/s per stream on nostromo, 93 with «virtio»);
+    // the interfaces as nostromo's XML has them (Debian_Helmi: virtio-net, USO-Test-Server: virtio + vhost, the drill VM: e1000)
+    $iface = fn (string $mac, string $bridge, string $model, string $driver = '') => "    <interface type='bridge'>\n      <mac address='$mac'/>\n"
+        . "      <source bridge='$bridge'/>\n      <model type='$model'/>\n$driver      <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>\n    </interface>\n";
+    $domXml = fn (string $name, string $ifaces) => "<domain type='kvm'>\n  <name>$name</name>\n  <devices>\n$ifaces    <serial type='pty'>\n"
+        . "      <target type='isa-serial' port='0'>\n        <model name='isa-serial'/>\n      </target>\n    </serial>\n  </devices>\n</domain>\n";
+    $vmOf = fn (string $name, string $ifaces) => ['name' => $name, 'networks' => waVmNets(simplexml_load_string($domXml($name, $ifaces)))];
+    $helmi = $vmOf('Debian_Helmi', $iface('52:54:00:70:ed:1b', 'br0.13', 'virtio-net'));
+    same('wa vm nets: MAC, bridge and model as the XML has them (the serial port\'s <model name=…> is no NIC)',
+        [['mac' => '52:54:00:70:ed:1b', 'source' => 'br0.13', 'model' => 'virtio-net']], $helmi['networks']);
+    $vms = [$vmOf('Windows_11_Tom_2', $iface('52:54:00:73:5c:4e', 'br0', 'virtio-net')),
+            $vmOf('USO-Test-Server', $iface('52:54:00:32:f5:ab', 'br0', 'virtio', "      <driver name='vhost' queues='3'/>\n")
+                . $iface('52:54:00:aa:10:01', 'br-uso', 'virtio', "      <driver name='vhost' queues='3'/>\n")),
+            $vmOf('Mixed', $iface('52:54:00:00:00:01', 'br0', 'virtio') . $iface('52:54:00:00:00:02', 'br0', 'virtio-net')),
+            $vmOf('USO-Restori-test-VM', $iface('52:54:00:c5:02:13', 'br0', 'e1000')),
+            $helmi, $vmOf('No_NIC', ''), ['name' => 'Odd', 'networks' => 'virtio-net']];
+    same('wa vm netmodel: the VMs with a «virtio-net» NIC (one is enough), sorted — never «virtio», e1000, none, an odd shape',
+        ['Debian_Helmi', 'Mixed', 'Windows_11_Tom_2'], waVmNetModel($vms));
+    same('wa vm netmodel: none — nothing to say', [], waVmNetModel([$vms[1], $vms[3]]));
+    same('wa vm netmodel: her advice carries the names', ['Debian_Helmi', 'Mixed', 'Windows_11_Tom_2'], waAdvice([], [], [], $vms)['vm_netmodel']);
+
     $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.js');
     $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/lang/en.json'), true) ?: [];
+    check('where: the NIC model tip is hers — info, the names, a link to Unraid\'s VMs page, the how with Unraid\'s labels',
+        (bool) preg_match("/add\\('vm_netmodel', 'info', \\{ names: listNames\\(slowNet, 3\\), n: slowNet.length \\}, \\{ path: '\\/VMs'/", $js)
+        && str_contains($en['where.adv.vm_netmodel.title']['other'] ?? '', '{names}') && str_contains($en['where.adv.vm_netmodel.why'] ?? '', '⟦Network Model⟧')
+        && str_contains($en['where.adv.vm_netmodel.why'] ?? '', '⟦VMs⟧ → the VM → ⟦Edit⟧'));
     check('where: the Windows VM tip is hers, with the current time-outs', str_contains($js, "add('vm_windows',") && isset($en['where.adv.vm_windows.title'], $en['where.adv.vm_windows.why'])
         && str_contains($en['where.adv.vm_windows.why']['other'] ?? '', '{timeout}') && str_contains($en['where.adv.vm_windows.why']['other'] ?? '', '{disk}'));
 }
