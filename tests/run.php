@@ -19488,6 +19488,14 @@ ROUTER);
     same('report: no answer at all — report_offline', 'report_offline', $refused(fn () => reportSend(['token' => $pv2['token'], 'parts' => ['versions']] + $words,
         ['now' => $t0 + 20, 'url' => 'http://127.0.0.1:' . ($port === 40000 ? 39999 : $port + 1)] + $sctx)));
 
+    // the body can't be written in RAM (here: a folder in its place): office_storage — nothing went, the preview stays for
+    // another try (review 2026-10-09: it stayed claimed, and the next send was report_stale)
+    mkdir("$tmp/run/{$pv2['token']}.body");
+    $before = $count();
+    same('report: the body can\'t be written — office_storage, nothing sent, the preview kept', ['office_storage', $before, true],
+        [$send($pv2, ['versions'], $t0 + 25)['key'] ?? 'ok', $count(), is_file("$tmp/run/{$pv2['token']}.json")]);
+    rmdir("$tmp/run/{$pv2['token']}.body");
+
     // closed: remembered a day, nothing asked meanwhile
     $answer(403, ['ok' => false, 'error' => 'closed', 'key' => 'report_closed', 'by' => 'switch']);
     $before = $count();
