@@ -6087,6 +6087,47 @@ JS;
 }
 
 /**
+ * A database client's output into a restore's log, cut (drill-space, 2026-10-08: MariaDB 11.8 echoes a failed statement
+ * whole — ≈ 1 MB per failed INSERT on nostromo): every line at RS_LOG_LINE_MAX bytes with «… (n bytes cut)», through
+ * rsLogCutter() — here with a stand-in client that says a 100 KB line on stdout and on stderr.
+ */
+function testRestoreClientEcho(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-echo-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    $log = "$tmp/log.txt";
+    file_put_contents($log, "Step 3: play\n");
+    $client = 'printf "ERROR 1062 (23000) at line 5: Duplicate entry\n"; head -c 102400 /dev/zero | tr "\0" x; printf "\nnext\n";'
+        . ' head -c 102400 /dev/zero | tr "\0" e >&2; printf "\n" >&2; head -c 2048 /dev/zero | tr "\0" y; printf "\n";'
+        . ' head -c 2049 /dev/zero | tr "\0" z; printf "\nüñï\n"; printf "the end"';
+    $cutter = rsLogCutter($log);
+    check('client echo: the cutter starts', is_array($cutter));
+    if (!is_array($cutter)) {
+        exec('rm -rf ' . escapeshellarg($tmp));
+        return;
+    }
+    $p = proc_open(['sh', '-c', $client], [0 => ['file', '/dev/null', 'r'], 1 => $cutter[1], 2 => $cutter[1]], $pipes, '/', rsEnv());
+    fclose($cutter[1]);
+    $codes = [proc_close($p), proc_close($cutter[0])];
+    same('client echo: the client and the cutter end', [0, 0], $codes);
+    $lines = explode("\n", (string) file_get_contents($log));
+    same('client echo: what was in the log stays, short lines whole', ['Step 3: play', 'ERROR 1062 (23000) at line 5: Duplicate entry'], array_slice($lines, 0, 2));
+    same('client echo: a 100 KB line — its first 2 KB and how much went', str_repeat('x', 2048) . '… (100352 bytes cut)', $lines[2] ?? null);
+    same('client echo: the line after it whole', 'next', $lines[3] ?? null);
+    same('client echo: stderr\'s 100 KB line cut the same', str_repeat('e', 2048) . '… (100352 bytes cut)', $lines[4] ?? null);
+    same('client echo: exactly 2 KB — whole, nothing said', str_repeat('y', 2048), $lines[5] ?? null);
+    same('client echo: one byte more — cut', str_repeat('z', 2048) . '… (1 bytes cut)', $lines[6] ?? null);
+    same('client echo: the rest as said (the last line without its newline too)', ['üñï', 'the end'], array_slice($lines, 7));
+    check('client echo: the log stays small', filesize($log) < 12000, (string) filesize($log));
+    $code = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+    $play = substr($code, (int) strpos($code, 'function rsDoPlay('), 6000);
+    check('client echo: rsDoPlay() plays through the cutter — the client never writes into the log itself',
+        str_contains($play, '$cutter = rsLogCutter($log);') && str_contains($play, "[0 => ['pipe', 'r'], 1 => \$cutter[1], 2 => \$cutter[1]]")
+        && !str_contains($play, "1 => ['file', \$log, 'a']") && str_contains($play, 'rsWait($j, [$p, $cutter[0]])'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * Ms. Protocolli's tour: what counts as an error or a warning (own level,
  * words, what doesn't count), similar lines as one kind, times at the start
  * of a line, reading a file since the last tour (offset, rotation by inode,
@@ -19392,7 +19433,7 @@ JS);
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

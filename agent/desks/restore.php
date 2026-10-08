@@ -3239,6 +3239,48 @@ function rsStep(array &$j, int $i): array
     };
 }
 
+/*
+ * A database client's output on its way into a restore's log.txt, every line cut at RS_LOG_LINE_MAX bytes with
+ * «… (n bytes cut)»: MariaDB 11.8's client echoes a failed statement whole (--print-query-on-error, on by default —
+ * ≈ 1 MB of row data per failed INSERT on nostromo, 2026-10-08). Its --skip-print-query-on-error would stop that, but
+ * the clients he plays with don't all know it (MySQL's `mysql`, MariaDB before 11 — an unknown option ends them, a
+ * `--loose-` one leaves a warning line that reads as an error), so the cut is the office's, the same for every client.
+ * A process of its own (PHP, no ini): the client writes into its stdin while he writes the dump into the client's —
+ * nothing of his loop waits on it. It never stops reading (the client never blocks on a full pipe); the error lines'
+ * beginnings («ERROR 1062 (23000) at line …») stay, which is what rsDoPlay() reads.
+ */
+const RS_LOG_LINE_MAX = 2048;
+const RS_LOG_CUT = <<<'PHP'
+$out = @fopen($argv[1], 'ab') ?: fopen('/dev/null', 'wb');
+$max = max(1, (int) $argv[2]);
+while (($part = fgets(STDIN, $max + 1)) !== false) {
+    if (str_ends_with($part, "
+") || strlen($part) < $max) {
+        fwrite($out, $part);
+        continue;
+    }
+    $cut = 0;
+    while (($rest = fgets(STDIN, 65536)) !== false) {
+        if (str_ends_with($rest, "
+")) {
+            $cut += strlen($rest) - 1;
+            break;
+        }
+        $cut += strlen($rest);
+    }
+    fwrite($out, $part . ($cut > 0 ? "… ($cut bytes cut)" : '') . "
+");
+}
+PHP;
+
+/** The cutter of a client's output into $log (RS_LOG_CUT): [its process, the end the client writes into], or null */
+function rsLogCutter(string $log, int $max = RS_LOG_LINE_MAX): ?array
+{
+    $p = proc_open([PHP_BINARY, '-n', '-r', RS_LOG_CUT, '--', $log, (string) $max],
+        [0 => ['pipe', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', $log, 'a']], $pipes, '/', rsEnv());
+    return is_resource($p) ? [$p, $pipes[0]] : null;
+}
+
 function rsEnv(): array
 {
     return ['PATH' => '/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin', 'LC_ALL' => 'C', 'HOME' => '/root'];
@@ -3647,10 +3689,18 @@ function rsDoPlay(array &$j, int $i): array
         return rsFail('gone', ['path' => $file]) + ['undo' => $undo];
     }
     $total = $gz ? rsGzSize($file) : (int) filesize($file);
-    $p = proc_open(['docker', 'exec', '-i', $c, 'sh', '-c', rsDbScript('play', $s), 'sh'],
-        [0 => ['pipe', 'r'], 1 => ['file', $log, 'a'], 2 => ['file', $log, 'a']], $pipes, '/', rsEnv());
+    // what the client says goes into the log through the cutter (rsLogCutter(): MariaDB 11.8 echoes a failed statement whole)
+    $cutter = rsLogCutter($log);
+    $p = $cutter ? proc_open(['docker', 'exec', '-i', $c, 'sh', '-c', rsDbScript('play', $s), 'sh'],
+        [0 => ['pipe', 'r'], 1 => $cutter[1], 2 => $cutter[1]], $pipes, '/', rsEnv()) : false;
+    if ($cutter) {
+        fclose($cutter[1]);                 // the client's now: the cutter ends when it does
+    }
     if (!is_resource($p)) {
         $gz ? gzclose($in) : fclose($in);
+        if ($cutter) {
+            rsWait($j, [$cutter[0]]);
+        }
         return rsFail('play_failed', ['container' => $c]) + ['undo' => $undo];
     }
     $from = "SELECT pg_catalog.set_config('search_path', '', false);";
@@ -3701,7 +3751,7 @@ function rsDoPlay(array &$j, int $i): array
     }
     @fclose($pipes[0]);
     $gz ? gzclose($in) : fclose($in);
-    $exit = rsWait($j, [$p])[0];
+    $exit = rsWait($j, [$p, $cutter[0]])[0];
     $j['steps'][$i]['progress'] = ['done' => $done, 'total' => $total];
     if ($gz) {
         $j['expect'][$file] = $count;
