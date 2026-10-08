@@ -64,6 +64,16 @@ installed plugin (see the checklist).
   labels in the texts are marked `⟦English label⟧` and read in the language Unraid runs in
   (see «Words»). French `one` covers 0 and 1 (Intl): write `{n}` in
   French one-forms where 0 can occur.
+  **Counts are plurals** (QA 2026-10-08: «1 warnings», «1 alerts · 9 warnings unread»): a text whose noun (or verb,
+  pronoun, participle — «1 container has … give it», it «1 spostato») changes with a number is `{"one": …, "other": …}`,
+  chosen by the param `n` (core.js `t()`, `officeNotifyText()`, `officeDashT()`; pass `n` beside a placeholder of
+  another name, `Number(…)` when it may come as a string); never «file(s)». A text with **several** counts is composed:
+  each count is a key `count.<what>` of the desk (`{"one": "{n} warning", "other": "{n} warnings"}`), asked for with the
+  desk's `nOf('<what>', n)` (backup, cleanup, emby) or `T('count.<what>', { n })`, and the text keeps only its glue
+  (`"counts": "{errors}, {warnings}"`, `"where.stat.notices_sub": "Unread: {alerts} · {warnings}"`). Counts that never
+  reach 1 (Jack Emby's «every 2–12 hours», a chain of ≥ 2 entries, the lock's 7–365 days the office offers) may stay
+  plain. `testStrings`: a plural in English is one in all five, `count.*` are plurals of `{n}`, no «(s)» behind a
+  placeholder, every `nOf()` key exists.
   Never hard-code UI text in JS or PHP.
 * **No build step, no dependencies.** Plain PHP 8.4 (Unraid's own PHP runs both
   the page and the agent — use nothing newer), vanilla JS, one CSS file plus optional
@@ -693,7 +703,11 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   there, not into repeated legends on every list.
 * **CSS names:** desk classes carry the desk's prefix (`jo-`, `lg-`, `bk-` …);
   never reuse a name office.css already styles (`.empty`, `.card`, `.row` …) for
-  something else — a button with `.empty` got 34 px padding.
+  something else — a button with `.empty` got 34 px padding. **Never a level or state from data as a bare class**
+  (`el('li', m.level)`): office.css's `.hint` is one line cut with «…» — the setup's hint messages were cut at 375 px
+  (QA 2026-10-08); Mr. Backupsy's messages carry `bk-msg-<level>` (`msgClass()`). A desk.css grid that overrides
+  office.css's `.kv` or a row's columns brings its own phone rule (`@media (max-width:640px)`: labels above values,
+  a chip or buttons in `.bk-right` / `.rs-right` under the text).
 * **Remembered per browser** (`Office.store`, prefix `office.`): filters,
   chosen tiles, favourites. Tests in the browser save and restore those keys —
   the user's own pane shares them.
@@ -834,7 +848,9 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
 * **Say what is really there:** detect it (boot from a USB stick or a boot
   pool, license bound to the stick or the TPM, a VM disk sitting on a snapshot
   overlay) instead of describing the common case. Restore texts must be
-  complete and honest.
+  complete and honest. Docker stopped is «Docker isn't running» (`common.docker_off` in the office's lang; Ms.
+  Dustdevil's `system.docker.up`, Mr. Backupsy's `containers.up` — the socket, like the looks that ask Docker), never
+  «0 of 0 running» or nothing; no VMs is «No VMs».
 
 ## Server facts that bite
 
