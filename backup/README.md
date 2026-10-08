@@ -1,16 +1,86 @@
 # unraid-backup — Mr. Backupsy's engine
 
-Part of the [Unraid Secretary Office](../README.md): Mr. Backupsy shows and controls this engine in the browser — setting it up, scheduling it, starting and stopping runs, helping with restores. It also works without any web page: the office's plugin starts it at night from its cron file, `setup.sh` sets it up in a terminal, and `bash <engine>/backup.sh` runs it by hand.
+The nightly backup of the [Unraid Secretary Office](../README.md). Mr. Backupsy shows and controls it in the browser —
+setting it up, scheduling it, starting and stopping runs, helping with restores. It also runs without any page: the
+office's plugin starts it at night from its cron file, `setup.sh` sets it up in a terminal, and `bash <engine>/backup.sh`
+runs it by hand.
 
-A nightly backup for Unraid servers. It takes consistent **ZFS/btrfs snapshots** and **database dumps**, puts Nextcloud into **maintenance mode** for that, keeps a **package per app and VM** (templates or compose files, dumps, VM configuration) and — if you want — sends everything encrypted offsite with **Kopia**, an app or VM you choose as a Kopia source of its own with its own retention. Everything specific to your server lives in `settings.ini`, which `setup.sh` writes after asking you. The nightly run `backup.sh` reports every difference between the server and `settings.ini`, but never changes it on its own. Since 2.27 two offices can be **partners**: each night the run's ZFS snapshots of the units you ticked go to the partner office too — see [Partner offices](#partner-offices-since-227). **What is new stays local and keeps running until you decide** (since 2.21): a new folder in a share that goes to Kopia stays in the local snapshots only, a new container isn't stopped — see [New things stay local](#new-things-stay-local-since-221).
+Version **2.34** (8 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh`
+(`UB_VERSION`) and in every log.
 
-Version **2.34** (8 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
+The first part is for users of the office; the second, [For the terminal and for developers](#for-the-terminal-and-for-developers),
+has the details.
+
+# For users
+
+## What a night does
+
+1. VMs you set to *shut down* are asked to shut down and waited for (at most 5 minutes; one that doesn't is paused
+   instead), while everything else still runs. Nextcloud goes into maintenance mode.
+2. The apps that write into backed-up shares stop; their databases are dumped and checked. Each app and VM gets a fresh
+   **package** in the backup place: its template or compose files, the dumps, a VM's XML, UEFI variables and TPM state.
+3. VMs set to *freeze* or *pause* are held for the seconds of the snapshot; ZFS and btrfs **snapshots** freeze the shares,
+   the packages and the VMs' disks. Then everything starts again — databases first.
+4. To your **partner offices** (if any): the ZFS snapshots of what you ticked, only what changed since the last night.
+5. **Kopia** (if on) uploads from the snapshots, encrypted: the flash, the apps, then the shares and VMs, the smallest
+   first. A first upload of terabytes continues night after night and holds nothing else back.
+6. Old snapshots go by your retention; a notification says how it went (failed or warnings always; a good night if you
+   like).
+
+Something new since the last setup is never sent to Kopia or stopped unasked: a new folder in a share stays in the local
+snapshots only, a new container keeps running, a new VM isn't held, a new share isn't backed up yet — until you decide in
+the setup, where it waits marked «new».
+
+## What you decide in *Set up…*
+
+Mr. Backupsy reads the server and proposes everything with reasons; you change what you like and *Apply*.
+
+- **Kopia** on or off (without it everything stays on the server: good against deleting by mistake, not against fire,
+  theft or a dead server).
+- **Per VM, app and share** a level — *not*, *local*, *local + Kopia*; an app or VM at *local + Kopia* is a Kopia source
+  of its own with its own retention. How each VM is held (*freeze*, *pause*, *shutdown*, *none*); which containers keep
+  running; the database dumps and Nextcloud's maintenance mode.
+- **Retention**: the local ZFS snapshots (days, weeks, months), btrfs days, Kopia's versions; folders Kopia leaves out
+  (caches, transcodes, logs — offered, never ticked unasked).
+- **The backup place**: a share of its own for the packages, by default `UnraidSecretaryOffice` — you create it in
+  Unraid; step 0 says why it shouldn't share appdata's pool and why it wants snapshots.
+- **The default** for what is new later: his proposals (new things wait for you), *everything local*, or *everything
+  local + Kopia*.
+- **Sleeping pools at night**: wake them (as before) or leave them out that night.
+- **Partners**: which shares, VMs and the backup place also go to a partner office.
+
+*Schedule…* sets the time of the nightly run. *Set up…* again whenever Mr. Backupsy reports differences; your
+decisions are the defaults. Change rules and retention there, never in the KopiaUI: every run compares Kopia with the
+settings and reports what was changed by hand.
+
+## Where things land
+
+- **The packages** in the backup place (`<share>/backup/apps/<app>/`, `vms/<vm>/`, `server/`, `flash/`), overwritten
+  every night; their history lies in that share's snapshots. A dump that failed never replaces the last good one.
+- **The snapshots** on each pool and disk, named `uso-backup-YYYYMMDD-HHMM`; only these are ever cleared away by the
+  retention — other tools' snapshots and Ms. Snapshotini's stay.
+- **Kopia's copies** in your repository, encrypted on the server before they leave it.
+- **A partner's copy** at the partner, under its own retention; you can never delete it there.
+- **Settings, state and logs** in the office's data folder, `unraid-backup/` (root only).
+
+## Starting, stopping, getting back
+
+- *Back up now…* starts a full run, one without Kopia, or a dry run (shows the plan, changes nothing); *Tour* checks
+  the server against the settings in seconds. *Stop the run* ends a run cleanly: containers come back, mounts go.
+- One run at a time: a run that finds the night before still uploading, the setup or a restore busy doesn't start —
+  and says so (history, a notification). One run a minute: a second *Back up now* in the same minute is refused.
+- Stopping the array ends a run at once and cleanly — nothing pruned, nothing started into the stopping array; Kopia
+  continues the next night, and what the run had stopped is started right after the array starts again.
+- Getting things back is Mr. Restori's job; Mr. Backupsy's *Getting things back* has the commands by hand
+  ([Restoring](#restoring)).
 
 ---
 
+# For the terminal and for developers
+
 ## Requirements
 
-- **Unraid 7.3 or newer** (tested on 7.3.2); **Unraid 8 is not supported** for now. Snapshots need pools or array disks on ZFS or btrfs; shares on XFS are backed up without a snapshot ("live").
+- **Unraid 7.3.2 or a newer 7.x** (the plugin's minimum); **Unraid 8 is not supported** for now. Snapshots need pools or array disks on ZFS or btrfs; shares on XFS are backed up without a snapshot ("live").
 - The office's plugin schedules the nightly run itself (its cron file) — no User Scripts needed.
 - Optional: the **Compose Manager**, when stacks with databases are involved.
 - Optional: a **Kopia** container (e.g. `imagegenius/kopia` from Community Apps) for offsite backups.
@@ -18,15 +88,19 @@ Version **2.34** (8 Oct 2026). The version is in the header of `setup.sh` and `b
 
 ## Installation
 
-1. Install the office (see the [README](../README.md)); the engine then lives in `/usr/local/emhttp/plugins/unraid-secretary-office/backup/`. Below, `<engine>` stands for that folder.
-2. With Kopia: set up the container and **connect it to the repository once in the KopiaUI** (see [Kopia — optional](#kopia--optional)), plus the [one mapping](#the-kopia-container-the-one-mapping) and PUID/PGID 0.
-3. Mr. Backupsy → **Set up…**: he reads the server and proposes everything with reasons; change what you like, then *Apply*. This writes `settings.ini`.
-   In a terminal instead: `bash <engine>/setup.sh` — same checks, every step explained.
-4. Mr. Backupsy → **Schedule…**: e.g. every night at 02:00. The plugin writes it into its cron file `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cron`.
-5. A **dry run**: Mr. Backupsy → *Back up now… › Dry run*, or in a terminal `UB_DRY_RUN=1 bash <engine>/backup.sh`.
-6. The first real run: *Back up now…*, or wait for the schedule.
+1. Install the office (see the [README](../README.md)); the engine then lives in
+   `/usr/local/emhttp/plugins/unraid-secretary-office/backup/`. Below, `<engine>` stands for that folder.
+2. With Kopia: a Kopia container with [the one mapping](#the-kopia-container-the-one-mapping) and PUID/PGID 0, connected
+   to its repository — in the KopiaUI, or by the Consultant (see [Kopia — optional](#kopia--optional)).
+3. Mr. Backupsy → *Set up…*, then *Apply* — this writes `settings.ini`. In a terminal instead: `bash <engine>/setup.sh`,
+   same checks, every step explained.
+4. Mr. Backupsy → *Schedule…* (e.g. every night at 02:00): a line in the plugin's cron file
+   `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cron`.
+5. A dry run first: *Back up now… › Dry run*, or `UB_DRY_RUN=1 bash <engine>/backup.sh`.
 
-Replacing an existing backup script: `setup.sh` warns when other User Scripts also take snapshots or run Kopia — switch off their schedule there, otherwise both run. Kopia sources whose path no longer exists in the container can be set to "manual"; after a successful new run they can also be deleted (in the terminal, confirmed by typing `DELETE`).
+Replacing an existing backup script: `setup.sh` warns when other User Scripts also take snapshots or run Kopia — switch
+off their schedule there, otherwise both run. Kopia sources whose path no longer exists in the container can be set to
+"manual"; after a successful new run they can also be deleted (in the terminal, confirmed by typing `DELETE`).
 
 ---
 
@@ -57,7 +131,7 @@ Replacing an existing backup script: `setup.sh` warns when other User Scripts al
 12  unmount, clean up (ZFS d/w/m, btrfs days + emergency brake, logs; once: the run folders of engines before 2.18), notification
 ```
 
-Only one run at a time: `backup.sh`, `setup.sh` and Mr. Restori's restores share a lock (`state/lock`). A run that finds it busy — the night before is still uploading to Kopia, the setup is looking at the server — doesn't happen, but is never lost silently: see [When the lock is busy](#when-the-lock-is-busy).
+Only one run at a time: `backup.sh`, `setup.sh`, Mr. Restori's restores and his drill share a lock (`state/lock`). A run that finds it busy — the night before is still uploading to Kopia, the setup is looking at the server — doesn't happen, but is never lost silently: see [When the lock is busy](#when-the-lock-is-busy).
 
 One run a minute (since 2.34): a run's id, its log (`logs/run-YYYYMMDD-HHMM.log`, `check-…`, `dryrun-…`) and its snapshots' name (`uso-backup-YYYYMMDD-HHMM`) carry the minute it started. A second run in the same minute would share them — ZFS refuses an existing snapshot name. So a run whose log of this minute is there already ends right after taking the lock, before anything else: one line `ERROR: a run of this minute was made already (…) - one run a minute: try again in n s` on stderr, exit `1`; the lock's time, `lock-holder.json`, `status.json`, `latest.log`, the history and the snapshots stay as the earlier run left them. Mr. Backupsy doesn't start such a run in the first place (`one_run_a_minute`).
 
@@ -92,7 +166,7 @@ If a run dies hard (crash, `kill -9`), the stopped containers, the Nextcloud mai
 └── btrfs-snap/<disk>       symlinks for browsing the btrfs snapshots (view_root)
 ```
 
-On the flash there is only one line in the plugin's cron file. The plugin's data folder is `DATA_DIR` in `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cfg`; the engine reads it from there. The packages never live in appdata: they go to the backup place (`[general] dumps_share`) — the office's share `UnraidSecretaryOffice` (folder `backup/`), or any other share of its own (folder `unraid-backup/`). Create the share yourself (not on the pool of appdata, SMB export off, best on a ZFS or btrfs pool); the setup proposes it.
+Of the engine, the flash holds only its line in the plugin's cron file (and, for partner offices, the pairs' keys the Team Lead keeps in the plugin's `partners/`). The plugin's data folder is `DATA_DIR` in `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cfg`; the engine reads it from there. The packages never live in appdata: they go to the backup place (`[general] dumps_share`) — the office's share `UnraidSecretaryOffice` (folder `backup/`), or any other share of its own (folder `unraid-backup/`). Create the share yourself (not on the pool of appdata, SMB export off, best on a ZFS or btrfs pool); the setup proposes it.
 
 ### The packages
 
@@ -121,7 +195,7 @@ Without Kopia everything stays on the server: local ZFS/btrfs snapshots and data
 - **Encryption:** everything is encrypted on the server **before** it is uploaded (AES-256-GCM or ChaCha20-Poly1305, key from the repository password). The storage provider only sees unreadable blocks — neither contents nor file names.
 - **Where to:** S3-compatible storage (e.g. Backblaze B2, Wasabi, MEGA S4, Hetzner, your own MinIO/Garage). Kopia also does SFTP, WebDAV, Azure, GCS or local.
 - **Versions:** Kopia keeps states by its retention (e.g. 7 daily, 4 weekly, 12 monthly, 3 yearly) and clears away the rest itself.
-- **You set up the repository connection once yourself, in the KopiaUI** (Repository › S3: endpoint, bucket, access key, secret key, repository password). The engine deliberately never asks for these: keys and passwords must never end up in scripts, logs or `settings.ini`. Kopia keeps them in its own config.
+- **The repository connection is set up once, in the KopiaUI** (Repository › S3: endpoint, bucket, access key, secret key, repository password) — **or by the Consultant** in the office, who asks first and hands the keys to Kopia through RAM only (the office keeps none of them). The engine itself never asks for them: keys and passwords must never end up in scripts, logs or `settings.ini`. Kopia keeps them in its own config.
 - **Without the repository password the backup cannot be restored** — not even by the provider. Keep the password separately (password manager and on paper).
 
 Switching it on or off: *Set up…* again. With Kopia off, shares are only `snapshot` or `off`. Switch Kopia on later and the shares that were local are proposed for Kopia again. If `<mount_root>` is missing, it is created. `/mnt/addons` lives in RAM; after a reboot Docker creates the folder again when the Kopia container starts.
@@ -210,7 +284,7 @@ Two Secretary Offices can be **partners** — never master and slave, never an a
 
 A name travels as one word through the door: letters, digits, `.` `_` `-` (else `name`). A unit also needs this run's snapshot of its dataset (the share or VM is backed up, not `off`; else `not_snapshotted`), and the snapshots must carry the default prefix `uso-backup-` (the door takes nothing else; else `snap_prefix`).
 
-**What the partner agreed to keep (since 2.29).** The partner keeps only the units its Team Lead agreed to (at the pairing, or later: the Team Lead's *Change what <host> sends…* asks through the door, the partner's Team Lead answers *Keep it too* or *No*); what it agreed to is the pair's `send.units` in `pairs.json`. `setup.sh` reads it with the rest of the pair (`partner_pairs_load`): a unit that is a dataset of its own but that no partner agreed to keep gets `partner_ok: false`, `partner_why: not_agreed` in the plan and a hint to ask at the Team Lead — its key (`partner = <id>`, `partner_place = <id>`) stays as decided, settings.ini is written as before. The run skips a unit its partner hasn't agreed to as `skipped`, `why: not_agreed` while it makes its plan — before the door is asked (until 2.28 the door refused it as `unit_not_agreed`, counted as refused); once the partner agrees, the unit goes along with the next run without another setup. Without `pairs.json`, or for a pair it doesn't name, nothing is skipped for an agreement — the door decides, as before.
+**What the partner agreed to keep (since 2.29).** The partner keeps only the units its Team Lead agreed to (at the pairing, or later: the Team Lead's *Change what <host> sends…* asks through the door, the partner's Team Lead answers *Keep it too* or *No*); what it agreed to is the pair's `send.units` in `pairs.json`. `setup.sh` reads it with the rest of the pair (`partner_pairs_load`): a unit that is a dataset of its own but that no partner agreed to keep gets `partner_ok: false`, `partner_why: not_agreed` in the plan and a hint to ask at the Team Lead — its key (`partner = <id>`, `partner_place = <id>`) stays as decided, settings.ini is written as before. The run skips a unit its partner hasn't agreed to as `skipped`, `why: not_agreed` while it makes its plan — before the door is asked (until 2.28 the door refused it as `unit_not_agreed`, counted as refused); once the partner agrees, the unit goes along with the next run without another setup. Without `pairs.json`, or for a pair it doesn't name, nothing is skipped for an agreement — the door decides, as before. The backup place's share (its row in the plan has `place: true`) takes the agreement of the unit `place`, like `place_partner` (since 2.33; before, it looked for `share:<its name>` and said «not agreed» although the run sent it). Since 2.34 the plan's «not agreed» hints carry a `code` and `params` the office translates, and name the server as Unraid does (`/boot/config/ident.cfg`).
 
 **The phase `partner`** — right after the snapshots and the apps' restart, before Kopia (a LAN or tunnel transfer ends in minutes to hours, Kopia's first upload can take days); its status phase is `partner`. Per partner (`[partner "<id>"]`, settings.ini's order):
 
@@ -472,7 +546,7 @@ The next scheduled run backs up as usual. `reason` is a code the office translat
 
 | Key | |
 |---|---|
-| `holder` | a must: `backup` (backup.sh), `setup` (setup.sh), `restore` (Mr. Restori's restore jobs), any other short name for other holders |
+| `holder` | a must: `backup` (backup.sh), `setup` (setup.sh), `restore` (Mr. Restori's restore jobs, and his drill with mode `drill`), any other short name for other holders |
 | `pid` | a must: the process that holds the lock while it runs (the script itself, not a short-lived child) |
 | `started` | unix seconds |
 | `mode` | backup.sh: `backup` / `check` / `dryrun` / since 2.25 `recover` (no run — the office doesn't show it as one); setup.sh: `plan` / `apply` / `forget` / `check` / `kopia` / `interactive` / `auto` |
@@ -612,11 +686,10 @@ Tested in a recreated Unraid environment with:
 
 Played through with and without Kopia, and switching it on again. Mount propagation, overlayfs, read-only behaviour, stopping with SIGTERM and `kill -9`, renames and tampered policies ran for real; ZFS and btrfs were imitated by stand-in commands. The libvirt archive was restored into a fresh btrfs image (byte-identical, owners and modes kept).
 
-**Not yet checked on real hardware:**
+Since 2.15 it runs as part of the plugin, from its cron file, on real Unraid 7.3.2 servers. **Not yet checked on real hardware:**
 - `mount -t zfs` of snapshots as an overlay layer (a fallback to subfolders is built in),
 - btrfs `-r` snapshots on encrypted disks,
-- binding `/mnt/user/<share>` (FUSE),
-- Unraid's `notify` and the User Scripts call.
+- binding `/mnt/user/<share>` (FUSE).
 
 So on every new server: *Set up…*, then a check and a dry run first.
 
@@ -624,24 +697,24 @@ No warranty: a backup can be faulty or incomplete, and you stay responsible for 
 
 ## Versions
 
-- **2.34** – One run a minute: a run whose log of this minute (`run-`, `check-` or `dryrun-<YYYYMMDD-HHMM>.log`) is there already ends right after taking the lock with an `ERROR` line on stderr and exit `1`, touching nothing of the earlier run — up to 2.33 a second «Back up now» in the same minute failed with «ZFS snapshot … failed» and left two `history.jsonl` lines with one id (USOPartner, 2026-10-08). `setup.sh`: the «not agreed» hints of the partners step go out with a `code` and `params` the office translates, and name the server as Unraid does — `/boot/config/ident.cfg` `NAME` (`ub_host_name`), as the Team Lead's «Change what <host> sends…» says it — instead of settings.ini's `[general] server`, which keeps the name the setup was first made under; the run's log line for a unit not agreed does the same.
-- **2.33** – The backup place's share is the unit `place` for a partner: its row in `setup.sh --plan` (`shares[]`, the one with `place: true`) takes the agreement of `place` from `pairs.json` `send.units`, like `place_partner`. Up to 2.32 it looked for `share:<its name>`, which no partner ever agrees to, and said `partner_ok false`, `partner_why not_agreed` — Mr. Backupsy's setup showed «not agreed» on the backup place although the run sent it (USOPartner, 2026-10-08).
-- **2.32** – The plan names Unraid's syslog share every time: per share `syslog: true` when it is the folder Unraid's syslog server writes into (`rsyslog.cfg` `local_server` on, `server_folder` `/mnt/user/<share>`), also once the share is in settings.ini and its reason is `previous`. Up to 2.31 only the first plan said `why syslog`, so Mr. Backupsy's default «everything local» would have switched the share on again; his `presetKeep()` reads the flag now.
-- **2.31** – Mr. Backupsy's default for new things: `[general] preset_new = auto | local | kopia` — taken from the setup's decisions, written only when it is not `auto` or was there before, carried by the plan (`preset_new`), a value it doesn't know taken as `auto` with a warning, put aside by `--forget` with settings.ini. Only the office applies it (to what is new, in its draft); the terminal setup proposes as before and `backup.sh` only accepts the key.
+- **2.34** – One run a minute: a run whose log of this minute is there already ends right after taking the lock (an `ERROR` line, exit `1`), touching nothing of the earlier run — up to 2.33 a second «Back up now» in the same minute failed on the snapshot's name and left two history lines with one id. `setup.sh`: the partners step's «not agreed» hints go out as a `code` with `params`, and name the server as Unraid does (`ident.cfg`), not settings.ini's `[general] server`.
+- **2.33** – The backup place's share takes the partner agreement of the unit `place` in the plan; up to 2.32 the setup said «not agreed» on it although the run sent it.
+- **2.32** – The plan names Unraid's syslog share every time (`syslog: true` per share), so Mr. Backupsy's default «everything local» keeps it «not backed up» after a setup was applied.
+- **2.31** – Mr. Backupsy's default for new things: `[general] preset_new = auto | local | kopia` — written from the setup's decisions, carried by the plan, put aside by `--forget`; only the office applies it, `backup.sh` never reads it. See [New things stay local](#new-things-stay-local-since-221).
 - **2.30** – Sleeping pools: only a rotating disk Unraid spun down counts as asleep (`disks.ini` `spundown="1"` and `rotational` not `"0"`, `ub_asleep_load`); an SSD in standby wakes in milliseconds and is never left out, a mixed pool sleeps when one of its HDDs does (Benj, 2026-10-08).
-- **2.29** – Partner offices: a unit ticked for a partner that the partner has not agreed to keep (`pairs.json` `send.units`, asked for with the Team Lead's «Change what <host> sends…») is `partner_ok` false / `partner_why` `not_agreed` in the plan and skipped as `not_agreed` by the run before the door is asked (until 2.28 the door refused it as `unit_not_agreed`, counted as refused).
-- **2.28** – Sleeping pools: `[general] asleep_pools = skip` leaves a pool whose disks sleep at the run's time out of that night — no snapshot, no retention, no mount (decided from `disks.ini` when the plan is made, nothing on the pool asked); its VMs are not held, apps whose backed-up data all lies there keep running, Kopia sources and partner units there are skipped (why `asleep`, never failed); the same for btrfs disks and pools that sleep. The backup place's pool is always woken. `status.json` `asleep` and `kopia.skipped_why`, `last-run` `asleep=<n>`, the summary «n shares asleep (left out)»; the result stays `ok`. A share left out `UB_ASLEEP_NIGHTS` (7) nights in a row warns once (`state/asleep.json`). The default `wake` changes nothing. `setup.sh` asks it with the snapshots, writes it from the decisions (`general|asleep_pools`), and the plan carries `asleep_pools`, `asleep_nights` and per share and VM `pool_asleep` / `asleep_bases` — what sleeps right now.
-- **2.27** – Partner offices: the phase `partner` sends this run's ZFS snapshots of the units ticked for a partner (`[share|vm] partner`, `[general] partner_place`; `[partner "<id>"]` name, address, port, rate_mbit) right after the snapshots and the apps' restart, before Kopia — `zfs send -L -c` incremental from the newest snapshot both have (or the bookmark `<dataset>#uso-partner-<id>` of the last one sent, once the retention took it here), whole when there is none, through the partner's door (ssh with the pair's own key and pinned host key, AES-GCM, no compression), mbuffer between, pv for the rate and the count; an interrupted transfer continues from its resume token. Unreachable: skipped, a warning only from the third night in a row; the partner's window or quota: skipped, a warning once a day; a failed receive: a warning. The array stop interrupts it like Kopia's, never failed. `status.json` `partner`, `partner_ok`/`partner_failed`/`partner_skipped` in status.json, last-run and history. The setup proposes the `[partner]` sections from the Team Lead's pairs and lists per share and VM whether it can go to a partner (`partner_ok`, `partner_why`); `--forget` keeps the sections. Interface 1 (keys added).
-- **2.26** – The Kopia order reckons a VM's own source by its disk files' apparent size (what they are: a sparse vdisk whole), not by their allocated blocks (what they take): Kopia reads the holes as zeros — on 2026-10-07 a 1.6 TB vdisk holding 21 GB was 2 TB of reading at its first upload, 2.7 hours, while its VM was sorted as a small source. `setup.sh --plan` carries both sizes per VM (`vms[].bytes`, `vms[].apparent`), so the office can say what a VM's first upload really reads.
-- **2.25** – `backup.sh --recover`: what a run left stopped, in maintenance mode or held — an array stop leaves it so for after the array start — comes back right after the array start (the plugin's `event/started` hands it to atd when a note exists), not only with the next run, often the next night; it takes the lock without waiting (busy: exit 75, quietly), never acts into a stopping array, waits a bounded time for Docker and libvirt, writes no status.json, last-run.json or history line (log: `logs/recover.log`), and a run that finds it holding the lock waits for it instead of skipping. Whoever brings an interrupted run's notes back (a run's start, `setup.sh`, `--recover`) starts the containers in a run's order — network containers, databases (each tier waited for), apps — waits for a Nextcloud's container before occ, and keeps exactly what didn't come back noted — a service that doesn't answer, a container or VM that doesn't start, a Nextcloud whose container doesn't run (before, a note went whatever happened and the containers or VMs stayed down) —, with a warning «Aborted run not fully repaired» naming it; after an array stop «Aborted run repaired» is a normal notification. With Unraid's VM service switched off a VMs' note goes (nothing can start them) and libvirt isn't waited for. At the array stop nothing of the engine stays mounted, whoever holds the lock: a run, check or dry run ending in a stopping array releases everything under its mount roots, whatever it mounted itself (`keep_mounts`, a killed run's), busy mounts detached (`umount -l`); the plugin releases them itself (`UB_ARRAY_STOP=1 backup.sh --unmount`: no wait for the lock) unless a live run holds it. The Kopia phase goes small and important first: the flash, the apps' own sources, then the shares and the VMs' own sources together by their expected size, the smallest first (the larger of Kopia's size — the newest complete snapshot's, or a newer checkpoint's when larger — and ZFS's referenced or the VM's disk files; unknown last) — `status.json` `kopia.planned` follows it, the plan in the log names it. `UB_KEEP_LATEST=1` keeps `latest.log` at the last run's log during `--unmount` (the plugin's array-stop hook). The engine's notifications take turns with the office's (one stamp in RAM): two in the same second overwrote each other in Unraid's list. A run the array stop ends after its retention says what `pruned.json` says. A flash snapshot that failed is now a Kopia source not backed up (it was silently left out).
-- **2.24** – The run notices the array being stopped (var.ini `fsState` `Stopping`, minutes before Unraid stops the VMs and Docker) at its safe points and every 5 seconds while Kopia uploads, and ends at once, cleanly: the Kopia snapshot going on is interrupted inside the container (Kopia keeps what it uploaded; the next run continues), the remaining sources are skipped (`kopia.skipped`, `kopia.interrupted`), nothing is pruned, snapshotted or dumped, mounts (also with `keep_mounts`), lock and lock note are released. Nothing is started into the stopping array — what the run stopped stays noted for the first run after the array start; frozen or paused VMs are released, a Nextcloud still running leaves maintenance mode. Result `aborted`, message `array_stopping`, one normal notification, exit code 3 — up to 2.23 such a run failed every remaining Kopia source, pruned snapshots during the stop and sent an alert. `kopia.state` stays `""` until the run checked Kopia.
+- **2.29** – Partner offices: a unit the partner hasn't agreed to keep (`pairs.json` `send.units`) is `not_agreed` in the plan and skipped by the run before the door is asked.
+- **2.28** – Sleeping pools: `[general] asleep_pools = skip` leaves a pool whose disks sleep at the run's time out of that night — no snapshot, no retention, no mount, its VMs not held, its Kopia sources and partner units skipped (why `asleep`); the backup place's pool is always woken; a share left out 7 nights in a row warns once. The default `wake` changes nothing. See [Sleeping pools](#sleeping-pools-since-228).
+- **2.27** – Partner offices: the phase `partner` sends this run's ZFS snapshots of the units ticked for a partner through its door — incremental where both have a snapshot (or the bookmark of the last one sent), resumable, rate-limited; unreachable partners warn from the third night, the array stop interrupts it like Kopia's. `status.json` `partner`; the setup proposes the `[partner]` sections from the Team Lead's pairs and says per share and VM whether it can go (`partner_ok`, `partner_why`); `--forget` keeps the sections. Interface 1 (keys added). See [Partner offices](#partner-offices-since-227).
+- **2.26** – The Kopia order reckons a VM's own source by its disk files' apparent size — Kopia reads a sparse vdisk whole, its holes as zeros (a 1.6 TB vdisk holding 21 GB was 2 TB of reading at its first upload). `setup.sh --plan` carries both sizes per VM (`vms[].bytes`, `vms[].apparent`).
+- **2.25** – `backup.sh --recover`: what a run left stopped, in maintenance mode or held comes back right after the array start (the plugin hands it to atd), not only with the next run; containers come back in a run's order (network, databases, apps — each tier waited for) and a note keeps exactly what didn't, with a warning naming it. At the array stop nothing of the engine stays mounted, whoever holds the lock. The Kopia phase goes small and important first: the flash, the apps, then the shares and VMs by expected size. The engine's notifications take turns with the office's (one stamp in RAM). A flash snapshot that failed is a Kopia source not backed up (it was silently left out). See [Right after the array start](#right-after-the-array-start-since-225) and [The order of the Kopia phase](#the-order-of-the-kopia-phase-since-225).
+- **2.24** – The run notices the array being stopped (var.ini `fsState` `Stopping`) at its safe points and every 5 seconds while Kopia uploads, and ends at once, cleanly: Kopia interrupted inside the container (the next run continues), the remaining sources skipped, nothing pruned, snapshotted or dumped, nothing started into the stopping array. Result `aborted`, message `array_stopping`, one normal notification, exit code 3 — up to 2.23 such a run failed every remaining Kopia source and sent an alert. See [When the array is stopped](#when-the-array-is-stopped-since-224).
 - **2.23** – The btrfs emergency brake scales with the disk: below `[btrfs] min_free_gb` free — but at most a tenth of the disk, at least 1 GB (`0` switches it off) — the oldest snapshots of the engine go early, each with a warning. A disk with none of ours left to release is a line in the log only (a full disk is what Unraid's own disk warnings are for); before, small disks warned and notified at every run.
-- **2.22** – VMs with `prepare = shutdown` go down before anything stops: the run asks them and waits for them (one deadline, the request again every 60 s) while the apps still run, before Nextcloud's maintenance mode — the apps' interruption (`downtime_s`) no longer includes waiting for a VM. Freezing and pausing stay right before the snapshots, so does pausing a VM that wasn't off by its deadline (its `seconds` count from the pause; one that went off later is started again like the others). A run stopped while a VM goes down waits for it and starts it again. `status.json` has the phase `vm_shutdown`.
+- **2.22** – VMs with `prepare = shutdown` go down before anything stops, while the apps still run (one deadline, the request again every 60 s); the apps' interruption (`downtime_s`) no longer includes waiting for a VM. `status.json` has the phase `vm_shutdown`. See [VMs](#vms).
 - **2.21** – `state/pruned.json`: the snapshots the retention destroyed, run by run (the last 30 runs within 30 days).
-- **2.21** – New things stay local and keep running until you decide. A share that goes to Kopia records its top-level folders when the setup is applied (`kopia_known`); a folder that appears later and that nobody decided about stays in the local snapshots only — the run leaves it out of the share's Kopia policy right before the upload, takes the rule away again once it is decided or gone, and says so (log, `status.json` `new_local`, `state/new-local.json`, drift note `new_waiting`, one notification when first seen). Containers that came after the last setup keep running during the run, and the setup proposes them so (and VMs without settings as not held). The setup lists the new folders per share (`waiting`) and asks about them in a terminal. A share without `kopia_known` works as before until the setup is applied once.
-- **2.20** – Names: what the office makes is called `uso-…` (places keep the long name). ZFS snapshots are `uso-backup-YYYYMMDD-HHMM` (default `snap_prefix`); a settings.ini with the old default `unraidbackup-` counts as the default — new snapshots get the new name, the old ones stay the engine's and age out by the normal retention (matched exactly, never anything looser), and *Set up…* proposes writing the new prefix. A prefix of your own stays as it is. Kopia snapshots are described `uso-backup <run>`; new setups are shown the Container Path `/uso` (the engine always reads the real one). A run that finds the lock busy (the night before still uploading to Kopia, the setup, a restore) is never lost silently: it touches nothing of the run going on and says so in `state/skipped.json`, in `history.jsonl` (`result` `skipped`, reason `skipped_busy_<holder>`) and, for a real backup, in a notification (warning); exit code 75. Whoever holds the lock notes it in `state/lock-holder.json` — backup.sh, setup.sh, and the format is open for Mr. Restori's restores and others. VMs with `prepare = shutdown` share one deadline (the timeout from their shutdown request) instead of waiting one timeout after the other, and get the request again every 60 s while they run (Windows swallows the first one); a VM that refuses the request is paused right away. An app folder that is simply empty in the snapshot is a note in the log, no longer two warnings. An app whose compose services build their own image (`build:`, no registry has it) gets `build/<service>/` in its package: the Dockerfile and the small files of the build context (top level, ≤ 1 MB each, at most 100 files / 10 MB), unless `compose/` holds them already — a rebuild needs them.
-- **2.19** – Kopia per app and VM: an app or VM at "local + Kopia" is a Kopia source of its own (`[app|vm "<name>"] kopia = yes`, `folder`, `kopia_retention`, `kopia_ignore`) — its folders and its package, joined read-only under `<mount_root>/.apps|.vms/<name>`, with its own retention; the shares leave those parts out, policies are written by the setup and compared every run (`drift.json` policies of kind `app` / `vm`, with a `name`), the Kopia phase goes apps, shares, VMs, flash. Same repository, so nothing already there is uploaded again; settings.ini without `[app]` sections behaves as before. Media servers that keep running get consistent copies of their SQLite databases in their package (backup API, checked, never on a sleeping disk, the last good copy kept). The apps' own backups (Emby's plugin, Jellyfin, Plex, Immich) are named in the manifest. The setup's plan names per container the media server, Kopia rules to offer for caches, transcodes, logs and thumbnails, and where Nextcloud and Immich keep their files.
-- **2.18** – Packages instead of run folders: per app (a compose project or a single container) and per VM a folder in the backup place with its small files — templates or compose files, `docker inspect` with the image digests, the database dumps, Nextcloud's config, the VM's XML, NVRAM and TPM state — overwritten every run, built aside and swapped in only when complete, before the snapshots; `server/` holds what belongs to no app (with `libvirt.tar.gz`), `flash/` the flash archive. A dump that failed or did not run keeps the last good one, and the package says from which run and which credentials made it. The history lies in the snapshots of the backup place's share: the setup proposes it as at least a local snapshot and refuses `off`, the run reports a share that can't take snapshots. Packages of apps and VMs left out are never deleted (`stale`). `keep_runs` is gone (accepted in old files); the first run clears away the old run folders once all its packages are in place. `status.json` and `last-run.json` gain `packages`, `drift.json` items a `code`.
+- **2.21** – New things stay local and keep running until you decide: a share that goes to Kopia records its top-level folders (`kopia_known`); a folder nobody decided about stays out of Kopia, said once (log, `status.json` `new_local`, `state/new-local.json`, one notification); containers that came after the last setup keep running, VMs without settings aren't held. See [New things stay local](#new-things-stay-local-since-221).
+- **2.20** – Names: what the office makes is called `uso-…` — ZFS snapshots `uso-backup-YYYYMMDD-HHMM` (the old default `unraidbackup-` still counts as the default and ages out), Kopia descriptions `uso-backup <run>`, the Container Path `/uso` shown to new setups. A run that finds the lock busy is never lost silently ([When the lock is busy](#when-the-lock-is-busy)); whoever holds it notes it in `state/lock-holder.json`. VMs with `prepare = shutdown` share one deadline and get the request again every 60 s. An app whose compose services build their own image gets `build/<service>/` in its package.
+- **2.19** – Kopia per app and VM: an app or VM at «local + Kopia» is a Kopia source of its own with its own retention, its folders and package joined read-only under `<mount_root>/.apps|.vms/<name>`; the shares leave those parts out. Media servers that keep running get consistent copies of their SQLite databases; the apps' own backups are named in the manifest. See [Kopia per app and VM](#kopia-per-app-and-vm-since-219).
+- **2.18** – Packages instead of run folders: per app and per VM a folder in the backup place with its small files, overwritten every run, built aside and swapped in only when complete; `server/` and `flash/` beside them. A failed dump keeps the last good one; the history lies in the backup place's snapshots; packages of apps and VMs left out are never deleted. `keep_runs` is gone. See [The packages](#the-packages).
 - **2.17** – `setup.sh --forget` starts the setup anew: `settings.ini`, the office's decisions and the last plan go to `state/reset-<time>/`; nothing backed up is touched (Mr. Backupsy: "Forget everything and start anew"). The share `domains` is proposed as a local snapshot (the VMs are held for it since 2.16) instead of off. `[docker] skip` lists apps the user does not want backed up: they keep running like `no_stop`, get no dump, and the office has Kopia leave their folders out. The plan lists the shares each container binds (`containers[].binds`). Datasets in Ms. Dustdevil's storeroom (`_UnraidSecretaryOffice-trash-*`) are never snapshotted.
 - **2.16** – VMs: per VM how it is treated for the seconds of the snapshot (freeze through the guest agent, pause, shutdown, or as before none), released right after the snapshot that holds its disks; a VM in a dataset of its own can be left out or keep its own retention. The VM configuration archive is written while the VMs are held. `status.json` lists per VM what the run did (`vms`).
 - **2.15** – Part of the office's Unraid plugin too: the engine then lies in RAM (`/usr/local/emhttp/plugins/unraid-secretary-office/backup`) and finds its data through the plugin's `DATA_DIR` (by default still `appdata/UnraidSecretaryOffice/data/unraid-backup`); the plugin's cron file starts the nightly run, so `setup.sh` creates no User Scripts entry there and no longer asks for the User Scripts plugin. In the Compose stack nothing changes.
