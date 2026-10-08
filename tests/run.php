@@ -17564,6 +17564,61 @@ function testMigrate(): void
 }
 
 /**
+ * Mr. Backupsy's setup after an engine update (upgrade audit proposal 5, backupSetupReplan()): a plan whose `version`
+ * isn't the running engine's is made anew on the next look — once per engine version (the note is written before
+ * setup.sh starts; a failed plan isn't tried again at every look), not while a run or anything holds the lock, not for
+ * an engine the office can't drive; no plan answered while it runs; the plan it made says so in its messages (once —
+ * a later plan doesn't); the page no longer sniffs the plan's shape.
+ */
+function testBackupReplan(): void
+{
+    $state = ['found' => true, 'compatible' => true, 'running' => false, 'version' => '2.34'];
+    $old = ['version' => '2.33', 'time' => 100, 'messages' => [['level' => 'warn', 'step' => 'shares', 'text' => 'x']]];
+    $r = backupSetupReplan($old, $state, null, true, 1000);
+    same('backup replan: an older engine\'s plan — planned anew, no plan answered meanwhile, the note first',
+        [null, true, ['from' => '2.33', 'to' => '2.34', 'at' => 1000]], [$r['plan'], $r['start'], $r['note']]);
+    $note = $r['note'];
+    $r = backupSetupReplan($old, $state, $note, true, 1060);
+    same('backup replan: … once — the plan failed (still the old one): not again, the old plan shown', [$old, false, $note], [$r['plan'], $r['start'], $r['note']]);
+    foreach ([['running' => true], ['compatible' => false], ['found' => false]] as $odd) {
+        $r = backupSetupReplan($old, $odd + $state, null, true, 1000);
+        same('backup replan: not now — ' . json_encode($odd), [$old, false, null], [$r['plan'], $r['start'], $r['note']]);
+    }
+    $r = backupSetupReplan($old, $state, null, false, 1000);
+    same('backup replan: not while something holds the engine\'s lock (setup, restore, recover)', [$old, false, null], [$r['plan'], $r['start'], $r['note']]);
+    $r = backupSetupReplan(['time' => 5], $state, null, true, 1000);
+    same('backup replan: a plan without a version counts as older', [true, '?'], [$r['start'], $r['note']['from'] ?? null]);
+    $r = backupSetupReplan(null, $state, null, true, 1000);
+    same('backup replan: no plan at all — nothing here (the page asks for its first plan itself)', [null, false], [$r['plan'], $r['start']]);
+
+    // the new plan: said in its messages, the note remembers which plan that was
+    $new = ['version' => '2.34', 'time' => 1003, 'messages' => [['level' => 'info', 'step' => 'plan', 'text' => 'Plan written']]];
+    $r = backupSetupReplan($new, $state, $note, true, 1010);
+    $said = $r['plan']['messages'][1] ?? [];
+    same('backup replan: the plan made anew says so in its list (code replanned, the versions)',
+        [false, 'Plan written', 'replanned', 'info', ['from' => '2.33', 'to' => '2.34'], 1003],
+        [$r['start'], $r['plan']['messages'][0]['text'] ?? null, $said['code'] ?? null, $said['level'] ?? null, $said['params'] ?? null, $r['note']['plan'] ?? null]);
+    $r2 = backupSetupReplan($new, $state, $r['note'], true, 1200);
+    same('backup replan: … on every look at that plan', 'replanned', $r2['plan']['messages'][1]['code'] ?? null);
+    $later = ['version' => '2.34', 'time' => 2000, 'messages' => []];
+    $r3 = backupSetupReplan($later, $state, $r['note'], true, 2010);
+    same('backup replan: a later plan (Look again, after Apply) says nothing of it', [[], false], [$r3['plan']['messages'], $r3['start']]);
+    $r4 = backupSetupReplan($new, $state, null, true, 1010);
+    same('backup replan: this engine\'s plan without a note — as it is', $new, $r4['plan']);
+    $r5 = backupSetupReplan($old, ['version' => '2.35'] + $state, $r['note'], true, 3000);
+    same('backup replan: the next engine update — planned anew again', [true, '2.35'], [$r5['start'], $r5['note']['to'] ?? null]);
+
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    $get = preg_match('/^function backupSetupGet\(\): array\n\{\n(.*?)^\}/ms', $src, $m) ? $m[1] : '';
+    check('backup replan: setup_get decides, notes before it starts, and starts setup.sh --plan',
+        str_contains($get, 'backupSetupReplan(') && strpos($get, 'writeAtomic($noteFile') < strpos($get, "'--plan'") && str_contains($get, "\$replan['start'] = false"));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('backup replan: the page no longer sniffs the plan\'s shape', !str_contains($js, 'restale') && !str_contains($js, 'c.binds === undefined'));
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true) ?: [];
+    check('backup replan: the office has its words', str_contains((string) ($en['setup.msg.replanned'] ?? ''), '{from}') && str_contains((string) ($en['setup.msg.replanned'] ?? ''), '{to}'));
+}
+
+/**
  * The .plg refuses an update while one of the office's long jobs runs from the plugin folder outside the agent: a backup
  * run or the setup (atd, cron), Mr. Restori's restore or drill, Jack Emby's EmbyCache or gather — one pgrep -f
  * pattern; the agent, its night shift and the short jobs don't hold it up. pgrep matches POSIX EREs against the whole
@@ -18197,7 +18252,7 @@ function agentPhpErrorSilenced(callable $log): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];

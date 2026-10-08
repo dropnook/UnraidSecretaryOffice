@@ -2033,11 +2033,35 @@ function backupSetupPlan(bool $measure): array
     return ['ok' => true, 'started' => backupSetupWait(), 'state' => backupScan()];
 }
 
-/** The last plan plus progress and messages of the last plan/apply */
+/** The last plan plus progress and messages of the last plan/apply — planned anew once after an engine update */
 function backupSetupGet(): array
 {
     $data = BACKUP_DATA_DIR;
     $plan = readJson("$data/state/setup-plan.json");
+    $state = $GLOBALS['backup'] ?? backupScan();
+    $noteFile = "$data/state/" . BACKUP_REPLAN_FILE;
+    $note = readJson($noteFile);
+    $holder = backupLockHolder();
+    $replan = backupSetupReplan($plan, $state, $note, $holder === null && !backupSetupStatus()['running'], time());
+    if ($replan['note'] !== $note && $replan['note'] !== null) {
+        try {
+            writeAtomic($noteFile, jsonEncode($replan['note']), 0600, 0, 0);
+        } catch (Throwable $e) {
+            logLine('Backup: could not note the plan made anew after the engine update: ' . $e->getMessage());
+            $replan['start'] = false;       // without the note it could start again at every look: not at all then
+        }
+    }
+    if ($replan['start']) {
+        try {
+            backupLaunch([BACKUP_SCRIPT_DIR . '/setup.sh', '--plan'], ['UB_SIZE_TIMEOUT' => 0]);
+            logLine("Backup: the plan was made by engine {$replan['note']['from']}, this is {$replan['note']['to']} — setup.sh --plan started via at (once)");
+            backupSetupWait();
+        } catch (Throwable $e) {
+            logLine('Backup: the plan anew after the engine update could not start: ' . $e->getMessage() . ' (not again for this engine)');
+            $replan['plan'] = $plan;        // the old one then, as before
+        }
+    }
+    $plan = $replan['plan'];
     if (is_array($plan['shares'] ?? null)) {
         $asleep = sleepingDisks();
         $place = backupPlaceFacts($plan['shares']);
@@ -2053,6 +2077,53 @@ function backupSetupGet(): array
         'run'    => readJson("$data/state/setup-status.json"),
         'plan'   => $plan,
     ];
+}
+
+const BACKUP_REPLAN_FILE = 'setup-replan.json';     // in the engine's state/: the office's note of its plan anew after an update
+
+/**
+ * After an engine update the setup's plan is the old engine's (2.33's plan lacks 2.34's place rows, …): it is made anew
+ * on the next look (upgrade audit proposal 5) — when the plan's `version` (setup.sh writes the engine's version into
+ * every plan) isn't the running engine's, the engine is compatible and nothing holds its lock. Once per engine version,
+ * whatever comes of it: the note `state/setup-replan.json` {from, to, at} is written before setup.sh starts, and a note
+ * for this engine (`to`) means «done» — a plan that fails or never starts is not tried again at every look (the page's
+ * «Look at the server again» stays the user's), only after the next engine update. While it runs the page gets no plan
+ * (the old one's shape may not be the new page's): it shows the setup as planning. The plan it made — the first of this
+ * engine's after the note — carries a message `replanned` (setup.msg.replanned, «planned anew after the update») in its
+ * list; the note then remembers that plan's `time`, so a later plan says nothing of it.
+ * Pure: $plan as read, $state the desk's (version, compatible, found, running), $free = nothing holds the lock.
+ *
+ * @return array{plan: ?array, start: bool, note: ?array}  the plan to answer, start setup.sh --plan, the note to keep
+ */
+function backupSetupReplan(?array $plan, array $state, ?array $note, bool $free, int $now): array
+{
+    $engine = is_string($state['version'] ?? null) ? $state['version'] : '';
+    $made = is_string($plan['version'] ?? null) ? $plan['version'] : '';      // a plan without one: older than all
+    $noted = is_array($note) && is_string($note['to'] ?? null) && $note['to'] === $engine;
+    if (!$plan || $engine === '') {
+        return ['plan' => $plan, 'start' => false, 'note' => $note];
+    }
+    if ($made !== $engine) {
+        if ($noted || empty($state['found']) || empty($state['compatible']) || !empty($state['running']) || !$free) {
+            return ['plan' => $plan, 'start' => false, 'note' => $note];        // done once already, or not now
+        }
+        return ['plan' => null, 'start' => true, 'note' => ['from' => $made !== '' ? $made : '?', 'to' => $engine, 'at' => $now]];
+    }
+    // this engine's plan: the first one after the note is the plan made anew — said in its messages
+    if (!$noted) {
+        return ['plan' => $plan, 'start' => false, 'note' => $note];
+    }
+    $time = (int) ($plan['time'] ?? 0);
+    if (!isset($note['plan']) && $time >= (int) ($note['at'] ?? 0) - 5) {
+        $note['plan'] = $time;
+    }
+    if (($note['plan'] ?? null) === $time) {
+        $plan['messages'] = array_merge(is_array($plan['messages'] ?? null) ? $plan['messages'] : [], [[
+            'level' => 'info', 'step' => 'plan', 'code' => 'replanned', 'params' => ['from' => (string) $note['from'], 'to' => $engine],
+            'text' => "Planned anew after the update (engine {$note['from']} → $engine)",
+        ]]);
+    }
+    return ['plan' => $plan, 'start' => false, 'note' => $note];
 }
 
 /**

@@ -512,6 +512,7 @@
   "setup.msg.not_agreed_vm": "VM {name}: mit {partner} noch nicht vereinbart — frag beim Teamchef («Was {host} schickt, ändern…»); bis dahin geht sie nicht dorthin.",
   "setup.msg.not_agreed_place": "Die Backup-Ablage: mit {partner} noch nicht vereinbart — frag beim Teamchef («Was {host} schickt, ändern…»); bis dahin geht sie nicht dorthin.",
   "setup.msg.place_not_agreed": "Die Backup-Ablage ist mit einem Partner noch nicht vereinbart — frag beim Teamchef («Was {host} schickt, ändern…»).",
+  "setup.msg.replanned": "Nach dem Update neu geplant (Engine {from} → {to}): der Plan davor stammte von der älteren Engine.",
   "setup.g_libvirt": "VM-Konfiguration (libvirt.img)",
   "setup.g_libvirt_hint": "XML, UEFI-Variablen und TPM-Zustand aller VMs und ihre Netzwerke — jede Nacht als kleines Archiv in die Backup-Ablage (server/), neben dem eigenen Paket jeder VM, damit geht es mit ihnen zu Kopia. Ohne das ist ein Umzug der VMs auf einen anderen Server mühsam.",
   "setup.libvirt.tar": "Archiv in der Backup-Ablage",

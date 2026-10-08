@@ -1559,10 +1559,9 @@ async function setupLoad() {
   setup.status = j.status;
   setup.run = j.run;
   Office.busy(`${ID}.setup`, !!(j.status && j.status.running) && (j.status.mode !== 'plan' || !setup.measuring));
-  // a plan from before engine 2.17 doesn't know which shares a container binds: read the server again
-  const stale = j.plan && ((j.plan.containers || []).some((c) => c.binds === undefined) || !('docker|skip' in (j.plan.P || {})));
-  if (stale && !j.status.running && !setup.restale && canPlan()) { setup.restale = true; setupPlan(false, true); }
-  if (j.plan && !stale && (!setup.plan || j.plan.time !== setup.plan.time)) {
+  // a plan of an older engine (an update since) is made anew by the agent on this look, once (backupSetupReplan()):
+  // no plan comes while it runs, the new one says so in its messages (setup.msg.replanned)
+  if (j.plan && (!setup.plan || j.plan.time !== setup.plan.time)) {
     setup.plan = j.plan;
     setupDraftKeep();
   }
