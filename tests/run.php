@@ -15823,6 +15823,22 @@ function testRestoreDrill(): void
     $cert = drillCertWrite($ab, null);
     same('drill certificate: an aborted drill joins the history only (what was proven stays)', ['failed', $b, 'aborted', 'array_stopping'],
         [$cert['last']['result'], $cert['last']['id'], $cert['history'][0]['result'], $cert['history'][0]['reason']]);
+    // a newer office's certificate (another interface, met after a downgrade): its history goes on as it is, the file aside
+    $certFile = $GLOBALS['drill']['cert'];
+    $keep = (string) file_get_contents($certFile);
+    $later = ['id' => '20271201-030000-ffff', 'result' => 'passed', 'proofs' => ['a' => 1], 'by' => 'a newer office'];
+    $newer = json_encode(['interface' => 2, 'proofs' => [], 'history' => [$later, $cert['history'][0]]]);
+    file_put_contents($certFile, $newer);
+    $cert2 = drillCertWrite($jc, ['place' => ['share' => 'UnraidSecretaryOffice']]);
+    same('drill certificate of another interface: written as interface 1, the newer history rows kept as they are, behind this drill\'s',
+        [1, [$a, '20271201-030000-ffff', $cert['history'][0]['id']], $later], [$cert2['interface'], array_column($cert2['history'], 'id'), $cert2['history'][1]]);
+    same('drill certificate of another interface: the whole file kept aside', $newer, @file_get_contents("$certFile.before-" . AGENT_VERSION));
+    @unlink("$certFile.before-" . AGENT_VERSION);
+    $c1 = json_decode($keep, true);
+    $c1['from_later'] = ['kept' => true];
+    file_put_contents($certFile, json_encode($c1));
+    same('drill certificate: a key this version doesn\'t know kept through a write', ['kept' => true], drillCertWrite($ab, null)['from_later'] ?? null);
+    file_put_contents($certFile, $keep);
 
     // ---- the Team Lead, the Dashboard, Mr. Backupsy's line, the metrics
     $ok = fn (array $f) => array_map(fn ($x) => [$x['id'], $x['ok']], $f);
@@ -17271,6 +17287,83 @@ function testPlgGuard(): void
 }
 
 /**
+ * Exact shapes, tolerant writes (CLAUDE.md «Updates», briefs/upgrade-audit.md finding 4): pairs.json, tickets.json and
+ * ticket-pairs.json keep every entry a version doesn't recognise — a newer office's, met after a downgrade — where it
+ * stood, as it was, through every write that touches another entry; a file of another `v` is not written over.
+ */
+function testPartnerTolerant(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('partner tolerant writes: root only — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('partner-tolerant');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $file = "$tmp/partner/pairs.json";
+    $a = partnerTestPair('a1b2c3d4');
+    partnerPairsWrite([$a], $file);
+    $raw = fn (): array => json_decode((string) file_get_contents($file), true);
+    // from «the future»: a pair with a field this version doesn't know, an entry of a kind it doesn't know, a key beside
+    $f1 = partnerTestPair('f1f1f1f1', ['name' => 'later', 'compress' => 'zstd']);
+    $f2 = ['id' => 'f2f2f2f2', 'kind' => 'mirror', 'name' => 'mirrorbox', 'address' => '192.168.77.8', 'schedule' => ['every' => 'hour'], 'extra' => [1, 2.5, null, true]];
+    $future = ['v' => 1, 'pairs' => [$f1, $a, $f2], 'mirrors_since' => 1791336000];
+    file_put_contents($file, json_encode($future, JSON_UNESCAPED_SLASHES) . "\n");
+    chmod($file, 0600);
+    same('tolerant: the reader takes only the pair in this version\'s shape', ['a1b2c3d4'], array_column(partnerPairs($file), 'id'));
+    // a write that touches another entry: the future ones where they stood, as they were
+    $a2 = ['name' => 'renamed'] + $a;
+    partnerPairsWrite([$a2], $file);
+    same('tolerant: a write that changes another pair keeps the future entries where they stood, field for field, and the key beside',
+        ['v' => 1, 'pairs' => [$f1, $a2, $f2], 'mirrors_since' => 1791336000], $raw());
+    $b = partnerTestPair('b2c3d4e5', ['their_key' => null, 'receive' => null]);
+    partnerPairsWrite([$a2, $b], $file);
+    same('tolerant: a new pair at the end', ['f1f1f1f1', 'a1b2c3d4', 'f2f2f2f2', 'b2c3d4e5'], array_column($raw()['pairs'], 'id'));
+    partnerPairsWrite([$b], $file);
+    same('tolerant: a pair ended goes, the future ones stay', [$f1, $f2, $b], $raw()['pairs']);
+    // an old-shape pair (send before 2.29) is this version's: written in the whole shape, in its place
+    $old = $raw();
+    $old['pairs'][2]['send'] = ['units' => ['share:media'], 'rate_mbit' => 0];
+    file_put_contents($file, json_encode($old, JSON_UNESCAPED_SLASHES));
+    partnerPairsWrite(partnerPairs($file), $file);
+    same('tolerant: an old-shape pair upgraded in its place, the others untouched', [$f1, $f2, array_replace($b, ['send' => ['units' => ['share:media'], 'rate_mbit' => 0, 'wanted' => ['share:media'], 'offered' => null]])],
+        $raw()['pairs']);
+    // a file of another v: not this version's to write
+    $v2 = json_encode(['v' => 2, 'pairs' => [$a]]);
+    file_put_contents($file, $v2);
+    try {
+        partnerPairsWrite([$b], $file);
+        check('tolerant: a pairs.json of another v is not written over', false);
+    } catch (Problem $e) {
+        same('tolerant: a pairs.json of another v is not written over', ['partner_shape', $v2], [$e->key, file_get_contents($file)]);
+    }
+
+    // tickets.json and ticket-pairs.json, the same way (written by the office's own functions, as that office)
+    $B = partnerTestOffice("$tmp/B");
+    $now = time();
+    $ticket = fn (string $tid, array $over = []) => $over + ['id' => $tid, 'of' => 'a1b2c3d4', 'name' => 'newbox', 'address' => '192.168.77.9', 'from' => '192.168.77.9',
+        'key' => partnerFingerprint(partnerTestKey()), 'created' => $now - 60, 'expires' => $now + 3600, 'units' => ['share:appdata']];
+    partnerTestAs($B, 'partnerTicketsWrite(' . var_export([$ticket('c3c3c3c3')], true) . '); return true;');
+    $tf = "$B[data]/partner/tickets.json";
+    $ft = $ticket('e5e5e5e5', ['scope' => 'all']);
+    file_put_contents($tf, json_encode(['v' => 1, 'tickets' => [$ft, $ticket('c3c3c3c3')]]));
+    $d4 = $ticket('d4d4d4d4');
+    partnerTestAs($B, 'partnerTicketsWrite(' . var_export([$d4], true) . '); return true;');
+    same('tolerant: tickets.json — a future ticket kept, the one given up gone, the new one at the end', ['v' => 1, 'tickets' => [$ft, $d4]],
+        json_decode((string) file_get_contents($tf), true));
+    same('tolerant: … and never used', ['d4d4d4d4'], array_column(partnerTestAs($B, 'return partnerTickets();'), 'id'));
+    $pf = "$B[data]/partner/ticket-pairs.json";
+    $tp = ['id' => 'c3c3c3c3', 'kind' => 'ticket', 'name' => 'oldbox', 'of' => 'nostromo', 'address' => '192.168.77.2', 'port' => 22,
+           'host_keys' => [partnerFingerprint(partnerTestKey())], 'my_key' => partnerFingerprint(partnerTestKey()), 'units' => ['share:appdata'],
+           'expires' => $now + 3600, 'paired' => $now - 60, 'last_heard' => null];
+    $ftp = ['kind' => 'restore-all', 'id' => 'e6e6e6e6'] + $tp;
+    file_put_contents($pf, json_encode(['v' => 1, 'pairs' => [$ftp]]));
+    chmod($pf, 0600);
+    partnerTestAs($B, 'partnerTicketPairsWrite(' . var_export([$tp], true) . '); return true;');
+    same('tolerant: ticket-pairs.json — a future ticket pair kept, the new one at the end', [$ftp, $tp], json_decode((string) file_get_contents($pf), true)['pairs'] ?? null);
+    hardeningRm($tmp);
+}
+
+/**
  * One of the .plg's inline scripts ('install' or 'remove'), pointed at a folder of the tests: the plugin folder under
  * $root/plugins, the flash $root/flash, the RAM folder $root/run — nothing of the live plugin is touched.
  */
@@ -17536,7 +17629,7 @@ function testPlgInstall(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testMigrate', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
