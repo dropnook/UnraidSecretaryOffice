@@ -4,7 +4,7 @@ Part of the [Unraid Secretary Office](../README.md): Mr. Backupsy shows and cont
 
 A nightly backup for Unraid servers. It takes consistent **ZFS/btrfs snapshots** and **database dumps**, puts Nextcloud into **maintenance mode** for that, keeps a **package per app and VM** (templates or compose files, dumps, VM configuration) and — if you want — sends everything encrypted offsite with **Kopia**, an app or VM you choose as a Kopia source of its own with its own retention. Everything specific to your server lives in `settings.ini`, which `setup.sh` writes after asking you. The nightly run `backup.sh` reports every difference between the server and `settings.ini`, but never changes it on its own. Since 2.27 two offices can be **partners**: each night the run's ZFS snapshots of the units you ticked go to the partner office too — see [Partner offices](#partner-offices-since-227). **What is new stays local and keeps running until you decide** (since 2.21): a new folder in a share that goes to Kopia stays in the local snapshots only, a new container isn't stopped — see [New things stay local](#new-things-stay-local-since-221).
 
-Version **2.31** (8 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
+Version **2.32** (8 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
 
 ---
 
@@ -381,7 +381,7 @@ Usually you never call it yourself: Mr. Backupsy's *Set up…* uses it (`--plan`
 | `setup.sh --check` | only check and report (incl. the live test of the mapping) |
 | `setup.sh --kopia` | only the Kopia part, with the existing settings.ini (align policies) |
 | `setup.sh --yes` | take every proposal without asking (also with `--kopia`) |
-| `setup.sh --plan` | like `--yes`, but writes nothing: proposals, reasons (as codes), check results, the saved values and what *Apply* would change in settings.ini, to `state/setup-plan.json` (since 2.21 per share also `waiting`: its new folders — `dir`, `bytes`, `first_seen`; since 2.31 `preset_new`, the default for new things — the proposals themselves stay neutral, the office applies it) |
+| `setup.sh --plan` | like `--yes`, but writes nothing: proposals, reasons (as codes), check results, the saved values and what *Apply* would change in settings.ini, to `state/setup-plan.json` (since 2.21 per share also `waiting`: its new folders — `dir`, `bytes`, `first_seen`; since 2.31 `preset_new`, the default for new things — the proposals themselves stay neutral, the office applies it; since 2.32 per share `syslog`: true when it is the folder Unraid's syslog server writes into, every plan — not only the first one's `why syslog`) |
 | `setup.sh --apply=<file>` | lay decisions (JSON: settings.ini keys as in the plan → value or list) over the current values, then check, write and align policies like `--yes` |
 | `setup.sh --forget` | start anew: `settings.ini`, the office's decisions and the last plan go to `state/reset-<time>/` (asks first, `--yes` doesn't); snapshots, dumps, Kopia and the history stay. Until the next apply `backup.sh` refuses to run. Since 2.27 the `[partner]` sections stay for the next setup (`state/partners-kept.ini`, gone again once settings.ini is written): they are the Team Lead's agreement — only the units ticked for them start anew |
 
@@ -622,6 +622,7 @@ No warranty: a backup can be faulty or incomplete, and you stay responsible for 
 
 ## Versions
 
+- **2.32** – The plan names Unraid's syslog share every time: per share `syslog: true` when it is the folder Unraid's syslog server writes into (`rsyslog.cfg` `local_server` on, `server_folder` `/mnt/user/<share>`), also once the share is in settings.ini and its reason is `previous`. Up to 2.31 only the first plan said `why syslog`, so Mr. Backupsy's default «everything local» would have switched the share on again; his `presetKeep()` reads the flag now.
 - **2.31** – Mr. Backupsy's default for new things: `[general] preset_new = auto | local | kopia` — taken from the setup's decisions, written only when it is not `auto` or was there before, carried by the plan (`preset_new`), a value it doesn't know taken as `auto` with a warning, put aside by `--forget` with settings.ini. Only the office applies it (to what is new, in its draft); the terminal setup proposes as before and `backup.sh` only accepts the key.
 - **2.30** – Sleeping pools: only a rotating disk Unraid spun down counts as asleep (`disks.ini` `spundown="1"` and `rotational` not `"0"`, `ub_asleep_load`); an SSD in standby wakes in milliseconds and is never left out, a mixed pool sleeps when one of its HDDs does (Benj, 2026-10-08).
 - **2.29** – Partner offices: a unit ticked for a partner that the partner has not agreed to keep (`pairs.json` `send.units`, asked for with the Team Lead's «Change what <host> sends…») is `partner_ok` false / `partner_why` `not_agreed` in the plan and skipped as `not_agreed` by the run before the door is asked (until 2.28 the door refused it as `unit_not_agreed`, counted as refused).

@@ -1806,10 +1806,12 @@ function wholeShareOf(path, plan) {
 /**
  * Why a share keeps what the plan says under every start: what the engine never backs up on its own - the system
  * share (Docker image, libvirt), a name it can't use, the Kopia container's own folders, the share Unraid's syslog
- * server writes into (setup.sh syslog_share(), why code syslog), a Time Machine target, drift.ignore, VM disks without snapshots. From the plan's reason, or - for settings made earlier, «as before» -
+ * server writes into (setup.sh syslog_share(): the plan's flag `syslog` since engine 2.32, every plan; the why code syslog of
+ * a first plan), a Time Machine target, drift.ignore, VM disks without snapshots. From the plan's reason, or - for settings made earlier, «as before» -
  * the way the engine finds it (setup.sh share_propose(), timemachine_reason(), kopia_workdir())
  */
 function presetKeep(sh, plan) {
+  if (sh.syslog) return 'syslog';
   if (PRESET_KEEP.includes(sh.why)) return sh.why;
   const name = sh.name;
   if (name === 'system') return 'system';

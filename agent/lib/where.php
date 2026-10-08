@@ -1586,6 +1586,65 @@ const WA_SMART_BAD   = [5, 187, 197, 198];     // reallocated, uncorrectable, pe
 const WA_SMART_WATCH = [5, 187, 188, 197, 198, 199];
 
 /**
+ * What the array's resync is doing to each array disk (Benj, 2026-10-08: nostromo's first parity build showed as a
+ * red «DISK_INVALID» — Unraid keeps that status on a parity disk until its first sync is through, and on a disk being
+ * rebuilt). var.ini while `mdResyncPos` > 0: `mdResyncAction` «recon P» / «recon Q» builds parity / parity2, «recon <n>»
+ * rebuilds a data disk — while a recon runs every array disk Unraid still calls invalid is the one being built —,
+ * «clear» zeroes a new data disk (status DISK_NEW). A check («check P», «check») reads every disk and marks none: that
+ * is the array's summary (waSystem). Percent as Unraid's status bar; the time to go as Unraid's statuscheck reckons it
+ * from `mdResyncDb`/`mdResyncDt` (the last interval's blocks and seconds); `mdResyncDt` 0 = paused.
+ *
+ * @param array<string, string>                $var   var.ini
+ * @param array<string, array<string, string>> $disks disks.ini by section
+ * @return array<string, array{what: string, percent: ?float, eta: ?int, paused: bool}> by disk name
+ */
+function waBuilding(array $var, array $disks): array
+{
+    $pos = (int) ($var['mdResyncPos'] ?? 0);
+    $action = preg_split('/\s+/', trim((string) ($var['mdResyncAction'] ?? ''))) ?: [];
+    $kind = $action[0] ?? '';
+    if ($pos <= 0 || !in_array($kind, ['recon', 'clear'], true)) {
+        return [];
+    }
+    $size = (int) ($var['mdResyncSize'] ?? 0);
+    $total = (int) ($var['mdResync'] ?? 0) ?: $size;
+    $dt = (int) ($var['mdResyncDt'] ?? 0);
+    $db = (int) ($var['mdResyncDb'] ?? 0);
+    $eta = $dt > 0 && $db > 0 && $total > $pos ? (int) round($dt * (($total - $pos) / ($db / 100 + 1)) / 100) : null;
+    $named = [];
+    foreach (array_slice($action, 1) as $t) {
+        if ($t === 'P') {
+            $named[] = 'parity';
+        } elseif ($t === 'Q') {
+            $named[] = 'parity2';
+        } elseif (preg_match('/^D?(\d+)$/', $t, $m)) {
+            $named[] = 'disk' . $m[1];
+        }
+    }
+    $out = [];
+    foreach ($disks as $section => $d) {
+        $name = (string) ($d['name'] ?? $section);
+        $type = $d['type'] ?? '';
+        $status = (string) ($d['status'] ?? '');
+        if (!in_array($type, ['Parity', 'Data'], true)) {
+            continue;
+        }
+        if ($kind === 'clear') {
+            if ($status !== 'DISK_NEW') {
+                continue;
+            }
+            $what = 'clear';
+        } elseif (in_array($name, $named, true) || str_starts_with($status, 'DISK_INVALID') || $status === 'DISK_DSBL_NEW') {
+            $what = $type === 'Parity' ? 'parity' : 'rebuild';
+        } else {
+            continue;
+        }
+        $out[$name] = ['what' => $what, 'percent' => $size > 0 ? round($pos / $size * 100, 1) : null, 'eta' => $eta, 'paused' => $dt === 0];
+    }
+    return $out;
+}
+
+/**
  * Every disk Unraid knows (array, pools, boot, unassigned devices) with its
  * temperature against the threshold that applies to it, SMART findings and
  * how full it is. Only Unraid's own cached values are read — no disk wakes up.
@@ -1608,7 +1667,9 @@ function waHealth(): array
     $byDevice = [];
     $paritySlots = 0;
     $parityPresent = 0;
-    $sources = [['array', readCfg('/var/local/emhttp/disks.ini', true)], ['unassigned', readCfg('/var/local/emhttp/devs.ini', true)]];
+    $disksIni = readCfg('/var/local/emhttp/disks.ini', true);
+    $building = waBuilding($var, $disksIni);                 // the array disk a resync builds right now (parity, a rebuild, a clear)
+    $sources = [['array', $disksIni], ['unassigned', readCfg('/var/local/emhttp/devs.ini', true)]];
     foreach ($sources as [$origin, $entries]) {
         foreach ($entries as $name => $d) {
             $type = $d['type'] ?? ($origin === 'unassigned' ? 'Unassigned' : '');
@@ -1652,6 +1713,7 @@ function waHealth(): array
                 'rotational' => $rotational,
                 'asleep'     => diskAsleep($d),                  // an SSD in standby is not asleep for the office
                 'status'     => $d['status'] ?? null,
+                'building'   => $origin === 'array' ? ($building[$name] ?? null) : null,   // DISK_INVALID while this is set is no problem
                 'errors'     => num($d['numErrors'] ?? '0'),
                 'temp'       => $temp,
                 'hot'        => $hot,

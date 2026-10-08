@@ -1715,8 +1715,8 @@ SH);
     $out = $setup('--plan');
     $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
     $sh3 = array_column($plan['shares'] ?? [], null, 'name');
-    same('setup plan: the share Unraid\'s syslog server writes into — proposed not backed up (why syslog)', ['off', 'syslog'],
-        [$plan['P']['share|syslog|mode'] ?? null, $sh3['syslog']['why'] ?? null], $out);
+    same('setup plan: the share Unraid\'s syslog server writes into — proposed not backed up (why syslog), flagged syslog (2.32); the others not', ['off', 'syslog', true, false],
+        [$plan['P']['share|syslog|mode'] ?? null, $sh3['syslog']['why'] ?? null, $sh3['syslog']['syslog'] ?? null, $sh3['docs']['syslog'] ?? null], $out);
 
     // --- engine 2.31: [general] preset_new, Mr. Backupsy's default for new things - kept, carried by the plan, never acted on
     $pnLine = fn (string $ini) => preg_match('/\[general\][^\[]*\npreset_new = ([a-z]+)\n/', $ini, $mm) ? $mm[1] : null;
@@ -1747,6 +1747,10 @@ SH);
     $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
     same('preset_new: the next plan carries it, nothing pending for it', ['local', 'local', []],
         [$plan['preset_new'] ?? null, $plan['P']['general|preset_new'] ?? null, $pnPending($plan)]);
+    // 2.32: the syslog share is in settings.ini now - its why is «as before», the flag stays (so a default never switches it on)
+    $sh3 = array_column($plan['shares'] ?? [], null, 'name');
+    same('setup plan: the syslog share once set up - why previous, still flagged syslog (2.32), its mode kept', ['previous', true, 'off', false],
+        [$sh3['syslog']['why'] ?? null, $sh3['syslog']['syslog'] ?? null, $plan['P']['share|syslog|mode'] ?? null, $sh3['docs']['syslog'] ?? null]);
     $pnApply('kopia');
     same('preset_new: kopia written', 'kopia', $pnLine((string) @file_get_contents("$data/settings.ini")));
     $setup('--plan');
@@ -3048,7 +3052,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.31', [1, '2.31'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.32', [1, '2.32'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -3517,7 +3521,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.31', [1, '2.31'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.32', [1, '2.32'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -4336,17 +4340,19 @@ function testBackupPresets(): void
                 'share|appdata|mode' => 'kopia', 'share|appdata|kopia_ignore' => ['/kopia/', '/cache/'], 'share|appdata|kopia_known' => ['/c1/', '/c2/', '/c3/', '/emby/'],
                 'share|UnraidSecretaryOffice|mode' => 'kopia', 'share|domains|mode' => 'snapshot', 'share|system|mode' => 'snapshot', 'share|kopia_tmp|mode' => 'off',
                 'share|tm_janine|mode' => 'off', 'share|Backups_TimeMachine|mode' => 'off', 'share|scratch|mode' => 'off', 'share|Filme|mode' => 'off',
-                'share|photos|mode' => 'snapshot',
+                'share|photos|mode' => 'snapshot', 'share|routerlogs|mode' => 'off',
                 'vm|vm1|mode' => 'snapshot', 'vm|vm1|prepare' => 'pause', 'vm|vm2|mode' => 'snapshot', 'vm|vm2|prepare' => 'none',
                 'vm|vm3|mode' => 'off', 'vm|vm3|prepare' => 'none'],
         'O' => ['kopia|enabled' => 'yes', 'share|appdata|mode' => 'kopia', 'share|UnraidSecretaryOffice|mode' => 'kopia', 'share|domains|mode' => 'snapshot',
-                'share|system|mode' => 'snapshot', 'share|Filme|mode' => 'off', 'share|photos|mode' => 'snapshot'],
+                'share|system|mode' => 'snapshot', 'share|Filme|mode' => 'off', 'share|photos|mode' => 'snapshot', 'share|routerlogs|mode' => 'off'],
         'shares' => [
             $sh('appdata', 100, ['folders' => [['dir' => 'c1', 'container' => 'c1'], ['dir' => 'c2', 'container' => 'c2'], ['dir' => 'c3', 'container' => 'c3'],
                 ['dir' => 'emby', 'container' => 'emby'], ['dir' => 'skipme', 'container' => 'skipme'], ['dir' => 'newapp', 'container' => 'newapp']],
                 'waiting' => [['dir' => 'loose', 'bytes' => 5, 'first_seen' => 900]]]),
             $sh('UnraidSecretaryOffice', 1), $sh('domains', 200), $sh('system', 30), $sh('kopia_tmp', 0), $sh('tm_janine', 500), $sh('Backups_TimeMachine', null, ['method' => 'none']),
-            $sh('scratch', 10), $sh('Filme', 3000), $sh('photos', null), $sh('gone', null, ['exists' => false])],
+            $sh('scratch', 10), $sh('Filme', 3000), $sh('photos', null), $sh('gone', null, ['exists' => false]),
+            // the share Unraid's syslog server writes into, set up before (why previous): engine 2.32 flags it in every plan
+            $sh('routerlogs', 2, ['syslog' => true])],
         'containers' => [
             $ct('c1', 'writes', ['appdata/c1']), $ct('c2', 'writes', ['appdata/c2']), $ct('c3', 'writes', ['appdata/c3']),
             $ct('emby', 'writes', ['appdata/emby', 'Filme'], ['media' => 'emby', 'image' => 'emby/embyserver']),
@@ -4401,7 +4407,7 @@ const b = OFFICE_DESK_TESTS.backup;
 const S = b.setup;
 const read = (i) => JSON.parse(fs.readFileSync(process.argv[i], 'utf8'));
 const snap = () => JSON.stringify({ draft: S.draft, levels: S.levels, held: S.held });
-const SH = ['appdata', 'UnraidSecretaryOffice', 'domains', 'system', 'kopia_tmp', 'tm_janine', 'Backups_TimeMachine', 'scratch', 'Filme', 'photos', 'gone'];
+const SH = ['appdata', 'UnraidSecretaryOffice', 'domains', 'system', 'kopia_tmp', 'tm_janine', 'Backups_TimeMachine', 'scratch', 'Filme', 'photos', 'gone', 'routerlogs'];
 const look = () => ({
   kopia: S.draft['kopia|enabled'], levels: { ...S.levels }, held: { ...S.held },
   modes: Object.fromEntries(SH.map((n) => [n, S.draft[`share|${n}|mode`] ?? null])),
@@ -4482,14 +4488,14 @@ JS;
     }
     same('presets: «Automatic» is the plan as today, nothing changed by hand', [true, false, 'setup.preset.start {"name":"setup.preset.auto"}'], $r['auto']);
     same('presets: what stays as the engine says - system by name, Kopia\'s own folder by its mapping, Time Machine by its container and by name, drift.ignore',
-        [null, null, null, 'system', 'kopia_workdir', 'timemachine', 'timemachine', 'drift_ignore', null, null, null], $r['keep']);
+        [null, null, null, 'system', 'kopia_workdir', 'timemachine', 'timemachine', 'drift_ignore', null, null, null, 'syslog'], $r['keep']);
     $all = fn (int $l) => ['app:ct:c1' => $l, 'app:ct:c2' => $l, 'app:ct:c3' => $l, 'app:ct:emby' => $l, 'app:ct:skipme' => $l, 'app:ct:dsm' => $l, 'app:ct:tm' => $l, 'app:ct:newapp' => $l,
         'vm:vm1' => $l, 'vm:vm2' => 0, 'vm:vm3' => $l];
     $ks = function (array $a): array {
         ksort($a);
         return $a;
     };
-    $kept = ['system' => 'snapshot', 'kopia_tmp' => 'off', 'tm_janine' => 'off', 'Backups_TimeMachine' => 'off', 'scratch' => 'off', 'gone' => null];
+    $kept = ['system' => 'snapshot', 'kopia_tmp' => 'off', 'tm_janine' => 'off', 'Backups_TimeMachine' => 'off', 'scratch' => 'off', 'gone' => null, 'routerlogs' => 'off'];
     $L = $r['local'];
     same('presets: «Everything local only» - Kopia off, every app and VM local (a VM that can\'t be snapshotted stays)', ['no', $ks($all(1))], [$L['kopia'], $ks($L['levels'])]);
     same('presets: «Everything local only» - every share local, what the engine keeps stays as the plan says, a gone one untouched',
@@ -4520,7 +4526,10 @@ JS;
     same('presets: a VM that went to Kopia before (its own source) is no first upload', [(3000 * 1073741824) + 50000000000, ['vm3']], [$r['uploadVmBefore']['bytes'], $r['uploadVmBefore']['vms']]);
     same('presets: what every start leaves as it is', ['setup.preset.keep.system {"name":"system"}', 'setup.preset.keep.kopia_workdir {"name":"kopia_tmp"}',
         'setup.preset.keep.timemachine {"name":"tm_janine"}', 'setup.preset.keep.timemachine {"name":"Backups_TimeMachine"}',
-        'setup.preset.keep.drift_ignore {"name":"scratch"}', 'setup.preset.keep.vm_cannot {"name":"vm2"}'], $r['kept']);
+        'setup.preset.keep.drift_ignore {"name":"scratch"}', 'setup.preset.keep.syslog {"name":"routerlogs"}', 'setup.preset.keep.vm_cannot {"name":"vm2"}'], $r['kept']);
+    // engine 2.32: an applied setup's syslog share says «as before» (why previous) but carries the flag - no default switches it on
+    same('presets: the syslog share of an applied setup (why previous, plan flag syslog) stays «not backed up» under local and local + Kopia',
+        ['syslog', 'off', 'off'], [$r['keep'][11] ?? null, $L['modes']['routerlogs'] ?? null, $K['modes']['routerlogs'] ?? null]);
     same('presets: a new plan - the default stays for what was there, the change by hand stays, what came later gets the default (local + Kopia, stopped like any)',
         ['levels' => [1, 2, 2, 2], 'held' => 'stop', 'later' => 'yes', 'changed' => true], $r['replan']);
     same('presets: «Discard» goes back to the default (not to my proposal), the newcomer with it', [2, 2, false], $r['discard']);
@@ -11093,6 +11102,65 @@ function testWhereDesk(): void
 }
 
 /**
+ * A parity disk being built is not «DISK_INVALID» (Benj, 2026-10-08; nostromo's first parity build): waBuilding() from a
+ * crafted var.ini + disks.ini — building parity → the parity disk is `building` (what, percent, the time to go), the data
+ * disks and pools not; invalid without a resync → nothing (the page counts it as bad); a data disk's rebuild; a check
+ * marks nobody; a clear marks the new disk; paused. The page: the chip takes the place of the red status, the bad count
+ * leaves a building disk out, every text in English.
+ */
+function testWhereBuilding(): void
+{
+    $tmp = hardeningTmp('where-building');
+    $disk = fn (string $name, string $type, string $status, string $dev = 'sdx') => "[\"$name\"]\nname=\"$name\"\ndevice=\"$dev\"\ntype=\"$type\"\nstatus=\"$status\"\nspundown=\"0\"\n";
+    $disks = $disk('parity', 'Parity', 'DISK_INVALID', 'sdo') . $disk('disk1', 'Data', 'DISK_OK', 'sda') . $disk('disk2', 'Data', 'DISK_OK', 'sdb')
+        . $disk('parity2', 'Parity', 'DISK_NP_DSBL', '') . $disk('hive', 'Cache', 'DISK_OK', 'nvme0n1') . $disk('flash', 'Flash', 'DISK_OK', 'sdz');
+    // nostromo on 2026-10-08, 81.6 % through its first parity build
+    $var = fn (array $o) => implode("\n", array_map(fn ($k, $v) => "$k=\"$v\"", array_keys($o), $o)) . "\n";
+    $nostromo = ['mdState' => 'STARTED', 'mdResync' => '23437770700', 'mdResyncPos' => '19114247308', 'mdResyncDb' => '462168', 'mdResyncDt' => '31',
+        'mdResyncAction' => 'recon P', 'mdResyncSize' => '23437770700', 'mdNumInvalid' => '2'];
+    file_put_contents("$tmp/var.ini", $var($nostromo));
+    file_put_contents("$tmp/disks.ini", $disks);
+    $b = waBuilding(readCfg("$tmp/var.ini"), readCfg("$tmp/disks.ini", true));
+    same('where building: a parity build - the parity disk is being built, nobody else (the missing parity2, the data disks, a pool, the flash)',
+        ['parity'], array_keys($b));
+    same('where building: what, how far, not paused', ['parity', 81.6, false], [$b['parity']['what'], $b['parity']['percent'], $b['parity']['paused']]);
+    $eta = (int) round(31 * ((23437770700 - 19114247308) / (462168 / 100 + 1)) / 100);        // Unraid's statuscheck
+    same('where building: the time to go as Unraid reckons it', $eta, $b['parity']['eta']);
+    check('where building: … a plausible number of seconds', $eta > 3600 && $eta < 14 * 86400, (string) $eta);
+    // the same disks.ini without a resync: DISK_INVALID is a real problem - nothing is «building»
+    same('where building: invalid without a resync - nothing (the page counts the disk as bad)', [],
+        waBuilding(readCfg('/dev/null') + ['mdResyncPos' => '0', 'mdResyncAction' => 'check P', 'mdResync' => '0'], readCfg("$tmp/disks.ini", true)));
+    same('where building: a parity check reads every disk and marks none (the array\'s summary says it)', [],
+        waBuilding(['mdResyncPos' => '1000', 'mdResyncAction' => 'check P', 'mdResyncSize' => '2000'], readCfg("$tmp/disks.ini", true)));
+    // a data disk rebuilt: Unraid names it in the action and calls it invalid meanwhile; the parity disk is fine
+    file_put_contents("$tmp/disks.ini", $disk('parity', 'Parity', 'DISK_OK', 'sdo') . $disk('disk1', 'Data', 'DISK_OK', 'sda') . $disk('disk2', 'Data', 'DISK_INVALID', 'sdb')
+        . $disk('hive', 'Cache', 'DISK_OK', 'nvme0n1'));
+    $b = waBuilding(['mdResyncPos' => '500', 'mdResyncSize' => '1000', 'mdResync' => '1000', 'mdResyncAction' => 'recon 2', 'mdResyncDt' => '10', 'mdResyncDb' => '100'],
+        readCfg("$tmp/disks.ini", true));
+    same('where building: a data disk being rebuilt (recon <n>) - that disk, as a rebuild, half way', [['disk2'], 'rebuild', 50.0], [array_keys($b), $b['disk2']['what'] ?? null, $b['disk2']['percent'] ?? null]);
+    $b = waBuilding(['mdResyncPos' => '500', 'mdResyncSize' => '1000', 'mdResyncAction' => 'recon 2', 'mdResyncDt' => '0', 'mdResyncDb' => '0'], readCfg("$tmp/disks.ini", true));
+    same('where building: paused (mdResyncDt 0) - said, no time to go', ['eta' => null, 'paused' => true], array_intersect_key($b['disk2'] ?? [], ['eta' => 1, 'paused' => 1]));
+    $b = waBuilding(['mdResyncPos' => '500', 'mdResyncSize' => '1000', 'mdResyncAction' => 'recon Q'], readCfg("$tmp/disks.ini", true) + ['parity2' => ['name' => 'parity2', 'type' => 'Parity', 'status' => 'DISK_INVALID', 'device' => 'sdq']]);
+    same('where building: parity2 (recon Q) - a parity build; the invalid data disk meanwhile a rebuild', ['disk2' => 'rebuild', 'parity2' => 'parity'], array_map(fn ($x) => $x['what'], $b));
+    // a new data disk cleared before it joins: only the DISK_NEW one
+    file_put_contents("$tmp/disks.ini", $disks . $disk('disk3', 'Data', 'DISK_NEW', 'sdc'));
+    $b = waBuilding(['mdResyncPos' => '250', 'mdResyncSize' => '1000', 'mdResyncAction' => 'clear'], readCfg("$tmp/disks.ini", true));
+    same('where building: a clear - the new disk only (the invalid parity is not what a clear works on)', [['disk3'], 'clear', 25.0], [array_keys($b), $b['disk3']['what'] ?? null, $b['disk3']['percent'] ?? null]);
+    same('where building: no var.ini (the array stopped) - nothing', [], waBuilding([], readCfg("$tmp/disks.ini", true)));
+    hardeningRm($tmp);
+
+    // the page: the accent chip instead of the red status, the bad count leaves such a disk out, the texts
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.js');
+    check('where building: the disk row shows the building chip in place of the red status', str_contains($js, "d.building ? buildingChip(d.building) : (d.status && d.status !== 'DISK_OK' ? chip(d.status, 'danger') : null)"));
+    check('where building: the chip is accent with the time to go as its tip', str_contains($js, "return chip(T('where.building.' + b.what, { p }), 'accent', tip);")
+        && str_contains($js, "T('where.building.eta', { time: fmt.duration(b.eta) })"));
+    check('where building: a building disk is not counted among the bad ones', str_contains($js, "(d.status && d.status !== 'DISK_OK' && !d.building)"));
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/lang/en.json'), true);
+    same('where building: every text the chip asks for', [], array_values(array_filter(['where.building.parity', 'where.building.rebuild', 'where.building.clear',
+        'where.building.eta', 'where.building.paused', 'where.building.hint'], fn ($k) => !isset($en[$k]))));
+}
+
+/**
  * Ms. Dustdevil's tick: three parts, each on its own — one that throws (an exception in her jobs) doesn't stop
  * the du jobs of «where is what»; said once in the log, again only after it worked once more
  */
@@ -15941,7 +16009,7 @@ function testWatchmanNet(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
