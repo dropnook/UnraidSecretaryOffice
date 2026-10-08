@@ -572,7 +572,9 @@ file, told by the caretaker). The caretaker suggests whom to hire; hiring
 (`office.hire`, src/staff.php → data/office/staff.json) shows
 the desk in the tabs and at the reception, firing hides it again — data and
 whatever it set up on the server stay (`fire_note` says what keeps running).
-Unhired desks get no write actions (`not_hired`) and their checks don't count.
+Unhired desks get no write actions (`not_hired`) and their checks don't count — refused by the web side (api.php) and again at the
+agent's dispatch (`agentDeskMayAct()`, QA 2026-10-08: an unhired watchman's SIEM switch went through): an unhired or
+training desk answers `refresh` only (`AGENT_UNHIRED_ACTIONS`; its `fit` is no action), the Team Lead everything (`testAgentHired`).
 **Order** (Benj, 2026-10-07): «Change the order» at the reception (core.js `arrangeable()`: small cards in a row with big
 ▲ / ▼ buttons (`.order-arrow`, 44 px, the words as `data-tip` and `aria-label`, ▲ off on the first movable card, ▼ on
 the last, the keyboard stays on the arrow it pressed), the team lead's card says why he stays first; the head's button

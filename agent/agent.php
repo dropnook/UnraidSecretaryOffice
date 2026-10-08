@@ -720,6 +720,9 @@ function handle(string $raw): array
         if (!$handler) {
             throw new Problem('unknown_action', ['action' => $request['action']]);
         }
+        if ($deskId !== 'office' && !agentDeskMayAct($deskId, $action)) {
+            throw new Problem('not_hired', ['desk' => $deskId]);
+        }
         return $handler($request);
     } catch (Problem $p) {
         return ['ok' => false, 'error' => $p->toArray()];
@@ -727,6 +730,27 @@ function handle(string $raw): array
         logLine('Error: ' . $e->getMessage() . ' (' . basename($e->getFile()) . ':' . $e->getLine() . ')');
         return ['ok' => false, 'error' => ['key' => 'internal', 'params' => ['detail' => $e->getMessage()]]];
     }
+}
+
+/*
+ * A desk that doesn't work here — not hired (data/office/staff.json), or still in training (desk.json `training`: nobody
+ * can hire it) — answers its look and nothing else: `refresh`, which the reception and the Team Lead's «who could
+ * come» ask of every desk. Everything else — a switch (the watchman's SIEM and whole-LAN), a schedule, a desk's
+ * settings, a plan, a start, a deletion — is refused (not_hired), as the web side (src/api.php) refuses it before it
+ * ever reaches the mailbox (QA 2026-10-08, note 1: the agent switched an unhired watchman's SIEM on). A desk's `fit`
+ * is no action — the Team Lead asks it in the agent. The desks always there (the Team Lead) always act.
+ */
+const AGENT_UNHIRED_ACTIONS = ['refresh'];
+
+function agentDeskMayAct(string $deskId, string $action, ?string $staffFile = null): bool
+{
+    if (in_array($action, AGENT_UNHIRED_ACTIONS, true)) {
+        return true;
+    }
+    if (!empty(readJson(OFFICE_WEB . "/desks/$deskId/desk.json")['training'])) {
+        return false;
+    }
+    return in_array($deskId, staffHired($staffFile ?? ($GLOBALS['agentStaffFile'] ?? null)), true);
 }
 
 function cleanUpMailbox(): void

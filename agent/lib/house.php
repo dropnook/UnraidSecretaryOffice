@@ -536,12 +536,13 @@ const STAFF_MERGED = ['whereabouts' => 'cleanup'];        // 2026-10: Ms. Wherea
  * The desks that work in the office: data/office/staff.json (written by the
  * web part, see src/staff.php) plus those that are always there. A desk that
  * went into another one counts as that one until the migration step `staff-merged` rewrote the list.
+ * $file: another staff list (tests).
  *
  * @return list<string>
  */
-function staffHired(): array
+function staffHired(?string $file = null): array
 {
-    $hired = staffMergedIds(array_keys((array) ((readJson(DATA_DIR . '/office/staff.json') ?? [])['hired'] ?? [])), desks());
+    $hired = staffMergedIds(array_keys((array) ((readJson($file ?? DATA_DIR . '/office/staff.json') ?? [])['hired'] ?? [])), desks());
     foreach (array_keys(desks()) as $id) {
         if (!empty(readJson(OFFICE_WEB . "/desks/$id/desk.json")['always'])) {
             $hired[] = $id;
