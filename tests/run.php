@@ -16282,9 +16282,40 @@ function testWatchmanNet(): void
     // ---- the Consultant's look: which shares qualify, the loop, the senders (only while the folder is awake)
     $cfgFile(['remote_server' => '127.0.0.1']);
     $a = watchnetAdvisor($o);
-    same('net advisor: Unraid\'s syslog server as it is — on, its share first among those that qualify (SSD pools only), the pools, the loop',
-        [true, 'syslog', ['syslog'], ['master'], true],
-        [$a['on'], $a['share'], array_column($a['shares'], 'share'), $a['pools'], $a['loop']]);
+    same('net advisor: Unraid\'s syslog server as it is — on, its share, where a share `syslog` belongs (the pools that never sleep; the array only all-SSD), the loop',
+        [true, 'syslog', ['master'], false, true],
+        [$a['on'], $a['share'], $a['pools'], $a['array_ssd'], $a['loop']]);
+    // where the share belongs, by disks.ini alone (Benj, 2026-10-08: create a share, don't pick an existing one): nostromo's
+    // shape - master (NVMe, delay 0), ripley (six SSDs, the default delay), sulaco (NVMe), the boot pool mother (SSDs, but the
+    // Boot slot's device - left out), hive (four HDDs at 15 min), the array of HDDs
+    $pf = fn (string $disks, string $delay = '30') => (function () use ($o, $disks, $delay) {
+        file_put_contents($o['disks_ini'] . '.x', $disks);
+        file_put_contents($o['var_ini'] . '.x', "spindownDelay=\"$delay\"\n");
+        $f = watchnetFacts(['disks_ini' => $o['disks_ini'] . '.x', 'var_ini' => $o['var_ini'] . '.x'] + $o);
+        return [$f['pools'], $f['array_ssd']];
+    })();
+    $dk = fn (string $n, string $dev, string $rot, string $delay, string $type = 'Cache', string $fs = '') =>
+        "[\"$n\"]\nname=\"$n\"\ndevice=\"$dev\"\nrotational=\"$rot\"\nspundown=\"0\"\ntype=\"$type\"\nspindownDelay=\"$delay\"\n" . ($fs !== '' ? "fsType=\"$fs\"\n" : '');
+    $nostromo = $dk('parity', 'sdo', '1', '-1', 'Parity') . $dk('disk1', 'sda', '1', '-1', 'Data', 'luks:btrfs') . $dk('disk2', 'sdq', '1', '-1', 'Data', 'luks:btrfs')
+        . $dk('hive', 'sdj', '1', '15', 'Cache', 'zfs') . $dk('hive2', 'sdg', '1', '15') . $dk('master', 'nvme0n1', '0', '0', 'Cache', 'luks:zfs') . $dk('master2', 'nvme1n1', '0', '0')
+        . $dk('mother', 'sde', '0', '-1', 'Cache', 'luks:zfs') . $dk('mother2', 'sdm', '0', '-1') . $dk('ripley', 'sdb', '0', '-1', 'Cache', 'luks:zfs') . $dk('ripley2', 'sdf', '0', '-1')
+        . $dk('sulaco', 'nvme2n1', '0', '-1', 'Cache', 'luks:zfs') . $dk('flash', 'sde', '0', '-1', 'Boot', 'zfs') . $dk('flash2', 'sdm', '0', '-1', 'Boot');
+    same('net advisor: nostromo - master, ripley, sulaco; not mother (the boot pool), not hive (spins down), not the array (HDDs)', [['master', 'ripley', 'sulaco'], false], $pf($nostromo));
+    // uso-test: VM disks, all rotational=1 with the default delay - and the default is «Never» (var.ini spindownDelay 0):
+    // big and cache never sleep; the array (HDDs by their word) stays out
+    $usotest = $dk('disk1', 'sda', '1', '-1', 'Data', 'btrfs') . $dk('disk2', 'sdb', '1', '-1', 'Data', 'zfs') . $dk('big', 'vda', '1', '-1', 'Cache', 'zfs')
+        . $dk('cache', 'sdc', '1', '-1', 'Cache', 'zfs') . $dk('cache2', 'sdd', '1', '-1') . $dk('flash', 'sde', '1', '-1', 'Flash', 'vfat');
+    same('net advisor: uso-test - big and cache (the default delay is Never), not the array', [['big', 'cache'], false], $pf($usotest, '0'));
+    same('net advisor: … with the default at 30 min every pool there spins down - none', [[], false], $pf($usotest));
+    same('net advisor: an array of SSDs qualifies too (and a pool of one SSD at the default)', [['nvme'], true],
+        $pf($dk('disk1', 'sda', '0', '-1', 'Data', 'xfs') . $dk('disk2', 'sdb', '0', '-1', 'Data', 'xfs') . $dk('nvme', 'nvme0n1', '0', '-1', 'Cache', 'zfs')));
+    same('net advisor: … but not an array with one HDD in it', [[], false], $pf($dk('disk1', 'sda', '0', '-1', 'Data', 'xfs') . $dk('disk2', 'sdb', '1', '0', 'Data', 'xfs')));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        $al = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/advisor/lang/$lang.json"), true) ?: [];
+        check("net advisor: the guide's step says create a share, its pools and the fallback ($lang)",
+            str_contains((string) ($al['net.syslog.3'] ?? ''), '⟦Add Share⟧') && str_contains((string) ($al['net.syslog.3'] ?? ''), '{pools}')
+            && str_contains((string) ($al['net.syslog.pools'] ?? ''), '{list}') && isset($al['net.syslog.pools_none'], $al['net.syslog.the_array']) && !isset($al['net.syslog.shares']));
+    }
     $cfgFile(['server_folder' => $logs]);
     $a = watchnetAdvisor($o);
     same('net advisor: the senders with a file there, never the loop\'s', ['192.0.2.1', '192.0.2.105'], array_column((array) $a['senders'], 'sender'));

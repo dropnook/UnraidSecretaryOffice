@@ -211,7 +211,7 @@ The Night Watchman can read what your router says about this server — UniFi ga
 listens itself: the router sends its log to Unraid's own syslog server (*Settings → Network Services → Syslog
 Server*, one file per sender in a share of its own on a pool that never sleeps), and he reads those files every
 round like the syslog — never while the array is stopped, never a disk woken, nothing written there, no router
-password, never a word to the router. The Consultant shows the setting (and which of your shares qualify) and the
+password, never a word to the router. The Consultant shows the setting (and which pools a share `syslog` of its own belongs on) and the
 router's side (UniFi Network 10.x: *Settings → CyberSecure → Traffic Logging → Activity Logging (Syslog) → SIEM
 Server*, «Blocked Traffic Only»). Only what concerns this server becomes an entry in the group **The network**: a new
 sender, a device never seen on the LAN, someone using the server's name or address with another MAC, a router or VPN
