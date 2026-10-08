@@ -196,8 +196,8 @@ or without an account from inside the office (*⋯ → Report a problem or a wis
 ## Reporting a problem or a wish
 
 No GitHub account needed: *⋯ → Report a problem or a wish…* on any page (or the button at the Team Lead's *The team*).
-Say what it is — a problem, a wish or a question — which desk it is about, a title and a few words; a name you use in
-the [Unraid forum](https://forums.unraid.net) if you'd like an answer there. *Show what will be sent…* then lists
+Say what it is — a problem, a wish or a question — which desk it is about, a title and a few words. *Show what will
+be sent…* then lists
 everything that would go, part by part: your words as you typed them, the office's and Unraid's versions, the
 languages, which desks you hired, the desk's last error, and its last lines from the messenger's log — cleaned of share,
 pool, server, partner and user names, paths, addresses, MAC addresses, e-mail addresses and keys (you see what was
