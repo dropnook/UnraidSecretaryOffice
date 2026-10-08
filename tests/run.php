@@ -13777,6 +13777,27 @@ function testRestorePartner(): void
     $vm2 = partnerTestAs($A2, $A2['pre'] . 'return rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "vm:Debian_Helmi", "snap" => "uso-backup-20261007-0200"]);');
     same('restore partner: a VM whose place isn\'t at the partner — only the disks, said plainly', [['pull', 'mount'], true, true],
         [array_column($vm2['steps'] ?? [], 'do'), in_array('note.partner_no_package', array_column($vm2['notes'] ?? [], 'key'), true), ($vm2['notes'][0]['warn'] ?? false) || true]);
+    // a unit no longer sent but still agreed there (its status' agreed, the mutual watch's): still offered, the look asks for it
+    [$A3, , ] = restorePartnerTestPair("$tmp/agreed", ['share:appdata']);
+    $as3 = fn (string $code) => partnerTestAs($A3, $A3['pre'] . $code);
+    $srcUnits = fn () => array_column($as3('return array_map(fn ($s) => array_diff_key($s, ["pair" => 1]), rspSources());'), 'units', 'id');
+    same('restore partner: sent only appdata, nothing known of the partner yet — appdata only', [$id => ['share:appdata']], $srcUnits());
+    partnerWritePrivate("$A3[data]/partner/state.json", ['pairs' => [$id => ['status' => ['agreed' => ['share:appdata', 'vm:Debian_Helmi']]]]]);
+    same('restore partner: a unit in agreed but not in send.units is offered (sent ones first)', [$id => ['share:appdata', 'vm:Debian_Helmi']], $srcUnits());
+    $as3('rspLookJob([]); return true;');
+    $plan3 = $as3('return rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "vm:Debian_Helmi", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $stamp . '"]);');
+    same('restore partner: … the look asked for it, the tile and the plan have it', [['uso-backup-20261007-0200'], 'vm:Debian_Helmi', null, []],
+        [array_column(($as3('return rspHeld("' . $id . '");')['units']['vm:Debian_Helmi'] ?? []), 'name'),
+         $as3('return rspState();')[0]['units'][array_search('vm:Debian_Helmi', array_column($as3('return rspState();')[0]['units'] ?? [], 'unit'), true)]['unit'] ?? null,
+         $plan3['problem'] ?? null, $plan3['blockers'] ?? null]);
+    partnerWritePrivate("$A3[data]/partner/state.json", ['pairs' => [$id => ['status' => ['agreed' => null]]]]);
+    same('restore partner: what the partner\'s list found wins — no agreed known (an office before 2.29), the unit it lists still offered', [$id => ['share:appdata', 'vm:Debian_Helmi']], $srcUnits());
+    partnerWritePrivate("$A3[data]/partner/state.json", ['pairs' => [$id => ['status' => ['agreed' => ['share:appdata', '../etc', 'place']]]]]);
+    same('restore partner: an agreed list out of shape counts for nothing', [$id => ['share:appdata', 'vm:Debian_Helmi']], $srcUnits());
+    same('restore partner: rspPairUnits — send, agreed, what the list found (with moments), each once, never an odd name',
+        ['share:a', 'vm:b', 'place', 'share:c'],
+        rspPairUnits(['share:a', 'vm:b'], ['vm:b', 'place'], ['units' => ['share:c' => [['name' => 'x']], 'share:empty' => [], '../x' => [['name' => 'x']], 'share:a' => [['name' => 'y']]]]));
+
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'), true);
     check('restore partner: «the package isn\'t at the partner — only the disks come back»', str_contains((string) ($en['note.partner_no_package'] ?? ''), "The package isn't at {name} — only the disks come back"));
 
