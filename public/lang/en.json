@@ -59,7 +59,7 @@
     "other": "every {n} minutes"
   },
   "cron.hourly_at": "hourly at minute {m}",
-  "cron.every_hours": "every {n} hours at minute {m}",
+  "cron.every_hours": {"one": "every hour at minute {m}", "other": "every {n} hours at minute {m}"},
   "cron.daily_at": "daily at {time}",
   "cron.weekly_at": "every {day} at {time}",
   "cron.monthly_at": "monthly on day {day} at {time}",

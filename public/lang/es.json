@@ -59,7 +59,7 @@
     "other": "cada {n} minutos"
   },
   "cron.hourly_at": "cada hora en el minuto {m}",
-  "cron.every_hours": "cada {n} horas en el minuto {m}",
+  "cron.every_hours": {"one": "cada hora en el minuto {m}", "other": "cada {n} horas en el minuto {m}"},
   "cron.daily_at": "a diario a las {time}",
   "cron.weekly_at": "cada {day} a las {time}",
   "cron.monthly_at": "cada mes el día {day} a las {time}",
