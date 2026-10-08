@@ -72,7 +72,12 @@ settings and reports what was changed by hand.
 - Stopping the array ends a run at once and cleanly — nothing pruned, nothing started into the stopping array; Kopia
   continues the next night, and what the run had stopped is started right after the array starts again.
 - Getting things back is Mr. Restori's job; Mr. Backupsy's *Getting things back* has the commands by hand
-  ([Restoring](#restoring)).
+  ([Restoring](#restoring)). His restore drill proves that the packages, the dumps (also read back from Kopia) and
+  Kopia's copies come back, in throwaway containers, at night after a good run or on *Practise now…*; it takes the
+  engine's lock like a restore, so no run starts meanwhile.
+- Letting Mr. Backupsy go keeps everything. Ticking «Also clear away what he kept here» moves the packages into Ms.
+  Dustdevil's storeroom and deletes the engine's own local snapshots; `settings.ini`, the schedule, Kopia's and the
+  partners' copies stay (refused while the lock is held).
 
 ---
 
