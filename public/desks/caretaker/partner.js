@@ -251,6 +251,8 @@ function input(type, value, cls) {
   return i;
 }
 
+/* a list of radios or ticks under a title (.ct-opts): the office's label.check rows, control then label and its
+   small - inside a .field office.css's «.field > label» (a field's title) would push the words to the right edge */
 function tick(text, checked, help, disabled) {
   const l = el('label', 'check');
   const cb = el('input');
@@ -287,7 +289,7 @@ function addressPicker(addresses, port) {
 }
 
 function trustPicker(chosen) {
-  const box = el('div', 'field');
+  const box = el('div', 'field ct-opts');
   box.appendChild(el('div', 'field-title', T('partner.trust_title')));
   const radios = TRUST.map((t) => {
     const l = el('label', 'check');
@@ -307,7 +309,7 @@ function trustPicker(chosen) {
 
 /** Ticks for the units this office can send (the engine's plan: datasets of their own only) */
 function unitPicker(units, title) {
-  const box = el('div', 'field');
+  const box = el('div', 'field ct-opts');
   box.appendChild(el('div', 'field-title', title));
   const ticks = [];
   if (!units || !units.length) box.appendChild(el('small', '', T('partner.units_none')));
@@ -322,7 +324,7 @@ function unitPicker(units, title) {
 /** What I keep of theirs: which of their units, the pool, quota, retention, window, wake */
 function receivePicker(offered, pools, defaults) {
   const box = el('div');
-  const units = el('div', 'field');
+  const units = el('div', 'field ct-opts');
   units.appendChild(el('div', 'field-title', T('partner.receive_units')));
   const ticks = offered.map((u) => {
     const t = tick(unitText(u), true);
