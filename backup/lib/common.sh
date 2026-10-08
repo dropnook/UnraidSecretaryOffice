@@ -24,7 +24,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.30"
+UB_VERSION="2.31"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -243,7 +243,7 @@ sec_display() { if [[ "$1" == *"|"* ]]; then printf '[%s "%s"]' "${1%%|*}" "${1#
 
 declare -gA UB_SCHEMA=(
     # keep_runs: before 2.18 the number of run folders kept - accepted in old files, ignored
-    [general]="server mount_root view_root snap_prefix btrfs_snap_dir keep_runs keep_logs min_free_gb keep_mounts notify_success dumps_share partner_place asleep_pools"
+    [general]="server mount_root view_root snap_prefix btrfs_snap_dir keep_runs keep_logs min_free_gb keep_mounts notify_success dumps_share partner_place asleep_pools preset_new"
     [zfs]="retention"
     [btrfs]="keep_days min_free_gb snapshot_all"
     [drift]="ignore remind_days"
@@ -285,6 +285,8 @@ cfg_validate() {
     _val "general|keep_mounts"   '^(yes|no)$'               "yes/no"
     _val "general|notify_success" '^(yes|no)$'              "yes/no"
     _val "general|asleep_pools"  '^(wake|skip)$'            "wake/skip"
+    # since 2.31: Mr. Backupsy's default for new things - only setup.sh and the office read it, never a run
+    _val "general|preset_new"    '^(auto|local|kopia)$'     "auto/local/kopia"
     _val "general|snap_prefix"   '^[a-z0-9_]+(-[a-z0-9_]+)*-$' "lower-case letters/digits, words joined by -, ends with -"
     # Ms. Snapshotini's schedules name theirs uso-plan-<plan>-...: never the engine's prefix (its retention would take them)
     [[ "$(cfg "general|snap_prefix")" == uso-plan-* ]] && CFG_ERRORS+=( "general|snap_prefix = '$(cfg "general|snap_prefix")' is invalid (uso-plan- belongs to Ms. Snapshotini's schedules)" )

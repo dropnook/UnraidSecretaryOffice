@@ -1,6 +1,12 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.30 - 2026-10-08
+# unraid-backup - setup.sh                        Version 2.31 - 2026-10-08
+#   2.31 Mr. Backupsy's default for new things: [general] preset_new = auto (default: my proposals, new things
+#        wait for a decision) | local | kopia - taken from the decisions (general|preset_new), written only
+#        when it is not auto or was there before, carried by the plan (preset_new, and in P); a value it
+#        doesn't know counts as auto. Only the office applies it (to what is new, when it fills its draft):
+#        this setup proposes as before, also with --yes, and backup.sh never reads it. --forget drops it
+#        with settings.ini
 #   2.30 Sleeping pools: an SSD in standby is never asleep (ub_asleep_load: spundown AND rotational) - the plan's
 #        pool_asleep / asleep_bases follow it
 #   2.29 Partner offices: a unit that is a dataset of its own but not among what the partner agreed to keep
@@ -443,6 +449,7 @@ TXT
     old_keep
     ORIG_DUMPS_SHARE="$(old "general|dumps_share")"       # before --apply lays the decisions over it
     ORIG_ASLEEP_SET="${CFG[general|asleep_pools]:+yes}"  # settings.ini names asleep_pools (2.28): it is written again, wake too
+    ORIG_PRESET_SET="${CFG[general|preset_new]:+yes}"    # settings.ini names preset_new (2.31): it is written again, auto too
     [[ "$MODE" == "apply" ]] && decisions_load
 
     # General defaults
@@ -461,6 +468,13 @@ TXT
     pinit "general|notify_success" "yes"
     pinit "general|asleep_pools"   "wake"           # 2.28: wake = as before; skip = sleeping pools are left out that night
     [[ "$(pget "general|asleep_pools")" == "skip" ]] || pset "general|asleep_pools" "wake"
+    # 2.31: the office's default for new things - auto = my proposals (new things wait for a decision), local, kopia.
+    # Only the office applies it to what is new; here it is kept and carried in the plan, never acted on
+    pinit "general|preset_new"     "auto"
+    case "$(pget "general|preset_new")" in
+        auto|local|kopia) ;;
+        *) wrn "preset_new = '$(pget "general|preset_new")' is not auto, local or kopia - taken as auto"; pset "general|preset_new" "auto" ;;
+    esac
     pinit "zfs|retention"          "7 4 6"
     pinit "btrfs|keep_days"        "7"
     pinit "btrfs|min_free_gb"      "150"
@@ -1478,6 +1492,10 @@ TXT
             pset "general|asleep_pools" skip
         else pset "general|asleep_pools" wake; fi
     fi
+    # 2.31: the office's default for new things is kept as it is - this terminal setup proposes as always (phase 2)
+    if interactive && [[ "$(pget "general|preset_new" auto)" != "auto" ]]; then
+        hint "Mr. Backupsy's default for new things (preset_new = $(pget "general|preset_new")) stays - only his setup applies it; here every proposal is mine as always"
+    fi
 
     sub "Backup place (the packages of apps and VMs)"
     explain <<'TXT'
@@ -1905,6 +1923,12 @@ settings_render() {
         w_c "(their shares are not snapshotted, nothing of them goes to Kopia; a warning after ${UB_ASLEEP_NIGHTS} nights in a row)"
         if [[ "$(pget "general|asleep_pools")" == "skip" || "${ORIG_ASLEEP_SET:-}" == "yes" ]]; then
             w_kv asleep_pools "$(pget "general|asleep_pools" wake)"
+        fi
+        w_c "Mr. Backupsy's default for new things (a share, app, VM or folder that came after the last setup):"
+        w_c "auto = my proposals, they wait for your decision (default); local = local only; kopia = local + Kopia."
+        w_c "Only the office's setup applies it, at its next Apply - backup.sh never reads it"
+        if [[ "$(pget "general|preset_new" auto)" != "auto" || "${ORIG_PRESET_SET:-}" == "yes" ]]; then
+            w_kv preset_new "$(pget "general|preset_new" auto)"
         fi
         if [[ -n "$(plist "general|partner_place")" ]]; then
             w_c "The backup place's dataset goes to these partners too (the id of a [partner] section, several times)"
@@ -2600,8 +2624,9 @@ plan_write() {
         --argjson k_sources "$srcs" --arg mount_root "$MOUNT_ROOT" \
         --argjson partners "${partners:-[]}" --argjson place_partner "${place_partner:-null}" \
         --arg asleep_pools "$(pget "general|asleep_pools" wake)" --argjson asleep_nights "$UB_ASLEEP_NIGHTS" \
+        --arg preset_new "$(pget "general|preset_new" auto)" \
         '{interface: $interface, version: $version, time: $time, have_settings: ($have == "yes"),
-          asleep_pools: $asleep_pools, asleep_nights: $asleep_nights,
+          asleep_pools: $asleep_pools, asleep_nights: $asleep_nights, preset_new: $preset_new,
           sizes_measured: ($size_timeout != "0"), P: $P, O: $O, pending: $pending, shares: $shares, containers: $containers,
           databases: $databases, missing_databases: $missing, nextcloud: $nextcloud,
           vms: $vms, vm_service: ($vm_service == "yes"), partners: $partners, place_partner: $place_partner,
