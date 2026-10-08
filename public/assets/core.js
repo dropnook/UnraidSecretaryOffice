@@ -2358,7 +2358,10 @@ function placeTokens(e) {
 
 /** The other languages' words, asked once (on the first open): a day in the browser's cache, like the strings */
 function placeWords() {
-  if (wordsAsked) return wordsAsked;
+  if (wordsAsked) {
+    if (searchWords) placeTexts();               // the texts failed after the words came: asked again at this open
+    return wordsAsked;
+  }
   wordsAsked = fetch(`${API}?a=places&v=${encodeURIComponent(`${CONFIG.stamp}-${CONFIG.version}`)}`)
     .then((r) => r.json())
     .then((j) => {
@@ -2386,7 +2389,7 @@ function placeTexts() {
       textHays.clear();
       if (Office.paletteOpen()) renderPalette();
     })
-    .catch(() => { textsAsked = null; });          // asked again after the next open's words
+    .catch(() => { textsAsked = null; });          // asked again at the next open (placeWords())
   return textsAsked;
 }
 

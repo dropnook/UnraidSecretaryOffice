@@ -14279,8 +14279,10 @@ globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textCon
   removeEventListener() {}, documentElement: { scrollHeight: 20000 }, activeElement: null, hidden: false, body: mk() };
 const calls = [];
 const texts = JSON.parse(fs.readFileSync(textsFile, 'utf8'));
+let textsFail = 1;            // the first ask for the texts fails (offline for a moment): asked again at the next open
 globalThis.fetch = async (url) => {
   calls.push(String(url).replace(/^api\.php\?/, ''));
+  if (/part=text/.test(url) && textsFail-- > 0) throw new Error('offline');
   const a = /part=text/.test(url) ? texts : /a=places/.test(url) ? { ok: true, langs: [], words: {} } : { ok: false };
   return { redirected: false, url, ok: true, status: 200, json: async () => a, text: async () => JSON.stringify(a) };
 };
@@ -14299,6 +14301,15 @@ const out = {};
   const q = (s) => O.search.find(s).map(brief);
   out.before = { wasabi: q('Wasabi'), gangs: q('gangs') };
   out.callsBefore = calls.slice();
+  O.search.open();
+  await O.search.words();
+  await O.search.texts();
+  O.search.close();
+  out.callsFailed = calls.slice();
+  O.search.open();
+  await O.search.words();
+  await O.search.texts();
+  O.search.close();
   O.search.open();
   await O.search.words();
   await O.search.texts();
@@ -14359,7 +14370,9 @@ JS);
     $ofDesk = fn (array $list, string $desk) => array_values(array_filter($list, fn ($x) => $x['desk'] === $desk));
     $lockOf = fn (array $list) => array_values(array_filter($list, fn ($x) => $x['desk'] === 'advisor' && $x['key'] === 'lock.title'));
     same('search guides page: nothing asked before the first open (the texts not with the first paint)', [], $r['callsBefore']);
-    same('search guides page: the first open asks the words, the English texts right after them — once', ['a=places&v=1-test', 'a=places&part=text&v=1-test'], $r['calls']);
+    same('search guides page: the first open asks the words, the English texts right after them', ['a=places&v=1-test', 'a=places&part=text&v=1-test'], $r['callsFailed']);
+    same('search guides page: … texts that didn\'t come are asked again at the next open (never the words again), then never again',
+        ['a=places&v=1-test', 'a=places&part=text&v=1-test', 'a=places&part=text&v=1-test'], $r['calls']);
     $w = $lockOf($r['before']['wasabi'])[0] ?? [];
     same('search guides page: a word only inside a paragraph finds the guide at once (its own language): the sentence is the spot, the guide the part around it',
         ['guide', 'lock.3', 'lock.title', 'lock.3'], [$w['kind'] ?? null, $w['anchor'] ?? null, $w['part'] ?? null, $w['text'] ?? null]);
