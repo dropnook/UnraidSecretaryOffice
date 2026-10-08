@@ -11588,6 +11588,35 @@ function testThemeSwitch(): void
  * a mount namespace whose live folder is an empty one of the tests' (see the top of this file) — nothing at all landed
  * there during the whole run, whatever process put it there.
  */
+/**
+ * The runner itself: `php tests/run.php <a> <b> …` runs every named test and part (each once), one sum at the end, exit 1
+ * on a failure; a name nobody knows is said, exit 2, nothing run; no name still runs everything (not tried here — that is
+ * this very run). Each child ends with testLiveRunUntouched(), so a sum is the tests' checks plus its own (`$live`).
+ */
+function testRunnerNames(): void
+{
+    $run = function (string ...$names): array {
+        exec(implode(' ', array_map('escapeshellarg', array_merge([PHP_BINARY, __FILE__], $names))) . ' 2>&1', $out, $code);
+        $last = (string) end($out);
+        return [preg_match('/^(\d+) passed, (\d+) failed$/', $last, $m) ? [(int) $m[1], (int) $m[2]] : null, $code, implode("\n", $out)];
+    };
+    [$cron, $cronCode] = $run('testCron');
+    [$ret] = $run('testRetention');
+    [$names] = $run('testSnapshotNames');
+    [$both, $bothCode] = $run('testCron', 'testRetention');
+    [$again] = $run('testRetention', 'testCron', 'testRetention');
+    [$other] = $run('testCron', 'testSnapshotNames');
+    check('runner: one name runs that test, exit 0', $cron !== null && $cron[0] > 0 && $cron[1] === 0 && $cronCode === 0);
+    $live = $cron && $ret && $both ? $cron[0] + $ret[0] - $both[0] : null;
+    check('runner: two names run both — one sum, more than either alone, exit 0', $both !== null && $both[0] > max($cron[0] ?? 0, $ret[0] ?? 0) && $both[1] === 0 && $bothCode === 0);
+    same('runner: the sum is both tests\' checks (the live folder\'s checks once) — whatever pair', $live, $cron && $names && $other ? $cron[0] + $names[0] - $other[0] : -1);
+    same('runner: order and a name twice change nothing — each test once', $both, $again);
+    [$none, $code, $text] = $run('testCron', 'testNoSuchThing');
+    check('runner: an unknown name — said, exit 2, nothing run', $none === null && $code === 2 && str_contains($text, 'testNoSuchThing') && !str_contains($text, 'passed'));
+    [$part] = $run('strings');
+    check('runner: a part by its name still runs its tests', $part !== null && $part[0] > 1000 && $part[1] === 0);
+}
+
 function testLiveRunUntouched(): void
 {
     $own = TESTS_RUN_DIR;
@@ -15565,15 +15594,23 @@ function testWatchmanNet(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits'],
-          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor'],
+          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
-$only = $argv[1] ?? '';
+// php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
+// $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
+$only = array_values(array_unique(array_slice($argv, 1)));
+$known = array_merge(array_keys($parts), ...array_values($parts));
+$unknown = array_values(array_diff($only, $known));
+if ($unknown) {
+    fwrite(STDERR, 'Unknown test or part: ' . implode(', ', $unknown) . "\nParts: " . implode(', ', array_keys($parts))
+        . "; tests: the names in \$parts at the end of tests/run.php (e.g. testCron).\n");
+    exec('rm -rf ' . escapeshellarg(TESTS_RUN_DIR));
+    exit(2);
+}
 foreach ($parts as $name => $fns) {
-    if ($only === '' || $only === $name || in_array($only, $fns, true)) {
-        foreach ($fns as $t) {
-            if ($only === '' || $only === $name || $only === $t) {      // a part, or one test by its name
-                $t();
-            }
+    foreach ($fns as $t) {
+        if (!$only || in_array($name, $only, true) || in_array($t, $only, true)) {      // everything, its part, or the test by its name
+            $t();
         }
     }
 }

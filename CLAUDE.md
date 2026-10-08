@@ -972,7 +972,8 @@ When more than one Claude chat works on the office, one of them is the
 3. Tests on the host: `php tests/run.php` (logic: cron, snapshot retention,
    Emby detection, the plugin's cron file — on copies; strings: `en`/`de`/`it`/`fr`/`es`
    keys identical, every language against English, every T('…'), check and error text exists).
-   Must end with 0 failed. They have a RAM folder of their own (`OFFICE_RUN_DIR`; a process a test starts with an
+   Must end with 0 failed. `php tests/run.php <part|test> …` runs only those (each once, one sum; an unknown name:
+   exit 2, nothing run — `testRunnerNames`). They have a RAM folder of their own (`OFFICE_RUN_DIR`; a process a test starts with an
    environment of its own gets `'OFFICE_RUN_DIR' => TESTS_RUN_DIR`) and, as root with `unshare`, run in a mount
    namespace of their own whose `/var/run/unraid-secretary-office` is an empty folder of theirs — the live agent's
    locks, heartbeat and doorbell are never met; `testLiveRunUntouched()` fails if anything landed there.
