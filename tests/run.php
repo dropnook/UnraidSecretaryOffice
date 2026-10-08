@@ -12991,6 +12991,9 @@ function testPartnerDoor(): void
         'recv share:system uso-backup-20261005-0200' => 'unit_not_agreed', 'recv vm:Other uso-backup-20261005-0200' => 'unit_not_agreed', 'list place' => 'unit_not_agreed',
         'list share:system' => 'unit_not_agreed', 'resume /tank' => 'malformed', 'resume share:a;b' => 'malformed', 'send-back share:appdata ../x' => 'malformed',
         "recv share:appdata uso-backup-20261005-0200\n" => 'malformed',
+        // 2.29: offer — every word a unit, none twice, at most 64
+        'offer' => 'malformed', 'offer share:a;b' => 'malformed', 'offer tank/x' => 'malformed', 'offer place place' => 'malformed', 'offer -F' => 'malformed',
+        'offer ' . implode(' ', array_map(fn ($i) => "share:s$i", range(1, 65))) => 'malformed',
     ];
     foreach ($bad as $cmd => $why) {
         $r = partnerTestDoor($B, $cmd, 'stream');
