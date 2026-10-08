@@ -595,14 +595,16 @@ After hiring, the tip jar (core.js `tipJar`, link `OFFICE_TIP_URL`) says hello �
 nothing — only the reminders ask it, never backups, restores or a desk (`src/supporter.php`, web side like staff.php).
 Server ID = sha256("uso-supporter:" + upper(regGUID, else flashGUID)), first 16 hex as `XXXX-XXXX-XXXX-XXXX`, from
 var.ini like the csrf token (the GUID never leaves the server). Key `USO1.<b64url(payload)>.<b64url(DER ECDSA P-256/SHA-256
-over "USO1.<b64url(payload)>")>`, payload `{"v":1,"id","name","date"}` in that order, checked as transmitted with
+over "USO1.<b64url(payload)>")>`, payload `{"v":1,"id","name","date"[,"l"]}` in that order, checked as transmitted with
 `openssl_verify()` against `OFFICE_SUPPORTER_PUBLIC_KEY` (the exact rules in supporter.php's head; `OFFICE_SUPPORTER_PUBKEY`
 = a PEM file, tests only). Kept in `data/office/supporter.json` (0600, `officeWriteAtomic()`, also `first_seen` and the
 team lead's ask), actions `office.supporter_set|remove|ask`, the page gets `CONFIG.supporter`. A valid key: no tip jar
-after hiring, the tip jar thanks, «☕ Thank you, <name>» at the team lead's «The team». Without: his one ask, a callout
+after hiring, the tip jar thanks, «☕ Thank you, <name>» at the team lead's «The team» — its picture the tip's level, signed
+as `l` (Benj, 2026-10-08: coffee ☕ any tip/no `l` · round ☕☕ from 20 · cake 🍰 from 50 · raise 💐 from 100, any of
+USD/EUR/CHF; `Office.supporterLevel()`, `office.supporter_level_*`; not a rank, no vitrine, old keys = coffee). Without: his one ask, a callout
 under «The team» 7 days after `first_seen` («Not now» = 30 days, at most twice more; «Don't ask again») — never a modal,
 never at the reception or on the Dashboard. Keys come from the support page (`OFFICE_SUPPORT_URL`, opened with
-`?id=<server ID>&lang=<language>`, shows the key after the tip) or by hand: `tools/supporter-key.sh <server-id> "<name>"
+`?id=<server ID>&lang=<language>`, shows the key after the tip) or by hand: `tools/supporter-key.sh [--level <level>] <server-id> "<name>"
 [YYYY-MM-DD]` (private key on Benj's Mac only, `~/.config/uso-supporter/`; never in the repo or on a server).
 `OFFICE_SPONSOR_URL` adds a GitHub Sponsors button.
 
@@ -691,6 +693,7 @@ it *il* backup).
 | Jack Emby's run (EmbyCache, the gather) | run · real run · dry run | der Lauf · echter Lauf · Probelauf | l'esecuzione · esecuzione vera · prova a secco | l'exécution · exécution réelle · essai à blanc | la ejecución · ejecución real · simulación | emby, watchman |
 | Ms. Snapshotini's plans · a plan's run | schedule · run | der Zeitplan · der Lauf | la pianificazione · l'esecuzione | la planification · l'exécution | la programación · la ejecución | snapshot |
 | a ZFS hold | Hold · held · Release hold | Schützen · geschützt · Schutz aufheben | Proteggi · protetto · Togli la protezione | Protéger · protégé · Lever la protection | Proteger · protegida · Quitar la protección | snapshot, watchman |
+| the thank-you's levels (tip page, the team lead's plate; Benj's words) | a coffee for the team · a round for everyone · cake for the whole office · a pay rise and the donations | ein Kaffee fürs Team · eine Runde für alle · Kuchen fürs ganze Büro (Benj's «Büro») · Lohnerhöhung und Spenden | un caffè per il team · un giro per tutti · una torta per tutta la segreteria · un aumento e le donazioni | un café pour l'équipe · une tournée pour tout le monde · du gâteau pour tout le secrétariat · une augmentation et les dons | un café para el equipo · una ronda para todos · pastel para toda la secretaría · un aumento de sueldo y las donaciones | office, caretaker (a round of drinks — not the watchman's round) |
 | an Unraid share | share | der Share (masculine) | la condivisione | le partage | el recurso compartido | all |
 | an array/pool disk | disk | die Disk (not Platte) | il disco | le disque | el disco | all |
 | /boot | the flash | der Flash | l'unità flash | la flash | el flash | all; a physical USB stick stays a stick |

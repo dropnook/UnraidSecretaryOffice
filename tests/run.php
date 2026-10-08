@@ -12127,8 +12127,12 @@ function testSupporter(): void
     // the office actions through the web side, in a process of its own (bootstrap.php, the data folder in $tmp)
     [$make, , $pub] = supporterTestKeys($tmp);
     $server = officeServerId();             // this host's (read only); null where var.ini names no GUID
-    $payload = fn (string $id, string $name = 'Ana', string $date = '2026-10-06'): string => json_encode(['v' => 1, 'id' => $id, 'name' => $name, 'date' => $date], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    $mine = $make($payload($server ?? '0000-0000-0000-0000', 'Ana Müller'));
+    $payload = fn (string $id, string $name = 'Ana', string $date = '2026-10-06', array $more = []): string => json_encode(['v' => 1, 'id' => $id, 'name' => $name, 'date' => $date] + $more, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $mine = $make($payload($server ?? '0000-0000-0000-0000', 'Ana Müller', '2026-10-06', ['l' => 'raise']));
+    putenv("OFFICE_SUPPORTER_PUBKEY=$pub");
+    same('info: the level goes to the page', ['valid', 'raise'], array_values(array_intersect_key(officeSupporterInfo(['key' => $mine], $server ?? '0000-0000-0000-0000', $t0), ['state' => 1, 'level' => 1])));
+    same('info: a key without one is a coffee', 'coffee', officeSupporterInfo(['key' => $make($payload('0000-0000-0000-0000'))], '0000-0000-0000-0000', $t0)['level'] ?? null);
+    putenv('OFFICE_SUPPORTER_PUBKEY');
     $theirs = $make($payload($server === 'AAAA-AAAA-AAAA-AAAA' ? 'BBBB-BBBB-BBBB-BBBB' : 'AAAA-AAAA-AAAA-AAAA'));
     @unlink($file);
     $web = "$tmp/web.php";
@@ -12156,7 +12160,7 @@ function testSupporter(): void
         same('web: a key for this server (broken over lines, as from a mail) taken', ['valid', 'Ana Müller', false], [$out[3]['supporter']['state'] ?? null, $out[3]['supporter']['name'] ?? null, $out[3]['supporter']['ask'] ?? null]);
         $saved = json_decode((string) @file_get_contents($file), true) ?: [];
         same('web: the key kept without whitespace', $mine, $saved['key'] ?? null);
-        same('web: the page sees it', ['valid', 'Ana Müller'], [$out[4]['state'] ?? null, $out[4]['name'] ?? null]);
+        same('web: the page sees it, with its level', ['valid', 'Ana Müller', 'raise'], [$out[4]['state'] ?? null, $out[4]['name'] ?? null, $out[4]['level'] ?? null]);
     }
     [$out, $raw] = $webRun(array_slice($steps, 3));
     same('web: an odd answer refused', 'bad_request', $out[1]['error'] ?? null);
@@ -12164,6 +12168,19 @@ function testSupporter(): void
     $saved = json_decode((string) @file_get_contents($file), true) ?: [];
     same('web: only the key went, the answers stay', [false, true, 1, true], [isset($saved['key']), isset($saved['first_seen']), $saved['ask']['later'] ?? null, $saved['ask']['never'] ?? null]);
     same('web: the file is 0600', '600', substr(sprintf('%o', @fileperms($file)), -3));
+
+    // the page: the plate's picture per level (core.js), a text per level in all five languages (asked for as a template)
+    $core = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
+    preg_match('/const SUPPORTER_PICTURES = \{([^}]*)\}/', $core, $pm);
+    preg_match_all('/(\w+): \'([^\']+)\'/u', $pm[1] ?? '', $pics);
+    same('page: a picture for each level', [OFFICE_SUPPORTER_LEVELS, ['☕', '☕☕', '🍰', '💐']], [$pics[1], $pics[2]]);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $lang = langFile(OFFICE_DIR . "/public/lang/$code.json");
+        same("page: the levels' texts ($code)", [], array_values(array_filter(OFFICE_SUPPORTER_LEVELS, fn ($l) => !is_string($lang["office.supporter_level_$l"] ?? null) || $lang["office.supporter_level_$l"] === '')));
+    }
+    $desk = (string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/desk.js');
+    check('page: the plate shows the level\'s picture, its title the level', str_contains($desk, "T('supporter_plate', { icon: level.icon, name: sup.name })")
+        && str_contains($desk, "T('supporter_plate_title', { level: level.text,"));
     hardeningRm($tmp);
 }
 
@@ -12178,7 +12195,7 @@ function testSupporterKeys(): void
     $real = 'USO1.eyJ2IjoxLCJpZCI6IjAwMDAtMDAwMC0wMDAwLTAwMDEiLCJuYW1lIjoiVGVzdCBNw7xsbGVyIFwicXVvdGVcIiBcXCBiYWNrIiwiZGF0ZSI6IjIwMjYtMTAtMDYifQ'
         . '.MEUCIQDtyMwC_Pr4iR191QINIXSWZccdtg4riRyv085omtdcmgIgbKhDsDK0Wk_jCKf8JU9fX9eh9T77JM-31UqrkDb-b6s';
     putenv('OFFICE_SUPPORTER_PUBKEY');
-    same('key: one made by the tool, checked with the office\'s public key', ['state' => 'valid', 'id' => '0000-0000-0000-0001', 'name' => 'Test Müller "quote" \\ back', 'date' => '2026-10-06'],
+    same('key: one made by the tool (before levels), checked with the office\'s public key — still valid, a coffee', ['state' => 'valid', 'id' => '0000-0000-0000-0001', 'name' => 'Test Müller "quote" \\ back', 'date' => '2026-10-06', 'level' => 'coffee'],
         officeSupporterCheck($real, '0000-0000-0000-0001'));
 
     [$make, $private, $pub] = supporterTestKeys($tmp);
@@ -12187,7 +12204,16 @@ function testSupporterKeys(): void
     $json = fn (array $p): string => json_encode($p, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $ok = ['v' => 1, 'id' => $id, 'name' => 'Ana', 'date' => '2026-10-06'];
     $key = $make($json($ok));
-    same('key: valid for this server', ['state' => 'valid', 'id' => $id, 'name' => 'Ana', 'date' => '2026-10-06'], officeSupporterCheck($key, $id));
+    same('key: valid for this server', ['state' => 'valid', 'id' => $id, 'name' => 'Ana', 'date' => '2026-10-06', 'level' => 'coffee'], officeSupporterCheck($key, $id));
+    // the thank-you's level (Benj, 2026-10-08): l as a fifth key, signed with the rest; none = coffee
+    foreach (['round', 'cake', 'raise'] as $level) {
+        same("key: level $level", ['valid', 'Ana', $level], array_values(array_intersect_key(officeSupporterCheck($make($json($ok + ['l' => $level])), $id), ['state' => 1, 'level' => 1, 'name' => 1])));
+    }
+    same('key: a level key for another server', ['other', 'cake'], array_values(array_intersect_key(officeSupporterCheck($make($json($ok + ['l' => 'cake'])), 'ABCD-0123-4567-89EE'), ['state' => 1, 'level' => 1])));
+    $cake = $make($json($ok + ['l' => 'cake']));
+    same('key: an unsigned level never counts (the level changed under the signature)', 'invalid',
+        officeSupporterCheck('USO1.' . officeB64url($json($ok + ['l' => 'raise'])) . substr($cake, strrpos($cake, '.')), $id)['state']);
+    same('key: a level added to a coffee key\'s signature', 'invalid', officeSupporterCheck('USO1.' . officeB64url($json($ok + ['l' => 'cake'])) . substr($key, strrpos($key, '.')), $id)['state']);
     same('key: for another server', 'other', officeSupporterCheck($key, 'ABCD-0123-4567-89EE')['state']);
     same('key: without a server ID, for another one', 'other', officeSupporterCheck($key, null)['state']);
     same('key: whitespace from a mail is fine', 'valid', officeSupporterCheck(" \n" . chunk_split($key, 40, "\r\n"), $id)['state']);
@@ -12203,6 +12229,16 @@ function testSupporterKeys(): void
         'too long' => $key . str_repeat('A', 1000),
         'no signature' => substr($key, 0, strrpos($key, '.')),
         'a key more' => $make($json($ok + ['extra' => 1])),
+        'a key more after the level' => $make($json($ok + ['l' => 'cake', 'extra' => 1])),
+        'level coffee written out' => $make($json($ok + ['l' => 'coffee'])),
+        'an unknown level' => $make($json($ok + ['l' => 'gold'])),
+        'a level in capitals' => $make($json($ok + ['l' => 'Cake'])),
+        'an empty level' => $make($json($ok + ['l' => ''])),
+        'a level as a number' => $make($json($ok + ['l' => 3])),
+        'a level as null' => $make($json($ok + ['l' => null])),
+        'a level with a newline' => $make($json($ok + ['l' => "cake\n"])),
+        'the level spelt out' => $make($json($ok + ['level' => 'cake'])),
+        'the level before the date' => $make($json(['v' => 1, 'id' => $id, 'name' => 'Ana', 'l' => 'cake', 'date' => '2026-10-06'])),
         'a key less' => $make($json(['v' => 1, 'id' => $id, 'name' => 'Ana'])),
         'another order' => $make($json(['id' => $id, 'v' => 1, 'name' => 'Ana', 'date' => '2026-10-06'])),
         'version 2' => $make($json(array_replace($ok, ['v' => 2]))),
@@ -12252,13 +12288,23 @@ function testSupporterKeys(): void
     };
     [$code, $made, $err] = $run([strtolower($id), 'Zoë "Z" O\'Neil \\ Co', '2028-02-29'], $env);
     same('tool: a key made', 0, $code);
-    same('tool: PHP takes what the tool made', ['state' => 'valid', 'id' => $id, 'name' => 'Zoë "Z" O\'Neil \\ Co', 'date' => '2028-02-29'], officeSupporterCheck($made, $id));
+    same('tool: PHP takes what the tool made', ['state' => 'valid', 'id' => $id, 'name' => 'Zoë "Z" O\'Neil \\ Co', 'date' => '2028-02-29', 'level' => 'coffee'], officeSupporterCheck($made, $id));
     [$c, $o] = $run(['--verify', $made, $id], $env);
     same('tool: --verify', [0, 'signature: valid'], [$c, strtok($o, "\n")]);
     same('tool: --verify for another server', 1, $run(['--verify', $made, 'ABCD-0123-4567-89EE'], $env)[0]);
+    same('tool: a coffee key has no level in it (the same bytes as before levels)', '{"v":1,"id":"' . $id . '","name":"Zoë \\"Z\\" O\'Neil \\\\ Co","date":"2028-02-29"}',
+        officeB64urlDecode(explode('.', $made)[1]));
+    same('tool: --verify says coffee', 1, preg_match('/^level: +coffee$/m', $o));
+    [$code, $cakeMade] = $run(['--level', 'cake', $id, 'Ana', '2026-10-08'], $env);
+    same('tool: --level cake', [0, 'valid', 'cake'], [$code, officeSupporterCheck($cakeMade, $id)['state'], officeSupporterCheck($cakeMade, $id)['level'] ?? null]);
+    same('tool: --level cake, the payload', '{"v":1,"id":"' . $id . '","name":"Ana","date":"2026-10-08","l":"cake"}', officeB64urlDecode(explode('.', $cakeMade)[1]));
+    [$c, $o] = $run(['--verify', $cakeMade, $id], $env);
+    same('tool: --verify says cake', [0, 1], [$c, preg_match('/^level: +cake$/m', $o)]);
+    same('tool: --level coffee writes no level', 1, preg_match('/"date":"2026-10-08"}$/', (string) officeB64urlDecode(explode('.', $run(['--level', 'coffee', $id, 'Ana', '2026-10-08'], $env)[1])[1])));
     same('tool: --verify of a broken key', 1, $run(['--verify', substr($made, 0, -2) . 'AA', $id], $env)[0]);
     foreach (['a name with a tab' => [$id, "A\tB"], 'a name with a space in front' => [$id, ' Ana'], 'a name too long' => [$id, str_repeat('n', 61)],
-              'an odd ID' => ['ABCD-0123-4567', 'Ana'], 'no such day' => [$id, 'Ana', '2026-02-29'], 'a date with a newline' => [$id, 'Ana', "2026-10-06\n"]] as $what => $args) {
+              'an odd ID' => ['ABCD-0123-4567', 'Ana'], 'no such day' => [$id, 'Ana', '2026-02-29'], 'a date with a newline' => [$id, 'Ana', "2026-10-06\n"],
+              'an unknown level' => ['--level', 'gold', $id, 'Ana'], 'a level without a key' => ['--level'], 'a level in capitals' => ['--level', 'Cake', $id, 'Ana']] as $what => $args) {
         [$c, $o] = $run($args, $env);
         check("tool refuses $what", $c !== 0 && $o === '', "exit $c: $o");
     }

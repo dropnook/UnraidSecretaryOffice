@@ -191,7 +191,8 @@ numbers go there too, with a ready Grafana dashboard. Details: [docs/DEVELOPMENT
 
 The office is free and complete — nothing is locked, now or later. If it is useful to you, a tip is welcome: the tip
 jar in the office (the Team Lead's *Tips & pay rise*) or [PayPal](https://paypal.me/dropnook); a share goes to
-helmi1987 (see below). If the tips ever exceed what our work costs, we give the rest to animal shelters that urgently
+helmi1987 (see below). The thank-you grows with the tip — a coffee, a round, cake, a pay rise — as a small picture at
+the Team Lead; it unlocks nothing. If the tips ever exceed what our work costs, we give the rest to animal shelters that urgently
 need financial support. Questions and bugs: [GitHub issues](https://github.com/dropnook/UnraidSecretaryOffice/issues),
 or without an account from inside the office (*⋯ → Report a problem or a wish…*, above).
 
