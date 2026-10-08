@@ -687,7 +687,7 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
 * **Tiles** (`button.card`): a click opens or filters; a click on the active
   tile closes it again — nothing open is a valid state. Remember the choice in
   `Office.store`.
-* **Search (Benj, 2026-10-08 — phase 1, static places; phase 2, items):** the magnifier in the top line (`#sso-search`, made by core.js
+* **Search (Benj, 2026-10-08 — phase 1, static places; phase 2, items; phase 3, texts):** the magnifier in the top line (`#sso-search`, made by core.js
   before `#sso-state`; nothing in page.php) or ⌘K / Ctrl+K while the office has the focus (or nothing outside `#sso` was
   clicked last — never `/`, never in Unraid's header) opens a palette under it (`#sso-palette`, role combobox/listbox:
   ↑↓, Enter = the highlighted/first, Esc, a click outside; phone: the screen's width). It finds **places** and, from the
@@ -700,8 +700,8 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   `sectionHead/section/sectionBox/setupSection(T('…'))` is a place (or named in the test's `$notPlaces` with why). A tile
   the search opens has a sub-route its `mount(root, sub)` takes (`#/restore/<section>`, `#/logs/varlog|docker|found`,
   `#/cleanup/tidy/<room>`, `#/cleanup/where/<corner>`, `#/backup/setup`, `#/emby/setup`) — the same choice a click makes
-  (`Office.store`). `places.json` beside desk.json lists the same keys (sorted, unique; the office's own:
-  `public/assets/places.json` for `officePlaces()` in core.js): `api.php?a=places` sends only their words, in every
+  (`Office.store`). `places.json` beside desk.json lists the same keys as `{"keys": […], "texts": […]}` (sorted, unique;
+  texts below; the office's own: `public/assets/places.json` for `officePlaces()` in core.js): `api.php?a=places` sends only their words, in every
   language (≈ 10 KB gzip, cached a day by `v=<stamp>-<version>`), asked once on the first open — never with the first paint,
   never per keystroke; until then the office's language finds them. Matching in the browser: folded words (accents, ß → ss,
   ⟦labels⟧ in English and Unraid's words), prefix › inside › Damerau-Levenshtein (1 from 4 letters, 2 from 8; only while
@@ -746,6 +746,49 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   (anchor `overview`), the shares, the runs (`run:<tool>:<started>`). Tests: `testSearchItems` (node, a fixture state per
   desk: none before a state, shape, caps, no secret/raw line/path, ≤ 2 ms, anchors marked in the code, the ranking, the
   refresh on a new and a later look, an older answer, a provider's slip, no request of its own).
+  **Texts (phase 3):** a place's explanation (`text`) and a guide's paragraphs (`paras: '<prefix>'` — the lang keys
+  `<prefix>.1, .2 …`; the Consultant's guides: `lock`, `lock.vgw`, `partner`, `dashboard`, `net.syslog|unifi|neighbours`,
+  `install.<app>` — 16 guides, 83 paragraphs, each drawn as `Office.place('<prefix>.<n>', p|li)`) are its secondary words:
+  a query that meets the place only through them (its own words as typed may meet the other query words; in a text a
+  whole word or a word's start, inside a word from 6 letters, no typing errors) finds it
+  below everything met by its own words (`PLACE_WEIGHT.text` .6, after typing errors too), once per place (its best text),
+  the sentence as its line (≤ 80 letters around the first word met, «…» where cut, the words met `<mark>`ed — the palette
+  marked nothing before); a paragraph's hit goes to the sentence (anchor `<prefix>.<n>`, the guide's own anchor its part,
+  `<details>` above opened). The help terms' explanations and the office's `help.*_text` are found the same way.
+  **Sizes (measured 2026-10-08, gzip level 1):** the words answer 13.9 KB (36.8 raw); the texts (269: 83 paragraphs, 186
+  explanations) in five languages ≈ 166 KB more — over the 25 KB budget, so they never ride with it: the office's own
+  language has them in its strings already (matched at once), English (31.1 KB, 74.9 raw) comes from
+  `api.php?a=places&part=text` right after the words (an English office asks nothing), cached a day like them; the words
+  answer carries no text. places.json `texts`: the `text` keys and `'<prefix>.*'` for paragraphs (`apiPlaceTexts()`).
+  **Not drawn now (`shown`):** an entry may carry `shown: () => boolean` — the desk's own rule, asked when the search looks
+  (after the providers read the states that came; a rule that throws counts as drawn; the desk's state not known yet:
+  drawn) — false = not listed at all (nothing to go to; not greyed like a desk not hired). A page-help term of the same
+  words stays listed then (the search's «one result» keeps it beside such a place: it is drawn). Marked: Ms. Dustdevil's
+  rooms (`visible()`: VMs, scripts, what restores and partners left, icons, the Docker rooms), Mr. Backupsy's `now` /
+  `overview` (a run or not), `drift` (something drifted), his sections at all (`state.found`), the setup's start cards (no
+  settings yet), old Kopia sources, the rows only some plans have (ZFS, btrfs, libvirt, Kopia on — read from the plan once
+  the setup loaded it), Jack Emby's overview / shares / pool (`configured`), the Team Lead's «Noted», the Consultant's
+  monitoring and network sections and his dashboard. Checked and always drawn (none marked): Mr. Restori's tiles and
+  sections (without packages they say so), the watchman's four sections, Ms. Snapshotini's, the Team Lead's others,
+  Ms. Protocolli's sections. **`part`:** the anchor of the part a place lies in; `Office.reveal(anchor, {part})` brings
+  the part into view after 1.5 s without the place (no mark, no focus) and, after 10 s, marks it before
+  `search.not_there` — Ms. Dustdevil's tiles (`part.tidy` / `part.where`), Mr. Backupsy's setup rows (their step), Ms.
+  Protocolli's tiles (`tour_section`: no tour yet), the Consultant's Kopia guides and dashboard. **Ms. Dustdevil's
+  filter:** her `mount(root, sub)` empties it for `tidy/<room>` and `where/<corner>` — every search hit on her page comes
+  through such a sub-route (`goToPlace()` mounts anew even on the same address); a hook of `reveal()` would teach core
+  one desk's filter. Her parts (`where`, `tidy`) keep it. **Partner pairs:** the Team Lead's `partner:<id>` items' line
+  names the way («Tower sends» / «Tower keeps», the card's `partner.i_send` / `i_keep`), two pairs with one partner
+  differ. **The reveal keeps its place** (the phone offset, 11 px above the top at 375 px on nostromo): it put the place
+  12 px under Unraid's menu (sticky on the desktop, static on a phone: then 12 px under the window's top), then — the
+  likely cause, not seen in a browser yet — the page settled above it (the desk's head anew when the new look came,
+  «As of …» going) and nobody followed (`look()` returned while the place was still connected); now for 6 s
+  (`REVEAL_SETTLE`, was 2) every change of the page (MutationObserver, ResizeObserver, one check per frame) puts it back
+  (`auto` once the smooth scroll ended, else the smooth one retargeted) — the user scrolling, clicking or typing ends it.
+  Tests: `testSearchGuides` (paragraphs marked and alike in five languages, the endpoint's part and sizes, the words
+  without texts, a German office: nothing before the first open, English after the words, a paragraph's sentence and
+  marks, ranking, a term's explanation, the office's help, ≤ 2 ms; the jump, the settling, the phone, the part),
+  `testSearchPlaces` (`shown` a rule, `part` an anchor marked, her rooms marked, a hidden place not listed),
+  `testSearchItems` (the filter, the partner direction).
 * **Rows** with one main action (unfold details, open a log): the whole row is
   clickable (`.row.unfolds`), except its own buttons, links, fields and
   elements with `data-own`. The "details" tooltip sits on the name only; every

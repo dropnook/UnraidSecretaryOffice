@@ -303,7 +303,7 @@ public/desks/<id>/desk.js       her desk in the web UI
 public/desks/<id>/desk.css      optional, its rules nested in #sso{ … } like office.css
 public/desks/<id>/avatar.svg    optional, her picture (64×64, readable on dark and light; else the emoji)
 public/desks/<id>/lang/en.json  her strings ("name", "role", …), plus other languages
-public/desks/<id>/places.json   the lang keys of her places for the search (see below)
+public/desks/<id>/places.json   the lang keys of her places for the search and of their texts (see below)
 ```
 
 On the agent side it registers its actions:
@@ -340,7 +340,11 @@ acts on what its page shows. For the search it lists its places beside `Office.d
 route: '#/<id>/apps' }, { kind: 'help', key: 'help.x', text: 'help.x_text' }, …])` — marks
 them on the page (`Office.place('<anchor>', node)`, or `{ place: '<anchor>' }` among
 `Office.sectionHead()`'s extras; page-help terms are found by their words) and lists the
-same keys in `places.json`; `php tests/run.php testSearchPlaces` says what is missing. What
+same keys in `places.json` (`{"keys": […], "texts": […]}`); `php tests/run.php testSearchPlaces` says what is
+missing. A place's explanation (`text`) and a guide's paragraphs (`paras: '<prefix>'`, each marked
+`Office.place('<prefix>.<n>', p)`) find it too, below the places met by name, with the sentence shown
+(`testSearchGuides`); a place drawn only in some states says so (`shown: () => …`, and `part: '<anchor>'`
+for where the page should land when it isn't there). What
 its state holds worth finding it names with one provider beside them —
 `Office.placesFrom(id, (state, part) => [{ text, sub, route, anchor }, …])`, called with every
 state `Office.loadState()` brings (≤ 200 items, its own words, never a log line, a secret or a
