@@ -165,6 +165,13 @@ function logsSources(): array
     $file('partner:door.1', 'office', 'partner_door_old', DATA_DIR . '/partner/door.log.1');
     $file('partner:door-ram', 'office', 'partner_door_ram', RUN_DIR . '/partner/door.log');
 
+    // what routers send to Unraid's syslog server (agent/lib/watchnet.php): every sender's file, only while its share is awake
+    if (function_exists('watchnetLogFiles')) {
+        foreach (watchnetLogFiles() as $id => $f) {
+            $file($id, 'unraid', $f['old'] ? 'router_old' : 'router', $f['path'], $f['sender']);
+        }
+    }
+
     // Unraid
     $file('syslog', 'unraid', 'syslog', '/var/log/syslog');
     $file('syslog.1', 'unraid', 'syslog_old', '/var/log/syslog.1');
@@ -555,7 +562,7 @@ function logsTourRun(): int
  */
 function logsTourWanted(string $id): bool
 {
-    return !in_array($id, ['agent.1', 'syslog.1', 'parity'], true) && !preg_match('/^backup:(?!latest$)/', $id);
+    return !in_array($id, ['agent.1', 'syslog.1', 'parity'], true) && !preg_match('/^backup:(?!latest$)|^router\.1:/', $id);
 }
 
 /** An empty tally: counts, the kinds of lines (normalised => group) and what didn't fit */

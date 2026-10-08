@@ -1703,6 +1703,17 @@ SH);
     $setup("--apply=$tmp/dec.json");
     $ini = (string) @file_get_contents("$data/settings.ini");
     check('setup apply: a container that came after the plan stays new (keeps running, not known)', !str_contains($ini, 'known = late') && str_contains($ini, 'no_stop = late'), $ini);
+    // the share Unraid's syslog server writes into (rsyslog.cfg): proposed not backed up — the routers' words, not yours
+    @mkdir("$pool/syslog", 0700, true);
+    touch("$tmp/boot/config/shares/syslog.cfg");
+    file_put_contents("$tmp/fake/mounts", "master/syslog $pool/syslog zfs rw 0 0\n", FILE_APPEND);
+    file_put_contents("$tmp/fake/zfs.txt", $z('master/syslog', "$pool/syslog", 10), FILE_APPEND);
+    file_put_contents("$tmp/boot/config/rsyslog.cfg", "local_server=\"1\"\nserver_folder=\"/mnt/user/syslog\"\nserver_filename=\"syslog-%FROMHOST-IP%.log\"\n");
+    $out = $setup('--plan');
+    $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    $sh3 = array_column($plan['shares'] ?? [], null, 'name');
+    same('setup plan: the share Unraid\'s syslog server writes into — proposed not backed up (why syslog)', ['off', 'syslog'],
+        [$plan['P']['share|syslog|mode'] ?? null, $sh3['syslog']['why'] ?? null], $out);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -15068,10 +15079,459 @@ function testLogsPartner(): void
     }
 }
 
+/** A router line in the shape Unraid's syslog server writes it (the header's local time), for testWatchmanNet() */
+function netTestLine(int $t, string $body, string $host = 'gateway-1'): string
+{
+    return date('M', $t) . ' ' . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " $host $body\n";
+}
+
+/** A UniFi CEF body of 10.6.106's shape (`CEF: 0|`, UNIFIutcTime) */
+function netTestCef(int $t, string $id, string $name, string $ext): string
+{
+    return "CEF: 0|Ubiquiti|UniFi Network|10.6.106|$id|$name|4|$ext UNIFIutcTime=" . gmdate('Y-m-d\TH:i:s', $t) . '.123Z';
+}
+
+/** The fixture's lines without their header (# …), each with its line end */
+function netTestFixture(string $name): array
+{
+    $out = [];
+    foreach (file(__DIR__ . "/fixtures/router/$name", FILE_IGNORE_NEW_LINES) ?: [] as $l) {
+        if ($l !== '' && $l[0] !== '#') {
+            $out[] = "$l\n";
+        }
+    }
+    return $out;
+}
+
+/**
+ * The night watchman reads the router (stage 1, UniFi only): Unraid's syslog server's files read by offset and inode,
+ * the CEF and netfilter parsers on the real lines of nostromo's gateway (scrubbed) and on lines built from the
+ * documentation, every kind of the group `net`, the «other» count, values with spaces, the loop's file never read, his
+ * own lines never counted, the cap, the privacy rule over every entry, the baseline, «I know, thanks», a chain, the
+ * router's clock, silence; the Team Lead's six checks, the Consultant's look, Ms. Protocolli's sources, metrics.
+ */
+function testWatchmanNet(): void
+{
+    $tmp = hardeningTmp('watch-net');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    $logs = "$tmp/syslog";
+    foreach (['crontabs', 'cron.d', 'logplugins', 'atjobs', 'agents', 'extra', 'ssh/root', 'flash', 'net/br0', 'net/lo'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    @mkdir($logs, 0777, true);
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/logplugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+              'etc_passwd' => "$src/passwd", 'crontabs' => "$src/crontabs", 'cron_d' => "$src/cron.d", 'cron_files' => "$src/flash",
+              'userscripts' => "$src/flash/user.scripts", 'atjobs' => "$src/atjobs", 'agents' => "$src/agents", 'ident' => "$src/ident.cfg",
+              'rsyslog_cfg' => "$src/rsyslog.cfg", 'var_ini' => "$src/var.ini", 'disks_ini' => "$src/disks.ini", 'shares_ini' => "$src/shares.ini",
+              'net_class' => "$src/net", 'arp' => "$src/arp", 'array_events' => "$src/array-events", 'logger' => null];
+    unset($paths['logger']);
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n");
+    file_put_contents($paths['syslog'], '');
+    file_put_contents("$src/cron.d/root", "*/1 * * * * /usr/local/emhttp/plugins/dynamix/scripts/monitor &> /dev/null\n");
+    file_put_contents("$src/crontabs/root", "# nothing\n");
+    file_put_contents($paths['ident'], "NAME=\"Tower\"\nUSE_SSH=\"yes\"\n");
+    file_put_contents($paths['var_ini'], "fsState=\"Started\"\nspindownDelay=\"30\"\n");
+    file_put_contents($paths['disks_ini'], "[\"master\"]\nname=\"master\"\ndevice=\"nvme0n1\"\nrotational=\"0\"\nspundown=\"0\"\ntype=\"Cache\"\nspindownDelay=\"0\"\nfsType=\"zfs\"\n"
+        . "[\"hive\"]\nname=\"hive\"\ndevice=\"sdb\"\nrotational=\"1\"\nspundown=\"0\"\ntype=\"Cache\"\nspindownDelay=\"15\"\nfsType=\"zfs\"\n"
+        . "[\"hive2\"]\nname=\"hive2\"\ndevice=\"sdc\"\nrotational=\"1\"\nspundown=\"1\"\ntype=\"Cache\"\nspindownDelay=\"15\"\n"
+        . "[\"disk1\"]\nname=\"disk1\"\ndevice=\"sdd\"\nrotational=\"1\"\nspundown=\"0\"\ntype=\"Data\"\nspindownDelay=\"-1\"\nfsType=\"xfs\"\n");
+    file_put_contents($paths['shares_ini'], "[\"syslog\"]\nname=\"syslog\"\nuseCache=\"only\"\ncachePool=\"master\"\ncachePool2=\"\"\nexclusive=\"yes\"\n"
+        . "[\"media\"]\nname=\"media\"\nuseCache=\"only\"\ncachePool=\"hive\"\ncachePool2=\"\"\nexclusive=\"yes\"\n"
+        . "[\"old\"]\nname=\"old\"\nuseCache=\"no\"\ncachePool=\"\"\ncachePool2=\"\"\nexclusive=\"no\"\n");
+    file_put_contents("$src/net/br0/address", "02:00:00:00:00:20\n");
+    file_put_contents("$src/net/lo/address", "00:00:00:00:00:00\n");
+    file_put_contents($paths['arp'], "IP address       HW type     Flags       HW address            Mask     Device\n192.0.2.1        0x1         0x2         02:00:00:00:00:09     *        br0\n");
+    file_put_contents($paths['rsyslog_cfg'], "local_server=\"1\"\nserver_protocol=\"udp\"\nserver_port=\"514\"\nserver_folder=\"$logs\"\nserver_filename=\"syslog-%FROMHOST-IP%.log\"\n"
+        . "log_rotation=\"1\"\nlog_size=\"50M\"\nlog_files=\"4\"\nremote_server=\"\"\nremote_protocol=\"udp\"\nremote_port=\"\"\n");
+    $GLOBALS['watchnetIfaces'] = ['lo' => ['unicast' => [['family' => 2, 'address' => '127.0.0.1'], ['family' => 10, 'address' => '::1']]],
+                                  'br0' => ['unicast' => [['family' => 2, 'address' => '192.0.2.20'], ['family' => 10, 'address' => 'fe80::20']]]];
+    $docker = fn () => [];
+    $acks = "$tmp/acks.json";
+    $gw = "$logs/syslog-192.0.2.1.log";
+    $open = fn () => array_values(array_filter(watchmanLoad($data)['book'], 'watchmanOpen'));
+    $byKind = function () use ($open): array {
+        $out = [];
+        foreach ($open() as $e) {
+            if (str_starts_with($e['kind'], 'net_')) {
+                $out[$e['kind']][] = $e;
+            }
+        }
+        ksort($out);
+        return $out;
+    };
+    $net = fn () => readJson("$data/net.json") ?? [];
+
+    // ---- the parsers, on the real lines of nostromo's gateway (scrubbed)
+    $real = netTestFixture('unifi-10.6.106-real.log');
+    $doc = netTestFixture('unifi-doc.log');
+    $now = strtotime('2026-10-08 10:30:00');
+    $p = watchnetParse(rtrim($real[0], "\n"), $now);
+    $t = watchnetType($p);
+    same('net parse: the real 544 «Network Accessed» (Audit, «CEF: 0|» with its space) — an admin login: admin, address, method, the version, UTC',
+        ['cef', 'Ubiquiti', 'UniFi Network', '10.6.106', '544', 'Network Accessed', 'admin_login', 'admin-1', '192.0.2.136', 'web', strtotime('2026-10-08 07:18:55 UTC'), 'gateway-1'],
+        [$p['kind'], $p['cef']['vendor'], $p['cef']['product'], $p['cef']['version'], $p['cef']['id'], $p['cef']['name'], $t['type'], $t['admin'], $t['ip'], $t['method'],
+         $p['utc'], $p['host']]);
+    same('net parse: the header\'s local time is the router\'s local time (09:18:55 CEST = 07:18:55 UTC)', strtotime('2026-10-08 09:18:55'), $p['th']);
+    $p = watchnetParse(rtrim($real[2], "\n"), $now);
+    same('net parse: values with spaces run to the next key (2h 24m, 18.35 MB, the alias)', ['2h 24m', '18.35 MB', 'device-1 00:02', 'Client Devices', 'Default'],
+        [$p['x']['UNIFIduration'] ?? null, $p['x']['UNIFIusageDown'] ?? null, $p['x']['UNIFIclientAlias'] ?? null, $p['x']['UNIFIcategory'] ?? null, $p['x']['UNIFInetworkName'] ?? null]);
+    same('net parse: 401 WiFi Client Disconnected — understood, nothing to say', 'client_other', watchnetType($p)['type']);
+    $t = watchnetType(watchnetParse(rtrim($real[3], "\n"), $now));
+    same('net parse: 400 WiFi Client Connected — the client\'s MAC, address, name, network', ['client', '02:00:00:00:00:02', '192.0.2.191', 'device-1 00:02', 'Default'],
+        [$t['type'], $t['mac'], $t['ip'], $t['name'], $t['network']]);
+    $p = watchnetParse(rtrim(netTestLine($now, netTestCef($now, '544', 'Network Accessed', 'UNIFIcategory=Audit UNIFIadmin=Admin One src=192.0.2.140 msg=Admin One accessed UniFi Network')), "\n"), $now);
+    same('net parse: an admin\'s name with a space (the real line had one)', ['Admin One', '192.0.2.140'], [watchnetType($p)['admin'], watchnetType($p)['ip']]);
+    $c = watchnetCef('CEF:0|Ubi\\|quiti|UniFi Network|10.6|1|a\\\\b|3|msg=x\\=y \\\\ z key2=v');
+    same('net parse: CEF escapes — \\| and \\\\ in the header, \\= and \\\\ in values', ['Ubi|quiti', 'a\\b', 'x=y \\ z', 'v'],
+        [$c['h']['vendor'] ?? null, $c['h']['name'] ?? null, $c['x']['msg'] ?? null, $c['x']['key2'] ?? null]);
+    $nf = array_map(fn ($l) => watchnetParse(rtrim($l, "\n"), $now), array_values(array_filter($doc, fn ($l) => str_contains($l, 'kernel:'))));
+    same('net parse: netfilter — [ZONE-ACTION-RULE] and [ZONE-RULE-ACTION], an uptime in front, zone/action/rule/addresses/ports as fields',
+        [['LAN_OUT', 'D', '2000', '192.0.2.20', '203.0.113.9', 'TCP', 443], ['INTERNAL_EXTERNAL', 'R', '30001', '192.0.2.20', '203.0.113.200', 'UDP', 53]],
+        array_map(fn ($x) => [$x['nf']['zone'], $x['nf']['action'], $x['nf']['rule'], $x['nf']['src'], $x['nf']['dst'], $x['nf']['proto'], $x['nf']['dpt']], array_slice($nf, 0, 2)));
+    same('net parse: the concept\'s old sample [Block-Unraid-Out-1] is no tag — «other»', 'other',
+        watchnetParse(rtrim(netTestLine($now, 'kernel: [Block-Unraid-Out-1]IN=br0 OUT=eth4 SRC=192.0.2.20 DST=203.0.113.9 PROTO=TCP SPT=1 DPT=2'), "\n"), $now)['kind']);
+    same('net parse: a line nobody understands, a broken CEF, too long — «other»; his own SIEM line — never counted', ['other', 'other', 'other', 'own'],
+        [watchnetParse(rtrim(end($doc), "\n"), $now)['kind'], watchnetParse('Oct  8 10:00:00 gw CEF: 0|Ubiquiti|broken', $now)['kind'],
+         watchnetParse(str_repeat('x', WATCHNET_LINE_MAX + 1), $now)['kind'],
+         watchnetParse('Oct  8 10:00:00 Tower uso-watchman[123]: {"v":1,"kind":"login_new_ip"}', $now)['kind']]);
+    $types = array_map(fn ($l) => watchnetType(watchnetParse(rtrim($l, "\n"), $now))['type'] ?? 'other', array_slice($doc, 0, 9));
+    same('net parse: the documentation\'s lines — wired client, three detections, a port forward and a WiFi change, VPN, update, WAN',
+        ['client', 'detection', 'detection', 'detection', 'config', 'config', 'vpn', 'update', 'wan'], $types);
+    same('net parse: the port forward is the firewall\'s, the WiFi change another setting', ['port_forward', null],
+        [watchnetType(watchnetParse(rtrim($doc[4], "\n"), $now))['area'], watchnetType(watchnetParse(rtrim($doc[5], "\n"), $now))['area']]);
+
+    // ---- his first round: the baseline (the gateway's history learned, the loop's file never read)
+    file_put_contents($gw, implode('', $real));
+    chmod($gw, 0666);
+    file_put_contents("$logs/syslog-192.0.2.20.log", netTestLine($now - 60, netTestCef($now - 60, '544', 'Network Accessed', 'UNIFIcategory=Audit UNIFIadmin=intruder src=203.0.113.250')));
+    file_put_contents("$logs/syslog-127.0.0.1.log", "Oct  8 10:00:00 Tower kernel: hello\n");
+    file_put_contents("$logs/syslog-::ffff:192.0.2.20.log", "Oct  8 10:00:00 Tower kernel: hello\n");
+    touch($gw, $now - 1800);
+    $round = fn (int $t) => watchmanRound($paths, $data, 1000, $t, $docker, false, $acks);
+    $r = $round($now);
+    $b = watchmanLoad($data)['baseline']['net'] ?? [];
+    same('net round 1: the baseline — nothing told; the gateway, its admin and address, its client learned',
+        [[], ['192.0.2.1'], ['192.0.2.136'], ['02:00:00:00:00:02']],
+        [array_values(array_filter($r['added'], fn ($k) => str_starts_with($k, 'net_'))), array_keys($b['senders'] ?? []), array_keys($b['admins']['admin-1']['ips'] ?? []),
+         array_keys($b['devices'] ?? [])]);
+    $n = $net();
+    same('net round 1: the files of this server\'s own addresses (the loop: Remote syslog server pointing at itself; 127.0.0.1; the ::ffff: form) never read',
+        [['127.0.0.1', '192.0.2.20'], ['192.0.2.1']], [(function ($x) { sort($x); return $x; })($n['look']['own'] ?? []), array_keys($n['pos'] ?? [])]);
+    same('net round 1: lines read, his position at the file\'s end', [7, filesize($gw)], [(int) ($n['senders']['192.0.2.1']['lines'] ?? 0), (int) ($n['pos']['192.0.2.1']['size'] ?? 0)]);
+
+    // ---- what the documentation says the gateway sends (and lines of our own) — every kind
+    $t1 = $now + 300;
+    $more = $doc;
+    $more[] = netTestLine($t1 - 50, netTestCef($t1 - 50, '544', 'Network Accessed', 'UNIFIcategory=Audit UNIFIhost=gateway-1 UNIFIaccessMethod=web UNIFIadmin=admin-1 src=192.0.2.140 msg=admin-1 accessed UniFi Network using the web.'));
+    $more[] = netTestLine($t1 - 49, netTestCef($t1 - 49, '544', 'Network Accessed', 'UNIFIcategory=Audit UNIFIadmin=Admin One src=192.0.2.136 msg=Admin One accessed UniFi Network'));
+    $more[] = netTestLine($t1 - 40, netTestCef($t1 - 40, '400', 'WiFi Client Connected', 'UNIFIcategory=Client Devices UNIFIclientHostname=Tower UNIFIclientIp=192.0.2.66 UNIFIclientMac=02:00:00:00:00:66 UNIFIwifiName=wifi-1 msg=Tower connected'));
+    $more[] = netTestLine($t1 - 39, netTestCef($t1 - 39, '402', 'Wired Client Connected', 'UNIFIcategory=Client Devices UNIFIclientHostname=box UNIFIclientIp=192.0.2.20 UNIFIclientMac=02:00:00:00:00:67 msg=box connected'));
+    $more[] = netTestLine($t1 - 38, netTestCef($t1 - 38, '402', 'Wired Client Connected', 'UNIFIcategory=Client Devices UNIFIclientHostname=Tower UNIFIclientIp=192.0.2.20 UNIFIclientMac=02:00:00:00:00:20 msg=the server itself'));
+    $more[] = netTestLine($t1 - 30, netTestCef($t1 - 30, '400', 'WiFi Client Connected', 'UNIFIcategory=Client Devices UNIFIclientAlias=device-1 00:02 UNIFIclientIp=192.0.2.191 UNIFIclientMac=00:11:22:33:44:55 msg=a known name'));
+    $more[] = netTestLine($t1 - 29, netTestCef($t1 - 29, '400', 'WiFi Client Connected', 'UNIFIcategory=Client Devices UNIFIclientAlias=device-1 00:02 UNIFIclientIp=192.0.2.192 UNIFIclientMac=06:00:00:00:00:99 msg=a phone\'s new private address'));
+    $more[] = 'Oct  8 10:29:00 Tower uso-watchman[555]: {"v":1,"kind":"net_spoof","text":"planted"}' . "\n";
+    file_put_contents($gw, implode('', $more), FILE_APPEND);
+    touch($gw, $t1 - 10);
+    $r = $round($t1);
+    $k = $byKind();
+    same('net round 2: every kind from the router\'s lines',
+        ['net_blocked_from_server' => 2, 'net_firewall_change' => 1, 'net_ips_server' => 2, 'net_new_device' => 3, 'net_router_login' => 2, 'net_spoof' => 2, 'net_vpn_login' => 1],
+        array_map('count', $k));
+    $dev = array_column($k['net_new_device'] ?? [], null, 'key');
+    same('net new device: key MAC; learned at once; a known device\'s name on a vendor MAC is important, two made-up MACs are not',
+        [['192.0.2.77', 'device-4', false], [true, '02:00:00:00:00:02'], [false], true],
+        [[$dev['net_new_device:02:00:00:00:00:04']['p']['ip'] ?? null, $dev['net_new_device:02:00:00:00:00:04']['p']['name'] ?? null, !empty($dev['net_new_device:02:00:00:00:00:04']['important'])],
+         [!empty($dev['net_new_device:00:11:22:33:44:55']['important']), $dev['net_new_device:00:11:22:33:44:55']['p']['taken'] ?? null],
+         [!empty($dev['net_new_device:06:00:00:00:00:99']['important'])], isset(watchmanLoad($data)['baseline']['net']['devices']['02:00:00:00:00:04'])]);
+    $spoof = array_column($k['net_spoof'] ?? [], null, 'key');
+    same('net spoof: the server\'s name with another MAC, its address with another MAC — the server\'s own MAC is no spoof',
+        [['name', 'tower', '02:00:00:00:00:66'], ['address', '192.0.2.20', '02:00:00:00:00:67']],
+        [[$spoof['net_spoof:name:tower']['p']['what'] ?? null, $spoof['net_spoof:name:tower']['p']['name'] ?? null, $spoof['net_spoof:name:tower']['p']['mac'] ?? null],
+         [$spoof['net_spoof:address:192.0.2.20']['p']['what'] ?? null, $spoof['net_spoof:address:192.0.2.20']['p']['ip'] ?? null, $spoof['net_spoof:address:192.0.2.20']['p']['mac'] ?? null]]);
+    $login = array_column($k['net_router_login'] ?? [], null, 'key');
+    same('net router login: a known admin from a new address, a new admin — learned per admin',
+        [[false, '192.0.2.140'], [true, '192.0.2.136']],
+        [[$login['net_router_login:192.0.2.1:admin-1:192.0.2.140']['p']['new_admin'] ?? null, $login['net_router_login:192.0.2.1:admin-1:192.0.2.140']['p']['ip'] ?? null],
+         [$login['net_router_login:192.0.2.1:Admin One:192.0.2.136']['p']['new_admin'] ?? null, $login['net_router_login:192.0.2.1:Admin One:192.0.2.136']['p']['ip'] ?? null]]);
+    $ips = array_column($k['net_ips_server'] ?? [], null, 'key');
+    same('net IPS: against the server (in) and from it (out) — key signature and direction; the hit on another client only a count',
+        [['in', '203.0.113.77', 3306], ['out', '203.0.113.66'], 1, 1, 1],
+        [[$ips['net_ips_server:2010937:in']['p']['dir'] ?? null, $ips['net_ips_server:2010937:in']['p']['remote'] ?? null, $ips['net_ips_server:2010937:in']['p']['dpt'] ?? null],
+         [$ips['net_ips_server:2030001:out']['p']['dir'] ?? null, $ips['net_ips_server:2030001:out']['p']['remote'] ?? null],
+         ($s = watchmanPageState($data, $t1, false)['net'])['detections']['in'] ?? null, $s['detections']['out'] ?? null, $s['detections']['other'] ?? null]);
+    $bl = array_column($k['net_blocked_from_server'] ?? [], null, 'key');
+    same('net blocked from the server: per destination /24 and port; the WAN\'s own drops and another client\'s are not his',
+        ['net_blocked_from_server:203.0.113.0/24 tcp/443', 'net_blocked_from_server:203.0.113.0/24 udp/53'], (function ($x) { sort($x); return $x; })(array_keys($bl)));
+    $cfg = array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => $e['kind'] === 'net_router_config'));
+    same('net config: a WiFi change by a known admin — one line a day, noted by himself (by router); the port forward — net_firewall_change (important)',
+        [1, 'router', false, 'port_forward', true], [count($cfg), $cfg[0]['by'] ?? null, isset($cfg[0]) && watchmanOpen($cfg[0]), $k['net_firewall_change'][0]['p']['area'] ?? null,
+         WATCH_KINDS['net_firewall_change'][1]]);
+    same('net vpn: a user not seen before from its remote address', ['vpn-user-1', '203.0.113.50', true],
+        [$k['net_vpn_login'][0]['p']['user'] ?? null, $k['net_vpn_login'][0]['p']['ip'] ?? null, $k['net_vpn_login'][0]['p']['new_user'] ?? null]);
+    $n = $net();
+    $day = $n['days'][date('Y-m-d', $t1)]['192.0.2.1'] ?? [];
+    same('net counts: the «other» line counted, his own planted line never; updates and the WAN dropped (counts only)', [1, 1, 1, 7 + count($more) - 1],
+        [(int) ($day['other'] ?? -1), (int) ($day['c']['update'] ?? 0), (int) ($day['c']['wan'] ?? 0), (int) ($n['senders']['192.0.2.1']['lines'] ?? 0)]);
+    $sum = watchmanPageState($data, $t1, false)['net'];
+    same('net summary: the router by its lines (name, version), lines not understood in %, devices, the gateway\'s blocks of the server',
+        ['gateway-1', 'UniFi Network', '10.6.106', true, 4, 2], [$sum['senders'][0]['host'] ?? null, $sum['senders'][0]['product'] ?? null, $sum['senders'][0]['version'] ?? null,
+         ($sum['senders'][0]['other_pct'] ?? 0) > 0, $sum['devices'] ?? null, $sum['blocked']['week'] ?? null]);
+
+    // ---- the privacy rule, over every entry he made: another client's address, MAC and name only in net_new_device and net_spoof
+    $bystander = ['192.0.2.191', '02:00:00:00:00:02', 'device-1', '192.0.2.77', 'device-4', '203.0.113.78', '192.0.2.105', 'device-2', '203.0.113.10'];
+    $leaks = [];
+    foreach (watchmanLoad($data)['book'] as $e) {
+        if (!str_starts_with($e['kind'], 'net_') || in_array($e['kind'], ['net_new_device', 'net_spoof'], true)) {
+            continue;
+        }
+        $blob = json_encode($e['p']) . json_encode(watchmanText($e, 'en'));
+        foreach ($bystander as $x) {
+            if (str_contains($blob, $x)) {
+                $leaks[] = "{$e['kind']}: $x";
+            }
+        }
+        if (mb_strlen((string) ($e['p']['evidence'] ?? '')) > WATCHNET_EVIDENCE) {
+            $leaks[] = "{$e['kind']}: evidence too long";
+        }
+    }
+    $sumBlob = json_encode(watchmanPageState($data, $t1, false)['net']);
+    foreach ($bystander as $x) {
+        if (str_contains($sumBlob, $x)) {
+            $leaks[] = "summary: $x";
+        }
+    }
+    same('net privacy: no other client\'s address, MAC or name in any other entry, its words or the summary; evidence ≤ 300', [], $leaks);
+    same('net privacy: the evidence keeps the server and the subject, a MAC by its first half', [true, true, false],
+        [str_contains($ips['net_ips_server:2010937:in']['p']['evidence'] ?? '', '203.0.113.77'), str_contains($dev['net_new_device:02:00:00:00:00:04']['p']['evidence'] ?? '', '02:00:00:…'),
+         str_contains($dev['net_new_device:02:00:00:00:00:04']['p']['evidence'] ?? '', '02:00:00:00:00:04')]);
+    $line = json_decode(watchmanSyslogLine($k['net_ips_server'][0]), true) ?: [];
+    same('net SIEM: his conclusion through the same line (group net, its technique) — never the router\'s line', ['net', 'T1595', false, false],
+        [$line['group'] ?? null, $line['attack'] ?? null, str_contains(json_encode($line), 'CEF'), str_contains(json_encode($line), 'UNIFI')]);
+
+    // ---- «I know, thanks»: what becomes normal
+    foreach ([$login['net_router_login:192.0.2.1:admin-1:192.0.2.140'] ?? null, $ips['net_ips_server:2010937:in'] ?? null, $ips['net_ips_server:2030001:out'] ?? null,
+              $bl['net_blocked_from_server:203.0.113.0/24 tcp/443'] ?? null, $spoof['net_spoof:name:tower'] ?? null] as $e) {
+        watchmanAck($e['id'] ?? '', $data, $t1 + 10, false);
+    }
+    $t2 = $t1 + 300;
+    file_put_contents($gw, $more[count($doc)] . $doc[1] . $doc[2] . $doc[9] . $more[count($doc) + 2], FILE_APPEND);    // the same admin, in, out, blocked, Tower again
+    touch($gw, $t2 - 10);
+    $r = $round($t2);
+    same('net ack: the admin\'s address, an inbound signature, a blocked destination, a MAC for the name — normal now; an outbound hit is told again',
+        ['net_ips_server'], array_values(array_filter($r['added'], fn ($x) => str_starts_with($x, 'net_'))));
+
+    // ---- a new sender (a host started sending): told; its history learned
+    $ap = "$logs/syslog-192.0.2.105.log";
+    file_put_contents($ap, netTestLine($t2, netTestCef($t2, '544', 'Network Accessed', 'UNIFIcategory=Audit UNIFIadmin=nobody-known src=203.0.113.251')));
+    $t3 = $t2 + 300;
+    $r = $round($t3);
+    same('net sender new: a new file in the folder — told (not important), its lines learned', [['net_sender_new'], false, true],
+        [array_values(array_filter($r['added'], fn ($x) => str_starts_with($x, 'net_'))), WATCH_KINDS['net_sender_new'][1],
+         isset(watchmanLoad($data)['baseline']['net']['admins']['nobody-known'])]);
+
+    // ---- rotation by inode: the rest of .1, then the new file
+    $t4 = $t3 + 300;
+    file_put_contents($gw, netTestLine($t4 - 100, netTestCef($t4 - 100, '544', 'Network Accessed', 'UNIFIcategory=Audit UNIFIadmin=admin-1 src=192.0.2.150')), FILE_APPEND);
+    rename($gw, "$gw.1");
+    file_put_contents($gw, netTestLine($t4 - 50, netTestCef($t4 - 50, '544', 'Network Accessed', 'UNIFIcategory=Audit UNIFIadmin=admin-1 src=192.0.2.151')));
+    touch($gw, $t4 - 40);
+    $r = $round($t4);
+    same('net rotation: the rest of the rotated file (by inode) and the new one — both lines judged', ['net_router_login:192.0.2.1:admin-1:192.0.2.150', 'net_router_login:192.0.2.1:admin-1:192.0.2.151'],
+        (function ($x) { sort($x); return $x; })(array_values(array_filter(array_column($open(), 'key'), fn ($x) => str_contains($x, '192.0.2.15')))));
+
+    // ---- a chain: a new device on the LAN and, minutes later, a login on Unraid from its address
+    $book = watchmanLoad($data)['book'];
+    $devE = $dev['net_new_device:02:00:00:00:00:04'] ?? [];
+    $loginE = watchmanEntry('login_new_ip', 'login_new_ip:192.0.2.77', (int) ($devE['time'] ?? $t1) + 300, ['ip' => '192.0.2.77', 'users' => ['root'], 'services' => ['web']]);
+    $book[] = $loginE;
+    $chains = watchmanChains($book, $t4);
+    $with = array_values(array_filter($chains, fn ($c) => in_array($loginE['id'], $c['ids'], true)));
+    same('net chain: a new device and a login from its address within 10 minutes — one chain', [true, true],
+        [isset($with[0]) && in_array($devE['id'] ?? '', $with[0]['ids'], true), isset($with[0]) && in_array('net', $with[0]['groups'], true)]);
+    same('net chain: the network\'s ways in join the access side, the block from the server the impact side', [true, true, true, 'exfil'],
+        [in_array('net_router_login', WATCH_CHAIN_ACCESS, true), in_array('net_vpn_login', WATCH_CHAIN_ACCESS, true), in_array('net_spoof', WATCH_CHAIN_ACCESS, true),
+         WATCH_CHAIN_IMPACT['net_blocked_from_server'] ?? null]);
+
+    // ---- the router's clock: a line an hour off its arrival — a posture tip
+    $t5 = $t4 + 300;
+    file_put_contents($gw, netTestLine($t5 - 3600, 'CEF: 0|Ubiquiti|UniFi Network|10.6.106|401|WiFi Client Disconnected|2|UNIFIcategory=Client Devices UNIFIclientMac=02:00:00:00:00:02'), FILE_APPEND);
+    touch($gw, $t5 - 5);
+    $round($t5);
+    $tips = array_column((array) (watchmanLoad($data)['state']['posture']['tips'] ?? []), null, 'id');
+    same('net clock: the router\'s clock an hour off — a posture tip (advice), linking the Consultant', ['advice', 60, 'gateway-1', '#/advisor'],
+        [$tips['router_clock']['level'] ?? null, $tips['router_clock']['p']['minutes'] ?? null, $tips['router_clock']['p']['router'] ?? null, $tips['router_clock']['link']['path'] ?? null]);
+
+    // ---- silence: no line for longer than three times the usual gap (at least 6 h) while the gateway answers ARP
+    $t6 = $t5 + 7 * 3600;
+    $r = $round($t6);
+    same('net silent: the gateway\'s file stopped growing, the gateway answers — told once (important)', [['net_log_silent'], true],
+        [array_values(array_filter($r['added'], fn ($x) => str_starts_with($x, 'net_'))), WATCH_KINDS['net_log_silent'][1]]);
+    file_put_contents($gw, netTestLine($t6 + 200, 'CEF: 0|Ubiquiti|UniFi Network|10.6.106|401|WiFi Client Disconnected|2|UNIFIcategory=Client Devices'), FILE_APPEND);
+    touch($gw, $t6 + 250);
+    $round($t6 + 300);
+    $silent = array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => $e['kind'] === 'net_log_silent'));
+    same('net silent: a line again — closed by itself (by router)', [1, 'router'], [count($silent), $silent[0]['by'] ?? null]);
+    file_put_contents($paths['array_events'], ($t6 + 400) . " start\n");
+    file_put_contents($paths['arp'], "IP address HW type Flags HW address Mask Device\n");
+    $r = $round($t6 + 9 * 3600);
+    same('net silent: the gateway gone from ARP — no word (the router is off, not its log)', [], array_values(array_filter($r['added'], fn ($x) => $x === 'net_log_silent')));
+
+    // ---- the cap: more than he reads in a round — the newest part, a line in the book
+    $t7 = $t6 + 10 * 3600;
+    $burst = '';
+    for ($i = 0; $i < 400; $i++) {
+        $burst .= $doc[9];
+    }
+    file_put_contents($gw, $burst, FILE_APPEND);
+    $nsBefore = $net();
+    $look = watchnetLook($paths, $nsBefore, watchnetServer($paths, []), $t7, 4096);
+    same('net cap: more than WATCH_READ_MAX waits (here 4 KB) — the newest part read, the rest skipped', [true, true],
+        [($look['skipped'] ?? 0) > 0, ($look['read'] ?? 0) <= 4096]);
+    $bk = watchmanLoad($data)['book'];
+    $bn = watchmanLoad($data)['baseline']['net'];
+    watchnetCompare($bn, $look, $bk, $nsBefore, watchnetServer($paths, []), $t7, false);
+    $too = array_values(array_filter($bk, fn ($e) => $e['kind'] === 'watch' && !empty($e['p']['too_much'])));
+    same('net cap: … and a plain line in the book: too much — set the gateway to Blocked only', [1, '192.0.2.1', true],
+        [count($too), $too[0]['p']['sender'] ?? null, (int) ($too[0]['p']['skipped'] ?? 0) > 0]);
+
+    // ---- the «whole LAN» switch: per device counts only
+    watchmanNetLanSet(true, $data, false);
+    file_put_contents($gw, $doc[0] . $doc[3], FILE_APPEND);
+    $round($t7 + 300);
+    $lan = watchmanPageState($data, $t7 + 300, false)['net']['lan'] ?? null;
+    same('net whole LAN: on — per device how often it connected (a name and counts, nothing else)', [true, ['connects', 'detections', 'mac', 'name']],
+        [is_array($lan) && count($lan) > 0, is_array($lan[0] ?? null) ? (function ($x) { $k = array_keys($x); sort($k); return $k; })($lan[0]) : null]);
+    watchmanNetLanSet(false, $data, false);
+    $round($t7 + 600);
+    $s = watchmanPageState($data, $t7 + 600, false)['net'] ?? [];
+    same('net whole LAN: off — the counts go', [null, []], [array_key_exists('lan', $s) ? $s['lan'] : 'x', $net()['lan'] ?? 'x']);
+
+    // ---- hired again: anew (the routers' history learned again, nothing told)
+    $r = watchmanRound($paths, $data, 2000, $t7 + 900, $docker, false, $acks);
+    same('net hired again: the network learned anew', [true, []], [$r['fresh'], array_values(array_filter($r['added'], fn ($x) => str_starts_with($x, 'net_')))]);
+
+    // ---- the syslog server off, the share asleep, the array stopped: nothing read, nothing forgotten
+    $round2 = fn (int $t) => watchmanRound($paths, $data, 2000, $t, $docker, false, $acks);
+    $posBefore = $net()['pos'] ?? null;
+    file_put_contents($gw, $doc[1], FILE_APPEND);
+    file_put_contents($paths['var_ini'], "fsState=\"Stopped\"\nspindownDelay=\"30\"\n");
+    $round2($t7 + 1000);
+    file_put_contents($paths['var_ini'], "fsState=\"Started\"\nspindownDelay=\"30\"\n");
+    same('net: the array stopped — not read (rsyslog\'s file action is off then), positions kept', ['array', $posBefore], [$net()['look']['state'] ?? null, $net()['pos'] ?? null]);
+    same('net: the folder\'s share — exclusive on an SSD pool awake; on a pool with a disk asleep: asleep; not known: not read',
+        [['master'], false, ['hive'], true, false],
+        [watchnetBases('/mnt/user/syslog', readCfg($paths['shares_ini'], true), readCfg($paths['disks_ini'], true))['bases'],
+         baseAsleep('master', watchnetSleeping(readCfg($paths['disks_ini'], true))),
+         watchnetBases('/mnt/user/media', readCfg($paths['shares_ini'], true), readCfg($paths['disks_ini'], true))['bases'],
+         baseAsleep('hive', watchnetSleeping(readCfg($paths['disks_ini'], true))),
+         watchnetBases('/mnt/user/nope', readCfg($paths['shares_ini'], true), readCfg($paths['disks_ini'], true))['known']]);
+    same('net: the night shift never reads the router (its paths have no rsyslog_cfg)', false, isset(watchmanNightPaths()['rsyslog_cfg']));
+    $mir = watchmanMirror(['baseline' => watchmanLoad($data)['baseline'], 'state' => [], 'book' => [], 'net' => $net()], 'boot', $t7, false);
+    $mirF = watchmanMirror(['baseline' => watchmanLoad($data)['baseline'], 'state' => [], 'book' => [], 'net' => $net()], 'boot', $t7, true);
+    same('net mirror: baseline.net and (in RAM only) the positions — never a line\'s text', [true, true, false, false],
+        [is_array($mir['baseline']['net'] ?? null), is_array($mir['state']['net_pos'] ?? null), isset($mirF['state']['net_pos']), str_contains(json_encode($mir), 'CEF')]);
+    $fam = array_column(watchmanMetrics($data), null, 'name');
+    same('net metrics: open entries per kind, lines per sender, the newest line\'s arrival', [true, true, true],
+        [isset($fam['uso_watchman_net_entries']), ($fam['uso_watchman_net_lines_total']['samples'][0][0]['sender'] ?? null) === '192.0.2.1',
+         (int) ($fam['uso_watchman_net_last_line_timestamp_seconds']['samples'][0][1] ?? 0) > 0]);
+
+    // ---- the Team Lead's six checks
+    $o = ['cfg' => $paths['rsyslog_cfg'], 'shares_ini' => $paths['shares_ini'], 'disks_ini' => $paths['disks_ini'], 'var_ini' => $paths['var_ini'],
+          'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'server' => watchnetServer($paths, []), 'containers' => [], 'link' => '#/advisor'];
+    $cfgFile = function (array $over) use ($paths): void {
+        $v = ['local_server' => '1', 'server_folder' => '/mnt/user/syslog', 'server_filename' => 'syslog-%FROMHOST-IP%.log', 'log_rotation' => '1',
+              'log_size' => '50M', 'log_files' => '4', 'remote_server' => '', 'server_port' => '514'];
+        file_put_contents($paths['rsyslog_cfg'], implode('', array_map(fn ($k, $x) => "$k=\"$x\"\n", array_keys($over + $v), $over + $v)));
+    };
+    $checks = fn (array $extra = []) => array_column(watchnetChecks($extra + $o), null, 'id');
+    $cfgFile([]);
+    file_put_contents("$src/sec.ini", "[\"syslog\"]\nexport=\"-\"\nsecurity=\"public\"\n");
+    $c = $checks();
+    same('net checks: all well — an own share on an SSD pool, rotation 50 MB × 4, not exported, the port free, no loop',
+        ['syslog_no_rotation' => true, 'syslog_port_taken' => true, 'syslog_share_public' => true, 'syslog_share_sleeps' => true],
+        (function ($x) { ksort($x); return $x; })(array_map(fn ($f) => $f['ok'], $c)));
+    $cfgFile(['server_folder' => '/mnt/user/media']);
+    $c = $checks();
+    same('net checks: syslog_share_sleeps — a pool whose disks spin down: recommended', ['recommended', false, 'hive'],
+        [$c['syslog_share_sleeps']['level'], $c['syslog_share_sleeps']['ok'], $c['syslog_share_sleeps']['params']['disks']]);
+    $cfgFile(['server_folder' => '/mnt/user/old']);
+    same('net checks: … an array-only share: required', ['required', false], [$checks()['syslog_share_sleeps']['level'], $checks()['syslog_share_sleeps']['ok']]);
+    $cfgFile(['log_rotation' => '']);
+    same('net checks: syslog_no_rotation (required) — off', ['required', false], [$checks()['syslog_no_rotation']['level'], $checks()['syslog_no_rotation']['ok']]);
+    $cfgFile(['log_size' => '900M', 'log_files' => '4']);
+    same('net checks: … or more than 2 GB in all', false, $checks()['syslog_no_rotation']['ok']);
+    $cfgFile([]);
+    file_put_contents("$src/sec.ini", "[\"syslog\"]\nexport=\"e\"\nsecurity=\"public\"\n");
+    same('net checks: syslog_share_public — exported over SMB (the files are writable by anyone who writes the share)', [false, 'SMB'],
+        [$checks()['syslog_share_public']['ok'], $checks()['syslog_share_public']['params']['proto']]);
+    file_put_contents("$src/sec.ini", "[\"syslog\"]\nexport=\"-\"\n");
+    $fs = ['Name' => '/firesight', 'Config' => ['Env' => ['SYSLOG_UDP_PORT=514']], 'HostConfig' => ['NetworkMode' => 'host', 'PortBindings' => []]];
+    $alloy = ['HostConfig' => ['NetworkMode' => 'bridge', 'PortBindings' => ['514/udp' => [['HostPort' => '514']]]]];
+    $c = $checks(['containers' => [['name' => 'firesight', 'image' => 'ghcr.io/tjindarr/unifi-insights-hub:latest'], ['name' => 'Alloy', 'image' => 'grafana/alloy:latest'],
+                                    ['name' => 'web', 'image' => 'nginx']],
+                  'inspect' => fn (string $n) => $n === 'firesight' ? $fs : ($n === 'Alloy' ? $alloy : null)]);
+    same('net checks: syslog_port_taken — the usual holders named by image', [false, 'firesight (FireSight), Alloy (Alloy)'],
+        [$c['syslog_port_taken']['ok'], $c['syslog_port_taken']['params']['names']]);
+    $cfgFile(['remote_server' => '192.0.2.20']);
+    same('net checks: syslog_loop — Remote syslog server is this server (Benj\'s case on 2026-10-08)', ['recommended', false],
+        [$checks()['syslog_loop']['level'] ?? null, $checks()['syslog_loop']['ok'] ?? null]);
+    $cfgFile(['remote_server' => 'tower']);
+    same('net checks: … also by its name', false, $checks()['syslog_loop']['ok'] ?? null);
+    $cfgFile(['remote_server' => '192.0.2.99']);
+    same('net checks: … another server is fine', true, $checks()['syslog_loop']['ok'] ?? null);
+    $cfgFile(['local_server' => '']);
+    same('net checks: syslog_off — a hint only when he is hired and the router guide was opened', [[], ['syslog_off']],
+        [array_keys(array_filter($checks(['hired' => true]), fn ($f) => $f['id'] === 'syslog_off')),
+         array_keys(array_filter($checks(['hired' => true, 'guide' => $now]), fn ($f) => $f['id'] === 'syslog_off'))]);
+
+    // ---- the Consultant's look: which shares qualify, the loop, the senders (only while the folder is awake)
+    $cfgFile(['remote_server' => '127.0.0.1']);
+    $a = watchnetAdvisor($o);
+    same('net advisor: Unraid\'s syslog server as it is — on, its share first among those that qualify (SSD pools only), the pools, the loop',
+        [true, 'syslog', ['syslog'], ['master'], true],
+        [$a['on'], $a['share'], array_column($a['shares'], 'share'), $a['pools'], $a['loop']]);
+    $cfgFile(['server_folder' => $logs]);
+    $a = watchnetAdvisor($o);
+    same('net advisor: the senders with a file there, never the loop\'s', ['192.0.2.1', '192.0.2.105'], array_column((array) $a['senders'], 'sender'));
+    $guide = "$tmp/advisor/network.json";
+    advisorNetworkSeen($guide, $now);
+    same('net advisor: the router guide opened — noted (root only) for the Team Lead', [$now, 0600], [watchnetGuideSeen($guide), fileperms($guide) & 0777]);
+
+    // ---- Ms. Protocolli's sources: every sender's file (ids, never paths from a request), its rotated part; her tour skips .1
+    $lf = watchnetLogFiles(['cfg' => $paths['rsyslog_cfg'], 'disks_ini' => $paths['disks_ini'], 'shares_ini' => $paths['shares_ini']]);
+    same('net logs: router:<sender> and router.1:<sender> (an address may end in .1 itself) — the loop\'s file too (it is a log); the tour leaves .1 out',
+        [true, true, true, false, true],
+        [isset($lf['router:192.0.2.1']), isset($lf['router.1:192.0.2.1']), isset($lf['router:192.0.2.20']), logsTourWanted('router.1:192.0.2.1'), logsTourWanted('router:192.0.2.1')]);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/logs/lang/$lang.json"), true) ?: [];
+        check("net logs: the source names ($lang)", isset($l['source.router'], $l['source.router_old']));
+    }
+
+    // ---- Mr. Backupsy's setup: the share Unraid's syslog server writes into is proposed «not backed up» (setup.sh's syslog_share())
+    $sh = (string) file_get_contents(OFFICE_DIR . '/backup/setup.sh');
+    $fn = preg_match('/^syslog_share\(\) \{.*?^\}$/ms', $sh, $m) ? $m[0] : '';
+    $run = fn (string $cfg) => trim((string) shell_exec('bash -c ' . escapeshellarg($fn . "\nUB_RSYSLOG_CFG=" . escapeshellarg($cfg) . " syslog_share; echo \" \$?\"")));
+    $cfgFile([]);
+    file_put_contents("$tmp/off.cfg", "local_server=\"\"\nserver_folder=\"/mnt/user/syslog\"\n");
+    same('net backup: setup.sh knows the syslog server\'s share (on), not when it is off', ['syslog 0', '1'], [$run($paths['rsyslog_cfg']), $run("$tmp/off.cfg")]);
+    check('net backup: share_propose proposes it not backed up (why code syslog)', (bool) preg_match('/syslog_share\)" && \[\[ "\$s" == "\$sl" \]\]; then\s+why "\$s" syslog ""[^\n]*PROP_MODE=off/', $sh));
+    $bl = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true) ?: [];
+    check('net backup: the page says why', isset($bl['setup.why.syslog']));
+
+    unset($GLOBALS['watchnetIfaces']);
+    @unlink(watchmanLockFile($data, 'book'));
+    @unlink(watchmanLockFile($data, 'round'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor'],
           'strings' => ['testStrings', 'testUnraidWords']];

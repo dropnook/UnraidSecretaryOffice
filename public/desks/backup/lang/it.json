@@ -1162,5 +1162,6 @@
   "stat.kopia_asleep": {"one": "1 dormiva (lasciata fuori)", "other": "{n} dormivano (lasciate fuori)"},
   "partner.why_short.asleep": "dorme qui",
   "vm.done.asleep": "dormiva",
-  "vm.done_text.asleep": "il suo pool dormiva — non fermata, non nello snapshot di questa notte"
+  "vm.done_text.asleep": "il suo pool dormiva — non fermata, non nello snapshot di questa notte",
+  "setup.why.syslog": "Qui scrive il server syslog di Unraid — le parole del router, non le tue"
 }

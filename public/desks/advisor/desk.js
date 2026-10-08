@@ -8,6 +8,9 @@
    «Add Container» form (the user clicks Apply), Kopia's repository with the
    user's keys (through RAM only) — with ransomware protection (S3 Object Lock)
    where the bucket keeps it — and a recovery sheet made here in the browser.
+   The network (the night watchman's router lines): Unraid's syslog server as
+   it is set — a setting he explains and never changes —, the router's side
+   (UniFi) and the neighbours (FireSight, Loki + Alloy, CrowdSec, a SIEM).
    The agent part lives in agent/desks/advisor.php. */
 (() => {
 'use strict';
@@ -74,6 +77,10 @@ chown -R 99:100 $P`,
   },
   // later (the agent says so): no install button, only why not yet
   loki: { icon: '📜', open: '/Docker', install: null, desk: null, copy: {} },
+  // the network (the agent's group): a setting he explains and never changes, two guides — nothing to install
+  syslogserver: { icon: '📡', open: '/Settings/SyslogSettings', install: null, desk: 'watchman', copy: {} },
+  unifi: { icon: '🛜', open: null, install: null, desk: null, copy: {} },
+  neighbours: { icon: '🧭', open: null, install: null, desk: null, copy: {} },
 };
 
 // S3 providers for Kopia's repository: an example endpoint each (only a placeholder, never filled in); versitygw: a second
@@ -177,6 +184,7 @@ function render() {
     [T('help.do_term'), T('help.do')],
     [T('do.sheet'), T('help.sheet')],
     [T('look_again'), T('help.again')],
+    [T('help.network'), T('help.network_text')],
   ]));
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
 
@@ -194,6 +202,14 @@ function render() {
     mon.forEach(([id, x]) => m.appendChild(external(id, x)));
     if (state.dashboard) m.appendChild(dashboard());
     root.appendChild(m);
+  }
+
+  const net = group('network');
+  if (net.length) {
+    const n = el('section', 'section');
+    n.appendChild(Office.sectionHead(T('network'), T('network_sub')));
+    net.forEach(([id, x]) => n.appendChild(networkEntry(id, x)));
+    root.appendChild(n);
   }
   root.appendChild(el('p', 'role', T('looked_at', { when: fmt.relative(state.time) })));
 }
@@ -422,6 +438,96 @@ function partnerGuide() {
   box.appendChild(el('div', 'field-title', T('partner.title')));
   paragraphs(box, 'partner');
   box.appendChild(callout(T('partner.warn'), true));
+  return box;
+}
+
+/**
+ * The network (agent: ADVISOR_EXTERNALS group network): Unraid's syslog server as it is set — on or off, the folder,
+ * the loop, a share that sleeps or is exported, the senders with a file there, the setting step by step (which shares
+ * qualify here) and a link to Unraid's page, never a change of his —, the router's side (UniFi: where to click; opening
+ * it tells the agent, for the Team Lead's hint) and the neighbours (who does dashboards and stores of a router's log)
+ */
+function networkEntry(id, x) {
+  const e = EXTERNALS[id];
+  const box = el('div', 'box ad-external');
+  const row = el('div', 'row nocheck ad-row');
+  row.appendChild(avatar(e, x));
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', T(`ext.${id}.name`)));
+  const meta = el('div', 'row-meta');
+  const sys = x.syslog || null;
+  if (x.kind === 'setting') {
+    meta.appendChild(el('span', 'chip ' + (x.there ? 'ok' : 'quiet'), T(x.there ? 'net.syslog.on' : 'net.syslog.off')));
+    meta.appendChild(el('span', 'chip quiet', T('net.chip.setting')));
+  } else {
+    meta.appendChild(el('span', 'chip quiet', T('net.chip.guide')));
+  }
+  if (e.desk && Office.desks.has(e.desk)) {
+    const chip = el('span', 'chip');
+    chip.append(Office.deskIcon(e.desk), Office.t(e.desk + '.name'));
+    meta.appendChild(chip);
+  }
+  main.appendChild(meta);
+  const what = { syslogserver: 'net.syslog.what', unifi: 'net.unifi.what', neighbours: 'net.neighbours.what' }[id];
+  if (what) main.appendChild(el('div', 'row-detail', T(what)));
+  if (sys) {
+    if (sys.on) {
+      const ident = T('net.ident.' + (['ip', 'host', 'dns'].includes(sys.ident) ? sys.ident : 'none'));
+      const rot = sys.rotation ? T('net.rotation_on', { size: fmt.size(sys.size || 0), files: sys.files || 0 }) : T('net.rotation_off');
+      main.appendChild(el('div', 'row-detail', T('net.syslog.state', { folder: sys.folder || '', ident, rotation: rot })));
+    }
+    if (sys.loop) main.appendChild(el('div', 'row-detail ad-careful', T('net.syslog.loop')));
+    if (sys.on && (sys.sleepy || []).length) main.appendChild(el('div', 'row-detail ad-careful', T('net.syslog.sleepy', { disks: sys.sleepy.join(', ') })));
+    if (sys.on && (sys.exported || []).length) main.appendChild(el('div', 'row-detail ad-careful', T('net.syslog.exported', { proto: sys.exported.join(', ').toUpperCase() })));
+    if (sys.on && sys.asleep) main.appendChild(el('div', 'row-detail', T('net.syslog.asleep')));
+    if (sys.on && Array.isArray(sys.senders)) {
+      if (!sys.senders.length) main.appendChild(el('div', 'row-detail', T('net.syslog.no_senders')));
+      else {
+        const line = el('div', 'row-detail');
+        line.append(T('net.syslog.senders') + ': ', sys.senders.map((s) => T('net.syslog.sender', { sender: s.sender, when: fmt.relative(s.mtime) })).join(' · '));
+        main.appendChild(line);
+      }
+    }
+  }
+  row.appendChild(main);
+  const acts = el('div', 'ad-acts');
+  if (e.open) acts.appendChild(unraidLink(e.open, T('net.syslog.open'), 'plain'));
+  if (e.desk && Office.desks.has(e.desk) && Office.desks.get(e.desk).hired) {
+    const a = el('a', 'btn small plain', T('to_desk', { name: Office.t(e.desk + '.name') }));
+    a.href = `#/${e.desk}`;
+    acts.appendChild(a);
+  }
+  if (acts.childNodes.length) row.appendChild(acts);
+  box.appendChild(row);
+
+  const det = el('details', 'ad-howto');
+  det.open = id === 'syslogserver' ? !x.there || !!(sys && sys.loop) : false;
+  det.appendChild(el('summary', '', T(id === 'syslogserver' ? 'net.syslog.howto' : 'howto')));
+  const guide = el('div', 'ad-lock-guide');
+  if (id === 'syslogserver') {
+    const shares = (sys && sys.shares) || [];
+    const pools = (sys && sys.pools) || [];
+    const fit = shares.length ? T('net.syslog.shares', { list: shares.map((s) => `${s.share} (${(s.pools || []).join(', ')})`).join(', ') })
+      : pools.length ? T('net.syslog.pools', { list: pools.join(', ') }) : T('net.syslog.shares_none');
+    const ol = el('ol', 'ad-steps');
+    for (let i = 1; Office.has(`${ID}.net.syslog.${i}`); i++) ol.appendChild(el('li', '', T(`net.syslog.${i}`, { shares: fit })));
+    guide.appendChild(ol);
+    guide.appendChild(callout(T('net.syslog.private'), true));
+  } else if (id === 'unifi') {
+    paragraphs(guide, 'net.unifi', { ip: serverIp() || '<server-ip>' });
+    guide.appendChild(el('p', 'ad-lock-p', T('net.unifi.check')));
+    let told = false;
+    det.addEventListener('toggle', () => {
+      if (det.open && !told && Office.agent.running && hired()) {
+        told = true;
+        Office.api.post(`${ID}.network_seen`, {}).catch(() => {});      // only for the Team Lead's hint: the router has nowhere to send yet
+      }
+    });
+  } else {
+    paragraphs(guide, 'net.neighbours');
+  }
+  det.appendChild(guide);
+  box.appendChild(det);
   return box;
 }
 

@@ -1156,5 +1156,6 @@
   "stat.kopia_asleep": {"one": "1 asleep (left out)", "other": "{n} asleep (left out)"},
   "partner.why_short.asleep": "asleep here",
   "vm.done.asleep": "asleep",
-  "vm.done_text.asleep": "its pool slept — not held, not in this night's snapshot"
+  "vm.done_text.asleep": "its pool slept — not held, not in this night's snapshot",
+  "setup.why.syslog": "Unraid's syslog server writes here — the router's words, not yours"
 }

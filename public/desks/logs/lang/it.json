@@ -218,5 +218,7 @@
   "errors.logs_tour_failed": "Il mio giro non è potuto partire.",
   "source.partner_door": "Porta del partner (cosa hanno chiesto le segreterie partner)",
   "source.partner_door_old": "Porta del partner — log precedente",
-  "source.partner_door_ram": "Porta del partner — mentre l'array era fermo"
+  "source.partner_door_ram": "Porta del partner — mentre l'array era fermo",
+  "source.router": "Router {name} (server syslog di Unraid)",
+  "source.router_old": "Router {name} — precedente"
 }
