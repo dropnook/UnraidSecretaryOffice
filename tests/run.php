@@ -13244,6 +13244,12 @@ function testPartnerTicket(): void
         [$asN('return partnerTicketsTidy(time() + 8 * 86400);'), $asH('return partnerTicketsTidy(time() + 8 * 86400);'), is_file("$N[flash]/{$req2['id']}.key"),
          str_contains((string) file_get_contents($H['keys']), 'uso-ticket:')]);
 
+    // ---- a walk-through on one server: it asks and gives the ticket itself, and takes it
+    $req3 = $asH('return partner_ticket_start(["step" => "do", "address" => "192.168.77.2"]);');
+    $made3 = $asH('return partner_ticket_make(["step" => "do", "confirm" => true, "pair" => "' . $id . '", "block" => ' . var_export($req3['block'], true) . ', "address" => "192.168.77.2", "port" => 22]);');
+    $self = $asH('return partner_ticket_finish(["step" => "do", "confirm" => true, "code" => ' . var_export($made3['code'] ?? '', true) . ', "block" => ' . var_export($made3['block'] ?? '', true) . ']);');
+    same('ticket: on one server — asked, given and taken by the same office', [true, 1, 1], [is_string($made3['block'] ?? null), count($asH('return partnerTickets();')), count($asH('return partnerTicketPairs();'))]);
+
     // ---- the Team Lead's ticket texts: every T('…') of partner.js in all five languages
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/caretaker/partner.js');
     preg_match_all("/(?<![.\\w])T\\(\\s*'([a-z0-9_.]+)'\\s*[,)]/", $js, $m);

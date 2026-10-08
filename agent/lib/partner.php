@@ -2049,8 +2049,10 @@ function partner_ticket_make(array $r): array
         throw new Problem('partner_ticket_nothing', ['name' => $pair['name']]);
     }
     $n = partnerTicketBlockDecode($r['block'] ?? null, 'N');
+    // this office's own request (a walk-through on one server: it plays the new server too) — its id is taken here by itself
+    $own = (bool) array_filter(partnerTicketPending(), fn ($q) => $q['id'] === $n['id'] && $q['pub_key'] === $n['pub_key']);
     $taken = array_merge(array_column(partnerPairs(), 'id'), array_column(partnerPending(), 'id'), array_column(partnerTickets(), 'id'),
-        array_column(partnerTicketPairs(), 'id'), array_column(partnerTicketPending(), 'id'));
+        array_column(partnerTicketPairs(), 'id'), $own ? [] : array_column(partnerTicketPending(), 'id'));
     if (in_array($n['id'], $taken, true)) {
         throw new Problem('partner_known', ['name' => $n['name']]);
     }
