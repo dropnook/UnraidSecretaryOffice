@@ -212,11 +212,20 @@ function drillVarIni(): array
     return readCfg($GLOBALS['drill']['var_ini'] ?? '/var/local/emhttp/var.ini');
 }
 
-/** A parity check or rebuild going on (var.ini mdResyncPos) */
+/**
+ * A parity check or rebuild RUNNING (var.ini): `mdResyncPos` > 0 and not paused. Paused (Benj, 2026-10-08 — a paused
+ * sync blocked the drill for days) = `mdResync` 0 and `mdResyncDt` 0 while the position stays (Unraid keeps mdResyncPos;
+ * lib/where.php waBuilding(): «mdResyncDt 0 = paused») — the drill's reads don't race a sync that waits. Either key
+ * missing: running, as before (never a guess towards «go»). Done: mdResyncPos 0.
+ */
 function drillParity(?array $var = null): bool
 {
     $var ??= drillVarIni();
-    return (int) ($var['mdResyncPos'] ?? 0) > 0;
+    if ((int) ($var['mdResyncPos'] ?? 0) <= 0) {
+        return false;
+    }
+    $paused = isset($var['mdResync'], $var['mdResyncDt']) && (int) $var['mdResync'] === 0 && (int) $var['mdResyncDt'] === 0;
+    return !$paused;
 }
 
 /** RAM the drill may use: 25 % of MemAvailable, at most 8 GB */

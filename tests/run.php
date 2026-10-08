@@ -753,6 +753,55 @@ function testSnapshotNames(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/**
+ * Ms. Snapshotini's ids (QA 2026-10-08: `snapshot.estimate` / `delete` with `../x` answered ok + snapshot_gone): an id
+ * of a shape her scans never make — a path, `..` as a part, `/` at odd places, whitespace at an end, control
+ * characters — is refused (bad_request) by every action that takes one, before any scan; her real ids pass.
+ */
+function testSnapshotIds(): void
+{
+    $good = ['zfs:cache/appdata@uso-backup-20261006-0100', 'zfs:t@x', 'zfs:mother/My Files@auto-backup-20261006-0700',
+             'zfs:cache/appdata@a..b', 'zfs:cache/system/docker/0f1e2d3c4b5a@123456', 'zfs:pool.a/ds:x/d-s_1@snap.1:2',
+             'btrfs:/mnt/disk1/.btrfs-snap/20261006-0100', 'btrfs:/mnt/cache/appdata/.snap/My snap', 'btrfs:/mnt/disk1/..x',
+             'vm:Windows 11/Snap 1', 'vm:HA/S20261006', 'vm:Ubuntü (test)/before update'];
+    foreach ($good as $id) {
+        check('snapshot ids: hers pass — ' . json_encode($id), snapshotIdOk($id));
+    }
+    $bad = ['../x', '/boot/config/x', 'x', '', 'zfs:', 'zfs:../x', 'zfs:cache/../x@y', 'zfs:cache/./x@y', 'zfs:cache/appdata@..',
+            'zfs:cache/appdata@.', 'zfs:cache//a@x', 'zfs:/cache@x', 'zfs:cache/@x', 'zfs:cache/a@x/y', 'zfs:cache/a@x@y', 'zfs:cache@',
+            'zfs:cache', 'zfs: cache@x', 'zfs:cache@x ', 'zfs:cache /a@x', "zfs:cache@x\n", "zfs:cache\0@x", 'zfs:1pool@x',
+            'zfs:cache/a@x;rm', 'btrfs:../x', 'btrfs:/boot/config/x', 'btrfs:mnt/disk1/x', 'btrfs:/mnt/disk1/../x',
+            'btrfs:/mnt/disk1/./x', 'btrfs:/mnt/disk1//x', 'btrfs:/mnt/disk1/x/', 'btrfs:/mnt/disk1', 'btrfs:/mnt/disk1/ x',
+            'btrfs:/mnt/disk1/x ', "btrfs:/mnt/disk1/x\ty", "btrfs:/mnt/disk1/\xff", 'vm:../x', 'vm:x/..', 'vm:a/b/c', 'vm:a',
+            'vm:/a', 'vm:a/', 'vm: a/b', "vm:a/b\r", 'x:y', 'ZFS:cache@x', 'zfs:t@' . str_repeat('a', 1000)];
+    foreach ($bad as $id) {
+        check('snapshot ids: not hers — refused ' . json_encode($id), !snapshotIdOk($id));
+    }
+
+    // the actions: refused before any scan (nothing here may reach zfs — the scan would)
+    $ask = function (string $action, array $r): string {
+        try {
+            $answer = desks()['snapshot']['actions'][$action]($r);
+            return !empty($answer['ok']) ? 'ok' : 'not ok';
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    foreach (['../x', 'zfs:cache/../x@y', 'btrfs:/mnt/disk1/../x', "vm:a/b\n"] as $id) {
+        same('snapshot ids: estimate, delete, rename, hold, release, unmount refuse ' . json_encode($id), array_fill(0, 7, 'bad_request'), [
+            $ask('estimate', ['ids' => [$id]]), $ask('estimate', ['ids' => ['zfs:cache/a@ok', $id]]), $ask('delete', ['ids' => [$id]]),
+            $ask('rename', ['id' => $id, 'name' => 'new']), $ask('hold', ['id' => $id]), $ask('release', ['id' => $id]), $ask('unmount', ['id' => $id])]);
+    }
+    same('snapshot ids: no id is still missing_field / no_selection', ['missing_field', 'no_selection', 'invalid_selection'],
+        [$ask('hold', []), $ask('delete', ['ids' => []]), $ask('estimate', ['ids' => [['x']]])]);
+    $was = $GLOBALS['snapshot'];
+    $GLOBALS['snapshot'] = ['zfs' => ['snapshots' => []], 'btrfs' => ['snapshots' => []], 'vm' => ['snapshots' => []]];
+    same('snapshot ids: one of her shape she doesn\'t know — estimate as before (nothing, no failure)', ['ok', 0],
+        [$ask('estimate', ['ids' => ['zfs:cache/appdata@gone', 'vm:Windows 11/Snap 1']]), snapshotEstimate(['zfs:cache/appdata@gone'])['bytes']]);
+    $GLOBALS['snapshot'] = $was;
+    same('snapshot ids: a good id goes on to the name\'s check (rename)', 'invalid_name', $ask('rename', ['id' => 'zfs:cache/a@x', 'name' => '../y']));
+}
+
 function testEmby(): void
 {
     foreach (['emby/embyserver:latest', 'emby/embyserver_arm64v8:4.8', 'linuxserver/emby', 'lscr.io/linuxserver/emby:latest',
@@ -6034,6 +6083,47 @@ JS;
          "db:zz-uso-test-db:$mdb" => [['snapB', $t0602, 1390, "$tmp/snapB/apps/zz-uso-test-db/$mdb"], ['snapA', $t05, 1300, "$tmp/snapA/apps/zz-uso-test-db/$mdb"]],
          "db:zz-uso-test-db:$pg" => [['snapB', $t05, 2200, "$tmp/snapB/apps/zz-uso-test-db/$pg"]]],
         $r['earlier']);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * A database client's output into a restore's log, cut (drill-space, 2026-10-08: MariaDB 11.8 echoes a failed statement
+ * whole — ≈ 1 MB per failed INSERT on nostromo): every line at RS_LOG_LINE_MAX bytes with «… (n bytes cut)», through
+ * rsLogCutter() — here with a stand-in client that says a 100 KB line on stdout and on stderr.
+ */
+function testRestoreClientEcho(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-echo-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    $log = "$tmp/log.txt";
+    file_put_contents($log, "Step 3: play\n");
+    $client = 'printf "ERROR 1062 (23000) at line 5: Duplicate entry\n"; head -c 102400 /dev/zero | tr "\0" x; printf "\nnext\n";'
+        . ' head -c 102400 /dev/zero | tr "\0" e >&2; printf "\n" >&2; head -c 2048 /dev/zero | tr "\0" y; printf "\n";'
+        . ' head -c 2049 /dev/zero | tr "\0" z; printf "\nüñï\n"; printf "the end"';
+    $cutter = rsLogCutter($log);
+    check('client echo: the cutter starts', is_array($cutter));
+    if (!is_array($cutter)) {
+        exec('rm -rf ' . escapeshellarg($tmp));
+        return;
+    }
+    $p = proc_open(['sh', '-c', $client], [0 => ['file', '/dev/null', 'r'], 1 => $cutter[1], 2 => $cutter[1]], $pipes, '/', rsEnv());
+    fclose($cutter[1]);
+    $codes = [proc_close($p), proc_close($cutter[0])];
+    same('client echo: the client and the cutter end', [0, 0], $codes);
+    $lines = explode("\n", (string) file_get_contents($log));
+    same('client echo: what was in the log stays, short lines whole', ['Step 3: play', 'ERROR 1062 (23000) at line 5: Duplicate entry'], array_slice($lines, 0, 2));
+    same('client echo: a 100 KB line — its first 2 KB and how much went', str_repeat('x', 2048) . '… (100352 bytes cut)', $lines[2] ?? null);
+    same('client echo: the line after it whole', 'next', $lines[3] ?? null);
+    same('client echo: stderr\'s 100 KB line cut the same', str_repeat('e', 2048) . '… (100352 bytes cut)', $lines[4] ?? null);
+    same('client echo: exactly 2 KB — whole, nothing said', str_repeat('y', 2048), $lines[5] ?? null);
+    same('client echo: one byte more — cut', str_repeat('z', 2048) . '… (1 bytes cut)', $lines[6] ?? null);
+    same('client echo: the rest as said (the last line without its newline too)', ['üñï', 'the end'], array_slice($lines, 7));
+    check('client echo: the log stays small', filesize($log) < 12000, (string) filesize($log));
+    $code = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+    $play = substr($code, (int) strpos($code, 'function rsDoPlay('), 6000);
+    check('client echo: rsDoPlay() plays through the cutter — the client never writes into the log itself',
+        str_contains($play, '$cutter = rsLogCutter($log);') && str_contains($play, "[0 => ['pipe', 'r'], 1 => \$cutter[1], 2 => \$cutter[1]]")
+        && !str_contains($play, "1 => ['file', \$log, 'a']") && str_contains($play, 'rsWait($j, [$p, $cutter[0]])'));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -16467,6 +16557,19 @@ function testRestoreDrill(): void
     same('drill blocker: the next backup in 30 min, 20 min of work — refused', 'drill_deadline', drillBlocker(1200, $now + 1800, $now)['key'] ?? null);
     file_put_contents("$tmp/var.ini", "fsState=\"Started\"\nmdResyncPos=\"995596\"\n");
     same('drill blocker: a parity check or rebuild running', 'drill_parity', drillBlocker(60, null, $now)['key'] ?? null);
+    // running / paused / finished as Unraid's var.ini says them (Benj, 2026-10-08: a paused sync blocked the drill)
+    $sync = fn (string $resync, string $pos, string $dt, string $db) => "fsState=\"Started\"\nmdResync=\"$resync\"\nmdResyncPos=\"$pos\"\n"
+        . "mdResyncDt=\"$dt\"\nmdResyncDb=\"$db\"\nmdResyncAction=\"check P\"\nmdResyncSize=\"23437770700\"\n";
+    file_put_contents("$tmp/var.ini", $sync('23437770700', '19114247308', '31', '462168'));
+    same('drill blocker: a check running (mdResync, mdResyncDt set) — refused', 'drill_parity', drillBlocker(60, null, $now)['key'] ?? null);
+    file_put_contents("$tmp/var.ini", $sync('0', '19114247308', '0', '0'));
+    same('drill blocker: a check paused (mdResync 0, mdResyncDt 0, the position kept) — no blocker', null, drillBlocker(60, null, $now));
+    file_put_contents("$tmp/var.ini", $sync('0', '0', '0', '0'));
+    same('drill blocker: a check finished (mdResyncPos 0) — no blocker', null, drillBlocker(60, null, $now));
+    same('drill parity: running / paused / finished / one key missing (running, never a guess towards «go»)', [true, false, false, true, true, true],
+        [drillParity(['mdResyncPos' => '5', 'mdResync' => '10', 'mdResyncDt' => '30']), drillParity(['mdResyncPos' => '5', 'mdResync' => '0', 'mdResyncDt' => '0']),
+         drillParity(['mdResyncPos' => '0', 'mdResync' => '0', 'mdResyncDt' => '0']), drillParity(['mdResyncPos' => '5', 'mdResyncDt' => '0']),
+         drillParity(['mdResyncPos' => '5', 'mdResync' => '0', 'mdResyncDt' => '12']), drillParity(['mdResyncPos' => '5', 'mdResync' => '10', 'mdResyncDt' => '0'])]);
     file_put_contents("$tmp/var.ini", "fsState=\"Stopped\"\nmdResyncPos=\"0\"\n");
     same('drill blocker: the array not started', 'drill_array', drillBlocker(60, null, $now)['key'] ?? null);
     file_put_contents("$tmp/var.ini", "fsState=\"Started\"\nmdResyncPos=\"0\"\n");
@@ -18761,6 +18864,9 @@ function testRequestTypes(): void
     set_error_handler(function (int $no, string $t, string $f, int $l) use (&$warned): bool { $warned[] = "$t (" . basename($f) . ":$l)"; return true; });
     $level = error_reporting(E_ALL);
     $ask = fn (array $r): string => (string) (handle(json_encode($r))['error']['key'] ?? 'ok');
+    $staff = TESTS_RUN_DIR . '/types-staff.json';          // the desks asked here work here (testAgentHired: when they don't)
+    file_put_contents($staff, json_encode(['hired' => ['emby' => 1, 'restore' => 1]]));
+    $GLOBALS['agentStaffFile'] = $staff;
     $answers = [];
     foreach (['partner_add', 'partner_ticket_start'] as $a) {
         $answers[] = $ask(['action' => "caretaker.$a", 'step' => ['x']]);
@@ -18774,6 +18880,8 @@ function testRequestTypes(): void
     same('types: emby.output / emby.log of a tool he hasn\'t — refused, never read as EmbyCache', ['unknown_target', 'unknown_target'],
         [$ask(['action' => 'emby.output', 'tool' => '../x']), $ask(['action' => 'emby.log', 'tool' => '../x'])]);
     same('types: restore.drill_set with nothing it knows — refused, not an ok that changed nothing', 'bad_request', $ask(['action' => 'restore.drill_set', 'x' => 1]));
+    unset($GLOBALS['agentStaffFile']);
+    @unlink($staff);
     same('types: a text of the wrong type', ['bad_request', 'x', 'd'], [(function () { try { return optText(['a' => [1]], 'a'); } catch (Problem $p) { return $p->key; } })(),
         optText(['a' => 'x'], 'a'), optText([], 'a', 'd')]);
     error_reporting($level);
@@ -18791,6 +18899,51 @@ function testRequestTypes(): void
         ['bad_request', 'bad_request', 'en', 'bad_request', 'bad_request', 'bad_request', []], json_decode((string) $web, true) ?? $web);
     $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
     check('types: api.php reads its query and the action through apiText()', !preg_match('/\(string\) \(\$(_GET|data)\[/', $api));
+}
+
+/**
+ * A desk that doesn't work here answers its look only (QA 2026-10-08, note 1: the agent switched an unhired watchman's
+ * SIEM and whole-LAN watch on — only the web side checked): every other action of it is refused at the agent's
+ * dispatch (not_hired) before its handler runs — the same rule as src/api.php's. Hired, the same requests reach their
+ * handler (here: refused there for their payload — nothing is written); the Team Lead (always there) acts with any list.
+ */
+function testAgentHired(): void
+{
+    $staff = TESTS_RUN_DIR . '/hired-staff.json';
+    $ask = fn (array $r): string => (string) (handle(json_encode($r))['error']['key'] ?? 'ok');
+    $writes = [['action' => 'watchman.syslog_set', 'on' => 'x'], ['action' => 'watchman.net_lan_set', 'on' => 'x'],
+               ['action' => 'watchman.notify_set', 'on' => 'x'], ['action' => 'watchman.posture_ack', 'id' => ['x']],
+               ['action' => 'watchman.round'], ['action' => 'backup.schedule', 'cron' => [1]], ['action' => 'emby.schedule', 'job' => 'gather'],
+               ['action' => 'snapshot.plan_toggle', 'id' => 'nosuch'], ['action' => 'snapshot.estimate', 'ids' => ['../x']],
+               ['action' => 'restore.drill_set', 'x' => 1], ['action' => 'cleanup.measure', 'ids' => []]];
+    $refusedThere = ['bad_request', 'bad_request', 'bad_request', 'bad_request', 'not_hired', 'bad_request', 'bad_request', 'bad_request',
+                     'bad_request', 'bad_request', 'no_selection'];
+    foreach (['no list' => null, 'an empty list' => ['hired' => []], 'others hired' => ['hired' => ['logs' => 1, 'advisor' => 2]]] as $what => $list) {
+        @unlink($staff);
+        if ($list !== null) {
+            file_put_contents($staff, json_encode($list));
+        }
+        $GLOBALS['agentStaffFile'] = $staff;
+        same("hired: $what — a desk's switches, schedules, settings and plans refused (not_hired)", array_fill(0, count($writes), 'not_hired'),
+            array_map($ask, $writes));
+        same("hired: $what — its look stays open (refresh), the Team Lead acts", [true, true, true, 'missing_field'],
+            [agentDeskMayAct('watchman', 'refresh'), agentDeskMayAct('snapshot', 'refresh'), agentDeskMayAct('caretaker', 'menu_name'),
+             $ask(['action' => 'caretaker.menu_name', 'name' => 'Office'])]);
+    }
+    file_put_contents($staff, json_encode(['hired' => ['watchman' => 1, 'backup' => 2, 'emby' => 3, 'snapshot' => 4, 'restore' => 5, 'whereabouts' => 6]]));
+    $GLOBALS['agentStaffFile'] = $staff;
+    $answers = array_map($ask, $writes);
+    // watchman.round: hired in the list here, but his own check reads the live list — refused there, not at the dispatch
+    same('hired: hired — the same requests reach their handlers (Ms. Whereabouts\' hiring counts for Ms. Dustdevil)', $refusedThere, $answers);
+    same('hired: an unknown action of an unhired desk is still unknown_action', 'unknown_action', $ask(['action' => 'logs.nosuch']));
+    file_put_contents($staff, json_encode(['hired' => ['backup' => 1]]));
+    same('hired: one desk hired — the others still refused', ['not_hired', 'bad_request'],
+        [$ask(['action' => 'watchman.syslog_set', 'on' => 'x']), $ask(['action' => 'backup.schedule', 'cron' => [1]])]);
+    unset($GLOBALS['agentStaffFile']);
+    @unlink($staff);
+    $agent = (string) file_get_contents(OFFICE_DIR . '/agent/agent.php');
+    check('hired: the dispatch asks before the handler', ($g = strpos($agent, "!agentDeskMayAct(\$deskId, \$action)")) !== false
+        && $g < strpos($agent, 'return $handler($request);'));
 }
 
 /** For testRequestTypes(): a warning raised under `@` */
@@ -19315,8 +19468,8 @@ JS);
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings'],
-          'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho'],
+          'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
