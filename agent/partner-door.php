@@ -11,7 +11,8 @@ declare(strict_types=1);
  *
  *   ping                              {"ok":true,"v","pair","array","night","time"} — from RAM and the flash only (the
  *                                     array may be stopped: nothing under /mnt is touched)
- *   status                            the public summary (needs the data folder)
+ *   status                            the public summary (needs the data folder); `agreed` = receive.units, `wish` = the
+ *                                     units of its offer not decided on yet
  *   quota                             {"ok":true,"bytes","used_bytes"} of the pair's dataset here
  *   list <unit>                       the snapshots kept here of that unit
  *   resume <unit>                     {"ok":true,"token":<receive_resume_token>|null}
@@ -19,6 +20,11 @@ declare(strict_types=1);
  *                                     a full stream onto an existing unit puts the old dataset aside (<ds>.old-<time>),
  *                                     a stale partial receive is aborted (zfs recv -A) unless the call is a -t resume;
  *                                     JSON on stderr before reading and after; the receiver's retention afterwards
+ *   offer <unit> [<unit>…]            what the partner would like to send (≤ 64 units, each a unit word, no twice): the units
+ *                                     not agreed here (receive.units) are kept as its wish (data/partner/wishes/<id>.json,
+ *                                     {pair, units, time}, overwritten — none left: removed) for the Team Lead to decide;
+ *                                     answers {"ok":true,"agreed":[…receive.units…],"pending":[…the wish…]}. Never changes
+ *                                     the agreement, never makes a dataset (needs the data folder like status)
  *   send-back <unit> <snap> [<from>]  the pair's own copy of a unit back to its sender: zfs send -L -c [-i <from>] of
  *   send-back <unit> -t <token>       <pool>/UnraidSecretaryOffice-partners/<id>/<unit>@<snap> to stdout (through mbuffer) —
  *                                     or, resumed, zfs send -t <token> (the token is the puller's: its zfs recv -s kept
@@ -86,10 +92,14 @@ require __DIR__ . '/lib/partner.php';
 /**
  * The request's words: at most five, single spaces, nothing but [A-Za-z0-9._:-] — anything else (a newline, a ;, a
  * quote, a slash, a tab, two spaces) is no request. At most 256 characters — but «send-back <unit> -t <token>», whose
- * resume token is longer (only [0-9a-zA-Z-]). Null: not one.
+ * resume token is longer (only [0-9a-zA-Z-]), and «offer <unit>…» with up to PARTNER_UNITS_MAX units of at most 70
+ * characters each. Null: not one.
  */
 function doorWords(string $cmd): ?array
 {
+    if (strlen($cmd) <= 4600 && preg_match('/^offer(?: [A-Za-z0-9._:-]{1,70}){1,65}$/D', $cmd)) {
+        return explode(' ', $cmd);              // 65: one too many is still a request — refused as malformed by its count
+    }
     if ($cmd === '' || !preg_match('/^[A-Za-z0-9._:-]+(?: [A-Za-z0-9._:-]+){0,4}$/D', $cmd)) {
         return null;
     }
@@ -248,7 +258,8 @@ function doorMain(array $argv): int
     }
     $verb = $w[0];
     $n = count($w);
-    $arity = ['ping' => [1, 1], 'status' => [1, 1], 'quota' => [1, 1], 'list' => [2, 2], 'resume' => [2, 2], 'recv' => [3, 4], 'send-back' => [3, 4]];
+    $arity = ['ping' => [1, 1], 'status' => [1, 1], 'quota' => [1, 1], 'list' => [2, 2], 'resume' => [2, 2], 'recv' => [3, 4], 'send-back' => [3, 4],
+              'offer' => [2, 1 + PARTNER_UNITS_MAX]];
     if (!isset($arity[$verb])) {
         return doorRefuse($id, 'unknown_verb');
     }
@@ -268,12 +279,16 @@ function doorMain(array $argv): int
         doorSay(['ok' => true, 'v' => doorVersion(), 'pair' => $id, 'array' => doorArrayRunning() ? 'started' : 'stopped', 'night' => doorNight(), 'time' => doorNow()]);
         return 0;
     }
+    // offer: every word a unit, none twice
+    if ($verb === 'offer' && partnerUnitList(array_slice($w, 1), 1) === null) {
+        return doorRefuse($id, 'malformed');
+    }
     // every other verb: the unit and snapshot names first — exactly their shapes
-    if ($n >= 2 && !preg_match(PARTNER_UNIT_RE, $w[1])) {
+    if ($verb !== 'offer' && $n >= 2 && !preg_match(PARTNER_UNIT_RE, $w[1])) {
         return doorRefuse($id, 'bad_unit', $err);
     }
     $resumeBack = $verb === 'send-back' && $n === 4 && $w[2] === '-t';
-    foreach (array_slice($w, 2) as $i => $s) {
+    foreach ($verb === 'offer' ? [] : array_slice($w, 2) as $i => $s) {
         if ($resumeBack) {
             if ($i === 1 && !preg_match(PARTNER_TOKEN_RE, $s)) {
                 return doorRefuse($id, 'bad_token', true);
@@ -308,6 +323,9 @@ function doorMain(array $argv): int
     doorHeard($id);
     if ($verb === 'status') {
         return doorStatus($pair);
+    }
+    if ($verb === 'offer') {
+        return doorOffer($pair, array_slice($w, 1));
     }
     $r = $pair['receive'];
     if ($r === null) {
@@ -375,7 +393,8 @@ function doorStatus(array $pair): int
     $out = ['ok' => true, 'name' => partnerMyName(), 'array' => 'started', 'version' => doorVersion(), 'lead' => $lead,
             'last_run' => is_array($last) && is_string($last['run'] ?? null) ? ['run' => $last['run'], 'result' => (string) ($last['result'] ?? ''),
                 'time' => (int) ($last['finished'] ?? $last['updated'] ?? 0)] : null,
-            'pool' => null, 'quota' => null, 'units' => (object) []];
+            'pool' => null, 'quota' => null, 'units' => (object) [],
+            'agreed' => $pair['receive']['units'] ?? [], 'wish' => partnerWish($pair)['units'] ?? []];
     $r = $pair['receive'];
     if ($r !== null) {
         $asleep = in_array($r['pool'], poolsBySleep([$r['pool']])['asleep'], true);
@@ -397,6 +416,34 @@ function doorStatus(array $pair): int
         }
     }
     doorSay($out);
+    return 0;
+}
+
+/**
+ * `offer <unit>…`: the partner would like to send these. What is agreed stays as it is; the rest is its wish, kept for
+ * the Team Lead (wishes/<id>.json, one file per pair, overwritten — nothing left to wish: removed). Never a change of
+ * receive.units, never a dataset, never a refusal for a unit not agreed.
+ */
+function doorOffer(array $pair, array $units): int
+{
+    $id = $pair['id'];
+    $r = $pair['receive'];
+    if ($r === null) {
+        return doorRefuse($id, 'not_receiving');
+    }
+    $pending = array_values(array_diff($units, $r['units']));
+    $before = partnerWish($pair);
+    try {
+        partnerWishWrite($id, $pending, doorNow());
+    } catch (Throwable $e) {
+        return doorRefuse($id, 'busy');
+    }
+    if ($pending && ($before['units'] ?? null) !== $pending) {
+        doorLog($id, 'offer: would also like to send ' . implode(' ', $pending) . ' - the Team Lead decides');
+    } elseif (!$pending && $before !== null) {
+        doorLog($id, 'offer: nothing more wished - the wish ' . implode(' ', $before['units']) . ' withdrawn');
+    }
+    doorSay(['ok' => true, 'agreed' => $r['units'], 'pending' => $pending]);
     return 0;
 }
 

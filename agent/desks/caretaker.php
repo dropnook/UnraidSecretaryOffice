@@ -57,6 +57,9 @@ desk('caretaker', [
         'partner_end'    => fn (array $r) => partner_end($r),
         'partner_state'  => fn (array $r) => partner_state($r),
         'partner_ping'   => fn (array $r) => partner_ping($r),
+        // what a pair's agreement covers, changed without a new pairing (2.29): the sender asks, the receiver decides
+        'partner_change' => fn (array $r) => partner_change($r),
+        'partner_wish'   => fn (array $r) => partner_wish($r),
         // restore tickets (stage 3): a gone server's copies handed to a new server
         'partner_ticket_start'  => fn (array $r) => partner_ticket_start($r),
         'partner_ticket_make'   => fn (array $r) => partner_ticket_make($r),
@@ -662,7 +665,10 @@ function caretakerPartnerWatch(): int
     return 0;
 }
 
-/** partner_silent per pair (recommended; in place while it answers): from the files only */
+/**
+ * partner_silent per pair (recommended; in place while it answers); partner_wish while a partner would also like to send
+ * something (a hint — the traffic light stays as it is, the chip on its card is the place to decide): from the files only
+ */
 function caretakerPartnerFindings(): array
 {
     $out = [];
@@ -672,6 +678,9 @@ function caretakerPartnerFindings(): array
         $e = is_array($state['pairs'][$p['id']] ?? null) ? $state['pairs'][$p['id']] : [];
         $silent = partnerSilent($p, $e, $now);
         $out[] = finding('partner_silent', 'recommended', !$silent, $silent ? partnerSilentParams($p, $e) : ['name' => $p['name'], 'pair' => $p['id']], '#/caretaker');
+        if (partnerWish($p) !== null) {
+            $out[] = finding('partner_wish', 'hint', false, ['name' => $p['name'], 'pair' => $p['id']], '#/caretaker');
+        }
     }
     return $out;
 }
