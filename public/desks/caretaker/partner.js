@@ -2,7 +2,9 @@
    other's ZFS snapshots (plan: briefs/uso-partner-zfs-plan.md). Pairing is two pastes and a code — «Add a partner…»
    makes BLOCK-A, the partner's «Accept a partner…» answers with BLOCK-B and the SAFETY CODE, «Paste the partner's
    answer» compares it. The cards come from his state (`partners`, agent/lib/partner.php partnerPublic()): never a
-   key, never a block. The agent part: partner_add / accept / finish / end / ping in agent/desks/caretaker.php. */
+   key, never a block. The agent part: partner_add / accept / finish / end / ping in agent/desks/caretaker.php.
+   What a pair covers changes without a new pairing (2.29): the sender's «Change what <host> sends…» (partner_change)
+   asks through the door (`offer`), the receiver's card shows the wish with «Keep it too» / «No» (partner_wish). */
 (() => {
 'use strict';
 
@@ -27,6 +29,8 @@ const windowText = (w) => {
   return from === to ? T('partner.window_always') : T('partner.window_text', { from, to });
 };
 const busyOff = () => !Office.agent.running;
+/** A door's or ssh's reason in words (the code itself when no text knows it) */
+const whyText = (w) => (Office.has(`${ID}.partner.why.${w}`) ? T('partner.why.' + w) : String(w || '?'));
 
 /** The answer of an action: its partner cards into his state, or the error said */
 function took(j) {
@@ -131,6 +135,7 @@ function card(x) {
   send.appendChild(el('strong', '', T('partner.i_send', { host: Office.config.host }) + ' '));
   send.append(x.sends ? unitsText(x.send_units) : T('partner.i_send_nothing'));
   main.appendChild(send);
+  if (x.sends) sendLines(x).forEach((n) => main.appendChild(n));
   const tk = x.they_keep;
   if (x.sends && tk) {
     const d = el('div', 'row-detail');
@@ -151,6 +156,7 @@ function card(x) {
     keep.append(T('partner.i_keep_text', { list: unitsText(x.receive.units), pool: x.receive.pool, retention: retentionText(x.receive.retention),
       window: windowText(x.receive.window) }) + (x.receive.wake ? ' ' + T('partner.wakes') : ''));
     main.appendChild(keep);
+    if (x.wish && x.wish.units && x.wish.units.length) main.appendChild(wishRow(x));
     const got = x.i_keep;
     if (got) {
       main.appendChild(quotaBar(got.used_bytes || 0, x.receive.quota_gb ? x.receive.quota_gb * 1024 ** 3 : 0));
@@ -185,6 +191,7 @@ function card(x) {
   more.setAttribute('aria-label', T('partner.more'));
   more.disabled = busyOff();
   more.onclick = (e) => Office.menu(e, [
+    ...(x.sends ? [{ text: T('partner.change', { host: Office.config.host }), act: () => changeDialog(x) }] : []),
     ...(x.receive ? [{ text: T('partner.t_make', { name: x.name }), act: () => ticketMakeDialog(x) }] : []),
     { text: T('partner.renew'), act: () => renewDialog(x) },
     { separator: true },
@@ -623,6 +630,148 @@ function finishCompare(block, j) {
         return true;
       } },
     ],
+  });
+}
+
+// ------------------------------------------------------------------ what a pair covers, changed (2.29)
+/**
+ * The sender's card: what was asked for and isn't agreed (yet), what is no longer sent while the partner still keeps
+ * its copies. `offered` is when the partner last answered an offer; its status (they_keep) says what it agreed to keep
+ * and what of the wish its Team Lead hasn't decided on — when that status is newer than the answer.
+ */
+function sendLines(x) {
+  const out = [];
+  const sent = x.send_units || [];
+  const asked = (x.wanted || []).filter((u) => !sent.includes(u));
+  const tk = x.they_keep;
+  if (asked.length) {
+    const o = x.offer;
+    if (!x.offered) {
+      out.push(el('div', 'row-detail', T('partner.offer_wait', { name: x.name, list: unitsText(asked) })
+        + (o && o.why ? ' (' + whyText(o.why) + ')' : '')));
+    } else if (o && o.ok === false) {
+      out.push(el('div', 'row-detail', o.why === 'unknown_verb' ? T('partner.offer_old', { name: x.name })
+        : T('partner.offer_refused', { name: x.name, why: whyText(o.why) })));
+    } else {
+      const wish = tk && Array.isArray(tk.wish) && Array.isArray(tk.agreed) && x.status_time && x.status_time >= x.offered ? tk.wish : null;
+      const no = wish ? asked.filter((u) => !wish.includes(u)) : [];
+      const wait = asked.filter((u) => !no.includes(u));
+      if (wait.length) out.push(el('div', 'row-detail', T('partner.offer_pending', { name: x.name, list: unitsText(wait), when: fmt.relative(x.offered) })));
+      if (no.length) out.push(el('div', 'row-detail', T('partner.offer_no', { name: x.name, list: unitsText(no), host: Office.config.host })));
+    }
+  }
+  const kept = Object.keys((tk && tk.units) || {}).filter((u) => !sent.includes(u) && !asked.includes(u));
+  if (kept.length) out.push(el('div', 'row-detail', T('partner.no_longer_sent', { name: x.name, list: unitsText(kept) })));
+  return out;
+}
+
+/** «Change what <host> sends…»: the units as «Add a partner…» shows them, what goes now ticked; new ones are asked for */
+async function changeDialog(x) {
+  const j = await Office.api.post(`${ID}.partner_change`, { step: 'look', id: x.id });
+  if (!took(j)) return;
+  const sent = j.send_units || [];
+  const had = [...new Set([...sent, ...(j.wanted || [])])];
+  const box = el('div');
+  box.appendChild(el('p', '', T('partner.change_text', { name: x.name })));
+  const field = el('div', 'field');
+  field.appendChild(el('div', 'field-title', T('partner.send_units')));
+  const ticks = [];
+  const seen = new Set();
+  const note = (u) => (sent.includes(u) ? T('partner.unit_sent') : had.includes(u) ? T('partner.unit_asked', { name: x.name }) : '');
+  (j.units || []).forEach((u) => {
+    seen.add(u.id);
+    const mine = had.includes(u.id);
+    const help = [u.ok ? (u.dataset || '') : T('partner.unit_why.' + (u.why || 'not_dataset')), note(u.id)].filter(Boolean).join(' · ');
+    const t = tick(unitText(u.id), mine, help, !u.ok && !mine);         // what goes or was asked for can always be unticked
+    field.appendChild(t.node);
+    if (u.ok || mine) ticks.push([u.id, t.cb]);
+  });
+  had.filter((u) => !seen.has(u)).forEach((u) => {
+    const t = tick(unitText(u), true, [T('partner.unit_gone'), note(u)].filter(Boolean).join(' · '));
+    field.appendChild(t.node);
+    ticks.push([u, t.cb]);
+  });
+  if (!ticks.length) field.appendChild(el('small', '', T('partner.units_none')));
+  box.appendChild(field);
+  box.appendChild(el('p', 'callout', T('partner.change_note', { name: x.name })));
+  Office.dialog({
+    title: T('partner.change_title', { host: Office.config.host, name: x.name }),
+    body: box,
+    wide: true,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('partner.change_ask', { name: x.name }), kind: '', act: async () => {
+      const units = ticks.filter(([, cb]) => cb.checked).map(([u]) => u);
+      if (!units.length) { Office.toast(T('partner.change_none', { name: x.name }), true); return false; }
+      const r = await Office.api.post(`${ID}.partner_change`, { step: 'do', id: x.id, units });
+      if (!took(r)) return false;
+      const o = r.offer;
+      Office.toast(changedText(x, units, r), !!(o && !o.ok));
+      return true;
+    } }],
+  });
+}
+
+/** The toast after «Ask <partner>»: what no longer goes, what it keeps too, what its Team Lead decides, no answer */
+function changedText(x, units, r) {
+  const parts = [];
+  const before = x.send_units || [];
+  const asked = r.asked || [];
+  if ((r.removed || []).length) parts.push(T('partner.changed_removed', { name: x.name, list: unitsText(r.removed) }));
+  const agreed = units.filter((u) => !before.includes(u) && !asked.includes(u));
+  if (agreed.length) parts.push(T('partner.changed_agreed', { name: x.name, list: unitsText(agreed) }));
+  const o = r.offer;
+  if (o && o.ok && (o.pending || []).length) parts.push(T('partner.changed_asked', { name: x.name, list: unitsText(o.pending) }));
+  else if (o && !o.ok && !o.reachable) parts.push(T('partner.changed_unanswered', { name: x.name, why: whyText(o.why) }));
+  else if (o && !o.ok) parts.push(o.why === 'unknown_verb' ? T('partner.offer_old', { name: x.name }) : T('partner.offer_refused', { name: x.name, why: whyText(o.why) }));
+  return parts.length ? parts.join(' ') : T('partner.changed_same');
+}
+
+/** The receiver's card: what the partner would also like to send — «Keep it too» / «No» */
+function wishRow(x) {
+  const d = el('div', 'row-detail ct-wish');
+  d.appendChild(chip('accent', T('partner.wish', { name: x.name, list: unitsText(x.wish.units) }), T('partner.wish_tip', { name: x.name, when: fmt.relative(x.wish.time) })));
+  const keep = el('button', 'btn small', T('partner.wish_keep'));
+  keep.type = 'button';
+  keep.disabled = busyOff();
+  keep.onclick = () => wishKeepDialog(x);
+  const no = el('button', 'btn small plain', T('partner.wish_no'));
+  no.type = 'button';
+  no.disabled = busyOff();
+  no.title = T('partner.wish_no_tip', { name: x.name });
+  no.onclick = async () => {
+    no.disabled = true;
+    const j = await Office.api.post(`${ID}.partner_wish`, { id: x.id, keep: false, confirm: true });
+    if (took(j)) Office.toast(T('partner.wish_said_no', { name: x.name }));
+    else no.disabled = false;
+  };
+  d.append(' ', keep, ' ', no);
+  return d;
+}
+
+/** «Keep it too»: which of the wished units, where their copies go, the agreement's terms (they stay) */
+function wishKeepDialog(x) {
+  const r = x.receive;
+  const box = el('div');
+  box.appendChild(el('p', '', T('partner.wish_text', { name: x.name })));
+  const ticks = x.wish.units.map((u) => {
+    const t = tick(unitText(u), true, `${r.pool}/UnraidSecretaryOffice-partners/${x.id}/${u.replace(':', '-')}`);
+    box.appendChild(t.node);
+    return [u, t.cb];
+  });
+  box.appendChild(el('p', '', T('partner.wish_where', { name: x.name, pool: r.pool })));
+  box.appendChild(el('p', 'callout', T('partner.wish_terms', { name: x.name, quota: r.quota_gb ? fmt.size(r.quota_gb * 1024 ** 3) : T('partner.wish_no_quota'),
+    retention: retentionText(r.retention), window: windowText(r.window) })));
+  Office.dialog({
+    title: T('partner.wish_title', { name: x.name }),
+    body: box,
+    wide: true,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('partner.wish_keep'), kind: '', act: async () => {
+      const units = ticks.filter(([, cb]) => cb.checked).map(([u]) => u);
+      if (!units.length) { Office.toast(T('partner.wish_pick'), true); return false; }
+      const j = await Office.api.post(`${ID}.partner_wish`, { id: x.id, units, keep: true, confirm: true });
+      if (!took(j)) return false;
+      Office.toast(T('partner.wish_kept', { name: x.name, list: unitsText(units) }));
+      return true;
+    } }],
   });
 }
 
