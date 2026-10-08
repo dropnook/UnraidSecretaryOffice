@@ -16730,6 +16730,100 @@ function testRestoreDrill(): void
     $noKopia = ['kopia' => null] + $kenv;
     same('drill Kopia step: Kopia not reachable — not checked, never failed', 'not_checked', drillDoKopia($kj, 0, $noKopia)['state']);
 
+    // ---- dumps from Kopia (stage 2): which, from where, within the budget; read back into RAM, compared, then played
+    $kset = ['general' => ['dumps_share' => ['UnraidSecretaryOffice']], 'app|immich' => ['kopia' => ['yes']], 'share|UnraidSecretaryOffice' => ['mode' => ['kopia']]];
+    $kapps = [['id' => 'immich', 'name' => 'immich', 'run' => '20261101-0200', 'path' => "$tmp/none", 'containers' => [['image' => 'ghcr.io/immich-app/postgres:14']],
+               'dumps' => [['file' => 'db/old.sql.gz', 'container' => 'immich_old', 'type' => 'postgres', 'bytes' => 9, 'run' => '20261030-0200', 'db' => null],
+                           ['file' => 'db/pg.sql.gz', 'container' => 'immich_postgres', 'type' => 'postgres', 'bytes' => 99, 'run' => '20261101-0200', 'db' => null]]],
+              ['id' => 'nc', 'name' => 'nc', 'run' => '20261101-0200', 'path' => "$tmp/none", 'containers' => [],
+               'dumps' => [['file' => 'db/mariadb_nc-db_nc.sql.gz', 'container' => 'nc-db', 'type' => 'mariadb', 'bytes' => 50, 'run' => '20261101-0200', 'db' => 'nc']]],
+              ['id' => 'redis', 'name' => 'redis', 'run' => '20261101-0200', 'path' => "$tmp/none", 'containers' => [], 'dumps' => []]];
+    $kd = drillKopiaDumpSteps($kapps, $kset, 'UnraidSecretaryOffice');
+    same('drill Kopia dumps: one per app, its newest — from its own source, else the backup place\'s share; an app without a dump none',
+        [['immich', 'immich_postgres', '.apps/immich', 'kopia', 'dump'], ['nc', 'nc-db', 'UnraidSecretaryOffice', 'kopia', 'dump']],
+        array_map(fn ($x) => [$x['id'], $x['container'], $x['source'], $x['copy'], $x['do']], $kd));
+    same('drill Kopia dumps: the backup place\'s share not to Kopia — only apps with a source of their own', ['immich'],
+        array_column(drillKopiaDumpSteps($kapps, ['share|UnraidSecretaryOffice' => ['mode' => ['snapshot']]] + $kset, 'UnraidSecretaryOffice'), 'id'));
+    check('drill Kopia dumps: the estimate counts the download', drillEstimate($kd[0] + ['bytes' => 100 << 20], $set) > drillEstimate(['copy' => ''] + $kd[0] + ['bytes' => 100 << 20], $set));
+    // a package of its own in Kopia: the dump, the manifest Kopia keeps (an older run wrote the dump), the local snapshot
+    $kdump = gzencode("CREATE TABLE t (\n-- PostgreSQL database cluster dump complete\n");
+    $kmani = json_encode(['run' => '20261101-0200', 'files' => [['path' => 'db/pg.sql.gz', 'bytes' => strlen($kdump), 'run' => '20261031-0200', 'what' => 'dump', 'container' => 'immich_postgres']]]);
+    $tree2 = ['dR2' => [['name' => 'UnraidSecretaryOffice', 'type' => 'd', 'obj' => $o('dU2')]], 'dU2' => [['name' => 'backup', 'type' => 'd', 'obj' => $o('dB2')]],
+              'dB2' => [['name' => 'apps', 'type' => 'd', 'obj' => $o('dA2')]], 'dA2' => [['name' => 'immich', 'type' => 'd', 'obj' => $o('dI2')]],
+              'dI2' => [$kfile('k2/manifest.json', $kmani), ['name' => 'db', 'type' => 'd', 'obj' => $o('dD2')]], 'dD2' => [$kfile('k2/db/pg.sql.gz', $kdump)]];
+    foreach ($tree2 as $n => $entries) {
+        file_put_contents("$tmp/kopia/" . $o($n), $dir($entries));
+    }
+    file_put_contents("$local/db/pg.sql.gz", $kdump);
+    file_put_contents("$tmp/kopia/list.json", json_encode([['id' => str_repeat('d', 20), 'startTime' => date('c', (int) rsRunTime('20261101-0200') + 600), 'description' => 'uso-backup 20261101-0200',
+        'incompleteReason' => '', 'rootEntry' => ['obj' => $o('dR2'), 'summ' => ['size' => 99, 'files' => 2, 'numFailed' => 0]]]]));
+    @mkdir("$tmp/place/apps/immich", 0700, true);
+    file_put_contents("$tmp/place/apps/immich/manifest.json", json_encode($man('app-immich')));
+    $kdStep = ['copy' => 'kopia', 'do' => 'dump', 'kind' => 'app', 'id' => 'immich', 'name' => 'immich', 'container' => 'immich_postgres', 'type' => 'postgres',
+               'file' => 'db/pg.sql.gz', 'run' => '20261101-0200', 'dump_run' => '20261101-0200', 'db' => null, 'isize' => 0, 'bytes' => strlen($kdump), 'immich' => true,
+               'source' => '.apps/immich', 'login' => 'user', 'user_var' => 'POSTGRES_USER', 'password_var' => 'POSTGRES_PASSWORD'];
+    $kdj = drillJournalNew('20261101-060000-cdce', ['scope' => 'now', 'deadline' => time() + 20, 'steps' => [$kdStep]]);
+    rsPrivateDir(drillDir($kdj['id']));
+    $kdenv = fn (array $more = []) => $more + ['kopia' => ['container' => 'kopia', 'running' => true, 'root' => '/uso'], 'uid' => 0, 'base' => "$tmp/place",
+        'base_user' => '/mnt/user/UnraidSecretaryOffice/backup', 'ctx' => $kctx, 'kopia_left' => 1 << 20, 'kopia_until' => time() + 600, 'shares' => 0, 'ram' => 4 << 30,
+        'set' => $set, 'kopia_reserved' => strlen($kdump)];
+    $e1 = $kdenv();
+    $r = drillDoKopiaDump($kdj, 0, $e1);
+    same('drill Kopia dump: read back whole, the same as the local snapshot — L1 from Kopia; its play then «not checked» when time is short (never failed)',
+        ['not_checked', 'budget', 1, 'kopia', 1, strlen($kdump), '.apps/immich', '20261031-0200'],
+        [$r['state'], $r['code'], $r['level'], $r['copy'], $r['params']['compared'] ?? null, $r['params']['bytes'] ?? null, $r['params']['source'] ?? null, $r['params']['dump_run'] ?? null]);
+    same('drill Kopia dump: the state it comes back with is the run that wrote the dump (from the manifest Kopia keeps), not the snapshot\'s',
+        rsRunTime('20261031-0200'), $r['state_time']);
+    same('drill Kopia dump: counted — egress, what Kopia may still download, its reservation released', [strlen($kdump) + strlen($kmani), (1 << 20) - strlen($kdump) - strlen($kmani), 0],
+        [$kdj['egress'], $e1['kopia_left'], $e1['kopia_reserved']]);
+    $made = array_values(array_filter($kdj['made'], fn ($x) => $x['kind'] === 'kopia_dump'));
+    same('drill Kopia dump: the file in RAM written down before it was made, gone right after its step, root only folder',
+        [1, true, false, 1, '0700'], [count($made), $made[0]['gone'] ?? null, is_file((string) ($made[0]['name'] ?? '')),
+         preg_match('#^' . preg_quote("$tmp/run/drill/{$kdj['id']}-0-", '#') . 'pg\.sql\.gz$#', (string) ($made[0]['name'] ?? '')), substr(sprintf('%o', fileperms("$tmp/run/drill")), -4)]);
+    file_put_contents("$local/db/pg.sql.gz", gzencode('something else'));
+    $e1 = $kdenv();
+    same('drill Kopia dump: what went up differs from the local snapshot — failed, named', ['failed', 'kopia_differs', 'UnraidSecretaryOffice/backup/apps/immich/db/pg.sql.gz'],
+        array_values(array_intersect_key(($r = drillDoKopiaDump($kdj, 0, $e1)) + ['path' => $r['params']['path'] ?? null], ['state' => 1, 'code' => 1, 'path' => 1])));
+    file_put_contents("$local/db/pg.sql.gz", $kdump);
+    $e1 = $kdenv(['kopia_left' => 10]);
+    same('drill Kopia dump: over what Kopia may still download — not checked, nothing read', ['not_checked', 'budget', 0], [($r = drillDoKopiaDump($kdj, 0, $e1))['state'], $r['code'], $kdj['egress'] - strlen($kdump) * 2 - strlen($kmani) * 2]);
+    $kdj['steps'][0]['file'] = 'db/gone.sql.gz';
+    $e1 = $kdenv();
+    same('drill Kopia dump: not in Kopia\'s newest snapshot — a warning, named', ['warning', 'kopia_dump_missing', 'db/gone.sql.gz'],
+        [($r = drillDoKopiaDump($kdj, 0, $e1))['state'], $r['code'], $r['params']['file'] ?? null]);
+    $kdj['steps'][0]['file'] = 'db/pg.sql.gz';
+    rename("$tmp/kopia/" . $o('f:k2/db/pg.sql.gz'), "$tmp/kopia/away");
+    $e1 = $kdenv();
+    same('drill Kopia dump: Kopia can\'t give it back — failed', ['failed', 'kopia_read_failed'], array_values(array_intersect_key(drillDoKopiaDump($kdj, 0, $e1), ['state' => 1, 'code' => 1])));
+    rename("$tmp/kopia/away", "$tmp/kopia/" . $o('f:k2/db/pg.sql.gz'));
+    $e1 = $kdenv(['kopia' => null]);
+    same('drill Kopia dump: Kopia not reachable — not checked', ['not_checked', 'kopia_unavailable'], array_values(array_intersect_key(drillDoKopiaDump($kdj, 0, $e1), ['state' => 1, 'code' => 1])));
+    // a crash left one in RAM: the cleanup takes exactly the drill's own file there
+    $left = drillRamFile($kdj['id'], 3, 'db/x.sql.gz');
+    file_put_contents($left, 'x');
+    $kdj['made'][] = ['kind' => 'kopia_dump', 'name' => $left, 'gone' => false, 't' => time()];
+    $kdj['made'][] = ['kind' => 'kopia_dump', 'name' => "$tmp/data/restore-drill/settings.json", 'gone' => false, 't' => time()];
+    drillCleanup($kdj, null, false);
+    same('drill Kopia dump: the cleanup removes the drill\'s file in RAM — never a file elsewhere', [false, true, true],
+        [is_file($left), is_file("$tmp/data/restore-drill/settings.json"), end($kdj['made'])['gone'] === false]);
+    // the sample of the app's own source leaves a dump the drill plays from Kopia to that step
+    file_put_contents("$local/db/pg.sql.gz", $dump);
+    $kenv['kopia_left'] = 1 << 20;
+    $e1 = ['kopia_dumps' => ['.apps/immich' => ['db/pg.sql.gz']]] + $kenv;
+    $sample = drillKopiaSample($kj, $kj['steps'][0], ['obj' => $o('dROOT'), 'run' => '20261101-0200'], $e1);
+    same('drill Kopia sample: the dump played from Kopia later is not read twice', [1, 12], [$sample['files'], $sample['bytes']]);
+    $e1 = ['kopia_reserved' => (1 << 20) - 20] + $kenv;
+    $sample = drillKopiaSample($kj, $kj['steps'][0], ['obj' => $o('dROOT'), 'run' => '20261101-0200'], $e1);
+    same('drill Kopia sample: what is kept for the dumps from Kopia is not the samples\'', [1, 12], [$sample['files'], $sample['bytes']]);
+    // «what you would lose»: a dump played from Kopia says how far Kopia alone brings it back — never the local state
+    $kl = array_column(drillCertLose([
+        ['kind' => 'dump', 'of' => 'app', 'id' => 'immich', 'name' => 'immich', 'result' => 'ok', 'level' => 2, 'copy' => 'snapshot', 'state_time' => 500, 'params' => ['seconds' => 30], 'seconds' => 30],
+        ['kind' => 'dump', 'of' => 'app', 'id' => 'immich', 'name' => 'immich', 'result' => 'ok', 'level' => 2, 'copy' => 'kopia', 'state_time' => 400, 'params' => ['seconds' => 50], 'seconds' => 60],
+        ['kind' => 'kopia', 'of' => 'app', 'id' => 'immich', 'name' => 'immich', 'result' => 'ok', 'level' => 1, 'copy' => 'kopia', 'state_time' => 450, 'params' => [], 'seconds' => 5],
+    ], 'UnraidSecretaryOffice'), null, 'id');
+    same('drill certificate: kopia_played — the state a database came back with from Kopia alone; local and the play time stay the local copy\'s',
+        [400, 500, 450, 30, 2], [$kl['immich']['kopia_played'] ?? null, $kl['immich']['local'] ?? null, $kl['immich']['kopia'] ?? null, $kl['immich']['played'] ?? null, $kl['immich']['best'] ?? null]);
+
     // ---- packages (L1), on a fake backup place
     $base = "$tmp/place";
     @mkdir("$base/apps/zz/db", 0700, true);
