@@ -90,7 +90,14 @@ installed plugin (see the checklist).
 * **Agent safety:** commands via `run()`/`runAll()` (array form, no shell). Every
   action re-reads the current state and validates ids against it. Errors are
   `throw new Problem('key', [...])`; the UI translates `errors.<key>`
-  (desk-specific keys in the desk's lang file).
+  (desk-specific keys in the desk's lang file). **Request fields are read, never cast** (QA 2026-10-08): `textField()`,
+  `optText()` (absent → a default, a string, else `bad_request`), `idList()`, `boolField()` (true/false said),
+  `cronField()` (a line, or null/false/"" for «off» — a missing key is no «off») in agent/lib/util.php; the web side's
+  `apiText()` (src/api.php). Never `(string) ($r['x'] ?? '')`: an array becomes «Array» and a warning, and never let a
+  missing key or a wrong type change a setting to «off» or a default (a form the page sends whole needs its parts). The
+  agent reports every PHP warning (serve(): `error_reporting(E_ALL)` — Unraid's php.ini has 22517, which hides them;
+  `agentPhpError()`: `@` still silences, the same one once an hour in agent.log); the web side keeps Unraid's level (no
+  log of its own — it would write Unraid's /var/log/phplog). `testRequestTypes`, `testStrictSettings`.
 * **Hardening rules (1.26):** files only through `writeAtomic()`/`writeNewFile()`
   (exclusive random tmp, mode from the start, never through a symlink); the agent
   reads the mailbox only while it is a real folder of the web server's user
@@ -167,7 +174,11 @@ installed plugin (see the checklist).
   20 s, `agentPulse()`, never through a link); the data folder's `agent.json` is written only when its content
   changes (start, stop), so nothing of the agent lands on the pool every 20 s (an appdata pool of HDDs may sleep). The
   web side (`agentRecord()`: `agentInfo()`, the tile, `askAgent()`'s restart check) takes the newer of the two (an
-  agent up to 1.32 touched only the data folder's); the watch reads the RAM copy and looks under /mnt only when it is
+  agent up to 1.32 touched only the data folder's); `agentUp()` is the one rule for «at work» (said it runs, a sign of
+  life within 70 s): a request waiting while the heartbeat says otherwise is taken back after `AGENT_AWAY_GRACE` (4 s —
+  a restart after a code change takes about one) and answered `agent_away`, never after api.php's 600 s (a php-fpm
+  worker each; QA 2026-10-08); the desks' buttons that lead to an action are disabled while `Office.agent.running` is
+  false, also those in callouts; the watch reads the RAM copy and looks under /mnt only when it is
   stale. The night shift never touches either and runs only while the array isn't started (the watch looks at
   nothing then), so neither the watch nor the Dashboard tile takes it for the agent.
 * **Jobs that must outlive the agent** (backup runs) go through the host's
@@ -185,7 +196,9 @@ installed plugin (see the checklist).
   co., interface 1; the setup assistant uses `setup.sh --plan` / `--apply`
   with `state/setup-plan.json` / `setup-status.json`). Never parse its log
   lines for anything new — extend the interface; reasons go out as codes
-  (why/ctwhy) so the office can translate them. Version lives in backup.sh, setup.sh, lib/common.sh and
+  (why/ctwhy) so the office can translate them — setup.sh's messages too, where the office should say them itself
+  (engine 2.34: `hint_code`, messages[] `code` + `params` → `setup.msg.<code>`, desk.js `setupMsgText()`; the server's
+  name from ident.cfg, `ub_host_name()`, never settings.ini's `[general] server`). Version lives in backup.sh, setup.sh, lib/common.sh and
   backup/README.md. backup.sh and setup.sh are one `{ … }` block (since 2.14),
   so bash has read all of it before a run starts; keep it that way (code goes
   inside the block) and still replace files with a new file + `mv`, never by
@@ -346,12 +359,20 @@ installed plugin (see the checklist).
   backup.sh, setup.sh and Mr. Restori's restores; whoever takes it opens it with `>>` (never
   truncating), `touch`es it and writes `state/lock-holder.json` (`holder`, `mode`, `what`, `run`,
   `pid`, `started` — backup/README.md "When the lock is busy"), trusted only while its pid lives
-  (`backupLockHolder()`; unknown = `other`). A backup.sh that finds it busy touches nothing of the
+  (`backupLockHolder()`; unknown = `other`). The office sees the lock only through `flockHeld()` (agent/lib/backupscript.php):
+  /proc/locks, never by taking it (a run starting with `flock -n` would skip the night) — through shfs too (QA
+  2026-10-08: a data folder whose share isn't exclusive; see «Server facts»: the flock lies on the pool's file, found by
+  shfs's inode number), a FUSE file of another numbering probed with a shared non-blocking flock let go at once
+  (`testFlockShfs`). A backup.sh that finds it busy touches nothing of the
   run going on (no status.json, no latest.log, nothing loaded or mounted) and writes `skipped.json`,
   for a real backup also a `history.jsonl` line `"result": "skipped"` (reason `skipped_busy_<holder>`,
   translated as `backup.message.<code>`) and a warning notification; exit 75. The office keeps skips
   apart from runs (`state.skips` — history, estimates, the last run and the Dashboard's last run never
-  count them) and shows the newest skip while no run finished after it.
+  count them) and shows the newest skip while no run finished after it. **One run a minute (engine 2.34):** a run's id,
+  log and snapshots' name carry the minute — `backupStart()` refuses `one_run_a_minute` {seconds} while the last run
+  (status.json `run`) has this minute's id or this mode's log exists (`backupMinuteTaken()`), and backup.sh itself ends
+  right after taking the lock when its log of the minute is there (an ERROR line, exit 1, nothing touched). Test
+  fixtures that run backup.sh again within a minute remove that minute's logs first (`TESTS_ENGINE_MINUTE`).
 * **Names (engine 2.20):** what the office creates in numbers carries the short prefix `uso`; places
   keep the long name (share `UnraidSecretaryOffice`, `/mnt/addons/UnraidSecretaryOffice/…`,
   `_UnraidSecretaryOffice-trash`, the plugin's folders, `unraid-backup` as the interface's name). The
@@ -856,6 +877,11 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   share name, a real folder there: `officeUnraidPath()` in src/place.php, the one helper (the data folder of the agent
   and the web side, the Consultant, Ms. Dustdevil); `realpath()` gives the pool path, `is_dir()` follows the link,
   `lstat()`/`is_link()` don't. Going through `/mnt/user` costs shfs (FUSE) even then: about 50× the pool path per look.
+
+* **shfs and flock (7.3.2, QA 2026-10-08 on USOPartner):** a flock taken through `/mnt/user/…` (FUSE) lies on the disk's
+  or pool's file — /proc/locks names that one (`00:28:266`), never the inode stat() shows through /mnt/user. shfs numbers
+  its inodes `(st_dev << 48) | st_ino` of the file behind (ZFS and btrfs, Tower and USOPartner: 11258999068426506 =
+  0x28 << 48 | 266) — `flockHeld()` looks for both. The lock itself still works through shfs (FUSE hands it down).
 
 * **shfs across pools (7.3.2, tried on drop: hive + mother):** a `rename()` through `/mnt/user/<share>/…` renames the folder
   on every pool and disk that has it (no copy) — put aside and put back work for a folder spread over two pools; a folder made
