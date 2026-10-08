@@ -938,7 +938,7 @@ function watchSection() {
   }
   const c = w.containers;
   box.appendChild(group('containers', T('watch.containers'),
-    c ? T('watch.containers_sum', { special: c.special.length, count: c.count }) : T('watch.containers_wait'),
+    c ? T('watch.containers_sum', { special: c.special.length, count: c.count, n: Number(c.count) || 0 }) : T('watch.containers_wait'),
     c ? c.special.map((x) => item(x.name, [], flags(x.tokens))) : []));
   box.appendChild(group('plugins', T('watch.plugins'), T('watch.plugins_sum', { n: w.plugins.length }),
     w.plugins.map((x) => item(x.name, [x.source || T('watch.no_source'), x.version || '']))));

@@ -255,7 +255,7 @@
   "watch.fail_ips_sum": {"one": "eine Adresse — ihre Fehlschläge werden nur gezählt", "other": "{n} Adressen — ihre Fehlschläge werden nur gezählt"},
   "watch.quiet": {"one": "seither ein Fehlschlag, gezählt", "other": "seither {n} Fehlschläge, gezählt"},
   "watch.containers": "Container mit besonderen Rechten",
-  "watch.containers_sum": "{special} von {count} Containern",
+  "watch.containers_sum": {"one": "{special} von {count} Container", "other": "{special} von {count} Containern"},
   "watch.containers_wait": "Docker lief nicht, als er die Wache übernahm — die Container lernt er beim nächsten Rundgang, bei dem Docker antwortet.",
   "watch.plugins": "Plugins und ihre Quellen",
   "watch.plugins_sum": {"one": "ein Plugin", "other": "{n} Plugins"},

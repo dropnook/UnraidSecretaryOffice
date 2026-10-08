@@ -255,7 +255,7 @@
   "watch.fail_ips_sum": {"one": "un indirizzo — i suoi fallimenti vengono solo contati", "other": "{n} indirizzi — i loro fallimenti vengono solo contati"},
   "watch.quiet": {"one": "da allora un fallimento, contato", "other": "da allora {n} fallimenti, contati"},
   "watch.containers": "Container con diritti speciali",
-  "watch.containers_sum": "{special} di {count} container",
+  "watch.containers_sum": {"one": "{special} di {count} container", "other": "{special} di {count} container"},
   "watch.containers_wait": "Docker non girava quando ha preso la guardia — impara i container al prossimo giro in cui Docker risponde.",
   "watch.plugins": "Plugin e le loro fonti",
   "watch.plugins_sum": {"one": "un plugin", "other": "{n} plugin"},
