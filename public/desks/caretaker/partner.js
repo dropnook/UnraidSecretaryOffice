@@ -74,7 +74,7 @@ function section(state) {
     fin.onclick = () => finishDialog();
     extra.unshift(fin);
   }
-  s.appendChild(Office.sectionHead(T('partner.title'), T('partner.sub'), ...extra));
+  s.appendChild(Office.sectionHead(T('partner.title'), T('partner.sub'), ...extra, { place: 'partner.title' }));
   const box = el('div', 'box');
   if (!p.pairs.length && !p.pending.length && !held.length && !asked.length) {
     const e = el('div', 'empty');

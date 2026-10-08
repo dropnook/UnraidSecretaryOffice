@@ -253,6 +253,17 @@ Office.desk({
   },
 });
 
+// her places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys)
+Office.places(ID, [
+  { kind: 'section', key: 'storage' },
+  { kind: 'section', key: 'plans' },
+  { kind: 'section', key: 'snapshots' },
+  ...[['held', 'help.held'], ['mounted', 'help.mounted'], ['used_by_backup', 'help.backup'], ['disk_asleep', 'help.asleep'],
+    ['pool_asleep_chip', 'help.pool_asleep'], ['partner.chip', 'help.partner'], ['plans', 'help.plans'], ['docker_layers', 'help.docker']]
+    .map(([key, text]) => ({ kind: 'help', key, text })),
+  ...['tiles', 'group', 'select', 'name', 'menu', 'sources', 'scan'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+]);
+
 // ------------------------------------------------------------------ building
 function build(root) {
   const v = {};
@@ -295,7 +306,7 @@ function build(root) {
   // storage
   const storage = el('section', 'section');
   v.storageHint = el('span', 'hint');
-  const sh = Office.sectionHead(T('storage'), T('storage.sub'), v.storageHint);
+  const sh = Office.sectionHead(T('storage'), T('storage.sub'), v.storageHint, { place: 'storage' });
   v.pools = el('div', 'cards');
   storage.append(sh, v.pools);
   root.appendChild(storage);
@@ -316,7 +327,7 @@ function build(root) {
     b.onclick = () => { grouping = g; Office.store('snapshot.grouping', g); renderList(); };
     v.seg.appendChild(b);
   }
-  const lh = Office.sectionHead(T('snapshots'), T('snapshots_sub'), v.seg);
+  const lh = Office.sectionHead(T('snapshots'), T('snapshots_sub'), v.seg, { place: 'snapshots' });
 
   const bar = el('div', 'toolbar');
   const all = el('label', 'check-all');
@@ -1230,7 +1241,7 @@ function renderPlans() {
   add.type = 'button';
   add.disabled = !Office.agent.running;
   add.onclick = () => planDialog(null);
-  box.appendChild(Office.sectionHead(T('plans'), T('plans_sub'), add));
+  box.appendChild(Office.sectionHead(T('plans'), T('plans_sub'), add, { place: 'plans' }));
   const plans = info.plans || [];
   if (!plans.length) {
     box.appendChild(el('p', 'empty sp-plans-empty', T('plan.none')));

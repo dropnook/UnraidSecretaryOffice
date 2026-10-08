@@ -1,0 +1,19 @@
+[
+  "disk_asleep",
+  "docker_layers",
+  "held",
+  "help.group",
+  "help.menu",
+  "help.name",
+  "help.scan",
+  "help.select",
+  "help.sources",
+  "help.tiles",
+  "mounted",
+  "partner.chip",
+  "plans",
+  "pool_asleep_chip",
+  "snapshots",
+  "storage",
+  "used_by_backup"
+]

@@ -380,7 +380,7 @@ function renderTiles() {
   const box = view.tiles;
   box.innerHTML = '';
   sections().forEach((sec) => {
-    const card = el('button', 'card' + (section === sec ? ' active' : ''));
+    const card = Office.place(`tile.${sec}`, el('button', 'card' + (section === sec ? ' active' : '')));
     card.type = 'button';
     card.setAttribute('aria-pressed', String(section === sec));
     const head = el('div', 'card-head');
@@ -460,7 +460,7 @@ function unfoldingRow(key, name, meta, detail, right) {
 // ------------------------------------------------------------------ apps
 function appsSection() {
   const list = apps();
-  const s = sectionBox(T('apps'), T('apps_sub'), list.length > 1 ? unfoldAll() : null);
+  const s = sectionBox(T('apps'), T('apps_sub'), list.length > 1 ? unfoldAll() : null, { place: 'apps' });
   if (!list.length) { s.appendChild(el('p', 'empty', state.place.found ? T('apps_none') : T('apps_no_packages'))); return s; }
   const box = el('div', 'box');
   list.forEach((a) => box.appendChild(appRow(a)));
@@ -934,7 +934,7 @@ function ownBlock(a) {
 // ------------------------------------------------------------------ VMs
 function vmsSection() {
   const list = vms();
-  const s = sectionBox(T('vms'), T('vms_sub'), list.length > 1 ? unfoldAll() : null);
+  const s = sectionBox(T('vms'), T('vms_sub'), list.length > 1 ? unfoldAll() : null, { place: 'vms' });
   if (!state.vm_service) s.appendChild(el('p', 'callout', T('vm.service_off')));
   const lv = state.server && state.server.libvirt;
   if (lv) s.appendChild(vmAllFold(lv));
@@ -1083,7 +1083,7 @@ function earlierOf(list, x) {
 function dbsSection() {
   const groups = dbGroups();
   const n = groups.reduce((s, g) => s + g.items.length, 0);
-  const s = sectionBox(T('dbs'), T('dbs_sub'), n > 1 ? unfoldAll() : null);
+  const s = sectionBox(T('dbs'), T('dbs_sub'), n > 1 ? unfoldAll() : null, { place: 'dbs' });
   if (!groups.length) { s.appendChild(el('p', 'empty', apps().length || state.place.found ? T('dbs_none') : T('apps_no_packages'))); return s; }
   const box = el('div', 'box');
   groups.forEach((g) => {
@@ -1202,7 +1202,7 @@ function earlierDbPart(a, x) {
 // ------------------------------------------------------------------ Kopia
 function kopiaSection() {
   const k = kopia();
-  const s = sectionBox(T('kopia'), T('kopia_sub'));
+  const s = sectionBox(T('kopia'), T('kopia_sub'), { place: 'kopia' });
   if (!k.enabled) {
     s.appendChild(el('p', 'callout', T('kg.off')));
     s.appendChild(adviserLink());
@@ -1388,7 +1388,7 @@ function ticketBlock(box, p) {
  * what may come back, what must not, and the stumbling blocks - from what is really here.
  */
 function moveSection() {
-  const s = sectionBox(T('move.title'), T('move.sub'));
+  const s = sectionBox(T('move.title'), T('move.sub'), { place: 'move.title' });
   const e = engine();
   const box = el('div', 'box rs-guide');
   const holder = (cls, ...kids) => { const d = el('div', cls); kids.forEach((k) => d.append(k)); return d; };
@@ -1856,7 +1856,7 @@ async function kopiaDialog(source, path) {
 // ------------------------------------------------------------------ the journal
 function journalSection() {
   const list = state.restores || [];
-  const s = sectionBox(T('journal'), T('journal_sub'), list.length > 1 ? unfoldAll() : null);
+  const s = sectionBox(T('journal'), T('journal_sub'), list.length > 1 ? unfoldAll() : null, { place: 'journal' });
   if (!list.length && !runningJob()) { s.appendChild(el('p', 'empty', T('journal_none'))); return s; }
   const box = el('div', 'box');
   // the running one from the job file (fresher than the agent's list)
@@ -1996,10 +1996,10 @@ loadDrill();
 
 Office.desk({
   id: ID,
-  /** sub: «drill» (#/restore/drill — the Team Lead's and Mr. Backupsy's links) — that section open */
+  /** sub: a section (#/restore/drill — the Team Lead's and Mr. Backupsy's links; the others the search's) — that one open */
   async mount(root, sub) {
     view = root;
-    if (sub === 'drill') { section = 'drill'; Office.store('restore.section', section); }
+    if (SECTIONS.includes(sub)) { section = sub; Office.store('restore.section', section); }
     render();
     if (section === 'drill' && Office.restoreDrill) Office.restoreDrill.refresh();
     await load(false);
@@ -2024,6 +2024,16 @@ Office.desk({
     return { bubble: bubbleText(), facts };
   },
 });
+
+// his places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys): each tile
+// opens through its sub-route, the section under it (drill.js has the drill's)
+Office.places(ID, [
+  ...SECTIONS.map((sec) => ({ kind: 'tile', key: `tile.${sec}`, route: `#/restore/${sec}`, anchor: `tile.${sec}` })),
+  ...[['apps', 'apps'], ['vms', 'vms'], ['dbs', 'dbs'], ['kopia', 'kopia'], ['journal', 'journal'], ['move.title', 'move'], ['drill.title', 'drill']]
+    .map(([key, sec]) => ({ kind: 'section', key, route: `#/restore/${sec}` })),
+  ...['tiles', 'row', 'dbs', 'package', 'snapshots', 'kopia', 'commands', 'chips', 'restoring', 'journal', 'drill']
+    .map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+]);
 
 // tests/run.php runs the databases tile's logic and the preview's sizes under node
 if (globalThis.OFFICE_DESK_TESTS) {

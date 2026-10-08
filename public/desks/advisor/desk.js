@@ -189,7 +189,7 @@ function render() {
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
 
   const s = el('section', 'section');
-  s.appendChild(Office.sectionHead(T('externals'), T('externals_sub')));
+  s.appendChild(Office.sectionHead(T('externals'), T('externals_sub'), { place: 'externals' }));
   group(null).forEach(([id, x]) => s.appendChild(external(id, x)));
   root.appendChild(s);
 
@@ -198,7 +198,7 @@ function render() {
     const core = mon.filter(([, x]) => !x.later);
     const count = el('span', 'chip quiet', T('monitoring_count', { n: core.filter(([, x]) => x.there).length, of: core.length }));
     const m = el('section', 'section');
-    m.appendChild(Office.sectionHead(T('monitoring'), T('monitoring_sub'), count));
+    m.appendChild(Office.sectionHead(T('monitoring'), T('monitoring_sub'), count, { place: 'monitoring' }));
     mon.forEach(([id, x]) => m.appendChild(external(id, x)));
     if (state.dashboard) m.appendChild(dashboard());
     root.appendChild(m);
@@ -207,7 +207,7 @@ function render() {
   const net = group('network');
   if (net.length) {
     const n = el('section', 'section');
-    n.appendChild(Office.sectionHead(T('network'), T('network_sub')));
+    n.appendChild(Office.sectionHead(T('network'), T('network_sub'), { place: 'network' }));
     net.forEach(([id, x]) => n.appendChild(networkEntry(id, x)));
     root.appendChild(n);
   }
@@ -216,7 +216,7 @@ function render() {
 
 function external(id, x) {
   const e = EXTERNALS[id];
-  const box = el('div', 'box ad-external');
+  const box = Office.place(`ext.${id}`, el('div', 'box ad-external'));
   const row = el('div', 'row nocheck ad-row');
   row.appendChild(avatar(e, x));
   const main = el('div', 'row-main');
@@ -417,10 +417,10 @@ function copyLines(copies, prefix) {
 }
 function lockGuide() {
   const box = el('div', 'ad-lock-guide');
-  box.appendChild(el('div', 'field-title', T('lock.title')));
+  box.appendChild(Office.place('lock.title', el('div', 'field-title', T('lock.title'))));
   paragraphs(box, 'lock', { days: 30 });
   box.appendChild(copyLines(LOCK_COPIES, 'lock'));
-  box.appendChild(el('div', 'field-title', T('lock.vgw_title')));
+  box.appendChild(Office.place('lock.vgw_title', el('div', 'field-title', T('lock.vgw_title'))));
   paragraphs(box, 'lock.vgw');
   box.appendChild(copyLines(VGW_COPIES, 'lock'));
   box.appendChild(callout(T('lock.vgw_warn'), true));
@@ -435,7 +435,7 @@ function lockGuide() {
  */
 function partnerGuide() {
   const box = el('div', 'ad-lock-guide');
-  box.appendChild(el('div', 'field-title', T('partner.title')));
+  box.appendChild(Office.place('partner.title', el('div', 'field-title', T('partner.title'))));
   paragraphs(box, 'partner');
   box.appendChild(callout(T('partner.warn'), true));
   return box;
@@ -449,7 +449,7 @@ function partnerGuide() {
  */
 function networkEntry(id, x) {
   const e = EXTERNALS[id];
-  const box = el('div', 'box ad-external');
+  const box = Office.place(`ext.${id}`, el('div', 'box ad-external'));
   const row = el('div', 'row nocheck ad-row');
   row.appendChild(avatar(e, x));
   const main = el('div', 'row-main');
@@ -541,7 +541,7 @@ function dashboard() {
   const g = (state.externals || {}).grafana || {};
   const prov = g.grafana || {};
   const provisioned = !!(g.there && prov.done && prov.points);
-  const box = el('div', 'box ad-external');
+  const box = Office.place('dashboard.name', el('div', 'box ad-external'));
   const row = el('div', 'row nocheck ad-row');
   row.appendChild(avatar({ icon: '📈' }, {}));
   const main = el('div', 'row-main');
@@ -1289,6 +1289,23 @@ Office.desk({
     return { bubble: bubbleText(), facts };
   },
 });
+
+// his places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys): each
+// external with its guide, the guides inside Kopia's, the dashboard
+Office.places(ID, [
+  { kind: 'section', key: 'externals' },
+  { kind: 'section', key: 'monitoring' },
+  { kind: 'section', key: 'network' },
+  ...Object.keys(EXTERNALS).map((id) => ({ kind: 'guide', key: `ext.${id}.name`, anchor: `ext.${id}`,
+    text: { syslogserver: 'net.syslog.what', unifi: 'net.unifi.what', neighbours: 'net.neighbours.what' }[id] || `ext.${id}.what` })),
+  { kind: 'guide', key: 'lock.title' },
+  { kind: 'guide', key: 'lock.vgw_title' },
+  { kind: 'guide', key: 'partner.title' },
+  { kind: 'guide', key: 'dashboard.name', text: 'dashboard.what' },
+  ...[['there', 'help.there'], ['missing', 'help.missing'], ['absent', 'help.absent'], ['later', 'help.later'], ['stopped', 'help.stopped'],
+    ['textfile_yes', 'help.textfile'], ['by_me', 'help.by_me'], ['howto', 'help.howto'], ['help.do_term', 'help.do'], ['do.sheet', 'help.sheet'],
+    ['look_again', 'help.again'], ['help.network', 'help.network_text']].map(([key, text]) => ({ kind: 'help', key, text })),
+]);
 
 // tests/run.php runs this under node (Unraid's own) - never set in a browser
 if (globalThis.OFFICE_DESK_TESTS) {

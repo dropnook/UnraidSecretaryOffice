@@ -288,7 +288,7 @@ function notifySection() {
     Office.keepInPlace(null, render);
     Office.toast(T(on ? 'notify_on' : 'notify_off'));
   };
-  s.appendChild(Office.sectionHead(T('notify_title'), T('notify_sub'), label));
+  s.appendChild(Office.sectionHead(T('notify_title'), T('notify_sub'), label, { place: 'notify_title' }));
 
   const box = el('div', 'box');
   const r = el('div', 'row nocheck');
@@ -326,7 +326,7 @@ function officeSection() {
     render();
     Office.toast(T('office_checked'));
   };
-  s.appendChild(Office.sectionHead(T('office'), T('office_sub'), again));
+  s.appendChild(Office.sectionHead(T('office'), T('office_sub'), again, { place: 'office' }));
   const box = el('div', 'box');
   const row = el('div', 'row nocheck');
   const main = el('div', 'row-main');
@@ -383,7 +383,7 @@ function teamSection() {
     extra.push(b);
   }
   const s = el('section', 'section');
-  s.appendChild(Office.sectionHead(T('team'), T(alone() ? 'team_sub_alone' : 'team_sub'), ...extra));
+  s.appendChild(Office.sectionHead(T('team'), T(alone() ? 'team_sub_alone' : 'team_sub'), ...extra, { place: 'team' }));
   const box = el('div', 'box');
   all.forEach((x) => box.appendChild(teamRow(x)));
   // under contract but still learning (desk.json "training"): shown, not hired yet
@@ -482,7 +482,7 @@ function doneSection(items) {
   const toggle = el('button', 'btn small plain', showDone ? T('hide') : T('show'));
   toggle.type = 'button';
   toggle.onclick = () => { showDone = !showDone; Office.keepInPlace(null, render); };
-  s.appendChild(Office.sectionHead(T('done', { n: items.length }), T('done_sub'), toggle));
+  s.appendChild(Office.sectionHead(T('done', { n: items.length }), T('done_sub'), toggle, { place: 'done' }));
   if (showDone) {
     const box = el('div', 'box');
     items.forEach((f) => {
@@ -507,7 +507,7 @@ function notedSection(items) {
   const toggle = el('button', 'btn small plain', showNoted ? T('hide') : T('show'));
   toggle.type = 'button';
   toggle.onclick = () => { showNoted = !showNoted; Office.keepInPlace(null, render); };
-  s.appendChild(Office.sectionHead(T('noted', { n: items.length }), T('noted_sub'), toggle));
+  s.appendChild(Office.sectionHead(T('noted', { n: items.length }), T('noted_sub'), toggle, { place: 'noted' }));
   if (showNoted) {
     const box = el('div', 'box');
     items.forEach((f) => box.appendChild(row(f)));
@@ -543,4 +543,18 @@ Office.desk({
     return { bubble: bubbleText(), facts };
   },
 });
+
+// his places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys)
+Office.places(ID, [
+  { kind: 'section', key: 'team' },
+  { kind: 'section', key: 'office' },
+  { kind: 'section', key: 'notify_title' },
+  { kind: 'section', key: 'partner.title' },
+  { kind: 'section', key: 'done' },
+  { kind: 'section', key: 'noted' },
+  ...[['todo', 'help.todo'], ['advice', 'help.advice'], ['hints', 'help.hints'], ['ack', 'help.ack'], ['noted_term', 'help.noted'],
+    ['missing', 'help.missing'], ['not_yet', 'help.not_yet'], ['unknown', 'help.unknown'], ['team', 'help.team'],
+    ['supporter_term', 'help.supporter'], ['help.open', 'help.open_text'], ['check_again', 'help.again'], ['notify_title', 'help.notify'],
+    ['partner.title', 'partner.help']].map(([key, text]) => ({ kind: 'help', key, text })),
+]);
 })();

@@ -243,7 +243,7 @@ function credit() {
 
 /** The settings in short, the last run, the schedule */
 function overview() {
-  const s = section(T('overview'), T('overview_sub'));
+  const s = section(T('overview'), T('overview_sub'), { place: 'overview' });
   const stats = el('div', 'stats');
   const set = state.settings || {};
   const inst = set.instances || [];
@@ -291,7 +291,7 @@ function peopleText(vu) {
 function shareSection() {
   const shares = state.shares || [];
   const bad = shares.filter((x) => !['ok', 'array_only'].includes(x.fit) || x.root === false).length;
-  const s = section(T('shares'), T('shares_sub'), bad ? chip(T('shares_bad', { n: bad }), 'warn') : chip(T('shares_good'), 'ok'));
+  const s = section(T('shares'), T('shares_sub'), bad ? chip(T('shares_bad', { n: bad }), 'warn') : chip(T('shares_good'), 'ok'), { place: 'shares' });
   const box = el('div', 'box');
   const pool = (state.settings || {}).cache_path || '';
   shares.forEach((x) => {
@@ -315,7 +315,8 @@ function shareSection() {
 /** The gather: once before the first real run, then on its own schedule */
 function gatherSection() {
   const g = state.gather;
-  const s = section(T('gather'), T('gather_sub'), g.ready ? chip(T('gather_ready'), 'ok') : chip(T('gather_not_ready'), 'warn', T('gather_not_ready_tip')));
+  const s = section(T('gather'), T('gather_sub'), g.ready ? chip(T('gather_ready'), 'ok') : chip(T('gather_not_ready'), 'warn', T('gather_not_ready_tip')),
+    { place: 'gather' });
   const set = g.settings;
   if (!set || !set.shares.length) {
     const p = el('p', 'callout', T('gather_unset') + ' ');
@@ -366,7 +367,7 @@ function gatherSection() {
 /** The last runs of both tools */
 function historySection() {
   const runs = state.history || [];
-  const s = section(T('history'), T('history_sub'));
+  const s = section(T('history'), T('history_sub'), { place: 'history' });
   const box = el('div', 'box');
   if (!runs.length) box.appendChild(el('p', 'empty', T('history_none')));
   runs.slice(0, 15).forEach((r) => {
@@ -391,7 +392,7 @@ function historySection() {
 function poolSection() {
   const c = state.cache;
   const s = section(T('on_pool'), c.listed_at ? T('on_pool_sub', { when: fmt.relative(c.listed_at) }) : T('on_pool_none'),
-    el('span', 'hint', c.files ? T('pool_sum', { n: c.files, size: fmt.size(c.bytes) }) : ''));
+    el('span', 'hint', c.files ? T('pool_sum', { n: c.files, size: fmt.size(c.bytes) }) : ''), { place: 'on_pool' });
   if (!c.files) return s;
   const box = el('div', 'box');
   const most = Math.max(...c.groups.map((g) => g.bytes), 1);
@@ -419,7 +420,7 @@ function poolSection() {
 
 /** The tools themselves: they ship with the office */
 function toolSection() {
-  const s = section(T('tools'), T('tools_sub'));
+  const s = section(T('tools'), T('tools_sub'), { place: 'tools' });
   const stats = el('div', 'stats');
   stat(stats, 'EmbyCache', (state.versions.embycache || '?').replace(/\s*\(.*\)$/, ''), T('tool_embycache_sub'));
   stat(stats, T('gather'), state.versions.gather || '?', T('tool_gather_sub'));
@@ -772,7 +773,7 @@ function renderSetup() {
   if (!state.configured) root.appendChild(importSection());     // first thing for someone who ran the tools before
 
   // 1. servers
-  const s1 = section(T('setup.server'), T('setup.server_sub'));
+  const s1 = section(T('setup.server'), T('setup.server_sub'), { place: 'setup.server' });
   form.instances.forEach((inst, idx) => {
     const box = el('div', 'box jo-instance');
     const f1 = el('div', 'jo-form');
@@ -816,7 +817,7 @@ function renderSetup() {
   // 2. libraries and their folders
   const v = form.values;
   const pool = v.cache_path.replace('/mnt/', '');
-  const s2 = section(T('setup.libraries'), T('setup.libraries_sub'));
+  const s2 = section(T('setup.libraries'), T('setup.libraries_sub'), { place: 'setup.libraries' });
   const box2 = el('div', 'box');
   libraryList().forEach((lib) => {
     const row = el('div', 'row nocheck jo-lib');
@@ -864,7 +865,7 @@ function renderSetup() {
   const none = button(T('setup.users_none'), 'small plain', () => { form.chosenUsers.clear(); renderSetup(); });
   const pick = el('div', 'toolbar');
   pick.append(all, none);
-  const s3 = section(T('setup.users'), T('setup.users_sub'), everyone.length ? pick : null);
+  const s3 = section(T('setup.users'), T('setup.users_sub'), everyone.length ? pick : null, { place: 'setup.users' });
   const f3 = el('div', 'jo-users');
   const seen = new Set();
   form.instances.forEach((inst) => (inst.users || []).forEach((u) => {
@@ -884,7 +885,7 @@ function renderSetup() {
   root.appendChild(s3);
 
   // 4. pool and amount: what applies to both, then films and series apart
-  const s4 = section(T('setup.scope'), T('setup.scope_sub'));
+  const s4 = section(T('setup.scope'), T('setup.scope_sub'), { place: 'setup.scope' });
   const f4 = el('div', 'jo-form');
   const poolSel = el('select', 'picker');
   state.pools.forEach((p) => poolSel.appendChild(new Option(p, p)));
@@ -927,7 +928,7 @@ function renderSetup() {
   root.appendChild(s4);
 
   // 5. more: the way back, the tools, where to read from
-  const s5 = section(T('setup.more'), T('setup.more_sub'));
+  const s5 = section(T('setup.more'), T('setup.more_sub'), { place: 'setup.more' });
   const f5 = el('div', 'jo-form');
   f5.appendChild(check(T('setup.origin'), v.return_to_origin, (x) => { v.return_to_origin = x; }, T('setup.origin_hint')));
   f5.appendChild(field(T('setup.cleanup_tool'), select(v, 'cleanup_tool', [['rsync', T('setup.tool_rsync_back')], ['mover', T('setup.tool_mover_back')]]), T('setup.cleanup_tool_hint')));
@@ -964,7 +965,7 @@ function renderSetup() {
 const importFolders = { embycache: '', gather: '' };
 
 function importSection() {
-  return section(T('import.title'), T('import.sub'), button(T('import.open'), 'small', importDialog));
+  return section(T('import.title'), T('import.sub'), button(T('import.open'), 'small', importDialog), { place: 'import.title' });
 }
 
 function importDialog() {
@@ -1274,4 +1275,23 @@ Office.desk({
     return { bubble: T('bubble.hello_short'), facts };
   },
 });
+
+// his places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys): the
+// main page, then the setup's (#/emby/setup)
+const SETUP = { route: '#/emby/setup', crumb: 'setup_open' };
+Office.places(ID, [
+  { kind: 'section', key: 'overview' },
+  { kind: 'section', key: 'shares' },
+  { kind: 'section', key: 'gather' },
+  { kind: 'section', key: 'history' },
+  { kind: 'section', key: 'on_pool' },
+  { kind: 'section', key: 'tools' },
+  ...['import.title', 'setup.server', 'setup.libraries', 'setup.users', 'setup.scope', 'setup.more'].map((key) => ({ kind: 'step', key, ...SETUP })),
+  ...[['report', 'help.report'], ['mode.dry', 'help.dry'], ['mode.run', 'help.run'], ['gather', 'help.gather_text']]
+    .map(([key, text]) => ({ kind: 'help', key, text })),
+  ...['what', 'tools', 'origin', 'watch', 'shares', 'pool', 'schedule'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+  ...[['import.title', 'import.help'], ['setup.key', 'setup.help_key'], ['setup.mapping', 'setup.help_mapping'], ['setup.users', 'setup.help_users'],
+    ['setup.scope', 'setup.help_scope'], ['setup.more', 'setup.help_more'], ['setup.save', 'setup.help_save']]
+    .map(([key, text]) => ({ kind: 'help', key, text, ...SETUP })),
+]);
 })();

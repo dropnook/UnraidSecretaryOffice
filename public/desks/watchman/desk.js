@@ -226,7 +226,8 @@ function stat(label, value, sub, cls, tip) {
 function roundSection() {
   const s = el('section', 'section');
   const r = state.round || {};
-  s.appendChild(Office.sectionHead(T('round.title'), T('round.sub'), running() ? el('span', 'hint', T('stat.running')) : null, notifySwitch(), syslogSwitch()));
+  s.appendChild(Office.sectionHead(T('round.title'), T('round.sub'), running() ? el('span', 'hint', T('stat.running')) : null, notifySwitch(), syslogSwitch(),
+    { place: 'round.title' }));
   const stats = el('div', 'stats');
   stats.appendChild(stat(T('stat.last'), r.last ? fmt.relative(r.last) : T('stat.never'),
     r.last ? fmt.date(r.last) + (r.duration_ms ? ' · ' + T('stat.took', { ms: r.duration_ms }) : '') : ''));
@@ -326,7 +327,7 @@ function postureSection() {
     b.onclick = () => { showKnownTips = !showKnownTips; renderAt('.wm-posture'); };
     extras.push(b);
   }
-  s.appendChild(Office.sectionHead(T('posture.title'), T('posture.sub'), ...extras));
+  s.appendChild(Office.sectionHead(T('posture.title'), T('posture.sub'), ...extras, { place: 'posture.title' }));
   if (!p) {
     s.appendChild(el('p', 'role wm-posture-none', T(state.on_watch ? 'posture.wait' : 'posture.first')));
     return s;
@@ -412,7 +413,7 @@ function bookSection() {
   const unfold = el('button', 'btn small plain');
   unfold.type = 'button';
   extras.push(unfold);
-  s.appendChild(Office.sectionHead(T('book.title'), T('book.sub'), ...extras));
+  s.appendChild(Office.sectionHead(T('book.title'), T('book.sub'), ...extras, { place: 'book.title' }));
 
   const box = el('div', 'box wm-book');
   bookLabel = () => {
@@ -907,7 +908,7 @@ function watchSection() {
   const s = el('section', 'section');
   const unfold = el('button', 'btn small plain');
   unfold.type = 'button';
-  s.appendChild(Office.sectionHead(T('watch.title'), T('watch.sub'), unfold));
+  s.appendChild(Office.sectionHead(T('watch.title'), T('watch.sub'), unfold, { place: 'watch.title' }));
   const box = el('div', 'box wm-watchlist');
   const w = state.watch;
   if (!w) {
@@ -1251,4 +1252,17 @@ Office.desk({
     return { bubble: bubbleText(), facts };
   },
 });
+
+// his places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys)
+Office.places(ID, [
+  { kind: 'section', key: 'round.title' },
+  { kind: 'section', key: 'posture.title' },
+  { kind: 'section', key: 'book.title' },
+  { kind: 'section', key: 'watch.title' },
+  { kind: 'help', key: 'ack', text: 'help.ack_text' },
+  { kind: 'help', key: 'round_now', text: 'help.round_text' },
+  ...['posture', 'book', 'normal', 'logins', 'containers', 'plugins', 'office', 'flash', 'shares', 'sched', 'flow', 'flow_gone', 'flow_not',
+    'snaps', 'host', 'host_not', 'net', 'net_not', 'attack', 'siem', 'chain', 'night', 'grafana', 'notify', 'safe']
+    .map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+]);
 })();
