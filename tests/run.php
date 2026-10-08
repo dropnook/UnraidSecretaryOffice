@@ -17080,11 +17080,201 @@ function testWatchmanNet(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+// ===================================================================== updates
+
+/**
+ * The data folder's version marker and the one place for migrations (agent/lib/migrate.php): an old data folder (an
+ * agent.json of 1.30) gets its marker at the first start, a step newer than 1.30 runs once (and renames aside, never
+ * deletes), a step older than it doesn't, a failing step is tried again at the next start, a second start does nothing;
+ * a fresh folder, a folder of an unknown version, a downgrade, an older office in between; the real steps; the hook in
+ * setUp() before anything reads state.
+ */
+function testMigrate(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-migrate-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $dir = "$tmp/data";
+    @mkdir($dir, 0755, true);
+    file_put_contents("$dir/agent.json", '{"running":false,"version":"1.30.0","pid":1}');
+    file_put_contents("$dir/caretaker.json", '{"time":1}');
+    file_put_contents("$dir/whereabouts.json", '{"old":true}');
+    $ran = ['a' => 0, 'b' => 0, 'c' => 0];
+    $fail = 1;
+    $steps = [
+        ['id' => 'b', 'version' => '1.20.0', 'run' => function () use (&$ran): string { $ran['b']++; return 'b'; }],
+        ['id' => 'a', 'version' => '1.31.0', 'run' => function (string $d, string $to) use (&$ran): string {
+            $ran['a']++;
+            return 'aside: ' . basename((string) officeMigrateAside("$d/whereabouts.json", $to));
+        }],
+        ['id' => 'c', 'version' => '1.40.0', 'run' => function () use (&$ran, &$fail): string {
+            $ran['c']++;
+            if ($fail-- > 0) {
+                throw new RuntimeException('not now');
+            }
+            return 'c';
+        }],
+    ];
+    $lines = [];
+    $log = function (string $l) use (&$lines): void { $lines[] = $l; };
+    $start = function (string $to, ?array $s = null) use ($dir, &$steps, $log, &$lines): ?array {
+        $lines = [];
+        return officeMigrateStart($dir, $to, $s ?? $steps, $log);
+    };
+    $agentIs = fn (string $v) => file_put_contents("$dir/agent.json", jsonEncode(['running' => true, 'version' => $v]));     // what writeInfo() does next
+
+    same('migrate: an old folder comes from its agent.json', ['1.30.0', null], officeMigrateFrom($dir));
+    $r = $start('1.41.0');
+    $mark = officeMarkRead($dir);
+    same('migrate: the first start — the newer steps run (the failing one stays pending), the older one is counted done',
+        [['a'], ['c'], ['a' => 1, 'b' => 0, 'c' => 1]], [$r['ran'], $r['failed'], $ran]);
+    same('migrate: the marker — version, since, where it came from, done, pending',
+        ['1.41.0', true, [['version' => '1.30.0']], ['b', 'a'], ['c']],
+        [$mark['version'] ?? null, ($mark['since'] ?? 0) >= time() - 5, array_map(fn ($u) => ['version' => $u['version']], $mark['updated_from'] ?? []),
+         $mark['done'] ?? null, $mark['pending'] ?? null]);
+    same('migrate: the marker is exactly the office\'s shape', ['version', 'since', 'updated_from', 'done', 'pending'], array_keys(readJson("$dir/office.json") ?? []));
+    same('migrate: what made way is renamed aside, never deleted; the rest untouched', [false, '{"old":true}', '{"time":1}'],
+        [file_exists("$dir/whereabouts.json"), @file_get_contents("$dir/whereabouts.json.before-1.41.0"), file_get_contents("$dir/caretaker.json")]);
+    check('migrate: logged — the marker, each step, the failure', count($lines) === 3 && str_contains($lines[0], 'version marker written')
+        && str_contains($lines[0], '1.30.0') && str_contains($lines[1], 'step a') && str_contains($lines[2], 'step c') && str_contains($lines[2], 'failed'), json_encode($lines));
+    $agentIs('1.41.0');
+    $since = $mark['since'];
+    touch("$dir/office.json", 1000000000);
+    $r = $start('1.41.0');
+    same('migrate: the next start tries the failed step again — only that one', [['c'], [], ['a' => 1, 'b' => 0, 'c' => 2]], [$r['ran'], $r['failed'], $ran]);
+    same('migrate: … and the marker keeps its since', [$since, ['b', 'a', 'c'], []], [officeMarkRead($dir)['since'], officeMarkRead($dir)['done'], officeMarkRead($dir)['pending']]);
+    $before = file_get_contents("$dir/office.json");
+    touch("$dir/office.json", 1000000000);
+    $r = $start('1.41.0');
+    clearstatcache();
+    same('migrate: a second start does nothing — no step, no line, the marker not written', [[], [], ['a' => 1, 'b' => 0, 'c' => 2], $before, 1000000000],
+        [$r['ran'], $lines, $ran, file_get_contents("$dir/office.json"), filemtime("$dir/office.json")]);
+    same('migrate: what made way stays aside (a second aside gets a number)', basename("$dir/x.before-1.41.0-2"),
+        (function () use ($dir) { file_put_contents("$dir/x", '1'); file_put_contents("$dir/x.before-1.41.0", '0'); return basename((string) officeMigrateAside("$dir/x", '1.41.0')); })());
+    same('migrate: nothing there — nothing renamed', null, officeMigrateAside("$dir/none", '1.41.0'));
+
+    // an update: from the marker's version; since and updated_from move on
+    $r = $start('1.42.0');
+    $mark = officeMarkRead($dir);
+    same('migrate: an update — nothing left to do, the marker moves on', [[], '1.42.0', ['1.30.0', '1.41.0']],
+        [$r['ran'], $mark['version'], array_column($mark['updated_from'], 'version')]);
+    check('migrate: … said once', count($lines) === 1 && str_contains($lines[0], '1.41.0 → 1.42.0'), json_encode($lines));
+    $agentIs('1.42.0');
+
+    // a downgrade that knows the marker: only its own steps count, the newer one's run again when it comes back
+    $r = $start('1.40.5', array_slice($steps, 0, 2));
+    $mark = officeMarkRead($dir);
+    same('migrate: a downgrade — said, nothing run, only the steps it knows kept as done', [true, [], ['b', 'a'], '1.40.5'],
+        [$r['downgrade'], $r['ran'], $mark['done'], $mark['version']]);
+    check('migrate: … the downgrade in the log', count($lines) === 1 && str_contains($lines[0], 'a downgrade'), json_encode($lines));
+    $agentIs('1.40.5');
+    $r = $start('1.42.0');
+    same('migrate: back again — the step it didn\'t know runs again (idempotent)', [['c'], ['a' => 1, 'b' => 0, 'c' => 3]], [$r['ran'], $ran]);
+    $agentIs('1.42.0');
+
+    // an office from before the marker ran in between (it wrote agent.json, not office.json): the steps since it run again
+    $agentIs('1.35.0');
+    same('migrate: an older agent.json than the marker — an office from before the marker ran in between', ['1.35.0', '1.35.0'], officeMigrateFrom($dir));
+    $r = $start('1.42.0');
+    same('migrate: … the steps newer than it run again, the older ones not', [['c'], ['a' => 1, 'b' => 0, 'c' => 4]], [$r['ran'], $ran]);
+    same('migrate: … the way it went in updated_from', ['1.30.0', '1.41.0', '1.42.0', '1.40.5', '1.42.0', '1.35.0'],
+        array_column(officeMarkRead($dir)['updated_from'], 'version'));
+    check('migrate: … said', str_contains($lines[0] ?? '', '1.35.0 (from before the marker)'), json_encode($lines));
+
+    // a fresh folder: nothing to change, every step done; a folder with state files but no version: every step runs
+    $fresh = "$tmp/fresh";
+    @mkdir($fresh, 0755, true);
+    $count = $ran;
+    same('migrate: a fresh folder', ['', null], officeMigrateFrom($fresh));
+    $r = officeMigrateStart($fresh, '1.42.0', $steps, $log);
+    same('migrate: … no step runs, all done, the marker written', [[], $count, ['b', 'a', 'c'], '1.42.0', []],
+        [$r['ran'], $ran, officeMarkRead($fresh)['done'], officeMarkRead($fresh)['version'], officeMarkRead($fresh)['updated_from']]);
+    $unknown = "$tmp/unknown";
+    @mkdir($unknown, 0755, true);
+    file_put_contents("$unknown/backup.json", '{}');
+    same('migrate: state files without a version — unknown, older than all', ['0', null], officeMigrateFrom($unknown));
+    $fail = 0;
+    $r = officeMigrateStart($unknown, '1.42.0', $steps, $log);
+    same('migrate: … every step runs', ['b', 'a', 'c'], $r['ran']);
+    @mkdir("$tmp/broken", 0755, true);
+    file_put_contents("$tmp/broken/office.json", '{"version":"x y","done":["a"]}');
+    same('migrate: a marker not in the office\'s shape counts as none', [], officeMarkRead("$tmp/broken"));
+
+    // the real steps: unique ids, versions, callables — the first changes nothing in the folder
+    $real = officeMigrateSteps();
+    $ids = array_column($real, 'id');
+    check('migrate: the real steps — unique ids, a version each, callable', $ids && count($ids) === count(array_unique($ids))
+        && !array_filter($real, fn ($s) => !preg_match(OFFICE_MARK_VERSION, (string) ($s['version'] ?? '')) || !is_callable($s['run'] ?? null)
+            || !preg_match('/^[a-z0-9][a-z0-9-]*\z/', (string) $s['id'])));
+    $listing = fn () => scandir($dir);
+    $was = $listing();
+    $r = officeMigrate('1.41.0', '1.42.0', $dir, null, null, $log);
+    same('migrate: the real first step runs on an older folder and changes nothing in it', [true, $was],
+        [in_array('marker', $r['ran'], true) || in_array('marker', officeMarkRead($dir)['done'], true), $listing()]);
+    $versions = array_column($real, 'version');
+    usort($versions, 'version_compare');
+    same('migrate: the real steps are listed oldest first (they run in that order)', $versions, array_column($real, 'version'));
+
+    // the hook: in setUp(), after the private folders, before agent.json is written and before any desk's start
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/agent.php');
+    $setUp = preg_match('/^function setUp\(\): void\n\{\n(.*?)^\}/ms', $src, $m) ? $m[1] : '';
+    $at = fn (string $s) => strpos($setUp, $s);
+    check('migrate: setUp() runs officeMigrateStart() before writeInfo() and the desks\' start', $at('officeMigrateStart()') !== false
+        && $at('officeMigrateStart()') < $at('writeInfo(true)') && $at('officeMigrateStart()') < $at("(\$desk['start'])()") && $at('privateDirEnsure(OFFICE_PRIVATE') < $at('officeMigrateStart()'));
+    check('migrate: the agent requires lib/migrate.php', str_contains($src, "require __DIR__ . '/lib/migrate.php';"));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * The .plg refuses an update while one of the office's long jobs runs from the plugin folder outside the agent: a backup
+ * run or the setup (atd, cron), Mr. Restori's restore or drill, Jack Emby's EmbyCache or gather — one pgrep -f
+ * pattern; the agent, its night shift and the short jobs don't hold it up. pgrep matches POSIX EREs against the whole
+ * command line, as grep -E does here.
+ */
+function testPlgGuard(): void
+{
+    $plg = (string) file_get_contents(OFFICE_DIR . '/plugin/unraid-secretary-office.plg');
+    $line = preg_match('/^jobs="([^"\n]+)"$/m', $plg, $m) ? $m[1] : '';
+    check('plg guard: the pattern is one plain string, pgrep -f uses it', $line !== '' && str_contains($plg, 'pgrep -f "$jobs"'));
+    $dir = '/usr/local/emhttp/plugins/unraid-secretary-office';
+    $pattern = str_replace(['$dir', '\\$'], [$dir, '$'], $line);
+    $hit = function (string $cmd) use ($pattern): bool {
+        exec('printf "%s\n" ' . escapeshellarg($cmd) . ' | grep -qE ' . escapeshellarg($pattern), $o, $code);
+        return $code === 0;
+    };
+    $busy = [
+        "/bin/bash $dir/backup/backup.sh --check",                              // atd (backupLaunch)
+        "bash $dir/backup/backup.sh",                                           // cron (job.sh's exec)
+        "/bin/bash $dir/backup/backup.sh --recover",                            // agent.sh backup_recover
+        "/bin/bash $dir/backup/setup.sh --plan",
+        "/usr/bin/php $dir/agent/agent.php job restore 20261008-125107-32f9",   // hostLaunch (PHP_BINARY)
+        "/usr/bin/php $dir/agent/agent.php job restore-drill 20261008-011005-57db",
+        "/usr/bin/php $dir/agent/agent.php job gather run --office",
+        "php $dir/agent/agent.php job embycache",                               // cron (job.sh's exec)
+        "php $dir/agent/agent.php job gather",
+    ];
+    $free = [
+        "php $dir/agent/agent.php run",
+        "php $dir/agent/agent.php nightshift",
+        "php $dir/agent/agent.php job snapshot-plans",
+        "/usr/bin/php $dir/agent/agent.php job restore-partner-look",
+        "/usr/bin/php $dir/agent/agent.php job partner-ping",
+        "nice -n 10 /usr/bin/php $dir/agent/agent.php job logs-tour",
+        "bash $dir/scripts/agent.sh supervise",
+        "grep $dir/backup/backup.sh",
+        "/usr/bin/php /tmp/x/agent/agent.php job restore 1",
+        "bash /tmp/uso-upgrade/backup/backup.sh",
+    ];
+    same('plg guard: these hold the update up', array_fill(0, count($busy), true), array_map($hit, $busy));
+    same('plg guard: these don\'t', array_fill(0, count($free), false), array_map($hit, $free));
+    $guard = strpos($plg, 'pgrep -f "$jobs"');
+    check('plg guard: before the agent is stopped and the folder replaced', $guard !== false && $guard < strpos($plg, 'scripts/agent.sh" stop') && $guard < strpos($plg, 'rm -rf "$dir"'));
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testMigrate', 'testPlgGuard'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

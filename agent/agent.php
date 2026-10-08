@@ -77,6 +77,7 @@ require __DIR__ . '/lib/house.php';
 require __DIR__ . '/lib/snapshotplans.php';
 require __DIR__ . '/lib/officeupdate.php';
 require __DIR__ . '/lib/metrics.php';
+require __DIR__ . '/lib/migrate.php';
 foreach (glob(__DIR__ . '/desks/*.php') ?: [] as $deskFile) {
     require $deskFile;
 }
@@ -455,6 +456,9 @@ function setUp(): void
     }
     // the office's own files (who works here): only the web server may read them
     privateDirEnsure(OFFICE_PRIVATE, 0700, false);
+    // the data folder's version (office.json) and what an update has to change in it — before anything reads state and
+    // before writeInfo() puts this version into agent.json (which tells the version before) — lib/migrate.php
+    officeMigrateStart();
     writeInfo(true);
     // up to 1.27 a PIN could guard changes (office/auth.json, left as it is): said once in the log
     $pinGone = 'The office has no PIN any more: Unraid\'s login guards it (office/auth.json is no longer read)';

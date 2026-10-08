@@ -268,8 +268,10 @@ once it is released and tested.
 The green dot next to *⋯* means the agent checked in within the last 70 seconds.
 
 **Updating:** like any plugin, under *Plugins* (Unraid looks for updates; the
-Team Lead also says when a new version is out). Your data stays. While a
-backup runs the update refuses — try again when it is done.
+Team Lead also says when a new version is out). Your data stays — the office
+brings it up to date at its next start. While a backup, a restore (or its
+drill) or one of Jack Emby's runs is going on, the update refuses — try again
+when it is done.
 
 **Removing:** *Plugins → Remove*. The code and the schedules go. Your data in
 appdata, the share `UnraidSecretaryOffice`, the setting on the flash and
