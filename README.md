@@ -95,7 +95,7 @@ Choose one and the office takes you there, opens it and marks the place. It all 
 
 Unraid **7.3.2 or a newer 7.x**. Unraid 8 is not supported yet; the plugin refuses to install there.
 
-1. *Apps* → search for **Secretary Office** → *Install*. Or by hand: *Plugins → Install Plugin* and paste
+1. *Plugins → Install Plugin* and paste
    ```
    https://github.com/dropnook/UnraidSecretaryOffice/releases/latest/download/unraid-secretary-office.plg
    ```

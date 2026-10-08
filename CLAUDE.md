@@ -1,6 +1,6 @@
 # Working on Unraid Secretary Office
 
-Read README.md first — it explains the architecture and how a desk (secretary) is built.
+Read README.md first (what the office does, for users), then docs/DEVELOPMENT.md — it explains the architecture and how a desk (secretary) is built.
 This file holds the conventions and the checklist for changes.
 
 ## How it runs: the plugin
