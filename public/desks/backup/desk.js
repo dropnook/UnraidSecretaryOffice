@@ -3269,7 +3269,10 @@ function setupApps(plan) {
     // Kopia itself: only its template and the user's access data matter for a restore
     if (c.kopia) main.appendChild(el('div', 'row-meta', T('setup.app_kopia_text')));
     row.appendChild(main);
-    row.appendChild(chip(T(c.kopia ? 'setup.ct_kopia' : 'setup.ct_office'), 'quiet'));
+    // in .bk-right like the other rows: at phone width it goes under the description instead of squeezing it
+    const right = el('div', 'bk-right');
+    right.appendChild(chip(T(c.kopia ? 'setup.ct_kopia' : 'setup.ct_office'), 'quiet'));
+    row.appendChild(right);
     list.appendChild(row);
   });
   s.appendChild(list);

@@ -32,6 +32,7 @@
 
 .bk-restore{grid-template-columns:max-content 1fr; font-size:13px}
 .bk-restore dd{line-height:1.7}
+@media (max-width:640px){.bk-restore{grid-template-columns:minmax(0,1fr)} .bk-restore dt{margin-top:4px}}   /* labels above their values, like office.css's .kv */
 .bk-copy{cursor:copy}
 
 /* "Is everything protected?": rows unfold to their rules */
@@ -64,7 +65,7 @@
 .bk-waitrow{display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px}
 .bk-waitrow .mono{overflow-wrap:anywhere}
 /* on a phone the choices of a row (containers, VMs …) go under its name instead of squeezing it */
-@media (max-width:640px){.row.nocheck:has(> .bk-right){grid-template-columns:minmax(0,1fr)} .row.nocheck > .bk-right{justify-content:flex-start}}
+@media (max-width:640px){.row.nocheck:has(> .bk-right){grid-template-columns:minmax(0,1fr)} .row.nocheck > .bk-right{justify-content:flex-start} .bk-right .chip{white-space:normal}}
 .bk-pdetail{padding:2px 2px 6px 14px}
 .bk-pdetail .kv{grid-template-columns:minmax(110px, max-content) 1fr}
 .bk-rules code{display:inline-block; margin:0 0 3px}
