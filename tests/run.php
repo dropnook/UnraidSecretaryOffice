@@ -12488,7 +12488,8 @@ function testApiGzip(): void
  * page with a stand-in fetch (skipped where node is missing): the reception asks as stored, the same question on its way
  * once (the reception and started() together); the desk shown gets its kept state at once and the new look (`wait`)
  * after it — handed over only once no dialog is open; an answer older than what is shown is dropped; actions ask for a
- * fresh state first (none needed, a fresh look, the look under way handed over at once) and are refused without one.
+ * fresh state first (none needed, a fresh look, the look under way handed over at once) and are refused without one; a
+ * render that throws on a kept state of an older version's shape doesn't stop the new look (upgrade audit proposal 8).
  */
 function testLookPage(): void
 {
@@ -12585,6 +12586,22 @@ const out = {};
   await O.loadState('snapshot', {}, took);
   got.splice(0);
   out.refused = await O.freshState('snapshot');
+  // a kept state in an older version's shape (right after an update): the render throws — the new look is asked for
+  // all the same and heals the page at once; the caller hears of the error once, core.js logs nothing of its own
+  O.current = { id: 'snapshot' };
+  answers = { 'wait=1': later(30, { ok: true, state: { time: 700, shape: 2 }, age: 0, refresh_after: 60 }),
+    'desk=snapshot$': { ok: true, state: { time: 600 }, age: 5000, stale: true, refreshing: true, refresh_after: 60 } };
+  calls.length = 0;
+  const healed = [];
+  const fragile = (j, l) => { if (!j.state.shape) throw new Error('old shape'); healed.push([j.state.time, !!l]); };
+  const errors = [];
+  const consoleError = console.error;
+  console.error = (...a) => errors.push(a.map(String).join(' '));
+  let thrown = [];
+  try { await O.loadState('snapshot', {}, fragile); } catch (e) { thrown.push(String(e && e.message)); }
+  await sleep(250);
+  console.error = consoleError;
+  out.heals = { thrown, calls: calls.slice(), healed, errors };
   console.log(JSON.stringify(out));
   process.exit(0);
 })().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
@@ -12607,6 +12624,9 @@ JS);
     same('look page: an action on a stale state waits for a fresh look', [true, ['a=state&desk=snapshot&fresh=1'], [[400, false]]], $r['freshAsked']);
     same('look page: … the look under way handed over at once (a dialog open or not), once', [[true, [], [[500, true]]], []], [$r['pendingTaken'], $r['pendingTwice']]);
     same('look page: no fresh look to be had — refused (never on a stale list)', false, $r['refused']);
+    same('look page: a render that throws on an old-shape state — the new look asked for all the same, the page healed at once',
+        [['a=state&desk=snapshot', 'a=state&desk=snapshot&wait=1'], [[700, true]]], [$r['heals']['calls'] ?? null, $r['heals']['healed'] ?? null]);
+    same('look page: … the error reaches the caller once, nothing logged twice', [['old shape'], []], [$r['heals']['thrown'] ?? null, $r['heals']['errors'] ?? null]);
     hardeningRm($tmp);
 }
 

@@ -365,11 +365,17 @@ Office.loadState = async function loadState(desk, opts, took) {
   const how = fresh ? 'fresh' : Office.current && Office.current.id === desk ? '' : 'stored';
   const j = await getOnce(how ? { ...base, [how]: 1 } : base);
   const seen = noteLook(look, j);
-  // the very state the page has, and the new look on its way: nothing to draw now
-  if (seen !== 'older' && !(seen === 'same' && j.refreshing)) took(j, false);
-  stateItems(desk, part, j, seen);          // the search's items from it (when the page is idle)
+  // the very state the page has, and the new look on its way: nothing to draw now. A render that throws (a kept
+  // state in an older version's shape, right after an update) doesn't stop the new look: it is asked for all the
+  // same and heals the page at once; the error still reaches the caller (and so the console) once, afterwards
+  let failed = null;
+  if (seen !== 'older' && !(seen === 'same' && j.refreshing)) {
+    try { took(j, false); } catch (e) { failed = e; }
+  }
   if (j.ok && j.refreshing && !look.pending) followLook(desk, look, base);
+  stateItems(desk, part, j, seen);          // the search's items from it (when the page is idle)
   paintAsOf(desk);
+  if (failed) throw failed;
   return j;
 };
 
