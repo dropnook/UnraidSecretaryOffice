@@ -11093,6 +11093,65 @@ function testWhereDesk(): void
 }
 
 /**
+ * A parity disk being built is not «DISK_INVALID» (Benj, 2026-10-08; nostromo's first parity build): waBuilding() from a
+ * crafted var.ini + disks.ini — building parity → the parity disk is `building` (what, percent, the time to go), the data
+ * disks and pools not; invalid without a resync → nothing (the page counts it as bad); a data disk's rebuild; a check
+ * marks nobody; a clear marks the new disk; paused. The page: the chip takes the place of the red status, the bad count
+ * leaves a building disk out, every text in English.
+ */
+function testWhereBuilding(): void
+{
+    $tmp = hardeningTmp('where-building');
+    $disk = fn (string $name, string $type, string $status, string $dev = 'sdx') => "[\"$name\"]\nname=\"$name\"\ndevice=\"$dev\"\ntype=\"$type\"\nstatus=\"$status\"\nspundown=\"0\"\n";
+    $disks = $disk('parity', 'Parity', 'DISK_INVALID', 'sdo') . $disk('disk1', 'Data', 'DISK_OK', 'sda') . $disk('disk2', 'Data', 'DISK_OK', 'sdb')
+        . $disk('parity2', 'Parity', 'DISK_NP_DSBL', '') . $disk('hive', 'Cache', 'DISK_OK', 'nvme0n1') . $disk('flash', 'Flash', 'DISK_OK', 'sdz');
+    // nostromo on 2026-10-08, 81.6 % through its first parity build
+    $var = fn (array $o) => implode("\n", array_map(fn ($k, $v) => "$k=\"$v\"", array_keys($o), $o)) . "\n";
+    $nostromo = ['mdState' => 'STARTED', 'mdResync' => '23437770700', 'mdResyncPos' => '19114247308', 'mdResyncDb' => '462168', 'mdResyncDt' => '31',
+        'mdResyncAction' => 'recon P', 'mdResyncSize' => '23437770700', 'mdNumInvalid' => '2'];
+    file_put_contents("$tmp/var.ini", $var($nostromo));
+    file_put_contents("$tmp/disks.ini", $disks);
+    $b = waBuilding(readCfg("$tmp/var.ini"), readCfg("$tmp/disks.ini", true));
+    same('where building: a parity build - the parity disk is being built, nobody else (the missing parity2, the data disks, a pool, the flash)',
+        ['parity'], array_keys($b));
+    same('where building: what, how far, not paused', ['parity', 81.6, false], [$b['parity']['what'], $b['parity']['percent'], $b['parity']['paused']]);
+    $eta = (int) round(31 * ((23437770700 - 19114247308) / (462168 / 100 + 1)) / 100);        // Unraid's statuscheck
+    same('where building: the time to go as Unraid reckons it', $eta, $b['parity']['eta']);
+    check('where building: … a plausible number of seconds', $eta > 3600 && $eta < 14 * 86400, (string) $eta);
+    // the same disks.ini without a resync: DISK_INVALID is a real problem - nothing is «building»
+    same('where building: invalid without a resync - nothing (the page counts the disk as bad)', [],
+        waBuilding(readCfg('/dev/null') + ['mdResyncPos' => '0', 'mdResyncAction' => 'check P', 'mdResync' => '0'], readCfg("$tmp/disks.ini", true)));
+    same('where building: a parity check reads every disk and marks none (the array\'s summary says it)', [],
+        waBuilding(['mdResyncPos' => '1000', 'mdResyncAction' => 'check P', 'mdResyncSize' => '2000'], readCfg("$tmp/disks.ini", true)));
+    // a data disk rebuilt: Unraid names it in the action and calls it invalid meanwhile; the parity disk is fine
+    file_put_contents("$tmp/disks.ini", $disk('parity', 'Parity', 'DISK_OK', 'sdo') . $disk('disk1', 'Data', 'DISK_OK', 'sda') . $disk('disk2', 'Data', 'DISK_INVALID', 'sdb')
+        . $disk('hive', 'Cache', 'DISK_OK', 'nvme0n1'));
+    $b = waBuilding(['mdResyncPos' => '500', 'mdResyncSize' => '1000', 'mdResync' => '1000', 'mdResyncAction' => 'recon 2', 'mdResyncDt' => '10', 'mdResyncDb' => '100'],
+        readCfg("$tmp/disks.ini", true));
+    same('where building: a data disk being rebuilt (recon <n>) - that disk, as a rebuild, half way', [['disk2'], 'rebuild', 50.0], [array_keys($b), $b['disk2']['what'] ?? null, $b['disk2']['percent'] ?? null]);
+    $b = waBuilding(['mdResyncPos' => '500', 'mdResyncSize' => '1000', 'mdResyncAction' => 'recon 2', 'mdResyncDt' => '0', 'mdResyncDb' => '0'], readCfg("$tmp/disks.ini", true));
+    same('where building: paused (mdResyncDt 0) - said, no time to go', ['eta' => null, 'paused' => true], array_intersect_key($b['disk2'] ?? [], ['eta' => 1, 'paused' => 1]));
+    $b = waBuilding(['mdResyncPos' => '500', 'mdResyncSize' => '1000', 'mdResyncAction' => 'recon Q'], readCfg("$tmp/disks.ini", true) + ['parity2' => ['name' => 'parity2', 'type' => 'Parity', 'status' => 'DISK_INVALID', 'device' => 'sdq']]);
+    same('where building: parity2 (recon Q) - a parity build; the invalid data disk meanwhile a rebuild', ['disk2' => 'rebuild', 'parity2' => 'parity'], array_map(fn ($x) => $x['what'], $b));
+    // a new data disk cleared before it joins: only the DISK_NEW one
+    file_put_contents("$tmp/disks.ini", $disks . $disk('disk3', 'Data', 'DISK_NEW', 'sdc'));
+    $b = waBuilding(['mdResyncPos' => '250', 'mdResyncSize' => '1000', 'mdResyncAction' => 'clear'], readCfg("$tmp/disks.ini", true));
+    same('where building: a clear - the new disk only (the invalid parity is not what a clear works on)', [['disk3'], 'clear', 25.0], [array_keys($b), $b['disk3']['what'] ?? null, $b['disk3']['percent'] ?? null]);
+    same('where building: no var.ini (the array stopped) - nothing', [], waBuilding([], readCfg("$tmp/disks.ini", true)));
+    hardeningRm($tmp);
+
+    // the page: the accent chip instead of the red status, the bad count leaves such a disk out, the texts
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.js');
+    check('where building: the disk row shows the building chip in place of the red status', str_contains($js, "d.building ? buildingChip(d.building) : (d.status && d.status !== 'DISK_OK' ? chip(d.status, 'danger') : null)"));
+    check('where building: the chip is accent with the time to go as its tip', str_contains($js, "return chip(T('where.building.' + b.what, { p }), 'accent', tip);")
+        && str_contains($js, "T('where.building.eta', { time: fmt.duration(b.eta) })"));
+    check('where building: a building disk is not counted among the bad ones', str_contains($js, "(d.status && d.status !== 'DISK_OK' && !d.building)"));
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/lang/en.json'), true);
+    same('where building: every text the chip asks for', [], array_values(array_filter(['where.building.parity', 'where.building.rebuild', 'where.building.clear',
+        'where.building.eta', 'where.building.paused', 'where.building.hint'], fn ($k) => !isset($en[$k]))));
+}
+
+/**
  * Ms. Dustdevil's tick: three parts, each on its own — one that throws (an exception in her jobs) doesn't stop
  * the du jobs of «where is what»; said once in the log, again only after it worked once more
  */
@@ -15941,7 +16000,7 @@ function testWatchmanNet(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

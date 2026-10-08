@@ -2051,7 +2051,7 @@ function findings() {
   if (h) {
     const hot = h.devices.filter((d) => tempLevel(d) !== '');
     if (hot.length) f.push({ text: T('where.find.hot', { n: hot.length, names: hot.map((d) => `${d.name} ${d.temp} °C`).join(', ') }), go: () => pick('disks') });
-    const bad = h.devices.filter((d) => smartBad(d).length || d.errors || (d.status && d.status !== 'DISK_OK'));
+    const bad = h.devices.filter((d) => smartBad(d).length || d.errors || (d.status && d.status !== 'DISK_OK' && !d.building));   // a disk being built is no problem
     if (bad.length) f.push({ text: T('where.find.smart_bad', { n: bad.length, names: bad.map((d) => d.name).join(', ') }), go: () => pick('disks') });
     const full = h.devices.filter((d) => fillLevel(d) === 'danger');
     if (full.length) f.push({ text: T('where.find.full', { n: full.length, names: full.map((d) => `${d.name} ${fmt.number(d.fill)} %`).join(', ') }), go: () => pick('disks') });
@@ -3197,6 +3197,17 @@ function problemText(p) {
   return T('where.smart.' + p.key, { raw: p.raw });
 }
 
+/**
+ * The chip for an array disk a resync is building (where.php waBuilding(): parity being built, a disk rebuilt, a new one
+ * cleared) — accent, never a problem: Unraid calls the disk invalid until it is through
+ */
+function buildingChip(b) {
+  const p = b.percent === null || b.percent === undefined ? '?' : fmt.number(b.percent, 1);
+  const tip = [b.paused ? T('where.building.paused') : (b.eta ? T('where.building.eta', { time: fmt.duration(b.eta) }) : ''), T('where.building.hint')]
+    .filter(Boolean).join(' — ');
+  return chip(T('where.building.' + b.what, { p }), 'accent', tip);
+}
+
 function diskRow(d) {
   const tl = tempLevel(d);
   const fl = fillLevel(d);
@@ -3215,7 +3226,7 @@ function diskRow(d) {
     name: d.name + (d.roles.length ? ` · ${d.roles.join(', ')}` : ''),
     meta: [
       chip(diskKind(d), 'quiet'),
-      d.status && d.status !== 'DISK_OK' ? chip(d.status, 'danger') : null,
+      d.building ? buildingChip(d.building) : (d.status && d.status !== 'DISK_OK' ? chip(d.status, 'danger') : null),
       tl ? chip(`🌡 ${d.temp} °C`, tl, T('where.temp_title', { hot: d.hot, max: d.max })) : null,
       d.errors ? chip(T('where.read_errors', { n: d.errors }), 'danger') : null,
       d.fill !== null && d.fill !== undefined ? chip(T('where.fill', { p: fmt.number(d.fill) }), fl || 'quiet', T('where.fill_title', { warn: d.warn, crit: d.crit })) : null,
