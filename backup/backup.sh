@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.31 - 2026-10-08
+# unraid-backup - backup.sh                       Version 2.32 - 2026-10-08
+#   2.32 (setup.sh only: the plan flags Unraid's syslog share every time - `syslog: true` per share)
 #   2.31 (setup.sh only: [general] preset_new, Mr. Backupsy's default for new things - a run accepts the key
 #        and never reads it)
 #   2.30 Sleeping pools: only a ROTATING disk Unraid spun down counts as asleep (disks.ini spundown=1 and

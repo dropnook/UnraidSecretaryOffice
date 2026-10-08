@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.31 - 2026-10-08
+# unraid-backup - setup.sh                        Version 2.32 - 2026-10-08
+#   2.32 The plan names Unraid's syslog share every time: per share `syslog: true` when it is the folder Unraid's
+#        syslog server writes into (rsyslog.cfg local_server + server_folder, syslog_share()) - also once the share
+#        is in settings.ini and its why is `previous` (up to 2.31 only the first plan said `why syslog`, so Mr.
+#        Backupsy's default «everything local» would have switched it on again)
 #   2.31 Mr. Backupsy's default for new things: [general] preset_new = auto (default: my proposals, new things
 #        wait for a decision) | local | kopia - taken from the decisions (general|preset_new), written only
 #        when it is not auto or was there before, carried by the plan (preset_new, and in P); a value it
@@ -2516,16 +2520,19 @@ plan_write() {
     [[ "$HAVE_SETTINGS" == "yes" ]] && o="$(for k in "${!OLD[@]}"; do printf '%s\x1f%s\n' "$k" "${OLD[$k]//$'\n'/$'\x1e'}"; done | plan_kv)"
     local pending="[]"
     [[ "$HAVE_SETTINGS" == "yes" ]] && pending="$(settings_pending)"
+    local syslog_sh=""
+    syslog_sh="$(syslog_share)" || syslog_sh=""      # 2.32: the share Unraid's syslog server writes into, flagged in every plan
     shares="$(for s in "${SH[@]}"; do
         local kids="" sug=""
         while IFS='|' read -r b n _; do [[ -n "$n" ]] && kids+="$n"$'\x1e'; done <<<"${INV_CHILDREN[$s]:-}"
         sug="$(appdata_suggestions "$s" | tr '\n' $'\x1e')"
         printf '%s\x1f' "$s" "$(pget "share|$s|mode")" "${WHY_CODE[$s]:-}" "${WHY_ARG[$s]:-}" "${WHY[$s]:-}" \
             "$(inv_locnames "$s" 2>/dev/null)" "$(inv_locnames_short "$s" 2>/dev/null)" "${INV_METHOD[$s]:-}" "${INV_LAYOUT[$s]:-}" \
-            "${SH_GB[$s]:-}" "$(printf '%s' "${INV_NOTE[$s]:-}" | tr '\n' $'\x1e')" "$(inv_has_share "$s" && echo 1)" "$kids" "$sug"
+            "${SH_GB[$s]:-}" "$(printf '%s' "${INV_NOTE[$s]:-}" | tr '\n' $'\x1e')" "$(inv_has_share "$s" && echo 1)" "$kids" "$sug" \
+            "$([[ -n "$syslog_sh" && "$s" == "$syslog_sh" ]] && echo 1)"
         echo
-    done | us_json name mode why why_arg why_text locations where method layout gb notes exists children folders \
-         | jq 'map(.exists = (.exists == "1") | .gb = (if .gb == "" then null else (.gb | tonumber) end)
+    done | us_json name mode why why_arg why_text locations where method layout gb notes exists children folders syslog \
+         | jq 'map(.exists = (.exists == "1") | .syslog = (.syslog == "1") | .gb = (if .gb == "" then null else (.gb | tonumber) end)
                    | .notes = (.notes | split("\u001e") | map(select(length > 0)))
                    | .children = (.children | split("\u001e") | map(select(length > 0)))
                    | .folders = (.folders | split("\u001e") | map(select(length > 0) | split("|") | {dir: .[0], container: .[1]})))')"

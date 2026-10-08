@@ -1715,8 +1715,8 @@ SH);
     $out = $setup('--plan');
     $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
     $sh3 = array_column($plan['shares'] ?? [], null, 'name');
-    same('setup plan: the share Unraid\'s syslog server writes into — proposed not backed up (why syslog)', ['off', 'syslog'],
-        [$plan['P']['share|syslog|mode'] ?? null, $sh3['syslog']['why'] ?? null], $out);
+    same('setup plan: the share Unraid\'s syslog server writes into — proposed not backed up (why syslog), flagged syslog (2.32); the others not', ['off', 'syslog', true, false],
+        [$plan['P']['share|syslog|mode'] ?? null, $sh3['syslog']['why'] ?? null, $sh3['syslog']['syslog'] ?? null, $sh3['docs']['syslog'] ?? null], $out);
 
     // --- engine 2.31: [general] preset_new, Mr. Backupsy's default for new things - kept, carried by the plan, never acted on
     $pnLine = fn (string $ini) => preg_match('/\[general\][^\[]*\npreset_new = ([a-z]+)\n/', $ini, $mm) ? $mm[1] : null;
@@ -1747,6 +1747,10 @@ SH);
     $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
     same('preset_new: the next plan carries it, nothing pending for it', ['local', 'local', []],
         [$plan['preset_new'] ?? null, $plan['P']['general|preset_new'] ?? null, $pnPending($plan)]);
+    // 2.32: the syslog share is in settings.ini now - its why is «as before», the flag stays (so a default never switches it on)
+    $sh3 = array_column($plan['shares'] ?? [], null, 'name');
+    same('setup plan: the syslog share once set up - why previous, still flagged syslog (2.32), its mode kept', ['previous', true, 'off', false],
+        [$sh3['syslog']['why'] ?? null, $sh3['syslog']['syslog'] ?? null, $plan['P']['share|syslog|mode'] ?? null, $sh3['docs']['syslog'] ?? null]);
     $pnApply('kopia');
     same('preset_new: kopia written', 'kopia', $pnLine((string) @file_get_contents("$data/settings.ini")));
     $setup('--plan');
@@ -3048,7 +3052,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.31', [1, '2.31'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.32', [1, '2.32'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -3517,7 +3521,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.31', [1, '2.31'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.32', [1, '2.32'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -4336,17 +4340,19 @@ function testBackupPresets(): void
                 'share|appdata|mode' => 'kopia', 'share|appdata|kopia_ignore' => ['/kopia/', '/cache/'], 'share|appdata|kopia_known' => ['/c1/', '/c2/', '/c3/', '/emby/'],
                 'share|UnraidSecretaryOffice|mode' => 'kopia', 'share|domains|mode' => 'snapshot', 'share|system|mode' => 'snapshot', 'share|kopia_tmp|mode' => 'off',
                 'share|tm_janine|mode' => 'off', 'share|Backups_TimeMachine|mode' => 'off', 'share|scratch|mode' => 'off', 'share|Filme|mode' => 'off',
-                'share|photos|mode' => 'snapshot',
+                'share|photos|mode' => 'snapshot', 'share|routerlogs|mode' => 'off',
                 'vm|vm1|mode' => 'snapshot', 'vm|vm1|prepare' => 'pause', 'vm|vm2|mode' => 'snapshot', 'vm|vm2|prepare' => 'none',
                 'vm|vm3|mode' => 'off', 'vm|vm3|prepare' => 'none'],
         'O' => ['kopia|enabled' => 'yes', 'share|appdata|mode' => 'kopia', 'share|UnraidSecretaryOffice|mode' => 'kopia', 'share|domains|mode' => 'snapshot',
-                'share|system|mode' => 'snapshot', 'share|Filme|mode' => 'off', 'share|photos|mode' => 'snapshot'],
+                'share|system|mode' => 'snapshot', 'share|Filme|mode' => 'off', 'share|photos|mode' => 'snapshot', 'share|routerlogs|mode' => 'off'],
         'shares' => [
             $sh('appdata', 100, ['folders' => [['dir' => 'c1', 'container' => 'c1'], ['dir' => 'c2', 'container' => 'c2'], ['dir' => 'c3', 'container' => 'c3'],
                 ['dir' => 'emby', 'container' => 'emby'], ['dir' => 'skipme', 'container' => 'skipme'], ['dir' => 'newapp', 'container' => 'newapp']],
                 'waiting' => [['dir' => 'loose', 'bytes' => 5, 'first_seen' => 900]]]),
             $sh('UnraidSecretaryOffice', 1), $sh('domains', 200), $sh('system', 30), $sh('kopia_tmp', 0), $sh('tm_janine', 500), $sh('Backups_TimeMachine', null, ['method' => 'none']),
-            $sh('scratch', 10), $sh('Filme', 3000), $sh('photos', null), $sh('gone', null, ['exists' => false])],
+            $sh('scratch', 10), $sh('Filme', 3000), $sh('photos', null), $sh('gone', null, ['exists' => false]),
+            // the share Unraid's syslog server writes into, set up before (why previous): engine 2.32 flags it in every plan
+            $sh('routerlogs', 2, ['syslog' => true])],
         'containers' => [
             $ct('c1', 'writes', ['appdata/c1']), $ct('c2', 'writes', ['appdata/c2']), $ct('c3', 'writes', ['appdata/c3']),
             $ct('emby', 'writes', ['appdata/emby', 'Filme'], ['media' => 'emby', 'image' => 'emby/embyserver']),
@@ -4401,7 +4407,7 @@ const b = OFFICE_DESK_TESTS.backup;
 const S = b.setup;
 const read = (i) => JSON.parse(fs.readFileSync(process.argv[i], 'utf8'));
 const snap = () => JSON.stringify({ draft: S.draft, levels: S.levels, held: S.held });
-const SH = ['appdata', 'UnraidSecretaryOffice', 'domains', 'system', 'kopia_tmp', 'tm_janine', 'Backups_TimeMachine', 'scratch', 'Filme', 'photos', 'gone'];
+const SH = ['appdata', 'UnraidSecretaryOffice', 'domains', 'system', 'kopia_tmp', 'tm_janine', 'Backups_TimeMachine', 'scratch', 'Filme', 'photos', 'gone', 'routerlogs'];
 const look = () => ({
   kopia: S.draft['kopia|enabled'], levels: { ...S.levels }, held: { ...S.held },
   modes: Object.fromEntries(SH.map((n) => [n, S.draft[`share|${n}|mode`] ?? null])),
@@ -4482,14 +4488,14 @@ JS;
     }
     same('presets: «Automatic» is the plan as today, nothing changed by hand', [true, false, 'setup.preset.start {"name":"setup.preset.auto"}'], $r['auto']);
     same('presets: what stays as the engine says - system by name, Kopia\'s own folder by its mapping, Time Machine by its container and by name, drift.ignore',
-        [null, null, null, 'system', 'kopia_workdir', 'timemachine', 'timemachine', 'drift_ignore', null, null, null], $r['keep']);
+        [null, null, null, 'system', 'kopia_workdir', 'timemachine', 'timemachine', 'drift_ignore', null, null, null, 'syslog'], $r['keep']);
     $all = fn (int $l) => ['app:ct:c1' => $l, 'app:ct:c2' => $l, 'app:ct:c3' => $l, 'app:ct:emby' => $l, 'app:ct:skipme' => $l, 'app:ct:dsm' => $l, 'app:ct:tm' => $l, 'app:ct:newapp' => $l,
         'vm:vm1' => $l, 'vm:vm2' => 0, 'vm:vm3' => $l];
     $ks = function (array $a): array {
         ksort($a);
         return $a;
     };
-    $kept = ['system' => 'snapshot', 'kopia_tmp' => 'off', 'tm_janine' => 'off', 'Backups_TimeMachine' => 'off', 'scratch' => 'off', 'gone' => null];
+    $kept = ['system' => 'snapshot', 'kopia_tmp' => 'off', 'tm_janine' => 'off', 'Backups_TimeMachine' => 'off', 'scratch' => 'off', 'gone' => null, 'routerlogs' => 'off'];
     $L = $r['local'];
     same('presets: «Everything local only» - Kopia off, every app and VM local (a VM that can\'t be snapshotted stays)', ['no', $ks($all(1))], [$L['kopia'], $ks($L['levels'])]);
     same('presets: «Everything local only» - every share local, what the engine keeps stays as the plan says, a gone one untouched',
@@ -4520,7 +4526,10 @@ JS;
     same('presets: a VM that went to Kopia before (its own source) is no first upload', [(3000 * 1073741824) + 50000000000, ['vm3']], [$r['uploadVmBefore']['bytes'], $r['uploadVmBefore']['vms']]);
     same('presets: what every start leaves as it is', ['setup.preset.keep.system {"name":"system"}', 'setup.preset.keep.kopia_workdir {"name":"kopia_tmp"}',
         'setup.preset.keep.timemachine {"name":"tm_janine"}', 'setup.preset.keep.timemachine {"name":"Backups_TimeMachine"}',
-        'setup.preset.keep.drift_ignore {"name":"scratch"}', 'setup.preset.keep.vm_cannot {"name":"vm2"}'], $r['kept']);
+        'setup.preset.keep.drift_ignore {"name":"scratch"}', 'setup.preset.keep.syslog {"name":"routerlogs"}', 'setup.preset.keep.vm_cannot {"name":"vm2"}'], $r['kept']);
+    // engine 2.32: an applied setup's syslog share says «as before» (why previous) but carries the flag - no default switches it on
+    same('presets: the syslog share of an applied setup (why previous, plan flag syslog) stays «not backed up» under local and local + Kopia',
+        ['syslog', 'off', 'off'], [$r['keep'][11] ?? null, $L['modes']['routerlogs'] ?? null, $K['modes']['routerlogs'] ?? null]);
     same('presets: a new plan - the default stays for what was there, the change by hand stays, what came later gets the default (local + Kopia, stopped like any)',
         ['levels' => [1, 2, 2, 2], 'held' => 'stop', 'later' => 'yes', 'changed' => true], $r['replan']);
     same('presets: «Discard» goes back to the default (not to my proposal), the newcomer with it', [2, 2, false], $r['discard']);
