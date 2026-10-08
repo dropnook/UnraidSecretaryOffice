@@ -12513,7 +12513,7 @@ function testSearchPlaces(): void
         check('search api: … small (' . $r['bytes'] . ' bytes compressed)', $r['bytes'] > 1000 && $r['bytes'] < 30000);
         $allowed = [];
         foreach (array_merge(['' => "$pub/assets/places.json"], array_combine($desks, array_map(fn ($d) => "$pub/desks/$d/places.json", $desks))) as $d => $file) {
-            foreach ((array) json_decode((string) @file_get_contents($file), true) as $k) {
+            foreach ((array) (json_decode((string) @file_get_contents($file), true)['keys'] ?? []) as $k) {
                 $allowed[$d === '' ? $k : "$d.$k"] = true;
             }
             if ($d !== '') {
@@ -12569,9 +12569,10 @@ globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textCon
   removeEventListener() {}, documentElement: { scrollHeight: 0 }, activeElement: null, hidden: false, body: mk() };
 const calls = [];
 const words = JSON.parse(fs.readFileSync(wordsFile, 'utf8'));
+globalThis.OFFICE_DESK_TESTS = {};
 globalThis.fetch = async (url) => {
   calls.push(String(url).replace(/^api\.php\?/, ''));
-  const a = /a=places/.test(url) ? words : { ok: false };
+  const a = /a=places/.test(url) && !/part=text/.test(url) ? words : { ok: false };
   return { redirected: false, url, ok: true, status: 200, json: async () => a, text: async () => JSON.stringify(a) };
 };
 (0, eval)(fs.readFileSync(core, 'utf8'));
@@ -12587,7 +12588,7 @@ const out = { registry: {}, marks: {} };
   out.before = {};
   for (const q of queries.before) out.before[q] = brief(O.search.find(q));
   for (const d of CONFIG.desks) {
-    out.registry[d.id] = O.placesOf(d.id).map((p) => ({ ...p, act: !!p.act }));
+    out.registry[d.id] = O.placesOf(d.id).map((p) => ({ ...p, act: !!p.act, shown: p.shown ? typeof p.shown() : null }));
     // pageHelp() marks the terms the desk lists by their words — each page of the desk (#/<desk>/<page>) its own
     const help = O.placesOf(d.id).filter((p) => p.kind === 'help');
     const pageOf = (p) => p.route.split('/')[2] || '';
@@ -12600,7 +12601,20 @@ const out = { registry: {}, marks: {} };
     }
     out.marks[d.id] = marks;
   }
-  out.registry[''] = O.placesOf('').map((p) => ({ ...p, act: !!p.act }));
+  out.registry[''] = O.placesOf('').map((p) => ({ ...p, act: !!p.act, shown: p.shown ? typeof p.shown() : null }));
+  // a place its desk doesn't draw now is not listed (Ms. Dustdevil's room of what partners left, none left)
+  const room = O.t('cleanup.section.partners');
+  // (her page help's term of the same words stays: it is drawn, and says what the room is)
+  const listed = () => O.search.find(room).some((r) => r.desk === 'cleanup' && r.anchor === 'room.partners');
+  const rooms = (n) => ({ docker: { enabled: true }, vms: { enabled: false }, scripts: { installed: false }, icons: null,
+    leftovers: { restores: 0, list: [] }, partners: { list: Array.from({ length: n }, (_, i) => ({ id: 'p' + i })) } });
+  out.hidden = [listed()];
+  OFFICE_DESK_TESTS.cleanup.setState(rooms(0));
+  out.hidden.push(listed(), O.search.find(O.t('cleanup.section.vms')).some((r) => r.anchor === 'room.vms'));
+  out.twin = O.search.find(room).filter((r) => r.desk === 'cleanup').map((r) => r.anchor);
+  OFFICE_DESK_TESTS.cleanup.setState(rooms(2));
+  out.hidden.push(listed());
+  OFFICE_DESK_TESTS.cleanup.setState(null);
   out.callsBeforeOpen = callsBefore + calls.filter((c) => /a=places/.test(c)).length;
   O.search.open();
   out.open = O.paletteOpen();
@@ -12677,7 +12691,15 @@ JS);
         $keys = array_values(array_unique(array_column($list, 'key')));
         sort($keys);
         $file = $d === '' ? "$pub/assets/places.json" : "$pub/desks/$d/places.json";
-        same("search $where: places.json lists the same keys as its Office.places()", $keys, json_decode((string) @file_get_contents($file), true));
+        $pj = json_decode((string) @file_get_contents($file), true);
+        same("search $where: places.json lists the same keys as its Office.places()", $keys, $pj['keys'] ?? null);
+        $texts = array_values(array_unique(array_merge(array_filter(array_column($list, 'text'), 'is_string'),
+            array_map(fn ($x) => "$x.*", array_filter(array_column($list, 'paras'), 'is_string')))));
+        sort($texts);
+        same("search $where: … and their texts (a guide's paragraphs as '<paras>.*')", $texts, $pj['texts'] ?? null);
+        // shown: a rule (a function, asked when the search looks: a boolean); part: an anchor of the desk's (marked below)
+        same("search $where: shown is a rule that answers yes or no, part an anchor", [], array_values(array_map(fn ($p) => $p['key'], array_filter($list,
+            fn ($p) => !in_array($p['shown'] ?? null, [null, 'boolean'], true) || !(($p['part'] ?? null) === null || (is_string($p['part']) && $p['part'] !== '' && $p['part'] !== $p['anchor']))))));
         if ($d === '') {
             $core = (string) file_get_contents("$pub/assets/core.js");
             same('search office: every help title of the list is marked in Office.help()', [], array_values(array_filter(
@@ -12697,11 +12719,10 @@ JS);
         $prefixes = $m[1];
         $unmarked = [];
         foreach ($list as $p) {
-            if ($p['kind'] === 'help' || !is_string($p['anchor'])) {
-                continue;
-            }
-            if (!in_array($p['anchor'], $marked, true) && !array_filter($prefixes, fn ($x) => str_starts_with($p['anchor'], $x))) {
-                $unmarked[] = $p['anchor'];
+            foreach ([$p['kind'] === 'help' ? null : $p['anchor'], $p['part'] ?? null] as $a) {
+                if (is_string($a) && !in_array($a, $marked, true) && !array_filter($prefixes, fn ($x) => str_starts_with($a, $x))) {
+                    $unmarked[] = $a;
+                }
             }
         }
         same("search $where: every anchor marked in its code (Office.place('…'), {place: '…'})", [], $unmarked);
@@ -12711,6 +12732,13 @@ JS);
     }
     ksort($count);
     check('search: places per desk ' . json_encode($count), array_sum($count) > 250, (string) array_sum($count));
+    // Ms. Dustdevil's rooms: drawn only when visible() — each tile a rule, her «Tidying up» the part they lie in
+    $rooms = array_values(array_filter($r['registry']['cleanup'] ?? [], fn ($p) => $p['kind'] === 'tile' && str_starts_with($p['anchor'], 'room.')));
+    same('search cleanup: every room\'s tile carries her rule (shown) and her «Tidying up» as its part', [10, 10],
+        [count(array_filter($rooms, fn ($p) => ($p['shown'] ?? null) === 'boolean')), count(array_filter($rooms, fn ($p) => ($p['part'] ?? null) === 'part.tidy'))]);
+    same('search: a place not drawn now is not listed (her state unknown: listed; no partner left: not, VMs off: not; some left: listed)',
+        [true, false, false, true], $r['hidden'] ?? null);
+    check('search: … her page help\'s term of its name is listed instead (it is drawn)', in_array('help:section.partners', $r['twin'] ?? [], true), json_encode($r['twin'] ?? null));
 
     // ---- the matcher
     same('search page: no request for the words before the first open', 0, $r['callsBeforeOpen']);
@@ -12815,7 +12843,11 @@ function testSearchItems(): void
             'snapshot' => [['id' => 'plan_target_gone', 'level' => 'recommended', 'ok' => false, 'params' => ['plan' => 'hourly', 'target' => 'cache/drop'], 'sig' => 'snapshot:plan_target_gone:2222222222222222'],
                            ['id' => 'other_snapshot_tool', 'level' => 'hint', 'ok' => false, 'acked' => true, 'params' => ['name' => 'Sanoid'], 'sig' => 'snapshot:other_snapshot_tool:3333333333333333']]],
             'staff' => ['backup' => ['ok' => true, 'why' => 'yes'], 'emby' => ['ok' => true, 'why' => 'yes']],
-            'partners' => ['pairs' => [['id' => 'a1b2c3d4', 'name' => 'Vault', 'address' => '10.0.0.9', 'port' => 22, 'trust' => 'mine', 'key' => $key]], 'pending' => [],
+            'partners' => ['pairs' => [['id' => 'a1b2c3d4', 'name' => 'Vault', 'address' => '10.0.0.9', 'port' => 22, 'trust' => 'mine', 'key' => $key],
+                // Tower's two pairs with one partner (one each way): told apart by the way the copies go
+                ['id' => 'e5f6a7b8', 'name' => 'USOPartner', 'address' => '10.0.0.7', 'port' => 22, 'trust' => 'friend', 'sends' => true, 'send_units' => ['place'], 'receive' => null],
+                ['id' => 'c9d0e1f2', 'name' => 'USOPartner', 'address' => '10.0.0.7', 'port' => 2222, 'trust' => 'friend', 'sends' => false, 'send_units' => [],
+                 'receive' => ['units' => ['share:media'], 'pool' => 'cache', 'retention' => '7 4 6', 'window' => '0-24']]], 'pending' => [],
                            'ticket_pairs' => [['id' => 't1', 'name' => 'newbox', 'of' => 'oldbox', 'expires' => 4102444800]], 'ticket_requests' => [['id' => 'r9', 'created' => 1]]]],
         'watchman' => ['time' => 1000, 'open' => ['login' => 1, 'container' => 300, 'flash' => 1], 'on_watch' => 1, 'round' => ['last' => 990], 'book' => $book,
             'posture' => ['open' => 1, 'tips' => [['id' => 'telnet', 'level' => 'advice', 'known' => false, 'p' => []], ['id' => 'upnp', 'level' => 'info', 'known' => true, 'p' => []]]],
@@ -12924,6 +12956,7 @@ globalThis.fetch = async (url) => {
   if (u.get('wait')) await new Promise((r) => setTimeout(r, 20));
   return { redirected: false, url, ok: true, status: 200, json: async () => a, text: async () => JSON.stringify(a) };
 };
+globalThis.OFFICE_DESK_TESTS = {};
 (0, eval)(fs.readFileSync(core, 'utf8'));
 const O = globalThis.Office;
 for (const d of CONFIG.desks) (0, eval)(fs.readFileSync(`${desksDir}/${d.id}/desk.js`, 'utf8'));
@@ -12981,6 +13014,18 @@ const out = {};
   await O.loadState('caretaker', {}, () => {});
   await sleep(120);
   out.older = O.search.items('caretaker').map((e) => e.anchor);
+  // Ms. Dustdevil's filter: a hit the search reaches (a tile's sub-route) starts with it empty, her part alone keeps it
+  const ct = OFFICE_DESK_TESTS.cleanup;
+  const desk = O.desks.get('cleanup');
+  out.filter = [];
+  for (const sub of ['where', 'tidy', 'tidy/templates', 'where/docker']) {
+    ct.setQuery('zzz');
+    try { desk.mount(mk(), sub); } catch (e) { out.filter.push('mount ' + sub + ': ' + String(e && e.stack || e).slice(0, 300)); }
+    out.filter.push(ct.query());
+    desk.unmount();
+  }
+  ct.setQuery('');
+  await sleep(60);
   // a provider's slip costs its own items only
   O.placesFrom('logs', () => { throw new Error('slip'); });
   O.placesTook('logs', FX.states.logs);
@@ -13047,8 +13092,12 @@ JS);
     $anchors = fn (string $d) => array_column($r['items'][$d] ?? [], 'anchor');
     $labels = fn (string $d) => array_column($r['items'][$d] ?? [], 'label');
     same('search items caretaker: the points still open (in his words), not those in place or noted; the team; the partners and tickets',
-        ['finding:backup:kopia_running:0123456789abcdef', 'finding:snapshot:plan_target_gone:2222222222222222', 'partner:a1b2c3d4', 'staff:backup', 'staff:emby', 'ticket:r9', 'ticket:t1'],
+        ['finding:backup:kopia_running:0123456789abcdef', 'finding:snapshot:plan_target_gone:2222222222222222', 'partner:a1b2c3d4', 'partner:c9d0e1f2', 'partner:e5f6a7b8',
+         'staff:backup', 'staff:emby', 'ticket:r9', 'ticket:t1'],
         (function ($a) { sort($a); return $a; })($anchors('caretaker')));
+    $pairs = array_column(array_filter($r['items']['caretaker'] ?? [], fn ($e) => $e['label'] === 'USOPartner'), 'sub', 'anchor');
+    same('search items caretaker: two pairs with one partner told apart by the way the copies go (the card\'s words)',
+        ['partner:e5f6a7b8' => 'Partner offices · Tower sends', 'partner:c9d0e1f2' => 'Partner offices · Tower keeps'], $pairs);
     check('search items caretaker: … worded as his list words them', in_array('Kopia container «kopia» is running', $labels('caretaker'), true), json_encode($labels('caretaker')));
     $w = $r['items']['watchman'] ?? [];
     $entries = array_values(array_filter($w, fn ($e) => str_starts_with($e['anchor'], 'entry:')));
@@ -13106,12 +13155,321 @@ JS);
         array_values(array_filter($r['calls'], fn ($u) => !preg_match('/^a=(state|part)&desk=[a-z]+(&part=[a-z-]+)?(&(stored|wait)=1)?$/', $u))));
     $sorted = function (array $a): array { sort($a); return $a; };
     same('search items: his new look replaces what was found (the point in place gone, the other one there)',
-        $sorted(['finding:backup:schedule:1111111111111111', 'finding:snapshot:plan_target_gone:2222222222222222', 'partner:a1b2c3d4', 'staff:backup', 'staff:emby', 'ticket:r9', 'ticket:t1']),
-        $sorted($r['after']));
+        $sorted(['finding:backup:schedule:1111111111111111', 'finding:snapshot:plan_target_gone:2222222222222222', 'partner:a1b2c3d4', 'partner:c9d0e1f2', 'partner:e5f6a7b8',
+            'staff:backup', 'staff:emby', 'ticket:r9', 'ticket:t1']), $sorted($r['after']));
     same('search items: … and the look that followed it (his partners gone)',
         $sorted(['finding:backup:schedule:1111111111111111', 'finding:snapshot:plan_target_gone:2222222222222222', 'staff:backup', 'staff:emby']), $sorted($r['later']));
     same('search items: … an older answer changes nothing', $sorted($r['later']), $sorted($r['older']));
     same('search items: a provider\'s slip costs its own items only', [0, true], $r['slip']);
+    same('search items cleanup: a hit through the search (#/cleanup/tidy/<room>, #/cleanup/where/<corner>) clears her filter, her parts keep it',
+        ['zzz', 'zzz', '', ''], $r['filter'] ?? null);
+    hardeningRm($tmp);
+}
+
+/**
+ * The search, phase 3 — the places' texts (core.js «places and the search», src/api.php ?a=places&part=text): the
+ * Consultant's guide paragraphs (paras) and the explanations of terms and the office's help (text) as secondary words.
+ * In the code: each paragraph marked as a place of its own. The endpoint: the words answer carries no text; part=text
+ * every listed text in English, cached a day, compressed (its size said). Under node (a German office, core.js and every
+ * desk.js on a stand-in page): nothing asked before the first open, the English texts right after the words; a word
+ * only inside a paragraph finds its guide with the sentence (≤ 80 letters, the words marked), an English one once the
+ * texts came; a term's explanation and the office's help found the same way; every place met by its name before them,
+ * at most 12. The jump: the guide's <details> open, the sentence in view under Unraid's sticky menu (12 px), kept there
+ * while the page settles above it (and on a phone, with Unraid's menu static); a place that never comes: its part in view
+ * meanwhile, marked before «not there».
+ */
+function testSearchGuides(): void
+{
+    $pub = OFFICE_WEB;
+    $codes = ['en', 'de', 'it', 'fr', 'es'];
+    $desks = array_map(fn ($f) => basename(dirname($f)), glob("$pub/desks/*/desk.json") ?: []);
+    sort($desks);
+    $js = (string) file_get_contents("$pub/desks/advisor/desk.js");
+    $core = (string) file_get_contents("$pub/assets/core.js");
+    check('search guides: each paragraph is a place of its own (paragraphs(), the steps of the installs, the syslog setting, the dashboard)',
+        str_contains($js, 'Office.place(`${prefix}.${i}`, el(\'p\'') && str_contains($js, 'Office.place(`install.${id}.${i}`')
+        && str_contains($js, 'Office.place(`net.syslog.${i}`') && str_contains($js, 'Office.place(`dashboard.${i}`'));
+    // every guide's paragraphs: drawn by paragraphs(…, '<paras>') or one of the marked lists, in all five languages alike
+    $adv = [];
+    foreach ($codes as $c) {
+        $adv[$c] = langFile("$pub/desks/advisor/lang/$c.json");
+    }
+    $paras = (array) (json_decode((string) file_get_contents("$pub/desks/advisor/places.json"), true)['texts'] ?? []);
+    $paras = array_values(array_map(fn ($x) => substr($x, 0, -2), array_filter($paras, fn ($x) => str_ends_with($x, '.*'))));
+    $count = $bad = [];
+    foreach ($paras as $p) {
+        $n = [];
+        foreach ($codes as $c) {
+            for ($i = 1; isset($adv[$c]["$p.$i"]); $i++);
+            $n[$c] = $i - 1;
+        }
+        $count[$p] = $n['en'];
+        $drawn = str_contains($js, "paragraphs(guide, '$p'") || str_contains($js, "paragraphs(box, '$p'")
+            || (str_starts_with($p, 'install.') && str_contains($js, 'Office.place(`install.${id}.${i}`')) || in_array($p, ['net.syslog', 'dashboard'], true);
+        if (!$n['en'] || count(array_unique($n)) !== 1 || !$drawn) {
+            $bad[$p] = $n;
+        }
+    }
+    same('search guides: every guide\'s paragraphs there in all five languages alike, each drawn as a place', [], $bad);
+    check('search guides: the paragraphs counted (' . array_sum($count) . ' in ' . count($count) . ' guides)', array_sum($count) >= 80 && count($count) >= 15, json_encode($count));
+    check('search guides: the greetings are no guide', !in_array('greet', $paras, true));
+
+    // ---- the endpoint (php-cgi on a copy of src/, as testSearchPlaces)
+    $cgi = trim((string) shell_exec('command -v php-cgi 2>/dev/null')) ?: (is_executable('/usr/bin/php-cgi') ? '/usr/bin/php-cgi' : '');
+    $tmp = hardeningTmp('searchguides');
+    $texts = null;
+    if ($cgi === '') {
+        check('search guides: php-cgi is missing here - the endpoint not tried', true);
+    } else {
+        mkdir("$tmp/plugin/src", 0700, true);
+        foreach (glob(OFFICE_DIR . '/src/*.php') ?: [] as $f) {
+            copy($f, "$tmp/plugin/src/" . basename($f));
+        }
+        foreach (['desks', 'lang', 'assets'] as $d) {
+            symlink("$pub/$d", "$tmp/plugin/$d");
+        }
+        mkdir("$tmp/data/office", 0700, true);
+        mkdir("$tmp/run", 0700);
+        file_put_contents("$tmp/web.php", '<?php require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . '; require '
+            . var_export("$tmp/plugin/src/api.php", true) . '; api_main();');
+        $ask = function (string $query) use ($cgi, $tmp): array {
+            $env = ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => "$tmp/run", 'PATH' => getenv('PATH'), 'REDIRECT_STATUS' => '1', 'HTTP_ACCEPT_ENCODING' => 'gzip',
+                    'SCRIPT_FILENAME' => "$tmp/web.php", 'REQUEST_URI' => "/api.php?$query", 'REQUEST_METHOD' => 'GET', 'QUERY_STRING' => $query];
+            $p = proc_open([$cgi], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, null, $env);
+            $raw = (string) stream_get_contents($pipes[1]);
+            proc_close($p);
+            $cut = (int) strpos($raw, "\r\n\r\n");
+            $headers = [];
+            foreach (explode("\r\n", substr($raw, 0, $cut)) as $line) {
+                [$k, $v] = array_map('trim', explode(':', $line, 2) + [1 => '']);
+                $headers[strtolower($k)] = $v;
+            }
+            $body = substr($raw, $cut + 4);
+            return ['headers' => $headers, 'bytes' => strlen($body), 'json' => json_decode((string) @gzdecode($body), true), 'raw' => substr($raw, 0, 500)];
+        };
+        $w = $ask('a=places&v=1-test');
+        $t = $ask('a=places&part=text&v=1-test');
+        $texts = $t['json']['texts'] ?? null;
+        same('search guides api: part=text — ok, English, cached a day, compressed', [true, 'en', 'public, max-age=86400', 'gzip'],
+            [$t['json']['ok'] ?? $t['raw'], $t['json']['lang'] ?? null, $t['headers']['cache-control'] ?? null, $t['headers']['content-encoding'] ?? null]);
+        check("search guides api: sizes (gzip) — the words {$w['bytes']} bytes, the English texts {$t['bytes']}", $w['bytes'] < 30000 && $t['bytes'] > 10000 && $t['bytes'] < 60000);
+        same('search guides api: the words carry no text (no paragraph, nothing but the places\' keys)', [false, []],
+            [isset($w['json']['texts']), array_values(array_filter(array_keys((array) ($w['json']['words'] ?? [])), fn ($k) => preg_match('/^advisor\.(lock|partner|install\.\w+)\.\d+$/', $k)))]);
+        // what it sends: every text the places.json files list, a guide's '<paras>.*' as its paragraphs — no other key
+        $want = [];
+        foreach (array_merge(['' => "$pub/assets/places.json"], array_combine($desks, array_map(fn ($d) => "$pub/desks/$d/places.json", $desks))) as $d => $file) {
+            $en = langFile($d === '' ? "$pub/lang/en.json" : "$pub/desks/$d/lang/en.json");
+            foreach ((array) (json_decode((string) file_get_contents($file), true)['texts'] ?? []) as $k) {
+                $keys = str_ends_with($k, '.*') ? array_values(array_filter(array_keys($en), fn ($x) => preg_match('/^' . preg_quote(substr($k, 0, -2), '/') . '\.\d+$/D', $x) === 1)) : [$k];
+                foreach ($keys as $x) {
+                    $want[] = $d === '' ? $x : "$d.$x";
+                }
+            }
+        }
+        sort($want);
+        $got = array_keys((array) $texts);
+        sort($got);
+        same('search guides api: every listed text and paragraph, nothing else', $want, $got);
+        same('search guides api: … in English', $adv['en']['lock.3'] ?? null, $texts['advisor.lock.3'] ?? null);
+    }
+
+    // ---- the page: a German office
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '' || !is_array($texts)) {
+        check('search guides page: node (or the endpoint) is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    $strings = langFile("$pub/lang/de.json");
+    foreach ($desks as $d) {
+        foreach (langFile("$pub/desks/$d/lang/de.json") as $k => $v) {
+            $strings["$d.$k"] = $v;
+        }
+    }
+    file_put_contents("$tmp/strings.json", json_encode($strings));
+    file_put_contents("$tmp/texts.json", json_encode(['ok' => true, 'lang' => 'en', 'texts' => $texts]));
+    file_put_contents("$tmp/config.json", json_encode(['desks' => array_map(fn ($d) => ['id' => $d, 'hired' => true, 'order' => 1], $desks),
+        'languages' => array_map(fn ($c) => ['code' => $c], $codes), 'base' => '', 'staff_order' => [], 'stamp' => 1, 'version' => 'test', 'host' => 'Tower']));
+    file_put_contents("$tmp/t.js", <<<'JS'
+// core.js and the desks under node: a German office, a stand-in page with the advisor's guide drawn as nodes of their own
+const fs = require('fs');
+const [core, desksDir, configFile, stringsFile, textsFile, outFile] = process.argv.slice(2);
+const CONFIG = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+const mk = () => ({ style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [],
+  classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {},
+  setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
+  querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+  getBoundingClientRect: () => ({ top: 0, bottom: 40, left: 0, right: 1000 }), focus() {}, select() {} });
+// the places on the page: [data-place="…"] → a node at a top of the document's, maybe in a <details>
+const nodes = {};
+let focused = null;
+const place = (anchor, top, details) => {
+  const cls = new Set();
+  const n = { anchor, top, details: details || null, isConnected: true, dataset: { place: anchor }, hits: 0,
+    classList: { add: (c) => { cls.add(c); if (c === 'place-hit') n.hits++; }, remove: (c) => cls.delete(c), contains: (c) => cls.has(c), toggle() {} },
+    marked: () => n.hits > 0,
+    getBoundingClientRect: () => ({ top: n.top - globalThis.scrollY, bottom: n.top - globalThis.scrollY + 30, left: 0, right: 500 }),
+    closest: (sel) => (sel === 'details' ? n.details : null), matches: () => false, setAttribute() {}, removeAttribute() {}, addEventListener() {},
+    focus: () => { focused = anchor; }, scrollIntoView() {} };
+  nodes[anchor] = n;
+  return n;
+};
+const ROOT = Object.assign(mk(), { querySelector: (sel) => {
+  const m = /^\[data-place="(.*)"\]$/.exec(sel);
+  const n = m && nodes[m[1].replace(/\\(.)/g, '$1')];
+  return n && n.isConnected ? n : null;
+} });
+const menu = { offsetHeight: 50, sticky: true };
+globalThis.window = globalThis;
+globalThis.Node = function Node() {};
+globalThis.innerHeight = 800; globalThis.innerWidth = 1200; globalThis.scrollY = 0; globalThis.scrollBy = () => {};
+const scrolls = [];
+globalThis.scrollTo = (o) => { scrolls.push({ top: o.top, behavior: o.behavior }); globalThis.scrollY = o.top; };
+globalThis.getComputedStyle = (n) => ({ position: n === menu && menu.sticky ? 'sticky' : 'static' });
+const observers = new Set();
+globalThis.MutationObserver = class { constructor(cb) { this.cb = cb; } observe() { observers.add(this); } disconnect() { observers.delete(this); } };
+const mutate = () => [...observers].forEach((o) => o.cb([]));
+globalThis.requestAnimationFrame = (f) => setTimeout(f, 0);
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+globalThis.navigator = { languages: ['de'], platform: 'Linux' };
+globalThis.history = { replaceState() {} };
+globalThis.location = { hash: '#/advisor', reload() {} };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : id === 'menu' ? menu : mk()),
+  querySelector: (s) => (s === '#sso' ? ROOT : mk()), querySelectorAll: () => [], createElement: () => mk(), createElementNS: () => mk(), addEventListener() {},
+  removeEventListener() {}, documentElement: { scrollHeight: 20000 }, activeElement: null, hidden: false, body: mk() };
+const calls = [];
+const texts = JSON.parse(fs.readFileSync(textsFile, 'utf8'));
+globalThis.fetch = async (url) => {
+  calls.push(String(url).replace(/^api\.php\?/, ''));
+  const a = /part=text/.test(url) ? texts : /a=places/.test(url) ? { ok: true, langs: [], words: {} } : { ok: false };
+  return { redirected: false, url, ok: true, status: 200, json: async () => a, text: async () => JSON.stringify(a) };
+};
+globalThis.OFFICE_DESK_TESTS = {};
+(0, eval)(fs.readFileSync(core, 'utf8'));
+const O = globalThis.Office;
+for (const d of CONFIG.desks) (0, eval)(fs.readFileSync(`${desksDir}/${d.id}/desk.js`, 'utf8'));
+O.strings = JSON.parse(fs.readFileSync(stringsFile, 'utf8'));
+O.lang = 'de';
+const toasts = [];
+O.toast = (m) => toasts.push(m);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const brief = (r) => ({ desk: r.desk, key: r.key, kind: r.kind, anchor: r.anchor, part: r.part || null, text: r.text, detail: r.detail, marks: r.marks });
+const out = {};
+(async () => {
+  const q = (s) => O.search.find(s).map(brief);
+  out.before = { wasabi: q('Wasabi'), gangs: q('gangs') };
+  out.callsBefore = calls.slice();
+  O.search.open();
+  await O.search.words();
+  await O.search.texts();
+  O.search.close();
+  out.calls = calls.slice();
+  out.after = {};
+  for (const s of ['Wasabi', 'gangs', 'Object Lock', 'Trinkgeldkasse', 'Tippfehler', 'Ransomware Wasabi', 'Lock', 'Datei']) out.after[s] = q(s);
+  // the time it takes (warm): the queries again
+  const t0 = process.hrtime.bigint();
+  for (let i = 0; i < 5; i++) for (const s of ['Wasabi', 'Object Lock', 'Datei', 'Tippfehler', 'zzzz']) O.search.find(s);
+  out.ms = Number(process.hrtime.bigint() - t0) / 1e6 / 25;
+
+  // the jump: the sentence of the guide (its <details> folded), Unraid's menu sticky (50 px) — then the page settles above it
+  const realTimeout = setTimeout;
+  const wait = (ms) => new Promise((r) => realTimeout(r, ms));
+  globalThis.setTimeout = (f, ms, ...a) => realTimeout(f, Math.ceil((ms || 0) / 50), ...a);     // the reveal's seconds as ms
+  const det = { open: false, parentElement: null };
+  place('lock.title', 2500, det);
+  place('lock.3', 3000, det);
+  scrolls.length = 0;
+  const hit = O.search.find('Wasabi').find((r) => r.desk === 'advisor');
+  O.goToPlace(hit);
+  out.jump = { open: det.open, scroll: scrolls.slice(), focused, marked: nodes['lock.3'].marked() };
+  nodes['lock.3'].top -= 23;                 // the head above grew shorter (the new look, «As of …» gone)
+  mutate();
+  await wait(5);
+  out.settled = scrolls.slice(1);
+  // a phone: Unraid's menu static — 12 px under the window's top
+  menu.sticky = false;
+  place('lock.4', 5000, det);
+  scrolls.length = 0;
+  O.reveal('lock.4', { name: 'x' });
+  out.phone = scrolls.slice();
+  // never drawn: its part in view meanwhile (no mark, no focus), marked before «not there»
+  O.reveal(null);
+  await wait(5);
+  focused = null;
+  scrolls.length = 0;
+  nodes['lock.title'].hits = 0;
+  O.reveal('lock.99', { name: 'Gone', part: 'lock.title' });
+  await wait(60);
+  out.partSoon = { scroll: scrolls.slice(), focused, marked: nodes['lock.title'].marked(), toasts: toasts.slice() };
+  await wait(260);
+  out.partLate = { focused, marked: nodes['lock.title'].marked(), toasts: toasts.slice() };
+  globalThis.setTimeout = realTimeout;
+  fs.writeFileSync(outFile, JSON.stringify(out));
+  process.exit(0);
+})().catch((e) => { fs.writeFileSync(outFile, JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+JS);
+    $raw = (string) shell_exec(implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", "$pub/assets/core.js", "$pub/desks", "$tmp/config.json",
+        "$tmp/strings.json", "$tmp/texts.json", "$tmp/out.json"])) . ' 2>&1');
+    $r = json_decode((string) @file_get_contents("$tmp/out.json"), true);
+    if (!is_array($r) || isset($r['error'])) {
+        check('search guides page: ran under node', false, substr(($r['error'] ?? '') . $raw, 0, 3000));
+        hardeningRm($tmp);
+        return;
+    }
+    $ofDesk = fn (array $list, string $desk) => array_values(array_filter($list, fn ($x) => $x['desk'] === $desk));
+    $lockOf = fn (array $list) => array_values(array_filter($list, fn ($x) => $x['desk'] === 'advisor' && $x['key'] === 'lock.title'));
+    same('search guides page: nothing asked before the first open (the texts not with the first paint)', [], $r['callsBefore']);
+    same('search guides page: the first open asks the words, the English texts right after them — once', ['a=places&v=1-test', 'a=places&part=text&v=1-test'], $r['calls']);
+    $w = $lockOf($r['before']['wasabi'])[0] ?? [];
+    same('search guides page: a word only inside a paragraph finds the guide at once (its own language): the sentence is the spot, the guide the part around it',
+        ['guide', 'lock.3', 'lock.title', 'lock.3'], [$w['kind'] ?? null, $w['anchor'] ?? null, $w['part'] ?? null, $w['text'] ?? null]);
+    $d = (string) ($w['detail'] ?? '');
+    $marked = array_map(fn ($m) => mb_substr($d, $m[0], $m[1] - $m[0]), (array) ($w['marks'] ?? []));
+    check('search guides page: … its sentence (≤ 80 letters around the word, cut with …) with the word marked',
+        $d !== '' && mb_strlen($d) <= 80 && $marked === ['Wasabi'] && str_contains($d, 'Wasabi'), json_encode([$d, mb_strlen($d), $w['marks'] ?? null, $marked]));
+    same('search guides page: an English word inside a paragraph — nothing before the texts came', [], $lockOf($r['before']['gangs']));
+    $g = $lockOf($r['after']['gangs'])[0] ?? [];
+    $gm = array_map(fn ($m) => mb_substr((string) $g['detail'], $m[0], $m[1] - $m[0]), (array) ($g['marks'] ?? []));
+    same('search guides page: … found once they came, the English sentence shown, the word marked', ['lock.2', ['gangs']], [$g['anchor'] ?? null, $gm]);
+    // ranking: every place met by its name before every text hit; the guide by its title before its paragraphs
+    $ok = true;
+    foreach ($r['after'] as $s => $list) {
+        $seenText = false;
+        foreach ($list as $x) {
+            if ($x['marks'] !== null) {
+                $seenText = true;
+            } elseif ($seenText) {
+                $ok = false;
+            }
+        }
+        $ok = $ok && count($list) <= 12;
+    }
+    check('search guides page: places met by their own words first, text hits after them, at most 12', $ok, json_encode(array_map(fn ($l) => array_map(fn ($x) => $x['desk'] . ':' . $x['anchor'] . ($x['marks'] !== null ? '*' : ''), $l), $r['after'])));
+    $ol = $r['after']['Object Lock'];
+    $first = array_search('lock.title', array_column($ol, 'anchor'), true);
+    $para = array_values(array_filter($ol, fn ($x) => $x['desk'] === 'advisor' && $x['marks'] !== null));
+    check('search guides page: «Object Lock» — the guide of that name by its title, other guides by their paragraphs below it',
+        $first !== false && $ol[$first]['marks'] === null && $para !== [] && array_search($para[0], $ol, true) > $first, json_encode(array_column($ol, 'anchor')));
+    $tg = $ofDesk($r['after']['Trinkgeldkasse'], 'caretaker')[0] ?? [];
+    same('search guides page: a term found by its explanation (the Team Lead\'s supporter: «Trinkgeldkasse»), on its spot in the page help',
+        ['help', 'supporter_term', 'help:supporter_term', 'help.supporter'], [$tg['kind'] ?? null, $tg['key'] ?? null, $tg['anchor'] ?? null, $tg['text'] ?? null]);
+    $tf = $ofDesk($r['after']['Tippfehler'], '')[0] ?? [];
+    same('search guides page: the office\'s help found by its text («Tippfehler»: the search\'s own)', ['help.search_title', 'help.search_text'], [$tf['key'] ?? null, $tf['text'] ?? null]);
+    $kw = $lockOf($r['after']['Ransomware Wasabi'])[0] ?? [];
+    same('search guides page: every word must meet — the guide\'s own words count («Ransomware» its title, «Wasabi» a paragraph)', ['lock.3', ['Wasabi']],
+        [$kw['anchor'] ?? null, array_map(fn ($m) => mb_substr((string) $kw['detail'], $m[0], $m[1] - $m[0]), (array) ($kw['marks'] ?? []))]);
+    check('search guides page: a query ≤ 2 ms (warm, ' . round($r['ms'], 2) . ')', $r['ms'] <= 2, (string) $r['ms']);
+    // the jump
+    same('search guides page: the jump — the guide\'s <details> open, the sentence 12 px under Unraid\'s sticky menu (smooth), focused and marked',
+        [true, [['top' => 3000 - 50 - 12, 'behavior' => 'smooth']], 'lock.3', true],
+        [$r['jump']['open'], $r['jump']['scroll'], $r['jump']['focused'], $r['jump']['marked']]);
+    same('search guides page: the page settles above it (23 px shorter): put back where it was put, at once', [['top' => 3000 - 50 - 12 - 23, 'behavior' => 'auto']], $r['settled']);
+    same('search guides page: a phone (Unraid\'s menu static): 12 px under the window\'s top', [['top' => 5000 - 12, 'behavior' => 'smooth']], $r['phone']);
+    same('search guides page: a place never drawn — its part in view meanwhile (not marked, not focused, nothing said yet)',
+        [[['top' => 2500 - 12, 'behavior' => 'smooth']], null, false, []], [$r['partSoon']['scroll'], $r['partSoon']['focused'], $r['partSoon']['marked'], $r['partSoon']['toasts']]);
+    check('search guides page: … then the part marked and «not there» said', $r['partLate']['marked'] && $r['partLate']['focused'] === 'lock.title'
+        && count($r['partLate']['toasts']) === 1 && str_contains($r['partLate']['toasts'][0], 'Gone'), json_encode($r['partLate']));
     hardeningRm($tmp);
 }
 
@@ -16726,7 +17084,7 @@ function testWatchmanNet(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
