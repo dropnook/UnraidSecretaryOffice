@@ -13864,9 +13864,33 @@ function testRestorePartner(): void
     file_put_contents("$A[root]/var.ini", "fsState=\"Started\"\n");
     $sh = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
     check('restore partner: agent.sh unmounts the pulls at the array stop (after drill_release ended the job)', (bool) preg_match('/drill_release.*\n(?:.*\n){0,3}\s*restored_release\s/', $sh)
-        && str_contains($sh, 'root=/mnt/addons/UnraidSecretaryOffice/restored') && RSP_MOUNT_ROOT === '/mnt/addons/UnraidSecretaryOffice/restored');
-    $out = trim((string) shell_exec('bash -c ' . escapeshellarg('source ' . escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh') . '; LOG=' . escapeshellarg("$tmp/agent.log") . '; restored_release; echo "rc=$?"') . ' 2>&1'));
-    same('restore partner: nothing mounted there — nothing done, nothing said', ['rc=0', false], [$out, is_file("$tmp/agent.log")]);
+        && str_contains($sh, 'RESTORED_ROOT="${USO_RESTORED_ROOT:-/mnt/addons/UnraidSecretaryOffice/restored}"') && str_contains($sh, 'local root=$RESTORED_ROOT ')
+        && RSP_MOUNT_ROOT === '/mnt/addons/UnraidSecretaryOffice/restored');
+    // never the live folder: a root of the test's own (USO_RESTORED_ROOT) — a real pull or an earlier test's mount there is none of this test's business
+    $release = fn (string $root) => trim((string) shell_exec('USO_RESTORED_ROOT=' . escapeshellarg($root) . ' bash -c ' . escapeshellarg('source '
+        . escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh') . '; LOG=' . escapeshellarg("$tmp/agent.log") . '; restored_release; echo "rc=$?"') . ' 2>&1'));
+    @mkdir("$tmp/restored-root", 0755, true);
+    same('restore partner: nothing mounted there — nothing done, nothing said', ['rc=0', false], [$release("$tmp/restored-root"), is_file("$tmp/agent.log")]);
+    same('restore partner: an odd root (relative, «/», with a space) — nothing looked at', ['rc=0', 'rc=0', 'rc=0', false],
+        [$release('restored'), $release('/'), $release("$tmp/restored root"), is_file("$tmp/agent.log")]);
+    if (getenv('OFFICE_TESTS_GUARD') !== false) {       // the tests' own mount namespace (root): bind mounts nobody else sees
+        @mkdir("$tmp/restored-src", 0755, true);
+        @mkdir("$tmp/restored-root/appdata", 0755, true);
+        @mkdir("$tmp/restored-other", 0755, true);
+        exec('mount --bind ' . escapeshellarg("$tmp/restored-src") . ' ' . escapeshellarg("$tmp/restored-root/appdata") . ' && mount --bind '
+            . escapeshellarg("$tmp/restored-src") . ' ' . escapeshellarg("$tmp/restored-other") . ' 2>&1', $o, $mc);
+        $mounted = fn (string $at) => str_contains((string) file_get_contents('/proc/mounts'), " $at ");
+        if ($mc === 0 && $mounted("$tmp/restored-root/appdata")) {
+            $out = $release("$tmp/restored-root");
+            same('restore partner: a pull mounted there — unmounted, its folder gone, said once; a mount elsewhere untouched',
+                ['rc=0', false, false, true, true],
+                [$out, $mounted("$tmp/restored-root/appdata"), is_dir("$tmp/restored-root/appdata"), $mounted("$tmp/restored-other"),
+                 str_contains((string) @file_get_contents("$tmp/agent.log"), "1 of Mr. Restori's pulls unmounted ($tmp/restored-root)")]);
+        } else {
+            check('restore partner: a bind mount of the test\'s own for restored_release', false, implode(' ', $o));
+        }
+        exec('umount ' . escapeshellarg("$tmp/restored-other") . ' 2>/dev/null; umount ' . escapeshellarg("$tmp/restored-root/appdata") . ' 2>/dev/null');
+    }
     sleep(4);           // the door's orphaned send (4 s) lets go of the pair's lock
     hardeningRm($tmp);
 }
