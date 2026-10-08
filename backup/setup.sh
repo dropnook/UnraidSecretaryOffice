@@ -338,7 +338,7 @@ old_has()   { local s; for s in "${OLD_SECTIONS[@]}"; do [[ "$s" == "$1" ]] && r
 pget() { local k="$1"; if [[ -n "${P[$k]+x}" ]]; then printf '%s' "${P[$k]}"; else printf '%s' "${2-}"; fi; }
 pset() { P[$1]="$2"; }
 plist() { local k="$1" v; [[ -n "${P[$k]:-}" ]] || return 0; while IFS= read -r v; do [[ -n "$v" ]] && printf '%s\n' "$v"; done <<<"${P[$k]}"; }
-plist_add() { local k="$1" v="$2"; plist "$k" | grep -Fxq -- "$v" && return 0; if [[ -n "${P[$k]:-}" ]]; then P[$k]+=$'\n'"$v"; else P[$k]="$v"; fi; }
+plist_add() { local k="$1" v="$2"; grep -Fxq -- "$v" <<<"$(plist "$k")" && return 0; if [[ -n "${P[$k]:-}" ]]; then P[$k]+=$'\n'"$v"; else P[$k]="$v"; fi; }
 plist_del() { local k="$1" v="$2"; P[$k]="$(plist "$k" | grep -Fxv -- "$v")"; }
 # Default: the existing settings.ini, otherwise a heuristic
 pinit() { local k="$1" d="$2"; if [[ -n "${OLD[$k]+x}" ]]; then P[$k]="${OLD[$k]}"; else P[$k]="$d"; fi; }
@@ -379,7 +379,7 @@ ignored_rel() { # ignored_rel <share> <relative>
         r="${r#/}"; r="${r%/}"
         [[ -z "$r" || "$r" == *[\*\?\[]* ]] && continue
         [[ "$rel" == "$r" || "$rel" == "$r/"* ]] && return 0
-    done < <(plist "share|$s|kopia_ignore")
+    done <<<"$(plist "share|$s|kopia_ignore")"
     return 1
 }
 
@@ -512,7 +512,7 @@ TXT
     pinit "kopia|ignore"           "$(printf '%s\n' .DS_Store '._*' '.Trash-*' '.Recycle.Bin/' '*@eaDir*' '*@__thumb*' '*SynoResource*')"
     # Ms. Dustdevil's storeroom never goes offsite: what lies there was backed up under its old
     # path before, and the local snapshots keep it until it is emptied (folders and datasets)
-    if ! plist "kopia|ignore" | grep -Fxq "_$UB_OFFICE_SHARE-trash*/"; then
+    if ! grep -Fxq "_$UB_OFFICE_SHARE-trash*/" <<<"$(plist "kopia|ignore")"; then
         plist_add "kopia|ignore" "_$UB_OFFICE_SHARE-trash*/"
         hint "Kopia leaves out Ms. Dustdevil's storeroom (_$UB_OFFICE_SHARE-trash) - the local snapshots keep it"
     fi
@@ -728,7 +728,7 @@ share_details() { # editing one share in detail
             say "  Child datasets:"
             while IFS='|' read -r _ c _; do
                 [[ -z "$c" ]] && continue
-                if plist "share|$s|exclude_dataset" | grep -Fxq -- "$c"; then say "                 $c  (excluded)"
+                if grep -Fxq -- "$c" <<<"$(plist "share|$s|exclude_dataset")"; then say "                 $c  (excluded)"
                 else say "                 $c"; fi
             done <<<"${INV_CHILDREN[$s]}"
         fi
@@ -750,7 +750,7 @@ share_details() { # editing one share in detail
             m) if [[ "$(pget "share|$s|method" auto)" == "auto" ]]; then pset "share|$s|method" live; else pset "share|$s|method" auto; fi ;;
             e) ask "  Dataset name" ""
                if [[ -n "$REPLY" ]]; then
-                   if plist "share|$s|exclude_dataset" | grep -Fxq -- "$REPLY"; then plist_del "share|$s|exclude_dataset" "$REPLY"
+                   if grep -Fxq -- "$REPLY" <<<"$(plist "share|$s|exclude_dataset")"; then plist_del "share|$s|exclude_dataset" "$REPLY"
                    else plist_add "share|$s|exclude_dataset" "$REPLY"; fi
                fi ;;
             "") return 0 ;;
@@ -900,7 +900,7 @@ TXT
         [[ "$(pget "share|$s|mode")" == "kopia" ]] || continue
         while IFS='|' read -r dir n; do
             [[ -z "$dir" ]] && continue
-            if [[ "$n" == "$KOPIA_CONTAINER" ]] && ! plist "share|$s|kopia_ignore" | grep -Fxq "/$dir/"; then
+            if [[ "$n" == "$KOPIA_CONTAINER" ]] && ! grep -Fxq "/$dir/" <<<"$(plist "share|$s|kopia_ignore")"; then
                 plist_add "share|$s|kopia_ignore" "/$dir/"
                 hint "Share '$s': /$dir/ belongs to the Kopia container - ignored"
             fi
@@ -1000,7 +1000,7 @@ share_known_all() {
             unset "P[$k]"; continue
         fi
         share_top_live "$s"
-        if [[ -n "${P[$k]+x}" ]] && plist "$k" | grep -Fxq '*'; then
+        if [[ -n "${P[$k]+x}" ]] && grep -Fxq '*' <<<"$(plist "$k")"; then
             :       # a collection: every folder goes, new ones too (by hand: list folders instead)
         elif [[ -n "${P[$k]+x}" ]]; then
             # recorded before: as it is; a folder that is gone drops out (only when every part is awake)

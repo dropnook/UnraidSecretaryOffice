@@ -2503,9 +2503,9 @@ asleep_plan() {
     while IFS= read -r s; do
         [[ -n "$s" ]] && inv_has_share "$s" && [[ "$(share_mode "$s")" != "off" ]] || continue
         why=""
-        while IFS= read -r b; do [[ -n "$b" && -n "${ASLEEP_BASE[$b]:-}" ]] && { why="$b"; break; }; done < <(share_bases "$s")
+        while IFS= read -r b; do [[ -n "$b" && -n "${ASLEEP_BASE[$b]:-}" ]] && { why="$b"; break; }; done <<<"$(share_bases "$s")"
         if [[ -z "$why" && "$(share_method "$s")" == "live" ]] && in_list "$s" "${PLAN_MOUNT[@]}"; then
-            while IFS= read -r b; do [[ -n "$b" && -z "${keep[$b]:-}" ]] && ub_base_sleeps "$b" && { why="$b"; break; }; done < <(share_bases "$s")
+            while IFS= read -r b; do [[ -n "$b" && -z "${keep[$b]:-}" ]] && ub_base_sleeps "$b" && { why="$b"; break; }; done <<<"$(share_bases "$s")"
             [[ -n "$why" ]] && log "  share $s (read live): $why asleep - left out of Kopia this run"
         fi
         [[ -n "$why" ]] || continue
@@ -2518,7 +2518,7 @@ asleep_plan() {
     PLAN_KOPIA=( "${kk[@]}" )
     for line in "${PLAN_KITEMS[@]}"; do
         IFS='|' read -r t n f <<<"$line"; why=""
-        while IFS='|' read -r sh _; do [[ -n "$sh" && -n "${ASLEEP_SHARE[$sh]:-}" ]] && { why="$sh"; break; }; done < <(kopia_item_parts "$t" "$n" "-")
+        while IFS='|' read -r sh _; do [[ -n "$sh" && -n "${ASLEEP_SHARE[$sh]:-}" ]] && { why="$sh"; break; }; done <<<"$(kopia_item_parts "$t" "$n" "-")"
         if [[ -n "$why" ]]; then asleep_src "$t:$n"; else ki+=( "$line" ); fi
     done
     PLAN_KITEMS=( "${ki[@]}" )
@@ -2547,7 +2547,7 @@ ct_rests() {
         while IFS= read -r b; do
             [[ -n "$b" ]] || continue
             n=$((n+1)); [[ -n "${ASLEEP_BASE[$b]:-}" ]] || return 1
-        done < <(ub_path_bases "$src")
+        done <<<"$(ub_path_bases "$src")"
         (( n > 0 )) || return 1
         any=1
     done <<<"${CT_BINDS[$1]:-}"
