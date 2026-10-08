@@ -41,6 +41,7 @@
   "common.no": "non",
   "common.none": "aucun",
   "common.unknown": "inconnu",
+  "common.docker_off": "Docker ne tourne pas",
   "common.scanned_ago": "analysé {when}",
   "common.page_help": "Comment lire cette page",
   "protect.offsite": "Kopia",

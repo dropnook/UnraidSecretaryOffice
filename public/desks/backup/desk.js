@@ -620,7 +620,8 @@ function overviewTiles() {
     const pol = state.drift && Array.isArray(state.drift.policies) ? state.drift.policies : null;
     const bad = pol ? pol.filter((p) => !p.ok).length : 0;
     const sub = [];
-    if (kc) sub.push(!kc.exists ? T('stat.kopia_missing_ct', { name: kc.name }) : kc.running ? T('stat.kopia_running', { name: kc.name }) : T('stat.kopia_stopped', { name: kc.name }));
+    if (kc) sub.push(c.up === false ? Office.t('common.docker_off')
+      : !kc.exists ? T('stat.kopia_missing_ct', { name: kc.name }) : kc.running ? T('stat.kopia_running', { name: kc.name }) : T('stat.kopia_stopped', { name: kc.name }));
     if (repoNo) sub.push(T('stat.kopia_repo_problem'));
     if (pol) sub.push(bad ? T('stat.kopia_policies_bad', { n: bad }) : T('stat.kopia_policies_ok'));
     const value = k.length ? `${okCount} / ${k.length + skipped}` : '–';
@@ -632,7 +633,9 @@ function overviewTiles() {
     if (slept) sub.push(T('stat.kopia_asleep', { n: slept }));
     tiles.push(stat(T('stat.kopia'), value, sub.join(' · '), !!trouble));
   }
-  if (c && c.total) {
+  if (c && c.up === false) {
+    tiles.push(stat(T('stat.containers'), '–', Office.t('common.docker_off')));     // Docker stopped: said, not left out (1.43)
+  } else if (c && c.total) {
     tiles.push(stat(T('stat.containers'), String(c.total), [T('stat.ct_stopped', { n: c.stopped }), T('stat.ct_kept', { n: c.kept })].join(' · ')));
   }
   // databases: dumped before every snapshot, and the newest dumps

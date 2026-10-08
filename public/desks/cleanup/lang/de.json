@@ -878,6 +878,7 @@
   },
   "where.fact.docker": "Docker: {running} von {total} laufen",
   "where.fact.vms": "VMs: {running} von {total} laufen",
+  "where.fact.vms_none": "Keine VMs",
   "where.fact.smb": {
     "zero": "niemand per SMB verbunden",
     "one": "{n} SMB-Sitzung",

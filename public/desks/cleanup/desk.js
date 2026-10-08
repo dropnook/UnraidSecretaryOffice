@@ -2339,8 +2339,8 @@ function reception() {
   if (!state) return { summary: '', findings: 0, facts: [] };
   const sys = state.system;
   const facts = [
-    T('where.fact.docker', { running: sys.docker.running, total: sys.docker.total }),
-    T('where.fact.vms', { running: sys.vms.running, total: sys.vms.total }),
+    sys.docker.up === false ? Office.t('common.docker_off') : T('where.fact.docker', { running: sys.docker.running, total: sys.docker.total }),
+    sys.vms.total ? T('where.fact.vms', { running: sys.vms.running, total: sys.vms.total }) : T('where.fact.vms_none'),
     T('where.fact.smb', { n: state.smb.sessions.length }),
   ];
   if (sys.scripts.length) facts.push(T('where.fact.scripts_running', { n: sys.scripts.length, names: sys.scripts.join(', ') }));
@@ -2420,8 +2420,10 @@ function renderStats() {
   tile(T('where.stat.array'), array.state === 'STARTED' ? T('where.stat.started') : (array.state || '?'),
     array.resync ? T('where.stat.resync', { action: array.resync.action, percent: array.resync.percent }) : (sys.mover ? T('where.stat.mover') : T('where.stat.no_parity')),
     { alert: array.state !== 'STARTED' || !!array.resync });
-  tile('Docker', `${sys.docker.running} / ${sys.docker.total}`, T('where.stat.running'), { go: () => pick('docker') });
-  tile('VMs', `${sys.vms.running} / ${sys.vms.total}`, T('where.stat.running'), { go: () => pick('vms') });
+  // Docker stopped (system.docker.up, 1.43): said so, not «0 / 0 running»; no VMs: said so too
+  if (sys.docker.up === false) tile('Docker', '–', Office.t('common.docker_off'), { go: () => pick('docker') });
+  else tile('Docker', `${sys.docker.running} / ${sys.docker.total}`, T('where.stat.running'), { go: () => pick('docker') });
+  tile('VMs', sys.vms.total ? `${sys.vms.running} / ${sys.vms.total}` : '–', sys.vms.total ? T('where.stat.running') : T('where.fact.vms_none'), { go: () => pick('vms') });
   const sessions = state.smb.sessions;
   tile(T('where.stat.smb'), fmt.number(sessions.length), sessions.map((s) => `${s.user}@${s.machine}`).join(', ') || T('where.stat.nobody'), { go: () => pick('network') });
   tile(T('where.stat.scripts'), fmt.number(sys.scripts.length), sys.scripts.join(', ') || T('where.stat.none_running'), { go: () => pick('scripts'), alert: sys.scripts.length > 0 });
@@ -2648,11 +2650,12 @@ function sectionSummary(id) {
       return { sub: unused ? T('where.sum.folders_unused', { n: unused, share: appdata.share }) : T('where.sum.folders') };
     }
     case 'docker': {
+      if (s.system.docker.up === false) return { sub: Office.t('common.docker_off') };
       const run = s.containers.filter((c) => c.state === 'running').length;
       const stopped = s.containers.filter((c) => c.autostart && c.state !== 'running').length;
       return { sub: T('where.sum.docker', { run: n(run), total: n(s.containers.length), stacks: s.compose.length }), alert: stopped > 0 };
     }
-    case 'vms': return { sub: T('where.sum.vms', { run: n(s.vms.filter((v) => v.running).length), total: n(s.vms.length) }) };
+    case 'vms': return { sub: s.vms.length ? T('where.sum.vms', { run: n(s.vms.filter((v) => v.running).length), total: n(s.vms.length) }) : T('where.fact.vms_none') };
     case 'disks': {
       const h = s.health;
       if (!h) return { sub: '' };

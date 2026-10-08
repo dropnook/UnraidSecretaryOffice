@@ -11083,6 +11083,13 @@ function testWhereDesk(): void
     $core = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
     check('where desk: her look and her measuring stay quiet (no spinner)', (bool) preg_match('/const QUIET = .*where_refresh.*where_measure/', $core));
     check('where desk: both parts on her page', str_contains($js, "part(T('part.where')") && str_contains($js, "part(T('part.tidy')"));
+    // Docker stopped (QA 2026-10-08 #13): her facts say so instead of «0 of 0 running», and so does Mr. Backupsy
+    $sys = waSystem([], [], [], ['running' => false, 'since' => null, 'step' => null]);
+    check('where desk: whether Docker and the VM service answer', is_bool($sys['docker']['up'] ?? null) && is_bool($sys['vms']['up'] ?? null));
+    check('where desk: Docker off said on her page', substr_count($js, "docker.up === false ? Office.t('common.docker_off')") >= 1
+        && str_contains($js, "if (s.system.docker.up === false) return { sub: Office.t('common.docker_off') }"));
+    $bk = (string) file_get_contents(OFFICE_DIR . '/public/desks/backup/desk.js');
+    check('backup: Docker off said on his overview', str_contains($bk, "c.up === false") && str_contains($bk, "Office.t('common.docker_off')"));
 
     // her look is kept fresh by the API (apiPart(): the server's clock, the short wait), not by the page's clock:
     // desk.json names the part and its action (officeDeskParts()), the page only reads the part — no Date.now()
