@@ -726,6 +726,7 @@
   "drill.pv_kopia": "Kopia ({name}) può scaricare fino a {size}, con una cache nuova — così viene davvero dal repository.",
   "drill.pv_kopia_off": "Il contenitore Kopia {name} non è in esecuzione — i passi di Kopia restano «non controllati».",
   "drill.pv_kopia_dumps": {"one": "1 di questi da Kopia ({names}): riletto nella RAM ({size}) e riversato — così un database torna dal solo repository.", "other": "{n} di questi da Kopia ({names}): riletti nella RAM ({size}) e riversati — così un database torna dal solo repository."},
+  "drill.pv_follow_up": {"one": "Ciò che l'ultima esercitazione ha lasciato «non controllato» viene per primo: 1 di questi.", "other": "Ciò che l'ultima esercitazione ha lasciato «non controllato» viene per primo: {n} di questi."},
   "drill.pv_asleep": "Dorme, quindi non guardato (mai svegliato): {names}.",
   "drill.pv_live": "Solo in lettura, dalle app in esecuzione (si può disattivare nelle impostazioni):",
   "drill.pv_live_catalog": "l'elenco dei database in {name}",

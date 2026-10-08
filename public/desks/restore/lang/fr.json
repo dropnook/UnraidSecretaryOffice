@@ -726,6 +726,7 @@
   "drill.pv_kopia": "Kopia ({name}) peut télécharger jusqu'à {size}, avec un cache neuf — pour que cela vienne vraiment du dépôt.",
   "drill.pv_kopia_off": "Le conteneur Kopia {name} ne tourne pas — les étapes Kopia restent « non vérifiées ».",
   "drill.pv_kopia_dumps": {"one": "{n} d'entre eux depuis Kopia ({names}) : relu en RAM ({size}) et rejoué — une base de données revient ainsi du seul dépôt.", "other": "{n} d'entre eux depuis Kopia ({names}) : relus en RAM ({size}) et rejoués — une base de données revient ainsi du seul dépôt."},
+  "drill.pv_follow_up": {"one": "Ce que le dernier exercice a laissé « non vérifié » passe en premier : {n} d'entre eux.", "other": "Ce que le dernier exercice a laissé « non vérifié » passe en premier : {n} d'entre eux."},
   "drill.pv_asleep": "Dort, donc pas regardé (jamais réveillé) : {names}.",
   "drill.pv_live": "En lecture seule, depuis les applis en marche (désactivable dans les réglages) :",
   "drill.pv_live_catalog": "la liste des bases de données de {name}",

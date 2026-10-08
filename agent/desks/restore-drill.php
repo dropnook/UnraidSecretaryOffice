@@ -535,6 +535,8 @@ function drillPlanBuild(string $scope): array
             $kopiaDumps['names'][] = $st['container'];
         }
     }
+    // a follow-up: what the last drill couldn't check (no room, out of time, Kopia not there …) comes first this time
+    [$steps, $followUp] = drillFollowUp($steps, drillCertificate());
     $estimate = 0;
     $asleep = [];
     foreach ($steps as $s) {
@@ -567,6 +569,7 @@ function drillPlanBuild(string $scope): array
         'kopia'    => $kopia,
         'kopia_mb' => $set['kopia_mb'],
         'kopia_dumps' => $kopiaDumps,
+        'follow_up' => $followUp,
         'live'     => $live,
         'asleep'   => array_values(array_unique($asleep)),
         'too_big'  => array_values(array_map(fn ($s) => ['name' => $s['container'], 'need' => drillDumpNeed($s)],
@@ -583,6 +586,44 @@ function drillPlanBuild(string $scope): array
         array_unshift($plan['blockers'], $b);
     }
     return $plan;
+}
+
+/**
+ * Follow-up drills: the steps whose item the last drill left «not checked» (dump_no_room, budget, the deadline, Kopia
+ * not there …) first, in plan order, then the rest — so drill after drill eventually covers everything. Asleep stays
+ * where it is (never woken anyway). The steps and how many came first.
+ *
+ * @return array{0: list<array>, 1: int}
+ */
+function drillFollowUp(array $steps, ?array $cert): array
+{
+    $want = [];
+    foreach ((array) ($cert['items'] ?? []) as $it) {
+        if (is_array($it) && ($it['result'] ?? '') === 'not_checked') {
+            $want[drillStepKey((string) ($it['kind'] ?? ''), (string) ($it['of'] ?? ''), (string) ($it['id'] ?? ''), (string) ($it['what'] ?? ''),
+                ($it['kind'] ?? '') === 'dump' && ($it['copy'] ?? '') === 'kopia')] = true;
+        }
+    }
+    if (!$want) {
+        return [$steps, 0];
+    }
+    $first = $rest = [];
+    foreach ($steps as $st) {
+        $key = drillStepKey($st['do'], $st['kind'], (string) $st['id'], (string) ($st['container'] ?? $st['target'] ?? $st['source'] ?? (isset($st['file']) ? basename((string) $st['file']) : '')),
+            $st['do'] === 'dump' && ($st['copy'] ?? '') === 'kopia');
+        if (isset($want[$key])) {
+            $first[] = $st + ['follow_up' => true];
+        } else {
+            $rest[] = $st;
+        }
+    }
+    return [[...$first, ...$rest], count($first)];
+}
+
+/** A step's identity across drills (the certificate's items say the same): what, of what, which part — a dump from Kopia apart */
+function drillStepKey(string $do, string $of, string $id, string $what, bool $kopiaDump): string
+{
+    return implode("\x1f", [$do, $of, $id, $what, $kopiaDump ? 'kopia' : '']);
 }
 
 /** Seconds a step takes, roughly (the preview, the deadline) */

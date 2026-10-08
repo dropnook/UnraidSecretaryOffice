@@ -726,6 +726,7 @@
   "drill.pv_kopia": "Kopia ({name}) puede descargar hasta {size}, con una caché nueva — para que venga de verdad del repositorio.",
   "drill.pv_kopia_off": "El contenedor de Kopia {name} no está en marcha — los pasos de Kopia quedan «sin comprobar».",
   "drill.pv_kopia_dumps": {"one": "1 de ellos desde Kopia ({names}): releído en la RAM ({size}) y volcado — así una base de datos vuelve solo desde el repositorio.", "other": "{n} de ellos desde Kopia ({names}): releídos en la RAM ({size}) y volcados — así una base de datos vuelve solo desde el repositorio."},
+  "drill.pv_follow_up": {"one": "Lo que el último simulacro dejó «sin comprobar» va primero: 1 de ellos.", "other": "Lo que el último simulacro dejó «sin comprobar» va primero: {n} de ellos."},
   "drill.pv_asleep": "Duerme, así que no se mira (nunca se despierta): {names}.",
   "drill.pv_live": "Solo lectura, de las apps en marcha (se puede desactivar en los ajustes):",
   "drill.pv_live_catalog": "la lista de bases de datos de {name}",

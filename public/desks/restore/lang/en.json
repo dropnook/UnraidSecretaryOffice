@@ -726,6 +726,7 @@
   "drill.pv_kopia": "Kopia ({name}) may download up to {size}, with a fresh cache — so it really comes from the repository.",
   "drill.pv_kopia_off": "The Kopia container {name} isn't running — the Kopia steps stay «not checked».",
   "drill.pv_kopia_dumps": {"one": "1 of them from Kopia ({names}): read back into RAM ({size}) and played — so a database comes back from the repository alone.", "other": "{n} of them from Kopia ({names}): read back into RAM ({size}) and played — so a database comes back from the repository alone."},
+  "drill.pv_follow_up": {"one": "What the last drill left «not checked» comes first: 1 of them.", "other": "What the last drill left «not checked» comes first: {n} of them."},
   "drill.pv_asleep": "Asleep, so not looked at (never woken): {names}.",
   "drill.pv_live": "Read only, from the live apps (you can switch it off in the settings):",
   "drill.pv_live_catalog": "the list of databases in {name}",

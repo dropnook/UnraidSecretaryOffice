@@ -387,6 +387,7 @@ function previewView(p) {
   box.appendChild(ul);
   const kd = p.kopia_dumps || {};
   if (kd.n) box.appendChild(el('p', 'role', T('drill.pv_kopia_dumps', { n: kd.n, names: (kd.names || []).join(', '), size: x.fmt.size(kd.bytes || 0) })));
+  if (p.follow_up) box.appendChild(el('p', 'role', T('drill.pv_follow_up', { n: p.follow_up })));
   box.appendChild(el('p', 'role', T('drill.pv_time', { time: x.fmt.duration(Math.max(60, p.estimate || 0)), until: x.fmt.time(p.deadline) })
     + (p.next_backup ? ' ' + T('drill.pv_next', { when: x.date(p.next_backup) }) : '')));
   box.appendChild(el('p', 'role', T('drill.pv_ram', { size: x.fmt.size(p.ram || 0) })));

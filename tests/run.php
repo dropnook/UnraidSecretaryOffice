@@ -16525,6 +16525,25 @@ function testRestoreDrill(): void
         drillDue(['schedule' => 'weekly'] + $set, $run, ['last' => ['started' => $night - 3 * 86400]], null, $old, $night)]);
     same('drill due: «with warnings» counts as a run that went well', 'monthly', drillDue($set, ['result' => 'warnings'] + $run, null, null, $old, $night));
 
+    // ---- follow-up drills: what the last drill left «not checked» comes first (plan order), the rest after it
+    $fsteps = [['do' => 'package', 'kind' => 'app', 'id' => 'immich', 'name' => 'immich'],
+               ['do' => 'dump', 'kind' => 'app', 'id' => 'immich', 'name' => 'immich', 'container' => 'immich_postgres', 'file' => 'db/a.sql.gz'],
+               ['do' => 'dump', 'kind' => 'app', 'id' => 'nc', 'name' => 'nc', 'container' => 'nc-db', 'file' => 'db/b.sql.gz'],
+               ['do' => 'kopia', 'kind' => 'share', 'id' => 'appdata', 'name' => 'appdata', 'source' => 'appdata'],
+               ['do' => 'vmdisk', 'kind' => 'vm', 'id' => 'Win', 'name' => 'Win', 'target' => 'hdc', 'source' => '/mnt/user/domains/Win/vdisk1.img'],
+               ['do' => 'dump', 'copy' => 'kopia', 'kind' => 'app', 'id' => 'immich', 'name' => 'immich', 'container' => 'immich_postgres', 'file' => 'db/a.sql.gz', 'source' => '.apps/immich']];
+    $fcert = ['items' => [
+        ['kind' => 'dump', 'of' => 'app', 'id' => 'nc', 'what' => 'nc-db', 'copy' => 'snapshot', 'result' => 'not_checked', 'code' => 'dump_no_room'],
+        ['kind' => 'dump', 'of' => 'app', 'id' => 'immich', 'what' => 'immich_postgres', 'copy' => 'kopia', 'result' => 'not_checked', 'code' => 'budget'],
+        ['kind' => 'vmdisk', 'of' => 'vm', 'id' => 'Win', 'what' => 'hdc', 'copy' => 'snapshot', 'result' => 'asleep', 'code' => 'asleep'],
+        ['kind' => 'dump', 'of' => 'app', 'id' => 'immich', 'what' => 'immich_postgres', 'copy' => 'snapshot', 'result' => 'ok', 'code' => 'verify_ok']]];
+    [$fs, $fn] = drillFollowUp($fsteps, $fcert);
+    same('drill follow-up: «not checked» last time (no room, out of time) first, in plan order — a dump from Kopia apart from the local one; asleep stays',
+        [2, ['dump:nc', 'dump:immich:kopia', 'package:immich', 'dump:immich:', 'kopia:appdata', 'vmdisk:Win'], [true, true]],
+        [$fn, array_map(fn ($x) => $x['do'] . ':' . $x['id'] . ($x['do'] === 'dump' && $x['id'] === 'immich' ? ':' . ($x['copy'] ?? '') : ''), $fs), [$fs[0]['follow_up'] ?? null, $fs[1]['follow_up'] ?? null]]);
+    same('drill follow-up: nothing left last time, or no drill yet — the plan as it is', [[$fsteps, 0], [$fsteps, 0]],
+        [drillFollowUp($fsteps, ['items' => [['kind' => 'dump', 'of' => 'app', 'id' => 'nc', 'what' => 'nc-db', 'result' => 'ok']]]), drillFollowUp($fsteps, null)]);
+
     // ---- the settings: each field only when sent, only in its shape
     drillSet(['schedule' => 'weekly', 'kopia_mb' => 0]);
     same('drill settings: kept (root only), defaults for the rest', ['weekly', 0, true, true, '0600'],
