@@ -1295,12 +1295,14 @@ Office.placesFrom(ID, (s) => {
 // his places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys): the
 // main page, then the setup's (#/emby/setup)
 const SETUP = { route: '#/emby/setup', crumb: 'setup_open' };
+// (the overview, the shares and what lies on the pool only once he is set up — core.js shown; not known yet: listed)
+const configured = () => !state || !!state.configured;
 Office.places(ID, [
-  { kind: 'section', key: 'overview' },
-  { kind: 'section', key: 'shares' },
+  { kind: 'section', key: 'overview', shown: configured },
+  { kind: 'section', key: 'shares', shown: configured },
   { kind: 'section', key: 'gather' },
   { kind: 'section', key: 'history' },
-  { kind: 'section', key: 'on_pool' },
+  { kind: 'section', key: 'on_pool', shown: configured },
   { kind: 'section', key: 'tools' },
   ...['import.title', 'setup.server', 'setup.libraries', 'setup.users', 'setup.scope', 'setup.more'].map((key) => ({ kind: 'step', key, ...SETUP })),
   ...[['report', 'help.report'], ['mode.dry', 'help.dry'], ['mode.run', 'help.run'], ['gather', 'help.gather_text']]

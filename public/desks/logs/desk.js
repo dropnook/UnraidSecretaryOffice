@@ -905,9 +905,10 @@ Office.desk({
 Office.places(ID, [
   { kind: 'section', key: 'tour_section' },
   { kind: 'section', key: 'reading' },
-  { kind: 'tile', key: 'varlog.title', route: '#/logs/varlog' },
-  { kind: 'tile', key: 'docker.title', route: '#/logs/docker' },
-  { kind: 'tile', key: 'tile.found', route: '#/logs/found' },
+  // what a tile opens is drawn only after a tour (none yet: «no tour», her tour's section, is where the search lands)
+  { kind: 'tile', key: 'varlog.title', route: '#/logs/varlog', part: 'tour_section' },
+  { kind: 'tile', key: 'docker.title', route: '#/logs/docker', part: 'tour_section' },
+  { kind: 'tile', key: 'tile.found', route: '#/logs/found', part: 'tour_section' },
   { kind: 'help', key: 'tour', text: 'help.tour_text' },
   { kind: 'help', key: 'live', text: 'help.live' },
   { kind: 'help', key: 'only_problems', text: 'help.only' },

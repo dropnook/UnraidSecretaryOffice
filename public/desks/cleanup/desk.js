@@ -209,6 +209,11 @@ Office.desk({
       «tidy/<room>», «where/<corner>» (the search's places): that tile open (the search brings it into view) */
   mount(root, sub) {
     const [where, tile] = String(sub || '').split('/');
+    // A tile's sub-route is the search's way in (her tiles, her rooms' items, «Where is what»'s — every hit on her page
+    // comes through one; Office.goToPlace() mounts anew even on the same address): the page's filter could hide the row
+    // it goes to («not there»), so it starts empty — here and not in a hook of Office.reveal(), which knows no desk's
+    // filter. A tile clicked on the page never comes this way: its filter stays.
+    if (tile && (where === 'tidy' || where === 'where')) query = '';
     if (where === 'tidy' && SECTIONS.includes(tile)) { section = tile; Office.store('cleanup.section', tile); }
     if (where === 'where' && tile) Where.choose(tile);
     view = build(root);
@@ -3390,10 +3395,13 @@ Office.places(ID, [
   { kind: 'section', key: 'where.adv.title', route: '#/cleanup/where' },
   { kind: 'section', key: 'where.places', route: '#/cleanup/where' },
   { kind: 'section', key: 'where.details_title', route: '#/cleanup/where' },
-  ...Where.sections.map((id) => ({ kind: 'tile', key: `where.section.${id}`, route: `#/cleanup/where/${id}`, anchor: `where.${id}` })),
+  ...Where.sections.map((id) => ({ kind: 'tile', key: `where.section.${id}`, route: `#/cleanup/where/${id}`, anchor: `where.${id}`, part: 'part.where' })),
   { kind: 'section', key: 'part.tidy', route: '#/cleanup/tidy' },
   { kind: 'section', key: 'rooms', route: '#/cleanup/tidy' },
-  ...SECTIONS.map((sec) => ({ kind: 'tile', key: `section.${sec}`, route: `#/cleanup/tidy/${sec}`, anchor: `room.${sec}`, text: `section.${sec}_sub` })),
+  // a room only while she shows its tile (visible(): VMs with the VM service, Docker's rooms with Docker, what partners
+  // left and what restores left only when there is some); her state not known yet: listed
+  ...SECTIONS.map((sec) => ({ kind: 'tile', key: `section.${sec}`, route: `#/cleanup/tidy/${sec}`, anchor: `room.${sec}`, text: `section.${sec}_sub`,
+    shown: () => !state || visible(sec), part: 'part.tidy' })),
   { kind: 'help', key: 'part.where', text: 'part.where_sub' },
   { kind: 'help', key: 'part.tidy', text: 'part.tidy_sub' },
   ...['labels', 'tiles', 'copy', 'rows', 'search', 'tour', 'asleep'].map((x) => ({ kind: 'help', key: `where.help.${x}`, text: `where.help.${x}_text` })),
@@ -3416,4 +3424,9 @@ Office.placesFrom(ID, (s, part) => {
   }
   return out.slice(0, ROOM_ITEMS);
 });
+
+// tests/run.php runs this under node (Unraid's own) - never set in a browser
+if (globalThis.OFFICE_DESK_TESTS) {
+  globalThis.OFFICE_DESK_TESTS.cleanup = { query: () => query, setQuery: (q) => { query = q; }, setState: (s) => { state = s; } };
+}
 })();
