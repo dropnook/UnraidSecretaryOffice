@@ -19601,10 +19601,15 @@ function testBackupLetGo(): void
     @unlink($args);
     $GLOBALS['snapshot'] = null;
 
-    // the request needs confirm (true, nothing else) — never the clearing without it
+    // the request needs confirm (true, nothing else) — never the clearing without it; he is still hired while he clears
+    // (the agent refuses unhired desks' actions since smallfix3: a staff file that hires him)
+    $staffBefore = $GLOBALS['agentStaffFile'] ?? null;
+    $GLOBALS['agentStaffFile'] = TESTS_RUN_DIR . '/letgo-staff.json';
+    file_put_contents($GLOBALS['agentStaffFile'], json_encode(['hired' => ['backup' => 1]]));
     same('let go: backup.letgo_clear without confirm, or confirm not true — refused', ['bad_request', 'bad_request', 'bad_request'],
         [handle(json_encode(['action' => 'backup.letgo_clear']))['error']['key'] ?? 'ok', handle(json_encode(['action' => 'backup.letgo_clear', 'confirm' => 'yes']))['error']['key'] ?? 'ok',
          handle(json_encode(['action' => 'backup.letgo_clear', 'confirm' => 1]))['error']['key'] ?? 'ok']);
+    $GLOBALS['agentStaffFile'] = $staffBefore;
 
     // the clearing
     $r = backupLetGoDo($place, false, $parts, $prefixes, '.btrfs-snap');
