@@ -348,7 +348,7 @@ and the agent restarts itself (after `php -l`) when one of its files changes.
 
 The office is free and complete — nothing is locked, now or later. If it is useful to you, a tip
 is welcome: the tip jar in the office (the Team Lead's *Tips & pay rise*) or
-[PayPal](https://paypal.me/vipermark2); a share goes to helmi1987 (see below). If the tips ever exceed what our work
+[PayPal](https://paypal.me/dropnook); a share goes to helmi1987 (see below). If the tips ever exceed what our work
 costs, we give the rest to animal shelters that urgently need financial support. With a tip you
 get a **supporter key** — the tip jar says how; it shows the server ID the key is made for.
 The key unlocks nothing — it just says thank you: the office stops reminding you of the tip jar

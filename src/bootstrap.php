@@ -16,7 +16,7 @@ declare(strict_types=1);
 
 const OFFICE_VERSION = '1.37.0';
 // where the tip jar leads after hiring someone ('' = no button, only the thank-you)
-const OFFICE_TIP_URL = 'https://paypal.me/vipermark2';
+const OFFICE_TIP_URL = 'https://paypal.me/dropnook';
 // the support page (PayPal checkout that shows the supporter key right after the tip, and again for a lost one):
 // set, the tip jar's main button opens <url>?id=<server ID>&lang=<language> instead of OFFICE_TIP_URL ('' = not yet)
 const OFFICE_SUPPORT_URL = '';
