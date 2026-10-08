@@ -908,10 +908,10 @@ function snapshotUnmount(array $s): array
             [$exit, , $err] = run([$umount, $m['mount']], 60);
         }
         if ($exit !== 0) {
-            logLine("Unmount failed: {$m['mount']} — " . trim($err));
+            logLine("Ms. Snapshotini: unmount failed: {$m['mount']} — " . trim($err));
             throw new Problem('unmount_failed', ['path' => $m['mount'], 'detail' => trim($err), 'done' => implode(', ', $done)]);
         }
-        logLine("Unmounted: {$m['mount']} ({$m['fs']} {$m['source']})");
+        logLine("Ms. Snapshotini: unmounted {$m['mount']} ({$m['fs']} {$m['source']})");
         $done[] = $m['mount'];
         // tidy up empty mount points in the backup script's area, like it does itself
         if (inBackupRoots($m['mount'], $roots) && is_dir($m['mount']) && !(new FilesystemIterator($m['mount']))->valid()) {
@@ -1111,10 +1111,10 @@ function snapshotCreate(array $r): array
         [$exit, , $err] = run(array_merge([$zfs, 'snapshot'], $args), 120);   // atomic per pool
         if ($exit !== 0) {
             $failures[] = ['key' => 'create_failed', 'params' => ['target' => $pool, 'detail' => trim($err)]];
-            logLine("Create on $pool failed: " . trim($err));
+            logLine("Ms. Snapshotini: create on $pool failed: " . trim($err));
             continue;
         }
-        logLine('Created: ' . implode(', ', $args));
+        logLine('Ms. Snapshotini: created ' . implode(', ', $args));
         foreach ($args as $x) {
             $created[] = "zfs:$x";
         }
@@ -1139,10 +1139,10 @@ function snapshotCreate(array $r): array
         [$exit, , $err] = run([bin('btrfs'), 'subvolume', 'snapshot', '-r', $mount, $target], 120);
         if ($exit !== 0) {
             $failures[] = ['key' => 'create_failed', 'params' => ['target' => $mount, 'detail' => trim($err)]];
-            logLine("btrfs snapshot $target failed: " . trim($err));
+            logLine("Ms. Snapshotini: btrfs snapshot $target failed: " . trim($err));
             continue;
         }
-        logLine("Created: $target (btrfs)");
+        logLine("Ms. Snapshotini: created $target (btrfs)");
         $created[] = "btrfs:$target";
     }
 
@@ -1207,7 +1207,7 @@ function snapshotDelete(array $ids, bool $unmount = false, bool $wake = false): 
             [$exit, , $err] = run([$zfs, 'destroy', $arg], 600);
             if ($exit !== 0) {
                 $failures[] = ['key' => 'command_failed', 'params' => ['detail' => trim($err)]];
-                logLine("Delete failed: $arg — " . trim($err));
+                logLine("Ms. Snapshotini: delete failed: $arg — " . trim($err));
             } else {
                 snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => $ds, 'names' => array_values($batch)]);
                 logLine("Deleted: $arg");
@@ -1218,7 +1218,7 @@ function snapshotDelete(array $ids, bool $unmount = false, bool $wake = false): 
         [$exit, , $err] = run([bin('btrfs'), 'subvolume', 'delete', $path], 300);
         if ($exit !== 0) {
             $failures[] = ['key' => 'command_failed', 'params' => ['detail' => "$path: " . trim($err)]];
-            logLine("Delete failed: $path — " . trim($err));
+            logLine("Ms. Snapshotini: delete failed: $path — " . trim($err));
         } else {
             snapshotRecord(['do' => 'deleted', 'fs' => 'btrfs', 'path' => $path]);
             logLine("Deleted: $path (btrfs)");

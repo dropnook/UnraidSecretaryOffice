@@ -42,6 +42,10 @@ function officePageConfig(): array
         'tip_url'   => OFFICE_TIP_URL,
         'support_url' => OFFICE_SUPPORT_URL,
         'sponsor_url' => OFFICE_SPONSOR_URL,
+        // «Report a problem or a wish…» (core.js Office.reportDialog()): only with an inbox; the agent sends, never the page
+        'report'    => officeFeedbackUrl() !== '',
+        'issues_url' => OFFICE_ISSUES_URL,
+        'forum_url' => OFFICE_FORUM_URL,
         'supporter' => officeSupporterPage(),     // the supporter key: a thank-you, it unlocks nothing (supporter.php)
         'base'      => officeWebBase(),
         'reception_icon' => officeAsset('assets/reception.svg'),

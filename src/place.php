@@ -22,6 +22,28 @@ const OFFICE_PLUGIN_CFG = '/boot/config/plugins/' . OFFICE_PLUGIN . '/' . OFFICE
 // beyond this version (caretakerUnraidTested()). Raise it (and with a new major the .plg's max) only once tested.
 const OFFICE_UNRAID_TESTED = '7.3';
 
+// «Report a problem or a wish…» (agent/lib/report.php): the makers' inbox — a Cloudflare Worker that turns a report into
+// an issue in a private GitHub repository. Shared by the web side (the menu item shows only with an address) and the
+// agent (the only one that sends — never without the user's click on «Send»). '' = the feature is hidden. A line
+// FEEDBACK_URL="http://<host>:<port>" in the plugin's .cfg on the flash points it elsewhere (tests: a Worker on the
+// developer's machine) — officeFeedbackUrl().
+const OFFICE_FEEDBACK_URL = 'https://feedback.uso.dropnook.app';
+
+/**
+ * Where reports go: FEEDBACK_URL of the plugin's .cfg when it is set and an address of exactly the shape
+ * http(s)://<host>[:<port>] (no path, no user, nothing else — read like DATA_DIR), else OFFICE_FEEDBACK_URL. $cfg: the
+ * tests' own file.
+ */
+function officeFeedbackUrl(string $cfg = OFFICE_PLUGIN_CFG): string
+{
+    $set = @parse_ini_file($cfg, false, INI_SCANNER_RAW) ?: [];
+    $url = is_string($set['FEEDBACK_URL'] ?? null) ? trim($set['FEEDBACK_URL'], " \t\"'") : '';
+    if ($url !== '' && preg_match('#^https?://[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?(?::[0-9]{1,5})?/?$#D', $url)) {
+        return rtrim($url, '/');
+    }
+    return OFFICE_FEEDBACK_URL;
+}
+
 /** The .plg's max for the tested version: <major>.99.99 */
 function officeUnraidMax(string $tested = OFFICE_UNRAID_TESTED): string
 {

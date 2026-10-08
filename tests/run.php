@@ -18370,13 +18370,343 @@ function agentPhpErrorSilenced(callable $log): void
     agentPhpError(E_WARNING, 'silenced', '/x/y.php', 1, $log, 5000);
 }
 
+/**
+ * «Report a problem or a wish…» (agent/lib/report.php): the scrubber over crafted lines — paths (a film with spaces),
+ * shares, pools, the server's and partners' names, users, addresses (IPv4, IPv6), MACs, mails, tokens, URLs with a
+ * password, known secrets (one split by a control character) — nothing of them survives, and scrubbing twice is once;
+ * the label map complete for every desk and every logLine() a desk writes; the desk's lines from agent.log; the preview's
+ * parts, its token in RAM (0600) and no request; the report ID; the weekly pre-check; one send per token; the send
+ * against a stand-in inbox (php -S) with every answer the Worker may give (and none at all); reports.json's shape; the
+ * strict readers; the .cfg override of the inbox's address.
+ */
+function testReport(): void
+{
+    $tmp = hardeningTmp('report');
+    @mkdir("$tmp/shares");
+    @mkdir("$tmp/pools");
+    @mkdir("$tmp/partner");
+    @mkdir("$tmp/office", 0700);
+    @mkdir("$tmp/run", 0700);
+    $guid = '0781-5583-3311-A1B2C3D4E5F6';
+    file_put_contents("$tmp/var.ini", "regGUID=\"$guid\"\nflashGUID=\"0951-1666-4C02-ABCDEF012345\"\ncsrf_token=\"0123456789ABCDEF\"\n");
+    file_put_contents("$tmp/ident.cfg", "NAME=\"Nostromo\"\n");
+    foreach (['Media', 'Backups', 'Fotos Familie', 'appdata', 'system'] as $s) {
+        touch("$tmp/shares/$s.cfg");
+    }
+    foreach (['cache', 'hive'] as $p) {
+        touch("$tmp/pools/$p.cfg");
+    }
+    file_put_contents("$tmp/passwd", "root:x:0:0::/root:/bin/bash\nnobody:x:99:100::/:/bin/false\nbenj:x:1000:100::/:/bin/false\n");
+    $sshKey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHkz9nq1Wc1o2Fv7Kp0Qm3yXcT5bLr8dE4uS6aJ0hN2i uso-partner:p1';
+    file_put_contents("$tmp/partner/pairs.json", json_encode(['v' => 1, 'pairs' => [['id' => 'p1', 'name' => 'Tower', 'address' => 'tower.lan', 'my_key' => $sshKey]]]));
+    file_put_contents("$tmp/emby.json", json_encode(['instances' => [['url' => 'http://10.0.0.5:8096', 'api_key' => 'abcdef0123456789abcdef']]]));
+    file_put_contents("$tmp/supporter.json", json_encode(['key' => 'USO1.eyJ2IjoxfQ.MEUCIQD-sig']));
+    $ctx = ['var_ini' => "$tmp/var.ini", 'ident' => "$tmp/ident.cfg", 'shares_dir' => "$tmp/shares", 'pools_dir' => "$tmp/pools", 'mounts' => ['/mnt/disk1', '/mnt/user', '/mnt/hive'],
+            'passwd' => "$tmp/passwd", 'partner_dir' => "$tmp/partner", 'emby_settings' => "$tmp/emby.json", 'supporter' => "$tmp/supporter.json",
+            'report_id_file' => "$tmp/office/report-id", 'hostname' => 'nostromo', 'reports' => "$tmp/office/reports.json", 'run_dir' => "$tmp/run",
+            'hired' => ['caretaker', 'snapshot', 'backup'], 'unraid_version' => "$tmp/unraid-version", 'log' => "$tmp/agent.log"];
+    file_put_contents("$tmp/unraid-version", "version=\"7.3.2\"\n");
+
+    // the report ID: of its own, kept, never the tip page's server ID
+    $id = reportId($ctx);
+    same('report: the ID is sha256("uso-report:" + GUID)', hash('sha256', 'uso-report:' . strtoupper($guid)), $id);
+    same('report: … kept in data/office/report-id, 0600', ["$id\n", '600'], [(string) @file_get_contents("$tmp/office/report-id"), decoct(fileperms("$tmp/office/report-id") & 0777)]);
+    file_put_contents("$tmp/var2.ini", "regGUID=\"FFFF-0000-1111-222222222222\"\n");
+    same('report: … made once (another GUID later keeps it)', $id, reportId(['var_ini' => "$tmp/var2.ini"] + $ctx));
+    check('report: … unlinkable to the tip page\'s server ID', !str_contains(strtoupper($id), strtoupper(substr(hash('sha256', 'uso-supporter:' . strtoupper($guid)), 0, 16))));
+
+    // the scrubber
+    $know = reportKnow($ctx);
+    same('report: shares and pools numbered by their names (Unraid\'s own shares kept)', [['Backups' => '‹share-1›', 'Fotos Familie' => '‹share-2›', 'Media' => '‹share-3›'], ['cache' => '‹pool-1›', 'hive' => '‹pool-2›']],
+        [$know['shares'], $know['pools']]);
+    $lines = [
+        'moved /mnt/user/Media/My Film (2020)/My Film.mkv: done' => 'moved /mnt/user/‹share-3›/…: done',
+        'copied to /mnt/hive/Media/My Film (2020)/My Film.mkv' => 'copied to /mnt/‹pool-2›/‹share-3›/…',
+        'reads /mnt/user/appdata/UnraidSecretaryOffice/data/x.json' => 'reads /mnt/user/appdata/…',
+        'reads "/mnt/disk1/Fotos Familie/2024/a.jpg", "/mnt/cache/Backups"' => 'reads "/mnt/disk1/‹share-2›/…", "/mnt/‹pool-1›/‹share-1›"',
+        'at 10.0.0.5. Then 192.168.7.59:8096/x, [fe80::1] and fd00::1234:5678; not 17:02:11' => 'at …. Then …:8096/x, […] and …; not 17:02:11',
+        'created hive/Media@uso-backup-20261008-0300, cache/Backups/sub@manual' => 'created ‹pool-2›/‹share-3›@uso-backup-20261008-0300, ‹pool-1›/‹share-1›/…@…',
+        'Tower (tower.lan) answered from 192.168.7.59 and fd00::1234:5678 via 3c:7c:3f:12:34:56' => '‹partner-1› (‹partner-2›) answered from … and … via 3c:7c:3f:…',
+        'mail benj@example.com from nostromo, user benj' => 'mail ‹mail› from ‹server›, user ‹user-1›',
+        'token ghp_0123456789abcdefABCDEF0123456789abcd and api_key=hunter2' => 'token … and api_key=…',
+        'GET https://admin:hunter2@nas.example.org:8443/api?key=x and https://github.com/dropnook/x' => 'GET https://‹host›/… and https://github.com/…',
+        "key abcdef01\x0123456789abcdef in a line, csrf 0123456789ABCDEF, GUID $guid" => 'key ••• in a line, csrf •••, GUID •••',
+        'the share Media is missing; Backups too; pool hive asleep' => 'the share ‹share-3› is missing; ‹share-1› too; pool ‹pool-2› asleep',
+        'backup.sh ran on Nostromo, ' . $sshKey => 'backup.sh ran on ‹server›, •••',
+        'cleared /boot/config/plugins/dynamix.my.servers/x.cfg: ok' => 'cleared /boot/config/plugins/dynamix.my.servers/…: ok',
+        'cleared /tmp/secret/stuff: ok' => 'cleared <path>: ok',
+        'kept /usr/local/emhttp/plugins/unraid-secretary-office/agent/agent.php' => 'kept /usr/local/emhttp/plugins/unraid-secretary-office/…',
+        'disk "/mnt/remotes/NAS_films" and /mnt/addons/UnraidSecretaryOffice/metrics' => 'disk "/mnt/remotes/…" and /mnt/addons/UnraidSecretaryOffice/…',
+        'id 123e4567-e89b-12d3-a456-426614174000 done' => 'id <uuid> done',
+    ];
+    $leaks = ['Media', 'Backups', 'Fotos', 'hive', 'Tower', 'tower.lan', '192.168', 'fd00', '12:34:56', 'benj', 'example', 'Nostromo', 'nostromo', 'ghp_', 'hunter2', 'admin',
+              'abcdef0123', '0123456789ABCDEF', $guid, 'AAAAC3', 'NAS_films', '/tmp/secret', 'My Film', '426614174000'];
+    foreach ($lines as $line => $want) {
+        $seen = [];
+        $got = reportScrub($line, $know, $seen);
+        same('report: scrubbed — ' . mb_substr($line, 0, 50), $want, $got);
+        foreach ($leaks as $l) {
+            check("report: «{$l}» doesn't survive in «" . mb_substr($line, 0, 40) . '»', !str_contains($got, $l), $got);
+        }
+        same('report: scrubbing twice is once — ' . mb_substr($line, 0, 40), $got, reportScrub($got, $know));
+    }
+    $seen = [];
+    reportScrub('the share Media on hive', $know, $seen);
+    same('report: what was hidden, for the preview only', ['‹pool-2›' => 'hive', '‹share-3›' => 'Media'], (ksort($seen) ? $seen : $seen));
+    same('report: a line is cut at 400 characters', 400, mb_strlen(reportScrub(str_repeat('word ', 200), $know)));
+    same('report: Ms. Protocolli\'s comparing keeps its <path>', 'moved <path> to "<path>"', logsNormalizePaths('moved /mnt/user/Media/a.mkv to "/x/y z.mkv"'));
+
+    // the label map: every desk, every logLine() of a desk starts with one of its labels
+    same('report: a label for every desk (and the office)', [], array_values(array_diff(array_merge(['office'], array_keys(desks())), array_keys(REPORT_LOG_LABELS))));
+    same('report: … and none for a desk that isn\'t', [], array_values(array_diff(array_keys(REPORT_LOG_LABELS), array_merge(['office'], array_keys(desks())))));
+    $files = [];
+    foreach (glob(OFFICE_DIR . '/agent/desks/*.php') ?: [] as $f) {
+        $files[$f] = explode('-', basename($f, '.php'))[0];
+    }
+    foreach (['snapshotplans' => 'snapshot', 'where' => 'cleanup', 'partner' => 'caretaker', 'metrics' => 'office', 'house' => 'office', 'report' => 'office'] as $lib => $desk) {
+        $files[OFFICE_DIR . "/agent/lib/$lib.php"] = $desk;
+    }
+    $files[OFFICE_DIR . '/agent/agent.php'] = 'office';
+    // calls whose text isn't a literal — each looked at: Held:/Released: are labels; metricsNote()'s texts start
+    // «Metrics:» (checked below); the agent's own with a variable in front are the office's anyway
+    $notLiteral = ["(\$on ? 'Held: '", '$text', '$pinGone', '"$why', '"$dir'];
+    $unlabelled = [];
+    foreach ($files as $f => $desk) {
+        $src = (string) file_get_contents($f);
+        preg_match_all('/(?<![\w$>:])(?:logLine\(\s*(?:sprintf\(\s*)?|metricsNote\([^,()]+,\s*)(\'(?:\\\\.|[^\'\\\\])*\'|"(?:\\\\.|[^"\\\\])*"|[^\'")\s][^),]*)/', $src, $m);
+        foreach ($m[1] as $arg) {
+            if (str_starts_with($arg, 'string $text') || array_filter($notLiteral, fn ($x) => str_starts_with($arg, $x))) {
+                continue;
+            }
+            $text = in_array($arg[0], ["'", '"'], true) ? stripcslashes(substr($arg, 1, -1)) : $arg;
+            if (!preg_match('/^\$id: /', $text) && reportLabelOf($text, array_merge(REPORT_LOG_LABELS[$desk], $desk === 'office' ? [] : REPORT_LOG_OWN_LABELS)) === null) {
+                $unlabelled[] = basename($f) . ': ' . mb_substr($text, 0, 50);
+            }
+        }
+    }
+    same('report: every logLine() a desk writes starts with one of its labels', [], $unlabelled);
+
+    // the desk's lines from agent.log (and .1): its own, «<id>:», and the agent's start and errors
+    file_put_contents("$tmp/agent.log.1", "2026-10-08 09:00:00  Agent started (v1.43.0, PID 1, desks: caretaker)\n2026-10-08 09:00:01  Ms. Snapshotini: plan p saved\n");
+    file_put_contents("$tmp/agent.log", "2026-10-08 10:00:00  Backup: started backup.sh (run) via at\n"
+        . "2026-10-08 10:00:01  Deleted: hive/Media@uso-plan-daily-20261001-0100\n"
+        . "2026-10-08 10:00:02  snapshot: checks failed: /mnt/user/Media is gone\n"
+        . "2026-10-08 10:00:03  Error: x (y.php:1)\n"
+        . "2026-10-08 10:00:04  Ms. Snapshotini: created hive/Media@manual\n");
+    same('report: the desk\'s lines in their order, from both files', ['2026-10-08 09:00:00  Agent started (v1.43.0, PID 1, desks: caretaker)', '2026-10-08 09:00:01  Ms. Snapshotini: plan p saved',
+        '2026-10-08 10:00:01  Deleted: hive/Media@uso-plan-daily-20261001-0100', '2026-10-08 10:00:02  snapshot: checks failed: /mnt/user/Media is gone',
+        '2026-10-08 10:00:03  Error: x (y.php:1)', '2026-10-08 10:00:04  Ms. Snapshotini: created hive/Media@manual'], reportLogLines('snapshot', 40, "$tmp/agent.log"));
+    same('report: … at most n of the desk\'s', ['2026-10-08 10:00:03  Error: x (y.php:1)', '2026-10-08 10:00:04  Ms. Snapshotini: created hive/Media@manual'],
+        array_slice(reportLogLines('snapshot', 1, "$tmp/agent.log"), -2));
+    $seen = [];
+    same('report: the log part scrubbed, the time and label as they are', "2026-10-08 09:00:00  Agent started (v1.43.0, PID 1, desks: caretaker)\n2026-10-08 10:00:00  Backup: started backup.sh (run) via at\n2026-10-08 10:00:03  Error: x (y.php:1)",
+        reportLog('backup', $know, $seen, "$tmp/agent.log"));
+
+    // the preview: its parts, the defaults, the token in RAM, no request
+    $words = ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => "It ran twice at 03:00 on 192.168.7.59.\nWhy?", 'name' => 'benj_forum'];
+    $ask = $words + ['lang' => 'de', 'browser' => 'de', 'error' => ['key' => 'command_failed', 'params' => ['detail' => 'zfs: /mnt/hive/Media busy'], 'at' => 1760000000]];
+    $pv = reportPreview($ask, $ctx + ['now' => 1760000100]);
+    same('report: the preview\'s parts', ['versions', 'unraid', 'language', 'team', 'error', 'log'], array_keys($pv['parts']));
+    same('report: … versions, Unraid, languages, the team', [['office' => AGENT_VERSION], '7.3.2', ['lang' => 'de', 'browser' => 'de'], ['backup', 'caretaker', 'snapshot']],
+        [$pv['parts']['versions'], $pv['parts']['unraid'], $pv['parts']['language'], $pv['parts']['team']]);
+    same('report: … the last error, its params scrubbed', ['key' => 'command_failed', 'params' => ['detail' => 'zfs: /mnt/‹pool-2›/‹share-3› busy'], 'at' => 1760000000], $pv['parts']['error']);
+    check('report: … the log of her desk, scrubbed', str_contains($pv['parts']['log'], 'Ms. Snapshotini: created ‹pool-2›/‹share-3›@…') && !str_contains($pv['parts']['log'], 'Backup:'), $pv['parts']['log']);
+    same('report: … ticked by default (a problem: the log too)', ['versions', 'unraid', 'language', 'team', 'error', 'log'], $pv['ticked']);
+    same('report: … what was hidden, and a hint at the address in the text', [['‹pool-2›' => 'hive', '‹share-3›' => 'Media'], ['address']], [(array) $pv['hidden'], $pv['hints']]);
+    same('report: … the cap', [0, 2, 2, null, false], [$pv['n'], $pv['left'], $pv['cap'], $pv['next'], $pv['closed']]);
+    $kept = "$tmp/run/{$pv['token']}.json";
+    same('report: … kept in RAM under its token, 0600', [true, '600', '700'], [is_file($kept), decoct(fileperms($kept) & 0777), decoct(fileperms("$tmp/run") & 0777)]);
+    check('report: … the engine\'s version only for Mr. Backupsy and Mr. Restori', isset(reportPreview(['desk' => 'backup'] + $ask, $ctx + ['now' => 1760000100])['parts']['versions']['engine']));
+    same('report: a wish leaves the log unticked', ['versions', 'unraid', 'language', 'team', 'error'], reportPreview(['kind' => 'wish'] + $ask, $ctx + ['now' => 1760000100])['ticked']);
+    $report = (string) file_get_contents(OFFICE_DIR . '/agent/lib/report.php');
+    check('report: the preview asks nobody (no hostNet() in it)', !preg_match('/function reportPreview\(.*?\n\}/s', $report, $pm) || !str_contains($pm[0], 'hostNet') && !str_contains($pm[0], 'reportPost'));
+
+    // the strict readers
+    $refused = function (callable $f): string { try { $f(); return 'ok'; } catch (Problem $p) { return $p->key; } };
+    same('report: strict readers — nonsense is bad_request, too little report_incomplete', ['bad_request', 'bad_request', 'bad_request', 'bad_request', 'bad_request', 'bad_request', 'bad_request', 'report_incomplete', 'report_incomplete', 'bad_request'], [
+        $refused(fn () => reportPreview(['kind' => ['bug']] + $ask, $ctx)), $refused(fn () => reportPreview(['kind' => 'rant'] + $ask, $ctx)),
+        $refused(fn () => reportPreview(['desk' => '../x'] + $ask, $ctx)), $refused(fn () => reportPreview(['title' => ['x']] + $ask, $ctx)),
+        $refused(fn () => reportPreview(['title' => str_repeat('x', 101)] + $ask, $ctx)), $refused(fn () => reportPreview(['text' => str_repeat('x', 4097)] + $ask, $ctx)),
+        $refused(fn () => reportPreview(['error' => ['key' => 'Bad Key']] + $ask, $ctx)), $refused(fn () => reportPreview(['title' => '  '] + $ask, $ctx)),
+        $refused(fn () => reportPreview(['text' => 'short'] + $ask, $ctx)), $refused(fn () => reportPreview(['lang' => 'xx'] + $ask, $ctx))]);
+    same('report: … the parts and the token', ['bad_request', 'bad_request', 'bad_request', 'bad_request'], [
+        $refused(fn () => reportSend(['token' => $pv['token'], 'parts' => ['words']] + $words, $ctx)), $refused(fn () => reportSend(['token' => $pv['token'], 'parts' => 'log'] + $words, $ctx)),
+        $refused(fn () => reportSend(['token' => $pv['token'], 'parts' => ['log', 'log']] + $words, $ctx)), $refused(fn () => reportSend(['token' => 'x', 'parts' => []] + $words, $ctx))]);
+
+    // the body: the ticked parts only
+    $keptJ = json_decode((string) file_get_contents($kept), true);
+    $b = reportBody($keptJ, ['versions', 'log']);
+    same('report: the body — fields', ['v', 'rid', 'report_id', 'kind', 'desk', 'title', 'text', 'name', 'facts', 'log', 'parts'], array_keys($b));
+    same('report: … what goes', [1, $id, ['office' => AGENT_VERSION], ['versions', 'log'], $words['text']], [$b['v'], $b['report_id'], (array) $b['facts'], $b['parts'], $b['text']]);
+    $b = reportBody($keptJ, ['unraid', 'language', 'team', 'error']);
+    same('report: … the facts and the error as ticked', [['unraid' => '7.3.2', 'lang' => 'de', 'browser' => 'de', 'hired' => ['backup', 'caretaker', 'snapshot']], '2025-10-09T08:53:20Z', false],
+        [(array) $b['facts'], $b['error']['at'], isset($b['log'])]);
+    $big = $keptJ;
+    $big['parts']['log'] = implode("\n", array_fill(0, 60, str_repeat('ä', 390)));
+    check('report: … never more than the Worker takes', strlen(jsonEncode(reportBody($big, REPORT_PARTS))) <= REPORT_BODY_MAX);
+
+    // the Worker's answers in the office's words — by `error` (or its `key`), never by the HTTP status
+    $a = fn (int $code, array $body, int $exit = 0) => reportAnswer($exit, json_encode($body) . "\n$code", 1760000000);
+    same('report: answers mapped', ['ok', 'ok', 'report_closed', 'report_week', 'report_busy', 'report_refused', 'report_refused', 'report_failed', 'report_failed', 'report_failed', 'report_failed', 'report_busy', 'report_offline', 'report_offline'],
+        array_map(fn ($r) => $r['ok'] ? 'ok' : $r['key'], [$a(201, ['ok' => true, 'number' => 41, 'url' => 'https://github.com/dropnook/uso-inbox/issues/41', 'ticket' => 'USO-41', 'left' => 1, 'next' => null]),
+            $a(200, ['ok' => true, 'number' => 41, 'url' => 'https://github.com/dropnook/uso-inbox/issues/41', 'again' => true]),
+            $a(403, ['ok' => false, 'error' => 'closed', 'key' => 'report_closed', 'by' => 'switch']), $a(429, ['ok' => false, 'error' => 'week', 'key' => 'report_week', 'next' => '2025-10-16T09:00:00Z', 'retry_after' => 500000]),
+            $a(429, ['ok' => false, 'error' => 'busy', 'key' => 'report_busy', 'retry_after' => 3600]), $a(400, ['ok' => false, 'error' => 'refused', 'key' => 'report_refused', 'why' => 'bad', 'field' => 'title']),
+            $a(413, ['ok' => false, 'error' => 'refused', 'why' => 'too_big']), $a(502, ['ok' => false, 'error' => 'github', 'key' => 'report_failed']),
+            $a(503, ['ok' => false, 'error' => 'config', 'key' => 'report_failed']), $a(500, []), $a(429, []),
+            $a(200, ['ok' => false, 'error' => 'x', 'key' => 'report_busy']), reportAnswer(7, '', 1), reportAnswer(0, "\n000", 1)]));
+    same('report: … the week\'s next from the Worker', ['n' => 2, 'next' => strtotime('2025-10-16T09:00:00Z')],
+        $a(429, ['ok' => false, 'error' => 'week', 'next' => '2025-10-16T09:00:00Z', 'retry_after' => 500000])['params']);
+    same('report: … a link only to a GitHub issue', ['', 'https://github.com/dropnook/uso-inbox/issues/41'],
+        [$a(201, ['ok' => true, 'number' => 41, 'url' => 'javascript:alert(1)'])['url'], $a(200, ['ok' => true, 'number' => 41, 'url' => 'https://github.com/dropnook/uso-inbox/issues/41'])['url']]);
+
+    // the .cfg override of the inbox's address
+    $cfg = "$tmp/plugin.cfg";
+    $urls = [];
+    foreach (['', 'FEEDBACK_URL="http://192.168.7.10:8787"', 'FEEDBACK_URL="https://feedback.example.org/"', 'FEEDBACK_URL="http://x/path"', 'FEEDBACK_URL="ftp://x"', 'FEEDBACK_URL="http://u:p@x"'] as $line) {
+        file_put_contents($cfg, "DATA_DIR=\"/mnt/user/appdata/x\"\n$line\n");
+        $urls[] = officeFeedbackUrl($cfg);
+    }
+    same('report: the inbox\'s address — the .cfg\'s FEEDBACK_URL when it is just scheme, host and port', [OFFICE_FEEDBACK_URL, 'http://192.168.7.10:8787', 'https://feedback.example.org',
+        OFFICE_FEEDBACK_URL, OFFICE_FEEDBACK_URL, OFFICE_FEEDBACK_URL], $urls);
+
+    // the send, against a stand-in inbox
+    $port = 0;
+    for ($i = 0; $i < 20 && !$port; $i++) {
+        $try = random_int(20000, 40000);
+        $s = @stream_socket_server("tcp://127.0.0.1:$try");
+        if ($s) {
+            fclose($s);
+            $port = $try;
+        }
+    }
+    file_put_contents("$tmp/router.php", <<<'ROUTER'
+<?php
+$dir = __DIR__;
+$n = (int) @file_get_contents("$dir/count") + 1;
+file_put_contents("$dir/count", (string) $n);
+file_put_contents("$dir/request-$n.json", json_encode(['uri' => $_SERVER['REQUEST_URI'], 'method' => $_SERVER['REQUEST_METHOD'],
+    'ua' => $_SERVER['HTTP_USER_AGENT'] ?? '', 'type' => $_SERVER['CONTENT_TYPE'] ?? '', 'origin' => $_SERVER['HTTP_ORIGIN'] ?? null,
+    'referer' => $_SERVER['HTTP_REFERER'] ?? null, 'body' => file_get_contents('php://input')]));
+[$code, $body] = json_decode((string) file_get_contents("$dir/answer.json"), true);
+http_response_code($code);
+header('Content-Type: application/json');
+echo json_encode($body);
+ROUTER);
+    $answer = fn (int $code, array $body) => file_put_contents("$tmp/answer.json", json_encode([$code, $body]));
+    $answer(201, ['ok' => true, 'number' => 41, 'url' => 'https://github.com/dropnook/uso-inbox/issues/41', 'ticket' => 'USO-41', 'left' => 1, 'next' => null]);
+    // Unraid's php.ini prepends local_prepend.php, which ends every POST without its csrf_token: not for the stand-in
+    $server = proc_open([PHP_BINARY, '-d', 'auto_prepend_file=', '-S', "127.0.0.1:$port", "$tmp/router.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, $tmp);
+    for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port); $i++) {
+        usleep(100000);
+    }
+    $logged = [];
+    $sctx = $ctx + ['url' => "http://127.0.0.1:$port", 'log_lines' => function (string $l) use (&$logged): void { $logged[] = $l; }];
+    $count = fn (): int => (int) @file_get_contents("$tmp/count");
+    $send = function (array $pv, array $parts, int $now, array $over = []) use ($words, $sctx): array {
+        try {
+            return reportSend(['token' => $pv['token'], 'parts' => $parts] + $over + $words, ['now' => $now] + $sctx);
+        } catch (Problem $p) {
+            return ['ok' => false, 'key' => $p->key, 'params' => $p->params];
+        }
+    };
+    $t0 = 1760000100;
+    $r = $send($pv, ['versions', 'unraid', 'language', 'team', 'error', 'log'], $t0 + 5);
+    same('report: sent — the number, the link, one left', [true, 41, 'https://github.com/dropnook/uso-inbox/issues/41', 1], [$r['ok'], $r['number'] ?? null, $r['url'] ?? null, $r['left'] ?? null]);
+    $req = json_decode((string) @file_get_contents("$tmp/request-1.json"), true) ?? [];
+    $body = json_decode($req['body'] ?? '', true) ?? [];
+    same('report: … one POST to /api/report, JSON, the office\'s User-Agent, no Origin, no Referer', ['/api/report', 'POST', 'UnraidSecretaryOffice/' . AGENT_VERSION, 'application/json', null, null],
+        [$req['uri'] ?? null, $req['method'] ?? null, $req['ua'] ?? null, $req['type'] ?? null, array_key_exists('origin', $req) ? $req['origin'] : 'x', array_key_exists('referer', $req) ? $req['referer'] : 'x']);
+    same('report: … the body is the preview', [$keptJ['rid'], $id, 'bug', 'snapshot', $words['title'], $words['text'], 'benj_forum', $keptJ['parts']['log']],
+        [$body['rid'] ?? null, $body['report_id'] ?? null, $body['kind'] ?? null, $body['desk'] ?? null, $body['title'] ?? null, $body['text'] ?? null, $body['name'] ?? null, $body['log'] ?? null]);
+    check('report: … nothing of this server in it but what the preview showed', !str_contains($req['body'] ?? '', 'hive') && !str_contains($req['body'] ?? '', $guid) && !str_contains($req['body'] ?? '', 'Nostromo'));
+    same('report: … no body file left in RAM, the preview gone', [[], false], [glob("$tmp/run/*.body") ?: [], is_file($kept)]);
+    $rj = json_decode((string) @file_get_contents("$tmp/office/reports.json"), true) ?? ['reports' => [[]]];
+    same('report: reports.json — its shape, 0600', [['v', 'reports', 'closed_until'], ['number', 'url', 'kind', 'title', 'desk', 'sent', 'rid'], 41, '600'],
+        [array_keys($rj), array_keys($rj['reports'][0] ?? []), $rj['reports'][0]['number'] ?? null, decoct(@fileperms("$tmp/office/reports.json") & 0777)]);
+    same('report: … logged without its words', ['Office: sent a report (#41, bug, snapshot)'], $logged);
+    $r = $send($pv, ['versions'], $t0 + 6);
+    same('report: the same token again — the first answer, no second POST', [true, 41, true, 1], [$r['ok'], $r['number'] ?? null, $r['again'] ?? null, $count()]);
+
+    // the stale preview, a changed word
+    $pv2 = reportPreview($ask, $ctx + ['now' => $t0]);
+    same('report: a preview older than 10 minutes — report_stale, nothing sent', ['report_stale', 1], [$send($pv2, ['versions'], $t0 + 601)['key'] ?? 'ok', $count()]);
+    $pv2 = reportPreview($ask, $ctx + ['now' => $t0]);
+    same('report: a word changed since the preview — report_stale', ['report_stale', 1], [$send($pv2, ['versions'], $t0 + 10, ['title' => 'Another'])['key'] ?? 'ok', $count()]);
+
+    // every answer the Worker may give: the office's key, the preview kept (the text too: the page keeps it)
+    foreach ([[502, ['ok' => false, 'error' => 'github', 'key' => 'report_failed'], 'report_failed'], [400, ['ok' => false, 'error' => 'refused', 'key' => 'report_refused', 'why' => 'bad', 'field' => 'desk'], 'report_refused'],
+              [429, ['ok' => false, 'error' => 'busy', 'key' => 'report_busy', 'retry_after' => 600], 'report_busy'], [429, ['ok' => false, 'error' => 'week', 'key' => 'report_week', 'next' => '2025-10-16T09:00:00Z', 'retry_after' => 9000], 'report_week'],
+              [500, ['oops'], 'report_failed']] as [$code, $b, $key]) {
+        $answer($code, $b);
+        $r = $send($pv2, ['versions'], $t0 + 20);
+        same("report: the Worker says HTTP $code " . json_encode($b) . " — $key, the preview stays for another try", [$key, true], [$r['key'] ?? 'ok', is_file("$tmp/run/{$pv2['token']}.json")]);
+    }
+    same('report: no answer at all — report_offline', 'report_offline', $refused(fn () => reportSend(['token' => $pv2['token'], 'parts' => ['versions']] + $words,
+        ['now' => $t0 + 20, 'url' => 'http://127.0.0.1:' . ($port === 40000 ? 39999 : $port + 1)] + $sctx)));
+
+    // closed: remembered a day, nothing asked meanwhile
+    $answer(403, ['ok' => false, 'error' => 'closed', 'key' => 'report_closed', 'by' => 'switch']);
+    $before = $count();
+    same('report: «closed» — report_closed', 'report_closed', $send($pv2, ['versions'], $t0 + 30)['key'] ?? 'ok');
+    same('report: … remembered a day: the next send asks nobody', ['report_closed', $before + 1, true],
+        [$send($pv2, ['versions'], $t0 + 40)['key'] ?? 'ok', $count(), reportsAnswer(['now' => $t0 + 40] + $ctx)['closed']]);
+    $rj = json_decode((string) @file_get_contents("$tmp/office/reports.json"), true) ?? [];
+    $rj['closed_until'] = null;
+    file_put_contents("$tmp/office/reports.json", json_encode($rj));
+
+    // the second report of the week goes, the third is refused before any request
+    $answer(201, ['ok' => true, 'number' => 42, 'url' => 'https://github.com/dropnook/uso-inbox/issues/42', 'ticket' => 'USO-42', 'left' => 0, 'next' => '2025-10-16T09:00:00Z']);
+    $pv3 = reportPreview(['kind' => 'wish'] + $ask, $ctx + ['now' => $t0 + 50]);
+    $r = $send($pv3, [], $t0 + 60, ['kind' => 'wish']);
+    same('report: the second this week — sent, none left', [true, 42, 0], [$r['ok'], $r['number'] ?? null, $r['left'] ?? null]);
+    $body = json_decode(json_decode((string) @file_get_contents("$tmp/request-{$count()}.json"), true)['body'] ?? '', true) ?? [];
+    same('report: … nothing ticked — only the words and the ID', [['v', 'rid', 'report_id', 'kind', 'desk', 'title', 'text', 'name', 'facts', 'parts'], [], []],
+        [array_keys($body), $body['facts'] ?? null, $body['parts'] ?? null]);
+    $before = $count();
+    $pv4 = reportPreview($ask, $ctx + ['now' => $t0 + 70]);
+    same('report: the preview says none are left, and from when', [0, $t0 + 5 + REPORT_WEEK], [$pv4['left'], $pv4['next']]);
+    $r = $send($pv4, ['log'], $t0 + 80);
+    same('report: a third within 7 days — report_week, nobody asked', ['report_week', ['n' => 2, 'next' => $t0 + 5 + REPORT_WEEK], $before], [$r['key'] ?? 'ok', $r['params'] ?? null, $count()]);
+    same('report: … a week after the first, one goes again', 1, reportsAnswer(['now' => $t0 + 6 + REPORT_WEEK] + $ctx)['left']);
+    $list = reportsAnswer(['now' => $t0 + 100] + $ctx);
+    same('report: «Your reports» — newest first, as kept', [[42, 41], ['number', 'url', 'kind', 'title', 'desk', 'sent']], [array_column($list['reports'], 'number'), array_keys($list['reports'][0] ?? [])]);
+
+    // what the stand-in got matches the Worker's rules (uso-support/feedback/worker.js: FIELDS, FACT_FIELDS, PART_RE …)
+    $bad = [];
+    for ($i = 1; $i <= $count(); $i++) {
+        $q = json_decode((string) @file_get_contents("$tmp/request-$i.json"), true) ?? [];
+        $b = json_decode($q['body'] ?? '', true) ?? [];
+        if (array_diff(array_keys($b), ['v', 'rid', 'id', 'report_id', 'kind', 'desk', 'title', 'text', 'name', 'facts', 'error', 'log', 'parts'])
+            || array_diff(array_keys((array) ($b['facts'] ?? [])), ['office', 'engine', 'unraid', 'lang', 'browser', 'hired'])
+            || !preg_match('/^[0-9a-f]{64}$/', (string) ($b['report_id'] ?? '')) || !preg_match('/^[0-9a-f]{32}$/', (string) ($b['rid'] ?? ''))
+            || array_filter((array) ($b['parts'] ?? []), fn ($p) => !preg_match('/^[a-z][a-z_]{0,23}$/', (string) $p))
+            || mb_strlen((string) ($b['title'] ?? '')) > 120 || strlen((string) ($b['log'] ?? '')) > 16384 || substr_count((string) ($b['log'] ?? ''), "\n") >= 60
+            || (isset($b['error']['at']) && !preg_match('/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/', $b['error']['at']))
+            || !str_starts_with((string) ($q['ua'] ?? ''), 'UnraidSecretaryOffice/') || ($q['type'] ?? '') !== 'application/json') {
+            $bad[] = $i;
+        }
+    }
+    same('report: every request in the shape the Worker takes', [], $bad);
+    proc_terminate($server);
+    proc_close($server);
+
+    // the routes: the agent answers office.*, the web side hands them over without «not hired»
+    same('report: the agent answers office.reports', true, handle(json_encode(['action' => 'office.reports']))['ok'] ?? null);
+    same('report: … and nothing else of office.*', 'unknown_action', handle(json_encode(['action' => 'office.nonsense']))['error']['key'] ?? null);
+    $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
+    check('report: api.php hands office.report_* to the agent', str_contains($api, "const OFFICE_AGENT_ACTIONS = ['office.report_preview', 'office.report_send', 'office.reports'];")
+        && str_contains($api, '$office = in_array($action, OFFICE_AGENT_ACTIONS, true);'));
+    hardeningRm($tmp);
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings'],
-          'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
+          'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

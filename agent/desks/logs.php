@@ -903,30 +903,35 @@ function logsNormalize(string $line, int $prefix = 0): string
  * file ending; name.ext), absolute paths outside quotes — with the words up to their last slash and a
  * file name with an ending, as names may hold spaces (/mnt/user/My Film (2020)/My Film.mkv) —, relative ones with a slash
  * (Windows/System32/x.dll; not HTTP/1.1, dates or I/O) and Samba's "… for <name> with NT_STATUS_…".
+ * $replace: what a path becomes — fn (string $path, string $kind): string, kind samba | url | quoted | absolute |
+ * relative (the report's scrubber keeps a path's structure, agent/lib/report.php); none = '<path>' (her comparing).
  */
-function logsNormalizePaths(string $s): string
+function logsNormalizePaths(string $s, ?callable $replace = null): string
 {
-    $p = '<path>';
-    $s = preg_replace('~(?<=\bfor ).+?(?= with NT_STATUS_[A-Z_]+)~', $p, $s) ?? $s;            // Samba
-    $s = preg_replace('~\b[a-z][a-z0-9+.-]{1,15}://[^\s"\'<>\[\]]+~i', $p, $s) ?? $s;          // URLs
+    $replace ??= static fn (string $path, string $kind): string => '<path>';
+    $s = preg_replace_callback('~(?<=\bfor ).+?(?= with NT_STATUS_[A-Z_]+)~', fn (array $m): string => $replace($m[0], 'samba'), $s) ?? $s;   // Samba
+    $s = preg_replace_callback('~\b[a-z][a-z0-9+.-]{1,15}://[^\s"\'<>\[\]]+~i', fn (array $m): string => $replace($m[0], 'url'), $s) ?? $s;   // URLs
     $s = preg_replace_callback('~"([^"\n]{1,1000})"|(?<![\w\'])\'([^\'\n]{1,1000})\'(?![\w\'])|\[([^\[\]\n]{1,1000})\]|`([^`\n]{1,1000})`'
         . '|\xe2\x80\x9c(.{1,1000}?)\xe2\x80\x9d|\xe2\x80\x98(.{1,1000}?)\xe2\x80\x99|\xc2\xab(.{1,1000}?)\xc2\xbb~',
-        function (array $m) use ($p): string {
+        function (array $m) use ($replace): string {
             $inner = implode('', array_slice($m, 1));       // the one group that matched
-            return logsLooksLikePath($inner) ? str_replace($inner, $p, $m[0]) : $m[0];
+            return logsLooksLikePath($inner) ? str_replace($inner, $replace($inner, 'quoted'), $m[0]) : $m[0];
         }, $s) ?? $s;
     // absolute: with the words up to the last one with a slash, until a word with a colon (the message goes on
     // there), and then a file name of a few words with an ending (/mnt/cache/Filme/Der Name der Rose.mkv)
     $s = preg_replace_callback('~(?<![^\s=(:,])/(?=[^\s/])[^\s"<>]*(?:(?:\s+[^\s"<>:/]+)*\s+[^\s"<>:]*/[^\s"<>]*)*'
         . '(?:(?:\s+[^\s"<>:/]+){0,5}?\s+[^\s"<>:/]+\.[a-z][a-z0-9]{1,4}(?=[\s:,;)]|$))?~i',
-        fn (array $m): string => $p . logsTrailing($m[0]), $s) ?? $s;
+        function (array $m) use ($replace): string {
+            $tail = logsTrailing($m[0]);
+            return $replace(substr($m[0], 0, strlen($m[0]) - strlen($tail)), 'absolute') . $tail;
+        }, $s) ?? $s;
     // relative: a word with a slash, letters before and after its last slash, at least 4 characters
-    return preg_replace_callback('~(?<![^\s=(:,])[^\s"<>/\[\]]+/[^\s"<>]+~', function (array $m) use ($p): string {
+    return preg_replace_callback('~(?<![^\s=(:,])[^\s"<>/\[\]]+/[^\s"<>]+~', function (array $m) use ($replace): string {
         $tail = logsTrailing($m[0]);
         $word = substr($m[0], 0, strlen($m[0]) - strlen($tail));
         $cut = (int) strrpos($word, '/');
         return strlen($word) >= 4 && preg_match('~[a-z]~i', substr($word, $cut + 1)) && preg_match('~[a-z]~i', substr($word, 0, $cut))
-            ? $p . $tail : $m[0];
+            ? $replace($word, 'relative') . $tail : $m[0];
     }, $s) ?? $s;
 }
 

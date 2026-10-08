@@ -78,6 +78,7 @@ require __DIR__ . '/lib/snapshotplans.php';
 require __DIR__ . '/lib/officeupdate.php';
 require __DIR__ . '/lib/metrics.php';
 require __DIR__ . '/lib/migrate.php';
+require __DIR__ . '/lib/report.php';
 foreach (glob(__DIR__ . '/desks/*.php') ?: [] as $deskFile) {
     require $deskFile;
 }
@@ -714,7 +715,8 @@ function handle(string $raw): array
         if ($deskId === 'office' && $action === 'ping') {
             return ['ok' => true, 'version' => AGENT_VERSION, 'host' => hostname()];
         }
-        $handler = desks()[$deskId]['actions'][$action] ?? null;
+        // the office's own actions the agent answers (lib/report.php: «Report a problem or a wish…»)
+        $handler = $deskId === 'office' ? (officeAgentActions()[$action] ?? null) : (desks()[$deskId]['actions'][$action] ?? null);
         if (!$handler) {
             throw new Problem('unknown_action', ['action' => $request['action']]);
         }

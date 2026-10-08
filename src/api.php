@@ -24,6 +24,8 @@ declare(strict_types=1);
  * POST {"a": "office.staff_order", "order": [desk, …]}   in which order (the reception's cards, the tabs; staff.php)
  * POST {"a": "office.supporter_set|supporter_remove|supporter_ask"}   the supporter key (supporter.php)
  * POST {"a": "office.lang", "lang": <code>}   the language the page shows, for the notifications (desks.php)
+ * POST {"a": "office.report_preview|report_send|reports", …}   «Report a problem or a wish…»: the agent's
+ *                                     (agent/lib/report.php) — it alone ever sends a report, and only on report_send
  *
  * Who may use it is Unraid's business: everything under /plugins/… is behind
  * its login (nginx auth_request), and every POST needs its csrf_token
@@ -74,12 +76,13 @@ function api_main(): void
         if ($action === 'office.lang') {
             answer(officeLangRemember($data));
         }
-        if (!preg_match('/^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_]*$/D', $action) || !isset(officeDesks()[explode('.', $action)[0]])) {
+        $office = in_array($action, OFFICE_AGENT_ACTIONS, true);      // the office's own, answered by the agent
+        if (!$office && (!preg_match('/^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_]*$/D', $action) || !isset(officeDesks()[explode('.', $action)[0]]))) {
             answer(['ok' => false, 'error' => ['key' => 'unknown_action', 'params' => ['action' => $action]]], 400);
         }
         unset($data['a']);
         $desk = explode('.', $action)[0];
-        if (!officeIsHired($desk) && explode('.', $action)[1] !== 'refresh') {
+        if (!$office && !officeIsHired($desk) && explode('.', $action)[1] !== 'refresh') {
             answer(['ok' => false, 'error' => ['key' => 'not_hired', 'params' => ['desk' => $desk]]], 403);
         }
         set_time_limit(660);
@@ -478,6 +481,9 @@ function checkOrigin(): void
         answer(['ok' => false, 'error' => ['key' => 'rejected']], 403);
     }
 }
+
+/** The office's own actions the agent answers (agent/lib/report.php officeAgentActions()) — no desk, never «not hired» */
+const OFFICE_AGENT_ACTIONS = ['office.report_preview', 'office.report_send', 'office.reports'];
 
 /** The only actions that may carry secrets (the Consultant's Kopia setup) */
 const OFFICE_SECRET_ACTIONS = ['advisor.kopia_repo'];
