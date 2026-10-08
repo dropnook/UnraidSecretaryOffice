@@ -4119,7 +4119,7 @@ function testBackupNewLocalOffice(): void
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, selbar: () => {}, has: () => false };
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, selbar: () => {}, has: () => false };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const b = OFFICE_DESK_TESTS.backup;
 b.setup.plan = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
@@ -4229,7 +4229,7 @@ function testBackupPlace(): void
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, selbar: () => {}, has: () => false };
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, selbar: () => {}, has: () => false };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const b = OFFICE_DESK_TESTS.backup;
 const out = {};
@@ -4395,7 +4395,7 @@ const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now', duration: (s) => Math.round(s) + ' s' },
-  desk: () => {}, selbar: () => {}, has: () => false };
+  desk: () => {}, places: () => {}, selbar: () => {}, has: () => false };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const b = OFFICE_DESK_TESTS.backup;
 const S = b.setup;
@@ -4575,7 +4575,7 @@ const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now', duration: (s) => Math.round(s) + ' s' },
-  desk: () => {}, selbar: () => {}, has: () => false };
+  desk: () => {}, places: () => {}, selbar: () => {}, has: () => false };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const b = OFFICE_DESK_TESTS.backup;
 const S = b.setup;
@@ -5639,7 +5639,7 @@ function testRestoreFindings(): void
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, has: () => false, fmt: {} };
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, has: () => false, fmt: {} };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const r = OFFICE_DESK_TESTS.restore;
 const sizes = { measuring: true, need: null, paths: ['/a', '/b'], scale: { '/a': 1.25 }, compresses: false, free: 100 };
@@ -5766,7 +5766,7 @@ function testRestoreDatabases(): void
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, has: () => false,
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, has: () => false,
   fmt: { size: (b) => b + ' B', relative: (t) => 'rel ' + t, date: (t) => 'date ' + t } };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const r = OFFICE_DESK_TESTS.restore;
@@ -7977,7 +7977,7 @@ function testAdvisor(): void
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: {}, desk: () => {}, has: () => false };
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: {}, desk: () => {}, places: () => {}, has: () => false };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const a = OFFICE_DESK_TESTS.advisor;
 const out = [];
@@ -11831,9 +11831,10 @@ function testThemeSwitch(): void
     check('theme switch js: a radio group the keyboard can work', str_contains($js, "setAttribute('role', 'radiogroup')") && str_contains($js, "setAttribute('role', 'radio')") && str_contains($js, 'ArrowRight'));
     check('theme switch js: loads nothing while the flag is off', str_contains($js, 'if (!Office || !Office.config.theme_switch) return;'));
     $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
-    same('core.js: the hooks for the switch (reception, help), each marked theme-switch', 3, substr_count($core, 'theme-switch'));
+    same('core.js: the hooks for the switch (reception, help, the help\'s place for the search), each marked theme-switch', 4, substr_count($core, 'theme-switch'));
     check('core.js: the switch at the reception only while the script is there', str_contains($core, 'if (Office.theme) { const acts = el(\'div\', \'deskhead-actions\'); acts.appendChild(Office.theme.control());'));
-    check('core.js: the help line only while the script is there', str_contains($core, "if (Office.theme) item(t('help.theme_title'), t('help.theme_text'));"));
+    check('core.js: the help line only while the script is there', str_contains($core, "if (Office.theme) item('help.theme_title', t('help.theme_text'));"));
+    check('core.js: … and the search\'s place for it', str_contains($core, ".concat(Office.theme ? ['theme'] : [])"));
 }
 
 /**
@@ -12358,6 +12359,302 @@ JS);
     same('look page: an action on a stale state waits for a fresh look', [true, ['a=state&desk=snapshot&fresh=1'], [[400, false]]], $r['freshAsked']);
     same('look page: … the look under way handed over at once (a dialog open or not), once', [[true, [], [[500, true]]], []], [$r['pendingTaken'], $r['pendingTwice']]);
     same('look page: no fresh look to be had — refused (never on a stale list)', false, $r['refused']);
+    hardeningRm($tmp);
+}
+
+/**
+ * The search (core.js «places and the search», src/api.php ?a=places): every desk lists its places with Office.places()
+ * — run by node on a stand-in page (core.js and every desk.js; skipped where node is missing) — and its places.json the
+ * same keys (the server sends only their words, in every language); every key, explanation and crumb in all five
+ * languages; routes to the desk itself; anchors unique and marked in the desk's code (Office.place('…'), {place: '…'},
+ * a help term found by pageHelp() by its words); every section a desk heads with T('…') listed. The endpoint: only the
+ * listed keys, every language, cached a day, compressed. The matcher: the office's language at once, the others after
+ * the first open (one request, never before it), prefixes, typing errors, accents and ß, five languages to the same
+ * place, the desk shown first, desks not hired last.
+ */
+function testSearchPlaces(): void
+{
+    $pub = OFFICE_WEB;
+    $desks = array_map(fn ($f) => basename(dirname($f)), glob("$pub/desks/*/desk.json") ?: []);
+    sort($desks);
+    $codes = ['en', 'de', 'it', 'fr', 'es'];
+    $tmp = hardeningTmp('search');
+
+    // ---- the endpoint, as php-fpm would run it (php-cgi on a copy of src/ with the repository's web files)
+    $cgi = trim((string) shell_exec('command -v php-cgi 2>/dev/null')) ?: (is_executable('/usr/bin/php-cgi') ? '/usr/bin/php-cgi' : '');
+    $words = null;
+    $strings = null;
+    if ($cgi === '') {
+        check('search: php-cgi is missing here - the endpoint not tried', true);
+    } else {
+        mkdir("$tmp/plugin/src", 0700, true);
+        foreach (glob(OFFICE_DIR . '/src/*.php') ?: [] as $f) {
+            copy($f, "$tmp/plugin/src/" . basename($f));
+        }
+        foreach (['desks', 'lang', 'assets'] as $d) {
+            symlink("$pub/$d", "$tmp/plugin/$d");
+        }
+        mkdir("$tmp/data/office", 0700, true);
+        mkdir("$tmp/run", 0700);
+        file_put_contents("$tmp/web.php", '<?php require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . '; require '
+            . var_export("$tmp/plugin/src/api.php", true) . '; api_main();');
+        $ask = function (string $query, ?string $accept = 'gzip') use ($cgi, $tmp): array {
+            $env = ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => "$tmp/run", 'PATH' => getenv('PATH'), 'REDIRECT_STATUS' => '1',
+                    'SCRIPT_FILENAME' => "$tmp/web.php", 'REQUEST_URI' => "/api.php?$query", 'REQUEST_METHOD' => 'GET', 'QUERY_STRING' => $query];
+            if ($accept !== null) {
+                $env['HTTP_ACCEPT_ENCODING'] = $accept;
+            }
+            $p = proc_open([$cgi], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, null, $env);
+            $raw = (string) stream_get_contents($pipes[1]);
+            proc_close($p);
+            $cut = (int) strpos($raw, "\r\n\r\n");
+            $headers = [];
+            foreach (explode("\r\n", substr($raw, 0, $cut)) as $line) {
+                [$k, $v] = array_map('trim', explode(':', $line, 2) + [1 => '']);
+                $headers[strtolower($k)] = $v;
+            }
+            $body = substr($raw, $cut + 4);
+            $gz = str_starts_with($body, "\x1f\x8b");
+            return ['headers' => $headers, 'bytes' => strlen($body), 'gz' => $gz, 'json' => json_decode($gz ? (string) @gzdecode($body) : $body, true), 'raw' => $raw];
+        };
+        $r = $ask('a=places&v=1-test');
+        $words = $r['json']['words'] ?? null;
+        $langs = (array) ($r['json']['langs'] ?? []);
+        sort($langs);
+        $sorted = $codes;
+        sort($sorted);
+        same('search api: ok, every language, cached a day, compressed', [true, $sorted, 'public, max-age=86400', 'gzip'],
+            [$r['json']['ok'] ?? $r['raw'], $langs, $r['headers']['cache-control'] ?? null, $r['headers']['content-encoding'] ?? null]);
+        check('search api: … small (' . $r['bytes'] . ' bytes compressed)', $r['bytes'] > 1000 && $r['bytes'] < 30000);
+        $allowed = [];
+        foreach (array_merge(['' => "$pub/assets/places.json"], array_combine($desks, array_map(fn ($d) => "$pub/desks/$d/places.json", $desks))) as $d => $file) {
+            foreach ((array) json_decode((string) @file_get_contents($file), true) as $k) {
+                $allowed[$d === '' ? $k : "$d.$k"] = true;
+            }
+            if ($d !== '') {
+                $allowed["$d.name"] = true;
+            }
+        }
+        same('search api: only the keys the places.json files list (and the desks\' names)', [], array_values(array_diff(array_keys((array) $words), array_keys($allowed))));
+        same('search api: … every one of them', [], array_values(array_diff(array_keys($allowed), array_keys((array) $words))));
+        same('search api: the Team Lead\'s partners in every language', ['Partner offices', 'Partner-Sekretariate', 'Secrétariats partenaires'],
+            [$words['caretaker.partner.title']['en'] ?? null, $words['caretaker.partner.title']['de'] ?? null, $words['caretaker.partner.title']['fr'] ?? null]);
+        check('search api: … words only, English for each, a language saying it as English left out',
+            !array_filter((array) $words, fn ($w) => !is_array($w) || !is_string($w['en'] ?? null) || array_filter($w, fn ($v, $c) => !is_string($v) || !in_array($c, $codes, true)
+                || ($c !== 'en' && $v === $w['en']), ARRAY_FILTER_USE_BOTH)));
+        $r2 = $ask('a=places&v=1-test&keys=caretaker.bubble.alone,errors.internal&lang=de', null);
+        same('search api: what a request names changes nothing (no key of its own, plain without gzip)', [$words, false],
+            [$r2['json']['words'] ?? null, $r2['gz']]);
+        $s = $ask('a=strings&lang=de');
+        $strings = $s['json']['strings'] ?? null;
+        check('search api: the German strings for the page', is_array($strings) && isset($strings['caretaker.team']));
+    }
+
+    // ---- the page: core.js and every desk.js under node, a stand-in page and fetch
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '' || !is_array($words) || !is_array($strings)) {
+        check('search page: node (or the endpoint) is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/words.json", json_encode(['ok' => true, 'langs' => $codes, 'words' => $words]));
+    file_put_contents("$tmp/strings.json", json_encode($strings));
+    file_put_contents("$tmp/config.json", json_encode(['desks' => array_map(fn ($d) => ['id' => $d, 'hired' => $d !== 'emby', 'order' => 1], $desks),
+        'languages' => array_map(fn ($c) => ['code' => $c], $codes), 'base' => '', 'staff_order' => [], 'stamp' => 1, 'version' => 'test']));
+    file_put_contents("$tmp/t.js", <<<'JS'
+// core.js and the desks under node: a stand-in page (enough for the registry, pageHelp() and the palette) and fetch
+const fs = require('fs');
+const [core, desksDir, configFile, stringsFile, wordsFile, queriesFile] = process.argv.slice(2);
+const CONFIG = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+const mk = () => ({ style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [],
+  classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {},
+  setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
+  querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+  getBoundingClientRect: () => ({ top: 0, bottom: 40, left: 0, right: 1000 }), focus() {}, select() {} });
+globalThis.window = globalThis;
+globalThis.Node = function Node() {};
+globalThis.innerHeight = 800; globalThis.innerWidth = 1200; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+globalThis.navigator = { languages: ['de'], platform: 'Linux' };
+globalThis.history = { replaceState() {} };
+globalThis.location = { hash: '', reload() {} };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : mk()),
+  querySelector: () => mk(), querySelectorAll: () => [], createElement: () => mk(), createElementNS: () => mk(), addEventListener() {},
+  removeEventListener() {}, documentElement: { scrollHeight: 0 }, activeElement: null, hidden: false, body: mk() };
+const calls = [];
+const words = JSON.parse(fs.readFileSync(wordsFile, 'utf8'));
+globalThis.fetch = async (url) => {
+  calls.push(String(url).replace(/^api\.php\?/, ''));
+  const a = /a=places/.test(url) ? words : { ok: false };
+  return { redirected: false, url, ok: true, status: 200, json: async () => a, text: async () => JSON.stringify(a) };
+};
+(0, eval)(fs.readFileSync(core, 'utf8'));
+const O = globalThis.Office;
+for (const d of CONFIG.desks) (0, eval)(fs.readFileSync(`${desksDir}/${d.id}/desk.js`, 'utf8'));
+O.strings = JSON.parse(fs.readFileSync(stringsFile, 'utf8'));
+O.theme = {};                              // the theme switch on: its help is a place too
+const queries = JSON.parse(fs.readFileSync(queriesFile, 'utf8'));
+const brief = (list) => list.map((r) => `${r.desk}:${r.key}`);
+const out = { registry: {}, marks: {} };
+(async () => {
+  const callsBefore = calls.filter((c) => /a=places/.test(c)).length;
+  out.before = {};
+  for (const q of queries.before) out.before[q] = brief(O.search.find(q));
+  for (const d of CONFIG.desks) {
+    out.registry[d.id] = O.placesOf(d.id).map((p) => ({ ...p, act: !!p.act }));
+    // pageHelp() marks the terms the desk lists by their words — each page of the desk (#/<desk>/<page>) its own
+    const help = O.placesOf(d.id).filter((p) => p.kind === 'help');
+    const pageOf = (p) => p.route.split('/')[2] || '';
+    const marks = help.map(() => null);
+    for (const page of new Set(help.map(pageOf))) {
+      const list = help.filter((p) => pageOf(p) === page);
+      const det = O.pageHelp(page ? `${d.id}-${page}` : d.id, list.map((p) => [O.t(`${d.id}.${p.key}`), 'x']));
+      const dl = det.children.find((c) => c.children && c.children.length);
+      (dl ? dl.children.filter((c, i) => i % 2 === 0) : []).forEach((dt, i) => { marks[help.indexOf(list[i])] = dt.dataset.place || null; });
+    }
+    out.marks[d.id] = marks;
+  }
+  out.registry[''] = O.placesOf('').map((p) => ({ ...p, act: !!p.act }));
+  out.callsBeforeOpen = callsBefore + calls.filter((c) => /a=places/.test(c)).length;
+  O.search.open();
+  out.open = O.paletteOpen();
+  await O.search.words();
+  await new Promise((r) => setTimeout(r, 20));
+  O.search.close();
+  O.search.open();
+  await O.search.words();
+  out.placesCalls = calls.filter((c) => /a=places/.test(c));
+  out.after = {};
+  for (const q of queries.after) out.after[q] = brief(O.search.find(q));
+  O.current = { id: 'restore' };
+  out.restoreShown = brief(O.search.find('kopia'));
+  O.current = { id: 'advisor' };
+  out.advisorShown = brief(O.search.find('kopia'));
+  O.current = null;
+  out.unhired = O.search.find('emby').map((r) => [r.desk, r.hired]);
+  out.full = O.search.find('partn').slice(0, 1);
+  console.log(JSON.stringify(out));
+  process.exit(0);
+})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+JS);
+    $queries = ['before' => ['Partn', 'Partnr', 'Pratner', 'Partner offices', 'Accueil', 'Empfang', 'xq'],
+                'after' => ['Partner offices', 'secretariats partenaires', 'Sécrétariats', 'Accueil', 'Empfang', 'Reception', 'recepcion', 'Recepción', 'größe', 'GRÖSSE', 'grosse', 'tem', 'Tean']];
+    file_put_contents("$tmp/queries.json", json_encode($queries));
+    $raw = (string) shell_exec(implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", "$pub/assets/core.js", "$pub/desks", "$tmp/config.json",
+        "$tmp/strings.json", "$tmp/words.json", "$tmp/queries.json"])) . ' 2>&1');
+    $r = json_decode($raw, true);
+    if (!is_array($r) || isset($r['error'])) {
+        check('search page: ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/out.json", $raw);
+
+    // ---- the registry against the code and the texts
+    $lang = function (string $dir) use ($codes): array {
+        $out = [];
+        foreach ($codes as $c) {
+            $out[$c] = langFile("$dir/$c.json");
+        }
+        return $out;
+    };
+    $kinds = ['desk', 'section', 'tile', 'step', 'setting', 'help', 'guide'];
+    // headed with T('…') but no place: the recovery sheet's own page (printed, not the office's); a partner office's tile
+    // (from the state — a later phase of the search)
+    $notPlaces = ['advisor' => ['sheet.repo', 'sheet.kopia'], 'restore' => ['pt.title']];
+    $count = [];
+    foreach (array_merge([''], $desks) as $d) {
+        $list = $r['registry'][$d] ?? [];
+        $where = $d === '' ? 'office' : $d;
+        $count[$where] = count($list);
+        check("search $where: lists its places", count($list) > ($d === '' ? 5 : 8), (string) count($list));
+        $texts = $lang($d === '' ? "$pub/lang" : "$pub/desks/$d/lang");
+        $missing = $bad = [];
+        foreach ($list as $p) {
+            foreach (['key', 'text', 'crumb'] as $f) {
+                foreach ($codes as $c) {
+                    if (is_string($p[$f] ?? null) && !isset($texts[$c][$p[$f]])) {
+                        $missing[] = "$c:{$p[$f]}";
+                    }
+                }
+            }
+            $route = $d === '' ? '#/' : "#/$d";
+            if (!in_array($p['kind'], $kinds, true) || ($p['desk'] ?? null) !== $d || !($p['route'] === $route || str_starts_with($p['route'], "$route/"))
+                || !preg_match('#^\#/[a-z0-9_/.:-]*$#D', $p['route']) || ($d === '' && $p['route'] !== '#/' && !$p['act']) || ($d !== '' && $p['act'])) {
+                $bad[] = $p['key'];
+            }
+        }
+        same("search $where: every key, explanation and crumb in all five languages", [], array_values(array_unique($missing)));
+        same("search $where: known kinds, routes to the desk itself (the office: dialogs of its own)", [], $bad);
+        $anchors = array_values(array_filter(array_column($list, 'anchor'), 'is_string'));
+        same("search $where: anchors unique", [], array_values(array_unique(array_diff_assoc($anchors, array_unique($anchors)))));
+        $keys = array_values(array_unique(array_column($list, 'key')));
+        sort($keys);
+        $file = $d === '' ? "$pub/assets/places.json" : "$pub/desks/$d/places.json";
+        same("search $where: places.json lists the same keys as its Office.places()", $keys, json_decode((string) @file_get_contents($file), true));
+        if ($d === '') {
+            $core = (string) file_get_contents("$pub/assets/core.js");
+            same('search office: every help title of the list is marked in Office.help()', [], array_values(array_filter(
+                array_map(fn ($p) => $p['anchor'], array_filter($list, fn ($p) => $p['kind'] === 'help')), fn ($a) => !str_contains($core, "item('$a'"))));
+            continue;
+        }
+        // the desk's code: its sections, its marks
+        $js = '';
+        foreach (glob("$pub/desks/$d/*.js") ?: [] as $f) {
+            $js .= (string) file_get_contents($f) . "\n";
+        }
+        preg_match_all("/\\b(?:sectionHead|section|sectionBox|setupSection)\\(\\s*T\\(\\s*'([a-z0-9_.]+)'\\s*[,)]/", $js, $m);
+        same("search $where: every section it heads with T('…') is a place", [], array_values(array_diff(array_unique($m[1]), $keys, $notPlaces[$d] ?? [])));
+        preg_match_all("/(?:Office\\.place\\(\\s*|\\bplace:\\s*)'([^']+)'/", $js, $m);
+        $marked = $m[1];
+        preg_match_all("/(?:Office\\.place\\(\\s*|\\bplace:\\s*)`([^`\$]+)\\$\\{/", $js, $m);
+        $prefixes = $m[1];
+        $unmarked = [];
+        foreach ($list as $p) {
+            if ($p['kind'] === 'help' || !is_string($p['anchor'])) {
+                continue;
+            }
+            if (!in_array($p['anchor'], $marked, true) && !array_filter($prefixes, fn ($x) => str_starts_with($p['anchor'], $x))) {
+                $unmarked[] = $p['anchor'];
+            }
+        }
+        same("search $where: every anchor marked in its code (Office.place('…'), {place: '…'})", [], $unmarked);
+        $help = array_values(array_filter($list, fn ($p) => $p['kind'] === 'help'));
+        same("search $where: every help term is in its page help (T('…'))", [], array_values(array_filter(array_column($help, 'key'), fn ($k) => !str_contains($js, "T('$k')"))));
+        same("search $where: … and pageHelp() marks each by its words", array_column($help, 'anchor'), $r['marks'][$d] ?? null);
+    }
+    ksort($count);
+    check('search: places per desk ' . json_encode($count), array_sum($count) > 250, (string) array_sum($count));
+
+    // ---- the matcher
+    same('search page: no request for the words before the first open', 0, $r['callsBeforeOpen']);
+    same('search page: the first open asks once (the stamp and the version in the URL), a second open not again', [true, ['a=places&v=1-test']],
+        [$r['open'], $r['placesCalls']]);
+    $first = fn (array $list, string $want) => in_array($want, array_slice($list, 0, 3), true);
+    foreach (['Partn', 'Partnr', 'Pratner'] as $q) {
+        check("search page: «{$q}» finds the Team Lead's partner offices (German office, at once)", $first($r['before'][$q], 'caretaker:partner.title'), json_encode($r['before'][$q]));
+    }
+    same('search page: before the words, other languages find nothing (only the office\'s own)', [[], [], []],
+        [array_values(array_filter($r['before']['Partner offices'], fn ($x) => $x === 'caretaker:partner.title')), $r['before']['Accueil'], $r['before']['xq']]);
+    check('search page: … the German word does', $first($r['before']['Empfang'], ':office.reception'), json_encode($r['before']['Empfang']));
+    foreach (['Partner offices', 'secretariats partenaires', 'Sécrétariats'] as $q) {
+        check("search page: «{$q}» (English, French, accents either way) after the words: the partner offices", $first($r['after'][$q], 'caretaker:partner.title'), json_encode($r['after'][$q]));
+    }
+    foreach (['Accueil', 'Empfang', 'Reception', 'recepcion', 'Recepción'] as $q) {
+        same("search page: «{$q}» — five languages, the same place first", ':office.reception', $r['after'][$q][0] ?? null);
+    }
+    check('search page: ß, umlauts and case are one (größe = GRÖSSE = grosse: «Grössen»)', in_array('cleanup:help.sizes', $r['after']['größe'], true)
+        && $r['after']['größe'] === $r['after']['GRÖSSE'] && $r['after']['größe'] === $r['after']['grosse'], json_encode([$r['after']['größe'], $r['after']['grosse']]));
+    check('search page: a typing error from four letters on («Tean»: the team), none below («tem»)', in_array('caretaker:team', $r['after']['Tean'], true)
+        && !in_array('caretaker:team', $r['after']['tem'], true), json_encode([$r['after']['Tean'], $r['after']['tem']]));
+    same('search page: the desk shown comes first', ['restore', 'advisor'], [explode(':', $r['restoreShown'][0] ?? '')[0], explode(':', $r['advisorShown'][0] ?? '')[0]]);
+    $u = $r['unhired'];
+    check('search page: a desk not hired comes after the others, marked', $u !== [] && in_array(['emby', false], $u, true)
+        && array_search(['emby', false], $u, true) >= count(array_filter($u, fn ($x) => $x[1])), json_encode($u));
+    $f = $r['full'][0] ?? [];
+    same('search page: a result says where (the desk, its page help), its kind, and goes there', ['caretaker', 'section', '#/caretaker', 'partner.title', 'Partner-Sekretariate', true],
+        [$f['desk'] ?? null, $f['kind'] ?? null, $f['route'] ?? null, $f['anchor'] ?? null, $f['label'] ?? null, $f['hired'] ?? null]);
     hardeningRm($tmp);
 }
 
@@ -14943,7 +15240,7 @@ function testRestoreDrill(): void
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, has: () => true, errorText: (e) => 'error ' + e.key,
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, has: () => true, errorText: (e) => 'error ' + e.key,
   api: { get: async () => ({ ok: true, part: null }) }, agent: { running: true } };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const fmt = { size: (b) => b + ' B', date: (t) => 'D' + t, relative: (t) => 'R' + t, time: (t) => 'T' + t, duration: (s) => s + 's' };
@@ -15941,7 +16238,7 @@ function testWatchmanNet(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
