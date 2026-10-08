@@ -293,7 +293,7 @@ function bubbleText() {
   if (touring()) parts.push(T('bubble.touring'));
   else if (tour && tour.time) {
     parts.push(tour.errors || tour.warnings
-      ? T('bubble.tour', { when: fmt.relative(tour.time), errors: tour.errors || 0, warnings: tour.warnings || 0, logs: noisy().length })
+      ? T('bubble.tour', { when: fmt.relative(tour.time), errors: tour.errors || 0, warnings: tour.warnings || 0, logs: T('count.in_logs', { n: noisy().length }) })
       : T('bubble.tour_calm', { when: fmt.relative(tour.time) }));
   } else if (state) {
     const e = state.syslog?.errors || 0;
@@ -515,7 +515,7 @@ function dockerView() {
   const box = el('div', 'lg-view');
   box.appendChild(Office.sectionHead(T('docker.title'), T('docker.sub', { root: d.root || '/var/lib/docker' }), { place: 'docker.title' }));
   const r = d.rotation || {};
-  box.appendChild(el('p', 'role lg-note', r.on ? T('docker.rotation_on', { size: r.size || '?', files: r.files || '?' }) : T('docker.rotation_off')));
+  box.appendChild(el('p', 'role lg-note', r.on ? T('docker.rotation_on', { size: r.size || '?', files: r.files || '?', n: Number(r.files) }) : T('docker.rotation_off')));
   if (!d.ok) { box.appendChild(el('p', 'callout', d.enabled === false ? T('docker.disabled') : T('docker.down'))); return box; }
   const list = el('div', 'box');
   for (const c of d.containers || []) {
@@ -526,7 +526,7 @@ function dockerView() {
     if (sourceById(id)) name.title = T('read_out');
     const meta = el('div', 'row-meta');
     meta.appendChild(chip(c.running ? T('running') : T('stopped'), c.running ? 'ok' : 'quiet'));
-    if (c.max_size) meta.appendChild(chip(T('docker.limit', { size: c.max_size, files: c.max_file || '1' }), '', T('docker.limit_title', { size: c.max_size, files: c.max_file || '1' })));
+    if (c.max_size) meta.appendChild(chip(T('docker.limit', { size: c.max_size, files: c.max_file || '1' }), '', T('docker.limit_title', { size: c.max_size, files: c.max_file || '1', n: Number(c.max_file || 1) })));
     else if (c.driver === 'json-file') meta.appendChild(chip(T('docker.no_limit'), 'warn', T('docker.no_limit_title')));
     else if (c.driver === 'local') meta.appendChild(chip(T('docker.driver', { driver: c.driver }), '', T('docker.local_title')));
     else if (c.driver) meta.appendChild(chip(T('docker.driver', { driver: c.driver }), '', T('docker.driver_title', { driver: c.driver })));
