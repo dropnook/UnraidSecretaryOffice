@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.28 - 2026-10-08
+# unraid-backup - backup.sh                       Version 2.29 - 2026-10-08
+#   2.29 Partner offices: a unit ticked for a partner that the partner hasn't agreed to keep (the Team Lead's
+#        pairs.json send.units - asked for with «Change what <host> sends…») is skipped as not_agreed when
+#        the phase makes its plan, before the door is asked (until 2.28 the door refused it: unit_not_agreed,
+#        counted as refused). Without pairs.json, or for a pair it doesn't name, the door decides as before
 #   2.28 Sleeping pools: [general] asleep_pools = wake (default, as before) | skip. With skip a ZFS pool of the
 #        snapshot plan whose disks sleep (disks.ini, read once - nothing on the pool is asked) is left out that
 #        night - no snapshot, no retention, no mount -, so is a btrfs disk or pool that sleeps; decided when the
@@ -2568,6 +2572,7 @@ partner_plan() {
     local -a units=() rows=()
     local -A seen=()
     PARTNER_ORDER=(); PARTNER_CANT=(); ST_PARTNER_IDS=(); ST_PARTNER_PLAN=()
+    partner_agreed_load || true         # 2.29: what each partner agreed to keep (pairs.json send.units)
     while IFS= read -r id; do
         [[ -n "$id" ]] || continue
         mapfile -t units < <(partner_units "$id")
@@ -2576,6 +2581,8 @@ partner_plan() {
         rows=(); seen=()
         for u in "${units[@]}"; do
             if ! partner_unit_dataset "$u"; then PARTNER_CANT+=( "$id|$u|$PU_WHY" ); continue; fi
+            # not (yet) among what the partner agreed to keep: skipped before its door is asked
+            if ! partner_agreed "$id" "$u"; then PARTNER_CANT+=( "$id|$u|not_agreed" ); continue; fi
             ds="$PU_DS"
             # the backup place's share ticked as a share too: one transfer (place)
             [[ -n "${seen[$ds]:-}" ]] && { log "  Partner $(partner_name "$id"): $u is the same dataset as ${seen[$ds]} - sent once"; continue; }
@@ -2861,6 +2868,7 @@ partner_phase() {
             [[ "$u" == "$id|"* ]] || continue
             IFS='|' read -r _ u why <<<"$u"
             if [[ "$why" == "asleep" ]]; then log "  $u: its pool sleeps - left out this run (asleep_pools = skip)"
+            elif [[ "$why" == "not_agreed" ]]; then log "  $u: not agreed with $name yet - ask at the Team Lead («Change what $(cfg "general|server" "$(hostname -s 2>/dev/null)") sends…»)"
             else log "  $u: not covered ($why)"; fi
             partner_skip "$id" "$u" "$why"
         done
@@ -3140,7 +3148,7 @@ for pl in "${ST_PARTNER_IDS[@]}"; do
     done
     for po in "${PARTNER_CANT[@]}"; do
         IFS='|' read -r po_id po_u po_why <<<"$po"
-        [[ "$po_id" == "$pl_id" ]] && pl_line+="${pl_line:+, }$po_u ($([[ "$po_why" == asleep ]] && echo "asleep, left out" || echo "not covered: $po_why"))"
+        [[ "$po_id" == "$pl_id" ]] && pl_line+="${pl_line:+, }$po_u ($(case "$po_why" in asleep) echo "asleep, left out" ;; not_agreed) echo "not agreed yet" ;; *) echo "not covered: $po_why" ;; esac))"
     done
     log "  Partner:          $(partner_name "$pl_id") <- ${pl_line:-nothing}${SNAP_NAME:+ ($SNAP_NAME)}"
 done
