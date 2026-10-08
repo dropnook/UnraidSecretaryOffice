@@ -29,7 +29,7 @@
 /* the dialogs' option lists (trust, units to send, units to keep): a label.check row inside a .field keeps the
    office's row look - control, then the words beside it (office.css's «.field > label» is for a field's title and
    would spread them to the right edge, Benj 2026-10-08) */
-.ct-opts > label.check{justify-content:flex-start; font-weight:400; font-size:13.5px; color:var(--ink2)}
+.ct-opts > label.check{justify-content:flex-start; align-items:flex-start; gap:9px; font-weight:400; font-size:13.5px; color:var(--ink2)}
 pre.code.ct-pblock{user-select:all; max-height:30vh; word-break:break-all}
 .ct-ppaste{width:100%; resize:vertical; word-break:break-all}
 .ct-pcode{font:650 30px/1.2 var(--mono); letter-spacing:.08em; color:var(--ink); text-align:center; padding:10px 0 14px; font-variant-numeric:tabular-nums}
