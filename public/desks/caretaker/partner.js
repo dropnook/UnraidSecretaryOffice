@@ -112,7 +112,7 @@ function card(x) {
 
   // what I send, and what they keep of it
   const send = el('div', 'row-detail');
-  send.appendChild(el('strong', '', T('partner.i_send') + ' '));
+  send.appendChild(el('strong', '', T('partner.i_send', { host: Office.config.host }) + ' '));
   send.append(x.sends ? unitsText(x.send_units) : T('partner.i_send_nothing'));
   main.appendChild(send);
   const tk = x.they_keep;
@@ -130,7 +130,7 @@ function card(x) {
 
   // what I keep of theirs
   const keep = el('div', 'row-detail');
-  keep.appendChild(el('strong', '', T('partner.i_keep') + ' '));
+  keep.appendChild(el('strong', '', T('partner.i_keep', { host: Office.config.host }) + ' '));
   if (x.receive) {
     keep.append(T('partner.i_keep_text', { list: unitsText(x.receive.units), pool: x.receive.pool, retention: retentionText(x.receive.retention),
       window: windowText(x.receive.window) }) + (x.receive.wake ? ' ' + T('partner.wakes') : ''));
@@ -185,7 +185,7 @@ function pendingRow(o) {
   meta.appendChild(chip('accent', T('partner.waiting'), T('partner.waiting_tip')));
   meta.appendChild(el('span', '', T('partner.offered', { when: fmt.relative(o.created) })));
   main.appendChild(meta);
-  main.appendChild(el('div', 'row-detail', T('partner.i_send') + ' ' + unitsText(o.units)));
+  main.appendChild(el('div', 'row-detail', T('partner.i_send', { host: Office.config.host }) + ' ' + unitsText(o.units)));
   r.appendChild(main);
   const acts = el('div', 'ct-acts');
   const show = el('button', 'btn small plain', T('partner.show_block'));
