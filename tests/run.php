@@ -4433,6 +4433,181 @@ JS;
 }
 
 /**
+ * Rows with «Details» / «Less» unfold on a click of the row itself (Benj, 2026-10-08: «clicking the bar doesn't open or
+ * close any more»): Mr. Backupsy's setup rows (step 3's shares, the apps and VMs with Kopia) through setupUnfold() - under
+ * node with stand-in elements - and every «Details» button of his beside a row that unfolds (desk.js read as text)
+ */
+function testSetupUnfold(): void
+{
+    $src = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    $lines = explode("\n", $src);
+    $buttons = 0;
+    $alone = [];
+    foreach ($lines as $i => $line) {
+        if (!str_contains($line, "button(") || !str_contains($line, "T('setup.more')")) {
+            continue;
+        }
+        $buttons++;
+        if (!str_contains(implode("\n", array_slice($lines, $i, 8)), 'setupUnfold(')) {
+            $alone[] = $i + 1;
+        }
+    }
+    check('unfold: Mr. Backupsy\'s «Details» buttons - both setup rows have one', $buttons === 2, "$buttons buttons");
+    same('unfold: every «Details» button sits on a row that unfolds itself (setupUnfold)', [], $alone);
+    $css = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.css');
+    check('unfold: the share table\'s rows show it (cursor, hover) and the name a focus ring',
+        str_contains($css, '.bk-shares tr.unfolds{cursor:pointer}') && str_contains($css, '.bk-shares tr.unfolds:hover > *') && str_contains($css, '.bk-unfold-name:focus-visible'));
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('unfold: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('setup-unfold');
+    $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => false };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const mk = (own) => ({ classList: { s: new Set(), add(c) { this.s.add(c); } }, dataset: {}, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; },
+  closest: (sel) => (own && sel === b.UNFOLD_OWN ? {} : null) });
+const run = (open) => {
+  const row = mk(); const name = mk(); const more = mk();
+  let n = 0;
+  b.setupUnfold(row, name, more, open, () => { n++; });
+  const out = { cls: [...row.classList.s], nameCls: [...name.classList.s], tab: name.tabIndex, role: name.attrs.role, expName: name.attrs['aria-expanded'],
+    expMore: more.attrs['aria-expanded'], title: name.title };
+  row.onclick({ target: mk(false) }); out.plain = n;            // a click on the row (its text, a cell)
+  row.onclick({ target: mk(true) }); out.own = n;               // a field, a select, a label, a chip, a link, another button
+  let prevented = 0;
+  const key = (k, target) => name.onkeydown({ key: k, target: target || name, preventDefault: () => { prevented++; } });
+  key('Enter'); key(' '); out.keys = n; out.prevented = prevented;
+  key('a'); key('Tab'); key('Enter', mk(false)); out.otherKeys = n;
+  return out;
+};
+console.log(JSON.stringify({ closed: run(false), open: run(true), own: b.UNFOLD_OWN }));
+JS;
+    file_put_contents("$tmp/t.js", $js);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' 2>&1');
+    $r = json_decode($raw, true);
+    if (!is_array($r)) {
+        check('unfold: ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('unfold: a folded row - unfolds, its name a button for the keyboard, aria-expanded false on name and button, the tooltip on the name',
+        [['unfolds'], ['bk-unfold-name'], 0, 'button', 'false', 'false', 'details'],
+        [$r['closed']['cls'], $r['closed']['nameCls'], $r['closed']['tab'], $r['closed']['role'], $r['closed']['expName'], $r['closed']['expMore'], $r['closed']['title']]);
+    same('unfold: an open row - marked open, aria-expanded true', [['unfolds', 'open'], 'true', 'true'],
+        [$r['open']['cls'], $r['open']['expName'], $r['open']['expMore']]);
+    same('unfold: a click on the row toggles, one on its own controls (fields, selects, labels, chips, links, buttons) never',
+        [1, 1], [$r['closed']['plain'], $r['closed']['own']]);
+    same('unfold: Enter and Space on the name toggle (the page doesn\'t scroll), other keys or a key inside it not', [3, 2, 3],
+        [$r['closed']['keys'], $r['closed']['prevented'], $r['closed']['otherKeys']]);
+    $own = array_map('trim', explode(',', (string) $r['own']));
+    check('unfold: what keeps its own click', !array_diff(['button', 'a', 'input', 'select', 'textarea', 'label', '[data-own]', '.chip'], $own), (string) $r['own']);
+    hardeningRm($tmp);
+}
+
+/**
+ * Sleeping pools never go back to «wake» unasked (Benj, 2026-10-08 on nostromo: his «skip» became «wake» at an Apply
+ * whose dialog listed only share and no_stop lines; reproduced on uso-test with a page holding a plan older than
+ * settings.ini). The page sends general|asleep_pools only when the user chose it there (setupDecisions()), its dialog
+ * lists what is really sent against what settings.ini says (missing = the engine's default), every general key in
+ * words; the agent refuses decisions made on a plan older than settings.ini (backupSetupPlanOld(), setup_plan_old)
+ */
+function testSetupAsleepKept(): void
+{
+    // the agent: a plan older than settings.ini is refused, a newer one or no settings.ini goes
+    $tmp = hardeningTmp('setup-asleep-kept');
+    file_put_contents("$tmp/settings.ini", "[general]\nasleep_pools = skip\n");
+    touch("$tmp/settings.ini", 1000);
+    same('plan old: made before settings.ini was written - refused; at the same second or after - goes; no settings.ini - goes',
+        [true, false, false, false], [backupSetupPlanOld(990, "$tmp/settings.ini"), backupSetupPlanOld(1000, "$tmp/settings.ini"),
+         backupSetupPlanOld(1005, "$tmp/settings.ini"), backupSetupPlanOld(10, "$tmp/none.ini")]);
+    $agent = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    check('plan old: setup_apply passes the page\'s plan time and refuses before anything is written',
+        str_contains($agent, "backupSetupApply(\$r['decisions'] ?? null, \$r['plan_time'] ?? null)")
+        && strpos($agent, "throw new Problem('setup_plan_old')") < strpos($agent, '$file = "$data/state/setup-decisions.json";'));
+    $desk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('plan old: the page sends its plan\'s time and looks again when refused',
+        str_contains($desk, "{ decisions: setupDecisions(), plan_time: setup.plan.time }") && str_contains($desk, "j.error.key === 'setup_plan_old') { setupPlan(false, true)"));
+    // every general key setup.sh knows has words in the apply dialog (the partner list has its own group)
+    preg_match_all('/pinit "general\|([a-z_]+)"/', (string) file_get_contents(OFFICE_DIR . '/backup/setup.sh'), $m);
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true);
+    $missing = array_values(array_filter(array_unique($m[1]), fn ($k) => $k !== 'partner_place' && !isset($en["setup.key.general_$k"])));
+    check('plan old: setup.sh\'s general keys found', count($m[1]) >= 10, (string) count($m[1]));
+    same('plan old: every general key in words in the apply dialog', [], $missing);
+
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('plan old: page - node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    $general = ['general|dumps_share' => 'UnraidSecretaryOffice', 'general|notify_success' => 'yes', 'general|keep_logs' => '60'];
+    $plan = fn (array $p, array $o, int $time) => ['time' => $time, 'have_settings' => true, 'asleep_pools' => $p['general|asleep_pools'] ?? null,
+        'P' => $general + ['kopia|enabled' => 'no', 'share|UnraidSecretaryOffice|mode' => 'snapshot', 'docker|no_stop' => [], 'docker|skip' => [], 'docker|known' => []] + $p,
+        'O' => $general + ['kopia|enabled' => 'no', 'share|UnraidSecretaryOffice|mode' => 'snapshot'] + $o,
+        'shares' => [['name' => 'UnraidSecretaryOffice', 'exists' => true, 'folders' => [], 'waiting' => []]],
+        'containers' => [], 'vms' => [], 'databases' => [], 'nextcloud' => [], 'missing_databases' => [], 'bases' => []];
+    // nostromo's page: a plan made before «skip» was written (settings.ini had no key then)
+    file_put_contents("$tmp/stale.json", json_encode($plan(['general|asleep_pools' => 'wake'], [], 1000)));
+    // a plan made after: settings.ini says skip
+    file_put_contents("$tmp/fresh.json", json_encode($plan(['general|asleep_pools' => 'skip'], ['general|asleep_pools' => 'skip'], 2000)));
+    $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => true };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const load = (f) => { b.setup.draft = null; b.setup.base = null; b.setup.plan = JSON.parse(fs.readFileSync(f, 'utf8')); b.setupDraftKeep(); };
+const look = () => {
+  const saved = b.setupSaved();
+  const { view, keys } = b.setupApplyChanges(saved);
+  const sent = b.setupDecisions();
+  const k = 'general|asleep_pools';
+  return { sent: k in sent ? sent[k] : null, listed: keys.includes(k), line: keys.includes(k) ? `${b.changeLabel(k)}: ${b.valueText(saved[k], k)} → ${b.valueText(view[k], k)}` : null,
+    saved: saved[k] ?? null, n: Object.keys(sent).length };
+};
+const out = {};
+load(process.argv[3]); out.staleUntouched = look();
+b.dset('general|asleep_pools', 'skip'); out.staleSkip = look();
+load(process.argv[4]); out.freshUntouched = look();
+b.dset('general|asleep_pools', 'wake'); out.freshWake = look();
+// the user's «wake» on the fresh plan, then a new plan comes (a tour): the choice stays and is still sent
+b.setup.plan = { ...JSON.parse(fs.readFileSync(process.argv[4], 'utf8')), time: 3000 }; b.setupDraftKeep(); out.keptAcrossPlan = look();
+// preset_new missing in settings.ini: the engine's auto, whatever the plan proposes
+load(process.argv[3]); b.setup.plan.P['general|preset_new'] = 'local'; out.presetSaved = b.setupSaved()['general|preset_new'];
+console.log(JSON.stringify(out));
+JS;
+    file_put_contents("$tmp/t.js", $js);
+    $cmd = escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
+        . escapeshellarg("$tmp/stale.json") . ' ' . escapeshellarg("$tmp/fresh.json") . ' 2>&1';
+    $raw = (string) shell_exec($cmd);
+    $r = json_decode($raw, true);
+    if (!is_array($r)) {
+        check('plan old: page ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('asleep kept: nostromo\'s page (its plan older than «skip») - wake never sent, nothing listed; setup.sh keeps settings.ini\'s skip',
+        [null, false], [$r['staleUntouched']['sent'], $r['staleUntouched']['listed']]);
+    same('asleep kept: the user picks «leave them asleep» there - sent and listed in words',
+        ['skip', 'setup.key.general_asleep_pools: setup.asleep.short_wake → setup.asleep.short_skip'], [$r['staleSkip']['sent'], $r['staleSkip']['line']]);
+    same('asleep kept: a fresh plan, untouched - not sent, not listed (settings.ini\'s skip stays)', [null, false, 'skip'],
+        [$r['freshUntouched']['sent'], $r['freshUntouched']['listed'], $r['freshUntouched']['saved']]);
+    same('asleep kept: «wake them» chosen on a fresh plan - sent and listed', ['wake', 'setup.key.general_asleep_pools: setup.asleep.short_skip → setup.asleep.short_wake'],
+        [$r['freshWake']['sent'], $r['freshWake']['line']]);
+    same('asleep kept: the choice survives a new plan and is still sent', ['wake', true], [$r['keptAcrossPlan']['sent'], $r['keptAcrossPlan']['listed']]);
+    same('asleep kept: the rest of the draft still goes (one key fewer than the draft, _retire_sources added)', $r['freshWake']['n'] - 1, $r['freshUntouched']['n']);
+    same('asleep kept: preset_new missing in settings.ini counts as the engine\'s auto', 'auto', $r['presetSaved']);
+    hardeningRm($tmp);
+}
+
+/**
  * The backup place on a fresh server: what speaks against a share (backupPlaceFacts() from the shares' cfg,
  * disks.ini and the plan's locations - warnings only), and the setup's step 0 under node: the warnings'
  * texts, Mr. Backupsy's word while none is chosen, and a new plan keeping what the user chose but didn't apply
@@ -20016,7 +20191,7 @@ JS);
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks', 'testAckContent',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired'],

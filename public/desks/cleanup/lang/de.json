@@ -1606,7 +1606,7 @@
   "where.adv.ups.title": "Keine USV",
   "where.adv.ups.why": "Fällt der Strom aus, ist der Server einfach weg: Offene Dateien können kaputtgehen, danach läuft eine lange Paritätsprüfung. Eine kleine USV gibt ihm Zeit, sauber herunterzufahren (⟦Settings⟧ → ⟦UPS Settings⟧; für einen NUT-Server das NUT-Plugin).",
   "where.adv.syslog.title": "Nach einem Absturz ist das Protokoll weg",
-  "where.adv.syslog.why": "Unraid hält sein Syslog im RAM — nach einem Absturz oder harten Reset weiss niemand mehr, was passiert ist, auch Frau Protokolli nicht. «⟦Mirror syslog to flash⟧» (für eine Weile, es nutzt den Stick ab) oder ein Syslog-Server (dieser hier: ein Share als lokaler Syslog-Ordner) bewahrt es auf.",
+  "where.adv.syslog.why": "Unraid hält sein Syslog im RAM — nach einem Absturz oder harten Reset weiss niemand mehr, was passiert ist, auch Frau Protokolli nicht. Unraid kann es selbst aufbewahren: «⟦Mirror syslog to flash⟧» für eine Weile (das nutzt den Stick ab).",
   "where.adv.vm_windows.title": {
     "one": "Eine Windows-VM kann den Array-Stopp aufhalten: {names}",
     "other": "{n} Windows-VMs können den Array-Stopp aufhalten: {names}"
@@ -1633,7 +1633,7 @@
   "empty.partners": "Kein Partner hat hier etwas liegen lassen.",
   "bubble.partners": {"one": "Kopien von 1 Partner liegen noch da ({size})", "other": "Kopien von {n} Partnern liegen noch da ({size})"},
   "fact.partners": {"one": "Rest von 1 Partner · {size}", "other": "Reste von {n} Partnern · {size}"},
-  "help.partners_text": "Ein Partner-Sekretariat hielt hier seine Kopien (die Tür empfing sie nach <pool>/UnraidSecretaryOffice-partners/<partner>). Endet die Partnerschaft, bleiben die Kopien — Staub, aber man weiss ja nie: vielleicht verbindet ihr euch wieder. Sobald die Partnerschaft nicht mehr in der Liste des Teamchefs steht, zeige ich sie hier und lege sie auf Wunsch in meine Abstellkammer (zfs rename daneben) — nie, während die Tür für diesen Partner empfängt. Ich schaue nur auf wache Pools.",
+  "help.partners_text": "Ein Partner-Sekretariat hielt hier seine Kopien (die Tür empfing sie nach <pool>/UnraidSecretaryOffice-partners/<partner>). Endet die Partnerschaft, bleiben die Kopien — Staub, aber man weiss ja nie: vielleicht verbindet ihr euch wieder. Sobald die Partnerschaft nicht mehr in der Liste des Teamchefs steht, zeige ich sie hier und lege sie auf Wunsch in meine Abstellkammer (zfs rename daneben) — nie, während die Tür für diesen Partner empfängt. Ich wecke keine schlafenden Disks, ausser du willst das.",
   "item.partner": "Kopien eines Partners",
   "item.package": "Paket von Herrn Backupsi",
   "why.transfer": "empfängt",

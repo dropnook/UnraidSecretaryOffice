@@ -1606,7 +1606,7 @@
   "where.adv.ups.title": "Sin SAI",
   "where.adv.ups.why": "Cuando se va la luz, el servidor simplemente se para: los archivos abiertos pueden romperse y después Unraid hace una larga comprobación de paridad. Un SAI pequeño le da tiempo a apagarse limpiamente (⟦Settings⟧ → ⟦UPS Settings⟧; para un servidor NUT, el plugin NUT).",
   "where.adv.syslog.title": "Tras un fallo, el registro desaparece",
-  "where.adv.syslog.why": "Unraid guarda su syslog en la RAM — tras un cuelgue o un reinicio a lo bruto nadie puede leer lo que pasó, ni siquiera la señora Protocoli. «⟦Mirror syslog to flash⟧» (por un tiempo, desgasta la memoria) o un servidor syslog (este mismo: un recurso compartido como carpeta local del registro syslog) lo conserva.",
+  "where.adv.syslog.why": "Unraid guarda su syslog en la RAM — tras un cuelgue o un reinicio a lo bruto nadie puede leer lo que pasó, ni siquiera la señora Protocoli. Unraid puede guardarlo él mismo: «⟦Mirror syslog to flash⟧» por un tiempo (desgasta la memoria).",
   "where.adv.vm_windows.title": {
     "one": "Una VM de Windows puede retrasar la parada del array: {names}",
     "other": "{n} VMs de Windows pueden retrasar la parada del array: {names}"
@@ -1633,7 +1633,7 @@
   "empty.partners": "Ningún socio dejó nada aquí.",
   "bubble.partners": {"one": "las copias de 1 socio siguen aquí ({size})", "other": "las copias de {n} socios siguen aquí ({size})"},
   "fact.partners": {"one": "resto de 1 socio · {size}", "other": "restos de {n} socios · {size}"},
-  "help.partners_text": "Una secretaría asociada guardaba aquí sus copias (la puerta las recibía en <pool>/UnraidSecretaryOffice-partners/<socio>). Cuando la asociación termina, las copias se quedan — polvo, pero nunca se sabe: quizá os emparejéis de nuevo. En cuanto la asociación ya no está en la lista del jefe de equipo, las muestro aquí y, si quieres, las meto en mi trastero (zfs rename justo al lado) — nunca mientras la puerta recibe para ese socio. Solo miro los pools despiertos.",
+  "help.partners_text": "Una secretaría asociada guardaba aquí sus copias (la puerta las recibía en <pool>/UnraidSecretaryOffice-partners/<socio>). Cuando la asociación termina, las copias se quedan — polvo, pero nunca se sabe: quizá os emparejéis de nuevo. En cuanto la asociación ya no está en la lista del jefe de equipo, las muestro aquí y, si quieres, las meto en mi trastero (zfs rename justo al lado) — nunca mientras la puerta recibe para ese socio. Nunca despierto un disco dormido, a menos que tú quieras.",
   "item.partner": "copias de un socio",
   "item.package": "paquete del señor Backupsi",
   "why.transfer": "recibiendo",

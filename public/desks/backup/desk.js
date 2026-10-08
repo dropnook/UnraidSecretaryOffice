@@ -1501,7 +1501,41 @@ function setupSaved() {
   Object.keys(O).forEach((k) => { if (!/^share\|.+\|(id|locations)$/.test(k)) saved[k] = O[k]; });
   // kopia_known (engine 2.21) missing means "not recorded yet" - recording it is a change Apply makes
   Object.keys(P).forEach((k) => { if (!(k in O) && have.has(section(k)) && !/\|kopia_known$/.test(k)) saved[k] = P[k]; });
+  // a key with a default of the engine's own: missing means that default, whatever the plan proposes (asleep_pools
+  // missing = wake - a plan's «skip» must show as a change, not as what is saved)
+  Object.entries(ENGINE_DEFAULTS).forEach(([k, v]) => { if (!(k in O) && (k in P || k in saved)) saved[k] = v; });
   return saved;
+}
+
+/** What the engine takes when settings.ini leaves a key out (setup.sh / lib/common.sh apply_settings()) */
+const ENGINE_DEFAULTS = { 'general|asleep_pools': 'wake', 'general|preset_new': 'auto' };
+
+/**
+ * Keys Apply sends only when the user chose them on this page (Benj, 2026-10-08 on nostromo: his «skip» since the day
+ * before went back to «wake» at an Apply that never listed it). The draft carries every key of the plan it was made
+ * from; a page whose plan is older than settings.ini - a second tab, the same tab left open - would otherwise send the
+ * old plan's value back, and the dialog, comparing with that plan's settings, could not see it. Left out, setup.sh
+ * keeps what settings.ini says now (decisions_load() lays only what is sent over it).
+ */
+const ONLY_CHOSEN = ['general|asleep_pools'];
+
+/** The decisions Apply sends: the draft, without the keys of ONLY_CHOSEN the user didn't choose here */
+function setupDecisions() {
+  const out = { ...setup.draft, _retire_sources: setup.retire ? 'yes' : 'no' };
+  const base = setup.base || setup.plan.P || {};
+  ONLY_CHOSEN.forEach((k) => { if (same(base[k], setup.draft[k])) delete out[k]; });
+  return out;
+}
+
+/**
+ * What the apply dialog lists: against the saved settings, the values Apply really sends (a key it leaves out
+ * stays as saved) - every `general|…` among them in words (changeLabel(), valueText())
+ */
+function setupApplyChanges(saved) {
+  const sent = setupDecisions();
+  const view = { ...setup.draft };
+  ONLY_CHOSEN.forEach((k) => { if (!(k in sent)) { if (saved[k] === undefined) delete view[k]; else view[k] = saved[k]; } });
+  return { view, keys: setupChanges(saved, view) };
 }
 
 /** What Apply changes against the saved settings: the differences, and a share's first record of its folders (even none) */
@@ -1634,14 +1668,17 @@ function setupApply() {
   } else {
     // what really changes in settings.ini - against the saved file, not against proposals
     const saved = setupSaved();
-    // the units' partner lists have their own group below («To partners»)
-    const changes = setupChanges(saved, setup.draft).filter((k) => !/^(share\|.+\|partner|vm\|.+\|partner|general\|partner_place)$/.test(k));
+    // what Apply really sends (setupApplyChanges()); the units' partner lists have their own group below («To partners»)
+    const { view, keys } = setupApplyChanges(saved);
+    const changes = keys.filter((k) => !/^(share\|.+\|partner|vm\|.+\|partner|general\|partner_place)$/.test(k));
     box.appendChild(el('p', '', changes.length ? T('setup.apply_text', { n: changes.length }) : T('setup.apply_none')));
     if (changes.length) {
       const ul = el('ul', 'shortlist');
-      changes.slice(0, 80).forEach((k) => {
+      // the settings for the whole backup first - never lost among 80 share lines
+      const general = (k) => (k.startsWith('general|') ? 0 : 1);
+      [...changes].sort((a, b) => general(a) - general(b)).slice(0, 80).forEach((k) => {
         const li = el('li', '', changeLabel(k));
-        li.appendChild(el('span', '', /\|kopia_known$/.test(k) ? knownText(saved[k], setup.draft[k]) : `${valueText(saved[k], k)} → ${valueText(setup.draft[k], k)}`));
+        li.appendChild(el('span', '', /\|kopia_known$/.test(k) ? knownText(saved[k], view[k]) : `${valueText(saved[k], k)} → ${valueText(view[k], k)}`));
         ul.appendChild(li);
       });
       box.appendChild(ul);
@@ -1683,9 +1720,14 @@ function setupApply() {
     buttons: [
       { text: Office.t('common.cancel') },
       { text: T('setup.apply_go'), kind: '', act: async () => {
-        const decisions = { ...setup.draft, _retire_sources: setup.retire ? 'yes' : 'no' };
-        const j = await Office.api.post(`${ID}.setup_apply`, { decisions });
-        if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
+        const j = await Office.api.post(`${ID}.setup_apply`, { decisions: setupDecisions(), plan_time: setup.plan.time });
+        if (!j.ok) {
+          Office.toast(Office.errorText(j.error, ID), true);
+          // settings.ini changed after this plan was made (another tab, a terminal): look again - what the user
+          // chose here stays (setupDraftKeep()), the list is made anew against what is saved now
+          if (j.error && j.error.key === 'setup_plan_old') { setupPlan(false, true); return true; }
+          return false;
+        }
         setup.applied = null;
         Office.toast(T('setup.applying'));
         Office.busy(`${ID}.setup`, true);
@@ -2638,6 +2680,54 @@ function shareWhy(sh) {
   return T('setup.why.' + code, { arg, size: isNaN(gb) || arg === '' ? arg : gb < 0 ? '> ?' : fmt.size(gb * 1073741824) });
 }
 
+/**
+ * A setup row with «Details» / «Less» unfolds on a click of the row itself too (Benj, 2026-10-08: «clicking the bar
+ * doesn't open or close any more»), like the protection table's rows: `.unfolds` (cursor, hover), the name a button
+ * for the keyboard (Enter / Space) with aria-expanded, the «Details» button beside it in step. A click on a field, a
+ * select, a label, a chip, a link or another button inside keeps its own job; selecting text folds nothing.
+ * `toggle()` folds or unfolds (the page is drawn anew: setupToggleOpen()).
+ */
+const UNFOLD_OWN = 'button, a, input, select, textarea, label, [data-own], .chip';
+function setupUnfold(row, name, more, open, toggle) {
+  row.classList.add('unfolds');
+  if (open) row.classList.add('open');
+  name.classList.add('bk-unfold-name');
+  name.tabIndex = 0;
+  name.setAttribute('role', 'button');
+  name.setAttribute('aria-expanded', String(!!open));
+  name.title = T('details');
+  if (more) more.setAttribute('aria-expanded', String(!!open));
+  row.onclick = (e) => {
+    if (e.target && e.target.closest && e.target.closest(UNFOLD_OWN)) return;
+    if (typeof window !== 'undefined' && window.getSelection && String(window.getSelection()).length) return;   // selecting text
+    toggle();
+  };
+  name.onkeydown = (e) => {
+    if (e.target !== name || (e.key !== 'Enter' && e.key !== ' ')) return;
+    e.preventDefault();
+    toggle();
+  };
+  return row;
+}
+
+/** Fold or unfold a setup row (its key in setup.open): drawn anew, the row stays where it was on screen, the focus too */
+function setupToggleOpen(key, row) {
+  const before = row && row.isConnected ? row.getBoundingClientRect().top : null;
+  const focused = !!(row && document.activeElement && row.contains(document.activeElement));
+  Office.keepInPlace(row, () => {
+    if (setup.open.has(key)) setup.open.delete(key); else setup.open.add(key);
+    renderSetup();
+    const now = view && [...view.querySelectorAll('[data-unfold]')].find((r) => r.dataset.unfold === key);
+    if (!now) return;
+    if (before !== null) {
+      const diff = now.getBoundingClientRect().top - before;
+      if (Math.abs(diff) > 1) window.scrollBy(0, diff);
+    }
+    const name = focused && now.querySelector('.bk-unfold-name');
+    if (name) name.focus({ preventScroll: true });
+  });
+}
+
 function setupShares(plan) {
   const s = Office.place('setup.shares', setupSection(T('setup.shares'), T('setup.shares_sub')));
   const kopiaOn = dget('kopia|enabled') === 'yes';
@@ -2651,7 +2741,9 @@ function setupShares(plan) {
   plan.shares.forEach((sh) => {
     const tr = el('tr');
     tr.dataset.share = sh.name;
-    const nameCell = el('th', '', sh.name);
+    const nameCell = el('th');
+    const shareName = el('span', '', sh.name);
+    nameCell.appendChild(shareName);
     // new since the last setup (engine 2.31: the default decides it - a big one under «local + Kopia» waits for the user)
     if (setup.newItems.has('share:' + sh.name)) {
       const keep = !!presetKeep(sh, plan);                 // one the engine never backs up on its own: as the plan says
@@ -2701,11 +2793,12 @@ function setupShares(plan) {
     tr.appendChild(why);
     const more = el('td');
     if (sh.exists) {
-      const b = button(setup.open.has(sh.name) ? T('setup.less') : T('setup.more'), 'small plain', () => {
-        if (setup.open.has(sh.name)) setup.open.delete(sh.name); else setup.open.add(sh.name);
-        renderSetup();
-      });
+      // the whole row unfolds to its details, the button beside it says so (setupUnfold())
+      const toggle = () => setupToggleOpen(sh.name, tr);
+      const b = button(setup.open.has(sh.name) ? T('setup.less') : T('setup.more'), 'small plain', toggle);
       more.appendChild(b);
+      tr.dataset.unfold = sh.name;
+      setupUnfold(tr, shareName, b, setup.open.has(sh.name), toggle);
     }
     tr.appendChild(more);
     body.appendChild(tr);
@@ -3464,7 +3557,8 @@ function setupItems(plan) {
     const r = el('div', 'row nocheck bk-item');
     r.dataset.focus = `${kind}:${name}`;
     const main = el('div', 'row-main');
-    main.appendChild(el('div', 'row-name', name));
+    const nameEl = el('div', 'row-name', name);
+    main.appendChild(nameEl);
     const meta = el('div', 'row-meta');
     meta.appendChild(el('span', '', T('setup.item_kind.' + kind)));
     const folders = dget(pre + 'folder', []) || [];
@@ -3504,11 +3598,13 @@ function setupItems(plan) {
     lab.append(el('span', 'role', T('setup.item_ret')), ret);
     right.appendChild(lab);
     const open = setup.open.has(pre);
-    right.appendChild(button(open ? T('setup.less') : T('setup.more'), 'small plain', () => {
-      if (open) setup.open.delete(pre); else setup.open.add(pre);
-      renderSetup();
-    }));
+    // the whole row unfolds to what Kopia leaves out (Benj: «otherwise you can't see the Kopia excludes»)
+    const toggle = () => setupToggleOpen(pre, r);
+    const more = button(open ? T('setup.less') : T('setup.more'), 'small plain', toggle);
+    right.appendChild(more);
     r.appendChild(right);
+    r.dataset.unfold = pre;
+    setupUnfold(r, nameEl, more, open, toggle);
     list.appendChild(r);
     if (open) {
       const d = el('div', 'row nocheck bk-dep');
@@ -3884,7 +3980,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     placeLines, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,
     PRESETS, presetChoose, presetForget, presetKeep, presetChanged, presetKopiaState, firstUpload, presetKeptList, presetStartText,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
-    letGoPart, letGoLines, letGoDoneLines,
+    letGoPart, letGoLines, letGoDoneLines, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText,
   };
 }
 })();

@@ -68,7 +68,7 @@ desk('backup', [
         'log'     => fn (array $r) => backupLog(textField($r, 'log')),
         'setup_plan'  => fn (array $r) => backupSetupPlan(!empty($r['measure'])),
         'setup_get'   => fn (array $r) => backupSetupGet(),
-        'setup_apply' => fn (array $r) => backupSetupApply($r['decisions'] ?? null),
+        'setup_apply' => fn (array $r) => backupSetupApply($r['decisions'] ?? null, $r['plan_time'] ?? null),
         'setup_forget' => fn (array $r) => backupSetupForget(),
         'schedule'    => fn (array $r) => backupSetSchedule(cronField($r)),       // null: off — said, never a missing key
         // his let-go dialog's «Also clear away what he kept here» (agent/desks/backup-letgo.php): the look, then the clearing
@@ -2296,13 +2296,17 @@ function backupShareTop(array $share, array $asleep): array
  * keys the plan knows (or per-share/-database keys of things it listed) get
  * through; setup.sh validates the values again before it writes.
  */
-function backupSetupApply(mixed $decisions): array
+function backupSetupApply(mixed $decisions, mixed $planTime = null): array
 {
     $dir = backupCheckReady();
     $data = BACKUP_DATA_DIR;
     $plan = readJson("$data/state/setup-plan.json");
     if (!$plan || !is_array($decisions) || !$decisions || array_is_list($decisions) || count($decisions) > 5000) {
         throw new Problem('setup_bad_decisions', ['detail' => $plan ? 'decisions' : 'no plan']);
+    }
+    // decisions made on a plan older than settings.ini would put back what was set since (another tab, a terminal)
+    if (backupSetupPlanOld(is_int($planTime) ? $planTime : (int) ($plan['time'] ?? 0), "$data/settings.ini")) {
+        throw new Problem('setup_plan_old');
     }
     $shares = array_column($plan['shares'] ?? [], 'name');
     $dbs = array_column(array_filter($plan['databases'] ?? [], fn ($d) => !empty($d['dumpable'])), 'container');
@@ -2345,6 +2349,22 @@ function backupSetupApply(mixed $decisions): array
     backupLaunch(["$dir/setup.sh", "--apply=$file"], ['UB_SIZE_TIMEOUT' => 0]);
     logLine('Backup: setup.sh --apply started via at (' . count($clean) . ' decisions)');
     return ['ok' => true, 'started' => backupSetupWait(), 'state' => backupScan()];
+}
+
+/**
+ * Is the plan the page decided on older than settings.ini? (Benj, 2026-10-08 on nostromo: his «skip» for sleeping pools
+ * went back to «wake» at an Apply that never listed it.) The page sends every key of its plan's draft, and its dialog
+ * compares with that plan's picture of settings.ini (`O`): made before settings.ini was last written - another tab
+ * applied meanwhile, the same tab right after its own Apply, a terminal setup, a hand edit - it would put back what was
+ * set since, unseen. Then refused (`setup_plan_old`), the page looks again and keeps the user's choices. The page's own
+ * plan time counts (`plan_time`; the plan on disk may be newer than the page's), else the plan on disk's.
+ * No settings.ini (a first setup, after --forget): never old.
+ */
+function backupSetupPlanOld(int $planTime, string $settings): bool
+{
+    clearstatcache(true, $settings);
+    $written = is_file($settings) ? (int) @filemtime($settings) : 0;
+    return $written > 0 && $planTime < $written;
 }
 
 /**
