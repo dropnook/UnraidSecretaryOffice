@@ -259,7 +259,7 @@ function bubbleText() {
   if (!apps().length && !vms().length) return T('bubble.no_packages');
   const run = runningJob();
   if (run) return T('bubble.restoring', { what: run.what, n: run.step, total: run.steps });
-  const out = [T('bubble.ready', { apps: apps().length, vms: vms().length, when: date(state.run_time) })];
+  const out = [T('bubble.ready', { apps: T('count.apps', { n: apps().length }), vms: T('count.vms', { n: vms().length }), when: date(state.run_time) })];
   if (otherHolder()) out.push(T('bubble.busy_' + otherHolder()));
   const gone = apps().filter((a) => !a.present).length + vms().filter((v) => v.state === 'missing').length;
   if (gone) out.push(T('bubble.gone', { n: gone }));
