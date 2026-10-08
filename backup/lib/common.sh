@@ -2797,9 +2797,13 @@ new_decided() {
 
 # share_rules_hide <share> <folder>  -> 0 when the share's own ignore rules or the global ones leave the
 # top-level folder out as a whole
+# (2.35) its rules read whole first: returning from inside a loop over < <(cfg_list) left cfg_list writing into a
+# closed pipe (SIGPIPE, or «printf: write error: Broken pipe» on stderr)
 share_rules_hide() {
     local s="$1" n="$2" r b
-    while IFS= read -r r; do
+    local -a own
+    mapfile -t own < <(cfg_list "share|$s|kopia_ignore")
+    for r in "${own[@]}"; do
         [[ -n "$r" ]] || continue
         rule_hides_top "$r" "$n" && return 0
         if [[ "$(share_layout "$s")" == "split" ]]; then
@@ -2808,7 +2812,7 @@ share_rules_hide() {
                 [[ -n "$b" && ( "$r" == "/$b/$n/" || "$r" == "/$b/$n" ) ]] && return 0
             done <<<"${INV_LOCS[$s]:-}"
         fi
-    done < <(cfg_list "share|$s|kopia_ignore")
+    done
     for r in "${KOPIA_IGNORE[@]}"; do rule_hides_top "$r" "$n" && return 0; done
     return 1
 }
@@ -3054,16 +3058,18 @@ partner_ids() { local id; while IFS= read -r id; do partner_id_ok "$id" && print
 partner_name() { cfg "partner|$1|name" "$1"; }
 
 # partner_units <id>  -> the units ticked for that partner: place first, then the shares and the VMs in settings.ini's order
+# (2.35) each list is read whole before grep looks at it: grep -q stops at the first match, and a cfg_list still
+# writing then died of SIGPIPE - under pipefail that match counted as none and the unit was left out of the run
 partner_units() {
     local id="$1" n
-    cfg_list "general|partner_place" | grep -Fxq -- "$id" && echo place
+    grep -Fxq -- "$id" <<<"$(cfg_list "general|partner_place")" && echo place
     while IFS= read -r n; do
         [[ -n "$n" ]] || continue
-        if cfg_list "share|$n|partner" | grep -Fxq -- "$id"; then echo "share:$n"; fi
+        if grep -Fxq -- "$id" <<<"$(cfg_list "share|$n|partner")"; then echo "share:$n"; fi
     done < <(cfg_names share)
     while IFS= read -r n; do
         [[ -n "$n" ]] || continue
-        if cfg_list "vm|$n|partner" | grep -Fxq -- "$id"; then echo "vm:$n"; fi
+        if grep -Fxq -- "$id" <<<"$(cfg_list "vm|$n|partner")"; then echo "vm:$n"; fi
     done < <(cfg_names vm)
     return 0
 }
