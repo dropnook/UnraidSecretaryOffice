@@ -16234,6 +16234,12 @@ function testRestorePartner(): void
         [$held2['reachable'] ?? null, $held2['why'] ?? null, $held2['looked'] ?? null, count($held2['units']['share:appdata'] ?? [])]);
     file_put_contents("$A[bin]/targets.json", json_encode($t));
     $as('rspLookJob([]); return true;');
+    // a look that throws: the pid file and the lock go all the same (review 2026-10-09)
+    same('restore partner: the look job throws — no pid file left, the lock free again, the next look runs', [true, false, true, 0],
+        $as('$GLOBALS["rspLookOne"] = function () { throw new RuntimeException("boom"); }; $threw = false;'
+            . ' try { rspLookJob([]); } catch (RuntimeException $e) { $threw = true; } unset($GLOBALS["rspLookOne"]);'
+            . ' $h = fopen(partnerRunDir() . "/look.lock", "c"); $free = flock($h, LOCK_EX | LOCK_NB); flock($h, LOCK_UN); fclose($h);'
+            . ' return [$threw, is_file(rspPidFile()), $free, rspLookJob([])];'));
     same('restore partner: «Look again» — a file in RAM for his tick', [true, true], [$as('return rspWantLook()["ok"];'), is_file("$A[run]/restore-partner.want")]);
 
     // ---- the plan: beside, never over; the steps; sizes; what comes after

@@ -187,6 +187,8 @@ function rspLooking(): bool
 /**
  * php agent.php job restore-partner-look: every source asked what it holds of mine (`list <unit>` per unit; the first
  * unanswered call ends the look of that source: unreachable — what was known stays, `tried` moves on). One at a time.
+ * The pid file and the lock go whatever happens (a throw left the pid file, and a later agent.php under the same pid
+ * would have read as «looking» for good — review 2026-10-09). $GLOBALS['rspLookOne']: the tests' stand-in.
  */
 function rspLookJob(array $args = []): int
 {
@@ -197,17 +199,24 @@ function rspLookJob(array $args = []): int
     if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
         return 75;
     }
-    @file_put_contents(rspPidFile(), (string) getmypid());
-    @unlink(rspWantFile());
-    $only = (string) ($args[0] ?? '');
-    foreach (rspSources() as $src) {
-        if ($only !== '' && $src['id'] !== $only) {
-            continue;
+    $look = $GLOBALS['rspLookOne'] ?? 'rspLookOne';
+    try {
+        @file_put_contents(rspPidFile(), (string) getmypid());
+        @unlink(rspWantFile());
+        $only = (string) ($args[0] ?? '');
+        foreach (rspSources() as $src) {
+            if ($only !== '' && $src['id'] !== $only) {
+                continue;
+            }
+            $look($src);
         }
-        rspLookOne($src);
+    } finally {
+        if (trim((string) @file_get_contents(rspPidFile(), false, null, 0, 16)) === (string) getmypid()) {
+            @unlink(rspPidFile());
+        }
+        flock($lock, LOCK_UN);
+        fclose($lock);
     }
-    @unlink(rspPidFile());
-    flock($lock, LOCK_UN);
     return 0;
 }
 
