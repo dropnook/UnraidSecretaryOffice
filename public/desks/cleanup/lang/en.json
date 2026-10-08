@@ -1617,7 +1617,7 @@
   "empty.partners": "No partner left anything here.",
   "bubble.partners": {"one": "1 partner's copies left behind ({size})", "other": "{n} partners' copies left behind ({size})"},
   "fact.partners": {"one": "1 partner's leftover · {size}", "other": "{n} partners' leftovers · {size}"},
-  "help.partners_text": "A partner office kept its copies here (the door received them into <pool>/UnraidSecretaryOffice-partners/<pair>). When the partnership ends the copies stay — dust, but you never know: maybe you pair again. Once the pair is gone from the Team Lead's list I show them here and put them into my storeroom on request (zfs rename next to it) — never while the door is receiving for that pair. Only awake pools are looked at.",
+  "help.partners_text": "A partner office kept its copies here (the door received them into <pool>/UnraidSecretaryOffice-partners/<pair>). When the partnership ends the copies stay — dust, but you never know: maybe you pair again. Once the pair is gone from the Team Lead's list I show them here and put them into my storeroom on request (zfs rename next to it) — never while the door is receiving for that pair. I never wake a sleeping disk unless you want me to.",
   "item.partner": "partner's copies",
   "item.package": "Mr. Backupsy's package",
   "why.transfer": "receiving",

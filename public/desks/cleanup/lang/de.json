@@ -1617,7 +1617,7 @@
   "empty.partners": "Kein Partner hat hier etwas liegen lassen.",
   "bubble.partners": {"one": "Kopien von 1 Partner liegen noch da ({size})", "other": "Kopien von {n} Partnern liegen noch da ({size})"},
   "fact.partners": {"one": "Rest von 1 Partner · {size}", "other": "Reste von {n} Partnern · {size}"},
-  "help.partners_text": "Ein Partner-Sekretariat hielt hier seine Kopien (die Tür empfing sie nach <pool>/UnraidSecretaryOffice-partners/<partner>). Endet die Partnerschaft, bleiben die Kopien — Staub, aber man weiss ja nie: vielleicht verbindet ihr euch wieder. Sobald die Partnerschaft nicht mehr in der Liste des Teamchefs steht, zeige ich sie hier und lege sie auf Wunsch in meine Abstellkammer (zfs rename daneben) — nie, während die Tür für diesen Partner empfängt. Ich schaue nur auf wache Pools.",
+  "help.partners_text": "Ein Partner-Sekretariat hielt hier seine Kopien (die Tür empfing sie nach <pool>/UnraidSecretaryOffice-partners/<partner>). Endet die Partnerschaft, bleiben die Kopien — Staub, aber man weiss ja nie: vielleicht verbindet ihr euch wieder. Sobald die Partnerschaft nicht mehr in der Liste des Teamchefs steht, zeige ich sie hier und lege sie auf Wunsch in meine Abstellkammer (zfs rename daneben) — nie, während die Tür für diesen Partner empfängt. Ich wecke keine schlafenden Disks, ausser du willst das.",
   "item.partner": "Kopien eines Partners",
   "item.package": "Paket von Herrn Backupsi",
   "why.transfer": "empfängt",
