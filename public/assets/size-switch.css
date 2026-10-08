@@ -44,13 +44,14 @@
 /* ------------------------------------------------------------ the floor for small running and secondary text */
 /* One declaration per group; the selectors are the ones that set the small size in office.css and the desks' desk.css
    (nested under #sso[data-size] they win over them). Left small on purpose: .chip .tag .bk-newchip .bk-pchip .wm-flag
-   (chips), .figures span .group-meta .status .footer .cl-count .clw-count .lg-counts .lg-pct (counters, figures), caps
+   (chips), .figures span .group-meta .status .footer .cl-count .clw-count .lg-counts .lg-pct (counters, figures),
+   .lg-kind-line and .lg-srcs .card-name (one-line log excerpts and tiles, ellipsised by design), caps
    headers (table thead th, .stat-label, .lg-group, .clw-sub), .mono and every pre / code block, .agent-state,
    .btn.small, .input.small, the segmented buttons, inputs. */
 #sso[data-size]{
   /* office.css: lines under a name, hints, notes, help, dialogs */
   .hint, .row-detail, .row-meta, .card-line, .facts, .notice, .callout, .order-hint, .section-sub, .reclaim, .role, .empty,
-  .kv, .stat-sub, .minirow, .deskhead-crumb, .shortlist li.error, .toast, .tip,
+  .kv, .stat-sub, .card-figures, .clw-section .card-figures, .minirow, .deskhead-crumb, .shortlist li.error, .toast, .tip,
   .page-help, .page-help summary, .check, .check small, .field small, .field > label, .field-title,
   .dialog-body .props dt, .dialog-body .props dd small, .palette-crumb, .palette-detail, .selbar-text span,
   .target, .target-pool, table.grid,
@@ -69,7 +70,7 @@
   .rs-place, .rs-look, .rs-whole, .rs-need > .role, .rs-file, .rs-how summary, .rs-pv-steps, .rs-pv-list,
   .wm-note{font-size:var(--floor)}
   /* the names and titles that sit at or under the floor: a name must not end up smaller than the line under it */
-  .row-name, .row.wm-item .row-name, .group-title, .lg-subhead-name, .lg-srcs .card-name,
+  .row-name:not(.lg-kind-line), .row.wm-item .row-name, .group-title, .lg-subhead-name,
   .bk-subhead, .bk-rstep-title, .rs-block-title, .rs-part-title, .rs-step-title, .rs-subhead, .jo-part-head{font-size:var(--floor)}
 }
 

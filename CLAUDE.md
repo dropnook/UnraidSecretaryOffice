@@ -775,7 +775,7 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   (without zoom it changes nothing); vh/vw inside `#sso` are zoomed too, so size-switch.css divides the ones that bind a
   box to the window (dialog, palette, tip) by `--zoom`. **Floor for small text:** zoom scales every size alike, so the
   12–13 px secondary lines (`.row-detail`, `.hint`, notes, steps, help, dialog body text) and the row names / small titles
-  above them (a name must not end up smaller than the line under it) — 101 selectors in five groups at the end of
+  above them (a name must not end up smaller than the line under it) — 102 selectors in five groups at the end of
   size-switch.css — get `font-size: var(--floor)` under `#sso[data-size]`, `--floor` being 13.5 px at Medium and 14.5 px
   at Large (before the zoom); chips, counters, caps headers, `.mono`/code, buttons and inputs are left to the zoom alone —
   a new small prose class goes into a group there, a new chip or label does not. Media queries still see the real window: at 1024 px and Large
