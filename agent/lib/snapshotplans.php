@@ -254,22 +254,28 @@ function snapPlanSave(mixed $in): array
     }
     $sorted = snapPlanSaveTargets((array) ($in['targets'] ?? []), $known, array_values(array_filter((array) ($old['targets'] ?? []), 'is_string')));
     $targets = $sorted['targets'];
-    $keep = (int) ($in['keep'] ?? 0);
-    $days = (int) ($in['max_days'] ?? 0);
-    if ($keep < 1 || $keep > SNAPPLAN_KEEP || $days < 0 || $days > 3650) {
+    $keep = $in['keep'] ?? null;
+    $days = $in['max_days'] ?? null;
+    if (!is_int($keep) || !is_int($days) || $keep < 1 || $keep > SNAPPLAN_KEEP || $days < 0 || $days > 3650) {
         throw new Problem('plan_bad_keep');
+    }
+    // the page sends the whole plan: a switch missing would be «off» unasked; `enabled` only when said (QA 2026-10-08)
+    $recursive = boolField($in, 'recursive');
+    $skipAsleep = boolField($in, 'skip_asleep');
+    if (array_key_exists('enabled', $in) && !is_bool($in['enabled'])) {
+        throw new Problem('bad_request');
     }
 
     $plan = [
         'id'          => $id,
         'label'       => $label,
         'targets'     => $targets,
-        'recursive'   => !empty($in['recursive']),
+        'recursive'   => $recursive,
         'cron'        => $cron,
         'keep'        => $keep,
         'max_days'    => $days,
-        'skip_asleep' => !empty($in['skip_asleep']),
-        'enabled'     => array_key_exists('enabled', $in) ? !empty($in['enabled']) : ($old['enabled'] ?? true),
+        'skip_asleep' => $skipAsleep,
+        'enabled'     => array_key_exists('enabled', $in) ? $in['enabled'] : ($old['enabled'] ?? true),
         'since'       => $old['since'] ?? time(),
     ];
     $plans = array_values(array_filter($plans, fn ($p) => $p['id'] !== $id));

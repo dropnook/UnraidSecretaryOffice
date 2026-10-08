@@ -80,6 +80,39 @@ function textField(array $request, string $field): string
     return $value;
 }
 
+/**
+ * A switch a setting is set by (`enabled`, `recursive` …): true or false, said — a missing key or anything else is
+ * refused (bad_request), never read as «off» (QA 2026-10-08, finding 5).
+ */
+function boolField(array $request, string $field): bool
+{
+    $value = $request[$field] ?? null;
+    if (!is_bool($value)) {
+        throw new Problem('bad_request');
+    }
+    return $value;
+}
+
+/**
+ * A schedule from a request (`cron`): a cron line, or «off» said explicitly — null, false or "" (QA 2026-10-08,
+ * finding 5: `{}` or `{"cron":[1]}` switched the nightly backup off). A missing key or anything else: bad_request.
+ * The line itself is checked where it is set (officeJobSetSchedule(): bad_cron).
+ */
+function cronField(array $request, string $field = 'cron'): ?string
+{
+    if (!array_key_exists($field, $request)) {
+        throw new Problem('bad_request');
+    }
+    $value = $request[$field];
+    if ($value === null || $value === false || (is_string($value) && trim($value) === '')) {
+        return null;
+    }
+    if (!is_string($value) || strlen($value) > 200) {
+        throw new Problem('bad_request');
+    }
+    return trim($value);
+}
+
 /** @return list<string> */
 function idList(array $request, string $field): array
 {

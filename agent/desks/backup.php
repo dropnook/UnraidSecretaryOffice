@@ -70,7 +70,7 @@ desk('backup', [
         'setup_get'   => fn (array $r) => backupSetupGet(),
         'setup_apply' => fn (array $r) => backupSetupApply($r['decisions'] ?? null),
         'setup_forget' => fn (array $r) => backupSetupForget(),
-        'schedule'    => fn (array $r) => backupSetSchedule($r['cron'] ?? null),
+        'schedule'    => fn (array $r) => backupSetSchedule(cronField($r)),       // null: off — said, never a missing key
     ],
     'checks' => fn () => backupChecks(),
     'metrics' => fn (): array => backupMetrics(),
@@ -1646,9 +1646,8 @@ function backupPaused(string $data): array
 }
 
 /** Sets the nightly run (cron) or switches it off (null / '') — the plugin's cron file */
-function backupSetSchedule(mixed $cron): array
+function backupSetSchedule(?string $cron): array
 {
-    $cron = is_string($cron) && trim($cron) !== '' ? trim($cron) : null;
     if ($cron !== null && !is_file(BACKUP_DATA_DIR . '/settings.ini')) {
         throw new Problem('backup_no_settings');
     }

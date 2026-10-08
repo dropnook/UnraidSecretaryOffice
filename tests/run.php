@@ -17430,12 +17430,57 @@ function testBackupOneMinute(): void
     hardeningRm($tmp);
 }
 
+/**
+ * Settings are changed only by what a request says (QA 2026-10-08, finding 5): `backup.schedule {}` or `{"cron":[1]}`
+ * switched the nightly backup off. A schedule needs `cron` — a line, or null/false/"" for «off»; a switch needs true or
+ * false; a form the page always sends whole (Jack Emby's settings and gather, Ms. Snapshotini's plan) needs its parts.
+ * Everything here is refused before anything is written.
+ */
+function testStrictSettings(): void
+{
+    $refused = function (callable $f): string {
+        try {
+            $f();
+            return 'done';
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    $act = fn (string $desk, string $action, array $r): string => $refused(fn () => desks()[$desk]['actions'][$action]($r));
+    same('strict: backup.schedule without cron', 'bad_request', $act('backup', 'schedule', []));
+    same('strict: backup.schedule with cron of the wrong type', ['bad_request', 'bad_request', 'bad_request', 'bad_request'],
+        [$act('backup', 'schedule', ['cron' => [1]]), $act('backup', 'schedule', ['cron' => 5]), $act('backup', 'schedule', ['cron' => true]), $act('backup', 'schedule', ['cron' => ['0 3 * * *']])]);
+    same('strict: emby.schedule without cron', 'bad_request', $act('emby', 'schedule', ['job' => 'gather']));
+    same('strict: emby.schedule with an array', 'bad_request', $act('emby', 'schedule', ['job' => 'gather', 'cron' => ['x']]));
+    same('strict: «off» said', [null, null, null, null], [cronField(['cron' => null]), cronField(['cron' => false]), cronField(['cron' => '']), cronField(['cron' => '  '])]);
+    same('strict: a line, trimmed', '0 3 * * *', cronField(['cron' => ' 0 3 * * * ']));
+    same('strict: snapshot.plan_toggle without enabled — never «paused»', ['bad_request', 'bad_request'],
+        [$act('snapshot', 'plan_toggle', ['id' => 'nosuch']), $act('snapshot', 'plan_toggle', ['id' => 'nosuch', 'enabled' => 'no'])]);
+    same('strict: a switch', [true, false, 'bad_request', 'bad_request'], [boolField(['x' => true], 'x'), boolField(['x' => false], 'x'),
+        $refused(fn () => boolField([], 'x')), $refused(fn () => boolField(['x' => 1], 'x'))]);
+    same('strict: caretaker.menu_name without its place — never back to the menu bar', ['missing_field', 'missing_field'],
+        [$act('caretaker', 'menu_name', ['name' => 'Office']), $act('caretaker', 'menu_name', ['name' => 'Office', 'place' => ['menu']])]);
+    same('strict: caretaker.menu_name with a name of the wrong type', 'menu_name_bad', $act('caretaker', 'menu_name', ['name' => ['x'], 'place' => 'menu']));
+    same('strict: the gather\'s settings — both said', ['emby_bad_number', 'bad_request', 'emby_bad_number', 'bad_request'],
+        [$refused(fn () => embyGatherCheck(['shares' => ['media'], 'dup_check' => 'size'], ['media'])), $refused(fn () => embyGatherCheck(['shares' => ['media'], 'min_free_gb' => 5], ['media'])),
+         $refused(fn () => embyGatherCheck(['shares' => ['media'], 'min_free_gb' => [5], 'dup_check' => 'size'], ['media'])),
+         $refused(fn () => embyGatherCheck(['shares' => ['media'], 'min_free_gb' => 5, 'dup_check' => 'other'], ['media']))]);
+    same('strict: the gather\'s settings as the page sends them', ['shares' => ['media'], 'min_free_gb' => 300, 'dup_check' => 'cmp'],
+        embyGatherCheck(['shares' => ['media'], 'min_free_gb' => 300, 'dup_check' => 'cmp'], ['media']));
+    $inst = ['instances' => [['url' => 'http://10.0.0.5:8096', 'api_key' => 'abcdef0123456789', 'servername' => 'Emby']]];
+    same('strict: Jack Emby\'s settings without their lists', 'bad_request', $refused(fn () => embySave($inst)));
+    same('strict: … one list missing', 'bad_request', $refused(fn () => embySave($inst + ['libraries' => [], 'library_types' => [], 'valid_users' => []])));
+    $plans = (string) file_get_contents(OFFICE_DIR . '/agent/lib/snapshotplans.php');
+    check('strict: Ms. Snapshotini\'s plan — its switches said, keep and max_days numbers', str_contains($plans, "\$recursive = boolField(\$in, 'recursive');")
+        && str_contains($plans, "\$skipAsleep = boolField(\$in, 'skip_asleep');") && str_contains($plans, '!is_int($keep) || !is_int($days)'));
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testMigrate', 'testPlgGuard',
-                      'testFlockShfs', 'testBackupOneMinute'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

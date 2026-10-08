@@ -47,7 +47,7 @@ desk('caretaker', [
     'actions' => [
         'refresh'       => fn (array $r) => ['ok' => true, 'state' => caretakerScan()],
         'office_check'  => fn (array $r) => ['ok' => true, 'state' => caretakerScan(true)],
-        'menu_name'     => fn (array $r) => caretakerMenuName((string) ($r['name'] ?? ''), (string) ($r['place'] ?? 'menu')),
+        'menu_name'     => fn (array $r) => caretakerMenuName(is_string($r['name'] ?? null) ? $r['name'] : '', textField($r, 'place')),
         'notify_set'    => fn (array $r) => caretakerNotifySet($r['on'] ?? null),
         'ack'           => fn (array $r) => caretakerAck($r['sig'] ?? null, true),
         'unack'         => fn (array $r) => caretakerAck($r['sig'] ?? null, false),

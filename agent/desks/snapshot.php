@@ -70,7 +70,7 @@ desk('snapshot', [
         'release'  => fn (array $r) => snapshotHold(textField($r, 'id'), false, !empty($r['wake'])),
         'unmount'  => fn (array $r) => snapshotUnmountRequest(textField($r, 'id'), !empty($r['wake'])),
         'plan_save'   => fn (array $r) => snapPlanSave($r['plan'] ?? null),
-        'plan_toggle' => fn (array $r) => snapPlanToggle(textField($r, 'id'), !empty($r['enabled'])),
+        'plan_toggle' => fn (array $r) => snapPlanToggle(textField($r, 'id'), boolField($r, 'enabled')),
         'plan_delete' => fn (array $r) => snapPlanDelete(textField($r, 'id')),
         'plan_run'    => fn (array $r) => snapPlanRunNow(textField($r, 'id')),
     ],

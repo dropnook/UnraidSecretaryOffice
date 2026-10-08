@@ -62,7 +62,7 @@ desk('emby', [
         'gather_save'  => fn (array $r) => embyGatherSave($r['gather'] ?? null),
         'start_run'    => fn (array $r) => embyStart('embycache', textField($r, 'mode')),
         'gather_start' => fn (array $r) => embyStart('gather', textField($r, 'mode')),
-        'schedule'     => fn (array $r) => embySetSchedule(textField($r, 'job'), $r['cron'] ?? null),
+        'schedule'     => fn (array $r) => embySetSchedule(textField($r, 'job'), cronField($r)),
         'output'       => fn (array $r) => embyOutput(textField($r, 'tool')),
         'log'          => fn (array $r) => embyLog(textField($r, 'tool')),
         'import_preview' => fn (array $r) => embyImportPreview($r),     // taking over an earlier install: what would come over
@@ -526,7 +526,13 @@ function embySave(mixed $in): array
     $cfg = $cur;
     $cfg['instances'] = $instances;
     $cfg['path_mappings'] = [];
-    $cfg['libraries'] = array_values(array_filter((array) ($in['libraries'] ?? []), 'is_string'));
+    // the page sends the whole form: a list missing would empty it unasked (QA 2026-10-08, finding 5)
+    foreach (['libraries', 'library_types', 'valid_users', 'user_budgets'] as $k) {
+        if (!is_array($in[$k] ?? null)) {
+            throw new Problem('bad_request');
+        }
+    }
+    $cfg['libraries'] = array_values(array_filter($in['libraries'], 'is_string'));
     // what kind each chosen library is (films, series …) — only for the office's overview, EmbyCache ignores it
     $cfg['library_types'] = [];
     foreach ((array) ($in['library_types'] ?? []) as $name => $type) {
@@ -677,12 +683,15 @@ function embyGatherCheck(mixed $in, ?array $all = null): array
     if (!$shares) {
         throw new Problem('emby_gather_no_share');
     }
-    $min = $in['min_free_gb'] ?? 256;
-    if (!is_numeric($min) || (int) $min < 0 || (int) $min > 100000) {
+    // both said: a missing one would put the default back unasked (QA 2026-10-08, finding 5)
+    $min = $in['min_free_gb'] ?? null;
+    if (!(is_int($min) || (is_string($min) && preg_match('/^\d{1,6}$/D', $min))) || (int) $min < 0 || (int) $min > 100000) {
         throw new Problem('emby_bad_number', ['field' => 'min_free_gb']);
     }
-    $dup = in_array($in['dup_check'] ?? 'size', ['size', 'cmp'], true) ? $in['dup_check'] ?? 'size' : 'size';
-    return ['shares' => $shares, 'min_free_gb' => (int) $min, 'dup_check' => $dup];
+    if (!in_array($in['dup_check'] ?? null, ['size', 'cmp'], true)) {
+        throw new Problem('bad_request');
+    }
+    return ['shares' => $shares, 'min_free_gb' => (int) $min, 'dup_check' => $in['dup_check']];
 }
 
 function embySaveGather(array $gather, array $emby, string $gatherDir = GATHER_DATA, string $embyDir = EMBY_DATA): void
@@ -2250,12 +2259,11 @@ function embyLog(string $tool): array
 // ===================================================================== schedules
 
 /** EmbyCache's and the gather's schedule: a line in the office's cron file */
-function embySetSchedule(string $job, mixed $cron): array
+function embySetSchedule(string $job, ?string $cron): array
 {
     if (!in_array($job, ['embycache', 'gather'], true)) {
         throw new Problem('unknown_target', ['target' => $job]);
     }
-    $cron = is_string($cron) && trim($cron) !== '' ? trim($cron) : null;
     if ($cron !== null) {
         if ($job === 'embycache' && !embyReadSettings()) {
             throw new Problem('emby_not_configured');
