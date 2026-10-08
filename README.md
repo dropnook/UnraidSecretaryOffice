@@ -253,7 +253,9 @@ admin/admin before it can be reached from outside.
 
 Requirements: **Unraid 7.3.2 or a newer 7.x** (built and tested on 7.3.2; older versions are
 refused at install). **Unraid 8 is not supported** for now — the plugin refuses to install there; support follows
-once it is released and tested.
+once it is released and tested. Before you update Unraid itself, look for an office release that names the new
+version: Unraid switches off a plugin that doesn't at its first boot, and the office's nightly backups stop with it.
+The Team Lead reminds you once your Unraid is newer than the one the office was tested on.
 
 1. In *Apps* (Community Applications) search for **Secretary Office** and
    install it. Or by hand: *Plugins → Install Plugin*, paste
@@ -273,7 +275,9 @@ brings it up to date at its next start. While a backup, a restore (or its
 drill) or one of Jack Emby's runs is going on, the update refuses — try again
 when it is done. The new version is unpacked beside the running one first: a
 download that can't be unpacked leaves the office as it was. A page left open
-says when the office was updated, with a button to reload it.
+says when the office was updated, with a button to reload it. After an update of the backup engine Mr. Backupsy's
+setup looks at the server anew once, by itself, and says so. A recommendation you put aside with «I know, thanks»
+comes back once when an update changes what it says.
 
 **Removing:** *Plugins → Remove* (refused, like an update, while one of those
 runs). The code goes; what the office had mounted is released first. The
