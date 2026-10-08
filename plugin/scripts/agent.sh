@@ -422,17 +422,18 @@ restored_release() {
     return 0
 }
 
-# Array stopping: Mr. Restori's drill or restore (atd jobs, the engine's lock file open on the pool) ended at once - SIGTERM
-# to the agent.php its RAM marker names ("<pid> <id>"), the drill's throwaways (label uso.drill) gone; no marker: nothing.
+# Array stopping: Mr. Restori's drill or restore, Mr. Backupsy's let-go clearing (atd jobs, the engine's lock file open
+# on the pool) ended at once - SIGTERM to the agent.php its RAM marker names ("<pid> <id>"), the drill's throwaways
+# (label uso.drill) gone; no marker: nothing.
 drill_release() {
     local f pid i
-    for f in "$RUN/drill.open" "$RUN/restore.open"; do
+    for f in "$RUN/drill.open" "$RUN/restore.open" "$RUN/letgo.open"; do
         [[ -f "$f" && ! -L "$f" ]] || continue
         pid=$(head -c 64 "$f" 2>/dev/null | tr -dc '0-9 ' | cut -d' ' -f1)
         if [[ "$pid" =~ ^[0-9]+$ ]] && grep -qa 'agent.php' "/proc/$pid/cmdline" 2>/dev/null; then
             kill -TERM "$pid" 2>/dev/null
             for ((i = 0; i < 6; i++)); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
-            echo "$(date '+%F %T') array stopping: Mr. Restori's ${f##*/} job (PID $pid) asked to end" >>"$LOG"
+            echo "$(date '+%F %T') array stopping: the ${f##*/} job (PID $pid) asked to end" >>"$LOG"
         fi
         [[ "$f" == */drill.open ]] && timeout 5 docker ps -aq --filter label=uso.drill 2>/dev/null | xargs -r timeout 5 docker rm -f -v >/dev/null 2>&1
         rm -f "$f"

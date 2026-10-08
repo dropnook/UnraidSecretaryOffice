@@ -331,7 +331,7 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         'libvirt'   => clLibvirtOrphans($vms),
         'leftovers' => $leftovers,
         'partners'  => $partners = clPartners(),          // what ended partnerships left (awake pools only)
-        'drill'     => clDrillLeftovers(),                // what crashed drills of Mr. Restori's left (his sweeper's own look)
+        'drill'     => clDrillLeftovers($deep),           // what crashed drills of Mr. Restori's left (his sweeper's own look: quick, deep when asked/hourly)
         // the storerooms Mr. Backupsy's let-go put his packages into (agent/desks/backup-letgo.php): also on array disks
         'trash'     => clTrashRuns($places, $vms, array_merge($leftovers['trash'], backupLetGoTrashRoots($asleep)), $partners['there'], $partners['asleep']),
     ];
@@ -2757,15 +2757,16 @@ function clDockerEntries(array $raw, array $cache, callable $pending): array
 /**
  * What crashed drills of Mr. Restori's left (his throwaway containers, Kopia's temporary folder in its container, a
  * dump from Kopia in RAM): his drill's own look — drillLeftovers(), the sweeper's — never a second one; nothing when his
- * drill isn't there (the desk glob loads it with his desk)
+ * drill isn't there (the desk glob loads it with his desk). Quick on her every scan, deep on «Look again» ($deep) and
+ * once an hour (drillLeftovers() keeps the time).
  */
-function clDrillLeftovers(): array
+function clDrillLeftovers(bool $deep = false): array
 {
     if (!function_exists('drillLeftovers')) {
         return [];
     }
     try {
-        return drillLeftovers();
+        return drillLeftovers($deep);
     } catch (Throwable $e) {
         logLine('Dustdevil: what a drill left — ' . $e->getMessage());
         return [];

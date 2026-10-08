@@ -51,6 +51,8 @@ const DRILL_RESULTS        = ['ok', 'warning', 'failed', 'not_checked', 'asleep'
 const DRILL_KEEP           = 12;              // drills in the certificate's history and on his page
 const DRILL_RECORD_KEEP    = 50;              // record.json: the newest 50 …
 const DRILL_RECORD_DAYS    = 7;               // … within 7 days
+const DRILL_LEFT_DAYS      = 7;               // Ms. Dustdevil's quick look at what a drill left: the journals of the last week …
+const DRILL_LEFT_DEEP      = 3600;            // … the deep one (the newest 60, Docker asked) when asked for, and once an hour
 const DRILL_DEADLINE_GAP   = 900;             // ends ≥ 15 min before the next scheduled backup run
 const DRILL_BUDGET_TOTAL   = 5400;            // a whole drill: 90 min at most
 const DRILL_BUDGET_PLAY    = 1800;            // one dump played
@@ -2480,15 +2482,16 @@ function drillRemoveContainer(string $name, string $id): bool
  * What the sweeper finds (its one look, also Ms. Dustdevil's): journals of drills whose job is gone (a crash, a
  * reboot) — with what they made and is not gone yet —, and with $deep every container with the drill's label whose
  * name, label and id pattern all say it is a drill's (never the one going on now, never anything else). Cheap without
- * $deep: the journal folder only (Docker asked only when a journal was open).
+ * $deep: the journal folder only (Docker asked only when a journal was open, or $docker). $since (an id's stamp,
+ * Ymd-His): only the journals from then on, and those named in $also (Ms. Dustdevil's quick look, drillLeftovers()).
  *
  * @return array{journals: array<string, array{j: array, live: bool}>, orphans: array<string, string>}  orphans: name => drill id
  */
-function drillSweepFind(?string $current = null, bool $deep = false): array
+function drillSweepFind(?string $current = null, bool $deep = false, ?string $since = null, array $also = [], bool $docker = false): array
 {
     $out = ['journals' => [], 'orphans' => []];
     foreach (array_slice(array_values(array_filter(@scandir(drillData(), SCANDIR_SORT_DESCENDING) ?: [], fn ($n) => (bool) preg_match(DRILL_ID_PATTERN, $n))), 0, 60) as $id) {
-        if ($id === $current) {
+        if ($id === $current || ($since !== null && strcmp($id, $since) < 0 && !in_array($id, $also, true))) {
             continue;
         }
         $j = drillJournal($id);
@@ -2504,7 +2507,7 @@ function drillSweepFind(?string $current = null, bool $deep = false): array
             $out['journals'][$id] = ['j' => $j, 'live' => $live];
         }
     }
-    if ($deep || $out['journals']) {
+    if ($deep || $docker || $out['journals']) {
         $running = drillRunning();
         [$exit, $out2] = run(drillCmd(['docker', 'ps', '-a', '--filter', 'label=' . DRILL_LABEL, '--format', '{{.Names}}']), 20);
         foreach ($exit === 0 ? array_filter(explode("\n", trim($out2))) : [] as $name) {
@@ -2575,12 +2578,27 @@ function drillSweep(?string $current = null, bool $deep = false, ?array $only = 
  * and containers no journal names whose name, label and id pattern say a drill's AND the drill's record names them
  * (what the night watchman trusts — a label alone anyone can set). Ids for drillSweep()'s $only: drill:<drill>:<name>.
  *
+ * Deep ($deep, her «Look again», and at least once an hour): the newest 60 journals, Docker asked. Else quick — her
+ * every scan (review 2026-10-09): the journals of the last DRILL_LEFT_DAYS and those the last deep look listed; Docker
+ * only when one of them is open, the record names a container its journal doesn't call gone, or the last deep look
+ * listed a container.
+ *
  * @return list<array{id: string, drill: string, what: string, name: string, container: ?string, t: ?int}>
  */
-function drillLeftovers(): array
+function drillLeftovers(bool $deep = true): array
 {
-    $found = drillSweepFind(drillRunning()['id'] ?? null, true);
-    $named = array_column(array_filter((array) ((readJson(drillData() . '/record.json') ?? [])['made'] ?? []), fn ($r) => is_array($r) && is_string($r['name'] ?? null)), 'id', 'name');
+    $now = time();
+    $current = drillRunning()['id'] ?? null;
+    $named = array_column(array_filter((array) ((readJson(drillData() . '/record.json') ?? [])['made'] ?? []),
+        fn ($r) => is_array($r) && is_string($r['name'] ?? null) && is_string($r['id'] ?? null) && ($r['kind'] ?? 'container') === 'container'), 'id', 'name');
+    $last = $GLOBALS['drillLeftDeep'] ?? null;
+    if (!$deep && is_array($last) && $now - $last['at'] < DRILL_LEFT_DEEP && $last['data'] === drillData()) {
+        $found = drillSweepFind($current, false, date('Ymd-His', $now - DRILL_LEFT_DAYS * 86400), $last['journals'],
+            $last['containers'] || drillRecordOpen($named, $current));
+    } else {
+        $deep = true;
+        $found = drillSweepFind($current, true);
+    }
     $out = [];
     foreach ($found['journals'] as $id => ['j' => $j]) {
         foreach ((array) ($j['made'] ?? []) as $x) {
@@ -2603,7 +2621,31 @@ function drillLeftovers(): array
             $out[] = ['id' => "drill:$id:$name", 'drill' => $id, 'what' => 'container', 'name' => $name, 'container' => null, 't' => null];
         }
     }
+    if ($deep) {
+        $GLOBALS['drillLeftDeep'] = ['at' => $now, 'data' => drillData(), 'journals' => array_values(array_unique(array_column($out, 'drill'))),
+                                     'containers' => in_array('container', array_column($out, 'what'), true)];
+    }
     return $out;
+}
+
+/** Does the record name a container (of a drill not going on now) that its journal doesn't call gone? A missing journal: yes */
+function drillRecordOpen(array $named, ?string $current): bool
+{
+    $journals = [];
+    foreach ($named as $name => $id) {
+        if ($id === $current || !preg_match(DRILL_ID_PATTERN, (string) $id)) {
+            continue;
+        }
+        $j = $journals[$id] ??= drillJournal((string) $id) ?? [];
+        $gone = false;
+        foreach ((array) ($j['made'] ?? []) as $x) {
+            $gone = $gone || (is_array($x) && ($x['name'] ?? null) === (string) $name && !empty($x['gone']));
+        }
+        if (!$gone) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // ===================================================================== the certificate

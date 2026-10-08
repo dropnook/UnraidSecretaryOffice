@@ -289,10 +289,25 @@ async function postBusy(action, data) {
 }
 
 Office.api = {
+  /**
+   * get({a: 'part', desk, part}) — never throws (review 2026-10-09): a network failure or an answer that isn't JSON
+   * answers {ok: false, error: {key: 'offline'}} like post(), so a poll (a restore's or drill's job) keeps going instead of
+   * stopping for good on one blip. «No connection to the server.» is said once per outage, not on every poll.
+   */
   async get(params) {
-    const r = await fetch(API + '?' + new URLSearchParams(params), { cache: 'no-store' });
-    if (loggedOut(r)) return { ok: false, error: { key: 'logged_out' } };
-    const j = await r.json();
+    let j;
+    try {
+      const r = await fetch(API + '?' + new URLSearchParams(params), { cache: 'no-store' });
+      if (loggedOut(r)) return { ok: false, error: { key: 'logged_out' } };
+      j = await r.json();
+    } catch (e) {
+      j = null;
+    }
+    if (!j || typeof j !== 'object') {
+      offline(true);
+      return { ok: false, error: { key: 'offline' } };
+    }
+    offline(false);
     if (j.agent) Office.setAgent(j.agent);
     return j;
   },
@@ -300,6 +315,17 @@ Office.api = {
   async post(action, data) {
     return postBusy(action, data);
   },
+};
+
+/** The connection lost (on) or back: said once when it goes, quiet while it stays away */
+let offlineSaid = false;
+function offline(on) {
+  if (on && !offlineSaid) Office.toast(t('errors.offline'), true);
+  offlineSaid = on;
+}
+/** How long a poll waits after `fails` failed asks in a row: its own pace, doubled per failure, at most 30 s */
+Office.pollDelay = function pollDelay(base, fails) {
+  return fails > 0 ? Math.min(base * 2 ** Math.min(fails, 6), 30000) : base;
 };
 
 async function postOnce(action, data) {
@@ -1361,9 +1387,8 @@ Office.reportDialog = function reportDialog(deskId) {
   text.value = typeof draft.text === 'string' ? draft.text : '';
   const count = el('small', 'sso-report-count');
   field(t('office.report_text'), text, count);
-  // no name field (Benj, 2026-10-08): nobody is answered by name — the forum is the place for a conversation
-  const name = el('input', 'input');
-  name.value = '';
+  // no name field (Benj, 2026-10-08): nobody is answered by name — the forum is the place for a conversation (the agent
+  // still takes an empty one: report.php reportWords())
   box.appendChild(form);
 
   const msg = el('p', 'callout warn');
@@ -1383,7 +1408,7 @@ Office.reportDialog = function reportDialog(deskId) {
   yours.hidden = true;
   box.appendChild(yours);
 
-  const words = () => ({ kind: state.kind, desk: desk.value, title: title.value.trim(), text: text.value.trim(), name: name.value.trim() });
+  const words = () => ({ kind: state.kind, desk: desk.value, title: title.value.trim(), text: text.value.trim() });
   const keep = () => { if (!state.sent) Office.storeJson('report.draft', words()); };
   const say = (s) => { msg.textContent = s || ''; msg.hidden = !s; };
   let send = null;
@@ -1403,7 +1428,7 @@ Office.reportDialog = function reportDialog(deskId) {
     }
     if (send) send.disabled = !sendable();
   }
-  [title, text, name].forEach((f) => { f.oninput = changed; });
+  [title, text].forEach((f) => { f.oninput = changed; });
   desk.onchange = changed;
   counter();
 
@@ -2056,13 +2081,13 @@ function languageDialog() {
 async function showLog() {
   const pre = el('pre', 'code', t('common.loading'));
   Office.dialog({ title: t('office.log'), body: pre, wide: true });
-  try {
-    const j = await Office.api.get({ a: 'log' });
-    pre.textContent = (j.lines || []).join('\n') || t('office.log_empty');
-    pre.scrollTop = pre.scrollHeight;
-  } catch (e) {
+  const j = await Office.api.get({ a: 'log' });
+  if (!j.ok && j.error) {
     pre.textContent = t('office.log_failed');
+    return;
   }
+  pre.textContent = (j.lines || []).join('\n') || t('office.log_empty');
+  pre.scrollTop = pre.scrollHeight;
 }
 
 Office.help = function help() {

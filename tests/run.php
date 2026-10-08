@@ -13559,6 +13559,92 @@ JS);
  * per version; «Later» keeps it away for that version, a newer one brings it back. Run by node on a stand-in page
  * that keeps its elements by id (skipped where node is missing).
  */
+/**
+ * Office.api.get never throws (review 2026-10-09, finding 4): the network gone (fetch rejects) or an answer that isn't
+ * JSON answers {ok: false, error: {key: 'offline'}} like post(); «No connection to the server.» once per outage, again
+ * after it was back; a good answer still hands over the messenger; Office.pollDelay — the pace, doubled per failure, ≤ 30 s.
+ */
+function testApiGetOffline(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('api get offline: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('apigetoffline');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const byId = {};
+const mk = (tag, cls, text) => {
+  const n = { tag, id: '', className: cls || '', style: {}, dataset: {}, hidden: true, textContent: text || '', offsetHeight: 0, children: [], onclick: null, type: '',
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, after(c) { if (c.id) byId[c.id] = c; },
+    remove() {}, prepend() {}, setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
+    querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+    getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0 }), focus() {}, select() {} };
+  Object.defineProperty(n, 'innerHTML', { get: () => '', set() { n.children = []; } });
+  return n;
+};
+const find = (id) => (byId[id] = byId[id] || mk('div'));
+const store = {};
+globalThis.window = globalThis;
+globalThis.innerHeight = 800; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
+globalThis.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
+globalThis.navigator = { languages: ['en'] };
+globalThis.history = { replaceState() {} };
+globalThis.location = { hash: '', reload() {} };
+const CONFIG = { version: '1.42.0', desks: [], languages: [{ code: 'en' }], base: '', staff_order: [] };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : find(id)),
+  querySelector: (s) => (s[0] === '#' ? find(s.slice(1)) : mk('div')), querySelectorAll: () => [], createElement: (tag) => mk(tag), addEventListener() {},
+  documentElement: { scrollHeight: 0 }, activeElement: null, hidden: false, body: mk('body') };
+let mode = 'ok';
+globalThis.fetch = async (url) => {
+  if (mode === 'down') throw new TypeError('Failed to fetch');
+  return { redirected: false, url, ok: true, status: 200,
+    json: async () => (mode === 'html' ? JSON.parse('<html>') : { ok: true, part: { n: 1 }, agent: { running: true, version: '1.42.0' } }) };
+};
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const O = globalThis.Office;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const toasts = () => (byId['sso-toasts'] ? byId['sso-toasts'].children.map((c) => c.textContent) : []);
+(async () => {
+  await sleep(50);
+  O.strings['errors.offline'] = 'No connection to the server.';
+  const out = {};
+  const before = toasts().length;
+  mode = 'down';
+  out.down = await O.api.get({ a: 'part', desk: 'restore', part: 'job' });
+  out.down2 = await O.api.get({ a: 'part', desk: 'restore', part: 'job' });
+  mode = 'html';
+  out.html = await O.api.get({ a: 'part', desk: 'restore', part: 'job' });
+  out.saidOnce = toasts().slice(before);
+  mode = 'ok';
+  O.agent = { running: false };
+  out.back = await O.api.get({ a: 'part', desk: 'restore', part: 'job' });
+  out.agent = O.agent.running;
+  mode = 'down';
+  await O.api.get({ a: 'part', desk: 'restore', part: 'job' });
+  out.saidAgain = toasts().slice(before);
+  out.delays = [O.pollDelay(2000, 0), O.pollDelay(2000, 1), O.pollDelay(2000, 2), O.pollDelay(2000, 3), O.pollDelay(2000, 20)];
+  console.log(JSON.stringify(out));
+  process.exit(0);
+})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
+    $r = json_decode($raw, true);
+    hardeningRm($tmp);
+    if (!is_array($r) || isset($r['error'])) {
+        check('api get offline: ran under node', false, $raw);
+        return;
+    }
+    $off = ['ok' => false, 'error' => ['key' => 'offline']];
+    same('api get offline: the network gone, or an answer that isn\'t JSON — offline, never a throw', [$off, $off, $off], [$r['down'], $r['down2'], $r['html']]);
+    same('api get offline: said once per outage', ['No connection to the server.'], $r['saidOnce']);
+    same('api get offline: back — the answer as it came, the messenger handed over; gone again — said again',
+        [true, ['n' => 1], true, ['No connection to the server.', 'No connection to the server.']], [$r['back']['ok'] ?? null, $r['back']['part'] ?? null, $r['agent'], $r['saidAgain']]);
+    same('api get offline: a poll\'s pace — as asked, doubled per failure, at most 30 s', [2000, 4000, 8000, 16000, 30000], $r['delays']);
+}
+
 function testUpdateNotice(): void
 {
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
@@ -16316,6 +16402,12 @@ function testRestorePartner(): void
         [$held2['reachable'] ?? null, $held2['why'] ?? null, $held2['looked'] ?? null, count($held2['units']['share:appdata'] ?? [])]);
     file_put_contents("$A[bin]/targets.json", json_encode($t));
     $as('rspLookJob([]); return true;');
+    // a look that throws: the pid file and the lock go all the same (review 2026-10-09)
+    same('restore partner: the look job throws — no pid file left, the lock free again, the next look runs', [true, false, true, 0],
+        $as('$GLOBALS["rspLookOne"] = function () { throw new RuntimeException("boom"); }; $threw = false;'
+            . ' try { rspLookJob([]); } catch (RuntimeException $e) { $threw = true; } unset($GLOBALS["rspLookOne"]);'
+            . ' $h = fopen(partnerRunDir() . "/look.lock", "c"); $free = flock($h, LOCK_EX | LOCK_NB); flock($h, LOCK_UN); fclose($h);'
+            . ' return [$threw, is_file(rspPidFile()), $free, rspLookJob([])];'));
     same('restore partner: «Look again» — a file in RAM for his tick', [true, true], [$as('return rspWantLook()["ok"];'), is_file("$A[run]/restore-partner.want")]);
 
     // ---- the plan: beside, never over; the steps; sizes; what comes after
@@ -17156,6 +17248,60 @@ function testRestoreDrill(): void
     file_put_contents($recFile, $recKeep);
     $certBefore === false ? @unlink($GLOBALS['drill']['cert']) : file_put_contents($GLOBALS['drill']['cert'], $certBefore);      // the interruption's history row: not the certificate tests'
 
+    // ---- quick on her every scan, deep when asked and once an hour (review 2026-10-09): a drill folder of its own
+    $dataKeep = $GLOBALS['drill']['data'];
+    $jobKeep = $GLOBALS['drill']['job_file'];
+    $GLOBALS['drill']['data'] = "$tmp/data/drill-quick";
+    $GLOBALS['drill']['job_file'] = "$tmp/data/drill-quick-job.json";
+    rsPrivateDir(drillData());
+    unset($GLOBALS['drillLeftDeep']);
+    $dlog = function (): bool { $l = (string) file_get_contents($GLOBALS['tmpDrillLog']); file_put_contents($GLOBALS['tmpDrillLog'], ''); return str_contains($l, 'label=' . DRILL_LABEL); };
+    $GLOBALS['tmpDrillLog'] = "$tmp/docker.log";
+    file_put_contents("$tmp/containers", '');
+    file_put_contents("$tmp/docker.log", '');
+    $q = [];
+    drillLeftovers(false);
+    $q[] = $dlog();                                       // the first look: deep
+    drillLeftovers(false);
+    $q[] = $dlog();                                       // quick, nothing open: no Docker
+    $wk = date('Ymd-His', time() - 2 * 86400) . '-a1a1';    // last week's, closed: its throwaway gone, the record names it
+    rsPrivateDir(drillDir($wk));
+    $jw = drillJournalNew($wk, ['scope' => 'monthly', 'deadline' => $now, 'steps' => []]);
+    $jw['result'] = 'passed';
+    $jw['made'] = [['kind' => 'container', 'name' => DRILL_PREFIX . "$wk-1", 'gone' => true, 't' => 5]];
+    drillJournalWrite($jw, false);
+    drillRecord(['t' => time(), 'kind' => 'container', 'name' => DRILL_PREFIX . "$wk-1", 'image' => 'sha256:' . str_repeat('a', 64), 'id' => $wk]);
+    drillLeftovers(false);
+    $q[] = $dlog();                                       // a closed drill the record names: still no Docker
+    $nj = date('Ymd-His', time() - 3600) . '-b2b2';         // the record names one whose journal isn't there
+    drillRecord(['t' => time(), 'kind' => 'container', 'name' => DRILL_PREFIX . "$nj-1", 'image' => 'sha256:' . str_repeat('b', 64), 'id' => $nj]);
+    file_put_contents("$tmp/containers", DRILL_PREFIX . "$nj-1 $nj\n");
+    $q[] = array_column(drillLeftovers(false), 'id');      // Docker asked: listed
+    $q[] = $dlog();
+    file_put_contents("$tmp/containers", '');
+    @unlink(drillData() . '/record.json');
+    drillRecord(['t' => time(), 'kind' => 'container', 'name' => DRILL_PREFIX . "$wk-1", 'image' => 'sha256:' . str_repeat('a', 64), 'id' => $wk]);
+    drillLeftovers(true);
+    $q[] = $dlog();                                       // «Look again»: deep
+    $old = '20250101-030000-c3c3';                         // older than a week, its throwaway still there
+    rsPrivateDir(drillDir($old));
+    $jo = drillJournalNew($old, ['scope' => 'monthly', 'deadline' => $now, 'steps' => []]);
+    $jo['result'] = 'interrupted';
+    $jo['made'] = [['kind' => 'container', 'name' => DRILL_PREFIX . "$old-1", 'gone' => false, 't' => 5]];
+    drillJournalWrite($jo, false);
+    file_put_contents("$tmp/containers", DRILL_PREFIX . "$old-1 $old\n");
+    $q[] = [drillLeftovers(false), $dlog()];               // quick: the old journal isn't read, no Docker
+    $GLOBALS['drillLeftDeep']['at'] = time() - DRILL_LEFT_DEEP - 1;
+    $q[] = [array_column(drillLeftovers(false), 'id'), $dlog()];     // an hour on: deep — the old one found
+    $q[] = [array_column(drillLeftovers(false), 'id'), $dlog()];     // quick again: what the deep look listed is looked at, Docker asked
+    same('drill leftovers: quick on every scan — no Docker while nothing is open; a closed drill in the record doesn\'t count; a container the record names without a journal does; deep when asked',
+        [true, false, false, ['drill:' . $nj . ':' . DRILL_PREFIX . "$nj-1"], true, true], array_slice($q, 0, 6));
+    same('drill leftovers: quick reads only the last week (and what the deep look listed); deep once an hour finds the old one, then quick keeps looking at it',
+        [[[], false], [['drill:' . $old . ':' . DRILL_PREFIX . "$old-1"], true], [['drill:' . $old . ':' . DRILL_PREFIX . "$old-1"], true]], array_slice($q, 6));
+    unset($GLOBALS['drillLeftDeep'], $GLOBALS['tmpDrillLog']);
+    $GLOBALS['drill']['data'] = $dataKeep;
+    $GLOBALS['drill']['job_file'] = $jobKeep;
+
     // ---- the certificate: passed = nothing failed (warnings, «not checked» and asleep said, never hidden)
     $step = fn (string $do, string $of, string $name, string $state, int $level, string $copy, ?int $t, array $params = [], string $code = 'x') =>
         ['do' => $do, 'kind' => $of, 'id' => $name, 'name' => $name, 'state' => $state, 'level' => $level, 'copy' => $copy, 'state_time' => $t, 'code' => $code,
@@ -17545,7 +17691,19 @@ d.setJob({ result: 'running', steps: [{ state: 'ok' }, { state: 'running' }, { s
 out.running = d.tileLine();
 out.code = d.codeText('too_big_for_ram', { need: 3, budget: 2, container: 'x' });
 out.reasons = [d.reasonText('array_stopping'), d.reasonText('drill_parity')];
-console.log(JSON.stringify(out));
+// the job's poll: a failed ask (Office.api.get answers offline, never throws) keeps it going, slower; back — its pace again
+const delays = [];
+globalThis.setTimeout = (fn, ms) => { delays.push(ms); return 1; };
+globalThis.clearTimeout = () => {};
+Office.pollDelay = (b, f) => (f > 0 ? b * 10 * f : b);
+d.setJob({ id: 'j1', result: 'running', steps: [] });
+let asks = 0;
+Office.api.get = async () => (++asks <= 2 ? { ok: false, error: { key: 'offline' } } : { ok: true, part: { id: 'j1', result: 'running', steps: [{ state: 'ok' }] } });
+(async () => {
+  await d.poll(); await d.poll(); await d.poll();
+  out.poll = [delays, d.job().steps.length];
+  console.log(JSON.stringify(out));
+})();
 JS);
         $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/drill-page.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/restore/drill.js') . ' 2>&1');
         $o = json_decode($raw, true);
@@ -17555,6 +17713,8 @@ JS);
             is_array($o) ? [$o['none'], $o['passed'], $o['failed'], $o['running']] : $raw);
         same('drill page: a code\'s words with its sizes made readable; a stop of its own, a refusal', ['drill.code.too_big_for_ram {"need":"3 B","budget":"2 B","container":"x"}',
             ['drill.code.array_stopping {}', 'error drill_parity']], is_array($o) ? [$o['code'], $o['reasons']] : $raw);
+        same('drill page: the job\'s poll goes on after failed asks, slower, and at its pace once they come through again (review 2026-10-09)',
+            [[20000, 40000, 2000], 1], is_array($o) ? $o['poll'] ?? null : $raw);
     }
 
     // ---- the strings: every text the drill asks for, in English (the five languages are compared by testStrings)
@@ -19972,12 +20132,12 @@ JS);
     same('report dialog: opens wide with the desk shown, asks only for «Your reports», «Send» off', ['office.report_title', 'snapshot', ['office', 'caretaker', 'snapshot'], true, ['office.reports'], true],
         [$o['title'], $o['desk'], $o['deskOptions'], $o['sendOff'], $o['asked'], str_contains($o['wide'], 'wide') && str_contains($o['wide'], 'sso-report-dialog')]);
     same('report dialog: … the GitHub issues for account holders (no forum yet), «Your reports»', [['https://github.com/dropnook/UnraidSecretaryOffice/issues'], true], [$o['issues'], $o['yours']]);
-    same('report dialog: the draft kept while typing', ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => 'It ran twice at 03:00, see the log.', 'name' => ''], $r['draft']);
+    same('report dialog: the draft kept while typing', ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => 'It ran twice at 03:00, see the log.'], $r['draft']);
     same('report dialog: the counter in bytes', 'office.report_count', $r['counter']);   // no strings loaded: the key
     $p = $r['preview'];
-    same('report dialog: the preview asks with the words, the languages and the desk\'s last error (plain params only)',
-        ['office.report_preview', 'bug', 'snapshot', 'Her plan ran twice', '', 'en', 'de', 'command_failed', ['detail' => 'zfs busy']],
-        [$p['a'], $p['kind'], $p['desk'], $p['title'], $p['name'], $p['lang'], $p['browser'], $p['error']['key'] ?? null, $p['error']['params'] ?? null]);
+    same('report dialog: the preview asks with the words (no name: the field is gone), the languages and the desk\'s last error (plain params only)',
+        ['office.report_preview', 'bug', 'snapshot', 'Her plan ran twice', null, 'en', 'de', 'command_failed', ['detail' => 'zfs busy']],
+        [$p['a'], $p['kind'], $p['desk'], $p['title'], $p['name'] ?? null, $p['lang'], $p['browser'], $p['error']['key'] ?? null, $p['error']['params'] ?? null]);
     same('report dialog: … then «Send» is on, every part a tick box (the words and the ID always)', [true, [['words', true, true], ['versions', true, false], ['unraid', true, false],
         ['language', true, false], ['team', true, false], ['error', true, false], ['log', true, false], ['id', true, true]]], [$p['sendOn'], $p['parts']]);
     same('report dialog: … the log in full, what was hidden, the hint', ['2026-10-08 10:00:00  Ms. Snapshotini: created ‹pool-1›/‹share-1›@…', true, true], [$p['log'], $p['hidden'], $p['hint']]);
@@ -20169,6 +20329,183 @@ function testBackupLetGo(): void
     same('let go: again — nothing left to clear, no zfs asked, a second journal', [0, 0, 0, [], 2],
         [$r2['moved'], $r2['deleted'], $r2['failed_n'], $r2['runs'], count(glob("$tmp/data/backup/letgo-*.json") ?: [])]);
 
+    // a package whose move throws something else than a Problem (her manifest not written: the pool full) — that package
+    // only, noted as internal; the others move, the snapshots part runs, the journal is finished (review 2026-10-09)
+    foreach (['apps/full', 'apps/fine'] as $d) {
+        mkdir("$pool/$d", 0700, true);
+    }
+    $GLOBALS['letgoHost']['move'] = function (string $from, string $to): void {
+        if (basename($from) === 'full') {
+            throw new RuntimeException('No space left on device');
+        }
+        clMove($from, $to);
+    };
+    $snapsAsked = 0;
+    $GLOBALS['letgoHost']['scan'] = function () use (&$snapsAsked) {
+        $snapsAsked++;
+        return ['zfs' => ['snapshots' => []], 'btrfs' => ['snapshots' => []], 'vm' => ['snapshots' => []]];
+    };
+    $rT = backupLetGoDo($place, false, $parts, $prefixes, '.btrfs-snap');
+    $jT = readJson("$tmp/data/backup/" . $rT['journal']) ?? [];
+    same('let go: a package that throws (not a Problem) — only that one stays, said as internal; the others go, the snapshots are looked at, the journal finished',
+        [1, 1, "$pool/apps/full", 'internal', 'No space left on device', true, false, 1, true],
+        [$rT['moved'], $rT['failed_n'], $rT['failed'][0]['what'] ?? null, $rT['failed'][0]['key'] ?? null, $rT['failed'][0]['params']['detail'] ?? null,
+         is_dir("$pool/apps/full"), is_dir("$pool/apps/fine"), $snapsAsked, is_int($jT['finished'] ?? null)]);
+    unset($GLOBALS['letgoHost']['move']);
+    hardeningRm("$pool/apps/full");
+
+    // the engine's lock (review 2026-10-09): held by someone else — refused with the busy words, nothing done; free — held
+    // through the whole clearing as {holder: backup, mode: letgo}, given back afterwards and when the clearing throws
+    $ub = "$tmp/ub";
+    mkdir("$ub/state", 0700, true);
+    $GLOBALS['letgoUbData'] = $ub;
+    $other = fopen("$ub/state/lock", 'a');
+    flock($other, LOCK_EX);
+    file_put_contents("$ub/state/lock-holder.json", json_encode(['holder' => 'restore', 'mode' => 'drill', 'what' => 'drill', 'pid' => getmypid(), 'started' => time()]));
+    mkdir("$pool/apps/locked", 0700, true);
+    $ran = false;
+    try {
+        backupLetGoUnderLock(function () use (&$ran) { $ran = true; });
+        check('let go: the lock held by a drill — refused', false);
+    } catch (Problem $p) {
+        same('let go: the lock held by a drill — refused with the busy words, nothing done', ['restore_running', false, true], [$p->key, $ran, is_dir("$pool/apps/locked")]);
+    }
+    unlink("$ub/state/lock-holder.json");
+    try {
+        backupLetGoUnderLock(fn () => null);
+        check('let go: the lock held by someone unknown — refused', false);
+    } catch (Problem $p) {
+        same('let go: the lock held by someone unknown — refused (a run\'s words)', 'backup_running', $p->key);
+    }
+    flock($other, LOCK_UN);
+    fclose($other);
+    $during = null;
+    $GLOBALS['letgoHost']['move'] = function (string $from, string $to) use (&$during, $ub): void {
+        $during ??= [flockHeld("$ub/state/lock"), array_intersect_key(readJson("$ub/state/lock-holder.json") ?? [], ['holder' => 1, 'mode' => 1, 'pid' => 1]), backupLetGoBusy()];
+        clMove($from, $to);
+    };
+    $rL = backupLetGoUnderLock(fn () => backupLetGoDo($place, false, $parts, $prefixes, '.btrfs-snap'));
+    unset($GLOBALS['letgoHost']['move']);
+    same('let go: the clearing holds the engine\'s lock, noted {holder: backup, mode: letgo}; a run meanwhile finds it busy',
+        [true, ['holder' => 'backup', 'mode' => 'letgo', 'pid' => getmypid()], 'backup_running', 1], array_merge($during ?? [null, null, null], [$rL['moved']]));
+    same('let go: … given back afterwards, the note gone', [false, false], [flockHeld("$ub/state/lock"), is_file("$ub/state/lock-holder.json")]);
+    try {
+        backupLetGoUnderLock(function () { throw new RuntimeException('boom'); });
+    } catch (RuntimeException $e) {
+    }
+    same('let go: … given back when the clearing throws', [false, false], [flockHeld("$ub/state/lock"), is_file("$ub/state/lock-holder.json")]);
+
+    // the clearing as a job of atd (review 2026-10-09): letgo_clear writes the journal and starts the job; the job takes the
+    // lock, clears, writes every step into the journal and the job file the page polls, gives the lock back, ends «done»
+    $GLOBALS['letgoJob'] = "$tmp/data/backup-letgo-job.json";
+    $GLOBALS['letgoRunDir'] = "$tmp/run";
+    $launched = [];
+    $GLOBALS['letgoLaunch'] = function (string $job, array $args) use (&$launched): void { $launched[] = [$job, array_slice($args, 2)]; };
+    $c = backupLetGoClear(['confirm' => true]);
+    $jid = $c['id'] ?? '';
+    $jfile = "$tmp/data/backup/letgo-$jid.json";
+    same('let go job: letgo_clear hands the job to atd — its id, the journal queued, the job file the page polls',
+        [true, 1, [['backup-letgo', ['job', 'backup-letgo', $jid]]], 'queued', 'queued', 'queued', "letgo-$jid.json", 0600],
+        [(bool) preg_match(LETGO_ID, $jid), preg_match('/^\d{8}-\d{6}/', $jid), $launched, $c['job']['result'] ?? null, readJson($jfile)['result'] ?? null,
+         readJson($GLOBALS['letgoJob'])['result'] ?? null, readJson($GLOBALS['letgoJob'])['journal'] ?? null, fileperms($jfile) & 0777]);
+    try {
+        backupLetGoClear(['confirm' => true]);
+        check('let go job: a second clearing while one is queued — refused', false);
+    } catch (Problem $p) {
+        same('let go job: a second clearing while one is queued — refused (a run\'s words), nothing started', ['backup_running', 1], [$p->key, count($launched)]);
+    }
+    foreach (['apps/jobbed', 'vms/jobvm'] as $d) {
+        mkdir("$pool/$d", 0700, true);
+    }
+    $GLOBALS['letgoPlan'] = ['place' => $place, 'asleep' => false, 'parts' => $parts, 'prefixes' => $prefixes, 'btrfs_dir' => '.btrfs-snap'];
+    $seen = null;
+    $GLOBALS['letgoHost']['move'] = function (string $from, string $to) use (&$seen, $ub): void {
+        $seen ??= [readJson($GLOBALS['letgoJob'])['result'] ?? null, readJson("$ub/state/lock-holder.json")['mode'] ?? null,
+                   trim((string) @file_get_contents($GLOBALS['letgoRunDir'] . '/letgo.open'))];
+        clMove($from, $to);
+    };
+    $code = backupLetGoJob([$jid]);
+    unset($GLOBALS['letgoHost']['move']);
+    $jj = readJson($jfile) ?? [];
+    $view = readJson($GLOBALS['letgoJob']) ?? [];
+    same('let go job: while it clears — running, the engine\'s lock noted as letgo, the RAM marker «<pid> <id>» for the array stop',
+        ['running', 'letgo', getmypid() . " $jid"], $seen);
+    same('let go job: ended — exit 0, done, finished; the job file with the counts (no paths of what moved), the lock given back, the marker gone',
+        [0, 'done', true, 'done', 2, 0, 0, $jid, false, false, false],
+        [$code, $jj['result'] ?? null, is_int($jj['finished'] ?? null), $view['result'] ?? null, $view['moved'] ?? null, $view['deleted'] ?? null, $view['failed_n'] ?? null,
+         $view['id'] ?? null, flockHeld("$ub/state/lock"), is_file("$tmp/run/letgo.open"), str_contains(json_encode($view), $pool)]);
+    same('let go job: the packages went', [false, false], [is_dir("$pool/apps/jobbed"), is_dir("$pool/vms/jobvm")]);
+    same('let go job: again — nothing to do (exit 1); no such id (exit 2)', [1, 2, 2], [backupLetGoJob([$jid]), backupLetGoJob(['../x']), backupLetGoJob([])]);
+    // the job meets the lock held: refused, nothing moved
+    $c2 = backupLetGoClear(['confirm' => true]);
+    mkdir("$pool/apps/waits", 0700, true);
+    $other = fopen("$ub/state/lock", 'a');
+    flock($other, LOCK_EX);
+    same('let go job: the lock held when the job starts — exit 75, refused with the busy words, nothing moved',
+        [75, 'refused', 'backup_running', 'refused', true], [backupLetGoJob([$c2['id']]), readJson("$tmp/data/backup/letgo-{$c2['id']}.json")['result'] ?? null,
+         readJson("$tmp/data/backup/letgo-{$c2['id']}.json")['reason'] ?? null, readJson($GLOBALS['letgoJob'])['result'] ?? null, is_dir("$pool/apps/waits")]);
+    flock($other, LOCK_UN);
+    fclose($other);
+    // a throw outside a step: failed, said, the lock given back
+    $c3 = backupLetGoClear(['confirm' => true]);
+    $GLOBALS['letgoPlan']['prefixes'] = 'not a list';
+    same('let go job: a throw outside a step — exit 1, failed (internal), the lock given back, the marker gone',
+        [1, 'failed', 'internal', false, false], [backupLetGoJob([$c3['id']]), readJson($GLOBALS['letgoJob'])['result'] ?? null, readJson($GLOBALS['letgoJob'])['reason'] ?? null,
+         flockHeld("$ub/state/lock"), is_file("$tmp/run/letgo.open")]);
+    $GLOBALS['letgoPlan']['prefixes'] = $prefixes;
+    hardeningRm("$pool/apps/waits");
+    // atd refuses: the journal says refused, the page gets the error
+    $GLOBALS['letgoLaunch'] = function (): void { throw new Problem('host_launch_failed', ['detail' => 'no atd']); };
+    try {
+        backupLetGoClear(['confirm' => true]);
+        check('let go job: atd refuses — refused', false);
+    } catch (Problem $p) {
+        same('let go job: atd refuses — the error to the page, the job file refused', ['host_launch_failed', 'refused', 'host_launch_failed'],
+            [$p->key, readJson($GLOBALS['letgoJob'])['result'] ?? null, readJson($GLOBALS['letgoJob'])['reason'] ?? null]);
+    }
+    // is it alive? a job gone (killed, the array stopped) or never started is written down as interrupted
+    $GLOBALS['letgoLaunch'] = fn () => null;
+    $c4 = backupLetGoClear(['confirm' => true]);
+    $f4 = "$tmp/data/backup/letgo-{$c4['id']}.json";
+    $j4 = readJson($f4);
+    $sleeper = proc_open(['sh', '-c', 'sleep 30; :', 'agent.php'], [], $pp);
+    $j4['result'] = 'running';
+    $j4['pid'] = proc_get_status($sleeper)['pid'];
+    backupLetGoJournalWrite($f4, $j4);
+    $alive = backupLetGoJobState(['id' => $c4['id']])['job']['result'] ?? null;
+    $busyAlive = backupLetGoRunning();
+    proc_terminate($sleeper);
+    proc_close($sleeper);
+    $gone = backupLetGoJobState(['id' => $c4['id']])['job']['result'] ?? null;
+    $c5 = backupLetGoClear(['confirm' => true]);
+    $f5 = "$tmp/data/backup/letgo-{$c5['id']}.json";
+    $j5 = readJson($f5);
+    $j5['created'] = time() - 121;
+    backupLetGoJournalWrite($f5, $j5);
+    same('let go job: alive — running (and a new clearing refused); its process gone — interrupted, in the journal too; queued 2 min — interrupted',
+        ['running', true, 'interrupted', 'interrupted', 'interrupted', false],
+        [$alive, $busyAlive, $gone, readJson($f4)['result'] ?? null, backupLetGoJobState(['id' => $c5['id']])['job']['result'] ?? null, backupLetGoRunning()]);
+    same('let go job: backup.letgo_job for no such clearing — unknown_target', ['unknown_target', 'unknown_target'], array_map(function ($id) {
+        try {
+            backupLetGoJobState(['id' => $id]);
+            return 'ok';
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    }, ['20991231-235959', '../../etc']));
+    // agent.sh's array stop ends the job its RAM marker names (only an agent.php), the marker gone
+    $sleeper = proc_open(['sh', '-c', 'sleep 30; :', 'agent.php'], [], $pp);
+    $spid = proc_get_status($sleeper)['pid'];
+    file_put_contents("$tmp/run/letgo.open", "$spid 20261009-120000\n");
+    shell_exec('bash -c ' . escapeshellarg('source ' . escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh') . '; RUN=' . escapeshellarg("$tmp/run")
+        . '; LOG=' . escapeshellarg("$tmp/agent.log") . '; drill_release') . ' 2>&1');
+    usleep(200000);
+    same('let go job: agent.sh\'s array stop ends it (SIGTERM to the agent.php its marker names), the marker gone',
+        [false, false, true], [proc_get_status($sleeper)['running'], is_file("$tmp/run/letgo.open"), str_contains((string) @file_get_contents("$tmp/agent.log"), 'letgo.open job')]);
+    proc_close($sleeper);
+    unset($GLOBALS['letgoPlan'], $GLOBALS['letgoLaunch']);
+    @unlink($GLOBALS['letgoJob']);
+
     // the place asleep: its packages stay, said
     mkdir("$pool/apps/again", 0700, true);
     $r3 = backupLetGoDo($place, true, [], $prefixes, '.btrfs-snap');
@@ -20219,10 +20556,13 @@ const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 const mk = (tag, cls, text) => ({ tag, cls, text, children: [], hidden: false, disabled: false, checked: false,
   append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, replaceChildren(...c) { this.children = c; } });
 const posts = [];
+const gets = [];
 let answer = null;
+let getAnswer = () => ({ ok: true, part: null });
 globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, placesFrom: () => {},
   placesTook: () => {}, selbar: () => {}, has: () => false, agent: { running: true }, errorText: (e, d) => 'err:' + (d || '') + ':' + e.key,
-  api: { post: async (a, body) => { posts.push([a, body]); return answer(a); } } };
+  pollDelay: (b, f) => (f > 0 ? b * 10 * f : b),
+  api: { post: async (a, body) => { posts.push([a, body]); return answer(a, body); }, get: async (q) => { gets.push(q.part); return getAnswer(); } } };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const b = OFFICE_DESK_TESTS.backup;
 (async () => {
@@ -20248,10 +20588,40 @@ const b = OFFICE_DESK_TESTS.backup;
   cb.checked = true;
   await cb.onchange();
   out.ticked = [more.hidden, button.textContent, button.disabled, posts.map((p) => p[0]), more.children.length];
-  answer = () => ({ ok: true, moved: 6 });
+  const JID = '20261009-120000';
+  const job = (more) => ({ id: JID, result: 'running', moved: 0, deleted: 0, failed: [], failed_n: 0, kept: 0, place_asleep: false, journal: `letgo-${JID}.json`,
+    heartbeat: 1, ...more });
+  answer = () => ({ ok: true, id: JID, job: job({ result: 'done', moved: 6 }) });
   const r1 = await part.before();
   const r2 = await part.before();
-  out.cleared = [r1.moved, r2 === r1, posts.slice(1)];
+  out.cleared = [r1.moved, r2 === r1, posts.slice(1), cb.disabled];
+  // the job followed: queued, a blip, running (how far it got shown), done — he is let go only then
+  const waits = [];
+  let clock = 0;
+  b.setLetGoClock({ wait: async (ms) => { waits.push(ms); clock += ms; }, now: () => clock });
+  const follow = async (first, parts, more2) => {
+    posts.length = 0; gets.length = 0; waits.length = 0;
+    const bx = mk('div');
+    const p = b.letGoPart(bx);
+    const c = bx.children[0].children[0].children[0];
+    const lines = [];
+    p.bind(mk('button'));
+    answer = (a) => (a.endsWith('.letgo_look') ? look : a.endsWith('.letgo_clear') ? { ok: true, id: JID, job: first } : more2(a));
+    c.checked = true;
+    await c.onchange();
+    const queue = parts.slice();
+    getAnswer = () => { const m = bx.children[0].children[1].children[0]; if (m) lines.push(m.text); return queue.length > 1 ? queue.shift() : queue[0]; };      // the last one stays
+    const r = await p.before();
+    return { r, lines, waits: waits.slice(), gets: gets.slice(), posts: posts.map((x) => x[0]) };
+  };
+  out.followed = await follow(job({ result: 'queued', heartbeat: 1 }), [{ ok: false, error: { key: 'offline' } }, { ok: true, part: job({ moved: 2, heartbeat: 2 }) },
+    { ok: true, part: job({ result: 'done', moved: 3, deleted: 40, heartbeat: 3 }) }], () => ({ ok: false }));
+  out.refused = (await follow(job({ result: 'queued' }), [{ ok: true, part: job({ result: 'refused', reason: 'restore_running', reason_params: { what: 'x' } }) }], () => ({ ok: false }))).r;
+  // the heartbeat stands still a minute: the agent is asked — the job is gone: interrupted, what was done until then
+  const still = job({ moved: 1, heartbeat: 5 });
+  out.quiet = await follow(still, [{ ok: true, part: still }],
+    (a) => (a.endsWith('.letgo_job') ? { ok: true, job: job({ result: 'interrupted', moved: 1, heartbeat: 5 }) } : { ok: false }));
+  out.brokenLines = b.letGoDoneLines(b.letGoResult(job({ result: 'interrupted', moved: 1 })));
   // busy: said, the tick unticked and waits; «Let go» lets go only
   const box2 = mk('div');
   const p2 = b.letGoPart(box2);
@@ -20287,13 +20657,25 @@ JS);
                 [['callout warn', 'letgo.failed {"error":"err:backup:backup_running"}']]], [$o['doneNone'], $o['doneErr']]);
             same('let go: the tick off by default — «Let go» as always, before() asks nothing', [false, true, 'office.fire', false, null, 0], $o['start']);
             same('let go: ticked — he looks first, then «Let go and clear away»', [false, 'letgo.button', false, ['backup.letgo_look'], 8], $o['ticked']);
-            same('let go: before() clears once, with confirm: true', [6, true, [['backup.letgo_clear', ['confirm' => true]]]], $o['cleared']);
+            same('let go: before() clears once, with confirm: true; the tick can\'t be changed meanwhile', [6, true, [['backup.letgo_clear', ['confirm' => true]]], true], $o['cleared']);
+            $f = $o['followed'] ?? [];
+            same('let go: the job followed — through a blip (slower), how far it got shown, until done; then the answer for «What I cleared away»',
+                [true, 3, 40, null, [2000, 20000, 2000], ['letgo-job', 'letgo-job', 'letgo-job'],
+                 ['letgo.clearing {"moved":0,"deleted":0}', 'letgo.clearing {"moved":0,"deleted":0}', 'letgo.clearing {"moved":2,"deleted":0}']],
+                [$f['r']['ok'] ?? null, $f['r']['moved'] ?? null, $f['r']['deleted'] ?? null, array_key_exists('broken', $f['r'] ?? []) ? $f['r']['broken'] : 'x', $f['waits'] ?? null, $f['gets'] ?? null, $f['lines'] ?? null]);
+            same('let go: the job refused (the lock busy) — the busy words, he is let go all the same', ['ok' => false, 'error' => ['key' => 'restore_running', 'params' => ['what' => 'x']]], $o['refused']);
+            $q = $o['quiet'] ?? [];
+            same('let go: the heartbeat still for a minute — the agent asked once whether the job lives; gone — interrupted, what was done said, with a warning',
+                [true, 'interrupted', 1, ['backup.letgo_look', 'backup.letgo_clear', 'backup.letgo_job']],
+                [$q['r']['ok'] ?? null, $q['r']['broken'] ?? null, $q['r']['moved'] ?? null, $q['posts'] ?? null]);
+            same('let go: … the lines: what moved, the warning, the journal', [['', 'letgo.done_moved {"n":1}'], ['callout warn', 'letgo.done_broken'], ['role', 'letgo.done_journal {"file":"letgo-20261009-120000.json"}']],
+                $o['brokenLines']);
             same('let go: busy — the tick unticked and waiting, «Let go» lets go only', [false, true, 'office.fire', false, null], $o['busyPart']);
             same('let go: the messenger away — the tick can\'t be ticked', true, $o['away']);
         }
     }
 
-    unset($GLOBALS['letgoHost'], $GLOBALS['snapshotHost'], $GLOBALS['snapshotRecordFile'], $GLOBALS['letgoDir']);
+    unset($GLOBALS['letgoHost'], $GLOBALS['snapshotHost'], $GLOBALS['snapshotRecordFile'], $GLOBALS['letgoDir'], $GLOBALS['letgoUbData'], $GLOBALS['letgoJob'], $GLOBALS['letgoRunDir']);
     hardeningRm($tmp);
 }
 
@@ -20301,7 +20683,7 @@ JS);
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired'],
           'strings' => ['testStrings', 'testUnraidWords']];

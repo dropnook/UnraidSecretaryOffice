@@ -3755,9 +3755,14 @@ async function scheduleDialog() {
  * His part of the let-go dialog (core.js Office.fireDialog → the desk's letGo): one tick «Also clear away what he kept
  * here», off by default. Ticked, he looks first (backup.letgo_look: which packages go to Ms. Dustdevil's storeroom, how
  * many of his own snapshots go and what that frees, what stays) and «Let go» becomes «Let go and clear away» — only
- * once that look is shown, never while the engine is busy. The clearing runs in the agent before he is let go
- * (backup.letgo_clear {confirm: true}); he is let go whatever came of it, and then a dialog says what was done.
+ * once that look is shown, never while the engine is busy. The clearing runs before he is let go, as a job of the
+ * host's atd (backup.letgo_clear {confirm: true} starts it; the dialog follows its job file, api part «letgo-job», and
+ * says how far it got); he is let go when it ends, whatever came of it, and then a dialog says what was done.
  */
+const LETGO_POLL = 2000;            // ms between looks at the job file
+const LETGO_QUIET = 60000;          // ms without a new heartbeat: the agent is asked whether the job still lives
+const LETGO_ENDED = ['done', 'refused', 'failed', 'interrupted'];
+let letGoClock = { wait: (ms) => new Promise((r) => setTimeout(r, ms)), now: () => Date.now() };     // the tests' own
 function letGoPart(box) {
   const wrap = el('div', 'bk-letgo');
   const label = el('label', 'check');
@@ -3794,15 +3799,57 @@ function letGoPart(box) {
     else { cb.checked = false; cb.disabled = !!(j.ok && j.busy); }    // busy: said, the tick waits for another time
     sync();
   };
+  const progress = (v) => more.replaceChildren(el('p', 'callout running', T('letgo.clearing', { moved: Number(v.moved) || 0, deleted: Number(v.deleted) || 0 })));
+  const clearAway = async () => {
+    cb.disabled = true;
+    progress({});
+    const j = await Office.api.post(`${ID}.letgo_clear`, { confirm: true });
+    return j.ok ? letGoWait(j.id, j.job, progress) : j;
+  };
   return {
     bind(b) { button = b; sync(); },
     async before() {
       if (!cb.checked || !look) return null;
-      cleared = cleared || await Office.api.post(`${ID}.letgo_clear`, { confirm: true });    // once, even if «Let go» is pressed again
+      cleared = cleared || clearAway();      // once, even if «Let go» is pressed again
       return cleared;
     },
     done: letGoDone,
   };
+}
+
+/**
+ * Follows the clearing's job until it ends: the job file every LETGO_POLL (slower while asks fail, Office.pollDelay); when
+ * its heartbeat stood still for LETGO_QUIET the agent is asked whether the job still lives (backup.letgo_job — a gone one
+ * comes back interrupted). The answer in the shape letGoDone() takes.
+ */
+async function letGoWait(id, job, show) {
+  let fails = 0;
+  let beat = null;
+  let since = letGoClock.now();
+  for (;;) {
+    if (job && job.id === id) {
+      if (LETGO_ENDED.includes(job.result)) return letGoResult(job);
+      if (job.heartbeat !== beat) { beat = job.heartbeat; since = letGoClock.now(); }
+      show(job);
+    }
+    await letGoClock.wait(Office.pollDelay(LETGO_POLL, fails));
+    let j = await Office.api.get({ a: 'part', desk: ID, part: 'letgo-job' });
+    fails = j.ok ? 0 : fails + 1;
+    if (j.ok && j.part && j.part.id === id && !LETGO_ENDED.includes(j.part.result) && j.part.heartbeat === beat
+        && letGoClock.now() - since >= LETGO_QUIET) {
+      since = letGoClock.now();
+      const a = await Office.api.post(`${ID}.letgo_job`, { id });
+      if (a.ok && a.job) j = { ok: true, part: a.job };
+    }
+    if (j.ok && j.part) job = j.part;
+  }
+}
+
+/** The ended job as letGoDone() takes it: done — what was done; refused — why; failed or interrupted — what was done until then */
+function letGoResult(job) {
+  if (job.result === 'refused') return { ok: false, error: { key: job.reason || 'internal', params: job.reason_params || {} } };
+  return { ok: true, moved: job.moved, deleted: job.deleted, failed: job.failed || [], failed_n: job.failed_n, kept: job.kept, place_asleep: job.place_asleep,
+    journal: job.journal, broken: job.result !== 'done' ? job.result : null };
 }
 
 /** What the look says, line by line ([class, text]) */
@@ -3843,7 +3890,8 @@ function letGoDoneLines(j) {
   const out = [];
   if (j.moved) out.push(['', T('letgo.done_moved', { n: Number(j.moved) })]);
   if (j.deleted) out.push(['', T('letgo.done_deleted', { n: Number(j.deleted) })]);
-  if (!j.moved && !j.deleted && !j.failed_n) out.push(['', T('letgo.done_none')]);
+  if (j.broken) out.push(['callout warn', T('letgo.done_broken')]);
+  if (!j.moved && !j.deleted && !j.failed_n && !j.broken) out.push(['', T('letgo.done_none')]);
   if (j.place_asleep) out.push(['role', T('letgo.packages_asleep')]);
   if (j.failed_n) out.push(['callout warn', T('letgo.done_failed', { n: Number(j.failed_n) })]);
   out.push(['role', T('letgo.done_journal', { file: j.journal })]);
@@ -3980,7 +4028,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     placeLines, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,
     PRESETS, presetChoose, presetForget, presetKeep, presetChanged, presetKopiaState, firstUpload, presetKeptList, presetStartText,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
-    letGoPart, letGoLines, letGoDoneLines, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText,
+    letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText,
   };
 }
 })();
