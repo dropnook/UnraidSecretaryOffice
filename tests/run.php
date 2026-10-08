@@ -11813,6 +11813,124 @@ function testStaffOrder(): void
 }
 
 /**
+ * «Hire together with …» (Benj, 2026-10-08): a desk names the colleague it needs in desk.json ("with": Mr. Restori
+ * needs Mr. Backupsy's packages); officeDesks() passes it to the page, and the Team Lead's candidate row offers both at
+ * once — the colleague first — while the colleague isn't hired and would come; else the plain «Hire».
+ */
+function testHireWith(): void
+{
+    $tmp = hardeningTmp('hire-with');
+    // the web side in a process of its own: a plugin's layout, the data folder in $tmp
+    $web = function (string $desks, string $code) use ($tmp): array {
+        @mkdir("$tmp/plugin/src", 0700, true);
+        foreach (glob(OFFICE_DIR . '/src/*.php') ?: [] as $f) {
+            copy($f, "$tmp/plugin/src/" . basename($f));
+        }
+        @unlink("$tmp/plugin/desks");
+        symlink($desks, "$tmp/plugin/desks");
+        @unlink("$tmp/plugin/lang");
+        symlink(OFFICE_DIR . '/public/lang', "$tmp/plugin/lang");
+        @mkdir("$tmp/data/office", 0700, true);
+        file_put_contents("$tmp/web.php", '<?php require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . '; ' . $code);
+        $p = proc_open([PHP_BINARY, "$tmp/web.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
+        $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return [json_decode($raw, true), $raw];
+    };
+    [$out, $raw] = $web(OFFICE_DIR . '/public/desks', 'echo json_encode([array_map(fn ($d) => $d["with"], officeDesks()),'
+        . ' officeStaffAction("office.hire", ["desks" => ["backup", "restore"]]),'
+        . ' array_keys(json_decode((string) file_get_contents(OFFICE_DATA . "/office/staff.json"), true)["hired"] ?? [])]);');
+    same('hire with: Mr. Restori names Mr. Backupsy (desk.json "with"), nobody else names anyone',
+        ['restore' => 'backup'], is_array($out) ? array_filter($out[0]) : $raw);
+    same('hire with: both hired in one go, the colleague first', ['backup', 'restore'], $out[2] ?? $raw);
+    // only another desk that exists
+    $fake = "$tmp/desks";
+    foreach (['a' => 'b', 'b' => 'b', 'c' => 'ghost', 'd' => 7, 'e' => null] as $id => $with) {
+        @mkdir("$fake/$id", 0700, true);
+        file_put_contents("$fake/$id/desk.json", json_encode(['order' => 50] + ($with === null ? [] : ['with' => $with])));
+        file_put_contents("$fake/$id/desk.js", '');
+    }
+    [$out, $raw] = $web($fake, 'echo json_encode(array_map(fn ($d) => $d["with"], officeDesks()));');
+    same('hire with: only another desk that exists — itself, an unknown one, no string: none', ['a' => 'b', 'b' => null, 'c' => null, 'd' => null, 'e' => null], $out ?? $raw);
+
+    // the strings: the button ×5 with its {name}, the colleague's name as «with …» needs it
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $ct = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/caretaker/lang/$l.json"), true) ?: [];
+        $bk = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$l.json"), true) ?: [];
+        check("hire with: $l — «Hire together with {name}» and Mr. Backupsy's name for it",
+            str_contains((string) ($ct['hire_with'] ?? ''), '{name}') && ($bk['name_with'] ?? '') !== '' && !str_contains((string) $bk['name_with'], '{'));
+    }
+    same('hire with: German — Swiss, the dative', ['Zusammen mit {name} einstellen', 'Herrn Backupsi'],
+        [json_decode((string) file_get_contents(OFFICE_WEB . '/desks/caretaker/lang/de.json'), true)['hire_with'] ?? null,
+         json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/de.json'), true)['name_with'] ?? null]);
+
+    // the Team Lead's row, under node
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('hire with: the candidate row - node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+globalThis.document = { currentScript: null };
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => { const n = { tag, className: cls || '', textContent: text || '', children: [], dataset: {}, disabled: false, type: '', onclick: null,
+  appendChild(c) { this.children.push(c); return c; } }; n.classList = { add(c) { n.className += ' ' + c; } }; return n; };
+const hired = [], toasts = [];
+const desks = new Map();
+globalThis.Office = { scope: () => T, t: T, el: mk, has: (k) => k === 'backup.name_with', fmt: {}, desk: () => {}, places: () => {}, placesFrom: () => {},
+  place: (a, n) => { n.dataset.place = a; return n; }, avatar: () => mk('span'), agent: { running: true }, deskRank: () => 0, desks, config: {},
+  hire: async (ids) => { hired.push(ids); return true; }, toast: (m) => toasts.push(m), loadState: async () => {}, fireDialog: () => {} };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const c = OFFICE_DESK_TESTS.caretaker;
+const walk = (n, out = []) => { if (n && typeof n === 'object') { out.push(n); (n.children || []).forEach((x) => walk(x, out)); } return out; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+(async () => {
+  const out = {};
+  const run = async (name, backup, extra) => {
+    desks.clear();
+    desks.set('backup', { id: 'backup', order: 30, hired: backup.hired, ...extra });
+    desks.set('restore', { id: 'restore', order: 35, hired: false, with: 'backup' });
+    c.setState({ staff: { backup, restore: { hired: false, ok: true, why: 'with_backup' } } });
+    const rows = {};
+    for (const x of c.staff()) {
+      const b = walk(c.teamRow(x)).find((n) => n.tag === 'button');
+      if (!b) { rows[x.id] = null; continue; }
+      hired.length = 0; toasts.length = 0;
+      await b.onclick();
+      await sleep(5);
+      rows[x.id] = { text: b.textContent, hires: hired[0] || null, toast: toasts[0] || null };
+    }
+    out[name] = rows;
+  };
+  await run('both', { hired: false, ok: true, why: 'yes' });
+  await run('colleague_here', { hired: true, ok: true, why: 'yes' });
+  await run('colleague_declines', { hired: false, ok: false, why: 'no_cow' });
+  await run('colleague_training', { hired: false, ok: true, why: 'yes' }, { training: true });
+  console.log(JSON.stringify(out));
+})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); });
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/caretaker/desk.js') . ' 2>&1');
+    $r = json_decode($raw, true);
+    if (!is_array($r) || isset($r['error'])) {
+        check('hire with: the candidate row ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('hire with: Mr. Backupsy not here and would come — Mr. Restori\'s button hires both, the colleague first; the toast names both',
+        ['text' => 'hire_with {"name":"backup.name_with"}', 'hires' => ['backup', 'restore'], 'toast' => 'hired {"names":"backup.name, restore.name"}'],
+        $r['both']['restore'] ?? null);
+    same('hire with: … Mr. Backupsy\'s own row stays «Hire», him alone', ['text' => 'hire', 'hires' => ['backup']], array_intersect_key($r['both']['backup'] ?? [], ['text' => 1, 'hires' => 1]));
+    same('hire with: Mr. Backupsy hired already, declining or still in training — plain «Hire», Mr. Restori alone',
+        array_fill(0, 3, ['text' => 'hire', 'hires' => ['restore']]),
+        array_map(fn ($k) => array_intersect_key($r[$k]['restore'] ?? [], ['text' => 1, 'hires' => 1]), ['colleague_here', 'colleague_declines', 'colleague_training']));
+    hardeningRm($tmp);
+}
+
+/**
  * Old addresses of a desk that went into another one lead to the part of the page that took it over
  * (core.js movedDesk(), under node): #/whereabouts… → #/cleanup/where; nothing else is touched.
  */
@@ -19001,7 +19119,7 @@ JS);
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
