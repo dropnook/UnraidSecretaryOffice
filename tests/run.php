@@ -20272,6 +20272,47 @@ function testBackupLetGo(): void
     unset($GLOBALS['letgoHost']['move']);
     hardeningRm("$pool/apps/full");
 
+    // the engine's lock (review 2026-10-09): held by someone else — refused with the busy words, nothing done; free — held
+    // through the whole clearing as {holder: backup, mode: letgo}, given back afterwards and when the clearing throws
+    $ub = "$tmp/ub";
+    mkdir("$ub/state", 0700, true);
+    $GLOBALS['letgoUbData'] = $ub;
+    $other = fopen("$ub/state/lock", 'a');
+    flock($other, LOCK_EX);
+    file_put_contents("$ub/state/lock-holder.json", json_encode(['holder' => 'restore', 'mode' => 'drill', 'what' => 'drill', 'pid' => getmypid(), 'started' => time()]));
+    mkdir("$pool/apps/locked", 0700, true);
+    $ran = false;
+    try {
+        backupLetGoUnderLock(function () use (&$ran) { $ran = true; });
+        check('let go: the lock held by a drill — refused', false);
+    } catch (Problem $p) {
+        same('let go: the lock held by a drill — refused with the busy words, nothing done', ['restore_running', false, true], [$p->key, $ran, is_dir("$pool/apps/locked")]);
+    }
+    unlink("$ub/state/lock-holder.json");
+    try {
+        backupLetGoUnderLock(fn () => null);
+        check('let go: the lock held by someone unknown — refused', false);
+    } catch (Problem $p) {
+        same('let go: the lock held by someone unknown — refused (a run\'s words)', 'backup_running', $p->key);
+    }
+    flock($other, LOCK_UN);
+    fclose($other);
+    $during = null;
+    $GLOBALS['letgoHost']['move'] = function (string $from, string $to) use (&$during, $ub): void {
+        $during ??= [flockHeld("$ub/state/lock"), array_intersect_key(readJson("$ub/state/lock-holder.json") ?? [], ['holder' => 1, 'mode' => 1, 'pid' => 1]), backupLetGoBusy()];
+        clMove($from, $to);
+    };
+    $rL = backupLetGoUnderLock(fn () => backupLetGoDo($place, false, $parts, $prefixes, '.btrfs-snap'));
+    unset($GLOBALS['letgoHost']['move']);
+    same('let go: the clearing holds the engine\'s lock, noted {holder: backup, mode: letgo}; a run meanwhile finds it busy',
+        [true, ['holder' => 'backup', 'mode' => 'letgo', 'pid' => getmypid()], 'backup_running', 1], array_merge($during ?? [null, null, null], [$rL['moved']]));
+    same('let go: … given back afterwards, the note gone', [false, false], [flockHeld("$ub/state/lock"), is_file("$ub/state/lock-holder.json")]);
+    try {
+        backupLetGoUnderLock(function () { throw new RuntimeException('boom'); });
+    } catch (RuntimeException $e) {
+    }
+    same('let go: … given back when the clearing throws', [false, false], [flockHeld("$ub/state/lock"), is_file("$ub/state/lock-holder.json")]);
+
     // the place asleep: its packages stay, said
     mkdir("$pool/apps/again", 0700, true);
     $r3 = backupLetGoDo($place, true, [], $prefixes, '.btrfs-snap');
@@ -20396,7 +20437,7 @@ JS);
         }
     }
 
-    unset($GLOBALS['letgoHost'], $GLOBALS['snapshotHost'], $GLOBALS['snapshotRecordFile'], $GLOBALS['letgoDir']);
+    unset($GLOBALS['letgoHost'], $GLOBALS['snapshotHost'], $GLOBALS['snapshotRecordFile'], $GLOBALS['letgoDir'], $GLOBALS['letgoUbData']);
     hardeningRm($tmp);
 }
 

@@ -23,7 +23,10 @@ declare(strict_types=1);
  *   - settings.ini, the decisions and the schedule stay: hired again, his plan is there. Kopia's copies and the
  *     partners' are never touched.
  *
- * Nothing while the engine's lock is held (a run, the setup, a restore or drill). What was moved and deleted, and what
+ * Nothing while the engine's lock is held (a run, the setup, a restore or drill) — and the clearing holds it itself
+ * from the first move to the last deletion (review 2026-10-09): taken without waiting like Mr. Restori's jobs, noted in
+ * state/lock-holder.json as {holder: backup, mode: letgo}, given back whatever happens; a nightly run starting meanwhile
+ * is skipped (the engine: «busy, other»), never meets packages vanishing under it. What was moved and deleted, and what
  * failed, goes into data/backup/letgo-<time>.json (root only), written after every step — a clearing that stops
  * half-way leaves its record. Ms. Dustdevil reads the storerooms from there too (backupLetGoTrashRoots()): one on an
  * array disk or in a dataset of its own isn't among the pools' share tops she looks at by herself.
@@ -42,6 +45,12 @@ function backupLetGoDir(): string
     return $GLOBALS['letgoDir'] ?? DATA_DIR . '/backup';
 }
 
+/** The engine's data folder, where its lock lies (tests point it elsewhere) */
+function backupLetGoUbData(): string
+{
+    return $GLOBALS['letgoUbData'] ?? BACKUP_DATA_DIR;
+}
+
 /** zfs, btrfs, Ms. Snapshotini's look (fresh, and after the deletions) and Ms. Dustdevil's move — the tests put stand-ins in $GLOBALS['letgoHost'] */
 function backupLetGoHost(): array
 {
@@ -58,7 +67,7 @@ function backupLetGoHost(): array
 /** Who holds the engine's lock right now, as an error key (null: nobody) — the same words as backupCheckReady() */
 function backupLetGoBusy(): ?string
 {
-    $holder = backupLockHolder();
+    $holder = backupLockHolder(backupLetGoUbData());
     if ($holder === null && !backupSetupStatus()['running']) {
         return null;
     }
@@ -235,18 +244,79 @@ function backupLetGoClear(array $r): array
     if (($r['confirm'] ?? null) !== true) {
         throw new Problem('bad_request');
     }
-    if ($busy = backupLetGoBusy()) {
-        throw new Problem($busy);
-    }
-    $f = backupLetGoFacts();
-    $parts = $f['asleep'] ? [] : backupLetGoParts($f['place'], clRoots(), sleepingDisks());
-    $out = backupLetGoDo($f['place'], $f['asleep'], $parts, $f['prefixes'], $f['btrfs_dir']);
+    $out = backupLetGoUnderLock(function (): array {
+        $f = backupLetGoFacts();
+        $parts = $f['asleep'] ? [] : backupLetGoParts($f['place'], clRoots(), sleepingDisks());
+        return backupLetGoDo($f['place'], $f['asleep'], $parts, $f['prefixes'], $f['btrfs_dir']);
+    });
     try {
         backupScan();                          // his packages are gone from his page
     } catch (Throwable $e) {
         logLine('Mr. Backup: look after clearing away failed: ' . $e->getMessage());
     }
     return ['ok' => true] + $out;
+}
+
+/**
+ * The engine's lock for the clearing, like Mr. Restori's rsLockTake(): state/lock opened for appending (never truncating),
+ * taken without waiting, touched, and noted in state/lock-holder.json as {holder: backup, mode: letgo} (a new file +
+ * rename). Busy — or the setup running — the busy key in backupLetGoBusy()'s words instead of a handle.
+ *
+ * @return resource|string
+ */
+function backupLetGoLockTake(): mixed
+{
+    if ($busy = backupLetGoBusy()) {
+        return $busy;
+    }
+    $state = backupLetGoUbData() . '/state';
+    if (!is_dir($state)) {
+        @mkdir($state, 0700, true);
+    }
+    $file = "$state/lock";
+    $h = is_link($file) || is_link($state) ? false : @fopen($file, 'a');
+    if (!$h) {
+        return 'backup_running';
+    }
+    if (!flock($h, LOCK_EX | LOCK_NB)) {
+        fclose($h);
+        return backupLetGoBusy() ?? 'backup_running';
+    }
+    @touch($file);
+    try {
+        writeAtomic("$state/lock-holder.json", jsonEncode(['holder' => 'backup', 'mode' => 'letgo', 'what' => '', 'run' => '',
+            'pid' => getmypid(), 'started' => time(), 'version' => AGENT_VERSION]), 0600, 0, 0);
+    } catch (Throwable $e) {
+        logLine('Mr. Backup: could not note the lock\'s holder: ' . $e->getMessage());     // the lock itself stays the truth
+    }
+    return $h;
+}
+
+/** Gives the lock back; the note goes only while it is still his own (same pid) */
+function backupLetGoLockRelease(mixed $h): void
+{
+    $note = backupLetGoUbData() . '/state/lock-holder.json';
+    if ((int) (readJson($note)['pid'] ?? 0) === getmypid()) {
+        @unlink($note);
+    }
+    if (is_resource($h)) {
+        flock($h, LOCK_UN);
+        fclose($h);
+    }
+}
+
+/** $work under the engine's lock, given back on every path; busy — refused (Problem) before anything is done */
+function backupLetGoUnderLock(callable $work): mixed
+{
+    $lock = backupLetGoLockTake();
+    if (!is_resource($lock)) {
+        throw new Problem($lock);
+    }
+    try {
+        return $work();
+    } finally {
+        backupLetGoLockRelease($lock);
+    }
 }
 
 /** A new journal file (root only, never through a link); null when it can't be */
