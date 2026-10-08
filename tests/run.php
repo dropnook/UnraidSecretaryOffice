@@ -5703,10 +5703,13 @@ function testLogsTour(): void
     same('logs tour: the first tour counts the last 24 hours, similar lines as one kind', [2, 1, 2, 1],
         [$e['errors'], $e['kinds'], $e['groups'][0]['count'] ?? null, $e['groups'][0]['back'] ?? null]);
     same('logs tour: remembers where the file ended', filesize($log), $mem['syslog']['size'] ?? null);
+    same('logs tour: the first tour — how much it grew isn\'t known', null, $e['grew']);
+    $was = filesize($log);
     file_put_contents($log, "$new Tower smbd[3]: warning: two\n$new Tower half a li", FILE_APPEND);
     $mem2 = [];
     $e = logsTourFileSource('syslog', $src, $mem['syslog'], null, time() - 3600, $sources, $mem2);
     same('logs tour: the next tour reads only what came, whole lines', [0, 1, 1], [$e['errors'], $e['warnings'], $e['lines']]);
+    same('logs tour: … and says how much the file grew since (bytes, the unfinished line too)', filesize($log) - $was, $e['grew']);
     check('logs tour: an unfinished line waits for the next tour', ($mem2['syslog']['size'] ?? PHP_INT_MAX) < filesize($log));
     rename($log, "$log.1");
     file_put_contents("$log.1", "ne\n$new Tower smbd[4]: error: three\n", FILE_APPEND);
@@ -5716,6 +5719,10 @@ function testLogsTour(): void
     $srcs = array_values(array_unique(array_column($e['groups'], 'src')));
     sort($srcs);
     same('logs tour: rotated — the rest of the old file and the new one', [true, 2, ['syslog', 'syslog.1']], [$e['rotated'], $e['errors'], $srcs]);
+    same('logs tour: rotated — grew by the old one\'s rest and the whole new one', filesize("$log.1") - $mem2['syslog']['size'] + filesize($log), $e['grew']);
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/logs/desk.js');
+    check('logs tour: her page says per source how much it grew (the source rows, the quiet ones\' bubble)', str_contains($js, 'const grew = grewChip(s.grew);')
+        && str_contains($js, "T('grew.more', { size: fmt.size(s.grew) })"));
     file_put_contents($log, str_repeat("$new Tower x: nothing to see\n", 160000), FILE_APPEND);
     $e = logsTourFileSource('syslog', $src, $mem3['syslog'], null, time() - 3600, $sources, $mem);
     same('logs tour: never more than the cap, the newest part', [true, true], [$e['partial'], $e['skipped'] > 0 && $e['lines'] * 30 <= LOGS_TOUR_BYTES]);

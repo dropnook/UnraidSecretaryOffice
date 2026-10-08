@@ -569,7 +569,7 @@ function logsTourWanted(string $id): bool
 function logsTally(): array
 {
     return ['errors' => 0, 'warnings' => 0, 'groups' => [], 'other' => 0, 'lines' => 0, 'partial' => false,
-            'skipped' => 0, 'rotated' => false, 'unreadable' => false];
+            'skipped' => 0, 'rotated' => false, 'unreadable' => false, 'grew' => null];
 }
 
 /**
@@ -634,7 +634,7 @@ function logsTourEntry(string $id, array $src, array $acc): array
     return ['id' => $id, 'group' => $src['group'], 'label' => $src['label'], 'param' => $src['param'], 'kind' => $src['kind'],
             'errors' => $acc['errors'], 'warnings' => $acc['warnings'], 'lines' => $acc['lines'],
             'kinds' => count($groups), 'other' => $acc['other'], 'partial' => $acc['partial'], 'skipped' => $acc['skipped'],
-            'rotated' => $acc['rotated'], 'unreadable' => $acc['unreadable'], 'groups' => $top];
+            'rotated' => $acc['rotated'], 'unreadable' => $acc['unreadable'], 'grew' => $acc['grew'] ?? null, 'groups' => $top];
 }
 
 /**
@@ -659,11 +659,13 @@ function logsTourFileSource(string $id, array $src, ?array $last, ?int $after, i
     if ($last !== null) {
         if ((int) ($last['ino'] ?? -1) === (int) $st['ino'] && (int) ($last['size'] ?? PHP_INT_MAX) <= $st['size']) {
             $from = (int) $last['size'];
+            $acc['grew'] = (int) $st['size'] - $from;          // bytes since where the last tour ended
         } else {
             $acc['rotated'] = true;
             $after = $since;            // whatever is in the new file: only what came after the last tour
             $old = @stat("$path.1");
             if ($old && (int) $old['ino'] === (int) ($last['ino'] ?? -1) && (int) ($last['size'] ?? PHP_INT_MAX) <= $old['size']) {
+                $acc['grew'] = (int) $old['size'] - (int) $last['size'] + (int) $st['size'];      // the old one's rest and the new one
                 $sibling = $id;         // in the reader: syslog.1, agent.1 — if it lists it
                 foreach ($sources as $sid => $s) {
                     if ($s['kind'] === 'file' && $s['target'] === "$path.1") {

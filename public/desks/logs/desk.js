@@ -564,6 +564,8 @@ function foundView(only) {
     if (s.lines) head.appendChild(el('span', 'lg-subhead-meta', T('lines_read', { n: s.lines })));
     if (s.partial) head.appendChild(chip(T('partial'), 'warn', s.kind === 'docker' ? T('partial_docker', { n: s.lines }) : T('partial_file', { size: fmt.size(s.skipped || 0) })));
     if (s.rotated) head.appendChild(chip(T('rotated'), '', T('rotated_title')));
+    const grew = grewChip(s.grew);              // how much the log grew since the last tour (files; a router's too)
+    if (grew) head.appendChild(grew);
     head.appendChild(readButton(s.id));
     kinds.appendChild(head);
     for (const g of s.groups || []) kinds.appendChild(kindRow(g));
@@ -577,7 +579,7 @@ function foundView(only) {
     if (quiet.length) {
       const p = el('p', 'role lg-note');
       const names = el('span', 'lg-quiet', T('found.quiet', { n: quiet.length }));
-      names.dataset.tip = quiet.map(sourceLabel).join(', ');
+      names.dataset.tip = quiet.map((s) => (s.grew > 0 && !tour.first ? `${sourceLabel(s)} (${T('grew.more', { size: fmt.size(s.grew) })})` : sourceLabel(s))).join(', ');
       p.appendChild(names);
       box.appendChild(p);
     }
