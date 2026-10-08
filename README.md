@@ -122,7 +122,9 @@ rewrites. A page left open says so, with a button to reload. After an update of 
 go of what the office had mounted. Your schedules are put aside on the flash and come back when you install the office
 again. Partnerships with other offices end — pair again after a new install. Your data in appdata, the share
 `UnraidSecretaryOffice`, the settings on the flash, your snapshots and Ms. Dustdevil's storeroom stay; delete them
-yourself if you don't want them any more.
+yourself if you don't want them any more. Letting a desk go keeps its data too; only Mr. Backupsy's let-go
+offers «Also clear away what he kept here»: his packages go to Ms. Dustdevil's storeroom and his own local snapshots are
+deleted — his settings, Kopia's and the partners' copies stay.
 
 ## What it keeps where
 
