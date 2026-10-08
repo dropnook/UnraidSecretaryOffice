@@ -16,7 +16,7 @@ plugin: no container, no account, no cloud of ours, nothing locked.
 
 | | Desk | What they do for you |
 |---|---|---|
-| 👥 | **The Team Lead** | Hires the staff your server needs and tells you what is left to do — *still to do*, *recommended*, *good to know* — each with a link into Unraid. Pairs partner offices. |
+| 👥 | **The Team Lead** | Suggests whom to hire for your server and tells you what is left to do — *still to do*, *recommended*, *good to know* — each with a link into Unraid. Pairs partner offices. |
 | 💾 | **Mr. Backupsy** | Sets up and runs the nightly backup: snapshots, database dumps, a package per app and VM, optional encrypted offsite copies with Kopia. Shows what a run is doing, how the last nights went and which share is protected how. |
 | 📦 | **Mr. Restori** | Brings back databases, folders, whole shares, templates and VM configurations — from the packages, the local snapshots, Kopia or a partner office. Puts aside what he replaces, never deletes it, and can undo every restore. Practises restores on his own. |
 | 📸 | **Ms. Snapshotini** | Every ZFS, btrfs and VM snapshot on the server: create, delete with an estimate of the space freed, rename, hold. Schedules with a simple retention that only ever clears away her own. |
@@ -65,9 +65,10 @@ click. For the rest there are ready-made commands with your names and paths, and
 Once a month (or every week, or only when you press *Practise now…*), at night after a backup that went well, Mr.
 Restori proves that what Mr. Backupsy keeps really comes back. He reads every package in full, plays the database
 dumps into throwaway containers without network, checks the media servers' database copies and the VMs' disks, and
-streams a sample back from Kopia to compare with the local snapshot. Each app and VM gets a **certificate** — which level is proven, from which
-copy, when. The drill wakes no disk, never runs during a parity check, ends well before the next backup and cleans up
-after itself. A drill that couldn't prove everything tells you what, and where to fix it.
+streams a sample back from Kopia to compare with the local snapshot. Each app and VM gets a **certificate** — which
+level is proven, from which copy, when. The drill wakes no disk, never runs during a parity check, ends well before
+the next backup and cleans up after itself. A drill that couldn't prove everything tells you what, and where to fix
+it.
 
 ### The Night Watchman's round
 
@@ -75,9 +76,9 @@ When you hire him he notes what is normal. From then on he walks his round every
 writes down only what is different: a login from an address he hasn't seen, a burst of failed logins, a container that
 got special rights, a new plugin, a change on the flash, a new cron line, a share newly open to guests, a client or
 container sending far more than usual, snapshots gone that nobody in the office removed. Each entry names its MITRE
-ATT&CK technique; the important ones go to Unraid's notifications. *I know, thanks* makes
-it the new normal. While the array is stopped — also while an encrypted array waits for its key — his night shift keeps
-watch from RAM and the flash.
+ATT&CK technique; the important ones go to Unraid's notifications. *I know, thanks* makes it the new normal. While the
+array is stopped — also while an encrypted array waits for its key — his night shift keeps watch from RAM and the
+flash.
 
 ![The Night Watchman's watch book](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman.png)
 
@@ -155,7 +156,8 @@ gives the office's own area the look of Unraid's black or white theme, in your b
 - Nothing is deleted at once: Ms. Dustdevil's storeroom, Mr. Restori's things put aside.
 - Secrets stay put: Kopia's keys reach Kopia through RAM only, the Emby API key never reaches the page, the dumps name
   password variables, never their values.
-- A partner office gets a door, not a login: a key that can only hand over and fetch its own copies.
+- A partner office gets a door, not a login: a key that can only hand over its copies, fetch them back and ask how
+  the office is — no shell, no path, nothing deleted.
 
 What was checked and what is still open: [HARDENING.md](HARDENING.md).
 
@@ -163,9 +165,9 @@ What was checked and what is still open: [HARDENING.md](HARDENING.md).
 
 Two Unraid servers with the office — yours, a family member's, a friend's — can keep each other's nights. Paired at
 the Team Lead (two blocks to paste, one safety code to compare), each night the ZFS snapshots of what you tick go to
-the partner, only what changed, through SSH; the partner keeps them with its own retention and you can never delete
-them there. Mr. Restori brings them back, also onto a new server when the old one is gone. ZFS only, and the partner
-can read the copies — for a friend, Kopia is the encrypted way.
+the partner — after the first night only what changed — through SSH; the partner keeps them with its own retention and
+you can never delete them there. Mr. Restori brings them back, also onto a new server when the old one is gone. ZFS
+only, and the partner can read the copies — for a friend, Kopia is the encrypted way.
 
 ## Notifications
 
