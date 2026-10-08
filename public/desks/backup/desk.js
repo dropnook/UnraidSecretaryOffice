@@ -2440,7 +2440,7 @@ function appliedCard(run) {
   const bad = (run.messages || []).filter((m) => m.level === 'error' || m.level === 'warn');
   if (bad.length) {
     const ul = el('ul', 'bk-msgs');
-    bad.forEach((m) => ul.appendChild(el('li', m.level, m.text)));
+    bad.forEach((m) => ul.appendChild(el('li', msgClass(m), m.text)));
     box.appendChild(ul);
   }
   return box;
@@ -3520,6 +3520,9 @@ function setupSources(old) {
   return s;
 }
 
+/** A setup message's level as a class of the desk's own: office.css styles `.hint` (one line, cut) — never the level bare */
+const msgClass = (m) => 'bk-msg-' + String(m.level || 'info').replace(/[^a-z]/g, '');
+
 function setupMessages(msgs) {
   const s = section(T('setup.messages'), T('setup.messages_sub'), { place: 'setup.messages' });
   const det = el('details', 'bk-log');
@@ -3528,7 +3531,7 @@ function setupMessages(msgs) {
   det.appendChild(el('summary', '', T('setup.messages_sum', { n: (msgs || []).length, errors: counts.error, warnings: counts.warn })));
   const ul = el('ul', 'bk-msgs');
   (msgs || []).forEach((m) => {
-    const li = el('li', m.level);
+    const li = el('li', msgClass(m));
     li.append(el('span', 'bk-step', T('setup.step.' + (m.step || 'other'))), m.text);
     ul.appendChild(li);
   });
