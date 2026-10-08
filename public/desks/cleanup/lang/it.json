@@ -1619,6 +1619,7 @@
   "fact.partners": {"one": "avanzo di 1 partner · {size}", "other": "avanzi di {n} partner · {size}"},
   "help.partners_text": "Una segreteria partner teneva qui le sue copie (la porta le riceveva in <pool>/UnraidSecretaryOffice-partners/<partner>). Quando la partnership finisce le copie restano — polvere, ma non si sa mai: forse vi abbinate di nuovo. Appena la partnership non è più nella lista del capoufficio le mostro qui e, se vuoi, le metto nel mio ripostiglio (zfs rename lì accanto) — mai mentre la porta riceve per quel partner. Guardo solo i pool svegli.",
   "item.partner": "copie di un partner",
+  "item.package": "pacchetto del signor Backupsi",
   "why.transfer": "sta ricevendo",
   "why.transfer_text": "La porta del partner ci sta ricevendo proprio ora — aspetto che finisca.",
   "errors.cleanup_partner_transfer": "La porta del partner sta ricevendo in {name} proprio ora — aspetto che finisca.",

@@ -71,6 +71,9 @@ desk('backup', [
         'setup_apply' => fn (array $r) => backupSetupApply($r['decisions'] ?? null),
         'setup_forget' => fn (array $r) => backupSetupForget(),
         'schedule'    => fn (array $r) => backupSetSchedule(cronField($r)),       // null: off — said, never a missing key
+        // his let-go dialog's «Also clear away what he kept here» (agent/desks/backup-letgo.php): the look, then the clearing
+        'letgo_look'  => fn (array $r) => backupLetGoLook(),
+        'letgo_clear' => fn (array $r) => backupLetGoClear($r),
     ],
     'checks' => fn () => backupChecks(),
     'metrics' => fn (): array => backupMetrics(),

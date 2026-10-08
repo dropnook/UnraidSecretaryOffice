@@ -19509,11 +19509,295 @@ JS);
     hardeningRm($tmp);
 }
 
+/**
+ * Mr. Backupsy let go with «Also clear away what he kept here» (Benj, 2026-10-08; agent/desks/backup-letgo.php): the
+ * backup place on its pools and disks (a sleeping one never looked at), its packages into Ms. Dustdevil's storeroom on
+ * their own filesystem (her runs and manifests, kind `package`, found again by her and put back only into a backup
+ * place), the engine's own snapshots deleted (never hers, a partner's, Docker's, a parked dataset's, a held one or one on
+ * a sleeping pool; a batch zfs refuses goes name by name), each deletion in her record, everything in the journal; no
+ * journal — nothing done; the request needs `confirm`; the dialog's part under node. Stand-ins: a place in $tmp/mnt,
+ * zfs and btrfs scripts, her look as a fixture.
+ */
+function testBackupLetGo(): void
+{
+    $tmp = hardeningTmp('letgo');
+    $mnt = "$tmp/mnt";
+    $place = '/mnt/user/UnraidSecretaryOffice/backup';
+    $pool = "$mnt/pool/UnraidSecretaryOffice/backup";
+    $disk = "$mnt/disk1/UnraidSecretaryOffice/backup";
+    foreach (["$pool/apps/nextcloud/db", "$pool/apps/immich", "$pool/apps/.hidden", "$pool/vms/win11/nvram", "$pool/server/shares", "$pool/flash",
+              "$pool/.ub-stage-20261008-0200", "$pool/restore/immich/20261007-120000", "$disk/apps/old", "$mnt/disk2/UnraidSecretaryOffice/backup/apps/sleepy",
+              "$tmp/elsewhere"] as $d) {
+        mkdir($d, 0700, true);
+    }
+    file_put_contents("$pool/apps/nextcloud/manifest.json", '{}');
+    file_put_contents("$pool/apps/nextcloud/db/postgres_nc.sql.gz", 'x');
+    file_put_contents("$pool/flash/flash.tar.gz", 'f');
+    file_put_contents("$pool/apps/notes.txt", 'a file, no package');
+    symlink("$tmp/elsewhere", "$pool/apps/linked");
+    $roots = ['disk1' => ['fs' => 'xfs', 'kind' => 'disk'], 'disk2' => ['fs' => 'xfs', 'kind' => 'disk'], 'pool' => ['fs' => 'zfs', 'kind' => 'pool']];
+    $parts = backupLetGoParts($place, $roots, ['disk2' => true], $mnt);
+    same('let go: the place on each awake pool or disk — a sleeping one never looked at',
+        [['disk1', "$mnt/disk1/UnraidSecretaryOffice", $disk], ['pool', "$mnt/pool/UnraidSecretaryOffice", $pool]],
+        array_map(fn ($p) => [$p['root'], $p['top'], $p['place']], $parts));
+    same('let go: no place (no dumps_share), or not a share\'s folder — nothing', [[], []], [backupLetGoParts(null, $roots, [], $mnt), backupLetGoParts('/etc/backup', $roots, [], $mnt)]);
+    same('let go: the packages — apps, VMs, server, flash; no link, nothing hidden, no file, not Mr. Restori\'s safety dumps',
+        ['apps/immich', 'apps/nextcloud', 'vms/win11', 'server', 'flash'], array_map('backupLetGoLabel', backupLetGoPackages($pool)));
+
+    // her look as a fixture: only the engine's own go
+    $z = fn (string $ds, string $name, array $more = []) => $more + ['id' => "zfs:$ds@$name", 'fs' => 'zfs', 'pool' => strtok($ds, '/'), 'ds' => $ds, 'name' => $name,
+        'holds' => [], 'clones' => [], 'docker' => false, 'mounts' => []];
+    $P = PARTNER_PARENT;
+    $state = ['zfs' => ['snapshots' => [
+        $z('pool/UnraidSecretaryOffice', 'uso-backup-20261001-0200'), $z('pool/appdata', 'uso-backup-20261001-0200'), $z('pool/appdata', 'unraidbackup-20260901-0200'),
+        $z('pool/appdata', 'uso-backup-20261003-0200'),                                                      // zfs refuses this one (the stand-in)
+        $z('pool/appdata', 'uso-plan-hourly-20261001-0300'), $z('pool/appdata', 'manual'), $z('pool/appdata', 'uso-backup-20261001-0200x'),
+        $z('pool/appdata', 'uso-backup-20261002-0200', ['holds' => ['unraid-secretary-office']]),
+        $z("pool/$P/a1b2c3d4/share-x", 'uso-backup-20261001-0200', ['partner' => ['id' => 'a1b2c3d4', 'gone' => true]]),
+        $z("pool/$P/a1b2c3d4/share-y", 'uso-backup-20261001-0200'),
+        $z('hive/media', 'uso-backup-20261001-0200', ['asleep' => true]),
+        $z('pool/docker/abc', 'uso-backup-20261001-0200', ['docker' => true]),
+        $z('pool/appdata/' . CL_TRASH . '-20261001-000000-foo', 'uso-backup-20261001-0200'),
+    ]], 'btrfs' => ['devices' => [], 'snapshots' => [
+        ['id' => 'btrfs:/mnt/disk3/.btrfs-snap/20261001-0200', 'fs' => 'btrfs', 'pool' => 'disk3', 'ds' => '/mnt/disk3', 'name' => '20261001-0200',
+         'path' => '/mnt/disk3/.btrfs-snap/20261001-0200', 'holds' => [], 'clones' => [], 'docker' => false, 'mounts' => []],
+        ['id' => 'btrfs:/mnt/disk3/.btrfs-snap/mine', 'fs' => 'btrfs', 'pool' => 'disk3', 'ds' => '/mnt/disk3', 'name' => 'mine',
+         'path' => '/mnt/disk3/.btrfs-snap/mine', 'holds' => [], 'clones' => [], 'docker' => false, 'mounts' => []],
+        ['id' => 'btrfs:/mnt/disk3/other/20261001-0200', 'fs' => 'btrfs', 'pool' => 'disk3', 'ds' => '/mnt/disk3', 'name' => '20261001-0200',
+         'path' => '/mnt/disk3/other/20261001-0200', 'holds' => [], 'clones' => [], 'docker' => false, 'mounts' => []],
+    ]], 'vm' => ['snapshots' => [['id' => 'vm:win11:snap1', 'fs' => 'vm', 'name' => 'uso-backup-20261001-0200', 'docker' => false]]]];
+    $prefixes = backupSnapPrefixes(null);
+    $snaps = backupLetGoSnaps($state, $prefixes, '.btrfs-snap');
+    same('let go: the engine\'s own snapshots — exact names, both default prefixes, his btrfs folder; never her plans, a partner\'s copies, Docker\'s, a parked dataset\'s, a VM\'s',
+        ['zfs:pool/UnraidSecretaryOffice@uso-backup-20261001-0200', 'zfs:pool/appdata@uso-backup-20261001-0200', 'zfs:pool/appdata@unraidbackup-20260901-0200',
+         'zfs:pool/appdata@uso-backup-20261003-0200', 'btrfs:/mnt/disk3/.btrfs-snap/20261001-0200'], array_column($snaps['take'], 'id'));
+    same('let go: a held one and one on a sleeping pool stay, counted', [1, 1], [$snaps['held'], $snaps['asleep']]);
+    same('let go: a prefix of the user\'s own — only that one', ['zfs:pool/appdata@manual-20261001-0200'],
+        array_column(backupLetGoSnaps(['zfs' => ['snapshots' => [$z('pool/appdata', 'manual-20261001-0200'), $z('pool/appdata', 'uso-backup-20261001-0200')]]],
+            backupSnapPrefixes('manual-'), '.btrfs-snap')['take'], 'id'));
+
+    // stand-ins: zfs refuses anything naming 20261003 (busy), a dry run says what it frees; btrfs deletes
+    $args = "$tmp/args.txt";
+    file_put_contents("$tmp/zfs", "#!/bin/sh\nprintf 'zfs %s\\n' \"\$*\" >> " . escapeshellarg($args) . "\n"
+        . "case \"\$*\" in *-nvp*) printf 'reclaim\\t1000\\n'; exit 0;; *20261003*) echo 'cannot destroy snapshot: dataset is busy' >&2; exit 1;; esac\nexit 0\n");
+    file_put_contents("$tmp/btrfs", "#!/bin/sh\nprintf 'btrfs %s\\n' \"\$*\" >> " . escapeshellarg($args) . "\nexit 0\n");
+    chmod("$tmp/zfs", 0755);
+    chmod("$tmp/btrfs", 0755);
+    $GLOBALS['letgoHost'] = ['zfs' => "$tmp/zfs", 'btrfs' => "$tmp/btrfs", 'scan' => fn () => $state, 'rescan' => fn () => null];
+    $GLOBALS['snapshotHost'] = ['zfs' => "$tmp/zfs", 'zpool' => "$tmp/zfs", 'docker' => null];
+    $GLOBALS['snapshotRecordFile'] = "$tmp/record/deletes.jsonl";
+    $GLOBALS['letgoDir'] = "$tmp/data/backup";
+    mkdir("$tmp/data", 0700);
+
+    // the look: her estimate for what goes (one dry run per dataset), btrfs unknown; nothing changed
+    $GLOBALS['snapshot'] = $state;
+    $est = snapshotEstimate(array_column($snaps['take'], 'id'));
+    $look = backupLetGoLookOf(null, $place, false, array_merge(backupLetGoPackages($pool), backupLetGoPackages($disk)), $snaps, $est, '0 2 * * *');
+    same('let go: the look — packages with their names, snapshots with her estimate, what stays, the schedule still on',
+        ['packages' => ['n' => 6, 'names' => ['apps/immich', 'apps/nextcloud', 'vms/win11', 'server', 'flash', 'apps/old'], 'asleep' => false],
+         'snapshots' => ['n' => 5, 'zfs' => 4, 'btrfs' => 1, 'bytes' => 2000, 'unknown' => 1, 'held' => 1, 'asleep' => 1], 'schedule' => '0 2 * * *', 'busy' => null],
+        ['packages' => $look['packages'], 'snapshots' => $look['snapshots'], 'schedule' => $look['schedule'], 'busy' => $look['busy']]);
+    check('let go: the look destroys nothing (dry runs only)', !preg_match('/destroy (?!-nvp)/', (string) @file_get_contents($args)));
+    @unlink($args);
+    $GLOBALS['snapshot'] = null;
+
+    // the request needs confirm (true, nothing else) — never the clearing without it
+    same('let go: backup.letgo_clear without confirm, or confirm not true — refused', ['bad_request', 'bad_request', 'bad_request'],
+        [handle(json_encode(['action' => 'backup.letgo_clear']))['error']['key'] ?? 'ok', handle(json_encode(['action' => 'backup.letgo_clear', 'confirm' => 'yes']))['error']['key'] ?? 'ok',
+         handle(json_encode(['action' => 'backup.letgo_clear', 'confirm' => 1]))['error']['key'] ?? 'ok']);
+
+    // the clearing
+    $r = backupLetGoDo($place, false, $parts, $prefixes, '.btrfs-snap');
+    $trashPool = "$mnt/pool/UnraidSecretaryOffice/" . CL_TRASH;
+    $trashDisk = "$mnt/disk1/UnraidSecretaryOffice/" . CL_TRASH;
+    same('let go: 6 packages into the storeroom, 4 snapshots deleted, the busy one failed and stayed, 2 of his kept', [6, 4, 1, 2, false],
+        [$r['moved'], $r['deleted'], $r['failed_n'], $r['kept'], $r['place_asleep']]);
+    same('let go: … the busy one said with zfs\'s words', ['pool/appdata@uso-backup-20261003-0200', 'backup', 'backup_letgo_delete_failed', 'cannot destroy snapshot: dataset is busy'],
+        [$r['failed'][0]['what'] ?? null, $r['failed'][0]['desk'] ?? null, $r['failed'][0]['key'] ?? null, $r['failed'][0]['params']['detail'] ?? null]);
+    same('let go: the packages are gone from the place; the hidden stage, the link, a file and the safety dumps stay',
+        [false, false, false, false, false, false, true, true, true, true, true],
+        [is_dir("$pool/apps/nextcloud"), is_dir("$pool/apps/immich"), is_dir("$pool/vms/win11"), is_dir("$pool/server"), is_dir("$pool/flash"), is_dir("$disk/apps/old"),
+         is_dir("$pool/.ub-stage-20261008-0200"), is_link("$pool/apps/linked"), is_file("$pool/apps/notes.txt"), is_dir("$pool/restore/immich/20261007-120000"), is_dir("$pool/apps")]);
+    same('let go: one storeroom run on each filesystem, at the share\'s top', [$trashDisk, $trashPool], array_map('dirname', $r['runs']));
+    $m = readJson($r['runs'][1] . '/manifest.json') ?? [];
+    $stamp = basename($r['runs'][1]);
+    same('let go: her manifest — kind package, «packages/<hash>/<name>», from where it lay; her shape check takes them',
+        [['package', 'apps/immich', "$pool/apps/immich", true], ['package', 'server', "$pool/server", true]],
+        array_map(fn ($it) => [$it['kind'], $it['name'], $it['from'], clTrashAsOk($it['as'], 'package', $stamp)], array_values(array_filter($m['items'] ?? [], fn ($it) => in_array($it['name'], ['apps/immich', 'server'], true)))));
+    check('let go: … the content went along (a rename, never a copy)', is_file($r['runs'][1] . '/' . (array_values(array_filter($m['items'] ?? [], fn ($it) => $it['name'] === 'apps/nextcloud'))[0]['as'] ?? 'x') . '/db/postgres_nc.sql.gz'));
+    $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => []];
+    $runs = array_values(array_filter(clTrashRuns([], ['ok' => false], [$trashPool, $trashDisk]), fn ($run) => str_starts_with($run['root'], $tmp)));
+    $items = array_merge(...array_column($runs, 'items'));
+    same('let go: Ms. Dustdevil lists them — every package, there, with where it came from',
+        [6, ['package'], true, true], [count($items), array_values(array_unique(array_column($items, 'kind'))), !in_array(false, array_column($items, 'present'), true),
+         !in_array(null, array_column($items, 'from'), true)]);
+    same('let go: … and puts one back only into a backup place\'s folder on the storeroom\'s filesystem',
+        ["$pool/apps", $pool, '', '', ''],
+        [clPackageHome("$pool/apps/immich", $trashPool), clPackageHome("$pool/server", $trashPool), clPackageHome("$disk/apps/old", $trashPool),
+         clPackageHome("$mnt/pool/UnraidSecretaryOffice/appdata/immich", $trashPool), clPackageHome("$pool/apps/../../x", $trashPool)]);
+    unset($GLOBALS['clCtx']);
+
+    $ran = array_values(array_filter(explode("\n", (string) @file_get_contents($args))));
+    same('let go: zfs destroy per dataset in one go; refused — each name alone, the others still go; btrfs deleted',
+        ['zfs destroy pool/UnraidSecretaryOffice@uso-backup-20261001-0200', 'zfs destroy pool/appdata@uso-backup-20261001-0200,unraidbackup-20260901-0200,uso-backup-20261003-0200',
+         'zfs destroy pool/appdata@uso-backup-20261001-0200', 'zfs destroy pool/appdata@unraidbackup-20260901-0200', 'zfs destroy pool/appdata@uso-backup-20261003-0200',
+         'btrfs subvolume delete /mnt/disk3/.btrfs-snap/20261001-0200'], array_values(array_merge(preg_grep('/^zfs/', $ran), preg_grep('/^btrfs/', $ran))));
+    $rec = array_map(fn ($l) => array_diff_key(json_decode($l, true) ?? [], ['t' => 1]), array_values(array_filter(explode("\n", (string) @file_get_contents("$tmp/record/deletes.jsonl")))));
+    same('let go: each deletion in Ms. Snapshotini\'s record (her shape), so the night watchman knows it was the office', [
+        ['do' => 'deleted', 'fs' => 'btrfs', 'path' => '/mnt/disk3/.btrfs-snap/20261001-0200'],
+        ['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'pool/UnraidSecretaryOffice', 'names' => ['uso-backup-20261001-0200']],
+        ['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'pool/appdata', 'names' => ['uso-backup-20261001-0200']],
+        ['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'pool/appdata', 'names' => ['unraidbackup-20260901-0200']]], $rec);
+    $jf = glob("$tmp/data/backup/letgo-*.json") ?: [];
+    $j = readJson($jf[0] ?? '') ?? [];
+    $st = @stat("$tmp/data/backup");
+    same('let go: the journal — root only, finished, what moved where, what was deleted and failed, the storerooms, what stayed',
+        [1, true, $place, 6, ["$pool/apps/immich", $r['runs'][1]], 4, 1, [$trashDisk, $trashPool], ['settings.ini', 'decisions', 'schedule', 'kopia', 'partners'], 2, 0700, 0600],
+        [count($jf), is_int($j['finished'] ?? null), $j['place'] ?? null, count($j['moved'] ?? []), [$j['moved'][1]['from'] ?? null, dirname(dirname(dirname($j['moved'][1]['to'] ?? 'x/y/z/w')))],
+         count($j['deleted'] ?? []), count($j['failed'] ?? []), $j['trash'] ?? null, $j['kept'] ?? null, $j['snapshots_kept'] ?? null,
+         ($st['mode'] ?? 0) & 0777, (@stat($jf[0] ?? '')['mode'] ?? 0) & 0777]);
+    same('let go: the answer names the journal', basename($jf[0] ?? ''), $r['journal']);
+
+    // a second time: nothing left — nothing moved, nothing deleted, a journal of its own
+    $GLOBALS['letgoHost']['scan'] = fn () => ['zfs' => ['snapshots' => []], 'btrfs' => ['snapshots' => []], 'vm' => ['snapshots' => []]];
+    @unlink($args);
+    $r2 = backupLetGoDo($place, false, $parts, $prefixes, '.btrfs-snap');
+    same('let go: again — nothing left to clear, no zfs asked, a second journal', [0, 0, 0, [], 2],
+        [$r2['moved'], $r2['deleted'], $r2['failed_n'], $r2['runs'], count(glob("$tmp/data/backup/letgo-*.json") ?: [])]);
+
+    // the place asleep: its packages stay, said
+    mkdir("$pool/apps/again", 0700, true);
+    $r3 = backupLetGoDo($place, true, [], $prefixes, '.btrfs-snap');
+    same('let go: the place asleep — nothing of it looked at or moved, said', [0, true, true], [$r3['moved'], $r3['place_asleep'], is_dir("$pool/apps/again")]);
+
+    // no journal (a link where his folder should be): nothing happens at all
+    hardeningRm("$tmp/data/backup");
+    symlink("$tmp/elsewhere", "$tmp/data/backup");
+    try {
+        backupLetGoDo($place, false, $parts, $prefixes, '.btrfs-snap');
+        check('let go: no journal — refused', false);
+    } catch (Problem $p) {
+        same('let go: no journal — refused before anything moves', ['backup_letgo_journal', true, []], [$p->key, is_dir("$pool/apps/again"), array_diff(scandir("$tmp/elsewhere") ?: [], ['.', '..'])]);
+    }
+    unlink("$tmp/data/backup");
+
+    // Ms. Dustdevil's storerooms from the journals: only /mnt/<pool or disk>/<share>/…/<storeroom>, never on a sleeping disk
+    mkdir("$tmp/journals", 0700);
+    file_put_contents("$tmp/journals/letgo-20261008-190000.json", json_encode(['trash' => ['/mnt/disk1/UnraidSecretaryOffice/' . CL_TRASH, '/mnt/disk2/UnraidSecretaryOffice/' . CL_TRASH,
+        '/mnt/user/UnraidSecretaryOffice/' . CL_TRASH, '/etc/' . CL_TRASH, '/mnt/disk1/../boot/' . CL_TRASH, '/mnt/disk1/' . CL_TRASH, '/mnt/pool/x/other', ['x'], 7]]));
+    file_put_contents("$tmp/journals/letgo-20261008-190100.json", json_encode(['trash' => ['/mnt/pool/UnraidSecretaryOffice/backup/' . CL_TRASH]]));
+    file_put_contents("$tmp/journals/other.json", json_encode(['trash' => ['/mnt/disk4/S/' . CL_TRASH]]));
+    same('let go: the storerooms Ms. Dustdevil reads from his journals — their shape only, awake only',
+        ['/mnt/pool/UnraidSecretaryOffice/backup/' . CL_TRASH, '/mnt/disk1/UnraidSecretaryOffice/' . CL_TRASH],
+        backupLetGoTrashRoots(['disk2' => true], "$tmp/journals"));
+    same('let go: no folder — none', [], backupLetGoTrashRoots([], "$tmp/none"));
+
+    // the strings
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true) ?: [];
+    $cl = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/cleanup/lang/en.json'), true) ?: [];
+    check('let go: the pages can say it', isset($en['letgo.tick'], $en['letgo.remote'], $en['errors.backup_letgo_journal'], $en['errors.backup_letgo_delete_failed'], $cl['item.package']));
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $at = strpos($core, 'Office.fireDialog = function fireDialog');
+    $body = substr($core, (int) $at, 2600);
+    check('let go: core.js asks the desk\'s letGo, runs before() before letting go and lets go whatever came of it',
+        $at !== false && str_contains($body, "typeof desk.letGo === 'function'") && strpos($body, 'extra.before()') < strpos($body, 'await Office.fire(id)')
+        && str_contains($body, 'catch (e) { result = '));
+
+    // the dialog's part under node
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('let go: dialog - node is missing here - skipped', true);
+    } else {
+        file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, children: [], hidden: false, disabled: false, checked: false,
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, replaceChildren(...c) { this.children = c; } });
+const posts = [];
+let answer = null;
+globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, placesFrom: () => {},
+  placesTook: () => {}, selbar: () => {}, has: () => false, agent: { running: true }, errorText: (e, d) => 'err:' + (d || '') + ':' + e.key,
+  api: { post: async (a, body) => { posts.push([a, body]); return answer(a); } } };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+(async () => {
+  const out = {};
+  const look = { ok: true, busy: null, place: '/mnt/user/UnraidSecretaryOffice/backup', schedule: '0 2 * * *',
+    packages: { n: 14, names: ['apps/a', 'apps/b'], asleep: false }, snapshots: { n: 3, zfs: 2, btrfs: 1, bytes: 2048, unknown: 1, held: 1, asleep: 0 } };
+  out.lines = b.letGoLines(look);
+  out.none = b.letGoLines({ ok: true, busy: null, packages: { n: 0, names: [], asleep: true }, snapshots: { n: 0 }, schedule: null });
+  out.busy = b.letGoLines({ ok: true, busy: 'restore_running' });
+  out.done = b.letGoDoneLines({ ok: true, moved: 6, deleted: 4, failed_n: 1, failed: [], journal: 'letgo-20261008-190000.json', place_asleep: false });
+  out.doneNone = b.letGoDoneLines({ ok: true, moved: 0, deleted: 0, failed_n: 0, failed: [], journal: 'j.json' });
+  out.doneErr = b.letGoDoneLines({ ok: false, error: { key: 'backup_running' } });
+  // the part: off by default; ticked — looks, then «Let go and clear away»; before() clears once, with confirm
+  const box = mk('div');
+  const part = b.letGoPart(box);
+  const wrap = box.children[0];
+  const cb = wrap.children[0].children[0];
+  const more = wrap.children[1];
+  const button = mk('button');
+  part.bind(button);
+  out.start = [cb.checked, more.hidden, button.textContent, button.disabled, await part.before(), posts.length];
+  answer = () => look;
+  cb.checked = true;
+  await cb.onchange();
+  out.ticked = [more.hidden, button.textContent, button.disabled, posts.map((p) => p[0]), more.children.length];
+  answer = () => ({ ok: true, moved: 6 });
+  const r1 = await part.before();
+  const r2 = await part.before();
+  out.cleared = [r1.moved, r2 === r1, posts.slice(1)];
+  // busy: said, the tick unticked and waits; «Let go» lets go only
+  const box2 = mk('div');
+  const p2 = b.letGoPart(box2);
+  const cb2 = box2.children[0].children[0].children[0];
+  const button2 = mk('button');
+  p2.bind(button2);
+  answer = () => ({ ok: true, busy: 'backup_running' });
+  cb2.checked = true;
+  await cb2.onchange();
+  out.busyPart = [cb2.checked, cb2.disabled, button2.textContent, button2.disabled, await p2.before()];
+  // the agent away: the tick can't be ticked
+  Office.agent.running = false;
+  const box3 = mk('div');
+  b.letGoPart(box3);
+  out.away = box3.children[0].children[0].children[0].disabled;
+  console.log(JSON.stringify(out));
+})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); });
+JS);
+        $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' 2>&1');
+        $o = json_decode($raw, true);
+        if (!is_array($o) || isset($o['error'])) {
+            check('let go: dialog ran under node', false, $raw);
+        } else {
+            same('let go: the look\'s lines — packages with names (more: «…»), snapshots and what they free, btrfs unknown, his kept ones, only his own, what stays, Kopia and partners, the schedule',
+                [['', 'letgo.packages {"n":14,"names":"apps/a, apps/b, …"}'], ['', 'letgo.snaps {"n":3,"size":"2048 B"}'], ['role', 'letgo.snaps_unknown {"n":1}'],
+                 ['role', 'letgo.snaps_kept {"n":1}'], ['role', 'letgo.not_others'], ['role', 'letgo.stays'], ['callout', 'letgo.remote'], ['callout warn', 'letgo.schedule {"cron":"0 2 * * *"}']],
+                $o['lines']);
+            same('let go: nothing of his — the place asleep, no snapshots, no schedule', [['', 'letgo.packages_asleep'], ['', 'letgo.snaps_none'], ['role', 'letgo.not_others'], ['role', 'letgo.stays'], ['callout', 'letgo.remote']], $o['none']);
+            same('let go: busy — said with the engine\'s words', [['callout warn', 'letgo.busy {"why":"err:backup:restore_running"}']], $o['busy']);
+            same('let go: done — moved, deleted, failed, the journal', [['', 'letgo.done_moved {"n":6}'], ['', 'letgo.done_deleted {"n":4}'], ['callout warn', 'letgo.done_failed {"n":1}'],
+                ['role', 'letgo.done_journal {"file":"letgo-20261008-190000.json"}']], $o['done']);
+            same('let go: done — nothing left; refused — nothing cleared, let go all the same', [[['', 'letgo.done_none'], ['role', 'letgo.done_journal {"file":"j.json"}']],
+                [['callout warn', 'letgo.failed {"error":"err:backup:backup_running"}']]], [$o['doneNone'], $o['doneErr']]);
+            same('let go: the tick off by default — «Let go» as always, before() asks nothing', [false, true, 'office.fire', false, null, 0], $o['start']);
+            same('let go: ticked — he looks first, then «Let go and clear away»', [false, 'letgo.button', false, ['backup.letgo_look'], 8], $o['ticked']);
+            same('let go: before() clears once, with confirm: true', [6, true, [['backup.letgo_clear', ['confirm' => true]]]], $o['cleared']);
+            same('let go: busy — the tick unticked and waiting, «Let go» lets go only', [false, true, 'office.fire', false, null], $o['busyPart']);
+            same('let go: the messenger away — the tick can\'t be ticked', true, $o['away']);
+        }
+    }
+
+    unset($GLOBALS['letgoHost'], $GLOBALS['snapshotHost'], $GLOBALS['snapshotRecordFile'], $GLOBALS['letgoDir']);
+    hardeningRm($tmp);
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired'],
           'strings' => ['testStrings', 'testUnraidWords']];
