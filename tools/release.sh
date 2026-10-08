@@ -28,7 +28,9 @@
 #                 plugin update; then the installed .plg's version, OFFICE_VERSION in the installed bootstrap.php,
 #                 the agent process, «Agent started (vx.y.z,» in the agent log within 60 s, no line with the word
 #                 error/fatal in the agent log's last 2 min (printed if any).
-#                 A server already on x.y.z is not updated again, only checked.
+#                 USOPartner is the canary: after its update its agent log is watched 5 min (no error/fatal line,
+#                 the agent's PID unchanged) before Tower is updated. A server already on x.y.z is not updated
+#                 again, only checked.
 #
 #   --dry           prints every command; runs only the read-only ones: steps 1-3, the version check (no bump), the
 #                   build with the CURRENT version (into dist/, ignored by git), the suite on a copy of its own
@@ -50,6 +52,7 @@ coauthor='Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>'
 name=unraid-secretary-office
 plugin_dir=/usr/local/emhttp/plugins/$name
 suite_host=uso-test
+canary_watch=300   # s: USOPartner's agent log without error/fatal before Tower gets the release
 
 usage() { sed -n '4p' "${BASH_SOURCE[0]}" | sed 's/^# *//' >&2; exit 2; }
 
@@ -384,6 +387,16 @@ exit $bad
 EOF
 }
 
+# server_watch <host> <since>: the agent's PID and every error/fatal line in its log since <since> (the canary)
+server_watch() {
+    remote "$1" dir="$plugin_dir" since="$2" agentpat="$agent_pat" <<'EOF'
+echo "pid=$(pgrep -f "$agentpat" | head -n 1)"
+data=$(php -r "require '$dir/src/place.php'; echo officePluginDataDir();" </dev/null 2>/dev/null)
+awk -v c="$since" 'substr($0, 1, 19) >= c' "$data/agent.log" 2>/dev/null | grep -iwE 'error|fatal' | sed 's/^/err=/'
+exit 0
+EOF
+}
+
 # plugin_check <host>: `plugin check` on it (downloads the public .plg to /tmp/plugins, prints its version among
 # hook lines and progress) - sets $checked to the version line it printed, shows the rest
 plugin_check() {
@@ -425,6 +438,7 @@ for host in "${servers[@]}"; do
         red "$who has .plg '$s_plg' / office '$s_office', not the current release's $plg_ver / $rel"
         continue
     else
+        echo "   $who updates from office '$s_office' (.plg '$s_plg')"
         plugin_check "$host"
         [[ "$checked" == "$plg_ver" ]] || { red "$who: plugin check says '${checked:-nothing}', not $plg_ver"; continue; }
         since=$s_now
@@ -439,6 +453,28 @@ for host in "${servers[@]}"; do
     if (( rc != 0 )); then red "$who: $(grep '^RED' <<<"$verify" | head -n 1 | cut -c5-)"; continue; fi
     done_at+=("$who $(date '+%H:%M:%S')")
     ok "$who on $rel"
+    # USOPartner is the canary: its agent log stays free of error/fatal for 5 min after the update before Tower gets it
+    if [[ "$host" == uso-partner ]]; then
+        if (( dry )) || [[ -z "$since" ]]; then
+            echo "   (dry or not updated now: no watch) after an update: $who's agent log watched ${canary_watch} s for error/fatal, the agent's PID kept"
+        else
+            pid0=$(server_watch "$host" "$since" | sed -n 's/^pid=//p')
+            end=$(( $(date +%s) + canary_watch )) watch_red=''
+            echo "   watching $who's agent log for ${canary_watch} s (error/fatal since $since, agent PID $pid0) before the next server"
+            while (( $(date +%s) < end )); do
+                sleep 30
+                w=$(server_watch "$host" "$since")
+                pid=$(sed -n 's/^pid=//p' <<<"$w")
+                if grep -q '^err=' <<<"$w"; then
+                    sed -n 's/^err=/      /p' <<<"$w"; watch_red="error/fatal in its agent log since the update (above)"; break
+                fi
+                [[ -n "$pid" && "$pid" == "$pid0" ]] || { watch_red="its agent is gone or restarted (PID $pid0 -> '${pid:-none}')"; break; }
+                echo "   $(date '+%H:%M:%S') $who quiet"
+            done
+            [[ -z "$watch_red" ]] || { red "$who: $watch_red - Tower and nostromo not updated"; continue; }
+            ok "$who quiet for ${canary_watch} s"
+        fi
+    fi
 done
 
 # ---------------------------------------------------------------------------------------------------------------------
