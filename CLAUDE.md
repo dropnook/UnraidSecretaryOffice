@@ -572,6 +572,7 @@ it *il* backup).
 | ZFS/btrfs/VM | snapshot | der Snapshot | lo snapshot | le snapshot | la instantánea | all |
 | the offsite copy | Kopia | Kopia | Kopia | Kopia | Kopia | backup, restore, advisor |
 | the office (the whole) | the office | das Sekretariat (not Büro) | la segreteria (not ufficio) | le secrétariat (a *bureau* is a desk) | la secretaría (not oficina) | all |
+| the magnifier's palette · what it finds | the search · place | die Suche · der Ort | la ricerca · il luogo | la recherche · l'endroit | la búsqueda · el lugar | office |
 | the agent | the messenger | der Hausbote | il fattorino | le coursier | el mensajero | all; only the office's help adds «(agent)» |
 | Mr. Backupsy's setup | the setup · «Set up…» · Apply | die Einrichtung · «Einrichten…» · Übernehmen | la configurazione · «Configura…» · Applica | la configuration · «Configurer…» · Appliquer | la configuración · «Configurar…» · Aplicar | backup and all who point to it |
 | what the setup fills in for new things (`preset_new`) · its scope | the default · Apply to everything now / Only to what is new — my settings stay | die Vorgabe · Auf alles anwenden / Nur auf Neues — meine Einstellungen bleiben | l'impostazione predefinita · Applica a tutto adesso / Solo a ciò che è nuovo — le mie impostazioni restano | le réglage par défaut · Appliquer à tout maintenant / Seulement à ce qui est nouveau — mes réglages restent | el ajuste predeterminado · Aplicar a todo ahora / Solo a lo nuevo — mis ajustes se quedan | backup |
@@ -649,8 +650,9 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   first paint (an inline script right inside `#sso`, from the same localStorage key). **Switching it off:**
   `OFFICE_THEME_SWITCH = false` in src/bootstrap.php — nothing of it shows or loads (the four places in page.php sit
   behind the constant, core.js asks `if (Office.theme)`). **Removing it for good:** delete theme-switch.css and .js, the
-  constant, the four `theme-switch` places in src/page.php, the two `theme-switch` hooks in core.js (the reception's
-  actions, the help line — `arrangeable()` then makes its own `.deskhead-actions` as before), the strings `office.theme_*`
+  constant, the four `theme-switch` places in src/page.php, the three `theme-switch` hooks in core.js (the reception's
+  actions, the help line, the help's place for the search in `officePlaces()` — `arrangeable()` then makes its own
+  `.deskhead-actions` as before), the strings `office.theme_*`
   and `help.theme_*` in the five lang files, `testThemeSwitch` in tests/run.php, the README paragraph and this bullet.
   `testThemeSwitch` checks the page with the constant on and off, the stylesheet's variables against Unraid's theme files
   on the host (every one the office uses, the same names for Dark and Light, Unraid's values) and the strings.
@@ -684,6 +686,30 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
 * **Tiles** (`button.card`): a click opens or filters; a click on the active
   tile closes it again — nothing open is a valid state. Remember the choice in
   `Office.store`.
+* **Search (Benj, 2026-10-08 — phase 1, static places):** the magnifier in the top line (`#sso-search`, made by core.js
+  before `#sso-state`; nothing in page.php) or ⌘K / Ctrl+K while the office has the focus (or nothing outside `#sso` was
+  clicked last — never `/`, never in Unraid's header) opens a palette under it (`#sso-palette`, role combobox/listbox:
+  ↑↓, Enter = the highlighted/first, Esc, a click outside; phone: the screen's width). It finds **places**, never a
+  state's data (findings, entries, partners, apps — phase 2): each desk lists its own beside `Office.desk()` with ONE
+  `Office.places(ID, [{kind, key, route, anchor, text, crumb}, …])` (kind desk | section | tile | step | setting | help |
+  guide; key = the desk's lang key, like `T()`; route default `#/<id>`; anchor default the key) and marks them on the page:
+  `{ place: '<anchor>' }` among `Office.sectionHead()`'s extras (passes through a desk's `section(title, sub, ...extra)`),
+  else `Office.place('<anchor>', node)` (a literal or a template `` `tile.${x}` ``); a page-help term needs no mark —
+  `pageHelp()` finds a listed `kind: 'help'` by its words (`'<id>-<page>'` takes the places of `#/<id>/<page>`). Every
+  `sectionHead/section/sectionBox/setupSection(T('…'))` is a place (or named in the test's `$notPlaces` with why). A tile
+  the search opens has a sub-route its `mount(root, sub)` takes (`#/restore/<section>`, `#/logs/varlog|docker|found`,
+  `#/cleanup/tidy/<room>`, `#/cleanup/where/<corner>`, `#/backup/setup`, `#/emby/setup`) — the same choice a click makes
+  (`Office.store`). `places.json` beside desk.json lists the same keys (sorted, unique; the office's own:
+  `public/assets/places.json` for `officePlaces()` in core.js): `api.php?a=places` sends only their words, in every
+  language (≈ 10 KB gzip, cached a day by `v=<stamp>-<version>`), asked once on the first open — never with the first paint,
+  never per keystroke; until then the office's language finds them. Matching in the browser: folded words (accents, ß → ss,
+  ⟦labels⟧ in English and Unraid's words), prefix › inside › Damerau-Levenshtein (1 from 4 letters, 2 from 8; only while
+  nothing matches as typed), kind weights, the desk shown first, desks not hired last (greyed; chosen: the Team Lead's «The
+  team»), ≤ 12. A choice: `Office.goToPlace()` → the route, then `Office.reveal(anchor)` (waits ≤ 10 s for the page to draw
+  it, opens `<details>` above it, scrolls under Unraid's menu, marks it `.place-hit`, focuses it; the user scrolling,
+  clicking or typing ends it; not there: `search.not_there`). The same words twice on a desk are one result (a term's
+  explanation joins the section). Tests: `testSearchPlaces` (registry vs places.json, keys ×5, routes, anchors marked,
+  sections listed, the endpoint, the matcher under node).
 * **Rows** with one main action (unfold details, open a log): the whole row is
   clickable (`.row.unfolds`), except its own buttons, links, fields and
   elements with `data-own`. The "details" tooltip sits on the name only; every
@@ -1008,8 +1034,8 @@ src/*.php                web side: bootstrap, mailbox client, desk/lang discover
                          words.php (Unraid's labels in Unraid's language) shared with the agent
 public/lang/unraid/      Unraid's words per language (from Unraid's language packs) for the ⟦label⟧ tokens
 public/assets/core.js    Office: i18n, routing, reception, API, dialog, menu, toast, fmt,
-                         deskHead, pageHelp, sectionHead, backupChip
-public/desks/<id>/       desk.json, desk.js, lang/*.json (and desk.css, avatar.svg)
+                         deskHead, pageHelp, sectionHead, backupChip, the search (places, palette, reveal)
+public/desks/<id>/       desk.json, desk.js, places.json (the search), lang/*.json (and desk.css, avatar.svg)
 data/                    runtime only (state per desk, mailbox, agent log, office/staff.json) — not in git
 backup/                  the backup engine: backup.sh, setup.sh, lib/common.sh (data in data/unraid-backup)
 embycache/               Jack Emby's EmbyCache (Python; data in data/embycache)
