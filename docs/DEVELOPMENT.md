@@ -40,7 +40,9 @@ and the checklist for a change; where the two differ, CLAUDE.md is right. The ba
   first start) `scripts/agent.sh` runs the Night Watchman's **night shift** instead: RAM and the flash only, never
   anything under `/mnt`. The page and the Dashboard tile say so.
 * **Long jobs outlive the agent.** Backup runs, restores, the drill and Jack Emby's runs go to the host's `atd`, never
-  as children of the agent (`agent.sh stop` ends the agent's whole session).
+  as children of the agent (`agent.sh stop` ends the agent's whole session). The restore drill plays dumps — also ones
+  read back from Kopia into RAM — in throwaway containers without network and writes a certificate
+  (`agent/desks/restore-drill.php`; what an interrupted one left, Ms. Dustdevil removes through the drill's sweeper).
 * **Schedules** (the nightly backup, Ms. Snapshotini's plans, EmbyCache, the gather) are lines in the plugin's cron file
   `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cron`, calling `scripts/job.sh <job>`, which runs
   only while the array is started. `agent-watch.cron` next to it looks at the heartbeat every 5 minutes.
@@ -83,7 +85,7 @@ data/
 ├── office/                who is hired and in which order, the language for notifications
 ├── unraid-backup/         the backup engine: settings.ini, state/, logs/ (root only)
 ├── partner/               the Team Lead's pairs, tickets, the door's log (root only)
-├── restore/, restore-drill/   Mr. Restori's journals, the drill's runs and certificates
+├── restore/, restore-drill/   Mr. Restori's journals, the drill's runs, certificates and its record of throwaways
 ├── embycache/, gather/    Jack Emby's tools: their settings, lists and status files
 └── advisor/, caretaker/, cleanup/, snapshot/, watchman/   the desks' own folders
 ```
@@ -106,7 +108,8 @@ A desk is a set of files; nothing in the core needs to change.
 ```
 agent/desks/<id>.php            what it does on the host
 public/desks/<id>/desk.json     {"order": 40, "icon": "🧹", "refresh_after": 300}
-                                ("order": its place in a fresh office; the user may set another at the reception)
+                                ("order": its place in a fresh office; the user may set another at the reception;
+                                "with": "<id>" names a colleague it needs — «Hire together with …»)
 public/desks/<id>/desk.js       its desk in the web UI
 public/desks/<id>/desk.css      optional, its rules nested in #sso{ … } like office.css
 public/desks/<id>/avatar.svg    optional, its picture (64×64, readable on dark and light; else the emoji)
@@ -136,10 +139,15 @@ siblings in `agent/lib/util.php`, never cast. A desk can tell the Team Lead what
 built with `finding()` from `agent/lib/house.php`, texts `check.<id>` and `check.<id>_how`) and report numbers for
 Prometheus (`'metrics' => …`, see below).
 
+Only a hired desk acts: for one that isn't (or is still in training) the agent answers `refresh` and refuses every
+other action with `not_hired` (`agentDeskMayAct()`), the web side too.
+
 On the web side it registers with `Office.desk({ id, mount(root), poll(), reception() })` and uses `Office.api`,
 `Office.dialog`, `Office.menu`, `Office.toast`, `Office.fmt` and `Office.scope('<id>')` for its strings. It reads its
 state with `Office.loadState(id, { fresh }, took)` and asks `await Office.freshState(id)` before it acts on what its
-page shows.
+page shows. A desk that can clear away what it kept when it is let go adds `letGo(box)` to its registration: the
+let-go dialog (`Office.fireDialog()`) hands it a box and calls its `before()` while the desk is still hired — Mr.
+Backupsy's «Also clear away what he kept here» (`agent/desks/backup-letgo.php`).
 
 **For the search** it lists its places beside `Office.desk()` — `Office.places(id, [{ kind: 'section', key: 'history' },
 { kind: 'tile', key: 'tile.apps', route: '#/<id>/apps' }, { kind: 'help', key: 'help.x', text: 'help.x_text' }, …])` —
@@ -188,13 +196,12 @@ active, `backup/` is left alone.
 * **The package:** `bash plugin/build.sh <office-version>` builds `dist/unraid-secretary-office-<date>.txz` and
   `dist/unraid-secretary-office.plg`; it refuses when `OFFICE_VERSION` (src/bootstrap.php) and `AGENT_VERSION`
   (agent/agent.php) don't match the version. The plugin's own version is a date (Unraid compares with `strcmp`).
-* **A release:** tag `v<version>` on `main` (`gh release create v<version> --target main --title "Version x.y"
-  --notes-file <notes>`, notes in English, for users). Publishing it runs `.github/workflows/plugin.yml`, which builds
-  and attaches the `.plg` and the `.txz`. The engine's own version lives in `backup.sh`, `setup.sh`,
-  `lib/common.sh` and `backup/README.md`.
-* **Releasing (maintainers):** `tools/release.sh <version> --dry`, then without `--dry` — bump, suite, tag, the Action, then
-  the test servers and the main one, stopping at the first red step; the checklist around it is the release playbook
-  (`release-playbook.md` in the maintainers' notes).
+* **A release** is a tag `v<version>` on `main` with English notes for users; publishing it runs
+  `.github/workflows/plugin.yml`, which builds and attaches the `.plg` and the `.txz`. Maintainers make it with
+  `tools/release.sh <version> --dry`, then without `--dry` — bump, suite, tag, the Action, then the test servers and the
+  main one, stopping at the first red step (Ctrl-C before the commit puts the version lines back); the checklist around
+  it is the release playbook (`release-playbook.md` in the maintainers' notes). The engine's own version lives in
+  `backup.sh`, `setup.sh`, `lib/common.sh` and `backup/README.md`.
 
 ## Monitoring
 
