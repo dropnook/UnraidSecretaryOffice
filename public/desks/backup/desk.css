@@ -181,4 +181,8 @@
 .bk-partners-line{margin:6px 0 0}
 .bk-ptile .stat-value{overflow-wrap:anywhere}
 .bk-ptile .stat-sub + .stat-sub{margin-top:2px}
+/* the let-go dialog's «Also clear away what he kept here» (core.js Office.fireDialog → letGoPart) */
+.bk-letgo{margin-top:12px; padding-top:10px; border-top:1px solid var(--line)}
+.bk-letgo-more{margin:2px 0 0 26px}
+.bk-letgo-more p{margin:0 0 8px; overflow-wrap:anywhere}
 }

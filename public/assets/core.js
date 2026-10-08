@@ -1046,26 +1046,41 @@ Office.fire = async function fire(id) {
   staffChanged(j.hired);
   return true;
 };
-/** "Let X go?" — with what keeps running (the desk's fire_note); used by the caretaker and every desk's ⋯ menu */
+/**
+ * "Let X go?" — with what keeps running (the desk's fire_note); used by the caretaker and every desk's ⋯ menu. A desk
+ * may add to it (its `letGo(box)`, Mr. Backupsy's «Also clear away what he kept here»): it fills the box and answers
+ * {bind(button), before(), done(result)} — bind gets the «Let go» button, before() runs while the desk is still hired
+ * (an unhired desk gets no write actions), the desk is let go whatever it answered or threw, and done() gets its answer.
+ */
 Office.fireDialog = function fireDialog(id, after) {
   const name = t(`${id}.name`);
   const box = el('div');
   box.appendChild(el('p', '', t('office.fire_text', { name })));
   if (Office.has(`${id}.fire_note`)) box.appendChild(el('p', 'callout', t(`${id}.fire_note`)));
-  Office.dialog({
+  const desk = Office.desks.get(id);
+  let extra = null;
+  try { extra = desk && typeof desk.letGo === 'function' ? desk.letGo(box) : null; } catch (e) { extra = null; }
+  const d = Office.dialog({
     title: t('office.fire_title', { name }),
     body: box,
     buttons: [
       { text: t('common.cancel') },
       { text: t('office.fire'), kind: 'danger', act: async () => {
+        let result = null;
+        if (extra && extra.before) {
+          try { result = await extra.before(); } catch (e) { result = { ok: false, error: { key: 'internal', params: { detail: String(e && e.message || e) } } }; }
+        }
         if (!await Office.fire(id)) return false;
         Office.toast(t('office.fired', { name }));
         if (after) after();
         else if (Office.current && Office.current.id === id) Office.go('#/');
+        if (extra && extra.done && result) setTimeout(() => extra.done(result), 0);    // after this dialog closed
         return true;
       } },
     ],
   });
+  if (extra && extra.bind) extra.bind(d.buttons[1]);
+  return d;
 };
 function staffChanged(hired) {
   for (const d of CONFIG.desks) d.hired = hired.includes(d.id);

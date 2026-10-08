@@ -3654,6 +3654,106 @@ async function scheduleDialog() {
   });
 }
 
+// ------------------------------------------------------------------ let go
+/**
+ * His part of the let-go dialog (core.js Office.fireDialog → the desk's letGo): one tick «Also clear away what he kept
+ * here», off by default. Ticked, he looks first (backup.letgo_look: which packages go to Ms. Dustdevil's storeroom, how
+ * many of his own snapshots go and what that frees, what stays) and «Let go» becomes «Let go and clear away» — only
+ * once that look is shown, never while the engine is busy. The clearing runs in the agent before he is let go
+ * (backup.letgo_clear {confirm: true}); he is let go whatever came of it, and then a dialog says what was done.
+ */
+function letGoPart(box) {
+  const wrap = el('div', 'bk-letgo');
+  const label = el('label', 'check');
+  const cb = el('input');
+  cb.type = 'checkbox';
+  cb.disabled = !Office.agent.running;
+  const text = el('span', '', T('letgo.tick'));
+  text.appendChild(el('small', '', T('letgo.tick_hint')));
+  label.append(cb, text);
+  const more = el('div', 'bk-letgo-more');
+  more.hidden = true;
+  wrap.append(label, more);
+  box.appendChild(wrap);
+  let look = null;
+  let button = null;
+  let asked = 0;
+  let cleared = null;
+  const sync = () => {
+    if (!button) return;
+    button.textContent = cb.checked ? T('letgo.button') : Office.t('office.fire');
+    button.disabled = cb.checked && !(look && !look.busy);      // the look first: he clears only what he showed
+  };
+  cb.onchange = async () => {
+    const mine = ++asked;
+    look = null;
+    more.hidden = !cb.checked;
+    sync();
+    if (!cb.checked) return;
+    more.replaceChildren(el('p', 'role', T('letgo.looking')));
+    const j = await Office.api.post(`${ID}.letgo_look`, {});
+    if (mine !== asked || !cb.checked) return;
+    more.replaceChildren(...letGoLines(j).map(([cls, line]) => el('p', cls, line)));
+    if (j.ok && !j.busy) look = j;
+    else { cb.checked = false; cb.disabled = !!(j.ok && j.busy); }    // busy: said, the tick waits for another time
+    sync();
+  };
+  return {
+    bind(b) { button = b; sync(); },
+    async before() {
+      if (!cb.checked || !look) return null;
+      cleared = cleared || await Office.api.post(`${ID}.letgo_clear`, { confirm: true });    // once, even if «Let go» is pressed again
+      return cleared;
+    },
+    done: letGoDone,
+  };
+}
+
+/** What the look says, line by line ([class, text]) */
+function letGoLines(j) {
+  if (!j.ok) return [['callout warn', Office.errorText(j.error, ID)]];
+  if (j.busy) return [['callout warn', T('letgo.busy', { why: Office.errorText({ key: j.busy }, ID) })]];
+  const out = [];
+  const pk = j.packages || {};
+  const names = pk.names || [];
+  if (pk.asleep) out.push(['', T('letgo.packages_asleep')]);
+  else if (pk.n) out.push(['', T('letgo.packages', { n: Number(pk.n), names: names.join(', ') + (pk.n > names.length ? ', …' : '') })]);
+  else out.push(['', T('letgo.packages_none')]);
+  const sn = j.snapshots || {};
+  if (sn.n) {
+    out.push(['', T('letgo.snaps', { n: Number(sn.n), size: fmt.size(sn.bytes || 0) })]);
+    if (sn.unknown) out.push(['role', T('letgo.snaps_unknown', { n: Number(sn.unknown) })]);
+  } else out.push(['', T('letgo.snaps_none')]);
+  if (sn.held || sn.asleep) out.push(['role', T('letgo.snaps_kept', { n: (sn.held || 0) + (sn.asleep || 0) })]);
+  out.push(['role', T('letgo.not_others')], ['role', T('letgo.stays')], ['callout', T('letgo.remote')]);
+  if (j.schedule) out.push(['callout warn', T('letgo.schedule', { cron: j.schedule })]);
+  return out;
+}
+
+/** After he was let go: what the clearing did (or why it didn't) */
+function letGoDone(j) {
+  const box = el('div');
+  letGoDoneLines(j).forEach(([cls, line]) => box.appendChild(el('p', cls, line)));
+  if (j.ok && (j.failed || []).length) {
+    const ul = el('ul', 'shortlist');
+    j.failed.forEach((f) => ul.appendChild(el('li', 'error', `${f.what}: ${Office.errorText({ key: f.key, params: f.params || {} }, f.desk || ID)}`)));
+    box.appendChild(ul);
+  }
+  Office.dialog({ title: T('letgo.done_title'), body: box });
+}
+
+function letGoDoneLines(j) {
+  if (!j.ok) return [['callout warn', T('letgo.failed', { error: Office.errorText(j.error, ID) })]];
+  const out = [];
+  if (j.moved) out.push(['', T('letgo.done_moved', { n: Number(j.moved) })]);
+  if (j.deleted) out.push(['', T('letgo.done_deleted', { n: Number(j.deleted) })]);
+  if (!j.moved && !j.deleted && !j.failed_n) out.push(['', T('letgo.done_none')]);
+  if (j.place_asleep) out.push(['role', T('letgo.packages_asleep')]);
+  if (j.failed_n) out.push(['callout warn', T('letgo.done_failed', { n: Number(j.failed_n) })]);
+  out.push(['role', T('letgo.done_journal', { file: j.journal })]);
+  return out;
+}
+
 Office.desk({
   id: ID,
   async mount(root, sub) {
@@ -3680,6 +3780,7 @@ Office.desk({
     clearTimeout(liveTimer);
     clearTimeout(setupTimer);
   },
+  letGo: letGoPart,
   poll() { if (page === 'main') load(false); },
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
   menu() {
@@ -3783,6 +3884,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     placeLines, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,
     PRESETS, presetChoose, presetForget, presetKeep, presetChanged, presetKopiaState, firstUpload, presetKeptList, presetStartText,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
+    letGoPart, letGoLines, letGoDoneLines,
   };
 }
 })();
