@@ -18,7 +18,7 @@ router says about the server. It is a plugin: no container, no account, no cloud
 | | Desk | What they do for you |
 |---|---|---|
 | 👥 | **The Team Lead** | Suggests whom to hire for your server and tells you what is left to do — *still to do*, *recommended*, *good to know* — each with a link into Unraid. Pairs partner offices and hands a gone server's copies to a new one. |
-| 💾 | **Mr. Backupsy** | Sets up and runs the nightly backup: snapshots, database dumps, a package per app and VM, optional encrypted offsite copies with Kopia. Shows what a run is doing, how the last nights went and which share is protected how. |
+| 💾 | **Mr. Backupsy** | Sets up and runs the nightly backup: snapshots, database dumps, a package per app and VM, optional encrypted offsite copies with Kopia. Shows what a run is doing, how the last runs went and which share is protected how. |
 | 📦 | **Mr. Restori** | Brings back databases, folders, whole shares, templates and VM configurations — from the packages, the local snapshots, Kopia or a partner office. Puts aside what he replaces, never deletes it, and can undo every restore. Practises restores on his own: the restore drill. |
 | 📸 | **Ms. Snapshotini** | Every ZFS, btrfs and VM snapshot on the server: create, delete with an estimate of the space freed, rename, hold. Schedules with a simple retention that only ever clears away her own. |
 | 🏮 | **The Night Watchman** | Says how securely the server stands, and keeps a watch book of what is different from normal — logins, containers, plugins, the flash, schedules, data flow, vanished snapshots, and what your router reports. Changes nothing himself. |
@@ -38,7 +38,7 @@ the desks in the order you like.
 
 ## What happens, end to end
 
-### The nightly backup
+### The scheduled backup
 
 At the time you chose under Mr. Backupsy's *Schedule…*, the backup engine starts on the server — the office needn't
 be open. VMs you set to shut down go down first; Nextcloud goes into maintenance mode; the apps that write into
@@ -105,7 +105,7 @@ Choose one and the office takes you there, opens it and marks the place. It all 
 Unraid **7.3.2 or a newer 7.x**; Unraid 8 is not supported yet, the plugin refuses to install there. Snapshots need
 pools or array disks on ZFS or btrfs (shares on XFS are backed up without one); partner offices need ZFS. Before you
 update Unraid itself, look for an office release that names the new version — Unraid switches off a plugin that
-doesn't at its first boot, and the nightly backups stop with it; the Team Lead reminds you once your Unraid is newer
+doesn't at its first boot, and the scheduled backups stop with it; the Team Lead reminds you once your Unraid is newer
 than the one the office was tested on.
 
 1. *Plugins → Install Plugin* and paste
@@ -148,7 +148,7 @@ yourself if you don't want them any more.
 Nothing leaves the server unless you set it up: Kopia to the storage you chose, partner offices to the partner. The
 office itself only asks GitHub once a day whether a new version is out, checks logo addresses for containers without a
 picture, and sends a report only when you send one yourself (below). No account, no telemetry. The desks never wake a
-sleeping disk unless you ask; the nightly backup does, unless you tell it to leave sleeping pools out.
+sleeping disk unless you ask; the scheduled backup does, unless you tell it to leave sleeping pools out.
 
 ![Ms. Dustdevil's «Where is what»](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/cleanup-where.png)
 
@@ -178,9 +178,9 @@ What was checked and what is still open: [HARDENING.md](HARDENING.md).
 
 ## Partner offices
 
-Two Unraid servers with the office — yours, a family member's, a friend's — can keep each other's nights. Paired at
-the Team Lead (two blocks to paste, one safety code to compare), each night the ZFS snapshots of what you tick go to
-the partner — after the first night only what changed — through SSH; the partner keeps them with its own retention and
+Two Unraid servers with the office — yours, a family member's, a friend's — can keep each other's backups. Paired at
+the Team Lead (two blocks to paste, one safety code to compare), with every backup the ZFS snapshots of what you tick go to
+the partner — after the first one only what changed — through SSH; the partner keeps them with its own retention and
 you can never delete them there. Mr. Restori's *At <partner>* brings them back into a new dataset beside the original.
 When a server is gone, the new one asks at its Team Lead (*Start from a partner's copy…*) and the partner answers with
 a **restore ticket** — a door for seven days that only hands over those copies; Mr. Restori's *Onto a new server*

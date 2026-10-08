@@ -679,7 +679,8 @@ it *il* backup).
 | while the array is stopped | night shift | die Nachtschicht | il turno di notte | le service de nuit | el turno de noche | watchman, office |
 | a backup run | run | die Sicherung, die Sicherungen | il backup, i backup | la sauvegarde | la copia de seguridad (short: la copia) | backup and all who speak of it |
 | … in use | Start a run · last / next run · Stop the run · stopped | Sicherung starten · die letzte / nächste Sicherung · Sicherung abbrechen · abgebrochen | Avvia un backup · l'ultimo / il prossimo backup · Interrompi il backup · interrotto | Lancer une sauvegarde · la dernière / prochaine sauvegarde · Arrêter la sauvegarde · arrêtée | Iniciar una copia · la última / próxima copia · Detener la copia · detenida | backup, office (Dashboard) |
-| the nightly one | the nightly backup | die nächtliche Sicherung | il backup notturno | la sauvegarde nocturne | la copia nocturna | backup, advisor |
+| the nightly one (the default schedule; the role) · any other time | the nightly backup · the scheduled backup | die nächtliche Sicherung · die geplante Sicherung | il backup notturno · il backup pianificato | la sauvegarde nocturne · la sauvegarde planifiée | la copia nocturna · la copia programada | backup, advisor, caretaker |
+| one backup run or what it left — never «a night» | a backup, a run · earlier backups · {nights} backups in a row | die Sicherung · frühere Stände (a point in time) · {nights} Sicherungen in Folge | il backup · i backup precedenti · {nights} backup di fila | la sauvegarde · les sauvegardes précédentes · {nights} sauvegardes d'affilée | la copia · las copias anteriores · {nights} copias seguidas | backup, restore, advisor, caretaker, snapshot |
 | the check (mode `check`, the «Tour» button) | tour | der Rundgang | il giro | la tournée | la ronda | backup, restore |
 | dry run | dry run | der Probelauf | la prova a secco | l'essai à blanc | la simulación | backup, restore, emby |
 | backup.sh and co. | the (backup) engine | die (Backup-)Engine | il motore (di backup) | le moteur (de sauvegarde) | el motor (de copias) | backup, restore, watchman |
@@ -711,6 +712,12 @@ it *il* backup).
 | another office that keeps copies · to pair · its key in authorized_keys · the code compared | partner office (the partner) · pair · the door · safety code | das Partner-Sekretariat (der Partner) · verbinden · die Tür · der Sicherheitscode | la segreteria partner (il partner) · abbinare · la porta · il codice di sicurezza | le secrétariat partenaire (le partenaire) · appairer · la porte · le code de sécurité | la secretaría asociada (el socio) · emparejar · la puerta · el código de seguridad | caretaker, backup, restore, watchman |
 | what a partner keeps of mine · pulling it back · a new server's first step · the temporary door | At <partner> · Bring back (from <partner>) · Start from a partner's copy… · (restore) ticket | Beim Partner <name> · Vom Partner zurückholen (die Rückholung) · Von der Kopie eines Partners starten… · das Ticket | Presso <partner> · Recupera (il recupero) · Parti dalla copia di un partner… · il ticket | Chez <partenaire> · Rapatrier (le rapatriement) · Partir de la copie d'un partenaire… · le ticket | En <socio> · Traer (la transferencia) · Empezar desde la copia de un socio… · el ticket | restore, caretaker, watchman |
 
+**Nights (Benj, 2026-10-09):** a backup can run at any time (Benj's at 01:00, others in the afternoon), so «a night» never
+stands for one run or its snapshot/package — the text says «backup» / «Sicherung» / «Stand» (and it/fr/es their backup word).
+«Night» stays where it is literal or a name: the Night Watchman and his night shift, «at night» as a time, «Every day at»
+(not «Every night at») for the schedule's time, the drill's window (00:00–07:00, «right after a nightly backup»), Immich's
+own nightly dump, Jack Emby's runs; code names (`{nights}`, `asleep_nights`, `UB_PARTNER_NIGHTS`) and the engine's own log
+lines and notifications keep theirs.
 German «Backup» stays for the whole and for what is kept (im Backup, Backups gehören nicht in appdata, Backup-Ablage,
 Backup-Engine; «Eingerichtete Backups»); one run is a «Sicherung». «Probelauf» stays the engine's dry run — Mr. Restori's
 drill is «die Übung». «Lauf» / esecuzione / exécution / ejecución stay for
