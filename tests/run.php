@@ -2840,6 +2840,88 @@ SH);
  * last; and where those sizes come from (kopia_sizes_load: one «snapshot list», a stand-in docker on PATH).
  */
 /**
+ * Engine 2.35 (pentest 2026-10-09, finding 1): a reader that stops early never cuts a line-writing helper's pipe. A unit
+ * kept by two partners with a long list after them (cfg_list still writing when grep -q has found the id): with SIGPIPE
+ * as cron and ssh give it (env --default-signal=PIPE - PHP ignores SIGPIPE and bash can't take that back) and pipefail
+ * as backup.sh sets it, partner_units lists the place, the share and the VM for both partners every time - the 2.34
+ * shape (kept here for the comparison) drops them; share_rules_hide (its first rule matches) and setup.sh's plist_add
+ * (a value there already is never added twice) say the same; nothing on stderr. Then the same with SIGPIPE ignored
+ * (PHP's way): no «printf: write error: Broken pipe», which made testBackupNewLocal flaky.
+ */
+function testBackupEpipe(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-epipe-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    @mkdir("$tmp/data", 0700, true);
+    $a = 'a1b2c3d4';
+    $b = 'b2c3d4e5';
+    $fill = $rules = '';
+    for ($i = 1; $i <= 3000; $i++) {
+        $fill .= sprintf("partner = %08x\n", 0x10000000 + $i);
+        $rules .= "kopia_ignore = /f$i/\n";
+    }
+    file_put_contents("$tmp/s.ini", "[general]\npartner_place = $a\npartner_place = $b\n" . str_replace('partner = ', 'partner_place = ', $fill)
+        . "[share \"docs\"]\nmode = snapshot\npartner = $a\npartner = $b\n$fill"
+        . "[share \"media\"]\nmode = snapshot\nkopia_ignore = /cache/\n$rules"
+        . "[vm \"vm1\"]\nmode = snapshot\npartner = $a\npartner = $b\n$fill"
+        . "[partner \"$a\"]\nname = vault\naddress = 192.0.2.1\n[partner \"$b\"]\nname = attic\naddress = 192.0.2.2\n");
+    file_put_contents("$tmp/t.sh", <<<'SH'
+source "$LIB" >/dev/null 2>&1
+set -uo pipefail
+cfg_load "$INI" || { echo load=failed; exit 1; }
+# the 2.34 shape, kept for the comparison
+partner_units_234() {
+    local id="$1" n
+    cfg_list "general|partner_place" | grep -Fxq -- "$id" && echo place
+    while IFS= read -r n; do [[ -n "$n" ]] || continue; if cfg_list "share|$n|partner" | grep -Fxq -- "$id"; then echo "share:$n"; fi; done < <(cfg_names share)
+    while IFS= read -r n; do [[ -n "$n" ]] || continue; if cfg_list "vm|$n|partner" | grep -Fxq -- "$id"; then echo "vm:$n"; fi; done < <(cfg_names vm)
+    return 0
+}
+printf 'pipe_ignored=%s\n' "$(( 0x$(awk '/^SigIgn/ {print $2}' /proc/$$/status) >> 12 & 1 ))"
+want=$'place\nshare:docs\nvm:vm1'
+ten() { local k=0 i; for i in 1 2 3 4 5 6 7 8 9 10; do [[ "$("$1" "$2" 2>>"$3")" == "$want" ]] && k=$((k+1)); done; printf '%s' "$k"; }
+printf 'new_a=%s\n' "$(ten partner_units a1b2c3d4 "$ERR")"
+printf 'new_b=%s\n' "$(ten partner_units b2c3d4e5 "$ERR")"
+printf 'old_a=%s\n' "$(ten partner_units_234 a1b2c3d4 "$ERR.old")"
+k=0; for i in 1 2 3 4 5 6 7 8 9 10; do share_rules_hide media cache 2>>"$ERR" && k=$((k+1)); done; printf 'hide=%s\n' "$k"
+eval "$(grep -E '^(plist|plist_add)\(\) ' "$SETUP")"
+declare -A P=(); P[k]="$(cfg_list "share|docs|partner")"
+for i in 1 2 3 4 5 6 7 8 9 10; do plist_add k a1b2c3d4 2>>"$ERR"; plist_add k b2c3d4e5 2>>"$ERR"; done
+printf 'plist=%s/%s/%s\n' "$(grep -cFx a1b2c3d4 <<<"${P[k]}")" "$(grep -cFx b2c3d4e5 <<<"${P[k]}")" "$(grep -c . <<<"${P[k]}")"
+SH);
+    $env = 'LIB=' . escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh') . ' SETUP=' . escapeshellarg(OFFICE_DIR . '/backup/setup.sh')
+         . " INI=$tmp/s.ini UB_DATA=$tmp/data";
+    $want = ['hide' => '10', 'new_a' => '10', 'new_b' => '10', 'plist' => '1/1/3002'];   // in key order (ksort)
+    $parse = function (string $out): array {
+        preg_match_all('/^(\w+)=(.*)$/m', $out, $m);
+        $r = array_combine($m[1], $m[2]);
+        ksort($r);
+        return $r;
+    };
+    exec('env --default-signal=PIPE true 2>/dev/null', $o, $rc);
+    if ($rc !== 0) {
+        check('epipe: env --default-signal not known here - the SIGPIPE run left out', true);
+    } else {
+        @unlink("$tmp/err");
+        $r = $parse((string) shell_exec("$env ERR=$tmp/err env --default-signal=PIPE bash $tmp/t.sh 2>&1"));
+        same('epipe (SIGPIPE as cron gives it): a unit kept by two partners is listed for both, every time; the rules and plist_add likewise',
+            $want, array_intersect_key($r, $want));
+        check('epipe (SIGPIPE): the 2.34 shape drops it - the fixture does cut the pipe', (int) ($r['old_a'] ?? 10) < 10, json_encode($r));
+        same('epipe (SIGPIPE): nothing on stderr', '', substr((string) @file_get_contents("$tmp/err"), 0, 400));
+    }
+    @unlink("$tmp/err");
+    @unlink("$tmp/err.old");
+    $r = $parse((string) shell_exec("$env ERR=$tmp/err bash $tmp/t.sh 2>&1"));
+    same('epipe (SIGPIPE ignored, as under PHP): the same answers', $want, array_intersect_key($r, $want));
+    $err = (string) @file_get_contents("$tmp/err");
+    check('epipe (SIGPIPE ignored): no «Broken pipe» on stderr', !str_contains($err, 'Broken pipe') && $err === '', substr($err, 0, 400));
+    if (($r['pipe_ignored'] ?? '') === '1') {
+        check('epipe (SIGPIPE ignored): … where the 2.34 shape wrote it', str_contains((string) @file_get_contents("$tmp/err.old"), 'Broken pipe'));
+    }
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * Engine 2.27: the phase «partner» - backup.sh on a fixture server like testBackupVmOrder (Kopia off): stand-ins for
  * docker, virsh, zfs (datasets, snapshots, bookmarks and `zfs send` kept in files), mbuffer, pv (counts what passes) and
  * ssh - the partner's door: it notes every call's options and command, answers ping/resume/list on stdout and recv's two
@@ -3274,7 +3356,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.34', [1, '2.34'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.35', [1, '2.35'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -3784,7 +3866,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.34', [1, '2.34'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.35', [1, '2.35'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -20191,7 +20273,7 @@ JS);
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks', 'testAckContent',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired'],
