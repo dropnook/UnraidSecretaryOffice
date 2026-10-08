@@ -20313,6 +20313,117 @@ function testBackupLetGo(): void
     }
     same('let go: … given back when the clearing throws', [false, false], [flockHeld("$ub/state/lock"), is_file("$ub/state/lock-holder.json")]);
 
+    // the clearing as a job of atd (review 2026-10-09): letgo_clear writes the journal and starts the job; the job takes the
+    // lock, clears, writes every step into the journal and the job file the page polls, gives the lock back, ends «done»
+    $GLOBALS['letgoJob'] = "$tmp/data/backup-letgo-job.json";
+    $GLOBALS['letgoRunDir'] = "$tmp/run";
+    $launched = [];
+    $GLOBALS['letgoLaunch'] = function (string $job, array $args) use (&$launched): void { $launched[] = [$job, array_slice($args, 2)]; };
+    $c = backupLetGoClear(['confirm' => true]);
+    $jid = $c['id'] ?? '';
+    $jfile = "$tmp/data/backup/letgo-$jid.json";
+    same('let go job: letgo_clear hands the job to atd — its id, the journal queued, the job file the page polls',
+        [true, 1, [['backup-letgo', ['job', 'backup-letgo', $jid]]], 'queued', 'queued', 'queued', "letgo-$jid.json", 0600],
+        [(bool) preg_match(LETGO_ID, $jid), preg_match('/^\d{8}-\d{6}/', $jid), $launched, $c['job']['result'] ?? null, readJson($jfile)['result'] ?? null,
+         readJson($GLOBALS['letgoJob'])['result'] ?? null, readJson($GLOBALS['letgoJob'])['journal'] ?? null, fileperms($jfile) & 0777]);
+    try {
+        backupLetGoClear(['confirm' => true]);
+        check('let go job: a second clearing while one is queued — refused', false);
+    } catch (Problem $p) {
+        same('let go job: a second clearing while one is queued — refused (a run\'s words), nothing started', ['backup_running', 1], [$p->key, count($launched)]);
+    }
+    foreach (['apps/jobbed', 'vms/jobvm'] as $d) {
+        mkdir("$pool/$d", 0700, true);
+    }
+    $GLOBALS['letgoPlan'] = ['place' => $place, 'asleep' => false, 'parts' => $parts, 'prefixes' => $prefixes, 'btrfs_dir' => '.btrfs-snap'];
+    $seen = null;
+    $GLOBALS['letgoHost']['move'] = function (string $from, string $to) use (&$seen, $ub): void {
+        $seen ??= [readJson($GLOBALS['letgoJob'])['result'] ?? null, readJson("$ub/state/lock-holder.json")['mode'] ?? null,
+                   trim((string) @file_get_contents($GLOBALS['letgoRunDir'] . '/letgo.open'))];
+        clMove($from, $to);
+    };
+    $code = backupLetGoJob([$jid]);
+    unset($GLOBALS['letgoHost']['move']);
+    $jj = readJson($jfile) ?? [];
+    $view = readJson($GLOBALS['letgoJob']) ?? [];
+    same('let go job: while it clears — running, the engine\'s lock noted as letgo, the RAM marker «<pid> <id>» for the array stop',
+        ['running', 'letgo', getmypid() . " $jid"], $seen);
+    same('let go job: ended — exit 0, done, finished; the job file with the counts (no paths of what moved), the lock given back, the marker gone',
+        [0, 'done', true, 'done', 2, 0, 0, $jid, false, false, false],
+        [$code, $jj['result'] ?? null, is_int($jj['finished'] ?? null), $view['result'] ?? null, $view['moved'] ?? null, $view['deleted'] ?? null, $view['failed_n'] ?? null,
+         $view['id'] ?? null, flockHeld("$ub/state/lock"), is_file("$tmp/run/letgo.open"), str_contains(json_encode($view), $pool)]);
+    same('let go job: the packages went', [false, false], [is_dir("$pool/apps/jobbed"), is_dir("$pool/vms/jobvm")]);
+    same('let go job: again — nothing to do (exit 1); no such id (exit 2)', [1, 2, 2], [backupLetGoJob([$jid]), backupLetGoJob(['../x']), backupLetGoJob([])]);
+    // the job meets the lock held: refused, nothing moved
+    $c2 = backupLetGoClear(['confirm' => true]);
+    mkdir("$pool/apps/waits", 0700, true);
+    $other = fopen("$ub/state/lock", 'a');
+    flock($other, LOCK_EX);
+    same('let go job: the lock held when the job starts — exit 75, refused with the busy words, nothing moved',
+        [75, 'refused', 'backup_running', 'refused', true], [backupLetGoJob([$c2['id']]), readJson("$tmp/data/backup/letgo-{$c2['id']}.json")['result'] ?? null,
+         readJson("$tmp/data/backup/letgo-{$c2['id']}.json")['reason'] ?? null, readJson($GLOBALS['letgoJob'])['result'] ?? null, is_dir("$pool/apps/waits")]);
+    flock($other, LOCK_UN);
+    fclose($other);
+    // a throw outside a step: failed, said, the lock given back
+    $c3 = backupLetGoClear(['confirm' => true]);
+    $GLOBALS['letgoPlan']['prefixes'] = 'not a list';
+    same('let go job: a throw outside a step — exit 1, failed (internal), the lock given back, the marker gone',
+        [1, 'failed', 'internal', false, false], [backupLetGoJob([$c3['id']]), readJson($GLOBALS['letgoJob'])['result'] ?? null, readJson($GLOBALS['letgoJob'])['reason'] ?? null,
+         flockHeld("$ub/state/lock"), is_file("$tmp/run/letgo.open")]);
+    $GLOBALS['letgoPlan']['prefixes'] = $prefixes;
+    hardeningRm("$pool/apps/waits");
+    // atd refuses: the journal says refused, the page gets the error
+    $GLOBALS['letgoLaunch'] = function (): void { throw new Problem('host_launch_failed', ['detail' => 'no atd']); };
+    try {
+        backupLetGoClear(['confirm' => true]);
+        check('let go job: atd refuses — refused', false);
+    } catch (Problem $p) {
+        same('let go job: atd refuses — the error to the page, the job file refused', ['host_launch_failed', 'refused', 'host_launch_failed'],
+            [$p->key, readJson($GLOBALS['letgoJob'])['result'] ?? null, readJson($GLOBALS['letgoJob'])['reason'] ?? null]);
+    }
+    // is it alive? a job gone (killed, the array stopped) or never started is written down as interrupted
+    $GLOBALS['letgoLaunch'] = fn () => null;
+    $c4 = backupLetGoClear(['confirm' => true]);
+    $f4 = "$tmp/data/backup/letgo-{$c4['id']}.json";
+    $j4 = readJson($f4);
+    $sleeper = proc_open(['sh', '-c', 'sleep 30; :', 'agent.php'], [], $pp);
+    $j4['result'] = 'running';
+    $j4['pid'] = proc_get_status($sleeper)['pid'];
+    backupLetGoJournalWrite($f4, $j4);
+    $alive = backupLetGoJobState(['id' => $c4['id']])['job']['result'] ?? null;
+    $busyAlive = backupLetGoRunning();
+    proc_terminate($sleeper);
+    proc_close($sleeper);
+    $gone = backupLetGoJobState(['id' => $c4['id']])['job']['result'] ?? null;
+    $c5 = backupLetGoClear(['confirm' => true]);
+    $f5 = "$tmp/data/backup/letgo-{$c5['id']}.json";
+    $j5 = readJson($f5);
+    $j5['created'] = time() - 121;
+    backupLetGoJournalWrite($f5, $j5);
+    same('let go job: alive — running (and a new clearing refused); its process gone — interrupted, in the journal too; queued 2 min — interrupted',
+        ['running', true, 'interrupted', 'interrupted', 'interrupted', false],
+        [$alive, $busyAlive, $gone, readJson($f4)['result'] ?? null, backupLetGoJobState(['id' => $c5['id']])['job']['result'] ?? null, backupLetGoRunning()]);
+    same('let go job: backup.letgo_job for no such clearing — unknown_target', ['unknown_target', 'unknown_target'], array_map(function ($id) {
+        try {
+            backupLetGoJobState(['id' => $id]);
+            return 'ok';
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    }, ['20991231-235959', '../../etc']));
+    // agent.sh's array stop ends the job its RAM marker names (only an agent.php), the marker gone
+    $sleeper = proc_open(['sh', '-c', 'sleep 30; :', 'agent.php'], [], $pp);
+    $spid = proc_get_status($sleeper)['pid'];
+    file_put_contents("$tmp/run/letgo.open", "$spid 20261009-120000\n");
+    shell_exec('bash -c ' . escapeshellarg('source ' . escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh') . '; RUN=' . escapeshellarg("$tmp/run")
+        . '; LOG=' . escapeshellarg("$tmp/agent.log") . '; drill_release') . ' 2>&1');
+    usleep(200000);
+    same('let go job: agent.sh\'s array stop ends it (SIGTERM to the agent.php its marker names), the marker gone',
+        [false, false, true], [proc_get_status($sleeper)['running'], is_file("$tmp/run/letgo.open"), str_contains((string) @file_get_contents("$tmp/agent.log"), 'letgo.open job')]);
+    proc_close($sleeper);
+    unset($GLOBALS['letgoPlan'], $GLOBALS['letgoLaunch']);
+    @unlink($GLOBALS['letgoJob']);
+
     // the place asleep: its packages stay, said
     mkdir("$pool/apps/again", 0700, true);
     $r3 = backupLetGoDo($place, true, [], $prefixes, '.btrfs-snap');
@@ -20363,10 +20474,13 @@ const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 const mk = (tag, cls, text) => ({ tag, cls, text, children: [], hidden: false, disabled: false, checked: false,
   append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, replaceChildren(...c) { this.children = c; } });
 const posts = [];
+const gets = [];
 let answer = null;
+let getAnswer = () => ({ ok: true, part: null });
 globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, placesFrom: () => {},
   placesTook: () => {}, selbar: () => {}, has: () => false, agent: { running: true }, errorText: (e, d) => 'err:' + (d || '') + ':' + e.key,
-  api: { post: async (a, body) => { posts.push([a, body]); return answer(a); } } };
+  pollDelay: (b, f) => (f > 0 ? b * 10 * f : b),
+  api: { post: async (a, body) => { posts.push([a, body]); return answer(a, body); }, get: async (q) => { gets.push(q.part); return getAnswer(); } } };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const b = OFFICE_DESK_TESTS.backup;
 (async () => {
@@ -20392,10 +20506,40 @@ const b = OFFICE_DESK_TESTS.backup;
   cb.checked = true;
   await cb.onchange();
   out.ticked = [more.hidden, button.textContent, button.disabled, posts.map((p) => p[0]), more.children.length];
-  answer = () => ({ ok: true, moved: 6 });
+  const JID = '20261009-120000';
+  const job = (more) => ({ id: JID, result: 'running', moved: 0, deleted: 0, failed: [], failed_n: 0, kept: 0, place_asleep: false, journal: `letgo-${JID}.json`,
+    heartbeat: 1, ...more });
+  answer = () => ({ ok: true, id: JID, job: job({ result: 'done', moved: 6 }) });
   const r1 = await part.before();
   const r2 = await part.before();
-  out.cleared = [r1.moved, r2 === r1, posts.slice(1)];
+  out.cleared = [r1.moved, r2 === r1, posts.slice(1), cb.disabled];
+  // the job followed: queued, a blip, running (how far it got shown), done — he is let go only then
+  const waits = [];
+  let clock = 0;
+  b.setLetGoClock({ wait: async (ms) => { waits.push(ms); clock += ms; }, now: () => clock });
+  const follow = async (first, parts, more2) => {
+    posts.length = 0; gets.length = 0; waits.length = 0;
+    const bx = mk('div');
+    const p = b.letGoPart(bx);
+    const c = bx.children[0].children[0].children[0];
+    const lines = [];
+    p.bind(mk('button'));
+    answer = (a) => (a.endsWith('.letgo_look') ? look : a.endsWith('.letgo_clear') ? { ok: true, id: JID, job: first } : more2(a));
+    c.checked = true;
+    await c.onchange();
+    const queue = parts.slice();
+    getAnswer = () => { const m = bx.children[0].children[1].children[0]; if (m) lines.push(m.text); return queue.length > 1 ? queue.shift() : queue[0]; };      // the last one stays
+    const r = await p.before();
+    return { r, lines, waits: waits.slice(), gets: gets.slice(), posts: posts.map((x) => x[0]) };
+  };
+  out.followed = await follow(job({ result: 'queued', heartbeat: 1 }), [{ ok: false, error: { key: 'offline' } }, { ok: true, part: job({ moved: 2, heartbeat: 2 }) },
+    { ok: true, part: job({ result: 'done', moved: 3, deleted: 40, heartbeat: 3 }) }], () => ({ ok: false }));
+  out.refused = (await follow(job({ result: 'queued' }), [{ ok: true, part: job({ result: 'refused', reason: 'restore_running', reason_params: { what: 'x' } }) }], () => ({ ok: false }))).r;
+  // the heartbeat stands still a minute: the agent is asked — the job is gone: interrupted, what was done until then
+  const still = job({ moved: 1, heartbeat: 5 });
+  out.quiet = await follow(still, [{ ok: true, part: still }],
+    (a) => (a.endsWith('.letgo_job') ? { ok: true, job: job({ result: 'interrupted', moved: 1, heartbeat: 5 }) } : { ok: false }));
+  out.brokenLines = b.letGoDoneLines(b.letGoResult(job({ result: 'interrupted', moved: 1 })));
   // busy: said, the tick unticked and waits; «Let go» lets go only
   const box2 = mk('div');
   const p2 = b.letGoPart(box2);
@@ -20431,13 +20575,25 @@ JS);
                 [['callout warn', 'letgo.failed {"error":"err:backup:backup_running"}']]], [$o['doneNone'], $o['doneErr']]);
             same('let go: the tick off by default — «Let go» as always, before() asks nothing', [false, true, 'office.fire', false, null, 0], $o['start']);
             same('let go: ticked — he looks first, then «Let go and clear away»', [false, 'letgo.button', false, ['backup.letgo_look'], 8], $o['ticked']);
-            same('let go: before() clears once, with confirm: true', [6, true, [['backup.letgo_clear', ['confirm' => true]]]], $o['cleared']);
+            same('let go: before() clears once, with confirm: true; the tick can\'t be changed meanwhile', [6, true, [['backup.letgo_clear', ['confirm' => true]]], true], $o['cleared']);
+            $f = $o['followed'] ?? [];
+            same('let go: the job followed — through a blip (slower), how far it got shown, until done; then the answer for «What I cleared away»',
+                [true, 3, 40, null, [2000, 20000, 2000], ['letgo-job', 'letgo-job', 'letgo-job'],
+                 ['letgo.clearing {"moved":0,"deleted":0}', 'letgo.clearing {"moved":0,"deleted":0}', 'letgo.clearing {"moved":2,"deleted":0}']],
+                [$f['r']['ok'] ?? null, $f['r']['moved'] ?? null, $f['r']['deleted'] ?? null, array_key_exists('broken', $f['r'] ?? []) ? $f['r']['broken'] : 'x', $f['waits'] ?? null, $f['gets'] ?? null, $f['lines'] ?? null]);
+            same('let go: the job refused (the lock busy) — the busy words, he is let go all the same', ['ok' => false, 'error' => ['key' => 'restore_running', 'params' => ['what' => 'x']]], $o['refused']);
+            $q = $o['quiet'] ?? [];
+            same('let go: the heartbeat still for a minute — the agent asked once whether the job lives; gone — interrupted, what was done said, with a warning',
+                [true, 'interrupted', 1, ['backup.letgo_look', 'backup.letgo_clear', 'backup.letgo_job']],
+                [$q['r']['ok'] ?? null, $q['r']['broken'] ?? null, $q['r']['moved'] ?? null, $q['posts'] ?? null]);
+            same('let go: … the lines: what moved, the warning, the journal', [['', 'letgo.done_moved {"n":1}'], ['callout warn', 'letgo.done_broken'], ['role', 'letgo.done_journal {"file":"letgo-20261009-120000.json"}']],
+                $o['brokenLines']);
             same('let go: busy — the tick unticked and waiting, «Let go» lets go only', [false, true, 'office.fire', false, null], $o['busyPart']);
             same('let go: the messenger away — the tick can\'t be ticked', true, $o['away']);
         }
     }
 
-    unset($GLOBALS['letgoHost'], $GLOBALS['snapshotHost'], $GLOBALS['snapshotRecordFile'], $GLOBALS['letgoDir'], $GLOBALS['letgoUbData']);
+    unset($GLOBALS['letgoHost'], $GLOBALS['snapshotHost'], $GLOBALS['snapshotRecordFile'], $GLOBALS['letgoDir'], $GLOBALS['letgoUbData'], $GLOBALS['letgoJob'], $GLOBALS['letgoRunDir']);
     hardeningRm($tmp);
 }
 

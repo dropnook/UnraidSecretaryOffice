@@ -8,6 +8,14 @@ declare(strict_types=1);
  * and, on «Let go», `backup.letgo_clear {confirm: true}` — before it lets him go (an unhired desk gets no write
  * actions); he is let go whatever came of it, and the page says what was done.
  *
+ * The clearing runs as a job of the host's atd (review 2026-10-09: hundreds of zfs destroy batches inside the agent's
+ * loop stopped its heartbeat), like Mr. Restori's drill: letgo_clear writes the journal (`queued`) and hands
+ * `php agent.php job backup-letgo <id>` to atd; the job writes every step into the journal and into
+ * data/backup-letgo-job.json, which the page polls (api part «letgo-job») until it ends — done, refused (busy),
+ * failed or interrupted — and only then lets him go. `backup.letgo_job {id}` lets the agent say whether a job that
+ * wrote nothing for a while still lives (a gone one is written down as interrupted). While it runs, RUN_DIR/letgo.open
+ * names it for agent.sh's array stop (drill_release), which ends it so the lock file doesn't keep the pool busy.
+ *
  *   - The packages in the backup place (apps/<app>, vms/<vm>, server/, flash/ — on each awake pool or disk its share
  *     lies on) go into Ms. Dustdevil's storeroom: her run folders and moves (clRunCreate(), clMove(),
  *     clManifestWrite()), renamed on their own filesystem inside the share (clLeftoverTrash()), kind `package`,
@@ -38,11 +46,25 @@ const LETGO_GROUPS   = ['apps', 'vms'];    // a package per app and per VM …
 const LETGO_TOPS     = ['server', 'flash'];   // … and these two
 const LETGO_BATCH    = 100;                // snapshots per zfs destroy
 const LETGO_SHOWN    = 12;                 // names the look lists
+const LETGO_ID       = '/^\d{8}-\d{6}(?:-\d+)?$/D';     // a clearing: its journal's stamp (letgo-<id>.json)
+define('LETGO_JOB_FILE', DATA_DIR . '/backup-letgo-job.json');     // the clearing going on (or the last), polled by the page (api part "letgo-job")
 
 /** His folder in the data folder: root only (tests point it elsewhere) */
 function backupLetGoDir(): string
 {
     return $GLOBALS['letgoDir'] ?? DATA_DIR . '/backup';
+}
+
+/** The job file the page polls (tests point it elsewhere) */
+function backupLetGoJobFile(): string
+{
+    return $GLOBALS['letgoJob'] ?? LETGO_JOB_FILE;
+}
+
+/** The marker in RAM agent.sh's array stop looks at: "<pid> <id>" while the job runs (tests point it elsewhere) */
+function backupLetGoMarkerFile(): string
+{
+    return ($GLOBALS['letgoRunDir'] ?? RUN_DIR) . '/letgo.open';
 }
 
 /** The engine's data folder, where its lock lies (tests point it elsewhere) */
@@ -220,7 +242,7 @@ function backupLetGoLook(): array
     $snaps = backupLetGoSnaps($state, $f['prefixes'], $f['btrfs_dir']);
     $estimate = snapshotEstimate(array_column($snaps['take'], 'id'));
     $cron = backupSchedule();
-    return ['ok' => true] + backupLetGoLookOf(backupLetGoBusy(), $f['place'], $f['asleep'], $packages, $snaps, $estimate, $cron['enabled'] ? (string) $cron['custom'] : null);
+    return ['ok' => true] + backupLetGoLookOf(backupLetGoBusy() ?? (backupLetGoRunning() ? 'backup_running' : null), $f['place'], $f['asleep'], $packages, $snaps, $estimate, $cron['enabled'] ? (string) $cron['custom'] : null);
 }
 
 /** The look's answer (apart, for the tests) */
@@ -238,23 +260,165 @@ function backupLetGoLookOf(?string $busy, ?string $place, bool $placeAsleep, arr
     ];
 }
 
-/** backup.letgo_clear {confirm: true} — the clearing (see the head of this file); refused while the engine's lock is held */
+/**
+ * backup.letgo_clear {confirm: true} — the clearing (see the head of this file) handed to atd: its journal written
+ * (`queued`), the job started; refused while the engine's lock is held or a clearing is under way. The answer: its id
+ * and the job file's view. $GLOBALS['letgoLaunch']: the tests' stand-in for hostLaunch().
+ */
 function backupLetGoClear(array $r): array
 {
     if (($r['confirm'] ?? null) !== true) {
         throw new Problem('bad_request');
     }
-    $out = backupLetGoUnderLock(function (): array {
-        $f = backupLetGoFacts();
-        $parts = $f['asleep'] ? [] : backupLetGoParts($f['place'], clRoots(), sleepingDisks());
-        return backupLetGoDo($f['place'], $f['asleep'], $parts, $f['prefixes'], $f['btrfs_dir']);
-    });
-    try {
-        backupScan();                          // his packages are gone from his page
-    } catch (Throwable $e) {
-        logLine('Mr. Backup: look after clearing away failed: ' . $e->getMessage());
+    if ($busy = backupLetGoBusy() ?? (backupLetGoRunning() ? 'backup_running' : null)) {
+        throw new Problem($busy);
     }
-    return ['ok' => true] + $out;
+    $file = backupLetGoJournalNew() ?? throw new Problem('backup_letgo_journal', ['path' => backupLetGoDir()]);
+    $id = substr(basename($file, '.json'), strlen('letgo-'));
+    $j = backupLetGoJournalBase($id);
+    backupLetGoJournalWrite($file, $j);
+    try {
+        ($GLOBALS['letgoLaunch'] ?? 'hostLaunch')('backup-letgo', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'backup-letgo', $id]);
+    } catch (Problem $p) {
+        $j['result'] = 'refused';
+        $j['reason'] = $p->key;
+        $j['reason_params'] = $p->params;
+        $j['finished'] = time();
+        backupLetGoJournalWrite($file, $j);
+        throw $p;
+    }
+    logLine("Mr. Backup: clearing away $id started via at");
+    return ['ok' => true, 'id' => $id, 'job' => backupLetGoJobView($j, $file)];
+}
+
+/**
+ * php agent.php job backup-letgo <id> — run by the host's atd (backupLetGoClear()), never as a child of the agent.
+ * Takes the engine's lock as {holder: backup, mode: letgo} or is refused (busy — exit 75, nothing touched), clears away,
+ * gives the lock back whatever happens. $GLOBALS['letgoPlan']: the tests' place, parts and prefixes.
+ */
+function backupLetGoJob(array $args): int
+{
+    $id = (string) ($args[0] ?? '');
+    $file = backupLetGoDir() . "/letgo-$id.json";
+    if (!preg_match(LETGO_ID, $id) || is_link($file)) {
+        logLine('Mr. Backup: job backup-letgo — no such clearing');      // atd's output goes nowhere: the log says it
+        return 2;
+    }
+    $j = readJson($file);
+    if (!$j || ($j['id'] ?? null) !== $id || ($j['result'] ?? '') !== 'queued') {
+        logLine("Mr. Backup: job backup-letgo $id — nothing to do (not queued)");
+        return 1;
+    }
+    $lock = backupLetGoLockTake();
+    if (!is_resource($lock)) {
+        $j['result'] = 'refused';
+        $j['reason'] = $lock;
+        $j['finished'] = time();
+        backupLetGoJournalWrite($file, $j);
+        logLine("Mr. Backup: clearing away $id refused ($lock)");
+        return 75;
+    }
+    $j['result'] = 'running';
+    $j['started'] = time();
+    $j['pid'] = getmypid();
+    backupLetGoJournalWrite($file, $j);
+    backupLetGoMarker($id);
+    try {
+        $plan = $GLOBALS['letgoPlan'] ?? null;
+        if ($plan === null) {
+            $f = backupLetGoFacts();
+            $plan = ['place' => $f['place'], 'asleep' => $f['asleep'], 'prefixes' => $f['prefixes'], 'btrfs_dir' => $f['btrfs_dir'],
+                     'parts' => $f['asleep'] ? [] : backupLetGoParts($f['place'], clRoots(), sleepingDisks())];
+        }
+        backupLetGoDo($plan['place'], $plan['asleep'], $plan['parts'], $plan['prefixes'], $plan['btrfs_dir'], $file, $j);
+        return 0;
+    } catch (Throwable $e) {
+        // outside a single step (the settings unreadable…): what was done so far stays in the journal, the job says failed
+        $j = readJson($file) ?? $j;
+        $j['result'] = 'failed';
+        $j['reason'] = $e instanceof Problem ? $e->key : 'internal';
+        $j['reason_params'] = $e instanceof Problem ? $e->params : ['detail' => mb_substr($e->getMessage(), 0, 400)];
+        $j['finished'] = time();
+        backupLetGoJournalWrite($file, $j);
+        logLine("Mr. Backup: clearing away $id failed: " . $e->getMessage());
+        return 1;
+    } finally {
+        backupLetGoLockRelease($lock);
+        backupLetGoMarker(null);
+    }
+}
+
+/** The RAM marker for agent.sh's array stop: written while the job runs, gone after */
+function backupLetGoMarker(?string $id): void
+{
+    $file = backupLetGoMarkerFile();
+    if ($id === null) {
+        @unlink($file);
+        return;
+    }
+    try {
+        @mkdir(dirname($file), 0700, true);
+        writeAtomic($file, getmypid() . " $id\n", 0600, 0, 0);
+    } catch (Throwable $e) {
+        logLine('Mr. Backup: could not write ' . basename($file) . ': ' . $e->getMessage());
+    }
+}
+
+/** Is the job of this journal alive? (its pid running agent.php) */
+function backupLetGoAlive(array $j): bool
+{
+    $pid = (int) ($j['pid'] ?? 0);
+    return $pid > 1 && str_contains((string) @file_get_contents("/proc/$pid/cmdline", false, null, 0, 4096), 'agent.php');
+}
+
+/** A clearing under way: its job queued (for at most 2 min) or running and alive */
+function backupLetGoRunning(): bool
+{
+    $j = readJson(backupLetGoJobFile());
+    return is_array($j) && (($j['result'] ?? '') === 'queued' && time() - (int) ($j['created'] ?? 0) < 120
+        || ($j['result'] ?? '') === 'running' && backupLetGoAlive($j));
+}
+
+/**
+ * backup.letgo_job {id} — the job file as it stands; a job that never started (queued for 2 min) or whose process is
+ * gone (killed, the array stopped, a reboot) is written down as interrupted — in its journal and the job file.
+ */
+function backupLetGoJobState(array $r): array
+{
+    $id = textField($r, 'id');
+    $file = backupLetGoDir() . "/letgo-$id.json";
+    if (!preg_match(LETGO_ID, $id) || is_link($file) || !is_array($j = readJson($file)) || ($j['id'] ?? null) !== $id) {
+        throw new Problem('unknown_target', ['target' => $id]);
+    }
+    $gone = ($j['result'] ?? '') === 'queued' && time() - (int) ($j['created'] ?? 0) >= 120
+        || ($j['result'] ?? '') === 'running' && !backupLetGoAlive($j);
+    if ($gone) {
+        $j['result'] = 'interrupted';
+        $j['finished'] = (int) ($j['heartbeat'] ?? time());
+        backupLetGoJournalWrite($file, $j);
+        logLine("Mr. Backup: clearing away $id was interrupted (its job is gone)");
+    }
+    return ['ok' => true, 'job' => backupLetGoJobView($j, $file)];
+}
+
+/** A clearing's journal as it starts: $id for a job (`queued`), null for one done in place (the tests) */
+function backupLetGoJournalBase(?string $id): array
+{
+    return ['interface' => 1, 'written_by' => 'Unraid Secretary Office (Mr. Backupsy, let go)', 'id' => $id, 'result' => $id === null ? 'running' : 'queued',
+            'reason' => null, 'created' => time(), 'started' => $id === null ? time() : null, 'finished' => null, 'pid' => $id === null ? getmypid() : null,
+            'host' => hostname(), 'place' => null, 'place_asleep' => false, 'kept' => ['settings.ini', 'decisions', 'schedule', 'kopia', 'partners'],
+            'trash' => [], 'moved' => [], 'deleted' => [], 'failed' => [], 'snapshots_kept' => 0];
+}
+
+/** The job file: what the page shows of a clearing — counts, the first 20 failures, never the paths of what moved */
+function backupLetGoJobView(array $j, string $file): array
+{
+    $failed = array_values(array_filter((array) ($j['failed'] ?? []), 'is_array'));
+    return ['id' => $j['id'] ?? null, 'result' => $j['result'] ?? null, 'reason' => $j['reason'] ?? null, 'reason_params' => $j['reason_params'] ?? null,
+            'created' => $j['created'] ?? null, 'started' => $j['started'] ?? null, 'finished' => $j['finished'] ?? null, 'pid' => $j['pid'] ?? null,
+            'heartbeat' => $j['heartbeat'] ?? null, 'moved' => count((array) ($j['moved'] ?? [])), 'deleted' => count((array) ($j['deleted'] ?? [])),
+            'failed' => array_slice($failed, 0, 20), 'failed_n' => count($failed), 'kept' => (int) ($j['snapshots_kept'] ?? 0),
+            'place_asleep' => (bool) ($j['place_asleep'] ?? false), 'journal' => basename($file)];
 }
 
 /**
@@ -340,29 +504,38 @@ function backupLetGoJournalNew(): ?string
     return $file;
 }
 
-function backupLetGoJournalWrite(string $file, array $j): void
+/** The journal (root only) — and, for a job, the job file the page polls; both carry the heartbeat (the time written) */
+function backupLetGoJournalWrite(string $file, array &$j): void
 {
+    $j['heartbeat'] = time();
     try {
         writeAtomic($file, json_encode($j, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) . "\n", 0600, 0, 0);
     } catch (Throwable $e) {
         logLine('Mr. Backup: could not write ' . basename($file) . ': ' . $e->getMessage());
     }
+    if (is_string($j['id'] ?? null)) {
+        try {
+            writeAtomic(backupLetGoJobFile(), jsonEncode(backupLetGoJobView($j, $file)));
+        } catch (Throwable $e) {
+            logLine('Mr. Backup: could not write ' . basename(backupLetGoJobFile()) . ': ' . $e->getMessage());
+        }
+    }
 }
 
 /**
  * The clearing itself: the packages of $parts into the storeroom, then the engine's own snapshots deleted — each step
- * journalled; a step that fails is noted and the rest goes on.
+ * journalled; a step that fails is noted and the rest goes on; at the end the journal says `done`. $file and $j: the
+ * job's journal (backupLetGoJob()); without them a new one (the tests). The caller holds the engine's lock.
  *
  * @param list<array{root: string, top: string, place: string}> $parts backupLetGoParts()
  * @return array{moved: int, deleted: int, failed: list<array>, failed_n: int, kept: int, place_asleep: bool, journal: string, runs: list<string>}
  */
-function backupLetGoDo(?string $place, bool $placeAsleep, array $parts, array $prefixes, string $btrfsDir): array
+function backupLetGoDo(?string $place, bool $placeAsleep, array $parts, array $prefixes, string $btrfsDir, ?string $file = null, ?array $j = null): array
 {
-    $file = backupLetGoJournalNew() ?? throw new Problem('backup_letgo_journal', ['path' => backupLetGoDir()]);
-    $j = ['interface' => 1, 'written_by' => 'Unraid Secretary Office (Mr. Backupsy, let go)', 'started' => time(), 'finished' => null,
-          'host' => hostname(), 'place' => $place, 'place_asleep' => $placeAsleep,
-          'kept' => ['settings.ini', 'decisions', 'schedule', 'kopia', 'partners'],
-          'trash' => [], 'moved' => [], 'deleted' => [], 'failed' => [], 'snapshots_kept' => 0];
+    $file ??= backupLetGoJournalNew() ?? throw new Problem('backup_letgo_journal', ['path' => backupLetGoDir()]);
+    $j = ($j ?? backupLetGoJournalBase(null)) + ['trash' => [], 'moved' => [], 'deleted' => [], 'failed' => []];
+    $j['place'] = $place;
+    $j['place_asleep'] = $placeAsleep;
     backupLetGoJournalWrite($file, $j);
     $fail = function (string $what, string $desk, Problem|array $e) use (&$j, $file): void {
         $err = $e instanceof Problem ? $e->toArray() : $e;
@@ -461,6 +634,7 @@ function backupLetGoDo(?string $place, bool $placeAsleep, array $parts, array $p
         }
     }
 
+    $j['result'] = 'done';
     $j['finished'] = time();
     backupLetGoJournalWrite($file, $j);
     logLine(sprintf('Mr. Backup: let go and cleared away: %d packages into the storeroom, %d snapshots deleted, %d failed (%s)',
