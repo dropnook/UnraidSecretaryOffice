@@ -328,6 +328,69 @@ function testPlanGone(): void
 }
 
 /**
+ * Ms. Snapshotini's plans through one normalising reader (snapPlans(), upgrade audit proposal 10): a plan an older office
+ * wrote without some keys gets every default (the same `enabled` for the run as for a save; never more than the plan
+ * said: no age limit, keep the most, no cron line = never due), a plan a newer office wrote keeps its unknown keys —
+ * read, run and written again; an entry that is no plan of the office's stays in the file.
+ */
+function testSnapPlansTolerant(): void
+{
+    $tmp = hardeningTmp('plantolerant');
+    $before = [$GLOBALS['snapPlanFile'] ?? null, $GLOBALS['snapPlanStateFile'] ?? null];
+    $GLOBALS['snapPlanFile'] = "$tmp/plans.json";
+    $GLOBALS['snapPlanStateFile'] = "$tmp/state.json";
+    $old = ['id' => 'nightly', 'targets' => ['zfs:hive/appdata'], 'cron' => '0 3 * * *'];          // keys missing (an older office)
+    $future = ['id' => 'hourly', 'label' => 'Hourly', 'targets' => ['zfs:hive/system'], 'recursive' => true, 'cron' => '0 * * * *', 'keep' => 24,
+               'max_days' => 2, 'skip_asleep' => true, 'enabled' => false, 'since' => 5, 'notify' => ['when' => 'never'], 'colour' => 'blue'];
+    $odd = ['label' => 'no id'];
+    file_put_contents("$tmp/plans.json", json_encode(['plans' => [$old, $future, $odd, 'x', ['id' => 'Bad Id!']], 'v' => 2]));
+    $plans = snapPlans();
+    same('snap plans tolerant: only the plans of the office\'s shape, in their order', ['nightly', 'hourly'], array_column($plans, 'id'));
+    same('snap plans tolerant: a plan without keys — every default, of its type', ['id' => 'nightly', 'label' => 'nightly', 'targets' => ['zfs:hive/appdata'],
+        'recursive' => false, 'cron' => '0 3 * * *', 'keep' => SNAPPLAN_KEEP, 'max_days' => 0, 'skip_asleep' => false, 'enabled' => true, 'since' => 0], $plans[0]);
+    same('snap plans tolerant: a plan of a newer office — its keys as they were, the unknown ones kept after them', $future, $plans[1]);
+    same('snap plans tolerant: … in that order', ['id', 'label', 'targets', 'recursive', 'cron', 'keep', 'max_days', 'skip_asleep', 'enabled', 'since', 'notify', 'colour'],
+        array_keys($plans[1]));
+    same('snap plans tolerant: keys of another type count as missing', [true, SNAPPLAN_KEEP, 0, [], ''],
+        (function () {
+            $p = snapPlanNormal(['id' => 'x', 'enabled' => 'yes', 'keep' => '7', 'max_days' => -1, 'targets' => 'zfs:a', 'cron' => 5]);
+            return [$p['enabled'], $p['keep'], $p['max_days'], $p['targets'], $p['cron']];
+        })());
+    // the run: the old plan is due like any (enabled by default), a plan without a cron line never is, a paused one not
+    same('snap plans tolerant: due like any plan — its cron line read, no missing key in the way', true,
+        cronPrevious($plans[0]['cron'], time()) !== null && $plans[0]['enabled']);
+    same('snap plans tolerant: no cron line — never due, no next time', [null, null], [cronPrevious(snapPlanNormal(['id' => 'x'])['cron'], time()),
+        cronNext(snapPlanNormal(['id' => 'x'])['cron'], time())]);
+    $snap = fn (string $name, int $at) => ['name' => $name, 'fs' => 'zfs', 'vol' => 'zfs:hive/appdata', 'ds' => 'hive/appdata', 'id' => "zfs:hive/appdata@$name",
+        'created' => $at, 'docker' => false];
+    $now = 1800000000;
+    $all = [];
+    for ($i = 0; $i < 30; $i++) {
+        $all[] = $snap(snapPlanName('nightly', $now - $i * 86400 * 40), $now - $i * 86400 * 40);
+    }
+    same('snap plans tolerant: retention of a plan without keep / max_days — nothing goes (keep the most, no age limit)', [],
+        snapPlanDoomed($plans[0], ['zfs:hive/appdata'], $all, $now, []));
+    // written again (a pause, as snapPlanToggle() writes): the unknown keys, the odd entries and the keys beside the list stay
+    $plans[1]['enabled'] = true;
+    snapPlanSaveAll($plans);
+    $file = json_decode((string) file_get_contents("$tmp/plans.json"), true);
+    same('snap plans tolerant: written again — the newer plan\'s keys kept, the defaults now written for the older one', [['when' => 'never'], 'blue', true, SNAPPLAN_KEEP],
+        [$file['plans'][1]['notify'] ?? null, $file['plans'][1]['colour'] ?? null, $file['plans'][1]['enabled'] ?? null, $file['plans'][0]['keep'] ?? null]);
+    same('snap plans tolerant: … what is no plan of the office\'s stays in the file, and the keys beside the list', [[$odd, 'x', ['id' => 'Bad Id!']], 2],
+        [array_slice($file['plans'] ?? [], 2), $file['v'] ?? null]);
+    same('snap plans tolerant: … read back the same', array_column($plans, 'id'), array_column(snapPlans(), 'id'));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/snapshotplans.php');
+    check('snap plans tolerant: a save carries the unknown keys of the plan it replaces', str_contains($src, '$plan += $old;'));
+    file_put_contents("$tmp/plans.json", 'not json');
+    same('snap plans tolerant: a broken file — no plans, nothing thrown', [], snapPlans());
+    [$GLOBALS['snapPlanFile'], $GLOBALS['snapPlanStateFile']] = $before;
+    if ($before[0] === null) {
+        unset($GLOBALS['snapPlanFile'], $GLOBALS['snapPlanStateFile']);
+    }
+    hardeningRm($tmp);
+}
+
+/**
  * Sleeping ZFS pools (2026-10-07): Ms. Snapshotini and Mr. Restori list datasets and snapshots only on the awake
  * pools (`zfs list … -r <pool>`; disks.ini says which sleep, a pool sleeps when any of its disks does) — a sleeping
  * pool is never asked, it keeps what was last seen of it, marked asleep with when that was; «wake» lists it too.
@@ -7654,6 +7717,81 @@ function testNotify(): void
 }
 
 /**
+ * «I know, thanks» and what a finding says (upgrade audit proposal 9): the team lead's note is keyed by the finding's
+ * level, params and English texts — a note given for params A stays for A and doesn't count for B; an update that
+ * changes what the finding says or recommends brings it back (once: noted again, it stays away); the same texts keep it
+ * noted across a plain version bump. Notes from before (their sig without the texts) are taken over at the next tour
+ * as given for today's texts — nothing re-opens by the change itself; the partner watch's job reads both. The night
+ * watchman's posture tips likewise: a note keeps what the tip said (`text`), an older one gets it at his next round.
+ */
+function testAckContent(): void
+{
+    $f = fn (array $p, string $level = 'recommended') => finding('other_backup_container', $level, false, $p);
+    $A = ['name' => 'duplicati', 'image' => 'x'];
+    $B = ['name' => 'borg', 'image' => 'x'];
+    $t1 = ['Other backup containers', 'Know what runs twice.'];
+    $t2 = ['Other backup containers', 'Switch one of them off — two tools on the same data fight over it.'];
+    $sig = fn (array $p, array $t) => caretakerAckSig('caretaker', $f($p), $t);
+    same('ack content: the same params and texts — the same sig (a plain version bump keeps the note)', $sig($A, $t1), $sig($A, $t1));
+    check('ack content: other params — another sig', $sig($A, $t1) !== $sig($B, $t1));
+    check('ack content: what it says or recommends changed — another sig', $sig($A, $t1) !== $sig($A, $t2) && $sig($A, $t1) !== $sig($A, [$t1[0], null]));
+    check('ack content: shaped for the action', (bool) preg_match(CARETAKER_ACK_SIG, $sig($A, $t2)));
+    $texts = caretakerAckTexts('caretaker', 'other_backup_container');
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/caretaker/lang/en.json'), true) ?: [];
+    same('ack content: the texts are the desk\'s English check.<id> and check.<id>_how', [$en['check.other_backup_container'] ?? 'missing', $en['check.other_backup_container_how'] ?? null], $texts);
+    same('ack content: … by default', caretakerAckSig('caretaker', $f($A), $texts), caretakerAckSig('caretaker', $f($A)));
+
+    // a note recorded against params A: valid for A, not for B
+    $t0 = 1_800_000_000;
+    $note = ['desk' => 'caretaker', 'id' => 'other_backup_container', 'time' => $t0, 'seen' => $t0, 'v' => 2];
+    $acks = [caretakerAckSig('caretaker', $f($A)) => $note];
+    [$m] = caretakerAckStep(['caretaker' => [$f($A)]], $acks, $t0 + 60);
+    same('ack content: noted for params A — A stays noted', true, $m['caretaker'][0]['acked'] ?? false);
+    [$m, $kept] = caretakerAckStep(['caretaker' => [$f($B)]], $acks, $t0 + 60);
+    same('ack content: … B is not (shown again)', false, $m['caretaker'][0]['acked'] ?? false);
+    check('ack content: … the note for A is no note for B', !isset($kept[caretakerAckSig('caretaker', $f($B))]));
+
+    // a note from before 1.44: its sig without the texts — taken over at the next tour, nothing comes back
+    $legacy = caretakerAckSig('caretaker', $f($A), null, true);
+    check('ack content: the old sig differs from the new', $legacy !== caretakerAckSig('caretaker', $f($A)));
+    $oldNote = ['desk' => 'caretaker', 'id' => 'other_backup_container', 'time' => $t0, 'seen' => $t0];
+    $tmp = hardeningTmp('ackcontent');
+    $file = "$tmp/caretaker/acks.json";
+    caretakerWrite($file, ['acks' => [$legacy => $oldNote]]);
+    same('ack content: an old note reads as v 1', 1, caretakerAckRead($file)[$legacy]['v'] ?? null);
+    check('ack content: the partner watch\'s job counts an old note before any tour', caretakerAckHas(caretakerAckRead($file), 'caretaker', $f($A))
+        && !caretakerAckHas(caretakerAckRead($file), 'caretaker', $f($B)));
+    $m = caretakerAckApply(['caretaker' => [$f($A)]], $file, $t0 + 60);
+    $read = caretakerAckRead($file);
+    same('ack content: the tour takes it over — still noted, now under the new sig (v 2), the old key gone',
+        [true, [caretakerAckSig('caretaker', $f($A))], 2, $t0], [$m['caretaker'][0]['acked'] ?? false, array_keys($read), $read[caretakerAckSig('caretaker', $f($A))]['v'] ?? null,
+         $read[caretakerAckSig('caretaker', $f($A))]['time'] ?? null]);
+    caretakerWrite($file, ['acks' => [$legacy => $oldNote]]);
+    $m = caretakerAckApply(['caretaker' => [$f($B)]], $file, $t0 + 60);
+    same('ack content: an old note for params A is not taken over for B', [false, [$legacy]], [$m['caretaker'][0]['acked'] ?? false, array_keys(caretakerAckRead($file))]);
+    caretakerWrite($file, ['acks' => [caretakerAckSig('caretaker', $f($A), $t1) => $note]]);
+    $m = caretakerAckApply(['caretaker' => [$f($A)]], $file, $t0 + 60);
+    same('ack content: a note given when the texts said something else — shown again', false, $m['caretaker'][0]['acked'] ?? false);
+    hardeningRm($tmp);
+
+    // the night watchman's posture tips
+    $tip = ['id' => 'telnet', 'sig' => 'abc', 'p' => []];
+    $say = fn (string $v) => fn (string $id) => "$id:$v";
+    same('posture content: noted when it said this — known', true, watchmanPostureIsKnown($tip, ['acks' => ['telnet' => ['sig' => 'abc', 'text' => 'telnet:1']]], $say('1')));
+    same('posture content: the update changed what it says — shown again', false, watchmanPostureIsKnown($tip, ['acks' => ['telnet' => ['sig' => 'abc', 'text' => 'telnet:1']]], $say('2')));
+    same('posture content: about something else (its sig) — shown again, as before', false, watchmanPostureIsKnown($tip, ['acks' => ['telnet' => ['sig' => 'xyz', 'text' => 'telnet:1']]], $say('1')));
+    same('posture content: an old note without text — known', true, watchmanPostureIsKnown($tip, ['acks' => ['telnet' => ['sig' => 'abc', 'time' => 5]]], $say('2')));
+    same('posture content: his round takes an old note over with today\'s text, keeps a newer one\'s',
+        ['acks' => ['telnet' => ['sig' => 'abc', 'time' => 5, 'text' => 'telnet:2'], 'ftp' => ['sig' => 'f', 'time' => 6, 'text' => 'ftp:1']]],
+        watchmanPostureKnown(['acks' => ['telnet' => ['sig' => 'abc', 'time' => 5], 'ftp' => ['sig' => 'f', 'time' => 6, 'text' => 'ftp:1'], 'gone' => ['sig' => 'g']]],
+            [$tip, ['id' => 'ftp', 'sig' => 'f']], $say('2')));
+    $w = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/watchman/lang/en.json'), true) ?: [];
+    check('posture content: the text is what the page shows (title and why)', isset($w['posture.telnet.title'], $w['posture.telnet.why'])
+        && watchmanPostureText('telnet') === substr(sha1(jsonEncode([$w['posture.telnet.title'], $w['posture.telnet.why']])), 0, 16)
+        && watchmanPostureText('telnet') !== watchmanPostureText('ftp'));
+}
+
+/**
  * The team lead's «I know, thanks»: what a finding's signature depends on,
  * which findings get marked (never a must), how the notes are kept tidy, the
  * file on a copy — and the Dashboard tile counting only what is open, and
@@ -11110,42 +11248,53 @@ function testBackupSparse(): void
 }
 
 /**
- * Ms. Dustdevil takes over Ms. Whereabouts' files once (2026-10): her state (only while the new one isn't there),
- * what du measured (merged — what was measured later wins, never lost), only plain JSON files of the folder; then
- * the old ones are gone and a second start does nothing.
+ * Ms. Dustdevil takes over Ms. Whereabouts' files once (2026-10) — since 1.44 the migration step `where-files`
+ * (agent/lib/migrate.php officeMigrateWhere(), up to 1.43 her start): her state (only while the new one isn't there),
+ * what du measured (merged — what was measured later wins, never lost), only plain JSON files of the folder; then the
+ * old ones are renamed aside (<name>.before-<version>), never deleted, and a second run does nothing.
  */
 function testWhereTakeOver(): void
 {
     $tmp = hardeningTmp('where-takeover');
     $state = ['time' => 100, 'shares' => [['name' => 'appdata']], 'containers' => [], 'scripts' => []];
     file_put_contents("$tmp/whereabouts.json", json_encode($state));
-    file_put_contents("$tmp/whereabouts-sizes.json", json_encode(['sizes' => [
-        '/mnt/user/a' => ['bytes' => 1, 'at' => 100], '/mnt/user/b' => ['bytes' => 2, 'at' => 200]], 'queue' => ['/mnt/user/q'], 'running' => ['/mnt/user/r']]));
+    $oldSizes = json_encode(['sizes' => ['/mnt/user/a' => ['bytes' => 1, 'at' => 100], '/mnt/user/b' => ['bytes' => 2, 'at' => 200]],
+        'queue' => ['/mnt/user/q'], 'running' => ['/mnt/user/r']]);
+    file_put_contents("$tmp/whereabouts-sizes.json", $oldSizes);
     file_put_contents("$tmp/cleanup-where-sizes.json", json_encode(['sizes' => [
         '/mnt/user/b' => ['bytes' => 22, 'at' => 300], '/mnt/user/c' => ['bytes' => 3, 'at' => 50]], 'queue' => [], 'running' => []]));
-    $done = whereTakeOver($tmp);
-    same('where takeover: both files', ['whereabouts.json → cleanup-where.json', 'whereabouts-sizes.json → cleanup-where-sizes.json'], $done);
-    same('where takeover: the old files are gone', [false, false], [file_exists("$tmp/whereabouts.json"), file_exists("$tmp/whereabouts-sizes.json")]);
+    $done = officeMigrateWhere($tmp, '1.44.0');
+    same('where takeover: both files, each kept aside', ['whereabouts.json → cleanup-where.json (the old one kept as whereabouts.json.before-1.44.0)',
+        'whereabouts-sizes.json → cleanup-where-sizes.json (the old one kept as whereabouts-sizes.json.before-1.44.0)'], $done);
+    same('where takeover: the old files are renamed aside, as they were — never deleted', [false, false, json_encode($state), $oldSizes],
+        [file_exists("$tmp/whereabouts.json"), file_exists("$tmp/whereabouts-sizes.json"), @file_get_contents("$tmp/whereabouts.json.before-1.44.0"),
+         @file_get_contents("$tmp/whereabouts-sizes.json.before-1.44.0")]);
     same('where takeover: her state as it was', $state, json_decode((string) file_get_contents("$tmp/cleanup-where.json"), true));
     $sizes = json_decode((string) file_get_contents("$tmp/cleanup-where-sizes.json"), true);
     same('where takeover: every size kept, the later measurement wins, no old jobs', [1, 22, 3, [], []],
         [$sizes['sizes']['/mnt/user/a']['bytes'] ?? null, $sizes['sizes']['/mnt/user/b']['bytes'] ?? null, $sizes['sizes']['/mnt/user/c']['bytes'] ?? null,
          $sizes['queue'] ?? null, $sizes['running'] ?? null]);
-    same('where takeover: once', [], whereTakeOver($tmp));
+    same('where takeover: once', [], officeMigrateWhere($tmp, '1.44.0'));
     same('where takeover: no temporary files left', [], array_values(array_filter(scandir($tmp) ?: [], fn ($n) => str_ends_with($n, '.tmp'))));
 
     // a newer state of hers stays; an old one that is a link or no JSON is left alone
     file_put_contents("$tmp/whereabouts.json", json_encode(['time' => 1]));
-    whereTakeOver($tmp);
-    same('where takeover: her own newer state stays', 100, json_decode((string) file_get_contents("$tmp/cleanup-where.json"), true)['time'] ?? null);
+    officeMigrateWhere($tmp, '1.44.0');
+    same('where takeover: her own newer state stays; the second old file aside gets a number', [100, true],
+        [json_decode((string) file_get_contents("$tmp/cleanup-where.json"), true)['time'] ?? null, is_file("$tmp/whereabouts.json.before-1.44.0-2")]);
     file_put_contents("$tmp/elsewhere.json", json_encode(['sizes' => ['/x' => ['bytes' => 9, 'at' => 999]]]));
     symlink("$tmp/elsewhere.json", "$tmp/whereabouts-sizes.json");
-    same('where takeover: a link is no file of hers', ['whereabouts-sizes.json left alone (no plain file)'], whereTakeOver($tmp));
+    same('where takeover: a link is no file of hers', ['whereabouts-sizes.json left alone (no plain file)'], officeMigrateWhere($tmp, '1.44.0'));
     unlink("$tmp/whereabouts-sizes.json");
     file_put_contents("$tmp/whereabouts-sizes.json", 'not json');
-    same('where takeover: no JSON — left alone', ['whereabouts-sizes.json left alone (no JSON)'], whereTakeOver($tmp));
+    same('where takeover: no JSON — left alone', ['whereabouts-sizes.json left alone (no JSON)'], officeMigrateWhere($tmp, '1.44.0'));
     same('where takeover: nothing from the link went in', false, isset(json_decode((string) file_get_contents("$tmp/cleanup-where-sizes.json"), true)['sizes']['/x']));
     hardeningRm($tmp);
+    // her start no longer takes anything over (the step did, once) — and nothing in the agent deletes her old files
+    $where = (string) file_get_contents(OFFICE_DIR . '/agent/lib/where.php');
+    check('where takeover: a migration step now — not her start, no unlink', !function_exists('whereTakeOver') && !str_contains($where, 'function whereTakeOver')
+        && in_array('where-files', array_column(officeMigrateSteps(), 'id'), true)
+        && !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/migrate.php'), 'unlink('));
 }
 
 /**
@@ -11330,28 +11479,64 @@ function testStaffMerged(): void
         staffMergedIds(['backup', 'whereabouts', 'cleanup'], $desks));
     same('staff merged: the agent leaves a desk that is there alone', ['whereabouts'], staffMergedIds(['whereabouts'], ['whereabouts' => []]));
 
-    // the web side rewrites staff.json once (a process of its own: bootstrap.php, the data folder in $tmp)
+    // the agent's migration step rewrites staff.json once (since 1.44; up to 1.43 the web side did), the list before kept
     $tmp = hardeningTmp('staff-merged');
     mkdir("$tmp/office", 0700);
     $file = "$tmp/office/staff.json";
-    file_put_contents($file, json_encode(['hired' => ['backup' => 5, 'whereabouts' => 7, 'watchman' => 8], 'other' => 'kept']));
-    $web = "$tmp/web.php";
-    file_put_contents($web, '<?php require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . ';'
-        . ' $desks = ["backup" => [], "cleanup" => [], "watchman" => []]; $f = ' . var_export($file, true) . ';'
-        . ' echo json_encode([officeStaffMigrate($f, $desks), officeStaffMigrate($f, $desks)]);');
-    $run = function () use ($web, $tmp): array {
-        $p = proc_open([PHP_BINARY, $web], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['OFFICE_DATA_DIR' => $tmp, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
-        $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
-        proc_close($p);
-        return [json_decode($raw, true), $raw];
-    };
-    [$out, $raw] = $run();
+    $before = json_encode(['hired' => ['backup' => 5, 'whereabouts' => 7, 'watchman' => 8], 'other' => 'kept']);
+    file_put_contents($file, $before);
+    $desks = ['backup' => [], 'cleanup' => [], 'watchman' => []];
+    $said = officeMigrateStaff($tmp, '1.44.0', $desks);
     $saved = json_decode((string) file_get_contents($file), true);
-    same('staff migrate: written once — whereabouts is cleanup now, the rest as it was', ['hired' => ['backup' => 5, 'watchman' => 8, 'cleanup' => 7], 'other' => 'kept'], $saved);
-    same('staff migrate: the second time changes nothing', $saved, $out[1] ?? $raw);
-    same('staff migrate: mode and no temporary files', ['644', []], [substr(sprintf('%o', fileperms($file)), -3),
-        array_values(array_filter(scandir("$tmp/office") ?: [], fn ($n) => str_ends_with($n, '.tmp')))]);
+    same('staff migrate: written once by the step — whereabouts is cleanup now, the rest as it was', ['hired' => ['backup' => 5, 'watchman' => 8, 'cleanup' => 7], 'other' => 'kept'], $saved);
+    same('staff migrate: … the list before kept beside it, said in the log', [$before, true],
+        [@file_get_contents("$file.before-1.44.0"), str_contains($said, 'whereabouts → cleanup') && str_contains($said, 'staff.json.before-1.44.0')]);
+    same('staff migrate: the second time changes nothing', ['nothing to change', $saved], [officeMigrateStaff($tmp, '1.44.0', $desks), json_decode((string) file_get_contents($file), true)]);
+    same('staff migrate: mode, no temporary files, the web side\'s lock file', ['644', [], true], [substr(sprintf('%o', fileperms($file)), -3),
+        array_values(array_filter(scandir("$tmp/office") ?: [], fn ($n) => str_ends_with($n, '.tmp'))), is_file("$tmp/office/.staff.lock")]);
+    same('staff migrate: an empty list stays an object', '{}', (function () use ($tmp, $file, $desks) {
+        file_put_contents($file, json_encode(['hired' => (object) [], 'order' => ['whereabouts']]));
+        officeMigrateStaff($tmp, '1.44.0', $desks);
+        return json_encode(json_decode((string) file_get_contents($file))->hired ?? null);
+    })());
+    same('staff migrate: no list — nothing; a link — left alone', ['nothing to change (no staff list)', 'office/staff.json left alone (no plain file)'],
+        (function () use ($tmp, $file, $desks) {
+            unlink($file);
+            $none = officeMigrateStaff($tmp, '1.44.0', $desks);
+            file_put_contents("$tmp/elsewhere.json", json_encode(['hired' => ['whereabouts' => 1]]));
+            symlink("$tmp/elsewhere.json", $file);
+            return [$none, officeMigrateStaff($tmp, '1.44.0', $desks)];
+        })());
+    same('staff migrate: … nothing written through the link', ['hired' => ['whereabouts' => 1]], json_decode((string) file_get_contents("$tmp/elsewhere.json"), true));
+    unlink($file);
+    check('staff migrate: a step of the agent\'s migrations', in_array('staff-merged', array_column(officeMigrateSteps(), 'id'), true));
+
+    // the web side: reads the list merged for the moment before the step ran — and never writes it (a process of its own)
+    // (the plugin's layout: src/ beside the repository's desks, the data folder in $tmp/data)
+    hardeningRm($tmp);
+    $tmp = hardeningTmp('staff-merged-web');
+    mkdir("$tmp/plugin/src", 0700, true);
+    foreach (glob(OFFICE_DIR . '/src/*.php') ?: [] as $f) {
+        copy($f, "$tmp/plugin/src/" . basename($f));
+    }
+    symlink(OFFICE_DIR . '/public/desks', "$tmp/plugin/desks");
+    symlink(OFFICE_DIR . '/public/lang', "$tmp/plugin/lang");
+    mkdir("$tmp/data/office", 0700, true);
+    $file = "$tmp/data/office/staff.json";
+    file_put_contents($file, $before);
+    $web = "$tmp/web.php";
+    file_put_contents($web, '<?php require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . ';'
+        . ' echo json_encode([officeHired(), officeStaffOrder()]);');
+    $p = proc_open([PHP_BINARY, $web], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+        ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
+    $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+    proc_close($p);
+    $out = json_decode($raw, true);
+    same('staff read: the web side reads Ms. Whereabouts as Ms. Dustdevil before the step', [7, false], [$out[0]['cleanup'] ?? $raw, isset($out[0]['whereabouts'])]);
+    same('staff read: … and leaves the file as it is (the agent migrates, never the page)', [$before, ['staff.json']],
+        [file_get_contents($file), array_values(array_diff(scandir("$tmp/data/office") ?: [], ['.', '..']))]);
+    check('staff read: no rewrite on the web side any more', !function_exists('officeStaffMigrate')
+        && !str_contains((string) file_get_contents(OFFICE_DIR . '/src/staff.php'), 'officeStaffMigrate'));
     hardeningRm($tmp);
 }
 
@@ -12425,7 +12610,8 @@ function testApiGzip(): void
  * page with a stand-in fetch (skipped where node is missing): the reception asks as stored, the same question on its way
  * once (the reception and started() together); the desk shown gets its kept state at once and the new look (`wait`)
  * after it — handed over only once no dialog is open; an answer older than what is shown is dropped; actions ask for a
- * fresh state first (none needed, a fresh look, the look under way handed over at once) and are refused without one.
+ * fresh state first (none needed, a fresh look, the look under way handed over at once) and are refused without one; a
+ * render that throws on a kept state of an older version's shape doesn't stop the new look (upgrade audit proposal 8).
  */
 function testLookPage(): void
 {
@@ -12522,6 +12708,22 @@ const out = {};
   await O.loadState('snapshot', {}, took);
   got.splice(0);
   out.refused = await O.freshState('snapshot');
+  // a kept state in an older version's shape (right after an update): the render throws — the new look is asked for
+  // all the same and heals the page at once; the caller hears of the error once, core.js logs nothing of its own
+  O.current = { id: 'snapshot' };
+  answers = { 'wait=1': later(30, { ok: true, state: { time: 700, shape: 2 }, age: 0, refresh_after: 60 }),
+    'desk=snapshot$': { ok: true, state: { time: 600 }, age: 5000, stale: true, refreshing: true, refresh_after: 60 } };
+  calls.length = 0;
+  const healed = [];
+  const fragile = (j, l) => { if (!j.state.shape) throw new Error('old shape'); healed.push([j.state.time, !!l]); };
+  const errors = [];
+  const consoleError = console.error;
+  console.error = (...a) => errors.push(a.map(String).join(' '));
+  let thrown = [];
+  try { await O.loadState('snapshot', {}, fragile); } catch (e) { thrown.push(String(e && e.message)); }
+  await sleep(250);
+  console.error = consoleError;
+  out.heals = { thrown, calls: calls.slice(), healed, errors };
   console.log(JSON.stringify(out));
   process.exit(0);
 })().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
@@ -12544,6 +12746,9 @@ JS);
     same('look page: an action on a stale state waits for a fresh look', [true, ['a=state&desk=snapshot&fresh=1'], [[400, false]]], $r['freshAsked']);
     same('look page: … the look under way handed over at once (a dialog open or not), once', [[true, [], [[500, true]]], []], [$r['pendingTaken'], $r['pendingTwice']]);
     same('look page: no fresh look to be had — refused (never on a stale list)', false, $r['refused']);
+    same('look page: a render that throws on an old-shape state — the new look asked for all the same, the page healed at once',
+        [['a=state&desk=snapshot', 'a=state&desk=snapshot&wait=1'], [[700, true]]], [$r['heals']['calls'] ?? null, $r['heals']['healed'] ?? null]);
+    same('look page: … the error reaches the caller once, nothing logged twice', [['old shape'], []], [$r['heals']['thrown'] ?? null, $r['heals']['errors'] ?? null]);
     hardeningRm($tmp);
 }
 
@@ -17416,8 +17621,9 @@ function testMigrate(): void
     $listing = fn () => scandir($dir);
     $was = $listing();
     $r = officeMigrate('1.41.0', '1.42.0', $dir, null, null, $log);
-    same('migrate: the real first step runs on an older folder and changes nothing in it', [true, $was],
-        [in_array('marker', $r['ran'], true) || in_array('marker', officeMarkRead($dir)['done'], true), $listing()]);
+    same('migrate: the real steps run on an older folder — with nothing of the past in it they change nothing', [true, true, $was],
+        [in_array('marker', $r['ran'], true) || in_array('marker', officeMarkRead($dir)['done'], true),
+         !array_diff(['where-files', 'staff-merged'], array_merge($r['ran'], officeMarkRead($dir)['done'])), $listing()]);
     $versions = array_column($real, 'version');
     usort($versions, 'version_compare');
     same('migrate: the real steps are listed oldest first (they run in that order)', $versions, array_column($real, 'version'));
@@ -17430,6 +17636,108 @@ function testMigrate(): void
         && $at('officeMigrateStart()') < $at('writeInfo(true)') && $at('officeMigrateStart()') < $at("(\$desk['start'])()") && $at('privateDirEnsure(OFFICE_PRIVATE') < $at('officeMigrateStart()'));
     check('migrate: the agent requires lib/migrate.php', str_contains($src, "require __DIR__ . '/lib/migrate.php';"));
     exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Mr. Backupsy's setup after an engine update (upgrade audit proposal 5, backupSetupReplan()): a plan whose `version`
+ * isn't the running engine's is made anew on the next look — once per engine version (the note is written before
+ * setup.sh starts; a failed plan isn't tried again at every look), not while a run or anything holds the lock, not for
+ * an engine the office can't drive; no plan answered while it runs; the plan it made says so in its messages (once —
+ * a later plan doesn't); the page no longer sniffs the plan's shape.
+ */
+function testBackupReplan(): void
+{
+    $state = ['found' => true, 'compatible' => true, 'running' => false, 'version' => '2.34'];
+    $old = ['version' => '2.33', 'time' => 100, 'messages' => [['level' => 'warn', 'step' => 'shares', 'text' => 'x']]];
+    $r = backupSetupReplan($old, $state, null, true, 1000);
+    same('backup replan: an older engine\'s plan — planned anew, no plan answered meanwhile, the note first',
+        [null, true, ['from' => '2.33', 'to' => '2.34', 'at' => 1000]], [$r['plan'], $r['start'], $r['note']]);
+    $note = $r['note'];
+    $r = backupSetupReplan($old, $state, $note, true, 1060);
+    same('backup replan: … once — the plan failed (still the old one): not again, the old plan shown', [$old, false, $note], [$r['plan'], $r['start'], $r['note']]);
+    foreach ([['running' => true], ['compatible' => false], ['found' => false]] as $odd) {
+        $r = backupSetupReplan($old, $odd + $state, null, true, 1000);
+        same('backup replan: not now — ' . json_encode($odd), [$old, false, null], [$r['plan'], $r['start'], $r['note']]);
+    }
+    $r = backupSetupReplan($old, $state, null, false, 1000);
+    same('backup replan: not while something holds the engine\'s lock (setup, restore, recover)', [$old, false, null], [$r['plan'], $r['start'], $r['note']]);
+    $r = backupSetupReplan(['time' => 5], $state, null, true, 1000);
+    same('backup replan: a plan without a version counts as older', [true, '?'], [$r['start'], $r['note']['from'] ?? null]);
+    $r = backupSetupReplan(null, $state, null, true, 1000);
+    same('backup replan: no plan at all — nothing here (the page asks for its first plan itself)', [null, false], [$r['plan'], $r['start']]);
+
+    // the new plan: said in its messages, the note remembers which plan that was
+    $new = ['version' => '2.34', 'time' => 1003, 'messages' => [['level' => 'info', 'step' => 'plan', 'text' => 'Plan written']]];
+    $r = backupSetupReplan($new, $state, $note, true, 1010);
+    $said = $r['plan']['messages'][1] ?? [];
+    same('backup replan: the plan made anew says so in its list (code replanned, the versions)',
+        [false, 'Plan written', 'replanned', 'info', ['from' => '2.33', 'to' => '2.34'], 1003],
+        [$r['start'], $r['plan']['messages'][0]['text'] ?? null, $said['code'] ?? null, $said['level'] ?? null, $said['params'] ?? null, $r['note']['plan'] ?? null]);
+    $r2 = backupSetupReplan($new, $state, $r['note'], true, 1200);
+    same('backup replan: … on every look at that plan', 'replanned', $r2['plan']['messages'][1]['code'] ?? null);
+    $later = ['version' => '2.34', 'time' => 2000, 'messages' => []];
+    $r3 = backupSetupReplan($later, $state, $r['note'], true, 2010);
+    same('backup replan: a later plan (Look again, after Apply) says nothing of it', [[], false], [$r3['plan']['messages'], $r3['start']]);
+    $r4 = backupSetupReplan($new, $state, null, true, 1010);
+    same('backup replan: this engine\'s plan without a note — as it is', $new, $r4['plan']);
+    $r5 = backupSetupReplan($old, ['version' => '2.35'] + $state, $r['note'], true, 3000);
+    same('backup replan: the next engine update — planned anew again', [true, '2.35'], [$r5['start'], $r5['note']['to'] ?? null]);
+
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    $get = preg_match('/^function backupSetupGet\(\): array\n\{\n(.*?)^\}/ms', $src, $m) ? $m[1] : '';
+    check('backup replan: setup_get decides, notes before it starts, and starts setup.sh --plan',
+        str_contains($get, 'backupSetupReplan(') && strpos($get, 'writeAtomic($noteFile') < strpos($get, "'--plan'") && str_contains($get, "\$replan['start'] = false"));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('backup replan: the page no longer sniffs the plan\'s shape', !str_contains($js, 'restale') && !str_contains($js, 'c.binds === undefined'));
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true) ?: [];
+    check('backup replan: the office has its words', str_contains((string) ($en['setup.msg.replanned'] ?? ''), '{from}') && str_contains((string) ($en['setup.msg.replanned'] ?? ''), '{to}'));
+}
+
+/**
+ * Unraid 8 and the .plg's max (upgrade audit proposal 7): the version the office was tested on is one constant
+ * (OFFICE_UNRAID_TESTED, src/place.php), the .plg's max is <major>.99.99 of it (plugin/build.sh refuses another); the
+ * team lead recommends looking for an office release before an Unraid update once this Unraid is newer than the tested
+ * major.minor or within the last minor before max — in place on the tested one and older.
+ */
+function testUnraidTested(): void
+{
+    $ok = fn (?string $v, string $t = '7.3') => ($f = caretakerUnraidTested($v, $t)) === null ? null : $f['ok'];
+    same('unraid tested: the tested one and older — in place', [true, true, true, true], [$ok('7.3.2'), $ok('7.3.0'), $ok('7.2.4'), $ok('7.3.0-rc.1')]);
+    same('unraid tested: newer than tested — look for an office release first', [false, false, false], [$ok('7.4.0'), $ok('7.4.0-beta.2'), $ok('7.10.1')]);
+    same('unraid tested: within the last minor before max (7.99.x) — also when tested that far', [false, false], [$ok('7.99.0', '7.99'), $ok('7.99.5')]);
+    same('unraid tested: version unknown — nothing said', [null, null], [$ok(null), $ok('weird')]);
+    $f = caretakerUnraidTested('7.4.1', '7.3');
+    same('unraid tested: the finding — recommended (never a must), its params, Unraid\'s Plugins page',
+        ['unraid_tested', 'recommended', ['version' => '7.4.1', 'tested' => '7.3', 'next' => '8'], 'plugins'], [$f['id'], $f['level'], $f['params'], $f['link']]);
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/caretaker/lang/en.json'), true) ?: [];
+    check('unraid tested: the team lead has its words (tested, version, next)', isset($en['check.unraid_tested'])
+        && str_contains((string) ($en['check.unraid_tested_how'] ?? ''), '{tested}') && str_contains((string) ($en['check.unraid_tested_how'] ?? ''), '{next}'));
+    check('unraid tested: one constant, major.minor', (bool) preg_match('/^\d+\.\d+\z/', OFFICE_UNRAID_TESTED));
+    $plg = (string) file_get_contents(OFFICE_DIR . '/plugin/unraid-secretary-office.plg');
+    same('unraid tested: the .plg\'s max agrees with it', officeUnraidMax(), preg_match('/\smax="([^"]+)"/', $plg, $m) ? $m[1] : null);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php');
+    check('unraid tested: the team lead\'s checks ask for it', str_contains($src, 'caretakerUnraidTested($version)'));
+
+    // build.sh refuses a .plg whose max doesn't agree (a stand-in tree with only what its first checks read)
+    $tmp = hardeningTmp('unraid-tested');
+    $build = function (string $max) use ($tmp): string {
+        exec('rm -rf ' . escapeshellarg("$tmp/tree"));
+        @mkdir("$tmp/tree/plugin", 0700, true);
+        @mkdir("$tmp/tree/src", 0700, true);
+        @mkdir("$tmp/tree/agent", 0700, true);
+        copy(OFFICE_DIR . '/plugin/build.sh', "$tmp/tree/plugin/build.sh");
+        foreach (['src/place.php', 'src/bootstrap.php', 'agent/agent.php'] as $f) {
+            copy(OFFICE_DIR . "/$f", "$tmp/tree/$f");
+        }
+        file_put_contents("$tmp/tree/plugin/unraid-secretary-office.plg", preg_replace('/(\s)max="[^"]+"/', '$1max="' . $max . '"',
+            (string) file_get_contents(OFFICE_DIR . '/plugin/unraid-secretary-office.plg'), 1));
+        return (string) shell_exec('cd ' . escapeshellarg("$tmp/tree") . ' && bash plugin/build.sh ' . escapeshellarg(AGENT_VERSION) . ' 2026.10.08 2>&1');
+    };
+    $bad = $build('8.99.99');
+    check('unraid tested: build.sh refuses a max beyond the tested major', str_contains($bad, "the .plg's max is '8.99.99'"), $bad);
+    $good = $build(officeUnraidMax());
+    check('unraid tested: … and passes the one that agrees', !str_contains($good, "the .plg's max") && !str_contains($good, 'OFFICE_UNRAID_TESTED'), $good);
+    hardeningRm($tmp);
 }
 
 /**
@@ -18064,9 +18372,9 @@ function agentPhpErrorSilenced(callable $log): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];

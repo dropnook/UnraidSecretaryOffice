@@ -93,7 +93,7 @@ Choose one and the office takes you there, opens it and marks the place. It all 
 
 ## Install
 
-Unraid **7.3.2 or a newer 7.x**. Unraid 8 is not supported yet; the plugin refuses to install there.
+Unraid **7.3.2 or a newer 7.x**. Unraid 8 is not supported yet; the plugin refuses to install there. Before you update Unraid itself, look for an office release that names the new version — Unraid switches off a plugin that doesn't at its first boot, and the nightly backups stop with it; the Team Lead reminds you once your Unraid is newer than the one the office was tested on.
 
 1. *Plugins → Install Plugin* and paste
    ```
@@ -115,7 +115,7 @@ next backup. The green dot beside *⋯* means the messenger (the office's agent)
 backup, a restore or drill, or one of Jack Emby's runs is going on, the update refuses — try again when it is done.
 The new version is unpacked beside the running one and checked first: a download that can't be unpacked leaves the
 office as it was. Your data stays, and the office brings it up to date at its first start, putting aside what it
-rewrites. A page left open says so, with a button to reload.
+rewrites. A page left open says so, with a button to reload. After an update of the backup engine Mr. Backupsy's setup looks at the server anew once, by itself, and says so. A recommendation you put aside with «I know, thanks» comes back once when an update changes what it says.
 
 **Removing** (*Plugins → Remove*, refused like an update while such a run is going on) takes the code away and lets
 go of what the office had mounted. Your schedules are put aside on the flash and come back when you install the office

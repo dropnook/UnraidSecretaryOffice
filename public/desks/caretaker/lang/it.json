@@ -48,6 +48,8 @@
   "fact.done": {"one": "{n} controllo in ordine", "other": "{n} controlli in ordine"},
   "check.unraid": "Unraid {min} o più recente (qui: {version})",
   "check.unraid_how": "Aggiorna Unraid in ⟦Tools⟧ → ⟦Update OS⟧.",
+  "check.unraid_tested": "La segreteria è testata su questo Unraid (fino a {tested}; qui: {version})",
+  "check.unraid_tested_how": "La segreteria è testata fino a Unraid {tested}; questo server ha {version}. Prima di aggiornare Unraid, cerca una versione della segreteria che nomini la nuova versione (nella pagina ⟦Plugins⟧): Unraid {next} disattiva una segreteria che non la nomina — la segreteria e i suoi backup notturni sparirebbero senza una parola.",
   "check.community_apps": "Community Apps",
   "check.community_apps_how": "Il negozio di app per plugin e contenitori. Installalo dalla pagina ⟦Plugins⟧ (⟦Install Plugin⟧).",
   "check.fix_common_problems": "Fix Common Problems",

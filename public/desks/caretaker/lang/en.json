@@ -48,6 +48,8 @@
   "fact.done": {"one": "{n} check in place", "other": "{n} checks in place"},
   "check.unraid": "Unraid {min} or newer (this is {version})",
   "check.unraid_how": "Update Unraid under ⟦Tools⟧ → ⟦Update OS⟧.",
+  "check.unraid_tested": "The office was tested on this Unraid (up to {tested}; this is {version})",
+  "check.unraid_tested_how": "The office was tested up to Unraid {tested}; this server runs {version}. Before you update Unraid, check for an office release that names the new version (on the ⟦Plugins⟧ page): Unraid {next} switches off an office that doesn't name it — the office and its nightly backups would be gone without a word.",
   "check.community_apps": "Community Apps",
   "check.community_apps_how": "The app store for plugins and containers. Install it on the ⟦Plugins⟧ page (⟦Install Plugin⟧).",
   "check.fix_common_problems": "Fix Common Problems",

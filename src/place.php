@@ -16,6 +16,17 @@ declare(strict_types=1);
 
 const OFFICE_PLUGIN     = 'unraid-secretary-office';
 const OFFICE_PLUGIN_CFG = '/boot/config/plugins/' . OFFICE_PLUGIN . '/' . OFFICE_PLUGIN . '.cfg';
+// The Unraid version the office was tested on, major.minor — the ONE place (here: shared by the web side and the agent).
+// The .plg's max is <major>.99.99 (officeUnraidMax(); plugin/build.sh refuses another): Unraid moves a plugin whose max
+// it exceeds to plugins-error at boot — the office and its nightly backups gone without a word. The team lead warns
+// beyond this version (caretakerUnraidTested()). Raise it (and with a new major the .plg's max) only once tested.
+const OFFICE_UNRAID_TESTED = '7.3';
+
+/** The .plg's max for the tested version: <major>.99.99 */
+function officeUnraidMax(string $tested = OFFICE_UNRAID_TESTED): string
+{
+    return explode('.', $tested)[0] . '.99.99';
+}
 
 /** The plugin's data folder: DATA_DIR in its .cfg, by default <appdata>/UnraidSecretaryOffice/data */
 function officePluginDataDir(): string

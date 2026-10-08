@@ -31,6 +31,12 @@ for f in src/bootstrap.php:OFFICE_VERSION agent/agent.php:AGENT_VERSION; do
     have=$(sed -n "s/^const ${f#*:} *= *'\([^']*\)';.*/\1/p" "${f%%:*}")
     [[ "$have" == "$office" ]] || { echo "${f#*:} in ${f%%:*} is '$have', not '$office'"; exit 1; }
 done
+# the .plg's max agrees with the Unraid the office was tested on (OFFICE_UNRAID_TESTED in src/place.php, major.minor):
+# <major>.99.99 — Unraid switches off a plugin whose max it exceeds; raise both together, only once tested
+tested=$(sed -n "s/^const OFFICE_UNRAID_TESTED *= *'\([0-9]*\.[0-9]*\)';.*/\1/p" src/place.php)
+[[ -n "$tested" ]] || { echo "OFFICE_UNRAID_TESTED (major.minor) not found in src/place.php"; exit 1; }
+max=$(sed -n 's/.*[[:space:]]max="\([^"]*\)".*/\1/p' "plugin/$name.plg" | head -n 1)
+[[ "$max" == "${tested%%.*}.99.99" ]] || { echo "the .plg's max is '$max', not '${tested%%.*}.99.99' (OFFICE_UNRAID_TESTED $tested in src/place.php)"; exit 1; }
 
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT

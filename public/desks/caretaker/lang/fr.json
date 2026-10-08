@@ -48,6 +48,8 @@
   "fact.done": {"one": "{n} vérification en place", "other": "{n} vérifications en place"},
   "check.unraid": "Unraid {min} ou plus récent (ici : {version})",
   "check.unraid_how": "Mets Unraid à jour sous ⟦Tools⟧ → ⟦Update OS⟧.",
+  "check.unraid_tested": "Le secrétariat est testé sur cet Unraid (jusqu'à {tested} ; ici : {version})",
+  "check.unraid_tested_how": "Le secrétariat est testé jusqu'à Unraid {tested} ; ce serveur tourne sous {version}. Avant de mettre Unraid à jour, cherche une version du secrétariat qui nomme la nouvelle version (sur la page ⟦Plugins⟧) : Unraid {next} désactive un secrétariat qui ne la nomme pas — le secrétariat et ses sauvegardes nocturnes disparaîtraient sans un mot.",
   "check.community_apps": "Community Apps",
   "check.community_apps_how": "La boutique d'applis pour les plugins et les conteneurs. Installe-la sur la page ⟦Plugins⟧ (⟦Install Plugin⟧).",
   "check.fix_common_problems": "Fix Common Problems",

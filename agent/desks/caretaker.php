@@ -331,8 +331,13 @@ function caretakerNotifySet(mixed $on): array
  * (data/caretaker/acks.json), because his picture and the tile are worked out
  * from his state file, the same for every browser. Each under the finding's
  * signature: desk, id, level and params (without those that change by
- * themselves, CARETAKER_ACK_DRIFT) — so it comes back as soon as its situation
- * changes (another version, another container). Once it is in place the note
+ * themselves, CARETAKER_ACK_DRIFT) and what it says (its English texts check.<id>
+ * and check.<id>_how, upgrade audit proposal 9) — so it comes back as soon as its
+ * situation changes (another version, another container) or an update changes
+ * what it says or recommends; a plain version bump that changes neither keeps
+ * it noted. Notes from before 1.44 (their sig without the texts, no `v`) are
+ * taken over at the next tour as given for today's texts (caretakerAckStep()):
+ * nothing comes back by this change itself. Once it is in place the note
  * is forgotten: back again, it is shown again (like the reports to Unraid).
  * One that doesn't turn up at all any more (its desk let go, a passing state)
  * is kept for CARETAKER_ACK_KEEP. Musts ("required") are never put aside —
@@ -344,12 +349,38 @@ function caretakerAckFile(): string
     return DATA_DIR . '/caretaker/acks.json';
 }
 
-/** What a finding is about, as one short key: desk:id:hash of its level and params */
-function caretakerAckSig(string $desk, array $f): string
+/**
+ * What a finding is about and says, as one short key: desk:id:hash of its level, its params and its English texts
+ * (caretakerAckTexts(); $texts for the tests). $legacy: the key as up to 1.43 (level and params only).
+ */
+function caretakerAckSig(string $desk, array $f, ?array $texts = null, bool $legacy = false): string
 {
     $p = array_diff_key((array) ($f['params'] ?? []), array_flip(CARETAKER_ACK_DRIFT));
     ksort($p);
-    return $desk . ':' . (string) ($f['id'] ?? '') . ':' . substr(sha1(jsonEncode([(string) ($f['level'] ?? ''), $p])), 0, 16);
+    $about = [(string) ($f['level'] ?? ''), $p];
+    if (!$legacy) {
+        $about[] = $texts ?? caretakerAckTexts($desk, (string) ($f['id'] ?? ''));
+    }
+    return $desk . ':' . (string) ($f['id'] ?? '') . ':' . substr(sha1(jsonEncode($about)), 0, 16);
+}
+
+/** What a finding says: check.<id> and check.<id>_how of its desk's English texts (null each when there is none) */
+function caretakerAckTexts(string $desk, string $id): array
+{
+    static $en = [];
+    $file = OFFICE_WEB . "/desks/$desk/lang/en.json";
+    $stamp = preg_match('/^[a-z][a-z0-9_-]{0,31}\z/', $desk) ? (int) @filemtime($file) : 0;
+    if (($en[$desk][0] ?? null) !== $stamp) {
+        $en[$desk] = [$stamp, $stamp ? (readJson($file) ?? []) : []];
+    }
+    return [$en[$desk][1]["check.$id"] ?? null, $en[$desk][1]["check.{$id}_how"] ?? null];
+}
+
+/** Noted? By its sig — or a note from before 1.44 under its old sig (not yet taken over by a tour) */
+function caretakerAckHas(array $acks, string $desk, array $f): bool
+{
+    $old = caretakerAckSig($desk, $f, null, true);
+    return isset($acks[caretakerAckSig($desk, $f)]) || (isset($acks[$old]) && ($acks[$old]['v'] ?? 1) < 2);
 }
 
 /** Can it be put aside? Recommendations and notes that aren't in place */
@@ -358,14 +389,17 @@ function caretakerAckable(array $f): bool
     return in_array($f['level'] ?? '', ['recommended', 'hint'], true) && ($f['ok'] ?? null) !== true;
 }
 
-/** @return array<string, array{desk:string, id:string, time:int, seen:int}> sig => note, from the file (anything odd left out) */
+/**
+ * @return array<string, array{desk:string, id:string, time:int, seen:int, v:int}> sig => note, from the file (anything
+ *         odd left out); v 2: its sig covers the texts (1.44+), 1: level and params only (taken over at the next tour)
+ */
 function caretakerAckRead(string $file): array
 {
     $out = [];
     foreach ((array) ((readJson($file) ?? [])['acks'] ?? []) as $sig => $a) {
         if (is_string($sig) && preg_match(CARETAKER_ACK_SIG, $sig) && is_array($a)) {
             $out[$sig] = ['desk' => (string) ($a['desk'] ?? ''), 'id' => (string) ($a['id'] ?? ''),
-                          'time' => (int) ($a['time'] ?? 0), 'seen' => (int) ($a['seen'] ?? 0)];
+                          'time' => (int) ($a['time'] ?? 0), 'seen' => (int) ($a['seen'] ?? 0), 'v' => ($a['v'] ?? 1) === 2 ? 2 : 1];
         }
     }
     return $out;
@@ -390,6 +424,12 @@ function caretakerAckStep(array $checks, array $acks, int $now): array
             }
             $sig = caretakerAckSig((string) $desk, $f);
             $checks[$desk][$i]['sig'] = $sig;
+            // a note from before 1.44 (no texts in its sig): taken over as given for what the finding says today
+            $old = caretakerAckSig((string) $desk, $f, null, true);
+            if (!isset($acks[$sig]) && isset($acks[$old]) && $acks[$old]['v'] < 2) {
+                $acks[$sig] = array_merge($acks[$old], ['v' => 2]);
+                unset($acks[$old]);
+            }
             if (isset($acks[$sig]) && caretakerAckable($f)) {
                 $checks[$desk][$i]['acked'] = true;
                 $present[$sig] = true;
@@ -449,7 +489,7 @@ function caretakerAck(mixed $sig, bool $on): array
             throw new Problem('ack_required');
         }
         $acks = caretakerAckRead($file);
-        $acks[$sig] = ['desk' => $found['desk'], 'id' => (string) $found['id'], 'time' => time(), 'seen' => time()];
+        $acks[$sig] = ['desk' => $found['desk'], 'id' => (string) $found['id'], 'time' => time(), 'seen' => time(), 'v' => 2];
         $what = "{$found['desk']}.{$found['id']}";
     } else {
         $acks = caretakerAckRead($file);
@@ -471,6 +511,10 @@ function caretakerChecks(): array
     $version = preg_match('/version="([^"]+)"/', (string) @file_get_contents('/etc/unraid-version'), $m) ? $m[1] : null;
     $out[] = finding('unraid', 'required', $version === null ? null : version_compare($version, CARETAKER_UNRAID_MIN, '>='),
         ['version' => $version ?? '?', 'min' => CARETAKER_UNRAID_MIN]);
+    // Unraid 8 switches off an office whose .plg doesn't name it: say so before the OS update, not after
+    if ($tested = caretakerUnraidTested($version)) {
+        $out[] = $tested;
+    }
 
     // the office itself: a newer release?
     $office = officeUpdateInfo();
@@ -534,6 +578,25 @@ function caretakerChecks(): array
             'link' => in_array('advisor', $hired, true) ? '#/advisor' : 'settings']));
     }
     return $out;
+}
+
+/**
+ * The Unraid the office was tested on (OFFICE_UNRAID_TESTED, src/place.php) — recommended, never required: the office
+ * runs on a newer 7.x, but the .plg's max (officeUnraidMax(), <major>.99.99) makes Unraid switch it off at the first
+ * boot of the next major (the .plg moved to plugins-error, the office and its nightly backups gone, no notification).
+ * Not in place («look for an office release first») when this Unraid is newer than the tested major.minor, or within
+ * the last minor before max. Null: the version unknown.
+ */
+function caretakerUnraidTested(?string $version, string $tested = OFFICE_UNRAID_TESTED): ?array
+{
+    if ($version === null || !preg_match('/^(\d+)\.(\d+)/', $version, $m) || !preg_match('/^(\d+)\.(\d+)\z/', $tested, $t)) {
+        return null;
+    }
+    $max = officeUnraidMax($tested);
+    $beyond = version_compare("$m[1].$m[2]", $tested, '>');
+    $nearMax = version_compare($version, implode('.', array_slice(explode('.', $max), 0, 2)), '>=');
+    return finding('unraid_tested', 'recommended', !($beyond || $nearMax),
+        ['version' => $version, 'tested' => $tested, 'next' => (string) ((int) $t[1] + 1)], 'plugins');
 }
 
 /**
@@ -652,7 +715,7 @@ function caretakerPartnerWatch(): int
     $acks = caretakerAckRead(caretakerAckFile());
     $finding = fn (array $p, array $e) => finding('partner_silent', 'recommended', false, partnerSilentParams($p, $e), '#/caretaker');
     partnerWatch(
-        fn (array $p, array $e) => isset($acks[caretakerAckSig('caretaker', $finding($p, $e))]),
+        fn (array $p, array $e) => caretakerAckHas($acks, 'caretaker', $finding($p, $e)),
         function (array $p, array $e) {
             $lang = officeNotifyLang();
             $params = partnerSilentParams($p, $e);

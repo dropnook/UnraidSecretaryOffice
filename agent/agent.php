@@ -610,11 +610,14 @@ function agentPulse(): void
     }
 }
 
-/** All agent files (and src/place.php, src/words.php, shared with the web side), so any change triggers a restart */
+/**
+ * All agent files (and src/place.php, src/words.php, shared with the web side; src/staff.php, whose merge the migration
+ * step `staff-merged` uses), so any change triggers a restart
+ */
 function codeFiles(): array
 {
     $files = array_merge(glob(__DIR__ . '/*.php') ?: [], glob(__DIR__ . '/lib/*.php') ?: [], glob(__DIR__ . '/desks/*.php') ?: [],
-        [dirname(__DIR__) . '/src/place.php', dirname(__DIR__) . '/src/words.php']);
+        [dirname(__DIR__) . '/src/place.php', dirname(__DIR__) . '/src/words.php', dirname(__DIR__) . '/src/staff.php']);
     sort($files);
     return $files;
 }

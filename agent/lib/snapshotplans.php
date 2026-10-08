@@ -46,10 +46,57 @@ function snapPlanStateFile(): string
     return $GLOBALS['snapPlanStateFile'] ?? DATA_DIR . '/snapshot-plans-state.json';
 }
 
-/** @return list<array> */
+/**
+ * The plans as every reader takes them — the one normalising reader (2026-10-08, upgrade audit): each key of a plan
+ * with its default when it is missing or of another type, so a plans file of an older (or newer) office never breaks
+ * a schedule; keys it doesn't know kept as they are (snapPlanSave() carries them on). The defaults never take more
+ * than the plan said: no age limit, keep SNAPPLAN_KEEP, no cron line '' (cronNext()/cronPrevious(): never due);
+ * `enabled` true for the run as for a save (a plan someone set up is meant to run). An entry without a valid id
+ * can't be addressed: left out here, kept in the file (snapPlanSaveAll()).
+ *
+ * @return list<array>
+ */
 function snapPlans(): array
 {
-    return array_values(array_filter((array) ((readJson(snapPlanFile()) ?? [])['plans'] ?? []), 'is_array'));
+    $out = [];
+    foreach (snapPlansRaw() as $raw) {
+        if (($p = snapPlanNormal($raw)) !== null) {
+            $out[] = $p;
+        }
+    }
+    return $out;
+}
+
+/** The file's list as it is (anything there) */
+function snapPlansRaw(): array
+{
+    $plans = (readJson(snapPlanFile()) ?? [])['plans'] ?? [];
+    return is_array($plans) ? array_values($plans) : [];
+}
+
+/** One plan with every key in its type (see snapPlans()), unknown keys after them; null: no plan of the office's */
+function snapPlanNormal(mixed $raw): ?array
+{
+    if (!is_array($raw) || !is_string($raw['id'] ?? null) || !preg_match(SNAPPLAN_ID, $raw['id'])) {
+        return null;
+    }
+    $int = fn (string $k, int $min, int $max, int $default): int
+        => is_int($raw[$k] ?? null) && $raw[$k] >= $min && $raw[$k] <= $max ? $raw[$k] : $default;
+    $bool = fn (string $k, bool $default): bool => is_bool($raw[$k] ?? null) ? $raw[$k] : $default;
+    $label = is_string($raw['label'] ?? null) && trim($raw['label']) !== '' ? $raw['label'] : $raw['id'];
+    $plan = [
+        'id'          => $raw['id'],
+        'label'       => $label,
+        'targets'     => is_array($raw['targets'] ?? null) ? array_values(array_filter($raw['targets'], 'is_string')) : [],
+        'recursive'   => $bool('recursive', false),
+        'cron'        => is_string($raw['cron'] ?? null) ? $raw['cron'] : '',
+        'keep'        => $int('keep', 1, SNAPPLAN_KEEP, SNAPPLAN_KEEP),
+        'max_days'    => $int('max_days', 0, 3650, 0),
+        'skip_asleep' => $bool('skip_asleep', false),
+        'enabled'     => $bool('enabled', true),
+        'since'       => $int('since', 0, PHP_INT_MAX, 0),
+    ];
+    return $plan + $raw;                  // keys of a newer office kept, after the known ones
 }
 
 function snapPlanStates(): array
@@ -75,9 +122,16 @@ function snapPlanTargetLabel(string $target): string
     return (string) preg_replace('/^(?:zfs|btrfs):/', '', $target);
 }
 
+/**
+ * Writes the plans — the file's entries that are no plan of the office's (snapPlanNormal()) kept as they were, after
+ * them, and keys beside the list too: a tolerant writer never drops what it doesn't understand (CLAUDE.md «Updates»)
+ */
 function snapPlanSaveAll(array $plans): void
 {
-    writeAtomic(snapPlanFile(), jsonEncode(['plans' => array_values($plans)]));
+    $file = readJson(snapPlanFile()) ?? [];
+    $odd = array_values(array_filter(snapPlansRaw(), fn ($raw) => snapPlanNormal($raw) === null));
+    $file['plans'] = array_merge(array_values($plans), $odd);
+    writeAtomic(snapPlanFile(), jsonEncode($file));
 }
 
 /** The name a plan gives its snapshots, and the pattern that finds exactly those again (also the older auto-<plan>-…) */
@@ -276,8 +330,9 @@ function snapPlanSave(mixed $in): array
         'max_days'    => $days,
         'skip_asleep' => $skipAsleep,
         'enabled'     => array_key_exists('enabled', $in) ? $in['enabled'] : ($old['enabled'] ?? true),
-        'since'       => $old['since'] ?? time(),
+        'since'       => ($old['since'] ?? 0) ?: time(),
     ];
+    $plan += $old;                        // keys a newer office wrote into the plan: kept (snapPlans())
     $plans = array_values(array_filter($plans, fn ($p) => $p['id'] !== $id));
     $plans[] = $plan;
     snapPlanSaveAll($plans);
@@ -392,7 +447,7 @@ function snapPlansRunDue(): int
     }
     $now = time();
     foreach (snapPlans() as $p) {
-        if (empty($p['enabled'])) {
+        if (!$p['enabled']) {
             continue;
         }
         $last = (int) (snapPlanStates()[$p['id']]['last_run'] ?? 0);

@@ -528,13 +528,14 @@ function officeJobSetSchedule(string $job, ?string $cron, string $file = OFFICE_
 // ===================================================================== staff
 
 // desks that went into another one: old id => the desk that does their work now — the same as
-// OFFICE_DESKS_MERGED in src/staff.php, which rewrites staff.json once (tests compare the two)
+// OFFICE_DESKS_MERGED in src/staff.php; the migration step `staff-merged` (lib/migrate.php) rewrites staff.json once
+// (tests compare the two)
 const STAFF_MERGED = ['whereabouts' => 'cleanup'];        // 2026-10: Ms. Whereabouts' work is Ms. Dustdevil's
 
 /**
  * The desks that work in the office: data/office/staff.json (written by the
  * web part, see src/staff.php) plus those that are always there. A desk that
- * went into another one counts as that one until the web part rewrote the list.
+ * went into another one counts as that one until the migration step `staff-merged` rewrote the list.
  *
  * @return list<string>
  */

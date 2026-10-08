@@ -518,6 +518,7 @@
   "setup.msg.not_agreed_vm": "VM {name} : pas encore convenue avec {partner} — demande au chef d'équipe («Changer ce que {host} envoie…») ; d'ici là, elle n'y va pas.",
   "setup.msg.not_agreed_place": "L'emplacement des sauvegardes : pas encore convenu avec {partner} — demande au chef d'équipe («Changer ce que {host} envoie…») ; d'ici là, il n'y va pas.",
   "setup.msg.place_not_agreed": "L'emplacement des sauvegardes n'est pas encore convenu avec un partenaire — demande au chef d'équipe («Changer ce que {host} envoie…»).",
+  "setup.msg.replanned": "Replanifié après la mise à jour (moteur {from} → {to}) : le plan d'avant venait de l'ancien moteur.",
   "setup.g_libvirt": "Configuration des VM (libvirt.img)",
   "setup.g_libvirt_hint": "XML, variables UEFI et état TPM de toutes les VM, et leurs réseaux — chaque nuit sous forme de petite archive dans l'emplacement des sauvegardes (server/), en plus du paquet propre à chaque VM, donc ça part vers Kopia avec eux. Sans ça, déplacer les VM vers un autre serveur est difficile.",
   "setup.libvirt.tar": "archive dans l'emplacement des sauvegardes",

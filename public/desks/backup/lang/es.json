@@ -518,6 +518,7 @@
   "setup.msg.not_agreed_vm": "VM {name}: aún no acordada con {partner} — pregunta al jefe de equipo («Cambiar lo que {host} envía…»); hasta entonces no va allí.",
   "setup.msg.not_agreed_place": "El lugar de las copias: aún no acordado con {partner} — pregunta al jefe de equipo («Cambiar lo que {host} envía…»); hasta entonces no va allí.",
   "setup.msg.place_not_agreed": "El lugar de las copias aún no está acordado con un socio — pregunta al jefe de equipo («Cambiar lo que {host} envía…»).",
+  "setup.msg.replanned": "Planificado de nuevo tras la actualización (motor {from} → {to}): el plan anterior era del motor más antiguo.",
   "setup.g_libvirt": "Configuración de VMs (libvirt.img)",
   "setup.g_libvirt_hint": "XML, variables UEFI y estado del TPM de todas las VMs, y sus redes — cada noche como un pequeño archivo comprimido en el lugar de las copias (server/), además del paquete propio de cada VM, así que va a Kopia con ellos. Sin él, mover las VMs a otro servidor es difícil.",
   "setup.libvirt.tar": "archivo en el lugar de las copias",
