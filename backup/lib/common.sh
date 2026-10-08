@@ -19,11 +19,12 @@
 #                      retention removed, state/pruned.json (since 2.21)
 #  11. New things      what is new stays local and keeps running until the user decided (since 2.21)
 #  12. Partners        units sent to partner offices by zfs send through their door (since 2.27)
+#  13. Sleeping pools  [general] asleep_pools = skip: pools and disks that sleep are left out of a run (since 2.28)
 ###############################################################################
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.27"
+UB_VERSION="2.28"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -242,7 +243,7 @@ sec_display() { if [[ "$1" == *"|"* ]]; then printf '[%s "%s"]' "${1%%|*}" "${1#
 
 declare -gA UB_SCHEMA=(
     # keep_runs: before 2.18 the number of run folders kept - accepted in old files, ignored
-    [general]="server mount_root view_root snap_prefix btrfs_snap_dir keep_runs keep_logs min_free_gb keep_mounts notify_success dumps_share partner_place"
+    [general]="server mount_root view_root snap_prefix btrfs_snap_dir keep_runs keep_logs min_free_gb keep_mounts notify_success dumps_share partner_place asleep_pools"
     [zfs]="retention"
     [btrfs]="keep_days min_free_gb snapshot_all"
     [drift]="ignore remind_days"
@@ -283,6 +284,7 @@ cfg_validate() {
     _val "general|min_free_gb"   '^[0-9]+$'                 "number"
     _val "general|keep_mounts"   '^(yes|no)$'               "yes/no"
     _val "general|notify_success" '^(yes|no)$'              "yes/no"
+    _val "general|asleep_pools"  '^(wake|skip)$'            "wake/skip"
     _val "general|snap_prefix"   '^[a-z0-9_]+(-[a-z0-9_]+)*-$' "lower-case letters/digits, words joined by -, ends with -"
     # Ms. Snapshotini's schedules name theirs uso-plan-<plan>-...: never the engine's prefix (its retention would take them)
     [[ "$(cfg "general|snap_prefix")" == uso-plan-* ]] && CFG_ERRORS+=( "general|snap_prefix = '$(cfg "general|snap_prefix")' is invalid (uso-plan- belongs to Ms. Snapshotini's schedules)" )
@@ -386,6 +388,9 @@ apply_settings() {
     MIN_FREE_GB="$(cfg "general|min_free_gb" 8)"
     KEEP_MOUNTS="$(cfg "general|keep_mounts" no)"
     NOTIFY_SUCCESS="$(cfg "general|notify_success" yes)"
+    # since 2.28 (section 13): wake = sleeping pools are woken for the snapshot (as before), skip = left out that night
+    ASLEEP_POOLS="$(cfg "general|asleep_pools" wake)"
+    [[ "$ASLEEP_POOLS" == "skip" ]] || ASLEEP_POOLS="wake"
     # The packages (apps, VMs, server, flash) live in a backup share of their own, never in
     # appdata: <share>/unraid-backup/, in the office's share <share>/backup/
     # (dumps_share_problem says whether the share will do; section 8 has the layout)
@@ -2067,6 +2072,9 @@ drift_count() { local lvl="$1" n=0 l; for l in "${DRIFT[@]}"; do [[ "${l%%|*}" =
 #   [{id, unit}], current {id, unit, since, bytes} | null, done [{id, unit, snap, from, bytes, seconds, mbit, resumed}],
 #   skipped [{id, unit, why}], failed [{id, unit, why}], interrupted {id, unit} | null; and the counts partner_ok,
 #   partner_failed, partner_skipped at the top (history.jsonl keeps partner without planned/current)
+#   since 2.28 "asleep" (section 13; null unless [general] asleep_pools = skip): mode, pools, shares, units (how many
+#   shares were left out), vms, containers, sources, woken, nights; and "kopia.skipped_why": {<source>: "asleep"} for
+#   the skipped sources the array stop didn't skip (a source without an entry there: the array stop, as in 2.24)
 # Writing is never critical: if it fails, the backup carries on.
 UB_INTERFACE=1
 UB_HISTORY_MAX=200
@@ -2110,8 +2118,11 @@ status_json() {
     local vms
     vms="$(printf '%s\n' "${ST_VMS[@]}" | jq -R 'select(length > 0) | split("|")
         | {name: .[0], prepare: .[1], done: .[2], seconds: ((.[3] // "0") | tonumber), snapshot: (.[4] == "1")}' | jq -sc .)" || vms='[]'
-    local partner
+    local partner asleep why
     partner="$(partner_status_json)" || partner="null"
+    asleep="$(asleep_status_json)" || asleep="null"
+    why="$(kopia_skipped_why_json)" || why='{}'
+    [[ -n "$why" ]] || why='{}'
     jq -nc \
         --arg name "$UB_NAME" --arg version "$UB_VERSION" --argjson interface "$UB_INTERFACE" \
         --arg mode "$ST_MODE" --arg run "${TS:-}" --argjson pid "$$" \
@@ -2126,16 +2137,18 @@ status_json() {
         --argjson skipped "${skipped:-[]}" --arg interrupted "$ST_KOPIA_INTERRUPTED" \
         --argjson packages "${ST_PACKAGES:-null}" --argjson new_local "${ST_NEW_LOCAL:-null}" \
         --argjson partner "${partner:-null}" --argjson p_ok "${#ST_PARTNER_DONE[@]}" --argjson p_failed "${#ST_PARTNER_FAILED[@]}" \
-        --argjson p_skipped "${#ST_PARTNER_SKIPPED[@]}" \
+        --argjson p_skipped "${#ST_PARTNER_SKIPPED[@]}" --argjson asleep "${asleep:-null}" --argjson skipped_why "$why" \
         '{interface: $interface, name: $name, version: $version, mode: $mode, run: $run, pid: $pid,
           started: $started, updated: $updated, finished: $finished, phase: $phase, result: $result,
           message: $message, errors: $errors, warnings: $warnings, downtime_s: $downtime,
           snapshot: $snapshot, dump_bytes: $dump_bytes, log: $log, drift: $drift, vms: $vms, packages: $packages,
           new_local: $new_local, partner: $partner, partner_ok: $p_ok, partner_failed: $p_failed, partner_skipped: $p_skipped,
+          asleep: $asleep,
           kopia: {enabled: ($kopia_enabled | ascii_downcase | test("^(yes|ja|1|true)$")), state: $kopia_ok,
                   planned: $planned, current: (if $current == "" then null else $current end),
                   current_since: (if $current == "" then null else $current_since end), done: $done,
-                  skipped: $skipped, interrupted: (if $interrupted == "" then null else $interrupted end)}}'
+                  skipped: $skipped, skipped_why: $skipped_why,
+                  interrupted: (if $interrupted == "" then null else $interrupted end)}}'
 }
 
 status_write() {
@@ -3202,6 +3215,144 @@ partner_state_set() { # partner_state_set <file> <jq filter with $v> <value as J
     local f="$UB_STATE/$1" tmp="$UB_STATE/.$1.$$"
     { if [[ -s "$f" ]] && jq -e 'type == "object"' "$f" >/dev/null 2>&1; then cat "$f"; else echo '{}'; fi; } \
         | jq -c --argjson v "$3" "$2" >"$tmp" 2>/dev/null && [[ -s "$tmp" ]] && mv -f "$tmp" "$f"
+    rm -f "$tmp"
+    return 0
+}
+
+##############################################################################
+# 13. Sleeping pools (since 2.28)
+##############################################################################
+# [general] asleep_pools: wake (the default, as before) = a pool whose disks sleep is woken by its snapshot;
+# skip = backup.sh leaves it out of that night's run - the office's own desks never wake a sleeping pool, the
+# engine offers the same choice. Unraid notes in disks.ini which disks are spun down (spundown="1"); a pool
+# sleeps when ANY of its disks does (hive, hive2 ...), an array disk is just itself. disks.ini is read once
+# (ub_asleep_load) - never a disk touched to find out: no zfs list or zfs get on such a pool, no look into it.
+# backup.sh decides it once, when the run makes its plan (asleep_plan) - before anything is stopped, so VMs
+# and apps whose data sleeps are neither prepared nor stopped for nothing:
+#   ASLEEP_BASE[base]  a ZFS pool of the snapshot plan or a btrfs disk/pool whose snapshot is planned, asleep:
+#                      no snapshot there, no retention, no mount
+#   ASLEEP_DS[ds]      its datasets, taken out of PLAN_ZFS (a partner's unit there: skipped, why asleep)
+#   ASLEEP_SHARE[s]    a backed-up share with a part there (or read live from a disk that sleeps): its Kopia
+#                      source is skipped (why asleep), so are the apps' and VMs' own sources with a part in it
+#   NOT_LOOKED[base]   every pool or disk asleep at plan time the run doesn't wake: the retention looks neither
+#                      at its ZFS snapshots nor at its btrfs snapshot folder
+# Never left out: the pool of the backup place (the packages are the point - woken as before, said in the
+# log) and the pool of the engine's data folder (the run's own log is written there).
+# state/asleep.json {"shares": {"<share>": {"nights", "first", "last_day", "warned"}}}: the nights in a row a
+# share was left out (two runs on one day count once); the UB_ASLEEP_NIGHTS-th (7) one warns, once - a pool
+# that never wakes at night would otherwise never be backed up and nobody would know. A night the share is
+# snapshotted (also every night with asleep_pools = wake) takes it out of the file.
+UB_ASLEEP_NIGHTS="${UB_ASLEEP_NIGHTS:-7}"
+[[ "$UB_ASLEEP_NIGHTS" =~ ^[1-9][0-9]{0,3}$ ]] || UB_ASLEEP_NIGHTS=7
+declare -gA UB_SPUNDOWN=()
+UB_ASLEEP_LOADED="no"
+ub_asleep_load() { # the disks disks.ini calls spun down -> UB_SPUNDOWN[<disk>]=1 (one read)
+    local n
+    UB_SPUNDOWN=(); UB_ASLEEP_LOADED="yes"
+    [[ -r "$UB_DISKS_INI" ]] || return 0
+    while IFS= read -r n; do [[ -n "$n" ]] && UB_SPUNDOWN[$n]=1; done < <(awk '
+        /^\[/ { name = $0; gsub(/[\[\]"]/, "", name); next }
+        /^spundown=/ { v = $0; sub(/^spundown="?/, "", v); sub(/"$/, "", v); if (v == "1" && name != "") print name }' "$UB_DISKS_INI")
+    return 0
+}
+ub_base_sleeps() { # ub_base_sleeps <base>  -> 0 when it sleeps (like ub_base_asleep, from the one read of ub_asleep_load)
+    local b="$1" n
+    [[ -n "$b" ]] || return 1
+    [[ "$UB_ASLEEP_LOADED" == "yes" ]] || ub_asleep_load
+    if [[ "$b" =~ ^disk[0-9]+$ ]]; then [[ -n "${UB_SPUNDOWN[$b]:-}" ]]; return; fi
+    for n in "${!UB_SPUNDOWN[@]}"; do
+        [[ "$n" == "$b" ]] && return 0
+        [[ "$n" == "$b"* && "${n#"$b"}" =~ ^[0-9]+$ ]] && return 0
+    done
+    return 1
+}
+# share_bases <share>  -> the pools and disks holding it - its parts and its child datasets -, one per line
+share_bases() {
+    local b
+    { while IFS='|' read -r b _; do [[ -n "$b" ]] && printf '%s\n' "$b"; done <<<"${INV_LOCS[$1]:-}"
+      while IFS='|' read -r b _; do [[ -n "$b" ]] && printf '%s\n' "$b"; done <<<"${INV_CHILDREN[$1]:-}"; } | awk '!seen[$0]++'
+}
+# ub_path_bases <path>  -> the pools and disks that may hold it: a /mnt/user path those of its share, a pool's or
+# disk's path that one (nothing for a path outside them)
+ub_path_bases() {
+    local p="${1%/}" rel b
+    if [[ "$p" == "$UB_MNT/user/"* || "$p" == "$UB_MNT/user0/"* ]]; then
+        rel="${p#"$UB_MNT"/user/}"; rel="${rel#"$UB_MNT"/user0/}"
+        share_bases "${rel%%/*}"; return 0
+    fi
+    for b in "${INV_BASES[@]}"; do
+        [[ "$p" == "${INV_BASE_PATH[$b]}" || "$p" == "${INV_BASE_PATH[$b]}/"* ]] && { printf '%s\n' "$b"; return 0; }
+    done
+    return 0
+}
+# share_asleep_now <share> / vm_asleep_now <vm>  -> the pools and disks of the share (of the VM's disks) that sleep
+# right now, one per line (setup.sh's plan: «pool asleep now» on the office's rows)
+share_asleep_now() { local b; while IFS= read -r b; do [[ -n "$b" ]] && ub_base_sleeps "$b" && printf '%s\n' "$b"; done < <(share_bases "$1"); return 0; }
+vm_asleep_now() {
+    local t b
+    while IFS='|' read -r t _ b _; do [[ -n "$t" && -n "$b" ]] && ub_base_sleeps "$b" && printf '%s\n' "$b"; done <<<"${VM_DISKS[$1]:-}" | awk '!seen[$0]++'
+    return 0
+}
+
+# What the run left out, for status.json "asleep" (null unless asleep_pools = skip): pools (and btrfs disks) left
+# out, shares with a part there, units = how many shares, vms not prepared and not snapshotted, containers kept
+# running (all their backed-up data asleep), sources = the Kopia sources skipped, woken = pools asleep but
+# woken all the same (the backup place, the data folder), nights = per share left out the nights in a row so far
+ST_ASLEEP_ON="no"
+ST_ASLEEP_POOLS=(); ST_ASLEEP_SHARES=(); ST_ASLEEP_VMS=(); ST_ASLEEP_CTS=(); ST_ASLEEP_SRC=(); ST_ASLEEP_WOKEN=()
+declare -gA ST_ASLEEP_NIGHTS=()
+declare -gA ST_KOPIA_SKIPPED_WHY=()   # name -> why, for kopia.skipped_why: a source skipped for another reason than the array stop
+asleep_status_json() {
+    [[ "$ST_ASLEEP_ON" == "yes" ]] || { echo null; return 0; }
+    local k nights
+    nights="$(for k in "${!ST_ASLEEP_NIGHTS[@]}"; do printf '%s\x1f%s\n' "$k" "${ST_ASLEEP_NIGHTS[$k]}"; done \
+        | jq -R 'select(length > 0) | split("\u001f") | {key: .[0], value: (.[1] | tonumber? // 0)}' | jq -sc 'from_entries')" || nights='{}'
+    [[ -n "$nights" ]] || nights='{}'
+    _al() { printf '%s\n' "$@" | jq -R 'select(length > 0)' | jq -sc .; }
+    jq -nc --argjson pools "$(_al "${ST_ASLEEP_POOLS[@]}")" --argjson shares "$(_al "${ST_ASLEEP_SHARES[@]}")" \
+        --argjson vms "$(_al "${ST_ASLEEP_VMS[@]}")" --argjson cts "$(_al "${ST_ASLEEP_CTS[@]}")" \
+        --argjson src "$(_al "${ST_ASLEEP_SRC[@]}")" --argjson woken "$(_al "${ST_ASLEEP_WOKEN[@]}")" --argjson nights "$nights" \
+        '{mode: "skip", pools: $pools, shares: $shares, units: ($shares | length), vms: $vms, containers: $cts,
+          sources: $src, woken: $woken, nights: $nights}'
+    unset -f _al
+}
+kopia_skipped_why_json() {
+    local k
+    for k in "${!ST_KOPIA_SKIPPED_WHY[@]}"; do printf '%s\x1f%s\n' "$k" "${ST_KOPIA_SKIPPED_WHY[$k]}"; done \
+        | jq -R 'select(length > 0) | split("\u001f") | {key: .[0], value: .[1]}' | jq -sc 'from_entries'
+}
+
+# asleep_nights <share...>  - a real run left these shares out; every other share was snapshotted (their count goes).
+# The UB_ASLEEP_NIGHTS-th night in a row warns once per stretch; ST_ASLEEP_NIGHTS gets the counts
+asleep_nights() {
+    local f="$UB_STATE/asleep.json" tmp="$UB_STATE/.asleep.json.$$" cur new s n first
+    cur='{"shares":{}}'
+    if [[ -s "$f" ]]; then
+        cur="$(jq -c 'if type == "object" and (.shares | type) == "object" then {shares: .shares} else {shares: {}} end' "$f" 2>/dev/null)" || cur=""
+        [[ -n "$cur" ]] || cur='{"shares":{}}'
+    fi
+    new="$(jq -c --arg today "$(date +%F)" --argjson now "$(date +%s)" --args '
+        .shares as $old
+        | {shares: ([$ARGS.positional[] | select(length > 0) | . as $s | ($old[$s] // {}) as $o
+            | (($o.nights // 0) | if type == "number" and . >= 0 then floor else 0 end) as $n
+            | {key: $s, value: {nights: (if $o.last_day == $today and $n > 0 then $n else $n + 1 end),
+                                first: (($o.first // $now) | if type == "number" then . else $now end), last_day: $today,
+                                warned: (($o.warned // "") | if type == "string" then . else "" end)}}] | from_entries)}' \
+        "$@" <<<"$cur" 2>/dev/null)" || new=""
+    [[ -n "$new" ]] || return 0
+    ST_ASLEEP_NIGHTS=()
+    while IFS=$'\t' read -r s n first; do
+        [[ -n "$s" ]] || continue
+        ST_ASLEEP_NIGHTS[$s]="$n"
+    done < <(jq -r '.shares | to_entries[] | [.key, (.value.nights | tostring), (.value.first | tostring)] | @tsv' <<<"$new" 2>/dev/null)
+    while IFS=$'\t' read -r s n first; do
+        [[ -n "$s" ]] || continue
+        warn "Share '$s' was left out $n nights in a row (since $(date -d "@$first" '+%Y-%m-%d' 2>/dev/null)) - its pool or disk sleeps every night at the run's time (asleep_pools = skip), so it is not backed up; wake it now and then, or choose «wake them» in the setup (asleep_long)"
+        new="$(jq -c --arg s "$s" --arg today "$(date +%F)" '.shares[$s].warned = $today' <<<"$new" 2>/dev/null)" || break
+    done < <(jq -r --argjson lim "$UB_ASLEEP_NIGHTS" '.shares | to_entries[] | select(.value.nights >= $lim and .value.warned == "")
+        | [.key, (.value.nights | tostring), (.value.first | tostring)] | @tsv' <<<"$new" 2>/dev/null)
+    if [[ "$new" == '{"shares":{}}' ]]; then rm -f "$f"
+    elif printf '%s\n' "$new" >"$tmp" 2>/dev/null; then mv -f "$tmp" "$f"; fi
     rm -f "$tmp"
     return 0
 }
