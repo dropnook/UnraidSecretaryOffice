@@ -19776,10 +19776,15 @@ function testBackupLetGo(): void
     @unlink($args);
     $GLOBALS['snapshot'] = null;
 
-    // the request needs confirm (true, nothing else) — never the clearing without it
+    // the request needs confirm (true, nothing else) — never the clearing without it (asked of a hired Mr. Backupsy:
+    // the copy's data/ has no staff file of its own, so the answer was not_hired on a fresh copy — uso-test, 2026-10-09)
+    $staffWas = $GLOBALS['agentStaffFile'] ?? null;
+    file_put_contents("$tmp/staff.json", json_encode(['hired' => ['backup' => 1]]));
+    $GLOBALS['agentStaffFile'] = "$tmp/staff.json";
     same('let go: backup.letgo_clear without confirm, or confirm not true — refused', ['bad_request', 'bad_request', 'bad_request'],
         [handle(json_encode(['action' => 'backup.letgo_clear']))['error']['key'] ?? 'ok', handle(json_encode(['action' => 'backup.letgo_clear', 'confirm' => 'yes']))['error']['key'] ?? 'ok',
          handle(json_encode(['action' => 'backup.letgo_clear', 'confirm' => 1]))['error']['key'] ?? 'ok']);
+    $GLOBALS['agentStaffFile'] = $staffWas;
 
     // the clearing
     $r = backupLetGoDo($place, false, $parts, $prefixes, '.btrfs-snap');
