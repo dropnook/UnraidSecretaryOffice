@@ -16181,6 +16181,7 @@ function testRestoreDrill(): void
     // ---- the one gate: every docker run argument list, against nostromo's database containers
     $id = '20261101-041200-ab12';
     $seen = [];
+    $seenC = [];
     foreach (['immich', 'nextcloud', 'zz-uso-test-db'] as $app) {
         $m = $man("app-$app");
         $m = json_decode(str_replace('=scrubbed"', '=SECRET-SENTINEL"', json_encode($m)), true);     // what a password would be
@@ -16192,7 +16193,11 @@ function testRestoreDrill(): void
             $args = drillContainerArgs($c, $pc['db'], DRILL_PREFIX . "$id-$n", $id, 2 << 30, 'drill-own-pw');
             $flat = implode(' ', $args);
             $seen[$pc['name']] = $args;
-            check("drill gate $pc[name]: keeps to the «never» list", drillArgsSafe($args), $flat);
+            check("drill gate $pc[name]: keeps to the «never» list", drillArgsSafe($args, $c, $pc['db']), $flat);
+            same("drill gate $pc[name]: after the image its own command, then the lean server's options — exactly",
+                [...array_slice($c['entrypoint'], 1), ...$c['cmd'], ...($pc['db'] === 'postgres' ? array_merge(...array_map(fn ($o) => ['-c', $o], DRILL_LEAN['postgres'])) : DRILL_LEAN['mariadb'])],
+                array_slice($args, array_search($c['image_id'], $args, true) + 1));
+            $seenC[$pc['name']] = [$c, $pc['db']];
             check("drill gate $pc[name]: no value of the app's environment, no app label, no port, no bind, no device, no privilege",
                 !str_contains($flat, 'SECRET-SENTINEL') && !str_contains($flat, 'com.docker.compose') && !preg_match('/ (-p|-v|--mount|--device|--privileged|--cap-add|--volumes-from) /', " $flat "), $flat);
             same("drill gate $pc[name]: network none, once", ['--network', 'none'], array_slice($args, array_search('--network', $args, true), 2));
@@ -16230,9 +16235,32 @@ function testRestoreDrill(): void
         'privileged'       => [...$im, '--privileged'],
         'no label'         => array_values(array_filter($im, fn ($a) => !str_starts_with($a, 'uso.drill='))),
     ];
+    $mdc = $seenC['nextcloud-db'][0] ?? [];
+    $bad += [
+        'a server option not on the allow-list'      => [...$im, '-c', 'archive_command=/bin/sh -c x'],
+        'a lean option changed'                      => array_map(fn ($a) => $a === 'max_wal_size=256MB' ? 'max_wal_size=50GB' : $a, $im),
+        'a lean option missing'                      => array_values(array_filter($im, fn ($a) => $a !== 'checkpoint_timeout=30s')),
+        'the app\'s command changed'                 => array_map(fn ($a) => $a === 'config_file=/etc/postgresql/postgresql.conf' ? 'config_file=/tmp/x.conf' : $a, $im),
+        'the image twice'                            => [...$im, $c['image_id']],
+    ];
     foreach ($bad as $what => $args) {
-        check("drill gate: refused with $what", !drillArgsSafe($args));
+        check("drill gate: refused with $what", !drillArgsSafe($args, $c, 'postgres'));
     }
+    foreach (['an init file' => '--init-file=/tmp/x.sql', 'a binlog of its own' => '--log-bin=/var/lib/mysql/bin', 'the plugin dir' => '--plugin-dir=/tmp'] as $what => $opt) {
+        check("drill gate: MariaDB refused with $what after the lean options", !drillArgsSafe([...$md, $opt], $mdc, 'mariadb'));
+    }
+    check('drill gate: Postgres\' lean options are not MariaDB\'s (the type decides)', !drillArgsSafe($im, $c, 'mariadb'));
+    same('drill lean: Postgres — nothing kept for a crash, WAL recycled at 256 MB (Immich\'s config allows 5 GB), small buffers; MariaDB — small redo, no binlog, no doublewrite, room for big rows',
+        [['fsync=off', 'synchronous_commit=off', 'full_page_writes=off', 'wal_level=minimal', 'max_wal_senders=0', 'archive_mode=off', 'max_wal_size=256MB', 'min_wal_size=64MB',
+          'checkpoint_timeout=30s', 'shared_buffers=128MB'],
+         ['--max-allowed-packet=1G', '--innodb-log-file-size=64M', '--innodb-flush-log-at-trx-commit=0', '--skip-log-bin', '--innodb-doublewrite=0']],
+        [array_values(array_filter(array_slice($im, array_search($c['image_id'], $im, true) + 4), fn ($a) => $a !== '-c')), array_slice($md, -5)]);
+    $own = fn (array $ep, array $cmd) => drillServerArgs(['entrypoint' => $ep, 'cmd' => $cmd], 'postgres') !== [];
+    same('drill lean: only when the command starts the server — postgres, options only behind an entrypoint, nothing; never an app\'s own script',
+        [true, true, true, false, false, false],
+        [$own(['docker-entrypoint.sh'], ['postgres']), $own(['docker-entrypoint.sh'], ['-c', 'x=y']), $own(['docker-entrypoint.sh'], []), $own([], ['-c', 'x=y']),
+         $own(['docker-entrypoint.sh'], ['/start-db.sh']), $own([], [])]);
+    same('drill lean: MongoDB gets none', [], drillServerArgs(['entrypoint' => ['docker-entrypoint.sh'], 'cmd' => ['mongod']], 'mongodb'));
     foreach (['another drill\'s name' => [DRILL_PREFIX . '20261101-041200-ffff-1', $c], 'no image id' => [DRILL_PREFIX . "$id-1", ['image_id' => ''] + $c]] as $what => [$name, $cc]) {
         try {
             drillContainerArgs($cc, 'postgres', $name, $id, 1 << 30, 'x');

@@ -69,6 +69,14 @@ const DRILL_SERVER_RAM     = 512 << 20;       // what a database server takes be
 // extents) up to ≈ 300 MB: Immich-shaped 302 MiB → 647 MB, Nextcloud-shaped 162 MiB → 515 MB
 const DRILL_DUMP_FACTOR    = 4;
 const DRILL_DUMP_FLOOR     = 512 << 20;
+// the throwaway server's own options after the image's command (never the live one's): nothing kept for a crash,
+// Postgres' WAL recycled at 256 MB instead of piling up (Immich's config allows 5 GB), InnoDB's redo small, no binlog,
+// MariaDB's room for the dump's biggest rows. drillArgsSafe() lets exactly these through and nothing else.
+const DRILL_LEAN = [
+    'postgres' => ['fsync=off', 'synchronous_commit=off', 'full_page_writes=off', 'wal_level=minimal', 'max_wal_senders=0', 'archive_mode=off',
+                   'max_wal_size=256MB', 'min_wal_size=64MB', 'checkpoint_timeout=30s', 'shared_buffers=128MB'],
+    'mariadb'  => ['--max-allowed-packet=1G', '--innodb-log-file-size=64M', '--innodb-flush-log-at-trx-commit=0', '--skip-log-bin', '--innodb-doublewrite=0'],
+];
 const DRILL_WINDOW         = [0, 7];          // the automatic drill starts between 00:00 and 07:00
 const DRILL_AFTER_RUN      = 6 * 3600;        // … within 6 h after a nightly run ended ok or with warnings
 const DRILL_OVERDUE_DAYS   = 60;              // the Team Lead: no passed drill for 60 days …
@@ -363,17 +371,36 @@ function drillContainerArgs(array $c, string $type, string $name, string $id, in
         $args = [...$args, '--entrypoint', $ep[0]];
     }
     $args[] = $c['image_id'];
-    $cmd = [...array_slice($ep, 1), ...$c['cmd']];
-    // MariaDB: room for the dump's biggest rows (the image's entrypoint passes options on to the server)
-    if ($type === 'mariadb' && (!$c['cmd'] || str_starts_with($c['cmd'][0], '-') || in_array(basename($c['cmd'][0]), ['mariadbd', 'mysqld'], true))) {
-        $cmd[] = '--max-allowed-packet=1G';
-    }
-    return [...$args, ...$cmd];
+    // the image's command, then the lean server's options (drillServerArgs) when it starts the server itself
+    return [...$args, ...array_slice($ep, 1), ...$c['cmd'], ...drillServerArgs($c, $type)];
 }
 
-/** Does an argument list keep to the «never» list? (the tests, and the job before every run as a second look) */
-function drillArgsSafe(array $args): bool
+/**
+ * The throwaway server's own options (DRILL_LEAN), when the command starts the server: `postgres` / `mariadbd` /
+ * `mysqld`, or options only (the image's entrypoint puts the server in front and passes them on — also to the server
+ * it runs for its init). Any other command (a script of the app's own) gets none.
+ */
+function drillServerArgs(array $c, string $type): array
 {
+    $cmd = $c['cmd'];
+    $server = ['postgres' => ['postgres'], 'mariadb' => ['mariadbd', 'mysqld']][$type] ?? null;
+    if ($server === null || !($cmd ? in_array(basename($cmd[0]), $server, true) || ($c['entrypoint'] && str_starts_with($cmd[0], '-')) : (bool) $c['entrypoint'])) {
+        return [];
+    }
+    return $type === 'postgres' ? array_merge(...array_map(fn ($o) => ['-c', $o], DRILL_LEAN['postgres'])) : DRILL_LEAN['mariadb'];
+}
+
+/**
+ * Does an argument list keep to the «never» list? (the tests, and the job before every run as a second look) — and
+ * after the image: the app's own command as the manifest has it, then nothing but the lean server's options.
+ */
+function drillArgsSafe(array $args, array $c, string $type): bool
+{
+    $at = array_keys($args, $c['image_id'], true);
+    if ($c['image_id'] === '' || count($at) !== 1
+        || array_slice($args, $at[0] + 1) !== [...array_slice($c['entrypoint'], 1), ...$c['cmd'], ...drillServerArgs($c, $type)]) {
+        return false;
+    }
     $s = implode("\x1f", $args);
     if (preg_match('/\x1f(-p|--publish|--publish-all|-P|-v|--volume|--mount|--device|--cap-add|--privileged|--volumes-from|--pid|--ipc|--userns|--add-host|--link|--pull)(=|\x1f)/', "\x1f$s\x1f")) {
         return false;
@@ -1209,7 +1236,7 @@ function drillDoDump(array &$j, int $i, array &$env): array
     }
     $name = DRILL_PREFIX . "{$j['id']}-$i";
     $args = drillContainerArgs($c, (string) $s['type'], $name, $j['id'], min($ram, max($need, 1 << 30)), bin2hex(random_bytes(16)));
-    if (!drillArgsSafe($args)) {
+    if (!drillArgsSafe($args, $c, (string) $s['type'])) {
         return ['state' => 'failed', 'code' => 'drill_error', 'detail' => 'throwaway arguments refused'] + $out;
     }
     // written down before it exists: the sweeper finds it whatever happens next
