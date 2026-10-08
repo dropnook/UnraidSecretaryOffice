@@ -12,6 +12,8 @@ declare(strict_types=1);
  * GET  ?a=part&desk=<id>&part=<name>[&fresh=1|wait=1|stored=1]  an extra state file data/<id>-<name>.json, looked at
  *                                     again the same way where desk.json "parts" says how (officeDeskParts())
  * GET  ?a=strings&lang=<code>         all UI strings of a language
+ * GET  ?a=places                      the words of the places the search finds (core.js), in every language — only the
+ *                                     keys the desks list in places.json, nothing a request names (apiPlaceWords())
  * GET  ?a=log                         tail of the agent log
  * GET  ?a=dash&lang=<code>            the rows of the tile on Unraid's Dashboard (dashboard.php), in the browser's language
  * GET  ?a=agent                       the messenger alone (agentInfo(): the array stopped, the night shift)
@@ -44,6 +46,7 @@ function api_main(): void
                 'state'   => answerThenLook(apiState((string) ($_GET['desk'] ?? ''), apiLookMode($_GET))),
                 'part'    => answerThenLook(apiPart((string) ($_GET['desk'] ?? ''), (string) ($_GET['part'] ?? ''), apiLookMode($_GET))),
                 'strings' => apiStrings((string) ($_GET['lang'] ?? 'en')),
+                'places'  => apiPlaces(),
                 'log'     => answer(['ok' => true, 'lines' => apiLogTail(400)]),
                 'dash'    => apiDash((string) ($_GET['lang'] ?? '')),
                 'agent'   => answer(['ok' => true, 'agent' => agentInfo()]),
@@ -334,6 +337,66 @@ function apiStrings(string $code): never
     }
     header('Cache-Control: public, max-age=86400');   // the URL carries a version stamp
     answer(['ok' => true, 'lang' => $code, 'strings' => officeStrings($code)]);
+}
+
+/**
+ * The search's words (core.js «places and the search»): the page knows its places (Office.places() in each desk.js) and
+ * the office's language; to find «Partn» in an English office it needs the other languages' words too — of those keys
+ * only, not the whole strings ×5. The page asks once, on the first open of the search, with the strings' stamp and the
+ * version in the URL (a day in the browser's cache, like the strings).
+ */
+function apiPlaces(): never
+{
+    header('Cache-Control: public, max-age=86400');   // the URL carries the stamp and the version
+    answer(['ok' => true, 'langs' => array_column(officeLanguages(), 'code'), 'words' => apiPlaceWords()]);
+}
+
+/**
+ * The keys of the places: the office's (public/assets/places.json) and each desk's (public/desks/<id>/places.json, its
+ * own keys like T('…'), as <id>.<key>) plus every desk's name — the lists tests/run.php keeps equal to the desks'
+ * Office.places(). Only well-formed keys; nothing from the request.
+ *
+ * @return list<string>
+ */
+function apiPlaceKeys(): array
+{
+    $list = static fn (string $file): array => array_values(array_filter(officeReadJson($file) ?? [],
+        static fn ($k): bool => is_string($k) && preg_match('/^[a-z0-9_]+(\.[a-z0-9_]+){0,5}$/D', $k) === 1));
+    $keys = [];
+    foreach ($list(OFFICE_PUBLIC . '/assets/places.json') as $k) {
+        $keys[$k] = true;
+    }
+    foreach (officeDesks() as $id => $_) {
+        $keys["$id.name"] = true;
+        foreach ($list(OFFICE_PUBLIC . "/desks/$id/places.json") as $k) {
+            $keys["$id.$k"] = true;
+        }
+    }
+    return array_keys($keys);
+}
+
+/**
+ * The places' words per language: {<key>: {<code>: text}} — a plural's forms joined; a language that says it as English
+ * does (or not yet) left out, English has it.
+ *
+ * @return array<string, array<string, string>>
+ */
+function apiPlaceWords(): array
+{
+    $keys = apiPlaceKeys();
+    $text = static fn (mixed $v): string => is_array($v) ? implode(' ', array_unique(array_filter($v, 'is_string'))) : (is_string($v) ? $v : '');
+    $en = officeStrings('en');
+    $words = [];
+    foreach (array_column(officeLanguages(), 'code') as $code) {
+        $strings = $code === 'en' ? $en : officeStrings($code);
+        foreach ($keys as $k) {
+            $s = $text($strings[$k] ?? null);
+            if ($s !== '' && ($code === 'en' || $s !== $text($en[$k] ?? null))) {
+                $words[$k][$code] = $s;
+            }
+        }
+    }
+    return $words;
 }
 
 function checkOrigin(): void

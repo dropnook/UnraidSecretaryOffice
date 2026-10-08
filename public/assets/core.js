@@ -13,7 +13,9 @@
    Its strings live in public/desks/<id>/lang/<code>.json and are reached as
    t('<id>.<key>'), or with Office.scope('<id>') as a shortcut.
    Its state comes through Office.loadState(id, {fresh, part}, took): at once as kept, the agent's new look
-   following on its own page (show first, then look); actions on what the page shows ask Office.freshState(id). */
+   following on its own page (show first, then look); actions on what the page shows ask Office.freshState(id).
+   Its places (sections, tiles, terms …) for the search: Office.places(id, [...]) beside Office.desk(), the
+   elements marked with Office.place(anchor, node) — see «places and the search» below. */
 (() => {
 'use strict';
 
@@ -418,7 +420,7 @@ Office.freshState = async function freshState(desk, part) {
 const TYPING = 'textarea, select, input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]):not([type=file]):not([type=range]):not([type=color])';
 let pressed = 0;
 function calm() {
-  if (Office.dialogOpen() || Office.menuOpen() || (pressed && Date.now() - pressed < 3000)) return false;
+  if (Office.dialogOpen() || Office.menuOpen() || Office.paletteOpen() || (pressed && Date.now() - pressed < 3000)) return false;
   const f = document.activeElement;
   return !(f && f.matches && f.matches(TYPING) && !f.closest('[data-keep]') && $('#sso-desk').contains(f));
 }
@@ -743,7 +745,10 @@ function movedDesk(hash, known) {
   return Object.prototype.hasOwnProperty.call(MOVED_DESKS, id) && !known(id) ? `#/${MOVED_DESKS[id]}` : null;
 }
 
+let routeGen = 0;                   // counts the pages drawn: Office.reveal() waits for the one it asked for
 function route() {
+  routeGen++;
+  if (Office.paletteOpen()) closePalette(false);
   const moved = movedDesk(location.hash, (id) => Office.desks.has(id));
   if (moved) history.replaceState(null, '', moved);
   const parts = (location.hash.replace(/^#\/?/, '') || '').split('/');
@@ -806,6 +811,8 @@ function tabs() {
 /**
  * "How to read this page", folded out under a desk's head — closed unless the
  * user opened it (remembered per desk). items: [[term (text or node), text], …]
+ * A term the desk lists as a place of kind help (Office.places()) gets its anchor here, found by its words —
+ * desk may be '<id>-<page>' (a page of the desk, #/<id>/<page>: its own folding, the desk's places of that route).
  */
 Office.pageHelp = function pageHelp(desk, items) {
   const det = el('details', 'page-help');
@@ -813,9 +820,14 @@ Office.pageHelp = function pageHelp(desk, items) {
   det.ontoggle = () => Office.store(desk + '.help', det.open ? '1' : null);
   det.appendChild(el('summary', '', t('common.page_help')));
   const dl = el('dl', 'page-help-list');
+  const [id, page = ''] = String(desk).split('-');
+  const marks = new Map((placeLists.get(id) || []).filter((p) => p.kind === 'help' && p.anchor && (p.route.split('/')[2] || '') === page)
+    .map((p) => [foldText(t(`${id}.${p.key}`)), p.anchor]));
   items.forEach(([term, text]) => {
     const dt = el('dt');
     if (term instanceof Node) dt.appendChild(term); else dt.textContent = term;
+    const place = marks.get(foldText(dt.textContent));
+    if (place) dt.dataset.place = place;
     dl.append(dt, el('dd', '', text));
   });
   det.appendChild(dl);
@@ -824,13 +836,17 @@ Office.pageHelp = function pageHelp(desk, items) {
 
 /**
  * A section heading: a title bar (inside Unraid like its own) with the extras
- * (counts, buttons) on its right, the explanation right underneath
+ * (counts, buttons) on its right, the explanation right underneath. An extra {place: '<anchor>'} is no node: it marks
+ * the heading as the place the search jumps to (Office.places()).
  */
 Office.sectionHead = function sectionHead(title, sub, ...right) {
   const head = el('div', 'section-head');
   const bar = el('div', 'section-bar');
   bar.appendChild(el('h2', '', title));
-  right.filter(Boolean).forEach((x) => bar.appendChild(x));
+  right.filter(Boolean).forEach((x) => {
+    if (typeof x === 'object' && !x.nodeType && typeof x.place === 'string') head.dataset.place = x.place;
+    else bar.appendChild(x);
+  });
   head.appendChild(bar);
   if (sub) head.appendChild(el('div', 'section-sub', sub));
   return head;
@@ -1633,22 +1649,24 @@ async function showLog() {
 Office.help = function help() {
   const box = el('div');
   const dl = el('dl');
-  const item = (title, ...parts) => {
-    dl.appendChild(el('dt', '', title));
+  // each title is a place the search finds (the office's places, officePlaces()): its key is its anchor
+  const item = (key, ...parts) => {
+    dl.appendChild(Office.place(key, el('dt', '', t(key))));
     const dd = el('dd');
     parts.forEach((p) => dd.append(p));
     dl.appendChild(dd);
   };
   const code = (s) => el('code', '', s);
-  item(t('help.office_title'), t('help.office_text'));
-  item(t('help.order_title'), t('help.order_text'));
-  item(t('help.agent_title'), t('help.agent_text'));
-  item(t('help.dot_title'), t('help.dot_text'));
-  item(t('help.start_title'), t('help.start_text'));
-  item(t('help.languages_title'), t('help.languages_text'), ' ', code('public/lang/<code>.json'), ', ',
+  item('help.office_title', t('help.office_text'));
+  item('help.search_title', t('help.search_text', { keys: shortcutText() }));
+  item('help.order_title', t('help.order_text'));
+  item('help.agent_title', t('help.agent_text'));
+  item('help.dot_title', t('help.dot_text'));
+  item('help.start_title', t('help.start_text'));
+  item('help.languages_title', t('help.languages_text'), ' ', code('public/lang/<code>.json'), ', ',
     code('public/desks/<desk>/lang/<code>.json'), '.');
-  if (Office.theme) item(t('help.theme_title'), t('help.theme_text'));      // theme-switch
-  item(t('help.security_title'), t('help.security_text'));
+  if (Office.theme) item('help.theme_title', t('help.theme_text'));      // theme-switch
+  item('help.security_title', t('help.security_text'));
   box.appendChild(dl);
   Office.dialog({ title: t('help.title'), body: box, wide: true });
 };
@@ -1682,6 +1700,531 @@ function footer() {
   f.append(a);
 }
 
+// ------------------------------------------------------------------ places and the search
+/*
+ * The search (Benj, 2026-10-08): the magnifier in the top line, or ⌘K / Ctrl+K while the office has focus, opens a
+ * palette under it that finds PLACES — a desk, a section, a tile, a step or a setting of a setup, a term of «How to read
+ * this page», a guide — in every language the office speaks at once («Partn» finds «Partner-Sekretariate» in an English
+ * office), and jumps there: the desk's page (its route), what folds open above it, the place scrolled into view and
+ * marked. Never what a desk's state holds (findings, entries, apps: a later phase), nothing outside #sso.
+ *
+ * Every desk lists its places beside Office.desk() — Office.places(ID, [{kind, key, route, anchor, text, crumb}, …]):
+ *   kind    desk | section | tile | step | setting | help | guide
+ *   key     the desk's lang key of the words it is found by and shown as (like T('…'))
+ *   route   where it is: '#/<desk>' (the default), or a sub-route the desk's mount() opens (a tile, its setup)
+ *   anchor  what the desk marks on the element: Office.place(anchor, node), or {place: anchor} among
+ *           Office.sectionHead()'s extras; default the key; null = the page itself. A help term needs no mark: pageHelp()
+ *           finds it by its words (its anchor 'help:<key>')
+ *   text    a lang key shown under it (a term's explanation); crumb: a lang key between the desk and it («Set up»)
+ * The desk's places.json (beside desk.json) lists the same keys: api.php?a=places sends their words in every language,
+ * asked once on the first open — never with the first paint, never per keystroke; until it answers, the office's own
+ * language finds them. tests/run.php testSearchPlaces keeps both lists, the anchors and the sections in step.
+ */
+const PLACE_KINDS = ['desk', 'section', 'tile', 'step', 'setting', 'help', 'guide'];
+const PLACE_WEIGHT = { desk: 1, section: 0.9, tile: 0.85, step: 0.8, setting: 0.8, help: 0.7, guide: 0.7 };
+const PLACES_SHOWN = 12;
+const placeLists = new Map();       // desk ('' = the office itself) -> its places
+let searchIndex = null;             // the places with their words, built on the first open (again for other strings)
+let indexStrings = null;
+let searchWords = null;             // api.php?a=places: {<key>: {<lang>: words}} — every language, once
+let wordsAsked = null;
+
+Office.places = function places(desk, list) {
+  placeLists.set(desk, (Array.isArray(list) ? list : []).filter((p) => p && PLACE_KINDS.includes(p.kind) && typeof p.key === 'string' && p.key)
+    .map((p) => ({
+      desk, kind: p.kind, key: p.key,
+      route: typeof p.route === 'string' ? p.route : desk ? `#/${desk}` : '#/',
+      anchor: p.anchor !== undefined ? p.anchor : p.kind === 'help' ? `help:${p.key}` : p.key,
+      text: p.text || null, crumb: p.crumb || null, act: typeof p.act === 'function' ? p.act : null,
+    })));
+  searchIndex = null;
+};
+/** A desk's places as listed (for the tests) */
+Office.placesOf = (desk) => (placeLists.get(desk) || []).map((p) => ({ ...p }));
+/** Mark a node as the place <anchor> (the search jumps there); the node back */
+Office.place = (anchor, node) => {
+  if (node && node.dataset && anchor) node.dataset.place = anchor;
+  return node;
+};
+
+/** Words as the search compares them: lower case, no accents (ß → ss …), placeholders and punctuation out */
+const foldText = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  .replace(/ß/g, 'ss').replace(/æ/g, 'ae').replace(/œ/g, 'oe').replace(/ø/g, 'o').replace(/ł/g, 'l')
+  .replace(/\{\w+\}/g, ' ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+/** A text as a result shows it: placeholders it can't fill out, no trailing … or : */
+const placeLabel = (s) => String(s ?? '').replace(/\{\w+\}/g, '').replace(/\s+/g, ' ').replace(/^[\s·:,–—-]+|[\s·:,–—…-]+$/g, '').trim();
+/** The words of a lang value: every form of a plural, Unraid's ⟦labels⟧ in English and in Unraid's words */
+const placeWordsOf = (v) => {
+  const s = v && typeof v === 'object' ? Object.values(v).filter((x) => typeof x === 'string').join(' ') : String(v ?? '');
+  return s.indexOf('⟦') < 0 ? s : `${s.replace(/[⟦⟧]/g, '')} ${unraidWords(s)}`;
+};
+
+/** The office's own places: the reception, the help's parts, the language, its entry in Unraid */
+function officePlaces() {
+  const help = ['office', 'search', 'order', 'agent', 'dot', 'start', 'languages', 'security'].concat(Office.theme ? ['theme'] : [])   // theme-switch
+    .map((x) => ({ kind: 'help', key: `help.${x}_title`, anchor: `help.${x}_title`, text: `help.${x}_text`, act: Office.help }));
+  Office.places('', [
+    { kind: 'desk', key: 'office.reception', route: '#/', anchor: null },
+    { kind: 'setting', key: 'office.order_change', route: '#/', anchor: null },
+    { kind: 'guide', key: 'help.title', anchor: null, act: Office.help },
+    ...help,
+    { kind: 'setting', key: 'office.language', anchor: null, act: languageDialog },
+    { kind: 'setting', key: 'office.menu_title', anchor: null, act: menuNameDialog },
+    { kind: 'setting', key: 'office.log', anchor: null, act: showLog },
+  ]);
+}
+
+const hiredDesk = (id) => !id || !!(Office.desks.get(id) || CONFIG.desks.find((d) => d.id === id) || {}).hired;
+
+/** Every place once: the desks themselves first, then what each lists; a term named like a section of its desk is that section */
+function placeIndex() {
+  if (searchIndex && indexStrings === Office.strings) return searchIndex;
+  if (!placeLists.has('')) officePlaces();
+  const all = [...(placeLists.get('') || [])];
+  for (const d of CONFIG.desks) {
+    all.push({ desk: d.id, kind: 'desk', key: 'name', route: `#/${d.id}`, anchor: null, text: null, crumb: null, act: null });
+    all.push(...(placeLists.get(d.id) || []));
+  }
+  const kept = new Map();
+  searchIndex = [];
+  for (const p of all) {
+    const full = p.desk ? `${p.desk}.${p.key}` : p.key;
+    if (!Office.has(full)) continue;
+    const label = placeLabel(t(full));
+    if (!label) continue;
+    const same = `${p.desk}|${foldText(label)}`;
+    const first = kept.get(same);
+    if (first) {                           // the same words twice on a desk: one result, a term's explanation joins it
+      if (!first.text && p.text) first.text = p.text;
+      continue;
+    }
+    const e = { ...p, full, label, tokens: null };
+    kept.set(same, e);
+    searchIndex.push(e);
+  }
+  indexStrings = Office.strings;
+  return searchIndex;
+}
+
+/** A place's words: as the page shows them now, as kept in the office's language, and (once there) in every other */
+function placeTokens(e) {
+  if (e.tokens) return e.tokens;
+  const texts = [e.label, placeWordsOf(Office.strings[e.full])];
+  const w = searchWords && searchWords[e.full];
+  if (w && typeof w === 'object') texts.push(...Object.values(w).map(placeWordsOf));
+  e.tokens = [...new Set(texts.flatMap((s) => foldText(s).split(' ')).filter(Boolean))];
+  return e.tokens;
+}
+
+/** The other languages' words, asked once (on the first open): a day in the browser's cache, like the strings */
+function placeWords() {
+  if (wordsAsked) return wordsAsked;
+  wordsAsked = fetch(`${API}?a=places&v=${encodeURIComponent(`${CONFIG.stamp}-${CONFIG.version}`)}`)
+    .then((r) => r.json())
+    .then((j) => {
+      if (!j || !j.ok || !j.words || typeof j.words !== 'object') return;
+      searchWords = j.words;
+      for (const e of searchIndex || []) e.tokens = null;
+      if (Office.paletteOpen()) renderPalette();
+    })
+    .catch(() => { wordsAsked = null; });          // asked again at the next open
+  return wordsAsked;
+}
+
+/** Typing errors: Damerau-Levenshtein (adjacent swaps count one), given up beyond max */
+function typoDistance(a, b, max) {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let older = null, prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j++) {
+      let v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, older[j - 2] + 1);
+      cur[j] = v;
+      best = Math.min(best, v);
+    }
+    if (best > max) return max + 1;
+    older = prev;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/** How well one word of the query meets one of a place: 4 the word, 3 its start, 2 inside it, 1 a typing error away, 0 not */
+function wordScore(q, w) {
+  if (w === q) return 4;
+  if (w.startsWith(q)) return 3;
+  if (q.length >= 3 && w.includes(q)) return 2;
+  if (q.length < 4) return 0;                      // shorter: too many words are one letter away
+  const max = q.length >= 8 ? 2 : 1;
+  for (const len of new Set([q.length - 1, q.length, q.length + 1].map((n) => Math.min(n, w.length)))) {
+    if (len > 0 && typoDistance(q, w.slice(0, len), max) <= max) return 1;
+  }
+  return 0;
+}
+
+/**
+ * The places for a query, best first (hired desks before the others), at most PLACES_SHOWN. Every word of the query must
+ * meet a word of the place (in any language); typing errors count only while nothing meets the query as it is typed.
+ */
+function findPlaces(query) {
+  const qs = foldText(query).split(' ').filter(Boolean);
+  if (!qs.length) return [];
+  const whole = qs.join(' ');
+  const here = Office.current ? Office.current.id : '';
+  const out = [];
+  for (const e of placeIndex()) {
+    const words = placeTokens(e);
+    let sum = 0, typo = false;
+    for (const q of qs) {
+      let best = 0;
+      for (const w of words) {
+        const s = wordScore(q, w);
+        if (s > best) { best = s; if (s === 4) break; }
+      }
+      if (!best) { sum = -1; break; }
+      sum += best;
+      typo = typo || best === 1;
+    }
+    if (sum < 0) continue;
+    let score = (sum / qs.length / 4) * PLACE_WEIGHT[e.kind];
+    if (foldText(e.label) === whole) score += 0.3;            // the very words the page shows
+    else if (foldText(e.label).startsWith(whole)) score += 0.15;
+    if (e.desk && e.desk === here) score += 0.2;              // the desk shown first
+    out.push({ e, score, typo, hired: hiredDesk(e.desk) });
+  }
+  const typed = out.some((x) => !x.typo) ? out.filter((x) => !x.typo) : out;
+  typed.sort((a, b) => (b.hired - a.hired) || (b.score - a.score) || (a.e.label.length - b.e.label.length)
+    || (Office.deskRank(a.e.desk) - Office.deskRank(b.e.desk)));
+  return typed.slice(0, PLACES_SHOWN).map(({ e, score, hired }) => ({
+    desk: e.desk, key: e.key, kind: e.kind, route: e.route, anchor: e.anchor, act: e.act, label: e.label, hired, score,
+    crumb: placeCrumb(e), detail: placeDetail(e),
+  }));
+}
+
+/** «Mr. Backupsy › Set up», «… › How to read this page»; a desk none (its role is the line under it) */
+function placeCrumb(e) {
+  if (!e.desk) return [t('office.name'), e.kind === 'help' && e.act ? t('help.title') : ''].filter(Boolean).join(' › ');
+  if (e.kind === 'desk') return '';
+  const parts = [t(`${e.desk}.name`)];
+  if (e.crumb && Office.has(`${e.desk}.${e.crumb}`)) parts.push(placeLabel(t(`${e.desk}.${e.crumb}`)));
+  if (e.kind === 'help') parts.push(t('common.page_help'));
+  return parts.join(' › ');
+}
+/** The beginning of a term's explanation (a desk's: its role) */
+function placeDetail(e) {
+  const text = e.kind === 'desk' && e.desk ? 'role' : e.text;
+  const key = text ? (e.desk ? `${e.desk}.${text}` : text) : null;
+  if (!key || !Office.has(key)) return '';
+  const s = placeLabel(t(key));
+  return s.length > 110 ? s.slice(0, 108).replace(/\s+\S*$/, '') + ' …' : s;
+}
+
+// the palette: a field and its list under the magnifier (role combobox / listbox), like Office.menu() appended to #sso
+let palette = null;
+Office.paletteOpen = () => !!(palette && !palette.box.hidden);
+const isMac = () => /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
+const shortcutText = () => (isMac() ? '⌘K' : 'Ctrl+K');
+
+/** A magnifier drawn with the text's colour */
+function magnifier() {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  const c = document.createElementNS(NS, 'circle');
+  [['cx', '6.8'], ['cy', '6.8'], ['r', '4.6']].forEach(([k, v]) => c.setAttribute(k, v));
+  const l = document.createElementNS(NS, 'path');
+  l.setAttribute('d', 'M10.3 10.3 14.2 14.2');
+  [c, l].forEach((n) => { n.setAttribute('fill', 'none'); n.setAttribute('stroke', 'currentColor'); n.setAttribute('stroke-width', '1.7'); n.setAttribute('stroke-linecap', 'round'); svg.appendChild(n); });
+  return svg;
+}
+
+/** The magnifier in the top line, before the messenger's word */
+function searchButton() {
+  const state = $('#sso-state');
+  if (!state || $('#sso-search')) return;
+  const b = el('button', 'search-open');
+  b.type = 'button';
+  b.id = 'sso-search';
+  b.title = `${t('search.open')} (${shortcutText()})`;
+  b.setAttribute('aria-label', t('search.open'));
+  b.setAttribute('aria-haspopup', 'listbox');
+  b.setAttribute('aria-expanded', 'false');
+  b.appendChild(magnifier());
+  b.onclick = (e) => { e.stopPropagation(); if (Office.paletteOpen()) closePalette(true); else openPalette(); };
+  state.parentNode.insertBefore(b, state);
+}
+
+function buildPalette() {
+  const box = el('div', 'palette');
+  box.id = 'sso-palette';
+  box.hidden = true;
+  const field = el('div', 'palette-field');
+  const input = el('input', 'palette-input');
+  input.type = 'text';
+  input.id = 'sso-palette-input';
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.dataset.keep = '1';
+  input.setAttribute('role', 'combobox');
+  input.setAttribute('aria-autocomplete', 'list');
+  input.setAttribute('aria-controls', 'sso-palette-list');
+  input.setAttribute('aria-expanded', 'false');
+  field.append(magnifier(), input);
+  const list = el('ul', 'palette-list');
+  list.id = 'sso-palette-list';
+  list.setAttribute('role', 'listbox');
+  const foot = el('div', 'palette-foot');
+  const count = el('span', 'palette-count');
+  count.setAttribute('aria-live', 'polite');
+  const hint = el('span', 'palette-hint');
+  foot.append(count, hint);
+  box.append(field, list, foot);
+  ROOT.appendChild(box);
+  const p = { box, input, list, count, hint, results: [], active: -1, query: null };
+  input.addEventListener('input', () => renderPalette());
+  input.addEventListener('keydown', (e) => {
+    const n = p.results.length;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (n) paletteActive(p.active < 0 ? (e.key === 'ArrowDown' ? 0 : n - 1) : (p.active + (e.key === 'ArrowDown' ? 1 : n - 1)) % n);
+    } else if (e.key === 'Home' && n && e.ctrlKey) {
+      e.preventDefault();
+      paletteActive(0);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (n) choosePlace(p.active < 0 ? 0 : p.active);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closePalette(true);
+    } else if (e.key === 'Tab') {
+      closePalette(false);                 // the focus moves on, the palette goes
+    }
+  });
+  return p;
+}
+
+function openPalette() {
+  if (Office.dialogOpen()) return;
+  hideMenu();
+  hideTip();
+  if (!palette) palette = buildPalette();
+  // its words in the language shown now (the language may have changed since it was built)
+  palette.input.placeholder = t('search.placeholder');
+  palette.input.setAttribute('aria-label', t('search.open'));
+  palette.list.setAttribute('aria-label', t('search.label'));
+  palette.hint.textContent = t('search.hint');
+  palette.box.hidden = false;
+  const b = $('#sso-search');
+  if (b) b.setAttribute('aria-expanded', 'true');
+  placePalette();
+  palette.query = null;
+  renderPalette();
+  palette.input.focus();
+  palette.input.select();
+  placeWords();                            // the other languages' words — the first open asks, never the first paint
+}
+
+/** Close it; back to the magnifier (Esc), or the focus where it goes (a place chosen, a click elsewhere) */
+function closePalette(refocus) {
+  if (!Office.paletteOpen()) return;
+  palette.box.hidden = true;
+  palette.input.setAttribute('aria-expanded', 'false');
+  const b = $('#sso-search');
+  if (b) {
+    b.setAttribute('aria-expanded', 'false');
+    if (refocus) b.focus();
+  }
+}
+
+/** Under the magnifier, right-aligned to it; on a phone the screen's width */
+function placePalette() {
+  const b = $('#sso-search');
+  const r = b && b.getBoundingClientRect ? b.getBoundingClientRect() : { bottom: 0, right: window.innerWidth };
+  const w = Math.min(560, window.innerWidth - 16);
+  palette.box.style.width = w + 'px';
+  palette.box.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
+  palette.box.style.top = Math.max(8, r.bottom + 6) + 'px';
+}
+
+function renderPalette() {
+  const p = palette;
+  const query = String(p.input.value || '');
+  const found = query.trim() ? findPlaces(query) : [];
+  p.results = found;
+  p.list.innerHTML = '';
+  found.forEach((r, i) => {
+    const li = el('li', 'palette-item' + (r.hired ? '' : ' unhired'));
+    li.id = `sso-palette-opt-${i}`;
+    li.setAttribute('role', 'option');
+    li.setAttribute('aria-selected', 'false');
+    const icon = el('span', 'palette-icon');
+    icon.appendChild(Office.deskIcon(r.desk));
+    const text = el('span', 'palette-text');
+    text.appendChild(el('span', 'palette-name', r.label));
+    if (r.crumb) text.appendChild(el('span', 'palette-crumb', r.crumb));
+    if (r.detail) text.appendChild(el('span', 'palette-detail', r.detail));
+    const chips = el('span', 'palette-chips');
+    chips.appendChild(el('span', 'chip quiet', t(`search.kind.${r.kind}`)));
+    if (!r.hired) chips.appendChild(el('span', 'chip quiet', t('search.not_hired')));
+    li.append(icon, text, chips);
+    li.addEventListener('mousedown', (e) => e.preventDefault());       // the field keeps the focus
+    li.addEventListener('mousemove', () => { if (p.active !== i) paletteActive(i); });
+    li.addEventListener('click', () => choosePlace(i));
+    p.list.appendChild(li);
+  });
+  p.list.hidden = !found.length;
+  p.input.setAttribute('aria-expanded', String(found.length > 0));
+  p.count.textContent = !query.trim() ? '' : found.length ? t('search.results', { n: found.length }) : t('search.none', { q: query.trim() });
+  p.active = -1;
+  p.input.removeAttribute('aria-activedescendant');
+  if (found.length) paletteActive(0);
+}
+
+function paletteActive(i) {
+  const p = palette;
+  p.active = i;
+  [...p.list.children].forEach((li, j) => {
+    li.classList.toggle('active', j === i);
+    li.setAttribute('aria-selected', String(j === i));
+  });
+  const li = p.list.children[i];
+  if (li) {
+    p.input.setAttribute('aria-activedescendant', li.id);
+    if (li.scrollIntoView) li.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+function choosePlace(i) {
+  const r = palette && palette.results[i];
+  if (!r) return;
+  closePalette(false);
+  Office.goToPlace(r);
+}
+
+/**
+ * Go to a place: the office's own act (a dialog), else the desk's route — a desk not working here: the Team Lead's «The
+ * team» (route() would say so too) — then Office.reveal(). On the page shown already (no sub-route) nothing is drawn anew.
+ */
+Office.goToPlace = function goToPlace(r) {
+  if (r.act) {
+    r.act();
+    if (r.anchor) Office.reveal(r.anchor, { name: r.label });
+    return;
+  }
+  if (!r.hired) {
+    Office.toast(t('office.not_hired', { name: t(`${r.desk}.name`) }));
+    const gen = routeGen;
+    Office.go('#/caretaker');
+    Office.reveal('team', { since: gen, name: t('caretaker.team') });
+    return;
+  }
+  const here = (location.hash || '#/') === r.route && r.route.split('/').length <= 2;
+  if (here && r.anchor) { Office.reveal(r.anchor, { name: r.label }); return; }
+  const gen = routeGen;
+  Office.go(r.route);
+  if (r.anchor) Office.reveal(r.anchor, { since: gen, name: r.label });
+};
+
+/**
+ * Bring a place into view: [data-place="<anchor>"] in the office — at once, or as soon as the page has drawn it (desks
+ * draw before their state arrives: watched for ≤ 10 s; since = only a page drawn after that route counts). Every
+ * <details> above it opens, it scrolls under Unraid's menu, is marked a moment and takes the focus. For 2 s more a page
+ * drawn anew (the state arrived) is followed; the user scrolling, clicking or typing ends all of it.
+ */
+const REVEAL_WAIT = 10000;
+const REVEAL_SETTLE = 2000;
+let revealing = null;
+Office.reveal = function reveal(anchor, opts) {
+  if (revealing) revealing.stop();
+  if (!anchor) return;
+  const { since, name } = opts || {};
+  const sel = `[data-place="${String(anchor).replace(/["\\]/g, '\\$&')}"]`;
+  const me = {};
+  let hit = null, found = false, timer = 0, obs = null, done = false;
+  const user = ['wheel', 'touchstart', 'pointerdown', 'keydown'];
+  const stop = () => {
+    done = true;
+    clearTimeout(timer);
+    if (obs) obs.disconnect();
+    user.forEach((ev) => document.removeEventListener(ev, stop, true));
+    if (revealing === me) revealing = null;
+  };
+  me.stop = stop;
+  revealing = me;
+  const look = () => {
+    if (done || (since !== undefined && routeGen === since) || (hit && hit.isConnected)) return;
+    const node = ROOT.querySelector(sel);
+    if (!node) return;
+    const first = !found;
+    found = true;
+    hit = node;
+    showPlace(node, first);
+    if (first) {                         // found: follow a page drawn anew a little longer, then let go
+      clearTimeout(timer);
+      timer = setTimeout(stop, REVEAL_SETTLE);
+    }
+  };
+  setTimeout(() => { if (!done) user.forEach((ev) => document.addEventListener(ev, stop, true)); }, 0);
+  if (typeof MutationObserver === 'function') {
+    obs = new MutationObserver(look);
+    obs.observe(ROOT, { childList: true, subtree: true });
+  }
+  timer = setTimeout(() => {
+    if (!found && !done) Office.toast(t('search.not_there', { name: name || '' }));
+    stop();
+  }, REVEAL_WAIT);
+  look();
+};
+
+function showPlace(node, first) {
+  for (let d = node.closest('details'); d; d = d.parentElement ? d.parentElement.closest('details') : null) {
+    if (!d.open) d.open = true;
+  }
+  const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (node.closest('.dialog')) {
+    node.scrollIntoView({ block: 'center' });
+  } else {
+    // under what Unraid keeps fixed at the top (its menu, when sticky)
+    const menu = document.getElementById('menu');
+    const above = menu && /^(sticky|fixed)$/.test(getComputedStyle(menu).position) ? menu.offsetHeight : 0;
+    const top = node.getBoundingClientRect().top + window.scrollY - above - 12;
+    window.scrollTo({ top: Math.max(0, top), behavior: first && !reduced ? 'smooth' : 'auto' });
+  }
+  node.classList.add('place-hit');
+  setTimeout(() => node.classList.remove('place-hit'), 1800);
+  if (!node.matches('a[href], button, input, select, textarea, summary, [tabindex]')) {
+    node.setAttribute('tabindex', '-1');
+    node.addEventListener('blur', () => node.removeAttribute('tabindex'), { once: true });
+  }
+  node.focus({ preventScroll: true });
+}
+
+/** ⌘K / Ctrl+K while the office has the focus — or nothing outside it was clicked last (Unraid's header keeps its own) */
+let pointerInOffice = true;
+function searchKeys() {
+  document.addEventListener('pointerdown', (e) => {
+    pointerInOffice = ROOT.contains(e.target);
+    if (Office.paletteOpen() && !palette.box.contains(e.target) && !e.target.closest('#sso-search')) closePalette(false);
+  }, true);
+  window.addEventListener('keydown', (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || String(e.key).toLowerCase() !== 'k') return;
+    const f = document.activeElement;
+    const inOffice = (f && f !== document.body && f !== document.documentElement) ? ROOT.contains(f) : pointerInOffice;
+    if (!inOffice || Office.dialogOpen()) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (Office.paletteOpen()) closePalette(true); else openPalette();
+  }, true);
+  window.addEventListener('resize', () => { if (Office.paletteOpen()) placePalette(); });
+}
+
+Office.search = { open: openPalette, close: () => closePalette(true), find: findPlaces, words: placeWords };
+
 // ------------------------------------------------------------------ start
 async function start() {
   await loadStrings(pickLanguage());
@@ -1690,6 +2233,8 @@ async function start() {
   footer();
   $('#sso-more').onclick = officeMenu;
   $('#sso-state').onclick = Office.help;
+  searchButton();                      // the search: the magnifier and ⌘K / Ctrl+K — its index and words only when opened
+  searchKeys();
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenu(); });
   initTips();
   // a mouse button or finger down: a new picture waits until the click is done (calm())
