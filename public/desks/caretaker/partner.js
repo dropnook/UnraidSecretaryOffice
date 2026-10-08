@@ -283,7 +283,13 @@ function addressPicker(addresses, port) {
   sel.onchange = () => { typed.hidden = sel.value !== ''; };
   const p = input('number', port || 22);
   p.min = 1; p.max = 65535;
-  box.append(field(T('partner.address'), sel), typed);
+  const f = field(T('partner.address'), sel);
+  f.appendChild(typed);
+  // over WireGuard the tunnel's address (wg0, wg1 …) is the one to pick - it is listed only while the tunnel is up
+  // (partnerMyAddresses: ip addr, the iface per address), so say when none is up right now (Benj, 2026-10-08)
+  const wg = (addresses || []).some((a) => /^wg\d*$/.test(String(a.iface || '')));
+  f.appendChild(el('small', '', T('partner.address_hint') + (wg ? '' : ' ' + T('partner.address_nowg'))));
+  box.appendChild(f);
   box.appendChild(field(T('partner.port'), p, T('partner.port_help')));
   return { node: box, value: () => ({ address: sel.value || typed.value.trim(), port: Number(p.value) }) };
 }
