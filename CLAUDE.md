@@ -773,7 +773,11 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   inside `#sso` takes left/top in the zoomed px, while getBoundingClientRect/clientX/innerWidth speak the screen's
   (Chrome, Firefox) — core.js `fixedSpace()` turns them into the office's px for the ⋯ menu, the tips and the palette
   (without zoom it changes nothing); vh/vw inside `#sso` are zoomed too, so size-switch.css divides the ones that bind a
-  box to the window (dialog, palette, tip) by `--zoom`. Media queries still see the real window: at 1024 px and Large
+  box to the window (dialog, palette, tip) by `--zoom`. **Floor for small text:** zoom scales every size alike, so the
+  12–13 px secondary lines (`.row-detail`, `.hint`, notes, steps, help, dialog body text — 89 selectors in four groups
+  at the end of size-switch.css) get `font-size: var(--floor)` under `#sso[data-size]`, `--floor` being 13.5 px at Medium
+  and 14.5 px at Large (before the zoom); chips, counters, caps headers, `.mono`/code, buttons, inputs and titles are left
+  to the zoom alone — a new small prose class goes into a group there, a new chip or label does not. Media queries still see the real window: at 1024 px and Large
   the office lays out in ≈ 790 px with the desktop rules. src/page.php sets the attribute before the first paint (an
   inline script right inside `#sso`, after the theme's). **Switching it off:** `OFFICE_SIZE_SWITCH = false` in
   src/bootstrap.php — nothing of it shows or loads (four places in page.php behind the constant, core.js asks
@@ -781,7 +785,7 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   places in src/page.php, the three `size-switch` hooks in core.js (the reception's actions, the help line, the help's
   place for the search; `fixedSpace()` may stay), the strings `office.size_*` and `help.size_*` in the five lang files,
   `testSizeSwitch` in tests/run.php, the README half-sentence and this bullet. `testSizeSwitch` checks the page with the
-  constant on and off, the two zoom rules (and nothing for Small), the strings and the hooks.
+  constant on and off, the two zoom rules (and nothing for Small), the floor, the strings and the hooks.
 * **Show first, then look (Benj, 2026-10-07 — perf report levers 1 and 2):** a desk's state (and a part desk.json
   names) comes through `Office.loadState(id, {fresh, part}, took)` (core.js), never `Office.api.get({a: 'state'})`:
   `api.php` answers at once with what is kept (`apiLook()`: `age`, `stale` = older than refresh_after, `refreshing`
