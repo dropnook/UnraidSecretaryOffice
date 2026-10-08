@@ -753,6 +753,55 @@ function testSnapshotNames(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/**
+ * Ms. Snapshotini's ids (QA 2026-10-08: `snapshot.estimate` / `delete` with `../x` answered ok + snapshot_gone): an id
+ * of a shape her scans never make — a path, `..` as a part, `/` at odd places, whitespace at an end, control
+ * characters — is refused (bad_request) by every action that takes one, before any scan; her real ids pass.
+ */
+function testSnapshotIds(): void
+{
+    $good = ['zfs:cache/appdata@uso-backup-20261006-0100', 'zfs:t@x', 'zfs:mother/My Files@auto-backup-20261006-0700',
+             'zfs:cache/appdata@a..b', 'zfs:cache/system/docker/0f1e2d3c4b5a@123456', 'zfs:pool.a/ds:x/d-s_1@snap.1:2',
+             'btrfs:/mnt/disk1/.btrfs-snap/20261006-0100', 'btrfs:/mnt/cache/appdata/.snap/My snap', 'btrfs:/mnt/disk1/..x',
+             'vm:Windows 11/Snap 1', 'vm:HA/S20261006', 'vm:Ubuntü (test)/before update'];
+    foreach ($good as $id) {
+        check('snapshot ids: hers pass — ' . json_encode($id), snapshotIdOk($id));
+    }
+    $bad = ['../x', '/boot/config/x', 'x', '', 'zfs:', 'zfs:../x', 'zfs:cache/../x@y', 'zfs:cache/./x@y', 'zfs:cache/appdata@..',
+            'zfs:cache/appdata@.', 'zfs:cache//a@x', 'zfs:/cache@x', 'zfs:cache/@x', 'zfs:cache/a@x/y', 'zfs:cache/a@x@y', 'zfs:cache@',
+            'zfs:cache', 'zfs: cache@x', 'zfs:cache@x ', 'zfs:cache /a@x', "zfs:cache@x\n", "zfs:cache\0@x", 'zfs:1pool@x',
+            'zfs:cache/a@x;rm', 'btrfs:../x', 'btrfs:/boot/config/x', 'btrfs:mnt/disk1/x', 'btrfs:/mnt/disk1/../x',
+            'btrfs:/mnt/disk1/./x', 'btrfs:/mnt/disk1//x', 'btrfs:/mnt/disk1/x/', 'btrfs:/mnt/disk1', 'btrfs:/mnt/disk1/ x',
+            'btrfs:/mnt/disk1/x ', "btrfs:/mnt/disk1/x\ty", "btrfs:/mnt/disk1/\xff", 'vm:../x', 'vm:x/..', 'vm:a/b/c', 'vm:a',
+            'vm:/a', 'vm:a/', 'vm: a/b', "vm:a/b\r", 'x:y', 'ZFS:cache@x', 'zfs:t@' . str_repeat('a', 1000)];
+    foreach ($bad as $id) {
+        check('snapshot ids: not hers — refused ' . json_encode($id), !snapshotIdOk($id));
+    }
+
+    // the actions: refused before any scan (nothing here may reach zfs — the scan would)
+    $ask = function (string $action, array $r): string {
+        try {
+            $answer = desks()['snapshot']['actions'][$action]($r);
+            return !empty($answer['ok']) ? 'ok' : 'not ok';
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    foreach (['../x', 'zfs:cache/../x@y', 'btrfs:/mnt/disk1/../x', "vm:a/b\n"] as $id) {
+        same('snapshot ids: estimate, delete, rename, hold, release, unmount refuse ' . json_encode($id), array_fill(0, 7, 'bad_request'), [
+            $ask('estimate', ['ids' => [$id]]), $ask('estimate', ['ids' => ['zfs:cache/a@ok', $id]]), $ask('delete', ['ids' => [$id]]),
+            $ask('rename', ['id' => $id, 'name' => 'new']), $ask('hold', ['id' => $id]), $ask('release', ['id' => $id]), $ask('unmount', ['id' => $id])]);
+    }
+    same('snapshot ids: no id is still missing_field / no_selection', ['missing_field', 'no_selection', 'invalid_selection'],
+        [$ask('hold', []), $ask('delete', ['ids' => []]), $ask('estimate', ['ids' => [['x']]])]);
+    $was = $GLOBALS['snapshot'];
+    $GLOBALS['snapshot'] = ['zfs' => ['snapshots' => []], 'btrfs' => ['snapshots' => []], 'vm' => ['snapshots' => []]];
+    same('snapshot ids: one of her shape she doesn\'t know — estimate as before (nothing, no failure)', ['ok', 0],
+        [$ask('estimate', ['ids' => ['zfs:cache/appdata@gone', 'vm:Windows 11/Snap 1']]), snapshotEstimate(['zfs:cache/appdata@gone'])['bytes']]);
+    $GLOBALS['snapshot'] = $was;
+    same('snapshot ids: a good id goes on to the name\'s check (rename)', 'invalid_name', $ask('rename', ['id' => 'zfs:cache/a@x', 'name' => '../y']));
+}
+
 function testEmby(): void
 {
     foreach (['emby/embyserver:latest', 'emby/embyserver_arm64v8:4.8', 'linuxserver/emby', 'lscr.io/linuxserver/emby:latest',
@@ -19281,7 +19330,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings'],
-          'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames'],
+          'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

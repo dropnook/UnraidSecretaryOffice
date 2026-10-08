@@ -61,14 +61,15 @@ desk('snapshot', [
     'actions' => [
         'refresh'  => fn (array $r) => ['ok' => true, 'state' => snapshotScan(false)],
         'scan'     => fn (array $r) => snapshotScanRequest(!empty($r['wake'])),
-        'estimate' => fn (array $r) => ['ok' => true] + snapshotEstimate(idList($r, 'ids')),
+        // a snapshot's id has the shape her scans give it (snapshotCheckId()) — anything else is no id at all: bad_request
+        'estimate' => fn (array $r) => ['ok' => true] + snapshotEstimate(snapshotIdList($r, 'ids')),
         'create'   => fn (array $r) => snapshotCreate($r),
         // on a sleeping pool only with `wake` (the page asks for it explicitly) — never woken on her own
-        'delete'   => fn (array $r) => snapshotDelete(idList($r, 'ids'), !empty($r['unmount']), !empty($r['wake'])),
-        'rename'   => fn (array $r) => snapshotRename(textField($r, 'id'), textField($r, 'name'), !empty($r['wake'])),
-        'hold'     => fn (array $r) => snapshotHold(textField($r, 'id'), true, !empty($r['wake'])),
-        'release'  => fn (array $r) => snapshotHold(textField($r, 'id'), false, !empty($r['wake'])),
-        'unmount'  => fn (array $r) => snapshotUnmountRequest(textField($r, 'id'), !empty($r['wake'])),
+        'delete'   => fn (array $r) => snapshotDelete(snapshotIdList($r, 'ids'), !empty($r['unmount']), !empty($r['wake'])),
+        'rename'   => fn (array $r) => snapshotRename(snapshotIdField($r, 'id'), textField($r, 'name'), !empty($r['wake'])),
+        'hold'     => fn (array $r) => snapshotHold(snapshotIdField($r, 'id'), true, !empty($r['wake'])),
+        'release'  => fn (array $r) => snapshotHold(snapshotIdField($r, 'id'), false, !empty($r['wake'])),
+        'unmount'  => fn (array $r) => snapshotUnmountRequest(snapshotIdField($r, 'id'), !empty($r['wake'])),
         'plan_save'   => fn (array $r) => snapPlanSave($r['plan'] ?? null),
         'plan_toggle' => fn (array $r) => snapPlanToggle(textField($r, 'id'), boolField($r, 'enabled')),
         'plan_delete' => fn (array $r) => snapPlanDelete(textField($r, 'id')),
@@ -986,6 +987,58 @@ function snapshotRefusePartner(array $s): void
 function snapshotShortId(string $id): string
 {
     return (string) preg_replace('/^[a-z]+:/', '', $id);
+}
+
+/*
+ * A snapshot's id as her scans make it — nothing else is ever one (QA 2026-10-08: `../x` answered ok with
+ * snapshot_gone; now bad_request, before any scan):
+ *   zfs:<pool>/<dataset>@<snapshot>   ZFS's own characters (letters, digits, _ . : - and inner spaces — a share
+ *                                      «My Files» is a dataset of that name), the pool beginning with a letter
+ *   btrfs:/mnt/<disk>/<path>           an absolute path under /mnt (btrfsDevices() takes only those), every part
+ *                                      a name: no empty part (`//`, a trailing `/`), never `.` or `..`
+ *   vm:<vm>/<snapshot>                 two names (Unraid's VM names may hold spaces and more), no `/` in either
+ * Every name: no control characters, no space at either end, valid UTF-8; `..` inside a name (`a..b`) is a name.
+ */
+const SNAPSHOT_ID_ZFS_PART = '[A-Za-z0-9_.:-](?:[A-Za-z0-9_.: -]*[A-Za-z0-9_.:-])?';
+const SNAPSHOT_ID_NAME     = '(?!\.\.?(?:/|$))[^/\s\x00-\x1f\x7f](?:[^/\x00-\x1f\x7f]*[^/\s\x00-\x1f\x7f])?';
+
+function snapshotIdOk(string $id): bool
+{
+    $zfs = SNAPSHOT_ID_ZFS_PART;
+    $name = SNAPSHOT_ID_NAME;
+    if (strlen($id) > 1000 || preg_match('/[\x00-\x1f\x7f]/', $id)) {
+        return false;
+    }
+    $ok = match (true) {
+        str_starts_with($id, 'zfs:')   => preg_match("#^zfs:[A-Za-z](?:$zfs)?(?:/$zfs)*@$zfs\$#D", $id)
+                                          && !preg_match('#(?:^zfs:|/)\.\.?(?:/|@)|@\.\.?$#D', $id),
+        str_starts_with($id, 'btrfs:') => preg_match("#^btrfs:/mnt(?:/$name){2,}\$#Du", $id),
+        str_starts_with($id, 'vm:')    => preg_match("#^vm:$name/$name\$#Du", $id),
+        default                        => false,
+    };
+    return (bool) $ok;
+}
+
+/** One snapshot id of a request (rename, hold, release, unmount): missing → missing_field, not one of hers → bad_request */
+function snapshotIdField(array $r, string $field): string
+{
+    $id = textField($r, $field);
+    if (!snapshotIdOk($id)) {
+        throw new Problem('bad_request');
+    }
+    return $id;
+}
+
+/** The snapshot ids of a request (estimate, delete): idList()'s rules, and every one of her shape (else bad_request) */
+function snapshotIdList(array $r, string $field): array
+{
+    $ids = idList($r, $field);
+    foreach ($ids as $id) {
+        if (!snapshotIdOk($id)) {
+            throw new Problem('bad_request');
+        }
+    }
+    return $ids;
 }
 
 function snapshotCheckName(string $name): void
