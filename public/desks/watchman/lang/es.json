@@ -712,6 +712,7 @@
   "door_what.key": "otra clave",
   "door_what.options": "otras opciones",
   "group.partner": "Puerta del socio",
+  "group_title.partner": "Las puertas de las secretarías asociadas en authorized_keys: una puerta cambiada, una clave desde otra dirección, rechazos en la puerta",
   "noted.office_partner": "Anotado por sí mismo el {when}: esta puerta la escribió el jefe de equipo al emparejar — nada que contar.",
   "detail.partner": "Socio",
   "detail.address": "Su dirección",

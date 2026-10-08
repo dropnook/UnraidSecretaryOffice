@@ -712,6 +712,7 @@
   "door_what.key": "ein anderer Schlüssel",
   "door_what.options": "andere Optionen",
   "group.partner": "Partner-Tür",
+  "group_title.partner": "Die Türen der Partner-Sekretariate in authorized_keys: eine Tür geändert, ein Schlüssel von einer anderen Adresse, Abweisungen an der Tür",
   "noted.office_partner": "Von selbst zur Kenntnis genommen am {when}: Diese Tür hat der Teamchef beim Verbinden geschrieben — nichts zu melden.",
   "detail.partner": "Partner",
   "detail.address": "Seine Adresse",

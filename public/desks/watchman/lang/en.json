@@ -712,6 +712,7 @@
   "door_what.key": "another key",
   "door_what.options": "other options",
   "group.partner": "Partner door",
+  "group_title.partner": "The partner offices' doors in authorized_keys: a door changed, a key from another address, refusals at the door",
   "noted.office_partner": "Noted by himself on {when}: the Team Lead wrote this door when you paired — nothing to tell.",
   "detail.partner": "Partner",
   "detail.address": "Its address",

@@ -9501,6 +9501,11 @@ function testStrings(): void
         }
     }
 
+    // the watchman's book shows every entry's group as a chip with its title (desk.js: group.<g>, group_title.<g>)
+    foreach (array_unique(array_column(WATCH_KINDS, 0)) as $group) {
+        check("watchman: chip and title for group '$group'", isset($en["watchman.group.$group"], $en["watchman.group_title.$group"]));
+    }
+
     // every Problem key has a text, at a desk or in the office
     $errors = [];
     foreach ($en as $k => $_) {
