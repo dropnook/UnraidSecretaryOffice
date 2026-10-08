@@ -20,6 +20,7 @@ const TOUR_POLL_MS = 1500;
 const LINE_CHOICES = [100, 500, 2000, 10000];
 const SRC_TILES = 12;           // small tiles per log at most (the last one then says how many more)
 const GROUPS = ['office', 'unraid', 'userscripts', 'containers'];
+const TILES = ['varlog', 'docker', 'found'];        // her tour's fixed tiles (a sub-route opens one)
 // favourites until someone stars or unstars one: Unraid's main logs and a few of the office's (missing ones drop out)
 const DEFAULT_FAVS = ['syslog', 'dmesg', 'docker', 'agent', 'backup:latest', 'container:kopia', 'embycache'];
 
@@ -183,7 +184,7 @@ function build(root) {
   // her tour: tiles, and under them the list of the open one
   const t = el('section', 'section lg-tour');
   v.tourHint = el('span', 'hint');
-  t.appendChild(Office.sectionHead(T('tour_section'), T('tour_section_sub'), v.tourHint));
+  t.appendChild(Office.sectionHead(T('tour_section'), T('tour_section_sub'), v.tourHint, { place: 'tour_section' }));
   v.tiles = el('div', 'cards');
   v.srcTiles = el('div', 'lg-srcs');
   v.tourBody = el('div', 'lg-tour-body');
@@ -193,7 +194,7 @@ function build(root) {
   const s = el('section', 'section');
   v.readSection = s;
   v.hint = el('span', 'hint');
-  s.appendChild(Office.sectionHead(T('reading'), T('reading_sub'), v.hint));
+  s.appendChild(Office.sectionHead(T('reading'), T('reading_sub'), v.hint, { place: 'reading' }));
 
   const bar = el('div', 'toolbar lg-bar');
   // the log picker: a button that opens a list with a search field (the lists are long)
@@ -376,7 +377,7 @@ function renderTiles() {
   tiles.appendChild(dc);
 
   // what sounded like an error or a warning
-  const fc = card('found');
+  const fc = Office.place('tile.found', card('found'));
   const fh = el('div', 'card-head');
   fh.appendChild(el('span', 'card-name', T('tile.found')));
   if (tour && tour.time) {
@@ -485,7 +486,7 @@ function readableRow(id) {
 function varlogView() {
   const v = tour.varlog || {};
   const box = el('div', 'lg-view');
-  box.appendChild(Office.sectionHead(T('varlog.title'), T('varlog.sub', { total: fmt.size(v.total || 0) })));
+  box.appendChild(Office.sectionHead(T('varlog.title'), T('varlog.sub', { total: fmt.size(v.total || 0) }), { place: 'varlog.title' }));
   if (v.ok && !v.own) box.appendChild(el('p', 'callout', T('varlog.not_own')));
   const list = el('div', 'box');
   for (const f of v.files || []) {
@@ -512,7 +513,7 @@ function varlogView() {
 function dockerView() {
   const d = tour.docker || {};
   const box = el('div', 'lg-view');
-  box.appendChild(Office.sectionHead(T('docker.title'), T('docker.sub', { root: d.root || '/var/lib/docker' })));
+  box.appendChild(Office.sectionHead(T('docker.title'), T('docker.sub', { root: d.root || '/var/lib/docker' }), { place: 'docker.title' }));
   const r = d.rotation || {};
   box.appendChild(el('p', 'role lg-note', r.on ? T('docker.rotation_on', { size: r.size || '?', files: r.files || '?' }) : T('docker.rotation_off')));
   if (!d.ok) { box.appendChild(el('p', 'callout', d.enabled === false ? T('docker.disabled') : T('docker.down'))); return box; }
@@ -854,7 +855,9 @@ function restart(keepMark) {
 // ------------------------------------------------------------------ desk
 Office.desk({
   id: ID,
-  async mount(root) {
+  /** sub: a tile of her tour open (#/logs/varlog, …/docker, …/found — the search's places) */
+  async mount(root, sub) {
+    if (TILES.includes(sub)) { tile = sub; Office.store('logs.tile', sub); }
     view = build(root);
     renderHead();
     await Promise.all([load(false), loadTour()]);
@@ -889,4 +892,18 @@ Office.desk({
     return { bubble: bubbleText(), facts };
   },
 });
+
+// her places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys)
+Office.places(ID, [
+  { kind: 'section', key: 'tour_section' },
+  { kind: 'section', key: 'reading' },
+  { kind: 'tile', key: 'varlog.title', route: '#/logs/varlog' },
+  { kind: 'tile', key: 'docker.title', route: '#/logs/docker' },
+  { kind: 'tile', key: 'tile.found', route: '#/logs/found' },
+  { kind: 'help', key: 'tour', text: 'help.tour_text' },
+  { kind: 'help', key: 'live', text: 'help.live' },
+  { kind: 'help', key: 'only_problems', text: 'help.only' },
+  { kind: 'help', key: 'help.red', text: 'help.colours' },
+  ...['counted', 'grouped', 'since', 'space', 'source', 'favorites', 'safe'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+]);
 })();

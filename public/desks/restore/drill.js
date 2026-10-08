@@ -122,7 +122,7 @@ function section() {
   const set = x.button(T('drill.settings'), 'small plain', settingsDialog);
   set.disabled = !Office.agent.running || !dstate;
   actions.push(set, go);
-  const s = x.sectionBox(T('drill.title'), T('drill.sub'), ...actions);
+  const s = x.sectionBox(T('drill.title'), T('drill.sub'), ...actions, { place: 'drill.title' });
   if (!dstate && !cert) {
     s.appendChild(el('p', 'empty', Office.agent.running ? Office.t('common.loading') : T('drill.no_agent')));
     if (!loading && Office.agent.running) refresh();

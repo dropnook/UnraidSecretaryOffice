@@ -203,13 +203,17 @@ function noteChips(e) {
 Office.desk({
   id: ID,
 
-  /** sub: «where» or «tidy» (#/cleanup/where — also where Ms. Whereabouts' old addresses lead) — that part in view */
+  /** sub: «where» or «tidy» (#/cleanup/where — also where Ms. Whereabouts' old addresses lead) — that part in view;
+      «tidy/<room>», «where/<corner>» (the search's places): that tile open (the search brings it into view) */
   mount(root, sub) {
+    const [where, tile] = String(sub || '').split('/');
+    if (where === 'tidy' && SECTIONS.includes(tile)) { section = tile; Office.store('cleanup.section', tile); }
+    if (where === 'where' && tile) Where.choose(tile);
     view = build(root);
     lookedAgain = false;
     render();
     Where.render();          // what she knew from before at once; her parts render themselves when they load (never each other)
-    const part = { where: view.partWhere, tidy: view.partTidy }[sub];
+    const part = tile ? null : { where: view.partWhere, tidy: view.partTidy }[sub];
     const v = view;
     Promise.all([load(false), Where.load(false)]).then(() => {      // once both are there, the part asked for in view
       if (part && view === v && window.scrollY < 40) part.scrollIntoView({ block: 'start' });
@@ -296,7 +300,7 @@ function build(root) {
   ]));
 
   // «Where is what» — her knowledge of the server (Where, at the end)
-  v.partWhere = part(T('part.where'), T('part.where_sub'));
+  v.partWhere = Office.place('part.where', part(T('part.where'), T('part.where_sub')));
   root.appendChild(v.partWhere);
   Where.setHooks({
     changed: () => { if (view) renderBubble(); },
@@ -305,12 +309,12 @@ function build(root) {
   Where.build(v.partWhere);
 
   // «Tidying up» — her rooms and the storeroom
-  v.partTidy = part(T('part.tidy'), T('part.tidy_sub'));
+  v.partTidy = Office.place('part.tidy', part(T('part.tidy'), T('part.tidy_sub')));
   root.appendChild(v.partTidy);
   v.notice = el('div');
   v.partTidy.appendChild(v.notice);
   const s = el('section', 'section');
-  s.appendChild(Office.sectionHead(T('rooms'), T('rooms_sub')));
+  s.appendChild(Office.sectionHead(T('rooms'), T('rooms_sub'), { place: 'rooms' }));
   v.filterNote = el('p', 'callout warn cl-filter-note');
   v.filterNote.hidden = true;
   v.tiles = el('div', 'cards');
@@ -424,7 +428,7 @@ function renderTiles() {
   if (!state) return;
   for (const sec of SECTIONS) {
     if (!visible(sec)) continue;
-    const card = el('button', 'card' + (section === sec ? ' active' : ''));
+    const card = Office.place(`room.${sec}`, el('button', 'card' + (section === sec ? ' active' : '')));
     card.type = 'button';
     card.setAttribute('aria-pressed', String(section === sec));
     const head = el('div', 'card-head');
@@ -2240,7 +2244,7 @@ function renderAdvice() {
     b.onclick = () => { showHiddenAdvice = !showHiddenAdvice; Office.keepInPlace(b, renderAdvice); };
     extra.push(b);
   }
-  box.appendChild(Office.sectionHead(T('where.adv.title'), T('where.adv.sub'), ...extra));
+  box.appendChild(Office.sectionHead(T('where.adv.title'), T('where.adv.sub'), ...extra, { place: 'where.adv.title' }));
   const list = [...shown, ...(showHiddenAdvice ? gone : [])];
   if (!list.length) {
     box.appendChild(el('p', 'role clw-advice-none', T(all.length ? 'where.adv.all_known' : 'where.adv.none')));
@@ -2343,7 +2347,7 @@ function build(root) {
   const v = {};
   const now = el('section', 'section');
   v.nowHint = el('span', 'hint');
-  const nh = Office.sectionHead(T('where.now'), T('where.now_sub'), v.nowHint);
+  const nh = Office.sectionHead(T('where.now'), T('where.now_sub'), v.nowHint, { place: 'where.now' });
   v.stats = el('div', 'stats');
   now.append(nh, v.stats);
   root.appendChild(now);
@@ -2352,14 +2356,14 @@ function build(root) {
   root.appendChild(v.advice);
 
   v.places = el('section', 'section');
-  const ph = Office.sectionHead(T('where.places'), T('where.places_hint'));
+  const ph = Office.sectionHead(T('where.places'), T('where.places_hint'), { place: 'where.places' });
   v.placeTiles = el('div', 'cards clw-places');
   v.placeDetail = el('div');
   v.places.append(ph, v.placeTiles, v.placeDetail);
   root.appendChild(v.places);
 
   v.sectionBox = el('section', 'section');
-  const dh = Office.sectionHead(T('where.details_title'), T('where.details_hint'));
+  const dh = Office.sectionHead(T('where.details_title'), T('where.details_hint'), { place: 'where.details_title' });
   v.tabs = el('div', 'cards clw-sections');
   v.sectionBody = el('div', 'section');
   v.sectionBox.append(dh, v.tabs, v.sectionBody);
@@ -2672,7 +2676,7 @@ function renderTabs() {
   if (!state) return;
   const counts = sectionCounts();
   for (const id of SECTIONS) {
-    const card = el('button', 'card clw-section' + (section === id ? ' active' : ''));
+    const card = Office.place(`where.${id}`, el('button', 'card clw-section' + (section === id ? ' active' : '')));
     card.type = 'button';
     card.setAttribute('aria-pressed', String(section === id));
     const head = el('div', 'card-head');
@@ -3350,6 +3354,9 @@ function plugins(body) {
 
 return {
   build, load, render, tour, bubble, reception, helpItems, sleeping,
+  sections: SECTIONS,
+  /** a tile of «Everything in detail» open before the page is built (#/cleanup/where/<corner>) */
+  choose(id) { if (SECTIONS.includes(id)) { section = id; Office.store(STORE + 'section', id); } },
   /** the filter changed: her tiles' counts and the open tile anew */
   filtered() { if (view) { renderTabs(); renderSection(); } },
   has: () => !!state,
@@ -3357,4 +3364,24 @@ return {
   unmount() { view = null; clearTimeout(sizeTimer); },
 };
 })();
+
+// her places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys): her two
+// parts, each tile through its sub-route (#/cleanup/tidy/<room>, #/cleanup/where/<corner>)
+Office.places(ID, [
+  { kind: 'section', key: 'part.where', route: '#/cleanup/where' },
+  { kind: 'section', key: 'where.now', route: '#/cleanup/where' },
+  { kind: 'section', key: 'where.adv.title', route: '#/cleanup/where' },
+  { kind: 'section', key: 'where.places', route: '#/cleanup/where' },
+  { kind: 'section', key: 'where.details_title', route: '#/cleanup/where' },
+  ...Where.sections.map((id) => ({ kind: 'tile', key: `where.section.${id}`, route: `#/cleanup/where/${id}`, anchor: `where.${id}` })),
+  { kind: 'section', key: 'part.tidy', route: '#/cleanup/tidy' },
+  { kind: 'section', key: 'rooms', route: '#/cleanup/tidy' },
+  ...SECTIONS.map((sec) => ({ kind: 'tile', key: `section.${sec}`, route: `#/cleanup/tidy/${sec}`, anchor: `room.${sec}`, text: `section.${sec}_sub` })),
+  { kind: 'help', key: 'part.where', text: 'part.where_sub' },
+  { kind: 'help', key: 'part.tidy', text: 'part.tidy_sub' },
+  ...['labels', 'tiles', 'copy', 'rows', 'search', 'tour', 'asleep'].map((x) => ({ kind: 'help', key: `where.help.${x}`, text: `where.help.${x}_text` })),
+  ...['order', 'trash', 'check', 'loop', 'sizes', 'safe'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+  ...['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'leftovers', 'partners']
+    .map((x) => ({ kind: 'help', key: `section.${x}`, text: `help.${x}_text` })),
+]);
 })();

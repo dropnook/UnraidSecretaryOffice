@@ -451,7 +451,7 @@ function holdBracket(s, p, shown) {
 function runningCard() {
   const s = status();
   const p = progress();
-  const box = section(T('now'), T('now_sub'));
+  const box = section(T('now'), T('now_sub'), { place: 'now' });
   const card = el('div', 'card bk-run');
 
   const top = el('div', 'card-head');
@@ -557,7 +557,7 @@ function runningCard() {
 
 /** No run going on: how the last one went, and what comes next */
 function summary() {
-  const box = section(T('overview'), T('overview_sub'));
+  const box = section(T('overview'), T('overview_sub'), { place: 'overview' });
   const stats = el('div', 'stats');
   const last = lastRun();
   const s = status();
@@ -742,7 +742,7 @@ function protection() {
   });
   const label = () => { all.textContent = shown.some((x) => !x.open()) ? T('unfold_all') : T('fold_all'); };
   const box = section(T('protection'), T('protection_sum', { kopia: kopiaOn ? counts.kopia : 0, snapshot: local, off: counts.off }),
-    ...(foldable.length ? [all] : []));
+    ...(foldable.length ? [all] : []), { place: 'protection' });
   if (!shares.length) { box.appendChild(el('p', 'empty', T('no_shares'))); return box; }
 
   const wrap = el('div', 'box table-wrap');
@@ -1163,7 +1163,7 @@ function skipRow(k) {
 function historySection() {
   const runs = state.history || [];
   const skips = state.skips || [];
-  const box = section(T('history'), T('history_sub'));
+  const box = section(T('history'), T('history_sub'), { place: 'history' });
   if (!runs.length && !skips.length) { box.appendChild(el('p', 'empty', T('bubble.no_runs'))); return box; }
   const list = el('div', 'box');
   const longest = Math.max(...runs.map((r) => (r.finished || r.started) - r.started), 1);
@@ -1215,7 +1215,8 @@ function driftText(d) {
 
 function driftSection() {
   const items = state.drift.items;
-  const box = section(T('drift'), T('drift_sub'), el('span', 'hint', state.drift.time ? T('drift_checked', { when: fmt.relative(state.drift.time) }) : ''));
+  const box = section(T('drift'), T('drift_sub'), el('span', 'hint', state.drift.time ? T('drift_checked', { when: fmt.relative(state.drift.time) }) : ''),
+    { place: 'drift' });
   const list = el('div', 'box');
   const order = { error: 0, warn: 1, info: 2 };
   [...items].sort((a, b) => order[a.level] - order[b.level]).forEach((d) => {
@@ -1239,7 +1240,7 @@ function driftSection() {
  * lie and the way to him - each desk works on its own: without him, this still says where everything is.
  */
 function restoreSection() {
-  const box = section(T('restore'), T('restore_sub'));
+  const box = section(T('restore'), T('restore_sub'), { place: 'restore' });
   const set = state.settings || {};
   const prefixes = set.snap_prefixes || [set.snap_prefix || 'uso-backup-'];
   const dl = el('dl', 'kv bk-restore');
@@ -2190,7 +2191,7 @@ function presetPick(kind, card) {
 
 /** On a new server: the default's cards at the top of the page, my proposal chosen until another one is */
 function presetSection() {
-  const s = section(T('setup.preset.title'), T('setup.preset.sub'));
+  const s = section(T('setup.preset.title'), T('setup.preset.sub'), { place: 'setup.preset.title' });
   s.classList.add('bk-preset-section');
   s.appendChild(presetCards(presetNow(), presetPick, true, false));
   return s;
@@ -2512,12 +2513,12 @@ function partnerApplyLines() {
 
 function setupKopia(plan) {
   const k = plan.kopia;
-  const s = setupSection(T('setup.kopia'), T('setup.kopia_sub'));
+  const s = Office.place('setup.kopia', setupSection(T('setup.kopia'), T('setup.kopia_sub')));
   const basics = el('div', 'bk-form');
-  basics.appendChild(dumpsShareField(plan));
+  basics.appendChild(Office.place('setup.ds_label', dumpsShareField(plan)));
   const flashOpts = plan.flash.dataset ? ['snapshot', 'tar', 'off'] : ['tar', 'off'];
-  basics.appendChild(field(flashLabel(plan), selectInput('flash|mode', flashOpts, (o) => T('setup.flash.' + o)),
-    plan.flash.dataset ? T('setup.g_flash_zfs', { ds: plan.flash.dataset }) : T('setup.g_flash_other', { fs: plan.flash.fs || '?' })));
+  basics.appendChild(Office.place('setup.g_flash', field(flashLabel(plan), selectInput('flash|mode', flashOpts, (o) => T('setup.flash.' + o)),
+    plan.flash.dataset ? T('setup.g_flash_zfs', { ds: plan.flash.dataset }) : T('setup.g_flash_other', { fs: plan.flash.fs || '?' }))));
   const asleep = asleepChoice(plan);
   if (asleep) basics.appendChild(asleep);
   s.appendChild(basics);
@@ -2628,7 +2629,7 @@ function shareWhy(sh) {
 }
 
 function setupShares(plan) {
-  const s = setupSection(T('setup.shares'), T('setup.shares_sub'));
+  const s = Office.place('setup.shares', setupSection(T('setup.shares'), T('setup.shares_sub')));
   const kopiaOn = dget('kopia|enabled') === 'yes';
   const waits = waitingFolders();
   const wrap = el('div', 'box table-wrap');
@@ -3125,7 +3126,7 @@ function levelPick(key, onPick) {
 
 /** Step 1: which VMs are wanted back, and how each one is held for the snapshot */
 function setupVms(plan) {
-  const s = setupSection(T('setup.vms'), T('setup.vms_sub'));
+  const s = Office.place('setup.vms', setupSection(T('setup.vms'), T('setup.vms_sub')));
   if (!plan.vm_service) { s.appendChild(el('p', 'empty', T('setup.vm_service_off'))); return s; }
   const vms = setup.model.vms;
   if (!vms.length) { s.appendChild(el('p', 'empty', T('setup.vm_none'))); return s; }
@@ -3195,7 +3196,7 @@ function setupVms(plan) {
 
 /** Step 2: apps - a compose stack or a single container; databases and the shares they need come along */
 function setupApps(plan) {
-  const s = setupSection(T('setup.apps'), T('setup.apps_sub'));
+  const s = Office.place('setup.apps', setupSection(T('setup.apps'), T('setup.apps_sub')));
   const m = setup.model;
   if (!m.apps.length && !m.skipped.length) { s.appendChild(el('p', 'empty', T('setup.apps_none'))); return s; }
   const shareOf = (n) => plan.shares.find((x) => x.name === n);
@@ -3384,26 +3385,26 @@ function dumpsShareField(plan) {
 }
 
 function setupGeneral(plan) {
-  const s = setupSection(T('setup.general'), T('setup.general_sub'));
+  const s = Office.place('setup.general', setupSection(T('setup.general'), T('setup.general_sub')));
   const box = el('div', 'bk-form');
   const zfs = plan.bases.some((b) => b.fs === 'zfs');
   const btrfs = plan.bases.some((b) => b.fs === 'btrfs');
   // like the engine's snap_prefix_ok(): words joined by -, ends with -; never Ms. Snapshotini's uso-plan- / auto-
-  if (zfs) box.appendChild(field(T('setup.g_prefix'), textInput('general|snap_prefix', /^(?!uso-plan-|auto-)[a-z0-9_]+(?:-[a-z0-9_]+)*-$/), T('setup.g_prefix_hint')));
+  if (zfs) box.appendChild(Office.place('setup.g_prefix', field(T('setup.g_prefix'), textInput('general|snap_prefix', /^(?!uso-plan-|auto-)[a-z0-9_]+(?:-[a-z0-9_]+)*-$/), T('setup.g_prefix_hint'))));
   if (btrfs) {
-    box.appendChild(field(T('setup.g_btrfs_free'), textInput('btrfs|min_free_gb', /^\d+$/), T('setup.g_btrfs_free_hint')));
+    box.appendChild(Office.place('setup.g_btrfs_free', field(T('setup.g_btrfs_free'), textInput('btrfs|min_free_gb', /^\d+$/), T('setup.g_btrfs_free_hint'))));
     // a snapshot needs the disk awake: with every disk, those that sleep at night are woken for it (Benj, 2026-10-07)
     const disks = plan.bases.filter((b) => b.fs === 'btrfs' && b.kind === 'disk').map((b) => b.name);
-    box.appendChild(checkbox(T('setup.g_btrfs_all'), dget('btrfs|snapshot_all') === 'yes', (v) => dset('btrfs|snapshot_all', v ? 'yes' : 'no'),
-      disks.length ? T('setup.g_btrfs_all_wake', { n: disks.length, names: disks.join(', ') }) : ''));
+    box.appendChild(Office.place('setup.g_btrfs_all', checkbox(T('setup.g_btrfs_all'), dget('btrfs|snapshot_all') === 'yes', (v) => dset('btrfs|snapshot_all', v ? 'yes' : 'no'),
+      disks.length ? T('setup.g_btrfs_all_wake', { n: disks.length, names: disks.join(', ') }) : '')));
   }
   if (plan.P['libvirt|mode'] !== undefined) {
-    box.appendChild(field(T('setup.g_libvirt'), selectInput('libvirt|mode', ['tar', 'off'], (o) => T('setup.libvirt.' + o)), T('setup.g_libvirt_hint')));
+    box.appendChild(Office.place('setup.g_libvirt', field(T('setup.g_libvirt'), selectInput('libvirt|mode', ['tar', 'off'], (o) => T('setup.libvirt.' + o)), T('setup.g_libvirt_hint'))));
   }
-  box.appendChild(checkbox(T('setup.g_notify'), dget('general|notify_success') === 'yes', (v) => dset('general|notify_success', v ? 'yes' : 'no')));
+  box.appendChild(Office.place('setup.g_notify', checkbox(T('setup.g_notify'), dget('general|notify_success') === 'yes', (v) => dset('general|notify_success', v ? 'yes' : 'no'))));
   if (dget('kopia|enabled') === 'yes') {
-    box.appendChild(field(T('setup.p_compression'), textInput('kopia|compression', /^[a-z0-9-]+$/), T('setup.p_compression_hint')));
-    box.appendChild(field(T('setup.p_ignore'), listInput('kopia|ignore', 4), T('setup.p_ignore_hint')));
+    box.appendChild(Office.place('setup.p_compression', field(T('setup.p_compression'), textInput('kopia|compression', /^[a-z0-9-]+$/), T('setup.p_compression_hint'))));
+    box.appendChild(Office.place('setup.p_ignore', field(T('setup.p_ignore'), listInput('kopia|ignore', 4), T('setup.p_ignore_hint'))));
   }
   s.appendChild(box);
   return s;
@@ -3411,10 +3412,10 @@ function setupGeneral(plan) {
 
 /** Step 4: two rows of numbers - how long local snapshots stay, how long Kopia keeps its states */
 function setupRetention(plan) {
-  const s = setupSection(T('setup.retention'), T('setup.retention_sub'));
+  const s = Office.place('setup.retention', setupSection(T('setup.retention'), T('setup.retention_sub')));
   const box = el('div', 'bk-form');
-  if (plan.bases.some((b) => b.fs === 'zfs')) box.appendChild(field(T('setup.g_zfs'), textInput('zfs|retention', /^\d+ \d+ \d+$/), T('setup.g_zfs_hint')));
-  if (plan.bases.some((b) => b.fs === 'btrfs')) box.appendChild(field(T('setup.g_btrfs_days'), textInput('btrfs|keep_days', /^\d+$/)));
+  if (plan.bases.some((b) => b.fs === 'zfs')) box.appendChild(Office.place('setup.g_zfs', field(T('setup.g_zfs'), textInput('zfs|retention', /^\d+ \d+ \d+$/), T('setup.g_zfs_hint'))));
+  if (plan.bases.some((b) => b.fs === 'btrfs')) box.appendChild(Office.place('setup.g_btrfs_days', field(T('setup.g_btrfs_days'), textInput('btrfs|keep_days', /^\d+$/))));
   s.appendChild(box);
   if (dget('kopia|enabled') === 'yes') {
     const keep = el('div', 'bk-keep');
@@ -3511,7 +3512,7 @@ function setupItems(plan) {
 }
 
 function setupSources(old) {
-  const s = setupSection(T('setup.sources'), T('setup.sources_sub'));
+  const s = Office.place('setup.sources', setupSection(T('setup.sources'), T('setup.sources_sub')));
   const ul = el('ul', 'shortlist');
   old.forEach((o) => ul.appendChild(el('li', '', o.source)));
   s.appendChild(ul);
@@ -3520,7 +3521,7 @@ function setupSources(old) {
 }
 
 function setupMessages(msgs) {
-  const s = section(T('setup.messages'), T('setup.messages_sub'));
+  const s = section(T('setup.messages'), T('setup.messages_sub'), { place: 'setup.messages' });
   const det = el('details', 'bk-log');
   const counts = { error: 0, warn: 0 };
   (msgs || []).forEach((m) => { if (counts[m.level] !== undefined) counts[m.level]++; });
@@ -3687,6 +3688,28 @@ Office.desk({
     return { bubble: bubbleText().join(' '), facts };
   },
 });
+
+// his places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys): the main
+// page, then the setup's steps and fixed settings (#/backup/setup) — the rows per share, app and VM are a later phase
+const SETUP = { route: '#/backup/setup', crumb: 'setup.page' };
+Office.places(ID, [
+  { kind: 'section', key: 'now' },
+  { kind: 'section', key: 'overview' },
+  { kind: 'section', key: 'protection' },
+  { kind: 'section', key: 'history' },
+  { kind: 'section', key: 'drift' },
+  { kind: 'section', key: 'restore' },
+  ...['setup.preset.title', 'setup.kopia', 'setup.vms', 'setup.apps', 'setup.shares', 'setup.retention', 'setup.general', 'setup.sources',
+    'setup.messages'].map((key) => ({ kind: 'step', key, ...SETUP })),
+  ...['setup.ds_label', 'setup.g_flash', 'setup.g_prefix', 'setup.g_btrfs_free', 'setup.g_btrfs_all', 'setup.g_libvirt', 'setup.g_notify',
+    'setup.p_compression', 'setup.p_ignore', 'setup.g_zfs', 'setup.g_btrfs_days'].map((key) => ({ kind: 'setting', key, ...SETUP })),
+  ...['run', 'results', 'protection', 'rules', 'vms', 'packages', 'items', 'waiting', 'buttons'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+  ...[['setup_open', 'help.setup'], ['history', 'help.history'], ['drift', 'help.drift'], ['restore', 'help.restore']]
+    .map(([key, text]) => ({ kind: 'help', key, text })),
+  ...[['setup.preset.title', 'help.preset_text'], ['help.draft', 'help.draft_text'], ['setup.replan', 'help.replan'], ['setup.measure', 'setup.measure_hint'],
+    ['help.reasons', 'help.reasons_text'], ['setup.more', 'help.details'], ['help.new', 'help.new_text'], ['setup.apply', 'help.apply'],
+    ['setup.forget_short', 'help.forget']].map(([key, text]) => ({ kind: 'help', key, text, ...SETUP })),
+]);
 
 // tests/run.php runs the setup assistant's logic under node (Unraid's own) - never set in a browser
 if (globalThis.OFFICE_DESK_TESTS) {
