@@ -16266,6 +16266,7 @@ function testRestoreDrill(): void
     // ---- the one gate: every docker run argument list, against nostromo's database containers
     $id = '20261101-041200-ab12';
     $seen = [];
+    $seenC = [];
     foreach (['immich', 'nextcloud', 'zz-uso-test-db'] as $app) {
         $m = $man("app-$app");
         $m = json_decode(str_replace('=scrubbed"', '=SECRET-SENTINEL"', json_encode($m)), true);     // what a password would be
@@ -16277,7 +16278,11 @@ function testRestoreDrill(): void
             $args = drillContainerArgs($c, $pc['db'], DRILL_PREFIX . "$id-$n", $id, 2 << 30, 'drill-own-pw');
             $flat = implode(' ', $args);
             $seen[$pc['name']] = $args;
-            check("drill gate $pc[name]: keeps to the «never» list", drillArgsSafe($args), $flat);
+            check("drill gate $pc[name]: keeps to the «never» list", drillArgsSafe($args, $c, $pc['db']), $flat);
+            same("drill gate $pc[name]: after the image its own command, then the lean server's options — exactly",
+                [...array_slice($c['entrypoint'], 1), ...$c['cmd'], ...($pc['db'] === 'postgres' ? array_merge(...array_map(fn ($o) => ['-c', $o], DRILL_LEAN['postgres'])) : DRILL_LEAN['mariadb'])],
+                array_slice($args, array_search($c['image_id'], $args, true) + 1));
+            $seenC[$pc['name']] = [$c, $pc['db']];
             check("drill gate $pc[name]: no value of the app's environment, no app label, no port, no bind, no device, no privilege",
                 !str_contains($flat, 'SECRET-SENTINEL') && !str_contains($flat, 'com.docker.compose') && !preg_match('/ (-p|-v|--mount|--device|--privileged|--cap-add|--volumes-from) /', " $flat "), $flat);
             same("drill gate $pc[name]: network none, once", ['--network', 'none'], array_slice($args, array_search('--network', $args, true), 2));
@@ -16315,9 +16320,32 @@ function testRestoreDrill(): void
         'privileged'       => [...$im, '--privileged'],
         'no label'         => array_values(array_filter($im, fn ($a) => !str_starts_with($a, 'uso.drill='))),
     ];
+    $mdc = $seenC['nextcloud-db'][0] ?? [];
+    $bad += [
+        'a server option not on the allow-list'      => [...$im, '-c', 'archive_command=/bin/sh -c x'],
+        'a lean option changed'                      => array_map(fn ($a) => $a === 'max_wal_size=256MB' ? 'max_wal_size=50GB' : $a, $im),
+        'a lean option missing'                      => array_values(array_filter($im, fn ($a) => $a !== 'checkpoint_timeout=30s')),
+        'the app\'s command changed'                 => array_map(fn ($a) => $a === 'config_file=/etc/postgresql/postgresql.conf' ? 'config_file=/tmp/x.conf' : $a, $im),
+        'the image twice'                            => [...$im, $c['image_id']],
+    ];
     foreach ($bad as $what => $args) {
-        check("drill gate: refused with $what", !drillArgsSafe($args));
+        check("drill gate: refused with $what", !drillArgsSafe($args, $c, 'postgres'));
     }
+    foreach (['an init file' => '--init-file=/tmp/x.sql', 'a binlog of its own' => '--log-bin=/var/lib/mysql/bin', 'the plugin dir' => '--plugin-dir=/tmp'] as $what => $opt) {
+        check("drill gate: MariaDB refused with $what after the lean options", !drillArgsSafe([...$md, $opt], $mdc, 'mariadb'));
+    }
+    check('drill gate: Postgres\' lean options are not MariaDB\'s (the type decides)', !drillArgsSafe($im, $c, 'mariadb'));
+    same('drill lean: Postgres — nothing kept for a crash, WAL recycled at 256 MB (Immich\'s config allows 5 GB), small buffers; MariaDB — small redo, no binlog, no doublewrite, room for big rows',
+        [['fsync=off', 'synchronous_commit=off', 'full_page_writes=off', 'wal_level=minimal', 'max_wal_senders=0', 'archive_mode=off', 'max_wal_size=256MB', 'min_wal_size=64MB',
+          'checkpoint_timeout=30s', 'shared_buffers=128MB'],
+         ['--max-allowed-packet=1G', '--innodb-log-file-size=64M', '--innodb-flush-log-at-trx-commit=0', '--skip-log-bin', '--innodb-doublewrite=0']],
+        [array_values(array_filter(array_slice($im, array_search($c['image_id'], $im, true) + 4), fn ($a) => $a !== '-c')), array_slice($md, -5)]);
+    $own = fn (array $ep, array $cmd) => drillServerArgs(['entrypoint' => $ep, 'cmd' => $cmd], 'postgres') !== [];
+    same('drill lean: only when the command starts the server — postgres, options only behind an entrypoint, nothing; never an app\'s own script',
+        [true, true, true, false, false, false],
+        [$own(['docker-entrypoint.sh'], ['postgres']), $own(['docker-entrypoint.sh'], ['-c', 'x=y']), $own(['docker-entrypoint.sh'], []), $own([], ['-c', 'x=y']),
+         $own(['docker-entrypoint.sh'], ['/start-db.sh']), $own([], [])]);
+    same('drill lean: MongoDB gets none', [], drillServerArgs(['entrypoint' => ['docker-entrypoint.sh'], 'cmd' => ['mongod']], 'mongodb'));
     foreach (['another drill\'s name' => [DRILL_PREFIX . '20261101-041200-ffff-1', $c], 'no image id' => [DRILL_PREFIX . "$id-1", ['image_id' => ''] + $c]] as $what => [$name, $cc]) {
         try {
             drillContainerArgs($cc, 'postgres', $name, $id, 1 << 30, 'x');
@@ -16417,7 +16445,13 @@ function testRestoreDrill(): void
         $GLOBALS['drill']['ram'] = $keep;
         return $r;
     })());
-    same('drill RAM: a dump needs its uncompressed size × 3 plus the server', 300 * 3 + (DRILL_SERVER_RAM), drillDumpNeed(['isize' => 300, 'bytes' => 9]));
+    same('drill RAM: a dump needs its uncompressed size × 4, the fixed 512 MB and the server', 300 * 4 + (512 << 20) + DRILL_SERVER_RAM, drillDumpNeed(['isize' => 300, 'bytes' => 9]));
+    same('drill RAM: measured on Tower — Immich-shaped (302 MiB: 647 MB on tmpfs), Nextcloud-shaped (162 MiB: 515 MB), each with room to spare',
+        [true, true], [drillDumpNeed(['isize' => 302 << 20]) - DRILL_SERVER_RAM >= (int) (1.5 * (647 << 20)), drillDumpNeed(['isize' => 162 << 20]) - DRILL_SERVER_RAM >= (int) (1.5 * (515 << 20))]);
+    same('drill RAM: nostromo\'s two dumps of 2026-10-08 (313 and 164 MB uncompressed): each fits a 5.98 GB budget, each gets more than the tmpfs it had (940, 490 MB)',
+        [true, true, true], [drillDumpNeed(['isize' => 313 << 20]) <= 5980 << 20, drillDumpNeed(['isize' => 313 << 20]) - DRILL_SERVER_RAM > 940 << 20,
+         drillDumpNeed(['isize' => 164 << 20]) - DRILL_SERVER_RAM > 490 << 20]);
+    same('drill RAM: a dump whose need is over the budget is «too big» (the plan and the step use the same rule)', true, drillDumpNeed(['isize' => 1 << 30]) > drillRamBudget());
 
     // ---- the automatic drill: after a nightly run that went well, in the window, monthly or weekly, once packages are 7 days old
     $set = ['schedule' => 'monthly', 'kopia_mb' => 1024, 'live_catalog' => true, 'live_sqlite' => true];
@@ -16448,6 +16482,47 @@ function testRestoreDrill(): void
             check('drill settings: refused ' . json_encode($bad), true);
         }
     }
+
+    // ---- out of room (nostromo 2026-10-08, reproduced on Tower): the play's and the server's own words, df inside the
+    //      throwaway, a kill for memory — «not checked» with its sizes, never «failed»; any other failure stays the play's
+    $nr = "$tmp/noroom";
+    @mkdir($nr, 0700, true);
+    file_put_contents("$tmp/docker-noroom", "#!/bin/sh\nD=" . escapeshellarg($nr) . "\necho \"\$*\" >>\"\$D/calls\"\ncase \"\$1\" in\n"
+        . "  logs) cat \"\$D/logs\" ;;\n"
+        . "  exec) [ -f \"\$D/df\" ] || { echo 'Error response from daemon: container is not running' >&2; exit 1; }; cat \"\$D/df\" ;;\n"
+        . "  inspect) cat \"\$D/oom\" ;;\nesac\nexit 0\n");
+    chmod("$tmp/docker-noroom", 0755);
+    $GLOBALS['drill']['docker'] = "$tmp/docker-noroom";
+    $nrOut = ['level' => 0, 'copy' => 'snapshot', 'run' => '20261101-0200', 'params' => ['container' => 'immich_postgres'], 'seconds' => 9];
+    $nrStep = ['container' => 'immich_postgres', 'need' => 1806 << 20, 'mem' => 1806 << 20, 'datadir' => '/var/lib/postgresql/data'];
+    $room = function (string $said, string $logs, ?string $df, bool $oom = false, string $state = 'failed') use ($nr, $fix, $nrOut, $nrStep): ?array {
+        copy("$fix/$logs", "$nr/logs");
+        $df === null ? @unlink("$nr/df") : copy("$fix/$df", "$nr/df");
+        file_put_contents("$nr/oom", $oom ? "true\n" : "false\n");
+        $said = is_file("$fix/$said") ? (string) file_get_contents("$fix/$said") : $said;
+        return drillPlayRoom(['state' => $state, 'note' => 'play_failed', 'detail' => ''], DRILL_PREFIX . '20261101-041200-ab12-3', $nrStep, $said, $nrOut);
+    };
+    $r = $room('no-room-postgres-play.txt', 'no-room-postgres-server.txt', null);
+    same('drill no room: Postgres\' PANIC on its WAL, the connection lost, the throwaway gone — not checked, its sizes, the dump intact (L1)',
+        ['not_checked', 'dump_no_room', 1, ['container' => 'immich_postgres', 'need_mb' => 1806, 'ram_mb' => 1806], 9, 'snapshot'],
+        [$r['state'] ?? null, $r['code'] ?? null, $r['level'] ?? null, $r['params'] ?? null, $r['seconds'] ?? null, $r['copy'] ?? null]);
+    same('drill no room: psql going on after «could not extend file» (the play only «with errors») — not checked too', ['not_checked', 'dump_no_room'],
+        array_values(array_intersect_key($room('no-room-postgres-extend.txt', 'server-quiet.txt', 'df-room.txt', false, 'warning') ?? [], ['state' => 1, 'code' => 1])));
+    same('drill no room: MariaDB\'s «The table … is full»', ['not_checked', 'dump_no_room'],
+        array_values(array_intersect_key($room('no-room-mariadb-play.txt', 'server-quiet.txt', 'df-room.txt') ?? [], ['state' => 1, 'code' => 1])));
+    same('drill no room: only «connection to server was lost» — the server\'s own log says ENOSPC, its tmpfs full (df), or it was killed for memory',
+        ['dump_no_room', 'dump_no_room', 'dump_no_room'], [
+            $room("connection to server was lost\n", 'no-room-postgres-server.txt', null)['code'] ?? null,
+            $room("connection to server was lost\n", 'server-quiet.txt', 'df-full.txt')['code'] ?? null,
+            $room("connection to server was lost\n", 'server-quiet.txt', null, true)['code'] ?? null]);
+    same('drill no room: a lost connection with room left and no kill, another error, a play that went through — the play\'s own result (failed stays failed)',
+        [null, null, null], [$room("connection to server was lost\n", 'server-quiet.txt', 'df-room.txt'), $room('play-other-error.txt', 'server-quiet.txt', 'df-room.txt'),
+                             $room('', 'no-room-postgres-server.txt', 'df-full.txt', false, 'ok')]);
+    check('drill no room: df looks at the throwaway\'s data dir only', str_contains((string) file_get_contents("$nr/calls"), 'exec ' . DRILL_PREFIX . '20261101-041200-ab12-3 df -P -k /var/lib/postgresql/data'));
+    file_put_contents("$tmp/play.log", str_repeat('x', 70000) . "PANIC: No space left on device\n");
+    same('drill no room: the log since the play began, its end only', [true, 65536], [str_ends_with(drillLogSince("$tmp/play.log", 10), "device\n"), strlen(drillLogSince("$tmp/play.log", 10))]);
+    same('drill no room: nothing written since', '', drillLogSince("$tmp/play.log", (int) filesize("$tmp/play.log")));
+    unset($GLOBALS['drill']['docker']);
 
     // ---- a docker stand-in: containers in a file ("name label"), every call logged
     $dock = "$tmp/docker";

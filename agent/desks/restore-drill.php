@@ -63,7 +63,20 @@ const DRILL_KOPIA_LOOKS    = 40;              // directories looked into per sha
 const DRILL_RAM_SHARE      = 0.25;            // of MemAvailable …
 const DRILL_RAM_MAX        = 8 << 30;         // … at most 8 GB
 const DRILL_SERVER_RAM     = 512 << 20;       // what a database server takes besides its data
-const DRILL_DUMP_FACTOR    = 3;               // the data on tmpfs: the dump's uncompressed size × 3 (indexes, WAL)
+// the data dir's tmpfs: the dump's uncompressed size × 4 plus 512 MB. Measured on Tower (2026-10-08) with the lean
+// server (drillServerArgs) — tables and indexes took 1.3–2.7× the uncompressed dump (Immich's trigram indexes the
+// most), the fixed part (a fresh cluster, Postgres' WAL up to max_wal_size, InnoDB's redo, undo and its 60 MB
+// extents) up to ≈ 300 MB: Immich-shaped 302 MiB → 647 MB, Nextcloud-shaped 162 MiB → 515 MB
+const DRILL_DUMP_FACTOR    = 4;
+const DRILL_DUMP_FLOOR     = 512 << 20;
+// the throwaway server's own options after the image's command (never the live one's): nothing kept for a crash,
+// Postgres' WAL recycled at 256 MB instead of piling up (Immich's config allows 5 GB), InnoDB's redo small, no binlog,
+// MariaDB's room for the dump's biggest rows. drillArgsSafe() lets exactly these through and nothing else.
+const DRILL_LEAN = [
+    'postgres' => ['fsync=off', 'synchronous_commit=off', 'full_page_writes=off', 'wal_level=minimal', 'max_wal_senders=0', 'archive_mode=off',
+                   'max_wal_size=256MB', 'min_wal_size=64MB', 'checkpoint_timeout=30s', 'shared_buffers=128MB'],
+    'mariadb'  => ['--max-allowed-packet=1G', '--innodb-log-file-size=64M', '--innodb-flush-log-at-trx-commit=0', '--skip-log-bin', '--innodb-doublewrite=0'],
+];
 const DRILL_WINDOW         = [0, 7];          // the automatic drill starts between 00:00 and 07:00
 const DRILL_AFTER_RUN      = 6 * 3600;        // … within 6 h after a nightly run ended ok or with warnings
 const DRILL_OVERDUE_DAYS   = 60;              // the Team Lead: no passed drill for 60 days …
@@ -358,17 +371,36 @@ function drillContainerArgs(array $c, string $type, string $name, string $id, in
         $args = [...$args, '--entrypoint', $ep[0]];
     }
     $args[] = $c['image_id'];
-    $cmd = [...array_slice($ep, 1), ...$c['cmd']];
-    // MariaDB: room for the dump's biggest rows (the image's entrypoint passes options on to the server)
-    if ($type === 'mariadb' && (!$c['cmd'] || str_starts_with($c['cmd'][0], '-') || in_array(basename($c['cmd'][0]), ['mariadbd', 'mysqld'], true))) {
-        $cmd[] = '--max-allowed-packet=1G';
-    }
-    return [...$args, ...$cmd];
+    // the image's command, then the lean server's options (drillServerArgs) when it starts the server itself
+    return [...$args, ...array_slice($ep, 1), ...$c['cmd'], ...drillServerArgs($c, $type)];
 }
 
-/** Does an argument list keep to the «never» list? (the tests, and the job before every run as a second look) */
-function drillArgsSafe(array $args): bool
+/**
+ * The throwaway server's own options (DRILL_LEAN), when the command starts the server: `postgres` / `mariadbd` /
+ * `mysqld`, or options only (the image's entrypoint puts the server in front and passes them on — also to the server
+ * it runs for its init). Any other command (a script of the app's own) gets none.
+ */
+function drillServerArgs(array $c, string $type): array
 {
+    $cmd = $c['cmd'];
+    $server = ['postgres' => ['postgres'], 'mariadb' => ['mariadbd', 'mysqld']][$type] ?? null;
+    if ($server === null || !($cmd ? in_array(basename($cmd[0]), $server, true) || ($c['entrypoint'] && str_starts_with($cmd[0], '-')) : (bool) $c['entrypoint'])) {
+        return [];
+    }
+    return $type === 'postgres' ? array_merge(...array_map(fn ($o) => ['-c', $o], DRILL_LEAN['postgres'])) : DRILL_LEAN['mariadb'];
+}
+
+/**
+ * Does an argument list keep to the «never» list? (the tests, and the job before every run as a second look) — and
+ * after the image: the app's own command as the manifest has it, then nothing but the lean server's options.
+ */
+function drillArgsSafe(array $args, array $c, string $type): bool
+{
+    $at = array_keys($args, $c['image_id'], true);
+    if ($c['image_id'] === '' || count($at) !== 1
+        || array_slice($args, $at[0] + 1) !== [...array_slice($c['entrypoint'], 1), ...$c['cmd'], ...drillServerArgs($c, $type)]) {
+        return false;
+    }
     $s = implode("\x1f", $args);
     if (preg_match('/\x1f(-p|--publish|--publish-all|-P|-v|--volume|--mount|--device|--cap-add|--privileged|--volumes-from|--pid|--ipc|--userns|--add-host|--link|--pull)(=|\x1f)/', "\x1f$s\x1f")) {
         return false;
@@ -549,11 +581,11 @@ function drillEstimate(array $s, array $set): int
     };
 }
 
-/** RAM a dump needs in its throwaway: its uncompressed size × 3 plus the server */
+/** RAM a dump needs in its throwaway: its tmpfs (uncompressed size × 4 plus the fixed part) and the server */
 function drillDumpNeed(array $s): int
 {
     $size = (int) ($s['isize'] ?? 0) ?: (int) ($s['bytes'] ?? 0) * 8;
-    return $size * DRILL_DUMP_FACTOR + DRILL_SERVER_RAM;
+    return $size * DRILL_DUMP_FACTOR + DRILL_DUMP_FLOOR + DRILL_SERVER_RAM;
 }
 
 /** The preview: the plan sealed with a stamp and a token over what will be done */
@@ -1203,8 +1235,9 @@ function drillDoDump(array &$j, int $i, array &$env): array
         return ['state' => 'not_checked', 'code' => 'budget', 'params' => ['container' => $s['container']]] + $out;
     }
     $name = DRILL_PREFIX . "{$j['id']}-$i";
-    $args = drillContainerArgs($c, (string) $s['type'], $name, $j['id'], min($ram, max($need, 1 << 30)), bin2hex(random_bytes(16)));
-    if (!drillArgsSafe($args)) {
+    $mem = min($ram, max($need, 1 << 30));
+    $args = drillContainerArgs($c, (string) $s['type'], $name, $j['id'], $mem, bin2hex(random_bytes(16)));
+    if (!drillArgsSafe($args, $c, (string) $s['type'])) {
         return ['state' => 'failed', 'code' => 'drill_error', 'detail' => 'throwaway arguments refused'] + $out;
     }
     // written down before it exists: the sweeper finds it whatever happens next
@@ -1214,7 +1247,7 @@ function drillDoDump(array &$j, int $i, array &$env): array
         if ($exit !== 0) {
             return ['state' => 'failed', 'code' => 'throwaway_failed', 'detail' => drillCut($err)] + $out;
         }
-        return drillPlayCheck($j, $i, $env, $s, $name, $file, $out);
+        return drillPlayCheck($j, $i, $env, $s + ['need' => $need, 'mem' => $mem, 'datadir' => drillDataDir((string) $s['type'], $c)], $name, $file, $out);
     } finally {
         // gone right after its step: its RAM is free for the next one
         foreach ($j['made'] as $n => $x) {
@@ -1250,6 +1283,9 @@ function drillPlayCheck(array &$j, int $i, array &$env, array $s, string $name, 
     $GLOBALS['rsDeadline'] = min((int) $j['deadline'], time() + DRILL_BUDGET_PLAY);
     $GLOBALS['rsDeadlineWhy'] = $GLOBALS['rsDeadline'] < (int) $j['deadline'] ? 'budget' : 'deadline';
     $t0 = time();
+    $log = rsDir($j['id']) . '/log.txt';
+    clearstatcache(true, $log);
+    $from = (int) @filesize($log);
     try {
         $play = rsDoPlay($j, $i);
     } finally {
@@ -1261,10 +1297,14 @@ function drillPlayCheck(array &$j, int $i, array &$env, array $s, string $name, 
         $GLOBALS['rsStopWhy'] = null;
         return ['state' => 'not_checked', 'code' => 'budget', 'params' => ['container' => $s['container']]] + $out;
     }
+    $room = drillPlayRoom($play, $name, $s, drillLogSince($log, $from), ['seconds' => $seconds] + $out);
+    if ($room) {
+        return $room;
+    }
+    $detail = drillCut((string) ($play['detail'] ?? ''));
     $results = [$play['state']];
     $params = ['container' => $s['container'], 'seconds' => $seconds];
     $code = $play['state'] === 'ok' ? 'verify_ok' : (string) ($play['note'] ?? 'play_failed');
-    $detail = drillCut((string) ($play['detail'] ?? ''));
     if ($play['state'] !== 'failed') {
         $verify = rsDoVerify($j, $step);
         $results[] = $verify['state'];
@@ -1295,6 +1335,57 @@ function drillPlayCheck(array &$j, int $i, array &$env, array $s, string $name, 
             'level' => $state === 'failed' ? 1 : 2] + $out;
 }
 
+
+/**
+ * A play that didn't go through because the throwaway ran out of room: the drill's RAM, not the backup — «not checked»
+ * (the dump is intact: L1), never «failed», no warning sent for it. Null when the play went through or failed otherwise.
+ */
+function drillPlayRoom(array $play, string $name, array $s, string $said, array $out): ?array
+{
+    if ($play['state'] === 'ok' || !drillNoRoom($name, (string) ($s['datadir'] ?? ''), $said)) {
+        return null;
+    }
+    return ['state' => 'not_checked', 'code' => 'dump_no_room', 'level' => 1, 'detail' => drillCut((string) ($play['detail'] ?? '')),
+            'params' => ['container' => $s['container'], 'need_mb' => intdiv((int) ($s['need'] ?? 0), 1 << 20), 'ram_mb' => intdiv((int) ($s['mem'] ?? 0), 1 << 20)]] + $out;
+}
+
+/**
+ * Did the play run out of room? The client's or the server's own words (ENOSPC — Postgres' PANIC on its WAL, InnoDB's
+ * «error 28» behind «The table … is full»), the data dir's tmpfs full (df inside the throwaway, while it still runs), or
+ * a lost connection with the server killed for memory. Anything else is the play's own failure.
+ */
+function drillNoRoom(string $name, string $dir, string $said): bool
+{
+    $enospc = '/No space left on device|\berror 28\b|Errcode: 28\b|The table \S+ is full/i';
+    if (preg_match($enospc, $said)) {
+        return true;
+    }
+    [, $out, $err] = run(drillCmd(['docker', 'logs', '--tail', '50', $name]), 20);
+    if (preg_match($enospc, $out . "\n" . $err)) {
+        return true;
+    }
+    if ($dir !== '') {
+        [$exit, $out] = run(drillCmd(['docker', 'exec', $name, 'df', '-P', '-k', $dir]), 20);
+        if ($exit === 0 && preg_match('/^\S+\s+(\d+)\s+\d+\s+(\d+)\s+\d+%/m', $out, $m) && (int) $m[1] > 0
+            && (int) $m[2] < max(8192, intdiv((int) $m[1], 50))) {
+            return true;                              // < 2 % or < 8 MB free
+        }
+    }
+    if (str_contains($said, 'connection to server was lost') || str_contains($said, 'Lost connection') || str_contains($said, 'server has gone away')) {
+        [$exit, $out] = run(drillCmd(['docker', 'inspect', '--format', '{{.State.OOMKilled}}', $name]), 20);
+        return $exit === 0 && trim($out) === 'true';
+    }
+    return false;
+}
+
+/** What the clients wrote into the drill's log since an offset (the end only: what the classification needs) */
+function drillLogSince(string $log, int $from): string
+{
+    clearstatcache(true, $log);
+    $size = (int) @filesize($log);
+    $from = max($from, $size - 65536);
+    return $size > $from ? (string) @file_get_contents($log, false, null, $from) : '';
+}
 
 /** MongoDB answers (the throwaway has no login: mongorestore needs none) */
 function drillMongoReady(array &$j, string $name): array

@@ -764,6 +764,7 @@
   "drill.code.image_unknown": "le manifeste ne nomme pas son image",
   "drill.code.image_missing": "son image ({image}) n'est plus sur ce serveur — un nouveau serveur devrait la télécharger",
   "drill.code.too_big_for_ram": "trop grand pour la RAM que je peux utiliser ({need} nécessaires, {budget} permis)",
+  "drill.code.dump_no_room": "la copie n'a pas pu être rejouée : la base de données jetable avait besoin de plus de place que l'exercice ne peut en prendre en RAM ({ram_mb} Mo) — le dump lui-même est intact (L1)",
   "drill.code.budget": "plus de temps — la prochaine fois",
   "drill.code.throwaway_failed": "le conteneur jetable n'a pas démarré",
   "drill.code.not_ready": "la base de données jetable n'a pas répondu",

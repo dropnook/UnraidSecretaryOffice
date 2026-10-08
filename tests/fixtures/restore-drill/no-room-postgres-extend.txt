@@ -1,0 +1,7 @@
+NOTICE:  database "immich" does not exist, skipping
+ERROR:  current user cannot be dropped
+ERROR:  role "postgres" already exists
+ERROR:  could not extend file "base/16385/53257": No space left on device
+HINT:  Check free disk space.
+ERROR:  could not extend file "base/16385/53261": No space left on device
+HINT:  Check free disk space.

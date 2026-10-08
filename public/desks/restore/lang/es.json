@@ -764,6 +764,7 @@
   "drill.code.image_unknown": "el manifiesto no nombra su imagen",
   "drill.code.image_missing": "su imagen ({image}) ya no está en este servidor — un servidor nuevo tendría que descargarla",
   "drill.code.too_big_for_ram": "demasiado grande para la RAM que puedo usar (hacen falta {need}, se permiten {budget})",
+  "drill.code.dump_no_room": "la copia no se pudo volcar: la base de datos desechable necesitaba más espacio del que el simulacro puede tomar en RAM ({ram_mb} MB) — el dump en sí está bien (L1)",
   "drill.code.budget": "sin tiempo — la próxima vez",
   "drill.code.throwaway_failed": "el contenedor desechable no arrancó",
   "drill.code.not_ready": "la base de datos desechable no respondió",

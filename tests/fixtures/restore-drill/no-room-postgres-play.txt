@@ -1,0 +1,8 @@
+NOTICE:  database "immich" does not exist, skipping
+ERROR:  current user cannot be dropped
+ERROR:  role "postgres" already exists
+PANIC:  could not write to file "pg_wal/xlogtemp.109": No space left on device
+server closed the connection unexpectedly
+	This probably means the server terminated abnormally
+	before or while processing the request.
+connection to server was lost
