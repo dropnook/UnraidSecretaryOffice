@@ -874,8 +874,12 @@ function reportSend(array $r, array $ctx = []): array
         $giveBack();
         throw new Problem('report_stale');
     }
-    $body = reportBody($kept, $parts);
-    $answer = reportPost($body, $dir, $token, $ctx);
+    try {
+        $answer = reportPost(reportBody($kept, $parts), $dir, $token, $ctx);
+    } catch (Throwable $e) {
+        $giveBack();                    // the body couldn't be written, curl couldn't run: nothing went — the preview stays
+        throw $e;
+    }
     if (!$answer['ok']) {
         $giveBack();
         if ($answer['key'] === 'report_closed') {

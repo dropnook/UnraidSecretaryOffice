@@ -14454,8 +14454,10 @@ globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textCon
   removeEventListener() {}, documentElement: { scrollHeight: 20000 }, activeElement: null, hidden: false, body: mk() };
 const calls = [];
 const texts = JSON.parse(fs.readFileSync(textsFile, 'utf8'));
+let textsFail = 1;            // the first ask for the texts fails (offline for a moment): asked again at the next open
 globalThis.fetch = async (url) => {
   calls.push(String(url).replace(/^api\.php\?/, ''));
+  if (/part=text/.test(url) && textsFail-- > 0) throw new Error('offline');
   const a = /part=text/.test(url) ? texts : /a=places/.test(url) ? { ok: true, langs: [], words: {} } : { ok: false };
   return { redirected: false, url, ok: true, status: 200, json: async () => a, text: async () => JSON.stringify(a) };
 };
@@ -14474,6 +14476,15 @@ const out = {};
   const q = (s) => O.search.find(s).map(brief);
   out.before = { wasabi: q('Wasabi'), gangs: q('gangs') };
   out.callsBefore = calls.slice();
+  O.search.open();
+  await O.search.words();
+  await O.search.texts();
+  O.search.close();
+  out.callsFailed = calls.slice();
+  O.search.open();
+  await O.search.words();
+  await O.search.texts();
+  O.search.close();
   O.search.open();
   await O.search.words();
   await O.search.texts();
@@ -14534,7 +14545,9 @@ JS);
     $ofDesk = fn (array $list, string $desk) => array_values(array_filter($list, fn ($x) => $x['desk'] === $desk));
     $lockOf = fn (array $list) => array_values(array_filter($list, fn ($x) => $x['desk'] === 'advisor' && $x['key'] === 'lock.title'));
     same('search guides page: nothing asked before the first open (the texts not with the first paint)', [], $r['callsBefore']);
-    same('search guides page: the first open asks the words, the English texts right after them — once', ['a=places&v=1-test', 'a=places&part=text&v=1-test'], $r['calls']);
+    same('search guides page: the first open asks the words, the English texts right after them', ['a=places&v=1-test', 'a=places&part=text&v=1-test'], $r['callsFailed']);
+    same('search guides page: … texts that didn\'t come are asked again at the next open (never the words again), then never again',
+        ['a=places&v=1-test', 'a=places&part=text&v=1-test', 'a=places&part=text&v=1-test'], $r['calls']);
     $w = $lockOf($r['before']['wasabi'])[0] ?? [];
     same('search guides page: a word only inside a paragraph finds the guide at once (its own language): the sentence is the spot, the guide the part around it',
         ['guide', 'lock.3', 'lock.title', 'lock.3'], [$w['kind'] ?? null, $w['anchor'] ?? null, $w['part'] ?? null, $w['text'] ?? null]);
@@ -19663,6 +19676,14 @@ ROUTER);
     same('report: no answer at all — report_offline', 'report_offline', $refused(fn () => reportSend(['token' => $pv2['token'], 'parts' => ['versions']] + $words,
         ['now' => $t0 + 20, 'url' => 'http://127.0.0.1:' . ($port === 40000 ? 39999 : $port + 1)] + $sctx)));
 
+    // the body can't be written in RAM (here: a folder in its place): office_storage — nothing went, the preview stays for
+    // another try (review 2026-10-09: it stayed claimed, and the next send was report_stale)
+    mkdir("$tmp/run/{$pv2['token']}.body");
+    $before = $count();
+    same('report: the body can\'t be written — office_storage, nothing sent, the preview kept', ['office_storage', $before, true],
+        [$send($pv2, ['versions'], $t0 + 25)['key'] ?? 'ok', $count(), is_file("$tmp/run/{$pv2['token']}.json")]);
+    rmdir("$tmp/run/{$pv2['token']}.body");
+
     // closed: remembered a day, nothing asked meanwhile
     $answer(403, ['ok' => false, 'error' => 'closed', 'key' => 'report_closed', 'by' => 'switch']);
     $before = $count();
@@ -19962,6 +19983,12 @@ function testBackupLetGo(): void
         ['zfs:pool/UnraidSecretaryOffice@uso-backup-20261001-0200', 'zfs:pool/appdata@uso-backup-20261001-0200', 'zfs:pool/appdata@unraidbackup-20260901-0200',
          'zfs:pool/appdata@uso-backup-20261003-0200', 'btrfs:/mnt/disk3/.btrfs-snap/20261001-0200'], array_column($snaps['take'], 'id'));
     same('let go: a held one and one on a sleeping pool stay, counted', [1, 1], [$snaps['held'], $snaps['asleep']]);
+    // what Mr. Restori pulled back from a partner arrives with the engine's names — his, never cleared away (review 2026-10-09)
+    $pulled = backupLetGoSnaps(['zfs' => ['snapshots' => [$z('pool/appdata.restored-20261008-120000', 'uso-backup-20261001-0200'),
+        $z('pool/' . RSP_PARENT . '/share-media', 'uso-backup-20261001-0200'), $z('pool/media.restored-20261008-120000/sub', 'uso-backup-20261001-0200'),
+        $z('pool/appdata.restored-old', 'uso-backup-20261001-0200')]]], $prefixes, '.btrfs-snap');
+    same('let go: never the snapshots of a dataset Mr. Restori pulled from a partner (beside the original, or on a new server)',
+        ['zfs:pool/appdata.restored-old@uso-backup-20261001-0200'], array_column($pulled['take'], 'id'));
     same('let go: a prefix of the user\'s own — only that one', ['zfs:pool/appdata@manual-20261001-0200'],
         array_column(backupLetGoSnaps(['zfs' => ['snapshots' => [$z('pool/appdata', 'manual-20261001-0200'), $z('pool/appdata', 'uso-backup-20261001-0200')]]],
             backupSnapPrefixes('manual-'), '.btrfs-snap')['take'], 'id'));
