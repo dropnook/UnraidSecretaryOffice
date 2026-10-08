@@ -1,0 +1,10 @@
+2026-10-08 20:07:07.018 UTC [1] LOG:  terminating any other active server processes
+2026-10-08 20:07:07.020 UTC [1] LOG:  all server processes terminated; reinitializing
+2026-10-08 20:07:07.052 UTC [159] LOG:  database system was interrupted; last known up at 2026-10-08 20:06:58 UTC
+2026-10-08 20:07:07.055 UTC [159] LOG:  database system was not properly shut down; automatic recovery in progress
+2026-10-08 20:07:07.055 UTC [159] LOG:  redo starts at 0/1952A88
+2026-10-08 20:07:07.427 UTC [159] LOG:  redo done at 0/24FFDDE0 system usage: CPU: user: 0.20 s, system: 0.17 s, elapsed: 0.37 s
+2026-10-08 20:07:07.428 UTC [159] PANIC:  could not write to file "pg_wal/xlogtemp.159": No space left on device
+2026-10-08 20:07:07.434 UTC [1] LOG:  startup process (PID 159) was terminated by signal 6: Aborted
+2026-10-08 20:07:07.434 UTC [1] LOG:  aborting startup due to startup process failure
+2026-10-08 20:07:07.453 UTC [1] LOG:  database system is shut down

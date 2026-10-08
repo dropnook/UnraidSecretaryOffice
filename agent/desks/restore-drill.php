@@ -1235,7 +1235,8 @@ function drillDoDump(array &$j, int $i, array &$env): array
         return ['state' => 'not_checked', 'code' => 'budget', 'params' => ['container' => $s['container']]] + $out;
     }
     $name = DRILL_PREFIX . "{$j['id']}-$i";
-    $args = drillContainerArgs($c, (string) $s['type'], $name, $j['id'], min($ram, max($need, 1 << 30)), bin2hex(random_bytes(16)));
+    $mem = min($ram, max($need, 1 << 30));
+    $args = drillContainerArgs($c, (string) $s['type'], $name, $j['id'], $mem, bin2hex(random_bytes(16)));
     if (!drillArgsSafe($args, $c, (string) $s['type'])) {
         return ['state' => 'failed', 'code' => 'drill_error', 'detail' => 'throwaway arguments refused'] + $out;
     }
@@ -1246,7 +1247,7 @@ function drillDoDump(array &$j, int $i, array &$env): array
         if ($exit !== 0) {
             return ['state' => 'failed', 'code' => 'throwaway_failed', 'detail' => drillCut($err)] + $out;
         }
-        return drillPlayCheck($j, $i, $env, $s, $name, $file, $out);
+        return drillPlayCheck($j, $i, $env, $s + ['need' => $need, 'mem' => $mem, 'datadir' => drillDataDir((string) $s['type'], $c)], $name, $file, $out);
     } finally {
         // gone right after its step: its RAM is free for the next one
         foreach ($j['made'] as $n => $x) {
@@ -1282,6 +1283,9 @@ function drillPlayCheck(array &$j, int $i, array &$env, array $s, string $name, 
     $GLOBALS['rsDeadline'] = min((int) $j['deadline'], time() + DRILL_BUDGET_PLAY);
     $GLOBALS['rsDeadlineWhy'] = $GLOBALS['rsDeadline'] < (int) $j['deadline'] ? 'budget' : 'deadline';
     $t0 = time();
+    $log = rsDir($j['id']) . '/log.txt';
+    clearstatcache(true, $log);
+    $from = (int) @filesize($log);
     try {
         $play = rsDoPlay($j, $i);
     } finally {
@@ -1293,10 +1297,14 @@ function drillPlayCheck(array &$j, int $i, array &$env, array $s, string $name, 
         $GLOBALS['rsStopWhy'] = null;
         return ['state' => 'not_checked', 'code' => 'budget', 'params' => ['container' => $s['container']]] + $out;
     }
+    $room = drillPlayRoom($play, $name, $s, drillLogSince($log, $from), ['seconds' => $seconds] + $out);
+    if ($room) {
+        return $room;
+    }
+    $detail = drillCut((string) ($play['detail'] ?? ''));
     $results = [$play['state']];
     $params = ['container' => $s['container'], 'seconds' => $seconds];
     $code = $play['state'] === 'ok' ? 'verify_ok' : (string) ($play['note'] ?? 'play_failed');
-    $detail = drillCut((string) ($play['detail'] ?? ''));
     if ($play['state'] !== 'failed') {
         $verify = rsDoVerify($j, $step);
         $results[] = $verify['state'];
@@ -1327,6 +1335,57 @@ function drillPlayCheck(array &$j, int $i, array &$env, array $s, string $name, 
             'level' => $state === 'failed' ? 1 : 2] + $out;
 }
 
+
+/**
+ * A play that didn't go through because the throwaway ran out of room: the drill's RAM, not the backup — «not checked»
+ * (the dump is intact: L1), never «failed», no warning sent for it. Null when the play went through or failed otherwise.
+ */
+function drillPlayRoom(array $play, string $name, array $s, string $said, array $out): ?array
+{
+    if ($play['state'] === 'ok' || !drillNoRoom($name, (string) ($s['datadir'] ?? ''), $said)) {
+        return null;
+    }
+    return ['state' => 'not_checked', 'code' => 'dump_no_room', 'level' => 1, 'detail' => drillCut((string) ($play['detail'] ?? '')),
+            'params' => ['container' => $s['container'], 'need_mb' => intdiv((int) ($s['need'] ?? 0), 1 << 20), 'ram_mb' => intdiv((int) ($s['mem'] ?? 0), 1 << 20)]] + $out;
+}
+
+/**
+ * Did the play run out of room? The client's or the server's own words (ENOSPC — Postgres' PANIC on its WAL, InnoDB's
+ * «error 28» behind «The table … is full»), the data dir's tmpfs full (df inside the throwaway, while it still runs), or
+ * a lost connection with the server killed for memory. Anything else is the play's own failure.
+ */
+function drillNoRoom(string $name, string $dir, string $said): bool
+{
+    $enospc = '/No space left on device|\berror 28\b|Errcode: 28\b|The table \S+ is full/i';
+    if (preg_match($enospc, $said)) {
+        return true;
+    }
+    [, $out, $err] = run(drillCmd(['docker', 'logs', '--tail', '50', $name]), 20);
+    if (preg_match($enospc, $out . "\n" . $err)) {
+        return true;
+    }
+    if ($dir !== '') {
+        [$exit, $out] = run(drillCmd(['docker', 'exec', $name, 'df', '-P', '-k', $dir]), 20);
+        if ($exit === 0 && preg_match('/^\S+\s+(\d+)\s+\d+\s+(\d+)\s+\d+%/m', $out, $m) && (int) $m[1] > 0
+            && (int) $m[2] < max(8192, intdiv((int) $m[1], 50))) {
+            return true;                              // < 2 % or < 8 MB free
+        }
+    }
+    if (str_contains($said, 'connection to server was lost') || str_contains($said, 'Lost connection') || str_contains($said, 'server has gone away')) {
+        [$exit, $out] = run(drillCmd(['docker', 'inspect', '--format', '{{.State.OOMKilled}}', $name]), 20);
+        return $exit === 0 && trim($out) === 'true';
+    }
+    return false;
+}
+
+/** What the clients wrote into the drill's log since an offset (the end only: what the classification needs) */
+function drillLogSince(string $log, int $from): string
+{
+    clearstatcache(true, $log);
+    $size = (int) @filesize($log);
+    $from = max($from, $size - 65536);
+    return $size > $from ? (string) @file_get_contents($log, false, null, $from) : '';
+}
 
 /** MongoDB answers (the throwaway has no login: mongorestore needs none) */
 function drillMongoReady(array &$j, string $name): array

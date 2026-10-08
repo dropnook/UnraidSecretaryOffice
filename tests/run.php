@@ -16398,6 +16398,47 @@ function testRestoreDrill(): void
         }
     }
 
+    // ---- out of room (nostromo 2026-10-08, reproduced on Tower): the play's and the server's own words, df inside the
+    //      throwaway, a kill for memory — «not checked» with its sizes, never «failed»; any other failure stays the play's
+    $nr = "$tmp/noroom";
+    @mkdir($nr, 0700, true);
+    file_put_contents("$tmp/docker-noroom", "#!/bin/sh\nD=" . escapeshellarg($nr) . "\necho \"\$*\" >>\"\$D/calls\"\ncase \"\$1\" in\n"
+        . "  logs) cat \"\$D/logs\" ;;\n"
+        . "  exec) [ -f \"\$D/df\" ] || { echo 'Error response from daemon: container is not running' >&2; exit 1; }; cat \"\$D/df\" ;;\n"
+        . "  inspect) cat \"\$D/oom\" ;;\nesac\nexit 0\n");
+    chmod("$tmp/docker-noroom", 0755);
+    $GLOBALS['drill']['docker'] = "$tmp/docker-noroom";
+    $nrOut = ['level' => 0, 'copy' => 'snapshot', 'run' => '20261101-0200', 'params' => ['container' => 'immich_postgres'], 'seconds' => 9];
+    $nrStep = ['container' => 'immich_postgres', 'need' => 1806 << 20, 'mem' => 1806 << 20, 'datadir' => '/var/lib/postgresql/data'];
+    $room = function (string $said, string $logs, ?string $df, bool $oom = false, string $state = 'failed') use ($nr, $fix, $nrOut, $nrStep): ?array {
+        copy("$fix/$logs", "$nr/logs");
+        $df === null ? @unlink("$nr/df") : copy("$fix/$df", "$nr/df");
+        file_put_contents("$nr/oom", $oom ? "true\n" : "false\n");
+        $said = is_file("$fix/$said") ? (string) file_get_contents("$fix/$said") : $said;
+        return drillPlayRoom(['state' => $state, 'note' => 'play_failed', 'detail' => ''], DRILL_PREFIX . '20261101-041200-ab12-3', $nrStep, $said, $nrOut);
+    };
+    $r = $room('no-room-postgres-play.txt', 'no-room-postgres-server.txt', null);
+    same('drill no room: Postgres\' PANIC on its WAL, the connection lost, the throwaway gone — not checked, its sizes, the dump intact (L1)',
+        ['not_checked', 'dump_no_room', 1, ['container' => 'immich_postgres', 'need_mb' => 1806, 'ram_mb' => 1806], 9, 'snapshot'],
+        [$r['state'] ?? null, $r['code'] ?? null, $r['level'] ?? null, $r['params'] ?? null, $r['seconds'] ?? null, $r['copy'] ?? null]);
+    same('drill no room: psql going on after «could not extend file» (the play only «with errors») — not checked too', ['not_checked', 'dump_no_room'],
+        array_values(array_intersect_key($room('no-room-postgres-extend.txt', 'server-quiet.txt', 'df-room.txt', false, 'warning') ?? [], ['state' => 1, 'code' => 1])));
+    same('drill no room: MariaDB\'s «The table … is full»', ['not_checked', 'dump_no_room'],
+        array_values(array_intersect_key($room('no-room-mariadb-play.txt', 'server-quiet.txt', 'df-room.txt') ?? [], ['state' => 1, 'code' => 1])));
+    same('drill no room: only «connection to server was lost» — the server\'s own log says ENOSPC, its tmpfs full (df), or it was killed for memory',
+        ['dump_no_room', 'dump_no_room', 'dump_no_room'], [
+            $room("connection to server was lost\n", 'no-room-postgres-server.txt', null)['code'] ?? null,
+            $room("connection to server was lost\n", 'server-quiet.txt', 'df-full.txt')['code'] ?? null,
+            $room("connection to server was lost\n", 'server-quiet.txt', null, true)['code'] ?? null]);
+    same('drill no room: a lost connection with room left and no kill, another error, a play that went through — the play\'s own result (failed stays failed)',
+        [null, null, null], [$room("connection to server was lost\n", 'server-quiet.txt', 'df-room.txt'), $room('play-other-error.txt', 'server-quiet.txt', 'df-room.txt'),
+                             $room('', 'no-room-postgres-server.txt', 'df-full.txt', false, 'ok')]);
+    check('drill no room: df looks at the throwaway\'s data dir only', str_contains((string) file_get_contents("$nr/calls"), 'exec ' . DRILL_PREFIX . '20261101-041200-ab12-3 df -P -k /var/lib/postgresql/data'));
+    file_put_contents("$tmp/play.log", str_repeat('x', 70000) . "PANIC: No space left on device\n");
+    same('drill no room: the log since the play began, its end only', [true, 65536], [str_ends_with(drillLogSince("$tmp/play.log", 10), "device\n"), strlen(drillLogSince("$tmp/play.log", 10))]);
+    same('drill no room: nothing written since', '', drillLogSince("$tmp/play.log", (int) filesize("$tmp/play.log")));
+    unset($GLOBALS['drill']['docker']);
+
     // ---- a docker stand-in: containers in a file ("name label"), every call logged
     $dock = "$tmp/docker";
     file_put_contents("$tmp/containers", '');

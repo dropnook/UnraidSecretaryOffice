@@ -764,6 +764,7 @@
   "drill.code.image_unknown": "il manifest non nomina la sua immagine",
   "drill.code.image_missing": "la sua immagine ({image}) non è più su questo server — un server nuovo dovrebbe scaricarla",
   "drill.code.too_big_for_ram": "troppo grande per la RAM che posso usare (servono {need}, consentiti {budget})",
+  "drill.code.dump_no_room": "la copia non si è potuta riversare: il database usa e getta aveva bisogno di più spazio di quanto l'esercitazione possa prendere nella RAM ({ram_mb} MB) — il dump in sé è integro (L1)",
   "drill.code.budget": "tempo finito — la prossima volta",
   "drill.code.throwaway_failed": "il contenitore usa e getta non si è avviato",
   "drill.code.not_ready": "il database usa e getta non ha risposto",
