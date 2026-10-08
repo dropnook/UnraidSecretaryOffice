@@ -533,7 +533,37 @@ Office.setAgent = function setAgent(info) {
   }
   if (Office.current && Office.current.agentChanged) Office.current.agentChanged();
   footer();
+  updateNotice();
 };
+
+/*
+ * The office was updated while this page was open (Unraid's plugin manager swaps the plugin's folder and starts the new
+ * agent): every answer that carries the messenger (agentInfo(): its heartbeat, with its version) tells this page — when
+ * the running agent's version isn't the page's own (CONFIG.version), the old page talks to the new office. One calm line
+ * under the top line says so, with a button that reloads — never a reload of its own (a dialog may be half filled in).
+ * Once per version: «Later» puts it away for that version (kept in this browser), a newer one brings it back.
+ */
+let updateShown = '';
+function updateNotice() {
+  const v = Office.agent && Office.agent.running ? Office.agent.version : null;
+  if (typeof v !== 'string' || v === '' || !CONFIG.version || v === CONFIG.version || v === updateShown || Office.store('update.later') === v) return;
+  updateShown = v;
+  let node = $('#sso-update');
+  if (!node) {
+    node = el('p', 'notice info update');
+    node.id = 'sso-update';
+    $('#sso-notice').after(node);
+  }
+  node.innerHTML = '';
+  const reload = el('button', 'btn small', t('office.updated_reload'));
+  reload.type = 'button';
+  reload.onclick = () => location.reload();
+  const later = el('button', 'btn small plain', t('office.updated_later'));
+  later.type = 'button';
+  later.onclick = () => { node.hidden = true; Office.store('update.later', v); };
+  node.append(el('span', '', t('office.updated', { version: v })), reload, later);
+  node.hidden = false;
+}
 
 /** "The night watchman has been on night shift since 09:18 (12 rounds, 1 new entry) …" — {since, rounds, new} */
 function nightText(night) {

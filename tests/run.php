@@ -9561,6 +9561,39 @@ function testStrings(): void
         }
     }
 
+    // plurals (QA 2026-10-08 #9: «1 warnings», «1 alerts · 9 warnings unread»): a key that is a plural in English is one
+    // in all five; a text with several counts is composed of count.<what> keys (one/other with {n}), which the pages ask
+    // for through nOf('<what>') or T('count.<what>', …); no «file(s)» behind a count
+    foreach ($sets as $desk => $dir) {
+        $where = $desk === '' ? 'office' : $desk;
+        $e = langFile("$dir/en.json");
+        $plurals = array_keys(array_filter($e, 'is_array'));
+        foreach ($complete as $code) {
+            $l = langFile("$dir/$code.json");
+            same("$where/$code: every English plural is a plural", [], array_values(array_filter($plurals, fn ($k) => !langPluralOk($l[$k] ?? null))));
+        }
+        same("$where: count.* keys are plurals of {n}", [], array_values(array_filter(array_keys($e),
+            fn ($k) => str_starts_with($k, 'count.') && !(langPluralOk($e[$k]) && langPlaceholders($e[$k]) === ['n']))));
+        same("$where: no «(s)» behind a count — a plural instead", [], array_values(array_keys(array_filter($e,
+            fn ($v) => is_string($v) && preg_match('/\{\w+\}[^{}"]{0,30}?[a-z]\((?:s|es)\)/', $v)))));
+    }
+    foreach (glob("$pub/desks/*/*.js") ?: [] as $file) {
+        $desk = basename(dirname($file));
+        preg_match_all("/\\bnOf\\(\\s*'([a-z0-9_]+)'/", (string) file_get_contents($file), $m);
+        foreach (array_unique($m[1]) as $what) {
+            check("$desk/" . basename($file) . " counts with $desk.count.$what", isset($en["$desk.count.$what"]));
+        }
+    }
+    same('watchman: the log line «took over the watch» counts in words',
+        '1 login address, 2 containers (0 with special rights), 1 plugin, 3 shares (1 open to guests)',
+        watchmanSummaryLine(['ips' => 1, 'containers' => 2, 'special' => 0, 'plugins' => 1, 'shares' => 3, 'open' => 1]));
+    same('watchman: the watch entry in German words', '1 Anmeldeadresse', watchmanText(['kind' => 'watch', 'p' => ['ips' => 1]], 'de')['ips'] ?? null);
+
+    // the watchman's book shows every entry's group as a chip with its title (desk.js: group.<g>, group_title.<g>)
+    foreach (array_unique(array_column(WATCH_KINDS, 0)) as $group) {
+        check("watchman: chip and title for group '$group'", isset($en["watchman.group.$group"], $en["watchman.group_title.$group"]));
+    }
+
     // every Problem key has a text, at a desk or in the office
     $errors = [];
     foreach ($en as $k => $_) {
@@ -11138,6 +11171,13 @@ function testWhereDesk(): void
     $core = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
     check('where desk: her look and her measuring stay quiet (no spinner)', (bool) preg_match('/const QUIET = .*where_refresh.*where_measure/', $core));
     check('where desk: both parts on her page', str_contains($js, "part(T('part.where')") && str_contains($js, "part(T('part.tidy')"));
+    // Docker stopped (QA 2026-10-08 #13): her facts say so instead of «0 of 0 running», and so does Mr. Backupsy
+    $sys = waSystem([], [], [], ['running' => false, 'since' => null, 'step' => null]);
+    check('where desk: whether Docker and the VM service answer', is_bool($sys['docker']['up'] ?? null) && is_bool($sys['vms']['up'] ?? null));
+    check('where desk: Docker off said on her page', substr_count($js, "docker.up === false ? Office.t('common.docker_off')") >= 1
+        && str_contains($js, "if (s.system.docker.up === false) return { sub: Office.t('common.docker_off') }"));
+    $bk = (string) file_get_contents(OFFICE_DIR . '/public/desks/backup/desk.js');
+    check('backup: Docker off said on his overview', str_contains($bk, "c.up === false") && str_contains($bk, "Office.t('common.docker_off')"));
 
     // her look is kept fresh by the API (apiPart(): the server's clock, the short wait), not by the page's clock:
     // desk.json names the part and its action (officeDeskParts()), the page only reads the part — no Date.now()
@@ -12504,6 +12544,96 @@ JS);
     same('look page: an action on a stale state waits for a fresh look', [true, ['a=state&desk=snapshot&fresh=1'], [[400, false]]], $r['freshAsked']);
     same('look page: … the look under way handed over at once (a dialog open or not), once', [[true, [], [[500, true]]], []], [$r['pendingTaken'], $r['pendingTwice']]);
     same('look page: no fresh look to be had — refused (never on a stale list)', false, $r['refused']);
+    hardeningRm($tmp);
+}
+
+/**
+ * The page notices a new version (core.js updateNotice()): an answer whose running agent has another version than the
+ * page (CONFIG.version) — one calm line under the top line with «Reload» and «Later», never a reload of its own; once
+ * per version; «Later» keeps it away for that version, a newer one brings it back. Run by node on a stand-in page
+ * that keeps its elements by id (skipped where node is missing).
+ */
+function testUpdateNotice(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('update notice: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('updatenotice');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const byId = {};
+const mk = (tag) => {
+  const n = { tag, id: '', className: '', style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [], onclick: null, type: '',
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, after(c) { if (c.id) byId[c.id] = c; },
+    remove() {}, prepend() {}, setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
+    querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+    getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0 }), focus() {}, select() {} };
+  Object.defineProperty(n, 'innerHTML', { get: () => '', set() { n.children = []; } });
+  return n;
+};
+const find = (id) => (id === 'sso-update' ? byId[id] || null : (byId[id] = byId[id] || mk('div')));
+const store = {};
+let reloads = 0;
+globalThis.window = globalThis;
+globalThis.innerHeight = 800; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
+globalThis.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
+globalThis.navigator = { languages: ['en'] };
+globalThis.history = { replaceState() {} };
+globalThis.location = { hash: '', reload() { reloads++; } };
+const CONFIG = { version: '1.42.0', desks: [], languages: [{ code: 'en' }], base: '', staff_order: [] };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : find(id)),
+  querySelector: (s) => (s[0] === '#' ? find(s.slice(1)) : mk('div')), querySelectorAll: () => [], createElement: (tag) => mk(tag), addEventListener() {},
+  documentElement: { scrollHeight: 0 }, activeElement: null, hidden: false, body: mk('body') };
+globalThis.fetch = async (url) => ({ redirected: false, url, ok: true, status: 200, json: async () => ({ ok: false }), text: async () => '{"ok":false}' });
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const O = globalThis.Office;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const text = (n) => [n.textContent || '', ...(n.children || []).map(text)].join('');
+const look = () => { const n = byId['sso-update']; return n ? { hidden: n.hidden, cls: n.className, text: text(n), buttons: n.children.filter((c) => c.tag === 'button').map((b) => b.textContent) } : null; };
+(async () => {
+  await sleep(50);
+  Object.assign(O.strings, { 'office.updated': 'Updated to {version}.', 'office.updated_reload': 'Reload', 'office.updated_later': 'Later' });
+  const out = {};
+  O.setAgent({ running: true, version: '1.42.0' });
+  out.same = look();
+  O.setAgent({ running: false, version: '1.43.0' });
+  out.notRunning = look();
+  O.setAgent({ running: true, version: '1.43.0' });
+  out.shown = look();
+  out.reloadsBefore = reloads;
+  const first = byId['sso-update'].children[0];
+  O.setAgent({ running: true, version: '1.43.0' });
+  out.once = byId['sso-update'].children[0] === first;
+  byId['sso-update'].children.find((c) => c.textContent === 'Reload').onclick();
+  out.reloadsAfter = reloads;
+  byId['sso-update'].children.find((c) => c.textContent === 'Later').onclick();
+  out.later = [look().hidden, store['office.update.later'] || null];
+  O.setAgent({ running: true, version: '1.43.0' });
+  out.laterStays = look().hidden;
+  O.setAgent({ running: true, version: '1.44.0' });
+  out.newer = look();
+  console.log(JSON.stringify(out));
+  process.exit(0);
+})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
+    $r = json_decode($raw, true);
+    if (!is_array($r) || isset($r['error'])) {
+        check('update notice: ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('update notice: the agent of the page\'s own version, or one not running — nothing', [null, null], [$r['same'], $r['notRunning']]);
+    same('update notice: another version running — one calm line under the top line, «Reload» and «Later»',
+        ['hidden' => false, 'cls' => 'notice info update', 'text' => 'Updated to 1.43.0.ReloadLater', 'buttons' => ['Reload', 'Later']], $r['shown']);
+    same('update notice: never a reload of its own; once per version (not drawn again); «Reload» reloads', [0, true, 1], [$r['reloadsBefore'], $r['once'], $r['reloadsAfter']]);
+    same('update notice: «Later» puts it away for that version, kept in the browser', [[true, '1.43.0'], true], [$r['later'], $r['laterStays']]);
+    same('update notice: a newer version brings it back', [false, 'Updated to 1.44.0.ReloadLater'], [$r['newer']['hidden'] ?? null, $r['newer']['text'] ?? null]);
+    $js = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    check('update notice: setAgent() asks for it — every answer with the messenger', (bool) preg_match('/footer\(\);\n  updateNotice\(\);\n\};/', $js));
     hardeningRm($tmp);
 }
 
@@ -15885,6 +16015,22 @@ function testRestoreDrill(): void
     $cert = drillCertWrite($ab, null);
     same('drill certificate: an aborted drill joins the history only (what was proven stays)', ['failed', $b, 'aborted', 'array_stopping'],
         [$cert['last']['result'], $cert['last']['id'], $cert['history'][0]['result'], $cert['history'][0]['reason']]);
+    // a newer office's certificate (another interface, met after a downgrade): its history goes on as it is, the file aside
+    $certFile = $GLOBALS['drill']['cert'];
+    $keep = (string) file_get_contents($certFile);
+    $later = ['id' => '20271201-030000-ffff', 'result' => 'passed', 'proofs' => ['a' => 1], 'by' => 'a newer office'];
+    $newer = json_encode(['interface' => 2, 'proofs' => [], 'history' => [$later, $cert['history'][0]]]);
+    file_put_contents($certFile, $newer);
+    $cert2 = drillCertWrite($jc, ['place' => ['share' => 'UnraidSecretaryOffice']]);
+    same('drill certificate of another interface: written as interface 1, the newer history rows kept as they are, behind this drill\'s',
+        [1, [$a, '20271201-030000-ffff', $cert['history'][0]['id']], $later], [$cert2['interface'], array_column($cert2['history'], 'id'), $cert2['history'][1]]);
+    same('drill certificate of another interface: the whole file kept aside', $newer, @file_get_contents("$certFile.before-" . AGENT_VERSION));
+    @unlink("$certFile.before-" . AGENT_VERSION);
+    $c1 = json_decode($keep, true);
+    $c1['from_later'] = ['kept' => true];
+    file_put_contents($certFile, json_encode($c1));
+    same('drill certificate: a key this version doesn\'t know kept through a write', ['kept' => true], drillCertWrite($ab, null)['from_later'] ?? null);
+    file_put_contents($certFile, $keep);
 
     // ---- the Team Lead, the Dashboard, Mr. Backupsy's line, the metrics
     $ok = fn (array $f) => array_map(fn ($x) => [$x['id'], $x['ok']], $f);
@@ -17330,6 +17476,361 @@ function testPlgGuard(): void
     same('plg guard: these don\'t', array_fill(0, count($free), false), array_map($hit, $free));
     $guard = strpos($plg, 'pgrep -f "$jobs"');
     check('plg guard: before the agent is stopped and the folder replaced', $guard !== false && $guard < strpos($plg, 'scripts/agent.sh" stop') && $guard < strpos($plg, 'rm -rf "$dir"'));
+    // the install: unpacked beside and checked before the agent is stopped, then the swap — two renames
+    $install = plgScript('install', '/x');
+    $at = fn (string $what) => strpos($install, $what);
+    check('plg install: the guard, then unpacked beside and checked, then the old agent stopped, the swap, the new agent started',
+        $at('pgrep -f "$jobs"') < $at('tar -xJf "$package" -C "$new"') && $at('tar -xJf "$package" -C "$new"') < $at('[ ! -f "$new/$name/scripts/partner-door.sh" ]')
+        && $at('[ ! -f "$new/$name/scripts/partner-door.sh" ]') < $at('bash "$dir/scripts/agent.sh" stop') && $at('bash "$dir/scripts/agent.sh" stop') < $at('mv "$dir" "$old/$name"')
+        && $at('mv "$dir" "$old/$name"') < $at('mv "$new/$name" "$dir"') && $at('mv "$new/$name" "$dir"') < $at('officeMenuPageApply')
+        && $at('officeMenuPageApply') < $at('bash "$dir/scripts/agent.sh" start;') && !str_contains($install, 'rm -rf "$dir"'));
+    check('plg install: nothing of the array or var.ini (a boot install runs before emhttp)', !preg_match('/^[^#\n]*(var\.ini|fsState|mdState)/m', $install));
+    // the remove: the same guard, first; what the office holds let go before the code goes
+    $remove = plgScript('remove', '/x');
+    same('plg remove: the same pattern as the install', [$line], preg_match('/^jobs="([^"\n]+)"$/m', $remove, $m) ? [$m[1]] : []);
+    $at = fn (string $what) => strpos($remove, $what);
+    check('plg remove: the guard first, then agent.sh release, the schedules aside, then the folder goes', $at('pgrep -f "$jobs"') !== false
+        && $at('pgrep -f "$jobs"') < $at('bash "$dir/scripts/agent.sh" release') && $at('bash "$dir/scripts/agent.sh" release') < $at('.cron.removed-$stamp')
+        && $at('.cron.removed-$stamp') < $at('rm -rf "$dir"'));
+}
+
+/**
+ * Exact shapes, tolerant writes (CLAUDE.md «Updates», briefs/upgrade-audit.md finding 4): pairs.json, tickets.json and
+ * ticket-pairs.json keep every entry a version doesn't recognise — a newer office's, met after a downgrade — where it
+ * stood, as it was, through every write that touches another entry; a file of another `v` is not written over.
+ */
+function testPartnerTolerant(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('partner tolerant writes: root only — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('partner-tolerant');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $file = "$tmp/partner/pairs.json";
+    $a = partnerTestPair('a1b2c3d4');
+    partnerPairsWrite([$a], $file);
+    $raw = fn (): array => json_decode((string) file_get_contents($file), true);
+    // from «the future»: a pair with a field this version doesn't know, an entry of a kind it doesn't know, a key beside
+    $f1 = partnerTestPair('f1f1f1f1', ['name' => 'later', 'compress' => 'zstd']);
+    $f2 = ['id' => 'f2f2f2f2', 'kind' => 'mirror', 'name' => 'mirrorbox', 'address' => '192.168.77.8', 'schedule' => ['every' => 'hour'], 'extra' => [1, 2.5, null, true]];
+    $future = ['v' => 1, 'pairs' => [$f1, $a, $f2], 'mirrors_since' => 1791336000];
+    file_put_contents($file, json_encode($future, JSON_UNESCAPED_SLASHES) . "\n");
+    chmod($file, 0600);
+    same('tolerant: the reader takes only the pair in this version\'s shape', ['a1b2c3d4'], array_column(partnerPairs($file), 'id'));
+    // a write that touches another entry: the future ones where they stood, as they were
+    $a2 = ['name' => 'renamed'] + $a;
+    partnerPairsWrite([$a2], $file);
+    same('tolerant: a write that changes another pair keeps the future entries where they stood, field for field, and the key beside',
+        ['v' => 1, 'pairs' => [$f1, $a2, $f2], 'mirrors_since' => 1791336000], $raw());
+    $b = partnerTestPair('b2c3d4e5', ['their_key' => null, 'receive' => null]);
+    partnerPairsWrite([$a2, $b], $file);
+    same('tolerant: a new pair at the end', ['f1f1f1f1', 'a1b2c3d4', 'f2f2f2f2', 'b2c3d4e5'], array_column($raw()['pairs'], 'id'));
+    partnerPairsWrite([$b], $file);
+    same('tolerant: a pair ended goes, the future ones stay', [$f1, $f2, $b], $raw()['pairs']);
+    // an old-shape pair (send before 2.29) is this version's: written in the whole shape, in its place
+    $old = $raw();
+    $old['pairs'][2]['send'] = ['units' => ['share:media'], 'rate_mbit' => 0];
+    file_put_contents($file, json_encode($old, JSON_UNESCAPED_SLASHES));
+    partnerPairsWrite(partnerPairs($file), $file);
+    same('tolerant: an old-shape pair upgraded in its place, the others untouched', [$f1, $f2, array_replace($b, ['send' => ['units' => ['share:media'], 'rate_mbit' => 0, 'wanted' => ['share:media'], 'offered' => null]])],
+        $raw()['pairs']);
+    // a file of another v: not this version's to write
+    $v2 = json_encode(['v' => 2, 'pairs' => [$a]]);
+    file_put_contents($file, $v2);
+    try {
+        partnerPairsWrite([$b], $file);
+        check('tolerant: a pairs.json of another v is not written over', false);
+    } catch (Problem $e) {
+        same('tolerant: a pairs.json of another v is not written over', ['partner_shape', $v2], [$e->key, file_get_contents($file)]);
+    }
+
+    // tickets.json and ticket-pairs.json, the same way (written by the office's own functions, as that office)
+    $B = partnerTestOffice("$tmp/B");
+    $now = time();
+    $ticket = fn (string $tid, array $over = []) => $over + ['id' => $tid, 'of' => 'a1b2c3d4', 'name' => 'newbox', 'address' => '192.168.77.9', 'from' => '192.168.77.9',
+        'key' => partnerFingerprint(partnerTestKey()), 'created' => $now - 60, 'expires' => $now + 3600, 'units' => ['share:appdata']];
+    partnerTestAs($B, 'partnerTicketsWrite(' . var_export([$ticket('c3c3c3c3')], true) . '); return true;');
+    $tf = "$B[data]/partner/tickets.json";
+    $ft = $ticket('e5e5e5e5', ['scope' => 'all']);
+    file_put_contents($tf, json_encode(['v' => 1, 'tickets' => [$ft, $ticket('c3c3c3c3')]]));
+    $d4 = $ticket('d4d4d4d4');
+    partnerTestAs($B, 'partnerTicketsWrite(' . var_export([$d4], true) . '); return true;');
+    same('tolerant: tickets.json — a future ticket kept, the one given up gone, the new one at the end', ['v' => 1, 'tickets' => [$ft, $d4]],
+        json_decode((string) file_get_contents($tf), true));
+    same('tolerant: … and never used', ['d4d4d4d4'], array_column(partnerTestAs($B, 'return partnerTickets();'), 'id'));
+    $pf = "$B[data]/partner/ticket-pairs.json";
+    $tp = ['id' => 'c3c3c3c3', 'kind' => 'ticket', 'name' => 'oldbox', 'of' => 'nostromo', 'address' => '192.168.77.2', 'port' => 22,
+           'host_keys' => [partnerFingerprint(partnerTestKey())], 'my_key' => partnerFingerprint(partnerTestKey()), 'units' => ['share:appdata'],
+           'expires' => $now + 3600, 'paired' => $now - 60, 'last_heard' => null];
+    $ftp = ['kind' => 'restore-all', 'id' => 'e6e6e6e6'] + $tp;
+    file_put_contents($pf, json_encode(['v' => 1, 'pairs' => [$ftp]]));
+    chmod($pf, 0600);
+    partnerTestAs($B, 'partnerTicketPairsWrite(' . var_export([$tp], true) . '); return true;');
+    same('tolerant: ticket-pairs.json — a future ticket pair kept, the new one at the end', [$ftp, $tp], json_decode((string) file_get_contents($pf), true)['pairs'] ?? null);
+    hardeningRm($tmp);
+}
+
+/**
+ * One of the .plg's inline scripts ('install' or 'remove'), pointed at a folder of the tests: the plugin folder under
+ * $root/plugins, the flash $root/flash, the RAM folder $root/run — nothing of the live plugin is touched.
+ */
+function plgScript(string $method, string $root): string
+{
+    $plg = (string) file_get_contents(OFFICE_DIR . '/plugin/unraid-secretary-office.plg');
+    $re = $method === 'remove' ? '/<FILE Run="\/bin\/bash" Method="remove">\s*<INLINE>\s*<!\[CDATA\[\n(.*?)\]\]>/s'
+                               : '/<FILE Run="\/bin\/bash">\s*<INLINE>\s*<!\[CDATA\[\n(.*?)\]\]>/s';
+    $s = preg_match($re, $plg, $m) ? $m[1] : '';
+    return strtr($s, ['dir=/usr/local/emhttp/plugins/$name' => "dir=$root/plugins/\$name", 'flash=/boot/config/plugins/$name' => "flash=$root/flash",
+                      'run=/var/run/$name' => "run=$root/run", 'keys=/boot/config/ssh/root/authorized_keys' => "keys=$root/authorized_keys",
+                      '/usr/local/sbin/update_cron' => "$root/update_cron", '@VERSION@' => '2026.10.08', '@OFFICE_VERSION@' => '1.42.0']);
+}
+
+/** A stand-in of the plugin folder's agent.sh: each call a line "<marker> <command>" in $USO_PLG_LOG; START and STATUS its exits */
+function plgTestAgentSh(): string
+{
+    return "#!/bin/bash\nhere=\$(cd \"\$(dirname \"\$0\")/..\" && pwd)\necho \"\$(cat \"\$here/marker\") \$*\" >>\"\$USO_PLG_LOG\"\n"
+        . "case \"\$1\" in start) exit \${START:-0} ;; status) exit \${STATUS:-3} ;; esac\nexit 0\n";
+}
+
+/** The .plg's remove (pointed at the tests' folders): the busy guard, what the office holds let go, the schedules aside */
+function testPlgRemove(): void
+{
+    $tmp = hardeningTmp('plgremove');
+    $name = 'unraid-secretary-office';
+    $dir = "$tmp/plugins/$name";
+    $flash = "$tmp/flash";
+    $log = "$tmp/calls.log";
+    $script = plgScript('remove', $tmp);
+    file_put_contents("$tmp/remove.sh", $script);
+    check('plg remove: the script read, pointed at the tests\' folders', str_contains($script, "dir=$tmp/plugins/\$name")
+        && !preg_match('#/usr/local/emhttp/plugins/\$name|/boot/config/(plugins|ssh)|/usr/local/sbin#', $script), $script);
+    file_put_contents("$tmp/update_cron", "echo update_cron >>\"\$USO_PLG_LOG\"\n");
+    $cron = "# Unraid Secretary Office - written by the office, change it there\n0 2 * * * bash /usr/local/emhttp/plugins/$name/scripts/job.sh backup > /dev/null 2>&1\n";
+    $benj = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBenjBenjBenjBenjBenjBenjBenjBenjBenjBenj benj@MacBook\n";
+    $installed = function () use ($tmp, $dir, $flash, $name, $cron, $benj): void {
+        hardeningRm($dir);
+        hardeningRm($flash);
+        mkdir("$dir/scripts", 0755, true);
+        mkdir("$dir/backup", 0755, true);
+        mkdir("$flash/partners", 0700, true);
+        file_put_contents("$dir/marker", 'old');
+        file_put_contents("$dir/scripts/agent.sh", plgTestAgentSh());
+        file_put_contents("$dir/backup/backup.sh", "sleep 20\ntrue\n");
+        file_put_contents("$flash/$name.cfg", "DATA_DIR=\"/mnt/user/appdata/UnraidSecretaryOffice/data\"\n");
+        file_put_contents("$flash/$name.cron", $cron);
+        file_put_contents("$flash/$name.cron.removed-20260101-010101", 'an earlier remove\'s');
+        file_put_contents("$flash/agent-watch.cron", "*/5 * * * * bash /usr/local/emhttp/plugins/$name/scripts/job.sh watch > /dev/null 2>&1\n");
+        file_put_contents("$flash/$name-2026.10.08.txz", 'the package');
+        file_put_contents("$flash/partners/a1b2c3d4.key", 'a key');
+        file_put_contents("$tmp/authorized_keys", $benj . "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPartPartPartPartPartPartPartPartPartPart uso-partner:a1b2c3d4\n");
+    };
+    $run = function () use ($tmp, $log): array {
+        @unlink($log);
+        exec('cd / && env USO_PLG_LOG=' . escapeshellarg($log) . ' bash ' . escapeshellarg("$tmp/remove.sh") . ' 2>&1', $out, $code);
+        return [$code, implode("\n", $out), is_file($log) ? file($log, FILE_IGNORE_NEW_LINES) : []];
+    };
+    $asides = fn (): array => array_map('basename', glob("$flash/$name.cron.removed-*") ?: []);
+
+    // busy: a backup run from the plugin folder — nothing removed, nothing released
+    $installed();
+    $busy = proc_open(['bash', "$dir/backup/backup.sh"], [['file', '/dev/null', 'r'], ['file', '/dev/null', 'w'], ['file', '/dev/null', 'w']], $pipes, '/');
+    usleep(200000);
+    [$code, $out, $calls] = $run();
+    same('plg remove while a backup runs: refused, nothing touched', [1, [], true, $cron, true],
+        [$code, $calls, is_dir($dir), @file_get_contents("$flash/$name.cron"), is_file("$flash/partners/a1b2c3d4.key")]);
+    check('plg remove while a backup runs: it says why', str_contains($out, 'The office is busy right now') && str_contains($out, 'Nothing was removed'), $out);
+    if (is_resource($busy)) {
+        proc_terminate($busy, SIGKILL);
+        proc_close($busy);
+    }
+
+    // the remove: released first (agent.sh release, while the scripts are there), the schedules aside, the rest as before
+    [$code, $out, $calls] = $run();
+    $aside = $asides();
+    same('plg remove: what the office holds let go first, then update_cron, the code gone', [0, ['old release', 'update_cron'], false], [$code, $calls, file_exists($dir)]);
+    check('plg remove: the schedules aside, byte for byte, the earlier aside made way', count($aside) === 1 && preg_match('/^' . preg_quote($name) . '\.cron\.removed-\d{8}-\d{6}$/D', $aside[0])
+        && $aside[0] !== "$name.cron.removed-20260101-010101" && file_get_contents("$flash/$aside[0]") === $cron && !file_exists("$flash/$name.cron"), json_encode($aside));
+    same('plg remove: the watch line, the partners\' keys and their lines, the package and the mirror gone; the .cfg kept',
+        [false, false, $benj, false, true], [file_exists("$flash/agent-watch.cron"), file_exists("$flash/partners"), file_get_contents("$tmp/authorized_keys"),
+        file_exists("$flash/$name-2026.10.08.txz"), is_file("$flash/$name.cfg")]);
+    check('plg remove: it says that the partnerships ended and where the schedules went', str_contains($out, 'partnerships with other offices have ended')
+        && str_contains($out, "$flash/$aside[0]") && str_contains($out, 'puts them back'), $out);
+
+    // nothing of that: no word about it
+    $installed();
+    unlink("$flash/$name.cron");
+    hardeningRm("$flash/partners");
+    file_put_contents("$tmp/authorized_keys", $benj);
+    [$code, $out, $calls] = $run();
+    same('plg remove without schedules or partners: done, the earlier aside kept, nothing said of either', [0, ["$name.cron.removed-20260101-010101"], false, false],
+        [$code, $asides(), str_contains($out, 'partnerships'), str_contains($out, 'put aside')]);
+    // no plugin folder (a broken install): removed all the same
+    hardeningRm($dir);
+    [$code, , $calls] = $run();
+    same('plg remove without the plugin folder: done, nothing to release', [0, []], [$code, $calls]);
+
+    // agent.sh release: what the array stop releases, without the night shift — and the array stop uses it
+    $sh = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
+    $body = preg_match('/^release\(\) \{\n(.*?)^\}/ms', $sh, $m) ? preg_replace('/\s*#.*$/m', '', $m[1]) : '';
+    same('agent.sh release: the agent stopped, then drill, partner door, backup mounts, Mr. Restori\'s pulls',
+        ['stop', 'drill_release', 'partner_release', 'backup_release', 'restored_release'], preg_split('/\s+/', trim($body)));
+    check('agent.sh: the array stop releases the same way, then the night shift; "release" is a command', preg_match('/\n\s+release\s+# [^\n]*\n\s+night_start/', $sh)
+        && str_contains($sh, '    release)   release ;;'));
+    hardeningRm($tmp);
+}
+
+/** officeCronBack(): the schedules a remove put aside, back at the agent's start — only when there is no cron file */
+function testCronBack(): void
+{
+    $tmp = hardeningTmp('cronback');
+    $file = "$tmp/unraid-secretary-office.cron";
+    $lines = [];
+    $applied = 0;
+    $apply = function () use (&$applied): void { $applied++; };
+    $logf = function (string $l) use (&$lines): void { $lines[] = $l; };
+    $cron = '0 2 * * * ' . officeJobCommand('backup') . "\n" . '*/5 * * * * ' . officeJobCommand('snapshots') . "\n";
+    same('cron back: nothing aside, nothing done', [null, 0, []], [officeCronBack($file, $apply, $logf), $applied, $lines]);
+    file_put_contents("$file.removed-20260101-010101", "an older one\n");
+    file_put_contents("$file.removed-20261008-120000", $cron);
+    file_put_contents("$file.removed-notatime", "not ours\n");
+    same('cron back: the newest aside back, byte for byte, the crontab told', ["$file.removed-20261008-120000", $cron, 1],
+        [officeCronBack($file, $apply, $logf), @file_get_contents($file), $applied]);
+    check('cron back: said in the log with its jobs', count($lines) === 1 && str_contains($lines[0], 'schedules from before the removal are back')
+        && str_contains($lines[0], 'backup, snapshots'), json_encode($lines));
+    same('cron back: the others left as they are', ["$file.removed-20260101-010101", "$file.removed-notatime"], glob("$file.removed-*"));
+    same('cron back: a cron file there — nothing done', [null, 1, "an older one\n"], [officeCronBack($file, $apply, $logf), $applied, file_get_contents("$file.removed-20260101-010101")]);
+    unlink($file);
+    symlink("$tmp/elsewhere", "$file.removed-20261009-000000");
+    same('cron back: an aside that is a link is none', "$file.removed-20260101-010101", officeCronBack($file, $apply, $logf));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/agent.php');
+    $setUp = preg_match('/^function setUp\(\): void\n\{\n(.*?)^\}/ms', $src, $m) ? $m[1] : '';
+    $at = fn (string $s) => strpos($setUp, $s);
+    check('cron back: in setUp(), after the steps, before the desks\' start', $at('officeCronBack()') !== false && $at('officeMigrateStart()') < $at('officeCronBack()')
+        && $at('officeCronBack()') < $at('foreach (desks()'));
+    hardeningRm($tmp);
+}
+
+function testPlgInstall(): void
+{
+    $tmp = hardeningTmp('plginstall');
+    $name = 'unraid-secretary-office';
+    $dir = "$tmp/plugins/$name";
+    $flash = "$tmp/flash";
+    $log = "$tmp/calls.log";
+    $script = plgScript('install', $tmp);
+    file_put_contents("$tmp/install.sh", $script);
+    check('plg install: the script read, pointed at the tests\' folders', str_contains($script, "dir=$tmp/plugins/\$name") && !str_contains($script, '/usr/local/emhttp/plugins/$name')
+        && !str_contains($script, '/boot/config/plugins/$name') && !str_contains($script, '/var/run/$name'));
+    // a package: what the build puts in, as far as the install looks at it
+    $pack = function (string $marker, array $leave = [], bool $broken = false) use ($tmp, $name, $flash): void {
+        hardeningRm("$tmp/stage");
+        $p = "$tmp/stage/$name";
+        foreach (['agent', 'scripts', 'backup'] as $d) {
+            @mkdir("$p/$d", 0755, true);
+        }
+        file_put_contents("$p/marker", $marker);
+        file_put_contents("$p/agent/agent.php", "<?php\n");
+        file_put_contents("$p/scripts/agent.sh", plgTestAgentSh());
+        file_put_contents("$p/scripts/partner-door.sh", "#!/bin/bash\n");
+        foreach ($leave as $f) {
+            unlink("$p/$f");
+        }
+        @mkdir($flash, 0700, true);
+        $txz = "$flash/$name-2026.10.08.txz";
+        exec('tar -cJf ' . escapeshellarg($txz) . ' -C ' . escapeshellarg("$tmp/stage") . " $name");
+        if ($broken) {
+            file_put_contents($txz, substr((string) file_get_contents($txz), 0, 200));
+        }
+    };
+    $old = function () use ($dir): void {          // the version that runs now
+        hardeningRm($dir);
+        mkdir("$dir/scripts", 0755, true);
+        mkdir("$dir/backup", 0755, true);
+        file_put_contents("$dir/marker", 'old');
+        file_put_contents("$dir/gone.txt", 'only the old version has me');
+        file_put_contents("$dir/scripts/agent.sh", plgTestAgentSh());
+        file_put_contents("$dir/backup/backup.sh", "sleep 20\ntrue\n");     // not exec'd into sleep: bash stays
+    };
+    $run = function (array $env = []) use ($tmp, $log): array {
+        @unlink($log);
+        $e = '';
+        foreach ($env + ['USO_PLG_LOG' => $log] as $k => $v) {
+            $e .= "$k=" . escapeshellarg((string) $v) . ' ';
+        }
+        exec("cd / && env $e bash " . escapeshellarg("$tmp/install.sh") . ' 2>&1', $out, $code);
+        return [$code, implode("\n", $out), is_file($log) ? file($log, FILE_IGNORE_NEW_LINES) : []];
+    };
+    $left = fn (): array => array_values(array_filter(scandir("$tmp/plugins") ?: [], fn ($n) => $n !== '.' && $n !== '..' && $n !== $name));
+
+    // at boot: no folder yet — unpacked, put into place, the agent (or the night shift) started
+    $pack('new');
+    @mkdir("$tmp/plugins", 0755, true);
+    [$code, $out, $calls] = $run();
+    same('plg install at boot: done, the new version in place, its agent started', [0, 'new', ['new start', 'new status']],
+        [$code, @file_get_contents("$dir/marker"), $calls]);
+    same('plg install at boot: nothing left beside it', [], $left());
+    check('plg install at boot: the .cfg written', str_contains((string) @file_get_contents("$flash/$name.cfg"), 'DATA_DIR="'));
+    check('plg install at boot: it says it is installed', str_contains($out, 'Unraid Secretary Office 1.42.0 (plugin 2026.10.08) is installed'));
+
+    // an update: the old agent stopped, the new folder in place of the old one (files the new one lacks are gone), the
+    // new agent started, older packages off the flash
+    $old();
+    file_put_contents("$flash/$name-2026.01.01.txz", 'an older package');
+    [$code, , $calls] = $run();
+    same('plg update: the old agent stopped, the new one started, the new version in place', [0, ['old stop', 'new start', 'new status'], 'new', false],
+        [$code, $calls, @file_get_contents("$dir/marker"), is_file("$dir/gone.txt")]);
+    same('plg update: nothing left beside it, the older package gone, this one kept', [[], false, true],
+        [$left(), is_file("$flash/$name-2026.01.01.txz"), is_file("$flash/$name-2026.10.08.txz")]);
+
+    // a package that can't be unpacked, or one without what the office needs: nothing changed, the agent never stopped
+    foreach (['a damaged package' => [[], true], 'a package without agent.php' => [['agent/agent.php'], false],
+              'a package without the partners\' door' => [['scripts/partner-door.sh'], false]] as $what => [$leave, $broken]) {
+        $old();
+        $pack('new', $leave, $broken);
+        [$code, $out, $calls] = $run();
+        same("plg update, $what: refused, the old version untouched and running", [1, 'old', true, []],
+            [$code, @file_get_contents("$dir/marker"), is_file("$dir/gone.txt"), $calls]);
+        check("plg update, $what: it says so", str_contains($out, 'could not be unpacked') && str_contains($out, 'Nothing was changed'), $out);
+        same("plg update, $what: nothing left beside it", [], $left());
+    }
+
+    // what an install that was cut off left: gone — not a folder of an install running right now
+    $old();
+    $pack('new');
+    mkdir("$tmp/plugins/$name.new-999999999/$name", 0755, true);
+    mkdir("$tmp/plugins/$name.old-999999998/$name", 0755, true);
+    mkdir("$tmp/plugins/$name.new-" . getmypid(), 0755, true);
+    $run();
+    same('plg update: an earlier install\'s leftovers gone, a running one\'s kept', ["$name.new-" . getmypid()], $left());
+    rmdir("$tmp/plugins/$name.new-" . getmypid());
+
+    // after the swap the new version stays: an agent that doesn't start is said, the install still ends well
+    $old();
+    [$code, $out, $calls] = $run(['START' => 1]);
+    same('plg update, the new agent doesn\'t start: the new version stays, done', [0, 'new', ['old stop', 'new start']], [$code, @file_get_contents("$dir/marker"), $calls]);
+    check('plg update, the new agent doesn\'t start: it says so', str_contains($out, 'its agent did not start'), $out);
+    // the agent runs: its heartbeat in RAM, written after the start, ends the wait at once
+    $old();
+    @mkdir("$tmp/run", 0700, true);
+    file_put_contents("$tmp/run/agent.json", '{"running":true,"version":"1.42.0"}');
+    touch("$tmp/run/agent.json", time() + 5);
+    $t = microtime(true);
+    [$code, $out] = $run(['STATUS' => 0]);
+    check('plg update, the agent checked in: no word about it, no wait', $code === 0 && !str_contains($out, 'checked in') && microtime(true) - $t < 5, $out);
+
+    // busy: a backup run from the plugin folder — refused before anything happens
+    $old();
+    $busy = proc_open(['bash', "$dir/backup/backup.sh"], [['file', '/dev/null', 'r'], ['file', '/dev/null', 'w'], ['file', '/dev/null', 'w']], $pipes, '/');
+    usleep(200000);
+    [$code, $out, $calls] = $run();
+    same('plg update while a backup runs: refused, nothing touched', [1, 'old', []], [$code, @file_get_contents("$dir/marker"), $calls]);
+    check('plg update while a backup runs: it says why', str_contains($out, 'The office is busy right now'), $out);
+    if (is_resource($busy)) {
+        proc_terminate($busy, SIGKILL);
+        proc_close($busy);
+    }
+    hardeningRm($tmp);
 }
 
 /**
@@ -17565,7 +18066,7 @@ function agentPhpErrorSilenced(callable $log): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testMigrate', 'testPlgGuard',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];

@@ -19,7 +19,9 @@
     "other": "{n} Disks schlafen — piano, piano, ich lasse sie schlafen."
   },
   "bubble.offline": "Ich erreiche den Server gerade nicht; das ist mein Stand vom {when}.",
-  "fact.pools": "{n} ZFS-Pools, {d} btrfs-Disks",
+  "fact.pools": "{pools}, {disks}",
+  "count.zfs_pools": {"one": "{n} ZFS-Pool", "other": "{n} ZFS-Pools"},
+  "count.btrfs_disks": {"one": "{n} btrfs-Disk", "other": "{n} btrfs-Disks"},
   "fact.vm": {
     "one": "{n} VM-Snapshot",
     "other": "{n} VM-Snapshots"
@@ -110,7 +112,7 @@
     "one": "{n} eingehängt",
     "other": "{n} eingehängt"
   },
-  "timeline_title": "Zeitachse: letzte {n} Tage, rechts ist jetzt",
+  "timeline_title": {"one": "Zeitachse: letzter Tag, rechts ist jetzt", "other": "Zeitachse: letzte {n} Tage, rechts ist jetzt"},
   "time_unknown": "Zeit unbekannt",
   "held": "geschützt",
   "held_by": "Geschützt von «{holds}»",
@@ -142,7 +144,7 @@
   "unmount": "Aushängen",
   "unmount_locked": "Aushängen (Sicherung läuft)",
   "delete": "Löschen",
-  "selected": "{n} ausgewählt",
+  "selected": {"one": "{n} ausgewählt", "other": "{n} ausgewählt"},
   "selected_title": {
     "one": "{n} Snapshot ausgewählt",
     "other": "{n} Snapshots ausgewählt"
@@ -156,8 +158,8 @@
     "one": "Rundgang fertig: {n} Snapshot",
     "other": "Rundgang fertig: {n} Snapshots"
   },
-  "scan_new": "{n} neu",
-  "scan_gone": "{n} verschwunden",
+  "scan_new": {"one": "{n} neu", "other": "{n} neu"},
+  "scan_gone": {"one": "{n} verschwunden", "other": "{n} verschwunden"},
   "scan_same": "nichts verändert",
   "scan_skipped": {
     "one": "{n} schlafende Disk übersprungen",
@@ -191,7 +193,7 @@
   "delete.no_estimate": "Wie viel frei wird, liess sich nicht ausrechnen.",
   "delete.frees_before": "Gibt ca.",
   "delete.frees_after": "frei",
-  "delete.btrfs_unknown": "dazu {n} btrfs-Snapshot(s), dort zeigt btrfs das nicht an",
+  "delete.btrfs_unknown": {"one": "dazu {n} btrfs-Snapshot, dort zeigt btrfs das nicht an", "other": "dazu {n} btrfs-Snapshots, dort zeigt btrfs das nicht an"},
   "delete.mounted": {
     "one": "Ist eingehängt",
     "other": "{n} sind eingehängt"

@@ -2111,6 +2111,28 @@ function drillCertificate(): ?array
     return $c && ($c['interface'] ?? 0) === 1 ? $c : null;
 }
 
+/**
+ * The certificate a drill builds on: this version's (interface 1) as it stands — keys and history rows it doesn't know
+ * carried through as they are —, else a fresh one. A certificate of another interface (a newer office's, met after a
+ * downgrade) isn't this version's to read, but nothing of it is dropped (CLAUDE.md «Updates»): its history rows go on
+ * in the fresh one as they are, and the whole file is kept aside (officeMigrateAside(): <file>.before-<version>).
+ */
+function drillCertBase(): array
+{
+    $fresh = ['interface' => 1, 'last' => null, 'last_passed' => null, 'items' => [], 'lose' => [], 'history' => []];
+    $cert = drillCertificate();
+    if ($cert !== null) {
+        return $cert;
+    }
+    $other = readJson(drillCertFile());
+    if (is_array($other) && isset($other['interface'])) {
+        $hist = $other['history'] ?? null;
+        $fresh['history'] = is_array($hist) && array_is_list($hist) ? array_values(array_filter($hist, 'is_array')) : [];
+        officeMigrateAside(drillCertFile(), AGENT_VERSION);
+    }
+    return $fresh;
+}
+
 /** The certificate's items from a drill's steps: per step what was proven, from which copy, how it went */
 function drillCertItems(array $j): array
 {
@@ -2170,7 +2192,7 @@ function drillCertLose(array $items, string $placeShare): array
 /** The newest drills in the certificate's history (also a refused or interrupted one) */
 function drillCertHistory(array $j, ?array $cert = null): array
 {
-    $cert ??= drillCertificate() ?? ['interface' => 1, 'last' => null, 'last_passed' => null, 'items' => [], 'lose' => [], 'history' => []];
+    $cert ??= drillCertBase();
     $row = ['id' => $j['id'], 'scope' => (string) ($j['scope'] ?? ''), 'started' => $j['started'] ?? null, 'ended' => $j['finished'] ?? null,
             'result' => (string) $j['result'], 'reason' => $j['reason'] ?? null] + drillCounts((array) $j['steps']);
     $hist = array_values(array_filter((array) ($cert['history'] ?? []), fn ($h) => is_array($h) && ($h['id'] ?? '') !== $j['id']));
@@ -2207,7 +2229,7 @@ function drillCounts(array $steps): array
  */
 function drillCertWrite(array $j, ?array $env): array
 {
-    $cert = drillCertificate() ?? ['interface' => 1, 'last' => null, 'last_passed' => null, 'items' => [], 'lose' => [], 'history' => []];
+    $cert = drillCertBase();
     if (in_array($j['result'], ['passed', 'failed'], true)) {
         $items = drillCertItems($j);
         $cert['last'] = ['id' => $j['id'], 'started' => $j['started'], 'ended' => $j['finished'], 'result' => $j['result'], 'scope' => (string) $j['scope'],

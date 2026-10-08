@@ -999,7 +999,7 @@ function lockBox(form) {
     cb.onchange = () => { form.lockOn = cb.checked; show(); };
     days.oninput = () => { form.lockDays = days.value.trim() === '' ? '' : Number(days.value); show(); };
     box.append(label, f, cost);
-    if (l.mode && l.days) box.appendChild(el('p', 'ad-note', T('kr.lock_default', { mode: l.mode, days: l.days })));
+    if (l.mode && l.days) box.appendChild(el('p', 'ad-note', T('kr.lock_default', { mode: l.mode, days: l.days, n: Number(l.days) })));
     show();
   } else if (l.state === 'off') {
     box.appendChild(callout(T('kr.lock_off')));
@@ -1091,9 +1091,9 @@ function kopiaDone(form, facts, warned = false) {
   if (lk && lk.mode) {
     // ransomware protection: switched on now, or what the existing repository keeps (its format)
     const words = form.mode === 'create' ? T('kr.lock_done', { mode: lk.mode, days: lk.days })
-      : T('kr.lock_has', { mode: lk.mode, days: lk.days }) + (lk.extend ? ' ' + T('kr.lock_extends') : '');
+      : T('kr.lock_has', { mode: lk.mode, days: lk.days, n: Number(lk.days) }) + (lk.extend ? ' ' + T('kr.lock_extends') : '');
     box.appendChild(callout(words));
-    if (lk.extend === false) box.appendChild(callout(T('kr.lock_extend_no', { days: lk.days }), true));
+    if (lk.extend === false) box.appendChild(callout(T('kr.lock_extend_no', { days: lk.days, n: Number(lk.days) }), true));
   } else if (lk && facts.storage === 's3') {
     box.appendChild(el('p', 'ad-note', T('kr.lock_none')));
   }
@@ -1217,7 +1217,7 @@ function sheetInto(w, form, f) {
     !s3 && [T('sheet.path_container'), f.path], !s3 && [T('sheet.path_host'), f.path_host],
     [T('kr.password'), form.password, true],
     [T('sheet.client'), f.client],
-    s3 && f.lock && [T('sheet.lock'), f.lock.mode ? T('sheet.lock_on', { mode: f.lock.mode, days: f.lock.days }) : T('sheet.lock_off')],
+    s3 && f.lock && [T('sheet.lock'), f.lock.mode ? T('sheet.lock_on', { mode: f.lock.mode, days: f.lock.days, n: Number(f.lock.days) }) : T('sheet.lock_off')],
   ]);
   section(T('sheet.kopia'), [
     [T('sheet.container'), f.container], [T('sheet.image'), f.image], [T('sheet.version'), f.version],
@@ -1233,7 +1233,7 @@ function sheetInto(w, form, f) {
   [T('sheet.step1', { image: f.image || 'ghcr.io/imagegenius/kopia' }), T('sheet.step2', { target, host: hostPath }),
    !s3 && T('sheet.step_fs', { path: f.path, host: f.path_host }),
    T('sheet.step3', { client: f.client || 'root@kopia' }), T('sheet.step4'),
-   s3 && f.lock && f.lock.mode && T('sheet.step_lock', { days: f.lock.days })].filter(Boolean).forEach((x) => ol.appendChild(mk('li', '', x)));
+   s3 && f.lock && f.lock.mode && T('sheet.step_lock', { days: f.lock.days, n: Number(f.lock.days) })].filter(Boolean).forEach((x) => ol.appendChild(mk('li', '', x)));
   main.appendChild(ol);
   main.appendChild(mk('p', '', T('sheet.cli')));
   const cli = s3

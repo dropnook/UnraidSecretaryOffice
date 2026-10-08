@@ -19,7 +19,9 @@
     "other": "{n} discos están durmiendo — piano, piano, los dejo dormir."
   },
   "bubble.offline": "Ahora mismo no llego al servidor; esto es lo que sabía el {when}.",
-  "fact.pools": "{n} pools ZFS, {d} discos btrfs",
+  "fact.pools": "{pools}, {disks}",
+  "count.zfs_pools": {"one": "{n} pool ZFS", "other": "{n} pools ZFS"},
+  "count.btrfs_disks": {"one": "{n} disco btrfs", "other": "{n} discos btrfs"},
   "fact.vm": {
     "one": "{n} instantánea de VM",
     "other": "{n} instantáneas de VM"
@@ -110,7 +112,7 @@
     "one": "{n} montada",
     "other": "{n} montadas"
   },
-  "timeline_title": "Eje de tiempo: últimos {n} días, ahora está a la derecha",
+  "timeline_title": {"one": "Eje de tiempo: el último día, ahora está a la derecha", "other": "Eje de tiempo: últimos {n} días, ahora está a la derecha"},
   "time_unknown": "hora desconocida",
   "held": "protegida",
   "held_by": "Protegida por «{holds}»",
@@ -142,7 +144,7 @@
   "unmount": "Desmontar",
   "unmount_locked": "Desmontar (copia en curso)",
   "delete": "Borrar",
-  "selected": "{n} seleccionadas",
+  "selected": {"one": "{n} seleccionada", "other": "{n} seleccionadas"},
   "selected_title": {
     "one": "{n} instantánea seleccionada",
     "other": "{n} instantáneas seleccionadas"
@@ -156,8 +158,8 @@
     "one": "Ronda terminada: {n} instantánea",
     "other": "Ronda terminada: {n} instantáneas"
   },
-  "scan_new": "{n} nuevas",
-  "scan_gone": "{n} desaparecidas",
+  "scan_new": {"one": "{n} nueva", "other": "{n} nuevas"},
+  "scan_gone": {"one": "{n} desaparecida", "other": "{n} desaparecidas"},
   "scan_same": "nada ha cambiado",
   "scan_skipped": {
     "one": "{n} disco en reposo omitido",
@@ -191,7 +193,7 @@
   "delete.no_estimate": "No se pudo calcular cuánto se liberaría.",
   "delete.frees_before": "Libera unos",
   "delete.frees_after": "",
-  "delete.btrfs_unknown": "más {n} instantánea(s) btrfs, btrfs no lo dice",
+  "delete.btrfs_unknown": {"one": "más {n} instantánea btrfs, btrfs no lo dice", "other": "más {n} instantáneas btrfs, btrfs no lo dice"},
   "delete.mounted": {
     "one": "Está montada",
     "other": "{n} están montadas"

@@ -251,7 +251,7 @@ Office.desk({
     if (!state) await load(false);
     const facts = [];
     if (state) {
-      facts.push(T('fact.pools', { n: (state.zfs?.pools || []).length, d: (state.btrfs?.devices || []).length }));
+      facts.push(T('fact.pools', { pools: T('count.zfs_pools', { n: (state.zfs?.pools || []).length }), disks: T('count.btrfs_disks', { n: (state.btrfs?.devices || []).length }) }));
       const vm = (state.vm?.snapshots || []).length;
       if (vm) facts.push(T('fact.vm', { n: vm }));
       facts.push(Office.t('common.scanned_ago', { when: fmt.relative(state.time) }));

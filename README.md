@@ -271,11 +271,17 @@ The green dot next to *⋯* means the agent checked in within the last 70 second
 Team Lead also says when a new version is out). Your data stays — the office
 brings it up to date at its next start. While a backup, a restore (or its
 drill) or one of Jack Emby's runs is going on, the update refuses — try again
-when it is done.
+when it is done. The new version is unpacked beside the running one first: a
+download that can't be unpacked leaves the office as it was. A page left open
+says when the office was updated, with a button to reload it.
 
-**Removing:** *Plugins → Remove*. The code and the schedules go. Your data in
-appdata, the share `UnraidSecretaryOffice`, the setting on the flash and
-whatever the desks set up on the server (snapshots, Ms. Dustdevil's
+**Removing:** *Plugins → Remove* (refused, like an update, while one of those
+runs). The code goes; what the office had mounted is released first. The
+schedules are put aside on the flash (`unraid-secretary-office.cron.removed-…`)
+and come back by themselves when you install the office again; partnerships
+with other offices end (their keys go — pair again after a new install). Your
+data in appdata, the share `UnraidSecretaryOffice`, the setting on the flash
+and whatever the desks set up on the server (snapshots, Ms. Dustdevil's
 storeroom) stay — delete them yourself if you don't want them any more.
 
 ## Security

@@ -21,6 +21,10 @@ declare(strict_types=1);
  *   /boot/config/ssh/root/authorized_keys   Unraid's: the office writes and removes only lines marked uso-partner:<id>
  *   RUN_DIR/partner/              the door's locks and records, heard-<id> (the last time a pair knocked), refusals
  *
+ * Exact shapes, tolerant writes: a reader takes only entries in exactly the shape below (anything else is no pair, no
+ * ticket); a writer keeps every entry it doesn't recognise where it stood, as it is (partnerListWrite()) — a newer
+ * office's pair survives a downgrade, unused, and is there again when the newer one comes back.
+ *
  * pairs.json: {"v":1, "pairs":[{id, name, address, port, host_keys:[fingerprint…], my_key, their_key,
  *   send:{units, rate_mbit, wanted, offered}, receive:{pool, quota_gb, retention, window, wake, units}|null, trust, paired,
  *   last_heard, last_answer:{array, night, v}|null}]} — receive.units: the units of theirs this office agreed to keep (the
@@ -276,7 +280,10 @@ function partnerPairUpgrade(array $p): array
     return $p;
 }
 
-/** @return list<array> the pairs of pairs.json that are pairs — the rest left out (said in the agent's log) */
+/**
+ * @return list<array> the pairs of pairs.json that are pairs — the rest left out: never used, but kept in the file
+ *                     (partnerListWrite()); said in the agent's log once per process
+ */
 function partnerPairs(?string $file = null): array
 {
     $j = partnerReadPrivate($file ?? partnerDir() . '/pairs.json');
@@ -288,8 +295,9 @@ function partnerPairs(?string $file = null): array
         if (partnerPairValid($p) && !isset($ids[$p['id']])) {
             $ids[$p['id']] = true;
             $out[] = partnerPairUpgrade($p);
-        } elseif (function_exists('logLine') && defined('AGENT_LOG')) {
-            logLine('Partner offices: a pair in pairs.json isn\'t in the office\'s shape — left out');
+        } elseif (function_exists('logLine') && defined('AGENT_LOG') && !($GLOBALS['partnerPairsSaid'] ?? false)) {
+            $GLOBALS['partnerPairsSaid'] = true;
+            logLine('Partner offices: a pair in pairs.json isn\'t in this version\'s shape (a newer office\'s?) — not used, kept as it is');
         }
     }
     return $out;
@@ -313,7 +321,42 @@ function partnerPairsWrite(array $pairs, ?string $file = null): void
         }
         $pairs[$i] = partnerPairUpgrade($p);         // always written in the whole shape
     }
-    partnerWritePrivate($file ?? partnerDir() . '/pairs.json', ['v' => 1, 'pairs' => array_values($pairs)]);
+    partnerListWrite($file ?? partnerDir() . '/pairs.json', 'pairs', $pairs, 'partnerPairValid');
+}
+
+/**
+ * Writes a list file of the partner folder — {"v":1, "<list>":[…]}: pairs.json, tickets.json, ticket-pairs.json — with
+ * the entries the office manages ($items, each checked by the caller) and, where they stood, every entry of the file
+ * as it is now that this version doesn't recognise ($valid false: e.g. a newer office's, read after a downgrade — remove
+ * and install of an older .plg): carried through as they are, never used, never dropped (CLAUDE.md «Updates»). Keys of
+ * the file beside v and the list are kept too. An entry this version does recognise is the office's: written as $items
+ * has it (by its id), or gone when $items lacks it (ended, expired). A file of another `v` isn't this version's to
+ * write: refused (partner_shape), left as it is. A file that can't be read (missing, not root's, broken) is written anew.
+ */
+function partnerListWrite(string $file, string $list, array $items, callable $valid): void
+{
+    $raw = partnerReadPrivate($file);
+    if ($raw !== null && array_key_exists('v', $raw) && $raw['v'] !== 1) {
+        throw new Problem('partner_shape');
+    }
+    $doc = $raw !== null && !array_is_list($raw) ? $raw : [];
+    $byId = [];
+    foreach (array_values($items) as $it) {
+        $byId[$it['id']] = $it;
+    }
+    $out = [];
+    $old = $doc[$list] ?? null;
+    foreach (is_array($old) && array_is_list($old) ? $old : [] as $e) {
+        if (!$valid($e)) {
+            $out[] = $e;                                // not this version's: kept as it is
+        } elseif (isset($byId[$e['id']])) {
+            $out[] = $byId[$e['id']];                   // the office's: as it is now, where it was
+            unset($byId[$e['id']]);
+        }
+    }
+    array_push($out, ...array_values($byId));          // new ones at the end
+    unset($doc['v'], $doc[$list]);
+    partnerWritePrivate($file, ['v' => 1, $list => $out] + $doc);
 }
 
 /**
@@ -2161,7 +2204,7 @@ function partnerTicketsWrite(array $tickets): void
             throw new Problem('partner_shape');
         }
     }
-    partnerWritePrivate(partnerDir() . '/tickets.json', ['v' => 1, 'tickets' => array_values($tickets)]);
+    partnerListWrite(partnerDir() . '/tickets.json', 'tickets', $tickets, 'partnerTicketValid');
 }
 
 function partnerTicket(string $id): ?array
@@ -2217,7 +2260,7 @@ function partnerTicketPairsWrite(array $pairs): void
             throw new Problem('partner_shape');
         }
     }
-    partnerWritePrivate(partnerDir() . '/ticket-pairs.json', ['v' => 1, 'pairs' => array_values($pairs)]);
+    partnerListWrite(partnerDir() . '/ticket-pairs.json', 'pairs', $pairs, 'partnerTicketPairValid');
 }
 
 function partnerTicketPair(string $id): ?array

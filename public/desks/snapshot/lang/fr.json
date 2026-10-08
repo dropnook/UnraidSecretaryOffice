@@ -19,7 +19,9 @@
     "other": "{n} disques dorment — piano, piano, je les laisse dormir."
   },
   "bubble.offline": "Je n'arrive pas à joindre le serveur en ce moment ; voici ce que je savais le {when}.",
-  "fact.pools": "{n} pools ZFS, {d} disques btrfs",
+  "fact.pools": "{pools}, {disks}",
+  "count.zfs_pools": {"one": "{n} pool ZFS", "other": "{n} pools ZFS"},
+  "count.btrfs_disks": {"one": "{n} disque btrfs", "other": "{n} disques btrfs"},
   "fact.vm": {
     "one": "{n} snapshot de VM",
     "other": "{n} snapshots de VM"
@@ -110,7 +112,7 @@
     "one": "{n} monté",
     "other": "{n} montés"
   },
-  "timeline_title": "Axe du temps : les {n} derniers jours, maintenant est à droite",
+  "timeline_title": {"one": "Axe du temps : le dernier jour, maintenant est à droite", "other": "Axe du temps : les {n} derniers jours, maintenant est à droite"},
   "time_unknown": "heure inconnue",
   "held": "protégé",
   "held_by": "Protégé par « {holds} »",
@@ -142,7 +144,7 @@
   "unmount": "Démonter",
   "unmount_locked": "Démonter (sauvegarde en cours)",
   "delete": "Supprimer",
-  "selected": "{n} sélectionné(s)",
+  "selected": {"one": "{n} sélectionné", "other": "{n} sélectionnés"},
   "selected_title": {
     "one": "{n} snapshot sélectionné",
     "other": "{n} snapshots sélectionnés"
@@ -156,8 +158,8 @@
     "one": "Tournée terminée : {n} snapshot",
     "other": "Tournée terminée : {n} snapshots"
   },
-  "scan_new": "{n} nouveau(x)",
-  "scan_gone": "{n} disparu(s)",
+  "scan_new": {"one": "{n} nouveau", "other": "{n} nouveaux"},
+  "scan_gone": {"one": "{n} disparu", "other": "{n} disparus"},
   "scan_same": "rien n'a changé",
   "scan_skipped": {
     "one": "{n} disque endormi ignoré",
@@ -191,7 +193,7 @@
   "delete.no_estimate": "Impossible de calculer l'espace qui serait libéré.",
   "delete.frees_before": "Libère environ",
   "delete.frees_after": "",
-  "delete.btrfs_unknown": "plus {n} snapshot(s) btrfs, btrfs ne le dit pas",
+  "delete.btrfs_unknown": {"one": "plus {n} snapshot btrfs, btrfs ne le dit pas", "other": "plus {n} snapshots btrfs, btrfs ne le dit pas"},
   "delete.mounted": {
     "one": "Il est monté",
     "other": "{n} sont montés"

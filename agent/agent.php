@@ -485,6 +485,8 @@ function setUp(): void
     // the data folder's version (office.json) and what an update has to change in it — before anything reads state and
     // before writeInfo() puts this version into agent.json (which tells the version before) — lib/migrate.php
     officeMigrateStart();
+    // the schedules a remove put aside, back after a new install — before Ms. Snapshotini's start writes her line
+    officeCronBack();
     writeInfo(true);
     // up to 1.27 a PIN could guard changes (office/auth.json, left as it is): said once in the log
     $pinGone = 'The office has no PIN any more: Unraid\'s login guards it (office/auth.json is no longer read)';

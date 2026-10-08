@@ -26,6 +26,9 @@ declare(strict_types=1);
  * step runs). An agent.json older than the marker means an office from before the marker ran here in between (a
  * downgrade and back): $from is that one and the steps newer than it run again. A step's `version` is the first
  * version that carries it: a folder last used by an older one needs it.
+ *
+ * Also at every start, beside the steps: officeCronBack() — the schedules the .plg's remove put aside, back after a
+ * new install.
  */
 
 const OFFICE_MARK_FILE = 'office.json';
@@ -207,3 +210,43 @@ function officeMigrateAside(string $path, string $to): ?string
     }
     return @rename($path, $aside) ? $aside : null;
 }
+
+/**
+ * The office's schedules after a remove and a new install (2026-10-08): the .plg's remove puts the cron file aside
+ * (<file>.removed-<YYYYMMDD-HHMMSS>, an earlier aside making way) instead of deleting it. At the agent's start
+ * (setUp(), after the steps, before Ms. Snapshotini writes her line): no cron file but an aside → the aside back in
+ * its place (renamed: byte for byte, nothing deleted), Unraid's crontab told (update_cron — right after a fresh
+ * install the plugin may not be registered yet: the caretaker's watch-cron look runs update_cron again then), said in
+ * agent.log. A cron file there (schedules set since) or no aside: nothing. $apply and $log for the tests.
+ *
+ * @return ?string  the aside put back, else null
+ */
+function officeCronBack(string $file = OFFICE_CRON, ?callable $apply = null, ?callable $log = null): ?string
+{
+    $log ??= 'logLine';
+    clearstatcache();
+    if (@lstat($file) !== false) {
+        return null;
+    }
+    $asides = array_values(array_filter(glob($file . '.removed-*') ?: [], fn (string $f): bool
+        => (bool) preg_match('/\.removed-\d{8}-\d{6}\z/', $f) && is_file($f) && !is_link($f)));
+    if (!$asides) {
+        return null;
+    }
+    sort($asides);
+    $back = $asides[count($asides) - 1];
+    if (!@rename($back, $file)) {
+        $log('Schedules: ' . basename($back) . ' (put aside when the plugin was removed) could not be put back');
+        return null;
+    }
+    try {
+        ($apply ?? fn () => run(['/bin/bash', '/usr/local/sbin/update_cron'], 30))();      // its first line is no shebang
+    } catch (Throwable $e) {
+        $log('Schedules: update_cron failed: ' . $e->getMessage());
+    }
+    $jobs = array_keys(officeCronLines($file));
+    $log('Schedules: the plugin was installed again — its schedules from before the removal are back ('
+        . basename($back) . ': ' . ($jobs ? implode(', ', $jobs) : 'none the office knows') . ')');
+    return $back;
+}
+
