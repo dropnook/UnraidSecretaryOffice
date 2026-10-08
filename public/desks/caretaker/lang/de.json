@@ -119,6 +119,8 @@
   "help.supporter": "Das Sekretariat ist kostenlos und vollständig — nichts wird je gesperrt. Ein Trinkgeld ist willkommen, und dazu gibt es einen Unterstützer-Schlüssel (wie, sagt die Trinkgeldkasse). Er schaltet nichts frei; er beendet nur die Erinnerungen und zeigt neben «Trinkgeld & Lohnerhöhung» ein kleines Dankeschön.",
   "tip_button": "☕ Trinkgeld & Lohnerhöhung",
   "tip_button_title": "Das Team freut sich über ein Trinkgeld (PayPal)",
+  "report_button": "Rückmeldung…",
+  "report_button_title": "Den Leuten, die das Sekretariat bauen, ein Problem oder einen Wunsch mitteilen — ich gebe es weiter",
   "supporter_plate": "☕ Danke, {name}",
   "supporter_plate_title": "Unterstützer-Schlüssel vom {date}. Er schaltet nichts frei — hier ist ohnehin alles kostenlos; er sagt nur Danke.",
   "supporter_term": "Unterstützer-Schlüssel",

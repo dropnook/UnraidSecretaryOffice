@@ -481,9 +481,14 @@ function paintAsOf(desk, node) {
 }
 
 /** Text for an error {key, params} — desk-specific first, then the office's */
+// the last error each desk showed in this page session (memory only): «Report a problem…» offers it as a part
+Office.lastError = {};
 Office.errorText = function errorText(error, desk) {
   if (!error) return t('errors.internal', { detail: '?' });
   const params = error.params || {};
+  if (typeof error.key === 'string' && !/^report_/.test(error.key)) {
+    Office.lastError[desk || 'office'] = { key: error.key, params, at: Math.floor(Date.now() / 1000) };
+  }
   if (desk && Office.has(`${desk}.errors.${error.key}`)) return t(`${desk}.errors.${error.key}`, params);
   if (Office.has(`errors.${error.key}`)) return t(`errors.${error.key}`, params);
   return t('errors.unknown', { key: error.key, detail: params.detail || '' });
@@ -1213,6 +1218,342 @@ Office.supporterAsk = async function supporterAsk(answer) {
   return true;
 };
 
+// ------------------------------------------------------------------ «Report a problem or a wish…»
+/*
+ * The office's reports to its makers (agent/lib/report.php, briefs/uso-feedback-concept.md). The page only asks the
+ * agent: office.reports (the list, the cap), office.report_preview (everything that would be sent, part by part, a
+ * token — no network) and, on «Send» only, office.report_send (the previewed parts still ticked). «Send» stays off
+ * until the preview was looked at; a word changed after it: the preview goes, «Send» with it. The draft is kept per
+ * browser (Office.store report.draft) — a click outside or Escape loses nothing. The office shows only its own words
+ * (errors.report_*), never a text of the makers' inbox.
+ */
+const REPORT_KINDS = ['bug', 'wish', 'question'];
+const REPORT_TITLE_MAX = 100;
+const REPORT_TEXT_MAX = 4096;      // bytes, UTF-8
+const REPORT_TEXT_MIN = 10;
+const REPORT_NAME_MAX = 40;
+const REPORT_PARTS = ['versions', 'unraid', 'language', 'team', 'error', 'log'];
+const utf8Bytes = (s) => (typeof TextEncoder === 'function' ? new TextEncoder().encode(s).length : unescape(encodeURIComponent(s)).length);
+
+/** The page's last error of a desk as the agent takes it: a key, at most 8 plain params, a time */
+function reportLastError(desk) {
+  const e = Office.lastError[desk];
+  if (!e || !/^[a-z0-9_.]{1,64}$/.test(e.key)) return undefined;
+  const params = {};
+  Object.entries(e.params || {}).filter(([k, v]) => /^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(k) && ['string', 'number', 'boolean'].includes(typeof v))
+    .slice(0, 8).forEach(([k, v]) => { params[k] = typeof v === 'string' ? v.slice(0, 1000) : v; });
+  return { key: e.key, params, at: e.at };
+}
+
+/** An error of the report's in the office's words — report_week with its day */
+function reportError(error) {
+  const p = (error && error.params) || {};
+  if (error && error.key === 'report_week') {
+    return t('errors.report_week', { n: Number(p.n) || 2, day: typeof p.next === 'number' ? Office.fmt.date(p.next) : '?' });
+  }
+  return Office.errorText(error);
+}
+
+Office.reportDialog = function reportDialog(deskId) {
+  const draft = Office.storeJson('report.draft') || {};
+  const desks = [['office', t('office.report_desk_office')]].concat(Office.staffInOrder().map((d) => [d.id, t(`${d.id}.name`)]));
+  const want = deskId || draft.desk || 'office';
+  const state = { kind: REPORT_KINDS.includes(draft.kind) ? draft.kind : 'bug', preview: null, sent: false, cap: null, closed: false };
+  const box = el('div', 'sso-report');
+
+  // the head: the team lead's line, the other ways, the cap
+  box.appendChild(el('p', '', t('office.report_intro')));
+  const ways = el('p', 'sso-report-ways');
+  const link = (href, text) => {
+    const a = el('a', '', text);
+    a.href = href;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    return a;
+  };
+  if (Office.safeHref(CONFIG.forum_url) && /^https:/.test(CONFIG.forum_url)) ways.append(link(CONFIG.forum_url, t('office.report_forum')), ' · ');
+  if (Office.safeHref(CONFIG.issues_url) && /^https:/.test(CONFIG.issues_url)) ways.appendChild(link(CONFIG.issues_url, t('office.report_issues')));
+  if (ways.children.length) box.appendChild(ways);
+  const capLine = el('p', 'sso-report-cap');
+  capLine.hidden = true;
+  box.appendChild(capLine);
+
+  // the form
+  const form = el('div', 'sso-report-form');
+  const field = (label, input, hint) => {
+    const f = el('div', 'field');
+    const l = el('label', '', label);
+    f.append(l, input);
+    if (hint) f.appendChild(hint);
+    form.appendChild(f);
+    return f;
+  };
+  const kinds = el('div', 'seg sso-report-kinds');
+  kinds.setAttribute('role', 'group');
+  kinds.setAttribute('aria-label', t('office.report_kind'));
+  const kindButtons = REPORT_KINDS.map((k) => {
+    const b = el('button', '', t(`office.report_kind_${k}`));
+    b.type = 'button';
+    b.dataset.kind = k;
+    b.setAttribute('aria-pressed', String(k === state.kind));
+    b.onclick = () => {
+      state.kind = k;
+      kindButtons.forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.kind === k)));
+      changed();
+    };
+    kinds.appendChild(b);
+    return b;
+  });
+  field(t('office.report_kind'), kinds);
+  const desk = el('select', 'input');
+  desks.forEach(([id, name]) => {
+    const o = el('option', '', name);
+    o.value = id;
+    desk.appendChild(o);
+  });
+  desk.value = desks.some(([id]) => id === want) ? want : 'office';
+  field(t('office.report_desk'), desk);
+  const title = el('input', 'input');
+  title.maxLength = REPORT_TITLE_MAX;
+  title.autocomplete = 'off';
+  title.value = typeof draft.title === 'string' ? draft.title : '';
+  field(t('office.report_subject'), title);
+  const text = el('textarea', 'input sso-report-text');
+  text.rows = 6;
+  text.value = typeof draft.text === 'string' ? draft.text : '';
+  const count = el('small', 'sso-report-count');
+  field(t('office.report_text'), text, count);
+  const name = el('input', 'input');
+  name.maxLength = REPORT_NAME_MAX;
+  name.autocomplete = 'off';
+  name.value = typeof draft.name === 'string' ? draft.name : '';
+  field(t('office.report_name'), name, el('small', '', t('office.report_name_hint')));
+  box.appendChild(form);
+
+  const msg = el('p', 'callout warn');
+  msg.hidden = true;
+  const show = el('button', 'btn small', t('office.report_preview'));
+  show.type = 'button';
+  const showLine = el('div', 'toolbar sso-report-show');
+  showLine.appendChild(show);
+  box.append(msg, showLine);
+  const preview = el('div', 'sso-report-preview');
+  preview.hidden = true;
+  box.appendChild(preview);
+  const done = el('div', 'sso-report-done');
+  done.hidden = true;
+  box.appendChild(done);
+  const yours = el('details', 'sso-report-yours');
+  yours.hidden = true;
+  box.appendChild(yours);
+
+  const words = () => ({ kind: state.kind, desk: desk.value, title: title.value.trim(), text: text.value.trim(), name: name.value.trim() });
+  const keep = () => { if (!state.sent) Office.storeJson('report.draft', words()); };
+  const say = (s) => { msg.textContent = s || ''; msg.hidden = !s; };
+  let send = null;
+  const sendable = () => !!state.preview && !state.closed && !(state.cap && state.cap.left <= 0) && Office.agent.running;
+  const counter = () => {
+    const used = utf8Bytes(text.value.trim());
+    count.textContent = t('office.report_count', { used, max: REPORT_TEXT_MAX });
+    count.className = 'sso-report-count' + (used > REPORT_TEXT_MAX ? ' missing' : '');
+  };
+  function changed() {
+    keep();
+    counter();
+    if (state.preview) {
+      state.preview = null;          // what was shown isn't what would go any more
+      preview.hidden = true;
+      preview.innerHTML = '';
+    }
+    if (send) send.disabled = !sendable();
+  }
+  [title, text, name].forEach((f) => { f.oninput = changed; });
+  desk.onchange = changed;
+  counter();
+
+  function paintCap() {
+    const c = state.cap;
+    if (state.closed) {
+      capLine.textContent = t('office.report_closed_note');
+    } else if (c && c.left <= 0) {
+      capLine.textContent = t('office.report_none_left', { day: c.next ? Office.fmt.date(c.next) : '?' });
+    } else if (c) {
+      capLine.textContent = t('office.report_left', { n: c.left, cap: c.cap });
+    }
+    capLine.className = 'sso-report-cap' + (state.closed || (c && c.left <= 0) ? ' callout warn' : '');
+    capLine.hidden = !c && !state.closed;
+  }
+  function paintYours(list) {
+    yours.innerHTML = '';
+    yours.hidden = !list.length;
+    if (!list.length) return;
+    yours.appendChild(el('summary', '', t('office.report_yours', { n: list.length })));
+    const ul = el('ul', 'shortlist');
+    list.forEach((r) => {
+      const li = el('li');
+      const head = el('span', 'sso-report-yours-title', `#${r.number} ${r.title}`);
+      li.appendChild(head);
+      li.appendChild(el('span', '', t('office.report_yours_row', { kind: t(`office.report_kind_${r.kind}`),
+        desk: r.desk === 'office' ? t('office.report_desk_office') : t(`${r.desk}.name`), day: Office.fmt.date(r.sent) })));
+      ul.appendChild(li);
+    });
+    yours.appendChild(ul);
+  }
+  function takeCap(j) {
+    if (typeof j.left === 'number') state.cap = { n: j.n, left: j.left, cap: j.cap || 2, next: j.next || null };
+    if (typeof j.closed === 'boolean') state.closed = j.closed;
+    paintCap();
+  }
+
+  /** One part of the preview: a tick box (or none: always sent), its name, its content folded under it */
+  function partRow(id, content, ticked, fixed) {
+    const row = el('div', 'sso-report-part');
+    const head = el('label', 'check');
+    const cb = el('input');
+    cb.type = 'checkbox';
+    cb.checked = ticked;
+    cb.disabled = !!fixed;
+    cb.dataset.part = id;
+    head.append(cb, el('span', '', t(`office.report_part.${id}`)));
+    row.appendChild(head);
+    if (content) row.appendChild(content);
+    preview.appendChild(row);
+    return cb;
+  }
+  function paintPreview(j) {
+    preview.innerHTML = '';
+    preview.hidden = false;
+    preview.appendChild(el('div', 'field-title sso-group-title', t('office.report_preview_title')));
+    const p = j.parts || {};
+    const w = words();
+    const mine = el('div', 'sso-report-words');
+    mine.appendChild(el('div', 'sso-report-words-head', `${t(`office.report_kind_${w.kind}`)} · ${w.desk === 'office' ? t('office.report_desk_office') : t(`${w.desk}.name`)}`));
+    mine.appendChild(el('strong', '', w.title));
+    mine.appendChild(el('pre', 'code sso-report-text-shown', w.text));
+    if (w.name) mine.appendChild(el('small', '', t('office.report_name_shown', { name: w.name })));
+    partRow('words', mine, true, true);
+    (j.hints || []).forEach((h) => preview.appendChild(el('p', 'callout', t(`office.report_hint.${h}`))));
+    const line = (s) => el('div', 'sso-report-value', s);
+    const v = p.versions || {};
+    const boxes = [];
+    const ticked = new Set(j.ticked || []);
+    boxes.push(partRow('versions', line(v.engine ? t('office.report_versions_engine', { office: v.office, engine: v.engine }) : t('office.report_versions', { office: v.office })), ticked.has('versions')));
+    boxes.push(partRow('unraid', line(p.unraid || '?'), ticked.has('unraid')));
+    const l = p.language || {};
+    boxes.push(partRow('language', line(t('office.report_language', { lang: l.lang || '?', browser: l.browser || '?' })), ticked.has('language')));
+    boxes.push(partRow('team', line((p.team || []).map((id) => t(`${id}.name`)).join(', ')), ticked.has('team')));
+    if (p.error) {
+      const params = Object.entries(p.error.params || {}).map(([k, x]) => `${k}: ${x}`).join(' · ');
+      const what = line(p.error.at ? t('office.report_error_at', { key: p.error.key, time: Office.fmt.date(p.error.at) }) : p.error.key);
+      if (params) what.appendChild(el('small', '', params));
+      boxes.push(partRow('error', what, ticked.has('error')));
+    }
+    const log = typeof p.log === 'string' ? p.log : '';
+    const logBox = el('div');
+    if (log) {
+      const n = log.split('\n').length;
+      logBox.appendChild(el('small', '', t('office.report_log_lines', { n })));
+      logBox.appendChild(el('pre', 'code sso-report-log', log));          // in full, it scrolls itself
+      const hidden = Object.entries(j.hidden || {});
+      if (hidden.length) logBox.appendChild(el('small', 'sso-report-hidden', t('office.report_hidden', { list: hidden.map(([as, was]) => `${as} = ${was}`).join(', ') })));
+    } else {
+      logBox.appendChild(el('small', '', t('office.report_log_none')));
+    }
+    const logCb = partRow('log', logBox, !!log && ticked.has('log'));
+    if (!log) logCb.disabled = true;
+    boxes.push(logCb);
+    const id = line(t('office.report_id_value', { id: j.id || '?' }));
+    id.appendChild(el('small', '', t('office.report_id_why')));
+    partRow('id', id, true, true);
+    preview.appendChild(el('p', 'sso-report-where', t('office.report_where')));
+    state.boxes = boxes;
+  }
+
+  show.onclick = async () => {
+    const w = words();
+    if (!w.title || w.text.length < REPORT_TEXT_MIN) { say(t('errors.report_incomplete', { min: REPORT_TEXT_MIN })); return; }
+    if (utf8Bytes(w.text) > REPORT_TEXT_MAX) { say(t('office.report_too_long', { max: REPORT_TEXT_MAX })); return; }
+    say('');
+    show.disabled = true;
+    try {
+      const browser = String((navigator.languages && navigator.languages[0]) || navigator.language || '').slice(0, 2).toLowerCase();
+      const j = await Office.api.post('office.report_preview', { ...w, lang: Office.lang, browser: /^[a-z]{2}$/.test(browser) ? browser : undefined,
+        error: reportLastError(w.desk) });
+      if (!j.ok) { say(reportError(j.error)); return; }
+      state.preview = j;
+      takeCap(j);
+      paintPreview(j);
+    } finally {
+      show.disabled = !Office.agent.running;
+      if (send) send.disabled = !sendable();
+    }
+  };
+
+  async function doSend() {
+    if (!state.preview) return false;
+    const parts = (state.boxes || []).filter((b) => b.checked && !b.disabled && REPORT_PARTS.includes(b.dataset.part)).map((b) => b.dataset.part);
+    const j = await Office.api.post('office.report_send', { ...words(), token: state.preview.token, parts });
+    if (!j.ok) {
+      say(reportError(j.error));
+      if (j.error && j.error.key === 'report_stale') changed();
+      if (j.error && j.error.key === 'report_closed') state.closed = true;
+      if (j.error && j.error.key === 'report_week') state.cap = { n: 2, left: 0, cap: 2, next: j.error.params && j.error.params.next };
+      paintCap();
+      setTimeout(() => { send.disabled = !sendable(); }, 0);     // after the dialog gave the buttons back
+      return false;
+    }
+    state.sent = true;
+    Office.store('report.draft', null);
+    say('');
+    [form, showLine, preview, capLine].forEach((n) => { n.hidden = true; });
+    done.hidden = false;
+    done.innerHTML = '';
+    done.appendChild(el('p', 'sso-report-sent', t('office.report_sent', { number: j.number })));
+    if (Office.safeHref(j.url) && /^https:\/\/github\.com\//.test(j.url)) {
+      const p = el('p');
+      p.appendChild(link(j.url, t('office.report_sent_link')));
+      done.appendChild(p);
+    }
+    done.appendChild(el('p', 'role', t('office.report_sent_note', { n: typeof j.left === 'number' ? j.left : 0 })));
+    send.hidden = true;
+    dlg.buttons[0].textContent = t('common.close');
+    loadYours();
+    return false;
+  }
+
+  async function loadYours() {
+    if (!Office.agent.running) return;
+    const j = await Office.api.post('office.reports', {});
+    if (!j.ok) return;
+    if (!state.sent) takeCap(j);
+    paintYours(j.reports || []);
+  }
+
+  const dlg = Office.dialog({
+    title: t('office.report_title'),
+    body: box,
+    wide: true,
+    buttons: [
+      { text: t('common.cancel') },
+      { text: t('office.report_send'), kind: '', act: doSend },
+    ],
+    onClose: () => {
+      keep();
+      $('#sso-dialog').classList.remove('sso-report-dialog');
+      $('#sso-dialog-backdrop').classList.remove('sso-report-backdrop');
+    },
+  });
+  $('#sso-dialog').classList.add('sso-report-dialog');           // a phone: the dialog takes the screen (office.css)
+  $('#sso-dialog-backdrop').classList.add('sso-report-backdrop');
+  send = dlg.buttons[1];
+  send.disabled = true;
+  show.disabled = !Office.agent.running;
+  if (!Office.agent.running) say(t('errors.agent_away'));
+  title.focus();
+  loadYours();
+  return dlg;
+};
+
 /**
  * A desk's greeting: one of its lang keys greet.1, greet.2, … picked at random,
  * the same one until the page changes. '' if the desk has none.
@@ -1708,6 +2049,7 @@ Office.help = function help() {
     code('public/desks/<desk>/lang/<code>.json'), '.');
   if (Office.theme) item('help.theme_title', t('help.theme_text'));      // theme-switch
   item('help.security_title', t('help.security_text'));
+  item('help.report_title', t('help.report_text'));
   box.appendChild(dl);
   Office.dialog({ title: t('help.title'), body: box, wide: true });
 };
@@ -1722,6 +2064,8 @@ function officeMenu(e) {
   ];
   if (CONFIG.languages.length > 1) items.push({ text: t('office.language'), act: languageDialog });
   items.push({ text: t('help.title'), act: Office.help });
+  // «Report a problem or a wish…» — about the desk shown (the reception: the office as a whole)
+  if (CONFIG.report) items.push({ text: t('office.report_menu'), act: () => Office.reportDialog(Office.current ? Office.current.id : 'office') });
   if (Office.current && !Office.current.always) {
     items.push({ separator: true }, { text: t('office.fire_menu', { name: t(`${Office.current.id}.name`) }), act: () => Office.fireDialog(Office.current.id) });
   }
@@ -1906,7 +2250,7 @@ function itemEntries() {
 
 /** The office's own places: the reception, the help's parts, the language, its entry in Unraid */
 function officePlaces() {
-  const help = ['office', 'search', 'order', 'agent', 'dot', 'start', 'languages', 'security'].concat(Office.theme ? ['theme'] : [])   // theme-switch
+  const help = ['office', 'search', 'order', 'agent', 'dot', 'start', 'languages', 'security', 'report'].concat(Office.theme ? ['theme'] : [])   // theme-switch
     .map((x) => ({ kind: 'help', key: `help.${x}_title`, anchor: `help.${x}_title`, text: `help.${x}_text`, act: Office.help }));
   Office.places('', [
     { kind: 'desk', key: 'office.reception', route: '#/', anchor: null },
@@ -1916,6 +2260,7 @@ function officePlaces() {
     { kind: 'setting', key: 'office.language', anchor: null, act: languageDialog },
     { kind: 'setting', key: 'office.menu_title', anchor: null, act: menuNameDialog },
     { kind: 'setting', key: 'office.log', anchor: null, act: showLog },
+    { kind: 'setting', key: 'office.report_menu', anchor: null, act: () => Office.reportDialog(), shown: () => !!CONFIG.report },
   ]);
 }
 

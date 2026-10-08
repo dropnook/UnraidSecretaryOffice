@@ -119,6 +119,8 @@
   "help.supporter": "Le secrétariat est gratuit et complet — rien n'est jamais verrouillé. Un pourboire est bienvenu, et il s'accompagne d'une clé de soutien (la cagnotte explique comment). Elle ne débloque rien ; elle arrête seulement les rappels et affiche un petit merci à côté de « Pourboire & augmentation ».",
   "tip_button": "☕ Pourboire & augmentation",
   "tip_button_title": "L'équipe serait ravie d'un pourboire (PayPal)",
+  "report_button": "Signalement…",
+  "report_button_title": "Signaler un problème ou un souhait à ceux qui construisent le secrétariat — je transmets",
   "supporter_plate": "☕ Merci, {name}",
   "supporter_plate_title": "Clé de soutien du {date}. Elle ne débloque rien — tout ici est gratuit de toute façon ; elle dit simplement merci.",
   "supporter_term": "Clé de soutien",

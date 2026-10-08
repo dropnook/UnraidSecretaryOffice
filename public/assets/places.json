@@ -5,6 +5,7 @@
     "help.languages_title",
     "help.office_title",
     "help.order_title",
+    "help.report_title",
     "help.search_title",
     "help.security_title",
     "help.start_title",
@@ -14,7 +15,8 @@
     "office.log",
     "office.menu_title",
     "office.order_change",
-    "office.reception"
+    "office.reception",
+    "office.report_menu"
   ],
   "texts": [
     "help.agent_text",
@@ -22,6 +24,7 @@
     "help.languages_text",
     "help.office_text",
     "help.order_text",
+    "help.report_text",
     "help.search_text",
     "help.security_text",
     "help.start_text",

@@ -119,6 +119,8 @@
   "help.supporter": "La secretaría es gratis y completa — nunca se bloquea nada. Una propina es bienvenida, y con ella llega una clave de apoyo (el bote de propinas explica cómo). No desbloquea nada; solo detiene los recordatorios y muestra un pequeño agradecimiento junto a «Propinas y aumento».",
   "tip_button": "☕ Propinas y aumento",
   "tip_button_title": "Al equipo le alegra una propina (PayPal)",
+  "report_button": "Comentario…",
+  "report_button_title": "Contar un problema o un deseo a quienes construyen la secretaría — yo se lo paso",
   "supporter_plate": "☕ Gracias, {name}",
   "supporter_plate_title": "Clave de apoyo del {date}. No desbloquea nada — aquí todo es gratis de todos modos; solo da las gracias.",
   "supporter_term": "Clave de apoyo",

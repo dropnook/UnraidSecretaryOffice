@@ -119,6 +119,8 @@
   "help.supporter": "La segreteria è gratuita e completa — niente viene mai bloccato. Una mancia è benvenuta, e con essa arriva una chiave sostenitore (il barattolo delle mance spiega come). Non sblocca nulla; ferma solo i promemoria e mostra un piccolo ringraziamento accanto a «Mancia & aumento».",
   "tip_button": "☕ Mancia & aumento",
   "tip_button_title": "Il team è felice di ricevere una mancia (PayPal)",
+  "report_button": "Segnalazione…",
+  "report_button_title": "Segnala un problema o un desiderio a chi costruisce la segreteria — lo passo io",
   "supporter_plate": "☕ Grazie, {name}",
   "supporter_plate_title": "Chiave sostenitore del {date}. Non sblocca nulla — qui è tutto gratuito comunque; dice solo grazie.",
   "supporter_term": "Chiave sostenitore",

@@ -18700,11 +18700,193 @@ ROUTER);
     hardeningRm($tmp);
 }
 
+/**
+ * «Report a problem or a wish…» on the page (core.js Office.reportDialog()) under node, on a stand-in page: it opens
+ * with the desk shown, asks only for «Your reports», «Send» stays off until the preview was looked at; the preview
+ * request carries the words, the languages and the desk's last error; a word changed takes the preview (and «Send")
+ * away; the unticked parts stay home; the answer shows the number and clears the draft; report_week says its day and
+ * leaves «Send» off; the draft survives a close. The ⋯ menu's item and the team lead's button.
+ */
+function testReportDialog(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('report dialog: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('reportdialog');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const byId = {};
+const mk = (tag) => {
+  const n = { tag, id: '', className: '', style: {}, dataset: {}, hidden: false, textContent: '', children: [], parentNode: null, attrs: {},
+    value: '', checked: false, disabled: false, type: '', onclick: null, oninput: null, onchange: null, offsetHeight: 0,
+    appendChild(c) { if (typeof c === 'object') { c.parentNode = this; } this.children.push(c); return c; },
+    append(...c) { c.forEach((x) => this.appendChild(x)); }, after() {}, remove() {}, prepend() {},
+    setAttribute(k, v) { this.attrs[k] = String(v); }, removeAttribute(k) { delete this.attrs[k]; }, getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
+    hasAttribute(k) { return k in this.attrs; }, addEventListener() {}, removeEventListener() {},
+    querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+    getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0, right: 0 }), focus() {}, select() {} };
+  n.classList = { add(c) { if (!n.className.split(' ').includes(c)) n.className = (n.className + ' ' + c).trim(); },
+    remove(c) { n.className = n.className.split(' ').filter((x) => x !== c).join(' '); }, toggle(c, on) { if (on === undefined ? !this.contains(c) : on) this.add(c); else this.remove(c); },
+    contains: (c) => n.className.split(' ').includes(c) };
+  Object.defineProperty(n, 'innerHTML', { get: () => '', set() { n.children = []; } });
+  return n;
+};
+const find = (id) => (byId[id] = byId[id] || Object.assign(mk('div'), { id }));
+const store = {};
+globalThis.window = globalThis;
+globalThis.innerHeight = 800; globalThis.innerWidth = 1200; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
+globalThis.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
+Object.defineProperty(globalThis, 'navigator', { value: { languages: ['de-CH', 'en'] }, configurable: true, writable: true });   // node has one of its own
+globalThis.history = { replaceState() {} };
+globalThis.location = { hash: '', reload() {} };
+const CONFIG = { version: '1.44.0', desks: [{ id: 'caretaker', hired: true, always: true }, { id: 'snapshot', hired: true }], languages: [{ code: 'en' }], base: '', staff_order: ['caretaker', 'snapshot'],
+  report: true, issues_url: 'https://github.com/dropnook/UnraidSecretaryOffice/issues', forum_url: '' };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : find(id)),
+  querySelector: (s) => (s[0] === '#' ? find(s.slice(1)) : null), querySelectorAll: () => [], createElement: (tag) => mk(tag), addEventListener() {}, removeEventListener() {},
+  documentElement: { scrollHeight: 0 }, activeElement: null, hidden: false, body: mk('body') };
+const posts = [];
+let answers = {};
+globalThis.fetch = async (url, opt) => {
+  let a = { ok: false };
+  if (opt && opt.body) {
+    const b = JSON.parse(opt.body);
+    posts.push(b);
+    a = answers[b.a] || a;
+    if (typeof a === 'function') a = a(b);
+  }
+  return { redirected: false, url, ok: true, status: 200, json: async () => a, text: async () => JSON.stringify(a) };
+};
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const O = globalThis.Office;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const walk = (n, f, out = []) => { if (n && typeof n === 'object') { if (f(n)) out.push(n); (n.children || []).forEach((c) => walk(c, f, out)); } return out; };
+const text = (n) => (typeof n === 'string' ? n : [n.textContent || '', ...(n.children || []).map(text)].join(''));
+const visible = (n) => { for (let x = n; x; x = x.parentNode) if (x.hidden) return false; return true; };
+const body = () => byId['sso-dialog-body'];
+const one = (f) => walk(body(), f)[0];
+const button = (label) => one((n) => n.tag === 'button' && n.textContent === label);
+(async () => {
+  await sleep(30);
+  O.strings = { 'office.report_sent': 'Sent — report #{number}.', 'office.report_hidden': 'Hidden: {list}', 'errors.report_week': { one: '{n} this week; next on {day}.', other: '{n} this week; next on {day}.' } };
+  O.agent = { running: true };
+  O.desk({ id: 'snapshot' });
+  O.desk({ id: 'caretaker' });
+  const out = {};
+  answers = {
+    'office.reports': { ok: true, reports: [{ number: 40, url: '', kind: 'wish', title: 'Darker', desk: 'office', sent: 1760000000 }], n: 1, left: 1, cap: 2, next: null, closed: false },
+    'office.report_preview': { ok: true, token: 'a'.repeat(32), ttl: 600, ticked: ['versions', 'unraid', 'language', 'team', 'error', 'log'], id: '1234abcd', hints: ['address'],
+      hidden: { '‹share-1›': 'Media' }, n: 1, left: 1, cap: 2, next: null, closed: false,
+      parts: { versions: { office: '1.44.0' }, unraid: '7.3.2', language: { lang: 'en', browser: 'de' }, team: ['caretaker', 'snapshot'],
+        error: { key: 'command_failed', params: { detail: 'x' }, at: 1760000000 }, log: '2026-10-08 10:00:00  Ms. Snapshotini: created ‹pool-1›/‹share-1›@…' } },
+    'office.report_send': { ok: true, number: 41, url: 'https://github.com/dropnook/uso-inbox/issues/41', left: 0, n: 2, cap: 2, next: 1760600000 },
+  };
+  O.errorText({ key: 'command_failed', params: { detail: 'zfs busy', deep: { x: 1 } } }, 'snapshot');
+  const dlg = O.reportDialog('snapshot');
+  await sleep(30);
+  const desk = one((n) => n.tag === 'select');
+  const send = dlg.buttons[1];
+  out.opened = { title: byId['sso-dialog-title'].textContent, desk: desk.value, deskOptions: desk.children.map((o) => o.value), sendOff: send.disabled,
+    asked: posts.map((p) => p.a), wide: byId['sso-dialog'].className, issues: walk(body(), (n) => n.tag === 'a').map((a) => a.href),
+    yours: text(one((n) => n.tag === 'details')).includes('#40 Darker') };
+  const [title, name] = walk(body(), (n) => n.tag === 'input' && n.className === 'input');
+  const area = one((n) => n.tag === 'textarea');
+  title.value = 'Her plan ran twice'; title.oninput();
+  area.value = 'It ran twice at 03:00, see the log.'; area.oninput();
+  name.value = 'benj'; name.oninput();
+  out.draft = JSON.parse(store['office.report.draft'] || 'null');
+  out.counter = text(one((n) => n.className.startsWith('sso-report-count')));
+  posts.length = 0;
+  await button('office.report_preview').onclick();
+  const asked = posts[0] || {};
+  out.preview = { a: asked.a, kind: asked.kind, desk: asked.desk, title: asked.title, name: asked.name, lang: asked.lang, browser: asked.browser, error: asked.error,
+    sendOn: !send.disabled, parts: walk(body(), (n) => n.tag === 'input' && n.type === 'checkbox').map((c) => [c.dataset.part, c.checked, c.disabled]),
+    log: text(one((n) => n.className === 'code sso-report-log')), hidden: text(body()).includes('‹share-1› = Media'), hint: text(body()).includes('office.report_hint.address') };
+  title.value = 'Her plan ran three times'; title.oninput();
+  out.changed = { sendOff: send.disabled, previewHidden: one((n) => n.className === 'sso-report-preview').hidden };
+  await button('office.report_preview').onclick();
+  walk(body(), (n) => n.tag === 'input' && n.type === 'checkbox' && n.dataset.part === 'log')[0].checked = false;
+  posts.length = 0;
+  await send.onclick();
+  await sleep(10);
+  const sent = posts.find((p) => p.a === 'office.report_send') || {};
+  out.sent = { token: sent.token, parts: sent.parts, title: sent.title, shown: walk(body(), (n) => n.className === 'sso-report-sent').map(text)[0] || null,
+    link: walk(one((n) => n.className === 'sso-report-done'), (n) => n.tag === 'a').map((a) => a.href), sendHidden: send.hidden, closeText: dlg.buttons[0].textContent,
+    draft: store['office.report.draft'] || null, formHidden: one((n) => n.className === 'sso-report-form').hidden };
+  dlg.close();
+  out.classesGone = byId['sso-dialog'].className;
+
+  // the week is full: its day said, «Send» stays off
+  answers['office.report_send'] = { ok: false, error: { key: 'report_week', params: { n: 2, next: 1760600000 } } };
+  const dlg2 = O.reportDialog();
+  await sleep(20);
+  const [t2] = walk(body(), (n) => n.tag === 'input' && n.className === 'input');
+  t2.value = 'Another'; t2.oninput();
+  const a2 = one((n) => n.tag === 'textarea');
+  a2.value = 'Something else entirely.'; a2.oninput();
+  await button('office.report_preview').onclick();
+  await dlg2.buttons[1].onclick();
+  await sleep(10);
+  out.week = { msg: text(one((n) => n.className === 'callout warn' && !n.hidden) || {}), sendOff: dlg2.buttons[1].disabled, desk: one((n) => n.tag === 'select').value };
+  // closed without sending: the draft stays
+  dlg2.buttons[0].onclick();
+  await sleep(10);
+  out.keptDraft = (JSON.parse(store['office.report.draft'] || '{}') || {}).title || null;
+  const dlg3 = O.reportDialog();
+  await sleep(10);
+  out.reopened = walk(body(), (n) => n.tag === 'input' && n.className === 'input')[0].value;
+  dlg3.close();
+  console.log(JSON.stringify(out));
+  process.exit(0);
+})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
+    $r = json_decode($raw, true);
+    if (!is_array($r) || isset($r['error'])) {
+        check('report dialog: ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    $o = $r['opened'];
+    same('report dialog: opens wide with the desk shown, asks only for «Your reports», «Send» off', ['office.report_title', 'snapshot', ['office', 'caretaker', 'snapshot'], true, ['office.reports'], true],
+        [$o['title'], $o['desk'], $o['deskOptions'], $o['sendOff'], $o['asked'], str_contains($o['wide'], 'wide') && str_contains($o['wide'], 'sso-report-dialog')]);
+    same('report dialog: … the GitHub issues for account holders (no forum yet), «Your reports»', [['https://github.com/dropnook/UnraidSecretaryOffice/issues'], true], [$o['issues'], $o['yours']]);
+    same('report dialog: the draft kept while typing', ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => 'It ran twice at 03:00, see the log.', 'name' => 'benj'], $r['draft']);
+    same('report dialog: the counter in bytes', 'office.report_count', $r['counter']);   // no strings loaded: the key
+    $p = $r['preview'];
+    same('report dialog: the preview asks with the words, the languages and the desk\'s last error (plain params only)',
+        ['office.report_preview', 'bug', 'snapshot', 'Her plan ran twice', 'benj', 'en', 'de', 'command_failed', ['detail' => 'zfs busy']],
+        [$p['a'], $p['kind'], $p['desk'], $p['title'], $p['name'], $p['lang'], $p['browser'], $p['error']['key'] ?? null, $p['error']['params'] ?? null]);
+    same('report dialog: … then «Send» is on, every part a tick box (the words and the ID always)', [true, [['words', true, true], ['versions', true, false], ['unraid', true, false],
+        ['language', true, false], ['team', true, false], ['error', true, false], ['log', true, false], ['id', true, true]]], [$p['sendOn'], $p['parts']]);
+    same('report dialog: … the log in full, what was hidden, the hint', ['2026-10-08 10:00:00  Ms. Snapshotini: created ‹pool-1›/‹share-1›@…', true, true], [$p['log'], $p['hidden'], $p['hint']]);
+    same('report dialog: a word changed — the preview and «Send» go', ['sendOff' => true, 'previewHidden' => true], $r['changed']);
+    $s = $r['sent'];
+    same('report dialog: «Send» — the preview\'s token, the parts still ticked, the words as now', [str_repeat('a', 32), ['versions', 'unraid', 'language', 'team', 'error'], 'Her plan ran three times'],
+        [$s['token'], $s['parts'], $s['title']]);
+    same('report dialog: … the number and the link, the draft gone, «Send» gone, «Close»', ['Sent — report #41.', ['https://github.com/dropnook/uso-inbox/issues/41'], true, 'common.close', null, true],
+        [$s['shown'], $s['link'], $s['sendHidden'], $s['closeText'], $s['draft'], $s['formHidden']]);
+    check('report dialog: … its classes go with it', !str_contains($r['classesGone'], 'sso-report-dialog'));
+    check('report dialog: report_week says its day, «Send» stays off; no desk given and no draft: the office as a whole', str_starts_with($r['week']['msg'], '2 this week; next on ') && !str_contains($r['week']['msg'], '{day}')
+        && $r['week']['sendOff'] === true && $r['week']['desk'] === 'office', json_encode($r['week']));
+    same('report dialog: closed without sending — the draft stays and comes back', ['Another', 'Another'], [$r['keptDraft'], $r['reopened']]);
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    check('report dialog: the ⋯ menu\'s item, only with an inbox, about the desk shown',
+        str_contains($core, "if (CONFIG.report) items.push({ text: t('office.report_menu'), act: () => Office.reportDialog(Office.current ? Office.current.id : 'office') });"));
+    $ct = (string) file_get_contents(OFFICE_WEB . '/desks/caretaker/desk.js');
+    check('report dialog: the team lead\'s quiet button beside the tips, the office as a whole', str_contains($ct, "const report = el('button', 'btn small plain', T('report_button'));")
+        && str_contains($ct, "report.onclick = () => Office.reportDialog('office');"));
+    $page = (string) file_get_contents(OFFICE_DIR . '/src/page.php');
+    check('report dialog: the page learns whether there is an inbox, never its address', str_contains($page, "'report'    => officeFeedbackUrl() !== '',") && !str_contains($page, "=> officeFeedbackUrl(),"));
+    hardeningRm($tmp);
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
