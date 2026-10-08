@@ -400,6 +400,8 @@
   "cat.docker.cache_text": "Was docker build aufbewahrt hat und nicht mehr braucht",
   "cat.docker.used": "In Betrieb",
   "cat.docker.used_text": "Von einem Container benutzt (läuft oder gestoppt)",
+  "cat.docker.drill": "Was eine Übung liegen liess",
+  "cat.docker.drill_text": "Herrn Restoris Übung wurde unterbrochen (ein Absturz, ein Neustart), bevor sie das wegräumen konnte — nichts davon gehört zu deinen Daten",
   "park.text_vms": {
     "one": "Das kommt in meine Abstellkammer:",
     "other": "Diese {n} Sachen kommen in meine Abstellkammer:"
@@ -474,6 +476,7 @@
     "other": "{n} Volumes können Daten enthalten (oft Datenbanken) — danach sind sie weg."
   },
   "remove.images": "Images lassen sich wieder herunterladen, wenn du sie brauchst.",
+  "remove.drill": "Was eine Übung liegen liess, räumt Herrn Restoris eigener Kehrer weg — nur genau das, was seiner Übung gehört.",
   "remove.go": "Endgültig entfernen",
   "remove.done": {
     "one": "Entfernt.",
@@ -524,6 +527,7 @@
   "errors.cleanup_vm_off": "Der VM-Dienst läuft nicht — ohne ihn fasse ich {name} nicht an.",
   "errors.cleanup_destroy_failed": "zfs destroy von {name} ist fehlgeschlagen: {detail}",
   "errors.cleanup_docker_failed": "Docker konnte {name} nicht entfernen: {detail}",
+  "errors.cleanup_drill_failed": "{name} liess sich nicht entfernen — es gehört nicht (mehr) genau zur Übung, oder Docker hat abgelehnt.",
   "empty.vms": "Nichts da — keine VM-Reste.",
   "empty.docker": "Nichts da.",
   "search": "Wo ist …?",
@@ -565,6 +569,18 @@
   "item.image": "Image",
   "item.volume": "Volume",
   "item.cache": "Build-Cache",
+  "item.drill": "Rest einer Übung",
+  "dl.what_container": "Wegwerf-Container",
+  "dl.what_container_text": "Eine Wegwerf-Datenbank der Übung: kein Netzwerk, keine Ports, kein Ordner deiner Apps — ihre Daten lagen im RAM.",
+  "dl.what_kopia_tmp": "Kopias temporärer Ordner",
+  "dl.what_kopia_tmp_text": "Der frische Cache und die Protokolle der Übung für Kopia, im Kopia-Container (dessen /tmp).",
+  "dl.what_kopia_dump": "Dump aus Kopia im RAM",
+  "dl.what_kopia_dump_text": "Ein Dump, den die Übung aus Kopia ins RAM zurückgelesen hat, um ihn zurückzuspielen.",
+  "dl.name_kopia_tmp": "{name} in {container}",
+  "dl.name_kopia_dump": "{name} (im RAM)",
+  "dl.of": "von einer Übung {when}",
+  "dl.drill": "Übung",
+  "dl.text": "Herrn Restoris Übung wurde unterbrochen, bevor sie das wegräumen konnte; sein Kehrer nimmt es beim nächsten Start des Hausboten mit (oder innert einer Stunde, solange er angestellt ist). Entfernen ist endgültig — nichts davon gehört zu deinen Daten.",
   "csv": "CSV",
   "csv_title": "Was hier gezeigt wird (mit dem Filter) als CSV-Datei herunterladen",
   "csv.group": "Gruppe",

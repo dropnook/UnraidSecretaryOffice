@@ -248,6 +248,7 @@ function rows() {
       meta.appendChild(el('span', '', T(l.kopia ? 'drill.lose_both' : 'drill.lose_local', { local: l.local ? x.date(l.local) : '–', kopia: l.kopia ? x.date(l.kopia) : '' })));
     }
     if (l && l.played) meta.appendChild(el('span', 'role', T('drill.played', { time: x.fmt.duration(Math.max(60, l.played)) })));
+    if (l && l.kopia_played) meta.appendChild(el('span', 'role', T('drill.kopia_played', { when: x.date(l.kopia_played) })));
     box.appendChild(x.unfoldingRow('dr:' + key, name, meta, () => itemsDetail(items)));
   });
   return box;
@@ -384,6 +385,9 @@ function previewView(p) {
     if (n) ul.appendChild(el('li', '', T('drill.pv.' + k, { n })));
   });
   box.appendChild(ul);
+  const kd = p.kopia_dumps || {};
+  if (kd.n) box.appendChild(el('p', 'role', T('drill.pv_kopia_dumps', { n: kd.n, names: (kd.names || []).join(', '), size: x.fmt.size(kd.bytes || 0) })));
+  if (p.follow_up) box.appendChild(el('p', 'role', T('drill.pv_follow_up', { n: p.follow_up })));
   box.appendChild(el('p', 'role', T('drill.pv_time', { time: x.fmt.duration(Math.max(60, p.estimate || 0)), until: x.fmt.time(p.deadline) })
     + (p.next_backup ? ' ' + T('drill.pv_next', { when: x.date(p.next_backup) }) : '')));
   box.appendChild(el('p', 'role', T('drill.pv_ram', { size: x.fmt.size(p.ram || 0) })));

@@ -66,10 +66,11 @@ click. For the rest there are ready-made commands with your names and paths, and
 Once a month (or every week, or only when you press *Practise now…*), at night after a backup that went well, Mr.
 Restori proves that what Mr. Backupsy keeps really comes back. He reads every package in full, plays the database
 dumps into throwaway containers without network, checks the media servers' database copies and the VMs' disks, and
-streams a sample back from Kopia to compare with the local snapshot. Each app and VM gets a **certificate** — which
-level is proven, from which copy, when. The drill wakes no disk, never runs during a parity check, ends well before
-the next backup and cleans up after itself. A drill that couldn't prove everything tells you what, and where to fix
-it.
+streams a sample back from Kopia to compare with the local snapshot — where an app's package goes to Kopia, one of its
+dumps is also read back from Kopia and played, so a database is proven to come back from the offsite copy alone. Each
+app and VM gets a **certificate** — which level is proven, from which copy, when. The drill wakes no disk, never runs
+during a parity check, ends well before the next backup and cleans up after itself. A drill that couldn't prove
+everything tells you what, and where to fix it; what it left unchecked comes first the next time.
 
 ### The Night Watchman's round
 

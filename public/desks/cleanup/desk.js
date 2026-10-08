@@ -27,7 +27,7 @@ const GROUPS = {
   appdata: ['unused', 'check', 'unknown', 'used'],
   vms: ['broken', 'orphan', 'unused', 'check', 'media', 'unknown', 'used'],
   scripts: ['broken', 'dead', 'idle', 'used'],
-  docker: ['dangling', 'volume', 'unused', 'cache', 'used'],
+  docker: ['drill', 'dangling', 'volume', 'unused', 'cache', 'used'],
   icons: ['template', 'compose', 'none', 'ok'],
   leftovers: ['leftover', 'way_back', 'unknown'],     // shown per restore (renderLeftovers), these for the CSV
   partners: ['leftover', 'dropped'],
@@ -38,14 +38,14 @@ const CANDIDATES = {
   appdata: ['unused', 'check'],
   vms: ['broken', 'orphan', 'unused', 'check', 'media'],
   scripts: ['broken', 'dead', 'idle'],
-  docker: ['dangling', 'volume', 'unused', 'cache'],
+  docker: ['drill', 'dangling', 'volume', 'unused', 'cache'],
   icons: ['template', 'compose', 'none'],
   leftovers: ['leftover', 'way_back'],
   partners: ['leftover', 'dropped'],
 };
 const CLOSED = ['in_use', 'used', 'unknown', 'ok'];  // folded until opened
 const KIND_ICONS = { container: '🐳', template: '📄', stack: '🧩', compose: '🧩', flash: '💾', vm: '🖥️' };
-const ITEM_ICONS = { template: '📄', stray: '📄', vmdef: '🖥️', userscript: '📜', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐', icon: '🖼️', leftover: '📦', partner: '🤝', package: '💾' };
+const ITEM_ICONS = { template: '📄', stray: '📄', vmdef: '🖥️', userscript: '📜', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐', icon: '🖼️', leftover: '📦', partner: '🤝', package: '💾', drill: '🧪' };
 const ROOMS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'leftovers', 'partners'];     // where she finds something (not the storeroom)
 const POLL_MS = 3000;
 const ROOM_ITEMS = 120;     // the search's items from her rooms (and WHERE_ITEMS from «Where is what»): 200 together
@@ -114,14 +114,15 @@ function entries(sec, s = state) {
   })[sec] || [];
 }
 const candidates = (sec) => entries(sec).filter((e) => CANDIDATES[sec].includes(e.category));
-const removable = (e) => ['image', 'volume', 'cache'].includes(e.kind);
+const removable = (e) => ['image', 'volume', 'cache', 'drill'].includes(e.kind);
 /** The picture a container would get: the one chosen here, else the first one found that loads */
 const iconChoice = (e) => picks.get(e.id) || e.suggest || null;
 /** Docker's leftovers in use can't be chosen at all; everything else in use only with a warning; a container only with a picture to hang */
 const selectable = (e) => !!state && e.why === null && !state.backup_running && !(removable(e) && e.category === 'used')
   && !(e.kind === 'icon' && (e.category === 'ok' || e.category === 'none' || !iconChoice(e)));
 const label = (e) => (e.kind === 'template' || e.kind === 'stray' ? e.file : e.kind === 'userscript' ? e.name : e.kind === 'stack' ? e.folder : e.kind === 'cache' ? T('cache.name')
-  : e.kind === 'partner' && e.unit ? T('pa.dropped_name', { unit: e.unit, name: e.pair_name || e.name }) : e.name);
+  : e.kind === 'partner' && e.unit ? T('pa.dropped_name', { unit: e.unit, name: e.pair_name || e.name })
+  : e.kind === 'drill' && e.what !== 'container' ? T('dl.name_' + (e.what === 'kopia_tmp' ? 'kopia_tmp' : 'kopia_dump'), { name: e.name.split('/').pop(), container: e.container || 'Kopia' }) : e.name);
 const sum = (list) => list.reduce((a, e) => a + (e.bytes || 0), 0);
 const words = () => query.trim().toLowerCase().split(/\s+/).filter(Boolean);
 /** Does an entry match the filter? Its name and what it is connected to (image, containers, stack, paths) */
@@ -675,6 +676,7 @@ const VIEWS = {
   image: () => [imageMeta, imageDetail],
   volume: () => [volumeMeta, volumeDetail],
   cache: () => [cacheMeta, cacheDetail],
+  drill: () => [drillMeta, drillDetail],
   icon: () => [iconMeta, iconDetail],
   leftover: () => [leftoverMeta, leftoverDetail],
   partner: () => [partnerMeta, partnerDetail],
@@ -1104,6 +1106,30 @@ function cacheMeta(c, meta, figures) {
 
 function cacheDetail() {
   return el('p', 'role', T('cache.text'));
+}
+
+/** What a crashed drill of Mr. Restori's left: his drill's id is its time (<YYYYMMDD>-<HHMMSS>-<random>) */
+const drillTime = (id) => {
+  const m = /^(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)(\d\d)-/.exec(id || '');
+  return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime() / 1000 : null;
+};
+
+function drillMeta(e, meta) {
+  meta.appendChild(chip(T('dl.what_' + e.what), 'quiet', T('dl.what_' + e.what + '_text')));
+  const t = drillTime(e.drill);
+  if (t) meta.appendChild(el('span', '', T('dl.of', { when: fmt.relative(t) })));
+}
+
+function drillDetail(e) {
+  const box = el('div');
+  box.appendChild(kv([
+    [T('d.name'), e.name, true],
+    [T('dl.drill'), `${e.drill}${drillTime(e.drill) ? ' · ' + fmt.date(drillTime(e.drill)) : ''}`],
+    [T('d.container'), e.what === 'kopia_tmp' ? e.container : ''],
+    [T('d.created'), when(e.created)],
+  ]));
+  box.appendChild(el('p', 'role', T('dl.text')));
+  return box;
 }
 
 // ------------------------------------------------------------------ missing pictures
@@ -1598,6 +1624,7 @@ async function removeDialog() {
   const volumes = list.filter((e) => e.kind === 'volume');
   if (volumes.length) box.appendChild(el('p', 'callout warn', T('remove.volumes', { n: volumes.length })));
   if (list.some((e) => e.kind === 'image')) box.appendChild(el('p', 'role', T('remove.images')));
+  if (list.some((e) => e.kind === 'drill')) box.appendChild(el('p', 'role', T('remove.drill')));
   box.appendChild(el('p', 'callout warn', T('purge.final')));
   Office.dialog({
     title: T('remove.title', { n: list.length }),

@@ -400,6 +400,8 @@
   "cat.docker.cache_text": "What docker build kept and no longer needs",
   "cat.docker.used": "In use",
   "cat.docker.used_text": "Used by a container (running or stopped)",
+  "cat.docker.drill": "What a drill left",
+  "cat.docker.drill_text": "Mr. Restori's drill was interrupted (a crash, a reboot) before it cleared these away — they hold nothing of yours",
   "park.text_vms": {
     "one": "This goes into my storeroom:",
     "other": "These {n} things go into my storeroom:"
@@ -474,6 +476,7 @@
     "other": "{n} volumes can hold data (often databases) — they are gone afterwards."
   },
   "remove.images": "Images can be pulled again when you need them.",
+  "remove.drill": "What a drill left goes through Mr. Restori's own sweeper — only exactly his drill's things.",
   "remove.go": "Remove for good",
   "remove.done": {
     "one": "Removed.",
@@ -524,6 +527,7 @@
   "errors.cleanup_vm_off": "The VM service isn't running — I won't touch {name} without it.",
   "errors.cleanup_destroy_failed": "zfs destroy of {name} failed: {detail}",
   "errors.cleanup_docker_failed": "Docker couldn't remove {name}: {detail}",
+  "errors.cleanup_drill_failed": "{name} couldn't be removed — it isn't exactly the drill's (any more), or Docker refused.",
   "empty.vms": "Nothing here — no VM leftovers.",
   "empty.docker": "Nothing here.",
   "search": "Where is …?",
@@ -565,6 +569,18 @@
   "item.image": "image",
   "item.volume": "volume",
   "item.cache": "build cache",
+  "item.drill": "drill leftover",
+  "dl.what_container": "throwaway container",
+  "dl.what_container_text": "A throwaway database of the drill: no network, no ports, no folder of your apps — its data lay in RAM.",
+  "dl.what_kopia_tmp": "Kopia's temporary folder",
+  "dl.what_kopia_tmp_text": "The drill's fresh cache and logs for Kopia, inside the Kopia container (its /tmp).",
+  "dl.what_kopia_dump": "dump from Kopia in RAM",
+  "dl.what_kopia_dump_text": "A dump the drill read back from Kopia into RAM to play it.",
+  "dl.name_kopia_tmp": "{name} in {container}",
+  "dl.name_kopia_dump": "{name} (in RAM)",
+  "dl.of": "from a drill {when}",
+  "dl.drill": "Drill",
+  "dl.text": "Mr. Restori's drill was interrupted before it could clear this away; his sweeper takes it at the next agent start (or within the hour while he is hired). Removing is for good — it holds nothing of yours.",
   "csv": "CSV",
   "csv_title": "Download what is shown here (with the filter) as a CSV file",
   "csv.group": "Group",

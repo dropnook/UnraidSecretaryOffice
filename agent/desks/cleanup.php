@@ -331,6 +331,7 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         'libvirt'   => clLibvirtOrphans($vms),
         'leftovers' => $leftovers,
         'partners'  => $partners = clPartners(),          // what ended partnerships left (awake pools only)
+        'drill'     => clDrillLeftovers(),                // what crashed drills of Mr. Restori's left (his sweeper's own look)
         // the storerooms Mr. Backupsy's let-go put his packages into (agent/desks/backup-letgo.php): also on array disks
         'trash'     => clTrashRuns($places, $vms, array_merge($leftovers['trash'], backupLetGoTrashRoots($asleep)), $partners['there'], $partners['asleep']),
     ];
@@ -2461,7 +2462,7 @@ function clBuild(): array
             'compose'    => $docker['compose'],
             'containers' => count($docker['containers']),
             'cache_at'   => $cache['build']['at'] ?? null,
-            'list'       => clDockerEntries($raw, $cache, $pending),
+            'list'       => array_merge(clDrillEntries($raw['drill'] ?? []), clDockerEntries($raw, $cache, $pending)),
         ],
         'backup_running' => clBackupBusy(),
         'restore_running' => (backupLockHolder()['holder'] ?? '') === 'restore',   // Mr. Restori is bringing something back
@@ -2751,6 +2752,32 @@ function clDockerEntries(array $raw, array $cache, callable $pending): array
                   'total' => $b['size'], 'created' => null, 'path' => null, 'used_by' => [], 'notes' => [], 'why' => null, 'force' => false];
     }
     return $out;
+}
+
+/**
+ * What crashed drills of Mr. Restori's left (his throwaway containers, Kopia's temporary folder in its container, a
+ * dump from Kopia in RAM): his drill's own look — drillLeftovers(), the sweeper's — never a second one; nothing when his
+ * drill isn't there (the desk glob loads it with his desk)
+ */
+function clDrillLeftovers(): array
+{
+    if (!function_exists('drillLeftovers')) {
+        return [];
+    }
+    try {
+        return drillLeftovers();
+    } catch (Throwable $e) {
+        logLine('Dustdevil: what a drill left — ' . $e->getMessage());
+        return [];
+    }
+}
+
+/** Her Docker room's rows for them: «What a drill left», removed for good through his sweeper */
+function clDrillEntries(array $list): array
+{
+    return array_map(fn (array $x) => ['id' => $x['id'], 'kind' => 'drill', 'what' => $x['what'], 'name' => $x['name'], 'drill' => $x['drill'],
+        'container' => $x['container'], 'category' => 'drill', 'bytes' => null, 'created' => $x['t'], 'path' => null, 'used_by' => [], 'notes' => [],
+        'why' => null, 'force' => false], $list);
 }
 
 function clWrite(array $state): void
@@ -3694,8 +3721,22 @@ function clRemove(array $ids): array
         }
         $todo[] = $e;
     }
-    $docker = bin('docker') ?? throw new Problem('cleanup_docker_down', ['name' => $todo[0]['name'] ?? '']);
     $results = [];
+    // what a drill left goes through his sweeper (the same look and removal as his own, by the ids he listed)
+    $drill = array_values(array_filter($todo, fn ($e) => $e['kind'] === 'drill'));
+    $todo = array_values(array_filter($todo, fn ($e) => $e['kind'] !== 'drill'));
+    if ($drill) {
+        $gone = function_exists('drillSweep') ? drillSweep(drillRunning()['id'] ?? null, true, array_column($drill, 'id')) : [];
+        foreach ($drill as $e) {
+            $ok = in_array($e['id'], $gone, true);
+            $results[] = $ok ? ['id' => $e['id'], 'ok' => true]
+                : ['id' => $e['id'], 'ok' => false, 'error' => ['key' => 'cleanup_drill_failed', 'params' => ['name' => $e['name']]]];
+            if ($ok) {
+                logLine("Dustdevil removed what drill {$e['drill']} left: {$e['name']}");
+            }
+        }
+    }
+    $docker = $todo ? (bin('docker') ?? throw new Problem('cleanup_docker_down', ['name' => $todo[0]['name'] ?? ''])) : '';
     foreach ($todo as $e) {
         // a tagged image goes by its tags (removing the id would refuse while it has several), a dangling one by its id
         $command = match ($e['kind']) {

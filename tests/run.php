@@ -7337,6 +7337,61 @@ function testWatchmanOffice(): void
     chmod($record, 0600);
     same('office record: only in exactly his shape', [], watchmanOfficeInstalls($record, $now));
 
+    // Mr. Restori's drill: its record (root only), then its throwaways — adopted only when name, label, image and the
+    // record's drill all agree and it has no rights; a label alone (anyone can set one) is nothing
+    $drillId = '20261008-031500-ab12';
+    $img = 'sha256:' . str_repeat('c', 64);
+    @mkdir("$src/drill", 0700, true);
+    chmod("$src/drill", 0700);
+    $keepDrill = $GLOBALS['drill'] ?? [];
+    $GLOBALS['drill'] = ['data' => "$src/drill"] + $keepDrill;
+    $tRec = time();
+    drillRecord(['t' => $tRec, 'kind' => 'container', 'name' => "uso-drill-$drillId-3", 'image' => $img, 'id' => $drillId]);
+    drillRecord(['t' => $tRec, 'kind' => 'container', 'name' => "uso-drill-$drillId-4", 'image' => $img, 'id' => $drillId]);
+    drillRecord(['t' => $tRec, 'kind' => 'container', 'name' => "uso-drill-$drillId-5", 'image' => $img, 'id' => $drillId]);
+    drillRecord(['t' => $tRec, 'kind' => 'container', 'name' => "uso-drill-$drillId-6", 'image' => $img, 'id' => $drillId]);
+    drillRecord(['t' => $tRec, 'kind' => 'container', 'name' => 'uso-drill-20261008-031500-ffff-1', 'image' => $img, 'id' => $drillId]);    // another drill's name
+    $GLOBALS['drill'] = $keepDrill;
+    $paths['drill_record'] = "$src/drill/record.json";
+    same('drill record: read by the night watchman by name, only entries whose name names their drill', ["uso-drill-$drillId-3", "uso-drill-$drillId-4", "uso-drill-$drillId-5", "uso-drill-$drillId-6"],
+        array_keys(watchmanDrillRecord($paths['drill_record'], $now + 900)));
+    $tw = ['image' => $img, 'tokens' => [], 'drill' => $drillId, 'created' => $tRec + 2];
+    $containers = ["uso-drill-$drillId-3" => $tw,
+                   "uso-drill-$drillId-4" => ['drill' => '20261008-031500-ffff'] + $tw,                         // its label names another drill
+                   "uso-drill-$drillId-5" => ['tokens' => ['--privileged']] + $tw,                                 // rights: never the drill's
+                   'uso-drill-20261008-031500-eeee-1' => ['drill' => '20261008-031500-eeee', 'tokens' => ['-p 5432:5432/tcp', '--cap-add=SYS_ADMIN']] + $tw];   // a label without a record
+    $r = watchmanRound($paths, $data, 1000, $now + 900, $docker, true, $acks);
+    $book = watchmanLoad($data)['book'];
+    $dl = array_values(array_filter($book, fn ($e) => $e['kind'] === 'drill_throwaway'));
+    same('drill throwaway: one quiet line per drill, noted by the office — no finding, not told',
+        [1, "drill_throwaway:$drillId", 'office', false, ["uso-drill-$drillId-3"], 1, ['names' => "uso-drill-$drillId-3", 'id' => $drillId]],
+        [count($dl), $dl[0]['key'] ?? null, $dl[0]['by'] ?? null, watchmanOpen($dl[0] ?? []), $dl[0]['p']['names'] ?? null, $dl[0]['count'] ?? null, watchmanText($dl[0] ?? ['kind' => 'x'])]);
+    $open = array_keys(array_column(array_filter($book, 'watchmanOpen'), null, 'key'));
+    sort($open);
+    same('drill throwaway: a label alone, rights, another drill\'s label — never adopted (with rights reported as any container)',
+        ["container_new:uso-drill-$drillId-5", 'container_new:uso-drill-20261008-031500-eeee-1'],
+        array_values(array_filter($open, fn ($k) => str_contains($k, 'uso-drill'))));
+    same('drill throwaway: never told', false, in_array('drill_throwaway', array_column($r['told'], 'kind'), true));
+    $containers["uso-drill-$drillId-6"] = $tw;
+    $containers['uso-drill-20261008-031500-ffff-1'] = ['drill' => '20261008-031500-ffff'] + $tw;          // name and label agree, the record names another drill
+    unset($containers["uso-drill-$drillId-3"]);
+    $r = watchmanRound($paths, $data, 1000, $now + 1200, $docker, true, $acks);
+    $dl = array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => $e['kind'] === 'drill_throwaway'));
+    same('drill throwaway: the next one of the same drill joins its line; one whose record names another drill doesn\'t',
+        [1, ["uso-drill-$drillId-3", "uso-drill-$drillId-6"], 2, []], [count($dl), $dl[0]['p']['names'] ?? null, $dl[0]['count'] ?? null, $r['added']]);
+    $known = watchmanLoad($data)['baseline']['containers'];
+    same('drill throwaway: his throwaways never become what is normal — one that isn\'t his (its label names another drill, no rights) does, like any',
+        [false, false, true], [isset($known["uso-drill-$drillId-3"]), isset($known["uso-drill-$drillId-6"]), isset($known["uso-drill-$drillId-4"])]);
+    $late = ['created' => $tRec + WATCH_DRILL_CREATE + 60] + $tw;
+    same('drill throwaway: made long after the record, another image — not the drill\'s', [false, false],
+        [watchmanDrillContainer(['drills' => watchmanDrillRecord($paths['drill_record'], $now)], "uso-drill-$drillId-3", $late),
+         watchmanDrillContainer(['drills' => watchmanDrillRecord($paths['drill_record'], $now)], "uso-drill-$drillId-3", ['image' => 'sha256:' . str_repeat('d', 64)] + $tw)]);
+    chmod("$src/drill/record.json", 0644);
+    same('drill record: a file others may read is not trusted', [], watchmanDrillRecord($paths['drill_record'], $now));
+    chmod("$src/drill/record.json", 0600);
+    same('drill record: older than 7 days left out', [], watchmanDrillRecord($paths['drill_record'], $tRec + WATCH_DRILL_KEEP + 1));
+    check('drill record: never read in the night shift', !isset(watchmanNightPaths()['drill_record']));
+
     putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
     @unlink(watchmanLockFile($data, 'book'));
     exec('rm -rf ' . escapeshellarg($tmp));
@@ -16654,6 +16709,25 @@ function testRestoreDrill(): void
         drillDue(['schedule' => 'weekly'] + $set, $run, ['last' => ['started' => $night - 3 * 86400]], null, $old, $night)]);
     same('drill due: «with warnings» counts as a run that went well', 'monthly', drillDue($set, ['result' => 'warnings'] + $run, null, null, $old, $night));
 
+    // ---- follow-up drills: what the last drill left «not checked» comes first (plan order), the rest after it
+    $fsteps = [['do' => 'package', 'kind' => 'app', 'id' => 'immich', 'name' => 'immich'],
+               ['do' => 'dump', 'kind' => 'app', 'id' => 'immich', 'name' => 'immich', 'container' => 'immich_postgres', 'file' => 'db/a.sql.gz'],
+               ['do' => 'dump', 'kind' => 'app', 'id' => 'nc', 'name' => 'nc', 'container' => 'nc-db', 'file' => 'db/b.sql.gz'],
+               ['do' => 'kopia', 'kind' => 'share', 'id' => 'appdata', 'name' => 'appdata', 'source' => 'appdata'],
+               ['do' => 'vmdisk', 'kind' => 'vm', 'id' => 'Win', 'name' => 'Win', 'target' => 'hdc', 'source' => '/mnt/user/domains/Win/vdisk1.img'],
+               ['do' => 'dump', 'copy' => 'kopia', 'kind' => 'app', 'id' => 'immich', 'name' => 'immich', 'container' => 'immich_postgres', 'file' => 'db/a.sql.gz', 'source' => '.apps/immich']];
+    $fcert = ['items' => [
+        ['kind' => 'dump', 'of' => 'app', 'id' => 'nc', 'what' => 'nc-db', 'copy' => 'snapshot', 'result' => 'not_checked', 'code' => 'dump_no_room'],
+        ['kind' => 'dump', 'of' => 'app', 'id' => 'immich', 'what' => 'immich_postgres', 'copy' => 'kopia', 'result' => 'not_checked', 'code' => 'budget'],
+        ['kind' => 'vmdisk', 'of' => 'vm', 'id' => 'Win', 'what' => 'hdc', 'copy' => 'snapshot', 'result' => 'asleep', 'code' => 'asleep'],
+        ['kind' => 'dump', 'of' => 'app', 'id' => 'immich', 'what' => 'immich_postgres', 'copy' => 'snapshot', 'result' => 'ok', 'code' => 'verify_ok']]];
+    [$fs, $fn] = drillFollowUp($fsteps, $fcert);
+    same('drill follow-up: «not checked» last time (no room, out of time) first, in plan order — a dump from Kopia apart from the local one; asleep stays',
+        [2, ['dump:nc', 'dump:immich:kopia', 'package:immich', 'dump:immich:', 'kopia:appdata', 'vmdisk:Win'], [true, true]],
+        [$fn, array_map(fn ($x) => $x['do'] . ':' . $x['id'] . ($x['do'] === 'dump' && $x['id'] === 'immich' ? ':' . ($x['copy'] ?? '') : ''), $fs), [$fs[0]['follow_up'] ?? null, $fs[1]['follow_up'] ?? null]]);
+    same('drill follow-up: nothing left last time, or no drill yet — the plan as it is', [[$fsteps, 0], [$fsteps, 0]],
+        [drillFollowUp($fsteps, ['items' => [['kind' => 'dump', 'of' => 'app', 'id' => 'nc', 'what' => 'nc-db', 'result' => 'ok']]]), drillFollowUp($fsteps, null)]);
+
     // ---- the settings: each field only when sent, only in its shape
     drillSet(['schedule' => 'weekly', 'kopia_mb' => 0]);
     same('drill settings: kept (root only), defaults for the rest', ['weekly', 0, true, true, '0600'],
@@ -16764,6 +16838,53 @@ function testRestoreDrill(): void
     same('drill record: the newest 50, in the watchman\'s shape, root only', [50, DRILL_PREFIX . "$b-54", ['t', 'kind', 'name', 'image', 'id'], '0600'],
         [count($rec['made'] ?? []), end($rec['made'])['name'] ?? null, array_keys($rec['made'][0] ?? []), substr(sprintf('%o', fileperms("$tmp/data/restore-drill/record.json")), -4)]);
     same('drill journal: «made» written before the create', DRILL_PREFIX . "$b-0", drillJournal($b)['made'][0]['name'] ?? null);
+
+    // ---- what a drill left, for Ms. Dustdevil: the sweeper's own look (journals of drills whose job is gone; containers
+    //      no journal names only when name, label, id AND the drill's record agree) and its own removal, by her ids
+    $lc = '20261102-030000-c0c0';
+    rsPrivateDir(drillDir($lc));
+    $lram = drillRamFile($lc, 2, 'db/pg.sql.gz');
+    file_put_contents($lram, 'x');
+    $jl = drillJournalNew($lc, ['scope' => 'monthly', 'deadline' => $now, 'steps' => []]);
+    $jl['result'] = 'running';
+    $jl['pid'] = 4194305;                  // gone
+    $jl['made'] = [['kind' => 'container', 'name' => DRILL_PREFIX . "$lc-1", 'gone' => false, 't' => 5],
+                   ['kind' => 'container', 'name' => DRILL_PREFIX . "$lc-3", 'gone' => false, 't' => 6],          // not there any more
+                   ['kind' => 'kopia_tmp', 'name' => "/tmp/uso-drill-$lc", 'container' => 'kopia', 'uid' => 0, 'gone' => false, 't' => 7],
+                   ['kind' => 'kopia_dump', 'name' => $lram, 'gone' => false, 't' => 8]];
+    drillJournalWrite($jl, false);
+    $recFile = "$tmp/data/restore-drill/record.json";
+    $recKeep = (string) file_get_contents($recFile);
+    drillRecord(['t' => time(), 'kind' => 'container', 'name' => DRILL_PREFIX . '20261021-030000-dada-1', 'image' => 'sha256:' . str_repeat('d', 64), 'id' => '20261021-030000-dada']);
+    file_put_contents("$tmp/containers", implode("\n", [
+        DRILL_PREFIX . "$lc-1 $lc",                                       // the interrupted drill's own
+        DRILL_PREFIX . '20261021-030000-dada-1 20261021-030000-dada',     // no journal, but the record names it
+        DRILL_PREFIX . '20261021-030000-fafa-1 20261021-030000-fafa',     // a label and a name — no record: not listed
+        DRILL_PREFIX . "$b-7 $b",                                         // the drill going on now
+    ]) . "\n");
+    $certBefore = @file_get_contents($GLOBALS['drill']['cert']);
+    $sorted = function (array $x): array { sort($x); return $x; };
+    $left = drillLeftovers();
+    same('drill leftovers: what the interrupted drill\'s journal names and is there, and a container the record names — never a label alone, never the drill going on',
+        $sorted(["drill:$lc:$lram", "drill:$lc:/tmp/uso-drill-$lc", "drill:$lc:" . DRILL_PREFIX . "$lc-1", 'drill:20261021-030000-dada:' . DRILL_PREFIX . '20261021-030000-dada-1']),
+        $sorted(array_column($left, 'id')));
+    same('drill leftovers: what each is', ['container', 'kopia_tmp', 'kopia_dump'], array_values(array_unique(array_column($left, 'what'))));
+    $ent = clDrillEntries($left);
+    same('drill leftovers in Ms. Dustdevil\'s Docker room: category «drill», removable rows', [['drill'], ['drill'], 4], [array_values(array_unique(array_column($ent, 'category'))),
+        array_values(array_unique(array_column($ent, 'kind'))), count(array_filter($ent, fn ($e) => $e['why'] === null && !$e['force']))]);
+    file_put_contents("$tmp/docker.log", '');
+    $gone = drillSweep($b, true, ["drill:$lc:$lram", 'drill:20261021-030000-dada:' . DRILL_PREFIX . '20261021-030000-dada-1']);
+    same('drill leftovers removed by her ids, through the sweeper — only those', [$sorted(["drill:$lc:$lram", 'drill:20261021-030000-dada:' . DRILL_PREFIX . '20261021-030000-dada-1']), false, true],
+        [$sorted($gone), is_file($lram), str_contains((string) file_get_contents("$tmp/containers"), DRILL_PREFIX . "$lc-1 ")]);
+    $jl2 = drillJournal($lc);
+    same('drill leftovers: the journal says what went, the drill interrupted', ['interrupted', [false, false, false, true]],
+        [$jl2['result'] ?? null, array_map(fn ($x) => (bool) $x['gone'], $jl2['made'] ?? [])]);
+    same('drill leftovers: the rest still listed', $sorted(["drill:$lc:/tmp/uso-drill-$lc", "drill:$lc:" . DRILL_PREFIX . "$lc-1"]), $sorted(array_column(drillLeftovers(), 'id')));
+    drillSweep($b, true, ["drill:$lc:/tmp/uso-drill-$lc", "drill:$lc:" . DRILL_PREFIX . "$lc-1"]);
+    same('drill leftovers: all gone — nothing listed; the unrecorded one stays for the deep sweep at the agent\'s start', [[], true],
+        [drillLeftovers(), str_contains((string) file_get_contents("$tmp/containers"), DRILL_PREFIX . '20261021-030000-fafa-1 ')]);
+    file_put_contents($recFile, $recKeep);
+    $certBefore === false ? @unlink($GLOBALS['drill']['cert']) : file_put_contents($GLOBALS['drill']['cert'], $certBefore);      // the interruption's history row: not the certificate tests'
 
     // ---- the certificate: passed = nothing failed (warnings, «not checked» and asleep said, never hidden)
     $step = fn (string $do, string $of, string $name, string $state, int $level, string $copy, ?int $t, array $params = [], string $code = 'x') =>
@@ -16913,6 +17034,100 @@ function testRestoreDrill(): void
         [$kj['made'][0]['kind'] ?? null, $kj['made'][0]['name'] ?? null]);
     $noKopia = ['kopia' => null] + $kenv;
     same('drill Kopia step: Kopia not reachable — not checked, never failed', 'not_checked', drillDoKopia($kj, 0, $noKopia)['state']);
+
+    // ---- dumps from Kopia (stage 2): which, from where, within the budget; read back into RAM, compared, then played
+    $kset = ['general' => ['dumps_share' => ['UnraidSecretaryOffice']], 'app|immich' => ['kopia' => ['yes']], 'share|UnraidSecretaryOffice' => ['mode' => ['kopia']]];
+    $kapps = [['id' => 'immich', 'name' => 'immich', 'run' => '20261101-0200', 'path' => "$tmp/none", 'containers' => [['image' => 'ghcr.io/immich-app/postgres:14']],
+               'dumps' => [['file' => 'db/old.sql.gz', 'container' => 'immich_old', 'type' => 'postgres', 'bytes' => 9, 'run' => '20261030-0200', 'db' => null],
+                           ['file' => 'db/pg.sql.gz', 'container' => 'immich_postgres', 'type' => 'postgres', 'bytes' => 99, 'run' => '20261101-0200', 'db' => null]]],
+              ['id' => 'nc', 'name' => 'nc', 'run' => '20261101-0200', 'path' => "$tmp/none", 'containers' => [],
+               'dumps' => [['file' => 'db/mariadb_nc-db_nc.sql.gz', 'container' => 'nc-db', 'type' => 'mariadb', 'bytes' => 50, 'run' => '20261101-0200', 'db' => 'nc']]],
+              ['id' => 'redis', 'name' => 'redis', 'run' => '20261101-0200', 'path' => "$tmp/none", 'containers' => [], 'dumps' => []]];
+    $kd = drillKopiaDumpSteps($kapps, $kset, 'UnraidSecretaryOffice');
+    same('drill Kopia dumps: one per app, its newest — from its own source, else the backup place\'s share; an app without a dump none',
+        [['immich', 'immich_postgres', '.apps/immich', 'kopia', 'dump'], ['nc', 'nc-db', 'UnraidSecretaryOffice', 'kopia', 'dump']],
+        array_map(fn ($x) => [$x['id'], $x['container'], $x['source'], $x['copy'], $x['do']], $kd));
+    same('drill Kopia dumps: the backup place\'s share not to Kopia — only apps with a source of their own', ['immich'],
+        array_column(drillKopiaDumpSteps($kapps, ['share|UnraidSecretaryOffice' => ['mode' => ['snapshot']]] + $kset, 'UnraidSecretaryOffice'), 'id'));
+    check('drill Kopia dumps: the estimate counts the download', drillEstimate($kd[0] + ['bytes' => 100 << 20], $set) > drillEstimate(['copy' => ''] + $kd[0] + ['bytes' => 100 << 20], $set));
+    // a package of its own in Kopia: the dump, the manifest Kopia keeps (an older run wrote the dump), the local snapshot
+    $kdump = gzencode("CREATE TABLE t (\n-- PostgreSQL database cluster dump complete\n");
+    $kmani = json_encode(['run' => '20261101-0200', 'files' => [['path' => 'db/pg.sql.gz', 'bytes' => strlen($kdump), 'run' => '20261031-0200', 'what' => 'dump', 'container' => 'immich_postgres']]]);
+    $tree2 = ['dR2' => [['name' => 'UnraidSecretaryOffice', 'type' => 'd', 'obj' => $o('dU2')]], 'dU2' => [['name' => 'backup', 'type' => 'd', 'obj' => $o('dB2')]],
+              'dB2' => [['name' => 'apps', 'type' => 'd', 'obj' => $o('dA2')]], 'dA2' => [['name' => 'immich', 'type' => 'd', 'obj' => $o('dI2')]],
+              'dI2' => [$kfile('k2/manifest.json', $kmani), ['name' => 'db', 'type' => 'd', 'obj' => $o('dD2')]], 'dD2' => [$kfile('k2/db/pg.sql.gz', $kdump)]];
+    foreach ($tree2 as $n => $entries) {
+        file_put_contents("$tmp/kopia/" . $o($n), $dir($entries));
+    }
+    file_put_contents("$local/db/pg.sql.gz", $kdump);
+    file_put_contents("$tmp/kopia/list.json", json_encode([['id' => str_repeat('d', 20), 'startTime' => date('c', (int) rsRunTime('20261101-0200') + 600), 'description' => 'uso-backup 20261101-0200',
+        'incompleteReason' => '', 'rootEntry' => ['obj' => $o('dR2'), 'summ' => ['size' => 99, 'files' => 2, 'numFailed' => 0]]]]));
+    @mkdir("$tmp/place/apps/immich", 0700, true);
+    file_put_contents("$tmp/place/apps/immich/manifest.json", json_encode($man('app-immich')));
+    $kdStep = ['copy' => 'kopia', 'do' => 'dump', 'kind' => 'app', 'id' => 'immich', 'name' => 'immich', 'container' => 'immich_postgres', 'type' => 'postgres',
+               'file' => 'db/pg.sql.gz', 'run' => '20261101-0200', 'dump_run' => '20261101-0200', 'db' => null, 'isize' => 0, 'bytes' => strlen($kdump), 'immich' => true,
+               'source' => '.apps/immich', 'login' => 'user', 'user_var' => 'POSTGRES_USER', 'password_var' => 'POSTGRES_PASSWORD'];
+    $kdj = drillJournalNew('20261101-060000-cdce', ['scope' => 'now', 'deadline' => time() + 20, 'steps' => [$kdStep]]);
+    rsPrivateDir(drillDir($kdj['id']));
+    $kdenv = fn (array $more = []) => $more + ['kopia' => ['container' => 'kopia', 'running' => true, 'root' => '/uso'], 'uid' => 0, 'base' => "$tmp/place",
+        'base_user' => '/mnt/user/UnraidSecretaryOffice/backup', 'ctx' => $kctx, 'kopia_left' => 1 << 20, 'kopia_until' => time() + 600, 'shares' => 0, 'ram' => 4 << 30,
+        'set' => $set, 'kopia_reserved' => strlen($kdump)];
+    $e1 = $kdenv();
+    $r = drillDoKopiaDump($kdj, 0, $e1);
+    same('drill Kopia dump: read back whole, the same as the local snapshot — L1 from Kopia; its play then «not checked» when time is short (never failed)',
+        ['not_checked', 'budget', 1, 'kopia', 1, strlen($kdump), '.apps/immich', '20261031-0200'],
+        [$r['state'], $r['code'], $r['level'], $r['copy'], $r['params']['compared'] ?? null, $r['params']['bytes'] ?? null, $r['params']['source'] ?? null, $r['params']['dump_run'] ?? null]);
+    same('drill Kopia dump: the state it comes back with is the run that wrote the dump (from the manifest Kopia keeps), not the snapshot\'s',
+        rsRunTime('20261031-0200'), $r['state_time']);
+    same('drill Kopia dump: counted — egress, what Kopia may still download, its reservation released', [strlen($kdump) + strlen($kmani), (1 << 20) - strlen($kdump) - strlen($kmani), 0],
+        [$kdj['egress'], $e1['kopia_left'], $e1['kopia_reserved']]);
+    $made = array_values(array_filter($kdj['made'], fn ($x) => $x['kind'] === 'kopia_dump'));
+    same('drill Kopia dump: the file in RAM written down before it was made, gone right after its step, root only folder',
+        [1, true, false, 1, '0700'], [count($made), $made[0]['gone'] ?? null, is_file((string) ($made[0]['name'] ?? '')),
+         preg_match('#^' . preg_quote("$tmp/run/drill/{$kdj['id']}-0-", '#') . 'pg\.sql\.gz$#', (string) ($made[0]['name'] ?? '')), substr(sprintf('%o', fileperms("$tmp/run/drill")), -4)]);
+    file_put_contents("$local/db/pg.sql.gz", gzencode('something else'));
+    $e1 = $kdenv();
+    same('drill Kopia dump: what went up differs from the local snapshot — failed, named', ['failed', 'kopia_differs', 'UnraidSecretaryOffice/backup/apps/immich/db/pg.sql.gz'],
+        array_values(array_intersect_key(($r = drillDoKopiaDump($kdj, 0, $e1)) + ['path' => $r['params']['path'] ?? null], ['state' => 1, 'code' => 1, 'path' => 1])));
+    file_put_contents("$local/db/pg.sql.gz", $kdump);
+    $e1 = $kdenv(['kopia_left' => 10]);
+    same('drill Kopia dump: over what Kopia may still download — not checked, nothing read', ['not_checked', 'budget', 0], [($r = drillDoKopiaDump($kdj, 0, $e1))['state'], $r['code'], $kdj['egress'] - strlen($kdump) * 2 - strlen($kmani) * 2]);
+    $kdj['steps'][0]['file'] = 'db/gone.sql.gz';
+    $e1 = $kdenv();
+    same('drill Kopia dump: not in Kopia\'s newest snapshot — a warning, named', ['warning', 'kopia_dump_missing', 'db/gone.sql.gz'],
+        [($r = drillDoKopiaDump($kdj, 0, $e1))['state'], $r['code'], $r['params']['file'] ?? null]);
+    $kdj['steps'][0]['file'] = 'db/pg.sql.gz';
+    rename("$tmp/kopia/" . $o('f:k2/db/pg.sql.gz'), "$tmp/kopia/away");
+    $e1 = $kdenv();
+    same('drill Kopia dump: Kopia can\'t give it back — failed', ['failed', 'kopia_read_failed'], array_values(array_intersect_key(drillDoKopiaDump($kdj, 0, $e1), ['state' => 1, 'code' => 1])));
+    rename("$tmp/kopia/away", "$tmp/kopia/" . $o('f:k2/db/pg.sql.gz'));
+    $e1 = $kdenv(['kopia' => null]);
+    same('drill Kopia dump: Kopia not reachable — not checked', ['not_checked', 'kopia_unavailable'], array_values(array_intersect_key(drillDoKopiaDump($kdj, 0, $e1), ['state' => 1, 'code' => 1])));
+    // a crash left one in RAM: the cleanup takes exactly the drill's own file there
+    $left = drillRamFile($kdj['id'], 3, 'db/x.sql.gz');
+    file_put_contents($left, 'x');
+    $kdj['made'][] = ['kind' => 'kopia_dump', 'name' => $left, 'gone' => false, 't' => time()];
+    $kdj['made'][] = ['kind' => 'kopia_dump', 'name' => "$tmp/data/restore-drill/settings.json", 'gone' => false, 't' => time()];
+    drillCleanup($kdj, null, false);
+    same('drill Kopia dump: the cleanup removes the drill\'s file in RAM — never a file elsewhere', [false, true, true],
+        [is_file($left), is_file("$tmp/data/restore-drill/settings.json"), end($kdj['made'])['gone'] === false]);
+    // the sample of the app's own source leaves a dump the drill plays from Kopia to that step
+    file_put_contents("$local/db/pg.sql.gz", $dump);
+    $kenv['kopia_left'] = 1 << 20;
+    $e1 = ['kopia_dumps' => ['.apps/immich' => ['db/pg.sql.gz']]] + $kenv;
+    $sample = drillKopiaSample($kj, $kj['steps'][0], ['obj' => $o('dROOT'), 'run' => '20261101-0200'], $e1);
+    same('drill Kopia sample: the dump played from Kopia later is not read twice', [1, 12], [$sample['files'], $sample['bytes']]);
+    $e1 = ['kopia_reserved' => (1 << 20) - 20] + $kenv;
+    $sample = drillKopiaSample($kj, $kj['steps'][0], ['obj' => $o('dROOT'), 'run' => '20261101-0200'], $e1);
+    same('drill Kopia sample: what is kept for the dumps from Kopia is not the samples\'', [1, 12], [$sample['files'], $sample['bytes']]);
+    // «what you would lose»: a dump played from Kopia says how far Kopia alone brings it back — never the local state
+    $kl = array_column(drillCertLose([
+        ['kind' => 'dump', 'of' => 'app', 'id' => 'immich', 'name' => 'immich', 'result' => 'ok', 'level' => 2, 'copy' => 'snapshot', 'state_time' => 500, 'params' => ['seconds' => 30], 'seconds' => 30],
+        ['kind' => 'dump', 'of' => 'app', 'id' => 'immich', 'name' => 'immich', 'result' => 'ok', 'level' => 2, 'copy' => 'kopia', 'state_time' => 400, 'params' => ['seconds' => 50], 'seconds' => 60],
+        ['kind' => 'kopia', 'of' => 'app', 'id' => 'immich', 'name' => 'immich', 'result' => 'ok', 'level' => 1, 'copy' => 'kopia', 'state_time' => 450, 'params' => [], 'seconds' => 5],
+    ], 'UnraidSecretaryOffice'), null, 'id');
+    same('drill certificate: kopia_played — the state a database came back with from Kopia alone; local and the play time stay the local copy\'s',
+        [400, 500, 450, 30, 2], [$kl['immich']['kopia_played'] ?? null, $kl['immich']['local'] ?? null, $kl['immich']['kopia'] ?? null, $kl['immich']['played'] ?? null, $kl['immich']['best'] ?? null]);
 
     // ---- packages (L1), on a fake backup place
     $base = "$tmp/place";
