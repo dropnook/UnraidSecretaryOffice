@@ -749,5 +749,7 @@
   "posture.partner_public.title": {"one": "Un partenaire est sur Internet : {names}", "other": "{n} partenaires sont sur Internet : {names}"},
   "posture.partner_public.why": "L'adresse du partenariat est publique : les copies voyagent par Internet — chiffrées, mais le SSH de ce serveur doit alors être joignable depuis là-bas, pour tout le monde. Entre deux foyers, un tunnel est le meilleur chemin : WireGuard (⟦Settings⟧ → ⟦VPN Manager⟧) ou Tailscale ; puis appaire à nouveau avec l'adresse du tunnel.",
   "posture.partner_friend.title": {"one": "Des copies en clair vont chez un ami : {names}", "other": "Des copies en clair vont chez {n} amis : {names}"},
-  "posture.partner_friend.why": "Un partenaire garde tes snapshots tels quels — lisibles pour quiconque y est root. Très bien pour ton propre second serveur ou la famille ; pour le serveur d'un ami, réfléchis à deux fois : tout ce qui est dans ces partages peut y être lu. Chiffré à la place : Kopia vers le serveur de l'ami (le consultant explique comment) — l'ami ne garde alors que des blocs, le mot de passe reste ici."
+  "posture.partner_friend.why": "Un partenaire garde tes snapshots tels quels — lisibles pour quiconque y est root. Très bien pour ton propre second serveur ou la famille ; pour le serveur d'un ami, réfléchis à deux fois : tout ce qui est dans ces partages peut y être lu. Chiffré à la place : Kopia vers le serveur de l'ami (le consultant explique comment) — l'ami ne garde alors que des blocs, le mot de passe reste ici.",
+  "detail.ticket": "Ticket de restauration",
+  "detail.ticket_text": "un nouveau serveur peut lire les copies de {of} jusqu'au {until}"
 }

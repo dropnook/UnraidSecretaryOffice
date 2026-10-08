@@ -53,6 +53,12 @@ const PARTNER_PENDING_KEEP  = 7 * 86400;     // an offer nobody answered goes af
 const PARTNER_SSH_TIMEOUT   = 30;            // seconds a ping or status may take at most (ssh's ConnectTimeout is 15)
 const PARTNER_DEFAULTS      = ['quota_gb' => 0, 'retention' => '7 4 6', 'window' => '00:00-07:00', 'wake' => true];
 const PARTNER_RECORD_MAX    = 1024 * 1024;   // deletes.jsonl and door.log: rotated to .1 beyond this
+// restore tickets (stage 3, plan §3.8 / concept §3.5): a temporary door line for a new server that pulls a gone server's copies
+const PARTNER_TICKET_DAYS   = 7;             // a ticket's door line ends after a week (sshd's expiry-time and the door's own look)
+const PARTNER_TICKET_ARG_RE = '/^ticket-([0-9a-f]{8})$/D';     // the door's argument on a ticket's line (command="… ticket-<id>")
+const PARTNER_TICKET_VERBS  = ['ping', 'list', 'send-back', 'quota'];
+const PARTNER_TICKET_TIDY   = 86400;         // expired ticket lines go at the agent's start and once a day
+const PARTNER_TOKEN_RE      = '/^[0-9a-zA-Z-]{8,4000}$/D';     // a zfs receive_resume_token
 // the client's options (plan §3.5) — the engine's sender uses the same
 const PARTNER_SSH_OPTIONS   = ['-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
                                '-o', 'Ciphers=aes128-gcm@openssh.com,aes256-gcm@openssh.com,chacha20-poly1305@openssh.com',
@@ -483,12 +489,23 @@ function partnerLineIsOurs(string $line, ?string $id = null): bool
     return preg_match('/(?:^|[ \t])uso-partner:' . $mark . '\r?\n?$/D', $line) === 1;
 }
 
-/** Every line of the office's (any pair) taken out of an authorized_keys text, the rest byte for byte */
-function partnerAuthKeysStrip(string $text, ?string $id = null): string
+/** Is this line a restore ticket's (comment uso-ticket:<id>; null: any ticket)? By its comment only. */
+function partnerTicketLineIsOurs(string $line, ?string $id = null): bool
+{
+    $mark = $id === null ? '[0-9a-f]{8}' : preg_quote($id, '/');
+    return preg_match('/(?:^|[ \t])uso-ticket:' . $mark . '\r?\n?$/D', $line) === 1;
+}
+
+/**
+ * Lines of the office's taken out of an authorized_keys text, the rest byte for byte: $id null — every line of the
+ * office's (pairs and tickets: the .plg's remove); else that pair's line ($ticket: that ticket's).
+ */
+function partnerAuthKeysStrip(string $text, ?string $id = null, bool $ticket = false): string
 {
     $out = '';
     foreach (preg_split('/(?<=\n)/', $text) ?: [] as $chunk) {
-        if ($chunk !== '' && !partnerLineIsOurs($chunk, $id)) {
+        $ours = $id === null ? partnerLineIsOurs($chunk) || partnerTicketLineIsOurs($chunk) : ($ticket ? partnerTicketLineIsOurs($chunk, $id) : partnerLineIsOurs($chunk, $id));
+        if ($chunk !== '' && !$ours) {
             $out .= $chunk;
         }
     }
@@ -500,10 +517,11 @@ function partnerAuthKeysStrip(string $text, ?string $id = null): string
  * are touched, every other byte stays; a new file + rename (writeAtomic()), never through a link — a link where the
  * file or its folder belongs is refused. True when something changed.
  */
-function partnerAuthKeysEdit(string $id, ?string $line, ?string $file = null): bool
+function partnerAuthKeysEdit(string $id, ?string $line, ?string $file = null, bool $ticket = false): bool
 {
     $file ??= partnerAuthKeysFile();
-    if (!preg_match(PARTNER_ID_RE, $id) || ($line !== null && (str_contains($line, "\n") || str_contains($line, "\r") || !partnerLineIsOurs($line, $id)))) {
+    if (!preg_match(PARTNER_ID_RE, $id) || ($line !== null && (str_contains($line, "\n") || str_contains($line, "\r")
+        || !($ticket ? partnerTicketLineIsOurs($line, $id) : partnerLineIsOurs($line, $id))))) {
         throw new Problem('partner_shape');
     }
     clearstatcache();
@@ -512,7 +530,7 @@ function partnerAuthKeysEdit(string $id, ?string $line, ?string $file = null): b
         throw new Problem('partner_authkeys_link', ['path' => $file]);
     }
     $old = file_exists($file) ? (string) @file_get_contents($file, false, null, 0, 1024 * 1024) : '';
-    $new = partnerAuthKeysStrip($old, $id);
+    $new = partnerAuthKeysStrip($old, $id, $ticket);
     if ($line !== null) {
         $new .= ($new !== '' && !str_ends_with($new, "\n") ? "\n" : '') . $line . "\n";
     }
@@ -523,11 +541,11 @@ function partnerAuthKeysEdit(string $id, ?string $line, ?string $file = null): b
     return true;
 }
 
-/** The pair's line in authorized_keys as it stands (null: none) */
-function partnerAuthKeysLine(string $id, ?string $file = null): ?string
+/** The pair's line in authorized_keys as it stands ($ticket: the ticket's; null: none) */
+function partnerAuthKeysLine(string $id, ?string $file = null, bool $ticket = false): ?string
 {
     foreach (preg_split('/\r?\n/', (string) @file_get_contents($file ?? partnerAuthKeysFile(), false, null, 0, 1024 * 1024)) ?: [] as $l) {
-        if ($l !== '' && partnerLineIsOurs($l, $id)) {
+        if ($l !== '' && ($ticket ? partnerTicketLineIsOurs($l, $id) : partnerLineIsOurs($l, $id))) {
             return $l;
         }
     }
@@ -1155,8 +1173,9 @@ function partnerPublic(): array
 {
     $pairs = partnerPairs();
     $pending = partnerPending();
+    $tickets = partnerTicketsPublic();          // restore tickets: given here (per pair), held here (a new server), asked for
     if (!$pairs && !$pending) {
-        return ['pairs' => [], 'pending' => [], 'silent_after' => PARTNER_SILENT_AFTER];
+        return ['pairs' => [], 'pending' => [], 'silent_after' => PARTNER_SILENT_AFTER] + $tickets['lists'];
     }
     $state = partnerStateRead();
     $keys = (string) @file_get_contents(partnerAuthKeysFile(), false, null, 0, 1024 * 1024);
@@ -1199,10 +1218,11 @@ function partnerPublic(): array
             'they_keep'  => $e['status'] ?? null,
             'i_keep'     => $got,
             'last_transfer' => partnerLastTransfer($p['id']),
+            'tickets'    => $tickets['given'][$p['id']] ?? [],
         ];
     }
     return ['pairs' => $cards, 'pending' => array_map(fn ($o) => ['id' => $o['id'], 'created' => $o['created'], 'address' => $o['address'],
-        'units' => $o['units'], 'trust' => $o['trust']], $pending), 'silent_after' => PARTNER_SILENT_AFTER];
+        'units' => $o['units'], 'trust' => $o['trust']], $pending), 'silent_after' => PARTNER_SILENT_AFTER] + $tickets['lists'];
 }
 
 // ===================================================================== the Team Lead's actions
@@ -1234,7 +1254,8 @@ function partnerReceiveFrom(mixed $r, array $pools, array $offered): array
 
 function partnerNewId(): string
 {
-    $taken = array_merge(array_column(partnerPairs(), 'id'), array_column(partnerPending(), 'id'));
+    $taken = array_merge(array_column(partnerPairs(), 'id'), array_column(partnerPending(), 'id'), array_column(partnerTickets(), 'id'),
+        array_column(partnerTicketPairs(), 'id'), array_column(partnerTicketPending(), 'id'));
     do {
         $id = bin2hex(random_bytes(4));
     } while (in_array($id, $taken, true));
@@ -1609,4 +1630,552 @@ function partnerLog(string $text): void
     if (function_exists('logLine') && defined('AGENT_LOG')) {
         logLine("Partner offices: $text");
     }
+}
+
+// ===================================================================== restore tickets (stage 3)
+
+/*
+ * A server is gone; its partner (the holder) keeps its copies. A NEW server (only the plugin installed, no pairs)
+ * pulls them with a restore ticket — two pastes and a code, no secret in any block:
+ *
+ *   new server  Team Lead «Start from a partner's copy…» → a key of its own (partners/<id>.key) and
+ *               BLOCK-N {v, block:"N", id, name, address, pub_key}
+ *   holder      the card of the gone server «Hand <name>'s copies to a new server…» → paste BLOCK-N → a ticket line in
+ *               authorized_keys (restrict, expiry-time, from=, command="…/partner-door.sh ticket-<id>", comment
+ *               uso-ticket:<id> — the door allows ping, list, send-back and quota on the gone server's copies only), valid
+ *               7 days (tickets.json) → BLOCK-T {v, block:"T", id, name, of, address, port, host_keys, units, expires}
+ *               and the SAFETY CODE (partnerSafetyCode(N's key, -, -, the holder's host keys))
+ *   new server  «Paste the ticket» → the same code → a ticket pair (ticket-pairs.json, kind ticket: it never sends and
+ *               never receives — it only pulls, through Mr. Restori's «Onto a new server»)
+ *
+ * Expired tickets go by themselves: sshd refuses the key after expiry-time, the door after `expires`, and the agent
+ * removes the line (and the new server its ticket pair) at its start and once a day (partnerTicketsTidy()).
+ *
+ *   data/partner/tickets.json          (holder)     {"v":1,"tickets":[{id, of, name, address, from, key, created, expires, units}]}
+ *   data/partner/ticket-pairs.json     (new server) {"v":1,"pairs":[{id, kind:"ticket", name, of, address, port, host_keys, my_key,
+ *                                                    units, expires, paired, last_heard}]}
+ *   data/partner/ticket-pending.json   (new server) {"requests":[{id, created, name, address, pub_key}]}
+ */
+
+/** A from="…" list as the office writes it: IP addresses, commas between, at most 8 */
+function partnerFromValid(mixed $from): bool
+{
+    if (!is_string($from) || $from === '' || strlen($from) > 400) {
+        return false;
+    }
+    $ips = explode(',', $from);
+    return count($ips) <= 8 && !array_filter($ips, fn ($ip) => !filter_var($ip, FILTER_VALIDATE_IP));
+}
+
+/** A ticket the holder gave (tickets.json) — exactly the shape the office writes */
+function partnerTicketValid(mixed $t): bool
+{
+    return partnerExact($t, ['id', 'of', 'name', 'address', 'from', 'key', 'created', 'expires', 'units'])
+        && is_string($t['id']) && preg_match(PARTNER_ID_RE, $t['id']) && is_string($t['of']) && preg_match(PARTNER_ID_RE, $t['of']) && $t['id'] !== $t['of']
+        && is_string($t['name']) && preg_match(PARTNER_NAME_RE, $t['name']) && is_string($t['address']) && partnerAddressValid($t['address'])
+        && partnerFromValid($t['from']) && is_string($t['key']) && preg_match(PARTNER_FP_RE, $t['key'])
+        && is_int($t['created']) && $t['created'] > 0 && is_int($t['expires']) && $t['expires'] > $t['created']
+        && $t['expires'] <= $t['created'] + PARTNER_TICKET_DAYS * 86400 + 60 && partnerUnitList($t['units'], 1) !== null;
+}
+
+/** @return list<array> the tickets this office gave (holder), in the office's shape only */
+function partnerTickets(): array
+{
+    $j = partnerReadPrivate(partnerDir() . '/tickets.json');
+    if ($j === null || ($j['v'] ?? null) !== 1 || !is_array($j['tickets'] ?? null)) {
+        return [];
+    }
+    $out = $ids = [];
+    foreach ($j['tickets'] as $t) {
+        if (partnerTicketValid($t) && !isset($ids[$t['id']])) {
+            $ids[$t['id']] = true;
+            $out[] = $t;
+        }
+    }
+    return $out;
+}
+
+function partnerTicketsWrite(array $tickets): void
+{
+    foreach ($tickets as $t) {
+        if (!partnerTicketValid($t)) {
+            throw new Problem('partner_shape');
+        }
+    }
+    partnerWritePrivate(partnerDir() . '/tickets.json', ['v' => 1, 'tickets' => array_values($tickets)]);
+}
+
+function partnerTicket(string $id): ?array
+{
+    foreach (partnerTickets() as $t) {
+        if ($t['id'] === $id) {
+            return $t;
+        }
+    }
+    return null;
+}
+
+/** A ticket pair of a new server (ticket-pairs.json) — exactly the shape the office writes */
+function partnerTicketPairValid(mixed $p): bool
+{
+    if (!partnerExact($p, ['id', 'kind', 'name', 'of', 'address', 'port', 'host_keys', 'my_key', 'units', 'expires', 'paired', 'last_heard'])
+        || !is_array($p['host_keys']) || !array_is_list($p['host_keys']) || !$p['host_keys'] || count($p['host_keys']) > 4) {
+        return false;
+    }
+    foreach ($p['host_keys'] as $fp) {
+        if (!is_string($fp) || !preg_match(PARTNER_FP_RE, $fp)) {
+            return false;
+        }
+    }
+    return $p['kind'] === 'ticket' && is_string($p['id']) && preg_match(PARTNER_ID_RE, $p['id'])
+        && is_string($p['name']) && preg_match(PARTNER_NAME_RE, $p['name']) && is_string($p['of']) && preg_match(PARTNER_NAME_RE, $p['of'])
+        && is_string($p['address']) && partnerAddressValid($p['address']) && is_int($p['port']) && $p['port'] >= 1 && $p['port'] <= 65535
+        && is_string($p['my_key']) && preg_match(PARTNER_FP_RE, $p['my_key']) && partnerUnitList($p['units'], 1) !== null
+        && is_int($p['expires']) && is_int($p['paired']) && $p['paired'] > 0 && ($p['last_heard'] === null || is_int($p['last_heard']));
+}
+
+/** @return list<array> this (new) server's ticket pairs — the copies of a gone server it may pull */
+function partnerTicketPairs(): array
+{
+    $j = partnerReadPrivate(partnerDir() . '/ticket-pairs.json');
+    if ($j === null || ($j['v'] ?? null) !== 1 || !is_array($j['pairs'] ?? null)) {
+        return [];
+    }
+    $out = $ids = [];
+    foreach ($j['pairs'] as $p) {
+        if (partnerTicketPairValid($p) && !isset($ids[$p['id']])) {
+            $ids[$p['id']] = true;
+            $out[] = $p;
+        }
+    }
+    return $out;
+}
+
+function partnerTicketPairsWrite(array $pairs): void
+{
+    foreach ($pairs as $p) {
+        if (!partnerTicketPairValid($p)) {
+            throw new Problem('partner_shape');
+        }
+    }
+    partnerWritePrivate(partnerDir() . '/ticket-pairs.json', ['v' => 1, 'pairs' => array_values($pairs)]);
+}
+
+function partnerTicketPair(string $id): ?array
+{
+    foreach (partnerTicketPairs() as $p) {
+        if ($p['id'] === $id) {
+            return $p;
+        }
+    }
+    return null;
+}
+
+/** The requests this (new) server made with «Start from a partner's copy…» (≤ 7 days; older ones go with their keys) */
+function partnerTicketPending(bool $tidy = false): array
+{
+    $j = partnerReadPrivate(partnerDir() . '/ticket-pending.json');
+    $out = [];
+    $gone = false;
+    foreach ((array) ($j['requests'] ?? []) as $q) {
+        if (!partnerExact($q, ['id', 'created', 'name', 'address', 'pub_key']) || !is_string($q['id']) || !preg_match(PARTNER_ID_RE, $q['id'])
+            || !is_int($q['created']) || !is_string($q['name']) || !preg_match(PARTNER_NAME_RE, $q['name']) || !is_string($q['address'])
+            || !partnerAddressValid($q['address']) || partnerKeyNorm($q['pub_key']) !== $q['pub_key']) {
+            $gone = true;
+            continue;
+        }
+        if (time() - $q['created'] > PARTNER_PENDING_KEEP) {
+            if ($tidy) {
+                partnerKeyDrop($q['id']);
+            }
+            $gone = true;
+            continue;
+        }
+        $out[] = $q;
+    }
+    if ($tidy && $gone) {
+        partnerWritePrivate(partnerDir() . '/ticket-pending.json', ['requests' => $out]);
+    }
+    return $out;
+}
+
+/** The ticket's line in authorized_keys: sshd's own expiry-time (UTC) besides the door's look at `expires` */
+function partnerTicketLine(string $id, string $from, string $pubKey, int $expires): string
+{
+    return 'restrict,expiry-time="' . gmdate('YmdHi', $expires) . 'Z",from="' . $from . '",command="' . PARTNER_DOOR . ' ticket-' . $id . '" '
+        . $pubKey . ' uso-ticket:' . $id;
+}
+
+/**
+ * BLOCK-N ({v, block:"N", id, name, address, pub_key}) or BLOCK-T ({v, block:"T", id, name, of, address, port, host_keys,
+ * units, expires}) as pasted — field by field like partnerBlockDecode(); a refusal names the field.
+ */
+function partnerTicketBlockDecode(mixed $text, string $kind): array
+{
+    $bad = fn (string $field) => new Problem('partner_block', ['field' => $field]);
+    $text = is_string($text) ? (string) preg_replace('/\s+/', '', $text) : '';
+    if ($text === '' || strlen($text) > PARTNER_BLOCK_MAX) {
+        throw $bad('block');
+    }
+    $raw = base64_decode($text, true);
+    $b = $raw === false ? null : json_decode($raw, true, 6);
+    if (!is_array($b) || array_is_list($b)) {
+        throw $bad('block');
+    }
+    if (($b['block'] ?? null) !== $kind) {
+        throw $bad('kind');
+    }
+    $keys = $kind === 'N' ? ['v', 'block', 'id', 'name', 'address', 'pub_key'] : ['v', 'block', 'id', 'name', 'of', 'address', 'port', 'host_keys', 'units', 'expires'];
+    if (!partnerExact($b, $keys)) {
+        throw $bad('fields');
+    }
+    if ($b['v'] !== 1) {
+        throw $bad('v');
+    }
+    if (!is_string($b['id']) || !preg_match(PARTNER_ID_RE, $b['id'])) {
+        throw $bad('id');
+    }
+    if (!is_string($b['name']) || !preg_match(PARTNER_NAME_RE, $b['name'])) {
+        throw $bad('name');
+    }
+    if (!is_string($b['address']) || !partnerAddressValid($b['address'])) {
+        throw $bad('address');
+    }
+    if ($kind === 'N') {
+        if (partnerKeyNorm($b['pub_key']) === null || partnerKeyNorm($b['pub_key']) !== $b['pub_key']) {
+            throw $bad('pub_key');
+        }
+        return $b;
+    }
+    if (!is_string($b['of']) || !preg_match(PARTNER_NAME_RE, $b['of'])) {
+        throw $bad('of');
+    }
+    if (!is_int($b['port']) || $b['port'] < 1 || $b['port'] > 65535) {
+        throw $bad('port');
+    }
+    if (!is_array($b['host_keys']) || !array_is_list($b['host_keys']) || !$b['host_keys'] || count($b['host_keys']) > 4) {
+        throw $bad('host_keys');
+    }
+    foreach ($b['host_keys'] as $k) {
+        if (partnerKeyNorm($k) === null || partnerKeyNorm($k) !== $k) {
+            throw $bad('host_keys');
+        }
+    }
+    if (partnerUnitList($b['units'], 1) === null) {
+        throw $bad('units');
+    }
+    if (!is_int($b['expires']) || $b['expires'] <= 0) {
+        throw $bad('expires');
+    }
+    return $b;
+}
+
+/** The ticket's safety code: the new server's key and the holder's host keys (both pages compute it alike) */
+function partnerTicketCode(string $newPub, array $holderHostKeys): string
+{
+    return partnerSafetyCode($newPub, null, [], $holderHostKeys);
+}
+
+/** A call through a ticket's door (the new server's side): like partnerSsh(), with the ticket pair's key and pin */
+function partnerTicketSsh(array $tp, string $verb, array $args = [], int $timeout = PARTNER_SSH_TIMEOUT): array
+{
+    foreach (array_merge([$verb], $args) as $w) {
+        if (!is_string($w) || !preg_match('/^[A-Za-z0-9][A-Za-z0-9._:-]{0,80}$/D', $w)) {
+            return [2, '', 'bad word'];
+        }
+    }
+    if (!partnerTicketPairValid($tp) || !in_array($verb, PARTNER_TICKET_VERBS, true) || !is_file(partnerKeyFile($tp['id'])) || !is_file(partnerKnownFile($tp['id']))) {
+        return [2, '', 'no key for this ticket'];
+    }
+    return run(partnerSshArgs($tp, implode(' ', array_merge([$verb], $args))), $timeout);
+}
+
+/** Pings a ticket's door now: reachable, why, its array (and keeps last_heard) */
+function partnerTicketAsk(string $id): array
+{
+    $pairs = partnerTicketPairs();
+    $tp = null;
+    foreach ($pairs as $p) {
+        $tp = $p['id'] === $id ? $p : $tp;
+    }
+    if ($tp === null) {
+        throw new Problem('partner_unknown');
+    }
+    [$exit, $out, $err] = partnerTicketSsh($tp, 'ping');
+    $j = partnerJsonLine($out);
+    if ($exit === 0 && is_array($j) && ($j['ok'] ?? null) === true && in_array($j['array'] ?? null, ['started', 'stopped'], true)) {
+        foreach ($pairs as $i => $p) {
+            if ($p['id'] === $id) {
+                $pairs[$i]['last_heard'] = time();
+            }
+        }
+        partnerTicketPairsWrite($pairs);
+        return ['reachable' => true, 'why' => null, 'array' => $j['array']];
+    }
+    $why = is_array($j) && is_string($j['why'] ?? null) && preg_match('/^[a-z_]{1,32}$/D', $j['why']) ? $j['why']
+        : ($exit === 255 ? (preg_match('/Host key verification failed|REMOTE HOST IDENTIFICATION/i', $err) ? 'host_key'
+            : (preg_match('/Permission denied/i', $err) ? 'denied' : 'unreachable')) : ($exit === 124 ? 'timeout' : 'bad_answer'));
+    return ['reachable' => false, 'why' => $why, 'array' => null];
+}
+
+/**
+ * Tickets that ended: on the holder each expired ticket's line out of authorized_keys and its record gone (and a
+ * uso-ticket line no ticket names); on a new server each expired ticket pair gone with its key and pin; requests older
+ * than a week gone with their keys. Cheap when there is nothing: a stat or three. The number of what went.
+ */
+function partnerTicketsTidy(?int $now = null): int
+{
+    $now ??= time();
+    $gone = 0;
+    $dir = partnerDir();
+    if (is_file("$dir/tickets.json") || str_contains((string) @file_get_contents(partnerAuthKeysFile(), false, null, 0, 1024 * 1024), 'uso-ticket:')) {
+        $keep = [];
+        foreach (partnerTickets() as $t) {
+            if ($t['expires'] > $now) {
+                $keep[$t['id']] = $t;
+                continue;
+            }
+            partnerAuthKeysEdit($t['id'], null, null, true);
+            partnerLog("ticket {$t['id']} for {$t['name']} (the copies of pair {$t['of']}) ended - its line removed");
+            $gone++;
+        }
+        foreach (preg_split('/\r?\n/', (string) @file_get_contents(partnerAuthKeysFile(), false, null, 0, 1024 * 1024)) ?: [] as $l) {
+            if (partnerTicketLineIsOurs($l) && preg_match('/uso-ticket:([0-9a-f]{8})$/D', trim($l), $m) && !isset($keep[$m[1]])) {
+                partnerAuthKeysEdit($m[1], null, null, true);
+                partnerLog("a ticket line (uso-ticket:{$m[1]}) without its ticket - removed");
+                $gone++;
+            }
+        }
+        if (is_file("$dir/tickets.json") && count($keep) !== count(partnerTickets())) {
+            partnerTicketsWrite(array_values($keep));
+        }
+    }
+    if (is_file("$dir/ticket-pairs.json")) {
+        $pairs = partnerTicketPairs();
+        $keep = array_values(array_filter($pairs, fn ($p) => $p['expires'] > $now));
+        foreach ($pairs as $p) {
+            if ($p['expires'] <= $now) {
+                partnerKeyDrop($p['id']);
+                partnerLog("the ticket of {$p['name']} (copies of {$p['of']}) ended - its key gone");
+                $gone++;
+            }
+        }
+        if (count($keep) !== count($pairs)) {
+            partnerTicketPairsWrite($keep);
+        }
+    }
+    if (is_file("$dir/ticket-pending.json")) {
+        partnerTicketPending(true);
+    }
+    return $gone;
+}
+
+/** The tickets for the Team Lead's cards — never a key: given (holder, per pair), held (new server), asked for */
+function partnerTicketsPublic(): array
+{
+    $given = [];
+    $keys = null;
+    foreach (partnerTickets() as $t) {
+        $keys ??= (string) @file_get_contents(partnerAuthKeysFile(), false, null, 0, 1024 * 1024);
+        $line = 'closed';
+        foreach (preg_split('/\r?\n/', $keys) ?: [] as $l) {
+            if (partnerTicketLineIsOurs($l, $t['id'])) {
+                $line = 'open';
+            }
+        }
+        $given[$t['of']][] = ['id' => $t['id'], 'name' => $t['name'], 'address' => $t['address'], 'created' => $t['created'], 'expires' => $t['expires'],
+                              'units' => $t['units'], 'door' => $line, 'expired' => $t['expires'] <= time()];
+    }
+    $held = array_map(fn ($p) => ['id' => $p['id'], 'name' => $p['name'], 'of' => $p['of'], 'address' => $p['address'], 'port' => $p['port'], 'units' => $p['units'],
+        'expires' => $p['expires'], 'paired' => $p['paired'], 'last_heard' => $p['last_heard'], 'expired' => $p['expires'] <= time()], partnerTicketPairs());
+    $asked = array_map(fn ($q) => ['id' => $q['id'], 'created' => $q['created'], 'address' => $q['address']], partnerTicketPending());
+    return ['given' => $given, 'lists' => ['ticket_pairs' => $held, 'ticket_requests' => $asked]];
+}
+
+/** «Start from a partner's copy…» (the new server): look, do (a key and BLOCK-N), show (BLOCK-N again) */
+function partner_ticket_start(array $r): array
+{
+    $step = (string) ($r['step'] ?? 'look');
+    if ($step === 'look') {
+        return ['ok' => true, 'name' => partnerMyName(), 'addresses' => partnerMyAddresses()];
+    }
+    if ($step === 'show') {
+        foreach (partnerTicketPending(true) as $q) {
+            if ($q['id'] === ($r['id'] ?? null)) {
+                return ['ok' => true, 'id' => $q['id'], 'block' => partnerTicketBlockN($q)];
+            }
+        }
+        throw new Problem('partner_unknown');
+    }
+    if ($step !== 'do') {
+        throw new Problem('bad_request');
+    }
+    $address = trim((string) ($r['address'] ?? ''));
+    if (!partnerAddressValid($address)) {
+        throw new Problem('partner_address');
+    }
+    $pending = partnerTicketPending(true);
+    $id = partnerNewId();
+    $pub = partnerKeyMake($id);
+    $q = ['id' => $id, 'created' => time(), 'name' => partnerMyName(), 'address' => $address, 'pub_key' => $pub];
+    try {
+        partnerWritePrivate(partnerDir() . '/ticket-pending.json', ['requests' => array_merge($pending, [$q])]);
+    } catch (Throwable $e) {
+        partnerKeyDrop($id);
+        throw $e;
+    }
+    partnerLog("asked for a restore ticket ($id, address $address)");
+    return ['ok' => true, 'id' => $id, 'block' => partnerTicketBlockN($q), 'partners' => partnerPublic()];
+}
+
+function partnerTicketBlockN(array $q): string
+{
+    return partnerBlockEncode(['v' => 1, 'block' => 'N', 'id' => $q['id'], 'name' => $q['name'], 'address' => $q['address'], 'pub_key' => $q['pub_key']]);
+}
+
+/**
+ * «Hand <name>'s copies to a new server…» (the holder, on the card of the gone server): look (the new server, the
+ * line, the units, until when), do (the ticket and its line, BLOCK-T and the code; with `close_door` the gone server's
+ * own line goes too — its pair and its copies stay).
+ */
+function partner_ticket_make(array $r): array
+{
+    $pairId = (string) ($r['pair'] ?? '');
+    $pair = preg_match(PARTNER_ID_RE, $pairId) ? partnerPair($pairId) : null;
+    if ($pair === null) {
+        throw new Problem('partner_unknown');
+    }
+    if ($pair['receive'] === null) {
+        throw new Problem('partner_ticket_nothing', ['name' => $pair['name']]);
+    }
+    $n = partnerTicketBlockDecode($r['block'] ?? null, 'N');
+    // this office's own request (a walk-through on one server: it plays the new server too) — its id is taken here by itself
+    $own = (bool) array_filter(partnerTicketPending(), fn ($q) => $q['id'] === $n['id'] && $q['pub_key'] === $n['pub_key']);
+    $taken = array_merge(array_column(partnerPairs(), 'id'), array_column(partnerPending(), 'id'), array_column(partnerTickets(), 'id'),
+        array_column(partnerTicketPairs(), 'id'), $own ? [] : array_column(partnerTicketPending(), 'id'));
+    if (in_array($n['id'], $taken, true)) {
+        throw new Problem('partner_known', ['name' => $n['name']]);
+    }
+    if (in_array($n['pub_key'], partnerHostKeys(), true)) {
+        throw new Problem('partner_block', ['field' => 'pub_key']);
+    }
+    $from = partnerFromList($n['address']);
+    $now = time();
+    $expires = $now + PARTNER_TICKET_DAYS * 86400;
+    $step = (string) ($r['step'] ?? 'look');
+    if ($step === 'look') {
+        return ['ok' => true, 'new' => ['id' => $n['id'], 'name' => $n['name'], 'address' => $n['address'], 'public' => !partnerAddressPrivate($n['address']),
+                'key' => partnerFingerprint($n['pub_key'])], 'of' => $pair['name'], 'units' => $pair['receive']['units'], 'expires' => $expires,
+                'line' => $from !== null ? partnerTicketLine($n['id'], $from, $n['pub_key'], $expires) : null, 'name' => partnerMyName(),
+                'addresses' => partnerMyAddresses(), 'port' => partnerMyPort(), 'host_key' => partnerHostKeys() !== []];
+    }
+    if ($step !== 'do' || ($r['confirm'] ?? null) !== true) {
+        throw new Problem('bad_request');
+    }
+    if ($from === null) {
+        throw new Problem('partner_unresolved', ['address' => $n['address']]);
+    }
+    $host = partnerHostKeys();
+    if (!$host) {
+        throw new Problem('partner_host_key');
+    }
+    [$address, $port] = partnerAddressFrom($r);
+    $ticket = ['id' => $n['id'], 'of' => $pair['id'], 'name' => $n['name'], 'address' => $n['address'], 'from' => $from,
+               'key' => (string) partnerFingerprint($n['pub_key']), 'created' => $now, 'expires' => $expires, 'units' => $pair['receive']['units']];
+    $tickets = partnerTickets();
+    // the record first, then the line: the night watchman takes a line written right after its ticket for the office's own
+    partnerTicketsWrite(array_merge($tickets, [$ticket]));
+    try {
+        partnerAuthKeysEdit($n['id'], partnerTicketLine($n['id'], $from, $n['pub_key'], $expires), null, true);
+    } catch (Throwable $e) {
+        partnerTicketsWrite($tickets);
+        throw $e;
+    }
+    $closed = false;
+    if (($r['close_door'] ?? null) === true && partnerAuthKeysEdit($pair['id'], null)) {
+        $closed = true;
+    }
+    partnerLog("ticket {$n['id']} for {$n['name']} ({$n['address']}): the copies of {$pair['name']} ({$pair['id']}) until " . date('Y-m-d H:i', $expires)
+        . ($closed ? " - {$pair['name']}'s own line removed" : ''));
+    $block = partnerBlockEncode(['v' => 1, 'block' => 'T', 'id' => $n['id'], 'name' => partnerMyName(), 'of' => $pair['name'], 'address' => $address,
+        'port' => $port, 'host_keys' => $host, 'units' => $pair['receive']['units'], 'expires' => $expires]);
+    return ['ok' => true, 'block' => $block, 'code' => partnerTicketCode($n['pub_key'], $host), 'expires' => $expires, 'closed' => $closed,
+            'public' => !partnerAddressPrivate($address), 'partners' => partnerPublic()];
+}
+
+/** «Paste the ticket» (the new server): look (the code, the holder, the units), do («They match»: the ticket pair, a ping) */
+function partner_ticket_finish(array $r): array
+{
+    $t = partnerTicketBlockDecode($r['block'] ?? null, 'T');
+    $q = null;
+    foreach (partnerTicketPending(true) as $x) {
+        $q = $x['id'] === $t['id'] ? $x : $q;
+    }
+    if ($q === null) {
+        throw new Problem(partnerTicketPair($t['id']) !== null ? 'partner_known' : 'partner_unknown', ['name' => $t['name']]);
+    }
+    if ($t['expires'] <= time()) {
+        throw new Problem('partner_ticket_expired', ['when' => date('Y-m-d H:i', $t['expires'])]);
+    }
+    if (in_array($q['pub_key'], $t['host_keys'], true)) {
+        throw new Problem('partner_block', ['field' => 'host_keys']);
+    }
+    $code = partnerTicketCode($q['pub_key'], $t['host_keys']);
+    $facts = ['id' => $t['id'], 'name' => $t['name'], 'of' => $t['of'], 'address' => $t['address'], 'port' => $t['port'], 'public' => !partnerAddressPrivate($t['address']),
+              'host_keys' => array_map('partnerFingerprint', $t['host_keys']), 'units' => $t['units'], 'expires' => $t['expires']];
+    if (($r['step'] ?? 'look') === 'look') {
+        return ['ok' => true, 'ticket' => $facts, 'code' => $code];
+    }
+    if (($r['step'] ?? '') !== 'do' || ($r['confirm'] ?? null) !== true || ($r['code'] ?? null) !== $code) {
+        throw new Problem('bad_request');
+    }
+    $pairs = partnerTicketPairs();
+    $tp = ['id' => $t['id'], 'kind' => 'ticket', 'name' => $t['name'], 'of' => $t['of'], 'address' => $t['address'], 'port' => $t['port'],
+           'host_keys' => array_values(array_map('partnerFingerprint', $t['host_keys'])), 'my_key' => (string) partnerFingerprint($q['pub_key']),
+           'units' => $t['units'], 'expires' => $t['expires'], 'paired' => time(), 'last_heard' => null];
+    partnerKnownWrite($t['id'], $t['address'], $t['port'], $t['host_keys']);
+    try {
+        partnerTicketPairsWrite(array_merge($pairs, [$tp]));
+    } catch (Throwable $e) {
+        @unlink(partnerKnownFile($t['id']));
+        throw $e;
+    }
+    partnerWritePrivate(partnerDir() . '/ticket-pending.json', ['requests' => array_values(array_filter(partnerTicketPending(), fn ($x) => $x['id'] !== $t['id']))]);
+    partnerLog("ticket {$t['id']} from {$t['name']} taken - the copies of {$t['of']} until " . date('Y-m-d H:i', $t['expires']) . ', the codes matched');
+    return ['ok' => true, 'ask' => partnerTicketAsk($t['id']), 'partners' => partnerPublic()];
+}
+
+/** «End» a ticket: the holder's (its line and record), a new server's ticket pair (its key and pin), or a request */
+function partner_ticket_end(array $r): array
+{
+    $id = (string) ($r['id'] ?? '');
+    if (!preg_match(PARTNER_ID_RE, $id)) {
+        throw new Problem('bad_request');
+    }
+    $done = false;
+    $tickets = partnerTickets();
+    if (partnerTicket($id) !== null) {
+        partnerAuthKeysEdit($id, null, null, true);
+        partnerTicketsWrite(array_values(array_filter($tickets, fn ($t) => $t['id'] !== $id)));
+        partnerLog("ticket $id ended by hand - its line removed");
+        $done = true;
+    }
+    $pairs = partnerTicketPairs();
+    if (partnerTicketPair($id) !== null) {
+        partnerKeyDrop($id);
+        partnerTicketPairsWrite(array_values(array_filter($pairs, fn ($p) => $p['id'] !== $id)));
+        partnerLog("the ticket $id ended by hand - its key gone");
+        $done = true;
+    }
+    $pending = partnerTicketPending();
+    if (in_array($id, array_column($pending, 'id'), true)) {
+        partnerKeyDrop($id);
+        partnerWritePrivate(partnerDir() . '/ticket-pending.json', ['requests' => array_values(array_filter($pending, fn ($q) => $q['id'] !== $id))]);
+        partnerLog("the request for a ticket $id withdrawn");
+        $done = true;
+    }
+    if (!$done) {
+        throw new Problem('partner_unknown');
+    }
+    return ['ok' => true, 'partners' => partnerPublic()];
 }

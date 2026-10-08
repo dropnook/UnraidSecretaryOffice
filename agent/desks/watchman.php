@@ -347,6 +347,7 @@ function watchmanPaths(): array
         'array_events' => WATCH_ARRAY_EVENTS,
         // partner offices (agent/lib/partnerlook.php): the pairs (root only), the door's records in RAM, its records in the data folder
         'partner_pairs' => DATA_DIR . '/partner/pairs.json',
+        'partner_tickets' => DATA_DIR . '/partner/tickets.json',        // the restore tickets this office gave (stage 3)
         'partner_run'   => RUN_DIR . '/partner',
         'partner_data'  => DATA_DIR . '/partner',
     ];
@@ -674,7 +675,7 @@ function watchmanNightPaths(): array
 {
     // libvirt is left alone too (while the array stops it shuts the VMs down; his VM count for a posture tip keeps the day's word)
     return array_diff_key(watchmanPaths(), array_flip(['office_installs', 'zfs', 'zpool', 'mnt', 'agent_log', 'snap_record', 'engine',
-        'sec', 'sec_nfs', 'share_cfg', 'libvirt_sock', 'virsh', 'partner_pairs', 'partner_data']));
+        'sec', 'sec_nfs', 'share_cfg', 'libvirt_sock', 'virsh', 'partner_pairs', 'partner_tickets', 'partner_data']));
 }
 
 /** This boot's id: the RAM mirror and a position in the syslog belong to one boot */
@@ -1264,6 +1265,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             if (is_array($seen['partner']['pairs'] ?? null)) {
                 $b['partner']['pairs'] = $doors;            // for the night shift, which can't read the pairs
             }
+            $doors += watchmanTicketDoors($seen['partner']);
             $added = array_merge(
                 watchmanLogins($b, $book, $st, $events, false, $doors),
                 watchmanContainersCompare($b['containers'], $seen['containers'], $book, $now, $office),
@@ -2127,10 +2129,14 @@ function watchmanPartnerLook(array $paths): ?array
     clearstatcache(true, $file);
     $st = @stat($file);
     $run = $paths['partner_run'] ?? null;
+    $pairs = isset($paths['partner_pairs']) ? partnerLookPairs((string) $paths['partner_pairs']) : null;
     return [
         'lines'   => partnerLookLines($file),
         'mtime'   => $st ? (int) $st['mtime'] : null,
-        'pairs'   => isset($paths['partner_pairs']) ? partnerLookPairs((string) $paths['partner_pairs']) : null,
+        'pairs'   => $pairs,
+        // restore tickets (stage 3): their lines, and the tickets this office gave (null: not looked at — the night)
+        'ticket_lines' => partnerLookTicketLines($file),
+        'tickets' => isset($paths['partner_tickets']) ? partnerLookTickets((string) $paths['partner_tickets'], (array) $pairs) : null,
         'doors'   => $run !== null ? partnerLookDoors((string) $run) : [],
         'refused' => $run !== null ? partnerLookRefused((string) $run) : [],
     ];
@@ -2140,7 +2146,8 @@ function watchmanPartnerLook(array $paths): ?array
 function watchmanPartnerBase(mixed $b): array
 {
     $b = is_array($b) ? $b : [];
-    return ['lines' => (array) ($b['lines'] ?? []), 'pairs' => (array) ($b['pairs'] ?? []), 'logins' => (array) ($b['logins'] ?? [])];
+    return ['lines' => (array) ($b['lines'] ?? []), 'pairs' => (array) ($b['pairs'] ?? []), 'logins' => (array) ($b['logins'] ?? []),
+            'tickets' => (array) ($b['tickets'] ?? [])];
 }
 
 /** What he keeps of a line: what it allows and a hash of it — never the key */
@@ -2197,6 +2204,43 @@ function watchmanPartnerAdopt(array &$b, ?array $seen, array &$book, int $now, a
         $e['by'] = 'office';
         $book[] = $e;
     }
+    // a restore ticket's line (uso-ticket:<id>, stage 3): the office's own like a pair's — exactly as the Team Lead writes
+    // it, the ticket's key and address, written right after the ticket was made; noted by himself with kind ticket
+    foreach ((array) ($seen['ticket_lines'] ?? []) as $id => $l) {
+        $id = (string) $id;
+        $fp = $l['fp'] ?? null;
+        if (isset($b['partner']['tickets'][$id]) || !is_string($fp)) {
+            continue;
+        }
+        if (isset($b['flash']['keys']['root'][$fp])) {
+            $b['partner']['tickets'][$id] = watchmanPartnerLineKeep($l);
+            continue;
+        }
+        $t = is_array($seen['tickets'] ?? null) ? ($seen['tickets'][$id] ?? null) : null;
+        if (!is_array($t) || !is_int($l['expires'] ?? null) || gmdate('YmdHi', $l['expires']) !== gmdate('YmdHi', (int) $t['expires'])
+            || !watchmanPartnerOwnLine($l, ['fp' => $t['fp'], 'ips' => $t['ips'], 'paired' => $t['created']], $seen['mtime'] ?? null)) {
+            continue;
+        }
+        $b['flash']['keys']['root'][$fp] = $seenKeys[$fp] ?? ['type' => 'ssh-ed25519', 'comment' => "uso-ticket:$id"];
+        $b['partner']['tickets'][$id] = watchmanPartnerLineKeep($l);
+        $e = watchmanEntry('partner_paired', "partner_paired:ticket-$id", $now, ['id' => $id, 'name' => (string) $t['name'], 'address' => (string) $t['address'],
+            'from' => (string) $l['from'], 'fp' => $fp, 'installed_by' => 'teamlead', 'kind' => 'ticket', 'of' => (string) $t['of_name'], 'expires' => (int) $t['expires']]);
+        $e['noted'] = $now;
+        $e['by'] = 'office';
+        $book[] = $e;
+    }
+}
+
+/** The restore tickets as doors for the logins: their key from their address is the office's own */
+function watchmanTicketDoors(?array $seen): array
+{
+    $out = [];
+    foreach ((array) ($seen['tickets'] ?? []) as $id => $t) {
+        if (isset($seen['ticket_lines'][$id]) && is_string($t['fp'] ?? null)) {
+            $out["ticket-$id"] = ['id' => "ticket-$id", 'name' => (string) $t['name'], 'ips' => array_values((array) $t['ips']), 'fp' => $t['fp']];
+        }
+    }
+    return $out;
 }
 
 /**
@@ -2261,6 +2305,11 @@ function watchmanPartnerCompare(array &$b, ?array $seen, array &$book, array &$s
     $b['partner'] = watchmanPartnerBase($b['partner'] ?? null);
     $name = fn (string $id): string => (string) ($seen['pairs'][$id]['name'] ?? $b['partner']['pairs'][$id]['name'] ?? $id);
     $added = [];
+    foreach (array_keys($b['partner']['tickets']) as $id) {
+        if (!isset($seen['ticket_lines'][$id])) {
+            unset($b['partner']['tickets'][$id]);       // a ticket's line gone (it expired, or ended by hand): normal
+        }
+    }
     foreach ($b['partner']['lines'] as $id => $k) {
         $id = (string) $id;
         $l = $seen['lines'][$id] ?? null;

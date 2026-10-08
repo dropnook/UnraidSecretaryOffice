@@ -749,5 +749,7 @@
   "posture.partner_public.title": {"one": "A partner faces the internet: {names}", "other": "{n} partners face the internet: {names}"},
   "posture.partner_public.why": "The pair's address is a public one: the copies travel across the internet — encrypted, but this server's SSH must then be reachable from there, for everybody. A tunnel is the better route between homes: WireGuard (⟦Settings⟧ → ⟦VPN Manager⟧) or Tailscale; then pair anew with the tunnel's address.",
   "posture.partner_friend.title": {"one": "Plain copies go to a friend: {names}", "other": "Plain copies go to {n} friends: {names}"},
-  "posture.partner_friend.why": "A partner keeps your snapshots as they are — readable for whoever is root there. Fine for your own second server or family; for a friend's server think twice: everything in those shares can be read there. Encrypted instead: Kopia to the friend's server (the Consultant explains how) — the friend then holds only blocks, the password stays here."
+  "posture.partner_friend.why": "A partner keeps your snapshots as they are — readable for whoever is root there. Fine for your own second server or family; for a friend's server think twice: everything in those shares can be read there. Encrypted instead: Kopia to the friend's server (the Consultant explains how) — the friend then holds only blocks, the password stays here.",
+  "detail.ticket": "Restore ticket",
+  "detail.ticket_text": "a new server may read {of}'s copies until {until}"
 }

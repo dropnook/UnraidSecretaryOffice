@@ -749,5 +749,7 @@
   "posture.partner_public.title": {"one": "Ein Partner steht im Internet: {names}", "other": "{n} Partner stehen im Internet: {names}"},
   "posture.partner_public.why": "Die Adresse der Partnerschaft ist eine öffentliche: Die Kopien reisen übers Internet — verschlüsselt, aber SSH dieses Servers muss dann von dort erreichbar sein, für alle. Zwischen zwei Haushalten ist ein Tunnel der bessere Weg: WireGuard (⟦Settings⟧ → ⟦VPN Manager⟧) oder Tailscale; dann mit der Adresse des Tunnels neu verbinden.",
   "posture.partner_friend.title": {"one": "Kopien im Klartext gehen zu einem Freund: {names}", "other": "Kopien im Klartext gehen zu {n} Freunden: {names}"},
-  "posture.partner_friend.why": "Ein Partner hält deine Snapshots, wie sie sind — lesbar für jeden, der dort root ist. Für deinen eigenen zweiten Server oder die Familie in Ordnung; beim Server eines Freundes lieber zweimal überlegen: Alles in diesen Shares kann dort gelesen werden. Verschlüsselt stattdessen: Kopia auf den Server des Freundes (der Berater erklärt, wie) — der Freund hält dann nur Blöcke, das Passwort bleibt hier."
+  "posture.partner_friend.why": "Ein Partner hält deine Snapshots, wie sie sind — lesbar für jeden, der dort root ist. Für deinen eigenen zweiten Server oder die Familie in Ordnung; beim Server eines Freundes lieber zweimal überlegen: Alles in diesen Shares kann dort gelesen werden. Verschlüsselt stattdessen: Kopia auf den Server des Freundes (der Berater erklärt, wie) — der Freund hält dann nur Blöcke, das Passwort bleibt hier.",
+  "detail.ticket": "Rückhol-Ticket",
+  "detail.ticket_text": "ein neuer Server darf die Kopien von {of} lesen bis {until}"
 }

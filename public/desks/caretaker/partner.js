@@ -38,6 +38,8 @@ function took(j) {
 // ------------------------------------------------------------------ the section
 function section(state) {
   const p = (state && state.partners) || { pairs: [], pending: [] };
+  const held = p.ticket_pairs || [];
+  const asked = p.ticket_requests || [];
   const s = el('section', 'section');
   s.dataset.ct = 'partners';
   const add = el('button', 'btn small', T('partner.add'));
@@ -48,7 +50,19 @@ function section(state) {
   accept.type = 'button';
   accept.disabled = busyOff();
   accept.onclick = () => acceptDialog();
-  const extra = [accept, add];
+  const start = el('button', 'btn small plain', T('partner.t_start'));
+  start.type = 'button';
+  start.disabled = busyOff();
+  start.title = T('partner.t_start_title');
+  start.onclick = () => ticketStartDialog();
+  const extra = [start, accept, add];
+  if (asked.length) {
+    const tf = el('button', 'btn small plain', T('partner.t_finish'));
+    tf.type = 'button';
+    tf.disabled = busyOff();
+    tf.onclick = () => ticketFinishDialog();
+    extra.unshift(tf);
+  }
   if (p.pending.length) {
     const fin = el('button', 'btn small plain', T('partner.finish'));
     fin.type = 'button';
@@ -58,13 +72,15 @@ function section(state) {
   }
   s.appendChild(Office.sectionHead(T('partner.title'), T('partner.sub'), ...extra));
   const box = el('div', 'box');
-  if (!p.pairs.length && !p.pending.length) {
+  if (!p.pairs.length && !p.pending.length && !held.length && !asked.length) {
     const e = el('div', 'empty');
     e.append(el('strong', '', T('partner.none_title')), T('partner.none_text'));
     box.appendChild(e);
   }
   p.pairs.forEach((x) => box.appendChild(card(x)));
   p.pending.forEach((o) => box.appendChild(pendingRow(o)));
+  held.forEach((t) => box.appendChild(ticketCard(t)));
+  asked.forEach((q) => box.appendChild(ticketRequestRow(q)));
   s.appendChild(box);
   return s;
 }
@@ -147,6 +163,7 @@ function card(x) {
     keep.append(T('partner.i_keep_nothing'));
     main.appendChild(keep);
   }
+  (x.tickets || []).forEach((t) => main.appendChild(ticketLine(x, t)));
   r.appendChild(main);
 
   const acts = el('div', 'ct-acts');
@@ -168,6 +185,7 @@ function card(x) {
   more.setAttribute('aria-label', T('partner.more'));
   more.disabled = busyOff();
   more.onclick = (e) => Office.menu(e, [
+    ...(x.receive ? [{ text: T('partner.t_make', { name: x.name }), act: () => ticketMakeDialog(x) }] : []),
     { text: T('partner.renew'), act: () => renewDialog(x) },
     { separator: true },
     { text: T('partner.end'), kind: 'danger', act: () => endDialog(x) },
@@ -631,6 +649,191 @@ function renewDialog(x) {
     title: T('partner.renew_title', { name: x.name }),
     body: T('partner.renew_text', { name: x.name }),
     buttons: [{ text: Office.t('common.cancel') }, { text: T('partner.renew'), kind: '', act: () => { endDialog(x, addDialog); return true; } }],
+  });
+}
+
+// ------------------------------------------------------------------ restore tickets (a gone server's copies to a new server)
+/** A ticket given on the holder's card: for whom, until when, «End» */
+function ticketLine(x, t) {
+  const d = el('div', 'row-detail ct-ticket');
+  d.append('🎫 ', T(t.expired ? 'partner.t_given_expired' : 'partner.t_given', { name: t.name, address: t.address, until: fmt.date(t.expires), of: x.name }), ' ');
+  if (t.door === 'closed' && !t.expired) d.appendChild(chip('warn', T('partner.door_closed'), T('partner.t_door_closed_tip')));
+  const end = el('button', 'btn small plain', T('partner.t_end'));
+  end.type = 'button';
+  end.disabled = busyOff();
+  end.onclick = () => ticketEndDialog(t.id, T('partner.t_end_given', { name: t.name, of: x.name }));
+  d.appendChild(end);
+  return d;
+}
+
+/** A new server's ticket: the holder, whose copies, until when — Mr. Restori pulls them */
+function ticketCard(t) {
+  const r = el('div', 'row nocheck ct-partner ct-ticket-card');
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', '🎫 ' + T('partner.t_card', { name: t.name, of: t.of })));
+  const meta = el('div', 'row-meta');
+  meta.appendChild(t.expired ? chip('danger', T('partner.t_expired')) : chip('accent', T('partner.t_until', { until: fmt.date(t.expires) }), T('partner.t_until_tip')));
+  if (t.last_heard) meta.appendChild(chip('ok', T('partner.answers'), T('partner.answers_tip', { when: fmt.date(t.last_heard) })));
+  meta.appendChild(el('span', '', `${t.address}:${t.port}`));
+  main.appendChild(meta);
+  main.appendChild(el('div', 'row-detail', T('partner.t_units', { name: t.name, list: unitsText(t.units) })));
+  const to = el('div', 'row-detail');
+  const a = el('a', '', T('partner.t_to_restori'));
+  a.href = '#/restore';
+  to.appendChild(a);
+  main.appendChild(to);
+  r.appendChild(main);
+  const acts = el('div', 'ct-acts');
+  const end = el('button', 'btn small plain', T('partner.t_end'));
+  end.type = 'button';
+  end.disabled = busyOff();
+  end.onclick = () => ticketEndDialog(t.id, T('partner.t_end_held', { name: t.name, of: t.of }));
+  acts.appendChild(end);
+  r.appendChild(acts);
+  return r;
+}
+
+/** A request for a ticket that waits for the holder's answer: its block again, «Paste the ticket», withdraw */
+function ticketRequestRow(q) {
+  const r = el('div', 'row nocheck ct-partner ct-pending');
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', T('partner.t_request', { id: q.id })));
+  const meta = el('div', 'row-meta');
+  meta.appendChild(chip('accent', T('partner.waiting'), T('partner.t_waiting_tip')));
+  meta.appendChild(el('span', '', T('partner.offered', { when: fmt.relative(q.created) })));
+  main.appendChild(meta);
+  r.appendChild(main);
+  const acts = el('div', 'ct-acts');
+  const show = el('button', 'btn small plain', T('partner.show_block'));
+  show.type = 'button';
+  show.onclick = async () => {
+    const j = await Office.api.post(`${ID}.partner_ticket_start`, { step: 'show', id: q.id });
+    if (took(j)) blockDialog(T('partner.t_block_n_title'), j.block, T('partner.t_block_n_text'), false);
+  };
+  const fin = el('button', 'btn small', T('partner.t_finish'));
+  fin.type = 'button';
+  fin.onclick = () => ticketFinishDialog();
+  const drop = el('button', 'btn small plain', T('partner.withdraw'));
+  drop.type = 'button';
+  drop.onclick = () => ticketEndDialog(q.id, T('partner.t_withdraw_text'));
+  [show, fin, drop].forEach((b) => { b.disabled = busyOff(); acts.appendChild(b); });
+  r.appendChild(acts);
+  return r;
+}
+
+/** «Start from a partner's copy…» (the new server): its address as the holder sees it → its key and BLOCK-N */
+async function ticketStartDialog() {
+  const j = await Office.api.post(`${ID}.partner_ticket_start`, { step: 'look' });
+  if (!took(j)) return;
+  const box = el('div');
+  box.appendChild(el('p', '', T('partner.t_start_text')));
+  const addr = addressPicker(j.addresses, 22);
+  addr.node.querySelectorAll('.field')[1].hidden = true;        // the holder never connects here: no port
+  box.appendChild(addr.node);
+  box.appendChild(el('p', 'callout', T('partner.t_start_after')));
+  Office.dialog({
+    title: T('partner.t_start'),
+    body: box,
+    wide: true,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('partner.make_block'), kind: '', act: async () => {
+      const r = await Office.api.post(`${ID}.partner_ticket_start`, { step: 'do', address: addr.value().address });
+      if (!took(r)) return false;
+      if (ctx) ctx.reload();
+      blockDialog(T('partner.t_block_n_title'), r.block, T('partner.t_block_n_text'), false);
+      return true;
+    } }],
+  });
+}
+
+/** «Hand <name>'s copies to a new server…» (the holder, on the gone server's card): paste BLOCK-N, then the line */
+function ticketMakeDialog(x) {
+  pasteDialog(T('partner.t_make', { name: x.name }), T('partner.t_make_text', { name: x.name }), async (block) => {
+    const j = await Office.api.post(`${ID}.partner_ticket_make`, { step: 'look', pair: x.id, block });
+    if (!took(j)) return false;
+    ticketMakeConfirm(x, block, j);
+    return true;
+  });
+}
+
+function ticketMakeConfirm(x, block, j) {
+  const n = j.new;
+  const box = el('div');
+  box.appendChild(el('p', '', T('partner.t_make_look', { name: n.name, of: j.of, until: fmt.date(j.expires) })));
+  box.appendChild(props([
+    [T('partner.f_name'), n.name],
+    [T('partner.f_address'), n.address],
+    [T('partner.t_f_key'), n.key],
+    [T('partner.t_f_units'), unitsText(j.units)],
+    [T('partner.t_f_until'), fmt.date(j.expires)],
+  ]));
+  if (n.public) box.appendChild(el('p', 'callout warn', T('partner.public_tip')));
+  if (!j.line) { Office.toast(Office.errorText({ key: 'partner_unresolved', params: { address: n.address } }, ID), true); return; }
+  box.appendChild(el('p', '', T('partner.t_line_text', { name: n.name, of: j.of })));
+  box.appendChild(codeBox(j.line));
+  box.appendChild(el('p', 'callout', T('partner.t_least_privilege', { name: n.name, of: j.of })));
+  const read = tick(T('partner.line_read'), false);
+  box.appendChild(read.node);
+  const addr = addressPicker(j.addresses, j.port);
+  box.appendChild(addr.node);
+  const close = tick(T('partner.t_close_door', { of: j.of }), false, T('partner.t_close_door_help', { of: j.of }));
+  box.appendChild(close.node);
+  Office.dialog({
+    title: T('partner.t_make', { name: x.name }),
+    body: box,
+    wide: true,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('partner.t_write'), kind: '', act: async () => {
+      if (!read.cb.checked) { Office.toast(T('partner.line_read_first'), true); return false; }
+      const a = addr.value();
+      const r = await Office.api.post(`${ID}.partner_ticket_make`, { step: 'do', pair: x.id, block, confirm: true, address: a.address, port: a.port, close_door: close.cb.checked });
+      if (!took(r)) return false;
+      blockDialog(T('partner.t_block_t_title'), r.block, T('partner.t_block_t_text', { name: n.name, until: fmt.date(r.expires) }), r.public, r.code);
+      return true;
+    } }],
+  });
+}
+
+/** «Paste the ticket» (the new server): BLOCK-T, the code compared, then Mr. Restori pulls */
+function ticketFinishDialog() {
+  pasteDialog(T('partner.t_finish'), T('partner.t_finish_text'), async (block) => {
+    const j = await Office.api.post(`${ID}.partner_ticket_finish`, { step: 'look', block });
+    if (!took(j)) return false;
+    const t = j.ticket;
+    const box = el('div');
+    box.appendChild(el('p', '', T('partner.t_compare', { name: t.name })));
+    box.appendChild(el('div', 'ct-pcode', j.code.replace(/^(\d{3})(\d{3})$/, '$1 $2')));
+    box.appendChild(props([
+      [T('partner.f_name'), t.name],
+      [T('partner.t_f_of'), t.of],
+      [T('partner.f_address'), `${t.address}:${t.port}`],
+      [T('partner.f_host_keys'), (t.host_keys || []).join('\n')],
+      [T('partner.t_f_units'), unitsText(t.units)],
+      [T('partner.t_f_until'), fmt.date(t.expires)],
+    ]));
+    if (t.public) box.appendChild(el('p', 'callout warn', T('partner.public_tip')));
+    Office.dialog({
+      title: T('partner.t_finish'),
+      body: box,
+      wide: true,
+      buttons: [
+        { text: T('partner.no_match'), act: () => { Office.dialog({ title: T('partner.no_match_title'), body: T('partner.no_match_text', { name: t.name }) }); return true; } },
+        { text: T('partner.match'), kind: '', act: async () => {
+          const r = await Office.api.post(`${ID}.partner_ticket_finish`, { step: 'do', block, confirm: true, code: j.code });
+          if (!took(r)) return false;
+          const a = r.ask;
+          Office.toast(a && a.reachable ? T('partner.t_taken', { name: t.name, of: t.of }) : T('partner.t_taken_silent', { name: t.name, why: T('partner.why.' + ((a && a.why) || 'unreachable')) }), !(a && a.reachable));
+          return true;
+        } },
+      ],
+    });
+    return true;
+  });
+}
+
+function ticketEndDialog(id, text) {
+  Office.dialog({
+    title: T('partner.t_end'),
+    body: text,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('partner.t_end'), kind: 'danger', act: async () => took(await Office.api.post(`${ID}.partner_ticket_end`, { id })) }],
   });
 }
 

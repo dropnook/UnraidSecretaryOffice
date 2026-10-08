@@ -57,6 +57,11 @@ desk('caretaker', [
         'partner_end'    => fn (array $r) => partner_end($r),
         'partner_state'  => fn (array $r) => partner_state($r),
         'partner_ping'   => fn (array $r) => partner_ping($r),
+        // restore tickets (stage 3): a gone server's copies handed to a new server
+        'partner_ticket_start'  => fn (array $r) => partner_ticket_start($r),
+        'partner_ticket_make'   => fn (array $r) => partner_ticket_make($r),
+        'partner_ticket_finish' => fn (array $r) => partner_ticket_finish($r),
+        'partner_ticket_end'    => fn (array $r) => partner_ticket_end($r),
     ],
     'jobs'    => ['partner-ping' => fn (array $args) => caretakerPartnerWatch()],
     'checks'  => fn () => caretakerChecks(),
@@ -592,6 +597,18 @@ function caretakerPartners(): array
  */
 function caretakerPartnerTick(int $now): void
 {
+    // restore tickets that ended: their lines out of authorized_keys (and a new server's ticket pairs gone) — at the
+    // agent's start and once a day; nothing there: a stat or two
+    if ($now - (int) ($GLOBALS['ctTicketTidy'] ?? 0) >= PARTNER_TICKET_TIDY) {
+        $GLOBALS['ctTicketTidy'] = $now;
+        try {
+            if (partnerTicketsTidy($now) > 0) {
+                $GLOBALS['ctLastScan'] = 0;         // the cards anew at the next minute
+            }
+        } catch (Throwable $e) {
+            logLine('Partner offices: the tickets\' tidy failed: ' . $e->getMessage());
+        }
+    }
     if ($now - (int) ($GLOBALS['ctPartnerLaunch'] ?? 0) < PARTNER_PING_EVERY) {
         return;
     }
