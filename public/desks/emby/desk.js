@@ -295,7 +295,7 @@ function shareSection() {
   const box = el('div', 'box');
   const pool = (state.settings || {}).cache_path || '';
   shares.forEach((x) => {
-    const row = el('div', 'row nocheck');
+    const row = Office.place(`share:${x.share}`, el('div', 'row nocheck'));
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name', x.share));
     const meta = el('div', 'row-meta');
@@ -365,13 +365,14 @@ function gatherSection() {
 }
 
 /** The last runs of both tools */
+const HISTORY_SHOWN = 15;
 function historySection() {
   const runs = state.history || [];
   const s = section(T('history'), T('history_sub'), { place: 'history' });
   const box = el('div', 'box');
   if (!runs.length) box.appendChild(el('p', 'empty', T('history_none')));
-  runs.slice(0, 15).forEach((r) => {
-    const row = el('div', 'row nocheck');
+  runs.slice(0, HISTORY_SHOWN).forEach((r) => {
+    const row = Office.place(`run:${r.tool}:${r.started}`, el('div', 'row nocheck'));
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name', `${T('tool.' + r.tool)} · ${T('mode.' + r.mode)}`));
     const meta = el('div', 'row-meta');
@@ -1274,6 +1275,21 @@ Office.desk({
     }
     return { bubble: T('bubble.hello_short'), facts };
   },
+});
+
+// what his state holds for the search (core.js «items»): his Emby servers (the overview names them), the shares of the
+// chosen libraries, the runs his history shows
+Office.placesFrom(ID, (s) => {
+  const out = [];
+  if (s.configured) {
+    ((s.settings && s.settings.instances) || []).forEach((i) => {
+      if (i && i.servername) out.push({ text: i.servername, sub: `${T('overview')} · Emby`, anchor: 'overview' });
+    });
+    (s.shares || []).forEach((x) => out.push({ text: x.share, sub: T('shares'), anchor: `share:${x.share}` }));
+  }
+  (s.history || []).slice(0, HISTORY_SHOWN).forEach((r) => out.push({ text: `${T('tool.' + r.tool)} · ${T('mode.' + r.mode)} · ${fmt.date(r.started)}`,
+    sub: `${T('history')} · ${T('result.' + (r.result || 'failed'))}`, anchor: `run:${r.tool}:${r.started}` }));
+  return out;
 });
 
 // his places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys): the

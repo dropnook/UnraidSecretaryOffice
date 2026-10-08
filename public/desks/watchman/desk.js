@@ -43,6 +43,7 @@ let bookRows = [];              // the book's unfoldable rows: {open(), set(open
 let bookLabel = null;           // brings «Unfold all» up to date
 let watchGroups = [];           // {open(), set(open)}
 let showKnownTips = false;      // posture tips you know about: shown on request
+let wanted = null;              // an entry the search asked for (#/watchman/entry/<id>): the book shows rows down to it
 
 const openCount = () => Object.values((state && state.open) || {}).reduce((a, b) => a + (Number(b) || 0), 0);
 const postureOpen = () => Number((state && state.posture && state.posture.open) || 0);
@@ -429,6 +430,8 @@ function bookSection() {
     box.innerHTML = '';
     bookRows = [];
     const list = (state.book || []).filter((e) => !onlyOpen || e.open);
+    const at = wanted ? list.findIndex((e) => e.id === wanted) : -1;
+    if (at >= 0) { shown = Math.max(shown, Math.ceil((at + 1) / PAGE) * PAGE); wanted = null; }
     (state.chains || []).forEach((c) => box.appendChild(chainCallout(c)));
     list.slice(0, shown).forEach((e) => box.appendChild(entryRow(e)));
     if (!list.length) box.appendChild(el('p', 'empty', onlyOpen ? T('book.empty_open') : T('book.empty')));
@@ -466,15 +469,20 @@ function chainCallout(c) {
   return box;
 }
 
+/** An entry in words, as its row names it (and the search finds it) */
+function entryName(e) {
+  if (e.kind === 'watch' && e.p && e.p.too_much) return T('entry.net_too_much', { sender: e.p.sender || '', size: fmt.size(e.p.skipped || 0) });
+  return T('entry.' + e.kind, entryParams(e));
+}
+
 /** One entry: what, when, noted or not; a click unfolds its details */
 function entryRow(e) {
   const watch = e.kind === 'watch';
   const tooMuch = watch && !!(e.p && e.p.too_much);       // more of a router's log than a round reads (agent: watchnetTooMuch())
-  const r = el('div', 'row nocheck wm-entry' + (watch ? ' wm-watch' : ' unfolds') + (e.open ? ' wm-open' : ''));
+  const r = Office.place(`entry:${e.id}`, el('div', 'row nocheck wm-entry' + (watch ? ' wm-watch' : ' unfolds') + (e.open ? ' wm-open' : '')));
   r.dataset.id = e.id;
   const main = el('div', 'row-main');
-  const name = el('div', 'row-name text', tooMuch ? T('entry.net_too_much', { sender: e.p.sender || '', size: fmt.size(e.p.skipped || 0) })
-    : T('entry.' + e.kind, entryParams(e)));
+  const name = el('div', 'row-name text', entryName(e));
   const meta = el('div', 'row-meta');
   if (tooMuch) {
     meta.appendChild(chip(T('state.too_much'), 'warn', T('state.too_much_title')));
@@ -879,7 +887,7 @@ function item(name, parts, extra, label) {
 
 /** A tinted title bar that folds its rows (closed unless opened, remembered in this browser) */
 function group(key, title, sum, rows) {
-  const box = el('div', 'group' + (openGroups[key] ? '' : ' closed'));
+  const box = Office.place(`watch:${key}`, el('div', 'group' + (openGroups[key] ? '' : ' closed')));
   const head = el('div', 'group-head');
   head.tabIndex = 0;
   head.setAttribute('role', 'button');
@@ -1225,12 +1233,15 @@ function flowGroups(f) {
 // ------------------------------------------------------------------ desk
 Office.desk({
   id: ID,
-  async mount(root) {
+  /** sub: «entry/<id>» (the search's): that entry of the book among the rows shown */
+  async mount(root, sub) {
     view = root;
+    const m = /^entry\/([\w-]{1,64})$/.exec(sub || '');
+    if (m) { wanted = m[1]; Office.subroute(''); }
     render();
     await load(false);
   },
-  unmount() { clearTimeout(timer); view = null; bookRows = []; watchGroups = []; bookLabel = null; },
+  unmount() { clearTimeout(timer); view = null; bookRows = []; watchGroups = []; bookLabel = null; wanted = null; },
   poll() { if (!running()) load(false); },
   started() { if (hired() && !state) load(false); },      // his picture shows the mark on every page
   agentChanged() { if (view) render(); },
@@ -1265,4 +1276,28 @@ Office.places(ID, [
     'snaps', 'host', 'host_not', 'net', 'net_not', 'attack', 'siem', 'chain', 'night', 'grafana', 'notify', 'safe']
     .map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
 ]);
+
+// what his state holds for the search (core.js «items»): the entries of his book not noted yet (in his words, never a
+// router's or a log's line), his posture tips not known yet (their rows carry the tip's id: data-id), what he keeps an
+// eye on — each group, found by its title and the names in it (plugins, containers, shares, User Scripts)
+const ENTRIES_MAX = 120;
+Office.placesFrom(ID, (s) => {
+  const out = [];
+  (s.book || []).filter((e) => e && e.open).slice(0, ENTRIES_MAX).forEach((e) => out.push({
+    text: entryName(e), sub: e.kind === 'watch' ? T('state.watch') : `${T('group.' + e.group)} · ${T('state.open')}`,
+    route: `#/${ID}/entry/${e.id}`, anchor: `entry:${e.id}`,
+  }));
+  ((s.posture && s.posture.tips) || []).filter((x) => x && !x.known).forEach((x) => out.push({
+    text: T(`posture.${x.id}.title`, postureParams(x)), sub: `${T('posture.title')} · ${T('posture.level_' + x.level)}`, anchor: x.id,
+  }));
+  const w = s.watch;
+  if (!w) return out;
+  const names = (list, k) => (list || []).map((x) => x && x[k]).filter((x) => typeof x === 'string').join(' ');
+  const groups = [['ips', ''], ...((w.fail_ips || []).length ? [['fail_ips', '']] : []), ['containers', names(w.containers && w.containers.special, 'name')],
+    ['plugins', names(w.plugins, 'name')], ['flash', ''], ['shares', names(w.shares && w.shares.open, 'share')], ['sched', names(w.sched && w.sched.scripts, 'name')],
+    ['host', ''], ...(w.partner && ((w.partner.pairs || []).length || (w.partner.strays || []).length) ? [['partner', '']] : []), ['net', ''], ['snaps', ''],
+    ...(s.flow ? ['flow_clients', 'flow_containers', 'flow_shares', 'flow_gone', 'flow_smb'] : ['flow_clients']).map((k) => [k, ''])];
+  groups.forEach(([key, words]) => out.push({ text: T('watch.' + key), sub: T('watch.title'), anchor: `watch:${key}`, words }));
+  return out;
+});
 })();

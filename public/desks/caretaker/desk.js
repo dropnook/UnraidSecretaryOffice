@@ -190,7 +190,7 @@ function deskChip(desk) {
 
 function row(f) {
   const noted = !!(f.acked && ackable(f));
-  const r = el('div', 'row nocheck ct-finding' + (noted ? ' ct-noted' : ''));
+  const r = Office.place(`finding:${f.sig}`, el('div', 'row nocheck ct-finding' + (noted ? ' ct-noted' : '')));
   const main = el('div', 'row-main');
   main.appendChild(el('div', 'row-name text', text(f)));
   const meta = el('div', 'row-meta');
@@ -436,7 +436,7 @@ function trainingRow(d) {
 }
 
 function teamRow(x) {
-  const r = el('div', 'row nocheck ct-person' + (x.hired ? '' : ' ct-candidate'));
+  const r = Office.place(`staff:${x.id}`, el('div', 'row nocheck ct-person' + (x.hired ? '' : ' ct-candidate')));
   const av = Office.avatar(x.id);
   av.classList.add('ct-avatar');
   r.appendChild(av);
@@ -557,4 +557,28 @@ Office.places(ID, [
     ['supporter_term', 'help.supporter'], ['help.open', 'help.open_text'], ['check_again', 'help.again'], ['notify_title', 'help.notify'],
     ['partner.title', 'partner.help']].map(([key, text]) => ({ kind: 'help', key, text })),
 ]);
+
+// what his state holds for the search (core.js «items»): the points still open (as his lists word them), who could work
+// here, the partner offices and the tickets (partner.js marks their cards)
+const LISTS = { required: 'todo', recommended: 'advice', hint: 'hints' };
+Office.placesFrom(ID, (s) => {
+  const out = [];
+  for (const [desk, list] of Object.entries(s.checks || {})) {
+    if (!Office.desks.has(desk) || !Office.desks.get(desk).hired || !Array.isArray(list)) continue;
+    list.forEach((f) => {
+      if (!f || !LISTS[f.level] || f.ok === true || !f.sig || (f.acked && ackable(f))) return;
+      out.push({ text: text({ ...f, desk }), sub: `${T(LISTS[f.level])} · ${Office.t(desk + '.name')}`, anchor: `finding:${f.sig}` });
+    });
+  }
+  for (const [id, x] of Object.entries(s.staff || {})) {
+    const d = Office.desks.get(id);
+    if (!d || !x) continue;
+    out.push({ text: Office.t(`${id}.name`), sub: `${T('team')} · ${T(d.hired ? 'in_team' : x.ok ? 'could_come' : 'declined')}`, anchor: `staff:${id}` });
+  }
+  const p = s.partners || {};
+  (p.pairs || []).forEach((x) => out.push({ text: x.name, sub: T('partner.title'), anchor: `partner:${x.id}` }));
+  (p.ticket_pairs || []).forEach((t) => out.push({ text: T('partner.t_card', { name: t.name, of: t.of }), sub: T('partner.title'), anchor: `ticket:${t.id}` }));
+  (p.ticket_requests || []).forEach((q) => out.push({ text: T('partner.t_request', { id: q.id }), sub: T('partner.title'), anchor: `ticket:${q.id}` }));
+  return out;
+});
 })();

@@ -700,7 +700,7 @@ function overviewTiles() {
         if (l.failed.length) parts.push(T('partner.tile_failed', { n: l.failed.length, why: [...new Set(l.failed.map((x) => partnerWhyShort(x.why)))].join(', ') }));
         if (l.failed.length || whys.some((w) => !['array_stopping', 'signal'].includes(w))) alert = true;
       }
-      t.appendChild(el('div', 'stat-sub', parts.join(' · ')));
+      t.appendChild(Office.place(`partner:${p.id}`, el('div', 'stat-sub', parts.join(' · '))));
     });
     if (alert) t.classList.add('alert');
     tiles.push(t);
@@ -754,7 +754,7 @@ function protection() {
   table.appendChild(thead);
   const body = el('tbody');
   rows.forEach((s) => {
-    const tr = el('tr');
+    const tr = Office.place(s.flash ? 'row:flash' : `row:share:${s.name}`, el('tr'));
     const name = el('th', '', s.flash ? T('flash') : s.name);
     tr.appendChild(name);
     const modeCell = el('td');
@@ -826,7 +826,7 @@ function protection() {
     g.appendChild(gth);
     body.appendChild(g);
     vms.forEach((v) => {
-      const tr = el('tr', 'unfolds');
+      const tr = Office.place(`row:vm:${v.name}`, el('tr', 'unfolds'));
       const name = el('th', 'link', v.name);
       name.title = T('details');
       tr.appendChild(name);
@@ -883,7 +883,7 @@ function protection() {
     g.appendChild(gth);
     body.appendChild(g);
     pk.apps.forEach((a) => {
-      const tr = el('tr', 'unfolds');
+      const tr = Office.place(`row:app:${a.folder}`, el('tr', 'unfolds'));
       const name = el('th', 'link', a.name);
       name.title = T('details');
       tr.appendChild(name);
@@ -1172,7 +1172,7 @@ function historySection() {
     .sort((a, b) => b.t - a.t).slice(0, 20);
   rows.forEach(({ r, skip }) => {
     if (skip) { list.appendChild(skipRow(skip)); return; }
-    const row = el('div', 'row nocheck unfolds');
+    const row = Office.place(`run:${r.started}`, el('div', 'row nocheck unfolds'));
     row.onclick = () => showLog(r.log);           // the whole row opens the run's log
     const main = el('div', 'row-main');
     const name = el('div', 'row-name text link', fmt.date(r.started, true));
@@ -3710,6 +3710,27 @@ Office.places(ID, [
     ['help.reasons', 'help.reasons_text'], ['setup.more', 'help.details'], ['help.new', 'help.new_text'], ['setup.apply', 'help.apply'],
     ['setup.forget_short', 'help.forget']].map(([key, text]) => ({ kind: 'help', key, text, ...SETUP })),
 ]);
+
+// what his state holds for the search (core.js «items»): the main page's rows — every share, VM and app with how it is
+// protected (its row's «Change…» leads into the setup), the runs his history shows, the partner offices he sends to.
+// The setup's own rows come from its plan (asked for when the setup opens, not part of his state): not searched here.
+Office.placesFrom(ID, (s) => {
+  const out = [];
+  if (!s.found) return out;
+  const kopiaOn = !!(s.settings && s.settings.kopia_enabled);
+  const level = (mode) => (mode === 'kopia' ? (kopiaOn ? 'offsite' : 'local') : mode === 'snapshot' ? 'local' : 'none');
+  (s.shares || []).forEach((x) => out.push({ text: x.flash ? T('flash') : x.name, sub: `${T('protection')} · ${Office.t('protect.' + level(x.mode))}`,
+    anchor: x.flash ? 'row:flash' : `row:share:${x.name}` }));
+  (s.vms || []).forEach((v) => out.push({ text: v.name, sub: `${T('protection')} · ${T('vm.group')}`, anchor: `row:vm:${v.name}` }));
+  const pk = s.packages;
+  if (pk && pk.found) (pk.apps || []).forEach((a) => out.push({ text: a.name, sub: `${T('protection')} · ${T('pk.group')}`, anchor: `row:app:${a.folder}` }));
+  // the runs as his history lists them: the newest 20, the skipped ones between them
+  [...(s.history || []).slice(0, 20).map((r) => ({ t: r.started, r })), ...(s.skips || []).map((k) => ({ t: k.time }))]
+    .sort((a, b) => b.t - a.t).slice(0, 20).filter((x) => x.r)
+    .forEach(({ r }) => out.push({ text: fmt.date(r.started, true), sub: `${T('history')} · ${T('result.' + r.result)}`, anchor: `run:${r.started}` }));
+  (s.partners || []).forEach((p) => out.push({ text: p.name, sub: T('partner.tile'), anchor: `partner:${p.id}` }));
+  return out;
+});
 
 // tests/run.php runs the setup assistant's logic under node (Unraid's own) - never set in a browser
 if (globalThis.OFFICE_DESK_TESTS) {

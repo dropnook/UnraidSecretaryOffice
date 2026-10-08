@@ -46,6 +46,8 @@ const KIND_ICONS = { container: '🐳', template: '📄', stack: '🧩', compose
 const ITEM_ICONS = { template: '📄', stray: '📄', vmdef: '🖥️', userscript: '📜', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐', icon: '🖼️', leftover: '📦', partner: '🤝' };
 const ROOMS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'leftovers', 'partners'];     // where she finds something (not the storeroom)
 const POLL_MS = 3000;
+const ROOM_ITEMS = 120;     // the search's items from her rooms (and WHERE_ITEMS from «Where is what»): 200 together
+const WHERE_ITEMS = 80;
 
 let state = null;
 let lookedAgain = false;      // looked again this visit because Mr. Restori finished something since her last look
@@ -101,12 +103,12 @@ function watch() {
 }
 
 // ------------------------------------------------------------------ helpers
-function entries(sec) {
-  if (!state) return [];
+function entries(sec, s = state) {
+  if (!s) return [];
   return ({
-    templates: state.templates.list, stacks: state.stacks.list, appdata: state.appdata.list,
-    vms: state.vms.list, scripts: state.scripts.list, docker: state.docker.list, icons: (state.icons || {}).list,
-    leftovers: (state.leftovers || {}).list, partners: (state.partners || {}).list,
+    templates: s.templates.list, stacks: s.stacks.list, appdata: s.appdata.list,
+    vms: s.vms.list, scripts: s.scripts.list, docker: s.docker.list, icons: (s.icons || {}).list,
+    leftovers: (s.leftovers || {}).list, partners: (s.partners || {}).list,
   })[sec] || [];
 }
 const candidates = (sec) => entries(sec).filter((e) => CANDIDATES[sec].includes(e.category));
@@ -131,10 +133,10 @@ function matches(e) {
   return w.every((x) => hay.includes(x));
 }
 /** VMs only with the VM service switched on, Docker's rooms (appdata too: who uses it is told by Docker) only with Docker */
-const visible = (sec) => (sec === 'vms' ? state.vms.enabled : sec === 'scripts' ? state.scripts.installed
-  : sec === 'leftovers' ? !!state.leftovers && state.leftovers.restores > 0
-  : sec === 'partners' ? !!state.partners && state.partners.list.length > 0
-  : sec === 'icons' ? state.docker.enabled && !!state.icons : ['templates', 'stacks', 'appdata', 'docker'].includes(sec) ? state.docker.enabled : true);
+const visible = (sec, s = state) => (sec === 'vms' ? s.vms.enabled : sec === 'scripts' ? s.scripts.installed
+  : sec === 'leftovers' ? !!s.leftovers && s.leftovers.restores > 0
+  : sec === 'partners' ? !!s.partners && s.partners.list.length > 0
+  : sec === 'icons' ? s.docker.enabled && !!s.icons : ['templates', 'stacks', 'appdata', 'docker'].includes(sec) ? s.docker.enabled : true);
 
 function chip(text, cls, tip) {
   const c = el('span', 'chip' + (cls ? ' ' + cls : ''), text);
@@ -674,7 +676,7 @@ const VIEWS = {
 /** A row: the checkbox selects, a click anywhere else unfolds the details */
 function row(e, groupSync) {
   const [metaFn, detailFn] = VIEWS[e.kind]();
-  const r = el('div', 'row unfolds' + (selection.has(e.id) ? ' selected' : ''));
+  const r = Office.place(`item:${e.id}`, el('div', 'row unfolds' + (selection.has(e.id) ? ' selected' : '')));
   const cb = el('input');
   cb.type = 'checkbox';
   cb.checked = selection.has(e.id);
@@ -1944,7 +1946,7 @@ function lines(list) {
 
 /** A list row: click the name to unfold the details */
 function row({ key, name, mono, meta, figures, detail, menu, cls }) {
-  const r = el('div', 'row nocheck' + (cls ? ' ' + cls : ''));
+  const r = Office.place(key, el('div', 'row nocheck' + (cls ? ' ' + cls : '')));     // its key is its place (the search's items)
   const main = el('div', 'row-main');
   const n = el('div', 'row-name link' + (mono ? '' : ' text'), name);
   main.appendChild(n);
@@ -3352,8 +3354,23 @@ function plugins(body) {
   body.appendChild(box);
 }
 
+/** What a look holds for the search (core.js «items», the part «where»): the containers, the disks, the appdata folders */
+function items(s) {
+  if (!s || !Array.isArray(s.shares)) return [];
+  const out = [];
+  (s.containers || []).forEach((c) => out.push({ text: c.name, sub: `${T('where.section.docker')} · ${c.state === 'running' ? T('where.state.running') : c.state}`,
+    route: `#/${ID}/where/docker`, anchor: 'container:' + c.name, words: c.image }));
+  const order = ['Parity', 'Data', 'Cache', 'Boot', 'Unassigned'];
+  ((s.health && s.health.devices) || []).forEach((d) => out.push({ text: d.name + (d.roles.length ? ` · ${d.roles.join(', ')}` : ''),
+    sub: `${T('where.section.disks')} · ${T('where.type.' + (order.includes(d.type) ? d.type : 'Other'))}`, route: `#/${ID}/where/disks`, anchor: 'disk:' + d.device }));
+  const appdata = (s.folders || []).find((f) => f.appdata);
+  if (appdata) appdata.folders.forEach((x) => out.push({ text: x.name, sub: `${T('where.section.folders')} · ${appdata.share}`,
+    route: `#/${ID}/where/folders`, anchor: 'folder:' + x.real }));
+  return out.slice(0, WHERE_ITEMS);
+}
+
 return {
-  build, load, render, tour, bubble, reception, helpItems, sleeping,
+  build, load, render, tour, bubble, reception, helpItems, sleeping, items,
   sections: SECTIONS,
   /** a tile of «Everything in detail» open before the page is built (#/cleanup/where/<corner>) */
   choose(id) { if (SECTIONS.includes(id)) { section = id; Office.store(STORE + 'section', id); } },
@@ -3384,4 +3401,19 @@ Office.places(ID, [
   ...['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'leftovers', 'partners']
     .map((x) => ({ kind: 'help', key: `section.${x}`, text: `help.${x}_text` })),
 ]);
+
+// what her states hold for the search (core.js «items»): in her rooms what she would clear away (by its name, its room's
+// tile opened through its sub-route); from «Where is what» (the part «where») the containers, the disks, the appdata folders
+// — together at most 200 (120 + 80)
+Office.placesFrom(ID, (s, part) => {
+  if (part === 'where') return Where.items(s);
+  if (!s.docker || typeof s.docker !== 'object') return [];
+  const out = [];
+  for (const sec of ROOMS) {
+    if (!visible(sec, s)) continue;
+    entries(sec, s).filter((e) => CANDIDATES[sec].includes(e.category)).forEach((e) => out.push({ text: label(e),
+      sub: `${T('section.' + sec)} · ${T(`cat.${sec}.${e.category}`)}`, route: `#/${ID}/tidy/${sec}`, anchor: `item:${e.id}` }));
+  }
+  return out.slice(0, ROOM_ITEMS);
+});
 })();

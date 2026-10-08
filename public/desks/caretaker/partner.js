@@ -116,7 +116,7 @@ function quotaBar(used, total) {
 }
 
 function card(x) {
-  const r = el('div', 'row nocheck ct-partner');
+  const r = Office.place(`partner:${x.id}`, el('div', 'row nocheck ct-partner'));
   const main = el('div', 'row-main');
   main.appendChild(el('div', 'row-name text', '🏢 ' + x.name));
   const meta = el('div', 'row-meta');
@@ -845,7 +845,7 @@ function ticketLine(x, t) {
 
 /** A new server's ticket: the holder, whose copies, until when — Mr. Restori pulls them */
 function ticketCard(t) {
-  const r = el('div', 'row nocheck ct-partner ct-ticket-card');
+  const r = Office.place(`ticket:${t.id}`, el('div', 'row nocheck ct-partner ct-ticket-card'));
   const main = el('div', 'row-main');
   main.appendChild(el('div', 'row-name text', '🎫 ' + T('partner.t_card', { name: t.name, of: t.of })));
   const meta = el('div', 'row-meta');
@@ -872,7 +872,7 @@ function ticketCard(t) {
 
 /** A request for a ticket that waits for the holder's answer: its block again, «Paste the ticket», withdraw */
 function ticketRequestRow(q) {
-  const r = el('div', 'row nocheck ct-partner ct-pending');
+  const r = Office.place(`ticket:${q.id}`, el('div', 'row nocheck ct-partner ct-pending'));
   const main = el('div', 'row-main');
   main.appendChild(el('div', 'row-name text', T('partner.t_request', { id: q.id })));
   const meta = el('div', 'row-meta');

@@ -428,7 +428,7 @@ function unfoldAll() {
 
 /** A row that unfolds to its details when clicked anywhere but its own buttons, links and fields (right: its own buttons) */
 function unfoldingRow(key, name, meta, detail, right) {
-  const r = el('div', 'row nocheck unfolds rs-row');
+  const r = Office.place(key, el('div', 'row nocheck unfolds rs-row'));      // its key is its place (the search's items)
   r.dataset.key = key;
   const main = el('div', 'row-main');
   const n = el('div', 'row-name text', name);
@@ -1035,8 +1035,8 @@ function vmCommands(v) {
  * A dump is one entry (MariaDB: one database; Postgres and MongoDB: the whole server); the SQLite copies of one
  * container are one entry — they go back together (kind sqlite restores all of them).
  */
-function dbGroups() {
-  return apps().map((a) => {
+function dbGroups(list = apps()) {
+  return list.map((a) => {
     const items = (a.dumps || []).map((d) => ({ kind: 'db', key: `db:${a.id}:${d.file}`, engine: d.type === 'mariadb' && d.client === 'mysql' ? 'mysql' : d.type,
       db: d.db || null, file: d.file, container: d.container, bytes: d.bytes || 0, time: d.time || null, kept: !!d.kept, dump: d }));
     const servers = new Map();
@@ -1999,7 +1999,7 @@ Office.desk({
   /** sub: a section (#/restore/drill — the Team Lead's and Mr. Backupsy's links; the others the search's) — that one open */
   async mount(root, sub) {
     view = root;
-    if (SECTIONS.includes(sub)) { section = sub; Office.store('restore.section', section); }
+    if (SECTIONS.includes(sub) || /^partner:[0-9a-f]{8}$/.test(sub)) { section = sub; Office.store('restore.section', section); }
     render();
     if (section === 'drill' && Office.restoreDrill) Office.restoreDrill.refresh();
     await load(false);
@@ -2034,6 +2034,34 @@ Office.places(ID, [
   ...['tiles', 'row', 'dbs', 'package', 'snapshots', 'kopia', 'commands', 'chips', 'restoring', 'journal', 'drill']
     .map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
 ]);
+
+// what his state holds for the search (core.js «items»): the apps and VMs with packages, the databases, the partner
+// offices' tiles — each opened through its tile's sub-route; the drill's certificate (drill.js hands it in, part
+// «drill»): what was proven, per app and VM
+Office.placesFrom(ID, (s, part) => {
+  const out = [];
+  if (part === 'drill') {
+    const by = new Map();
+    (s.items || []).forEach((it) => {
+      if (!it) return;
+      const key = ['app', 'vm'].includes(it.of) ? `${it.of}:${it.id}` : it.of === 'share' ? 'share' : 'server';
+      if (!by.has(key)) by.set(key, []);
+      by.get(key).push(it);
+    });
+    by.forEach((items, key) => {
+      const worst = ['failed', 'warning', 'not_checked', 'asleep'].find((r) => items.some((it) => it.result === r)) || 'ok';
+      out.push({ text: key === 'share' ? T('drill.shares') : key === 'server' ? T('drill.server') : items[0].name,
+        sub: `${T('drill.title')} · ${T('drill.state.' + worst)}`, route: `#/${ID}/drill`, anchor: 'dr:' + key });
+    });
+    return out;
+  }
+  (s.apps || []).forEach((a) => out.push({ text: a.name, sub: T('tile.apps'), route: `#/${ID}/apps`, anchor: 'app:' + a.id }));
+  (s.vms || []).forEach((v) => out.push({ text: v.name, sub: T('tile.vms'), route: `#/${ID}/vms`, anchor: 'vm:' + v.id }));
+  dbGroups(s.apps || []).forEach((g) => g.items.forEach((x) => out.push({ text: `${dbName(x)} · ${g.app.name}`, sub: T('tile.dbs'),
+    route: `#/${ID}/dbs`, anchor: x.key })));
+  (s.partners || []).forEach((p) => out.push({ text: T('tile.partner', { name: p.name }), route: `#/${ID}/partner:${p.id}`, anchor: `tile.partner:${p.id}` }));
+  return out;
+});
 
 // tests/run.php runs the databases tile's logic and the preview's sizes under node
 if (globalThis.OFFICE_DESK_TESTS) {

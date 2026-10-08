@@ -855,9 +855,17 @@ function restart(keepMark) {
 // ------------------------------------------------------------------ desk
 Office.desk({
   id: ID,
-  /** sub: a tile of her tour open (#/logs/varlog, …/docker, …/found — the search's places) */
+  /** sub: a tile of her tour open (#/logs/varlog, …/docker, …/found — the search's places); «read/<source>» (the search's
+      items): that log in the reader, as a pick in the list would */
   async mount(root, sub) {
     if (TILES.includes(sub)) { tile = sub; Office.store('logs.tile', sub); }
+    const read = /^read\/(.+)$/.exec(sub || '');
+    if (read) {
+      let id = '';
+      try { id = decodeURIComponent(read[1]); } catch (e) { id = ''; }
+      if (id) { opts.source = id; opts.query = ''; Office.store('logs.source', id); }
+      Office.subroute('');
+    }
     view = build(root);
     renderHead();
     await Promise.all([load(false), loadTour()]);
@@ -906,4 +914,10 @@ Office.places(ID, [
   { kind: 'help', key: 'help.red', text: 'help.colours' },
   ...['counted', 'grouped', 'since', 'space', 'source', 'favorites', 'safe'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
 ]);
+
+// what her state holds for the search (core.js «items»): every log she can read, by the name her list gives it (never a
+// line of it) — chosen, it opens in her reader (#/logs/read/<source>, the section «Read a log»)
+Office.placesFrom(ID, (s) => (s.sources || []).filter((x) => x && typeof x.id === 'string').map((x) => ({
+  text: T('source.' + x.label, { name: x.param }), sub: `${T('reading')} · ${T('group.' + x.group)}`,
+  route: `#/${ID}/read/${encodeURIComponent(x.id)}`, anchor: 'reading', words: x.id })));
 })();
