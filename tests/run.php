@@ -88,6 +88,96 @@ $GLOBALS['results'] = ['pass' => 0, 'fail' => []];
  */
 const TESTS_ENGINE_MINUTE = 'm="$(date +%Y%m%d-%H%M)"; rm -f "$UB_DATA/logs/run-$m.log" "$UB_DATA/logs/check-$m.log" "$UB_DATA/logs/dryrun-$m.log"; ';
 
+/**
+ * The engine tests' clock (a suite red by the clock, 2026-10-08: «expected snapshot …-1815, got …-1816», a «third night
+ * in a row» that wasn't). The engine reads the time only through `date` — backup.sh, setup.sh, lib/common.sh, and the
+ * fixtures' stand-ins too — so testsClock() puts a `date` stand-in into the fixture's bin folder (first on PATH) that
+ * reads the clock file: "<epoch> <real epoch when it was set>". From there the clock runs at the real pace (a VM's
+ * shutdown deadline, a door that doesn't answer still take their seconds), but the minute and the day are the test's:
+ * testsClockRun() — before every run — moves it to the start of the next minute (each run its own minute: run id, log,
+ * snapshot names; nothing to clean between runs), testsClockNight() to 03:00 of the next day («nights in a row», «once
+ * a day»). It starts at 03:00 tomorrow: never behind the real clock, so what the fixture writes is never newer than the
+ * engine's «now». The stand-in answers like GNU date exactly the forms the engine uses — `+FORMAT` (`%N` real),
+ * `-d @N|YYYY-MM-DD [+FORMAT]` (absolute: as date), `-d "-N days"|"N days ago"|yesterday|tomorrow [+FORMAT]` (from the
+ * clock) — and fails anything else loudly: exit 2, a line on stderr and in <clock>.unsupported, which every test that
+ * uses the clock checks is empty (testsClockUnsupported()). Without the clock file: the real date.
+ */
+function testsClock(string $bin, string $file, ?int $start = null): int
+{
+    $real = is_executable('/usr/bin/date') ? '/usr/bin/date' : '/bin/date';
+    file_put_contents("$bin/date", str_replace(['@REAL@', '@CLOCK@'], [escapeshellarg($real), escapeshellarg($file)], <<<'SH'
+#!/bin/bash
+# date for the engine tests: the clock of tests/run.php testsClock(), answered like GNU date
+REAL=@REAL@
+CLOCK=@CLOCK@
+[[ -s "$CLOCK" ]] || exec "$REAL" "$@"
+no() { printf 'date %s\n' "$*" >>"$CLOCK.unsupported"; echo "date (the tests' clock): not supported: date $*" >&2; exit 2; }
+read -r base set _ <"$CLOCK"
+ns="$("$REAL" +%s%N)"
+now=$(( base + ${ns:0:${#ns}-9} - set ))
+all=( "$@" ) d="" given="" fmt=()
+while (( $# > 0 )); do
+    case "$1" in
+        -d|--date) [[ $# -gt 1 && -z "$given" ]] || no "${all[@]}"; d="$2"; given=1; shift 2 ;;
+        --date=*) [[ -z "$given" ]] || no "${all[@]}"; d="${1#--date=}"; given=1; shift ;;
+        +*) (( ${#fmt[@]} == 0 )) || no "${all[@]}"; fmt=( "$1" ); shift ;;
+        *) no "${all[@]}" ;;
+    esac
+done
+[[ -n "$given" ]] || exec "$REAL" -d "@$now.${ns:${#ns}-9}" "${fmt[@]}"
+[[ "$d" =~ ^@[0-9]+$ || "$d" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] && exec "$REAL" -d "$d" "${fmt[@]}"
+if [[ "$d" =~ ^(-?[0-9]+\ (second|minute|hour|day|week)s?(\ ago)?|yesterday|tomorrow|today|now)$ ]]; then
+    exec "$REAL" -d "$("$REAL" -d "@$now" '+%Y-%m-%d %H:%M:%S %z') $d" "${fmt[@]}"
+fi
+no "${all[@]}"
+SH));
+    chmod("$bin/date", 0755);
+    @unlink("$file.unsupported");
+    return testsClockSet($file, $start ?? (int) strtotime('tomorrow 03:00'));
+}
+
+/** Sets the tests' clock to $t (it runs on from there) — returns $t */
+function testsClockSet(string $file, int $t): int
+{
+    file_put_contents("$file.new", "$t " . time() . "\n");
+    rename("$file.new", $file);
+    return $t;
+}
+
+/** The tests' clock now (what `date +%s` answers) */
+function testsClockNow(string $file): int
+{
+    [$t, $set] = array_map('intval', explode(' ', trim((string) @file_get_contents($file))) + [1 => 0]);
+    return $t + time() - $set;
+}
+
+/** A run: the clock to the start of the next minute — the run's id is date('Ymd-Hi', <returned>) */
+function testsClockRun(string $file): int
+{
+    return testsClockSet($file, intdiv(testsClockNow($file), 60) * 60 + 60);
+}
+
+/** A night later: the clock to 03:00 of the next day */
+function testsClockNight(string $file): int
+{
+    return testsClockSet($file, (int) strtotime('tomorrow 03:00', testsClockNow($file)));
+}
+
+/** A run the engine refused as «one run a minute»: the tests' clock didn't move — a failure (counts nothing otherwise) */
+function testsClockRan(string $what, string $out): string
+{
+    if (str_contains($out, 'one run a minute')) {
+        check("$what: a run refused as «one run a minute» — the tests' clock didn't move", false, $out);
+    }
+    return $out;
+}
+
+/** The date calls the stand-in didn't know ("" = none) */
+function testsClockUnsupported(string $file): string
+{
+    return (string) @file_get_contents("$file.unsupported");
+}
+
 function check(string $what, bool $ok, string $detail = ''): void
 {
     if ($ok) {
