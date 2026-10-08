@@ -178,8 +178,10 @@ office is; it can't browse the server, run a command or delete the history kept 
 encrypted (SSH); the copies at the partner are in plain form (it can read them — for a friend, Kopia is the encrypted
 way). Only datasets go (shares that are a dataset of their own, VMs with one, the backup place); the nightly sending
 is Mr. Backupsy's (a later step). Every 15 minutes each office asks its partners how they are; one silent for 6 hours
-is told. Better between two households: a tunnel (WireGuard, Tailscale) and its addresses — a public address is
-warned about. The night watchman knows the door (the office's own line, logins and refusals that don't fit, a line
+is told. **Sending more later needs no new pairing:** the card's *Change what <host> sends…* asks the partner through
+its door, and the partner's Team Lead answers on its card with *Keep it too* or *No* — what it agrees to goes along with
+the next night, what you untick stops at once (its copies there stay). Better between two households: a tunnel
+(WireGuard, Tailscale) and its addresses — a public address is warned about. The night watchman knows the door (the office's own line, logins and refusals that don't fit, a line
 changed), Ms. Snapshotini shows a partner's copies and keeps her hands off them, Ms. Dustdevil puts away what an ended
 partnership left, and Ms. Protocolli reads the door's log.
 

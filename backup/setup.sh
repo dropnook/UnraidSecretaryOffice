@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.28 - 2026-10-08
+# unraid-backup - setup.sh                        Version 2.29 - 2026-10-08
+#   2.29 Partner offices: a unit that is a dataset of its own but not among what the partner agreed to keep
+#        (pairs.json send.units) is partner_ok false, partner_why not_agreed in the plan, with a hint to ask
+#        at the Team Lead («Change what <host> sends…»); its partner stays in the unit's key (settings.ini
+#        unchanged) - the run skips it until the partner agrees, then it goes along by itself
 #   2.28 Sleeping pools: [general] asleep_pools = wake (default) | skip - asked with the snapshots, taken from
 #        the decisions (general|asleep_pools), written only when it is skip or was there before (so nothing
 #        changes for an install that never chose). The plan carries asleep_pools and per share and VM
@@ -1552,20 +1556,23 @@ TXT
 # (data/partner/pairs.json, the pairs this office sends to - partner_pairs_load), or, without that file, as
 # settings.ini (or the sections --forget kept) has them. The units - [share|vm "<n>"] partner = <id>, [general]
 # partner_place = <id> - are the user's, from the decisions; kept only for a partner that exists, a unit that is one
-# dataset of its own (partner_unit_dataset) and that the run snapshots (not off).
+# dataset of its own (partner_unit_dataset) and that the run snapshots (not off). Since 2.29 the pairs' send.units say
+# what each partner agreed to keep: a unit no partner agreed to is partner_ok false, why not_agreed - its partners stay
+# in its key (the run skips it as not_agreed until the partner agrees; then it goes along without another setup).
 declare -A PARTNER_OKU=() PARTNER_WHYU=()     # unit -> yes/no, why not (the plan's partner_ok / partner_why)
 PARTNER_SOURCE="none"                         # pairs | settings | none
 step_partners() {
-    local id k u n s line nm addr port rate keep
-    local -A pair=()
+    local id k u n s line nm addr port rate keep units
+    local -A pair=() agreed=()
     PARTNER_OKU=(); PARTNER_WHYU=()
     for k in "${!P[@]}"; do [[ "$k" == partner\|* ]] && unset "P[$k]"; done
     if partner_pairs_load; then
         PARTNER_SOURCE="pairs"
         for line in "${PAIRS[@]}"; do
-            IFS='|' read -r id nm addr port rate <<<"$line"
+            IFS='|' read -r id nm addr port rate units <<<"$line"
             [[ -n "${pair[$id]:-}" ]] && continue
             pair[$id]=1
+            agreed[$id]=" $units "
             pset "partner|$id|name" "$nm"; pset "partner|$id|address" "$addr"
             pset "partner|$id|port" "$port"; pset "partner|$id|rate_mbit" "$rate"
         done
@@ -1581,31 +1588,46 @@ step_partners() {
         (( ${#pair[@]} )) && PARTNER_SOURCE="settings"
     fi
     _apply_P
-    # keep_ids <key> <unit> <off 1/0>: the key's partners that exist - none for a unit that can't travel or is off
+    # unit_ok <unit>: PARTNER_OKU / PARTNER_WHYU - one dataset of its own (partner_unit_dataset), and (2.29, the pairs
+    # known) agreed by at least one partner (send.units) - else not_agreed
+    unit_ok() {
+        local v any=""
+        if ! partner_unit_dataset "$1"; then PARTNER_OKU[$1]="no"; PARTNER_WHYU[$1]="$PU_WHY"; return 0; fi
+        PARTNER_OKU[$1]="yes"
+        [[ "$PARTNER_SOURCE" == "pairs" ]] && (( ${#agreed[@]} )) || return 0
+        for v in "${!agreed[@]}"; do [[ "${agreed[$v]}" == *" $1 "* ]] && any=1; done
+        [[ -n "$any" ]] || { PARTNER_OKU[$1]="no"; PARTNER_WHYU[$1]="not_agreed"; }
+        return 0
+    }
+    # keep_ids <key> <unit> <off 1/0>: the key's partners that exist - none for a unit that can't travel or is off; one
+    # the partner hasn't agreed to keep (yet) stays, said so (2.29: the run skips it until the partner agrees)
     keep_ids() {
         local key="$1" unit="$2" off="$3" v out=""
         [[ -n "${OLD[$key]+x}" || -n "${P[$key]+x}" ]] || return 0
         while IFS= read -r v; do
             [[ -n "$v" ]] || continue
             if [[ -z "${pair[$v]:-}" ]]; then continue
-            elif [[ "${PARTNER_OKU[$unit]}" != "yes" ]]; then hint "${unit}: not one dataset of its own (${PARTNER_WHYU[$unit]}) - it can't go to partner $(pget "partner|$v|name" "$v")"; continue
+            elif [[ "${PARTNER_OKU[$unit]}" != "yes" && "${PARTNER_WHYU[$unit]}" != "not_agreed" ]]; then hint "${unit}: not one dataset of its own (${PARTNER_WHYU[$unit]}) - it can't go to partner $(pget "partner|$v|name" "$v")"; continue
             elif [[ "$off" == 1 ]]; then hint "${unit}: not backed up (off) - nothing of it goes to partner $(pget "partner|$v|name" "$v")"; continue; fi
+            if [[ -n "${agreed[$v]+x}" && "${agreed[$v]}" != *" $unit "* ]]; then
+                hint "${unit}: not agreed with $(pget "partner|$v|name" "$v") yet - ask at the Team Lead («Change what $(pget "general|server" "$(hostname -s 2>/dev/null)") sends…»); until then it doesn't go there"
+            fi
             grep -Fxq -- "$v" <<<"$out" || out+="$v"$'\n'
         done < <(if [[ -n "${OLD[$key]+x}" ]]; then printf '%s\n' "${OLD[$key]}"; else printf '%s\n' "${P[$key]}"; fi)
         if [[ -n "$out" ]]; then P[$key]="${out%$'\n'}"; else unset "P[$key]"; fi
     }
     for s in "${SH[@]}"; do
-        if partner_unit_dataset "share:$s"; then PARTNER_OKU[share:$s]="yes"; else PARTNER_OKU[share:$s]="no"; PARTNER_WHYU[share:$s]="$PU_WHY"; fi
+        unit_ok "share:$s"
         keep_ids "share|$s|partner" "share:$s" "$([[ "$(pget "share|$s|mode" off)" == off ]] && echo 1 || echo 0)"
     done
     for n in "${VM_NAMES[@]}"; do
-        if partner_unit_dataset "vm:$n"; then PARTNER_OKU[vm:$n]="yes"; else PARTNER_OKU[vm:$n]="no"; PARTNER_WHYU[vm:$n]="$PU_WHY"; fi
+        unit_ok "vm:$n"
         s="$(vm_share_mode "$n")"
         keep_ids "vm|$n|partner" "vm:$n" "$([[ "$(pget "vm|$n|mode" snapshot)" == off || "${s:-off}" == off ]] && echo 1 || echo 0)"
     done
-    if partner_unit_dataset place; then PARTNER_OKU[place]="yes"; else PARTNER_OKU[place]="no"; PARTNER_WHYU[place]="$PU_WHY"; fi
+    unit_ok place
     keep_ids "general|partner_place" place 0
-    unset -f keep_ids
+    unset -f keep_ids unit_ok
     _apply_P
     (( ${#pair[@]} )) || return 0
     sub "Partners"
@@ -1616,7 +1638,8 @@ step_partners() {
         [[ -f "$UB_PARTNER_DIR/$id.key" ]] || wrn "Partner $(pget "partner|$id|name" "$id"): its key is missing ($UB_PARTNER_DIR/$id.key) - pair anew at the Team Lead"
     done
     hint "What goes to a partner is ticked per share and VM in Mr. Backupsy's setup («also to <partner>»); only ZFS datasets of their own travel"
-    [[ "${PARTNER_OKU[place]}" == "yes" ]] || hint "The backup place is not a dataset of its own (${PARTNER_WHYU[place]}) - it can't go to a partner"
+    if [[ "${PARTNER_WHYU[place]:-}" == "not_agreed" ]]; then hint "The backup place is not agreed with a partner yet - ask at the Team Lead («Change what $(pget "general|server" "$(hostname -s 2>/dev/null)") sends…»)"
+    elif [[ "${PARTNER_OKU[place]}" != "yes" ]]; then hint "The backup place is not a dataset of its own (${PARTNER_WHYU[place]}) - it can't go to a partner"; fi
     return 0
 }
 

@@ -14,15 +14,21 @@ declare(strict_types=1);
  *   data/partner/received/<id>.json   what the door received of a pair (unit → newest snapshot, bytes, time)
  *   data/partner/deletes.jsonl    what the door's retention destroyed (for the night watchman)
  *   data/partner/door.log         the door's lines (refusals among them); RAM when the data folder is away
+ *   data/partner/wishes/<id>.json what a partner would also like to send (the door's verb `offer`): {pair, units, time} —
+ *                                 one file per pair, overwritten; the Team Lead's «Keep it too» / «No» decides
  *   /boot/config/plugins/unraid-secretary-office/partners/<id>.key (.pub)   my key for a pair (ssh-keygen ed25519)
  *   …/partners/<id>.known         the partner's host keys, pinned (ssh's UserKnownHostsFile for that pair)
  *   /boot/config/ssh/root/authorized_keys   Unraid's: the office writes and removes only lines marked uso-partner:<id>
  *   RUN_DIR/partner/              the door's locks and records, heard-<id> (the last time a pair knocked), refusals
  *
  * pairs.json: {"v":1, "pairs":[{id, name, address, port, host_keys:[fingerprint…], my_key, their_key,
- *   send:{units, rate_mbit}, receive:{pool, quota_gb, retention, window, wake, units}|null, trust, paired, last_heard,
- *   last_answer:{array, night, v}|null}]} — receive.units: the units of theirs this office agreed to keep (the plan's
- *   §3.2 plus that list, which the door checks every unit against).
+ *   send:{units, rate_mbit, wanted, offered}, receive:{pool, quota_gb, retention, window, wake, units}|null, trust, paired,
+ *   last_heard, last_answer:{array, night, v}|null}]} — receive.units: the units of theirs this office agreed to keep (the
+ *   plan's §3.2 plus that list, which the door checks every unit against). send.units: what the partner agreed to keep
+ *   (what the engine sends); send.wanted: what the user chose to send («Change what <host> sends…», ⊇ units — the rest is
+ *   asked for through the door's `offer`); send.offered: when the partner last answered an `offer` (null: the wish as it
+ *   stands hasn't reached it yet — the mutual watch asks again every round). Pairs written before 2.29 have send
+ *   {units, rate_mbit} only: read as wanted = units, offered = null, and written in the new shape at the next write.
  */
 
 const PARTNER_FLASH_DIR     = '/boot/config/plugins/unraid-secretary-office/partners';
@@ -228,15 +234,46 @@ function partnerPairValid(mixed $p): bool
         && is_int($p['port']) && $p['port'] >= 1 && $p['port'] <= 65535
         && ($p['my_key'] === null || is_string($p['my_key']) && preg_match(PARTNER_FP_RE, $p['my_key']))
         && ($p['their_key'] === null || is_string($p['their_key']) && preg_match(PARTNER_FP_RE, $p['their_key']))
-        && partnerExact($p['send'], ['units', 'rate_mbit']) && partnerUnitList($p['send']['units']) !== null
-        && is_int($p['send']['rate_mbit']) && $p['send']['rate_mbit'] >= 0 && $p['send']['rate_mbit'] <= 100000
-        && ($p['my_key'] !== null || $p['send']['units'] === [])               // nothing goes out without my key
+        && partnerSendValid($p['send'], $p['my_key'] !== null)
         && ($p['receive'] === null ? $p['their_key'] === null : $p['their_key'] !== null && partnerReceiveValid($p['receive']))
         && in_array($p['trust'], PARTNER_TRUST, true)
         && is_int($p['paired']) && $p['paired'] > 0
         && ($p['last_heard'] === null || is_int($p['last_heard']) && $p['last_heard'] > 0)
         && ($answer === null || partnerExact($answer, ['array', 'night', 'v']) && in_array($answer['array'], ['started', 'stopped'], true)
             && is_bool($answer['night']) && is_string($answer['v']) && preg_match(PARTNER_VERSION_RE, $answer['v']));
+}
+
+/**
+ * What I send (pairs.json send): units (agreed by the partner), rate_mbit, wanted (chosen here, ⊇ units), offered (when
+ * the partner last answered an `offer`, or null). Both shapes are taken — {units, rate_mbit} as written before 2.29 and
+ * the whole one — because a pairs.json is read long before anything writes it anew (the door reads it at every knock,
+ * the engine's jq only .send.units); partnerPairUpgrade() fills the two keys and every write goes through it.
+ */
+function partnerSendValid(mixed $s, bool $myKey): bool
+{
+    $old = partnerExact($s, ['units', 'rate_mbit']);
+    if (!$old && !partnerExact($s, ['units', 'rate_mbit', 'wanted', 'offered'])) {
+        return false;
+    }
+    if (partnerUnitList($s['units']) === null || !is_int($s['rate_mbit']) || $s['rate_mbit'] < 0 || $s['rate_mbit'] > 100000
+        || (!$myKey && $s['units'] !== [])) {                                   // nothing goes out without my key
+        return false;
+    }
+    if ($old) {
+        return true;
+    }
+    return partnerUnitList($s['wanted']) !== null && !array_diff($s['units'], $s['wanted'])
+        && ($myKey || $s['wanted'] === [])
+        && ($s['offered'] === null || is_int($s['offered']) && $s['offered'] > 0);
+}
+
+/** A pair of the old shape (send without wanted/offered) in the new one: wanted = units, offered = null */
+function partnerPairUpgrade(array $p): array
+{
+    if (is_array($p['send'] ?? null) && !array_key_exists('wanted', $p['send'])) {
+        $p['send'] = ['units' => $p['send']['units'] ?? [], 'rate_mbit' => $p['send']['rate_mbit'] ?? 0, 'wanted' => $p['send']['units'] ?? [], 'offered' => null];
+    }
+    return $p;
 }
 
 /** @return list<array> the pairs of pairs.json that are pairs — the rest left out (said in the agent's log) */
@@ -250,7 +287,7 @@ function partnerPairs(?string $file = null): array
     foreach ($j['pairs'] as $p) {
         if (partnerPairValid($p) && !isset($ids[$p['id']])) {
             $ids[$p['id']] = true;
-            $out[] = $p;
+            $out[] = partnerPairUpgrade($p);
         } elseif (function_exists('logLine') && defined('AGENT_LOG')) {
             logLine('Partner offices: a pair in pairs.json isn\'t in the office\'s shape — left out');
         }
@@ -270,12 +307,53 @@ function partnerPair(string $id, ?array $pairs = null): ?array
 
 function partnerPairsWrite(array $pairs, ?string $file = null): void
 {
-    foreach ($pairs as $p) {
+    foreach ($pairs as $i => $p) {
         if (!partnerPairValid($p)) {
             throw new Problem('partner_shape');
         }
+        $pairs[$i] = partnerPairUpgrade($p);         // always written in the whole shape
     }
     partnerWritePrivate($file ?? partnerDir() . '/pairs.json', ['v' => 1, 'pairs' => array_values($pairs)]);
+}
+
+/**
+ * One pair changed in pairs.json — read, changed and written under a lock in RAM (the Team Lead's actions and the mutual
+ * watch's job run in processes of their own). $change gets the pair as it stands and returns it changed (or null: no
+ * change). Returns the pair as written (as it stands when nothing changed), null when there is no such pair.
+ */
+function partnerPairUpdate(string $id, callable $change): ?array
+{
+    $lock = partnerDirReady(partnerRunDir()) ? @fopen(partnerRunDir() . '/pairs.lock', 'c') : false;
+    if ($lock) {
+        flock($lock, LOCK_EX);
+    }
+    try {
+        $pairs = partnerPairs();
+        foreach ($pairs as $i => $p) {
+            if ($p['id'] !== $id) {
+                continue;
+            }
+            $new = $change($p);
+            if (is_array($new) && $new !== $p) {
+                $pairs[$i] = $new;
+                partnerPairsWrite($pairs);
+                return $new;
+            }
+            return $p;
+        }
+        return null;
+    } finally {
+        if ($lock) {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+}
+
+/** $a ⊆ $b (unit lists) */
+function partnerSubset(array $a, array $b): bool
+{
+    return !array_diff($a, $b);
 }
 
 // ===================================================================== addresses
@@ -901,8 +979,12 @@ function partnerJsonLine(string $text): ?array
     return null;
 }
 
-/** A partner's status as far as the office shows it: the expected fields only, cleaned */
-function partnerStatusClean(mixed $s, array $units): ?array
+/**
+ * A partner's status as far as the office shows it: the expected fields only, cleaned. Its units are what it keeps of
+ * mine (also one I no longer send); `agreed` its receive.units (what it agreed to keep — null from an office before
+ * 2.29), `wish` the units of my `offer` its Team Lead hasn't decided on yet.
+ */
+function partnerStatusClean(mixed $s): ?array
 {
     if (!is_array($s) || ($s['ok'] ?? null) !== true) {
         return null;
@@ -917,6 +999,8 @@ function partnerStatusClean(mixed $s, array $units): ?array
         'pool'    => ['free_bytes' => $int($s['pool']['free_bytes'] ?? null), 'asleep' => ($s['pool']['asleep'] ?? false) === true],
         'quota'   => ['bytes' => $int($s['quota']['bytes'] ?? null), 'used_bytes' => $int($s['quota']['used_bytes'] ?? null)],
         'units'   => [],
+        'agreed'  => partnerUnitList($s['agreed'] ?? null),
+        'wish'    => partnerUnitList($s['wish'] ?? null),
     ];
     $run = $s['last_run'] ?? null;
     if (is_array($run) && is_string($run['run'] ?? null) && preg_match('/^\d{8}-\d{4}$/D', $run['run'])) {
@@ -924,7 +1008,7 @@ function partnerStatusClean(mixed $s, array $units): ?array
                             'time' => $int($run['time'] ?? null)];
     }
     foreach ((array) ($s['units'] ?? []) as $u => $info) {
-        if (!is_string($u) || !in_array($u, $units, true) || !is_array($info)) {
+        if (!is_string($u) || !preg_match(PARTNER_UNIT_RE, $u) || !is_array($info) || count($out['units']) >= PARTNER_UNITS_MAX) {
             continue;
         }
         $snaps = array_values(array_filter((array) ($info['snaps'] ?? []), fn ($n) => is_string($n) && preg_match(PARTNER_SNAP_RE, $n)));
@@ -959,7 +1043,7 @@ function partnerAsk(array $pair): ?array
     $status = null;
     if ($j['array'] === 'started') {
         [$exit, $out] = partnerSsh($pair, 'status');
-        $status = $exit === 0 ? partnerStatusClean(partnerJsonLine($out), $pair['send']['units']) : null;
+        $status = $exit === 0 ? partnerStatusClean(partnerJsonLine($out)) : null;
     }
     return ['time' => $now, 'reachable' => true, 'answer' => $answer, 'status' => $status, 'why' => null];
 }
@@ -1005,6 +1089,8 @@ function partnerStateEntry(array $old, ?array $ask, array $pair): array
         'status'     => isset($old['status']) && is_array($old['status']) ? $old['status'] : null,
         'told'       => isset($old['told']) && is_array($old['told']) ? $old['told'] : null,
         'tailnet'    => isset($old['tailnet']) && is_bool($old['tailnet']) ? $old['tailnet'] : null,
+        'status_time' => isset($old['status_time']) && is_int($old['status_time']) ? $old['status_time'] : null,
+        'offer'      => isset($old['offer']) && is_array($old['offer']) ? $old['offer'] : null,      // the last `offer` (partnerOfferKeep())
     ];
     if ($ask !== null) {
         $entry['last_try'] = $ask['time'];
@@ -1013,7 +1099,10 @@ function partnerStateEntry(array $old, ?array $ask, array $pair): array
         if ($ask['reachable']) {
             $entry['last_heard'] = $ask['time'];
             $entry['answer'] = $ask['answer'];
-            $entry['status'] = $ask['status'] ?? $entry['status'];
+            if ($ask['status'] !== null) {
+                $entry['status'] = $ask['status'];
+                $entry['status_time'] = $ask['time'];
+            }
         }
     }
     $door = partnerHeardAtDoor($pair['id']);
@@ -1047,7 +1136,9 @@ function partnerWatch(callable $muted, callable $tell, ?int $now = null): array
     $tailnet = false;           // asked once, only when someone is silent
     foreach ($pairs as $p) {
         $old = is_array($state['pairs'][$p['id']] ?? null) ? $state['pairs'][$p['id']] : [];
-        $entry = partnerStateEntry($old, partnerAsk($p), $p);
+        $ask = partnerAsk($p);
+        $entry = partnerStateEntry($old, $ask, $p);
+        [$p, $entry] = partnerUnitsFollow($p, $ask, $entry);
         $entry['tailnet'] = null;
         if (partnerSilent($p, $entry, $now)) {
             if ($tailnet === false) {
@@ -1071,6 +1162,190 @@ function partnerWatch(callable $muted, callable $tell, ?int $now = null): array
         partnerWritePrivate(partnerDir() . '/state.json', $next);
     }
     return $next;
+}
+
+// ===================================================================== what I send: agreed, wanted, asked for
+
+/**
+ * After a look at a partner (partnerAsk()): what it agreed to keep (status.agreed) is what goes — send.units = wanted ∩
+ * agreed (a unit its Team Lead kept since goes along with the next run, one it no longer keeps stays here); then, while
+ * something wanted isn't agreed and the wish as it stands hasn't reached the partner (offered null), the `offer` once
+ * more. Returns the pair and its state entry as they are now.
+ *
+ * @return array{0: array, 1: array}
+ */
+function partnerUnitsFollow(array $p, ?array $ask, array $entry): array
+{
+    if ($ask === null || !$ask['reachable'] || $p['my_key'] === null) {
+        return [$p, $entry];
+    }
+    $agreed = $ask['status']['agreed'] ?? null;
+    if (is_array($agreed)) {
+        $p = partnerSendFollow($p['id'], $agreed) ?? $p;
+    }
+    if (($ask['answer']['array'] ?? null) === 'started' && partnerOfferDue($p)) {
+        $res = partnerOffer($p);
+        $entry['offer'] = partnerOfferEntry($res);
+        $p = partnerOfferKeep($p['id'], $res) ?? $p;
+    }
+    return [$p, $entry];
+}
+
+/** send.units = wanted ∩ the partner's agreed — written (and said) only when that changes */
+function partnerSendFollow(string $id, array $agreed): ?array
+{
+    $gone = $came = [];
+    $pair = partnerPairUpdate($id, function (array $p) use ($agreed, &$gone, &$came) {
+        $units = array_values(array_intersect($p['send']['wanted'], $agreed));
+        if ($units === $p['send']['units']) {
+            return null;
+        }
+        $gone = array_values(array_diff($p['send']['units'], $units));
+        $came = array_values(array_diff($units, $p['send']['units']));
+        $p['send']['units'] = $units;
+        if ($gone && $p['send']['offered'] === null) {
+            $p['send']['offered'] = time();        // it stopped keeping something: its decision — not asked again by itself
+        }
+        return $p;
+    });
+    if ($pair !== null && $came) {
+        partnerLog("{$pair['name']} ($id) keeps " . implode(', ', $came) . ' too now — it goes along with the next run');
+    }
+    if ($pair !== null && $gone) {
+        partnerLog("{$pair['name']} ($id) no longer keeps " . implode(', ', $gone) . ' — not sent any more');
+    }
+    return $pair;
+}
+
+/** Something wanted isn't agreed, and the wish as it stands hasn't been answered yet */
+function partnerOfferDue(array $p): bool
+{
+    return $p['my_key'] !== null && $p['send']['offered'] === null && !partnerSubset($p['send']['wanted'], $p['send']['units']);
+}
+
+/**
+ * The door's `offer <unit>…` (the pair's ssh, like ping): every unit this office wants to send — the partner keeps a wish
+ * of those it hasn't agreed to and answers what it agreed to keep. Never changes anything there by itself.
+ *
+ * @return array{time:int, reachable:bool, ok:bool, why:?string, agreed:?array, pending:?array}
+ */
+function partnerOffer(array $pair): array
+{
+    $now = time();
+    $res = ['time' => $now, 'reachable' => false, 'ok' => false, 'why' => null, 'agreed' => null, 'pending' => null];
+    if ($pair['my_key'] === null || !$pair['send']['wanted']) {
+        return ['why' => 'no_key'] + $res;
+    }
+    [$exit, $out, $err] = partnerSsh($pair, 'offer', $pair['send']['wanted']);
+    $j = partnerJsonLine($out);
+    if ($exit === 255 || $exit === 124 || !is_array($j)) {
+        $why = $exit === 255 ? (preg_match('/Host key verification failed|REMOTE HOST IDENTIFICATION/i', $err) ? 'host_key'
+            : (preg_match('/Permission denied/i', $err) ? 'denied' : 'unreachable')) : ($exit === 124 ? 'timeout' : 'bad_answer');
+        return ['why' => $why, 'reachable' => $exit !== 255 && $exit !== 124] + $res;
+    }
+    if (($j['ok'] ?? null) !== true) {
+        $why = is_string($j['why'] ?? null) && preg_match('/^[a-z_]{1,40}$/D', $j['why']) ? $j['why'] : 'bad_answer';
+        return ['reachable' => true, 'why' => $why] + $res;
+    }
+    $agreed = partnerUnitList($j['agreed'] ?? null);
+    $pending = partnerUnitList($j['pending'] ?? null);
+    if ($agreed === null || $pending === null) {
+        return ['reachable' => true, 'why' => 'bad_answer'] + $res;
+    }
+    return ['reachable' => true, 'ok' => true, 'agreed' => $agreed, 'pending' => $pending] + $res;
+}
+
+/** The last offer as state.json keeps it (for the card) */
+function partnerOfferEntry(array $res): array
+{
+    return ['time' => $res['time'], 'ok' => $res['ok'], 'why' => $res['why'], 'pending' => $res['pending']];
+}
+
+/**
+ * An offer's answer kept: answered → send.units = wanted ∩ agreed, offered = now; refused by the door for good (an
+ * office before 2.29 knows no `offer`, it doesn't receive …) → offered = now too (not asked again until the choice
+ * changes); not reached, its array stopped, busy → offered stays null (the mutual watch asks again).
+ */
+function partnerOfferKeep(string $id, array $res): ?array
+{
+    $again = !$res['reachable'] || in_array($res['why'], ['array_stopped', 'busy', 'bad_answer'], true);
+    if (!$res['ok'] && $again) {
+        return null;
+    }
+    $pair = partnerPairUpdate($id, function (array $p) use ($res) {
+        $p['send']['offered'] = $res['time'];
+        if ($res['ok']) {
+            $p['send']['units'] = array_values(array_intersect($p['send']['wanted'], $res['agreed']));
+        }
+        return $p;
+    });
+    if ($pair !== null) {
+        partnerLog($res['ok'] ? "asked {$pair['name']} ($id) to keep " . implode(', ', $res['pending'] ?: $pair['send']['units']) . ' too'
+            . ($res['pending'] ? ' — its Team Lead decides' : ' — agreed') : "{$pair['name']} ($id) didn't take the question: {$res['why']}");
+    }
+    return $pair;
+}
+
+/** One offer now (the Team Lead's «Change what <host> sends…»): asked, kept in pairs.json and state.json */
+function partnerOfferNow(array $pair): array
+{
+    $res = partnerOffer($pair);
+    partnerOfferKeep($pair['id'], $res);
+    $state = partnerStateRead();
+    $entry = is_array($state['pairs'][$pair['id']] ?? null) ? $state['pairs'][$pair['id']] : [];
+    $entry['offer'] = partnerOfferEntry($res);
+    if ($res['reachable']) {
+        $entry['last_heard'] = $res['time'];
+    }
+    $state['pairs'][$pair['id']] = $entry;
+    partnerWritePrivate(partnerDir() . '/state.json', $state);
+    if (!$res['reachable']) {
+        partnerLog("asked {$pair['name']} ({$pair['id']}) to keep more — no answer ({$res['why']}); the mutual watch asks again");
+    }
+    return $res;
+}
+
+/** The wish a partner left at my door (wishes/<id>.json, written by the door's `offer`) */
+function partnerWishFile(string $id): string
+{
+    return partnerDir() . "/wishes/$id.json";
+}
+
+/**
+ * A partner's wish as the door wrote it — exactly its shape — less what was agreed meanwhile. Null: none (or nothing
+ * left of it).
+ *
+ * @return array{units: list<string>, time: int}|null
+ */
+function partnerWish(array $pair): ?array
+{
+    if ($pair['receive'] === null) {
+        return null;
+    }
+    $j = partnerReadPrivate(partnerWishFile($pair['id']));
+    if (!partnerExact($j, ['pair', 'units', 'time']) || $j['pair'] !== $pair['id'] || partnerUnitList($j['units'], 1) === null
+        || !is_int($j['time']) || $j['time'] <= 0) {
+        return null;
+    }
+    $units = array_values(array_diff($j['units'], $pair['receive']['units']));
+    return $units ? ['units' => $units, 'time' => $j['time']] : null;
+}
+
+/** The wish file written anew (what is still wished) or removed (nothing) — never through a link */
+function partnerWishWrite(string $id, array $units, int $time): void
+{
+    $file = partnerWishFile($id);
+    if ($units) {
+        partnerWritePrivate($file, ['pair' => $id, 'units' => array_values($units), 'time' => $time]);
+    } elseif (is_link($file) || is_file($file)) {
+        @unlink($file);
+    }
+}
+
+/** A line in the pair's door.log written by the Team Lead (the door's own format, «-» for the client) */
+function partnerDoorLogLine(string $id, string $text): void
+{
+    partnerAppend(partnerDir() . '/door.log', date('Y-m-d H:i:s') . "  $id - " . substr((string) preg_replace('/[^\x20-\x7e]/', '?', $text), 0, 300) . "\n");
 }
 
 // ===================================================================== what the page gets
@@ -1213,6 +1488,11 @@ function partnerPublic(): array
             'tailnet'    => $e['tailnet'] ?? null,
             'sends'      => $p['my_key'] !== null,
             'send_units' => $p['send']['units'],
+            'wanted'     => $p['send']['wanted'],                // chosen here; what of it isn't in send_units is asked for
+            'offered'    => $p['send']['offered'],
+            'offer'      => $e['offer'] ?? null,                 // the last offer: time, ok, why, pending
+            'status_time' => $e['status_time'] ?? null,          // when they_keep (and its agreed, wish) was said
+            'wish'       => partnerWish($p),                     // what they would also like to send (I keep theirs)
             'receive'    => $p['receive'],
             'door'       => $door,
             'they_keep'  => $e['status'] ?? null,
@@ -1250,6 +1530,12 @@ function partnerReceiveFrom(mixed $r, array $pools, array $offered): array
         }
     }
     return $receive;
+}
+
+/** A new pair's send: what the pairing agreed is what is wanted (a unit the partner left out isn't asked for by itself) */
+function partnerSendNew(array $units): array
+{
+    return ['units' => $units, 'rate_mbit' => 0, 'wanted' => $units, 'offered' => null];
 }
 
 function partnerNewId(): string
@@ -1409,7 +1695,7 @@ function partner_accept(array $r): array
     $pairs = partnerPairs();
     $pair = ['id' => $a['id'], 'name' => $a['name'], 'address' => $a['address'], 'port' => $a['port'],
              'host_keys' => array_values(array_map('partnerFingerprint', $a['host_keys'])), 'my_key' => $myPub !== null ? partnerFingerprint($myPub) : null,
-             'their_key' => $receive !== null ? partnerFingerprint($a['pub_key']) : null, 'send' => ['units' => $myUnits, 'rate_mbit' => 0],
+             'their_key' => $receive !== null ? partnerFingerprint($a['pub_key']) : null, 'send' => partnerSendNew($myUnits),
              'receive' => $receive, 'trust' => $trust, 'paired' => time(), 'last_heard' => null, 'last_answer' => null];
     try {
         if ($myPub !== null) {
@@ -1460,7 +1746,7 @@ function partnerAcceptSelf(array $a, array $offer, array $r): array
     $pairs = partnerPairs();
     $pair = ['id' => $a['id'], 'name' => partnerMyName(), 'address' => $a['address'], 'port' => $a['port'],
              'host_keys' => array_values(array_map('partnerFingerprint', $offer['host_keys'])), 'my_key' => $fp, 'their_key' => $fp,
-             'send' => ['units' => array_values(array_intersect($offer['units'], $receive['units'])), 'rate_mbit' => 0],
+             'send' => partnerSendNew(array_values(array_intersect($offer['units'], $receive['units']))),
              'receive' => $receive, 'trust' => 'mine', 'paired' => time(), 'last_heard' => null, 'last_answer' => null];
     try {
         partnerKnownWrite($a['id'], $a['address'], $a['port'], $offer['host_keys']);
@@ -1521,7 +1807,7 @@ function partner_finish(array $r): array
     $pair = ['id' => $b['id'], 'name' => $b['name'], 'address' => $b['address'], 'port' => $b['port'],
              'host_keys' => array_values(array_map('partnerFingerprint', $b['host_keys'])), 'my_key' => $sends ? partnerFingerprint($offer['pub_key']) : null,
              'their_key' => $receive !== null ? partnerFingerprint((string) $b['pub_key']) : null,
-             'send' => ['units' => $sends ? array_values(array_intersect($offer['units'], $b['receive']['units'])) : [], 'rate_mbit' => 0],
+             'send' => partnerSendNew($sends ? array_values(array_intersect($offer['units'], $b['receive']['units'])) : []),
              'receive' => $receive, 'trust' => $offer['trust'], 'paired' => time(), 'last_heard' => null, 'last_answer' => null];
     try {
         if ($sends) {
@@ -1550,24 +1836,23 @@ function partner_finish(array $r): array
 /** Asks one partner now and keeps the answer (state.json, the pair's last_heard/last_answer) */
 function partnerAskAndKeep(string $id): ?array
 {
-    $pairs = partnerPairs();
-    $pair = partnerPair($id, $pairs);
+    $pair = partnerPair($id);
     if ($pair === null) {
         throw new Problem('partner_unknown');
     }
     $ask = partnerAsk($pair);
     $state = partnerStateRead();
-    $state['pairs'][$id] = partnerStateEntry(is_array($state['pairs'][$id] ?? null) ? $state['pairs'][$id] : [], $ask, $pair);
-    partnerWritePrivate(partnerDir() . '/state.json', $state);
+    $entry = partnerStateEntry(is_array($state['pairs'][$id] ?? null) ? $state['pairs'][$id] : [], $ask, $pair);
     if ($ask !== null && $ask['reachable']) {
-        foreach ($pairs as $i => $p) {
-            if ($p['id'] === $id) {
-                $pairs[$i]['last_heard'] = $ask['time'];
-                $pairs[$i]['last_answer'] = ['array' => $ask['answer']['array'], 'night' => $ask['answer']['night'], 'v' => $ask['answer']['v']];
-            }
-        }
-        partnerPairsWrite($pairs);
+        partnerPairUpdate($id, function (array $p) use ($ask) {
+            $p['last_heard'] = $ask['time'];
+            $p['last_answer'] = ['array' => $ask['answer']['array'], 'night' => $ask['answer']['night'], 'v' => $ask['answer']['v']];
+            return $p;
+        });
+        [, $entry] = partnerUnitsFollow(partnerPair($id) ?? $pair, $ask, $entry);
     }
+    $state['pairs'][$id] = $entry;
+    partnerWritePrivate(partnerDir() . '/state.json', $state);
     return $ask === null ? null : ['reachable' => $ask['reachable'], 'why' => $ask['why'], 'array' => $ask['answer']['array'] ?? null];
 }
 
@@ -1608,6 +1893,7 @@ function partner_end(array $r): array
             partnerWritePrivate(partnerDir() . '/state.json', $state);
         }
         @unlink(partnerRunDir() . "/heard-$id");
+        partnerWishWrite($id, [], 0);
         partnerLog("partnership with {$pair['name']} ($id) ended — line, key and known_hosts removed; their copies here stay");
     }
     if ($offer) {
@@ -1617,6 +1903,174 @@ function partner_end(array $r): array
         }
     }
     return ['ok' => true, 'partners' => partnerPublic()];
+}
+
+/**
+ * «Change what <host> sends…» (the sender's card): look (the units this server could send), do ({id, units}: what is
+ * left out is no longer sent at once — their copies there stay —, what is new is asked for through the door's `offer`;
+ * the answer says what the partner agreed to keep: send.units = chosen ∩ agreed). A unit not sent or asked for so far
+ * must be one partnerUnits() calls ok (a sleeping pool's: «pool asleep»).
+ */
+function partner_change(array $r): array
+{
+    $id = (string) ($r['id'] ?? '');
+    if (!preg_match(PARTNER_ID_RE, $id)) {
+        throw new Problem('bad_request');
+    }
+    $pair = partnerPair($id);
+    if ($pair === null) {
+        throw new Problem('partner_unknown');
+    }
+    if ($pair['my_key'] === null) {
+        throw new Problem('partner_not_sending', ['name' => $pair['name']]);
+    }
+    $step = (string) ($r['step'] ?? 'look');
+    $all = partnerUnits();
+    if ($step === 'look') {
+        return ['ok' => true, 'units' => $all, 'send_units' => $pair['send']['units'], 'wanted' => $pair['send']['wanted']];
+    }
+    if ($step !== 'do') {
+        throw new Problem('bad_request');
+    }
+    $raw = $r['units'] ?? null;
+    if (!is_array($raw) || !array_is_list($raw)) {
+        throw new Problem('partner_receive', ['field' => 'units']);
+    }
+    $byId = array_column($all, null, 'id');
+    $had = array_merge($pair['send']['units'], $pair['send']['wanted']);
+    $chosen = [];
+    foreach ($raw as $u) {
+        if (!is_string($u) || !preg_match(PARTNER_UNIT_RE, $u)) {
+            throw new Problem('partner_unit', ['unit' => is_string($u) ? substr($u, 0, 80) : '?']);
+        }
+        if (!in_array($u, $had, true) && !($byId[$u]['ok'] ?? false)) {
+            throw new Problem(($byId[$u]['why'] ?? null) === 'asleep' ? 'partner_unit_asleep' : 'partner_unit', ['unit' => $u]);
+        }
+        $chosen[$u] = true;
+    }
+    $chosen = array_keys($chosen);
+    if (!$chosen) {
+        throw new Problem('partner_receive', ['field' => 'units']);
+    }
+    if (count($chosen) > PARTNER_UNITS_MAX) {
+        throw new Problem('partner_units_max', ['max' => PARTNER_UNITS_MAX]);
+    }
+    $before = $pair['send'];
+    $pending = !partnerSubset($before['wanted'], $before['units']);      // a wish of before: the partner hears the new one
+    $pair = partnerPairUpdate($id, function (array $p) use ($chosen) {
+        $same = $p['send']['wanted'];
+        sort($same);
+        $now = $chosen;
+        sort($now);
+        $p['send']['units'] = array_values(array_intersect($p['send']['units'], $chosen));
+        $p['send']['wanted'] = $chosen;
+        if ($same !== $now) {
+            $p['send']['offered'] = null;           // a new wish: it goes to the partner (now, or with the mutual watch)
+        }
+        return $p;
+    }) ?? throw new Problem('partner_unknown');
+    $removed = array_values(array_diff($before['units'], $chosen));
+    if ($removed) {
+        partnerLog("{$pair['name']} ($id): " . implode(', ', $removed) . ' no longer sent — their copies there stay');
+    }
+    $offer = null;
+    if (!partnerSubset($chosen, $pair['send']['units']) || $pending) {
+        $offer = partnerOfferNow($pair);
+    }
+    $pair = partnerPair($id) ?? $pair;
+    return ['ok' => true, 'removed' => $removed, 'asked' => array_values(array_diff($chosen, $pair['send']['units'])),
+            'offer' => $offer === null ? null : ['reachable' => $offer['reachable'], 'ok' => $offer['ok'], 'why' => $offer['why'], 'pending' => $offer['pending']],
+            'partners' => partnerPublic()];
+}
+
+/**
+ * The receiver's answer to a partner's wish (its card's chip): keep ({id, units, keep: true, confirm: true} — those units
+ * join receive.units; the pool, quota, retention and window stay as agreed) or «No» ({id, keep: false, confirm: true} —
+ * the wish goes, nothing else). The partner learns it from `status` at its next look.
+ */
+function partner_wish(array $r): array
+{
+    $id = (string) ($r['id'] ?? '');
+    if (!preg_match(PARTNER_ID_RE, $id) || ($r['confirm'] ?? null) !== true) {
+        throw new Problem('bad_request');
+    }
+    $pair = partnerPair($id);
+    if ($pair === null) {
+        throw new Problem('partner_unknown');
+    }
+    $wish = partnerWish($pair);
+    if ($wish === null) {
+        throw new Problem('partner_no_wish', ['name' => $pair['name']]);
+    }
+    if (($r['keep'] ?? null) !== true) {
+        partnerWishWrite($id, [], $wish['time']);
+        partnerLog("{$pair['name']} ($id) would also like to send " . implode(', ', $wish['units']) . ' — the Team Lead said no');
+        partnerDoorLogLine($id, 'wish ' . implode(' ', $wish['units']) . ': the Team Lead said no');
+        return ['ok' => true, 'partners' => partnerPublic()];
+    }
+    $units = $r['units'] ?? null;
+    if (!is_array($units) || !array_is_list($units) || !$units) {
+        throw new Problem('partner_receive', ['field' => 'units']);
+    }
+    foreach ($units as $u) {
+        if (!is_string($u) || !in_array($u, $wish['units'], true)) {
+            throw new Problem('partner_unit', ['unit' => is_string($u) ? substr($u, 0, 80) : '?']);
+        }
+    }
+    $units = array_values(array_unique($units));
+    $pair = partnerPairUpdate($id, function (array $p) use ($units) {
+        $all = array_values(array_unique(array_merge($p['receive']['units'], $units)));
+        if (count($all) > PARTNER_UNITS_MAX) {
+            throw new Problem('partner_units_max', ['max' => PARTNER_UNITS_MAX]);
+        }
+        $p['receive']['units'] = $all;
+        return $p;
+    }) ?? throw new Problem('partner_unknown');
+    partnerWishWrite($id, array_values(array_diff($wish['units'], $pair['receive']['units'])), $wish['time']);
+    partnerLog("{$pair['name']} ($id): the Team Lead keeps " . implode(', ', $units) . ' too (in ' . $pair['receive']['pool'] . '/' . PARTNER_PARENT . "/$id)");
+    partnerDoorLogLine($id, 'agreement: the Team Lead keeps ' . implode(' ', $units) . ' too - now ' . implode(' ', $pair['receive']['units']));
+    return ['ok' => true, 'partners' => partnerPublic()];
+}
+
+/**
+ * «Keep less of <name>…» (the receiver's card): {id, units: what this office still keeps, confirm: true} — at least one
+ * (to keep nothing: «End the partnership»). receive.units shrinks; the copies here stay (Ms. Dustdevil's to put away
+ * once the user wants); the door refuses the units left out (unit_not_agreed) and the partner learns it from `status`
+ * at its next look (its send.units follows, it doesn't ask for them again by itself).
+ */
+function partner_keep_less(array $r): array
+{
+    $id = (string) ($r['id'] ?? '');
+    if (!preg_match(PARTNER_ID_RE, $id) || ($r['confirm'] ?? null) !== true) {
+        throw new Problem('bad_request');
+    }
+    $pair = partnerPair($id);
+    if ($pair === null) {
+        throw new Problem('partner_unknown');
+    }
+    if ($pair['receive'] === null) {
+        throw new Problem('partner_not_keeping', ['name' => $pair['name']]);
+    }
+    $keep = $r['units'] ?? null;
+    if (!is_array($keep) || !array_is_list($keep) || !$keep) {
+        throw new Problem('partner_receive', ['field' => 'units']);
+    }
+    foreach ($keep as $u) {
+        if (!is_string($u) || !in_array($u, $pair['receive']['units'], true)) {
+            throw new Problem('partner_unit', ['unit' => is_string($u) ? substr($u, 0, 80) : '?']);
+        }
+    }
+    $gone = [];
+    $pair = partnerPairUpdate($id, function (array $p) use ($keep, &$gone) {
+        $gone = array_values(array_diff($p['receive']['units'], $keep));
+        $p['receive']['units'] = array_values(array_intersect($p['receive']['units'], $keep));
+        return $p['receive']['units'] ? $p : null;
+    }) ?? throw new Problem('partner_unknown');
+    if ($gone) {
+        partnerLog("{$pair['name']} ($id): the Team Lead keeps " . implode(', ', $gone) . ' no more — the copies here stay');
+        partnerDoorLogLine($id, 'agreement: the Team Lead keeps ' . implode(' ', $gone) . ' no more - now ' . implode(' ', $pair['receive']['units']));
+    }
+    return ['ok' => true, 'removed' => $gone, 'partners' => partnerPublic()];
 }
 
 function partner_state(array $r): array

@@ -24,7 +24,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.28"
+UB_VERSION="2.29"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -3038,7 +3038,7 @@ new_local_run() {
 # The door's verbs the engine uses: ping, list <unit>, resume <unit>, recv <unit> <snap> [<from>|-t].
 # Whatever crosses as a word is checked here first: units by partner_unit_name_ok, snapshots by UB_PARTNER_SNAP_RE.
 UB_PARTNER_DIR="${UB_PARTNER_DIR:-$UB_BOOT/config/plugins/unraid-secretary-office/partners}"
-UB_PARTNER_PAIRS="${UB_PARTNER_PAIRS:-$(dirname "$UB_DATA")/partner/pairs.json}"   # the Team Lead's pairs (setup.sh reads it)
+UB_PARTNER_PAIRS="${UB_PARTNER_PAIRS:-$(dirname "$UB_DATA")/partner/pairs.json}"   # the Team Lead's pairs (setup.sh and, since 2.29, the run read it)
 UB_PARTNER_ASK="${UB_PARTNER_ASK:-60}"           # seconds for a short question to the door (ping, list, resume)
 UB_PARTNER_NIGHTS="${UB_PARTNER_NIGHTS:-3}"      # unreachable so many nights in a row: a warning (once a day)
 UB_PARTNER_SNAP_RE='^uso-backup-[0-9]{8}-[0-9]{4}$'   # the only snapshot names the door accepts
@@ -3154,7 +3154,10 @@ partner_why_ok() { if [[ "$1" =~ ^[a-z_]{1,40}$ ]]; then printf '%s' "$1"; else 
 
 # The Team Lead's pairs (contract: plan 3.2, data/partner/pairs.json, {"v": 1, "pairs": [...]}) - read by setup.sh to
 # propose the [partner] sections; trusted only in exactly that shape. A pair the office sends to has "my_key".
-# partner_pairs_load -> 0 and PAIRS (lines "id|name|address|port|rate_mbit"), 1 when the file is missing or not as expected
+# Since 2.29 also its send.units - what the partner agreed to keep (the Team Lead's «Change what <host> sends…» asks
+# for more through the door): a unit that isn't among them is not_agreed - the setup says so, the run skips it.
+# partner_pairs_load -> 0 and PAIRS (lines "id|name|address|port|rate_mbit|units", units space-separated), 1 when the
+# file is missing or not as expected
 partner_pairs_load() {
     PAIRS=()
     local f="$UB_PARTNER_PAIRS"
@@ -3165,10 +3168,33 @@ partner_pairs_load() {
                  and (.name | type) == "string" and (.name | test("^[A-Za-z0-9._-]{1,40}$"))
                  and (.address | type) == "string" and (.address | test("^[A-Za-z0-9][A-Za-z0-9._:-]{0,252}$"))
                  and (.port | type) == "number" and .port >= 1 and .port <= 65535 and .port == (.port | floor)
-                 and (.my_key | type) == "string")
+                 and (.my_key | type) == "string"
+                 and (.send.units | type) == "array" and (.send.units | length) <= 64
+                 and all(.send.units[]; type == "string" and test("^((share|vm):[A-Za-z0-9][A-Za-z0-9._-]{0,63}|place)$")))
         | [.id, .name, .address, (.port | tostring),
-           ((.send.rate_mbit // 0) | if type == "number" and . >= 0 then floor else 0 end | tostring)] | join("|")' "$f" 2>/dev/null)
+           ((.send.rate_mbit // 0) | if type == "number" and . >= 0 then floor else 0 end | tostring),
+           (.send.units | join(" "))] | join("|")' "$f" 2>/dev/null)
     return 0
+}
+
+# partner_agreed_load -> PAIR_AGREED[id] = " unit unit ... " for every pair of pairs.json this office sends to (2.29);
+# returns 1 (and PAIR_AGREED empty) without that file - then nothing is known of an agreement and nothing is skipped
+# for it (the door decides, as before)
+declare -gA PAIR_AGREED=()
+partner_agreed_load() {
+    local line id units
+    PAIR_AGREED=()
+    partner_pairs_load || return 1
+    for line in "${PAIRS[@]}"; do
+        IFS='|' read -r id _ _ _ _ units <<<"$line"
+        [[ -n "$id" && -z "${PAIR_AGREED[$id]+x}" ]] && PAIR_AGREED[$id]=" $units "
+    done
+    return 0
+}
+# partner_agreed <id> <unit> -> 0 when that pair's agreement covers the unit - or nothing is known of it (no pairs.json,
+# a pair it doesn't name: the door decides)
+partner_agreed() {
+    [[ -z "${PAIR_AGREED[$1]+x}" || "${PAIR_AGREED[$1]}" == *" $2 "* ]]
 }
 
 # --- What the phase did, for status.json (section 7) ---------------------------
