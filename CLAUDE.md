@@ -401,6 +401,26 @@ installed plugin (see the checklist).
   storeroom's manifests) change only with a new `v`/`interface` read beside the old one; the engine's defaults for
   settings.ini keys don't change (old installs rely on them unwritten). The .plg refuses an update while a backup run
   or setup, a restore or drill, or one of Jack Emby's runs is active (one `pgrep -f` pattern, `testPlgGuard`).
+  **The install swaps** (2026-10-08, `testPlgInstall`): the package is unpacked beside the running office
+  (`<name>.new-<pid>/<name>` — one level down, where Unraid looks for no `.page`) and checked (tar's exit,
+  `agent/agent.php`, `scripts/agent.sh`, `scripts/partner-door.sh`) before anything else happens — a failure leaves the
+  old install running and exits 1; then the old agent is stopped and two renames swap the folders (the door's path is
+  gone for that moment only), the menu pages re-applied, the new agent started (the install waits ≤ 10 s for its
+  heartbeat and says when it doesn't come), the old folder (`<name>.old-<pid>`) removed. After the swap the new version
+  stays whatever happens (exit 0: at boot an exit ≠ 0 moves the .plg to `plugins-error`); nothing in it may need the
+  array or `var.ini` (a boot install runs before emhttp). **The remove** (`testPlgRemove`): the same guard (one pattern
+  in both sections), then `agent.sh release` — the array stop's releases (agent, drill/restore, the door's transfers and
+  records, the engine's kept mounts, Mr. Restori's pulls) while the scripts are still there; the office's cron file is
+  put aside (`<file>.removed-<YYYYMMDD-HHMMSS>`, an earlier aside makes way; `agent-watch.cron` goes, `agent.sh start`
+  writes it anew) and `officeCronBack()` (migrate.php, in `setUp()` before the desks' start) puts it back when the agent
+  starts without a cron file (`testCronBack`); its closing text says that partnerships ended and where the schedules went.
+  **Tolerant writers** (`testPartnerTolerant`): a reader of an exact-shape file uses only entries in exactly its shape,
+  a writer keeps every entry it doesn't recognise where it stood, as it is — `partnerListWrite()` for pairs.json,
+  tickets.json, ticket-pairs.json (keys beside the list kept; a file of another `v` refused, never written over);
+  `drillCertBase()` carries a certificate of another interface's history rows on and keeps that file aside. New
+  exact-shape writers do the same. **The page notices an update** (`testUpdateNotice`): `Office.setAgent()` (every
+  answer with the messenger) → `updateNotice()`: the running agent's version ≠ `CONFIG.version` → one calm line under
+  the top line (`#sso-update`) with «Reload» and «Later» (`office.update.later`, per version), never a forced reload.
 
 ## The desks
 

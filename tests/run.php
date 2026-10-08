@@ -17374,6 +17374,22 @@ function testPlgGuard(): void
     same('plg guard: these don\'t', array_fill(0, count($free), false), array_map($hit, $free));
     $guard = strpos($plg, 'pgrep -f "$jobs"');
     check('plg guard: before the agent is stopped and the folder replaced', $guard !== false && $guard < strpos($plg, 'scripts/agent.sh" stop') && $guard < strpos($plg, 'rm -rf "$dir"'));
+    // the install: unpacked beside and checked before the agent is stopped, then the swap — two renames
+    $install = plgScript('install', '/x');
+    $at = fn (string $what) => strpos($install, $what);
+    check('plg install: the guard, then unpacked beside and checked, then the old agent stopped, the swap, the new agent started',
+        $at('pgrep -f "$jobs"') < $at('tar -xJf "$package" -C "$new"') && $at('tar -xJf "$package" -C "$new"') < $at('[ ! -f "$new/$name/scripts/partner-door.sh" ]')
+        && $at('[ ! -f "$new/$name/scripts/partner-door.sh" ]') < $at('bash "$dir/scripts/agent.sh" stop') && $at('bash "$dir/scripts/agent.sh" stop') < $at('mv "$dir" "$old/$name"')
+        && $at('mv "$dir" "$old/$name"') < $at('mv "$new/$name" "$dir"') && $at('mv "$new/$name" "$dir"') < $at('officeMenuPageApply')
+        && $at('officeMenuPageApply') < $at('bash "$dir/scripts/agent.sh" start;') && !str_contains($install, 'rm -rf "$dir"'));
+    check('plg install: nothing of the array or var.ini (a boot install runs before emhttp)', !preg_match('/^[^#\n]*(var\.ini|fsState|mdState)/m', $install));
+    // the remove: the same guard, first; what the office holds let go before the code goes
+    $remove = plgScript('remove', '/x');
+    same('plg remove: the same pattern as the install', [$line], preg_match('/^jobs="([^"\n]+)"$/m', $remove, $m) ? [$m[1]] : []);
+    $at = fn (string $what) => strpos($remove, $what);
+    check('plg remove: the guard first, then agent.sh release, the schedules aside, then the folder goes', $at('pgrep -f "$jobs"') !== false
+        && $at('pgrep -f "$jobs"') < $at('bash "$dir/scripts/agent.sh" release') && $at('bash "$dir/scripts/agent.sh" release') < $at('.cron.removed-$stamp')
+        && $at('.cron.removed-$stamp') < $at('rm -rf "$dir"'));
 }
 
 /**
