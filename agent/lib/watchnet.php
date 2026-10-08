@@ -990,8 +990,8 @@ function watchnetCompare(?array &$b, array $look, array &$book, array &$ns, arra
         $grew = $cur !== null && (int) $acc['lines'] + (int) $acc['own'] > 0;
         if ($grew) {
             $last = isset($s['last']) ? (int) $s['last'] : null;
-            if ($last !== null && $cur['mtime'] > $last) {
-                $gap = $cur['mtime'] - $last;
+            if ($last !== null && $cur['mtime'] > max($last, (int) ($look['since'] ?? 0))) {
+                $gap = $cur['mtime'] - max($last, (int) ($look['since'] ?? 0));      // an array stop between them is no gap of the router's
                 $s['gaps'][$today] = max((int) ($s['gaps'][$today] ?? 0), $gap);
             }
             $s['last'] = $cur['mtime'];
