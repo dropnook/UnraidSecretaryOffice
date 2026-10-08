@@ -16,6 +16,8 @@
 
 const ID = 'cleanup';
 const T = Office.scope(ID);
+/** «{n} <noun>» from the lang key count.<what> — its one/other forms (several counts in one text are composed of these) */
+const nOf = (what, n) => T('count.' + what, { n: Number(n) || 0 });
 const { el, fmt } = Office;
 const SECTIONS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'leftovers', 'partners', 'trash'];
 const ICONS = { templates: '📄', stacks: '🧩', appdata: '🗃️', vms: '🖥️', scripts: '📜', docker: '🐳', icons: '🖼️', leftovers: '📦', partners: '🤝', trash: '🗑️' };
@@ -800,7 +802,7 @@ function templateDetail(t) {
     [T('d.network'), t.network],
     [T('d.webui'), t.webui, true],
     [T('d.support'), t.support, true],
-    [T('d.config'), T('d.config_counts', t.counts)],
+    [T('d.config'), T('d.config_counts', { paths: nOf('paths', (t.counts || {}).paths), ports: nOf('ports', (t.counts || {}).ports), vars: nOf('vars', (t.counts || {}).vars) })],
     [T('d.paths'), paths.length ? lines(paths) : null],
     [T('d.newer'), t.newer, true],
   ]));
@@ -2310,7 +2312,7 @@ function closeSection() {
 /** Her part of the bubble: every corner she knows (summary), what she noticed (links) and her advice (more) — null before her first look */
 function bubble() {
   if (!state) return null;
-  const summary = T('where.bubble.summary', { shares: state.shares.length, containers: state.containers.length, scripts: state.scripts.length });
+  const summary = T('where.bubble.summary', { shares: nOf('shares', state.shares.length), containers: nOf('containers', state.containers.length), scripts: nOf('user_scripts', state.scripts.length) });
   const f = findings();
   const hidden = adviceHidden();
   const tips = advice().filter((x) => hidden[x.id] !== x.sig).length;
@@ -2344,7 +2346,7 @@ function reception() {
     T('where.fact.smb', { n: state.smb.sessions.length }),
   ];
   if (sys.scripts.length) facts.push(T('where.fact.scripts_running', { n: sys.scripts.length, names: sys.scripts.join(', ') }));
-  const summary = T('where.bubble.summary', { shares: state.shares.length, containers: state.containers.length, scripts: state.scripts.length });
+  const summary = T('where.bubble.summary', { shares: nOf('shares', state.shares.length), containers: nOf('containers', state.containers.length), scripts: nOf('user_scripts', state.scripts.length) });
   return { summary, findings: findings().length, facts };
 }
 
@@ -2445,7 +2447,7 @@ function renderStats() {
   if (notices.length) {
     const alerts = notices.filter((n) => n.importance === 'alert').length;
     const warnings = notices.filter((n) => n.importance === 'warning').length;
-    tile(T('where.stat.notices'), fmt.number(notices.length), T('where.stat.notices_sub', { alerts, warnings }), { go: () => pick('notices'), alert: alerts > 0 });
+    tile(T('where.stat.notices'), fmt.number(notices.length), T('where.stat.notices_sub', { alerts: nOf('alerts', alerts), warnings: nOf('warnings', warnings) }), { go: () => pick('notices'), alert: alerts > 0 });
   }
   const lic = state.license;
   if (lic && lic.type) tile(T('where.stat.license'), lic.type, lic.expires ? T('where.stat.license_until', { when: fmt.date(lic.expires) }) : T('where.stat.license_since', { when: fmt.date(lic.since) }),
@@ -2653,7 +2655,7 @@ function sectionSummary(id) {
       if (s.system.docker.up === false) return { sub: Office.t('common.docker_off') };
       const run = s.containers.filter((c) => c.state === 'running').length;
       const stopped = s.containers.filter((c) => c.autostart && c.state !== 'running').length;
-      return { sub: T('where.sum.docker', { run: n(run), total: n(s.containers.length), stacks: s.compose.length }), alert: stopped > 0 };
+      return { sub: T('where.sum.docker', { run: n(run), total: n(s.containers.length), stacks: nOf('stacks', s.compose.length) }), alert: stopped > 0 };
     }
     case 'vms': return { sub: s.vms.length ? T('where.sum.vms', { run: n(s.vms.filter((v) => v.running).length), total: n(s.vms.length) }) : T('where.fact.vms_none') };
     case 'disks': {
@@ -2668,12 +2670,12 @@ function sectionSummary(id) {
     case 'network': return { sub: T('where.sum.network', { smb: s.smb.sessions.length, nfs: (s.nfs.exports || []).length }) };
     case 'scripts': {
       const running = s.scripts.filter((x) => x.running).length;
-      return { sub: T('where.sum.scripts', { scripts: s.scripts.length, cron: s.cron.length, running }), alert: s.scripts.some((x) => x.missing || x.stale) };
+      return { sub: T('where.sum.scripts', { scripts: nOf('user_scripts', s.scripts.length), cron: nOf('cron_jobs', s.cron.length), running }), alert: s.scripts.some((x) => x.missing || x.stale) };
     }
     case 'backups': return { sub: T('where.sum.backups', { n: s.backups.length }) };
     case 'notices': {
       const alerts = (s.notices || []).filter((x) => x.importance === 'alert').length;
-      return { sub: T('where.sum.notices', { n: (s.notices || []).length, alerts }), alert: alerts > 0 };
+      return { sub: T('where.sum.notices', { unread: nOf('unread', (s.notices || []).length), alerts: nOf('alerts', alerts) }), alert: alerts > 0 };
     }
     case 'plugins': return { sub: T('where.sum.plugins', { n: s.plugins.length }) };
   }
@@ -3208,7 +3210,7 @@ function diskKind(d) {
 function problemText(p) {
   if (p.key === 'attribute') return T('where.smart.attribute', { id: p.id, name: T('where.attr.' + p.id) !== `${ID}.where.attr.${p.id}` ? T('where.attr.' + p.id) : p.name, raw: p.raw });
   if (p.key === 'failing') return T('where.smart.failing', { id: p.id, name: p.name });
-  return T('where.smart.' + p.key, { raw: p.raw });
+  return T('where.smart.' + p.key, { raw: p.raw, n: Number(p.raw) || 0 });     // n: the plural of a count (nvme_media)
 }
 
 /**
@@ -3263,7 +3265,7 @@ function diskRow(d) {
         [T('where.power_on'), hours ? `${fmt.number(hours)} h (${T('where.hours', { y: fmt.number(hours / 8766, 1) })})` : null],
         [T('where.smart_read'), d.smart && d.smart.read ? fmt.date(d.smart.read) + ' · ' + fmt.relative(d.smart.read) : T('where.smart_none')],
         [T('where.smart_findings'), d.smart && d.smart.problems.length ? lines(d.smart.problems.map(problemText)) : (d.smart ? T('where.smart_clean') : null)],
-        ['NVMe', nv && nv.used !== undefined ? T('where.nvme_line', { used: nv.used, spare: nv.spare, media: nv.media_errors, unsafe: nv.unsafe_shutdowns, written: nv.written || '?' }) : null],
+        ['NVMe', nv && nv.used !== undefined ? T('where.nvme_line', { used: nv.used, spare: nv.spare, media: nOf('media_errors', nv.media_errors), unsafe: nOf('unsafe_shutdowns', nv.unsafe_shutdowns), written: nv.written || '?' }) : null],
       ]));
       if (d.smart && d.smart.attributes.length) {
         const pre = el('pre', 'code', d.smart.attributes.map((a) => `${String(a.id).padStart(3)} ${a.name.padEnd(26)} ${String(a.value).padStart(3)} ${String(a.worst).padStart(3)} ${String(a.thresh).padStart(3)} ${a.failed || '-'}  ${a.raw}`).join('\n'));
