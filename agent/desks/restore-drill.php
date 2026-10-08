@@ -2373,11 +2373,12 @@ function drillRecord(array $entry): void
     writeAtomic($file, jsonEncode(['made' => array_slice($list, -DRILL_RECORD_KEEP)]), 0600, 0, 0);
 }
 
-/** The drill's own throwaways and Kopia's temporary folder gone — whatever happened */
-function drillCleanup(array &$j, ?array $env, bool $public = true, bool $fast = false): void
+/** The drill's own throwaways, Kopia's temporary folder and a dump from Kopia in RAM gone — whatever happened ($only: these names) */
+function drillCleanup(array &$j, ?array $env, bool $public = true, bool $fast = false, ?array $only = null): void
 {
     foreach ($j['made'] as $n => $x) {
-        if (!empty($x['gone']) || ($fast && !in_array($x['kind'] ?? '', ['container', 'kopia_dump'], true))) {
+        if (!empty($x['gone']) || ($fast && !in_array($x['kind'] ?? '', ['container', 'kopia_dump'], true))
+            || ($only !== null && !in_array((string) ($x['name'] ?? ''), $only, true))) {
             continue;
         }
         if ($x['kind'] === 'container' && preg_match(DRILL_CONTAINER, (string) $x['name'], $m) && $m[1] === $j['id']) {
@@ -2426,14 +2427,16 @@ function drillRemoveContainer(string $name, string $id): bool
 }
 
 /**
- * The sweeper: journals of drills whose job is gone (a crash, a reboot) — what they made goes, the journal says
- * «interrupted»; with $deep also every container with the drill's label whose name, label and id pattern all say
- * it is a drill's (never the one going on now, never anything else). Cheap without $deep: the journal folder only.
+ * What the sweeper finds (its one look, also Ms. Dustdevil's): journals of drills whose job is gone (a crash, a
+ * reboot) — with what they made and is not gone yet —, and with $deep every container with the drill's label whose
+ * name, label and id pattern all say it is a drill's (never the one going on now, never anything else). Cheap without
+ * $deep: the journal folder only (Docker asked only when a journal was open).
+ *
+ * @return array{journals: array<string, array{j: array, live: bool}>, orphans: array<string, string>}  orphans: name => drill id
  */
-function drillSweep(?string $current = null, bool $deep = false): array
+function drillSweepFind(?string $current = null, bool $deep = false): array
 {
-    $removed = [];
-    $open = false;
+    $out = ['journals' => [], 'orphans' => []];
     foreach (array_slice(array_values(array_filter(@scandir(drillData(), SCANDIR_SORT_DESCENDING) ?: [], fn ($n) => (bool) preg_match(DRILL_ID_PATTERN, $n))), 0, 60) as $id) {
         if ($id === $current) {
             continue;
@@ -2447,14 +2450,44 @@ function drillSweep(?string $current = null, bool $deep = false): array
             continue;                        // going on right now
         }
         $left = array_filter((array) ($j['made'] ?? []), fn ($x) => is_array($x) && empty($x['gone']));
-        if (!$live && !$left) {
+        if ($live || $left) {
+            $out['journals'][$id] = ['j' => $j, 'live' => $live];
+        }
+    }
+    if ($deep || $out['journals']) {
+        $running = drillRunning();
+        [$exit, $out2] = run(drillCmd(['docker', 'ps', '-a', '--filter', 'label=' . DRILL_LABEL, '--format', '{{.Names}}']), 20);
+        foreach ($exit === 0 ? array_filter(explode("\n", trim($out2))) : [] as $name) {
+            if (preg_match(DRILL_CONTAINER, $name, $m) && $m[1] !== $current && $m[1] !== ($running['id'] ?? null)) {
+                $out['orphans'][$name] = $m[1];
+            }
+        }
+    }
+    return $out;
+}
+
+/**
+ * The sweeper: journals of drills whose job is gone (a crash, a reboot) — what they made goes, the journal says
+ * «interrupted»; with $deep also every container with the drill's label whose name, label and id pattern all say
+ * it is a drill's (never the one going on now, never anything else). Cheap without $deep: the journal folder only.
+ * $only: only these of drillLeftovers()' ids (Ms. Dustdevil's «remove») — the same look, the same removal; then the
+ * ids removed are returned (else the containers' names).
+ */
+function drillSweep(?string $current = null, bool $deep = false, ?array $only = null): array
+{
+    $removed = [];
+    $found = drillSweepFind($current, $deep || $only !== null);
+    foreach ($found['journals'] as $id => ['j' => $j, 'live' => $live]) {
+        $names = $only === null ? null : array_map(fn ($x) => substr($x, strlen("drill:$id:")), array_filter($only, fn ($x) => str_starts_with((string) $x, "drill:$id:")));
+        if ($names === []) {
             continue;
         }
-        $open = true;
-        drillCleanup($j, null, false);
+        drillCleanup($j, null, false, false, $names);
         foreach ($j['made'] as $x) {
-            if (!empty($x['gone']) && ($x['kind'] ?? '') === 'container') {
+            if (!empty($x['gone']) && $names === null && ($x['kind'] ?? '') === 'container') {
                 $removed[] = (string) $x['name'];
+            } elseif (!empty($x['gone']) && $names !== null && in_array((string) ($x['name'] ?? ''), $names, true)) {
+                $removed[] = "drill:$id:" . (string) $x['name'];
             }
         }
         if ($live) {
@@ -2465,15 +2498,18 @@ function drillSweep(?string $current = null, bool $deep = false): array
             } catch (Throwable) {
             }
             drillCertHistory($j);
+        } elseif ($names !== null) {
+            try {
+                drillJournalWrite($j, false);          // what Ms. Dustdevil removed: gone in its journal too
+            } catch (Throwable) {
+            }
         }
     }
-    if ($deep || $open) {
-        $running = drillRunning();
-        [$exit, $out] = run(drillCmd(['docker', 'ps', '-a', '--filter', 'label=' . DRILL_LABEL, '--format', '{{.Names}}']), 20);
-        foreach ($exit === 0 ? array_filter(explode("\n", trim($out))) : [] as $name) {
-            if (preg_match(DRILL_CONTAINER, $name, $m) && $m[1] !== $current && $m[1] !== ($running['id'] ?? null) && drillRemoveContainer($name, $m[1])) {
-                $removed[] = $name;
-            }
+    foreach ($found['orphans'] as $name => $id) {
+        if ($only === null && drillRemoveContainer($name, $id)) {
+            $removed[] = $name;
+        } elseif ($only !== null && in_array("drill:$id:$name", $only, true) && drillRemoveContainer($name, $id)) {
+            $removed[] = "drill:$id:$name";
         }
     }
     $removed = array_values(array_unique($removed));
@@ -2481,6 +2517,43 @@ function drillSweep(?string $current = null, bool $deep = false): array
         logLine('Mr. Restori: the drill\'s sweeper removed ' . implode(', ', $removed));
     }
     return $removed;
+}
+
+/**
+ * What crashed drills left (Ms. Dustdevil's «What a drill left» — the sweeper's own look): what their journals name
+ * and is still there — the throwaway containers, Kopia's temporary folder in its container, a dump from Kopia in RAM —
+ * and containers no journal names whose name, label and id pattern say a drill's AND the drill's record names them
+ * (what the night watchman trusts — a label alone anyone can set). Ids for drillSweep()'s $only: drill:<drill>:<name>.
+ *
+ * @return list<array{id: string, drill: string, what: string, name: string, container: ?string, t: ?int}>
+ */
+function drillLeftovers(): array
+{
+    $found = drillSweepFind(drillRunning()['id'] ?? null, true);
+    $named = array_column(array_filter((array) ((readJson(drillData() . '/record.json') ?? [])['made'] ?? []), fn ($r) => is_array($r) && is_string($r['name'] ?? null)), 'id', 'name');
+    $out = [];
+    foreach ($found['journals'] as $id => ['j' => $j]) {
+        foreach ((array) ($j['made'] ?? []) as $x) {
+            if (!is_array($x) || !empty($x['gone']) || !in_array($x['kind'] ?? '', ['container', 'kopia_tmp', 'kopia_dump'], true) || !is_string($x['name'] ?? null)) {
+                continue;
+            }
+            if ($x['kind'] === 'container' && !isset($found['orphans'][$x['name']])) {
+                continue;                    // not there (any more), or not exactly the drill's
+            }
+            if ($x['kind'] === 'kopia_dump' && (!drillRamFileOk($x['name'], $id) || !is_file($x['name']))) {
+                continue;
+            }
+            $out[] = ['id' => "drill:$id:{$x['name']}", 'drill' => $id, 'what' => $x['kind'], 'name' => $x['name'],
+                      'container' => $x['kind'] === 'kopia_tmp' ? (string) ($x['container'] ?? '') : null, 't' => is_int($x['t'] ?? null) ? $x['t'] : null];
+        }
+    }
+    $listed = array_column($out, 'id');
+    foreach ($found['orphans'] as $name => $id) {
+        if (!in_array("drill:$id:$name", $listed, true) && ($named[$name] ?? null) === $id) {
+            $out[] = ['id' => "drill:$id:$name", 'drill' => $id, 'what' => 'container', 'name' => $name, 'container' => null, 't' => null];
+        }
+    }
+    return $out;
 }
 
 // ===================================================================== the certificate

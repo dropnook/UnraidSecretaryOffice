@@ -400,6 +400,8 @@
   "cat.docker.cache_text": "Ce que docker build a gardé et dont il n'a plus besoin",
   "cat.docker.used": "Utilisés",
   "cat.docker.used_text": "Utilisés par un conteneur (en marche ou arrêté)",
+  "cat.docker.drill": "Ce qu'un exercice a laissé",
+  "cat.docker.drill_text": "L'exercice de Monsieur Restori a été interrompu (un plantage, un redémarrage) avant de pouvoir les retirer — ils ne contiennent rien à toi",
   "park.text_vms": {
     "one": "Ceci va dans mon débarras :",
     "other": "Ces {n} choses vont dans mon débarras :"
@@ -474,6 +476,7 @@
     "other": "{n} volumes peuvent contenir des données (souvent des bases de données) — elles auront disparu ensuite."
   },
   "remove.images": "Les images peuvent être retéléchargées quand tu en as besoin.",
+  "remove.drill": "Ce qu'un exercice a laissé est retiré par le balayeur de Monsieur Restori lui-même — seulement ce qui appartient exactement à son exercice.",
   "remove.go": "Retirer définitivement",
   "remove.done": {
     "one": "Retiré.",
@@ -524,6 +527,7 @@
   "errors.cleanup_vm_off": "Le service VM ne tourne pas — je ne touche pas à {name} sans lui.",
   "errors.cleanup_destroy_failed": "zfs destroy de {name} a échoué : {detail}",
   "errors.cleanup_docker_failed": "Docker n'a pas pu retirer {name} : {detail}",
+  "errors.cleanup_drill_failed": "Impossible de retirer {name} — ce n'est (plus) exactement celui de l'exercice, ou Docker a refusé.",
   "empty.vms": "Rien ici — pas de restes de VM.",
   "empty.docker": "Rien ici.",
   "search": "Où est … ?",
@@ -565,6 +569,18 @@
   "item.image": "image",
   "item.volume": "volume",
   "item.cache": "cache de build",
+  "item.drill": "reste d'un exercice",
+  "dl.what_container": "conteneur jetable",
+  "dl.what_container_text": "Une base de données jetable de l'exercice : pas de réseau, pas de ports, aucun dossier de tes apps — ses données étaient en RAM.",
+  "dl.what_kopia_tmp": "dossier temporaire de Kopia",
+  "dl.what_kopia_tmp_text": "Le cache neuf et les journaux de l'exercice pour Kopia, dans le conteneur de Kopia (son /tmp).",
+  "dl.what_kopia_dump": "dump de Kopia en RAM",
+  "dl.what_kopia_dump_text": "Un dump que l'exercice a relu depuis Kopia en RAM pour le rejouer.",
+  "dl.name_kopia_tmp": "{name} dans {container}",
+  "dl.name_kopia_dump": "{name} (en RAM)",
+  "dl.of": "d'un exercice {when}",
+  "dl.drill": "Exercice",
+  "dl.text": "L'exercice de Monsieur Restori a été interrompu avant de pouvoir le retirer ; son balayeur le prend au prochain démarrage du coursier (ou dans l'heure, tant qu'il est engagé). Retirer est définitif — cela ne contient rien à toi.",
   "csv": "CSV",
   "csv_title": "Télécharger ce qui est affiché ici (avec le filtre) sous forme de fichier CSV",
   "csv.group": "Groupe",

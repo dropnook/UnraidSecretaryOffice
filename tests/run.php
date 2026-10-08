@@ -16636,6 +16636,53 @@ function testRestoreDrill(): void
         [count($rec['made'] ?? []), end($rec['made'])['name'] ?? null, array_keys($rec['made'][0] ?? []), substr(sprintf('%o', fileperms("$tmp/data/restore-drill/record.json")), -4)]);
     same('drill journal: «made» written before the create', DRILL_PREFIX . "$b-0", drillJournal($b)['made'][0]['name'] ?? null);
 
+    // ---- what a drill left, for Ms. Dustdevil: the sweeper's own look (journals of drills whose job is gone; containers
+    //      no journal names only when name, label, id AND the drill's record agree) and its own removal, by her ids
+    $lc = '20261102-030000-c0c0';
+    rsPrivateDir(drillDir($lc));
+    $lram = drillRamFile($lc, 2, 'db/pg.sql.gz');
+    file_put_contents($lram, 'x');
+    $jl = drillJournalNew($lc, ['scope' => 'monthly', 'deadline' => $now, 'steps' => []]);
+    $jl['result'] = 'running';
+    $jl['pid'] = 4194305;                  // gone
+    $jl['made'] = [['kind' => 'container', 'name' => DRILL_PREFIX . "$lc-1", 'gone' => false, 't' => 5],
+                   ['kind' => 'container', 'name' => DRILL_PREFIX . "$lc-3", 'gone' => false, 't' => 6],          // not there any more
+                   ['kind' => 'kopia_tmp', 'name' => "/tmp/uso-drill-$lc", 'container' => 'kopia', 'uid' => 0, 'gone' => false, 't' => 7],
+                   ['kind' => 'kopia_dump', 'name' => $lram, 'gone' => false, 't' => 8]];
+    drillJournalWrite($jl, false);
+    $recFile = "$tmp/data/restore-drill/record.json";
+    $recKeep = (string) file_get_contents($recFile);
+    drillRecord(['t' => time(), 'kind' => 'container', 'name' => DRILL_PREFIX . '20261021-030000-dada-1', 'image' => 'sha256:' . str_repeat('d', 64), 'id' => '20261021-030000-dada']);
+    file_put_contents("$tmp/containers", implode("\n", [
+        DRILL_PREFIX . "$lc-1 $lc",                                       // the interrupted drill's own
+        DRILL_PREFIX . '20261021-030000-dada-1 20261021-030000-dada',     // no journal, but the record names it
+        DRILL_PREFIX . '20261021-030000-fafa-1 20261021-030000-fafa',     // a label and a name — no record: not listed
+        DRILL_PREFIX . "$b-7 $b",                                         // the drill going on now
+    ]) . "\n");
+    $certBefore = @file_get_contents($GLOBALS['drill']['cert']);
+    $sorted = function (array $x): array { sort($x); return $x; };
+    $left = drillLeftovers();
+    same('drill leftovers: what the interrupted drill\'s journal names and is there, and a container the record names — never a label alone, never the drill going on',
+        $sorted(["drill:$lc:$lram", "drill:$lc:/tmp/uso-drill-$lc", "drill:$lc:" . DRILL_PREFIX . "$lc-1", 'drill:20261021-030000-dada:' . DRILL_PREFIX . '20261021-030000-dada-1']),
+        $sorted(array_column($left, 'id')));
+    same('drill leftovers: what each is', ['container', 'kopia_tmp', 'kopia_dump'], array_values(array_unique(array_column($left, 'what'))));
+    $ent = clDrillEntries($left);
+    same('drill leftovers in Ms. Dustdevil\'s Docker room: category «drill», removable rows', [['drill'], ['drill'], 4], [array_values(array_unique(array_column($ent, 'category'))),
+        array_values(array_unique(array_column($ent, 'kind'))), count(array_filter($ent, fn ($e) => $e['why'] === null && !$e['force']))]);
+    file_put_contents("$tmp/docker.log", '');
+    $gone = drillSweep($b, true, ["drill:$lc:$lram", 'drill:20261021-030000-dada:' . DRILL_PREFIX . '20261021-030000-dada-1']);
+    same('drill leftovers removed by her ids, through the sweeper — only those', [$sorted(["drill:$lc:$lram", 'drill:20261021-030000-dada:' . DRILL_PREFIX . '20261021-030000-dada-1']), false, true],
+        [$sorted($gone), is_file($lram), str_contains((string) file_get_contents("$tmp/containers"), DRILL_PREFIX . "$lc-1 ")]);
+    $jl2 = drillJournal($lc);
+    same('drill leftovers: the journal says what went, the drill interrupted', ['interrupted', [false, false, false, true]],
+        [$jl2['result'] ?? null, array_map(fn ($x) => (bool) $x['gone'], $jl2['made'] ?? [])]);
+    same('drill leftovers: the rest still listed', $sorted(["drill:$lc:/tmp/uso-drill-$lc", "drill:$lc:" . DRILL_PREFIX . "$lc-1"]), $sorted(array_column(drillLeftovers(), 'id')));
+    drillSweep($b, true, ["drill:$lc:/tmp/uso-drill-$lc", "drill:$lc:" . DRILL_PREFIX . "$lc-1"]);
+    same('drill leftovers: all gone — nothing listed; the unrecorded one stays for the deep sweep at the agent\'s start', [[], true],
+        [drillLeftovers(), str_contains((string) file_get_contents("$tmp/containers"), DRILL_PREFIX . '20261021-030000-fafa-1 ')]);
+    file_put_contents($recFile, $recKeep);
+    $certBefore === false ? @unlink($GLOBALS['drill']['cert']) : file_put_contents($GLOBALS['drill']['cert'], $certBefore);      // the interruption's history row: not the certificate tests'
+
     // ---- the certificate: passed = nothing failed (warnings, «not checked» and asleep said, never hidden)
     $step = fn (string $do, string $of, string $name, string $state, int $level, string $copy, ?int $t, array $params = [], string $code = 'x') =>
         ['do' => $do, 'kind' => $of, 'id' => $name, 'name' => $name, 'state' => $state, 'level' => $level, 'copy' => $copy, 'state_time' => $t, 'code' => $code,

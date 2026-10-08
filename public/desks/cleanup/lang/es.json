@@ -400,6 +400,8 @@
   "cat.docker.cache_text": "Lo que docker build guardó y ya no necesita",
   "cat.docker.used": "En uso",
   "cat.docker.used_text": "Usado por un contenedor (en marcha o detenido)",
+  "cat.docker.drill": "Lo que dejó un simulacro",
+  "cat.docker.drill_text": "El simulacro del señor Restori se interrumpió (un fallo, un reinicio) antes de poder retirarlos — no contienen nada tuyo",
   "park.text_vms": {
     "one": "Esto va a mi trastero:",
     "other": "Estas {n} cosas van a mi trastero:"
@@ -474,6 +476,7 @@
     "other": "{n} volúmenes pueden contener datos (a menudo bases de datos) — después habrán desaparecido."
   },
   "remove.images": "Las imágenes se pueden volver a descargar cuando las necesites.",
+  "remove.drill": "Lo que dejó un simulacro lo retira el propio barrendero del señor Restori — solo exactamente lo de su simulacro.",
   "remove.go": "Quitar para siempre",
   "remove.done": {
     "one": "Quitado.",
@@ -524,6 +527,7 @@
   "errors.cleanup_vm_off": "El servicio de VMs no se está ejecutando — sin él no toco {name}.",
   "errors.cleanup_destroy_failed": "zfs destroy de {name} falló: {detail}",
   "errors.cleanup_docker_failed": "Docker no pudo quitar {name}: {detail}",
+  "errors.cleanup_drill_failed": "No se pudo quitar {name} — ya no es exactamente del simulacro, o Docker se negó.",
   "empty.vms": "Aquí no hay nada — ningún resto de VMs.",
   "empty.docker": "Aquí no hay nada.",
   "search": "¿Dónde está …?",
@@ -565,6 +569,18 @@
   "item.image": "imagen",
   "item.volume": "volumen",
   "item.cache": "caché de build",
+  "item.drill": "resto de un simulacro",
+  "dl.what_container": "contenedor desechable",
+  "dl.what_container_text": "Una base de datos desechable del simulacro: sin red, sin puertos, ninguna carpeta de tus apps — sus datos estaban en la RAM.",
+  "dl.what_kopia_tmp": "carpeta temporal de Kopia",
+  "dl.what_kopia_tmp_text": "La caché nueva y los registros del simulacro para Kopia, dentro del contenedor de Kopia (su /tmp).",
+  "dl.what_kopia_dump": "dump de Kopia en la RAM",
+  "dl.what_kopia_dump_text": "Un dump que el simulacro releyó desde Kopia en la RAM para volcarlo.",
+  "dl.name_kopia_tmp": "{name} en {container}",
+  "dl.name_kopia_dump": "{name} (en la RAM)",
+  "dl.of": "de un simulacro {when}",
+  "dl.drill": "Simulacro",
+  "dl.text": "El simulacro del señor Restori se interrumpió antes de poder retirarlo; su barrendero lo recoge en el próximo arranque del mensajero (o en una hora, mientras esté contratado). Quitar es definitivo — no contiene nada tuyo.",
   "csv": "CSV",
   "csv_title": "Descargar lo que se muestra aquí (con el filtro) como archivo CSV",
   "csv.group": "Grupo",

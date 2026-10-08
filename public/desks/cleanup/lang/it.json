@@ -400,6 +400,8 @@
   "cat.docker.cache_text": "Ciò che docker build ha conservato e non serve più",
   "cat.docker.used": "In uso",
   "cat.docker.used_text": "Usati da un contenitore (in esecuzione o fermo)",
+  "cat.docker.drill": "Cosa ha lasciato un'esercitazione",
+  "cat.docker.drill_text": "L'esercitazione del signor Restori è stata interrotta (un crash, un riavvio) prima di poterli togliere — non contengono nulla di tuo",
   "park.text_vms": {
     "one": "Questo va nel mio ripostiglio:",
     "other": "Queste {n} cose vanno nel mio ripostiglio:"
@@ -474,6 +476,7 @@
     "other": "{n} volumi possono contenere dati (spesso database) — dopo sono persi."
   },
   "remove.images": "Le immagini si possono riscaricare quando ti servono.",
+  "remove.drill": "Ciò che ha lasciato un'esercitazione lo toglie lo spazzino del signor Restori stesso — solo esattamente le cose della sua esercitazione.",
   "remove.go": "Rimuovi definitivamente",
   "remove.done": {
     "one": "Rimosso.",
@@ -524,6 +527,7 @@
   "errors.cleanup_vm_off": "Il servizio VM non è in esecuzione — senza di lui non tocco {name}.",
   "errors.cleanup_destroy_failed": "zfs destroy di {name} non è riuscito: {detail}",
   "errors.cleanup_docker_failed": "Docker non è riuscito a rimuovere {name}: {detail}",
+  "errors.cleanup_drill_failed": "Non è stato possibile rimuovere {name} — non è (più) esattamente dell'esercitazione, oppure Docker ha rifiutato.",
   "empty.vms": "Niente qui — nessun residuo di VM.",
   "empty.docker": "Niente qui.",
   "search": "Dov'è …?",
@@ -565,6 +569,18 @@
   "item.image": "immagine",
   "item.volume": "volume",
   "item.cache": "cache di build",
+  "item.drill": "resto di un'esercitazione",
+  "dl.what_container": "contenitore usa e getta",
+  "dl.what_container_text": "Un database usa e getta dell'esercitazione: nessuna rete, nessuna porta, nessuna cartella delle tue app — i suoi dati stavano nella RAM.",
+  "dl.what_kopia_tmp": "cartella temporanea di Kopia",
+  "dl.what_kopia_tmp_text": "La cache nuova e i log dell'esercitazione per Kopia, nel contenitore di Kopia (il suo /tmp).",
+  "dl.what_kopia_dump": "dump da Kopia nella RAM",
+  "dl.what_kopia_dump_text": "Un dump che l'esercitazione ha riletto da Kopia nella RAM per riversarlo.",
+  "dl.name_kopia_tmp": "{name} in {container}",
+  "dl.name_kopia_dump": "{name} (nella RAM)",
+  "dl.of": "da un'esercitazione {when}",
+  "dl.drill": "Esercitazione",
+  "dl.text": "L'esercitazione del signor Restori è stata interrotta prima di poterlo togliere; il suo spazzino lo prende al prossimo avvio del fattorino (o entro un'ora, finché è assunto). Rimuovere è definitivo — non contiene nulla di tuo.",
   "csv": "CSV",
   "csv_title": "Scarica ciò che è mostrato qui (con il filtro) come file CSV",
   "csv.group": "Gruppo",
