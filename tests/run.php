@@ -328,6 +328,69 @@ function testPlanGone(): void
 }
 
 /**
+ * Ms. Snapshotini's plans through one normalising reader (snapPlans(), upgrade audit proposal 10): a plan an older office
+ * wrote without some keys gets every default (the same `enabled` for the run as for a save; never more than the plan
+ * said: no age limit, keep the most, no cron line = never due), a plan a newer office wrote keeps its unknown keys —
+ * read, run and written again; an entry that is no plan of the office's stays in the file.
+ */
+function testSnapPlansTolerant(): void
+{
+    $tmp = hardeningTmp('plantolerant');
+    $before = [$GLOBALS['snapPlanFile'] ?? null, $GLOBALS['snapPlanStateFile'] ?? null];
+    $GLOBALS['snapPlanFile'] = "$tmp/plans.json";
+    $GLOBALS['snapPlanStateFile'] = "$tmp/state.json";
+    $old = ['id' => 'nightly', 'targets' => ['zfs:hive/appdata'], 'cron' => '0 3 * * *'];          // keys missing (an older office)
+    $future = ['id' => 'hourly', 'label' => 'Hourly', 'targets' => ['zfs:hive/system'], 'recursive' => true, 'cron' => '0 * * * *', 'keep' => 24,
+               'max_days' => 2, 'skip_asleep' => true, 'enabled' => false, 'since' => 5, 'notify' => ['when' => 'never'], 'colour' => 'blue'];
+    $odd = ['label' => 'no id'];
+    file_put_contents("$tmp/plans.json", json_encode(['plans' => [$old, $future, $odd, 'x', ['id' => 'Bad Id!']], 'v' => 2]));
+    $plans = snapPlans();
+    same('snap plans tolerant: only the plans of the office\'s shape, in their order', ['nightly', 'hourly'], array_column($plans, 'id'));
+    same('snap plans tolerant: a plan without keys — every default, of its type', ['id' => 'nightly', 'label' => 'nightly', 'targets' => ['zfs:hive/appdata'],
+        'recursive' => false, 'cron' => '0 3 * * *', 'keep' => SNAPPLAN_KEEP, 'max_days' => 0, 'skip_asleep' => false, 'enabled' => true, 'since' => 0], $plans[0]);
+    same('snap plans tolerant: a plan of a newer office — its keys as they were, the unknown ones kept after them', $future, $plans[1]);
+    same('snap plans tolerant: … in that order', ['id', 'label', 'targets', 'recursive', 'cron', 'keep', 'max_days', 'skip_asleep', 'enabled', 'since', 'notify', 'colour'],
+        array_keys($plans[1]));
+    same('snap plans tolerant: keys of another type count as missing', [true, SNAPPLAN_KEEP, 0, [], ''],
+        (function () {
+            $p = snapPlanNormal(['id' => 'x', 'enabled' => 'yes', 'keep' => '7', 'max_days' => -1, 'targets' => 'zfs:a', 'cron' => 5]);
+            return [$p['enabled'], $p['keep'], $p['max_days'], $p['targets'], $p['cron']];
+        })());
+    // the run: the old plan is due like any (enabled by default), a plan without a cron line never is, a paused one not
+    same('snap plans tolerant: due like any plan — its cron line read, no missing key in the way', true,
+        cronPrevious($plans[0]['cron'], time()) !== null && $plans[0]['enabled']);
+    same('snap plans tolerant: no cron line — never due, no next time', [null, null], [cronPrevious(snapPlanNormal(['id' => 'x'])['cron'], time()),
+        cronNext(snapPlanNormal(['id' => 'x'])['cron'], time())]);
+    $snap = fn (string $name, int $at) => ['name' => $name, 'fs' => 'zfs', 'vol' => 'zfs:hive/appdata', 'ds' => 'hive/appdata', 'id' => "zfs:hive/appdata@$name",
+        'created' => $at, 'docker' => false];
+    $now = 1800000000;
+    $all = [];
+    for ($i = 0; $i < 30; $i++) {
+        $all[] = $snap(snapPlanName('nightly', $now - $i * 86400 * 40), $now - $i * 86400 * 40);
+    }
+    same('snap plans tolerant: retention of a plan without keep / max_days — nothing goes (keep the most, no age limit)', [],
+        snapPlanDoomed($plans[0], ['zfs:hive/appdata'], $all, $now, []));
+    // written again (a pause, as snapPlanToggle() writes): the unknown keys, the odd entries and the keys beside the list stay
+    $plans[1]['enabled'] = true;
+    snapPlanSaveAll($plans);
+    $file = json_decode((string) file_get_contents("$tmp/plans.json"), true);
+    same('snap plans tolerant: written again — the newer plan\'s keys kept, the defaults now written for the older one', [['when' => 'never'], 'blue', true, SNAPPLAN_KEEP],
+        [$file['plans'][1]['notify'] ?? null, $file['plans'][1]['colour'] ?? null, $file['plans'][1]['enabled'] ?? null, $file['plans'][0]['keep'] ?? null]);
+    same('snap plans tolerant: … what is no plan of the office\'s stays in the file, and the keys beside the list', [[$odd, 'x', ['id' => 'Bad Id!']], 2],
+        [array_slice($file['plans'] ?? [], 2), $file['v'] ?? null]);
+    same('snap plans tolerant: … read back the same', array_column($plans, 'id'), array_column(snapPlans(), 'id'));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/snapshotplans.php');
+    check('snap plans tolerant: a save carries the unknown keys of the plan it replaces', str_contains($src, '$plan += $old;'));
+    file_put_contents("$tmp/plans.json", 'not json');
+    same('snap plans tolerant: a broken file — no plans, nothing thrown', [], snapPlans());
+    [$GLOBALS['snapPlanFile'], $GLOBALS['snapPlanStateFile']] = $before;
+    if ($before[0] === null) {
+        unset($GLOBALS['snapPlanFile'], $GLOBALS['snapPlanStateFile']);
+    }
+    hardeningRm($tmp);
+}
+
+/**
  * Sleeping ZFS pools (2026-10-07): Ms. Snapshotini and Mr. Restori list datasets and snapshots only on the awake
  * pools (`zfs list … -r <pool>`; disks.ini says which sleep, a pool sleeps when any of its disks does) — a sleeping
  * pool is never asked, it keeps what was last seen of it, marked asleep with when that was; «wake» lists it too.
@@ -18064,7 +18127,7 @@ function agentPhpErrorSilenced(callable $log): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings'],
