@@ -2198,7 +2198,8 @@ function presetSection() {
 function presetStartLine() {
   if (!setup.draft || !(setup.choice || (presetNow() !== 'auto' && setup.newItems.size > 0))) return null;
   const out = el('div', 'bk-start');
-  out.appendChild(el('p', 'role', presetStartText()));
+  const text = presetStartText();
+  if (text) out.appendChild(el('p', 'role', text));
   if (presetNow() === 'kopia') {
     const lines = uploadLines(firstUpload(draftMode, draftVm), true);
     if (lines.length) {
@@ -2207,7 +2208,7 @@ function presetStartLine() {
       out.appendChild(box);
     }
   }
-  return out;
+  return out.childNodes.length ? out : null;      // «only what is new» with «Automatic» and nothing changed: nothing to say
 }
 
 /** Step 0 (engine 2.31, with settings): the default for new things, «change …» opens it; Kopia off under «local + Kopia» said */
