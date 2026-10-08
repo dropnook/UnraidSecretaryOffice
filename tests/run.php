@@ -17166,6 +17166,60 @@ function testRestoreDrill(): void
     file_put_contents($recFile, $recKeep);
     $certBefore === false ? @unlink($GLOBALS['drill']['cert']) : file_put_contents($GLOBALS['drill']['cert'], $certBefore);      // the interruption's history row: not the certificate tests'
 
+    // ---- quick on her every scan, deep when asked and once an hour (review 2026-10-09): a drill folder of its own
+    $dataKeep = $GLOBALS['drill']['data'];
+    $jobKeep = $GLOBALS['drill']['job_file'];
+    $GLOBALS['drill']['data'] = "$tmp/data/drill-quick";
+    $GLOBALS['drill']['job_file'] = "$tmp/data/drill-quick-job.json";
+    rsPrivateDir(drillData());
+    unset($GLOBALS['drillLeftDeep']);
+    $dlog = function (): bool { $l = (string) file_get_contents($GLOBALS['tmpDrillLog']); file_put_contents($GLOBALS['tmpDrillLog'], ''); return str_contains($l, 'label=' . DRILL_LABEL); };
+    $GLOBALS['tmpDrillLog'] = "$tmp/docker.log";
+    file_put_contents("$tmp/containers", '');
+    file_put_contents("$tmp/docker.log", '');
+    $q = [];
+    drillLeftovers(false);
+    $q[] = $dlog();                                       // the first look: deep
+    drillLeftovers(false);
+    $q[] = $dlog();                                       // quick, nothing open: no Docker
+    $wk = date('Ymd-His', time() - 2 * 86400) . '-a1a1';    // last week's, closed: its throwaway gone, the record names it
+    rsPrivateDir(drillDir($wk));
+    $jw = drillJournalNew($wk, ['scope' => 'monthly', 'deadline' => $now, 'steps' => []]);
+    $jw['result'] = 'passed';
+    $jw['made'] = [['kind' => 'container', 'name' => DRILL_PREFIX . "$wk-1", 'gone' => true, 't' => 5]];
+    drillJournalWrite($jw, false);
+    drillRecord(['t' => time(), 'kind' => 'container', 'name' => DRILL_PREFIX . "$wk-1", 'image' => 'sha256:' . str_repeat('a', 64), 'id' => $wk]);
+    drillLeftovers(false);
+    $q[] = $dlog();                                       // a closed drill the record names: still no Docker
+    $nj = date('Ymd-His', time() - 3600) . '-b2b2';         // the record names one whose journal isn't there
+    drillRecord(['t' => time(), 'kind' => 'container', 'name' => DRILL_PREFIX . "$nj-1", 'image' => 'sha256:' . str_repeat('b', 64), 'id' => $nj]);
+    file_put_contents("$tmp/containers", DRILL_PREFIX . "$nj-1 $nj\n");
+    $q[] = array_column(drillLeftovers(false), 'id');      // Docker asked: listed
+    $q[] = $dlog();
+    file_put_contents("$tmp/containers", '');
+    @unlink(drillData() . '/record.json');
+    drillRecord(['t' => time(), 'kind' => 'container', 'name' => DRILL_PREFIX . "$wk-1", 'image' => 'sha256:' . str_repeat('a', 64), 'id' => $wk]);
+    drillLeftovers(true);
+    $q[] = $dlog();                                       // «Look again»: deep
+    $old = '20250101-030000-c3c3';                         // older than a week, its throwaway still there
+    rsPrivateDir(drillDir($old));
+    $jo = drillJournalNew($old, ['scope' => 'monthly', 'deadline' => $now, 'steps' => []]);
+    $jo['result'] = 'interrupted';
+    $jo['made'] = [['kind' => 'container', 'name' => DRILL_PREFIX . "$old-1", 'gone' => false, 't' => 5]];
+    drillJournalWrite($jo, false);
+    file_put_contents("$tmp/containers", DRILL_PREFIX . "$old-1 $old\n");
+    $q[] = [drillLeftovers(false), $dlog()];               // quick: the old journal isn't read, no Docker
+    $GLOBALS['drillLeftDeep']['at'] = time() - DRILL_LEFT_DEEP - 1;
+    $q[] = [array_column(drillLeftovers(false), 'id'), $dlog()];     // an hour on: deep — the old one found
+    $q[] = [array_column(drillLeftovers(false), 'id'), $dlog()];     // quick again: what the deep look listed is looked at, Docker asked
+    same('drill leftovers: quick on every scan — no Docker while nothing is open; a closed drill in the record doesn\'t count; a container the record names without a journal does; deep when asked',
+        [true, false, false, ['drill:' . $nj . ':' . DRILL_PREFIX . "$nj-1"], true, true], array_slice($q, 0, 6));
+    same('drill leftovers: quick reads only the last week (and what the deep look listed); deep once an hour finds the old one, then quick keeps looking at it',
+        [[[], false], [['drill:' . $old . ':' . DRILL_PREFIX . "$old-1"], true], [['drill:' . $old . ':' . DRILL_PREFIX . "$old-1"], true]], array_slice($q, 6));
+    unset($GLOBALS['drillLeftDeep'], $GLOBALS['tmpDrillLog']);
+    $GLOBALS['drill']['data'] = $dataKeep;
+    $GLOBALS['drill']['job_file'] = $jobKeep;
+
     // ---- the certificate: passed = nothing failed (warnings, «not checked» and asleep said, never hidden)
     $step = fn (string $do, string $of, string $name, string $state, int $level, string $copy, ?int $t, array $params = [], string $code = 'x') =>
         ['do' => $do, 'kind' => $of, 'id' => $name, 'name' => $name, 'state' => $state, 'level' => $level, 'copy' => $copy, 'state_time' => $t, 'code' => $code,
