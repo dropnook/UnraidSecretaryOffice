@@ -15,7 +15,8 @@
    Its state comes through Office.loadState(id, {fresh, part}, took): at once as kept, the agent's new look
    following on its own page (show first, then look); actions on what the page shows ask Office.freshState(id).
    Its places (sections, tiles, terms …) for the search: Office.places(id, [...]) beside Office.desk(), the
-   elements marked with Office.place(anchor, node) — see «places and the search» below. */
+   elements marked with Office.place(anchor, node) — see «places and the search» below; what its state holds
+   worth finding (findings, entries, shares …): Office.placesFrom(id, (state, part) => [...]) — «items» there. */
 (() => {
 'use strict';
 
@@ -359,12 +360,14 @@ Office.loadState = async function loadState(desk, opts, took) {
   const look = looks.get(key) || {};
   looks.set(key, look);
   look.took = took;
+  look.part = part || null;
   const base = part ? { a: 'part', desk, part } : { a: 'state', desk };
   const how = fresh ? 'fresh' : Office.current && Office.current.id === desk ? '' : 'stored';
   const j = await getOnce(how ? { ...base, [how]: 1 } : base);
   const seen = noteLook(look, j);
   // the very state the page has, and the new look on its way: nothing to draw now
   if (seen !== 'older' && !(seen === 'same' && j.refreshing)) took(j, false);
+  stateItems(desk, part, j, seen);          // the search's items from it (when the page is idle)
   if (j.ok && j.refreshing && !look.pending) followLook(desk, look, base);
   paintAsOf(desk);
   return j;
@@ -381,10 +384,12 @@ function followLook(desk, look, base) {
 function tookLater(desk, look, p, k) {
   if (look.pending !== p) return;          // handed over already (Office.freshState())
   look.pending = null;
-  if (noteLook(look, k) !== 'older' && look.took) {
+  const seen = noteLook(look, k);
+  if (seen !== 'older' && look.took) {
     if (Office.current && Office.current.id === desk) Office.keepInPlace(null, () => look.took(k, true));
     else look.took(k, true);
   }
+  stateItems(desk, look.part, k, seen);
   paintAsOf(desk);
 }
 
@@ -1706,7 +1711,7 @@ function footer() {
  * palette under it that finds PLACES — a desk, a section, a tile, a step or a setting of a setup, a term of «How to read
  * this page», a guide — in every language the office speaks at once («Partn» finds «Partner-Sekretariate» in an English
  * office), and jumps there: the desk's page (its route), what folds open above it, the place scrolled into view and
- * marked. Never what a desk's state holds (findings, entries, apps: a later phase), nothing outside #sso.
+ * marked. What a desk's state holds (findings, entries, apps …) are its «items» (below); nothing outside #sso.
  *
  * Every desk lists its places beside Office.desk() — Office.places(ID, [{kind, key, route, anchor, text, crumb}, …]):
  *   kind    desk | section | tile | step | setting | help | guide
@@ -1721,7 +1726,7 @@ function footer() {
  * language finds them. tests/run.php testSearchPlaces keeps both lists, the anchors and the sections in step.
  */
 const PLACE_KINDS = ['desk', 'section', 'tile', 'step', 'setting', 'help', 'guide'];
-const PLACE_WEIGHT = { desk: 1, section: 0.9, tile: 0.85, step: 0.8, setting: 0.8, help: 0.7, guide: 0.7 };
+const PLACE_WEIGHT = { desk: 1, section: 0.9, tile: 0.85, step: 0.8, setting: 0.8, help: 0.7, guide: 0.7, item: 0.75 };
 const PLACES_SHOWN = 12;
 const placeLists = new Map();       // desk ('' = the office itself) -> its places
 let searchIndex = null;             // the places with their words, built on the first open (again for other strings)
@@ -1758,6 +1763,94 @@ const placeWordsOf = (v) => {
   const s = v && typeof v === 'object' ? Object.values(v).filter((x) => typeof x === 'string').join(' ') : String(v ?? '');
   return s.indexOf('⟦') < 0 ? s : `${s.replace(/[⟦⟧]/g, '')} ${unraidWords(s)}`;
 };
+
+/*
+ * Items — what a desk's STATE holds worth finding (phase 2, Benj 2026-10-08): a finding, an open entry of the watch book,
+ * a share, an app, a dataset, a log … Each desk names them with ONE provider beside Office.places():
+ *   Office.placesFrom(ID, (state, part) => [{text, sub, route, anchor, words}, …])
+ *     text    what the page shows for it, in the desk's own words (its text helpers): never a raw log line, a secret or
+ *             a path the page doesn't show; ≤ ITEM_TEXT letters
+ *     sub     the line under it after the desk's name (its section, its kind, its state)
+ *     route   where it is ('#/<desk>' or a sub-route of the desk that opens what hides it: a tile, the entry's page)
+ *     anchor  the element's data-place (Office.place()) — or its data-id: Office.reveal() takes that as a fallback
+ *     words   more words it is found by (not shown)
+ * The provider is called with every state (or part) that ARRIVES through Office.loadState() — the desk's own look, the
+ * states kept for the reception and the badges, a later look — never by a request of its own, never per keystroke.
+ * It runs when the page is idle after the state was drawn (or at once when the palette asks), ≤ 2 ms a state; what it
+ * returns is kept (ITEM_CAP at most), the state itself is not. A state that came another way (the drill's certificate)
+ * is handed in with Office.placesTook(ID, data, part). No state yet (the first paint): no items.
+ */
+const ITEM_CAP = 200;
+const ITEM_TEXT = 80;
+const itemProviders = new Map();    // desk -> provider
+const itemLists = new Map();        // 'desk' or 'desk/part' -> its items (cleaned)
+const itemWaiting = new Map();      // 'desk' or 'desk/part' -> {desk, part, data}: a state not read yet
+let itemTimer = 0;
+let itemIndex = null;
+
+Office.placesFrom = function placesFrom(desk, provider) {
+  if (typeof provider === 'function') itemProviders.set(desk, provider); else itemProviders.delete(desk);
+  itemIndex = null;
+};
+/** A state that came another way than Office.loadState(): its items anew */
+Office.placesTook = (desk, data, part) => itemsLater(desk, part || null, data);
+
+/** An answer of Office.loadState() (seen: noteLook()'s word): a new state's items are read when the page is idle */
+function stateItems(desk, part, j, seen) {
+  if (!j || !j.ok || !seen || seen === 'older') return;
+  if (seen === 'same' && itemLists.has(lookKey(desk, part))) return;      // the very state read already
+  itemsLater(desk, part, 'part' in j ? j.part : j.state);
+}
+function itemsLater(desk, part, data) {
+  if (!itemProviders.has(desk) || !data || typeof data !== 'object') return;
+  itemWaiting.set(lookKey(desk, part), { desk, part, data });
+  if (itemTimer) return;
+  const done = () => { itemTimer = 0; if (readItems() && Office.paletteOpen()) renderPalette(); };
+  itemTimer = typeof requestIdleCallback === 'function' ? requestIdleCallback(done, { timeout: 1000 }) : setTimeout(done, 30);
+}
+/** Read the states that wait: each desk's provider, its answer cleaned and kept. How many were read */
+function readItems() {
+  let n = 0;
+  for (const [key, { desk, part, data }] of itemWaiting) {
+    itemWaiting.delete(key);
+    let list = [];
+    try { list = itemProviders.get(desk)(data, part); } catch (e) { list = []; }      // a provider's slip costs its items only
+    itemLists.set(key, cleanItems(desk, list));
+    n++;
+  }
+  if (n) itemIndex = null;
+  return n;
+}
+
+/** A text as an item shows it: one line, at most max letters (cut at a word) */
+const itemText = (s, max) => {
+  const v = (typeof s === 'string' || typeof s === 'number' ? String(s) : '').replace(/\s+/g, ' ').trim();
+  if (v.length <= max) return v;
+  const cut = v.slice(0, max - 2);
+  return (cut.replace(/\s+\S*$/, '') || cut) + ' …';
+};
+const ITEM_ROUTE = /^#\/[a-z0-9_-]+(?:\/[^\s"'<>\\]*)?$/;
+/** What a provider gave, as the search keeps it: text, a route to the desk itself, at most ITEM_CAP */
+function cleanItems(desk, list) {
+  const out = [];
+  for (const x of Array.isArray(list) ? list : []) {
+    if (out.length >= ITEM_CAP) break;
+    if (!x || typeof x !== 'object') continue;
+    const label = itemText(x.text, ITEM_TEXT);
+    if (!label) continue;
+    const own = typeof x.route === 'string' && (x.route === `#/${desk}` || x.route.startsWith(`#/${desk}/`)) && ITEM_ROUTE.test(x.route);
+    out.push({ desk, kind: 'item', key: null, label, sub: itemText(x.sub, 120), words: itemText(x.words, 400),
+      route: own ? x.route : `#/${desk}`, anchor: typeof x.anchor === 'string' && x.anchor ? x.anchor : null,
+      text: null, crumb: null, act: null, tokens: null });
+  }
+  return out;
+}
+/** Every desk's items (the states waiting read first) */
+function itemEntries() {
+  if (itemWaiting.size) readItems();
+  if (!itemIndex) itemIndex = [].concat(...itemLists.values());
+  return itemIndex;
+}
 
 /** The office's own places: the reception, the help's parts, the language, its entry in Unraid */
 function officePlaces() {
@@ -1809,8 +1902,8 @@ function placeIndex() {
 /** A place's words: as the page shows them now, as kept in the office's language, and (once there) in every other */
 function placeTokens(e) {
   if (e.tokens) return e.tokens;
-  const texts = [e.label, placeWordsOf(Office.strings[e.full])];
-  const w = searchWords && searchWords[e.full];
+  const texts = e.kind === 'item' ? [e.label, e.sub, e.words] : [e.label, placeWordsOf(Office.strings[e.full])];
+  const w = e.kind !== 'item' && searchWords && searchWords[e.full];
   if (w && typeof w === 'object') texts.push(...Object.values(w).map(placeWordsOf));
   e.tokens = [...new Set(texts.flatMap((s) => foldText(s).split(' ')).filter(Boolean))];
   return e.tokens;
@@ -1865,8 +1958,10 @@ function wordScore(q, w) {
 }
 
 /**
- * The places for a query, best first (hired desks before the others), at most PLACES_SHOWN. Every word of the query must
- * meet a word of the place (in any language); typing errors count only while nothing meets the query as it is typed.
+ * The places and items for a query, best first (hired desks before the others), at most PLACES_SHOWN. Every word of the
+ * query must meet a word of the place (in any language); typing errors count only while nothing meets the query as it
+ * is typed. A place met word by word (each word as it is or at its start) comes before the items, an item before a place
+ * met only inside its words; a place and an item that lead to the same spot are one result (the better one).
  */
 function findPlaces(query) {
   const qs = foldText(query).split(' ').filter(Boolean);
@@ -1874,9 +1969,11 @@ function findPlaces(query) {
   const whole = qs.join(' ');
   const here = Office.current ? Office.current.id : '';
   const out = [];
-  for (const e of placeIndex()) {
+  for (const e of [...placeIndex(), ...itemEntries()]) {
+    const item = e.kind === 'item';
+    if (item && !hiredDesk(e.desk)) continue;               // a desk let go: what it held is gone with it
     const words = placeTokens(e);
-    let sum = 0, typo = false;
+    let sum = 0, typo = false, low = 4;
     for (const q of qs) {
       let best = 0;
       for (const w of words) {
@@ -1885,6 +1982,7 @@ function findPlaces(query) {
       }
       if (!best) { sum = -1; break; }
       sum += best;
+      low = Math.min(low, best);
       typo = typo || best === 1;
     }
     if (sum < 0) continue;
@@ -1892,12 +1990,20 @@ function findPlaces(query) {
     if (foldText(e.label) === whole) score += 0.3;            // the very words the page shows
     else if (foldText(e.label).startsWith(whole)) score += 0.15;
     if (e.desk && e.desk === here) score += 0.2;              // the desk shown first
-    out.push({ e, score, typo, hired: hiredDesk(e.desk) });
+    const rank = score + (typo ? 0 : !item && low >= 3 ? 2 : 1);
+    out.push({ e, score, rank, typo, hired: hiredDesk(e.desk) });
   }
   const typed = out.some((x) => !x.typo) ? out.filter((x) => !x.typo) : out;
-  typed.sort((a, b) => (b.hired - a.hired) || (b.score - a.score) || (a.e.label.length - b.e.label.length)
+  typed.sort((a, b) => (b.hired - a.hired) || (b.rank - a.rank) || (a.e.label.length - b.e.label.length)
     || (Office.deskRank(a.e.desk) - Office.deskRank(b.e.desk)));
-  return typed.slice(0, PLACES_SHOWN).map(({ e, score, hired }) => ({
+  const spots = new Set();
+  return typed.filter(({ e }) => {
+    if (!e.anchor) return true;
+    const spot = `${e.desk}|${e.route}|${e.anchor}`;
+    if (spots.has(spot)) return false;
+    spots.add(spot);
+    return true;
+  }).slice(0, PLACES_SHOWN).map(({ e, score, hired }) => ({
     desk: e.desk, key: e.key, kind: e.kind, route: e.route, anchor: e.anchor, act: e.act, label: e.label, hired, score,
     crumb: placeCrumb(e), detail: placeDetail(e),
   }));
@@ -1907,6 +2013,7 @@ function findPlaces(query) {
 function placeCrumb(e) {
   if (!e.desk) return [t('office.name'), e.kind === 'help' && e.act ? t('help.title') : ''].filter(Boolean).join(' › ');
   if (e.kind === 'desk') return '';
+  if (e.kind === 'item') return [t(`${e.desk}.name`), e.sub].filter(Boolean).join(' › ');
   const parts = [t(`${e.desk}.name`)];
   if (e.crumb && Office.has(`${e.desk}.${e.crumb}`)) parts.push(placeLabel(t(`${e.desk}.${e.crumb}`)));
   if (e.kind === 'help') parts.push(t('common.page_help'));
@@ -2079,7 +2186,11 @@ function renderPalette() {
   });
   p.list.hidden = !found.length;
   p.input.setAttribute('aria-expanded', String(found.length > 0));
-  p.count.textContent = !query.trim() ? '' : found.length ? t('search.results', { n: found.length }) : t('search.none', { q: query.trim() });
+  // «3 places · 2 items»
+  const items = found.filter((r) => r.kind === 'item').length;
+  const places = found.length - items;
+  p.count.textContent = !query.trim() ? '' : !found.length ? t('search.none', { q: query.trim() })
+    : [places || !items ? t('search.results', { n: places }) : '', items ? t('search.items', { n: items }) : ''].filter(Boolean).join(' · ');
   p.active = -1;
   p.input.removeAttribute('aria-activedescendant');
   if (found.length) paletteActive(0);
@@ -2131,10 +2242,12 @@ Office.goToPlace = function goToPlace(r) {
 };
 
 /**
- * Bring a place into view: [data-place="<anchor>"] in the office — at once, or as soon as the page has drawn it (desks
- * draw before their state arrives: watched for ≤ 10 s; since = only a page drawn after that route counts). Every
- * <details> above it opens, it scrolls under Unraid's menu, is marked a moment and takes the focus. For 2 s more a page
- * drawn anew (the state arrived) is followed; the user scrolling, clicking or typing ends all of it.
+ * Bring a place into view: [data-place="<anchor>"] in the office — else [data-id="<anchor>"] (rows that carry their id
+ * already, like the watchman's posture tips: an item's anchor may name it) — at once, or as soon as the page has drawn it
+ * (desks draw before their state arrives: watched for ≤ 10 s; since = only a page drawn after that route counts). Every
+ * <details> above it opens; inside a folded group (.group.closed) its head stands for it (the desk opens its groups);
+ * it scrolls under Unraid's menu, is marked a moment and takes the focus. For 2 s more a page drawn anew (the state
+ * arrived) is followed; the user scrolling, clicking or typing ends all of it.
  */
 const REVEAL_WAIT = 10000;
 const REVEAL_SETTLE = 2000;
@@ -2143,7 +2256,9 @@ Office.reveal = function reveal(anchor, opts) {
   if (revealing) revealing.stop();
   if (!anchor) return;
   const { since, name } = opts || {};
-  const sel = `[data-place="${String(anchor).replace(/["\\]/g, '\\$&')}"]`;
+  const quoted = String(anchor).replace(/["\\]/g, '\\$&');
+  const sel = `[data-place="${quoted}"]`;
+  const byId = `[data-id="${quoted}"]`;
   const me = {};
   let hit = null, found = false, timer = 0, obs = null, done = false;
   const user = ['wheel', 'touchstart', 'pointerdown', 'keydown'];
@@ -2158,12 +2273,13 @@ Office.reveal = function reveal(anchor, opts) {
   revealing = me;
   const look = () => {
     if (done || (since !== undefined && routeGen === since) || (hit && hit.isConnected)) return;
-    const node = ROOT.querySelector(sel);
+    const node = ROOT.querySelector(sel) || ROOT.querySelector(byId);
     if (!node) return;
     const first = !found;
     found = true;
     hit = node;
-    showPlace(node, first);
+    const folded = node.closest('.group.closed');
+    showPlace((folded && folded !== node && folded.querySelector('.group-head')) || node, first);
     if (first) {                         // found: follow a page drawn anew a little longer, then let go
       clearTimeout(timer);
       timer = setTimeout(stop, REVEAL_SETTLE);
@@ -2223,7 +2339,11 @@ function searchKeys() {
   window.addEventListener('resize', () => { if (Office.paletteOpen()) placePalette(); });
 }
 
-Office.search = { open: openPalette, close: () => closePalette(true), find: findPlaces, words: placeWords };
+Office.search = {
+  open: openPalette, close: () => closePalette(true), find: findPlaces, words: placeWords,
+  /** a desk's items as the search keeps them now (for the tests) */
+  items: (desk) => itemEntries().filter((e) => !desk || e.desk === desk).map(({ tokens, ...e }) => ({ ...e })),
+};
 
 // ------------------------------------------------------------------ start
 async function start() {

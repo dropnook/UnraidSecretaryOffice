@@ -216,7 +216,14 @@ function bubbleText() {
 Office.desk({
   id: ID,
 
-  mount(root) {
+  /** sub: «datasets» (the search's): her list grouped by dataset, no pool picked — the dataset sought among the groups */
+  mount(root, sub) {
+    if (sub === 'datasets') {
+      grouping = 'dataset';
+      Office.store('snapshot.grouping', grouping);
+      poolFilter = null;
+      Office.subroute('');
+    }
     view = build(root);
     render();
     load(false);
@@ -263,6 +270,26 @@ Office.places(ID, [
     .map(([key, text]) => ({ kind: 'help', key, text })),
   ...['tiles', 'group', 'select', 'name', 'menu', 'sources', 'scan'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
 ]);
+
+// what her state holds for the search (core.js «items»): the pools and disks (their cards), the schedules, the datasets
+// that have snapshots (a group of her list, grouped by dataset — #/snapshot/datasets sets that grouping, as a click would)
+const DATASETS_MAX = 150;
+Office.placesFrom(ID, (s) => {
+  const out = [];
+  (s.zfs?.pools || []).forEach((p) => out.push({ text: p.name, sub: `${T('storage')} · ZFS`, anchor: `pool:${p.name}` }));
+  (s.btrfs?.devices || []).forEach((d) => out.push({ text: d.name, sub: `${T('storage')} · btrfs`, anchor: `pool:${d.name}` }));
+  (s.plans?.plans || []).forEach((p) => out.push({ text: p.label, sub: T('plans'), anchor: `plan:${p.id}` }));
+  const sets = new Map();
+  for (const x of [...(s.zfs?.snapshots || []), ...(s.btrfs?.snapshots || []), ...(s.vm?.snapshots || [])]) {
+    if (!x || x.docker || !x.vol || typeof x.ds !== 'string') continue;
+    const d = sets.get(x.vol) || { title: x.ds, n: 0 };
+    d.n++;
+    sets.set(x.vol, d);
+  }
+  [...sets].sort((a, b) => a[1].title.localeCompare(b[1].title)).slice(0, DATASETS_MAX).forEach(([vol, d]) => out.push({
+    text: d.title, sub: `${T('snapshots')} · ${T('count', { n: d.n })}`, route: `#/${ID}/datasets`, anchor: `ds:${vol}` }));
+  return out;
+});
 
 // ------------------------------------------------------------------ building
 function build(root) {
@@ -417,7 +444,7 @@ function toggleFilter(name) {
 }
 
 function zfsCard(p) {
-  const card = el('button', 'card' + (poolFilter === p.name ? ' active' : '') + (p.count ? '' : ' empty-card') + (p.asleep ? ' asleep' : ''));
+  const card = Office.place(`pool:${p.name}`, el('button', 'card' + (poolFilter === p.name ? ' active' : '') + (p.count ? '' : ' empty-card') + (p.asleep ? ' asleep' : '')));
   card.type = 'button';
   card.onclick = () => toggleFilter(p.name);
   const head = el('div', 'card-head');
@@ -469,7 +496,7 @@ function btrfsCard(part) {
   const rows = el('div', 'minirows');
   for (const d of part.devices) {
     const n = part.snapshots.filter((s) => s.ds === d.mount).length;
-    const row = el('button', 'minirow' + (d.asleep ? ' asleep' : '') + (poolFilter === d.name ? ' active' : ''));
+    const row = Office.place(`pool:${d.name}`, el('button', 'minirow' + (d.asleep ? ' asleep' : '') + (poolFilter === d.name ? ' active' : '')));
     row.type = 'button';
     row.onclick = () => toggleFilter(d.name);
     const bar = el('div', 'bar thin');
@@ -658,7 +685,7 @@ function foldAll() {
 }
 
 function buildGroup(g) {
-  const box = el('div', 'group' + (isFolded(g) ? ' closed' : ''));
+  const box = Office.place(g.vol ? `ds:${g.vol}` : null, el('div', 'group' + (isFolded(g) ? ' closed' : '')));
   const head = el('div', 'group-head');
   head.tabIndex = 0;
   head.setAttribute('role', 'button');
@@ -1255,7 +1282,7 @@ function renderPlans() {
 }
 
 function planRow(p) {
-  const row = el('div', 'row nocheck unfolds sp-plan' + (p.enabled ? '' : ' paused'));
+  const row = Office.place(`plan:${p.id}`, el('div', 'row nocheck unfolds sp-plan' + (p.enabled ? '' : ' paused')));
   const main = el('div', 'row-main');
   main.appendChild(el('div', 'row-name text', '⏱ ' + p.label));
   const meta = el('div', 'row-meta');

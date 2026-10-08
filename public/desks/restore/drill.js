@@ -26,7 +26,12 @@ const T = (k, p) => x.T(k, p);
 // ------------------------------------------------------------------ loading
 async function loadCert() {
   const j = await Office.api.get({ a: 'part', desk: ID, part: 'drill' });
-  if (j.ok) cert = j.part && j.part.interface === 1 ? j.part : null;
+  if (j.ok) took(j.part && j.part.interface === 1 ? j.part : null);
+}
+/** The certificate as read: kept, and handed to the search (desk.js's items, part «drill») */
+function took(c) {
+  cert = c;
+  if (cert) Office.placesTook(ID, cert, 'drill');
 }
 
 async function loadState(id) {
@@ -34,7 +39,7 @@ async function loadState(id) {
   const j = await Office.api.post(`${ID}.drill_state`, id ? { id } : {});
   if (j.ok && !id) {
     dstate = j;
-    if (j.certificate) cert = j.certificate;
+    if (j.certificate) took(j.certificate);
     if (j.running) job = j.running;
   }
   return j;

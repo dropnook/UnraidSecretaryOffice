@@ -1307,6 +1307,15 @@ Office.places(ID, [
     ['look_again', 'help.again'], ['help.network', 'help.network_text']].map(([key, text]) => ({ kind: 'help', key, text })),
 ]);
 
+// what his state holds for the search (core.js «items»): each external as he finds it now — there, missing, stopped …
+// (its box is the guide's place: the search shows one of the two, whichever the words meet better)
+const statusOf = (x) => (x.group === 'network' ? (x.kind === 'setting' ? T(x.there ? 'net.syslog.on' : 'net.syslog.off') : T('net.chip.guide'))
+  : !x.there && x.later ? T('later') : !x.there && x.optional ? T('absent') : !x.there ? T('missing')
+  : x.kind === 'container' && !x.running ? T('stopped') : T('there'));
+Office.placesFrom(ID, (s) => Object.entries(s.externals || {}).filter(([id, x]) => EXTERNALS[id] && x && typeof x === 'object')
+  .map(([id, x]) => ({ text: T(`ext.${id}.name`), sub: `${T(['monitoring', 'network'].includes(x.group) ? x.group : 'externals')} · ${statusOf(x)}`,
+    anchor: `ext.${id}` })));
+
 // tests/run.php runs this under node (Unraid's own) - never set in a browser
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.advisor = { setState: (s) => { state = s; }, textfileChip };

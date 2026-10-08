@@ -686,11 +686,11 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
 * **Tiles** (`button.card`): a click opens or filters; a click on the active
   tile closes it again — nothing open is a valid state. Remember the choice in
   `Office.store`.
-* **Search (Benj, 2026-10-08 — phase 1, static places):** the magnifier in the top line (`#sso-search`, made by core.js
+* **Search (Benj, 2026-10-08 — phase 1, static places; phase 2, items):** the magnifier in the top line (`#sso-search`, made by core.js
   before `#sso-state`; nothing in page.php) or ⌘K / Ctrl+K while the office has the focus (or nothing outside `#sso` was
   clicked last — never `/`, never in Unraid's header) opens a palette under it (`#sso-palette`, role combobox/listbox:
-  ↑↓, Enter = the highlighted/first, Esc, a click outside; phone: the screen's width). It finds **places**, never a
-  state's data (findings, entries, partners, apps — phase 2): each desk lists its own beside `Office.desk()` with ONE
+  ↑↓, Enter = the highlighted/first, Esc, a click outside; phone: the screen's width). It finds **places** and, from the
+  desks' states, **items** (below): each desk lists its own beside `Office.desk()` with ONE
   `Office.places(ID, [{kind, key, route, anchor, text, crumb}, …])` (kind desk | section | tile | step | setting | help |
   guide; key = the desk's lang key, like `T()`; route default `#/<id>`; anchor default the key) and marks them on the page:
   `{ place: '<anchor>' }` among `Office.sectionHead()`'s extras (passes through a desk's `section(title, sub, ...extra)`),
@@ -710,6 +710,41 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   clicking or typing ends it; not there: `search.not_there`). The same words twice on a desk are one result (a term's
   explanation joins the section). Tests: `testSearchPlaces` (registry vs places.json, keys ×5, routes, anchors marked,
   sections listed, the endpoint, the matcher under node).
+  **Items (phase 2):** what a desk's STATE holds worth finding — ONE provider beside `Office.places()`:
+  `Office.placesFrom(ID, (state, part) => [{text, sub, route, anchor, words}, …])`. Core calls it with every state (or part)
+  that ARRIVES through `Office.loadState()` (`took`: the desk's own look, the stored states of the reception's cards and the
+  badges, a later look; `tookLater` too; an older answer or the very state again: not) — when the page is idle after the
+  state was drawn (`requestIdleCallback`, or at once when the palette asks), ≤ 2 ms a state (measured ≤ 0.5 on uso-test),
+  never a request of its own, never per keystroke, no endpoint; it keeps only the answer (≤ 200 per state, text ≤ 80
+  letters), never the state; a provider that throws costs its own items only. A state that comes another way is handed in
+  with `Office.placesTook(ID, data, part)` (restore's drill.js: its certificate, part `drill`); one an action's answer
+  brings (`state = j.state`) is not — the next look (≤ a minute) brings it. Each desk's items: its words (its text
+  helpers: `T(…)`, `entryName()`, `dbName()`, `label()` …) — **never a raw log line, a secret (keys, passwords, API keys,
+  fingerprints) or a path the page doesn't show** (the test greps for /boot, /mnt/, /var/, key-like strings; the only
+  paths are the pages' own words: the watchman's «/boot/config/go changed», Mr. Backupsy's «Flash (/boot)»). **The
+  anchor rule:** every item's anchor is on the page as `data-place` — `` Office.place(`<prefix>:${id}`, row) ``, or a
+  row's key where the desk's row helper marks it (`unfoldingRow(key …)` in restore, `row({key})` in cleanup's «Where is
+  what»: `Office.place(key, …)`) — or, reusing an id the row has, its `data-id` (`Office.reveal()` falls back to
+  `[data-id="…"]`: the watchman's posture tips); what hides it opens through the route: `#/restore/<tile>` (also
+  `partner:<id>`), `#/cleanup/tidy/<room>`, `#/cleanup/where/<corner>`, `#/watchman/entry/<id>` (the book shows rows down
+  to it), `#/snapshot/datasets` (grouped by dataset, no pool picked — remembered like a click), `#/logs/read/<source>`
+  (that log in the reader); one-off sub-routes clear themselves (`Office.subroute('')`). Inside a folded `.group.closed`
+  `reveal()` shows the group's head. Ranking: `PLACE_WEIGHT.item` .75; a place met word by word (each word whole or at its
+  start) before the items, an item before a place met only inside its words, typing errors only while nothing meets as
+  typed; a place and an item at the same desk/route/anchor are one result (the Consultant's externals); items of a desk
+  not hired are dropped; the chip `search.kind.item`, the line «n places · m items» (`search.results`, `search.items`).
+  Per desk: the Team Lead the points still open (his lists' words, `finding:<sig>`), the team (`staff:<id>`), partner
+  cards and tickets (partner.js: `partner:<id>`, `ticket:<id>`); the watchman the open entries (≤ 120, `entry:<id>`), the
+  posture tips not known (data-id), his watch groups (`watch:<key>`, found also by the plugins', containers', shares' and
+  User Scripts' names in them); Mr. Backupsy his main page's rows (`row:share|vm|app:<name>`, `row:flash`), the runs his
+  history lists (`run:<started>`), the partners (`partner:<id>`) — the setup's own rows come from its plan (`setup_get`, not
+  his state): not items; Mr. Restori apps, VMs, databases, partners' tiles, the drill's certificate; Ms. Snapshotini pools
+  and disks (`pool:<name>`), plans (`plan:<id>`), datasets with snapshots (`ds:<vol>`, ≤ 150); Ms. Dustdevil what her rooms
+  would clear away (`item:<id>`, ≤ 120) and from «Where is what» containers, disks, appdata folders (≤ 80); Ms. Protocolli
+  every log by its name (anchor `reading`); the Consultant each external's state (`ext.<id>`); Jack Emby his servers
+  (anchor `overview`), the shares, the runs (`run:<tool>:<started>`). Tests: `testSearchItems` (node, a fixture state per
+  desk: none before a state, shape, caps, no secret/raw line/path, ≤ 2 ms, anchors marked in the code, the ranking, the
+  refresh on a new and a later look, an older answer, a provider's slip, no request of its own).
 * **Rows** with one main action (unfold details, open a log): the whole row is
   clickable (`.row.unfolds`), except its own buttons, links, fields and
   elements with `data-own`. The "details" tooltip sits on the name only; every

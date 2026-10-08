@@ -102,7 +102,7 @@
   "help.order_title": "L'ordre de l'équipe",
   "help.order_text": "À l'accueil, « Changer l'ordre » place l'équipe dans l'ordre que tu préfères — les cartes de l'accueil, les onglets et « L'équipe » du chef d'équipe le suivent. Chaque déplacement est enregistré aussitôt, « ✓ Terminé » ne fait que clore le classement ; l'ordre est enregistré sur le serveur, chaque navigateur montre donc le même ; « Comme au début » ramène l'ordre du secrétariat. Le chef d'équipe passe toujours en premier ; qui est embauché ensuite se place à la fin.",
   "help.search_title": "La recherche",
-  "help.search_text": "La loupe en haut à droite (ou {keys} quand tu es dans le secrétariat) trouve un bureau, une section, une tuile, une étape ou un réglage d'une configuration, ou un terme de «Comment lire cette page» — dans n'importe quelle langue du secrétariat, même avec une faute de frappe. Entrée ou un clic y mène : la page du bureau, la tuile ou la configuration ouverte, l'endroit amené à l'écran et marqué un instant. Une tuile ouverte ainsi est comme une tuile cliquée : la page s'en souvient.",
+  "help.search_text": "La loupe en haut à droite (ou {keys} quand tu es dans le secrétariat) trouve un bureau, une section, une tuile, une étape ou un réglage d'une configuration, ou un terme de «Comment lire cette page» — dans n'importe quelle langue du secrétariat, même avec une faute de frappe. Entrée ou un clic y mène : la page du bureau, la tuile ou la configuration ouverte, l'endroit amené à l'écran et marqué un instant. Une tuile ouverte ainsi est comme une tuile cliquée : la page s'en souvient. Elle trouve aussi ce que les bureaux savent en ce moment — un point ouvert, une entrée ouverte de la main courante, un partage, une app, un dataset, un journal («Élément») — dès qu'un bureau l'a montré ou que l'accueil l'a lu.",
   "errors.bad_cron": "« {cron} » n'est pas une planification valide (cinq champs, p. ex. 0 3 * * *).",
   "office.not_hired": "{name} ne travaille pas (encore) ici — le chef d'équipe sait qui pourrait venir.",
   "office.tip_title": "Bienvenue dans l'équipe !",
@@ -220,10 +220,11 @@
   "errors.logged_out": "Ta session Unraid a pris fin — reconnecte-toi, s'il te plaît.",
   "errors.stale_page": "Unraid a refusé la demande : la page n'est plus à jour (le serveur a redémarré ?). Recharge-la et réessaie.",
   "search.open": "Chercher dans le secrétariat",
-  "search.placeholder": "Trouver un bureau, une section, un réglage …",
+  "search.placeholder": "Trouver un bureau, un réglage, un partage, une app …",
   "search.hint": "↑ ↓ choisir · Entrée ouvre · Échap ferme",
   "search.label": "Endroits du secrétariat",
   "search.results": {"one": "{n} endroit", "other": "{n} endroits"},
+  "search.items": {"one": "{n} élément", "other": "{n} éléments"},
   "search.none": "Rien trouvé pour «{q}».",
   "search.not_hired": "pas engagé",
   "search.not_there": "«{name}» n'est pas sur la page pour l'instant — il apparaît quand il y a quelque chose à montrer.",
@@ -233,5 +234,6 @@
   "search.kind.step": "Étape",
   "search.kind.setting": "Réglage",
   "search.kind.help": "Expliqué",
-  "search.kind.guide": "Guide"
+  "search.kind.guide": "Guide",
+  "search.kind.item": "Élément"
 }

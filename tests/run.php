@@ -4123,7 +4123,7 @@ function testBackupNewLocalOffice(): void
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, selbar: () => {}, has: () => false };
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => false };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const b = OFFICE_DESK_TESTS.backup;
 b.setup.plan = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
@@ -4233,7 +4233,7 @@ function testBackupPlace(): void
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, selbar: () => {}, has: () => false };
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => false };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const b = OFFICE_DESK_TESTS.backup;
 const out = {};
@@ -4401,7 +4401,7 @@ const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now', duration: (s) => Math.round(s) + ' s' },
-  desk: () => {}, places: () => {}, selbar: () => {}, has: () => false };
+  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => false };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const b = OFFICE_DESK_TESTS.backup;
 const S = b.setup;
@@ -4584,7 +4584,7 @@ const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now', duration: (s) => Math.round(s) + ' s' },
-  desk: () => {}, places: () => {}, selbar: () => {}, has: () => false };
+  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => false };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const b = OFFICE_DESK_TESTS.backup;
 const S = b.setup;
@@ -5648,7 +5648,7 @@ function testRestoreFindings(): void
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, has: () => false, fmt: {} };
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, has: () => false, fmt: {} };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const r = OFFICE_DESK_TESTS.restore;
 const sizes = { measuring: true, need: null, paths: ['/a', '/b'], scale: { '/a': 1.25 }, compresses: false, free: 100 };
@@ -5775,7 +5775,7 @@ function testRestoreDatabases(): void
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, has: () => false,
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, has: () => false,
   fmt: { size: (b) => b + ' B', relative: (t) => 'rel ' + t, date: (t) => 'date ' + t } };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const r = OFFICE_DESK_TESTS.restore;
@@ -7986,7 +7986,7 @@ function testAdvisor(): void
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: {}, desk: () => {}, places: () => {}, has: () => false };
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: {}, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, has: () => false };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const a = OFFICE_DESK_TESTS.advisor;
 const out = [];
@@ -12726,6 +12726,378 @@ JS);
     hardeningRm($tmp);
 }
 
+/**
+ * The search's items (core.js «items», phase 2): what the desks' states hold, found beside the places. Under node (core.js
+ * and every desk.js on a stand-in page, a stand-in fetch with a fixture state per desk): nothing before a state arrived
+ * (the first paint), the providers' answers after the states came through Office.loadState() (as kept, the badges' and
+ * the reception's way) — their shape, the cap, never a raw line, a secret or a path the page doesn't show —, ≤ 2 ms a
+ * state, the ranking (places met word by word first, items before typing errors, one result per spot, a desk let go:
+ * none), a new look (and a later one) replacing what was found, an older answer and a provider's slip changing nothing,
+ * no request of the search's own. In the code: each desk's provider, every anchor marked, the sub-routes taken.
+ */
+function testSearchItems(): void
+{
+    $pub = OFFICE_WEB;
+    $desks = array_map(fn ($f) => basename(dirname($f)), glob("$pub/desks/*/desk.json") ?: []);
+    sort($desks);
+    $js = [];
+    foreach ($desks as $d) {
+        $js[$d] = '';
+        foreach (glob("$pub/desks/$d/*.js") ?: [] as $f) {
+            $js[$d] .= (string) file_get_contents($f) . "\n";
+        }
+        same("search items $d: one provider beside its places (Office.placesFrom(ID, …))", 1, substr_count($js[$d], 'Office.placesFrom(ID,'));
+    }
+    $core = (string) file_get_contents("$pub/assets/core.js");
+    check('search items: core keeps no state, only what the providers answer (and reads them when the page is idle)',
+        str_contains($core, 'requestIdleCallback') && str_contains($core, "itemLists.set(key, cleanItems(desk, list))") && !preg_match("/a=items|'items'\\s*:/", $core));
+    check('search items: Office.reveal() takes a data-id when no data-place is there, and a folded group\'s head for what it hides',
+        str_contains($core, '`[data-id="${quoted}"]`') && str_contains($core, "node.closest('.group.closed')"));
+    // the sub-routes that open what hides an item
+    check('search items: the sub-routes are taken (#/watchman/entry/<id>, #/snapshot/datasets, #/logs/read/<log>, #/restore/partner:<id>)',
+        str_contains($js['watchman'], '/^entry\/([\w-]{1,64})$/') && str_contains($js['snapshot'], "sub === 'datasets'")
+        && str_contains($js['logs'], '/^read\/(.+)$/') && str_contains($js['restore'], '/^partner:[0-9a-f]{8}$/.test(sub)')
+        && str_contains($js['restore'], "Office.placesTook(ID, cert, 'drill')"));
+
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('search items: node is missing here - the page not tried', true);
+        return;
+    }
+    $tmp = hardeningTmp('searchitems');
+    // the English strings as the page gets them (src/desks.php officeStrings(): the office's, each desk's as <id>.<key>)
+    $strings = langFile("$pub/lang/en.json");
+    foreach ($desks as $d) {
+        foreach (langFile("$pub/desks/$d/lang/en.json") as $k => $v) {
+            $strings["$d.$k"] = $v;
+        }
+    }
+    $secret = 'hunter2-Sup3rSecretPassw0rdValue';
+    $key = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl';
+    $book = [
+        ['id' => 'w0000000001', 'kind' => 'login_failures', 'group' => 'login', 'open' => true, 'time' => 900, 'last' => 950, 'count' => 3,
+         't' => ['ip' => '203.0.113.7', 'service' => 'SSH'], 'p' => ['ip' => '203.0.113.7', 'users' => ['root'],
+         'lines' => ['Oct  8 12:00:01 tower sshd[811]: Failed password for root from 203.0.113.7 port 52222 ssh2']]],
+        ['id' => 'w0000000002', 'kind' => 'flash_go', 'group' => 'flash', 'open' => true, 'time' => 900, 'last' => 900, 'count' => 1,
+         't' => ['added' => 3, 'removed' => 1], 'p' => ['lines' => 12, 'added' => 3, 'removed' => 1]],
+        ['id' => 'w0000000003', 'kind' => 'plugin_new', 'group' => 'plugin', 'open' => false, 'time' => 800, 'last' => 800, 'count' => 1,
+         't' => ['name' => 'Noted Plugin', 'source' => 'https://example.org/noted.plg'], 'p' => ['name' => 'Noted Plugin']],
+    ];
+    for ($i = 1; $i <= 300; $i++) {
+        $book[] = ['id' => sprintf('w%010d', 100 + $i), 'kind' => 'container_new', 'group' => 'container', 'open' => true, 'time' => 700, 'last' => 700, 'count' => 1,
+            't' => ['name' => "ct-$i", 'rights' => '--privileged'], 'p' => ['name' => "ct-$i", 'image' => "repo/ct-$i", 'tokens' => ['--privileged']]];
+    }
+    $images = [];
+    for ($i = 1; $i <= 260; $i++) {
+        $images[] = ['id' => "img:$i", 'kind' => 'image', 'name' => "repo/img-$i:latest", 'category' => 'unused', 'bytes' => 1, 'why' => null];
+    }
+    $states = [
+        'caretaker' => ['time' => 1000, 'checks' => [
+            'backup' => [['id' => 'kopia_running', 'level' => 'required', 'ok' => false, 'params' => ['name' => 'kopia'], 'sig' => 'backup:kopia_running:0123456789abcdef'],
+                         ['id' => 'schedule', 'level' => 'recommended', 'ok' => true, 'sig' => 'backup:schedule:1111111111111111']],
+            'snapshot' => [['id' => 'plan_target_gone', 'level' => 'recommended', 'ok' => false, 'params' => ['plan' => 'hourly', 'target' => 'cache/drop'], 'sig' => 'snapshot:plan_target_gone:2222222222222222'],
+                           ['id' => 'other_snapshot_tool', 'level' => 'hint', 'ok' => false, 'acked' => true, 'params' => ['name' => 'Sanoid'], 'sig' => 'snapshot:other_snapshot_tool:3333333333333333']]],
+            'staff' => ['backup' => ['ok' => true, 'why' => 'yes'], 'emby' => ['ok' => true, 'why' => 'yes']],
+            'partners' => ['pairs' => [['id' => 'a1b2c3d4', 'name' => 'Vault', 'address' => '10.0.0.9', 'port' => 22, 'trust' => 'mine', 'key' => $key]], 'pending' => [],
+                           'ticket_pairs' => [['id' => 't1', 'name' => 'newbox', 'of' => 'oldbox', 'expires' => 4102444800]], 'ticket_requests' => [['id' => 'r9', 'created' => 1]]]],
+        'watchman' => ['time' => 1000, 'open' => ['login' => 1, 'container' => 300, 'flash' => 1], 'on_watch' => 1, 'round' => ['last' => 990], 'book' => $book,
+            'posture' => ['open' => 1, 'tips' => [['id' => 'telnet', 'level' => 'advice', 'known' => false, 'p' => []], ['id' => 'upnp', 'level' => 'info', 'known' => true, 'p' => []]]],
+            'watch' => ['ips' => [['ip' => '192.168.1.5', 'users' => ['root'], 'services' => ['ssh'], 'last' => 1]], 'fail_ips' => [],
+                'containers' => ['special' => [['name' => 'tean-speak', 'tokens' => ['--privileged']]], 'count' => 5],
+                'plugins' => [['name' => 'Unassigned Devices', 'source' => 'https://example.org/ud.plg', 'version' => '2026.01']],
+                'flash' => ['extra' => [], 'users' => ['root'], 'keys' => [['user' => 'root', 'type' => 'ssh-ed25519', 'comment' => 'benj@mac', 'fp' => 'SHA256:q2kPUo1WTwcQjSJ0Y5vH3l9Q3b6ZbM2lD9XyWm4kE8c']], 'go' => ['lines' => 10]],
+                'shares' => ['open' => [['share' => 'Public', 'smb' => 2]], 'count' => 3],
+                'sched' => ['crontab' => ['0 3 * * * /boot/config/plugins/x/run.sh --token ' . $secret], 'files' => [], 'scripts' => [['name' => 'nightly-sync', 'cron' => 'daily']], 'agents' => []],
+                'host' => ['doors' => [], 'api' => [['name' => 'homeassistant', 'roles' => ['admin']]], 'listen' => [], 'procs' => [], 'users' => 1]],
+            'net' => null, 'snaps' => null, 'flow' => null],
+        'backup' => ['time' => 1000, 'found' => true, 'compatible' => true, 'settings' => ['kopia_enabled' => true, 'dumps_share' => 'backups', 'kopia_password' => $secret],
+            'shares' => [['name' => 'nextcloud', 'mode' => 'kopia', 'method' => 'snapshot', 'ignores' => [], 'excluded' => [], 'locations' => ['/mnt/cache/nextcloud']],
+                         ['name' => 'media', 'mode' => 'off', 'ignores' => [], 'excluded' => [], 'locations' => []],
+                         ['flash' => true, 'name' => 'flash', 'mode' => 'snapshot', 'ignores' => [], 'excluded' => [], 'locations' => ['/boot']]],
+            'vms' => [['name' => 'Windows11', 'mode' => 'snapshot', 'own' => [], 'disks' => [['source' => '/mnt/user/domains/Windows11/vdisk1.img']], 'configured' => true, 'prepare' => 'shutdown']],
+            'packages' => ['found' => true, 'base' => '/mnt/user/backups', 'apps' => [['name' => 'nextcloud', 'folder' => 'nextcloud', 'files' => [], 'path' => '/mnt/user/backups/apps/nextcloud']], 'vms' => [], 'server' => null],
+            'history' => [['started' => 950, 'finished' => 990, 'result' => 'ok', 'log' => '/mnt/user/backups/logs/run-950.log'],
+                          ['started' => 850, 'finished' => 870, 'result' => 'failed', 'log' => '/mnt/user/backups/logs/run-850.log', 'message' => 'kopia: ' . $secret]],
+            'skips' => [['time' => 900, 'mode' => 'backup']], 'partners' => [['id' => 'a1b2c3d4', 'name' => 'Vault', 'units' => [], 'key' => $key]]],
+        'restore' => ['time' => 1000, 'place' => ['found' => true], 'vm_service' => true, 'running' => false,
+            'apps' => [['id' => 'nextcloud', 'name' => 'nextcloud', 'type' => 'compose', 'present' => true, 'path' => '/mnt/user/backups/apps/nextcloud', 'time' => 900,
+                'dumps' => [['type' => 'mariadb', 'db' => 'nextcloud', 'file' => 'apps/nextcloud/db/mariadb-nextcloud.sql.gz', 'container' => 'nextcloud-db', 'bytes' => 100, 'time' => 900, 'password_env' => 'MYSQL_PASSWORD']],
+                'sqlite' => [], 'folders' => [], 'kopia' => [], 'containers' => []]],
+            'vms' => [['id' => 'win11', 'name' => 'Windows11', 'folders' => [], 'kopia' => []]],
+            'partners' => [['id' => 'a1b2c3d4', 'name' => 'Vault']]],
+        'snapshot' => ['time' => 1000,
+            'zfs' => ['pools' => [['name' => 'cache', 'health' => 'ONLINE', 'used' => 1, 'avail' => 1, 'size' => 2, 'alloc' => 1, 'snapused' => 0, 'count' => 2]], 'volumes' => [],
+                'snapshots' => [['id' => 'z1', 'fs' => 'zfs', 'ds' => 'cache/appdata', 'vol' => 'zfs:cache/appdata', 'name' => 'uso-plan-hourly-20261008-1200', 't' => 900, 'pool' => 'cache'],
+                                ['id' => 'z2', 'fs' => 'zfs', 'ds' => 'cache/appdata', 'vol' => 'zfs:cache/appdata', 'name' => 'uso-plan-hourly-20261008-1300', 't' => 950, 'pool' => 'cache'],
+                                ['id' => 'z3', 'fs' => 'zfs', 'ds' => 'cache/system/docker/0a1b2c', 'vol' => 'zfs:cache/system/docker/0a1b2c', 'name' => 'x', 't' => 900, 'pool' => 'cache', 'docker' => true]]],
+            'btrfs' => ['devices' => [['name' => 'disk1', 'mount' => '/mnt/disk1', 'size' => 1, 'free' => 1]], 'snapshots' => []],
+            'vm' => ['available' => false, 'snapshots' => [], 'domains' => []],
+            'plans' => ['plans' => [['id' => 'hourly', 'label' => 'Hourly appdata', 'cron' => '0 * * * *', 'keep' => 24, 'targets' => ['zfs:cache/appdata'], 'enabled' => true]]]],
+        'cleanup' => ['time' => 1000, 'backup_running' => false, 'jobs' => ['busy' => false], 'trash' => ['runs' => [], 'bytes' => 0],
+            'docker' => ['enabled' => true, 'list' => $images],
+            'templates' => ['list' => [['id' => 'tpl:my-plex.xml', 'kind' => 'template', 'file' => 'my-plex.xml', 'name' => 'plex', 'category' => 'leftover', 'why' => null,
+                'path' => '/boot/config/plugins/dockerMan/templates-user/my-plex.xml']]],
+            'stacks' => ['list' => [], 'exists' => true, 'root' => '/boot/config/plugins/compose.manager/projects'],
+            'appdata' => ['list' => [['id' => 'ad:oldapp', 'kind' => 'appdata', 'name' => 'oldapp', 'category' => 'unused', 'why' => null, 'path' => '/mnt/user/appdata/oldapp'],
+                                     ['id' => 'ad:plex', 'kind' => 'appdata', 'name' => 'plex', 'category' => 'used', 'why' => null, 'path' => '/mnt/user/appdata/plex']]],
+            'vms' => ['enabled' => false, 'list' => []], 'scripts' => ['installed' => false, 'list' => []], 'icons' => null,
+            'leftovers' => ['restores' => 0, 'list' => []], 'partners' => ['list' => []]],
+        'logs' => ['time' => 1000, 'sources' => [['id' => 'syslog', 'label' => 'syslog', 'group' => 'unraid', 'size' => 100, 'path' => '/var/log/syslog'],
+            ['id' => 'container:plex', 'label' => 'container', 'param' => 'plex', 'group' => 'containers'], ['id' => 'backup:latest', 'label' => 'backup_latest', 'group' => 'office']]],
+        'advisor' => ['time' => 1000, 'externals' => ['kopia' => ['there' => true, 'kind' => 'container', 'running' => true], 'fcp' => ['there' => false],
+            'grafana' => ['there' => false, 'optional' => true, 'group' => 'monitoring'], 'syslogserver' => ['there' => false, 'kind' => 'setting', 'group' => 'network'],
+            'bogus' => ['there' => true]]],
+        'emby' => ['time' => 1000, 'configured' => true, 'emby' => [[]], 'python' => '3.12', 'foreign' => [],
+            'settings' => ['instances' => [['servername' => 'Wohnzimmer', 'url' => 'http://192.168.1.2:8096', 'api_key' => '0123456789abcdef0123456789abcdef']]],
+            'shares' => [['share' => 'movies', 'fit' => 'ok']], 'history' => [['tool' => 'embycache', 'mode' => 'run', 'started' => 900, 'result' => 'ok', 'by' => 'schedule']]],
+    ];
+    $parts = ['cleanup/where' => ['time' => 1000, 'shares' => [],
+        'folders' => [['share' => 'appdata', 'appdata' => true, 'base' => '/mnt/user/appdata', 'folders' => [['name' => 'plex', 'real' => '/mnt/cache/appdata/plex', 'path' => '/mnt/user/appdata/plex', 'used_by' => []]]]],
+        'containers' => [['name' => 'plex', 'image' => 'lscr.io/linuxserver/plex', 'state' => 'running', 'networks' => [], 'ports' => [], 'mounts' => [['source' => '/mnt/user/appdata/plex', 'dest' => '/config']], 'managed' => 'template']],
+        'health' => ['devices' => [['name' => 'Disk 1', 'device' => 'sdb', 'type' => 'Data', 'roles' => [], 'serial' => 'WD-WX12345678']]]]];
+    $drill = ['interface' => 1, 'last' => ['ended' => 900, 'result' => 'passed'], 'items' => [['of' => 'app', 'id' => 'nextcloud', 'name' => 'nextcloud', 'result' => 'ok', 'level' => 2, 'copy' => 'package'],
+        ['of' => 'share', 'id' => 'media', 'name' => 'media', 'result' => 'failed', 'level' => 0, 'copy' => 'kopia', 'what' => '/mnt/user/media']]];
+    // the refresh: his new look (one point in place, another open), then a later one (the partners gone), then an older answer
+    $care2 = $states['caretaker'];
+    $care2['time'] = 2000;
+    $care2['checks']['backup'][0]['ok'] = true;
+    $care2['checks']['backup'][1]['ok'] = false;
+    $care3 = $care2;
+    $care3['time'] = 3000;
+    $care3['partners'] = ['pairs' => [], 'pending' => [], 'ticket_pairs' => [], 'ticket_requests' => []];
+    $care1 = $states['caretaker'];
+    $care1['time'] = 1500;
+    file_put_contents("$tmp/fixtures.json", json_encode(['states' => $states, 'parts' => $parts, 'drill' => $drill, 'care' => [$care2, $care3, $care1]]));
+    file_put_contents("$tmp/strings.json", json_encode($strings));
+    file_put_contents("$tmp/config.json", json_encode(['desks' => array_map(fn ($d) => ['id' => $d, 'hired' => true, 'order' => 1, 'refresh_after' => 60], $desks),
+        'languages' => [['code' => 'en']], 'base' => '', 'staff_order' => [], 'stamp' => 1, 'version' => 'test', 'host' => 'Tower']));
+    file_put_contents("$tmp/t.js", <<<'JS'
+// core.js and the desks under node: a stand-in page and a stand-in fetch answering with a fixture state per desk
+const fs = require('fs');
+const [core, desksDir, configFile, stringsFile, fixturesFile, outFile] = process.argv.slice(2);
+const CONFIG = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+const FX = JSON.parse(fs.readFileSync(fixturesFile, 'utf8'));
+const mk = () => ({ style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [],
+  classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {},
+  setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
+  querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+  getBoundingClientRect: () => ({ top: 0, bottom: 40, left: 0, right: 1000 }), focus() {}, select() {} });
+globalThis.window = globalThis;
+globalThis.Node = function Node() {};
+globalThis.innerHeight = 800; globalThis.innerWidth = 1200; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+globalThis.navigator = { languages: ['en'], platform: 'Linux' };
+globalThis.history = { replaceState() {} };
+globalThis.location = { hash: '', reload() {} };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : mk()),
+  querySelector: () => mk(), querySelectorAll: () => [], createElement: () => mk(), createElementNS: () => mk(), addEventListener() {},
+  removeEventListener() {}, documentElement: { scrollHeight: 0 }, activeElement: null, hidden: false, body: mk() };
+const calls = [];
+const look = (data, key, extra) => ({ ok: true, [key]: data, age: 5, stale: false, refreshing: false, refresh_after: 60, ...(extra || {}) });
+let care = null;              // the Team Lead's answers for the refresh: {now, wait}
+globalThis.fetch = async (url) => {
+  calls.push(String(url).replace(/^api\.php\?/, ''));
+  const u = new URLSearchParams(String(url).split('?')[1] || '');
+  const desk = u.get('desk');
+  let a = { ok: false };
+  if (u.get('a') === 'state' && desk === 'caretaker' && care) a = u.get('wait') ? care.wait : care.now;
+  else if (u.get('a') === 'state' && FX.states[desk]) a = look(FX.states[desk], 'state');
+  else if (u.get('a') === 'part' && FX.parts[`${desk}/${u.get('part')}`]) a = look(FX.parts[`${desk}/${u.get('part')}`], 'part');
+  if (u.get('wait')) await new Promise((r) => setTimeout(r, 20));
+  return { redirected: false, url, ok: true, status: 200, json: async () => a, text: async () => JSON.stringify(a) };
+};
+(0, eval)(fs.readFileSync(core, 'utf8'));
+const O = globalThis.Office;
+for (const d of CONFIG.desks) (0, eval)(fs.readFileSync(`${desksDir}/${d.id}/desk.js`, 'utf8'));
+O.strings = JSON.parse(fs.readFileSync(stringsFile, 'utf8'));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const brief = (list) => list.map((r) => `${r.desk}:${r.kind}:${r.kind === 'item' ? r.anchor : r.key}`);
+const out = {};
+(async () => {
+  // the first paint: no state yet, no items
+  out.before = [O.search.items().length, O.search.find('nextcloud').filter((r) => r.kind === 'item').length];
+  // the badges' way (started(): the Team Lead, the watchman) and the reception's (as kept) for the others; her «Where is what»
+  O.current = null;
+  for (const d of O.desks.values()) if (d.started) d.started();
+  await Promise.all(CONFIG.desks.filter((d) => !['caretaker', 'watchman'].includes(d.id)).map((d) => O.loadState(d.id, {}, () => {})));
+  await O.loadState('cleanup', { part: 'where' }, () => {});
+  O.placesTook('restore', FX.drill, 'drill');          // drill.js hands its certificate in
+  await sleep(120);                                     // read when the page is idle
+  const asked = calls.length;
+  out.items = {};
+  for (const d of CONFIG.desks) out.items[d.id] = O.search.items(d.id);
+  // how long a state takes (warm): each desk's states read once more
+  out.ms = {};
+  for (let round = 0; round < 3; round++) {
+    for (const d of CONFIG.desks) {
+      const t0 = process.hrtime.bigint();
+      O.placesTook(d.id, FX.states[d.id]);
+      O.search.items(d.id);
+      const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+      if (round === 2) out.ms[d.id] = ms;
+    }
+  }
+  O.placesTook('cleanup', FX.parts['cleanup/where'], 'where');
+  O.placesTook('restore', FX.drill, 'drill');
+  // the ranking
+  out.find = {};
+  for (const q of ['Partner offices', 'tean', 'kopia', O.t('advisor.missing'), 'nextcloud', 'telnet', 'Windows11', 'my-plex', 'Wohnzimmer', 'ct-17', 'plex', 'Unassigned', 'Databases'])
+    out.find[q] = brief(O.search.find(q));
+  out.first = O.search.find('Wohnzimmer')[0] || null;
+  if (out.first) delete out.first.act;
+  O.desks.get('emby').hired = false;
+  out.letGo = brief(O.search.find('Wohnzimmer'));
+  O.desks.get('emby').hired = true;
+  out.searchCalls = calls.length - asked;
+  // his page: a new look (one point in place, another open), then a later one (his partners gone), then an older answer
+  O.current = { id: 'caretaker' };
+  care = { now: look(FX.care[0], 'state') };
+  await O.loadState('caretaker', {}, () => {});
+  await sleep(120);
+  out.after = O.search.items('caretaker').map((e) => e.anchor);
+  care = { now: look(FX.care[0], 'state', { refreshing: true }), wait: look(FX.care[1], 'state') };
+  await O.loadState('caretaker', {}, () => {});
+  await sleep(400);
+  out.later = O.search.items('caretaker').map((e) => e.anchor);
+  care = { now: look(FX.care[2], 'state') };
+  await O.loadState('caretaker', {}, () => {});
+  await sleep(120);
+  out.older = O.search.items('caretaker').map((e) => e.anchor);
+  // a provider's slip costs its own items only
+  O.placesFrom('logs', () => { throw new Error('slip'); });
+  O.placesTook('logs', FX.states.logs);
+  out.slip = [O.search.items('logs').length, O.search.items('advisor').length > 0];
+  out.calls = calls;
+  fs.writeFileSync(outFile, JSON.stringify(out));          // a file: a pipe may lose the end of a long line at exit
+  process.exit(0);
+})().catch((e) => { fs.writeFileSync(outFile, JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+JS);
+    $raw = (string) shell_exec(implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", "$pub/assets/core.js", "$pub/desks", "$tmp/config.json",
+        "$tmp/strings.json", "$tmp/fixtures.json", "$tmp/out.json"])) . ' 2>&1');
+    $r = json_decode((string) @file_get_contents("$tmp/out.json"), true);
+    if (!is_array($r) || isset($r['error'])) {
+        check('search items: ran under node', false, substr(($r['error'] ?? '') . $raw, 0, 3000));
+        hardeningRm($tmp);
+        return;
+    }
+
+    same('search items: none before a state arrived (the first paint)', [0, 0], $r['before']);
+    // each desk's items: their shape, their routes, no secret, no raw line, no path the page doesn't show
+    $count = [];
+    // the pages' own words that name a path: the watchman's for that entry, Mr. Backupsy's for the flash (their rows say it so)
+    $own = ['/boot/config/go', $strings['backup.flash']];
+    foreach ($desks as $d) {
+        $items = $r['items'][$d] ?? [];
+        $count[$d] = count($items);
+        check("search items $d: some from its fixture state", $items !== [], (string) count($items));
+        check("search items $d: at most 200", count($items) <= 200, (string) count($items));
+        $bad = $leak = $unmarked = [];
+        // the desk's marks: literals and template starts beside Office.place() / place:, row keys where its rows mark their key
+        preg_match_all("/(?:Office\\.place\\(|\\bplace:\\s*)[^\\n]*/", $js[$d], $lines);
+        $marks = implode("\n", $lines[0]);
+        preg_match_all("/'([^'\\n]+)'/", $marks, $m);
+        $literals = $m[1];
+        preg_match_all('/`([a-z][\w.:-]*)\$\{/', $marks, $m);
+        $starts = $m[1];
+        if (str_contains($js[$d], 'Office.place(key,')) {
+            preg_match_all("/(?:unfoldingRow\\(\\s*|\\bkey:\\s*)'([a-z]+:)'\\s*\\+|\\bkey:\\s*`([a-z]+:)\\$\\{/", $js[$d], $m);
+            $starts = array_merge($starts, array_filter(array_merge($m[1], $m[2])));
+        }
+        foreach ($items as $e) {
+            $route = (string) ($e['route'] ?? '');
+            if (($e['kind'] ?? '') !== 'item' || !is_string($e['label'] ?? null) || $e['label'] === '' || mb_strlen($e['label']) > 80 || !is_string($e['sub'] ?? null)
+                || !preg_match('#^\#/' . preg_quote($d, '#') . '(/[^\s"\'<>\\\\]*)?$#D', $route) || !is_string($e['anchor'] ?? null) || $e['anchor'] === '') {
+                $bad[] = $e;
+            }
+            $shown = str_replace($own, '', $e['label'] . ' ' . $e['sub'] . ' ' . ($e['words'] ?? ''));
+            if (preg_match('#/boot|/mnt/|/var/|' . preg_quote($secret, '#') . '|AAAAC3Nz|SHA256:|0123456789abcdef0123|password|sshd\[|-----BEGIN#i', $shown)) {
+                $leak[] = $e['label'];
+            }
+            $a = (string) ($e['anchor'] ?? '');
+            $marked = in_array($a, $literals, true) || array_filter($starts, fn ($s) => $s !== '' && str_starts_with($a, $s))
+                || ($d === 'watchman' && !str_contains($a, ':') && str_contains($js[$d], 'r.dataset.id = x.id'));
+            if (!$marked) {
+                $unmarked[] = $a;
+            }
+        }
+        same("search items $d: text ≤ 80 letters, a line under it, a route to the desk itself, an anchor", [], array_slice($bad, 0, 3));
+        same("search items $d: no secret, no raw log line, no path the page doesn't show", [], array_slice($leak, 0, 5));
+        same("search items $d: every anchor marked in its code (Office.place(), a row's key, a posture tip's data-id)", [], array_values(array_unique(array_slice($unmarked, 0, 5))));
+    }
+    ksort($count);
+    check('search items: per desk ' . json_encode($count), array_sum($count) > 250, (string) array_sum($count));
+    $anchors = fn (string $d) => array_column($r['items'][$d] ?? [], 'anchor');
+    $labels = fn (string $d) => array_column($r['items'][$d] ?? [], 'label');
+    same('search items caretaker: the points still open (in his words), not those in place or noted; the team; the partners and tickets',
+        ['finding:backup:kopia_running:0123456789abcdef', 'finding:snapshot:plan_target_gone:2222222222222222', 'partner:a1b2c3d4', 'staff:backup', 'staff:emby', 'ticket:r9', 'ticket:t1'],
+        (function ($a) { sort($a); return $a; })($anchors('caretaker')));
+    check('search items caretaker: … worded as his list words them', in_array('Kopia container «kopia» is running', $labels('caretaker'), true), json_encode($labels('caretaker')));
+    $w = $r['items']['watchman'] ?? [];
+    $entries = array_values(array_filter($w, fn ($e) => str_starts_with($e['anchor'], 'entry:')));
+    same('search items watchman: the open entries, at most 120, each to its page (#/watchman/entry/<id>), a noted one not',
+        [120, '#/watchman/entry/w0000000001', 'entry:w0000000001', false],
+        [count($entries), $entries[0]['route'] ?? null, $entries[0]['anchor'] ?? null, in_array('entry:w0000000003', $anchors('watchman'), true)]);
+    same('search items watchman: … in his words', ['3 failed logins from 203.0.113.7 — SSH', '/boot/config/go changed (lines: +3 −1)'], [$entries[0]['label'] ?? null, $entries[1]['label'] ?? null]);
+    check('search items watchman: a tip not known (its row\'s data-id), not one known; the groups he keeps an eye on',
+        in_array('telnet', $anchors('watchman'), true) && !in_array('upnp', $anchors('watchman'), true) && in_array('watch:plugins', $anchors('watchman'), true)
+        && in_array('watch:sched', $anchors('watchman'), true) && !in_array('watch:fail_ips', $anchors('watchman'), true), json_encode(array_slice($anchors('watchman'), 120)));
+    same('search items backup: his shares, VMs, apps, the runs his history lists, the partners',
+        ['row:share:nextcloud', 'row:share:media', 'row:flash', 'row:vm:Windows11', 'row:app:nextcloud', 'run:950', 'run:850', 'partner:a1b2c3d4'], $anchors('backup'));
+    same('search items restore: apps, VMs, databases, partners\' tiles (each through its tile), the drill\'s certificate',
+        [['app:nextcloud', '#/restore/apps'], ['vm:win11', '#/restore/vms'], ['db:nextcloud:apps/nextcloud/db/mariadb-nextcloud.sql.gz', '#/restore/dbs'],
+         ['tile.partner:a1b2c3d4', '#/restore/partner:a1b2c3d4'], ['dr:app:nextcloud', '#/restore/drill'], ['dr:share', '#/restore/drill']],
+        array_map(fn ($e) => [$e['anchor'], $e['route']], $r['items']['restore'] ?? []));
+    same('search items snapshot: pools and disks, schedules, datasets with snapshots (not Docker\'s)',
+        [['pool:cache', '#/snapshot'], ['pool:disk1', '#/snapshot'], ['plan:hourly', '#/snapshot'], ['ds:zfs:cache/appdata', '#/snapshot/datasets']],
+        array_map(fn ($e) => [$e['anchor'], $e['route']], $r['items']['snapshot'] ?? []));
+    $c = $r['items']['cleanup'] ?? [];
+    check('search items cleanup: what she would clear away (capped at 120), not what is in use; «Where is what»: containers, disks, appdata folders',
+        count($c) === 120 + 3 && in_array('item:tpl:my-plex.xml', $anchors('cleanup'), true) && in_array('item:ad:oldapp', $anchors('cleanup'), true)
+        && !in_array('item:ad:plex', $anchors('cleanup'), true) && in_array('container:plex', $anchors('cleanup'), true) && in_array('disk:sdb', $anchors('cleanup'), true)
+        && in_array('folder:/mnt/cache/appdata/plex', $anchors('cleanup'), true), json_encode([count($c), array_slice($anchors('cleanup'), -4)]));
+    same('search items logs: every log by its name, each into her reader', [['Syslog', '#/logs/read/syslog'], ['Container plex', '#/logs/read/container%3Aplex'],
+        ['Mr. Backupsy: latest run', '#/logs/read/backup%3Alatest']], array_map(fn ($e) => [$e['label'], $e['route']], $r['items']['logs'] ?? []));
+    same('search items advisor: each external he knows as he finds it now (one he doesn\'t know: none)', ['ext.kopia', 'ext.fcp', 'ext.grafana', 'ext.syslogserver'], $anchors('advisor'));
+    same('search items emby: his servers, the shares, the runs', ['overview', 'share:movies', 'run:embycache:900'], $anchors('emby'));
+    $slow = array_filter($r['ms'], fn ($ms) => $ms > 2);
+    check('search items: ≤ 2 ms a state (warm) ' . json_encode(array_map(fn ($ms) => round($ms, 2), $r['ms'])), $slow === [], json_encode($slow));
+
+    // the ranking
+    $f = $r['find'];
+    same('search items: a place met word by word comes first, the items after it', 'caretaker:section:partner.title', $f['Partner offices'][0] ?? null);
+    check('search items: … an item that is met too follows', in_array('caretaker:item:partner:a1b2c3d4', $f['Partner offices'], true), json_encode($f['Partner offices']));
+    check('search items: an item met as typed comes before typing errors (they drop out: «tean» — the watchman\'s containers, not «The team»)',
+        ($f['tean'][0] ?? null) === 'watchman:item:watch:containers' && !in_array('caretaker:section:team', $f['tean'], true), json_encode($f['tean']));
+    same('search items: a place and an item at the same spot are one result (the Consultant\'s Kopia)', 1,
+        count(array_filter($f['kopia'], fn ($x) => str_starts_with($x, 'advisor:') && str_ends_with($x, 'ext.kopia') || $x === 'advisor:guide:ext.kopia.name')));
+    $missing = $strings['advisor.missing'];
+    check("search items: found by its state's words («{$missing}»: what the Consultant misses)", in_array('advisor:item:ext.fcp', $f[$missing] ?? [], true), json_encode($f[$missing] ?? null));
+    foreach ([['nextcloud', 'backup:item:row:share:nextcloud'], ['nextcloud', 'restore:item:app:nextcloud'], ['telnet', 'watchman:item:telnet'], ['Windows11', 'backup:item:row:vm:Windows11'],
+              ['my-plex', 'cleanup:item:item:tpl:my-plex.xml'], ['ct-17', 'watchman:item:entry:w0000000117'], ['plex', 'cleanup:item:container:plex'], ['plex', 'logs:item:reading'],
+              ['Unassigned', 'watchman:item:watch:plugins'], ['Databases', 'restore:item:db:nextcloud:apps/nextcloud/db/mariadb-nextcloud.sql.gz']] as [$q, $want]) {
+        check("search items: «{$q}» finds $want", in_array($want, $f[$q], true), json_encode($f[$q]));
+    }
+    check('search items: «Databases» — the tile and the section first, then the items', str_starts_with($f['Databases'][0] ?? '', 'restore:') && !str_contains($f['Databases'][0] ?? '', ':item:'),
+        json_encode($f['Databases']));
+    $one = $r['first'] ?? [];
+    same('search items: a result says where (the desk › its line), its kind, and goes there', ['emby', 'item', 'Wohnzimmer', "Jack Emby › {$strings['emby.overview']} · Emby", '#/emby', 'overview', true],
+        [$one['desk'] ?? null, $one['kind'] ?? null, $one['label'] ?? null, $one['crumb'] ?? null, $one['route'] ?? null, $one['anchor'] ?? null, $one['hired'] ?? null]);
+    same('search items: a desk let go — what it held is not found', [], $r['letGo']);
+    same('search items: searching asks the server nothing', 0, $r['searchCalls']);
+    same('search items: requests only for states and parts (no endpoint of the search\'s own)', [],
+        array_values(array_filter($r['calls'], fn ($u) => !preg_match('/^a=(state|part)&desk=[a-z]+(&part=[a-z-]+)?(&(stored|wait)=1)?$/', $u))));
+    $sorted = function (array $a): array { sort($a); return $a; };
+    same('search items: his new look replaces what was found (the point in place gone, the other one there)',
+        $sorted(['finding:backup:schedule:1111111111111111', 'finding:snapshot:plan_target_gone:2222222222222222', 'partner:a1b2c3d4', 'staff:backup', 'staff:emby', 'ticket:r9', 'ticket:t1']),
+        $sorted($r['after']));
+    same('search items: … and the look that followed it (his partners gone)',
+        $sorted(['finding:backup:schedule:1111111111111111', 'finding:snapshot:plan_target_gone:2222222222222222', 'staff:backup', 'staff:emby']), $sorted($r['later']));
+    same('search items: … an older answer changes nothing', $sorted($r['later']), $sorted($r['older']));
+    same('search items: a provider\'s slip costs its own items only', [0, true], $r['slip']);
+    hardeningRm($tmp);
+}
+
 /** The ⟦labels⟧ of a text, sorted (with repeats) */
 function langTokens(string $s): array
 {
@@ -15308,7 +15680,7 @@ function testRestoreDrill(): void
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, has: () => true, errorText: (e) => 'error ' + e.key,
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, has: () => true, errorText: (e) => 'error ' + e.key,
   api: { get: async () => ({ ok: true, part: null }) }, agent: { running: true } };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const fmt = { size: (b) => b + ' B', date: (t) => 'D' + t, relative: (t) => 'R' + t, time: (t) => 'T' + t, duration: (s) => s + 's' };
@@ -16306,7 +16678,7 @@ function testWatchmanNet(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits'],
           'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
