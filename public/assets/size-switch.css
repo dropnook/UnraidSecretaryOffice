@@ -14,14 +14,20 @@
    core.js divides by Office.zoom() (the lines marked «size-switch»); lengths in vh/vw inside #sso are
    zoomed too, so the few that bound something to the window are divided again below.
 
+   Zoom scales everything by the same factor, so the office's small secondary texts (12–13 px: the lines under a
+   name, hints, notes, steps, help) stayed small in relation to the 14 px body and the bubble. At Medium and Large
+   they get a floor in front of the zoom (--floor: 13.5 px × 1.15 = 15.5; 14.5 px × 1.3 = 18.9, just under the
+   bubble's 19.5): only running and secondary text — chips, badges, counters, key caps, caps headers, mono paths,
+   code blocks, buttons, inputs and the titles keep their size and grow by the zoom alone.
+
    Switching off: OFFICE_SIZE_SWITCH = false — nothing of this shows or loads.
    Removing: delete this file and size-switch.js, the OFFICE_SIZE_SWITCH lines in src/bootstrap.php
    and src/page.php, the lines marked «size-switch» in core.js, the office.size_* and help.size_*
    strings, testSizeSwitch in tests/run.php, the paragraph in CLAUDE.md. */
 
 /* ------------------------------------------------------------ the two larger steps */
-#sso[data-size=medium]{zoom:1.15; --zoom:1.15}
-#sso[data-size=large]{zoom:1.3; --zoom:1.3}
+#sso[data-size=medium]{zoom:1.15; --zoom:1.15; --floor:13.5px}
+#sso[data-size=large]{zoom:1.3; --zoom:1.3; --floor:14.5px}
 
 /* ------------------------------------------------------------ what zoom does to lengths in vh / vw */
 /* Inside a zoomed element 88vh is 88 % of the window times the zoom: a dialog, the palette, a tip that are bound to
@@ -32,6 +38,35 @@
   .dialog-body pre.code{max-height:min(calc(60vh / var(--zoom)), calc(min(calc(88vh / var(--zoom)), 820px) - 220px))}
   .dialog-body pre.code.sso-report-log, .dialog-body pre.code.sso-report-text-shown{max-height:min(calc(40vh / var(--zoom)), 320px)}
   .tip{max-width:min(340px, calc(100vw / var(--zoom) - 16px))}
+}
+
+/* ------------------------------------------------------------ the floor for small running and secondary text */
+/* One declaration per group; the selectors are the ones that set the small size in office.css and the desks' desk.css
+   (nested under #sso[data-size] they win over them). Left small on purpose: .chip .tag .bk-newchip .bk-pchip .wm-flag
+   (chips), .figures span .group-meta .status .footer .cl-count .clw-count .lg-counts .lg-pct (counters, figures), caps
+   headers (table thead th, .stat-label, .lg-group, .clw-sub), .mono and every pre / code block, .agent-state,
+   .btn.small, .input.small, the segmented buttons, inputs, and the titles (.rs-*-title, .bk-subhead, .jo-part-head). */
+#sso[data-size]{
+  /* office.css: lines under a name, hints, notes, help, dialogs */
+  .hint, .row-detail, .row-meta, .card-line, .facts, .notice, .callout, .order-hint, .section-sub, .reclaim, .role, .empty,
+  .kv, .stat-sub, .minirow, .deskhead-crumb, .shortlist li.error, .toast, .tip,
+  .page-help, .page-help summary, .check, .check small, .field small, .field > label, .field-title,
+  .dialog-body .props dt, .dialog-body .props dd small, .palette-crumb, .palette-detail, .selbar-text span,
+  .target, .target-pool, table.grid,
+  .sso-report-where, .sso-report-value, .sso-report-value small, .sso-report-part small, .sso-report-ways, .sso-report-yours{font-size:var(--floor)}
+  /* advisor, backup */
+  .ad-copy, .ad-note, .ad-steps, .ad-lock-p, .ad-howto summary,
+  .bk-disclaimer, .bk-paused-note, .bk-paused-label, .bk-schedule-field small, .bk-steps li, .bk-diffs, .bk-msgs, .bk-ret-field,
+  .bk-preset .bk-preset-note, .bk-preset-wrap .bk-preset-common, .bk-preset p, .bk-warnline, .bk-restore, .bk-partners .role,
+  .bk-log summary, .bk-how summary{font-size:var(--floor)}
+  /* caretaker, cleanup, emby */
+  .ct-pq, .ct-pret-part, .ct-opts > label.check,
+  .cl-part-sub, .cl-pic-short li, .clw-place-intro, .clw-path-label, .clw-path-note, .clw-files summary, .clw-file-list, .clw-wake,
+  .jo-results, .jo-credit, .jo-imp-head, .jo-part-why{font-size:var(--floor)}
+  /* logs, restore, watchman */
+  .lg-item, .lg-none, .lg-favs-label, .lg-more,
+  .rs-place, .rs-look, .rs-whole, .rs-need > .role, .rs-file, .rs-how summary, .rs-pv-steps, .rs-pv-list,
+  .wm-note{font-size:var(--floor)}
 }
 
 /* ------------------------------------------------------------ the switch itself (size-switch.js) */

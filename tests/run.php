@@ -12501,7 +12501,42 @@ function testSizeSwitch(): void
     }
     same('size switch css: zoom 1.15 for Medium, 1.3 for Large — and nowhere else', ['#sso[data-size=medium]' => '1.15', '#sso[data-size=large]' => '1.3'], $zooms);
     check('size switch css: nothing for the small step', !str_contains($rules, 'data-size=small') && !preg_match('/#sso\s*\{[^{}]*(?<![-\w])zoom/', $rules));
-    check('size switch css: --zoom beside each zoom, for the vh / vw lengths', preg_match('/#sso\[data-size=medium\]\{zoom:1\.15; --zoom:1\.15\}/', $rules) === 1 && preg_match('/#sso\[data-size=large\]\{zoom:1\.3; --zoom:1\.3\}/', $rules) === 1);
+    check('size switch css: --zoom beside each zoom, for the vh / vw lengths', preg_match('/#sso\[data-size=medium\]\{zoom:1\.15; --zoom:1\.15[;}]/', $rules) === 1 && preg_match('/#sso\[data-size=large\]\{zoom:1\.3; --zoom:1\.3[;}]/', $rules) === 1);
+    // the floor for small running text: --floor set beside each zoom (13.5 / 14.5 px, before the zoom), applied under #sso[data-size] only
+    same('size switch css: the floor is 13.5 px at Medium, 14.5 px at Large — and nowhere else', ['#sso[data-size=medium]' => '13.5px', '#sso[data-size=large]' => '14.5px'],
+        (function () use ($rules): array {
+            preg_match_all('/([^{}]*)\{[^{}]*(?<![-\w])--floor\s*:\s*([0-9.]+px)/', $rules, $f, PREG_SET_ORDER);
+            $out = [];
+            foreach ($f as $x) {
+                $out[trim($x[1])] = $x[2];
+            }
+            return $out;
+        })());
+    preg_match_all('/([^{}]+)\{\s*font-size\s*:\s*var\(--floor\)\s*\}/', $rules, $fl);
+    $floored = (string) preg_replace('/\s+/', ' ', implode(',', $fl[1]));
+    check('size switch css: .row-detail and .hint raised by the floor', preg_match('/(?:^|[,\s])\.row-detail(?:,|$)/', $floored) === 1 && preg_match('/(?:^|[,\s])\.hint(?:,|$)/', $floored) === 1);
+    check('size switch css: the floor sits under #sso[data-size] (both steps) and nothing outside it',
+        preg_match('/#sso\[data-size\]\s*\{[^{}]*\.row-detail[^{}]*\{\s*font-size\s*:\s*var\(--floor\)/s', preg_replace('/\}\s*(?=\.|[a-z])/', '}', $rules) ?? '') === 1
+        && !preg_match('/^(?!#sso)[^\s{}][^{}]*\{\s*font-size\s*:\s*var\(--floor\)/m', $rules));
+    check('size switch css: the floor never lowers a size (no group member bigger than 13.5 px in office.css / desk.css)', (function () use ($floored): bool {
+        $css = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');
+        foreach (glob(OFFICE_WEB . '/desks/*/desk.css') ?: [] as $d) {
+            $css .= (string) file_get_contents($d);
+        }
+        $css = (string) preg_replace('#/\*.*?\*/#s', '', $css);
+        foreach (explode(',', $floored) as $sel) {
+            $sel = trim($sel);
+            if ($sel === '' || !preg_match_all('/(?:^|[,{};])\s*' . preg_quote($sel, '/') . '\s*\{[^{}]*(?<![-\w])font-size\s*:\s*([0-9.]+)px/', $css, $z)) {
+                continue;
+            }
+            foreach ($z[1] as $px) {
+                if ((float) $px > 13.5) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    })());
     preg_match_all('/^[^\s\/@}][^{]*\{/m', $rules, $m);     // every rule at the top level (the nested ones sit under #sso{ … })
     check('size switch css: rules only under #sso', count($m[0]) >= 3, (string) count($m[0]));
     same('size switch css: nothing leaks into Unraid\'s page', [], array_values(array_filter($m[0], fn ($sel) => !str_contains($sel, '#sso'))));
