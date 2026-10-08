@@ -192,6 +192,9 @@ active, `backup/` is left alone.
   --notes-file <notes>`, notes in English, for users). Publishing it runs `.github/workflows/plugin.yml`, which builds
   and attaches the `.plg` and the `.txz`. The engine's own version lives in `backup.sh`, `setup.sh`,
   `lib/common.sh` and `backup/README.md`.
+* **Releasing (maintainers):** `tools/release.sh <version> --dry`, then without `--dry` — bump, suite, tag, the Action, then
+  the test servers and the main one, stopping at the first red step; the checklist around it is the release playbook
+  (`release-playbook.md` in the maintainers' notes).
 
 ## Monitoring
 
