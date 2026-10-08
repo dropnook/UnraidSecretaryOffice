@@ -56,7 +56,7 @@ const ROOT = $('#sso');
  * Without zoom the window as it is and 1 — the menu, the tips and the search palette place themselves with it.
  */
 function fixedSpace() {
-  const z = parseFloat(getComputedStyle(ROOT).zoom) || 1;
+  const z = (typeof getComputedStyle === 'function' && parseFloat(getComputedStyle(ROOT).zoom)) || 1;     // (the tests' DOM has none)
   if (z === 1) return { w: window.innerWidth, h: window.innerHeight, k: 1 };
   const ratio = ROOT.offsetWidth ? ROOT.getBoundingClientRect().width / ROOT.offsetWidth : z;
   return { w: window.innerWidth / z, h: window.innerHeight / z, k: Math.abs(ratio - 1) < Math.abs(ratio - z) ? 1 : z };
