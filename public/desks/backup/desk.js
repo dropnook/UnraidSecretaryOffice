@@ -179,7 +179,7 @@ const stopKey = (key, mode = runMode()) => (mode === 'backup' ? key : `${key}_${
  * The Kopia source going up for the first time right now (agent: backupUpload()) — its size, what
  * Kopia read so far, the rate; null for any other source. Its seconds left as of now (measured at u.time).
  */
-function firstUpload() {
+function uploadNow() {             // not firstUpload(): that name is the setup's reckoning below, and a second declaration wins
   const s = status();
   const u = state && state.upload;
   return u && u.first && live() && s && s.kopia && s.kopia.current === u.source ? u : null;
@@ -219,7 +219,7 @@ function progress() {
   const done = new Map(((s.kopia && s.kopia.done) || []).map((d) => [d.name, d]));
   const phase = s.phase;
   const step = Math.max(0, STEPS.findIndex(([, phases]) => phases.includes(phase)));
-  const first = firstUpload();
+  const first = uploadNow();
   let remaining = 0;
   let known = true;
   let overdue = false;
