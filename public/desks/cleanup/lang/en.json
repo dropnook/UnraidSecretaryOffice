@@ -1599,7 +1599,7 @@
   "cat.partners.dropped": "No longer kept",
   "cat.partners.dropped_text": "The pair is still there — the Team Lead no longer keeps this unit of it",
   "park.text_partners": {"one": "This partner's copies go into my storeroom:", "other": "These {n} partners' copies go into my storeroom:"},
-  "park.where_partners": "Each stays on its pool: the dataset is renamed next to it (zfs rename — its units and snapshots go along), the note of where it came from lies in my storeroom on the flash. Only renamed, nothing is copied — put back any time until you empty the storeroom.",
+  "park.where_partners": "Each stays on its pool: the dataset is renamed into the pool's partners' place (zfs rename — a whole pair next to itself, a single unit one level up, as _UnraidSecretaryOffice-trash-…; its units and snapshots go along), the note of where it came from lies in my storeroom on the flash. Only renamed, nothing is copied — put back any time until you empty the storeroom.",
   "empty.partners": "No partner left anything here.",
   "bubble.partners": {"one": "1 partner's copies left behind ({size})", "other": "{n} partners' copies left behind ({size})"},
   "fact.partners": {"one": "1 partner's leftover · {size}", "other": "{n} partners' leftovers · {size}"},

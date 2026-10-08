@@ -1599,7 +1599,7 @@
   "cat.partners.dropped": "Ya no se guarda",
   "cat.partners.dropped_text": "La asociación sigue — el jefe de equipo ya no guarda esta unidad",
   "park.text_partners": {"one": "Las copias de este socio van a mi trastero:", "other": "Las copias de estos {n} socios van a mi trastero:"},
-  "park.where_partners": "Cada una se queda en su pool: el dataset se renombra justo al lado (zfs rename — sus unidades e instantáneas van con él), la nota de dónde vino queda en mi trastero en el flash. Solo se renombra, no se copia nada — se puede devolver cuando quieras, hasta que vacíes el trastero.",
+  "park.where_partners": "Cada una se queda en su pool: el dataset se renombra al lugar de los socios del pool (zfs rename — un par entero junto a sí mismo, una unidad sola un nivel más arriba, como _UnraidSecretaryOffice-trash-…; sus unidades e instantáneas van con él), la nota de dónde vino queda en mi trastero en el flash. Solo se renombra, no se copia nada — se puede devolver cuando quieras, hasta que vacíes el trastero.",
   "empty.partners": "Ningún socio dejó nada aquí.",
   "bubble.partners": {"one": "las copias de 1 socio siguen aquí ({size})", "other": "las copias de {n} socios siguen aquí ({size})"},
   "fact.partners": {"one": "resto de 1 socio · {size}", "other": "restos de {n} socios · {size}"},

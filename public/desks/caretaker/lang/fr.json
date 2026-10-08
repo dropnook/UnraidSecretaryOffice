@@ -265,6 +265,8 @@
   "partner.address": "L'adresse de ce serveur pour le partenaire",
   "partner.address_other": "Une autre adresse…",
   "partner.address_placeholder": "p. ex. 100.101.102.103 ou nostromo.tail1234.ts.net",
+  "partner.address_hint": "Par WireGuard ? Choisis l'adresse du tunnel (wg0) — elle apparaît tant que le tunnel est actif (⟦Settings⟧ → ⟦VPN Manager⟧) ; le Consultant explique le chemin.",
+  "partner.address_nowg": "Aucun tunnel WireGuard n'est actif en ce moment.",
   "partner.port": "Port SSH",
   "partner.port_help": "Le port sur lequel écoute le SSH de ce serveur (⟦Settings⟧ → ⟦Management Access⟧).",
   "partner.trust_title": "Qui est le partenaire ?",

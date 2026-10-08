@@ -68,8 +68,9 @@ declare(strict_types=1);
  *               extends the locks at its full maintenance
  *
  * The network (group 'network', the night watchman's router lines — briefs/brief-router-soc-stage1.md 6): a new
- * shape, a setting he explains and never changes — «Unraid's syslog server» (what rsyslog.cfg says, which shares
- * qualify, the loop of ⟦Remote syslog server⟧, which senders have files: agent/lib/watchnet.php's watchnetAdvisor()) —
+ * shape, a setting he explains and never changes — «Unraid's syslog server» (what rsyslog.cfg says, which pools a share
+ * `syslog` of its own belongs on, the loop of ⟦Remote syslog server⟧, which senders have files: agent/lib/watchnet.php's
+ * watchnetAdvisor()) —
  * and two guides: the router's side (UniFi: the gateway's Activity Logging to Unraid) and the neighbours (FireSight,
  * Loki + Alloy, CrowdSec, a real SIEM: dashboards and stores of the router's logs are theirs). Nothing installed, no
  * router credential asked for; the page tells the agent when the router guide was opened (network_seen: the Team

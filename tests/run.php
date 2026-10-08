@@ -3052,7 +3052,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.32', [1, '2.32'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.33', [1, '2.33'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -3080,6 +3080,11 @@ SH);
     same('setup plan 2.29: a unit the partner hasn\'t agreed to keep - partner_ok false, why not_agreed, its partner kept in P',
         [false, 'not_agreed', [$id]], [$sh['docs']['partner_ok'] ?? null, $sh['docs']['partner_why'] ?? null, $plan['P']['share|docs|partner'] ?? null]);
     check('setup plan 2.29: … and said: ask at the Team Lead', str_contains($out, 'share:docs: not agreed with vault yet - ask at the Team Lead («Change what Test sends…»)'), $out);
+    // 2.33: the backup place's share is the unit `place` for a partner - its row takes the agreement of `place`, like place_partner
+    // (up to 2.32 it looked for share:UnraidSecretaryOffice, said not_agreed, and the office showed it on the place - USOPartner, 2026-10-08)
+    same('setup plan 2.33: the backup place\'s share row - agreed as `place`, partner_ok true', [true, true, null],
+        [$sh['UnraidSecretaryOffice']['place'] ?? null, $sh['UnraidSecretaryOffice']['partner_ok'] ?? null, $sh['UnraidSecretaryOffice']['partner_why'] ?? null]);
+    check('setup plan 2.33: … and no «not agreed» hint for it', !str_contains($out, 'share:UnraidSecretaryOffice: not agreed'), $out);
     $vm = array_column($plan['vms'] ?? [], null, 'name');
     same('setup plan: the VM in a dataset of its own can go; the place too', [[$id], true, null, ['share' => 'UnraidSecretaryOffice', 'partner' => [$id], 'partner_ok' => true, 'partner_why' => null]],
         [$vm['vm1']['partner'] ?? null, $vm['vm1']['partner_ok'] ?? null, $v($vm['vm1'] ?? null, 'partner_why'), $plan['place_partner'] ?? null]);
@@ -3101,6 +3106,18 @@ SH);
         && !str_contains($ini, 'ffff0000') && !str_contains($ini, 'receiver-only'), $ini . $out);
     $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
     same('setup apply: the settings written load without errors', '0', trim((string) shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; cfg_load $data/settings.ini; cfg_validate >/dev/null; echo \${#CFG_ERRORS[@]}"))));
+    // 2.33: the partner takes the place out of what it keeps - the place and its share's row say not_agreed, both the same
+    file_put_contents("$tmp/data/partner/pairs.json", json_encode(['v' => 1, 'pairs' => [
+        ['id' => $id, 'name' => 'vault', 'address' => '10.0.0.9', 'port' => 2222, 'host_keys' => ['SHA256:x'], 'my_key' => 'SHA256:y', 'their_key' => null,
+         'send' => ['units' => ['share:appdata', 'vm:vm1', 'share:UnraidSecretaryOffice'], 'rate_mbit' => 50], 'receive' => null, 'trust' => 'mine']]]));
+    $out = $setup('--plan');
+    $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    $sh = array_column($plan['shares'] ?? [], null, 'name');
+    same('setup plan 2.33: the place not agreed (share:<its name> in send.units counts for nothing) - its row and place_partner say so, the key kept',
+        [[false, 'not_agreed'], [false, 'not_agreed'], [$id]],
+        [[$sh['UnraidSecretaryOffice']['partner_ok'] ?? null, $sh['UnraidSecretaryOffice']['partner_why'] ?? null],
+         [$plan['place_partner']['partner_ok'] ?? null, $plan['place_partner']['partner_why'] ?? null], $plan['P']['general|partner_place'] ?? null]);
+    check('setup plan 2.33: … said for the place', str_contains($out, 'The backup place is not agreed with a partner yet'), $out);
     // the pair ended at the Team Lead: its section and its units go at the next Apply
     file_put_contents("$tmp/data/partner/pairs.json", json_encode(['v' => 1, 'pairs' => []]));
     $setup('--plan');
@@ -3521,7 +3538,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.32', [1, '2.32'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.33', [1, '2.33'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -16637,9 +16654,40 @@ function testWatchmanNet(): void
     // ---- the Consultant's look: which shares qualify, the loop, the senders (only while the folder is awake)
     $cfgFile(['remote_server' => '127.0.0.1']);
     $a = watchnetAdvisor($o);
-    same('net advisor: Unraid\'s syslog server as it is — on, its share first among those that qualify (SSD pools only), the pools, the loop',
-        [true, 'syslog', ['syslog'], ['master'], true],
-        [$a['on'], $a['share'], array_column($a['shares'], 'share'), $a['pools'], $a['loop']]);
+    same('net advisor: Unraid\'s syslog server as it is — on, its share, where a share `syslog` belongs (the pools that never sleep; the array only all-SSD), the loop',
+        [true, 'syslog', ['master'], false, true],
+        [$a['on'], $a['share'], $a['pools'], $a['array_ssd'], $a['loop']]);
+    // where the share belongs, by disks.ini alone (Benj, 2026-10-08: create a share, don't pick an existing one): nostromo's
+    // shape - master (NVMe, delay 0), ripley (six SSDs, the default delay), sulaco (NVMe), the boot pool mother (SSDs, but the
+    // Boot slot's device - left out), hive (four HDDs at 15 min), the array of HDDs
+    $pf = fn (string $disks, string $delay = '30') => (function () use ($o, $disks, $delay) {
+        file_put_contents($o['disks_ini'] . '.x', $disks);
+        file_put_contents($o['var_ini'] . '.x', "spindownDelay=\"$delay\"\n");
+        $f = watchnetFacts(['disks_ini' => $o['disks_ini'] . '.x', 'var_ini' => $o['var_ini'] . '.x'] + $o);
+        return [$f['pools'], $f['array_ssd']];
+    })();
+    $dk = fn (string $n, string $dev, string $rot, string $delay, string $type = 'Cache', string $fs = '') =>
+        "[\"$n\"]\nname=\"$n\"\ndevice=\"$dev\"\nrotational=\"$rot\"\nspundown=\"0\"\ntype=\"$type\"\nspindownDelay=\"$delay\"\n" . ($fs !== '' ? "fsType=\"$fs\"\n" : '');
+    $nostromo = $dk('parity', 'sdo', '1', '-1', 'Parity') . $dk('disk1', 'sda', '1', '-1', 'Data', 'luks:btrfs') . $dk('disk2', 'sdq', '1', '-1', 'Data', 'luks:btrfs')
+        . $dk('hive', 'sdj', '1', '15', 'Cache', 'zfs') . $dk('hive2', 'sdg', '1', '15') . $dk('master', 'nvme0n1', '0', '0', 'Cache', 'luks:zfs') . $dk('master2', 'nvme1n1', '0', '0')
+        . $dk('mother', 'sde', '0', '-1', 'Cache', 'luks:zfs') . $dk('mother2', 'sdm', '0', '-1') . $dk('ripley', 'sdb', '0', '-1', 'Cache', 'luks:zfs') . $dk('ripley2', 'sdf', '0', '-1')
+        . $dk('sulaco', 'nvme2n1', '0', '-1', 'Cache', 'luks:zfs') . $dk('flash', 'sde', '0', '-1', 'Boot', 'zfs') . $dk('flash2', 'sdm', '0', '-1', 'Boot');
+    same('net advisor: nostromo - master, ripley, sulaco; not mother (the boot pool), not hive (spins down), not the array (HDDs)', [['master', 'ripley', 'sulaco'], false], $pf($nostromo));
+    // uso-test: VM disks, all rotational=1 with the default delay - and the default is «Never» (var.ini spindownDelay 0):
+    // big and cache never sleep; the array (HDDs by their word) stays out
+    $usotest = $dk('disk1', 'sda', '1', '-1', 'Data', 'btrfs') . $dk('disk2', 'sdb', '1', '-1', 'Data', 'zfs') . $dk('big', 'vda', '1', '-1', 'Cache', 'zfs')
+        . $dk('cache', 'sdc', '1', '-1', 'Cache', 'zfs') . $dk('cache2', 'sdd', '1', '-1') . $dk('flash', 'sde', '1', '-1', 'Flash', 'vfat');
+    same('net advisor: uso-test - big and cache (the default delay is Never), not the array', [['big', 'cache'], false], $pf($usotest, '0'));
+    same('net advisor: … with the default at 30 min every pool there spins down - none', [[], false], $pf($usotest));
+    same('net advisor: an array of SSDs qualifies too (and a pool of one SSD at the default)', [['nvme'], true],
+        $pf($dk('disk1', 'sda', '0', '-1', 'Data', 'xfs') . $dk('disk2', 'sdb', '0', '-1', 'Data', 'xfs') . $dk('nvme', 'nvme0n1', '0', '-1', 'Cache', 'zfs')));
+    same('net advisor: … but not an array with one HDD in it', [[], false], $pf($dk('disk1', 'sda', '0', '-1', 'Data', 'xfs') . $dk('disk2', 'sdb', '1', '0', 'Data', 'xfs')));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        $al = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/advisor/lang/$lang.json"), true) ?: [];
+        check("net advisor: the guide's step says create a share, its pools and the fallback ($lang)",
+            str_contains((string) ($al['net.syslog.3'] ?? ''), '⟦Add Share⟧') && str_contains((string) ($al['net.syslog.3'] ?? ''), '{pools}')
+            && str_contains((string) ($al['net.syslog.pools'] ?? ''), '{list}') && isset($al['net.syslog.pools_none'], $al['net.syslog.the_array']) && !isset($al['net.syslog.shares']));
+    }
     $cfgFile(['server_folder' => $logs]);
     $a = watchnetAdvisor($o);
     same('net advisor: the senders with a file there, never the loop\'s', ['192.0.2.1', '192.0.2.105'], array_column((array) $a['senders'], 'sender'));

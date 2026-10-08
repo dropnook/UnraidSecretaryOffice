@@ -1611,20 +1611,30 @@ function watchnetFacts(array $o = []): array
             }
         }
     }
-    // shares that qualify for the files: their storage only pools that never sleep
-    $good = [];
-    foreach ($shares as $name => $s) {
-        $sb = watchnetBases('/mnt/user/' . $name, $shares, $disks);
-        if ($sb['known'] && $sb['bases'] && !$sb['array'] && !array_filter($sb['bases'], fn ($x) => !isset($always[$x]))) {
-            $good[] = ['share' => (string) $name, 'pools' => $sb['bases']];
+    // where a new share `syslog` belongs (the Consultant's guide, Benj 2026-10-08): the pools that never sleep - every disk
+    // an SSD or never spun down (watchnetAlwaysOn) -, never the boot pool (a pool on the device of a Boot slot: Unraid boots
+    // from it; the partner door keeps its copies off it too); the array only when every data disk is an SSD
+    $bootDev = [];
+    foreach ($disks as $d) {
+        if (in_array($d['type'] ?? '', ['Boot', 'Flash'], true) && (string) ($d['device'] ?? '') !== '') {
+            $bootDev[(string) $d['device']] = true;
         }
     }
-    usort($good, fn ($x, $y) => [$x['share'] !== $cfg['share'], $x['share'] !== 'syslog', $x['share'] !== 'system', $x['share']]
-        <=> [$y['share'] !== $cfg['share'], $y['share'] !== 'syslog', $y['share'] !== 'system', $y['share']]);
-    $pools = array_values(array_filter(array_keys($always), fn ($x) => !preg_match('/^disk\d+$/D', (string) $x)));
+    $pools = [];
+    foreach (array_keys($always) as $name) {
+        if (preg_match('/^disk\d+$/D', (string) $name)) {
+            continue;
+        }
+        $members = array_filter($disks, fn ($x, $n) => preg_match('/^' . preg_quote((string) $name, '/') . '\d*$/D', (string) ($x['name'] ?? $n)) === 1, ARRAY_FILTER_USE_BOTH);
+        if (!array_filter($members, fn ($x) => isset($bootDev[(string) ($x['device'] ?? '')]))) {
+            $pools[] = (string) $name;
+        }
+    }
     sort($pools);
-    return ['cfg' => $cfg, 'bases' => $bases, 'sleepy' => $sleepy, 'exports' => $exports, 'shares' => array_slice($good, 0, 8),
-            'pools' => $pools, 'always' => $always];
+    $data = array_filter($disks, fn ($x, $n) => ($x['type'] ?? '') === 'Data' && (string) ($x['fsType'] ?? '') !== ''
+        && preg_match('/^disk\d+$/D', (string) ($x['name'] ?? $n)) === 1, ARRAY_FILTER_USE_BOTH);
+    $arraySsd = $data !== [] && !array_filter($data, fn ($x) => ($x['rotational'] ?? '1') !== '0');
+    return ['cfg' => $cfg, 'bases' => $bases, 'sleepy' => $sleepy, 'exports' => $exports, 'pools' => $pools, 'array_ssd' => $arraySsd, 'always' => $always];
 }
 
 /**
@@ -1710,9 +1720,9 @@ function watchnetHolds514(array $i, int $port): bool
 }
 
 /**
- * For the Consultant's «Unraid's syslog server»: what is set (from the flash), the loop, which shares qualify, and —
- * only while the folder's disks are awake — which senders have files there and the age of their newest line (a stat
- * per file). Never a line's text.
+ * For the Consultant's «Unraid's syslog server»: what is set (from the flash), the loop, where a share `syslog` of its
+ * own belongs (the pools that never sleep, the array when it is all SSDs), and — only while the folder's disks are awake
+ * — which senders have files there and the age of their newest line (a stat per file). Never a line's text.
  */
 function watchnetAdvisor(array $o = []): array
 {
@@ -1739,7 +1749,7 @@ function watchnetAdvisor(array $o = []): array
             'ident' => $cfg['ident'], 'protocol' => $cfg['protocol'], 'port' => $cfg['port'], 'rotation' => $cfg['rotation'],
             'size' => $cfg['size'], 'files' => $cfg['files'], 'remote' => $cfg['remote'],
             'loop' => $r !== null && (isset($server['own'][$r]) || isset($server['ips'][$r])), 'sleepy' => $f['sleepy'],
-            'exported' => array_keys($f['exports']), 'shares' => $f['shares'], 'pools' => $f['pools'], 'asleep' => $asleep, 'senders' => $senders];
+            'exported' => array_keys($f['exports']), 'pools' => $f['pools'], 'array_ssd' => $f['array_ssd'], 'asleep' => $asleep, 'senders' => $senders];
 }
 
 /**

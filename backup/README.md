@@ -4,7 +4,7 @@ Part of the [Unraid Secretary Office](../README.md): Mr. Backupsy shows and cont
 
 A nightly backup for Unraid servers. It takes consistent **ZFS/btrfs snapshots** and **database dumps**, puts Nextcloud into **maintenance mode** for that, keeps a **package per app and VM** (templates or compose files, dumps, VM configuration) and — if you want — sends everything encrypted offsite with **Kopia**, an app or VM you choose as a Kopia source of its own with its own retention. Everything specific to your server lives in `settings.ini`, which `setup.sh` writes after asking you. The nightly run `backup.sh` reports every difference between the server and `settings.ini`, but never changes it on its own. Since 2.27 two offices can be **partners**: each night the run's ZFS snapshots of the units you ticked go to the partner office too — see [Partner offices](#partner-offices-since-227). **What is new stays local and keeps running until you decide** (since 2.21): a new folder in a share that goes to Kopia stays in the local snapshots only, a new container isn't stopped — see [New things stay local](#new-things-stay-local-since-221).
 
-Version **2.32** (8 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
+Version **2.33** (8 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh` (`UB_VERSION`) and in every log.
 
 ---
 
@@ -622,6 +622,7 @@ No warranty: a backup can be faulty or incomplete, and you stay responsible for 
 
 ## Versions
 
+- **2.33** – The backup place's share is the unit `place` for a partner: its row in `setup.sh --plan` (`shares[]`, the one with `place: true`) takes the agreement of `place` from `pairs.json` `send.units`, like `place_partner`. Up to 2.32 it looked for `share:<its name>`, which no partner ever agrees to, and said `partner_ok false`, `partner_why not_agreed` — Mr. Backupsy's setup showed «not agreed» on the backup place although the run sent it (USOPartner, 2026-10-08).
 - **2.32** – The plan names Unraid's syslog share every time: per share `syslog: true` when it is the folder Unraid's syslog server writes into (`rsyslog.cfg` `local_server` on, `server_folder` `/mnt/user/<share>`), also once the share is in settings.ini and its reason is `previous`. Up to 2.31 only the first plan said `why syslog`, so Mr. Backupsy's default «everything local» would have switched the share on again; his `presetKeep()` reads the flag now.
 - **2.31** – Mr. Backupsy's default for new things: `[general] preset_new = auto | local | kopia` — taken from the setup's decisions, written only when it is not `auto` or was there before, carried by the plan (`preset_new`), a value it doesn't know taken as `auto` with a warning, put aside by `--forget` with settings.ini. Only the office applies it (to what is new, in its draft); the terminal setup proposes as before and `backup.sh` only accepts the key.
 - **2.30** – Sleeping pools: only a rotating disk Unraid spun down counts as asleep (`disks.ini` `spundown="1"` and `rotational` not `"0"`, `ub_asleep_load`); an SSD in standby wakes in milliseconds and is never left out, a mixed pool sleeps when one of its HDDs does (Benj, 2026-10-08).

@@ -443,8 +443,9 @@ function partnerGuide() {
 
 /**
  * The network (agent: ADVISOR_EXTERNALS group network): Unraid's syslog server as it is set — on or off, the folder,
- * the loop, a share that sleeps or is exported, the senders with a file there, the setting step by step (which shares
- * qualify here) and a link to Unraid's page, never a change of his —, the router's side (UniFi: where to click; opening
+ * the loop, a share that sleeps or is exported, the senders with a file there, the setting step by step (a share `syslog`
+ * of its own: the pools here that never sleep, the array when it is all SSDs) and a link to Unraid's page, never a
+ * change of his —, the router's side (UniFi: where to click; opening
  * it tells the agent, for the Team Lead's hint) and the neighbours (who does dashboards and stores of a router's log)
  */
 function networkEntry(id, x) {
@@ -505,12 +506,11 @@ function networkEntry(id, x) {
   det.appendChild(el('summary', '', T(id === 'syslogserver' ? 'net.syslog.howto' : 'howto')));
   const guide = el('div', 'ad-lock-guide');
   if (id === 'syslogserver') {
-    const shares = (sys && sys.shares) || [];
-    const pools = (sys && sys.pools) || [];
-    const fit = shares.length ? T('net.syslog.shares', { list: shares.map((s) => `${s.share} (${(s.pools || []).join(', ')})`).join(', ') })
-      : pools.length ? T('net.syslog.pools', { list: pools.join(', ') }) : T('net.syslog.shares_none');
+    // where the share `syslog` belongs: the pools that never sleep (never the boot pool), the array only when it is all SSDs
+    const pools = ((sys && sys.pools) || []).concat(sys && sys.array_ssd ? [T('net.syslog.the_array')] : []);
+    const fit = pools.length ? T('net.syslog.pools', { list: pools.join(', ') }) : T('net.syslog.pools_none');
     const ol = el('ol', 'ad-steps');
-    for (let i = 1; Office.has(`${ID}.net.syslog.${i}`); i++) ol.appendChild(el('li', '', T(`net.syslog.${i}`, { shares: fit })));
+    for (let i = 1; Office.has(`${ID}.net.syslog.${i}`); i++) ol.appendChild(el('li', '', T(`net.syslog.${i}`, { pools: fit })));
     guide.appendChild(ol);
     guide.appendChild(callout(T('net.syslog.private'), true));
   } else if (id === 'unifi') {
