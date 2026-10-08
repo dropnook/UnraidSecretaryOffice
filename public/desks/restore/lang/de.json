@@ -929,5 +929,6 @@
   "move.t_first_hint": "Die Backup-Ablage: Pakete, die Einstellungen der Shares, die Konfiguration der VMs, der Flash.",
   "move.t_pull": "Zurückholen…",
   "move.t_more": "Alle Stände beim Partner {name}",
-  "move.t_shares": "Shares: Die macht Unraid, nie ich — leg sie an, wie Schritt 2 sagt; ein Share, der als Dataset da ist, bekommt die Rückholung daneben, sonst wartet sie unter UnraidSecretaryOffice-restored."
+  "move.t_shares": "Shares: Die macht Unraid, nie ich — leg sie an, wie Schritt 2 sagt; ein Share, der als Dataset da ist, bekommt die Rückholung daneben, sonst wartet sie unter UnraidSecretaryOffice-restored.",
+  "pt.why.link_lost": "die Verbindung ist während der Übertragung abgerissen"
 }

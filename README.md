@@ -109,6 +109,8 @@ Where things are:
 | Partner offices: this server's key per partner, the partner's pinned server key | `/boot/config/plugins/unraid-secretary-office/partners/` |
 | Partner offices: the line that lets a partner in (only lines ending `uso-partner:<id>`) | `/boot/config/ssh/root/authorized_keys` (Unraid's file; other lines untouched) |
 | A partner's copies kept here | `<pool>/UnraidSecretaryOffice-partners/<id>/…` (datasets, never mounted, never shared) |
+| A restore ticket given here (a gone server's copies for a new server, 7 days) | its line in `/boot/config/ssh/root/authorized_keys` (ending `uso-ticket:<id>`), `data/partner/tickets.json` |
+| What Mr. Restori pulled back from a partner | a new dataset beside the original (`<dataset>.restored-<time>`; on a new server `<pool>/UnraidSecretaryOffice-restored/<unit>`), mounted read-only under `/mnt/addons/UnraidSecretaryOffice/restored/` |
 
 ## Notifications
 
@@ -179,6 +181,18 @@ is told. Better between two households: a tunnel (WireGuard, Tailscale) and its 
 warned about. The night watchman knows the door (the office's own line, logins and refusals that don't fit, a line
 changed), Ms. Snapshotini shows a partner's copies and keeps her hands off them, Ms. Dustdevil puts away what an ended
 partnership left, and Ms. Protocolli reads the door's log.
+
+**Bringing it back.** Mr. Restori has a tile *At <partner>* for each partner that keeps copies of yours: per unit its
+moments (the partner's snapshots) with sizes, *as of …* when the partner doesn't answer. *Bring back…* pulls one through
+the door into a **new dataset beside the original** (`appdata.restored-<time>` — never over anything), mounted read-only
+for his restores: a folder's *Restore…* then offers the moment *pulled from <partner>*, a pulled backup place serves as an
+earlier night's packages (databases, templates, a VM's configuration). An interrupted pull continues where it stopped;
+*Remove what was pulled…* destroys exactly that dataset again. **When a server is gone**, a new one with only the plugin
+starts at the Team Lead: *Start from a partner's copy…* gives a block (its own key, no secret) to paste on the partner's card
+of the gone server, *Hand … copies to a new server…* answers with a **ticket** — a door line that only lists and sends back
+the gone server's copies, for 7 days — and a safety code; pasted on the new server, Mr. Restori's *Onto a new server* pulls
+the backup place first, then the shares and VMs (into shares you created in Unraid, else under
+`UnraidSecretaryOffice-restored` — the office never makes shares).
 
 ## Monitoring
 

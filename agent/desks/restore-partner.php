@@ -693,7 +693,8 @@ function rsDoPull(array &$j, int $i): array
         return ['state' => 'ok', 'undo' => $undo, 'bytes' => $prog['done']];
     }
     $resumable = rspDsGet($ds, 'receive_resume_token') !== null;
-    $why = is_string($d1['why'] ?? null) && ($d1['ok'] ?? null) === false ? (string) $d1['why'] : (is_string($d2['why'] ?? null) ? (string) $d2['why'] : '');
+    $why = is_string($d1['why'] ?? null) && ($d1['ok'] ?? null) === false ? (string) $d1['why'] : (is_string($d2['why'] ?? null) ? (string) $d2['why']
+        : (($d1['ok'] ?? null) === true && $d2 === null ? 'link_lost' : ''));          // the door began, then the link went
     $note = $stopped ? 'pull_stopped' : (($d1['ok'] ?? null) === false ? 'pull_refused_door' : ($d1 === null && (int) $codes[0] === 255 ? 'pull_unreachable' : 'pull_failed'));
     return rsFail($note, ['dataset' => $ds, 'name' => $src['name'], 'why' => preg_match('/^[a-z_]{1,32}$/D', $why) ? $why : 'other', 'resumable' => $resumable ? 'yes' : 'no'],
         "exit codes " . implode(' ', $codes)) + ['undo' => $undo, 'resumable' => $resumable];
@@ -777,7 +778,7 @@ function rsDoDrop(array &$j, array $s): array
         if (rsRun($j, [partnerBin('umount') ?? 'umount', $mnt], 60)[0] !== 0) {
             return rsFail('drop_busy', ['path' => $mnt]);
         }
-        if (dirname($mnt) === rspMountRoot()) {
+        if (in_array(dirname($mnt), [rspMountRoot(), realpath(rspMountRoot())], true)) {
             @rmdir($mnt);
         }
     }

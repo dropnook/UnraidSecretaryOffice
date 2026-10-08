@@ -929,5 +929,6 @@
   "move.t_first_hint": "L'emplacement des sauvegardes : paquets, réglages des partages, configuration des VM, la flash.",
   "move.t_pull": "Rapatrier…",
   "move.t_more": "Tous les moments chez {name}",
-  "move.t_shares": "Partages : Unraid les crée, jamais moi — créez-les comme le dit l'étape 2 ; un partage qui existe comme dataset reçoit le rapatriement à côté, sinon il attend sous UnraidSecretaryOffice-restored."
+  "move.t_shares": "Partages : Unraid les crée, jamais moi — créez-les comme le dit l'étape 2 ; un partage qui existe comme dataset reçoit le rapatriement à côté, sinon il attend sous UnraidSecretaryOffice-restored.",
+  "pt.why.link_lost": "la liaison a été perdue pendant le transfert"
 }

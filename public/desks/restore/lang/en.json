@@ -929,5 +929,6 @@
   "move.t_first_hint": "The backup place: packages, the shares' settings, the VMs' configuration, the flash.",
   "move.t_pull": "Pull…",
   "move.t_more": "All moments at {name}",
-  "move.t_shares": "Shares: Unraid makes them, never I — create them as step 2 says; a share that exists as a dataset gets the pull beside it, else it waits under UnraidSecretaryOffice-restored."
+  "move.t_shares": "Shares: Unraid makes them, never I — create them as step 2 says; a share that exists as a dataset gets the pull beside it, else it waits under UnraidSecretaryOffice-restored.",
+  "pt.why.link_lost": "the link was lost during the transfer"
 }

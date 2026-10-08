@@ -929,5 +929,6 @@
   "move.t_first_hint": "Il deposito dei backup: pacchetti, impostazioni delle condivisioni, configurazione delle VM, l'unità flash.",
   "move.t_pull": "Recupera…",
   "move.t_more": "Tutti i momenti presso {name}",
-  "move.t_shares": "Condivisioni: le crea Unraid, mai io — creale come dice il passo 2; una condivisione che c'è come dataset riceve il recupero accanto, altrimenti aspetta in UnraidSecretaryOffice-restored."
+  "move.t_shares": "Condivisioni: le crea Unraid, mai io — creale come dice il passo 2; una condivisione che c'è come dataset riceve il recupero accanto, altrimenti aspetta in UnraidSecretaryOffice-restored.",
+  "pt.why.link_lost": "il collegamento si è interrotto durante il trasferimento"
 }

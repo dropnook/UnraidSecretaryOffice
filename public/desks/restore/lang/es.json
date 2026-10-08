@@ -929,5 +929,6 @@
   "move.t_first_hint": "El lugar de las copias: paquetes, ajustes de los recursos compartidos, configuración de las VM, el flash.",
   "move.t_pull": "Traer…",
   "move.t_more": "Todos los momentos en {name}",
-  "move.t_shares": "Recursos compartidos: los crea Unraid, nunca yo — créalos como dice el paso 2; un recurso que existe como dataset recibe la transferencia al lado; si no, espera en UnraidSecretaryOffice-restored."
+  "move.t_shares": "Recursos compartidos: los crea Unraid, nunca yo — créalos como dice el paso 2; un recurso que existe como dataset recibe la transferencia al lado; si no, espera en UnraidSecretaryOffice-restored.",
+  "pt.why.link_lost": "se perdió la conexión durante la transferencia"
 }
