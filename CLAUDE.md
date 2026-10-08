@@ -214,6 +214,12 @@ installed plugin (see the checklist).
   inside the block) and still replace files with a new file + `mv`, never by
   writing into them. After a `mv` on the host the Mac's SMB view may still show
   the old content: compare md5 on both sides before committing.
+  **A reader that stops early** (`grep -q`, `break`/`return` in a loop; engine 2.35, pentest 2026-10-09 finding 1)
+  never reads a line-writing helper (`cfg_list`, `plist`, `share_bases`, `kopia_item_parts` …) through a pipe or
+  `< <( )` - the helper goes on writing into a closed pipe: SIGPIPE (cron, ssh) and under pipefail the match counts
+  as none (`partner_units` dropped a unit kept by two partners), or with SIGPIPE ignored (PHP) «printf: write error:
+  Broken pipe» on stderr - but a `$( )` of it: `grep -Fxq -- "$x" <<<"$(cfg_list …)"`, `done <<<"$(helper)"`,
+  `mapfile`; `testBackupEpipe`.
 * **Jack Emby's tools** ship with the office: `embycache/` (EmbyCache by
   helmi1987, Python 3 stdlib, German) and `gather/` (media-disk-gather,
   `consolidate_master.sh`, bash, German). Changes are ours now, kept small and

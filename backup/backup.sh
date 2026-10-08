@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.34 - 2026-10-08
+# unraid-backup - backup.sh                       Version 2.35 - 2026-10-09
+#   2.35 cfg_list readers no longer cut the pipe: a unit kept by two partners is never dropped from a run (partner_units
+#        read the list through grep -q - SIGPIPE under pipefail counted a match as none); readers that stop early
+#        (grep -q, break/return in a loop) take a $( ) of the helper, no «printf: write error: Broken pipe» either.
 #   2.34 One run a minute: a run whose log (run-|check-|dryrun-<minute>.log) is there already ends right after taking
 #        the lock with an ERROR line and exit 1, touching nothing - never a snapshot phase into an existing name.
 #        The «not agreed» line names the server as Unraid does (ident.cfg NAME); setup.sh's hints go out as codes.
@@ -2503,9 +2506,9 @@ asleep_plan() {
     while IFS= read -r s; do
         [[ -n "$s" ]] && inv_has_share "$s" && [[ "$(share_mode "$s")" != "off" ]] || continue
         why=""
-        while IFS= read -r b; do [[ -n "$b" && -n "${ASLEEP_BASE[$b]:-}" ]] && { why="$b"; break; }; done < <(share_bases "$s")
+        while IFS= read -r b; do [[ -n "$b" && -n "${ASLEEP_BASE[$b]:-}" ]] && { why="$b"; break; }; done <<<"$(share_bases "$s")"
         if [[ -z "$why" && "$(share_method "$s")" == "live" ]] && in_list "$s" "${PLAN_MOUNT[@]}"; then
-            while IFS= read -r b; do [[ -n "$b" && -z "${keep[$b]:-}" ]] && ub_base_sleeps "$b" && { why="$b"; break; }; done < <(share_bases "$s")
+            while IFS= read -r b; do [[ -n "$b" && -z "${keep[$b]:-}" ]] && ub_base_sleeps "$b" && { why="$b"; break; }; done <<<"$(share_bases "$s")"
             [[ -n "$why" ]] && log "  share $s (read live): $why asleep - left out of Kopia this run"
         fi
         [[ -n "$why" ]] || continue
@@ -2518,7 +2521,7 @@ asleep_plan() {
     PLAN_KOPIA=( "${kk[@]}" )
     for line in "${PLAN_KITEMS[@]}"; do
         IFS='|' read -r t n f <<<"$line"; why=""
-        while IFS='|' read -r sh _; do [[ -n "$sh" && -n "${ASLEEP_SHARE[$sh]:-}" ]] && { why="$sh"; break; }; done < <(kopia_item_parts "$t" "$n" "-")
+        while IFS='|' read -r sh _; do [[ -n "$sh" && -n "${ASLEEP_SHARE[$sh]:-}" ]] && { why="$sh"; break; }; done <<<"$(kopia_item_parts "$t" "$n" "-")"
         if [[ -n "$why" ]]; then asleep_src "$t:$n"; else ki+=( "$line" ); fi
     done
     PLAN_KITEMS=( "${ki[@]}" )
@@ -2547,7 +2550,7 @@ ct_rests() {
         while IFS= read -r b; do
             [[ -n "$b" ]] || continue
             n=$((n+1)); [[ -n "${ASLEEP_BASE[$b]:-}" ]] || return 1
-        done < <(ub_path_bases "$src")
+        done <<<"$(ub_path_bases "$src")"
         (( n > 0 )) || return 1
         any=1
     done <<<"${CT_BINDS[$1]:-}"

@@ -5,7 +5,7 @@ setting it up, scheduling it, starting and stopping runs, helping with restores.
 office's plugin starts it at night from its cron file, `setup.sh` sets it up in a terminal, and `bash <engine>/backup.sh`
 runs it by hand.
 
-Version **2.34** (8 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh`
+Version **2.35** (9 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh`
 (`UB_VERSION`) and in every log.
 
 The first part is for users of the office; the second, [For the terminal and for developers](#for-the-terminal-and-for-developers),
@@ -702,6 +702,7 @@ No warranty: a backup can be faulty or incomplete, and you stay responsible for 
 
 ## Versions
 
+- **2.35** – cfg_list readers no longer cut the pipe: a unit kept by two partners is never dropped from a run. Up to 2.34 the run looked up a partner's units through `grep -q` on a pipe; when grep stopped at the match while the list was still being written, the writer died of SIGPIPE and, under `pipefail`, the match counted as none — the unit was skipped for that partner that night (more likely the longer the list). Every reader that stops early now reads the whole list first; no `printf: write error: Broken pipe` lines in the log either. `setup.sh` likewise (a value already there could be added twice).
 - **2.34** – One run a minute: a run whose log of this minute is there already ends right after taking the lock (an `ERROR` line, exit `1`), touching nothing of the earlier run — up to 2.33 a second «Back up now» in the same minute failed on the snapshot's name and left two history lines with one id. `setup.sh`: the partners step's «not agreed» hints go out as a `code` with `params`, and name the server as Unraid does (`ident.cfg`), not settings.ini's `[general] server`.
 - **2.33** – The backup place's share takes the partner agreement of the unit `place` in the plan; up to 2.32 the setup said «not agreed» on it although the run sent it.
 - **2.32** – The plan names Unraid's syslog share every time (`syslog: true` per share), so Mr. Backupsy's default «everything local» keeps it «not backed up» after a setup was applied.
