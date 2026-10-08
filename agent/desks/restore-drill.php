@@ -63,7 +63,12 @@ const DRILL_KOPIA_LOOKS    = 40;              // directories looked into per sha
 const DRILL_RAM_SHARE      = 0.25;            // of MemAvailable …
 const DRILL_RAM_MAX        = 8 << 30;         // … at most 8 GB
 const DRILL_SERVER_RAM     = 512 << 20;       // what a database server takes besides its data
-const DRILL_DUMP_FACTOR    = 3;               // the data on tmpfs: the dump's uncompressed size × 3 (indexes, WAL)
+// the data dir's tmpfs: the dump's uncompressed size × 4 plus 512 MB. Measured on Tower (2026-10-08) with the lean
+// server (drillServerArgs) — tables and indexes took 1.3–2.7× the uncompressed dump (Immich's trigram indexes the
+// most), the fixed part (a fresh cluster, Postgres' WAL up to max_wal_size, InnoDB's redo, undo and its 60 MB
+// extents) up to ≈ 300 MB: Immich-shaped 302 MiB → 647 MB, Nextcloud-shaped 162 MiB → 515 MB
+const DRILL_DUMP_FACTOR    = 4;
+const DRILL_DUMP_FLOOR     = 512 << 20;
 const DRILL_WINDOW         = [0, 7];          // the automatic drill starts between 00:00 and 07:00
 const DRILL_AFTER_RUN      = 6 * 3600;        // … within 6 h after a nightly run ended ok or with warnings
 const DRILL_OVERDUE_DAYS   = 60;              // the Team Lead: no passed drill for 60 days …
@@ -549,11 +554,11 @@ function drillEstimate(array $s, array $set): int
     };
 }
 
-/** RAM a dump needs in its throwaway: its uncompressed size × 3 plus the server */
+/** RAM a dump needs in its throwaway: its tmpfs (uncompressed size × 4 plus the fixed part) and the server */
 function drillDumpNeed(array $s): int
 {
     $size = (int) ($s['isize'] ?? 0) ?: (int) ($s['bytes'] ?? 0) * 8;
-    return $size * DRILL_DUMP_FACTOR + DRILL_SERVER_RAM;
+    return $size * DRILL_DUMP_FACTOR + DRILL_DUMP_FLOOR + DRILL_SERVER_RAM;
 }
 
 /** The preview: the plan sealed with a stamp and a token over what will be done */

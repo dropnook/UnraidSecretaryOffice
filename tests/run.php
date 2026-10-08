@@ -16332,7 +16332,13 @@ function testRestoreDrill(): void
         $GLOBALS['drill']['ram'] = $keep;
         return $r;
     })());
-    same('drill RAM: a dump needs its uncompressed size × 3 plus the server', 300 * 3 + (DRILL_SERVER_RAM), drillDumpNeed(['isize' => 300, 'bytes' => 9]));
+    same('drill RAM: a dump needs its uncompressed size × 4, the fixed 512 MB and the server', 300 * 4 + (512 << 20) + DRILL_SERVER_RAM, drillDumpNeed(['isize' => 300, 'bytes' => 9]));
+    same('drill RAM: measured on Tower — Immich-shaped (302 MiB: 647 MB on tmpfs), Nextcloud-shaped (162 MiB: 515 MB), each with room to spare',
+        [true, true], [drillDumpNeed(['isize' => 302 << 20]) - DRILL_SERVER_RAM >= (int) (1.5 * (647 << 20)), drillDumpNeed(['isize' => 162 << 20]) - DRILL_SERVER_RAM >= (int) (1.5 * (515 << 20))]);
+    same('drill RAM: nostromo\'s two dumps of 2026-10-08 (313 and 164 MB uncompressed): each fits a 5.98 GB budget, each gets more than the tmpfs it had (940, 490 MB)',
+        [true, true, true], [drillDumpNeed(['isize' => 313 << 20]) <= 5980 << 20, drillDumpNeed(['isize' => 313 << 20]) - DRILL_SERVER_RAM > 940 << 20,
+         drillDumpNeed(['isize' => 164 << 20]) - DRILL_SERVER_RAM > 490 << 20]);
+    same('drill RAM: a dump whose need is over the budget is «too big» (the plan and the step use the same rule)', true, drillDumpNeed(['isize' => 1 << 30]) > drillRamBudget());
 
     // ---- the automatic drill: after a nightly run that went well, in the window, monthly or weekly, once packages are 7 days old
     $set = ['schedule' => 'monthly', 'kopia_mb' => 1024, 'live_catalog' => true, 'live_sqlite' => true];
