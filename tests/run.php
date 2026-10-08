@@ -4433,6 +4433,84 @@ JS;
 }
 
 /**
+ * Rows with «Details» / «Less» unfold on a click of the row itself (Benj, 2026-10-08: «clicking the bar doesn't open or
+ * close any more»): Mr. Backupsy's setup rows (step 3's shares, the apps and VMs with Kopia) through setupUnfold() - under
+ * node with stand-in elements - and every «Details» button of his beside a row that unfolds (desk.js read as text)
+ */
+function testSetupUnfold(): void
+{
+    $src = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    $lines = explode("\n", $src);
+    $buttons = 0;
+    $alone = [];
+    foreach ($lines as $i => $line) {
+        if (!str_contains($line, "button(") || !str_contains($line, "T('setup.more')")) {
+            continue;
+        }
+        $buttons++;
+        if (!str_contains(implode("\n", array_slice($lines, $i, 8)), 'setupUnfold(')) {
+            $alone[] = $i + 1;
+        }
+    }
+    check('unfold: Mr. Backupsy\'s «Details» buttons - both setup rows have one', $buttons === 2, "$buttons buttons");
+    same('unfold: every «Details» button sits on a row that unfolds itself (setupUnfold)', [], $alone);
+    $css = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.css');
+    check('unfold: the share table\'s rows show it (cursor, hover) and the name a focus ring',
+        str_contains($css, '.bk-shares tr.unfolds{cursor:pointer}') && str_contains($css, '.bk-shares tr.unfolds:hover > *') && str_contains($css, '.bk-unfold-name:focus-visible'));
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('unfold: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('setup-unfold');
+    $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => false };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const mk = (own) => ({ classList: { s: new Set(), add(c) { this.s.add(c); } }, dataset: {}, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; },
+  closest: (sel) => (own && sel === b.UNFOLD_OWN ? {} : null) });
+const run = (open) => {
+  const row = mk(); const name = mk(); const more = mk();
+  let n = 0;
+  b.setupUnfold(row, name, more, open, () => { n++; });
+  const out = { cls: [...row.classList.s], nameCls: [...name.classList.s], tab: name.tabIndex, role: name.attrs.role, expName: name.attrs['aria-expanded'],
+    expMore: more.attrs['aria-expanded'], title: name.title };
+  row.onclick({ target: mk(false) }); out.plain = n;            // a click on the row (its text, a cell)
+  row.onclick({ target: mk(true) }); out.own = n;               // a field, a select, a label, a chip, a link, another button
+  let prevented = 0;
+  const key = (k, target) => name.onkeydown({ key: k, target: target || name, preventDefault: () => { prevented++; } });
+  key('Enter'); key(' '); out.keys = n; out.prevented = prevented;
+  key('a'); key('Tab'); key('Enter', mk(false)); out.otherKeys = n;
+  return out;
+};
+console.log(JSON.stringify({ closed: run(false), open: run(true), own: b.UNFOLD_OWN }));
+JS;
+    file_put_contents("$tmp/t.js", $js);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' 2>&1');
+    $r = json_decode($raw, true);
+    if (!is_array($r)) {
+        check('unfold: ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('unfold: a folded row - unfolds, its name a button for the keyboard, aria-expanded false on name and button, the tooltip on the name',
+        [['unfolds'], ['bk-unfold-name'], 0, 'button', 'false', 'false', 'details'],
+        [$r['closed']['cls'], $r['closed']['nameCls'], $r['closed']['tab'], $r['closed']['role'], $r['closed']['expName'], $r['closed']['expMore'], $r['closed']['title']]);
+    same('unfold: an open row - marked open, aria-expanded true', [['unfolds', 'open'], 'true', 'true'],
+        [$r['open']['cls'], $r['open']['expName'], $r['open']['expMore']]);
+    same('unfold: a click on the row toggles, one on its own controls (fields, selects, labels, chips, links, buttons) never',
+        [1, 1], [$r['closed']['plain'], $r['closed']['own']]);
+    same('unfold: Enter and Space on the name toggle (the page doesn\'t scroll), other keys or a key inside it not', [3, 2, 3],
+        [$r['closed']['keys'], $r['closed']['prevented'], $r['closed']['otherKeys']]);
+    $own = array_map('trim', explode(',', (string) $r['own']));
+    check('unfold: what keeps its own click', !array_diff(['button', 'a', 'input', 'select', 'textarea', 'label', '[data-own]', '.chip'], $own), (string) $r['own']);
+    hardeningRm($tmp);
+}
+
+/**
  * The backup place on a fresh server: what speaks against a share (backupPlaceFacts() from the shares' cfg,
  * disks.ini and the plan's locations - warnings only), and the setup's step 0 under node: the warnings'
  * texts, Mr. Backupsy's word while none is chosen, and a new plan keeping what the user chose but didn't apply
@@ -19796,7 +19874,7 @@ JS);
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks', 'testAckContent',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired'],

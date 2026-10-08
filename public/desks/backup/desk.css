@@ -39,6 +39,12 @@
 .bk-protect tr.unfolds{cursor:pointer}
 .bk-protect tr.unfolds:hover > *, .bk-protect tr.open > *{background:var(--surface2)}
 .bk-protect tr.bk-detail td{background:var(--surface2); white-space:normal; padding-top:0}
+/* setup: rows with «Details» unfold on a click of the row too (step 3's shares, the apps and VMs with Kopia) — like above */
+.bk-shares tr.unfolds{cursor:pointer}
+.bk-shares tr.unfolds:hover > *, .bk-shares tr.open > *{background:var(--surface2)}
+.bk-unfold-name{cursor:pointer}
+.bk-unfold-name:hover{color:var(--accent)}
+.bk-unfold-name:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:3px}
 /* the VMs and the apps' packages under the shares: a tinted title bar like a group head, their rows slightly indented */
 .bk-protect tr.bk-group > th{background:var(--surface2); color:var(--ink); font-weight:650; padding-top:8px; padding-bottom:8px}
 .bk-protect tr.bk-group ~ tr:not(.bk-detail):not(.bk-group) > th{padding-left:22px}

@@ -931,7 +931,9 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
 * **Rows** with one main action (unfold details, open a log): the whole row is
   clickable (`.row.unfolds`), except its own buttons, links, fields and
   elements with `data-own`. The "details" tooltip sits on the name only; every
-  chip carries its own `title`. Lists that unfold offer "Unfold all".
+  chip carries its own `title`. Lists that unfold offer "Unfold all". A row with a «Details» / «Less» button
+  unfolds on a click of the row too (Benj, 2026-10-08): the button stays and says the same, the name takes Enter /
+  Space (`tabindex`, role button, `aria-expanded`) — Mr. Backupsy's setup rows, `setupUnfold()`; `testSetupUnfold`.
 * **Chip explanations:** a chip's `title` (or `data-tip` on anything) becomes
   a bubble (core.js `initTips`): on hover with a mouse, on click or tap
   everywhere. That click belongs to the chip and never folds the row under it.
