@@ -20093,6 +20093,31 @@ function testBackupLetGo(): void
     same('let go: again — nothing left to clear, no zfs asked, a second journal', [0, 0, 0, [], 2],
         [$r2['moved'], $r2['deleted'], $r2['failed_n'], $r2['runs'], count(glob("$tmp/data/backup/letgo-*.json") ?: [])]);
 
+    // a package whose move throws something else than a Problem (her manifest not written: the pool full) — that package
+    // only, noted as internal; the others move, the snapshots part runs, the journal is finished (review 2026-10-09)
+    foreach (['apps/full', 'apps/fine'] as $d) {
+        mkdir("$pool/$d", 0700, true);
+    }
+    $GLOBALS['letgoHost']['move'] = function (string $from, string $to): void {
+        if (basename($from) === 'full') {
+            throw new RuntimeException('No space left on device');
+        }
+        clMove($from, $to);
+    };
+    $snapsAsked = 0;
+    $GLOBALS['letgoHost']['scan'] = function () use (&$snapsAsked) {
+        $snapsAsked++;
+        return ['zfs' => ['snapshots' => []], 'btrfs' => ['snapshots' => []], 'vm' => ['snapshots' => []]];
+    };
+    $rT = backupLetGoDo($place, false, $parts, $prefixes, '.btrfs-snap');
+    $jT = readJson("$tmp/data/backup/" . $rT['journal']) ?? [];
+    same('let go: a package that throws (not a Problem) — only that one stays, said as internal; the others go, the snapshots are looked at, the journal finished',
+        [1, 1, "$pool/apps/full", 'internal', 'No space left on device', true, false, 1, true],
+        [$rT['moved'], $rT['failed_n'], $rT['failed'][0]['what'] ?? null, $rT['failed'][0]['key'] ?? null, $rT['failed'][0]['params']['detail'] ?? null,
+         is_dir("$pool/apps/full"), is_dir("$pool/apps/fine"), $snapsAsked, is_int($jT['finished'] ?? null)]);
+    unset($GLOBALS['letgoHost']['move']);
+    hardeningRm("$pool/apps/full");
+
     // the place asleep: its packages stay, said
     mkdir("$pool/apps/again", 0700, true);
     $r3 = backupLetGoDo($place, true, [], $prefixes, '.btrfs-snap');

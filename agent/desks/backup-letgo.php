@@ -42,7 +42,7 @@ function backupLetGoDir(): string
     return $GLOBALS['letgoDir'] ?? DATA_DIR . '/backup';
 }
 
-/** zfs, btrfs and Ms. Snapshotini's look (fresh, and after the deletions) — the tests put stand-ins in $GLOBALS['letgoHost'] */
+/** zfs, btrfs, Ms. Snapshotini's look (fresh, and after the deletions) and Ms. Dustdevil's move — the tests put stand-ins in $GLOBALS['letgoHost'] */
 function backupLetGoHost(): array
 {
     $h = $GLOBALS['letgoHost'] ?? [];
@@ -51,6 +51,7 @@ function backupLetGoHost(): array
         'btrfs'  => $h['btrfs'] ?? bin('btrfs'),
         'scan'   => $h['scan'] ?? fn (): array => snapshotScan(true),
         'rescan' => $h['rescan'] ?? fn () => snapshotScan(false),
+        'move'   => $h['move'] ?? 'clMove',
     ];
 }
 
@@ -301,6 +302,7 @@ function backupLetGoDo(?string $place, bool $placeAsleep, array $parts, array $p
     };
 
     // the packages: into Ms. Dustdevil's storeroom on their own filesystem, one run per storeroom
+    $host = backupLetGoHost();
     $runs = [];
     foreach ($parts as $part) {
         foreach (backupLetGoPackages($part['place']) as $p) {
@@ -316,13 +318,14 @@ function backupLetGoDo(?string $place, bool $placeAsleep, array $parts, array $p
                     $j['trash'] = array_values(array_unique(array_merge($j['trash'], [$trash])));
                 }
                 $as = 'packages/' . substr(md5(dirname($p['path'])), 0, 8) . '/' . basename($p['path']);
-                clMove($p['path'], $runs[$trash]['path'] . "/$as");
+                ($host['move'])($p['path'], $runs[$trash]['path'] . "/$as");
                 $runs[$trash]['items'][] = ['kind' => 'package', 'name' => $label, 'label' => $part['root'], 'from' => $p['path'], 'as' => $as];
                 clManifestWrite($runs[$trash]);
                 $j['moved'][] = ['from' => $p['path'], 'to' => $runs[$trash]['path'] . "/$as", 'name' => $label];
                 backupLetGoJournalWrite($file, $j);
-            } catch (Problem $e) {
-                $fail($p['path'], 'cleanup', $e);
+            } catch (Throwable $e) {
+                // anything (her manifest not written: the pool full) ends this package only — noted, the rest goes on
+                $fail($p['path'], 'cleanup', backupLetGoError($e));
             }
         }
     }
@@ -333,12 +336,11 @@ function backupLetGoDo(?string $place, bool $placeAsleep, array $parts, array $p
     }
 
     // the engine's own snapshots, as Ms. Snapshotini sees them now
-    $host = backupLetGoHost();
     $snaps = ['take' => [], 'held' => 0, 'asleep' => 0];
     try {
         $snaps = backupLetGoSnaps(($host['scan'])(), $prefixes, $btrfsDir);
     } catch (Throwable $e) {
-        $fail('snapshots', 'backup', $e instanceof Problem ? $e : ['key' => 'internal', 'params' => ['detail' => $e->getMessage()]]);
+        $fail('snapshots', 'backup', backupLetGoError($e));
     }
     $j['snapshots_kept'] = $snaps['held'] + $snaps['asleep'];
     $zfs = [];
@@ -346,8 +348,8 @@ function backupLetGoDo(?string $place, bool $placeAsleep, array $parts, array $p
         if (snapshotFixedMounts($s)) {
             try {
                 snapshotUnmount($s);           // a mount the engine left (keep_mounts, a killed run): zfs destroy won't
-            } catch (Problem $e) {
-                $fail($s['id'], 'snapshot', $e);
+            } catch (Throwable $e) {
+                $fail($s['id'], 'snapshot', backupLetGoError($e));
                 continue;
             }
         }
@@ -395,6 +397,12 @@ function backupLetGoDo(?string $place, bool $placeAsleep, array $parts, array $p
         count($j['moved']), count($j['deleted']), count($j['failed']), basename($file)));
     return ['moved' => count($j['moved']), 'deleted' => count($j['deleted']), 'failed' => array_slice($j['failed'], 0, 20), 'failed_n' => count($j['failed']),
             'kept' => $j['snapshots_kept'], 'place_asleep' => $placeAsleep, 'journal' => basename($file), 'runs' => array_column($runs, 'path')];
+}
+
+/** A step's failure for the journal: a Problem as it is, anything else as `internal` with its message */
+function backupLetGoError(Throwable $e): Problem|array
+{
+    return $e instanceof Problem ? $e : ['key' => 'internal', 'params' => ['detail' => mb_substr($e->getMessage(), 0, 400)]];
 }
 
 /**
