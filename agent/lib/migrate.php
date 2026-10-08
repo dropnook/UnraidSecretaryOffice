@@ -29,6 +29,10 @@ declare(strict_types=1);
  *
  * Also at every start, beside the steps: officeCronBack() — the schedules the .plg's remove put aside, back after a
  * new install.
+ *
+ * The steps (officeMigrateSteps()): `marker` (1.42.0, nothing), `where-files` (1.44.0: Ms. Whereabouts' files taken
+ * over and put aside — her start did it up to 1.43, deleting them), `staff-merged` (1.44.0: staff.json's merged desks
+ * rewritten — the web side did it up to 1.43; it still reads them merged for the moment before the agent's start).
  */
 
 const OFFICE_MARK_FILE = 'office.json';
@@ -46,7 +50,115 @@ function officeMigrateSteps(): array
     return [
         // the first one changes nothing: the data folder gets its marker — the next real step goes below it
         ['id' => 'marker', 'version' => '1.42.0', 'run' => fn (string $dir, string $to): string => 'nothing to change — the data folder carries a version marker now (office.json)'],
+        // Ms. Whereabouts' files (up to 1.30) are Ms. Dustdevil's — until 1.43 her start took them over and deleted them
+        ['id' => 'where-files', 'version' => '1.44.0', 'run' => fn (string $dir, string $to): string
+            => implode(', ', officeMigrateWhere($dir, $to)) ?: 'nothing to change'],
+        // staff.json: a desk that went into another one written as that one — until 1.43 the web side rewrote it
+        ['id' => 'staff-merged', 'version' => '1.44.0', 'run' => fn (string $dir, string $to): string => officeMigrateStaff($dir, $to)],
     ];
+}
+
+// Ms. Whereabouts' files (up to 1.30) => Ms. Dustdevil's (agent/lib/where.php WHERE_FILE, WHERE_SIZES_FILE) — names of
+// the past, fixed here so the step needs no desk loaded
+const OFFICE_MIGRATE_WHERE     = ['whereabouts.json' => 'cleanup-where.json', 'whereabouts-sizes.json' => 'cleanup-where-sizes.json'];
+const OFFICE_MIGRATE_WHERE_MAX = 16 << 20;        // an old file larger than this isn't hers
+
+/**
+ * Step `where-files`: up to 1.30 Ms. Whereabouts kept her state in whereabouts.json and what du measured in
+ * whereabouts-sizes.json; they are Ms. Dustdevil's now. An old file is read only as a plain file of the data folder
+ * (never through a link, never a huge one) and written to its new name with writeAtomic(); then it is renamed aside
+ * (officeMigrateAside(): <name>.before-<version>) — never deleted. The state goes over only while the new one isn't
+ * there (her start reads it anew anyway); the measured sizes are never lost — merged, what was measured later wins. An
+ * old file that isn't hers (a link, no JSON) stays where it is, said. Throws when the old file couldn't be put aside
+ * (the step runs again at the next start: the merge gives the same result twice).
+ *
+ * @return list<string> what was done, for the log ("whereabouts.json → cleanup-where.json")
+ */
+function officeMigrateWhere(string $dir, string $to): array
+{
+    $done = [];
+    foreach (OFFICE_MIGRATE_WHERE as $old => $new) {
+        $from = "$dir/$old";
+        $dest = "$dir/$new";
+        clearstatcache(true, $from);
+        $st = @lstat($from);
+        if ($st === false) {
+            continue;
+        }
+        if (($st['mode'] & 0170000) !== 0100000 || $st['size'] > OFFICE_MIGRATE_WHERE_MAX) {
+            $done[] = "$old left alone (no plain file)";
+            continue;
+        }
+        $data = json_decode((string) @file_get_contents($from), true);
+        if (!is_array($data)) {
+            $done[] = "$old left alone (no JSON)";
+            continue;
+        }
+        $now = readJson($dest);
+        if ($new === OFFICE_MIGRATE_WHERE['whereabouts-sizes.json']) {
+            $sizes = [];
+            foreach ([(array) ($data['sizes'] ?? []), (array) ($now['sizes'] ?? [])] as $list) {
+                foreach ($list as $path => $size) {
+                    if (is_string($path) && is_array($size) && (int) ($size['at'] ?? 0) >= (int) ($sizes[$path]['at'] ?? -1)) {
+                        $sizes[$path] = $size;
+                    }
+                }
+            }
+            writeAtomic($dest, jsonEncode(['sizes' => $sizes, 'queue' => [], 'running' => []]));
+        } elseif ($now === null) {
+            writeAtomic($dest, jsonEncode($data));
+        }
+        $aside = officeMigrateAside($from, $to);
+        if ($aside === null) {
+            throw new RuntimeException("$old taken over, but it could not be put aside");
+        }
+        $done[] = "$old → $new (the old one kept as " . basename($aside) . ')';
+    }
+    return $done;
+}
+
+/**
+ * Step `staff-merged`: data/office/staff.json with every desk that went into another one (src/staff.php
+ * OFFICE_DESKS_MERGED, the agent's STAFF_MERGED) written as that one — officeStaffMerged(), the web side's own merge
+ * (pure; src/staff.php has nothing but definitions), under the web side's lock (`.staff.lock`); the list as it was
+ * kept beside it (<file>.before-<version>). Until 1.43 the web side rewrote the file itself at its first read; it
+ * still reads the list merged without writing (officeStaff()) for the moment before this step has run. $desks for the
+ * tests (default: the agent's desks()).
+ */
+function officeMigrateStaff(string $dir, string $to, ?array $desks = null): string
+{
+    require_once dirname(__DIR__, 2) . '/src/staff.php';
+    $desks ??= desks();
+    $file = "$dir/office/staff.json";
+    clearstatcache(true, $file);
+    $st = @lstat($file);
+    if ($st === false) {
+        return 'nothing to change (no staff list)';
+    }
+    if (($st['mode'] & 0170000) !== 0100000) {
+        return 'office/staff.json left alone (no plain file)';
+    }
+    $h = @fopen("$dir/office/.staff.lock", 'c');
+    if (!$h || !flock($h, LOCK_EX)) {
+        throw new RuntimeException('office/.staff.lock could not be taken');
+    }
+    try {
+        $raw = (string) @file_get_contents($file);
+        $staff = json_decode($raw, true);
+        $merged = is_array($staff) ? officeStaffMerged($staff, $desks) : null;
+        if ($merged === null) {
+            return 'nothing to change';
+        }
+        $kept = officeMigrateKeep($file, $raw, $to);
+        $merged['hired'] = (object) (array) ($merged['hired'] ?? []);
+        writeAtomic($file, jsonEncode($merged), 0644, 0, 0);     // as the web side writes it (root, 0644)
+        $named = array_merge(array_keys((array) ($staff['hired'] ?? [])), is_array($staff['order'] ?? null) ? $staff['order'] : []);
+        $was = array_values(array_intersect(array_keys(OFFICE_DESKS_MERGED), $named));
+        return 'office/staff.json: ' . implode(', ', array_map(fn ($o) => $o . ' → ' . OFFICE_DESKS_MERGED[$o], $was)) . ' (the list before kept as ' . basename($kept) . ')';
+    } finally {
+        flock($h, LOCK_UN);
+        fclose($h);
+    }
 }
 
 function officeMarkFile(?string $dir = null): string
@@ -201,6 +313,13 @@ function officeMigrateAside(string $path, string $to): ?string
     if (@lstat($path) === false) {
         return null;
     }
+    $aside = officeMigrateAsideName($path, $to);
+    return $aside !== null && @rename($path, $aside) ? $aside : null;
+}
+
+/** The free name beside $path for what a step keeps: <path>.before-<version>, -2, -3 … (null: 99 taken) */
+function officeMigrateAsideName(string $path, string $to): ?string
+{
     $aside = $base = "$path.before-$to";
     for ($n = 2; @lstat($aside) !== false; $n++) {
         if ($n > 99) {
@@ -208,7 +327,21 @@ function officeMigrateAside(string $path, string $to): ?string
         }
         $aside = "$base-$n";
     }
-    return @rename($path, $aside) ? $aside : null;
+    return $aside;
+}
+
+/**
+ * For a step that rewrites a file in place: its content before, kept beside it (<path>.before-<version>, a new file of
+ * its own — writeAtomic(), never through a link). The name it got; throws when it couldn't (the step runs again).
+ */
+function officeMigrateKeep(string $path, string $content, string $to): string
+{
+    $aside = officeMigrateAsideName($path, $to);
+    if ($aside === null) {
+        throw new RuntimeException('no free name beside ' . basename($path));
+    }
+    writeAtomic($aside, $content, 0644, 0, 0);
+    return $aside;
 }
 
 /**

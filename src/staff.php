@@ -20,12 +20,12 @@ declare(strict_types=1);
  * "order": desk.json's order alone (officeStaffOrderOf()).
  *
  * A desk that went into another one (OFFICE_DESKS_MERGED) is replaced by that one in the list —
- * hired since the earlier of the two, in the order at the earlier place —, once, the first time the list is
- * read afterwards.
+ * hired since the earlier of the two, in the order at the earlier place: written once by the agent's migration step
+ * `staff-merged` (agent/lib/migrate.php, which uses officeStaffMerged() below), read so here until then.
  */
 
 // desks that went into another one: old id => the desk that does their work now
-// (the agent's STAFF_MERGED in agent/lib/house.php is the same, until the list is rewritten here)
+// (the agent's STAFF_MERGED in agent/lib/house.php is the same, until its migration step rewrote the list)
 const OFFICE_DESKS_MERGED = ['whereabouts' => 'cleanup'];     // 2026-10: Ms. Whereabouts' work is Ms. Dustdevil's
 
 function officeStaffFile(): string
@@ -33,14 +33,17 @@ function officeStaffFile(): string
     return OFFICE_DATA . '/office/staff.json';
 }
 
-/** staff.json as it is now — with the merged desks (OFFICE_DESKS_MERGED) rewritten once */
+/**
+ * staff.json as it is now, a desk that went into another one (OFFICE_DESKS_MERGED) read as that one — never written
+ * here. Both exist on purpose: the agent's migration step `staff-merged` (agent/lib/migrate.php) rewrites the file once
+ * at its start (the one place for migrations); this read covers the moment before that — right after an update until
+ * the new agent has started, and whenever it can't (the array stopped: the night shift doesn't migrate) — so the page
+ * works on the list as an older office left it. The web side never migrates (CLAUDE.md «Updates»).
+ */
 function officeStaff(): array
 {
     $staff = officeReadJson(officeStaffFile()) ?? [];
-    if (officeStaffMerged($staff, officeDesks()) !== null) {
-        $staff = officeStaffMigrate(officeStaffFile(), officeDesks()) ?? officeStaffMerged($staff, officeDesks());
-    }
-    return $staff;
+    return officeStaffMerged($staff, officeDesks()) ?? $staff;
 }
 
 /** @return array<string, int>  desk => hired since (the always-there desks included) */
@@ -258,17 +261,5 @@ function officeStaffMerged(array $staff, array $desks): ?array
     if ($reordered) {
         $staff['order'] = $order;
     }
-    return $staff;
-}
-
-/** Rewrites staff.json with the merged desks, once; the list written, or null when it couldn't (read as merged anyway) */
-function officeStaffMigrate(string $file, array $desks): ?array
-{
-    try {
-        $staff = officeStaffChange($file, fn (array $staff): array => officeStaffMerged($staff, $desks) ?? $staff);
-    } catch (OfficeProblem) {
-        return null;
-    }
-    $staff['hired'] = (array) $staff['hired'];
     return $staff;
 }

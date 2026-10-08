@@ -11173,42 +11173,53 @@ function testBackupSparse(): void
 }
 
 /**
- * Ms. Dustdevil takes over Ms. Whereabouts' files once (2026-10): her state (only while the new one isn't there),
- * what du measured (merged — what was measured later wins, never lost), only plain JSON files of the folder; then
- * the old ones are gone and a second start does nothing.
+ * Ms. Dustdevil takes over Ms. Whereabouts' files once (2026-10) — since 1.44 the migration step `where-files`
+ * (agent/lib/migrate.php officeMigrateWhere(), up to 1.43 her start): her state (only while the new one isn't there),
+ * what du measured (merged — what was measured later wins, never lost), only plain JSON files of the folder; then the
+ * old ones are renamed aside (<name>.before-<version>), never deleted, and a second run does nothing.
  */
 function testWhereTakeOver(): void
 {
     $tmp = hardeningTmp('where-takeover');
     $state = ['time' => 100, 'shares' => [['name' => 'appdata']], 'containers' => [], 'scripts' => []];
     file_put_contents("$tmp/whereabouts.json", json_encode($state));
-    file_put_contents("$tmp/whereabouts-sizes.json", json_encode(['sizes' => [
-        '/mnt/user/a' => ['bytes' => 1, 'at' => 100], '/mnt/user/b' => ['bytes' => 2, 'at' => 200]], 'queue' => ['/mnt/user/q'], 'running' => ['/mnt/user/r']]));
+    $oldSizes = json_encode(['sizes' => ['/mnt/user/a' => ['bytes' => 1, 'at' => 100], '/mnt/user/b' => ['bytes' => 2, 'at' => 200]],
+        'queue' => ['/mnt/user/q'], 'running' => ['/mnt/user/r']]);
+    file_put_contents("$tmp/whereabouts-sizes.json", $oldSizes);
     file_put_contents("$tmp/cleanup-where-sizes.json", json_encode(['sizes' => [
         '/mnt/user/b' => ['bytes' => 22, 'at' => 300], '/mnt/user/c' => ['bytes' => 3, 'at' => 50]], 'queue' => [], 'running' => []]));
-    $done = whereTakeOver($tmp);
-    same('where takeover: both files', ['whereabouts.json → cleanup-where.json', 'whereabouts-sizes.json → cleanup-where-sizes.json'], $done);
-    same('where takeover: the old files are gone', [false, false], [file_exists("$tmp/whereabouts.json"), file_exists("$tmp/whereabouts-sizes.json")]);
+    $done = officeMigrateWhere($tmp, '1.44.0');
+    same('where takeover: both files, each kept aside', ['whereabouts.json → cleanup-where.json (the old one kept as whereabouts.json.before-1.44.0)',
+        'whereabouts-sizes.json → cleanup-where-sizes.json (the old one kept as whereabouts-sizes.json.before-1.44.0)'], $done);
+    same('where takeover: the old files are renamed aside, as they were — never deleted', [false, false, json_encode($state), $oldSizes],
+        [file_exists("$tmp/whereabouts.json"), file_exists("$tmp/whereabouts-sizes.json"), @file_get_contents("$tmp/whereabouts.json.before-1.44.0"),
+         @file_get_contents("$tmp/whereabouts-sizes.json.before-1.44.0")]);
     same('where takeover: her state as it was', $state, json_decode((string) file_get_contents("$tmp/cleanup-where.json"), true));
     $sizes = json_decode((string) file_get_contents("$tmp/cleanup-where-sizes.json"), true);
     same('where takeover: every size kept, the later measurement wins, no old jobs', [1, 22, 3, [], []],
         [$sizes['sizes']['/mnt/user/a']['bytes'] ?? null, $sizes['sizes']['/mnt/user/b']['bytes'] ?? null, $sizes['sizes']['/mnt/user/c']['bytes'] ?? null,
          $sizes['queue'] ?? null, $sizes['running'] ?? null]);
-    same('where takeover: once', [], whereTakeOver($tmp));
+    same('where takeover: once', [], officeMigrateWhere($tmp, '1.44.0'));
     same('where takeover: no temporary files left', [], array_values(array_filter(scandir($tmp) ?: [], fn ($n) => str_ends_with($n, '.tmp'))));
 
     // a newer state of hers stays; an old one that is a link or no JSON is left alone
     file_put_contents("$tmp/whereabouts.json", json_encode(['time' => 1]));
-    whereTakeOver($tmp);
-    same('where takeover: her own newer state stays', 100, json_decode((string) file_get_contents("$tmp/cleanup-where.json"), true)['time'] ?? null);
+    officeMigrateWhere($tmp, '1.44.0');
+    same('where takeover: her own newer state stays; the second old file aside gets a number', [100, true],
+        [json_decode((string) file_get_contents("$tmp/cleanup-where.json"), true)['time'] ?? null, is_file("$tmp/whereabouts.json.before-1.44.0-2")]);
     file_put_contents("$tmp/elsewhere.json", json_encode(['sizes' => ['/x' => ['bytes' => 9, 'at' => 999]]]));
     symlink("$tmp/elsewhere.json", "$tmp/whereabouts-sizes.json");
-    same('where takeover: a link is no file of hers', ['whereabouts-sizes.json left alone (no plain file)'], whereTakeOver($tmp));
+    same('where takeover: a link is no file of hers', ['whereabouts-sizes.json left alone (no plain file)'], officeMigrateWhere($tmp, '1.44.0'));
     unlink("$tmp/whereabouts-sizes.json");
     file_put_contents("$tmp/whereabouts-sizes.json", 'not json');
-    same('where takeover: no JSON — left alone', ['whereabouts-sizes.json left alone (no JSON)'], whereTakeOver($tmp));
+    same('where takeover: no JSON — left alone', ['whereabouts-sizes.json left alone (no JSON)'], officeMigrateWhere($tmp, '1.44.0'));
     same('where takeover: nothing from the link went in', false, isset(json_decode((string) file_get_contents("$tmp/cleanup-where-sizes.json"), true)['sizes']['/x']));
     hardeningRm($tmp);
+    // her start no longer takes anything over (the step did, once) — and nothing in the agent deletes her old files
+    $where = (string) file_get_contents(OFFICE_DIR . '/agent/lib/where.php');
+    check('where takeover: a migration step now — not her start, no unlink', !function_exists('whereTakeOver') && !str_contains($where, 'function whereTakeOver')
+        && in_array('where-files', array_column(officeMigrateSteps(), 'id'), true)
+        && !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/migrate.php'), 'unlink('));
 }
 
 /**
@@ -11393,28 +11404,64 @@ function testStaffMerged(): void
         staffMergedIds(['backup', 'whereabouts', 'cleanup'], $desks));
     same('staff merged: the agent leaves a desk that is there alone', ['whereabouts'], staffMergedIds(['whereabouts'], ['whereabouts' => []]));
 
-    // the web side rewrites staff.json once (a process of its own: bootstrap.php, the data folder in $tmp)
+    // the agent's migration step rewrites staff.json once (since 1.44; up to 1.43 the web side did), the list before kept
     $tmp = hardeningTmp('staff-merged');
     mkdir("$tmp/office", 0700);
     $file = "$tmp/office/staff.json";
-    file_put_contents($file, json_encode(['hired' => ['backup' => 5, 'whereabouts' => 7, 'watchman' => 8], 'other' => 'kept']));
-    $web = "$tmp/web.php";
-    file_put_contents($web, '<?php require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . ';'
-        . ' $desks = ["backup" => [], "cleanup" => [], "watchman" => []]; $f = ' . var_export($file, true) . ';'
-        . ' echo json_encode([officeStaffMigrate($f, $desks), officeStaffMigrate($f, $desks)]);');
-    $run = function () use ($web, $tmp): array {
-        $p = proc_open([PHP_BINARY, $web], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['OFFICE_DATA_DIR' => $tmp, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
-        $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
-        proc_close($p);
-        return [json_decode($raw, true), $raw];
-    };
-    [$out, $raw] = $run();
+    $before = json_encode(['hired' => ['backup' => 5, 'whereabouts' => 7, 'watchman' => 8], 'other' => 'kept']);
+    file_put_contents($file, $before);
+    $desks = ['backup' => [], 'cleanup' => [], 'watchman' => []];
+    $said = officeMigrateStaff($tmp, '1.44.0', $desks);
     $saved = json_decode((string) file_get_contents($file), true);
-    same('staff migrate: written once — whereabouts is cleanup now, the rest as it was', ['hired' => ['backup' => 5, 'watchman' => 8, 'cleanup' => 7], 'other' => 'kept'], $saved);
-    same('staff migrate: the second time changes nothing', $saved, $out[1] ?? $raw);
-    same('staff migrate: mode and no temporary files', ['644', []], [substr(sprintf('%o', fileperms($file)), -3),
-        array_values(array_filter(scandir("$tmp/office") ?: [], fn ($n) => str_ends_with($n, '.tmp')))]);
+    same('staff migrate: written once by the step — whereabouts is cleanup now, the rest as it was', ['hired' => ['backup' => 5, 'watchman' => 8, 'cleanup' => 7], 'other' => 'kept'], $saved);
+    same('staff migrate: … the list before kept beside it, said in the log', [$before, true],
+        [@file_get_contents("$file.before-1.44.0"), str_contains($said, 'whereabouts → cleanup') && str_contains($said, 'staff.json.before-1.44.0')]);
+    same('staff migrate: the second time changes nothing', ['nothing to change', $saved], [officeMigrateStaff($tmp, '1.44.0', $desks), json_decode((string) file_get_contents($file), true)]);
+    same('staff migrate: mode, no temporary files, the web side\'s lock file', ['644', [], true], [substr(sprintf('%o', fileperms($file)), -3),
+        array_values(array_filter(scandir("$tmp/office") ?: [], fn ($n) => str_ends_with($n, '.tmp'))), is_file("$tmp/office/.staff.lock")]);
+    same('staff migrate: an empty list stays an object', '{}', (function () use ($tmp, $file, $desks) {
+        file_put_contents($file, json_encode(['hired' => (object) [], 'order' => ['whereabouts']]));
+        officeMigrateStaff($tmp, '1.44.0', $desks);
+        return json_encode(json_decode((string) file_get_contents($file))->hired ?? null);
+    })());
+    same('staff migrate: no list — nothing; a link — left alone', ['nothing to change (no staff list)', 'office/staff.json left alone (no plain file)'],
+        (function () use ($tmp, $file, $desks) {
+            unlink($file);
+            $none = officeMigrateStaff($tmp, '1.44.0', $desks);
+            file_put_contents("$tmp/elsewhere.json", json_encode(['hired' => ['whereabouts' => 1]]));
+            symlink("$tmp/elsewhere.json", $file);
+            return [$none, officeMigrateStaff($tmp, '1.44.0', $desks)];
+        })());
+    same('staff migrate: … nothing written through the link', ['hired' => ['whereabouts' => 1]], json_decode((string) file_get_contents("$tmp/elsewhere.json"), true));
+    unlink($file);
+    check('staff migrate: a step of the agent\'s migrations', in_array('staff-merged', array_column(officeMigrateSteps(), 'id'), true));
+
+    // the web side: reads the list merged for the moment before the step ran — and never writes it (a process of its own)
+    // (the plugin's layout: src/ beside the repository's desks, the data folder in $tmp/data)
+    hardeningRm($tmp);
+    $tmp = hardeningTmp('staff-merged-web');
+    mkdir("$tmp/plugin/src", 0700, true);
+    foreach (glob(OFFICE_DIR . '/src/*.php') ?: [] as $f) {
+        copy($f, "$tmp/plugin/src/" . basename($f));
+    }
+    symlink(OFFICE_DIR . '/public/desks', "$tmp/plugin/desks");
+    symlink(OFFICE_DIR . '/public/lang', "$tmp/plugin/lang");
+    mkdir("$tmp/data/office", 0700, true);
+    $file = "$tmp/data/office/staff.json";
+    file_put_contents($file, $before);
+    $web = "$tmp/web.php";
+    file_put_contents($web, '<?php require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . ';'
+        . ' echo json_encode([officeHired(), officeStaffOrder()]);');
+    $p = proc_open([PHP_BINARY, $web], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+        ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
+    $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+    proc_close($p);
+    $out = json_decode($raw, true);
+    same('staff read: the web side reads Ms. Whereabouts as Ms. Dustdevil before the step', [7, false], [$out[0]['cleanup'] ?? $raw, isset($out[0]['whereabouts'])]);
+    same('staff read: … and leaves the file as it is (the agent migrates, never the page)', [$before, ['staff.json']],
+        [file_get_contents($file), array_values(array_diff(scandir("$tmp/data/office") ?: [], ['.', '..']))]);
+    check('staff read: no rewrite on the web side any more', !function_exists('officeStaffMigrate')
+        && !str_contains((string) file_get_contents(OFFICE_DIR . '/src/staff.php'), 'officeStaffMigrate'));
     hardeningRm($tmp);
 }
 
@@ -17499,8 +17546,9 @@ function testMigrate(): void
     $listing = fn () => scandir($dir);
     $was = $listing();
     $r = officeMigrate('1.41.0', '1.42.0', $dir, null, null, $log);
-    same('migrate: the real first step runs on an older folder and changes nothing in it', [true, $was],
-        [in_array('marker', $r['ran'], true) || in_array('marker', officeMarkRead($dir)['done'], true), $listing()]);
+    same('migrate: the real steps run on an older folder — with nothing of the past in it they change nothing', [true, true, $was],
+        [in_array('marker', $r['ran'], true) || in_array('marker', officeMarkRead($dir)['done'], true),
+         !array_diff(['where-files', 'staff-merged'], array_merge($r['ran'], officeMarkRead($dir)['done'])), $listing()]);
     $versions = array_column($real, 'version');
     usort($versions, 'version_compare');
     same('migrate: the real steps are listed oldest first (they run in that order)', $versions, array_column($real, 'version'));

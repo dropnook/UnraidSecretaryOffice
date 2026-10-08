@@ -17,9 +17,9 @@ declare(strict_types=1);
  * in the background and only when asked; ZFS datasets are known instantly.
  *
  * Files: DATA_DIR/cleanup-where.json (the state, served as the part «where»)
- * and cleanup-where-sizes.json (what du measured, the part «where-sizes»);
- * whereTakeOver() takes over Ms. Whereabouts' whereabouts.json and
- * whereabouts-sizes.json once.
+ * and cleanup-where-sizes.json (what du measured, the part «where-sizes»).
+ * Ms. Whereabouts' whereabouts.json and whereabouts-sizes.json (up to 1.30)
+ * are taken over by a migration step (agent/lib/migrate.php, `where-files`).
  */
 
 require_once __DIR__ . '/partnerlook.php';      // the partners' places (waPartners())
@@ -42,8 +42,6 @@ const WA_DU_PARALLEL  = 2;
 
 const WHERE_FILE       = 'cleanup-where.json';         // in DATA_DIR: the part «where» of Ms. Dustdevil's page
 const WHERE_SIZES_FILE = 'cleanup-where-sizes.json';   // the part «where-sizes»
-const WHERE_OLD_FILES  = ['whereabouts.json' => WHERE_FILE, 'whereabouts-sizes.json' => WHERE_SIZES_FILE];   // Ms. Whereabouts' (up to 1.30)
-const WHERE_OLD_MAX    = 16 << 20;                     // an old file larger than this isn't hers
 
 $GLOBALS['where'] = null;
 $GLOBALS['waJobs'] = ['queue' => [], 'running' => []];
@@ -53,69 +51,11 @@ function whereStateFile(): string
     return DATA_DIR . '/' . WHERE_FILE;
 }
 
-/** At the agent's start: Ms. Whereabouts' files taken over once, her last state read, then a fresh look */
+/** At the agent's start: her last state read, then a fresh look (Ms. Whereabouts' files were taken over before — migrate.php) */
 function whereStart(): void
 {
-    try {
-        $done = whereTakeOver(DATA_DIR);
-    } catch (Throwable $e) {
-        $done = ['not yet — ' . $e->getMessage() . ' (again at the next start)'];      // the old files stay
-    }
-    if ($done) {
-        logLine('Dustdevil took over Ms. Whereabouts\' files: ' . implode(', ', $done));
-    }
     $GLOBALS['where'] = readJson(whereStateFile());
     whereScan();
-}
-
-/**
- * Up to 1.30 Ms. Whereabouts kept her state in whereabouts.json and what du measured in
- * whereabouts-sizes.json; they are Ms. Dustdevil's now (WHERE_OLD_FILES). Once: an old file is read
- * only as a plain file of the data folder (never through a link, never a huge one), written to its
- * new name with writeAtomic() and removed. The state goes over only while the new one isn't there
- * (it is read anew at the start anyway); the measured sizes are never lost — merged, what was measured
- * later wins. An old file that isn't JSON stays where it is (said in the log by the caller's list).
- *
- * @return list<string> what was done, for the log ("whereabouts.json → cleanup-where.json")
- */
-function whereTakeOver(string $dir): array
-{
-    $done = [];
-    foreach (WHERE_OLD_FILES as $old => $new) {
-        $from = "$dir/$old";
-        $to = "$dir/$new";
-        clearstatcache(true, $from);
-        $st = @lstat($from);
-        if ($st === false) {
-            continue;
-        }
-        if (($st['mode'] & 0170000) !== 0100000 || $st['size'] > WHERE_OLD_MAX) {
-            $done[] = "$old left alone (no plain file)";
-            continue;
-        }
-        $data = json_decode((string) @file_get_contents($from), true);
-        if (!is_array($data)) {
-            $done[] = "$old left alone (no JSON)";
-            continue;
-        }
-        $now = readJson($to);
-        if ($new === WHERE_SIZES_FILE) {
-            $sizes = [];
-            foreach ([(array) ($data['sizes'] ?? []), (array) ($now['sizes'] ?? [])] as $list) {
-                foreach ($list as $path => $size) {
-                    if (is_string($path) && is_array($size) && (int) ($size['at'] ?? 0) >= (int) ($sizes[$path]['at'] ?? -1)) {
-                        $sizes[$path] = $size;
-                    }
-                }
-            }
-            writeAtomic($to, jsonEncode(['sizes' => $sizes, 'queue' => [], 'running' => []]));
-        } elseif ($now === null) {
-            writeAtomic($to, jsonEncode($data));
-        }
-        @unlink($from);
-        $done[] = "$old → $new";
-    }
-    return $done;
 }
 
 /** Her look again when the last one is older than $age seconds (or there is none) — the page's «where_refresh» */
