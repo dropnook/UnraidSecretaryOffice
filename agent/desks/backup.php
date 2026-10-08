@@ -2234,6 +2234,10 @@ function backupSetupApply(mixed $decisions): array
         if ($key === 'general|asleep_pools' && !in_array($value, ['wake', 'skip'], true)) {
             $ok = false;
         }
+        // engine 2.31: the default for new things - my proposals, local only, local + Kopia
+        if ($key === 'general|preset_new' && !in_array($value, ['auto', 'local', 'kopia'], true)) {
+            $ok = false;
+        }
         $plain = fn ($v) => is_string($v) && strlen($v) <= 500 && !preg_match('/[\x00-\x1f]/', $v);
         $valid = $plain($value) || (is_array($value) && array_is_list($value) && count($value) <= 1000 && !in_array(false, array_map($plain, $value), true));
         if (!$ok || !$valid) {

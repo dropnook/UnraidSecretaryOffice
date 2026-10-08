@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.30 - 2026-10-08
+# unraid-backup - backup.sh                       Version 2.31 - 2026-10-08
+#   2.31 (setup.sh only: [general] preset_new, Mr. Backupsy's default for new things - a run accepts the key
+#        and never reads it)
 #   2.30 Sleeping pools: only a ROTATING disk Unraid spun down counts as asleep (disks.ini spundown=1 and
 #        rotational != 0; ub_asleep_load) - an SSD in standby wakes in milliseconds and is never left out
 #   2.29 Partner offices: a unit ticked for a partner that the partner hasn't agreed to keep (the Team Lead's
