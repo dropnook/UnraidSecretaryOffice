@@ -499,6 +499,7 @@
   "setup.step.write": "Schreiben",
   "setup.step.policies": "Policies",
   "setup.step.finish": "Abschluss",
+  "setup.step.partners": "Partner",
   "setup.step.other": "–",
   "setup.g_libvirt": "VM-Konfiguration (libvirt.img)",
   "setup.g_libvirt_hint": "XML, UEFI-Variablen und TPM-Zustand aller VMs und ihre Netzwerke — jede Nacht als kleines Archiv in die Backup-Ablage (server/), neben dem eigenen Paket jeder VM, damit geht es mit ihnen zu Kopia. Ohne das ist ein Umzug der VMs auf einen anderen Server mühsam.",

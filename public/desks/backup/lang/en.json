@@ -499,6 +499,7 @@
   "setup.step.write": "Write",
   "setup.step.policies": "Policies",
   "setup.step.finish": "Finish",
+  "setup.step.partners": "Partners",
   "setup.step.other": "–",
   "setup.g_libvirt": "VM configuration (libvirt.img)",
   "setup.g_libvirt_hint": "XML, UEFI variables and TPM state of all VMs, and their networks — every night as a small archive in the backup place (server/), besides each VM's own package, so it goes to Kopia with them. Without it, moving the VMs to another server is hard.",

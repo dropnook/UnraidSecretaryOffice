@@ -505,6 +505,7 @@
   "setup.step.write": "Escritura",
   "setup.step.policies": "Políticas",
   "setup.step.finish": "Final",
+  "setup.step.partners": "Socios",
   "setup.step.other": "–",
   "setup.g_libvirt": "Configuración de VMs (libvirt.img)",
   "setup.g_libvirt_hint": "XML, variables UEFI y estado del TPM de todas las VMs, y sus redes — cada noche como un pequeño archivo comprimido en el lugar de las copias (server/), además del paquete propio de cada VM, así que va a Kopia con ellos. Sin él, mover las VMs a otro servidor es difícil.",
