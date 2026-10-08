@@ -70,8 +70,12 @@ function officeIsHired(string $desk): bool
 function officeStaffAction(string $action, array $data): array
 {
     $desks = officeDesks();
-    $ids = $action === 'office.hire' ? (array) ($data['desks'] ?? []) : [(string) ($data['desk'] ?? '')];
-    $ids = array_values(array_unique(array_filter($ids, 'is_string')));
+    $ids = $action === 'office.hire' ? ($data['desks'] ?? []) : (array_key_exists('desk', $data) ? [$data['desk']] : []);
+    // only strings: anything else is refused, never cast or dropped quietly (QA 2026-10-08, finding 14)
+    if (!is_array($ids) || count($ids) > OFFICE_ORDER_MAX || count(array_filter($ids, 'is_string')) !== count($ids)) {
+        throw new OfficeProblem('bad_request', 400);
+    }
+    $ids = array_values(array_unique($ids));
     if (!$ids) {
         throw new OfficeProblem('missing_field', 400, ['field' => 'desks']);
     }

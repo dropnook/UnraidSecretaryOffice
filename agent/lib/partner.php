@@ -1515,10 +1515,10 @@ function partnerReceiveFrom(mixed $r, array $pools, array $offered): array
     }
     $units = array_values(array_filter((array) ($r['units'] ?? []), fn ($u) => is_string($u) && in_array($u, $offered, true)));
     $receive = [
-        'pool'      => (string) ($r['pool'] ?? ''),
+        'pool'      => is_string($r['pool'] ?? null) ? $r['pool'] : '',            // another type: refused below, naming the field
         'quota_gb'  => is_numeric($r['quota_gb'] ?? null) ? (int) $r['quota_gb'] : -1,
-        'retention' => trim((string) preg_replace('/\s+/', ' ', (string) ($r['retention'] ?? ''))),
-        'window'    => (string) ($r['window'] ?? ''),
+        'retention' => is_string($r['retention'] ?? null) ? trim((string) preg_replace('/\s+/', ' ', $r['retention'])) : '',
+        'window'    => is_string($r['window'] ?? null) ? $r['window'] : '',
         'wake'      => ($r['wake'] ?? null) === true,
         'units'     => array_values(array_unique($units)),
     ];
@@ -1551,7 +1551,7 @@ function partnerNewId(): string
 /** «Add a partner…»: look (what this server offers), do (an offer: id, key, BLOCK-A), show (BLOCK-A again) */
 function partner_add(array $r): array
 {
-    $step = (string) ($r['step'] ?? 'look');
+    $step = optText($r, 'step', 'look');
     if ($step === 'look') {
         return ['ok' => true, 'name' => partnerMyName(), 'addresses' => partnerMyAddresses(), 'port' => partnerMyPort(),
                 'units' => partnerUnits(), 'host_key' => partnerHostKeys() !== []];
@@ -1568,7 +1568,7 @@ function partner_add(array $r): array
         throw new Problem('bad_request');
     }
     [$address, $port] = partnerAddressFrom($r);
-    $trust = (string) ($r['trust'] ?? '');
+    $trust = optText($r, 'trust');
     if (!in_array($trust, PARTNER_TRUST, true)) {
         throw new Problem('partner_receive', ['field' => 'trust']);
     }
@@ -1608,7 +1608,7 @@ function partnerBlockA(array $offer): string
 /** The address and port this office gives its partner (a request's), checked */
 function partnerAddressFrom(array $r): array
 {
-    $address = trim((string) ($r['address'] ?? ''));
+    $address = trim(optText($r, 'address'));
     $port = is_numeric($r['port'] ?? null) ? (int) $r['port'] : 0;
     if (!partnerAddressValid($address)) {
         throw new Problem('partner_address');
@@ -1647,7 +1647,7 @@ function partner_accept(array $r): array
         throw new Problem('partner_block', ['field' => 'pub_key']);
     }
     $from = partnerFromList($a['address']);
-    $step = (string) ($r['step'] ?? 'look');
+    $step = optText($r, 'step', 'look');
     if ($step === 'look') {
         return ['ok' => true, 'partner' => partnerBlockFacts($a), 'pools' => partnerPools(), 'defaults' => PARTNER_DEFAULTS,
                 'line' => $from !== null ? partnerDoorLine($a['id'], $from, $a['pub_key']) : null,
@@ -1687,7 +1687,7 @@ function partner_accept(array $r): array
         throw new Problem('partner_nothing');
     }
     [$address, $port] = partnerAddressFrom($r);
-    $trust = (string) ($r['trust'] ?? '');
+    $trust = optText($r, 'trust');
     if (!in_array($trust, PARTNER_TRUST, true)) {
         throw new Problem('partner_receive', ['field' => 'trust']);
     }
@@ -1784,7 +1784,7 @@ function partner_finish(array $r): array
     }
     $code = partnerSafetyCode($offer['pub_key'], $b['pub_key'], $offer['host_keys'], $b['host_keys']);
     $from = partnerFromList($b['address']);
-    $step = (string) ($r['step'] ?? 'look');
+    $step = optText($r, 'step', 'look');
     if ($step === 'look') {
         return ['ok' => true, 'partner' => partnerBlockFacts($b), 'code' => $code, 'pools' => $b['units'] ? partnerPools() : [],
                 'defaults' => PARTNER_DEFAULTS, 'line' => $b['units'] && $from !== null ? partnerDoorLine($b['id'], $from, (string) $b['pub_key']) : null];
@@ -1859,7 +1859,7 @@ function partnerAskAndKeep(string $id): ?array
 /** The card's «Ask now» */
 function partner_ping(array $r): array
 {
-    $id = (string) ($r['id'] ?? '');
+    $id = optText($r, 'id');
     if (!preg_match(PARTNER_ID_RE, $id)) {
         throw new Problem('bad_request');
     }
@@ -1872,7 +1872,7 @@ function partner_ping(array $r): array
  */
 function partner_end(array $r): array
 {
-    $id = (string) ($r['id'] ?? '');
+    $id = optText($r, 'id');
     if (!preg_match(PARTNER_ID_RE, $id)) {
         throw new Problem('bad_request');
     }
@@ -1913,7 +1913,7 @@ function partner_end(array $r): array
  */
 function partner_change(array $r): array
 {
-    $id = (string) ($r['id'] ?? '');
+    $id = optText($r, 'id');
     if (!preg_match(PARTNER_ID_RE, $id)) {
         throw new Problem('bad_request');
     }
@@ -1924,7 +1924,7 @@ function partner_change(array $r): array
     if ($pair['my_key'] === null) {
         throw new Problem('partner_not_sending', ['name' => $pair['name']]);
     }
-    $step = (string) ($r['step'] ?? 'look');
+    $step = optText($r, 'step', 'look');
     $all = partnerUnits();
     if ($step === 'look') {
         return ['ok' => true, 'units' => $all, 'send_units' => $pair['send']['units'], 'wanted' => $pair['send']['wanted']];
@@ -1990,7 +1990,7 @@ function partner_change(array $r): array
  */
 function partner_wish(array $r): array
 {
-    $id = (string) ($r['id'] ?? '');
+    $id = optText($r, 'id');
     if (!preg_match(PARTNER_ID_RE, $id) || ($r['confirm'] ?? null) !== true) {
         throw new Problem('bad_request');
     }
@@ -2040,7 +2040,7 @@ function partner_wish(array $r): array
  */
 function partner_keep_less(array $r): array
 {
-    $id = (string) ($r['id'] ?? '');
+    $id = optText($r, 'id');
     if (!preg_match(PARTNER_ID_RE, $id) || ($r['confirm'] ?? null) !== true) {
         throw new Problem('bad_request');
     }
@@ -2449,7 +2449,7 @@ function partnerTicketsPublic(): array
 /** «Start from a partner's copy…» (the new server): look, do (a key and BLOCK-N), show (BLOCK-N again) */
 function partner_ticket_start(array $r): array
 {
-    $step = (string) ($r['step'] ?? 'look');
+    $step = optText($r, 'step', 'look');
     if ($step === 'look') {
         return ['ok' => true, 'name' => partnerMyName(), 'addresses' => partnerMyAddresses()];
     }
@@ -2464,7 +2464,7 @@ function partner_ticket_start(array $r): array
     if ($step !== 'do') {
         throw new Problem('bad_request');
     }
-    $address = trim((string) ($r['address'] ?? ''));
+    $address = trim(optText($r, 'address'));
     if (!partnerAddressValid($address)) {
         throw new Problem('partner_address');
     }
@@ -2494,7 +2494,7 @@ function partnerTicketBlockN(array $q): string
  */
 function partner_ticket_make(array $r): array
 {
-    $pairId = (string) ($r['pair'] ?? '');
+    $pairId = optText($r, 'pair');
     $pair = preg_match(PARTNER_ID_RE, $pairId) ? partnerPair($pairId) : null;
     if ($pair === null) {
         throw new Problem('partner_unknown');
@@ -2516,7 +2516,7 @@ function partner_ticket_make(array $r): array
     $from = partnerFromList($n['address']);
     $now = time();
     $expires = $now + PARTNER_TICKET_DAYS * 86400;
-    $step = (string) ($r['step'] ?? 'look');
+    $step = optText($r, 'step', 'look');
     if ($step === 'look') {
         return ['ok' => true, 'new' => ['id' => $n['id'], 'name' => $n['name'], 'address' => $n['address'], 'public' => !partnerAddressPrivate($n['address']),
                 'key' => partnerFingerprint($n['pub_key'])], 'of' => $pair['name'], 'units' => $pair['receive']['units'], 'expires' => $expires,
@@ -2602,7 +2602,7 @@ function partner_ticket_finish(array $r): array
 /** «End» a ticket: the holder's (its line and record), a new server's ticket pair (its key and pin), or a request */
 function partner_ticket_end(array $r): array
 {
-    $id = (string) ($r['id'] ?? '');
+    $id = optText($r, 'id');
     if (!preg_match(PARTNER_ID_RE, $id)) {
         throw new Problem('bad_request');
     }

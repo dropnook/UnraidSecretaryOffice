@@ -81,6 +81,23 @@ function textField(array $request, string $field): string
 }
 
 /**
+ * An optional text of a request: absent or null → $default, a string (≤ 1000 bytes) as it is — anything else (an array,
+ * a number) is refused (bad_request), never cast: `(string)` of an array is «Array» and a warning (QA 2026-10-08,
+ * findings 6 and 14).
+ */
+function optText(array $request, string $field, string $default = ''): string
+{
+    $value = $request[$field] ?? null;
+    if ($value === null) {
+        return $default;
+    }
+    if (!is_string($value) || strlen($value) > 1000) {
+        throw new Problem('bad_request');
+    }
+    return $value;
+}
+
+/**
  * A switch a setting is set by (`enabled`, `recursive` …): true or false, said — a missing key or anything else is
  * refused (bad_request), never read as «off» (QA 2026-10-08, finding 5).
  */

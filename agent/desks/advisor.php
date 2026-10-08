@@ -1434,7 +1434,8 @@ function advisorKopiaSpec(array $r, array $secret, array $k): array
         // ransomware protection: Object Lock in compliance mode, for so many days (only a new repository; the bucket must keep Object Lock)
         $days = $r['lock_days'] ?? null;
         if ($days !== null && $days !== '' && $days !== false && $days !== 0) {
-            if ($mode !== 'create' || !preg_match('/^\d{1,4}$/D', (string) $days) || (int) $days < ADVISOR_LOCK_MIN || (int) $days > ADVISOR_LOCK_MAX) {
+            if ($mode !== 'create' || !(is_int($days) || is_string($days)) || !preg_match('/^\d{1,4}$/D', (string) $days)
+                || (int) $days < ADVISOR_LOCK_MIN || (int) $days > ADVISOR_LOCK_MAX) {
                 throw new Problem('ad_kopia_field', ['field' => 'lock_days']);
             }
             $out['lock'] = ['mode' => 'COMPLIANCE', 'days' => (int) $days];

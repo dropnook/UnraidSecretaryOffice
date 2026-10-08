@@ -17475,13 +17475,82 @@ function testStrictSettings(): void
         && str_contains($plans, "\$skipAsleep = boolField(\$in, 'skip_asleep');") && str_contains($plans, '!is_int($keep) || !is_int($days)'));
 }
 
+/**
+ * Requests of the wrong type are refused, never cast (QA 2026-10-08, findings 6 and 14): Unraid's php.ini hides
+ * warnings (error_reporting 22517), so «Array to string conversion» never reached the agent's log. The agent reports
+ * everything now (error_reporting(E_ALL) in serve(), agentPhpError(): `@` still silences, the same one once an hour);
+ * the malformed requests qa1 sent — arrays where strings belong in partner_*, emby.output tool "../x", office.fire
+ * {"desk":["x"]}, ?a=state&desk[]=y — answer bad_request (or unknown_target) and raise no warning.
+ */
+function testRequestTypes(): void
+{
+    // the agent's handler: what it logs, what `@` silences, once an hour
+    $lines = [];
+    $log = function (string $l) use (&$lines): void { $lines[] = $l; };
+    $level = error_reporting(E_ALL);
+    agentPhpError(E_WARNING, 'Array to string conversion', '/x/partner.php', 1554, $log, 1000);
+    agentPhpError(E_WARNING, 'Array to string conversion', '/x/partner.php', 1554, $log, 1001);
+    agentPhpError(E_WARNING, 'Array to string conversion', '/x/partner.php', 1554, $log, 2000);
+    agentPhpError(E_NOTICE, 'something else', '/x/util.php', 7, $log, 2000);
+    agentPhpError(E_WARNING, 'Array to string conversion', '/x/partner.php', 1554, $log, 4700);
+    @agentPhpErrorSilenced($log);
+    error_reporting($level);
+    same('php errors: logged once an hour per place, then with how many came meanwhile', [
+        'PHP: Array to string conversion (partner.php:1554)', 'PHP: something else (util.php:7)',
+        'PHP: Array to string conversion (partner.php:1554) — 2 more within the hour before'], $lines);
+    $agent = (string) file_get_contents(OFFICE_DIR . '/agent/agent.php');
+    check('php errors: the agent reports everything from its start', ($e = strpos($agent, 'error_reporting(E_ALL);')) !== false
+        && $e < strpos($agent, "set_error_handler('agentPhpError');") && $e > strpos($agent, 'function serve(): int'));
+
+    // the agent's actions with what qa1 sent: refused, and no warning raised
+    $warned = [];
+    set_error_handler(function (int $no, string $t, string $f, int $l) use (&$warned): bool { $warned[] = "$t (" . basename($f) . ":$l)"; return true; });
+    $level = error_reporting(E_ALL);
+    $ask = fn (array $r): string => (string) (handle(json_encode($r))['error']['key'] ?? 'ok');
+    $answers = [];
+    foreach (['partner_add', 'partner_ticket_start'] as $a) {
+        $answers[] = $ask(['action' => "caretaker.$a", 'step' => ['x']]);
+        $answers[] = $ask(['action' => "caretaker.$a", 'step' => 'do', 'address' => ['x']]);
+    }
+    foreach (['partner_ping', 'partner_end', 'partner_change', 'partner_wish', 'partner_keep_less', 'partner_ticket_end'] as $a) {
+        $answers[] = $ask(['action' => "caretaker.$a", 'id' => ['x'], 'step' => 'look']);
+    }
+    $answers[] = $ask(['action' => 'caretaker.partner_ticket_make', 'pair' => ['x']]);
+    same('types: partner_* with arrays where strings belong — bad_request', array_fill(0, 11, 'bad_request'), $answers);
+    same('types: emby.output / emby.log of a tool he hasn\'t — refused, never read as EmbyCache', ['unknown_target', 'unknown_target'],
+        [$ask(['action' => 'emby.output', 'tool' => '../x']), $ask(['action' => 'emby.log', 'tool' => '../x'])]);
+    same('types: a text of the wrong type', ['bad_request', 'x', 'd'], [(function () { try { return optText(['a' => [1]], 'a'); } catch (Problem $p) { return $p->key; } })(),
+        optText(['a' => 'x'], 'a'), optText([], 'a', 'd')]);
+    error_reporting($level);
+    restore_error_handler();
+    same('types: … and not one warning', [], $warned);
+
+    // the web side: the query and the request
+    $web = shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg('require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; require '
+        . var_export(OFFICE_DIR . '/src/api.php', true) . '; error_reporting(E_ALL); $w = []; set_error_handler(function ($n, $t) use (&$w) { $w[] = $t; return true; });'
+        . ' $k = function (callable $f) { try { $f(); return "ok"; } catch (OfficeProblem $p) { return $p->key; } };'
+        . ' echo json_encode([$k(fn () => apiText(["desk" => ["y"]], "desk")), $k(fn () => apiText(["a" => ["state"]], "a")), apiText([], "lang", "en"),'
+        . ' $k(fn () => officeStaffAction("office.fire", ["desk" => ["x"]])), $k(fn () => officeStaffAction("office.hire", ["desks" => [["x"]]])),'
+        . ' $k(fn () => officeStaffAction("office.hire", ["desks" => "snapshot"])), $w]);') . ' 2>&1');
+    same('types: the web side refuses ?desk[]=y, {"a": [..]}, office.fire {"desk": ["x"]}, office.hire of non-strings — no warning',
+        ['bad_request', 'bad_request', 'en', 'bad_request', 'bad_request', 'bad_request', []], json_decode((string) $web, true) ?? $web);
+    $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
+    check('types: api.php reads its query and the action through apiText()', !preg_match('/\(string\) \(\$(_GET|data)\[/', $api));
+}
+
+/** For testRequestTypes(): a warning raised under `@` */
+function agentPhpErrorSilenced(callable $log): void
+{
+    agentPhpError(E_WARNING, 'silenced', '/x/y.php', 1, $log, 5000);
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testMigrate', 'testPlgGuard',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings'],
-          'hardening' => ['testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
+          'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testRunnerNames'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

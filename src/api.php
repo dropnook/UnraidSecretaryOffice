@@ -44,13 +44,13 @@ function api_main(): void
     try {
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
         if ($method === 'GET') {
-            match ((string) ($_GET['a'] ?? '')) {
-                'state'   => answerThenLook(apiState((string) ($_GET['desk'] ?? ''), apiLookMode($_GET))),
-                'part'    => answerThenLook(apiPart((string) ($_GET['desk'] ?? ''), (string) ($_GET['part'] ?? ''), apiLookMode($_GET))),
-                'strings' => apiStrings((string) ($_GET['lang'] ?? 'en')),
-                'places'  => apiPlaces((string) ($_GET['part'] ?? '')),
+            match (apiText($_GET, 'a')) {
+                'state'   => answerThenLook(apiState(apiText($_GET, 'desk'), apiLookMode($_GET))),
+                'part'    => answerThenLook(apiPart(apiText($_GET, 'desk'), apiText($_GET, 'part'), apiLookMode($_GET))),
+                'strings' => apiStrings(apiText($_GET, 'lang', 'en')),
+                'places'  => apiPlaces(apiText($_GET, 'part')),
                 'log'     => answer(['ok' => true, 'lines' => apiLogTail(400)]),
-                'dash'    => apiDash((string) ($_GET['lang'] ?? '')),
+                'dash'    => apiDash(apiText($_GET, 'lang')),
                 'agent'   => answer(['ok' => true, 'agent' => agentInfo()]),
                 default   => answer(['ok' => false, 'error' => ['key' => 'bad_request']], 404),
             };
@@ -61,7 +61,7 @@ function api_main(): void
 
         checkOrigin();
         $data = json_decode((string) file_get_contents('php://input', false, null, 0, 1 << 20), true, 16);
-        $action = is_array($data) ? (string) ($data['a'] ?? '') : '';
+        $action = is_array($data) ? apiText($data, 'a') : '';
         if ($action === 'office.hire' || $action === 'office.fire') {
             answer(officeStaffAction($action, $data));
         }
@@ -113,6 +113,19 @@ function api_main(): void
         error_log('UnraidSecretaryOffice: ' . $e);
         answer(['ok' => false, 'error' => ['key' => 'internal', 'params' => ['detail' => $e->getMessage()]]], 500);
     }
+}
+
+/**
+ * A text of the query or the request: absent → $default, a string as it is — anything else (`?desk[]=y`, `{"a": [..]}`) is
+ * refused (bad_request), never cast: «Array» and a warning (QA 2026-10-08, finding 14).
+ */
+function apiText(array $from, string $key, string $default = ''): string
+{
+    $value = $from[$key] ?? $default;
+    if (!is_string($value)) {
+        throw new OfficeProblem('bad_request', 400);
+    }
+    return $value;
 }
 
 /** A desk's state, at once — older than its refresh_after the agent looks again (apiLook()) */

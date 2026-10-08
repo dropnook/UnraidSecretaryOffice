@@ -57,7 +57,7 @@ desk('emby', [
     'start'   => fn () => embyScan(),
     'actions' => [
         'refresh'      => fn (array $r) => ['ok' => true, 'state' => embyScan()],
-        'connect'      => fn (array $r) => embyConnect(textField($r, 'url'), (string) ($r['api_key'] ?? '')),
+        'connect'      => fn (array $r) => embyConnect(textField($r, 'url'), optText($r, 'api_key')),
         'save'         => fn (array $r) => embySave($r['settings'] ?? null),
         'gather_save'  => fn (array $r) => embyGatherSave($r['gather'] ?? null),
         'start_run'    => fn (array $r) => embyStart('embycache', textField($r, 'mode')),
@@ -506,8 +506,11 @@ function embySave(mixed $in): array
     $cur = embyReadSettings() ?? [];
     $instances = [];
     foreach ((array) ($in['instances'] ?? []) as $i) {
-        $url = rtrim((string) ($i['url'] ?? ''), '/');
-        $key = trim((string) ($i['api_key'] ?? '')) ?: embyStoredKey($url);
+        if (!is_array($i)) {
+            throw new Problem('bad_request');
+        }
+        $url = rtrim(optText($i, 'url'), '/');
+        $key = trim(optText($i, 'api_key')) ?: embyStoredKey($url);
         if (!preg_match('#^https?://\S+$#D', $url) || !preg_match('/^[A-Za-z0-9]{8,128}$/D', $key)) {
             throw new Problem('emby_need_key');
         }
@@ -517,7 +520,7 @@ function embySave(mixed $in): array
                 $maps[rtrim($from, '/')] = rtrim($to, '/');        // '' = this folder deliberately not cached
             }
         }
-        $name = mb_substr(trim((string) ($i['servername'] ?? '')), 0, 60) ?: 'Emby' . (count($instances) + 1);
+        $name = mb_substr(trim(optText($i, 'servername')), 0, 60) ?: 'Emby' . (count($instances) + 1);
         $instances[] = ['servername' => $name, 'url' => $url, 'api_key' => $key, 'path_mappings' => $maps];
     }
     if (!$instances) {
@@ -545,7 +548,7 @@ function embySave(mixed $in): array
     $budgets = (array) ($in['user_budgets'] ?? []);
     foreach ((array) ($in['valid_users'] ?? []) as $id) {
         if (is_string($id) && preg_match('/^[\w-]{1,64}$/D', $id)) {
-            $b = trim((string) ($budgets[$id] ?? ''));
+            $b = trim(optText($budgets, $id));
             if ($b !== '' && !preg_match('/^\d+(\.\d+)?\s*[KMGTP]?B?$/iD', $b)) {
                 throw new Problem('emby_bad_size', ['value' => $b]);
             }
@@ -2212,10 +2215,18 @@ function embyRemember(array $entry): void
     fclose($lock);
 }
 
+/** One of his two tools — anything else is refused, never read as EmbyCache (QA 2026-10-08, finding 14: «../x» answered ok) */
+function embyToolKnown(string $tool): void
+{
+    if (!in_array($tool, ['embycache', 'gather'], true)) {
+        throw new Problem('unknown_target', ['target' => mb_substr($tool, 0, 40)]);
+    }
+}
+
 /** The output of the last run of a tool, as plain text */
 function embyOutput(string $tool): array
 {
-    $tool = $tool === 'gather' ? 'gather' : 'embycache';
+    embyToolKnown($tool);
     $text = (string) @file_get_contents(embyToolDir($tool) . '/office-output.txt', false, null, 0, 2 * 1024 * 1024);
     return ['ok' => true, 'info' => embyJobInfo($tool), 'text' => embyPlainOutput($text)];
 }
@@ -2244,6 +2255,7 @@ function embyPlainOutput(string $text): string
 
 function embyLog(string $tool): array
 {
+    embyToolKnown($tool);
     $file = $tool === 'gather' ? GATHER_DATA . '/consolidate.log' : EMBY_DATA . '/logs/embycache.log';
     $size = (int) @filesize($file);
     $h = @fopen($file, 'r');

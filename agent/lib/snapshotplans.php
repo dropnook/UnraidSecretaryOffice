@@ -207,11 +207,11 @@ function snapPlanSave(mixed $in): array
         throw new Problem('missing_field', ['field' => 'plan']);
     }
     $plans = snapPlans();
-    $label = trim((string) ($in['label'] ?? ''));
+    $label = trim(optText($in, 'label'));
     if ($label === '' || mb_strlen($label) > 40) {
         throw new Problem('plan_bad_label');
     }
-    $id = (string) ($in['id'] ?? '');
+    $id = optText($in, 'id');                      // '' or none: a new plan; anything but a string refused, never «new»
     $isNew = $id === '';
     if ($isNew) {
         $base = trim(preg_replace('/[^a-z0-9]+/', '-', strtolower(strtr($label, ['ä' => 'ae', 'ö' => 'oe', 'ü' => 'ue', 'Ä' => 'ae', 'Ö' => 'oe', 'Ü' => 'ue', 'ß' => 'ss']))), '-');
@@ -231,7 +231,7 @@ function snapPlanSave(mixed $in): array
         throw new Problem('plan_unknown', ['id' => $id]);
     }
 
-    $cron = preg_replace('/\s+/', ' ', trim((string) ($in['cron'] ?? '')));
+    $cron = preg_replace('/\s+/', ' ', trim(optText($in, 'cron')));
     if (!cronValid($cron)) {
         throw new Problem('bad_cron', ['cron' => $cron]);
     }

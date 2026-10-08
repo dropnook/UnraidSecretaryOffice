@@ -114,6 +114,33 @@ function main(array $argv): int
     return 2;
 }
 
+/**
+ * The agent's PHP warnings, notices and deprecations (set_error_handler() in serve()): one line «PHP: <text> (<file>:<line>)»
+ * in its log — what `@` silenced stays out (error_reporting() is lowered for that call). The same one at the same place
+ * once an hour (a tick runs every 150 ms: a warning there would fill the log), then with how often it came meanwhile.
+ * $log: the tests' own (else logLine()); $now likewise.
+ */
+function agentPhpError(int $no, string $text, string $file, int $line, ?callable $log = null, ?int $now = null): bool
+{
+    static $seen = [];
+    if (!(error_reporting() & $no)) {
+        return true;
+    }
+    $now ??= time();
+    $key = "$no|$file|$line|$text";
+    $was = $seen[$key] ?? null;
+    if ($was !== null && $now - $was[0] < 3600) {
+        $seen[$key][1]++;
+        return true;
+    }
+    if (count($seen) > 200) {
+        $seen = array_slice($seen, -100, null, true);     // bounded: the oldest go
+    }
+    $seen[$key] = [$now, 0];
+    ($log ?? 'logLine')('PHP: ' . mb_substr($text, 0, 300) . ' (' . basename($file) . ":$line)" . ($was !== null && $was[1] > 0 ? " — {$was[1]} more within the hour before" : ''));
+    return true;
+}
+
 function runningAgent(): ?int
 {
     $pid = (int) @file_get_contents(PID_FILE);
@@ -241,12 +268,11 @@ function serve(): int
     foreach ([SIGTERM, SIGINT, SIGHUP] as $signal) {
         pcntl_signal($signal, function () use (&$stop) { $stop = true; });
     }
-    set_error_handler(function (int $no, string $text, string $file, int $line): bool {
-        if (error_reporting() & $no) {      // things silenced with @ stay out of the log
-            logLine("PHP: $text (" . basename($file) . ":$line)");
-        }
-        return true;
-    });
+    // Unraid's php.ini has error_reporting = 22517 (no warnings, notices or deprecations): the agent's «PHP:» lines
+    // could never fire (QA 2026-10-08, finding 6). Everything is reported now — `@` still silences (PHP 8 lowers the
+    // level for the call), and the same warning at the same place goes into the log once an hour (agentPhpError())
+    error_reporting(E_ALL);
+    set_error_handler('agentPhpError');
 
     $code = codeStamp();
     $ready = false;
