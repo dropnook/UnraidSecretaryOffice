@@ -7717,6 +7717,81 @@ function testNotify(): void
 }
 
 /**
+ * «I know, thanks» and what a finding says (upgrade audit proposal 9): the team lead's note is keyed by the finding's
+ * level, params and English texts — a note given for params A stays for A and doesn't count for B; an update that
+ * changes what the finding says or recommends brings it back (once: noted again, it stays away); the same texts keep it
+ * noted across a plain version bump. Notes from before (their sig without the texts) are taken over at the next tour
+ * as given for today's texts — nothing re-opens by the change itself; the partner watch's job reads both. The night
+ * watchman's posture tips likewise: a note keeps what the tip said (`text`), an older one gets it at his next round.
+ */
+function testAckContent(): void
+{
+    $f = fn (array $p, string $level = 'recommended') => finding('other_backup_container', $level, false, $p);
+    $A = ['name' => 'duplicati', 'image' => 'x'];
+    $B = ['name' => 'borg', 'image' => 'x'];
+    $t1 = ['Other backup containers', 'Know what runs twice.'];
+    $t2 = ['Other backup containers', 'Switch one of them off — two tools on the same data fight over it.'];
+    $sig = fn (array $p, array $t) => caretakerAckSig('caretaker', $f($p), $t);
+    same('ack content: the same params and texts — the same sig (a plain version bump keeps the note)', $sig($A, $t1), $sig($A, $t1));
+    check('ack content: other params — another sig', $sig($A, $t1) !== $sig($B, $t1));
+    check('ack content: what it says or recommends changed — another sig', $sig($A, $t1) !== $sig($A, $t2) && $sig($A, $t1) !== $sig($A, [$t1[0], null]));
+    check('ack content: shaped for the action', (bool) preg_match(CARETAKER_ACK_SIG, $sig($A, $t2)));
+    $texts = caretakerAckTexts('caretaker', 'other_backup_container');
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/caretaker/lang/en.json'), true) ?: [];
+    same('ack content: the texts are the desk\'s English check.<id> and check.<id>_how', [$en['check.other_backup_container'] ?? 'missing', $en['check.other_backup_container_how'] ?? null], $texts);
+    same('ack content: … by default', caretakerAckSig('caretaker', $f($A), $texts), caretakerAckSig('caretaker', $f($A)));
+
+    // a note recorded against params A: valid for A, not for B
+    $t0 = 1_800_000_000;
+    $note = ['desk' => 'caretaker', 'id' => 'other_backup_container', 'time' => $t0, 'seen' => $t0, 'v' => 2];
+    $acks = [caretakerAckSig('caretaker', $f($A)) => $note];
+    [$m] = caretakerAckStep(['caretaker' => [$f($A)]], $acks, $t0 + 60);
+    same('ack content: noted for params A — A stays noted', true, $m['caretaker'][0]['acked'] ?? false);
+    [$m, $kept] = caretakerAckStep(['caretaker' => [$f($B)]], $acks, $t0 + 60);
+    same('ack content: … B is not (shown again)', false, $m['caretaker'][0]['acked'] ?? false);
+    check('ack content: … the note for A is no note for B', !isset($kept[caretakerAckSig('caretaker', $f($B))]));
+
+    // a note from before 1.44: its sig without the texts — taken over at the next tour, nothing comes back
+    $legacy = caretakerAckSig('caretaker', $f($A), null, true);
+    check('ack content: the old sig differs from the new', $legacy !== caretakerAckSig('caretaker', $f($A)));
+    $oldNote = ['desk' => 'caretaker', 'id' => 'other_backup_container', 'time' => $t0, 'seen' => $t0];
+    $tmp = hardeningTmp('ackcontent');
+    $file = "$tmp/caretaker/acks.json";
+    caretakerWrite($file, ['acks' => [$legacy => $oldNote]]);
+    same('ack content: an old note reads as v 1', 1, caretakerAckRead($file)[$legacy]['v'] ?? null);
+    check('ack content: the partner watch\'s job counts an old note before any tour', caretakerAckHas(caretakerAckRead($file), 'caretaker', $f($A))
+        && !caretakerAckHas(caretakerAckRead($file), 'caretaker', $f($B)));
+    $m = caretakerAckApply(['caretaker' => [$f($A)]], $file, $t0 + 60);
+    $read = caretakerAckRead($file);
+    same('ack content: the tour takes it over — still noted, now under the new sig (v 2), the old key gone',
+        [true, [caretakerAckSig('caretaker', $f($A))], 2, $t0], [$m['caretaker'][0]['acked'] ?? false, array_keys($read), $read[caretakerAckSig('caretaker', $f($A))]['v'] ?? null,
+         $read[caretakerAckSig('caretaker', $f($A))]['time'] ?? null]);
+    caretakerWrite($file, ['acks' => [$legacy => $oldNote]]);
+    $m = caretakerAckApply(['caretaker' => [$f($B)]], $file, $t0 + 60);
+    same('ack content: an old note for params A is not taken over for B', [false, [$legacy]], [$m['caretaker'][0]['acked'] ?? false, array_keys(caretakerAckRead($file))]);
+    caretakerWrite($file, ['acks' => [caretakerAckSig('caretaker', $f($A), $t1) => $note]]);
+    $m = caretakerAckApply(['caretaker' => [$f($A)]], $file, $t0 + 60);
+    same('ack content: a note given when the texts said something else — shown again', false, $m['caretaker'][0]['acked'] ?? false);
+    hardeningRm($tmp);
+
+    // the night watchman's posture tips
+    $tip = ['id' => 'telnet', 'sig' => 'abc', 'p' => []];
+    $say = fn (string $v) => fn (string $id) => "$id:$v";
+    same('posture content: noted when it said this — known', true, watchmanPostureIsKnown($tip, ['acks' => ['telnet' => ['sig' => 'abc', 'text' => 'telnet:1']]], $say('1')));
+    same('posture content: the update changed what it says — shown again', false, watchmanPostureIsKnown($tip, ['acks' => ['telnet' => ['sig' => 'abc', 'text' => 'telnet:1']]], $say('2')));
+    same('posture content: about something else (its sig) — shown again, as before', false, watchmanPostureIsKnown($tip, ['acks' => ['telnet' => ['sig' => 'xyz', 'text' => 'telnet:1']]], $say('1')));
+    same('posture content: an old note without text — known', true, watchmanPostureIsKnown($tip, ['acks' => ['telnet' => ['sig' => 'abc', 'time' => 5]]], $say('2')));
+    same('posture content: his round takes an old note over with today\'s text, keeps a newer one\'s',
+        ['acks' => ['telnet' => ['sig' => 'abc', 'time' => 5, 'text' => 'telnet:2'], 'ftp' => ['sig' => 'f', 'time' => 6, 'text' => 'ftp:1']]],
+        watchmanPostureKnown(['acks' => ['telnet' => ['sig' => 'abc', 'time' => 5], 'ftp' => ['sig' => 'f', 'time' => 6, 'text' => 'ftp:1'], 'gone' => ['sig' => 'g']]],
+            [$tip, ['id' => 'ftp', 'sig' => 'f']], $say('2')));
+    $w = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/watchman/lang/en.json'), true) ?: [];
+    check('posture content: the text is what the page shows (title and why)', isset($w['posture.telnet.title'], $w['posture.telnet.why'])
+        && watchmanPostureText('telnet') === substr(sha1(jsonEncode([$w['posture.telnet.title'], $w['posture.telnet.why']])), 0, 16)
+        && watchmanPostureText('telnet') !== watchmanPostureText('ftp'));
+}
+
+/**
  * The team lead's «I know, thanks»: what a finding's signature depends on,
  * which findings get marked (never a must), how the notes are kept tidy, the
  * file on a copy — and the Dashboard tile counting only what is open, and
@@ -18297,7 +18372,7 @@ function agentPhpErrorSilenced(callable $log): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings'],

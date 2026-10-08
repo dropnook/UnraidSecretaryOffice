@@ -3711,24 +3711,48 @@ function watchmanPosture(array $f, array $seen, array $prev = []): array
 
 /**
  * His «I know, thanks» on posture tips (posture.json), kept only for tips that are still there — one
- * that went is forgotten, so it is told again when it comes back. Null: no file and nothing to keep.
+ * that went is forgotten, so it is told again when it comes back. Each with what the tip said then (`text`,
+ * watchmanPostureText()): a note from before 1.44 has none — it gets today's (taken over as given for what the tip
+ * says now: nothing comes back by this change itself). Null: no file and nothing to keep. $texts for the tests.
  */
-function watchmanPostureKnown(?array $file, array $tips): ?array
+function watchmanPostureKnown(?array $file, array $tips, ?callable $texts = null): ?array
 {
+    $texts ??= 'watchmanPostureText';
     $ids = array_column($tips, 'id');
     $acks = [];
     foreach ((array) ($file['acks'] ?? []) as $id => $a) {
         if (in_array((string) $id, $ids, true) && is_array($a) && is_string($a['sig'] ?? null)) {
-            $acks[(string) $id] = ['sig' => $a['sig'], 'time' => (int) ($a['time'] ?? 0)];
+            $acks[(string) $id] = ['sig' => $a['sig'], 'time' => (int) ($a['time'] ?? 0),
+                                   'text' => is_string($a['text'] ?? null) ? $a['text'] : $texts((string) $id)];
         }
     }
     return $file === null && !$acks ? null : ['acks' => $acks];
 }
 
-/** A tip you know about: thanked for, and still about the same */
-function watchmanPostureIsKnown(array $tip, ?array $file): bool
+/**
+ * A tip you know about: thanked for, still about the same (its sig) and still saying the same (upgrade audit proposal
+ * 9: an update that changes what the tip says or advises brings it back once; a note without `text` — from before
+ * 1.44, until his next round takes it over — counts as the same)
+ */
+function watchmanPostureIsKnown(array $tip, ?array $file, ?callable $texts = null): bool
 {
-    return ($file['acks'][$tip['id']]['sig'] ?? null) === $tip['sig'];
+    $a = $file['acks'][$tip['id']] ?? null;
+    if (!is_array($a) || ($a['sig'] ?? null) !== $tip['sig']) {
+        return false;
+    }
+    return !is_string($a['text'] ?? null) || $a['text'] === ($texts ?? 'watchmanPostureText')((string) $tip['id']);
+}
+
+/** What a posture tip says: a short hash of its English posture.<id>.title and .why (the page's words for it) */
+function watchmanPostureText(string $id): string
+{
+    static $en = null, $stamp = null;
+    $file = OFFICE_WEB . '/desks/watchman/lang/en.json';
+    $now = (int) @filemtime($file);
+    if ($en === null || $stamp !== $now) {
+        [$en, $stamp] = [readJson($file) ?? [], $now];
+    }
+    return substr(sha1(jsonEncode([$en["posture.$id.title"] ?? null, $en["posture.$id.why"] ?? null])), 0, 16);
 }
 
 /**
@@ -3756,7 +3780,7 @@ function watchmanPostureAck(mixed $id, mixed $on, ?string $dir = null, ?int $now
         $old = readJson("$dir/posture.json");
         $new = ['acks' => (array) ($old['acks'] ?? [])];
         if ($on) {
-            $new['acks'][$id] = ['sig' => $tip['sig'], 'time' => $now];
+            $new['acks'][$id] = ['sig' => $tip['sig'], 'time' => $now, 'text' => watchmanPostureText($id)];
         } else {
             unset($new['acks'][$id]);
         }
