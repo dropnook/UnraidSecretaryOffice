@@ -177,6 +177,14 @@ active, `backup/` is left alone.
   `public/`, a RAM folder of their own and stand-ins for zfs, docker, ssh and Kopia — never the plugin's data folder,
   never the live agent. PHP syntax with `php -l`, shell with `bash -n`; there is no Node on the dev Mac, so JS syntax
   goes through `osascript -l JavaScript` (CLAUDE.md, «Checklist for a change»).
+* **Reports to the makers** (*⋯ → Report a problem or a wish…*): the inbox is `OFFICE_FEEDBACK_URL` in
+  `src/place.php` (shared by the web side and the agent; `''` hides the feature), a Cloudflare Worker in the private
+  repository `dropnook/uso-support` (`feedback/`, its SETUP.md has the request's exact shape) that opens an issue in
+  the private `dropnook/uso-inbox`. To test against a Worker of your own (e.g. `wrangler dev` on your machine) put
+  `FEEDBACK_URL="http://<host>:<port>"` into `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cfg`
+  (scheme, host and port only; read at every send, no restart) and remove the line afterwards. The dialog's other ways:
+  `OFFICE_ISSUES_URL` and `OFFICE_FORUM_URL` (`''` = not shown) in `src/bootstrap.php`. Tests: `testReport` (scrubber,
+  label map, a stand-in inbox with `php -S`), `testReportDialog` (node).
 * **The package:** `bash plugin/build.sh <office-version>` builds `dist/unraid-secretary-office-<date>.txz` and
   `dist/unraid-secretary-office.plg`; it refuses when `OFFICE_VERSION` (src/bootstrap.php) and `AGENT_VERSION`
   (agent/agent.php) don't match the version. The plugin's own version is a date (Unraid compares with `strcmp`).

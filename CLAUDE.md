@@ -604,6 +604,27 @@ never at the reception or on the Dashboard. Keys come from the support page (`OF
 [YYYY-MM-DD]` (private key on Benj's Mac only, `~/.config/uso-supporter/`; never in the repo or on a server).
 `OFFICE_SPONSOR_URL` adds a GitHub Sponsors button.
 
+**Reports** (Benj, 2026-10-08 — «Report a problem or a wish…», briefs/uso-feedback-concept.md; German «die
+Rückmeldung», see «Words»): ⋯ → «Report a problem or a wish…» on every page (the desk shown pre-filled) and a quiet
+`btn small plain` at the Team Lead's «The team» (the office as a whole) open `Office.reportDialog()` (core.js) — only
+with an inbox (`CONFIG.report`). The agent answers `office.report_preview|report_send|reports` itself
+(`agent/lib/report.php`, `officeAgentActions()`; api.php `OFFICE_AGENT_ACTIONS`: no desk, never «not hired»). Rules:
+**never a request without the user's click on «Send»** — the preview asks nobody, it keeps exactly what goes in RAM
+(`RUN_DIR/report/<token>.json`, 0600, 10 min) and the send takes only that (the words must be the previewed ones,
+unticked parts dropped, one send per token — a second gets the first's answer); **the scrubber** (`reportScrub()`) over
+every log line and error param — secrets → •••, mails, paths by structure (`logsNormalizePaths()` with a replacement;
+Unraid's own shares stay, others ‹share-N›, pools ‹pool-N›), the server, partners, users, addresses, MACs, tokens,
+UUIDs; idempotent; the user's own words never scrubbed, only hinted at; **the caps**: `REPORT_CAP_WEEK` (2) in 7 days
+from `data/office/reports.json` (0600, `{v, reports:[{number, url, kind, title, desk, sent, rid}], closed_until}`, a
+tolerant writer) before any request, a «closed» answer remembered a day — the Worker is binding; **the inbox**:
+`OFFICE_FEEDBACK_URL` (src/place.php, shared), overridable by `FEEDBACK_URL="http://…"` in the plugin's .cfg
+(`officeFeedbackUrl()`: scheme, host, port only; http only then) — curl through `hostNet()`, https only otherwise, 20 s,
+no redirects, the body from a 0600 file; the Worker (dropnook/uso-support `feedback/`) answers by `error` — mapped to
+`errors.report_closed|week|busy|refused|failed` + `report_offline`, `report_stale`, `report_incomplete`, never its
+text; **the ID**: `sha256("uso-report:" + GUID)` in `data/office/report-id` (0600, made once) — never the supporter
+ID. **A desk's log lines** come by its labels (`REPORT_LOG_LABELS`, the start of a line's text, plus «<id>:»): a new
+`logLine()` of a desk starts with one of them (`testReport` greps every one). Tests: `testReport`, `testReportDialog`.
+
 **Pictures:** every desk has its own drawing, `public/desks/<id>/avatar.svg`
 (64×64, flat, thick shapes, outlined where a light part meets a light theme;
 the reception's is `assets/reception.svg`, a desk bell filling its square; the plugin icon in
@@ -674,6 +695,7 @@ it *il* backup).
 | a Docker template | template | das Template (not Vorlage) | il template | le modèle | la plantilla | all |
 | a log | log | das Protokoll (not Log) | il log | le journal | el registro | all; it *registro* is the watch book |
 | Unraid's bell | notifications | die Benachrichtigungen (what a desk sends there: eine Meldung) | le notifiche | les notifications | las notificaciones | all |
+| what the user sends the makers · its menu item | report · Report a problem or a wish… | die Rückmeldung (not Meldung: that is Unraid's bell) · Problem oder Wunsch mitteilen… | la segnalazione · Segnala un problema o un desiderio… | le signalement · Signaler un problème ou un souhait… | el comentario · Contar un problema o un deseo… | office, caretaker |
 | ZFS dataset · Emby's key | dataset · API key | das Dataset · der API-Schlüssel | il dataset · la chiave API | le dataset · la clé API | el dataset · la clave API | all |
 | another office that keeps copies · to pair · its key in authorized_keys · the code compared | partner office (the partner) · pair · the door · safety code | das Partner-Sekretariat (der Partner) · verbinden · die Tür · der Sicherheitscode | la segreteria partner (il partner) · abbinare · la porta · il codice di sicurezza | le secrétariat partenaire (le partenaire) · appairer · la porte · le code de sécurité | la secretaría asociada (el socio) · emparejar · la puerta · el código de seguridad | caretaker, backup, restore, watchman |
 | what a partner keeps of mine · pulling it back · a new server's first step · the temporary door | At <partner> · Bring back (from <partner>) · Start from a partner's copy… · (restore) ticket | Beim Partner <name> · Vom Partner zurückholen (die Rückholung) · Von der Kopie eines Partners starten… · das Ticket | Presso <partner> · Recupera (il recupero) · Parti dalla copia di un partner… · il ticket | Chez <partenaire> · Rapatrier (le rapatriement) · Partir de la copie d'un partenaire… · le ticket | En <socio> · Traer (la transferencia) · Empezar desde la copia de un socio… · el ticket | restore, caretaker, watchman |

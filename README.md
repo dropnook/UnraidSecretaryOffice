@@ -134,7 +134,7 @@ yourself if you don't want them any more.
 
 Nothing leaves the server unless you set it up: Kopia to the storage you chose, partner offices to the partner. The
 office itself only asks GitHub once a day whether a new version is out, and checks logo addresses for containers
-without a picture. No account, no telemetry. The desks never wake a sleeping disk unless you ask; the nightly
+without a picture — and sends a report only when you send one yourself (below). No account, no telemetry. The desks never wake a sleeping disk unless you ask; the nightly
 backup does, unless you tell it to leave sleeping pools out.
 
 ![Ms. Dustdevil's «Where is what»](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/cleanup-where.png)
@@ -190,7 +190,24 @@ numbers go there too, with a ready Grafana dashboard. Details: [docs/DEVELOPMENT
 The office is free and complete — nothing is locked, now or later. If it is useful to you, a tip is welcome: the tip
 jar in the office (the Team Lead's *Tips & pay rise*) or [PayPal](https://paypal.me/dropnook); a share goes to
 helmi1987 (see below). If the tips ever exceed what our work costs, we give the rest to animal shelters that urgently
-need financial support. Questions and bugs: [GitHub issues](https://github.com/dropnook/UnraidSecretaryOffice/issues).
+need financial support. Questions and bugs: [GitHub issues](https://github.com/dropnook/UnraidSecretaryOffice/issues),
+or without an account from inside the office (*⋯ → Report a problem or a wish…*, above).
+
+## Reporting a problem or a wish
+
+No GitHub account needed: *⋯ → Report a problem or a wish…* on any page (or the button at the Team Lead's *The team*).
+Say what it is — a problem, a wish or a question — which desk it is about, a title and a few words; a name you use in
+the [Unraid forum](https://forums.unraid.net) if you'd like an answer there. *Show what will be sent…* then lists
+everything that would go, part by part: your words as you typed them, the office's and Unraid's versions, the
+languages, which desks you hired, the desk's last error, and its last lines from the messenger's log — cleaned of share,
+pool, server, partner and user names, paths, addresses, MAC addresses, e-mail addresses and keys (you see what was
+hidden). Untick what you'd rather keep. Nothing leaves the server before you click *Send*.
+
+It goes to the office's makers, into a private inbox on GitHub — not public; the makers, GitHub and Cloudflare (who
+carries it) can read it. Each office can send two reports a week; you get a number, and *Your reports* keeps the list.
+To talk something over with others, use the
+[GitHub issues](https://github.com/dropnook/UnraidSecretaryOffice/issues) (and the forum thread, once there is one —
+the dialog links it then).
 
 ## Thanks
 
