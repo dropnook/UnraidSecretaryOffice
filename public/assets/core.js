@@ -49,6 +49,19 @@ Office.el = el;
 Office.safeHref = (url) => (typeof url === 'string' && /^(#|\/(?![\/\\])|https?:\/\/)/i.test(url) ? url : null);
 /** The office's own element: everything it shows lives in it (office.css styles nothing outside) */
 const ROOT = $('#sso');
+/**
+ * size-switch: where a box fixed inside #sso stands is said in the office's own px — under the text-size switch's zoom
+ * (size-switch.css) not the window's. w, h: the window in those px; k: what a getBoundingClientRect or a mouse position
+ * is divided by to get there (Chrome and Firefox give them in the window's px, Safari already in the element's own).
+ * Without zoom the window as it is and 1 — the menu, the tips and the search palette place themselves with it.
+ */
+function fixedSpace() {
+  const z = parseFloat(getComputedStyle(ROOT).zoom) || 1;
+  if (z === 1) return { w: window.innerWidth, h: window.innerHeight, k: 1 };
+  const ratio = ROOT.offsetWidth ? ROOT.getBoundingClientRect().width / ROOT.offsetWidth : z;
+  return { w: window.innerWidth / z, h: window.innerHeight / z, k: Math.abs(ratio - 1) < Math.abs(ratio - z) ? 1 : z };
+}
+Office.fixedSpace = fixedSpace;
 
 Office.store = function store(key, value) {
   try {
@@ -708,14 +721,14 @@ Office.menu = function menu(event, items) {
   });
   box.hidden = false;
 
-  let x = event.clientX, y = event.clientY;
+  const s = fixedSpace();       // the office's own px (the text-size switch's zoom)
+  let x = event.clientX / s.k, y = event.clientY / s.k;
   if ((!x && !y) || event.detail === 0) {
     const r = event.currentTarget.getBoundingClientRect();
-    x = r.right - 200; y = r.bottom + 4;
+    x = r.right / s.k - 200; y = r.bottom / s.k + 4;
   }
-  const rect = box.getBoundingClientRect();
-  x = Math.min(x, window.innerWidth - rect.width - 8);
-  y = Math.min(y, window.innerHeight - rect.height - 8);
+  x = Math.min(x, s.w - box.offsetWidth - 8);
+  y = Math.min(y, s.h - box.offsetHeight - 8);
   box.style.left = Math.max(8, x) + 'px';
   box.style.top = Math.max(8, y) + 'px';
   const first = box.querySelector('button:not(:disabled)');
@@ -939,10 +952,12 @@ function showTip(node, pinned) {
   tipBox.hidden = false;
   tipFor = node;
   tipPinned = pinned;
-  const r = node.getBoundingClientRect();
+  const s = fixedSpace();       // the office's own px (the text-size switch's zoom)
+  const b = node.getBoundingClientRect();
+  const r = { left: b.left / s.k, top: b.top / s.k, bottom: b.bottom / s.k };
   const w = tipBox.offsetWidth, h = tipBox.offsetHeight;
-  const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
-  const below = r.bottom + 6 + h <= window.innerHeight - 8;
+  const left = Math.max(8, Math.min(r.left, s.w - w - 8));
+  const below = r.bottom + 6 + h <= s.h - 8;
   tipBox.style.left = left + 'px';
   tipBox.style.top = (below ? r.bottom + 6 : Math.max(8, r.top - 6 - h)) + 'px';
 }
@@ -2688,10 +2703,12 @@ function closePalette(refocus) {
 /** Under the magnifier, right-aligned to it; on a phone the screen's width */
 function placePalette() {
   const b = $('#sso-search');
-  const r = b && b.getBoundingClientRect ? b.getBoundingClientRect() : { bottom: 0, right: window.innerWidth };
-  const w = Math.min(560, window.innerWidth - 16);
+  const s = fixedSpace();       // the office's own px (the text-size switch's zoom)
+  const br = b && b.getBoundingClientRect ? b.getBoundingClientRect() : null;
+  const r = br ? { bottom: br.bottom / s.k, right: br.right / s.k } : { bottom: 0, right: s.w };
+  const w = Math.min(560, s.w - 16);
   palette.box.style.width = w + 'px';
-  palette.box.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
+  palette.box.style.left = Math.max(8, Math.min(r.right - w, s.w - w - 8)) + 'px';
   palette.box.style.top = Math.max(8, r.bottom + 6) + 'px';
 }
 

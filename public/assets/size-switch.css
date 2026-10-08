@@ -23,6 +23,17 @@
 #sso[data-size=medium]{zoom:1.15; --zoom:1.15}
 #sso[data-size=large]{zoom:1.3; --zoom:1.3}
 
+/* ------------------------------------------------------------ what zoom does to lengths in vh / vw */
+/* Inside a zoomed element 88vh is 88 % of the window times the zoom: a dialog, the palette, a tip that are bound to
+   the window would reach past it. Divided by the zoom again, they are bound to the window as at the small step. */
+#sso[data-size]{
+  .palette{max-height:min(calc(72vh / var(--zoom)), 560px)}
+  .dialog{max-height:min(calc(88vh / var(--zoom)), 820px)}
+  .dialog-body pre.code{max-height:min(calc(60vh / var(--zoom)), calc(min(calc(88vh / var(--zoom)), 820px) - 220px))}
+  .dialog-body pre.code.sso-report-log, .dialog-body pre.code.sso-report-text-shown{max-height:min(calc(40vh / var(--zoom)), 320px)}
+  .tip{max-width:min(340px, calc(100vw / var(--zoom) - 16px))}
+}
+
 /* ------------------------------------------------------------ the switch itself (size-switch.js) */
 /* a segmented control like office.css's .seg (it carries that class too): three radios, the letter A
    in three sizes, the chosen one filled */
