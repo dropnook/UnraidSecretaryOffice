@@ -162,6 +162,9 @@ function drillSettings(): array
 /** «Drill» settings from his page: each field only when sent */
 function drillSet(array $r): array
 {
+    if (!array_intersect_key($r, array_flip(['schedule', 'kopia_mb', 'live_catalog', 'live_sqlite']))) {
+        throw new Problem('bad_request');      // nothing it knows: refused, never an «ok» that changed nothing (QA 2026-10-08)
+    }
     $s = drillSettings();
     if (array_key_exists('schedule', $r)) {
         if (!in_array($r['schedule'], DRILL_SCHEDULES, true)) {

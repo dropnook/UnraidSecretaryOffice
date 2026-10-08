@@ -1863,6 +1863,11 @@ function partner_ping(array $r): array
     if (!preg_match(PARTNER_ID_RE, $id)) {
         throw new Problem('bad_request');
     }
+    $pair = partnerPair($id);
+    if ($pair !== null && $pair['my_key'] === null) {
+        // a pair that only receives here: no key of mine to knock with — said, never an «ok» that asked nobody (QA 2026-10-08)
+        throw new Problem('partner_not_sending', ['name' => $pair['name']]);
+    }
     return ['ok' => true, 'ask' => partnerAskAndKeep($id), 'partners' => partnerPublic()];
 }
 

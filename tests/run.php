@@ -14573,6 +14573,8 @@ function testPartnerWatch(): void
     partnerPairsWrite([$pair], "$A[data]/partner/pairs.json");
     $told = fn () => count(array_filter(explode("\n", (string) @file_get_contents("$tmp/notify.log"))));
     $watch = fn () => partnerTestAs($A, 'return caretakerPartnerWatch();');
+    same('watch: «Ask now» on a pair that only receives here — said, never an ok that asked nobody (QA 2026-10-08)',
+        ['problem' => 'partner_not_sending', 'params' => ['name' => 'vault']], partnerTestAs($A, 'return partner_ping(["id" => "a1b2c3d4"]);'));
     same('watch: the job runs', 0, $watch());
     same('watch: a silent partner told once', 1, $told());
     check('watch: … as a warning naming it', str_contains((string) file_get_contents("$tmp/notify.log"), '-i warning') && str_contains((string) file_get_contents("$tmp/notify.log"), 'vault'));
@@ -17519,6 +17521,7 @@ function testRequestTypes(): void
     same('types: partner_* with arrays where strings belong — bad_request', array_fill(0, 11, 'bad_request'), $answers);
     same('types: emby.output / emby.log of a tool he hasn\'t — refused, never read as EmbyCache', ['unknown_target', 'unknown_target'],
         [$ask(['action' => 'emby.output', 'tool' => '../x']), $ask(['action' => 'emby.log', 'tool' => '../x'])]);
+    same('types: restore.drill_set with nothing it knows — refused, not an ok that changed nothing', 'bad_request', $ask(['action' => 'restore.drill_set', 'x' => 1]));
     same('types: a text of the wrong type', ['bad_request', 'x', 'd'], [(function () { try { return optText(['a' => [1]], 'a'); } catch (Problem $p) { return $p->key; } })(),
         optText(['a' => 'x'], 'a'), optText([], 'a', 'd')]);
     error_reporting($level);
