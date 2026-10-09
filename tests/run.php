@@ -1766,6 +1766,35 @@ function testNoScriptNames(): void
     same('texts: no internal script names (*.sh) anywhere on the page', [], $hits);
 }
 
+function testDetailsKept(): void
+{
+    // ui-clicks (2026-10-09, Inbox #11, the UniFi guide that closed again): a desk draws its page anew often (a new
+    // look, the minute's poll, the messenger's word with every answer of the agent) - a <details> the user opened or
+    // closed keeps that through keepFold() (desk.js, a key per guide or part), its default only until touched; a
+    // details built bare comes back as built at the next render. tools/ui-clicks.mjs clicks them in a real browser.
+    $bare = [];
+    foreach (array_merge(glob(OFFICE_WEB . '/desks/*/*.js') ?: [], [OFFICE_WEB . '/assets/core.js']) as $f) {
+        foreach (preg_split('/\n/', (string) file_get_contents($f)) as $line) {
+            if (preg_match("/el\('details', '([a-z-]+)'/", $line, $m) && !preg_match("/keepFold\(el\('details'/", $line)) {
+                $bare[] = basename(dirname($f)) . '/' . basename($f) . ' ' . $m[1];
+            }
+        }
+    }
+    // the office's own: «How to read this page» remembers itself in the browser; the report dialog's list lives in a dialog
+    same('details: every one a desk builds keeps what the user chose (keepFold)', ['assets/core.js page-help', 'assets/core.js sso-report-yours'], $bare);
+    foreach (glob(OFFICE_WEB . '/desks/*/desk.js') ?: [] as $f) {
+        $js = (string) file_get_contents($f);
+        if (str_contains($js, 'keepFold(el(')) {
+            check('details: ' . basename(dirname($f)) . ' keeps the user\'s choice past its default',
+                (bool) preg_match('/function keepFold\(det, key[^)]*\) \{\n  det\.open = [a-zA-Z]+\.(has\(key\) \? [a-zA-Z]+\.get\(key\) : open|get\(key\) === true);\n  let shown = det\.open;/', $js)
+                && str_contains($js, "if (det.open === shown) return;"));
+        }
+    }
+    $ad = (string) file_get_contents(OFFICE_WEB . '/desks/advisor/desk.js');
+    check('details: the Consultant tells network_seen once per guide and page, not once per render', str_contains($ad, 'const told = new Set();')
+        && str_contains($ad, '!told.has(id)') && !str_contains($ad, 'let told = false;'));
+}
+
 function testSetupListDiff(): void
 {
     // the apply dialog (Benj, 2026-10-09): the same containers in another order are no change; a list shows only what
@@ -24281,7 +24310,7 @@ function testHiddenStoreroom(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],

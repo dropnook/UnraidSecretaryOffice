@@ -126,9 +126,25 @@ function rstep(title, text, cmd) {
   return s;
 }
 
-/** A folded part of a detail: a summary to click, the rest under it */
-function fold(title, ...kids) {
-  const d = el('details', 'rs-how');
+/**
+ * A folded part the user opened or closed stays so: his page is drawn anew with every new look (the minute's poll too)
+ * and when a tile shows its section again — kept per key for this page's life (closed until touched)
+ */
+const folds = new Map();
+function keepFold(det, key, open = false) {
+  det.open = folds.has(key) ? folds.get(key) : open;
+  let shown = det.open;
+  det.addEventListener('toggle', () => {
+    if (det.open === shown) return;          // the page setting it (toggle comes later, for the open it was built with)
+    shown = det.open;
+    folds.set(key, det.open);
+  });
+  return det;
+}
+
+/** A folded part of a detail: a summary to click, the rest under it (key: what keeps it open or closed) */
+function fold(key, title, ...kids) {
+  const d = keepFold(el('details', 'rs-how'), key);
   d.appendChild(el('summary', '', title));
   kids.filter(Boolean).forEach((k) => d.appendChild(k));
   return d;
@@ -613,7 +629,7 @@ function dumpsPart(a) {
 function immichSteps(a) {
   const pg = a.dumps.find((d) => d.type === 'postgres');
   const others = a.containers.map((c) => c.name).filter((n) => !pg || n !== pg.container);
-  const how = fold(T('immich.title', { name: a.name }));
+  const how = fold(`immich:${a.id}`, T('immich.title', { name: a.name }));
   if (!pg) { how.appendChild(el('p', 'role', T('immich.web'))); return how; }
   how.append(
     rstep(T('immich.s1'), T('immich.s1_text'), others.length ? `docker stop ${others.join(' ')}` : null),
@@ -630,7 +646,7 @@ function immichSteps(a) {
 function nextcloudSteps(a, d = a.dumps[0]) {
   const n = a.nextcloud.find((x) => !x.same_as) || a.nextcloud[0];
   const occ = (cmd) => `docker exec -u ${n.user} ${n.container} php ${n.occ} ${cmd}`;
-  return fold(T('nc.title', { name: a.name }),
+  return fold(`nc:${a.id}:${d ? d.file : ''}`, T('nc.title', { name: a.name }),
     rstep(T('nc.s1'), null, occ('maintenance:mode --on')),
     rstep(T('nc.s2'), T('nc.s2_text'), d ? dumpCommand(`${a.path}/${d.file}`, d, false) : null),
     rstep(T('nc.s3'), null, occ('maintenance:mode --off')),
@@ -747,7 +763,7 @@ function versionsOf(kind, p) {
 /** Earlier nights' packages, from the snapshots of the backup place's share - read when opened */
 function earlierPart(kind, p) {
   const key = `${kind}:${p.id}`;
-  const det = el('details', 'rs-how');
+  const det = keepFold(el('details', 'rs-how'), `earlier:${key}`);
   det.appendChild(el('summary', '', T('earlier.title', { n: state.place.snaps || 0 })));
   const out = el('div');
   det.appendChild(out);
@@ -950,7 +966,7 @@ function vmsSection() {
 /** All of libvirt.img back from its archive: VM service off, unpack into the image, VM service on */
 function vmAllFold(a) {
   const img = state.libvirt_img || '/mnt/user/system/libvirt/libvirt.img';
-  return fold(T('vm.all', { when: date(state.server.libvirt_time), size: fmt.size(state.server.libvirt_bytes || 0) }),
+  return fold('vm.all', T('vm.all', { when: date(state.server.libvirt_time), size: fmt.size(state.server.libvirt_bytes || 0) }),
     el('p', 'role', T('vm.all_text', { file: a })),
     rstep(T('vm.all_1'), T('vm.all_1_text')),
     rstep(T('vm.all_2'), null, `mkdir -p /tmp/libvirt-img && mount -o loop ${q(img)} /tmp/libvirt-img && tar -xzf ${q(a)} -C /tmp/libvirt-img --strip-components=1 && umount /tmp/libvirt-img`),
@@ -1016,7 +1032,7 @@ function vmCommands(v) {
   if (v.tpm && v.uuid) cmds.push(`mkdir -p /etc/libvirt/qemu/swtpm/tpm-states && cp -a ${q(`${p}/tpm/${v.uuid}`)} /etc/libvirt/qemu/swtpm/tpm-states/`);
   if (v.xml) cmds.push(`virsh define ${q(`${p}/${v.xml}`)}`);
   if (v.autostart) cmds.push(`virsh autostart ${q(v.name)}`);
-  const how = fold(T('vm.one', { name: v.name }),
+  const how = fold(`vm:${v.id}`, T('vm.one', { name: v.name }),
     el('p', 'role', T('vm.one_text', { name: v.name, when: date(v.time) })),
     cmds.length ? codeBlock(cmds.join('\n')) : null,
     el('p', 'role', [v.state !== 'missing' ? T('vm.one_after') : '', v.tpm ? T('vm.one_tpm') : ''].filter(Boolean).join(' ')));
@@ -1147,7 +1163,7 @@ function dbDetail(a, x) {
     else if ((a.nextcloud || []).length) box.appendChild(nextcloudSteps(a, x.dump));
     else {
       const cmd = dumpCommand(`${a.path}/${x.file}`, x.dump, false);
-      if (cmd) box.appendChild(fold(T('dbs.by_hand'), el('p', 'role', T('dbs.by_hand_text')), codeBlock(cmd), x.engine === 'postgres' ? el('p', 'role', T('db.pg_role')) : null));
+      if (cmd) box.appendChild(fold(`hand:${x.key}`, T('dbs.by_hand'), el('p', 'role', T('dbs.by_hand_text')), codeBlock(cmd), x.engine === 'postgres' ? el('p', 'role', T('db.pg_role')) : null));
     }
   } else {
     const files = el('div', 'rs-files');
@@ -1157,7 +1173,7 @@ function dbDetail(a, x) {
       files.appendChild(line);
     });
     box.appendChild(dl([[T('dbs.d_copies'), files]]));
-    box.appendChild(fold(T('dbs.by_hand'), el('p', 'role', T('sq.text')), codeBlock(sqliteCommand(a, x.copies))));
+    box.appendChild(fold(`hand:${x.key}`, T('dbs.by_hand'), el('p', 'role', T('sq.text')), codeBlock(sqliteCommand(a, x.copies))));
   }
   box.appendChild(earlierDbPart(a, x));
   return box;
@@ -1165,7 +1181,7 @@ function dbDetail(a, x) {
 
 /** Earlier nights of one entry, from the snapshots of the backup place (read when opened), each with «Restore…» */
 function earlierDbPart(a, x) {
-  const det = el('details', 'rs-how');
+  const det = keepFold(el('details', 'rs-how'), `earlier:${x.key}`);
   det.appendChild(el('summary', '', T('earlier.title', { n: state.place.snaps || 0 })));
   const out = el('div');
   det.appendChild(out);
@@ -1917,7 +1933,7 @@ function journalDetail(r) {
     const pb = r.putback && ['ok', 'warnings'].includes(r.putback.result) ? r.putback : null;
     if (pb) box.appendChild(putBackView(pb));     // undone: what «Afterwards» said is over — where the restored state went instead
     else if ((j.after || r.after || []).length && ['ok', 'warnings'].includes(j.result || r.result)) box.appendChild(listBlock(T('rd.after'), (j.after || r.after).map((a) => T(a.key, nice(a.params)))));
-    if (log && log.length) box.appendChild(fold(T('j.log'), el('pre', 'code rs-j-log', log.join('\n'))));
+    if (log && log.length) box.appendChild(fold(`log:${r.id}`, T('j.log'), el('pre', 'code rs-j-log', log.join('\n'))));
     if (r.can_putback) {
       const p = el('div', 'rs-act');
       p.append(restoreButton(T(r.kind === 'partner' ? 'j.drop' : 'j.putback'), { kind: 'putback', id: r.id }, T('rd.title.putback', { what: journalTitle(r) })), ' ',

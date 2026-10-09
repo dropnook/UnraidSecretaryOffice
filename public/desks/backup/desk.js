@@ -1418,6 +1418,23 @@ let setup = { plan: null, draft: null, status: null, run: null, applied: null, o
   newItems: new Set() };     // what is new since the last setup (setupNewItems()), as item keys
 let setupTimer = null;
 
+/**
+ * A <details> of the setup the user opened or closed stays so: the setup page is drawn anew often (each poll while a
+ * plan or an apply runs, the messenger's word with every answer of the agent) — kept per key for this page's life,
+ * its default (open while no backup place is chosen, the messages open with errors or warnings) only until touched
+ */
+const folds = new Map();
+function keepFold(det, key, open) {
+  det.open = folds.has(key) ? folds.get(key) : open;
+  let shown = det.open;
+  det.addEventListener('toggle', () => {
+    if (det.open === shown) return;          // the page setting it (toggle comes later, for the open it was built with)
+    shown = det.open;
+    folds.set(key, det.open);
+  });
+  return det;
+}
+
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 const clone = (o) => JSON.parse(JSON.stringify(o || {}));
 const dget = (k, d) => (setup.draft[k] !== undefined ? setup.draft[k] : d);
@@ -3475,8 +3492,7 @@ function placeGuide(plan) {
   const intro = placeIntro(plan, ds);
   if (intro === 'setup.place_none') box.appendChild(el('p', 'callout warn', T('setup.place_none')));
   else if (intro) box.appendChild(el('p', 'callout warn', T('setup.place_choose')));
-  const det = el('details', 'bk-place-guide');
-  det.open = !ds;
+  const det = keepFold(el('details', 'bk-place-guide'), 'place_guide', !ds);
   det.appendChild(el('summary', '', T('setup.place_title')));
   const ol = el('ol');
   [T('setup.place_1'), T('setup.place_2'), T('setup.place_3'), T('setup.place_4'), T('setup.place_5')].forEach((t) => ol.appendChild(el('li', '', t)));
@@ -3672,9 +3688,9 @@ function setupMsgText(m) {
 
 function setupMessages(msgs) {
   const s = section(T('setup.messages'), T('setup.messages_sub'), { place: 'setup.messages' });
-  const det = el('details', 'bk-log');
   const counts = { error: 0, warn: 0 };
   (msgs || []).forEach((m) => { if (counts[m.level] !== undefined) counts[m.level]++; });
+  const det = keepFold(el('details', 'bk-log'), 'messages', !!(counts.error || counts.warn));
   det.appendChild(el('summary', '', T('setup.messages_sum', { messages: nOf('messages', (msgs || []).length), errors: nOf('errors', counts.error), warnings: nOf('warnings', counts.warn) })));
   const ul = el('ul', 'bk-msgs');
   (msgs || []).forEach((m) => {
@@ -3683,7 +3699,6 @@ function setupMessages(msgs) {
     ul.appendChild(li);
   });
   det.appendChild(ul);
-  if (counts.error || counts.warn) det.open = true;
   s.appendChild(det);
   return s;
 }

@@ -312,7 +312,7 @@ function journalDetail(d) {
       ol.appendChild(li);
     });
     box.appendChild(ol);
-    if (log && log.length) box.appendChild(x.fold(T('j.log'), el('pre', 'code rs-j-log', log.join('\n'))));
+    if (log && log.length) box.appendChild(x.fold(`drill-log:${d.id}`, T('j.log'), el('pre', 'code rs-j-log', log.join('\n'))));
   };
   if (have && have.journal) fill(have.journal, have.log);
   else if (have && have.error) box.appendChild(el('p', 'callout warn', Office.errorText(have.error, ID)));
@@ -468,7 +468,7 @@ function settingsDialog() {
 
 // ------------------------------------------------------------------ for desk.js
 Office.restoreDrill = {
-  /** desk.js's helpers: T, fmt, date, chip, button, sectionBox, unfoldingRow, fold, listBlock, redraw(), shown() */
+  /** desk.js's helpers: T, fmt, date, chip, button, sectionBox, unfoldingRow, fold(key, title, …kids), listBlock, redraw(), shown() */
   init(helpers) {
     x = helpers;
     loadCert().then(() => x.tiles());
