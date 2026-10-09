@@ -151,6 +151,8 @@ function runSummary(r) {
   if (s.result === 'config') return s.message || T('result.config');
   if (s.mode === 'report' || r.mode === 'report') return s.on_deck ? T('report_summary', { n: s.on_deck.files, size: fmt.size(s.on_deck.bytes) }) : '';
   const c = s.cleanup || {}; const f = s.fill || {};
+  // everything back to the array when he was let go (emby-letgo.php)
+  if ((s.mode || r.mode) === 'release') return T('release_summary', { back: c.done || 0, planned: c.planned || 0, origin: c.to_origin || 0, left: s.protected || 0 });
   const key = (s.mode || r.mode) === 'run' ? 'run_summary' : 'dry_summary';
   const files = (n) => (key === 'dry_summary' ? nOf('files', n) : n || 0);     // «would bring 1 file back»; the run's «1 of 3» stays a number
   return T(key, { back: c.done || 0, back_planned: files(c.planned), origin: c.to_origin || 0,
@@ -208,6 +210,7 @@ function render() {
     [T('help.sizes'), T('help.sizes_text')],
     [T('help.pool'), T('help.pool_text')],
     [T('help.schedule'), T('help.schedule_text')],
+    [T('help.letgo'), T('help.letgo_text')],
   ]));
   if (!state) return;
 
@@ -215,6 +218,8 @@ function render() {
   if (!state.python) root.appendChild(el('p', 'callout warn', T('notice.no_python')));
   const foreign = state.foreign.filter((f) => f.enabled);
   if (foreign.length) root.appendChild(el('p', 'callout warn', T('notice.foreign', { where: foreign.map((f) => f.where).join(', ') })));
+  const back = letGoNotice();
+  if (back) root.appendChild(back);
   if (running()) {
     const p = el('p', 'callout', T(state.jobs.gather.running ? 'notice.gathering' : 'notice.running') + ' ');
     p.appendChild(button(T('show_output_now'), 'small', () => showOutput(state.jobs.gather.running ? 'gather' : 'embycache', true))).disabled = !Office.agent.running;
@@ -1360,6 +1365,148 @@ async function saveSetup() {
 }
 
 // ------------------------------------------------------------------ desk
+// ------------------------------------------------------------------ let go
+/**
+ * His part of the let-go dialog (core.js Office.fireDialog → the desk's letGo; agent/desks/emby-letgo.php). He looks
+ * first what letting him go does here (emby.letgo_look): both schedules go off — always, no tick; a run that is going
+ * finishes; one tick «Also bring the prepared films back to the array», off by default and only when that can be done
+ * now (something on the pool, no run going, nobody watching Emby); without it the films stay on the pool; Mover Tuning
+ * is the user's (named when it holds his list). «Let go» — while he is still hired — sends emby.letgo {confirm, release}
+ * once; he is let go whatever came of it, then a dialog says what he did.
+ */
+function letGoPart(box) {
+  const wrap = el('div', 'jo-letgo');
+  const lines = el('div', 'jo-letgo-lines');
+  const label = el('label', 'check');
+  const cb = el('input');
+  cb.type = 'checkbox';
+  cb.disabled = true;
+  const text = el('span', '', T('letgo.tick'));
+  const hint = el('small', '', '');
+  text.appendChild(hint);
+  label.append(cb, text);
+  label.hidden = true;
+  const more = el('div', 'jo-letgo-more');
+  wrap.append(lines, label, more);
+  box.appendChild(wrap);
+  let button = null;
+  let sent = null;
+  const sync = () => { if (button) button.textContent = cb.checked && !cb.disabled ? T('letgo.button') : Office.t('office.fire'); };
+  cb.onchange = sync;
+  const looked = (j) => {
+    const v = letGoView(j);
+    lines.replaceChildren(...v.lines.map(letGoLine));
+    label.hidden = !v.tick;
+    cb.disabled = !v.tickable || !!sent;
+    if (cb.disabled) cb.checked = false;
+    hint.textContent = v.hint;
+    more.replaceChildren(...v.more.map(letGoLine));
+    sync();
+  };
+  let asked = null;
+  if (!Office.agent.running) lines.replaceChildren(letGoLine(['callout warn', T('letgo.agent_away')]));
+  else {
+    lines.replaceChildren(letGoLine(['role', T('letgo.looking')]));
+    asked = Office.api.post(`${ID}.letgo_look`, {}).then(looked, (e) => looked({ ok: false, error: { key: 'internal', params: { detail: String(e && e.message || e) } } }));
+  }
+  return {
+    looked: asked,               // the look under way (the tests wait for it)
+    bind(b) { button = b; sync(); },
+    before() {                   // once, even if «Let go» is pressed again
+      if (!sent) {
+        const release = cb.checked && !cb.disabled;
+        cb.disabled = true;
+        sent = Office.api.post(`${ID}.letgo`, { confirm: true, release });
+      }
+      return sent;
+    },
+    done: letGoDone,
+  };
+}
+
+/** A line of the let-go dialogs: [class, text], or ['who', watchers] (a list) */
+function letGoLine([cls, text]) {
+  return cls === 'who' ? watchList(text, false) : el('p', cls, text);
+}
+
+/** «EmbyCache (every hour), Consolidate (Sundays at 03:00)» — his jobs with their schedules */
+function letGoList(jobs, cron) {
+  return (jobs || []).map((job) => (cron && cron[job] ? T('letgo.sched_item', { tool: T('tool.' + job), when: fmt.cron(cron[job]) }) : T('tool.' + job))).join(', ');
+}
+
+/** What the look says: lines above the tick, whether there is one and may be ticked, its hint, lines below it (pure) */
+function letGoView(j) {
+  if (!j.ok) return { lines: [['callout warn', Office.errorText(j.error, ID)], ['role', T('letgo.agent_away')]], tick: false, tickable: false, hint: '', more: [] };
+  const lines = [];
+  const sch = j.schedules || {};
+  const on = Object.keys(sch).filter((k) => sch[k]);
+  lines.push(on.length ? ['', T('letgo.sched_off', { list: letGoList(on, sch) })] : ['', T('letgo.sched_none')]);
+  if (j.running) lines.push(['callout', T('letgo.running.' + (j.running === 'gather' ? 'gather' : 'embycache'))]);
+  if (j.waiting && sch.gather) lines.push(['role', T('letgo.waiting')]);
+  const rel = j.release || {};
+  const pool = j.pool || {};
+  const tick = !['emby_not_configured', 'emby_letgo_nothing'].includes(rel.why);
+  if (rel.why === 'emby_letgo_nothing') lines.push(['role', T('letgo.nothing')]);
+  const more = [];
+  if (tick) {
+    if (rel.why === 'emby_running') more.push(['callout warn', T('letgo.release_busy')]);
+    else if (rel.why === 'emby_release_watching') more.push(['callout warn', T('letgo.watching')], ['who', (rel.params || {}).who || []], ['role', endSessionText('letgo.watch_then')]);
+    else if (rel.why) more.push(['callout warn', Office.errorText({ key: rel.why, params: rel.params || {} }, ID)]);
+    more.push(['role', T('letgo.tick_off')]);
+  }
+  const mt = j.mover_tuning || {};
+  if (mt.listed) more.push(['callout', T('letgo.mover_listed', { file: mt.file || '' })]);
+  else if (tick) more.push(['role', T('letgo.mover')]);
+  more.push(['role', T('letgo.stays')]);
+  return { lines, tick, tickable: tick && rel.ok === true, hint: tick ? T('letgo.tick_hint', { files: nOf('files', pool.files), size: fmt.size(pool.bytes || 0) }) : '', more };
+}
+
+/** After he was let go: what he did — the schedules switched off (or not), the release started (or why not) */
+function letGoDoneLines(r) {
+  if (!r || !r.ok) return [['callout warn', T('letgo.done_error', { error: Office.errorText((r && r.error) || { key: 'internal' }, ID) })], ['role', T('letgo.done_hire')]];
+  const out = [];
+  if ((r.off || []).length) out.push(['', T('letgo.done_off', { list: letGoList(r.off, r.was) })]);
+  if (r.failed) out.push(['callout warn', T('letgo.done_error', { error: Office.errorText(r.failed, ID) })]);
+  if ((r.left || []).length) out.push(['callout warn', T('letgo.done_still', { list: letGoList(r.left, r.was) })], ['role', T('letgo.done_hire')]);
+  if (r.running) out.push(['role', T('letgo.running.' + (r.running === 'gather' ? 'gather' : 'embycache'))]);
+  const rel = r.release;
+  if (rel && rel.started) out.push(['', T('letgo.done_release', { files: nOf('files', rel.files), size: fmt.size(rel.bytes || 0) })]);
+  else if (rel) {
+    out.push(['callout warn', T('letgo.done_release_not', { error: Office.errorText(rel.error || { key: 'internal' }, ID) })]);
+    if (rel.error && rel.error.key === 'emby_release_watching') out.push(['who', rel.error.params.who || []]);
+  }
+  return out;
+}
+function letGoDone(r) {
+  const lines = letGoDoneLines(r);
+  if (!lines.length) return;               // nothing was on, nothing asked: nothing to say
+  const box = el('div');
+  lines.forEach((l) => box.appendChild(letGoLine(l)));
+  Office.dialog({ title: T('letgo.done_title'), body: box });
+}
+
+/**
+ * Hired again: what he switched off when he was let go — said once (the agent's note, emby.letgo_seen as soon as it is
+ * shown; it stays for this visit), until those schedules are on again; a button for each.
+ */
+let letGoNote = null;
+function letGoNotice() {
+  const n = letGoNote || (state && state.letgo);
+  if (!n) return null;
+  if (!letGoNote && Office.agent.running) {
+    letGoNote = n;
+    Office.api.post(`${ID}.letgo_seen`, {}).catch(() => {});
+  }
+  const off = (n.off || []).filter((job) => !(state.schedules && state.schedules[job] && state.schedules[job].enabled));
+  if (!off.length) return null;
+  const p = el('p', 'callout', T('letgo.note', { date: fmt.date(n.time), list: letGoList(n.off, n.was) }) + ' ');
+  off.forEach((job) => {
+    p.appendChild(button(T('schedule_title.' + job), 'small plain', () => scheduleDialog(job))).disabled = !Office.agent.running;
+    p.appendChild(document.createTextNode(' '));
+  });
+  return p;
+}
+
 Office.desk({
   id: ID,
   async mount(root, sub) {
@@ -1377,7 +1524,8 @@ Office.desk({
     // the caretaker's "Open" for a schedule
     if (sub === 'schedule' || sub === 'gather-schedule') { Office.subroute(''); scheduleDialog(sub === 'schedule' ? 'embycache' : 'gather'); }
   },
-  unmount() { view = null; clearTimeout(outTimer); },
+  unmount() { view = null; clearTimeout(outTimer); letGoNote = null; },
+  letGo: letGoPart,
   poll() { if (page === 'main') load(false); },
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
   menu() {
@@ -1434,13 +1582,14 @@ Office.places(ID, [
   ...['import.title', 'setup.server', 'setup.libraries', 'setup.users', 'setup.scope', 'setup.more'].map((key) => ({ kind: 'step', key, ...SETUP })),
   ...[['report', 'help.report'], ['mode.dry', 'help.dry'], ['mode.run', 'help.run'], ['gather', 'help.gather_text']]
     .map(([key, text]) => ({ kind: 'help', key, text })),
-  ...['what', 'tools', 'origin', 'watch', 'shares', 'sizes', 'pool', 'schedule'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+  ...['what', 'tools', 'origin', 'watch', 'shares', 'sizes', 'pool', 'schedule', 'letgo'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
   ...[['import.title', 'import.help'], ['setup.key', 'setup.help_key'], ['setup.mapping', 'setup.help_mapping'], ['setup.users', 'setup.help_users'],
     ['setup.scope', 'setup.help_scope'], ['setup.more', 'setup.help_more'], ['setup.save', 'setup.help_save']]
     .map(([key, text]) => ({ kind: 'help', key, text, ...SETUP })),
 ]);
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sizesLine, shareSection, poolView, poolHay, plainWords, poolSection };
+  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sizesLine, shareSection, poolView, poolHay, plainWords, poolSection,
+    letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary };
 }
 })();

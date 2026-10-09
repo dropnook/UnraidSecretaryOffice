@@ -43,4 +43,9 @@
 .jo-credit b{color:var(--ink2); font-weight:600}
 .jo-credit-links{display:inline-block; max-width:100%; margin-left:4px}
 @media (max-width:640px){ .jo-credit-links{margin-left:0} }
+/* his part of the let-go dialog (letGoPart): what goes off, the tick, what stays */
+.jo-letgo{margin-top:12px; padding-top:10px; border-top:1px solid var(--line)}
+.jo-letgo p, .jo-letgo-more p{margin:0 0 8px; overflow-wrap:anywhere}
+.jo-letgo-more{margin:2px 0 0 26px}
+@media (max-width:600px){ .jo-letgo-more{margin-left:0} }
 }
