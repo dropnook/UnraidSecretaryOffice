@@ -1,7 +1,7 @@
 {
   "name": "Monsieur Backupsi",
   "name_with": "Monsieur Backupsi",
-  "role": "S'occupe de la sauvegarde nocturne — un peu étourdi et anxieux, alors il vérifie tout trois fois",
+  "role": "S'occupe de la sauvegarde — un peu étourdi et anxieux, alors il vérifie tout trois fois",
   "visit": "Aller voir Monsieur Backupsi",
   "bubble.loading": "Un instant, je regarde la sauvegarde…",
   "bubble.missing": "Je ne trouve pas le moteur de sauvegarde (unraid-backup), donc je n'ai encore rien à faire.",

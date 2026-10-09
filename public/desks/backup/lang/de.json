@@ -1,7 +1,7 @@
 {
   "name": "Herr Backupsi",
   "name_with": "Herrn Backupsi",
-  "role": "Kümmert sich um die nächtliche Sicherung — etwas schusselig und ängstlich, dafür prüft er alles dreimal",
+  "role": "Kümmert sich um die Sicherung — etwas schusselig und ängstlich, dafür prüft er alles dreimal",
   "visit": "Zu Herrn Backupsi",
   "bubble.loading": "Einen Moment, ich schaue mir das Backup an…",
   "bubble.missing": "Ich finde die Backup-Engine (unraid-backup) nicht, darum gibt es für mich noch nichts zu tun.",

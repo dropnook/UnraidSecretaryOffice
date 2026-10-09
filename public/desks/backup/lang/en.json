@@ -1,7 +1,7 @@
 {
   "name": "Mr. Backupsy",
   "name_with": "Mr. Backupsy",
-  "role": "Looks after the nightly backup — a bit scatterbrained and anxious, so he checks everything three times",
+  "role": "Looks after the backup — a bit scatterbrained and anxious, so he checks everything three times",
   "visit": "Visit Mr. Backupsy",
   "bubble.loading": "One moment, I'm looking at the backup…",
   "bubble.missing": "I can't find the backup engine (unraid-backup), so there's nothing for me to do yet.",

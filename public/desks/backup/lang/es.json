@@ -1,7 +1,7 @@
 {
   "name": "Señor Backupsi",
   "name_with": "el señor Backupsi",
-  "role": "Se ocupa de la copia de seguridad nocturna — un poco despistado y nervioso, por eso lo comprueba todo tres veces",
+  "role": "Se ocupa de la copia de seguridad — un poco despistado y nervioso, por eso lo comprueba todo tres veces",
   "visit": "Ir a ver al señor Backupsi",
   "bubble.loading": "Un momento, estoy mirando la copia de seguridad…",
   "bubble.missing": "No encuentro el motor de copias (unraid-backup), así que todavía no tengo nada que hacer.",
